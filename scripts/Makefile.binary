@@ -1,0 +1,197 @@
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+.DEFAULT_GOAL := all
+PHONY := all
+all:
+
+override TARGET_TYPE := $(subst _, ,$(TARGET_TYPE))
+ifneq ($(filter exe,$(TARGET_TYPE)),)
+ifneq ($(RUN_OUTFILE),)
+override TARGET_TYPE += run
+endif
+endif
+
+include $(srctree)/scripts/Makefile.include
+include $(srctree)/scripts/compiler/Makefile.compiler
+include $(TARGET_OUTPUT)/$(DEST)/Makefile.dest
+
+TARGET_OUTS := $(target-outs-y)
+INSTALL_DIR := $(install-dir-y)
+
+ifneq ($(INSTALL_DIR),)
+INIT_MACROS += -DCONFIG_INSTALL_DIR=\"$(patsubst %/,%,$(INSTALL_DIR))\"
+endif
+
+target_root := $(DEST)
+target_suffix := $(call target-file-suffix,$(TARGET_TYPE) $(TARGET_OUTS))
+target_file := $(target_root)/$(TARGET_NAME)$(target_suffix)
+built_in_file := $(target_root)/$(built-in)
+targets :=
+
+export built-macros-y :=
+export built-incdir-y :=
+export built-ldlibs-y :=
+export built-lddirs-y :=
+
+ifneq ($(UNREAL_FINAL_TARGET),1)
+# following options only used in compiling phase
+export init-macros-y := $(INIT_MACROS) $(filter -D% -U%,$(macros-y))
+export init-incdir-y := $(INIT_INCDIR) $(filter -I%,$(incdir-y))
+export init-aflags-y := $(INIT_AFLAGS) $(cccfg-aflags-y) $(filter-out -D% -U% -I%,$(aflags-y))
+export init-cflags-y := $(INIT_CFLAGS) $(cccfg-cflags-y) $(filter-out -D% -U% -I%,$(cflags-y))
+
+# following options only used in linking phase
+export init-ldlibs-y := $(INIT_LDLIBS) $(filter -l%,$(ldlibs-y))
+export init-lddirs-y := $(INIT_LDDIRS) $(filter -L%,$(lddirs-y))
+export init-ldflag-y := $(INIT_LDFLAG) $(cccfg-ldflag-y) $(filter-out -l% -L%,$(ldflag-y))
+
+ifneq ($(filter exe,$(TARGET_TYPE)),)
+target_lds_file := $(filter %.lds,$(strip $(lds-file-y)))
+target_ldsflags := $(strip $(init-macros-y) $(init-incdir-y) $(ldsflags-y))
+target_stack_size := $(strip $(stack-size-y))
+
+# lds-stem
+# foo/image_link.lds => image_link
+# foo/_image_link.lds => image_link
+get-lds-stem = $(if $(filter _%,$(1)),$(patsubst _%,%,$(1)),$(1))
+get-lds-target = $(if $(1),$(call add-obj-prefix,_$(notdir $(1))))
+get-lds-source = $(if $(1),$(call add-obj-prefix,$(1)).S)
+lds-stem = $(call get-lds-stem,$(basetarget))
+lds-target = $(call get-lds-target,$(target_lds_file))
+lds-source-file = $(call get-lds-source,$(target_lds_file))
+built_lds_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_as_flags)),$(target_ldsflags),$(call abs_as_flags,$(target_ldsflags)))
+
+# link script preprocessing
+# .lds.S -> .lds
+quiet_cmd_S_to_lds = $(quiet_echo_lds)
+      cmd_S_to_lds = $(CPP) $(built_lds_flags) $(COMPILE_LDS) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+
+ifneq ($(lds-target),)
+$(lds-target): $(lds-source-file) FORCE
+	$(call if_changed_dep,S_to_lds)
+targets += $(lds-target)
+endif
+else
+# filter TARGET_TYPE is dll or lib
+target_def_file_input := $(strip $(def-file-input-y))
+target_static_lib_whole_archive := $(strip $(whole-archive-static-lib-y))
+endif
+endif # UNREAL_FINAL_TARGET
+
+cogen_raw_cmd = $(call raw_cmd,./$@ > $(RUN_OUTFILE),$(call quiet_echo_cogen,$(RUN_OUTFILE)))
+corun_raw_cmd = $(call raw_cmd,./$@,$(call quiet_echo_corun,$@))
+install_raw_cmd = $(if $(1),$(call raw_cmd,$(call CMDCPALL,$(2) $(srctree)/$(1)),$(call quiet_echo_install,$(1))),@:)
+target_execute = $(if $(filter run,$(TARGET_TYPE)),$(if $(RUN_OUTFILE),$(cogen_raw_cmd),$(corun_raw_cmd)),@:)
+target_install = $(if $(call INSTALL_FILES,$@),$(call install_raw_cmd,$(1),$(call INSTALL_FILES,$@)),@:)
+
+built_makefile := $(TARGET_OUTPUT)/$(DEST)/Makefile
+built_ldflags_file := $(TARGET_OUTPUT)/$(DEST)/$(built-ldflags-file)
+$(shell $(call create_dir,$(TARGET_OUTPUT)/$(DEST)))
+$(shell $(call outfile_new,$(built_ldflags_file),))
+
+$(built_in_file):
+	@$(call outfile_new,$(built_makefile),obj-y := $(target-obj-y))
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.build obj=. mkf=$(built_makefile) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
+
+define update_built_flags
+include $(built_ldflags_file)
+target_ld_libs := $$(patsubst -l%,%,$$(init-ldlibs-y) $$(filter -l%,$$(parsed-ldlibs-y)))
+target_ld_dirs := $$(patsubst -L%,%,$$(init-lddirs-y) $$(filter -L%,$$(parsed-lddirs-y)))
+target_ld_flags := $(init-ldflag-y)
+target_cc_flags := $(init-cflags-y)
+endef
+
+ifeq ($(dont-ar-objs),1)
+ifneq ($(filter exe,$(TARGET_TYPE)),)
+$(target_file): $(lds-target) $(built_in_file) FORCE
+	@$(eval $(update_built_flags)):
+	$(call if_changed_and_run,link_exe_file,target_execute,target_install,$(INSTALL_DIR))
+else ifneq ($(filter dll,$(TARGET_TYPE)),)
+$(target_file): $(built_in_file) FORCE
+	@$(eval $(update_built_flags)):
+	$(call if_changed_and_run,link_dll_file,target_execute,target_install,$(INSTALL_DIR))
+else
+$(error invalid TARGET_TYPE=$(TARGET_TYPE))
+endif
+else
+$(target_file): $(lds-target) $(built_in_file) FORCE
+	@$(eval $(update_built_flags)):
+	$(call if_changed_and_run,link_file,target_execute,target_install,$(INSTALL_DIR))
+endif
+
+targets += $(target_file)
+target_extra_outs :=
+
+ifneq ($(filter exe,$(TARGET_TYPE)),)
+ifneq ($(filter bin,$(TARGET_OUTS)),)
+target_bin := $(target_root)/$(TARGET_NAME).bin
+$(target_bin): $(target_file) FORCE
+	$(call if_changed,gen_target_bin)
+
+target_extra_outs += $(target_bin)
+targets += $(target_bin)
+endif
+
+ifneq ($(filter lst,$(TARGET_OUTS)),)
+target_lst := $(target_root)/$(TARGET_NAME).lst
+$(target_lst): $(target_file) FORCE
+	$(call if_changed,gen_target_lst)
+
+target_extra_outs += $(target_lst)
+targets += $(target_lst)
+endif
+
+ifneq ($(filter hex,$(TARGET_OUTS)),)
+target_hex := $(target_root)/$(TARGET_NAME).hex
+$(target_hex): $(target_file) FORCE
+	$(call if_changed,gen_target_hex)
+
+target_extra_outs += $(target_hex)
+targets += $(target_hex)
+endif
+
+section_name := $(firstword $(patsubst sec:%,%,$(filter sec:%,$(TARGET_OUTS))))
+ifneq ($(section_name),)
+target_sec := $(target_root)/$(TARGET_NAME).$(section_name)
+$(target_sec): $(target_file) FORCE
+	$(call if_changed,gen_target_sec)
+
+target_extra_outs += $(target_sec)
+targets += $(target_sec)
+endif
+endif
+
+ifeq ($(target_extra_outs),)
+all: $(target_file)
+	@:
+else
+all: $(target_extra_outs)
+	@:
+endif
+
+# show build info
+PHONY += show
+show:
+	$(call echo-info,Build $(TARGET_OUTPUT)/$(DEST):)
+	$(call echo-info,  TARGET_NAME=$(TARGET_NAME)$(target_suffix))
+	$(call echo-info,  TARGET_TYPE=$(TARGET_TYPE))
+	$(call echo-info,  MAKEFLAGS=$(MAKEFLAGS))
+	$(call echo-info,  MAKECMDGOALS=$(MAKECMDGOALS))
+
+# PHONY targets
+PHONY += FORCE
+FORCE:
+
+# Read all saved command lines and dependencies for the $(targets) we may be
+# building above, using $(if_changed{,_dep}). As an optimization, we don't need
+# to read them if the target does not exist, we will rebuild anyway in that case.
+targets := $(filter-out $(PHONY),$(targets))
+existing-targets := $(wildcard $(sort $(targets)))
+target-dep-files := $(wildcard $(foreach f,$(existing-targets),$(call depend-file,$(f))))
+
+ifneq ($(target-dep-files),)
+include $(target-dep-files)
+endif
+
+.PHONY: $(PHONY)

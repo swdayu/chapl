@@ -1,0 +1,260 @@
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+# 当前模块和所有子模块都生效的选项
+built-macros-y += $(filter -D% -U%,$(subdir-macros-y))
+built-incdir-y += $(filter -I%,$(subdir-incdir-y))
+built-ldlibs-y += $(filter -l%,$(subdir-ldlibs-y))
+built-lddirs-y += $(filter -L%,$(subdir-lddirs-y))
+
+macros-y := $(filter -D% -U%,$(macros-y))
+incdir-y := $(filter -I%,$(incdir-y))
+ldlibs-y := $(filter -l%,$(ldlibs-y))
+lddirs-y := $(filter -L%,$(lddirs-y))
+
+macros-remove-y := $(filter -D% -U%,$(macros-remove-y))
+incdir-remove-y := $(filter -I%,$(incdir-remove-y))
+ldlibs-remove-y := $(filter -l%,$(ldlibs-remove-y))
+lddirs-remove-y := $(filter -L%,$(lddirs-remove-y))
+
+# obj-y is a list of *.o *.a subdir/, build-obj-y is list of *.o *.a subdir/built-in
+obj-y := $(filter %.o %.a %/,$(obj-y))
+# all mentioned dirs with last slash char
+build-dir-y :=
+# all object files *.o
+real-obj-y :=
+# all subdir modules without last slash
+subdir-y :=
+# all mentioned library files *.a
+lib-y :=
+
+ifneq ($(obj-y),)
+build-dir-y += $(dir $(obj-y))
+real-obj-y += $(filter %.o,$(obj-y))
+subdir-y += $(patsubst %/,%,$(filter %/,$(obj-y)))
+lib-y += $(filter %.a,$(obj-y))
+endif
+
+# assume that *.a dont contain composite objects,
+# *.o contained in *.a dont contain composite objects,
+# a composite object dont contain composite objects,
+# i.e., only *.o in obj-y may contain composite objects.
+# only foo.o that defined foo.o-y can become a composite object.
+# com-y is a list of composite objects, com-obj-y is a list of *.o *.a subdir/
+com-y := $(sort $(foreach o,$(real-obj-y),$(if $(strip $($(o:.o=-y))),$(o))))
+com-obj-y := $(foreach c,$(com-y),$($(c:.o=-y)))
+com-obj-y := $(filter %.o %.a %/,$(com-obj-y))
+
+ifneq ($(com-obj-y),)
+build-dir-y += $(dir $(com-obj-y))
+real-obj-y += $(filter %.o,$(com-obj-y))
+subdir-y += $(patsubst %/,%,$(filter %/,$(com-obj-y)))
+lib-y += $(filter %.a,$(com-obj-y))
+endif
+
+# assume that *.a from obj-y may need build from source or already exist,
+# *.a from a composite object may need build from source or already exist,
+# *.a from a library *.a file that can only be an already exist file,
+# a file foo.a that dont define foo.a-y can only be a exist library file,
+# a file path/foo.a that contain absolute path can only be a exist library file.
+# lib-y is a lit of *.a files, lib-obj-y is a list of *.o *.a subdir/
+# lib-abs-y is a list of *.a that provided by absolute path i.e. 3rd party library
+# lib-src-y is a list of *.a that need build from source file
+# lib-bin-y is a list of *.a that shall be exist library file
+# lib-lib-y is a list of *.a that contained in *.a
+lib-obj-y := $(foreach a,$(lib-y),$($(a:.a=-y)))
+lib-obj-y := $(filter %.o %.a %/,$(lib-obj-y))
+lib-abs-y :=
+lib-src-y :=
+lib-bin-y :=
+lib-lib-y :=
+
+ifneq ($(lib-obj-y),)
+build-dir-y += $(dir $(lib-obj-y))
+real-obj-y += $(filter %.o,$(lib-obj-y))
+subdir-y += $(patsubst %/,%,$(filter %/,$(lib-obj-y)))
+lib-lib-y += $(filter %.a,$(lib-obj-y))
+endif
+
+# check *.a in lib-y need build from source file or already exist
+ifneq ($(lib-obj-y),)
+lib-abs-y := $(filter /% ~%,$(lib-y) $(lib-lib-y))
+lib-rem-y := $(filter-out $(lib-abs-y),$(lib-y))
+
+lib-i-file-y = $(filter %.o,$($(1:.a=-y)))
+lib-i-subdir-y = $(patsubst %/,%,$(filter %/,$($(1:.a=-y))))
+lib-i-subdir-with-slash-y = $(filter %/,$($(1:.a=-y)))
+lib-i-build-y = $(call lib-i-file-y,$(1)) $(foreach d,$(call lib-i-subdir-y,$(1)),$(d)/$(built-in))
+
+get-lib-objsrc = $(if $(1),$(addprefix $(srctree)/$(src)/,$(1:.o=.*)))
+get-lib-subdir = $(if $(1),$(addprefix $(srctree)/$(src)/,$(1)))
+lib-file-exist = $(foreach s,$(1),$(if $(wildcard $(s)),$(s),$(call src-not-exist,$(s))))
+src-file-y = $(call get-lib-objsrc,$(call lib-i-file-y,$(1)))
+src-subdir-y = $(call get-lib-subdir,$(call lib-i-subdir-with-slash-y,$(1)))
+src-exist-y = $(call lib-file-exist,$(strip $(1) $(2)))
+src-not-exist = $(warning source file not exist '$(1)')
+
+lib-bin-y += $(filter-out $(lib-abs-y),$(lib-lib-y))
+
+ifeq ($(CONFIG_BUILD_USING_LIB),1)
+lib-src-y :=
+lib-bin-y += $(lib-rem-y)
+else
+lib-src-y := $(foreach a,$(lib-rem-y),$(if $(call src-exist-y,$(call src-file-y,$(a)),$(call src-subdir-y,$(a))),$(a)))
+lib-bin-y += $(filter-out $(lib-src-y),$(lib-rem-y))
+endif
+endif
+
+ifeq ($(obj),)
+$(error invalid current output folder)
+endif
+
+lib-bin-y := $(sort $(lib-bin-y))
+real-obj-y := $(sort $(call filter_out_abs_path,$(real-obj-y)))
+subdir-y := $(sort $(call filter_out_abs_path,$(subdir-y)))
+build-dir-y := $(sort $(call filter_out_abs_path,$(build-dir-y)))
+y-invalid = $(error cannot find valid $(1)-y)
+
+# make all dir based on objtree
+obj-y := $(call add-obj-prefix,$(obj-y))
+com-y := $(call add-obj-prefix,$(com-y))
+real-obj-y := $(call add-obj-prefix,$(real-obj-y))
+subdir-y := $(call add-obj-prefix,$(subdir-y))
+lib-src-y := $(call add-obj-prefix,$(lib-src-y))
+lib-bin-y := $(call add-obj-prefix,$(lib-bin-y))
+build-dir-y := $(call add-obj-prefix,$(build-dir-y))
+
+# buld-obj-y build-dep-y is a list of *.o *.a subdir/built-in
+build-obj-y := $(call add-built-in-suffix,$(obj-y))
+build-subdir-y := $(foreach d,$(subdir-y),$(d)/$(built-in))
+build-dep-y = $(call add-built-in-suffix,$(call add-obj-prefix,$(1)))
+
+# rule that make each composite object or library file
+orig-name = $(if $(filter $(obj)/%,$(1)),$(patsubst $(obj)/%,%,$(1)))
+value-y = $(strip $(if $(1),$(filter %.o %.a %/,$($(1:$(2)=-y)))))
+make-dyn-rule = $(if $(2),$(eval $(1): $(call build-dep-y,$(2))),$(call y-invalid,$(1)))
+make-com-rule = $(call make-dyn-rule,$(1),$(call value-y,$(call orig-name,$(1)),.o))
+make-lib-rule = $(call make-dyn-rule,$(1),$(call value-y,$(call orig-name,$(1)),.a))
+
+# 将当前模块的源文件目录和输出目录添加到编译器头文件搜索目录中
+ifeq ($(obj),.)
+root_search_dir := $(call OPTION_HEADER_I,$(srctree)) $(call OPTION_HEADER_I,$(objtree))
+else
+root_search_dir := $(call OPTION_HEADER_I,$(srctree)/$(src)) $(call OPTION_HEADER_I,$(objtree)/$(obj))
+endif
+
+# 解析当前模块定义的编译器选项
+object_flags = $(call select_first_true,$($(1)$(target-stem).o),$($(1)$(basetarget).o))
+
+_macros-y = $(filter-out $(call object_flags,MACROS_REMOVE_), \
+                         $(filter-out $(macros-remove-y),$(init-macros-y) $(built-macros-y) $(macros-y)) \
+                         $(filter -D% -U%,$(call object_flags,MACROS_)))
+
+_incdir-y = $(filter-out $(call object_flags,INCDIR_REMOVE_), \
+                         $(filter-out $(incdir-remove-y),$(init-incdir-y) $(built-incdir-y) $(incdir-y) $(root_search_dir)) \
+                         $(filter -I%,$(call object_flags,INCDIR_)))
+
+_cc_flags = $(init-cflags-y) $(OPTION_C_ONLY) $(_macros-y) $(_incdir-y)
+_c++flags = $(init-cflags-y) $(OPTION_C++_ONLY) $(_macros-y) $(_incdir-y)
+_as_flags = $(init-aflags-y) $(_macros-y) $(_incdir-y)
+
+built_cc_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_cc_flags)),$(_cc_flags),$(call abs_cc_flags,$(_cc_flags)))
+built_c++flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_cc_flags)),$(_c++flags),$(call abs_cc_flags,$(_c++flags)))
+built_as_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_as_flags)),$(_as_flags),$(call abs_as_flags,$(_as_flags)))
+
+# 当前模块依赖的库文件和库搜索目录
+ldlibs-y := $(filter-out $(ldlibs-remove-y),$(built-ldlibs-y) $(ldlibs-y))
+lddirs-y := $(filter-out $(lddirs-remove-y),$(built-lddirs-y) $(lddirs-y))
+
+ifneq ($(build-obj-y),)
+built_ldflags_file := $(build-dir)/$(built-ldflags-file)
+ifneq ($(ldlibs-y),)
+$(shell $(call outfile_add,$(built_ldflags_file),parsed-ldlibs-y := $(ldlibs-y)))
+endif
+ifneq ($(lddirs-y),)
+$(shell $(call outfile_add,$(built_ldflags_file),parsed-lddirs-y := $(lddirs-y)))
+endif
+endif
+
+built_ld_libs := $(patsubst -l%,%,$(ldlibs-y))
+built_ld_dirs := $(patsubst -L%,%,$(lddirs-y))
+built_ld_flags := $(init-ldflag-y)
+
+# dummy cc cmd
+quiet_cmd_cc_dummy = $(quiet_echo_cc)
+      cmd_cc_dummy = $(CC) $(init-cflags-y) $(init-macros-y) $(COMPILE_DMY) $(OUT_OBJ_FILE) $(devnull)
+
+# preprocessing
+# .c     -> .i
+# .cc    -> .i
+# .cpp   -> .i
+# .S     -> .s
+quiet_cmd_c_to_i    = $(quiet_echo_pre)
+      cmd_c_to_i    = $(CPP) $(built_cc_flags) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+
+quiet_cmd_c++_to_i  = $(quiet_echo_pre)
+      cmd_c++_to_i  = $(C++PP) $(built_c++flags) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+
+quiet_cmd_as_to_s   = $(quiet_echo_pre)
+      cmd_as_to_s   = $(CPP) $(built_as_flags) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+
+# preprocessing and compile
+# .c   -> .s
+# .cc  -> .s
+# .cpp -> .s
+quiet_cmd_c_to_s   = $(quiet_echo_cc)
+      cmd_c_to_s   = $(CC) $(built_cc_flags) $(COMPILE_ASM) $(OUT_ASM_FILE) $(INPUT_FIRST_PREREQ)
+
+quiet_cmd_c++_to_s = $(quiet_echo_c++)
+      cmd_c++_to_s = $(C++) $(built_c++flags) $(COMPILE_ASM) $(OUT_ASM_FILE) $(INPUT_FIRST_PREREQ)
+
+# preprocessing compile and assembly
+# .S   -> .o
+# .c   -> .o
+# .cc  -> .o
+# .cpp -> .o
+quiet_cmd_as_to_o  = $(quiet_echo_as)
+      cmd_as_to_o  = $(CC) $(built_as_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
+
+quiet_cmd_c_to_o   = $(quiet_echo_cc)
+      cmd_c_to_o   = $(CC) $(built_cc_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
+
+quiet_cmd_c++_to_o = $(quiet_echo_c++)
+      cmd_c++_to_o = $(C++) $(built_c++flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
+
+# archive or copy library file
+# built-in-file  <- *.o *.a subdir/built-in
+# com_obj.o      <- *.o *.a subdir/built-in
+# src_lib.a      <- *.o *.a subdir/built-in
+# project folder <- copy generated src_lib.a to project folder
+# obj folder     <- copy project folder lib to use
+ifeq ($(dont-ar-objs),1)
+add-built-in-lib = $(call outfile_add,$@,$(1))
+add-built-in-sub = $(call outfile_cat,$@,$(1))
+add-built-in-obj = $(if $(wildcard $(1)$(link-opt-suffix)),$(call outfile_cat,$@,$(1)$(link-opt-suffix)),$(call outfile_add,$@,$(1)))
+add-built-in-file = $(if $(filter %.o,$(1)),$(call add-built-in-obj,$(1)),$(if $(filter %/$(built-in),$(1)),$(call add-built-in-sub,$(1)),$(call add-built-in-lib,$(1))))
+quiet_cmd_built_in = $(quiet_echo_pack)
+      cmd_built_in = $(call outfile_new,$@,)$(foreach e,$(real-prereqs), && $(call add-built-in-file,$(e)))
+endif
+
+quiet_cmd_ar_src_file = $(quiet_echo_ar)
+      cmd_ar_src_file = $(call archive-cmd,$(real-prereqs))
+
+quiet_cmd_gen_lib_file = $(quiet_echo_genlib)
+      cmd_gen_lib_file = $(call create_dir,$(dir $@)) && $(call CMDCPFILE,$(INPUT_FIRST_PREREQ),$@)
+
+quiet_cmd_use_lib_file = $(quiet_echo_uselib)
+      cmd_use_lib_file = $(call CMDCPFILE,$(INPUT_FIRST_PREREQ),$@)
+
+# archive composite object file
+ifeq ($(dont-ar-objs),1)
+add-com-obj-lib = $(call outfile_add,$@$(link-opt-suffix),$(1))
+add-com-obj-sub = $(call outfile_cat,$@$(link-opt-suffix),$(1))
+add-com-obj-file = $(if $(filter %/$(built-in),$(1)),$(call add-com-obj-sub,$(1)),$(call add-com-obj-lib,$(1)))
+new-com-obj-file = $(call outfile_new,$@$(link-opt-suffix),) && $(call outfile_new,$@,)
+quiet_cmd_link_com_obj = $(quiet_echo_comobj)
+      cmd_link_com_obj = $(new-com-obj-file) $(foreach e,$(real-prereqs), && ( $(call add-com-obj-file,$(e)) ))
+else
+quiet_cmd_link_com_obj = $(quiet_echo_comobj)
+      cmd_link_com_obj = $(call link-com-obj,$(real-prereqs))
+endif

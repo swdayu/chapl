@@ -1,0 +1,131 @@
+# 工作目录说明
+# 1. srctree 源代码根目录，也即工程起始 Makefile 所在目录
+# 2. srctree/out 是各个编译目标的输出目录（BUILD_OUTPUT）
+# 3. srctree/out/$(T) 当前编译目标的根目录，包含各种编译器配置的编译输出
+# 4. srctree/out/$(T)/CCCFG 当前编译目标当前编译器配置的输出目录（TARGET_OUTPUT）
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+.DEFAULT_GOAL := all
+PHONY := all
+all:
+
+include $(srctree)/scripts/Makefile.include
+
+override TARGET_OUTPUT := $(CURDIR)
+override objtree := $(TARGET_OUTPUT)
+override VPATH := $(srctree) $(objtree)
+
+export TARGET_OUTPUT
+export objtree
+export VPATH
+
+export DELIVER_GOALS := show
+export CONFIG_COMPILER := $(subst _, ,$(CCCFG))
+
+TARGET_CCCFGS_FILE := config/$(T)/Makefile.cccfgs
+include $(srctree)/$(TARGET_CCCFGS_FILE)
+$(srctree)/$(TARGET_CCCFGS_FILE):: ;
+
+TARGET_CONFIG_FILE := config/$(T)/Makefile.target
+include $(srctree)/$(TARGET_CONFIG_FILE)
+$(srctree)/$(TARGET_CONFIG_FILE):: ;
+
+export CONFIG_BUILD_USING_LIB ?= 0
+
+target-y := $(filter-out %/,$(target-y))
+
+COMMON_MACROS := $(filter -D% -U%,$(COMMON_MACROS))
+COMMON_INCDIR := $(filter -I%,$(COMMON_INCDIR))
+COMMON_LDLIBS := $(filter -l%,$(COMMON_LDLIBS))
+COMMON_LDDIRS := $(filter -L%,$(COMMON_LDDIRS))
+
+cccfg_cflags := $($(CCCFG)-cflags-y)
+cccfg_aflags := $($(CCCFG)-aflags-y)
+cccfg_ldflag := $($(CCCFG)-ldflag-y)
+
+define eval_target_rule
+ifneq ($$(filter exe,$$(subst _, ,$($(1)-binary-type))),)
+$(1): target_obj_y := $(filter %/ %.o,$($(1)-y))
+$(1): target_name := $(if $($(1)-target-name),$($(1)-target-name),$(T)_$(1))
+$(1): target_outs := $($(1)-target-outs) $(filter lst,$(MAKECMDGOALS))
+$(1): install_dir := $($(1)-install-dir)
+$(1): run_outfile := $($(1)-run-outfile)
+$(1): macros_y := $(COMMON_MACROS) $(filter -D% -U%,$($(1)-macros-y))
+$(1): incdir_y := $(COMMON_INCDIR) $(filter -I%,$($(1)-incdir-y))
+$(1): ldlibs_y := $(COMMON_LDLIBS) $(filter -l%,$($(1)-ldlibs-y))
+$(1): lddirs_y := $(COMMON_LDDIRS) $(filter -L%,$($(1)-lddirs-y))
+$(1): lds_file_y := $($(1)-lds-file-y)
+$(1): ldsflags_y := $($(1)-ldsflags-y)
+$(1): stack_size_y := $($(1)-stack-size-y)
+$(1):
+	$$(call echo-info,  [$(1)])
+	@$$(call CMDMKDIR,$(TARGET_OUTPUT)/$$@)
+	@$$(call outfile_new,$(TARGET_OUTPUT)/$$@/Makefile.dest,target-obj-y := $$(target_obj_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,target-outs-y := $$(target_outs))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,install-dir-y := $$(install_dir))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,cccfg-aflags-y := $(cccfg_aflags))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,cccfg-cflags-y := $(cccfg_cflags))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,cccfg-ldflag-y := $(cccfg_ldflag))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,macros-y := $$(macros_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,incdir-y := $$(incdir_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,ldlibs-y := $$(ldlibs_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,lddirs-y := $$(lddirs_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,lds-file-y := $$(lds_file_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,ldsflags-y := $$(ldsflags_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,stack-size-y := $$(stack_size_y))
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.binary DEST=$$@ \
+	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE=$$(run_outfile) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
+else ifneq ($$(filter dll,$$(subst _, ,$($(1)-binary-type))),)
+$(1): target_obj_y := $(filter %/ %.o,$($(1)-y))
+$(1): target_name := $(if $($(1)-target-name),$($(1)-target-name),$(T)_$(1))
+$(1): target_outs := $($(1)-target-outs) $(filter lst,$(MAKECMDGOALS))
+$(1): install_dir := $($(1)-install-dir)
+$(1): macros_y := $(COMMON_MACROS) $(filter -D% -U%,$($(1)-macros-y))
+$(1): incdir_y := $(COMMON_INCDIR) $(filter -I%,$($(1)-incdir-y))
+$(1): ldlibs_y := $(COMMON_LDLIBS) $(filter -l%,$($(1)-ldlibs-y))
+$(1): lddirs_y := $(COMMON_LDDIRS) $(filter -L%,$($(1)-lddirs-y))
+$(1): def_file_input_y := $($(1)-def-file-input-y)
+$(1): whole_archive_static_lib_y := $($(1)-whole-archive-static-lib-y)
+$(1):
+	$$(call echo-info,  [$(1)])
+	@$$(call CMDMKDIR,$(TARGET_OUTPUT)/$$@)
+	@$$(call outfile_new,$(TARGET_OUTPUT)/$$@/Makefile.dest,target-obj-y := $$(target_obj_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,target-outs-y := $$(target_outs))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,install-dir-y := $$(install_dir))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,cccfg-aflags-y := $(cccfg_aflags))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,cccfg-cflags-y := $(cccfg_cflags))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,cccfg-ldflag-y := $(cccfg_ldflag))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,macros-y := $$(macros_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,incdir-y := $$(incdir_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,ldlibs-y := $$(ldlibs_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,lddirs-y := $$(lddirs_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,def-file-input-y := $$(def_file_input_y))
+	@$$(call outfile_add,$(TARGET_OUTPUT)/$$@/Makefile.dest,whole-archive-static-lib-y := $$(whole_archive_static_lib_y))
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.binary DEST=$$@ \
+	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE= $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
+else
+$$(error invalid TARGET_TYPE=$($(1)-binary-type))
+endif
+endef
+
+ifneq ($(target-y),)
+$(foreach t,$(target-y),$(eval $(call eval_target_rule,$(t))))
+endif
+
+PHONY += $(target-y)
+all: $(target-y)
+	@:
+
+PHONY += show
+show:
+	$(call echo-info,Build $(srctree):)
+	$(call echo-info,  TARGET_OUTPUT=$(TARGET_OUTPUT))
+	$(call echo-info,  MAKEFLAGS=$(MAKEFLAGS))
+	$(call echo-info,  MAKECMDGOALS=$(MAKECMDGOALS))
+
+PHONY += lst
+lst:
+	@:
+
+.PHONY: $(PHONY)

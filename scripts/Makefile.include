@@ -1,0 +1,420 @@
+# dont export variables defined in this makefile
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+lparen	:= (
+rparen	:= )
+comma   := ,
+quote   := "
+squote  := '
+empty   :=
+space   := $(empty) $(empty)
+space_esc := _-_SPACE_ESC_-_
+pound := \#
+backslash := \ # backslash
+backslash := $(strip $(backslash))
+define newline
+
+
+endef
+
+# target with a '.tmp_' as filename prefix
+# foo/bar.o => foo/.tmp_bar.o
+tmp-target = $(dir $@).tmp_$(notdir $@)
+
+# target with a '.' as filename prefix
+# foo/bar.o => foo/.bar.o
+dot-target = $(dir $@).$(notdir $@)
+
+# temp file to save gcc -MMD/-MF generated dependencies must not contain a comma
+# foo/bar.o => foo/.bar.o.d
+# obj/built-in => obj/.built-in.d
+depend-file = $(subst $(comma),_,$(dir $(1)).$(notdir $(1)).d)
+dep-target = $(call depend-file,$@)
+
+# if dont-ar-ogjs is true, record all *.o *.a in link file
+dont-ar-objs := 1
+built-ldflags-file := built-ldflags.txt
+ifeq ($(dont-ar-objs),1)
+link-opt-suffix := .files
+built-in := built-in$(link-opt-suffix)
+else
+built-in := built-in.a
+endif
+
+# subdir module target library name
+add-built-in-suffix = $(patsubst %/,%/$(built-in),$(1))
+
+# filename of target with directory and extension stripped
+# foo/bar.o => bar.o => bar
+basetarget = $(basename $(notdir $@))
+
+# target with $(obj)/ and its suffix stripped
+# foo/bar.o => foo/bar
+# obj/bar.o => bar
+target-stem = $(basename $(patsubst $(obj)/%,%,$@))
+
+# add prefix if the dir is not current directory and not absolute directory
+add-obj-prefix = $(if $(filter .,$(obj)),$(1),$(foreach e,$(1),$(if $(call is_abs_path,$(e)),$(e),$(obj)/$(e))))
+
+# quote a string to pass it to C files
+# foo => '"foo"'
+stringify = $(squote)$(quote)$(1)$(quote)$(squote)
+
+# wildcard source files
+module_src_dir := $(if $(filter .,$(src)),$(srctree),$(srctree)/$(src))
+cur_dir = $(patsubst $(module_src_dir)/%,%,$(wildcard $(addprefix $(module_src_dir)/,$(1))))
+
+# select the first true argument to return
+select_first_true = $(if $(1),$(1),$(2))
+
+# Make 4.2 or later can read a file by using its builtin function.
+ifneq ($(filter-out 3.% 4.0 4.1, $(MAKE_VERSION)),)
+read-file = $(subst $(newline),$(space),$(file < $1))
+else
+read-file = $(shell cat $1 2>/dev/null)
+endif
+
+# Use $(intcmp ...) if supported. (Make >= 4.4)
+# Otherwise, fall back to the 'test' shell command.
+ifeq ($(intcmp 1,0,,,y),y)
+test-ge = $(intcmp $(strip $1)0, $(strip $2)0,,y,y)
+test-gt = $(intcmp $(strip $1)0, $(strip $2)0,,,y)
+else
+test-ge = $(shell test $(strip $1)0 -ge $(strip $2)0 && echo y)
+test-gt = $(shell test $(strip $1)0 -gt $(strip $2)0 && echo y)
+endif
+test-le = $(call test-ge, $2, $1)
+test-lt = $(call test-gt, $2, $1)
+
+WIN_PLAT := n
+ifeq ($(OS),Windows_NT)
+# Detect Cygwin
+ifneq ($(findstring /,$(PWD)),/)
+# also $(findstring /,$(HOME)) ?
+WIN_PLAT := y
+endif
+endif
+
+WIN_SHELL := n
+ifeq ($(WIN_PLAT),y)
+ifeq ($(CONFIG_FORCE_WIN_SHELL),y)
+WIN_SHELL := y
+else
+# Detect Unix-style shell
+ifeq ($(shell echo $$0),$$0)
+WIN_SHELL := y
+endif
+endif
+endif
+
+ifeq ($(WIN_PLAT),y)
+correct_path_slash_char = $(subst /,$(backslash),$(1))
+else
+correct_path_slash_char = $(1)
+endif
+
+TO_UNIX_PATH = $(subst $(BACKSLASH),/,$(1))
+TO_WIN_PATH = $(subst /,$(BACKSLASH),$(1))
+ESC_WIN_PATH = $(subst $(BACKSLASH),$(BACKSLASH)$(BACKSLASH),$(1))
+
+ifeq ($(WIN_PLAT),y)
+ifeq ($(WIN_SHELL),y)
+# make will choose sh.exe as SHELL if it finds sh.exe in the directories of PATH, regardless of
+# the setting in environment or parent (e.g., when git.exe is in the PATH)
+SHELL := cmd.exe
+SHELL_CMD = $(call TO_WIN_PATH,$(1))
+else
+SHELL_CMD = $(call ESC_WIN_PATH,$(call TO_WIN_PATH,$(1)))
+endif
+else
+SHELL_CMD = $(1)
+endif
+
+ifneq ($(WIN_PLAT),y)
+CONFIG_SHELL := $(shell if [ -x "$$BASH" ]; then echo $$BASH; \
+          else if [ -x /bin/bash ]; then echo /bin/bash; \
+          else echo sh; fi ; fi)
+endif
+
+ifeq ($(WIN_PLAT),y)
+ifeq ($(WIN_SHELL),y)
+# make will choose sh.exe as SHELL if it finds sh.exe in the directories of PATH, regardless of
+# the setting in environment or parent (e.g., when git.exe is in the PATH)
+SHELL := cmd.exe
+endif
+endif
+
+ifeq ($(WIN_PLAT),y)
+is_abs_path = $(if $(findstring :$(backslash),$(1)),y)
+else
+is_abs_path = $(if $(filter /% ~%,$(strip $(1))),y)
+endif
+
+subst_esc_space = $(subst $(space),$(space_esc),$(1))
+subst_rst_space = $(subst $(space_esc),$(space),$(1))
+
+windows_driver_letter = $(word 2,$(subst /,$(space),$(filter /mnt/%,$(1))))
+replace_driver_letter = $(if $(2),$(patsubst /mnt/$(2)/%,$(2):/%,$(1)),$(1))
+windows_path_style = $(call subst_rst_space,$(call replace_driver_letter,$(call subst_esc_space,$(1)),$(call windows_driver_letter,$(1))))
+
+filter_abs_path = $(foreach p,$(1),$(if $(call is_abs_path,$(p)),$(p)))
+filter_out_abs_path = $(foreach p,$(1),$(if $(call is_abs_path,$(p)),,$(p)))
+
+# 模块指定的头文件搜索目录是基于srctree的相对目录，需要转成绝对路径（或者另外将前缀设给编译器）
+ifneq ($(CONFIG_PREFIX_VIA_OPTION),1)
+add_srctree_detail = $(if $(2),$(if $(call is_abs_path,$(2)),$(1),$(call OPTION_HEADER_I,$(srctree)/$(2))),$(1))
+add_srctree_prefix = $(call add_srctree_detail,$(1),$(patsubst -I%,%,$(1)))
+abs_cc_flags = $(foreach o,$(1),$(if $(filter -I%,$(o)),$(call add_srctree_prefix,$(o)),$(o)))
+abs_wa_flags = $(subst $(space),$(comma),$(foreach o,$(subst $(comma),$(space),$(1)),$(call abs_cc_flags,$(o))))
+abs_as_flags = $(foreach o,$(1),$(if $(filter -Wa$(comma)-I%,$(o)),$(call abs_wa_flags,$(o)),$(call abs_cc_flags,$(o))))
+endif
+
+ifeq ($(WIN_PLAT),y)
+git-commit-id = $(shell (where git >nul 2>&1) && (git rev-parse --short HEAD 2>nul))
+git-code-dirty = $(shell (git diff --quiet && git diff --cached --quiet) >nul 2>&1 || echo -dirty)
+else
+git-commit-id = $(shell (which git >/dev/null 2>&1) && (git rev-parse --short HEAD 2>/dev/null))
+git-code-dirty = $(shell (git diff --quiet && git diff --cached --quiet) >/dev/null 2>&1 || echo -dirty)
+endif
+
+CODE_REV_INFO = $(git-commit-id)$(git-code-dirty)
+
+ifeq ($(WIN_PLAT),y)
+get_time = $(shell echo %time%)
+get_date_time = $(shell echo %date% %time%)
+show_make_end_time = @echo MAKE END: %date% %time%
+else
+get_time = $(shell date +"%s.%N")
+get_date_time = $(shell date +"%Y-%m-%d %T.%N")
+define show_make_end_time
+@echo MAKE END: $$(date +"%Y-%m-%d %T.%N")
+@printf "MAKE TIME: %.3f seconds\n" $$(echo "$$(date +%s.%N) - $(1)" | bc)
+endef
+endif
+
+ifeq ($(WIN_PLAT),y)
+HOST_NAME := $(COMPUTERNAME)
+USER_NAME := $(USERNAME)
+else
+HOST_NAME := $(shell hostname -s)
+USER_NAME := $(shell id -un)
+endif
+
+HOST_NAME := $(subst $(space),-,$(strip $(HOST_NAME)))
+USER_NAME := $(subst $(space),-,$(strip $(USER_NAME)))
+
+ifeq ($(WIN_PLAT),y)
+devnull := nul
+create_dir = if not exist $(subst /,\,$(1)) mkdir $(subst /,\,$(1))
+CMDMKDIR   = if not exist $(subst /,\,$(1)) mkdir $(subst /,\,$(1))
+CMDRMFILE   = del /f /q $(subst /,\,$1) >nul 2>&1
+CMDRMFILER = cd $(subst /,\,$1) && del /f /q /s $(subst /,\,$2)
+CMDRMDIR    = rmdir /s /q $(subst /,\,$1) >nul 2>&1 || del /f /q /s $(subst /,\,$1)\*
+CMDCPFILE   = copy /y $(subst /,\,$1 $2)
+CMDCPALL    = copy $1
+CMDMVALL    = move $1
+MULTMKDIR   = $(for d,$1,mkdir $(d) &&) @:
+# escape redirection character in echo in Windows
+escchar = $(subst $(lparen),^$(lparen),$(subst $(rparen),^$(rparen),$(subst &,^&,$(subst |,^|,$(subst <,^<,$(subst >,^>,$1))))))
+else
+devnull := /dev/null
+create_dir = [ -d $(1) ] || mkdir -p $(1)
+CMDMKDIR    = [ -d $(1) ] || mkdir -p $(1)
+CMDRMFILE   = rm -f $1
+CMDRMFILER  = find $1 $(RCS_FIND_IGNORE) \
+		   \( $(addprefix -name ,'$(firstword $2)') \
+		      $(addprefix -o -name ',$(addsuffix ',$(filter-out $(firstword $2),$2))) \) \
+		    -type f -print | xargs rm -f
+CMDRMDIR    = rm -rf $1
+CMDCPFILE   = cp -f $1 $2
+CMDCPALL    = cp $1
+CMDMVALL    = mv $1
+MULTMKDIR   = mkdir -p $1
+# escape single quote for use in echo statements
+escchar = $(subst $(squote),'\$(squote)',$1)
+endif
+
+quiet_echo_as      = AS      $@
+quiet_echo_cc      = CC      $@
+quiet_echo_ar      = AR      $@
+quiet_echo_pre     = PRE     $@
+quiet_echo_c++     = C++     $@
+quiet_echo_lds     = LDS     $@
+quiet_echo_link    = LINK    $@
+quiet_echo_pack    = PACK    $@
+quiet_echo_uselib  = USELIB  $@
+quiet_echo_genlib  = GENLIB  $@
+quiet_echo_modbin  = MODBIN  $@
+quiet_echo_genbin  = GENBIN  $@
+quiet_echo_genhex  = GENHEX  $@
+quiet_echo_objdump = OBJDUMP $@
+quiet_echo_genlst  = GENLST  $@
+quiet_echo_imglib  = IMGLIB  $@
+quiet_echo_macros  = MACROS  $@
+quiet_echo_comobj  = COMOBJ  $@
+quiet_echo_cogen   = COGEN   $1
+quiet_echo_corun   = CORUN   $1
+quiet_echo_install = INSTALL $1
+
+ifeq ($(WIN_PLAT),y)
+echo-info = @echo. $(call escchar,$(1))
+else
+echo-info = @echo '$(call escchar,$(1))'
+endif
+
+# Replace >$< with >$$< to preserve $ when reloading the .d file
+# (needed for make)
+# Replace >#< with >$(pound)< to avoid starting a comment in the .d file
+# (needed for make)
+# Replace >'< with >'\''< to be able to enclose the whole string in '...'
+# (needed for the shell)
+make-cmd = $(call escchar,$(subst $(pound),$$(pound),$(subst $$,$$$$,$(cmd_$(1)))))
+
+# Find any prerequisites that are newer than target or that do not exist.
+# PHONY targets skipped in both cases.
+# If there is no prerequisite other than phony targets, $(newer-prereqs) becomes
+# empty even if the target does not exist. cmd-check saves this corner case.
+newer-prereqs = $(filter-out $(PHONY),$?)
+
+# real prerequisites without phony targets
+real-prereqs = $(filter-out $(PHONY),$^)
+
+ifeq ($(WIN_PLAT),y)
+echo-cmd = $(if $($(quiet)cmd_$(1)),echo.  $(call escchar,$($(quiet)cmd_$(1)))$(echo-why),:)
+else
+echo-cmd = $(if $($(quiet)cmd_$(1)),echo '  $(call escchar,$($(quiet)cmd_$(1)))$(echo-why)',:)
+endif
+
+quiet_cmd_raw_echo = $(call echo-info,  $(2))
+      cmd_raw_echo = $(call echo-info,  $(1))
+
+echo-raw-cmd = $(if $(value $(quiet)cmd_raw_echo),$(call $(quiet)cmd_raw_echo,$(1),$(2)),@:)
+
+ifeq ($(WIN_PLAT),y)
+depfile-new = echo cmd_$@ := $(make-cmd) > $(dep-target) && echo. >> $(dep-target)
+depfile-add = echo cmd_$@ := $(make-cmd) >> $(dep-target) && echo. >> $(dep-target)
+outfile_new = echo $(call escchar,$(2)) > $(1) && echo. >> $(1)
+outfile_add = echo $(call escchar,$(2)) >> $(1) && echo. >> $(1)
+outfile_cat = $(if $(2),type $(2) >> $(1),@:)
+else
+depfile-new = printf '%s\n' 'cmd_$@ := $(make-cmd)' > $(dep-target)
+depfile-add = printf '%s\n' 'cmd_$@ := $(make-cmd)' >> $(dep-target)
+outfile_new = printf '%s\n' '$(2)' > $(1)
+outfile_add = printf '%s\n' '$(2)' >> $(1)
+outfile_cat = $(if $(2),cat $(2) >> $(1),@:)
+endif
+
+# Check if both commands are the same including their order. Result is empty
+# string if equal, empty means not change. The variable cmd_$@ is defined in
+# target dependent .d file. If the target does not exist, the *.d file should
+# not be included so $(cmd_$@) gets empty, it will not equal to the current
+# command cmd_$1. Then, target will be built even if $(newer-prereqs) happens
+# to become empty.
+target_cmd_change = $(filter-out $(subst $(space),X,$(strip $(cmd_$@))),$(subst $(space),X,$(strip $(cmd_$1))))
+
+# it is a typical mistake to forget the FORCE prerequisite
+check-FORCE = $(if $(filter FORCE,$^),,$(warning FORCE prerequisite is missing))
+
+if-changed-cond = $(strip $(newer-prereqs)$(target_cmd_change)$(check-FORCE))
+
+define cmd
+@$(echo-cmd)
+@$(cmd_$(1))
+endef
+
+define raw_cmd
+$(call echo-raw-cmd,$(1),$(2))
+@$(1)
+endef
+
+define cmd_and_new_depfile
+$(cmd)
+@$(depfile-new)
+endef
+
+define cmd_and_add_depfile
+$(cmd)
+@$(depfile-add)
+endef
+
+define cmd_and_new_depfile_and_run
+$(cmd_and_new_depfile)
+$($(2))
+$(if $(3),$(call $(3),$(4)),@:)
+endef
+
+define cmd_and_add_depfile_and_run
+$(cmd_and_add_depfile)
+$($(2))
+$(if $(3),$(call $(3),$(4)),@:)
+endef
+
+# Execute command if command has changed or prerequisite(s) are updated
+if_changed = $(if $(if-changed-cond),$(cmd_and_new_depfile),@:)
+if_changed_and_run = $(if $(if-changed-cond),$(cmd_and_new_depfile_and_run),@:)
+
+# Execute the command and also postprocess generated .d dependencies file
+if_changed_dep = $(if $(if-changed-cond),$(cmd_and_add_depfile),@:)
+if_changed_dep_and_run = $(if $(if-changed-cond),$(cmd_and_add_depfile_and_run),@:)
+
+ifeq ($(WIN_PLAT),y)
+try-run = $(shell ($(1) >$(devnull) 2>&1) && echo. $(2) || echo. $(3))
+else
+try-run = $(shell if ($(1)) >$(devnull) 2>&1; then echo "$(2)"; else echo "$(3)"; fi)
+endif
+
+# why - tell why a a target got build
+#       enabled by make V=2
+#       Output (listed in the order they are checked):
+#          (1) - due to target is PHONY
+#          (2) - due to target missing
+#          (3) - due to: file1.h file2.h
+#          (4) - due to command line change
+#          (5) - due to missing .d file
+#          (6) - due to target not in $(targets)
+# (1) PHONY targets are always build
+# (2) No target, so we better build it
+# (3) Prerequisite is newer than target
+# (4) The command line stored in the file named dir/.target.d
+#     differed from actual command line. This happens when compiler
+#     options changes
+# (5) No dir/.target.d file (used to store command line)
+# (6) No dir/.target.d file and target not listed in $(targets)
+#     This is a good hint that there is a bug in the build makefile
+ifneq ($(filter 2 3,$(BUILD_VERBOSE)),)
+why =                                                                        \
+    $(if $(filter $@, $(PHONY)),- due to target is PHONY,                    \
+        $(if $(wildcard $@),                                                 \
+            $(if $(strip $(newer-prereqs)),- due to: $(newer-prereqs),       \
+                $(if $(target_cmd_change),                                   \
+                    $(if $(cmd_$@),- due to command line change,             \
+                        $(if $(filter $@, $(targets)),                       \
+                            - due to missing .d file,                        \
+                            - due to $(notdir $@) not in $$(targets)         \
+                         )                                                   \
+                     )                                                       \
+                 )                                                           \
+             ),                                                              \
+             - due to target missing                                         \
+         )                                                                   \
+     )
+
+echo-why = $(call escchar,$(strip $(why)))
+endif
+
+# delete partially updated (i.e. corrupted) files on error
+.DELETE_ON_ERROR:
+
+# do not delete intermediate files automatically
+#
+# .NOTINTERMEDIATE is more correct, but only available on newer Make versions.
+# Make 4.4 introduced .NOTINTERMEDIATE, and it appears in .FEATURES, but the
+# global .NOTINTERMEDIATE does not work. We can use it on Make > 4.4.
+# Use .SECONDARY for older Make versions, but "newer-prereq" cannot detect
+# deleted files.
+ifneq ($(and $(filter notintermediate, $(.FEATURES)),$(filter-out 4.4,$(MAKE_VERSION))),)
+.NOTINTERMEDIATE:
+else
+.SECONDARY:
+endif

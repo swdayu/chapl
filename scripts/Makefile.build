@@ -1,0 +1,253 @@
+# 将单个Makefile描述的subdir *o *a合并为一个built-in文件
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+.DEFAULT_GOAL := all
+PHONY := all
+all:
+
+# obj can only have one word
+ifneq ($(words $(obj)),1)
+$(error Makefile.build is included improperly)
+endif
+
+# obj can only be relative path and without tail slash
+ifeq ($(strip $(filter-out ~ ~% / /% %/,$(obj))),)
+$(error Makefile.build is included improperly)
+endif
+
+# correct path based on objtree
+override obj := $(patsubst $(TARGET_OUTPUT)/%,%,$(obj))
+src := $(obj)
+targets :=
+
+# pre-gen-obj-y :=
+# pre-gen-file-y :=
+#
+# obj-c :=
+# obj-s :=
+# obj-cpp :=
+# obj-asm :=
+# obj-y := $(obj-c:.c=.o) $(obj-s:.S=.o) $(obj-cpp:.cpp=.o) $(obj-asm:.asm=.o)
+#
+# incdir-y
+# incdir-remove-y
+# subdir-incdir-y
+# INCDIR_$@
+# INCDIR_REMOVE_$@
+#
+# macros-y
+# macros-remove-y
+# subdir-macros-y
+# MACROS_$@
+# MACROS_REMOVE_$@
+#
+# ldlibs-y
+# ldlibs-remove-y
+# subdir-ldlibs-y
+#
+# lddirs-y
+# lddirs-remove-y
+# subdir-lddirs-y
+pre-gen-obj-y :=
+pre-gen-file-y :=
+
+obj-c :=
+obj-s :=
+obj-cpp :=
+obj-asm :=
+
+# 各模块添加构建该模块所需要的所有文件
+# 例如添加目标文件：obj-y += $(obj_c:.c=.o) $(obj_s:.S=.o) $(obj_cpp:.cpp=.o)
+# 或者添加库文件：obj-y += codecs.a codecs-y := $(obj_c:.c=.o)
+# 或者添加归档目标文件：obj-y += comobj.o comobj-y := foo.o bar.a bar-y := $(obj_c:.c=.o)
+# 或者添加子目录：obj-y += stack/
+obj-y :=
+
+# 各模块可以定义只自己可见的编译器无关的选项
+incdir-y :=
+incdir-remove-y :=
+subdir-incdir-y :=
+
+macros-y :=
+macros-remove-y :=
+subdir-macros-y :=
+
+ldlibs-y :=
+ldlibs-remove-y :=
+subdir-ldlibs-y :=
+
+lddirs-y :=
+lddirs-remove-y :=
+subdir-lddirs-y :=
+
+lib_bin_path = $(srctree)/$(if $(CONFIG_LIBRARY_OUTDIR),$(CONFIG_LIBRARY_OUTDIR),library)
+
+include $(srctree)/scripts/Makefile.include
+include $(srctree)/scripts/compiler/Makefile.compiler
+
+# include module build makefile
+ifneq ($(mkf),)
+build_dir := $(patsubst %/Makefile,%,$(mkf))
+build_mkf := $(mkf)
+else
+build_dir := $(obj)
+makefile_dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
+build_mkf := $(makefile_dir)/Makefile
+endif
+
+include $(build_mkf)
+$(build_mkf):: ;
+
+pre-build-y :=
+pre-gen-obj-y := $(filter %/ %.o,$(pre-gen-obj-y))
+obj_dir := $(if $(filter .,$(obj)),,$(obj)/)
+ifneq ($(pre-gen-obj-y),)
+pre_make_dir := $(TARGET_OUTPUT)/$(obj_dir)pregendir
+pre_gen_file := $(srctree)/$(if $(pre-gen-file-y),$(obj_dir)$(pre-gen-file-y),$(obj_dir)pregenfile)
+pre_target_name := $(T)_pregen
+pre-build-y := $(pre_make_dir)/$(pre_target_name)$(call target-file-suffix,exe)
+$(pre-build-y):
+	@$(call CMDMKDIR,$(pre_make_dir))
+	@$(call outfile_new,$(pre_make_dir)/Makefile.dest,target-obj-y := $(obj_dir)$(pre-gen-obj-y))
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.binary UNREAL_FINAL_TARGET=1 DEST=$(obj_dir)pregendir \
+	    TARGET_NAME=$(pre_target_name) TARGET_TYPE=exe RUN_OUTFILE=$(pre_gen_file) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
+endif
+
+# parse targets and flags in build makefile
+include $(srctree)/scripts/Makefile.parse
+
+# create output dir and each object file dir
+$(shell $(call create_dir,$(obj)))
+$(foreach d,$(build-dir-y),$(shell $(call create_dir,$(d))))
+
+# build module targets
+ifneq ($(build-obj-y),)
+built_in_target := $(build_dir)/$(built-in)
+built_src_lib := $(strip $(lib-src-y))
+export_src_lib := $(patsubst $(obj_dir)%,$(lib_bin_path)/%,$(built_src_lib))
+endif
+
+all: $(if $(pre-build-y),$(pre-build-y) .WAIT) $(built_in_target) $(built_src_lib) $(export_src_lib)
+	@:
+
+ifneq ($(built_in_target),)
+ifeq ($(dont-ar-objs),1)
+$(built_in_target): $(build-obj-y) FORCE
+	$(call if_changed,built_in)
+else
+$(built_in_target): $(build-obj-y) FORCE
+	$(call if_changed,ar_src_file)
+endif
+
+targets += $(built_in_target)
+endif
+
+# build each obj/subdir/built-in
+ifneq ($(build-subdir-y),)
+$(build-subdir-y): $(obj_dir)%/$(built-in) : $(obj_dir)% ;
+
+PHONY += $(subdir-y)
+$(subdir-y):
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.build obj=$@ mkf= $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
+endif
+
+# build each object file
+$(obj)/%.i: $(src)/%.c FORCE
+	$(call if_changed_dep,c_to_i)
+
+$(obj)/%.i: $(src)/%.cc FORCE
+	$(call if_changed_dep,c++_to_i)
+
+$(obj)/%.i: $(src)/%.cpp FORCE
+	$(call if_changed_dep,c++_to_i)
+
+$(obj)/%.s: $(src)/%.S FORCE
+	$(call if_changed_dep,as_to_s)
+
+$(obj)/%.s: $(src)/%.c FORCE
+	$(call if_changed_dep,c_to_s)
+
+$(obj)/%.s: $(src)/%.cc FORCE
+	$(call if_changed_dep,c++_to_s)
+
+$(obj)/%.s: $(src)/%.cpp FORCE
+	$(call if_changed_dep,c++_to_s)
+
+$(obj)/%.o: $(src)/%.S FORCE
+	$(call if_changed_dep,as_to_o)
+
+$(obj)/%.o: $(src)/%.c FORCE
+	$(call if_changed_dep,c_to_o)
+
+$(obj)/%.o: $(src)/%.cc FORCE
+	$(call if_changed_dep,c++_to_o)
+
+$(obj)/%.o: $(src)/%.cpp FORCE
+	$(call if_changed_dep,c++_to_o)
+
+targets += $(real-obj-y)
+
+# build each composite object file
+ifneq ($(com-y),)
+$(com-y): FORCE
+	$(call if_changed,link_com_obj)
+
+$(foreach o,$(com-y),$(call make-com-rule,$(o)))
+endif
+
+# build library from source files
+ifneq ($(built_src_lib),)
+$(built_src_lib): FORCE
+	$(call if_changed,ar_src_file)
+
+$(foreach a,$(built_src_lib),$(call make-lib-rule,$(a)))
+
+targets += $(built_src_lib)
+endif
+
+# export generated lib to project folder
+ifneq ($(export_src_lib),)
+$(export_src_lib): $(lib_bin_path)/%: $(obj_dir)%
+	$(call cmd,gen_lib_file)
+
+targets += $(export_src_lib)
+endif
+
+# use library already in project folder
+ifneq ($(lib-bin-y),)
+$(lib-bin-y): $(obj_dir)%: $(lib_bin_path)/% FORCE
+	$(call if_changed,use_lib_file)
+
+targets += $(lib-bin-y)
+endif
+
+PHONY += show
+show:
+	$(call echo-info,Build module $(obj):)
+	$(call echo-info,  BUILT_TARGET=$(built_in_target))
+	$(call echo-info,  MAKEFLAGS=$(MAKEFLAGS))
+	$(call echo-info,  MAKECMDGOALS=$(MAKECMDGOALS))
+
+# PHONY targets
+PHONY += FORCE
+FORCE:
+
+# Read all saved command lines and dependencies for the $(targets) we
+# may be building above, using $(if_changed{,_dep}). As an optimization,
+# we don't need to read them if the target does not exist, we will
+# rebuild anyway in that case.
+targets := $(filter-out $(PHONY),$(targets))
+existing-targets := $(wildcard $(sort $(targets)))
+target-dep-files := $(wildcard $(foreach f,$(existing-targets),$(call depend-file,$(f))))
+
+ifneq ($(target-dep-files),)
+include $(target-dep-files)
+endif
+
+# phony declare and last-resort default rule
+.PHONY: $(PHONY)
+
+%::
+	@$(call echo-info,Error: No rule defined for target $@)
+	@exit 1

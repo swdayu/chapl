@@ -1,0 +1,13 @@
+target-y := default
+
+default-y := src/lang/
+default-binary-type := exe_run
+default-macros-y :=
+default-incdir-y :=
+default-lddirs-y :=
+default-ldlibs-y :=
+
+COMMON_MACROS :=
+COMMON_INCDIR :=
+COMMON_LDDIRS :=
+COMMON_LDLIBS :=

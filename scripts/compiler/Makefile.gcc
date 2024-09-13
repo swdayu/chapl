@@ -1,0 +1,148 @@
+# dont export variables defined in this makefile
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+# arm - arm cpu architecture
+# x86 - i386/x86 for 32 bit, x86_64/x64 for 64 bit
+# parisc - parisc64 for 64 bit
+# sparc - sparc32 for 32 bit, sparc64 for 64 bit
+ifneq ($(filter arm,$(CONFIG_COMPILER)),)
+CROSS_COMPILE := arm-none-eabi-
+CONFIG_PREFIX_VIA_OPTION ?= 0
+OPTION_TRY_LD := -Werror -x c -o $(devnull) - -lc -lnosys
+else
+CROSS_COMPILE :=
+#INIT_CFLAGS += --verbose -H -iprefix $(srctree)/ -iwithprefix .
+CONFIG_PREFIX_VIA_OPTION ?= 0
+OPTION_TRY_LD := -Werror -x c -o $(devnull) -
+endif
+
+AS       := $(CROSS_COMPILE)as
+CC       := $(CROSS_COMPILE)gcc
+C++      := $(CROSS_COMPILE)g++
+AR       := $(CROSS_COMPILE)ar
+OBJCOPY  := $(CROSS_COMPILE)objcopy
+OBJDUMP  := $(CROSS_COMPILE)objdump
+CPP      := $(CC) -E -P
+C++PP    := $(C++) -E -P # gcc -E -P foo.c -o foo.i
+LD       := $(CC)
+COMPILE_LDS := -C -x c
+COMPILE_DMY := -c -x c
+COMPILE_OBJ := -c
+COMPILE_ASM := -fverbose-asm -S
+OPTION_C_ONLY := -std=gnu99 -Werror=implicit-int -Werror-implicit-function-declaration
+OPTION_C++_ONLY := -std=gnu++14 -fno-rtti
+OPTION_HEADER_I = -I$(1)
+OPTION_DEPEND = -MMD -MP -MF $(dep-target) -MT $@
+OUT_PRE_FILE = -o $@ $(OPTION_DEPEND)
+OUT_OBJ_FILE = -o $@ $(OPTION_DEPEND)
+OUT_ASM_FILE = -o $@
+INPUT_FIRST_PREREQ = $<
+
+# INIT_CFLAGS += $(call cc-option,-march=winchip=c6,-march=i586)
+# INIT_AFLAGS += $(call as-option,-isa=foo)
+# INIT_LDFLAG += $(call ld-option,-X,-Y)
+TRY_CC = $(CC) $(INIT_MACROS) $(INIT_CFLAGS)
+TRY_AS = $(CC) $(INIT_MACROS) $(INIT_AFLAGS)
+TRY_LD = echo "int main(){return 0;}" | $(CC)
+OPTION_TRY_AS := -Werror -c -x assembler-with-cpp $(devnull) -o $(devnull)
+OPTION_TRY_CC := -Werror -c -x c $(devnull) -o $(devnull)
+OPTION_LD_FLAGS = $(subst $(space),,-Wl$(foreach o,$(1),$(comma)$(o)))
+OPTION_AS_FLAGS = $(subst $(space),,-Wa$(foreach o,$(1),$(comma)$(o)))
+cc-option = $(call try-run,$(TRY_CC) $(1) $(OPTION_TRY_CC),$(1),$(2))
+as-option = $(call try-run,$(TRY_AS) $(call OPTION_AS_FLAGS,$(INIT_AFLAGS) $(1)) $(OPTION_TRY_AS),$(1),$(2))
+ld-option = $(call try-run,$(TRY_LD) $(call OPTION_LD_FLAGS,$(INIT_LDFLAG) $(1)) $(OPTION_TRY_LD),$(1),$(2))
+ld-lib-option = $(call try-run,$(TRY_LD) $(OPTION_TRY_LD) $(1),$(1),$(2))
+
+# change __FILE__ to the relative path from the srctree
+INIT_CFLAGS += $(call cc-option,-fmacro-prefix-map=$(srctree)/=)
+
+INIT_CFLAGS += \
+	-fno-common -fmessage-length=0 \
+	-Wall \
+	-fno-exceptions \
+	-ffunction-sections \
+	-fdata-sections \
+	-fomit-frame-pointer \
+	-Wno-trigraphs \
+	-fno-strict-aliasing
+
+# By default char on ARM platform is unsigned char, but char on x86 platform
+# is signed char. To avoid porting issues, force char to be signed char
+# on ARM platform.
+INIT_CFLAGS += -fsigned-char
+
+# Treat floating-point constants as float instead of double
+INIT_CFLAGS += -fsingle-precision-constant
+INIT_CFLAGS += -Wdouble-promotion -Wfloat-conversion
+INIT_CFLAGS += -g
+
+# Prohibit date/time macros, which would make the build non-deterministic
+INIT_CFLAGS += $(call cc-option,-Werror=date-time)
+
+INIT_CFLAGS += $(call cc-option,-Wlogical-op)
+INIT_CFLAGS += $(call cc-option,-Wimplicit-fallthrough)
+
+# Never change loops to C library calls like memcpy/memset
+# (otherwise it will be enabled by -O2 in GCC 10)
+INIT_CFLAGS += -fno-tree-loop-distribute-patterns
+
+# use the deterministic mode of AR if available
+INIT_AFLAGS += -D__ASSEMBLY__
+
+# config image flags
+INIT_LDFLAG += -X
+INIT_LDFLAG += $(call ld-option,--no-wchar-size-warning)
+INIT_LDFLAG += --build-id
+INIT_LDLIBS += -lc
+INIT_LDLIBS += $(call ld-lib-option,-lnosys)
+
+ifeq ($(WIN_PLAT),y)
+archive-cmd = ( ( echo create $@ && \
+    echo addmod $(subst $(space),$(comma),$(strip $(filter-out %.a,$(1)))) && \
+    $(foreach o,$(filter %.a,$(1)),echo addlib $(o) && ) \
+    echo save && \
+    echo end ) | $(AR) -M )
+else
+# Command "/bin/echo -e" cannot work on Apple Mac machines, so we use "/usr/bin/printf" instead
+archive-cmd = ( /usr/bin/printf 'create $@\n\
+    addmod $(subst $(space),$(comma),$(strip $(filter-out %.a,$(1))))\n\
+    $(foreach o,$(filter %.a,$(1)),addlib $(o)\n)save\nend' | $(AR) -M )
+endif
+
+COM_OBJ_CCFLAGS := -nostdlib -nostartfiles
+COM_OBJ_LDFLAGS := -r --whole-archive
+link-com-obj = $(LD) $(built_cc_flags) $(COM_OBJ_CCFLAGS) \
+    $(if $(strip $(built_ld_flags) $(COM_OBJ_LDFLAGS)),$(call OPTION_LD_FLAGS,$(built_ld_flags) $(COM_OBJ_LDFLAGS))) \
+    -o $@ $(1)
+
+# link image file
+# 1) Link the archives twice to solve circular references between two or
+#    more archives. Otherwise we should use --start-group and --end-group
+#    options. Normally, an archive is searched only once in the order that
+#    it is specified on the command line.
+# 2) Use --whole-archive option to solve weak symbol overriding issue.
+#    It tells LD to include every object file in the archive in the link,
+#    rather than searching the archive for the required object files.
+#    By default the strong symbols defined in the archive will not override
+#    any weak symbol, for LD only searches the archive if there is a undefined
+#    symbol (and a weak symbol is considered as a defined symbol).
+OPTION_LDLIBS = $(foreach a,$(1),-l$(a))
+OPTION_LDDIRS = $(foreach a,$(1),-L$(a))
+LINK_EXE_LDFLAGS = -Map=$(basename $@).map --gc-sections --no-whole-archive
+link-exe-cmd = $(LD) -o $@ $(if $(lds-target),-T $(lds-target)) $(target_cc_flags) \
+    $(call OPTION_LD_FLAGS,$(LINK_EXE_LDFLAGS) $(target_ld_flags) $(call OPTION_LDDIRS,$(target_ld_dirs))) $(1) \
+    -Wl,--no-whole-archive $(call OPTION_LDLIBS,$(target_ld_libs)) $(call OPTION_LDLIBS,$(target_ld_libs))
+link-exe-with-opt-file = $(call link-exe-cmd,@$(1))
+
+quiet_cmd_gen_target_bin = $(quiet_echo_genbin)
+      cmd_gen_target_bin = $(OBJCOPY) $(GEN_TARGET_BIN_FLAGS) -O binary $< $@
+
+quiet_cmd_gen_target_lst = $(quiet_echo_genlst)
+      cmd_gen_target_lst = $(OBJDUMP) -Sldx $< > $@
+
+quiet_cmd_gen_target_hex = $(quiet_echo_genhex)
+      cmd_gen_target_hex = $(OBJCOPY) -O ihex $< $@
+
+quiet_cmd_gen_target_sec = $(quiet_echo_genbin)
+      cmd_gen_target_sec = $(OBJCOPY) $(GEN_TARGET_SEC_FLAGS) -O binary $< $@

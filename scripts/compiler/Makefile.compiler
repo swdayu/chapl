@@ -1,0 +1,39 @@
+# dont export variables defined in this makefile
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+INIT_MACROS :=
+INIT_INCDIR :=
+INIT_AFLAGS :=
+INIT_CFLAGS :=
+INIT_LDLIBS :=
+INIT_LDDIRS :=
+INIT_LDFLAG :=
+
+ifneq ($(filter gcc,$(CONFIG_COMPILER)),)
+include $(srctree)/scripts/compiler/Makefile.gcc
+gcc_exe_suffix = $(if $(filter elf bin,$(1)),.elf)
+target-file-suffix = $(if $(filter exe,$(1)),$(call gcc_exe_suffix,$(1)),$(if $(filter lib,$(1)),.a,$(if $(filter dll,$(1)),.so)))
+INIT_MACROS += -D__GCC__
+else ifneq ($(filter msc,$(CONFIG_COMPILER)),)
+include $(srctree)/scripts/compiler/Makefile.msc
+target-file-suffix = $(if $(filter exe,$(1)),.exe,$(if $(filter lib,$(1)),.lib,$(if $(filter dll,$(1)),.dll,.exe)))
+INIT_MACROS += -D__MSC__
+else
+$(error unsupported compiler '$(CONFIG_COMPILER)')
+endif
+
+INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
+
+ifneq ($(filter dll,$(TARGET_TYPE)),)
+INIT_MACROS += -DCONFIG_BUILD_DLL
+endif
+
+quiet_cmd_link_file = $(quiet_echo_link)
+      cmd_link_file = $(call link-exe-cmd,$(filter-out $(lds-target),$(real-prereqs)))
+
+quiet_cmd_link_exe_file = $(quiet_echo_link)
+      cmd_link_exe_file = $(call link-exe-with-opt-file,$(filter-out $(lds-target),$(real-prereqs)))
+
+quiet_cmd_link_dll_file = $(quiet_echo_link)
+      cmd_link_dll_file = $(call link-dll-with-opt-file,$(real-prereqs))

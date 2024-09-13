@@ -1,0 +1,299 @@
+# dont export variables defined in this makefile
+cur_makefile := $(lastword $(MAKEFILE_LIST))
+$(cur_makefile):: ;
+
+MSVC_HOME_PATH := /mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130
+WINDOWS_SDK_PATH := /mnt/c/Program Files (x86)/Windows Kits/10
+WINDOWS_SDK_VERSION := 10.0.22621.0
+
+msvc_inc_path := $(MSVC_HOME_PATH)/include
+msvc_bin_X64 := $(MSVC_HOME_PATH)/bin/Hostx64/x64
+msvc_bin_X86 := $(MSVC_HOME_PATH)/bin/Hostx86/x86
+msvc_lib_X64 := $(MSVC_HOME_PATH)/lib/x64
+msvc_lib_X86 := $(MSVC_HOME_PATH)/lib/x86
+wsdk_inc_path := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/um
+wsdk_inc_ucrt := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/ucrt
+wsdk_inc_shared := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/shared
+wsdk_bin_X64 := $(WINDOWS_SDK_PATH)/bin/$(WINDOWS_SDK_VERSION)/x64
+wsdk_bin_X86 := $(WINDOWS_SDK_PATH)/bin/$(WINDOWS_SDK_VERSION)/x86
+wsdk_lib_X64 := $(WINDOWS_SDK_PATH)/Lib/$(WINDOWS_SDK_VERSION)/um/x64
+wsdk_lib_X86 := $(WINDOWS_SDK_PATH)/Lib/$(WINDOWS_SDK_VERSION)/um/x86
+wsdk_lib_ucrt_X64 := $(WINDOWS_SDK_PATH)/Lib/$(WINDOWS_SDK_VERSION)/ucrt/x64
+wsdk_lib_ucrt_X86 := $(WINDOWS_SDK_PATH)/Lib/$(WINDOWS_SDK_VERSION)/ucrt/x86
+
+# x86|x86_64|x86_x64|x64 - 32-bit or 64-bit code
+# windows|console|driver - WINDOWS or CONSOLE or KERNEL DRIVER application
+# msc - miscrosoft compilers
+ifneq ($(filter x86_64 x86_x64 x64,$(CONFIG_COMPILER)),)
+use_arch := X64
+else
+use_arch := X86
+INIT_MACROS += /DWIN32
+endif
+
+ifneq ($(filter dll,$(TARGET_TYPE)),)
+build_dll := 1
+else
+build_dll := 0
+endif
+
+LINK_DRIVER_FLAGS :=
+LINK_MAIN_ENTRY := main
+ifneq ($(filter windows,$(CONFIG_COMPILER)),)
+subsystem := WINDOWS
+LINK_MAIN_ENTRY := WinMain
+else ifneq ($(filter driver,$(CONFIG_COMPILER)),)
+subsystem := NATIVE
+LINK_DRIVER_FLAGS := /DRIVER:WDM
+else
+subsystem := CONSOLE
+endif
+
+ifneq ($(filter unicode,$(CONFIG_COMPILER)),)
+LINK_MAIN_ENTRY := w$(LINK_MAIN_ENTRY)
+INIT_MACROS += /DUNICODE /D_UNICODE
+endif
+
+CC       := "$(msvc_bin_$(use_arch))/cl.exe" /nologo /utf-8
+AR       := "$(msvc_bin_$(use_arch))/lib.exe" /NOLOGO
+LD       := "$(msvc_bin_$(use_arch))/link.exe" /NOLOGO
+C++      := $(CC)
+AS       := $(CC)
+OBJCOPY  := "$(msvc_bin_$(use_arch))/editbin.exe" /NOLOGO
+OBJDUMP  := "$(msvc_bin_$(use_arch))/dumpbin.exe" /NOLOGO
+CPP      := $(CC) /P
+C++PP    := $(C++) /P # cl -P -Fifoo.i foo.c
+COMPILE_LDS := /C /TC
+COMPILE_DMY := /c /TC
+COMPILE_OBJ := /c /permissive- /analyze-
+COMPILE_ASM := /c /FAsu
+OPTION_C_ONLY := /std:c17 /TC #/Zc:__STDC__
+OPTION_C++_ONLY := /std:c++20 /Zc:__cplusplus /TP
+OPTION_HEADER_I = /I"$(call windows_path_style,$(1))"
+OUT_ASM_FILE = /Fa$@
+OUT_PDB_FILE = /Fd$(basename $@).pdb
+OUT_OBJ_FILE = /Fo$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
+OUT_PRE_FILE = /Fi$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
+INPUT_FIRST_PREREQ = $(call windows_path_style,$<)
+
+# linker warning LNK4001: no object files specified; libraries used
+#   The linker was passed one or more .lib files, but no .obj files. Because the linker is not able to access
+#   information in a .lib file that it is able to access in an .obj file, this warning indicates that you will
+#   have to explicitly specify other linker options. For example, you may have to specify the /MACHINE, /OUT,
+#   or /ENTRY options.
+# linker warning LNK4075:
+#   If you link a module that was compiled with /ZI, which implies an internal linker option called /EDITANDCONTINUE,
+#   and a module that was compiled with /OPT:REF, /OPT:ICF, or /INCREMENTAL:NO, which imply no /EDITANDCONTINUE,
+#   you will get LNK4075.
+LINK_WARN_FLAGS := /IGNORE:4001 /WX
+
+# 选项 /NXCOMPA 和 /DYNAMICBASE 默认开启
+# /debug[:{FASTLINK|FULL|NONE}] 调试器会产一个pdb文件来包含调试信息，
+# 不指定参数相当于/debug:full。
+# /pdb:filename创建一个pdb文件，当指定了/debug选项是链接器会创建pdb文件，
+# 如果没有指定/debug该选项会被忽略，pdb文件最大可以到2GB。
+LINK_LTCG_FLAG = /LTCG:incremental /LTCGOUT:$(basename $@).iobj
+LINK_OPT_FLAGS = /DEBUG /PDB:$(basename $@).pdb /OPT:REF /OPT:ICF $(LINK_LTCG_FLAG)
+
+LINK_EXE_FLAGS = /MACHINE:$(use_arch) /SUBSYSTEM:$(subsystem) $(LINK_DRIVER_FLAGS) $(LINK_WARN_FLAGS) $(LINK_OPT_FLAGS)
+LINK_DLL_FLAGS = $(LINK_EXE_FLAGS) /DLL
+
+OPTION_LIBPATH = $(foreach d,$(1),/LIBPATH:$(d))
+LIBPATH_FLAGS := \
+	/LIBPATH:"$(call windows_path_style,$(msvc_lib_$(use_arch)))" \
+	/LIBPATH:"$(call windows_path_style,$(wsdk_lib_$(use_arch)))" \
+	/LIBPATH:"$(call windows_path_style,$(wsdk_lib_ucrt_$(use_arch)))"
+
+ARCH_LIB_FLAGS := /WX /MACHINE:$(use_arch) /SUBSYSTEM:$(subsystem)
+
+ifeq ($(BUILD_VERBOSE),3)
+LINK_EXE_FLAGS += /VERBOSE
+LINK_DLL_FLAGS += /VERBOSE
+ARCH_LIB_FLAGS += /VERBOSE
+endif
+
+ifeq ($(subsystem),CONSOLE)
+INIT_MACROS += /DCONSOLE /D_CONSOLE
+endif
+
+ifeq ($(build_dll),1)
+INSTALL_FILES = $(1) $(basename $1).pdb $(basename $1).map $(basename $1).lib $(basename $1).exp
+else
+INSTALL_FILES = $(1) $(basename $1).pdb $(basename $1).map
+endif
+
+# /MT use multithread static version of the run-time library,
+# will place library name LIBCMT.lib into the .obj file so
+# that the linker will use LIBCMT.lib to resolve external
+# symbols. /MTd debug version of /MT, defines _DEBUG and _MT,
+# use LIBCMTD.lib.
+# /MD use multithread dll version of the rum-time library,
+# will place library name MSVCRT.lib into the .obj file,
+# applications are statically linked to MSVCRT.lib, but
+# the actual working code is contained in MSVCRversionnumber.DLL,
+# this dll must be available at run time. /MDd debug version
+# of /MD, define _DEBUG _MT and _DLL, use MSVCRTD.lib.
+INIT_CFLAGS += /MT
+
+# /GS (Buffer Security Check)
+# Detects some buffer overruns that overwrite a function's return
+# address, exception handler address, or certain types of parameters.
+# Causing a buffer overrun is a technique used by hackers to exploit
+# code that does not enforce buffer size restrictions.
+# /GS is on by default.
+# /sdl enable more security features and warnings
+INIT_CFLAGS += /GS /sdl
+
+# /W0 disable all wranings, it's equivalent to /w
+# /W1 display level 1 (severe) wranings, is the default setting
+# /W2 also display level 2 (signficant) warnings
+# /W3 also display level 3 (production quality) warnings, is the default IDE setting
+# /W4 also display level 4 (informational) warnings
+# /Wall enable /W4 and all other warnings that /W4 doesn't include
+# /wd<n> suppresses the compiler warning
+# /we<n> treats the compiler warning as error
+# /wo<n> report the compiler warning only once
+# /WX treats all compiler warnings as errors
+# warning C4100: unreferenced formal parameter in the body of the function
+# warning C4214: nonstandard extension used: bit field types other than int
+# warning C4706: assignment within conditional expression
+# warning C4204: nonstandard extension used: non-constant aggregate initializer
+# warning C4505: unreferenced local function
+# warning C4819: The file contains a character that cannot be represented in the current code page (936). Save the file in Unicode format to prevent data loss
+OPT_WARN_FLAGS := /W4 /wd4100 /wd4214 /wd4706 /wd4204 /WX
+INIT_CFLAGS += $(OPT_WARN_FLAGS)
+
+# /O1 smallest code - /Og /Os /Oy /Ob2 /GF /Gy
+# /O2 fastest code - /Og /Oi /Ot /Oy /Ob2 /GF /Gy
+# /Oi 生成没有调用开销的内部函数（intrinsic functions）
+# /GF 启用只读字符串池，消除重复的字符串，最多只能创建65536个地址区
+# /Gy 启用函数级（function-level）链接，指向同一个函数共享一个指针
+OPT_FLAGS_SPACE := /O1 /GF /Gy
+OPT_FLAGS_SPEED := /O2 /Oi /GF /Gy /fp:fast
+INIT_CFLAGS += $(OPT_FLAGS_SPEED)
+
+# /ZI same as /Zi generate a separated pdb file to cotiain debug information,
+# but the generated pdb also support edit and continue debugging feature.
+# /ZI cannot used together with /GL, and /ZI conflict with /OPT:REF /OPT:ICF.
+# Removes unreferenced data or functions that are COMDATs, or that only have
+# internal linkage. Under /Zc:inline , the compiler specifies that translation
+# units with inline data or functions must also include their definitions.
+INIT_CFLAGS += /Zi /Zc:inline
+
+# /GL开启全程序优化，但生成的代码高度依赖于当前的VS版本，并且生成的.obj不能用于editbin
+# 和dumpbin，也不能发布.obj或者.lib。该选项不能与/ZI一起使用，如果开启/GL编译源文件，
+# 链接时需要开启/LTCG选项。
+INIT_CFLAGS += /GL
+
+# /Gw 启用整个程序全局数据优化
+INIT_CFLAGS += /Gw
+
+# /EHsc 开启异常处理，但是extern "C"里面的函数绝不会抛出异常
+INIT_CFLAGS += /EHsc
+
+# /LD 创建DLL，会传递/DLL给链接器，默认使用/MT链接静态运行时库
+# /LDd 创建DLL调试库，会传递/DLL给链接器，默认使用/MTd链接静态运行时库
+# 链接器会寻找DllMain入口函数，如果没有链接器会插入一个返回TRUE的DllMain函数
+# DLL文件包含了其他程序使用的导出符号，有三种导出方式，安装推荐顺序依次为：
+# 1. 源代码中使用__declspec(dllexport)
+# 2. .def文件中使用EXPORTS语句
+# 3. 链接器中使用/export选项
+ifneq ($(filter dll,$(TARGET_TYPE)),)
+INIT_CFLAGS += /LD
+endif
+
+INIT_CFLAGS += \
+	/I"$(call windows_path_style,$(msvc_inc_path))" \
+	/I"$(call windows_path_style,$(wsdk_inc_path))" \
+	/I"$(call windows_path_style,$(wsdk_inc_ucrt))" \
+	/I"$(call windows_path_style,$(wsdk_inc_shared))"
+
+# define WIN32_LEAN_AND_MEAN to exclude apis such as Cryptography, DDE, RPC,
+# Shell, and Windows Sockets
+INIT_MACROS += /DWIN32_LEAN_AND_MEAN
+
+# when you define STRICT you enable features that require more care in declaring
+# and using types. this helps you write more portable code. this extra care will
+# also reduce your debuging time.
+INIT_MACROS += /DSTRICT
+
+INIT_MACROS += /DNDEBUG
+INIT_MACROS += /D_CRT_SECURE_NO_DEPRECATE
+
+# Release Win32
+# Compile:
+# /permissive- /ifcOutput "Release\" /GS /GL /analyze- /W3 /Gy /Zc:wchar_t
+# /Zi /Gm- /O2 /sdl /Fd"Release\vc143.pdb" /Zc:inline /fp:precise /D "WIN32"
+# /D "NDEBUG" /D "_CONSOLE" /D "_UNICODE" /D "UNICODE" /errorReport:prompt
+# /WX- /Zc:forScope /Gd /Oy- /Oi /MD /FC /Fa"Release\" /EHsc /nologo
+# /Fo"Release\" /Fp"Release\out.pch" /diagnostics:column
+# Link:
+# /OUT:"Release\out.exe" /MANIFEST /LTCG:incremental /NXCOMPAT /PDB:"Release\out.pdb"
+# /DYNAMICBASE "kernel32.lib" "user32.lib" "gdi32.lib" "winspool.lib"
+# "comdlg32.lib" "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib"
+# "uuid.lib" "odbc32.lib" "odbccp32.lib" /DEBUG /MACHINE:X86 /OPT:REF
+# /SAFESEH /PGD:"Release\out.pgd" /SUBSYSTEM:CONSOLE /MANIFESTUAC:"level='asInvoker' uiAccess='false'"
+# /ManifestFile:"Release\out.exe.intermediate.manifest" /LTCGOUT:"Release\out.iobj"
+# /OPT:ICF /ERRORREPORT:PROMPT /ILK:"Release\out.ilk" /NOLOGO /TLBID:1 
+#
+# Release x64
+# Compile:
+# /permissive- /ifcOutput "x64\Release\" /GS /GL /W3 /Gy /Zc:wchar_t
+# /Zi /Gm- /O2 /sdl /Fd"x64\Release\vc143.pdb" /Zc:inline /fp:precise
+# /D "NDEBUG" /D "_CONSOLE" /D "_UNICODE" /D "UNICODE" /errorReport:prompt
+# /WX- /Zc:forScope /Gd /Oi /MD /FC /Fa"x64\Release\" /EHsc /nologo
+# /Fo"x64\Release\" /Fp"x64\Release\out.pch" /diagnostics:column 
+# Link:
+# /OUT:"x64\Release\out.exe" /MANIFEST /LTCG:incremental /NXCOMPAT /PDB:"x64\Release\out.pdb"
+# /DYNAMICBASE "kernel32.lib" "user32.lib" "gdi32.lib" "winspool.lib"
+# "comdlg32.lib" "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib"
+# "uuid.lib" "odbc32.lib" "odbccp32.lib" /DEBUG /MACHINE:X64 /OPT:REF
+# /PGD:"x64\Release\out.pgd" /SUBSYSTEM:CONSOLE /MANIFESTUAC:"level='asInvoker' uiAccess='false'"
+# /ManifestFile:"x64\Release\out.exe.intermediate.manifest" /LTCGOUT:"x64\Release\out.iobj"
+# /OPT:ICF /ERRORREPORT:PROMPT /ILK:"x64\Release\out.ilk" /NOLOGO /TLBID:1 
+# "/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/bin/Hostx86/x86/cl.exe" /permissive- /ifcOutput "Release/" /GS /GL /analyze- /W3 /Gy /Zc:wchar_t /I"d:/bysh/c/repo/kernel/lang" /I"c:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/include" /I"c:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/shared" /I"c:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/ucrt" /I"c:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/um" /Zi /Gm- /O2 /sdl /Zc:inline /fp:precise /D "WIN32" /D "NDEBUG" /D "_CONSOLE" /D "_UNICODE" /D "UNICODE" /errorReport:prompt /WX- /Zc:forScope /std:c17 /Gd /Oy- /Oi /MT /FC /Fa"Release/" /EHsc /nologo /Fo"Release/" /Fp"Release/comiler.pch" /diagnostics:column /c libtcc.c test.c
+# "/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/bin/Hostx86/x86/link.exe" /OUT:"Release/comiler.exe" /MANIFEST /LTCG:incremental /NXCOMPAT /PDB:"Release/comiler.pdb" /DYNAMICBASE "kernel32.lib" "user32.lib" "gdi32.lib" "winspool.lib" "comdlg32.lib" "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib" "uuid.lib" "odbc32.lib" "odbccp32.lib" /MACHINE:X86 /OPT:REF /SAFESEH /SUBSYSTEM:CONSOLE /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /ManifestFile:"Release/comiler.exe.intermediate.manifest" /LTCGOUT:"Release/comiler.iobj" /OPT:ICF /ERRORREPORT:PROMPT /ILK:"Release/comiler.ilk" /NOLOGO /TLBID:1 /LIBPATH:"c:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/lib/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/um/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/ucrt/x86" Release/test.obj ./Release/libtcc.obj
+# "/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/bin/Hostx86/x86/link.exe" /OUT:"Release/comiler.exe" /MANIFEST /LTCG:incremental /NXCOMPAT /PDB:"Release/comiler.pdb" /DYNAMICBASE "kernel32.lib" /MACHINE:X86 /OPT:REF /SAFESEH /SUBSYSTEM:CONSOLE /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /ManifestFile:"Release/comiler.exe.intermediate.manifest" /LTCGOUT:"Release/comiler.iobj" /OPT:ICF /ERRORREPORT:PROMPT /ILK:"Release/comiler.ilk" /NOLOGO /TLBID:1 /LIBPATH:"c:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/lib/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/um/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/ucrt/x86" Release/test.obj ./Release/libtcc.obj
+
+# "kernel32.lib" "user32.lib" "gdi32.lib" "winspool.lib" "comdlg32.lib"
+# "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib" "uuid.lib"
+# "odbc32.lib" "odbccp32.lib"
+# https://learn.microsoft.com/zh-cn/cpp/c-runtime-library/crt-library-features?view=msvc-170
+# /MT  libcmt.lib	libucrt.lib					libvcruntime.lib
+# /MTd libcmtd.lib	libucrtd.lib 				libvcruntimed.lib
+# /MD  msvcrt.lib	ucrt.lib (ucrtbase.dll)		vcruntime.lib (vcruntime<v>.dll)
+# /MDd msvcrtd.lib	ucrtd.lib (ucrtbased.dll)	vcruntimed.lib (vcruntime<v>d.dll)
+
+msc-crt-y := # libcmt.lib libucrt.lib ucrt.lib
+msc-lib-y = $(msc-crt-y) kernel32.lib dbghelp.lib
+
+# input .o .a (.obj .lib) output .a (.lib)
+archive-cmd = $(AR) $(ARCH_LIB_FLAGS) /OUT:$@ $(LIBPATH_FLAGS) $(call OPTION_LIBPATH,$(built_ld_dirs)) $(1)
+
+# input .o .a (.obj .lib) output .o (.obj)
+link-com-obj = $(archive-cmd)
+
+# input .o .a (.obj .lib) output .exe
+LINK_STACK_SIZE = $(if $(target_stack_size),/STACK:$(target_stack_size))
+link-exe-cmd = $(LD) $(LINK_EXE_FLAGS) $(if $(2),,/ENTRY:$(LINK_MAIN_ENTRY)) $(LINK_STACK_SIZE) \
+    /MAP:$(basename $@).map /OUT:$@ $(LIBPATH_FLAGS) $(call OPTION_LIBPATH,$(target_ld_dirs)) $(2)$(1) \
+    $(target_ld_libs) $(msc-lib-y)
+link-exe-with-opt-file = $(call link-exe-cmd,$(1),@)
+
+# input .def .o .a (.obj .lib) output .dll .lib
+LINK_DEF_FILE = $(if $(target_def_file_input),/DEF:"$(target_def_file_input)")
+STATIC_LIB_WHOLE_ARCHIVE = $(foreach a,$(1),$(if $(filter %.a %.lib,$(a)),/WHOLEARCHIVE:$(a)))
+link-dll-cmd = $(LD) $(LINK_DLL_FLAGS) $(LINK_DEF_FILE) /MAP:$(basename $@).map /OUT:$@ \
+    /IMPLIB:$(basename $@).lib $(LIBPATH_FLAGS) $(call OPTION_LIBPATH,$(target_ld_dirs)) $(1) \
+    $(call STATIC_LIB_WHOLE_ARCHIVE,$(target_static_lib_whole_archive)) \
+    $(target_ld_libs) $(msc-lib-y)
+link-dll-with-opt-file = $(call link-dll-cmd,@$(1))
+
+quiet_cmd_gen_target_lst = $(quiet_echo_genlst)
+      cmd_gen_target_lst = $(OBJDUMP) /ALL /RAWDATA:NONE /DISASM /OUT:$@ $<
+
+quiet_cmd_gen_target_hex = $(quiet_echo_genhex)
+      cmd_gen_target_hex = $(OBJDUMP) /RAWDATA:1,16 /OUT:$@ $<
+
+quiet_cmd_gen_target_sec = $(quiet_echo_genbin)
+      cmd_gen_target_sec = $(OBJDUMP) /SECTION:$(suffix $@) /OUT:$@ $<
