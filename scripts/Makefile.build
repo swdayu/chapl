@@ -88,7 +88,7 @@ include $(srctree)/scripts/compiler/Makefile.compiler
 
 # include module build makefile
 ifneq ($(mkf),)
-build_dir := $(patsubst %/Makefile,%,$(mkf))
+build_dir := $(patsubst $(TARGET_OUTPUT)/%,%,$(patsubst %/Makefile,%,$(mkf)))
 build_mkf := $(mkf)
 else
 build_dir := $(obj)
@@ -96,8 +96,12 @@ makefile_dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
 build_mkf := $(makefile_dir)/Makefile
 endif
 
+ifeq ($(wildcard $(build_mkf)),)
+$(error build target NOT exist $(patsubst %/Makefile,%,$(build_mkf)))
+else
 include $(build_mkf)
 $(build_mkf):: ;
+endif
 
 pre-build-y :=
 pre-gen-obj-y := $(filter %/ %.o,$(pre-gen-obj-y))
@@ -105,7 +109,7 @@ obj_dir := $(if $(filter .,$(obj)),,$(obj)/)
 ifneq ($(pre-gen-obj-y),)
 pre_make_dir := $(TARGET_OUTPUT)/$(obj_dir)pregendir
 pre_gen_file := $(srctree)/$(if $(pre-gen-file-y),$(obj_dir)$(pre-gen-file-y),$(obj_dir)pregenfile)
-pre_target_name := $(T)_pregen
+pre_target_name := $(call subst_dir_slash,$(T)_pregen,_)
 pre-build-y := $(pre_make_dir)/$(pre_target_name)$(call target-file-suffix,exe)
 $(pre-build-y):
 	@$(call CMDMKDIR,$(pre_make_dir))
@@ -174,8 +178,11 @@ $(obj)/%.s: $(src)/%.cc FORCE
 $(obj)/%.s: $(src)/%.cpp FORCE
 	$(call if_changed_dep,c++_to_s)
 
+$(obj)/%.o: $(src)/%.asm FORCE
+	$(call if_changed_dep,asm_to_o)
+
 $(obj)/%.o: $(src)/%.S FORCE
-	$(call if_changed_dep,as_to_o)
+	$(call if_changed_dep,S_to_o)
 
 $(obj)/%.o: $(src)/%.c FORCE
 	$(call if_changed_dep,c_to_o)
@@ -224,7 +231,7 @@ endif
 
 PHONY += show
 show:
-	$(call echo-info,Build module $(obj):)
+	$(call echo-info,Build $(obj):)
 	$(call echo-info,  BUILT_TARGET=$(built_in_target))
 	$(call echo-info,  MAKEFLAGS=$(MAKEFLAGS))
 	$(call echo-info,  MAKECMDGOALS=$(MAKECMDGOALS))

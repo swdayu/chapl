@@ -29,7 +29,7 @@
 #elif __TARGET_X64__
 #include "abi/x64_abi.h"
 #else
-#include "conf/pretypes.file"
+#include "conf/pretypes.genfile"
 #endif
 
 const static int8 LANG_MIN_INT8 = -127-1; /* 128 0x80 */

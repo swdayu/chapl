@@ -38,13 +38,13 @@ ifneq ($(UNREAL_FINAL_TARGET),1)
 # following options only used in compiling phase
 export init-macros-y := $(INIT_MACROS) $(filter -D% -U%,$(macros-y))
 export init-incdir-y := $(INIT_INCDIR) $(filter -I%,$(incdir-y))
-export init-aflags-y := $(INIT_AFLAGS) $(cccfg-aflags-y) $(filter-out -D% -U% -I%,$(aflags-y))
-export init-cflags-y := $(INIT_CFLAGS) $(cccfg-cflags-y) $(filter-out -D% -U% -I%,$(cflags-y))
+export init-aflags-y := $(INIT_AFLAGS) $(cccfg-aflags-y)
+export init-cflags-y := $(INIT_CFLAGS) $(cccfg-cflags-y)
 
 # following options only used in linking phase
 export init-ldlibs-y := $(INIT_LDLIBS) $(filter -l%,$(ldlibs-y))
 export init-lddirs-y := $(INIT_LDDIRS) $(filter -L%,$(lddirs-y))
-export init-ldflag-y := $(INIT_LDFLAG) $(cccfg-ldflag-y) $(filter-out -l% -L%,$(ldflag-y))
+export init-ldflag-y := $(INIT_LDFLAG) $(cccfg-ldflag-y)
 
 ifneq ($(filter exe,$(TARGET_TYPE)),)
 target_lds_file := $(filter %.lds,$(strip $(lds-file-y)))
@@ -87,10 +87,10 @@ target_install = $(if $(call INSTALL_FILES,$@),$(call install_raw_cmd,$(1),$(cal
 
 built_makefile := $(TARGET_OUTPUT)/$(DEST)/Makefile
 built_ldflags_file := $(TARGET_OUTPUT)/$(DEST)/$(built-ldflags-file)
-$(shell $(call create_dir,$(TARGET_OUTPUT)/$(DEST)))
+$(shell $(call create_dir,$(dir $(TARGET_OUTPUT)/$(DEST)/$(TARGET_NAME))))
 $(shell $(call outfile_new,$(built_ldflags_file),))
 
-$(built_in_file):
+$(built_in_file): FORCE
 	@$(call outfile_new,$(built_makefile),obj-y := $(target-obj-y))
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.build obj=. mkf=$(built_makefile) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
 
@@ -101,6 +101,15 @@ target_ld_dirs := $$(patsubst -L%,%,$$(init-lddirs-y) $$(filter -L%,$$(parsed-ld
 target_ld_flags := $(init-ldflag-y)
 target_cc_flags := $(init-cflags-y)
 endef
+
+quiet_cmd_link_file = $(quiet_echo_link)
+      cmd_link_file = $(call link-exe-cmd,$(filter-out $(lds-target),$(real-prereqs)))
+
+quiet_cmd_link_exe_file = $(quiet_echo_link)
+      cmd_link_exe_file = $(call link-exe-with-opt-file,$(filter-out $(lds-target),$(real-prereqs)))
+
+quiet_cmd_link_dll_file = $(quiet_echo_link)
+      cmd_link_dll_file = $(call link-dll-with-opt-file,$(real-prereqs))
 
 ifeq ($(dont-ar-objs),1)
 ifneq ($(filter exe,$(TARGET_TYPE)),)
@@ -173,7 +182,7 @@ endif
 # show build info
 PHONY += show
 show:
-	$(call echo-info,Build $(TARGET_OUTPUT)/$(DEST):)
+	$(call echo-info,Target $(TARGET_OUTPUT)/$(DEST):)
 	$(call echo-info,  TARGET_NAME=$(TARGET_NAME)$(target_suffix))
 	$(call echo-info,  TARGET_TYPE=$(TARGET_TYPE))
 	$(call echo-info,  MAKEFLAGS=$(MAKEFLAGS))

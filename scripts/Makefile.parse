@@ -213,8 +213,8 @@ quiet_cmd_c++_to_s = $(quiet_echo_c++)
 # .c   -> .o
 # .cc  -> .o
 # .cpp -> .o
-quiet_cmd_as_to_o  = $(quiet_echo_as)
-      cmd_as_to_o  = $(CC) $(built_as_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
+quiet_cmd_S_to_o  = $(quiet_echo_as)
+      cmd_S_to_o  = $(CC) $(built_as_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
 
 quiet_cmd_c_to_o   = $(quiet_echo_cc)
       cmd_c_to_o   = $(CC) $(built_cc_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)

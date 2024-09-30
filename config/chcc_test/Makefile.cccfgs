@@ -1,5 +1,5 @@
-cccfg-y := native_x86_console_unicode_msc
+cccfg-y := msc_x86_native_console_unicode_genasm
 
-native_x86_console_unicode_msc-aflags-y :=
-native_x86_console_unicode_msc-cflags-y :=
-native_x86_console_unicode_msc-ldflag-y :=
+msc_x86_native_console_unicode_genasm-aflags-y :=
+msc_x86_native_console_unicode_genasm-cflags-y :=
+msc_x86_native_console_unicode_genasm-ldflag-y :=

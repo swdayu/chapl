@@ -153,6 +153,7 @@ endif
 
 subst_esc_space = $(subst $(space),$(space_esc),$(1))
 subst_rst_space = $(subst $(space_esc),$(space),$(1))
+subst_dir_slash = $(subst /,$(2),$(subst $(backslash),$(2),$(1)))
 
 windows_driver_letter = $(word 2,$(subst /,$(space),$(filter /mnt/%,$(1))))
 replace_driver_letter = $(if $(2),$(patsubst /mnt/$(2)/%,$(2):/%,$(1)),$(1))
@@ -297,12 +298,16 @@ depfile-add = echo cmd_$@ := $(make-cmd) >> $(dep-target) && echo. >> $(dep-targ
 outfile_new = echo $(call escchar,$(2)) > $(1) && echo. >> $(1)
 outfile_add = echo $(call escchar,$(2)) >> $(1) && echo. >> $(1)
 outfile_cat = $(if $(2),type $(2) >> $(1),@:)
+outfile_new_ex = $(if $(2),echo $(call escchar,$(3)) > $(1) && echo. >> $(1),echo. > $(1))
+outfile_add_ex = $(if $(2),echo $(call escchar,$(3)) >> $(1) && echo. >> $(1),:)
 else
 depfile-new = printf '%s\n' 'cmd_$@ := $(make-cmd)' > $(dep-target)
 depfile-add = printf '%s\n' 'cmd_$@ := $(make-cmd)' >> $(dep-target)
 outfile_new = printf '%s\n' '$(2)' > $(1)
 outfile_add = printf '%s\n' '$(2)' >> $(1)
 outfile_cat = $(if $(2),cat $(2) >> $(1),@:)
+outfile_new_ex = printf '%s\n' $(if $(2),'$(3)','') > $(1)
+outfile_add_ex = $(if $(2),printf '%s\n' '$(3)' >> $(1),:)
 endif
 
 # Check if both commands are the same including their order. Result is empty

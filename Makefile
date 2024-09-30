@@ -51,33 +51,31 @@ export Q
 export quiet
 export BUILD_VERBOSE
 export srctree := $(CURDIR)
+export BUILD_OUTPUT := $(CURDIR)/out
 
 include scripts/Makefile.include
 
-BUILD_OUTPUT := $(CURDIR)/out
-
-REVISION_INFO := $(T)
+TARGET_INFO := $(T)
 ifneq ($(CODE_REV_INFO),)
-REVISION_INFO := $(CODE_REV_INFO):$(REVISION_INFO)
+TARGET_INFO := ($(CODE_REV_INFO)) $(TARGET_INFO)
 endif
-
-export REVISION_INFO
-export SOFTWARE_VERSION
 
 ifeq ($(filter help clean allclean,$(MAKECMDGOALS)),)
 ifneq ($(T),)
+
+ifeq ($(filter-out %/ %$(backslash),$(T)),)
+$(error target can NOT contain slash T=$(T))
+endif
+
 ifeq ($(wildcard config/$(T)/Makefile.target),)
-$(error invalid target T=$(T))
+$(error target NOT exist config/$(T))
 endif
 
 make_start_time := $(get_time)
 make_start_date_time := $(get_date_time)
 
 $(info MAKE START: $(make_start_date_time))
-
-$(info -------------------------------)
-$(info REVISION_INFO: $(REVISION_INFO)$(if $(SOFTWARE_VERSION), v$(SOFTWARE_VERSION)))
-$(info -------------------------------)
+$(info MAKE TARGET: $(TARGET_INFO)$(if $(SOFTWARE_VERSION), v$(SOFTWARE_VERSION)))
 
 TARGET_CCCFGS_FILE := config/$(T)/Makefile.cccfgs
 ifeq ($(wildcard $(TARGET_CCCFGS_FILE)),)
@@ -93,10 +91,8 @@ endif
 
 PHONY += $(cccfg-y)
 $(cccfg-y):
-	$(call echo-info,CCCFG_START:$@)
-	@$(call CMDMKDIR,$(BUILD_OUTPUT)/$(T)/$@)
-	$(Q)$(MAKE) -C $(BUILD_OUTPUT)/$(T)/$@ -f $(srctree)/scripts/Makefile.start CCCFG=$@ $(filter show lst,$(MAKECMDGOALS)) all
-	$(call echo-info,CCCFG_END:$@)
+	$(call echo-info,CCCFG:$@)
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.start CCCFG=$@ $(filter show lst,$(MAKECMDGOALS)) all
 	$(call echo-info,)
 
 # execute each cccfg in sequence

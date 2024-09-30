@@ -3,6 +3,7 @@
 !.gitattributes
 __test__
 *~
+*.genfile
 *.orig
 *.rej
 *.bak

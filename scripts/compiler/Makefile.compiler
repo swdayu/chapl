@@ -28,12 +28,3 @@ INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
 ifneq ($(filter dll,$(TARGET_TYPE)),)
 INIT_MACROS += -DCONFIG_BUILD_DLL
 endif
-
-quiet_cmd_link_file = $(quiet_echo_link)
-      cmd_link_file = $(call link-exe-cmd,$(filter-out $(lds-target),$(real-prereqs)))
-
-quiet_cmd_link_exe_file = $(quiet_echo_link)
-      cmd_link_exe_file = $(call link-exe-with-opt-file,$(filter-out $(lds-target),$(real-prereqs)))
-
-quiet_cmd_link_dll_file = $(quiet_echo_link)
-      cmd_link_dll_file = $(call link-dll-with-opt-file,$(real-prereqs))

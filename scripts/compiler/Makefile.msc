@@ -8,7 +8,9 @@ WINDOWS_SDK_VERSION := 10.0.22621.0
 
 msvc_inc_path := $(MSVC_HOME_PATH)/include
 msvc_bin_X64 := $(MSVC_HOME_PATH)/bin/Hostx64/x64
-msvc_bin_X86 := $(MSVC_HOME_PATH)/bin/Hostx86/x86
+msvc_bin_X86 := $(MSVC_HOME_PATH)/bin/Hostx64/x86
+masm_bin_X64 := $(MSVC_HOME_PATH)/bin/Hostx64/x64/ml64.exe
+masm_bin_X86 := $(MSVC_HOME_PATH)/bin/Hostx64/x86/ml.exe
 msvc_lib_X64 := $(MSVC_HOME_PATH)/lib/x64
 msvc_lib_X86 := $(MSVC_HOME_PATH)/lib/x86
 wsdk_inc_path := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/um
@@ -54,11 +56,11 @@ LINK_MAIN_ENTRY := w$(LINK_MAIN_ENTRY)
 INIT_MACROS += /DUNICODE /D_UNICODE
 endif
 
+AS       := "$(masm_bin_$(use_arch))" /nologo
 CC       := "$(msvc_bin_$(use_arch))/cl.exe" /nologo /utf-8
 AR       := "$(msvc_bin_$(use_arch))/lib.exe" /NOLOGO
 LD       := "$(msvc_bin_$(use_arch))/link.exe" /NOLOGO
 C++      := $(CC)
-AS       := $(CC)
 OBJCOPY  := "$(msvc_bin_$(use_arch))/editbin.exe" /NOLOGO
 OBJDUMP  := "$(msvc_bin_$(use_arch))/dumpbin.exe" /NOLOGO
 CPP      := $(CC) /P
@@ -72,9 +74,13 @@ OPTION_C++_ONLY := /std:c++20 /Zc:__cplusplus /TP
 OPTION_HEADER_I = /I"$(call windows_path_style,$(1))"
 OUT_ASM_FILE = /Fa$@
 OUT_PDB_FILE = /Fd$(basename $@).pdb
-OUT_OBJ_FILE = /Fo$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
+OUTOBJFILE__ = /Fo$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
 OUT_PRE_FILE = /Fi$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
 INPUT_FIRST_PREREQ = $(call windows_path_style,$<)
+COMPILE_ASM_TO_OBJ := /c /Ta
+ASM_TO_OBJ_OUTFILE = /Sf /Sa /Fl$(basename $@).lst /Fo$@
+
+INIT_AFLAGS := /X /W3 /WX
 
 # linker warning LNK4001: no object files specified; libraries used
 #   The linker was passed one or more .lib files, but no .obj files. Because the linker is not able to access
@@ -120,6 +126,24 @@ ifeq ($(build_dll),1)
 INSTALL_FILES = $(1) $(basename $1).pdb $(basename $1).map $(basename $1).lib $(basename $1).exp
 else
 INSTALL_FILES = $(1) $(basename $1).pdb $(basename $1).map
+endif
+
+# /FA[c][s][u]
+#    为每个 C/C++ 源文件创建汇编列表文件，默认只包含汇编代码，如果使用了 c 还包含机器
+#    代码，如果使用了 s 还包含源代码，如果使用了 u 表示最终的汇编文件使用 uft-8 编码。
+#    默认的文件后缀名是 .asm，如果包含了机器码后缀名为 .cod。可以使用 /Fa 选项修改名称
+#    和后缀名以及目录。
+# /Fa<file>
+#    默认为每个源文件生成一个 source.asm 文件。directory/filename.extension 将汇编文
+#    件输出到对应目录的对应后缀的对应文件，只能在编译单个的源文件时才有效。
+EACH_SOURCE_GEN_ASM_FILE = /FAsu /Fa$(basename $@).d.asm
+EACH_SOURCE_GEN_COD_FILE = /FAcsu /Fa$(basename $@).d.asm
+ifneq ($(filter genasm,$(CONFIG_COMPILER)),)
+OUT_OBJ_FILE = $(EACH_SOURCE_GEN_ASM_FILE) $(OUTOBJFILE__)
+else ifneq ($(filter machcod,$(CONFIG_COMPILER)),)
+OUT_OBJ_FILE = $(EACH_SOURCE_GEN_COD_FILE) $(OUTOBJFILE__)
+else
+OUT_OBJ_FILE = $(OUTOBJFILE__)
 endif
 
 # /MT use multithread static version of the run-time library,
@@ -275,7 +299,7 @@ link-com-obj = $(archive-cmd)
 
 # input .o .a (.obj .lib) output .exe
 LINK_STACK_SIZE = $(if $(target_stack_size),/STACK:$(target_stack_size))
-link-exe-cmd = $(LD) $(LINK_EXE_FLAGS) $(if $(2),,/ENTRY:$(LINK_MAIN_ENTRY)) $(LINK_STACK_SIZE) \
+link-exe-cmd = $(LD) $(LINK_EXE_FLAGS) $(target_ld_flags) $(if $(2),,/ENTRY:$(LINK_MAIN_ENTRY)) $(LINK_STACK_SIZE) \
     /MAP:$(basename $@).map /OUT:$@ $(LIBPATH_FLAGS) $(call OPTION_LIBPATH,$(target_ld_dirs)) $(2)$(1) \
     $(target_ld_libs) $(msc-lib-y)
 link-exe-with-opt-file = $(call link-exe-cmd,$(1),@)
@@ -297,3 +321,8 @@ quiet_cmd_gen_target_hex = $(quiet_echo_genhex)
 
 quiet_cmd_gen_target_sec = $(quiet_echo_genbin)
       cmd_gen_target_sec = $(OBJDUMP) /SECTION:$(suffix $@) /OUT:$@ $<
+
+# compile masm source to object
+# .asm -> .o
+quiet_cmd_asm_to_o  = $(quiet_echo_as)
+      cmd_asm_to_o  = $(AS) $(built_as_flags) $(ASM_TO_OBJ_OUTFILE) $(COMPILE_ASM_TO_OBJ) $(INPUT_FIRST_PREREQ)
