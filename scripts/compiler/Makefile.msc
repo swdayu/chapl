@@ -30,7 +30,6 @@ ifneq ($(filter x86_64 x86_x64 x64,$(CONFIG_COMPILER)),)
 use_arch := X64
 else
 use_arch := X86
-INIT_MACROS += /DWIN32
 endif
 
 ifneq ($(filter dll,$(TARGET_TYPE)),)
@@ -50,6 +49,8 @@ LINK_DRIVER_FLAGS := /DRIVER:WDM
 else
 subsystem := CONSOLE
 endif
+
+INIT_MACROS += /DNDEBUG
 
 ifneq ($(filter unicode,$(CONFIG_COMPILER)),)
 LINK_MAIN_ENTRY := w$(LINK_MAIN_ENTRY)
@@ -232,18 +233,6 @@ INIT_CFLAGS += \
 	/I"$(call windows_path_style,$(wsdk_inc_ucrt))" \
 	/I"$(call windows_path_style,$(wsdk_inc_shared))"
 
-# define WIN32_LEAN_AND_MEAN to exclude apis such as Cryptography, DDE, RPC,
-# Shell, and Windows Sockets
-INIT_MACROS += /DWIN32_LEAN_AND_MEAN
-
-# when you define STRICT you enable features that require more care in declaring
-# and using types. this helps you write more portable code. this extra care will
-# also reduce your debuging time.
-INIT_MACROS += /DSTRICT
-
-INIT_MACROS += /DNDEBUG
-INIT_MACROS += /D_CRT_SECURE_NO_DEPRECATE
-
 # Release Win32
 # Compile:
 # /permissive- /ifcOutput "Release\" /GS /GL /analyze- /W3 /Gy /Zc:wchar_t
@@ -275,10 +264,7 @@ INIT_MACROS += /D_CRT_SECURE_NO_DEPRECATE
 # /PGD:"x64\Release\out.pgd" /SUBSYSTEM:CONSOLE /MANIFESTUAC:"level='asInvoker' uiAccess='false'"
 # /ManifestFile:"x64\Release\out.exe.intermediate.manifest" /LTCGOUT:"x64\Release\out.iobj"
 # /OPT:ICF /ERRORREPORT:PROMPT /ILK:"x64\Release\out.ilk" /NOLOGO /TLBID:1 
-# "/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/bin/Hostx86/x86/cl.exe" /permissive- /ifcOutput "Release/" /GS /GL /analyze- /W3 /Gy /Zc:wchar_t /I"d:/bysh/c/repo/kernel/lang" /I"c:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/include" /I"c:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/shared" /I"c:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/ucrt" /I"c:/Program Files (x86)/Windows Kits/10/Include/10.0.22621.0/um" /Zi /Gm- /O2 /sdl /Zc:inline /fp:precise /D "WIN32" /D "NDEBUG" /D "_CONSOLE" /D "_UNICODE" /D "UNICODE" /errorReport:prompt /WX- /Zc:forScope /std:c17 /Gd /Oy- /Oi /MT /FC /Fa"Release/" /EHsc /nologo /Fo"Release/" /Fp"Release/comiler.pch" /diagnostics:column /c libtcc.c test.c
-# "/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/bin/Hostx86/x86/link.exe" /OUT:"Release/comiler.exe" /MANIFEST /LTCG:incremental /NXCOMPAT /PDB:"Release/comiler.pdb" /DYNAMICBASE "kernel32.lib" "user32.lib" "gdi32.lib" "winspool.lib" "comdlg32.lib" "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib" "uuid.lib" "odbc32.lib" "odbccp32.lib" /MACHINE:X86 /OPT:REF /SAFESEH /SUBSYSTEM:CONSOLE /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /ManifestFile:"Release/comiler.exe.intermediate.manifest" /LTCGOUT:"Release/comiler.iobj" /OPT:ICF /ERRORREPORT:PROMPT /ILK:"Release/comiler.ilk" /NOLOGO /TLBID:1 /LIBPATH:"c:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/lib/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/um/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/ucrt/x86" Release/test.obj ./Release/libtcc.obj
-# "/mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/bin/Hostx86/x86/link.exe" /OUT:"Release/comiler.exe" /MANIFEST /LTCG:incremental /NXCOMPAT /PDB:"Release/comiler.pdb" /DYNAMICBASE "kernel32.lib" /MACHINE:X86 /OPT:REF /SAFESEH /SUBSYSTEM:CONSOLE /MANIFESTUAC:"level='asInvoker' uiAccess='false'" /ManifestFile:"Release/comiler.exe.intermediate.manifest" /LTCGOUT:"Release/comiler.iobj" /OPT:ICF /ERRORREPORT:PROMPT /ILK:"Release/comiler.ilk" /NOLOGO /TLBID:1 /LIBPATH:"c:/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.38.33130/lib/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/um/x86" /LIBPATH:"c:/Program Files (x86)/Windows Kits/10/Lib/10.0.22621.0/ucrt/x86" Release/test.obj ./Release/libtcc.obj
-
+#
 # "kernel32.lib" "user32.lib" "gdi32.lib" "winspool.lib" "comdlg32.lib"
 # "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib" "uuid.lib"
 # "odbc32.lib" "odbccp32.lib"

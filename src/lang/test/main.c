@@ -1,9 +1,11 @@
 #include "internal/decl.h"
-extern void test_builtin(void);
+void test_decl(void);
+void test_chcc(void);
 
 int main(int argc, char **argv)
 {
-    test_builtin();
+    test_decl();
+    test_chcc();
     printf("TEST PASS\n");
     return 0;
 }

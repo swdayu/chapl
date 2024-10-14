@@ -1,7 +1,7 @@
 #include "internal/decl.h"
-DEBUG_MODULE(STRID_TEST_BUILTIN)
+DEBUG_MODULE(STRID_TEST_DECL)
 
-void test_builtin(void)
+void test_decl(void)
 {
     lang_assert(nil == 0);
     lang_assert(ERROR == 1);
