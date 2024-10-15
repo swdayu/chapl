@@ -215,6 +215,19 @@ typedef struct {
 
 typedef struct {
     Uint len;
+} strfix2_t;
+
+typedef struct {
+    strfix2_t *a;
+} strfix_t;
+
+bool strfix_init(strfix_t *s, Uint len);
+void strfix_free(strfix_t *s);
+Uint strfix_len(strfix2_t *a) { return a->len; }
+byte *strfix_data(strfix2_t *a) { return (uint8*)(a+1); }
+
+typedef struct {
+    Uint len;
 } arrfix_t;
 
 typedef struct {
@@ -228,7 +241,18 @@ typedef struct {
 typedef struct {
     Uint len;
     Uint elt;
-} arrfix_elt_t;
+} arrfix_elt_a_t;
+
+typedef struct {
+    arrfix_elt_a_t *a;
+} arrfix_elt_t; // elt版本的一个缺点是指针步进的计数不是乘以一个常量而是一个运行时值
+
+bool arrfix_elt_init(arrfix_elt_t *p, Uint elt_bytes, Uint elt_count);
+void arrfix_elt_free(arrfix_elt_t *p);
+Uint arrfix_elt_len(arrfix_elt_a_t *a) { return a->len; } // 元素个数
+byte *arrfix_elt_data(arrfix_elt_a_t *a) { return (byte*)(a+1); } // 数组数据
+byte *arrfix_elt_at(arrfix_elt_a_t *a, Uint i) { return ((byte*)(a+1)) + a->elt * i; }
+byte *arrfix_elt_at2(arrfix_elt_a_t *a, Uint i, Uint N) { return ((byte*)(a+1)) + N * i; }
 
 typedef struct {
     uint16 len;
@@ -259,11 +283,16 @@ void buffix_free(buffix_t *b);
 
 typedef struct {
     byte *cur;
+} buffix_arr2_t;
+
+typedef struct {
+    buffix_arr2_t *a;
 } buffix_arr_t;
-#define buffix_arr_cap(b) (*((Uint*)((b)+1)))
-#define buffix_arr_data(b) ((byte*)((b)+2))
+
 bool buffix_arr_init(buffix_arr_t *b, Uint cap);
 void buffix_arr_free(buffix_arr_t *b);
+Uint buffix_arr_cap(buffix_arr2_t *a) { return *(((Uint*)a)-1); }
+byte *buffix_arr_data(buffix_arr2_t *a) { return (byte*)(a+1); }
 
 typedef struct {
     byte* a;    // 必须是第一个字段
@@ -285,7 +314,22 @@ typedef struct {
     byte* a;    // 必须是第一个字段
     uint16 cap;
     uint16 len;
-} buff16_t;
+} buffer_16_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    Uint cap;
+    Uint len;
+    Uint elt;
+} buffer_elt_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    uint16 cap;
+    uint16 len;
+    uint16 elt;
+    uint16 extra;
+} buffer_elt_16_t;
 
 typedef struct {
     byte* a;    // 必须是第一个字段
@@ -300,7 +344,23 @@ typedef struct {
     uint16 len;
     uint16 start;
     uint16 extra;
-} deff16_t;
+} deffer_16_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    Uint cap;
+    Uint len;
+    Uint start;
+    Uint elt;
+} deffer_elt_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    uint16 cap;
+    uint16 len;
+    uint16 start;
+    uint16 elt;
+} deffer_elt_16_t;
 
 typedef struct {
     Uint cap;
@@ -310,7 +370,32 @@ typedef struct {
 typedef struct {
     uint16 cap;
     uint16 len;
-} arr16_t;
+} array_16_t;
+
+typedef struct {
+    uint8 cap;
+    uint8 len;
+} array_8_t;
+
+typedef struct {
+    Uint cap;
+    Uint len;
+    Uint elt;
+} array_elt_t;
+
+typedef struct {
+    uint16 cap;
+    uint16 len;
+    uint16 elt;
+    uint16 extra;
+} array_elt_16_t;
+
+typedef struct {
+    uint8 cap;
+    uint8 len;
+    uint8 elt;
+    uint8 extra;
+} array_elt_8_t;
 
 typedef struct {
     Uint cap;
@@ -323,7 +408,35 @@ typedef struct {
     uint16 len;
     uint16 start;
     uint16 extra;
-} dea16_t;
+} dearr_16_t;
+
+typedef struct {
+    uint8 cap;
+    uint8 len;
+    uint8 start;
+    uint8 extra;
+} dearr_8_t;
+
+typedef struct {
+    Uint cap;
+    Uint len;
+    Uint start;
+    Uint elt;
+} dearr_elt_t;
+
+typedef struct {
+    uint16 cap;
+    uint16 len;
+    uint16 start;
+    uint16 elt;
+} dearr_elt_16_t;
+
+typedef struct {
+    uint8 cap;
+    uint8 len;
+    uint8 start;
+    uint8 elt;
+} dearr_elt_8_t;
 
 typedef struct snode {
     struct snode *next;
@@ -343,13 +456,19 @@ typedef struct list {
     node_t head;
 } list_t;
 
-typedef arrfix_t alist_hash_t;
+typedef struct {
+    Uint len;
+} bhash2_t;
+
+typedef struct {
+    bhash2_t *a;
+} bhash_t;
 
 typedef bool (*equal_t)(const void *object, const void *cmp_para);
 typedef void (*free_t)(void *object);
-alist_hash_t *alist_hash_init(Uint len); // len是2的幂
-void alist_hash_free(alist_hash_t *a, free_t func);
-byte *alit_hash_push(alist_hash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist);
-byte *alist_hash_find(alist_hash_t *a, uint32 hash, equal_t eq, const void *cmp_para);
+bool bhash_init(bhash_t *p, Uint len); // len是2的幂
+void bhash_free(bhash_t *p, free_t func);
+byte *bhash_push(bhash2_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist);
+byte *bhash_find(bhash2_t *a, uint32 hash, equal_t eq, const void *cmp_para);
 
 #endif /* CHAPL_BUILTIN_DECL_H */

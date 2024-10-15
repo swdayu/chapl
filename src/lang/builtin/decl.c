@@ -148,46 +148,48 @@ void buffer_push(buffer_t *b, const byte* a, Uint n)
     memcpy(b->a + b->len, a, n);
 }
 
-alist_hash_t *alist_hash_init(Uint len)
+bool bhash_init(bhash_t *p, Uint len)
 {
     Uint alloc;
-    alist_hash_t *p;
+    bhash2_t *a;
     if (len < 2) {
         len = 2;
     }
-    alloc = sizeof(alist_hash_t) + len * sizeof(snode_t);
-    p = (alist_hash_t *)malloc(alloc);
-    if (p) {
-        memset(p, 0, alloc);
-        p->len = len; // len 必须是 2 的幂
-    } else {
-        p->len = 0;
+    alloc = sizeof(bhash_t) + len * sizeof(snode_t);
+    a = (bhash2_t *)malloc(alloc);
+    p->a = a;
+    if (a) {
+        memset(a, 0, alloc);
+        a->len = len; // len 必须是 2 的幂
+        return true;
     }
-    return p;
+    a->len = 0;
+    return false;
 }
 
-void alist_hash_free(alist_hash_t *a, free_t func)
+void bhash_free(bhash_t *p, free_t func)
 {
+    bhash2_t *a = p->a;
     if (!a) return;
     Uint i = 0;
     Uint n = a->len + 1;
     snode_t *head = (snode_t *)(a + 1);
-    snode_t *p = 0;
+    snode_t *node = 0;
     for (; i < n; i += 1) {
         while (head->next) {
-            p = head->next;
-            head->next = p->next;
+            node = head->next;
+            head->next = node->next;
             if (func) {
-                func(p + 1);
+                func(node + 1);
             }
-            free(p);
+            free(node);
         }
         head += 1;
     }
     free(a);
 }
 
-byte *alit_hash_push(alist_hash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist)
+byte *bhash_push(bhash2_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist)
 {
     snode_t *head = (snode_t *)(a + 1);
     snode_t *node = 0;
@@ -213,7 +215,7 @@ label_loop:
     goto label_loop;
 }
 
-byte *alist_hash_find(alist_hash_t *a, uint32 hash, equal_t eq, const void *cmp_para)
+byte *bhash_find(bhash2_t *a, uint32 hash, equal_t eq, const void *cmp_para)
 {
     snode_t *head = (snode_t *)(a + 1);
     snode_t *node = 0;
