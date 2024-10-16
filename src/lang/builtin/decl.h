@@ -179,19 +179,19 @@ typedef enum {
 } builtin_error_enum_t;
 
 #if CONFIG_RT_ERROR_STRING
-extern const byte* g_builtin_errors[BUILTIN_NUM_ERRORS];
-#define builtin_error(id) ((Error)g_builtin_errors[id])
+extern const byte* builtin_errors_g[BUILTIN_NUM_ERRORS];
+#define builtin_error(id) ((Error)builtin_errors_g[id])
 #else
 #define builtin_error(id) (((id) > ERROR) ? (((id) << 1) | ERROR) : (id))
 #endif
 
-extern __DECL_THREAD Error g_tl_error;
+extern __DECL_THREAD Error error_g;
 
 #undef set_last_error
 #undef get_last_error
 
-#define set_last_error(n) g_tl_error = (n)
-#define get_last_error() g_tl_error
+#define set_last_error(n) error_g = (n)
+#define get_last_error() error_g
 
 // 将 p 开始的 len 个字节写入到 obj 中，返回成功写入的字节数（0 <= n <= len），如果
 // len > 0 而 n < len，表示在写完之前被某个错误提前打断，此时必须返回一个非 nil 值的
@@ -215,20 +215,28 @@ typedef struct {
 
 typedef struct {
     Uint len;
-} strfix2_t;
-
-typedef struct {
-    strfix2_t *a;
 } strfix_t;
 
-bool strfix_init(strfix_t *s, Uint len);
-void strfix_free(strfix_t *s);
-Uint strfix_len(strfix2_t *a) { return a->len; }
-byte *strfix_data(strfix2_t *a) { return (uint8*)(a+1); }
+typedef struct {
+    strfix_t *a;
+} strfix2_t;
+
+bool strfix_init(strfix2_t *s, Uint len);
+void strfix_free(strfix2_t *s);
+inline Uint strfix_len(strfix_t *a) { return a->len; }
+inline byte *strfix_data(strfix_t *a) { return (uint8*)(a+1); }
 
 typedef struct {
     Uint len;
 } arrfix_t;
+
+typedef struct {
+    arrfix_t *a;
+} arrfix2_t;
+
+bool arrfix_init(arrfix2_t *a, Uint len);
+inline Uint arrfix_len(arrfix_t *a) { return a->len; }
+inline byte *arrfix_data(arrfix_t *a) { return (byte *)(a + 1); }
 
 typedef struct {
     uint16 len;
@@ -239,133 +247,51 @@ typedef struct {
 } arrfix_8_t;
 
 typedef struct {
-    Uint len;
-    Uint elt;
-} arrfix_elt_a_t;
+    Uint len;   // 必须是第一个字段
+    Uint elt;   // 必须是第二个字段
+} arrfix_ex_t;
 
 typedef struct {
-    arrfix_elt_a_t *a;
-} arrfix_elt_t; // elt版本的一个缺点是指针步进的计数不是乘以一个常量而是一个运行时值
+    arrfix_ex_t *a;
+} arrfix2_ex_t; // elt版本的一个缺点是指针步进的计数不是乘以一个常量而是一个运行时值
 
-bool arrfix_elt_init(arrfix_elt_t *p, Uint elt_bytes, Uint elt_count);
-void arrfix_elt_free(arrfix_elt_t *p);
-Uint arrfix_elt_len(arrfix_elt_a_t *a) { return a->len; } // 元素个数
-byte *arrfix_elt_data(arrfix_elt_a_t *a) { return (byte*)(a+1); } // 数组数据
-byte *arrfix_elt_at(arrfix_elt_a_t *a, Uint i) { return ((byte*)(a+1)) + a->elt * i; }
-byte *arrfix_elt_at2(arrfix_elt_a_t *a, Uint i, Uint N) { return ((byte*)(a+1)) + N * i; }
+bool arrfix_ex_init(arrfix2_ex_t *p, Uint elt_bytes, Uint elt_count);
+inline Uint arrfix_ex_len(arrfix_ex_t *a) { return a->len; } // 元素个数
+inline byte *arrfix_ex_data(arrfix_ex_t *a) { return (byte*)(a+1); } // 数组数据
+inline byte *arrfix_ex_at(arrfix_ex_t *a, Uint i) { return (arrfix_ex_data(a) + i * a->elt); }
+inline byte *arrfix_ex_at_n(arrfix_ex_t *a, Uint i, Uint N) { return (arrfix_ex_data(a) + i * N); }
 
 typedef struct {
     uint16 len;
     uint16 elt;
-} arrfix_elt_16_t;
+} arrfix_e16_t;
 
 typedef struct {
     uint8 len;
     uint8 elt;
-} arrfix_elt_8_t;
-
-#define arrfix_data(a) ((uint8*)((a)+1))
-#define arrfix_len(a) ((a)->len)
-#define arrfix_empty(b) (!((a)->len))
-
-// buffix_t
-//  维护一个固定长度的内存空间，只在初始化时分配一次，数组长度保存在负向机器字长中
-//  当前位置 cur 可以在数组范围内移动
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    byte* cur;
-} buffix_t;
-
-#define buffix_realaddr(b) (((Uint*)(b)->a)-1)
-#define buffix_cap(b) (*buffix_realaddr(b))
-bool buffix_init(buffix_t *b, Uint cap);
-void buffix_free(buffix_t *b);
+} arrfix_e8_t;
 
 typedef struct {
-    byte *cur;
-} buffix_arr2_t;
-
-typedef struct {
-    buffix_arr2_t *a;
-} buffix_arr_t;
-
-bool buffix_arr_init(buffix_arr_t *b, Uint cap);
-void buffix_arr_free(buffix_arr_t *b);
-Uint buffix_arr_cap(buffix_arr2_t *a) { return *(((Uint*)a)-1); }
-byte *buffix_arr_data(buffix_arr2_t *a) { return (byte*)(a+1); }
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    Uint cap;
-    Uint len;
-} buffer_t;
-
-#define buffer_data(b) ((const byte*)((b)->a))
-#define buffer_cap(b) ((b)->cap)
-#define buffer_len(b) ((b)->len)
-#define buffer_empty(b) (!((b)->len))
-#define buffer_eq(b, a, n) ((buffer_len(b) == n) && (memcmp(buffer_data(b), (a), (n)) == 0))
-bool buffer_init(buffer_t *b, Uint cap);
-void buffer_free(buffer_t *b);
-void buffer_reset(buffer_t *b);
-void buffer_push(buffer_t *b, const byte* a, Uint n);
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    uint16 cap;
-    uint16 len;
-} buffer_16_t;
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    Uint cap;
-    Uint len;
-    Uint elt;
-} buffer_elt_t;
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    uint16 cap;
-    uint16 len;
-    uint16 elt;
-    uint16 extra;
-} buffer_elt_16_t;
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    Uint cap;
-    Uint len;
-    Uint start;
-} deffer_t;
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    uint16 cap;
-    uint16 len;
-    uint16 start;
-    uint16 extra;
-} deffer_16_t;
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    Uint cap;
-    Uint len;
-    Uint start;
-    Uint elt;
-} deffer_elt_t;
-
-typedef struct {
-    byte* a;    // 必须是第一个字段
-    uint16 cap;
-    uint16 len;
-    uint16 start;
-    uint16 elt;
-} deffer_elt_16_t;
-
-typedef struct {
-    Uint cap;
-    Uint len;
+    Uint cap;   // 必须是第一个字段
+    Uint len;   // 必须是第二个字段
 } array_t;
+
+typedef struct {
+    array_t *a;
+} array2_t;
+
+bool array_init(array2_t *a, Uint cap);
+void array_free(array2_t *a);
+bool array_push(array2_t *a, const byte* p, Uint len, Uint expand);
+inline void arrfix_free(arrfix2_t *a) { array_free((array2_t *)a); }
+inline void arrfix_ex_free(arrfix2_ex_t *a) { array_free((array2_t *)a); }
+inline bool array_push_s(array2_t *a, const string_t *s, Uint expand) { return array_push(a, s->a, s->len, expand); }
+inline void array_reset(array_t *a) { a->len = 0; }
+inline Uint array_cap(array_t *a) { return a->cap; }
+inline Uint array_len(array_t *a) { return a->len; }
+inline bool array_empty(array_t *a) { return !array_len(a); }
+inline byte *array_data(array_t *a) { return (byte *)(a + 1); }
+inline byte *array_end(array_t *a) { return array_data(a) + a->len; }
 
 typedef struct {
     uint16 cap;
@@ -378,24 +304,41 @@ typedef struct {
 } array_8_t;
 
 typedef struct {
-    Uint cap;
-    Uint len;
-    Uint elt;
-} array_elt_t;
+    Uint cap;   // 必须是第一个字段
+    Uint len;   // 必须是第二个字段
+    Uint elt;   // 必须是第三个字段
+} array_ex_t;
+
+typedef struct {
+    array_ex_t *a;
+} array2_ex_t;
+
+bool array_ex_init(array2_ex_t *a, Uint elt_bytes, Uint elt_count);
+bool array_ex_push(array2_ex_t *a, const byte* p, Uint expand);
+inline bool array_ex_push_s(array2_ex_t *a, const string_t *s, Uint expand) { return array_ex_push(a, s->a, s->len, expand); }
+inline void array_ex_free(array2_ex_t *a) { array_free((array2_t *)a); }
+inline void array_ex_reset(array_ex_t *a) { a->len = 0; }
+inline Uint array_ex_cap(array_ex_t *a) { return a->cap; }
+inline Uint array_ex_len(array_ex_t *a) { return a->len; }
+inline bool array_ex_empty(array_ex_t *a) { return !array_ex_len(a); }
+inline byte *array_ex_data(array_ex_t *a) { return (byte *)(a + 1); }
+inline byte *array_ex_end(array_ex_t *a) { return array_ex_data(a) + a->len * a->elt; }
+inline byte *array_ex_at(array_ex_t *a, Uint i) { return array_ex_data(a) + i * a->elt; }
+inline byte *array_ex_at_n(array_ex_t *a, Uint i, Uint N) { return array_ex_data(a) + i * N; }
 
 typedef struct {
     uint16 cap;
     uint16 len;
     uint16 elt;
     uint16 extra;
-} array_elt_16_t;
+} array_e16_t;
 
 typedef struct {
     uint8 cap;
     uint8 len;
     uint8 elt;
     uint8 extra;
-} array_elt_8_t;
+} array_e8_t;
 
 typedef struct {
     Uint cap;
@@ -422,21 +365,108 @@ typedef struct {
     Uint len;
     Uint start;
     Uint elt;
-} dearr_elt_t;
+} dearr_ex_t;
 
 typedef struct {
     uint16 cap;
     uint16 len;
     uint16 start;
     uint16 elt;
-} dearr_elt_16_t;
+} dearr_e16_t;
 
 typedef struct {
     uint8 cap;
     uint8 len;
     uint8 start;
     uint8 elt;
-} dearr_elt_8_t;
+} dearr_e8_t;
+
+// buffix_t
+//  维护一个固定长度的内存空间，只在初始化时分配一次
+//  当前位置 cur 可以在数组范围内移动
+typedef struct {
+    Uint cap;   // 必须是第一个字段
+    byte *cur;
+} buffix_t;
+
+typedef struct {
+    buffix_t *a;
+} buffix2_t;
+
+bool buffix_init(buffix2_t *b, Uint cap);
+inline void buffix_free(buffix2_t *b) { array_free((array2_t *)b); }
+inline Uint buffix_cap(buffix_t *a) { return a->cap; }
+inline byte *buffix_data(buffix_t *a) { return (byte *)(a + 1); }
+inline byte *buffix_cur(buffix_t *a) { return a->cur; }
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    Uint cap;   // 必须是第二个字段
+    Uint len;
+} buffer_t;
+
+bool buffer_init(buffer_t *b, Uint cap);
+void buffer_free(buffer_t *b);
+bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand);
+inline void buffer_reset(buffer_t *b) { b->len = 0; }
+inline Uint buffer_cap(buffer_t *b) { return b->cap; }
+inline Uint buffer_len(buffer_t *b) { return b->len; }
+inline byte *buffer_data(buffer_t *b) { return b->a; }
+inline bool buffer_empty(buffer_t *b) { return !buffer_len(b); }
+inline bool buffer_eq(buffer_t *b, const byte *a, Uint len) { return ((a != 0) && (buffer_len(b) == len) && (memcmp(buffer_data(b), a, len) == 0)); }
+inline bool buffer_eq_s(buffer_t *b, const string_t *s) { return buffer_eq(b, s->a, s->len); }
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    uint16 cap; // 必须是第二个字段
+    uint16 len;
+} buffer_16_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    Uint cap;   // 必须是第二个字段
+    Uint len;
+    Uint elt;
+} buffer_ex_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    uint16 cap; // 必须是第二个字段
+    uint16 len;
+    uint16 elt;
+    uint16 extra;
+} buffer_e16_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    Uint cap;   // 必须是第二个字段
+    Uint len;
+    Uint start;
+} deffer_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    uint16 cap; // 必须是第二个字段
+    uint16 len;
+    uint16 start;
+    uint16 extra;
+} deffer_16_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    Uint cap;   // 必须是第二个字段
+    Uint len;
+    Uint start;
+    Uint elt;
+} deffer_ex_t;
+
+typedef struct {
+    byte* a;    // 必须是第一个字段
+    uint16 cap; // 必须是第二个字段
+    uint16 len;
+    uint16 start;
+    uint16 elt;
+} deffer_e16_t;
 
 typedef struct snode {
     struct snode *next;
@@ -458,17 +488,17 @@ typedef struct list {
 
 typedef struct {
     Uint len;
-} bhash2_t;
+} bhash_t;
 
 typedef struct {
-    bhash2_t *a;
-} bhash_t;
+    bhash_t *a;
+} bhash2_t;
 
 typedef bool (*equal_t)(const void *object, const void *cmp_para);
 typedef void (*free_t)(void *object);
-bool bhash_init(bhash_t *p, Uint len); // len是2的幂
-void bhash_free(bhash_t *p, free_t func);
-byte *bhash_push(bhash2_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist);
-byte *bhash_find(bhash2_t *a, uint32 hash, equal_t eq, const void *cmp_para);
+bool bhash_init(bhash2_t *p, Uint len); // len是2的幂
+void bhash_free(bhash2_t *p, free_t func);
+byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist);
+byte *bhash_find(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para);
 
 #endif /* CHAPL_BUILTIN_DECL_H */
