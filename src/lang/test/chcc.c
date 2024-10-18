@@ -4,6 +4,13 @@ DEBUG_MODULE(STRID_TEST_CHCC)
 
 void test_chcc(void)
 {
+    cfstate_t cfst;
+    bufile_t *f;
+    char s[] = "type array_t struct { uint cap len }";
+
+    f = bufile_new(NULL, (byte*)s, sizeof(s)-1);
+    cifa_init(&cfst, f);
+
     lang_assert(CIFA_CF_BASE == 0xFE000000);
     lang_assert(CIFA_CF_LSH == 0xFE000001);
     lang_assert(CIFA_CF_RSH == 0xFE000003);
@@ -37,4 +44,7 @@ void test_chcc(void)
     lang_assert(CIFA_CH_COLON == 0x3A);
     lang_assert(CIFA_CH_XOR == 0x5E);
     lang_assert(CIFA_CH_BOR == 0x7C);
+
+    bufile_delete(f);
+    cifa_free(&cfst);
 }

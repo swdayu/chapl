@@ -96,7 +96,7 @@ typedef float64 Float;
 #endif
 
 #define DEBUG_MODULE(FILE_ID) typedef enum { \
-        __CURR_FILE__ = (FILE_ID) << 16, \
+        __CURR_FILE__ = FILE_ID, \
         __LOG_LEVEL__ = FILE_ID##_LOG_LEVEL, \
     } debug_module_enum_t;
 
@@ -121,7 +121,7 @@ void logtracen_(Error err, uint32 file_err, uint32 argn_line, ...);
 #define LOG_LEVEL_I 0x03000000 // information
 #define LOG_LEVEL_D 0x04000000 // only for debug, not in release
 
-#define X_FILE(err) __CURR_FILE__
+#define X_FILE(err) (__CURR_FILE__ << 16)
 #define X_LINE(level, argn) (argn << 27) | level | __LINE__
 
 #define LOG_FILE(file) ((strid_t)((file) >> 16))
@@ -286,7 +286,7 @@ bool array_push(array2_t *a, const byte* p, Uint len, Uint expand);
 inline void arrfix_free(arrfix2_t *a) { array_free((array2_t *)a); }
 inline void arrfix_ex_free(arrfix2_ex_t *a) { array_free((array2_t *)a); }
 inline bool array_push_s(array2_t *a, const string_t *s, Uint expand) { return array_push(a, s->a, s->len, expand); }
-inline void array_reset(array_t *a) { a->len = 0; }
+inline void array_clear(array_t *a) { a->len = 0; }
 inline Uint array_cap(array_t *a) { return a->cap; }
 inline Uint array_len(array_t *a) { return a->len; }
 inline bool array_empty(array_t *a) { return !array_len(a); }
@@ -306,7 +306,7 @@ typedef struct {
 typedef struct {
     Uint cap;   // 必须是第一个字段
     Uint len;   // 必须是第二个字段
-    Uint elt;   // 必须是第三个字段
+    Uint elt;
 } array_ex_t;
 
 typedef struct {
@@ -315,9 +315,8 @@ typedef struct {
 
 bool array_ex_init(array2_ex_t *a, Uint elt_bytes, Uint elt_count);
 bool array_ex_push(array2_ex_t *a, const byte* p, Uint expand);
-inline bool array_ex_push_s(array2_ex_t *a, const string_t *s, Uint expand) { return array_ex_push(a, s->a, s->len, expand); }
 inline void array_ex_free(array2_ex_t *a) { array_free((array2_t *)a); }
-inline void array_ex_reset(array_ex_t *a) { a->len = 0; }
+inline void array_ex_clear(array_ex_t *a) { a->len = 0; }
 inline Uint array_ex_cap(array_ex_t *a) { return a->cap; }
 inline Uint array_ex_len(array_ex_t *a) { return a->len; }
 inline bool array_ex_empty(array_ex_t *a) { return !array_ex_len(a); }
@@ -395,6 +394,7 @@ typedef struct {
 
 bool buffix_init(buffix2_t *b, Uint cap);
 inline void buffix_free(buffix2_t *b) { array_free((array2_t *)b); }
+inline void buffix_init_inplace(buffix_t *a, Uint cap) { a->cap = cap; a->cur = (byte*)(a + 1); }
 inline Uint buffix_cap(buffix_t *a) { return a->cap; }
 inline byte *buffix_data(buffix_t *a) { return (byte *)(a + 1); }
 inline byte *buffix_cur(buffix_t *a) { return a->cur; }
@@ -408,7 +408,7 @@ typedef struct {
 bool buffer_init(buffer_t *b, Uint cap);
 void buffer_free(buffer_t *b);
 bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand);
-inline void buffer_reset(buffer_t *b) { b->len = 0; }
+inline void buffer_clear(buffer_t *b) { b->len = 0; }
 inline Uint buffer_cap(buffer_t *b) { return b->cap; }
 inline Uint buffer_len(buffer_t *b) { return b->len; }
 inline byte *buffer_data(buffer_t *b) { return b->a; }
@@ -487,6 +487,18 @@ typedef struct list {
 } list_t;
 
 typedef struct {
+    snode_t *top;
+} stack_t;
+
+typedef void (*free_t)(void *object);
+byte *stack_push(stack_t *s, Uint obj_bytes);
+bool stack_pop(stack_t *s, free_t func);
+void stack_free(stack_t *s, free_t func);
+inline void stack_init(stack_t *s) { s->top = 0; }
+inline bool stack_empty(stack_t *s) { return !s->top; }
+inline byte *stack_top(stack_t *s) { return stack_empty(s) ? 0 : (byte*)(s->top+1); }
+
+typedef struct {
     Uint len;
 } bhash_t;
 
@@ -495,7 +507,6 @@ typedef struct {
 } bhash2_t;
 
 typedef bool (*equal_t)(const void *object, const void *cmp_para);
-typedef void (*free_t)(void *object);
 bool bhash_init(bhash2_t *p, Uint len); // len是2的幂
 void bhash_free(bhash2_t *p, free_t func);
 byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist);

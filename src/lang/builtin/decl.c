@@ -192,7 +192,7 @@ bool buffer_init(buffer_t *b, Uint cap)
 
 void buffer_free(buffer_t *b)
 {
-    bufferfree_(b, sizeof(buffer_t));
+    bufferfree_((buffer_head_t *)b, sizeof(buffer_t));
 }
 
 bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand)
@@ -224,6 +224,44 @@ bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand)
     memcpy(b->a + b->len, a, n);
     b->len = len2;
     return true;
+}
+
+byte *stack_push(stack_t *s, Uint obj_bytes)
+{
+    snode_t *top = s->top;
+    snode_t *p = (snode_t *)malloc(sizeof(snode_t) + obj_bytes);
+    if (p) {
+        s->top = p;
+        p->next = top;
+        return (byte *)(p + 1);
+    }
+    return 0;
+}
+
+bool stack_pop(stack_t *s, free_t func)
+{
+    snode_t *p = s->top;
+    if (p) {
+        s->top = p->next;
+        if (func) {
+            func(p + 1);
+        }
+        free(p);
+        return true;
+    }
+    return false;
+}
+
+void stack_free(stack_t *s, free_t func)
+{
+    snode_t *p;
+    while ((p = s->top)) {
+        s->top = p->next;
+        if (func) {
+            func(p + 1);
+        }
+        free(p);
+    }
 }
 
 bool bhash_init(bhash2_t *p, Uint len)
@@ -296,7 +334,6 @@ label_loop:
 byte *bhash_find(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para)
 {
     snode_t *head = (snode_t *)(a + 1);
-    snode_t *node = 0;
     hash &= (a->len - 1);
     head += hash;
 label_loop:
