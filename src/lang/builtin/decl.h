@@ -68,8 +68,8 @@ const static uint64 LANG_MAX_UNT64 = 0xffffffffffffffffULL; /* 18446744073709551
 #undef Error
 
 #define nil 0
-#define true (0 == 0)
-#define false (0 != 0)
+#define true 1
+#define false 0
 typedef uint8 bool;
 typedef uint8 byte;
 typedef int32 rune;
@@ -210,8 +210,16 @@ typedef Int (*WriterTo)(void *obj, Writer wr);
 
 typedef struct {
     byte* a;    // 必须是第一个字段
-    Uint len;
+    Uint len: __ARCH_BITS__ - 1;
+    Uint dyn: 1;
 } string_t;
+
+bool string_init(string_t *s, const byte *a, Int len, bool alloc);
+void string_move_init(string_t *s, string_t *from);
+void string_move(string_t *to, string_t *from);
+void string_free(string_t *s);
+inline Uint string_len(string_t *s) { return s->len; }
+inline byte *string_data(string_t *s) { return s->a; }
 
 typedef struct {
     Uint len;
@@ -221,10 +229,10 @@ typedef struct {
     strfix_t *a;
 } strfix2_t;
 
-bool strfix_init(strfix2_t *s, Uint len);
+bool strfix_init(strfix2_t *s, Int len);
 void strfix_free(strfix2_t *s);
 inline Uint strfix_len(strfix_t *a) { return a->len; }
-inline byte *strfix_data(strfix_t *a) { return (uint8*)(a+1); }
+inline byte *strfix_data(strfix_t *a) { return (byte*)(a+1); }
 
 typedef struct {
     Uint len;
@@ -234,7 +242,7 @@ typedef struct {
     arrfix_t *a;
 } arrfix2_t;
 
-bool arrfix_init(arrfix2_t *a, Uint len);
+bool arrfix_init(arrfix2_t *a, Int len);
 inline Uint arrfix_len(arrfix_t *a) { return a->len; }
 inline byte *arrfix_data(arrfix_t *a) { return (byte *)(a + 1); }
 
@@ -255,11 +263,11 @@ typedef struct {
     arrfix_ex_t *a;
 } arrfix2_ex_t; // elt版本的一个缺点是指针步进的计数不是乘以一个常量而是一个运行时值
 
-bool arrfix_ex_init(arrfix2_ex_t *p, Uint elt_bytes, Uint elt_count);
+bool arrfix_ex_init(arrfix2_ex_t *p, Int elt_bytes, Int elt_count);
 inline Uint arrfix_ex_len(arrfix_ex_t *a) { return a->len; } // 元素个数
 inline byte *arrfix_ex_data(arrfix_ex_t *a) { return (byte*)(a+1); } // 数组数据
-inline byte *arrfix_ex_at(arrfix_ex_t *a, Uint i) { return (arrfix_ex_data(a) + i * a->elt); }
-inline byte *arrfix_ex_at_n(arrfix_ex_t *a, Uint i, Uint N) { return (arrfix_ex_data(a) + i * N); }
+inline byte *arrfix_ex_at(arrfix_ex_t *a, Int i) { return (arrfix_ex_data(a) + i * a->elt); }
+inline byte *arrfix_ex_at_n(arrfix_ex_t *a, Int i, Int N) { return (arrfix_ex_data(a) + i * N); }
 
 typedef struct {
     uint16 len;
@@ -280,12 +288,12 @@ typedef struct {
     array_t *a;
 } array2_t;
 
-bool array_init(array2_t *a, Uint cap);
+bool array_init(array2_t *a, Int cap);
 void array_free(array2_t *a);
-bool array_push(array2_t *a, const byte* p, Uint len, Uint expand);
+bool array_push(array2_t *a, const byte* p, Int len, Int expand);
 inline void arrfix_free(arrfix2_t *a) { array_free((array2_t *)a); }
 inline void arrfix_ex_free(arrfix2_ex_t *a) { array_free((array2_t *)a); }
-inline bool array_push_s(array2_t *a, const string_t *s, Uint expand) { return array_push(a, s->a, s->len, expand); }
+inline bool array_push_s(array2_t *a, const string_t *s, Int expand) { return array_push(a, s->a, s->len, expand); }
 inline void array_clear(array_t *a) { a->len = 0; }
 inline Uint array_cap(array_t *a) { return a->cap; }
 inline Uint array_len(array_t *a) { return a->len; }
@@ -313,8 +321,8 @@ typedef struct {
     array_ex_t *a;
 } array2_ex_t;
 
-bool array_ex_init(array2_ex_t *a, Uint elt_bytes, Uint elt_count);
-bool array_ex_push(array2_ex_t *a, const byte* p, Uint expand);
+bool array_ex_init(array2_ex_t *a, Int elt_bytes, Int elt_count);
+bool array_ex_push(array2_ex_t *a, const byte* p, Int expand);
 inline void array_ex_free(array2_ex_t *a) { array_free((array2_t *)a); }
 inline void array_ex_clear(array_ex_t *a) { a->len = 0; }
 inline Uint array_ex_cap(array_ex_t *a) { return a->cap; }
@@ -322,8 +330,8 @@ inline Uint array_ex_len(array_ex_t *a) { return a->len; }
 inline bool array_ex_empty(array_ex_t *a) { return !array_ex_len(a); }
 inline byte *array_ex_data(array_ex_t *a) { return (byte *)(a + 1); }
 inline byte *array_ex_end(array_ex_t *a) { return array_ex_data(a) + a->len * a->elt; }
-inline byte *array_ex_at(array_ex_t *a, Uint i) { return array_ex_data(a) + i * a->elt; }
-inline byte *array_ex_at_n(array_ex_t *a, Uint i, Uint N) { return array_ex_data(a) + i * N; }
+inline byte *array_ex_at(array_ex_t *a, Int i) { return array_ex_data(a) + i * a->elt; }
+inline byte *array_ex_at_n(array_ex_t *a, Int i, Int N) { return array_ex_data(a) + i * N; }
 
 typedef struct {
     uint16 cap;
@@ -392,9 +400,9 @@ typedef struct {
     buffix_t *a;
 } buffix2_t;
 
-bool buffix_init(buffix2_t *b, Uint cap);
+bool buffix_init(buffix2_t *b, Int cap);
 inline void buffix_free(buffix2_t *b) { array_free((array2_t *)b); }
-inline void buffix_init_inplace(buffix_t *a, Uint cap) { a->cap = cap; a->cur = (byte*)(a + 1); }
+inline void buffix_init_inplace(buffix_t *a, Int cap) { a->cap = cap; a->cur = (byte*)(a + 1); }
 inline Uint buffix_cap(buffix_t *a) { return a->cap; }
 inline byte *buffix_data(buffix_t *a) { return (byte *)(a + 1); }
 inline byte *buffix_cur(buffix_t *a) { return a->cur; }
@@ -405,15 +413,18 @@ typedef struct {
     Uint len;
 } buffer_t;
 
-bool buffer_init(buffer_t *b, Uint cap);
+bool buffer_init(buffer_t *b, Int cap);
+void buffer_move_init(buffer_t *b, buffer_t *from);
+void buffer_move(buffer_t *to, buffer_t *from);
+string_t buffer_move_to_string(buffer_t *b);
 void buffer_free(buffer_t *b);
-bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand);
+bool buffer_push(buffer_t *b, const byte* a, Int n, Int expand);
 inline void buffer_clear(buffer_t *b) { b->len = 0; }
 inline Uint buffer_cap(buffer_t *b) { return b->cap; }
 inline Uint buffer_len(buffer_t *b) { return b->len; }
 inline byte *buffer_data(buffer_t *b) { return b->a; }
 inline bool buffer_empty(buffer_t *b) { return !buffer_len(b); }
-inline bool buffer_eq(buffer_t *b, const byte *a, Uint len) { return ((a != 0) && (buffer_len(b) == len) && (memcmp(buffer_data(b), a, len) == 0)); }
+inline bool buffer_eq(buffer_t *b, const byte *a, Int len) { return ((a != 0) && (buffer_len(b) == len) && (memcmp(buffer_data(b), a, len) == 0)); }
 inline bool buffer_eq_s(buffer_t *b, const string_t *s) { return buffer_eq(b, s->a, s->len); }
 
 typedef struct {
@@ -491,7 +502,7 @@ typedef struct {
 } stack_t;
 
 typedef void (*free_t)(void *object);
-byte *stack_push(stack_t *s, Uint obj_bytes);
+byte *stack_push(stack_t *s, Int obj_bytes);
 bool stack_pop(stack_t *s, free_t func);
 void stack_free(stack_t *s, free_t func);
 inline void stack_init(stack_t *s) { s->top = 0; }
@@ -507,9 +518,9 @@ typedef struct {
 } bhash2_t;
 
 typedef bool (*equal_t)(const void *object, const void *cmp_para);
-bool bhash_init(bhash2_t *p, Uint len); // len是2的幂
+bool bhash_init(bhash2_t *p, Int len); // len是2的幂
 void bhash_free(bhash2_t *p, free_t func);
-byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist);
+byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Int obj_bytes, bool *exist);
 byte *bhash_find(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para);
 
 #endif /* CHAPL_BUILTIN_DECL_H */

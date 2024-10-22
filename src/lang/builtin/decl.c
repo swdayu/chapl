@@ -55,20 +55,64 @@ void logtracen_(Error err, uint32 file_err, uint32 argn_line, ...)
 
 }
 
-static array_t *arrayinit_(array2_t *a, Uint elt_bytes, Uint elt_count, Uint N, Uint elf_off)
+bool string_init(string_t *s, const byte *a, Int len, bool alloc)
 {
-    Uint bytes;
+    byte *p = 0;
+    len = (a && len > 0) ? len : 0;
+    s->len = len;
+    s->dyn = 0;
+    if (len) {
+        if (alloc) {
+            if ((p = (byte *)malloc(len))) {
+                memcpy(p, a, len);
+                s->dyn = 1;
+            } else {
+                s->len = 0;
+            }
+        } else {
+            p = a;
+        }
+    }
+    s->a = p;
+    return (p != 0);
+}
+
+void string_move_init(string_t *s, string_t *from)
+{
+    *s = *from;
+    memset(from, 0, sizeof(string_t));
+}
+
+void string_move(string_t *to, string_t *from)
+{
+    if (to->a && to->dyn) {
+        free(to->a);
+    }
+    string_move_init(to, from);
+}
+
+void string_free(string_t *s)
+{
+    if (s->a && s->dyn) {
+        free(s->a);
+    }
+    memset(s, 0, sizeof(string_t));
+}
+
+static array_t *arrayinit_(array2_t *a, Int elt_bytes, Int elt_count, Int N, Int elt_off)
+{
+    Int bytes;
     array_t *p;
-    elt_bytes = elt_bytes ? elt_bytes : 1;
+    elt_bytes = (elt_bytes > 0) ? elt_bytes : 1;
     bytes = elt_bytes * elt_count;
-    bytes = bytes ? bytes : elt_bytes;
+    bytes = (bytes > 0) ? bytes : elt_bytes;
     p = (array_t *)malloc(N + bytes);
     if (p) {
         memset(p, 0, N);
         p->cap = elt_count;
         a->a = p;
-        if (elf_off) {
-            ((Uint *)p)[elf_off] = elt_bytes;
+        if (elt_off) {
+            ((Uint *)p)[elt_off] = elt_bytes;
             *(((Uint*)(((byte*)p)+N))-1) = elt_bytes;
         }
     } else {
@@ -77,17 +121,17 @@ static array_t *arrayinit_(array2_t *a, Uint elt_bytes, Uint elt_count, Uint N, 
     return p;
 }
 
-bool arrfix_init(arrfix2_t *a, Uint len)
+bool arrfix_init(arrfix2_t *a, Int len)
 {
     return arrayinit_((array2_t *)a, 1, len, sizeof(arrfix_t), 0) != 0;
 }
 
-bool arrfix_ex_init(arrfix2_ex_t *p, Uint elt_bytes, Uint elt_count)
+bool arrfix_ex_init(arrfix2_ex_t *p, Int elt_bytes, Int elt_count)
 {
     return arrayinit_((array2_t *)p, elt_bytes, elt_count, sizeof(arrfix_ex_t), 1) != 0;
 }
 
-bool array_init(array2_t *a, Uint cap)
+bool array_init(array2_t *a, Int cap)
 {
     return arrayinit_(a, 1, cap, sizeof(array_t), 0) != 0;
 }
@@ -100,13 +144,13 @@ void array_free(array2_t *a)
     }
 }
 
-static bool arraypush_(array2_t *a2, const byte* data, Uint elt_count, Uint expand, Uint elt_bytes, Uint N)
+static bool arraypush_(array2_t *a2, const byte* data, Int elt_count, Int expand, Int elt_bytes, Int N)
 {
     array_t *a = a2->a;
     array_t *p;
-    Uint bytes = elt_count * elt_bytes;
-    Uint cap_bytes, len_bytes, len2_bytes, len2;
-    if (!a || !data || !bytes) {
+    Int bytes = elt_count * elt_bytes;
+    Int cap_bytes, len_bytes, len2_bytes, len2;
+    if (!a || !data || bytes <= 0) {
         return false;
     }
     cap_bytes = a->cap * elt_bytes;
@@ -117,7 +161,7 @@ static bool arraypush_(array2_t *a2, const byte* data, Uint elt_count, Uint expa
         return false;
     }
     if (cap_bytes < len2_bytes) {
-        expand = (expand ? (len2 + expand) : (len2 * 2));
+        expand = (expand > 0) ? (len2 + expand) : (len2 * 2);
         p = (array_t *)realloc(a, N + expand * elt_bytes);
         if (!p) {
             return false;
@@ -130,22 +174,22 @@ static bool arraypush_(array2_t *a2, const byte* data, Uint elt_count, Uint expa
     return true;
 }
 
-bool array_push(array2_t *a2, const byte* data, Uint len, Uint expand)
+bool array_push(array2_t *a2, const byte* data, Int len, Int expand)
 {
     return arraypush_(a2, data, len, expand, 1, sizeof(array_t));
 }
 
-bool array_ex_init(array2_ex_t *a, Uint elt_bytes, Uint elt_count)
+bool array_ex_init(array2_ex_t *a, Int elt_bytes, Int elt_count)
 {
     return arrayinit_((array2_t *)a, elt_bytes, elt_count, sizeof(array_ex_t), 2) != 0;
 }
 
-bool array_ex_push(array2_ex_t *a, const byte* data, Uint expand)
+bool array_ex_push(array2_ex_t *a, const byte* data, Int expand)
 {
     return arraypush_((array2_t *)a, data, 1, expand, a->a->elt, sizeof(array_ex_t));
 }
 
-bool buffix_init(buffix2_t *b, Uint cap)
+bool buffix_init(buffix2_t *b, Int cap)
 {
     buffix_t *p = (buffix_t *)arrayinit_((array2_t *)b, 1, cap, sizeof(buffix_t), 0);
     if (p) {
@@ -159,10 +203,10 @@ typedef struct {
     byte *a;
 } buffer_head_t;
 
-byte *bufferinit_(buffer_head_t *b, Uint cap, bool cap_filed_uint, Uint N)
+byte *bufferinit_(buffer_head_t *b, Int cap, bool cap_filed_uint, Int N)
 {
     byte *p;
-    cap = cap ? cap : 1;
+    cap = (cap > 0) ? cap : 1;
     p = (byte *)malloc(cap);
     if (p) {
         b->a = p;
@@ -179,15 +223,34 @@ byte *bufferinit_(buffer_head_t *b, Uint cap, bool cap_filed_uint, Uint N)
     return p;
 }
 
-void bufferfree_(buffer_head_t *b, Uint N)
+void bufferfree_(buffer_head_t *b, Int N)
 {
     if (b->a) free(b->a);
     memset(b, 0, N);
 }
 
-bool buffer_init(buffer_t *b, Uint cap)
+bool buffer_init(buffer_t *b, Int cap)
 {
     return bufferinit_((buffer_head_t *)b, cap, true, sizeof(buffer_t)) != 0;
+}
+
+void buffer_move_init(buffer_t *b, buffer_t *from)
+{
+    *b = *from;
+    memset(from, 0, sizeof(buffer_t));
+}
+
+void buffer_move(buffer_t *to, buffer_t *from)
+{
+    if (to->a) free(to->a);
+    buffer_move_init(to, from);
+}
+
+string_t buffer_move_to_string(buffer_t *b)
+{
+    string_t d = {b->a, b->len, 1};
+    memset(b, 0, sizeof(buffer_t));
+    return d;
 }
 
 void buffer_free(buffer_t *b)
@@ -195,11 +258,14 @@ void buffer_free(buffer_t *b)
     bufferfree_((buffer_head_t *)b, sizeof(buffer_t));
 }
 
-bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand)
+bool buffer_push(buffer_t *b, const byte* a, Int n, Int expand)
 {
-    Uint len2;
+    Int len2;
     void *p;
-    if (!b->a || !a || !n) {
+    if (!b->a && !buffer_init(b, n)) {
+        return false;
+    }
+    if (!a || n <= 0) {
         return false;
     }
     len2 = b->len + n;
@@ -213,7 +279,7 @@ bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand)
         //  如果传入的 ptr 为空，相当于 malloc(size)
         //  如果传入的 size 为零，相当于 free(ptr)，此时返回的指针可能为空，也可能指向不能解引用的内存位置
         //  当 size 不为零的情况下，如果返回空指针表示分配失败，ptr 指向的旧空间仍然有效
-        expand = (expand ? (len2 + expand) : (len2 * 2));
+        expand = (expand > 0) ? (len2 + expand) : (len2 * 2);
         p = realloc(b->a, expand);
         if (!p) {
             return false;
@@ -226,7 +292,7 @@ bool buffer_push(buffer_t *b, const byte* a, Uint n, Uint expand)
     return true;
 }
 
-byte *stack_push(stack_t *s, Uint obj_bytes)
+byte *stack_push(stack_t *s, Int obj_bytes)
 {
     snode_t *top = s->top;
     snode_t *p = (snode_t *)malloc(sizeof(snode_t) + obj_bytes);
@@ -264,9 +330,9 @@ void stack_free(stack_t *s, free_t func)
     }
 }
 
-bool bhash_init(bhash2_t *p, Uint len)
+bool bhash_init(bhash2_t *p, Int len)
 {
-    Uint alloc;
+    Int alloc;
     bhash_t *a;
     if (len < 2) {
         len = 2;
@@ -287,8 +353,8 @@ void bhash_free(bhash2_t *p, free_t func)
 {
     bhash_t *a = p->a;
     if (!a) return;
-    Uint i = 0;
-    Uint n = a->len + 1;
+    Int i = 0;
+    Int n = a->len + 1;
     snode_t *head = (snode_t *)(a + 1);
     snode_t *node = 0;
     for (; i < n; i += 1) {
@@ -305,7 +371,7 @@ void bhash_free(bhash2_t *p, free_t func)
     free(a);
 }
 
-byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint obj_bytes, bool *exist)
+byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Int obj_bytes, bool *exist)
 {
     snode_t *head = (snode_t *)(a + 1);
     snode_t *node = 0;
@@ -314,7 +380,7 @@ byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Uint
     if (exist) *exist = 0;
 label_loop:
     if (!head->next) {
-        Uint alloc = sizeof(snode_t) + obj_bytes;
+        Int alloc = sizeof(snode_t) + obj_bytes;
         node = (snode_t *)malloc(alloc);
         if (node) {
             memset(node, 0, alloc);
