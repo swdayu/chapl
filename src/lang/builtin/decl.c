@@ -91,6 +91,20 @@ void string_move(string_t *to, string_t *from)
     string_move_init(to, from);
 }
 
+string_t string_create(const byte *a, Int len, bool alloc)
+{
+    string_t s;
+    string_init(&s, a, len, alloc);
+    return s;
+}
+
+string_t string_move_create(string_t *from)
+{
+    string_t s;
+    string_move_init(&s, from);
+    return s;
+}
+
 void string_free(string_t *s)
 {
     if (s->a && s->dyn) {
@@ -290,6 +304,18 @@ bool buffer_push(buffer_t *b, const byte* a, Int n, Int expand)
     memcpy(b->a + b->len, a, n);
     b->len = len2;
     return true;
+}
+
+bool buffer_put(buffer_t *b, byte a, Int expand)
+{
+    return buffer_push(b, &a, 1, expand);
+}
+
+void buffer_pop(buffer_t *b, Int n)
+{
+    if (n > 0 && b->len >= n) {
+        b->len -= n;
+    }
 }
 
 byte *stack_push(stack_t *s, Int obj_bytes)

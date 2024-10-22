@@ -217,7 +217,10 @@ typedef struct {
 bool string_init(string_t *s, const byte *a, Int len, bool alloc);
 void string_move_init(string_t *s, string_t *from);
 void string_move(string_t *to, string_t *from);
+string_t string_create(const byte *a, Int len, bool alloc);
+string_t string_move_create(string_t *from);
 void string_free(string_t *s);
+inline bool string_empty(string_t *s) { return !s->len; }
 inline Uint string_len(string_t *s) { return s->len; }
 inline byte *string_data(string_t *s) { return s->a; }
 
@@ -419,6 +422,8 @@ void buffer_move(buffer_t *to, buffer_t *from);
 string_t buffer_move_to_string(buffer_t *b);
 void buffer_free(buffer_t *b);
 bool buffer_push(buffer_t *b, const byte* a, Int n, Int expand);
+bool buffer_put(buffer_t *b, byte a, Int expand);
+void buffer_pop(buffer_t *b, Int n);
 inline void buffer_clear(buffer_t *b) { b->len = 0; }
 inline Uint buffer_cap(buffer_t *b) { return b->cap; }
 inline Uint buffer_len(buffer_t *b) { return b->len; }
