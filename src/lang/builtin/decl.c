@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include "internal/decl.h"
 
 __DECL_THREAD Error error_g;
@@ -52,7 +53,18 @@ void logtrace0_(Error err, uint32 file_err, uint32 line)
 
 void logtracen_(Error err, uint32 file_err, uint32 argn_line, ...)
 {
-
+    uint32 argn = LOG_ARGN(argn_line);
+    strid_t file = LOG_FILE(file_err);
+    uint32 a, i = 0;
+    printf("[%c] %02x Ln%04d: %02x", LOG_CHAR(argn_line), file, LOG_LINE(argn_line), (uint32)err);
+    va_list vl;
+    va_start(vl, argn_line);
+    for (; i < argn; ++i) {
+        a = va_arg(vl, uint32);
+        printf(" %02x", a);
+    }
+    va_end(vl);
+    printf("\n");
 }
 
 bool string_init(string_t *s, const byte *a, Int len, bool alloc)
@@ -70,7 +82,7 @@ bool string_init(string_t *s, const byte *a, Int len, bool alloc)
                 s->len = 0;
             }
         } else {
-            p = a;
+            p = (byte *)a;
         }
     }
     s->a = p;
@@ -283,10 +295,10 @@ bool buffer_push(buffer_t *b, const byte* a, Int n, Int expand)
         return false;
     }
     len2 = b->len + n;
-    if (len2 <= b->len) {
+    if (len2 <= (Int)b->len) {
         return false;
     }
-    if (b->cap < len2) {
+    if ((Int)b->cap < len2) {
         // void* realloc (void* ptr, size_t size);
         //  返回的指针可能跟传入的 ptr 不同，因为可能移动内存位置
         //  如果移动了位置，旧的内容会拷贝到新的空间中，扩大的空间内容是不确定的
@@ -313,7 +325,7 @@ bool buffer_put(buffer_t *b, byte a, Int expand)
 
 void buffer_pop(buffer_t *b, Int n)
 {
-    if (n > 0 && b->len >= n) {
+    if (n > 0 && (Int)b->len >= n) {
         b->len -= n;
     }
 }

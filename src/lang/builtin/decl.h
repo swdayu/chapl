@@ -72,7 +72,7 @@ const static uint64 LANG_MAX_UNT64 = 0xffffffffffffffffULL; /* 18446744073709551
 #define false 0
 typedef uint8 bool;
 typedef uint8 byte;
-typedef int32 rune;
+typedef uint32 rune;
 typedef uint16 strid_t;
 typedef uintptr Error;
 
@@ -429,7 +429,7 @@ inline Uint buffer_cap(buffer_t *b) { return b->cap; }
 inline Uint buffer_len(buffer_t *b) { return b->len; }
 inline byte *buffer_data(buffer_t *b) { return b->a; }
 inline bool buffer_empty(buffer_t *b) { return !buffer_len(b); }
-inline bool buffer_eq(buffer_t *b, const byte *a, Int len) { return ((a != 0) && (buffer_len(b) == len) && (memcmp(buffer_data(b), a, len) == 0)); }
+inline bool buffer_eq(buffer_t *b, const byte *a, Int len) { return ((a != 0) && ((Int)buffer_len(b) == len) && (memcmp(buffer_data(b), a, len) == 0)); }
 inline bool buffer_eq_s(buffer_t *b, const string_t *s) { return buffer_eq(b, s->a, s->len); }
 
 typedef struct {
