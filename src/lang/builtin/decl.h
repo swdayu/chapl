@@ -104,6 +104,10 @@ typedef float64 Float;
 #undef debug_assert
 
 #define lang_assert(e) ((e) ? ((void)0) : assertfault_(__CURR_FILE__, __LINE__))
+#define lang_assert_x(e, n, ...) ((e) ? ((void)0) : assertfaultx_(__CURR_FILE__, X_ARGN_LINE(n), __VA_ARGS__))
+#define lang_assert_1(e, a) lang_assert_x((e), 1, (uint32)(a))
+#define lang_assert_2(e, a, b) lang_assert_x((e), 2, (uint32)(a), (uint32)(b))
+#define lang_assert_3(e, a, b, c) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c))
 
 #ifdef CONFIG_DEBUG
 #define debug_assert(e) lang_assert(e)
@@ -111,9 +115,10 @@ typedef float64 Float;
 #define debug_assert(e)
 #endif
 
-void assertfault_(uint16 file, int line);
-void logtrace0_(Error err, uint32 file_err, uint32 line);
-void logtracen_(Error err, uint32 file_err, uint32 argn_line, ...);
+void assertfault_(uint16 file, uint32 line);
+void assertfaultx_(uint16 file, uint32 argn_line, ...);
+void logtrace_(Error err, uint32 file_err, uint32 line);
+void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...);
 
 #define LOG_LEVEL_F 0x00000000 // fatal panic
 #define LOG_LEVEL_M 0x01000000 // main
@@ -122,7 +127,8 @@ void logtracen_(Error err, uint32 file_err, uint32 argn_line, ...);
 #define LOG_LEVEL_D 0x04000000 // only for debug, not in release
 
 #define X_FILE(err) (__CURR_FILE__ << 16)
-#define X_LINE(level, argn) (argn << 27) | level | __LINE__
+#define X_ARGN_LINE(argn) (((argn) << 27) | __LINE__)
+#define X_LINE(level, argn) (((argn) << 27) | (level) | __LINE__)
 
 #define LOG_FILE(file) ((strid_t)((file) >> 16))
 #define LOG_ARGN(line) ((line) >> 27)
@@ -130,36 +136,36 @@ void logtracen_(Error err, uint32 file_err, uint32 argn_line, ...);
 #define LOG_LINE(line) ((line) & 0x00FFFFFF)
 #define LOG_CHAR(line) "FmEID"[LOG_LEVEL(line)]
 
-#define log_fatal(err) logtrace0_((err), X_FILE(err), LOG_LEVEL_F|__LINE__)
-#define log_fatal_x(err, n, ...) logtracen_((err), X_FILE(err), X_LINE(LOG_LEVEL_F, (n)), __VA_ARGS__)
+#define log_fatal(err) logtrace_((err), X_FILE(err), LOG_LEVEL_F|__LINE__)
+#define log_fatal_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_F, (n)), __VA_ARGS__)
 
 #if (__LOG_LEVEL__ >= LOG_LEVEL_M)
-#define log_main(err) logtrace0_((err), X_FILE(err), LOG_LEVEL_M|__LINE__)
-#define log_main_x(err, n, ...) logtracen_((err), X_FILE(err), X_LINE(LOG_LEVEL_M, (n)), __VA_ARGS__)
+#define log_main(err) logtrace_((err), X_FILE(err), LOG_LEVEL_M|__LINE__)
+#define log_main_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_M, (n)), __VA_ARGS__)
 #else
 #define log_main(err)
 #define log_main_x(err, n, ...)
 #endif
 
 #if (__LOG_LEVEL__ >= LOG_LEVEL_E)
-#define log_error(err) logtrace0_((err), X_FILE(err), LOG_LEVEL_E|__LINE__)
-#define log_error_x(err, n, ...) logtracen_((err), X_FILE(err), X_LINE(LOG_LEVEL_E, (n)), __VA_ARGS__)
+#define log_error(err) logtrace_((err), X_FILE(err), LOG_LEVEL_E|__LINE__)
+#define log_error_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_E, (n)), __VA_ARGS__)
 #else
 #define log_error(err)
 #define log_error_x(err, n, ...)
 #endif
 
 #if (__LOG_LEVEL__ >= LOG_LEVEL_I)
-#define log_info(err) logtrace0_((err), X_FILE(err), LOG_LEVEL_I|__LINE__)
-#define log_info_x(err, n, ...) logtracen_((err), X_FILE(err), X_LINE(LOG_LEVEL_I, (n)), __VA_ARGS__)
+#define log_info(err) logtrace_((err), X_FILE(err), LOG_LEVEL_I|__LINE__)
+#define log_info_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_I, (n)), __VA_ARGS__)
 #else
 #define log_info(err)
 #define log_info_x(err, n, ...)
 #endif
 
 #if (__LOG_LEVEL__ >= LOG_LEVEL_D) && defined(CONFIG_DEBUG)
-#define log_debug(err) logtrace0_((err), X_FILE(err), LOG_LEVEL_D|__LINE__)
-#define log_debug_x(err, n, ...) logtracen_((err), X_FILE(err), X_LINE(LOG_LEVEL_D, (n)), __VA_ARGS__)
+#define log_debug(err) logtrace_((err), X_FILE(err), LOG_LEVEL_D|__LINE__)
+#define log_debug_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_D, (n)), __VA_ARGS__)
 #else
 #define log_debug(err)
 #define log_debug_x(err, n, ...)
@@ -220,6 +226,8 @@ void string_move(string_t *to, string_t *from);
 string_t string_create(const byte *a, Int len, bool alloc);
 string_t string_move_create(string_t *from);
 void string_free(string_t *s);
+inline string_t nullstr() { return (string_t){0,0,0}; }
+inline string_t strfrom(const char *s) { return (string_t){(byte*)s, s ? (Uint)strlen(s) : 0, 0}; }
 inline bool string_empty(string_t *s) { return !s->len; }
 inline Uint string_len(string_t *s) { return s->len; }
 inline byte *string_data(string_t *s) { return s->a; }
@@ -424,6 +432,7 @@ void buffer_free(buffer_t *b);
 bool buffer_push(buffer_t *b, const byte* a, Int n, Int expand);
 bool buffer_put(buffer_t *b, byte a, Int expand);
 void buffer_pop(buffer_t *b, Int n);
+inline string_t string_ref_buffer(buffer_t *b) { return (string_t){b->a, b->len, 0}; }
 inline void buffer_clear(buffer_t *b) { b->len = 0; }
 inline Uint buffer_cap(buffer_t *b) { return b->cap; }
 inline Uint buffer_len(buffer_t *b) { return b->len; }

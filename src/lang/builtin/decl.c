@@ -21,7 +21,7 @@ static const byte* file_strings_g[] = {
 };
 #endif
 
-void assertfault_(uint16 file, int line)
+void assertfault_(uint16 file, uint32 line)
 {
 #if CONFIG_RT_FILE_STRING
     printf("assert fault: Ln%d %s\n", line, file_strings_g[file]);
@@ -31,7 +31,23 @@ void assertfault_(uint16 file, int line)
     exit(1);
 }
 
-void logtrace0_(Error err, uint32 file_err, uint32 line)
+void assertfaultx_(uint16 file, uint32 argn_line, ...)
+{
+    uint32 argn = LOG_ARGN(argn_line);
+    uint32 a, i = 0;
+    printf("assert fault: Ln%d %02x", LOG_LINE(argn_line), file);
+    va_list vl;
+    va_start(vl, argn_line);
+    for (; i < argn; ++i) {
+        a = va_arg(vl, uint32);
+        printf(" %02x", a);
+    }
+    va_end(vl);
+    printf("\n");
+    exit(1);
+}
+
+void logtrace_(Error err, uint32 file_err, uint32 line)
 {
     const byte* err_str = nil;
     strid_t file = LOG_FILE(file_err);
@@ -51,7 +67,7 @@ void logtrace0_(Error err, uint32 file_err, uint32 line)
 #endif
 }
 
-void logtracen_(Error err, uint32 file_err, uint32 argn_line, ...)
+void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...)
 {
     uint32 argn = LOG_ARGN(argn_line);
     strid_t file = LOG_FILE(file_err);
