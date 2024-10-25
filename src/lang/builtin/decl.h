@@ -1,6 +1,8 @@
 #ifndef CHAPL_BUILTIN_DECL_H
 #define CHAPL_BUILTIN_DECL_H
+#include "direct/file.h"
 #include <stdio.h>
+#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <tgmath.h>
@@ -95,19 +97,19 @@ typedef float32 Float;
 typedef float64 Float;
 #endif
 
-#define DEBUG_MODULE(FILE_ID) typedef enum { \
-        __CURR_FILE__ = FILE_ID, \
-        __LOG_LEVEL__ = FILE_ID##_LOG_LEVEL, \
-    } debug_module_enum_t;
+#define X_X_NAME(a, b) X_NAME(a, b)
+#define X_X_MSTR(a) X_MSTR(a)
+#define X_NAME(a, b) a##b
+#define X_MSTR(a) #a
+
+#define LOG_LEVEL_F 0x00000000 // fatal panic
+#define LOG_LEVEL_M 0x01000000 // main
+#define LOG_LEVEL_E 0x02000000 // error
+#define LOG_LEVEL_I 0x03000000 // information
+#define LOG_LEVEL_D 0x04000000 // only for debug, not in release
 
 #undef lang_assert
 #undef debug_assert
-
-#define lang_assert(e) ((e) ? ((void)0) : assertfault_(__CURR_FILE__, __LINE__))
-#define lang_assert_x(e, n, ...) ((e) ? ((void)0) : assertfaultx_(__CURR_FILE__, X_ARGN_LINE(n), __VA_ARGS__))
-#define lang_assert_1(e, a) lang_assert_x((e), 1, (uint32)(a))
-#define lang_assert_2(e, a, b) lang_assert_x((e), 2, (uint32)(a), (uint32)(b))
-#define lang_assert_3(e, a, b, c) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c))
 
 #ifdef CONFIG_DEBUG
 #define debug_assert(e) lang_assert(e)
@@ -115,16 +117,24 @@ typedef float64 Float;
 #define debug_assert(e)
 #endif
 
+#define lang_assert(e) ((e) ? ((void)0) : assertfault_(__CURR_FILE__, __LINE__))
+#define lang_assert_x(e, n, ...) ((e) ? ((void)0) : assertfaultx_(__CURR_FILE__, X_ARGN_LINE(n), __VA_ARGS__))
+#define lang_assert_s(e, n, s, ...) ((e) ? ((void)0) : assertfaults_(__CURR_FILE__, X_ARGN_LINE(n), (s), __VA_ARGS__))
+#define lang_assert_1(e, a) lang_assert_x((e), 1, (uint32)(a))
+#define lang_assert_2(e, a, b) lang_assert_x((e), 2, (uint32)(a), (uint32)(b))
+#define lang_assert_3(e, a, b, c) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c))
+#define lang_assert_4(e, a, b, c, d) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define lang_assert_5(e, a, b, c, d, ee) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
+#define lang_assert_s_1(e, s, a) lang_assert_s((e), 1, (s), (uint32)(a))
+#define lang_assert_s_2(e, s, a, b) lang_assert_s((e), 2, (s), (uint32)(a), (uint32)(b))
+#define lang_assert_s_3(e, s, a, b, c) lang_assert_s((e), 3, (s), (uint32)(a), (uint32)(b), (uint32)(c))
+#define lang_assert_s_4(e, s, a, b, c, d) lang_assert_s((e), 3, (s), (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define lang_assert_s_5(e, s, a, b, c, d, ee) lang_assert_s((e), 3, (s), (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
+
 void assertfault_(uint16 file, uint32 line);
 void assertfaultx_(uint16 file, uint32 argn_line, ...);
 void logtrace_(Error err, uint32 file_err, uint32 line);
 void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...);
-
-#define LOG_LEVEL_F 0x00000000 // fatal panic
-#define LOG_LEVEL_M 0x01000000 // main
-#define LOG_LEVEL_E 0x02000000 // error
-#define LOG_LEVEL_I 0x03000000 // information
-#define LOG_LEVEL_D 0x04000000 // only for debug, not in release
 
 #define X_FILE(err) (__CURR_FILE__ << 16)
 #define X_ARGN_LINE(argn) (((argn) << 27) | __LINE__)
@@ -139,7 +149,9 @@ void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...);
 #define log_fatal(err) logtrace_((err), X_FILE(err), LOG_LEVEL_F|__LINE__)
 #define log_fatal_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_F, (n)), __VA_ARGS__)
 
-#if (__LOG_LEVEL__ >= LOG_LEVEL_M)
+#define __LOG_LEVEL__ X_X_NAME(__CURR_FILE__, _LOG_LEVEL)
+
+#if (__LOG_LEVEL__ == 'M' || __LOG_LEVEL__ == 'E' || __LOG_LEVEL__ == 'I' || __LOG_LEVEL__ == 'D')
 #define log_main(err) logtrace_((err), X_FILE(err), LOG_LEVEL_M|__LINE__)
 #define log_main_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_M, (n)), __VA_ARGS__)
 #else
@@ -147,7 +159,7 @@ void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...);
 #define log_main_x(err, n, ...)
 #endif
 
-#if (__LOG_LEVEL__ >= LOG_LEVEL_E)
+#if (__LOG_LEVEL__ == 'E' || __LOG_LEVEL__ == 'I' || __LOG_LEVEL__ == 'D')
 #define log_error(err) logtrace_((err), X_FILE(err), LOG_LEVEL_E|__LINE__)
 #define log_error_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_E, (n)), __VA_ARGS__)
 #else
@@ -155,7 +167,7 @@ void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...);
 #define log_error_x(err, n, ...)
 #endif
 
-#if (__LOG_LEVEL__ >= LOG_LEVEL_I)
+#if (__LOG_LEVEL__ == 'I' || __LOG_LEVEL__ == 'D')
 #define log_info(err) logtrace_((err), X_FILE(err), LOG_LEVEL_I|__LINE__)
 #define log_info_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_I, (n)), __VA_ARGS__)
 #else
@@ -163,13 +175,43 @@ void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...);
 #define log_info_x(err, n, ...)
 #endif
 
-#if (__LOG_LEVEL__ >= LOG_LEVEL_D) && defined(CONFIG_DEBUG)
+#if (__LOG_LEVEL__ == 'D') && defined(CONFIG_DEBUG)
 #define log_debug(err) logtrace_((err), X_FILE(err), LOG_LEVEL_D|__LINE__)
 #define log_debug_x(err, n, ...) logtracex_((err), X_FILE(err), X_LINE(LOG_LEVEL_D, (n)), __VA_ARGS__)
 #else
 #define log_debug(err)
 #define log_debug_x(err, n, ...)
 #endif
+
+#define log_fatal_1(err, a) log_fatal_x((err), 1, (uint32)(a))
+#define log_fatal_2(err, a, b) log_fatal_x((err), 2, (uint32)(a), (uint32)(b))
+#define log_fatal_3(err, a, b, c) log_fatal_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
+#define log_fatal_4(err, a, b, c, d) log_fatal_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define log_fatal_5(err, a, b, c, d, e) log_fatal_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+
+#define log_main_1(err, a) log_main_x((err), 1, (uint32)(a))
+#define log_main_2(err, a, b) log_main_x((err), 2, (uint32)(a), (uint32)(b))
+#define log_main_3(err, a, b, c) log_main_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
+#define log_main_4(err, a, b, c, d) log_main_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define log_main_5(err, a, b, c, d, e) log_main_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+
+#define log_error_1(err, a) log_error_x((err), 1, (uint32)(a))
+#define log_error_2(err, a, b) log_error_x((err), 2, (uint32)(a), (uint32)(b))
+#define log_error_3(err, a, b, c) log_error_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
+#define log_error_4(err, a, b, c, d) log_error_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define log_error_5(err, a, b, c, d, e) log_error_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+
+#define log_info_1(err, a) log_info_x((err), 1, (uint32)(a))
+#define log_info_2(err, a, b) log_info_x((err), 2, (uint32)(a), (uint32)(b))
+#define log_info_3(err, a, b, c) log_info_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
+#define log_info_4(err, a, b, c, d) log_info_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define log_info_5(err, a, b, c, d, e) log_info_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+
+#define log_debug_1(err, a) log_debug_x((err), 1, (uint32)(a))
+#define log_debug_2(err, a, b) log_debug_x((err), 2, (uint32)(a), (uint32)(b))
+#define log_debug_3(err, a, b, c) log_debug_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
+#define log_debug_4(err, a, b, c, d) log_debug_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define log_debug_5(err, a, b, c, d, e) log_debug_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
 
 #undef ERROR
 #undef BUILTIN_NUM_ERRORS
@@ -179,7 +221,6 @@ typedef enum {
     ERROR = 1,
 #define ERROR_MAPPING(ID, STR) ERROR_##ID,
 #include "builtin/error.h"
-#undef ERROR_MAPPING
     BUILTIN_NUM_ERRORS,
     BUILTIN_LAST_ERROR = 0xFF,
 } builtin_error_enum_t;
@@ -226,6 +267,7 @@ void string_move(string_t *to, string_t *from);
 string_t string_create(const byte *a, Int len, bool alloc);
 string_t string_move_create(string_t *from);
 void string_free(string_t *s);
+void assertfaults_(uint16 file, uint32 argn_line, string_t s, ...);
 inline string_t nullstr() { return (string_t){0,0,0}; }
 inline string_t strfrom(const char *s) { return (string_t){(byte*)s, s ? (Uint)strlen(s) : 0, 0}; }
 inline bool string_empty(string_t *s) { return !s->len; }
