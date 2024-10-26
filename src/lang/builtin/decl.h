@@ -118,18 +118,19 @@ typedef float64 Float;
 #endif
 
 #define lang_assert(e) ((e) ? ((void)0) : assertfault_(__CURR_FILE__, __LINE__))
-#define lang_assert_x(e, n, ...) ((e) ? ((void)0) : assertfaultx_(__CURR_FILE__, X_ARGN_LINE(n), __VA_ARGS__))
-#define lang_assert_s(e, n, s, ...) ((e) ? ((void)0) : assertfaults_(__CURR_FILE__, X_ARGN_LINE(n), (s), __VA_ARGS__))
+#define lang_assert_x(e, n, ...) ((e) ? ((void)0) : assertfaultx_(__CURR_FILE__, X_ARGN_LINE(n), ## __VA_ARGS__))
+#define lang_assert_s_x(e, n, s, ...) ((e) ? ((void)0) : assertfaults_(__CURR_FILE__, X_ARGN_LINE(n), (s), ## __VA_ARGS__))
 #define lang_assert_1(e, a) lang_assert_x((e), 1, (uint32)(a))
 #define lang_assert_2(e, a, b) lang_assert_x((e), 2, (uint32)(a), (uint32)(b))
 #define lang_assert_3(e, a, b, c) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define lang_assert_4(e, a, b, c, d) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define lang_assert_5(e, a, b, c, d, ee) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
-#define lang_assert_s_1(e, s, a) lang_assert_s((e), 1, (s), (uint32)(a))
-#define lang_assert_s_2(e, s, a, b) lang_assert_s((e), 2, (s), (uint32)(a), (uint32)(b))
-#define lang_assert_s_3(e, s, a, b, c) lang_assert_s((e), 3, (s), (uint32)(a), (uint32)(b), (uint32)(c))
-#define lang_assert_s_4(e, s, a, b, c, d) lang_assert_s((e), 3, (s), (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define lang_assert_s_5(e, s, a, b, c, d, ee) lang_assert_s((e), 3, (s), (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
+#define lang_assert_4(e, a, b, c, d) lang_assert_x((e), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define lang_assert_5(e, a, b, c, d, ee) lang_assert_x((e), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
+#define lang_assert_s(e, s) lang_assert_s_x((e), 0, (s))
+#define lang_assert_s_1(e, s, a) lang_assert_s_x((e), 1, (s), (uint32)(a))
+#define lang_assert_s_2(e, s, a, b) lang_assert_s_x((e), 2, (s), (uint32)(a), (uint32)(b))
+#define lang_assert_s_3(e, s, a, b, c) lang_assert_s_x((e), 3, (s), (uint32)(a), (uint32)(b), (uint32)(c))
+#define lang_assert_s_4(e, s, a, b, c, d) lang_assert_s_x((e), 4, (s), (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
+#define lang_assert_s_5(e, s, a, b, c, d, ee) lang_assert_s_x((e), 5, (s), (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
 
 void assertfault_(uint16 file, uint32 line);
 void assertfaultx_(uint16 file, uint32 argn_line, ...);

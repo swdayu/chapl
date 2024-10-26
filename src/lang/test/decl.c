@@ -1,5 +1,5 @@
+#define __CURR_FILE__ STRID_TEST_DECL
 #include "internal/decl.h"
-DEBUG_MODULE(STRID_TEST_DECL)
 
 void test_decl(void)
 {

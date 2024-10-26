@@ -175,7 +175,6 @@ static array_t *arrayinit_(array2_t *a, Int elt_bytes, Int elt_count, Int N, Int
         a->a = p;
         if (elt_off) {
             ((Uint *)p)[elt_off] = elt_bytes;
-            *(((Uint*)(((byte*)p)+N))-1) = elt_bytes;
         }
     } else {
         a->a = 0;
@@ -231,7 +230,7 @@ static bool arraypush_(array2_t *a2, const byte* data, Int elt_count, Int expand
         p->cap = expand;
         a = a2->a = p;
     }
-    memcpy(array_end(a), data, bytes);
+    memcpy(((byte*)a) + N + a->len * elt_bytes, data, bytes);
     a->len = len2;
     return true;
 }
