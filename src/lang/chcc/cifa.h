@@ -10,59 +10,52 @@
 // 5. 字面量（literal）
 // 6. 标识符（identifier）
 
-// 词法分类
-#define CIFA_CLASS_OTHERBYTE    0x01    // 其他字节
-#define CIFA_CLASS_DIGIT        0x02    // 0 ~ 9
-#define CIFA_CLASS_UPPER        0x03    // A ~ Z
-#define CIFA_CLASS_LOWER        0x04    // a ~ z
-#define CIFA_CLASS_UNDERSCORE   0x05    // _
-#define CIFA_CLASS_SPEC_SIGN    0x06    // # $ @
-#define CIFA_CLASS_PAREN        0x07    // ( )
-#define CIFA_CLASS_SQUARE       0x08    // [ ]
-#define CIFA_CLASS_CURLY        0x09    // { }
-#define CIFA_CLASS_NEWLINE      0x0A    // \r \r\n \n
-#define CIFA_CLASS_QUOTE        0x0B    // ' ''' " `
-#define CIFA_CLASS_DOT          0x0C    // . .. ... .1
-#define CIFA_CLASS_DELIM        0x0D    // , ;
-#define CIFA_CLASS_QMARK        0x0E    // ? ?: ?>
-#define CIFA_CLASS_TILDE        0x0F    // ~ ~= ~>
-#define CIFA_CLASS_EQ_FLAG      0x10    // 0x10 ~ 0x1F
-#define CIFA_CLASS_SLASH        0x13    // / /= // /* />
-#define CIFA_CLASS_ASTER        0x14    // * *= ** **= */
-#define CIFA_CLASS_LT           0x15    // < <= << <<= </ <- <% <| <~ <! <?
-#define CIFA_CLASS_GT           0x16    // > >= >> >>=
-#define CIFA_CLASS_COLON        0x17    // : :=
-#define CIFA_CLASS_EMARK        0x18    // ! != !>
-#define CIFA_CLASS_PLUS         0x19    // + +=
-#define CIFA_CLASS_MINUS        0x1A    // - -= ->
-#define CIFA_CLASS_PERCENT      0x1B    // % %= %>
-#define CIFA_CLASS_AND          0x1C    // & &= &&
-#define CIFA_CLASS_VERTBAR      0x1D    // | |= || |>
-#define CIFA_CLASS_CARET        0x1E    // ^ ^=
-#define CIFA_CLASS_EQUAL        0x1F    // = ==
-#define CIFA_CLASS_DOT_DIGIT    0x20    // .1
+// 字符分类
+#define CHAR_CLASS_OTHERBYTE    0x01    // 其他字节
+#define CHAR_CLASS_DIGIT        0x02    // 0 ~ 9
+#define CHAR_CLASS_IDENT        0x03    // A ~ Z a ~ z _
+#define CHAR_CLASS_SINGLE       0x05    // # $ @ ( ) [ ] { } , ; 反斜杠
+#define CHAR_CLASS_NEWLINE      0x06    // \r \r\n \n
+#define CHAR_CLASS_QUOTE        0x0B    // ' ''' " `
+#define CHAR_CLASS_DOT          0x0C    // . .. ... .1
+#define CHAR_CLASS_QMARK        0x0E    // ? ?: ?>
+#define CHAR_CLASS_TILDE        0x0F    // ~ ~= ~>
+#define CHAR_CLASS_EQ_FLAG      0x10    // 0x10 ~ 0x1F
+#define CHAR_CLASS_SLASH        0x13    // / /= // /* />
+#define CHAR_CLASS_ASTER        0x14    // * *= */ ** **=
+#define CHAR_CLASS_LT           0x15    // < <= << <<= </ <- <% <| <~ <! <?
+#define CHAR_CLASS_GT           0x16    // > >= >> >>=
+#define CHAR_CLASS_COLON        0x17    // : :=
+#define CHAR_CLASS_EMARK        0x18    // ! != !>
+#define CHAR_CLASS_PLUS         0x19    // + +=
+#define CHAR_CLASS_MINUS        0x1A    // - -= ->
+#define CHAR_CLASS_PERCENT      0x1B    // % %= %>
+#define CHAR_CLASS_AND          0x1C    // & &= &&
+#define CHAR_CLASS_VERTBAR      0x1D    // | |= || |>
+#define CHAR_CLASS_CARET        0x1E    // ^ ^=
+#define CHAR_CLASS_EQUAL        0x1F    // = ==
 
-#define CIFA_128_BYTE_ARRAY_G \
+#define CHAR_128_BYTE_ARRAY_G \
            /* 0           1           2           3           4           5           6           7 */      \
            /* 8           9           A           B           C           D           E           F */      \
-    /*00*/ /*00*/0x01, /*01*/0x01, /*02*/0x01, /*03*/0x01, /*04*/0x01, /*05*/0x01, /*06*/0x01, /*07*/0x01,  \
-    /*08*/ /*08*/0x01, /*09*/0x01, /*\n*/0x0A, /*0B*/0x01, /*0C*/0x01, /*\r*/0x0A, /*0E*/0x01, /*0F*/0x01,  \
+    /*00*/ /*00*/0x01, /*01*/0x01, /*02*/0x01, /*03*/0x01, /*04*/0x01, /*05*/0x01, /*06*/0x01, /*\a*/0x01,  \
+    /*08*/ /*\b*/0x01, /*\t*/0x01, /*\n*/0x06, /*\v*/0x01, /*\f*/0x01, /*\r*/0x06, /*0E*/0x01, /*0F*/0x01,  \
     /*10*/ /*10*/0x01, /*11*/0x01, /*12*/0x01, /*13*/0x01, /*14*/0x01, /*15*/0x01, /*16*/0x01, /*17*/0x01,  \
     /*18*/ /*18*/0x01, /*19*/0x01, /*1A*/0x01, /*1B*/0x01, /*1C*/0x01, /*1D*/0x01, /*1E*/0x01, /*1F*/0x01,  \
-    /*20*/ /*20*/0x01, /*!!*/0x18, /*""*/0x0B, /*##*/0x06, /*$$*/0x06, /*%%*/0x1B, /*&&*/0x1C, /*''*/0x0B,  \
-    /*20*/ /*((*/0x07, /*))*/0x07, /****/0x14, /*++*/0x19, /*,,*/0x0D, /*--*/0x1A, /*..*/0x0C, /*//*/0x13,  \
+    /*20*/ /*20*/0x01, /*!!*/0x18, /*""*/0x0B, /*##*/0x05, /*$$*/0x05, /*%%*/0x1B, /*&&*/0x1C, /*''*/0x0B,  \
+    /*20*/ /*((*/0x05, /*))*/0x05, /****/0x14, /*++*/0x19, /*,,*/0x05, /*--*/0x1A, /*..*/0x0C, /*//*/0x13,  \
     /*30*/ /*00*/0x02, /*11*/0x02, /*22*/0x02, /*33*/0x02, /*44*/0x02, /*55*/0x02, /*66*/0x02, /*77*/0x02,  \
-    /*30*/ /*88*/0x02, /*99*/0x02, /*::*/0x17, /*;;*/0x0D, /*<<*/0x15, /*==*/0x1F, /*>>*/0x16, /*??*/0x0E,  \
-    /*40*/ /*@@*/0x06, /*AA*/0x03, /*BB*/0x03, /*CC*/0x03, /*DD*/0x03, /*EE*/0x03, /*FF*/0x03, /*GG*/0x03,  \
+    /*30*/ /*88*/0x02, /*99*/0x02, /*::*/0x17, /*;;*/0x05, /*<<*/0x15, /*==*/0x1F, /*>>*/0x16, /*??*/0x0E,  \
+    /*40*/ /*@@*/0x05, /*AA*/0x03, /*BB*/0x03, /*CC*/0x03, /*DD*/0x03, /*EE*/0x03, /*FF*/0x03, /*GG*/0x03,  \
     /*40*/ /*HH*/0x03, /*II*/0x03, /*JJ*/0x03, /*KK*/0x03, /*LL*/0x03, /*MM*/0x03, /*NN*/0x03, /*OO*/0x03,  \
     /*50*/ /*PP*/0x03, /*QQ*/0x03, /*RR*/0x03, /*SS*/0x03, /*TT*/0x03, /*UU*/0x03, /*VV*/0x03, /*WW*/0x03,  \
-    /*50*/ /*XX*/0x03, /*YY*/0x03, /*ZZ*/0x03, /*[[*/0x08, /*\\*/0x01, /*]]*/0x08, /*^^*/0x1E, /*__*/0x05,  \
-    /*60*/ /*``*/0x0B, /*aa*/0x04, /*bb*/0x04, /*cc*/0x04, /*dd*/0x04, /*ee*/0x04, /*ff*/0x04, /*gg*/0x04,  \
-    /*60*/ /*hh*/0x04, /*ii*/0x04, /*jj*/0x04, /*kk*/0x04, /*ll*/0x04, /*mm*/0x04, /*nn*/0x04, /*oo*/0x04,  \
-    /*70*/ /*pp*/0x04, /*qq*/0x04, /*rr*/0x04, /*ss*/0x04, /*tt*/0x04, /*uu*/0x04, /*vv*/0x04, /*ww*/0x04,  \
-    /*70*/ /*xx*/0x04, /*yy*/0x04, /*zz*/0x04, /*{{*/0x09, /*||*/0x1D, /*}}*/0x09, /*~~*/0x0F, /*7F*/0x01
+    /*50*/ /*XX*/0x03, /*YY*/0x03, /*ZZ*/0x03, /*[[*/0x05, /*\\*/0x05, /*]]*/0x05, /*^^*/0x1E, /*__*/0x03,  \
+    /*60*/ /*``*/0x0B, /*aa*/0x03, /*bb*/0x03, /*cc*/0x03, /*dd*/0x03, /*ee*/0x03, /*ff*/0x03, /*gg*/0x03,  \
+    /*60*/ /*hh*/0x03, /*ii*/0x03, /*jj*/0x03, /*kk*/0x03, /*ll*/0x03, /*mm*/0x03, /*nn*/0x03, /*oo*/0x03,  \
+    /*70*/ /*pp*/0x03, /*qq*/0x03, /*rr*/0x03, /*ss*/0x03, /*tt*/0x03, /*uu*/0x03, /*vv*/0x03, /*ww*/0x03,  \
+    /*70*/ /*xx*/0x03, /*yy*/0x03, /*zz*/0x03, /*{{*/0x05, /*||*/0x1D, /*}}*/0x05, /*~~*/0x0F, /*7F*/0x01
 
-// 单字节词法
+// 单字符词法
 #define CIFA_CH_NULL            '\0'    // 00
 #define CIFA_CH_AUDIBLE_BELL    '\a'    // 07
 #define CIFA_CH_BACKSPACE       '\b'    // 08
@@ -130,109 +123,130 @@
 #define CIFA_CH_EOB             0xFE
 #define CIFA_CH_EOF             0xFF
 
-// 多字节词法
-#define CIFA_CF_SHIFT_OFF           (CIFA_CH_LT-1)
-#define CIFA_CF_SHASS_OFF           (CIFA_CH_LT-4)
-#define CIFA_CF_AND_OFF(c)          ((((c)-CIFA_CH_AND)>>6)+7)
-#define CIFA_CF_BASE                                                       0xFE000000
-#define CIFA_CF_LSH         (CIFA_CF_BASE+CIFA_CH_LT-CIFA_CF_SHIFT_OFF) // 0xFE000001       <<      左移
-#define CIFA_CF_RSH         (CIFA_CF_BASE+CIFA_CH_GT-CIFA_CF_SHIFT_OFF) // 0xFE000003       >>      右移
-#define CIFA_CF_LSH_ASSIGN  (CIFA_CF_BASE+CIFA_CH_LT-CIFA_CF_SHASS_OFF) // 0xFE000004       <<=     左移并赋值
-#define CIFA_CF_RSH_ASSIGN  (CIFA_CF_BASE+CIFA_CH_GT-CIFA_CF_SHASS_OFF) // 0xFE000006       >>=     右移并赋值
-#define CIFA_CF_LAND        (CIFA_CF_BASE+CIFA_CF_AND_OFF(CIFA_CH_AND)) // 0xFE000007       &&      逻辑与
-#define CIFA_CF_LOR         (CIFA_CF_BASE+CIFA_CF_AND_OFF(CIFA_CH_BOR)) // 0xFE000008       ||      逻辑或
-#define CIFA_CF_POW                                                        0xFE00000A   //  **      取幂
-#define CIFA_CF_POW_ASSIGN                                                 0xFE00000B   //  **=     取幂并赋值
-#define CIFA_CF_LINE_CMMT                                                  0xFE00000C   //  //      行注释开始
-#define CIFA_CF_BLOCK_CMMT                                                 0xFE00000D   //  /*      块注释开始
-#define CIFA_CF_END_BLOCK_CMMT                                             0xFE00000E   //  */      块注释结束
-#define CIFA_CF_LSTR_Q                                                     0xFE00000F   //  '''     长字符串字面量开始
-#define CIFA_CF_2DOT                                                       0xFE000010   //  ..      未定义
-#define CIFA_CF_3DOT                                                       0xFE000011   //  ...     可变个数参数或元素
-#define CIFA_CF_ARROW                                                      0xFE000012   //  ->      成员选择
-#define CIFA_CF_RREF                                                       0xFE000013   //  &&      右值引用
-#define CIFA_CF_REF                                                        0xFE000014   //  &       引用
-#define CIFA_CF_ADDR                                                       0xFE000015   //  &       取地址（一元操作）
-#define CIFA_CF_COMPL                                                      0xFE000016   //  ^       位反（一元操作）
-#define CIFA_CF_DREF                                                       0xFE000017   //  *       解引用（一元操作）
-#define CIFA_CF_POINTER                                                    0xFE000018   //  *       类型指针（Type*）
-#define CIFA_CF_NE                  (CIFA_CF_BASE+CIFA_CH_NOT)          // 0xFE000021       !=      不等于
-#define CIFA_CF_MOD_ASSIGN          (CIFA_CF_BASE+CIFA_CH_MOD)          // 0xFE000025       %=      取模并赋值
-#define CIFA_CF_AND_ASSIGN          (CIFA_CF_BASE+CIFA_CH_AND)          // 0xFE000026       &=      位与并赋值
-#define CIFA_CF_MUL_ASSIGN          (CIFA_CF_BASE+CIFA_CH_MUL)          // 0xFE00002A       *=      乘法并赋值
-#define CIFA_CF_ADD_ASSIGN          (CIFA_CF_BASE+CIFA_CH_ADD)          // 0xFE00002B       +=      加法并赋值
-#define CIFA_CF_SUB_ASSIGN          (CIFA_CF_BASE+CIFA_CH_SUB)          // 0xFE00002D       -=      减法并赋值
-#define CIFA_CF_DIV_ASSIGN          (CIFA_CF_BASE+CIFA_CH_DIV)          // 0xFE00002F       /=      除法并赋值
-#define CIFA_CF_LE                  (CIFA_CF_BASE+CIFA_CH_LT)           // 0xFE00003C       <=      小于等于
-#define CIFA_CF_EQ                  (CIFA_CF_BASE+CIFA_CH_ASSIGN)       // 0xFE00003D       ==      等于
-#define CIFA_CF_GE                  (CIFA_CF_BASE+CIFA_CH_GT)           // 0xFE00003E       >=      大于等于
-#define CIFA_CF_INI_ASSIGN          (CIFA_CF_BASE+CIFA_CH_COLON)        // 0xFE00003A       :=      初始化赋值
-#define CIFA_CF_XOR_ASSIGN          (CIFA_CF_BASE+CIFA_CH_XOR)          // 0xFE00005E       ^=      异或并赋值
-#define CIFA_CF_BOR_ASSIGN          (CIFA_CF_BASE+CIFA_CH_BOR)          // 0xFE00007C       |=      位或并赋值
+// 多字符词法
+#define CIFA_OP_SHIFT_OFF           (CIFA_CH_LT-1)
+#define CIFA_OP_SHASS_OFF           (CIFA_CH_LT-4)
+#define CIFA_OP_AND_OFF(c)          ((((c)-CIFA_CH_AND)>>6)+7)
+#define CIFA_OP_BASE                                                       0xFE000000
+#define CIFA_OP_LSH         (CIFA_OP_BASE+CIFA_CH_LT-CIFA_OP_SHIFT_OFF) // 0xFE000001       <<      左移
+#define CIFA_OP_RSH         (CIFA_OP_BASE+CIFA_CH_GT-CIFA_OP_SHIFT_OFF) // 0xFE000003       >>      右移
+#define CIFA_OP_LSH_ASSIGN  (CIFA_OP_BASE+CIFA_CH_LT-CIFA_OP_SHASS_OFF) // 0xFE000004       <<=     左移并赋值
+#define CIFA_OP_RSH_ASSIGN  (CIFA_OP_BASE+CIFA_CH_GT-CIFA_OP_SHASS_OFF) // 0xFE000006       >>=     右移并赋值
+#define CIFA_OP_LAND        (CIFA_OP_BASE+CIFA_OP_AND_OFF(CIFA_CH_AND)) // 0xFE000007       &&      逻辑与
+#define CIFA_OP_LOR         (CIFA_OP_BASE+CIFA_OP_AND_OFF(CIFA_CH_BOR)) // 0xFE000008       ||      逻辑或
+#define CIFA_OP_POW                                                        0xFE00000A   //  **      取幂
+#define CIFA_OP_POW_ASSIGN                                                 0xFE00000B   //  **=     取幂并赋值
+#define CIFA_OP_DOUBLE_SLASH                                               0xFE00000C   //  //      行注释开始
+#define CIFA_OP_SLASH_ASTER                                                0xFE00000D   //  /*      块注释开始
+#define CIFA_OP_ASTER_SLASH                                                0xFE00000E   //  */      块注释结束
+#define CIFA_OP_LSTR_Q                                                     0xFE00000F   //  '''     长字符串字面量开始
+#define CIFA_OP_2DOT                                                       0xFE000010   //  ..      未定义
+#define CIFA_OP_3DOT                                                       0xFE000011   //  ...     可变个数参数或元素
+#define CIFA_OP_ARROW                                                      0xFE000012   //  ->      成员选择
+#define CIFA_OP_RREF                                                       0xFE000013   //  &&      右值引用
+#define CIFA_OP_REF                                                        0xFE000014   //  &       引用
+#define CIFA_OP_ADDR                                                       0xFE000015   //  &       取地址（一元操作）
+#define CIFA_OP_COMPL                                                      0xFE000016   //  ^       位反（一元操作）
+#define CIFA_OP_DREF                                                       0xFE000017   //  *       解引用（一元操作）
+#define CIFA_OP_POINTER                                                    0xFE000018   //  *       类型指针（Type*）
+#define CIFA_OP_POINPOINTER                                                0xFE000019   //  **      指针的指针（Type**）
+#define CIFA_OP_NE                  (CIFA_OP_BASE+CIFA_CH_NOT)          // 0xFE000021       !=      不等于
+#define CIFA_OP_MOD_ASSIGN          (CIFA_OP_BASE+CIFA_CH_MOD)          // 0xFE000025       %=      取模并赋值
+#define CIFA_OP_AND_ASSIGN          (CIFA_OP_BASE+CIFA_CH_AND)          // 0xFE000026       &=      位与并赋值
+#define CIFA_OP_MUL_ASSIGN          (CIFA_OP_BASE+CIFA_CH_MUL)          // 0xFE00002A       *=      乘法并赋值
+#define CIFA_OP_ADD_ASSIGN          (CIFA_OP_BASE+CIFA_CH_ADD)          // 0xFE00002B       +=      加法并赋值
+#define CIFA_OP_SUB_ASSIGN          (CIFA_OP_BASE+CIFA_CH_SUB)          // 0xFE00002D       -=      减法并赋值
+#define CIFA_OP_DIV_ASSIGN          (CIFA_OP_BASE+CIFA_CH_DIV)          // 0xFE00002F       /=      除法并赋值
+#define CIFA_OP_LE                  (CIFA_OP_BASE+CIFA_CH_LT)           // 0xFE00003C       <=      小于等于
+#define CIFA_OP_EQ                  (CIFA_OP_BASE+CIFA_CH_ASSIGN)       // 0xFE00003D       ==      等于
+#define CIFA_OP_GE                  (CIFA_OP_BASE+CIFA_CH_GT)           // 0xFE00003E       >=      大于等于
+#define CIFA_OP_INI_ASSIGN          (CIFA_OP_BASE+CIFA_CH_COLON)        // 0xFE00003A       :=      初始化赋值
+#define CIFA_OP_XOR_ASSIGN          (CIFA_OP_BASE+CIFA_CH_XOR)          // 0xFE00005E       ^=      异或并赋值
+#define CIFA_OP_BOR_ASSIGN          (CIFA_OP_BASE+CIFA_CH_BOR)          // 0xFE00007C       |=      位或并赋值
+#define CIFA_OP_LAST                                                       0xFE000080
 
-// 字面量
-#define CIFA_LT_START       0xFE0000A0
-#define CIFA_LT_LAST        0xFE0000FF
+// 注释、字面量
+#define CIFA_CF_START       0xFE000080
+#define CIFA_CF_COMMENT     0xFE000081
+#define CIFA_CF_BLOCK_CMMT  0xFE000091
+#define CIFA_CF_STR_LIT     0xFE000082
+#define CIFA_CF_RSTR_LIT    0xFE000092
+#define CIFA_CF_RUNE_LIT    0xFE0000A2
+#define CIFA_CF_INT_LIT     0xFE000084
+#define CIFA_CF_FLOAT_LIT   0xFE000094
+#define CIFA_CF_BOOL_LIT    0xFE0000A4
+#define CIFA_CF_NIL_LIT     0xFE0000B4
+#define CIFA_CF_LAST        0xFE0000FF
 
 // 标识符
-#define CIFA_ID_START       0xFE000100
-#define CIFA_ID_LAST        0xFFFFFFFF // 可最多表示 0x01FFFF00 个标识符（33,554,176），三千多万个
+#define CIFA_ID_LAST    0xFFFFFFFF // 可最多表示 0x01FFFF00 个标识符（33,554,176），三千多万个
 enum chcc_predecl_ident {
-    CIFA_ID_BEFORE_START = CIFA_ID_START - 1,
+    CIFA_ID_START = 0xFE0000FF,
 #define PREDECL(id, ...) id,
 #include "chcc/decl.h"
 };
 
 typedef struct {
     int fd;
-    uint8 b_rst: 1; // b.a 数组是否被重置用来加载后续内容块
-    uint8 c_cnt: 4; // 词法前缀包含的字符个数
-    uint8 c_class;  // 词法前缀的类别
-    uint8 c_len;    // 词法前缀的字节长度，可能包含多个字符
-    rune cur_c;     // 词法前缀经过解析后，用最多4字节长的utf8字符表示，如果词法前缀包含多个字符使用CIFA_CF_XXX形式表示
+    Uint c_cnt;     // 词法前缀包含的字符个数
+    Uint c_len;     // 词法前缀的字节长度，可能包含多个字符
+    rune cur_c;     // 词法前缀经过解析后，用最多4字节长的utf8字符表示，如果词法前缀包含多个字符使用CIFA_OP_XXX形式表示
     Uint line_num;  // 当前词法前缀所在行
     Uint col_chars; // 当前词法前缀最后一个字符所在列（以字符为单位）
     Uint col_bytes; // 当前词法前缀最后一个字节所在列（以字节为单位）
+    byte *curstr;   // 当前字符串的起始位置
+    buffer_t cpstr; // 词法解析过程中复制词法字符串
     buffix_t b;     // 必须为最后一个字段，b.cur 指向当前词法前缀的最后一个字节
 } bufile_t;
 
-bufile_t *bufile_new(const char *filename, const byte *str, Uint len);
+#define FILEBUF_DEFAULT_SIZE 8096
+bufile_t *bufile_new(const char *filename, string_t s, Int filebufsize);
+void bufile_load_string(bufile_t *f, string_t s);
 void bufile_delete(bufile_t *p);
 
-typedef int32 cfid_t;
+typedef uint32 cfid_t;
 
 typedef struct {
     cfid_t ident_id;
-    Uint ident_len;
+    string_t ident;
 } cfsym_t;
 
 typedef union {
     uint64 i;
-    float32 f32;
-    float64 f64;
-    buffer_t s;
+    float64 f;
+    cfsym_t *sym;
 } cfval_t;
 
 typedef struct {
+    cfval_t val;
+    string_t s;
     cfid_t cfid;
-    uint8 cfclass;
-    uint8 valid;
     Uint cf_line;
     Uint cf_col;
-    cfsym_t *sym;
-    cfval_t val;
-} cfres_t;
+    Error error;
+} cfys_t;
 
 typedef struct {
     bufile_t *f;
-    buffer_t cpstr;
-    cfres_t curcf;
+    cfys_t curcf;
     Uint user_ident_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
-} cfstate_t;
+} cfst_t;
 
-void cifa_init(cfstate_t *cfst, bufile_t *f);
-void cifa_free(cfstate_t *cfst);
+void cfst_init(cfst_t *cfst, bufile_t *f);
+void cfst_free(cfst_t *cfst);
+void curr(cfst_t *cfst);
+
+#define ERROR_CMMT_NOT_CLOSED   0xE0
+#define ERROR_INVALID_ESCCHAR   0xE1
+#define ERROR_INVALID_HEXCHAR   0xE2
+#define ERROR_INVALID_HEXNUMB   0xE3
+#define ERROR_INVALID_UNICODE   0xE4
+#define ERROR_MISS_CLOSE_QUOTE  0xE5
+#define ERROR_EMPTY_RUNE_LIT    0xE6
+#define ERROR_MULT_CHAR_EXIST   0xE7
+
+#define __CHCC_DEBUG__ 1
 
 #endif /* CHAPL_LANG_CHCC_CIFA_H */
