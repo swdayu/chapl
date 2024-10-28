@@ -377,15 +377,15 @@ void test_chcc(void)
     cifa_ident_assert(1, 4, CIFA_ID_FOR); lang_assert_s(memcmp(cf->s.a, "for", 3) == 0, cf->s);
     cifa_ident_assert(1, 8, CIFA_ID_INT); lang_assert_s(memcmp(cf->s.a, "int", 3) == 0, cf->s);
     cifa_ident_assert(1, 12, CIFA_ID_FLOAT); lang_assert_s(memcmp(cf->s.a, "float", 5) == 0, cf->s);
-    cifa_ident_assert(2, 2, cfst.user_ident_start+0); lang_assert_s(memcmp(cf->s.a, "_0aA_9_", 7) == 0, cf->s);
-    cifa_ident_assert(2, 10, cfst.user_ident_start+1); lang_assert_s(memcmp(cf->s.a, "_aA_0", 5) == 0, cf->s);
-    cifa_ident_assert(2, 16, cfst.user_ident_start+2); lang_assert_s(memcmp(cf->s.a, "abc", 3) == 0, cf->s);
-    cifa_ident_assert(2, 20, cfst.user_ident_start+3); lang_assert_s(memcmp(cf->s.a, "AB", 2) == 0, cf->s);
-    cifa_ident_assert(3, 1, cfst.user_ident_start+4); lang_assert_s(memcmp(cf->s.a, "_", 1) == 0, cf->s);
-    cifa_ident_assert(3, 3, cfst.user_ident_start+5); lang_assert_s(memcmp(cf->s.a, "a", 1) == 0, cf->s);
-    cifa_ident_assert(3, 5, cfst.user_ident_start+6); lang_assert_s(memcmp(cf->s.a, "b", 1) == 0, cf->s);
-    cifa_ident_assert(3, 7, cfst.user_ident_start+7); lang_assert_s(memcmp(cf->s.a, "C", 1) == 0, cf->s);
-    cifa_ident_assert(3, 9, cfst.user_ident_start+8); lang_assert_s(memcmp(cf->s.a, "Z", 1) == 0, cf->s);
+    cifa_ident_assert(2, 2, cfst.user_id_start+0); lang_assert_s(memcmp(cf->s.a, "_0aA_9_", 7) == 0, cf->s);
+    cifa_ident_assert(2, 10, cfst.user_id_start+1); lang_assert_s(memcmp(cf->s.a, "_aA_0", 5) == 0, cf->s);
+    cifa_ident_assert(2, 16, cfst.user_id_start+2); lang_assert_s(memcmp(cf->s.a, "abc", 3) == 0, cf->s);
+    cifa_ident_assert(2, 20, cfst.user_id_start+3); lang_assert_s(memcmp(cf->s.a, "AB", 2) == 0, cf->s);
+    cifa_ident_assert(3, 1, cfst.user_id_start+4); lang_assert_s(memcmp(cf->s.a, "_", 1) == 0, cf->s);
+    cifa_ident_assert(3, 3, cfst.user_id_start+5); lang_assert_s(memcmp(cf->s.a, "a", 1) == 0, cf->s);
+    cifa_ident_assert(3, 5, cfst.user_id_start+6); lang_assert_s(memcmp(cf->s.a, "b", 1) == 0, cf->s);
+    cifa_ident_assert(3, 7, cfst.user_id_start+7); lang_assert_s(memcmp(cf->s.a, "C", 1) == 0, cf->s);
+    cifa_ident_assert(3, 9, cfst.user_id_start+8); lang_assert_s(memcmp(cf->s.a, "Z", 1) == 0, cf->s);
 
     bufile_delete(f);
     cfst_free(&cfst);

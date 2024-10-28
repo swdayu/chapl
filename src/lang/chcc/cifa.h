@@ -195,7 +195,6 @@ typedef struct {
     Uint col_chars; // 当前词法前缀最后一个字符所在列（以字符为单位）
     Uint col_bytes; // 当前词法前缀最后一个字节所在列（以字节为单位）
     byte *curstr;   // 当前字符串的起始位置
-    buffer_t cpstr; // 词法解析过程中复制词法字符串
     buffix_t b;     // 必须为最后一个字段，b.cur 指向当前词法前缀的最后一个字节
 } bufile_t;
 
@@ -207,8 +206,8 @@ void bufile_delete(bufile_t *p);
 typedef uint32 cfid_t;
 
 typedef struct {
-    cfid_t ident_id;
-    string_t ident;
+    cfid_t id;
+    string_t s;
 } cfsym_t;
 
 typedef union {
@@ -229,7 +228,8 @@ typedef struct {
 typedef struct {
     bufile_t *f;
     cfys_t curcf;
-    Uint user_ident_start;
+    buffer_t cpstr;
+    Uint user_id_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
 } cfst_t;
