@@ -447,20 +447,12 @@ void bhash_free(bhash2_t *p, free_t func)
 byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Int obj_bytes, bool *exist)
 {
     snode_t *head = (snode_t *)(a + 1);
-    snode_t *node = 0;
     hash &= (a->len - 1);
     head += hash;
     if (exist) *exist = 0;
 label_loop:
     if (!head->next) {
-        Int alloc = sizeof(snode_t) + obj_bytes;
-        node = (snode_t *)malloc(alloc);
-        if (node) {
-            memset(node, 0, alloc);
-            head->next = node;
-            return (byte *)(node + 1);
-        }
-        return 0;
+        return bhash_push_x((bhash_node_t){head}, obj_bytes);
     }
     if (eq((byte *)(head->next + 1), cmp_para)) {
         if (exist) *exist = 1;
@@ -470,18 +462,45 @@ label_loop:
     goto label_loop;
 }
 
-byte *bhash_find(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para)
+snode_t *bhashfind_(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para)
 {
     snode_t *head = (snode_t *)(a + 1);
     hash &= (a->len - 1);
     head += hash;
 label_loop:
     if (!head->next) {
-        return 0;
+        return head;
     }
     if (eq((byte *)(head->next + 1), cmp_para)) {
-        return (byte *)(head->next + 1);
+        return head;
     }
     head = head->next;
     goto label_loop;
+}
+
+byte *bhash_find(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para)
+{
+    snode_t *head = bhashfind_(a, hash, eq, cmp_para);
+    return (byte *)(head->next ? (head->next + 1) : 0);
+}
+
+byte *bhash_find_x(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, bhash_node_t *node)
+{
+    snode_t *head = bhashfind_(a, hash, eq, cmp_para);
+    node->node = head;
+    return (byte *)(head->next ? (head->next + 1) : 0);
+}
+
+byte *bhash_push_x(bhash_node_t p, Int obj_bytes)
+{
+    snode_t *head = p.node;
+    snode_t *node = 0;
+    Int alloc = sizeof(snode_t) + obj_bytes;
+    node = (snode_t *)malloc(alloc);
+    if (node) {
+        memset(node, 0, alloc);
+        head->next = node;
+        return (byte *)(node + 1);
+    }
+    return 0;
 }

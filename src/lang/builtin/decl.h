@@ -270,7 +270,7 @@ string_t string_move_create(string_t *from);
 void string_free(string_t *s);
 void assertfaults_(uint16 file, uint32 argn_line, string_t s, ...);
 inline string_t nullstr() { return (string_t){0,0,0}; }
-inline string_t strfrom(const char *s) { return (string_t){(byte*)s, s ? (Uint)strlen(s) : 0, 0}; }
+inline string_t strfrom(const char *s) { return (string_t){(byte*)s, s ? strlen(s) : 0, 0}; }
 inline bool string_empty(string_t *s) { return !s->len; }
 inline Uint string_len(string_t *s) { return s->len; }
 inline byte *string_data(string_t *s) { return s->a; }
@@ -574,10 +574,16 @@ typedef struct {
     bhash_t *a;
 } bhash2_t;
 
+typedef struct {
+    snode_t *node;
+} bhash_node_t;
+
 typedef bool (*equal_t)(const void *object, const void *cmp_para);
 bool bhash_init(bhash2_t *p, Int len); // len是2的幂
 void bhash_free(bhash2_t *p, free_t func);
 byte *bhash_push(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, Int obj_bytes, bool *exist);
 byte *bhash_find(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para);
+byte *bhash_find_x(bhash_t *a, uint32 hash, equal_t eq, const void *cmp_para, bhash_node_t *node);
+byte *bhash_push_x(bhash_node_t node, Int obj_bytes);
 
 #endif /* CHAPL_BUILTIN_DECL_H */
