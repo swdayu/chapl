@@ -76,7 +76,7 @@ typedef uint8 bool;
 typedef uint8 byte;
 typedef uint32 rune;
 typedef uint16 strid_t;
-typedef uintptr Error;
+typedef uint32 Error;
 
 #undef Int
 #undef Uint
@@ -554,17 +554,25 @@ typedef struct list {
     node_t head;
 } list_t;
 
-typedef struct {
+typedef struct { // 置零初始化
     snode_t *top;
+#ifdef CONFIG_DEBUG
+    Uint len;
+#endif
 } stack_t;
 
+struct stack_it;
 typedef void (*free_t)(void *object);
 byte *stack_push(stack_t *s, Int obj_bytes);
+byte *stack_insert(struct stack_it *p, Int obj_bytes);
 bool stack_pop(stack_t *s, free_t func);
 void stack_free(stack_t *s, free_t func);
-inline void stack_init(stack_t *s) { s->top = 0; }
 inline bool stack_empty(stack_t *s) { return !s->top; }
 inline byte *stack_top(stack_t *s) { return stack_empty(s) ? 0 : (byte*)(s->top+1); }
+inline struct stack_it *stack_begin(stack_t *s) { return (struct stack_it *)s->top; }
+inline struct stack_it *stack_end(stack_t *s) { return 0; }
+inline struct stack_it *stack_next(struct stack_it *p) { return (struct stack_it *)(((snode_t *)p)->next); }
+inline byte *stack_it_get(struct stack_it *p) { return p ? ((byte *)p) + sizeof(snode_t*) : 0; }
 
 typedef struct {
     Uint len;

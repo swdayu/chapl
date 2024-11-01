@@ -367,11 +367,34 @@ void buffer_pop(buffer_t *b, Int n)
 
 byte *stack_push(stack_t *s, Int obj_bytes)
 {
+    Int alloc = sizeof(snode_t) + (obj_bytes > 0 ? obj_bytes : 1);
     snode_t *top = s->top;
-    snode_t *p = (snode_t *)malloc(sizeof(snode_t) + obj_bytes);
+    snode_t *p = (snode_t *)malloc(alloc);
     if (p) {
+        memset(p, 0, alloc);
         s->top = p;
+#ifdef CONFIG_DEBUG
+        s->len += 1;
+#endif
         p->next = top;
+        return (byte *)(p + 1);
+    }
+    return 0;
+}
+
+byte *stack_insert(struct stack_it *it, Int obj_bytes)
+{
+    Int alloc = sizeof(snode_t) + (obj_bytes > 0 ? obj_bytes : 1);
+    snode_t *head = (snode_t *)it;
+    snode_t *first = head->next;
+    snode_t *p = (snode_t *)malloc(alloc);
+    if (p) {
+        memset(p, 0, alloc);
+        p->next = first;
+        head->next = p;
+#ifdef CONFIG_DEBUG
+        s->len += 1;
+#endif
         return (byte *)(p + 1);
     }
     return 0;
@@ -381,6 +404,9 @@ bool stack_pop(stack_t *s, free_t func)
 {
     snode_t *p = s->top;
     if (p) {
+#ifdef CONFIG_DEBUG
+        s->len -= 1;
+#endif
         s->top = p->next;
         if (func) {
             func(p + 1);
@@ -495,7 +521,7 @@ byte *bhash_push_x(bhash_node_t p, Int obj_bytes)
 {
     snode_t *head = p.node;
     snode_t *node = 0;
-    Int alloc = sizeof(snode_t) + obj_bytes;
+    Int alloc = sizeof(snode_t) + (obj_bytes > 0 ? obj_bytes : 1);
     node = (snode_t *)malloc(alloc);
     if (node) {
         memset(node, 0, alloc);
