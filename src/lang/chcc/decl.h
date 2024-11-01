@@ -20,6 +20,7 @@ PREDECL(CIFA_ID_RETURN, 'r', 'e', 't', 'u', 'r', 'n')
 PREDECL(CIFA_ID_STRUCT, 's', 't', 'r', 'u', 'c', 't')
 PREDECL(CIFA_ID_SWITCH, 's', 'w', 'i', 't', 'c', 'h')
 PREDECL(CIFA_ID_TYPE, 't', 'y', 'p', 'e')
+PREDECL(CIFA_ID_FUNC, 'f', 'u', 'n', 'c')
 PREDECL(CIFA_ID_VAR, 'v', 'a', 'r')
 
 PREDECL(CIFA_ID_INT, 'i', 'n', 't')
