@@ -3,7 +3,7 @@
 
 void test_decl(void)
 {
-    lang_assert(nil == 0);
+    lang_assert(null == 0);
     lang_assert(ERROR == 1);
     lang_assert(BUILTIN_LAST_ERROR & 1);
 }

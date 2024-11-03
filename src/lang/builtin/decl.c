@@ -69,7 +69,7 @@ void assertfaults_(uint16 file, uint32 argn_line, string_t s, ...)
 
 void logtrace_(Error err, uint32 file_err, uint32 line)
 {
-    const byte* err_str = nil;
+    const byte* err_str = null;
     strid_t file = LOG_FILE(file_err);
 
 #if CONFIG_RT_FILE_STRING

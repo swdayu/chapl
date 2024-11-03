@@ -60,7 +60,7 @@ const static uint64 LANG_MAX_UNT64 = 0xffffffffffffffffULL; /* 18446744073709551
 #define LANG_MAX_INT LANG_MAX_INTPTR
 #define LANG_MAX_UNT LANG_MAX_UNTPTR
 
-#undef nil
+#undef null
 #undef true
 #undef false
 #undef bool
@@ -69,7 +69,7 @@ const static uint64 LANG_MAX_UNT64 = 0xffffffffffffffffULL; /* 18446744073709551
 #undef strid_t
 #undef Error
 
-#define nil 0
+#define null 0
 #define true 1
 #define false 0
 typedef uint8 bool;
@@ -281,12 +281,12 @@ extern __DECL_THREAD Error error_g;
 #define get_last_error() error_g
 
 // 将 p 开始的 len 个字节写入到 obj 中，返回成功写入的字节数（0 <= n <= len），如果
-// len > 0 而 n < len，表示在写完之前被某个错误提前打断，此时必须返回一个非 nil 值的
+// len > 0 而 n < len，表示在写完之前被某个错误提前打断，此时必须返回一个非 null 值的
 // error。
 typedef Int (*Writer)(void *obj, const byte *p, Int len);
 
 // 将 p 开始的 len 个字节写入到 obj 偏移 off 字节处，返回写入的字节数（0 <= n <= len），
-// 如果 len > 0 而 n < len，表示在写完之前被某个错误提前打断，此时必须返回一个非 nil
+// 如果 len > 0 而 n < len，表示在写完之前被某个错误提前打断，此时必须返回一个非 null
 // 值的 error。目标对象 obj 在偏移 off 字节写入数据后，其数据流位置必须还原到偏移之前
 // 的原位置。
 typedef Int (*WriterAt)(void *obj, Int off, const byte *p, Int len);
@@ -607,9 +607,9 @@ byte *stack_push(stack_t *s, Int obj_bytes);
 byte *stack_insert(struct stack_it *p, Int obj_bytes);
 bool stack_pop(stack_t *s, free_t func);
 void stack_free(stack_t *s, free_t func);
-inline bool stack_empty(stack_t *s) { return (s == nil || s->top == nil); }
-inline byte *stack_top(stack_t *s) { return stack_empty(s) ? 0 : (byte*)(s->top+1); }
-inline struct stack_it *stack_begin(stack_t *s) { return (struct stack_it *)s->top; }
+inline bool stack_empty(stack_t *s) { return (!s || !s->top); }
+inline byte *stack_top(stack_t *s) { return (byte*)(s ? s->top + 1 : 0); }
+inline struct stack_it *stack_begin(stack_t *s) { return (struct stack_it *)(s ? s->top : 0); }
 inline struct stack_it *stack_end(stack_t *s) { return 0; }
 inline struct stack_it *stack_next(struct stack_it *p) { return (struct stack_it *)(((snode_t *)p)->next); }
 inline byte *stack_it_get(struct stack_it *p) { return p ? ((byte *)p) + sizeof(snode_t*) : 0; }
