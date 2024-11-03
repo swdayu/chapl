@@ -16,7 +16,7 @@ bufile_t *bufile_new(const char *filename, string_t s, Int filebufsize)
             fd = 0; // stdin
         } else {
             fd = open(filename, O_RDONLY | O_BINARY);
-            if (fd < 0) return nil;
+            if (fd < 0) return null;
         }
     } else {
         cap = ((Int)s.len > cap) ? s.len : cap;
@@ -111,12 +111,6 @@ bool cfsym_eq(const void *object, const void *cmp_para)
 #define IDENT_ARRAY_EXPAND 512
 #define CFSTR_ALLOC_EXPAND 128
 
-static const byte predecl_ident_g[] = {
-#define PREDECL(id, ...) __VA_ARGS__, 0x00,
-#include "chcc/decl.h"
-    0x00
-};
-
 cfsym_t *cifa_ident_create(chcc_t *cc, uint32 hash, bool calc, string_t ident)
 {
     array_ex_t *arry_ident = cc->arry_ident.a;
@@ -133,10 +127,11 @@ cfsym_t *cifa_ident_create(chcc_t *cc, uint32 hash, bool calc, string_t ident)
     }
 
     // 将标识符符号创建到符号哈希表中
-    sym = (cfsym_t *)bhash_push(hash_ident, hash, cfsym_eq, &ident, sizeof(cfsym_t), &exist);
+    sym = (cfsym_t *)bhash_push(hash_ident, hash, cfsym_eq, &ident, sizeof(cfsym_t) + ident.len, &exist);
     if (!exist) {
         // 该符号在哈希表中不存在，返回的是新创建的符号，这里初始化这个符号
-        string_move_init(&sym->s, &ident);
+        memcpy((byte *)(sym + 1), ident.a, ident.len);
+        string_init(&sym->s, (byte *)(sym + 1), ident.len, false);
         // 将符号添加到符号数组中，并初始化该符号在数组中的序号
         sym->id = ((uint32)CIFA_ID_START) + array_ex_len(arry_ident);
         array_ex_push(&cc->arry_ident, (byte *)sym, IDENT_ARRAY_EXPAND);
@@ -149,7 +144,7 @@ cfsym_t *cifa_ident_create(chcc_t *cc, uint32 hash, bool calc, string_t ident)
     return sym;
 }
 
-cfsym_t *cfsym(chcc_t *st, cfid_t id)
+cfsym_t *cfsym_get(chcc_t *st, cfid_t id)
 {
     if (id < (uint32)CIFA_ID_START) {
         return 0;
@@ -159,6 +154,11 @@ cfsym_t *cfsym(chcc_t *st, cfid_t id)
 
 void cifa_init(chcc_t *cc, bufile_t *f)
 {
+    byte predecl_ident[] = {
+#define PREDECL(id, ...) __VA_ARGS__, 0x00,
+#include "chcc/decl.h"
+        0x00
+    };
     const byte *p, *c;
     cfsym_t *sym = 0;
 
@@ -168,7 +168,7 @@ void cifa_init(chcc_t *cc, bufile_t *f)
     array_ex_init(&cc->arry_ident, sizeof(cfsym_t*), IDENT_ARRAY_EXPAND);
 
     // 创建预定义的标识符
-    p = predecl_ident_g;
+    p = predecl_ident;
     while (*p) {
         c = p;
         while (*c) ++c;
@@ -187,12 +187,12 @@ void chcc_free(chcc_t *cc)
     stack_free(&cc->symbol, 0);
 }
 
-void cifa_end(chcc_t *cc, cfid_t cfid, Error error)
+void cifa_end(chcc_t *cc, cfid_t cfid)
 {
     cfys_t *curcf = &cc->curcf;
     curcf->cfid = cfid;
-    if (error) {
-        cc->error = error;
+    if (cc->error) {
+        cc->chcc_error = cc->error;
     }
 }
 
@@ -201,7 +201,7 @@ void cifa_ident_end(chcc_t *cc, cfsym_t *sym)
     cfys_t *curcf = &cc->curcf;
     curcf->val.sym = sym;
     curcf->s = sym->s;
-    cifa_end(cc, sym->id, nil);
+    cifa_end(cc, sym->id);
 }
 
 typedef struct {
@@ -211,6 +211,7 @@ typedef struct {
     uint8 is_float: 1;
     uint8 f_digit: 1;
     uint8 exp_neg: 1;
+    uint8 base;
 } numval_t;
 
 void cifa_numlit_end(chcc_t *cc, const numval_t *val)
@@ -223,43 +224,44 @@ void cifa_numlit_end(chcc_t *cc, const numval_t *val)
         cfid = CIFA_CF_INT_LIT;
         curcf->val.i = val->i;
     }
+    curcf->num_base = val->base;
     curcf->s = string_ref_buffer(&cc->cpstr); // 数值字面量后缀
-    cifa_end(cc, cfid, nil);
+    cifa_end(cc, cfid);
 }
 
-void cifa_nil_end(chcc_t *cc)
+void cifa_null_end(chcc_t *cc)
 {
     cfys_t *curcf = &cc->curcf;
     curcf->val.i = 0;
-    cifa_end(cc, CIFA_CF_NIL_LIT, nil);
+    cifa_end(cc, CIFA_CF_NULL_LIT);
 }
 
 void cifa_bool_end(chcc_t *cc, bool a)
 {
     cfys_t *curcf = &cc->curcf;
     curcf->val.i = a;
-    cifa_end(cc, CIFA_CF_BOOL_LIT, nil);
+    cifa_end(cc, CIFA_CF_BOOL_LIT);
 }
 
-void cifa_cmmt_end(chcc_t *cc, rune cmmt, Error error)
+void cifa_cmmt_end(chcc_t *cc, rune cmmt)
 {
     cfys_t *curcf = &cc->curcf;
     curcf->s = string_ref_buffer(&cc->cpstr);
-    cifa_end(cc, CIFA_CF_COMMENT, error);
+    cifa_end(cc, CIFA_CF_COMMENT);
 }
 
-void cifa_runelit_end(chcc_t *cc, rune c, Error error)
+void cifa_runelit_end(chcc_t *cc, rune c)
 {
     cfys_t *curcf = &cc->curcf;
     curcf->val.i = c;
-    cifa_end(cc, CIFA_CF_RUNE_LIT, error);
+    cifa_end(cc, CIFA_CF_RUNE_LIT);
 }
 
-void cifa_strlit_end(chcc_t *cc, rune quote, Error error)
+void cifa_strlit_end(chcc_t *cc, rune quote)
 {
     cfys_t *curcf = &cc->curcf;
     curcf->s = string_ref_buffer(&cc->cpstr);
-    cifa_end(cc, CIFA_CF_STR_LIT, error);
+    cifa_end(cc, CIFA_CF_STR_LIT);
 }
 
 void more(bufile_t *f)
@@ -397,13 +399,14 @@ label_loop:
     }
 
     cfys_reset(curcf, f, c);
+    cc->error = null;
     skipcf = false;
     rdnext = true;
     colrd = f->c_cnt;
     cfid = c;
 
     if (c == CIFA_CH_EOF) {
-        cifa_end(cc, CIFA_CH_EOF, nil);
+        cifa_end(cc, CIFA_CH_EOF);
         return;
     }
 
@@ -593,7 +596,7 @@ label_loop:
     }
 
     if (!skipcf) {
-        cifa_end(cc, cfid, nil);
+        cifa_end(cc, cfid);
     }
 
 label_cifa_parsed:
@@ -634,6 +637,7 @@ static Uint identifier(chcc_t *cc, byte c_class, byte *b128, bool *rdnext)
     uint32 h = IDENT_HASH_INIT;
     bufile_t *f = cc->f;
     buffer_t *cpstr = &cc->cpstr;
+    cfys_t *cf = &cc->curcf;
     cfsym_t *cfsym;
     Uint colrd;
     rune c = f->cur_c;
@@ -666,8 +670,8 @@ static Uint identifier(chcc_t *cc, byte c_class, byte *b128, bool *rdnext)
         }
     }
     colrd = cpstr->len;
-    if (cpstr->len == 3 && memcmp(cpstr->a, "nil", 3) == 0) {
-        cifa_nil_end(cc);
+    if (cpstr->len == 4 && memcmp(cpstr->a, "null", 4) == 0) {
+        cifa_null_end(cc);
     } else if (cpstr->len == 4 && memcmp(cpstr->a, "true", 4) == 0) {
         cifa_bool_end(cc, true);
     } else if (cpstr->len == 5 && memcmp(cpstr->a, "false", 5) == 0) {
@@ -675,13 +679,18 @@ static Uint identifier(chcc_t *cc, byte c_class, byte *b128, bool *rdnext)
     } else {
         cfsym = cifa_ident_create(cc, h, false, string_ref_buffer(cpstr));
         cifa_ident_end(cc, cfsym);
-        if ((first_upper && (cpstr->len == 1 || contain_lower_digit)) ||
+        if (cfsym->id >= CIFA_ID_INT && cfsym->id <= CIFA_ID_STRING) {
+            cf->cftype = 1;
+        } else if ((first_upper && (cpstr->len == 1 || contain_lower_digit)) ||
             (!first_score && cpstr->len > 2 && cpstr->a[cpstr->len-2] == '_' && cpstr->a[cpstr->len-1] == 't')) {
-            cfsym->is_type |= SYMBOL_IS_TYPE;
+            cf->cftype = 1;
         } else if (all_upper && ((first_score && upper_count >= 1) || upper_count >= 2)) {
-            cfsym->is_const = 1;
+            cf->cfconst = 1;
         } else {
-            cfsym->is_ident = 1;
+            cf->cfident = 1;
+        }
+        if (cfsym->id < cc->user_id_start) {
+            cf->reserved = 1;
         }
     }
     return colrd;
@@ -695,7 +704,6 @@ static Uint comment(chcc_t *cc, rune c, bool *rdnext)
     bufile_t *f = cc->f;
     buffer_t *cpstr = &cc->cpstr;
     Uint colrd = 2; // // or /*
-    Error error = nil;
     buffer_clear(cpstr);
     f->curstr = f->b.cur + 1; // 注释从下一个字符开始
     if (c == '/') {
@@ -708,7 +716,7 @@ static Uint comment(chcc_t *cc, rune c, bool *rdnext)
             }
         }
         colrd += cpstr->len;
-        cifa_cmmt_end(cc, CIFA_OP_DOUBLE_SLASH, nil);
+        cifa_cmmt_end(cc, CIFA_OP_DOUBLE_SLASH);
     } else {
         rune c2;
         bool readnext = true;
@@ -720,8 +728,8 @@ static Uint comment(chcc_t *cc, rune c, bool *rdnext)
             if (c == CIFA_CH_EOF || c == CIFA_CH_RETURN || c == CIFA_CH_NEWLINE) {
                 buffer_push(cpstr, f->curstr, cur_c_begin_ptr(f) - f->curstr, CFSTR_ALLOC_EXPAND);
                 if (c == CIFA_CH_EOF) {
-                    error = ERROR_CMMT_NOT_CLOSED;
-                    log_error_2(error, f->line_num, f->col_chars + colrd);
+                    cc->error = ERROR_CMMT_NOT_CLOSED;
+                    log_error_2(ERROR_CMMT_NOT_CLOSED, f->line_num, f->col_chars + colrd);
                     break; // 块注释语法错误，缺少块注释结束词法
                 } else {
                     newline(f, c, &readnext);
@@ -750,7 +758,7 @@ static Uint comment(chcc_t *cc, rune c, bool *rdnext)
                 colrd += f->c_cnt;
             }
         }
-        cifa_cmmt_end(cc, CIFA_OP_SLASH_ASTER, error);
+        cifa_cmmt_end(cc, CIFA_OP_SLASH_ASTER);
     }
     return colrd;
 }
@@ -887,21 +895,25 @@ static Uint int_part(chcc_t *cc, rune c, numval_t *out)
         c = next_c(f, 0);
         if (c == '_' || c == '.' || c == 'p' || c == 'P' || cifa_digit(c)) {
             digtp = CIFA_DEC_DIGIT; // dec_lit
+            out->base = CIFA_DEC_LIT;
             goto label_parse_digit;
         } else if (c == 'b' || c == 'B') {
             colrd += 1;
             c = next_c(f, 0);
             digtp = CIFA_BIN_DIGIT; // bin_lit
+            out->base = CIFA_BIN_LIT;
             goto label_parse_digit;
         } else if (c == 'x' || c == 'X') {
             colrd += 1;
             c = next_c(f, 0);
             digtp = CIFA_HEX_DIGIT; // hex_lit
+            out->base = CIFA_HEX_LIT;
             goto label_parse_digit;
         }
         // 整数读取完毕
     } else {
         digtp = CIFA_DEC_DIGIT; // dec_lit
+        out->base = CIFA_DEC_LIT;
 label_parse_digit:
         for (; ;) {
             if (cifa_num_digit(c, digtp)) {
@@ -1015,7 +1027,6 @@ typedef struct {
     rune u;
     Uint esclen;
     Uint colrd;
-    Error error;
 } escchar_t;
 
 static escchar_t escchar(chcc_t *cc, rune quote, Uint colrd, bool *rdnext)
@@ -1027,7 +1038,8 @@ static escchar_t escchar(chcc_t *cc, rune quote, Uint colrd, bool *rdnext)
     // \u0000 … /uffff
     // \U00000000 … /Uffffffff
     // 其他转移字符报编译错误
-    escchar_t r = {.u = 0, .esclen = 1, .colrd = colrd + 2, .error = nil};
+    escchar_t r = {.u = 0, .esclen = 1, .colrd = colrd + 2};
+    Error error = null;
     bufile_t *f = cc->f;
     Uint i = 0;
     rune c;
@@ -1068,16 +1080,16 @@ label_read_hex:
                 readnext = false;
                 if (i == (r.esclen - 1)) {
                     *rdnext = false;
-                    r.error = ERROR_INVALID_HEXNUMB;
+                    error = ERROR_INVALID_HEXNUMB;
                 }
             } else {
                 r.colrd += f->c_cnt;
-                r.error = ERROR_INVALID_HEXCHAR;
-                log_error_3(r.error, f->line_num, f->col_chars + r.colrd, c);
+                error = ERROR_INVALID_HEXCHAR;
+                log_error_3(error, f->line_num, f->col_chars + r.colrd, c);
             }
         }
         if (r.u > CIFA_MAX_UNICODE) {
-            r.error = ERROR_INVALID_UNICODE;
+            error = ERROR_INVALID_UNICODE;
             c = r.u;
         }
     } else if (c == 'u') {
@@ -1087,11 +1099,14 @@ label_read_hex:
         r.esclen = 8;
         goto label_read_hex;
     } else {
-        r.error = ERROR_INVALID_ESCCHAR;
+        error = ERROR_INVALID_ESCCHAR;
         r.u = CIFA_CH_SPACE; // 忽略当前不识别的转义字符，并解析成空格
     }
-    if (r.error && r.error != ERROR_INVALID_HEXCHAR) {
-        log_error_3(r.error, f->line_num, f->col_chars + r.colrd, c);
+    if (error) {
+        cc->error = error;
+        if (error != ERROR_INVALID_HEXCHAR) {
+            log_error_3(error, f->line_num, f->col_chars + r.colrd, c);
+        }
     }
     return r;
 }
@@ -1102,14 +1117,10 @@ static Uint rune_lit(chcc_t *cc, bool *rdnext)
     bufile_t *f = cc->f;
     rune c, prev = 0;
     escchar_t r = {.u = 0, .colrd = 1};
-    Error error = nil;
     bool readnext = true;
     c = next_c(f, 0);
     if (c == CIFA_CH_BSLASH) {
         r = escchar(cc, CIFA_CH_RUNE_Q, r.colrd, &readnext);
-        if (r.error) {
-            error = r.error;
-        }
         if (!readnext) {
             if (f->cur_c == CIFA_CH_RUNE_Q) {
                 goto label_rune_quote;
@@ -1121,12 +1132,12 @@ static Uint rune_lit(chcc_t *cc, bool *rdnext)
         }
         goto label_end_quote;
     } else if (c == CIFA_CH_RETURN || c == CIFA_CH_NEWLINE || c == CIFA_CH_EOF) {
-        error = ERROR_MISS_CLOSE_QUOTE;
+        cc->error = ERROR_MISS_CLOSE_QUOTE;
 label_end_early:
         *rdnext = false;
         // 遇到结束引号前到达行尾或文件尾，字符字面量读取完毕
     } else if (c == CIFA_CH_RUNE_Q) {
-        error = ERROR_EMPTY_RUNE_LIT;
+        cc->error = ERROR_EMPTY_RUNE_LIT;
 label_rune_quote:
         r.colrd += 1;
         // 空字符字面量
@@ -1138,15 +1149,15 @@ label_end_quote:
         if (c == CIFA_CH_RUNE_Q) {
             r.colrd += 1;
         } else {
-            error = ERROR_MULT_CHAR_EXIST;
+            cc->error = ERROR_MULT_CHAR_EXIST;
         }
     }
-    if (error) {
-        log_error_3(error, f->line_num, f->col_chars + r.colrd, r.u);
+    if (cc->error) {
+        log_error_3(cc->error, f->line_num, f->col_chars + r.colrd, r.u);
     }
-    if (error == ERROR_MULT_CHAR_EXIST) {
+    if (cc->error == ERROR_MULT_CHAR_EXIST) {
         if (c == CIFA_CH_RETURN || c == CIFA_CH_NEWLINE || c == CIFA_CH_EOF) {
-            error = ERROR_MISS_CLOSE_QUOTE;
+            cc->error = ERROR_MISS_CLOSE_QUOTE;
         }
 label_skip_remain:
         for (; ;) { // 跳过字符字面量中多余的字符
@@ -1162,7 +1173,7 @@ label_skip_remain:
             c = next_c(f, 0);
         }
     }
-    cifa_runelit_end(cc, r.u, error);
+    cifa_runelit_end(cc, r.u);
     return r.colrd;
 }
 
@@ -1176,7 +1187,6 @@ static Uint str_lit(chcc_t *cc, rune quote, bool *rdnext)
     byte utf8[8];
     Uint ulen;
     escchar_t r;
-    Error error = nil;
     bool readnext = true;
     rune c = 0;
     buffer_clear(cpstr);
@@ -1193,9 +1203,6 @@ static Uint str_lit(chcc_t *cc, rune quote, bool *rdnext)
                 buffer_push(cpstr, f->curstr, cur_c_begin_ptr(f) - f->curstr, CFSTR_ALLOC_EXPAND);
                 r = escchar(cc, quote, colrd, &readnext);
                 colrd = r.colrd;
-                if (r.error) {
-                    error = r.error;
-                }
                 if (r.esclen <= 2) {
                     buffer_put(cpstr, (byte)r.u, CFSTR_ALLOC_EXPAND);
                 } else {
@@ -1223,13 +1230,13 @@ static Uint str_lit(chcc_t *cc, rune quote, bool *rdnext)
                 }
             } else {
                 buffer_push(cpstr, f->curstr, cur_c_begin_ptr(f) - f->curstr, CFSTR_ALLOC_EXPAND);
-                error = ERROR_MISS_CLOSE_QUOTE;
+                cc->error = ERROR_MISS_CLOSE_QUOTE;
                 *rdnext = false;
                 break; // 遇到结束引号前到达行尾，字符串读取完毕
             }
         } else if (c == CIFA_CH_EOF) {
             buffer_push(cpstr, f->curstr, cur_c_begin_ptr(f) - f->curstr, CFSTR_ALLOC_EXPAND);
-            error = ERROR_MISS_CLOSE_QUOTE;
+            cc->error = ERROR_MISS_CLOSE_QUOTE;
             break; // 遇到结束引号前到达文件尾，字符串读取完毕
         } else {
             colrd += f->c_cnt;
@@ -1239,9 +1246,9 @@ static Uint str_lit(chcc_t *cc, rune quote, bool *rdnext)
             }
         }
     }
-    if (error) {
-        log_error_3(error, f->line_num, f->col_chars + colrd, c);
+    if (cc->error) {
+        log_error_3(cc->error, f->line_num, f->col_chars + colrd, c);
     }
-    cifa_strlit_end(cc, quote, error);
+    cifa_strlit_end(cc, quote);
     return colrd;
 }

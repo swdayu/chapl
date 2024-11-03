@@ -2,6 +2,8 @@
 #define CHAPL_LANG_CHCC_H
 #include "builtin/decl.h"
 
+#define __CHCC_DEBUG__ 1
+
 // 词法元素包括：
 // 1. 操作符（operator），一元操作符包括 + - ^ ! * &
 // 2. 关键字（keyword）
@@ -170,14 +172,14 @@
 // 注释、字面量
 #define CIFA_CF_START       0xF8000080
 #define CIFA_CF_COMMENT     0xF8000081
-#define CIFA_CF_BLOCK_CMMT  0xF8000091
-#define CIFA_CF_STR_LIT     0xF8000082
-#define CIFA_CF_RSTR_LIT    0xF8000092
-#define CIFA_CF_RUNE_LIT    0xF80000A2
-#define CIFA_CF_INT_LIT     0xF8000084
-#define CIFA_CF_FLOAT_LIT   0xF8000094
-#define CIFA_CF_BOOL_LIT    0xF80000A4
-#define CIFA_CF_NIL_LIT     0xF80000B4
+#define CIFA_CF_BLOCK_CMMT  0xF8000082
+#define CIFA_CF_STR_LIT     0xF8000083
+#define CIFA_CF_RSTR_LIT    0xF8000084
+#define CIFA_CF_RUNE_LIT    0xF8000085
+#define CIFA_CF_NULL_LIT    0xF8000086
+#define CIFA_CF_BOOL_LIT    0xF8000087
+#define CIFA_CF_INT_LIT     0xF8000088
+#define CIFA_CF_FLOAT_LIT   0xF8000089
 #define CIFA_CF_LAST        0xF80000FF
 
 // 匿名符号
@@ -192,6 +194,16 @@ enum chcc_predecl_ident {
 #define PREDECL(id, ...) id,
 #include "chcc/decl.h"
 };
+
+#if __ARCH_64BIT__
+#define SIZE_OF_POINTER 8
+#define ALIGNOF_POINTER 3 // (1 << 3) = 8
+#else
+#define SIZE_OF_POINTER 4
+#define ALIGNOF_POINTER 2 // (1 << 2) = 4
+#endif
+
+#define BASIC_MAX_ALIGN 3 // (1 << 3) = 8
 
 typedef struct {
     int fd;
@@ -222,35 +234,38 @@ typedef uint32 cfid_t;
 // 7. 变量名
 // 8. 常量
 
-#define SCOPE_GLOBAL 0
-#define SCOPE_STRUCT_FIELD 1
-#define SCOPE_LOCAL_START 2
+#define SYM_TYPE_BASIC      1
+#define SYM_TYPE_STRUCT     2
+#define SYM_TYPE_INTERFACE  3
+#define SYM_TYPE_FUNCTION   4
+#define SYM_TYPE_COMPOSITE  6
 
 typedef struct {
-    cfid_t ident; // 0表示匿名符号
+    cfid_t id; // 0表示匿名符号
     uint32 scope; // 符号所属所用域
+    uint32 type_kind: 4;
+    uint32 is_package: 1;
+    uint32 is_label: 1;
+    uint32 is_field: 1;
+    uint32 bitfield: 1;
+    uint32 is_param: 1;
+    uint32 localvar: 1;
+    uint32 is_const: 1;
+    uint32 is_func: 1; // 无函数体的是类型，有函数体的不是类型，而是函数类型的一个实例
+    uint32 dyn: 1; // 类型大小不固定
+    uint32 align: 4; // (1 << align)
+    uint8 bf_off;
+    uint8 bf_size;
+    Uint off;
+    Uint size;
 } sym_t;
-
-#define SYMBOL_IS_TYPE  0x10
-#define SYM_IS_TYPE_REF 0x08
-#define SYM_TYPE_BASIC  0x11
-#define SYM_TYPE_STRUCT 0x12
-#define SYM_TYPE_IF     0x13
-#define SYM_TYPE_FPTR   0x14
-#define SYM_TYPE_FOBJ   0x15
 
 typedef struct {
     cfid_t id;
-    uint32 is_type: 5;
-    uint32 is_const: 1;
-    uint32 is_ident: 1;
-    uint32 is_label: 1;
-    uint32 is_variable: 1;
-    uint32 is_func: 1;
-    uint32 is_method: 1;
     string_t s;
     union {
-        sym_t *sym_type; // 当名称作为类型名使用时
+        stack_t named_type; // 当名称作为类型名使用时
+        stack_t field_sym;
         stack_t sym_ident;
     } u;
 } cfsym_t;
@@ -262,38 +277,53 @@ typedef union {
     Uint slen;
 } cfval_t;
 
+#define CIFA_DEC_LIT 1
+#define CIFA_BIN_LIT 2
+#define CIFA_HEX_LIT 3
+
 typedef struct {
     cfval_t val;
     string_t s;
     cfid_t cfid;
+    uint16 cftype: 1;   // 类型标识符
+    uint16 cfconst: 1;  // 常量标识符
+    uint16 cfident: 1;  // 不是类型和常量的标识符
+    uint16 reserved: 1;
+    uint8 num_base;
     Uint cf_line;
     Uint cf_col;
 } cfys_t;
 
 typedef struct {
     sym_t sym;
-    uint32 kind: 5;
-    uint32 dyn: 1; // 类型大小不固定
-    uint32 align: 4; // (1 << align)
-    Uint size;
-    Uint off;
-} type_t;
+    sym_t *type; // 未声明类型的引用，或基本类型变长参数，对应的type都是null
+    uint32 tpref: 1;
+    uint32 embed: 1;
+    uint32 alias: 1; // 成员别名
+    uint32 param: 1; // 函数参数或返回值
+    uint32 vaarg: 1; // 存在一个变长参数
+    uint32 rparm: 1;
+    uint32 locvar: 1;
+} field_t;
 
 typedef struct {
-    type_t type;
-    cfid_t ident;
-} var_t; // 符号是类型变量
-
-typedef struct {
-    type_t type;
-    cfid_t ident;
+    sym_t sym;
+    sym_t *type;
     cfval_t val;
 } const_t;
 
 typedef struct {
-    type_t type; // type.ident值为0时是匿名结构体
+    sym_t sym;
     stack_t field;
+    stack_t anon_type;
 } struct_t;
+
+typedef struct {
+    sym_t *t;
+    cfsym_t *cfsym;
+    uint32 tpref: 1;
+    uint32 type_ident: 1;
+} tpcur_t;
 
 typedef struct {
     bufile_t *f;
@@ -303,32 +333,57 @@ typedef struct {
     Uint stack_init_len;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
-    Error error;
-    uint32 scope_seed;
-    uint32 anon_id_seed;
+    uint32 scope;
+    uint32 anon_id;
+    tpcur_t tpcur;
     struct stack_it *global; // 全局符号栈顶
-    struct stack_it *field; // 结构体类型声明时的成员栈顶
     stack_t symbol; // 当前语法解析时的符号栈
+    Error chcc_error;
+    Error error;
+    Error yferr;
 } chcc_t;
 
 void chcc_init(chcc_t *cc, bufile_t *f);
 void chcc_free(chcc_t *cc);
 void curr(chcc_t *cc);
-cfsym_t *cfsym(chcc_t *cc, cfid_t id);
+cfsym_t *cfsym_get(chcc_t *cc, cfid_t id);
 
-#define ERROR_CMMT_NOT_CLOSED   0xE0
-#define ERROR_INVALID_ESCCHAR   0xE1
-#define ERROR_INVALID_HEXCHAR   0xE2
-#define ERROR_INVALID_HEXNUMB   0xE3
-#define ERROR_INVALID_UNICODE   0xE4
-#define ERROR_MISS_CLOSE_QUOTE  0xE5
-#define ERROR_EMPTY_RUNE_LIT    0xE6
-#define ERROR_MULT_CHAR_EXIST   0xE7
-#define ERROR_IS_NOT_IDENT      0xEA
-#define ERROR_IS_NOT_TYPE       0xEB
-#define ERROR_IS_SAME_TYPE      0xEC
-#define ERROR_NAME_RESERVED     0xED
-
-#define __CHCC_DEBUG__ 1
+#define ERROR_CMMT_NOT_CLOSED           0xE00
+#define ERROR_INVALID_ESCCHAR           0xE01
+#define ERROR_INVALID_HEXCHAR           0xE02
+#define ERROR_INVALID_HEXNUMB           0xE03
+#define ERROR_INVALID_UNICODE           0xE04
+#define ERROR_MISS_CLOSE_QUOTE          0xE05
+#define ERROR_EMPTY_RUNE_LIT            0xE06
+#define ERROR_MULT_CHAR_EXIST           0xE07
+#define ERROR_IS_NOT_IDENT              0xE10
+#define ERROR_INVALID_TYPE_NAME         0xE11
+#define ERROR_CANT_DEF_SAME_TYPE        0xE12
+#define ERROR_NAME_RESERVED             0xE13
+#define ERROR_NO_OPEN_CURLY             0xE14
+#define ERROR_NO_CLOSE_CURLY            0xE15
+#define ERROR_TYPE_REDEFINED            0xE16
+#define ERROR_FIELD_REDEFINED           0xE17
+#define ERROR_INVALID_FIELD_TYPE        0xE18
+#define ERROR_INVALID_FIELD_NAME        0xE19
+#define ERROR_INVALID_BITFIELD_NAME     0xE1A
+#define ERROR_EMBED_TYPE_INVALID        0xE1B
+#define ERROR_TYPE_NOT_DEFINED          0xE1C
+#define ERROR_INVALID_TYPE_LIT          0xE1D
+#define ERROR_TYPE_LIT_NOT_SUPPORT      0xE1E
+#define ERROR_DYN_TYPE_FIELD_POS        0xE1F
+#define ERROR_INVALID_BITFIELD_TYPE     0xE20
+#define ERROR_INVALID_BITFIELD_SIZE     0xE21
+#define ERROR_BITFIELD_SIZE_NOT_DEC     0xE22
+#define ERROR_MISSING_ALIAS_FIELD       0xE23
+#define ERROR_INVALID_RECEIVER_TYPE     0xE24
+#define ERROR_RECEIVER_TYPE_UNFOUND     0xE25
+#define ERROR_MISSING_OPEN_PAREN        0xE26
+#define ERROR_INVALID_PARAM_TYPE        0xE27
+#define ERROR_INVALID_PARAM_NAME        0xE28
+#define ERROR_MISS_BASIC_VAARG_3DOT     0xE29
+#define ERROR_VAARG_SHALL_LAST_PARAM    0xE2A
+#define ERROR_DYN_TYPE_CANT_BE_PARAM    0xE2B
+#define ERROR_TOO_MANY_ANON_SYM         0xE2C
 
 #endif /* CHAPL_LANG_CHCC_H */
