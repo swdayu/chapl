@@ -103,6 +103,27 @@ void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...)
     printf("\n");
 }
 
+void logtraces_(Error err, uint32 file_err, uint32 argn_line, string_t s, ...)
+{
+    uint32 argn = LOG_ARGN(argn_line);
+    strid_t file = LOG_FILE(file_err);
+    uint32 a, i = 0;
+    printf("[%c] %02x#%04d %02x:", LOG_CHAR(argn_line), file, LOG_LINE(argn_line), (uint32)err);
+    printf(" \"");
+    for (; i < s.len; ++i) {
+        putchar(s.a[i]);
+    }
+    printf("\"");
+    va_list vl;
+    va_start(vl, s);
+    for (i = 0; i < argn; ++i) {
+        a = va_arg(vl, uint32);
+        printf(" %02x", a);
+    }
+    va_end(vl);
+    printf("\n");
+}
+
 bool string_init(string_t *s, const byte *a, Int len, bool alloc)
 {
     byte *p = 0;
