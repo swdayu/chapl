@@ -604,9 +604,12 @@ typedef struct { // 置零初始化
 struct stack_it;
 typedef void (*free_t)(void *object);
 byte *stack_push(stack_t *s, Int obj_bytes);
+byte *stack_push_it(stack_t *s, struct stack_it *it);
 byte *stack_insert(struct stack_it *p, Int obj_bytes);
 bool stack_pop(stack_t *s, free_t func);
 void stack_free(stack_t *s, free_t func);
+struct stack_it *stack_new_it(Int obj_bytes);
+void stack_delete_it(struct stack_it *it, free_t func);
 inline bool stack_empty(stack_t *s) { return (!s || !s->top); }
 inline byte *stack_top(stack_t *s) { return (byte*)(s ? s->top + 1 : 0); }
 inline struct stack_it *stack_begin(stack_t *s) { return (struct stack_it *)(s ? s->top : 0); }

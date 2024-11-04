@@ -76,13 +76,13 @@ void logtrace_(Error err, uint32 file_err, uint32 line)
     if (err_str) {
         printf("[%c] %s#%04d %s\n", LOG_CHAR(line), file_strings_g[file], LOG_LINE(line), err_str);
     } else {
-        printf("[%c] %s#%04d %02x\n", LOG_CHAR(line), file_strings_g[file], LOG_LINE(line), (uint32)err);
+        printf("[%c] %s#%04d %02X\n", LOG_CHAR(line), file_strings_g[file], LOG_LINE(line), (uint32)err);
     }
 #else
     if (err_str) {
         printf("[%c] %02x#%04d %s\n", LOG_CHAR(line), file, LOG_LINE(line), err_str);
     } else {
-        printf("[%c] %02x#%04d %02x\n", LOG_CHAR(line), file, LOG_LINE(line), (uint32)err);
+        printf("[%c] %02x#%04d %02X\n", LOG_CHAR(line), file, LOG_LINE(line), (uint32)err);
     }
 #endif
 }
@@ -92,7 +92,7 @@ void logtracex_(Error err, uint32 file_err, uint32 argn_line, ...)
     uint32 argn = LOG_ARGN(argn_line);
     strid_t file = LOG_FILE(file_err);
     uint32 a, i = 0;
-    printf("[%c] %02x#%04d %02x:", LOG_CHAR(argn_line), file, LOG_LINE(argn_line), (uint32)err);
+    printf("[%c] %02x#%04d %02X:", LOG_CHAR(argn_line), file, LOG_LINE(argn_line), (uint32)err);
     va_list vl;
     va_start(vl, argn_line);
     for (; i < argn; ++i) {
@@ -108,7 +108,7 @@ void logtraces_(Error err, uint32 file_err, uint32 argn_line, string_t s, ...)
     uint32 argn = LOG_ARGN(argn_line);
     strid_t file = LOG_FILE(file_err);
     uint32 a, i = 0;
-    printf("[%c] %02x#%04d %02x:", LOG_CHAR(argn_line), file, LOG_LINE(argn_line), (uint32)err);
+    printf("[%c] %02x#%04d %02X:", LOG_CHAR(argn_line), file, LOG_LINE(argn_line), (uint32)err);
     printf(" \"");
     for (; i < s.len; ++i) {
         putchar(s.a[i]);
@@ -386,13 +386,21 @@ void buffer_pop(buffer_t *b, Int n)
     }
 }
 
-byte *stack_push(stack_t *s, Int obj_bytes)
+struct stack_it *stack_new_it(Int obj_bytes)
 {
     Int alloc = sizeof(snode_t) + (obj_bytes > 0 ? obj_bytes : 1);
-    snode_t *top = s->top;
     snode_t *p = (snode_t *)malloc(alloc);
     if (p) {
         memset(p, 0, alloc);
+    }
+    return (struct stack_it *)p;
+}
+
+byte *stack_push_it(stack_t *s, struct stack_it *it)
+{
+    snode_t *top = s->top;
+    snode_t *p = (snode_t *)it;
+    if (p) {
         s->top = p;
 #ifdef CONFIG_DEBUG
         s->len += 1;
@@ -401,6 +409,22 @@ byte *stack_push(stack_t *s, Int obj_bytes)
         return (byte *)(p + 1);
     }
     return 0;
+}
+
+byte *stack_push(stack_t *s, Int obj_bytes)
+{
+    return stack_push_it(s, stack_new_it(obj_bytes));
+}
+
+void stack_delete_it(struct stack_it *it, free_t func)
+{
+    snode_t *p = (snode_t *)it;
+    if (p) {
+        if (func) {
+            func(p + 1);
+        }
+        free(p);
+    }
 }
 
 byte *stack_insert(struct stack_it *it, Int obj_bytes)

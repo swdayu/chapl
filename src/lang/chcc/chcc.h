@@ -252,6 +252,7 @@ typedef struct {
     uint32 localvar: 1;
     uint32 is_const: 1;
     uint32 is_func: 1; // 无函数体的是类型，有函数体的不是类型，而是函数类型的一个实例
+    uint32 is_method: 1;
     uint32 dyn: 1; // 类型大小不固定
     uint32 align: 4; // (1 << align)
     uint8 bf_off;
@@ -264,9 +265,11 @@ typedef struct {
     cfid_t id;
     string_t s;
     union {
-        stack_t named_type; // 当名称作为类型名使用时
-        stack_t field_sym;
-        stack_t sym_ident;
+        stack_t named_type; // 符号作为命名类型使用
+        stack_t field_sym;  // 符号当作成员或参数或局部变量使用
+        stack_t func_sym;   // 一个符号可以有以自己为名称的函数
+        stack_t method;     // 一个符号可以有自己的多个方法
+        stack_t ident_sym;
     } u;
 } cfsym_t;
 
@@ -315,14 +318,13 @@ typedef struct {
 typedef struct {
     sym_t sym;
     stack_t field;
-    stack_t anon_type;
 } struct_t;
 
 typedef struct {
-    sym_t *t;
-    cfsym_t *cfsym;
+    struct stack_it *type_struct; // 解析创建的结构体、接口、函数类型
+    cfsym_t *type_ident; // 或者是一个类型标识符
+    sym_t *t; // 类型的语法定义
     uint32 tpref: 1;
-    uint32 type_ident: 1;
 } tpcur_t;
 
 typedef struct {
@@ -335,7 +337,6 @@ typedef struct {
     array2_ex_t arry_ident;
     uint32 scope;
     uint32 anon_id;
-    tpcur_t tpcur;
     struct stack_it *global; // 全局符号栈顶
     stack_t symbol; // 当前语法解析时的符号栈
     Error chcc_error;
@@ -385,5 +386,7 @@ cfsym_t *cfsym_get(chcc_t *cc, cfid_t id);
 #define ERROR_VAARG_SHALL_LAST_PARAM    0xE2A
 #define ERROR_DYN_TYPE_CANT_BE_PARAM    0xE2B
 #define ERROR_TOO_MANY_ANON_SYM         0xE2C
+#define ERROR_TYPE_CANT_CONTAIN_BODY    0xE2D
+#define ERROR_GLOBAL_FUNC_MISS_NAME     0xE2E
 
 #endif /* CHAPL_LANG_CHCC_H */
