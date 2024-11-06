@@ -596,16 +596,16 @@ typedef struct list {
 
 typedef struct { // 置零初始化
     snode_t *top;
-#ifdef CONFIG_DEBUG
-    Uint len;
-#endif
 } stack_t;
 
 struct stack_it;
+struct stack_before_it;
 typedef void (*free_t)(void *object);
 byte *stack_push(stack_t *s, Int obj_bytes);
 byte *stack_push_it(stack_t *s, struct stack_it *it);
-byte *stack_insert(struct stack_it *p, Int obj_bytes);
+byte *stack_insert_after(struct stack_it *p, Int obj_bytes);
+byte *stack_insert(struct stack_before_it *p, Int obj_bytes);
+byte *stack_replace(struct stack_before_it *p, struct stack_it *node, free_t func);
 bool stack_pop(stack_t *s, free_t func);
 void stack_free(stack_t *s, free_t func);
 struct stack_it *stack_new_it(Int obj_bytes);
@@ -613,9 +613,13 @@ void stack_delete_it(struct stack_it *it, free_t func);
 inline bool stack_empty(stack_t *s) { return (!s || !s->top); }
 inline byte *stack_top(stack_t *s) { return (byte*)(s ? s->top + 1 : 0); }
 inline struct stack_it *stack_begin(stack_t *s) { return (struct stack_it *)(s ? s->top : 0); }
+inline struct stack_before_it *stack_before_begin(stack_t *s) { return (struct stack_before_it *)s; }
 inline struct stack_it *stack_end(stack_t *s) { return 0; }
 inline struct stack_it *stack_next(struct stack_it *p) { return (struct stack_it *)(((snode_t *)p)->next); }
+inline struct stack_before_it *stack_before_next(struct stack_before_it *p) { return (struct stack_before_it *)(((snode_t *)p)->next); }
+inline bool stack_in_range(struct stack_before_it *b, struct stack_it *it) { return (struct stack_it *)(((snode_t *)b)->next) != it; }
 inline byte *stack_it_get(struct stack_it *p) { return p ? ((byte *)p) + sizeof(snode_t*) : 0; }
+inline byte *stack_before_it_get(struct stack_before_it *p) { return p ? stack_it_get((struct stack_it *)(((snode_t *)p)->next)) : null; }
 
 typedef struct {
     Uint len;

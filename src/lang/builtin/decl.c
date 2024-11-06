@@ -396,19 +396,21 @@ struct stack_it *stack_new_it(Int obj_bytes)
     return (struct stack_it *)p;
 }
 
-byte *stack_push_it(stack_t *s, struct stack_it *it)
+byte *stackinsertafter_(struct stack_it *it, struct stack_it *node)
 {
-    snode_t *top = s->top;
     snode_t *p = (snode_t *)it;
-    if (p) {
-        s->top = p;
-#ifdef CONFIG_DEBUG
-        s->len += 1;
-#endif
-        p->next = top;
-        return (byte *)(p + 1);
+    snode_t *n = (snode_t *)node;
+    if (n) {
+        n->next = p->next;
+        p->next = n;
+        return (byte *)(n + 1);
     }
     return 0;
+}
+
+byte *stack_push_it(stack_t *s, struct stack_it *it)
+{
+    return stackinsertafter_((struct stack_it *)s, it);
 }
 
 byte *stack_push(stack_t *s, Int obj_bytes)
@@ -427,7 +429,7 @@ void stack_delete_it(struct stack_it *it, free_t func)
     }
 }
 
-byte *stack_insert(struct stack_it *it, Int obj_bytes)
+byte *stack_insert_after(struct stack_it *it, Int obj_bytes)
 {
     Int alloc = sizeof(snode_t) + (obj_bytes > 0 ? obj_bytes : 1);
     snode_t *head = (snode_t *)it;
@@ -437,21 +439,32 @@ byte *stack_insert(struct stack_it *it, Int obj_bytes)
         memset(p, 0, alloc);
         p->next = first;
         head->next = p;
-#ifdef CONFIG_DEBUG
-        s->len += 1;
-#endif
         return (byte *)(p + 1);
     }
     return 0;
+}
+
+byte *stack_insert(struct stack_before_it *p, Int obj_bytes)
+{
+    return stackinsertafter_((struct stack_it *)p, stack_new_it(obj_bytes));
+}
+
+byte *stack_replace(struct stack_before_it *p, struct stack_it *node, free_t func)
+{
+    snode_t *b = (snode_t *)p;
+    snode_t *it = b->next;
+    b->next = it->next;
+    if (func) {
+        func(it + 1);
+    }
+    free(it);
+    return stackinsertafter_((struct stack_it *)b, node);
 }
 
 bool stack_pop(stack_t *s, free_t func)
 {
     snode_t *p = s->top;
     if (p) {
-#ifdef CONFIG_DEBUG
-        s->len -= 1;
-#endif
         s->top = p->next;
         if (func) {
             func(p + 1);

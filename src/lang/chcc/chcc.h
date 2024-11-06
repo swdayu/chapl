@@ -300,6 +300,7 @@ typedef struct {
 typedef struct {
     sym_t sym;
     sym_t *type; // 未声明类型的引用，或基本类型变长参数，对应的type都是null
+    cfsym_t *type_ident;
     uint32 tpref: 1;
     uint32 embed: 1;
     uint32 alias: 1; // 成员别名
@@ -321,6 +322,24 @@ typedef struct {
 } struct_t;
 
 typedef struct {
+    sym_t sym;
+    sym_t *receiver;
+    cfsym_t *func_name;
+    uint32 param_align: 4;
+    uint32 rparm_align: 4;
+    uint32 local_align: 4;
+    uint32 func_attr: 4;
+    uint32 have_body: 1;
+    Uint param_size;
+    Uint rparm_size;
+    Uint local_size;
+    struct stack_it *param;
+    struct stack_it *rparm;
+    struct stack_it *local;
+    stack_t field;
+} func_t;
+
+typedef struct {
     struct stack_it *type_struct; // 解析创建的结构体、接口、函数类型
     cfsym_t *type_ident; // 或者是一个类型标识符
     sym_t *t; // 类型的语法定义
@@ -332,7 +351,6 @@ typedef struct {
     cfys_t curcf;
     buffer_t cpstr;
     Uint user_id_start;
-    Uint stack_init_len;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
     uint32 scope;
@@ -388,5 +406,8 @@ cfsym_t *cfsym_get(chcc_t *cc, cfid_t id);
 #define ERROR_TOO_MANY_ANON_SYM         0xE2C
 #define ERROR_TYPE_CANT_CONTAIN_BODY    0xE2D
 #define ERROR_GLOBAL_FUNC_MISS_NAME     0xE2E
+#define ERROR_FUNC_DECL_NOT_MATCH       0xE2F
+#define ERROR_FUNC_MISS_PARAM_NAME      0xE30
+#define ERROR_FUNC_IS_REDEFINED         0xE31
 
 #endif /* CHAPL_LANG_CHCC_H */
