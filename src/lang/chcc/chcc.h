@@ -276,9 +276,21 @@ typedef struct {
 typedef union {
     uint64 i;
     float64 f;
+    float32 f32;
     cfsym_t *sym;
-    Uint slen;
+    byte jmp[2];
+    uint16 cmp[2];
+    string_t sval;
 } cfval_t;
+
+typedef struct {
+    uint32 attr;    // 值的属性标志
+    uint16 reg;     // 寄存器以及处理器状态
+    uint16 reg2;    // 第二个寄存器
+    sym_t *type;    // 变量或常量涉及的类型
+    sym_t *sym;     // 值对应的变量标识符符号
+    cfval_t c;      // 常量的值
+} yfvar_t;
 
 #define CIFA_DEC_LIT 1
 #define CIFA_BIN_LIT 2
@@ -357,6 +369,8 @@ typedef struct {
     uint32 anon_id;
     struct stack_it *global; // 全局符号栈顶
     stack_t symbol; // 当前语法解析时的符号栈
+    yfvar_t *vtop;
+    yfvar_t *vstk;
     Error chcc_error;
     Error error;
     Error yferr;
