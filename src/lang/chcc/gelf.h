@@ -361,7 +361,7 @@ typedef struct {
     uint16 strsh;
 } Elf64Ehdr;
 
-#define ELF_HDR_X86_EXE(entry, phnum) {                                         \
+#define ELF_X86_HDR_EXE(entry, phnum) {                                         \
     ELF_HDR_MAG,                            /* 0x7f 0x45 0x4C 0x46 */           \
     ELF_CLASS_32,                           /* 0x01 */                          \
     ELF_DATA_2LSB,                          /* 0x01 */                          \
@@ -369,21 +369,21 @@ typedef struct {
     ELF_OSABI_NONE,                         /* 0x00 */                          \
     ELF_ABIVERSION_NONE,                    /* 0x00 */                          \
     ELF_HDR_PAD },                          /* 0x00 7-byte */                   \
-    host_to_uint16_le(ELF_TYPE_EXEC),       /* 0x02 0x00            type */     \
-    host_to_uint16_le(ELF_MACHINE_386),     /* 0x03 0x00            machine */  \
-    host_to_uint32_le(ELF_VERSION_CURR),    /* 0x01 0x00 0x00 0x00  version */  \
-    host_to_uint32_le(entry),               /* 0xXX 0xXX 0xXX 0xXX  entry */    \
-    host_to_uint32_le(sizeof(Elf32Ehdr)),   /* 0x34 0x00 0x00 0x00  phoff */    \
-    host_to_uint32_le(0x00),                /* 0x00 0x00 0x00 0x00  shoff */    \
-    host_to_uint32_le(0x00),                /* 0x00 0x00 0x00 0x00  flags */    \
-    host_to_uint16_le(sizeof(Elf32Ehdr)),   /* 0x34 0x00 (52)       ehsize */   \
-    host_to_uint16_le(sizeof(Elf32Phdr)),   /* 0x20 0x00 (32)       phsize */   \
-    host_to_uint16_le(phnum),               /* 0xXX 0xXX            phnum */    \
-    host_to_uint16_le(0x00),                /* 0x00 0x00            shsize */   \
-    host_to_uint16_le(0x00),                /* 0x00 0x00            shnum */    \
-    host_to_uint16_le(0x00)                 /* 0x00 0x00            strsh */
+    host_16_to_le(ELF_TYPE_EXEC),           /* 0x02 0x00            type */     \
+    host_16_to_le(ELF_MACHINE_386),         /* 0x03 0x00            machine */  \
+    host_32_to_le(ELF_VERSION_CURR),        /* 0x01 0x00 0x00 0x00  version */  \
+    host_32_to_le(entry),                   /* 0xXX 0xXX 0xXX 0xXX  entry */    \
+    host_32_to_le(sizeof(Elf32Ehdr)),       /* 0x34 0x00 0x00 0x00  phoff */    \
+    host_32_to_le(0x00),                    /* 0x00 0x00 0x00 0x00  shoff */    \
+    host_32_to_le(0x00),                    /* 0x00 0x00 0x00 0x00  flags */    \
+    host_16_to_le(sizeof(Elf32Ehdr)),       /* 0x34 0x00 (52)       ehsize */   \
+    host_16_to_le(sizeof(Elf32Phdr)),       /* 0x20 0x00 (32)       phsize */   \
+    host_16_to_le(phnum),                   /* 0xXX 0xXX            phnum */    \
+    host_16_to_le(0x00),                    /* 0x00 0x00            shsize */   \
+    host_16_to_le(0x00),                    /* 0x00 0x00            shnum */    \
+    host_16_to_le(0x00)                     /* 0x00 0x00            strsh */
 
-#define ELF_HDR_X64_EXE(entry, phnum) {                                         \
+#define ELF_X64_HDR_EXE(entry, phnum) {                                         \
     ELF_HDR_MAG,                            /* 0x7f 0x45 0x4C 0x46 */           \
     ELF_CLASS_64,                           /* 0x02 */                          \
     ELF_DATA_2LSB,                          /* 0x01 */                          \
@@ -391,19 +391,19 @@ typedef struct {
     ELF_OSABI_NONE,                         /* 0x00 */                          \
     ELF_ABIVERSION_NONE,                    /* 0x00 */                          \
     ELF_HDR_PAD },                          /* 0x00 7-byte */                   \
-    host_to_uint16_le(ELF_TYPE_EXEC),       /* 0x02 0x00            type*/      \
-    host_to_uint16_le(ELF_MACHINE_X86_64),  /* 0x3E 0x00 (62)       machine */  \
-    host_to_uint32_le(ELF_VERSION_CURR),    /* 0x01 0x00 0x00 0x00  version */  \
-    host_to_uint32_le(entry),               /* 0xXX 0xXX 0xXX 0xXX  entry */    \
-    host_to_uint32_le(sizeof(Elf64Ehdr)),   /* 0x40 0x00 0x00 0x00  phoff */    \
-    host_to_uint32_le(0x00),                /* 0x00 0x00 0x00 0x00  shoff */    \
-    host_to_uint32_le(0x00),                /* 0x00 0x00 0x00 0x00  flags */    \
-    host_to_uint16_le(sizeof(Elf64Ehdr)),   /* 0x40 0x00 (64)       ehsize */   \
-    host_to_uint16_le(sizeof(Elf64Phdr)),   /* 0x38 0x00 (56)       phsize */   \
-    host_to_uint16_le(phnum),               /* 0xXX 0xXX            phnum */    \
-    host_to_uint16_le(0x00),                /* 0x00 0x00            shsize */   \
-    host_to_uint16_le(0x00),                /* 0x00 0x00            shnum */    \
-    host_to_uint16_le(0x00)                 /* 0x00 0x00            strsh */
+    host_16_to_le(ELF_TYPE_EXEC),           /* 0x02 0x00            type*/      \
+    host_16_to_le(ELF_MACHINE_X86_64),      /* 0x3E 0x00 (62)       machine */  \
+    host_32_to_le(ELF_VERSION_CURR),        /* 0x01 0x00 0x00 0x00  version */  \
+    host_32_to_le(entry),                   /* 0xXX 0xXX 0xXX 0xXX  entry */    \
+    host_32_to_le(sizeof(Elf64Ehdr)),       /* 0x40 0x00 0x00 0x00  phoff */    \
+    host_32_to_le(0x00),                    /* 0x00 0x00 0x00 0x00  shoff */    \
+    host_32_to_le(0x00),                    /* 0x00 0x00 0x00 0x00  flags */    \
+    host_16_to_le(sizeof(Elf64Ehdr)),       /* 0x40 0x00 (64)       ehsize */   \
+    host_16_to_le(sizeof(Elf64Phdr)),       /* 0x38 0x00 (56)       phsize */   \
+    host_16_to_le(phnum),                   /* 0xXX 0xXX            phnum */    \
+    host_16_to_le(0x00),                    /* 0x00 0x00            shsize */   \
+    host_16_to_le(0x00),                    /* 0x00 0x00            shnum */    \
+    host_16_to_le(0x00)                     /* 0x00 0x00            strsh */
 
 // 分区头部表中分区头部索引的特殊值，预留在 ELF_SHNDX_LORESERVE 和
 // ELF_SHNDX_HIRESERVE 之间的索引值不是一个真实的头部索引，分区头部
@@ -489,9 +489,9 @@ typedef struct {
 // 的是成员分区的分区头部索引。成员分区必须设置 ELF_SF_GOURP 分区属性。
 // 当移除分区组合时，为了避免留下悬置的引用，并对符号表进行最少的处理，需要
 // 遵循以下的规则：TODO
-#define ELF_GF_COMDAT 0x01 // 这个一个 COMDAT 分区组合，可能于其他目标文件中的 COMDAT 组合重复，是否重复由相同的组合签名定义
-#define ELF_GF_MASKOS 0x0ff00000 // 在这种情况下，重复的分区组合只有一个会被链接器保留，剩余的分区组合的所有成员分区都会被移除
-#define ELF_GF_MASKPROC 0xf0000000
+#define ELF_GRP_COMDAT 0x01 // 这个一个 COMDAT 分区组合，可能于其他目标文件中的 COMDAT 组合重复，是否重复由相同的组合签名定义
+#define ELF_GRP_MASKOS 0x0ff00000 // 在这种情况下，重复的分区组合只有一个会被链接器保留，剩余的分区组合的所有成员分区都会被移除
+#define ELF_GRP_MASKPROC 0xf0000000
 typedef struct {
     uint32 flag;
     uint32 shndx[1];
@@ -726,20 +726,20 @@ typedef Elf32Sym ElfSym;
 #endif
 
 // 重定位符号和重定位类型
-#define ELF32_REL_SYM(info) ((info)>>8)
-#define ELF32_REL_TYPE(info) ((info)&0xff)
-#define ELF32_REL_INFO(s,t) (((s)<<8)|((t)&0xff))
-#define ELF64_REL_SYM(info) ((info)>>32)
-#define ELF64_REL_TYPE(info) ((info)&0xffffffffL)
-#define ELF64_REL_INFO(s,t) (((s)<<32)|((t)&0xffffffffL))
+#define ELF_REL_SYM_32(info) ((info)>>8)
+#define ELF_REL_TYPE_32(info) ((info)&0xff)
+#define ELF_REL_INFO_32(s,t) (((s)<<8)|((t)&0xff))
+#define ELF_REL_SYM_64(info) ((info)>>32)
+#define ELF_REL_TYPE_64(info) ((info)&0xffffffffL)
+#define ELF_REL_INFO_64(s,t) (((s)<<32)|((t)&0xffffffffL))
 #if __ARCH_64BIT__
-#define ELF_REL_SYM(info) ELF64_REL_SYM(info)
-#define ELF_REL_TYPE(info) ELF64_REL_TYPE(info)
-#define ELF_REL_INFO(s,t) ELF64_REL_INFO((s),(t))
+#define ELF_REL_SYM(info) ELF_REL_SYM_64(info)
+#define ELF_REL_TYPE(info) ELF_REL_TYPE_64(info)
+#define ELF_REL_INFO(s,t) ELF_REL_INFO_64((s),(t))
 #else
-#define ELF_REL_SYM(info) ELF32_REL_SYM(info)
-#define ELF_REL_TYPE(info) ELF32_REL_TYPE(info)
-#define ELF_REL_INFO(s,t) ELF32_REL_INFO((s),(t))
+#define ELF_REL_SYM(info) ELF_REL_SYM_32(info)
+#define ELF_REL_TYPE(info) ELF_REL_TYPE_32(info)
+#define ELF_REL_INFO(s,t) ELF_REL_INFO_32((s),(t))
 #endif
 
 // 重定位结构体，重定位用于处理符号引用和符号定义；例如当程序调用一个函数时，
@@ -854,6 +854,104 @@ typedef Elf64Phdr ElfPhdr;
 #else
 typedef Elf32Phdr ElfPhdr;
 #endif
+
+// __ARCH_X86__         // x86-pc
+// __ARCH_X64__         // x64-pc
+// __ARCH_ARM__         // arm, ARMv4
+// __ARCH_ARM64__       // aarch64, ARMv8
+// __OS_FREEBSD__       // freebsd
+// __OS_OPENBSD__       // openbsd
+// __OS_NETBSD__        // netbsd
+// __OS_WINDOWS__       // windows
+// __OS_LINUX__         // linux-gnu
+// __OS_MACHO__         // apple-darwin
+
+#ifndef CONFIG_ELF_INTERP
+#if __OS_FREEBSD__
+#define CONFIG_ELF_INTERP "/libexec/ld-elf.so.1"
+#define ELF_X86_INTERP CONFIG_ELF_INTERP
+#define ELF_X64_INTERP CONFIG_ELF_INTERP
+#elif __OS_OPENBSD__
+#define CONFIG_ELF_INTERP "/usr/libexec/ld.so"
+#define ELF_X86_INTERP CONFIG_ELF_INTERP
+#define ELF_X64_INTERP CONFIG_ELF_INTERP
+#elif __OS_NETBSD__
+#define CONFIG_ELF_INTERP "/usr/libexec/ld.elf_so"
+#define ELF_X86_INTERP CONFIG_ELF_INTERP
+#define ELF_X64_INTERP CONFIG_ELF_INTERP
+#elif __ARCH_X86__
+#define CONFIG_ELF_INTERP "/lib/ld-linux.so.2"
+#elif __ARCH_X64__
+#define CONFIG_ELF_INTERP "/lib64/ld-linux-x86-64.so.2"
+#elif __ARCH_ARM64__
+#define CONFIG_ELF_INTERP "/lib/ld-linux-aarch64.so.1"
+#endif
+#endif
+
+#ifndef ELF_X86_INTERP
+#define ELF_X86_INTERP "/lib/ld-linux.so.2"
+#endif
+
+#ifndef ELF_X64_INTERP
+#define ELF_X64_INTERP "/lib64/ld-linux-x86-64.so.2"
+#endif
+
+// X86 ELF 可执行文件布局：     大小        文件偏移
+//  ELF_X86_HDR_EXE         52-byte 0x34    0x00
+//  ELF_X86_PHDR_INTERP     32-byte 0x20    0x34
+//  ELF_X86_PHDR_TEXT       32-byte 0x20    0x54
+//  ELF_X86_PHDR_DATA       32-byte 0x20    0x74
+//  ELF_X86_PHDR_DYNAMIC    32-byte 0x20    0x94
+//  INTERP                                  0xb4
+
+#define ELF_X86_BASE_ADDR 0x08048000 // X86 可执行文件的基地址
+#define ELF_X64_BASE_ADDR 0x00400000 // X64 可执行文件的基地址
+#define ELF_X86_PAGE_SIZE 0x1000
+#define ELF_X86_INTERP_OFFSET 0xb4
+#define ELF_X86_INTERP_SIZE sizeof(ELF_X86_INTERP)
+
+#define ELF_X86_DYNAMIC_ALIGN   8
+#define ELF_X86_DYNAMIC_OFFSET ROUND_POW2(uint32, ELF_X86_INTERP_OFFSET+ELF_X86_INTERP_SIZE, ELF_X86_DYNAMIC_ALIGN-1)
+
+#define ELF_X86_PHDR_INTERP()                                                   \
+    host_32_to_le(ELF_PT_INTERP),                               /* type */      \
+    host_32_to_le(ELF_X86_INTERP_OFFSET),                       /* offset */    \
+    host_32_to_le(ELF_X86_BASE_ADDR+ELF_X86_INTERP_OFFSET),     /* vaddr */     \
+    host_32_to_le(ELF_X86_BASE_ADDR+ELF_X86_INTERP_OFFSET),     /* paddr */     \
+    host_32_to_le(ELF_X86_INTERP_SIZE),                         /* filesz */    \
+    host_32_to_le(ELF_X86_INTERP_SIZE),                         /* memsz */     \
+    host_32_to_le(ELF_PF_R),                                    /* flags */     \
+    host_32_to_le(1)                                            /* align */
+
+#define ELF_X86_PHDR_TEXT(offset, size)                                         \
+    host_32_to_le(ELF_PT_LOAD),                                 /* type */      \
+    host_32_to_le(offset),                                      /* offset */    \
+    host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* vaddr */     \
+    host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* paddr */     \
+    host_32_to_le(size),                                        /* filesz */    \
+    host_32_to_le(size),                                        /* memsz */     \
+    host_32_to_le(ELF_PF_R|ELF_PF_X),                           /* flags */     \
+    host_32_to_le(ELF_X86_PAGE_SIZE)                            /* align */
+
+#define ELF_X86_PHDR_DATA(offset, size, bss)                                    \
+    host_32_to_le(ELF_PT_LOAD),                                 /* type */      \
+    host_32_to_le(offset),                                      /* offset */    \
+    host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* vaddr */     \
+    host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* paddr */     \
+    host_32_to_le(size),                                        /* filesz */    \
+    host_32_to_le((size)+(bss)),                                /* memsz */     \
+    host_32_to_le(ELF_PF_R|ELF_PF_W|ELF_PF_X),                  /* flags */     \
+    host_32_to_le(ELF_X86_PAGE_SIZE)                            /* align */
+
+#define ELF_X86_PHDR_DYNAMIC(size)                                              \
+    host_32_to_le(ELF_PT_DYNAMIC),                              /* type */      \
+    host_32_to_le(ELF_X86_DYNAMIC_OFFSET),                      /* offset */    \
+    host_32_to_le(ELF_X86_BASE_ADDR+ELF_X86_DYNAMIC_OFFSET),    /* vaddr */     \
+    host_32_to_le(ELF_X86_BASE_ADDR+ELF_X86_DYNAMIC_OFFSET),    /* paddr */     \
+    host_32_to_le(size),                                        /* filesz */    \
+    host_32_to_le(size),                                        /* memsz */     \
+    host_32_to_le(ELF_PF_R|ELF_PF_W),                           /* flags */     \
+    host_32_to_le(ELF_X86_DYNAMIC_ALIGN)                        /* align */
 
 // 程序头部类型，每个程序头部描述一个程序分段，一个程序分段包含一个或多个分区。可加载分
 // 段如果 memsz 大于 filesz，额外字节是0，可加载分段必须按虚拟地址 vaddr 从小到大排序。
@@ -971,6 +1069,20 @@ typedef struct {
 #define ELF_DF_TEXTREL 0x04   // 重定位条目可以请求修改不可写分段
 #define ELF_DF_BIND_NOW 0x08  // 动态链接器在把控制权交给程序之前处理所有的重定位，否则延时绑定或调用 dlopen(BA_LIB) 绑定
 #define ELF_DF_STATIC_TLS 0x10 // 让动态链接器拒绝动态加载 TLS，表示使用的是静态 TLS
+
+#define ELF_DYN_DT_NULL()                   ELF_DT_NULL, {0}
+#define ELF_DYN_NEEDED_32(libname_strndx)   ELF_DT_NEEDED, {host_32_to_le(libname_strndx)}
+#define ELF_DYN_NEEDED_64(libname_strndx)   ELF_DT_NEEDED, {host_64_to_le(libname_strndx)}
+#define ELF_DYN_HASH_32(symtab_hash_addr)   ELF_DT_HASH, {host_32_to_le(symtab_hash_addr)}
+#define ELF_DYN_HASH_64(symtab_hash_addr)   ELF_DT_HASH, {host_64_to_le(symtab_hash_addr)}
+#define ELF_DYN_SYMT_32(symtab_addr)        ELF_DT_SYMTAB, {host_32_to_le(symtab_addr)}
+#define ELF_DYN_SYMT_64(symtab_addr)        ELF_DT_SYMTAB, {host_64_to_le(symtab_addr)}
+#define ELF_DYN_SYMENT_32(sym_ent_size)     ELF_DT_SYMENT, {host_32_to_le(sym_ent_size)}
+#define ELF_DYN_SYMENT_64(sym_ent_size)     ELF_DT_SYMENT, {host_64_to_le(sym_ent_size)}
+#define ELF_DYN_STRT_32(strtab_addr)        ELF_DT_SYMTAB, {host_32_to_le(strtab_addr)}
+#define ELF_DYN_STRT_64(strtab_addr)        ELF_DT_STRTAB, {host_64_to_le(strtab_addr)}
+#define ELF_DYN_STRSZ_32(strtab_size)       ELF_DT_STRSZ, {host_32_to_le(strtab_size)}
+#define ELF_DYN_STRSZ_64(strtab_size)       ELF_DT_STRSZ, {host_64_to_le(strtab_size)}
 
 // 说明分段
 typedef struct {
