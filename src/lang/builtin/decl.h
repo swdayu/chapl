@@ -786,6 +786,7 @@ inline uint64 bp_64_to_host(byte *p) {
 }
 
 #define ROUND_POW2(T, n, pow_2_sub_1) (((n) + (pow_2_sub_1)) & (~((T)(pow_2_sub_1))))
+#define ROUND_ADDED(n, pow_2_sub_1) ((((pow_2_sub_1) + 1) - ((n) & (pow_2_sub_1))) & (pow_2_sub_1))
 inline uint8 round_up_uint8(uint8 n, uint8 a) { return ROUND_POW2(uint8, n, a); }
 inline uint16 round_up_uint16(uint16 n, uint16 a) { return ROUND_POW2(uint16, n, a); }
 inline uint32 round_up_uint32(uint32 n, uint32 a) { return ROUND_POW2(uint32, n, a); }
