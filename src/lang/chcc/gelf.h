@@ -624,6 +624,14 @@ typedef struct {
 // .text            ELF_SEC_STRTAB         ELF_SF_ALLOC|EXECINSTR   程序可执行指令
 // .conflict .gptab .liblist .lit4 .lit8 .reginfo .sbss .sdata .tdesc 历史原因遗留下来的一些分区名称
 
+// 字符串分区
+inline byte *elf_strtab(byte *p) { *p++ = 0x00; return p; }
+inline byte *elf_strtab_add(byte *p, string_t s) { memcpy(p, s.a, s.len); p += s.len; *p++ = 0x00; return p; }
+
+// 符号表分区
+inline byte *elf_sym_undef_32(byte *p) { Elf32Sym sym = {0}; memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
+inline byte *elf_sym_undef_64(byte *p) { Elf64Sym sym = {0}; memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
+
 // 符号索引
 // 符号表分区第一个未定义符号的内容如下：
 // ElfSym.name      0 没有名称
@@ -913,7 +921,7 @@ typedef Elf32Phdr ElfPhdr;
 #define ELF_X86_DYNAMIC_ALIGN   8
 #define ELF_X86_DYNAMIC_OFFSET ROUND_POW2(uint32, ELF_X86_INTERP_OFFSET+ELF_X86_INTERP_SIZE, ELF_X86_DYNAMIC_ALIGN-1)
 
-#define ELF_X86_PHDR_INTERP()                                                   \
+#define ELF_X86_PHDR_INTERP() {                                                 \
     host_32_to_le(ELF_PT_INTERP),                               /* type */      \
     host_32_to_le(ELF_X86_INTERP_OFFSET),                       /* offset */    \
     host_32_to_le(ELF_X86_BASE_ADDR+ELF_X86_INTERP_OFFSET),     /* vaddr */     \
@@ -921,9 +929,9 @@ typedef Elf32Phdr ElfPhdr;
     host_32_to_le(ELF_X86_INTERP_SIZE),                         /* filesz */    \
     host_32_to_le(ELF_X86_INTERP_SIZE),                         /* memsz */     \
     host_32_to_le(ELF_PF_R),                                    /* flags */     \
-    host_32_to_le(1)                                            /* align */
+    host_32_to_le(1) }                                          /* align */
 
-#define ELF_X86_PHDR_TEXT(offset, size)                                         \
+#define ELF_X86_PHDR_TEXT(offset, size) {                                       \
     host_32_to_le(ELF_PT_LOAD),                                 /* type */      \
     host_32_to_le(offset),                                      /* offset */    \
     host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* vaddr */     \
@@ -931,9 +939,9 @@ typedef Elf32Phdr ElfPhdr;
     host_32_to_le(size),                                        /* filesz */    \
     host_32_to_le(size),                                        /* memsz */     \
     host_32_to_le(ELF_PF_R|ELF_PF_X),                           /* flags */     \
-    host_32_to_le(ELF_X86_PAGE_SIZE)                            /* align */
+    host_32_to_le(ELF_X86_PAGE_SIZE) }                          /* align */
 
-#define ELF_X86_PHDR_DATA(offset, size, bss)                                    \
+#define ELF_X86_PHDR_DATA(offset, size, bss) {                                  \
     host_32_to_le(ELF_PT_LOAD),                                 /* type */      \
     host_32_to_le(offset),                                      /* offset */    \
     host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* vaddr */     \
@@ -941,9 +949,9 @@ typedef Elf32Phdr ElfPhdr;
     host_32_to_le(size),                                        /* filesz */    \
     host_32_to_le((size)+(bss)),                                /* memsz */     \
     host_32_to_le(ELF_PF_R|ELF_PF_W|ELF_PF_X),                  /* flags */     \
-    host_32_to_le(ELF_X86_PAGE_SIZE)                            /* align */
+    host_32_to_le(ELF_X86_PAGE_SIZE) }                          /* align */
 
-#define ELF_X86_PHDR_DYNAMIC(size)                                              \
+#define ELF_X86_PHDR_DYNAMIC(size) {                                            \
     host_32_to_le(ELF_PT_DYNAMIC),                              /* type */      \
     host_32_to_le(ELF_X86_DYNAMIC_OFFSET),                      /* offset */    \
     host_32_to_le(ELF_X86_BASE_ADDR+ELF_X86_DYNAMIC_OFFSET),    /* vaddr */     \
@@ -951,7 +959,7 @@ typedef Elf32Phdr ElfPhdr;
     host_32_to_le(size),                                        /* filesz */    \
     host_32_to_le(size),                                        /* memsz */     \
     host_32_to_le(ELF_PF_R|ELF_PF_W),                           /* flags */     \
-    host_32_to_le(ELF_X86_DYNAMIC_ALIGN)                        /* align */
+    host_32_to_le(ELF_X86_DYNAMIC_ALIGN) }                      /* align */
 
 // 程序头部类型，每个程序头部描述一个程序分段，一个程序分段包含一个或多个分区。可加载分
 // 段如果 memsz 大于 filesz，额外字节是0，可加载分段必须按虚拟地址 vaddr 从小到大排序。
@@ -1070,19 +1078,25 @@ typedef struct {
 #define ELF_DF_BIND_NOW 0x08  // 动态链接器在把控制权交给程序之前处理所有的重定位，否则延时绑定或调用 dlopen(BA_LIB) 绑定
 #define ELF_DF_STATIC_TLS 0x10 // 让动态链接器拒绝动态加载 TLS，表示使用的是静态 TLS
 
-#define ELF_DYN_DT_NULL()                   ELF_DT_NULL, {0}
-#define ELF_DYN_NEEDED_32(libname_strndx)   ELF_DT_NEEDED, {host_32_to_le(libname_strndx)}
-#define ELF_DYN_NEEDED_64(libname_strndx)   ELF_DT_NEEDED, {host_64_to_le(libname_strndx)}
-#define ELF_DYN_HASH_32(symtab_hash_addr)   ELF_DT_HASH, {host_32_to_le(symtab_hash_addr)}
-#define ELF_DYN_HASH_64(symtab_hash_addr)   ELF_DT_HASH, {host_64_to_le(symtab_hash_addr)}
-#define ELF_DYN_SYMT_32(symtab_addr)        ELF_DT_SYMTAB, {host_32_to_le(symtab_addr)}
-#define ELF_DYN_SYMT_64(symtab_addr)        ELF_DT_SYMTAB, {host_64_to_le(symtab_addr)}
-#define ELF_DYN_SYMENT_32(sym_ent_size)     ELF_DT_SYMENT, {host_32_to_le(sym_ent_size)}
-#define ELF_DYN_SYMENT_64(sym_ent_size)     ELF_DT_SYMENT, {host_64_to_le(sym_ent_size)}
-#define ELF_DYN_STRT_32(strtab_addr)        ELF_DT_SYMTAB, {host_32_to_le(strtab_addr)}
-#define ELF_DYN_STRT_64(strtab_addr)        ELF_DT_STRTAB, {host_64_to_le(strtab_addr)}
-#define ELF_DYN_STRSZ_32(strtab_size)       ELF_DT_STRSZ, {host_32_to_le(strtab_size)}
-#define ELF_DYN_STRSZ_64(strtab_size)       ELF_DT_STRSZ, {host_64_to_le(strtab_size)}
+#define ELF_DYN_DT_NULL()                   {ELF_DT_NULL, {0}}
+#define ELF_DYN_NEEDED_32(stroff)           {ELF_DT_NEEDED, {host_32_to_le(stroff)}}}
+#define ELF_DYN_NEEDED_64(stroff)           {ELF_DT_NEEDED, {host_64_to_le(stroff)}}
+#define ELF_DYN_HASH_32(symtab_hash_addr)   {ELF_DT_HASH, {host_32_to_le(symtab_hash_addr)}}
+#define ELF_DYN_HASH_64(symtab_hash_addr)   {ELF_DT_HASH, {host_64_to_le(symtab_hash_addr)}}
+#define ELF_DYN_SYMTAB_32(symtab_addr)      {ELF_DT_SYMTAB, {host_32_to_le(symtab_addr)}}
+#define ELF_DYN_SYMTAB_64(symtab_addr)      {ELF_DT_SYMTAB, {host_64_to_le(symtab_addr)}}
+#define ELF_DYN_SYMENT_32(sym_ent_size)     {ELF_DT_SYMENT, {host_32_to_le(sym_ent_size)}}
+#define ELF_DYN_SYMENT_64(sym_ent_size)     {ELF_DT_SYMENT, {host_64_to_le(sym_ent_size)}}
+#define ELF_DYN_STRTAB_32(strtab_addr)      {ELF_DT_STRTAB, {host_32_to_le(strtab_addr)}}
+#define ELF_DYN_STRTAB_64(strtab_addr)      {ELF_DT_STRTAB, {host_64_to_le(strtab_addr)}}
+#define ELF_DYN_STRSZ_32(strtab_size)       {ELF_DT_STRSZ, {host_32_to_le(strtab_size)}}}}
+#define ELF_DYN_STRSZ_64(strtab_size)       {ELF_DT_STRSZ, {host_64_to_le(strtab_size)}}}
+#define ELF_DYN_REL_32(reltab_addr)         {ELF_DT_REL, {host_32_to_le(reltab_addr)}}
+#define ELF_DYN_REL_64(reltab_addr)         {ELF_DT_REL, {host_64_to_le(reltab_addr)}}
+#define ELF_DYN_RELENT_32()                 {ELF_DT_RELENT, {host_32_to_le(sizeof(Elf32Rel))}}
+#define ELF_DYN_RELENT_64()                 {ELF_DT_RELENT, {host_64_to_le(sizeof(Elf64Rel))}}
+#define ELF_DYN_RELSZ_32(reltab_size)       {ELF_DT_RELSZ, {host_32_to_le(reltab_size)}}
+#define ELF_DYN_RELSZ_64(reltab_size)       {ELF_DT_RELSZ, {host_64_to_le(reltab_size)}}
 
 // 说明分段
 typedef struct {
@@ -1119,24 +1133,19 @@ typedef struct {
 
 // 哈希表是一个 ElfWord 整数数组，它的组织方式示意如下：
 typedef struct {
-    uint32 nbucket;     // 桶的个数，bucket[elfhash(symnm)%nbucket] 存储的是符号索引
+    uint32 nbucket;     // 桶的个数，bucket[elf_hash(sym_name)%nbucket] 存储的是符号索引
     uint32 nchain;      // 链接的个数，必须等于符号表中符号的个数
-    uint32 bucket[1];   // 通过 elfhash 函数计算符号对应的桶索引，对应的桶索引保存该符号在符号表中的符号索引
+    uint32 bucket[1];   // 通过 elf_hash 函数计算符号对应的桶索引，对应的桶索引保存该符号在符号表中的符号索引
     // uint32 chain[1]; // 如果桶中保存的不是这个符号，继续查找 chain[符号索引] 中符号索引对应的符号
 } ElfHash;              // 依次类推，直到找到对应符号，或者遇到 ELF_SYMNDX_UNDEF 表示没有这个符号
 
-// 传入一个符号的名称，返回用于计算桶索引的值
-uint32 elf_hash(const byte* symnm) {
-    uint32 h = 0, g;
-    while (*symnm) {
-        h = (h << 4) + *symnm++;
-        g = (h & 0xf0000000);
-        if (g) {
-            h ^= g >> 24;
-        }
-        h &= ~g;
-    }
-    return h;
-}
+#define ELF_HASHTAB_1(nsym)                                     \
+    host_32_to_le(1),                   /* nbucket */           \
+    host_32_to_le(nsym),                /* nchain */            \
+    host_32_to_le(1),                   /* bucket */            \
+    host_32_to_le(ELF_SYMNDX_UNDEF)     /* 第一个 UNDEF 符号 */
+
+uint32 elf_hash(const byte* sym_name); // 传入一个符号的名称，返回用于计算桶索引的值
+inline uint32 *elf_hash_chain(uint32 *ht, uint32 nbucket) { return ht + 2 + nbucket; }
 
 #endif /* CHAPL_CHCC_GELF_H */
