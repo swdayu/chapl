@@ -430,6 +430,28 @@ typedef struct {
 // ElfShdr.info         0 没有额外信息
 // ElfShdr.addralign    0 不需要对齐
 // ElfShdr.entsize      0 分区不包含固定大小的条目
+#define ELF_X86_FIRST_SH(real_shnum, real_sec_name_strtab_shndx) {              \
+    host_32_to_le(0),                           /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_NULL),                /* type 分区类型 */             \
+    host_32_to_le(0),                           /* flags 分区标志 */            \
+    host_32_to_le(0),                           /* addr 加载后的虚拟地址 */      \
+    host_32_to_le(0),                           /* offset 分区文件偏移 */        \
+    host_32_to_le(real_shnum),                  /* size 分区大小 */             \
+    host_32_to_le(real_sec_name_strtab_shndx),  /* link 关联分区 */             \
+    host_32_to_le(0),                           /* info 关联信息 */             \
+    host_32_to_le(0),                           /* addralign 分区对齐 */        \
+    host_32_to_le(0) }                          /* entsize 分区固定的元素大小 */
+#define ELF_X64_FIRST_SH(real_shnum, real_sec_name_strtab_shndx) {              \
+    host_32_to_le(0),                           /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_NULL),                /* type 分区类型 */             \
+    host_32_to_le(0),                           /* flags 分区标志 */            \
+    host_64_to_le(0),                           /* addr 加载后的虚拟地址 */      \
+    host_64_to_le(0),                           /* offset 分区文件偏移 */        \
+    host_32_to_le(real_shnum),                  /* size 分区大小 */             \
+    host_32_to_le(real_sec_name_strtab_shndx),  /* link 关联分区 */             \
+    host_32_to_le(0),                           /* info 关联信息 */             \
+    host_32_to_le(0),                           /* addralign 分区对齐 */        \
+    host_32_to_le(0) }                          /* entsize 分区固定的元素大小 */
 
 // 分区类型
 #define ELF_SEC_NULL 0         // 非活动分区头部，没有关联的分区
@@ -619,27 +641,70 @@ typedef struct {
 // .symtab          ELF_SEC_SYMTAB         O(ELF_SF_ALLOC)          符号表，如果文件的一个可加载分段包含这个符号表则需要指定ALLOC属性否则为0
 // .symtab_shndx    ELF_SEC_SYMTAB_SHNDX   O(ELF_SF_ALLOC)          符号表分区头部索引，如果对应的符号表有ALLOC属性那么这个分区也需要指定ALLOC否则为0
 // .tbss            ELF_SEC_NOBITS         ELF_SF_ALLOC|WRITE|TLS   未初始化TLS数据
-// .tdata           ELF_SEC_STRTAB         ELF_SF_ALLOC|WRITE|TLS   初始化TLS数据
-// .tdata1          ELF_SEC_STRTAB         ELF_SF_ALLOC|WRITE|TLS   初始化TLS数据
-// .text            ELF_SEC_STRTAB         ELF_SF_ALLOC|EXECINSTR   程序可执行指令
+// .tdata           ELF_SEC_PROGBITS       ELF_SF_ALLOC|WRITE|TLS   初始化TLS数据
+// .tdata1          ELF_SEC_PROGBITS       ELF_SF_ALLOC|WRITE|TLS   初始化TLS数据
+// .text            ELF_SEC_PROGBITS       ELF_SF_ALLOC|EXECINSTR   程序可执行指令
 // .conflict .gptab .liblist .lit4 .lit8 .reginfo .sbss .sdata .tdesc 历史原因遗留下来的一些分区名称
 
 // 字符串分区
 inline byte *elf_strtab(byte *p) { *p++ = 0x00; return p; }
 inline byte *elf_strtab_add(byte *p, string_t s) { memcpy(p, s.a, s.len); p += s.len; *p++ = 0x00; return p; }
+#define ELF_X86_STRTAB_SH(sec_name_strndx, vaddr, offset, size) {               \
+    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_STRTAB),              /* type 分区类型 */             \
+    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
+    host_32_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
+    host_32_to_le(offset),                      /* offset 分区文件偏移 */        \
+    host_32_to_le(size),                        /* size 分区大小 */             \
+    host_32_to_le(ELF_SHNDX_UNDEF),             /* link 关联分区 */             \
+    host_32_to_le(0),                           /* info 关联信息 */             \
+    host_32_to_le(1),                           /* addralign 分区对齐 */        \
+    host_32_to_le(0) }                          /* entsize 分区固定的元素大小 */
+#define ELF_X64_STRTAB_SH(sec_name_strndx, vaddr, offset, size) {               \
+    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_STRTAB),              /* type 分区类型 */             \
+    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
+    host_64_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
+    host_64_to_le(offset),                      /* offset 分区文件偏移 */        \
+    host_32_to_le(size),                        /* size 分区大小 */             \
+    host_32_to_le(ELF_SHNDX_UNDEF),             /* link 关联分区 */             \
+    host_32_to_le(0),                           /* info 关联信息 */             \
+    host_32_to_le(1),                           /* addralign 分区对齐 */        \
+    host_32_to_le(0) }                          /* entsize 分区固定的元素大小 */
 
 // 符号表分区
 inline byte *elf_sym_undef_32(byte *p) { Elf32Sym sym = {0}; memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
 inline byte *elf_sym_undef_64(byte *p) { Elf64Sym sym = {0}; memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
+#define ELF_X86_SYMTAB_SH(sec_name_strndx, vaddr, offset, size, sym_strtab_shndx, first_unlocal_symndx) {               \
+    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_SYMTAB),              /* type 分区类型 */             \
+    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
+    host_32_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
+    host_32_to_le(offset),                      /* offset 分区文件偏移 */        \
+    host_32_to_le(size),                        /* size 分区大小 */             \
+    host_32_to_le(sym_strtab_shndx),            /* link 关联分区 */             \
+    host_32_to_le(first_unlocal_symndx),        /* info 关联信息 */             \
+    host_32_to_le(4),                           /* addralign 分区对齐 */        \
+    host_32_to_le(sizeof(Elf32Sym)) }           /* entsize 分区固定的元素大小 */
+#define ELF_X64_SYMTAB_SH(sec_name_strndx, vaddr, offset, size, sym_strtab_shndx, first_unlocal_symndx) {               \
+    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_SYMTAB),              /* type 分区类型 */             \
+    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
+    host_64_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
+    host_64_to_le(offset),                      /* offset 分区文件偏移 */        \
+    host_32_to_le(size),                        /* size 分区大小 */             \
+    host_32_to_le(sym_strtab_shndx),            /* link 关联分区 */             \
+    host_32_to_le(first_unlocal_symndx),        /* info 关联信息 */             \
+    host_32_to_le(4),                           /* addralign 分区对齐 */        \
+    host_32_to_le(sizeof(Elf64Sym)) }           /* entsize 分区固定的元素大小 */
 
-// 符号索引
-// 符号表分区第一个未定义符号的内容如下：
+// 符号表分区的第一个符号总是未定义符号：
 // ElfSym.name      0 没有名称
 // ElfSym.value     0 零值
 // ElfSym.size      0 没有大小
 // ElfSym.info      0 没有类型，本地符号
 // ElfSym.other     0 默认可见性
-// ElfSym.shndx     0 无关联分区
+// ElfSym.shndx     0 无关联分区，符号索引为 ELF_SYMNDX_UNDEF
 #define ELF_SYMNDX_UNDEF 0
 // 符号类型和绑定属性，符号的绑定属性定义了链接可见性和行为；
 // 全局符号和弱符号有两个主要不同：
@@ -1079,8 +1144,8 @@ typedef struct {
 #define ELF_DF_STATIC_TLS 0x10 // 让动态链接器拒绝动态加载 TLS，表示使用的是静态 TLS
 
 #define ELF_DYN_DT_NULL()                   {ELF_DT_NULL, {0}}
-#define ELF_DYN_NEEDED_32(stroff)           {ELF_DT_NEEDED, {host_32_to_le(stroff)}}}
-#define ELF_DYN_NEEDED_64(stroff)           {ELF_DT_NEEDED, {host_64_to_le(stroff)}}
+#define ELF_DYN_NEEDED_32(strndx)           {ELF_DT_NEEDED, {host_32_to_le(strndx)}}}
+#define ELF_DYN_NEEDED_64(strndx)           {ELF_DT_NEEDED, {host_64_to_le(strndx)}}
 #define ELF_DYN_HASH_32(symtab_hash_addr)   {ELF_DT_HASH, {host_32_to_le(symtab_hash_addr)}}
 #define ELF_DYN_HASH_64(symtab_hash_addr)   {ELF_DT_HASH, {host_64_to_le(symtab_hash_addr)}}
 #define ELF_DYN_SYMTAB_32(symtab_addr)      {ELF_DT_SYMTAB, {host_32_to_le(symtab_addr)}}
@@ -1131,19 +1196,23 @@ typedef struct {
 // ElfPhdr.flags    ELF_PF_R 可读
 // ElfPhdr.align    TLS 模板的地址对齐要求
 
-// 哈希表是一个 ElfWord 整数数组，它的组织方式示意如下：
+// 哈希表是一个 ElfWord 整数数组，它的组织方式示意如下。chain 数组保存的也是符号表索引，
+// 数组大小是nchain，即符号表中符号的个数，因此符号表索引也索引 chain 表的元素。
+// bucket[elf_hash(sym_name)%nbucket] 计算出的索引 y 同时索引符号表和 chain 表，如果
+// y 索引的符号匹配失败，继续匹配 chain[y]、chain[y+1] 对应的符号名称，直到匹配成功或
+// chain 元素的值为 ELF_SYMNDX_UNDEF。
 typedef struct {
     uint32 nbucket;     // 桶的个数，bucket[elf_hash(sym_name)%nbucket] 存储的是符号索引
     uint32 nchain;      // 链接的个数，必须等于符号表中符号的个数
-    uint32 bucket[1];   // 通过 elf_hash 函数计算符号对应的桶索引，对应的桶索引保存该符号在符号表中的符号索引
-    // uint32 chain[1]; // 如果桶中保存的不是这个符号，继续查找 chain[符号索引] 中符号索引对应的符号
-} ElfHash;              // 依次类推，直到找到对应符号，或者遇到 ELF_SYMNDX_UNDEF 表示没有这个符号
+    uint32 bucket[1];   // 保存符号索引
+    // uint32 chain[1];
+} ElfHash;
 
-#define ELF_HASHTAB_1(nsym)                                     \
-    host_32_to_le(1),                   /* nbucket */           \
-    host_32_to_le(nsym),                /* nchain */            \
-    host_32_to_le(1),                   /* bucket */            \
-    host_32_to_le(ELF_SYMNDX_UNDEF)     /* 第一个 UNDEF 符号 */
+#define ELF_HASHTAB_1(nsym)                                             \
+    host_32_to_le(1),                   /* nbucket */                   \
+    host_32_to_le(nsym),                /* nchain */                    \
+    host_32_to_le(1),                   /* bucket 索引为1对应的符号 */   \
+    host_32_to_le(ELF_SYMNDX_UNDEF)     /* 索引为0的未定义符号 */
 
 uint32 elf_hash(const byte* sym_name); // 传入一个符号的名称，返回用于计算桶索引的值
 inline uint32 *elf_hash_chain(uint32 *ht, uint32 nbucket) { return ht + 2 + nbucket; }
