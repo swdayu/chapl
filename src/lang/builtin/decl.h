@@ -309,7 +309,8 @@ string_t string_move_create(string_t *from);
 void string_free(string_t *s);
 void assertfaults_(uint16 file, uint32 argn_line, string_t s, ...);
 void logtraces_(Error err, uint32 file_err, uint32 argn_line, string_t s, ...);
-inline string_t nullstr() { return (string_t){0,0,0}; }
+inline string_t strnull() { return (string_t){0,0,0}; }
+inline string_t strfend(const byte *f, const byte *e) { return (string_t){f, e-f, 0}; }
 inline string_t strfrom(const char *s) { return (string_t){(byte*)s, s ? strlen(s) : 0, 0}; }
 inline bool string_empty(string_t *s) { return !s->len; }
 inline Uint string_len(string_t *s) { return s->len; }

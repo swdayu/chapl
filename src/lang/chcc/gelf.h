@@ -647,8 +647,6 @@ typedef struct {
 // .conflict .gptab .liblist .lit4 .lit8 .reginfo .sbss .sdata .tdesc 历史原因遗留下来的一些分区名称
 
 // 字符串分区
-inline byte *elf_strtab(byte *p) { *p++ = 0x00; return p; }
-inline byte *elf_strtab_add(byte *p, string_t s) { memcpy(p, s.a, s.len); p += s.len; *p++ = 0x00; return p; }
 #define ELF_X86_STRTAB_SH(sec_name_strndx, vaddr, offset, size) {               \
     host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
     host_32_to_le(ELF_SEC_STRTAB),              /* type 分区类型 */             \
@@ -671,32 +669,8 @@ inline byte *elf_strtab_add(byte *p, string_t s) { memcpy(p, s.a, s.len); p += s
     host_32_to_le(0),                           /* info 关联信息 */             \
     host_32_to_le(1),                           /* addralign 分区对齐 */        \
     host_32_to_le(0) }                          /* entsize 分区固定的元素大小 */
-
-// 符号表分区
-inline byte *elf_sym_undef_32(byte *p) { Elf32Sym sym = {0}; memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
-inline byte *elf_sym_undef_64(byte *p) { Elf64Sym sym = {0}; memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
-#define ELF_X86_SYMTAB_SH(sec_name_strndx, vaddr, offset, size, sym_strtab_shndx, first_unlocal_symndx) {               \
-    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
-    host_32_to_le(ELF_SEC_SYMTAB),              /* type 分区类型 */             \
-    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
-    host_32_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
-    host_32_to_le(offset),                      /* offset 分区文件偏移 */        \
-    host_32_to_le(size),                        /* size 分区大小 */             \
-    host_32_to_le(sym_strtab_shndx),            /* link 关联分区 */             \
-    host_32_to_le(first_unlocal_symndx),        /* info 关联信息 */             \
-    host_32_to_le(4),                           /* addralign 分区对齐 */        \
-    host_32_to_le(sizeof(Elf32Sym)) }           /* entsize 分区固定的元素大小 */
-#define ELF_X64_SYMTAB_SH(sec_name_strndx, vaddr, offset, size, sym_strtab_shndx, first_unlocal_symndx) {               \
-    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
-    host_32_to_le(ELF_SEC_SYMTAB),              /* type 分区类型 */             \
-    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
-    host_64_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
-    host_64_to_le(offset),                      /* offset 分区文件偏移 */        \
-    host_32_to_le(size),                        /* size 分区大小 */             \
-    host_32_to_le(sym_strtab_shndx),            /* link 关联分区 */             \
-    host_32_to_le(first_unlocal_symndx),        /* info 关联信息 */             \
-    host_32_to_le(4),                           /* addralign 分区对齐 */        \
-    host_32_to_le(sizeof(Elf64Sym)) }           /* entsize 分区固定的元素大小 */
+inline byte *elf_strtab(byte *p) { *p++ = 0x00; return p; }
+inline byte *elf_strtab_add(byte *p, string_t s) { memcpy(p, s.a, s.len); p += s.len; *p++ = 0x00; return p; }
 
 // 符号表分区的第一个符号总是未定义符号：
 // ElfSym.name      0 没有名称
@@ -798,13 +772,55 @@ typedef Elf64Sym ElfSym;
 typedef Elf32Sym ElfSym;
 #endif
 
+// 符号表分区
+#define ELF_X86_SYMTAB_SH(sec_name_strndx, vaddr, offset, size, sym_strtab_shndx, first_unlocal_symndx) {               \
+    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_SYMTAB),              /* type 分区类型 */             \
+    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
+    host_32_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
+    host_32_to_le(offset),                      /* offset 分区文件偏移 */        \
+    host_32_to_le(size),                        /* size 分区大小 */             \
+    host_32_to_le(sym_strtab_shndx),            /* link 关联分区 */             \
+    host_32_to_le(first_unlocal_symndx),        /* info 关联信息 */             \
+    host_32_to_le(4),                           /* addralign 分区对齐 */        \
+    host_32_to_le(sizeof(Elf32Sym)) }           /* entsize 分区固定的元素大小 */
+#define ELF_X64_SYMTAB_SH(sec_name_strndx, vaddr, offset, size, sym_strtab_shndx, first_unlocal_symndx) {               \
+    host_32_to_le(sec_name_strndx),             /* name 分区名称 */             \
+    host_32_to_le(ELF_SEC_SYMTAB),              /* type 分区类型 */             \
+    host_32_to_le((vaddr) ? ELF_SF_ALLOC : 0),  /* flags 分区标志 */            \
+    host_64_to_le(vaddr),                       /* addr 加载后的虚拟地址 */      \
+    host_64_to_le(offset),                      /* offset 分区文件偏移 */        \
+    host_32_to_le(size),                        /* size 分区大小 */             \
+    host_32_to_le(sym_strtab_shndx),            /* link 关联分区 */             \
+    host_32_to_le(first_unlocal_symndx),        /* info 关联信息 */             \
+    host_32_to_le(4),                           /* addralign 分区对齐 */        \
+    host_32_to_le(sizeof(Elf64Sym)) }           /* entsize 分区固定的元素大小 */
+#define ELF_X86_GLOBA_SYM(sym_name_strndx, type) (Elf32Sym) {                   \
+    host_32_to_le(sym_name_strndx),             /* name */                      \
+    host_32_to_le(0),                           /* value */                     \
+    host_32_to_le(0),                           /* size */                      \
+    ELF_SYM_INFO(ELF_SYM_BIND_GLOBAL, (type)),  /* info */                      \
+    ELF_SYM_DEFAULT,                            /* other */                     \
+    host_16_to_le(ELF_SHNDX_UNDEF) }            /* shndx */
+#define ELF_X64_GLOBA_SYM(sym_name_strndx, type) (Elf64Sym) {                   \
+    host_32_to_le(sym_name_strndx),             /* name */                      \
+    ELF_SYM_INFO(ELF_SYM_BIND_GLOBAL, (type)),  /* info */                      \
+    ELF_SYM_DEFAULT,                            /* other */                     \
+    host_16_to_le(ELF_SHNDX_UNDEF),             /* shndx */                     \
+    host_64_to_le(0),                           /* value */                     \
+    host_64_to_le(0) }                          /* size */
+#define ELF_UNDEF_SYM_32() (Elf32Sym){0}
+#define ELF_UNDEF_SYM_64() (Elf64Sym){0}
+inline byte *elf_sym_add_32(byte *p, Elf32Sym sym) { memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
+inline byte *elf_sym_add_64(byte *p, Elf64Sym sym) { memcpy(p, &sym, sizeof(sym)); return p + sizeof(sym); }
+
 // 重定位符号和重定位类型
 #define ELF_REL_SYM_32(info) ((info)>>8)
 #define ELF_REL_TYPE_32(info) ((info)&0xff)
-#define ELF_REL_INFO_32(s,t) (((s)<<8)|((t)&0xff))
+#define ELF_REL_INFO_32(s,t) ((((uint32)(s))<<8)|((t)&0xff))
 #define ELF_REL_SYM_64(info) ((info)>>32)
 #define ELF_REL_TYPE_64(info) ((info)&0xffffffffL)
-#define ELF_REL_INFO_64(s,t) (((s)<<32)|((t)&0xffffffffL))
+#define ELF_REL_INFO_64(s,t) ((((uint64)(s))<<32)|((t)&0xffffffffL))
 #if __ARCH_64BIT__
 #define ELF_REL_SYM(info) ELF_REL_SYM_64(info)
 #define ELF_REL_TYPE(info) ELF_REL_TYPE_64(info)
@@ -814,6 +830,48 @@ typedef Elf32Sym ElfSym;
 #define ELF_REL_TYPE(info) ELF_REL_TYPE_32(info)
 #define ELF_REL_INFO(s,t) ELF_REL_INFO_32((s),(t))
 #endif
+
+#define ELF_R_386_NONE          0   // 无
+#define ELF_R_386_32            1   // word32   S + A
+#define ELF_R_386_PC32          2   // word32   S + A - P
+#define ELF_R_386_GOT32         3   // word32   G + A - P
+#define ELF_R_386_PLT32         4   // word32   L + A - P
+#define ELF_R_386_COPY          5   // 无
+#define ELF_R_386_GLOB_DAT      6   // word32   S
+#define ELF_R_386_JMP_SLOT      7   // word32   S
+#define ELF_R_386_RELATIVE      8   // word32   B + A
+#define ELF_R_386_GOTOFF        9   // word32   S + A - GOT
+#define ELF_R_386_GOTPC         10  // word32   GOT + A - P
+#define ELF_R_386_TLS_TPOFF     14  // word32
+#define ELF_R_386_TLS_IE        15  // word32
+#define ELF_R_386_TLS_GOTIE     16  // word32
+#define ELF_R_386_TLS_LE        17  // word32
+#define ELF_R_386_TLS_GD        18  // word32
+#define ELF_R_386_TLS_LDM       19  // word32
+#define ELF_R_386_16            20  // word16   S + A
+#define ELF_R_386_PC16          21  // word16   S + A - P
+#define ELF_R_386_8             22  // word8    S + A
+#define ELF_R_386_PC8           23  // word8    S + A - P
+#define ELF_R_386_TLS_GD_32     24  // word32
+#define ELF_R_386_TLS_GD_PUSH   25  // word32
+#define ELF_R_386_TLS_GD_CALL   26  // word32
+#define ELF_R_386_TLS_GD_POP    27  // word32
+#define ELF_R_386_TLS_LDM_32    28  // word32
+#define ELF_R_386_TLS_LDM_PUSH  29  // word32
+#define ELF_R_386_TLS_LDM_CALL  30  // word32
+#define ELF_R_386_TLS_LDM_POP   31  // word32
+#define ELF_R_386_TLS_LDO_32    32  // word32
+#define ELF_R_386_TLS_IE_32     33  // word32
+#define ELF_R_386_TLS_LE_32     34  // word32
+#define ELF_R_386_TLS_DTPMOD32  35  // word32
+#define ELF_R_386_TLS_DTPOFF32  36  // word32
+#define ELF_R_386_TLS_TPOFF32   37  // word32
+#define ELF_R_386_SIZE32        38  // word32   Z + A
+#define ELF_R_386_TLS_GOTDESC   39  // word32
+#define ELF_R_386_TLS_DESC_CALL 40  // 无
+#define ELF_R_386_TLS_DESC      41  // word32
+#define ELF_R_386_IRELATIVE     42  // word32   indirect (B + A)
+#define ELF_R_386_GOT32X        43  // word32   G + A - GOT / G + A
 
 // 重定位结构体，重定位用于处理符号引用和符号定义；例如当程序调用一个函数时，
 // 对应的调用指令必须将代码控制权转移到合适的目标地址；重定位文件必须有重定
@@ -877,6 +935,16 @@ typedef struct {
     uint64 offset;
     uint64 info;
 } Elf64Rel;
+
+// 重定位分区
+#define ELF_X86_REL(offset, symndx, reltype) (Elf32Rel) {                       \
+    host_32_to_le(offset),                                                      \
+    host_32_to_le(ELF_REL_INFO_32(symndx, reltype)) }
+#define ELF_X64_REL(offset, symndx, reltype) (Elf64Rel) {                       \
+    host_64_to_le(offset),                                                      \
+    host_64_to_le(ELF_REL_INFO_64(symndx, reltype)) }
+inline byte *elf_rel_add_32(byte *p, Elf32Rel rel) { memcpy(p, &rel, sizeof(rel)); return p + sizeof(rel); }
+inline byte *elf_rel_add_64(byte *p, Elf64Rel rel) { memcpy(p, &rel, sizeof(rel)); return p + sizeof(rel); }
 
 // 程序头部表中的程序头部结构体，程序头部的虚拟地址可能不是程序内存映像真实的
 // 虚拟地址；其中可执行文件通常包含绝对代码，为了使进程正确执行，分段必须位于
@@ -969,13 +1037,14 @@ typedef Elf32Phdr ElfPhdr;
 #define ELF_X64_INTERP "/lib64/ld-linux-x86-64.so.2"
 #endif
 
-// X86 ELF 可执行文件布局：     大小        文件偏移
-//  ELF_X86_HDR_EXE         52-byte 0x34    0x00
-//  ELF_X86_PHDR_INTERP     32-byte 0x20    0x34
-//  ELF_X86_PHDR_TEXT       32-byte 0x20    0x54
-//  ELF_X86_PHDR_DATA       32-byte 0x20    0x74
-//  ELF_X86_PHDR_DYNAMIC    32-byte 0x20    0x94
-//  INTERP                                  0xb4
+// X86 ELF 可执行文件布局：     文件偏移                    大小
+//  ELF_X86_HDR_EXE             0x00                    52-byte 0x34
+//  ELF_X86_PHDR_INTERP         0x34                    32-byte 0x20
+//  ELF_X86_PHDR_TEXT           0x54                    32-byte 0x20
+//  ELF_X86_PHDR_DATA           0x74                    32-byte 0x20
+//  ELF_X86_PHDR_DYNAMIC        0x94                    32-byte 0x20
+//  INTERP section              0xb4                    ELF_X86_INTERP_SIZE
+//  DYNAMIC section             ELF_X86_DYNAMIC_OFFSET  dyn_num * 8
 
 #define ELF_X86_BASE_ADDR 0x08048000 // X86 可执行文件的基地址
 #define ELF_X64_BASE_ADDR 0x00400000 // X64 可执行文件的基地址
@@ -1013,6 +1082,16 @@ typedef Elf32Phdr ElfPhdr;
     host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* paddr */     \
     host_32_to_le(size),                                        /* filesz */    \
     host_32_to_le((size)+(bss)),                                /* memsz */     \
+    host_32_to_le(ELF_PF_R|ELF_PF_W|ELF_PF_X),                  /* flags */     \
+    host_32_to_le(ELF_X86_PAGE_SIZE) }                          /* align */
+
+#define ELF_X86_PHDR_LOAD(offset, size) {                                       \
+    host_32_to_le(ELF_PT_LOAD),                                 /* type */      \
+    host_32_to_le(offset),                                      /* offset */    \
+    host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* vaddr */     \
+    host_32_to_le(ELF_X86_BASE_ADDR+(offset)),                  /* paddr */     \
+    host_32_to_le(size),                                        /* filesz */    \
+    host_32_to_le(size),                                        /* memsz */     \
     host_32_to_le(ELF_PF_R|ELF_PF_W|ELF_PF_X),                  /* flags */     \
     host_32_to_le(ELF_X86_PAGE_SIZE) }                          /* align */
 
@@ -1144,18 +1223,18 @@ typedef struct {
 #define ELF_DF_STATIC_TLS 0x10 // 让动态链接器拒绝动态加载 TLS，表示使用的是静态 TLS
 
 #define ELF_DYN_DT_NULL()                   {ELF_DT_NULL, {0}}
-#define ELF_DYN_NEEDED_32(strndx)           {ELF_DT_NEEDED, {host_32_to_le(strndx)}}}
+#define ELF_DYN_NEEDED_32(strndx)           {ELF_DT_NEEDED, {host_32_to_le(strndx)}}
 #define ELF_DYN_NEEDED_64(strndx)           {ELF_DT_NEEDED, {host_64_to_le(strndx)}}
 #define ELF_DYN_HASH_32(symtab_hash_addr)   {ELF_DT_HASH, {host_32_to_le(symtab_hash_addr)}}
 #define ELF_DYN_HASH_64(symtab_hash_addr)   {ELF_DT_HASH, {host_64_to_le(symtab_hash_addr)}}
 #define ELF_DYN_SYMTAB_32(symtab_addr)      {ELF_DT_SYMTAB, {host_32_to_le(symtab_addr)}}
 #define ELF_DYN_SYMTAB_64(symtab_addr)      {ELF_DT_SYMTAB, {host_64_to_le(symtab_addr)}}
-#define ELF_DYN_SYMENT_32(sym_ent_size)     {ELF_DT_SYMENT, {host_32_to_le(sym_ent_size)}}
-#define ELF_DYN_SYMENT_64(sym_ent_size)     {ELF_DT_SYMENT, {host_64_to_le(sym_ent_size)}}
+#define ELF_DYN_SYMENT_32()                 {ELF_DT_SYMENT, {host_32_to_le(sizeof(Elf32Sym))}}
+#define ELF_DYN_SYMENT_64()                 {ELF_DT_SYMENT, {host_64_to_le(sizeof(Elf64Sym))}}
 #define ELF_DYN_STRTAB_32(strtab_addr)      {ELF_DT_STRTAB, {host_32_to_le(strtab_addr)}}
 #define ELF_DYN_STRTAB_64(strtab_addr)      {ELF_DT_STRTAB, {host_64_to_le(strtab_addr)}}
-#define ELF_DYN_STRSZ_32(strtab_size)       {ELF_DT_STRSZ, {host_32_to_le(strtab_size)}}}}
-#define ELF_DYN_STRSZ_64(strtab_size)       {ELF_DT_STRSZ, {host_64_to_le(strtab_size)}}}
+#define ELF_DYN_STRSZ_32(strtab_size)       {ELF_DT_STRSZ, {host_32_to_le(strtab_size)}}
+#define ELF_DYN_STRSZ_64(strtab_size)       {ELF_DT_STRSZ, {host_64_to_le(strtab_size)}}
 #define ELF_DYN_REL_32(reltab_addr)         {ELF_DT_REL, {host_32_to_le(reltab_addr)}}
 #define ELF_DYN_REL_64(reltab_addr)         {ELF_DT_REL, {host_64_to_le(reltab_addr)}}
 #define ELF_DYN_RELENT_32()                 {ELF_DT_RELENT, {host_32_to_le(sizeof(Elf32Rel))}}

@@ -36,7 +36,7 @@ void test_chcc(void)
     bufile_t *f;
     cfys_t *cf = &cc.curcf;
 
-    f = bufile_new(NULL, nullstr(), FILEBUF_DEFAULT_SIZE);
+    f = bufile_new(NULL, strnull(), FILEBUF_DEFAULT_SIZE);
     lang_assert(f != null);
 
     chcc_init(&cc, f);
