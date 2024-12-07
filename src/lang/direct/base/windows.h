@@ -1,10 +1,5 @@
 #ifndef CHAPL_DIRECT_WINDOWS_H
 #define CHAPL_DIRECT_WINDOWS_H
-// https://learn.microsoft.com/en-us/windows/apps/api-reference/
-// https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes
-// https://learn.microsoft.com/en-us/windows/win32/api/
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/c-run-time-library-reference
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/security-features-in-the-crt
 
 // 微软 C 运行时库
 //

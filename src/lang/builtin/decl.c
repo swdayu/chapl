@@ -1,8 +1,6 @@
 #define __CURR_FILE__ STRID_LANG_DECL
 #include "internal/decl.h"
 
-__DECL_THREAD Error error_g;
-
 #if CONFIG_RT_ERROR_STRING
 const byte* builtin_errors_g[BUILTIN_NUM_ERRORS] = {
     "SUCCESS",

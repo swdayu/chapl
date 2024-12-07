@@ -1,11 +1,29 @@
 #ifndef CHAPL_BUILTIN_DECL_H
 #define CHAPL_BUILTIN_DECL_H
-#include "direct/file.h"
+#include "direct/base.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 #include <tgmath.h>
+
+// __ARCH_X86__         // x86-pc
+// __ARCH_X64__         // x64-pc
+// __ARCH_ARM__         // arm, ARMv4
+// __ARCH_ARM64__       // aarch64, ARMv8
+// __ARCH_32BIT__       // 32-bit arch
+// __ARCH_64BIT__       // 64-bit arch
+// __ARCH_BITS__        // arch bits
+// __LIT_ENDIAN__       // arch little endian
+// __BIG_ENDIAN__       // arch big endian
+// __OS_FREEBSD__       // freebsd
+// __OS_OPENBSD__       // openbsd
+// __OS_NETBSD__        // netbsd
+// __OS_WINDOWS__       // windows
+// __OS_LINUX__         // linux-gnu
+// __OS_MACHO__         // apple-darwin
+// __MSC__
+// __GCC__
 
 #undef __DECL_THREAD
 #undef __DECL_PACKED
@@ -26,10 +44,10 @@
 #define __DECL_PACKED _Pragma("pack(1)") typedef struct
 #endif
 
-#ifdef __TARGET_X86__
-#include "abi/x86_abi.h"
-#elif __TARGET_X64__
-#include "abi/x64_abi.h"
+#ifdef __ARCH_X86__
+#include "conf/x86_abi.h"
+#elif __ARCH_X64__
+#include "conf/x64_abi.h"
 #else
 #include "conf/pretypes.genfile"
 #endif
@@ -74,7 +92,7 @@ const static uint64 LANG_MAX_UNT64 = 0xffffffffffffffffULL; /* 18446744073709551
 #define false 0
 typedef uint8 bool;
 typedef uint8 byte;
-typedef uint32 rune;
+typedef int32 rune; // 必须是有符号类型，保存的是unicode代码点
 typedef uint16 strid_t;
 typedef uint32 Error;
 
@@ -272,14 +290,6 @@ extern const byte* builtin_errors_g[BUILTIN_NUM_ERRORS];
 #define builtin_error(id) (((id) > ERROR) ? (((id) << 1) | ERROR) : (id))
 #endif
 
-extern __DECL_THREAD Error error_g;
-
-#undef set_last_error
-#undef get_last_error
-
-#define set_last_error(n) error_g = (n)
-#define get_last_error() error_g
-
 // 将 p 开始的 len 个字节写入到 obj 中，返回成功写入的字节数（0 <= n <= len），如果
 // len > 0 而 n < len，表示在写完之前被某个错误提前打断，此时必须返回一个非 null 值的
 // error。
@@ -310,7 +320,8 @@ void string_free(string_t *s);
 void assertfaults_(uint16 file, uint32 argn_line, string_t s, ...);
 void logtraces_(Error err, uint32 file_err, uint32 argn_line, string_t s, ...);
 inline string_t strnull() { return (string_t){0,0,0}; }
-inline string_t strfend(const byte *f, const byte *e) { return (string_t){f, e-f, 0}; }
+inline string_t strfend(const byte *f, const byte *e) { return string_create(f, e - f, 0); }
+inline string_t strflen(const byte *f, Int len) { return string_create(f, len, 0); }
 inline string_t strfrom(const char *s) { return (string_t){(byte*)s, s ? strlen(s) : 0, 0}; }
 inline bool string_empty(string_t *s) { return !s->len; }
 inline Uint string_len(string_t *s) { return s->len; }
@@ -688,25 +699,28 @@ inline uint32 be_64_to_host(uint32 n) { return n; }
 #define HOST_32_BE_BYTES(a) HOST_16_BE_BYTES((a)>>16), HOST_16_BE_BYTES(a)
 #define HOST_64_BE_BYTES(a) HOST_32_BE_BYTES((a)>>32), HOST_32_BE_BYTES(a)
 
-inline void host_16_to_lp(uint16 n, byte *p) {
+inline byte *host_16_to_lp(uint16 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
+    return p + 2;
 }
 
-inline void host_24_to_lp(uint32 n, byte *p) {
+inline byte *host_24_to_lp(uint32 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[2] = HOST_BYTE(n >> 16);
+    return p + 3;
 }
 
-inline void host_32_to_lp(uint32 n, byte *p) {
+inline byte *host_32_to_lp(uint32 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[2] = HOST_BYTE(n >> 16);
     p[3] = HOST_BYTE(n >> 24);
+    return p + 4;
 }
 
-inline void host_64_to_lp(uint64 n, byte *p) {
+inline byte *host_64_to_lp(uint64 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[2] = HOST_BYTE(n >> 16);
@@ -715,27 +729,31 @@ inline void host_64_to_lp(uint64 n, byte *p) {
     p[5] = HOST_BYTE(n >> 40);
     p[6] = HOST_BYTE(n >> 48);
     p[7] = HOST_BYTE(n >> 56);
+    return p + 8;
 }
 
-inline void host_16_to_bp(uint16 n, byte *p) {
+inline byte *host_16_to_bp(uint16 n, byte *p) {
     p[1] = HOST_BYTE(n);
     p[0] = HOST_BYTE(n >> 8);
+    return p + 2;
 }
 
-inline void host_24_to_bp(uint32 n, byte *p) {
+inline byte *host_24_to_bp(uint32 n, byte *p) {
     p[2] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[0] = HOST_BYTE(n >> 16);
+    return p + 3;
 }
 
-inline void host_32_to_bp(uint32 n, byte *p) {
+inline byte *host_32_to_bp(uint32 n, byte *p) {
     p[3] = HOST_BYTE(n);
     p[2] = HOST_BYTE(n >> 8);
     p[1] = HOST_BYTE(n >> 16);
     p[0] = HOST_BYTE(n >> 24);
+    return p + 4;
 }
 
-inline void host_64_to_bp(uint64 n, byte *p) {
+inline byte *host_64_to_bp(uint64 n, byte *p) {
     p[7] = HOST_BYTE(n);
     p[6] = HOST_BYTE(n >> 8);
     p[5] = HOST_BYTE(n >> 16);
@@ -744,6 +762,7 @@ inline void host_64_to_bp(uint64 n, byte *p) {
     p[2] = HOST_BYTE(n >> 40);
     p[1] = HOST_BYTE(n >> 48);
     p[0] = HOST_BYTE(n >> 56);
+    return p + 8;
 }
 
 inline uint16 lp_16_to_host(byte *p) {
@@ -785,6 +804,26 @@ inline uint64 bp_64_to_host(byte *p) {
         (((uint64)p[4]) << 24) | (((uint64)p[5]) << 16) |
         (((uint64)p[6]) << 8)  | p[7];
 }
+
+#if __ARCH_32BIT__
+#define host_nb_to_le(n)    host_32_to_le(n)
+#define host_nb_to_be(n)    host_32_to_be(n)
+#define le_nb_to_host(n)    le_32_to_host(n)
+#define be_nb_to_host(n)    be_32_to_host(n)
+#define host_nb_to_lp(n, p) host_32_to_lp((n), (p))
+#define host_nb_to_bp(n, p) host_32_to_bp((n), (p))
+#define lp_nb_to_host(p)    lp_32_to_host(p)
+#define bp_nb_to_host(p)    bp_32_to_host(p)
+#elif __ARCH_64BIT__
+#define host_nb_to_le(n)    host_64_to_le(n)
+#define host_nb_to_be(n)    host_64_to_be(n)
+#define le_nb_to_host(n)    le_64_to_host(n)
+#define be_nb_to_host(n)    be_64_to_host(n)
+#define host_nb_to_lp(n, p) host_64_to_lp((n), (p))
+#define host_nb_to_bp(n, p) host_64_to_bp((n), (p))
+#define lp_nb_to_host(p)    lp_64_to_host(p)
+#define bp_nb_to_host(p)    bp_64_to_host(p)
+#endif
 
 // (~pow_2_sub_1) 相当于 (-pow_2)
 #define ROUND_POW2(T, n, pow_2_sub_1) (((n) + (pow_2_sub_1)) & (~((T)(pow_2_sub_1))))
