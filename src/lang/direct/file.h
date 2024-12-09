@@ -2,8 +2,6 @@
 #define CHAPL_DIRECT_FILE_H
 #include "builtin/decl.h"
 
-#define FILE_INVCH
-
 typedef struct {
     int32 fd;
     uint32 len: 31;

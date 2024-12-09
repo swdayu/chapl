@@ -209,16 +209,17 @@ void fileblock_(file_t *f, void (*cp)(void *p, const byte *e), void *p)
     if (f->fd < 0) {
         return;
     }
-    b->cur = arr + BUF_HEAD_BYTE_CNT;
-    f->len = BUF_HEAD_BYTE_CNT;
     bflen = cap - BUF_HEAD_BYTE_CNT;
     if (bflen <= 0) {
         return;
     }
+    // 为保证unget成功，必须将对应长度内容拷贝到头部
+    memmove(arr, cur - BUF_HEAD_BYTE_CNT, BUF_HEAD_BYTE_CNT);
+    b->cur = arr + BUF_HEAD_BYTE_CNT;
+    f->len = BUF_HEAD_BYTE_CNT;
     if (cp) {
         cp(p, cur);
     }
-    // TODO: 至少先复制尾部的4个字节
     len = fileread_(f->fd, b->cur, bflen);
     if (len <= 0 || len > bflen) {
         return;
@@ -233,10 +234,14 @@ int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *p)
 {
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
+    if (f->eof) {
+        goto label_eof;
+    }
     if (b->cur >= arr + f->len) {
         fileblock_(f, cp, p);
     }
     if (f->eof) {
+label_eof:
         return CHAR_EOF;
     }
     return *b->cur++;
