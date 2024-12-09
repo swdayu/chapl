@@ -52,6 +52,70 @@
 #include "conf/pretypes.genfile"
 #endif
 
+#define CHAR_NULL           '\0'    // 00
+#define CHAR_AUDI_BELL       '\a'   // 07
+#define CHAR_BACKSPACE      '\b'    // 08
+#define CHAR_TAB            '\t'    // 09   horizontal tabulation (ht)
+#define CHAR_NEWLINE        '\n'    // 0A   line feed (lf), new line (nl), end of line (eol)
+#define CHAR_VT             '\v'    // 0B   vertical tabulation (vt)
+#define CHAR_FORMFEED       '\f'    // 0C   form feed (ff), new page
+#define CHAR_RETURN         '\r'    // 0D   carriage return (cr)
+#define CHAR_ESC            '\x1b'  // 1B   escape
+#define CHAR_SPACE          ' '     // 20
+#define CHAR_EMARK          '!'     // 21
+#define CHAR_NOT            '!'     // 21   逻辑非（一元操作）
+#define CHAR_DQUOTE         '\"'    // 22
+#define CHAR_HASH           '#'     // 23
+#define CHAR_DOLLAR         '$'     // 24
+#define CHAR_PERCENT        '%'     // 25
+#define CHAR_MOD            '%'     // 25   取模
+#define CHAR_AMPERSAND      '&'     // 26
+#define CHAR_AND            '&'     // 26   位与
+#define CHAR_SQUOTE         '\''    // 27
+#define CHAR_OPEN_PAREN     '('     // 28
+#define CHAR_CLOSE_PAREN    ')'     // 29
+#define CHAR_ASTER          '*'     // 2A
+#define CHAR_MUL            '*'     // 2A   乘法
+#define CHAR_PLUS           '+'     // 2B
+#define CHAR_ADD            '+'     // 2B   加法
+#define CHAR_COMMA          ','     // 2C
+#define CHAR_MINUS          '-'     // 2D
+#define CHAR_SUB            '-'     // 2D   减法
+#define CHAR_DOT            '.'     // 2E   成员选择或导入所有标识符
+#define CHAR_SLASH          '/'     // 2F
+#define CHAR_DIV            '/'     // 2F   除法
+#define CHAR_DIGIT_0        '0'     // 30
+#define CHAR_DIGIT_9        '9'     // 39
+#define CHAR_COLON          ':'     // 3A   标签、复合赋值、case/default、切片
+#define CHAR_SEMICOLON      ';'     // 3B
+#define CHAR_LT             '<'     // 3C   小于
+#define CHAR_EQUAL          '='     // 3D
+#define CHAR_ASSIGN         '='     // 3D   赋值
+#define CHAR_GT             '>'     // 3E   大于
+#define CHAR_QMARK          '?'     // 3F
+#define CHAR_ATSIGN         '@'     // 40
+#define CHAR_ATTRIBUTE      '@'     // 40   属性
+#define CHAR_UPPER_A        'A'     // 41
+#define CHAR_UPPER_Z        'Z'     // 5A
+#define CHAR_OPEN_SQUARE    '['     // 5B
+#define CHAR_BSLASH         '\\'    // 5C
+#define CHAR_CLOSE_SQUARE   ']'     // 5D
+#define CHAR_CARET          '^'     // 5E
+#define CHAR_XOR            '^'     // 5E   异或
+#define CHAR_UNDERSCORE     '_'     // 5F
+#define CHAR_BQUOTE         '`'     // 60
+#define CHAR_LOWER_A        'a'     // 61
+#define CHAR_LOWER_Z        'z'     // 7A
+#define CHAR_OPEN_CURLY     '{'     // 7B
+#define CHAR_VERTBAR        '|'     // 7C
+#define CHAR_BOR            '|'     // 7C   位或
+#define CHAR_CLOSE_CURLY    '}'     // 7D
+#define CHAR_TILDE          '~'     // 7E   连接泛型实参（类型实参）
+#define CHAR_DEL            '\x7f'  // 7F   delete
+#define CHAR_MAX_UNICODE    0x0010FFFF
+#define CHAR_INVALID_UTF    (CHAR_MAX_UNICODE+1)
+#define CHAR_EOF            0xFFFFFFFF
+
 const static int8 LANG_MIN_INT8 = -127-1; /* 128 0x80 */
 const static int8 LANG_MAX_INT8 = 0x7f; /* 127 */
 const static uint8 LANG_MAX_UNT8 = 0xff; /* 255 */
@@ -92,7 +156,7 @@ const static uint64 LANG_MAX_UNT64 = 0xffffffffffffffffULL; /* 18446744073709551
 #define false 0
 typedef uint8 bool;
 typedef uint8 byte;
-typedef int32 rune; // 必须是有符号类型，保存的是unicode代码点
+typedef uint32 rune; // 保存的是unicode代码点
 typedef uint16 strid_t;
 typedef uint32 Error;
 

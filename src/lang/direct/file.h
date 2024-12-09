@@ -2,6 +2,8 @@
 #define CHAPL_DIRECT_FILE_H
 #include "builtin/decl.h"
 
+#define FILE_INVCH
+
 typedef struct {
     int32 fd;
     uint32 len: 31;
@@ -15,5 +17,8 @@ void file_reopen(file_t *f, const char *filename, uint32 mode);
 void file_reload(file_t *f, string_t s);
 void file_close(file_t *f);
 int file_get(file_t *f);
+int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *p);
+bool file_unget(file_t *f);
+bool file_unget_ex(file_t *f, int32 n);
 
 #endif /* CHAPL_DIRECT_FILE_H */

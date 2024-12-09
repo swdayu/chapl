@@ -198,15 +198,13 @@ void file_close(file_t *f)
     free(f);
 }
 
-void fileblock_(file_t *f)
+void fileblock_(file_t *f, void (*cp)(void *p, const byte *e), void *p)
 {
     int32 len, bflen;
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
+    byte *cur = b->cur;
     Uint cap = buffix_cap(b);
-    if (b->cur < arr + f->len) {
-        return; // 缓存中还有未读内容
-    }
     f->eof = 1;
     if (f->fd < 0) {
         return;
@@ -217,6 +215,10 @@ void fileblock_(file_t *f)
     if (bflen <= 0) {
         return;
     }
+    if (cp) {
+        cp(p, cur);
+    }
+    // TODO: 至少先复制尾部的4个字节
     len = fileread_(f->fd, b->cur, bflen);
     if (len <= 0 || len > bflen) {
         return;
@@ -227,13 +229,39 @@ void fileblock_(file_t *f)
     }
 }
 
-int file_get(file_t *f) // 读取一个字节，成功返回非负字符，失败返回-1
+int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *p)
 {
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
-    fileblock_(f);
+    if (b->cur >= arr + f->len) {
+        fileblock_(f, cp, p);
+    }
     if (f->eof) {
-        return -1;
+        return CHAR_EOF;
     }
     return *b->cur++;
+}
+
+int file_get(file_t *f) // 读取一个字节，成功返回非负字符，失败返回-1
+{
+    return file_get_ex(f, null, null);
+}
+
+bool file_unget_ex(file_t *f, int32 n)
+{
+    buffix_t *b = &f->b;
+    byte *arr = buffix_data(b);
+    if (f->eof || n <= 0) {
+        return true;
+    }
+    if (b->cur >= arr + n) {
+        b->cur -= n;
+        return true;
+    }
+    return false;
+}
+
+bool file_unget(file_t *f)
+{
+    return file_unget_ex(f, 1);
 }
