@@ -115,6 +115,9 @@
 #define CHAR_MAX_UNICODE    0x0010FFFF
 #define CHAR_INVALID_UTF    (CHAR_MAX_UNICODE+1)
 #define CHAR_EOF            0xFFFFFFFF
+#define CHAR_BIN_DIGIT      '1'
+#define CHAR_DEC_DIGIT      '9'
+#define CHAR_HEX_DIGIT      'f'
 
 const static int8 LANG_MIN_INT8 = -127-1; /* 128 0x80 */
 const static int8 LANG_MAX_INT8 = 0x7f; /* 127 */
