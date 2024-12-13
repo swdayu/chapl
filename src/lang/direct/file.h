@@ -5,7 +5,8 @@
 typedef struct {
     int32 fd;
     uint32 len: 31;
-    uint32 eof: 1;
+    uint32 real_eof: 1;
+    int32 eof_cnt;
     buffix_t b; // 必须为最后一个字段，b.cur 指向当前词法前缀的最后一个字节
 } file_t;
 

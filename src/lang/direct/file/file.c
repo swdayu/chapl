@@ -105,7 +105,7 @@ void fileclose_(file_t *f)
         f->fd = -1;
     }
     f->len = 0;
-    f->eof = 1;
+    f->real_eof = 1;
 }
 
 void file_reload(file_t *f, string_t s)
@@ -124,7 +124,7 @@ void file_reload(file_t *f, string_t s)
         len = 0;
     }
     f->len = BUF_HEAD_BYTE_CNT + len;
-    f->eof = 0;
+    f->real_eof = 0;
 }
 
 void file_reopen(file_t *f, const char *filename, uint32 mode)
@@ -151,7 +151,7 @@ void file_reopen(file_t *f, const char *filename, uint32 mode)
     }
     f->fd = fd;
     f->len = BUF_HEAD_BYTE_CNT;
-    f->eof = 0;
+    f->real_eof = 0;
 }
 
 file_t *fileopen_(const byte *filename, Int strlen, int32 bufsize, uint32 mode)
@@ -205,7 +205,7 @@ void fileblock_(file_t *f, void (*cp)(void *p, const byte *e), void *p)
     byte *arr = buffix_data(b);
     byte *cur = b->cur;
     Uint cap = buffix_cap(b);
-    f->eof = 1;
+    f->real_eof = 1;
     if (f->fd < 0) {
         return;
     }
@@ -226,7 +226,7 @@ void fileblock_(file_t *f, void (*cp)(void *p, const byte *e), void *p)
     }
     f->len += len;
     if (len == bflen) {
-        f->eof = 0; // 文件还有剩余内容可读
+        f->real_eof = 0; // 文件还有剩余内容可读
     }
 }
 
@@ -234,14 +234,18 @@ int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *p)
 {
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
-    if (f->eof) {
-        goto label_eof;
+    if (f->real_eof) {
+        byte *p = b->cur + f->eof_cnt - 1;
+        if (f->eof_cnt++ <= 0 && p >= arr) {
+            return *p;
+        }
+        return CHAR_EOF;
     }
     if (b->cur >= arr + f->len) {
         fileblock_(f, cp, p);
     }
-    if (f->eof) {
-label_eof:
+    if (f->real_eof) {
+        f->eof_cnt = 1;
         return CHAR_EOF;
     }
     return *b->cur++;
@@ -256,7 +260,11 @@ bool file_unget_ex(file_t *f, int32 n)
 {
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
-    if (f->eof || n <= 0) {
+    if (n <= 0) {
+        return true;
+    }
+    if (f->real_eof) {
+        f->eof_cnt -= n;
         return true;
     }
     if (b->cur >= arr + n) {

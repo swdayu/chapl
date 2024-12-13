@@ -53,7 +53,7 @@
 #endif
 
 #define CHAR_NULL           '\0'    // 00
-#define CHAR_AUDI_BELL       '\a'   // 07
+#define CHAR_AUDI_BELL      '\a'    // 07
 #define CHAR_BACKSPACE      '\b'    // 08
 #define CHAR_TAB            '\t'    // 09   horizontal tabulation (ht)
 #define CHAR_NEWLINE        '\n'    // 0A   line feed (lf), new line (nl), end of line (eol)
@@ -68,14 +68,12 @@
 #define CHAR_HASH           '#'     // 23
 #define CHAR_DOLLAR         '$'     // 24
 #define CHAR_PERCENT        '%'     // 25
-#define CHAR_MOD            '%'     // 25   取模
 #define CHAR_AMPERSAND      '&'     // 26
 #define CHAR_AND            '&'     // 26   位与
 #define CHAR_SQUOTE         '\''    // 27
 #define CHAR_OPEN_PAREN     '('     // 28
 #define CHAR_CLOSE_PAREN    ')'     // 29
 #define CHAR_ASTER          '*'     // 2A
-#define CHAR_MUL            '*'     // 2A   乘法
 #define CHAR_PLUS           '+'     // 2B
 #define CHAR_ADD            '+'     // 2B   加法
 #define CHAR_COMMA          ','     // 2C
@@ -83,7 +81,6 @@
 #define CHAR_SUB            '-'     // 2D   减法
 #define CHAR_DOT            '.'     // 2E   成员选择或导入所有标识符
 #define CHAR_SLASH          '/'     // 2F
-#define CHAR_DIV            '/'     // 2F   除法
 #define CHAR_DIGIT_0        '0'     // 30
 #define CHAR_DIGIT_9        '9'     // 39
 #define CHAR_COLON          ':'     // 3A   标签、复合赋值、case/default、切片
@@ -112,8 +109,8 @@
 #define CHAR_CLOSE_CURLY    '}'     // 7D
 #define CHAR_TILDE          '~'     // 7E   连接泛型实参（类型实参）
 #define CHAR_DEL            '\x7f'  // 7F   delete
+#define CHAR_INVALID_UTF    0xFFFD  // replacement character
 #define CHAR_MAX_UNICODE    0x0010FFFF
-#define CHAR_INVALID_UTF    (CHAR_MAX_UNICODE+1)
 #define CHAR_EOF            0xFFFFFFFF
 #define CHAR_BIN_DIGIT      '1'
 #define CHAR_DEC_DIGIT      '9'
@@ -161,7 +158,7 @@ typedef uint8 bool;
 typedef uint8 byte;
 typedef uint32 rune; // 保存的是unicode代码点
 typedef uint16 strid_t;
-typedef uint32 Error;
+typedef uint16 Error;
 
 #undef Int
 #undef Uint
