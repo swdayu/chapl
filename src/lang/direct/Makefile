@@ -1,11 +1,5 @@
-ifneq ($(filter msc,$(CONFIG_COMPILER)),)
-obj_c := windows/file_windows.c
-else ifneq ($(filter gcc,$(CONFIG_COMPILER)),)
-obj_c :=
-else
-$(error unsupported compiler '$(CONFIG_COMPILER)')
-endif
+obj_c := file/file.c
 
-# obj-y += $(obj_c:.c=.o)
+obj-y += $(obj_c:.c=.o)
 
 subdir-incdir-y += -Isrc/direct -Isrc/lang

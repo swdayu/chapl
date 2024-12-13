@@ -721,7 +721,7 @@ byte *bhash_push_x(bhash_node_t node, Int obj_bytes);
 inline uint16 host_16_to_le(uint16 n) { return n; }
 inline uint32 host_24_to_le(uint32 n) { return n; }
 inline uint32 host_32_to_le(uint32 n) { return n; }
-inline uint64 host_64_to_le(uint32 n) { return n; }
+inline uint64 host_64_to_le(uint64 n) { return n; }
 inline uint16 le_16_to_host(uint16 n) { return n; }
 inline uint32 le_24_to_host(uint32 n) { return n; }
 inline uint32 le_32_to_host(uint32 n) { return n; }
@@ -729,7 +729,7 @@ inline uint64 le_64_to_host(uint64 n) { return n; }
 inline uint16 host_16_to_be(uint16 n) { return ((n & 0xff) << 8) | (n >> 8); }
 inline uint32 host_24_to_be(uint32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
 inline uint32 host_32_to_be(uint32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
-inline uint64 host_64_to_be(uint32 n) { return (((uint64)host_32_to_be(n & 0xffffffff)) << 32) | host_32_to_be(n >> 32); }
+inline uint64 host_64_to_be(uint64 n) { return (((uint64)host_32_to_be(n & 0xffffffff)) << 32) | host_32_to_be(n >> 32); }
 inline uint16 be_16_to_host(uint16 n) { return host_16_to_be(n); }
 inline uint32 be_24_to_host(uint32 n) { return host_24_to_be(n); }
 inline uint32 be_32_to_host(uint32 n) { return host_32_to_be(n); }
@@ -738,7 +738,7 @@ inline uint64 be_64_to_host(uint64 n) { return host_64_to_be(n); }
 inline uint16 host_16_to_le(uint16 n) { return ((n & 0xff) << 8) | (n >> 8); }
 inline uint32 host_24_to_le(uint32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
 inline uint32 host_32_to_le(uint32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
-inline uint64 host_64_to_le(uint32 n) { return (((uint64)host_32_to_le(n & 0xffffffff)) << 32) | host_32_to_le(n >> 32); }
+inline uint64 host_64_to_le(uint64 n) { return (((uint64)host_32_to_le(n & 0xffffffff)) << 32) | host_32_to_le(n >> 32); }
 inline uint16 le_16_to_host(uint16 n) { return host_16_to_le(n); }
 inline uint32 le_24_to_host(uint32 n) { return host_24_to_le(n); }
 inline uint32 le_32_to_host(uint32 n) { return host_32_to_le(n); }
@@ -750,7 +750,7 @@ inline uint64 host_64_to_be(uint64 n) { return n; }
 inline uint16 be_16_to_host(uint16 n) { return n; }
 inline uint32 be_24_to_host(uint32 n) { return n; }
 inline uint32 be_32_to_host(uint32 n) { return n; }
-inline uint32 be_64_to_host(uint32 n) { return n; }
+inline uint64 be_64_to_host(uint64 n) { return n; }
 #endif
 
 #define HOST_BYTE(a) ((byte)((a)&0xff))

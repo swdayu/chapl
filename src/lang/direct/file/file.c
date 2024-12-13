@@ -64,6 +64,13 @@
 //      - _O_RDONLY：只读模式打开文件
 //      - _O_TEXT：ANSI 文本模式打开文件
 //      - _O_WTEXT，Unicode（UTF-16）模式打开文件
+Uint fileread_(int fd, Uint len, byte *out)
+{
+    if (len > 0x7ffff000) {
+        return 0;
+    }
+    return (Int)read(fd, out, len);
+}
 #elif defined(__GCC__)
 // open, openat, creat - 打开并且可能创建一个文件
 // POSIZ.1-2008
@@ -144,7 +151,7 @@ void file_reopen(file_t *f, const char *filename, uint32 mode)
         if (!flags) {
             return;
         }
-        fd = fileopen_(filename, flags|O_BINARY);
+        fd = open(filename, flags|O_BINARY);
         if (fd < 0) {
             return;
         }
@@ -172,7 +179,7 @@ file_t *fileopen_(const byte *filename, Int strlen, int32 bufsize, uint32 mode)
     f->fd = -1;
     buffix_init_inplace(&f->b, cap);
     if (mode) {
-        file_reopen(f, filename, mode);
+        file_reopen(f, (char *)filename, mode);
     } else {
         file_reload(f, strflen(filename, strlen));
     }
@@ -186,7 +193,7 @@ file_t *file_load(string_t s, int32 bufsize)
 
 file_t *file_open(const char *filename, uint32 mode, int32 bufsize)
 {
-    return fileopen_(filename, 0, bufsize, mode);
+    return fileopen_((byte *)filename, 0, bufsize, mode);
 }
 
 void file_close(file_t *f)
@@ -220,7 +227,7 @@ void fileblock_(file_t *f, void (*cp)(void *p, const byte *e), void *p)
     if (cp) {
         cp(p, cur);
     }
-    len = fileread_(f->fd, b->cur, bflen);
+    len = fileread_(f->fd, bflen, b->cur);
     if (len <= 0 || len > bflen) {
         return;
     }
@@ -230,7 +237,7 @@ void fileblock_(file_t *f, void (*cp)(void *p, const byte *e), void *p)
     }
 }
 
-int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *p)
+int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *arg)
 {
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
@@ -242,7 +249,7 @@ int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *p)
         return CHAR_EOF;
     }
     if (b->cur >= arr + f->len) {
-        fileblock_(f, cp, p);
+        fileblock_(f, cp, arg);
     }
     if (f->real_eof) {
         f->eof_cnt = 1;
