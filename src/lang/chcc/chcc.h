@@ -6,7 +6,7 @@
 #define __CHCC_DEBUG__ 1
 
 // 词法元素包括：
-// 1. 操作符（operator），一元操作符包括 + - ^ ! * &
+// 1. 操作符（operator）
 // 2. 关键字（keyword）
 // 3. 内置预声明（predeclared identifier）
 // 4. 注释和空白（comment）
@@ -24,20 +24,22 @@
 #define CHAR_CLASS_SINGLE       0x09    // # $ @ ( ) [ ] { } , ;
 #define CHAR_CLASS_QMARK        0x0E    // ? ?: ?>
 #define CHAR_CLASS_TILDE        0x0F    // ~ ~= ~>
-#define CHAR_CLASS_EQ_FLAG      0x10    // 0x10 ~ 0x1F
-#define CHAR_CLASS_SLASH        0x13    // / /= // /* />
-#define CHAR_CLASS_ASTER        0x14    // * *= */ ** **=
-#define CHAR_CLASS_LT           0x15    // < <= << <<= </ <- <% <| <~ <! <?
-#define CHAR_CLASS_GT           0x16    // > >= >> >>=
-#define CHAR_CLASS_COLON        0x17    // : :=
-#define CHAR_CLASS_EMARK        0x18    // ! != !>
-#define CHAR_CLASS_PLUS         0x19    // + +=
-#define CHAR_CLASS_MINUS        0x1A    // - -= ->
-#define CHAR_CLASS_PERCENT      0x1B    // % %= %>
-#define CHAR_CLASS_AND          0x1C    // & &= &&
-#define CHAR_CLASS_VERTBAR      0x1D    // | |= || |>
-#define CHAR_CLASS_CARET        0x1E    // ^ ^=
-#define CHAR_CLASS_EQUAL        0x1F    // = ==
+#define CHAR_CLASS_OPERATOR     0x10    // 操作符和标点
+#define CHAR_CLASS_VERTBAR      0x10    // | ||
+#define CHAR_CLASS_CARET        0x13    // ^
+#define CHAR_CLASS_BSLASH       0x15    // \ \\ \= \\=
+#define CHAR_CLASS_GT           0x19    // >
+#define CHAR_CLASS_EQUAL        0x1d    // =
+#define CHAR_CLASS_LT           0x1f    // <
+#define CHAR_CLASS_COLON        0x25    // :
+#define CHAR_CLASS_SLASH        0x26    // /
+#define CHAR_CLASS_MDOT         0x28    // .
+#define CHAR_CLASS_MINUS        0x29    // -
+#define CHAR_CLASS_PLUS         0x2e    // +
+#define CHAR_CLASS_ASTER        0x30    // *
+#define CHAR_CLASS_AND          0x34    // &
+#define CHAR_CLASS_PERCENT      0x37    // %
+#define CHAR_CLASS_EMARK        0x3b    // !
 
 #define CHAR_128_BYTE_ARRAY_G \
            /* 0           1           2           3           4           5           6           7 */      \
@@ -46,86 +48,96 @@
     /*08*/ /*\b*/0x01, /*\t*/0x01, /*\n*/0x01, /*\v*/0x01, /*\f*/0x01, /*\r*/0x01, /*0E*/0x01, /*0F*/0x01,  \
     /*10*/ /*10*/0x01, /*11*/0x01, /*12*/0x01, /*13*/0x01, /*14*/0x01, /*15*/0x01, /*16*/0x01, /*17*/0x01,  \
     /*18*/ /*18*/0x01, /*19*/0x01, /*1A*/0x01, /*1B*/0x01, /*1C*/0x01, /*1D*/0x01, /*1E*/0x01, /*1F*/0x01,  \
-    /*20*/ /*20*/0x01, /*!!*/0x18, /*""*/0x08, /*##*/0x09, /*$$*/0x09, /*%%*/0x1B, /*&&*/0x1C, /*''*/0x08,  \
-    /*20*/ /*((*/0x09, /*))*/0x09, /****/0x14, /*++*/0x19, /*,,*/0x09, /*--*/0x1A, /*..*/0x06, /*//*/0x13,  \
+    /*20*/ /*20*/0x01, /*!!*/0x3b, /*""*/0x08, /*##*/0x09, /*$$*/0x09, /*%%*/0x37, /*&&*/0x34, /*''*/0x08,  \
+    /*20*/ /*((*/0x09, /*))*/0x09, /****/0x30, /*++*/0x2e, /*,,*/0x09, /*--*/0x29, /*..*/0x06, /*//*/0x26,  \
     /*30*/ /*00*/0x02, /*11*/0x02, /*22*/0x02, /*33*/0x02, /*44*/0x02, /*55*/0x02, /*66*/0x02, /*77*/0x02,  \
-    /*30*/ /*88*/0x02, /*99*/0x02, /*::*/0x17, /*;;*/0x09, /*<<*/0x15, /*==*/0x1F, /*>>*/0x16, /*??*/0x0E,  \
+    /*30*/ /*88*/0x02, /*99*/0x02, /*::*/0x25, /*;;*/0x09, /*<<*/0x1f, /*==*/0x1d, /*>>*/0x19, /*??*/0x0E,  \
     /*40*/ /*@@*/0x09, /*AA*/0x03, /*BB*/0x03, /*CC*/0x03, /*DD*/0x03, /*EE*/0x03, /*FF*/0x03, /*GG*/0x03,  \
     /*40*/ /*HH*/0x03, /*II*/0x03, /*JJ*/0x03, /*KK*/0x03, /*LL*/0x03, /*MM*/0x03, /*NN*/0x03, /*OO*/0x03,  \
     /*50*/ /*PP*/0x03, /*QQ*/0x03, /*RR*/0x03, /*SS*/0x03, /*TT*/0x03, /*UU*/0x03, /*VV*/0x03, /*WW*/0x03,  \
-    /*50*/ /*XX*/0x03, /*YY*/0x03, /*ZZ*/0x03, /*[[*/0x09, /*\\*/0x01, /*]]*/0x09, /*^^*/0x1E, /*__*/0x05,  \
+    /*50*/ /*XX*/0x03, /*YY*/0x03, /*ZZ*/0x03, /*[[*/0x09, /*\\*/0x15, /*]]*/0x09, /*^^*/0x13, /*__*/0x05,  \
     /*60*/ /*``*/0x08, /*aa*/0x04, /*bb*/0x04, /*cc*/0x04, /*dd*/0x04, /*ee*/0x04, /*ff*/0x04, /*gg*/0x04,  \
     /*60*/ /*hh*/0x04, /*ii*/0x04, /*jj*/0x04, /*kk*/0x04, /*ll*/0x04, /*mm*/0x04, /*nn*/0x04, /*oo*/0x04,  \
     /*70*/ /*pp*/0x04, /*qq*/0x04, /*rr*/0x04, /*ss*/0x04, /*tt*/0x04, /*uu*/0x04, /*vv*/0x04, /*ww*/0x04,  \
-    /*70*/ /*xx*/0x04, /*yy*/0x04, /*zz*/0x04, /*{{*/0x09, /*||*/0x1D, /*}}*/0x09, /*~~*/0x0F, /*7F*/0x01
+    /*70*/ /*xx*/0x04, /*yy*/0x04, /*zz*/0x04, /*{{*/0x09, /*||*/0x10, /*}}*/0x09, /*~~*/0x0F, /*7F*/0x01
 
-// 多字符词法
-#define CIFA_OP_SHIFT_OFF           (CHAR_LT-1)
-#define CIFA_OP_SHASS_OFF           (CHAR_LT-4)
-#define CIFA_OP_AND_OFF(c)          ((((c)-CHAR_AND)>>6)+7)
-#define CIFA_OP_BASE                                                       0xF8000000
-#define CIFA_OP_LSH         (CIFA_OP_BASE+CHAR_LT-CIFA_OP_SHIFT_OFF) // 0xF8000001       <<      左移
-#define CIFA_OP_RSH         (CIFA_OP_BASE+CHAR_GT-CIFA_OP_SHIFT_OFF) // 0xF8000003       >>      右移
-#define CIFA_OP_LSH_ASSIGN  (CIFA_OP_BASE+CHAR_LT-CIFA_OP_SHASS_OFF) // 0xF8000004       <<=     左移并赋值
-#define CIFA_OP_RSH_ASSIGN  (CIFA_OP_BASE+CHAR_GT-CIFA_OP_SHASS_OFF) // 0xF8000006       >>=     右移并赋值
-#define CIFA_OP_LAND        (CIFA_OP_BASE+CIFA_OP_AND_OFF(CHAR_AND)) // 0xF8000007       &&      逻辑与
-#define CIFA_OP_LOR         (CIFA_OP_BASE+CIFA_OP_AND_OFF(CHAR_BOR)) // 0xF8000008       ||      逻辑或
-#define CIFA_OP_POW                                                        0xF800000A   //  **      取幂
-#define CIFA_OP_POW_ASSIGN                                                 0xF800000B   //  **=     取幂并赋值
-#define CIFA_OP_DOUBLE_SLASH                                               0xF800000C   //  //      行注释开始
-#define CIFA_OP_SLASH_ASTER                                                0xF800000D   //  /*      块注释开始
-#define CIFA_OP_ASTER_SLASH                                                0xF800000E   //  */      块注释结束
-#define CIFA_OP_LSTR_Q                                                     0xF800000F   //  '''     长字符串字面量开始
-#define CIFA_OP_2DOT                                                       0xF8000010   //  ..      未定义
-#define CIFA_OP_3DOT                                                       0xF8000011   //  ...     可变个数参数或元素
-#define CIFA_OP_ARROW                                                      0xF8000012   //  ->      成员选择
-#define CIFA_OP_RREF                                                       0xF8000013   //  &&      右值引用
-#define CIFA_OP_REF                                                        0xF8000014   //  &       引用
-#define CIFA_OP_ADDR                                                       0xF8000015   //  &       取地址（一元操作）
-#define CIFA_OP_COMPL                                                      0xF8000016   //  ^       位反（一元操作）
-#define CIFA_OP_DREF                                                       0xF8000017   //  *       解引用（一元操作）
-#define CIFA_OP_POINTER                                                    0xF8000018   //  *       类型指针（Type*）
-#define CIFA_OP_POINPOINTER                                                0xF8000019   //  **      指针的指针（Type**）
-#define CIFA_OP_NE                  (CIFA_OP_BASE+CHAR_NOT)          // 0xF8000021       !=      不等于
-#define CIFA_OP_MOD_ASSIGN          (CIFA_OP_BASE+CHAR_MOD)          // 0xF8000025       %=      取模并赋值
-#define CIFA_OP_AND_ASSIGN          (CIFA_OP_BASE+CHAR_AND)          // 0xF8000026       &=      位与并赋值
-#define CIFA_OP_MUL_ASSIGN          (CIFA_OP_BASE+CHAR_MUL)          // 0xF800002A       *=      乘法并赋值
-#define CIFA_OP_ADD_ASSIGN          (CIFA_OP_BASE+CHAR_ADD)          // 0xF800002B       +=      加法并赋值
-#define CIFA_OP_SUB_ASSIGN          (CIFA_OP_BASE+CHAR_SUB)          // 0xF800002D       -=      减法并赋值
-#define CIFA_OP_DIV_ASSIGN          (CIFA_OP_BASE+CHAR_DIV)          // 0xF800002F       /=      除法并赋值
-#define CIFA_OP_LE                  (CIFA_OP_BASE+CHAR_LT)           // 0xF800003C       <=      小于等于
-#define CIFA_OP_EQ                  (CIFA_OP_BASE+CHAR_ASSIGN)       // 0xF800003D       ==      等于
-#define CIFA_OP_GE                  (CIFA_OP_BASE+CHAR_GT)           // 0xF800003E       >=      大于等于
-#define CIFA_OP_INI_ASSIGN          (CIFA_OP_BASE+CHAR_COLON)        // 0xF800003A       :=      初始化赋值
-#define CIFA_OP_XOR_ASSIGN          (CIFA_OP_BASE+CHAR_XOR)          // 0xF800005E       ^=      异或并赋值
-#define CIFA_OP_BOR_ASSIGN          (CIFA_OP_BASE+CHAR_BOR)          // 0xF800007C       |=      位或并赋值
-#define CIFA_OP_LAST                                                       0xF8000080
-
-// 注释、字面量
-#define CIFA_CF_START       0xF8000080
-#define CIFA_CF_COMMENT     0xF8000081
-#define CIFA_CF_BLOCK_CMMT  0xF8000082
-#define CIFA_CF_STR_LIT     0xF8000083
-#define CIFA_CF_RSTR_LIT    0xF8000084
-#define CIFA_CF_RUNE_LIT    0xF8000085
-#define CIFA_CF_NULL_LIT    0xF8000086
-#define CIFA_CF_BOOL_LIT    0xF8000087
-#define CIFA_CF_INT_LIT     0xF8000088
-#define CIFA_CF_FLOAT_LIT   0xF8000089
-#define CIFA_CF_LAST        0xF80000FF
-
-// 匿名符号
-#define CIFA_ID_ANON_START  0xF8000100
-#define CIFA_ID_ANON_LAST   0xFBFFFFFF // 最多可表示 0x03FFFF00 个匿名符号（67,108,608），六千多万个
-
+// 优先级（从高到低）
+// 9 从左向右结合：() [] . -> (type){list}
+// 8 从右向左结合：+ - ! ^ * & (type) 一元操作
+// 7 从左向右结合：* ** \ \\ % %% <-- --> & ^
+// 6 从左向右结合：+ - |
+// 5 从左向右结合：< << <= <<= > >> >= >>=
+// 4 从左向右结合：== !=
+// 3 从左向右结合：&&
+// 2 从左向右结合：||
+// 1 从右向左结合：= := += -= &= |= ^= *= **= \= \\= %= %%= <--= -->=
+// 单字符操作符：每个操作符都对应实际的机器指令
+#define CIFA_OP_PLUS        CHAR_PLUS
+#define CIFA_OP_MINUS       CHAR_MINUS
+#define CIFA_OP_NOT         CHAR_NOT
+#define CIFA_OP_COMPL       CHAR_CARET
+#define CIFA_OP_DREF        CHAR_ASTER
+#define CIFA_OP_ADDR        CHAR_AMPERSAND
+#define CIFA_OP_MUL         CHAR_ASTER
+#define CIFA_OP_DIV         CHAR_BSLASH
+#define CIFA_OP_MOD         CHAR_PERCENT
+#define CIFA_OP_AND         CHAR_AMPERSAND
+#define CIFA_OP_XOR         CHAR_XOR
+#define CIFA_OP_ADD         CHAR_ADD
+#define CIFA_OP_SUB         CHAR_SUB
+#define CIFA_OP_BOR         CHAR_BOR
+#define CIFA_OP_LT          CHAR_LT
+#define CIFA_OP_GT          CHAR_GT
+#define CIFA_OP_ASSIGN      CHAR_ASSIGN
+// 多字符操作符：每个操作符都对应实际的机器指令
+#define CIFA_OP_UMUL        0x81    // **   无符号乘法
+#define CIFA_OP_UDIV        0x82    // \\   无符号除法
+#define CIFA_OP_UMOD        0x83    // %%   无符号取模
+#define CIFA_OP_LSH         0x84    // <--  左移
+#define CIFA_OP_RSH         0x85    // -->  右移
+#define CIFA_OP_ULT         0x86    // <<   无符号小于
+#define CIFA_OP_UGT         0x87    // >>   无符号大于
+#define CIFA_OP_LE          0x88    // <=   小于等于
+#define CIFA_OP_GE          0x89    // >=   大于等于
+#define CIFA_OP_ULE         0x8a    // <<=  无符号小于等于
+#define CIFA_OP_UGE         0x8b    // >>=  无符号大于等于
+#define CIFA_OP_EQ          0x8c    // ==   等于
+#define CIFA_OP_NE          0x8d    // !=   不等于
+#define CIFA_OP_LAND        0x8e    // &&   逻辑与
+#define CIFA_OP_LOR         0x8f    // ||   逻辑或
+#define CIFA_OP_INIT_ASSIGN 0x90    // :=   初始化赋值
+#define CIFA_OP_ADD_ASSIGN  0x91    // +=   加法并赋值
+#define CIFA_OP_SUB_ASSIGN  0x92    // -=   减法并赋值
+#define CIFA_OP_AND_ASSIGN  0x93    // &=   位与并赋值
+#define CIFA_OP_BOR_ASSIGN  0x94    // |=   位或并赋值
+#define CIFA_OP_XOR_ASSIGN  0x95    // ^=   异或并赋值
+#define CIFA_OP_MUL_ASSIGN  0x96    // *=   乘法并赋值
+#define CIFA_OP_UMUL_ASSIGN 0x97    // **=  无符号乘法并赋值
+#define CIFA_OP_DIV_ASSIGN  0x98    // \=   除法并赋值
+#define CIFA_OP_UDIV_ASSIGN 0x99    // \\=  无符号除法并赋值
+#define CIFA_OP_MOD_ASSIGN  0x9a    // %=   取模并赋值
+#define CIFA_OP_UMOD_ASSIGN 0x9b    // %%=  无符号取模并赋值
+#define CIFA_OP_LSH_ASSIGN  0x9c    // <--= 左移并赋值
+#define CIFA_OP_RSH_ASSIGN  0x9d    // -->= 右移并赋值
+// 多字符标点
+#define CIFA_PT_ARROW       0xa1    // ->
+#define CIFA_PT_LINE_CMMT   0xa2    // //
+#define CIFA_PT_BLOCK_CMMT  0xa3    // /*
+#define CIFA_PT_3DOT        0xa4    // ...
+#define CIFA_OPER_PUNCT     0xc0
+// 词法字面量
+#define CIFA_TYPE_NUMERIC   0xc1
+#define CIFA_TYPE_STRING    0xc2
+#define CIFA_TYPE_COMMENT   0xc3
 // 标识符
-#define CIFA_ID_START   0xFC000000
-#define CIFA_ID_LAST    0xFFFFFFFF // 最多可表示 0x04000000 个标识符（67,108,864），六千多万个
+#define CIFA_IDENT_START    0x100
 enum chcc_predecl_ident {
-    CIFA_ID_BEFORE_START = 0xFBFFFFFF,
+    CIFA_TYPE_IDENT = 0xff,
 #define PREDECL(id, ...) id,
 #include "chcc/decl.h"
 };
+// 匿名标识符
+#define CIFA_ANON_IDENT 0x80000000
 
 #if __ARCH_64BIT__
 #define SIZE_OF_POINTER 8
@@ -189,7 +201,7 @@ typedef struct {
 } ident_t;
 
 typedef union {
-    uint64 i;
+    uint64 c;
     float64 f;
     float32 f32;
     ident_t *sym;
@@ -207,19 +219,57 @@ typedef struct {
     cfval_t c;      // 常量的值
 } yfvar_t;
 
-#define CIFA_DEC_LIT 1
-#define CIFA_BIN_LIT 2
-#define CIFA_HEX_LIT 3
-
+// 1. 操作符和标点
+//      cfid < 0xc0
+//      oper > 0 操作符，表示优先级
+//      oper = 0 标点
+//      val.c 对应机器指令
+// 2. 数值字面量
+//      cfid = 0xc0
+//      isbool: 1   val.c   布尔常量
+//      isnull: 1   val.c   空值常量
+//      ischar: 1   val.c   字符常量
+//      iserr: 1    val.c   错误代码
+//      isint: 1    val.i   整数常量    base    基数    cf->s   临时后缀字符串
+//      isfloat:    val.f   浮点常量    base    基数    cf->s   临时后缀字符串
+// 3. 字符串字面量
+//      cfid = 0xc1
+//      cf->s   临时字符串值
+// 4. 注释
+//      cfid = 0xc2
+//      bcmmt: 1 块注释
+//      bcmmt: 0 行注释
+//      cf->s   临时注释字符串
+// 3. 标识符
+//      cfid > 0xff
+//      cfid 标识符数组的索引
+//      val.sym 指向标识符符号
+//      pdid: 1 语言预定义标识符
+//      tpid: 1 类型标识符
+//      csid: 1 常量标识符
+//      ident: 1 非类型非常量标识符
+// 4. 其中语言预定义以及非地址标识符范围
+//      cfid [0x100, 0x200)
+// 5. 地址标识符范围
+//      cfid [0x200, ...)
 typedef struct {
     cfval_t val;
     string_t s;
     cfid_t cfid;
-    uint8 istype: 1; // 类型标识符
-    uint8 iscons: 1; // 常量标识符
-    uint8 isiden: 1; // 不是类型和常量的标识符
-    uint8 ispred: 1; // 语言预声明标识符
-    uint8 base;      // 2/10/16
+    uint8 oper;
+    uint8 base;
+    uint16 pdid: 1;
+    uint16 tpid: 1;
+    uint16 csid: 1;
+    uint16 ident: 1;
+    uint16 isbool: 1;
+    uint16 isnull: 1;
+    uint16 ischar: 1;
+    uint16 iserr: 1;
+    uint16 isint: 1;
+    uint16 isfloat: 1;
+    uint16 bcmmt: 1;
+    Error error;
     Uint line;
     Uint cols;
 } cifa_t;
@@ -280,16 +330,14 @@ typedef struct {
 } esc_t;
 
 typedef struct {
-    int32 prior;
-    cfid_t cfid;
-    uint32 inst;
-} cfop_t;
-
-typedef struct {
-    uint32 len;
+    byte prior;
+    byte cfid;
+    byte len;
     byte op[4];
-    cfop_t val;
+    uint32 inst;
 } ops_t;
+
+#define CHCC_MAX_ERRORS 8
 
 typedef struct {
     file_t *f;
@@ -313,8 +361,8 @@ typedef struct {
     stack_t symbol; // 当前语法解析时的符号栈
     yfvar_t *vtop;
     yfvar_t *vstk;
-    Error chcc_error;
-    Error error;
+    Error *error;
+    Error errst[CHCC_MAX_ERRORS];
     Error yferr;
 } chcc_t;
 
@@ -323,47 +371,50 @@ void chcc_free(chcc_t *cc);
 void curr(chcc_t *cc);
 ident_t *ident_get(chcc_t *cc, cfid_t id);
 
-#define ERROR_CMMT_NOT_CLOSED           0xE00
-#define ERROR_INVALID_ESCCHAR           0xE01
-#define ERROR_INVALID_HEXCHAR           0xE02
-#define ERROR_INVALID_HEXNUMB           0xE03
-#define ERROR_INVALID_UNICODE           0xE04
-#define ERROR_MISS_CLOSE_QUOTE          0xE05
-#define ERROR_EMPTY_RUNE_LIT            0xE06
-#define ERROR_MULT_CHAR_EXIST           0xE07
-#define ERROR_IS_NOT_IDENT              0xE10
-#define ERROR_INVALID_TYPE_NAME         0xE11
-#define ERROR_CANT_DEF_SAME_TYPE        0xE12
-#define ERROR_NAME_RESERVED             0xE13
-#define ERROR_NO_OPEN_CURLY             0xE14
-#define ERROR_NO_CLOSE_CURLY            0xE15
-#define ERROR_TYPE_REDEFINED            0xE16
-#define ERROR_FIELD_REDEFINED           0xE17
-#define ERROR_INVALID_FIELD_TYPE        0xE18
-#define ERROR_INVALID_FIELD_NAME        0xE19
-#define ERROR_INVALID_BITFIELD_NAME     0xE1A
-#define ERROR_EMBED_TYPE_INVALID        0xE1B
-#define ERROR_TYPE_NOT_DEFINED          0xE1C
-#define ERROR_INVALID_TYPE_LIT          0xE1D
-#define ERROR_TYPE_LIT_NOT_SUPPORT      0xE1E
-#define ERROR_DYN_TYPE_FIELD_POS        0xE1F
-#define ERROR_INVALID_BITFIELD_TYPE     0xE20
-#define ERROR_INVALID_BITFIELD_SIZE     0xE21
-#define ERROR_BITFIELD_SIZE_NOT_DEC     0xE22
-#define ERROR_MISSING_ALIAS_FIELD       0xE23
-#define ERROR_INVALID_RECEIVER_TYPE     0xE24
-#define ERROR_RECEIVER_TYPE_UNFOUND     0xE25
-#define ERROR_MISSING_OPEN_PAREN        0xE26
-#define ERROR_INVALID_PARAM_TYPE        0xE27
-#define ERROR_INVALID_PARAM_NAME        0xE28
-#define ERROR_MISS_BASIC_VAARG_3DOT     0xE29
-#define ERROR_VAARG_SHALL_LAST_PARAM    0xE2A
-#define ERROR_DYN_TYPE_CANT_BE_PARAM    0xE2B
-#define ERROR_TOO_MANY_ANON_SYM         0xE2C
-#define ERROR_TYPE_CANT_CONTAIN_BODY    0xE2D
-#define ERROR_GLOBAL_FUNC_MISS_NAME     0xE2E
-#define ERROR_FUNC_DECL_NOT_MATCH       0xE2F
-#define ERROR_FUNC_MISS_PARAM_NAME      0xE30
-#define ERROR_FUNC_IS_REDEFINED         0xE31
+typedef enum {
+    ERROR_CMMT_NOT_CLOSED = 0xE00,
+    ERROR_INVALID_ESCCHAR,
+    ERROR_INVALID_HEXCHAR,
+    ERROR_INVALID_HEXNUMB,
+    ERROR_INVALID_UNICODE,
+    ERROR_INVALID_UTF8_BYTE,
+    ERROR_INVALID_TYPE_NAME,
+    ERROR_INVALID_FIELD_TYPE,
+    ERROR_INVALID_FIELD_NAME,
+    ERROR_INVALID_BITFIELD_NAME,
+    ERROR_INVALID_TYPE_LIT,
+    ERROR_INVALID_BITFIELD_TYPE,
+    ERROR_INVALID_BITFIELD_SIZE,
+    ERROR_INVALID_RECEIVER_TYPE,
+    ERROR_INVALID_PARAM_TYPE,
+    ERROR_INVALID_PARAM_NAME,
+    ERROR_MISS_CLOSE_QUOTE,
+    ERROR_EMPTY_RUNE_LIT,
+    ERROR_MULT_CHAR_EXIST,
+    ERROR_IS_NOT_IDENT,
+    ERROR_CANT_DEF_SAME_TYPE,
+    ERROR_NAME_RESERVED,
+    ERROR_NO_OPEN_CURLY,
+    ERROR_NO_CLOSE_CURLY,
+    ERROR_TYPE_REDEFINED,
+    ERROR_FIELD_REDEFINED,
+    ERROR_EMBED_TYPE_INVALID,
+    ERROR_TYPE_NOT_DEFINED,
+    ERROR_TYPE_LIT_NOT_SUPPORT,
+    ERROR_DYN_TYPE_FIELD_POS,
+    ERROR_BITFIELD_SIZE_NOT_DEC,
+    ERROR_MISSING_ALIAS_FIELD,
+    ERROR_RECEIVER_TYPE_UNFOUND,
+    ERROR_MISSING_OPEN_PAREN,
+    ERROR_MISS_BASIC_VAARG_3DOT,
+    ERROR_VAARG_SHALL_LAST_PARAM,
+    ERROR_DYN_TYPE_CANT_BE_PARAM,
+    ERROR_TOO_MANY_ANON_SYM,
+    ERROR_TYPE_CANT_CONTAIN_BODY,
+    ERROR_GLOBAL_FUNC_MISS_NAME,
+    ERROR_FUNC_DECL_NOT_MATCH,
+    ERROR_FUNC_MISS_PARAM_NAME,
+    ERROR_FUNC_IS_REDEFINED,
+};
 
 #endif /* CHAPL_LANG_CHCC_H */
