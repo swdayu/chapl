@@ -159,6 +159,10 @@ typedef uint8 byte;
 typedef uint32 rune; // 保存的是unicode代码点
 typedef uint16 strid_t;
 typedef uint16 Error;
+typedef int32 int_t;
+typedef uint32 uint_t;
+typedef intptr arch;
+typedef uintptr uarch;
 
 #undef Int
 #undef Uint

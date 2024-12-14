@@ -42,16 +42,19 @@ void test_chcc(void)
     cifa_is_basic_type(CIFA_ID_SHORT);
     cifa_is_basic_type(CIFA_ID_LONG);
     cifa_is_basic_type(CIFA_ID_ARCH);
+    cifa_is_basic_type(CIFA_ID_XMM);
+    cifa_is_basic_type(CIFA_ID_YMM);
+    cifa_is_basic_type(CIFA_ID_ZMM);
     cifa_is_basic_type(CIFA_ID_FLOAT);
-    cifa_is_basic_type(CIFA_ID_F16);
-    cifa_is_basic_type(CIFA_ID_F32);
-    cifa_is_basic_type(CIFA_ID_F64);
+    cifa_is_basic_type(CIFA_ID_FLOAT16);
+    cifa_is_basic_type(CIFA_ID_FLOAT32);
+    cifa_is_basic_type(CIFA_ID_FLOAT64);
     cifa_is_basic_type(CIFA_ID_COMPLEX);
-    cifa_is_basic_type(CIFA_ID_C16);
-    cifa_is_basic_type(CIFA_ID_C32);
-    cifa_is_basic_type(CIFA_ID_C64);
+    cifa_is_basic_type(CIFA_ID_COMPLEX16);
+    cifa_is_basic_type(CIFA_ID_COMPLEX32);
+    cifa_is_basic_type(CIFA_ID_COMPLEX64);
     cifa_is_basic_type(CIFA_ID_BOOL);
-    cifa_is_basic_type(CIFA_ID_CHAR);
+    cifa_is_basic_type(CIFA_ID_RUNE);
     cifa_is_basic_type(CIFA_ID_ERROR);
     cifa_is_basic_type(CIFA_ID_STRING);
 

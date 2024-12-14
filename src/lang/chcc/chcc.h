@@ -20,6 +20,7 @@
 #define CHAR_CLASS_LOWER        0x04    // a ~ z
 #define CHAR_CLASS_UNDERSCORE   0x05    // _
 #define CHAR_CLASS_DOT          0x06    // . .. ... .1
+#define CHAR_CLASS_SIGN         0x07    // + -
 #define CHAR_CLASS_QUOTE        0x08    // ' ''' " `
 #define CHAR_CLASS_SINGLE       0x09    // # $ @ ( ) [ ] { } , ;
 #define CHAR_CLASS_QMARK        0x0E    // ? ?: ?>
@@ -49,7 +50,7 @@
     /*10*/ /*10*/0x01, /*11*/0x01, /*12*/0x01, /*13*/0x01, /*14*/0x01, /*15*/0x01, /*16*/0x01, /*17*/0x01,  \
     /*18*/ /*18*/0x01, /*19*/0x01, /*1A*/0x01, /*1B*/0x01, /*1C*/0x01, /*1D*/0x01, /*1E*/0x01, /*1F*/0x01,  \
     /*20*/ /*20*/0x01, /*!!*/0x3b, /*""*/0x08, /*##*/0x09, /*$$*/0x09, /*%%*/0x37, /*&&*/0x34, /*''*/0x08,  \
-    /*20*/ /*((*/0x09, /*))*/0x09, /****/0x30, /*++*/0x2e, /*,,*/0x09, /*--*/0x29, /*..*/0x06, /*//*/0x26,  \
+    /*20*/ /*((*/0x09, /*))*/0x09, /****/0x30, /*++*/0x07, /*,,*/0x09, /*--*/0x07, /*..*/0x06, /*//*/0x26,  \
     /*30*/ /*00*/0x02, /*11*/0x02, /*22*/0x02, /*33*/0x02, /*44*/0x02, /*55*/0x02, /*66*/0x02, /*77*/0x02,  \
     /*30*/ /*88*/0x02, /*99*/0x02, /*::*/0x25, /*;;*/0x09, /*<<*/0x1f, /*==*/0x1d, /*>>*/0x19, /*??*/0x0E,  \
     /*40*/ /*@@*/0x09, /*AA*/0x03, /*BB*/0x03, /*CC*/0x03, /*DD*/0x03, /*EE*/0x03, /*FF*/0x03, /*GG*/0x03,  \
@@ -138,6 +139,7 @@ enum chcc_predecl_ident {
 };
 // 匿名标识符
 #define CIFA_ANON_IDENT 0x80000000
+#define CIFA_ANON_LAST  0xf0000000
 
 #if __ARCH_64BIT__
 #define SIZE_OF_POINTER 8
@@ -354,6 +356,10 @@ typedef struct {
     uint32 user_id_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
+    byte *glo;  // 全局变量地址
+    byte *loc;  // 局部变量偏移
+    arch *radr; // 指向返回地址
+    byte *code; // 代码段的地址
     uint32 scope;
     uint32 anon_id;
     struct stack_it *global; // 全局符号栈顶

@@ -25,37 +25,37 @@ bool ident_eq(const void *object, const void *cmp_para)
     return (sym->s.len == str->len) && (memcmp(sym->s.a, str->a, str->len) == 0);
 }
 
-ident_t *ident_create(chcc_t *cc, uint32 hash, bool calc, string_t ident)
+ident_t *ident_create(chcc_t *cc, uint32 hash, bool calc, string_t name)
 {
     array_ex_t *arry_ident = cc->arry_ident.a;
     bhash_t *hash_ident = cc->hash_ident.a;
-    ident_t *sym;
+    ident_t *d;
     Uint i = 0;
     bool exist = false;
 
     if (calc) {
         hash = IDENT_HASH_INIT;
-        for (; i < ident.len; i++) {
-            hash = ident_hash(hash, ident.a[i]);
+        for (; i < name.len; i++) {
+            hash = ident_hash(hash, name.a[i]);
         }
     }
 
     // 将标识符符号创建到符号哈希表中
-    sym = (ident_t *)bhash_push(hash_ident, hash, ident_eq, &ident, sizeof(ident_t) + ident.len, &exist);
+    d = (ident_t *)bhash_push(hash_ident, hash, ident_eq, &name, sizeof(ident_t) + name.len, &exist);
     if (!exist) {
         // 该符号在哈希表中不存在，返回的是新创建的符号，这里初始化这个符号
-        memcpy((byte *)(sym + 1), ident.a, ident.len);
-        string_init(&sym->s, (byte *)(sym + 1), ident.len, false);
+        memcpy((byte *)(d + 1), name.a, name.len);
+        string_init(&d->s, (byte *)(d + 1), name.len, false);
         // 将符号添加到符号数组中，并初始化该符号在数组中的序号
-        sym->id = (CIFA_IDENT_START) + array_ex_len(arry_ident);
-        array_ex_push(&cc->arry_ident, (byte *)sym, IDENT_ARRAY_EXPAND);
+        d->id = (CIFA_IDENT_START) + array_ex_len(arry_ident);
+        array_ex_push(&cc->arry_ident, (byte *)d, IDENT_ARRAY_EXPAND);
     }
 
 #if __CHCC_DEBUG__
-    printf("ident %08x exist %d id %08x [%d] %s\n", hash, exist, sym->id, sym->s.len, sym->s.a);
+    printf("ident %08x exist %d id %08x [%d] %s\n", hash, exist, d->id, d->s.len, d->s.a);
 #endif
 
-    return sym;
+    return d;
 }
 
 ident_t *ident_get(chcc_t *st, cfid_t id)
@@ -517,6 +517,7 @@ void cpstr(void *p, const byte *e)
     cc->start = f->b.cur;
 }
 
+// sign = ("+" | "-") .
 // digit = ("0" … "9") .
 // dec_digit = "_" | ("0" … "9") .
 // bin_digit = "_" | ("0" … "1") .
@@ -526,13 +527,13 @@ void cpstr(void *p, const byte *e)
 // bin_digits = bin_digit { bin_digit } .
 // hex_digits = hex_digit { hex_digit } .
 //
-// int_lit = dec_lit | bin_lit | hex_lit .
+// int_lit = [ sign ] (dec_lit | bin_lit | hex_lit) .
 // dec_lit = digit { dec_digit } .
 // bin_lit = "0" ("b" | "B") bin_digits .
 // hex_lit = "0" ("x" | "X") hex_digits .
 //
-// float_lit = dec_float_lit | bin_float_lit | hex_float_lit .
-// dec_exp = ("p" | "P") dec_digits .
+// float_lit = [ sign ] (dec_float_lit | bin_float_lit | hex_float_lit) .
+// dec_exp = ("p" | "P") ["+" | "-"] dec_digits .
 // dec_float_lit =      // 10 ^ exp
 //      dec_lit "." dec_digits |
 //      dec_lit "." dec_digits dec_exp |
@@ -548,7 +549,6 @@ void cpstr(void *p, const byte *e)
 //      hex_lit "." hex_digits dec_exp |
 //      hex_lit "." dec_exp |
 //      hex_lit dec_exp .
-// 3.14 314P2 0.314p1
 
 typedef struct {
     uint64 i;
@@ -556,6 +556,7 @@ typedef struct {
     uint32 exp;
     uint8 isfloat: 1;
     uint8 exp_neg: 1;
+    uint8 int_neg: 1;
     uint8 base;
     uint32 tlen;
     const byte *tail;
@@ -633,11 +634,15 @@ label_tail:
 void exppart(const byte *s, const byte *e, numval_t *v)
 {
     uint32 exp = 0;
-    byte c;
+    byte c = *s;
     v->isfloat = 1;
+    if (s < e && (c == '+' || c == '-')) {
+        v->exp_neg = (c == '-');
+        ++s;
+    }
     while (s < e) {
         c = *s++;
-        if (digit(c)) {
+        if (digit(c)) { // 指数总是十进制数
             exp = exp * 10 + (c - '0');
         } else if (c != '_') {
             --s;
@@ -669,7 +674,6 @@ void fragpart(const byte *s, const byte *e, byte digtp, numval_t *v)
             }
         } else if (c == 'p' || c == 'P') {
             v->f = fpart;
-            v->exp_neg = (c == 'P');
             exppart(s, e, v);
             return;
         } else if (c != '_') {
@@ -687,6 +691,10 @@ void intpart(const byte *s, const byte *e, numval_t *v)
     byte digval;
     byte c = *s++;
     uint64 i = 0;
+    if (c == '+' || c == '-') {
+        v->int_neg = (c == '-');
+        c = *s++;
+    }
     if (c == '0') {
         if (s >= e) {
             goto label_dec;
@@ -726,7 +734,6 @@ label_dec:
         } else if (c == 'p' || c == 'P') {
             v->i = i;
             v->f = 0;
-            v->exp_neg = (c == 'P');
             exppart(s, e, v);
             return;
         } else if (c != '_') {
@@ -786,7 +793,7 @@ static Uint idnum(chcc_t *cc, bool num)
     rune c = cc->c;
 
     if (num) {
-        e = CHAR_CLASS_DOT;
+        e = CHAR_CLASS_SIGN;
     } else {
         h = ident_hash(h, c);
     }
@@ -1112,7 +1119,12 @@ label_cont:
         nch = strlit(cc, c);
     } else {
         nch = 1;
-        t = (t == CHAR_CLASS_DOT) ? CHAR_CLASS_MDOT : t;
+        if (t == CHAR_CLASS_SIGN) {
+            t = (c == '+') ? CHAR_CLASS_PLUS : CHAR_CLASS_MINUS;
+        }
+        if (t == CHAR_CLASS_DOT) {
+            t = CHAR_CLASS_MDOT;
+        }
         if (t >= CHAR_CLASS_OPERATOR) {
             op = oper(cc, c, t - CHAR_CLASS_OPERATOR);
         } else {
