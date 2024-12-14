@@ -66,16 +66,16 @@ ident_t *ident_get(chcc_t *st, cfid_t id)
     return (ident_t *)array_ex_at_n(st->arry_ident.a, id-CIFA_IDENT_START, sizeof(ident_t*));
 }
 
-bool type_ident(const byte *s, const byte *e)
+static bool type_ident(const byte *p, const byte *e)
 {
-    Int len = e - s;
-    byte c = *s++;
+    Int len = e - p;
+    byte c = *p++;
     bool s = (c == '_'); // 首字母下划线
     bool u = (c >= 'A' && c <= 'Z'); // 首字母大写
     bool t = ((*(e-2) == '_') && (*(e-1) == 't')); // 以_t结尾
     bool l = false; // 第二个字符开始包含小写或包含数字
-    while (s < e) {
-        c = *s++;
+    while (p < e) {
+        c = *p++;
         if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
             l = true;
             break;
@@ -84,14 +84,14 @@ bool type_ident(const byte *s, const byte *e)
     return (u && (len == 1 || l)) || (len > 2 && !s && t);
 }
 
-bool cons_ident(const byte *s, const byte *e)
+static bool cons_ident(const byte *p, const byte *e)
 {
-    byte c = *s;
+    byte c = *p;
     int n = 0; // 大写个数
     bool u = true; // 全部大写（不包含小写字符）
     bool s = (c == '_'); // 首字母下划线
-    while (s < e) {
-        c = *s++;
+    while (p < e) {
+        c = *p++;
         if (c >= 'A' && c <= 'Z') {
             ++n;
         } else if (c >= 'a' && c <= 'z') {
@@ -128,7 +128,7 @@ static bool ident_cont(rune c)
 
 bool num_digit(rune c, byte digtp)
 {
-    if (digtp == CHAR_BIN_DIGIT) {
+    if (digtp == CHAR_HEX_DIGIT) {
         return hex_digit(c);
     }
     return c >= '0' && c <= digtp;
@@ -389,8 +389,6 @@ void cifa_init(chcc_t *cc, file_t *f)
     }
 
     cc->user_id_start = sym->id + 1;
-    cc->error = cc->errst;
-    cc->errst[0] = 0;
 }
 
 void chcc_free(chcc_t *cc)
@@ -409,7 +407,7 @@ void rch(chcc_t *cc)
     cc->c = file_get(cc->f);
 }
 
-void rch_ex(chcc_t *cc, void (*f)(void))
+void rch_ex(chcc_t *cc, void (*f)(void *p, const byte *e))
 {
     cc->c = file_get_ex(cc->f, f, cc);
 }
@@ -516,7 +514,6 @@ void cpstr(void *p, const byte *e)
     buffer_t *b = &cc->s;
     byte *s = cc->start;
     buffer_push(b, s, e - s, CFSTR_ALLOC_EXPAND);
-    cc->copied = true;
     cc->start = f->b.cur;
 }
 
@@ -570,7 +567,7 @@ Uint bool_end(chcc_t *cc, bool a)
     cf->isbool = 1;
     cf->val.c = a;
     cifa_end(cc, CIFA_TYPE_NUMERIC, 0);
-    return 4 + (a == true);
+    return 4 + (a == false);
 }
 
 Uint null_end(chcc_t *cc)
@@ -698,7 +695,7 @@ void intpart(const byte *s, const byte *e, numval_t *v)
             if (c == 'b' || c == 'B') {
                 digtp = CHAR_BIN_DIGIT; // bin_lit
             } else if (c == 'x' || c == 'X') {
-                digtp = CHAR_BIN_DIGIT; // hex_lit
+                digtp = CHAR_HEX_DIGIT; // hex_lit
             } else {
                 goto label_dec;
             }
@@ -715,7 +712,7 @@ label_dec:
         c = *s++;
         if (num_digit(c, digtp)) {
             digval = dig_value(c);
-            if (digtp == CHAR_BIN_DIGIT) { // 如果数据过大高位被截去只留低位
+            if (digtp == CHAR_HEX_DIGIT) { // 如果数据过大高位被截去只留低位
                 i = (i << 4) + digval;
             } else if (digtp == CHAR_BIN_DIGIT) {
                 i = (i << 1) + digval;
@@ -784,24 +781,23 @@ static Uint idnum(chcc_t *cc, bool num)
     buffix_t *b = &cc->f->b;
     ident_t *sym;
     string_t d;
-    byte e_class = CHAR_CLASS_UNDERSCORE;
-    byte c_class;
+    byte e = CHAR_CLASS_UNDERSCORE;
+    byte t;
     rune c = cc->c;
 
     if (num) {
-        e_class = CHAR_CLASS_DOT;
+        e = CHAR_CLASS_DOT;
     } else {
         h = ident_hash(h, c);
     }
 
     buffer_clear(s);
     cc->start = b->cur - 1;
-    cc->copied = false;
 
     for (; ;) {
         rch_ex(cc, cpstr);
         c = cc->c;
-        if (c < 0x80 && (c_class = cc->b128[c]) >= CHAR_CLASS_DIGIT && c_class <= e_class) {
+        if (c < 0x80 && (t = cc->b128[c]) >= CHAR_CLASS_DIGIT && t <= e) {
             if (!num) {
                 h = ident_hash(h, c);
             }
@@ -815,20 +811,20 @@ static Uint idnum(chcc_t *cc, bool num)
         buffer_push(s, cc->start, b->cur - cc->start, CFSTR_ALLOC_EXPAND);
         d = strflen(s->a, s->len);
     } else {
-        d = strflen(cc->start, b->cur);
+        d = strfend(cc->start, b->cur);
     }
 
     if (num) {
         return numlit(cc, &d);
     }
 
-    if (s->len == 4) {
-        if (memcmp(s->a, "null", 4) == 0) {
+    if (d.len == 4) {
+        if (memcmp(d.a, "null", 4) == 0) {
             return null_end(cc);
-        } else if (memcmp(s->a, "true", 4) == 0) {
+        } else if (memcmp(d.a, "true", 4) == 0) {
             return bool_end(cc, true);
         }
-    } else if (s->len == 5 && memcmp(s->a, "false", 5) == 0) {
+    } else if (d.len == 5 && memcmp(d.a, "false", 5) == 0) {
         return bool_end(cc, false);
     }
 
@@ -872,16 +868,18 @@ static Uint comment(chcc_t *cc, cfid_t c)
                 newline(cc, c);
                 nch = 0;
                 cc->start = b->cur - 1;
-            } else if (c == '*') {
+            } else {
+                nch += 1;
+                if (c != '*') {
+                    continue;
+                }
                 rch_ex(cc, cpstr);
                 if (cc->c == '/') {
                     buffer_push(s, cc->start, b->cur - 2 - cc->start, CFSTR_ALLOC_EXPAND); // */ 不属于注释内容
-                    nch += 2; // */
+                    nch += 1; // */
                     break; // 块注释读取完毕
                 }
                 un_rch(cc);
-            } else {
-                nch += 1;
             }
         }
         cmmt_end(cc, true);
@@ -889,7 +887,7 @@ static Uint comment(chcc_t *cc, cfid_t c)
     return nch;
 }
 
-static Uint esc(chcc_t *cc, rune quote)
+static Uint esc(chcc_t *cc, rune quote, Error *out)
 {
     esc_t *a = cc->esc;
     Error error = null;
@@ -904,13 +902,19 @@ static Uint esc(chcc_t *cc, rune quote)
         for (i = 0; i < a->n; ++i) { // 开始处理 \xff \uffff \Uffffffff
             rch(cc);
             c = cc->c;
-            if (hex_digit(c)) {
-                u = (u << 4) | dig_value(c);
-                nch += 1;
-            } else {
-                un_rch(cc); // 遇到不识别的字符则回退并退出
-                error = ERROR_INVALID_HEXCHAR;
+            if (c == quote || c == CHAR_BSLASH || c == CHAR_EOF || c == CHAR_RETURN || c == CHAR_NEWLINE) {
+                un_rch(cc); // 遇到结束字符回退并退出
+                u <<= 4 * (a->n - i); // 剩余的字符都看出是0
+                error = ERROR_INVALID_HEXNUMB;
                 goto label_finish;
+            } else {
+                if (hex_digit(c)) {
+                    u = (u << 4) | dig_value(c);
+                } else {
+                    u = u << 4; // 未知的字符当成字符0
+                    error = ERROR_INVALID_HEXCHAR;
+                }
+                nch += 1;
             }
         }
         goto label_finish;
@@ -924,13 +928,14 @@ static Uint esc(chcc_t *cc, rune quote)
 label_finish:
     if (error) {
         log_error_3(error, cc->line, cc->cols + nch, c);
+        if (out) *out = error;
     }
     cc->c = u;
     cc->unicode = (a->n >= 4);
     return nch;
 }
 
-static int achar(chcc_t *cc)
+static int achar(chcc_t *cc, Error *error)
 {
     rune c;
     rch(cc);
@@ -943,7 +948,7 @@ static int achar(chcc_t *cc)
         return 0; // 读取结束
     }
     if (c == CHAR_BSLASH) {
-        return 1 + esc(cc, CHAR_SQUOTE);
+        return 1 + esc(cc, CHAR_SQUOTE, error);
     }
     utf(cc); // 字符是一个数值类型，如果是utf8需要将其转换成对应的数值代码点
     return 1;
@@ -954,18 +959,28 @@ static Uint charlit(chcc_t *cc)
     Error error = null;
     Uint nch = 1;
     rune u = 0;
-    int len = achar(cc);
+    int len = achar(cc, &error);
     if (len <= 0) {
         nch += (-len);
         error = (len < 0) ? ERROR_EMPTY_RUNE_LIT : ERROR_MISS_CLOSE_QUOTE;
     } else {
         nch += len;
         u = cc->c;
-        while ((len = achar(cc)) > 0) { // 跳过字符字面量中多余的字符
-            error = ERROR_MULT_CHAR_EXIST;
-            nch += len;
+        len = achar(cc, null);
+        if (len == 0) {
+            if (!error) { // 最先出现的错误优先
+                error = ERROR_MISS_CLOSE_QUOTE;
+            }
+        } else {
+            while (len > 0) { // 跳过字符字面量中多余的字符
+                nch += len;
+                len = achar(cc, null);
+                if (!error) { // 最先出现的错误优先
+                    error = ERROR_MULT_CHAR_EXIST;
+                }
+            }
+            nch += (-len);
         }
-        nch += (-len);
     }
     char_end(cc, u, error);
     return nch;
@@ -975,6 +990,7 @@ static Uint strlit(chcc_t *cc, rune quote)
 {
     buffix_t *b = &cc->f->b;
     buffer_t *s = &cc->s;
+    const byte *pend;
     Uint nch = 1; // quote
     Error error = null;
     bool rawstr = false;
@@ -988,7 +1004,6 @@ static Uint strlit(chcc_t *cc, rune quote)
     }
     buffer_clear(s);
     cc->start = b->cur;
-    cc->copied = false;
     for (; ;) {
         rch_ex(cc, cpstr);
         c = cc->c;
@@ -1002,6 +1017,7 @@ static Uint strlit(chcc_t *cc, rune quote)
             } else {
                 un_rch(cc);
                 error = ERROR_MISS_CLOSE_QUOTE;
+                pend = b->cur;
                 break; // 字符串读取完毕
             }
         } else if (c == CHAR_EOF) {
@@ -1009,7 +1025,7 @@ static Uint strlit(chcc_t *cc, rune quote)
             goto label_copied; // 遇到结束引号前到达文件尾，字符串读取完毕
         } else if (c == CHAR_BSLASH && !rawstr) {
             buffer_push(s, cc->start, b->cur - 1 - cc->start, CFSTR_ALLOC_EXPAND);
-            nch += esc(cc, CHAR_DQUOTE);
+            nch += 1 + esc(cc, CHAR_DQUOTE, &error);
             if (cc->unicode) { // 代码点转换成utf8字符串字节流
                 len = unc2utf(cc->c, utf8);
                 buffer_push(s, utf8, len, CFSTR_ALLOC_EXPAND);
@@ -1020,16 +1036,17 @@ static Uint strlit(chcc_t *cc, rune quote)
         } else {
             nch += 1;
             if (c == quote) {
+                pend = b->cur - 1;
                 break; // 字符串读取完毕
             }
         }
     }
-    if (cc->copied) {
-        buffer_push(s, cc->start, b->cur - 1 - cc->start, CFSTR_ALLOC_EXPAND);
+    if (s->len) {
+        buffer_push(s, cc->start, pend - cc->start, CFSTR_ALLOC_EXPAND);
 label_copied:
         cc->cf.s = string_ref_buffer(&cc->s);
     } else {
-        cc->cf.s = strflen(cc->start, b->cur - 1 - cc->start);
+        cc->cf.s = strflen(cc->start, pend - cc->start);
     }
     cifa_end(cc, CIFA_TYPE_STRING, error);
     return nch;
@@ -1051,6 +1068,7 @@ ops_t *oper(chcc_t *cc, rune c, byte idx)
             }
         }
     }
+    return null;
 }
 
 void cur(chcc_t *cc) // 解析当前词法
@@ -1060,63 +1078,62 @@ void cur(chcc_t *cc) // 解析当前词法
     rune c;
     uint8 t;
     Uint nch;
-    for (; ;) {
-        c = cc->c;
-        memset(cf, 0, sizeof(cifa_t));
-        cf->line = cc->line;
-        cf->cols = cc->cols;
-        if (c == CHAR_EOF) {
-            cifa_end(cc, CHAR_EOF, 0);
-            return;
-        }
-        if (c >= 0x80) {
-            utf(cc); // 解析并跳过utf8字符
-            cc->cols += 1;
-            rch(cc); // 读取下一个字符
-            continue;
-        }
-        t = cc->b128[c];
+label_cont:
+    c = cc->c;
+    memset(cf, 0, sizeof(cifa_t));
+    cf->line = cc->line;
+    cf->cols = cc->cols;
+    if (c == CHAR_EOF) {
+        cifa_end(cc, CHAR_EOF, 0);
+        return;
+    }
+    if (c >= 0x80) {
+        utf(cc); // 解析并跳过utf8字符
+        cc->cols += 1;
+        rch(cc); // 读取下一个字符
+        goto label_cont;
+    }
+    t = cc->b128[c];
 #if __CHCC_DEBUG__
-        printf("line %04d col %03d %c %02x t %02x\n", cc->line, cc->cols, (t == CHAR_CLASS_BLANK) ? ' ' : (byte)c, c, t);
+    printf("line %04d col %03d %c %02x t %02x\n", cc->line, cc->cols, (t == CHAR_CLASS_BLANK) ? ' ' : (byte)c, c, t);
 #endif
-        if (t == CHAR_CLASS_BLANK) {
-            if (c == CHAR_NEWLINE || c == CHAR_RETURN) {
-                newline(cc, c);
-            } else {
-                cc->cols += 1;
-            }
-            rch(cc);
-            continue;
-        }
-        if (t >= CHAR_CLASS_DIGIT && t <= CHAR_CLASS_UNDERSCORE) {
-            nch = idnum(cc, (t == CHAR_CLASS_DIGIT));
-        } else if (t == CHAR_CLASS_QUOTE) {
-            nch = strlit(cc, c);
+    if (t == CHAR_CLASS_BLANK) {
+        if (c == CHAR_NEWLINE || c == CHAR_RETURN) {
+            newline(cc, c);
         } else {
-            nch = 1;
-            t = (t == CHAR_CLASS_DOT) ? CHAR_CLASS_MDOT : t;
-            if (t >= CHAR_CLASS_OPERATOR) {
-                op = oper(cc, c, t - CHAR_CLASS_OPERATOR);
-            } else {
+            cc->cols += 1;
+        }
+        rch(cc);
+        goto label_cont;
+    }
+    if (t >= CHAR_CLASS_DIGIT && t <= CHAR_CLASS_UNDERSCORE) {
+        nch = idnum(cc, (t == CHAR_CLASS_DIGIT));
+    } else if (t == CHAR_CLASS_QUOTE) {
+        nch = strlit(cc, c);
+    } else {
+        nch = 1;
+        t = (t == CHAR_CLASS_DOT) ? CHAR_CLASS_MDOT : t;
+        if (t >= CHAR_CLASS_OPERATOR) {
+            op = oper(cc, c, t - CHAR_CLASS_OPERATOR);
+        } else {
+            goto label_punct;
+        }
+        if (op) {
+            nch = op->len;
+            if (!op->prior) {
+                c = op->cfid;
                 goto label_punct;
             }
-            if (op) {
-                nch = op->len;
-                if (!op->prior) {
-                    c = op->cfid;
-                    goto label_punct;
-                }
-                oper_end(cc, op);
+            oper_end(cc, op);
+        } else {
+label_punct:
+            if (c == CIFA_PT_LINE_CMMT || c == CIFA_PT_BLOCK_CMMT) {
+                nch = comment(cc, c);
             } else {
-    label_punct:
-                if (c == CIFA_PT_LINE_CMMT || c == CIFA_PT_BLOCK_CMMT) {
-                    nch = comment(cc, c);
-                } else {
-                    cifa_end(cc, c, 0);
-                }
+                cifa_end(cc, c, 0);
             }
         }
-        cc->cols += nch;
-        rch(cc);
     }
+    cc->cols += nch;
+    rch(cc);
 }

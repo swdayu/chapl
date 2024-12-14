@@ -277,7 +277,7 @@ typedef struct {
 typedef struct {
     sym_t sym;
     sym_t *type; // 未声明类型的引用，或基本类型变长参数，对应的type都是null
-    ident_t *type_ident;
+    ident_t *tpid;
     uint32 tpref: 1;
     uint32 embed: 1;
     uint32 alias: 1; // 成员别名
@@ -318,7 +318,7 @@ typedef struct {
 
 typedef struct {
     struct stack_it *type_struct; // 解析创建的结构体、接口、函数类型
-    ident_t *type_ident; // 或者是一个类型标识符
+    ident_t *tpid; // 或者是一个类型标识符
     sym_t *t; // 类型的语法定义
     uint32 tpref: 1;
 } tpcur_t;
@@ -348,7 +348,6 @@ typedef struct {
     cifa_t cf;
     rune c;
     bool unicode;
-    bool copied;
     byte *start;
     Uint line;  // 当前词法前缀所在行
     Uint cols;  // 当前词法前缀所在字符列
@@ -368,10 +367,12 @@ typedef struct {
 
 void chcc_init(chcc_t *cc, file_t *f);
 void chcc_free(chcc_t *cc);
-void curr(chcc_t *cc);
+void chcc_start(chcc_t *cc);
+void rch(chcc_t *cc);
+void cur(chcc_t *cc);
 ident_t *ident_get(chcc_t *cc, cfid_t id);
 
-typedef enum {
+enum {
     ERROR_CMMT_NOT_CLOSED = 0xE00,
     ERROR_INVALID_ESCCHAR,
     ERROR_INVALID_HEXCHAR,

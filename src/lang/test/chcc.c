@@ -2,111 +2,60 @@
 #include "internal/decl.h"
 #include "chcc/chcc.h"
 
-#define cifa_assert(ln, col, c) curr(&cc); \
-    lang_assert_2(cf->cf_line == ln && cf->cf_col == col && cf->cfid == c, cf->cf_col, cf->cfid)
+#define cifa_assert(ln, col, c) cur(&cc); \
+    lang_assert_2(cf->line == ln && cf->cols == col && cf->cfid == c, cf->cols, cf->cfid)
 
-#define cifa_cmm_assert(ln, col, c, str) curr(&cc); \
-    lang_assert_s_2(cf->cf_line == ln && cf->cf_col == col && cf->cfid == c && cf->s.len == strlen(str) && \
-    (cf->s.len ? (memcmp(cf->s.a, str, cf->s.len) == 0) : true), cf->s, cf->cf_col, cf->cfid)
+#define cifa_cmm_assert(ln, col, c, str) cur(&cc); \
+    lang_assert_s_2(cf->line == ln && cf->cols == col && cf->cfid == c && cf->s.len == strlen(str) && \
+    (cf->s.len ? (memcmp(cf->s.a, str, cf->s.len) == 0) : true), cf->s, cf->cols, cf->cfid)
 
-#define cifa_rune_assert(ln, col, cur_c, e) curr(&cc); \
-    lang_assert_3(cf->cf_line == ln && cf->cf_col == col && cf->cfid == CIFA_CF_RUNE_LIT && \
-    cf->val.i == cur_c && cc.error == e, cf->cf_col, cf->val.i, cc.error)
+#define cifa_rune_assert(ln, col, cur_c, e) cur(&cc); \
+    lang_assert_3(cf->line == ln && cf->cols == col && cf->ischar && \
+    cf->val.c == cur_c && cf->error == e, cf->cols, cf->val.c, cf->error)
 
-#define cifa_str_assert(ln, col, str, e) curr(&cc); \
-    lang_assert_s_2(cf->cf_line == ln && cf->cf_col == col && cf->cfid == CIFA_CF_STR_LIT && cf->s.len == strlen(str) && \
-    (cf->s.len ? (memcmp(cf->s.a, str, cf->s.len) == 0) : true) && cc.error == e, cf->s, cf->cf_col, cc.error)
+#define cifa_str_assert(ln, col, str, e) cur(&cc); \
+    lang_assert_s_2(cf->line == ln && cf->cols == col && cf->cfid == CIFA_TYPE_STRING && cf->s.len == strlen(str) && \
+    (cf->s.len ? (memcmp(cf->s.a, str, cf->s.len) == 0) : true) && cf->error == e, cf->s, cf->cols, cf->error)
 
-#define cifa_int_assert(ln, col, c, v) curr(&cc); \
-    lang_assert_3(cf->cf_line == ln && cf->cf_col == col && cf->cfid == c && cf->val.i == v, \
-    cf->cf_col, cf->cfid, cf->val.i)
+#define cifa_int_assert(ln, col, t, v) cur(&cc); \
+    lang_assert_3(cf->line == ln && cf->cols == col && cf->cfid == t && cf->val.c == v, \
+    cf->cols, cf->cfid, cf->val.c)
 
-#define cifa_ident_assert(ln, col, id) curr(&cc); \
-    lang_assert_s_2(cf->cf_line == ln && cf->cf_col == col && cf->cfid == id, cf->s, cf->cf_col, cf->cfid)
+#define cifa_ident_assert(ln, col, id) cur(&cc); \
+    lang_assert_s_2(cf->line == ln && cf->cols == col && cf->cfid == id, cf->s, cf->cols, cf->cfid)
 
 #define cifa_is_basic_type(c) \
     lang_assert_3((c) >= CIFA_ID_INT && (c) <= CIFA_ID_STRING, CIFA_ID_INT, CIFA_ID_STRING, (c))
 
-#define cifa_is_unsigned(c) \
-    lang_assert_3((c) >= CIFA_ID_UINT && (c) <= CIFA_ID_UINT64, CIFA_ID_UINT, CIFA_ID_UINT64, (c))
-
 void test_chcc(void)
 {
     chcc_t cc;
-    bufile_t *f;
-    cfys_t *cf = &cc.curcf;
+    file_t *f = file_load(strnull(), 0);
+    cifa_t *cf = &cc.cf;
 
-    f = bufile_new(NULL, strnull(), FILEBUF_DEFAULT_SIZE);
     lang_assert(f != null);
 
     chcc_init(&cc, f);
 
-    lang_assert(CIFA_OP_BASE == 0xF8000000);
-    lang_assert(CIFA_OP_LSH == 0xF8000001);
-    lang_assert(CIFA_OP_RSH == 0xF8000003);
-    lang_assert(CIFA_OP_LSH_ASSIGN == 0xF8000004);
-    lang_assert(CIFA_OP_RSH_ASSIGN == 0xF8000006);
-    lang_assert(CIFA_OP_LAND == 0xF8000007);
-    lang_assert(CIFA_OP_LOR == 0xF8000008);
-    lang_assert(CIFA_OP_NE == 0xF8000021);
-    lang_assert(CIFA_OP_MOD_ASSIGN == 0xF8000025);
-    lang_assert(CIFA_OP_AND_ASSIGN == 0xF8000026);
-    lang_assert(CIFA_OP_MUL_ASSIGN == 0xF800002A);
-    lang_assert(CIFA_OP_ADD_ASSIGN == 0xF800002B);
-    lang_assert(CIFA_OP_SUB_ASSIGN == 0xF800002D);
-    lang_assert(CIFA_OP_DIV_ASSIGN == 0xF800002F);
-    lang_assert(CIFA_OP_LE == 0xF800003C);
-    lang_assert(CIFA_OP_EQ == 0xF800003D);
-    lang_assert(CIFA_OP_GE == 0xF800003E);
-    lang_assert(CIFA_OP_INI_ASSIGN == 0xF800003A);
-    lang_assert(CIFA_OP_XOR_ASSIGN == 0xF800005E);
-    lang_assert(CIFA_OP_BOR_ASSIGN == 0xF800007C);
-    lang_assert(CIFA_CH_NOT == 0x21);
-    lang_assert(CIFA_CH_MOD == 0x25);
-    lang_assert(CIFA_CH_AND == 0x26);
-    lang_assert(CIFA_CH_MUL == 0x2A);
-    lang_assert(CIFA_CH_ADD == 0x2B);
-    lang_assert(CIFA_CH_SUB == 0x2D);
-    lang_assert(CIFA_CH_DIV == 0x2F);
-    lang_assert(CIFA_CH_LT == 0x3C);
-    lang_assert(CIFA_CH_ASSIGN == 0x3D);
-    lang_assert(CIFA_CH_GT == 0x3E);
-    lang_assert(CIFA_CH_COLON == 0x3A);
-    lang_assert(CIFA_CH_XOR == 0x5E);
-    lang_assert(CIFA_CH_BOR == 0x7C);
-
     cifa_is_basic_type(CIFA_ID_INT);
-    cifa_is_basic_type(CIFA_ID_INT8);
-    cifa_is_basic_type(CIFA_ID_INT16);
-    cifa_is_basic_type(CIFA_ID_INT32);
-    cifa_is_basic_type(CIFA_ID_INT64);
-    cifa_is_basic_type(CIFA_ID_UINT);
     cifa_is_basic_type(CIFA_ID_BYTE);
-    cifa_is_basic_type(CIFA_ID_UINT8);
-    cifa_is_basic_type(CIFA_ID_UINT16);
-    cifa_is_basic_type(CIFA_ID_UINT32);
-    cifa_is_basic_type(CIFA_ID_UINT64);
+    cifa_is_basic_type(CIFA_ID_SHORT);
+    cifa_is_basic_type(CIFA_ID_LONG);
+    cifa_is_basic_type(CIFA_ID_ARCH);
     cifa_is_basic_type(CIFA_ID_FLOAT);
-    cifa_is_basic_type(CIFA_ID_FLOAT16);
-    cifa_is_basic_type(CIFA_ID_FLOAT32);
-    cifa_is_basic_type(CIFA_ID_FLOAT64);
+    cifa_is_basic_type(CIFA_ID_F16);
+    cifa_is_basic_type(CIFA_ID_F32);
+    cifa_is_basic_type(CIFA_ID_F64);
     cifa_is_basic_type(CIFA_ID_COMPLEX);
-    cifa_is_basic_type(CIFA_ID_COMPLEX16);
-    cifa_is_basic_type(CIFA_ID_COMPLEX32);
-    cifa_is_basic_type(CIFA_ID_COMPLEX64);
+    cifa_is_basic_type(CIFA_ID_C16);
+    cifa_is_basic_type(CIFA_ID_C32);
+    cifa_is_basic_type(CIFA_ID_C64);
     cifa_is_basic_type(CIFA_ID_BOOL);
-    cifa_is_basic_type(CIFA_ID_RUNE);
+    cifa_is_basic_type(CIFA_ID_CHAR);
     cifa_is_basic_type(CIFA_ID_ERROR);
     cifa_is_basic_type(CIFA_ID_STRING);
 
-    cifa_is_unsigned(CIFA_ID_UINT);
-    cifa_is_unsigned(CIFA_ID_BYTE);
-    cifa_is_unsigned(CIFA_ID_UINT8);
-    cifa_is_unsigned(CIFA_ID_UINT16);
-    cifa_is_unsigned(CIFA_ID_UINT32);
-    cifa_is_unsigned(CIFA_ID_UINT64);
-
-    bufile_load_string(f, strfrom(
+    file_reload(f, strfrom(
         "\t \\ \r"              //  1 空白
         " \n"                   //  2 换行
         "\r\n"                  //  3 换行
@@ -115,69 +64,71 @@ void test_chcc(void)
         " . ... -> && || \n"    //  6
         ".->&&||...@)[},\n"     //  7
         "=<>:!+-*%/&|^<=>=\n"   //  8
-        "==!=+=-=*=/=%=&=|=\n"  //  9
+        "==!=+=-=*=\\=%=&=|=\n" //  9
         "^=<<>><<=>>=<<<>>>\n"  // 10
     ));
 
     // "@()[]{},;\n"
-    cifa_assert(4, 1, CIFA_CH_ATSIGN);
-    cifa_assert(4, 2, CIFA_CH_OPEN_PAREN);
-    cifa_assert(4, 3, CIFA_CH_CLOSE_PAREN);
-    cifa_assert(4, 4, CIFA_CH_OPEN_SQUARE);
-    cifa_assert(4, 5, CIFA_CH_CLOSE_SQUARE);
-    cifa_assert(4, 6, CIFA_CH_OPEN_CURLY);
-    cifa_assert(4, 7, CIFA_CH_CLOSE_CURLY);
-    cifa_assert(4, 8, CIFA_CH_COMMA);
-    cifa_assert(4, 9, CIFA_CH_SEMICOLON);
+    chcc_start(&cc);
+    cifa_assert(1, 3, CIFA_OP_DIV);
+    cifa_assert(4, 1, CHAR_ATSIGN);
+    cifa_assert(4, 2, CHAR_OPEN_PAREN);
+    cifa_assert(4, 3, CHAR_CLOSE_PAREN);
+    cifa_assert(4, 4, CHAR_OPEN_SQUARE);
+    cifa_assert(4, 5, CHAR_CLOSE_SQUARE);
+    cifa_assert(4, 6, CHAR_OPEN_CURLY);
+    cifa_assert(4, 7, CHAR_CLOSE_CURLY);
+    cifa_assert(4, 8, CHAR_COMMA);
+    cifa_assert(4, 9, CHAR_SEMICOLON);
 
     // "@ () [] {} , ;\n"
-    cifa_assert(5, 1, CIFA_CH_ATSIGN);
-    cifa_assert(5, 3, CIFA_CH_OPEN_PAREN);
-    cifa_assert(5, 4, CIFA_CH_CLOSE_PAREN);
-    cifa_assert(5, 6, CIFA_CH_OPEN_SQUARE);
-    cifa_assert(5, 7, CIFA_CH_CLOSE_SQUARE);
-    cifa_assert(5, 9, CIFA_CH_OPEN_CURLY);
-    cifa_assert(5, 10, CIFA_CH_CLOSE_CURLY);
-    cifa_assert(5, 12, CIFA_CH_COMMA);
-    cifa_assert(5, 14, CIFA_CH_SEMICOLON);
+    cifa_assert(5, 1, CHAR_ATSIGN);
+    cifa_assert(5, 3, CHAR_OPEN_PAREN);
+    cifa_assert(5, 4, CHAR_CLOSE_PAREN);
+    cifa_assert(5, 6, CHAR_OPEN_SQUARE);
+    cifa_assert(5, 7, CHAR_CLOSE_SQUARE);
+    cifa_assert(5, 9, CHAR_OPEN_CURLY);
+    cifa_assert(5, 10, CHAR_CLOSE_CURLY);
+    cifa_assert(5, 12, CHAR_COMMA);
+    cifa_assert(5, 14, CHAR_SEMICOLON);
 
     // " . ... -> && || \n"
-    cifa_assert(6, 2, CIFA_CH_DOT);
-    cifa_assert(6, 4, CIFA_OP_3DOT);
-    cifa_assert(6, 8, CIFA_OP_ARROW);
+    cifa_assert(6, 2, CHAR_DOT);
+    cifa_assert(6, 4, CIFA_PT_3DOT);
+    cifa_assert(6, 8, CIFA_PT_ARROW);
     cifa_assert(6, 11, CIFA_OP_LAND);
     cifa_assert(6, 14, CIFA_OP_LOR);
 
     // ".->&&||...@)[},\n"
-    cifa_assert(7, 1, CIFA_CH_DOT);
-    cifa_assert(7, 2, CIFA_OP_ARROW);
+    cifa_assert(7, 1, CHAR_DOT);
+    cifa_assert(7, 2, CIFA_PT_ARROW);
     cifa_assert(7, 4, CIFA_OP_LAND);
     cifa_assert(7, 6, CIFA_OP_LOR);
-    cifa_assert(7, 8, CIFA_OP_3DOT);
-    cifa_assert(7, 11, CIFA_CH_ATSIGN);
-    cifa_assert(7, 12, CIFA_CH_CLOSE_PAREN);
-    cifa_assert(7, 13, CIFA_CH_OPEN_SQUARE);
-    cifa_assert(7, 14, CIFA_CH_CLOSE_CURLY);
-    cifa_assert(7, 15, CIFA_CH_COMMA);
+    cifa_assert(7, 8, CIFA_PT_3DOT);
+    cifa_assert(7, 11, CHAR_ATSIGN);
+    cifa_assert(7, 12, CHAR_CLOSE_PAREN);
+    cifa_assert(7, 13, CHAR_OPEN_SQUARE);
+    cifa_assert(7, 14, CHAR_CLOSE_CURLY);
+    cifa_assert(7, 15, CHAR_COMMA);
 
     // "=<>:!+-*%/&|^<=>=\n"
-    cifa_assert(8, 1, CIFA_CH_EQUAL);
-    cifa_assert(8, 2, CIFA_CH_LT);
-    cifa_assert(8, 3, CIFA_CH_GT);
-    cifa_assert(8, 4, CIFA_CH_COLON);
-    cifa_assert(8, 5, CIFA_CH_NOT);
-    cifa_assert(8, 6, CIFA_CH_PLUS);
-    cifa_assert(8, 7, CIFA_CH_MINUS);
-    cifa_assert(8, 8, CIFA_CH_MUL);
-    cifa_assert(8, 9, CIFA_CH_MOD);
-    cifa_assert(8, 10, CIFA_CH_DIV);
-    cifa_assert(8, 11, CIFA_CH_AND);
-    cifa_assert(8, 12, CIFA_CH_BOR);
-    cifa_assert(8, 13, CIFA_CH_XOR);
+    cifa_assert(8, 1, CHAR_EQUAL);
+    cifa_assert(8, 2, CHAR_LT);
+    cifa_assert(8, 3, CHAR_GT);
+    cifa_assert(8, 4, CHAR_COLON);
+    cifa_assert(8, 5, CHAR_NOT);
+    cifa_assert(8, 6, CHAR_PLUS);
+    cifa_assert(8, 7, CHAR_MINUS);
+    cifa_assert(8, 8, CHAR_ASTER);
+    cifa_assert(8, 9, CHAR_PERCENT);
+    cifa_assert(8, 10, CHAR_SLASH);
+    cifa_assert(8, 11, CHAR_AND);
+    cifa_assert(8, 12, CHAR_BOR);
+    cifa_assert(8, 13, CHAR_XOR);
     cifa_assert(8, 14, CIFA_OP_LE);
     cifa_assert(8, 16, CIFA_OP_GE);
 
-    // "==!=+=-=*=/=%=&=|=\n"
+    // "==!=+=-=*=\\=%=&=|=\n"
     cifa_assert(9, 1, CIFA_OP_EQ);
     cifa_assert(9, 3, CIFA_OP_NE);
     cifa_assert(9, 5, CIFA_OP_ADD_ASSIGN);
@@ -190,16 +141,16 @@ void test_chcc(void)
 
     // "^=<<>><<=>>=<<<>>>\n"
     cifa_assert(10, 1, CIFA_OP_XOR_ASSIGN);
-    cifa_assert(10, 3, CIFA_OP_LSH);
-    cifa_assert(10, 5, CIFA_OP_RSH);
-    cifa_assert(10, 7, CIFA_OP_LSH_ASSIGN);
-    cifa_assert(10, 10, CIFA_OP_RSH_ASSIGN);
-    cifa_assert(10, 13, CIFA_OP_LSH);
-    cifa_assert(10, 15, CIFA_CH_LT);
-    cifa_assert(10, 16, CIFA_OP_RSH);
-    cifa_assert(10, 18, CIFA_CH_GT);
+    cifa_assert(10, 3, CIFA_OP_ULT);
+    cifa_assert(10, 5, CIFA_OP_UGT);
+    cifa_assert(10, 7, CIFA_OP_ULE);
+    cifa_assert(10, 10, CIFA_OP_UGE);
+    cifa_assert(10, 13, CIFA_OP_ULT);
+    cifa_assert(10, 15, CHAR_LT);
+    cifa_assert(10, 16, CIFA_OP_UGT);
+    cifa_assert(10, 18, CHAR_GT);
 
-    bufile_load_string(f, strfrom(
+    file_reload(f, strfrom(
         "//\n"              //  1 注释
         "// \n"             //  2
         " //a\n"            //  3
@@ -215,21 +166,22 @@ void test_chcc(void)
         "/***abc*/&\n"      // 13
     ));
 
-    cifa_cmm_assert(1, 1, CIFA_CF_COMMENT, "");
-    cifa_cmm_assert(2, 1, CIFA_CF_COMMENT, " ");
-    cifa_cmm_assert(3, 2, CIFA_CF_COMMENT, "a");
-    cifa_cmm_assert(4, 2, CIFA_CF_COMMENT, "a ");
-    cifa_cmm_assert(5, 2, CIFA_CF_COMMENT, "abc");
-    cifa_cmm_assert(6, 1, CIFA_CF_COMMENT, ""); cifa_assert(6, 6, CIFA_CH_AND);
-    cifa_cmm_assert(7, 2, CIFA_CF_COMMENT, "");
-    cifa_cmm_assert(8, 1, CIFA_CF_COMMENT, "a"); cifa_assert(8, 7, CIFA_CH_AND);
-    cifa_cmm_assert(9, 1, CIFA_CF_COMMENT, "*a"); cifa_assert(9, 7, CIFA_CH_AND);
-    cifa_cmm_assert(10, 1, CIFA_CF_COMMENT, "**a"); cifa_assert(10, 8, CIFA_CH_AND);
-    cifa_cmm_assert(11, 1, CIFA_CF_COMMENT, "abc"); cifa_assert(11, 8, CIFA_CH_AND);
-    cifa_cmm_assert(12, 1, CIFA_CF_COMMENT, "*abc"); cifa_assert(12, 9, CIFA_CH_AND);
-    cifa_cmm_assert(13, 1, CIFA_CF_COMMENT, "**abc"); cifa_assert(13, 10, CIFA_CH_AND);
+    chcc_start(&cc);
+    cifa_cmm_assert(1, 1, CIFA_TYPE_COMMENT, "");
+    cifa_cmm_assert(2, 1, CIFA_TYPE_COMMENT, " ");
+    cifa_cmm_assert(3, 2, CIFA_TYPE_COMMENT, "a");
+    cifa_cmm_assert(4, 2, CIFA_TYPE_COMMENT, "a ");
+    cifa_cmm_assert(5, 2, CIFA_TYPE_COMMENT, "abc");
+    cifa_cmm_assert(6, 1, CIFA_TYPE_COMMENT, ""); cifa_assert(6, 6, CHAR_AND);
+    cifa_cmm_assert(7, 2, CIFA_TYPE_COMMENT, "");
+    cifa_cmm_assert(8, 1, CIFA_TYPE_COMMENT, "a"); cifa_assert(8, 7, CHAR_AND);
+    cifa_cmm_assert(9, 1, CIFA_TYPE_COMMENT, "*a"); cifa_assert(9, 7, CHAR_AND);
+    cifa_cmm_assert(10, 1, CIFA_TYPE_COMMENT, "**a"); cifa_assert(10, 8, CHAR_AND);
+    cifa_cmm_assert(11, 1, CIFA_TYPE_COMMENT, "abc"); cifa_assert(11, 8, CHAR_AND);
+    cifa_cmm_assert(12, 1, CIFA_TYPE_COMMENT, "*abc"); cifa_assert(12, 9, CHAR_AND);
+    cifa_cmm_assert(13, 1, CIFA_TYPE_COMMENT, "**abc"); cifa_assert(13, 10, CHAR_AND);
 
-    bufile_load_string(f, strfrom(
+    file_reload(f, strfrom(
         "''\n"                              //  1 字符字面量
         "'' \n"                             //  2
         " ''\n"                             //  3
@@ -259,14 +211,15 @@ void test_chcc(void)
         "'\\x1\\'' '\\u12\\\n"              // 27
     ));
 
+    chcc_start(&cc);
     cifa_rune_assert(1, 1, 0x00, ERROR_EMPTY_RUNE_LIT);
     cifa_rune_assert(2, 1, 0x00, ERROR_EMPTY_RUNE_LIT);
     cifa_rune_assert(3, 2, 0x00, ERROR_EMPTY_RUNE_LIT);
-    cifa_rune_assert(4, 2, 0x00, ERROR_EMPTY_RUNE_LIT); cifa_assert(4, 5, CIFA_CH_AND);
+    cifa_rune_assert(4, 2, 0x00, ERROR_EMPTY_RUNE_LIT); cifa_assert(4, 5, CHAR_AND);
     cifa_rune_assert(5, 1, 'a', null);
-    cifa_rune_assert(6, 1, 'a', null); cifa_assert(6, 5, CIFA_CH_AND);
+    cifa_rune_assert(6, 1, 'a', null); cifa_assert(6, 5, CHAR_AND);
     cifa_rune_assert(7, 2, 'a', null);
-    cifa_rune_assert(8, 2, 'a', null); cifa_assert(8, 6, CIFA_CH_AND);
+    cifa_rune_assert(8, 2, 'a', null); cifa_assert(8, 6, CHAR_AND);
     cifa_rune_assert(9, 1, '\a', null);
     cifa_rune_assert(9, 5, '\b', null);
     cifa_rune_assert(9, 9, '\f', null);
@@ -301,7 +254,7 @@ void test_chcc(void)
     cifa_rune_assert(15, 1, ' ', ERROR_INVALID_ESCCHAR);
     cifa_rune_assert(15, 5, 0x10, ERROR_INVALID_HEXNUMB);
     cifa_rune_assert(15, 10, 0x01, ERROR_INVALID_HEXCHAR);
-    cifa_rune_assert(15, 16, 0xffffffff, ERROR_INVALID_UNICODE);
+    cifa_rune_assert(15, 16, 0xffffffff, 0);
     // " '\\z' '\\x1z' '\\u1' '\\u1z2' \n" // 16
     cifa_rune_assert(16, 2, ' ', ERROR_INVALID_ESCCHAR);
     cifa_rune_assert(16, 7, 0x10, ERROR_INVALID_HEXCHAR);
@@ -323,7 +276,7 @@ void test_chcc(void)
     cifa_rune_assert(19, 1, '\t', ERROR_MISS_CLOSE_QUOTE);
     cifa_rune_assert(20, 1, 0x10, ERROR_INVALID_HEXNUMB);
     cifa_rune_assert(21, 1, 0x1000, ERROR_INVALID_HEXNUMB);
-    cifa_rune_assert(22, 1, ' ', ERROR_MISS_CLOSE_QUOTE);
+    cifa_rune_assert(22, 1, ' ', ERROR_INVALID_ESCCHAR);
     cifa_rune_assert(23, 1, 'a', ERROR_MULT_CHAR_EXIST);
     cifa_rune_assert(23, 5, 'a', ERROR_MULT_CHAR_EXIST);
     cifa_rune_assert(23, 10, 'a', ERROR_MULT_CHAR_EXIST);
@@ -332,12 +285,12 @@ void test_chcc(void)
     cifa_rune_assert(24, 13, '\t', ERROR_MULT_CHAR_EXIST);
     cifa_rune_assert(25, 1, 0x12, ERROR_MULT_CHAR_EXIST);
     cifa_rune_assert(25, 8, 0x34, ERROR_MULT_CHAR_EXIST);
-    cifa_rune_assert(26, 1, ' ', ERROR_MULT_CHAR_EXIST);
-    cifa_rune_assert(26, 7, ' ', ERROR_MULT_CHAR_EXIST);
+    cifa_rune_assert(26, 1, ' ', ERROR_INVALID_ESCCHAR);
+    cifa_rune_assert(26, 7, ' ', ERROR_INVALID_ESCCHAR);
     cifa_rune_assert(27, 1, 0x10, ERROR_INVALID_HEXNUMB);
     cifa_rune_assert(27, 9, 0x1200, ERROR_INVALID_HEXNUMB);
 
-    bufile_load_string(f, strfrom(
+    file_reload(f, strfrom(
         "\"\" ``\n"                             //  1 字符串字面量
         "\"\"`` \n"                             //  2
         " \"\" ``\n"                            //  3
@@ -355,6 +308,7 @@ void test_chcc(void)
         "``a\\t\\0\\x12\\u1FFF`\n"              // 15
     ));
 
+    chcc_start(&cc);
     cifa_str_assert(1, 1, "", null);
     cifa_str_assert(1, 4, "", null);
     cifa_str_assert(2, 1, "", null);
@@ -376,7 +330,7 @@ void test_chcc(void)
     cifa_str_assert(14, 2, "a\\a\\b\\c\\d\n", null);
     cifa_str_assert(15, 2, "a\\t\\0\\x12\\u1FFF", null);
 
-    bufile_load_string(f, strfrom(
+    file_reload(f, strfrom(
         "true false null\n"              // 1 整数字面量
         "0 0_ 0__0 0_1__ 001 12 345\n"  // 2
         "0b_0_1_2345_ab_ 0B_ 0b__ab \n" // 3
@@ -384,32 +338,34 @@ void test_chcc(void)
         "0B1011_0111 0b1010_ 0X7FEE_\n" // 5
     ));
 
-    cifa_int_assert(1, 1, CIFA_CF_BOOL_LIT, true);
-    cifa_int_assert(1, 6, CIFA_CF_BOOL_LIT, false);
-    cifa_int_assert(1, 12, CIFA_CF_NULL_LIT, 0);
-    cifa_int_assert(2, 1, CIFA_CF_INT_LIT, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(2, 3, CIFA_CF_INT_LIT, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(2, 6, CIFA_CF_INT_LIT, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(2, 11, CIFA_CF_INT_LIT, 1); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(2, 17, CIFA_CF_INT_LIT, 1); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(2, 21, CIFA_CF_INT_LIT, 12); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(2, 24, CIFA_CF_INT_LIT, 345); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(3, 1, CIFA_CF_INT_LIT, 1); lang_assert_s(memcmp(cf->s.a, "_ab_", 4) == 0, cf->s);
-    cifa_int_assert(3, 17, CIFA_CF_INT_LIT, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(3, 21, CIFA_CF_INT_LIT, 0); lang_assert_s(memcmp(cf->s.a, "ab", 2) == 0, cf->s);
-    cifa_int_assert(4, 1, CIFA_CF_INT_LIT, 0x12abef); lang_assert_s(memcmp(cf->s.a, "z1_", 3) == 0, cf->s);
-    cifa_int_assert(4, 17, CIFA_CF_INT_LIT, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(4, 21, CIFA_CF_INT_LIT, 0); lang_assert_s(memcmp(cf->s.a, "zz", 2) == 0, cf->s);
-    cifa_int_assert(5, 1, CIFA_CF_INT_LIT, 0xB7); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(5, 13, CIFA_CF_INT_LIT, 0x0A); lang_assert_1(cf->s.len == 0, cf->s.len);
-    cifa_int_assert(5, 21, CIFA_CF_INT_LIT, 0x7FEE); lang_assert_1(cf->s.len == 0, cf->s.len);
+    chcc_start(&cc);
+    cifa_int_assert(1, 1, CIFA_TYPE_NUMERIC, true);
+    cifa_int_assert(1, 6, CIFA_TYPE_NUMERIC, false);
+    cifa_int_assert(1, 12, CIFA_TYPE_NUMERIC, 0);
+    cifa_int_assert(2, 1, CIFA_TYPE_NUMERIC, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(2, 3, CIFA_TYPE_NUMERIC, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(2, 6, CIFA_TYPE_NUMERIC, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(2, 11, CIFA_TYPE_NUMERIC, 1); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(2, 17, CIFA_TYPE_NUMERIC, 1); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(2, 21, CIFA_TYPE_NUMERIC, 12); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(2, 24, CIFA_TYPE_NUMERIC, 345); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(3, 1, CIFA_TYPE_NUMERIC, 1); lang_assert_s(memcmp(cf->s.a, "_ab_", 4) == 0, cf->s);
+    cifa_int_assert(3, 17, CIFA_TYPE_NUMERIC, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(3, 21, CIFA_TYPE_NUMERIC, 0); lang_assert_s(memcmp(cf->s.a, "ab", 2) == 0, cf->s);
+    cifa_int_assert(4, 1, CIFA_TYPE_NUMERIC, 0x12abef); lang_assert_s(memcmp(cf->s.a, "z1_", 3) == 0, cf->s);
+    cifa_int_assert(4, 17, CIFA_TYPE_NUMERIC, 0); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(4, 21, CIFA_TYPE_NUMERIC, 0); lang_assert_s(memcmp(cf->s.a, "zz", 2) == 0, cf->s);
+    cifa_int_assert(5, 1, CIFA_TYPE_NUMERIC, 0xB7); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(5, 13, CIFA_TYPE_NUMERIC, 0x0A); lang_assert_1(cf->s.len == 0, cf->s.len);
+    cifa_int_assert(5, 21, CIFA_TYPE_NUMERIC, 0x7FEE); lang_assert_1(cf->s.len == 0, cf->s.len);
 
-    bufile_load_string(f, strfrom(
+    file_reload(f, strfrom(
         "if for int float\n"            // 1 标识符
         " _0aA_9_ _aA_0 abc AB\n"       // 2
         "_ a b C Z\n"                   // 3
     ));
 
+    chcc_start(&cc);
     cifa_ident_assert(1, 1, CIFA_ID_IF); lang_assert_s(memcmp(cf->s.a, "if", 2) == 0, cf->s);
     cifa_ident_assert(1, 4, CIFA_ID_FOR); lang_assert_s(memcmp(cf->s.a, "for", 3) == 0, cf->s);
     cifa_ident_assert(1, 8, CIFA_ID_INT); lang_assert_s(memcmp(cf->s.a, "int", 3) == 0, cf->s);
@@ -424,6 +380,6 @@ void test_chcc(void)
     cifa_ident_assert(3, 7, cc.user_id_start+7); lang_assert_s(memcmp(cf->s.a, "C", 1) == 0, cf->s);
     cifa_ident_assert(3, 9, cc.user_id_start+8); lang_assert_s(memcmp(cf->s.a, "Z", 1) == 0, cf->s);
 
-    bufile_delete(f);
+    file_close(f);
     chcc_free(&cc);
 }
