@@ -4,7 +4,7 @@ pre-gen-file-y := conf/pretypes.genfile
 endif
 
 obj_c += builtin/decl.c test/decl.c
-obj_c += chcc/cifa.c chcc/yufa.c test/chcc.c
+obj_c += chcc/chcc.c test/chcc.c
 obj_c += test/main.c
 
 ifneq ($(filter x86,$(CONFIG_COMPILER)),)
