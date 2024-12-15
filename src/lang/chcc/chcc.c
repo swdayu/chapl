@@ -18,52 +18,76 @@ void ident_free(void *object)
     string_free(&sym->s);
 }
 
-bool ident_eq(const void *object, const void *cmp_para)
+typedef struct {
+    string_t *s;
+    string_t *s2;
+} identeq_t;
+
+bool ident_eq(const void *object, const void *para)
 {
     ident_t *sym = (ident_t *)object;
-    string_t *str = (string_t *)cmp_para;
-    return (sym->s.len == str->len) && (memcmp(sym->s.a, str->a, str->len) == 0);
+    identeq_t *p = (identeq_t *)para;
+    string_t *s = p->s;
+    string_t *s2 = p->s2;
+    if (sym->s.len != s->len + (s2 ? s2->len : 0)) {
+        return false;
+    }
+    if (memcmp(sym->s.a, s->a, s->len) != 0) {
+        return false;
+    }
+    if (s2 && memcmp(sym->s.a + s->len, s2->a, s2->len) != 0) {
+        return false;
+    }
+    return true;
 }
 
-ident_t *ident_create(chcc_t *cc, uint32 hash, bool calc, string_t name)
+ident_t *findhashident(chcc_t *cc, string_t s, uint32 hash)
+{
+    identeq_t param = {&s};
+    return (ident_t *)bhash_find(&cc->hash_ident, hash, ident_eq, &param);
+}
+
+ident_t *pushhashident_x(chcc_t *cc, string_t s, string_t s2, uint32 hash, bool calc)
 {
     array_ex_t *arry_ident = cc->arry_ident.a;
     bhash_t *hash_ident = cc->hash_ident.a;
+    identeq_t param = {&s, string_empty(&s2) ? null : &s2};
+    bhash_node_t node;
     ident_t *d;
-    Uint i = 0;
-    bool exist = false;
-
+    int_t i = 0;
     if (calc) {
         hash = IDENT_HASH_INIT;
-        for (; i < name.len; i++) {
-            hash = ident_hash(hash, name.a[i]);
+        for (i = 0; i < s.len; i++) {
+            hash = ident_hash(hash, s.a[i]);
+        }
+        for (i = 0; i < s2.len; i++) {
+            hash = ident_hash(hash, s2.a[i]);
         }
     }
-
-    // 将标识符符号创建到符号哈希表中
-    d = (ident_t *)bhash_push(hash_ident, hash, ident_eq, &name, sizeof(ident_t) + name.len, &exist);
-    if (!exist) {
-        // 该符号在哈希表中不存在，返回的是新创建的符号，这里初始化这个符号
-        memcpy((byte *)(d + 1), name.a, name.len);
-        string_init(&d->s, (byte *)(d + 1), name.len, false);
-        // 将符号添加到符号数组中，并初始化该符号在数组中的序号
-        d->id = (CIFA_IDENT_START) + array_ex_len(arry_ident);
-        array_ex_push(&cc->arry_ident, (byte *)d, IDENT_ARRAY_EXPAND);
+    if ((d = (ident_t *)bhash_find_x(hash_ident, hash, ident_eq, &param, &node))) {
+        return d; // 同名标识符在哈希表中已经存在
     }
-
+    d = (ident_t *)bhash_push_x(node, sizeof(ident_t) + s.len + s2.len);
+    if (!d) {
+        log_error_s(ERROR_HASH_IDENT_PUSH_FAILED, s);
+        return null;
+    }
+    memcpy((byte *)(d + 1), s.a, s.len); // 哈希表新创建的符号，这里初始化这个符号
+    if (s2.len) { memcpy((byte *)(d + 1) + s.len, s2.a, s2.len); }
+    string_init(&d->s, (byte *)(d + 1), s.len + s2.len, false);
+    d->id = (CIFA_IDENT_START) + array_ex_len(arry_ident); // 将符号添加到符号数组中，并初始化该符号在数组中的序号
+    if (!array_ex_push(&cc->arry_ident, (byte *)d, IDENT_ARRAY_EXPAND)) {
+        log_error_s(ERROR_ARRAY_IDENT_PUSH_FAILED, s);
+    }
 #if __CHCC_DEBUG__
-    printf("ident %08x exist %d id %08x [%d] %s\n", hash, exist, d->id, d->s.len, d->s.a);
+    printf("ident %08x id %08x [%d] %s\n", hash, d->id, d->s.len, d->s.a);
 #endif
-
     return d;
 }
 
-ident_t *ident_get(chcc_t *st, cfid_t id)
+ident_t *pushhashident(chcc_t *cc, string_t name, uint32 hash, bool calc)
 {
-    if (id < CIFA_IDENT_START) {
-        return 0;
-    }
-    return (ident_t *)array_ex_at_n(st->arry_ident.a, id-CIFA_IDENT_START, sizeof(ident_t*));
+    return pushhashident_x(cc, name, strnull(), hash, calc);
 }
 
 static bool type_ident(const byte *p, const byte *e)
@@ -379,12 +403,11 @@ void cifa_init(chcc_t *cc, file_t *f)
     bhash_init(&cc->hash_ident, IDENT_HASH_SIZE);
     array_ex_init(&cc->arry_ident, sizeof(ident_t*), IDENT_ARRAY_EXPAND);
 
-    // 创建预定义的标识符
-    p = predecl_ident;
+    p = predecl_ident; // 创建预定义的标识符
     while (*p) {
         c = p;
         while (*c) ++c;
-        sym = ident_create(cc, 0, true, string_create(p, c - p, 0));
+        sym = pushhashident(cc, strfend(p, c), 0, true);
         p = c + 1;
     }
 
@@ -474,7 +497,7 @@ void oper_end(chcc_t *cc, ops_t *op)
     cifa_t *cf = &cc->cf;
     cf->oper = op->prior;
     cf->val.c = op->inst;
-    cifa_end(cc, op->cfid, 0);
+    cifa_end(cc, op->id, 0);
 }
 
 static void newline(chcc_t *cc, rune c)
@@ -515,6 +538,13 @@ void cpstr(void *p, const byte *e)
     byte *s = cc->start;
     buffer_push(b, s, e - s, CFSTR_ALLOC_EXPAND);
     cc->start = f->b.cur;
+}
+
+void un_cp str(chcc_t *cc, uint32 n) {
+    buffer_t *b = &cc->s;
+    if (b->len > n) {
+        b->len -= n;
+    }
 }
 
 // sign = ("+" | "-") .
@@ -562,24 +592,6 @@ typedef struct {
     const byte *tail;
 } numval_t;
 
-Uint bool_end(chcc_t *cc, bool a)
-{
-    cifa_t *cf = &cc->cf;
-    cf->isbool = 1;
-    cf->val.c = a;
-    cifa_end(cc, CIFA_TYPE_NUMERIC, 0);
-    return 4 + (a == false);
-}
-
-Uint null_end(chcc_t *cc)
-{
-    cifa_t *cf = &cc->cf;
-    cf->isnull = 1;
-    cf->val.c = 0;
-    cifa_end(cc, CIFA_TYPE_NUMERIC, 0);
-    return 4;
-}
-
 void char_end(chcc_t *cc, rune c, Error error)
 {
     cifa_t *cf = &cc->cf;
@@ -595,14 +607,14 @@ void numlit_end(chcc_t *cc, const numval_t *val)
     // isnull: 1   val.c   空值常量
     // ischar: 1   val.c   字符常量
     // iserr: 1    val.c   错误代码
-    // isint: 1    val.c   整数常量    base    基数    cf->s   临时后缀字符串
+    // isint: 1    val.i   整数常量    base    基数    cf->s   临时后缀字符串
     // isfloat:    val.f   浮点常量    base    基数    cf->s   临时后缀字符串
     cifa_t *cf = &cc->cf;
     if (val->isfloat) {
         cf->isfloat = 1;
     } else {
         cf->isint = 1;
-        cf->val.c = val->i;
+        cf->val.i = val->i;
     }
     cf->base = val->base;
     cf->s = strflen(val->tail, val->tlen); // 数值字面量后缀
@@ -745,51 +757,54 @@ label_dec:
     numtail(s, e, v);
 }
 
-Uint numlit(chcc_t *cc, string_t *s)
+Uint numlit(chcc_t *cc, string_t s)
 {
     numval_t v = {0};
-    intpart(s->a, s->a + s->len, &v);
+    intpart(s.a, s.a + s.len, &v);
     numlit_end(cc, &v);
-    return s->len;
+    return s.len;
 }
 
-void ident_end(chcc_t *cc, ident_t *sym)
+void ident_end(chcc_t *cc, string_t s, uint32 hash, uint32 pkhash, uint32 pknm_len)
 {
-    // cfid > 0xff
-    // cfid 标识符数组的索引
-    // val.sym 指向标识符符号
-    // pdid: 1 语言预定义标识符
-    // tpid: 1 类型标识符
-    // csid: 1 常量标识符
-    // ident: 1 非类型非常量标识符
+    // cfid = CIFA_IDENT_START
+    // cf->s 临时标识符名称
+    // val.c 标识符字符串的哈希值
+    // ident.haspknm: 1 包名引用的符号，pknm_len 包名的长度
+    // ident.istype: 1 类型名
+    // ident.isconst: 1 常量名
+    // ident.isother: 1 其他名称
+    // ident.predecl: 1 语言预声明名称
+    // ident.keyword: 1 语言关键字
     cifa_t *cf = &cc->cf;
-    string_t *s = &sym->s;
-    cf->val.sym = sym;
-    cf->s = *s;
-    if (sym->id >= CIFA_ID_INT && sym->id <= CIFA_ID_STRING) {
-        cf->tpid = 1;
-    } else if (type_ident(s->a, s->a + s->len)) {
-        cf->tpid = 1;
-    } else if (cons_ident(s->a, s->a + s->len)) {
-        cf->csid = 1;
+    cf->s = s;
+    cf->val.c = hash;
+    cf->pkhash = pkhash;
+    cf->pknm_len = pknm_len;
+    if (pknm_len) {
+        cf->haspknm = 1;
+    }
+    if (type_ident(s.a + pknm_len, s.a + s.len)) {
+        cf->istype = 1;
+    } else if (cons_ident(s.a + pknm_len, s.a + s.len)) {
+        cf->isconst = 1;
     } else {
-        cf->ident = 1;
+        cf->isother = 1;
     }
-    if (sym->id < cc->user_id_start) {
-        cf->pdid = 1;
-    }
-    cifa_end(cc, sym->id, 0);
+    cifa_end(cc, CIFA_IDENT_START, 0);
 }
 
 static Uint idnum(chcc_t *cc, bool num)
 {
+    Error error = null;
     uint32 h = IDENT_HASH_INIT;
     buffer_t *s = &cc->s;
     buffix_t *b = &cc->f->b;
     ident_t *sym;
     string_t d;
-    byte e = CHAR_CLASS_UNDERSCORE;
-    byte t;
+    uint32 pkhash;
+    uint32 pknm_len = 1;
+    byte t, e = CHAR_CLASS_IDENT;
     rune c = cc->c;
 
     if (num) {
@@ -807,13 +822,40 @@ static Uint idnum(chcc_t *cc, bool num)
         if (c < 0x80 && (t = cc->b128[c]) >= CHAR_CLASS_DIGIT && t <= e) {
             if (!num) {
                 h = ident_hash(h, c);
+                pknm_len += 1;
             }
         } else {
-            un_rch(cc);
             break;
         }
     }
 
+    if (num || c != '~') {
+        pknm_len = 0;
+        goto label_finish;
+    }
+    pknm_len += 1; // 包名长度包含最后的~字符
+    pkhash = h = ident_hash(h, c);
+    rch_ex(cc, cpstr);
+    c = cc->c;
+    if (c >= 0x80 || cc->b128[c] != CHAR_CLASS_IDENT) {
+        error = ERROR_MISSING_EXPORT_SYM;
+        log_error_3(error, cc->line, cc->cols + pknm_len, c);
+        goto label_finish;
+    }
+    h = ident_hash(h, c); // 标识符第一个字符
+    for (; ;) {
+        rch_ex(cc, cpstr);
+        c = cc->c;
+        if (c < 0x80 && ((t = cc->b128[c]) == CHAR_CLASS_DIGIT || t == CHAR_CLASS_IDENT)) {
+            h = ident_hash(h, c);
+        } else {
+            break;
+        }
+    }
+
+label_finish:
+    un_cpstr(b, 1); // 以上算法总会预读一个字符
+    un_rch(cc);
     if (s->len) {
         buffer_push(s, cc->start, b->cur - cc->start, CFSTR_ALLOC_EXPAND);
         d = strflen(s->a, s->len);
@@ -822,21 +864,13 @@ static Uint idnum(chcc_t *cc, bool num)
     }
 
     if (num) {
-        return numlit(cc, &d);
+        numlit(cc, d);
+    } else if (error) {
+        cifa_end(cc, c, error);
+    } else {
+        ident_end(cc, d, h, pkhash, pknm_len);
     }
 
-    if (d.len == 4) {
-        if (memcmp(d.a, "null", 4) == 0) {
-            return null_end(cc);
-        } else if (memcmp(d.a, "true", 4) == 0) {
-            return bool_end(cc, true);
-        }
-    } else if (d.len == 5 && memcmp(d.a, "false", 5) == 0) {
-        return bool_end(cc, false);
-    }
-
-    sym = ident_create(cc, h, false, d);
-    ident_end(cc, sym);
     return d.len;
 }
 
@@ -1078,7 +1112,65 @@ ops_t *oper(chcc_t *cc, rune c, byte idx)
     return null;
 }
 
-void cur(chcc_t *cc) // 解析当前词法
+bool ident(chcc_t *cc)
+{
+    cifa_t *cf = &cc->cf;
+    string_t pknm;
+    ident_t *real_pknm;
+    ident_t *ident;
+    if (cf->haspknm) { // 该标识符包含包名前缀
+        pknm = strflen(cf->s.a, cf->pknm_len); // 获取该包名前缀
+        real_pknm = findhashident(cc, pknm, cf->pkhash); // 从哈希表中查找这个包名
+        if (!real_pknm || !real_pknm->pknm) { // 未找到对应的标识符
+            log_error_s_2(ERROR_PACKAGE_NOT_FOUND, pknm, cc->line, cc->cols);
+            return false;
+        }
+        if (real_pknm == real_pknm->pknm) { // val.c 保存了整个字符串的哈希值
+            ident = pushhashident(cc, cf->s, cf->val.c, false);
+        } else {
+            real_pknm = real_pknm->pknm; // 用这个真实的包名查找该标识符，如果找到直接使用这个标识符，否则创建
+            ident = pushhashident_x(cc, real_pknm->s, strfend(cf->s.a + cf->pknm_len, cf->s.a + cf->s.len), 0, true);
+        }
+    } else {
+        ident = pushhashident(cc, cf->s, cf->val.c, false);
+        if (ident && ident->alias) { // 如果该标识符是一个别名，返回该别名对应的真实名称
+            ident = ident->alias;
+        }
+    }
+    if (!ident) {
+        return true;
+    }
+    // 语言预声明名称会提前添加，例如：
+    // type~int 以及别名 int 需要自动添加到哈希表和标识符数组，并且 int 需要指向 type~int
+    // 只需要创建 type~int 语法符号，因为 int 总是指向 type~int 标识符，总会使用 type~int 标识符来查找语法符号
+    // type~null/true/false 以及别名 null/true/false 需要自动添加到哈希表和标识符数组，并且后者指向前者
+    // 但一旦找到 type~null/true/false 直接将词法从标识符改成数值类型，并标记 isnull 或 isbool
+    if (ident->id == CIFA_ID_NULL) {
+        cf->cfid = CIFA_TYPE_NUMERIC;
+        cf->val.c = 0;
+        cf->isnull = 1;
+        return true;
+    }
+    if (ident->id == CIFA_ID_TRUE || ident->id == CIFA_ID_FALSE) {
+        cf->cfid = CIFA_TYPE_NUMERIC;
+        cf->val.c = (ident->id == CIFA_ID_TRUE);
+        cf->isbool = 1;
+        return true;
+    }
+    if (ident->id >= CIFA_ID_INT && ident->id <= CIFA_ID_STRING) {
+        cf->istype = 1;
+        cf->isconst = 0;
+        cf->isother = 0;
+    }
+    if (ident->id < cc->user_id_start) {
+        cf->predecl = 1;
+    }
+    cf->ident = ident;
+    cf->cfid = ident->id;
+    return true;
+}
+
+ident_t *cur(chcc_t *cc) // 解析当前词法
 {
     cifa_t *cf = &cc->cf;
     ops_t *op;
@@ -1113,7 +1205,7 @@ label_cont:
         rch(cc);
         goto label_cont;
     }
-    if (t >= CHAR_CLASS_DIGIT && t <= CHAR_CLASS_UNDERSCORE) {
+    if (t == CHAR_CLASS_DIGIT || t == CHAR_CLASS_IDENT) {
         nch = idnum(cc, (t == CHAR_CLASS_DIGIT));
     } else if (t == CHAR_CLASS_QUOTE) {
         nch = strlit(cc, c);
@@ -1147,5 +1239,82 @@ label_punct:
         }
     }
     cc->cols += nch;
+    if (cf->cfid < CIFA_TYPE_IDENT) {
+        return null;
+    }
+    if (!ident(cc)) {
+        rch(cc);
+        goto label_cont;
+    }
     rch(cc);
+    return cf->ident;
+}
+
+ident_t *skip(chcc_t *cc, cfid_t id)
+{
+    if (cc->cf.cfid != id) {
+        log_error_2(ERROR_SKIP_INVALID_CIFA, cc->cf.cfid, id);
+    }
+    return cur(cc);
+}
+
+ident_t *getident(chcc_t *cc, cfid_t id)
+{
+    ident_t *ident;
+    if (id < CIFA_IDENT_START) {
+        return null;
+    }
+    ident = (ident_t *)array_ex_at_n(cc->arry_ident.a, id-CIFA_IDENT_START, sizeof(ident_t*));
+    if (ident && ident->alias) {
+        ident = ident->alias;
+    }
+    return ident;
+}
+
+void scn(chcc_t *cc)
+{
+    rch(cc);
+    cur(cc);
+}
+
+// 词法标识符会标记名称是类型名、常量名、包名、还是其他名称，当创建或引用对应语法符号时，需要考虑是否要添加包名。
+// 当创建一个全局符号时：
+//      1. 其标识符可能是类名、函数名、或包名
+//      2. 该标识符必须使用包名前缀来创建其语法符号
+//      3. 如果对应的符号已经存在，则是重复定义
+//      4. 同一个包名只需导入其中所有全局导出符号一次，当导入包的别名时只需指向真实的包
+// 当创建一个局部符号时：
+//      1. 标识符可以是结构体成员，结构体内嵌套的匿名结构体成员
+//      2. 还可以是函数声明时的参数或返回值参数名称
+//      3. 还可以是函数体内的局部变量声明
+//      4. 还可以创建匿名的局部类型、匿名局部函数，局部函数包含函数指针类型声明或函数定义
+//      4. 这些局部标识符都使用其本身的名称，不需要加包名
+//      5. 一为了简化和统一化处理，当前作用域中的局部名称不能与任何其他名称重名
+//      6. 局部名称也不可能与全局名称重名，因为全局名称包括包名都有 pkg~ 前缀，而局部名称不可能包含 ~ 字符
+//      7. 统一化处理的原因是，结构体内嵌套的命名结构体不能与外部重名，标签名在一个函数体内也不能重名
+//      8. 二是避免局部变量对前一层次同名变量的覆盖，导致程序可读性、歧义性、清晰性问题
+// 当引用一个全局符号时：
+//      1. 通过包名语法引用的标识符相当于引用全局符号，因为导出符号都必定是全局的
+//      2. 通过包名引用的标识符，必须使用包的真实名称前缀查找这个符号，不能使用任何别名
+//      3. 不带包名对一个全局名称的引用，必须使用对应包的前缀查找这个符号
+//      4. 除了类型指针、函数调用外，其他情况如果找不到这个引用的全局符号，需要报错
+// 当引用一个局部符号时：
+//      1. 不需要添加包名前缀，必须要找到对应的局部符号，其 scope 的值必须大于 0
+//      2. 可能需要对局部类型和局部函数做某些特殊处理
+
+void dvar(chcc_t *cc, int_t local)
+{
+
+}
+
+void func(chcc_t *cc, int_t local)
+{
+
+}
+
+void decl(chcc_t *cc, int_t local)
+{
+    cifa_t *cf = &cc->cf;
+lable_cont:
+
 }

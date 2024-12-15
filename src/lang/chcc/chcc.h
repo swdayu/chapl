@@ -16,15 +16,17 @@
 // 字符分类
 #define CHAR_CLASS_BLANK        0x01    // 空白字符
 #define CHAR_CLASS_DIGIT        0x02    // 0 ~ 9
-#define CHAR_CLASS_UPPER        0x03    // A ~ Z
-#define CHAR_CLASS_LOWER        0x04    // a ~ z
-#define CHAR_CLASS_UNDERSCORE   0x05    // _
-#define CHAR_CLASS_DOT          0x06    // . .. ... .1
-#define CHAR_CLASS_SIGN         0x07    // + -
-#define CHAR_CLASS_QUOTE        0x08    // ' ''' " `
-#define CHAR_CLASS_SINGLE       0x09    // # $ @ ( ) [ ] { } , ;
-#define CHAR_CLASS_QMARK        0x0E    // ? ?: ?>
-#define CHAR_CLASS_TILDE        0x0F    // ~ ~= ~>
+#define CHAR_CLASS_IDENT        0x03    // A ~ Z a ~ z _
+#define CHAR_CLASS_DOT          0x04    // . .. ... .1
+#define CHAR_CLASS_SIGN         0x05    // + -
+#define CHAR_CLASS_LETTER       0x06    // A ~ Z a ~ z
+#define CHAR_CLASS_UPPER        0x07    // A ~ Z
+#define CHAR_CLASS_LOWER        0x08    // a ~ z
+#define CHAR_CLASS_UNDERSCORE   0x09    // _
+#define CHAR_CLASS_QUOTE        0x0a    // ' ''' " `
+#define CHAR_CLASS_SINGLE       0x0b    // # $ @ ( ) [ ] { } , ;
+#define CHAR_CLASS_QMARK        0x0e    // ? ?: ?>
+#define CHAR_CLASS_TILDE        0x0f    // ~ ~= ~>
 #define CHAR_CLASS_OPERATOR     0x10    // 操作符和标点
 #define CHAR_CLASS_VERTBAR      0x10    // | ||
 #define CHAR_CLASS_CARET        0x13    // ^
@@ -49,18 +51,18 @@
     /*08*/ /*\b*/0x01, /*\t*/0x01, /*\n*/0x01, /*\v*/0x01, /*\f*/0x01, /*\r*/0x01, /*0E*/0x01, /*0F*/0x01,  \
     /*10*/ /*10*/0x01, /*11*/0x01, /*12*/0x01, /*13*/0x01, /*14*/0x01, /*15*/0x01, /*16*/0x01, /*17*/0x01,  \
     /*18*/ /*18*/0x01, /*19*/0x01, /*1A*/0x01, /*1B*/0x01, /*1C*/0x01, /*1D*/0x01, /*1E*/0x01, /*1F*/0x01,  \
-    /*20*/ /*20*/0x01, /*!!*/0x3b, /*""*/0x08, /*##*/0x09, /*$$*/0x09, /*%%*/0x37, /*&&*/0x34, /*''*/0x08,  \
-    /*20*/ /*((*/0x09, /*))*/0x09, /****/0x30, /*++*/0x07, /*,,*/0x09, /*--*/0x07, /*..*/0x06, /*//*/0x26,  \
+    /*20*/ /*20*/0x01, /*!!*/0x3b, /*""*/0x0a, /*##*/0x0b, /*$$*/0x0b, /*%%*/0x37, /*&&*/0x34, /*''*/0x0a,  \
+    /*20*/ /*((*/0x0b, /*))*/0x0b, /****/0x30, /*++*/0x05, /*,,*/0x0b, /*--*/0x05, /*..*/0x04, /*//*/0x26,  \
     /*30*/ /*00*/0x02, /*11*/0x02, /*22*/0x02, /*33*/0x02, /*44*/0x02, /*55*/0x02, /*66*/0x02, /*77*/0x02,  \
-    /*30*/ /*88*/0x02, /*99*/0x02, /*::*/0x25, /*;;*/0x09, /*<<*/0x1f, /*==*/0x1d, /*>>*/0x19, /*??*/0x0E,  \
-    /*40*/ /*@@*/0x09, /*AA*/0x03, /*BB*/0x03, /*CC*/0x03, /*DD*/0x03, /*EE*/0x03, /*FF*/0x03, /*GG*/0x03,  \
+    /*30*/ /*88*/0x02, /*99*/0x02, /*::*/0x25, /*;;*/0x0b, /*<<*/0x1f, /*==*/0x1d, /*>>*/0x19, /*??*/0x0e,  \
+    /*40*/ /*@@*/0x0b, /*AA*/0x03, /*BB*/0x03, /*CC*/0x03, /*DD*/0x03, /*EE*/0x03, /*FF*/0x03, /*GG*/0x03,  \
     /*40*/ /*HH*/0x03, /*II*/0x03, /*JJ*/0x03, /*KK*/0x03, /*LL*/0x03, /*MM*/0x03, /*NN*/0x03, /*OO*/0x03,  \
     /*50*/ /*PP*/0x03, /*QQ*/0x03, /*RR*/0x03, /*SS*/0x03, /*TT*/0x03, /*UU*/0x03, /*VV*/0x03, /*WW*/0x03,  \
-    /*50*/ /*XX*/0x03, /*YY*/0x03, /*ZZ*/0x03, /*[[*/0x09, /*\\*/0x15, /*]]*/0x09, /*^^*/0x13, /*__*/0x05,  \
-    /*60*/ /*``*/0x08, /*aa*/0x04, /*bb*/0x04, /*cc*/0x04, /*dd*/0x04, /*ee*/0x04, /*ff*/0x04, /*gg*/0x04,  \
-    /*60*/ /*hh*/0x04, /*ii*/0x04, /*jj*/0x04, /*kk*/0x04, /*ll*/0x04, /*mm*/0x04, /*nn*/0x04, /*oo*/0x04,  \
-    /*70*/ /*pp*/0x04, /*qq*/0x04, /*rr*/0x04, /*ss*/0x04, /*tt*/0x04, /*uu*/0x04, /*vv*/0x04, /*ww*/0x04,  \
-    /*70*/ /*xx*/0x04, /*yy*/0x04, /*zz*/0x04, /*{{*/0x09, /*||*/0x10, /*}}*/0x09, /*~~*/0x0F, /*7F*/0x01
+    /*50*/ /*XX*/0x03, /*YY*/0x03, /*ZZ*/0x03, /*[[*/0x0b, /*\\*/0x15, /*]]*/0x0b, /*^^*/0x13, /*__*/0x03,  \
+    /*60*/ /*``*/0x0a, /*aa*/0x03, /*bb*/0x03, /*cc*/0x03, /*dd*/0x03, /*ee*/0x03, /*ff*/0x03, /*gg*/0x03,  \
+    /*60*/ /*hh*/0x03, /*ii*/0x03, /*jj*/0x03, /*kk*/0x03, /*ll*/0x03, /*mm*/0x03, /*nn*/0x03, /*oo*/0x03,  \
+    /*70*/ /*pp*/0x03, /*qq*/0x03, /*rr*/0x03, /*ss*/0x03, /*tt*/0x03, /*uu*/0x03, /*vv*/0x03, /*ww*/0x03,  \
+    /*70*/ /*xx*/0x03, /*yy*/0x03, /*zz*/0x03, /*{{*/0x0b, /*||*/0x10, /*}}*/0x0b, /*~~*/0x0f, /*7F*/0x01
 
 // 优先级（从高到低）
 // 9 从左向右结合：() [] . -> (type){list}
@@ -170,7 +172,8 @@ enum chcc_predecl_ident {
 typedef uint32 cfid_t;
 
 typedef struct {
-    cfid_t id; // 0表示匿名符号
+    ident_t *named; // 命名符号
+    cfid_t anon; // 匿名符号
     uint32 scope; // 符号所属所用域
     uint32 type_kind: 4;
     uint32 is_package: 1;
@@ -193,20 +196,23 @@ typedef struct {
 typedef struct {
     cfid_t id;
     string_t s;
-    union {
-        stack_t named_type; // 符号作为命名类型使用
-        stack_t field_sym;  // 符号当作成员或参数或局部变量使用
-        stack_t func_sym;   // 一个符号可以有以自己为名称的函数
-        stack_t method;     // 一个符号可以有自己的多个方法
-        stack_t ident_sym;
-    } u;
+    ident_t *alias;     // 这个标识符是另一标识符的别名，如果为空则表示该标识符不是别名
+    ident_t *pknm;      // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
+    sym_t *type_sym;    // 该符号表示一个类型
+    sym_t *const_sym;   // 常量名
+    sym_t *ident_sym;   // 函数变量名
+    stack_t named_type; // 符号作为命名类型使用
+    stack_t field_sym;  // 符号当作成员或参数或局部变量使用
+    stack_t func_sym;   // 一个符号可以有以自己为名称的函数
+    stack_t method;     // 一个符号可以有自己的多个方法
+    stack_t ident_sym;
 } ident_t;
 
 typedef union {
-    uint64 c;
+    uint32 c;
+    uint64 i;
     float64 f;
     float32 f32;
-    ident_t *sym;
     byte jmp[2];
     uint16 cmp[2];
     string_t sval;
@@ -243,13 +249,15 @@ typedef struct {
 //      bcmmt: 0 行注释
 //      cf->s   临时注释字符串
 // 3. 标识符
-//      cfid > 0xff
-//      cfid 标识符数组的索引
-//      val.sym 指向标识符符号
-//      pdid: 1 语言预定义标识符
-//      tpid: 1 类型标识符
-//      csid: 1 常量标识符
-//      ident: 1 非类型非常量标识符
+//      cfid = CIFA_IDENT_START
+//      cf->s 临时标识符名称
+//      val.c 标识符字符串的哈希值
+//      ident.haspknm: 1 包名引用的符号，pknm_len 包名的长度
+//      ident.istype: 1 类型名
+//      ident.isconst: 1 常量名
+//      ident.isother: 1 其他名称
+//      ident.predecl: 1 语言预声明名称
+//      ident.keyword: 1 语言关键字
 // 4. 其中语言预定义以及非地址标识符范围
 //      cfid [0x100, 0x200)
 // 5. 地址标识符范围
@@ -258,12 +266,17 @@ typedef struct {
     cfval_t val;
     string_t s;
     cfid_t cfid;
+    ident_t *ident;
+    uint32 pkhash;
+    uint32 pknm_len;
     uint8 oper;
     uint8 base;
-    uint16 pdid: 1;
-    uint16 tpid: 1;
-    uint16 csid: 1;
-    uint16 ident: 1;
+    uint16 haspknm: 1; // 标识符有包名前缀
+    uint16 istype: 1;  // 类型名称
+    uint16 isconst: 1; // 常量名称
+    uint16 isother: 1; // 非包非类型非常量的其他名称，包括变量、参数、函数、标签名等
+    uint16 predecl: 1; // 该名称是否是预声明名称
+    uint16 keyword: 1; // 该名称是否是语言关键字
     uint16 isbool: 1;
     uint16 isnull: 1;
     uint16 ischar: 1;
@@ -360,6 +373,7 @@ typedef struct {
     byte *loc;  // 局部变量偏移
     arch *radr; // 指向返回地址
     byte *code; // 代码段的地址
+    ident_t *pknm; // 当前代码包名称
     uint32 scope;
     uint32 anon_id;
     struct stack_it *global; // 全局符号栈顶
@@ -376,6 +390,7 @@ void chcc_free(chcc_t *cc);
 void chcc_start(chcc_t *cc);
 void rch(chcc_t *cc);
 void cur(chcc_t *cc);
+void scn(chcc_t *cc);
 ident_t *ident_get(chcc_t *cc, cfid_t id);
 
 enum {
@@ -422,6 +437,13 @@ enum {
     ERROR_FUNC_DECL_NOT_MATCH,
     ERROR_FUNC_MISS_PARAM_NAME,
     ERROR_FUNC_IS_REDEFINED,
+    ERROR_IDENT_NOT_PKGNAME,
+    ERROR_PKG_REF_WITHOUT_IDENT,
+    ERROR_MISSING_EXPORT_SYM,
+    ERROR_PACKAGE_NOT_FOUND,
+    ERROR_HASH_IDENT_PUSH_FAILED,
+    ERROR_ARRAY_IDENT_PUSH_FAILED,
+    ERROR_SKIP_INVALID_CIFA,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */

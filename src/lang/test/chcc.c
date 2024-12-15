@@ -2,26 +2,26 @@
 #include "internal/decl.h"
 #include "chcc/chcc.h"
 
-#define cifa_assert(ln, col, c) cur(&cc); \
+#define cifa_assert(ln, col, c) scn(&cc); \
     lang_assert_2(cf->line == ln && cf->cols == col && cf->cfid == c, cf->cols, cf->cfid)
 
-#define cifa_cmm_assert(ln, col, c, str) cur(&cc); \
+#define cifa_cmm_assert(ln, col, c, str) scn(&cc); \
     lang_assert_s_2(cf->line == ln && cf->cols == col && cf->cfid == c && cf->s.len == strlen(str) && \
     (cf->s.len ? (memcmp(cf->s.a, str, cf->s.len) == 0) : true), cf->s, cf->cols, cf->cfid)
 
-#define cifa_rune_assert(ln, col, cur_c, e) cur(&cc); \
+#define cifa_rune_assert(ln, col, cur_c, e) scn(&cc); \
     lang_assert_3(cf->line == ln && cf->cols == col && cf->ischar && \
     cf->val.c == cur_c && cf->error == e, cf->cols, cf->val.c, cf->error)
 
-#define cifa_str_assert(ln, col, str, e) cur(&cc); \
+#define cifa_str_assert(ln, col, str, e) scn(&cc); \
     lang_assert_s_2(cf->line == ln && cf->cols == col && cf->cfid == CIFA_TYPE_STRING && cf->s.len == strlen(str) && \
     (cf->s.len ? (memcmp(cf->s.a, str, cf->s.len) == 0) : true) && cf->error == e, cf->s, cf->cols, cf->error)
 
-#define cifa_int_assert(ln, col, t, v) cur(&cc); \
-    lang_assert_3(cf->line == ln && cf->cols == col && cf->cfid == t && cf->val.c == v, \
-    cf->cols, cf->cfid, cf->val.c)
+#define cifa_int_assert(ln, col, t, v) scn(&cc); \
+    lang_assert_3(cf->line == ln && cf->cols == col && cf->cfid == t && cf->val.i == v, \
+    cf->cols, cf->cfid, cf->val.i)
 
-#define cifa_ident_assert(ln, col, id) cur(&cc); \
+#define cifa_ident_assert(ln, col, id) scn(&cc); \
     lang_assert_s_2(cf->line == ln && cf->cols == col && cf->cfid == id, cf->s, cf->cols, cf->cfid)
 
 #define cifa_is_basic_type(c) \
