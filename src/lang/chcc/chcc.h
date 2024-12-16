@@ -253,11 +253,11 @@ typedef struct {
 //      cf->s 临时标识符名称
 //      val.c 标识符字符串的哈希值
 //      ident.haspknm: 1 包名引用的符号，pknm_len 包名的长度
+//      ident.keyword: 1 语言关键字
+//      ident.predecl: 1 语言预声明名称
 //      ident.istype: 1 类型名
 //      ident.isconst: 1 常量名
-//      ident.isother: 1 其他名称
-//      ident.predecl: 1 语言预声明名称
-//      ident.keyword: 1 语言关键字
+//      ident.isvar: 1 变量名
 // 4. 其中语言预定义以及非地址标识符范围
 //      cfid [0x100, 0x200)
 // 5. 地址标识符范围
@@ -269,14 +269,18 @@ typedef struct {
     ident_t *ident;
     uint32 pkhash;
     uint32 pknm_len;
+    uint32 attr;
     uint8 oper;
     uint8 base;
+    uint16 isattr: 1;
     uint16 haspknm: 1; // 标识符有包名前缀
-    uint16 istype: 1;  // 类型名称
-    uint16 isconst: 1; // 常量名称
-    uint16 isother: 1; // 非包非类型非常量的其他名称，包括变量、参数、函数、标签名等
-    uint16 predecl: 1; // 该名称是否是预声明名称
-    uint16 keyword: 1; // 该名称是否是语言关键字
+    uint16 keyword: 1; // 语言关键字
+    uint16 predecl: 1; // 语言预声明名称
+    uint16 istype: 1;  // 类型名
+    uint16 isconst: 1; // 常量名
+    uint16 isvar: 1;   // 变量名
+    uint16 defvar: 1;
+    uint16 refvar: 1;
     uint16 isbool: 1;
     uint16 isnull: 1;
     uint16 ischar: 1;
@@ -352,7 +356,17 @@ typedef struct {
     uint32 inst;
 } ops_t;
 
-#define CHCC_MAX_ERRORS 8
+typedef struct {
+    uint_t local;
+    uint_t plen;
+    uint_t rlen;
+    ident_t *recv;
+    ident_t *name;
+    ident_t **para;
+    ident_t **retp;
+    uint_t fattr;
+    uint_t body: 1;
+} fsyn_t;
 
 typedef struct {
     file_t *f;
@@ -363,6 +377,7 @@ typedef struct {
     cifa_t cf;
     rune c;
     bool unicode;
+    bool haserr;
     byte *start;
     Uint line;  // 当前词法前缀所在行
     Uint cols;  // 当前词法前缀所在字符列
@@ -380,18 +395,13 @@ typedef struct {
     stack_t symbol; // 当前语法解析时的符号栈
     yfvar_t *vtop;
     yfvar_t *vstk;
-    Error *error;
-    Error errst[CHCC_MAX_ERRORS];
-    Error yferr;
 } chcc_t;
 
 void chcc_init(chcc_t *cc, file_t *f);
 void chcc_free(chcc_t *cc);
 void chcc_start(chcc_t *cc);
 void rch(chcc_t *cc);
-void cur(chcc_t *cc);
-void scn(chcc_t *cc);
-ident_t *ident_get(chcc_t *cc, cfid_t id);
+void next(chcc_t *cc);
 
 enum {
     ERROR_CMMT_NOT_CLOSED = 0xE00,
@@ -443,7 +453,10 @@ enum {
     ERROR_PACKAGE_NOT_FOUND,
     ERROR_HASH_IDENT_PUSH_FAILED,
     ERROR_ARRAY_IDENT_PUSH_FAILED,
-    ERROR_SKIP_INVALID_CIFA,
+    ERROR_SKIP_MATCH_FAILED,
+    ERROR_FUNC_INVALID_PARAM,
+    ERROR_FUNC_INVALID_RPARA,
+    ERROR_INVALID_ATTR_NAME,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */

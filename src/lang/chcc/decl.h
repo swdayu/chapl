@@ -2,6 +2,7 @@
 #define PREDECL(...)
 #endif
 
+// 语言关键字
 PREDECL(CIFA_ID_BREAK, 'b', 'r', 'e', 'a', 'k')
 PREDECL(CIFA_ID_CASE, 'c', 'a', 's', 'e')
 PREDECL(CIFA_ID_CONST, 'c', 'o', 'n', 's', 't')
@@ -13,6 +14,7 @@ PREDECL(CIFA_ID_FALLTHROUGH, 'f', 'a', 'l', 'l', 't', 'h', 'r', 'o', 'u', 'g', '
 PREDECL(CIFA_ID_FOR, 'f', 'o', 'r')
 PREDECL(CIFA_ID_GOTO, 'g', 'o', 't', 'o')
 PREDECL(CIFA_ID_IF, 'i', 'f')
+PREDECL(CIFA_ID_VAR, 'v', 'a', 'r')
 PREDECL(CIFA_ID_IMPORT, 'i', 'm', 'p', 'o', 'r', 't')
 PREDECL(CIFA_ID_INTERFACE, 'i', 'n', 't', 'e', 'r', 'f', 'a', 'c', 'e')
 PREDECL(CIFA_ID_RANGE, 'r', 'a', 'n', 'g', 'e')
@@ -21,8 +23,8 @@ PREDECL(CIFA_ID_STRUCT, 's', 't', 'r', 'u', 'c', 't')
 PREDECL(CIFA_ID_SWITCH, 's', 'w', 'i', 't', 'c', 'h')
 PREDECL(CIFA_ID_TYPE, 't', 'y', 'p', 'e')
 PREDECL(CIFA_ID_FUNC, 'f', 'u', 'n', 'c')
-PREDECL(CIFA_ID_VAR, 'v', 'a', 'r')
 
+// 语言预声明类型、常量
 PREDECL(CIFA_ID_INT, 'i', 'n', 't')
 PREDECL(CIFA_ID_BYTE, 'b', 'y', 't', 'e')
 PREDECL(CIFA_ID_SHORT, 's', 'h', 'o', 'r', 't')
@@ -43,27 +45,28 @@ PREDECL(CIFA_ID_BOOL, 'b', 'o', 'o', 'l')
 PREDECL(CIFA_ID_RUNE, 'r', 'u', 'n', 'e')
 PREDECL(CIFA_ID_ERROR, 'e', 'r', 'r', 'o', 'r')
 PREDECL(CIFA_ID_STRING, 's', 't', 'r', 'i', 'n', 'g')
-
 PREDECL(CIFA_ID_NULL, 'n', 'u', 'l', 'l')
 PREDECL(CIFA_ID_TRUE, 't', 'r', 'u', 'e')
 PREDECL(CIFA_ID_FALSE, 'f', 'a', 'l', 's', 'e')
+
+// 语言预声明函数
+PREDECL(CIFA_ID_PRINT, 'p', 'r', 'i', 'n', 't')
+PREDECL(CIFA_ID_PRINTLN, 'p', 'r', 'i', 'n', 't', 'l', 'n')
+PREDECL(CIFA_ID_APPEND, 'a', 'p', 'p', 'e', 'n', 'd')
+PREDECL(CIFA_ID_CLEAR, 'c', 'l', 'e', 'a', 'r')
+PREDECL(CIFA_ID_CLOSE, 'c', 'l', 'o', 's', 'e')
+PREDECL(CIFA_ID_DELETE, 'd', 'e', 'l', 'e', 't', 'e')
+PREDECL(CIFA_ID_PANIC, 'p', 'a', 'n', 'i', 'c')
+PREDECL(CIFA_ID_RECOVER, 'r', 'e', 'c', 'o', 'v', 'e', 'r')
+PREDECL(CIFA_ID_COPY, 'c', 'o', 'p', 'y')
+PREDECL(CIFA_ID_MAKE, 'm', 'a', 'k', 'e')
+PREDECL(CIFA_ID_NEW, 'n', 'e', 'w')
 PREDECL(CIFA_ID_REAL, 'r', 'e', 'a', 'l')
 PREDECL(CIFA_ID_IMAG, 'i', 'm', 'a', 'g')
 PREDECL(CIFA_ID_MAX, 'm', 'a', 'x')
 PREDECL(CIFA_ID_MIN, 'm', 'i', 'n')
 PREDECL(CIFA_ID_CAP, 'c', 'a', 'p')
 PREDECL(CIFA_ID_LEN, 'l', 'e', 'n')
-PREDECL(CIFA_ID_APPEND, 'a', 'p', 'p', 'e', 'n', 'd')
-PREDECL(CIFA_ID_CLEAR, 'c', 'l', 'e', 'a', 'r')
-PREDECL(CIFA_ID_CLOSE, 'c', 'l', 'o', 's', 'e')
-PREDECL(CIFA_ID_COPY, 'c', 'o', 'p', 'y')
-PREDECL(CIFA_ID_MAKE, 'm', 'a', 'k', 'e')
-PREDECL(CIFA_ID_NEW, 'n', 'e', 'w')
-PREDECL(CIFA_ID_DELETE, 'd', 'e', 'l', 'e', 't', 'e')
-PREDECL(CIFA_ID_PANIC, 'p', 'a', 'n', 'i', 'c')
-PREDECL(CIFA_ID_RECOVER, 'r', 'e', 'c', 'o', 'v', 'e', 'r')
-PREDECL(CIFA_ID_PRINT, 'p', 'r', 'i', 'n', 't')
-PREDECL(CIFA_ID_PRINTLN, 'p', 'r', 'i', 'n', 't', 'l', 'n')
 
 #ifdef PREDECL
 #undef PREDECL

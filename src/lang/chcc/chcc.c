@@ -476,14 +476,18 @@ void utf(chcc_t *cc)
     cc->c = CHAR_INVALID_UTF;
 }
 
+void err(chcc_t *cc, Error error, uint32 n)
+{
+    cc->haserr = true;
+    log_error_3(error, cc->line, cc->cols, n);
+}
+
 void cifa_end(chcc_t *cc, cfid_t cfid, Error error)
 {
     cifa_t *cf = &cc->cf;
     cf->cfid = cfid;
     if (error) {
-        if (cc->error < cc->errst + CHCC_MAX_ERRORS) {
-            *cc->error++ = error;
-        }
+        cc->haserr = true;
         cf->error = error;
     }
 }
@@ -497,7 +501,7 @@ void oper_end(chcc_t *cc, ops_t *op)
     cifa_t *cf = &cc->cf;
     cf->oper = op->prior;
     cf->val.c = op->inst;
-    cifa_end(cc, op->id, 0);
+    cifa_end(cc, op->cfid, 0);
 }
 
 static void newline(chcc_t *cc, rune c)
@@ -540,7 +544,7 @@ void cpstr(void *p, const byte *e)
     cc->start = f->b.cur;
 }
 
-void un_cp str(chcc_t *cc, uint32 n) {
+void un_cpstr(chcc_t *cc, uint32 n) {
     buffer_t *b = &cc->s;
     if (b->len > n) {
         b->len -= n;
@@ -771,11 +775,11 @@ void ident_end(chcc_t *cc, string_t s, uint32 hash, uint32 pkhash, uint32 pknm_l
     // cf->s 临时标识符名称
     // val.c 标识符字符串的哈希值
     // ident.haspknm: 1 包名引用的符号，pknm_len 包名的长度
+    // ident.keyword: 1 语言关键字
+    // ident.predecl: 1 语言预声明名称
     // ident.istype: 1 类型名
     // ident.isconst: 1 常量名
-    // ident.isother: 1 其他名称
-    // ident.predecl: 1 语言预声明名称
-    // ident.keyword: 1 语言关键字
+    // ident.isvar: 1 变量名
     cifa_t *cf = &cc->cf;
     cf->s = s;
     cf->val.c = hash;
@@ -789,7 +793,12 @@ void ident_end(chcc_t *cc, string_t s, uint32 hash, uint32 pkhash, uint32 pknm_l
     } else if (cons_ident(s.a + pknm_len, s.a + s.len)) {
         cf->isconst = 1;
     } else {
-        cf->isother = 1;
+        cf->isvar = 1;
+        if (pknm_len) {
+            cf->refvar = 1;
+        } else {
+            cf->defvar = 1;
+        }
     }
     cifa_end(cc, CIFA_IDENT_START, 0);
 }
@@ -854,8 +863,8 @@ static Uint idnum(chcc_t *cc, bool num)
     }
 
 label_finish:
-    un_cpstr(b, 1); // 以上算法总会预读一个字符
-    un_rch(cc);
+    un_rch(cc); // 以上算法总会预读一个字符
+    un_cpstr(b, 1);
     if (s->len) {
         buffer_push(s, cc->start, b->cur - cc->start, CFSTR_ALLOC_EXPAND);
         d = strflen(s->a, s->len);
@@ -890,6 +899,7 @@ static Uint comment(chcc_t *cc, cfid_t c)
             }
             if (c == CHAR_RETURN || c == CHAR_NEWLINE) {
                 un_rch(cc);
+                un_cpstr(cc, 1);
                 buffer_push(s, cc->start, b->cur - cc->start, CFSTR_ALLOC_EXPAND);
                 break;
             }
@@ -921,6 +931,7 @@ static Uint comment(chcc_t *cc, cfid_t c)
                     break; // 块注释读取完毕
                 }
                 un_rch(cc);
+                un_cpstr(cc, 1);
             }
         }
         cmmt_end(cc, true);
@@ -1057,6 +1068,7 @@ static Uint strlit(chcc_t *cc, rune quote)
                 nch = 0;
             } else {
                 un_rch(cc);
+                un_cpstr(cc, 1);
                 error = ERROR_MISS_CLOSE_QUOTE;
                 pend = b->cur;
                 break; // 字符串读取完毕
@@ -1122,7 +1134,7 @@ bool ident(chcc_t *cc)
         pknm = strflen(cf->s.a, cf->pknm_len); // 获取该包名前缀
         real_pknm = findhashident(cc, pknm, cf->pkhash); // 从哈希表中查找这个包名
         if (!real_pknm || !real_pknm->pknm) { // 未找到对应的标识符
-            log_error_s_2(ERROR_PACKAGE_NOT_FOUND, pknm, cc->line, cc->cols);
+            err(cc, ERROR_PACKAGE_NOT_FOUND, 0);
             return false;
         }
         if (real_pknm == real_pknm->pknm) { // val.c 保存了整个字符串的哈希值
@@ -1145,6 +1157,20 @@ bool ident(chcc_t *cc)
     // 只需要创建 type~int 语法符号，因为 int 总是指向 type~int 标识符，总会使用 type~int 标识符来查找语法符号
     // type~null/true/false 以及别名 null/true/false 需要自动添加到哈希表和标识符数组，并且后者指向前者
     // 但一旦找到 type~null/true/false 直接将词法从标识符改成数值类型，并标记 isnull 或 isbool
+    if (ident->id < cc->user_id_start) {
+        cf->isvar = 0;
+        cf->defvar = 0;
+        cf->refvar = 0;
+        if (ident->id >= CIFA_ID_PRINT) {
+            cf->isvar = 1;
+            cf->refvar = 1;
+        }
+        if (ident->id <= CIFA_ID_FUNC) {
+            cf->keyword = 1;
+        } else {
+            cf->predecl = 1;
+        }
+    }
     if (ident->id == CIFA_ID_NULL) {
         cf->cfid = CIFA_TYPE_NUMERIC;
         cf->val.c = 0;
@@ -1160,17 +1186,13 @@ bool ident(chcc_t *cc)
     if (ident->id >= CIFA_ID_INT && ident->id <= CIFA_ID_STRING) {
         cf->istype = 1;
         cf->isconst = 0;
-        cf->isother = 0;
-    }
-    if (ident->id < cc->user_id_start) {
-        cf->predecl = 1;
     }
     cf->ident = ident;
     cf->cfid = ident->id;
     return true;
 }
 
-ident_t *cur(chcc_t *cc) // 解析当前词法
+void cur(chcc_t *cc) // 解析当前词法
 {
     cifa_t *cf = &cc->cf;
     ops_t *op;
@@ -1240,22 +1262,37 @@ label_punct:
     }
     cc->cols += nch;
     if (cf->cfid < CIFA_TYPE_IDENT) {
-        return null;
+        return;
     }
     if (!ident(cc)) {
         rch(cc);
         goto label_cont;
     }
     rch(cc);
-    return cf->ident;
 }
 
-ident_t *skip(chcc_t *cc, cfid_t id)
+void next(chcc_t *cc)
+{
+    cifa_t *cf = &cc->cf;
+    cur(cc);
+    if (cf->cfid == '@') {
+        cur(cc);
+        if (cf->defvar) {
+            cf->isvar = 0;
+            cf->defvar = 0;
+            cf->isattr = 1;
+        } else {
+            err(cc, ERROR_INVALID_ATTR_NAME, 0);
+        }
+    }
+}
+
+void skip(chcc_t *cc, cfid_t id)
 {
     if (cc->cf.cfid != id) {
-        log_error_2(ERROR_SKIP_INVALID_CIFA, cc->cf.cfid, id);
+        err(cc, ERROR_SKIP_MATCH_FAILED, cc->cf.cfid);
     }
-    return cur(cc);
+    next(cc);
 }
 
 ident_t *getident(chcc_t *cc, cfid_t id)
@@ -1269,12 +1306,6 @@ ident_t *getident(chcc_t *cc, cfid_t id)
         ident = ident->alias;
     }
     return ident;
-}
-
-void scn(chcc_t *cc)
-{
-    rch(cc);
-    cur(cc);
 }
 
 // 词法标识符会标记名称是类型名、常量名、包名、还是其他名称，当创建或引用对应语法符号时，需要考虑是否要添加包名。
@@ -1307,14 +1338,84 @@ void dvar(chcc_t *cc, int_t local)
 
 }
 
-void func(chcc_t *cc, int_t local)
+fsyn_t *func_syn(chcc_t *cc, int_t local)
+{
+    cifa_t *cf = &cc->cf;
+    fsyn_t *fsyn = fsynalloc(local);
+    int_t i = 0;
+    next(cc);
+    if (cf->istype) {
+        fsyn->recv = cf->ident;
+        next(cc);
+    }
+    if (cf->defvar) {
+        fsyn->name = cf->ident;
+        next(cc);
+    }
+    skip(cc, '(');
+    while (cf->cfid != CIFA_ID_RETURN && cf->cfid != ')') {
+        if (cf->istype || cf->defvar) {
+            fsyn->para[i++] = cf->ident;
+            next(cc);
+        } else {
+            err(cc, ERROR_FUNC_INVALID_PARAM, cf->cfid);
+            break;
+        }
+    }
+    fsyn->plen = i;
+    if (cf->cfid == CIFA_ID_RETURN) {
+        i = 0;
+        while (cf->cfid != ')') {
+            if (cf->istype || cf->defvar) {
+                fsyn->retp[i++] = cf->ident;
+                next(cc);
+            } else {
+                err(cc, ERROR_FUNC_INVALID_RPARA, cf->cfid);
+                break;
+            }
+        }
+        fsyn->rlen = i;
+    }
+    skip(cc, ')');
+    while (cf->isattr) {
+        fsyn->fattr |= cf->attr;
+        next(cc);
+    }
+    fsyn->body = (cf->cfid == '{');
+    if (cc->haserr) {
+        fsynfree(fsyn);
+        return null;
+    }
+    return fsyn;
+}
+
+void func_gen(chcc_t *cc, fsyn_t *f)
+{
+    // 函数都在协程中执行，协程都拥有自己独立的程序栈，因为协程自己准确知道自己需要多大的栈，因此每个协程栈大
+    // 小固定，是随协程创建时一起分配。协程栈总是以4字节为单位，总是4字节的整数倍。进入函数时的协程栈指针会保
+    // 存到一个寄存中，x86上使用 ebp/rbp，然后栈指针就不再改变，等函数返回恢复原来的值。
+    cc->radr = cc->loc = 0;
+}
+
+void func_ptr(chcc_t *cc, fsyn_t *f)
 {
 
 }
 
-void decl(chcc_t *cc, int_t local)
+void decl(chcc_t *cc, uint_t local) // 类型声明，函数声明，变量声明、标签声明
 {
     cifa_t *cf = &cc->cf;
-lable_cont:
-
+    fsyn_t *fsyn;
+    if (cf->cfid == CIFA_ID_FUNC) { // rax rcx rdx rbx rbp
+        fsyn = func_syn(cc, local);
+        if (!fsyn) {
+            return;
+        }
+        if (fsyn->body) {
+            func_gen(cc, fsyn);
+        } else {
+            func_ptr(cc, fsyn);
+        }
+        fsynfree(fsyn);
+    }
 }
