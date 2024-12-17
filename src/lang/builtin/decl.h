@@ -660,10 +660,23 @@ typedef struct snode {
     struct snode *next;
 } snode_t;
 
-typedef struct {
+typedef struct {  // 置零初始化
     snode_t head;
     snode_t *tail;
 } slist_t;
+
+struct slist_it;
+typedef void (*free_t)(void *object);
+byte *slist_push_front(slist_t *l, Int obj_bytes);
+byte *slist_push_back(slist_t *l, Int obj_bytes);
+byte *slist_front(slist_t *l);
+byte *slist_back(slist_t *l);
+bool slist_pop_front(slist_t *l, free_t func);
+void slist_free(slist_t *l, free_t func);
+inline struct slist_it *slist_begin(slist_t *l) { return (struct slist_it *)(l ? l->head.next : 0); }
+inline struct slist_it *slist_end(slist_t *l) { return 0; }
+inline struct slist_it *slist_next(struct slist_it *p) { return (struct slist_it *)(((snode_t *)p)->next); }
+inline byte *slist_it_get(struct slist_it *p) { return (p ? ((byte *)p) + sizeof(snode_t*) : 0); }
 
 typedef struct node {
     struct node *next;
@@ -680,7 +693,7 @@ typedef struct { // 置零初始化
 
 struct stack_it;
 struct stack_before_it;
-typedef void (*free_t)(void *object);
+
 byte *stack_push(stack_t *s, Int obj_bytes);
 byte *stack_push_it(stack_t *s, struct stack_it *it);
 byte *stack_insert_after(struct stack_it *p, Int obj_bytes);
@@ -900,5 +913,6 @@ inline uint8 round_up_uint8(uint8 n, uint8 a) { return ROUND_POW2(uint8, n, a); 
 inline uint16 round_up_uint16(uint16 n, uint16 a) { return ROUND_POW2(uint16, n, a); }
 inline uint32 round_up_uint32(uint32 n, uint32 a) { return ROUND_POW2(uint32, n, a); }
 inline uint64 round_up_uint64(uint64 n, uint64 a) { return ROUND_POW2(uint64, n, a); }
+inline byte *round_up_addr(byte *n, uintptr a) { return (byte *)ROUND_POW2(uintptr, (uintptr)n, a); }
 
 #endif /* CHAPL_BUILTIN_DECL_H */

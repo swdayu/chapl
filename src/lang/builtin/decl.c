@@ -384,6 +384,47 @@ void buffer_pop(buffer_t *b, Int n)
     }
 }
 
+byte *slist_front(slist_t *l)
+{
+    snode_t *p = l->head.next;
+    return p ? (byte *)(p + 1) : 0;
+}
+
+byte *slist_back(slist_t *l)
+{
+    snode_t *p = l->tail;
+    return p ? (byte *)(p + 1) : 0;
+}
+
+bool slist_pop_front(slist_t *l, free_t func)
+{
+    snode_t *p = l->head.next;
+    if (p) {
+        l->head.next = p->next;
+        if (l->tail == p) {
+            l->tail = null;
+        }
+        if (func) {
+            func(p + 1);
+        }
+        free(p);
+        return true;
+    }
+    return false;
+}
+
+void slist_free(slist_t *l, free_t func){
+    snode_t *n;
+    while ((n = l->head.next)) {
+        l->head.next = n->next;
+        if (func) {
+            func(n + 1);
+        }
+        free(n);
+    }
+    l->tail = null;
+}
+
 struct stack_it *stack_new_it(Int obj_bytes)
 {
     Int alloc = sizeof(snode_t) + (obj_bytes > 0 ? obj_bytes : 1);
@@ -394,16 +435,39 @@ struct stack_it *stack_new_it(Int obj_bytes)
     return (struct stack_it *)p;
 }
 
-byte *stackinsertafter_(struct stack_it *it, struct stack_it *node)
+snode_t *stackinsertafter_x_(struct stack_it *it, struct stack_it *node)
 {
     snode_t *p = (snode_t *)it;
     snode_t *n = (snode_t *)node;
     if (n) {
         n->next = p->next;
         p->next = n;
-        return (byte *)(n + 1);
+        return n;
     }
     return 0;
+}
+
+byte *slist_push_front(slist_t *l, Int obj_bytes)
+{
+    snode_t *n = stackinsertafter_x_((struct stack_it *)l, stack_new_it(obj_bytes));
+    if (l->tail == null) {
+        l->tail = n;
+    }
+    return n ? (byte *)(n + 1) : 0;
+}
+
+byte *slist_push_back(slist_t *l, Int obj_bytes)
+{
+    struct stack_it *p = l->tail ? (struct stack_it *)l->tail : (struct stack_it *)l;
+    snode_t *n = stackinsertafter_x_(p, stack_new_it(obj_bytes));
+    l->tail = n;
+    return n ? (byte *)(n + 1) : 0;
+}
+
+byte *stackinsertafter_(struct stack_it *it, struct stack_it *node)
+{
+    snode_t *n = stackinsertafter_x_(it, node);
+    return n ? (byte *)(n + 1) : 0;
 }
 
 byte *stack_push_it(stack_t *s, struct stack_it *it)
