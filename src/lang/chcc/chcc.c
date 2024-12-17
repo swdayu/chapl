@@ -1,6 +1,7 @@
 #define __CURR_FILE__ STRID_CHCC_CIFA
 #include "internal/decl.h"
 #include "chcc/chcc.h"
+#include "chcc/gabi.h"
 
 #define IDENT_HASH_INIT 1
 #define IDENT_HASH_SIZE (8*1024) // 必须是2的幂
@@ -1333,68 +1334,104 @@ ident_t *getident(chcc_t *cc, cfid_t id)
 //      1. 不需要添加包名前缀，必须要找到对应的局部符号，其 scope 的值必须大于 0
 //      2. 可能需要对局部类型和局部函数做某些特殊处理
 
-void dvar(chcc_t *cc, int_t local)
+fsyn_t *fsynalloc(uint32 local)
 {
-
+    fsyn_t *p = (fsyn_t *)malloc(sizeof(fsyn_t));
+    if (p) {
+        memset(p, sizeof(fsyn_t), 0);
+        p->local = local;
+    }
+    return p;
 }
 
-fsyn_t *func_syn(chcc_t *cc, int_t local)
+void fsynfree(fsyn_t *f)
+{
+    slist_free(&f->para, null);
+    slist_free(&f->retp, null);
+    free(f);
+}
+
+bool typevar(chcc_t *cc, slist_t *l, rune term, rune t2)
 {
     cifa_t *cf = &cc->cf;
-    fsyn_t *fsyn = fsynalloc(local);
-    int_t i = 0;
+    sytx_t *st = &cf->sytx;
+    for (; ;) {
+        if (cf->cfid == term || cf->cfid == t2) {
+            return true;
+        }
+        if (st->istype) {
+
+        } else if (st->defvar) {
+            *(sytx_t *)slist_push_back(l, sizeof(sytx_t)) = *st;
+            next(cc);
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+fsyn_t *func_syn(chcc_t *cc, uint32 local)
+{
+    cifa_t *cf = &cc->cf;
+    sytx_t *st = &cf->sytx;
+    fsyn_t *f = fsynalloc(local);
     next(cc);
-    if (cf->istype) {
-        fsyn->recv = cf->ident;
+    if (st->istype) {
+        f->recv = st->ident;
         next(cc);
     }
-    if (cf->defvar) {
-        fsyn->name = cf->ident;
+    if (st->defvar) {
+        f->name = st->ident;
         next(cc);
     }
     skip(cc, '(');
-    while (cf->cfid != CIFA_ID_RETURN && cf->cfid != ')') {
-        if (cf->istype || cf->defvar) {
-            fsyn->para[i++] = cf->ident;
-            next(cc);
-        } else {
-            err(cc, ERROR_FUNC_INVALID_PARAM, cf->cfid);
-            break;
-        }
+    if (!typevar(cc, &f->para, CIFA_ID_RETURN, ')')) {
+        err(cc, ERROR_FUNC_INVALID_PARAM, cf->cfid);
     }
-    fsyn->plen = i;
     if (cf->cfid == CIFA_ID_RETURN) {
-        i = 0;
-        while (cf->cfid != ')') {
-            if (cf->istype || cf->defvar) {
-                fsyn->retp[i++] = cf->ident;
-                next(cc);
-            } else {
-                err(cc, ERROR_FUNC_INVALID_RPARA, cf->cfid);
-                break;
-            }
+        if (!typevar(cc, &f->retp, ')', 0)) {
+            err(cc, ERROR_FUNC_INVALID_RPARA, cf->cfid);
         }
-        fsyn->rlen = i;
     }
     skip(cc, ')');
     while (cf->isattr) {
-        fsyn->fattr |= cf->attr;
+        f->fattr |= cf->attr;
         next(cc);
     }
-    fsyn->body = (cf->cfid == '{');
+    f->body = (cf->cfid == '{');
     if (cc->haserr) {
-        fsynfree(fsyn);
+        fsynfree(f);
         return null;
     }
-    return fsyn;
+    return f;
 }
 
 void func_gen(chcc_t *cc, fsyn_t *f)
 {
-    // 函数都在协程中执行，协程都拥有自己独立的程序栈，因为协程自己准确知道自己需要多大的栈，因此每个协程栈大
-    // 小固定，是随协程创建时一起分配。协程栈总是以4字节为单位，总是4字节的整数倍。进入函数时的协程栈指针会保
-    // 存到一个寄存中，x86上使用 ebp/rbp，然后栈指针就不再改变，等函数返回恢复原来的值。
-    cc->radr = cc->loc = 0;
+    struct slist_it *it;
+    sytx_t *prev = null;
+    sytx_t *st;
+    uint32 len = 0; // 计算函数参数所占空间大小
+    for (it = slist_begin(&f->para); it != slist_end(&f->para); it = slist_next(it)) {
+        st = (sytx_t *)slist_it_get(it);
+        if (st->istype) {
+        }
+    }
+
+    f->fadr = cc->cs = round_up_addr(cc->cs, 3);
+    gent(cc, f);
+
+    gret(cc, f);
+
+    if (f->local) {
+        // 局部函数总是定义为匿名函数
+    } else {
+        if (!f->name) {
+            err(cc, ERROR_GLOBAL_FUNC_NONAME, 0);
+            return;
+        }
+    }
 }
 
 void func_ptr(chcc_t *cc, fsyn_t *f)
@@ -1402,7 +1439,7 @@ void func_ptr(chcc_t *cc, fsyn_t *f)
 
 }
 
-void decl(chcc_t *cc, uint_t local) // 类型声明，函数声明，变量声明、标签声明
+void decl(chcc_t *cc, uint32 local) // 类型声明，函数声明，变量声明、标签声明
 {
     cifa_t *cf = &cc->cf;
     fsyn_t *fsyn;
