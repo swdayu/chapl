@@ -172,8 +172,7 @@ enum chcc_predecl_ident {
 typedef uint32 cfid_t;
 
 typedef struct {
-    ident_t *named; // 命名符号
-    cfid_t anon; // 匿名符号
+    cfid_t cfid; // 可能匿名也可能命名
     uint32 scope; // 符号所属所用域
     uint32 type_kind: 4;
     uint32 is_package: 1;
@@ -189,9 +188,14 @@ typedef struct {
     uint32 align: 4; // (1 << align)
     uint8 bf_off;
     uint8 bf_size;
-    Uint off;
-    Uint size;
+    uint32 off;
+    uint32 size;
 } sym_t;
+
+typedef struct {
+    intv_t adr;   // 变量地址（包括函数地址、标签地址）
+    intv_t use;   // 所有使用的地方都需要写入变量的地址
+} var_t;
 
 typedef struct {
     cfid_t id;
@@ -201,6 +205,9 @@ typedef struct {
     sym_t *type_sym;    // 该符号表示一个类型
     sym_t *const_sym;   // 常量名
     sym_t *ident_sym;   // 函数变量名
+    sym_t *deftype;     // 该标识符定义的类型
+    sym_t *defconst;    // 该标识符定义的常量
+    sym_t *defvar;      // 该标识符定义的变量
     stack_t named_type; // 符号作为命名类型使用
     stack_t field_sym;  // 符号当作成员或参数或局部变量使用
     stack_t func_sym;   // 一个符号可以有以自己为名称的函数
@@ -263,16 +270,12 @@ typedef struct {
 // 5. 地址标识符范围
 //      cfid [0x200, ...)
 typedef struct {
-    cfval_t val;
-    string_t s;
-    cfid_t cfid;
-    ident_t *ident;
-    uint32 pkhash;
-    uint32 pknm_len;
-    uint32 attr;
-    uint8 oper;
-    uint8 base;
-    uint16 isattr: 1;
+    ident_t *name;
+    sym_t *refs; // 引用的符号，例如变量有对应的类型，或者类型自己
+    intv_t addr;
+    intv_t *usel;
+    uint32 size;
+    uint16 isptr: 1;
     uint16 haspknm: 1; // 标识符有包名前缀
     uint16 keyword: 1; // 语言关键字
     uint16 predecl: 1; // 语言预声明名称
@@ -281,6 +284,18 @@ typedef struct {
     uint16 isvar: 1;   // 变量名
     uint16 defvar: 1;
     uint16 refvar: 1;
+} synx_t;
+
+typedef struct {
+    cfval_t val;
+    string_t s;
+    cfid_t cfid;
+    uint32 pkhash;
+    uint32 pknm_len;
+    uint32 attr;
+    uint8 oper;
+    uint8 base;
+    uint16 isattr: 1;
     uint16 isbool: 1;
     uint16 isnull: 1;
     uint16 ischar: 1;
@@ -357,16 +372,23 @@ typedef struct {
 } ops_t;
 
 typedef struct {
-    uint_t local;
-    uint_t plen;
-    uint_t rlen;
+    uint32 local;
+    uint32 plen;
     ident_t *recv;
     ident_t *name;
-    ident_t **para;
-    ident_t **retp;
-    uint_t fattr;
-    uint_t body: 1;
+    slist_t para;
+    slist_t retp;
+    uint32 fattr;
+    byte *fadr; // 函数地址
+    uintv_t *radr; // 指向返回地址
+    uint32 loc; // 局部变量偏移
+    uint32 body: 1;
 } fsyn_t;
+
+typedef struct {
+    uint32 local;
+    stack_t symb; // 保护本作用域定义的符号
+} scope_t;
 
 typedef struct {
     file_t *f;
@@ -375,6 +397,7 @@ typedef struct {
     ops_t *ops;
     buffer_t s;
     cifa_t cf;
+    synx_t synx;
     rune c;
     bool unicode;
     bool haserr;
@@ -384,13 +407,13 @@ typedef struct {
     uint32 user_id_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
-    byte *glo;  // 全局变量地址
-    byte *loc;  // 局部变量偏移
-    arch *radr; // 指向返回地址
-    byte *code; // 代码段的地址
+    byte *ds; // 全局变量地址
+    byte *cs; // 代码段的地址
     ident_t *pknm; // 当前代码包名称
     uint32 scope;
     uint32 anon_id;
+    stack_t *gsym; // 全局符号
+    stack_t scope;
     struct stack_it *global; // 全局符号栈顶
     stack_t symbol; // 当前语法解析时的符号栈
     yfvar_t *vtop;
@@ -457,6 +480,8 @@ enum {
     ERROR_FUNC_INVALID_PARAM,
     ERROR_FUNC_INVALID_RPARA,
     ERROR_INVALID_ATTR_NAME,
+    ERROR_GLOBAL_FUNC_NONAME,
+    ERROR_VAR_WITHOUT_TYPE,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */

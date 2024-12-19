@@ -483,6 +483,12 @@ void err(chcc_t *cc, Error error, uint32 n)
     log_error_3(error, cc->line, cc->cols, n);
 }
 
+void errs(chcc_t *cc, Error error, string_t s, uint32 n)
+{
+    cc->haserr = true;
+    log_error_s_3(error, s, cc->line, cc->cols, n);
+}
+
 void cifa_end(chcc_t *cc, cfid_t cfid, Error error)
 {
     cifa_t *cf = &cc->cf;
@@ -1203,6 +1209,7 @@ void cur(chcc_t *cc) // 解析当前词法
 label_cont:
     c = cc->c;
     memset(cf, 0, sizeof(cifa_t));
+    memset(&cc->synx, 0, sizeof(synx_t));
     cf->line = cc->line;
     cf->cols = cc->cols;
     if (c == CHAR_EOF) {
@@ -1309,13 +1316,13 @@ ident_t *getident(chcc_t *cc, cfid_t id)
     return ident;
 }
 
-// 词法标识符会标记名称是类型名、常量名、包名、还是其他名称，当创建或引用对应语法符号时，需要考虑是否要添加包名。
-// 当创建一个全局符号时：
+// 词法标识符会标记名称是类型名、常量名、包名、还是其他名称，当创建或引用对应标识符时，需要考虑是否要添加包名。
+// 当创建一个全局标识符时：
 //      1. 其标识符可能是类名、函数名、或包名
 //      2. 该标识符必须使用包名前缀来创建其语法符号
 //      3. 如果对应的符号已经存在，则是重复定义
 //      4. 同一个包名只需导入其中所有全局导出符号一次，当导入包的别名时只需指向真实的包
-// 当创建一个局部符号时：
+// 当创建一个局部标识符时：
 //      1. 标识符可以是结构体成员，结构体内嵌套的匿名结构体成员
 //      2. 还可以是函数声明时的参数或返回值参数名称
 //      3. 还可以是函数体内的局部变量声明
@@ -1325,14 +1332,17 @@ ident_t *getident(chcc_t *cc, cfid_t id)
 //      6. 局部名称也不可能与全局名称重名，因为全局名称包括包名都有 pkg~ 前缀，而局部名称不可能包含 ~ 字符
 //      7. 统一化处理的原因是，结构体内嵌套的命名结构体不能与外部重名，标签名在一个函数体内也不能重名
 //      8. 二是避免局部变量对前一层次同名变量的覆盖，导致程序可读性、歧义性、清晰性问题
-// 当引用一个全局符号时：
+// 当引用一个全局标识符时：
 //      1. 通过包名语法引用的标识符相当于引用全局符号，因为导出符号都必定是全局的
 //      2. 通过包名引用的标识符，必须使用包的真实名称前缀查找这个符号，不能使用任何别名
 //      3. 不带包名对一个全局名称的引用，必须使用对应包的前缀查找这个符号
 //      4. 除了类型指针、函数调用外，其他情况如果找不到这个引用的全局符号，需要报错
-// 当引用一个局部符号时：
+// 当引用一个局部标识符时：
 //      1. 不需要添加包名前缀，必须要找到对应的局部符号，其 scope 的值必须大于 0
 //      2. 可能需要对局部类型和局部函数做某些特殊处理
+//
+// 语法符号都保存在自己对应的作用域中，并随着作用域的切换动态变化，已经退出的作用域会释放其中的符号。哈希表中
+// 的标识符会指向同名的语法符号，以方便检查语法符号是否存在重复定义。
 
 fsyn_t *fsynalloc(uint32 local)
 {
@@ -1351,38 +1361,97 @@ void fsynfree(fsyn_t *f)
     free(f);
 }
 
-bool typevar(chcc_t *cc, slist_t *l, rune term, rune t2)
-{
+bool reftype(chcc_t *cc, synx_t *out) { // 使用类型
     cifa_t *cf = &cc->cf;
-    sytx_t *st = &cf->sytx;
-    for (; ;) {
-        if (cf->cfid == term || cf->cfid == t2) {
-            return true;
+    synx_t *st = &cc->synx;
+    ident_t *name = st->name;
+    *out = cc->synx;
+    next(cc);
+    if (cf->cfid == '*') {
+        out->isptr = 1;
+        out->size = sizeof(uintv_t);
+        if (name->deftype) {
+            out->refs = name->deftype;
         }
-        if (st->istype) {
-
-        } else if (st->defvar) {
-            *(sytx_t *)slist_push_back(l, sizeof(sytx_t)) = *st;
-            next(cc);
+        next(cc);
+    } else {
+        if (name->deftype) {
+            out->refs = name->deftype;
+            out->size = name->deftype->size;
         } else {
+            errs(cc, ERROR_TYPE_NOT_DEFINED, name->s, 0);
             return false;
         }
     }
     return true;
 }
 
+uint32 pushvar(slist_t *l, synx_t *t, ident_t *name, uint32 offset)
+{
+    synx_t v = {0};
+    v.refs = t->refs;
+    v.name = name;
+    v.isptr = t->isptr;
+    v.isvar = 1;
+    v.defvar = 1;
+    v.size = v.isptr ? sizeof(uintv_t) : v.refs->size;
+    v.addr = round_up(offset, v.isptr ? (sizeof(uintv_t) - 1) : v.refs->align);
+    *(synx_t *)slist_push_back(l, sizeof(synx_t)) = v;
+    return v.addr + v.size;
+}
+
+bool typevar(chcc_t *cc, slist_t *l, rune term, rune t2) // 类型变量列表
+{
+    cifa_t *cf = &cc->cf;
+    synx_t *st = &cc->synx;
+    synx_t *t = null;
+    bool prev_is_type = false;
+    uint32 offset = 0;
+    synx_t synx;
+label_loop:
+    if (cf->cfid == term || t2 && cf->cfid == t2) {
+        if (prev_is_type) {
+            pushvar(l, t, null, offset);
+        }
+        return true;
+    }
+    if (!st->istype && !st->defvar) {
+        return false;
+    }
+    if (st->istype) {
+        if (prev_is_type) {
+            offset = pushvar(l, t, null, offset);
+        }
+        if (!reftype(cc, &synx)) {
+            return false;
+        }
+        t = &synx;
+        prev_is_type = true;
+    } else {
+        if (!t) {
+            errs(cc, ERROR_VAR_WITHOUT_TYPE, st->name->s, 0);
+            next(cc);
+            return false;
+        }
+        offset = pushvar(l, t, st->name, offset);
+        prev_is_type = false;
+    }
+    next(cc);
+    goto label_loop;
+}
+
 fsyn_t *func_syn(chcc_t *cc, uint32 local)
 {
     cifa_t *cf = &cc->cf;
-    sytx_t *st = &cf->sytx;
+    synx_t *st = &cc->synx;
     fsyn_t *f = fsynalloc(local);
     next(cc);
     if (st->istype) {
-        f->recv = st->ident;
+        f->recv = st->name;
         next(cc);
     }
     if (st->defvar) {
-        f->name = st->ident;
+        f->name = st->name;
         next(cc);
     }
     skip(cc, '(');
@@ -1390,6 +1459,7 @@ fsyn_t *func_syn(chcc_t *cc, uint32 local)
         err(cc, ERROR_FUNC_INVALID_PARAM, cf->cfid);
     }
     if (cf->cfid == CIFA_ID_RETURN) {
+        next(cc);
         if (!typevar(cc, &f->retp, ')', 0)) {
             err(cc, ERROR_FUNC_INVALID_RPARA, cf->cfid);
         }
@@ -1410,11 +1480,11 @@ fsyn_t *func_syn(chcc_t *cc, uint32 local)
 void func_gen(chcc_t *cc, fsyn_t *f)
 {
     struct slist_it *it;
-    sytx_t *prev = null;
-    sytx_t *st;
+    synx_t *prev = null;
+    synx_t *st;
     uint32 len = 0; // 计算函数参数所占空间大小
     for (it = slist_begin(&f->para); it != slist_end(&f->para); it = slist_next(it)) {
-        st = (sytx_t *)slist_it_get(it);
+        st = (synx_t *)slist_it_get(it);
         if (st->istype) {
         }
     }
