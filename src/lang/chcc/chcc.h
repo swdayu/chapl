@@ -192,27 +192,16 @@ typedef struct {
     uint32 size;
 } sym_t;
 
-typedef struct {
-    intv_t adr;   // 变量地址（包括函数地址、标签地址）
-    intv_t use;   // 所有使用的地方都需要写入变量的地址
-} var_t;
+struct tsym_t;
+struct vsym_t;
 
-typedef struct {
+typedef struct ident_t {
     cfid_t id;
     string_t s;
-    ident_t *alias;     // 这个标识符是另一标识符的别名，如果为空则表示该标识符不是别名
-    ident_t *pknm;      // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
-    sym_t *type_sym;    // 该符号表示一个类型
-    sym_t *const_sym;   // 常量名
-    sym_t *ident_sym;   // 函数变量名
-    sym_t *deftype;     // 该标识符定义的类型
-    sym_t *defconst;    // 该标识符定义的常量
-    sym_t *defvar;      // 该标识符定义的变量
-    stack_t named_type; // 符号作为命名类型使用
-    stack_t field_sym;  // 符号当作成员或参数或局部变量使用
-    stack_t func_sym;   // 一个符号可以有以自己为名称的函数
-    stack_t method;     // 一个符号可以有自己的多个方法
-    stack_t ident_sym;
+    struct ident_t *alias;     // 这个标识符是另一标识符的别名，如果为空则表示该标识符不是别名
+    struct ident_t *pknm;      // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
+    struct tsym_t *deftype;     // 该标识符定义的类型
+    struct vsym_t *defvar;      // 该标识符定义的变量
 } ident_t;
 
 typedef union {
@@ -270,12 +259,16 @@ typedef struct {
 // 5. 地址标识符范围
 //      cfid [0x200, ...)
 typedef struct {
-    ident_t *name;
-    sym_t *refs; // 引用的符号，例如变量有对应的类型，或者类型自己
-    intv_t addr;
-    intv_t *usel;
-    uint32 size;
-    uint16 isptr: 1;
+    cfval_t val;
+    string_t s;
+    ident_t *ident;
+    cfid_t cfid;
+    uint32 pkhash;
+    uint32 pknm_len;
+    uint32 attr;
+    uint8 oper;
+    uint8 base;
+    uint16 isattr: 1;
     uint16 haspknm: 1; // 标识符有包名前缀
     uint16 keyword: 1; // 语言关键字
     uint16 predecl: 1; // 语言预声明名称
@@ -284,18 +277,6 @@ typedef struct {
     uint16 isvar: 1;   // 变量名
     uint16 defvar: 1;
     uint16 refvar: 1;
-} synx_t;
-
-typedef struct {
-    cfval_t val;
-    string_t s;
-    cfid_t cfid;
-    uint32 pkhash;
-    uint32 pknm_len;
-    uint32 attr;
-    uint8 oper;
-    uint8 base;
-    uint16 isattr: 1;
     uint16 isbool: 1;
     uint16 isnull: 1;
     uint16 ischar: 1;
@@ -371,19 +352,39 @@ typedef struct {
     uint32 inst;
 } ops_t;
 
+#define SYNX_BASIC_TYPE     0x01
+#define SYNX_STRUCT_TYPE    0x02
+#define SYNX_INTERFACE_TYPE 0x03
+#define SYNX_FUNCTION_TYPE  0x04
+
 typedef struct {
-    uint32 local;
-    uint32 plen;
+    ident_t *name;  // 类型名称，如果为空则为匿名类型
+    byte type;      // 类型是哪一种，基本类型、结构体类型、接口类型、还是函数类型
+    byte align;     // (1 << align)
+    byte flags;
+    byte dynsz: 1;
+    uint32 size;
+} tsym_t; // 类型符号
+
+typedef struct vsym_t {
+    intv_t addr;    // 变量地址（包括函数地址、标签地址）
+    intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
+    tsym_t *refs;    // 涉及的类型，即变量的类型
+    ident_t *name;  // 变量名称，可能为空匿名
+    uint32 size;    // 变量占用空间大小
+    byte isptr: 1;  // 变量是否是一个指针类型
+} vsym_t; // 变量符号
+
+typedef struct {
+    tsym_t head;
     ident_t *recv;
-    ident_t *name;
-    slist_t para;
-    slist_t retp;
-    uint32 fattr;
-    byte *fadr; // 函数地址
-    uintv_t *radr; // 指向返回地址
-    uint32 loc; // 局部变量偏移
+    uint32 plen;
+    uint32 rlen;
+    slist_t para;   // 包含vsym_t
+    slist_t retp;   // 包含vsym_t
+    intv_t addr;    // 函数地址
     uint32 body: 1;
-} fsyn_t;
+} fsym_t;
 
 typedef struct {
     uint32 local;
@@ -397,7 +398,6 @@ typedef struct {
     ops_t *ops;
     buffer_t s;
     cifa_t cf;
-    synx_t synx;
     rune c;
     bool unicode;
     bool haserr;

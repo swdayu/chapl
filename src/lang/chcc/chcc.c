@@ -1209,7 +1209,6 @@ void cur(chcc_t *cc) // 解析当前词法
 label_cont:
     c = cc->c;
     memset(cf, 0, sizeof(cifa_t));
-    memset(&cc->synx, 0, sizeof(synx_t));
     cf->line = cc->line;
     cf->cols = cc->cols;
     if (c == CHAR_EOF) {
@@ -1344,40 +1343,38 @@ ident_t *getident(chcc_t *cc, cfid_t id)
 // 语法符号都保存在自己对应的作用域中，并随着作用域的切换动态变化，已经退出的作用域会释放其中的符号。哈希表中
 // 的标识符会指向同名的语法符号，以方便检查语法符号是否存在重复定义。
 
-fsyn_t *fsynalloc(uint32 local)
+fsym_t *fsymalloc(void)
 {
-    fsyn_t *p = (fsyn_t *)malloc(sizeof(fsyn_t));
+    fsym_t *p = (fsym_t *)malloc(sizeof(fsym_t));
     if (p) {
-        memset(p, sizeof(fsyn_t), 0);
-        p->local = local;
+        memset(p, sizeof(fsym_t), 0);
+        p->head.type = SYNX_FUNCTION_TYPE;
     }
     return p;
 }
 
-void fsynfree(fsyn_t *f)
+void fsymfree(fsym_t *f)
 {
     slist_free(&f->para, null);
     slist_free(&f->retp, null);
     free(f);
 }
 
-bool reftype(chcc_t *cc, synx_t *out) { // 使用类型
+bool reftype(chcc_t *cc, vsym_t *v) // 使用类型
+{
     cifa_t *cf = &cc->cf;
-    synx_t *st = &cc->synx;
-    ident_t *name = st->name;
-    *out = cc->synx;
+    ident_t *name = cf->ident;
     next(cc);
     if (cf->cfid == '*') {
-        out->isptr = 1;
-        out->size = sizeof(uintv_t);
-        if (name->deftype) {
-            out->refs = name->deftype;
-        }
+        v->refs = name->deftype;
+        v->size = sizeof(uintv_t);
+        v->isptr = 1;
         next(cc);
     } else {
         if (name->deftype) {
-            out->refs = name->deftype;
-            out->size = name->deftype->size;
+            v->refs = name->deftype;
+            v->size = v->refs->size;
+            v->isptr = 0;
         } else {
             errs(cc, ERROR_TYPE_NOT_DEFINED, name->s, 0);
             return false;
@@ -1386,28 +1383,21 @@ bool reftype(chcc_t *cc, synx_t *out) { // 使用类型
     return true;
 }
 
-uint32 pushvar(slist_t *l, synx_t *t, ident_t *name, uint32 offset)
+uint32 pushvar(slist_t *l, vsym_t *v, ident_t *name, uint32 offset)
 {
-    synx_t v = {0};
-    v.refs = t->refs;
-    v.name = name;
-    v.isptr = t->isptr;
-    v.isvar = 1;
-    v.defvar = 1;
-    v.size = v.isptr ? sizeof(uintv_t) : v.refs->size;
-    v.addr = round_up(offset, v.isptr ? (sizeof(uintv_t) - 1) : v.refs->align);
-    *(synx_t *)slist_push_back(l, sizeof(synx_t)) = v;
-    return v.addr + v.size;
+    v->name = name;
+    v->addr = round_up(offset, v->isptr ? (sizeof(uintv_t) - 1) : v->refs->align);
+    *(vsym_t *)slist_push_back(l, sizeof(vsym_t)) = *v;
+    return v->addr + v->size;
 }
 
 bool typevar(chcc_t *cc, slist_t *l, rune term, rune t2) // 类型变量列表
 {
     cifa_t *cf = &cc->cf;
-    synx_t *st = &cc->synx;
-    synx_t *t = null;
+    vsym_t *t = null;
     bool prev_is_type = false;
     uint32 offset = 0;
-    synx_t synx;
+    vsym_t vsym;
 label_loop:
     if (cf->cfid == term || t2 && cf->cfid == t2) {
         if (prev_is_type) {
@@ -1415,43 +1405,42 @@ label_loop:
         }
         return true;
     }
-    if (!st->istype && !st->defvar) {
+    if (!cf->istype && !cf->defvar) {
         return false;
     }
-    if (st->istype) {
+    if (cf->istype) {
         if (prev_is_type) {
             offset = pushvar(l, t, null, offset);
         }
-        if (!reftype(cc, &synx)) {
+        if (!reftype(cc, &vsym)) {
             return false;
         }
-        t = &synx;
+        t = &vsym;
         prev_is_type = true;
     } else {
         if (!t) {
-            errs(cc, ERROR_VAR_WITHOUT_TYPE, st->name->s, 0);
+            errs(cc, ERROR_VAR_WITHOUT_TYPE, cf->ident->s, 0);
             next(cc);
             return false;
         }
-        offset = pushvar(l, t, st->name, offset);
+        offset = pushvar(l, t, cf->ident, offset);
         prev_is_type = false;
     }
     next(cc);
     goto label_loop;
 }
 
-fsyn_t *func_syn(chcc_t *cc, uint32 local)
+fsym_t *func_syn(chcc_t *cc, uint32 local)
 {
     cifa_t *cf = &cc->cf;
-    synx_t *st = &cc->synx;
-    fsyn_t *f = fsynalloc(local);
+    fsym_t *f = fsymalloc();
     next(cc);
-    if (st->istype) {
-        f->recv = st->name;
+    if (cf->istype) {
+        f->recv = cf->ident;
         next(cc);
     }
-    if (st->defvar) {
-        f->name = st->name;
+    if (cf->defvar) {
+        f->head.name = cf->ident;
         next(cc);
     }
     skip(cc, '(');
@@ -1466,45 +1455,53 @@ fsyn_t *func_syn(chcc_t *cc, uint32 local)
     }
     skip(cc, ')');
     while (cf->isattr) {
-        f->fattr |= cf->attr;
+        f->head.flags |= cf->attr;
         next(cc);
     }
     f->body = (cf->cfid == '{');
     if (cc->haserr) {
-        fsynfree(f);
+        fsymfree(f);
         return null;
     }
     return f;
 }
 
-void func_gen(chcc_t *cc, fsyn_t *f)
+void func_gen(chcc_t *cc, uint32 local, fsym_t *f)
 {
     struct slist_it *it;
-    synx_t *prev = null;
-    synx_t *st;
-    uint32 len = 0; // 计算函数参数所占空间大小
-    for (it = slist_begin(&f->para); it != slist_end(&f->para); it = slist_next(it)) {
-        st = (synx_t *)slist_it_get(it);
-        if (st->istype) {
-        }
-    }
+    uint32 len = 0;
+    vsym_t *v;
 
-    f->fadr = cc->cs = round_up_addr(cc->cs, 3);
+    for (it = slist_begin(&f->para); it != slist_end(&f->para); it = slist_next(it)) {
+        v = (vsym_t *)slist_it_get(it);
+        len += v->size;
+        v->addr += 8; // 函数参数在函数返回地址以及返回值地址之后
+    }
+    f->plen = len;
+
+    len = 0;
+    for (it = slist_begin(&f->retp); it != slist_end(&f->para); it = slist_next(it)) {
+        v = (vsym_t *)slist_it_get(it);
+        len += v->size;
+    }
+    f->rlen = len;
+
+    f->addr = cc->cs = round_up_addr(cc->cs, 3);
     gent(cc, f);
 
     gret(cc, f);
 
-    if (f->local) {
+    if (local) {
         // 局部函数总是定义为匿名函数
     } else {
-        if (!f->name) {
+        if (!f->head.name) {
             err(cc, ERROR_GLOBAL_FUNC_NONAME, 0);
             return;
         }
     }
 }
 
-void func_ptr(chcc_t *cc, fsyn_t *f)
+void func_ptr(chcc_t *cc, uint32 local, fsym_t *f)
 {
 
 }
@@ -1512,17 +1509,17 @@ void func_ptr(chcc_t *cc, fsyn_t *f)
 void decl(chcc_t *cc, uint32 local) // 类型声明，函数声明，变量声明、标签声明
 {
     cifa_t *cf = &cc->cf;
-    fsyn_t *fsyn;
+    fsym_t *fsym;
     if (cf->cfid == CIFA_ID_FUNC) { // rax rcx rdx rbx rbp
-        fsyn = func_syn(cc, local);
-        if (!fsyn) {
+        fsym = func_syn(cc, local);
+        if (!fsym) {
             return;
         }
-        if (fsyn->body) {
-            func_gen(cc, fsyn);
+        if (fsym->body) {
+            func_gen(cc, local, fsym);
         } else {
-            func_ptr(cc, fsyn);
+            func_ptr(cc, local, fsym);
         }
-        fsynfree(fsyn);
+        fsymfree(fsym);
     }
 }
