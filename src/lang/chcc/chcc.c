@@ -1343,21 +1343,26 @@ ident_t *getident(chcc_t *cc, cfid_t id)
 // 语法符号都保存在自己对应的作用域中，并随着作用域的切换动态变化，已经退出的作用域会释放其中的符号。哈希表中
 // 的标识符会指向同名的语法符号，以方便检查语法符号是否存在重复定义。
 
+bool scope(chcc_t *cc, intv_t *br)
+{
+    cifa_t *cf = &cc->cf;
+    intv_t *a;
+    if (cf->cfid == CIFA_ID_IF) {
+        next(cc);
+        expr(cc);
+    }
+}
+
 fsym_t *fsymalloc(void)
 {
-    fsym_t *p = (fsym_t *)malloc(sizeof(fsym_t));
-    if (p) {
-        memset(p, sizeof(fsym_t), 0);
-        p->head.type = SYNX_FUNCTION_TYPE;
-    }
-    return p;
+    return stack_new_node(sizeof(fsym_t));
 }
 
 void fsymfree(fsym_t *f)
 {
     slist_free(&f->para, null);
     slist_free(&f->retp, null);
-    free(f);
+    stack_free_node((byte *)f);
 }
 
 bool reftype(chcc_t *cc, vsym_t *v) // 使用类型
@@ -1368,12 +1373,14 @@ bool reftype(chcc_t *cc, vsym_t *v) // 使用类型
     if (cf->cfid == '*') {
         v->refs = name->deftype;
         v->size = sizeof(uintv_t);
+        v->align = sizeof(uintv_t) - 1;
         v->isptr = 1;
         next(cc);
     } else {
         if (name->deftype) {
             v->refs = name->deftype;
             v->size = v->refs->size;
+            v->align = v->refs->align;
             v->isptr = 0;
         } else {
             errs(cc, ERROR_TYPE_NOT_DEFINED, name->s, 0);
@@ -1386,7 +1393,7 @@ bool reftype(chcc_t *cc, vsym_t *v) // 使用类型
 uint32 pushvar(slist_t *l, vsym_t *v, ident_t *name, uint32 offset)
 {
     v->name = name;
-    v->addr = round_up(offset, v->isptr ? (sizeof(uintv_t) - 1) : v->refs->align);
+    v->addr = round_up(offset, v->align);
     *(vsym_t *)slist_push_back(l, sizeof(vsym_t)) = *v;
     return v->addr + v->size;
 }
@@ -1399,7 +1406,7 @@ bool typevar(chcc_t *cc, slist_t *l, rune term, rune t2) // 类型变量列表
     uint32 offset = 0;
     vsym_t vsym;
 label_loop:
-    if (cf->cfid == term || t2 && cf->cfid == t2) {
+    if (cf->cfid == term || (t2 && cf->cfid == t2)) {
         if (prev_is_type) {
             pushvar(l, t, null, offset);
         }
@@ -1430,10 +1437,13 @@ label_loop:
     goto label_loop;
 }
 
-fsym_t *func_syn(chcc_t *cc, uint32 local)
+fsym_t *func_syn(chcc_t *cc, ident_t *dest)
 {
+    struct slist_it *it;
     cifa_t *cf = &cc->cf;
     fsym_t *f = fsymalloc();
+    uint32 len = 0;
+    vsym_t *v;
     next(cc);
     if (cf->istype) {
         f->recv = cf->ident;
@@ -1463,63 +1473,101 @@ fsym_t *func_syn(chcc_t *cc, uint32 local)
         fsymfree(f);
         return null;
     }
-    return f;
-}
-
-void func_gen(chcc_t *cc, uint32 local, fsym_t *f)
-{
-    struct slist_it *it;
-    uint32 len = 0;
-    vsym_t *v;
-
     for (it = slist_begin(&f->para); it != slist_end(&f->para); it = slist_next(it)) {
         v = (vsym_t *)slist_it_get(it);
-        len += v->size;
         v->addr += 8; // 函数参数在函数返回地址以及返回值地址之后
+        if (v->size < sizeof(uintv_t)) {
+            v->size = sizeof(uintv_t);
+        }
+        len += v->size;
     }
-    f->plen = len;
-
+    f->plen = 8 + len;
     len = 0;
     for (it = slist_begin(&f->retp); it != slist_end(&f->para); it = slist_next(it)) {
         v = (vsym_t *)slist_it_get(it);
         len += v->size;
     }
     f->rlen = len;
-
-    f->addr = cc->cs = round_up_addr(cc->cs, 3);
-    gent(cc, f);
-
-    gret(cc, f);
-
-    if (local) {
-        // 局部函数总是定义为匿名函数
-    } else {
-        if (!f->head.name) {
-            err(cc, ERROR_GLOBAL_FUNC_NONAME, 0);
-            return;
-        }
+    if (cc->local) {
+        f->dest = dest;
     }
+    return f;
 }
 
-void func_ptr(chcc_t *cc, uint32 local, fsym_t *f)
+bool func_gen(chcc_t *cc, fsym_t *f)
+{
+    bool succ = false;
+    ident_t *name = f->v.symb.name;
+    ident_t *fglo = null;
+    // 必须先创建函数符号，因为可以递归调用
+#if 0
+    if (cc->local) {
+        f->v.symb.name = f->dest; // 局部函数总使用赋值目标变量名为名称
+    }
+#endif
+    if (!name) {
+        err(cc, ERROR_GLOBAL_FUNC_NONAME, 0);
+        goto label_false;
+    }
+    if (name->glovar) {
+        errs(cc, ERROR_FUNC_DUP_DEFINE, name->s, 0);
+        goto label_false;
+    }
+    fglo = pushhashident_x(cc, cc->pknm->s, name->s, 0, true);
+    if (!fglo) { // 创建全局函数对应的标识符pkg~name
+        goto label_false;
+    }
+    fglo->glovar = &f->v;
+    name->glovar = &f->v;
+    f->v.symb.type = SYMB_FUNC_VARIABLE;
+    f->v.refs = &f->v.symb;
+    cc->text = round_up_addr(cc->text, sizeof(uintv_t)-1);
+    f->v.addr = cc->text;
+    // 进入函数作用域并生成代码
+    genter(cc, f);
+    cc->local += 1;
+    succ = scope(cc, 0);
+    cc->local -= 1;
+    if (!succ) {
+        goto label_false;
+    }
+    gret(cc, f);
+
+    // 将函数符号保存到作用域结构体中
+    f->clen = cc->text - f->v.addr;
+    stack_push_node(&cc->gsym, (byte *)f);
+    return true;
+label_false:
+    cc->text = f->v.addr;
+    if (fglo) {
+        fglo->glovar = null;
+        name->glovar = null;
+    }
+    return false;
+}
+
+bool func_ptr(chcc_t *cc, uint32 local, fsym_t *f)
 {
 
 }
 
-void decl(chcc_t *cc, uint32 local) // 类型声明，函数声明，变量声明、标签声明
+void decl(chcc_t *cc, ident_t *dest) // 类型声明，函数声明，变量声明、标签声明
 {
     cifa_t *cf = &cc->cf;
     fsym_t *fsym;
+    bool succ = false;
     if (cf->cfid == CIFA_ID_FUNC) { // rax rcx rdx rbx rbp
-        fsym = func_syn(cc, local);
+        fsym = func_syn(cc, dest);
         if (!fsym) {
             return;
         }
-        if (fsym->body) {
-            func_gen(cc, local, fsym);
+        if (fsym->v.symb.body) {
+            succ = func_gen(cc, fsym);
         } else {
-            func_ptr(cc, local, fsym);
+            succ = func_ptr(cc, fsym);
         }
-        fsymfree(fsym);
+        if (!succ) {
+            fsymfree(fsym);
+        }
     }
 }

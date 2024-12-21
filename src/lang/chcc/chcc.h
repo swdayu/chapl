@@ -202,6 +202,7 @@ typedef struct ident_t {
     struct ident_t *pknm;      // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
     struct tsym_t *deftype;     // 该标识符定义的类型
     struct vsym_t *defvar;      // 该标识符定义的变量
+    struct vsym_t *glovar;
 } ident_t;
 
 typedef union {
@@ -352,38 +353,41 @@ typedef struct {
     uint32 inst;
 } ops_t;
 
-#define SYNX_BASIC_TYPE     0x01
-#define SYNX_STRUCT_TYPE    0x02
-#define SYNX_INTERFACE_TYPE 0x03
-#define SYNX_FUNCTION_TYPE  0x04
+#define SYMB_BASIC_TYPE     0x01
+#define SYMB_STRUCT_TYPE    0x02
+#define SYMB_INTERFACE_TYPE 0x03
+#define SYMB_FUNCTION_TYPE  0x04
+#define SYMB_DATA_VARIABLE  0x10
+#define SYMB_FUNC_VARIABLE  0x11
 
 typedef struct {
-    ident_t *name;  // 类型名称，如果为空则为匿名类型
-    byte type;      // 类型是哪一种，基本类型、结构体类型、接口类型、还是函数类型
+    ident_t *name;  // 符号名称，如果为空则为匿名类型
+    byte type;      // 哪一种符号，基本类型、结构体类型、接口类型、函数类型、还是变量
     byte align;     // (1 << align)
-    byte flags;
-    byte dynsz: 1;
+    uint16 szdyn: 1;
+    uint16 isptr: 1;
+    uint16 body: 1;
     uint32 size;
-} tsym_t; // 类型符号
+} symb_t; // 类型符号
 
 typedef struct vsym_t {
+    symb_t symb;
     intv_t addr;    // 变量地址（包括函数地址、标签地址）
     intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
-    tsym_t *refs;    // 涉及的类型，即变量的类型
-    ident_t *name;  // 变量名称，可能为空匿名
-    uint32 size;    // 变量占用空间大小
-    byte isptr: 1;  // 变量是否是一个指针类型
+    symb_t *refs;    // 涉及的类型，即变量的类型
 } vsym_t; // 变量符号
 
 typedef struct {
-    tsym_t head;
+    vsym_t v;    // 函数其实是对应函数类型的一个对象
+    ident_t *dest; // 赋值目标变量名称
     ident_t *recv;
-    uint32 plen;
-    uint32 rlen;
     slist_t para;   // 包含vsym_t
     slist_t retp;   // 包含vsym_t
-    intv_t addr;    // 函数地址
-    uint32 body: 1;
+    uint32 plen;
+    uint32 rlen;
+    uint32 clen;
+    uint32 loc;
+    intv_t *radr;
 } fsym_t;
 
 typedef struct {
@@ -407,10 +411,11 @@ typedef struct {
     uint32 user_id_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
-    byte *ds; // 全局变量地址
-    byte *cs; // 代码段的地址
+    byte *data; // 全局变量地址
+    byte *text; // 代码段的地址
+    uint32 loc;
     ident_t *pknm; // 当前代码包名称
-    uint32 scope;
+    uint32 local;
     uint32 anon_id;
     stack_t *gsym; // 全局符号
     stack_t scope;
@@ -482,6 +487,7 @@ enum {
     ERROR_INVALID_ATTR_NAME,
     ERROR_GLOBAL_FUNC_NONAME,
     ERROR_VAR_WITHOUT_TYPE,
+    ERROR_FUNC_DUP_DEFINE,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */
