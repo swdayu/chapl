@@ -159,10 +159,14 @@ typedef uint8 byte;
 typedef uint32 rune; // 保存的是unicode代码点
 typedef uint16 strid_t;
 typedef uint16 Error;
+typedef int16 short_t;
+typedef uint16 ushort_t;
 typedef int32 int_t;
 typedef uint32 uint_t;
-typedef intptr arch;
-typedef uintptr uarch;
+typedef int64 long_t;
+typedef uint64 ulong_t;
+typedef intptr intv_t;
+typedef uintptr uintv_t;
 
 #undef Int
 #undef Uint
@@ -696,12 +700,15 @@ struct stack_before_it;
 
 byte *stack_push(stack_t *s, Int obj_bytes);
 byte *stack_push_it(stack_t *s, struct stack_it *it);
+byte *stack_push_node(stack_t *s, const byte *node);
 byte *stack_insert_after(struct stack_it *p, Int obj_bytes);
 byte *stack_insert(struct stack_before_it *p, Int obj_bytes);
 byte *stack_replace(struct stack_before_it *p, struct stack_it *node, free_t func);
 bool stack_pop(stack_t *s, free_t func);
 void stack_free(stack_t *s, free_t func);
 struct stack_it *stack_new_it(Int obj_bytes);
+byte *stack_new_node(Int obj_bytes);
+void stack_free_node(const byte *node);
 void stack_delete_it(struct stack_it *it, free_t func);
 inline bool stack_empty(stack_t *s) { return (!s || !s->top); }
 inline byte *stack_top(stack_t *s) { return (byte*)(s ? s->top + 1 : 0); }
@@ -887,32 +894,30 @@ inline uint64 bp_64_to_host(byte *p) {
 }
 
 #if __ARCH_32BIT__
-#define host_nb_to_le(n)    host_32_to_le(n)
-#define host_nb_to_be(n)    host_32_to_be(n)
-#define le_nb_to_host(n)    le_32_to_host(n)
-#define be_nb_to_host(n)    be_32_to_host(n)
-#define host_nb_to_lp(n, p) host_32_to_lp((n), (p))
-#define host_nb_to_bp(n, p) host_32_to_bp((n), (p))
-#define lp_nb_to_host(p)    lp_32_to_host(p)
-#define bp_nb_to_host(p)    bp_32_to_host(p)
+#define host_ab_to_le(n)    host_32_to_le(n)
+#define host_ab_to_be(n)    host_32_to_be(n)
+#define le_ab_to_host(n)    le_32_to_host(n)
+#define be_ab_to_host(n)    be_32_to_host(n)
+#define host_ab_to_lp(n, p) host_32_to_lp((n), (p))
+#define host_ab_to_bp(n, p) host_32_to_bp((n), (p))
+#define lp_ab_to_host(p)    lp_32_to_host(p)
+#define bp_ab_to_host(p)    bp_32_to_host(p)
 #elif __ARCH_64BIT__
-#define host_nb_to_le(n)    host_64_to_le(n)
-#define host_nb_to_be(n)    host_64_to_be(n)
-#define le_nb_to_host(n)    le_64_to_host(n)
-#define be_nb_to_host(n)    be_64_to_host(n)
-#define host_nb_to_lp(n, p) host_64_to_lp((n), (p))
-#define host_nb_to_bp(n, p) host_64_to_bp((n), (p))
-#define lp_nb_to_host(p)    lp_64_to_host(p)
-#define bp_nb_to_host(p)    bp_64_to_host(p)
+#define host_ab_to_le(n)    host_64_to_le(n)
+#define host_ab_to_be(n)    host_64_to_be(n)
+#define le_ab_to_host(n)    le_64_to_host(n)
+#define be_ab_to_host(n)    be_64_to_host(n)
+#define host_ab_to_lp(n, p) host_64_to_lp((n), (p))
+#define host_ab_to_bp(n, p) host_64_to_bp((n), (p))
+#define lp_ab_to_host(p)    lp_64_to_host(p)
+#define bp_ab_to_host(p)    bp_64_to_host(p)
 #endif
 
 // (~pow_2_sub_1) 相当于 (-pow_2)
 #define ROUND_POW2(T, n, pow_2_sub_1) (((n) + (pow_2_sub_1)) & (~((T)(pow_2_sub_1))))
 #define ROUND_PAD(n, pow_2_sub_1) ((((pow_2_sub_1) + 1) - ((n) & (pow_2_sub_1))) & (pow_2_sub_1))
-inline uint8 round_up_uint8(uint8 n, uint8 a) { return ROUND_POW2(uint8, n, a); }
-inline uint16 round_up_uint16(uint16 n, uint16 a) { return ROUND_POW2(uint16, n, a); }
-inline uint32 round_up_uint32(uint32 n, uint32 a) { return ROUND_POW2(uint32, n, a); }
-inline uint64 round_up_uint64(uint64 n, uint64 a) { return ROUND_POW2(uint64, n, a); }
-inline byte *round_up_addr(byte *n, uintptr a) { return (byte *)ROUND_POW2(uintptr, (uintptr)n, a); }
+inline uint32 round_up(uint32 n, uint32 a) { return ROUND_POW2(uint32, n, a); }
+inline ulong_t round_up_x(ulong_t n, ulong_t a) { return ROUND_POW2(ulong_t, n, a); }
+inline uintv_t round_up_v(uintv_t n, uintv_t a) { return ROUND_POW2(uintv_t, n, a); }
 
 #endif /* CHAPL_BUILTIN_DECL_H */
