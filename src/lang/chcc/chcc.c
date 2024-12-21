@@ -1199,6 +1199,25 @@ bool ident(chcc_t *cc)
     return true;
 }
 
+void crlf(chcc_t *cc)
+{
+    rune c;
+    uint8 t;
+label_cont:
+    c = cc->c;
+    if (c < 0x80 && (t = cc->b128[c]) == CHAR_CLASS_BLANK) {
+        if (c == CHAR_NEWLINE || c == CHAR_RETURN) {
+            newline(cc, c);
+            cc->cols = 0;
+            cc->c = ';'; // 将换行当成分号
+            return;
+        }
+        cc->cols += 1;
+        rch(cc);
+        goto label_cont;
+    }
+}
+
 void cur(chcc_t *cc) // 解析当前词法
 {
     cifa_t *cf = &cc->cf;
@@ -1343,14 +1362,132 @@ ident_t *getident(chcc_t *cc, cfid_t id)
 // 语法符号都保存在自己对应的作用域中，并随着作用域的切换动态变化，已经退出的作用域会释放其中的符号。哈希表中
 // 的标识符会指向同名的语法符号，以方便检查语法符号是否存在重复定义。
 
-bool scope(chcc_t *cc, intv_t *br)
+bool unary(chcc_t *cc, fsym_t *f)
+{
+
+}
+
+bool expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
 {
     cifa_t *cf = &cc->cf;
-    intv_t *a;
+    cfid_t op = cf->cfid;
+    uint32 oper = cf->oper;
+    while (oper >= prior) {
+        if (op == CIFA_OP_LOR || op == CIFA_OP_LAND) {
+            expr_logic(cc, f, op);
+        } else {
+            next(cc);
+            unary(cc, f);
+            if (cf->oper > oper) {
+                expr_infix(cc, f, oper + 1);
+            }
+            gop(op);
+        }
+        op = cf->cfid;
+        oper = cf->oper;
+    }
+}
+
+bool expr_lor(chcc_t *cc, fsym_t *f)
+{
+    unary(cc, f);
+    expr_infix(cc, f, 2);
+}
+
+bool expr_assign(chcc_t *cc, fsym_t *f)
+{
+    expr_lor(cc, f);
+}
+
+bool expr(chcc_t *cc, fsym_t *f)
+{
+    cifa_t *cf = &cc->cf;
+lable_cont:
+    if (!expr_assign(cc, f)) {
+        return false;
+    }
+    if (cf->cfid == ',') {
+        vpop();
+        next(cc);
+        goto lable_cont;
+    }
+    return true;
+}
+
+bool block(chcc_t *cc, fsym_t *f, intv_t *b) // 语句块
+{
+    cifa_t *cf = &cc->cf;
+    byte *text = cc->text;
+    uint32 loc = f->loc;
+    cfid_t cfid;
+    bool succ = false;
+    intv_t *a, *n;
+    // ifstmt = "if" { expr ";" } expr block [ "else" (ifstmt | block) ] .
     if (cf->cfid == CIFA_ID_IF) {
         next(cc);
-        expr(cc);
+label_if_expr:
+        if (!expr(cc, f)) {
+            return false;
+        }
+        if (cf->cfid == ';') {
+            vpop(cc);
+            next(cc);
+            goto label_if_expr;
+        }
+        if (cf->cfid != '{') {
+            vpop(cc);
+            goto label_false;
+        }
+        a = gjmp_z(cc, 0);  // if 0 需要跳转的地址
+        if (!block(cc, f, b)) {
+            goto label_false;
+        }
+        f->loc = loc;
+        if (cf->cfid == CIFA_ID_ELSE) {
+            next(cc);
+            if (cf->cfid != '{' && cf->cfid != CIFA_ID_IF) {
+                goto label_false;
+            }
+            n = gjmp(cc, 0);        // 这条指令只有上面的if为1时才执行，这里需要跳过整个else块
+            grel(cc->text, a);      // 到这里是整个if块的结束，写入if正确的跳转地址
+            if (!block(cc, f, b)) {    // else 语句块
+                goto label_false;
+            }
+            f->loc = loc;
+            grel(cc->text, n);      // 这里是else块的结束，写入else正确的跳转地址
+        } else {
+            grel(cc->text, a); // 如果没有else则结束if，写入if正确的跳转地址
+        }
+    } else if (cf->cfid == CIFA_ID_FOR) {
+
+    } else if (cf->cfid == '{') {
+        cc->local += 1;
+        next(cc);
+        while (cf->cfid != '}') {
+            block(cc, f, b);
+        }
+        skip(cc, '}');
+        cc->local -= 1;
+    } else if (cf->cfid == CIFA_ID_BREAK) {
+
+    } else { // 消耗一个表达式
+        cfid = cf->cfid;
+        crlf(cc);
+        next(cc);
+        if (cf->cfid != ';') {
+            if (!expr(cc, f)) {
+                goto label_false;
+            }
+        }
+        if (cfid == CIFA_ID_RETURN) {
+            f->radr = (intv_t *)gjmp(cc, (byte *)f->radr); // 跳转到函数返回之前
+        }
     }
+    return true;
+label_false:
+    cc->text = text;
+    f->loc = loc;
+    return false;
 }
 
 fsym_t *fsymalloc(void)
@@ -1496,9 +1633,9 @@ fsym_t *func_syn(chcc_t *cc, ident_t *dest)
 
 bool func_gen(chcc_t *cc, fsym_t *f)
 {
-    bool succ = false;
     ident_t *name = f->v.symb.name;
     ident_t *fglo = null;
+    uint32 loc;
     // 必须先创建函数符号，因为可以递归调用
 #if 0
     if (cc->local) {
@@ -1524,11 +1661,8 @@ bool func_gen(chcc_t *cc, fsym_t *f)
     cc->text = round_up_addr(cc->text, sizeof(uintv_t)-1);
     f->v.addr = cc->text;
     // 进入函数作用域并生成代码
-    genter(cc, f);
-    cc->local += 1;
-    succ = scope(cc, 0);
-    cc->local -= 1;
-    if (!succ) {
+    loc = genter(cc, f);
+    if (!block(cc, loc, 0)) {
         goto label_false;
     }
     gret(cc, f);
