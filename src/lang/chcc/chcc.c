@@ -1361,20 +1361,46 @@ ident_t *getident(chcc_t *cc, cfid_t id)
 //
 // 语法符号都保存在自己对应的作用域中，并随着作用域的切换动态变化，已经退出的作用域会释放其中的符号。哈希表中
 // 的标识符会指向同名的语法符号，以方便检查语法符号是否存在重复定义。
+void vlit(chcc_t *cc)
+{
+    cfval_t *vtop = (cc->vtop += 1);
+    if (vtop >= cc->vstack + cc->vsize) {
+        err(cc, ERROR_VSTACK_OVERFLOW, cc->vsize);
+        return;
+    }
+    *vtop = cc->cf.val;
+}
+
+void vpop(chcc_t *cc)
+{
+    if (cc->vtop >= cc->vstack) {
+        cc->vtop -= 1;
+    }
+}
 
 bool unary(chcc_t *cc, fsym_t *f)
+{
+    cifa_t *cf = &cc->cf;
+    if (cf->cfid == CIFA_TYPE_NUMERIC) {
+        vlit(cc);
+    } else if (cf->cfid == CIFA_TYPE_STRING) {
+
+    }
+}
+
+void expr_logic(chcc_t *cc, fsym_t *f)
 {
 
 }
 
-bool expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
+void expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
 {
     cifa_t *cf = &cc->cf;
     cfid_t op = cf->cfid;
     uint32 oper = cf->oper;
     while (oper >= prior) {
         if (op == CIFA_OP_LOR || op == CIFA_OP_LAND) {
-            expr_logic(cc, f, op);
+            expr_logic(cc, f);
         } else {
             next(cc);
             unary(cc, f);
@@ -1388,13 +1414,13 @@ bool expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
     }
 }
 
-bool expr_lor(chcc_t *cc, fsym_t *f)
+void expr_lor(chcc_t *cc, fsym_t *f)
 {
     unary(cc, f);
     expr_infix(cc, f, 2);
 }
 
-bool expr_assign(chcc_t *cc, fsym_t *f)
+void expr_ass(chcc_t *cc, fsym_t *f)
 {
     expr_lor(cc, f);
 }
@@ -1403,9 +1429,7 @@ bool expr(chcc_t *cc, fsym_t *f)
 {
     cifa_t *cf = &cc->cf;
 lable_cont:
-    if (!expr_assign(cc, f)) {
-        return false;
-    }
+    expr_ass(cc, f);
     if (cf->cfid == ',') {
         vpop();
         next(cc);

@@ -205,14 +205,29 @@ typedef struct ident_t {
     struct vsym_t *glovar;
 } ident_t;
 
-typedef union {
+typedef struct {
+    union {
     uint32 c;
     uint64 i;
     float64 f;
     float32 f32;
+    string_t sval;
     byte jmp[2];
     uint16 cmp[2];
-    string_t sval;
+    };
+    struct vsym_t *v; // 所属变量
+    uint8 base;
+    uint16 ctcst: 1;
+    uint16 isbool: 1;
+    uint16 isnull: 1;
+    uint16 ischar: 1;
+    uint16 iserr: 1;
+    uint16 isint: 1;
+    uint16 isfloat: 1;
+    uint16 isnum: 1;
+    uint16 isstr: 1;
+    uint16 iscmm: 1;
+    uint16 bcmmt: 1;
 } cfval_t;
 
 typedef struct {
@@ -268,7 +283,6 @@ typedef struct {
     uint32 pknm_len;
     uint32 attr;
     uint8 oper;
-    uint8 base;
     uint16 isattr: 1;
     uint16 haspknm: 1; // 标识符有包名前缀
     uint16 keyword: 1; // 语言关键字
@@ -278,13 +292,6 @@ typedef struct {
     uint16 isvar: 1;   // 变量名
     uint16 defvar: 1;
     uint16 refvar: 1;
-    uint16 isbool: 1;
-    uint16 isnull: 1;
-    uint16 ischar: 1;
-    uint16 iserr: 1;
-    uint16 isint: 1;
-    uint16 isfloat: 1;
-    uint16 bcmmt: 1;
     Error error;
     Uint line;
     Uint cols;
@@ -361,7 +368,8 @@ typedef struct {
 #define SYMB_FUNC_VARIABLE  0x11
 
 typedef struct {
-    ident_t *name;  // 符号名称，如果为空则为匿名类型
+    ident_t *name;  // 命名符号名称，如果为空则为匿名类型
+    cfid_t cfid;    // 标识符词法id，可能是匿名id
     byte type;      // 哪一种符号，基本类型、结构体类型、接口类型、函数类型、还是变量
     byte align;     // (1 << align)
     uint16 szdyn: 1;
@@ -417,6 +425,9 @@ typedef struct {
     ident_t *pknm; // 当前代码包名称
     uint32 local;
     uint32 anon_id;
+    uint32 vsize;
+    cfval_t *vstack;
+    cfval_t *vtop;
     stack_t *gsym; // 全局符号
     stack_t scope;
     struct stack_it *global; // 全局符号栈顶
@@ -488,6 +499,7 @@ enum {
     ERROR_GLOBAL_FUNC_NONAME,
     ERROR_VAR_WITHOUT_TYPE,
     ERROR_FUNC_DUP_DEFINE,
+    ERROR_VSTACK_OVERFLOW,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */
