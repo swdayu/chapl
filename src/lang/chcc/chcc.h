@@ -278,11 +278,12 @@ typedef struct {
     cfval_t val;
     string_t s;
     ident_t *ident;
+    ops_t *optr;
     cfid_t cfid;
     uint32 pkhash;
     uint32 pknm_len;
-    uint32 attr;
-    uint8 oper;
+    uint16 attr;
+    byte oper;
     uint16 isattr: 1;
     uint16 haspknm: 1; // 标识符有包名前缀
     uint16 keyword: 1; // 语言关键字
@@ -500,6 +501,7 @@ enum {
     ERROR_VAR_WITHOUT_TYPE,
     ERROR_FUNC_DUP_DEFINE,
     ERROR_VSTACK_OVERFLOW,
+    ERROR_UNKNOWN_OPERATOR,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */

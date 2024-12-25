@@ -502,12 +502,11 @@ void cifa_end(chcc_t *cc, cfid_t cfid, Error error)
 void oper_end(chcc_t *cc, ops_t *op)
 {
     // cfid < 0xc0
-    // oper > 0 操作符，表示优先级
+    // oper > 0 操作符，oper->prior 表示优先级，oper->inst 表示指令
     // oper = 0 标点
-    // val.c 对应机器指令
     cifa_t *cf = &cc->cf;
+    cf->optr = op;
     cf->oper = op->prior;
-    cf->val.c = op->inst;
     cifa_end(cc, op->cfid, 0);
 }
 
@@ -1388,29 +1387,37 @@ bool unary(chcc_t *cc, fsym_t *f)
     }
 }
 
-void expr_logic(chcc_t *cc, fsym_t *f)
+void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
 {
-
+    cifa_t *cf = &cc->cf;
+    cfid_t op = cf->cfid;
+    uint32 oper = cf->oper;
+    byte *a = 0;
+    for (; ;) {
+        a = gjcc(op == CIFA_OP_LOR, a); // 对于||如果为真跳转，对于&&如果为假跳转，跳转到grel
+        next(cc);
+        unary(cc, f);
+        expr_infix(cc, f, oper + 1);
+    }
 }
 
 void expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
 {
     cifa_t *cf = &cc->cf;
-    cfid_t op = cf->cfid;
-    uint32 oper = cf->oper;
-    while (oper >= prior) {
-        if (op == CIFA_OP_LOR || op == CIFA_OP_LAND) {
-            expr_logic(cc, f);
+    ops_t *op;
+    while (cf->oper >= prior) {
+        op = cf->optr;
+        prior = cf->oper;
+        if (cf->cfid == CIFA_OP_LOR || cf->cfid == CIFA_OP_LAND) {
+            expr_logic(cc, f, op);
         } else {
             next(cc);
             unary(cc, f);
-            if (cf->oper > oper) {
-                expr_infix(cc, f, oper + 1);
+            if (cf->oper > prior) {
+                expr_infix(cc, f, prior + 1);
             }
             gop(op);
         }
-        op = cf->cfid;
-        oper = cf->oper;
     }
 }
 
@@ -1420,7 +1427,7 @@ void expr_lor(chcc_t *cc, fsym_t *f)
     expr_infix(cc, f, 2);
 }
 
-void expr_ass(chcc_t *cc, fsym_t *f)
+void expr_assign(chcc_t *cc, fsym_t *f)
 {
     expr_lor(cc, f);
 }
@@ -1429,7 +1436,7 @@ bool expr(chcc_t *cc, fsym_t *f)
 {
     cifa_t *cf = &cc->cf;
 lable_cont:
-    expr_ass(cc, f);
+    expr_assign(cc, f);
     if (cf->cfid == ',') {
         vpop();
         next(cc);
