@@ -1390,14 +1390,22 @@ bool unary(chcc_t *cc, fsym_t *f)
 void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
 {
     cifa_t *cf = &cc->cf;
-    cfid_t op = cf->cfid;
-    uint32 oper = cf->oper;
+    byte oper = op->cfid;
+    bool jmp_when_true = (oper == CIFA_OP_LOR);
     byte *a = 0;
-    for (; ;) {
-        a = gjcc(op == CIFA_OP_LOR, a); // 对于||如果为真跳转，对于&&如果为假跳转，跳转到grel
+    while (op && op->cfid == oper) {
+        a = gjcc(cc, jmp_when_true, a); // 对于||如果为真跳转，对于&&如果为假跳转，跳转到grel
         next(cc);
         unary(cc, f);
-        expr_infix(cc, f, oper + 1);
+        expr_infix(cc, f, op->prior + 1);
+        op = cf->optr;
+    }
+    if (a) {
+        a = gjcc(cc, jmp_when_true, a); // 对于||如果为真跳转，对于&&如果为假跳转，跳转到grel
+        gi(cc, !jmp_when_true);         // 否则对于||结果%eax为假或继续下一个条件，对于&&结果%eax为真或继续下一个条件
+        gjmp(cc, (byte *)5);            // 跳过以下5个字节代码
+        grel(cc->text, (intv_t *)a);    // 修正跳转地址，跳转到此处下一行立即数结果
+        gi(cc, jmp_when_true);          // 对于||结果%eax为真，对于&&结果%eax为假
     }
 }
 
@@ -1421,15 +1429,10 @@ void expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
     }
 }
 
-void expr_lor(chcc_t *cc, fsym_t *f)
+void expr_assign(chcc_t *cc, fsym_t *f)
 {
     unary(cc, f);
     expr_infix(cc, f, 2);
-}
-
-void expr_assign(chcc_t *cc, fsym_t *f)
-{
-    expr_lor(cc, f);
 }
 
 bool expr(chcc_t *cc, fsym_t *f)
