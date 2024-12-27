@@ -1380,25 +1380,108 @@ void vpop(chcc_t *cc)
 bool unary(chcc_t *cc, fsym_t *f)
 {
     cifa_t *cf = &cc->cf;
-    if (cf->cfid == CIFA_TYPE_NUMERIC) {
-        vlit(cc);
-    } else if (cf->cfid == CIFA_TYPE_STRING) {
+    cfid_t id = cf->cfid;
+    vsym_t vsym;
+    if (cf->istype) {
 
+    } else if (cf->isvar) {
+
+    } else if (cf->isconst) {
+
+    } else if (id == CIFA_TYPE_NUMERIC) {
+        vlit(cc);
+    } else if (id == CIFA_TYPE_STRING) {
+
+    } else if (id == '(') {
+        skip(cc, '(');
+        if (cf->istype) {
+            reftype(cc, &vsym);
+            skip(cc, ')');
+            if (cf->cfid == '{') {
+                initializer(cc, &vsym);
+            } else {
+                unary(cc, f);
+                gcast(cc, &vsym);
+            }
+        } else {
+            expr(cc, f);
+            skip(cc, ')');
+        }
+    } else if (id == '*') {
+        skip(cc, '*');
+        unary(cc, f);
+        deref(cc);
+    } else if (id == '&') {
+        skip(cc, '&');
+        unary(cc, f);
+        addrof(cc);
+    } else if (id == '+') {
+        skip(cc, '+');
+        unary(cc, f);
+        if (!cc->vtop->isnum) {
+            return;
+        }
+    } else if (id == '-') {
+        skip(cc, '-');
+        unary(cc, f);
+        if (!cc->vtop->isnum) {
+            return;
+        }
+        if (cc->vtop->isint) {
+            gneg(cc);
+        } else {
+            gnef(cc);
+        }
+    } else if (id == '^') {
+        skip(cc, '^');
+        unary(cc, f);
+        gcompl(cc);
+    } else if (id == '!') {
+        skip(cc, '!');
+        unary(cc, f);
+        gnot(cc);
+    } else {
+        return;
+    }
+    for (; ;) {
+        id = cf->cfid;
+        if (id == '.') {
+
+        } else if (id == '[') {
+
+        } else if (id == '(') {
+
+        } else {
+            break;
+        }
     }
 }
 
+// a || b + c * d
+// cf --> a ||              : expr_logic(2)
+// cf --> a || b            : expr_logic(2) --> unary() --> vtop记录b的地址
+// cf --> a || b +          : expr_logic(2) --> vtop记录b的地址，加号优先级大于||递归调用expr_infix(3)先计算加号
+// cf --> a || b + c        : expr_logic(2) --> expr_infix(3)
+// cf --> a || b + c *      : expr_logic(2) --> expr_infix(3) 乘法优先级大于加号，递归调用expr_infix(+1)先计算乘法
+// cf --> a || b + c * d    : expr_logic(2) --> expr_infix(3) --> expr_infix(+1)
+// cf --> a || b + cd       : expr_logic(2) --> expr_infix(3)
+// cf --> a || bcd          : expr_logic(2)
 void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
 {
     cifa_t *cf = &cc->cf;
-    byte oper = op->cfid;
+    cfid_t oper = op->cfid;
     bool jmp_when_true = (oper == CIFA_OP_LOR);
     byte *a = 0;
-    while (op && op->cfid == oper) {
+    for (; ;) {
         a = gjcc(cc, jmp_when_true, a); // 对于||如果为真跳转，对于&&如果为假跳转，跳转到grel
-        next(cc);
+        skip(cc, oper);
         unary(cc, f);
-        expr_infix(cc, f, op->prior + 1);
-        op = cf->optr;
+        if (cf->oper > op->prior) {
+            expr_infix(cc, f, op->prior + 1);
+        }
+        if (cf->cfid != oper) {
+            break;
+        }
     }
     if (a) {
         a = gjcc(cc, jmp_when_true, a); // 对于||如果为真跳转，对于&&如果为假跳转，跳转到grel
@@ -1409,6 +1492,20 @@ void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
     }
 }
 
+// a + b - c || d || e && f * g
+// cf --> a                 : unary()       --> vtop记录符号a的地址
+// cf --> a +               : expr_infix(2) --> unary()
+// cf --> a + b             :               --> unary() --> vtop记录符号b的地址
+// cf --> a + b -           :               --> vtop记录符号b的地址 --> 减号的优先级不大于加号，计算gop(+, a, b)，减号大于||的优先级继续循环
+// cf --> ab - c            :               --> unary() --> vtop记录符号c的地址
+// cf --> ab - c ||         :               --> vtop记录符号c的地址，||的优先级不大于减号，可以计算减号，gop(-, ab, c)，||大于等于||的优先级继续循环
+// cf --> abc || d          :               --> unary() --> vtop记录符号d的地址
+// cf --> abc || d &&       :               --> vtop记录符号d的地址，&&的优先级大于||，递归调用expr_infix(3)
+// cf --> abc || d && f     :               --> expr_infix(3) --> unary() --> vtop记录符号f的地址
+// cf --> abc || d && f *   :               --> expr_infix(3) --> vtop记录符号f的地址，乘号优先级大于&&，递归嗲用expr_infix(4)
+// cf --> abc || d && f * g :               --> expr_infix(3) --> expr_infix(4) --> unary() --> vtop记录g的地址，未读到操作符计算gop(*, f, g)
+// cf --> abc || d && fg    :               --> expr_infix(3) --> 乘法计算完毕，计算gop(&&, d, fg)
+// cf --> abc || dfg        :               --> &&计算完毕，计算gop(||, abc, dfg)
 void expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
 {
     cifa_t *cf = &cc->cf;

@@ -431,10 +431,6 @@ typedef struct {
     cfval_t *vtop;
     stack_t *gsym; // 全局符号
     stack_t scope;
-    struct stack_it *global; // 全局符号栈顶
-    stack_t symbol; // 当前语法解析时的符号栈
-    yfvar_t *vtop;
-    yfvar_t *vstk;
 } chcc_t;
 
 void chcc_init(chcc_t *cc, file_t *f);
