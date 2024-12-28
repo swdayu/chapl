@@ -145,13 +145,23 @@ enum chcc_predecl_ident {
 
 #if __ARCH_64BIT__
 #define SIZE_OF_POINTER 8
-#define ALIGNOF_POINTER 3 // (1 << 3) = 8
+#define ALIGNOF_POINTER ALIGNOF_64BITS_TYPE
 #else
 #define SIZE_OF_POINTER 4
-#define ALIGNOF_POINTER 2 // (1 << 2) = 4
+#define ALIGNOF_POINTER ALIGNOF_32BITS_TYPE
 #endif
 
-#define BASIC_MAX_ALIGN 3 // (1 << 3) = 8
+#define BASIC_MAX_ALIGN ALIGNOF_64BITS_TYPE
+#define UNFORCED_CONST_FLOAT 0xfffffffe
+#define UNFORCED_CONST_INT 0xffffffff
+
+#define ALIGNOF_8BITS_TYPE  0   // (1 << 0) = 1
+#define ALIGNOF_16BITS_TYPE 1   // (1 << 1) = 2
+#define ALIGNOF_32BITS_TYPE 2   // (1 << 2) = 4
+#define ALIGNOF_64BITS_TYPE 3   // (1 << 3) = 8
+#define ALIGNOF_128BITS_TYPE 4   // (1 << 4) = 16
+#define ALIGNOF_256BITS_TYPE 5   // (1 << 3) = 32
+#define ALIGNOF_512BITS_TYPE 6   // (1 << 3) = 64
 
 // 标识符可以命名：
 // 1. 包名
@@ -192,17 +202,27 @@ struct vsym_t;
 typedef struct ident_t {
     cfid_t id;
     string_t s;
-    struct ident_t *alias;  // 这个标识符是另一标识符的别名，如果为空则表示该标识符不是别名
     struct ident_t *pknm;   // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
     struct symb_t *defsym;
     struct symb_t *glosym;
 } ident_t;
 
+typedef union {
+    uint32 c;
+    uint64 i;
+    float64 f;
+    float32 f32;
+    string_t sval;
+    byte jmp[2];
+    uint16 cmp[2];
+} cstval_t;
+
 typedef struct symb_t {
     ident_t *name;  // 命名符号名称，如果为空则为匿名类型
-    cfid_t cfid;    // 标识符词法id，可能是匿名id
-    uint32 t_size;    // 类型的大小
-    byte t_align;     // (1 << align)
+    ident_t *real;  // 符号实际的名称，当前的符号name只是一个别名，只能给全局名称创建别名
+    cfid_t cfid;    // 符号真实名称id，或匿名id
+    uint32 t_size;  // 类型的大小
+    byte t_align;   // (1 << align)
     uint16 szdyn: 1;
     uint16 body: 1;
     uint16 istype: 1;   // 该符号是一个类型
@@ -219,7 +239,8 @@ typedef struct vsym_t {
     intv_t addr;    // 变量地址（包括函数地址、标签地址）
     intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
     symb_t *refs;   // 涉及的类型，即变量的类型
-    uint32 v_size;    // 变量的大小
+    cstval_t val;
+    uint32 v_size;  // 变量的大小
     byte v_align;
     byte isptr;
 } vsym_t; // 变量符号
@@ -241,40 +262,6 @@ typedef struct {
     uintv_t object;
     uintv_t method;
 } fobj_t;
-
-typedef struct {
-    union {
-    uint32 c;
-    uint64 i;
-    float64 f;
-    float32 f32;
-    string_t sval;
-    byte jmp[2];
-    uint16 cmp[2];
-    };
-    vsym_t *v; // 所属变量
-    uint8 base;
-    uint16 ctcst: 1;
-    uint16 isbool: 1;
-    uint16 isnull: 1;
-    uint16 ischar: 1;
-    uint16 iserr: 1;
-    uint16 isint: 1;
-    uint16 isfloat: 1;
-    uint16 isnum: 1;
-    uint16 isstr: 1;
-    uint16 iscmm: 1;
-    uint16 bcmmt: 1;
-} cfval_t;
-
-typedef struct {
-    uint32 attr;    // 值的属性标志
-    uint16 reg;     // 寄存器以及处理器状态
-    uint16 reg2;    // 第二个寄存器
-    sym_t *type;    // 变量或常量涉及的类型
-    sym_t *sym;     // 值对应的变量标识符符号
-    cfval_t c;      // 常量的值
-} yfvar_t;
 
 // 1. 操作符和标点
 //      cfid < 0xc0
@@ -312,7 +299,7 @@ typedef struct {
 // 5. 地址标识符范围
 //      cfid [0x200, ...)
 typedef struct {
-    cfval_t val;
+    cstval_t val;
     string_t s;
     ident_t *ident;
     ops_t *optr;
@@ -321,6 +308,17 @@ typedef struct {
     uint32 pknm_len;
     uint16 attr;
     byte oper;
+    uint8 base;
+    uint16 isbool: 1;
+    uint16 isnull: 1;
+    uint16 ischar: 1;
+    uint16 iserr: 1;
+    uint16 isint: 1;
+    uint16 isfloat: 1;
+    uint16 isnum: 1;
+    uint16 isstr: 1;
+    uint16 iscmm: 1;
+    uint16 bcmmt: 1;
     uint16 isattr: 1;
     uint16 haspknm: 1; // 标识符有包名前缀
     uint16 keyword: 1; // 语言关键字
@@ -347,12 +345,6 @@ typedef struct {
     uint32 rparm: 1;
     uint32 locvar: 1;
 } field_t;
-
-typedef struct {
-    sym_t sym;
-    sym_t *type;
-    cfval_t val;
-} const_t;
 
 typedef struct {
     sym_t sym;
@@ -404,6 +396,10 @@ typedef struct {
 } scope_t;
 
 typedef struct {
+    vsym_t *v;
+} synval_t;
+
+typedef struct {
     file_t *f;
     byte *b128;
     esc_t *esc;
@@ -428,12 +424,15 @@ typedef struct {
     ident_t *pknm; // 当前代码包名称
     uint32 anon_id;
     uint32 vsize;
-    cfval_t *vstack;
-    cfval_t *vtop;
+    synval_t *vstack;
+    synval_t *vtop;
     scope_t *gsym; // 全局符号
     stack_t *sstk; // 当前作用域符号栈
     uint32 local;
     stack_t scope;
+    bool expose_pretype;
+    bool expose_prenull;
+    bool expose_prebool;
 } chcc_t;
 
 void chcc_init(chcc_t *cc, file_t *f);

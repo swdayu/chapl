@@ -413,6 +413,7 @@ void cifa_init(chcc_t *cc, file_t *f)
     }
 
     cc->user_id_start = sym->id + 1;
+    cc->anon_id = CIFA_ANON_IDENT;
 }
 
 void rch(chcc_t *cc)
@@ -1338,7 +1339,7 @@ void skip(chcc_t *cc, cfid_t id)
 // 的标识符会指向同名的语法符号，以方便检查语法符号是否存在重复定义。
 void vlit(chcc_t *cc)
 {
-    cfval_t *vtop = (cc->vtop += 1);
+    synval_t *vtop = (cc->vtop += 1);
     if (vtop >= cc->vstack + cc->vsize) {
         err(cc, ERROR_VSTACK_OVERFLOW, cc->vsize);
         return;
@@ -1353,19 +1354,245 @@ void vpop(chcc_t *cc)
     }
 }
 
+ident_t *gethashident(chcc_t *cc, cfid_t cfid)
+{
+    if (cfid < CIFA_IDENT_START || cfid >= CIFA_ANON_IDENT) {
+        return null;
+    }
+    return (ident_t *)array_ex_at_n(cc->arry_ident.a, cfid-CIFA_IDENT_START, sizeof(ident_t *));
+}
+
+ident_t *getpkgident(chcc_t *cc, cfid_t cfid)
+{
+    ident_t *ident = gethashident(cc, cfid);
+    if (!ident) { return null; }
+    return ident->pknm;
+}
+
+scope_t *curscope(chcc_t *cc)
+{
+    return (scope_t *)stack_top(&cc->scope);
+}
+
+bool pushscopesym(chcc_t *cc, symb_t *defsym_node)
+{
+    ident_t *named = defsym_node->name; // 全局符号必须是命名符号，定义符号defsym一定不是以包名前缀开头
+    ident_t *gname;
+    bool global = !cc->local;
+    if (global) {
+        if (named->glosym) {
+            goto label_dup_defined;
+        }
+        gname = pushhashident_x(cc, cc->pknm->s, named->s, 0, true);
+        if (!gname) { // 可以在已经定义局部符号的情况下定义一个pkg~name全局符号，并覆盖局部符号
+            return false;
+        }
+        gname->defsym = gname->glosym = defsym_node;
+        named->glosym = defsym_node;
+        defsym_node->real = gname;
+        defsym_node->cfid = gname->id;
+    } else if (named) {
+        if (named->defsym) {
+label_dup_defined:
+            errs(cc, ERROR_SYMB_DUP_DEFINED, named->s, 0);
+            return false;
+        }
+        named->defsym = defsym_node;
+        defsym_node->real = named;
+        defsym_node->cfid = named->id;
+    } else {
+        defsym_node->cfid = cc->anon_id++;
+    }
+    stack_push_node(cc->sstk, (byte *)defsym_node);
+    return true;
+}
+
+symb_t *getscopesym(ident_t *ident)
+{
+    if (!ident) {
+        return null;
+    }
+    if (ident->defsym) {
+        return ident->defsym;
+    }
+    if (ident->glosym) {
+        return ident->glosym;
+    }
+    return null;
+}
+
+symb_t *findscopesym(chcc_t *cc, cfid_t cfid)
+{
+    return getscopesym(gethashident(cc, cfid));
+}
+
+void freescopesym(symb_t *symb, bool global)
+{
+    ident_t *named = symb->name;
+    if (global) {
+        named->defsym = named->glosym = null;
+    } else if (named) {
+        named->defsym = null;
+    }
+}
+
+void scopefree(void *object)
+{
+    scope_t *s = (scope_t *)object;
+    symb_t *symb;
+    while ((symb = stack_top(&s->symb))) {
+        freescope_sym(symb, !s->local);
+        stack_pop(&s->symb, null);
+    }
+}
+
+void enterscope(chcc_t *cc)
+{
+    scope_t *prev = curscope(cc);
+    scope_t *s = (scope_t *)stack_push(&cc->scope, sizeof(scope_t));
+    s->local = prev->local + 1;
+    cc->sstk = &s->symb;
+    cc->local = s->local;
+}
+
+void leavescope(chcc_t *cc)
+{
+    scope_t *s;
+    stack_pop(&cc->scope, scopefree);
+    s = curscope(cc);
+    cc->sstk = &s->symb;
+    cc->local = s->local;
+}
+
+void popscopesym(chcc_t *cc, symb_t *last_symb, bool free_last_symb)
+{
+    stack_t *s;
+    symb_t *symb;
+    bool finish = false;
+    if (!last_symb) { return; }
+    for (; ;) {
+        s = cc->sstk;
+        while ((symb = stack_top(s))) {
+            if (symb == last_symb) {
+                if (!free_last_symb) { return; }
+                finish = true;
+            }
+            freescopesym(symb, !cc->local);
+            stack_pop(s, null);
+            if (finish) { return; }
+        }
+        leavescope(cc);
+    }
+}
+
+void pkgpredecl(chcc_t *cc, cfid_t cfid)
+{
+    ident_t *name = gethashident(cc, cfid);
+    name->pknm = name;
+}
+
+void cstpredecl(chcc_t *cc, cfid_t cfid)
+{
+    vsym_t *vsym;
+    ident_t *name = gethashident(cc, cfid);
+    if (!name || cfid < CIFA_ID_ALIAS_NULL || cfid > CIFA_ID_ALIAS_FALSE) {
+        return;
+    }
+    vsym = (symb_t *)stack_new_node(sizeof(vsym_t));
+    vsym->symb.name = name;
+    vsym->symb.isconst = 1;
+    if (cfid == CIFA_ID_ALIAS_NULL) {
+        vsym->symb.t_size = UNFORCED_CONST_INT;
+        vsym->v_size = UNFORCED_CONST_INT;
+        vsym->val.c = 0;
+        if (cc->expose_prenull) {
+            name->defsym = &vsym->symb;
+        }
+    } else {
+        vsym->symb.t_size = 1;
+        vsym->v_size = 1;
+        vsym->val.c = (cfid == CIFA_ID_ALIAS_BOOL) ? 1 : 0;
+        vsym->refs = findscopesym(cc, CIFA_ID_BOOL);
+        if (cc->expose_prebool) {
+            name->defsym = &vsym->symb;
+        }
+    }
+    pushscopesym(cc, &vsym->symb);
+    vsym->symb.name = vsym->symb.real;
+}
+
+void btypedecl(chcc_t *cc, cfid_t cfid, uint32 size, byte align)
+{
+    symb_t *symb;
+    ident_t *name = gethashident(cc, cfid);
+    if (!name || cfid < CIFA_ID_ALIAS_INT || cfid > CIFA_ID_ALIAS_STRING) {
+        return;
+    }
+    symb = (symb_t *)stack_new_node(sizeof(symb_t));
+    symb->t_size = size;
+    symb->t_align = align;
+    symb->istype = 1;
+    symb->isbtype = 1;
+    if (cc->expose_pretype) {
+        name->defsym = symb;
+    }
+    pushscopesym(cc, symb);
+    symb->name = symb->real;
+}
+
+void basicdecl(chcc_t *cc)
+{
+    // 预定义包名
+    pkgpredecl(cc, CIFA_ID_LANG_PKG);
+    pkgpredecl(cc, CIFA_ID_TYPE_PKG);
+    pkgpredecl(cc, CIFA_ID_BOOL_PKG);
+    pkgpredecl(cc, CIFA_ID_NULL_PKG);
+    pkgpredecl(cc, CIFA_ID_X_PKG);
+
+    // 基本类型
+    cc->pknm = getpkgident(cc, CIFA_ID_TYPE_PKG);
+    btypedecl(cc, CIFA_ID_ALIAS_INT, 4, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_INT8, 1, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_INT16, 2, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_INT32, 4, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_INT64, 8, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_INTV, SIZE_OF_POINTER, ALIGNOF_POINTER);
+    btypedecl(cc, CIFA_ID_ALIAS_INTX, 16, ALIGNOF_128BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_INTY, 32, ALIGNOF_256BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_INTZ, 64, ALIGNOF_512BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_FLOAT, 8, ALIGNOF_64BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_FLOAT16, 2, ALIGNOF_16BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_FLOAT32, 4, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_FLOAT64, 8, ALIGNOF_64BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_COMPLEX, 2*8, ALIGNOF_64BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_COMPLEX16, 2*2, ALIGNOF_16BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_COMPLEX32, 2*4, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_COMPLEX64, 2*8, ALIGNOF_64BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_BOOL, 1, ALIGNOF_8BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_BYTE, 1, ALIGNOF_8BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_RUNE, 4, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_ERROR, 4, ALIGNOF_32BITS_TYPE);
+    btypedecl(cc, CIFA_ID_ALIAS_STRING, 2*SIZE_OF_POINTER, ALIGNOF_POINTER);
+
+    // 预定义常量
+    cc->pknm = getpkgident(cc, CIFA_ID_NULL_PKG);
+    cstpredecl(cc, CIFA_ID_ALIAS_NULL);
+    cc->pknm = getpkgident(cc, CIFA_ID_BOOL_PKG);
+    cstpredecl(cc, CIFA_ID_ALIAS_TRUE);
+    cstpredecl(cc, CIFA_ID_ALIAS_FALSE);
+}
+
 bool unary(chcc_t *cc, fsym_t *f)
 {
     cifa_t *cf = &cc->cf;
     cfid_t id = cf->cfid;
     vsym_t vsym;
-    if (cf->istype) {
-
-    } else if (cf->isvar) {
+    if (cf->isvar) {
 
     } else if (cf->isconst) {
 
     } else if (id == CIFA_TYPE_NUMERIC) {
-        vlit(cc);
+
     } else if (id == CIFA_TYPE_STRING) {
 
     } else if (id == '(') {
@@ -1519,125 +1746,6 @@ lable_cont:
         goto lable_cont;
     }
     return true;
-}
-
-scope_t *curscope(chcc_t *cc)
-{
-    return (scope_t *)stack_top(&cc->scope);
-}
-
-symb_t *getscopesym(ident_t *ident)
-{
-    if (!ident) {
-        return null;
-    }
-label_find_sym:
-    if (ident->defsym) {
-        return ident->defsym;
-    }
-    if (ident->glosym) {
-        return ident->glosym;
-    }
-    if (ident->alias && ident->alias != ident) {
-        ident = ident->alias;
-        goto label_find_sym;
-    }
-    return null;
-}
-
-symb_t *findscopesym(chcc_t *cc, cfid_t cfid)
-{
-    if (cfid < CIFA_IDENT_START || cfid >= CIFA_ANON_IDENT) {
-        return null;
-    }
-    return getscopesym((ident_t *)array_ex_at_n(cc->arry_ident.a, cfid-CIFA_IDENT_START, sizeof(ident_t *)));
-}
-
-bool pushscopesym(chcc_t *cc, symb_t *defsym_node)
-{
-    ident_t *named = defsym_node->name; // 全局符号必须是命名符号，定义符号defsym一定不是以包名前缀开头
-    ident_t *gname;
-    bool global = !cc->local;
-    if (global) {
-        if (named->glosym) {
-            goto label_dup_defined;
-        }
-        // 可以在已经定义局部符号的情况下定义一个pkg~name全局符号，并覆盖局部符号
-        gname = pushhashident_x(cc, cc->pknm->s, named->s, 0, true);
-        if (!gname) {
-            return false;
-        }
-        gname->defsym = gname->glosym = defsym_node;
-        named->glosym = defsym_node;
-    } else if (named) {
-        if (named->defsym) {
-label_dup_defined:
-            errs(cc, ERROR_SYMB_DUP_DEFINED, named->s, 0);
-            return false;
-        }
-        named->defsym = defsym_node;
-    }
-    stack_push_node(cc->sstk, (byte *)defsym_node);
-    return true;
-}
-
-void freescopesym(symb_t *symb, bool global)
-{
-    ident_t *named = symb->name;
-    if (global) {
-        named->defsym = named->glosym = null;
-    } else if (named) {
-        named->defsym = null;
-    }
-}
-
-void scopefree(void *object)
-{
-    scope_t *s = (scope_t *)object;
-    symb_t *symb;
-    while ((symb = stack_top(&s->symb))) {
-        freescope_sym(symb, !s->local);
-        stack_pop(&s->symb, null);
-    }
-}
-
-void enterscope(chcc_t *cc)
-{
-    scope_t *prev = curscope(cc);
-    scope_t *s = (scope_t *)stack_push(&cc->scope, sizeof(scope_t));
-    s->local = prev->local + 1;
-    cc->sstk = &s->symb;
-    cc->local = s->local;
-}
-
-void leavescope(chcc_t *cc)
-{
-    scope_t *s;
-    stack_pop(&cc->scope, scopefree);
-    s = curscope(cc);
-    cc->sstk = &s->symb;
-    cc->local = s->local;
-}
-
-void popscopesym(chcc_t *cc, symb_t *last_symb, bool free_last_symb)
-{
-    stack_t *s;
-    symb_t *symb;
-    bool finish = false;
-    if (!last_symb) { return; }
-    for (; ;) {
-        s = cc->sstk;
-        while ((symb = stack_top(s))) {
-            if (symb == last_symb) {
-                if (!free_last_symb) { return; }
-                finish = true;
-            }
-            freescopesym(symb, !cc->local);
-            stack_pop(s, null);
-            if (finish) { return; }
-        }
-        leavescope(cc);
-    }
 }
 
 bool block(chcc_t *cc, fsym_t *f, intv_t *b) // 语句块
@@ -1943,20 +2051,6 @@ void decl(chcc_t *cc, ident_t *dest) // 类型声明，函数声明，变量声�
     }
 }
 
-void basic_type_decl(chcc_t *cc, cfid_t id, Uint size, uint8 align)
-{
-    stack_t *s = &cc->gsym;
-    ident_t *sym;
-    sym_t *type;
-
-    sym = ident_get(cc, id);
-
-    type = (sym_t *)sym_push(cc, sym, 0, s, sizeof(sym_t), &sym->u.named_type);
-    type->type_kind = SYM_TYPE_BASIC;
-    type->align = align;
-    type->size = size;
-}
-
 void scopeinit(chcc_t *cc)
 {
     cc->gsym = (scope_t *)stack_push(&cc->scope, sizeof(scope_t));
@@ -1964,51 +2058,26 @@ void scopeinit(chcc_t *cc)
     cc->local = 0;
 }
 
+#define VSTACK_MAX_SIZE 512
+
 void chcc_init(chcc_t *cc, file_t *f)
 {
+    uint32 alloc;
     memset(cc, 0, sizeof(chcc_t));
 
     cifa_init(cc, f);
     scopeinit(cc);
 
-    basic_type_decl(cc, CIFA_ID_BYTE, 1, 0); // 1 = 1 << 0, 2 = 1 << 1, 4 = 1 << 2, 8 = 1 << 3
-    basic_type_decl(cc, CIFA_ID_SHORT, 2, 1);
-    basic_type_decl(cc, CIFA_ID_INT, 4, 2);
-    basic_type_decl(cc, CIFA_ID_LONG, 8, 3);
+    alloc = VSTACK_MAX_SIZE * sizeof(synval_t);
+    cc->vstack = (synval_t *)malloc(alloc);
+    memset(cc->vstack, 0, alloc);
+    cc->vtop = cc->vstack + 1;
+    cc->vsize = VSTACK_MAX_SIZE;
 
-#if __ARCH_64BIT__
-    basic_type_decl(cc, CIFA_ID_INTV, 8, 3);
-    basic_type_decl(cc, CIFA_ID_STRING, 16, 3);
-#else
-    basic_type_decl(cc, CIFA_ID_INTV, 4, 2);
-    basic_type_decl(cc, CIFA_ID_STRING, 8, 2);
-#endif
-
-#ifdef CONFIG_32BIT_FLOAT
-    basic_type_decl(cc, CIFA_ID_FLOAT, 4, 2);
-    basic_type_decl(cc, CIFA_ID_COMPLEX, 8, 2);
-#else
-    basic_type_decl(cc, CIFA_ID_FLOAT, 8, 3);
-    basic_type_decl(cc, CIFA_ID_COMPLEX, 16, 3);
-#endif
-
-    basic_type_decl(cc, CIFA_ID_FLOAT16, 2, 1);
-    basic_type_decl(cc, CIFA_ID_FLOAT32, 4, 2);
-    basic_type_decl(cc, CIFA_ID_FLOAT64, 8, 3);
-
-    basic_type_decl(cc, CIFA_ID_COMPLEX16, 4, 1);
-    basic_type_decl(cc, CIFA_ID_COMPLEX32, 8, 2);
-    basic_type_decl(cc, CIFA_ID_COMPLEX64, 16, 3);
-
-    basic_type_decl(cc, CIFA_ID_BOOL, 1, 0);
-    basic_type_decl(cc, CIFA_ID_ERROR, 4, 2);
-    basic_type_decl(cc, CIFA_ID_RUNE, 4, 2);
-
-    // 添加预声明名称，例如：
-    // type~int 以及别名 int 需要自动添加到哈希表和标识符数组，并且 int 需要指向 type~int
-    // 只需要创建 type~int 语法符号，因为 int 总是指向 type~int 标识符，总会使用 type~int 标识符来查找语法符号
-    // type~null/true/false 以及别名 null/true/false 需要自动添加到哈希表和标识符数组，并且后者指向前者
-    // 但一旦找到 type~null/true/false 直接将词法从标识符改成数值类型，并标记 isnull 或 isbool
+    // 添加预声明名称，例如：type~int 以及别名 int 需要自动添加到哈希表和标识符数组，
+    // 并且 int 需要指向 type~int；null~null bool~true 以及别名 null/true/false 需
+    // 要自动添加到哈希表和标识符数组，并且后者指向前者
+    basicdecl(cc);
 }
 
 void chcc_free(chcc_t *cc)
