@@ -163,12 +163,6 @@ enum chcc_predecl_ident {
 // 7. 变量名
 // 8. 常量
 
-#define SYM_TYPE_BASIC      1
-#define SYM_TYPE_STRUCT     2
-#define SYM_TYPE_INTERFACE  3
-#define SYM_TYPE_FUNCTION   4
-#define SYM_TYPE_COMPOSITE  6
-
 typedef uint32 cfid_t;
 
 typedef struct {
@@ -192,18 +186,61 @@ typedef struct {
     uint32 size;
 } sym_t;
 
-struct tsym_t;
+struct symb_t;
 struct vsym_t;
 
 typedef struct ident_t {
     cfid_t id;
     string_t s;
-    struct ident_t *alias;     // 这个标识符是另一标识符的别名，如果为空则表示该标识符不是别名
-    struct ident_t *pknm;      // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
-    struct tsym_t *deftype;     // 该标识符定义的类型
-    struct vsym_t *defvar;      // 该标识符定义的变量
-    struct vsym_t *glovar;
+    struct ident_t *alias;  // 这个标识符是另一标识符的别名，如果为空则表示该标识符不是别名
+    struct ident_t *pknm;   // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
+    struct symb_t *defsym;
+    struct symb_t *glosym;
 } ident_t;
+
+typedef struct symb_t {
+    ident_t *name;  // 命名符号名称，如果为空则为匿名类型
+    cfid_t cfid;    // 标识符词法id，可能是匿名id
+    uint32 t_size;    // 类型的大小
+    byte t_align;     // (1 << align)
+    uint16 szdyn: 1;
+    uint16 body: 1;
+    uint16 istype: 1;   // 该符号是一个类型
+    uint16 isbtype: 1;  // 是一个基本类型
+    uint16 isftype: 1;  // 是一个函数类型，底层表示是一个指针或者函数对象
+    uint16 isitype: 1;  // 是一个接口类型
+    uint16 isconst: 1;  // 该符号是一个常量
+    uint16 isvar: 1;    // 该符号是一个变量
+    uint16 isfvar: 1;   // 是一个可调用变量
+} symb_t; // 类型符号
+
+typedef struct vsym_t {
+    symb_t symb;
+    intv_t addr;    // 变量地址（包括函数地址、标签地址）
+    intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
+    symb_t *refs;   // 涉及的类型，即变量的类型
+    uint32 v_size;    // 变量的大小
+    byte v_align;
+    byte isptr;
+} vsym_t; // 变量符号
+
+typedef struct {
+    vsym_t v;    // 函数其实是对应函数类型的一个对象
+    ident_t *dest; // 赋值目标变量名称
+    ident_t *recv;
+    slist_t para;   // 包含vsym_t
+    slist_t retp;   // 包含vsym_t
+    uint32 plen;
+    uint32 rlen;
+    uint32 clen;
+    uint32 loc;
+    intv_t *radr;
+} fsym_t;
+
+typedef struct {
+    uintv_t object;
+    uintv_t method;
+} fobj_t;
 
 typedef struct {
     union {
@@ -215,7 +252,7 @@ typedef struct {
     byte jmp[2];
     uint16 cmp[2];
     };
-    struct vsym_t *v; // 所属变量
+    vsym_t *v; // 所属变量
     uint8 base;
     uint16 ctcst: 1;
     uint16 isbool: 1;
@@ -361,47 +398,9 @@ typedef struct {
     uint32 inst;
 } ops_t;
 
-#define SYMB_BASIC_TYPE     0x01
-#define SYMB_STRUCT_TYPE    0x02
-#define SYMB_INTERFACE_TYPE 0x03
-#define SYMB_FUNCTION_TYPE  0x04
-#define SYMB_DATA_VARIABLE  0x10
-#define SYMB_FUNC_VARIABLE  0x11
-
-typedef struct {
-    ident_t *name;  // 命名符号名称，如果为空则为匿名类型
-    cfid_t cfid;    // 标识符词法id，可能是匿名id
-    byte type;      // 哪一种符号，基本类型、结构体类型、接口类型、函数类型、还是变量
-    byte align;     // (1 << align)
-    uint16 szdyn: 1;
-    uint16 isptr: 1;
-    uint16 body: 1;
-    uint32 size;
-} symb_t; // 类型符号
-
-typedef struct vsym_t {
-    symb_t symb;
-    intv_t addr;    // 变量地址（包括函数地址、标签地址）
-    intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
-    symb_t *refs;    // 涉及的类型，即变量的类型
-} vsym_t; // 变量符号
-
-typedef struct {
-    vsym_t v;    // 函数其实是对应函数类型的一个对象
-    ident_t *dest; // 赋值目标变量名称
-    ident_t *recv;
-    slist_t para;   // 包含vsym_t
-    slist_t retp;   // 包含vsym_t
-    uint32 plen;
-    uint32 rlen;
-    uint32 clen;
-    uint32 loc;
-    intv_t *radr;
-} fsym_t;
-
 typedef struct {
     uint32 local;
-    stack_t symb; // 保护本作用域定义的符号
+    stack_t symb; // 保存本作用域定义的符号
 } scope_t;
 
 typedef struct {
@@ -420,16 +419,20 @@ typedef struct {
     uint32 user_id_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
-    byte *data; // 全局变量地址
-    byte *text; // 代码段的地址
-    uint32 loc;
+    byte *text_section;
+    byte *text; // 代码段
+    byte *data_section;
+    byte *data; // 数据段
+    byte *rodata_section;
+    byte *rodata; // 只读数据段
     ident_t *pknm; // 当前代码包名称
-    uint32 local;
     uint32 anon_id;
     uint32 vsize;
     cfval_t *vstack;
     cfval_t *vtop;
-    stack_t *gsym; // 全局符号
+    scope_t *gsym; // 全局符号
+    stack_t *sstk; // 当前作用域符号栈
+    uint32 local;
     stack_t scope;
 } chcc_t;
 
@@ -456,6 +459,7 @@ enum {
     ERROR_INVALID_RECEIVER_TYPE,
     ERROR_INVALID_PARAM_TYPE,
     ERROR_INVALID_PARAM_NAME,
+    ERROR_INVALID_POINTER_TYPE,
     ERROR_MISS_CLOSE_QUOTE,
     ERROR_EMPTY_RUNE_LIT,
     ERROR_MULT_CHAR_EXIST,
@@ -495,7 +499,7 @@ enum {
     ERROR_INVALID_ATTR_NAME,
     ERROR_GLOBAL_FUNC_NONAME,
     ERROR_VAR_WITHOUT_TYPE,
-    ERROR_FUNC_DUP_DEFINE,
+    ERROR_SYMB_DUP_DEFINED,
     ERROR_VSTACK_OVERFLOW,
     ERROR_UNKNOWN_OPERATOR,
 };
