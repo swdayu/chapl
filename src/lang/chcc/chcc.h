@@ -128,10 +128,6 @@
 #define CIFA_PT_BLOCK_CMMT  0xa3    // /*
 #define CIFA_PT_3DOT        0xa4    // ...
 #define CIFA_OPER_PUNCT     0xc0
-// 词法字面量
-#define CIFA_TYPE_NUMERIC   0xc1
-#define CIFA_TYPE_STRING    0xc2
-#define CIFA_TYPE_COMMENT   0xc3
 // 标识符
 #define CIFA_IDENT_START    0x100
 enum chcc_predecl_ident {
@@ -155,13 +151,37 @@ enum chcc_predecl_ident {
 #define UNFORCED_CONST_FLOAT 0xfffffffe
 #define UNFORCED_CONST_INT 0xffffffff
 
-#define ALIGNOF_8BITS_TYPE  0   // (1 << 0) = 1
-#define ALIGNOF_16BITS_TYPE 1   // (1 << 1) = 2
-#define ALIGNOF_32BITS_TYPE 2   // (1 << 2) = 4
-#define ALIGNOF_64BITS_TYPE 3   // (1 << 3) = 8
-#define ALIGNOF_128BITS_TYPE 4   // (1 << 4) = 16
-#define ALIGNOF_256BITS_TYPE 5   // (1 << 3) = 32
-#define ALIGNOF_512BITS_TYPE 6   // (1 << 3) = 64
+#define ALIGNOF_TYPE_8          1
+#define ALIGNOF_TYPE_16         2
+#define ALIGNOF_TYPE_32         4
+#define ALIGNOF_TYPE_64         8
+#define ALIGNOF_TYPE_128        16
+#define ALIGNOF_TYPE_256        32
+#define ALIGNOF_TYPE_512        64
+
+#define ALIGNOF_LOG2_8          0   // 2 ^ 0 = 1    (1 << align)
+#define ALIGNOF_LOG2_16         1   // 2 ^ 1 = 2
+#define ALIGNOF_LOG2_32         2   // 2 ^ 2 = 4
+#define ALIGNOF_LOG2_64         3   // 2 ^ 3 = 8
+#define ALIGNOF_LOG2_128        4   // 2 ^ 4 = 16
+#define ALIGNOF_LOG2_256        5   // 2 ^ 5 = 32
+#define ALIGNOF_LOG2_512        6   // 2 ^ 6 = 64
+
+#define ALIGNOF_POW2_SUB1_8     0
+#define ALIGNOF_POW2_SUB1_16    1
+#define ALIGNOF_POW2_SUB1_32    3
+#define ALIGNOF_POW2_SUB1_64    7
+#define ALIGNOF_POW2_SUB1_128   15
+#define ALIGNOF_POW2_SUB1_256   31
+#define ALIGNOF_POW2_SUB1_512   63
+
+#define ALIGNOF_8BITS_TYPE      ALIGNOF_POW2_SUB1_8
+#define ALIGNOF_16BITS_TYPE     ALIGNOF_POW2_SUB1_16
+#define ALIGNOF_32BITS_TYPE     ALIGNOF_POW2_SUB1_32
+#define ALIGNOF_64BITS_TYPE     ALIGNOF_POW2_SUB1_64
+#define ALIGNOF_128BITS_TYPE    ALIGNOF_POW2_SUB1_128
+#define ALIGNOF_256BITS_TYPE    ALIGNOF_POW2_SUB1_256
+#define ALIGNOF_512BITS_TYPE    ALIGNOF_POW2_SUB1_512
 
 // 标识符可以命名：
 // 1. 包名
@@ -218,31 +238,33 @@ typedef union {
 } cstval_t;
 
 typedef struct symb_t {
-    ident_t *name;  // 命名符号名称，如果为空则为匿名类型
-    ident_t *real;  // 符号实际的名称，当前的符号name只是一个别名，只能给全局名称创建别名
-    cfid_t cfid;    // 符号真实名称id，或匿名id
-    uint32 t_size;  // 类型的大小
-    byte t_align;   // (1 << align)
-    uint16 szdyn: 1;
-    uint16 body: 1;
-    uint16 istype: 1;   // 该符号是一个类型
-    uint16 isbtype: 1;  // 是一个基本类型
-    uint16 isftype: 1;  // 是一个函数类型，底层表示是一个指针或者函数对象
-    uint16 isitype: 1;  // 是一个接口类型
-    uint16 isconst: 1;  // 该符号是一个常量
-    uint16 isvar: 1;    // 该符号是一个变量
-    uint16 isfvar: 1;   // 是一个可调用变量
-} symb_t; // 类型符号
+    ident_t *name;      // 命名符号名称，如果为空则为匿名类型
+    ident_t *real;      // 符号实际的名称，当前的符号name只是一个别名，只能给全局名称创建别名
+    cfid_t cfid;        // 符号真实名称id，或匿名id
+    uint32 size;        // 类型或变量的大小
+    uint32 align: 8;    // 类型或变量的对齐
+    uint32 szdyn: 1;    // 大小不是固定大小，运行时才确定
+    uint32 istype: 1;   // 该符号是一个类型
+    uint32 isstype: 1;  // 是一个结构体类型
+    uint32 isitype: 1;  // 是一个接口类型
+    uint32 isftype: 1;  // 是一个函数类型，底层表示是一个指针或者函数对象
+    uint32 isbtype: 1;  // 是一个基本类型
+    uint32 btype_i: 1;  // 整数基本类型
+    uint32 btype_f: 1;  // 浮点基本类型
+    uint32 btype_s: 1;  // 字符串基本类型
+    uint32 isconst: 1;  // 该符号是一个常量
+    uint32 isvar: 1;    // 该符号是一个变量
+    uint32 isfvar: 1;   // 是一个可调用变量
+    uint32 ptrvar: 1;   // 是一个可解引用变量
+    uint32 body: 1;
+} symb_t;
 
 typedef struct vsym_t {
     symb_t symb;
     intv_t addr;    // 变量地址（包括函数地址、标签地址）
     intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
-    symb_t *refs;   // 涉及的类型，即变量的类型
-    cstval_t val;
-    uint32 v_size;  // 变量的大小
-    byte v_align;
-    byte isptr;
+    symb_t *refs;   // 涉及的类型符号，即变量的类型
+    cstval_t val;   // 该符号表示一个常量
 } vsym_t; // 变量符号
 
 typedef struct {
@@ -264,28 +286,27 @@ typedef struct {
 } fobj_t;
 
 // 1. 操作符和标点
-//      cfid < 0xc0
+//      cfid < CIFA_OPER_PUNCT（0xc0）
 //      oper > 0 操作符，表示优先级
 //      oper = 0 标点
-//      val.c 对应机器指令
+//      optr     指向操作符信息
 // 2. 数值字面量
-//      cfid = 0xc0
-//      isbool: 1   val.c   布尔常量
-//      isnull: 1   val.c   空值常量
-//      ischar: 1   val.c   字符常量
-//      iserr: 1    val.c   错误代码
-//      isint: 1    val.i   整数常量    base    基数    cf->s   临时后缀字符串
-//      isfloat:    val.f   浮点常量    base    基数    cf->s   临时后缀字符串
+//      islit: 1
+//      isint: 1    val.i   整数常量    numbase 基数    cf->s   临时后缀字符串      cfid = CIFA_ID_INT/INT64/BOOL/BYTE/RUNE/ERROR/NULL
+//      isfloat: 1  val.f   浮点常量    numbase 基数    cf->s   临时后缀字符串      cfid = CIFA_ID_FLOAT
+//      布尔常量    val.c   cfid = CIFA_ID_BOOL
+//      空值常量    val.c   cfid = CIFA_ID_NULL
+//      字符常量    val.c   cfid = CIFA_ID_RUNE
+//      错误代码    val.c   cfid = CIFA_ID_ERROR
 // 3. 字符串字面量
-//      cfid = 0xc1
+//      islit: 1    cfid = CIFA_ID_STRING
 //      cf->s   临时字符串值
 // 4. 注释
-//      cfid = 0xc2
-//      bcmmt: 1 块注释
-//      bcmmt: 0 行注释
+//      cfid = CIFA_PT_LINE_CMMT 或 CIFA_PT_BLOCK_CMMT
+//      iscmm: 1
 //      cf->s   临时注释字符串
 // 3. 标识符
-//      cfid = CIFA_IDENT_START
+//      cfid = 创建之前 CIFA_TYPE_IDENT，创建之后 >= CIFA_IDENT_START
 //      cf->s 临时标识符名称
 //      val.c 标识符字符串的哈希值
 //      ident.haspknm: 1 包名引用的符号，pknm_len 包名的长度
@@ -302,23 +323,22 @@ typedef struct {
     cstval_t val;
     string_t s;
     ident_t *ident;
-    ops_t *optr;
     cfid_t cfid;
     uint32 pkhash;
     uint32 pknm_len;
     uint16 attr;
+    byte numbase;
+    // 操作符和标点（cfid < CIFA_OPER_PUNCT）
     byte oper;
-    uint8 base;
-    uint16 isbool: 1;
-    uint16 isnull: 1;
-    uint16 ischar: 1;
-    uint16 iserr: 1;
+    ops_t *optr;
+    // 注释（iscmm 不为 0，cfid = CIFA_PT_LINE_CMMT/CIFA_PT_BLOCK_CMMT）
+    uint16 iscmm: 1;
+    // 字面量（islit 不为 0）
+    uint16 islit: 1;
     uint16 isint: 1;
     uint16 isfloat: 1;
-    uint16 isnum: 1;
     uint16 isstr: 1;
-    uint16 iscmm: 1;
-    uint16 bcmmt: 1;
+    // 标识符（ident 不为空）
     uint16 isattr: 1;
     uint16 haspknm: 1; // 标识符有包名前缀
     uint16 keyword: 1; // 语言关键字
@@ -396,7 +416,7 @@ typedef struct {
 } scope_t;
 
 typedef struct {
-    vsym_t *v;
+    vsym_t v;
 } synval_t;
 
 typedef struct {
@@ -423,8 +443,7 @@ typedef struct {
     byte *rodata; // 只读数据段
     ident_t *pknm; // 当前代码包名称
     uint32 anon_id;
-    uint32 vsize;
-    synval_t *vstack;
+    stack_t vstack;
     synval_t *vtop;
     scope_t *gsym; // 全局符号
     stack_t *sstk; // 当前作用域符号栈
@@ -440,6 +459,9 @@ void chcc_free(chcc_t *cc);
 void chcc_start(chcc_t *cc);
 void rch(chcc_t *cc);
 void next(chcc_t *cc);
+symb_t *getscopesym(ident_t *ident);
+symb_t *findscopesym(chcc_t *cc, cfid_t cfid);
+ident_t *getrealident(ident_t *ident);
 
 enum {
     ERROR_CMMT_NOT_CLOSED = 0xE00,
