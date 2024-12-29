@@ -305,8 +305,10 @@ byte *bufferinit_(buffer_head_t *b, Int cap, bool cap_filed_uint, Int N)
 
 void bufferfree_(buffer_head_t *b, Int N)
 {
-    if (b->a) free(b->a);
-    memset(b, 0, N);
+    if (b->a) {
+        free(b->a);
+        memset(b, 0, N);
+    }
 }
 
 bool buffer_init(buffer_t *b, Int cap)
