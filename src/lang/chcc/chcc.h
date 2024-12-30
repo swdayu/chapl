@@ -222,6 +222,7 @@ struct vsym_t;
 typedef struct ident_t {
     cfid_t id;
     string_t s;
+    bool haspkgprefix;
     struct ident_t *pknm;   // 这个标识符是包名或包的别名，这里指向真实的包名称，如果为空则表示不是包名
     struct symb_t *defsym;
     struct symb_t *glosym;
@@ -229,10 +230,10 @@ typedef struct ident_t {
 
 typedef union {
     uint32 c;
-    uint64 i;
+    uint64 i64;
     float64 f;
     float32 f32;
-    string_t sval;
+    string_t str;
     byte jmp[2];
     uint16 cmp[2];
 } cstval_t;
@@ -290,22 +291,20 @@ typedef struct {
 //      oper > 0 操作符，表示优先级
 //      oper = 0 标点
 //      optr     指向操作符信息
-// 2. 数值字面量
+// 2. 字面量
 //      islit: 1
-//      isint: 1    val.i   整数常量    numbase 基数    cf->s   临时后缀字符串      cfid = CIFA_ID_INT/INT64/BOOL/BYTE/RUNE/ERROR/NULL
+//      isint: 1    val.i   整数常量    numbase 基数    cf->s   临时后缀字符串      cfid = CIFA_ID_INT/INT64/BOOL/BYTE/RUNE/ERROR/NULL_TYPE
 //      isfloat: 1  val.f   浮点常量    numbase 基数    cf->s   临时后缀字符串      cfid = CIFA_ID_FLOAT
 //      布尔常量    val.c   cfid = CIFA_ID_BOOL
-//      空值常量    val.c   cfid = CIFA_ID_NULL
+//      空值常量    val.c   cfid = CIFA_ID_NULL_TYPE
 //      字符常量    val.c   cfid = CIFA_ID_RUNE
 //      错误代码    val.c   cfid = CIFA_ID_ERROR
-// 3. 字符串字面量
-//      islit: 1    cfid = CIFA_ID_STRING
-//      cf->s   临时字符串值
-// 4. 注释
+//      字符串  islit: 1    cfid = CIFA_ID_STRING       cf->s   临时字符串值
+// 3. 注释
 //      cfid = CIFA_PT_LINE_CMMT 或 CIFA_PT_BLOCK_CMMT
 //      iscmm: 1
 //      cf->s   临时注释字符串
-// 3. 标识符
+// 4. 标识符
 //      cfid = 创建之前 CIFA_TYPE_IDENT，创建之后 >= CIFA_IDENT_START
 //      cf->s 临时标识符名称
 //      val.c 标识符字符串的哈希值
@@ -315,9 +314,9 @@ typedef struct {
 //      ident.istype: 1 类型名
 //      ident.isconst: 1 常量名
 //      ident.isvar: 1 变量名
-// 4. 其中语言预定义以及非地址标识符范围
+// 5. 其中语言预定义以及非地址标识符范围
 //      cfid [0x100, 0x200)
-// 5. 地址标识符范围
+// 6. 地址标识符范围
 //      cfid [0x200, ...)
 typedef struct {
     cstval_t val;
@@ -338,16 +337,21 @@ typedef struct {
     uint16 isint: 1;
     uint16 isfloat: 1;
     uint16 isstr: 1;
+    // 语言预声明名称（predecl 不为 0，ident 不为空）
+    uint16 predecl: 1;  // 语言预声明名称
+    uint16 keyword: 1;  // 语言关键字
     // 标识符（ident 不为空）
-    uint16 isattr: 1;
-    uint16 haspknm: 1; // 标识符有包名前缀
-    uint16 keyword: 1; // 语言关键字
-    uint16 predecl: 1; // 语言预声明名称
-    uint16 istype: 1;  // 类型名
-    uint16 isconst: 1; // 常量名
-    uint16 isvar: 1;   // 变量名
-    uint16 defvar: 1;
-    uint16 refvar: 1;
+    uint16 isattr: 1;   // 属性名称
+    uint16 haspknm: 1;  // 标识符有包名前缀
+    uint16 istype: 1;   // 类型名
+    uint16 deftype: 1;  // 可用于定义新类型的类型名
+    uint16 reftype: 1;  // 引用已定义类型的类型名
+    uint16 isconst: 1;  // 常量名
+    uint16 defconst: 1; // 可用于定义新常量的常量名
+    uint16 refconst: 1; // 引用已定义常量的常量名
+    uint16 isvar: 1;    // 变量名
+    uint16 defvar: 1;   // 可用于定义新变量的变量名
+    uint16 refvar: 1;   // 引用已定义变量的变量名
     Error error;
     Uint line;
     Uint cols;
@@ -444,7 +448,7 @@ typedef struct {
     ident_t *pknm; // 当前代码包名称
     uint32 anon_id;
     stack_t vstack;
-    synval_t *vtop;
+    vsym_t *vtop;
     scope_t *gsym; // 全局符号
     stack_t *sstk; // 当前作用域符号栈
     uint32 local;
