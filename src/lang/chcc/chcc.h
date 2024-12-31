@@ -122,6 +122,7 @@
 #define CIFA_OP_UMOD_ASSIGN 0x9b    // %%=  无符号取模并赋值
 #define CIFA_OP_LSH_ASSIGN  0x9c    // <--= 左移并赋值
 #define CIFA_OP_RSH_ASSIGN  0x9d    // -->= 右移并赋值
+#define CIFA_OP_END_ASSIGN  0x9f
 // 多字符标点
 #define CIFA_PT_ARROW       0xa1    // ->
 #define CIFA_PT_LINE_CMMT   0xa2    // //
@@ -453,6 +454,7 @@ typedef struct {
     stack_t *sstk; // 当前作用域符号栈
     uint32 local;
     stack_t scope;
+    csym_t *csym;
     bool expose_pretype;
     bool expose_prenull;
     bool expose_prebool;
@@ -485,6 +487,7 @@ enum {
     ERROR_INVALID_PARAM_TYPE,
     ERROR_INVALID_PARAM_NAME,
     ERROR_INVALID_POINTER_TYPE,
+    ERROR_INVALID_CONST_DECL,
     ERROR_MISS_CLOSE_QUOTE,
     ERROR_EMPTY_RUNE_LIT,
     ERROR_MULT_CHAR_EXIST,
@@ -527,6 +530,8 @@ enum {
     ERROR_SYMB_DUP_DEFINED,
     ERROR_VSTACK_OVERFLOW,
     ERROR_UNKNOWN_OPERATOR,
+    ERROR_ASSIGN_IN_THE_MIDDLE,
+    ERROR_CONST_DECL_MISSING_EQ,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */

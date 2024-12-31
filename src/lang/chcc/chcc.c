@@ -1156,7 +1156,7 @@ bool ident(chcc_t *cc)
         cf->refvar = 0;
         cf->predecl = 1;
         if (ident->id <= CIFA_ID_FUNC) {
-            cf->keyword = 1;
+            cf->keyword = 1; // 关键字不能作任何其他用
         } else if (ident->id == CIFA_ID_NULL) {
             cf->cfid = CIFA_ID_NULL_TYPE;
             cf->islit = 1;
@@ -1617,6 +1617,16 @@ void vpop(chcc_t *cc)
 
 }
 
+bool synval_valid(vsym_t *vsym)
+{
+    return vsym->symb.cfid ? true : false;
+}
+
+void vcsym(chcc_t *cc, csym_t *csym)
+{
+
+}
+
 void vlit(chcc_t *cc)
 {
     // 字面量（islit 不为 0）
@@ -1653,11 +1663,14 @@ void vlit(chcc_t *cc)
     vpush(cc, v);
 }
 
-bool unary(chcc_t *cc, fsym_t *f)
+bool unary(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
 {
     cifa_t *cf = &cc->cf;
     cfid_t id = cf->cfid;
+    ident_t *ident;
+    vsym_t *defsym;
     vsym_t vsym;
+    bool rval = false;
     if (cf->ident) {
         // 标识符（ident 不为空）
         // uint16 isattr: 1;
@@ -1669,10 +1682,43 @@ bool unary(chcc_t *cc, fsym_t *f)
         // uint16 isvar: 1;   // 变量名
         // uint16 defvar: 1;
         // uint16 refvar: 1;
-        if (cf->isvar) {
-            vident_var(cc);
+        if (cf->cfid == CIFA_ID_RETURN) {
+            crlf(cc);
+            next(cc);
+            if (cf->cfid != ';') {
+                if (!expr(cc, f, false)) {
+                    goto label_invalid;
+                }
+                rval = true;
+            }
+            vret(cc, f, rval); // f->radr = (intv_t *)gjmp(cc, (byte *)f->radr); // 跳转到函数返回之前
+        } else if (cf->cfid == CIFA_ID_CONST) {
+            if (cc->csym) { // 在常量声明语句内部
+                vcsym(cc, cc->csym);
+            } else {
+                defsym = decl(cc, f, null);
+            }
+        }
+        else if (cf->istype) {
+
         } else if (cf->isconst) {
             vident_cst(cc);
+        } else if (cf->isvar) {
+            ident = cf->ident;
+            next(cc);
+            if (cf->cfid == CIFA_OP_ASSIGN || (cf->cfid >= CIFA_OP_INIT_ASSIGN && cf->cfid < CIFA_OP_END_ASSIGN)) {
+                if ((begin_with_paren & 0x10) && !(begin_with_paren & 0x01)) {
+                    err(cc, ERROR_ASSIGN_IN_THE_MIDDLE, cf->cfid);
+                    return false;
+                }
+                if (cf->cfid == CIFA_OP_INIT_ASSIGN) {
+                    defsym = decl(cc, f, ident);
+                } else {
+                    expr_assign(cc, f, ident);
+                }
+            } else {
+                vident_var(cc);
+            }
         } else {
             goto label_invalid;
         }
@@ -1682,7 +1728,7 @@ bool unary(chcc_t *cc, fsym_t *f)
     } else if (cf->iscmm) {
         buffer_free(&cc->s);
         next(cc); // 忽略注释
-        unary(cc, f);
+        unary(cc, f, (begin_with_paren & 0x10));
     } else if (id == '(') {
         skip(cc, '(');
         if (cf->istype) {
@@ -1691,30 +1737,30 @@ bool unary(chcc_t *cc, fsym_t *f)
             if (cf->cfid == '{') {
                 initializer(cc, &vsym);
             } else {
-                unary(cc, f);
+                unary(cc, f, (begin_with_paren & 0x10));
                 gcast(cc, &vsym);
             }
         } else {
-            expr(cc, f);
+            expr(cc, f, (begin_with_paren & 0x10) | 0x01);
             skip(cc, ')');
         }
     } else if (id == '*') {
         skip(cc, '*');
-        unary(cc, f);
+        unary(cc, f, (begin_with_paren & 0x10));
         deref(cc);
     } else if (id == '&') {
         skip(cc, '&');
-        unary(cc, f);
+        unary(cc, f, (begin_with_paren & 0x10));
         addrof(cc);
     } else if (id == '+') {
         skip(cc, '+');
-        unary(cc, f);
+        unary(cc, f, (begin_with_paren & 0x10));
         if (!cc->vtop->isnum) {
             return;
         }
     } else if (id == '-') {
         skip(cc, '-');
-        unary(cc, f);
+        unary(cc, f, (begin_with_paren & 0x10));
         if (!cc->vtop->isnum) {
             return;
         }
@@ -1725,11 +1771,11 @@ bool unary(chcc_t *cc, fsym_t *f)
         }
     } else if (id == '^') {
         skip(cc, '^');
-        unary(cc, f);
+        unary(cc, f, (begin_with_paren & 0x10));
         gcompl(cc);
     } else if (id == '!') {
         skip(cc, '!');
-        unary(cc, f);
+        unary(cc, f, (begin_with_paren & 0x10));
         gnot(cc);
     } else {
 label_invalid:
@@ -1767,9 +1813,9 @@ void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
     for (; ;) {
         a = gjcc(cc, jmp_when_true, a); // 对于||如果为真跳转，对于&&如果为假跳转，跳转到grel
         skip(cc, oper);
-        unary(cc, f);
+        unary(cc, f, 0x10);
         if (cf->oper > op->prior) {
-            expr_infix(cc, f, op->prior + 1);
+            expr_infix(cc, f, 0x10, op->prior + 1);
         }
         if (cf->cfid != oper) {
             break;
@@ -1798,7 +1844,7 @@ void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
 // cf --> abc || d && f * g :               --> expr_infix(2) --> expr_infix(3) --> unary() --> vtop记录g的地址，未读到操作符计算gop(*, f, g)
 // cf --> abc || d && fg    :               --> expr_infix(2) --> 乘法计算完毕，计算gop(&&, d, fg)
 // cf --> abc || dfg        :               --> &&计算完毕，计算gop(||, abc, dfg)
-void expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
+void expr_infix(chcc_t *cc, fsym_t *f, uint_t begin_with_paren, uint32 prior)
 {
     cifa_t *cf = &cc->cf;
     ops_t *op;
@@ -1809,30 +1855,34 @@ void expr_infix(chcc_t *cc, fsym_t *f, uint32 prior)
             expr_logic(cc, f, op);
         } else {
             next(cc);
-            unary(cc, f);
+            unary(cc, f, 0x10 | begin_with_paren);
             if (cf->oper > prior) {
-                expr_infix(cc, f, prior + 1);
+                expr_infix(cc, f, 0x10 | begin_with_paren, prior + 1);
             }
             gop(op);
         }
     }
 }
 
-void expr_assign(chcc_t *cc, fsym_t *f)
+void an_expr(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
 {
-    unary(cc, f);
-    expr_infix(cc, f, 1);
+    unary(cc, f, begin_with_paren);
+    expr_infix(cc, f, begin_with_paren, 2);
 }
 
-bool expr(chcc_t *cc, fsym_t *f)
+void expr_assign(chcc_t *cc, fsym_t *f, ident_t *dest)
+{
+
+}
+
+bool expr(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
 {
     cifa_t *cf = &cc->cf;
-lable_cont:
-    expr_assign(cc, f);
-    if (cf->cfid == ',') {
+    an_expr(cc, f, begin_with_paren);
+    while (cf->cfid == ',') {
         vpop();
         next(cc);
-        goto lable_cont;
+        an_expr(cc, f, 0x10 | begin_with_paren);
     }
     return true;
 }
@@ -1844,24 +1894,13 @@ bool block(chcc_t *cc, fsym_t *f, intv_t *b) // 语句块
     uint32 loc = f->loc;
     cfid_t cfid;
     bool succ = false;
+    bool rval = false;
     intv_t *a, *n;
-    if (cf->cfid == CIFA_ID_CONST) {
-        // const PI = 3.1415926
-        // const PI = (float32) 3.1415926
-        // const SIZE = 1024
-        // const SIZE = (int16) 1024
-        // const NEWLINE = '\n'
-        // const TAGSTR = "[X]"
-        // const { RED GREEN BLUE } // 默认类型是 int，默认从0开始
-        // const { byte RED GREEN BLUE } // RED GREEN BLUE
-        // const Color { byte RED (const * 2 + 1) GREEN BLUE }
-        next(cc);
-        if (cf->)
-    } else if (cf->cfid == CIFA_ID_IF) {
+    if (cf->cfid == CIFA_ID_IF) {
         // ifstmt = "if" { expr ";" } expr block [ "else" (ifstmt | block) ] .
         next(cc);
 label_if_expr:
-        if (!expr(cc, f)) {
+        if (!expr(cc, f, false)) {
             return false;
         }
         if (cf->cfid == ';') {
@@ -1903,19 +1942,17 @@ label_if_expr:
         }
         skip(cc, '}');
         leavescope(cc);
+    } else if (cf->cfid == CIFA_ID_GOTO) {
+
     } else if (cf->cfid == CIFA_ID_BREAK) {
 
-    } else { // 消耗一个表达式
-        cfid = cf->cfid;
-        crlf(cc);
-        next(cc);
-        if (cf->cfid != ';') {
-            if (!expr(cc, f)) {
-                goto label_false;
-            }
-        }
-        if (cfid == CIFA_ID_RETURN) {
-            f->radr = (intv_t *)gjmp(cc, (byte *)f->radr); // 跳转到函数返回之前
+    } else if (cf->cfid == CIFA_ID_CONTINUE) {
+
+    } else if (cf->cfid == CIFA_ID_DEFER) {
+
+    } else if (cf->cfid != ';') { // 解析一个表达式
+        if (!expr(cc, f, false)) {
+            goto label_false;
         }
     }
     return true;
@@ -2129,15 +2166,111 @@ bool func_type_decl(chcc_t *cc, fsym_t *f)
 
 }
 
-void decl(chcc_t *cc, ident_t *dest) // 类型声明，函数声明，变量声明、标签声明
+typedef struct {
+    vsym_t v;
+    ident_t *deftype;
+    ident_t *csttype;
+    slist_t cstval; // 包含 vsym_t
+    uint32 index;
+} csym_t;
+
+csym_t *csymalloc(void)
+{
+    return (csym_t *)stack_new_node(sizeof(csym_t));
+}
+
+void csyminit(csym_t *f, intv_t addr)
+{
+    f->v.symb.istype = 1;
+    f->v.symb.isftype = 1;
+    if (addr) {
+        f->v.symb.isvar = 1;
+        f->v.symb.isfvar = 1;
+    }
+    if (f->recv) {
+        f->v.symb.align = ALIGNOF_POINTER;
+        f->v.symb.size = sizeof(fobj_t);
+    } else {
+        f->v.symb.align = ALIGNOF_POINTER;
+        f->v.symb.size = SIZE_OF_POINTER;
+    }
+    f->v.refs = &f->v.symb;
+    f->v.addr = addr;
+}
+
+void csymfree(csym_t *csym)
+{
+    slist_free(&csym->cstval, null);
+    stack_free_node((byte *)csym);
+}
+
+csym_t *cst_syn(chcc_t *cc, fsym_t *f)
 {
     cifa_t *cf = &cc->cf;
-    fsym_t *fsym;
+    csym_t *csym = csymalloc(cc);
+    vsym_t *vtop;
+    vsym_t *vsym;
+    vsym = (vsym_t *)slist_push_back(&csym->cstval, sizeof(vsym_t));
+    // const PI = 3.1415926
+    // const PI = (float32) 3.1415926
+    // const SIZE = 1024
+    // const SIZE = (int16) 1024
+    // const NEWLINE = '\n'
+    // const TAGSTR = "[X]"
+    // const { RED GREEN BLUE } // 默认类型是 int，默认从0开始
+    // const { byte RED GREEN BLUE } // RED GREEN BLUE
+    // const Color { byte RED (const * 2 + 1) GREEN BLUE }
+    next(cc);
+    if (cf->defconst) {
+        vtop = cc->vtop;
+        next(cc);
+        if (cf->cfid != '=') {
+            err(cc, ERROR_CONST_DECL_MISSING_EQ, 0);
+            goto label_false;
+        }
+        next(cc);
+        if (cf->cfid == '(') {
+
+        }
+        expr(cc, f, 0x10);
+        if (!synval_valid(vtop)) {
+            goto label_false;
+        }
+    } else if (cf->deftype) {
+
+    } else if (cf->cfid == '{') {
+
+    } else {
+        goto label_false;
+    }
+    return csym;
+label_false:
+    csymfree(csym);
+    return null;
+}
+
+symb_t *decl(chcc_t *cc, fsym_t *f, ident_t *dest) // 类型声明，函数声明，变量声明、标签声明
+{
+    cifa_t *cf = &cc->cf;
+    cfid_t cfid = cf->cfid;
     bool succ = false;
-    if (cf->cfid == CIFA_ID_FUNC) { // rax rcx rdx rbx rbp
-        fsym = func_syn(cc, dest);
+    if (cfid == CIFA_ID_PACKAGE) {
+
+    } else if (cfid == CIFA_ID_IMPORT) {
+
+    } else if (cfid == CIFA_ID_CONST) {
+        csym_t *csym = cst_syn(cc, f);
+        return &csym->v.symb;
+    } else if (cfid == CIFA_ID_TYPE) {
+
+    } else if (cfid == CIFA_ID_STRUCT) {
+
+    } else if (cfid == CIFA_ID_INTERFACE) {
+
+    } else if (cfid == CIFA_ID_FUNC) {
+        fsym_t *fsym = func_syn(cc, dest);
         if (!fsym) {
-            return;
+            return null;
         }
         if (fsym->v.symb.body) {
             succ = func_gen(cc, fsym);
@@ -2146,7 +2279,13 @@ void decl(chcc_t *cc, ident_t *dest) // 类型声明，函数声明，变量声�
         }
         if (!succ) {
             fsymfree(fsym);
+            return null;
         }
+        return &fsym->v.symb;
+    } else if (cfid == CIFA_OP_INIT_ASSIGN) {
+        vsym = ;
+        cf->cfid = CIFA_OP_ASSIGN;
+        expr_assign(cc, f, dest);
     }
 }
 
