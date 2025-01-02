@@ -386,7 +386,7 @@ void cifa_ops(chcc_t *cc)
     memcpy(cc->ops, a, sizeof(a));
 }
 
-void cifa_init(chcc_t *cc, file_t *f)
+void cifa_init(chcc_t *cc)
 {
     byte predecl_ident[] = {
 #define PREDECL(id, ...) __VA_ARGS__, 0x00,
@@ -396,7 +396,6 @@ void cifa_init(chcc_t *cc, file_t *f)
     const byte *p, *c;
     ident_t *sym = 0;
 
-    cc->f = f;
     cifa_b128(cc);
     cifa_esc(cc);
     cifa_ops(cc);
@@ -419,22 +418,55 @@ void cifa_init(chcc_t *cc, file_t *f)
 
 void rch(chcc_t *cc)
 {
-    cc->c = file_get(cc->f);
+    cc->c = file_get(cc->ftop);
 }
 
 void rch_ex(chcc_t *cc, void (*f)(void *p, const byte *e))
 {
-    cc->c = file_get_ex(cc->f, f, cc);
+    cc->c = file_get_ex(cc->ftop, f, cc);
 }
 
 void un_rch(chcc_t *cc)
 {
-    file_unget(cc->f);
+    file_unget(cc->ftop);
 }
 
 void un_rch_ex(chcc_t *cc, int32 n)
 {
-    file_unget_ex(cc->f, n);
+    file_unget_ex(cc->ftop, n);
+}
+
+void pushfilex_(chcc_t *cc, file_t *f)
+{
+    if (cc->ftop) {
+        un_rch(cc);
+    }
+    if (f) {
+        *(file_t **)stack_push(&cc->fstk, sizeof(file_t *)) = f;
+        cc->ftop = f;
+    }
+}
+
+void chcc_pushstrtofile(chcc_t *cc, string_t s)
+{
+    pushfilex_(cc, file_load(s, 0));
+}
+
+void chcc_pushfile(chcc_t *cc, const char *filename) // filename "-" 可以从标准输入读取
+{
+    pushfilex_(cc, file_open(filename, 'r', 0));
+}
+
+void chcc_popfile(chcc_t *cc)
+{
+    file_t *f;
+    stack_pop(&cc->fstk, null);
+    file_close(cc->ftop);
+    f = (file_t *)stack_top(&cc->fstk);
+    if (f) {
+        cc->ftop = f;
+        rch(cc);
+    }
 }
 
 void utf(chcc_t *cc)
@@ -532,7 +564,7 @@ void cmmt_end(chcc_t *cc, cfid_t cfid)
 void cpstr(void *p, const byte *e)
 {
     chcc_t *cc = (chcc_t *)p;
-    file_t *f = cc->f;
+    file_t *f = cc->ftop;
     buffer_t *b = &cc->s;
     byte *s = cc->start;
     buffer_push(b, s, e - s, CFSTR_ALLOC_EXPAND);
@@ -804,7 +836,7 @@ static Uint idnum(chcc_t *cc, bool num)
     Error error = null;
     uint32 h = IDENT_HASH_INIT;
     buffer_t *s = &cc->s;
-    buffix_t *b = &cc->f->b;
+    buffix_t *b = &cc->ftop->b;
     ident_t *sym;
     string_t d;
     uint32 pkhash;
@@ -881,7 +913,7 @@ label_finish:
 
 static Uint comment(chcc_t *cc, cfid_t c)
 {
-    buffix_t *b = &cc->f->b;
+    buffix_t *b = &cc->ftop->b;
     buffer_t *s = &cc->s;
     Uint nch = 2; // // or /*
     buffer_clear(s);
@@ -1036,7 +1068,7 @@ static Uint charlit(chcc_t *cc)
 
 static Uint strlit(chcc_t *cc, rune quote)
 {
-    buffix_t *b = &cc->f->b;
+    buffix_t *b = &cc->ftop->b;
     buffer_t *s = &cc->s;
     const byte *pend;
     Uint nch = 1; // quote
@@ -2412,12 +2444,12 @@ void vstackinit(chcc_t *cc)
     cc->vtop = (vsym_t *)stack_top(&cc->vstack);
 }
 
-void chcc_init(chcc_t *cc, file_t *f)
+void chcc_init(chcc_t *cc)
 {
     uint32 alloc;
     memset(cc, 0, sizeof(chcc_t));
 
-    cifa_init(cc, f);
+    cifa_init(cc);
     scopeinit(cc);
     vstackinit(cc);
 

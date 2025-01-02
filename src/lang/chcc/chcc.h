@@ -425,7 +425,8 @@ typedef struct {
 } synval_t;
 
 typedef struct {
-    file_t *f;
+    stack_t fstk;
+    file_t *ftop;
     byte *b128;
     esc_t *esc;
     ops_t *ops;
@@ -460,7 +461,10 @@ typedef struct {
     bool expose_prebool;
 } chcc_t;
 
-void chcc_init(chcc_t *cc, file_t *f);
+void chcc_init(chcc_t *cc);
+void chcc_pushfile(chcc_t *cc, const char *filename);
+void chcc_pushstrtofile(chcc_t *cc, string_t s);
+void chcc_popfile(chcc_t *cc);
 void chcc_free(chcc_t *cc);
 void chcc_start(chcc_t *cc);
 void rch(chcc_t *cc);
