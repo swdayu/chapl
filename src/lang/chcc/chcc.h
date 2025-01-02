@@ -465,6 +465,8 @@ void chcc_init(chcc_t *cc);
 void chcc_pushfile(chcc_t *cc, const char *filename);
 void chcc_pushstrtofile(chcc_t *cc, string_t s);
 void chcc_popfile(chcc_t *cc);
+void chcc_replacestrtofile(chcc_t *cc, string_t s);
+void chcc_replacefile(chcc_t *cc, const char *filename);
 void chcc_free(chcc_t *cc);
 void chcc_start(chcc_t *cc);
 void rch(chcc_t *cc);

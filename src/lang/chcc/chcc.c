@@ -457,16 +457,40 @@ void chcc_pushfile(chcc_t *cc, const char *filename) // filename "-" 可以从�
     pushfilex_(cc, file_open(filename, 'r', 0));
 }
 
+void filestackfree(void *object)
+{
+    file_t *f = *(file_t **)object;
+    file_close(f);
+}
+
 void chcc_popfile(chcc_t *cc)
 {
     file_t *f;
-    stack_pop(&cc->fstk, null);
-    file_close(cc->ftop);
+    stack_pop(&cc->fstk, filestackfree);
     f = (file_t *)stack_top(&cc->fstk);
     if (f) {
         cc->ftop = f;
         rch(cc);
     }
+}
+
+void replacefile_(chcc_t *cc, file_t *f)
+{
+    stack_pop(&cc->fstk, filestackfree);
+    if (f) {
+        *(file_t **)stack_push(&cc->fstk, sizeof(file_t *)) = f;
+        cc->ftop = f;
+    }
+}
+
+void chcc_replacestrtofile(chcc_t *cc, string_t s)
+{
+    replacefile_(cc, file_load(s, 0));
+}
+
+void chcc_replacefile(chcc_t *cc, const char *filename)
+{
+    replacefile_(cc, file_open(filename, 'r', 0));
 }
 
 void utf(chcc_t *cc)
@@ -2464,6 +2488,7 @@ void chcc_free(chcc_t *cc)
     buffer_free(&cc->s);
     bhash_free(&cc->hash_ident, ident_free);
     array_ex_free(&cc->arry_ident);
+    stack_free(&cc->fstk, filestackfree);
     stack_free(&cc->scope, scopefree);
     stack_free(&cc->vstack, null);
     free(cc->ops);

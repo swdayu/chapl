@@ -30,12 +30,9 @@
 void test_chcc(void)
 {
     chcc_t cc;
-    file_t *f = file_load(strnull(), 0);
     cifa_t *cf = &cc.cf;
 
-    lang_assert(f != null);
-
-    chcc_init(&cc, f);
+    chcc_init(&cc);
 
     cifa_is_basic_type(CIFA_ID_INT);
     cifa_is_basic_type(CIFA_ID_BYTE);
@@ -58,7 +55,7 @@ void test_chcc(void)
     cifa_is_basic_type(CIFA_ID_ERROR);
     cifa_is_basic_type(CIFA_ID_STRING);
 
-    file_reload(f, strfrom(
+    chcc_replacestrtofile(&cc, strfrom(
         "\t \\ \r"              //  1 空白
         " \n"                   //  2 换行
         "\r\n"                  //  3 换行
@@ -153,7 +150,7 @@ void test_chcc(void)
     cifa_assert(10, 16, CIFA_OP_UGT);
     cifa_assert(10, 18, CHAR_GT);
 
-    file_reload(f, strfrom(
+    chcc_replacestrtofile(&cc, strfrom(
         "//\n"              //  1 注释
         "// \n"             //  2
         " //a\n"            //  3
@@ -184,7 +181,7 @@ void test_chcc(void)
     cifa_cmm_assert(12, 1, CIFA_TYPE_COMMENT, "*abc"); cifa_assert(12, 9, CHAR_AND);
     cifa_cmm_assert(13, 1, CIFA_TYPE_COMMENT, "**abc"); cifa_assert(13, 10, CHAR_AND);
 
-    file_reload(f, strfrom(
+    chcc_replacestrtofile(&cc, strfrom(
         "''\n"                              //  1 字符字面量
         "'' \n"                             //  2
         " ''\n"                             //  3
@@ -293,7 +290,7 @@ void test_chcc(void)
     cifa_rune_assert(27, 1, 0x10, ERROR_INVALID_HEXNUMB);
     cifa_rune_assert(27, 9, 0x1200, ERROR_INVALID_HEXNUMB);
 
-    file_reload(f, strfrom(
+    chcc_replacestrtofile(&cc, strfrom(
         "\"\" ``\n"                             //  1 字符串字面量
         "\"\"`` \n"                             //  2
         " \"\" ``\n"                            //  3
@@ -333,7 +330,7 @@ void test_chcc(void)
     cifa_str_assert(14, 2, "a\\a\\b\\c\\d\n", null);
     cifa_str_assert(15, 2, "a\\t\\0\\x12\\u1FFF", null);
 
-    file_reload(f, strfrom(
+    chcc_replacestrtofile(&cc, strfrom(
         "true false null\n"              // 1 整数字面量
         "0 0_ 0__0 0_1__ 001 12 345\n"  // 2
         "0b_0_1_2345_ab_ 0B_ 0b__ab \n" // 3
@@ -362,7 +359,7 @@ void test_chcc(void)
     cifa_int_assert(5, 13, CIFA_TYPE_NUMERIC, 0x0A); lang_assert_1(cf->s.len == 0, cf->s.len);
     cifa_int_assert(5, 21, CIFA_TYPE_NUMERIC, 0x7FEE); lang_assert_1(cf->s.len == 0, cf->s.len);
 
-    file_reload(f, strfrom(
+    chcc_replacestrtofile(&cc, strfrom(
         "if for int float\n"            // 1 标识符
         " _0aA_9_ _aA_0 abc AB\n"       // 2
         "_ a b C Z\n"                   // 3
@@ -383,6 +380,5 @@ void test_chcc(void)
     cifa_ident_assert(3, 7, cc.user_id_start+7); lang_assert_s(memcmp(cf->s.a, "C", 1) == 0, cf->s);
     cifa_ident_assert(3, 9, cc.user_id_start+8); lang_assert_s(memcmp(cf->s.a, "Z", 1) == 0, cf->s);
 
-    file_close(f);
     chcc_free(&cc);
 }
