@@ -996,17 +996,6 @@ typedef Elf64Phdr ElfPhdr;
 typedef Elf32Phdr ElfPhdr;
 #endif
 
-// __ARCH_X86__         // x86-pc
-// __ARCH_X64__         // x64-pc
-// __ARCH_ARM__         // arm, ARMv4
-// __ARCH_ARM64__       // aarch64, ARMv8
-// __OS_FREEBSD__       // freebsd
-// __OS_OPENBSD__       // openbsd
-// __OS_NETBSD__        // netbsd
-// __OS_WINDOWS__       // windows
-// __OS_LINUX__         // linux-gnu
-// __OS_MACHO__         // apple-darwin
-
 #ifndef CONFIG_ELF_INTERP
 #if __OS_FREEBSD__
 #define CONFIG_ELF_INTERP "/libexec/ld-elf.so.1"
