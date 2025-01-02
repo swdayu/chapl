@@ -136,11 +136,17 @@ void file_reload(file_t *f, string_t s)
 
 void file_reopen(file_t *f, const char *filename, uint32 mode)
 {
-    int32 fd = 0; // stdin;
+    int32 fd;
     int flags = 0;
     fileclose_(f);
     f->b.cur = ((byte *)(f + 1)) + BUF_HEAD_BYTE_CNT;
-    if (filename && *filename) {
+    if (*filename == '-') {
+        if (mode == 'r') {
+            fd = 0; // stdin
+        } else {
+            fd = 1; // stdout
+        }
+    } else {
         if (mode == 'r') {
             flags = O_RDONLY;
         } else if (mode == 'a') {
@@ -172,13 +178,16 @@ file_t *fileopen_(const byte *filename, Int strlen, int32 bufsize, uint32 mode)
     if (cap > FILE_BUF_MAX_SIZE) {
         return null;
     }
+    if (mode && (!filename || !filename[0])) {
+        return null;
+    }
     f = (file_t *)malloc(sizeof(file_t) + cap);
     if (!f) {
         return null;
     }
     f->fd = -1;
     buffix_init_inplace(&f->b, cap);
-    if (mode) {
+    if (mode) { // 通过文件打开模式是否为空来区分加载的是文件还是字符串
         file_reopen(f, (char *)filename, mode);
     } else {
         file_reload(f, strflen(filename, strlen));
