@@ -332,28 +332,28 @@ typedef struct {
     byte oper;
     ops_t *optr;
     // 注释（iscmm 不为 0，cfid = CIFA_PT_LINE_CMMT/CIFA_PT_BLOCK_CMMT）
-    uint16 iscmm: 1;
+    uint32 iscmm: 1;
     // 字面量（islit 不为 0）
-    uint16 islit: 1;
-    uint16 isint: 1;
-    uint16 isfloat: 1;
-    uint16 isstr: 1;
+    uint32 islit: 1;
+    uint32 isint: 1;
+    uint32 isfloat: 1;
+    uint32 isstr: 1;
+    uint32 unicode: 1;
     // 语言预声明名称（predecl 不为 0，ident 不为空）
-    uint16 predecl: 1;  // 语言预声明名称
-    uint16 keyword: 1;  // 语言关键字
+    uint32 predecl: 1;  // 语言预声明名称
+    uint32 keyword: 1;  // 语言关键字
     // 标识符（ident 不为空）
-    uint16 isattr: 1;   // 属性名称
-    uint16 haspknm: 1;  // 标识符有包名前缀
-    uint16 istype: 1;   // 类型名
-    uint16 deftype: 1;  // 可用于定义新类型的类型名
-    uint16 reftype: 1;  // 引用已定义类型的类型名
-    uint16 isconst: 1;  // 常量名
-    uint16 defconst: 1; // 可用于定义新常量的常量名
-    uint16 refconst: 1; // 引用已定义常量的常量名
-    uint16 isvar: 1;    // 变量名
-    uint16 defvar: 1;   // 可用于定义新变量的变量名
-    uint16 refvar: 1;   // 引用已定义变量的变量名
-    Error error;
+    uint32 isattr: 1;   // 属性名称
+    uint32 haspknm: 1;  // 标识符有包名前缀
+    uint32 istype: 1;   // 类型名
+    uint32 deftype: 1;  // 可用于定义新类型的类型名
+    uint32 reftype: 1;  // 引用已定义类型的类型名
+    uint32 isconst: 1;  // 常量名
+    uint32 defconst: 1; // 可用于定义新常量的常量名
+    uint32 refconst: 1; // 引用已定义常量的常量名
+    uint32 isvar: 1;    // 变量名
+    uint32 defvar: 1;   // 可用于定义新变量的变量名
+    uint32 refvar: 1;   // 引用已定义变量的变量名
     Uint line;
     Uint cols;
 } cifa_t;
@@ -425,19 +425,23 @@ typedef struct {
 } synval_t;
 
 typedef struct {
+    file_t *f;
+    cifa_t cf;
+    rune c;
+    Error error;
+    bool haserr;
+    Uint line;  // 当前词法前缀所在行
+    Uint cols;  // 当前词法前缀所在字符列
+} bufile_t;
+
+typedef struct {
     stack_t fstk;
-    file_t *ftop;
+    bufile_t *top; // stack top file
     byte *b128;
     esc_t *esc;
     ops_t *ops;
     buffer_t s;
-    cifa_t cf;
-    rune c;
-    bool unicode;
-    bool haserr;
     byte *start;
-    Uint line;  // 当前词法前缀所在行
-    Uint cols;  // 当前词法前缀所在字符列
     uint32 user_id_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
@@ -542,7 +546,8 @@ enum {
     ERROR_CONST_NEED_INT_TYPE,
     ERROR_ISNOT_CONST_EXPR,
     ERROR_CONST_TYPE_MISSING_CURLY,
-    ERROR_CONST_INVALID_SYNTAX,
+    ERROR_INVALID_CONST_SYNTAX,
+    ERROR_INVALID_CONST_NAME,
     ERROR_VAR_ALREADY_DEFINED,
 };
 

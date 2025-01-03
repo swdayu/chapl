@@ -69,7 +69,6 @@ void test_chcc(void)
     ));
 
     // "@()[]{},;\n"
-    chcc_start(&cc);
     cifa_assert(1, 3, CIFA_OP_DIV);
     cifa_assert(4, 1, CHAR_ATSIGN);
     cifa_assert(4, 2, CHAR_OPEN_PAREN);
@@ -166,7 +165,6 @@ void test_chcc(void)
         "/***abc*/&\n"      // 13
     ));
 
-    chcc_start(&cc);
     cifa_cmm_assert(1, 1, CIFA_TYPE_COMMENT, "");
     cifa_cmm_assert(2, 1, CIFA_TYPE_COMMENT, " ");
     cifa_cmm_assert(3, 2, CIFA_TYPE_COMMENT, "a");
@@ -211,7 +209,6 @@ void test_chcc(void)
         "'\\x1\\'' '\\u12\\\n"              // 27
     ));
 
-    chcc_start(&cc);
     cifa_rune_assert(1, 1, 0x00, ERROR_EMPTY_RUNE_LIT);
     cifa_rune_assert(2, 1, 0x00, ERROR_EMPTY_RUNE_LIT);
     cifa_rune_assert(3, 2, 0x00, ERROR_EMPTY_RUNE_LIT);
@@ -308,7 +305,6 @@ void test_chcc(void)
         "``a\\t\\0\\x12\\u1FFF`\n"              // 15
     ));
 
-    chcc_start(&cc);
     cifa_str_assert(1, 1, "", null);
     cifa_str_assert(1, 4, "", null);
     cifa_str_assert(2, 1, "", null);
@@ -338,7 +334,6 @@ void test_chcc(void)
         "0B1011_0111 0b1010_ 0X7FEE_\n" // 5
     ));
 
-    chcc_start(&cc);
     cifa_int_assert(1, 1, CIFA_TYPE_NUMERIC, true);
     cifa_int_assert(1, 6, CIFA_TYPE_NUMERIC, false);
     cifa_int_assert(1, 12, CIFA_TYPE_NUMERIC, 0);
@@ -365,7 +360,6 @@ void test_chcc(void)
         "_ a b C Z\n"                   // 3
     ));
 
-    chcc_start(&cc);
     cifa_ident_assert(1, 1, CIFA_ID_IF); lang_assert_s(memcmp(cf->s.a, "if", 2) == 0, cf->s);
     cifa_ident_assert(1, 4, CIFA_ID_FOR); lang_assert_s(memcmp(cf->s.a, "for", 3) == 0, cf->s);
     cifa_ident_assert(1, 8, CIFA_ID_INT); lang_assert_s(memcmp(cf->s.a, "int", 3) == 0, cf->s);

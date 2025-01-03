@@ -418,68 +418,75 @@ void cifa_init(chcc_t *cc)
 
 void rch(chcc_t *cc)
 {
-    cc->c = file_get(cc->ftop);
+    bufile_t *top = cc->top;
+    top->c = file_get(top->f);
 }
 
 void rch_ex(chcc_t *cc, void (*f)(void *p, const byte *e))
 {
-    cc->c = file_get_ex(cc->ftop, f, cc);
+    bufile_t *top = cc->top;
+    top->c = file_get_ex(top->f, f, cc);
 }
 
 void un_rch(chcc_t *cc)
 {
-    file_unget(cc->ftop);
+    bufile_t *top = cc->top;
+    file_unget(top->f);
 }
 
 void un_rch_ex(chcc_t *cc, int32 n)
 {
-    file_unget_ex(cc->ftop, n);
+    bufile_t *top = cc->top;
+    file_unget_ex(top->f, n);
 }
 
-void pushfilex_(chcc_t *cc, file_t *f)
+void pushfilex_(chcc_t *cc, file_t *f, bool dont_change_file_line)
 {
-    if (cc->ftop) {
-        un_rch(cc);
+    bufile_t *prev = cc->top;
+    bufile_t *cur;
+    if (!f) {
+        return;
     }
-    if (f) {
-        *(file_t **)stack_push(&cc->fstk, sizeof(file_t *)) = f;
-        cc->ftop = f;
+    cur = (bufile_t *)stack_push(&cc->fstk, sizeof(bufile_t));
+    cur->f = f;
+    cc->top = cur;
+    if (prev && dont_change_file_line) {
+        cur->line = prev->line;
+        cur->cols = prev->cols;
     }
+    chcc_start(cc);
 }
 
-void chcc_pushstrtofile(chcc_t *cc, string_t s)
+void chcc_pushstrtofile(chcc_t *cc, string_t s, bool dont_change_file_line)
 {
-    pushfilex_(cc, file_load(s, 0));
+    pushfilex_(cc, file_load(s, 0), dont_change_file_line);
 }
 
 void chcc_pushfile(chcc_t *cc, const char *filename) // filename "-" 可以从标准输入读取
 {
-    pushfilex_(cc, file_open(filename, 'r', 0));
+    pushfilex_(cc, file_open(filename, 'r', 0), false);
 }
 
 void filestackfree(void *object)
 {
-    file_t *f = *(file_t **)object;
-    file_close(f);
+    bufile_t *cur = (bufile_t *)object;
+    file_close(cur->f);
 }
 
 void chcc_popfile(chcc_t *cc)
 {
-    file_t *f;
     stack_pop(&cc->fstk, filestackfree);
-    f = (file_t *)stack_top(&cc->fstk);
-    if (f) {
-        cc->ftop = f;
-        rch(cc);
-    }
+    cc->top = (bufile_t *)stack_top(&cc->fstk);
 }
 
 void replacefile_(chcc_t *cc, file_t *f)
 {
+    bufile_t *cur;
     stack_pop(&cc->fstk, filestackfree);
     if (f) {
-        *(file_t **)stack_push(&cc->fstk, sizeof(file_t *)) = f;
-        cc->ftop = f;
+        cur = (bufile_t *)stack_push(&cc->fstk, sizeof(bufile_t));
+        cur->f = f;
+        chcc_start(cc);
     }
 }
 
@@ -495,54 +502,58 @@ void chcc_replacefile(chcc_t *cc, const char *filename)
 
 void utf(chcc_t *cc)
 {
-    rune c = cc->c;
+    bufile_t *top = cc->top;
+    rune c = top->c;
     utf_t u;
     int i = 0;
 
-    cc->unicode = false;
+    top->cf.unicode = false;
 
     if (c == CHAR_EOF || (u = utfhead(c)).l == 0) {
         return;
     }
 
-    cc->unicode = true;
+    top->cf.unicode = true;
 
     for (; i < u.l; i += 1) {
         rch(cc);
-        if (!utftail(&u.c, cc->c)) {
+        if (!utftail(&u.c, top->c)) {
             un_rch(cc);
             break;
         }
     }
 
     if (i == u.l && u.c > u.min) {
-        cc->c = u.c;
+        top->c = u.c;
         return;
     }
 
-    log_error_5(ERROR_INVALID_UTF8_BYTE, cc->line, cc->cols, u.c, u.l, i);
-    cc->c = CHAR_INVALID_UTF;
+    log_error_5(ERROR_INVALID_UTF8_BYTE, top->line, top->cols, u.c, u.l, i);
+    top->c = CHAR_INVALID_UTF;
 }
 
 void err(chcc_t *cc, Error error, uint32 n)
 {
-    cc->haserr = true;
-    log_error_3(error, cc->line, cc->cols, n);
+    bufile_t *top = cc->top;
+    top->haserr = true;
+    log_error_3(error, top->line, top->cols, n);
 }
 
 void errs(chcc_t *cc, Error error, string_t s, uint32 n)
 {
-    cc->haserr = true;
-    log_error_s_3(error, s, cc->line, cc->cols, n);
+    bufile_t *top = cc->top;
+    top->haserr = true;
+    log_error_s_3(error, s, top->line, top->cols, n);
 }
 
 void cifa_end(chcc_t *cc, cfid_t cfid, Error error)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cf->cfid = cfid;
     if (error) {
-        cc->haserr = true;
-        cf->error = error;
+        top->haserr = true;
+        top->error = error;
     }
 }
 
@@ -551,7 +562,8 @@ void oper_end(chcc_t *cc, ops_t *op)
     // cfid < 0xc0
     // oper > 0 操作符，oper->prior 表示优先级，oper->inst 表示指令
     // oper = 0 标点
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cf->optr = op;
     cf->oper = op->prior;
     cifa_end(cc, op->cfid, 0);
@@ -562,24 +574,26 @@ static void newline(chcc_t *cc, rune c)
     // EOL - Windows (CR LF)    \r\n    0x0d 0x0a
     //     - Unix (LF)          \n      0x0a
     //     - Macintosh (CR)     \r      0x0d
+    bufile_t *top = cc->top;
     if (c == '\r') {
         rch(cc);
-        if (cc->c == '\n') {
+        if (top->c == '\n') {
             // Windows \r\n
         } else {
             // Macintosh \r
             un_rch(cc);
         }
     }
-    cc->line ++;
-    cc->cols = 1;
+    top->line ++;
+    top->cols = 1;
 }
 
 void cmmt_end(chcc_t *cc, cfid_t cfid)
 {
     // iscmm: 1
     // cf->s   临时注释字符串
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cf->iscmm = 1;
     cf->s = string_ref_buffer(&cc->s);
     cifa_end(cc, cfid, 0);
@@ -588,7 +602,7 @@ void cmmt_end(chcc_t *cc, cfid_t cfid)
 void cpstr(void *p, const byte *e)
 {
     chcc_t *cc = (chcc_t *)p;
-    file_t *f = cc->ftop;
+    file_t *f = cc->top->f;
     buffer_t *b = &cc->s;
     byte *s = cc->start;
     buffer_push(b, s, e - s, CFSTR_ALLOC_EXPAND);
@@ -649,7 +663,8 @@ typedef struct {
 
 void char_end(chcc_t *cc, rune c, Error error)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cf->islit = 1;
     cf->val.c = c;
     cifa_end(cc, (c <= 0xff) ? CIFA_ID_BYTE : CIFA_ID_RUNE, error);
@@ -664,7 +679,8 @@ void numlit_end(chcc_t *cc, const numval_t *val)
     // iserr: 1    val.c   错误代码
     // isint: 1    val.i   整数常量    base    基数    cf->s   临时后缀字符串
     // isfloat:    val.f   浮点常量    base    基数    cf->s   临时后缀字符串
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cfid_t cfid = CIFA_ID_INT;
     if (val->isfloat) {
         cf->isfloat = 1;
@@ -837,7 +853,8 @@ void ident_end(chcc_t *cc, string_t s, uint32 hash, uint32 pkhash, uint32 pknm_l
     // ident.istype: 1 类型名
     // ident.isconst: 1 常量名
     // ident.isvar: 1 变量名
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cf->s = s;
     cf->val.c = hash;
     cf->pkhash = pkhash;
@@ -857,16 +874,17 @@ void ident_end(chcc_t *cc, string_t s, uint32 hash, uint32 pkhash, uint32 pknm_l
 
 static Uint idnum(chcc_t *cc, bool num)
 {
+    bufile_t *top = cc->top;
     Error error = null;
     uint32 h = IDENT_HASH_INIT;
     buffer_t *s = &cc->s;
-    buffix_t *b = &cc->ftop->b;
+    buffix_t *b = &top->f->b;
     ident_t *sym;
     string_t d;
     uint32 pkhash;
     uint32 pknm_len = 1;
     byte t, e = CHAR_CLASS_IDENT;
-    rune c = cc->c;
+    rune c = top->c;
 
     if (num) {
         e = CHAR_CLASS_SIGN;
@@ -879,7 +897,7 @@ static Uint idnum(chcc_t *cc, bool num)
 
     for (; ;) {
         rch_ex(cc, cpstr);
-        c = cc->c;
+        c = top->c;
         if (c < 0x80 && (t = cc->b128[c]) >= CHAR_CLASS_DIGIT && t <= e) {
             if (!num) {
                 h = ident_hash(h, c);
@@ -897,16 +915,16 @@ static Uint idnum(chcc_t *cc, bool num)
     pknm_len += 1; // 包名长度包含最后的~字符
     pkhash = h = ident_hash(h, c);
     rch_ex(cc, cpstr);
-    c = cc->c;
+    c = top->c;
     if (c >= 0x80 || cc->b128[c] != CHAR_CLASS_IDENT) {
         error = ERROR_MISSING_EXPORT_SYM;
-        log_error_3(error, cc->line, cc->cols + pknm_len, c);
+        log_error_3(error, top->line, top->cols + pknm_len, c);
         goto label_finish;
     }
     h = ident_hash(h, c); // 标识符第一个字符
     for (; ;) {
         rch_ex(cc, cpstr);
-        c = cc->c;
+        c = top->c;
         if (c < 0x80 && ((t = cc->b128[c]) == CHAR_CLASS_DIGIT || t == CHAR_CLASS_IDENT)) {
             h = ident_hash(h, c);
         } else {
@@ -937,7 +955,8 @@ label_finish:
 
 static Uint comment(chcc_t *cc, cfid_t c)
 {
-    buffix_t *b = &cc->ftop->b;
+    bufile_t *top = cc->top;
+    buffix_t *b = &top->f->b;
     buffer_t *s = &cc->s;
     Uint nch = 2; // // or /*
     buffer_clear(s);
@@ -945,7 +964,7 @@ static Uint comment(chcc_t *cc, cfid_t c)
     if (c == CIFA_PT_LINE_CMMT) {
         for (; ;) {
             rch_ex(cc, cpstr);
-            c = cc->c;
+            c = top->c;
             if (c == CHAR_EOF) {
                 break;
             }
@@ -961,7 +980,7 @@ static Uint comment(chcc_t *cc, cfid_t c)
     } else {
         for (; ;) {
             rch_ex(cc, cpstr);
-            c = cc->c;
+            c = top->c;
             if (c == CHAR_EOF) {
                 break;
             }
@@ -977,7 +996,7 @@ static Uint comment(chcc_t *cc, cfid_t c)
                     continue;
                 }
                 rch_ex(cc, cpstr);
-                if (cc->c == '/') {
+                if (top->c == '/') {
                     buffer_push(s, cc->start, b->cur - 2 - cc->start, CFSTR_ALLOC_EXPAND); // */ 不属于注释内容
                     nch += 1; // */
                     break; // 块注释读取完毕
@@ -993,19 +1012,20 @@ static Uint comment(chcc_t *cc, cfid_t c)
 
 static Uint esc(chcc_t *cc, rune quote, Error *out)
 {
+    bufile_t *top = cc->top;
     esc_t *a = cc->esc;
     Error error = null;
     Uint i, nch = 1;
     rune u = 0;
     rune c;
     rch(cc);
-    c = cc->c;
+    c = top->c;
     for (; a->c && c <= a->c; a += 1) {
         if (c < a->c) continue;
         u = a->d;
         for (i = 0; i < a->n; ++i) { // 开始处理 \xff \uffff \Uffffffff
             rch(cc);
-            c = cc->c;
+            c = top->c;
             if (c == quote || c == CHAR_BSLASH || c == CHAR_EOF || c == CHAR_RETURN || c == CHAR_NEWLINE) {
                 un_rch(cc); // 遇到结束字符回退并退出
                 u <<= 4 * (a->n - i); // 剩余的字符都看出是0
@@ -1031,19 +1051,20 @@ static Uint esc(chcc_t *cc, rune quote, Error *out)
     u = CHAR_SPACE; // 不识别转义字符解析成空格
 label_finish:
     if (error) {
-        log_error_3(error, cc->line, cc->cols + nch, c);
+        log_error_3(error, top->line, top->cols + nch, c);
         if (out) *out = error;
     }
-    cc->c = u;
-    cc->unicode = (a->n >= 4);
+    top->c = u;
+    top->cf.unicode = (a->n >= 4);
     return nch;
 }
 
 static int achar(chcc_t *cc, Error *error)
 {
+    bufile_t *top = cc->top;
     rune c;
     rch(cc);
-    c = cc->c;
+    c = top->c;
     if (c == CHAR_SQUOTE) {
         return -1; // 读取结束
     }
@@ -1060,6 +1081,7 @@ static int achar(chcc_t *cc, Error *error)
 
 static Uint charlit(chcc_t *cc)
 {
+    bufile_t *top = cc->top;
     Error error = null;
     Uint nch = 1;
     rune u = 0;
@@ -1069,7 +1091,7 @@ static Uint charlit(chcc_t *cc)
         error = (len < 0) ? ERROR_EMPTY_RUNE_LIT : ERROR_MISS_CLOSE_QUOTE;
     } else {
         nch += len;
-        u = cc->c;
+        u = top->c;
         len = achar(cc, null);
         if (len == 0) {
             if (!error) { // 最先出现的错误优先
@@ -1092,7 +1114,8 @@ static Uint charlit(chcc_t *cc)
 
 static Uint strlit(chcc_t *cc, rune quote)
 {
-    buffix_t *b = &cc->ftop->b;
+    bufile_t *top = cc->top;
+    buffix_t *b = &top->f->b;
     buffer_t *s = &cc->s;
     const byte *pend;
     Uint nch = 1; // quote
@@ -1110,7 +1133,7 @@ static Uint strlit(chcc_t *cc, rune quote)
     cc->start = b->cur;
     for (; ;) {
         rch_ex(cc, cpstr);
-        c = cc->c;
+        c = top->c;
         if (c == CHAR_RETURN || c == CHAR_NEWLINE) {
             if (rawstr) {
                 buffer_push(s, cc->start, b->cur - 1 - cc->start, CFSTR_ALLOC_EXPAND);
@@ -1131,11 +1154,11 @@ static Uint strlit(chcc_t *cc, rune quote)
         } else if (c == CHAR_BSLASH && !rawstr) {
             buffer_push(s, cc->start, b->cur - 1 - cc->start, CFSTR_ALLOC_EXPAND);
             nch += 1 + esc(cc, CHAR_DQUOTE, &error);
-            if (cc->unicode) { // 代码点转换成utf8字符串字节流
-                len = unc2utf(cc->c, utf8);
+            if (top->cf.unicode) { // 代码点转换成utf8字符串字节流
+                len = unc2utf(top->c, utf8);
                 buffer_push(s, utf8, len, CFSTR_ALLOC_EXPAND);
             } else {
-                buffer_put(s, (byte)cc->c, CFSTR_ALLOC_EXPAND);
+                buffer_put(s, (byte)top->c, CFSTR_ALLOC_EXPAND);
             }
             cc->start = b->cur;
         } else {
@@ -1149,18 +1172,19 @@ static Uint strlit(chcc_t *cc, rune quote)
     if (s->len) {
         buffer_push(s, cc->start, pend - cc->start, CFSTR_ALLOC_EXPAND);
 label_copied:
-        cc->cf.s = string_ref_buffer(&cc->s);
+        top->cf.s = string_ref_buffer(&cc->s);
     } else {
-        cc->cf.s = strflen(cc->start, pend - cc->start);
+        top->cf.s = strflen(cc->start, pend - cc->start);
     }
-    cc->cf.islit = 1;
-    cc->cf.isstr = 1;
+    top->cf.islit = 1;
+    top->cf.isstr = 1;
     cifa_end(cc, CIFA_ID_STRING, error);
     return nch;
 }
 
 ops_t *oper(chcc_t *cc, rune c, byte idx)
 {
+    bufile_t *top = cc->top;
     ops_t *a = cc->ops + idx;
     int i = 0;
     for (; a->len && a->op[0] == c; a += 1, i = 0) {
@@ -1169,7 +1193,7 @@ ops_t *oper(chcc_t *cc, rune c, byte idx)
                 return a;
             }
             rch(cc);
-            if (cc->c != a->op[i]) {
+            if (top->c != a->op[i]) {
                 un_rch_ex(cc, i); // 如果不匹配回退除第一个字符外的所有字符
                 break;
             }
@@ -1180,7 +1204,8 @@ ops_t *oper(chcc_t *cc, rune c, byte idx)
 
 bool ident(chcc_t *cc)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     string_t pknm;
     ident_t *real_pknm;
     ident_t *ident;
@@ -1276,18 +1301,19 @@ bool ident(chcc_t *cc)
 
 void crlf(chcc_t *cc)
 {
+    bufile_t *top = cc->top;
     rune c;
     uint8 t;
 label_cont:
-    c = cc->c;
+    c = top->c;
     if (c < 0x80 && (t = cc->b128[c]) == CHAR_CLASS_BLANK) {
         if (c == CHAR_NEWLINE || c == CHAR_RETURN) {
             newline(cc, c);
-            cc->cols = 0;
-            cc->c = ';'; // 将换行当成分号
+            top->cols = 0;
+            top->c = ';'; // 将换行当成分号
             return;
         }
-        cc->cols += 1;
+        top->cols += 1;
         rch(cc);
         goto label_cont;
     }
@@ -1295,23 +1321,24 @@ label_cont:
 
 void cur(chcc_t *cc) // 解析当前词法
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     ops_t *op;
     rune c;
     uint8 t;
     Uint nch;
 label_cont:
-    c = cc->c;
+    c = top->c;
     memset(cf, 0, sizeof(cifa_t));
-    cf->line = cc->line;
-    cf->cols = cc->cols;
+    cf->line = top->line;
+    cf->cols = top->cols;
     if (c == CHAR_EOF) {
         cifa_end(cc, CHAR_EOF, 0);
         return;
     }
     if (c >= 0x80) {
         utf(cc); // 解析并跳过utf8字符
-        cc->cols += 1;
+        top->cols += 1;
         rch(cc); // 读取下一个字符
         goto label_cont;
     }
@@ -1323,7 +1350,7 @@ label_cont:
         if (c == CHAR_NEWLINE || c == CHAR_RETURN) {
             newline(cc, c);
         } else {
-            cc->cols += 1;
+            top->cols += 1;
         }
         rch(cc);
         goto label_cont;
@@ -1361,7 +1388,7 @@ label_punct:
             }
         }
     }
-    cc->cols += nch;
+    top->cols += nch;
     rch(cc);
     if (cf->cfid == CIFA_TYPE_IDENT) {
         if (!ident(cc)) {
@@ -1372,7 +1399,8 @@ label_punct:
 
 void next(chcc_t *cc)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cur(cc);
     if (cf->cfid == '@') {
         cur(cc);
@@ -1388,8 +1416,9 @@ void next(chcc_t *cc)
 
 void skip(chcc_t *cc, cfid_t id)
 {
-    if (cc->cf.cfid != id) {
-        err(cc, ERROR_SKIP_MATCH_FAILED, cc->cf.cfid);
+    bufile_t *top = cc->top;
+    if (top->cf.cfid != id) {
+        err(cc, ERROR_SKIP_MATCH_FAILED, top->cf.cfid);
     }
     next(cc);
 }
@@ -1673,8 +1702,12 @@ void vpop(chcc_t *cc)
 
 }
 
-bool synval_valid(vsym_t *vsym)
+bool vtopconst(vsym_t *vsym)
 {
+    if (!vtop->symb.isconst) {
+        err(cc, ERROR_ISNOT_CONST_EXPR, 0);
+        goto label_false;
+    }
     return vsym->symb.cfid ? true : false;
 }
 
@@ -1693,7 +1726,8 @@ void vlit(chcc_t *cc)
     // 字符常量    val.c   cfid = CIFA_ID_RUNE
     // 错误代码    val.c   cfid = CIFA_ID_ERROR
     // 字符串  islit: 1    cfid = CIFA_ID_STRING       cf->s   临时字符串值
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     vsym_t *v = (vsym_t *)stack_new_node(sizeof(vsym_t) + cf->s.len);
     symb_t *t = findscopesym(cc, cf->cfid);
     v->symb.cfid = cf->cfid; // 常量没有name/real名称
@@ -1721,7 +1755,8 @@ void vlit(chcc_t *cc)
 
 bool unary(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cfid_t id = cf->cfid;
     ident_t *ident;
     vsym_t *defsym;
@@ -1864,7 +1899,8 @@ label_invalid:
 // cf --> a || bcd          : expr_logic(1)
 void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cfid_t oper = op->cfid;
     bool jmp_when_true = (oper == CIFA_OP_LOR);
     byte *a = 0;
@@ -1904,7 +1940,8 @@ void expr_logic(chcc_t *cc, fsym_t *f, ops_t *op)
 // cf --> abc || dfg        :               --> &&计算完毕，计算gop(||, abc, dfg)
 void expr_infix(chcc_t *cc, fsym_t *f, uint_t begin_with_paren, uint32 prior)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     ops_t *op;
     while (cf->oper >= prior) {
         op = cf->optr;
@@ -1935,7 +1972,8 @@ void expr_assign(chcc_t *cc, fsym_t *f, ident_t *dest)
 
 bool expr(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     an_expr(cc, f, begin_with_paren);
     while (cf->cfid == ',') {
         vpop();
@@ -1947,7 +1985,8 @@ bool expr(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
 
 bool block(chcc_t *cc, fsym_t *f, intv_t *b) // 语句块
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     byte *text = cc->text;
     uint32 loc = f->loc;
     cfid_t cfid;
@@ -2054,7 +2093,8 @@ void fsymfree(fsym_t *f)
 bool reftype(chcc_t *cc, vsym_t *v) // 使用类型
 {
     // 必须以类型名或struct/interface/func开头
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     ident_t *name = cf->ident;
     symb_t *tsym = getscopesym(name);
     if (!cf->istype) {
@@ -2094,7 +2134,8 @@ uint32 pushvar(slist_t *l, vsym_t *v, ident_t *name, uint32 offset)
 
 bool typevar(chcc_t *cc, slist_t *l, rune term, rune t2) // 类型变量列表
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     vsym_t *t = null;
     bool prev_is_type = false;
     uint32 offset = 0;
@@ -2130,8 +2171,9 @@ label_loop:
 
 fsym_t *func_syn(chcc_t *cc, ident_t *dest)
 {
+    bufile_t *top = cc->top;
     struct slist_it *it;
-    cifa_t *cf = &cc->cf;
+    cifa_t *cf = &top->cf;
     fsym_t *f = fsymalloc();
     uint32 len = 0;
     vsym_t *v;
@@ -2160,7 +2202,7 @@ fsym_t *func_syn(chcc_t *cc, ident_t *dest)
         next(cc);
     }
     f->v.symb.body = (cf->cfid == '{');
-    if (cc->haserr) {
+    if (top->haserr) {
         fsymfree(f);
         return null;
     }
@@ -2272,11 +2314,13 @@ void cst_add(csym_t *csym, ident_t *name, vsym_t *v)
 
 csym_t *cst_syn(chcc_t *cc, fsym_t *f)
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     csym_t *csym = csymalloc(cc);
     vsym_t *vtop = cc->vtop;
-    ident_t *name;
+    string_t cstexp = findident(cc, CIFA_ID_CONST)->s;
     symb_t *tsym;
+    ident_t *name;
     // const PI = 3.1415926
     // const PI = (float32) 3.1415926
     // const SIZE = 1024
@@ -2295,28 +2339,11 @@ csym_t *cst_syn(chcc_t *cc, fsym_t *f)
             goto label_false;
         }
         next(cc);
-        if (cf->cfid == '(') {
-            next(cc);
-            tsym = getscopesym(cf->ident);
-            if (tsym && tsym->isbtype) {
-                csym->csttype = tsym;
-            } else {
-                err(cc, ERROR_CONST_NEED_BASIC_TYPE, cf->cfid);
-                goto label_false;
-            }
-            next(cc);
-            skip(cc, ')');
-        } else {
-            csym->csttype = findscopesym(cc, CIFA_ID_INT);
-        }
         expr(cc, f, 0x10);
-        if (!synval_valid(vtop)) {
+        if (!vtopconst(vtop)) {
             goto label_false;
         }
-        if (!vtop->symb.isconst) {
-            err(cc, ERROR_ISNOT_CONST_EXPR, 0);
-            goto label_false;
-        }
+        csym->csttype = vtop->refs;
         cst_add(csym, name, vtop);
         vpop(cc);
     } else if (cf->deftype) {
@@ -2338,30 +2365,36 @@ label_const_list:
             csym->csttype = findscopesym(cc, CIFA_ID_INT);
         }
         cc->csym = csym;
-        while (cf->defconst) {
-            name = cf->ident;
-            next(cc);
-            if (cf->cfid == '(') {
-                expr(cc, f, 0x11);
-                if (!synval_valid(vtop)) {
-                    goto label_false;
+        for (; ;) {
+            if (cf->defconst) {
+                name = cf->ident;
+                next(cc);
+                if (cf->cfid == '(') {
+                    expr(cc, f, 0x11);
+                    if (!vtopconst(vtop)) {
+                        goto label_false;
+                    }
+                    cst_add(csym, name, vtop);
+                    vpop(cc);
+                    skip(cc, ')');
+                } else {
+                    cst_add(csym, name, csym->index);
                 }
-                if (!vtop->symb.isconst) {
-                    err(cc, ERROR_ISNOT_CONST_EXPR, 0);
-                    goto label_false;
-                }
-                cst_add(csym, name, vtop);
-                vpop(cc);
-                skip(cc, ')');
+                chcc_pushstrtofile(cc, cstexp, true);
+
+                chcc_popfile(cc);
+                csym->index += 1;
+            } else if (cf->cfid != '}') {
+                err(cc, ERROR_INVALID_CONST_NAME, 0);
+                goto label_false;
             } else {
-                cst_add(csym, name, csym->index);
+                break;
             }
-            csym->index += 1;
         }
         cc->csym = null;
         skip(cc, '}');
     } else {
-        err(cc, ERROR_CONST_INVALID_SYNTAX, cf->cfid);
+        err(cc, ERROR_INVALID_CONST_SYNTAX, cf->cfid);
         goto label_false;
     }
     return csym;
@@ -2388,7 +2421,8 @@ void vsymfree(vsym_t *v)
 
 symb_t *decl(chcc_t *cc, fsym_t *f, ident_t *dest) // 类型声明，函数声明，变量声明、标签声明
 {
-    cifa_t *cf = &cc->cf;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
     cfid_t cfid = cf->cfid;
     bool succ = false;
     if (cfid == CIFA_ID_PACKAGE) {
@@ -2498,8 +2532,10 @@ void chcc_free(chcc_t *cc)
 
 void chcc_start(chcc_t *cc)
 {
-    cc->haserr = false;
-    cc->line = 1;
-    cc->cols = 1;
+    bufile_t *top = cc->top;
+    top->error = null;
+    top->haserr = false;
+    top->line = 1;
+    top->cols = 1;
     rch(cc);
 }
