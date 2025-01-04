@@ -247,6 +247,7 @@ typedef struct symb_t {
     uint32 align: 8;    // 类型或变量的对齐
     uint32 szdyn: 1;    // 大小不是固定大小，运行时才确定
     uint32 istype: 1;   // 该符号是一个类型
+    uint32 iscenum: 1;  // 常量枚举类型
     uint32 isstype: 1;  // 是一个结构体类型
     uint32 isitype: 1;  // 是一个接口类型
     uint32 isftype: 1;  // 是一个函数类型，底层表示是一个指针或者函数对象
@@ -432,6 +433,8 @@ typedef struct {
     bool haserr;
     Uint line;  // 当前词法前缀所在行
     Uint cols;  // 当前词法前缀所在字符列
+    buffer_t s;
+    byte *start;
 } bufile_t;
 
 typedef struct {
@@ -440,8 +443,6 @@ typedef struct {
     byte *b128;
     esc_t *esc;
     ops_t *ops;
-    buffer_t s;
-    byte *start;
     uint32 user_id_start;
     bhash2_t hash_ident;
     array2_ex_t arry_ident;
@@ -473,7 +474,6 @@ void chcc_replacestrtofile(chcc_t *cc, string_t s);
 void chcc_replacefile(chcc_t *cc, const char *filename);
 void chcc_free(chcc_t *cc);
 void chcc_start(chcc_t *cc);
-void rch(chcc_t *cc);
 void next(chcc_t *cc);
 symb_t *getscopesym(ident_t *ident);
 symb_t *findscopesym(chcc_t *cc, cfid_t cfid);
@@ -548,6 +548,7 @@ enum {
     ERROR_CONST_TYPE_MISSING_CURLY,
     ERROR_INVALID_CONST_SYNTAX,
     ERROR_INVALID_CONST_NAME,
+    ERROR_INVALID_CONST_EXPR,
     ERROR_VAR_ALREADY_DEFINED,
 };
 
