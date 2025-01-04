@@ -675,6 +675,7 @@ byte *slist_push_front(slist_t *l, Int obj_bytes);
 byte *slist_push_back(slist_t *l, Int obj_bytes);
 byte *slist_front(slist_t *l);
 byte *slist_back(slist_t *l);
+byte *slist_pop_front_node(slist_t *l);
 bool slist_pop_front(slist_t *l, free_t func);
 void slist_free(slist_t *l, free_t func);
 inline struct slist_it *slist_begin(slist_t *l) { return (struct slist_it *)(l ? l->head.next : 0); }
@@ -704,6 +705,7 @@ byte *stack_push_node(stack_t *s, const byte *node);
 byte *stack_insert_after(struct stack_it *p, Int obj_bytes);
 byte *stack_insert(struct stack_before_it *p, Int obj_bytes);
 byte *stack_replace(struct stack_before_it *p, struct stack_it *node, free_t func);
+byte *stack_node_next(const byte *node) { snode_t *p = ((snode_t *)(node - sizeof(snode_t)))->next; return p ? (byte *)(p + 1) : 0; }
 bool stack_pop(stack_t *s, free_t func);
 void stack_free(stack_t *s, free_t func);
 struct stack_it *stack_new_it(Int obj_bytes);

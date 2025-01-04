@@ -398,7 +398,7 @@ byte *slist_back(slist_t *l)
     return p ? (byte *)(p + 1) : 0;
 }
 
-bool slist_pop_front(slist_t *l, free_t func)
+snode_t *slistpop_(slist_t *l)
 {
     snode_t *p = l->head.next;
     if (p) {
@@ -406,6 +406,20 @@ bool slist_pop_front(slist_t *l, free_t func)
         if (l->tail == p) {
             l->tail = null;
         }
+    }
+    return p;
+}
+
+byte *slist_pop_front_node(slist_t *l)
+{
+    snode_t *p = slistpop_(l);
+    return p ? (byte *)(p + 1) : null;
+}
+
+bool slist_pop_front(slist_t *l, free_t func)
+{
+    snode_t *p = slistpop_(l);
+    if (p) {
         if (func) {
             func(p + 1);
         }
