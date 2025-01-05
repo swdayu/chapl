@@ -1,5 +1,5 @@
-#ifndef CHAPL_X64_ABI_H
-#define CHAPL_X64_ABI_H
+#ifndef CHAPL_X64_TYPES_H
+#define CHAPL_X64_TYPES_H
 #ifdef __ARCH_X64__
 
 #undef __ARCH_32BIT__
@@ -55,4 +55,4 @@ typedef uint64 uintptr;
 #define LANG_MAX_UNTPTR LANG_MAX_UNT64
 
 #endif /* __ARCH_X64__ */
-#endif /* CHAPL_X64_ABI_H */
+#endif /* CHAPL_X64_TYPES_H */

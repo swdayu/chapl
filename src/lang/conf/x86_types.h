@@ -1,5 +1,5 @@
-#ifndef CHAPL_X86_ABI_H
-#define CHAPL_X86_ABI_H
+#ifndef CHAPL_X86_TYPES_H
+#define CHAPL_X86_TYPES_H
 #ifdef __ARCH_X86__
 
 #undef __ARCH_32BIT__
@@ -55,4 +55,4 @@ typedef uint32 uintptr;
 #define LANG_MAX_UNTPTR LANG_MAX_UNT32
 
 #endif /* __ARCH_X86__ */
-#endif /* CHAPL_X86_ABI_H */
+#endif /* CHAPL_X86_TYPES_H */

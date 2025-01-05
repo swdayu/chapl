@@ -45,9 +45,9 @@
 #endif
 
 #ifdef __ARCH_X86__
-#include "conf/x86_abi.h"
+#include "conf/x86_types.h"
 #elif __ARCH_X64__
-#include "conf/x64_abi.h"
+#include "conf/x64_types.h"
 #else
 #include "conf/pretypes.genfile"
 #endif
