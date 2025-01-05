@@ -584,7 +584,7 @@ void cmmt_end(bufile_t *top, cfid_t cfid)
     // cf->s   临时注释字符串
     cifa_t *cf = &top->cf;
     cf->iscmm = 1;
-    cf->s = string_ref_buffer(&top->s);
+    cf->val.str = string_ref_buffer(&top->s);
     cifa_end(top, cfid, 0);
 }
 
@@ -701,7 +701,7 @@ void numtail(const byte *s, const byte *e, numval_t *v)
 label_tail:
     while (s < e) {
         c = *s++;
-        if (!ident_cont(c)) {
+        if (!ident_cont(c) && c != '~') {
             --s;
             break;
         }
@@ -1151,9 +1151,9 @@ static Uint strlit(bufile_t *top, const esc_t *a, rune quote)
     if (s->len) {
         buffer_push(s, top->start, pend - top->start, CFSTR_ALLOC_EXPAND);
 label_copied:
-        top->cf.s = string_ref_buffer(&top->s);
+        top->cf.val.str = string_ref_buffer(&top->s);
     } else {
-        top->cf.s = strflen(top->start, pend - top->start);
+        top->cf.val.str = strflen(top->start, pend - top->start);
     }
     top->cf.islit = 1;
     top->cf.isstr = 1;
@@ -1438,7 +1438,7 @@ ident_t *findident(chcc_t *cc, cfid_t cfid)
 }
 
 ident_t *getrealident(ident_t *ident)
-{ // 在当前作用域下，标识符创建的符号可能有另外一个真实的名称，当前的标识符只是它的别名
+{   // 在当前作用域下，标识符创建的符号可能有另外一个真实的名称，当前的标识符只是它的别名
     symb_t *symb = getscopesym(ident);
     return symb ? symb->real : ident;
 }
@@ -1669,66 +1669,182 @@ void basicdecl(chcc_t *cc)
     cstpredecl(cc, CIFA_ID_ALIAS_FALSE);
 }
 
-void vpush(chcc_t *cc, vsym_t *vsym_node)
+void vstackinit(chcc_t *cc)
 {
-    stack_push_node(&cc->vstack, (byte *)vsym_node);
-    cc->vtop = vsym_node;
+    cc->vtop = (vsym_t *)(((snode_t *)&cc->vstack) + 1);
+}
+
+vsym_t *vtopvalid(chcc_t *cc, vsym_t *prev)
+{
+    bufile_t *top = cc->top;
+    vsym_t *vtop = cc->vtop;
+    if (top->haserr) {
+        return null;
+    }
+    if ((vsym_t *)stack_node_next((byte *)prev) != vtop) {
+        err(top, ERROR_INVALID_VSTACK_TOP, 0);
+        return null;
+    }
+    return vtop;
+}
+
+vsym_t *vtop_valid_const(chcc_t *cc, vsym_t *prev)
+{
+    bufile_t *top = cc->top;
+    vsym_t *vtop = cc->vtop;
+    if (!vtopvalid(cc, prev)) {
+        return null;
+    }
+    if (!vtop->symb.isconst) {
+        err(top, ERROR_ISNOT_CONST_EXPR, 0);
+        return null;
+    }
+    return vtop;
+}
+
+void vpush(chcc_t *cc, vsym_t *node)
+{
+    stack_push_node(&cc->vstack, (byte *)node);
+    cc->vtop = node;
 }
 
 void vpop(chcc_t *cc)
 {
-
+    stack_pop(&cc->vstack, null);
 }
 
-bool vtopconst(vsym_t *vsym)
+void vlit_suffix(chcc_t *cc, vsym_t *csym) // 1024phy~kg 12cm "abc"tag
 {
-    if (!vtop->symb.isconst) {
-        err(cc, ERROR_ISNOT_CONST_EXPR, 0);
-        goto label_false;
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
+    ident_t *suffix;
+    symb_t *fsym;
+    if (!cf->s.len) {
+        return;
     }
-    return vsym->symb.cfid ? true : false;
+    suffix = pushhashident(cc, cf->s, 0, true);
+    if (!suffix) {
+        return;
+    }
+    fsym = getscopesym(suffix);
+    if (!fsym || !fsym->isfvar) {
+        errs(top, ERROR_INVALID_LIT_SUFFIX, cf->s, 0);
+        return;
+    }
+    csym->suff = fsym;
 }
 
-void vcsym(chcc_t *cc, csym_t *csym)
+void vi(chcc_t *cc, uint32 i, symb_t *tsym)
 {
+    vsym_t *csym = (vsym_t *)stack_new_node(sizeof(vsym_t));
+    csym->val.c = i;
+    csym->refs = tsym;
+    csym->symb.isconst = 1;
+    csym->symb.isbtype = 1;
+    csym->symb.btype_i = 1;
+    vlit_suffix(cc, csym);
+    vpush(cc, csym);
+}
 
+void vi64(chcc_t *cc, uint64 i)
+{
+    vsym_t *csym = (vsym_t *)stack_new_node(sizeof(vsym_t));
+    csym->val.i64 = i;
+    csym->refs = findscopesym(cc, CIFA_ID_INT64);
+    csym->symb.isconst = 1;
+    csym->symb.isbtype = 1;
+    csym->symb.btype_i = 1;
+    vlit_suffix(cc, csym);
+    vpush(cc, csym);
+}
+
+void vf(chcc_t *cc, float f, symb_t *tsym)
+{
+    vsym_t *csym = (vsym_t *)stack_new_node(sizeof(vsym_t));
+    csym->val.f = f;
+    csym->refs = tsym;
+    csym->symb.isconst = 1;
+    csym->symb.isbtype = 1;
+    csym->symb.btype_f = 1;
+    vlit_suffix(cc, csym);
+    vpush(cc, csym);
+}
+
+void vstr(chcc_t *cc, string_t s)
+{
+    vsym_t *csym = (vsym_t *)stack_new_node(sizeof(vsym_t) + s.len);
+    if (s.len) {
+        memcpy(csym + 1, s.a, s.len);
+        csym->val.str = strflen((byte *)(csym + 1), s.len);
+    }
+    csym->refs = findscopesym(cc, CIFA_ID_STRING);
+    csym->symb.isconst = 1;
+    csym->symb.isbtype = 1;
+    csym->symb.btype_s = 1;
+    vlit_suffix(cc, csym);
+    vpush(cc, csym);
 }
 
 void vlit(chcc_t *cc)
 {
     // 字面量（islit 不为 0）
-    // isint: 1    val.i   整数常量    numbase 基数    cf->s   临时后缀字符串      cfid = CIFA_ID_INT/INT64/BOOL/BYTE/RUNE/ERROR/NULL_TYPE
-    // isfloat: 1  val.f   浮点常量    numbase 基数    cf->s   临时后缀字符串      cfid = CIFA_ID_FLOAT
+    // isint: 1  val.c/i64   整数常量    numbase 基数   cf->s   临时后缀字符串      cfid = CIFA_ID_INT/INT64/BOOL/BYTE/RUNE/ERROR/NULL_TYPE
+    // isfloat: 1  val.f   浮点常量    numbase 基数     cf->s   临时后缀字符串      cfid = CIFA_ID_FLOAT
     // 布尔常量    val.c   cfid = CIFA_ID_BOOL
     // 空值常量    val.c   cfid = CIFA_ID_NULL_TYPE
     // 字符常量    val.c   cfid = CIFA_ID_RUNE
     // 错误代码    val.c   cfid = CIFA_ID_ERROR
-    // 字符串  islit: 1    cfid = CIFA_ID_STRING       cf->s   临时字符串值
+    // 字符串  isstr: 1    cfid = CIFA_ID_STRING       cf->val.str   临时字符串值
     bufile_t *top = cc->top;
     cifa_t *cf = &top->cf;
-    vsym_t *v = (vsym_t *)stack_new_node(sizeof(vsym_t) + cf->s.len);
-    symb_t *t = findscopesym(cc, cf->cfid);
-    v->symb.cfid = cf->cfid; // 常量没有name/real名称
-    v->symb.size = t->size;
-    v->symb.align = t->align;
-    v->symb.isconst = 1;
-    v->symb.isbtype = 1;
-    v->refs = t;
     if (cf->isstr) {
-        if (cf->s.len) {
-            memcpy(v + 1, cf->s.a, cf->s.len);
-            v->val.str = strflen((byte *)(v + 1), cf->s.len);
-        }
-        v->symb.btype_s = 1;
+        vstr(cc, cf->val.str);
+    } else if (cf->isfloat) {
+        vf(cc, cf->val.f, findscopesym(cc, cf->cfid));
+    } else if (cf->cfid == CIFA_ID_INT64) {
+        vi64(cc, cf->val.i64);
     } else {
-        v->val = cf->val;
-        if (cf->isint) {
-            v->symb.btype_i = 1;
-        } else if (cf->isfloat) {
-            v->symb.btype_f = 1;
-        }
+        vi(cc, cf->val.c, findscopesym(cc, cf->cfid));
     }
-    vpush(cc, v);
+}
+
+void vcst(chcc_t *cc, ident_t *ident) // 常量标识符
+{
+    bufile_t *top = cc->top;
+    vsym_t *v = (vsym_t *)getscopesym(ident);
+    vsym_t *csym;
+    if (!v) {
+        errs(top, ERROR_SYMB_NOT_DEFINED, ident->s, 0);
+        return;
+    }
+    if (!v->symb.isconst) {
+        errs(top, ERROR_INVALID_CONST_SYMB, ident->s, 0);
+        return;
+    }
+    csym = (vsym_t *)stack_new_node(sizeof(vsym_t));
+    *csym = *v;
+    vpush(cc, csym);
+}
+
+void vcenum(chcc_t *cc, ident_t *type, ident_t *ident) // 常量枚举类型标识符
+{
+
+}
+
+void vret(chcc_t *cc, fsym_t *f)
+{
+    bufile_t *top = cc->top;
+    cifa_t *cf = &top->cf;
+    bool rval = false;
+    crlf(cc);
+    next(cc);
+    if (cf->cfid != ';') {
+        if (!expr(cc, f, false)) {
+            return;
+        }
+        rval = true;
+    }
+    // f->radr = (intv_t *)gjmp(cc, (byte *)f->radr); // 跳转到函数返回之前
 }
 
 bool unary(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
@@ -1737,59 +1853,27 @@ bool unary(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
     cifa_t *cf = &top->cf;
     cfid_t id = cf->cfid;
     ident_t *ident;
-    vsym_t *defsym;
     vsym_t vsym;
-    bool rval = false;
     if (cf->ident) {
-        // 标识符（ident 不为空）
-        // uint16 isattr: 1;
-        // uint16 haspknm: 1; // 标识符有包名前缀
-        // uint16 keyword: 1; // 语言关键字
-        // uint16 predecl: 1; // 语言预声明名称
-        // uint16 istype: 1;  // 类型名
-        // uint16 isconst: 1; // 常量名
-        // uint16 isvar: 1;   // 变量名
-        // uint16 defvar: 1;
-        // uint16 refvar: 1;
         if (cf->cfid == CIFA_ID_RETURN) {
-            crlf(cc);
-            next(cc);
-            if (cf->cfid != ';') {
-                if (!expr(cc, f, false)) {
-                    goto label_invalid;
-                }
-                rval = true;
-            }
-            vret(cc, f, rval); // f->radr = (intv_t *)gjmp(cc, (byte *)f->radr); // 跳转到函数返回之前
+            vret(cc, f);
         } else if (cf->cfid == CIFA_ID_CONST) {
-            if (cc->csym) { // 在常量声明语句内部
-                vcsym(cc, cc->csym);
+            if (cc->const_index) { // 在常量声明语句内部
+                vi(cc, cc->const_index - 1, findscopesym(cc, CIFA_ID_INT));
             } else {
-                defsym = decl(cc, f, null);
+                decl(cc, f, null);
             }
-        }
-        else if (cf->istype) {
+        } else if (cf->istype) { // 类型标识符
 
-        } else if (cf->isconst) {
-            vident_cst(cc);
-        } else if (cf->isvar) {
+        } else if (cf->isconst) { // 常量标识符，常量不分配内存空间
+            vcst(cc, cf->ident);
+        } else if (cf->isvar) { // 变量标识符，变量会分配内存空间
             ident = cf->ident;
             next(cc);
-            if (cf->cfid == CIFA_OP_ASSIGN || (cf->cfid >= CIFA_OP_INIT_ASSIGN && cf->cfid < CIFA_OP_END_ASSIGN)) {
-                if ((begin_with_paren & 0x10) && !(begin_with_paren & 0x01)) {
-                    err(cc, ERROR_ASSIGN_IN_THE_MIDDLE, cf->cfid);
-                    return false;
-                }
-                if (cf->cfid == CIFA_OP_INIT_ASSIGN) {
-                    defsym = decl(cc, f, ident);
-                    if (!defsym) {
-                        goto label_invalid;
-                    }
-                } else {
-                    expr_assign(cc, f, ident);
-                }
+            if (cf->cfid == CIFA_OP_INIT_ASSIGN) {
+                decl(cc, f, ident);
             } else {
-                vident_var(cc);
+
             }
         } else {
             goto label_invalid;
@@ -1818,11 +1902,11 @@ bool unary(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
     } else if (id == '*') {
         skip(cc, '*');
         unary(cc, f, (begin_with_paren & 0x10));
-        deref(cc);
+        gdref(cc);
     } else if (id == '&') {
         skip(cc, '&');
         unary(cc, f, (begin_with_paren & 0x10));
-        addrof(cc);
+        gaddr(cc);
     } else if (id == '+') {
         skip(cc, '+');
         unary(cc, f, (begin_with_paren & 0x10));
@@ -1937,26 +2021,65 @@ void expr_infix(chcc_t *cc, fsym_t *f, uint_t begin_with_paren, uint32 prior)
     }
 }
 
-void an_expr(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
+bool assign_op(cfid_t cfid)
 {
-    unary(cc, f, begin_with_paren);
-    expr_infix(cc, f, begin_with_paren, 2);
+    return cfid == CIFA_OP_ASSIGN || (cfid > CIFA_OP_INIT_ASSIGN && cfid < CIFA_OP_END_ASSIGN);
 }
 
-void expr_assign(chcc_t *cc, fsym_t *f, ident_t *dest)
+bool middle_assign_shall_quote_in_paren(uint_t begin_with_paren)
 {
+    return !(begin_with_paren & 0x10) || (begin_with_paren & 0x01);
+}
 
+bool islvalue(chcc_t *cc, vsym_t *v)
+{
+    if (!v->symb.islval) {
+        err(cc->top, ERROR_SHALL_BE_LVALUE, 0);
+        return false;
+    }
+    return true;
+}
+
+void expr_assign(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
+{
+    ops_t *oper;
+    vsym_t *vtop = cc->vtop;
+    unary(cc, f, begin_with_paren);
+    expr_infix(cc, f, begin_with_paren, 2);
+    if (!(vtop = vtopvalid(cc, vtop))) {
+        return;
+    }
+    oper = cc->top->cf.optr;
+    if (oper && assign_op(oper->cfid)) {
+        if (!islvalue(cc, vtop)) {
+            return;
+        }
+        next(cc);
+        if (oper->cfid == CIFA_OP_ASSIGN) {
+            expr_assign(cc, f, false); // 单纯赋值
+        } else {
+            vdup(cc);
+            expr_assign(cc, f, false);
+            gop(cc, oper); // 先二元操作再赋值
+        }
+        gmov(cc); // 赋值，栈顶赋值给次顶
+    }
 }
 
 bool expr(chcc_t *cc, fsym_t *f, uint_t begin_with_paren)
 {
-    bufile_t *top = cc->top;
-    cifa_t *cf = &top->cf;
-    an_expr(cc, f, begin_with_paren);
-    while (cf->cfid == ',') {
-        vpop();
+    vsym_t *vtop = cc->vtop;
+    expr_assign(cc, f, begin_with_paren);
+    if (!(vtop = vtopvalid(cc, vtop))) {
+        return false;
+    }
+    while (cc->top->cf.cfid == ',') {
+        vpop(cc);
         next(cc);
-        an_expr(cc, f, 0x10 | begin_with_paren);
+        expr_assign(cc, f, 0x10 | begin_with_paren);
+        if (!(vtop = vtopvalid(cc, vtop))) {
+            return false;
+        }
     }
     return true;
 }
@@ -2245,36 +2368,9 @@ bool func_type_decl(chcc_t *cc, fsym_t *f)
 
 }
 
-typedef struct {
-    vsym_t v;
-    ident_t *deftype;
-    symb_t *csttype;
-    slist_t cstval; // 包含 vsym_t
-    uint32 index;
-} csym_t;
-
 csym_t *csymalloc(void)
 {
     return (csym_t *)stack_new_node(sizeof(csym_t));
-}
-
-void csyminit(csym_t *csym)
-{
-    f->v.symb.istype = 1;
-    f->v.symb.isftype = 1;
-    if (addr) {
-        f->v.symb.isvar = 1;
-        f->v.symb.isfvar = 1;
-    }
-    if (f->recv) {
-        f->v.symb.align = ALIGNOF_POINTER;
-        f->v.symb.size = sizeof(fobj_t);
-    } else {
-        f->v.symb.align = ALIGNOF_POINTER;
-        f->v.symb.size = SIZE_OF_POINTER;
-    }
-    f->v.refs = &f->v.symb;
-    f->v.addr = addr;
 }
 
 void csymfree(csym_t *csym)
@@ -2344,14 +2440,14 @@ csym_t *cst_syn(chcc_t *cc, fsym_t *f)
         }
         next(cc);
         expr(cc, f, 0x10);
-        if (!vtopconst(vtop)) {
+        if (!(vtop = vtop_valid_const(cc, vtop))) {
             goto label_false;
         }
-        csym->csttype = vtop->refs;
+        csym->v.refs = vtop->refs; // 常量的类型
         cst_add(csym, name, vtop);
         vpop(cc);
     } else if (cf->deftype) {
-        csym->deftype = cf->ident;
+        csym->v.symb.name = cf->ident; // 常量枚举类型名称
         next(cc);
         if (cf->cfid != '{') {
             err(cc, ERROR_CONST_TYPE_MISSING_CURLY, 0);
@@ -2363,12 +2459,12 @@ label_const_list:
         next(cc);
         tsym = getscopesym(cf->ident);
         if (tsym && tsym->btype_i) {
-            csym->csttype = tsym;
+            csym->v.refs = tsym;
             next(cc);
         } else {
-            csym->csttype = findscopesym(cc, CIFA_ID_INT);
+            csym->v.refs = findscopesym(cc, CIFA_ID_INT);
         }
-        cc->csym = csym;
+        cc->const_index = 1;
         while (cf->defconst) {
             name = cf->ident;
             next(cc);
@@ -2381,7 +2477,7 @@ label_const_list:
             }
             chcc_pushstrtofile(cc, cstexp, true);
             expr(cc, f, 0x10);
-            if (!vtopconst(vtop)) {
+            if (!(vtop = vtop_valid_const(cc, vtop))) {
                 chcc_popfile(cc);
                 goto label_false;
             }
@@ -2389,9 +2485,9 @@ label_const_list:
             cst_add(csym, name, vtop);
             vpop(cc);
             chcc_popfile(cc);
-            csym->index += 1;
+            cc->const_index += 1;
         }
-        cc->csym = null;
+        cc->const_index = 0;
         if (cf->cfid != '}') {
             err(cc, ERROR_INVALID_CONST_NAME, 0);
             goto label_false;
@@ -2403,14 +2499,39 @@ label_const_list:
     }
     return csym;
 label_false:
-    cc->csym = null;
+    cc->const_index = 0;
     csymfree(csym);
     return null;
 }
 
-bool cst_gen(chcc_t *cc, fsym_t *f, csym_t *csym)
+void cst_gen(chcc_t *cc, csym_t *csym)
 {
-    return true;
+    struct slist_it *it;
+    bool haserr = false;
+    vsym_t *first = null;
+    vsym_t *v; // 局部常量只能在函数内局部使用，全局常量如果没有声明为私有则会被导出
+    if (!csym) { return; }
+    if (csym->v.symb.name) { // 声明这个常量枚举类型
+        csym->v.symb.istype = 1;
+        csym->v.symb.iscenum = 1;
+        if (!pushscopesym(cc, &csym->v.symb)) {
+            csymfree(csym);
+        }
+    } else { // 声明列表中所有的常量
+        while ((v = (vsym_t *)slist_pop_front_node(&csym->cstval))) {
+            v->symb.isconst = 1;
+            if (pushscopesym(cc, &v->symb)) {
+                if (!first) { first = v; }
+            } else {
+                haserr = true;
+                break;
+            }
+        }
+        if (haserr && first) {
+            popscopesym(cc, &first->symb, true);
+        }
+        csymfree(csym);
+    }
 }
 
 vsym_t *vsymalloc(void)
@@ -2435,14 +2556,8 @@ symb_t *decl(chcc_t *cc, fsym_t *f, ident_t *dest) // 类型声明，函数声�
 
     } else if (cfid == CIFA_ID_CONST) {
         csym_t *csym = cst_syn(cc, f);
-        if (!csym) {
-            return null;
-        }
-        if (!cst_gen(cc, f, csym)) {
-            csymfree(csym);
-            return null;
-        }
-        return &csym->v.symb;
+        cst_gen(cc, f, csym);
+        return null;
     } else if (cfid == CIFA_ID_TYPE) {
 
     } else if (cfid == CIFA_ID_STRUCT) {
@@ -2465,30 +2580,28 @@ symb_t *decl(chcc_t *cc, fsym_t *f, ident_t *dest) // 类型声明，函数声�
         }
         return &fsym->v.symb;
     } else if (cfid == CIFA_OP_INIT_ASSIGN) {
-        vsym_t *vtop = cc->vtop;
-        vsym_t *vsym;
-        uint32 loc = f->loc;
-        cf->cfid = CIFA_OP_ASSIGN;
-        expr_assign(cc, f, null);
-        if (!synval_valid(vtop)) {
+        vsym_t *vsym = vsymalloc();
+        vsym_t *vtop;
+        if (!vsym) {
             return null;
         }
-        if (dest->defsym) {
-            errs(cc, ERROR_VAR_ALREADY_DEFINED, dest->s, 0);
-            return null;
-        }
-        vsym = vsymalloc();
-        *vsym = *vtop;
         vsym->symb.name = dest;
-        vsym->symb.real = dest;
-        vsym->symb.cfid = dest->id;
-        vsym->addr = round_up(f->loc, vtop->symb.align);
-        f->loc += vtop->symb.size;
+        vsym->symb.isvar = 1;
+        vsym->symb.islval = 1;
         if (!pushscopesym(cc, &vsym->symb)) {
-            f->loc = loc;
             vsymfree(vsym);
             return null;
         }
+        vpush(cc, vsym);
+        vtop = vsym;
+        expr_assign(cc, f, 0x10);
+        if (!(vtop = vtopvalid(cc, vtop))) {
+            popscopesym(cc, vsym, true);
+            return false;
+        }
+        vsym->addr = round_up(f->loc, vtop->symb.align);
+        f->loc += vtop->symb.size;
+        gmov(cc); // 赋值，栈顶赋值给次顶
         return &vsym->symb;
     }
 }
@@ -2498,12 +2611,6 @@ void scopeinit(chcc_t *cc)
     cc->gsym = (scope_t *)stack_push(&cc->scope, sizeof(scope_t));
     cc->sstk = &cc->gsym->symb;
     cc->local = 0;
-}
-
-void vstackinit(chcc_t *cc)
-{
-    stack_push(&cc->vstack, sizeof(synval_t));
-    cc->vtop = (vsym_t *)stack_top(&cc->vstack);
 }
 
 void chcc_init(chcc_t *cc)

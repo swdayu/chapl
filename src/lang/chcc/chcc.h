@@ -258,6 +258,7 @@ typedef struct symb_t {
     uint32 isconst: 1;  // 该符号是一个常量
     uint32 isvar: 1;    // 该符号是一个变量
     uint32 isfvar: 1;   // 是一个可调用变量
+    uint32 islval: 1;   // 是左值可赋值变量
     uint32 ptrvar: 1;   // 是一个可解引用变量
     uint32 body: 1;
 } symb_t;
@@ -268,6 +269,7 @@ typedef struct vsym_t {
     intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
     symb_t *refs;   // 涉及的类型符号，即变量的类型
     cstval_t val;   // 该符号表示一个常量
+    symb_t *suff;   // 字面量后缀操作
 } vsym_t; // 变量符号
 
 typedef struct {
@@ -282,6 +284,11 @@ typedef struct {
     uint32 loc;
     intv_t *radr;
 } fsym_t;
+
+typedef struct {
+    vsym_t v;           // v.refs 指向常量的类型, v.symb.name 常量枚举类型的名称
+    slist_t cstval;     // 包含 vsym_t，常量列表，包含名称和值
+} csym_t;
 
 typedef struct {
     uintv_t object;
@@ -301,11 +308,11 @@ typedef struct {
 //      空值常量    val.c   cfid = CIFA_ID_NULL_TYPE
 //      字符常量    val.c   cfid = CIFA_ID_RUNE
 //      错误代码    val.c   cfid = CIFA_ID_ERROR
-//      字符串  islit: 1    cfid = CIFA_ID_STRING       cf->s   临时字符串值
+//      字符串  isstr: 1    cfid = CIFA_ID_STRING       cf->val.str   临时字符串值
 // 3. 注释
 //      cfid = CIFA_PT_LINE_CMMT 或 CIFA_PT_BLOCK_CMMT
 //      iscmm: 1
-//      cf->s   临时注释字符串
+//      cf->val.str 临时注释字符串
 // 4. 标识符
 //      cfid = 创建之前 CIFA_TYPE_IDENT，创建之后 >= CIFA_IDENT_START
 //      cf->s 临时标识符名称
@@ -422,10 +429,6 @@ typedef struct {
 } scope_t;
 
 typedef struct {
-    vsym_t v;
-} synval_t;
-
-typedef struct {
     file_t *f;
     cifa_t cf;
     rune c;
@@ -460,7 +463,7 @@ typedef struct {
     stack_t *sstk; // 当前作用域符号栈
     uint32 local;
     stack_t scope;
-    csym_t *csym;
+    uint32 const_index;
     bool expose_pretype;
     bool expose_prenull;
     bool expose_prebool;
@@ -538,6 +541,7 @@ enum {
     ERROR_GLOBAL_FUNC_NONAME,
     ERROR_VAR_WITHOUT_TYPE,
     ERROR_SYMB_DUP_DEFINED,
+    ERROR_SYMB_NOT_DEFINED,
     ERROR_VSTACK_OVERFLOW,
     ERROR_UNKNOWN_OPERATOR,
     ERROR_ASSIGN_IN_THE_MIDDLE,
@@ -549,7 +553,11 @@ enum {
     ERROR_INVALID_CONST_SYNTAX,
     ERROR_INVALID_CONST_NAME,
     ERROR_INVALID_CONST_EXPR,
+    ERROR_INVALID_CONST_SYMB,
     ERROR_VAR_ALREADY_DEFINED,
+    ERROR_INVALID_LIT_SUFFIX,
+    ERROR_INVALID_VSTACK_TOP,
+    ERROR_SHALL_BE_LVALUE,
 };
 
 #endif /* CHAPL_LANG_CHCC_H */
