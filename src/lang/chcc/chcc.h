@@ -424,6 +424,18 @@ typedef struct {
 } ops_t;
 
 typedef struct {
+    bhash2_t hash_ident;
+    array2_ex_t arry_ident;
+} hashident_t;
+
+typedef struct {
+    byte *b128;
+    esc_t *esc;
+    ops_t *ops;
+    hashident_t *hash;
+} prearr_t;
+
+typedef struct {
     uint32 local;
     stack_t symb; // 保存本作用域定义的符号
 } scope_t;
@@ -438,23 +450,25 @@ typedef struct {
     Uint cols;  // 当前词法前缀所在字符列
     buffer_t s;
     byte *start;
+    prearr_t a;
 } bufile_t;
 
 typedef struct {
     stack_t fstk;
     bufile_t *top; // stack top file
-    byte *b128;
-    esc_t *esc;
-    ops_t *ops;
+    cifa_t cf;
     uint32 user_id_start;
-    bhash2_t hash_ident;
-    array2_ex_t arry_ident;
+    hashident_t ident;
+    prearr_t prearr;
     byte *text_section;
     byte *text; // 代码段
-    byte *data_section;
-    byte *data; // 数据段
     byte *rodata_section;
     byte *rodata; // 只读数据段
+    byte *rodstr_section;
+    byte *rodstr; // 只读字符串
+    byte *data_section;
+    byte *data; // 数据段
+    uint32 bss;
     ident_t *pknm; // 当前代码包名称
     uint32 anon_id;
     stack_t vstack;
@@ -469,14 +483,13 @@ typedef struct {
     bool expose_prebool;
 } chcc_t;
 
-void chcc_init(chcc_t *cc);
-void chcc_pushfile(chcc_t *cc, const char *filename);
-void chcc_pushstrtofile(chcc_t *cc, string_t s);
-void chcc_popfile(chcc_t *cc);
-void chcc_replacestrtofile(chcc_t *cc, string_t s);
-void chcc_replacefile(chcc_t *cc, const char *filename);
-void chcc_free(chcc_t *cc);
-void chcc_start(chcc_t *cc);
+void chccinit(chcc_t *cc);
+void chccfree(chcc_t *cc);
+void pushfile(chcc_t *cc, const char *filename);
+void pushstrtofile(chcc_t *cc, string_t s);
+void popfile(chcc_t *cc);
+void replacestrtofile(chcc_t *cc, string_t s);
+void replacefile(chcc_t *cc, const char *filename);
 void next(chcc_t *cc);
 symb_t *getscopesym(ident_t *ident);
 symb_t *findscopesym(chcc_t *cc, cfid_t cfid);
@@ -554,6 +567,7 @@ enum {
     ERROR_INVALID_CONST_NAME,
     ERROR_INVALID_CONST_EXPR,
     ERROR_INVALID_CONST_SYMB,
+    ERROR_INVALID_VAR_SYMB,
     ERROR_VAR_ALREADY_DEFINED,
     ERROR_INVALID_LIT_SUFFIX,
     ERROR_INVALID_VSTACK_TOP,
