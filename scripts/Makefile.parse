@@ -167,12 +167,12 @@ ldlibs-y := $(filter-out $(ldlibs-remove-y),$(built-ldlibs-y) $(ldlibs-y))
 lddirs-y := $(filter-out $(lddirs-remove-y),$(built-lddirs-y) $(lddirs-y))
 
 ifneq ($(build-obj-y),)
-built_ldflags_file := $(build-dir)/$(built-ldflags-file)
+built_flags_file := $(build_dir)/$(built-flags-in)
 ifneq ($(ldlibs-y),)
-$(shell $(call outfile_add,$(built_ldflags_file),parsed-ldlibs-y := $(ldlibs-y)))
+$(shell $(call outfile_add,$(built_flags_file),parsed-ldlibs-y := $(ldlibs-y)))
 endif
 ifneq ($(lddirs-y),)
-$(shell $(call outfile_add,$(built_ldflags_file),parsed-lddirs-y := $(lddirs-y)))
+$(shell $(call outfile_add,$(built_flags_file),parsed-lddirs-y := $(lddirs-y)))
 endif
 endif
 
@@ -230,8 +230,8 @@ quiet_cmd_c++_to_o = $(quiet_echo_c++)
 # obj folder     <- copy project folder lib to use
 ifeq ($(dont-ar-objs),1)
 add-built-in-lib = $(call outfile_add,$@,$(1))
-add-built-in-sub = $(call outfile_cat,$@,$(1))
-add-built-in-obj = $(if $(wildcard $(1)$(link-opt-suffix)),$(call outfile_cat,$@,$(1)$(link-opt-suffix)),$(call outfile_add,$@,$(1)))
+add-built-in-sub = $(call outfile_cat,$@,$(1)) && $(call outfile_cat,$(call built_flags_in_file,$@),$(call built_flags_in_file,$(1)))
+add-built-in-obj = $(if $(wildcard $(1)$(link-files-suffix)),$(call outfile_cat,$@,$(1)$(link-files-suffix)),$(call outfile_add,$@,$(1)))
 add-built-in-file = $(if $(filter %.o,$(1)),$(call add-built-in-obj,$(1)),$(if $(filter %/$(built-in),$(1)),$(call add-built-in-sub,$(1)),$(call add-built-in-lib,$(1))))
 quiet_cmd_built_in = $(quiet_echo_pack)
       cmd_built_in = $(call outfile_new,$@,)$(foreach e,$(real-prereqs), && $(call add-built-in-file,$(e)))
@@ -248,10 +248,10 @@ quiet_cmd_use_lib_file = $(quiet_echo_uselib)
 
 # archive composite object file
 ifeq ($(dont-ar-objs),1)
-add-com-obj-lib = $(call outfile_add,$@$(link-opt-suffix),$(1))
-add-com-obj-sub = $(call outfile_cat,$@$(link-opt-suffix),$(1))
+add-com-obj-lib = $(call outfile_add,$@$(link-files-suffix),$(1))
+add-com-obj-sub = $(call outfile_cat,$@$(link-files-suffix),$(1))
 add-com-obj-file = $(if $(filter %/$(built-in),$(1)),$(call add-com-obj-sub,$(1)),$(call add-com-obj-lib,$(1)))
-new-com-obj-file = $(call outfile_new,$@$(link-opt-suffix),) && $(call outfile_new,$@,)
+new-com-obj-file = $(call outfile_new,$@$(link-files-suffix),) && $(call outfile_new,$@,)
 quiet_cmd_link_com_obj = $(quiet_echo_comobj)
       cmd_link_com_obj = $(new-com-obj-file) $(foreach e,$(real-prereqs), && ( $(call add-com-obj-file,$(e)) ))
 else

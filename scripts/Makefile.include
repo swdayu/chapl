@@ -34,10 +34,12 @@ dep-target = $(call depend-file,$@)
 
 # if dont-ar-ogjs is true, record all *.o *.a in link file
 dont-ar-objs := 1
-built-ldflags-file := built-ldflags.txt
+link-files-suffix := .files
+link-flags-suffix := .flags
+built-flags-in := built-in$(link-flags-suffix)
+built_flags_in_file = $(patsubst %$(link-files-suffix),%$(link-flags-suffix),$(1))
 ifeq ($(dont-ar-objs),1)
-link-opt-suffix := .files
-built-in := built-in$(link-opt-suffix)
+built-in := built-in$(link-files-suffix)
 else
 built-in := built-in.a
 endif

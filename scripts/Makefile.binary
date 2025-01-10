@@ -86,16 +86,16 @@ target_execute = $(if $(filter run,$(TARGET_TYPE)),$(if $(RUN_OUTFILE),$(cogen_r
 target_install = $(if $(call INSTALL_FILES,$@),$(call install_raw_cmd,$(1),$(call INSTALL_FILES,$@)),@:)
 
 built_makefile := $(TARGET_OUTPUT)/$(DEST)/Makefile
-built_ldflags_file := $(TARGET_OUTPUT)/$(DEST)/$(built-ldflags-file)
+built_flags_file := $(TARGET_OUTPUT)/$(DEST)/$(built-flags-in)
 $(shell $(call create_dir,$(dir $(TARGET_OUTPUT)/$(DEST)/$(TARGET_NAME))))
-$(shell $(call outfile_new,$(built_ldflags_file),))
+$(shell $(call outfile_new,$(built_flags_file),))
 
 $(built_in_file): FORCE
 	@$(call outfile_new,$(built_makefile),obj-y := $(target-obj-y))
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.build obj=. mkf=$(built_makefile) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
 
 define update_built_flags
-include $(built_ldflags_file)
+include $(built_flags_file)
 target_ld_libs := $$(patsubst -l%,%,$$(init-ldlibs-y) $$(filter -l%,$$(parsed-ldlibs-y)))
 target_ld_dirs := $$(patsubst -L%,%,$$(init-lddirs-y) $$(filter -L%,$$(parsed-lddirs-y)))
 target_ld_flags := $(init-ldflag-y)
