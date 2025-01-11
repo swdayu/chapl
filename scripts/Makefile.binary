@@ -23,7 +23,7 @@ ifneq ($(INSTALL_DIR),)
 INIT_MACROS += -DCONFIG_INSTALL_DIR=\"$(patsubst %/,%,$(INSTALL_DIR))\"
 endif
 
-target_root := $(DEST)
+export target_root := $(DEST)
 target_suffix := $(call target-file-suffix,$(TARGET_TYPE) $(TARGET_OUTS))
 target_file := $(target_root)/$(TARGET_NAME)$(target_suffix)
 built_in_file := $(target_root)/$(built-in)
@@ -65,7 +65,7 @@ built_lds_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_as_flags
 # link script preprocessing
 # .lds.S -> .lds
 quiet_cmd_S_to_lds = $(quiet_echo_lds)
-      cmd_S_to_lds = $(CPP) $(built_lds_flags) $(COMPILE_LDS) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_S_to_lds = $(CPP) $(built_lds_flags) $(COMPILE_LDS) $(OUT_PRE_FILE) $(CLOPT_FIRST_PREREQ)
 
 ifneq ($(lds-target),)
 $(lds-target): $(lds-source-file) FORCE
@@ -86,21 +86,14 @@ target_execute = $(if $(filter run,$(TARGET_TYPE)),$(if $(RUN_OUTFILE),$(cogen_r
 target_install = $(if $(call INSTALL_FILES,$@),$(call install_raw_cmd,$(1),$(call INSTALL_FILES,$@)),@:)
 
 built_makefile := $(TARGET_OUTPUT)/$(DEST)/Makefile
-built_flags_file := $(TARGET_OUTPUT)/$(DEST)/$(built-flags-in)
 $(shell $(call create_dir,$(dir $(TARGET_OUTPUT)/$(DEST)/$(TARGET_NAME))))
-$(shell $(call outfile_new,$(built_flags_file),))
+
+target_cc_flags := $(init-cflags-y)
+target_ld_flags := $(init-ldflag-y) $(patsubst -L%,%,$(init-lddirs-y)) $(patsubst -l%,%,$(init-ldlibs-y))
 
 $(built_in_file): FORCE
 	@$(call outfile_new,$(built_makefile),obj-y := $(target-obj-y))
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.build obj=. mkf=$(built_makefile) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
-
-define update_built_flags
-include $(built_flags_file)
-target_ld_libs := $$(patsubst -l%,%,$$(init-ldlibs-y) $$(filter -l%,$$(parsed-ldlibs-y)))
-target_ld_dirs := $$(patsubst -L%,%,$$(init-lddirs-y) $$(filter -L%,$$(parsed-lddirs-y)))
-target_ld_flags := $(init-ldflag-y)
-target_cc_flags := $(init-cflags-y)
-endef
 
 quiet_cmd_link_file = $(quiet_echo_link)
       cmd_link_file = $(call link-exe-cmd,$(filter-out $(lds-target),$(real-prereqs)))
@@ -114,18 +107,15 @@ quiet_cmd_link_dll_file = $(quiet_echo_link)
 ifeq ($(dont-ar-objs),1)
 ifneq ($(filter exe,$(TARGET_TYPE)),)
 $(target_file): $(lds-target) $(built_in_file) FORCE
-	@$(eval $(update_built_flags)):
 	$(call if_changed_and_run,link_exe_file,target_execute,target_install,$(INSTALL_DIR))
 else ifneq ($(filter dll,$(TARGET_TYPE)),)
 $(target_file): $(built_in_file) FORCE
-	@$(eval $(update_built_flags)):
 	$(call if_changed_and_run,link_dll_file,target_execute,target_install,$(INSTALL_DIR))
 else
 $(error invalid TARGET_TYPE=$(TARGET_TYPE))
 endif
 else
 $(target_file): $(lds-target) $(built_in_file) FORCE
-	@$(eval $(update_built_flags)):
 	$(call if_changed_and_run,link_file,target_execute,target_install,$(INSTALL_DIR))
 endif
 

@@ -35,9 +35,6 @@ dep-target = $(call depend-file,$@)
 # if dont-ar-ogjs is true, record all *.o *.a in link file
 dont-ar-objs := 1
 link-files-suffix := .files
-link-flags-suffix := .flags
-built-flags-in := built-in$(link-flags-suffix)
-built_flags_in_file = $(patsubst %$(link-files-suffix),%$(link-flags-suffix),$(1))
 ifeq ($(dont-ar-objs),1)
 built-in := built-in$(link-files-suffix)
 else
@@ -256,6 +253,7 @@ quiet_echo_genlst  = GENLST  $@
 quiet_echo_imglib  = IMGLIB  $@
 quiet_echo_macros  = MACROS  $@
 quiet_echo_comobj  = COMOBJ  $@
+quiet_echo_copy    = COPY    $@
 quiet_echo_cogen   = COGEN   $1
 quiet_echo_corun   = CORUN   $1
 quiet_echo_install = INSTALL $1

@@ -37,7 +37,7 @@ OPTION_DEPEND = -MMD -MP -MF $(dep-target) -MT $@
 OUT_PRE_FILE = -o $@ $(OPTION_DEPEND)
 OUT_OBJ_FILE = -o $@ $(OPTION_DEPEND)
 OUT_ASM_FILE = -o $@
-INPUT_FIRST_PREREQ = $<
+CLOPT_FIRST_PREREQ = $<
 
 # INIT_CFLAGS += $(call cc-option,-march=winchip=c6,-march=i586)
 # INIT_AFLAGS += $(call as-option,-isa=foo)
@@ -131,7 +131,7 @@ OPTION_LDLIBS = $(foreach a,$(1),-l$(a))
 OPTION_LDDIRS = $(foreach a,$(1),-L$(a))
 LINK_EXE_LDFLAGS = -Map=$(basename $@).map --gc-sections --no-whole-archive
 link-exe-cmd = $(LD) -o $@ $(if $(lds-target),-T $(lds-target)) $(target_cc_flags) \
-    $(call OPTION_LD_FLAGS,$(LINK_EXE_LDFLAGS) $(target_ld_flags) $(call OPTION_LDDIRS,$(target_ld_dirs))) $(1) \
+    $(call OPTION_LD_FLAGS,$(LINK_EXE_LDFLAGS) $(target_ld_flags)) $(1) \
     -Wl,--no-whole-archive $(call OPTION_LDLIBS,$(target_ld_libs)) $(call OPTION_LDLIBS,$(target_ld_libs))
 link-exe-with-opt-file = $(call link-exe-cmd,@$(1))
 

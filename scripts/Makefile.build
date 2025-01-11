@@ -80,6 +80,7 @@ subdir-ldlibs-y :=
 lddirs-y :=
 lddirs-remove-y :=
 subdir-lddirs-y :=
+install-y :=
 
 lib_bin_path = $(srctree)/$(if $(CONFIG_LIBRARY_OUTDIR),$(CONFIG_LIBRARY_OUTDIR),library)
 
@@ -130,9 +131,10 @@ ifneq ($(build-obj-y),)
 built_in_target := $(build_dir)/$(built-in)
 built_src_lib := $(strip $(lib-src-y))
 export_src_lib := $(patsubst $(obj_dir)%,$(lib_bin_path)/%,$(built_src_lib))
+copy_ins_files := $(foreach f,$(install-y),$(target_root)/$(notdir $(f)))
 endif
 
-all: $(if $(pre-build-y),$(pre-build-y) .WAIT) $(built_in_target) $(built_src_lib) $(export_src_lib)
+all: $(if $(pre-build-y),$(pre-build-y) .WAIT) $(built_in_target) $(built_src_lib) $(export_src_lib) $(copy_ins_files)
 	@:
 
 ifneq ($(built_in_target),)
@@ -143,7 +145,6 @@ else
 $(built_in_target): $(build-obj-y) FORCE
 	$(call if_changed,ar_src_file)
 endif
-
 targets += $(built_in_target)
 endif
 
@@ -227,6 +228,17 @@ $(lib-bin-y): $(obj_dir)%: $(lib_bin_path)/% FORCE
 	$(call if_changed,use_lib_file)
 
 targets += $(lib-bin-y)
+endif
+
+# 当前模块需要安装的文件，通常是将需要的动态库拷贝到可执行文件目录
+ifneq ($(copy_ins_files),)
+define copy_ins_rule
+copy_dest_file := $(target_root)/$(notdir $(1))
+$$(copy_dest_file): $(1) FORCE
+	$$(call if_changed,copy_ins_file)
+targets += $$(copy_dest_file)
+endef
+$(foreach a,$(install-y),$(eval $(call copy_ins_rule,$(a))))
 endif
 
 PHONY += show

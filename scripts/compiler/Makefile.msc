@@ -77,7 +77,7 @@ OUT_ASM_FILE = /Fa$@
 OUT_PDB_FILE = /Fd$(basename $@).pdb
 OUTOBJFILE__ = /Fo$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
 OUT_PRE_FILE = /Fi$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
-INPUT_FIRST_PREREQ = $(call windows_path_style,$<)
+CLOPT_FIRST_PREREQ = $(call windows_path_style,$<)
 COMPILE_ASM_TO_OBJ := /c /Ta
 ASM_TO_OBJ_OUTFILE = /Sf /Sa /Fl$(basename $@).lst /Fo$@
 
@@ -105,7 +105,9 @@ LINK_OPT_FLAGS = /DEBUG /PDB:$(basename $@).pdb /OPT:REF /OPT:ICF $(LINK_LTCG_FL
 LINK_EXE_FLAGS = /MACHINE:$(use_arch) /SUBSYSTEM:$(subsystem) $(LINK_DRIVER_FLAGS) $(LINK_WARN_FLAGS) $(LINK_OPT_FLAGS)
 LINK_DLL_FLAGS = $(LINK_EXE_FLAGS) /DLL
 
-OPTION_LIBPATH = $(foreach d,$(1),/LIBPATH:$(d))
+OPTION_LDLIBS = $(1)
+OPTION_LDDIRS = $(foreach d,$(1),/LIBPATH:$(call windows_path_style,$(d)))
+
 LIBPATH_FLAGS := \
 	/LIBPATH:"$(call windows_path_style,$(msvc_lib_$(use_arch)))" \
 	/LIBPATH:"$(call windows_path_style,$(wsdk_lib_$(use_arch)))" \
@@ -279,7 +281,7 @@ msc-crt-y := # libcmt.lib libucrt.lib ucrt.lib
 msc-lib-y = $(msc-crt-y) kernel32.lib dbghelp.lib
 
 # input .o .a (.obj .lib) output .a (.lib)
-archive-cmd = $(AR) $(ARCH_LIB_FLAGS) /OUT:$@ $(LIBPATH_FLAGS) $(call OPTION_LIBPATH,$(built_ld_dirs)) $(1)
+archive-cmd = $(AR) $(ARCH_LIB_FLAGS) /OUT:$@ $(LIBPATH_FLAGS) $(call OPTION_LDDIRS,$(built_ld_dirs)) $(1)
 
 # input .o .a (.obj .lib) output .o (.obj)
 link-com-obj = $(archive-cmd)
@@ -287,17 +289,15 @@ link-com-obj = $(archive-cmd)
 # input .o .a (.obj .lib) output .exe
 LINK_STACK_SIZE = $(if $(target_stack_size),/STACK:$(target_stack_size))
 link-exe-cmd = $(LD) $(LINK_EXE_FLAGS) $(target_ld_flags) $(if $(2),,/ENTRY:$(LINK_MAIN_ENTRY)) $(LINK_STACK_SIZE) \
-    /MAP:$(basename $@).map /OUT:$@ $(LIBPATH_FLAGS) $(call OPTION_LIBPATH,$(target_ld_dirs)) $(2)$(1) \
-    $(target_ld_libs) $(msc-lib-y)
+    /MAP:$(basename $@).map /OUT:$@ $(LIBPATH_FLAGS) $(2)$(1) $(msc-lib-y)
 link-exe-with-opt-file = $(call link-exe-cmd,$(1),@)
 
 # input .def .o .a (.obj .lib) output .dll .lib
 LINK_DEF_FILE = $(if $(target_def_file_input),/DEF:"$(target_def_file_input)")
 STATIC_LIB_WHOLE_ARCHIVE = $(foreach a,$(1),$(if $(filter %.a %.lib,$(a)),/WHOLEARCHIVE:$(a)))
 link-dll-cmd = $(LD) $(LINK_DLL_FLAGS) $(LINK_DEF_FILE) /MAP:$(basename $@).map /OUT:$@ \
-    /IMPLIB:$(basename $@).lib $(LIBPATH_FLAGS) $(call OPTION_LIBPATH,$(target_ld_dirs)) $(1) \
-    $(call STATIC_LIB_WHOLE_ARCHIVE,$(target_static_lib_whole_archive)) \
-    $(target_ld_libs) $(msc-lib-y)
+    /IMPLIB:$(basename $@).lib $(LIBPATH_FLAGS) $(1) \
+    $(call STATIC_LIB_WHOLE_ARCHIVE,$(target_static_lib_whole_archive)) $(msc-lib-y)
 link-dll-with-opt-file = $(call link-dll-cmd,@$(1))
 
 quiet_cmd_gen_target_lst = $(quiet_echo_genlst)
@@ -312,4 +312,4 @@ quiet_cmd_gen_target_sec = $(quiet_echo_genbin)
 # compile masm source to object
 # .asm -> .o
 quiet_cmd_asm_to_o  = $(quiet_echo_as)
-      cmd_asm_to_o  = $(AS) $(built_as_flags) $(ASM_TO_OBJ_OUTFILE) $(COMPILE_ASM_TO_OBJ) $(INPUT_FIRST_PREREQ)
+      cmd_asm_to_o  = $(AS) $(built_as_flags) $(ASM_TO_OBJ_OUTFILE) $(COMPILE_ASM_TO_OBJ) $(CLOPT_FIRST_PREREQ)

@@ -166,19 +166,8 @@ built_as_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_as_flags)
 ldlibs-y := $(filter-out $(ldlibs-remove-y),$(built-ldlibs-y) $(ldlibs-y))
 lddirs-y := $(filter-out $(lddirs-remove-y),$(built-lddirs-y) $(lddirs-y))
 
-ifneq ($(build-obj-y),)
-built_flags_file := $(build_dir)/$(built-flags-in)
-ifneq ($(ldlibs-y),)
-$(shell $(call outfile_add,$(built_flags_file),parsed-ldlibs-y := $(ldlibs-y)))
-endif
-ifneq ($(lddirs-y),)
-$(shell $(call outfile_add,$(built_flags_file),parsed-lddirs-y := $(lddirs-y)))
-endif
-endif
-
-built_ld_libs := $(patsubst -l%,%,$(ldlibs-y))
-built_ld_dirs := $(patsubst -L%,%,$(lddirs-y))
-built_ld_flags := $(init-ldflag-y)
+ld_dirs_y := $(call OPTION_LDDIRS,$(patsubst -L%,%,$(filter -L%,$(lddirs-y))))
+ld_libs_y := $(call OPTION_LDLIBS,$(patsubst -l%,%,$(filter -l%,$(ldlibs-y))))
 
 # dummy cc cmd
 quiet_cmd_cc_dummy = $(quiet_echo_cc)
@@ -190,23 +179,23 @@ quiet_cmd_cc_dummy = $(quiet_echo_cc)
 # .cpp   -> .i
 # .S     -> .s
 quiet_cmd_c_to_i    = $(quiet_echo_pre)
-      cmd_c_to_i    = $(CPP) $(built_cc_flags) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_c_to_i    = $(CPP) $(built_cc_flags) $(OUT_PRE_FILE) $(CLOPT_FIRST_PREREQ)
 
 quiet_cmd_c++_to_i  = $(quiet_echo_pre)
-      cmd_c++_to_i  = $(C++PP) $(built_c++flags) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_c++_to_i  = $(C++PP) $(built_c++flags) $(OUT_PRE_FILE) $(CLOPT_FIRST_PREREQ)
 
 quiet_cmd_as_to_s   = $(quiet_echo_pre)
-      cmd_as_to_s   = $(CPP) $(built_as_flags) $(OUT_PRE_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_as_to_s   = $(CPP) $(built_as_flags) $(OUT_PRE_FILE) $(CLOPT_FIRST_PREREQ)
 
 # preprocessing and compile
 # .c   -> .s
 # .cc  -> .s
 # .cpp -> .s
 quiet_cmd_c_to_s   = $(quiet_echo_cc)
-      cmd_c_to_s   = $(CC) $(built_cc_flags) $(COMPILE_ASM) $(OUT_ASM_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_c_to_s   = $(CC) $(built_cc_flags) $(COMPILE_ASM) $(OUT_ASM_FILE) $(CLOPT_FIRST_PREREQ)
 
 quiet_cmd_c++_to_s = $(quiet_echo_c++)
-      cmd_c++_to_s = $(C++) $(built_c++flags) $(COMPILE_ASM) $(OUT_ASM_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_c++_to_s = $(C++) $(built_c++flags) $(COMPILE_ASM) $(OUT_ASM_FILE) $(CLOPT_FIRST_PREREQ)
 
 # preprocessing compile and assembly
 # .S   -> .o
@@ -214,13 +203,13 @@ quiet_cmd_c++_to_s = $(quiet_echo_c++)
 # .cc  -> .o
 # .cpp -> .o
 quiet_cmd_S_to_o  = $(quiet_echo_as)
-      cmd_S_to_o  = $(CC) $(built_as_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_S_to_o  = $(CC) $(built_as_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(CLOPT_FIRST_PREREQ)
 
 quiet_cmd_c_to_o   = $(quiet_echo_cc)
-      cmd_c_to_o   = $(CC) $(built_cc_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_c_to_o   = $(CC) $(built_cc_flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(CLOPT_FIRST_PREREQ)
 
 quiet_cmd_c++_to_o = $(quiet_echo_c++)
-      cmd_c++_to_o = $(C++) $(built_c++flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(INPUT_FIRST_PREREQ)
+      cmd_c++_to_o = $(C++) $(built_c++flags) $(COMPILE_OBJ) $(OUT_OBJ_FILE) $(CLOPT_FIRST_PREREQ)
 
 # archive or copy library file
 # built-in-file  <- *.o *.a subdir/built-in
@@ -230,21 +219,27 @@ quiet_cmd_c++_to_o = $(quiet_echo_c++)
 # obj folder     <- copy project folder lib to use
 ifeq ($(dont-ar-objs),1)
 add-built-in-lib = $(call outfile_add,$@,$(1))
-add-built-in-sub = $(call outfile_cat,$@,$(1)) && $(call outfile_cat,$(call built_flags_in_file,$@),$(call built_flags_in_file,$(1)))
+add-built-in-sub = $(call outfile_cat,$@,$(1))
 add-built-in-obj = $(if $(wildcard $(1)$(link-files-suffix)),$(call outfile_cat,$@,$(1)$(link-files-suffix)),$(call outfile_add,$@,$(1)))
 add-built-in-file = $(if $(filter %.o,$(1)),$(call add-built-in-obj,$(1)),$(if $(filter %/$(built-in),$(1)),$(call add-built-in-sub,$(1)),$(call add-built-in-lib,$(1))))
+add-built-ldflags = $(foreach d,$(ld_dirs_y), && $(call outfile_add,$@,$(d)))$(foreach l,$(ld_libs_y), && $(call outfile_add,$@,$(l)))
 quiet_cmd_built_in = $(quiet_echo_pack)
-      cmd_built_in = $(call outfile_new,$@,)$(foreach e,$(real-prereqs), && $(call add-built-in-file,$(e)))
+      cmd_built_in = $(call outfile_new,$@,)$(foreach e,$(real-prereqs), && $(call add-built-in-file,$(e)))$(add-built-ldflags)
 endif
+
+SHELL_FIRST_PREREQ = $<
 
 quiet_cmd_ar_src_file = $(quiet_echo_ar)
       cmd_ar_src_file = $(call archive-cmd,$(real-prereqs))
 
 quiet_cmd_gen_lib_file = $(quiet_echo_genlib)
-      cmd_gen_lib_file = $(call create_dir,$(dir $@)) && $(call CMDCPFILE,$(INPUT_FIRST_PREREQ),$@)
+      cmd_gen_lib_file = $(call create_dir,$(dir $@)) && $(call CMDCPFILE,$(SHELL_FIRST_PREREQ),$@)
 
 quiet_cmd_use_lib_file = $(quiet_echo_uselib)
-      cmd_use_lib_file = $(call CMDCPFILE,$(INPUT_FIRST_PREREQ),$@)
+      cmd_use_lib_file = $(call CMDCPFILE,$(SHELL_FIRST_PREREQ),$@)
+
+quiet_cmd_copy_ins_file = $(quiet_echo_copy)
+      cmd_copy_ins_file = $(call CMDCPFILE,$(SHELL_FIRST_PREREQ),$@)
 
 # archive composite object file
 ifeq ($(dont-ar-objs),1)
