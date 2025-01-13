@@ -58,9 +58,9 @@ obj-cpp :=
 obj-asm :=
 
 # 各模块添加构建该模块所需要的所有文件
-# 例如添加目标文件：obj-y += $(obj_c:.c=.o) $(obj_s:.S=.o) $(obj_cpp:.cpp=.o)
-# 或者添加库文件：obj-y += codecs.a codecs-y := $(obj_c:.c=.o)
-# 或者添加归档目标文件：obj-y += comobj.o comobj-y := foo.o bar.a bar-y := $(obj_c:.c=.o)
+# 例如添加目标文件：obj-y += $(obj-c:.c=.o) $(obj_s:.S=.o) $(obj-cpp:.cpp=.o)
+# 或者添加库文件：obj-y += codecs.a codecs-y := $(obj-c:.c=.o)
+# 或者添加归档目标文件：obj-y += comobj.o comobj-y := foo.o bar.a bar-y := $(obj-c:.c=.o)
 # 或者添加子目录：obj-y += stack/
 obj-y :=
 

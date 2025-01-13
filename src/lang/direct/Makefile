@@ -1,5 +1,5 @@
-obj_c := file/file.c
+ifneq ($(filter msc,$(CONFIG_COMPILER)),)
+obj-c := wapi/file.c
+endif
 
-obj-y += $(obj_c:.c=.o)
-
-subdir-incdir-y += -Isrc/direct -Isrc/lang
+obj-y += $(obj-c:.c=.o)
