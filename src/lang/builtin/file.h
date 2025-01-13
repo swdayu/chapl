@@ -1,6 +1,9 @@
 #ifndef CHAPL_IO_FILE_H
 #define CHAPL_IO_FILE_H
 #include "builtin/decl.h"
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct {
     int32 fd;
@@ -20,4 +23,7 @@ int file_get_ex(file_t *f, void (*cp)(void *p, const byte *e), void *p);
 bool file_unget(file_t *f);
 bool file_unget_ex(file_t *f, int32 n);
 
+#ifdef __cplusplus
+}
+#endif
 #endif /* CHAPL_IO_FILE_H */

@@ -19,10 +19,10 @@
 //         须是文件系统块结构体的整数倍，一般是4096字节
 //      4. 在 Linux 2.6.0 上，这个值放松到块设备的逻辑块大小，一般为512字节
 //      5. 块设备的逻辑块大小，可以使用 ioctl(2) BLKSSZGET 操作确定
-uint32 fileread_(uint32 fd, uint32 len, byte *out)
+uint32 fileread_(intd_t fd, uint32 len, byte *out)
 {
     if (len > SSIZE_MAX || len > 0x7ffff000) {
         return 0;
     }
-    return (Int)read(fd, out, len);
+    return read(fd, out, len);
 }

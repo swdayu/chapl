@@ -18,9 +18,9 @@ void file_reload(file_t *f, string_t s)
 {
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
-    Int len = (Int)b->cap - BUF_HEAD_BYTE_CNT;
-    if ((Int)s.len < len) {
-        len = (Int)s.len;
+    int96 len = (int96)b->cap - BUF_HEAD_BYTE_CNT;
+    if ((int96)s.len < len) {
+        len = (int96)s.len;
     }
     fileclose_(f);
     b->cur = arr + BUF_HEAD_BYTE_CNT;
@@ -35,7 +35,7 @@ void file_reload(file_t *f, string_t s)
 
 void file_reopen(file_t *f, const char *name, uint32 mode)
 {
-    int_t fd;
+    intd_t fd;
     fileclose_(f);
     f->b.cur = ((byte *)(f + 1)) + BUF_HEAD_BYTE_CNT;
     if (*name == '-') {
@@ -55,10 +55,10 @@ void file_reopen(file_t *f, const char *name, uint32 mode)
     f->real_eof = 0;
 }
 
-file_t *fileopenx_(const byte *filename, Int strlen, int32 bufsize, uint32 mode)
+file_t *fileopenx_(const byte *filename, int96 strlen, int32 bufsize, uint32 mode)
 {
     file_t *f;
-    Int cap = (bufsize > 0) ? bufsize : DEFAULT_BUFF_SIZE;
+    int96 cap = (bufsize > 0) ? bufsize : DEFAULT_BUFF_SIZE;
     if (!mode) {
         cap = (strlen > cap) ? strlen : cap;
     }
@@ -108,7 +108,7 @@ void fileblock_(file_t *f, void (*cp)(void *p, const byte *e), void *p)
     buffix_t *b = &f->b;
     byte *arr = buffix_data(b);
     byte *cur = b->cur;
-    Uint cap = buffix_cap(b);
+    uint96 cap = buffix_cap(b);
     f->real_eof = 1;
     if (f->fd < 0) {
         return;

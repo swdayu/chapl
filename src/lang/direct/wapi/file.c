@@ -62,7 +62,7 @@
 //      - _O_RDONLY：只读模式打开文件
 //      - _O_TEXT：ANSI 文本模式打开文件
 //      - _O_WTEXT，Unicode（UTF-16）模式打开文件
-int_t fileopen_(const char *name, uint32 mode)
+intd_t fileopen_(const char *name, uint32 mode)
 {
     int flags = 0;
     if (mode == 'r') {
@@ -78,7 +78,7 @@ int_t fileopen_(const char *name, uint32 mode)
     return open(name, flags|O_BINARY);
 }
 
-uint32 fileread_(uint32 fd, uint32 len, byte *out)
+uint32 fileread_(intd_t fd, uint32 len, byte *out)
 {
     if (len > 0x7ffff000) {
         return 0;

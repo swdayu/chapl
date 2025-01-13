@@ -176,26 +176,26 @@ int main(int argc, char *argv[])
     }
     printf("\n");
 
-    printf("#undef LANG_MIN_INTPTR\n");
-    printf("#undef LANG_MAX_INTPTR\n");
-    printf("#undef LANG_MAX_UNTPTR\n");
+    printf("#undef LANG_INTPTR_MIN\n");
+    printf("#undef LANG_INTPTR_MAX\n");
+    printf("#undef LANG_INTPTR_UMAX\n");
     printf("\n");
 
     if (size_ptr == 4)
     {
-        printf("#define LANG_MIN_INTPTR LANG_MIN_INT32\n");
-        printf("#define LANG_MAX_INTPTR LANG_MAX_INT32\n");
-        printf("#define LANG_MAX_UNTPTR LANG_MAX_UNT32\n");
+        printf("#define LANG_INTPTR_MIN LANG_INT32_MIN\n");
+        printf("#define LANG_INTPTR_MAX LANG_INT32_MAX\n");
+        printf("#define LANG_INTPTR_UMAX LANG_INT32_UMAX\n");
     }
     else if (size_ptr == 8)
     {
-        printf("#define LANG_MIN_INTPTR LANG_MIN_INT64\n");
-        printf("#define LANG_MAX_INTPTR LANG_MAX_INT64\n");
-        printf("#define LANG_MAX_UNTPTR LANG_MAX_UNT64\n");
+        printf("#define LANG_INTPTR_MIN LANG_INT64_MIN\n");
+        printf("#define LANG_INTPTR_MAX LANG_INT64_MAX\n");
+        printf("#define LANG_INTPTR_UMAX LANG_INT64_UMAX\n");
     }
     else
     {
-        printf("#error LANG_MAX_INTPTR not defined\n");
+        printf("#error LANG_INTPTR_MAX not defined\n");
     }
     printf("\n");
 

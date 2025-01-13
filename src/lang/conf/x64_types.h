@@ -46,13 +46,13 @@ typedef unsigned long long uint64;
 typedef int64 intptr;
 typedef uint64 uintptr;
 
-#undef LANG_MIN_INTPTR
-#undef LANG_MAX_INTPTR
-#undef LANG_MAX_UNTPTR
+#undef LANG_INTPTR_MIN
+#undef LANG_INTPTR_MAX
+#undef LANG_INTPTR_UMAX
 
-#define LANG_MIN_INTPTR LANG_MIN_INT64
-#define LANG_MAX_INTPTR LANG_MAX_INT64
-#define LANG_MAX_UNTPTR LANG_MAX_UNT64
+#define LANG_INTPTR_MIN LANG_INT64_MIN
+#define LANG_INTPTR_MAX LANG_INT64_MAX
+#define LANG_INTPTR_UMAX LANG_INT64_UMAX
 
 #endif /* __ARCH_X64__ */
 #endif /* CHAPL_X64_TYPES_H */
