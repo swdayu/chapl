@@ -2,7 +2,7 @@
 #define CHAPL_DIRECT_BASE_H
 
 #if defined(__MSC__)
-#include "direct/base/windows.h"
+#include "direct/wapi/base.h"
 // https://learn.microsoft.com/en-us/windows/apps/api-reference/
 // https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes
 // https://learn.microsoft.com/en-us/windows/win32/api/

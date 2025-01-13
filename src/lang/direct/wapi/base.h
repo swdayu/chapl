@@ -1,5 +1,5 @@
-#ifndef CHAPL_DIRECT_WINDOWS_H
-#define CHAPL_DIRECT_WINDOWS_H
+#ifndef CHAPL_DIRECT_WAPI_H
+#define CHAPL_DIRECT_WAPI_H
 
 // 微软 C 运行时库
 //
@@ -35,4 +35,4 @@
 
 #include <windows.h>
 
-#endif /* CHAPL_DIRECT_WINDOWS_H */
+#endif /* CHAPL_DIRECT_WAPI_H */
