@@ -4,18 +4,15 @@ $(cur_makefile):: ;
 # 当前模块和所有子模块都生效的选项
 built-macros-y += $(filter -D% -U%,$(subdir-macros-y))
 built-incdir-y += $(filter -I%,$(subdir-incdir-y))
-built-ldlibs-y += $(filter -l%,$(subdir-ldlibs-y))
-built-lddirs-y += $(filter -L%,$(subdir-lddirs-y))
+built-ldflag-y += $(filter -L% -l%,$(subdir-ldflag-y))
 
 macros-y := $(filter -D% -U%,$(macros-y))
 incdir-y := $(filter -I%,$(incdir-y))
-ldlibs-y := $(filter -l%,$(ldlibs-y))
-lddirs-y := $(filter -L%,$(lddirs-y))
+ldflag-y := $(filter -L% -l%,$(ldflag-y))
 
 macros-remove-y := $(filter -D% -U%,$(macros-remove-y))
 incdir-remove-y := $(filter -I%,$(incdir-remove-y))
-ldlibs-remove-y := $(filter -l%,$(ldlibs-remove-y))
-lddirs-remove-y := $(filter -L%,$(lddirs-remove-y))
+ldflag-remove-y := $(filter -L% -l%,$(ldflag-remove-y))
 
 # obj-y is a list of *.o *.a subdir/, build-obj-y is list of *.o *.a subdir/built-in
 obj-y := $(filter %.o %.a %/,$(obj-y))
@@ -163,11 +160,9 @@ built_c++flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_cc_flags)
 built_as_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_as_flags)),$(_as_flags),$(call abs_as_flags,$(_as_flags)))
 
 # 当前模块依赖的库文件和库搜索目录
-ldlibs-y := $(filter-out $(ldlibs-remove-y),$(built-ldlibs-y) $(ldlibs-y))
-lddirs-y := $(filter-out $(lddirs-remove-y),$(built-lddirs-y) $(lddirs-y))
-
-ld_dirs_y := $(call OPTION_LDDIRS,$(patsubst -L%,%,$(filter -L%,$(lddirs-y))))
-ld_libs_y := $(call OPTION_LDLIBS,$(patsubst -l%,%,$(filter -l%,$(ldlibs-y))))
+ldflag-y := $(filter-out $(ldflag-remove-y),$(built-ldflag-y) $(ldflag-y))
+ld_dirs_y := $(call OPTION_LDDIRS,$(patsubst -L%,%,$(filter -L%,$(ldflag-y))))
+ld_libs_y := $(call OPTION_LDLIBS,$(patsubst -l%,%,$(filter -l%,$(ldflag-y))))
 
 # dummy cc cmd
 quiet_cmd_cc_dummy = $(quiet_echo_cc)

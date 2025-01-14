@@ -6,9 +6,9 @@ INIT_MACROS :=
 INIT_INCDIR :=
 INIT_AFLAGS :=
 INIT_CFLAGS :=
-INIT_LDLIBS :=
-INIT_LDDIRS :=
 INIT_LDFLAG :=
+INIT_LDDIRS :=
+INIT_LDLIBS :=
 
 ifneq ($(filter gcc,$(CONFIG_COMPILER)),)
 include $(srctree)/scripts/compiler/Makefile.gcc

@@ -31,8 +31,7 @@ targets :=
 
 export built-macros-y :=
 export built-incdir-y :=
-export built-ldlibs-y :=
-export built-lddirs-y :=
+export built-ldflag-y :=
 
 ifneq ($(UNREAL_FINAL_TARGET),1)
 # following options only used in compiling phase
@@ -42,9 +41,7 @@ export init-aflags-y := $(INIT_AFLAGS) $(cccfg-aflags-y)
 export init-cflags-y := $(INIT_CFLAGS) $(cccfg-cflags-y)
 
 # following options only used in linking phase
-export init-ldlibs-y := $(INIT_LDLIBS) $(filter -l%,$(ldlibs-y))
-export init-lddirs-y := $(INIT_LDDIRS) $(filter -L%,$(lddirs-y))
-export init-ldflag-y := $(INIT_LDFLAG) $(cccfg-ldflag-y)
+export init-ldflag-y := $(INIT_LDFLAG) $(cccfg-ldflag-y) $(filter -L% -l%,$(INIT_LDDIRS) $(INIT_LDLIBS) $(ldflag-y))
 
 ifneq ($(filter exe,$(TARGET_TYPE)),)
 target_lds_file := $(filter %.lds,$(strip $(lds-file-y)))
@@ -89,7 +86,7 @@ built_makefile := $(TARGET_OUTPUT)/$(DEST)/Makefile
 $(shell $(call create_dir,$(dir $(TARGET_OUTPUT)/$(DEST)/$(TARGET_NAME))))
 
 target_cc_flags := $(init-cflags-y)
-target_ld_flags := $(init-ldflag-y) $(patsubst -L%,%,$(init-lddirs-y)) $(patsubst -l%,%,$(init-ldlibs-y))
+target_ld_flags := $(init-ldflag-y)
 
 $(built_in_file): FORCE
 	@$(call outfile_new,$(built_makefile),obj-y := $(target-obj-y))

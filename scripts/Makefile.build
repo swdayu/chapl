@@ -42,13 +42,9 @@ targets :=
 # MACROS_$@
 # MACROS_REMOVE_$@
 #
-# ldlibs-y
-# ldlibs-remove-y
-# subdir-ldlibs-y
-#
-# lddirs-y
-# lddirs-remove-y
-# subdir-lddirs-y
+# ldflag-y # 只能包含 -L 和 -l
+# ldflag-remove-y
+# subdir-ldflag-y
 pre-gen-obj-y :=
 pre-gen-file-y :=
 
@@ -73,13 +69,10 @@ macros-y :=
 macros-remove-y :=
 subdir-macros-y :=
 
-ldlibs-y :=
-ldlibs-remove-y :=
-subdir-ldlibs-y :=
+ldflag-y :=
+ldflag-remove-y :=
+subdir-ldflag-y :=
 
-lddirs-y :=
-lddirs-remove-y :=
-subdir-lddirs-y :=
 install-y :=
 
 lib_bin_path = $(srctree)/$(if $(CONFIG_LIBRARY_OUTDIR),$(CONFIG_LIBRARY_OUTDIR),library)

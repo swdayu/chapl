@@ -4,10 +4,8 @@ default-y := src/lang/
 default-binary-type := exe_run
 default-macros-y :=
 default-incdir-y :=
-default-lddirs-y :=
-default-ldlibs-y :=
+default-ldflag-y :=
 
 COMMON_MACROS :=
 COMMON_INCDIR :=
-COMMON_LDDIRS :=
-COMMON_LDLIBS :=
+COMMON_LDFLAG :=
