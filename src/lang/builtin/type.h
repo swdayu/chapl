@@ -288,6 +288,11 @@ typedef struct {
     buffix_t *a;
 } buffix2_t;
 
+typedef struct {
+    byte* a;
+    uint96 len;
+} brefer_t;
+
 bool buffix_init(buffix2_t *b, int96 cap);
 inline void buffix_free(buffix2_t *b) { array_free((array2_t *)b); }
 inline void buffix_init_inplace(buffix_t *a, int96 cap) { a->cap = cap; a->cur = (byte*)(a + 1); }
