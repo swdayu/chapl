@@ -6,8 +6,8 @@ typedef uint32 Elf32Addr;   // 32位平台无符号程序地址
 typedef uint32 Elf32Off;    // 32位平台无符号文件偏移
 typedef uint64 Elf64Addr;   // 64位平台无符号程序地址
 typedef uint64 Elf64Off;    // 64位平台无符号文件偏移
-typedef Uint ElfAddr;       // 当前平台无符号程序地址
-typedef Uint ElfOff;        // 当前平台无符号文件偏移
+typedef uint96 ElfAddr;       // 当前平台无符号程序地址
+typedef uint96 ElfOff;        // 当前平台无符号文件偏移
 typedef uint16 ElfHalf;     // 无符号半整型
 typedef uint32 ElfWord;     // 无符号整型
 typedef int32 ElfSword;     // 有符号整型
@@ -301,11 +301,11 @@ typedef struct {
     // ELF 文件格式版本，当前只有一个版本 ELF_VERSION_CURR
     uint32 version;
     // 程序入口的虚拟地址，如果没有入口，该成员为0
-    Uint entry;
+    uint96 entry;
     // 程序头部表的文件偏移，如果没有程序头部表，该成员为0
-    Uint phoff;
+    uint96 phoff;
     // 分区头部表的文件偏移，如果没有分区头部表，该成员为0
-    Uint shoff;
+    uint96 shoff;
     // 处理器标记
     uint32 flags;
     // ELF 头部大小
@@ -532,10 +532,10 @@ typedef struct {
     uint32 flags;
     // 如果分区会出现在进程的内存映像中，该地址指定分区第一个字节的地址，
     // 否则为0
-    Uint addr;
+    uint96 addr;
     // 分区在文件中的偏移字节，如果分区的类型是 ELF_SEC_NOBITS，它不
     // 占用文件空间，该值是概念上的位置
-    Uint offset;
+    uint96 offset;
     // 分区大小，如果是 ELF_SEC_NOBITS 分区，该值可以不是0，但是分区
     // 不占用文件空间
     uint32 size;
@@ -592,9 +592,9 @@ typedef struct {
     // 压缩算法的类型
     uint32 compress;
     // 指定未压缩数据的字节数
-    Uint size;
+    uint96 size;
     // 未压缩数据的地址对齐要求
-    Uint addralign;
+    uint96 addralign;
 } ElfChdr;
 
 typedef struct {
@@ -896,22 +896,22 @@ typedef struct {
     // 重定位应用的位置，重定位文件这个值是分区开始的偏移，可执行或共享目标
     // 文件是受重定位影响的存储单元的虚拟地址；具体应用到哪个分区，由重定位
     // 分区头部字段 info 指定
-    Uint offset;
+    uint96 offset;
     // 指定需要重定位的符号索引（高24位或高32位）以及重定位类型（低8位或低
     // 32位），符号是哪个符号表中的符号由重定位分区头部字段 link 指定；例如，
     // 一个调用指令的重定位条目需要指定被调函数的符号索引，如果使用未定义的
     // 符号索引 ELF_SYMNDX_UNDEF，重定位使用0作为符号值；重定位的类型是处
     // 理器相关的，它的描述在 ABI 处理器补充文档中（psABI）
-    Uint info;
+    uint96 info;
     // 计算可重定位字段值需要显式附加的值，重定位条目类型 ElfRel 在需要修改
     // 的位置隐式保存了需要附加的值；根据具体处理器，这两种方式可能某一种会
     // 更方便，因此特定机器的实现可能根据具体上下文使用其中一种方式。
-    Int addend;
+    int96 addend;
 } ElfRela;
 
 typedef struct {
-    Uint offset;
-    Uint info;
+    uint96 offset;
+    uint96 info;
 } ElfRel;
 
 typedef struct {
@@ -1136,13 +1136,13 @@ typedef Elf32Phdr ElfPhdr;
 // extern ElfDyn _DYNAMIC[];
 typedef struct {
     // tag 控制着对联合字段的解释
-    Int tag;
+    int96 tag;
     union {
     // val 是一个机器字长的整数值
-    Uint val;
+    uint96 val;
     // ptr 表示程序的虚拟地址，文件的虚拟地址可能与执行时的内存虚拟地址不匹配，当解析这
     // 个地址时，动态链接器会计算实际的地址，基于文件地址和内存基址
-    Uint ptr;
+    uint96 ptr;
     };
 } ElfDyn;
 
@@ -1233,9 +1233,9 @@ typedef struct {
 
 // 说明分段
 typedef struct {
-    Uint namesz; // 包括 NUL 字符
-    Uint descsz;
-    Uint type;
+    uint96 namesz; // 包括 NUL 字符
+    uint96 descsz;
+    uint96 type;
     byte name[1];
     // byte desc[1]; // 对齐到 uint
 } ElfNote;

@@ -232,3 +232,5 @@ uint32 elf_hash(const byte* sym_name)
     }
     return h;
 }
+
+// 生成 ELF 格式的可执行文件

@@ -133,7 +133,7 @@ void gmov(uint32 val, uint32 addr)
 }
 
 
-void grel(byte *cur, intv_t *usel)
+void grel(byte *cur, int96 *usel)
 {
     byte *a;
     while (usel) {
@@ -147,7 +147,7 @@ void grel(byte *cur, intv_t *usel)
         } else { // 相对地址
             host_ab_to_lp(cur - (a + 4), a);
         }
-        usel = (intv_t *)a;
+        usel = (int96 *)a;
     }
 }
 
@@ -180,7 +180,7 @@ uint32 genter(chcc_t *cc, fsym_t *f)
     // r32 => r32 [89] 11 010 101           [89 d5]
     g(cc, 0xd589);
     // 3. 预留edx保存空间，初始化loc和radr
-    f->loc = loc + sizeof(uintv_t);
+    f->loc = loc + sizeof(uint96);
     f->radr = null;
     return f->loc;
 }
