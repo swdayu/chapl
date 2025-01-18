@@ -1,7 +1,7 @@
 #ifndef CHAPL_LANG_CHCC_H
 #define CHAPL_LANG_CHCC_H
 #include "builtin/decl.h"
-#include "direct/file.h"
+#include "builtin/file.h"
 
 #define __CHCC_DEBUG__ 1
 
@@ -195,30 +195,7 @@ enum chcc_predecl_ident {
 // 8. 常量
 
 typedef uint32 cfid_t;
-
-typedef struct {
-    cfid_t cfid; // 可能匿名也可能命名
-    uint32 scope; // 符号所属所用域
-    uint32 type_kind: 4;
-    uint32 is_package: 1;
-    uint32 is_label: 1;
-    uint32 is_field: 1;
-    uint32 bitfield: 1;
-    uint32 is_param: 1;
-    uint32 localvar: 1;
-    uint32 is_const: 1;
-    uint32 is_func: 1; // 无函数体的是类型，有函数体的不是类型，而是函数类型的一个实例
-    uint32 is_method: 1;
-    uint32 dyn: 1; // 类型大小不固定
-    uint32 align: 4; // (1 << align)
-    uint8 bf_off;
-    uint8 bf_size;
-    uint32 off;
-    uint32 size;
-} sym_t;
-
 struct symb_t;
-struct vsym_t;
 
 typedef struct ident_t {
     cfid_t id;
@@ -260,40 +237,60 @@ typedef struct symb_t {
     uint32 isfvar: 1;   // 是一个可调用变量
     uint32 islval: 1;   // 是左值可赋值变量
     uint32 ptrvar: 1;   // 是一个可解引用变量
+    uint32 ptrder: 1;
     uint32 body: 1;
-} symb_t;
-
-typedef struct vsym_t {
-    symb_t symb;
-    intv_t addr;    // 变量地址（包括函数地址、标签地址）
-    intv_t *usel;   // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
-    symb_t *refs;   // 涉及的类型符号，即变量的类型
-    cstval_t val;   // 该符号表示一个常量
-    symb_t *suff;   // 字面量后缀操作
-} vsym_t; // 变量符号
+} symb_t; // 基本类型
 
 typedef struct {
-    vsym_t v;    // 函数其实是对应函数类型的一个对象
-    ident_t *dest; // 赋值目标变量名称
+    symb_t symb;
     ident_t *recv;
-    slist_t para;   // 包含vsym_t
-    slist_t retp;   // 包含vsym_t
+    slist_t para; // 包含vsym_t
+    slist_t retp; // 包含vsym_t
     uint32 plen;
     uint32 rlen;
     uint32 clen;
+} fsym_t; // 函数原型
+
+typedef struct {
+    symb_t symb;
+} ssym_t; // 结构体类型符号
+
+typedef struct {
+    symb_t symb;
+} isym_t; // 接口类型符号
+
+typedef struct {
+    symb_t symb;
+    symb_t *refs;   // 涉及的类型符号，即变量的类型
+    int96 addr;     // 变量地址（包括函数地址、标签地址）
+    int96 *usel;    // 使用变量的地址列表，所有使用的地方都需要写入变量的地址
+} vsym_t; // 变量符号
+
+typedef struct {
+    symb_t symb;    // symb.name 常量枚举类型的名称，或常量的名称
+    symb_t *refs;   // 涉及的类型符号，即常量的类型
+    cstval_t val;   // 保存常量值
+    slist_t list;   // 包含 csym_t，常量列表，包含名称和值
+} csym_t; // 常量符号
+
+typedef struct {
+    vsym_t v; // 函数其实是对应函数类型的一个对象，v.refs 指向 fsym
+    fsym_t fsym;
+    ident_t *dest; // 赋值目标变量名称
     uint32 loc;
-    intv_t *radr;
-} fsym_t;
+    int96 *radr;
+    struct fsym_t *root; // root 函数必须是全局函数
+    slist_t closure; // 包含 buffix_t，
+    buffer_t code; // 保存全局函数的代码，局部函数都不自己保存代码，而是保存到全局跟函数的closures中
+} func_t; // 函数符号，函数类型的值
 
 typedef struct {
-    vsym_t v;           // v.refs 指向常量的类型, v.symb.name 常量枚举类型的名称
-    slist_t cstval;     // 包含 vsym_t，常量列表，包含名称和值
-} csym_t;
-
-typedef struct {
-    uintv_t object;
-    uintv_t method;
-} fobj_t;
+    symb_t symb;
+    vsym_t *refv;   // 如果是变量则指向对应的符号，否则为空
+    symb_t *refs;   // 变量或常量的类型
+    cstval_t val;   // 保存常量值
+    symb_t *post;  // 字面量后缀操作，字面量总是并保存在值栈中
+} synval_t; // 值栈中的语法值
 
 // 1. 操作符和标点
 //      cfid < CIFA_OPER_PUNCT（0xc0）
@@ -362,8 +359,8 @@ typedef struct {
     uint32 isvar: 1;    // 变量名
     uint32 defvar: 1;   // 可用于定义新变量的变量名
     uint32 refvar: 1;   // 引用已定义变量的变量名
-    Uint line;
-    Uint cols;
+    uint96 line;
+    uint96 cols;
 } cifa_t;
 
 typedef struct {
@@ -393,9 +390,9 @@ typedef struct {
     uint32 local_align: 4;
     uint32 func_attr: 4;
     uint32 have_body: 1;
-    Uint param_size;
-    Uint rparm_size;
-    Uint local_size;
+    uint96 param_size;
+    uint96 rparm_size;
+    uint96 local_size;
     struct stack_it *param;
     struct stack_it *rparm;
     struct stack_it *local;
@@ -419,6 +416,7 @@ typedef struct {
     byte prior;
     byte cfid;
     byte len;
+    byte unary;
     byte op[4];
     uint32 inst;
 } ops_t;
@@ -444,10 +442,10 @@ typedef struct {
     file_t *f;
     cifa_t cf;
     rune c;
-    Error error;
+    errot error;
     bool haserr;
-    Uint line;  // 当前词法前缀所在行
-    Uint cols;  // 当前词法前缀所在字符列
+    uint96 line;  // 当前词法前缀所在行
+    uint96 cols;  // 当前词法前缀所在字符列
     buffer_t s;
     byte *start;
     prearr_t a;
@@ -471,8 +469,8 @@ typedef struct {
     uint32 bss;
     ident_t *pknm; // 当前代码包名称
     uint32 anon_id;
-    stack_t vstack;
-    vsym_t *vtop;
+    stack_t vstack; // 包含 synval_t
+    synval_t *vtop;
     scope_t *gsym; // 全局符号
     stack_t *sstk; // 当前作用域符号栈
     uint32 local;
@@ -514,6 +512,8 @@ enum {
     ERROR_INVALID_PARAM_NAME,
     ERROR_INVALID_POINTER_TYPE,
     ERROR_INVALID_CONST_DECL,
+    ERROR_INVALID_UNARY_OPER,
+    ERROR_INVALID_BINARY_OPER,
     ERROR_MISS_CLOSE_QUOTE,
     ERROR_EMPTY_RUNE_LIT,
     ERROR_MULT_CHAR_EXIST,
@@ -561,9 +561,11 @@ enum {
     ERROR_CONST_DECL_MISSING_EQ,
     ERROR_CONST_NEED_BASIC_TYPE,
     ERROR_CONST_NEED_INT_TYPE,
+    ERROR_CONST_ENUM_NOT_FOUND,
     ERROR_ISNOT_CONST_EXPR,
     ERROR_CONST_TYPE_MISSING_CURLY,
     ERROR_INVALID_CONST_SYNTAX,
+    ERROR_INVALID_CONST_MEMBER,
     ERROR_INVALID_CONST_NAME,
     ERROR_INVALID_CONST_EXPR,
     ERROR_INVALID_CONST_SYMB,
