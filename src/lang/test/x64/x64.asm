@@ -83,15 +83,31 @@ SHADOW_AND_ALIGN = 40   ; 4 * 8 + 8, reserve shadow space & align rsp
 ;
 ; 当函数退出、函数进入 C 运行时库或 Windows 系统，标志寄存器中的方向标志必须先清位。
 
+CO_MAX_NUM = 10
+STACK_SIZE = 1024
+
 .data
-newline BYTE 0dh,0ah
-digtab BYTE "0123456789ABCDEF"
-hello BYTE "hello world."
+newline     BYTE 0dh,0ah
+digtab      BYTE "0123456789ABCDEF"
+coromsg     BYTE "coro print "
+coromsg_len = $ - coromsg
+overflow    BYTE "too many corutines."
+overflow_len = $ - overflow
+finished    BYTE "coroutine finished."
+finished_len = $ - finished
+hello       BYTE "hello world."
 hello_len = $ - hello
+co_id       QWORD 0
+co_num      QWORD 0
+stacks_end  QWORD stacks + CO_MAX_NUM * STACK_SIZE
 
 .data?
 stdout  HANDLE ?
 rspval  QWORD ?
+co_rsp  QWORD CO_MAX_NUM dup (?)
+co_rbp  QWORD CO_MAX_NUM dup (?)
+co_rip  QWORD CO_MAX_NUM dup (?)
+stacks  QWORD CO_MAX_NUM * STACK_SIZE dup (?)
 
 .code
 init PROC
@@ -123,12 +139,16 @@ print PROC
     ret
 print ENDP
 
-println PROC
-    call print
+crlf PROC
     mov rdx, OFFSET newline
     mov r8, 2
     call print
     ret
+crlf ENDP
+
+println PROC
+    call print
+    call crlf
 println ENDP
 
 ; digchar: 将整数字节转换成数字字符
@@ -141,19 +161,6 @@ digchar PROC PRIVATE
      pop rbx
      ret
 digchar ENDP
-
-; printdigit: 打印单个数字字符
-; [in]  rcx 要打印的整数
-print_int_ln PROC
-    add rdi, 48
-    mov [ch], rdi
-    mov rax, SYS_write
-    mov rdi, stdout
-    mov rsi, ch
-    mov rdx, ch_len
-    syscall
-    ret
-printdigit ENDP
 
 ;------------------------------------------------------
 ; WriteHexB
@@ -244,7 +251,7 @@ L3:
     
     add   rdx,rdi
     mov   r8,rcx
-    call  prints
+    call  print
 
     pop   rdi
     pop   rbx                ; must be preserved
@@ -281,57 +288,172 @@ print32 PROC
     ret
 print32 ENDP
 
+; print_n: 打印单个数字字符
+; [in]  rcx 要打印的整数
+print_n PROC
+    mov rax, rcx
+    mov rcx, 0
+    mov r8, 0
+    mov r9, 10
+again:
+    mov rdx, 0
+    div r9
+    add rdx, 48
+    shl rcx, 8
+    or rcx, rdx
+    inc r8
+    cmp rax, 0
+    jnz again
+    push rcx
+    mov rdx, rsp
+    call println
+    pop rcx
+    ret
+print_n ENDP
+
+
+resume PROC
+    mov rbx, co_id
+    mov rsp, [OFFSET co_rsp + rbx * 8]      ;; 第一次执行会执行第一个 create 创建的协程
+    mov rbp, [OFFSET co_rbp + rbx * 8]      ;; 将协程的 rsp、rbp 恢复到对应寄存器
+    jmp QWORD PTR [OFFSET co_rip + rbx * 8] ;; 跳转到协程对应的过程处继续执行
+resume ENDP
+
+inc_co_id PROC
+    mov rbx, co_id
+    inc rbx                                 ;; 指向下一个协程
+    mov rcx, 0                              ;; rcx 0
+    cmp rbx, co_num                         ;;
+    cmovge rbx, rcx                         ;; 如果超过当前 co_num 重新回到 0
+    mov co_id, rbx                          ;; 更新到 co_id，也即对每个协程不断进行轮询
+    ret
+inc_co_id ENDP
+
+yield PROC
+    mov rbx, co_id
+    pop rax                                 ;; rax 里保持返回地址
+    mov [OFFSET co_rsp + rbx * 8], rsp      ;; 保存当前的协程环境
+    mov [OFFSET co_rbp + rbx * 8], rbp
+    mov [OFFSET co_rip + rbx * 8], rax
+
+    call inc_co_id
+    jmp resume
+yield ENDP
+
+
+co_end PROC
+    mov rdx, OFFSET finished
+    mov r8, finished_len
+    call println
+    call inc_co_id
+    jmp resume
+co_end ENDP
+
+
+;; rcx - procedure to start in a new coroutine，相同过程可以启动多个协程，每个协程有单独的栈
+create PROC
+    cmp co_num, CO_MAX_NUM
+    jge overflow_fail
+
+    mov rbx, co_num                             ;; 当前创建的协程的索引
+    inc co_num                                  ;; 协程计数加 1
+    mov rax, stacks_end                         ;; 当前栈底地址
+    sub stacks_end, STACK_SIZE                  ;; 下一个栈底地址，每个栈的大小为 STACK_SIZE
+
+    sub rax, 8                                  ;; 将结束函数压入栈
+    mov rdx, co_end                             ;; 协程结束函数 co_end
+    mov QWORD PTR [rax], rdx                    ;; 作为协程的返回地址
+
+    mov [OFFSET co_rsp + rbx * 8], rax          ;; 保持协程的栈地址
+    mov QWORD PTR [OFFSET co_rbp + rbx * 8], 0  ;; 协程的基地址为0
+    mov [OFFSET co_rip + rbx * 8], rcx          ;; 协程所要执行的过程地址
+
+    call print32
+    call crlf
+    ret
+overflow_fail:
+    mov rdx, OFFSET overflow
+    mov r8, overflow_len
+    call println
+    mov ecx, 1
+    call ExitProcess
+create ENDP
+
+
+co_main PROC
+    mov rbx, co_num                             ;; 当前创建协程的索引
+    inc co_num                                  ;; 协程计数加1
+    mov rax, rsp
+    call print32
+    call crlf
+    pop rax                                     ;; 弹出函数返回地址到rax
+    mov [OFFSET co_rsp + rbx * 8], rsp          ;; 主协程的栈地址
+    mov [OFFSET co_rbp + rbx * 8], rbp          ;; 主协程的栈基址
+    mov [OFFSET co_rip + rbx * 8], rax          ;; 主协程所要执行的过程地址
+    jmp rax                                     ;; 跳转到返回地址
+co_main ENDP
+
+
+count PROC
+    push rbp                    ;; 保护栈基地址
+    mov rbp, rsp                ;; 将栈顶指针保持到rbp
+    sub rsp, 8                  ;; 分配一个局部变量
+    mov QWORD PTR [rbp - 8], 0  ;; 局部变量初始化为0
+again:
+    cmp QWORD PTR [rbp - 8], 3  ;; 与 3 进行比较
+    jg  over                    ;; 大于 3 就结束循环
+    mov rdx, OFFSET coromsg
+    mov r8, coromsg_len
+    call print
+    mov rcx, [rbp - 8]          ;; 将局部变量的值移动到rcx
+    call print_n                ;; 打印当前局部变量的值
+    call yield                  ;; 暂停协程
+    inc QWORD PTR [rbp - 8]     ;; 局部变量加1
+    jmp again                   ;; 继续循环
+over:
+    add rsp, 8                  ;; 释放局部变量
+    pop rbp                     ;; 恢复栈基地址
+    ret                         ;; 函数返回
+count ENDP
+
+
 main PROC
-    mov rspval,rsp
+    mov rspval, rsp
     call init
 
-    mov eax,5
-    add eax,6
+    call co_main
+
+    mov rcx, count
+    call create
+
+    mov rcx, count
+    call create
+
+    mov rcx, co_num
+    call print_n
+
+    call yield ;; 协程0保存下一条指令的地址，执行协程1打印0，协程1保存下一条指令的地址，执行协程2打印0，协程2保存下一条指令的地址，执行协程0即跳到下一条指令
+    call yield ;; 打印1
+    call yield ;; 打印2
+    call yield ;; 打印3
+    call yield ;; 协程0保存下一条指令的地址，协程1执行co_end，协程2执行co_end，执行协程0即跳到下一条指令
+
+    mov rdx, OFFSET hello
+    mov r8, hello_len
+    call println
+
+    mov rcx, 1024
+    call print_n
+
+    mov rcx, stdout
+    call print_n
+
+    mov rax, rspval
     call print32
     call crlf
 
-    mov rdx,offset hello
-    mov r8,COUNT
-    call prints
-    call crlf
-
-    mov rax,rspval
-    call print32
-    call crlf
-
-    mov ecx,0
+    mov ecx, 0
     call ExitProcess
 main ENDP
-
-test_add PROC
-    add al,bl
-    add ax,bx
-    add eax,ebx
-    add rax,rbx
-    add [eax],bl
-    add [eax],bx
-    add [eax],ebx
-    add [rax],bl
-    add [rax],bx
-    add [rax],ebx
-    add [rax],r8b
-    add [rax],r8w
-    add [rax],r8d
-    add [rax],r8
-    add bl,al
-    add bx,ax
-    add ebx,eax
-    add rbx,rax
-    add bl,[eax]
-    add bx,[eax]
-    add ebx,[eax]
-    add bl,[rax]
-    add bx,[rax]
-    add ebx,[rax]
-    add r8b,[rax]
-    add r8w,[rax]
-    add r8d,[rax]
-    add r8,[rax]
-test_add ENDP
 
 END
