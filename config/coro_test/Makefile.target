@@ -1,0 +1,7 @@
+target-y := default
+
+default-y := config/coro_test/
+
+default-macros-y := -D__ARCH_X64__
+
+default-binary-type := exe_run
