@@ -50,8 +50,6 @@ else
 subsystem := CONSOLE
 endif
 
-INIT_MACROS += /DNDEBUG
-
 ifneq ($(filter unicode,$(CONFIG_COMPILER)),)
 LINK_MAIN_ENTRY := w$(LINK_MAIN_ENTRY)
 INIT_MACROS += /DUNICODE /D_UNICODE
@@ -82,6 +80,14 @@ COMPILE_ASM_TO_OBJ := /c /Ta
 ASM_TO_OBJ_OUTFILE = /Sf /Sa /Fl$(basename $@).lst /Fo$@
 
 INIT_AFLAGS := /X /W3 /WX
+
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+# /Zi 生成调试信息，包括行号和符号信息，用于调试
+INIT_AFLAGS += /Zi
+INIT_MACROS += /D_DEBUG
+else
+INIT_MACROS += /DNDEBUG
+endif
 
 # linker warning LNK4001: no object files specified; libraries used
 #   The linker was passed one or more .lib files, but no .obj files. Because the linker is not able to access
@@ -122,7 +128,7 @@ ARCH_LIB_FLAGS += /VERBOSE
 endif
 
 ifeq ($(subsystem),CONSOLE)
-INIT_MACROS += /DCONSOLE /D_CONSOLE
+INIT_MACROS += /D_CONSOLE
 endif
 
 ifeq ($(build_dll),1)
@@ -160,7 +166,11 @@ endif
 # the actual working code is contained in MSVCRversionnumber.DLL,
 # this dll must be available at run time. /MDd debug version
 # of /MD, define _DEBUG _MT and _DLL, use MSVCRTD.lib.
-INIT_CFLAGS += /MT
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += /MDd
+else
+INIT_CFLAGS += /MD
+endif
 
 # /GS (Buffer Security Check)
 # Detects some buffer overruns that overwrite a function's return
@@ -196,9 +206,14 @@ INIT_CFLAGS += $(OPT_WARN_FLAGS)
 # /Oi 生成没有调用开销的内部函数（intrinsic functions）
 # /GF 启用只读字符串池，消除重复的字符串，最多只能创建65536个地址区
 # /Gy 启用函数级（function-level）链接，指向同一个函数共享一个指针
+# /Od 禁用优化（默认），最快编译速度和简单调试信息
 OPT_FLAGS_SPACE := /O1 /GF /Gy
 OPT_FLAGS_SPEED := /O2 /Oi /GF /Gy /fp:fast
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += /Od
+else
 INIT_CFLAGS += $(OPT_FLAGS_SPEED)
+endif
 
 # /ZI same as /Zi generate a separated pdb file to cotiain debug information,
 # but the generated pdb also support edit and continue debugging feature.
@@ -227,7 +242,11 @@ INIT_CFLAGS += /EHsc
 # 2. .def文件中使用EXPORTS语句
 # 3. 链接器中使用/export选项
 ifneq ($(filter dll,$(TARGET_TYPE)),)
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += /LDd
+else
 INIT_CFLAGS += /LD
+endif
 endif
 
 INIT_CFLAGS += \
