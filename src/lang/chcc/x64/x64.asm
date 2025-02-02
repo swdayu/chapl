@@ -27,21 +27,43 @@
 ;
 ; 当函数退出、函数进入 C 运行时库或 Windows 系统，标志寄存器中的方向标志必须先清位。
 
-coro_rsp_not_match PROTO
-coro_finish PROTO
-print_dec PROTO
-print_hex PROTO
-
 .code
 
-; [in]  rcx 协程的地址
-; [in]  rdx 协程继续处理时的返回参数
-coro_resume PROC
-    pop rax ; 不需要返回到被调函数中
-    mov rsp, [rcx]
-    pop rax ; 弹出协程栈中保存的 rsp
-    cmp rax, rsp
-    jne rsp_err
+;print_hex PROTO
+;coro_dump_run PROC
+;    push rcx
+;
+;    sub rsp, 40
+;    call print_hex  ; 打印协程地址
+;    add rsp, 40
+;
+;    mov rcx, rsp
+;    sub rsp, 40
+;    call print_hex  ; 打印协程 rsp
+;    add rsp, 40
+;
+;    pop rcx
+;    pop rdx
+;    push rdx
+;    push rcx
+;
+;    mov rcx, rdx
+;    sub rsp, 40
+;    call print_hex  ; 打印协程函数地址
+;    add rsp, 40
+;
+;    pop rcx
+;    ret ; 返回到栈中已保存的协程函数地址，协程函数的参数在 rcx 中
+;coro_dump_run ENDP
+
+
+; [in]  rcx 协程的栈指针
+coro_rsp_crash PROTO
+coro_asm_resume PROC PRIVATE
+    mov rsp, rcx
+    pop rcx ; 弹出协程栈中保存的 rsp
+    cmp rcx, rsp
+    jne rsp_crash
     pop r15
     pop r14
     pop r13
@@ -50,44 +72,26 @@ coro_resume PROC
     pop rbx
     pop rsi
     pop rdi
-    mov rax, rdx    ; 协程函数的参数在 rcx 中
-    push rcx
-
-    sub rsp, 40
-    call print_hex  ; 打印协程地址
-    add rsp, 40
-
-    mov rcx, rsp
-    sub rsp, 40
-    call print_hex  ; 打印协程 rsp
-    add rsp, 40
-
-    pop rcx
-    pop rdx         ; 协程函数地址
-    push rdx
-    push rcx
-
-    mov rcx, rdx
-    sub rsp, 40
-    call print_hex  ; 打印协程函数地址
-    add rsp, 40
-
-    pop rcx
-    ret ; 返回到栈中已保存的协程返回地址
-rsp_err:
-    mov rcx, rax
+    pop rcx     ; 协程地址
+    mov rax, 1  ; yield 函数的返回值
+    ret         ; 恢复协程运行 ; jmp coro_dump_run
+rsp_crash:
     mov rdx, rsp
     sub rsp, 40
-    call coro_rsp_not_match
-    add rsp, 40
-coro_resume ENDP
+    call coro_rsp_crash
+coro_asm_resume ENDP
 
 
 ; [in]  rcx 当前协程
-; [in]  rdx 需要等待处理的协程
-; [in]  r8  等待处理的协程继续处理时的返回参数
-coro_yield PROC
-    ; 栈中已保存该协程的返回地址
+; [in]  rdx 需要处理的协程
+coro_asm_yield PROC
+    cmp QWORD PTR [rdx], 0
+    jne save_context
+    mov rax, 0  ; yield 函数的返回值
+    ret ; 需要处理的协程已经处理完毕
+save_context:
+    ; 保护当前协程，栈中已保存返回地址
+    push rcx ; 当前协程地址
     push rdi
     push rsi
     push rbx
@@ -98,42 +102,36 @@ coro_yield PROC
     push r15
     push rsp
     mov [rcx], rsp
-    mov [rdx + 8], rcx  ; 当等待的协程处理完毕需要恢复当前协程
-    mov rcx, rdx
-    mov rdx, r8
-    call coro_resume
-coro_yield ENDP
+    ; 切换到需要处理的协程
+    mov rcx, [rdx]
+    jmp coro_asm_resume
+coro_asm_yield ENDP
 
 
-coro_end PROC PRIVATE
-    pop rcx ; 弹出协程地址
-    jmp coro_finish
-coro_end ENDP
+; [in]  rcx 当前协程
+; [in]  rdx 需要处理的协程
+coro_asm_yield_manual PROC
+    mov [rdx + 8], rcx  ; 当协程处理完毕后恢复当前协程
+    jmp coro_asm_yield
+coro_asm_yield_manual ENDP
 
 
-; [in]  rcx 协程的地址
-; [in]  rdx 协程函数的地址
-coro_init_stack PROC
-    push rdx
-    mov rax, [rcx]
-    mov [rax - 8 * 1], rcx              ; 压入协程地址
-    mov rdx, coro_end
-    mov [rax - 8 * 2], rdx              ; 压入协程结束处理函数
-    pop rdx
-    mov [rax - 8 * 3], rdx              ; 压入协程函数
-    mov QWORD PTR [rax - 8 * 4], 0      ; rdi
-    mov QWORD PTR [rax - 8 * 5], 0      ; rsi
-    mov QWORD PTR [rax - 8 * 6], 0      ; rbx
-    mov QWORD PTR [rax - 8 * 7], 0      ; rbp
-    mov QWORD PTR [rax - 8 * 8], 0      ; r12
-    mov QWORD PTR [rax - 8 * 9], 0      ; r13
-    mov QWORD PTR [rax - 8 *10], 0      ; r14
-    mov QWORD PTR [rax - 8 *11], 0      ; r15
-    sub rax, 8 * 11
-    mov [rax - 8], rax                  ; rsp
-    sub rax, 8
-    mov [rcx], rax  ; 更新协程的栈地址
-    ret
-coro_init_stack ENDP
+coro_finish PROTO
+coro_asm_return PROC PRIVATE
+    pop rcx
+    sub rsp, 40
+    call coro_finish
+    add rsp, 40
+    mov rcx, [rax]
+    jmp coro_asm_resume
+coro_asm_return ENDP
+
+
+coro_asm_call PROC
+    sub rsp, 40
+    call QWORD PTR [rcx + 8 * 2]  ; call co->func
+    add rsp, 40
+    jmp coro_asm_return
+coro_asm_call ENDP
 
 END
