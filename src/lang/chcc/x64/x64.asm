@@ -119,18 +119,18 @@ coro_asm_yield_manual ENDP
 coro_finish PROTO
 coro_asm_return PROC PRIVATE
     pop rcx
-    sub rsp, 40
+    sub rsp, (32 + 24 + 8)  ; align rsp to 32 bytes
     call coro_finish
-    add rsp, 40
+    add rsp, (32 + 24 + 8)
     mov rcx, [rax]
     jmp coro_asm_resume
 coro_asm_return ENDP
 
 
 coro_asm_call PROC
-    sub rsp, 40
+    sub rsp, (32 + 24)  ; align rsp to 32 bytes
     call QWORD PTR [rcx + 8 * 2]  ; call co->func
-    add rsp, 40
+    add rsp, (32 + 24)
     jmp coro_asm_return
 coro_asm_call ENDP
 

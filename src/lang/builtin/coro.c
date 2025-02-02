@@ -1,3 +1,5 @@
+#define __CURR_FILE__ STRID_LANG_CORO
+#include "internal/decl.h"
 #include "builtin/coro.h"
 
 void coro_asm_call(coroutine_t* co);
@@ -27,16 +29,21 @@ coroutine_t *coroutine_create(corotpool_t pool, coroutine_func_t f, intx stack_s
 {
     cocontext_t *ctx = (cocontext_t *)pool;
     if (ctx->count < ctx->capacity) {
-        intx alloc = sizeof(coroutine_t) + stack_size + 16;
+        intx alloc = sizeof(coroutine_t) + stack_size + 32;
         void *p = malloc(alloc);
-        void **rsp = (void **)((((intx)p + alloc) >> 4) << 4); // 对齐到 16 字节边界
+        void **rsp = (void **)((((intx)p + alloc) >> 5) << 5); // 对齐到 32 字节边界
+        void *rsp_aligned_to_32 = (void *)rsp;
+        void *align_to_32_bytes;
         coroutine_t *co = (coroutine_t *)p;
         co->func = f;
         co->para = para;
         co->wait = null;
         co->retp = null;
+        *(--rsp) = 0;                       // 填补对齐
+        *(--rsp) = 0;                       // 填补对齐
         *(--rsp) = co;                      // 提供给 coro_return 使用
         *(--rsp) = (void *)coro_asm_call;   // 创建时为 coro_call，然后会改为协程函数 f 中的返回地址
+        align_to_32_bytes = (void *)rsp;    // 对齐到 32 字节边界
         *(--rsp) = co;                      // rcx
         *(--rsp) = 0;                       // rdi
         *(--rsp) = 0;                       // rsi
@@ -56,7 +63,9 @@ coroutine_t *coroutine_create(corotpool_t pool, coroutine_func_t f, intx stack_s
         }
         co->wait = &ctx->init;
         ctx->item[ctx->count++] = co;
-        printf("[%02d] created rsp %p\n", (int)co->id, (void *)rsp);
+        printf("[%02d] created %p %p rsp %p\n", (int)co->id, rsp_aligned_to_32, align_to_32_bytes, (void *)rsp);
+        lang_assert((intp)rsp_aligned_to_32 % 16 == 0);
+        lang_assert((intp)align_to_32_bytes % 32 == 0);
         return co;
     }
     return null;
