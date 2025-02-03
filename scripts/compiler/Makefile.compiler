@@ -10,11 +10,11 @@ INIT_LDFLAG :=
 INIT_LDDIRS :=
 INIT_LDLIBS :=
 
-ifneq ($(filter gcc,$(CONFIG_COMPILER)),)
-include $(srctree)/scripts/compiler/Makefile.gcc
-gcc_exe_suffix = $(if $(filter elf bin,$(1)),.elf)
-target-file-suffix = $(if $(filter exe,$(1)),$(call gcc_exe_suffix,$(1)),$(if $(filter lib,$(1)),.a,$(if $(filter dll,$(1)),.so)))
-INIT_MACROS += -D__GCC__
+ifneq ($(filter gnu,$(CONFIG_COMPILER)),)
+include $(srctree)/scripts/compiler/Makefile.gnu
+gnu_exe_suffix = $(if $(filter elf bin,$(1)),.elf)
+target-file-suffix = $(if $(filter exe,$(1)),$(call gnu_exe_suffix,$(1)),$(if $(filter lib,$(1)),.a,$(if $(filter dll,$(1)),.so)))
+INIT_MACROS += -D__GNU__
 else ifneq ($(filter msc,$(CONFIG_COMPILER)),)
 include $(srctree)/scripts/compiler/Makefile.msc
 target-file-suffix = $(if $(filter exe,$(1)),.exe,$(if $(filter lib,$(1)),.lib,$(if $(filter dll,$(1)),.dll,.exe)))
