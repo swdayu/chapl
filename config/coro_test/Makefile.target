@@ -1,7 +1,17 @@
 target-y := default
 
-default-y := config/coro_test/
-
-default-macros-y := -D__ARCH_X64__
+ifneq ($(filter msc,$(CONFIG_COMPILER)),)
+ifneq ($(filter x64,$(CONFIG_COMPILER)),)
+default-y := src/lang/builtin/ src/lang/coro/x64_msc/ config/coro_test/
+else
+default-y := src/lang/builtin/ src/lang/coro/x86_msc/ config/coro_test/
+endif
+else
+ifneq ($(filter x64,$(CONFIG_COMPILER)),)
+default-y := src/lang/builtin/ src/lang/coro/x64_gnu/ config/coro_test/
+else
+default-y := src/lang/builtin/ src/lang/coro/x86_gnu/ config/coro_test/
+endif
+endif
 
 default-binary-type := exe_run
