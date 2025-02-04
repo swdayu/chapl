@@ -27,8 +27,6 @@ else
 $(error unsupported compiler '$(CONFIG_COMPILER)')
 endif
 
-INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
-
 ifneq ($(filter dll,$(TARGET_TYPE)),)
 INIT_MACROS += -DCONFIG_BUILD_DLL
 endif

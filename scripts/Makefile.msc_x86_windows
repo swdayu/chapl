@@ -91,6 +91,8 @@ else
 INIT_MACROS += /DNDEBUG
 endif
 
+INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
+
 # linker warning LNK4001: no object files specified; libraries used
 #   The linker was passed one or more .lib files, but no .obj files. Because the linker is not able to access
 #   information in a .lib file that it is able to access in an .obj file, this warning indicates that you will
