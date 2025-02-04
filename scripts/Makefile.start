@@ -10,7 +10,7 @@ $(cur_makefile):: ;
 PHONY := all
 all:
 
-include $(srctree)/scripts/Makefile.include
+include $(srctree)/scripts/Makefile.basic
 
 override TARGET_OUTPUT := $(BUILD_OUTPUT)/$(T)/$(CCCFG)
 override objtree := $(TARGET_OUTPUT)

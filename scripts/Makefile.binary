@@ -12,8 +12,8 @@ override TARGET_TYPE += run
 endif
 endif
 
-include $(srctree)/scripts/Makefile.include
-include $(srctree)/scripts/compiler/Makefile.compiler
+include $(srctree)/scripts/Makefile.basic
+include $(srctree)/scripts/Makefile.compiler
 include $(TARGET_OUTPUT)/$(DEST)/Makefile.dest
 
 TARGET_OUTS := $(target-outs-y)

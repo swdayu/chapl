@@ -1,3 +1,5 @@
+# gnu tool chain for arm eabi (embedded application binary interface)
+
 # dont export variables defined in this makefile
 cur_makefile := $(lastword $(MAKEFILE_LIST))
 $(cur_makefile):: ;
