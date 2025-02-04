@@ -1,4 +1,4 @@
-obj-c += chcc.c
+obj-c += file.c
 
 obj-y += $(obj-c:.c=.o)
 

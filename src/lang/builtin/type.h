@@ -11,7 +11,7 @@ extern "C" {
 #define __DECL_THREAD __declspec(thread)
 // pack takes effect at the first struct, union, or class declaration after the pragma is seen
 #define __DECL_PACKED _Pragma("pack(1)") typedef struct
-#elif defined(__GCC__)
+#elif defined(__GNU__)
 #define __DECL_THREAD __thread
 // an attribute specifier list may appear as part of a struct, union or enum specifier.
 // it may go either immediately after the struct, union or enum keyword, or after the
@@ -48,36 +48,29 @@ typedef uint32 uintd_t;
 typedef intptr int96;   // 机器字长类型
 typedef uintptr uint96;
 
-const static int8 LANG_INT8_MIN = -127-1; /* 128 0x80 */
-const static int8 LANG_INT8_MAX = 0x7f; /* 127 */
-const static uint8 LANG_INT8_UMAX = 0xff; /* 255 */
+const static int8 LANG_I8_MIN = -127-1; /* 128 0x80 */
+const static int8 LANG_I8_MAX = 0x7f; /* 127 */
+const static uint8 LANG_I8_UMAX = 0xff; /* 255 */
 
-const static int16 LANG_INT16_MIN = -32767-1; /* 32768 0x8000 */
-const static int16 LANG_INT16_MAX = 0x7fff; /* 32767 */
-const static uint16 LANG_INT16_UMAX = 0xffff; /* 65535 */
+const static int16 LANG_I16_MIN = -32767-1; /* 32768 0x8000 */
+const static int16 LANG_I16_MAX = 0x7fff; /* 32767 */
+const static uint16 LANG_I16_UMAX = 0xffff; /* 65535 */
 
-const static int32 LANG_INT32_MIN = -2147483647-1; /* 2147483648 0x80000000 */
-const static int32 LANG_INT32_MAX = 0x7fffffff; /* 2147483647 */
-const static uint32 LANG_INT32_UMAX = 0xffffffff; /* 4294967295 */
+const static int32 LANG_I32_MIN = -2147483647-1; /* 2147483648 0x80000000 */
+const static int32 LANG_I32_MAX = 0x7fffffff; /* 2147483647 */
+const static uint32 LANG_I32_UMAX = 0xffffffff; /* 4294967295 */
 
-const static int64 LANG_INT64_MIN = -9223372036854775807LL-1; /* 9223372036854775808 0x8000000000000000 */
-const static int64 LANG_INT64_MAX = 0x7fffffffffffffffLL; /* 9223372036854775807 */
-const static uint64 LANG_INT64_UMAX = 0xffffffffffffffffULL; /* 18446744073709551615 */
+const static int64 LANG_I64_MIN = -9223372036854775807LL-1; /* 9223372036854775808 0x8000000000000000 */
+const static int64 LANG_I64_MAX = 0x7fffffffffffffffLL; /* 9223372036854775807 */
+const static uint64 LANG_I64_UMAX = 0xffffffffffffffffULL; /* 18446744073709551615 */
 
-#undef LANG_INT_MIN
-#undef LANG_INT_MAX
-#undef LANG_INT_UMAX
-#undef LANG_INTW_MIN
-#undef LANG_INTW_MAX
-#undef LANG_INTW_UMAX
+#define LANG_INT_MIN LANG_I32_MIN
+#define LANG_INT_MAX LANG_I32_MAX
+#define LANG_INT_UMAX LANG_I32_UMAX
 
-#define LANG_INT_MIN LANG_INT32_MIN
-#define LANG_INT_MAX LANG_INT32_MAX
-#define LANG_INT_UMAX LANG_INT32_UMAX
-
-#define LANG_INT96_MIN LANG_INTPTR_MIN
-#define LANG_INT96_MAX LANG_INTPTR_MAX
-#define LANG_INT96_UMAX LANG_INTPTR_UMAX
+#define LANG_IPT_MIN LANG_INTPTR_MIN
+#define LANG_IPT_MAX LANG_INTPTR_MAX
+#define LANG_IPT_UMAX LANG_INTPTR_UMAX
 
 #undef floatd_t
 #undef float32
@@ -85,12 +78,25 @@ const static uint64 LANG_INT64_UMAX = 0xffffffffffffffffULL; /* 1844674407370955
 
 typedef float float32;
 typedef double float64;
-typedef float64 floatd_t; // 默认浮点类型
+typedef float32 floatd_t; // 默认浮点类型
+
+typedef int8    i8;
+typedef int16   i16;
+typedef int32   i32;
+typedef int64   i64;
+typedef intptr  ipr;
+typedef uint8   u8;
+typedef uint16  u16;
+typedef uint32  u32;
+typedef uint64  u64;
+typedef uintptr upr;
+typedef float32 f32;
+typedef float64 f64;
 
 typedef struct {
     byte* a;    // 必须是第一个字段
-    uint96 len: __ARCH_BITS__ - 1;
-    uint96 dyn: 1;
+    upr len: __ARCH_BITS__ - 1;
+    upr dyn: 1;
 } string_t;
 
 bool string_init(string_t *s, const byte *a, int96 len, bool alloc);
@@ -102,7 +108,7 @@ void string_free(string_t *s);
 void assertfaults_(uint16 file, uint32 argn_line, string_t s, ...);
 void logtraces_(errot err, uint32 file_err, uint32 argn_line, string_t s, ...);
 inline string_t strnull() { string_t s = {0,0,0}; return s; }
-inline string_t strfend(const byte *f, const byte *e) { return string_create(f, e - f, 0); }
+inline string_t strfend(const byte *f, const byte *e) { return string_create(f, (int96)(e - f), 0); }
 inline string_t strflen(const byte *f, int96 len) { return string_create(f, len, 0); }
 inline string_t strfrom(const char *s) { string_t a = {(byte*)s, s ? strlen(s) : 0, 0}; return a; }
 inline bool string_empty(string_t *s) { return !s->len; }

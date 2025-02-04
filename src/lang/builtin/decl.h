@@ -25,7 +25,7 @@ extern "C" {
 // __OS_LINUX__         // linux-gnu
 // __OS_MACHO__         // apple-darwin
 // __MSC__
-// __GCC__
+// __GNU__
 #include "builtin/type.h"
 
 #define CHAR_NULL           '\0'    // 00
@@ -115,22 +115,22 @@ extern "C" {
 #define lang_assert(e) ((e) ? ((void)0) : assertfault_(__CURR_FILE__, __LINE__))
 #define lang_assert_x(e, n, ...) ((e) ? ((void)0) : assertfaultx_(__CURR_FILE__, X_ARGN_LINE(n), ## __VA_ARGS__))
 #define lang_assert_s_x(e, s, n, ...) ((e) ? ((void)0) : assertfaults_(__CURR_FILE__, X_ARGN_LINE(n), (s), ## __VA_ARGS__))
-#define lang_assert_1(e, a) lang_assert_x((e), 1, (uint32)(a))
-#define lang_assert_2(e, a, b) lang_assert_x((e), 2, (uint32)(a), (uint32)(b))
-#define lang_assert_3(e, a, b, c) lang_assert_x((e), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define lang_assert_4(e, a, b, c, d) lang_assert_x((e), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define lang_assert_5(e, a, b, c, d, ee) lang_assert_x((e), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
+#define lang_assert_1(e, a) lang_assert_x((e), 1, (u32)(a))
+#define lang_assert_2(e, a, b) lang_assert_x((e), 2, (u32)(a), (u32)(b))
+#define lang_assert_3(e, a, b, c) lang_assert_x((e), 3, (u32)(a), (u32)(b), (u32)(c))
+#define lang_assert_4(e, a, b, c, d) lang_assert_x((e), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define lang_assert_5(e, a, b, c, d, ee) lang_assert_x((e), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(ee))
 #define lang_assert_s(e, s) lang_assert_s_x((e), (s), 0)
-#define lang_assert_s_1(e, s, a) lang_assert_s_x((e), (s), 1, (uint32)(a))
-#define lang_assert_s_2(e, s, a, b) lang_assert_s_x((e), (s), 2, (uint32)(a), (uint32)(b))
-#define lang_assert_s_3(e, s, a, b, c) lang_assert_s_x((e), (s), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define lang_assert_s_4(e, s, a, b, c, d) lang_assert_s_x((e), (s), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define lang_assert_s_5(e, s, a, b, c, d, ee) lang_assert_s_x((e), (s), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(ee))
+#define lang_assert_s_1(e, s, a) lang_assert_s_x((e), (s), 1, (u32)(a))
+#define lang_assert_s_2(e, s, a, b) lang_assert_s_x((e), (s), 2, (u32)(a), (u32)(b))
+#define lang_assert_s_3(e, s, a, b, c) lang_assert_s_x((e), (s), 3, (u32)(a), (u32)(b), (u32)(c))
+#define lang_assert_s_4(e, s, a, b, c, d) lang_assert_s_x((e), (s), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define lang_assert_s_5(e, s, a, b, c, d, ee) lang_assert_s_x((e), (s), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(ee))
 
-void assertfault_(uint16 file, uint32 line);
-void assertfaultx_(uint16 file, uint32 argn_line, ...);
-void logtrace_(errot err, uint32 file_err, uint32 line);
-void logtracex_(errot err, uint32 file_err, uint32 argn_line, ...);
+void assertfault_(u16 file, u32 line);
+void assertfaultx_(u16 file, u32 argn_line, ...);
+void logtrace_(errot err, u32 file_err, u32 line);
+void logtracex_(errot err, u32 file_err, u32 argn_line, ...);
 
 #define X_FILE(err) (__CURR_FILE__ << 16)
 #define X_ARGN_LINE(argn) (((argn) << 27) | __LINE__)
@@ -188,65 +188,65 @@ void logtracex_(errot err, uint32 file_err, uint32 argn_line, ...);
 #define log_debug_s_x(err, s, n, ...)
 #endif
 
-#define log_fatal_1(err, a) log_fatal_x((err), 1, (uint32)(a))
-#define log_fatal_2(err, a, b) log_fatal_x((err), 2, (uint32)(a), (uint32)(b))
-#define log_fatal_3(err, a, b, c) log_fatal_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_fatal_4(err, a, b, c, d) log_fatal_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_fatal_5(err, a, b, c, d, e) log_fatal_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_fatal_1(err, a) log_fatal_x((err), 1, (u32)(a))
+#define log_fatal_2(err, a, b) log_fatal_x((err), 2, (u32)(a), (u32)(b))
+#define log_fatal_3(err, a, b, c) log_fatal_x((err), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_fatal_4(err, a, b, c, d) log_fatal_x((err), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_fatal_5(err, a, b, c, d, e) log_fatal_x((err), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 #define log_fatal_s(err, s) log_fatal_s_x((err), (s), 0)
-#define log_fatal_s_1(err, s, a) log_fatal_s_x((err), (s), 1, (uint32)(a))
-#define log_fatal_s_2(err, s, a, b) log_fatal_s_x((err), (s), 2, (uint32)(a), (uint32)(b))
-#define log_fatal_s_3(err, s, a, b, c) log_fatal_s_x((err), (s), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_fatal_s_4(err, s, a, b, c, d) log_fatal_s_x((err), (s), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_fatal_s_5(err, s, a, b, c, d, e) log_fatal_s_x((err), (s), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_fatal_s_1(err, s, a) log_fatal_s_x((err), (s), 1, (u32)(a))
+#define log_fatal_s_2(err, s, a, b) log_fatal_s_x((err), (s), 2, (u32)(a), (u32)(b))
+#define log_fatal_s_3(err, s, a, b, c) log_fatal_s_x((err), (s), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_fatal_s_4(err, s, a, b, c, d) log_fatal_s_x((err), (s), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_fatal_s_5(err, s, a, b, c, d, e) log_fatal_s_x((err), (s), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 
-#define log_main_1(err, a) log_main_x((err), 1, (uint32)(a))
-#define log_main_2(err, a, b) log_main_x((err), 2, (uint32)(a), (uint32)(b))
-#define log_main_3(err, a, b, c) log_main_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_main_4(err, a, b, c, d) log_main_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_main_5(err, a, b, c, d, e) log_main_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_main_1(err, a) log_main_x((err), 1, (u32)(a))
+#define log_main_2(err, a, b) log_main_x((err), 2, (u32)(a), (u32)(b))
+#define log_main_3(err, a, b, c) log_main_x((err), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_main_4(err, a, b, c, d) log_main_x((err), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_main_5(err, a, b, c, d, e) log_main_x((err), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 #define log_main_s(err, s) log_main_s_x((err), (s), 0)
-#define log_main_s_1(err, s, a) log_main_s_x((err), (s), 1, (uint32)(a))
-#define log_main_s_2(err, s, a, b) log_main_s_x((err), (s), 2, (uint32)(a), (uint32)(b))
-#define log_main_s_3(err, s, a, b, c) log_main_s_x((err), (s), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_main_s_4(err, s, a, b, c, d) log_main_s_x((err), (s), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_main_s_5(err, s, a, b, c, d, e) log_main_s_x((err), (s), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_main_s_1(err, s, a) log_main_s_x((err), (s), 1, (u32)(a))
+#define log_main_s_2(err, s, a, b) log_main_s_x((err), (s), 2, (u32)(a), (u32)(b))
+#define log_main_s_3(err, s, a, b, c) log_main_s_x((err), (s), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_main_s_4(err, s, a, b, c, d) log_main_s_x((err), (s), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_main_s_5(err, s, a, b, c, d, e) log_main_s_x((err), (s), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 
-#define log_error_1(err, a) log_error_x((err), 1, (uint32)(a))
-#define log_error_2(err, a, b) log_error_x((err), 2, (uint32)(a), (uint32)(b))
-#define log_error_3(err, a, b, c) log_error_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_error_4(err, a, b, c, d) log_error_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_error_5(err, a, b, c, d, e) log_error_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_error_1(err, a) log_error_x((err), 1, (u32)(a))
+#define log_error_2(err, a, b) log_error_x((err), 2, (u32)(a), (u32)(b))
+#define log_error_3(err, a, b, c) log_error_x((err), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_error_4(err, a, b, c, d) log_error_x((err), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_error_5(err, a, b, c, d, e) log_error_x((err), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 #define log_error_s(err, s) log_error_s_x((err), (s), 0)
-#define log_error_s_1(err, s, a) log_error_s_x((err), (s), 1, (uint32)(a))
-#define log_error_s_2(err, s, a, b) log_error_s_x((err), (s), 2, (uint32)(a), (uint32)(b))
-#define log_error_s_3(err, s, a, b, c) log_error_s_x((err), (s), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_error_s_4(err, s, a, b, c, d) log_error_s_x((err), (s), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_error_s_5(err, s, a, b, c, d, e) log_error_s_x((err), (s), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_error_s_1(err, s, a) log_error_s_x((err), (s), 1, (u32)(a))
+#define log_error_s_2(err, s, a, b) log_error_s_x((err), (s), 2, (u32)(a), (u32)(b))
+#define log_error_s_3(err, s, a, b, c) log_error_s_x((err), (s), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_error_s_4(err, s, a, b, c, d) log_error_s_x((err), (s), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_error_s_5(err, s, a, b, c, d, e) log_error_s_x((err), (s), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 
-#define log_info_1(err, a) log_info_x((err), 1, (uint32)(a))
-#define log_info_2(err, a, b) log_info_x((err), 2, (uint32)(a), (uint32)(b))
-#define log_info_3(err, a, b, c) log_info_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_info_4(err, a, b, c, d) log_info_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_info_5(err, a, b, c, d, e) log_info_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_info_1(err, a) log_info_x((err), 1, (u32)(a))
+#define log_info_2(err, a, b) log_info_x((err), 2, (u32)(a), (u32)(b))
+#define log_info_3(err, a, b, c) log_info_x((err), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_info_4(err, a, b, c, d) log_info_x((err), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_info_5(err, a, b, c, d, e) log_info_x((err), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 #define log_info_s(err, s) log_info_s_x((err), (s), 0)
-#define log_info_s_1(err, s, a) log_info_s_x((err), (s), 1, (uint32)(a))
-#define log_info_s_2(err, s, a, b) log_info_s_x((err), (s), 2, (uint32)(a), (uint32)(b))
-#define log_info_s_3(err, s, a, b, c) log_info_s_x((err), (s), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_info_s_4(err, s, a, b, c, d) log_info_s_x((err), (s), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_info_s_5(err, s, a, b, c, d, e) log_info_s_x((err), (s), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_info_s_1(err, s, a) log_info_s_x((err), (s), 1, (u32)(a))
+#define log_info_s_2(err, s, a, b) log_info_s_x((err), (s), 2, (u32)(a), (u32)(b))
+#define log_info_s_3(err, s, a, b, c) log_info_s_x((err), (s), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_info_s_4(err, s, a, b, c, d) log_info_s_x((err), (s), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_info_s_5(err, s, a, b, c, d, e) log_info_s_x((err), (s), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 
-#define log_debug_1(err, a) log_debug_x((err), 1, (uint32)(a))
-#define log_debug_2(err, a, b) log_debug_x((err), 2, (uint32)(a), (uint32)(b))
-#define log_debug_3(err, a, b, c) log_debug_x((err), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_debug_4(err, a, b, c, d) log_debug_x((err), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_debug_5(err, a, b, c, d, e) log_debug_x((err), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_debug_1(err, a) log_debug_x((err), 1, (u32)(a))
+#define log_debug_2(err, a, b) log_debug_x((err), 2, (u32)(a), (u32)(b))
+#define log_debug_3(err, a, b, c) log_debug_x((err), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_debug_4(err, a, b, c, d) log_debug_x((err), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_debug_5(err, a, b, c, d, e) log_debug_x((err), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 #define log_debug_s(err, s) log_debug_s_x((err), (s), 0)
-#define log_debug_s_1(err, s, a) log_debug_s_x((err), (s), 1, (uint32)(a))
-#define log_debug_s_2(err, s, a, b) log_debug_s_x((err), (s), 2, (uint32)(a), (uint32)(b))
-#define log_debug_s_3(err, s, a, b, c) log_debug_s_x((err), (s), 3, (uint32)(a), (uint32)(b), (uint32)(c))
-#define log_debug_s_4(err, s, a, b, c, d) log_debug_s_x((err), (s), 4, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d))
-#define log_debug_s_5(err, s, a, b, c, d, e) log_debug_s_x((err), (s), 5, (uint32)(a), (uint32)(b), (uint32)(c), (uint32)(d), (uint32)(e))
+#define log_debug_s_1(err, s, a) log_debug_s_x((err), (s), 1, (u32)(a))
+#define log_debug_s_2(err, s, a, b) log_debug_s_x((err), (s), 2, (u32)(a), (u32)(b))
+#define log_debug_s_3(err, s, a, b, c) log_debug_s_x((err), (s), 3, (u32)(a), (u32)(b), (u32)(c))
+#define log_debug_s_4(err, s, a, b, c, d) log_debug_s_x((err), (s), 4, (u32)(a), (u32)(b), (u32)(c), (u32)(d))
+#define log_debug_s_5(err, s, a, b, c, d, e) log_debug_s_x((err), (s), 5, (u32)(a), (u32)(b), (u32)(c), (u32)(d), (u32)(e))
 
 #undef ERROR
 #undef BUILTIN_NUM_ERRORS
@@ -268,39 +268,39 @@ extern const byte* builtin_errors_g[BUILTIN_NUM_ERRORS];
 #endif
 
 #if __LIT_ENDIAN__
-inline uint16 host_16_to_le(uint16 n) { return n; }
-inline uint32 host_24_to_le(uint32 n) { return n; }
-inline uint32 host_32_to_le(uint32 n) { return n; }
-inline uint64 host_64_to_le(uint64 n) { return n; }
-inline uint16 le_16_to_host(uint16 n) { return n; }
-inline uint32 le_24_to_host(uint32 n) { return n; }
-inline uint32 le_32_to_host(uint32 n) { return n; }
-inline uint64 le_64_to_host(uint64 n) { return n; }
-inline uint16 host_16_to_be(uint16 n) { return ((n & 0xff) << 8) | (n >> 8); }
-inline uint32 host_24_to_be(uint32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
-inline uint32 host_32_to_be(uint32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
-inline uint64 host_64_to_be(uint64 n) { return (((uint64)host_32_to_be(n & 0xffffffff)) << 32) | host_32_to_be(n >> 32); }
-inline uint16 be_16_to_host(uint16 n) { return host_16_to_be(n); }
-inline uint32 be_24_to_host(uint32 n) { return host_24_to_be(n); }
-inline uint32 be_32_to_host(uint32 n) { return host_32_to_be(n); }
-inline uint64 be_64_to_host(uint64 n) { return host_64_to_be(n); }
+inline u16 host_16_to_le(u16 n) { return n; }
+inline u32 host_24_to_le(u32 n) { return n; }
+inline u32 host_32_to_le(u32 n) { return n; }
+inline u64 host_64_to_le(u64 n) { return n; }
+inline u16 le_16_to_host(u16 n) { return n; }
+inline u32 le_24_to_host(u32 n) { return n; }
+inline u32 le_32_to_host(u32 n) { return n; }
+inline u64 le_64_to_host(u64 n) { return n; }
+inline u16 host_16_to_be(u16 n) { return ((n & 0xff) << 8) | (n >> 8); }
+inline u32 host_24_to_be(u32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
+inline u32 host_32_to_be(u32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
+inline u64 host_64_to_be(u64 n) { return (((u64)host_32_to_be(n & 0xffffffff)) << 32) | host_32_to_be(n >> 32); }
+inline u16 be_16_to_host(u16 n) { return host_16_to_be(n); }
+inline u32 be_24_to_host(u32 n) { return host_24_to_be(n); }
+inline u32 be_32_to_host(u32 n) { return host_32_to_be(n); }
+inline u64 be_64_to_host(u64 n) { return host_64_to_be(n); }
 #else
-inline uint16 host_16_to_le(uint16 n) { return ((n & 0xff) << 8) | (n >> 8); }
-inline uint32 host_24_to_le(uint32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
-inline uint32 host_32_to_le(uint32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
-inline uint64 host_64_to_le(uint64 n) { return (((uint64)host_32_to_le(n & 0xffffffff)) << 32) | host_32_to_le(n >> 32); }
-inline uint16 le_16_to_host(uint16 n) { return host_16_to_le(n); }
-inline uint32 le_24_to_host(uint32 n) { return host_24_to_le(n); }
-inline uint32 le_32_to_host(uint32 n) { return host_32_to_le(n); }
-inline uint64 le_64_to_host(uint64 n) { return host_64_to_le(n); }
-inline uint16 host_16_to_be(uint16 n) { return n; }
-inline uint32 host_24_to_be(uint32 n) { return n; }
-inline uint32 host_32_to_be(uint32 n) { return n; }
-inline uint64 host_64_to_be(uint64 n) { return n; }
-inline uint16 be_16_to_host(uint16 n) { return n; }
-inline uint32 be_24_to_host(uint32 n) { return n; }
-inline uint32 be_32_to_host(uint32 n) { return n; }
-inline uint64 be_64_to_host(uint64 n) { return n; }
+inline u16 host_16_to_le(u16 n) { return ((n & 0xff) << 8) | (n >> 8); }
+inline u32 host_24_to_le(u32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
+inline u32 host_32_to_le(u32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
+inline u64 host_64_to_le(u64 n) { return (((u64)host_32_to_le(n & 0xffffffff)) << 32) | host_32_to_le(n >> 32); }
+inline u16 le_16_to_host(u16 n) { return host_16_to_le(n); }
+inline u32 le_24_to_host(u32 n) { return host_24_to_le(n); }
+inline u32 le_32_to_host(u32 n) { return host_32_to_le(n); }
+inline u64 le_64_to_host(u64 n) { return host_64_to_le(n); }
+inline u16 host_16_to_be(u16 n) { return n; }
+inline u32 host_24_to_be(u32 n) { return n; }
+inline u32 host_32_to_be(u32 n) { return n; }
+inline u64 host_64_to_be(u64 n) { return n; }
+inline u16 be_16_to_host(u16 n) { return n; }
+inline u32 be_24_to_host(u32 n) { return n; }
+inline u32 be_32_to_host(u32 n) { return n; }
+inline u64 be_64_to_host(u64 n) { return n; }
 #endif
 
 #define HOST_BYTE(a) ((byte)((a)&0xff))
@@ -313,20 +313,20 @@ inline uint64 be_64_to_host(uint64 n) { return n; }
 #define HOST_32_BE_BYTES(a) HOST_16_BE_BYTES((a)>>16), HOST_16_BE_BYTES(a)
 #define HOST_64_BE_BYTES(a) HOST_32_BE_BYTES((a)>>32), HOST_32_BE_BYTES(a)
 
-inline byte *host_16_to_lp(uint16 n, byte *p) {
+inline byte *host_16_to_lp(u16 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     return p + 2;
 }
 
-inline byte *host_24_to_lp(uint32 n, byte *p) {
+inline byte *host_24_to_lp(u32 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[2] = HOST_BYTE(n >> 16);
     return p + 3;
 }
 
-inline byte *host_32_to_lp(uint32 n, byte *p) {
+inline byte *host_32_to_lp(u32 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[2] = HOST_BYTE(n >> 16);
@@ -334,7 +334,7 @@ inline byte *host_32_to_lp(uint32 n, byte *p) {
     return p + 4;
 }
 
-inline byte *host_64_to_lp(uint64 n, byte *p) {
+inline byte *host_64_to_lp(u64 n, byte *p) {
     p[0] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[2] = HOST_BYTE(n >> 16);
@@ -346,20 +346,20 @@ inline byte *host_64_to_lp(uint64 n, byte *p) {
     return p + 8;
 }
 
-inline byte *host_16_to_bp(uint16 n, byte *p) {
+inline byte *host_16_to_bp(u16 n, byte *p) {
     p[1] = HOST_BYTE(n);
     p[0] = HOST_BYTE(n >> 8);
     return p + 2;
 }
 
-inline byte *host_24_to_bp(uint32 n, byte *p) {
+inline byte *host_24_to_bp(u32 n, byte *p) {
     p[2] = HOST_BYTE(n);
     p[1] = HOST_BYTE(n >> 8);
     p[0] = HOST_BYTE(n >> 16);
     return p + 3;
 }
 
-inline byte *host_32_to_bp(uint32 n, byte *p) {
+inline byte *host_32_to_bp(u32 n, byte *p) {
     p[3] = HOST_BYTE(n);
     p[2] = HOST_BYTE(n >> 8);
     p[1] = HOST_BYTE(n >> 16);
@@ -367,7 +367,7 @@ inline byte *host_32_to_bp(uint32 n, byte *p) {
     return p + 4;
 }
 
-inline byte *host_64_to_bp(uint64 n, byte *p) {
+inline byte *host_64_to_bp(u64 n, byte *p) {
     p[7] = HOST_BYTE(n);
     p[6] = HOST_BYTE(n >> 8);
     p[5] = HOST_BYTE(n >> 16);
@@ -379,72 +379,90 @@ inline byte *host_64_to_bp(uint64 n, byte *p) {
     return p + 8;
 }
 
-inline uint16 lp_16_to_host(byte *p) {
-    return (((uint16)p[1]) << 8) | p[0];
+inline u16 lp_16_to_host(byte *p) {
+    return (((u16)p[1]) << 8) | p[0];
 }
 
-inline uint32 lp_24_to_host(byte *p) {
-    return (((uint32)p[2]) << 16) | (((uint32)p[1]) << 8) | p[0];
+inline u32 lp_24_to_host(byte *p) {
+    return (((u32)p[2]) << 16) | (((u32)p[1]) << 8) | p[0];
 }
 
-inline uint32 lp_32_to_host(byte *p) {
-    return (((uint32)p[3]) << 24) | (((uint32)p[2]) << 16) | (((uint32)p[1]) << 8) | p[0];
+inline u32 lp_32_to_host(byte *p) {
+    return (((u32)p[3]) << 24) | (((u32)p[2]) << 16) | (((u32)p[1]) << 8) | p[0];
 }
 
-inline uint64 lp_64_to_host(byte *p) {
+inline u64 lp_64_to_host(byte *p) {
     return
-        (((uint64)p[7]) << 56) | (((uint64)p[6]) << 48) |
-        (((uint64)p[5]) << 40) | (((uint64)p[4]) << 32) |
-        (((uint64)p[3]) << 24) | (((uint64)p[2]) << 16) |
-        (((uint64)p[1]) << 8)  | p[0];
+        (((u64)p[7]) << 56) | (((u64)p[6]) << 48) |
+        (((u64)p[5]) << 40) | (((u64)p[4]) << 32) |
+        (((u64)p[3]) << 24) | (((u64)p[2]) << 16) |
+        (((u64)p[1]) << 8)  | p[0];
 }
 
-inline uint16 bp_16_to_host(byte *p) {
-    return (((uint16)p[0]) << 8) | p[1];
+inline u16 bp_16_to_host(byte *p) {
+    return (((u16)p[0]) << 8) | p[1];
 }
 
-inline uint32 bp_24_to_host(byte *p) {
-    return (((uint32)p[0]) << 16) | (((uint32)p[1]) << 8) | p[2];
+inline u32 bp_24_to_host(byte *p) {
+    return (((u32)p[0]) << 16) | (((u32)p[1]) << 8) | p[2];
 }
 
-inline uint32 bp_32_to_host(byte *p) {
-    return (((uint32)p[0]) << 24) | (((uint32)p[1]) << 16) | (((uint32)p[2]) << 8) | p[3];
+inline u32 bp_32_to_host(byte *p) {
+    return (((u32)p[0]) << 24) | (((u32)p[1]) << 16) | (((u32)p[2]) << 8) | p[3];
 }
 
-inline uint64 bp_64_to_host(byte *p) {
+inline u64 bp_64_to_host(byte *p) {
     return
-        (((uint64)p[0]) << 56) | (((uint64)p[1]) << 48) |
-        (((uint64)p[2]) << 40) | (((uint64)p[3]) << 32) |
-        (((uint64)p[4]) << 24) | (((uint64)p[5]) << 16) |
-        (((uint64)p[6]) << 8)  | p[7];
+        (((u64)p[0]) << 56) | (((u64)p[1]) << 48) |
+        (((u64)p[2]) << 40) | (((u64)p[3]) << 32) |
+        (((u64)p[4]) << 24) | (((u64)p[5]) << 16) |
+        (((u64)p[6]) << 8)  | p[7];
 }
 
 #if __ARCH_32BIT__
-#define host_96_to_le(n)    host_32_to_le(n)
-#define host_96_to_be(n)    host_32_to_be(n)
-#define le_96_to_host(n)    le_32_to_host(n)
-#define be_96_to_host(n)    be_32_to_host(n)
-#define host_96_to_lp(n, p) host_32_to_lp((n), (p))
-#define host_96_to_bp(n, p) host_32_to_bp((n), (p))
-#define lp_96_to_host(p)    lp_32_to_host(p)
-#define bp_96_to_host(p)    bp_32_to_host(p)
+#define host_pr_to_le(n)    host_32_to_le(n)
+#define host_pr_to_be(n)    host_32_to_be(n)
+#define le_pr_to_host(n)    le_32_to_host(n)
+#define be_pr_to_host(n)    be_32_to_host(n)
+#define host_pr_to_lp(n, p) host_32_to_lp((n), (p))
+#define host_pr_to_bp(n, p) host_32_to_bp((n), (p))
+#define lp_pr_to_host(p)    lp_32_to_host(p)
+#define bp_pr_to_host(p)    bp_32_to_host(p)
 #elif __ARCH_64BIT__
-#define host_96_to_le(n)    host_64_to_le(n)
-#define host_96_to_be(n)    host_64_to_be(n)
-#define le_96_to_host(n)    le_64_to_host(n)
-#define be_96_to_host(n)    be_64_to_host(n)
-#define host_96_to_lp(n, p) host_64_to_lp((n), (p))
-#define host_96_to_bp(n, p) host_64_to_bp((n), (p))
-#define lp_96_to_host(p)    lp_64_to_host(p)
-#define bp_96_to_host(p)    bp_64_to_host(p)
+#define host_pr_to_le(n)    host_64_to_le(n)
+#define host_pr_to_be(n)    host_64_to_be(n)
+#define le_pr_to_host(n)    le_64_to_host(n)
+#define be_pr_to_host(n)    be_64_to_host(n)
+#define host_pr_to_lp(n, p) host_64_to_lp((n), (p))
+#define host_pr_to_bp(n, p) host_64_to_bp((n), (p))
+#define lp_pr_to_host(p)    lp_64_to_host(p)
+#define bp_pr_to_host(p)    bp_64_to_host(p)
 #endif
 
 // (~pow_2_sub_1) 相当于 (-pow_2)
 #define ROUND_POW2(T, n, pow_2_sub_1) (((n) + (pow_2_sub_1)) & (~((T)(pow_2_sub_1))))
 #define ROUND_PAD(n, pow_2_sub_1) ((((pow_2_sub_1) + 1) - ((n) & (pow_2_sub_1))) & (pow_2_sub_1))
-inline uint32 round_up(uint32 n, uint32 a) { return ROUND_POW2(uint32, n, a); }
-inline uint64 round_up_x(uint64 n, uint64 a) { return ROUND_POW2(uint64, n, a); }
-inline uint96 round_up_v(uint96 n, uint96 a) { return ROUND_POW2(uint96, n, a); }
+inline u32 u32_times_of_N(u32 n, u32 N) { return ROUND_POW2(u32, n, ((N)-1)); }
+inline u64 u64_times_of_N(u64 n, u64 N) { return ROUND_POW2(u64, n, ((N)-1)); }
+inline upr upr_times_of_N(upr n, upr N) { return ROUND_POW2(upr, n, ((N)-1)); }
+inline u32 u32_times_of_2(u32 n) { return ROUND_POW2(u32, n, 1); }
+inline u32 u32_times_of_4(u32 n) { return ROUND_POW2(u32, n, 3); }
+inline u32 u32_times_of_8(u32 n) { return ROUND_POW2(u32, n, 7); }
+inline u32 u32_times_of_16(u32 n) { return ROUND_POW2(u32, n, 15); }
+inline u32 u32_times_of_32(u32 n) { return ROUND_POW2(u32, n, 31); }
+inline u32 u32_times_of_64(u32 n) { return ROUND_POW2(u32, n, 63); }
+inline u64 u64_times_of_2(u64 n) { return ROUND_POW2(u64, n, 1); }
+inline u64 u64_times_of_4(u64 n) { return ROUND_POW2(u64, n, 3); }
+inline u64 u64_times_of_8(u64 n) { return ROUND_POW2(u64, n, 7); }
+inline u64 u64_times_of_16(u64 n) { return ROUND_POW2(u64, n, 15); }
+inline u64 u64_times_of_32(u64 n) { return ROUND_POW2(u64, n, 31); }
+inline u64 u64_times_of_64(u64 n) { return ROUND_POW2(u64, n, 63); }
+inline upr upr_times_of_2(upr n) { return ROUND_POW2(upr, n, 1); }
+inline upr upr_times_of_4(upr n) { return ROUND_POW2(upr, n, 3); }
+inline upr upr_times_of_8(upr n) { return ROUND_POW2(upr, n, 7); }
+inline upr upr_times_of_16(upr n) { return ROUND_POW2(upr, n, 15); }
+inline upr upr_times_of_32(upr n) { return ROUND_POW2(upr, n, 31); }
+inline upr upr_times_of_64(upr n) { return ROUND_POW2(upr, n, 63); }
 
 #ifdef __cplusplus
 }

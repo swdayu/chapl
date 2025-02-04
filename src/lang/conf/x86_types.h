@@ -1,6 +1,5 @@
 #ifndef CHAPL_X86_TYPES_H
 #define CHAPL_X86_TYPES_H
-#ifdef __ARCH_X86__
 
 #undef __ARCH_32BIT__
 #undef __ARCH_64BIT__
@@ -54,5 +53,4 @@ typedef uint32 uintptr;
 #define LANG_INTPTR_MAX LANG_INT32_MAX
 #define LANG_INTPTR_UMAX LANG_INT32_UMAX
 
-#endif /* __ARCH_X86__ */
 #endif /* CHAPL_X86_TYPES_H */

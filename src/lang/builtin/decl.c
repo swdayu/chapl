@@ -502,9 +502,9 @@ byte *stack_new_node(int96 obj_bytes)
     return n ? (byte *)(n + 1) : 0;
 }
 
-void stack_push_node(stack_t *s, const byte *node)
+byte *stack_push_node(stack_t *s, const byte *node)
 {
-    stackinsertafter_((struct stack_it *)s, (struct stack_it *)(node - sizeof(snode_t)));
+    return stackinsertafter_((struct stack_it *)s, (struct stack_it *)(node - sizeof(snode_t)));
 }
 
 void stack_delete_it(struct stack_it *it, free_t func)
@@ -567,7 +567,7 @@ bool stack_pop(stack_t *s, free_t func)
 void stack_free_node(const byte *node)
 {
     if (node) {
-        free(node - sizeof(snode_t));
+        free((void *)(node - sizeof(snode_t)));
     }
 }
 

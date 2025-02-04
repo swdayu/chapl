@@ -1,6 +1,5 @@
 #ifndef CHAPL_X64_TYPES_H
 #define CHAPL_X64_TYPES_H
-#ifdef __ARCH_X64__
 
 #undef __ARCH_32BIT__
 #undef __ARCH_64BIT__
@@ -54,5 +53,4 @@ typedef uint64 uintptr;
 #define LANG_INTPTR_MAX LANG_INT64_MAX
 #define LANG_INTPTR_UMAX LANG_INT64_UMAX
 
-#endif /* __ARCH_X64__ */
 #endif /* CHAPL_X64_TYPES_H */

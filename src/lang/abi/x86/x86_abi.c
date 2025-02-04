@@ -151,12 +151,12 @@ void grel(byte *cur, int96 *usel)
     }
 }
 
-void gload(vsym_t *a, uint32 reg) // m32 => r32
+void gldr(synval_t *a, uint32 reg) // m32 => r32
 {
-
+    
 }
 
-void gstore(uint32 reg, vsym_t *a) // r32 => m32
+void gsto(uint32 reg, vsym_t *a) // r32 => m32
 {
 
 }
