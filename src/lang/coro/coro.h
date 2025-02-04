@@ -16,28 +16,28 @@ extern "C" {
 #endif
 
 struct coroutine_t;
-typedef upt corotpool_t;
+typedef upr corotpool_t;
 typedef CORO_FUNC_TYPE(void, coro_func_t)(struct coroutine_t* co);
 
 typedef struct coroutine_t {
-    upt rsp;
+    upr rsp;
     struct coroutine_t *wait;
     coro_func_t func;
-    upt para;
-    upt retp;
-    upt id;
+    upr para;
+    upr retp;
+    upr id;
 } coroutine_t;
 
-CORO_API(corotpool_t) coroutine_init(upt pool_id, upt count);
-CORO_API(coroutine_t*) coroutine_create(corotpool_t pool, coro_func_t f, upt stack_size, upt para);
-CORO_API(upt) corotpool_id(corotpool_t pool);
-CORO_API(upt) coroutine_id(coroutine_t *co);
-CORO_API(upt) coroutine_para(coroutine_t *co);
-CORO_API(upt) coroutine_retp(coroutine_t *co);
-CORO_API(void) coroutine_set_retp(coroutine_t *co, upt retp);
+CORO_API(corotpool_t) coroutine_init(upr pool_id, upr count);
+CORO_API(coroutine_t*) coroutine_create(corotpool_t pool, coro_func_t f, upr stack_size, upr para);
+CORO_API(upr) corotpool_id(corotpool_t pool);
+CORO_API(upr) coroutine_id(coroutine_t *co);
+CORO_API(upr) coroutine_para(coroutine_t *co);
+CORO_API(upr) coroutine_retp(coroutine_t *co);
+CORO_API(void) coroutine_set_retp(coroutine_t *co, upr retp);
 CORO_API(bool) coroutine_yield_cycle(corotpool_t pool);
-CORO_API(bool) coroutine_yield_manual(corotpool_t pool, coroutine_t *co, upt retp);
-CORO_API(void) coroutine_yield(coroutine_t *co, upt retp);
+CORO_API(bool) coroutine_yield_manual(corotpool_t pool, coroutine_t *co, upr retp);
+CORO_API(void) coroutine_yield(coroutine_t *co, upr retp);
 CORO_API(void) coroutine_finish(corotpool_t *pool);
 
 #ifdef __cplusplus

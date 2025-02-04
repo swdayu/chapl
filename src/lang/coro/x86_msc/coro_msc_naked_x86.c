@@ -23,9 +23,9 @@
 #include "coro.h"
 
 coroutine_t* __fastcall coro_finish(coroutine_t *co);
-void __fastcall coro_stack_crash(upt co_rsp, upt rsp);
+void __fastcall coro_stack_crash(upr co_rsp, upr rsp);
 
-__declspec(naked) upt __fastcall coro_asm_init(upt rsp)
+__declspec(naked) upr __fastcall coro_asm_init(upr rsp)
 {
     __asm {
         // 调用该函数之前协程地址已经保存  // ecx, +4
@@ -41,7 +41,7 @@ __declspec(naked) upt __fastcall coro_asm_init(upt rsp)
     }
 }
 
-__declspec(naked) void __fastcall coro_asm_resume(upt coro_esp)
+__declspec(naked) void __fastcall coro_asm_resume(upr coro_esp)
 {
     // [in]  ecx 协程的栈指针
     __asm {
