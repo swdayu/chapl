@@ -10,6 +10,10 @@ INIT_LDFLAG :=
 INIT_LDDIRS :=
 INIT_LDLIBS :=
 
+# arm - arm cpu architecture
+# x86 - i386/x86 for 32 bit, x86_64/x64 for 64 bit
+# parisc - parisc64 for 64 bit
+# sparc - sparc32 for 32 bit, sparc64 for 64 bit
 ifneq ($(filter gnu,$(CONFIG_COMPILER)),)
 ifneq ($(filter arm,$(CONFIG_COMPILER)),)
 include $(srctree)/scripts/Makefile.gnu_arm_eabi

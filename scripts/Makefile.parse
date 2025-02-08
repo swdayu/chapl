@@ -155,9 +155,9 @@ _cc_flags = $(init-cflags-y) $(OPTION_C_ONLY) $(_macros-y) $(_incdir-y)
 _c++flags = $(init-cflags-y) $(OPTION_C++_ONLY) $(_macros-y) $(_incdir-y)
 _as_flags = $(init-aflags-y) $(_macros-y) $(_incdir-y)
 
-built_cc_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_cc_flags)),$(_cc_flags),$(call abs_cc_flags,$(_cc_flags)))
-built_c++flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_cc_flags)),$(_c++flags),$(call abs_cc_flags,$(_c++flags)))
-built_as_flags = $(OPTION_DEPEND) $(if $(filter undefined,$(flavor abs_as_flags)),$(_as_flags),$(call abs_as_flags,$(_as_flags)))
+built_cc_flags = $(OPTION_DEPEND) $(call abs_cc_flags,$(_cc_flags))
+built_c++flags = $(OPTION_DEPEND) $(call abs_cc_flags,$(_c++flags))
+built_as_flags = $(OPTION_DEPEND) $(call abs_as_flags,$(_as_flags))
 
 # 当前模块依赖的库文件和库搜索目录
 ldflag-y := $(filter-out $(ldflag-remove-y),$(built-ldflag-y) $(ldflag-y))

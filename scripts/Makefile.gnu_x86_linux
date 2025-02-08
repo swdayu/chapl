@@ -4,20 +4,10 @@
 cur_makefile := $(lastword $(MAKEFILE_LIST))
 $(cur_makefile):: ;
 
-# arm - arm cpu architecture
-# x86 - i386/x86 for 32 bit, x86_64/x64 for 64 bit
-# parisc - parisc64 for 64 bit
-# sparc - sparc32 for 32 bit, sparc64 for 64 bit
-ifneq ($(filter arm,$(CONFIG_COMPILER)),)
-CROSS_COMPILE := arm-none-eabi-
-CONFIG_PREFIX_VIA_OPTION ?= 0
-OPTION_TRY_LD := -Werror -x c -o $(devnull) - -lc -lnosys
-else
 CROSS_COMPILE :=
 #INIT_CFLAGS += --verbose -H -iprefix $(srctree)/ -iwithprefix .
 CONFIG_PREFIX_VIA_OPTION ?= 0
 OPTION_TRY_LD := -Werror -x c -o $(devnull) -
-endif
 
 AS       := $(CROSS_COMPILE)as
 CC       := $(CROSS_COMPILE)gcc
@@ -32,14 +22,20 @@ COMPILE_LDS := -C -x c
 COMPILE_DMY := -c -x c
 COMPILE_OBJ := -c
 COMPILE_ASM := -fverbose-asm -S
-OPTION_C_ONLY := -std=gnu99 -Werror=implicit-int -Werror-implicit-function-declaration
-OPTION_C++_ONLY := -std=gnu++14 -fno-rtti
-OPTION_HEADER_I = -I$(1)
+OPTION_C_ONLY := -std=c99 -pedantic -pedantic-errors -Werror=implicit-int -Werror-implicit-function-declaration
+OPTION_C++_ONLY := -std=c++17 -pedantic -pedantic-errors -fno-rtti
 OPTION_DEPEND = -MMD -MP -MF $(dep-target) -MT $@
 OUT_PRE_FILE = -o $@ $(OPTION_DEPEND)
 OUT_OBJ_FILE = -o $@ $(OPTION_DEPEND)
 OUT_ASM_FILE = -o $@
 CLOPT_FIRST_PREREQ = $<
+
+ifeq ($(CONFIG_PREFIX_VIA_OPTION),1)
+INIT_INCDIR += -iprefix $(srctree)/
+OPTION_HEADER_I = -iwithprefixbefore $(1)
+else
+OPTION_HEADER_I = -I$(1)
+endif
 
 # INIT_CFLAGS += $(call cc-option,-march=winchip=c6,-march=i586)
 # INIT_AFLAGS += $(call as-option,-isa=foo)
