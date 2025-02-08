@@ -29,8 +29,10 @@ wsdk_lib_ucrt_X86 := $(WINDOWS_SDK_PATH)/Lib/$(WINDOWS_SDK_VERSION)/ucrt/x86
 # windows|console|driver - WINDOWS or CONSOLE or KERNEL DRIVER application
 # msc - miscrosoft compilers
 ifneq ($(filter x86_64 x86_x64 x64,$(CONFIG_COMPILER)),)
+INIT_MACROS += -D__ARCH_X64__
 use_arch := X64
 else
+INIT_MACROS += -D__ARCH_X86__
 use_arch := X86
 endif
 
