@@ -95,6 +95,8 @@ overflow    BYTE "too many corutines."
 overflow_len = $ - overflow
 finished    BYTE "coroutine finished."
 finished_len = $ - finished
+rsp_not_match BYTE "coroutine rsp not match."
+rsp_not_match_len = $ - rsp_not_match
 hello       BYTE "hello world."
 hello_len = $ - hello
 co_id       QWORD 0
@@ -339,7 +341,6 @@ yield PROC
     call inc_co_id
     jmp resume
 yield ENDP
-
 
 co_end PROC
     mov rdx, OFFSET finished
