@@ -29,17 +29,21 @@
 
 .code
 coro_asm_init PROC
-    ; 调用该函数之前，协程地址已经保存 ; rcx, +8
-    mov QWORD PTR [rcx - 8 * 1], 0  ; rdi, +16 <-- 16 字节对齐
-    mov QWORD PTR [rcx - 8 * 2], 0  ; rsi, +24
-    mov QWORD PTR [rcx - 8 * 3], 0  ; rbx, +32 <-- 16 字节对齐
-    mov QWORD PTR [rcx - 8 * 4], 0  ; rbp, +40
-    mov QWORD PTR [rcx - 8 * 5], 0  ; r12, +48 <-- 16 字节对齐
-    mov QWORD PTR [rcx - 8 * 6], 0  ; r13, +56
-    mov QWORD PTR [rcx - 8 * 7], 0  ; r14, +64 <-- 16 字节对齐
-    mov QWORD PTR [rcx - 8 * 8], 0  ; r15, +72
+    ; 调用该函数之前，协程地址已经保存
+    ; pstack + alloc <-- 00                   <-- 16字节对齐
+    ;             -8 <-- 08 co
+    ;            -16 <-- 00 coro_asm_call     <-- 16字节对齐
+    ;            -24 <-- 08           rcx, 08
+    mov QWORD PTR [rcx - 8 * 1], 0  ; rdi, 00 <-- 16字节对齐
+    mov QWORD PTR [rcx - 8 * 2], 0  ; rsi, 08
+    mov QWORD PTR [rcx - 8 * 3], 0  ; rbx, 00 <-- 16字节对齐
+    mov QWORD PTR [rcx - 8 * 4], 0  ; rbp, 08
+    mov QWORD PTR [rcx - 8 * 5], 0  ; r12, 00 <-- 16字节对齐
+    mov QWORD PTR [rcx - 8 * 6], 0  ; r13, 08
+    mov QWORD PTR [rcx - 8 * 7], 0  ; r14, 00 <-- 16字节对齐
+    mov QWORD PTR [rcx - 8 * 8], 0  ; r15, 08
     sub rcx, 8 * 8
-    mov QWORD PTR [rcx - 8], rcx    ; rsp, +80 <-- 16 字节对齐
+    mov QWORD PTR [rcx - 8], rcx    ; rsp, 00 <-- 16字节对齐
     sub rcx, 8
     mov rax, rcx
     ret ; 返回当前 rsp 的值
@@ -65,14 +69,15 @@ coro_asm_resume PROC PRIVATE
     ret             ; 恢复协程运行
 rsp_crash:
     mov rdx, rsp    ; rcx 已经保存弹出的栈指针
-    ; coro stack r15 <-- 72 rsp
-    ;             -8 <-- 80 rsp 16 字节对齐
-    ;            -16 <-- 08
-    ;            -24 <-- 16 rsp 16 字节对齐
-    ;            -32 <-- 24
-    ;            -40 <-- 32 rsp 16 字节对齐
-    ; return address <-- 40
-    ;                <-- 48 rsp 16 字节对齐
+    ;            rsp <-- 00
+    ; coro stack r15 <-- 08 rsp
+    ;         rsp-08 <-- 00
+    ;         rsp-16 <-- 08
+    ;         rsp-24 <-- 00
+    ;         rsp-32 <-- 08
+    ;         rsp-40 <-- 00 输入参数对齐
+    ; return address <-- 08 rsp
+    ; coro_stack_crash - 00
     sub rsp, 40     ; align rsp to 16 bytes
     call coro_stack_crash
 coro_asm_resume ENDP
@@ -119,14 +124,15 @@ coro_asm_return PROC PRIVATE
     jmp coro_asm_resume
 coro_asm_return ENDP
 
-; return address <-- rsp
-;             -8 <-- 00 rsp 16 字节对齐
-;            -16 <-- 08
-;            -24 <-- 16
-;            -32 <-- 24
-;            -40 <-- 32
-; return address <-- 40
-;                <-- 48 rsp 16 字节对齐
+; pstack + alloc <-- 00 <-- 16 字节对齐
+;             co <-- 08 <-- rsp
+;  coro_asm_call <-- 00
+;         rsp-16 <-- 08
+;         rsp-24 <-- 00
+;         rsp-32 <-- 08
+;         rsp-40 <-- 00 <-- sub rsp,40 输入参数对齐
+; return address <-- 08 <-- rsp
+;       co->func <-- 00
 coro_asm_call PROC
     sub rsp, 40         ; align rsp to 16 bytes
     call QWORD PTR [rcx + 8 * 2]  ; call co->func

@@ -23,25 +23,31 @@
 #include "coro.h"
 
 coroutine_t* __fastcall coro_finish(coroutine_t *co);
-void __fastcall coro_stack_crash(upr co_rsp, upr rsp);
+void __fastcall coro_stack_crash(uinv co_rsp, uinv rsp);
 
-__declspec(naked) upr __fastcall coro_asm_init(upr rsp)
+__declspec(naked) uinv __fastcall coro_asm_init(uinv rsp)
 {
     __asm {
-        // 调用该函数之前协程地址已经保存  // ecx, +4
-        mov DWORD PTR [ecx - 4 * 1], 0  // edi, +8
-        mov DWORD PTR [ecx - 4 * 2], 0  // esi, +12
-        mov DWORD PTR [ecx - 4 * 3], 0  // ebx, +16 <-- 16 字节对齐
-        mov DWORD PTR [ecx - 4 * 4], 0  // ebp, +20
+        // 调用该函数之前协程地址已经保存
+        // pstack + alloc <-- 00                   <-- 16字节对齐
+        //             -4 <-- 12 对齐填补
+        //             -8 <-- 08 对齐填补
+        //            -12 <-- 04 co
+        //            -16 <-- 00 coro_asm_call     <-- 16字节对齐
+        //            -20 <-- 12           ecx, 12
+        mov DWORD PTR [ecx - 4 * 1], 0  // edi, 08
+        mov DWORD PTR [ecx - 4 * 2], 0  // esi, 04
+        mov DWORD PTR [ecx - 4 * 3], 0  // ebx, 00 <-- 16字节对齐
+        mov DWORD PTR [ecx - 4 * 4], 0  // ebp, 12
         sub ecx, 4 * 4
-        mov DWORD PTR [ecx - 4], ecx    // esp, +24
+        mov DWORD PTR [ecx - 4], ecx    // esp, 08
         sub ecx, 4
         mov eax, ecx
         ret // 返回当前 esp 的值
     }
 }
 
-__declspec(naked) void __fastcall coro_asm_resume(upr coro_esp)
+__declspec(naked) void __fastcall coro_asm_resume(uinv coro_esp)
 {
     // [in]  ecx 协程的栈指针
     __asm {
@@ -58,11 +64,14 @@ __declspec(naked) void __fastcall coro_asm_resume(upr coro_esp)
         ret             // 恢复协程运行
     esp_crash:
         mov edx, esp    // ecx 已经保存弹出的栈指针
-        // coro stack ebp <-- 20 esp
-        //             -4 <-- 24 esp 16 字节对齐
-        // return address <-- 28
-        //                <-- 32 esp 16 字节对齐
-        sub esp, 4      // align esp to 16 bytes
+        //            esp <-- xx
+        // coro stack ebp <-- 12 esp
+        //         esp-04 <-- 08
+        //         esp-08 <-- 04
+        //         esp-12 <-- 00 输入参数对齐
+        // return address <-- 12 rsp
+        // coro_stack_crash - 08
+        sub esp, 12     // align esp to 16 bytes
         call coro_stack_crash
     }
 }
@@ -105,7 +114,7 @@ __declspec(naked) void __fastcall coro_asm_return(void)
 {
     __asm {
         pop ecx
-        sub esp, (12 + 4)   // align esp to 16 bytes
+        sub esp, (20 + 4)   // align esp to 16 bytes
         call coro_finish
         add esp, (12 + 4)
         mov ecx, [eax]
@@ -115,16 +124,21 @@ __declspec(naked) void __fastcall coro_asm_return(void)
 
 __declspec(naked) void __fastcall coro_asm_call(coroutine_t *co)
 {
-    // return address <-- esp
-    //             -4 <-- 00 esp 16 字节对齐
-    //             -8 <-- 04
-    //            -12 <-- 08
-    // return address <-- 12
-    //                <-- 16 esp 16 字节对齐
+    // pstack + alloc <-- 00 地址对齐
+    //             -4 <-- 12 对齐填补
+    //             -8 <-- 08 对齐填补
+    //             co <-- 04 <-- esp
+    //  coro_asm_call <-- 00
+    //         esp-08 <-- 12
+    //         esp-12 <-- 08
+    //         esp-16 <-- 04
+    //         esp-20 <-- 00 <-- sub esp,20 输入参数对齐
+    // return address <-- 12 <-- esp
+    //       co->func <-- 08
     __asm {
-        sub esp, 12                     // align esp to 16 bytes
+        sub esp, 20                     // align esp to 16 bytes
         call DWORD PTR [ecx + 4 * 2]    // call co->func
-        add esp, 12
+        add esp, 20
         jmp coro_asm_return
     }
 }
