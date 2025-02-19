@@ -1,4 +1,4 @@
-obj-c := main.c
+obj-c := lexer.c main.c
 
 obj-y += $(obj-c:.c=.o)
 

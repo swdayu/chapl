@@ -8,7 +8,7 @@ __magic_coro_api(void) counter(Coro *co)
     uptr n = coroutine_para(co) ? coroutine_para(co) : 10;
     for (; i < n; i += 1) {
         printf("[%02d] %d retp %d switch to %02d\n", (int)coroutine_id(co), (int)i, (int)coroutine_retp(co), (int)coroutine_id(co->wait));
-        coroutine_yield(co, (uptr)i);
+        coroutine_yield_with_retp(co, (uptr)i);
     }
     coroutine_set_retp(co, (uptr)i);
 }
@@ -41,9 +41,24 @@ void test_yield_manual(void)
     coroutine_finish(&t2);
 }
 
+void test_lexer(const char *expr);
+
 int main(int argc, char **argv)
 {
     test_yield_cycle();
     test_yield_manual();
+
+    printf("\n[start lexter test]\n");
+    test_lexer(null);
+
+    printf("\n[start lexter test]\n");
+    test_lexer("1 + 2 * 3 - 4 / 5 + 6");
+
+    printf("\n[start lexter test]\n");
+    test_lexer("10 + 20 * 30 - 40 / 50 + 6501");
+
+    printf("\n[start lexter test]\n");
+    test_lexer("11 + 22 * 33 - 44 / 0 + 66");
+
     return 0;
 }

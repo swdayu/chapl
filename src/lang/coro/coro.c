@@ -143,10 +143,18 @@ Coro *coroutineyield_(Coro *co)
     }
 }
 
-void coroutine_yield(Coro *co, uptr retp)
+void coroutine_yield_with_retp(Coro *co, uptr retp)
 {
     Coro *wait;
     coroutine_set_retp(co, retp);
+    if ((wait = coroutineyield_(co))) {
+        asm_coro_yield(co, wait);
+    }
+}
+
+void coroutine_yield(Coro *co)
+{
+    Coro *wait;
     if ((wait = coroutineyield_(co))) {
         asm_coro_yield(co, wait);
     }

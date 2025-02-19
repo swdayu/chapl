@@ -30,7 +30,8 @@ uptr coroutine_retp(Coro *coro);
 void coroutine_set_retp(Coro *coro, uptr retp);
 bool coroutine_yield_cycle(CoroCont cont);
 bool coroutine_yield_manual(CoroCont cont, Coro *coro, uptr retp);
-void coroutine_yield(Coro *coro, uptr retp);
+void coroutine_yield_with_retp(Coro *co, uptr retp);
+void coroutine_yield(Coro *coro);
 void coroutine_finish(CoroCont *cont);
 
 #ifdef __cplusplus
