@@ -5,40 +5,33 @@
 extern "C" {
 #endif
 
-#define CORO_DEBUG 1
+#define __magic_coro_debug 1
+#define __magic_coro_api(type) __magic_func_decl(fastcall, type)
 
-#ifdef __MSC__
-#define CORO_API(ret_type) ret_type __fastcall
-#define CORO_FUNC_TYPE(ret_type, func_type_name) ret_type (__fastcall *func_type_name)
-#else
-#define CORO_API(ret_type) ret_type
-#define CORO_FUNC_TYPE(ret_type, func_type_name) ret_type (*func_type_name)
-#endif
+struct Coro;
+typedef uptr CoroCont;
+__magic_func_typedef(fastcall, void, CoroFunc)(struct Coro *);
 
-struct coroutine_t;
-typedef uinv corotpool_t;
-typedef CORO_FUNC_TYPE(void, coro_func_t)(struct coroutine_t* co);
+typedef struct Coro {
+    uptr rsp;
+    struct Coro *wait;
+    CoroFunc func;
+    uptr para;
+    uptr retp;
+    uptr id;
+} Coro;
 
-typedef struct coroutine_t {
-    uinv rsp;
-    struct coroutine_t *wait;
-    coro_func_t func;
-    uinv para;
-    uinv retp;
-    uinv id;
-} coroutine_t;
-
-CORO_API(corotpool_t) coroutine_init(uinv pool_id, uinv count);
-CORO_API(coroutine_t*) coroutine_create(corotpool_t pool, coro_func_t f, uinv stack_size, uinv para);
-CORO_API(uinv) corotpool_id(corotpool_t pool);
-CORO_API(uinv) coroutine_id(coroutine_t *co);
-CORO_API(uinv) coroutine_para(coroutine_t *co);
-CORO_API(uinv) coroutine_retp(coroutine_t *co);
-CORO_API(void) coroutine_set_retp(coroutine_t *co, uinv retp);
-CORO_API(bool) coroutine_yield_cycle(corotpool_t pool);
-CORO_API(bool) coroutine_yield_manual(corotpool_t pool, coroutine_t *co, uinv retp);
-CORO_API(void) coroutine_yield(coroutine_t *co, uinv retp);
-CORO_API(void) coroutine_finish(corotpool_t *pool);
+CoroCont coroutine_init(uptr cont_id, uptr count);
+Coro *coroutine_create(CoroCont cont, CoroFunc func, uptr stack_size, uptr para);
+uptr coroutine_cont_id(CoroCont cont);
+uptr coroutine_id(Coro *coro);
+uptr coroutine_para(Coro *coro);
+uptr coroutine_retp(Coro *coro);
+void coroutine_set_retp(Coro *coro, uptr retp);
+bool coroutine_yield_cycle(CoroCont cont);
+bool coroutine_yield_manual(CoroCont cont, Coro *coro, uptr retp);
+void coroutine_yield(Coro *coro, uptr retp);
+void coroutine_finish(CoroCont *cont);
 
 #ifdef __cplusplus
 }

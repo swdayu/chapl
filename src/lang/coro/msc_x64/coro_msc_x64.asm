@@ -1,10 +1,10 @@
 ; Windows 64 位程序前四个整型参数通过 RCX RDX R8 R9 传递，超过八字节的和额外的整型参数
 ; 通过栈传递。函数调用前必须至少留出32字节的栈空间，让系统函数保存 RCX RDX R8 R9 临时副
 ; 本，进入被调函数时 RSP 应该对齐到16字节地址边界，但 Win64 API 也不强制要求这个规则。
-; 返回值使用 RAX 寄存器返回。调用者负责清除所有的参数和 shadow space 栈空间。
+; 只使用 RAX 作为整型返回值寄存器。调用者负责清除所有参数和 shadow space 栈空间。
 ;
 ; 寄存器                   类型            用法
-; RAX                     易变            返回值
+; RAX                     易变            返回值寄存器
 ; RCX                     易变            第一个整型参数
 ; RDX                     易变            第二个整型参数
 ; R8                      易变            第三个整型参数
@@ -28,11 +28,11 @@
 ; 当函数退出、函数进入 C 运行时库或 Windows 系统，标志寄存器中的方向标志必须先清位。
 
 .code
-coro_asm_init PROC
+asm_coro_init PROC
     ; 调用该函数之前，协程地址已经保存
     ; pstack + alloc <-- 00                   <-- 16字节对齐
     ;             -8 <-- 08 co
-    ;            -16 <-- 00 coro_asm_call     <-- 16字节对齐
+    ;            -16 <-- 00 asm_coro_call     <-- 16字节对齐
     ;            -24 <-- 08           rcx, 08
     mov QWORD PTR [rcx - 8 * 1], 0  ; rdi, 00 <-- 16字节对齐
     mov QWORD PTR [rcx - 8 * 2], 0  ; rsi, 08
@@ -47,11 +47,11 @@ coro_asm_init PROC
     sub rcx, 8
     mov rax, rcx
     ret ; 返回当前 rsp 的值
-coro_asm_init ENDP
+asm_coro_init ENDP
 
 ; [in]  rcx 协程的栈指针
-coro_stack_crash PROTO
-coro_asm_resume PROC PRIVATE
+asm_call_stack_crash PROTO
+asm_coro_resume PROC PRIVATE
     mov rsp, rcx
     pop rcx ; 弹出协程栈中保存的 rsp
     cmp rcx, rsp
@@ -77,14 +77,14 @@ rsp_crash:
     ;         rsp-32 <-- 08
     ;         rsp-40 <-- 00 输入参数对齐
     ; return address <-- 08 rsp
-    ; coro_stack_crash - 00
+    ; asm_call_stack_crash - 00
     sub rsp, 40     ; align rsp to 16 bytes
-    call coro_stack_crash
-coro_asm_resume ENDP
+    call asm_call_stack_crash
+asm_coro_resume ENDP
 
 ; [in]  rcx 当前协程
 ; [in]  rdx 需要处理的协程
-coro_asm_yield PROC
+asm_coro_yield PROC
     cmp QWORD PTR [rdx], 0
     jne save_context
     mov rax, 0  ; yield 函数的返回值
@@ -104,40 +104,40 @@ save_context:
     mov [rcx], rsp
     ; 切换到需要处理的协程
     mov rcx, [rdx]
-    jmp coro_asm_resume
-coro_asm_yield ENDP
+    jmp asm_coro_resume
+asm_coro_yield ENDP
 
 ; [in]  rcx 当前协程
 ; [in]  rdx 需要处理的协程
-coro_asm_yield_manual PROC
+asm_coro_yield_manual PROC
     mov [rdx + 8], rcx  ; 当协程处理完毕后恢复当前协程
-    jmp coro_asm_yield
-coro_asm_yield_manual ENDP
+    jmp asm_coro_yield
+asm_coro_yield_manual ENDP
 
-coro_finish PROTO
-coro_asm_return PROC PRIVATE
+asm_call_coro_finish PROTO
+asm_coro_return PROC PRIVATE
     pop rcx
     sub rsp, (40 + 8)   ; align rsp to 16 bytes
-    call coro_finish
+    call asm_call_coro_finish
     add rsp, (40 + 8)
     mov rcx, [rax]
-    jmp coro_asm_resume
-coro_asm_return ENDP
+    jmp asm_coro_resume
+asm_coro_return ENDP
 
 ; pstack + alloc <-- 00 <-- 16 字节对齐
 ;             co <-- 08 <-- rsp
-;  coro_asm_call <-- 00
+;  asm_coro_call <-- 00
 ;         rsp-16 <-- 08
 ;         rsp-24 <-- 00
 ;         rsp-32 <-- 08
 ;         rsp-40 <-- 00 <-- sub rsp,40 输入参数对齐
 ; return address <-- 08 <-- rsp
 ;       co->func <-- 00
-coro_asm_call PROC
+asm_coro_call PROC
     sub rsp, 40         ; align rsp to 16 bytes
     call QWORD PTR [rcx + 8 * 2]  ; call co->func
     add rsp, 40
-    jmp coro_asm_return
-coro_asm_call ENDP
+    jmp asm_coro_return
+asm_coro_call ENDP
 
 END

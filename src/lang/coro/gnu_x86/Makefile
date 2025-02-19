@@ -1,4 +1,4 @@
-obj-c := main.c
+obj-c := coro_gnu_naked_x86.c ../coro.c
 
 obj-y += $(obj-c:.c=.o)
 

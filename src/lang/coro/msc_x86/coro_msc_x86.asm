@@ -25,7 +25,7 @@
 .MODEL FLAT
 .code
 
-coro_asm_init PROC
+asm_coro_init PROC
     ; 调用该函数之前，协程地址已经保存 ; ecx, +4
     mov DWORD PTR [ecx - 4 * 1], 0  ; edi, +8
     mov DWORD PTR [ecx - 4 * 2], 0  ; esi, +12
@@ -36,11 +36,11 @@ coro_asm_init PROC
     sub ecx, 4
     mov eax, ecx
     ret ; 返回当前 esp 的值
-coro_asm_init ENDP
+asm_coro_init ENDP
 
 ; [in]  ecx 协程的栈指针
-coro_stack_crash PROTO FASTCALL, a:DWORD, b:DWORD
-coro_asm_resume PROC PRIVATE
+asm_call_stack_crash PROTO FASTCALL, a:DWORD, b:DWORD ; masm 32-bit 无法声明 fastcall
+asm_coro_resume PROC PRIVATE
     mov esp, ecx
     pop ecx ; 弹出协程栈中保存的 esp
     cmp ecx, esp
@@ -59,12 +59,12 @@ esp_crash:
     ; return address <-- 28
     ;                <-- 32 esp 16 字节对齐
     sub esp, 4      ; align esp to 16 bytes
-    call coro_stack_crash
-coro_asm_resume ENDP
+    call asm_call_stack_crash ; 必须使用底层原始的装饰名称进行调用
+asm_coro_resume ENDP
 
 ; [in]  ecx 当前协程
 ; [in]  edx 需要处理的协程
-coro_asm_yield PROC
+asm_coro_yield PROC
     cmp DWORD PTR [edx], 0
     jne save_context
     mov eax, 0  ; yield 函数的返回值
@@ -80,25 +80,25 @@ save_context:
     mov [ecx], esp
     ; 切换到需要处理的协程
     mov ecx, [edx]
-    jmp coro_asm_resume
-coro_asm_yield ENDP
+    jmp asm_coro_resume
+asm_coro_yield ENDP
 
 ; [in]  ecx 当前协程
 ; [in]  edx 需要处理的协程
-coro_asm_yield_manual PROC
+asm_coro_yield_manual PROC
     mov [edx + 4], ecx   ; 当协程处理完毕后恢复当前协程
-    jmp coro_asm_yield
-coro_asm_yield_manual ENDP
+    jmp asm_coro_yield
+asm_coro_yield_manual ENDP
 
-coro_finish PROTO FASTCALL, a:DWORD
-coro_asm_return PROC PRIVATE
+asm_call_coro_finish PROTO FASTCALL, a:DWORD ; masm 32-bit 无法声明 fastcall
+asm_coro_return PROC PRIVATE
     pop ecx
     sub esp, (12 + 4)   ; align esp to 16 bytes
-    call coro_finish
+    call asm_call_coro_finish ; 必须使用底层原始的装饰名称进行调用
     add esp, (12 + 4)
     mov ecx, [eax]
-    jmp coro_asm_resume
-coro_asm_return ENDP
+    jmp asm_coro_resume
+asm_coro_return ENDP
 
 ; return address <-- esp
 ;             -4 <-- 00 esp 16 字节对齐
@@ -106,11 +106,11 @@ coro_asm_return ENDP
 ;            -12 <-- 08
 ; return address <-- 12
 ;                <-- 16 rsp 16 字节对齐
-coro_asm_call PROC
+asm_coro_call PROC
     sub esp, 12         ; align esp to 16 bytes
     call DWORD PTR [ecx + 4 * 2]  ; call co->func
     add esp, 12
-    jmp coro_asm_return
-coro_asm_call ENDP
+    jmp asm_coro_return
+asm_coro_call ENDP
 
 END

@@ -2,15 +2,15 @@ target-y := default
 
 ifneq ($(filter msc,$(CONFIG_COMPILER)),)
 ifneq ($(filter x64,$(CONFIG_COMPILER)),)
-default-y := src/lang/builtin/ src/lang/coro/x64_msc/ config/coro_test/
+default-y := src/lang/builtin/ src/lang/coro/msc_x64/ config/coro_test/
 else
-default-y := src/lang/builtin/ src/lang/coro/x86_msc/ config/coro_test/
+default-y := src/lang/builtin/ src/lang/coro/msc_x86/ config/coro_test/
 endif
 else
 ifneq ($(filter x64,$(CONFIG_COMPILER)),)
-default-y := src/lang/builtin/ src/lang/coro/x64_gnu/ config/coro_test/
+default-y := src/lang/builtin/ src/lang/coro/gnu_x64/ config/coro_test/
 else
-default-y := src/lang/builtin/ src/lang/coro/x86_gnu/ config/coro_test/
+default-y := src/lang/builtin/ src/lang/coro/gnu_x86/ config/coro_test/
 endif
 endif
 

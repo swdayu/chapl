@@ -1,3 +1,5 @@
 cccfg-y := \
-	msc_x64_native_console_unicode \
-	msc_x86_native_console_unicode
+	msc_x64_native_console \
+	msc_x86_native_console \
+	gnu_x86_native \
+	gnu_x64_native
