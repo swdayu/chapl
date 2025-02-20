@@ -2,17 +2,17 @@ cur_makefile := $(lastword $(MAKEFILE_LIST))
 $(cur_makefile):: ;
 
 # 当前模块和所有子模块都生效的选项
-built-macros-y += $(filter -D% -U%,$(subdir-macros-y))
-built-incdir-y += $(filter -I%,$(subdir-incdir-y))
-built-ldflag-y += $(filter -L% -l%,$(subdir-ldflag-y))
+built-macros-y += $(filter -D% -U%,$(subdir-macros-y) $(subdir-ccflags-y))
+built-incdir-y += $(filter -I%,$(subdir-incdir-y) $(subdir-ccflags-y))
+built-ldflag-y += $(filter -L% -l%,$(subdir-ldflag-y) $(subdir-ccflags-y))
 
-macros-y := $(filter -D% -U%,$(macros-y))
-incdir-y := $(filter -I%,$(incdir-y))
-ldflag-y := $(filter -L% -l%,$(ldflag-y))
+macros-y := $(filter -D% -U%,$(macros-y) $(ccflags-y))
+incdir-y := $(filter -I%,$(incdir-y) $(ccflags-y))
+ldflag-y := $(filter -L% -l%,$(ldflag-y) $(ccflags-y))
 
-macros-remove-y := $(filter -D% -U%,$(macros-remove-y))
-incdir-remove-y := $(filter -I%,$(incdir-remove-y))
-ldflag-remove-y := $(filter -L% -l%,$(ldflag-remove-y))
+macros-remove-y := $(filter -D% -U%,$(macros-remove-y) $(ccflags-remove-y))
+incdir-remove-y := $(filter -I%,$(incdir-remove-y) $(ccflags-remove-y))
+ldflag-remove-y := $(filter -L% -l%,$(ldflag-remove-y) $(ccflags-remove-y))
 
 # obj-y is a list of *.o *.a subdir/, build-obj-y is list of *.o *.a subdir/built-in
 obj-y := $(filter %.o %.a %/,$(obj-y))
@@ -140,19 +140,33 @@ else
 root_search_dir := $(call OPTION_HEADER_I,$(srctree)/$(src)) $(call OPTION_HEADER_I,$(objtree)/$(obj))
 endif
 
+# 模块指定的头文件搜索目录是基于srctree的相对目录，需要转成绝对路径（或者另外将前缀设给编译器）
+ifeq ($(CONFIG_PREFIX_VIA_OPTION),1)
+add_srctree_detail = $(if $(dir_not_dash_not_dot_not_empty),$(dir_not_add_prefix),$(1))
+else
+add_srctree_detail = $(if $(dir_not_dash_not_dot_not_empty),$(if $(call is_abs_path,$(1)),$(dir_not_add_prefix),$(dir_add_prefix)),$(1))
+endif
+dir_not_dash_not_dot_not_empty = $(filter-out $(dashchar) $(dotchar),$(1))
+dir_not_add_prefix = $(call OPTION_HEADER_I,$(1))
+dir_add_prefix = $(call OPTION_HEADER_I,$(srctree)/$(1))
+add_srctree_prefix = $(call add_srctree_detail,$(patsubst -I%,%,$(1)))
+abs_cc_flags = $(foreach o,$(1),$(if $(filter -I%,$(o)),$(call add_srctree_prefix,$(o)),$(o)))
+abs_wa_flags = $(subst $(space),$(comma),$(foreach o,$(subst $(comma),$(space),$(1)),$(call abs_cc_flags,$(o))))
+abs_as_flags = $(foreach o,$(1),$(if $(filter -Wa$(comma)-I%,$(o)),$(call abs_wa_flags,$(o)),$(call abs_cc_flags,$(o))))
+
 # 解析当前模块定义的编译器选项
 object_flags = $(call select_first_true,$($(1)$(target-stem).o),$($(1)$(basetarget).o))
 
-_macros-y = $(filter-out $(call object_flags,MACROS_REMOVE_), \
+_macros-y = $(filter-out $(call object_flags,MACROS_REMOVE_) $(call object_flags,CCFLAGS_REMOVE_), \
                          $(filter-out $(macros-remove-y),$(init-macros-y) $(built-macros-y) $(macros-y)) \
-                         $(filter -D% -U%,$(call object_flags,MACROS_)))
+                         $(filter -D% -U%,$(call object_flags,MACROS_) $(call object_flags,CCFLAGS_)))
 
-_incdir-y = $(filter-out $(call object_flags,INCDIR_REMOVE_), \
+_incdir-y = $(filter-out $(call object_flags,INCDIR_REMOVE_) $(call object_flags,CCFLAGS_REMOVE_), \
                          $(filter-out $(incdir-remove-y),$(init-incdir-y) $(built-incdir-y) $(incdir-y) $(root_search_dir)) \
-                         $(filter -I%,$(call object_flags,INCDIR_)))
+                         $(filter -I%,$(call object_flags,INCDIR_) $(call object_flags,CCFLAGS_)))
 
-_cc_flags = $(init-cflags-y) $(OPTION_C_ONLY) $(_macros-y) $(_incdir-y)
-_c++flags = $(init-cflags-y) $(OPTION_C++_ONLY) $(_macros-y) $(_incdir-y)
+_cc_flags = $(init-cflags-y) $(INIT_C_ONLY) $(_macros-y) $(_incdir-y)
+_c++flags = $(init-cflags-y) $(INIT_CXX_ON) $(_macros-y) $(_incdir-y)
 _as_flags = $(init-aflags-y) $(_macros-y) $(_incdir-y)
 
 built_cc_flags = $(OPTION_DEPEND) $(call abs_cc_flags,$(_cc_flags))
@@ -161,8 +175,8 @@ built_as_flags = $(OPTION_DEPEND) $(call abs_as_flags,$(_as_flags))
 
 # 当前模块依赖的库文件和库搜索目录
 ldflag-y := $(filter-out $(ldflag-remove-y),$(built-ldflag-y) $(ldflag-y))
-ld_dirs_y := $(call OPTION_LDDIRS,$(patsubst -L%,%,$(filter -L%,$(ldflag-y))))
-ld_libs_y := $(call OPTION_LDLIBS,$(patsubst -l%,%,$(filter -l%,$(ldflag-y))))
+ld_dirs_y := $(call OPTION_LDDIRS,$(filter -L%,$(ldflag-y)))
+ld_libs_y := $(call OPTION_LDLIBS,$(filter -l%,$(ldflag-y)))
 
 # dummy cc cmd
 quiet_cmd_cc_dummy = $(quiet_echo_cc)

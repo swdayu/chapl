@@ -53,7 +53,7 @@ export BUILD_VERBOSE
 export srctree := $(CURDIR)
 export BUILD_OUTPUT := $(CURDIR)/out
 
-include scripts/Makefile.basic
+include scripts/Makefile.predefine
 
 TARGET_INFO := $(T)
 ifneq ($(CODE_REV_INFO),)
@@ -92,7 +92,7 @@ endif
 PHONY += $(cccfg-y)
 $(cccfg-y):
 	$(call echo-info,CCCFG:$@)
-	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.start CCCFG=$@ $(filter show lst,$(MAKECMDGOALS)) all
+	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.start CCCFG=$@ $(filter show lst run,$(MAKECMDGOALS)) all
 	$(call echo-info,)
 
 # execute each cccfg in sequence
@@ -104,6 +104,10 @@ all: not_parallel
 	$(call show_make_end_time,$(make_start_time))
 endif
 endif
+
+PHONY += run
+run: $(if $(filter all,$(MAKECMDGOALS)),,all)
+	@:
 
 PHONY += show
 show:

@@ -5,15 +5,18 @@ $(cur_makefile):: ;
 INIT_MACROS :=
 INIT_INCDIR :=
 INIT_AFLAGS :=
-INIT_CFLAGS :=
-INIT_LDFLAG :=
+INIT_CFLAGS := # c/c++ share flags
+INIT_C_ONLY := # c only flags
+INIT_CXX_ON := # c++ only flags
+INIT_LDFLAG := # 编译器处理的链接选项
+INIT_XLFLAG := # 直接透传给链接器的选项
 INIT_LDDIRS :=
 INIT_LDLIBS :=
 
-# arm - arm cpu architecture
-# x86 - i386/x86 for 32 bit, x86_64/x64 for 64 bit
-# parisc - parisc64 for 64 bit
-# sparc - sparc32 for 32 bit, sparc64 for 64 bit
+# x86 - x86/x86_32/i386 for 32 bit
+# x64 - x64/x86_64 for 64 bit
+# arm - arm 32 bit
+# a64 - aarch64 for 64 bit
 ifneq ($(filter gnu,$(CONFIG_COMPILER)),)
 ifneq ($(filter arm,$(CONFIG_COMPILER)),)
 include $(srctree)/scripts/Makefile.gnu_arm_eabi
@@ -22,11 +25,11 @@ include $(srctree)/scripts/Makefile.gnu_x86_linux
 endif
 gnu_exe_suffix = $(if $(filter elf bin,$(1)),.elf)
 target-file-suffix = $(if $(filter exe,$(1)),$(call gnu_exe_suffix,$(1)),$(if $(filter lib,$(1)),.a,$(if $(filter dll,$(1)),.so)))
-INIT_MACROS += -D__GNU__
+INIT_MACROS += -D__magic_cl_gnu
 else ifneq ($(filter msc,$(CONFIG_COMPILER)),)
 include $(srctree)/scripts/Makefile.msc_x86_windows
 target-file-suffix = $(if $(filter exe,$(1)),.exe,$(if $(filter lib,$(1)),.lib,$(if $(filter dll,$(1)),.dll,.exe)))
-INIT_MACROS += -D__MSC__
+INIT_MACROS += -D__magic_cl_msc
 else
 $(error unsupported compiler '$(CONFIG_COMPILER)')
 endif

@@ -21,40 +21,48 @@ override obj := $(patsubst $(TARGET_OUTPUT)/%,%,$(obj))
 src := $(obj)
 targets :=
 
-# pre-gen-obj-y :=
-# pre-gen-file-y :=
+# pregen-obj-y :=
+# pregen-file-y :=
 #
 # obj-c :=
 # obj-s :=
+# obj-S :=
 # obj-cpp :=
 # obj-asm :=
-# obj-y := $(obj-c:.c=.o) $(obj-s:.S=.o) $(obj-cpp:.cpp=.o) $(obj-asm:.asm=.o)
+# obj-y := $(obj-c:.c=.o) $(obj-s:.s=.o) $(obj-cpp:.cpp=.o) $(obj-asm:.asm=.o)
 #
-# incdir-y
+# ccflags-y # 只能包含 -D -U -I -L -l
+# ccflags-remove-y
+# subdir-ccflags-y
+# CCFLAGS_$@
+# CCFLAGS_REMOVE_$@
+#
+# incdir-y  # 只能包含 -I
 # incdir-remove-y
 # subdir-incdir-y
 # INCDIR_$@
 # INCDIR_REMOVE_$@
 #
-# macros-y
+# macros-y  # 只能包含 -D -U
 # macros-remove-y
 # subdir-macros-y
 # MACROS_$@
 # MACROS_REMOVE_$@
 #
-# ldflag-y # 只能包含 -L 和 -l
+# ldflag-y  # 只能包含 -L 和 -l
 # ldflag-remove-y
 # subdir-ldflag-y
-pre-gen-obj-y :=
-pre-gen-file-y :=
+pregen-obj-y :=
+pregen-file-y :=
 
 obj-c :=
 obj-s :=
+obj-S :=
 obj-cpp :=
 obj-asm :=
 
 # 各模块添加构建该模块所需要的所有文件
-# 例如添加目标文件：obj-y += $(obj-c:.c=.o) $(obj_s:.S=.o) $(obj-cpp:.cpp=.o)
+# 例如添加目标文件：obj-y += $(obj-c:.c=.o) $(obj-s:.s=.o) $(obj-cpp:.cpp=.o)
 # 或者添加库文件：obj-y += codecs.a codecs-y := $(obj-c:.c=.o)
 # 或者添加归档目标文件：obj-y += comobj.o comobj-y := foo.o bar.a bar-y := $(obj-c:.c=.o)
 # 或者添加子目录：obj-y += stack/
@@ -73,11 +81,15 @@ ldflag-y :=
 ldflag-remove-y :=
 subdir-ldflag-y :=
 
+ccflags-y :=
+ccflags-remove-y :=
+subdir-ccflags-y :=
+
 install-y :=
 
 lib_bin_path = $(srctree)/$(if $(CONFIG_LIBRARY_OUTDIR),$(CONFIG_LIBRARY_OUTDIR),library)
 
-include $(srctree)/scripts/Makefile.basic
+include $(srctree)/scripts/Makefile.predefine
 include $(srctree)/scripts/Makefile.compiler
 
 # include module build makefile
@@ -89,6 +101,7 @@ build_dir := $(obj)
 makefile_dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
 build_mkf := $(makefile_dir)/Makefile
 endif
+target_built_file := $(build_dir)/$(built-in)
 
 ifeq ($(wildcard $(build_mkf)),)
 $(error build target NOT exist $(patsubst %/Makefile,%,$(build_mkf)))
@@ -98,16 +111,16 @@ $(build_mkf):: ;
 endif
 
 pre-build-y :=
-pre-gen-obj-y := $(filter %/ %.o,$(pre-gen-obj-y))
+pregen-obj-y := $(filter %/ %.o,$(pregen-obj-y))
 obj_dir := $(if $(filter .,$(obj)),,$(obj)/)
-ifneq ($(pre-gen-obj-y),)
+ifneq ($(pregen-obj-y),)
 pre_make_dir := $(TARGET_OUTPUT)/$(obj_dir)pregendir
-pre_gen_file := $(srctree)/$(if $(pre-gen-file-y),$(obj_dir)$(pre-gen-file-y),$(obj_dir)pregenfile)
+pre_gen_file := $(srctree)/$(if $(pregen-file-y),$(obj_dir)$(pregen-file-y),$(obj_dir)pregenfile)
 pre_target_name := $(call subst_dir_slash,$(T)_pregen,_)
 pre-build-y := $(pre_make_dir)/$(pre_target_name)$(call target-file-suffix,exe)
 $(pre-build-y):
 	@$(call CMDMKDIR,$(pre_make_dir))
-	@$(call outfile_new,$(pre_make_dir)/Makefile.dest,target-obj-y := $(obj_dir)$(pre-gen-obj-y))
+	@$(call outfile_new,$(pre_make_dir)/Makefile.dest,target-obj-y := $(obj_dir)$(pregen-obj-y))
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.binary UNREAL_FINAL_TARGET=1 DEST=$(obj_dir)pregendir \
 	    TARGET_NAME=$(pre_target_name) TARGET_TYPE=exe RUN_OUTFILE=$(pre_gen_file) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
 endif
@@ -121,7 +134,7 @@ $(foreach d,$(build-dir-y),$(shell $(call create_dir,$(d))))
 
 # build module targets
 ifneq ($(build-obj-y),)
-built_in_target := $(build_dir)/$(built-in)
+built_in_target := $(target_built_file)
 built_src_lib := $(strip $(lib-src-y))
 export_src_lib := $(patsubst $(obj_dir)%,$(lib_bin_path)/%,$(built_src_lib))
 copy_ins_files := $(foreach f,$(install-y),$(target_root)/$(notdir $(f)))
@@ -139,6 +152,9 @@ $(built_in_target): $(build-obj-y) FORCE
 	$(call if_changed,ar_src_file)
 endif
 targets += $(built_in_target)
+else
+# 如果 build 内容为空创建一个空 built-in 文件
+$(shell $(call outfile_new,$(target_built_file),))
 endif
 
 # build each obj/subdir/built-in
@@ -176,6 +192,9 @@ $(obj)/%.o: $(src)/%.asm FORCE
 	$(call if_changed_dep,asm_to_o)
 
 $(obj)/%.o: $(src)/%.S FORCE
+	$(call if_changed_dep,S_to_o)
+
+$(obj)/%.o: $(src)/%.s FORCE
 	$(call if_changed_dep,S_to_o)
 
 $(obj)/%.o: $(src)/%.c FORCE

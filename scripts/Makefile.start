@@ -10,7 +10,7 @@ $(cur_makefile):: ;
 PHONY := all
 all:
 
-include $(srctree)/scripts/Makefile.basic
+include $(srctree)/scripts/Makefile.predefine
 
 override TARGET_OUTPUT := $(BUILD_OUTPUT)/$(T)/$(CCCFG)
 override objtree := $(TARGET_OUTPUT)
@@ -22,6 +22,8 @@ export VPATH
 
 export DELIVER_GOALS := show
 export CONFIG_COMPILER := $(subst _, ,$(CCCFG))
+
+filter_deliver_goals = $(if $(filter run,$(MAKECMDGOALS)),run,$(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all)
 
 TARGET_CCCFGS_FILE := config/$(T)/Makefile.cccfgs
 include $(srctree)/$(TARGET_CCCFGS_FILE)
@@ -35,14 +37,36 @@ export CONFIG_BUILD_USING_LIB ?= 0
 
 target-y := $(filter-out %/,$(target-y))
 
-COMMON_MACROS := $(filter -D% -U%,$(COMMON_MACROS))
-COMMON_INCDIR := $(filter -I%,$(COMMON_INCDIR))
-COMMON_LDFLAG := $(filter -L% -l%,$(COMMON_LDFLAG))
+# TODO: 添加环境变量或MAKE变量中额外提供的选项
+# CC        C语言编译器
+# CFLAGS    C语言编译选项
+# LDFLAGS   库搜索目录 -L<lib dir>
+# LIBS      链接库 -l<library>
+# CPP       C语言预处理器
+# CPPFLAGS  预处理选项 -I<include dir>
+# CXX       C++编译器
+# CXXFLAGS  C++编译选项
+COMMON_MACROS := $(filter -D% -U%,$(COMMON_MACROS) $(COMMON_CCFLAGS))
+COMMON_INCDIR := $(filter -I%,$(COMMON_INCDIR) $(COMMON_CCFLAGS))
+COMMON_LDFLAG := $(filter -L% -l%,$(COMMON_LDFLAG) $(COMMON_CCFLAGS))
 
+# Makefile.cccfgs 可以提供与编译器强相关的编译选项
 cccfg_cflags := $($(CCCFG)-cflags-y)
 cccfg_aflags := $($(CCCFG)-aflags-y)
 cccfg_ldflag := $($(CCCFG)-ldflag-y)
 
+# Makefile.target 提供与编译器无关的而与编译目标强相关的选项
+# target-y := default target2 target3 ...      # 每个 target 例如 default 可定义：
+# default-y := path/subdir/ ... path/obj.o ... # 需要编译的目录和目标文件
+# default-binary-type := dll/exe/exe_run       # 编译目标的类型
+# default-target-name := custom_target_name    # 提供定制目标名称，默认使用命令行变量 T 作为名称
+# default-target-outs := lst                   # 释放需要额外生成 lst 文件
+# default-install-dir := path/dir              # 是否要将编译后的文件复制到指定目录
+# default-run-outfile := path/file             # 自动运行编译完的可执行程序并将标准输出的内容保存到文件
+# default-ccflags-y := -D -U -Idir -L -l       # 都通过此选项提供所有的选项
+# default-macros-y := -Dname -Uname            # 单独提供宏定义
+# default-incdir-y := -Idir                    # 单独提供头文件目录
+# default-ldflag-y := -Ldir -lfile             # 单独提供库目录和库文件
 define eval_target_rule
 ifneq ($$(filter exe,$$(subst _, ,$($(1)-binary-type))),)
 $(1): dest_name := .target_$(1)
@@ -52,9 +76,9 @@ $(1): target_name := $(call subst_dir_slash,$(if $($(1)-target-name),$($(1)-targ
 $(1): target_outs := $($(1)-target-outs) $(filter lst,$(MAKECMDGOALS))
 $(1): install_dir := $($(1)-install-dir)
 $(1): run_outfile := $($(1)-run-outfile)
-$(1): macros_y := $(COMMON_MACROS) $(filter -D% -U%,$($(1)-macros-y))
-$(1): incdir_y := $(COMMON_INCDIR) $(filter -I%,$($(1)-incdir-y))
-$(1): ldflag_y := $(COMMON_LDFLAG) $(filter -L% -l%,$($(1)-ldflag-y))
+$(1): macros_y := $(COMMON_MACROS) $(filter -D% -U%,$($(1)-macros-y) $($(1)-ccflags-y))
+$(1): incdir_y := $(COMMON_INCDIR) $(filter -I%,$($(1)-incdir-y) $($(1)-ccflags-y))
+$(1): ldflag_y := $(COMMON_LDFLAG) $(filter -L% -l%,$($(1)-ldflag-y) $($(1)-ccflags-y))
 $(1): lds_file_y := $($(1)-lds-file-y)
 $(1): ldsflags_y := $($(1)-ldsflags-y)
 $(1): stack_size_y := $($(1)-stack-size-y)
@@ -74,7 +98,7 @@ $(1):
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(ldsflags_y),ldsflags-y := $$(ldsflags_y))
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(stack_size_y),stack-size-y := $$(stack_size_y))
 	$(Q)$(MAKE) -C $(TARGET_OUTPUT) -f $(srctree)/scripts/Makefile.binary DEST=$$(dest_name) \
-	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE=$$(run_outfile) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
+	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE=$$(run_outfile) $(filter_deliver_goals)
 else ifneq ($$(filter dll,$$(subst _, ,$($(1)-binary-type))),)
 $(1): dest_name := .target_$(1)
 $(1): dest_makefile := $(TARGET_OUTPUT)/.target_$(1)/Makefile.dest
@@ -82,9 +106,9 @@ $(1): target_obj_y := $(filter %/ %.o,$($(1)-y))
 $(1): target_name := $(call subst_dir_slash,$(if $($(1)-target-name),$($(1)-target-name),$(T)),_)
 $(1): target_outs := $($(1)-target-outs) $(filter lst,$(MAKECMDGOALS))
 $(1): install_dir := $($(1)-install-dir)
-$(1): macros_y := $(COMMON_MACROS) $(filter -D% -U%,$($(1)-macros-y))
-$(1): incdir_y := $(COMMON_INCDIR) $(filter -I%,$($(1)-incdir-y))
-$(1): ldflag_y := $(COMMON_LDFLAG) $(filter -L% -l%,$($(1)-ldflag-y))
+$(1): macros_y := $(COMMON_MACROS) $(filter -D% -U%,$($(1)-macros-y) $($(1)-ccflags-y))
+$(1): incdir_y := $(COMMON_INCDIR) $(filter -I%,$($(1)-incdir-y) $($(1)-ccflags-y))
+$(1): ldflag_y := $(COMMON_LDFLAG) $(filter -L% -l%,$($(1)-ldflag-y) $($(1)-ccflags-y))
 $(1): def_file_input_y := $($(1)-def-file-input-y)
 $(1): whole_archive_static_lib_y := $($(1)-whole-archive-static-lib-y)
 $(1):
@@ -102,7 +126,7 @@ $(1):
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(def_file_input_y),def-file-input-y := $$(def_file_input_y))
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(whole_archive_static_lib_y),whole-archive-static-lib-y := $$(whole_archive_static_lib_y))
 	$(Q)$(MAKE) -C $(TARGET_OUTPUT) -f $(srctree)/scripts/Makefile.binary DEST=$$(dest_name) \
-	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE= $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
+	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE= $(filter_deliver_goals)
 else
 $$(error invalid TARGET_TYPE=$($(1)-binary-type))
 endif
@@ -114,6 +138,10 @@ endif
 
 PHONY += $(target-y)
 all: $(target-y)
+	@:
+
+PHONY += run
+run:
 	@:
 
 PHONY += show

@@ -12,7 +12,7 @@ override TARGET_TYPE += run
 endif
 endif
 
-include $(srctree)/scripts/Makefile.basic
+include $(srctree)/scripts/Makefile.predefine
 include $(srctree)/scripts/Makefile.compiler
 include $(TARGET_OUTPUT)/$(DEST)/Makefile.dest
 
@@ -77,16 +77,18 @@ endif
 endif # UNREAL_FINAL_TARGET
 
 cogen_raw_cmd = $(call raw_cmd,./$@ > $(RUN_OUTFILE),$(call quiet_echo_cogen,$(RUN_OUTFILE)))
-corun_raw_cmd = $(call raw_cmd,./$@,$(call quiet_echo_corun,$@))
+corun_raw_cmd = $(if $(1),$(call raw_cmd,./$(1),$(call quiet_echo_corun,$(1))),@:)
 install_raw_cmd = $(if $(1),$(call raw_cmd,$(call CMDCPALL,$(2) $(srctree)/$(1)),$(call quiet_echo_install,$(1))),@:)
-target_execute = $(if $(filter run,$(TARGET_TYPE)),$(if $(RUN_OUTFILE),$(cogen_raw_cmd),$(corun_raw_cmd)),@:)
+target_execute = $(if $(filter run,$(TARGET_TYPE)),$(if $(RUN_OUTFILE),$(cogen_raw_cmd),$(call corun_raw_cmd,$@)),@:)
 target_install = $(if $(call INSTALL_FILES,$@),$(call install_raw_cmd,$(1),$(call INSTALL_FILES,$@)),@:)
 
 built_makefile := $(TARGET_OUTPUT)/$(DEST)/Makefile
 $(shell $(call create_dir,$(dir $(TARGET_OUTPUT)/$(DEST)/$(TARGET_NAME))))
 
 target_cc_flags := $(init-cflags-y)
-target_ld_flags := $(init-ldflag-y)
+target_ld_dirs := $(filter -L%,$(init-ldflag-y))
+target_ld_libs := $(filter -l%,$(init-ldflag-y))
+target_ld_flags := $(filter-out $(target_ld_dirs) $(target_ld_libs),$(init-ldflag-y))
 
 $(built_in_file): FORCE
 	@$(call outfile_new,$(built_makefile),obj-y := $(target-obj-y))
@@ -101,19 +103,21 @@ quiet_cmd_link_exe_file = $(quiet_echo_link)
 quiet_cmd_link_dll_file = $(quiet_echo_link)
       cmd_link_dll_file = $(call link-dll-with-opt-file,$(real-prereqs))
 
+run_exist_target = $(if $(filter run,$(MAKECMDGOALS)),target_execute,)
+
 ifeq ($(dont-ar-objs),1)
 ifneq ($(filter exe,$(TARGET_TYPE)),)
 $(target_file): $(lds-target) $(built_in_file) FORCE
-	$(call if_changed_and_run,link_exe_file,target_execute,target_install,$(INSTALL_DIR))
+	$(call if_changed_and_run,link_exe_file,target_execute,target_install,$(INSTALL_DIR),$(run_exist_target))
 else ifneq ($(filter dll,$(TARGET_TYPE)),)
 $(target_file): $(built_in_file) FORCE
-	$(call if_changed_and_run,link_dll_file,target_execute,target_install,$(INSTALL_DIR))
+	$(call if_changed_and_run,link_dll_file,target_execute,target_install,$(INSTALL_DIR),$(run_exist_target))
 else
 $(error invalid TARGET_TYPE=$(TARGET_TYPE))
 endif
 else
 $(target_file): $(lds-target) $(built_in_file) FORCE
-	$(call if_changed_and_run,link_file,target_execute,target_install,$(INSTALL_DIR))
+	$(call if_changed_and_run,link_file,target_execute,target_install,$(INSTALL_DIR),$(run_exist_target))
 endif
 
 targets += $(target_file)
@@ -163,6 +167,15 @@ all: $(target_file)
 	@:
 else
 all: $(target_extra_outs)
+	@:
+endif
+
+PHONY += run
+ifeq ($(target_extra_outs),)
+run: $(target_file)
+	@:
+else
+run: $(target_extra_outs)
 	@:
 endif
 

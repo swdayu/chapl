@@ -1,12 +1,11 @@
-# gnu tool chain for x86 arch on linux or wsl
+# gnu tool chain for x86 arch on linux or wsl2
 
 # dont export variables defined in this makefile
 cur_makefile := $(lastword $(MAKEFILE_LIST))
 $(cur_makefile):: ;
 
 CROSS_COMPILE :=
-#INIT_CFLAGS += --verbose -H -iprefix $(srctree)/ -iwithprefix .
-CONFIG_PREFIX_VIA_OPTION ?= 0
+CONFIG_PREFIX_VIA_OPTION ?= 1
 OPTION_TRY_LD := -Werror -x c -o $(devnull) -
 
 AS       := $(CROSS_COMPILE)as
@@ -22,20 +21,14 @@ COMPILE_LDS := -C -x c
 COMPILE_DMY := -c -x c
 COMPILE_OBJ := -c
 COMPILE_ASM := -fverbose-asm -S
-OPTION_C_ONLY := -std=c99 -pedantic -pedantic-errors -Werror=implicit-int -Werror-implicit-function-declaration
-OPTION_C++_ONLY := -std=c++17 -pedantic -pedantic-errors -fno-rtti
 OPTION_DEPEND = -MMD -MP -MF $(dep-target) -MT $@
-OUT_PRE_FILE = -o $@ $(OPTION_DEPEND)
-OUT_OBJ_FILE = -o $@ $(OPTION_DEPEND)
+OUT_PRE_FILE = -o $@
+OUT_OBJ_FILE = -o $@
 OUT_ASM_FILE = -o $@
 CLOPT_FIRST_PREREQ = $<
 
-ifeq ($(CONFIG_PREFIX_VIA_OPTION),1)
-INIT_INCDIR += -iprefix $(srctree)/
-OPTION_HEADER_I = -iwithprefixbefore $(1)
-else
-OPTION_HEADER_I = -I$(1)
-endif
+INIT_C_ONLY += -std=c99 -pedantic -pedantic-errors
+INIT_CXX_ON += -std=c++17 -pedantic -pedantic-errors -fno-rtti
 
 # INIT_CFLAGS += $(call cc-option,-march=winchip=c6,-march=i586)
 # INIT_AFLAGS += $(call as-option,-isa=foo)
@@ -54,48 +47,123 @@ ld-lib-option = $(call try-run,$(TRY_LD) $(OPTION_TRY_LD) $(1),$(1),$(2))
 
 INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(srctree)\"
 
-# change __FILE__ to the relative path from the srctree
-INIT_CFLAGS += $(call cc-option,-fmacro-prefix-map=$(srctree)/=)
+# 记录源文件路径时省去 $(srctree) 前缀，例如 __FILE__
+INIT_CFLAGS += -ffile-prefix-map=$(srctree)/= # -fmacro-prefix-map=$(srctree)/=
 
-INIT_CFLAGS += \
-	-fno-common -fmessage-length=0 \
-	-Wall \
-	-fno-exceptions \
-	-ffunction-sections \
-	-fdata-sections \
-	-fomit-frame-pointer \
-	-Wno-trigraphs \
-	-fno-strict-aliasing
+# -iprefix 指定一个 -iwithprefix 可以使用的前缀
+# -iwithprefixbefore 将目录添加 -iprefix 前缀，并将结果目录添加到 -I 搜索目录
+ifeq ($(CONFIG_PREFIX_VIA_OPTION),1)
+INIT_INCDIR += -iprefix $(srctree)/
+OPTION_HEADER_I = $(if $(filter $(srctree),$(1)),-I$(1),-iwithprefixbefore $(patsubst $(srctree)/%,%,$(1)))
+else
+OPTION_HEADER_I = -I$(1)
+endif
 
-# By default char on ARM platform is unsigned char, but char on x86 platform
-# is signed char. To avoid porting issues, force char to be signed char
-# on ARM platform.
-INIT_CFLAGS += -fsigned-char
+# x86 target arch options
+TARGET_ARCH_OPTIONS :=
+ifneq ($(filter x64,$(CONFIG_COMPILER)),)
+INIT_MACROS += -D__magic_arch_x64
+TARGET_ARCH_OPTIONS += -m64 -march=x86-64 -mabi=sysv
+else
+INIT_MACROS += -D__magic_arch_x86
+TARGET_ARCH_OPTIONS += -m32 -march=i386 -mabi=sysv
+endif
+INIT_AFLAGS += $(TARGET_ARCH_OPTIONS)
+INIT_CFLAGS += $(TARGET_ARCH_OPTIONS)
+INIT_LDFLAG += $(TARGET_ARCH_OPTIONS)
 
-# Treat floating-point constants as float instead of double
-INIT_CFLAGS += -fsingle-precision-constant
-INIT_CFLAGS += -Wdouble-promotion -Wfloat-conversion
-INIT_CFLAGS += -g
+# -fno-common 防止多个文件定义同一个未初始化全局变量，其实是默认开启的
+# -fmessage-length=0 每条错误消息将显示在单独的一行上，其实是默认设置
+# -fsigned-char -funsigned-char 将字符类型当作有符号还是无符号，不同平台默认值不同
+# INIT_CFLAGS += -fno-common
+# INIT_CFLAGS += -fmessage-length=0
+INIT_CFLAGS += -funsigned-char
 
-# Prohibit date/time macros, which would make the build non-deterministic
-INIT_CFLAGS += $(call cc-option,-Werror=date-time)
+# 警告选项
+# -w 关闭所有警告
+# -Wall 启用所有可疑的且易于修改的警告
+# -Wextra 启用更多的额外警告
+# -Werror 把所有警告当作错误
+# -Werror=name 将 -Wname 警告当作错误，并会自动开启 -Wname
+# -Wlogical-op 可疑的逻辑运算符使用情况
+# -Wno-trigraphs 不警告对三字符操作符的使用
+# -Werror=implicit-int 仅用于 C 语言，-Wall 会自动开启警告
+# -Werror-implicit-function-declaration 仅用于 C 语言，-Wall 会自动开启警告
+# -Wimplicit-fallthrough 用于警告隐式的 fallthrough
+# -Wdate-time -Werror=date-time 禁用时间宏，因为可能导致编译构建不确定
+# -Wfloat-conversion 警告浮点数精度损失的类型转换
+# -Wdouble-promotion 警告 float 提升为 double 类型，因为可能没有硬件实现的双精度的浮点运算
+INIT_CFLAGS += -Wall -Werror
+INIT_CFLAGS += -Wlogical-op
+WARN_CFLAGS += -Wimplicit-fallthrough
+ifneq ($(filter trigraphs,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += -trigraphs -Wno-trigraphs
+endif
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+else
+INIT_CFLAGS += -Werror=date-time
+endif
 
-INIT_CFLAGS += $(call cc-option,-Wlogical-op)
-INIT_CFLAGS += $(call cc-option,-Wimplicit-fallthrough)
+# 优化和调试选项
+# -ffunction-sections -fdata-sections 将每个函数和数据段分配到单独的节中
+# --gc-sections 上面两个选项结合该链接优化选项，可将未使用的函数数据从可执行文件中删除
+# -fno-exceptions 禁止使用 C++ 异常机制，GCC 默认为 C++ 开启异常，默认为 C 关闭异常
+# -fomit-frame-pointer 不使用栈帧指针（FPO），当没有异常且不不需要alloca时，可以打开
+# -fstack-protector-strong 生成比 -fstack-protector 更强的栈边界保护代码
+# -fno-aggressive-loop-optimizations 默认打开了该循环优化，可以使用此选项禁用
+# -fno-tree-loop-distribute-patterns 使用memset优化特定模式的循环，可以用此选项禁用
+# -fno-isolate-erroneous-paths-dereference 隔离处理解引用空指针，可以用此选项禁用
+# -fno-strict-aliasing 严格的指针别名优化可能导致未定义行为，O2 Os 下默认启用，可以用此选项禁用
+# -fsingle-precision-constant 浮点常量直接当作单精度浮点数处理
+# -O0 禁用优化，意在减少编译时间，并生成适当的调试信息
+# -Og 优化调试体验，它比 -O0 更适合生成可调试代码，也开启了部分 -O1 优化
+# -O -O1 基本优化，不执行任何需要占用大量编译时间的优化
+# -O2 进一步优化，但几乎不执行涉及需要权衡代码速度和代码空间大小的优化
+# -O3 比 -O2 更激进的优化
+# -Os 在 -O2 的基础上更偏于减少代码大小
+# -Oz 比 -Os 更激进的优化以减少代码大小
+# -Ofast 比 -O3 更激进的优化，并不考虑严格符合标准
+# -g 生成 -g2 级别的调试信息（-g0~-g3），-g0 不生成调式信息
+ifneq ($(filter gcsec,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += -ffunction-sections -fdata-sections
+INIT_XLFLAG += --gc-sections
+endif
+ifneq ($(filter fpo,$(CONFIG_COMPILER)),)
+INIT_C_ONLY += -fomit-frame-pointer
+INIT_CXX_ON += -fno-exceptions -fomit-frame-pointer
+endif
+ifneq ($(filter sbnd,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += -fstack-protector-strong
+endif
+INIT_CFLAGS += -fno-strict-aliasing
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += -Og -g
+else
+INIT_CFLAGS += -O2
+endif
 
-# Never change loops to C library calls like memcpy/memset
-# (otherwise it will be enabled by -O2 in GCC 10)
-INIT_CFLAGS += -fno-tree-loop-distribute-patterns
-
-# use the deterministic mode of AR if available
-INIT_AFLAGS += -D__ASSEMBLY__
-
-# config image flags
-INIT_LDFLAG += -X
-INIT_LDFLAG += $(call ld-option,--no-wchar-size-warning)
-INIT_LDFLAG += --build-id
-INIT_LDLIBS += -lc
-INIT_LDLIBS += $(call ld-lib-option,-lnosys)
+# 链接选项
+# -static 不生成位置无关的可执行文件，并执行静态链接
+# -shared 生成共享对象文件
+# -Wl,--script=target.lds 指定链接脚本文件
+# -Wl.-Map=target.map 指定输出 map 文件
+# -Wl,-X 删除所有临时本地符号
+# -Wl,--gc-sections 回收所有未被使用的输入分区
+# -Wl,--print-gc-sections 打印回收的输入分区信息
+# -Wl,--print-memory-usage 打印 MEMORY 命令创建的内存区域的使用情况
+# -Wl,--whole-archive 将每个存档中的每个目标文件都包含在链接中，而不是搜索所需的目标文件
+# -Wl,--build-id 使用 sha1 算法生成一个唯一识别的构建 ID，并将其嵌入到可执行文件中
+ifneq ($(filter exe,$(TARGET_TYPE)),)
+INIT_LDFLAG += -static
+else ifneq ($(filter dll,$(TARGET_TYPE)),)
+INIT_LDFLAG += -shared
+endif
+ifneq ($(filter pthread,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += -pthread
+INIT_LDFLAG += -pthread
+endif
+# INIT_XLFLAG += --print-memory-usage
+INIT_XLFLAG += -X
 
 ifeq ($(WIN_PLAT),y)
 archive-cmd = ( ( echo create $@ && \
@@ -127,12 +195,11 @@ link-com-obj = $(LD) $(built_cc_flags) $(COM_OBJ_CCFLAGS) \
 #    By default the strong symbols defined in the archive will not override
 #    any weak symbol, for LD only searches the archive if there is a undefined
 #    symbol (and a weak symbol is considered as a defined symbol).
-OPTION_LDLIBS = $(foreach a,$(1),-l$(a))
-OPTION_LDDIRS = $(foreach a,$(1),-L$(a))
-LINK_EXE_LDFLAGS = -Map=$(basename $@).map --gc-sections --no-whole-archive
-link-exe-cmd = $(LD) -o $@ $(if $(lds-target),-T $(lds-target)) $(target_cc_flags) \
-    $(call OPTION_LD_FLAGS,$(LINK_EXE_LDFLAGS) $(target_ld_flags)) $(1) \
-    -Wl,--no-whole-archive $(call OPTION_LDLIBS,$(target_ld_libs)) $(call OPTION_LDLIBS,$(target_ld_libs))
+OPTION_LDLIBS = $(1)
+OPTION_LDDIRS = $(1)
+LINK_EXE_XLFLAG = $(INIT_XLFLAG) -Map=$(basename $@).map
+link-exe-cmd = $(LD) -o $@ $(if $(lds-target),-T $(lds-target)) $(target_ld_flags) \
+    $(target_ld_dirs) $(call OPTION_LD_FLAGS,$(LINK_EXE_XLFLAG)) $(1) $(target_ld_libs)
 link-exe-with-opt-file = $(call link-exe-cmd,@$(1))
 
 quiet_cmd_gen_target_bin = $(quiet_echo_genbin)
