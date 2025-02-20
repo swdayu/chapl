@@ -48,17 +48,29 @@ int main(int argc, char **argv)
     test_yield_cycle();
     test_yield_manual();
 
-    printf("\n[start lexter test]\n");
+    printf("\n[start lexter test #1]\n");
     test_lexer(null);
 
-    printf("\n[start lexter test]\n");
+    printf("\n[start lexter test #2]\n");
     test_lexer("1 + 2 * 3 - 4 / 5 + 6");
 
-    printf("\n[start lexter test]\n");
-    test_lexer("10 + 20 * 30 - 40 / 50 + 6501");
+    printf("\n[start lexter test #3]\n");
+    test_lexer("10 + 20 * 30 - 40 / 5 + 6501");
 
-    printf("\n[start lexter test]\n");
+    printf("\n[start lexter test #4]\n");
     test_lexer("11 + 22 * 33 - 44 / 0 + 66");
+
+    printf("\n[start lexter test #5]\n");
+    test_lexer("11 * 22 / 33 + 44 - 55 + 66");
+
+    printf("\n[start lexter test #6]\n");
+    test_lexer("11 * 22 + 33 + 44 - 55 / 66");
+
+    printf("\n[start lexter test #7]\n");
+    test_lexer("11 - 22 + 33 + 44 * 55 + 66");
+
+    printf("\n[start lexter test #8]\n");
+    test_lexer("11 - 22 + 33 + 44 * 55 / 66");
 
     return 0;
 }

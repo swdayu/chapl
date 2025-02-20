@@ -51,6 +51,15 @@ CoroCont coroutine_init(uptr cont_id, uptr count)
     return (CoroCont)ctx;
 }
 
+Coro *coroutine_at(CoroCont cont, uptr index)
+{
+    CoroImpl *ctx = (CoroImpl *)cont;
+    if (index >= ctx->count) {
+        return null;
+    }
+    return ctx->item[index];
+}
+
 Coro *coroutine_create(CoroCont cont, CoroFunc f, uptr stack_size, uptr para)
 {
     CoroImpl *ctx = (CoroImpl *)cont;

@@ -22,6 +22,7 @@ typedef struct Coro {
 } Coro;
 
 CoroCont coroutine_init(uptr cont_id, uptr count);
+Coro *coroutine_at(CoroCont cont, uptr index);
 Coro *coroutine_create(CoroCont cont, CoroFunc func, uptr stack_size, uptr para);
 uptr coroutine_cont_id(CoroCont cont);
 uptr coroutine_id(Coro *coro);
