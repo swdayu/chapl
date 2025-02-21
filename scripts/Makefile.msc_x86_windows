@@ -150,7 +150,7 @@ EACH_SOURCE_GEN_ASM_FILE = /FAsu /Fa$(basename $@).d.asm
 EACH_SOURCE_GEN_COD_FILE = /FAcsu /Fa$(basename $@).d.asm
 ifneq ($(filter genasm,$(CONFIG_COMPILER)),)
 OUT_OBJ_FILE = $(EACH_SOURCE_GEN_ASM_FILE) $(OUTOBJFILE__)
-else ifneq ($(filter machcod,$(CONFIG_COMPILER)),)
+else ifneq ($(filter codasm,$(CONFIG_COMPILER)),)
 OUT_OBJ_FILE = $(EACH_SOURCE_GEN_COD_FILE) $(OUTOBJFILE__)
 else
 OUT_OBJ_FILE = $(OUTOBJFILE__)
@@ -180,7 +180,11 @@ endif
 # code that does not enforce buffer size restrictions.
 # /GS is on by default.
 # /sdl enable more security features and warnings
+# /EHsc 开启异常处理，但是extern "C"里面的函数绝不会抛出异常
+# INIT_CFLAGS += /EHsc
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
 INIT_CFLAGS += /GS /sdl
+endif
 
 # /W0 disable all wranings, it's equivalent to /w
 # /W1 display level 1 (severe) wranings, is the default setting
@@ -214,7 +218,7 @@ OPT_FLAGS_SPEED := /O2 /Oi /GF /Gy /fp:fast
 ifneq ($(filter debug,$(CONFIG_COMPILER)),)
 INIT_CFLAGS += /Od
 else
-INIT_CFLAGS += $(OPT_FLAGS_SPEED)
+INIT_CFLAGS += /O2
 endif
 
 # /ZI same as /Zi generate a separated pdb file to cotiain debug information,
@@ -232,9 +236,6 @@ INIT_CFLAGS += /GL
 
 # /Gw 启用整个程序全局数据优化
 INIT_CFLAGS += /Gw
-
-# /EHsc 开启异常处理，但是extern "C"里面的函数绝不会抛出异常
-INIT_CFLAGS += /EHsc
 
 # /LD 创建DLL，会传递/DLL给链接器，默认使用/MT链接静态运行时库
 # /LDd 创建DLL调试库，会传递/DLL给链接器，默认使用/MTd链接静态运行时库

@@ -10,6 +10,9 @@ ifneq ($(filter exe,$(TARGET_TYPE)),)
 ifneq ($(RUN_OUTFILE),)
 override TARGET_TYPE += run
 endif
+ifneq ($(filter run,$(MAKECMDGOALS)),)
+override TARGET_TYPE += run
+endif
 endif
 
 include $(srctree)/scripts/Makefile.predefine

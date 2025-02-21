@@ -26,24 +26,36 @@
 ; YMM6:YMM15              高16字节易变    调用者根据需要必须负责保护YMM
 ;
 ; 当函数退出、函数进入 C 运行时库或 Windows 系统，标志寄存器中的方向标志必须先清位。
+; CPU 在进入函数之前必须是 x87 模式。因此每个用了 MMX 寄存器的函数，必须在使用完 MMX
+; 寄存器之后，并在函数返回或调用另一个函数之前必须回到x87模式。所有x87寄存器都不能跨函
+; 数，所有的 xmmN ymmN zmmN 都不能跨函数，但微软编译器要求XMM6~XMM15这10个16字节长的
+; 向量寄存器可以跨越函数。浮点控制寄存器%fcw由被调函数保护，被调函数如果修改了它的值在
+; 返回之前必须进行恢复。媒体控制和状态寄存器mxcsr的控制位，也由被调函数保护可以跨函数。
+; 线程指针（thread pointer）%fs寄存器也需要保护。
 
 .code
+asm_curr_rsp PROC
+    mov rax, rsp
+    ret
+asm_curr_rsp ENDP
+
 asm_coro_init PROC
     ; 调用该函数之前，协程地址已经保存
-    ; pstack + alloc <-- 00                   <-- 16字节对齐
+    ; pstack + alloc <-- 00                     <-- 16字节对齐
     ;             -8 <-- 08 co
-    ;            -16 <-- 00 asm_coro_call     <-- 16字节对齐
-    ;            -24 <-- 08           rcx, 08
-    mov QWORD PTR [rcx - 8 * 1], 0  ; rdi, 00 <-- 16字节对齐
-    mov QWORD PTR [rcx - 8 * 2], 0  ; rsi, 08
-    mov QWORD PTR [rcx - 8 * 3], 0  ; rbx, 00 <-- 16字节对齐
-    mov QWORD PTR [rcx - 8 * 4], 0  ; rbp, 08
-    mov QWORD PTR [rcx - 8 * 5], 0  ; r12, 00 <-- 16字节对齐
-    mov QWORD PTR [rcx - 8 * 6], 0  ; r13, 08
-    mov QWORD PTR [rcx - 8 * 7], 0  ; r14, 00 <-- 16字节对齐
-    mov QWORD PTR [rcx - 8 * 8], 0  ; r15, 08
-    sub rcx, 8 * 8
-    mov QWORD PTR [rcx - 8], rcx    ; rsp, 00 <-- 16字节对齐
+    ;            -16 <-- 00 asm_coro_call       <-- 16字节对齐
+    ;            -24 <-- 08           08 rcx
+    mov QWORD PTR [rcx - 8 * 1], 0  ; 00 rdi    <-- 16字节对齐
+    mov QWORD PTR [rcx - 8 * 2], 0  ; 08 rsi
+    mov QWORD PTR [rcx - 8 * 3], 0  ; 00 rbx
+    mov QWORD PTR [rcx - 8 * 4], 0  ; 08 rbp
+    mov QWORD PTR [rcx - 8 * 5], 0  ; 00 r12
+    mov QWORD PTR [rcx - 8 * 6], 0  ; 08 r13
+    mov QWORD PTR [rcx - 8 * 7], 0  ; 00 r14
+    mov QWORD PTR [rcx - 8 * 8], 0  ; 08 r15
+    mov QWORD PTR [rcx - 8 * 9], 0  ; 00 fstcw-16:stmxcsr-32
+    sub rcx, 8 * 9
+    mov QWORD PTR [rcx - 8], rcx    ; 08 rsp
     sub rcx, 8
     mov rax, rcx
     ret ; 返回当前 rsp 的值
@@ -56,6 +68,9 @@ asm_coro_resume PROC PRIVATE
     pop rcx ; 弹出协程栈中保存的 rsp
     cmp rcx, rsp
     jne rsp_crash
+    ldmxcsr DWORD PTR [rsp] ; ldmxcsr m32, load m32 to mxcsr
+    fldcw WORD PTR [rsp+4]  ; fldcw m16, load m16 to fcw
+    add rsp, 8              ; fstcw-16:stmxcsr-32
     pop r15
     pop r14
     pop r13
@@ -69,16 +84,15 @@ asm_coro_resume PROC PRIVATE
     ret             ; 恢复协程运行
 rsp_crash:
     mov rdx, rsp    ; rcx 已经保存弹出的栈指针
-    ;            rsp <-- 00
-    ; coro stack r15 <-- 08 rsp
-    ;         rsp-08 <-- 00
-    ;         rsp-16 <-- 08
-    ;         rsp-24 <-- 00
-    ;         rsp-32 <-- 08
-    ;         rsp-40 <-- 00 输入参数对齐
+    ;            rsp <-- 08
+    ; coro stack fcw <-- 00 rsp
+    ;         rsp-08 <-- 08
+    ;         rsp-16 <-- 00
+    ;         rsp-24 <-- 08
+    ;         rsp-32 <-- 00 输入参数对齐
     ; return address <-- 08 rsp
     ; asm_call_stack_crash - 00
-    sub rsp, 40     ; align rsp to 16 bytes
+    sub rsp, 32     ; align rsp to 16 bytes
     call asm_call_stack_crash
 asm_coro_resume ENDP
 
@@ -100,6 +114,9 @@ save_context:
     push r13
     push r14
     push r15
+    sub rsp, 8              ; fstcw-16:stmxcsr-32
+    stmxcsr DWORD PTR [rsp] ; stmxcsr m32, save mxcsr to m32
+    fnstcw WORD PTR [rsp+4] ; fstcw/fnstcw m16, save fcw to m16
     push rsp
     mov [rcx], rsp
     ; 切换到需要处理的协程

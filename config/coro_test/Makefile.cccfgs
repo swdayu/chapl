@@ -1,5 +1,5 @@
 cccfg-y := \
-	msc_x64_native_console \
-	msc_x86_native_console \
+	msc_x86_native_console_genasm \
+	msc_x64_native_console_genasm \
 	gnu_x86_native \
 	gnu_x64_native

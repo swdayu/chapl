@@ -25,6 +25,13 @@
 # XMM6 YMM6               易变            第七个向量类型参数
 # XMM7 YMM7               易变            第八个向量类型参数
 # XMM8:XMM15              易变            GNU X64 ABI 中向量寄存器都是易变的
+#
+# CPU 在进入函数之前必须是 x87 模式。因此每个用了 MMX 寄存器的函数，必须在使用完 MMX
+# 寄存器之后，并在函数返回或调用另一个函数之前必须回到x87模式。所有x87寄存器都不能跨函
+# 数，所有的 xmmN ymmN zmmN 都不能跨函数，但微软编译器要求XMM6~XMM15这10个16字节长的
+# 向量寄存器可以跨越函数。浮点控制寄存器%fcw由被调函数保护，被调函数如果修改了它的值在
+# 返回之前必须进行恢复。媒体控制和状态寄存器mxcsr的控制位，也由被调函数保护可以跨函数。
+# 线程指针（thread pointer）%fs寄存器也需要保护。
 
 .section .text
 
@@ -32,20 +39,19 @@
 .global asm_coro_init
 asm_coro_init:
     # 调用该函数之前，协程地址已经保存
-    # pstack + alloc <-- 00                   <-- 16字节对齐
+    # pstack + alloc <-- 00                     <-- 16字节对齐
     #             -8 <-- 08 co
-    #            -16 <-- 00 asm_coro_call     <-- 16字节对齐
-    #            -24 <-- 08    rcx -> rdi, 08
-    movq $0,-1*8(%rdi)              # rdi, 00 <-- 16字节对齐
-    movq $0,-2*8(%rdi)              # rsi, 08
-    movq $0,-3*8(%rdi)              # rbx, 00 <-- 16字节对齐
-    movq $0,-4*8(%rdi)              # rbp, 08
-    movq $0,-5*8(%rdi)              # r12, 00 <-- 16字节对齐
-    movq $0,-6*8(%rdi)              # r13, 08
-    movq $0,-7*8(%rdi)              # r14, 00 <-- 16字节对齐
-    movq $0,-8*8(%rdi)              # r15, 08
-    subq $(8*8),%rdi
-    movq %rdi,-8(%rdi)              # rsp, 00 <-- 16字节对齐
+    #            -16 <-- 00 asm_coro_call       <-- 16字节对齐
+    #            -24 <-- 08    rcx -> 08 rdi
+    movq $0,-1*8(%rdi)              # 00 rbx    <-- 16字节对齐
+    movq $0,-2*8(%rdi)              # 08 rbp
+    movq $0,-3*8(%rdi)              # 00 r12
+    movq $0,-4*8(%rdi)              # 08 r13
+    movq $0,-5*8(%rdi)              # 00 r14
+    movq $0,-6*8(%rdi)              # 08 r15
+    movq $0,-7*8(%rdi)              # 00 fstcw-16:stmxcsr-32
+    subq $(8*7),%rdi
+    movq %rdi,-8(%rdi)              # 08 rsp
     subq $8,%rdi
     movq %rdi,%rax
     ret # 返回当前 rsp 的值
@@ -58,29 +64,29 @@ asm_coro_resume:
     popq %rdi       # 弹出协程栈中保存的 rsp
     cmpq %rsp,%rdi
     jne rsp_crash
+    ldmxcsr (%rsp)  # ldmxcsr m32, load m32 to mxcsr
+    fldcww 4(%rsp)  # fldcw m16, load m16 to fcw
+    addq $8,%rsp    # fstcw-16:stmxcsr-32
     popq %r15
     popq %r14
     popq %r13
     popq %r12
     popq %rbp
     popq %rbx
-    popq %rsi
-    popq %rdi
     popq %rdi       # 协程地址
     movq $1,%rax    # yield 函数的返回值
     ret             # 恢复协程运行
 rsp_crash:          # rcx -> rdi 已经保存弹出的栈指针
     movq %rsp,%rsi  # rdx -> rsi
-    #            rsp <-- 00
-    # coro stack r15 <-- 08 rsp
-    #         rsp-08 <-- 00
-    #         rsp-16 <-- 08
-    #         rsp-24 <-- 00
-    #         rsp-32 <-- 08
-    #         rsp-40 <-- 00 输入参数对齐
+    #            rsp <-- 08
+    # coro stack fcw <-- 00 rsp
+    #         rsp-08 <-- 08
+    #         rsp-16 <-- 00
+    #         rsp-24 <-- 08
+    #         rsp-32 <-- 00 输入参数对齐
     # return address <-- 08 rsp
     # asm_call_stack_crash - 00
-    subq $40,%rsp    # align rsp to 16 bytes
+    subq $32,%rsp    # align rsp to 16 bytes
     call asm_call_stack_crash
 
 # [in]  rcx -> rdi 当前协程
@@ -94,14 +100,15 @@ asm_coro_yield:
 save_context:
     # 保护当前协程，栈中已保存返回地址
     pushq %rdi  # 当前协程地址
-    pushq %rdi
-    pushq %rsi
     pushq %rbx
     pushq %rbp
     pushq %r12
     pushq %r13
     pushq %r14
     pushq %r15
+    subq $8,%rsp    # fstcw-16:stmxcsr-32
+    stmxcsr (%rsp)  # stmxcsr m32, save mxcsr to m32
+    fnstcww 4(%rsp) # fstcw/fnstcw m16, save fcw to m16
     pushq %rsp
     movq %rsp,(%rdi)
     # 切换到需要处理的协程

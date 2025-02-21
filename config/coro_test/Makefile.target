@@ -14,4 +14,4 @@ default-y := src/lang/builtin/ src/lang/coro/gnu_x86/ config/coro_test/
 endif
 endif
 
-default-binary-type := exe_run
+default-binary-type := exe

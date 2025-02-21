@@ -20,7 +20,7 @@ __magic_coro_api(Coro*) asm_call_coro_finish(Coro *co)
 {
     Coro *wait = co->wait;
 #if __magic_coro_debug
-    printf("[%02d] finish: rsp %p wait %p\n", (int)co->id, (void *)co->rsp, (void *)wait);
+    printf("[%02d] %p finish: rsp %p wait %p left %d\n", (int)co->id, (void *)co, (void *)co->rsp, (void *)wait, (int)(((byte *)co->rsp) - (byte *)co - sizeof(Coro)));
 #endif
     co->rsp = 0;
     return wait;
@@ -91,7 +91,7 @@ Coro *coroutine_create(CoroCont cont, CoroFunc f, uptr stack_size, uptr para)
         *(--rsp) = co;                      // 提供给 coro_return 使用
         *(--rsp) = (void *)(uptr)asm_coro_call;   // 创建时为 coro_asm_call，之后会改为协程函数 f 中的返回地址
         align_to_16_bytes = (void *)rsp;    // 对齐到 16 字节边界
-        *(--rsp) = co;                      // msc rcx/rdi
+        *(--rsp) = co;                      // rcx/rdi
         co->rsp = asm_coro_init((uptr)rsp);
         co->id = ctx->init.id + ctx->count + 1;
         if (ctx->count == 0) {
@@ -102,7 +102,8 @@ Coro *coroutine_create(CoroCont cont, CoroFunc f, uptr stack_size, uptr para)
         co->wait = &ctx->init;
         ctx->item[ctx->count++] = co;
 #if __magic_coro_debug
-        printf("[%02d] %p created %p %p rsp %p\n", (int)co->id, (void *)co, rsp_aligned_to_16, align_to_16_bytes, (void *)co->rsp);
+        printf("[%02d] %p created rsp %p depth %d f %p para %p\n", (int)co->id, (void *)co, (void *)co->rsp,
+            (int)((byte*)rsp_aligned_to_16 - (byte*)co->rsp), (void *)(uptr)f, (void *)para);
 #endif
         lang_assert((uptr)rsp_aligned_to_16 % 16 == 0);
         lang_assert((uptr)align_to_16_bytes % 16 == 0);

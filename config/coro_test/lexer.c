@@ -1,6 +1,6 @@
 #include "coro.h"
 
-#define CORO_STACK_SIZE 1024
+#define CORO_STACK_SIZE 8*1024
 
 typedef enum {
     TOK_EOF,
@@ -88,30 +88,30 @@ bool token(Context *ctx, TokenKind kind)
     return false;
 }
 
-void caculate(int left, TokenKind oper, Token *right_out)
+void caculate(int left, TokenKind oper, Token *right)
 {
     int result;
     if (oper == TOK_ADD) {
-        result = left + right_out->value;
-        printf(SUM_TAG"%d + %d = %d\n", left, right_out->value, result);
+        result = left + right->value;
+        printf(SUM_TAG"%d + %d = %d\n", left, right->value, result);
     } else if (oper == TOK_SUB) {
-        result = left - right_out->value;
-        printf(SUM_TAG"%d - %d = %d\n", left, right_out->value, result);
+        result = left - right->value;
+        printf(SUM_TAG"%d - %d = %d\n", left, right->value, result);
     } else if (oper == TOK_MUL) {
-        result = left * right_out->value;
-        printf(SUM_TAG"%d * %d = %d\n", left, right_out->value, result);
+        result = left * right->value;
+        printf(SUM_TAG"%d * %d = %d\n", left, right->value, result);
     } else if (oper == TOK_DIV) {
-        if (right_out->value == 0) {
+        if (right->value == 0) {
             result = left;
-            printf(SUM_TAG"%d / %d = divided by zero error!\n", left, right_out->value);
+            printf(SUM_TAG"%d / %d = divided by zero error!\n", left, right->value);
         } else {
-            result = left / right_out->value;
-            printf(SUM_TAG"%d / %d = %d\n", left, right_out->value, result);
+            result = left / right->value;
+            printf(SUM_TAG"%d / %d = %d\n", left, right->value, result);
         }
     } else {
         result = 0xa5a5a5a5;
     }
-    right_out->value = result;
+    right->value = result;
 }
 
 void evaluate(Context *ctx, Token perv_oper)
