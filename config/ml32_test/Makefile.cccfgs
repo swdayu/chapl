@@ -1,1 +1,3 @@
-cccfg-y := msc_x86_native_console_unicode
+cccfg-y := \
+	msc_x86_native_console \
+	gnu_x86_native
