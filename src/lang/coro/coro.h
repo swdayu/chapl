@@ -10,7 +10,7 @@ extern "C" {
 
 struct Coro;
 typedef uptr CoroCont;
-__magic_func_typedef(fastcall, void, CoroFunc)(struct Coro *);
+__magic_func_type(fastcall, void, CoroFunc)(struct Coro *);
 
 typedef struct Coro {
     uptr rsp;

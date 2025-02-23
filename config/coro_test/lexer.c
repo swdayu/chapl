@@ -4,8 +4,10 @@
 
 typedef enum {
     TOK_EOF,
-    TOK_INT = 0x100,
-    TOK_OPER = 0x200,
+    TOK_INT,
+    TOK_L_PAREN = '(',
+    TOK_R_PAREN = ')',
+    TOK_OPER = 0x100,
     TOK_ADD = TOK_OPER + '+',
     TOK_SUB = TOK_OPER + '-',
     TOK_MUL = TOK_OPER + '*',
@@ -19,7 +21,7 @@ typedef enum {
 
 typedef struct {
     TokenKind kind;
-    int value;
+    union { int value; int prio; } u;
 } Token;
 
 typedef struct {
@@ -54,10 +56,12 @@ __magic_coro_api(void) lexer(Coro *coro)
             continue; // skip space
         } else if (ch >= '0' && ch <= '9') {
             token->kind = TOK_INT;
-            expr = parse_int(expr-1, &token->value);
+            expr = parse_int(expr-1, &token->u.value);
         } else if (ch == '+' || ch == '-' || ch == '*' || ch == '/') {
             token->kind = TOK_OPER + ch;
-            token->value = (ch == '+' || ch == '-') ? PRIO_ADD : PRIO_MUL;
+            token->u.prio = (ch == '+' || ch == '-') ? PRIO_ADD : PRIO_MUL;
+        } else if (ch == '(' || ch == ')') {
+            token->kind = ch;
         } else {
             break;
         }
@@ -72,19 +76,49 @@ label_return:
 #define OPR_TAG "TOK_OPR: "
 #define SUM_TAG "       : "
 
+void evaluate(Context *ctx, Token perv_oper);
+
 bool token(Context *ctx, TokenKind kind)
 {
-    Token *token = (kind == TOK_INT) ? &ctx->value : &ctx->oper;
-    while (coroutine_yield_manual(ctx->cont, ctx->coro, (uptr)token) && (token->kind & kind)) {
-        if (kind == TOK_INT) {
-            printf(INT_TAG"%d\n", token->value);
+    Token *t = (kind == TOK_OPER) ? &ctx->oper : &ctx->value;
+    while (coroutine_yield_manual(ctx->cont, ctx->coro, (uptr)t)) {
+        if (kind == TOK_OPER) {
+            if (t->kind & TOK_OPER) {
+                printf(OPR_TAG"%c\n", (t->kind & 0xff));
+                return true;
+            }
+            if (t->kind == TOK_R_PAREN) {
+                printf(OPR_TAG")\n");
+                t->u.prio = -1; // r paren is the lowest operator
+                return true;
+            }
+            if (t->kind == TOK_INT) {
+                printf(OPR_TAG"skip %d\n", t->u.value);
+            } else {
+                printf(OPR_TAG"skip %c\n", t->kind);
+            }
         } else {
-            printf(OPR_TAG"%c\n", (token->kind & 0xff));
+            if (t->kind == TOK_INT) {
+                printf(INT_TAG"%d\n", t->u.value);
+                return true;
+            }
+            if (t->kind == TOK_L_PAREN) {
+                printf(INT_TAG"(\n");
+                if (!token(ctx, TOK_INT)) {
+                    break;
+                }
+                evaluate(ctx, (Token){TOK_EOF, {-1}});
+                return true;
+            }
+            if (t->kind & TOK_OPER) {
+                printf(INT_TAG"skip %c\n", (t->kind & 0xff));
+            } else {
+                printf(INT_TAG"skip %c\n", t->kind);
+            }
         }
-        return true;
     }
-    token->kind = TOK_EOF;
-    token->value = 0;
+    t->kind = TOK_EOF;
+    t->u.prio = -1; // treat eof as the lowest operator
     return false;
 }
 
@@ -92,26 +126,26 @@ void caculate(int left, TokenKind oper, Token *right)
 {
     int result;
     if (oper == TOK_ADD) {
-        result = left + right->value;
-        printf(SUM_TAG"%d + %d = %d\n", left, right->value, result);
+        result = left + right->u.value;
+        printf(SUM_TAG"%d + %d = %d\n", left, right->u.value, result);
     } else if (oper == TOK_SUB) {
-        result = left - right->value;
-        printf(SUM_TAG"%d - %d = %d\n", left, right->value, result);
+        result = left - right->u.value;
+        printf(SUM_TAG"%d - %d = %d\n", left, right->u.value, result);
     } else if (oper == TOK_MUL) {
-        result = left * right->value;
-        printf(SUM_TAG"%d * %d = %d\n", left, right->value, result);
+        result = left * right->u.value;
+        printf(SUM_TAG"%d * %d = %d\n", left, right->u.value, result);
     } else if (oper == TOK_DIV) {
-        if (right->value == 0) {
+        if (right->u.value == 0) {
             result = left;
-            printf(SUM_TAG"%d / %d = divided by zero error!\n", left, right->value);
+            printf(SUM_TAG"%d / %d = divided by zero error!\n", left, right->u.value);
         } else {
-            result = left / right->value;
-            printf(SUM_TAG"%d / %d = %d\n", left, right->value, result);
+            result = left / right->u.value;
+            printf(SUM_TAG"%d / %d = %d\n", left, right->u.value, result);
         }
     } else {
         result = 0xa5a5a5a5;
     }
-    right->value = result;
+    right->u.value = result;
 }
 
 void evaluate(Context *ctx, Token perv_oper)
@@ -120,7 +154,7 @@ void evaluate(Context *ctx, Token perv_oper)
     if (!token(ctx, TOK_OPER)) {
         return;
     }
-    while (ctx->oper.value > perv_oper.value) {
+    while (ctx->oper.u.prio > perv_oper.u.prio) {
         left = ctx->value;
         curr_oper = ctx->oper;
         if (!token(ctx, TOK_INT)) {
@@ -130,7 +164,7 @@ void evaluate(Context *ctx, Token perv_oper)
         if (ctx->value.kind != TOK_INT) {
             return;
         }
-        caculate(left.value, curr_oper.kind, &ctx->value);
+        caculate(left.u.value, curr_oper.kind, &ctx->value);
     }
 }
 
@@ -138,12 +172,12 @@ void test_lexer(const char *expr)
 {
     CoroCont cont = coroutine_init(0, 1);
     Coro *coro = coroutine_create(cont, lexer, CORO_STACK_SIZE, (uptr)expr);
-    Context ctx = {cont, coro, {TOK_EOF, -1}};
+    Context ctx = {cont, coro};
     if (expr) {
         printf("expr: %s\n", expr);
     }
     if (token(&ctx, TOK_INT)) {
-        evaluate(&ctx, ctx.oper);
+        evaluate(&ctx, (Token){TOK_EOF, {-1}});
     }
     printf("Quit!\n");
     coroutine_finish(&cont);
