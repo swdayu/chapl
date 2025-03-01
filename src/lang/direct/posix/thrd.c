@@ -535,22 +535,24 @@
 #include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <limits.h>
 
+#ifdef NDEBUG
+#define magic_thrd_debug 0
+#else
 #define magic_thrd_debug 1
-
-#define magic_thrd_failure  0x01
-#define magic_thrd_started  0x02
-#define magic_thrd_joined   0x04
+#endif
 
 #define defer_if(if_true_goto_defer) if (if_true_goto_defer) { goto label_defer; }
 #define prerr_if(if_true_print_err, error, ...) if (if_true_print_err) { prerr(error, ## __VA_ARGS__); }
-typedef struct thrds *thrds;
 
 enum ethrd {
-    ethrd_invpara,
     ethrd_start,
     ethrd_attrinit,
     ethrd_setstack,
@@ -564,14 +566,6 @@ void prerr(int error, ...)
     va_list args;
     va_start(args, error);
     switch (error) {
-        case ethrd_invpara: {
-            struct thrds *t = va_arg(args, struct thrds*);
-            if (t->count >= t->capacity) {
-                printf("Error: thread capacity reached\n");
-            } else {
-                printf("Error: provided func is NULL\n");
-            }
-            break; }
         case ethrd_start:
             printf("Error: thread start failed %d\n", va_arg(args, int));
             break;
@@ -599,76 +593,60 @@ void prerr(int error, ...)
 }
 
 struct thrditem {
-    union { pthread_t tid; int stacksize; } u;
-    thrdproc func;
-    int flags;
-    int id;
+    pthread_t tid;
+    int id, index;
+    thrdproc proc;
 };
 
-thrds threads_init(int mainid, int maxthreads, int sizethrds)
+#define getthrditem(p) ((struct thrditem *)((char *)p - sizeof(struct thrditem)))
+#define magic_align(n) (((n) + sizeof(void *) - 1) & (~(sizeof(void *) - 1)))
+#define align_16(n) (int)(((unsigned)(n) + 15) & (~(unsigned)15))
+
+struct thrdcont *threadsinit(int mainid, int maxthreads, int structsize)
 {
-    assert(maxthreads > 0);
+    structsize = magic_align(structsize);
+    assert(maxthreads > 0 && structsize >= sizeof(struct thrdcont));
 
-    if (sizethrds == 0)
-        sizethrds = sizeof(struct thrds);
+    size_t alloc = structsize + sizeof(struct thrditem) + maxthreads * sizeof(void*);
+    struct thrdcont *t = (struct thrdcont *)malloc(alloc);
 
-    assert(sizethrds >= (int)sizeof(struct thrds));
-    assert(sizethrds % sizeof(void *) == 0);
-
-    size_t alloc = sizethrds + maxthreads * sizeof(void*);
-    struct thrds *t = (struct thrds *)malloc(alloc);
     memset(t, 0, alloc);
+    t->item = (void **)((char *)t + structsize + sizeof(struct thrditem));
+    t->maxthreads = maxthreads + 1;
 
-    t->item = (void **)((char *)t + sizethrds);
-    t->maxthreads = maxthreads;
+    struct thrditem *main = (struct thrditem *)((char *)t + structsize);
+    main->tid = pthread_self();
+    main->id = mainid;
+    t->item[0] = main;
+    t->count = 1;
 
-    t->item[0] = (void *)(intptr_t)mainid; // tmp save
     return t;
 }
 
-#define multptr(n) (((n) + sizeof(void *) - 1) & (~(sizeof(void *) - 1)))
-#define mult_16(n) (int)(((unsigned)(n) + 15) & (~(unsigned)15))
-
-struct thrd *threads_create(thrds t, thrdproc func, int stacksize, int thrdsize)
+struct thrdcont *threads_init(int mainid, int maxthreads)
 {
-    assert(sizethrd >= 0);
-
-    if (t->count >= t->maxthreads) {
-        return NULL;
-    }
-
-    size_t alloc = multptr(sizeof(struct thrditem) + thrdsize);
-    struct thrditem *item = (struct thrditem *)malloc(alloc);
-    memset(item, 0, alloc);
-
-    if (t->count == 0) {
-        item->id = (int)(intptr_t)t->item[0] + 1;
-    } else {
-        item->id = (((struct thrditem *)(t->item[t->count - 1]))->id + 1;
-    }
-
-    item->func = func;
-    item->u.stacksize = stacksize;
-
-    t->item[t->count] = item;
-    t->count += 1;
-
-    return (struct thrd *)(item + 1);
+    return threadsinit(mainid, maxthreads, sizeof(struct thrdcont));
 }
 
-struct thrd *threads_get(thrds t, int index)
+struct thrd *thread_get_thrd(struct thrdcont *t, int index)
 {
     assert(index >= 0 && index < t->count);
-    struct thrditem *item = (struct thrditem *)t->time[index];
-    return (struct thrd *)(item + 1);
+    return (struct thrd *)(((struct thrditem *)t->item[index]) + 1);
 }
 
-#define getthrditem(t) ((struct thrditem *)((char *)t - offsetof(struct thrditem, id)))
-
-int thrd_get_id(struct thrd *thrd)
+int thread_id_from_index(struct thrdcont *t, int index)
 {
-    if (thrd == NULL)
-        return 0;
+    assert(index >= 0 && index < t->count);
+    return ((struct thrditem *)t->item[index])->id;
+}
+
+struct thrdindex thread_get_index(struct thrd *thrd)
+{
+    return (struct thrdindex){getthrditem(thrd)->index};
+}
+
+int thread_get_id(struct thrd *thrd)
+{
     return getthrditem(thrd)->id;
 }
 
@@ -679,11 +657,11 @@ thrdproc dealthreadstart(struct thrditem *item)
     void *stack_addr = NULL;
     size_t stack_size = 0, guard_size = 0;
     pthread_attr_t attr;
-    bool destroy = false;
+    int destroy = 0;
     int n = 0;
 
     n = pthread_getattr_np(tid, &attr);
-    defer_if(n != 0) else { destroy = true; }
+    defer_if(n != 0) else { destroy = 1; }
 
     n = pthread_attr_getstack(&attr, &stack_addr, &stack_size);
     defer_if(n != 0);
@@ -700,7 +678,7 @@ label_defer:
     printf("[thread %d] stack %p size %d-byte, guard size %d-byte\n",
         item->id, stack_addr, (int)stack_size, (int)guard_size);
 #endif
-    return item->func;
+    return item->proc;
 }
 
 static void *threadstartproc(void *arg)
@@ -726,34 +704,34 @@ int threadstacksize(long stacksize)
         long times = (stacksize + pagesize - 1) / pagesize;
         stacksize = pagesize * times;
     }
-    return mult_16(stacksize); // stack align 16-byte
+    return align_16(stacksize); // stack align 16-byte
 }
 
-bool pthreadcreate(struct thrditem *item, int stacksize)
+int pthreadcreate(struct thrditem *item, int stacksize)
 {
-    pthread_t *tid = &item->u.tid;
+    pthread_t *tid = &item->tid;
     pthread_attr_t attr;
-    bool created = false;
+    int created = 0;
     int n;
 
     stacksize = threadstacksize(stacksize);
     if (stacksize <= 0) {
         n = pthread_create(tid, NULL, threadstartproc, item);
-        prerr_if(n != 0, ethrd_start, n) else { created = true; }
+        prerr_if(n != 0, ethrd_start, n) else { created = 1; }
         return created;
     }
 
     n = pthread_attr_init(&attr);
     if (n != 0) {
         prerr(ethrd_attrinit, n);
-        return NULL;
+        return 0;
     }
 
     n = pthread_attr_setstacksize(&attr, stacksize);
     prerr_if(n != 0, ethrd_setstack, n, stacksize);
 
     n = pthread_create(tid, &attr, threadstartproc, item);
-    prerr_if(n != 0, ethrd_start, n) else { created = true; }
+    prerr_if(n != 0, ethrd_start, n) else { created = 1; }
 
     n = pthread_attr_destroy(&attr);
     prerr_if(n != 0, ethrd_attrdetr, n);
@@ -761,41 +739,54 @@ bool pthreadcreate(struct thrditem *item, int stacksize)
     return created;
 }
 
-void threads_start(thrds t)
+void threads_create(struct thrdcont *t, thrdproc proc, int stacksize, struct thrdattr *attr)
 {
-    struct thrditem *item;
-    for (int i = 0; i < t->count; i += 1) {
-        item = (struct thrditem *)t->item[i];
-        if (item == NULL || item->flags) {
-            continue;
-        }
-        if (pthreadcreate(item, item->stacksize)) {
-            item->flags = magic_thrd_started;
-        } else {
-            item->flags = magic_thrd_failure;
-        }
+    if (t->count >= t->maxthreads) {
+        return;
+    }
+
+    int thrdsize = attr ? attr->thrdsize : 0;
+    assert(thrdsize >= 0);
+
+    size_t alloc = magic_align(sizeof(struct thrditem) + thrdsize);
+    struct thrditem *item = (struct thrditem *)malloc(alloc);
+    memset(item, 0, alloc);
+
+    struct thrditem *prev = (struct thrditem *)t->item[t->count - 1];
+    item->index = prev->index + 1;
+    item->id = prev->id + 1;
+    item->proc = proc;
+    t->count += 1;
+
+    struct thrd *thrd = (struct thrd *)(item + 1);
+    if (attr && attr->init) {
+        attr->init(thrd, attr->para);
+    }
+
+    if (pthreadcreate(item, stacksize)) {
+        t->item[t->count - 1] = item;
+    } else {
+        free(item);
     }
 }
 
-void threads_join(thrds *p)
+void threads_join(struct thrdcont **p)
 {
-    struct thrds *t = *p;
+    struct thrdcont *t = *p;
+    struct thrditem *item;
     void *retv = NULL;
 
     if (t == NULL) {
         return;
     }
 
-    for (int i = 0; i < t->count; i += 1) {
-        struct thrditem *item = (struct thrditem *)t->item[i];
-        if (item == NULL || !(item->flags & magic_thrd_started)) {
+    for (int i = 1; i < t->count; i += 1) {
+        if (!(item = (struct thrditem *)t->item[i])) {
             continue;
         }
 
         int n = pthread_join(item->tid, &retv);
         prerr_if (n != 0, ethrd_join, n);
-
-        item->flags = magic_thrd_joined;
 
 #if magic_thrd_debug
         if ((intptr_t)retv == (intptr_t)PTHREAD_CANCELED) {

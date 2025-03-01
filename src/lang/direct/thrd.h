@@ -6,20 +6,33 @@ extern "C" {
 
 struct thrd;
 
-struct thrds {
+struct thrdcont {
     void **item;
     int maxthreads;
     int count;
 };
 
-typedef void (*thrdproc)(void *);
+struct thrdindex {
+    int n;
+};
 
-struct thrds *threads_init(int mainid, int maxthreads, int sizethrds);
-struct thrd *threads_create(struct thrds *t, thrdproc func, int stacksize, int sizethrd);
-struct thrd *threads_get(struct thrds *t, int index);
-int thrd_get_id(struct thrd *thrd);
-void threads_start(struct thrds *t);
-void threads_join(struct thrds **t);
+typedef void (*thrdproc)(void *);
+typedef void (*thrdinit)(struct thrd *thrd, void *para);
+
+struct thrdattr {
+    int thrdsize;
+    thrdinit init;
+    void *para;
+};
+
+struct thrdcont *threads_init(int mainid, int maxthreads);
+void threads_create(struct thrdcont *t, thrdproc proc, int stacksize, struct thrdattr *attr);
+void threads_join(struct thrdcont **p);
+
+struct thrd *thread_get_thrd(struct thrdcont *t, int index);
+int thread_id_from_index(struct thrdcont *t, int index);
+struct thrdindex thread_get_index(struct thrd *thrd);
+int thread_get_id(struct thrd *thrd);
 
 #ifdef __cplusplus
 }
