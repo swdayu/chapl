@@ -4,35 +4,36 @@
 extern "C" {
 #endif
 
-struct thrd;
-
-struct thrdcont {
-    void **item;
+typedef struct {
     int maxthreads;
-    int count;
+    int thread_cnt;
+} thrdstruct;
+
+struct thrd {
+    thrdstruct *basestruct;
+    union { void *tid_impl; int start_id; } u;
+    void *userdata;
+    unsigned inplace: 1, created: 1, joined: 1;
+    int index;
 };
 
-struct thrdindex {
-    int n;
-};
+typedef int (*thrdproc)(struct thrd* thrd);
 
-typedef void (*thrdproc)(void *);
-typedef void (*thrdinit)(struct thrd *thrd, void *para);
+static inline struct thrd *threads_main_thrd(struct thrd *thrd) {
+    return (struct thrd *)(thrd->basestruct + 1);
+}
 
-struct thrdattr {
-    int thrdsize;
-    thrdinit init;
-    void *para;
-};
+static inline int threads_get_thrd_id(struct thrd *thrd) {
+    return thrd->index + threads_main_thrd(thrd)->u.start_id;
+}
 
-struct thrdcont *threads_init(int mainid, int maxthreads);
-void threads_create(struct thrdcont *t, thrdproc proc, int stacksize, struct thrdattr *attr);
-void threads_join(struct thrdcont **p);
-
-struct thrd *thread_get_thrd(struct thrdcont *t, int index);
-int thread_id_from_index(struct thrdcont *t, int index);
-struct thrdindex thread_get_index(struct thrd *thrd);
-int thread_get_id(struct thrd *thrd);
+int threads_alloc_size(int maxthreads, int *userdata_bytes);
+struct thrd *threads_init_inplace(void *addr, int start_id, int maxthreads, int *userdata_bytes);
+struct thrd *threads_init(int start_id, int maxthreads, int *userdata_bytes);
+struct thrd *threads_get_thrd(struct thrd *main, int index);
+void threads_current_thrd_info(struct thrd *thrd);
+void threads_create(struct thrd *main, thrdproc proc, int stacksize);
+void threads_join(struct thrd *main);
 
 #ifdef __cplusplus
 }
