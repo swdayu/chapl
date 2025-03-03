@@ -27,7 +27,7 @@ OUT_OBJ_FILE = -o $@
 OUT_ASM_FILE = -o $@
 CLOPT_FIRST_PREREQ = $<
 
-INIT_C_ONLY += -std=c99 -pedantic -pedantic-errors
+INIT_C_ONLY += -std=c11 -pedantic -pedantic-errors
 INIT_CXX_ON += -std=c++17 -pedantic -pedantic-errors -fno-rtti
 
 # INIT_CFLAGS += $(call cc-option,-march=winchip=c6,-march=i586)
@@ -93,7 +93,7 @@ INIT_CFLAGS += -funsigned-char
 # -Wdate-time -Werror=date-time 禁用时间宏，因为可能导致编译构建不确定
 # -Wfloat-conversion 警告浮点数精度损失的类型转换
 # -Wdouble-promotion 警告 float 提升为 double 类型，因为可能没有硬件实现的双精度的浮点运算
-INIT_CFLAGS += -Wall -Werror
+INIT_CFLAGS += -Wall
 INIT_CFLAGS += -Wlogical-op
 WARN_CFLAGS += -Wimplicit-fallthrough
 ifneq ($(filter trigraphs,$(CONFIG_COMPILER)),)
@@ -102,6 +102,9 @@ endif
 ifneq ($(filter debug,$(CONFIG_COMPILER)),)
 else
 INIT_CFLAGS += -Werror=date-time
+endif
+ifeq ($(filter wowx,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += -Werror
 endif
 
 # 优化和调试选项
@@ -123,7 +126,8 @@ endif
 # -Os 在 -O2 的基础上更偏于减少代码大小
 # -Oz 比 -Os 更激进的优化以减少代码大小
 # -Ofast 比 -O3 更激进的优化，并不考虑严格符合标准
-# -g 生成 -g2 级别的调试信息（-g0~-g3），-g0 不生成调式信息
+# -g 生成 -g2 级别的操作系统本地格式的调试信息（-g0~-g3），-g0 不生成调式信息
+# -ggdb 为 gdb 生成调试格式，默认级别 -ggdb2
 ifneq ($(filter gcsec,$(CONFIG_COMPILER)),)
 INIT_CFLAGS += -ffunction-sections -fdata-sections
 INIT_XLFLAG += --gc-sections
@@ -137,7 +141,7 @@ INIT_CFLAGS += -fstack-protector-strong
 endif
 INIT_CFLAGS += -fno-strict-aliasing
 ifneq ($(filter debug,$(CONFIG_COMPILER)),)
-INIT_CFLAGS += -Og -g
+INIT_CFLAGS += -Og -ggdb
 else
 INIT_CFLAGS += -O2
 endif
