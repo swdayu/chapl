@@ -1,0 +1,19 @@
+target-y := default
+
+default-y := src/lang/builtin/ src/lang/conc/ config/conc_test/
+
+ifneq ($(filter msc,$(CONFIG_COMPILER)),)
+ifneq ($(filter x64,$(CONFIG_COMPILER)),)
+default-y += src/lang/coro/msc_x64/
+else
+default-y += src/lang/coro/msc_x86/
+endif
+else
+ifneq ($(filter x64,$(CONFIG_COMPILER)),)
+default-y += src/lang/coro/gnu_x64/
+else
+default-y += src/lang/coro/gnu_x86/
+endif
+endif
+
+default-binary-type := exe
