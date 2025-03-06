@@ -23,9 +23,9 @@
 #include "coro.h"
 
 __magic_func_decl(fastcall, Coro*) asm_call_coro_finish(Coro *co);
-__magic_func_decl(fastcall, void) asm_call_stack_crash(uptr co_rsp, uptr rsp);
+__magic_func_decl(fastcall, void) asm_call_stack_crash(void *co_esp, void *esp);
 
-__magic_nakedcall(fastcall, uptr) asm_coro_init(uptr rsp)
+__magic_nakedcall(fastcall, void*) asm_coro_init(void *esp)
 {
 __magic_asm_begin()
     // 调用该函数之前协程地址已经保存
@@ -47,7 +47,7 @@ __magic_asm_begin()
 __magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_resume(uptr coro_esp)
+__magic_nakedcall(fastcall, void) asm_coro_resume(void *coro_esp)
 {
     // [in]  ecx 协程的栈指针
 __magic_asm_begin()
@@ -97,16 +97,6 @@ __magic_asm_begin()
     // 切换到需要处理的协程
     "movl (%edx),%ecx\n\t"
     "jmp asm_coro_resume\n\t"
-__magic_asm_end()
-}
-
-__magic_nakedcall(fastcall, void) asm_coro_yield_manual(Coro *co, Coro *wait)
-{
-    // [in]  ecx 当前协程
-    // [in]  edx 需要处理的协程
-__magic_asm_begin()
-    "movl %ecx,4(%edx)\n\t"   // 当协程处理完毕后恢复当前协程
-    "jmp asm_coro_yield\n\t"
 __magic_asm_end()
 }
 

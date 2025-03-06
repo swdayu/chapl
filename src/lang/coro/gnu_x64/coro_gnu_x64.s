@@ -59,6 +59,7 @@ asm_coro_init:
 # as treats all undefined symbols as external
 # .extern asm_call_stack_crash
 # [in]  rcx -> rdi 协程的栈指针
+.global asm_coro_resume
 asm_coro_resume:
     movq %rdi,%rsp
     popq %rdi       # 弹出协程栈中保存的 rsp
@@ -114,13 +115,6 @@ save_context:
     # 切换到需要处理的协程
     movq (%rsi),%rdi
     jmp asm_coro_resume
-
-# [in]  rcx -> rdi 当前协程
-# [in]  rdx -> rsi 需要处理的协程
-.global asm_coro_yield_manual
-asm_coro_yield_manual:
-    movq %rdi,8(%rsi)  # 当协程处理完毕后恢复当前协程
-    jmp asm_coro_yield
 
 # as treats all undefined symbols as external
 # .extern asm_call_coro_finish

@@ -63,7 +63,7 @@ asm_coro_init ENDP
 
 ; [in]  rcx 协程的栈指针
 asm_call_stack_crash PROTO
-asm_coro_resume PROC PRIVATE
+asm_coro_resume PROC
     mov rsp, rcx
     pop rcx ; 弹出协程栈中保存的 rsp
     cmp rcx, rsp
@@ -123,13 +123,6 @@ save_context:
     mov rcx, [rdx]
     jmp asm_coro_resume
 asm_coro_yield ENDP
-
-; [in]  rcx 当前协程
-; [in]  rdx 需要处理的协程
-asm_coro_yield_manual PROC
-    mov [rdx + 8], rcx  ; 当协程处理完毕后恢复当前协程
-    jmp asm_coro_yield
-asm_coro_yield_manual ENDP
 
 asm_call_coro_finish PROTO
 asm_coro_return PROC PRIVATE

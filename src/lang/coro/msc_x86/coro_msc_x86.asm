@@ -83,13 +83,6 @@ save_context:
     jmp asm_coro_resume
 asm_coro_yield ENDP
 
-; [in]  ecx 当前协程
-; [in]  edx 需要处理的协程
-asm_coro_yield_manual PROC
-    mov [edx + 4], ecx   ; 当协程处理完毕后恢复当前协程
-    jmp asm_coro_yield
-asm_coro_yield_manual ENDP
-
 asm_call_coro_finish PROTO FASTCALL, a:DWORD ; masm 32-bit 无法声明 fastcall
 asm_coro_return PROC PRIVATE
     pop ecx

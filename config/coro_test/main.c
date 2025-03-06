@@ -1,23 +1,24 @@
+#include <stdint.h>
 #include "coro.h"
 
 #define CORO_STACK_SIZE 16*1024
 
 __magic_coro_api(void) counter(Coro *co)
 {
-    uptr i = 0;
-    uptr n = coroutine_para(co) ? coroutine_para(co) : 10;
+    int i = 0;
+    int n = (int)(intptr_t)coroutine_para(co) ? (int)(intptr_t)coroutine_para(co) : 10;
     for (; i < n; i += 1) {
-        printf("[%02d] %d retp %d switch to %02d\n", (int)coroutine_id(co), (int)i, (int)coroutine_retp(co), (int)coroutine_id(co->wait));
-        coroutine_yield_with_retp(co, (uptr)i);
+        printf("[%02d] %d retp %d\n", coroutine_id(co), i, (int)(intptr_t)coroutine_retp(co));
+        coroutine_yield_with_retp(co, (void *)(intptr_t)i);
     }
-    coroutine_set_retp(co, (uptr)i);
+    coroutine_set_retp(co, (void *)(intptr_t)i);
 }
 
 void test_yield_cycle(void)
 {
     CoroCont t = coroutine_init(0, 3);
-    coroutine_create(t, counter, CORO_STACK_SIZE, (uptr)3);
-    coroutine_create(t, counter, CORO_STACK_SIZE, (uptr)5);
+    coroutine_create(t, counter, CORO_STACK_SIZE, (void *)(uintptr_t)3);
+    coroutine_create(t, counter, CORO_STACK_SIZE, (void *)(uintptr_t)5);
     coroutine_create(t, counter, CORO_STACK_SIZE, null);
     while (coroutine_yield_cycle(t)) ;
     coroutine_finish(&t);
@@ -26,16 +27,16 @@ void test_yield_cycle(void)
 void test_yield_manual(void)
 {
     CoroCont t2 = coroutine_init(10, 5);
-    Coro *c1 = coroutine_create(t2, counter, CORO_STACK_SIZE, (uptr)3);
-    Coro *c2 = coroutine_create(t2, counter, CORO_STACK_SIZE, (uptr)7);
-    Coro *c3 = coroutine_create(t2, counter, CORO_STACK_SIZE, (uptr)5);
-    while (coroutine_yield_manual(t2, c2, (uptr)200)) {
+    Coro *c1 = coroutine_create(t2, counter, CORO_STACK_SIZE, (void *)(uintptr_t)3);
+    Coro *c2 = coroutine_create(t2, counter, CORO_STACK_SIZE, (void *)(uintptr_t)7);
+    Coro *c3 = coroutine_create(t2, counter, CORO_STACK_SIZE, (void *)(uintptr_t)5);
+    while (coroutine_yield_manual(c2, (void *)(uptr)200)) {
         printf("[%02d] %d\n", (int)coroutine_cont_id(t2), (int)(uptr)coroutine_retp(c2));
     }
-    while (coroutine_yield_manual(t2, c1, (uptr)100)) {
+    while (coroutine_yield_manual(c1, (void *)(uptr)100)) {
         printf("[%02d] %d\n", (int)coroutine_cont_id(t2), (int)(uptr)coroutine_retp(c1));
     }
-    while (coroutine_yield_manual(t2, c3, (uptr)300)) {
+    while (coroutine_yield_manual(c3, (void *)(uptr)300)) {
         printf("[%02d] %d\n", (int)coroutine_cont_id(t2), (int)(uptr)coroutine_retp(c3));
     }
     coroutine_finish(&t2);

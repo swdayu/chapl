@@ -81,7 +81,7 @@ void evaluate(Context *ctx, Token perv_oper);
 bool token(Context *ctx, TokenKind kind)
 {
     Token *t = (kind == TOK_OPER) ? &ctx->oper : &ctx->value;
-    while (coroutine_yield_manual(ctx->cont, ctx->coro, (uptr)t)) {
+    while (coroutine_yield_manual(ctx->coro, t)) {
         if (kind == TOK_OPER) {
             if (t->kind & TOK_OPER) {
                 printf(OPR_TAG"%c\n", (t->kind & 0xff));
@@ -171,7 +171,7 @@ void evaluate(Context *ctx, Token perv_oper)
 void test_lexer(const char *expr)
 {
     CoroCont cont = coroutine_init(0, 1);
-    Coro *coro = coroutine_create(cont, lexer, CORO_STACK_SIZE, (uptr)expr);
+    Coro *coro = coroutine_create(cont, lexer, CORO_STACK_SIZE, expr);
     Context ctx = {cont, coro};
     if (expr) {
         printf("expr: %s\n", expr);
