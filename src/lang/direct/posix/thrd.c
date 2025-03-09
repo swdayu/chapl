@@ -543,122 +543,57 @@
 #include <unistd.h>
 #include <limits.h>
 
-#ifdef NDEBUG
-#define magic_thrd_debug 0
-#else
-#define magic_thrd_debug 1
-#endif
+#define magic_thrd_debug magic_code_debug
 
-#define defer_if(if_true_goto_defer) if (if_true_goto_defer) { goto label_defer; }
-#define prerr_if(if_true_print_err, error, ...) if (if_true_print_err) { prerr(error, ## __VA_ARGS__); }
+struct thrdstruct;
 
-enum ethrd {
-    ethrd_start,
-    ethrd_attrinit,
-    ethrd_setstack,
-    ethrd_attrdetr,
-    ethrd_getattr,
-    ethrd_join,
+struct thrd {
+    struct thrdstruct *basestruct;
+    union { void *userdata; int start_id; } u;
+    pthread_t tid_impl;
+    unsigned index: 31, created: 1;
 };
 
-void prerr(int error, ...)
+// [thrdstruct]
+// [struct thrd][struct thrd]...
+// [userdata][userdata]...
+struct thrdstruct {
+    int maxthreads;
+    unsigned thread_cnt: 31, inplace: 1;
+    struct thrd main;
+};
+
+#define threads_header_size(maxthreads) (sizeof(struct thrdstruct) + sizeof(struct thrd) * maxthreads)
+typedef void *(*pthread_start_proc)(void *);
+
+static struct thrd *thrdstruct_get_thrd_(struct thrdstruct *t)
 {
-    va_list args;
-    va_start(args, error);
-    switch (error) {
-        case ethrd_start:
-            printf("Error: thread start failed %d\n", va_arg(args, int));
-            break;
-        case ethrd_attrinit:
-            printf("Error: thread attr init failed %d\n", va_arg(args, int));
-            break;
-        case ethrd_setstack: {
-            int n = va_arg(args, int);
-            int stacksize = va_arg(args, int);
-            printf("Error: thread setstack failed %d size %d\n", n, stacksize);
-            break; }
-        case ethrd_attrdetr:
-            printf("Error: thread attr destroy failed %d\n", va_arg(args, int));
-            break;
-        case ethrd_getattr:
-            printf("Error: getattr failed %d\n", va_arg(args, int));
-            break;
-        case ethrd_join:
-            printf("Error: thread join failed %d\n", va_arg(args, int));
-            break;
-        default:
-            break;
-    }
-    va_end(args);
+    return (struct thrd *)(t + 1);
 }
 
-#define magic_align(n) (((n) + sizeof(void *) - 1) & (~(sizeof(void *) - 1)))
-#define align_16(n) (int)(((unsigned)(n) + 15) & (~(unsigned)15))
-
-int threads_alloc_size(int maxthreads, int *userdata_bytes)
+int threads_get_thrid(struct thrd *thrd)
 {
-    assert(maxthreads > 0);
-    int size = sizeof(thrdstruct) + sizeof(struct thrd) * (maxthreads + 1); // 1 main thrd
-    if (userdata_bytes == 0) {
-        return size;
-    }
-    for (int i = 0; i < maxthreads; i += 1) {
-        if (userdata_bytes[i] < 0) {
-            break;
-        }
-        size += magic_align(userdata_bytes[i]);
-    }
-    return size;
+    return thrd->index + thrd->basestruct->main.u.start_id;
 }
 
-struct thrd *threadsinit(void *addr, int start_id, int maxthreads, int *userdata_bytes, int inplace)
+struct thrdindex threads_index(struct thrd *thrd)
 {
-    thrdstruct *t = (thrdstruct *)addr;
-    int offset = sizeof(thrdstruct) + sizeof(struct thrd) * (maxthreads + 1); // 1 main thrd
-    memset(t, 0, offset);
-    t->maxthreads = maxthreads;
-    struct thrd *main_thrd = (struct thrd *)(t + 1);
-    main_thrd->u.start_id = start_id;
-    main_thrd->basestruct = t;
-    int i = 0, sum = 0, bytes, more = userdata_bytes != NULL;
-    struct thrd *thrd;
-    for (; i < maxthreads; i += 1) {
-        thrd = main_thrd + i + 1;
-        thrd->basestruct = t;
-        thrd->index = i + 1;
-        thrd->inplace = inplace;
-        if (!more) {
-            continue;
-        }
-        bytes = userdata_bytes[i];
-        if (bytes > 0) {
-            thrd->userdata = (char *)t + offset + sum;
-            sum += magic_align(bytes);
-        } else if (bytes < 0) {
-            more = 0;
-        }
-    }
-    return main_thrd;
-}
-
-struct thrd *threads_init_inplace(void *addr, int start_id, int maxthreads, int *userdata_bytes)
-{
-    return threadsinit(addr, start_id, maxthreads, userdata_bytes, 1);
-}
-
-struct thrd *threads_init(int start_id, int maxthreads, int *userdata_bytes)
-{
-    int size = threads_alloc_size(maxthreads, userdata_bytes);
-    return threadsinit(malloc(size), start_id, maxthreads, userdata_bytes, 0);
+    return (struct thrdindex){thrd->index};
 }
 
 struct thrd *threads_get_thrd(struct thrd *main, int index)
 {
-    assert(index >= 0 && index < main->basestruct->maxthreads + 1);
-    return ((struct thrd *)(main->basestruct + 1)) + index;
+    assert(index > 0 && index <= main->basestruct->maxthreads);
+    return thrdstruct_get_thrd_(main->basestruct) + (index - 1);
 }
 
-void threads_current_thrd_info(struct thrd *thrd)
+void *threads_get_userdata(struct thrd *thrd)
+{
+    assert(thrd->index > 0);
+    return thrd->u.userdata;
+}
+
+void threads_current_info(struct thrd *thrd)
 {
 #if magic_thrd_debug
     pthread_t tid = pthread_self();
@@ -684,8 +619,58 @@ label_defer:
         prerr(ethrd_getattr, n);
     }
     printf("[thread %d] stack %p size %d-byte, guard size %d-byte\n",
-        threads_get_thrd_id(thrd), stack_addr, (int)stack_size, (int)guard_size);
+        threads_get_thrid(thrd), stack_addr, (int)stack_size, (int)guard_size);
 #endif
+}
+
+int threads_alloc_size(int maxthreads, int *userdata_bytes)
+{
+    assert(maxthreads >= 0);
+    int size = threads_header_size(maxthreads);
+    struct userdatadesc d = {userdata_bytes};
+    for (int i = 0; i < maxthreads; i += 1) {
+        if (!get_userdata_bytes(&d)) {
+            break;
+        }
+    }
+    return size + d.sum;
+}
+
+struct thrd *threads_init_inplace(void *addr, int start_id, int maxthreads, int *userdata_bytes)
+{
+    assert(maxthreads >= 0);
+    struct thrdstruct *t = (struct thrdstruct *)addr;
+    int header_size = threads_header_size(maxthreads);
+    memset(t, 0, header_size);
+    t->maxthreads = maxthreads;
+    t->inplace = 1;
+    t->main.basestruct = t;
+    t->main.u.start_id = start_id;
+    t->main.tid_impl = pthread_self();
+
+    struct thrd *thrd = thrdstruct_get_thrd_(t);
+    struct userdatadesc d = {userdata_bytes};
+    for (int i = 0; i < maxthreads; i += 1, thrd += 1) {
+        thrd->basestruct = t;
+        thrd->index = i + 1;
+        if (get_userdata_bytes(&d) && d.bytes > 0) {
+            thrd->u.userdata = (char *)t + header_size + d.offset;
+        }
+    }
+
+    if (d.sum) { // zero all userdata
+        memset((char *)t + header_size, 0, d.sum);
+    }
+
+    return &t->main;
+}
+
+struct thrd *threads_init(int start_id, int maxthreads, int *userdata_bytes)
+{
+    struct thrdstruct *t = (struct thrdstruct *)malloc(threads_alloc_size(maxthreads, userdata_bytes));
+    threads_init_inplace(t, start_id, maxthreads, userdata_bytes);
+    t->inplace = 0;
+    return &t->main;
 }
 
 int threadstacksize(long stacksize)
@@ -708,19 +693,16 @@ int threadstacksize(long stacksize)
     return align_16(stacksize); // stack align 16-byte
 }
 
-typedef void *(*pthreadstartproc)(void *);
-#define getpthreadid(t) ((pthread_t *)&((t)->u.tid_impl))
-
 int pthreadcreate(struct thrd *thrd, thrdproc proc, int stacksize)
 {
-    pthread_t *tid = getpthreadid(thrd);
+    pthread_t *tid = &thrd->tid_impl;
     pthread_attr_t attr;
     int created = 0;
     int n;
 
     stacksize = threadstacksize(stacksize);
     if (stacksize <= 0) {
-        n = pthread_create(tid, NULL, (pthreadstartproc)proc, thrd);
+        n = pthread_create(tid, NULL, (pthread_start_proc)proc, thrd);
         prerr_if(n != 0, ethrd_start, n) else { created = 1; }
         return created;
     }
@@ -734,7 +716,7 @@ int pthreadcreate(struct thrd *thrd, thrdproc proc, int stacksize)
     n = pthread_attr_setstacksize(&attr, stacksize);
     prerr_if(n != 0, ethrd_setstack, n, stacksize);
 
-    n = pthread_create(tid, &attr, (pthreadstartproc)proc, thrd);
+    n = pthread_create(tid, &attr, (pthread_start_proc)proc, thrd);
     prerr_if(n != 0, ethrd_start, n) else { created = 1; }
 
     n = pthread_attr_destroy(&attr);
@@ -745,14 +727,14 @@ int pthreadcreate(struct thrd *thrd, thrdproc proc, int stacksize)
 
 void threads_create(struct thrd *main, thrdproc proc, int stacksize)
 {
-    thrdstruct *t = main->basestruct;
+    struct thrdstruct *t = main->basestruct;
     if (t->thread_cnt >= t->maxthreads) {
         return;
     }
 
+    struct thrd *thrd = thrdstruct_get_thrd_(t) + t->thread_cnt;
     t->thread_cnt += 1;
 
-    struct thrd *thrd = threads_get_thrd(main, t->thread_cnt);
     if (pthreadcreate(thrd, proc, stacksize)) {
         thrd->created = 1;
     }
@@ -760,34 +742,33 @@ void threads_create(struct thrd *main, thrdproc proc, int stacksize)
 
 void threads_join(struct thrd *main)
 {
-    thrdstruct *t = main->basestruct;
+    struct thrdstruct *t = main->basestruct;
     void *retv = NULL;
 
     if (t == NULL) {
         return;
     }
 
-    for (int i = 0; i < t->thread_cnt; i += 1) {
-        struct thrd *thrd = threads_get_thrd(main, i + 1);
-
-        if (thrd->created && !thrd->joined) {
-            int n = pthread_join(*getpthreadid(thrd), &retv);
+    struct thrd *thrd = thrdstruct_get_thrd_(t);
+    for (int i = 0; i < t->thread_cnt; i += 1, thrd += 1) {
+        if (thrd->created) {
+            int n = pthread_join(thrd->tid_impl, &retv);
             prerr_if (n != 0, ethrd_join, n);
-        #if magic_thrd_debug
+#if magic_thrd_debug
             if ((intptr_t)retv == (intptr_t)PTHREAD_CANCELED) {
-                printf("[thread %d] canceled join\n", threads_get_thrd_id(thrd));
+                printf("[thread %d] canceled join\n", threads_get_thrid(thrd));
             } else {
-                printf("[thread %d] join retval %d\n", threads_get_thrd_id(thrd), (int)(intptr_t)retv);
+                printf("[thread %d] join retval %d\n", threads_get_thrid(thrd), (int)(intptr_t)retv);
             }
-        #endif
+#endif
         }
-
-        thrd->joined = 1;
+        thrd->created = 0;
         thrd->basestruct = NULL;
     }
 
-    if (!main->inplace) {
+    main->basestruct = NULL;
+
+    if (!t->inplace) {
         free(t);
     }
-    main->basestruct = NULL;
 }
