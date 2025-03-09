@@ -22,12 +22,20 @@
 // 的第一个参数传递，即 ECX，函数真正的函数依次后延。
 #include "coro.h"
 
-__magic_func_decl(fastcall, Coro*) asm_call_coro_finish(Coro *co);
-__magic_func_decl(fastcall, void) asm_call_stack_crash(void *co_esp, void *esp);
+magic_func_decl(fastcall, struct coro*) asm_call_coro_finish(struct coro *co);
+magic_func_decl(fastcall, void) asm_call_stack_crash(void *co_esp, void *esp);
 
-__magic_nakedcall(fastcall, void*) asm_coro_init(void *esp)
+magic_nakedcall(fastcall, void*) asm_curr_rsp(void)
 {
-__magic_asm_begin()
+magic_asm_begin()
+    "movl %esp,%eax\n\t"
+    "ret\n\t"
+magic_asm_end()
+}
+
+magic_nakedcall(fastcall, void*) asm_coro_init(void *esp)
+{
+magic_asm_begin()
     // 调用该函数之前协程地址已经保存
     // pstack + alloc <-- 00                   <-- 16字节对齐
     //             -4 <-- 12 对齐填补
@@ -44,14 +52,12 @@ __magic_asm_begin()
     "subl $4,%ecx\n\t"
     "movl %ecx,%eax\n\t"
     "ret\n\t" // 返回当前 esp 的值
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_resume(void *coro_esp)
+magic_nakedcall(fastcall, void) asm_coro_resume(void)
 {
-    // [in]  ecx 协程的栈指针
-__magic_asm_begin()
-    "movl %ecx,%esp\n\t"
+magic_asm_begin()
     "popl %ecx\n\t" // 弹出协程栈中保存的 esp
     "cmpl %esp,%ecx\n\t"
     "jne esp_crash\n\t"
@@ -73,15 +79,15 @@ __magic_asm_begin()
     // asm_call_stack_crash - 08
     "subl $12,%esp\n\t"     // align esp to 16 bytes
     "call asm_call_stack_crash\n\t"
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_yield(Coro *co, Coro *wait)
+magic_nakedcall(fastcall, void) asm_coro_yield(struct coro *co, struct coro *next)
 {
     // [in]  ecx 当前协程
     // [in]  edx 需要处理的协程
-__magic_asm_begin()
-    "cmp $0,(%edx)\n\t"
+magic_asm_begin()
+    "cmpl $0,(%edx)\n\t"
     "jne save_context\n\t"
     "movl $0,%eax\n\t"  // yield 函数的返回值
     "ret\n\t" // 需要处理的协程已经处理完毕
@@ -95,24 +101,24 @@ __magic_asm_begin()
     "pushl %esp\n\t"
     "movl %esp,(%ecx)\n\t"
     // 切换到需要处理的协程
-    "movl (%edx),%ecx\n\t"
+    "movl (%edx),%esp\n\t"
     "jmp asm_coro_resume\n\t"
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_return(void)
+magic_nakedcall(fastcall, void) asm_coro_return(void)
 {
-__magic_asm_begin()
+magic_asm_begin()
     "popl %ecx\n\t"
     "subl $(20 + 4),%esp\n\t"   // align esp to 16 bytes
     "call asm_call_coro_finish\n\t"
     "addl $(20 + 4),%esp\n\t"
-    "movl (%eax),%ecx\n\t"
+    "movl (%eax),%esp\n\t"
     "jmp asm_coro_resume\n\t"
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_call(Coro *co)
+magic_nakedcall(fastcall, void) asm_coro_call(struct coro *co)
 {
     // pstack + alloc <-- 00 地址对齐
     //             -4 <-- 12 对齐填补
@@ -124,11 +130,13 @@ __magic_nakedcall(fastcall, void) asm_coro_call(Coro *co)
     //         esp-16 <-- 04
     //         esp-20 <-- 00 <-- sub esp,20 输入参数对齐
     // return address <-- 12 <-- esp
-    //       co->func <-- 08
-__magic_asm_begin()
+    //     proc(coro) <-- 08
+magic_asm_begin()
+    "movl %ecx,%eax\n\t"    // mov co to eax
+    "xchgl %eax,(%esp)\n\t" // push co for asm_coro_return && coro proc -> eax
     "subl $20,%esp\n\t"     // align esp to 16 bytes
-    "call *2*4(%ecx)\n\t"   // call co->func，绝对地址调用
+    "call *%eax\n\t"        // call proc(coro)，绝对地址调用
     "addl $20,%esp\n\t"
     "jmp asm_coro_return\n\t"
-__magic_asm_end()
+magic_asm_end()
 }

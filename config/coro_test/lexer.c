@@ -1,6 +1,7 @@
+#include <stdio.h>
 #include "coro.h"
 
-#define CORO_STACK_SIZE 8*1024
+#define CORO_STACK_SIZE (128*3)
 
 typedef enum {
     TOK_EOF,
@@ -25,8 +26,7 @@ typedef struct {
 } Token;
 
 typedef struct {
-    CoroCont cont;
-    Coro *coro;
+    struct coro *main;
     Token oper;
     Token value;
 } Context;
@@ -45,11 +45,11 @@ static const char *parse_int(const char *expr, int *out)
     return expr;
 }
 
-__magic_coro_api(void) lexer(Coro *coro)
+magic_coro_api(void) lexer(struct coro *coro)
 {
     int ch;
-    const char *expr = (const char *)coro->para;
-    Token *token = (Token *)coro->retp;
+    const char *expr = (const char *)coroutine_userdata(coro);
+    Token *token = (Token *)coroutine_yield_para(coro);
     if (!expr) goto label_return;
     while ((ch = *expr++)) {
         if (ch == ' ' || ch == '\t') {
@@ -66,7 +66,7 @@ __magic_coro_api(void) lexer(Coro *coro)
             break;
         }
         coroutine_yield(coro);
-        token = (Token *)coro->retp;
+        token = (Token *)coroutine_yield_para(coro);
     }
 label_return:
     token->kind = TOK_EOF;
@@ -76,12 +76,12 @@ label_return:
 #define OPR_TAG "TOK_OPR: "
 #define SUM_TAG "       : "
 
-void evaluate(Context *ctx, Token perv_oper);
+void eval(Context *ctx, Token perv_oper);
 
 bool token(Context *ctx, TokenKind kind)
 {
     Token *t = (kind == TOK_OPER) ? &ctx->oper : &ctx->value;
-    while (coroutine_yield_manual(ctx->coro, t)) {
+    while (coroutine_yield_manual(ctx->main, 1, t)) {
         if (kind == TOK_OPER) {
             if (t->kind & TOK_OPER) {
                 printf(OPR_TAG"%c\n", (t->kind & 0xff));
@@ -107,7 +107,7 @@ bool token(Context *ctx, TokenKind kind)
                 if (!token(ctx, TOK_INT)) {
                     break;
                 }
-                evaluate(ctx, (Token){TOK_EOF, {-1}});
+                eval(ctx, (Token){TOK_EOF, {-1}});
                 return true;
             }
             if (t->kind & TOK_OPER) {
@@ -122,9 +122,9 @@ bool token(Context *ctx, TokenKind kind)
     return false;
 }
 
-void caculate(int left, TokenKind oper, Token *right)
+void calc(int left, TokenKind oper, Token *right)
 {
-    int result;
+    int result = 0;
     if (oper == TOK_ADD) {
         result = left + right->u.value;
         printf(SUM_TAG"%d + %d = %d\n", left, right->u.value, result);
@@ -142,13 +142,11 @@ void caculate(int left, TokenKind oper, Token *right)
             result = left / right->u.value;
             printf(SUM_TAG"%d / %d = %d\n", left, right->u.value, result);
         }
-    } else {
-        result = 0xa5a5a5a5;
     }
     right->u.value = result;
 }
 
-void evaluate(Context *ctx, Token perv_oper)
+void eval(Context *ctx, Token perv_oper)
 {
     Token left, curr_oper;
     if (!token(ctx, TOK_OPER)) {
@@ -160,25 +158,25 @@ void evaluate(Context *ctx, Token perv_oper)
         if (!token(ctx, TOK_INT)) {
             return;
         }
-        evaluate(ctx, curr_oper);
+        eval(ctx, curr_oper);
         if (ctx->value.kind != TOK_INT) {
             return;
         }
-        caculate(left.u.value, curr_oper.kind, &ctx->value);
+        calc(left.u.value, curr_oper.kind, &ctx->value);
     }
 }
 
 void test_lexer(const char *expr)
 {
-    CoroCont cont = coroutine_init(0, 1);
-    Coro *coro = coroutine_create(cont, lexer, CORO_STACK_SIZE, expr);
-    Context ctx = {cont, coro};
+    struct coro *main = coroutine_init(0, 1, NULL);
+    coroutine_create(main, lexer, CORO_STACK_SIZE, (void *)expr);
+    Context ctx = {main};
     if (expr) {
         printf("expr: %s\n", expr);
     }
     if (token(&ctx, TOK_INT)) {
-        evaluate(&ctx, (Token){TOK_EOF, {-1}});
+        eval(&ctx, (Token){TOK_EOF, {-1}});
     }
     printf("Quit!\n");
-    coroutine_finish(&cont);
+    coroutine_finish(main);
 }

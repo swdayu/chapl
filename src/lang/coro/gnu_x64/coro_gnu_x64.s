@@ -35,6 +35,11 @@
 
 .section .text
 
+.global asm_curr_rsp
+asm_curr_rsp:
+    movq %rsp,%rax
+    ret
+
 # [in]  rcx -> rdi 协程的栈指针
 .global asm_coro_init
 asm_coro_init:
@@ -58,10 +63,7 @@ asm_coro_init:
 
 # as treats all undefined symbols as external
 # .extern asm_call_stack_crash
-# [in]  rcx -> rdi 协程的栈指针
-.global asm_coro_resume
 asm_coro_resume:
-    movq %rdi,%rsp
     popq %rdi       # 弹出协程栈中保存的 rsp
     cmpq %rsp,%rdi
     jne rsp_crash
@@ -113,7 +115,7 @@ save_context:
     pushq %rsp
     movq %rsp,(%rdi)
     # 切换到需要处理的协程
-    movq (%rsi),%rdi
+    movq (%rsi),%rsp
     jmp asm_coro_resume
 
 # as treats all undefined symbols as external
@@ -123,7 +125,7 @@ asm_coro_return:
     subq $(40 + 8),%rsp     # align rsp to 16 bytes
     call asm_call_coro_finish
     addq $(40 + 8),%rsp
-    movq (%rax),%rdi        # rcx -> rdi
+    movq (%rax),%rsp
     jmp asm_coro_resume
 
 # pstack + alloc <-- 00 <-- 16 字节对齐
@@ -134,10 +136,12 @@ asm_coro_return:
 #         rsp-32 <-- 08
 #         rsp-40 <-- 00 <-- sub rsp,40 输入参数对齐
 # return address <-- 08 <-- rsp
-#       co->func <-- 00
+#     proc(coro) <-- 00
 .global asm_coro_call
 asm_coro_call:
+    movq %rdi,%rax      # mov co to rax
+    xchgq %rax,(%rsp)   # push co for asm_coro_return && coro proc -> rax
     subq $40,%rsp       # align rsp to 16 bytes
-    call *2*8(%rdi)     # rcx -> rdi, call co->func
+    call *%rax          # call proc(coro)
     addq $40,%rsp
     jmp asm_coro_return

@@ -61,10 +61,8 @@ asm_coro_init PROC
     ret ; 返回当前 rsp 的值
 asm_coro_init ENDP
 
-; [in]  rcx 协程的栈指针
 asm_call_stack_crash PROTO
-asm_coro_resume PROC
-    mov rsp, rcx
+asm_coro_resume PROC PRIVATE
     pop rcx ; 弹出协程栈中保存的 rsp
     cmp rcx, rsp
     jne rsp_crash
@@ -118,9 +116,9 @@ save_context:
     stmxcsr DWORD PTR [rsp] ; stmxcsr m32, save mxcsr to m32
     fnstcw WORD PTR [rsp+4] ; fstcw/fnstcw m16, save fcw to m16
     push rsp
-    mov [rcx], rsp
+    mov QWORD PTR [rcx], rsp
     ; 切换到需要处理的协程
-    mov rcx, [rdx]
+    mov rsp, QWORD PTR [rdx]
     jmp asm_coro_resume
 asm_coro_yield ENDP
 
@@ -130,7 +128,7 @@ asm_coro_return PROC PRIVATE
     sub rsp, (40 + 8)   ; align rsp to 16 bytes
     call asm_call_coro_finish
     add rsp, (40 + 8)
-    mov rcx, [rax]
+    mov rsp, QWORD PTR [rax]
     jmp asm_coro_resume
 asm_coro_return ENDP
 
@@ -142,10 +140,12 @@ asm_coro_return ENDP
 ;         rsp-32 <-- 08
 ;         rsp-40 <-- 00 <-- sub rsp,40 输入参数对齐
 ; return address <-- 08 <-- rsp
-;       co->func <-- 00
+;     proc(coro) <-- 00
 asm_coro_call PROC
-    sub rsp, 40         ; align rsp to 16 bytes
-    call QWORD PTR [rcx + 8 * 2]  ; call co->func
+    mov rax, rcx    ; mov co to rax
+    xchg rax, [rsp] ; push co for asm_coro_return && coro proc -> rax
+    sub rsp, 40     ; align rsp to 16 bytes
+    call rax        ; call proc(coro)
     add rsp, 40
     jmp asm_coro_return
 asm_coro_call ENDP

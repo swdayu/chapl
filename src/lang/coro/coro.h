@@ -1,41 +1,40 @@
-#ifndef CHAPL_LANG_CORO_H
-#define CHAPL_LANG_CORO_H
-#include "builtin/decl.h"
+#ifndef magic_lang_coro_h
+#define magic_lang_coro_h
+#include "prelude.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define __magic_coro_debug 1
-#define __magic_coro_api(type) __magic_func_decl(fastcall, type)
+struct coro;
 
-struct Coro;
-typedef uptr CoroCont;
-__magic_func_type(fastcall, void, CoroFunc)(struct Coro *);
+struct coroindex {
+    int n;
+};
 
-typedef struct Coro {
-    uptr rsp;
-    struct Coro *wait;
-    CoroFunc func;
-    uptr para;
-    uptr retp;
-    uptr id;
-} Coro;
+#define magic_coro_api(ret) magic_func_decl(fastcall, ret)
+magic_func_type(fastcall, void, coroproc)(struct coro *);
 
-CoroCont coroutine_init(uptr cont_id, uptr count);
-Coro *coroutine_at(CoroCont cont, uptr index);
-Coro *coroutine_create(CoroCont cont, CoroFunc func, uptr stack_size, uptr para);
-uptr coroutine_cont_id(CoroCont cont);
-uptr coroutine_id(Coro *coro);
-uptr coroutine_para(Coro *coro);
-uptr coroutine_retp(Coro *coro);
-void coroutine_set_retp(Coro *coro, uptr retp);
-bool coroutine_yield_cycle(CoroCont cont);
-bool coroutine_yield_manual(CoroCont cont, Coro *coro, uptr retp);
-void coroutine_yield_with_retp(Coro *co, uptr retp);
-void coroutine_yield(Coro *coro);
-void coroutine_finish(CoroCont *cont);
+struct coro *coroutine_get_coro(struct coro *main, int index);
+void *coroutine_precreate_userdata(struct coro *main, int index);
+void *coroutine_userdata(struct coro *coro);
+void *coroutine_yield_para(struct coro *coro);
+struct coroindex coroutine_index(struct coro *coro);
+magic_inline int coroutine_get_index(struct coro *coro) { return coroutine_index(coro).n; }
+int coroutine_id(struct coro *coro);
+
+int coroutine_alloc_size(int maxcoros, int *userdata_bytes);
+struct coro *coroutine_init_inplace(void *addr, int start_id, int maxcoros, int *userdata_bytes);
+struct coro *coroutine_init(int start_id, int maxcoros, int *userdata_bytes);
+void coroutine_create(struct coro *main, coroproc proc, int stack_size, void *para);
+bool coroutine_yield_cycle(struct coro *main);
+bool coroutine_yield_manual(struct coro *main, int index, void *yield_para);
+void coroutine_finish(struct coro *main);
+
+void coroutine_yield(struct coro *coro);
+void coroutine_yield_with_para(struct coro *coro, void *yield_para);
+void coroutine_set_yield_para(struct coro *coro, void *yield_para);
 
 #ifdef __cplusplus
 }
 #endif
-#endif /* CHAPL_LANG_CORO_H */
+#endif /* magic_lang_coro_h */

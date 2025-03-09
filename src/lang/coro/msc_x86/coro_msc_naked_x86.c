@@ -25,12 +25,20 @@
 // 第一个栈参数传递，函数真正的参数还依然依次使用 ECX EDX 传递。
 #include "coro.h"
 
-__magic_func_decl(fastcall, Coro*) asm_call_coro_finish(Coro *co);
-__magic_func_decl(fastcall, void) asm_call_stack_crash(void *co_esp, void *esp);
+magic_func_decl(fastcall, struct coro*) asm_call_coro_finish(struct coro *co);
+magic_func_decl(fastcall, void) asm_call_stack_crash(void *co_esp, void *esp);
 
-__magic_nakedcall(fastcall, void*) asm_coro_init(void *esp)
+magic_nakedcall(fastcall, void*) asm_curr_rsp(void)
 {
-__magic_asm_begin()
+magic_asm_begin()
+    mov eax, esp
+    ret
+magic_asm_end()
+}
+
+magic_nakedcall(fastcall, void*) asm_coro_init(void *esp)
+{
+magic_asm_begin()
     // 调用该函数之前协程地址已经保存
     // pstack + alloc <-- 00                   <-- 16字节对齐
     //             -4 <-- 12 对齐填补
@@ -47,14 +55,12 @@ __magic_asm_begin()
     sub ecx, 4
     mov eax, ecx
     ret // 返回当前 esp 的值
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_resume(void *coro_esp)
+magic_nakedcall(fastcall, void) asm_coro_resume(void)
 {
-    // [in]  ecx 协程的栈指针
-__magic_asm_begin()
-    mov esp, ecx
+magic_asm_begin()
     pop ecx // 弹出协程栈中保存的 esp
     cmp ecx, esp
     jne esp_crash
@@ -76,14 +82,14 @@ esp_crash:
     // asm_call_stack_crash - 08
     sub esp, 12     // align esp to 16 bytes
     call asm_call_stack_crash
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_yield(Coro *co, Coro *wait)
+magic_nakedcall(fastcall, void) asm_coro_yield(struct coro *co, struct coro *next)
 {
     // [in]  ecx 当前协程
     // [in]  edx 需要处理的协程
-__magic_asm_begin()
+magic_asm_begin()
     cmp DWORD PTR [edx], 0
     jne save_context
     mov eax, 0  // yield 函数的返回值
@@ -96,26 +102,26 @@ save_context:
     push ebx
     push ebp
     push esp
-    mov [ecx], esp
+    mov DWORD PTR [ecx], esp
     // 切换到需要处理的协程
-    mov ecx, [edx]
+    mov esp, DWORD PTR [edx]
     jmp asm_coro_resume
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_return(void)
+magic_nakedcall(fastcall, void) asm_coro_return(void)
 {
-__magic_asm_begin()
+magic_asm_begin()
     pop ecx
     sub esp, (20 + 4)   // align esp to 16 bytes
     call asm_call_coro_finish
     add esp, (20 + 4)
-    mov ecx, [eax]
+    mov esp, DWORD PTR [eax]
     jmp asm_coro_resume
-__magic_asm_end()
+magic_asm_end()
 }
 
-__magic_nakedcall(fastcall, void) asm_coro_call(Coro *co)
+magic_nakedcall(fastcall, void) asm_coro_call(struct coro *co)
 {
     // pstack + alloc <-- 00 地址对齐
     //             -4 <-- 12 对齐填补
@@ -127,11 +133,13 @@ __magic_nakedcall(fastcall, void) asm_coro_call(Coro *co)
     //         esp-16 <-- 04
     //         esp-20 <-- 00 <-- sub esp,20 输入参数对齐
     // return address <-- 12 <-- esp
-    //       co->func <-- 08
-__magic_asm_begin()
-    sub esp, 20                     // align esp to 16 bytes
-    call DWORD PTR [ecx + 4 * 2]    // call co->func
+    //     proc(coro) <-- 08
+magic_asm_begin()
+    mov eax, ecx    // mov co to eax
+    xchg eax, [esp] // push co for asm_coro_return && coro proc -> eax
+    sub esp, 20     // align esp to 16 bytes
+    call eax        // call proc(coro)
     add esp, 20
     jmp asm_coro_return
-__magic_asm_end()
+magic_asm_end()
 }

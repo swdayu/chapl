@@ -26,22 +26,26 @@
 .code
 
 asm_coro_init PROC
-    ; 调用该函数之前，协程地址已经保存 ; ecx, +4
-    mov DWORD PTR [ecx - 4 * 1], 0  ; edi, +8
-    mov DWORD PTR [ecx - 4 * 2], 0  ; esi, +12
-    mov DWORD PTR [ecx - 4 * 3], 0  ; ebx, +16 <-- 16 字节对齐
-    mov DWORD PTR [ecx - 4 * 4], 0  ; ebp, +20
+    ; 调用该函数之前协程地址已经保存
+    ; pstack + alloc <-- 00                   <-- 16字节对齐
+    ;             -4 <-- 12 对齐填补
+    ;             -8 <-- 08 对齐填补
+    ;            -12 <-- 04 co
+    ;            -16 <-- 00 asm_coro_call     <-- 16字节对齐
+    ;            -20 <-- 12           ecx, 12
+    mov DWORD PTR [ecx - 4 * 1], 0  ; edi, 08
+    mov DWORD PTR [ecx - 4 * 2], 0  ; esi, 04
+    mov DWORD PTR [ecx - 4 * 3], 0  ; ebx, 00 <-- 16 字节对齐
+    mov DWORD PTR [ecx - 4 * 4], 0  ; ebp, 12
     sub ecx, 4 * 4
-    mov DWORD PTR [ecx - 4], ecx    ; esp, +24
+    mov DWORD PTR [ecx - 4], ecx    ; esp, 08
     sub ecx, 4
     mov eax, ecx
     ret ; 返回当前 esp 的值
 asm_coro_init ENDP
 
-; [in]  ecx 协程的栈指针
 asm_call_stack_crash PROTO FASTCALL, a:DWORD, b:DWORD ; masm 32-bit 无法声明 fastcall
 asm_coro_resume PROC PRIVATE
-    mov esp, ecx
     pop ecx ; 弹出协程栈中保存的 esp
     cmp ecx, esp
     jne esp_crash
@@ -54,11 +58,14 @@ asm_coro_resume PROC PRIVATE
     ret             ; 恢复协程运行
 esp_crash:
     mov edx, esp    ; ecx 已经保存弹出的栈指针
-    ; coro stack ebp <-- 20 esp
-    ;             -4 <-- 24 esp 16 字节对齐
-    ; return address <-- 28
-    ;                <-- 32 esp 16 字节对齐
-    sub esp, 4      ; align esp to 16 bytes
+    ;            esp <-- xx
+    ; coro stack ebp <-- 12 esp
+    ;         esp-04 <-- 08
+    ;         esp-08 <-- 04
+    ;         esp-12 <-- 00 输入参数对齐
+    ; return address <-- 12 rsp
+    ; asm_call_stack_crash - 08
+    sub esp, 12     ; align esp to 16 bytes
     call asm_call_stack_crash ; 必须使用底层原始的装饰名称进行调用
 asm_coro_resume ENDP
 
@@ -77,32 +84,39 @@ save_context:
     push ebx
     push ebp
     push esp
-    mov [ecx], esp
+    mov DWORD PTR [ecx], esp
     ; 切换到需要处理的协程
-    mov ecx, [edx]
+    mov esp, DWORD PTR [edx]
     jmp asm_coro_resume
 asm_coro_yield ENDP
 
 asm_call_coro_finish PROTO FASTCALL, a:DWORD ; masm 32-bit 无法声明 fastcall
 asm_coro_return PROC PRIVATE
     pop ecx
-    sub esp, (12 + 4)   ; align esp to 16 bytes
+    sub esp, (20 + 4)   ; align esp to 16 bytes
     call asm_call_coro_finish ; 必须使用底层原始的装饰名称进行调用
-    add esp, (12 + 4)
-    mov ecx, [eax]
+    add esp, (20 + 4)
+    mov esp, DWORD PTR [eax]
     jmp asm_coro_resume
 asm_coro_return ENDP
 
-; return address <-- esp
-;             -4 <-- 00 esp 16 字节对齐
-;             -8 <-- 04
-;            -12 <-- 08
-; return address <-- 12
-;                <-- 16 rsp 16 字节对齐
+; pstack + alloc <-- 00 地址对齐
+;             -4 <-- 12 对齐填补
+;             -8 <-- 08 对齐填补
+;             co <-- 04 <-- esp
+;  asm_coro_call <-- 00
+;         esp-08 <-- 12
+;         esp-12 <-- 08
+;         esp-16 <-- 04
+;         esp-20 <-- 00 <-- sub esp,20 输入参数对齐
+; return address <-- 12 <-- esp
+;     proc(coro) <-- 08
 asm_coro_call PROC
-    sub esp, 12         ; align esp to 16 bytes
-    call DWORD PTR [ecx + 4 * 2]  ; call co->func
-    add esp, 12
+    mov eax, ecx    ; mov co to eax
+    xchg eax, [esp] ; push co for asm_coro_return && coro proc -> eax
+    sub esp, 20     ; align esp to 16 bytes
+    call eax        ; call proc(coro)
+    add esp, 20
     jmp asm_coro_return
 asm_coro_call ENDP
 
