@@ -42,7 +42,7 @@ magic_asm_begin()
     // 调用该函数之前协程地址已经保存
     // pstack + alloc <-- 00                   <-- 16字节对齐
     //             -4 <-- 12 对齐填补
-    //             -8 <-- 08 对齐填补
+    //             -8 <-- 08 userdata
     //            -12 <-- 04 co
     //            -16 <-- 00 asm_coro_call     <-- 16字节对齐
     //            -20 <-- 12           ecx, 12
@@ -125,7 +125,7 @@ magic_nakedcall(fastcall, void) asm_coro_call(struct coro *co)
 {
     // pstack + alloc <-- 00 地址对齐
     //             -4 <-- 12 对齐填补
-    //             -8 <-- 08 对齐填补
+    //             -8 <-- 08 userdata
     //             co <-- 04 <-- esp
     //  asm_coro_call <-- 00
     //         esp-08 <-- 12
@@ -137,6 +137,7 @@ magic_nakedcall(fastcall, void) asm_coro_call(struct coro *co)
 magic_asm_begin()
     mov eax, ecx    // mov co to eax
     xchg eax, [esp] // push co for asm_coro_return && coro proc -> eax
+    mov edx,[esp+4] // proc(coro, userdata)
     sub esp, 20     // align esp to 16 bytes
     call eax        // call proc(coro)
     add esp, 20

@@ -42,9 +42,9 @@ asm_curr_rsp ENDP
 asm_coro_init PROC
     ; 调用该函数之前，协程地址已经保存
     ; pstack + alloc <-- 00                     <-- 16字节对齐
-    ;             -8 <-- 08 co
-    ;            -16 <-- 00 asm_coro_call       <-- 16字节对齐
-    ;            -24 <-- 08           08 rcx
+    ;      proc/coro <-- 08
+    ;  asm_coro_call <-- 00                     <-- 16字节对齐
+    ;           coro <-- 08           08 rcx
     mov QWORD PTR [rcx - 8 * 1], 0  ; 00 rdi    <-- 16字节对齐
     mov QWORD PTR [rcx - 8 * 2], 0  ; 08 rsi
     mov QWORD PTR [rcx - 8 * 3], 0  ; 00 rbx
@@ -133,6 +133,8 @@ asm_coro_return PROC PRIVATE
 asm_coro_return ENDP
 
 ; pstack + alloc <-- 00 <-- 16 字节对齐
+;                <-- 08 对齐填补
+;                <-- 00 userdata
 ;             co <-- 08 <-- rsp
 ;  asm_coro_call <-- 00
 ;         rsp-16 <-- 08
@@ -144,6 +146,7 @@ asm_coro_return ENDP
 asm_coro_call PROC
     mov rax, rcx    ; mov co to rax
     xchg rax, [rsp] ; push co for asm_coro_return && coro proc -> rax
+    mov rdx,[rsp+8] ; proc(coro, userdata)
     sub rsp, 40     ; align rsp to 16 bytes
     call rax        ; call proc(coro)
     add rsp, 40

@@ -129,6 +129,8 @@ asm_coro_return:
     jmp asm_coro_resume
 
 # pstack + alloc <-- 00 <-- 16 字节对齐
+#                <-- 08 对齐填补
+#                <-- 00 userdata
 #             co <-- 08 <-- rsp
 #  asm_coro_call <-- 00
 #         rsp-16 <-- 08
@@ -141,6 +143,7 @@ asm_coro_return:
 asm_coro_call:
     movq %rdi,%rax      # mov co to rax
     xchgq %rax,(%rsp)   # push co for asm_coro_return && coro proc -> rax
+    movq 8(%rsp),%rsi   # proc(coro, userdata)
     subq $40,%rsp       # align rsp to 16 bytes
     call *%rax          # call proc(coro)
     addq $40,%rsp

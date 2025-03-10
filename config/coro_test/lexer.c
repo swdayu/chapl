@@ -26,7 +26,7 @@ typedef struct {
 } Token;
 
 typedef struct {
-    struct coro *main;
+    coro_struct main;
     Token oper;
     Token value;
 } Context;
@@ -45,10 +45,10 @@ static const char *parse_int(const char *expr, int *out)
     return expr;
 }
 
-magic_coro_api(void) lexer(struct coro *coro)
+magic_coro_api(void) lexer(struct coro *coro, void *userdata)
 {
     int ch;
-    const char *expr = (const char *)coroutine_userdata(coro);
+    const char *expr = (const char *)userdata;
     Token *token = (Token *)coroutine_yield_para(coro);
     if (!expr) goto label_return;
     while ((ch = *expr++)) {
@@ -168,7 +168,7 @@ void eval(Context *ctx, Token perv_oper)
 
 void test_lexer(const char *expr)
 {
-    struct coro *main = coroutine_init(0, 1, NULL);
+    coro_struct main = coroutine_init(0, 1);
     coroutine_create(main, lexer, CORO_STACK_SIZE, (void *)expr);
     Context ctx = {main};
     if (expr) {
@@ -178,5 +178,5 @@ void test_lexer(const char *expr)
         eval(&ctx, (Token){TOK_EOF, {-1}});
     }
     printf("Quit!\n");
-    coroutine_finish(main);
+    coroutine_finish(&main);
 }

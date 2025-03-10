@@ -122,7 +122,7 @@ magic_nakedcall(fastcall, void) asm_coro_call(struct coro *co)
 {
     // pstack + alloc <-- 00 地址对齐
     //             -4 <-- 12 对齐填补
-    //             -8 <-- 08 对齐填补
+    //             -8 <-- 08 userdata
     //             co <-- 04 <-- esp
     //  asm_coro_call <-- 00
     //         esp-08 <-- 12
@@ -134,6 +134,7 @@ magic_nakedcall(fastcall, void) asm_coro_call(struct coro *co)
 magic_asm_begin()
     "movl %ecx,%eax\n\t"    // mov co to eax
     "xchgl %eax,(%esp)\n\t" // push co for asm_coro_return && coro proc -> eax
+    "movl 4(%esp),%edx\n\t" // proc(coro, userdata)
     "subl $20,%esp\n\t"     // align esp to 16 bytes
     "call *%eax\n\t"        // call proc(coro)，绝对地址调用
     "addl $20,%esp\n\t"
