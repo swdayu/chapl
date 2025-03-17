@@ -1,0 +1,9 @@
+cccfg-y := \
+	msc_x86_native_console \
+	msc_x64_native_console \
+	gnu_x86_native \
+	gnu_x64_native
+
+# string length is greater than the length ‘4095’ ISO C99 compilers are required to support [-Woverlength-strings]
+gnu_x86_native-cflags-y := -Wno-overlength-strings
+gnu_x64_native-cflags-y := -Wno-overlength-strings

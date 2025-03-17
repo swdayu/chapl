@@ -1,0 +1,3 @@
+target-y := default
+default-y += config/bpe_test/
+default-binary-type := exe
