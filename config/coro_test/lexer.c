@@ -1,5 +1,6 @@
+#define PRH_STRIP_PREFIX
+#include "coroutine.h"
 #include <stdio.h>
-#include "coro.h"
 
 #define CORO_STACK_SIZE (128*3)
 
@@ -51,7 +52,7 @@ static const char *parse_int(const char *expr, int *out)
     return expr;
 }
 
-magic_coro_api(void) lexer(struct coro *coro)
+magic_coroproc(void) lexer(struct coro *coro)
 {
     int ch;
     Context *ctx = (Context *)coroutine_userdata(coro);
@@ -102,7 +103,7 @@ bool token(Context *ctx, TokenKind kind)
 {
     Token *t = (kind == TOK_OPER) ? &ctx->oper : &ctx->value;
     ctx->token = t;
-    while (coroutine_yield_manual(ctx->main, 1))
+    while (coroutine_start(ctx->main, 1))
     {
         if (kind == TOK_OPER)
         {

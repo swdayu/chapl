@@ -35,38 +35,25 @@
 
 .section .text
 
-.global asm_curr_rsp
-asm_curr_rsp:
-    movq %rsp,%rax
+.global asm_coro_stack_init_depth
+asm_coro_stack_init_depth:
+    # 进入协程函数内部第一次yield，其协程栈的最小深度
+    #   stack bottom <-- 00 <-- coro <-- rsp 输入参数对齐
+    # return address <-- 08 调用协程函数
+    #      coro proc <-- 00
+    # return address <-- 08 调用 prh_impl_asm_coro_yield
+    #                    00 rbx
+    #                    08 rbp
+    #                    00 r12
+    #                    08 r13
+    #                    00 r14
+    #                    08 r15
+    #                    00 fstcw-16:stmxcsr-32
+    #                    08 asm_coro_resume
+    movq $(8*11),%rax
     ret
 
-# [in]  rcx -> rdi 协程的栈指针
-.global asm_coro_init
-asm_coro_init:
-    # 调用该函数之前，协程地址已经保存
-    # pstack + alloc <-- 00                     <-- 16字节对齐
-    #             -8 <-- 08 co
-    #            -16 <-- 00 asm_coro_call       <-- 16字节对齐
-    #            -24 <-- 08    rcx -> 08 rdi
-    movq $0,-1*8(%rdi)              # 00 rbx    <-- 16字节对齐
-    movq $0,-2*8(%rdi)              # 08 rbp
-    movq $0,-3*8(%rdi)              # 00 r12
-    movq $0,-4*8(%rdi)              # 08 r13
-    movq $0,-5*8(%rdi)              # 00 r14
-    movq $0,-6*8(%rdi)              # 08 r15
-    movq $0,-7*8(%rdi)              # 00 fstcw-16:stmxcsr-32
-    subq $(8*7),%rdi
-    movq %rdi,-8(%rdi)              # 08 rsp
-    subq $8,%rdi
-    movq %rdi,%rax
-    ret # 返回当前 rsp 的值
-
-# as treats all undefined symbols as external
-# .extern asm_call_stack_crash
 asm_coro_resume:
-    popq %rdi       # 弹出协程栈中保存的 rsp
-    cmpq %rsp,%rdi
-    jne rsp_crash
     ldmxcsr (%rsp)  # ldmxcsr m32, load m32 to mxcsr
     fldcww 4(%rsp)  # fldcw m16, load m16 to fcw
     addq $8,%rsp    # fstcw-16:stmxcsr-32
@@ -76,33 +63,24 @@ asm_coro_resume:
     popq %r12
     popq %rbp
     popq %rbx
-    popq %rdi       # 协程地址
     movq $1,%rax    # yield 函数的返回值
     ret             # 恢复协程运行
-rsp_crash:          # rcx -> rdi 已经保存弹出的栈指针
-    movq %rsp,%rsi  # rdx -> rsi
-    #            rsp <-- 08
-    # coro stack fcw <-- 00 rsp
-    #         rsp-08 <-- 08
-    #         rsp-16 <-- 00
-    #         rsp-24 <-- 08
-    #         rsp-32 <-- 00 输入参数对齐
-    # return address <-- 08 rsp
-    # asm_call_stack_crash - 00
-    subq $32,%rsp    # align rsp to 16 bytes
-    call asm_call_stack_crash
+
+# as treats all undefined symbols as external
+# .extern asm_call_stack_crash
+# [in]  rcx -> rdi 目标协程
+asm_coro_next:
+    movq %rdi,%rsp      # rsp = coro
+    movslq (%rdi),%rax  # rax = rspoffset
+    subq %rax,%rsp      # rsp = coro - rspoffset
+    popq %rax           # 切换协程栈完成，弹出栈顶元素
+    jmp *%rax           # 跳转到 asm_coro_call 或者 asm_coro_resume，绝对地址
 
 # [in]  rcx -> rdi 当前协程
-# [in]  rdx -> rsi 需要处理的协程
-.global asm_coro_yield
-asm_coro_yield:
-    cmpq $0,(%rsi)
-    jne save_context
-    movq $0,%rax # yield 函数的返回值
-    ret # 需要处理的协程已经处理完毕
-save_context:
+# [in]  rdx -> rsi 目标协程
+.global prh_impl_asm_coro_yield
+prh_impl_asm_coro_yield:
     # 保护当前协程，栈中已保存返回地址
-    pushq %rdi  # 当前协程地址
     pushq %rbx
     pushq %rbp
     pushq %r12
@@ -112,39 +90,25 @@ save_context:
     subq $8,%rsp    # fstcw-16:stmxcsr-32
     stmxcsr (%rsp)  # stmxcsr m32, save mxcsr to m32
     fnstcww 4(%rsp) # fstcw/fnstcw m16, save fcw to m16
-    pushq %rsp
-    movq %rsp,(%rdi)
-    # 切换到需要处理的协程
-    movq (%rsi),%rsp
-    jmp asm_coro_resume
+    movq asm_coro_resume,%rax
+    pushq %rax
+    movq %rdi,%rax  # rax = coro
+    subq %rsp,%rax  # rspoffset = coro - rsp
+    movl %eax,(%rdi)
+    # 切换到需要处理的目标协程
+    movq %rsi,%rdi
+    jmp asm_coro_next
 
-# as treats all undefined symbols as external
-# .extern asm_call_coro_finish
-asm_coro_return:
-    popq %rdi               # rcx -> rdi
-    subq $(40 + 8),%rsp     # align rsp to 16 bytes
-    call asm_call_coro_finish
-    addq $(40 + 8),%rsp
-    movq (%rax),%rsp
-    jmp asm_coro_resume
-
-# pstack + alloc <-- 00 <-- 16 字节对齐
-#                <-- 08 对齐填补
-#                <-- 00 userdata
-#             co <-- 08 <-- rsp
-#  asm_coro_call <-- 00
-#         rsp-16 <-- 08
-#         rsp-24 <-- 00
-#         rsp-32 <-- 08
-#         rsp-40 <-- 00 <-- sub rsp,40 输入参数对齐
-# return address <-- 08 <-- rsp
-#     proc(coro) <-- 00
 .global asm_coro_call
 asm_coro_call:
-    movq %rdi,%rax      # mov co to rax
-    xchgq %rax,(%rsp)   # push co for asm_coro_return && coro proc -> rax
-    movq 8(%rsp),%rsi   # proc(coro, userdata)
-    subq $40,%rsp       # align rsp to 16 bytes
-    call *%rax          # call proc(coro)
-    addq $40,%rsp
-    jmp asm_coro_return
+    # 第一次进入协程函数，初始栈布局如下:
+    #   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- rsp 输入参数对齐
+    #                <-- 08 proc
+    #                <-- 00 asm_coro_call
+    popq %rsi               # 协程函数 proc
+    movq %rsp,%rdi          # 协程函数的参数 coro
+    call *%rsi              # 执行协程函数 proc(coro)，绝对地址
+    movq %rsp,%rdi          # 协程函数执行完毕
+    call asm_coro_finish    # 调用 asm_coro_finish(coro)
+    movq %rax,%rdi          # 执行下一个协程
+    jmp asm_coro_next

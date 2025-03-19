@@ -34,38 +34,32 @@
 ; 线程指针（thread pointer）%fs寄存器也需要保护。
 
 .code
-asm_curr_rsp PROC
-    mov rax, rsp
+
+asm_coro_stack_init_depth PROC
+    ; 进入协程函数内部第一次yield，其协程栈的最小深度
+    ;   stack bottom <-- 00 <-- coro <-- rsp
+    ;         rsp-08 <-- 08 调用协程函数
+    ;         rsp-16 <-- 00
+    ;         rsp-24 <-- 08
+    ;         rsp-32 <-- 00 输入参数对齐
+    ; return address <-- 08
+    ;      coro proc <-- 00
+    ; return address <-- 08 调用 prh_impl_asm_coro_yield
+    ;                    00 rdi
+    ;                    08 rsi
+    ;                    00 rbx
+    ;                    08 rbp
+    ;                    00 r12
+    ;                    08 r13
+    ;                    00 r14
+    ;                    08 r15
+    ;                    00 fstcw-16:stmxcsr-32
+    ;                    08 asm_coro_resume
+    mov rax, 8 * 17
     ret
-asm_curr_rsp ENDP
+asm_coro_stack_init_depth ENDP
 
-asm_coro_init PROC
-    ; 调用该函数之前，协程地址已经保存
-    ; pstack + alloc <-- 00                     <-- 16字节对齐
-    ;      proc/coro <-- 08
-    ;  asm_coro_call <-- 00                     <-- 16字节对齐
-    ;           coro <-- 08           08 rcx
-    mov QWORD PTR [rcx - 8 * 1], 0  ; 00 rdi    <-- 16字节对齐
-    mov QWORD PTR [rcx - 8 * 2], 0  ; 08 rsi
-    mov QWORD PTR [rcx - 8 * 3], 0  ; 00 rbx
-    mov QWORD PTR [rcx - 8 * 4], 0  ; 08 rbp
-    mov QWORD PTR [rcx - 8 * 5], 0  ; 00 r12
-    mov QWORD PTR [rcx - 8 * 6], 0  ; 08 r13
-    mov QWORD PTR [rcx - 8 * 7], 0  ; 00 r14
-    mov QWORD PTR [rcx - 8 * 8], 0  ; 08 r15
-    mov QWORD PTR [rcx - 8 * 9], 0  ; 00 fstcw-16:stmxcsr-32
-    sub rcx, 8 * 9
-    mov QWORD PTR [rcx - 8], rcx    ; 08 rsp
-    sub rcx, 8
-    mov rax, rcx
-    ret ; 返回当前 rsp 的值
-asm_coro_init ENDP
-
-asm_call_stack_crash PROTO
 asm_coro_resume PROC PRIVATE
-    pop rcx ; 弹出协程栈中保存的 rsp
-    cmp rcx, rsp
-    jne rsp_crash
     ldmxcsr DWORD PTR [rsp] ; ldmxcsr m32, load m32 to mxcsr
     fldcw WORD PTR [rsp+4]  ; fldcw m16, load m16 to fcw
     add rsp, 8              ; fstcw-16:stmxcsr-32
@@ -77,33 +71,28 @@ asm_coro_resume PROC PRIVATE
     pop rbx
     pop rsi
     pop rdi
-    pop rcx         ; 协程地址
     mov rax, 1      ; yield 函数的返回值
-    ret             ; 恢复协程运行
-rsp_crash:
-    mov rdx, rsp    ; rcx 已经保存弹出的栈指针
-    ;            rsp <-- 08
-    ; coro stack fcw <-- 00 rsp
-    ;         rsp-08 <-- 08
-    ;         rsp-16 <-- 00
-    ;         rsp-24 <-- 08
-    ;         rsp-32 <-- 00 输入参数对齐
-    ; return address <-- 08 rsp
-    ; asm_call_stack_crash - 00
-    sub rsp, 32     ; align rsp to 16 bytes
-    call asm_call_stack_crash
+    pop rcx         ; 函数返回地址
+    sub rsp, 32     ; 恢复影子空间
+    jmp rcx         ; 恢复协程运行
 asm_coro_resume ENDP
 
+; [in]  rcx 目标协程
+asm_coro_next PROC PRIVATE
+    mov rsp, rcx                ; rsp = coro
+    movsxd rax, DWORD PTR [rcx] ; rax = rspoffset
+    sub rsp, rax                ; rsp = coro - rspoffset
+    pop rax         ; 切换协程栈完成，弹出栈顶元素
+    jmp rax         ; 跳转到 asm_coro_call 或者 asm_coro_resume
+asm_coro_next ENDP
+
 ; [in]  rcx 当前协程
-; [in]  rdx 需要处理的协程
-asm_coro_yield PROC
-    cmp QWORD PTR [rdx], 0
-    jne save_context
-    mov rax, 0  ; yield 函数的返回值
-    ret ; 需要处理的协程已经处理完毕
-save_context:
-    ; 保护当前协程，栈中已保存返回地址
-    push rcx ; 当前协程地址
+; [in]  rdx 目标协程
+prh_impl_asm_coro_yield PROC
+    pop rax         ; 函数返回地址
+    add rsp, 32     ; 无需影子空间
+    ; 保护当前协程
+    push rax
     push rdi
     push rsi
     push rbx
@@ -115,42 +104,33 @@ save_context:
     sub rsp, 8              ; fstcw-16:stmxcsr-32
     stmxcsr DWORD PTR [rsp] ; stmxcsr m32, save mxcsr to m32
     fnstcw WORD PTR [rsp+4] ; fstcw/fnstcw m16, save fcw to m16
-    push rsp
-    mov QWORD PTR [rcx], rsp
-    ; 切换到需要处理的协程
-    mov rsp, QWORD PTR [rdx]
-    jmp asm_coro_resume
-asm_coro_yield ENDP
+    mov rax, asm_coro_resume
+    push rax
+    mov rax, rcx            ; rax = coro
+    sub rax, rsp            ; rspoffset = coro - rsp
+    mov DWORD PTR [rcx], eax
+    ; 切换到需要处理的目标协程
+    mov rcx, rdx
+    jmp asm_coro_next
+prh_impl_asm_coro_yield ENDP
 
-asm_call_coro_finish PROTO
-asm_coro_return PROC PRIVATE
-    pop rcx
-    sub rsp, (40 + 8)   ; align rsp to 16 bytes
-    call asm_call_coro_finish
-    add rsp, (40 + 8)
-    mov rsp, QWORD PTR [rax]
-    jmp asm_coro_resume
-asm_coro_return ENDP
-
-; pstack + alloc <-- 00 <-- 16 字节对齐
-;                <-- 08 对齐填补
-;                <-- 00 userdata
-;             co <-- 08 <-- rsp
-;  asm_coro_call <-- 00
-;         rsp-16 <-- 08
-;         rsp-24 <-- 00
-;         rsp-32 <-- 08
-;         rsp-40 <-- 00 <-- sub rsp,40 输入参数对齐
-; return address <-- 08 <-- rsp
-;     proc(coro) <-- 00
+asm_coro_finish PROTO
 asm_coro_call PROC
-    mov rax, rcx    ; mov co to rax
-    xchg rax, [rsp] ; push co for asm_coro_return && coro proc -> rax
-    mov rdx,[rsp+8] ; proc(coro, userdata)
-    sub rsp, 40     ; align rsp to 16 bytes
-    call rax        ; call proc(coro)
-    add rsp, 40
-    jmp asm_coro_return
+    ; 第一次进入协程函数，初始栈布局如下:
+    ;   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- rsp
+    ;         rsp-08 <-- 08 proc
+    ;         rsp-16 <-- 00 asm_coro_call
+    ;         rsp-24 <-- 08
+    ;         rsp-32 <-- 00 ; sub rsp,32 输入参数对齐
+    pop rdx                 ; 协程函数 proc
+    mov rcx, rsp            ; 协程函数的参数 coro
+    sub rsp, 32             ; 影子空间并且16字节对齐
+    call rdx                ; 执行协程函数 proc(coro)
+    mov rcx, rsp            ; 协程函数执行完毕
+    add rcx, 32             ; rcx 保存 coro
+    call asm_coro_finish    ; 调用 asm_coro_finish(coro)
+    mov rcx, rax            ; 执行下一个协程
+    jmp asm_coro_next
 asm_coro_call ENDP
 
 END

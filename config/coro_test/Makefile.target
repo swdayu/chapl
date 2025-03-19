@@ -2,17 +2,18 @@ target-y := default
 
 ifneq ($(filter msc,$(CONFIG_COMPILER)),)
 ifneq ($(filter x64,$(CONFIG_COMPILER)),)
-default-y := src/lang/coro/msc_x64/
+default-y := src/lang/coroutine/msc_x64/
 else
-default-y := src/lang/coro/msc_x86/
+default-y := src/lang/coroutine/msc_x86/
 endif
 else
 ifneq ($(filter x64,$(CONFIG_COMPILER)),)
-default-y := src/lang/coro/gnu_x64/
+default-y := src/lang/coroutine/gnu_x64/
 else
-default-y := src/lang/coro/gnu_x86/
+default-y := src/lang/coroutine/gnu_x86/
 endif
 endif
 
-default-y += config/coro_test/ src/lang/prelude.o
+default-y += config/coro_test/
+
 default-binary-type := exe
