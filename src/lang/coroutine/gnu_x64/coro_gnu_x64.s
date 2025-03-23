@@ -90,7 +90,7 @@ prh_impl_asm_coro_yield:
     subq $8,%rsp    # fstcw-16:stmxcsr-32
     stmxcsr (%rsp)  # stmxcsr m32, save mxcsr to m32
     fnstcww 4(%rsp) # fstcw/fnstcw m16, save fcw to m16
-    movq asm_coro_resume,%rax
+    movq $(asm_coro_resume),%rax
     pushq %rax
     movq %rdi,%rax  # rax = coro
     subq %rsp,%rax  # rspoffset = coro - rsp

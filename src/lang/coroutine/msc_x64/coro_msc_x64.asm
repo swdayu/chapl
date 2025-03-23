@@ -104,7 +104,7 @@ prh_impl_asm_coro_yield PROC
     sub rsp, 8              ; fstcw-16:stmxcsr-32
     stmxcsr DWORD PTR [rsp] ; stmxcsr m32, save mxcsr to m32
     fnstcw WORD PTR [rsp+4] ; fstcw/fnstcw m16, save fcw to m16
-    mov rax, asm_coro_resume
+    mov rax,OFFSET asm_coro_resume
     push rax
     mov rax, rcx            ; rax = coro
     sub rax, rsp            ; rspoffset = coro - rsp

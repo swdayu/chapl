@@ -83,8 +83,7 @@ magic_asm_begin()
     push ebp
     sub esp, 4              // fstcw-16
     fnstcw WORD PTR [esp]   // fstcw/fnstcw m16, save fcw to m16
-    mov eax, asm_coro_resume
-    push eax
+    push OFFSET asm_coro_resume
     mov eax, ecx            // eax = coro
     sub eax, esp            // rspoffset = coro - esp
     mov [ecx], eax

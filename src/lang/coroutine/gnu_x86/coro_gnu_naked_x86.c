@@ -80,8 +80,7 @@ magic_asm_begin()
     "pushl %ebp\n\t"
     "subl $4,%esp\n\t"              // fstcw-16
     "fnstcww (%esp)\n\t"            // fstcw/fnstcw m16, save fcw to m16
-    "movl asm_coro_resume,%eax\n\t"
-    "pushl %eax\n\t"
+    "pushl $(asm_coro_resume)\n\t"
     "movl %ecx,%eax\n\t"            // eax = coro
     "subl %esp,%eax\n\t"            // rspoffset = coro - esp
     "movl %eax,(%ecx)\n\t"
