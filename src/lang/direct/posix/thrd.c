@@ -532,18 +532,95 @@
 // 开始也已不再支持它，所有新的线程库开发都基于NPTL。
 #define _GNU_SOURCE
 #include "direct/thrd.h"
-#include <assert.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <limits.h>
 
-#define magic_thrd_debug magic_code_debug
+#define magic_thrd_debug magic_debug
+
+enum ecode {
+    ethrd_start,
+    ethrd_attrinit,
+    ethrd_setstack,
+    ethrd_attrdtor,
+    ethrd_getattr,
+    ethrd_join,
+};
+
+static void prerr(int error, ...)
+{
+    va_list args;
+    va_start(args, error);
+    switch (error) {
+        case ethrd_start:
+            printf("Error: thread start failed %d\n", va_arg(args, int));
+            break;
+        case ethrd_attrinit:
+            printf("Error: thread attr init failed %d\n", va_arg(args, int));
+            break;
+        case ethrd_setstack: {
+            int n = va_arg(args, int);
+            int stacksize = va_arg(args, int);
+            printf("Error: thread setstack failed %d size %d\n", n, stacksize);
+            break; }
+        case ethrd_attrdtor:
+            printf("Error: thread attr destroy failed %d\n", va_arg(args, int));
+            break;
+        case ethrd_getattr:
+            printf("Error: getattr failed %d\n", va_arg(args, int));
+            break;
+        case ethrd_join:
+            printf("Error: thread join failed %d\n", va_arg(args, int));
+            break;
+        default:
+            break;
+    }
+    va_end(args);
+}
+
+struct userdatadesc {
+    int *userdatabytes;
+    int value, offset, sum, prev_;
+    bool finished_, sameasprev_;
+};
+
+bool get_userdata_bytes(struct userdatadesc *d)
+{
+    if (d->finished_ || !d->userdatabytes) {
+        return false;
+    }
+
+    if (d->sameasprev_) {
+        goto sameasprev;
+    }
+
+    d->value = *d->userdatabytes++;
+    if (d->value < 0) {
+        d->finished_ = true;
+        return false;
+    }
+
+    if (d->value == 1) {
+        d->sameasprev_ = true;
+sameasprev:
+        d->value = d->prev_;
+        goto getsuccuss;
+    }
+
+    d->value = magic_align(d->value);
+    d->prev_ = d->value;
+getsuccuss:
+    d->offset = d->sum;
+    d->sum += d->value;
+    return true;
+}
 
 struct thrdstruct;
 
@@ -576,9 +653,9 @@ int threads_get_thrid(struct thrd *thrd)
     return thrd->index + thrd->basestruct->main.u.start_id;
 }
 
-struct thrdindex threads_index(struct thrd *thrd)
+struct thrd_index threads_index(struct thrd *thrd)
 {
-    return (struct thrdindex){thrd->index};
+    return (struct thrd_index){thrd->index};
 }
 
 struct thrd *threads_get_thrd(struct thrd *main, int index)
@@ -604,10 +681,10 @@ void threads_current_info(struct thrd *thrd)
     int n = 0;
 
     n = pthread_getattr_np(tid, &attr);
-    defer_if(n != 0) else { destroy = 1; }
+    magic_defer_if(n != 0) else { destroy = 1; }
 
     n = pthread_attr_getstack(&attr, &stack_addr, &stack_size);
-    defer_if(n != 0);
+    magic_defer_if(n != 0);
 
     n = pthread_attr_getguardsize(&attr, &guard_size);
 
@@ -653,7 +730,7 @@ struct thrd *threads_init_inplace(void *addr, int start_id, int maxthreads, int 
     for (int i = 0; i < maxthreads; i += 1, thrd += 1) {
         thrd->basestruct = t;
         thrd->index = i + 1;
-        if (get_userdata_bytes(&d) && d.bytes > 0) {
+        if (get_userdata_bytes(&d) && d.value > 0) {
             thrd->u.userdata = (char *)t + header_size + d.offset;
         }
     }
@@ -690,7 +767,7 @@ int threadstacksize(long stacksize)
         long times = (stacksize + pagesize - 1) / pagesize;
         stacksize = pagesize * times;
     }
-    return align_16(stacksize); // stack align 16-byte
+    return magic_align_16_byte(stacksize); // stack align 16-byte
 }
 
 int pthreadcreate(struct thrd *thrd, thrdproc proc, int stacksize)
@@ -703,7 +780,7 @@ int pthreadcreate(struct thrd *thrd, thrdproc proc, int stacksize)
     stacksize = threadstacksize(stacksize);
     if (stacksize <= 0) {
         n = pthread_create(tid, NULL, (pthread_start_proc)proc, thrd);
-        prerr_if(n != 0, ethrd_start, n) else { created = 1; }
+        magic_prerr_if(n != 0, ethrd_start, n) else { created = 1; }
         return created;
     }
 
@@ -714,13 +791,13 @@ int pthreadcreate(struct thrd *thrd, thrdproc proc, int stacksize)
     }
 
     n = pthread_attr_setstacksize(&attr, stacksize);
-    prerr_if(n != 0, ethrd_setstack, n, stacksize);
+    magic_prerr_if(n != 0, ethrd_setstack, n, stacksize);
 
     n = pthread_create(tid, &attr, (pthread_start_proc)proc, thrd);
-    prerr_if(n != 0, ethrd_start, n) else { created = 1; }
+    magic_prerr_if(n != 0, ethrd_start, n) else { created = 1; }
 
     n = pthread_attr_destroy(&attr);
-    prerr_if(n != 0, ethrd_attrdetr, n);
+    magic_prerr_if(n != 0, ethrd_attrdtor, n);
 
     return created;
 }
@@ -753,7 +830,7 @@ void threads_join(struct thrd *main)
     for (int i = 0; i < t->thread_cnt; i += 1, thrd += 1) {
         if (thrd->created) {
             int n = pthread_join(thrd->tid_impl, &retv);
-            prerr_if (n != 0, ethrd_join, n);
+            magic_prerr_if (n != 0, ethrd_join, n);
 #if magic_thrd_debug
             if ((intptr_t)retv == (intptr_t)PTHREAD_CANCELED) {
                 printf("[thread %d] canceled join\n", threads_get_thrid(thrd));
@@ -771,4 +848,129 @@ void threads_join(struct thrd *main)
     if (!t->inplace) {
         free(t);
     }
+}
+
+// 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
+// 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
+// 对这类互斥量的这两种操作都会成功。
+//
+// PTHREAD_MUTEX_ERRORCHECK 会对上述情况进行错误检查并返回相关错误，这类互斥量运行起
+// 来比一般类型要慢，不过可将其作为调试工具，已发现程序在哪里违反了互斥量使用的基本原
+// 则。
+//
+// PTHREAD_MUTEX_RECURSIVE 递归互斥量维护由一个锁计数器，同一线程重复锁定会增加锁计
+// 数，当解锁时会递减计数只有当锁计数器值降至0时才会释放该互斥量，解锁时如果互斥量处于
+// 未锁定状态或已由其他线程锁定，则操作会失败。
+//
+// 如果互斥量不设置pthread_mutexattr_setrobust(&attr, PTHREAD_MUTEX_ROBUST)，当线
+// 程在解锁之前异常退出，互斥锁将保持锁定状态导致死锁。
+//
+// 条件变量总是结合互斥量使用，条件变量就共享变量的状态改变发出通知，而互斥量则提供该
+// 共享变量访问的互斥。
+
+void thrd_mutex_init(struct thrd_mutex *p)
+{
+#if magic_debug
+    pthread_mutexattr_t attr;
+    magic_must(pthread_mutexattr_init(&attr) == 0);
+    magic_must(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK) == 0);
+    magic_must(pthread_mutex_init(&p->mutex, &attr) == 0);
+    magic_must(pthread_mutexattr_destroy(&attr) == 0);
+#else
+    magic_must(pthread_mutex_init(&p->mutex, NULL) == 0);
+#endif
+}
+
+void thrd_recursive_mutex_init(struct thrd_mutex *p)
+{
+    pthread_mutexattr_t attr;
+    magic_must(pthread_mutexattr_init(&attr) == 0);
+    magic_must(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE) == 0);
+    magic_must(pthread_mutex_init(&p->mutex, &attr) == 0);
+    magic_must(pthread_mutexattr_destroy(&attr) == 0);
+}
+
+void thrd_mutex_free(struct thrd_mutex *p)
+{
+    magic_must(pthread_mutex_destroy(&p->mutex) == 0);
+}
+
+void thrd_mutex_lock(struct thrd_mutex *p)
+{
+    magic_must_equal(pthread_mutex_lock(&p->mutex), 0);
+}
+
+void thrd_mutex_unlock(struct thrd_mutex *p)
+{
+    magic_must_equal(pthread_mutex_unlock(&p->mutex), 0);
+}
+
+void thrd_cond_init(struct thrd_cond *p)
+{
+    thrd_mutex_init(&p->mutex);
+    magic_must(pthread_cond_init(&p->cond, NULL) == 0);
+}
+
+void thrd_cond_free(struct thrd_cond *p)
+{
+    // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
+    // pthread_cond_init()对齐进行重新初始化。
+    magic_must(pthread_cond_destroy(&p->cond) == 0);
+    thrd_mutex_free(&p->mutex);
+}
+
+void thrd_cond_wait(struct thrd_cond *p)
+{
+    // 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
+    // 量。当线程被唤醒该函数返回时，会自动用当前线程锁定互斥量。
+    // 条件变量的一个通用设计原则：必须由一个while循环而不是if来控制对pthread_cond_wait()
+    // 的调用，这是因为当代码从pthread_cond_wait()返回时并不能确定判断条件的状态，所
+    // 以应该立即重新检查判断条件，在条件不满足的情况下继续休眠等待。
+    // 从pthread_cond_wait()返回时，之所以不能对判断条件的状态做任何假设，是因为：
+    // 1. 其他线程可能会率先醒来，也许有多个线程在等待获取与条件变量相关的互斥量。即使
+    //    就互斥量发出通知的线程将判断条件置为预期状态，其他线程依然有可能率先获取互斥
+    //    量并改变相关共享变量的状态，进而改变判断条件的状态。
+    // 2. 设计时设置宽松的判断条件或许更为简单，有时用条件变量来表征可能性而非确定性在
+    //    设计应用程序时会更为简单。换言之就条件变量发送信号意味着可能有些事情需要接收
+    //    信号的信号去响应，而不是一定有一些事情要做。适用这种方法，可以基于判断条件的
+    //    近似情况来发送条件变量通知，接收信号的线程可以通过再次检查判断条件来确定是否
+    //    需要做些什么。
+    // 3. 可能会发生虚假唤醒的情况，在一些实现中即使没有任何其他线程真地就条件变量发出
+    //    信号，等待此条件变量的线程仍有可能醒来。在一些多处理器系统上，为确保高效实现
+    //    而采用的技术会导致此类不常见的虚假唤醒。
+    magic_must_equal(pthread_cond_wait(&p->cond, &p->mutex.mutex), 0);
+}
+
+bool thrd_cond_timedwait(struct thrd_cond *p, unsigned msec)
+{
+    struct timespec abstime = {.tv_sec = msec/1000, .tv_nsec = ((msec % 1000) * 1000 * 1000)};
+    // TODO: abstime += curtime
+    int n = pthread_cond_timedwait(&p->cond, &p->mutex.mutex, &abstime);
+    if (n == ETIMEDOUT)
+    {
+        return true; // true WAIT TIMEOUT false WAIT SUCCESS
+    }
+    magic_must_equal(n, 0);
+    return false;
+}
+
+void thrd_cond_signal(struct thrd_cond *p)
+{
+    // 唤醒至少一个等待的线程，比broadcast更高效。应用这种方式的典型情况是，所有等待
+    // 的线程都在执行完全相同的任务。这种情况下，可以避免唤醒所有等待的线程，然后某一
+    // 线程获得调度，此线程检查了共享变量的状态（在相关互斥量的保护下），发现有任务需
+    // 要完成并执行所需工作并改变共享变量状态，最后释放对相关互斥量的锁定。如果唤醒了
+    // 多余的线程，会额外轮流等待锁定互斥量然后检测共享变量的状态，不过由于第一个线程
+    // 已经完成了工作这些多余的线程会发现无事可做，随即解锁互斥量继续休眠。
+    magic_must_equal(pthread_cond_signal(&p->cond), 0);
+}
+
+void thrd_cond_broadcast(struct thrd_cond *p)
+{
+    // 唤醒所有等待的线程，通常适用的情况是处于等待状态的所有线程执行的任务不同，其各
+    // 自关联于条件变量的判定条件不同。条件变量并不保存变量，只是传递应用程序状态信息
+    // 的一种通讯机制。发送信号时若无任何线程在等待该条件变量，这个信号也就会不了了
+    // 之，线程如果在此后等待该条件变量，只有当再次收到此条件变量的下一信号时才能解除
+    // 阻塞状态。
+    magic_must_equal(pthread_cond_broadcast(&p->cond), 0);
 }
