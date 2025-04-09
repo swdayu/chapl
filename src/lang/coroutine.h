@@ -55,7 +55,7 @@
 //      magic_debug
 //      magic_align
 //      magic_align_16_byte
-//      magic_ispow2
+//      magic_ispw2
 //      magic_fastcall
 //      magic_naked_fastcall
 //      magic_fastcall_typedef
@@ -92,9 +92,8 @@
 //      coroutine_reload
 //      coroutine_ext_reload
 //      coroutine_finish
-//      coroutine_get
 //      coroutine_userdata
-//      coroutine_self
+//      coroutine_id
 //      coroutine_yield
 //
 //      solo_create
@@ -181,6 +180,33 @@ extern "C" {
 #endif
 #endif // magic_inline
 
+// __cplusplus:
+//  199711L(until C++11)
+//  201103L(C++11)
+//  201402L(C++14)
+//  201703L(C++17)
+//  202002L(C++20)
+//  202302L(C++23)
+// __STDC_VERSION__:
+//  199409L (C95)
+//  199901L (C99)
+//  201112L (C11)
+//  201710L (C17)
+//  202311L (C23)
+#ifndef magic_thread_local
+#if defined(__cplusplus) &&  __cplusplus >= 201103L // C++11 keyword
+    #define magic_thread_local  thread_local
+#elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 202311L // C23 keyword
+    #define magic_thread_local  thread_local
+#elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L // C11 keyword
+    #define magic_thread_local  _Thread_local
+#elif defined(_MSC_VER)
+    #define magic_thread_local  __declspec(thread)
+#elif defined(__GNUC__)
+    #define magic_thread_local  __thread
+#endif
+#endif
+
 // compiler
 #ifndef prh_magic_compiler
 #ifdef _MSC_VER
@@ -234,7 +260,7 @@ extern "C" {
 #endif
 
 #ifndef magic_align
-#define magic_ispow2(x) (((x) & ((x) - 1)) == 0) // power of 2 or zero
+#define magic_ispw2(x) (((x) & ((x) - 1)) == 0) // power of 2 or zero
 #define magic_align(n) (((n) + sizeof(void *) - 1) & (~(sizeof(void *) - 1)))
 #define magic_align_16_byte(n) (((unsigned prh_intp)(n) + 15) & (~(unsigned prh_intp)15))
 #endif
@@ -331,43 +357,45 @@ prh_static_must(sizeof(unsigned) == sizeof(int));
 #endif // prh_primary_types
 
 struct coro;
+struct coro_main;
+typedef struct coro_struct coro_struct;
 
 typedef struct {
-    void *address;
-} coro_struct;
+    coro_struct *chain; // 1st field dont move
+    struct coro *curr_coro; // 2nd field dont move
+    struct coro_main *main_coro; // 3rd field dont move
+} solo_struct;
+
+#define magic_coroproc magic_fastcall(void)
+magic_fastcall_typedef(void, coroproc)(struct coro *);
 
 magic_fastcall(bool) prh_impl_asm_coro_yield(struct coro *coro, struct coro *next);
-struct coro *prh_impl_coro_next_resume(struct coro *coro);
+struct coro *prh_impl_next_resume_coro(void);
+
+void *coroutine_userdata(struct coro *coro);
+int coroutine_id(struct coro *coro);
 
 magic_inline void coroutine_yield(struct coro *coro)
 {
-    prh_impl_asm_coro_yield(coro, prh_impl_coro_next_resume(coro));
+    prh_impl_asm_coro_yield(coro, prh_impl_next_resume_coro());
 }
 
-#define magic_coroproc(ret) magic_fastcall(ret)
-magic_fastcall_typedef(void, coroproc)(struct coro *);
-
-int coroutine_self(struct coro *coro);
-void *coroutine_userdata(struct coro *coro);
+magic_inline void *coroutine_main(coro_struct *main)
+{
+    return ((solo_struct *)main)->main_coro;
+}
 
 int coroutine_alloc_size(int maxcoros);
-coro_struct coroutine_init_inplace(void *addr, int maxcoros); // addr shall be previously zero initialized
-coro_struct coroutine_init(int maxcoros);
+coro_struct *coroutine_init_inplace(void *addr, int maxcoros); // addr shall be previously zero initialized
+coro_struct *coroutine_init(int maxcoros);
+void coroutine_create(coro_struct *main, coroproc proc, int stack_size, void *userdata);
+void *coroutine_ext_create(coro_struct *main, coroproc proc, int stack_size, int userdata_bytes);
 
-void coroutine_create(coro_struct main, coroproc proc, int stack_size, void *userdata);
-void *coroutine_ext_create(coro_struct main, coroproc proc, int stack_size, int userdata_bytes);
-struct coro *coroutine_get(coro_struct main, int index);
-
-bool coroutine_start_cycle(coro_struct main);
-bool coroutine_start(coro_struct main, int index);
-void coroutine_reload(coro_struct main, int index, coroproc proc);
-void coroutine_ext_reload(coro_struct main, int index, coroproc proc, void *userdata);
-void coroutine_finish(coro_struct *main);
-
-typedef struct {
-    void *impl;
-    void *a[magic_arch_bits == 64 ? 2 : 3];
-} solo_struct;
+bool coroutine_start_cycle(coro_struct *main);
+bool coroutine_start(coro_struct *main, int index);
+void coroutine_reload(coro_struct *main, int index, coroproc proc);
+void coroutine_ext_reload(coro_struct *main, int index, coroproc proc, void *userdata);
+void coroutine_finish(coro_struct **main);
 
 void solo_create(solo_struct *main, coroproc proc, int stack_size, void *userdata);
 void *solo_ext_create(solo_struct *main, coroproc proc, int stack_size, int maxudsize);

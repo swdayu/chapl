@@ -35,8 +35,8 @@
 
 .section .text
 
-.global asm_coro_stack_init_depth
-asm_coro_stack_init_depth:
+.global asm_stack_init_depth
+asm_stack_init_depth:
     # 进入协程函数内部第一次yield，其协程栈的最小深度
     #   stack bottom <-- 00 <-- coro <-- rsp 输入参数对齐
     # return address <-- 08 调用协程函数

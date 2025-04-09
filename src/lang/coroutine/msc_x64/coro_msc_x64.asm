@@ -35,7 +35,7 @@
 
 .code
 
-asm_coro_stack_init_depth PROC
+asm_stack_init_depth PROC
     ; 进入协程函数内部第一次yield，其协程栈的最小深度
     ;   stack bottom <-- 00 <-- coro <-- rsp
     ;         rsp-08 <-- 08 调用协程函数
@@ -57,7 +57,7 @@ asm_coro_stack_init_depth PROC
     ;                    08 asm_coro_resume
     mov rax, 8 * 17
     ret
-asm_coro_stack_init_depth ENDP
+asm_stack_init_depth ENDP
 
 asm_coro_resume PROC PRIVATE
     ldmxcsr DWORD PTR [rsp] ; ldmxcsr m32, load m32 to mxcsr

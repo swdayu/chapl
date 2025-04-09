@@ -26,7 +26,7 @@
 #define PRH_STRIP_PREFIX
 #include "coroutine.h"
 
-magic_naked_fastcall(intp) asm_coro_stack_init_depth(void)
+magic_naked_fastcall(intp) asm_stack_init_depth(void)
 {
 magic_asm_begin()
     // 进入协程函数内部第一次yield，其协程栈的最小深度

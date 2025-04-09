@@ -10,13 +10,12 @@ typedef struct {
     int coro_to_main;
 } Counter;
 
-magic_coroproc(void) counter(struct coro *coro)
+magic_coroproc counter(struct coro *coro)
 {
     Counter *c = (Counter *)coroutine_userdata(coro);
     int n = c->n ? c->n : 10;
-    for (int i = 0; i < n; i += 1)
-    {
-        printf("[coro] %p #%d %d para %d\n", (void *)coro, coroutine_self(coro), i, c->main_to_coro);
+    for (int i = 0; i < n; i += 1) {
+        printf("[coro] %p #%d %d para %d\n", (void *)coro, coroutine_id(coro), i, c->main_to_coro);
         c->coro_to_main = i;
         coroutine_yield(coro);
     }
@@ -25,7 +24,7 @@ magic_coroproc(void) counter(struct coro *coro)
 
 void test_yield_cycle(void)
 {
-    coro_struct main = coroutine_init(3);
+    coro_struct *main = coroutine_init(3);
     Counter *c1 = (Counter *)coroutine_ext_create(main, counter, CORO_STACK_SIZE, sizeof(Counter)); c1->n = 3;
     Counter *c2 = (Counter *)coroutine_ext_create(main, counter, CORO_STACK_SIZE, sizeof(Counter)); c2->n = 5;
     coroutine_ext_create(main, counter, CORO_STACK_SIZE, sizeof(Counter));
@@ -36,29 +35,26 @@ void test_yield_cycle(void)
 void test_yield_manual(void)
 {
     Counter c = {0};
-    coro_struct main = coroutine_init(5);
+    coro_struct *main = coroutine_init(5);
     coroutine_create(main, counter, CORO_STACK_SIZE, &c);
     coroutine_create(main, counter, CORO_STACK_SIZE, &c);
     coroutine_create(main, counter, CORO_STACK_SIZE, &c);
 
     c.n = 3; c.main_to_coro = 200;
-    while (coroutine_start(main, 2))
-    {
-        printf("[main] %p para %d\n", main.address, c.coro_to_main);
+    while (coroutine_start(main, 2)) {
+        printf("[main] %p para %d\n", coroutine_main(main), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
     c.n = 7; c.main_to_coro = 100;
-    while (coroutine_start(main, 1))
-    {
-        printf("[main] %p para %d\n", main.address, c.coro_to_main);
+    while (coroutine_start(main, 1)) {
+        printf("[main] %p para %d\n", coroutine_main(main), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
     c.n = 5; c.main_to_coro = 300;
-    while (coroutine_start(main, 3))
-    {
-        printf("[main] %p para %d\n", main.address, c.coro_to_main);
+    while (coroutine_start(main, 3)) {
+        printf("[main] %p para %d\n", coroutine_main(main), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
@@ -70,11 +66,10 @@ typedef struct {
     int value;
 } SoloTest;
 
-magic_coroproc(void) solo_count(struct coro *coro)
+magic_coroproc solo_count(struct coro *coro)
 {
     SoloTest *p = (SoloTest *)coroutine_userdata(coro);
-    for (int i = 0; i < p->count; i += 1)
-    {
+    for (int i = 0; i < p->count; i += 1) {
         p->value = i;
         coroutine_yield(coro);
     }
@@ -87,14 +82,12 @@ void test_yield_solo(void)
     solo_struct main = {NULL};
 
     solo_create(&main, solo_count, 384, &st); st.count = 5;
-    while (solo_start(&main))
-    {
+    while (solo_start(&main)) {
         printf("[solo #1] recv %d\n", st.value);
     }
 
     solo_reload(&main, solo_count); st.count = 7;
-    while (solo_start(&main))
-    {
+    while (solo_start(&main)) {
         printf("[solo #2] recv %d\n", st.value);
     }
 
