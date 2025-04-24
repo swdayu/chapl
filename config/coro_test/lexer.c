@@ -1,5 +1,6 @@
-#define PRH_STRIP_PREFIX
-#include "coroutine.h"
+#define PRH_CORO_INCLUDE
+#define PRH_CORO_STRIP_PREFIX
+#include "prh_include.h"
 #include <stdio.h>
 
 #define CORO_STACK_SIZE (128*3)
@@ -48,7 +49,7 @@ static const char *parse_int(const char *expr, int *out)
     return expr;
 }
 
-magic_coroproc lexer(struct coro *coro)
+coro_proc lexer(coro_t *coro)
 {
     int ch;
     Context *ctx = (Context *)coroutine_userdata(coro);

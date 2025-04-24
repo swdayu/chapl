@@ -1,5 +1,7 @@
-#define PRH_STRIP_PREFIX
-#include "coroutine.h"
+#define PRH_CORO_INCLUDE
+#define PRH_CORO_STRIP_PREFIX
+#define PRH_CORO_IMPLEMENTATION
+#include "prh_include.h"
 #include <stdio.h>
 
 #define CORO_STACK_SIZE 16*1024
@@ -10,7 +12,7 @@ typedef struct {
     int coro_to_main;
 } Counter;
 
-magic_coroproc counter(struct coro *coro)
+coro_proc counter(coro_t *coro)
 {
     Counter *c = (Counter *)coroutine_userdata(coro);
     int n = c->n ? c->n : 10;
@@ -66,7 +68,7 @@ typedef struct {
     int value;
 } SoloTest;
 
-magic_coroproc solo_count(struct coro *coro)
+coro_proc solo_count(coro_t *coro)
 {
     SoloTest *p = (SoloTest *)coroutine_userdata(coro);
     for (int i = 0; i < p->count; i += 1) {
@@ -79,7 +81,7 @@ magic_coroproc solo_count(struct coro *coro)
 void test_yield_solo(void)
 {
     SoloTest st = {0};
-    solo_struct main = {NULL};
+    solo_struct main = {prh_null};
 
     solo_create(&main, solo_count, 384, &st); st.count = 5;
     while (solo_start(&main)) {
@@ -103,7 +105,7 @@ int main(int argc, char **argv)
     test_yield_solo();
 
     printf("\n[lexter test #1]\n");
-    test_lexer(NULL);
+    test_lexer(prh_null);
 
     printf("\n[lexter test #2]\n");
     test_lexer("1 + 2 * 3 - 4 / 5 + 6");
