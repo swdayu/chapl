@@ -53,7 +53,7 @@ export BUILD_VERBOSE
 export srctree := $(CURDIR)
 export BUILD_OUTPUT := $(CURDIR)/out
 
-include scripts/Makefile.predefine
+include scripts/Makefile.alpha
 
 TARGET_INFO := $(T)
 ifneq ($(CODE_REV_INFO),)

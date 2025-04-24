@@ -29,8 +29,8 @@ OUT_OBJ_FILE = -o $@
 OUT_ASM_FILE = -o $@
 CLOPT_FIRST_PREREQ = $<
 
-INIT_C_ONLY += -std=gnu99 -Werror=implicit-int -Werror-implicit-function-declaration
-INIT_CXX_ON += -std=gnu++14 -fno-rtti
+INIT_C_ONLY += -std=c11 -Werror=implicit-int -Werror-implicit-function-declaration
+INIT_CXX_ON += -std=c++17 -fno-rtti
 
 # INIT_CFLAGS += $(call cc-option,-march=winchip=c6,-march=i586)
 # INIT_AFLAGS += $(call as-option,-isa=foo)

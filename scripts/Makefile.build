@@ -89,7 +89,7 @@ install-y :=
 
 lib_bin_path = $(srctree)/$(if $(CONFIG_LIBRARY_OUTDIR),$(CONFIG_LIBRARY_OUTDIR),library)
 
-include $(srctree)/scripts/Makefile.predefine
+include $(srctree)/scripts/Makefile.alpha
 include $(srctree)/scripts/Makefile.compiler
 
 # include module build makefile

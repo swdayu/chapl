@@ -29,11 +29,9 @@ include $(srctree)/scripts/Makefile.gnu_x86_linux
 endif
 gnu_exe_suffix = $(if $(filter elf bin,$(1)),.elf)
 target-file-suffix = $(if $(filter exe,$(1)),$(call gnu_exe_suffix,$(1)),$(if $(filter lib,$(1)),.a,$(if $(filter dll,$(1)),.so)))
-INIT_MACROS += -D__magic_cl_gnu
 else ifneq ($(filter msc,$(CONFIG_COMPILER)),)
 include $(srctree)/scripts/Makefile.msc_x86_windows
 target-file-suffix = $(if $(filter exe,$(1)),.exe,$(if $(filter lib,$(1)),.lib,$(if $(filter dll,$(1)),.dll,.exe)))
-INIT_MACROS += -D__magic_cl_msc
 else
 $(error unsupported compiler '$(CONFIG_COMPILER)')
 endif
