@@ -910,23 +910,22 @@ typedef struct prh_node {
 // Dynamic allocated link list queue. Each node can have different size, but
 // must cotain prh_snode_t as the header.
 //
-//  struct ListQueueNode {
+//  struct list_queue_node {
 //      prh_snode_t snode_head; // must be 1st field
 //      ... other custom node data ...
 //  };
 
 typedef struct { // zero initialize
-    prh_snode_t head;
+    prh_snode_t *head;
     prh_snode_t *tail;
 } prh_list_queue_t;
 
 prh_inline void prh_list_queue_init(prh_list_queue_t *q) {
-    q->head.next = prh_null;
-    q->tail = prh_null;
+    q->head = q->tail = prh_null;
 }
 
 prh_inline bool prh_list_queue_empty(prh_list_queue_t *q) {
-    return q->head.next == prh_null;
+    return q->head == prh_null;
 }
 
 void prh_list_queue_clear(prh_list_queue_t *q, void (*node_free_func)(void *));
@@ -947,9 +946,11 @@ prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q);
 #ifdef PRH_LIST_IMPLEMENTATION
 void prh_list_queue_clear(prh_list_queue_t *q, void (*node_free_func)(void *)) {
     if (node_free_func) {
-        prh_snode_t *node = q->head.next;
-        for (; node; node = node->next) {
-            node_free_func(node);
+        prh_snode_t *next = q->head;
+        while (next) {
+            prh_snode_t *curr = next;
+            next = next->next; // get next before free the node
+            node_free_func(curr);
         }
     }
     prh_list_queue_init(q);
@@ -963,15 +964,15 @@ prh_list_queue_t prh_list_queue_move(prh_list_queue_t *q) {
 
 void prh_list_queue_push(prh_list_queue_t *q, prh_snode_t *new_node) {
     prh_snode_t *tail = q->tail;
-    if (tail == prh_null) tail = &q->head;
+    if (tail == prh_null) tail = (prh_snode_t *)q;
     q->tail = tail->next = new_node;
     new_node->next = prh_null;
 }
 
 prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q) {
-    prh_snode_t *top = q->head.next;
+    prh_snode_t *top = q->head;
     if (top == prh_null) return prh_null;
-    q->head.next = top->next;
+    q->head = top->next;
     if (top == q->tail) {
         q->tail = prh_null;
     }
@@ -982,10 +983,76 @@ prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q) {
 // Dynamic allocated link list queue. The node can contain any object and with
 // different size. If the size < sizeof(void *), the size is rounded up to
 // sizeof(void *).
-typedef struct {
-    prh_snode_t head;
+typedef struct { // zero initialize
+    prh_snode_t *head;
     prh_snode_t *tail;
 } prh_size_queue_t;
+
+prh_inline void prh_size_queue_init(prh_size_queue_t *q) {
+    prh_list_queue_init((prh_list_queue_t *)q);
+}
+
+prh_inline bool prh_size_queue_empty(prh_size_queue_t *q) {
+    return prh_list_queue_empty((prh_list_queue_t *)q);
+}
+
+void prh_size_queue_clear(prh_size_queue_t *q, void (*object_deinit_func)(void *));
+void *prh_size_queue_push(prh_size_queue_t *q, int object_size); // return allocated zero initialized object address
+void *prh_size_queue_top(prh_size_queue_t *q); // return top object address or null
+void prh_size_queue_pop(prh_size_queue_t *q, void (*object_deinit_func)(void *));
+
+#ifdef PRH_LIST_STRIP_PREFIX
+#define size_queue_t        prh_size_queue_t
+#define size_queue_init     prh_size_queue_init
+#define size_queue_empty    prh_size_queue_empty
+#define size_queue_clear    prh_size_queue_clear
+#define size_queue_move     prh_size_queue_move
+#define size_queue_push     prh_size_queue_push
+#define size_queue_top      prh_size_queue_top
+#define size_queue_pop      prh_size_queue_pop
+#endif // PRH_LIST_STRIP_PREFIX
+
+#ifdef PRH_LIST_IMPLEMENTATION
+void prh_size_queue_clear(prh_size_queue_t *q, void (*object_deinit_func)(void *)) {
+    prh_snode_t *next = q->head;
+    while (next) {
+        prh_snode_t *curr = next;
+        next = next->next; // get next before free the node
+        if (object_deinit_func) {
+            object_deinit_func(curr + 1);
+        }
+        prh_free(curr);
+    }
+    prh_size_queue_init(q);
+}
+
+prh_size_queue_t prh_size_queue_move(prh_size_queue_t *q) {
+    prh_size_queue_t que = *q;
+    prh_size_queue_init(q);
+    return que;
+}
+
+void *prh_size_queue_push(prh_size_queue_t *q, int object_size) {
+    if (object_size < sizeof(void *)) object_size = sizeof(void *);
+    prh_snode_t *new_node = prh_calloc(sizeof(prh_snode_t) + prh_round_ptrsize(object_size));
+    prh_list_queue_push((prh_list_queue_t *)q, new_node);
+    return (new_node + 1);
+}
+
+void *prh_size_queue_top(prh_size_queue_t *q) {
+    prh_snode_t *top = q->head;
+    return (top == prh_null) ? prh_null : (top + 1);
+}
+
+void prh_size_queue_pop(prh_size_queue_t *q, void (*object_deinit_func)(void *)) {
+    prh_snode_t *top = prh_list_queue_pop((prh_list_queue_t *)q);
+    if (top == prh_null) return;
+    if (object_deinit_func) {
+        object_deinit_func(top + 1);
+    }
+    prh_free(top);
+}
+#endif
 
 #endif // PRH_LIST_QUEUE_INCLUDE
 #endif // PRH_LIST_INCLUDE
