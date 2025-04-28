@@ -473,6 +473,11 @@ extern "C" {
 #endif
 #endif
 
+#ifndef prh_macro_concat_name
+#define prh_macro_concat_name(a, b) prh_impl_macro_concat_name(a, b)
+#define prh_impl_macro_concat_name(a, b) a ## b
+#endif
+
 // The ‘##’ token paste operator has a special meaning when placed between a
 // comma (,) and a variable argument (__VA_ARGS__). If the variable argument
 // is left out when the macro is used, then the comma before the ‘##’ will be
@@ -878,6 +883,112 @@ prh_inline void prh_impl_array_clear(void *elt_ptr) {
 #define array_elt_ptr       prh_array_elt_ptr
 #endif // PRH_ARRAY_STRIP_PREFIX
 #endif // PRH_ARRAY_INCLUDE
+
+#ifdef PRH_CONC_INCLUDE
+#define PRH_LIST_INCLUDE
+#define PRH_LIST_QUEUE_INCLUDE
+#ifdef PRH_CONC_IMPLEMENTATION
+    #define PRH_LIST_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_LIST_INCLUDE
+typedef struct prh_snode {
+    struct prh_snode *next;
+} prh_snode_t;
+
+typedef struct prh_xnode {
+    struct prh_xnode *both; // both = prev XOR next
+} prh_xnode_t;
+
+typedef struct prh_node {
+    struct prh_node *next;
+    struct prh_node *prev;
+} prh_node_t;
+
+#ifdef PRH_LIST_QUEUE_INCLUDE
+// Dynamic allocated link list queue. Each node can have different size, but
+// must cotain prh_snode_t as the header.
+//
+//  struct ListQueueNode {
+//      prh_snode_t snode_head; // must be 1st field
+//      ... other custom node data ...
+//  };
+
+typedef struct { // zero initialize
+    prh_snode_t head;
+    prh_snode_t *tail;
+} prh_list_queue_t;
+
+prh_inline void prh_list_queue_init(prh_list_queue_t *q) {
+    q->head.next = prh_null;
+    q->tail = prh_null;
+}
+
+prh_inline bool prh_list_queue_empty(prh_list_queue_t *q) {
+    return q->head.next == prh_null;
+}
+
+void prh_list_queue_clear(prh_list_queue_t *q, void (*node_free_func)(void *));
+prh_list_queue_t prh_list_queue_move(prh_list_queue_t *q);
+void prh_list_queue_push(prh_list_queue_t *q, prh_snode_t *new_node);
+prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q);
+
+#ifdef PRH_LIST_STRIP_PREFIX
+#define list_queue_t        prh_list_queue_t
+#define list_queue_init     prh_list_queue_init
+#define list_queue_empty    prh_list_queue_empty
+#define list_queue_clear    prh_list_queue_clear
+#define list_queue_move     prh_list_queue_move
+#define list_queue_push     prh_list_queue_push
+#define list_queue_pop      prh_list_queue_pop
+#endif // PRH_LIST_STRIP_PREFIX
+
+#ifdef PRH_LIST_IMPLEMENTATION
+void prh_list_queue_clear(prh_list_queue_t *q, void (*node_free_func)(void *)) {
+    if (node_free_func) {
+        prh_snode_t *node = q->head.next;
+        for (; node; node = node->next) {
+            node_free_func(node);
+        }
+    }
+    prh_list_queue_init(q);
+}
+
+prh_list_queue_t prh_list_queue_move(prh_list_queue_t *q) {
+    prh_list_queue_t que = *q;
+    prh_list_queue_init(q);
+    return que;
+}
+
+void prh_list_queue_push(prh_list_queue_t *q, prh_snode_t *new_node) {
+    prh_snode_t *tail = q->tail;
+    if (tail == prh_null) tail = &q->head;
+    q->tail = tail->next = new_node;
+    new_node->next = prh_null;
+}
+
+prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q) {
+    prh_snode_t *top = q->head.next;
+    if (top == prh_null) return prh_null;
+    q->head.next = top->next;
+    if (top == q->tail) {
+        q->tail = prh_null;
+    }
+    return top;
+}
+#endif
+
+// Dynamic allocated link list queue. The node can contain any object and with
+// different size. If the size < sizeof(void *), the size is rounded up to
+// sizeof(void *).
+typedef struct {
+    prh_snode_t head;
+    prh_snode_t *tail;
+} prh_size_queue_t;
+
+#endif // PRH_LIST_QUEUE_INCLUDE
+#endif // PRH_LIST_INCLUDE
 
 // COROUTINES - Very simple single file style coroutine library
 #ifdef PRH_CORO_INCLUDE
@@ -1404,7 +1515,7 @@ void prh_solo_finish(prh_solo_struct *main) {
 // For non-looping algorithms, atomic_compare_exchange_strong is generally
 // preferred.
 // The default memory_order type is memory_order_seq_cst.
-#define prh_atomtype_compare_exchange(a, expect_inout, new_value) \
+#define prh_atomtype_cas(a, expect_inout, new_value) \
     atomic_compare_exchange_weak((a), (expect_inout), (new_value))
 
 // Atomically perform read-modify-wirte operation, and return the old value.
@@ -1413,26 +1524,118 @@ void prh_solo_finish(prh_solo_struct *main) {
 #define prh_atomint_inc(a) atomic_fetch_add((a), 1)
 #define prh_atomint_dec(a) atomic_fetch_sub((a), 1)
 
-// Dynamic linked atomic queue for only 1 producer and 1 consumer
-typedef struct prh_atomlinkque prh_atomlinkque_t;
-prh_atomlinkque_t *prh_atomlinkque_init(void);
-void prh_atomlinkque_free(prh_atomlinkque_t **q, void (*free_item)(void *item));
-void prh_atomlinkque_push(prh_atomlinkque_t *q, void *item); // item shall not be null
-void *prh_atomlinkque_pop(prh_atomlinkque_t *q); // return null means empty
-void *prh_atomlinkque_top(prh_atomlinkque_t *q);
-int prh_atomlinkque_len(prh_atomlinkque_t *q);
+// Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
+// The queue node size is fixed, and must cotain prh_snode_t as the header.
+//
+//  struct QueueNode {
+//      prh_snode_t snode_head; // must be 1st field
+//      ... queue node other custom data ...
+//  };
+//
+//  struct StructContainQueue {
+//      ...
+//      QueueNode *<PREFIX>_atomlistque_head; // only R/W by consumer
+//      ...
+//      QueueNode *<PREFIX>_atomlistque_tail; // only R/W by producer
+//      ...
+//      prh_atomint_t <PREFIX>_atomlistque_len; // R/W by both
+//      ...
+//  };
+//
+//  StructContainQueue que;
+//  prh_atomlistque_init(&que, PREFIX);
+//  QueueNode *node = prh_atomlistque_node(&que, PREFIX);
+//  ... initializing the new node ...
+//  prh_atomlistque_push(&que, PREFIX); // push a new node
+//  QueueNode *top = prh_atomlistque_top(&que, PREFIX);
+//  ... using the top node ...
+//  prh_atomlistque_pop(&que, PREFIX); // pop off and free top node
+//  prh_atomlistque_free(&que, PREFIX, node_deinit_func); // free all nodes
+#define prh_impl_atomlistque_head(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomlistque_head)
+#define prh_impl_atomlistque_tail(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomlistque_tail)
+#define prh_impl_atomlistque_len(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomlistque_len)
+void prh_impl_atomlistque_free(prh_snode_t *head, void (*node_deinit_func)(void *node));
+
+#define prh_atomlistque_init(ptr_struct_contain_queue, PREFIX) { \
+    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
+    typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
+    prh_impl_qnode_ptr_t prh_impl_new_node = prh_calloc(sizeof(*prh_impl_atomlistque_head(PREFIX)); \
+    prh_impl_atomlistque_head(PREFIX) = prh_impl_new_node; /* always alloc a null tail node */ \
+    prh_impl_atomlistque_tail(PREFIX) = prh_impl_new_node; /* let head pointer always valid */ \
+    prh_atomint_t *prh_impl_len = &prh_impl_atomlistque_len(PREFIX); \
+    prh_atomtype_init(prh_impl_len, 0); \
+}
+
+#define prh_atomlistque_free(ptr_struct_contain_queue, PREFIX, node_deinit_func) { \
+    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
+    typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
+    prh_impl_qnode_ptr_t *prh_impl_head = prh_impl_atomlistque_head(PREFIX); \
+    if (prh_impl_head) { \
+        prh_impl_atomlistque_free(&prh_impl_head->snode_head, node_deinit_func); \
+        prh_impl_atomlistque_head(PREFIX) = prh_null; \
+        prh_impl_atomlistque_tail(PREFIX) = prh_null; \
+    } \
+}
+
+#define prh_atomlistque_node(ptr_struct_contain_queue, PREFIX) \
+    ((ptr_struct_contain_queue)->prh_macro_concat_name(PREFIX, _atomlistque_tail))
+
+#define prh_atomlistque_top(ptr_struct_contain_queue, PREFIX) \
+    ((prh_atomtype_load(&(ptr_struct_contain_queue)->prh_macro_concat_name(PREFIX, _atomlistque_len)) <= 0) ? prh_null : \
+    ((ptr_struct_contain_queue)->prh_macro_concat_name(PREFIX, _atomlistque_head)))
+
+// push 不会读写 head，也不会读写已经存在的非空节点，tail 总是指向尾部空节点，有效的
+// head 总是追不上 tail。push 只会更新 tail 和 tail 空节点，且 push 只被单一生产者
+// 调用，因此 tail 不需要原子操作。
+#define prh_atomlistque_push(ptr_struct_contain_queue, PREFIX) { \
+    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
+    typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
+    prh_impl_qnode_ptr_t prh_impl_new_node = prh_calloc(sizeof(*prh_impl_atomlistque_head(PREFIX)); \
+    prh_impl_qnode_ptr_t prh_impl_tail = prh_impl_atomlistque_tail(PREFIX); \
+    prh_impl_tail->snode_head.next = &prh_impl_new_node->snode_head; \
+    prh_impl_atomlistque_tail(PREFIX) = prh_impl_new_node; \
+    assert(prh_impl_tail->snode_head.next == &prh_impl_atomlistque_tail(PREFIX)->snode_head); /* allow only one producer */ \
+    prh_atomint_t *prh_impl_len = &prh_impl_atomlistque_len(PREFIX); \
+    prh_atomint_inc(prh_impl_len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */ \
+}
+
+// pop 不会读写 tail，也不会读写 tail 空节点，pop 只会更新 head 和读写已经存在的并且
+// 有效的头节点，且 pop 只被单一消费者调用，因此 head 不需要原子操作。
+#define prh_atomlistque_pop(ptr_struct_contain_queue, PREFIX) { \
+    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
+    typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
+    prh_atomint_t *prh_impl_len = &prh_impl_atomlistque_len(PREFIX); \
+    if (prh_atomtype_load(prh_impl_len) <= 0) return; \
+    prh_impl_qnode_ptr_t prh_impl_head = prh_impl_atomlistque_head(PREFIX); \
+    prh_impl_qnode_ptr_t prh_impl_head_next = (prh_impl_qnode_ptr_t)prh_impl_head->snode_head.next; \
+    prh_impl_atomlistque_head(PREFIX) = prh_impl_head_next; \
+    prh_free(prh_impl_head); /* free head node */ \
+    assert(prh_impl_head_next == prh_impl_atomlistque_head(PREFIX)); /* allow only one consumer */ \
+    prh_atomint_dec(prh_impl_len); /* 更新len，此步骤执行完毕以上更新必须对所有cpu生效 */ \
+}
+
+// Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
+// Each node has a prh_snode_t header and a node item pointer. Each node can
+// only contain a pointer.
+typedef struct prh_atomptrlistque prh_atomptrlistque_t;
+prh_atomptrlistque_t *prh_atomptrlistque_init(void);
+void prh_atomptrlistque_free(prh_atomptrlistque_t **q, void (*free_item)(void *item));
+void prh_atomptrlistque_push(prh_atomptrlistque_t *q, void *item); // item shall not be null
+void *prh_atomptrlistque_pop(prh_atomptrlistque_t *q); // return null means empty
+void *prh_atomptrlistque_top(prh_atomptrlistque_t *q);
+int prh_atomptrlistque_len(prh_atomptrlistque_t *q);
 
 // Fixed array atomptr queue for only 1 producer and 1 consumer
-typedef struct prh_atomque prh_atomque_t;
-int prh_atomque_alloc_size(int size); // size must be power of 2
-prh_atomque_t *prh_atomque_init_inplace(void *addr, int size);
-prh_atomque_t *prh_atomque_init(int size); // size must be power of 2
-void prh_atomque_free(prh_atomque_t **p);
-bool prh_atomque_push(prh_atomque_t *q, void *v); // v shall not be null
-void *prh_atomque_pop(prh_atomque_t *q); // return null means empty
-void *prh_atomque_top(prh_atomque_t *q);
-int prh_atomque_len(prh_atomque_t *q);
-int prh_atomque_cap(prh_atomque_t *q);
+typedef struct prh_atomptrque prh_atomptrque_t;
+int prh_atomptrque_alloc_size(int size); // size must be power of 2
+prh_atomptrque_t *prh_atomptrque_init_inplace(void *addr, int size);
+prh_atomptrque_t *prh_atomptrque_init(int size); // size must be power of 2
+void prh_atomptrque_free(prh_atomptrque_t **p);
+bool prh_atomptrque_push(prh_atomptrque_t *q, void *v); // v shall not be null
+void *prh_atomptrque_pop(prh_atomptrque_t *q); // return null means empty
+void *prh_atomptrque_top(prh_atomptrque_t *q);
+int prh_atomptrque_len(prh_atomptrque_t *q);
+int prh_atomptrque_cap(prh_atomptrque_t *q);
 
 // Fixed array atomint queue for only 1 producer and 1 consumer
 typedef struct prh_atomintque prh_atomintque_t;
@@ -1523,23 +1726,23 @@ void prh_thrd_cond_free(prh_thrd_cond_t **p);
 #define atomtype_compare_exchange prh_atomtype_compare_exchange
 #define atomint_inc             prh_atomint_inc
 #define atomint_dec             prh_atomint_dec
-#define atomlinkque_t           prh_atomlinkque_t
-#define atomlinkque_init        prh_atomlinkque_init
-#define atomlinkque_free        prh_atomlinkque_free
-#define atomlinkque_push        prh_atomlinkque_push
-#define atomlinkque_pop         prh_atomlinkque_pop
-#define atomlinkque_top         prh_atomlinkque_top
-#define atomlinkque_len         prh_atomlinkque_len
-#define atomque_t               prh_atomque_t
-#define atomque_alloc_size      prh_atomque_alloc_size
-#define atomque_init_inplace    prh_atomque_init_inplace
-#define atomque_init            prh_atomque_init
-#define atomque_free            prh_atomque_free
-#define atomque_push            prh_atomque_push
-#define atomque_pop             prh_atomque_pop
-#define atomque_top             prh_atomque_top
-#define atomque_len             prh_atomque_len
-#define atomque_cap             prh_atomque_cap
+#define atomptrlistque_t           prh_atomptrlistque_t
+#define atomptrlistque_init        prh_atomptrlistque_init
+#define atomptrlistque_free        prh_atomptrlistque_free
+#define atomptrlistque_push        prh_atomptrlistque_push
+#define atomptrlistque_pop         prh_atomptrlistque_pop
+#define atomptrlistque_top         prh_atomptrlistque_top
+#define atomptrlistque_len         prh_atomptrlistque_len
+#define atomptrque_t               prh_atomptrque_t
+#define atomptrque_alloc_size      prh_atomptrque_alloc_size
+#define atomptrque_init_inplace    prh_atomptrque_init_inplace
+#define atomptrque_init            prh_atomptrque_init
+#define atomptrque_free            prh_atomptrque_free
+#define atomptrque_push            prh_atomptrque_push
+#define atomptrque_pop             prh_atomptrque_pop
+#define atomptrque_top             prh_atomptrque_top
+#define atomptrque_len             prh_atomptrque_len
+#define atomptrque_cap             prh_atomptrque_cap
 #define atomintque_t            prh_atomintque_t
 #define atomintque_alloc_size   prh_atomintque_alloc_size
 #define atomintque_init_inplace prh_atomintque_init_inplace
@@ -1587,33 +1790,44 @@ void prh_impl_atomic_test(void) {
 }
 #endif
 
-typedef struct prh_impl_atomque_node {
-    struct prh_impl_atomque_node *next;
-    void *item;
-} prh_impl_atomque_node_t;
+void prh_impl_atomlistque_free(prh_snode_t *head, void (*node_deinit_func)(void *item)) {
+    while (head != prh_null) {
+        prh_snode_t *p = head;
+        head = head->next;
+        if (node_deinit_func) {
+            node_deinit_func(p);
+        }
+        prh_free(p);
+    }
+}
 
-struct prh_atomlinkque {
-    prh_impl_atomque_node_t *head; // 只由单一消费者读写
-    prh_impl_atomque_node_t *tail; // 只由单一生成者读写
+typedef struct prh_impl_atomptrlistque_node {
+    struct prh_impl_atomptrlistque_node *next;
+    void *item;
+} prh_impl_atomptrlistque_node_t;
+
+struct prh_atomptrlistque {
+    prh_impl_atomptrlistque_node_t *head; // 只由单一消费者读写
+    prh_impl_atomptrlistque_node_t *tail; // 只由单一生成者读写
     prh_atomint_t count;
 };
 
-prh_atomlinkque_t *prh_atomlinkque_init(void) {
+prh_atomptrlistque_t *prh_atomptrlistque_init(void) {
     // 永远分配一个tail空节点，让head永远触碰不到tail节点
-    prh_impl_atomque_node_t *tail_null = prh_calloc(sizeof(prh_impl_atomque_node_t));
-    prh_atomlinkque_t *q = prh_malloc(sizeof(prh_atomlinkque_t));
+    prh_impl_atomptrlistque_node_t *tail_null = prh_calloc(sizeof(prh_impl_atomptrlistque_node_t));
+    prh_atomptrlistque_t *q = prh_malloc(sizeof(prh_atomptrlistque_t));
     q->head = tail_null;
     q->tail = tail_null;
     prh_atomtype_init(&q->count, 0);
     return q;
 }
 
-void prh_atomlinkque_free(prh_atomlinkque_t **que, void (*free_item)(void *item)) {
-    prh_atomlinkque_t *q = *que;
+void prh_atomptrlistque_free(prh_atomptrlistque_t **que, void (*free_item)(void *item)) {
+    prh_atomptrlistque_t *q = *que;
     if (q == prh_null) return;
-    prh_impl_atomque_node_t *node = q->head;
+    prh_impl_atomptrlistque_node_t *node = q->head;
     while (node != prh_null) {
-        prh_impl_atomque_node_t *p = node;
+        prh_impl_atomptrlistque_node_t *p = node;
         node = node->next;
         if (free_item && p->item) {
             free_item(p->item);
@@ -1624,12 +1838,12 @@ void prh_atomlinkque_free(prh_atomlinkque_t **que, void (*free_item)(void *item)
     *que = prh_null;
 }
 
-void prh_atomlinkque_push(prh_atomlinkque_t *q, void *item) {
+void prh_atomptrlistque_push(prh_atomptrlistque_t *q, void *item) {
     // push不会读写head，也不会读写已经存在的节点
     if (item == prh_null) return; // item shall not be null
     // 分配新NULL节点，tail总指向尾部空节点，不让head追上tail
-    prh_impl_atomque_node_t *null_node = prh_calloc(sizeof(prh_impl_atomque_node_t));
-    prh_impl_atomque_node_t *tail = q->tail;
+    prh_impl_atomptrlistque_node_t *null_node = prh_calloc(sizeof(prh_impl_atomptrlistque_node_t));
+    prh_impl_atomptrlistque_node_t *tail = q->tail;
     q->tail = null_node;
     // push只会更新tail和tail空节点，且push对应单一生产者，因此tail不需要atom
     tail->next = null_node;
@@ -1640,10 +1854,10 @@ void prh_atomlinkque_push(prh_atomlinkque_t *q, void *item) {
     prh_atomint_inc(&q->count);
 }
 
-void *prh_atomlinkque_pop(prh_atomlinkque_t *q) {
+void *prh_atomptrlistque_pop(prh_atomptrlistque_t *q) {
     // pop不会读写tail，也不会读写tail空节点
     if (prh_atomtype_load(&q->count) <= 0) return prh_null;
-    prh_impl_atomque_node_t *head = q->head; // 保存head
+    prh_impl_atomptrlistque_node_t *head = q->head; // 保存head
     // pop只会更新head和读写已存在的头节点，且pop对应单一消费者，因此head不需要atom
     q->head = head->next;
     // 只允许唯一消费者
@@ -1656,42 +1870,42 @@ void *prh_atomlinkque_pop(prh_atomlinkque_t *q) {
     return item;
 }
 
-void *prh_atomlinkque_top(prh_atomlinkque_t *q) {
+void *prh_atomptrlistque_top(prh_atomptrlistque_t *q) {
     if (prh_atomtype_load(&q->count) <= 0) return prh_null;
     return q->head->item;
 }
 
-int prh_atomlinkque_len(prh_atomlinkque_t *q) {
+int prh_atomptrlistque_len(prh_atomptrlistque_t *q) {
     return prh_atomtype_load(&q->count);
 }
 
-#define prh_impl_atomque_nextpos(q, pos) (((pos) + 1) & ((q)->u.size - 1))
+#define prh_impl_atomptrque_nextpos(q, pos) (((pos) + 1) & ((q)->u.size - 1))
 
-struct prh_atomque {
+struct prh_atomptrque {
     union { prh_u32 size: 31, free: 1; void *align; } u;
     prh_atomint_t head;
     prh_atomint_t tail;
 };
 
-bool prh_impl_atomque_full(prh_atomque_t *q) { // is not an atomic operation
-    return (prh_impl_atomque_nextpos(q, prh_atomtype_load(&q->tail)) == prh_atomtype_load(&q->head));
+bool prh_impl_atomptrque_full(prh_atomptrque_t *q) { // is not an atomic operation
+    return (prh_impl_atomptrque_nextpos(q, prh_atomtype_load(&q->tail)) == prh_atomtype_load(&q->head));
 }
 
-prh_inline int prh_impl_atomque_alloc_size(int size, int stride) {
+prh_inline int prh_impl_atomptrque_alloc_size(int size, int stride) {
     assert(prh_is_power_of_2(size));
-    return prh_round_ptrsize(sizeof(prh_atomque_t) + stride * size);
+    return prh_round_ptrsize(sizeof(prh_atomptrque_t) + stride * size);
 }
 
-int prh_atomque_alloc_size(int size) {
-    return prh_impl_atomque_alloc_size(size, sizeof(void *));
+int prh_atomptrque_alloc_size(int size) {
+    return prh_impl_atomptrque_alloc_size(size, sizeof(void *));
 }
 
 int prh_atomintque_alloc_size(int size) {
-    return prh_impl_atomque_alloc_size(size, sizeof(int));
+    return prh_impl_atomptrque_alloc_size(size, sizeof(int));
 }
 
-prh_atomque_t *prh_atomque_init_inplace(void *addr, int size) {
-    prh_atomque_t *q = (prh_atomque_t *)addr;
+prh_atomptrque_t *prh_atomptrque_init_inplace(void *addr, int size) {
+    prh_atomptrque_t *q = (prh_atomptrque_t *)addr;
     q->u.size = size;
     q->u.free = 0;
     prh_atomtype_init(&q->head, 0);
@@ -1700,12 +1914,12 @@ prh_atomque_t *prh_atomque_init_inplace(void *addr, int size) {
 }
 
 prh_atomintque_t *prh_atomintque_init_inplace(void *addr, int size) {
-    return (prh_atomintque_t *)prh_atomque_init_inplace(addr, size);
+    return (prh_atomintque_t *)prh_atomptrque_init_inplace(addr, size);
 }
 
-prh_atomque_t *prh_atomque_init(int size) {
-    void *addr = prh_malloc(atomque_alloc_size(size));
-    prh_atomque_t *q = prh_atomque_init_inplace(addr, size);
+prh_atomptrque_t *prh_atomptrque_init(int size) {
+    void *addr = prh_malloc(atomptrque_alloc_size(size));
+    prh_atomptrque_t *q = prh_atomptrque_init_inplace(addr, size);
     q->u.free = 1;
     return q;
 }
@@ -1713,12 +1927,12 @@ prh_atomque_t *prh_atomque_init(int size) {
 prh_atomintque_t *prh_atomintque_init(int size) {
     void *addr = prh_malloc(prh_atomintque_alloc_size(size));
     prh_atomintque_t *q = prh_atomintque_init_inplace(addr, size);
-    ((prh_atomque_t *)q)->u.free = 1;
+    ((prh_atomptrque_t *)q)->u.free = 1;
     return q;
 }
 
-void prh_atomque_free(prh_atomque_t **p) {
-    prh_atomque_t *q = *p;
+void prh_atomptrque_free(prh_atomptrque_t **p) {
+    prh_atomptrque_t *q = *p;
     if (q == prh_null)
         return;
     if (q->u.free) {
@@ -1728,30 +1942,30 @@ void prh_atomque_free(prh_atomque_t **p) {
 }
 
 void prh_atomintque_free(prh_atomintque_t **p) {
-    prh_atomque_free((prh_atomque_t **)p);
+    prh_atomptrque_free((prh_atomptrque_t **)p);
 }
 
-int prh_atomque_len(prh_atomque_t *q) { // is not an atomic operation
+int prh_atomptrque_len(prh_atomptrque_t *q) { // is not an atomic operation
     int len = prh_atomtype_load(&q->tail) - prh_atomtype_load(&q->head);
     if (len < 0)
         len += q->u.size;
     return len;
 }
 
-int prh_atomque_cap(prh_atomque_t *q) {
+int prh_atomptrque_cap(prh_atomptrque_t *q) {
     return q->u.size;
 }
 
 int prh_atomintque_len(prh_atomintque_t *q) {
-    return prh_atomque_len((prh_atomque_t *)q);
+    return prh_atomptrque_len((prh_atomptrque_t *)q);
 }
 
 int prh_atomintque_cap(prh_atomintque_t *q) {
-    return prh_atomque_cap((prh_atomque_t *)q);
+    return prh_atomptrque_cap((prh_atomptrque_t *)q);
 }
 
-bool prh_impl_atomque_finish_push(prh_atomque_t *q, int tail) {
-    int next = prh_impl_atomque_nextpos(q, tail);
+bool prh_impl_atomptrque_finish_push(prh_atomptrque_t *q, int tail) {
+    int next = prh_impl_atomptrque_nextpos(q, tail);
     if (next == prh_atomtype_load(&q->head))
         return false;
     assert(prh_atomtype_load(&q->tail) == tail); // only allow one writer
@@ -1759,32 +1973,32 @@ bool prh_impl_atomque_finish_push(prh_atomque_t *q, int tail) {
     return true;
 }
 
-void prh_impl_atomque_finish_pop(prh_atomque_t *q, int head) {
+void prh_impl_atomptrque_finish_pop(prh_atomptrque_t *q, int head) {
     assert(prh_atomtype_load(&q->head) == head); // only allow one reader
-    prh_atomtype_store(&q->head, prh_impl_atomque_nextpos(q, head));
+    prh_atomtype_store(&q->head, prh_impl_atomptrque_nextpos(q, head));
 }
 
-#define prh_impl_get_ptr_que(q) ((void **)((prh_atomque_t *)q + 1))
-#define prh_impl_get_int_que(q) ((int *)((prh_atomque_t *)q + 1))
+#define prh_impl_get_ptr_que(q) ((void **)((prh_atomptrque_t *)q + 1))
+#define prh_impl_get_int_que(q) ((int *)((prh_atomptrque_t *)q + 1))
 
-bool prh_atomque_push(prh_atomque_t *q, void *v) {
+bool prh_atomptrque_push(prh_atomptrque_t *q, void *v) {
     if (v == prh_null) return false;
     int tail = prh_atomtype_load(&q->tail);
     prh_impl_get_ptr_que(q)[tail] = v;
-    return prh_impl_atomque_finish_push(q, tail);
+    return prh_impl_atomptrque_finish_push(q, tail);
 }
 
-void *prh_atomque_pop(prh_atomque_t *q) {
+void *prh_atomptrque_pop(prh_atomptrque_t *q) {
     int head = prh_atomtype_load(&q->head);
     if (head == prh_atomtype_load(&q->tail)) {
         return prh_null;
     }
     void *v = prh_impl_get_ptr_que(q)[head];
-    prh_impl_atomque_finish_pop(q, head);
+    prh_impl_atomptrque_finish_pop(q, head);
     return v;
 }
 
-void *prh_atomque_top(prh_atomque_t *q) {
+void *prh_atomptrque_top(prh_atomptrque_t *q) {
     int head = prh_atomtype_load(&q->head);
     if (head == prh_atomtype_load(&q->tail)) {
         return prh_null;
@@ -1794,24 +2008,24 @@ void *prh_atomque_top(prh_atomque_t *q) {
 
 bool prh_atomintque_push(prh_atomintque_t *q, int v) {
     if (v == 0) return false;
-    int tail = prh_atomtype_load(&((prh_atomque_t *)q)->tail);
+    int tail = prh_atomtype_load(&((prh_atomptrque_t *)q)->tail);
     prh_impl_get_int_que(q)[tail] = v;
-    return prh_impl_atomque_finish_push((prh_atomque_t *)q, tail);
+    return prh_impl_atomptrque_finish_push((prh_atomptrque_t *)q, tail);
 }
 
 int prh_atomintque_pop(prh_atomintque_t *q) { // return 0 means empty
-    int head = prh_atomtype_load(&((prh_atomque_t *)q)->head);
-    if (head == prh_atomtype_load(&((prh_atomque_t *)q)->tail)) {
+    int head = prh_atomtype_load(&((prh_atomptrque_t *)q)->head);
+    if (head == prh_atomtype_load(&((prh_atomptrque_t *)q)->tail)) {
         return 0;
     }
     int v = prh_impl_get_int_que(q)[head];
-    prh_impl_atomque_finish_pop((prh_atomque_t *)q, head);
+    prh_impl_atomptrque_finish_pop((prh_atomptrque_t *)q, head);
     return v;
 }
 
 int prh_atomintque_top(prh_atomintque_t *q) {
-    int head = prh_atomtype_load(&((prh_atomque_t *)q)->head);
-    if (head == prh_atomtype_load(&((prh_atomque_t *)q)->tail)) {
+    int head = prh_atomtype_load(&((prh_atomptrque_t *)q)->head);
+    if (head == prh_atomtype_load(&((prh_atomptrque_t *)q)->tail)) {
         return 0;
     }
     return prh_impl_get_int_que(q)[head];
