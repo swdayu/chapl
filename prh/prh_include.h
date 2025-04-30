@@ -1723,7 +1723,7 @@ void prh_solo_finish(prh_solo_struct *main) {
 // The queue node size is fixed, and must cotain prh_snode_t as the header.
 //
 //  struct QueueNode {
-//      prh_snode_t snode_head; // must be 1st field
+//      prh_snode_t node; // must be 1st field
 //      ... queue node other custom data ...
 //  };
 //
@@ -1749,10 +1749,19 @@ void prh_solo_finish(prh_solo_struct *main) {
 #define prh_impl_atomlistque_head(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomlistque_head)
 #define prh_impl_atomlistque_tail(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomlistque_tail)
 #define prh_impl_atomlistque_len(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomlistque_len)
+#define prh_impl_atomlistque_ptr_head(PREFIX) (ptr_struct)->prh_macro_concat_name(PREFIX, _atomlistque_head)
+#define prh_impl_atomlistque_ptr_tail(PREFIX) (ptr_struct)->prh_macro_concat_name(PREFIX, _atomlistque_tail)
+#define prh_impl_atomlistque_ptr_len(PREFIX) &((ptr_struct)->prh_macro_concat_name(PREFIX, _atomlistque_len))
 void prh_impl_atomlistque_free(prh_snode_t *head, void (*node_deinit_func)(void *node));
+void prh_impl_atomlistque_push(void **tail_addr, prh_signed node_size, prh_atomint_t *len);
+prh_snode_t *prh_impl_atomlistque_pop(void **head_addr, prh_atomint_t *len);
 
-#define prh_atomlistque_init(ptr_struct_contain_queue, PREFIX) { \
-    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
+prh_inline void prh_atomlistque_node_free(prh_snode_t *node) {
+    if (node) prh_free(node);
+}
+
+#define prh_atomlistque_init(ptr_struct, PREFIX) { \
+    prh_typeof(ptr_struct) prh_impl_que = (ptr_struct); \
     typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
     prh_impl_qnode_ptr_t prh_impl_new_node = prh_calloc(sizeof(*prh_impl_atomlistque_head(PREFIX)); \
     prh_impl_atomlistque_head(PREFIX) = prh_impl_new_node; /* always alloc a null tail node */ \
@@ -1761,53 +1770,44 @@ void prh_impl_atomlistque_free(prh_snode_t *head, void (*node_deinit_func)(void 
     prh_atomtype_init(prh_impl_len, 0); \
 }
 
-#define prh_atomlistque_free(ptr_struct_contain_queue, PREFIX, node_deinit_func) { \
-    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
+#define prh_atomlistque_free(ptr_struct, PREFIX, node_deinit_func) { \
+    prh_typeof(ptr_struct) prh_impl_que = (ptr_struct); \
     typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
     prh_impl_qnode_ptr_t *prh_impl_head = prh_impl_atomlistque_head(PREFIX); \
     if (prh_impl_head) { \
-        prh_impl_atomlistque_free(&prh_impl_head->snode_head, node_deinit_func); \
+        prh_impl_atomlistque_free((prh_snode_t *)prh_impl_head, node_deinit_func); \
         prh_impl_atomlistque_head(PREFIX) = prh_null; \
         prh_impl_atomlistque_tail(PREFIX) = prh_null; \
     } \
 }
 
-#define prh_atomlistque_node(ptr_struct_contain_queue, PREFIX) \
-    ((ptr_struct_contain_queue)->prh_macro_concat_name(PREFIX, _atomlistque_tail))
+#define prh_atomlistque_node(ptr_struct, PREFIX) prh_impl_atomlistque_ptr_tail(PREFIX)
 
-#define prh_atomlistque_top(ptr_struct_contain_queue, PREFIX) \
-    ((prh_atomtype_load(&(ptr_struct_contain_queue)->prh_macro_concat_name(PREFIX, _atomlistque_len)) <= 0) ? prh_null : \
-    ((ptr_struct_contain_queue)->prh_macro_concat_name(PREFIX, _atomlistque_head)))
+#define prh_atomlistque_top(ptr_struct, PREFIX) \
+    ((prh_atomtype_load(prh_impl_atomlistque_ptr_len(PREFIX)) <= 0) ? \
+        prh_null : prh_impl_atomlistque_ptr_head(PREFIX))
 
-// push 不会读写 head，也不会读写已经存在的非空节点，tail 总是指向尾部空节点，有效的
-// head 总是追不上 tail。push 只会更新 tail 和 tail 空节点，且 push 只被单一生产者
-// 调用，因此 tail 不需要原子操作。
-#define prh_atomlistque_push(ptr_struct_contain_queue, PREFIX) { \
-    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
-    typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
-    prh_impl_qnode_ptr_t prh_impl_new_node = prh_calloc(sizeof(*prh_impl_atomlistque_head(PREFIX)); \
-    prh_impl_qnode_ptr_t prh_impl_tail = prh_impl_atomlistque_tail(PREFIX); \
-    prh_impl_tail->snode_head.next = &prh_impl_new_node->snode_head; \
-    prh_impl_atomlistque_tail(PREFIX) = prh_impl_new_node; \
-    assert(prh_impl_tail->snode_head.next == &prh_impl_atomlistque_tail(PREFIX)->snode_head); /* allow only one producer */ \
-    prh_atomint_t *prh_impl_len = &prh_impl_atomlistque_len(PREFIX); \
-    prh_atomint_inc(prh_impl_len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */ \
+// Push a new tail null node and inc the counter
+#define prh_atomlistque_push(ptr_struct, PREFIX) { \
+    prh_typeof(ptr_struct) prh_impl_que = (ptr_struct); \
+    prh_impl_atomlistque_push(&prh_impl_atomlistque_tail(PREFIX), \
+        sizeof(*prh_impl_atomlistque_head(PREFIX)), \
+        &prh_impl_atomlistque_len(PREFIX)); \
 }
 
-// pop 不会读写 tail，也不会读写 tail 空节点，pop 只会更新 head 和读写已经存在的并且
-// 有效的头节点，且 pop 只被单一消费者调用，因此 head 不需要原子操作。
-#define prh_atomlistque_pop(ptr_struct_contain_queue, PREFIX) { \
-    prh_typeof(ptr_struct_contain_queue) prh_impl_que = (ptr_struct_contain_queue); \
-    typedef prh_typeof(prh_impl_atomlistque_head(PREFIX)) prh_impl_qnode_ptr_t; \
-    prh_atomint_t *prh_impl_len = &prh_impl_atomlistque_len(PREFIX); \
-    if (prh_atomtype_load(prh_impl_len) <= 0) return; \
-    prh_impl_qnode_ptr_t prh_impl_head = prh_impl_atomlistque_head(PREFIX); \
-    prh_impl_qnode_ptr_t prh_impl_head_next = (prh_impl_qnode_ptr_t)prh_impl_head->snode_head.next; \
-    prh_impl_atomlistque_head(PREFIX) = prh_impl_head_next; \
-    prh_free(prh_impl_head); /* free head node */ \
-    assert(prh_impl_head_next == prh_impl_atomlistque_head(PREFIX)); /* allow only one consumer */ \
-    prh_atomint_dec(prh_impl_len); /* 更新len，此步骤执行完毕以上更新必须对所有cpu生效 */ \
+// Pop off head node and free it, return void
+#define prh_atomlistque_pop(ptr_struct, PREFIX) { \
+    prh_typeof(ptr_struct) prh_impl_que = (ptr_struct); \
+    prh_atomlistque_node_free(prh_impl_atomlistque_pop( \
+        &prh_impl_atomlistque_head(PREFIX), \
+        &prh_impl_atomlistque_len(PREFIX))); \
 }
+
+// Pop out and return the node, dont free the node
+#define prh_atomlistque_pop_node(ptr_struct, PREFIX) \
+    prh_impl_atomlistque_pop( \
+        &prh_impl_atomlistque_ptr_head(PREFIX), \
+        prh_impl_atomlistque_ptr_len(PREFIX))
 
 // Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
 // Each node has a prh_snode_t header and a node item pointer. Each node can
@@ -1894,6 +1894,29 @@ void prh_impl_atomlistque_free(prh_snode_t *head, void (*node_deinit_func)(void 
         }
         prh_free(p);
     }
+}
+
+// push 不会读写 head，也不会读写已经存在的非空节点，tail 总是指向尾部空节点，有效的
+// head 总是追不上 tail。push 只会更新 tail 和 tail 空节点，且 push 只被单一生产者
+// 调用，因此 tail 不需要原子操作。
+void prh_impl_atomlistque_push(void **tail_addr, prh_signed node_size, prh_atomint_t *len) {
+    prh_snode_t *new_node = prh_calloc(node_size);
+    prh_snode_t *tail = *tail_addr;
+    *tail_addr = tail->next = new_node;
+    prh_atomint_inc(len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */
+    assert(*tail_addr == new_node); // allow only one producer
+}
+
+// pop 不会读写 tail，也不会读写 tail 空节点，pop 只会更新 head 和读写已经存在的并且
+// 有效的头节点，且 pop 只被单一消费者调用，因此 head 不需要原子操作。
+prh_snode_t *prh_impl_atomlistque_pop(void **head_addr, prh_atomint_t *len) {
+    if (prh_atomtype_load(len) <= 0) return prh_null;
+    prh_snode_t *head = *head_addr;
+    prh_node_t *head_next = head->next;
+    *head_addr = head_next;
+    prh_atomint_dec(prh_impl_len); // 更新len，此步骤执行完毕以上更新必须对所有cpu生效
+    assert(head_next == *head_addr); // allow only one consumer
+    return head;
 }
 
 typedef struct prh_impl_atomptrlistque_node {
