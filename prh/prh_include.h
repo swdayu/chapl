@@ -652,7 +652,7 @@ prh_inline prh_unsigned prh_to_power_of_2(prh_unsigned n) {
 }
 #endif
 
-#ifdef PRH_CONC_IMPLEMENTATION
+#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION)
 #if defined(_WIN32)
 
 #else
@@ -693,6 +693,11 @@ void prh_impl_prerr(int err, int line) {
 #include <string.h>
 #endif
 
+#ifdef PRH_ARRAY_QUEUE_IMPLEMENTATION
+#include <assert.h>
+#include <stdlib.h>
+#endif
+
 #ifdef PRH_CORO_IMPLEMENTATION
 #include <assert.h>
 #include <stdlib.h>
@@ -703,6 +708,34 @@ void prh_impl_prerr(int err, int line) {
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
     #define PRH_GLIBC_VERSION (__GLIBC__ * 100 + __GLIBC_MINOR__)
+#endif
+#endif
+
+#ifdef PRH_CONC_INCLUDE
+#define PRH_LIST_INCLUDE
+#define PRH_LIST_QUEUE_INCLUDE
+#define PRH_ATOMIC_INCLUDE
+#define PRH_THRD_INCLUDE
+#ifdef PRH_CONC_STRIP_PREFIX
+    #define PRH_ATOMIC_STRIP_PREFIX
+    #define PRH_THRD_STRIP_PREFIX
+#endif
+#ifdef PRH_CONC_IMPLEMENTATION
+    #define PRH_LIST_IMPLEMENTATION
+    #define PRH_LIST_QUEUE_IMPLEMENTATION
+    #define PRH_ATOMIC_IMPLEMENTATION
+    #define PRH_THRD_IMPLEMENTATION
+    #ifdef PRH_CONC_TEST
+        #define PRH_ATOMIC_TEST
+        #define PRH_THRD_TEST
+    #endif
+#endif
+#endif
+
+#ifdef PRH_LIST_QUEUE_INCLUDE
+#define PRH_LIST_INCLUDE
+#ifdef PRH_LIST_QUEUE_IMPLEMENTATION
+    #define PRH_LIST_IMPLEMENTATION
 #endif
 #endif
 
@@ -884,13 +917,118 @@ prh_inline void prh_impl_array_clear(void *elt_ptr) {
 #endif // PRH_ARRAY_STRIP_PREFIX
 #endif // PRH_ARRAY_INCLUDE
 
-#ifdef PRH_CONC_INCLUDE
-#define PRH_LIST_INCLUDE
-#define PRH_LIST_QUEUE_INCLUDE
-#ifdef PRH_CONC_IMPLEMENTATION
-    #define PRH_LIST_IMPLEMENTATION
+#ifdef PRH_ARRAY_QUEUE_INCLUDE
+// Array queue with power of 2 capacity size.
+//
+//  struct StructContainArrayQueue {
+//      Object *<PREFIX>_array_queue;
+//  };
+//
+//  StructContainArrayQueue q;
+//  prh_array_queue_init(&q, PREFIX, 64);
+//  Object *item = prh_array_queue_push(&q, PREFIX);
+//  .. initialize the new item ..
+//  item = prh_array_queue_pop(&q, PREFIX);
+//  .. using the poped item, may be null ..
+//  prh_array_queue_free(&q, PREFIX);
+typedef struct {
+    prh_signed capacity;
+    prh_signed head;
+    prh_signed tail;
+} prh_impl_arque_header_t;
+
+#define prh_impl_arque(PREFIX) prh_impl_ptr->prh_macro_concat_name(PREFIX, _array_queue)
+#define prh_impl_arque_ptr(PREFIX) (struct_ptr)->prh_macro_concat_name(PREFIX, _array_queue)
+#define prh_impl_arque_nextpos(h, pos) (((pos) + 1) & ((h)->capacity - 1))
+void *prh_impl_arque_init(prh_signed capacity, prh_signed object_size);
+void prh_impl_arque_free(void *queue);
+void *prh_impl_arque_pop(void *queue, prh_signed object_size);
+void *prh_impl_arque_push(void *queue, prh_signed object_size);
+prh_signed prh_impl_arque_len(void *queue);
+
+prh_inline bool prh_impl_arque_empty(prh_impl_arque_header_t *h) {
+    return h->head == h->tail;
+}
+
+prh_inline bool prh_impl_arque_full(prh_impl_arque_header_t *h) {
+    return prh_impl_arque_nextpos(h, h->tail) == h->head;
+}
+
+prh_inline prh_signed prh_impl_arque_cap(void *queue) {
+    prh_impl_arque_header_t *h = ((prh_impl_arque_header_t *)queue) - 1;
+    return h->capacity;
+}
+
+#define prh_array_queue_init(struct_ptr, PREFIX, size) { \
+    prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
+    typedef prh_typeof(prh_impl_arque(PREFIX)) prh_impl_objptr_t; \
+    prh_impl_arque(PREFIX) = (prh_impl_objptr_t)prh_impl_arque_init(size, sizeof(*prh_impl_arque(PREFIX))); \
+}
+
+#define prh_array_queue_free(struct_ptr, PREFIX) { \
+    prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
+    prh_impl_arque_free(prh_impl_arque(PREFIX)); \
+    prh_impl_arque(PREFIX) = prh_null; \
+}
+
+#define prh_array_queue_push(struct_ptr, PREFIX) \
+    (prh_typeof(prh_impl_arque_ptr(PREFIX)))prh_impl_arque_push(prh_impl_arque_ptr(PREFIX), sizeof(*prh_impl_arque_ptr(PREFIX)))
+
+#define prh_array_queue_pop(struct_ptr, PREFIX) \
+    (prh_typeof(prh_impl_arque_ptr(PREFIX)))prh_impl_arque_pop(prh_impl_arque_ptr(PREFIX), sizeof(*prh_impl_arque_ptr(PREFIX)))
+
+#define prh_array_queue_cap(struct_ptr, PREFIX) prh_impl_arque_cap(prh_impl_arque_ptr(PREFIX))
+#define prh_array_queue_len(struct_ptr, PREFIX) prh_impl_arque_len(prh_impl_arque_ptr(PREFIX))
+
+#ifdef PRH_ARRAY_QUEUE_STRIP_PREFIX
+#define array_queue_init    prh_array_queue_init
+#define array_queue_free    prh_array_queue_free
+#define array_queue_push    prh_array_queue_push
+#define array_queue_pop     prh_array_queue_pop
+#define array_queue_cap     prh_array_queue_cap
+#define array_queue_len     prh_array_queue_len
 #endif
-#endif
+
+#ifdef PRH_ARRAY_QUEUE_IMPLEMENTATION
+void *prh_impl_arque_init(prh_signed capacity, prh_signed object_size) {
+    if (capacity == 0) return prh_null;
+    assert(prh_is_power_of_2(capacity));
+    prh_signed alloc_size = sizeof(prh_impl_arque_header_t) + prh_round_ptrsize(object_size * capacity);
+    prh_impl_arque_header_t *p = prh_malloc(alloc_size);
+    p->cap = size;
+    p->head = p->tail = 0;
+    return p + 1;
+}
+
+void prh_impl_arque_free(void *queue) {
+    if (queue == prh_null) return;
+    prh_free(((prh_impl_arque_header_t *)queue) - 1);
+}
+
+prh_signed prh_impl_arque_len(void *queue) {
+    prh_impl_arque_header_t *h = ((prh_impl_arque_header_t *)queue) - 1;
+    prh_signed len = h->tail - h->head;
+    if (len < 0) return len + h->capacity;
+    return len;
+}
+
+void *prh_impl_arque_pop(void *queue, prh_signed object_size) {
+    prh_impl_arque_header_t *h = ((prh_impl_arque_header_t)queue) - 1;
+    if (prh_impl_arque_empty(h)) return prh_null;
+    void *top = (char *)queue + object_size * h->head;
+    h->head = prh_impl_arque_nextpos(h, h->head);
+    return top;
+}
+
+void *prh_impl_arque_push(void *queue, prh_signed object_size) {
+    prh_impl_arque_header_t *h = ((prh_impl_arque_header_t)queue) - 1;
+    if (prh_impl_arque_full(h)) return prh_null;
+    void *tail = (char *)queue + object_size * h->tail;
+    h->tail = prh_impl_arque_nextpos(h, h->tail);
+    return tail;
+}
+#endif // PRH_ARRAY_QUEUE_IMPLEMENTATION
+#endif // PRH_ARRAY_QUEUE_INCLUDE
 
 #ifdef PRH_LIST_INCLUDE
 typedef struct prh_snode {
@@ -905,16 +1043,15 @@ typedef struct prh_node {
     struct prh_node *next;
     struct prh_node *prev;
 } prh_node_t;
+#endif // PRH_LIST_INCLUDE
 
 #ifdef PRH_LIST_QUEUE_INCLUDE
 // Dynamic allocated link list queue. Each node can have different size, but
 // must cotain prh_snode_t as the header.
-//
 //  struct list_queue_node {
 //      prh_snode_t snode_head; // must be 1st field
 //      ... other custom node data ...
 //  };
-
 typedef struct { // zero initialize
     prh_snode_t *head;
     prh_snode_t *tail;
@@ -933,7 +1070,28 @@ prh_list_queue_t prh_list_queue_move(prh_list_queue_t *q);
 void prh_list_queue_push(prh_list_queue_t *q, prh_snode_t *new_node);
 prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q);
 
-#ifdef PRH_LIST_STRIP_PREFIX
+// Dynamic allocated link list queue. The node can contain any object and with
+// different size. If the size < sizeof(void *), the size is rounded up to
+// sizeof(void *).
+typedef struct { // zero initialize
+    prh_snode_t *head;
+    prh_snode_t *tail;
+} prh_size_queue_t;
+
+prh_inline void prh_size_queue_init(prh_size_queue_t *q) {
+    prh_list_queue_init((prh_list_queue_t *)q);
+}
+
+prh_inline bool prh_size_queue_empty(prh_size_queue_t *q) {
+    return prh_list_queue_empty((prh_list_queue_t *)q);
+}
+
+void prh_size_queue_clear(prh_size_queue_t *q, void (*object_deinit_func)(void *));
+void *prh_size_queue_push(prh_size_queue_t *q, int object_size); // return allocated zero initialized object address
+void *prh_size_queue_top(prh_size_queue_t *q); // return top object address or null
+void prh_size_queue_pop(prh_size_queue_t *q, void (*object_deinit_func)(void *));
+
+#ifdef PRH_LIST_QUEUE_STRIP_PREFIX
 #define list_queue_t        prh_list_queue_t
 #define list_queue_init     prh_list_queue_init
 #define list_queue_empty    prh_list_queue_empty
@@ -941,9 +1099,17 @@ prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q);
 #define list_queue_move     prh_list_queue_move
 #define list_queue_push     prh_list_queue_push
 #define list_queue_pop      prh_list_queue_pop
-#endif // PRH_LIST_STRIP_PREFIX
+#define size_queue_t        prh_size_queue_t
+#define size_queue_init     prh_size_queue_init
+#define size_queue_empty    prh_size_queue_empty
+#define size_queue_clear    prh_size_queue_clear
+#define size_queue_move     prh_size_queue_move
+#define size_queue_push     prh_size_queue_push
+#define size_queue_top      prh_size_queue_top
+#define size_queue_pop      prh_size_queue_pop
+#endif // PRH_LIST_QUEUE_STRIP_PREFIX
 
-#ifdef PRH_LIST_IMPLEMENTATION
+#ifdef PRH_LIST_QUEUE_IMPLEMENTATION
 void prh_list_queue_clear(prh_list_queue_t *q, void (*node_free_func)(void *)) {
     if (node_free_func) {
         prh_snode_t *next = q->head;
@@ -978,41 +1144,7 @@ prh_snode_t *prh_list_queue_pop(prh_list_queue_t *q) {
     }
     return top;
 }
-#endif
 
-// Dynamic allocated link list queue. The node can contain any object and with
-// different size. If the size < sizeof(void *), the size is rounded up to
-// sizeof(void *).
-typedef struct { // zero initialize
-    prh_snode_t *head;
-    prh_snode_t *tail;
-} prh_size_queue_t;
-
-prh_inline void prh_size_queue_init(prh_size_queue_t *q) {
-    prh_list_queue_init((prh_list_queue_t *)q);
-}
-
-prh_inline bool prh_size_queue_empty(prh_size_queue_t *q) {
-    return prh_list_queue_empty((prh_list_queue_t *)q);
-}
-
-void prh_size_queue_clear(prh_size_queue_t *q, void (*object_deinit_func)(void *));
-void *prh_size_queue_push(prh_size_queue_t *q, int object_size); // return allocated zero initialized object address
-void *prh_size_queue_top(prh_size_queue_t *q); // return top object address or null
-void prh_size_queue_pop(prh_size_queue_t *q, void (*object_deinit_func)(void *));
-
-#ifdef PRH_LIST_STRIP_PREFIX
-#define size_queue_t        prh_size_queue_t
-#define size_queue_init     prh_size_queue_init
-#define size_queue_empty    prh_size_queue_empty
-#define size_queue_clear    prh_size_queue_clear
-#define size_queue_move     prh_size_queue_move
-#define size_queue_push     prh_size_queue_push
-#define size_queue_top      prh_size_queue_top
-#define size_queue_pop      prh_size_queue_pop
-#endif // PRH_LIST_STRIP_PREFIX
-
-#ifdef PRH_LIST_IMPLEMENTATION
 void prh_size_queue_clear(prh_size_queue_t *q, void (*object_deinit_func)(void *)) {
     prh_snode_t *next = q->head;
     while (next) {
@@ -1052,10 +1184,8 @@ void prh_size_queue_pop(prh_size_queue_t *q, void (*object_deinit_func)(void *))
     }
     prh_free(top);
 }
-#endif
-
+#endif // PRH_LIST_QUEUE_IMPLEMENTATION
 #endif // PRH_LIST_QUEUE_INCLUDE
-#endif // PRH_LIST_INCLUDE
 
 // COROUTINES - Very simple single file style coroutine library
 #ifdef PRH_CORO_INCLUDE
@@ -1536,9 +1666,7 @@ void prh_solo_finish(prh_solo_struct *main) {
 #endif // PRH_CORO_IMPLEMENTATION
 #endif // PRH_CORO_INCLUDE
 
-// CONCURRENCY - Very simple single file style concurrency library
-#ifdef PRH_CONC_INCLUDE
-
+#ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
 // 何其他原子操作能够访问该对象之前，每个原子操作都会在该对象上完整地执行完毕。这就保
 // 证了在这些对象上不会出现数据竞争，而这也正是定义原子性的关键特征。
@@ -1716,147 +1844,47 @@ int prh_atomintque_top(prh_atomintque_t *q);
 int prh_atomintque_len(prh_atomintque_t *q);
 int prh_atomintque_cap(prh_atomintque_t *q);
 
-typedef struct prh_thrd prh_thrd_t;
-typedef struct prh_thrd_struct prh_thrd_struct;
-typedef int (*prh_thrdproc_t)(prh_thrd_t* thrd);
-
-int prh_thread_id(prh_thrd_t *thrd);
-int prh_thread_index(prh_thrd_t *thrd);
-void *prh_thread_userdata(prh_thrd_t *thrd);
-int prh_thread_count(prh_thrd_struct *s);
-prh_thrd_t *prh_thread_main(prh_thrd_struct *s);
-prh_thrd_t *prh_thread_get(prh_thrd_struct *s, int index);
-prh_thrd_t *prh_thread_self(void);
-
-int prh_thread_alloc_size(int maxthreads, int mainudsize);
-prh_thrd_struct *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize); // addr shall be previously zero initialized
-prh_thrd_struct *prh_thread_init(int start_id, int maxthreads, int mainudsize);
-void *prh_thread_create(prh_thrd_struct *s, prh_thrdproc_t proc, int stacksize, int thrdudsize);
-void prh_thread_join(prh_thrd_struct **s, void (*thrd_udata_free)(void *));
-
-typedef struct prh_thrd_mutex prh_thrd_mutex_t;
-prh_thrd_mutex_t *prh_thrd_mutex_init(void);
-prh_thrd_mutex_t *prh_thrd_recursive_mutex_init(void);
-void prh_thrd_mutex_lock(prh_thrd_mutex_t *p);
-void prh_thrd_mutex_unlock(prh_thrd_mutex_t *p);
-void prh_thrd_mutex_free(prh_thrd_mutex_t **p);
-
-typedef struct prh_thrd_cond prh_thrd_cond_t;
-prh_thrd_cond_t *prh_thrd_cond_init(void);
-void prh_thrd_cond_wait(prh_thrd_cond_t *p);
-bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec);
-void prh_thrd_cond_signal(prh_thrd_cond_t *p);
-void prh_thrd_cond_broadcast(prh_thrd_cond_t *p);
-void prh_thrd_cond_free(prh_thrd_cond_t **p);
-
-#ifdef PRH_CONC_TEST
-    void prh_conc_test(void);
-#else
-    #define prh_conc_test()
+#ifdef PRH_ATOMIC_STRIP_PREFIX
+#define atombool_t                  prh_atombool_t
+#define atomint_t                   prh_atomint_t
+#define atomptr_t                   prh_atomptr_t
+#define atomtype_init               prh_atomtype_init
+#define atomtype_load               prh_atomtype_load
+#define atomtype_store              prh_atomtype_store
+#define atomtype_exchange           prh_atomtype_exchange
+#define atomtype_compare_exchange   prh_atomtype_compare_exchange
+#define atomint_inc                 prh_atomint_inc
+#define atomint_dec                 prh_atomint_dec
+#define atomptrlistque_t            prh_atomptrlistque_t
+#define atomptrlistque_init         prh_atomptrlistque_init
+#define atomptrlistque_free         prh_atomptrlistque_free
+#define atomptrlistque_push         prh_atomptrlistque_push
+#define atomptrlistque_pop          prh_atomptrlistque_pop
+#define atomptrlistque_top          prh_atomptrlistque_top
+#define atomptrlistque_len          prh_atomptrlistque_len
+#define atomptrque_t                prh_atomptrque_t
+#define atomptrque_alloc_size       prh_atomptrque_alloc_size
+#define atomptrque_init_inplace     prh_atomptrque_init_inplace
+#define atomptrque_init             prh_atomptrque_init
+#define atomptrque_free             prh_atomptrque_free
+#define atomptrque_push             prh_atomptrque_push
+#define atomptrque_pop              prh_atomptrque_pop
+#define atomptrque_top              prh_atomptrque_top
+#define atomptrque_len              prh_atomptrque_len
+#define atomptrque_cap              prh_atomptrque_cap
+#define atomintque_t                prh_atomintque_t
+#define atomintque_alloc_size       prh_atomintque_alloc_size
+#define atomintque_init_inplace     prh_atomintque_init_inplace
+#define atomintque_init             prh_atomintque_init
+#define atomintque_free             prh_atomintque_free
+#define atomintque_push             prh_atomintque_push
+#define atomintque_pop              prh_atomintque_pop
+#define atomintque_top              prh_atomintque_top
+#define atomintque_len              prh_atomintque_len
+#define atomintque_cap              prh_atomintque_cap
 #endif
 
-#ifdef PRH_CONC_STRIP_PREFIX
-#define thrd_t                  prh_thrd_t
-#define thrd_struct             prh_thrd_struct
-#define thread_id               prh_thread_id
-#define thread_index            prh_thread_index
-#define thread_userdata         prh_thread_userdata
-#define thread_count            prh_thread_count
-#define thread_main             prh_thread_main
-#define thread_get              prh_thread_get
-#define thread_self             prh_thread_self
-#define thread_alloc_size       prh_thread_alloc_size
-#define thread_init_inplace     prh_thread_init_inplace
-#define thread_init             prh_thread_init
-#define thread_create           prh_thread_create
-#define thread_join             prh_thread_join
-#define thrd_mutex_t            prh_thrd_mutex_t
-#define thrd_mutex_init         prh_thrd_mutex_init
-#define thrd_recursive_mutex_init prh_thrd_recursive_mutex_init
-#define thrd_mutex_lock         prh_thrd_mutex_lock
-#define thrd_mutex_unlock       prh_thrd_mutex_unlock
-#define thrd_mutex_free         prh_thrd_mutex_free
-#define thrd_cond_t             prh_thrd_cond_t
-#define thrd_cond_init          prh_thrd_cond_init
-#define thrd_cond_wait          prh_thrd_cond_wait
-#define thrd_cond_timedwait     prh_thrd_cond_timedwait
-#define thrd_cond_signal        prh_thrd_cond_signal
-#define thrd_cond_broadcast     prh_thrd_cond_broadcast
-#define thrd_cond_free          prh_thrd_cond_free
-#define atombool_t              prh_atombool_t
-#define atomint_t               prh_atomint_t
-#define atomptr_t               prh_atomptr_t
-#define atomtype_init           prh_atomtype_init
-#define atomtype_load           prh_atomtype_load
-#define atomtype_store          prh_atomtype_store
-#define atomtype_exchange       prh_atomtype_exchange
-#define atomtype_compare_exchange prh_atomtype_compare_exchange
-#define atomint_inc             prh_atomint_inc
-#define atomint_dec             prh_atomint_dec
-#define atomptrlistque_t           prh_atomptrlistque_t
-#define atomptrlistque_init        prh_atomptrlistque_init
-#define atomptrlistque_free        prh_atomptrlistque_free
-#define atomptrlistque_push        prh_atomptrlistque_push
-#define atomptrlistque_pop         prh_atomptrlistque_pop
-#define atomptrlistque_top         prh_atomptrlistque_top
-#define atomptrlistque_len         prh_atomptrlistque_len
-#define atomptrque_t               prh_atomptrque_t
-#define atomptrque_alloc_size      prh_atomptrque_alloc_size
-#define atomptrque_init_inplace    prh_atomptrque_init_inplace
-#define atomptrque_init            prh_atomptrque_init
-#define atomptrque_free            prh_atomptrque_free
-#define atomptrque_push            prh_atomptrque_push
-#define atomptrque_pop             prh_atomptrque_pop
-#define atomptrque_top             prh_atomptrque_top
-#define atomptrque_len             prh_atomptrque_len
-#define atomptrque_cap             prh_atomptrque_cap
-#define atomintque_t            prh_atomintque_t
-#define atomintque_alloc_size   prh_atomintque_alloc_size
-#define atomintque_init_inplace prh_atomintque_init_inplace
-#define atomintque_init         prh_atomintque_init
-#define atomintque_free         prh_atomintque_free
-#define atomintque_push         prh_atomintque_push
-#define atomintque_pop          prh_atomintque_pop
-#define atomintque_top          prh_atomintque_top
-#define atomintque_len          prh_atomintque_len
-#define atomintque_cap          prh_atomintque_cap
-#endif // PRH_CONC_STRIP_PREFIX
-
-#ifdef PRH_CONC_IMPLEMENTATION
-#ifndef PRH_THRD_DEBUG
-#define PRH_THRD_DEBUG PRH_DEBUG
-#endif
-
-#ifndef PRH_CONC_DEBUG
-#define PRH_CONC_DEBUG PRH_DEBUG
-#endif
-
-#ifdef PRH_CONC_TEST
-void prh_impl_atomic_test(void) {
-    atomic_flag f; atomic_bool b; atomic_int i; atomic_uint u;
-    atomic_intptr_t ip; atomic_uintptr_t up; atomic_size_t sz; atomic_ptrdiff_t pd;
-    atomic_char ch; atomic_schar sc; atomic_uchar uc; atomic_short sh;
-    atomic_ushort uh; atomic_long sl; atomic_ulong ul; atomic_llong ll; atomic_ullong ull;
-    printf("atomic_flag size %d align %d lock free %d\n", (int)sizeof(atomic_flag), (int)prh_alignof(atomic_flag), atomic_is_lock_free(&f));
-    printf("atomic_bool size %d align %d lock free %d\n", (int)sizeof(atomic_bool), (int)prh_alignof(atomic_bool), atomic_is_lock_free(&b));
-    printf("atomic_int size %d align %d lock free %d\n", (int)sizeof(atomic_int), (int)prh_alignof(atomic_int), atomic_is_lock_free(&i));
-    printf("atomic_uint size %d align %d lock free %d\n", (int)sizeof(atomic_uint), (int)prh_alignof(atomic_uint), atomic_is_lock_free(&u));
-    printf("atomic_intptr_t size %d align %d lock free %d\n", (int)sizeof(atomic_intptr_t), (int)prh_alignof(atomic_intptr_t), atomic_is_lock_free(&ip));
-    printf("atomic_uintptr_t size %d align %d lock free %d\n", (int)sizeof(atomic_uintptr_t), (int)prh_alignof(atomic_uintptr_t), atomic_is_lock_free(&up));
-    printf("atomic_size_t size %d align %d lock free %d\n", (int)sizeof(atomic_size_t), (int)prh_alignof(atomic_size_t), atomic_is_lock_free(&sz));
-    printf("atomic_ptrdiff_t size %d align %d lock free %d\n", (int)sizeof(atomic_ptrdiff_t), (int)prh_alignof(atomic_ptrdiff_t), atomic_is_lock_free(&pd));
-    printf("atomic_char size %d align %d lock free %d\n", (int)sizeof(atomic_char), (int)prh_alignof(atomic_char), atomic_is_lock_free(&ch));
-    printf("atomic_schar size %d align %d lock free %d\n", (int)sizeof(atomic_schar), (int)prh_alignof(atomic_schar), atomic_is_lock_free(&sc));
-    printf("atomic_uchar size %d align %d lock free %d\n", (int)sizeof(atomic_uchar), (int)prh_alignof(atomic_uchar), atomic_is_lock_free(&uc));
-    printf("atomic_short size %d align %d lock free %d\n", (int)sizeof(atomic_short), (int)prh_alignof(atomic_short), atomic_is_lock_free(&sh));
-    printf("atomic_ushort size %d align %d lock free %d\n", (int)sizeof(atomic_ushort), (int)prh_alignof(atomic_ushort), atomic_is_lock_free(&uh));
-    printf("atomic_long size %d align %d lock free %d\n", (int)sizeof(atomic_long), (int)prh_alignof(atomic_long), atomic_is_lock_free(&sl));
-    printf("atomic_ulong size %d align %d lock free %d\n", (int)sizeof(atomic_ulong), (int)prh_alignof(atomic_ulong), atomic_is_lock_free(&ul));
-    printf("atomic_llong size %d align %d lock free %d\n", (int)sizeof(atomic_llong), (int)prh_alignof(atomic_llong), atomic_is_lock_free(&ll));
-    printf("atomic_ullong size %d align %d lock free %d\n", (int)sizeof(atomic_ullong), (int)prh_alignof(atomic_ullong), atomic_is_lock_free(&ull));
-}
-#endif
-
+#ifdef PRH_ATOMIC_IMPLEMENTATION
 void prh_impl_atomlistque_free(prh_snode_t *head, void (*node_deinit_func)(void *item)) {
     while (head != prh_null) {
         prh_snode_t *p = head;
@@ -2097,6 +2125,104 @@ int prh_atomintque_top(prh_atomintque_t *q) {
     }
     return prh_impl_get_int_que(q)[head];
 }
+
+#ifdef PRH_ATOMIC_TEST
+void prh_impl_atomic_test(void) {
+    atomic_flag f; atomic_bool b; atomic_int i; atomic_uint u;
+    atomic_intptr_t ip; atomic_uintptr_t up; atomic_size_t sz; atomic_ptrdiff_t pd;
+    atomic_char ch; atomic_schar sc; atomic_uchar uc; atomic_short sh;
+    atomic_ushort uh; atomic_long sl; atomic_ulong ul; atomic_llong ll; atomic_ullong ull;
+    printf("\n\n[atomic]\n");
+    printf("atomic_flag size %d align %d lock free %d\n", (int)sizeof(atomic_flag), (int)prh_alignof(atomic_flag), atomic_is_lock_free(&f));
+    printf("atomic_bool size %d align %d lock free %d\n", (int)sizeof(atomic_bool), (int)prh_alignof(atomic_bool), atomic_is_lock_free(&b));
+    printf("atomic_int size %d align %d lock free %d\n", (int)sizeof(atomic_int), (int)prh_alignof(atomic_int), atomic_is_lock_free(&i));
+    printf("atomic_uint size %d align %d lock free %d\n", (int)sizeof(atomic_uint), (int)prh_alignof(atomic_uint), atomic_is_lock_free(&u));
+    printf("atomic_intptr_t size %d align %d lock free %d\n", (int)sizeof(atomic_intptr_t), (int)prh_alignof(atomic_intptr_t), atomic_is_lock_free(&ip));
+    printf("atomic_uintptr_t size %d align %d lock free %d\n", (int)sizeof(atomic_uintptr_t), (int)prh_alignof(atomic_uintptr_t), atomic_is_lock_free(&up));
+    printf("atomic_size_t size %d align %d lock free %d\n", (int)sizeof(atomic_size_t), (int)prh_alignof(atomic_size_t), atomic_is_lock_free(&sz));
+    printf("atomic_ptrdiff_t size %d align %d lock free %d\n", (int)sizeof(atomic_ptrdiff_t), (int)prh_alignof(atomic_ptrdiff_t), atomic_is_lock_free(&pd));
+    printf("atomic_char size %d align %d lock free %d\n", (int)sizeof(atomic_char), (int)prh_alignof(atomic_char), atomic_is_lock_free(&ch));
+    printf("atomic_schar size %d align %d lock free %d\n", (int)sizeof(atomic_schar), (int)prh_alignof(atomic_schar), atomic_is_lock_free(&sc));
+    printf("atomic_uchar size %d align %d lock free %d\n", (int)sizeof(atomic_uchar), (int)prh_alignof(atomic_uchar), atomic_is_lock_free(&uc));
+    printf("atomic_short size %d align %d lock free %d\n", (int)sizeof(atomic_short), (int)prh_alignof(atomic_short), atomic_is_lock_free(&sh));
+    printf("atomic_ushort size %d align %d lock free %d\n", (int)sizeof(atomic_ushort), (int)prh_alignof(atomic_ushort), atomic_is_lock_free(&uh));
+    printf("atomic_long size %d align %d lock free %d\n", (int)sizeof(atomic_long), (int)prh_alignof(atomic_long), atomic_is_lock_free(&sl));
+    printf("atomic_ulong size %d align %d lock free %d\n", (int)sizeof(atomic_ulong), (int)prh_alignof(atomic_ulong), atomic_is_lock_free(&ul));
+    printf("atomic_llong size %d align %d lock free %d\n", (int)sizeof(atomic_llong), (int)prh_alignof(atomic_llong), atomic_is_lock_free(&ll));
+    printf("atomic_ullong size %d align %d lock free %d\n", (int)sizeof(atomic_ullong), (int)prh_alignof(atomic_ullong), atomic_is_lock_free(&ull));
+}
+#endif // PRH_ATOMIC_TEST
+#endif // PRH_ATOMIC_IMPLEMENTATION
+#endif // PRH_ATOMIC_INCLUDE
+
+#ifdef PRH_THRD_INCLUDE
+typedef struct prh_thrd prh_thrd_t;
+typedef struct prh_thrd_struct prh_thrd_struct;
+typedef int (*prh_thrdproc_t)(prh_thrd_t* thrd);
+
+int prh_thread_id(prh_thrd_t *thrd);
+int prh_thread_index(prh_thrd_t *thrd);
+void *prh_thread_userdata(prh_thrd_t *thrd);
+int prh_thread_count(prh_thrd_struct *s);
+prh_thrd_t *prh_thread_main(prh_thrd_struct *s);
+prh_thrd_t *prh_thread_get(prh_thrd_struct *s, int index);
+prh_thrd_t *prh_thread_self(void);
+
+int prh_thread_alloc_size(int maxthreads, int mainudsize);
+prh_thrd_struct *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize); // addr shall be previously zero initialized
+prh_thrd_struct *prh_thread_init(int start_id, int maxthreads, int mainudsize);
+void *prh_thread_create(prh_thrd_struct *s, prh_thrdproc_t proc, int stacksize, int thrdudsize);
+void prh_thread_join(prh_thrd_struct **s, void (*thrd_udata_free)(void *));
+
+typedef struct prh_thrd_mutex prh_thrd_mutex_t;
+prh_thrd_mutex_t *prh_thrd_mutex_init(void);
+prh_thrd_mutex_t *prh_thrd_recursive_mutex_init(void);
+void prh_thrd_mutex_lock(prh_thrd_mutex_t *p);
+void prh_thrd_mutex_unlock(prh_thrd_mutex_t *p);
+void prh_thrd_mutex_free(prh_thrd_mutex_t **p);
+
+typedef struct prh_thrd_cond prh_thrd_cond_t;
+prh_thrd_cond_t *prh_thrd_cond_init(void);
+void prh_thrd_cond_wait(prh_thrd_cond_t *p);
+bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec);
+void prh_thrd_cond_signal(prh_thrd_cond_t *p);
+void prh_thrd_cond_broadcast(prh_thrd_cond_t *p);
+void prh_thrd_cond_free(prh_thrd_cond_t **p);
+
+#ifdef PRH_THRD_STRIP_PREFIX
+#define thrd_t                  prh_thrd_t
+#define thrd_struct             prh_thrd_struct
+#define thread_id               prh_thread_id
+#define thread_index            prh_thread_index
+#define thread_userdata         prh_thread_userdata
+#define thread_count            prh_thread_count
+#define thread_main             prh_thread_main
+#define thread_get              prh_thread_get
+#define thread_self             prh_thread_self
+#define thread_alloc_size       prh_thread_alloc_size
+#define thread_init_inplace     prh_thread_init_inplace
+#define thread_init             prh_thread_init
+#define thread_create           prh_thread_create
+#define thread_join             prh_thread_join
+#define thrd_mutex_t            prh_thrd_mutex_t
+#define thrd_mutex_init         prh_thrd_mutex_init
+#define thrd_recursive_mutex_init prh_thrd_recursive_mutex_init
+#define thrd_mutex_lock         prh_thrd_mutex_lock
+#define thrd_mutex_unlock       prh_thrd_mutex_unlock
+#define thrd_mutex_free         prh_thrd_mutex_free
+#define thrd_cond_t             prh_thrd_cond_t
+#define thrd_cond_init          prh_thrd_cond_init
+#define thrd_cond_wait          prh_thrd_cond_wait
+#define thrd_cond_timedwait     prh_thrd_cond_timedwait
+#define thrd_cond_signal        prh_thrd_cond_signal
+#define thrd_cond_broadcast     prh_thrd_cond_broadcast
+#define thrd_cond_free          prh_thrd_cond_free
+#endif
+
+#ifdef PRH_THRD_IMPLEMENTATION
+#ifndef PRH_THRD_DEBUG
+#define PRH_THRD_DEBUG PRH_DEBUG
+#endif
 
 #if defined(_WIN32)
 
@@ -2621,7 +2747,6 @@ int prh_atomintque_top(prh_atomintque_t *q) {
 // NPTL的性能优于LinuxThreads，也更符合SUSv3的pthreads标准。对NPTL的支持需要修改内
 // 核，这始于Linux 2.6。值得强调的是，LinuxThreads实现已经过时，并且glibc从2.4版本
 // 开始也已不再支持它，所有新的线程库开发都基于NPTL。
-
 struct prh_thrd {
     prh_thrd_struct *basestruct;
     prh_thrdproc_t proc;
@@ -2994,7 +3119,7 @@ void prh_thrd_cond_broadcast(prh_thrd_cond_t *p) {
     prh_zeroret(pthread_cond_broadcast(&p->cond));
 }
 
-#ifdef PRH_CONC_TEST
+#ifdef PRH_THRD_TEST
 // In SUSv2 the getpagesize() call was labeled LEGACY, and it was removed in
 // POSIX.1-2001.
 int getpagesize(void);
@@ -3006,7 +3131,7 @@ int getpagesize(void);
 // https://www.man7.org/linux/man-pages/man3/confstr.3p.html
 // https://www.man7.org/linux/man-pages/man3/sysconf.3.html
 // https://www.man7.org/linux/man-pages/man3/sysconf.3p.html
-void prh_conc_test(void) {
+void prh_impl_thrd_test(void) {
     long n = 0;
     char buf[32];
     struct rlimit l = {0};
@@ -3084,13 +3209,32 @@ void prh_conc_test(void) {
     printf("ENOTSUP = %d\n", ENOTSUP);
     printf("ESRCH = %d\n", ESRCH);
     assert(sizeof(pthread_t) <= sizeof(void *));
+}
+#endif // PRH_THRD_TEST
+#endif // PTHREAD end
+#endif // PRH_THRD_IMPLEMENTATION
+#endif // PRH_THRD_INCLUDE
 
-    printf("\n\n[GNU][atomic]\n");
+// CONCURRENCY - Very simple single file style concurrency library
+#ifdef PRH_CONC_INCLUDE
+
+#ifdef PRH_CONC_TEST
+    void prh_conc_test(void);
+#else
+    #define prh_conc_test()
+#endif
+
+#ifdef PRH_CONC_STRIP_PREFIX
+
+#endif // PRH_CONC_STRIP_PREFIX
+
+#ifdef PRH_CONC_IMPLEMENTATION
+#ifdef PRH_CONC_TEST
+void prh_conc_test(void) {
     prh_impl_atomic_test();
+    prh_impl_thrd_test();
 }
 #endif // PRH_CONC_TEST
-#endif // PTHREAD
-
 #endif // PRH_CONC_IMPLEMENTATION
 #endif // PRH_CONC_INCLUDE
 
