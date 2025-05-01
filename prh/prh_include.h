@@ -457,8 +457,8 @@ extern "C" {
     #define prh_static_assert(const_expr) typedef int prh_impl_static_assert[(const_expr) ? 1 : -1]
 #endif
 
-#ifndef PRH_ARRAY_SIZE
-    #define PRH_ARRAY_SIZE(a) (sizeof(a)/sizeof((a)[0]))
+#ifndef PRH_ARRAY_LEN
+    #define PRH_ARRAY_LEN(a) (sizeof(a)/sizeof((a)[0]))
 #endif
 
 #ifndef PRH_NOT_USE
@@ -699,18 +699,19 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
 #endif
 
 #ifdef PRH_CONC_IMPLEMENTATION
-#define PRH_BASIC_IMPLEMENTATION
+#define PRH_BASE_IMPLEMENTATION
 #define PRH_LIST_IMPLEMENTATION
 #define PRH_QUEUE_IMPLEMENTATION
 #define PRH_ATOMIC_IMPLEMENTATION
 #define PRH_THRD_IMPLEMENTATION
+#define PRH_CORO_IMPLEMENTATION
 #ifdef PRH_CONC_TEST
     #define PRH_ATOMIC_TEST
     #define PRH_THRD_TEST
 #endif
 #endif
 
-#ifdef PRH_BASIC_IMPLEMENTATION
+#ifdef PRH_BASE_IMPLEMENTATION
 #include <stdio.h>
 void prh_impl_prerr(int err, int line) {
     fprintf(stderr, "error: %d at %d\n", err, line);
@@ -732,6 +733,7 @@ void prh_impl_prerr(int err, int line) {
 #define PRH_QUEUE_INCLUDE
 #define PRH_ATOMIC_INCLUDE
 #define PRH_THRD_INCLUDE
+#define PRH_CORO_INCLUDE
 #ifdef PRH_CONC_STRIP_PREFIX
     #define PRH_ATOMIC_STRIP_PREFIX
     #define PRH_THRD_STRIP_PREFIX
@@ -778,7 +780,7 @@ void prh_impl_prerr(int err, int line) {
 //   array_push_elt(&dyn_ints, &elt);
 //
 //   int elts[] = {3, 4, 5};
-//   array_push_elts(&dyn_ints, elts, PRH_ARRAY_SIZE(elts));
+//   array_push_elts(&dyn_ints, elts, PRH_ARRAY_LEN(elts));
 //
 //   array_pop(&dyn_ints);
 //   array_pop_elts(&dyn_ints, 2);
@@ -972,8 +974,7 @@ typedef struct {
     prh_intp tail;
 } prh_impl_arrque_t;
 
-#define prh_impl_arque(PREFIX) prh_impl_ptr->prh_macro_concat_name(PREFIX, _array_queue)
-#define prh_impl_arrque_ptr(PREFIX) (struct_ptr)->prh_macro_concat_name(PREFIX, _array_queue)
+#define prh_impl_arrque(p, PREFIX) ((p)->prh_macro_concat_name(PREFIX, _array_queue))
 #define prh_impl_arrque_nextpos(h, pos) (((pos) + 1) & ((h)->capacity - 1))
 void *prh_impl_arrque_init(prh_intp capacity, prh_intp object_size);
 void prh_impl_arrque_free(void *queue);
@@ -996,24 +997,29 @@ prh_inline prh_intp prh_impl_arrque_cap(void *queue) {
 
 #define prh_arrayqueue_init(struct_ptr, PREFIX, size) { \
     prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
-    typedef prh_typeof(prh_impl_arque(PREFIX)) prh_impl_objptr_t; \
-    prh_impl_arque(PREFIX) = (prh_impl_objptr_t)prh_impl_arrque_init(size, sizeof(*prh_impl_arque(PREFIX))); \
+    typedef prh_typeof(prh_impl_arrque(prh_impl_ptr, PREFIX)) prh_impl_objptr_t; \
+    prh_impl_arrque(prh_impl_ptr, PREFIX) = (prh_impl_objptr_t)prh_impl_arrque_init((size), \
+            sizeof(*prh_impl_arrque(prh_impl_ptr, PREFIX))); \
 }
 
 #define prh_arrayqueue_free(struct_ptr, PREFIX) { \
     prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
-    prh_impl_arrque_free(prh_impl_arque(PREFIX)); \
-    prh_impl_arque(PREFIX) = prh_null; \
+    prh_impl_arrque_free(prh_impl_arrque(prh_impl_ptr, PREFIX)); \
+    prh_impl_arrque(prh_impl_ptr, PREFIX) = prh_null; \
 }
 
 #define prh_arrayqueue_push(struct_ptr, PREFIX) \
-    (prh_typeof(prh_impl_arrque_ptr(PREFIX)))prh_impl_arrque_push(prh_impl_arrque_ptr(PREFIX), sizeof(*prh_impl_arrque_ptr(PREFIX)))
+    (prh_typeof(prh_impl_arrque((struct_ptr), PREFIX)))prh_impl_arrque_push( \
+        prh_impl_arrque((struct_ptr), PREFIX), \
+        sizeof(*prh_impl_arrque((struct_ptr), PREFIX)))
 
 #define prh_arrayqueue_pop(struct_ptr, PREFIX) \
-    (prh_typeof(prh_impl_arrque_ptr(PREFIX)))prh_impl_arrque_pop(prh_impl_arrque_ptr(PREFIX), sizeof(*prh_impl_arrque_ptr(PREFIX)))
+    (prh_typeof(prh_impl_arrque((struct_ptr), PREFIX)))prh_impl_arrque_pop( \
+        prh_impl_arrque((struct_ptr), PREFIX), \
+        sizeof(*prh_impl_arrque((struct_ptr), PREFIX)))
 
-#define prh_arrayqueue_cap(struct_ptr, PREFIX) prh_impl_arrque_cap(prh_impl_arrque_ptr(PREFIX))
-#define prh_arrayqueue_len(struct_ptr, PREFIX) prh_impl_arrque_len(prh_impl_arrque_ptr(PREFIX))
+#define prh_arrayqueue_cap(struct_ptr, PREFIX) prh_impl_arrque_cap(prh_impl_arrque((struct_ptr), PREFIX))
+#define prh_arrayqueue_len(struct_ptr, PREFIX) prh_impl_arrque_len(prh_impl_arrque((struct_ptr), PREFIX))
 
 #ifdef PRH_QUEUE_STRIP_PREFIX
 #define arrayqueue_init    prh_arrayqueue_init
@@ -1083,19 +1089,24 @@ prh_inline bool prh_nodequeue_empty(prh_nodequeue_t *q) {
     return q->head == prh_null;
 }
 
+prh_inline prh_nods_t *prh_nodequeue_top(prh_nodequeue_t *q) {
+    return q->head;
+}
+
 void prh_nodequeue_clear(prh_nodequeue_t *q, void (*node_free_func)(void *));
 prh_nodequeue_t prh_nodequeue_move(prh_nodequeue_t *q);
 void prh_nodequeue_push(prh_nodequeue_t *q, prh_nods_t *new_node);
 prh_nods_t *prh_nodequeue_pop(prh_nodequeue_t *q);
 
 #ifdef PRH_QUEUE_STRIP_PREFIX
-#define nodequeue_t        prh_nodequeue_t
-#define nodequeue_init     prh_nodequeue_init
-#define nodequeue_empty    prh_nodequeue_empty
-#define nodequeue_clear    prh_nodequeue_clear
-#define nodequeue_move     prh_nodequeue_move
-#define nodequeue_push     prh_nodequeue_push
-#define nodequeue_pop      prh_nodequeue_pop
+#define nodequeue_t         prh_nodequeue_t
+#define nodequeue_init      prh_nodequeue_init
+#define nodequeue_empty     prh_nodequeue_empty
+#define nodequeue_clear     prh_nodequeue_clear
+#define nodequeue_move      prh_nodequeue_move
+#define nodequeue_push      prh_nodequeue_push
+#define nodequeue_pop       prh_nodequeue_pop
+#define nodequeue_top       prh_nodequeue_top
 #endif
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
@@ -1253,6 +1264,12 @@ void prh_coroutine_reload(prh_coro_struct *main, int index, prh_coroproc_t proc)
 void prh_coroutine_ext_reload(prh_coro_struct *main, int index, prh_coroproc_t proc, void *userdata);
 void prh_coroutine_finish(prh_coro_struct **main);
 
+prh_coro_t *prh_coro_create(int coro_id, prh_coroproc_t proc, int stack_size, void *userdata);
+prh_coro_t *prh_coro_ext_create(int coro_id, prh_coroproc_t proc, int stack_size, int userdata_bytes);
+void prh_coro_reload(prh_coro_t *coro, prh_coroproc_t proc);
+void prh_coro_ext_reload(prh_coro_t *coro, prh_coroproc_t proc, void *userdata);
+bool prh_coro_finished(prh_coro_t *coro);
+
 void prh_solo_create(prh_solo_struct *main, prh_coroproc_t proc, int stack_size, void *userdata);
 void *prh_solo_ext_create(prh_solo_struct *main, prh_coroproc_t proc, int stack_size, int maxudsize);
 bool prh_solo_start(prh_solo_struct *main);
@@ -1279,6 +1296,11 @@ void prh_solo_finish(prh_solo_struct *main);
 #define coroutine_reload        prh_coroutine_reload
 #define coroutine_ext_reload    prh_coroutine_ext_reload
 #define coroutine_finish        prh_coroutine_finish
+#define coro_create             prh_coro_create
+#define coro_ext_create         prh_coro_ext_create
+#define coro_reload             prh_coro_reload
+#define coro_ext_reload         prh_coro_ext_reload
+#define coro_finished           prh_coro_finished
 #define solo_create             prh_solo_create
 #define solo_ext_create         prh_solo_ext_create
 #define solo_start              prh_solo_start
@@ -1297,11 +1319,11 @@ void prh_solo_finish(prh_solo_struct *main);
 #define prh_upper_guard_word 0xa5a5a5a5
 
 #if defined(prh_cl_msc)
-    #define prh_aligned_malloc(size) _aligned_malloc(size, 16)
+    #define prh_aligned_malloc(size) _aligned_malloc((size), 16)
     #define prh_aligned_free(p) _aligned_free(p)
 #elif defined(prh_cl_gnu)
     void *aligned_alloc(size_t alignment, size_t size);
-    #define prh_aligned_malloc(size) aligned_alloc(16, size)
+    #define prh_aligned_malloc(size) aligned_alloc(16, (size))
     #define prh_aligned_free(p) free(p)
 #else
     #error unsupported compiler
@@ -1502,6 +1524,10 @@ void *prh_impl_coroutine_load(prh_coro_t *coro, prh_coroproc_t proc, void *userd
     return prh_coroutine_userdata(coro);
 }
 
+bool prh_coro_finished(prh_coro_t *coro) {
+    return coro->rspoffset == 0;
+}
+
 prh_coro_t *prh_coro_create(int coro_id, prh_coroproc_t proc, int stack_size, void *userdata) {
     prh_coro_t *coro = prh_impl_coro_alloc(stack_size, sizeof(void *));
     if (coro) coro->coro_id = coro_id;
@@ -1659,7 +1685,7 @@ void *prh_solo_ext_create(prh_solo_struct *main, prh_coroproc_t proc, int stack_
     prh_coro_t *solo = prh_coro_ext_create(1, proc, stack_size, maxudsize);
     if (solo == prh_null) return prh_null;
     main->coro = solo;
-    return coroutine_userdata(solo);
+    return prh_coroutine_userdata(solo);
 }
 
 void prh_solo_reload(prh_solo_struct *main, prh_coroproc_t proc) {
@@ -1783,60 +1809,67 @@ void prh_solo_finish(prh_solo_struct *main) {
 //  ... using the top node ...
 //  prh_atomnodque_pop(&que, PREFIX); // pop off and free top node
 //  prh_atomnodque_free(&que, PREFIX, node_deinit_func); // free all nodes
-#define prh_impl_atomnodque_head(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomnodque_head)
-#define prh_impl_atomnodque_tail(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomnodque_tail)
-#define prh_impl_atomnodque_len(PREFIX) prh_impl_que->prh_macro_concat_name(PREFIX, _atomnodque_len)
-#define prh_impl_atomnodque_ptr_head(PREFIX) (ptr_struct)->prh_macro_concat_name(PREFIX, _atomnodque_head)
-#define prh_impl_atomnodque_ptr_tail(PREFIX) (ptr_struct)->prh_macro_concat_name(PREFIX, _atomnodque_tail)
-#define prh_impl_atomnodque_ptr_len(PREFIX) &((ptr_struct)->prh_macro_concat_name(PREFIX, _atomnodque_len))
+#define prh_impl_atomnodque_head(p, PREFIX) ((p)->prh_macro_concat_name(PREFIX, _atomnodque_head))
+#define prh_impl_atomnodque_tail(p, PREFIX) ((p)->prh_macro_concat_name(PREFIX, _atomnodque_tail))
+#define prh_impl_atomnodque_len(p, PREFIX) ((p)->prh_macro_concat_name(PREFIX, _atomnodque_len))
 void prh_impl_atomnodque_free(prh_nods_t *head, void (*node_deinit_func)(void *node));
 void prh_impl_atomnodque_push(void **tail_addr, prh_intp node_size, prh_atomint_t *len);
+void prh_impl_atomnodque_copy_push(void **tail_addr, prh_intp node_size, prh_atomint_t *len, prh_nods_t *node);
 prh_nods_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len);
 
 prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
     if (node) prh_free(node);
 }
 
-#define prh_atomnodque_init(ptr_struct, PREFIX) { \
-    prh_typeof(ptr_struct) prh_impl_que = (ptr_struct); \
-    typedef prh_typeof(prh_impl_atomnodque_head(PREFIX)) prh_impl_qnode_ptr_t; \
-    prh_impl_qnode_ptr_t prh_impl_new_node = prh_calloc(sizeof(*prh_impl_atomnodque_head(PREFIX)); \
-    prh_impl_atomnodque_head(PREFIX) = prh_impl_new_node; /* always alloc a null tail node */ \
-    prh_impl_atomnodque_tail(PREFIX) = prh_impl_new_node; /* let head pointer always valid */ \
-    prh_atomint_t *prh_impl_len = &prh_impl_atomnodque_len(PREFIX); \
+#define prh_atomnodque_init(struct_ptr, PREFIX) { \
+    prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
+    typedef prh_typeof(prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)) prh_impl_node_ptr_t; \
+    prh_impl_node_ptr_t prh_impl_new_node = prh_malloc(sizeof(*prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)); \
+    prh_impl_atomnodque_head(prh_impl_ptr, PREFIX) = prh_impl_new_node; /* always alloc a null tail node */ \
+    prh_impl_atomnodque_tail(prh_impl_ptr, PREFIX) = prh_impl_new_node; /* let head pointer always valid */ \
+    ((prh_nods_t *)prh_impl_new_node)->next = prh_null; \
+    prh_atomint_t *prh_impl_len = &prh_impl_atomnodque_len(prh_impl_ptr, PREFIX); \
     prh_atomtype_init(prh_impl_len, 0); \
 }
 
-#define prh_atomnodque_free(ptr_struct, PREFIX, node_deinit_func) { \
-    prh_typeof(ptr_struct) prh_impl_que = (ptr_struct); \
-    typedef prh_typeof(prh_impl_atomnodque_head(PREFIX)) prh_impl_qnode_ptr_t; \
-    prh_impl_qnode_ptr_t *prh_impl_head = prh_impl_atomnodque_head(PREFIX); \
+#define prh_atomnodque_free(struct_ptr, PREFIX, node_deinit_func) { \
+    prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
+    typedef prh_typeof(prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)) prh_impl_node_ptr_t; \
+    prh_impl_node_ptr_t *prh_impl_head = prh_impl_atomnodque_head(prh_impl_ptr, PREFIX); \
     if (prh_impl_head) { \
-        prh_impl_atomnodque_free((prh_nods_t *)prh_impl_head, node_deinit_func); \
-        prh_impl_atomnodque_head(PREFIX) = prh_null; \
-        prh_impl_atomnodque_tail(PREFIX) = prh_null; \
+        prh_impl_atomnodque_free((prh_nods_t *)prh_impl_head, (node_deinit_func)); \
+        prh_impl_atomnodque_head(prh_impl_ptr, PREFIX) = prh_null; \
+        prh_impl_atomnodque_tail(prh_impl_ptr, PREFIX) = prh_null; \
     } \
 }
 
-#define prh_atomnodque_tail(ptr_struct, PREFIX) prh_impl_atomnodque_ptr_tail(PREFIX)
+#define prh_atomnodque_tail(struct_ptr, PREFIX) prh_impl_atomnodque_tail((struct_ptr), PREFIX)
 
-#define prh_atomnodque_top(ptr_struct, PREFIX) \
-    ((prh_atomtype_load(prh_impl_atomnodque_ptr_len(PREFIX)) <= 0) ? \
-        prh_null : prh_impl_atomnodque_ptr_head(PREFIX))
+#define prh_atomnodque_top(struct_ptr, PREFIX) \
+    ((prh_atomtype_load(&prh_impl_atomnodque_len((struct_ptr), PREFIX)) <= 0) ? \
+        prh_null : prh_impl_atomnodque_head((struct_ptr), PREFIX))
 
 // Push a new tail null node and inc the counter
-#define prh_atomnodque_push(ptr_struct, PREFIX) { \
-    prh_typeof(ptr_struct) prh_impl_que = (ptr_struct); \
-    prh_impl_atomnodque_push(&prh_impl_atomnodque_tail(PREFIX), \
-        sizeof(*prh_impl_atomnodque_head(PREFIX)), \
-        &prh_impl_atomnodque_len(PREFIX)); \
+#define prh_atomnodque_push(struct_ptr, PREFIX) { \
+    prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
+    prh_impl_atomnodque_push(&prh_impl_atomnodque_tail(prh_impl_ptr, PREFIX), \
+        sizeof(*prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)), \
+        &prh_impl_atomnodque_len(prh_impl_ptr, PREFIX)); \
+}
+
+// Copy node content to tail null node and push the node as the new tail null node
+#define prh_atomnodque_copy_push(struct_ptr, PREFIX, node) { \
+    prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
+    prh_impl_atomnodque_copy_push(&prh_impl_atomnodque_tail(prh_impl_ptr, PREFIX), \
+        sizeof(*prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)), \
+        &prh_impl_atomnodque_len(prh_impl_ptr, PREFIX), (node)); \
 }
 
 // Pop off top node and dec the counter, dont free and return the node
-#define prh_atomnodque_pop(ptr_struct, PREFIX) \
+#define prh_atomnodque_pop(struct_ptr, PREFIX) \
     prh_impl_atomnodque_pop( \
-        &prh_impl_atomnodque_ptr_head(PREFIX), \
-        prh_impl_atomnodque_ptr_len(PREFIX))
+        &prh_impl_atomnodque_head((struct_ptr), PREFIX), \
+        &prh_impl_atomnodque_len((struct_ptr), PREFIX))
 
 #ifdef PRH_ATOMIC_STRIP_PREFIX
 #define atomnodque_t                prh_atomnodque_t
@@ -1845,6 +1878,7 @@ prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
 #define atomnodque_free_node        prh_atomnodque_free_node
 #define atomnodque_tail             prh_atomnodque_tail
 #define atomnodque_push             prh_atomnodque_push
+#define atomnodque_copy_push        prh_atomnodque_copy_push
 #define atomnodque_pop              prh_atomnodque_pop
 #define atomnodque_top              prh_atomnodque_top
 #define atomnodque_len              prh_atomnodque_len
@@ -1866,9 +1900,19 @@ void prh_impl_atomnodque_free(prh_nods_t *head, void (*node_deinit_func)(void *i
 // head 总是追不上 tail。push 只会更新 tail 和 tail 空节点，且 push 只被单一生产者
 // 调用，因此 tail 不需要原子操作。
 void prh_impl_atomnodque_push(void **tail_addr, prh_intp node_size, prh_atomint_t *len) {
-    prh_nods_t *new_node = prh_calloc(node_size);
+    prh_nods_t *new_node = prh_malloc(node_size);
     prh_nods_t *tail = *tail_addr;
     *tail_addr = tail->next = new_node;
+    new_node->next = prh_null;
+    prh_atomint_inc(len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */
+    assert(*tail_addr == new_node); // allow only one producer
+}
+
+void prh_impl_atomnodque_copy_push(void **tail_addr, prh_intp node_size, prh_atomint_t *len, prh_nods_t *new_node) {
+    prh_nods_t *tail = *tail_addr;
+    *tail_addr = tail->next = new_node;
+    memcpy(tail + 1, new_node + 1, node_size - sizeof(prh_nods_t));
+    new_node->next = prh_null;
     prh_atomint_inc(len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */
     assert(*tail_addr == new_node); // allow only one producer
 }
@@ -2134,8 +2178,8 @@ void prh_impl_atomptrque_finish_pop(prh_atomptrque_t *q, int head) {
     prh_atomtype_store(&q->head, prh_impl_atomptrque_nextpos(q, head));
 }
 
-#define prh_impl_get_ptr_que(q) ((void **)((prh_atomptrque_t *)q + 1))
-#define prh_impl_get_int_que(q) ((int *)((prh_atomptrque_t *)q + 1))
+#define prh_impl_get_ptr_que(q) ((void **)((prh_atomptrque_t *)(q) + 1))
+#define prh_impl_get_int_que(q) ((int *)((prh_atomptrque_t *)(q) + 1))
 
 bool prh_atomptrque_push(prh_atomptrque_t *q, void *v) {
     if (v == prh_null) return false;
