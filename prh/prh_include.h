@@ -692,10 +692,53 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
 #endif
 #endif
 
-#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || defined(PRH_ATOMIC_IMPLEMENTATION)
-#if defined(_WIN32)
+// CYGWIN 是一个在 Windows 操作系统上模拟 Unix/Linux 环境的大型工具集，它借助一个
+// 动态链接库cygwin1.dll来模拟许多类 Unix 系统调用和 POSIX API。当你在 CYGWIN 环
+// 境中运行程序时，程序会调用cygwin1.dll，该库再将这些调用转换为 Windows API 调用，
+// 从而实现类 Unix 环境的模拟。
+//
+// MINGW（Minimalist GNU for Windows）则是将 GNU 工具集移植到 Windows 平台的项目，
+// 它直接生成原生的 Windows 可执行文件，不依赖模拟层。MINGW 编译的程序使用 Windows
+// API，而不是模拟 Unix 系统调用，因此生成的程序可以直接在 Windows 上运行，无需额外
+// 的运行时环境。A native Windows port of the GNU Compiler Collection (GCC),
+// with freely distributable import libraries and header files for building
+// native Windows applications; includes extensions to the MSVC runtime to
+// support C99 functionality. The mingw-w64 project is a complete runtime
+// environment for gcc to support binaries native to Windows 64-bit and 32-bit
+// operating systems. Mingw-w64 is an advancement of the original mingw.org
+// project, which was created to support the GCC compiler on Windows systems.
+// It was forked in 2007 in order to provide 64-bit support and newer APIs.
+// It has since then gained wide use and distribution.
+//
+// MSYS2（Minimal SYStem 2）是一个在 Windows 平台上提供类 Unix 环境和开发工具的软
+// 件。MSYS2 提供了类似于 Unix/Linux 系统的 shell 环境，以及一系列 Unix 风格的命令
+// 行工具，这使得开发者可以在 Windows 上使用熟悉的 Unix 命令和操作方式进行开发和管理
+// 工作。它集成了 Pacman 包管理器，这是 Arch Linux 所使用的包管理工具。借助 Pacman，
+// 你能够轻松地安装、更新和删除软件包，并且可以方便地管理软件包之间的依赖关系。通过包
+// 管理器，你可以获取到大量的开源软件和开发工具，如 GCC 编译器、Python、Ruby 等。
+// MSYS2 包含了一系列的开发工具，如 GCC、GDB、Make 等，这些工具是进行 C、C++ 等语言
+// 开发所必需的。同时，它还支持多种编程语言的开发环境，如 Python、Ruby、Perl 等。
+// 与 MinGW 相比，MSYS2 不仅提供了编译工具，还提供了完整的类 Unix 环境和丰富的开
+// 发工具。MSYS2 is a collection of tools and libraries providing you with an
+// easy-to-use environment for building, installing and running native Windows
+// software. It consists of a command line terminal called mintty, bash,
+// version control systems like git and subversion, tools like tar and awk and
+// even build systems like autotools, all based on a modified version of
+// Cygwin. Despite some of these central parts being based on Cygwin, the main
+// focus of MSYS2 is to provide a build environment for native Windows software
+// and the Cygwin-using parts are kept at a minimum. MSYS2 provides up-to-date
+// native builds for GCC, mingw-w64, CPython, CMake, Meson, OpenSSL, FFmpeg,
+// Rust, Ruby, just to name a few. The unixy tools in MSYS2 are directly based
+// on Cygwin, so there is some overlap there. While Cygwin focuses on building
+// Unix software on Windows as is, MSYS2 focuses on building native software
+// built against the Windows APIs.
 
+#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || defined(PRH_ATOMIC_IMPLEMENTATION)
+#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
+    #define prh_plat_windows
+    #include <windows.h>
 #else
+    #define prh_plat_posix
     #define _POSIX_C_SOURCE 200809L
     // glibc https://www.gnu.org/software/libc/
     // getconf GNU_LIBC_VERSION, ldd --version, ldd `which ls` | grep libc
@@ -750,6 +793,48 @@ void prh_impl_prerr(int err, int line) {
     #define PRH_GLIBC_VERSION (__GLIBC__ * 100 + __GLIBC_MINOR__)
 #endif
 #endif
+
+#ifdef prh_plat_posix
+// The preferred way to tell FreeBSD versions apart are the __FreeBSD_version
+// and __FreeBSD__ macros defined in sys/param.h. __FreeBSD__ is defined in all
+// versions of FreeBSD as their major version number. For example, in FreeBSD
+// 9.x, __FreeBSD__ is defined to be 9. __FreeBSD_version can be found in page
+// https://people.freebsd.org/~olivierd/porters-handbook/versions.html. See
+// https://docs.freebsd.org/en/books/porters-handbook/porting-dads/#porting-versions
+//
+// __NetBSD_Version__ is defined in sys/param.h, formatted as VVRR00PP00 from
+// NetBSD 2.99.9. VV is version, RR is revision, PP is patch. For example
+// 3.99.8, VV is 3, RR is 99, PP is 8, __NetBSD_Version__ is 399000800.
+// To distinguish between specific NetBSD versions, you should use the
+// following code. See https://www.netbsd.org/docs/pkgsrc/fixes.html. Also see
+// https://sourceforge.net/p/predef/wiki/OperatingSystems/
+#if defined(PRH_GLIBC_VERSION) && (PRH_GLIBC_VERSION >= 206)
+    // prctl - operations on a process or thread
+    // int prctl(int op, ...);
+    #include <linux/prctl.h> // definition of PR_* constants
+    #include <sys/prctl.h>
+#endif
+#ifndef prh_impl_pthread_getattr
+    #if defined(PRH_GLIBC_VERSION) && (PRH_GLIBC_VERSION >= 203)
+        #define prh_impl_pthread_getattr_np pthread_getattr_np
+    #endif
+    #ifdef __NetBSD__ // __NetBSD_Version__ is defined in sys/param.h
+        #include <sys/param.h>
+        #if defined __NetBSD_Version__ && __NetBSD_Version__ >= 600000000 // NetBSD 6.0
+        #define prh_impl_pthread_attr_get_np pthread_attr_get_np
+        #endif
+    #endif
+    #if defined(__FreeBSD__) || defined(__OpenBSD__)
+        #include <pthread_np.h> // pthread_attr_get_np pthread_set_name_np
+        #define prh_impl_pthread_attr_get_np pthread_attr_get_np
+    #endif
+    #if defined(prh_impl_pthread_getattr_np)
+        #define prh_impl_pthread_getattr prh_impl_pthread_getattr_np
+    #elif defined(prh_impl_pthread_attr_get_np)
+        #define prh_impl_pthread_getattr prh_impl_pthread_attr_get_np
+    #endif
+#endif // prh_impl_pthread_getattr
+#endif // prh_plat_posix
 
 // ARRAYS - Very simple single file style library for array data structures
 //
@@ -2335,22 +2420,25 @@ void prh_impl_atomic_test(void) {
 
 #ifdef PRH_THRD_INCLUDE
 typedef struct prh_thrd prh_thrd_t;
-typedef struct prh_thrd_struct prh_thrd_struct;
+typedef struct prh_thrdpool prh_thrdpool_t;
 typedef int (*prh_thrdproc_t)(prh_thrd_t* thrd);
 
 int prh_thread_id(prh_thrd_t *thrd);
-int prh_thread_index(prh_thrd_t *thrd);
 void *prh_thread_userdata(prh_thrd_t *thrd);
-int prh_thread_count(prh_thrd_struct *s);
-prh_thrd_t *prh_thread_main(prh_thrd_struct *s);
-prh_thrd_t *prh_thread_get(prh_thrd_struct *s, int index);
+int prh_thread_count(prh_thrdpool_t *s);
+int prh_thread_index(prh_thrdpool_t *s, prh_thrd_t *thrd);
+void prh_thread_main_proc(prh_thrdpool_t *s, prh_thrdproc_t proc);
+prh_thrd_t *prh_thread_main(prh_thrdpool_t *s);
+prh_thrd_t *prh_thread_get(prh_thrdpool_t *s, int index);
 prh_thrd_t *prh_thread_self(void);
 
 int prh_thread_alloc_size(int maxthreads, int mainudsize);
-prh_thrd_struct *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize); // addr shall be previously zero initialized
-prh_thrd_struct *prh_thread_init(int start_id, int maxthreads, int mainudsize);
-void *prh_thread_create(prh_thrd_struct *s, prh_thrdproc_t proc, int stacksize, int thrdudsize);
-void prh_thread_join(prh_thrd_struct **s, void (*thrd_udata_free)(void *));
+prh_thrdpool_t *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize); // addr shall be previously zero initialized
+prh_thrdpool_t *prh_thread_init(int start_id, int maxthreads, int mainudsize);
+void *prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, int thrdudsize);
+void prh_thread_join(prh_thrdpool_t **s, void (*thrd_udata_free)(void *));
+prh_thrd_t *prh_thrd_create(int thrd_id, prh_thrdproc_t proc, int stacksize, int thrdudsize);
+void prh_thrd_join(prh_thrd_t **thrd, void (*thrd_udata_free)(void *));
 
 typedef struct prh_thrd_mutex prh_thrd_mutex_t;
 prh_thrd_mutex_t *prh_thrd_mutex_init(void);
@@ -2369,12 +2457,13 @@ void prh_thrd_cond_free(prh_thrd_cond_t **p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
 #define thrd_t                  prh_thrd_t
-#define thrd_struct             prh_thrd_struct
+#define thrdpool_t              prh_thrdpool_t
 #define thread_id               prh_thread_id
 #define thread_index            prh_thread_index
 #define thread_userdata         prh_thread_userdata
 #define thread_count            prh_thread_count
 #define thread_main             prh_thread_main
+#define thread_main_proc        prh_thread_main_proc
 #define thread_get              prh_thread_get
 #define thread_self             prh_thread_self
 #define thread_alloc_size       prh_thread_alloc_size
@@ -2382,6 +2471,8 @@ void prh_thrd_cond_free(prh_thrd_cond_t **p);
 #define thread_init             prh_thread_init
 #define thread_create           prh_thread_create
 #define thread_join             prh_thread_join
+#define thrd_create             prh_thrd_create
+#define thrd_join               prh_thrd_join
 #define thrd_mutex_t            prh_thrd_mutex_t
 #define thrd_mutex_init         prh_thrd_mutex_init
 #define thrd_recursive_mutex_init prh_thrd_recursive_mutex_init
@@ -2402,9 +2493,9 @@ void prh_thrd_cond_free(prh_thrd_cond_t **p);
 #define PRH_THRD_DEBUG PRH_DEBUG
 #endif
 
-#if defined(_WIN32)
+#if defined(prh_plat_windows)
 
-#else // _WIN32 end PTHREAD begin
+#else // WINDOWS end PTHREAD begin
 // 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
 //
 // 1. 进程ID和父进程ID，进程组ID与会话（session）ID，进程凭证（credential）
@@ -2926,31 +3017,29 @@ void prh_thrd_cond_free(prh_thrd_cond_t **p);
 // 核，这始于Linux 2.6。值得强调的是，LinuxThreads实现已经过时，并且glibc从2.4版本
 // 开始也已不再支持它，所有新的线程库开发都基于NPTL。
 struct prh_thrd {
-    prh_thrd_struct *basestruct;
     prh_thrdproc_t proc;
     pthread_t tid_impl;
-    prh_u32 index: 31, created: 1;
-};
+    prh_int thrd_id;
+}; // followed by thread userdata
 
 prh_thread_local prh_thrd_t *PRH_IMPL_THRD = prh_null;
 
-// [prh_thrd_struct]
-// [prh_thrd_t]
-// [prh_thrd_t]
+// [prh_thrdpool_t]
+// [prh_thrd_t *]
+// [prh_thrd_t *]
 // ...
-struct prh_thrd_struct {
+struct prh_thrdpool {
     prh_u32 maxthreads: 31, inplace: 1;
     prh_int thread_cnt;
-    prh_int start_id;
     prh_int mainudsize;
     prh_thrd_t main; // last field dont move
 };
 
-int prh_impl_thrd_struct_alloc_size(int maxthreads, int mainudsize) {
-    return sizeof(prh_thrd_struct) + prh_round_ptrsize(mainudsize) + sizeof(void *) * (maxthreads + 1);
+int prh_impl_thrdpool_alloc_size(int maxthreads, int mainudsize) {
+    return sizeof(prh_thrdpool_t) + prh_round_ptrsize(mainudsize) + sizeof(void *) * (maxthreads + 1);
 }
 
-prh_thrd_t **prh_impl_thrd_list(prh_thrd_struct *s) {
+prh_thrd_t **prh_impl_thrd_list(prh_thrdpool_t *s) {
     return (prh_thrd_t **)(((char *)(s + 1)) + s->mainudsize);
 }
 
@@ -2958,11 +3047,15 @@ prh_thrd_t *prh_thread_self(void) {
     return PRH_IMPL_THRD;
 }
 
-prh_thrd_t *prh_thread_main(prh_thrd_struct *s) {
-    return &s->main;
+void prh_thread_main_proc(prh_thrdpool_t *s, prh_thrdproc_t proc) {
+    s->main.proc = proc;
 }
 
-prh_thrd_t *prh_thread_get(prh_thrd_struct *s, int index) {
+prh_thrd_t *prh_thread_main(prh_thrdpool_t *s) {
+    return &s->main; // same as prh_thread_get(s, 0)
+}
+
+prh_thrd_t *prh_thread_get(prh_thrdpool_t *s, int index) {
     assert(index >= 0 && index <= s->thread_cnt);
     return prh_impl_thrd_list(s)[index]; // 0 for main thread
 }
@@ -2971,52 +3064,57 @@ void *prh_thread_userdata(prh_thrd_t *thrd) {
     return thrd + 1;
 }
 
-int prh_thread_count(prh_thrd_struct *s) {
+int prh_thread_count(prh_thrdpool_t *s) {
     return (int)s->maxthreads;
 }
 
-int prh_thread_index(prh_thrd_t *thrd) {
-    return (int)thrd->index;
+int prh_thread_index(prh_thrdpool_t *s, prh_thrd_t *thrd) {
+    return thrd->thrd_id - s->main.thrd_id;
 }
 
 int prh_thread_id(prh_thrd_t *thrd) {
-    return (int)thrd->index + thrd->basestruct->start_id;
+    return (int)thrd->thrd_id
 }
 
 int prh_thread_alloc_size(int maxthreads, int mainudsize) {
     assert(maxthreads >= 0);
     if (mainudsize < 0) mainudsize = 0;
-    return prh_impl_thrd_struct_alloc_size(maxthreads, mainudsize);
+    return prh_impl_thrdpool_alloc_size(maxthreads, mainudsize);
 }
 
-#if PRH_THRD_DEBUG && defined(PRH_GLIBC_VERSION) && (PRH_GLIBC_VERSION >= 203)
+#if PRH_THRD_DEBUG && defined(prh_impl_pthread_getattr)
 void prh_impl_print_thrd_info(prh_thrd_t *thrd) {
     pthread_t tid = pthread_self();
     void *stack_addr = prh_null;
     size_t stack_size = 0, guard_size = 0;
     pthread_attr_t attr;
-    prh_zeroret(pthread_getattr_np(tid, &attr));
+    // For pthread_attr_get_np() attr should be initialized prior to the call
+    // by using pthread_attr_init(3). pthread_getattr_np() does this
+    // automatically.
+#if defined(prh_impl_pthread_attr_get_np)
+    prh_zeroret(pthread_attr_init(&attr));
+#endif
+    prh_zeroret(prh_impl_pthread_getattr(tid, &attr));
     prh_zeroret(pthread_attr_getstack(&attr, &stack_addr, &stack_size));
     prh_zeroret(pthread_attr_getguardsize(&attr, &guard_size));
     prh_zeroret(pthread_attr_destroy(&attr));
-    printf("[thread %d] index %d stack %p size %d-byte, guard size %d-byte\n",
-        prh_thread_id(thrd), prh_thread_index(thrd), stack_addr, (int)stack_size, (int)guard_size);
+    printf("[thread %d] stack %p size %d-byte, guard size %d-byte\n",
+        prh_thread_id(thrd), stack_addr, (int)stack_size, (int)guard_size);
 }
 #else
 #define prh_impl_print_thrd_info(thrd)
 #endif
 
-prh_thrd_struct *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize) {
+prh_thrdpool_t *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize) {
     assert(maxthreads >= 0);
     if (mainudsize < 0) mainudsize = 0;
     mainudsize = prh_round_ptrsize(mainudsize);
-    prh_thrd_struct *s = (prh_thrd_struct *)addr;
+    prh_thrdpool_t *s = (prh_thrdpool_t *)addr;
     s->maxthreads = maxthreads;
     s->inplace = 1;
-    s->start_id = start_id;
     s->mainudsize = mainudsize;
-    s->main.basestruct = s;
     s->main.tid_impl = pthread_self();
+    s->main.thrd_id = start_id;
     prh_thrd_t **thrds = prh_impl_thrd_list(s);
     PRH_IMPL_THRD = thrds[0] = &s->main;
 #if PRH_THRD_DEBUG
@@ -3025,8 +3123,8 @@ prh_thrd_struct *prh_thread_init_inplace(void *addr, int start_id, int maxthread
     return s;
 }
 
-prh_thrd_struct *prh_thread_init(int start_id, int maxthreads, int mainudsize) {
-    prh_thrd_struct *s = (prh_thrd_struct *)prh_calloc(prh_thread_alloc_size(maxthreads, mainudsize));
+prh_thrdpool_t *prh_thread_init(int start_id, int maxthreads, int mainudsize) {
+    prh_thrdpool_t *s = (prh_thrdpool_t *)prh_calloc(prh_thread_alloc_size(maxthreads, mainudsize));
     prh_thread_init_inplace(s, start_id, maxthreads, mainudsize);
     s->inplace = 0;
     return s;
@@ -3085,64 +3183,80 @@ label_defer:
     return created;
 }
 
-void *prh_thread_create(prh_thrd_struct *s, prh_thrdproc_t proc, int stacksize, int thrdudsize) {
+prh_thrd_t *prh_thrd_create(int thrd_id, prh_thrdproc_t proc, int stacksize, int thrdudsize) {
+    thrdudsize = (thrdudsize <= 0) ? 0 : prh_round_ptrsize(thrdudsize);
+    prh_thrd_t *thrd = (prh_thrd_t *)prh_calloc(sizeof(prh_thrd_t) + thrdudsize);
+    thrd->proc = proc;
+    thrd->thrd_id = thrd_id;
+    if (!prh_impl_pthread_create(thrd, stacksize)) {
+        prh_free(thrd);
+        return prh_null;
+    }
+    return thrd;
+}
+
+void *prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, int thrdudsize) {
     if ((prh_u32)s->thread_cnt >= s->maxthreads) {
         return prh_null;
     }
 
-    if (thrdudsize < 0) thrdudsize = 0;
-    thrdudsize = prh_round_ptrsize(thrdudsize);
+    thrdudsize = (thrdudsize <= 0) ? 0 : prh_round_ptrsize(thrdudsize);
     prh_thrd_t *thrd = (prh_thrd_t *)prh_calloc(sizeof(prh_thrd_t) + thrdudsize);
-    thrd->basestruct = s;
     thrd->proc = proc;
 
     prh_thrd_t **thrds = prh_impl_thrd_list(s);
     s->thread_cnt += 1;
-    thrd->index = s->thread_cnt;
     thrds[s->thread_cnt] = thrd;
+    thrd->thrd_id = s->main.id + s->thread_cnt;
 
-    if (prh_impl_pthread_create(thrd, stacksize)) {
-        thrd->created = 1;
+    if (!prh_impl_pthread_create(thrd, stacksize)) {
+        s->thread_cnt -= 1;
+        prh_free(thrd);
+        return prh_null;
     }
 
     return thread_userdata(thrd);
 }
 
-void prh_thread_join(prh_thrd_struct **main, void (*thrd_udata_free)(void *)) {
-    prh_thrd_struct *s = *main;
+void prh_thrd_join(prh_thrd_t **thrd_addr, void (*thrd_udata_free)(void *)) {
+    prh_thrd_t *thrd = *thrd_addr;
+    if (thrd == prh_null) return;
+    void *retv = prh_null;
+    int n = pthread_join(thrd->tid_impl, &retv);
+    if (n != 0) {
+        prh_prerr(n);
+    } else if ((prh_uinp)retv != 0) { // -1 is PTHREAD_CANCELED
+        prh_prerr((int)(prh_uinp)retv);
+    }
+#if PRH_THRD_DEBUG
+    if ((prh_uinp)retv == (prh_uinp)PTHREAD_CANCELED) {
+        printf("[thread %d] canceled join\n", prh_thread_id(thrd));
+    } else {
+        printf("[thread %d] join retval %d\n", prh_thread_id(thrd), (int)(prh_uinp)retv);
+    }
+#endif
+    if (thrd_udata_free) {
+        thrd_udata_free(prh_thread_userdata(thrd));
+    }
+    prh_free(thrd);
+    *thrd_addr = prh_null;
+}
+
+void prh_thread_join(prh_thrdpool_t **main, void (*thrd_udata_free)(void *)) {
+    prh_thrdpool_t *s = *main;
     if (s == prh_null) return;
 
     prh_thrd_t **thrds = prh_impl_thrd_list(s);
     for (int i = 1; i <= s->thread_cnt; i += 1) {
-        prh_thrd_t *thrd = thrds[i];
-        if (thrd == prh_null) continue;
-        if (thrd->created) {
-            void *retv = prh_null;
-            int n = pthread_join(thrd->tid_impl, &retv);
-            if (n != 0) {
-                prh_prerr(n);
-            } else if ((prh_uinp)retv != 0) { // -1 is PTHREAD_CANCELED
-                prh_prerr((int)(prh_uinp)retv);
-            }
-#if PRH_THRD_DEBUG
-            if ((prh_uinp)retv == (prh_uinp)PTHREAD_CANCELED) {
-                printf("[thread %d] canceled join\n", prh_thread_id(thrd));
-            } else {
-                printf("[thread %d] join retval %d\n", prh_thread_id(thrd), (int)(prh_uinp)retv);
-            }
-#endif
-            thrd->created = 0;
-        }
-        if (thrd_udata_free) {
-            thrd_udata_free(prh_thread_userdata(thrd));
-        }
-        prh_free(thrd);
-        thrds[i] = prh_null;
+        prh_thrd_join(thrds + i, thrd_udata_free);
     }
 
     prh_thrd_t *main_thrd = thrds[0];
-    if (main_thrd && thrd_udata_free) {
-        thrd_udata_free(prh_thread_userdata(main_thrd));
+    if (main_thrd) {
+        if (thrd_udata_free) {
+            thrd_udata_free(prh_thread_userdata(main_thrd));
+        }
+        thrds[0] = prh_null;
     }
 
     if (!s->inplace) {
