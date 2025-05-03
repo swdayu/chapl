@@ -652,7 +652,47 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
 }
 #endif
 
-#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION)
+#ifdef PRH_STACK_INCLUDE
+#define PRH_LIST_INCLUDE
+#ifdef PRH_STACK_IMPLEMENTATION
+#define PRH_LIST_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_QUEUE_INCLUDE
+#define PRH_LIST_INCLUDE
+#ifdef PRH_QUEUE_IMPLEMENTATION
+#define PRH_LIST_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_CONC_INCLUDE
+#define PRH_LIST_INCLUDE
+#define PRH_STACK_INCLUDE
+#define PRH_QUEUE_INCLUDE
+#define PRH_THRD_INCLUDE
+#define PRH_ATOMIC_INCLUDE
+#define PRH_CORO_INCLUDE
+#ifdef PRH_CONC_STRIP_PREFIX
+    #define PRH_ATOMIC_STRIP_PREFIX
+    #define PRH_THRD_STRIP_PREFIX
+#endif
+#ifdef PRH_CONC_IMPLEMENTATION
+    #define PRH_BASE_IMPLEMENTATION
+    #define PRH_LIST_IMPLEMENTATION
+    #define PRH_STACK_IMPLEMENTATION
+    #define PRH_QUEUE_IMPLEMENTATION
+    #define PRH_ATOMIC_IMPLEMENTATION
+    #define PRH_THRD_IMPLEMENTATION
+    #define PRH_CORO_IMPLEMENTATION
+    #ifdef PRH_CONC_TEST
+        #define PRH_ATOMIC_TEST
+        #define PRH_THRD_TEST
+    #endif
+#endif
+#endif
+
+#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || defined(PRH_ATOMIC_IMPLEMENTATION)
 #if defined(_WIN32)
 
 #else
@@ -698,19 +738,6 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
 #include <stdio.h>
 #endif
 
-#ifdef PRH_CONC_IMPLEMENTATION
-#define PRH_BASE_IMPLEMENTATION
-#define PRH_LIST_IMPLEMENTATION
-#define PRH_QUEUE_IMPLEMENTATION
-#define PRH_ATOMIC_IMPLEMENTATION
-#define PRH_THRD_IMPLEMENTATION
-#define PRH_CORO_IMPLEMENTATION
-#ifdef PRH_CONC_TEST
-    #define PRH_ATOMIC_TEST
-    #define PRH_THRD_TEST
-#endif
-#endif
-
 #ifdef PRH_BASE_IMPLEMENTATION
 #include <stdio.h>
 void prh_impl_prerr(int err, int line) {
@@ -721,22 +748,6 @@ void prh_impl_prerr(int err, int line) {
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
     #define PRH_GLIBC_VERSION (__GLIBC__ * 100 + __GLIBC_MINOR__)
-#endif
-#endif
-
-#ifdef PRH_QUEUE_INCLUDE
-#define PRH_LIST_INCLUDE
-#endif
-
-#ifdef PRH_CONC_INCLUDE
-#define PRH_LIST_INCLUDE
-#define PRH_QUEUE_INCLUDE
-#define PRH_ATOMIC_INCLUDE
-#define PRH_THRD_INCLUDE
-#define PRH_CORO_INCLUDE
-#ifdef PRH_CONC_STRIP_PREFIX
-    #define PRH_ATOMIC_STRIP_PREFIX
-    #define PRH_THRD_STRIP_PREFIX
 #endif
 #endif
 
@@ -952,7 +963,75 @@ typedef struct { // zero initialized
     prh_node_t *head;
     prh_node_t *tail;
 } prh_list_t;
+
+void prh_impl_list_free_each_node(prh_nods_t *head, void (*node_free)(void *));
+void prh_impl_list_free_each_node_and_clear(prh_liss_t *list, void (*node_free)(void *));
+
+#ifdef PRH_LIST_IMPLEMENTATION
+void prh_impl_list_free_each_node(prh_nods_t *head, void (*node_free)(void *)) {
+    while (head) {
+        prh_nods_t *curr = head;
+        head = head->next; // get next before free
+        node_free(curr);
+    }
+}
+
+void prh_impl_list_free_each_node_and_clear(prh_liss_t *list, void (*node_free)(void *)) {
+    if (node_free) prh_impl_list_free_each_node(list->head, node_free);
+    list->head = prh_null;
+}
+#endif // PRH_LIST_IMPLEMENTATION
 #endif // PRH_LIST_INCLUDE
+
+#ifdef PRH_STACK_INCLUDE
+// Just link the node into the stack, dont allocate any memory. Each node can
+// have different size, but must cotain prh_nods_t as the header.
+//  struct nodestack_custom_node {
+//      prh_nods_t head; // must be 1st field
+//      ... other custom node data ...
+//  };
+typedef struct { // zero initialize
+    prh_nods_t *head;
+} prh_nodestack_t;
+
+prh_inline void prh_nodestack_init(prh_nodestack_t *s) {
+    s->head = prh_null;
+}
+
+prh_inline void prh_nodestack_clear(prh_nodestack_t *s, void (*node_free_func)(void *)) {
+    prh_impl_list_free_each_node_and_clear((prh_liss_t *)s, node_free_func);
+}
+
+prh_inline prh_nods_t *prh_nodestack_top(prh_nodestack_t *s) {
+    return s->head;
+}
+
+void prh_nodestack_push(prh_nodestack_t *s, prh_nods_t *node);
+prh_nods_t *prh_nodestack_pop(prh_nodestack_t *s);
+
+#ifdef PRH_STACK_STRIP_PREFIX
+#define nodestack_t         prh_nodestack_t
+#define nodestack_init      prh_nodestack_init
+#define nodestack_clear     prh_nodestack_clear
+#define nodestack_push      prh_nodestack_push
+#define nodestack_pop       prh_nodestack_pop
+#define nodestack_top       prh_nodestack_top
+#endif
+
+#ifdef PRH_STACK_IMPLEMENTATION
+void prh_nodestack_push(prh_nodestack_t *s, prh_nods_t *node) {
+    node->next = s->head;
+    s->head = node;
+}
+
+prh_nods_t *prh_nodestack_pop(prh_nodestack_t *s) {
+    prh_nods_t *head = s->head;
+    if (head == prh_null) return prh_null;
+    s->head = head->next;
+    return head;
+}
+#endif // PRH_STACK_IMPLEMENTATION
+#endif // PRH_STACK_INCLUDE
 
 #ifdef PRH_QUEUE_INCLUDE
 // Array queue with power of 2 capacity size.
@@ -1070,8 +1149,8 @@ void *prh_impl_arrque_push(void *queue, prh_intp object_size) {
 }
 #endif // PRH_QUEUE_IMPLEMENTATION
 
-// Dynamic allocated linked node queue. Each node can have different size, but
-// must cotain prh_nods_t as the header.
+// Just link the node into the queue, dont allocate any memory. Each node can
+// have different size, but must cotain prh_nods_t as the header.
 //  struct nodequeue_custom_node {
 //      prh_nods_t head; // must be 1st field
 //      ... other custom node data ...
@@ -1093,7 +1172,11 @@ prh_inline prh_nods_t *prh_nodequeue_top(prh_nodequeue_t *q) {
     return q->head;
 }
 
-void prh_nodequeue_clear(prh_nodequeue_t *q, void (*node_free_func)(void *));
+prh_inline void prh_nodequeue_clear(prh_nodequeue_t *q, void (*node_free_func)(void *)) {
+    prh_impl_list_free_each_node_and_clear((prh_liss_t *)q, node_free_func);
+    q->tail = prh_null;
+}
+
 prh_nodequeue_t prh_nodequeue_move(prh_nodequeue_t *q);
 void prh_nodequeue_push(prh_nodequeue_t *q, prh_nods_t *new_node);
 prh_nods_t *prh_nodequeue_pop(prh_nodequeue_t *q);
@@ -1110,18 +1193,6 @@ prh_nods_t *prh_nodequeue_pop(prh_nodequeue_t *q);
 #endif
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
-void prh_nodequeue_clear(prh_nodequeue_t *q, void (*node_free_func)(void *)) {
-    if (node_free_func) {
-        prh_nods_t *next = q->head;
-        while (next) {
-            prh_nods_t *curr = next;
-            next = next->next; // get next before free the node
-            node_free_func(curr);
-        }
-    }
-    prh_nodequeue_init(q);
-}
-
 prh_nodequeue_t prh_nodequeue_move(prh_nodequeue_t *q) {
     prh_nodequeue_t que = *q;
     prh_nodequeue_init(q);
@@ -1720,9 +1791,11 @@ void prh_solo_finish(prh_solo_struct *main) {
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
 // 何其他原子操作能够访问该对象之前，每个原子操作都会在该对象上完整地执行完毕。这就保
 // 证了在这些对象上不会出现数据竞争，而这也正是定义原子性的关键特征。
-#define prh_atombool_t _Atomic bool
-#define prh_atomint_t _Atomic int
-#define prh_atomptr_t _Atomic uintptr_t
+#include <stdatomic.h>
+
+typedef atomic_bool prh_atombool_t;
+typedef atomic_int prh_atomint_t;
+typedef atomic_uintptr_t prh_atomptr_t;
 
 // Initializes an existing atomic object.
 // The function is not atomic: concurrent access from another thread, even
