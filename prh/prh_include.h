@@ -2449,11 +2449,29 @@ void prh_thrd_mutex_free(prh_thrd_mutex_t **p);
 
 typedef struct prh_thrd_cond prh_thrd_cond_t;
 prh_thrd_cond_t *prh_thrd_cond_init(void);
-void prh_thrd_cond_wait(prh_thrd_cond_t *p);
-bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec);
+void prh_thrd_cond_lock(prh_thrd_cond_t *p);
+void prh_thrd_cond_wait(prh_thrd_cond_t *p, bool (*cond_meet)(void *), void *param);
+bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec, bool (*cond_meet)(void *), void *param);
+void prh_thrd_cond_unlock(prh_thrd_cond_t *p);
 void prh_thrd_cond_signal(prh_thrd_cond_t *p);
 void prh_thrd_cond_broadcast(prh_thrd_cond_t *p);
 void prh_thrd_cond_free(prh_thrd_cond_t **p);
+
+typedef struct prh_thrd_cond prh_thrd_sem_t;
+prh_inline prh_thrd_sem_t *prh_thrd_sem_init(void) { return (prh_thrd_sem_t *)prh_thrd_cond_init(); }
+prh_inline void prh_thrd_sem_free(prh_thrd_sem_t **s) { prh_thrd_cond_free((prh_thrd_cond_t **)s); }
+void prh_thrd_sem_wait(prh_thrd_sem_t *s, void (*wakeup_func)(void *), void *param);
+void prh_thrd_sem_post(prh_thrd_sem_t *s, int n, void (*post_func)(void *), void *param);
+
+typedef struct prh_thrd_cond prh_sleep_cond_t;
+prh_inline prh_sleep_cond_t *prh_thrd_sleep_init(void) { return (prh_sleep_cond_t *)prh_thrd_cond_init(); }
+prh_inline void prh_thrd_sleep_free(prh_sleep_cond_t **s) { prh_thrd_cond_free((prh_thrd_cond_t **)s); }
+void prh_thrd_sleep_start(prh_sleep_cond_t *p);
+void prh_thrd_sleep(prh_sleep_cond_t *p);
+void prh_thrd_sleep_end(prh_sleep_cond_t *p);
+void prh_thrd_wakeup(prh_sleep_cond_t *p);
+void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
+int prh_thrd_sleep_count(prh_sleep_cond_t *p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
 #define thrd_t                  prh_thrd_t
@@ -2481,11 +2499,27 @@ void prh_thrd_cond_free(prh_thrd_cond_t **p);
 #define thrd_mutex_free         prh_thrd_mutex_free
 #define thrd_cond_t             prh_thrd_cond_t
 #define thrd_cond_init          prh_thrd_cond_init
+#define thrd_cond_lock          prh_thrd_cond_lock
 #define thrd_cond_wait          prh_thrd_cond_wait
 #define thrd_cond_timedwait     prh_thrd_cond_timedwait
+#define thrd_cond_unlock        prh_thrd_cond_unlock
 #define thrd_cond_signal        prh_thrd_cond_signal
 #define thrd_cond_broadcast     prh_thrd_cond_broadcast
 #define thrd_cond_free          prh_thrd_cond_free
+#define thrd_sem_t              prh_thrd_sem_t
+#define thrd_sem_init           prh_thrd_sem_init
+#define thrd_sem_wait           prh_thrd_sem_wait
+#define thrd_sem_post           prh_thrd_sem_post
+#define thrd_sem_free           prh_thrd_sem_free
+#define sleep_cond_t            prh_sleep_cond_t
+#define thrd_sleep_init         prh_thrd_sleep_init
+#define thrd_sleep_free         prh_thrd_sleep_free
+#define thrd_sleep_start        prh_thrd_sleep_start
+#define thrd_sleep              prh_thrd_sleep
+#define thrd_sleep_end          prh_thrd_sleep_end
+#define thrd_wakeup             prh_thrd_wakeup
+#define thrd_wakeup_all         prh_thrd_wakeup_all
+#define thrd_sleep_count        prh_thrd_sleep_count
 #endif
 
 #ifdef PRH_THRD_IMPLEMENTATION
@@ -3073,7 +3107,7 @@ int prh_thread_index(prh_thrdpool_t *s, prh_thrd_t *thrd) {
 }
 
 int prh_thread_id(prh_thrd_t *thrd) {
-    return (int)thrd->thrd_id
+    return (int)thrd->thrd_id;
 }
 
 int prh_thread_alloc_size(int maxthreads, int mainudsize) {
@@ -3207,7 +3241,7 @@ void *prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, i
     prh_thrd_t **thrds = prh_impl_thrd_list(s);
     s->thread_cnt += 1;
     thrds[s->thread_cnt] = thrd;
-    thrd->thrd_id = s->main.id + s->thread_cnt;
+    thrd->thrd_id = s->main.thrd_id + s->thread_cnt;
 
     if (!prh_impl_pthread_create(thrd, stacksize)) {
         s->thread_cnt -= 1;
@@ -3289,8 +3323,10 @@ struct prh_thrd_mutex {
 };
 
 struct prh_thrd_cond {
-    pthread_mutex_t mutex;
     pthread_cond_t cond;
+    pthread_mutex_t mutex;
+    int sleep_count;
+    int wakeup_semaphore;
 };
 
 void prh_impl_thrd_mutex_init(pthread_mutex_t *mutex) {
@@ -3344,8 +3380,10 @@ void prh_thrd_mutex_unlock(prh_thrd_mutex_t *p) {
 // thread can satisfy the condition of the predicate.
 prh_thrd_cond_t *prh_thrd_cond_init(void) {
     prh_thrd_cond_t *p = prh_malloc(sizeof(prh_thrd_cond_t));
-    prh_impl_thrd_mutex_init(&p->mutex);
     prh_zeroret(pthread_cond_init(&p->cond, prh_null));
+    prh_impl_thrd_mutex_init(&p->mutex);
+    p->sleep_count = 0;
+    p->wakeup_semaphore = 0;
     return p;
 }
 
@@ -3354,43 +3392,77 @@ void prh_thrd_cond_free(prh_thrd_cond_t **cnd) {
     // pthread_cond_init() 对其进行重新初始化。
     prh_thrd_cond_t *p = *cnd;
     if (p == prh_null) return;
-    prh_zeroret(pthread_cond_destroy(&p->cond));
     prh_zeroret(pthread_mutex_destroy(&p->mutex));
+    prh_zeroret(pthread_cond_destroy(&p->cond));
     prh_free(p);
     *cnd = prh_null;
 }
 
-void prh_thrd_cond_wait(prh_thrd_cond_t *p) {
-    // 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
-    // 量。当线程被唤醒该函数返回时，会自动用当前线程锁定互斥量。
-    // 条件变量的一个通用设计原则：必须由一个while循环而不是if来控制对pthread_cond_wait()
-    // 的调用，这是因为当代码从pthread_cond_wait()返回时并不能确定判断条件的状态，所
-    // 以应该立即重新检查判断条件，在条件不满足的情况下继续休眠等待。
-    // 从pthread_cond_wait()返回时，之所以不能对判断条件的状态做任何假设，是因为：
-    // 1. 其他线程可能会率先醒来，也许有多个线程在等待获取与条件变量相关的互斥量。即使
-    //    就互斥量发出通知的线程将判断条件置为预期状态，其他线程依然有可能率先获取互斥
-    //    量并改变相关共享变量的状态，进而改变判断条件的状态。
-    // 2. 设计时设置宽松的判断条件或许更为简单，有时用条件变量来表征可能性而非确定性在
-    //    设计应用程序时会更为简单。换言之就条件变量发送信号意味着可能有些事情需要接收
-    //    信号的信号去响应，而不是一定有一些事情要做。适用这种方法，可以基于判断条件的
-    //    近似情况来发送条件变量通知，接收信号的线程可以通过再次检查判断条件来确定是否
-    //    需要做些什么。
-    // 3. 可能会发生虚假唤醒的情况，在一些实现中即使没有任何其他线程真地就条件变量发出
-    //    信号，等待此条件变量的线程仍有可能醒来。在一些多处理器系统上，为确保高效实现
-    //    而采用的技术会导致此类不常见的虚假唤醒。
-    prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
+// 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
+// 量。当线程被唤醒该函数返回时，会自动用当前线程锁定互斥量。
+// 条件变量的一个通用设计原则：必须由一个while循环而不是if来控制对pthread_cond_wait()
+// 的调用，这是因为当代码从pthread_cond_wait()返回时并不能确定判断条件的状态，所
+// 以应该立即重新检查判断条件，在条件不满足的情况下继续休眠等待。
+// 从pthread_cond_wait()返回时，之所以不能对判断条件的状态做任何假设，是因为：
+// 1. 其他线程可能会率先醒来，也许有多个线程在等待获取与条件变量相关的互斥量。即使
+//    就互斥量发出通知的线程将判断条件置为预期状态，其他线程依然有可能率先获取互斥
+//    量并改变相关共享变量的状态，进而改变判断条件的状态。
+// 2. 设计时设置宽松的判断条件或许更为简单，有时用条件变量来表征可能性而非确定性在
+//    设计应用程序时会更为简单。换言之就条件变量发送信号意味着可能有些事情需要接收
+//    信号的信号去响应，而不是一定有一些事情要做。适用这种方法，可以基于判断条件的
+//    近似情况来发送条件变量通知，接收信号的线程可以通过再次检查判断条件来确定是否
+//    需要做些什么。
+// 3. 可能会发生虚假唤醒的情况，在一些实现中即使没有任何其他线程真地就条件变量发出
+//    信号，等待此条件变量的线程仍有可能醒来。在一些多处理器系统上，为确保高效实现
+//    而采用的技术会导致此类不常见的虚假唤醒。
+// 线程等待条件变量的步骤：
+// 1. pthread_mutex_lock
+// 2. ... operation before wait ...
+// 3. while condition not meet
+// 4.   pthread_mutex_unlock and enter sleep
+// 5.   wakeup and pthread_mutex_lock (may block if other thread hold lock)
+// 6. mutex locked and condition meet
+// 7. ... operation after wait ...
+// 8. pthread_mutex_unlock
+
+void prh_thrd_cond_lock(prh_thrd_cond_t *p) {
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
 }
 
-bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec) {
+void prh_thrd_cond_wait(prh_thrd_cond_t *p, bool (*cond_meet)(void *), void *param) {
+    while (!cond_meet(param)) {
+        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
+    }
+    // thread locked and wakeup and cond_meet
+}
+
+bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec, bool (*cond_meet)(void *), void *param) {
     struct timespec abstime = {.tv_sec = msec/1000, .tv_nsec = ((msec % 1000) * 1000 * 1000)};
-    // TODO: abstime += curtime
-    int n = pthread_cond_timedwait(&p->cond, &p->mutex, &abstime);
+    int n = 0; // TODO: abstime += curtime
+    while (n != ETIMEDOUT && !cond_meet(param)) {
+        n = pthread_cond_timedwait(&p->cond, &p->mutex, &abstime);
+    }
+    // thread locked and wakeup and (ETIMEDOUT or cond_meet)
     if (n == ETIMEDOUT) {
         return true; // true WAIT TIMEOUT false WAIT SUCCESS
     }
-    prh_zeroret(n);
+    prh_prerr_if(n,);
     return false;
 }
+
+void prh_thrd_cond_unlock(prh_thrd_cond_t *p) {
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+}
+
+// The pthread_cond_broadcast() function shall wakeup all threads currently
+// blocked on the specified condition variable cond.
+// The pthread_cond_signal() function shall wakeup at least one of the
+// threads that are blocked on the specified condition variable cond (if
+// any threads are blocked on cond).
+// If more than one thread is blocked on a condition variable, the scheduling
+// policy shall determine the order in which threads are unblocked.
+// The pthread_cond_broadcast() and pthread_cond_signal() functions shall
+// have no effect if there are no threads currently blocked on cond.
 
 void prh_thrd_cond_signal(prh_thrd_cond_t *p) {
     // 唤醒至少一个等待的线程，比broadcast更高效。应用这种方式的典型情况是，所有等待
@@ -3409,6 +3481,80 @@ void prh_thrd_cond_broadcast(prh_thrd_cond_t *p) {
     // 之，线程如果在此后等待该条件变量，只有当再次收到此条件变量的下一信号时才能解除
     // 阻塞状态。
     prh_zeroret(pthread_cond_broadcast(&p->cond));
+}
+
+void prh_thrd_sem_wait(prh_thrd_cond_t *p, void (*wakeup_func)(void *), void *param) {
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    while (p->wakeup_semaphore == 0) {
+        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
+    }
+    p->wakeup_semaphore -= 1;
+    if (wakeup_func) {
+        wakeup_func(param);
+    }
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+}
+
+void prh_thrd_sem_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_func)(void *), void *param) {
+    if (new_semaphores <= 0) return;
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    p->wakeup_semaphore += new_semaphores;
+    if (post_func) {
+        post_func(param);
+    }
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    if (new_semaphores == 1) { // one semaphore available, can wakeup one thread to handle
+        prh_zeroret(pthread_cond_signal(&p->cond));
+    } else { // multi semaphore available, all thread can racing to handle them
+        prh_zeroret(pthread_cond_broadcast(&p->cond));
+    }
+}
+
+void prh_thrd_sleep_start(prh_thrd_cond_t *p) {
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    p->sleep_count += 1;
+}
+
+void prh_thrd_sleep(prh_thrd_cond_t *p) {
+    while (p->wakeup_semaphore == 0) {
+        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
+    }
+    p->wakeup_semaphore -= 1;
+    p->sleep_count -= 1;
+}
+
+void prh_thrd_sleep_end(prh_thrd_cond_t *p) {
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+}
+
+int prh_thrd_sleep_count(prh_thrd_cond_t *p) {
+    return p->sleep_count;
+}
+
+void prh_thrd_wakeup(prh_thrd_cond_t *p) {
+    bool need_wakeup = false;
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    if (p->sleep_count > 0 && p->wakeup_semaphore < p->sleep_count) {
+        p->wakeup_semaphore += 1;
+        need_wakeup = true;
+    }
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    if (need_wakeup) {
+        prh_zeroret(pthread_cond_signal(&p->cond));
+    }
+}
+
+void prh_thrd_wakeup_all(prh_thrd_cond_t *p) {
+    bool need_wakeup = false;
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    if (p->sleep_count > 0 && p->wakeup_semaphore < p->sleep_count) {
+        p->wakeup_semaphore = p->sleep_count;
+        need_wakeup = true;
+    }
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    if (need_wakeup) {
+        prh_zeroret(pthread_cond_broadcast(&p->cond));
+    }
 }
 
 #ifdef PRH_THRD_TEST
