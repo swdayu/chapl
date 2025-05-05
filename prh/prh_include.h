@@ -498,8 +498,10 @@ extern "C" {
 #ifndef prh_zeroret
 #if PRH_DEBUG // macro arg 'a' can only expand once
     #define prh_zeroret(a) if ((a) != 0) { exit(__LINE__); }
+    #define prh_boolret(a) if (!(a)) { exit(__LINE__); }
 #else
     #define prh_zeroret(a) a
+    #define prh_boolret(a) a
 #endif
 #endif
 
@@ -733,11 +735,209 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
 // Unix software on Windows as is, MSYS2 focuses on building native software
 // built against the Windows APIs.
 
-#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || defined(PRH_ATOMIC_IMPLEMENTATION)
+#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
+    defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION)
 #if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
     #define prh_plat_windows
+    // Predefined macros:
+    //      _WIN16      A 16-bit platform
+    //      _WIN32      A 32-bit platform. This value is also defined by the
+    //                  64-bit compiler for backward compatibility.
+    //      _WIN64      A 64-bit platform. This includes both x64 and ARM64.
+    //      _M_IA64     Intel Itanium platform
+    //      _M_IX86     x86 platform
+    //      _M_X64      x64 platform
+    //      _M_ARM64    ARM64 platform
+    //
+    // When you use the Windows SDK, you can specify which versions of Windows
+    // your code can run on. The preprocessor macros WINVER and _WIN32_WINNT
+    // specify the minimum operating system version your code supports.
+    //
+    // The possible values are listed in the Windows header file sdkddkver.h,
+    // which defines macros for each major Windows version. To build your
+    // application to support a previous Windows platform, include WinSDKVer.h.
+    // Then, set the WINVER and _WIN32_WINNT macros to the oldest supported
+    // platform before including sdkddkver.h. Here are the lines from the
+    // Windows 10 SDK version of sdkddkver.h that encode the values for each
+    // major version of Windows.
+    //
+    //      #define _WIN32_WINNT_NT4            0x0400 // Windows NT 4.0
+    //      #define _WIN32_WINNT_WIN2K          0x0500 // Windows 2000
+    //      #define _WIN32_WINNT_WINXP          0x0501 // Windows XP
+    //      #define _WIN32_WINNT_WS03           0x0502 // Windows Server 2003
+    //      #define _WIN32_WINNT_WIN6           0x0600 // Windows Vista
+    //      #define _WIN32_WINNT_VISTA          0x0600 // Windows Vista
+    //      #define _WIN32_WINNT_WS08           0x0600 // Windows Server 2008
+    //      #define _WIN32_WINNT_LONGHORN       0x0600 // Windows Vista
+    //      #define _WIN32_WINNT_WIN7           0x0601 // Windows 7
+    //      #define _WIN32_WINNT_WIN8           0x0602 // Windows 8
+    //      #define _WIN32_WINNT_WINBLUE        0x0603 // Windows 8.1
+    //      #define _WIN32_WINNT_WINTHRESHOLD   0x0A00 // Windows 10
+    //      #define _WIN32_WINNT_WIN10          0x0A00 // Windows 10
+    //
+    // For a more fine-grained approach to versioning, you can use the NTDDI
+    // version constants in sdkddkver.h. Here are some of the macros defined
+    // by sdkddkver.h in Windows 10 SDK version 10.0.18362.0.
+    //
+    //      #define NTDDI_WIN4                  0x04000000
+    //      #define NTDDI_WIN2K                 0x05000000
+    //      #define NTDDI_WIN2KSP1              0x05000100
+    //      #define NTDDI_WIN2KSP2              0x05000200
+    //      #define NTDDI_WIN2KSP3              0x05000300
+    //      #define NTDDI_WIN2KSP4              0x05000400
+    //      #define NTDDI_WINXP                 0x05010000
+    //      #define NTDDI_WINXPSP1              0x05010100
+    //      #define NTDDI_WINXPSP2              0x05010200
+    //      #define NTDDI_WINXPSP3              0x05010300
+    //      #define NTDDI_WINXPSP4              0x05010400
+    //      #define NTDDI_WS03                  0x05020000
+    //      #define NTDDI_WS03SP1               0x05020100
+    //      #define NTDDI_WS03SP2               0x05020200
+    //      #define NTDDI_WS03SP3               0x05020300
+    //      #define NTDDI_WS03SP4               0x05020400
+    //      #define NTDDI_WIN6                  0x06000000
+    //      #define NTDDI_WIN6SP1               0x06000100
+    //      #define NTDDI_WIN6SP2               0x06000200
+    //      #define NTDDI_WIN6SP3               0x06000300
+    //      #define NTDDI_WIN6SP4               0x06000400
+    //      #define NTDDI_VISTA                 NTDDI_WIN6
+    //      #define NTDDI_VISTASP1              NTDDI_WIN6SP1
+    //      #define NTDDI_VISTASP2              NTDDI_WIN6SP2
+    //      #define NTDDI_VISTASP3              NTDDI_WIN6SP3
+    //      #define NTDDI_VISTASP4              NTDDI_WIN6SP4
+    //      #define NTDDI_LONGHORN              NTDDI_VISTA
+    //      #define NTDDI_WS08                  NTDDI_WIN6SP1
+    //      #define NTDDI_WS08SP2               NTDDI_WIN6SP2
+    //      #define NTDDI_WS08SP3               NTDDI_WIN6SP3
+    //      #define NTDDI_WS08SP4               NTDDI_WIN6SP4
+    //      #define NTDDI_WIN7                  0x06010000
+    //      #define NTDDI_WIN8                  0x06020000
+    //      #define NTDDI_WINBLUE               0x06030000
+    //      #define NTDDI_WINTHRESHOLD          0x0A000000
+    //      #define NTDDI_WIN10                 0x0A000000
+    //      #define NTDDI_WIN10_TH2             0x0A000001
+    //      #define NTDDI_WIN10_RS1             0x0A000002
+    //      #define NTDDI_WIN10_RS2             0x0A000003
+    //      #define NTDDI_WIN10_RS3             0x0A000004
+    //      #define NTDDI_WIN10_RS4             0x0A000005
+    //      #define NTDDI_WIN10_RS5             0x0A000006
+    //      #define NTDDI_WIN10_19H1            0x0A000007
+    //      #define NTDDI_WIN10_VB              0x0A000008
+    //      #define NTDDI_WIN10_MN              0x0A000009
+    //      #define NTDDI_WIN10_FE              0x0A00000A
+    //      #define NTDDI_WIN10_CO              0x0A00000B
+    //      #define NTDDI_WIN10_NI              0x0A00000C
+    //      #define WDK_NTDDI_VERSION           NTDDI_WIN10_NI
+    //
+    // By default, new Windows projects in Visual Studio use the latest
+    // Windows SDK that ships with Visual Studio. To use a newer SDK you've
+    // installed separately, you'll have to set the Windows SDK explicitly
+    // in your project properties.
+    //
+    // If you define NTDDI_VERSION, you must also define _WIN32_WINNT.
+    //
+    // https://learn.microsoft.com/en-us/windows/win32/winprog/using-the-windows-headers
+    //
+    // 关于 WINVER 和其他版本控制符号的起源与演变
+    //
+    // WINVER 符号是最古老的。它是 16 位 Windows 用于控制其头文件版本的符号，后来被
+    // 延续到了 32 位头文件中，这可能是因为最初将头文件从 16 位转换为 32 位的那批人，
+    // 他们习惯于使用 WINVER 符号。这个符号在那些可以追溯到 16 位 Windows 的头文件中
+    // 仍然被广泛使用，例如 winuser.h、wingdi.h 和 mmsystem.h。
+    //
+    // 接下来出现的是 _WIN32_WINNT 符号。我不确定它从何而来，但从它的名字来看，很可
+    // 能是 Windows NT 团队发明的，以便让他们能够将头文件中仅在 Windows NT 的 Win32
+    // 实现中可用的部分隔离出来。别忘了在早期，还有 Win32s，这是可以在 16 位
+    // Windows 3.1 上运行的 Win32 子集。单靠 WINVER 符号是不足以精确指定你想要兼容
+    // 的版本的。例如，仅在 Windows NT 3.1 中可用的函数会被用 #if _WIN32_WINNT >=
+    // 0x030A 保护起来，这样那些希望在 Win32s 上运行的程序就可以将 _WIN32_WINNT 设
+    // 置为零，从而将该函数排除在外。同样，Windows 95 和 Windows NT 4 都标识为
+    // Windows 主版本 4，所以 WINVER 符号也不足以区分它们。因此，那些存在于 Windows
+    // NT 4 但不存在于 Windows 95 中的函数被用 _WIN32_WINNT 保护起来。另一方面，也
+    // 有一些函数是在 Windows 95 中首次引入的，而最初的 Windows NT 4 中并不存在。
+    // _WIN32_WINDOWS 符号让你可以指定你想要访问那些在 Windows 95 中新增的、并且会
+    // 被移植到 Windows NT 4 和后续版本 Windows NT 的功能。
+    //
+    // 历史总是惊人地相似：我们在试图弄清楚为什么有些函数返回 NULL，而另一些函数返回
+    // INVALID_HANDLE_VALUE 时就见过这种情况。每次有人向 Windows 添加新功能并需要
+    // 添加 #ifdef 保护时，他们几乎都会随机选择使用 WINVER、_WIN32_WINDOWS 还是
+    // _WIN32_WINNT。为了试图让这一切混乱变得有些条理，SDK 和 DDK 团队为 Windows
+    // Vista 的头文件制定了一个新计划：sdkddkver.h。现在只有一个符号需要你定义来指
+    // 定你的最低目标操作系统：NTDDI_VERSION。一旦你设置了它，所有其他符号都会自动
+    // 设置为适合你的目标操作系统的值。（至于 NTDDI 这几个字母代表什么，我也不知道，
+    // 尽管有一个显而易见的候选词。）但愿所有人都能统一使用 NTDDI_VERSION，这样这篇
+    // 文章就会成为那些“古色古香的历史小玩意儿”，就像所有关于 16 位 Windows 的文章
+    // 一样。就像“一个关于 21 世纪初疯狂日子里人们不得不做的事情的小故事。谢天谢地，
+    // 我们再也不用担心这些了！”
+    //
+    // GetTickCount64 Windows Vista Windows Server 2008
+    #include <WinSDKVer.h>
+    #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
+    #undef _WIN32_WINNT
+    #define _WIN32_WINNT 0x0600
+    #endif
+    #include <sdkddkver.h>
+    // When you define the STRICT symbol, you enable features that require more
+    // care in declaring and using types. This helps you write more portable
+    // code. This extra care will also reduce your debugging time. Enabling
+    // STRICT redefines certain data types so that the compiler does not permit
+    // assignment from one type to another without an explicit cast. This is
+    // especially helpful with Windows code. Errors in passing data types are
+    // reported at compile time instead of causing fatal errors at run time.
+    // With Visual C++, STRICT type checking is defined by default.
+    #define STRICT // #define NO_STRICT
+    // https://learn.microsoft.com/en-us/windows/win32/intl/unicode
+    // https://learn.microsoft.com/en-us/cpp/text/unicode-programming-summary
+    // To take advantage of the MFC and C run-time support for Unicode, you
+    // need to:
+    //      Define the symbol _UNICODE before you build your program.
+    //      Set the Entry Point symbol to wWinMainCRTStartup.
+    //      Use portable run-time functions and types.
+    // The run-time library provides a wide-character version of main. Use
+    // wmain to make your application Unicode-aware.
+    #define UNICODE
+    #define _UNICODE
+    // Define WIN32_LEAN_AND_MEAN to exclude APIs such as Cryptography, DDE,
+    // RPC, Shell, and Windows Sockets.
+    #define WIN32_LEAN_AND_MEAN
+    // Define one or more of the NOapi symbols to exclude the API. For example,
+    // NOCOMM excludes the serial communication API. For a list of support
+    // NOapi symbols, see Windows.h.
+    // #define NOCOMM
     #include <windows.h>
 #else
+    // POSIX allows an application to test at compile or run time whether
+    // certain options are supported, or what the value is of certain
+    // configurable constants or limits.
+    // At compile time this is done by including <unistd.h> and/or <limits.h>
+    // and testing the value of certain macros.
+    // At run time, one can ask for numerical values using the present
+    // function sysconf(). One can ask for numerical values that may depend
+    // on the filesystem in which a file resides using fpathconf(3) and
+    // pathconf(3). One can ask for string values using confstr(3).
+    // The values obtained from these functions are system configuration
+    // constants. They do not change during the lifetime of a process.
+    //
+    // For options, typically, there is a constant _POSIX_FOO that may be
+    // defined in <unistd.h>. If it is undefined, one should ask at run time.
+    // If it is defined to -1, then the option is not supported. If it is
+    // defined to 0, then relevant functions and headers exist, but one has
+    // to ask at run time what degree of support is available. If it is
+    // defined to a value other than -1 or 0, then the option is supported.
+    // Usually the value (such as 200112L) indicates the year and month of
+    // the POSIX revision describing the option. glibc uses the value 1 to
+    // indicate support as long as the POSIX revision has not been published
+    // yet. The sysconf() argument will be _SC_FOO. For a list of options,
+    // see posixoptions(7).
+    // https://www.man7.org/linux/man-pages/man7/posixoptions.7.html
+    //
+    // For variables or limits, typically, there is a constant _FOO, maybe
+    // defined in <limits.h>, or _POSIX_FOO, maybe defined in <unistd.h>.
+    // The constant will not be defined if the limit is unspecified. If the
+    // constant is defined, it gives a guaranteed value, and a greater value
+    // might actually be supported. If an application wants to take advantage
+    // of values which may change between systems, a call to sysconf() can
+    // be made. The sysconf() argument will be _SC_FOO.
     #define prh_plat_posix
     #define _POSIX_C_SOURCE 200809L
     // glibc https://www.gnu.org/software/libc/
@@ -2418,6 +2618,380 @@ void prh_impl_atomic_test(void) {
 #endif // PRH_ATOMIC_IMPLEMENTATION
 #endif // PRH_ATOMIC_INCLUDE
 
+#ifdef PRH_TIME_INCLUDE
+// 1-sec 秒 second
+// 1000-msec 毫秒 millisecond
+// 1000000-usec 微妙 microsecond
+// 1000000000-nsec 纳秒 nanosecond 最大值10亿可以用int32表示，int32最大值为20亿
+// 1GHZ 1000MHZ 1000000KHZ 1000000000HZ 相当于 1-nsec per tick
+// 一天24小时*3600秒，共86400秒*365天，一年共31536000秒
+// UTC时间从1970/1/1 00:00:00开始，uint32只能表示136年大约在2106年失效，而int64
+// 可以表示正负2.9千亿年，如果保存毫秒可以表示2.9亿年，如果保存微妙可以表示29万年，
+// 如果保存纳秒可以表示292年。int32保存秒可以表示68年，保存毫秒可以表示24天，保存微
+// 秒可以表示35分钟，保存纳秒可以表示2秒。
+// The epoch of system_clock is unspecified, but most implementations use Unix
+// Time (i.e., time since 00:00:00 Coordinated Universal Time (UTC), Thursday,
+// 1 January 1970, not counting leap seconds).
+
+// Epoch delta from 0000/1/1 to 1970/1/1
+#define PRH_EPOCH_DELTA_SEC  0x0000000E79844E00ULL // 62168256000-sec
+#define PRH_EPOCH_DELTA_MSEC 0x0000388AACD0B000ULL // 62168256000000-msec
+#define PRH_EPOCH_DELTA_USEC 0x00dcddb30f2f8000ULL // 62168256000000000-usec
+
+typedef prh_i64 prh_timesec_t; // 最大可以表示正负2.9千亿年
+
+typedef struct {
+    prh_i64 msec; // millisecond 保存毫秒可以表示2.9亿年
+} prh_timestamp_t;
+
+typedef struct {
+    prh_i64 usec; // microsecond 保存微妙可以表示29万年
+} prh_timeusec_t;
+
+typedef struct {
+    prh_u64 nsec; // nanosecond 最大可以表示524年
+} prh_timensec_t;
+
+typedef struct {
+    prh_u64 ticks; // 如果精度为纳秒（精度为1000000000每秒，1GHZ）可以表示524年
+} prh_timetick_t;
+
+typedef struct {
+    prh_u64 ticks_per_sec;
+} prh_timefreq_t;
+
+typedef struct {
+    prh_timesec_t sec;
+    prh_int nsec;
+} prh_timespec_t;
+
+typedef struct {
+    int sec;    // 0 ~ 60 since C99
+    int min;    // 0 ~ 59
+    int hour;   // 0 ~ 23
+    int mday;   // 1 ~ 31
+    int mon;    // 0 ~ 11 (January = 0)
+    int year;   // since 1900
+    int wday;   // 0 ~ 6 (Sunday = 0)
+    int yday;   // 0 ~ 365 (Jan/01 = 0)
+    int msec;   // 0 ~ 999
+} prh_datetime_t;
+
+#ifdef PRH_TIME_IMPLEMENTATION
+#if defined(prh_plat_windows)
+// FILETIME structure minwinbase.h (include Windows.h) Windows 2000
+// Contains a 64-bit value representing the number of 100-nanosecond intervals
+// since January 1, 1601 (UTC).
+//      typedef struct _FILETIME {
+//          DWORD dwLowDateTime;
+//          DWORD dwHighDateTime;
+//      } FILETIME;
+//
+// void GetSystemTimeAsFileTime(FILETIME *out); Windows 2000
+// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      Retrieves the current system date and time. The information is in
+//      Coordinated Universal Time (UTC) format.
+//
+// void GetSystemTimePreciseAsFileTime(FILETIME *out); Windows 8 Windows Server 2012
+// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      The GetSystemTimePreciseAsFileTime function retrieves the current
+//      system date and time with the highest possible level of precision
+//      (<1us). The retrieved information is in Coordinated Universal Time
+//      (UTC) format.
+//      Note  This function is best suited for high-resolution time-of-day
+//      measurements, or time stamps that are synchronized to UTC. For
+//      high-resolution interval measurements, use QueryPerformanceCounter
+//      or KeQueryPerformanceCounter. For more info about acquiring
+//      high-resolution time stamps, see Acquiring high-resolution timestamps.
+//
+// ULONGLONG GetTickCount64(); Windows Vista Windows Server 2008
+// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      Retrieves the number of milliseconds that have elapsed since the system
+//      was started.
+//      The resolution of the GetTickCount64 function is limited to the
+//      resolution of the system timer, which is typically in the range of
+//      10 milliseconds to 16 milliseconds. The resolution of the
+//      GetTickCount64 function is not affected by adjustments made by the
+//      GetSystemTimeAdjustment function.
+//      If you need a higher resolution timer, use a multimedia timer or a
+//      high-resolution timer.
+//      To compile an application that uses this function, define _WIN32_WINNT
+//      as 0x0600 or later. For more information, see Using the Windows
+//      Headers.
+//
+// https://learn.microsoft.com/en-us/windows/win32/winmsg/about-timers
+//
+// High-resolution timer
+//
+// A counter is a general term used in programming to refer to an incrementing
+// variable. Some systems include a high-resolution performance counter that
+// provides high-resolution elapsed times.
+// If a high-resolution performance counter exists on the system, you can use
+// the QueryPerformanceFrequency function to express the frequency, in counts
+// per second. The value of the count is processor dependent. On some
+// processors, for example, the count might be the cycle rate of the processor
+// clock.
+// The QueryPerformanceCounter function retrieves the current value of the
+// high-resolution performance counter. By calling this function at the
+// beginning and end of a section of code, an application essentially uses
+// the counter as a high-resolution timer.
+//
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps
+//
+// Acquiring high-resolution time stamps
+//
+// Windows 提供了一些可以用来获取高分辨率时间戳或测量时间间隔的 API。对于本地代码，
+// 主要的 API 是 QueryPerformanceCounter（QPC）。对于设备驱动程序，内核模式的 API
+// 是 KeQueryPerformanceCounter。对于托管代码，System.Diagnostics.Stopwatch 类
+// 使用 QPC 作为其精确时间基础。QPC 是独立的，并且不与任何外部时间参考同步。如果要获
+// 取可以与外部时间参考（例如协调世界时，UTC）同步的时间戳（用于高分辨率的时间测量），
+// 请使用 GetSystemTimePreciseAsFileTime。时间戳和时间间隔测量是计算机和网络性能测
+// 量的重要组成部分。这些性能测量操作包括计算响应时间、吞吐量和延迟，以及对代码执行进
+// 行剖析。所有这些操作都涉及对在时间间隔内发生的活动的测量，该时间间隔由开始和结束事
+// 件定义，这些事件可以独立于任何外部时间参考。QPC 通常是用于对同一系统或虚拟机上发生
+// 的事件进行时间戳标记和测量小时间间隔的最佳方法。如果要在多台机器之间对事件进行时间
+// 戳标记，并且每台机器都参与了某种时间同步方案（例如网络时间协议，NTP），请考虑使用
+// GetSystemTimePreciseAsFileTime。QPC 帮助你避免使用其他时间测量方法（例如直接读
+// 取处理器的时间戳计数器，TSC）时可能遇到的困难。
+//
+// QPC is available on Windows XP and Windows 2000 and works well on most
+// systems. However, some hardware systems' BIOS didn't indicate the hardware
+// CPU characteristics correctly (a non-invariant TSC), and some multi-core
+// or multi-processor systems used processors with TSCs that couldn't be
+// synchronized across cores. Systems with flawed firmware that run these
+// versions of Windows might not provide the same QPC reading on different
+// cores if they used the TSC as the basis for QPC.
+//
+// All computers that shipped with Windows Vista and Windows Server 2008 used
+// a platform counter (High Precision Event Timer (HPET)) or the ACPI Power
+// Management Timer (PM timer) as the basis for QPC. Such platform timers
+// have higher access latency than the TSC and are shared between multiple
+// processors. This limits scalability of QPC if it is called concurrently
+// from multiple processors.
+//
+// The majority of Windows 7 and Windows Server 2008 R2 computers have
+// processors with constant-rate TSCs and use these counters as the basis
+// for QPC. TSCs are high-resolution per-processor hardware counters that
+// can be accessed with very low latency and overhead (in the order of 10s
+// or 100s of machine cycles, depending on the processor type). Windows 7
+// and Windows Server 2008 R2 use TSCs as the basis of QPC on single-clock
+// domain systems where the operating system (or the hypervisor) is able to
+// tightly synchronize the individual TSCs across all processors during
+// system initialization. On such systems, the cost of reading the
+// performance counter is significantly lower compared to systems that use
+// a platform counter. Furthermore, there is no added overhead for concurrent
+// calls and user-mode queries often bypass system calls, which further
+// reduces overhead. On systems where the TSC is not suitable for timekeeping,
+// Windows automatically selects a platform counter (either the HPET timer or
+// the ACPI PM timer) as the basis for QPC.
+//
+// Windows 8, Windows 8.1, Windows Server 2012, and Windows Server 2012 R2
+// use TSCs as the basis for the performance counter. The TSC synchronization
+// algorithm was significantly improved to better accommodate large systems
+// with many processors. In addition, support for the new precise time-of-day
+// API was added, which enables acquiring precise wall clock time stamps from
+// the operating system. For more info, see GetSystemTimePreciseAsFileTime.
+// On Windows RT and Windows 11 and Windows 10 devices using Arm processors,
+// the performance counter is based on either a proprietary platform counter
+// or the system counter provided by the Arm Generic Timer if the platform
+// is so equipped.
+//
+// 性能计数器预计可以在正确实现的虚拟化管理程序上运行的所有客户虚拟机中可靠工作。然而，
+// 符合虚拟化管理程序版本 1.0 接口并提供参考时间增强功能的虚拟化管理程序可以显著降低
+// 开销。有关虚拟化管理程序接口和增强功能的更多信息，请参阅 虚拟化管理程序规范。
+//
+// 我们强烈不推荐使用 RDTSC 或 RDTSCP 处理器指令直接查询时间戳计数器（TSC），因为在
+// 某些版本的 Windows 上、虚拟机的实时迁移过程中，以及在没有不变或紧密同步的 TSC 的
+// 硬件系统上，你无法获得可靠的结果。相反，我们建议你使用 QPC，以利用其提供的抽象性、
+// 一致性和可移植性。
+//
+// https://learn.microsoft.com/zh-cn/sysinternals/
+//
+// LARGE_INTEGER union (winnt.h)
+//      The LARGE_INTEGER structure is actually a union. If your compiler has
+//      built-in support for 64-bit integers, use the QuadPart member to store
+//      the 64-bit integer. Otherwise, use the LowPart and HighPart members to
+//      store the 64-bit integer.
+//      typedef union _LARGE_INTEGER {
+//          struct {
+//              DWORD LowPart;
+//              LONG HighPart;
+//          } DUMMYSTRUCTNAME;
+//          struct {
+//              DWORD LowPart;
+//              LONG HighPart;
+//          } u;
+//          LONGLONG QuadPart; // a signed 64-bit integer
+//      } LARGE_INTEGER;
+//
+// BOOL QueryPerformanceCounter(LARGE_INTEGER *count); Windows 2000
+// profileapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      If the function fails, the return value is zero. To get extended error
+//      information, call GetLastError. On systems that run Windows XP or
+//      later, the function will always succeed and will thus never return
+//      zero.
+//      For more info about this function and its usage, see Acquiring
+//      high-resolution time stamps.
+//
+// BOOL QueryPerformanceFrequency(LARGE_INTEGER *frequency); Windows 2000
+// profileapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      Retrieves the frequency of the performance counter. The frequency of
+//      the performance counter is fixed at system boot and is consistent
+//      across all processors. Therefore, the frequency need only be queried
+//      upon application initialization, and the result can be cached.
+//      A pointer to a variable that receives the current performance-counter
+//      frequency, in counts per second. If the installed hardware doesn't
+//      support a high-resolution performance counter, this parameter can be
+//      zero (this will not occur on systems that run Windows XP or later).
+//      If the function fails, the return value is zero. To get extended error
+//      information, call GetLastError. On systems that run Windows XP or
+//      later, the function will always succeed and will thus never return
+//      zero.
+//
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC  0x00000002B6109100ULL // 11644473600-sec
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC 0x00000A9730B66800ULL // 11644473600000-msec
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC 0x00295E9648864000ULL // 11644473600000000-usec
+
+void prh_system_time(prh_timeusec_t *t) {
+    FILETIME f;
+    GetSystemTimeAsFileTime(&f);
+    t->usec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    t->usec = t->usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
+}
+
+void prh_steady_time(prh_timeusec_t *t) {
+    t->usec = (prh_i64)GetTickCount64() * 1000; // GetTickCount64() 精度为毫秒
+}
+
+// To guard against loss-of-precision, we convert to like microseconds *before*
+// dividing by ticks-per-second.
+// ElapsedMicroseconds.QuadPart *= 1000000;
+// ElapsedMicroseconds.QuadPart /= Frequency.QuadPart;
+
+void prh_tick_counter(prh_timetick_t *t) {
+    LARGE_INTEGER ticks;
+    prh_boolret(QueryPerformanceCounter(&ticks));
+    t->ticks = ticks.QuadPart;
+}
+
+void prh_tick_frequency(prh_timefreq_t *f) {
+    LARGE_INTEGER freq;
+    prh_boolret(QueryPerformanceFrequency(&freq));
+    f->ticks_per_sec = freq.QuadPart;
+}
+
+#ifdef PRH_TIME_TEST
+#include <time.h>
+void prh_impl_time_test(void) {
+    printf("WINVER  %04x\n", WINVER );
+    printf("_WIN32_WINNT %04x\n", _WIN32_WINNT);
+    printf("NTDDI_VERSION %04x\n", NTDDI_VERSION);
+    printf("time_t %d-byte\n", sizeof(time_t)); // seconds
+    printf("clock_t %d-byte\n", sizeof(clock_t));
+    printf("CLOCKS_PER_SEC %d\n", CLOCKS_PER_SEC);
+}
+#endif // PRH_TIME_TEST
+#else  // WINDOWS end POSIX begin
+#include <time.h> // clock_gettime time_t struct timespec
+#include <sys/time.h> // gettimeofday time_t struct timeval
+// SVr4, 4.3BSD. POSIX.1-2001 describes gettimeofday() but not settimeofday().
+// POSIX.1-2008 marks gettimeofday() as obsolete, recommending the use of
+// clock_gettime(2) instead.
+// The time returned by gettimeofday() is affected by discontinuous jumps in
+// the system time (e.g., if the system administrator manually changes the
+// system time). If you need a monotonically increasing clock, see
+// clock_gettime(2).
+// The function clock_gettime() is not available on OSX.
+#if defined(__APPLE__)
+#include <AvailabilityMacros.h>
+#include <mach/task.h>
+#include <mach/mach.h>
+#endif
+
+// The system clock represents the system-wide real time wall clock. It may
+// not be monotonic: on most systems, the system time can be adjusted at any
+// moment. System clock measures Unix Time (i.e., time since 00:00:00
+// Coordinated Universal Time (UTC), Thursday, 1 January 1970, not counting
+// leap seconds). The system clock's time value can be internally adjusted
+// at any time by the operating system, for example due to NTP synchronization
+// or the user changing the system's clock. Daylight Saving Time and time zone
+// changes, however, do not affect it since it is based on the UTC time-zone.
+void prh_system_time(prh_timeusec_t *t) {
+#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    struct timespec ts;
+    prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
+    t->usec = (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    t->usec = (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
+#endif
+}
+
+// The steady clock represents a monotonic clock. The time points of this
+// clock cannot decrease as physical time moves forward and the time between
+// ticks of this clock is constant. This clock is not related to wall clock
+// time (for example, it can be time since last reboot), and is most suitable
+// for measuring intervals.
+//
+// The CLOCK_MONOTONIC clock is not affected by discontinuous jumps in the
+// system time (e.g., if the system administrator manually changes the clock),
+// but is affected by frequency adjustments. This clock does not count time
+// that the system is suspended. All CLOCK_MONOTONIC variants guarantee that
+// the time returned by consecutive calls will not go backwards, but successive
+// calls may — depending on the architecture — return identical (not-increased)
+// time values. 由于精度原因，后续调用可能返回相同的未增加的时间值。
+//
+// CLOCK_BOOTTIME (since Linux 2.6.39; Linux-specific) A nonsettable
+// system-wide clock that is identical to CLOCK_MONOTONIC, except that it also
+// includes any time that the system is suspended. This allows applications to
+// get a suspend-aware monotonic clock without having to deal with the
+// complications of CLOCK_REALTIME, which may have discontinuities if the time
+// is changed using settimeofday(2) or similar.
+
+void prh_steady_time(prh_timeusec_t *t) {
+#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    struct timespec ts;
+#if defined(CLOCK_BOOTTIME)
+    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
+#else
+    prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
+#endif
+    t->usec = (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    t->usec = (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
+#endif
+}
+
+void prh_thread_time(prh_timensec_t *t) {
+#if defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME > 0)
+
+#else
+
+#endif
+}
+
+#ifdef PRH_TIME_TEST
+void prh_impl_time_test(void) {
+    printf("time_t %d-byte\n", sizeof(time_t)); // seconds
+    printf("clock_t %d-byte\n", sizeof(clock_t));
+    printf("CLOCKS_PER_SEC %d\n", CLOCKS_PER_SEC);
+    printf("suseconds_t %d-byte\n", sizeof(suseconds_t)); // microseconds
+    printf("struct timeval %d-byte\n", sizeof(struct timeval));
+    printf("struct timespec %d-byte\n", sizeof(struct timespec));
+    struct timespec ts;
+    prh_zeroret(clock_getres(CLOCK_REALTIME, &ts));
+    printf("CLOCK_REALTIME time resolution %d-nsec\n", (int)ts.tv_nsec);
+    prh_zeroret(clock_getres(CLOCK_MONOTONIC, &ts));
+    printf("CLOCK_MONOTONIC time resolution %d-nsec\n", (int)ts.tv_nsec);
+}
+#endif // PRH_TIME_TEST
+#endif // POSIX end
+#endif // PRH_TIME_IMPLEMENTATION
+#endif // PRH_TIME_INCLUDE
+
 #ifdef PRH_THRD_INCLUDE
 typedef struct prh_thrd prh_thrd_t;
 typedef struct prh_thrdpool prh_thrdpool_t;
@@ -3438,7 +4012,7 @@ void prh_thrd_cond_wait(prh_thrd_cond_t *p, bool (*cond_meet)(void *), void *par
 
 bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec, bool (*cond_meet)(void *), void *param) {
     struct timespec abstime = {.tv_sec = msec/1000, .tv_nsec = ((msec % 1000) * 1000 * 1000)};
-    int n = 0; // TODO: abstime += curtime
+    int n = 0; // TODO: abstime += curtime，msec 最大可以表示48天
     while (n != ETIMEDOUT && !cond_meet(param)) {
         n = pthread_cond_timedwait(&p->cond, &p->mutex, &abstime);
     }
