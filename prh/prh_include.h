@@ -492,7 +492,9 @@ extern "C" {
 #ifndef prh_prerr_if
     #define prh_prerr_if(err, ...) if (err) { prh_prerr(err); __VA_ARGS__; }
     #define prh_prerr(err) prh_impl_prerr((err), __LINE__)
+    #define prh_prerr_exit(err) prh_impl_prerr_exit((err), __LINE__)
     void prh_impl_prerr(int err, int line);
+    void prh_impl_prerr_exit(int err, int line);
 #endif
 
 #ifndef prh_zeroret
@@ -905,6 +907,7 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     // NOapi symbols, see Windows.h.
     // #define NOCOMM
     #include <windows.h>
+    #define PRH_WINOS_BOOLRET(a) if (!(a)) { prh_prerr_exit(GetLastError()); }
 #else
     // POSIX allows an application to test at compile or run time whether
     // certain options are supported, or what the value is of certain
@@ -985,6 +988,10 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
 #include <stdio.h>
 void prh_impl_prerr(int err, int line) {
     fprintf(stderr, "error: %d at %d\n", err, line);
+}
+void prh_impl_prerr_exit(int err, int line) {
+    fprintf(stderr, "error: %d\n", err);
+    exit(line);
 }
 #endif
 
@@ -2642,22 +2649,22 @@ typedef prh_i64 prh_timesec_t; // 最大可以表示正负2.9千亿年
 
 typedef struct {
     prh_i64 msec; // millisecond 保存毫秒可以表示2.9亿年
-} prh_timestamp_t;
+} prh_timemsec_t;
 
 typedef struct {
     prh_i64 usec; // microsecond 保存微妙可以表示29万年
 } prh_timeusec_t;
 
 typedef struct {
-    prh_u64 nsec; // nanosecond 最大可以表示524年
+    prh_i64 nsec; // nanosecond 保存纳秒最大可以表示292年
 } prh_timensec_t;
 
 typedef struct {
-    prh_u64 ticks; // 如果精度为纳秒（精度为1000000000每秒，1GHZ）可以表示524年
+    prh_i64 ticks; // 如果精度为纳秒（精度为1000000000每秒，1GHZ）可以表示292年
 } prh_timetick_t;
 
 typedef struct {
-    prh_u64 ticks_per_sec;
+    prh_i64 ticks_per_sec;
 } prh_timefreq_t;
 
 typedef struct {
@@ -2675,62 +2682,44 @@ typedef struct {
     int wday;   // 0 ~ 6 (Sunday = 0)
     int yday;   // 0 ~ 365 (Jan/01 = 0)
     int msec;   // 0 ~ 999
+    int usec;   // 0 ~ 999
+    int nsec;   // 0 ~ 999
 } prh_datetime_t;
 
+#define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SEC)
+#define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SEC)
+
+void prh_time_init(void);
+void prh_calendar_time(prh_timemsec_t *t);
+void prh_system_time(prh_timeusec_t *t);
+void prh_steady_time(prh_timeusec_t *t);
+void prh_thread_time(prh_timeusec_t *t);
+void prh_precise_tick(prh_timetick_t *t);
+void prh_elapsed_time(const prh_timetick_t *ticks, prh_timensec_t *out);
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int nsec) ;
+
 #ifdef PRH_TIME_IMPLEMENTATION
+typedef struct {
+    prh_timefreq_t freq;
+} prh_impl_timeinit_t;
+
+prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
 #if defined(prh_plat_windows)
-// FILETIME structure minwinbase.h (include Windows.h) Windows 2000
-// Contains a 64-bit value representing the number of 100-nanosecond intervals
-// since January 1, 1601 (UTC).
-//      typedef struct _FILETIME {
-//          DWORD dwLowDateTime;
-//          DWORD dwHighDateTime;
-//      } FILETIME;
-//
-// void GetSystemTimeAsFileTime(FILETIME *out); Windows 2000
-// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
-//      Retrieves the current system date and time. The information is in
-//      Coordinated Universal Time (UTC) format.
-//
-// void GetSystemTimePreciseAsFileTime(FILETIME *out); Windows 8 Windows Server 2012
-// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
-//      The GetSystemTimePreciseAsFileTime function retrieves the current
-//      system date and time with the highest possible level of precision
-//      (<1us). The retrieved information is in Coordinated Universal Time
-//      (UTC) format.
-//      Note  This function is best suited for high-resolution time-of-day
-//      measurements, or time stamps that are synchronized to UTC. For
-//      high-resolution interval measurements, use QueryPerformanceCounter
-//      or KeQueryPerformanceCounter. For more info about acquiring
-//      high-resolution time stamps, see Acquiring high-resolution timestamps.
-//
-// ULONGLONG GetTickCount64(); Windows Vista Windows Server 2008
-// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
-//      Retrieves the number of milliseconds that have elapsed since the system
-//      was started.
-//      The resolution of the GetTickCount64 function is limited to the
-//      resolution of the system timer, which is typically in the range of
-//      10 milliseconds to 16 milliseconds. The resolution of the
-//      GetTickCount64 function is not affected by adjustments made by the
-//      GetSystemTimeAdjustment function.
-//      If you need a higher resolution timer, use a multimedia timer or a
-//      high-resolution timer.
-//      To compile an application that uses this function, define _WIN32_WINNT
-//      as 0x0600 or later. For more information, see Using the Windows
-//      Headers.
-//
 // https://learn.microsoft.com/en-us/windows/win32/winmsg/about-timers
 //
-// High-resolution timer
+// High-resolution timer 性能计数器的值是一个单调递增的计数值，其频率可以通过
+// QueryPerformanceFrequency 获取。
 //
 // A counter is a general term used in programming to refer to an incrementing
 // variable. Some systems include a high-resolution performance counter that
 // provides high-resolution elapsed times.
+//
 // If a high-resolution performance counter exists on the system, you can use
 // the QueryPerformanceFrequency function to express the frequency, in counts
 // per second. The value of the count is processor dependent. On some
 // processors, for example, the count might be the cycle rate of the processor
 // clock.
+//
 // The QueryPerformanceCounter function retrieves the current value of the
 // high-resolution performance counter. By calling this function at the
 // beginning and end of a section of code, an application essentially uses
@@ -2796,6 +2785,48 @@ typedef struct {
 // or the system counter provided by the Arm Generic Timer if the platform
 // is so equipped.
 //
+// Windows 一直在并将继续投资于提供可靠且高效的性能计数器。当你需要具有 1 微秒或更高
+// 分辨率的时间戳，并且不需要这些时间戳与外部时间参考同步时，应选择
+// QueryPerformanceCounter、KeQueryPerformanceCounter 或
+// KeQueryInterruptTimePrecise。当你需要具有 1 微秒或更高分辨率且与协调世界时
+// （UTC）同步的时间戳时，应选择 GetSystemTimePreciseAsFileTime 或
+// KeQuerySystemTimePrecise。
+//
+// 在少数无法使用 TSC（时间戳计数器）寄存器来实现 QPC 的平台上，例如由于硬件时钟信息
+// （Hardware timer info）中解释的原因，获取高分辨率时间戳的代价可能显著高于获取低分
+// 辨率时间戳。如果 10 到 16 毫秒的分辨率已经足够，你可以使用 GetTickCount64、
+// QueryInterruptTime、QueryUnbiasedInterruptTime、KeQueryInterruptTime 或
+// KeQueryUnbiasedInterruptTime 来获取不与外部时间参考同步的时间戳。对于需要与 UTC
+// 同步的时间戳，可以使用 GetSystemTimeAsFileTime 或 KeQuerySystemTime。如果需要
+// 更高分辨率，可以使用 QueryInterruptTimePrecise、
+// QueryUnbiasedInterruptTimePrecise 或 KeQueryInterruptTimePrecise 来获取时间
+// 戳。
+//
+// 一般来说，在多核和多处理器系统中，性能计数器的结果在所有处理器上是一致的，即使在不
+// 同线程或进程中测量也是如此。但存在以下一些例外情况：
+//
+//      在某些处理器上运行 Windows Vista 之前的操作系统可能由于以下原因之一而违反这
+//      种一致性：硬件处理器具有非不变的 TSC（时间戳计数器），并且 BIOS 没有正确指示
+//      这种情况；使用的 TSC 同步算法不适合拥有大量处理器的系统。
+//
+//      当你在多线程环境中从不同线程获取性能计数器的时间戳时，可能会遇到一个问题：由
+//      于硬件和调度的不确定性，两个时间戳之间的差异可能只有 ±1 个时钟周期。这种情况
+//      下，时间戳的顺序可能是模糊的（ambiguous）。换句话说，你无法确定哪个时间戳真
+//      正地早于或晚于另一个时间戳。例如如果 T2 - T1 = ±1 个时钟周期，那么你无法确
+//      定 T1 是否早于 T2，或者它们是否几乎同时发生。
+//
+//      如果两个时间戳是从同一个线程获取的，那么这种 ±1 个时钟周期的不确定性不适用，
+//      在同一线程中，时间戳的顺序是明确的，因为它们是在同一个上下文中生成的，不会受
+//      到线程切换或硬件同步问题的影响。在此上下文中，术语 “时钟周期” 指的是等于 1 ÷
+//      （通过 QueryPerformanceFrequency 获取的性能计数器频率）的时间间隔。
+//
+// 在具有多个时钟域且这些时钟域在硬件中未同步的大型服务器系统上使用性能计数器时，
+// Windows 会确定 TSC 不能用于计时目的，并选择一个平台计数器作为 QPC 的基础。尽管在
+// 这种情况下仍然可以提供可靠的时间戳，但访问延迟和可扩展性会受到不利影响。因此，如前
+// 面的使用指导所述，只有在需要 1 微秒或更高分辨率时，才使用提供这种分辨率的 API。在
+// 包含硬件同步（对所有处理器时钟域）的多时钟域系统上，TSC 被用作 QPC 的基础，因为这
+// 实际上它们等效于作为一个单一时钟域系统来运行。
+//
 // 性能计数器预计可以在正确实现的虚拟化管理程序上运行的所有客户虚拟机中可靠工作。然而，
 // 符合虚拟化管理程序版本 1.0 接口并提供参考时间增强功能的虚拟化管理程序可以显著降低
 // 开销。有关虚拟化管理程序接口和增强功能的更多信息，请参阅 虚拟化管理程序规范。
@@ -2805,7 +2836,232 @@ typedef struct {
 // 硬件系统上，你无法获得可靠的结果。相反，我们建议你使用 QPC，以利用其提供的抽象性、
 // 一致性和可移植性。
 //
-// https://learn.microsoft.com/zh-cn/sysinternals/
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps#hardware-timer-info
+//
+// Hardware timer info
+//
+// TSC 寄存器（x86 和 x64）
+//
+// 所有现代的 Intel 和 AMD 处理器都包含一个 TSC（时间戳计数器）寄存器，这是一个 64
+// 位的寄存器，以很高的速率递增，通常等于处理器的时钟频率。通过 RDTSC 或 RDTSCP 指
+// 令可以读取该计数器的值，访问时间非常短，计算成本也很低，通常在几十到几百个机器周
+// 期内，具体取决于处理器。尽管 TSC 寄存器看起来像是一个理想的时间戳机制，但在以下情
+// 况下，它无法可靠地用于计时目的：
+//
+// 可移植性问题：并非所有处理器都有可用的 TSC 寄存器，因此直接在软件中使用 TSC 寄存
+// 器会带来可移植性问题。Windows 会为 QPC 选择替代的时间源，从而避免了可移植性问题。
+// 非不变 TSC：某些处理器可以改变 TSC 时钟的频率，或者停止 TSC 寄存器的递增，这使得
+// 这些处理器上的 TSC 不适合用于计时。这些处理器被认为具有非不变 TSC 寄存器。Windows
+// 会自动检测这种情况，并为 QPC 选择替代的时间源。
+// 虚拟机实时迁移问题：即使虚拟化主机有一个可用的 TSC，当运行中的虚拟机进行实时迁移，
+// 而目标虚拟化主机没有或不使用硬件辅助的 TSC 缩放时，可能会导致虚拟机看到 TSC 频率
+// 的变化。如果这种类型的实时迁移对虚拟机是可能的，那么虚拟化管理程序应该清除 CPUID
+// 中的不变 TSC 特性位。
+// 多处理器或多核系统中的时钟同步问题：某些处理器和系统无法将每个核心上的时钟同步到相
+// 同的值。Windows 会自动检测这种情况，并为 QPC 选择替代的时间源。
+// 大型多处理器系统中的时钟同步问题：即使处理器具有不变 TSC，也可能无法将处理器时钟同
+// 步到相同的值。Windows 会自动检测这种情况，并为 QPC 选择替代的时间源。
+// 指令乱序执行问题：某些处理器会乱序执行指令。这可能导致在使用 RDTSC 对指令序列进行
+// 计时时出现错误的周期计数，因为 RDTSC 指令可能与你在程序中指定的不同时间执行。为了
+// 解决这个问题，某些处理器引入了 RDTSCP 指令。
+//
+// 与其他计时器一样，TSC 基于一个晶体振荡器，其确切频率事先并不知道，并且存在频率偏移
+// 误差。因此，在使用之前，必须使用另一个时间参考对其进行校准。在系统初始化期间，
+// Windows 会检查 TSC 是否适合用于计时目的，并执行必要的频率校准和核心同步。
+//
+// PM 时钟（x86 和 x64）
+//
+// ACPI 定时器（也称为 PM 时钟）被添加到系统架构中，以提供与处理器速度无关的可靠时间
+// 戳。由于这是该定时器的唯一目标，它可以在一个时钟周期内提供时间戳，但它不提供任何其
+// 他功能。
+//
+// HPET 定时器（x86 和 x64）
+//
+// 高精度事件定时器（HPET）是由 Intel 和 Microsoft 联合开发的，以满足多媒体和其他对
+// 时间敏感的应用程序的计时需求。与 TSC（每个处理器都有一个）不同，HPET 是一个共享
+// 的、平台范围内的资源，尽管一个系统可以有多个 HPET。自 Windows Vista 以来，
+// Windows 一直支持 HPET，Windows 7 和 Windows 8 硬件徽标认证要求硬件平台支持
+// HPET。
+//
+// 通用定时器系统计数器（Arm）
+//
+// 基于 Arm 的平台没有 Intel 或 AMD 平台上那样的 TSC、HPET 或 PM 时钟。相反，Arm 处
+// 理器提供了通用定时器（有时也称为通用间隔定时器，或 GIT），其中包含一个系统计数器寄
+// 存器（例如，CNTVCT_EL0）。通用定时器系统计数器是一个固定频率的平台范围内的时钟源。
+// 它在启动时从零开始，并以很高的速率递增。在 Armv8.6 或更高版本中，这被定义为正好 1
+// GHz，但应通过读取由早期引导固件设置的时钟频率寄存器来确定。有关更多详细信息，请参
+// 阅《Arm 架构参考手册（A-profile 架构）》（DDI 0487）中的 “AArch64 状态中的通用
+// 定时器” 一章。
+//
+// 循环计数器（Arm）
+//
+// 基于 Arm 的平台提供了一个性能监控循环计数器（Performance Monitors Cycle
+// Counter）寄存器（例如，PMCCNTR_EL0）。这个计数器计算处理器时钟周期。它是非不变
+// 的，其单位可能与实际时间无关。不建议使用该寄存器来获取时间戳。
+//
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps#general-faq-about-qpc-and-tsc
+//
+// General FAQ about QPC and TSC
+//
+// 以下是关于 QPC 和时间戳计数器 TSC 的常见问题解答：
+//
+// 问：QueryPerformanceCounter 是否与 Win32 的 GetTickCount 或 GetTickCount64 函
+// 数相同？
+// 答：不是。GetTickCount 和 GetTickCount64 与 QPC 没有关系。GetTickCount 和
+// GetTickCount64 返回自系统启动以来的毫秒数。
+//
+// 问：我应该使用 QPC，还是直接调用 RDTSC/RDTSCP 指令？
+// 答：为了避免错误和可移植性问题，我们强烈建议你使用 QPC，而不是直接使用 TSC 寄存器
+// 或 RDTSC 或 RDTSCP 处理器指令。
+//
+// 问：QPC 与外部时间纪元（epoch）有何关系？它可以与外部纪元（如 UTC）同步吗？
+// 答：QPC 基于一个硬件计数器，该计数器无法与外部时间参考（如 UTC）同步。如果需要可以
+// 与外部 UTC 参考同步的精确时间戳，请使用 GetSystemTimePreciseAsFileTime。
+//
+// 问：QPC 是否受夏令时、闰秒、时区或管理员更改系统时间的影响？
+// 答：不会。QPC 完全独立于系统时间和 UTC。
+//
+// 问：QPC 的准确性是否受电源管理或 Turbo Boost 技术导致的处理器频率变化的影响？
+// 答：不会。如果处理器具有不变 TSC，则 QPC 不受这些变化的影响。如果处理器没有不变
+// TSC，则 QPC 将改用不受处理器频率变化或 Turbo Boost 技术影响的平台硬件计时器。
+//
+// 问：QPC 是否能在多处理器系统、多核系统以及具有超线程技术的系统上可靠工作？
+// 答：是的。
+//
+// 问：我如何确定并验证 QPC 在我的机器上是否工作正常？
+// 答：你无需进行此类检查。
+//
+// 问：哪些处理器具有非不变 TSC？我如何检查我的系统是否具有非不变 TSC？
+// 答：你无需自行进行此检查。Windows 操作系统在系统初始化时会进行多项检查，以确定
+// TSC 是否适合作为 QPC 的基础。不过，出于参考目的，你可以通过以下方式之一确定你的
+// 处理器是否具有不变 TSC：
+// - 使用 Windows Sysinternals 的 Coreinfo.exe 工具
+// - 检查与 TSC 特性相关的 CPUID 指令返回的值
+// - 查阅处理器制造商的文档
+//
+// 以下是 Windows Sysinternals Coreinfo.exe 工具（www.sysinternals.com）提供的
+// TSC-INVARIANT 信息示例（带星号表示“真”）：
+//
+// > Coreinfo.exe
+// RDTSCP          * Supports RDTSCP instruction
+// TSC             * Supports RDTSC instruction
+// TSC-DEADLINE    - Local APIC supports one-shot deadline timer
+// TSC-INVARIANT   * TSC runs at constant rate
+//
+// 问：QPC 是否能在 Windows RT 硬件平台上可靠工作？
+// 答：是的。
+//
+// 问：QPC 的回绕频率是多少？
+// 答：从最近一次系统启动起，至少 100 年内不会回绕，具体取决于所用的基础硬件计时器。
+// 对于大多数应用程序来说，回绕并不是一个需要担心的问题。
+//
+// 问：调用 QPC 的计算成本是多少？
+// 答：调用 QPC 的计算成本主要取决于基础硬件平台。如果以 TSC 寄存器作为 QPC 的基础，
+// 则计算成本主要取决于处理器处理 RDTSC 指令所需的时间。根据所用的处理器，这个时间范
+// 围从几十个 CPU 周期到几百个 CPU 周期不等。如果无法使用 TSC，则系统会选择其他硬件
+// 时间基础。由于这些时间基础位于主板上（例如，在 PCI 南桥或 PCH 上），每次调用的计
+// 算成本会高于 TSC，通常根据处理器速度和其他硬件因素，接近 0.8 - 1.0 微秒。这个成
+// 本主要由访问主板上的硬件设备所需的时间决定。
+//
+// 问：调用 QPC 是否需要进行内核转换（系统调用）？
+// 答：如果系统可以使用 TSC 寄存器作为 QPC 的基础，则不需要内核转换。如果系统必须使
+// 用其他时间基础（如 HPET 或 PM 时钟），则需要系统调用。
+//
+// 问：性能计数器是否单调（非递减）？
+// 答：是的。QPC 不会倒退。
+//
+// 问：性能计数器是否可用于对事件按时间排序？
+// 答：可以。但是，当比较从不同线程获取的性能计数器结果时，相差 ±1 个时钟周期的值具有
+// 模糊的顺序，就好像它们具有相同的时间戳一样。
+//
+// 问：性能计数器的准确性如何？
+// 答：这取决于多种因素。更多信息，请参阅低级硬件时钟特性（Low-level hardware clock
+// characteristics）。
+//
+// 问：我需要将 QPC 输出转换为毫秒。如何避免在转换为双精度或单精度浮点数时丢失精度？
+// 答：在对整数性能计数器进行计算时，需要注意以下几点：
+// - 整数除法会丢失余数。在某些情况下，这可能会导致精度丢失。
+// - 在 64 位整数和浮点数（双精度）之间进行转换可能会导致精度丢失，因为浮点数的尾数部
+//   分无法表示所有可能的整数值。
+// - 64 位整数的乘法可能会导致整数溢出。
+// - 一般来说，尽可能延迟这些计算和转换，以避免累积引入的误差。
+//
+// 问：我如何将 QPC 转换为 100 纳秒的时间间隔，以便将其添加到 FILETIME 中？
+// 答：文件时间是一个 64 位值，表示自 1601 年 1 月 1 日 12:00 A.M.（UTC）以来经过
+// 的 100 纳秒间隔数。文件时间用于返回时间戳的 Win32 API 调用，例如
+// GetSystemTimeAsFileTime 和 GetSystemTimePreciseAsFileTime。相比之下，
+// QueryPerformanceCounter 返回的值表示以 QueryPerformanceFrequency 获取的性能计
+// 数器频率为单位的时间。在两者之间进行转换需要计算 QPC 时间间隔和 100 纳秒时间间隔
+// 的比率。注意避免因值较小（例如 0.0000001 / 0.000000340）而丢失精度。
+//
+// 问：为什么 QPC 返回的时间戳是有符号整数？
+// 答：涉及 QPC 时间戳的计算可能涉及减法。通过使用有符号值，可以处理可能得出负值的计
+// 算。
+//
+// 问：我如何从托管代码中获取高分辨率时间戳？
+// 答：调用 System.Diagnostics.Stopwatch 类中的 Stopwatch.GetTimeStamp 方法。有
+// 关如何使用 Stopwatch.GetTimeStamp 的示例，请参阅从托管代码中获取高分辨率时间戳。
+//
+// 问：在什么情况下，QueryPerformanceFrequency 返回 FALSE，或者
+// QueryPerformanceCounter 返回零？
+// 答：在运行 Windows XP 或更高版本的任何系统上，这种情况都不会发生。
+//
+// 问：我是否需要将线程亲和性设置为单个核心才能使用 QPC？
+// 答：不需要。这种场景既不必要也不理想。执行此操作可能会通过将处理限制在一个核心上，
+// 或者在多个线程将亲和性设置为同一个核心时调用 QueryPerformanceCounter，从而在单个
+// 核心上创建瓶颈，从而对应用程序的性能产生不利影响。This scenario is neither
+// necessary nor desirable. Performing this scenario might adversely affect
+// your application's performance by restricting processing to one core or
+// by creating a bottleneck on a single core if multiple threads set their
+// affinity to the same core when calling QueryPerformanceCounter.
+//
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps#low-level-hardware-clock-characteristics
+//
+// Low-level hardware clock characteristics
+//
+// ...
+//
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/time-functions
+//
+// FILETIME structure minwinbase.h (include Windows.h) Windows 2000
+// Contains a 64-bit value representing the number of 100-nanosecond intervals
+// since January 1, 1601 (UTC).
+//      typedef struct _FILETIME {
+//          DWORD dwLowDateTime;
+//          DWORD dwHighDateTime;
+//      } FILETIME;
+//
+// void GetSystemTimeAsFileTime(FILETIME *out); Windows 2000
+// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      Retrieves the current system date and time. The information is in
+//      Coordinated Universal Time (UTC) format.
+//
+// void GetSystemTimePreciseAsFileTime(FILETIME *out); Windows 8 Windows Server 2012
+// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      The GetSystemTimePreciseAsFileTime function retrieves the current
+//      system date and time with the highest possible level of precision
+//      (<1us). The retrieved information is in Coordinated Universal Time
+//      (UTC) format.
+//      Note  This function is best suited for high-resolution time-of-day
+//      measurements, or time stamps that are synchronized to UTC. For
+//      high-resolution interval measurements, use QueryPerformanceCounter
+//      or KeQueryPerformanceCounter. For more info about acquiring
+//      high-resolution time stamps, see Acquiring high-resolution timestamps.
+//
+// ULONGLONG GetTickCount64(); Windows Vista Windows Server 2008
+// sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      Retrieves the number of milliseconds that have elapsed since the system
+//      was started.
+//      The resolution of the GetTickCount64 function is limited to the
+//      resolution of the system timer, which is typically in the range of
+//      10 milliseconds to 16 milliseconds. The resolution of the
+//      GetTickCount64 function is not affected by adjustments made by the
+//      GetSystemTimeAdjustment function.
+//      If you need a higher resolution timer, use a multimedia timer or a
+//      high-resolution timer.
+//      To compile an application that uses this function, define _WIN32_WINNT
+//      as 0x0600 or later. For more information, see Using the Windows
+//      Headers.
 //
 // LARGE_INTEGER union (winnt.h)
 //      The LARGE_INTEGER structure is actually a union. If your compiler has
@@ -2847,10 +3103,16 @@ typedef struct {
 //      information, call GetLastError. On systems that run Windows XP or
 //      later, the function will always succeed and will thus never return
 //      zero.
-//
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC  0x00000002B6109100ULL // 11644473600-sec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC 0x00000A9730B66800ULL // 11644473600000-msec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC 0x00295E9648864000ULL // 11644473600000000-usec
+
+void prh_calendar_time(prh_timemsec_t *t) {
+    FILETIME f;
+    GetSystemTimeAsFileTime(&f); // 精度为100纳秒
+    t->msec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    t->msec = t->msec / 10000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC;
+}
 
 void prh_system_time(prh_timeusec_t *t) {
     FILETIME f;
@@ -2863,26 +3125,96 @@ void prh_steady_time(prh_timeusec_t *t) {
     t->usec = (prh_i64)GetTickCount64() * 1000; // GetTickCount64() 精度为毫秒
 }
 
-// To guard against loss-of-precision, we convert to like microseconds *before*
-// dividing by ticks-per-second.
-// ElapsedMicroseconds.QuadPart *= 1000000;
-// ElapsedMicroseconds.QuadPart /= Frequency.QuadPart;
+// BOOL GetThreadTimes(HANDLE hThread,
+//          FILETIME *CreationTime, // the creation time of the thread
+//          FILETIME *ExitTime,     // the exit time of the thread. If the thread has not exited, the content of this structure is undefined.
+//          FILETIME *KernelTime,   // the amount of time that the thread has executed in kernel mode
+//          FILETIME *UserTime);    // the amount of time that the thread has executed in user mode
+// Windows XP Windows Server 2003
+// processthreadsapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      Retrieves timing information for the specified thread.
+//      If the function fails, the return value is zero. To get extended error
+//      information, call GetLastError.
+//      Thread creation and exit times are points in time expressed as the
+//      amount of time that has elapsed since midnight on January 1, 1601 at
+//      Greenwich, England.
+//      Thread kernel mode and user mode times are amounts of time. For
+//      example, if a thread has spent one second in kernel mode, this function
+//      will fill the FILETIME structure specified by lpKernelTime with a
+//      64-bit value of ten million. That is the number of 100-nanosecond units
+//      in one second.
+//      To retrieve the number of CPU clock cycles used by the threads, use
+//      the QueryThreadCycleTime function.
+//
+// BOOL QueryThreadCycleTime(HANDLE handle, ULONG64 CycleTime);
+// Windows Vista Windows Server 2008
+// realtimeapiset.h (include Windows.h) Mincore.lib Kernel32.dll
+//      Retrieves the cycle time for the specified thread. If the function
+//      fails, the return value is zero. To get extended error information,
+//      call GetLastError.
+//      The number of CPU clock cycles used by the thread. This value includes
+//      cycles spent in both user mode and kernel mode.
+//      To enumerate the threads of the process, use the Thread32First and
+//      Thread32Next functions. To get the thread handle for a thread
+//      identifier, use the OpenThread function.
+//      Do not attempt to convert the CPU clock cycles returned by
+//      QueryThreadCycleTime to elapsed time. This function uses timer
+//      services provided by the CPU, which can vary in implementation.
+//      For example, some CPUs will vary the frequency of the timer when
+//      changing the frequency at which the CPU runs and others will leave
+//      it at a fixed rate. The behavior of each CPU is described in the
+//      documentation provided by the CPU vendor.
+//      To compile an application that uses this function, define _WIN32_WINNT
+//      as 0x0600 or later.
+//
+// HANDLE GetCurrentThread();
+// Windows XP Windows Server 2003
+// processthreadsapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+//      Retrieves a pseudo handle for the calling thread.
+//      The function cannot be used by one thread to create a handle that can
+//      be used by other threads to refer to the first thread. The handle is
+//      always interpreted as referring to the thread that is using it. A
+//      thread can create a "real" handle to itself that can be used by other
+//      threads, or inherited by other processes, by specifying the pseudo
+//      handle as the source handle in a call to the DuplicateHandle function.
+//      The pseudo handle need not be closed when it is no longer needed.
+//      Calling the CloseHandle function with this handle has no effect. If
+//      the pseudo handle is duplicated by DuplicateHandle, the duplicate
+//      handle must be closed.
+void prh_thread_time(prh_timeusec_t *t) {
+    HANDLE pseudo_handle = GetCurrentThread();
+    FILETIME creation_time, exit_time, kernel_time, user_time;
+    PRH_WINOS_BOOLRET(GetThreadTimes(pseudo_handle, &creation_time, &exit_time, &kernal_time, &user_time));
+    prh_i64 kernel_usec = ((prh_i64)kernel_time.dwHighDateTime << 32) | kernel_time.dwLowDateTime;
+    kernel_usec = kernel_usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
+    prh_i64 user_usec = ((prh_i64)user_time.dwHighDateTime << 32) | user_time.dwLowDateTime;
+    user_usec = user_usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
+    t->usec = kernel_usec + user_usec;
+}
 
-void prh_tick_counter(prh_timetick_t *t) {
+void prh_precise_tick(prh_timetick_t *t) {
     LARGE_INTEGER ticks;
     prh_boolret(QueryPerformanceCounter(&ticks));
     t->ticks = ticks.QuadPart;
 }
 
-void prh_tick_frequency(prh_timefreq_t *f) {
+void prh_elapsed_time(const prh_timetick_t *t, prh_timensec_t *out) {
+    // To guard against loss-of-precision, we convert to nanoseconds
+    // *before* dividing by ticks-per-second.
+    out->nsec = t->ticks * 1000000000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
+}
+
+void prh_time_init(void) {
     LARGE_INTEGER freq;
     prh_boolret(QueryPerformanceFrequency(&freq));
-    f->ticks_per_sec = freq.QuadPart;
+    PRH_IMPL_TIMEINIT.freq.ticks_per_sec = freq.QuadPart;
 }
 
 #ifdef PRH_TIME_TEST
 #include <time.h>
 void prh_impl_time_test(void) {
+    prh_time_init();
+    printf("tick frequency %ll\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
     printf("WINVER  %04x\n", WINVER );
     printf("_WIN32_WINNT %04x\n", _WIN32_WINNT);
     printf("NTDDI_VERSION %04x\n", NTDDI_VERSION);
@@ -2965,7 +3297,7 @@ void prh_steady_time(prh_timeusec_t *t) {
 #endif
 }
 
-void prh_thread_time(prh_timensec_t *t) {
+void prh_thread_time(prh_timeusec_t *t) {
 #if defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME > 0)
 
 #else
@@ -2973,8 +3305,14 @@ void prh_thread_time(prh_timensec_t *t) {
 #endif
 }
 
+void prh_time_init(void) {
+    PRH_IMPL_TIMEINIT.freq.ticks_per_sec = 1000000000;
+}
+
 #ifdef PRH_TIME_TEST
 void prh_impl_time_test(void) {
+    prh_time_init();
+    printf("tick frequency %ll\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
     printf("time_t %d-byte\n", sizeof(time_t)); // seconds
     printf("clock_t %d-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %d\n", CLOCKS_PER_SEC);
