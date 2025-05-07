@@ -873,6 +873,7 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     // 我们再也不用担心这些了！”
     //
     // GetTickCount64 Windows Vista Windows Server 2008
+    // QueryInterruptTime Windows 7 Windows Server 2008 S2
     #include <WinSDKVer.h>
     #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
     #undef _WIN32_WINNT
@@ -907,6 +908,9 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     // NOapi symbols, see Windows.h.
     // #define NOCOMM
     #include <windows.h>
+    #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
+    #error unsupported windows minimum version
+    #endif
     #define PRH_WINOS_BOOLRET(a) if (!(a)) { prh_prerr_exit(GetLastError()); }
 #else
     // POSIX allows an application to test at compile or run time whether
@@ -2673,17 +2677,14 @@ typedef struct {
 } prh_timespec_t;
 
 typedef struct {
-    int sec;    // 0 ~ 60 since C99
-    int min;    // 0 ~ 59
-    int hour;   // 0 ~ 23
-    int mday;   // 1 ~ 31
-    int mon;    // 0 ~ 11 (January = 0)
-    int year;   // since 1900
-    int wday;   // 0 ~ 6 (Sunday = 0)
-    int yday;   // 0 ~ 365 (Jan/01 = 0)
-    int msec;   // 0 ~ 999
-    int usec;   // 0 ~ 999
-    int nsec;   // 0 ~ 999
+    int year;   // 正负20亿年
+    byte month; // 1 ~ 12
+    byte mday;  // 1 ~ 31
+    byte wday;  // 0 ~ 6 (sunday = 0)
+    byte hour;  // 0 ~ 23
+    byte min;   // 0 ~ 59
+    byte sec;   // 0 ~ 60 since C99
+    u16 msec;   // 0 ~ 999
 } prh_datetime_t;
 
 #define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SEC)
@@ -2696,7 +2697,8 @@ void prh_steady_time(prh_timeusec_t *t);
 void prh_thread_time(prh_timeusec_t *t);
 void prh_precise_tick(prh_timetick_t *t);
 void prh_elapsed_time(const prh_timetick_t *ticks, prh_timensec_t *out);
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int nsec) ;
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int nsec);
+void prh_day_of_year(prh_datetime_t *t);
 
 #ifdef PRH_TIME_IMPLEMENTATION
 typedef struct {
@@ -2704,6 +2706,25 @@ typedef struct {
 } prh_impl_timeinit_t;
 
 prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
+
+prh_i64 prh_elapsed_time_msec(const prh_timetick_t *t) {
+    // To guard against loss-of-precision, we convert to microseconds
+    // *before* dividing by ticks-per-second.
+    return t->ticks * 1000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
+}
+
+prh_i64 prh_elapsed_time_usec(const prh_timetick_t *t) {
+    // To guard against loss-of-precision, we convert to microseconds
+    // *before* dividing by ticks-per-second.
+    return t->ticks * 1000000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
+}
+
+prh_i64 prh_elapsed_time_nsec(const prh_timetick_t *t) {
+    // To guard against loss-of-precision, we convert to nanoseconds
+    // *before* dividing by ticks-per-second.
+    return t->ticks * 1000000000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
+}
+
 #if defined(prh_plat_windows)
 // https://learn.microsoft.com/en-us/windows/win32/winmsg/about-timers
 //
@@ -3022,6 +3043,7 @@ prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
 // ...
 //
 // https://learn.microsoft.com/en-us/windows/win32/sysinfo/time-functions
+// https://learn.microsoft.com/en-us/windows/win32/multimedia/multimedia-timers
 //
 // FILETIME structure minwinbase.h (include Windows.h) Windows 2000
 // Contains a 64-bit value representing the number of 100-nanosecond intervals
@@ -3121,8 +3143,199 @@ void prh_system_time(prh_timeusec_t *t) {
     t->usec = t->usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
 }
 
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
+    // void GetSystemTime(SYSTEMTIME *SystemTime);
+    // void GetLocalTime(SYSTEMTIME *SystemTime);
+    // Windows 2000 Professional Windows 2000 Server
+    // sysinfoapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+    //      GetSystemTime retrieves the current system date and time in
+    //      Coordinated Universal Time (UTC) format.
+    //      GetLocalTime retrieves the current local date and time.
+    //
+    // BOOL FileTimeToSystemTime(const FILETIME *FileTime, SYSTEMTIME *out);
+    // BOOL SystemTimeToFileTime(const SYSTEMTIME *SystemTime, FILETIME *out);
+    // Windows XP Windows Server 2003
+    // timezoneapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+    //      FileTimeToSystemTime converts a file time to system time format.
+    //      System time is based on Coordinated Universal Time (UTC).
+    //      FileTime must be less than 0x8000000000000000. Otherwise, the
+    //      function fails.
+    //      SystemTimeToFileTime converts a system time to file time format.
+    //      System time is based on Coordinated Universal Time (UTC).
+    //      The wDayOfWeek member of the SYSTEMTIME structure is ignored.
+    //      A False return value can indicate that the passed SYSTEMTIME
+    //      structure represents an invalid date. Certain situations, such as
+    //      the additional day added in a leap year, can result in application
+    //      logic unexpectedly creating an invalid date. For more information
+    //      on avoiding these issues, see leap year readiness.
+    //      If the function fails, the return value is zero. To get extended
+    //      error information, call GetLastError.
+    // typedef struct _SYSTEMTIME {
+    //      WORD wYear;         // the valid value is 1601 ~ 30827
+    //      WORD wMonth;        // 1 ~ 12
+    //      WORD wDayOfWeek;    // 0 ~ 6 (Sunday = 0)
+    //      WORD wDay;          // 1 ~ 31
+    //      WORD wHour;         // 0 ~ 23
+    //      WORD wMinute;       // 0 ~ 59
+    //      WORD wSecond;       // 0 ~ 59
+    //      WORD wMilliseconds; // 0 ~ 999
+    // } SYSTEMTIME;
+    // Windows 2000 Professional Windows 2000 Server
+    // minwinbase.h (include Windows.h)
+    //      The system can periodically refresh the time by synchronizing with
+    //      a time source. Because the system time can be adjusted either
+    //      forward or backward, do not compare system time readings to
+    //      determine elapsed time.
+    //      The SYSTEMTIME does not check to see if the date represented is a
+    //      real and valid date. When working with this API, you should ensure
+    //      its validity, especially in leap year scenarios. See leap day
+    //      readiness for more information.
+    //      https://techcommunity.microsoft.com/blog/azuredevcommunityblog/it%e2%80%99s-2020-is-your-code-ready-for-leap-day/1157279
+    prh_u64 time = (utc + PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC) * 10000000;
+    FILETIME f; SYSTEMTIME s;
+    f.dwLowDateTime = (DWORD)(time & 0xFFFFFFFF);
+    f.dwHighDateTime = (DWORD)(time >> 32);
+    PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
+    t->year = s->wYear;
+    t->month = s->wMonth;
+    t->mday = s->wDay;
+    t->wday = s->wDayOfWeek;
+    t->hour = s->wHour;
+    t->min = s->wMinute;
+    t->sec = s->wSecond;
+    t->msec = msec;
+}
+
+void prh_date_time_from_msec(prh_datetime_t *t, prh_timemsec_t utc) {
+    prh_date_time(t, utc / 1000, utc % 1000);
+}
+
+void prh_date_time_from_usec(prh_datetime_t *t, prh_timeusec_t utc) {
+    prh_date_time_from_secs(t, utc / 1000000, (utc / 1000) % 1000);
+}
+
 void prh_steady_time(prh_timeusec_t *t) {
-    t->usec = (prh_i64)GetTickCount64() * 1000; // GetTickCount64() 精度为毫秒
+    // Windows time is the number of milliseconds elapsed since the system was
+    // last started. You typically use the GetTickCount or GetTickCount64
+    // function to get the current Windows time. GetTickCount and
+    // GetTickCount64 are limited to the resolution of the system timer, which
+    // is approximately 10 milliseconds to 16 milliseconds. The elapsed time
+    // retrieved by GetTickCount or GetTickCount64 includes time the system
+    // spends in sleep or hibernation.（精度 10msec ~ 16msec）
+    //
+    // If you need a higher resolution timer, use the QueryUnbiasedInterruptTime
+    // function, a multimedia timer, or a high-resolution timer. The elapsed
+    // time retrieved by the QueryUnbiasedInterruptTime function includes only
+    // time that the system spends in the working state. The
+    // QueryUnbiasedInterruptTime function is available starting with Windows 7
+    // and Windows Server 2008 R2.（精度 0.5msec ~ 15.625msec）
+    //
+    // You can use the System Up Time performance counter to obtain the number
+    // of seconds elapsed since the computer was started. This performance
+    // counter can be retrieved from the performance data in the registry key
+    // HKEY_PERFORMANCE_DATA. The value returned is an 8-byte value. Windows
+    // Performance Counters provide a high-level abstraction layer that
+    // provides a consistent interface for collecting various kinds of system
+    // data such as CPU, memory, and disk usage. System administrators often
+    // use performance counters to monitor systems for performance or behavior
+    // problems. Software developers often use performance counters to examine
+    // the resource usage of their programs.
+    // https://learn.microsoft.com/en-us/windows/win32/perfctrs/performance-counters-portal
+    //
+    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/interrupt-time
+    // Interrupt time is the amount of time since the system was last started,
+    // in 100-nanosecond intervals. The interrupt-time count begins at zero
+    // when the system starts and is incremented at each clock interrupt by
+    // the length of a clock tick. The exact length of a clock tick depends
+    // on underlying hardware and can vary between systems.
+    //
+    // Unlike system time, the interrupt-time count is not subject to
+    // adjustments by users or the Windows time service, making it a better
+    // choice for measuring short durations. Applications that require greater
+    // precision than the interrupt-time count (system timer tick) should use
+    // a high-resolution timer (QPC, cpu clock tick).
+    //
+    // The QueryInterruptTime[Precise], QueryUnbiasedInterruptTime[Precise]
+    // functions can be used to retrieve the interrupt-time count. Unbiased
+    // interrupt-time means that only time that the system is in the working
+    // state is counted — therefore, the interrupt-time count is not "biased"
+    // by time the system spends in sleep or hibernation. 无偏差中断时间，即不
+    // 会因为系统睡眠或休眠而产生偏差，其实就是对睡眠或休眠无感只统计实际工作状态的
+    // 时间。
+    //
+    // The timer resolution set by the timeBeginPeriod and timeEndPeriod
+    // functions affects the resolution of the QueryInterruptTime and
+    // QueryUnbiasedInterruptTime functions. However, increasing the timer
+    // resolution is not recommended because it can reduce overall system
+    // performance and increase power consumption by preventing the processor
+    // from entering power-saving states. Instead, applications should use a
+    // high-resolution timer.
+    //
+    // These functions produces different results on debug ("checked") builds
+    // of Windows, because the interrupt-time count and tick count are advanced
+    // by approximately 49 days. This helps to identify bugs that might not
+    // occur until the system has been running for a long time. 在调试模式下，
+    // 中断时间被设置大约最多可表示49天时间，以帮助方便鉴别程序问题。
+    //
+    // void QueryInterruptTime(ULONGLONG *InterruptTime); // 精度 0.5msec ~ 15.625msec
+    // void QueryInterruptTimePrecise(ULONGLONG *InterruptTime);
+    // Windows 7 Windows Server 2008 R2
+    // realtimeapiset.h (include Windows.h) Mincore.lib Kernel32.dll
+    //      Receive the interrupt-time count in system time units of 100
+    //      nanoseconds (same as FILETIME).
+    //      QueryInterruptTimePrecise is similar to the QueryInterruptTime
+    //      routine, but is more precise. The interrupt time reported by
+    //      QueryInterruptTime is based on the latest tick of the system clock
+    //      timer. The system clock timer is the hardware timer that
+    //      periodically generates interrupts for the system clock. The uniform
+    //      period between system clock timer interrupts is referred to as a
+    //      system clock tick, and is typically in the range of 0.5 milliseconds
+    //      to 15.625 milliseconds, depending on the hardware platform. The
+    //      interrupt time value retrieved by QueryInterruptTime is accurate
+    //      within a system clock tick.
+    //      To provide a system time value that is more precise than that of
+    //      QueryInterruptTime, QueryInterruptTimePrecise reads the timer
+    //      hardware directly, therefore a QueryInterruptTimePrecise call can
+    //      be slower than a QueryInterruptTime call.
+    //      Call the KeQueryTimeIncrement routine to determine the duration of
+    //      a system clock tick. At startup time, the operating system
+    //      determines the time increment to use for the system time. This time
+    //      increment remains constant until the computer restarts. During this
+    //      time, calls to KeQueryTimeIncrement always return the same time
+    //      increment value. The time increment does not change while the
+    //      computer is running, and it does not change as the result of a
+    //      suspend-resume cycle.
+    //      To compile an application that uses this function, define
+    //      _WIN32_WINNT as 0x0601 or later.
+#if _WIN32_WINNT >= 0x0601
+    ULONGLONG t;
+    QueryInterruptTime(&t);
+    t->usec = (prh_i64)t / 10;
+#else
+    t->usec = (prh_i64)GetTickCount64() * 1000; // msec elapsed since system was started
+#endif
+}
+
+prh_i64 prh_steady_time_msec(void) {
+    return (prh_i64)GetTickCount64(); // 精度 10msec ~ 16msec，包含睡眠时间
+}
+
+prh_i64 prh_steady_time_usec(void) {
+#if _WIN32_WINNT >= 0x0601
+    ULONGLONG t;
+    QueryInterruptTime(&t); // 精度 0.5msec ~ 15.625msec，包含睡眠时间
+    t->usec = (prh_i64)t / 10;
+#else
+    prh_timetick_t ticks;
+    prh_precise_tick(&ticks);
+    return prh_elapsed_time_usec(&ticks);
+#endif
+}
+
+prh_i64 prh_steady_time_nsec(void) {
+    prh_timetick_t ticks;
+    prh_precise_tick(&ticks);
+    return prh_elapsed_time_nsec(&ticks);
 }
 
 // BOOL GetThreadTimes(HANDLE hThread,
@@ -3198,12 +3411,6 @@ void prh_precise_tick(prh_timetick_t *t) {
     t->ticks = ticks.QuadPart;
 }
 
-void prh_elapsed_time(const prh_timetick_t *t, prh_timensec_t *out) {
-    // To guard against loss-of-precision, we convert to nanoseconds
-    // *before* dividing by ticks-per-second.
-    out->nsec = t->ticks * 1000000000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
-}
-
 void prh_time_init(void) {
     LARGE_INTEGER freq;
     prh_boolret(QueryPerformanceFrequency(&freq));
@@ -3240,6 +3447,18 @@ void prh_impl_time_test(void) {
 #include <mach/mach.h>
 #endif
 
+void prh_calendar_time(prh_timemsec_t *t) {
+    #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    struct timespec ts;
+    prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
+    t->usec = (prh_i64)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    t->usec = (prh_i64)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+#endif
+}
+
 // The system clock represents the system-wide real time wall clock. It may
 // not be monotonic: on most systems, the system time can be adjusted at any
 // moment. System clock measures Unix Time (i.e., time since 00:00:00
@@ -3258,6 +3477,14 @@ void prh_system_time(prh_timeusec_t *t) {
     prh_zeroret(gettimeofday(&tv, prh_null));
     t->usec = (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
 #endif
+}
+
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int nsec) {
+    // 夏令时（Daylight Saving Time，DST）是一种为了节约能源而人为调整时钟的做法。
+    // 具体来说，它通过在夏季将时钟拨快一定时间（通常是1小时）。夏令时的主要目的是减
+    // 少照明需求。通过将时钟拨快1小时，人们在夏季的傍晚可以更晚地开灯，从而节省电力。
+    // 在一些国家和地区，夏令时被认为可以提高工作效率，因为人们可以在自然光照下工作
+    // 更长时间。
 }
 
 // The steady clock represents a monotonic clock. The time points of this
@@ -3303,6 +3530,10 @@ void prh_thread_time(prh_timeusec_t *t) {
 #else
 
 #endif
+}
+
+void prh_precise_tick(prh_timetick_t *t) {
+
 }
 
 void prh_time_init(void) {
