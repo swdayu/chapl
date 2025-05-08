@@ -69,6 +69,91 @@
 extern "C" {
 #endif
 
+// https://en.cppreference.com/w/cpp/error/assert
+//
+// The definition of the macro assert depends on another macro, NDEBUG, which
+// is not defined by the standard library. If NDEBUG is defined as a macro name
+// at the point in the source code where <cassert> or <assert.h> is included,
+// the assertion is disabled: assert does nothing. Otherwise, the assertion is
+// enabled.
+//
+// In one source file, you can define and undefine NDEBUG multiple times, each
+// time followed by #include <cassert>, to enable or disable the assert macro
+// multiple times in the same source file.
+//
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-macro-assert-wassert
+//
+// assert 宏通常用于在程序开发过程中识别逻辑错误。通过实现表达式参数仅在程序运行不正
+// 确时评估为假，从而在出现意外条件时停止程序执行。可以通过定义宏 NDEBUG 在编译时关闭
+// 断言检查。你可以通过使用 /DNDEBUG 命令行选项，在不修改源文件的情况下关闭 assert
+// 宏。也可以通过在包含 <assert.h> 之前使用 #define NDEBUG 指令，在源代码中关闭
+// assert 宏。
+//
+// 当表达式评估为假（0）时，assert 会打印一条诊断消息，并调用 abort 来停止程序执行。
+// 如果表达式为真（非零），则不采取任何操作。诊断消息包括失败的表达式、源文件名以及断
+// 言失败的行号。诊断消息以宽字符（wchar_t）形式打印。因此，即使表达式中包含 Unicode
+// 字符，它也能按预期工作。诊断消息的目标取决于调用该例程的应用程序类型。控制台应用程
+// 序通过 stderr 接收消息。在基于 Windows 的应用程序中，assert 调用 Windows 的
+// MessageBox 函数来创建一个消息框以显示消息，该消息框包含三个按钮：中止（Abort）、
+// 重试（Retry）和忽略（Ignore）。如果用户选择“中止”，程序将立即终止。如果用户选择
+// “重试”，将调用调试器（如果启用了即时调试），用户可以调试程序。如果用户选择“忽略”，
+// 程序将继续正常执行。在存在错误条件时点击“忽略”可能会导致未定义行为，因为调用代码的
+// 前置条件未得到满足。要覆盖默认输出行为，无论应用程序类型如何，都可以调用
+// _set_error_mode 来选择是将输出发送到 stderr 还是显示对话框。
+//
+// _assert 和 _wassert 函数是内部 CRT 函数。它们有助于减少对象文件中支持断言所需的
+// 代码量。不建议直接调用这些函数。
+//
+// 当未定义 NDEBUG 时，assert 宏在 C 运行时库的发布版和调试版中都启用。当定义了
+// NDEBUG 时，宏可用，但不会评估其参数，也没有任何效果。当启用时，assert 宏调用
+// _wassert 来实现其功能。其他断言宏，如 _ASSERT、_ASSERTE 和 _ASSERT_EXPR 也
+// 可用，但只有在定义了 _DEBUG 宏且代码链接了调试版的 C 运行时库时，才会评估传递
+// 给它们的表达式。Other assertion macros, _ASSERT, _ASSERTE and _ASSERT_EXPR,
+// are also available, but they only evaluate the expressions passed to them
+// when the _DEBUG macro has been defined and when they are in code linked
+// with the debug version of the C run-time libraries.
+//
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/debug
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-debugging-techniques
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-asserte-assert-expr-macros
+//
+// The compiler defines _DEBUG when you specify the /MTd or /MDd option. These
+// options specify debug versions of the C run-time library.
+//
+// The C runtime (CRT) library provides extensive debugging support. To use one
+// of the CRT debug libraries, you must link with /DEBUG and compile with /MDd,
+// /MTd, or /LDd. The main definitions and macros for CRT debugging can be
+// found in the<crtdbg.h> header file.
+//
+// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏为应用程序提供了一种在调试过程中检查假设的简
+// 洁机制。它们非常灵活，因为不需要用 #ifdef 语句将它们包围起来，以防止它们在应用程序
+// 的零售版本中被调用。这种灵活性是通过使用 _DEBUG 宏实现的。_ASSERT_EXPR、_ASSERT
+// 和 _ASSERTE 只有在编译时定义了 _DEBUG 宏时才可用。如果未定义 _DEBUG 宏，则在预处
+// 理期间会移除对这些宏的调用。
+//
+// 如果结果为假（0），它们会打印一条诊断消息，并调用 _CrtDbgReportW 来生成调试报告。
+// 除非你使用 _CrtSetReportMode 和 _CrtSetReportFile 函数指定了其他方式，否则消息
+// 会出现在一个弹出式对话框中，这相当于设置了：
+//      _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_WNDW); 将断言设置为弹窗
+//
+// 当目标是一个调试消息窗口且用户选择“重试”按钮时，_CrtDbgReportW 返回 1，这将导致
+// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏在启用了即时调试（JIT）的情况下启动调试器。
+// _RPT 和 _RPTF 调试宏也可用于生成调试报告，但它们不评估表达式。_RPT 宏生成简单的报
+// 告，而 _RPTF 宏在生成的报告中包含调用报告宏的源文件和行号。
+//
+// 虽然 _ASSERT_EXPR、_ASSERT 和 _ASSERTE 是宏，并且可以通过包含 <crtdbg.h> 来使
+// 用，但当定义了 _DEBUG 宏时，应用程序必须链接到调试版本的 C 运行时库，因为这些宏调
+// 用了其他运行时函数。
+#if defined(_DEBUG) || defined(DEBUG) || (defined(PRH_DEBUG) && PRH_DEBUG == 1)
+#undef NDEBUG
+#undef PRH_DEBUG
+#define PRH_DEBUG 1
+#else
+#define NDEBUG
+#undef PRH_DEBUG
+#define PRH_DEBUG 0
+#endif
+
 // architecture
 #ifndef prh_arch_bits
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
@@ -465,17 +550,22 @@ extern "C" {
     #define PRH_NOT_USE(a) ((void)(a))
 #endif
 
-#ifndef PRH_DEBUG
-#ifdef NDEBUG
-    #define PRH_DEBUG 0
-#else
-    #define PRH_DEBUG 1
-#endif
-#endif
-
 #ifndef prh_macro_concat_name
 #define prh_macro_concat_name(a, b) prh_impl_macro_concat_name(a, b)
 #define prh_impl_macro_concat_name(a, b) a ## b
+#endif
+
+#ifndef prh_release_assert
+    #define prh_release_assert(a) (void)((!!(a)) || prh_impl_assert(__LINE__))
+    void prh_impl_assert(int line);
+#endif
+
+#ifndef prh_assert
+#if PRH_DEBUG
+    #define prh_assert(a) prh_release_assert(a)
+#else
+    #define prh_assert(a) ((void)0)
+#endif
 #endif
 
 // The ‘##’ token paste operator has a special meaning when placed between a
@@ -514,9 +604,9 @@ extern "C" {
     // allowed in C++ because null pointer constants cannot have that
     // type.
     #if __cplusplus >= 201103L // C++11 keyword
-        #define prh_null 0
-    #else
         #define prh_null nullptr
+    #else
+        #define prh_null 0
     #endif
     #else
     // The keyword nullptr denotes a predefined null pointer constant. It
@@ -831,15 +921,73 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     //      #define NTDDI_WIN10_NI              0x0A00000C
     //      #define WDK_NTDDI_VERSION           NTDDI_WIN10_NI
     //
+    // The OSVER, SPVER, and SUBVER macros can be used in your code to control
+    //  conditional compilation for different levels of API support.
+    //
+    //      #define OSVERSION_MASK      0xFFFF0000
+    //      #define SPVERSION_MASK      0x0000FF00
+    //      #define SUBVERSION_MASK     0x000000FF
+    //      #define OSVER(Version)  ((Version) & OSVERSION_MASK)
+    //      #define SPVER(Version)  (((Version) & SPVERSION_MASK) >> 8)
+    //      #define SUBVER(Version) (((Version) & SUBVERSION_MASK))
+    //
     // By default, new Windows projects in Visual Studio use the latest
     // Windows SDK that ships with Visual Studio. To use a newer SDK you've
     // installed separately, you'll have to set the Windows SDK explicitly
-    // in your project properties.
+    // in your project properties. Values are not guaranteed to work if you
+    // include internal MFC headers in your application. You can also define
+    // this macro by using the /D compiler option.
     //
-    // If you define NTDDI_VERSION, you must also define _WIN32_WINNT.
-    //
+    // https://learn.microsoft.com/en-us/cpp/porting/modifying-winver-and-win32-winnt
     // https://learn.microsoft.com/en-us/windows/win32/winprog/using-the-windows-headers
+    // https://learn.microsoft.com/en-us/windows/win32/winprog/header-annotations
     //
+    // The header files for the Windows API enable you to create 32- and 64-bit
+    // applications. They include declarations for both Unicode and ANSI
+    // versions of the API. For more information, see Unicode in the Windows
+    // API. They use data types that enable you to build both 32- and 64-bit
+    // versions of your application from a single source code base. For more
+    // information, see Getting Ready for 64-bit Windows. Additional features
+    // include Header Annotations and STRICT Type Checking.
+    //
+    // Microsoft Visual C++ 包含了在 Visual C++ 发布时当前版本的 Windows 头文件。
+    // 因此，如果你从 SDK 安装了更新的头文件，你的计算机上可能会有多个版本的 Windows
+    // 头文件。如果你没有确保使用的是最新版本的 SDK 头文件，当你编译使用了在 Visual
+    // C++ 发布后引入的功能的代码时，你会收到以下错误代码：error C2065: undeclared
+    // identifier。
+    //
+    // 某些依赖于特定版本 Windows 的函数使用条件代码声明。这使得你可以利用编译器检测
+    // 你的应用程序是否使用了其目标 Windows 版本不支持的函数。要编译使用这些函数的应
+    // 用程序，你必须定义适当的宏。否则，你会收到 C2065 错误消息。
+    //
+    // The Windows header files use macros to indicate which versions of
+    // Windows support many programming elements. Therefore, you must define
+    // these macros to use new functionality introduced in each major
+    // operating system release. (Individual header files may use different
+    // macros; therefore, if compilation problems occur, check the header file
+    // that contains the definition for conditional definitions.) For more
+    // information, see SdkDdkVer.h.
+    //
+    // The table show above describes the preferred macros used in the Windows
+    // header files. If you define NTDDI_VERSION, you must also define
+    // _WIN32_WINNT. You can define these symbols by using the #define
+    // statement in each source file, or by specifying the /D compiler option
+    // supported by Visual C++. For example, to set _WIN32_WINNT in your source
+    // file, use the following statement:
+    //      #define _WIN32_WINNT 0x0502
+    // To set _WIN32_WINNT using the /D compiler option, use the following
+    //  command:
+    //      cl -c /D_WIN32_WINNT=0x0502 source.cpp
+    //
+    // 注意，最新版本的 Windows 中引入的一些功能可能会添加到早期版本 Windows 的服务
+    // 包（Service Pack, SP）中。因此，要为目标服务包定义 _WIN32_WINNT，你可能需要
+    // 使用下一个主要操作系统版本的值。例如，GetDllDirectory 函数是在 Windows
+    // Server 2003 中引入的，并且如果 _WIN32_WINNT 是 0x0502（Windows Server
+    // 2003）或更高版本，则会定义该函数。此函数还被添加到了带有 SP1 的 Windows XP
+    // 中。因此，如果你将 _WIN32_WINNT 定义为 0x0501（Windows XP），你将错过在带
+    // 有 SP1 的 Windows XP 中定义的功能。
+    //
+    // https://devblogs.microsoft.com/oldnewthing/20070411-00/?p=27283
     // 关于 WINVER 和其他版本控制符号的起源与演变
     //
     // WINVER 符号是最古老的。它是 16 位 Windows 用于控制其头文件版本的符号，后来被
@@ -872,14 +1020,16 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     // 一样。就像“一个关于 21 世纪初疯狂日子里人们不得不做的事情的小故事。谢天谢地，
     // 我们再也不用担心这些了！”
     //
-    // GetTickCount64 Windows Vista Windows Server 2008
-    // QueryInterruptTime Windows 7 Windows Server 2008 S2
+    // GetTickCount64 Windows Vista Windows Server 2008         0x0600
+    // QueryInterruptTime Windows 7 Windows Server 2008 S2      0x0601
     #include <WinSDKVer.h>
+    #include <sdkddkver.h>
     #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
     #undef _WIN32_WINNT
+    #undef NTDDI_VERSION
     #define _WIN32_WINNT 0x0600
-    #endif
     #include <sdkddkver.h>
+    #endif
     // When you define the STRICT symbol, you enable features that require more
     // care in declaring and using types. This helps you write more portable
     // code. This extra care will also reduce your debugging time. Enabling
@@ -889,6 +1039,7 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     // reported at compile time instead of causing fatal errors at run time.
     // With Visual C++, STRICT type checking is defined by default.
     #define STRICT // #define NO_STRICT
+    // https://learn.microsoft.com/en-us/windows/win32/intl/unicode-in-the-windows-api
     // https://learn.microsoft.com/en-us/windows/win32/intl/unicode
     // https://learn.microsoft.com/en-us/cpp/text/unicode-programming-summary
     // To take advantage of the MFC and C run-time support for Unicode, you
@@ -990,11 +1141,16 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
 
 #ifdef PRH_BASE_IMPLEMENTATION
 #include <stdio.h>
+#include <stdlib.h>
+void prh_impl_assert(int line) {
+    fprintf(stderr, "assert: line %d\n", line);
+    abort();
+}
 void prh_impl_prerr(int err, int line) {
     fprintf(stderr, "error: %d at %d\n", err, line);
 }
 void prh_impl_prerr_exit(int err, int line) {
-    fprintf(stderr, "error: %d\n", err);
+    prh_impl_prerr(err, line);
     exit(line);
 }
 #endif
@@ -2645,9 +2801,9 @@ void prh_impl_atomic_test(void) {
 // 1 January 1970, not counting leap seconds).
 
 // Epoch delta from 0000/1/1 to 1970/1/1
-#define PRH_EPOCH_DELTA_SEC  0x0000000E79844E00ULL // 62168256000-sec
-#define PRH_EPOCH_DELTA_MSEC 0x0000388AACD0B000ULL // 62168256000000-msec
-#define PRH_EPOCH_DELTA_USEC 0x00dcddb30f2f8000ULL // 62168256000000000-usec
+#define PRH_EPOCH_DELTA_SEC  0x0000000E79844E00LL // 62168256000-sec
+#define PRH_EPOCH_DELTA_MSEC 0x0000388AACD0B000LL // 62168256000000-msec
+#define PRH_EPOCH_DELTA_USEC 0x00dcddb30f2f8000LL // 62168256000000000-usec
 
 typedef prh_i64 prh_timesec_t; // 最大可以表示正负2.9千亿年
 
@@ -2691,14 +2847,22 @@ typedef struct {
 #define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SEC)
 
 void prh_time_init(void);
-void prh_calendar_time(prh_timemsec_t *t);
+prh_i64 prh_system_time_msec(void);
+prh_i64 prh_system_time_usec(void);
 void prh_system_time(prh_timeusec_t *t);
+void prh_date_time_from_msec(prh_datetime_t *t, prh_timemsec_t utc);
+void prh_date_time_from_usec(prh_datetime_t *t, prh_timeusec_t utc);
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec);
+void prh_day_of_year(prh_datetime_t *t);
+prh_i64 prh_steady_time_msec(void);
+prh_i64 prh_steady_time_usec(void);
+prh_i64 prh_steady_time_nsec(void);
 void prh_steady_time(prh_timeusec_t *t);
 void prh_thread_time(prh_timeusec_t *t);
 void prh_precise_tick(prh_timetick_t *t);
-void prh_elapsed_time(const prh_timetick_t *ticks, prh_timensec_t *out);
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int nsec);
-void prh_day_of_year(prh_datetime_t *t);
+prh_i64 prh_elapsed_time_msec(const prh_timetick_t *t);
+prh_i64 prh_elapsed_time_usec(const prh_timetick_t *t);
+prh_i64 prh_elapsed_time_nsec(const prh_timetick_t *t);
 
 #ifdef PRH_TIME_IMPLEMENTATION
 typedef struct {
@@ -3038,9 +3202,147 @@ prh_i64 prh_elapsed_time_nsec(const prh_timetick_t *t) {
 //
 // https://learn.microsoft.com/en-us/windows/win32/sysinfo/acquiring-high-resolution-time-stamps#low-level-hardware-clock-characteristics
 //
-// Low-level hardware clock characteristics
+// 底层硬件时钟特性（Low-level hardware clock characteristics）
 //
-// ...
+// Absolute Clocks and Difference Clocks
+//
+// 绝对时钟提供准确的时间读数。它们通常基于协调世界时（UTC），因此其准确性部分取决于它
+// 们与外部时间参考的同步程度。例如，通过网络时间协议（NTP）或全球定位系统（GPS）来同
+// 步。差分时钟用于测量时间间隔，通常不基于外部时间纪元。QPC 是一个差分时钟，不与外部
+// 时间纪元或参考同步。当你使用 QPC 进行时间间隔测量时，通常会比使用基于绝对时钟的时间
+// 戳获得更高的精度。这是因为同步绝对时钟的时间可能会引入相位和频率变化，从而增加短期时
+// 间间隔测量的不确定性。当绝对时钟与外部时间源同步时，可能会出现时间的跳跃（相位变
+// 化）。例如，如果系统时钟与 NTP 服务器同步，可能会出现几毫秒甚至更长时间的调整。为了
+// 使系统时钟与外部时间源保持同步，系统可能会调整时钟频率。这种频率调整会影响短期时间间
+// 隔的测量精度。
+//
+// Resolution, Precision, Accuracy, and Stability
+//
+// QPC 以硬件计数器为基础。硬件计时器由三部分组成：一个时钟脉冲生成器、一个用于计数
+// 时钟脉冲的计数器，以及一种取回计数器值的方法。这三部分的特性决定了 QPC 的分辨率、
+// 精度、准确性和稳定性。
+//
+// 如果硬件生成器以恒定速率提供时钟脉冲，那么可以通过简单地计数这些时钟脉冲来测量时间
+// 间隔。时钟脉冲生成的速率称为频率，以赫兹（Hz）表示。频率的倒数称为周期或时钟脉冲间
+// 隔，以适当的国际单位制（SI）时间单位表示（例如，秒、毫秒、微秒或纳秒）。计时器的分
+// 辨率等于周期。分辨率决定了区分任意两个时间戳的能力，并为可测量的最小时间间隔设定了
+// 下限。这有时被称为时钟脉冲分辨率。
+//
+// 由于数字计数器以离散步骤前进，而时间是连续流逝的，因此数字时间测量引入了 ±1 个时钟
+// 脉冲的测量不确定性。这种不确定性被称为量化误差。对于典型的时间间隔测量，这种效应通
+// 常可以忽略不计，因为量化误差远小于正在测量的时间间隔。然而，如果被测量的周期很小，
+// 并且接近计时器的分辨率，那么你需要考虑这种量化误差。引入的误差大小为一个时钟周期。
+// 以下两个图表通过使用分辨率为 1 个时间单位的计时器，说明了 ±1 个时钟脉冲不确定性的
+// 影响。
+//          两个时间戳的读数都是0，因为分辨率的原因它们不可分辨
+//          |      |
+//          v      v
+//          |-------|-------|-------|-------|
+//          0       1       2       3       4
+//
+//          两个时间戳的间隔为1个时间单位，但实际的间隔比这个小很多
+//                         | |
+//                         v v
+//          |-------|-------|-------|-------|
+//          0       1       2       3       4
+//
+// QueryPerformanceFrequency 返回 QPC 的频率，周期和分辨率等于该值的倒数。
+// QueryPerformanceFrequency 返回的性能计数器频率是在系统初始化期间确定的，并且在系
+// 统运行期间不会改变。通常，QueryPerformanceFrequency 并不返回硬件时钟脉冲生成器的
+// 实际频率。例如，在某些旧版本的 Windows 中，QueryPerformanceFrequency 返回 TSC
+// 频率值除以 1024；而在运行支持虚拟化程序版本 1.0 接口（或在某些较新版本的 Windows
+// 中始终如此）的虚拟化程序时，性能计数器频率被固定为 10 MHz（100nsec）。因此，不要
+// 假设 QueryPerformanceFrequency 会返回基于硬件频率的值。QueryPerformanceCounter
+// 读取性能计数器，并返回自 Windows 操作系统启动以来发生的总时钟脉冲数，包括机器处于
+// 待机、休眠或连接待机等睡眠状态的时间。
+//
+// 从软件中访问（读取）时钟脉冲计数器需要时间，这种访问时间可能会降低时间测量的精度。
+// 这是因为最小可测量时间间隔（能够测量的最小时间间隔）是分辨率和访问时间中较大的那个：
+// 精度 = MAX [分辨率，访问时间]。例如，假设有一个假设性的硬件计时器，其分辨率为 100
+// 纳秒，访问时间为 800 纳秒。如果使用平台计时器而不是 TSC 寄存器作为 QPC 的基础，就
+// 可能出现这种情况。因此，精度将是 800 纳秒，而不是 100 纳秒。
+//
+// 如果访问时间大于分辨率，不要试图通过猜测来提高精度。换句话说，假设时间戳正好在函数
+// 调用的中间、开始或结束时被获取，这是一种错误。相比之下，考虑以下示例，其中 QPC 的
+// 访问时间仅为 20 纳秒，而硬件时钟的分辨率为 100 纳秒。如果使用 TSC 寄存器作为 QPC
+// 的基础，就可能出现这种情况。在这里，精度由时钟分辨率限制。在实践中，你可以找到读取
+// 计数器所需的时间大于或小于分辨率的时间源。在这两种情况下，精度将是两者中较大的那个。
+// 下表提供了各种时钟的近似分辨率、访问时间和精度的信息。请注意，其中一些值会因不同的
+// 处理器、硬件平台和处理器速度而有所不同。
+//
+//      时钟源              正常时钟频率    时钟分辨率  一般访问时间    精度
+//      PC RTC                  64Hz        15.625ms    N/A         N/A
+//      QPC TSC with 3GHz       3MHz        333ns       30ns        333ns
+//      processor clock
+//      RDTSC instruction       3GHz        333picosec  30ns        30ns
+//      with 3GHz cycle time
+//
+// 因为 QPC 使用硬件计数器，所以当你了解一些硬件计数器的基本特性时，你就能了解 QPC 的
+// 能力和限制。最常用的硬件时钟脉冲生成器是晶体振荡器。晶体是石英或其他陶瓷材料的小片，
+// 它具有压电特性，能够提供一个廉价的频率参考，具有极好的稳定性和准确性。这个频率用于
+// 生成时钟计数的时钟脉冲。时钟的准确性指的是与真实或标准值的一致程度。这主要取决于晶
+// 体振荡器以指定频率提供时钟脉冲的能力。如果振荡频率过高，时钟会“走得快”，测量的时间
+// 间隔会显得比实际长；如果频率过低，时钟会“走得慢”，测量的时间间隔会显得比实际短。对
+// 于短时间间隔的典型时间间隔测量（例如，响应时间测量、网络延迟测量等），硬件振荡器的
+// 准确性通常就足够了。然而，对于某些测量，振荡器频率的准确性变得很重要，特别是对于长
+// 时间间隔或当你想比较在不同机器上进行的测量时。本节的其余部分探讨了振荡器准确性的影
+// 响。
+//
+// 晶体的振荡频率是在制造过程中设定的，制造商以“百万分率”（ppm，parts per million）
+// 表示最大频率偏移，称为最大频率偏移。一个标称频率为 1,000,000 Hz、最大频率偏移为
+// ±10 ppm 的晶体，如果其实际频率在 999,990 Hz 到 1,000,010 Hz 之间，则符合规格。
+// 将“百万分率”替换为“每秒微秒数”，我们可以将这种频率偏移误差应用于时间间隔测量。一个
+// 偏移为 +10 ppm 的振荡器每秒会有 10 微秒的误差。例如测量 1 秒的时间间隔，可能将 1
+// 秒的时间间隔测量为 0.999990 秒。一个方便的参考是，100 ppm 的频率误差会导致 24 小
+// 时后产生 8.64 秒的误差。下表列出了由于累积误差导致的更长时间间隔的测量不确定性。
+//
+//      时间间隔        时钟频率偏移误差±10ppm产生的时间偏移
+//      1usec           ±10picosec 每微妙10皮秒误差
+//      1msec           ±10nsec 每毫秒10纳秒误差
+//      1sec            ±10usec 每秒10微妙误差
+//      1min            ±600usec
+//      1hour           ±36msec
+//      1day            ±0.86sec
+//      1week           ±6.08sec
+//
+// 上表表明，对于短时间间隔，频率偏移误差（frequency offset error）通常可以忽略不计。
+// 然而，对于长时间间隔，即使是小的频率偏移也可能导致相当大的测量不确定性。个人计算机
+// 和服务器中使用的晶体振荡器通常制造时的频率公差为 ±30 到 50 ppm，很少情况下，晶体的
+// 偏差可能高达 500 ppm。尽管可以提供频率偏移公差更小的晶体，但它们更昂贵，因此在大多
+// 数计算机中没有使用。为了减少这种频率偏移误差的不利影响，最近版本的 Windows，特别是
+// Windows 8，使用多个硬件计时器来检测频率偏移，并尽可能进行补偿。这个校准过程在启动
+// Windows 时执行。如以下示例所示，硬件时钟的频率偏移误差影响了可实现的准确性，而时钟
+// 的分辨率可能没那么重要。总之，当测量长时间间隔以及在不同系统之间比较测量结果时，频
+// 率偏移误差变得越来越重要。时钟的稳定性描述了时钟频率是否会随时间变化，例如由于温度
+// 变化的结果。用作计算机时钟脉冲生成器的石英晶体将表现出随温度变化的频率小幅度变化。
+// 对于常见的温度范围，由热漂移引起的误差通常比频率偏移误差小得多。然而，为便携式设备
+// 或受大温度波动影响的设备设计软件的人员可能需要考虑这种效应。
+//
+// 示例 1：假设你使用一个 1 MHz 的振荡器进行时间间隔测量，其分辨率为 1 微秒，最大频率
+// 偏移误差为 ±50 ppm。现在，假设偏移量正好是 +50 ppm。这意味着实际频率将是
+// 1,000,050 Hz。如果我们测量一个 24 小时的时间间隔，我们的测量值将比实际值短 4.3
+// 秒（实际 24:00:00.000000，测量值为 23:59:55.700000）。
+//      一天中的秒数 = 86,400
+//      频率偏移误差 = 50ppm = 0.00005 每秒偏50微妙
+//      86,400 秒 × 0.00005 = 4.3 秒
+//
+// 示例 2：假设处理器的 TSC 时钟由一个晶体振荡器控制，其标称频率为 3 GHz。这意味着分
+// 辨率将是 1/3,000,000,000，约为 333 皮秒。假设用于控制处理器时钟的晶体的实际频率误
+// 差为 ±50 ppm，并且实际偏移量为 +50 ppm。尽管分辨率令人印象深刻，但测量一个 24 小
+// 时的时间间隔仍将比实际值短 4.3 秒（实际 24:00:00.0000000000，测量值为
+// 23:59:55.7000000000）。
+//      一天中的秒数 = 86,400
+//      频率偏移误差 = 50 ppm = 0.00005
+//      86,400 秒 × 0.00005 = 4.3 秒
+// 这表明，高分辨率的 TSC 时钟不一定比低分辨率的时钟提供更准确的测量结果。
+//
+// 示例 3：考虑使用两台不同的计算机来测量同一个 24 小时的时间间隔。两台计算机的振荡器
+// 的最大频率偏移均为 ±50 ppm。这两台系统对同一时间间隔的测量结果最多能相差多远？与前
+// 面的示例一样，±50 ppm 在 24 小时内产生的最大误差为 ±4.3 秒。如果一个系统快了 4.3
+// 秒，而另一个系统慢了 4.3 秒，那么 24 小时后的最大误差可能为 8.6 秒。
+//      一天中的秒数 = 86,400
+//      频率偏移误差 = ±50 ppm = ±0.00005
+//      ±(86,400 秒 × 0.00005) = ±4.3 秒
 //
 // https://learn.microsoft.com/en-us/windows/win32/sysinfo/time-functions
 // https://learn.microsoft.com/en-us/windows/win32/multimedia/multimedia-timers
@@ -3125,22 +3427,55 @@ prh_i64 prh_elapsed_time_nsec(const prh_timetick_t *t) {
 //      information, call GetLastError. On systems that run Windows XP or
 //      later, the function will always succeed and will thus never return
 //      zero.
-#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC  0x00000002B6109100ULL // 11644473600-sec
-#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC 0x00000A9730B66800ULL // 11644473600000-msec
-#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC 0x00295E9648864000ULL // 11644473600000000-usec
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC  0x00000002B6109100LL // 11644473600-sec
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC 0x00000A9730B66800LL // 11644473600000-msec
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC 0x00295E9648864000LL // 11644473600000000-usec
 
-void prh_calendar_time(prh_timemsec_t *t) {
+void prh_impl_1970_utc_secs_to_filetime(prh_i64 secs, FILETIME *f) {
+    // The time functions included in the C run-time use the time_t type to
+    // represent the number of seconds elapsed since midnight, January 1, 1970.
+    // The following example converts a time_t value to a FILETIME.
+    //      void TimetToFileTime(time_t t, FILETIME *f) {
+    //          ULARGE_INTEGER time_value;
+    //          time_value.QuadPart = (t * 10000000LL) + 116444736000000000LL;
+    //          f->dwLowDateTime = time_value.LowPart;
+    //          f->dwHighDateTime = time_value.HighPart;
+    //      }
+    // FILETIME 单位为 100 纳秒，从 1601/1/1 为基准开始。
+    secs = (secs + PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC) * 10000000;
+    f->dwLowDateTime = (DWORD)(secs & 0xFFFFFFFF);
+    f->dwHighDateTime = (DWORD)(secs >> 32);
+}
+
+prh_i64 prh_impl_1970_utc_time_secs(const FILETIME *f) {
+    prh_i64 secs = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    return secs / 10000000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC;
+}
+
+prh_i64 prh_impl_1970_utc_time_msec(const FILETIME *f) {
+    prh_i64 msec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    return msec / 10000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC;
+}
+
+prh_i64 prh_impl_1970_utc_time_usec(const FILETIME *f) {
+    prh_i64 usec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    return usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
+}
+
+prh_i64 prh_system_time_msec(void) { // 可表示2.9亿年
     FILETIME f;
-    GetSystemTimeAsFileTime(&f); // 精度为100纳秒
-    t->msec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
-    t->msec = t->msec / 10000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC;
+    GetSystemTimeAsFileTime(&f); 
+    return prh_impl_1970_utc_time_msec(&f);
+}
+
+prh_i64 prh_system_time_usec(void) { // 可表示29万年
+    FILETIME f;
+    GetSystemTimeAsFileTime(&f);
+    return prh_impl_1970_utc_time_usec(&f);
 }
 
 void prh_system_time(prh_timeusec_t *t) {
-    FILETIME f;
-    GetSystemTimeAsFileTime(&f);
-    t->usec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
-    t->usec = t->usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
+    t->usec = prh_system_time_usec();
 }
 
 void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
@@ -3151,6 +3486,44 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
     //      GetSystemTime retrieves the current system date and time in
     //      Coordinated Universal Time (UTC) format.
     //      GetLocalTime retrieves the current local date and time.
+    //
+    // BOOL SystemTimeToTzSpecificLocalTime(
+    //          const TIME_ZONE_INFORMATION *TimeZoneInformation, [optional]
+    //          const SYSTEMTIME *UniversalTime,
+    //          SYSTEMTIME *LocalTime);
+    // Windows 2000 Professional Windows 2000 Server
+    // timezoneapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+    //      Converts a time in Coordinated Universal Time (UTC) to a specified
+    //      time zone's corresponding local time.
+    //      TimeZoneInformation pointer to a TIME_ZONE_INFORMATION structure
+    //      that specifies the time zone of interest. If TimeZoneInformation
+    //      is NULL, the function uses the currently active time zone.
+    //      The SystemTimeToTzSpecificLocalTime function takes into account
+    //      whether daylight saving time (DST) is in effect for the local time
+    //      to which the system time is to be converted.
+    //      The SystemTimeToTzSpecificLocalTime function may calculate the
+    //      local time incorrectly under the following conditions: The time
+    //      zone uses a different UTC offset for the old and new years. The
+    //      UTC time to be converted and the calculated local time are in
+    //      different years.
+    //      If the function fails, the return value is zero. To get extended
+    //      error information, call GetLastError.
+    //
+    // BOOL TzSpecificLocalTimeToSystemTime(
+    //          const TIME_ZONE_INFORMATION *TimeZoneInformation, [optional]
+    //          const SYSTEMTIME *LocalTime,
+    //          SYSTEMTIME *UniversalTime);
+    // Windows XP Windows Server 2003
+    // timezoneapi.h (include Windows.h) Kernel32.lib Kernel32.dll
+    //      Converts a local time to a time in Coordinated Universal Time
+    //      (UTC). TimeZoneInformation pointer to a TIME_ZONE_INFORMATION
+    //      structure that specifies the time zone for the time specified
+    //      in LocalTime. If TimeZoneInformation is NULL, the function uses
+    //      the currently active time zone.
+    //      If the function fails, the return value is zero. To get extended
+    //      error information, call GetLastError.
+    //      TzSpecificLocalTimeToSystemTime takes into account whether daylight
+    //      saving time (DST) is in effect for the local time to be converted.
     //
     // BOOL FileTimeToSystemTime(const FILETIME *FileTime, SYSTEMTIME *out);
     // BOOL SystemTimeToFileTime(const SYSTEMTIME *SystemTime, FILETIME *out);
@@ -3191,10 +3564,8 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
     //      its validity, especially in leap year scenarios. See leap day
     //      readiness for more information.
     //      https://techcommunity.microsoft.com/blog/azuredevcommunityblog/it%e2%80%99s-2020-is-your-code-ready-for-leap-day/1157279
-    prh_u64 time = (utc + PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC) * 10000000;
     FILETIME f; SYSTEMTIME s;
-    f.dwLowDateTime = (DWORD)(time & 0xFFFFFFFF);
-    f.dwHighDateTime = (DWORD)(time >> 32);
+    prh_impl_1970_utc_secs_to_filetime(utc, &f);
     PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
     t->year = s->wYear;
     t->month = s->wMonth;
@@ -3334,7 +3705,7 @@ prh_i64 prh_steady_time_usec(void) {
 
 prh_i64 prh_steady_time_nsec(void) {
     prh_timetick_t ticks;
-    prh_precise_tick(&ticks);
+    prh_precise_tick(&ticks); // 精度小于1微妙（<1us），包含待机休眠等睡眠时间
     return prh_elapsed_time_nsec(&ticks);
 }
 
@@ -3428,6 +3799,29 @@ void prh_impl_time_test(void) {
     printf("time_t %d-byte\n", sizeof(time_t)); // seconds
     printf("clock_t %d-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %d\n", CLOCKS_PER_SEC);
+    int i, n = 100;
+    for (i = 0; i < n; i += 1) {
+        printf("system time: %ll\n", (long long)prh_system_time_usec());
+    }
+    for (i = 0; i < n; i += 1) {
+        printf("steady time msec: %ll\n", (long long)prh_steady_time_msec());
+    }
+    for (i = 0; i < n; i += 1) {
+        printf("steady time usec: %ll\n", (long long)prh_steady_time_usec());
+    }
+    for (i = 0; i < n; i += 1) {
+        printf("steady time nsec: %ll\n", (long long)prh_steady_time_nsec());
+    }
+    prh_timeusec_t usec;
+    for (i = 0; i < n; i += 1) {
+        prh_thread_time(&usec);
+        printf("thread time usec: %ll\n", (long long)usec);
+    }
+    prh_timetick_t ticks;
+    for (i = 0; i < n; i += 1) {
+        prh_precise_tick(&ticks);
+        printf("precise ticks: %ll\n", (long long)ticks);
+    }
 }
 #endif // PRH_TIME_TEST
 #else  // WINDOWS end POSIX begin
@@ -3544,7 +3938,7 @@ void prh_time_init(void) {
 void prh_impl_time_test(void) {
     prh_time_init();
     printf("tick frequency %ll\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
-    printf("time_t %d-byte\n", sizeof(time_t)); // seconds
+    printf("time_t %d-byte\n", sizeof(time_t)); // seconds, it is signed integer
     printf("clock_t %d-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %d\n", CLOCKS_PER_SEC);
     printf("suseconds_t %d-byte\n", sizeof(suseconds_t)); // microseconds
@@ -3555,6 +3949,29 @@ void prh_impl_time_test(void) {
     printf("CLOCK_REALTIME time resolution %d-nsec\n", (int)ts.tv_nsec);
     prh_zeroret(clock_getres(CLOCK_MONOTONIC, &ts));
     printf("CLOCK_MONOTONIC time resolution %d-nsec\n", (int)ts.tv_nsec);
+    int i, n = 100;
+    for (i = 0; i < n; i += 1) {
+        printf("system time: %ll\n", (long long)prh_system_time_usec());
+    }
+    for (i = 0; i < n; i += 1) {
+        printf("steady time msec: %ll\n", (long long)prh_steady_time_msec());
+    }
+    for (i = 0; i < n; i += 1) {
+        printf("steady time usec: %ll\n", (long long)prh_steady_time_usec());
+    }
+    for (i = 0; i < n; i += 1) {
+        printf("steady time nsec: %ll\n", (long long)prh_steady_time_nsec());
+    }
+    prh_timeusec_t usec;
+    for (i = 0; i < n; i += 1) {
+        prh_thread_time(&usec);
+        printf("thread time usec: %ll\n", (long long)usec);
+    }
+    prh_timetick_t ticks;
+    for (i = 0; i < n; i += 1) {
+        prh_precise_tick(&ticks);
+        printf("precise ticks: %ll\n", (long long)ticks);
+    }
 }
 #endif // PRH_TIME_TEST
 #endif // POSIX end
