@@ -247,6 +247,19 @@ extern "C" {
 #endif
 #endif
 
+// https://clang.llvm.org/docs/LanguageExtensions.html#builtinmacros
+// __clang__ defined when compiling with Clang
+// __clang_major__ e.g., the 2 in 2.0.1
+// __clang_minor__ e.g., the 0 in 2.0.1
+// __clang_patchlevel__ e.g., the 1 in 2.0.1
+// __clang_version__ version string, e.g., "1.5 (trunk 102332)"
+
+#ifndef PRH_CLANG_VERSION
+#if defined(__clang__) && defined(__clang_major__) && defined(__clang_minor__) && defined(__clang_patchlevel__)
+#define PRH_CLANG_VERSION (__clang_major__ * 10000 + __clang_minor__ * 100 + __clang_patchlevel__)
+#endif
+#endif
+
 // inline noinline
 #ifndef prh_inline
 #if defined(_MSC_VER)
@@ -779,10 +792,13 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     #define PRH_ATOMIC_IMPLEMENTATION
     #define PRH_THRD_IMPLEMENTATION
     #define PRH_CORO_IMPLEMENTATION
-    #ifdef PRH_CONC_TEST
-        #define PRH_ATOMIC_TEST
-        #define PRH_THRD_TEST
-    #endif
+#endif
+#endif
+
+#ifdef PRH_THRD_INCLUDE
+#define PRH_TIME_INCLUDE
+#ifdef PRH_THRD_IMPLEMENTATION
+    #define PRH_TIME_IMPLEMENTATION
 #endif
 #endif
 
@@ -1104,9 +1120,69 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     #include <pthread.h> // pthread_create POSIX.1-2008
     #include <unistd.h> // sysconf confstr POSIX.1-2008
     #include <errno.h> // ETIMEDOUT
-    #ifdef PRH_CONC_TEST
-    #include <sys/resource.h> // getrlimit POSIX.1-2008
+    // cc -dM -E -</dev/null
+    // https://jdebp.uk/FGA/predefined-macros-compiler.html
+    // https://jdebp.uk/FGA/predefined-macros-processor.html
+    // https://jdebp.uk/FGA/predefined-macros-language.html
+    // https://jdebp.uk/FGA/predefined-macros-platform.html
+    // https://docwiki.embarcadero.com/RADStudio/Alexandria/en/Predefined_Macros
+    // https://docs.freebsd.org/en/books/porters-handbook/porting-dads/#porting-versions
+    //
+    // __APPLE__ the target platform api is "Apple-ish"                         llvm-gcc Clang
+    // __MACH__ the target platform api is Mach-based (including NextSTEP and MacOS 10)     GCC Clang
+    // __OpenBSD__ the target platform api is OpenBSD                           GCC Clang
+    // __NetBSD__ the target platform api is NetBSD                             GCC Clang
+    // __FreeBSD__ the target platform api is FreeBSD                           GCC Clang
+    // __DragonFly__ the target platform api is DragonFly BSD                   GCC Clang
+    // __linux__ the target platform api is Linux                               GCC
+    // __unix__ the target platform api is Unix-alike (i.e. Cygwin or Linux)    GCC Clang
+    // _WIN32 the target platform api is Win32                                  DigitalMars GCC Clang MSVC
+    // __CYGWIN__ __CYGWIN32__ the target plaform api is Cygwin                 GCC Clang
+    //
+    // GCC and Clang targetting Apple's Darwin is one of the few cases where a
+    // "Unix-alike" target platform doesn't have the __unix__ or __UNIX__ macros
+    // defined, hence the check for __APPLE__ and __MACH__. Strictly speaking,
+    // those two macros don't, either apart or in combination, mean "Unix-alike".
+    // It just so happens that no Mach-based "Apple-ish" platform API will fail
+    // to have a <sys/param.h> header. 严格来说，这两个宏（无论是单独还是组合）并不意
+    // 味着“类 Unix”。只是碰巧没有基于 Mach 的“类苹果”平台 API 会缺少 <sys/param.h> 
+    // 头文件。
+    #if defined(__unix__) || defined(__UNIX__) || (defined(__APPLE__) && defined(__MACH__))
+    #include <sys/param.h>
     #endif
+    // 通俗的来讲，Apple现在的主要操作系统，无论是macOS、iOS还是iPadOS，甚至是HomePod和
+    // Apple TV（TvOS）都是建立在Darwin的基础上。Darwin 是苹果公司开发的操作系统内核，是
+    // macOS 和 iOS 的基础。它基于 Mach 微内核和 FreeBSD 的某些部分。
+    //
+    // __APPLE__ 宏有一个且只有一个有效的用途：在检查 BSD 系统时识别 Darwin。它仅由苹果
+    // 提供的编译器和苹果分叉的编译器定义，例如 lvm-gcc、苹果旧版的 GCC 4 分叉版本以及
+    // Clang。此外，一些寻求与这些编译器兼容的编译器（如 IBM 的 XLC++）也会定义这个宏。
+    // 即使在这种情况下，__APPLE__ 也仅在目标平台是 Darwin 时被定义。当你需要在代码中区分
+    // 不同的 Unix 系统（如 Linux、FreeBSD、OpenBSD 等）时，__APPLE__ 宏可以帮助你识别
+    // Darwin 系统。如果你在其他情况下使用 __APPLE__ 宏，你可能正在做一件非常错误的事情。
+    // __APPLE__ 宏并不意味着目标设备是 macOS 或 iOS。它仅表示目标平台是 Darwin。
+    //
+    // https://developer.apple.com/library/archive/documentation/Porting/Conceptual/PortingUnix/compiling/compiling.html
+    //
+    // __MACH__
+    //      This macro is defined if Mach system calls are supported.
+    // __APPLE__
+    //      This macro is defined in any Apple computer. Note: To define a section
+    //      of code to be compiled on OSX system, you should define a section using
+    //      __APPLE__ with __MACH__ macros. The macro __UNIX__ is not defined in
+    //      OSX.
+    // __APPLE_CC__
+    //      This macro is set to an integer that represents the version number of
+    //      the compiler. This lets you distinguish, for example, between compilers
+    //      based on the same version of GCC, but with different bug fixes or
+    //      features. Larger values denote later compilers.
+    // __BIG_ENDIAN__ and __LITTLE_ENDIAN__
+    //      These macros tell whether the current architecture uses little endian
+    //      or big endian byte ordering. For more information, see Compiling for
+    //      Multiple CPU Architectures.
+    //
+    // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/
+    // https://man.freebsd.org/cgi/man.cgi/help.html
 #endif
 #include <stdatomic.h>
 #include <assert.h> // assert
@@ -1153,7 +1229,56 @@ void prh_impl_prerr_exit(int err, int line) {
     prh_impl_prerr(err, line);
     exit(line);
 }
+#endif // PRH_BASE_IMPLEMENTATION
+
+#ifdef PRH_TEST_IMPLEMENTATION
+#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
+void prh_impl_atomic_test(void);
 #endif
+#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+void prh_impl_time_test(void);
+#endif
+#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+void prh_impl_thrd_test(void);
+#endif
+#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
+void prh_impl_conc_test(void);
+#endif
+void prh_test_code(void) {
+#if defined(__linux__)
+    printf("__linux__ defined\n");
+#endif
+#if defined(__LINUX__)
+    printf("_LINUX__ defined\n");
+#endif
+#if defined(__unix__)
+    printf("__unix__ defined\n");
+#endif
+#if defined(__UNIX__)
+    printf("__UNIX__ defined\n");
+#endif
+#if defined(BSD)
+    printf("BSD defined\n");
+#endif
+#if PRH_DEBUG
+    printf("PRH_DEBUG 1\n");
+#else
+    printf("PRH_DEBUG 0\n");
+#endif
+#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
+    prh_impl_atomic_test();
+#endif
+#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+    prh_impl_time_test();
+#endif
+#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+    prh_impl_thrd_test();
+#endif
+#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
+    prh_impl_conc_test();
+#endif
+}
+#endif // PRH_TEST_IMPLEMENTATION
 
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
@@ -1168,6 +1293,12 @@ void prh_impl_prerr_exit(int err, int line) {
 // 9.x, __FreeBSD__ is defined to be 9. __FreeBSD_version can be found in page
 // https://people.freebsd.org/~olivierd/porters-handbook/versions.html. See
 // https://docs.freebsd.org/en/books/porters-handbook/porting-dads/#porting-versions
+//
+//      #if __FreeBSD__ >= 9
+//      #if __FreeBSD_version >= 901000
+//      ... 9.1+ release specific code here ...
+//      #endif
+//      #endif
 //
 // __NetBSD_Version__ is defined in sys/param.h, formatted as VVRR00PP00 from
 // NetBSD 2.99.9. VV is version, RR is revision, PP is patch. For example
@@ -2756,7 +2887,7 @@ int prh_atomintque_top(prh_atomintque_t *q) {
     return prh_impl_get_int_que(q)[head];
 }
 
-#ifdef PRH_ATOMIC_TEST
+#ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_atomic_test(void) {
     atomic_flag f; atomic_bool b; atomic_int i; atomic_uint u;
     atomic_intptr_t ip; atomic_uintptr_t up; atomic_size_t sz; atomic_ptrdiff_t pd;
@@ -2781,7 +2912,7 @@ void prh_impl_atomic_test(void) {
     printf("atomic_llong size %d align %d lock free %d\n", (int)sizeof(atomic_llong), (int)prh_alignof(atomic_llong), atomic_is_lock_free(&ll));
     printf("atomic_ullong size %d align %d lock free %d\n", (int)sizeof(atomic_ullong), (int)prh_alignof(atomic_ullong), atomic_is_lock_free(&ull));
 }
-#endif // PRH_ATOMIC_TEST
+#endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_ATOMIC_IMPLEMENTATION
 #endif // PRH_ATOMIC_INCLUDE
 
@@ -2870,6 +3001,14 @@ typedef struct {
 } prh_impl_timeinit_t;
 
 prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
+
+void prh_date_time_from_msec(prh_datetime_t *t, prh_timemsec_t utc) {
+    prh_date_time(t, utc / 1000, utc % 1000);
+}
+
+void prh_date_time_from_usec(prh_datetime_t *t, prh_timeusec_t utc) {
+    prh_date_time(t, utc / 1000000, (utc / 1000) % 1000);
+}
 
 prh_i64 prh_elapsed_time_msec(const prh_timetick_t *t) {
     // To guard against loss-of-precision, we convert to microseconds
@@ -3577,14 +3716,6 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
     t->msec = msec;
 }
 
-void prh_date_time_from_msec(prh_datetime_t *t, prh_timemsec_t utc) {
-    prh_date_time(t, utc / 1000, utc % 1000);
-}
-
-void prh_date_time_from_usec(prh_datetime_t *t, prh_timeusec_t utc) {
-    prh_date_time_from_secs(t, utc / 1000000, (utc / 1000) % 1000);
-}
-
 void prh_steady_time(prh_timeusec_t *t) {
     // Windows time is the number of milliseconds elapsed since the system was
     // last started. You typically use the GetTickCount or GetTickCount64
@@ -3788,7 +3919,7 @@ void prh_time_init(void) {
     PRH_IMPL_TIMEINIT.freq.ticks_per_sec = freq.QuadPart;
 }
 
-#ifdef PRH_TIME_TEST
+#ifdef PRH_TEST_IMPLEMENTATION
 #include <time.h>
 void prh_impl_time_test(void) {
     prh_time_init();
@@ -3823,7 +3954,7 @@ void prh_impl_time_test(void) {
         printf("precise ticks: %ll\n", (long long)ticks);
     }
 }
-#endif // PRH_TIME_TEST
+#endif // PRH_TEST_IMPLEMENTATION
 #else  // WINDOWS end POSIX begin
 #include <time.h> // clock_gettime time_t struct timespec
 #include <sys/time.h> // gettimeofday time_t struct timeval
@@ -3834,15 +3965,23 @@ void prh_impl_time_test(void) {
 // the system time (e.g., if the system administrator manually changes the
 // system time). If you need a monotonically increasing clock, see
 // clock_gettime(2).
-// The function clock_gettime() is not available on OSX.
 #if defined(__APPLE__)
 #include <AvailabilityMacros.h>
 #include <mach/task.h>
 #include <mach/mach.h>
 #endif
 
-void prh_calendar_time(prh_timemsec_t *t) {
-    #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+// The system clock represents the system-wide real time wall clock. It may
+// not be monotonic: on most systems, the system time can be adjusted at any
+// moment. System clock measures Unix Time (i.e., time since 00:00:00
+// Coordinated Universal Time (UTC), Thursday, 1 January 1970, not counting
+// leap seconds). The system clock's time value can be internally adjusted
+// at any time by the operating system, for example due to NTP synchronization
+// or the user changing the system's clock. Daylight Saving Time and time zone
+// changes, however, do not affect it since it is based on the UTC time-zone.
+
+prh_i64 prh_system_time_msec(void) {
+#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
     t->usec = (prh_i64)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
@@ -3853,15 +3992,7 @@ void prh_calendar_time(prh_timemsec_t *t) {
 #endif
 }
 
-// The system clock represents the system-wide real time wall clock. It may
-// not be monotonic: on most systems, the system time can be adjusted at any
-// moment. System clock measures Unix Time (i.e., time since 00:00:00
-// Coordinated Universal Time (UTC), Thursday, 1 January 1970, not counting
-// leap seconds). The system clock's time value can be internally adjusted
-// at any time by the operating system, for example due to NTP synchronization
-// or the user changing the system's clock. Daylight Saving Time and time zone
-// changes, however, do not affect it since it is based on the UTC time-zone.
-void prh_system_time(prh_timeusec_t *t) {
+prh_i64 prh_system_time_usec(void) {
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
@@ -3873,7 +4004,11 @@ void prh_system_time(prh_timeusec_t *t) {
 #endif
 }
 
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int nsec) {
+void prh_system_time(prh_timeusec_t *t) {
+    t->usec = prh_system_time_usec();
+}
+
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
     // 夏令时（Daylight Saving Time，DST）是一种为了节约能源而人为调整时钟的做法。
     // 具体来说，它通过在夏季将时钟拨快一定时间（通常是1小时）。夏令时的主要目的是减
     // 少照明需求。通过将时钟拨快1小时，人们在夏季的傍晚可以更晚地开灯，从而节省电力。
@@ -3934,7 +4069,7 @@ void prh_time_init(void) {
     PRH_IMPL_TIMEINIT.freq.ticks_per_sec = 1000000000;
 }
 
-#ifdef PRH_TIME_TEST
+#ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_time_test(void) {
     prh_time_init();
     printf("tick frequency %ll\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
@@ -3973,7 +4108,7 @@ void prh_impl_time_test(void) {
         printf("precise ticks: %ll\n", (long long)ticks);
     }
 }
-#endif // PRH_TIME_TEST
+#endif // PRH_TEST_IMPLEMENTATION
 #endif // POSIX end
 #endif // PRH_TIME_IMPLEMENTATION
 #endif // PRH_TIME_INCLUDE
@@ -5117,7 +5252,8 @@ void prh_thrd_wakeup_all(prh_thrd_cond_t *p) {
     }
 }
 
-#ifdef PRH_THRD_TEST
+#ifdef PRH_TEST_IMPLEMENTATION
+#include <sys/resource.h> // getrlimit POSIX.1-2008
 // In SUSv2 the getpagesize() call was labeled LEGACY, and it was removed in
 // POSIX.1-2001.
 int getpagesize(void);
@@ -5208,7 +5344,7 @@ void prh_impl_thrd_test(void) {
     printf("ESRCH = %d\n", ESRCH);
     assert(sizeof(pthread_t) <= sizeof(void *));
 }
-#endif // PRH_THRD_TEST
+#endif // PRH_TEST_IMPLEMENTATION
 #endif // PTHREAD end
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
@@ -5216,23 +5352,16 @@ void prh_impl_thrd_test(void) {
 // CONCURRENCY - Very simple single file style concurrency library
 #ifdef PRH_CONC_INCLUDE
 
-#ifdef PRH_CONC_TEST
-    void prh_conc_test(void);
-#else
-    #define prh_conc_test()
-#endif
-
 #ifdef PRH_CONC_STRIP_PREFIX
 
 #endif // PRH_CONC_STRIP_PREFIX
 
 #ifdef PRH_CONC_IMPLEMENTATION
-#ifdef PRH_CONC_TEST
-void prh_conc_test(void) {
-    prh_impl_atomic_test();
-    prh_impl_thrd_test();
+#ifdef PRH_TEST_IMPLEMENTATION
+void prh_impl_conc_test(void) {
+
 }
-#endif // PRH_CONC_TEST
+#endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_CONC_IMPLEMENTATION
 #endif // PRH_CONC_INCLUDE
 
