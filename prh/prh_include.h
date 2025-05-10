@@ -144,14 +144,20 @@ extern "C" {
 // 虽然 _ASSERT_EXPR、_ASSERT 和 _ASSERTE 是宏，并且可以通过包含 <crtdbg.h> 来使
 // 用，但当定义了 _DEBUG 宏时，应用程序必须链接到调试版本的 C 运行时库，因为这些宏调
 // 用了其他运行时函数。
-#if defined(_DEBUG) || defined(DEBUG) || (defined(PRH_DEBUG) && PRH_DEBUG == 1)
-#undef NDEBUG
+#if defined(_DEBUG) || defined(PRH_DEBUG) // cc with debug option
 #undef PRH_DEBUG
 #define PRH_DEBUG 1
-#else
-#define NDEBUG
+#elif defined(NDEBUG) || defined(PRH_RELEASE) // cc no debug, NDEBUG or PRH_RELEASE defined
 #undef PRH_DEBUG
 #define PRH_DEBUG 0
+#else // default in debug developing mode
+#undef PRH_DEBUG
+#define PRH_DEBUG 1
+#endif
+
+#undef NDEBUG
+#if (PRH_DEBUG == 0)
+#define NDEBUG
 #endif
 
 // architecture
@@ -1147,6 +1153,8 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     // to have a <sys/param.h> header. 严格来说，这两个宏（无论是单独还是组合）并不意
     // 味着“类 Unix”。只是碰巧没有基于 Mach 的“类苹果”平台 API 会缺少 <sys/param.h> 
     // 头文件。
+    //
+    // https://docs-archive.freebsd.org/doc/7.3-RELEASE/usr/share/doc/zh_CN/books/porters-handbook/porting-versions.html
     #if defined(__unix__) || defined(__UNIX__) || (defined(__APPLE__) && defined(__MACH__))
     #include <sys/param.h>
     #endif
@@ -1246,25 +1254,21 @@ void prh_impl_conc_test(void);
 #endif
 void prh_test_code(void) {
 #if defined(__linux__)
-    printf("__linux__ defined\n");
+    printf("__linux__ %d defined\n", __linux__);
 #endif
 #if defined(__LINUX__)
-    printf("_LINUX__ defined\n");
+    printf("_LINUX__ %d defined\n", __LINUX__);
 #endif
 #if defined(__unix__)
-    printf("__unix__ defined\n");
+    printf("__unix__ %d defined\n", __unix__);
 #endif
 #if defined(__UNIX__)
-    printf("__UNIX__ defined\n");
+    printf("__UNIX__ %d defined\n", __UNIX__);
 #endif
 #if defined(BSD)
-    printf("BSD defined\n");
+    printf("BSD %d defined\n", BSD);
 #endif
-#if PRH_DEBUG
-    printf("PRH_DEBUG 1\n");
-#else
-    printf("PRH_DEBUG 0\n");
-#endif
+    printf("PRH_DEBUG %d\n", PRH_DEBUG);
 #if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
     prh_impl_atomic_test();
 #endif
@@ -2150,7 +2154,10 @@ void *prh_impl_coroutine_load(prh_coro_t *coro, prh_coroproc_t proc, void *userd
     prh_impl_coro_reset_udata(coro, userdata, cond);
 
     void **rsp = (void **)coro;
+#if PRH_CORO_DEBUG
     void *rspaligned_to_16 = (void *)rsp;
+    assert((prh_uinp)rspaligned_to_16 % 16 == 0);
+#endif
     // [32-bit architecture]
     // pstack + alloc <-- 00 <-- 16字节对齐
     //           proc <-- 12
@@ -2162,8 +2169,6 @@ void *prh_impl_coroutine_load(prh_coro_t *coro, prh_coroproc_t proc, void *userd
     *(--rsp) = (void *)(prh_uinp)proc;
     *(--rsp) = (void *)(prh_uinp)prh_impl_asm_coro_call;
     coro->rspoffset = (prh_u32)((char *)coro - (char *)rsp);
-
-    assert((prh_uinp)rspaligned_to_16 % 16 == 0);
 
 #if PRH_CORO_DEBUG
     void *udata = prh_impl_coro_udata(coro);
@@ -2964,14 +2969,14 @@ typedef struct {
 } prh_timespec_t;
 
 typedef struct {
-    int year;   // 正负20亿年
-    byte month; // 1 ~ 12
-    byte mday;  // 1 ~ 31
-    byte wday;  // 0 ~ 6 (sunday = 0)
-    byte hour;  // 0 ~ 23
-    byte min;   // 0 ~ 59
-    byte sec;   // 0 ~ 60 since C99
-    u16 msec;   // 0 ~ 999
+    prh_int year;   // 正负20亿年
+    prh_byte month; // 1 ~ 12
+    prh_byte mday;  // 1 ~ 31
+    prh_byte wday;  // 0 ~ 6 (sunday = 0)
+    prh_byte hour;  // 0 ~ 23
+    prh_byte min;   // 0 ~ 59
+    prh_byte sec;   // 0 ~ 60 since C99
+    prh_u16 msec;   // 0 ~ 999
 } prh_datetime_t;
 
 #define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SEC)
@@ -2981,8 +2986,8 @@ void prh_time_init(void);
 prh_i64 prh_system_time_msec(void);
 prh_i64 prh_system_time_usec(void);
 void prh_system_time(prh_timeusec_t *t);
-void prh_date_time_from_msec(prh_datetime_t *t, prh_timemsec_t utc);
-void prh_date_time_from_usec(prh_datetime_t *t, prh_timeusec_t utc);
+void prh_date_time_from_msec(prh_datetime_t *t, prh_i64 utc_msec);
+void prh_date_time_from_usec(prh_datetime_t *t, prh_i64 utc_usec);
 void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec);
 void prh_day_of_year(prh_datetime_t *t);
 prh_i64 prh_steady_time_msec(void);
@@ -3002,12 +3007,12 @@ typedef struct {
 
 prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
 
-void prh_date_time_from_msec(prh_datetime_t *t, prh_timemsec_t utc) {
-    prh_date_time(t, utc / 1000, utc % 1000);
+void prh_date_time_from_msec(prh_datetime_t *t, prh_i64 utc_msec) {
+    prh_date_time(t, utc_msec / 1000, utc_msec % 1000);
 }
 
-void prh_date_time_from_usec(prh_datetime_t *t, prh_timeusec_t utc) {
-    prh_date_time(t, utc / 1000000, (utc / 1000) % 1000);
+void prh_date_time_from_usec(prh_datetime_t *t, prh_i64 utc_usec) {
+    prh_date_time(t, utc_usec / 1000000, (utc_usec / 1000) % 1000);
 }
 
 prh_i64 prh_elapsed_time_msec(const prh_timetick_t *t) {
@@ -3834,7 +3839,7 @@ prh_i64 prh_steady_time_usec(void) {
 #endif
 }
 
-prh_i64 prh_steady_time_nsec(void) {
+prh_i64 prh_steady_time_nsec(void) { // 保存纳秒只能表示292年
     prh_timetick_t ticks;
     prh_precise_tick(&ticks); // 精度小于1微妙（<1us），包含待机休眠等睡眠时间
     return prh_elapsed_time_nsec(&ticks);
@@ -3923,39 +3928,104 @@ void prh_time_init(void) {
 #include <time.h>
 void prh_impl_time_test(void) {
     prh_time_init();
-    printf("tick frequency %ll\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
-    printf("WINVER  %04x\n", WINVER );
+    printf("tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
+    printf("WINVER %04x\n", WINVER );
     printf("_WIN32_WINNT %04x\n", _WIN32_WINNT);
     printf("NTDDI_VERSION %04x\n", NTDDI_VERSION);
-    printf("time_t %d-byte\n", sizeof(time_t)); // seconds
-    printf("clock_t %d-byte\n", sizeof(clock_t));
-    printf("CLOCKS_PER_SEC %d\n", CLOCKS_PER_SEC);
-    int i, n = 100;
+    printf("time_t %zi-byte\n", sizeof(time_t)); // seconds
+    printf("clock_t %zi-byte\n", sizeof(clock_t));
+    printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
+    int i, n = 30, count = 0; prh_i64 t1, t2;
     for (i = 0; i < n; i += 1) {
-        printf("system time: %ll\n", (long long)prh_system_time_usec());
+        printf("system time: %lli\n", (long long)prh_system_time_usec());
+    }
+    t1 = prh_steady_time_msec();
+    for (i = 0; i < 10; i += 1, count = 0) {
+        while ((t2 = prh_steady_time_msec()) == t1) {
+            count += 1;
+        }
+        printf("steady time msec: %lli count %d\n", (long long)t1, count);
+        t1 = t2;
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time msec: %ll\n", (long long)prh_steady_time_msec());
+        printf("steady time usec: %lli\n", (long long)prh_steady_time_usec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time usec: %ll\n", (long long)prh_steady_time_usec());
-    }
-    for (i = 0; i < n; i += 1) {
-        printf("steady time nsec: %ll\n", (long long)prh_steady_time_nsec());
+        printf("steady time nsec: %lli\n", (long long)prh_steady_time_nsec());
     }
     prh_timeusec_t usec;
     for (i = 0; i < n; i += 1) {
         prh_thread_time(&usec);
-        printf("thread time usec: %ll\n", (long long)usec);
+        printf("thread time usec: %lli\n", (long long)usec.usec);
     }
     prh_timetick_t ticks;
     for (i = 0; i < n; i += 1) {
         prh_precise_tick(&ticks);
-        printf("precise ticks: %ll\n", (long long)ticks);
+        printf("precise ticks: %lli\n", (long long)ticks.ticks);
     }
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else  // WINDOWS end POSIX begin
+// 无论地理位置如何，UNIX系统内部对时间的表示方式均是以自Epoch以来的秒数来度量的，
+// Epoch亦即通用协调时间（UTC，以前也称为格林威治时间或GMT）的1970年1月1日早晨零点。
+// 这也是UNIX系统问世的大致日期。日历时间存储于类型为time_t的变量中，此类型是由SUSv3
+// 定义的整数类型。在32位Linux系统，time_t是一个有符号整数，可以表示的日期范围从1901
+// 年12月13日20时45分52秒至2038年1月19日03时14分07秒，SUSv3未定义time_t值为负数时
+// 的含义。因此当前许多32位UNIX系统都面临一个2038年的理论问题，如果执行的计算工作涉及
+// 未来日期，纳秒在2038年之前就会与之遭遇。事实上到了2038年，可能所有的UNIX系统都早已
+// 升级为64位或更多位数的系统，这一问题也许会随之而大为缓解。然而32位嵌入式系统，由于
+// 其寿命较台式机硬件更长，故而仍然会少此问题的困扰。此外，对于依然以32位time_t格式
+// 保存时间的历史数据和应用程序，这个问题将依然存在。
+//
+// int gettimeofday(struct timeval *tv, struct timezone *tz);
+// struct timeval {
+//     time_t tv_sec;       // seconds since 00:00:00 1 Jan 1970 UTC
+//     suseconds_t tv_usec; // additional microseconds (long int)
+// };
+// sys/time.h
+//      参数tz是历史产物，早期的UNIX实现用其来获取系统的时区信息，目前已遭废弃，应
+//      始终将其置为NULL。
+// time_t time(NULL);
+// time.h
+//      返回相当于gettimeofday的tv_sec值，之所以存在两个本质上目的相同的系统调用，
+//      自有历史原因。早期的UNIX实现提供了time()，而4.3BSD又补充了更为精确的
+//      gettimeofday系统调用。
+// gmtime_r
+// localtime_r
+// time_t mktime(struct tm *t);
+// struct tm {
+//     int tm_sec;   // 0 ~ 60 since C99
+//     int tm_min;   // 0 ~ 59
+//     int tm_hour;  // 0 ~ 23
+//     int tm_mday;  // 1 ~ 31
+//     int tm_mon;   // 0 ~ 11
+//     int tm_year;  // year since 1900
+//     int tm_wday;  // 0 ~ 6 (sunday = 0)
+//     int tm_yday;  // 0 ~ 365
+//     int tm_isdst; // > 0 dst in effect, = 0 dst not effect, < 0 dst not available
+// };
+// time.h
+//
+// 这里所描述的时间相关的各种系统调用的精度是受限于系统软件时钟（software clock）的
+// 分辨率，它的度量单位被称为 jiffies。jiffies 的大小是定义在内核源代码的常量HZ。这
+// 是内核按照round-robin的分时调度算法分配CPU进程的单位。
+// 在2.4或以上版本的Linux/x86-32内核中，软件时钟速度是100赫兹，也就是说一个jiffy是
+// 10毫秒。自Linux面世以来，由于CPU的速度已大大增加，Linux/x86-32 2.6.0内核的软件
+// 时钟速度已经提高到1000赫兹。更高的软件时钟速率意味着定时器可以有更高的操作精度和
+// 时间可以拥有更高的测量精度。然而这并非可以任意提高时钟频率，因为每个时钟中断会消
+// 耗少量的CPU时间，这部分时间CPU无法执行任何操作。
+// 经过内核开发人员之间的讨论，最终导致软件时钟频率成为一个可配置的内核选项。自2.6.13
+// 内核，时钟可以设置到100、250（默认）或1000赫兹，对应的jiffy值分别为10、4、1毫秒。
+// 自内核2.6.20，增加了一个频率300赫兹，它可以被两种常见的视频帧速率25帧每秒（PAL）
+// 和30帧每秒（NTSC）整除。
+//
+// POSIX时钟
+//
+// int clock_gettime(clockid_t clockid, struct timespec *ts);
+// int clock_getres(clockid_t clockid, struct timespec *res);
+// int clock_getcpuclockid(pid_t pid, clockid_t *clockid);
+// int pthread_getcpuclockid(pthread_t thread, clockid_t *clockid);
+// time.h
 #include <time.h> // clock_gettime time_t struct timespec
 #include <sys/time.h> // gettimeofday time_t struct timeval
 // SVr4, 4.3BSD. POSIX.1-2001 describes gettimeofday() but not settimeofday().
@@ -3984,11 +4054,11 @@ prh_i64 prh_system_time_msec(void) {
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
-    t->usec = (prh_i64)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+    return (prh_i64)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
-    t->usec = (prh_i64)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+    return (prh_i64)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
 #endif
 }
 
@@ -3996,11 +4066,11 @@ prh_i64 prh_system_time_usec(void) {
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
-    t->usec = (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
+    return (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
-    t->usec = (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
+    return (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
 #endif
 }
 
@@ -4037,7 +4107,13 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
 // complications of CLOCK_REALTIME, which may have discontinuities if the time
 // is changed using settimeofday(2) or similar.
 
-void prh_steady_time(prh_timeusec_t *t) {
+prh_i64 prh_steady_time_msec(void) {
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    return (prh_i64)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+prh_i64 prh_steady_time_usec(void) {
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
 #if defined(CLOCK_BOOTTIME)
@@ -4045,12 +4121,32 @@ void prh_steady_time(prh_timeusec_t *t) {
 #else
     prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
 #endif
-    t->usec = (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
+    return (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
-    t->usec = (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
+    return (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
 #endif
+}
+
+prh_i64 prh_steady_time_nsec(void) { // 保存纳秒只能表示292年
+#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    struct timespec ts;
+#if defined(CLOCK_BOOTTIME)
+    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
+#else
+    prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
+#endif
+    return (prh_i64)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    return (prh_i64)tv.tv_sec * 1000000000 + tv.tv_usec * 1000;
+#endif
+}
+
+void prh_steady_time(prh_timeusec_t *t) {
+    t->usec = prh_steady_time_usec();
 }
 
 void prh_thread_time(prh_timeusec_t *t) {
@@ -4072,40 +4168,49 @@ void prh_time_init(void) {
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_time_test(void) {
     prh_time_init();
-    printf("tick frequency %ll\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
-    printf("time_t %d-byte\n", sizeof(time_t)); // seconds, it is signed integer
-    printf("clock_t %d-byte\n", sizeof(clock_t));
-    printf("CLOCKS_PER_SEC %d\n", CLOCKS_PER_SEC);
-    printf("suseconds_t %d-byte\n", sizeof(suseconds_t)); // microseconds
-    printf("struct timeval %d-byte\n", sizeof(struct timeval));
-    printf("struct timespec %d-byte\n", sizeof(struct timespec));
+    printf("tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
+    printf("time_t %zi-byte\n", sizeof(time_t)); // seconds, it is signed integer
+    printf("clock_t %zi-byte\n", sizeof(clock_t));
+    printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
+    printf("suseconds_t %zi-byte\n", sizeof(suseconds_t)); // microseconds
+    printf("struct timeval %zi-byte\n", sizeof(struct timeval));
+    printf("struct timespec %zi-byte\n", sizeof(struct timespec));
     struct timespec ts;
     prh_zeroret(clock_getres(CLOCK_REALTIME, &ts));
     printf("CLOCK_REALTIME time resolution %d-nsec\n", (int)ts.tv_nsec);
     prh_zeroret(clock_getres(CLOCK_MONOTONIC, &ts));
     printf("CLOCK_MONOTONIC time resolution %d-nsec\n", (int)ts.tv_nsec);
-    int i, n = 100;
+    prh_zeroret(clock_getres(CLOCK_THREAD_CPUTIME_ID, &ts));
+    printf("CLOCK_THREAD_CPUTIME_ID time resolution %d-nsec\n", (int)ts.tv_nsec);
+    prh_zeroret(clock_getres(CLOCK_PROCESS_CPUTIME_ID, &ts));
+    printf("CLOCK_PROCESS_CPUTIME_ID time resolution %d-nsec\n", (int)ts.tv_nsec);
+    int i, n = 30, count = 0; prh_i64 t1, t2;
     for (i = 0; i < n; i += 1) {
-        printf("system time: %ll\n", (long long)prh_system_time_usec());
+        printf("system time: %lli\n", (long long)prh_system_time_usec());
+    }
+    t1 = prh_steady_time_msec();
+    for (i = 0; i < 10; i += 1, count = 0) {
+        while ((t2 = prh_steady_time_msec()) == t1) {
+            count += 1;
+        }
+        printf("steady time msec: %lli count %d\n", (long long)t1, count);
+        t1 = t2;
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time msec: %ll\n", (long long)prh_steady_time_msec());
+        printf("steady time usec: %lli\n", (long long)prh_steady_time_usec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time usec: %ll\n", (long long)prh_steady_time_usec());
-    }
-    for (i = 0; i < n; i += 1) {
-        printf("steady time nsec: %ll\n", (long long)prh_steady_time_nsec());
+        printf("steady time nsec: %lli\n", (long long)prh_steady_time_nsec());
     }
     prh_timeusec_t usec;
     for (i = 0; i < n; i += 1) {
         prh_thread_time(&usec);
-        printf("thread time usec: %ll\n", (long long)usec);
+        printf("thread time usec: %lli\n", (long long)usec.usec);
     }
     prh_timetick_t ticks;
     for (i = 0; i < n; i += 1) {
         prh_precise_tick(&ticks);
-        printf("precise ticks: %ll\n", (long long)ticks);
+        printf("precise ticks: %lli\n", (long long)ticks.ticks);
     }
 }
 #endif // PRH_TEST_IMPLEMENTATION
