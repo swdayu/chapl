@@ -81,6 +81,9 @@ INIT_C_ONLY += /std:c11 /TC #/Zc:__STDC__
 INIT_CXX_ON += /std:c++17 /Zc:__cplusplus /TP
 INIT_AFLAGS := /X /W3 /WX
 
+# 根据SDK版本信息定义 _WIN32_WINNT
+# INIT_MACROS += /D_WIN32_WINNT=0x0A00
+
 ifneq ($(filter debug,$(CONFIG_COMPILER)),)
 # /Zi 生成调试信息，包括行号和符号信息，用于调试
 INIT_AFLAGS += /Zi

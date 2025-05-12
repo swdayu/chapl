@@ -140,6 +140,7 @@ endif
 INIT_CFLAGS += -fno-strict-aliasing
 ifneq ($(filter debug,$(CONFIG_COMPILER)),)
 INIT_CFLAGS += -Og -ggdb
+INIT_MACROS += -D_DEBUG
 else
 INIT_CFLAGS += -O2
 endif
