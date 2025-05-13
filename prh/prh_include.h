@@ -1076,10 +1076,12 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     // Define WIN32_LEAN_AND_MEAN to exclude APIs such as Cryptography, DDE,
     // RPC, Shell, and Windows Sockets.
     #define WIN32_LEAN_AND_MEAN
+    // Suppress deprecation warnings for the older less secure functions.
+    #define _CRT_SECURE_NO_DEPRECATE 1
+    #define _CRT_SECURE_NO_WARNINGS 1
     // Define one or more of the NOapi symbols to exclude the API. For example,
     // NOCOMM excludes the serial communication API. For a list of support
-    // NOapi symbols, see Windows.h.
-    // #define NOCOMM
+    // NOapi symbols, see Windows.h. such as #define NOCOMM
     #include <windows.h>
     #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
     #error unsupported windows minimum version
@@ -1125,7 +1127,6 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     #define _GNU_SOURCE // pthread_getattr_np glibc 2.2.3, __GLIBC__ __GLIBC_MINOR__
     #include <pthread.h> // pthread_create POSIX.1-2008
     #include <unistd.h> // sysconf confstr POSIX.1-2008
-    #include <errno.h> // ETIMEDOUT
     // cc -dM -E -</dev/null
     // https://jdebp.uk/FGA/predefined-macros-compiler.html
     // https://jdebp.uk/FGA/predefined-macros-processor.html
@@ -1191,6 +1192,8 @@ prh_inline prh_uinp prh_to_power_of_2(prh_uinp n) {
     //
     // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/
     // https://man.freebsd.org/cgi/man.cgi/help.html
+    #include <errno.h> // ETIMEDOUT ...
+    #define PRH_POSIX_ZERORET(a) if (a) { prh_prerr_exit(errno); }
 #endif
 #include <stdatomic.h>
 #include <assert.h> // assert
@@ -2960,10 +2963,6 @@ typedef struct {
 } prh_timetick_t;
 
 typedef struct {
-    prh_i64 ticks_per_sec;
-} prh_timefreq_t;
-
-typedef struct {
     prh_timesec_t sec;
     prh_int nsec;
 } prh_timespec_t;
@@ -2983,54 +2982,59 @@ typedef struct {
 #define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SEC)
 
 void prh_time_init(void);
-prh_i64 prh_system_time_msec(void);
-prh_i64 prh_system_time_usec(void);
-void prh_system_time(prh_timeusec_t *t);
-void prh_date_time_from_msec(prh_datetime_t *t, prh_i64 utc_msec);
-void prh_date_time_from_usec(prh_datetime_t *t, prh_i64 utc_usec);
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec);
+prh_i64 prh_system_secs(void);
+prh_i64 prh_system_msec(void);
+prh_i64 prh_system_usec(void);
+void prh_date_from_msec(prh_datetime_t *t, prh_i64 utc_msec);
+void prh_date_from_usec(prh_datetime_t *t, prh_i64 utc_usec);
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc);
 void prh_day_of_year(prh_datetime_t *t);
-prh_i64 prh_steady_time_msec(void);
-prh_i64 prh_steady_time_usec(void);
-prh_i64 prh_steady_time_nsec(void);
-void prh_steady_time(prh_timeusec_t *t);
-void prh_thread_time(prh_timeusec_t *t);
-void prh_precise_tick(prh_timetick_t *t);
-prh_i64 prh_elapsed_time_msec(const prh_timetick_t *t);
-prh_i64 prh_elapsed_time_usec(const prh_timetick_t *t);
-prh_i64 prh_elapsed_time_nsec(const prh_timetick_t *t);
+prh_i64 prh_steady_secs(void);
+prh_i64 prh_steady_msec(void);
+prh_i64 prh_steady_usec(void);
+prh_i64 prh_steady_nsec(void);
+prh_i64 prh_precise_tick(void);
+prh_i64 prh_elapsed_secs(prh_i64 ticks);
+prh_i64 prh_elapsed_msec(prh_i64 ticks);
+prh_i64 prh_elapsed_usec(prh_i64 ticks);
+prh_i64 prh_elapsed_nsec(prh_i64 ticks);
 
 #ifdef PRH_TIME_IMPLEMENTATION
 typedef struct {
-    prh_timefreq_t freq;
+    prh_i64 ticks_per_sec;
 } prh_impl_timeinit_t;
 
 prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
 
-void prh_date_time_from_msec(prh_datetime_t *t, prh_i64 utc_msec) {
-    prh_date_time(t, utc_msec / 1000, utc_msec % 1000);
+void prh_date_from_msec(prh_datetime_t *t, prh_i64 utc_msec) {
+    prh_date_time(t, utc_msec / 1000);
+    t->msec = utc_msec % 1000;
 }
 
-void prh_date_time_from_usec(prh_datetime_t *t, prh_i64 utc_usec) {
-    prh_date_time(t, utc_usec / 1000000, (utc_usec / 1000) % 1000);
+void prh_date_from_usec(prh_datetime_t *t, prh_i64 utc_usec) {
+    prh_date_from_msec(t, utc_usec / 1000);
 }
 
-prh_i64 prh_elapsed_time_msec(const prh_timetick_t *t) {
+prh_i64 prh_elapsed_secs(prh_i64 ticks) {
+    return ticks / PRH_IMPL_TIMEINIT.ticks_per_sec;
+}
+
+prh_i64 prh_elapsed_msec(prh_i64 ticks) {
     // To guard against loss-of-precision, we convert to microseconds
     // *before* dividing by ticks-per-second.
-    return t->ticks * 1000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
+    return ticks * 1000 / PRH_IMPL_TIMEINIT.ticks_per_sec;
 }
 
-prh_i64 prh_elapsed_time_usec(const prh_timetick_t *t) {
+prh_i64 prh_elapsed_usec(prh_i64 ticks) {
     // To guard against loss-of-precision, we convert to microseconds
     // *before* dividing by ticks-per-second.
-    return t->ticks * 1000000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
+    return ticks * 1000000 / PRH_IMPL_TIMEINIT.ticks_per_sec;
 }
 
-prh_i64 prh_elapsed_time_nsec(const prh_timetick_t *t) {
+prh_i64 prh_elapsed_nsec(prh_i64 ticks) {
     // To guard against loss-of-precision, we convert to nanoseconds
     // *before* dividing by ticks-per-second.
-    return t->ticks * 1000000000 / PRH_IMPL_TIMEINIT.freq.ticks_per_sec;
+    return ticks * 1000000000 / PRH_IMPL_TIMEINIT.ticks_per_sec;
 }
 
 #if defined(prh_plat_windows)
@@ -3606,23 +3610,25 @@ prh_i64 prh_impl_1970_utc_time_usec(const FILETIME *f) {
     return usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
 }
 
-prh_i64 prh_system_time_msec(void) { // 可表示2.9亿年
+prh_i64 prh_system_secs(void) { // 可表示2.9千亿年
+    FILETIME f;
+    GetSystemTimeAsFileTime(&f); 
+    return prh_impl_1970_utc_time_secs(&f);
+}
+
+prh_i64 prh_system_msec(void) { // 可表示2.9亿年
     FILETIME f;
     GetSystemTimeAsFileTime(&f); 
     return prh_impl_1970_utc_time_msec(&f);
 }
 
-prh_i64 prh_system_time_usec(void) { // 可表示29万年
+prh_i64 prh_system_usec(void) { // 可表示29万年
     FILETIME f;
     GetSystemTimeAsFileTime(&f);
     return prh_impl_1970_utc_time_usec(&f);
 }
 
-void prh_system_time(prh_timeusec_t *t) {
-    t->usec = prh_system_time_usec();
-}
-
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
     // void GetSystemTime(SYSTEMTIME *SystemTime);
     // void GetLocalTime(SYSTEMTIME *SystemTime);
     // Windows 2000 Professional Windows 2000 Server
@@ -3718,131 +3724,126 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
     t->hour = s->wHour;
     t->min = s->wMinute;
     t->sec = s->wSecond;
-    t->msec = msec;
+    t->msec = 0;
 }
 
-void prh_steady_time(prh_timeusec_t *t) {
-    // Windows time is the number of milliseconds elapsed since the system was
-    // last started. You typically use the GetTickCount or GetTickCount64
-    // function to get the current Windows time. GetTickCount and
-    // GetTickCount64 are limited to the resolution of the system timer, which
-    // is approximately 10 milliseconds to 16 milliseconds. The elapsed time
-    // retrieved by GetTickCount or GetTickCount64 includes time the system
-    // spends in sleep or hibernation.（精度 10msec ~ 16msec）
-    //
-    // If you need a higher resolution timer, use the QueryUnbiasedInterruptTime
-    // function, a multimedia timer, or a high-resolution timer. The elapsed
-    // time retrieved by the QueryUnbiasedInterruptTime function includes only
-    // time that the system spends in the working state. The
-    // QueryUnbiasedInterruptTime function is available starting with Windows 7
-    // and Windows Server 2008 R2.（精度 0.5msec ~ 15.625msec）
-    //
-    // You can use the System Up Time performance counter to obtain the number
-    // of seconds elapsed since the computer was started. This performance
-    // counter can be retrieved from the performance data in the registry key
-    // HKEY_PERFORMANCE_DATA. The value returned is an 8-byte value. Windows
-    // Performance Counters provide a high-level abstraction layer that
-    // provides a consistent interface for collecting various kinds of system
-    // data such as CPU, memory, and disk usage. System administrators often
-    // use performance counters to monitor systems for performance or behavior
-    // problems. Software developers often use performance counters to examine
-    // the resource usage of their programs.
-    // https://learn.microsoft.com/en-us/windows/win32/perfctrs/performance-counters-portal
-    //
-    // https://learn.microsoft.com/en-us/windows/win32/sysinfo/interrupt-time
-    // Interrupt time is the amount of time since the system was last started,
-    // in 100-nanosecond intervals. The interrupt-time count begins at zero
-    // when the system starts and is incremented at each clock interrupt by
-    // the length of a clock tick. The exact length of a clock tick depends
-    // on underlying hardware and can vary between systems.
-    //
-    // Unlike system time, the interrupt-time count is not subject to
-    // adjustments by users or the Windows time service, making it a better
-    // choice for measuring short durations. Applications that require greater
-    // precision than the interrupt-time count (system timer tick) should use
-    // a high-resolution timer (QPC, cpu clock tick).
-    //
-    // The QueryInterruptTime[Precise], QueryUnbiasedInterruptTime[Precise]
-    // functions can be used to retrieve the interrupt-time count. Unbiased
-    // interrupt-time means that only time that the system is in the working
-    // state is counted — therefore, the interrupt-time count is not "biased"
-    // by time the system spends in sleep or hibernation. 无偏差中断时间，即不
-    // 会因为系统睡眠或休眠而产生偏差，其实就是对睡眠或休眠无感只统计实际工作状态的
-    // 时间。
-    //
-    // The timer resolution set by the timeBeginPeriod and timeEndPeriod
-    // functions affects the resolution of the QueryInterruptTime and
-    // QueryUnbiasedInterruptTime functions. However, increasing the timer
-    // resolution is not recommended because it can reduce overall system
-    // performance and increase power consumption by preventing the processor
-    // from entering power-saving states. Instead, applications should use a
-    // high-resolution timer.
-    //
-    // These functions produces different results on debug ("checked") builds
-    // of Windows, because the interrupt-time count and tick count are advanced
-    // by approximately 49 days. This helps to identify bugs that might not
-    // occur until the system has been running for a long time. 在调试模式下，
-    // 中断时间被设置大约最多可表示49天时间，以帮助方便鉴别程序问题。
-    //
-    // void QueryInterruptTime(ULONGLONG *InterruptTime); // 精度 0.5msec ~ 15.625msec
-    // void QueryInterruptTimePrecise(ULONGLONG *InterruptTime);
-    // Windows 7 Windows Server 2008 R2
-    // realtimeapiset.h (include Windows.h) Mincore.lib Kernel32.dll
-    //      Receive the interrupt-time count in system time units of 100
-    //      nanoseconds (same as FILETIME).
-    //      QueryInterruptTimePrecise is similar to the QueryInterruptTime
-    //      routine, but is more precise. The interrupt time reported by
-    //      QueryInterruptTime is based on the latest tick of the system clock
-    //      timer. The system clock timer is the hardware timer that
-    //      periodically generates interrupts for the system clock. The uniform
-    //      period between system clock timer interrupts is referred to as a
-    //      system clock tick, and is typically in the range of 0.5 milliseconds
-    //      to 15.625 milliseconds, depending on the hardware platform. The
-    //      interrupt time value retrieved by QueryInterruptTime is accurate
-    //      within a system clock tick.
-    //      To provide a system time value that is more precise than that of
-    //      QueryInterruptTime, QueryInterruptTimePrecise reads the timer
-    //      hardware directly, therefore a QueryInterruptTimePrecise call can
-    //      be slower than a QueryInterruptTime call.
-    //      Call the KeQueryTimeIncrement routine to determine the duration of
-    //      a system clock tick. At startup time, the operating system
-    //      determines the time increment to use for the system time. This time
-    //      increment remains constant until the computer restarts. During this
-    //      time, calls to KeQueryTimeIncrement always return the same time
-    //      increment value. The time increment does not change while the
-    //      computer is running, and it does not change as the result of a
-    //      suspend-resume cycle.
-    //      To compile an application that uses this function, define
-    //      _WIN32_WINNT as 0x0601 or later.
-#if _WIN32_WINNT >= 0x0601
-    ULONGLONG t;
-    QueryInterruptTime(&t);
-    t->usec = (prh_i64)t / 10;
-#else
-    t->usec = (prh_i64)GetTickCount64() * 1000; // msec elapsed since system was started
-#endif
+// Windows time is the number of milliseconds elapsed since the system was
+// last started. You typically use the GetTickCount or GetTickCount64
+// function to get the current Windows time. GetTickCount and
+// GetTickCount64 are limited to the resolution of the system timer, which
+// is approximately 10 milliseconds to 16 milliseconds. The elapsed time
+// retrieved by GetTickCount or GetTickCount64 includes time the system
+// spends in sleep or hibernation.（精度 10msec ~ 16msec）
+//
+// If you need a higher resolution timer, use the QueryUnbiasedInterruptTime
+// function, a multimedia timer, or a high-resolution timer. The elapsed
+// time retrieved by the QueryUnbiasedInterruptTime function includes only
+// time that the system spends in the working state. The
+// QueryUnbiasedInterruptTime function is available starting with Windows 7
+// and Windows Server 2008 R2.（精度 0.5msec ~ 15.625msec）
+//
+// You can use the System Up Time performance counter to obtain the number
+// of seconds elapsed since the computer was started. This performance
+// counter can be retrieved from the performance data in the registry key
+// HKEY_PERFORMANCE_DATA. The value returned is an 8-byte value. Windows
+// Performance Counters provide a high-level abstraction layer that
+// provides a consistent interface for collecting various kinds of system
+// data such as CPU, memory, and disk usage. System administrators often
+// use performance counters to monitor systems for performance or behavior
+// problems. Software developers often use performance counters to examine
+// the resource usage of their programs.
+// https://learn.microsoft.com/en-us/windows/win32/perfctrs/performance-counters-portal
+//
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/interrupt-time
+// Interrupt time is the amount of time since the system was last started,
+// in 100-nanosecond intervals. The interrupt-time count begins at zero
+// when the system starts and is incremented at each clock interrupt by
+// the length of a clock tick. The exact length of a clock tick depends
+// on underlying hardware and can vary between systems.
+//
+// Unlike system time, the interrupt-time count is not subject to
+// adjustments by users or the Windows time service, making it a better
+// choice for measuring short durations. Applications that require greater
+// precision than the interrupt-time count (system timer tick) should use
+// a high-resolution timer (QPC, cpu clock tick).
+//
+// The QueryInterruptTime[Precise], QueryUnbiasedInterruptTime[Precise]
+// functions can be used to retrieve the interrupt-time count. Unbiased
+// interrupt-time means that only time that the system is in the working
+// state is counted — therefore, the interrupt-time count is not "biased"
+// by time the system spends in sleep or hibernation. 无偏差中断时间，即不
+// 会因为系统睡眠或休眠而产生偏差，其实就是对睡眠或休眠无感只统计实际工作状态的
+// 时间。
+//
+// The timer resolution set by the timeBeginPeriod and timeEndPeriod
+// functions affects the resolution of the QueryInterruptTime and
+// QueryUnbiasedInterruptTime functions. However, increasing the timer
+// resolution is not recommended because it can reduce overall system
+// performance and increase power consumption by preventing the processor
+// from entering power-saving states. Instead, applications should use a
+// high-resolution timer.
+//
+// These functions produces different results on debug ("checked") builds
+// of Windows, because the interrupt-time count and tick count are advanced
+// by approximately 49 days. This helps to identify bugs that might not
+// occur until the system has been running for a long time. 在调试模式下，
+// 中断时间被设置大约最多可表示49天时间，以帮助方便鉴别程序问题。
+//
+// void QueryInterruptTime(ULONGLONG *InterruptTime); // 精度 0.5msec ~ 15.625msec
+// void QueryInterruptTimePrecise(ULONGLONG *InterruptTime);
+// Windows 7 Windows Server 2008 R2
+// realtimeapiset.h (include Windows.h) Mincore.lib Kernel32.dll
+//      Receive the interrupt-time count in system time units of 100
+//      nanoseconds (same as FILETIME).
+//      QueryInterruptTimePrecise is similar to the QueryInterruptTime
+//      routine, but is more precise. The interrupt time reported by
+//      QueryInterruptTime is based on the latest tick of the system clock
+//      timer. The system clock timer is the hardware timer that
+//      periodically generates interrupts for the system clock. The uniform
+//      period between system clock timer interrupts is referred to as a
+//      system clock tick, and is typically in the range of 0.5 milliseconds
+//      to 15.625 milliseconds, depending on the hardware platform. The
+//      interrupt time value retrieved by QueryInterruptTime is accurate
+//      within a system clock tick.
+//      To provide a system time value that is more precise than that of
+//      QueryInterruptTime, QueryInterruptTimePrecise reads the timer
+//      hardware directly, therefore a QueryInterruptTimePrecise call can
+//      be slower than a QueryInterruptTime call.
+//      Call the KeQueryTimeIncrement routine to determine the duration of
+//      a system clock tick. At startup time, the operating system
+//      determines the time increment to use for the system time. This time
+//      increment remains constant until the computer restarts. During this
+//      time, calls to KeQueryTimeIncrement always return the same time
+//      increment value. The time increment does not change while the
+//      computer is running, and it does not change as the result of a
+//      suspend-resume cycle.
+//      To compile an application that uses this function, define
+//      _WIN32_WINNT as 0x0601 or later.
+
+prh_i64 prh_steady_secs(void) {
+    return (prh_i64)GetTickCount64() / 1000;
 }
 
-prh_i64 prh_steady_time_msec(void) {
-    return (prh_i64)GetTickCount64(); // 精度 10msec ~ 16msec，包含睡眠时间
-}
-
-prh_i64 prh_steady_time_usec(void) {
+prh_i64 prh_steady_msec(void) {
 #if _WIN32_WINNT >= 0x0601
     ULONGLONG t;
     QueryInterruptTime(&t); // 精度 0.5msec ~ 15.625msec，包含睡眠时间
-    t->usec = (prh_i64)t / 10;
+    t->usec = (prh_i64)t / 10000;
 #else
-    prh_timetick_t ticks;
-    prh_precise_tick(&ticks);
-    return prh_elapsed_time_usec(&ticks);
+    return (prh_i64)GetTickCount64(); // 精度 10msec ~ 16msec，包含睡眠时间
 #endif
 }
 
-prh_i64 prh_steady_time_nsec(void) { // 保存纳秒只能表示292年
+prh_i64 prh_steady_usec(void) {
+    prh_timetick_t ticks;
+    prh_precise_tick(&ticks);
+    return prh_elapsed_usec(&ticks);
+}
+
+prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
     prh_timetick_t ticks;
     prh_precise_tick(&ticks); // 精度小于1微妙（<1us），包含待机休眠等睡眠时间
-    return prh_elapsed_time_nsec(&ticks);
+    return prh_elapsed_nsec(&ticks);
 }
 
 // BOOL GetThreadTimes(HANDLE hThread,
@@ -3912,23 +3913,24 @@ void prh_thread_time(prh_timeusec_t *t) {
     t->usec = kernel_usec + user_usec;
 }
 
-void prh_precise_tick(prh_timetick_t *t) {
+prh_i64 prh_precise_tick(void) {
     LARGE_INTEGER ticks;
     prh_boolret(QueryPerformanceCounter(&ticks));
-    t->ticks = ticks.QuadPart;
+    return ticks.QuadPart; // LONGLONG
 }
 
 void prh_time_init(void) {
     LARGE_INTEGER freq;
     prh_boolret(QueryPerformanceFrequency(&freq));
-    PRH_IMPL_TIMEINIT.freq.ticks_per_sec = freq.QuadPart;
+    PRH_IMPL_TIMEINIT.ticks_per_sec = freq.QuadPart;
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <time.h>
 void prh_impl_time_test(void) {
     prh_time_init();
-    printf("tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
+    printf("\n\n[MSC][time]\n");
+    printf("precise tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("WINVER %04x\n", WINVER );
     printf("_WIN32_WINNT %04x\n", _WIN32_WINNT);
     printf("NTDDI_VERSION %04x\n", NTDDI_VERSION);
@@ -3937,31 +3939,29 @@ void prh_impl_time_test(void) {
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
     int i, n = 30, count = 0; prh_i64 t1, t2;
     for (i = 0; i < n; i += 1) {
-        printf("system time: %lli\n", (long long)prh_system_time_usec());
+        printf("system time: %lli\n", (long long)prh_system_usec());
     }
-    t1 = prh_steady_time_msec();
+    t1 = prh_steady_msec();
     for (i = 0; i < 10; i += 1, count = 0) {
-        while ((t2 = prh_steady_time_msec()) == t1) {
+        while ((t2 = prh_steady_msec()) == t1) {
             count += 1;
         }
         printf("steady time msec: %lli count %d\n", (long long)t1, count);
         t1 = t2;
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time usec: %lli\n", (long long)prh_steady_time_usec());
+        printf("steady time usec: %lli\n", (long long)prh_steady_usec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time nsec: %lli\n", (long long)prh_steady_time_nsec());
+        printf("steady time nsec: %lli\n", (long long)prh_steady_nsec());
     }
     prh_timeusec_t usec;
     for (i = 0; i < n; i += 1) {
         prh_thread_time(&usec);
         printf("thread time usec: %lli\n", (long long)usec.usec);
     }
-    prh_timetick_t ticks;
     for (i = 0; i < n; i += 1) {
-        prh_precise_tick(&ticks);
-        printf("precise ticks: %lli\n", (long long)ticks.ticks);
+        printf("precise ticks: %lli\n", (long long)prh_precise_tick());
     }
 }
 #endif // PRH_TEST_IMPLEMENTATION
@@ -3977,34 +3977,29 @@ void prh_impl_time_test(void) {
 // 其寿命较台式机硬件更长，故而仍然会少此问题的困扰。此外，对于依然以32位time_t格式
 // 保存时间的历史数据和应用程序，这个问题将依然存在。
 //
+// #include <sys/time.h>
 // int gettimeofday(struct timeval *tv, struct timezone *tz);
 // struct timeval {
 //     time_t tv_sec;       // seconds since 00:00:00 1 Jan 1970 UTC
 //     suseconds_t tv_usec; // additional microseconds (long int)
 // };
-// sys/time.h
+//      Return 0 for success. On error, -1 is returned and errno is set to
+//      indicate the error.
 //      参数tz是历史产物，早期的UNIX实现用其来获取系统的时区信息，目前已遭废弃，应
 //      始终将其置为NULL。
+// #include <time.h>
 // time_t time(NULL);
-// time.h
 //      返回相当于gettimeofday的tv_sec值，之所以存在两个本质上目的相同的系统调用，
 //      自有历史原因。早期的UNIX实现提供了time()，而4.3BSD又补充了更为精确的
 //      gettimeofday系统调用。
-// gmtime_r
-// localtime_r
-// time_t mktime(struct tm *t);
-// struct tm {
-//     int tm_sec;   // 0 ~ 60 since C99
-//     int tm_min;   // 0 ~ 59
-//     int tm_hour;  // 0 ~ 23
-//     int tm_mday;  // 1 ~ 31
-//     int tm_mon;   // 0 ~ 11
-//     int tm_year;  // year since 1900
-//     int tm_wday;  // 0 ~ 6 (sunday = 0)
-//     int tm_yday;  // 0 ~ 365
-//     int tm_isdst; // > 0 dst in effect, = 0 dst not effect, < 0 dst not available
-// };
-// time.h
+//
+// SVr4, 4.3BSD. POSIX.1-2001 describes gettimeofday() but not settimeofday().
+// POSIX.1-2008 marks gettimeofday() as obsolete, recommending the use of
+// clock_gettime(2) instead.
+// The time returned by gettimeofday() is affected by discontinuous jumps in
+// the system time (e.g., if the system administrator manually changes the
+// system time). If you need a monotonically increasing clock, see
+// clock_gettime(2).
 //
 // 这里所描述的时间相关的各种系统调用的精度是受限于系统软件时钟（software clock）的
 // 分辨率，它的度量单位被称为 jiffies。jiffies 的大小是定义在内核源代码的常量HZ。这
@@ -4018,23 +4013,8 @@ void prh_impl_time_test(void) {
 // 内核，时钟可以设置到100、250（默认）或1000赫兹，对应的jiffy值分别为10、4、1毫秒。
 // 自内核2.6.20，增加了一个频率300赫兹，它可以被两种常见的视频帧速率25帧每秒（PAL）
 // 和30帧每秒（NTSC）整除。
-//
-// POSIX时钟
-//
-// int clock_gettime(clockid_t clockid, struct timespec *ts);
-// int clock_getres(clockid_t clockid, struct timespec *res);
-// int clock_getcpuclockid(pid_t pid, clockid_t *clockid);
-// int pthread_getcpuclockid(pthread_t thread, clockid_t *clockid);
-// time.h
 #include <time.h> // clock_gettime time_t struct timespec
 #include <sys/time.h> // gettimeofday time_t struct timeval
-// SVr4, 4.3BSD. POSIX.1-2001 describes gettimeofday() but not settimeofday().
-// POSIX.1-2008 marks gettimeofday() as obsolete, recommending the use of
-// clock_gettime(2) instead.
-// The time returned by gettimeofday() is affected by discontinuous jumps in
-// the system time (e.g., if the system administrator manually changes the
-// system time). If you need a monotonically increasing clock, see
-// clock_gettime(2).
 #if defined(__APPLE__)
 #include <AvailabilityMacros.h>
 #include <mach/task.h>
@@ -4050,7 +4030,19 @@ void prh_impl_time_test(void) {
 // or the user changing the system's clock. Daylight Saving Time and time zone
 // changes, however, do not affect it since it is based on the UTC time-zone.
 
-prh_i64 prh_system_time_msec(void) {
+prh_i64 prh_system_secs(void) {
+#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    struct timespec ts;
+    prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
+    return (prh_i64)ts.tv_sec;
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    return (prh_i64)tv.tv_sec;
+#endif
+}
+
+prh_i64 prh_system_msec(void) {
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
@@ -4062,7 +4054,7 @@ prh_i64 prh_system_time_msec(void) {
 #endif
 }
 
-prh_i64 prh_system_time_usec(void) {
+prh_i64 prh_system_usec(void) {
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
@@ -4074,46 +4066,266 @@ prh_i64 prh_system_time_usec(void) {
 #endif
 }
 
-void prh_system_time(prh_timeusec_t *t) {
-    t->usec = prh_system_time_usec();
-}
-
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc, prh_int msec) {
+void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
     // 夏令时（Daylight Saving Time，DST）是一种为了节约能源而人为调整时钟的做法。
     // 具体来说，它通过在夏季将时钟拨快一定时间（通常是1小时）。夏令时的主要目的是减
     // 少照明需求。通过将时钟拨快1小时，人们在夏季的傍晚可以更晚地开灯，从而节省电力。
     // 在一些国家和地区，夏令时被认为可以提高工作效率，因为人们可以在自然光照下工作
     // 更长时间。
+    // #include <time.h>
+    // struct tm *gmtime(const time_t *timer);
+    // struct tm *gmtime_r(const time_t *timer, struct tm *result);
+    //      If an error is detected, gmtime shall return a null pointer
+    //      and set errno to indicate the error.
+    //      The gmtime() function need not be thread-safe. The gmtime()
+    //      function shall convert the time in seconds since the Epoch
+    //      pointed to by timer into a broken-down time, expressed as
+    //      Coordinated Universal Time (UTC).
+    // struct tm *localtime(const time_t *timer);
+    // struct tm *localtime_r(const time_t *timer, struct tm *result);
+    //      If an error is detected, localtime shall return a null pointer
+    //      and set errno to indicate the error.
+    //      The localtime() function need not be thread-safe. The localtime()
+    //      function shall convert the time in seconds since the Epoch pointed
+    //      to by timer into a broken-down time, expressed as a local time.
+    //      The function corrects for the timezone and any seasonal time
+    //      adjustments. Local timezone information is used as though
+    //      localtime() calls tzset().
+    // time_t mktime(struct tm *timeptr);
+    //      The mktime() function shall return the specified time since the
+    //      Epoch encoded as a value of type time_t. If the time since the
+    //      Epoch cannot be represented, the function shall return the value
+    //       (time_t)-1 and set errno to indicate the error.
+    //      The mktime() function shall convert the broken-down time,
+    //      expressed as **local time**, in the structure pointed to by
+    //      timeptr, into a time since the Epoch value with the same encoding
+    //      as that of the values returned by time(). The original values of
+    //      the tm_wday and tm_yday components of the structure shall be
+    //      ignored.
+    //      A positive or 0 value for tm_isdst shall cause mktime() to presume
+    //      initially that Daylight Savings Time, respectively, is or is not
+    //      in effect for the specified time. A negative value for tm_isdst
+    //      shall cause mktime() to attempt to determine whether Daylight
+    //      Savings Time is in effect for the specified time.
+    //      Upon successful completion, the values of the tm_wday and tm_yday
+    //      components of the structure shall be set appropriately, and the
+    //      other components shall be set to represent the specified time
+    //      since the Epoch, but with their values forced to the ranges
+    //      indicated in the <time.h> entry; the final value of tm_mday shall
+    //      not be set until tm_mon and tm_year are determined.
+    // struct tm {
+    //     int tm_sec;   // 0 ~ 60 since C99 allows for a positive leap second
+    //     int tm_min;   // 0 ~ 59
+    //     int tm_hour;  // 0 ~ 23
+    //     int tm_mday;  // 1 ~ 31
+    //     int tm_mon;   // 0 ~ 11
+    //     int tm_year;  // year since 1900
+    //     int tm_wday;  // 0 ~ 6 (sunday = 0)
+    //     int tm_yday;  // 0 ~ 365
+    //     int tm_isdst; // > 0 dst in effect, = 0 dst not effect, < 0 dst not available
+    // };
+    time_t time = (time_t)utc;
+    struct tm tm;
+    prh_boolret(gmtime_r(&time, &tm));
+    t->year = tm.tm_year + 1900; // 正负20亿年
+    t->month = tm.tm_mon + 1; // 1 ~ 12
+    t->mday = tm.tm_mday; // 1 ~ 31
+    t->wday = tm.tm_wday; // 0 ~ 6 (sunday = 0)
+    t->hour = tm.tm_hour; // 0 ~ 23
+    t->min = tm.tm_min; // 0 ~ 59
+    t->sec = tm.tm_sec; // 0 ~ 60 since C99
+    t->msec = 0; // 0 ~ 999
 }
 
+// POSIX CLOCK
+// int clock_gettime(clockid_t clockid, struct timespec *ts);
+// int clock_getres(clockid_t clockid, struct timespec *res);
+// struct timespec {
+//     time_t     tv_sec;   /* Seconds */
+//     /* ... */  tv_nsec;  /* Nanoseconds [0, 999'999'999] */
+// };
+// time.h _POSIX_C_SOURCE >= 199309L POSIX.1-2001, SUSv2. Linux 2.6.
+// On POSIX systems on which these functions are available, the symbol
+// _POSIX_TIMERS is defined in <unistd.h> to a value greater than 0.
+// POSIX.1-2008 makes these functions mandatory.
+// The symbols _POSIX_MONOTONIC_CLOCK, _POSIX_CPUTIME, _POSIX_THREAD_CPUTIME
+// indicate that CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID,
+// CLOCK_THREAD_CPUTIME_ID are available. See also sysconf(3).
+//      Return 0 for success. On error, -1 is returned and errno is set to
+//      indicate the error. EOVERFLOW - The timestamp would not fit in time_t
+//      range. This can happen if an executable with 32-bit time_t is run on
+//      a 64-bit kernel when the time is 2038-01-19 03:14:08 UTC or later.
+//      However, when the system time is out of time_t range in other
+//      situations, the behavior is undefined.
+//      According to POSIX.1-2001, a process with "appropriate privileges"
+//      may set the CLOCK_PROCESS_CPUTIME_ID and CLOCK_THREAD_CPUTIME_ID
+//      clocks using clock_settime(). On Linux, these clocks are not settable
+//      (i.e., no process has "appropriate privileges").
+//      C library/kernel differences: On some architectures, an implementation
+//      of clock_gettime() is provided in the vdso(7).
+//
 // The steady clock represents a monotonic clock. The time points of this
 // clock cannot decrease as physical time moves forward and the time between
 // ticks of this clock is constant. This clock is not related to wall clock
 // time (for example, it can be time since last reboot), and is most suitable
 // for measuring intervals.
 //
-// The CLOCK_MONOTONIC clock is not affected by discontinuous jumps in the
-// system time (e.g., if the system administrator manually changes the clock),
-// but is affected by frequency adjustments. This clock does not count time
-// that the system is suspended. All CLOCK_MONOTONIC variants guarantee that
-// the time returned by consecutive calls will not go backwards, but successive
-// calls may — depending on the architecture — return identical (not-increased)
-// time values. 由于精度原因，后续调用可能返回相同的未增加的时间值。
+// https://www.man7.org/linux/man-pages/man2/clock_gettime.2.html
+// CLOCK_REALTIME
+//      A settable system-wide clock that measures real (i.e.,
+//      wall-clock) time. Setting this clock requires appropriate
+//      privileges. This clock is affected by discontinuous jumps
+//      in the system time (e.g., if the system administrator
+//      manually changes the clock), and by frequency adjustments
+//      performed by NTP and similar applications via adjtime(3),
+//      adjtimex(2), clock_adjtime(2), and ntp_adjtime(3). This
+//      clock normally counts the number of seconds since
+//      1970-01-01 00:00:00 Coordinated Universal Time (UTC) except
+//      that it ignores leap seconds; near a leap second it is
+//      typically adjusted by NTP to stay roughly in sync with UTC.
+// CLOCK_REALTIME_ALARM (since Linux 3.0; Linux-specific)
+//      Like CLOCK_REALTIME, but not settable. See timer_create(2)
+//      for further details.
+// CLOCK_REALTIME_COARSE (since Linux 2.6.32; Linux-specific)
+//      A faster but less precise version of CLOCK_REALTIME.  This
+//      clock is not settable.  Use when you need very fast, but
+//      not fine-grained timestamps.  Requires per-architecture
+//      support, and probably also architecture support for this
+//      flag in the vdso(7).
+// CLOCK_TAI (since Linux 3.10; Linux-specific)
+//      A nonsettable system-wide clock derived from wall-clock
+//      time but counting leap seconds. This clock does not
+//      experience discontinuities or frequency adjustments caused
+//      by inserting leap seconds as CLOCK_REALTIME does.
+//      The acronym TAI refers to International Atomic Time.
+// CLOCK_MONOTONIC
+//      A nonsettable system-wide clock that represents monotonic
+//      time since — as described by POSIX — "some unspecified point in
+//      the past". On Linux, that point corresponds to the number
+//      of seconds that the system has been running since it was
+//      booted.
+//      The CLOCK_MONOTONIC clock is not affected by discontinuous
+//      jumps in the system time (e.g., if the system administrator
+//      manually changes the clock), but is affected by frequency
+//      adjustments（会被频率调整影响）. This clock does not count time
+//      that the system is suspended. All CLOCK_MONOTONIC variants
+//      guarantee that the time returned by consecutive calls will
+//      not go backwards, but successive calls may — depending on the
+//      architecture — return identical (not-increased) time values.
+//      由于精度原因，后续调用可能返回相同的未增加的时间值。
+// CLOCK_MONOTONIC_COARSE (since Linux 2.6.32; Linux-specific)
+//      A faster but less precise version of CLOCK_MONOTONIC. Use
+//      when you need very fast, but not fine-grained timestamps.
+//      Requires per-architecture support, and probably also
+//      architecture support for this flag in the vdso(7).
+// CLOCK_MONOTONIC_RAW (since Linux 2.6.28; Linux-specific)
+//      Similar to CLOCK_MONOTONIC, but provides access to a raw
+//      hardware-based time that is not subject to frequency
+//      adjustments（不受频率调整影响）. This clock does not count
+//      time that the system is suspended.
+// CLOCK_BOOTTIME (since Linux 2.6.39; Linux-specific)
+//      A nonsettable system-wide clock that is identical to
+//      CLOCK_MONOTONIC, except that it also includes any time that
+//      the system is suspended. This allows applications to get a
+//      suspend-aware monotonic clock without having to deal with
+//      the complications of CLOCK_REALTIME, which may have
+//      discontinuities if the time is changed using
+//      settimeofday(2) or similar.
+// CLOCK_BOOTTIME_ALARM (since Linux 3.0; Linux-specific)
+//      Like CLOCK_BOOTTIME. See timer_create(2) for further
+//      details.
+// CLOCK_PROCESS_CPUTIME_ID (since Linux 2.6.12)
+//      This is a clock that measures CPU time consumed by this
+//      process (i.e., CPU time consumed by all threads in the
+//      process). On Linux, this clock is not settable.
+// CLOCK_THREAD_CPUTIME_ID (since Linux 2.6.12)
+//      This is a clock that measures CPU time consumed by this
+//      thread. On Linux, this clock is not settable.
 //
-// CLOCK_BOOTTIME (since Linux 2.6.39; Linux-specific) A nonsettable
-// system-wide clock that is identical to CLOCK_MONOTONIC, except that it also
-// includes any time that the system is suspended. This allows applications to
-// get a suspend-aware monotonic clock without having to deal with the
-// complications of CLOCK_REALTIME, which may have discontinuities if the time
-// is changed using settimeofday(2) or similar.
+// https://man.freebsd.org/cgi/man.cgi?query=clock_gettime&apropos=0&sektion=0&manpath=FreeBSD+15.0-CURRENT&arch=default&format=html
+// CLOCK_REALTIME
+// CLOCK_REALTIME_PRECISE
+// CLOCK_REALTIME_FAST
+// CLOCK_REALTIME_COARSE
+//      Increments in SI seconds like a wall clock. It uses a 1970
+//      epoch and implements the UTC timescale. The count of physical
+//      SI seconds since 1970, adjusted by subtracting the number of
+//      positive leap seconds and adding the number of negative leap
+//      seconds. Behavior during a leap second is not defined by and
+//      POSIX standard.
+// CLOCK_MONOTONIC
+// CLOCK_MONOTONIC_PRECISE
+// CLOCK_MONOTONIC_FAST
+// CLOCK_MONOTONIC_COARSE
+// CLOCK_BOOTTIME
+//      Increments in SI seconds, even while the system is suspended.
+//      Its epoch is unspecified. The count is not adjusted by leap
+//      seconds. FreeBSD implements
+// CLOCK_UPTIME
+// CLOCK_UPTIME_PRECISE
+// CLOCK_UPTIME_FAST
+//      Increments monotonically in SI seconds while the machine is
+//      running. The count is not adjusted by leap seconds. The epoch
+//      is unspecified.
+// CLOCK_VIRTUAL
+//      Increments only when the CPU is running in user mode on behalf
+//      of the calling process.
+// CLOCK_PROF
+//      Increments when the CPU is running in user or kernel mode.
+// CLOCK_SECOND
+//      Returns the current second without performing a full time
+//      counter query, using an in-kernel cached value of the current
+//      second.
+// CLOCK_PROCESS_CPUTIME_ID
+//      Returns the execution time of the calling process.
+// CLOCK_THREAD_CPUTIME_ID
+//      Returns the execution time of the calling thread.
+// The clock IDs CLOCK_BOOTTIME, CLOCK_REALTIME, CLOCK_MONOTONIC, and
+// CLOCK_UPTIME perform a full time counter query. The clock IDs with the
+// _FAST suffix, i.e., CLOCK_REALTIME_FAST, CLOCK_MONOTONIC_FAST, and
+// CLOCK_UPTIME_FAST, do not perform a full time counter query, so their
+// accuracy is one timer tick. Similarly, CLOCK_REALTIME_PRECISE,
+// CLOCK_MONOTONIC_PRECISE, and CLOCK_UPTIME_PRECISE are used to get the
+// most exact value as possible, at the expense of execution time. The
+// clock IDs CLOCK_REALTIME_COARSE and CLOCK_MONOTONIC_COARSE are aliases
+// of corresponding IDs with _FAST suffix for compatibility with other
+// systems. Finally, CLOCK_BOOTTIME is an alias for CLOCK_MONOTONIC for
+// compatibility with other systems and is unrelated to the kern.boottime
+// sysctl(8).
 
-prh_i64 prh_steady_time_msec(void) {
+prh_i64 prh_steady_secs(void) {
+#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    struct timespec ts;
+#if defined(CLOCK_BOOTTIME)
+    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
+#else
+    prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
+#endif
+    return (prh_i64)ts.tv_sec;
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    return (prh_i64)tv.tv_sec;
+#endif
+}
+
+prh_i64 prh_steady_msec(void) {
+#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    struct timespec ts;
+#if defined(CLOCK_BOOTTIME)
+    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
+#else
+    prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
+#endif
+    return (prh_i64)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+#else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
     return (prh_i64)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+#endif
 }
 
-prh_i64 prh_steady_time_usec(void) {
+prh_i64 prh_steady_usec(void) {
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
 #if defined(CLOCK_BOOTTIME)
@@ -4129,7 +4341,7 @@ prh_i64 prh_steady_time_usec(void) {
 #endif
 }
 
-prh_i64 prh_steady_time_nsec(void) { // 保存纳秒只能表示292年
+prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
 #if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
     struct timespec ts;
 #if defined(CLOCK_BOOTTIME)
@@ -4145,30 +4357,33 @@ prh_i64 prh_steady_time_nsec(void) { // 保存纳秒只能表示292年
 #endif
 }
 
-void prh_steady_time(prh_timeusec_t *t) {
-    t->usec = prh_steady_time_usec();
-}
-
 void prh_thread_time(prh_timeusec_t *t) {
-#if defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME > 0)
-
+// https://www.man7.org/linux/man-pages/man7/posixoptions.7.html
+// defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME > 0)
+#if defined(CLOCK_THREAD_CPUTIME_ID)
+    struct timespec ts;
+    prh_zeroret(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts));
+    t->usec = (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
 #else
-
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    t->usec = (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
 #endif
 }
 
-void prh_precise_tick(prh_timetick_t *t) {
-
+prh_i64 prh_precise_tick(void) {
+    return prh_steady_nsec();
 }
 
 void prh_time_init(void) {
-    PRH_IMPL_TIMEINIT.freq.ticks_per_sec = 1000000000;
+    PRH_IMPL_TIMEINIT.ticks_per_sec = 1000000000;
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_time_test(void) {
     prh_time_init();
-    printf("tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.freq.ticks_per_sec);
+    printf("\n\n[GNU][time]\n");
+    printf("precise tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds, it is signed integer
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
@@ -4186,31 +4401,29 @@ void prh_impl_time_test(void) {
     printf("CLOCK_PROCESS_CPUTIME_ID time resolution %d-nsec\n", (int)ts.tv_nsec);
     int i, n = 30, count = 0; prh_i64 t1, t2;
     for (i = 0; i < n; i += 1) {
-        printf("system time: %lli\n", (long long)prh_system_time_usec());
+        printf("system time: %lli\n", (long long)prh_system_usec());
     }
-    t1 = prh_steady_time_msec();
+    t1 = prh_steady_msec();
     for (i = 0; i < 10; i += 1, count = 0) {
-        while ((t2 = prh_steady_time_msec()) == t1) {
+        while ((t2 = prh_steady_msec()) == t1) {
             count += 1;
         }
         printf("steady time msec: %lli count %d\n", (long long)t1, count);
         t1 = t2;
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time usec: %lli\n", (long long)prh_steady_time_usec());
+        printf("steady time usec: %lli\n", (long long)prh_steady_usec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time nsec: %lli\n", (long long)prh_steady_time_nsec());
+        printf("steady time nsec: %lli\n", (long long)prh_steady_nsec());
     }
     prh_timeusec_t usec;
     for (i = 0; i < n; i += 1) {
         prh_thread_time(&usec);
         printf("thread time usec: %lli\n", (long long)usec.usec);
     }
-    prh_timetick_t ticks;
     for (i = 0; i < n; i += 1) {
-        prh_precise_tick(&ticks);
-        printf("precise ticks: %lli\n", (long long)ticks.ticks);
+        printf("precise ticks: %lli\n", (long long)prh_precise_tick());
     }
 }
 #endif // PRH_TEST_IMPLEMENTATION
@@ -4268,10 +4481,10 @@ prh_inline prh_sleep_cond_t *prh_thrd_sleep_init(void) { return (prh_sleep_cond_
 prh_inline void prh_thrd_sleep_free(prh_sleep_cond_t **s) { prh_thrd_cond_free((prh_thrd_cond_t **)s); }
 void prh_thrd_sleep_start(prh_sleep_cond_t *p);
 void prh_thrd_sleep(prh_sleep_cond_t *p);
+int prh_thrd_sleep_count(prh_sleep_cond_t *p); // called between sleep_start and sleep_end
 void prh_thrd_sleep_end(prh_sleep_cond_t *p);
 void prh_thrd_wakeup(prh_sleep_cond_t *p);
 void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
-int prh_thrd_sleep_count(prh_sleep_cond_t *p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
 #define thrd_t                  prh_thrd_t
@@ -5237,10 +5450,11 @@ void prh_thrd_cond_wait(prh_thrd_cond_t *p, bool (*cond_meet)(void *), void *par
 }
 
 bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec, bool (*cond_meet)(void *), void *param) {
-    struct timespec abstime = {.tv_sec = msec/1000, .tv_nsec = ((msec % 1000) * 1000 * 1000)};
-    int n = 0; // TODO: abstime += curtime，msec 最大可以表示48天
+    prh_i64 abstime = prh_system_msec() + msec; // u32 msec 最大可以表示48天
+    struct timespec ts = {.tv_sec = (time_t)(abstime / 1000), .tv_nsec = (int)((abstime % 1000) * 1000000)};
+    int n = 0;
     while (n != ETIMEDOUT && !cond_meet(param)) {
-        n = pthread_cond_timedwait(&p->cond, &p->mutex, &abstime);
+        n = pthread_cond_timedwait(&p->cond, &p->mutex, &ts);
     }
     // thread locked and wakeup and (ETIMEDOUT or cond_meet)
     if (n == ETIMEDOUT) {
@@ -5323,12 +5537,12 @@ void prh_thrd_sleep(prh_thrd_cond_t *p) {
     p->sleep_count -= 1;
 }
 
-void prh_thrd_sleep_end(prh_thrd_cond_t *p) {
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+int prh_thrd_sleep_count(prh_thrd_cond_t *p) { // called between sleep_start and sleep_end
+    return p->sleep_count;
 }
 
-int prh_thrd_sleep_count(prh_thrd_cond_t *p) {
-    return p->sleep_count;
+void prh_thrd_sleep_end(prh_thrd_cond_t *p) {
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
 void prh_thrd_wakeup(prh_thrd_cond_t *p) {
