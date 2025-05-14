@@ -1596,6 +1596,10 @@ prh_inline prh_nods_t *prh_nodestack_top(prh_nodestack_t *s) {
     return s->head;
 }
 
+prh_inline bool prh_nodestack_empty(prh_nodestack_t *s) {
+    return s->head == prh_null;
+}
+
 void prh_nodestack_push(prh_nodestack_t *s, prh_nods_t *node);
 prh_nods_t *prh_nodestack_pop(prh_nodestack_t *s);
 
@@ -1603,6 +1607,7 @@ prh_nods_t *prh_nodestack_pop(prh_nodestack_t *s);
 #define nodestack_t         prh_nodestack_t
 #define nodestack_init      prh_nodestack_init
 #define nodestack_clear     prh_nodestack_clear
+#define nodestack_empty     prh_nodestack_empty
 #define nodestack_push      prh_nodestack_push
 #define nodestack_pop       prh_nodestack_pop
 #define nodestack_top       prh_nodestack_top
@@ -2050,7 +2055,7 @@ int prh_coroutine_id(prh_coro_t *coro) {
 prh_static_assert(sizeof(prh_coro_t) <= 16);
 
 // prh_coro_struct layout:
-//  [prh_coro_t_struct]
+//  [prh_coro_struct]
 //  [prh_coro_t *]
 //  [prh_coro_t *]
 //  ...
@@ -5071,23 +5076,15 @@ struct prh_thrd {
 
 prh_thread_local prh_thrd_t *PRH_IMPL_THRD = prh_null;
 
-// [prh_thrdpool_t]
-// [prh_thrd_t *]
-// [prh_thrd_t *]
-// ...
 struct prh_thrdpool {
     prh_u32 maxthreads: 31, inplace: 1;
     prh_int thread_cnt;
-    prh_int mainudsize;
+    prh_thrd_t **thrd;
     prh_thrd_t main; // last field dont move
 };
 
 int prh_impl_thrdpool_alloc_size(int maxthreads, int mainudsize) {
     return sizeof(prh_thrdpool_t) + prh_round_ptrsize(mainudsize) + sizeof(void *) * (maxthreads + 1);
-}
-
-prh_thrd_t **prh_impl_thrd_list(prh_thrdpool_t *s) {
-    return (prh_thrd_t **)(((char *)(s + 1)) + s->mainudsize);
 }
 
 prh_thrd_t *prh_thread_self(void) {
@@ -5104,7 +5101,7 @@ prh_thrd_t *prh_thread_main(prh_thrdpool_t *s) {
 
 prh_thrd_t *prh_thread_get(prh_thrdpool_t *s, int index) {
     assert(index >= 0 && index <= s->thread_cnt);
-    return prh_impl_thrd_list(s)[index]; // 0 for main thread
+    return s->thrd[index]; // 0 for main thread
 }
 
 void *prh_thread_userdata(prh_thrd_t *thrd) {
@@ -5154,16 +5151,19 @@ void prh_impl_print_thrd_info(prh_thrd_t *thrd) {
 
 prh_thrdpool_t *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize) {
     assert(maxthreads >= 0);
-    if (mainudsize < 0) mainudsize = 0;
-    mainudsize = prh_round_ptrsize(mainudsize);
+    if (mainudsize < 0) {
+        mainudsize = 0;
+    } else {
+        mainudsize = prh_round_ptrsize(mainudsize);
+    }
     prh_thrdpool_t *s = (prh_thrdpool_t *)addr;
     s->maxthreads = maxthreads;
     s->inplace = 1;
     s->mainudsize = mainudsize;
     s->main.tid_impl = pthread_self();
     s->main.thrd_id = start_id;
-    prh_thrd_t **thrds = prh_impl_thrd_list(s);
-    PRH_IMPL_THRD = thrds[0] = &s->main;
+    s->thrd = (prh_thrd_t **)(((char *)(s + 1)) + mainudsize);
+    s->thrd[0] = PRH_IMPL_THRD = &s->main;
 #if PRH_THRD_DEBUG
     prh_impl_print_thrd_info(&s->main);
 #endif
@@ -5251,9 +5251,8 @@ void *prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, i
     prh_thrd_t *thrd = (prh_thrd_t *)prh_calloc(sizeof(prh_thrd_t) + thrdudsize);
     thrd->proc = proc;
 
-    prh_thrd_t **thrds = prh_impl_thrd_list(s);
     s->thread_cnt += 1;
-    thrds[s->thread_cnt] = thrd;
+    s->thrd[s->thread_cnt] = thrd;
     thrd->thrd_id = s->main.thrd_id + s->thread_cnt;
 
     if (!prh_impl_pthread_create(thrd, stacksize)) {
@@ -5268,7 +5267,7 @@ void *prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, i
 void prh_thrd_join(prh_thrd_t **thrd_addr, void (*thrd_udata_free)(void *)) {
     prh_thrd_t *thrd = *thrd_addr;
     if (thrd == prh_null) return;
-    void *retv = prh_null;
+    void *retv = prh_null, *userdata;
     int n = pthread_join(thrd->tid_impl, &retv);
     if (n != 0) {
         prh_prerr(n);
@@ -5282,8 +5281,8 @@ void prh_thrd_join(prh_thrd_t **thrd_addr, void (*thrd_udata_free)(void *)) {
         printf("[thread %d] join retval %d\n", prh_thread_id(thrd), (int)(prh_uinp)retv);
     }
 #endif
-    if (thrd_udata_free) {
-        thrd_udata_free(prh_thread_userdata(thrd));
+    if (thrd_udata_free && (userdata = prh_thread_userdata(thrd))) {
+        thrd_udata_free(userdata);
     }
     prh_free(thrd);
     *thrd_addr = prh_null;
@@ -5293,15 +5292,16 @@ void prh_thread_join(prh_thrdpool_t **main, void (*thrd_udata_free)(void *)) {
     prh_thrdpool_t *s = *main;
     if (s == prh_null) return;
 
-    prh_thrd_t **thrds = prh_impl_thrd_list(s);
+    prh_thrd_t **thrds = s->thrd;
     for (int i = 1; i <= s->thread_cnt; i += 1) {
         prh_thrd_join(thrds + i, thrd_udata_free);
     }
 
     prh_thrd_t *main_thrd = thrds[0];
     if (main_thrd) {
-        if (thrd_udata_free) {
-            thrd_udata_free(prh_thread_userdata(main_thrd));
+        void *userdata;
+        if (thrd_udata_free && (userdata = prh_thread_userdata(main_thrd))) {
+            thrd_udata_free(userdata);
         }
         thrds[0] = prh_null;
     }
@@ -5676,6 +5676,92 @@ void prh_impl_thrd_test(void) {
 #endif // PRH_CONC_STRIP_PREFIX
 
 #ifdef PRH_CONC_IMPLEMENTATION
+typedef struct {
+    int index;
+} prh_coroindex_t;
+
+typedef struct {
+    prh_nods_t node;
+    prh_coroindex_t from;
+    prh_coroindex_t to;
+    prh_int type, flags;
+    void *data;
+} prh_coromsg_t;
+
+typedef struct {
+    // only accessed by curr thread
+    prh_solo_struct solo; // 当前执行协程
+    prh_coromsg_t *txmq_atomnodque_tail; // 由当前线程读写
+    // only accessed by privilege thread
+    prh_coromsg_t *txmq_atomnodque_head; // 由特权线程读写
+    // accessed by both thread
+    prh_atomint_t txmq_atomnodque_len; // 由特权线程和当前线程读写
+    prh_atomptr_t assigned_ready_coro; // 等待执行的协程，由特权线程写入或窃取清空，由当前协程读取清空
+    prh_atombool_t thread_sleeping;
+} prh_thread_t; // 每个线程尽量指定在单一的CPU上运行避免线程切换
+
+void prh_impl_conc_thrd_init(prh_thread_t *t) {
+    prh_atomnodque_init(t, txmq);
+    prh_atomptr_init(&t->assigned_ready_coro, prh_null);
+    prh_atombool_init(&t->thread_sleeping, false);
+}
+
+void prh_impl_conc_thrd_free(void *param) {
+    prh_thread_t *t = param;
+    prh_atomnodque_free(t, txmq);
+}
+
+typedef struct {
+    prh_nods_t node;
+    // only accessed by curr thread
+    prh_coro_t *coro;
+    prh_nodestack_t pending_stack; // waiting curr running coro complete
+    prh_coromsg_t *rxmq_atomnodque_head;
+    // only accessed by privilege thread
+    prh_coromsg_t *rxmq_atomnodque_tail;
+    bool already_in_ready_que;
+    // accessed by both threads
+    prh_atomint_t rxmq_atomnodque_len;
+} prh_concoro_t; // 跨线程协程
+
+typedef struct {
+    prh_thrdpool_t *coro_thrd_pool;
+    prh_thrd_t **coro_thrd_list;
+    prh_int numcorothrds;
+    prh_atomint_t coro_count;
+    prh_concoro_t *coro_dynamic_array;
+    // only accessed by privilege thread
+    prh_nodequeue_t coro_ready_que;
+    // accessed by both thread
+    prh_atomptr_t privilege_thread;
+    prh_atomint_t sleeping_count;
+    prh_atombool_t exit_thread;
+} prh_conc_t;
+
+static prh_conc_t PRH_IMPL_CONC;
+int prh_impl_thread_proc(prh_thrd_t* t);
+
+void prh_conc_init(int thrd_start_id, int num_thread, bool usemainthrd) {
+    prh_conc_t *conc = &PRH_IMPL_CONC;
+    prh_thrdpool_t *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_thread_t));
+    conc->coro_thrd_pool = pool;
+    if (usemainthrd) {
+        conc->coro_thrd_list = pool->thrd;
+        conc->numcorothrds = num_thread + 1;
+        prh_impl_conc_thrd_init(prh_thread_userdata(prh_thread_main(pool)));
+    } else {
+        conc->coro_thrd_list = pool->thrd + 1;
+        conc->numcorothrds = num_thread;
+    }
+    prh_thread_t *t;
+    for (int i = 0; i < num_thread; i += 1) {
+        t = prh_thread_create(pool, prh_impl_thread_proc, 0, sizeof(prh_thread_t));
+        prh_impl_conc_thrd_init(t);
+    }
+    prh_nodequeue_init(&t->coro_ready_que);
+    prh_atomptr_init(&t->privilege_thread, prh_null);
+}
+
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_conc_test(void) {
 
