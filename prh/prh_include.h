@@ -2392,6 +2392,7 @@ void prh_solo_finish(prh_solo_struct *main) {
 typedef atomic_bool prh_atombool_t;
 typedef atomic_int prh_atomint_t;
 typedef atomic_uintptr_t prh_atomptr_t;
+#define prh_atomnull ((prh_uinp)0)
 
 // Initializes an existing atomic object.
 // The function is not atomic: concurrent access from another thread, even
@@ -4440,12 +4441,13 @@ void prh_impl_time_test(void) {
 typedef struct prh_thrd prh_thrd_t;
 typedef struct prh_thrdpool prh_thrdpool_t;
 typedef int (*prh_thrdproc_t)(prh_thrd_t* thrd);
+typedef void (*prh_thrdudinit_t)(void *userdata);
+typedef void (*prh_thrdudfree_t)(void *userdata);
 
 int prh_thread_id(prh_thrd_t *thrd);
 void *prh_thread_userdata(prh_thrd_t *thrd);
 int prh_thread_count(prh_thrdpool_t *s);
 int prh_thread_index(prh_thrdpool_t *s, prh_thrd_t *thrd);
-void prh_thread_main_proc(prh_thrdpool_t *s, prh_thrdproc_t proc);
 prh_thrd_t *prh_thread_main(prh_thrdpool_t *s);
 prh_thrd_t *prh_thread_get(prh_thrdpool_t *s, int index);
 prh_thrd_t *prh_thread_self(void);
@@ -4453,10 +4455,14 @@ prh_thrd_t *prh_thread_self(void);
 int prh_thread_alloc_size(int maxthreads, int mainudsize);
 prh_thrdpool_t *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize); // addr shall be previously zero initialized
 prh_thrdpool_t *prh_thread_init(int start_id, int maxthreads, int mainudsize);
-void *prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, int thrdudsize);
-void prh_thread_join(prh_thrdpool_t **s, void (*thrd_udata_free)(void *));
-prh_thrd_t *prh_thrd_create(int thrd_id, prh_thrdproc_t proc, int stacksize, int thrdudsize);
-void prh_thrd_join(prh_thrd_t **thrd, void (*thrd_udata_free)(void *));
+void prh_thread_init_main_ptrudata(prh_thrdpool_t *s, void *ud);
+void prh_thread_init_main_userdata(prh_thrdpool_t *s, prh_thrdudinit_t thrdudinit);
+void prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, void *ud);
+void prh_thread_ext_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, int thrdudsize, prh_thrdudinit_t udinit);
+prh_thrd_t *prh_thrd_create(int thrd_id, prh_thrdproc_t proc, int stacksize, void *ud);
+prh_thrd_t *prh_thrd_ext_create(int thrd_id, prh_thrdproc_t proc, int stacksize, int thrdudsize, prh_thrdudinit_t udinit);
+void prh_thread_join(prh_thrdpool_t **s, prh_thrdudfree_t udfree);
+void prh_thrd_join(prh_thrd_t **thrd, prh_thrdudfree_t udfree);
 
 typedef struct prh_thrd_mutex prh_thrd_mutex_t;
 prh_thrd_mutex_t *prh_thrd_mutex_init(void);
@@ -4478,8 +4484,10 @@ void prh_thrd_cond_free(prh_thrd_cond_t **p);
 typedef struct prh_thrd_cond prh_thrd_sem_t;
 prh_inline prh_thrd_sem_t *prh_thrd_sem_init(void) { return (prh_thrd_sem_t *)prh_thrd_cond_init(); }
 prh_inline void prh_thrd_sem_free(prh_thrd_sem_t **s) { prh_thrd_cond_free((prh_thrd_cond_t **)s); }
-void prh_thrd_sem_wait(prh_thrd_sem_t *s, void (*wakeup_func)(void *), void *param);
-void prh_thrd_sem_post(prh_thrd_sem_t *s, int n, void (*post_func)(void *), void *param);
+void prh_thrd_sem_wait(prh_thrd_sem_t *s);
+void prh_thrd_sem_post(prh_thrd_sem_t *s, int n);
+void prh_thrd_sem_ext_wait(prh_thrd_sem_t *s, void (*wakeup_func)(void *), void *param);
+void prh_thrd_sem_ext_post(prh_thrd_sem_t *s, int n, void (*post_func)(void *), void *param);
 
 typedef struct prh_thrd_cond prh_sleep_cond_t;
 prh_inline prh_sleep_cond_t *prh_thrd_sleep_init(void) { return (prh_sleep_cond_t *)prh_thrd_cond_init(); }
@@ -4492,52 +4500,57 @@ void prh_thrd_wakeup(prh_sleep_cond_t *p);
 void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
-#define thrd_t                  prh_thrd_t
-#define thrdpool_t              prh_thrdpool_t
-#define thread_id               prh_thread_id
-#define thread_index            prh_thread_index
-#define thread_userdata         prh_thread_userdata
-#define thread_count            prh_thread_count
-#define thread_main             prh_thread_main
-#define thread_main_proc        prh_thread_main_proc
-#define thread_get              prh_thread_get
-#define thread_self             prh_thread_self
-#define thread_alloc_size       prh_thread_alloc_size
-#define thread_init_inplace     prh_thread_init_inplace
-#define thread_init             prh_thread_init
-#define thread_create           prh_thread_create
-#define thread_join             prh_thread_join
-#define thrd_create             prh_thrd_create
-#define thrd_join               prh_thrd_join
-#define thrd_mutex_t            prh_thrd_mutex_t
-#define thrd_mutex_init         prh_thrd_mutex_init
-#define thrd_recursive_mutex_init prh_thrd_recursive_mutex_init
-#define thrd_mutex_lock         prh_thrd_mutex_lock
-#define thrd_mutex_unlock       prh_thrd_mutex_unlock
-#define thrd_mutex_free         prh_thrd_mutex_free
-#define thrd_cond_t             prh_thrd_cond_t
-#define thrd_cond_init          prh_thrd_cond_init
-#define thrd_cond_lock          prh_thrd_cond_lock
-#define thrd_cond_wait          prh_thrd_cond_wait
-#define thrd_cond_timedwait     prh_thrd_cond_timedwait
-#define thrd_cond_unlock        prh_thrd_cond_unlock
-#define thrd_cond_signal        prh_thrd_cond_signal
-#define thrd_cond_broadcast     prh_thrd_cond_broadcast
-#define thrd_cond_free          prh_thrd_cond_free
-#define thrd_sem_t              prh_thrd_sem_t
-#define thrd_sem_init           prh_thrd_sem_init
-#define thrd_sem_wait           prh_thrd_sem_wait
-#define thrd_sem_post           prh_thrd_sem_post
-#define thrd_sem_free           prh_thrd_sem_free
-#define sleep_cond_t            prh_sleep_cond_t
-#define thrd_sleep_init         prh_thrd_sleep_init
-#define thrd_sleep_free         prh_thrd_sleep_free
-#define thrd_sleep_start        prh_thrd_sleep_start
-#define thrd_sleep              prh_thrd_sleep
-#define thrd_sleep_end          prh_thrd_sleep_end
-#define thrd_wakeup             prh_thrd_wakeup
-#define thrd_wakeup_all         prh_thrd_wakeup_all
-#define thrd_sleep_count        prh_thrd_sleep_count
+#define thrd_t                      prh_thrd_t
+#define thrdpool_t                  prh_thrdpool_t
+#define thread_id                   prh_thread_id
+#define thread_index                prh_thread_index
+#define thread_userdata             prh_thread_userdata
+#define thread_count                prh_thread_count
+#define thread_main                 prh_thread_main
+#define thread_get                  prh_thread_get
+#define thread_self                 prh_thread_self
+#define thread_alloc_size           prh_thread_alloc_size
+#define thread_init_inplace         prh_thread_init_inplace
+#define thread_init                 prh_thread_init
+#define thread_init_main_ptrudata   prh_thread_init_main_ptrudata
+#define thread_init_main_userdata   prh_thread_init_main_userdata
+#define thread_create               prh_thread_create
+#define thread_ext_create           prh_thread_ext_create
+#define thread_join                 prh_thread_join
+#define thrd_create                 prh_thrd_create
+#define thrd_ext_create             prh_thrd_ext_create
+#define thrd_join                   prh_thrd_join
+#define thrd_mutex_t                prh_thrd_mutex_t
+#define thrd_mutex_init             prh_thrd_mutex_init
+#define thrd_recursive_mutex_init   prh_thrd_recursive_mutex_init
+#define thrd_mutex_lock             prh_thrd_mutex_lock
+#define thrd_mutex_unlock           prh_thrd_mutex_unlock
+#define thrd_mutex_free             prh_thrd_mutex_free
+#define thrd_cond_t                 prh_thrd_cond_t
+#define thrd_cond_init              prh_thrd_cond_init
+#define thrd_cond_lock              prh_thrd_cond_lock
+#define thrd_cond_wait              prh_thrd_cond_wait
+#define thrd_cond_timedwait         prh_thrd_cond_timedwait
+#define thrd_cond_unlock            prh_thrd_cond_unlock
+#define thrd_cond_signal            prh_thrd_cond_signal
+#define thrd_cond_broadcast         prh_thrd_cond_broadcast
+#define thrd_cond_free              prh_thrd_cond_free
+#define thrd_sem_t                  prh_thrd_sem_t
+#define thrd_sem_init               prh_thrd_sem_init
+#define thrd_sem_wait               prh_thrd_sem_wait
+#define thrd_sem_post               prh_thrd_sem_post
+#define thrd_sem_ext_wait           prh_thrd_sem_ext_wait
+#define thrd_sem_ext_post           prh_thrd_sem_ext_post
+#define thrd_sem_free               prh_thrd_sem_free
+#define sleep_cond_t                prh_sleep_cond_t
+#define thrd_sleep_init             prh_thrd_sleep_init
+#define thrd_sleep_free             prh_thrd_sleep_free
+#define thrd_sleep_start            prh_thrd_sleep_start
+#define thrd_sleep                  prh_thrd_sleep
+#define thrd_sleep_end              prh_thrd_sleep_end
+#define thrd_wakeup                 prh_thrd_wakeup
+#define thrd_wakeup_all             prh_thrd_wakeup_all
+#define thrd_sleep_count            prh_thrd_sleep_count
 #endif
 
 #ifdef PRH_THRD_IMPLEMENTATION
@@ -5069,10 +5082,11 @@ void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
 // 核，这始于Linux 2.6。值得强调的是，LinuxThreads实现已经过时，并且glibc从2.4版本
 // 开始也已不再支持它，所有新的线程库开发都基于NPTL。
 struct prh_thrd {
-    prh_thrdproc_t proc;
-    pthread_t tid_impl;
-    prh_int thrd_id;
+    union { pthread_t tid_impl; void *align; } u;
+    prh_u32 thrd_id: 30, has_udata: 1, ptr_udata: 1;
 }; // followed by thread userdata
+
+prh_static_assert(sizeof(struct prh_thrd) == 2 * sizeof(void *));
 
 prh_thread_local prh_thrd_t *PRH_IMPL_THRD = prh_null;
 
@@ -5091,10 +5105,6 @@ prh_thrd_t *prh_thread_self(void) {
     return PRH_IMPL_THRD;
 }
 
-void prh_thread_main_proc(prh_thrdpool_t *s, prh_thrdproc_t proc) {
-    s->main.proc = proc;
-}
-
 prh_thrd_t *prh_thread_main(prh_thrdpool_t *s) {
     return &s->main; // same as prh_thread_get(s, 0)
 }
@@ -5104,8 +5114,14 @@ prh_thrd_t *prh_thread_get(prh_thrdpool_t *s, int index) {
     return s->thrd[index]; // 0 for main thread
 }
 
-void *prh_thread_userdata(prh_thrd_t *thrd) {
+prh_inline void *prh_impl_thrd_udata(prh_thrd_t *thrd) {
     return thrd + 1;
+}
+
+void *prh_thread_userdata(prh_thrd_t *thrd) {
+    void *udaddr = prh_impl_thrd_udata(thrd);
+    if (!thrd->has_udata) return prh_null;
+    return thrd->ptr_udata ? *(void **)udaddr : udaddr;
 }
 
 int prh_thread_count(prh_thrdpool_t *s) {
@@ -5151,7 +5167,7 @@ void prh_impl_print_thrd_info(prh_thrd_t *thrd) {
 
 prh_thrdpool_t *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize) {
     assert(maxthreads >= 0);
-    if (mainudsize < 0) {
+    if (mainudsize <= 0) {
         mainudsize = 0;
     } else {
         mainudsize = prh_round_ptrsize(mainudsize);
@@ -5159,9 +5175,9 @@ prh_thrdpool_t *prh_thread_init_inplace(void *addr, int start_id, int maxthreads
     prh_thrdpool_t *s = (prh_thrdpool_t *)addr;
     s->maxthreads = maxthreads;
     s->inplace = 1;
-    s->mainudsize = mainudsize;
-    s->main.tid_impl = pthread_self();
+    s->main.u.tid_impl = pthread_self();
     s->main.thrd_id = start_id;
+    s->main.has_udata = (mainudsize != 0);
     s->thrd = (prh_thrd_t **)(((char *)(s + 1)) + mainudsize);
     s->thrd[0] = PRH_IMPL_THRD = &s->main;
 #if PRH_THRD_DEBUG
@@ -5177,13 +5193,44 @@ prh_thrdpool_t *prh_thread_init(int start_id, int maxthreads, int mainudsize) {
     return s;
 }
 
+void prh_thread_init_main_ptrudata(prh_thrdpool_t *s, void *ud) {
+    prh_thrd_t *t = &s->main;
+    t->ptr_udata = true;
+    *(void **)prh_impl_thrd_udata(t) = ud;
+}
+
+void prh_thread_init_main_userdata(prh_thrdpool_t *s, prh_thrdudinit_t thrdudinit) {
+    prh_thrd_t *t = &s->main;
+    t->ptr_udata = false;
+    thrdudinit(prh_impl_thrd_udata(t));
+}
+
+typedef struct {
+    prh_thrd_sem_t *sync;
+    prh_thrdproc_t proc;
+    prh_thrd_t *thrd;
+    void *thrdudptr;
+    prh_thrdudinit_t thrdudinit;
+    bool create_pool;
+} prh_impl_thrd_param_t;
+
 static void *prh_impl_pthread_start(void *param) {
-    prh_thrd_t *thrd = PRH_IMPL_THRD = (prh_thrd_t *)param;
+    prh_impl_thrd_param_t *p = (prh_impl_thrd_param_t *)param;
+    prh_thrd_t *thrd = PRH_IMPL_THRD = p->thrd;
+    prh_thrdproc_t proc = p->proc;
+    if (thrd->has_udata) {
+        void *ud = prh_impl_thrd_udata(thrd);
+        if (p->thrdudptr) {
+            *(void **)ud = p->thrdudptr;
+        } else if (p->thrdudinit) {
+            p->thrdudinit(ud);
+        }
+    }
+    prh_thrd_sem_post(p->sync, 1);
 #if PRH_THRD_DEBUG
     prh_impl_print_thrd_info(thrd);
 #endif
-    int n = thrd->proc(thrd);
-    return (void *)(prh_uinp)n;
+    return (void *)(prh_uinp)proc(thrd);
 }
 
 int prh_impl_thread_stack_size(long stacksize) {
@@ -5205,70 +5252,101 @@ int prh_impl_thread_stack_size(long stacksize) {
     return prh_round_16_byte(stacksize); // stack align 16-byte
 }
 
-bool prh_impl_pthread_create(prh_thrd_t *thrd, int stacksize) {
-    pthread_t *tid = &thrd->tid_impl;
+bool prh_impl_pthread_create(prh_impl_thrd_param_t *p, int stacksize) {
+    pthread_t *tid = &p->thrd->u.tid_impl;
+    pthread_attr_t *attr_ptr = prh_null;
     pthread_attr_t attr;
     bool created = false;
     int n;
 
     stacksize = prh_impl_thread_stack_size(stacksize);
-    if (stacksize <= 0) {
-        n = pthread_create(tid, prh_null, prh_impl_pthread_start, thrd);
-        prh_prerr_if(n, return false) else { return true; }
+    if (stacksize > 0) {
+        attr_ptr = &attr;
+        prh_zeroret(pthread_attr_init(attr_ptr));
+        n = pthread_attr_setstacksize(attr_ptr, stacksize);
+        prh_defer_if(n, prh_prerr(n));
     }
 
-    prh_zeroret(pthread_attr_init(&attr));
-
-    n = pthread_attr_setstacksize(&attr, stacksize);
-    prh_defer_if(n, prh_prerr(n));
-
-    n = pthread_create(tid, &attr, prh_impl_pthread_start, thrd);
-    prh_prerr_if(n,) else { created = true; }
+    p->sync = prh_thrd_sem_init();
+    n = pthread_create(tid, attr_ptr, prh_impl_pthread_start, p);
+    prh_prerr_if(n,) else {
+        created = true;
+        prh_thrd_sem_wait(p->sync);
+    }
 
 label_defer:
-    prh_zeroret(pthread_attr_destroy(&attr));
+    if (attr_ptr) {
+        prh_zeroret(pthread_attr_destroy(attr_ptr));
+    }
+    if (p->sync) {
+        prh_thrd_sem_free(&p->sync);
+    }
     return created;
 }
 
-prh_thrd_t *prh_thrd_create(int thrd_id, prh_thrdproc_t proc, int stacksize, int thrdudsize) {
+prh_thrd_t *prh_impl_thrd_create(prh_thrdpool_t *s, int stacksize, int thrdudsize, prh_impl_thrd_param_t *p) {
+    bool create_pool = p->create_pool;
+    if (create_pool && (prh_u32)s->thread_cnt >= s->maxthreads) {
+        return prh_null;
+    }
+
     thrdudsize = (thrdudsize <= 0) ? 0 : prh_round_ptrsize(thrdudsize);
     prh_thrd_t *thrd = (prh_thrd_t *)prh_calloc(sizeof(prh_thrd_t) + thrdudsize);
-    thrd->proc = proc;
-    thrd->thrd_id = thrd_id;
-    if (!prh_impl_pthread_create(thrd, stacksize)) {
+    if (create_pool) {
+        s->thread_cnt += 1;
+        s->thrd[s->thread_cnt] = thrd;
+        thrd->thrd_id = s->main.thrd_id + s->thread_cnt;
+    } else {
+        thrd->thrd_id = (prh_u32)(prh_uinp)s;
+    }
+    thrd->has_udata = (thrdudsize != 0);
+    p->thrd = thrd;
+
+    if (!prh_impl_pthread_create(p, stacksize)) {
+        if (create_pool) {
+            s->thread_cnt -= 1;
+        }
         prh_free(thrd);
         return prh_null;
     }
     return thrd;
 }
 
-void *prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, int thrdudsize) {
-    if ((prh_u32)s->thread_cnt >= s->maxthreads) {
-        return prh_null;
-    }
-
-    thrdudsize = (thrdudsize <= 0) ? 0 : prh_round_ptrsize(thrdudsize);
-    prh_thrd_t *thrd = (prh_thrd_t *)prh_calloc(sizeof(prh_thrd_t) + thrdudsize);
-    thrd->proc = proc;
-
-    s->thread_cnt += 1;
-    s->thrd[s->thread_cnt] = thrd;
-    thrd->thrd_id = s->main.thrd_id + s->thread_cnt;
-
-    if (!prh_impl_pthread_create(thrd, stacksize)) {
-        s->thread_cnt -= 1;
-        prh_free(thrd);
-        return prh_null;
-    }
-
-    return thread_userdata(thrd);
+prh_thrd_t *prh_thrd_create(int thrd_id, prh_thrdproc_t proc, int stacksize, void *ud) {
+    prh_impl_thrd_param_t param = {0};
+    param.proc = proc;
+    param.thrdudptr = ud;
+    return prh_impl_thrd_create((void *)(prh_intp)thrd_id, stacksize, sizeof(void *), &param);
 }
 
-void prh_thrd_join(prh_thrd_t **thrd_addr, void (*thrd_udata_free)(void *)) {
+prh_thrd_t *prh_thrd_ext_create(int thrd_id, prh_thrdproc_t proc, int stacksize, int thrdudsize, prh_thrdudinit_t udinit) {
+    prh_impl_thrd_param_t param = {0};
+    param.proc = proc;
+    param.thrdudinit = udinit;
+    return prh_impl_thrd_create((void *)(prh_intp)thrd_id, stacksize, thrdudsize, &param);
+}
+
+void prh_thread_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, void *ud) {
+    prh_impl_thrd_param_t param = {0};
+    param.proc = proc;
+    param.thrdudptr = ud;
+    param.create_pool = true;
+    prh_impl_thrd_create(s, stacksize, sizeof(void *), &param);
+}
+
+void prh_thread_ext_create(prh_thrdpool_t *s, prh_thrdproc_t proc, int stacksize, int thrdudsize, prh_thrdudinit_t udinit) {
+    prh_impl_thrd_param_t param = {0};
+    param.proc = proc;
+    param.thrdudinit = udinit;
+    param.create_pool = true;
+    prh_impl_thrd_create(s, stacksize, thrdudsize, &param);
+}
+
+void prh_thrd_join(prh_thrd_t **thrd_addr, prh_thrdudfree_t udfree) {
     prh_thrd_t *thrd = *thrd_addr;
     if (thrd == prh_null) return;
     void *retv = prh_null, *userdata;
-    int n = pthread_join(thrd->tid_impl, &retv);
+    int n = pthread_join(thrd->u.tid_impl, &retv);
     if (n != 0) {
         prh_prerr(n);
     } else if ((prh_uinp)retv != 0) { // -1 is PTHREAD_CANCELED
@@ -5281,27 +5359,27 @@ void prh_thrd_join(prh_thrd_t **thrd_addr, void (*thrd_udata_free)(void *)) {
         printf("[thread %d] join retval %d\n", prh_thread_id(thrd), (int)(prh_uinp)retv);
     }
 #endif
-    if (thrd_udata_free && (userdata = prh_thread_userdata(thrd))) {
-        thrd_udata_free(userdata);
+    if (udfree && (userdata = prh_thread_userdata(thrd))) {
+        udfree(userdata);
     }
     prh_free(thrd);
     *thrd_addr = prh_null;
 }
 
-void prh_thread_join(prh_thrdpool_t **main, void (*thrd_udata_free)(void *)) {
+void prh_thread_join(prh_thrdpool_t **main, prh_thrdudfree_t udfree) {
     prh_thrdpool_t *s = *main;
     if (s == prh_null) return;
 
     prh_thrd_t **thrds = s->thrd;
     for (int i = 1; i <= s->thread_cnt; i += 1) {
-        prh_thrd_join(thrds + i, thrd_udata_free);
+        prh_thrd_join(thrds + i, udfree);
     }
 
     prh_thrd_t *main_thrd = thrds[0];
     if (main_thrd) {
         void *userdata;
-        if (thrd_udata_free && (userdata = prh_thread_userdata(main_thrd))) {
-            thrd_udata_free(userdata);
+        if (udfree && (userdata = prh_thread_userdata(main_thrd))) {
+            udfree(userdata);
         }
         thrds[0] = prh_null;
     }
@@ -5497,7 +5575,7 @@ void prh_thrd_cond_broadcast(prh_thrd_cond_t *p) {
     prh_zeroret(pthread_cond_broadcast(&p->cond));
 }
 
-void prh_thrd_sem_wait(prh_thrd_cond_t *p, void (*wakeup_func)(void *), void *param) {
+void prh_thrd_sem_ext_wait(prh_thrd_sem_t *p, void (*wakeup_func)(void *), void *param) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     while (p->wakeup_semaphore == 0) {
         prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
@@ -5509,7 +5587,11 @@ void prh_thrd_sem_wait(prh_thrd_cond_t *p, void (*wakeup_func)(void *), void *pa
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
-void prh_thrd_sem_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_func)(void *), void *param) {
+void prh_thrd_sem_wait(prh_thrd_sem_t *p) {
+    prh_thrd_sem_ext_wait(p, prh_null, prh_null);
+}
+
+void prh_thrd_sem_ext_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_func)(void *), void *param) {
     if (new_semaphores <= 0) return;
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     p->wakeup_semaphore += new_semaphores;
@@ -5522,6 +5604,10 @@ void prh_thrd_sem_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_func)(
     } else { // multi semaphore available, all thread can racing to handle them
         prh_zeroret(pthread_cond_broadcast(&p->cond));
     }
+}
+
+void prh_thrd_sem_post(prh_thrd_sem_t *p, int new_semaphores) {
+    prh_thrd_sem_ext_post(p, new_semaphores, prh_null, prh_null);
 }
 
 void prh_thrd_sleep_start(prh_thrd_cond_t *p) {
@@ -5671,6 +5757,9 @@ void prh_impl_thrd_test(void) {
 // CONCURRENCY - Very simple single file style concurrency library
 #ifdef PRH_CONC_INCLUDE
 
+void prh_conc_init(int thrdstartid, int numthread);
+void prh_conc_start(bool usemainthrd);
+
 #ifdef PRH_CONC_STRIP_PREFIX
 
 #endif // PRH_CONC_STRIP_PREFIX
@@ -5701,14 +5790,13 @@ typedef struct {
 } prh_thread_t; // 每个线程尽量指定在单一的CPU上运行避免线程切换
 
 void prh_impl_conc_thrd_init(prh_thread_t *t) {
-    prh_atomnodque_init(t, txmq);
-    prh_atomptr_init(&t->assigned_ready_coro, prh_null);
-    prh_atombool_init(&t->thread_sleeping, false);
+    //prh_atomnodque_init(t, txmq);
+    prh_atomtype_init(&t->assigned_ready_coro, prh_atomnull);
+    prh_atomtype_init(&t->thread_sleeping, false);
 }
 
-void prh_impl_conc_thrd_free(void *param) {
-    prh_thread_t *t = param;
-    prh_atomnodque_free(t, txmq);
+void prh_impl_conc_thrd_free(prh_thread_t *t) {
+    //prh_atomnodque_free(t, txmq, prh_null);
 }
 
 typedef struct {
@@ -5739,27 +5827,35 @@ typedef struct {
 } prh_conc_t;
 
 static prh_conc_t PRH_IMPL_CONC;
-int prh_impl_thread_proc(prh_thrd_t* t);
+int prh_impl_conc_thrd_proc(prh_thrd_t* t);
 
-void prh_conc_init(int thrd_start_id, int num_thread, bool usemainthrd) {
+void prh_conc_init(int thrdstartid, int numthread) {
     prh_conc_t *conc = &PRH_IMPL_CONC;
-    prh_thrdpool_t *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_thread_t));
+    prh_thrdpool_t *pool = prh_thread_init(thrdstartid, numthread, sizeof(prh_thread_t));
+    prh_thread_init_main_userdata(pool, (prh_thrdudinit_t)prh_impl_conc_thrd_init);
     conc->coro_thrd_pool = pool;
+    conc->coro_thrd_list = pool->thrd + 1;
+    conc->numcorothrds = numthread;
+    prh_nodequeue_init(&conc->coro_ready_que);
+    prh_atomtype_init(&conc->privilege_thread, prh_atomnull);
+}
+
+void prh_conc_start(bool usemainthrd) {
+    prh_conc_t *conc = &PRH_IMPL_CONC;
+    prh_thrdpool_t *pool = conc->coro_thrd_pool;
+    int i = 0, numthread = conc->numcorothrds;
     if (usemainthrd) {
-        conc->coro_thrd_list = pool->thrd;
-        conc->numcorothrds = num_thread + 1;
-        prh_impl_conc_thrd_init(prh_thread_userdata(prh_thread_main(pool)));
-    } else {
-        conc->coro_thrd_list = pool->thrd + 1;
-        conc->numcorothrds = num_thread;
+        conc->coro_thrd_list -= 1;
+        conc->numcorothrds += 1;
     }
-    prh_thread_t *t;
-    for (int i = 0; i < num_thread; i += 1) {
-        t = prh_thread_create(pool, prh_impl_thread_proc, 0, sizeof(prh_thread_t));
-        prh_impl_conc_thrd_init(t);
+    for (; i < numthread; i += 1) {
+        prh_thread_ext_create(pool, prh_impl_conc_thrd_proc, 0, sizeof(prh_thread_t), (prh_thrdudinit_t)prh_impl_conc_thrd_init);
     }
-    prh_nodequeue_init(&t->coro_ready_que);
-    prh_atomptr_init(&t->privilege_thread, prh_null);
+    prh_thread_join(&conc->coro_thrd_pool, (prh_thrdudfree_t)prh_impl_conc_thrd_free);
+}
+
+int prh_impl_conc_thrd_proc(prh_thrd_t* t) {
+    return 0;
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
