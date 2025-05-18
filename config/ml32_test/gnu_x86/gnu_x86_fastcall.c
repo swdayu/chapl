@@ -1,15 +1,16 @@
 #include "fastcall.h"
+#include <stdio.h>
 
-void print_para(uptr a, uptr b, uptr c) {
+void print_para(prh_uinp a, prh_uinp b, prh_uinp c) {
     printf("fastcall para GNU ecx=%08x %d, edx=%08x %d, argc=%08x %d\n",
         a, a, b, b, c, c);
 }
 
-void print_retp(uptr a, uptr b) {
+void print_retp(prh_uinp a, prh_uinp b) {
     printf("fastcall retp GNU eax=%08x %d, edx=%08x %d\n", a, a, b, b);
 }
 
-__magic_nakedcall(fastcall, void) fastcall_test_para(uptr a, uptr b, uptr c)
+prh_naked_fastcall(void) fastcall_test_para(prh_uinp a, prh_uinp b, prh_uinp c)
 {
     //              c 00 <-- 16字节对齐
     // return address 12 <-- esp
@@ -30,17 +31,17 @@ __magic_nakedcall(fastcall, void) fastcall_test_para(uptr a, uptr b, uptr c)
     );
 }
 
-__magic_func_decl(fastcall, u32) fastcall_return_u32(u32 a, u32 b)
+prh_fastcall(prh_u32) fastcall_return_u32(prh_u32 a, prh_u32 b)
 {
     return a * b;
 }
 
-__magic_func_decl(fastcall, u64) fastcall_return_u64(u32 a, u32 b)
+prh_fastcall(prh_u64) fastcall_return_u64(prh_u32 a, prh_u32 b)
 {
-    return ((u64)a) * b;
+    return ((prh_u64)a) * b;
 }
 
-__magic_nakedcall(fastcall, void) fastcall_test_retp_2_x_3(void)
+prh_naked_fastcall(void) fastcall_test_retp_2_x_3(void)
 {
     __asm__ (
         "subl $12,%esp\n\t"
@@ -55,7 +56,7 @@ __magic_nakedcall(fastcall, void) fastcall_test_retp_2_x_3(void)
     );
 }
 
-__magic_nakedcall(fastcall, void) fastcall_test_retp_big_n(void)
+prh_naked_fastcall(void) fastcall_test_retp_big_n(void)
 {
     __asm__ (
         "subl $12,%esp\n\t"
@@ -70,7 +71,7 @@ __magic_nakedcall(fastcall, void) fastcall_test_retp_big_n(void)
     );
 }
 
-__magic_nakedcall(fastcall, data_t) fastcall_test_para_with_bigr(int a, int b)
+prh_naked_fastcall(data_t) fastcall_test_para_with_bigr(int a, int b)
 {
     //              b 00 <-- 16字节对齐
     // return address 12 esp

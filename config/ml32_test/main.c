@@ -1,4 +1,5 @@
 #include "fastcall.h"
+#include <stdio.h>
 
 void test_fastcall(void)
 {

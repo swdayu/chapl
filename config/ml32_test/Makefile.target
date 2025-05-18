@@ -1,13 +1,13 @@
 target-y := default
 
 ifneq ($(filter msc,$(CONFIG_COMPILER)),)
-default-y := src/lang/builtin/ config/ml32_test/msc_x86/
+default-y :=  config/ml32_test/msc_x86/
 else
-default-y := src/lang/builtin/ config/ml32_test/gnu_x86/
+default-y := config/ml32_test/gnu_x86/
 endif
 
 default-y += config/ml32_test/main.o
 
-default-ccflags-y := -Iconfig/ml32_test -Isrc/lang
+default-ccflags-y := -Iconfig/ml32_test -Iprh
 
 default-binary-type := exe_run

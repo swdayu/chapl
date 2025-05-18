@@ -12,9 +12,9 @@ int threadproc(thrd_t *thrd)
 int main(int argc, char **argv)
 {
     thrdpool_t *s = thread_init(30, 3, 0);
-    thread_create(s, threadproc, 1, 0);
-    thread_create(s, threadproc, 0, 0);
-    thread_create(s, threadproc, 0, 0);
+    thread_create(s, threadproc, 1, prh_null);
+    thread_create(s, threadproc, 0, prh_null);
+    thread_create(s, threadproc, 0, prh_null);
     thread_join(&s, NULL);
 
     prh_test_code();

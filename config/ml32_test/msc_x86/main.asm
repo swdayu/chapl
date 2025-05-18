@@ -1,3 +1,7 @@
+; .386
+; .MODEL FLAT
+; .code
+
 TITLE Adds Two 32-bit Intergers (AddTwo.asm)
 .386
 .MODEL FLAT,STDCALL
