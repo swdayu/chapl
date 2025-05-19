@@ -2494,7 +2494,7 @@ prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
 #define prh_atomnodque_init(struct_ptr, PREFIX) { \
     prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
     typedef prh_typeof(prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)) prh_impl_node_ptr_t; \
-    prh_impl_node_ptr_t prh_impl_new_node = prh_malloc(sizeof(*prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)); \
+    prh_impl_node_ptr_t prh_impl_new_node = prh_malloc(sizeof(*prh_impl_atomnodque_head(prh_impl_ptr, PREFIX))); \
     prh_impl_atomnodque_head(prh_impl_ptr, PREFIX) = prh_impl_new_node; /* always alloc a null tail node */ \
     prh_impl_atomnodque_tail(prh_impl_ptr, PREFIX) = prh_impl_new_node; /* let head pointer always valid */ \
     ((prh_nods_t *)prh_impl_new_node)->next = prh_null; \
@@ -2505,7 +2505,7 @@ prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
 #define prh_atomnodque_free(struct_ptr, PREFIX, node_deinit_func) { \
     prh_typeof(struct_ptr) prh_impl_ptr = (struct_ptr); \
     typedef prh_typeof(prh_impl_atomnodque_head(prh_impl_ptr, PREFIX)) prh_impl_node_ptr_t; \
-    prh_impl_node_ptr_t *prh_impl_head = prh_impl_atomnodque_head(prh_impl_ptr, PREFIX); \
+    prh_impl_node_ptr_t prh_impl_head = prh_impl_atomnodque_head(prh_impl_ptr, PREFIX); \
     if (prh_impl_head) { \
         prh_impl_atomnodque_free((prh_nods_t *)prh_impl_head, (node_deinit_func)); \
         prh_impl_atomnodque_head(prh_impl_ptr, PREFIX) = prh_null; \
@@ -4452,6 +4452,14 @@ prh_thrd_t *prh_thread_main(prh_thrdpool_t *s);
 prh_thrd_t *prh_thread_get(prh_thrdpool_t *s, int index);
 prh_thrd_t *prh_thread_self(void);
 
+prh_inline int prh_thread_main_id(prh_thrdpool_t *s) {
+    return prh_thread_id(prh_thread_main(s));
+}
+
+prh_inline void *prh_thread_main_userdata(prh_thrdpool_t *s) {
+    return prh_thread_userdata(prh_thread_main(s));
+}
+
 int prh_thread_alloc_size(int maxthreads, int mainudsize);
 prh_thrdpool_t *prh_thread_init_inplace(void *addr, int start_id, int maxthreads, int mainudsize); // addr shall be previously zero initialized
 prh_thrdpool_t *prh_thread_init(int start_id, int maxthreads, int mainudsize);
@@ -4507,6 +4515,8 @@ void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
 #define thread_userdata             prh_thread_userdata
 #define thread_count                prh_thread_count
 #define thread_main                 prh_thread_main
+#define thread_main_id              prh_thread_main_id
+#define thread_main_userdata        prh_thread_main_userdata
 #define thread_get                  prh_thread_get
 #define thread_self                 prh_thread_self
 #define thread_alloc_size           prh_thread_alloc_size
@@ -5756,23 +5766,23 @@ void prh_impl_thrd_test(void) {
 
 // CONCURRENCY - Very simple single file style concurrency library
 #ifdef PRH_CONC_INCLUDE
+typedef struct {
+    int index;
+} prh_cono_t;
 
 void prh_conc_init(int thrdstartid, int numthread);
-void prh_conc_start(bool usemainthrd);
+void prh_conc_run(prh_coroproc_t co_main);
 
 #ifdef PRH_CONC_STRIP_PREFIX
 
 #endif // PRH_CONC_STRIP_PREFIX
 
 #ifdef PRH_CONC_IMPLEMENTATION
-typedef struct {
-    int index;
-} prh_coroindex_t;
 
 typedef struct {
     prh_nods_t node;
-    prh_coroindex_t from;
-    prh_coroindex_t to;
+    prh_cono_t from;
+    prh_cono_t to;
     prh_int type, flags;
     void *data;
 } prh_coromsg_t;
@@ -5786,17 +5796,19 @@ typedef struct {
     // accessed by both thread
     prh_atomint_t txmq_atomnodque_len; // 由特权线程和当前线程读写
     prh_atomptr_t assigned_ready_coro; // 等待执行的协程，由特权线程写入或窃取清空，由当前协程读取清空
+    prh_atombool_t thread_available;
     prh_atombool_t thread_sleeping;
 } prh_thread_t; // 每个线程尽量指定在单一的CPU上运行避免线程切换
 
 void prh_impl_conc_thrd_init(prh_thread_t *t) {
-    //prh_atomnodque_init(t, txmq);
+    prh_atomnodque_init(t, txmq);
     prh_atomtype_init(&t->assigned_ready_coro, prh_atomnull);
+    prh_atomtype_init(&t->thread_available, true);
     prh_atomtype_init(&t->thread_sleeping, false);
 }
 
 void prh_impl_conc_thrd_free(prh_thread_t *t) {
-    //prh_atomnodque_free(t, txmq, prh_null);
+    prh_atomnodque_free(t, txmq, prh_null);
 }
 
 typedef struct {
@@ -5833,24 +5845,35 @@ void prh_conc_init(int thrdstartid, int numthread) {
     prh_conc_t *conc = &PRH_IMPL_CONC;
     prh_thrdpool_t *pool = prh_thread_init(thrdstartid, numthread, sizeof(prh_thread_t));
     prh_thread_init_main_userdata(pool, (prh_thrdudinit_t)prh_impl_conc_thrd_init);
+    prh_thread_t *main = prh_thread_main_userdata(pool);
+    prh_atomtype_store(&main->thread_available, false);
     conc->coro_thrd_pool = pool;
-    conc->coro_thrd_list = pool->thrd + 1;
-    conc->numcorothrds = numthread;
+    conc->coro_thrd_list = pool->thrd;
+    conc->numcorothrds = (numthread > 0 ? numthread : 0) + 1;
     prh_nodequeue_init(&conc->coro_ready_que);
     prh_atomtype_init(&conc->privilege_thread, prh_atomnull);
-}
-
-void prh_conc_start(bool usemainthrd) {
-    prh_conc_t *conc = &PRH_IMPL_CONC;
-    prh_thrdpool_t *pool = conc->coro_thrd_pool;
-    int i = 0, numthread = conc->numcorothrds;
-    if (usemainthrd) {
-        conc->coro_thrd_list -= 1;
-        conc->numcorothrds += 1;
-    }
-    for (; i < numthread; i += 1) {
+    for (int i = 0; i < numthread; i += 1) {
         prh_thread_ext_create(pool, prh_impl_conc_thrd_proc, 0, sizeof(prh_thread_t), (prh_thrdudinit_t)prh_impl_conc_thrd_init);
     }
+}
+
+prh_cono_t prh_cono_create(prh_coroproc_t proc, int stack_size, void *ptr_udata) {
+    prh_coro_t *p = prh_coro_create(0, proc, stack_size, ptr_udata);
+}
+
+prh_cono_t prh_cono_ext_create(prh_coroproc_t proc, int stack_size, int userdata_bytes, void (*coroudinit)(void *)) {
+    prh_coro_t *p = prh_coro_ext_create(0, proc, stack_size, userdata_bytes);
+    if (coroudinit) {
+        coroudinit(prh_coroutine_userdata(p));
+    }
+}
+
+void prh_conc_run(prh_coroproc_t co_main) {
+    prh_conc_t *conc = &PRH_IMPL_CONC;
+    prh_thrdpool_t *pool = conc->coro_thrd_pool;
+    prh_thread_t *main = prh_thread_main_userdata(pool);
+    prh_atomtype_store(&main->thread_available, true);
+    prh_impl_conc_thrd_proc(prh_thread_main(pool));
     prh_thread_join(&conc->coro_thrd_pool, (prh_thrdudfree_t)prh_impl_conc_thrd_free);
 }
 
