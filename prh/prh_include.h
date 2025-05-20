@@ -1344,7 +1344,7 @@ void prh_test_code(void) {
 // ARRAYS - Very simple single file style library for array data structures
 //
 //  * fixed runtime length array
-//              [len][elem][elem]...
+//          [cap][end][elem][elem]...
 //                    ^
 //    arrfix elt ptr  |
 //
@@ -1361,13 +1361,13 @@ void prh_test_code(void) {
 // USAGE
 //
 //   struct fix_ints {
-//      int *fixed_array;
+//      int *PREFIX_;
 //   };
 //   struct dyn_ints {
-//      nt *dynamic_array;
+//      int *PREFIX_array;
 //   };
 //   struct dea_ints {
-//      int *double_ended_array;
+//      int *PREFIX_dearr;
 //   };
 //
 //   struct fix_ints fix_ints = {0};
@@ -1389,6 +1389,12 @@ void prh_test_code(void) {
 //   array_len(&dyn_ints);
 //   array_clear(&dyn_ints);
 //   array_free(&dyn_ints);
+//
+// struct SliceStruct {
+//      T *ptr;
+//      prh_uinp len;
+//      prh_uinp cap;
+// };
 #ifdef PRH_ARRAY_INCLUDE
 
 #ifndef PRH_ARRAY_INIT_ELEMS
@@ -1399,87 +1405,96 @@ void prh_test_code(void) {
 #define PRH_ARRAY_SIZE_EXPAND 0
 #endif
 
-struct prh_impl_array_header {
+typedef struct {
     prh_intp cap;
     prh_intp len;
-};
+} prh_impl_array_t;
 
-#define prh_impl_array_elt_bytes(p) sizeof(*((p)->dynamic_array))
-#define prh_impl_array_get_header(p) ((p)->dynamic_array ? (((struct prh_impl_array_header *)(p)->dynamic_array) - 1) : prh_null)
+typedef struct {
+    prh_intp cap;
+    prh_intp len;
+} prh_impl_string_t;
 
-prh_inline prh_intp prh_impl_array_cap(void *elt_ptr) {
-    return elt_ptr ? (((struct prh_impl_array_header *)elt_ptr) - 1)->cap : 0;
+typedef struct {
+    prh_intp cap;
+    prh_intp len;
+} prh_impl_fxarr_t;
+
+typedef struct {
+    prh_intp start;
+    prh_intp cap;
+    prh_intp len;
+} prh_impl_dearr_t;
+
+#define prh_impl_array_elt(s, PREFIX) ((s)->prh_macro_concat_name(PREFIX, _array))
+#define prh_impl_fxarr_elt(s, PREFIX) ((s)->prh_macro_concat_name(PREFIX, _fxarr))
+#define prh_impl_dearr_elt(s, PREFIX) ((s)->prh_macro_concat_name(PREFIX, _dearr))
+#define prh_impl_array_esz(s, PREFIX) sizeof(*prh_impl_array_elt((s), PREFIX, _array))
+#define prh_impl_fxarr_esz(s, PREFIX) sizeof(*prh_impl_array_elt((s), PREFIX, _fxarr))
+#define prh_impl_dearr_esz(s, PREFIX) sizeof(*prh_impl_array_elt((s), PREFIX, _dearr))
+#define prh_impl_array_hdr(s, PREFIX) ((prh_impl_array_t *)prh_impl_array_elt((s), PREFIX, _array) - 1)
+#define prh_impl_fxarr_hdr(s, PREFIX) ((prh_impl_fxarr_t *)prh_impl_array_elt((s), PREFIX, _fxarr) - 1)
+#define prh_impl_dearr_hdr(s, PREFIX) ((prh_impl_dearr_t *)prh_impl_array_elt((s), PREFIX, _dearr) - 1)
+
+prh_inline prh_intp *prh_impl_array_cap(void *elt_ptr) {
+    return (prh_intp *)((void **)elt_ptr - 2);
 }
 
-prh_inline prh_intp prh_impl_array_len(void *elt_ptr) {
-    return elt_ptr ? (((struct prh_impl_array_header *)elt_ptr) - 1)->len : 0;
+prh_inline prh_intp *prh_impl_array_len(void *elt_ptr) {
+    return (prh_intp *)((void **)elt_ptr - 1);
 }
 
 prh_inline void prh_impl_array_clear(void *elt_ptr) {
     if (elt_ptr) {
-        (((struct prh_impl_array_header *)elt_ptr) - 1)->len = 0;
+        (((prh_impl_array_t *)elt_ptr) - 1)->len = 0;
     }
 }
 
-#define prh_impl_array_expand(prh_p, elt_count) \
+#define prh_impl_array_expand(s, elt_count) \
     prh_intp prh_new_elts = (prh_intp)(elt_count); \
-    struct prh_impl_array_header *prh_h = prh_impl_array_get_header(prh_p); \
+    prh_impl_array_t *prh_h = prh_impl_array_get_header(s); \
     if (prh_h == prh_null || prh_h->len + prh_new_elts > prh_h->cap) { \
         prh_intp prh_len = 0, prh_cap = PRH_ARRAY_INIT_ELEMS; \
         if (prh_h) { prh_len = prh_h->len; prh_cap = prh_h->cap; } \
         prh_cap = PRH_ARRAY_SIZE_EXPAND > 0 ? (prh_cap + PRH_ARRAY_SIZE_EXPAND) : (prh_cap * 2); \
         if (prh_len + prh_new_elts > prh_cap) prh_cap = prh_len + prh_new_elts; \
-        prh_h = prh_realloc(prh_h, sizeof(struct prh_impl_array_header) + prh_cap * prh_impl_array_elt_bytes(prh_p)); \
+        prh_h = prh_realloc(prh_h, sizeof(prh_impl_array_t) + prh_cap * prh_impl_array_elt_bytes(s)); \
         assert(prh_h != prh_null && "oops memory overflow"); prh_h->cap = prh_cap; prh_h->len = prh_len; \
-        prh_p->dynamic_array = (prh_typeof(prh_p->dynamic_array))(prh_h + 1); \
+        s->dynamic_array = (prh_typeof(s->dynamic_array))(prh_h + 1); \
     }
 
-#define prh_array_free(arr_ptr) \
-    do { \
-        prh_typeof(arr_ptr) prh_p = (arr_ptr); \
-        if (prh_p->dynamic_array) \
-        { \
-            prh_free(prh_impl_array_get_header(prh_p)); \
-            prh_p->dynamic_array = prh_null; \
-        } \
-    } while (0)
+void prh_impl_array_free(prh_byte **elt_ptr, int hdr);
 
-#define prh_array_expand(arr_ptr, num_elts) \
-    do { \
-        prh_typeof(arr_ptr) prh_p = (arr_ptr); \
-        prh_intp prh_n = (prh_intp)(num_elts); assert(prh_n > 0); \
+#define prh_array_free(struct_ptr, PREFIX) \
+    prh_impl_array_free(&prh_impl_array_elt((struct_ptr), PREFIX), sizeof(prh_impl_array_t))
+#define prh_fxarr_free(struct_ptr, PREFIX) \
+    prh_impl_array_free(&prh_impl_fxarr_elt((struct_ptr), PREFIX), sizeof(prh_impl_fxarr_t))
+#define prh_dearr_free(struct_ptr, PREFIX) \
+    prh_impl_array_free(&prh_impl_dearr_elt((struct_ptr), PREFIX), sizeof(prh_impl_dearr_t))
+
+#define prh_array_push(struct_ptr, PREFIX, elt_value) {                         \
+    prh_typeof(struct_ptr) prh_impl_s = (struct_ptr);                           \
+    prh_typeof(prh_impl_array_elt(prh_impl_s, PREFIX)) prh_impl_p =             \
+        prh_impl_array_elt(prh_impl_s, PREFIX);                                 \
+    prh_impl_array_expand(prh_impl_s, 1);                                       \
+    prh_intp *len = prh_impl_array_len(prh_impl_p);                             \
+    prh_impl_p[(*len)++] = (elt_value);                                         \
+}
+
+#define prh_array_push_n(struct_ptr, elt_ptr, num_elts) { \
+    prh_typeof(struct_ptr) prh_p = (struct_ptr); prh_intp prh_n = (num_elts); \
+    prh_typeof(prh_p->dynamic_array) prh_elt_ptr = (elt_ptr); \
+    if (prh_elt_ptr && prh_n > 0) { \
         prh_impl_array_expand(prh_p, prh_n); \
-    } while (0)
-
-#define prh_array_push(arr_ptr, arr_elt_value) \
-    do { \
-        prh_typeof(arr_ptr) prh_p = (arr_ptr); \
-        prh_impl_array_expand(prh_p, 1); \
-        prh_p->dynamic_array[prh_h->len++] = (arr_elt_value); \
-    } while (0)
-
-#define prh_array_push_elt(arr_ptr, arr_elt_value_ptr) \
-    do { \
-        prh_typeof(arr_ptr) prh_p = (arr_ptr); \
-        prh_impl_array_expand(prh_p, 1); \
-        prh_p->dynamic_array[prh_h->len++] = *(arr_elt_value_ptr); \
-    } while (0)
-
-#define prh_array_push_elts(arr_ptr, arr_elt_ptr, num_elts) \
-    do { \
-        prh_typeof(arr_ptr) prh_p = (arr_ptr); prh_intp prh_n = (num_elts); \
-        prh_typeof(prh_p->dynamic_array) prh_elt_ptr = (arr_elt_ptr); \
-        if (prh_elt_ptr && prh_n > 0) { \
-            prh_impl_array_expand(prh_p, prh_n); \
-            memcpy(p->dynamic_array + prh_h->len, prh_elt_ptr, prh_n * prh_impl_array_elt_bytes(prh_p)); \
-            h->len += prh_n; \
-        } \
-    } while (0)
+        memcpy(p->dynamic_array + prh_h->len, prh_elt_ptr, prh_n * prh_impl_array_elt_bytes(prh_p)); \
+        h->len += prh_n; \
+    } \
+}
 
 #define prh_array_del(arr_ptr, i) \
     do { \
         prh_typeof(arr_ptr) prh_p = (arr_ptr); prh_intp prh_i = (prh_intp)(i); \
-        struct prh_impl_array_header *prh_h = prh_impl_array_get_header(prh_p); \
+        prh_impl_array_t *prh_h = prh_impl_array_get_header(prh_p); \
         if (prh_h && prh_i >= 0 && prh_i < prh_h->len) { \
             prh_h->len -= 1; unsigned prh_intp prh_move_bytes = (prh_h->len - prh_i) * prh_impl_array_elt_bytes(prh_p); \
             memmove(prh_p->dynamic_array + prh_i, prh_p->dynamic_array + prh_i + 1, prh_move_bytes); \
@@ -1489,7 +1504,7 @@ prh_inline void prh_impl_array_clear(void *elt_ptr) {
 #define prh_array_pop_elts(arr_ptr, n) \
     do { \
         prh_typeof(arr_ptr) prh_p = (arr_ptr); prh_intp prh_elts = (prh_intp)(n); \
-        struct prh_impl_array_header *prh_h = prh_impl_array_get_header(prh_p); \
+        prh_impl_array_t *prh_h = prh_impl_array_get_header(prh_p); \
         assert(prh_h && prh_elts >= 0 && prh_elts <= prh_h->len); prh_h->len -= prh_elts; \
     } while (0)
 
@@ -1517,6 +1532,16 @@ prh_inline void prh_impl_array_clear(void *elt_ptr) {
 #define array_get           prh_array_get
 #define array_elt_ptr       prh_array_elt_ptr
 #endif // PRH_ARRAY_STRIP_PREFIX
+
+#ifdef PRH_ARRAY_IMPLEMENTAION
+void prh_impl_array_free(prh_byte **elt_ptr, int hdr) {
+    prh_byte *elt = *elt_ptr;
+    if (elt) {
+        prh_free(elt - hdr);
+        *elt_ptr = prh_null;
+    }
+}
+#endif // PRH_ARRAY_IMPLEMENTAION
 #endif // PRH_ARRAY_INCLUDE
 
 #ifdef PRH_LIST_INCLUDE
