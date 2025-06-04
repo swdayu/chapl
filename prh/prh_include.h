@@ -1,6 +1,9 @@
 // prh_include.h - public domain - swdayu <github.com/swdayu>
+// No warranty implied, use at your own risk.
 //
-// Version Conventions
+// REVISION HISTORY
+//
+// VERSION CONVENTIONS
 //
 // We are following https://semver.org/ as format MAJOR.MINOR.PATCH:
 // - Modifying comments does not update the version.
@@ -15,7 +18,11 @@
 // - MAJOR update should be just a periodic cleanup of the deprecated
 //   functions and types without really modifying any existing functionality.
 //
-// Naming Conventions
+// LICENSE
+//
+// See end of the file for license information.
+//
+// NAMING CONVENTIONS
 //
 // Since Pure C does not have any namespaces, we prefix each name of the API
 // with the `prh_` or `PRH_` to avoid any potential conflicts with any other
@@ -41,7 +48,7 @@
 // are implementation details of the library, the user should not directly
 // use them.
 //
-// Stripping Off Prefix
+// PREFIX STRIPPING
 //
 // The prefixed names sometimes are very annoying and make the code noisy. If
 // you know that part of prh_include.h names are not conflict with your code,
@@ -575,7 +582,7 @@ extern "C" {
 #endif
 
 #ifndef prh_release_assert
-    #define prh_release_assert(a) (void)((!!(a)) || prh_impl_assert(__LINE__))
+    #define prh_release_assert(a) if (!(a)) prh_impl_assert(__LINE__)
     void prh_impl_assert(int line);
 #endif
 
@@ -816,6 +823,71 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
 #endif
 #endif
 
+#if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
+// The macro that is only defined if compiling for FreeBSD.
+#define prh_plat_freebsd 1
+#endif
+
+#if (defined(linux) || defined(__linux) || defined(__linux__))
+// The macro that is only defined if compiling for Linux.
+// Note that Android, although ostensibly a Linux-based system, will not
+// define this. It defines prh_plat_android instead.
+#define prh_plat_linux 1
+#endif
+
+#if defined(ANDROID) || defined(__ANDROID__)
+// The macro that is only defined if compiling for Android.
+#define prh_plat_android 1
+#undef prh_plat_linux
+#endif
+
+#if defined(__unix__) || defined(__unix) || defined(unix)
+// The macro that is only defined if compiling for a Unix-like system.
+// Other platforms, like Linux, might define this in addition to their
+// primary define.
+#define prh_plat_unix 1
+#endif
+
+#if defined(__EMSCRIPTEN__)
+// The macro that is only defined if compiling for Emscripten.
+#define prh_plat_emscripten 1
+#endif
+
+#if defined(__NetBSD__)
+// The macro that is only defined if compiling for NetBSD.
+#define prh_plat_netbsd 1
+#endif
+
+#if defined(__OpenBSD__)
+// The macro that is only defined if compiling for OpenBSD.
+#define prh_plat_openbsd 1
+#endif
+
+#if defined(__APPLE__)
+// The macro that is only defined if compiling for Apple platforms.
+// iOS, macOS, etc will additionally define a more specific platform macro.
+// +---------------------------------------------------------------------+
+// |                            TARGET_OS_MAC                            |
+// | +---+ +-----------------------------------------------+ +---------+ |
+// | |   | |               TARGET_OS_IPHONE                | |         | |
+// | |   | | +---------------+ +----+ +-------+ +--------+ | |         | |
+// | |   | | |      IOS      | |    | |       | |        | | |         | |
+// | |OSX| | |+-------------+| | TV | | WATCH | | BRIDGE | | |DRIVERKIT| |
+// | |   | | || MACCATALYST || |    | |       | |        | | |         | |
+// | |   | | |+-------------+| |    | |       | |        | | |         | |
+// | |   | | +---------------+ +----+ +-------+ +--------+ | |         | |
+// | +---+ +-----------------------------------------------+ +---------+ |
+// +---------------------------------------------------------------------+
+// https://developer.apple.com/documentation/kernel/mach
+// https://github.com/phracker/MacOSX-SDKs/tree/master/MacOSX11.3.sdk
+// https://www.manpagez.com/man/3/clock_gettime/
+#define prh_plat_apple 1
+#endif
+
+#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
+#define prh_plat_windows 1
+#endif
+
 // CYGWIN 是一个在 Windows 操作系统上模拟 Unix/Linux 环境的大型工具集，它借助一个
 // 动态链接库cygwin1.dll来模拟许多类 Unix 系统调用和 POSIX API。当你在 CYGWIN 环
 // 境中运行程序时，程序会调用cygwin1.dll，该库再将这些调用转换为 Windows API 调用，
@@ -859,8 +931,7 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
 
 #if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
     defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION)
-#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
-    #define prh_plat_windows
+#if defined(prh_plat_windows)
     // Predefined macros:
     //      _WIN16      A 16-bit platform
     //      _WIN32      A 32-bit platform. This value is also defined by the
@@ -1128,13 +1199,72 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
     // might actually be supported. If an application wants to take advantage
     // of values which may change between systems, a call to sysconf() can
     // be made. The sysconf() argument will be _SC_FOO.
-    #define prh_plat_posix
+    #define prh_plat_posix 1
     #define _POSIX_C_SOURCE 200809L
     // glibc https://www.gnu.org/software/libc/
     // getconf GNU_LIBC_VERSION, ldd --version, ldd `which ls` | grep libc
+    #ifndef _GNU_SOURCE // Many features require _GNU_SOURCE on various platforms
     #define _GNU_SOURCE // pthread_getattr_np glibc 2.2.3, __GLIBC__ __GLIBC_MINOR__
-    #include <pthread.h> // pthread_create POSIX.1-2008
-    #include <unistd.h> // sysconf confstr POSIX.1-2008
+    #endif
+    // Need this so Linux systems define fseek64o, ftell64o and off64_t
+    #ifndef _LARGEFILE64_SOURCE
+    #define _LARGEFILE64_SOURCE 1
+    #endif
+    #if defined(prh_plat_apple)
+    #ifndef _DARWIN_C_SOURCE // Restore Darwin APIs removed by _POSIX_C_SOURCE
+        #define _DARWIN_C_SOURCE 1
+    #endif
+    #include <Availability.h>
+    // https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX11.3.sdk/usr/include/AvailabilityMacros.h
+    // https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX11.3.sdk/usr/include/TargetConditionals.h
+    #include <AvailabilityMacros.h> // AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER
+    #ifndef __has_extension // older compilers don't support this
+        #define __has_extension(x) 0
+        #include <TargetConditionals.h>
+        #undef __has_extension
+    #else
+        #include <TargetConditionals.h>
+    #endif
+    // Fix building with older SDKs that don't define these. More information:
+    // https://stackoverflow.com/questions/12132933/preprocessor-macro-for-os-x-targets
+    // TARGET_OS_MAC - Generated code will run under Mac OS X variant
+    //      TARGET_OS_OSX               - Generated code will run under OS X devices
+    //      TARGET_OS_IPHONE            - Generated code for firmware, devices, or simulator
+    //          TARGET_OS_IOS           - Generated code will run under iOS
+    //          TARGET_OS_TV            - Generated code will run under Apple TV OS
+    //          TARGET_OS_WATCH         - Generated code will run under Apple Watch OS
+    //          TARGET_OS_BRIDGE        - Generated code will run under Bridge devices
+    //          TARGET_OS_MACCATALYST   - Generated code will run under macOS
+    //      TARGET_OS_SIMULATOR         - Generated code will run under a simulator
+    // TARGET_OS_EMBEDDED       - DEPRECATED: Use TARGET_OS_IPHONE and/or TARGET_OS_SIMULATOR instead
+    // TARGET_IPHONE_SIMULATOR  - DEPRECATED: Same as TARGET_OS_SIMULATOR
+    // TARGET_OS_NANO           - DEPRECATED: Same as TARGET_OS_WATCH
+    #ifndef TARGET_OS_MACCATALYST
+        #define TARGET_OS_MACCATALYST 0
+    #endif
+    #ifndef TARGET_OS_IOS
+        #define TARGET_OS_IOS 0
+    #endif
+    #ifndef TARGET_OS_IPHONE
+        #define TARGET_OS_IPHONE 0
+    #endif
+    #ifndef TARGET_OS_TV
+        #define TARGET_OS_TV 0
+    #endif
+    #ifndef TARGET_OS_SIMULATOR
+        #define TARGET_OS_SIMULATOR 0
+    #endif
+    #if TARGET_OS_IPHONE
+        // The macro that is only defined if compiling for iOS.
+        #define prh_plat_ios 1
+    #else
+        // The macro that is only defined if compiling for macOS.
+        #define prh_plat_macos 1
+        #if MAC_OS_X_VERSION_MIN_REQUIRED < 1070 // 10.12 101200
+        #error Only support deploying on MAC OS 10.7 and later.
+        #endif
+    #endif
+    #endif // prh_plat_apple
     // cc -dM -E -</dev/null
     // https://jdebp.uk/FGA/predefined-macros-compiler.html
     // https://jdebp.uk/FGA/predefined-macros-processor.html
@@ -1142,6 +1272,39 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
     // https://jdebp.uk/FGA/predefined-macros-platform.html
     // https://docwiki.embarcadero.com/RADStudio/Alexandria/en/Predefined_Macros
     // https://docs.freebsd.org/en/books/porters-handbook/porting-dads/#porting-versions
+    // https://docs-archive.freebsd.org/doc/7.3-RELEASE/usr/share/doc/zh_CN/books/porters-handbook/porting-versions.html
+    // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/
+    // https://man.freebsd.org/cgi/man.cgi/help.html
+    // https://developer.apple.com/library/archive/documentation/Porting/Conceptual/PortingUnix/compiling/compiling.html
+    //
+    // __MACH__
+    //      This macro is defined if Mach system calls are supported.
+    // __APPLE__
+    //      This macro is defined in any Apple computer. Note: To define a section
+    //      of code to be compiled on OSX system, you should define a section using
+    //      __APPLE__ with __MACH__ macros. The macro __UNIX__ is not defined in
+    //      OSX.
+    // __APPLE_CC__
+    //      This macro is set to an integer that represents the version number of
+    //      the compiler. This lets you distinguish, for example, between compilers
+    //      based on the same version of GCC, but with different bug fixes or
+    //      features. Larger values denote later compilers.
+    // __BIG_ENDIAN__ and __LITTLE_ENDIAN__
+    //      These macros tell whether the current architecture uses little endian
+    //      or big endian byte ordering. For more information, see Compiling for
+    //      Multiple CPU Architectures.
+    //
+    // 通俗的来讲，Apple现在的主要操作系统，无论是macOS、iOS还是iPadOS，甚至是HomePod和
+    // Apple TV（TvOS）都是建立在Darwin的基础上。Darwin 是苹果公司开发的操作系统内核，是
+    // macOS 和 iOS 的基础。它基于 Mach 微内核和 FreeBSD 的某些部分。
+    //
+    // __APPLE__ 宏有一个且只有一个有效的用途：在检查 BSD 系统时识别 Darwin。它仅由苹果
+    // 提供的编译器和苹果分叉的编译器定义，例如 lvm-gcc、苹果旧版的 GCC 4 分叉版本以及
+    // Clang。此外，一些寻求与这些编译器兼容的编译器（如 IBM 的 XLC++）也会定义这个宏。
+    // 即使在这种情况下，__APPLE__ 也仅在目标平台是 Darwin 时被定义。当你需要在代码中区分
+    // 不同的 Unix 系统（如 Linux、FreeBSD、OpenBSD 等）时，__APPLE__ 宏可以帮助你识别
+    // Darwin 系统。如果你在其他情况下使用 __APPLE__ 宏，你可能正在做一件非常错误的事情。
+    // __APPLE__ 宏并不意味着目标设备是 macOS 或 iOS。它仅表示目标平台是 Darwin。
     //
     // __APPLE__ the target platform api is "Apple-ish"                         llvm-gcc Clang
     // __MACH__ the target platform api is Mach-based (including NextSTEP and MacOS 10)     GCC Clang
@@ -1167,39 +1330,8 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
     #if defined(__unix__) || defined(__UNIX__) || (defined(__APPLE__) && defined(__MACH__))
     #include <sys/param.h>
     #endif
-    // 通俗的来讲，Apple现在的主要操作系统，无论是macOS、iOS还是iPadOS，甚至是HomePod和
-    // Apple TV（TvOS）都是建立在Darwin的基础上。Darwin 是苹果公司开发的操作系统内核，是
-    // macOS 和 iOS 的基础。它基于 Mach 微内核和 FreeBSD 的某些部分。
-    //
-    // __APPLE__ 宏有一个且只有一个有效的用途：在检查 BSD 系统时识别 Darwin。它仅由苹果
-    // 提供的编译器和苹果分叉的编译器定义，例如 lvm-gcc、苹果旧版的 GCC 4 分叉版本以及
-    // Clang。此外，一些寻求与这些编译器兼容的编译器（如 IBM 的 XLC++）也会定义这个宏。
-    // 即使在这种情况下，__APPLE__ 也仅在目标平台是 Darwin 时被定义。当你需要在代码中区分
-    // 不同的 Unix 系统（如 Linux、FreeBSD、OpenBSD 等）时，__APPLE__ 宏可以帮助你识别
-    // Darwin 系统。如果你在其他情况下使用 __APPLE__ 宏，你可能正在做一件非常错误的事情。
-    // __APPLE__ 宏并不意味着目标设备是 macOS 或 iOS。它仅表示目标平台是 Darwin。
-    //
-    // https://developer.apple.com/library/archive/documentation/Porting/Conceptual/PortingUnix/compiling/compiling.html
-    //
-    // __MACH__
-    //      This macro is defined if Mach system calls are supported.
-    // __APPLE__
-    //      This macro is defined in any Apple computer. Note: To define a section
-    //      of code to be compiled on OSX system, you should define a section using
-    //      __APPLE__ with __MACH__ macros. The macro __UNIX__ is not defined in
-    //      OSX.
-    // __APPLE_CC__
-    //      This macro is set to an integer that represents the version number of
-    //      the compiler. This lets you distinguish, for example, between compilers
-    //      based on the same version of GCC, but with different bug fixes or
-    //      features. Larger values denote later compilers.
-    // __BIG_ENDIAN__ and __LITTLE_ENDIAN__
-    //      These macros tell whether the current architecture uses little endian
-    //      or big endian byte ordering. For more information, see Compiling for
-    //      Multiple CPU Architectures.
-    //
-    // https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/
-    // https://man.freebsd.org/cgi/man.cgi/help.html
+    #include <pthread.h> // pthread_create POSIX.1-2008
+    #include <unistd.h> // sysconf confstr POSIX.1-2008
     #include <errno.h> // ETIMEDOUT ...
     #define PRH_POSIX_ZERORET(a) if (a) { prh_prerr_exit(errno); }
 #endif
@@ -1238,72 +1370,17 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
 #include <stdio.h>
 #include <stdlib.h>
 void prh_impl_assert(int line) {
-    fprintf(stderr, "assert: line %d\n", line);
+    fprintf(stderr, "assert line %d\n", line);
     abort();
 }
 void prh_impl_prerr(int err, int line) {
-    fprintf(stderr, "error: %d at %d\n", err, line);
+    fprintf(stderr, "error %d line %d\n", err, line);
 }
 void prh_impl_prerr_exit(int err, int line) {
     prh_impl_prerr(err, line);
     exit(line);
 }
 #endif // PRH_BASE_IMPLEMENTATION
-
-#ifdef PRH_TEST_IMPLEMENTATION
-#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
-void prh_impl_atomic_test(void);
-#endif
-#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
-void prh_impl_time_test(void);
-#endif
-#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
-void prh_impl_thrd_test(void);
-#endif
-#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
-void prh_impl_conc_test(void);
-#endif
-void prh_impl_basic_test(void) {
-    int a = 0, b = 1;
-    int *len = &a;
-    (*len)++; prh_release_assert(a == 1 && len == &a);
-    *len++; prh_release_assert(a == 1 && len == &a + 1);
-    memcpy(&a, &b, 0); // 长度参数可以传递数值零
-    memmove(&a, &b, 0);
-    memset(&a, 2, 0);
-}
-void prh_test_code(void) {
-#if defined(__linux__)
-    printf("__linux__ %d defined\n", __linux__);
-#endif
-#if defined(__LINUX__)
-    printf("_LINUX__ %d defined\n", __LINUX__);
-#endif
-#if defined(__unix__)
-    printf("__unix__ %d defined\n", __unix__);
-#endif
-#if defined(__UNIX__)
-    printf("__UNIX__ %d defined\n", __UNIX__);
-#endif
-#if defined(BSD)
-    printf("BSD %d defined\n", BSD);
-#endif
-    printf("PRH_DEBUG %d\n", PRH_DEBUG);
-    prh_impl_basic_test();
-#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
-    prh_impl_atomic_test();
-#endif
-#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
-    prh_impl_time_test();
-#endif
-#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
-    prh_impl_thrd_test();
-#endif
-#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
-    prh_impl_conc_test();
-#endif
-}
-#endif // PRH_TEST_IMPLEMENTATION
 
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
@@ -1358,6 +1435,99 @@ void prh_test_code(void) {
     #endif
 #endif // prh_impl_pthread_getattr
 #endif // prh_plat_posix
+
+#ifdef PRH_TEST_IMPLEMENTATION
+#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
+void prh_impl_atomic_test(void);
+#endif
+#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+void prh_impl_time_test(void);
+#endif
+#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+void prh_impl_thrd_test(void);
+#endif
+#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
+void prh_impl_conc_test(void);
+#endif
+void prh_impl_basic_test(void) {
+    int a[6] = {0}, b = 1, count = 0;
+    int len, *len_ptr = a;
+    len = (*len_ptr)++; prh_release_assert(len == 0 && a[0] == 1 && len_ptr == a);
+    len = ++*len_ptr; prh_release_assert(len == 2 && a[0] == 2 && len_ptr == a);
+    len = *len_ptr++; prh_release_assert(len == 2 && a[0] == 2 && len_ptr == a + 1);
+    len = *++len_ptr; prh_release_assert(len == 0 && a[0] == 2 && len_ptr == a + 2);
+    memcpy(&a, &b, count); // 长度参数可以传递数值零
+    memmove(&a, &b, count);
+    memset(&a, 2, count);
+}
+void prh_test_code(void) {
+#if defined(__linux__)
+    printf("__linux__ %d defined\n", __linux__);
+#endif
+#if defined(__LINUX__)
+    printf("__LINUX__ %d defined\n", __LINUX__);
+#endif
+#if defined(__linux)
+    printf("__linux %d defined\n", __linux);
+#endif
+#if defined(linux)
+    printf("linux %d defined\n", linux);
+#endif
+#if defined(__unix__)
+    printf("__unix__ %d defined\n", __unix__);
+#endif
+#if defined(__UNIX__)
+    printf("__UNIX__ %d defined\n", __UNIX__);
+#endif
+#if defined(__unix)
+    printf("__unix %d defined\n", __unix);
+#endif
+#if defined(unix)
+    printf("unix %d defined\n", unix);
+#endif
+#if defined(BSD)
+    printf("BSD %d defined\n", BSD);
+#endif
+    printf("PRH_DEBUG %d\n", PRH_DEBUG);
+#if defined(MAC_OS_X_VERSION_MAX_ALLOWED)
+    printf("MAC_OS_X_VERSION_MAX_ALLOWED %d\n", MAC_OS_X_VERSION_MAX_ALLOWED);
+#endif
+#if defined(MAC_OS_X_VERSION_MIN_REQUIRED)
+    printf("MAC_OS_X_VERSION_MIN_REQUIRED %d\n", MAC_OS_X_VERSION_MIN_REQUIRED);
+#endif
+#if defined(_MSC_VER)
+    printf("msc version %d\n", _MSC_VER);
+#endif
+#if defined(PRH_GCC_VERSION)
+    printf("gcc version %d\n", PRH_GCC_VERSION);
+#endif
+#if defined(PRH_CLANG_VERSION)
+    printf("clang version %d\n", PRH_CLANG_VERSION);
+#endif
+#if defined(PRH_GLIBC_VERSION)
+    printf("glibc version %d\n", PRH_GLIBC_VERSION);
+#endif
+#if defined(__STDC_VERSION__)
+    printf("stdc version %d\n", __STDC_VERSION__);
+#endif
+#if defined(__cplusplus)
+    printf("c++ version %d\n", __cplusplus);
+#endif
+    prh_impl_basic_test();
+#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
+    prh_impl_atomic_test();
+#endif
+#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+    prh_impl_time_test();
+#endif
+#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+    prh_impl_thrd_test();
+#endif
+#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
+    prh_impl_conc_test();
+#endif
+}
+#endif // PRH_TEST_IMPLEMENTATION
 
 // ARRAYS - Very simple single file style library for array data structures
 //
@@ -4107,73 +4277,80 @@ void prh_impl_atomic_test(void) {
 // 1000000000-nsec 纳秒 nanosecond 最大值10亿可以用int32表示，int32最大值为20亿
 // 1GHZ 1000MHZ 1000000KHZ 1000000000HZ 相当于 1-nsec per tick
 // 一天24小时*3600秒，共86400秒*365天，一年共31536000秒
-// UTC时间从1970/1/1 00:00:00开始，uint32只能表示136年大约在2106年失效，而int64
-// 可以表示正负2.9千亿年，如果保存毫秒可以表示2.9亿年，如果保存微妙可以表示29万年，
-// 如果保存纳秒可以表示292年。int32保存秒可以表示68年，保存毫秒可以表示24天，保存微
-// 秒可以表示35分钟，保存纳秒可以表示2秒。
+//
+// int64 保持秒可以表示正负2.9千亿年        int32 保存秒可以表示68年
+//       如果保存毫秒可以表示2.9亿年              保存毫秒可以表示24天
+//       如果保存微妙可以表示29万年               保存微秒可以表示35分钟
+//       如果保存纳秒可以表示292年                保存纳秒可以表示2秒
+//
 // The epoch of system_clock is unspecified, but most implementations use Unix
 // Time (i.e., time since 00:00:00 Coordinated Universal Time (UTC), Thursday,
 // 1 January 1970, not counting leap seconds).
+//
+// UTC时间从1970/1/1 00:00:00开始，uint32 只能表示 136 年大约在 2106 年失效。在32位
+// Linux系统上，time_t是一个32位有符号整数，可以表示的日期范围从 1901/12/13 20:45:52
+// 至 2038/1/19 03:14:07。
 
 // Epoch delta from 0000/1/1 to 1970/1/1
 #define PRH_EPOCH_DELTA_SEC  0x0000000E79844E00LL // 62168256000-sec
 #define PRH_EPOCH_DELTA_MSEC 0x0000388AACD0B000LL // 62168256000000-msec
 #define PRH_EPOCH_DELTA_USEC 0x00dcddb30f2f8000LL // 62168256000000000-usec
 
+#define PRH_MSEC_PER_SEC 1000
+#define PRH_USEC_PER_SEC 1000000
+#define PRH_NSEC_PER_SEC 1000000000
+
 typedef prh_i64 prh_timesec_t; // 最大可以表示正负2.9千亿年
 
 typedef struct {
-    prh_i64 msec; // millisecond 保存毫秒可以表示2.9亿年
-} prh_timemsec_t;
-
-typedef struct {
-    prh_i64 usec; // microsecond 保存微妙可以表示29万年
+    prh_timesec_t sec;
+    prh_int usec;
 } prh_timeusec_t;
-
-typedef struct {
-    prh_i64 nsec; // nanosecond 保存纳秒最大可以表示292年
-} prh_timensec_t;
-
-typedef struct {
-    prh_i64 ticks; // 如果精度为纳秒（精度为1000000000每秒，1GHZ）可以表示292年
-} prh_timetick_t;
 
 typedef struct {
     prh_timesec_t sec;
     prh_int nsec;
-} prh_timespec_t;
+} prh_timensec_t;
 
 typedef struct {
     prh_int year;   // 正负20亿年
+    prh_int usec;   // 0 ~ 999999
     prh_byte month; // 1 ~ 12
     prh_byte mday;  // 1 ~ 31
     prh_byte wday;  // 0 ~ 6 (sunday = 0)
     prh_byte hour;  // 0 ~ 23
     prh_byte min;   // 0 ~ 59
     prh_byte sec;   // 0 ~ 60 since C99
-    prh_u16 msec;   // 0 ~ 999
 } prh_datetime_t;
 
 #define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SEC)
 #define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SEC)
 
 void prh_time_init(void);
+void prh_system_time(prh_timeusec_t *t);
+void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p);
+void prh_date_yday(prh_datetime_t *t);
 prh_i64 prh_system_secs(void);
 prh_i64 prh_system_msec(void);
 prh_i64 prh_system_usec(void);
-void prh_date_from_msec(prh_datetime_t *t, prh_i64 utc_msec);
-void prh_date_from_usec(prh_datetime_t *t, prh_i64 utc_usec);
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc);
-void prh_day_of_year(prh_datetime_t *t);
 prh_i64 prh_steady_secs(void);
 prh_i64 prh_steady_msec(void);
 prh_i64 prh_steady_usec(void);
 prh_i64 prh_steady_nsec(void);
-prh_i64 prh_precise_tick(void);
-prh_i64 prh_elapsed_secs(prh_i64 ticks);
-prh_i64 prh_elapsed_msec(prh_i64 ticks);
-prh_i64 prh_elapsed_usec(prh_i64 ticks);
-prh_i64 prh_elapsed_nsec(prh_i64 ticks);
+prh_i64 prh_clock_ticks(void); // 如果精度为纳秒（精度为1000000000每秒，1GHZ）可以表示292年
+prh_i64 prh_elapse_secs(prh_i64 ticks);
+prh_i64 prh_elapse_msec(prh_i64 ticks);
+prh_i64 prh_elapse_usec(prh_i64 ticks);
+prh_i64 prh_elapse_nsec(prh_i64 ticks);
+prh_i64 prh_thread_time(void); // 当前线程执行时间，包含用户以及内核的执行时间
+
+prh_inline prh_i64 prh_system_msec_from(const prh_timeusec_t *p) {
+    return p->sec * PRH_MSEC_PER_SEC + p->usec / PRH_MSEC_PER_SEC;
+}
+
+prh_inline prh_i64 prh_system_usec_from(const prh_timeusec_t *p) {
+    return p->sec * PRH_USEC_PER_SEC + p->usec;
+}
 
 #ifdef PRH_TIME_IMPLEMENTATION
 typedef struct {
@@ -4182,35 +4359,18 @@ typedef struct {
 
 prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
 
-void prh_date_from_msec(prh_datetime_t *t, prh_i64 utc_msec) {
-    prh_date_time(t, utc_msec / 1000);
-    t->msec = utc_msec % 1000;
-}
-
-void prh_date_from_usec(prh_datetime_t *t, prh_i64 utc_usec) {
-    prh_date_from_msec(t, utc_usec / 1000);
-}
-
-prh_i64 prh_elapsed_secs(prh_i64 ticks) {
-    return ticks / PRH_IMPL_TIMEINIT.ticks_per_sec;
-}
-
-prh_i64 prh_elapsed_msec(prh_i64 ticks) {
-    // To guard against loss-of-precision, we convert to microseconds
-    // *before* dividing by ticks-per-second.
-    return ticks * 1000 / PRH_IMPL_TIMEINIT.ticks_per_sec;
-}
-
-prh_i64 prh_elapsed_usec(prh_i64 ticks) {
-    // To guard against loss-of-precision, we convert to microseconds
-    // *before* dividing by ticks-per-second.
-    return ticks * 1000000 / PRH_IMPL_TIMEINIT.ticks_per_sec;
-}
-
-prh_i64 prh_elapsed_nsec(prh_i64 ticks) {
-    // To guard against loss-of-precision, we convert to nanoseconds
-    // *before* dividing by ticks-per-second.
-    return ticks * 1000000000 / PRH_IMPL_TIMEINIT.ticks_per_sec;
+// https://github.com/rust-lang/rust/blob/3809bbf47c8557bd149b3e52ceb47434ca8378d5/src/libstd/sys_common/mod.rs#L124
+// Computes (value*numer)/denom without overflow, as long as both
+// (numer*denom) and the overall result fit into i64 (which is the case
+// for our time conversions). 分子（numerator）分母（denominator）
+// Decompose value as (value/denom*denom + value%denom):
+//      v * n / d = (v / d * d + v % d) * n / d =
+//      (v / d * d * n / d) + (v % d * n / d) =
+//      v / d * n + v % d * n / d = q * n + r * n / d
+prh_i64 prh_impl_mul_div(prh_i64 value, prh_i64 numer, prh_i64 denom) {
+    prh_i64 q = value / denom;
+    prh_i64 r = value % denom;
+    return q * numer + r * numer / denom;
 }
 
 #if defined(prh_plat_windows)
@@ -4754,6 +4914,7 @@ prh_i64 prh_elapsed_nsec(prh_i64 ticks) {
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC  0x00000002B6109100LL // 11644473600-sec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC 0x00000A9730B66800LL // 11644473600000-msec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC 0x00295E9648864000LL // 11644473600000000-usec
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_100N 0x019DB1DED53E8000LL // 116444736000000000-100nsec
 
 void prh_impl_1970_utc_secs_to_filetime(prh_i64 secs, FILETIME *f) {
     // The time functions included in the C run-time use the time_t type to
@@ -4772,18 +4933,28 @@ void prh_impl_1970_utc_secs_to_filetime(prh_i64 secs, FILETIME *f) {
 }
 
 prh_i64 prh_impl_1970_utc_time_secs(const FILETIME *f) {
-    prh_i64 secs = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    prh_i64 secs = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
     return secs / 10000000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC;
 }
 
 prh_i64 prh_impl_1970_utc_time_msec(const FILETIME *f) {
-    prh_i64 msec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    prh_i64 msec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
     return msec / 10000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC;
 }
 
 prh_i64 prh_impl_1970_utc_time_usec(const FILETIME *f) {
-    prh_i64 usec = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    prh_i64 usec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
     return usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
+}
+
+prh_i64 prh_impl_1970_utc_time_nsec(const FILETIME *f) {
+    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    return (nsec - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_100N) * 100;
+}
+
+prh_i64 prh_impl_filetime_nsec(const FILETIME *f) {
+    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    return nsec * 100;
 }
 
 prh_i64 prh_system_secs(void) { // 可表示2.9千亿年
@@ -4804,7 +4975,13 @@ prh_i64 prh_system_usec(void) { // 可表示29万年
     return prh_impl_1970_utc_time_usec(&f);
 }
 
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
+void prh_system_time(prh_timeusec_t *t) {
+    prh_i64 time = prh_system_usec();
+    t->sec = time / PRH_USEC_PER_SEC;
+    t->usec = time % PRH_USEC_PER_SEC;
+}
+
+void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p) {
     // void GetSystemTime(SYSTEMTIME *SystemTime);
     // void GetLocalTime(SYSTEMTIME *SystemTime);
     // Windows 2000 Professional Windows 2000 Server
@@ -4891,16 +5068,16 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
     //      readiness for more information.
     //      https://techcommunity.microsoft.com/blog/azuredevcommunityblog/it%e2%80%99s-2020-is-your-code-ready-for-leap-day/1157279
     FILETIME f; SYSTEMTIME s;
-    prh_impl_1970_utc_secs_to_filetime(utc, &f);
+    prh_impl_1970_utc_secs_to_filetime(p->sec, &f);
     PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
-    t->year = s->wYear;
-    t->month = s->wMonth;
-    t->mday = s->wDay;
-    t->wday = s->wDayOfWeek;
-    t->hour = s->wHour;
-    t->min = s->wMinute;
-    t->sec = s->wSecond;
-    t->msec = 0;
+    t->year = s.wYear;
+    t->month = s.wMonth;
+    t->mday = s.wDay;
+    t->wday = s.wDayOfWeek;
+    t->hour = s.wHour;
+    t->min = s.wMinute;
+    t->sec = s.wSecond;
+    t->usec = p->usec;
 }
 
 // Windows time is the number of milliseconds elapsed since the system was
@@ -4997,29 +5174,27 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
 //      _WIN32_WINNT as 0x0601 or later.
 
 prh_i64 prh_steady_secs(void) {
-    return (prh_i64)GetTickCount64() / 1000;
+    return (prh_i64)GetTickCount64() / PRH_MSEC_PER_SEC; // 包含睡眠时间
 }
 
 prh_i64 prh_steady_msec(void) {
 #if _WIN32_WINNT >= 0x0601
     ULONGLONG t;
     QueryInterruptTime(&t); // 精度 0.5msec ~ 15.625msec，包含睡眠时间
-    t->usec = (prh_i64)t / 10000;
+    return (prh_i64)t / 10000;
 #else
     return (prh_i64)GetTickCount64(); // 精度 10msec ~ 16msec，包含睡眠时间
 #endif
 }
 
 prh_i64 prh_steady_usec(void) {
-    prh_timetick_t ticks;
-    prh_precise_tick(&ticks);
-    return prh_elapsed_usec(&ticks);
+    prh_i64 ticks = prh_clock_ticks();
+    return prh_elapse_usec(ticks);
 }
 
 prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
-    prh_timetick_t ticks;
-    prh_precise_tick(&ticks); // 精度小于1微妙（<1us），包含待机休眠等睡眠时间
-    return prh_elapsed_nsec(&ticks);
+    prh_i64 ticks = prh_clock_ticks(); // 精度小于1微妙（<1us），包含待机休眠等睡眠时间
+    return prh_elapse_nsec(ticks);
 }
 
 // BOOL GetThreadTimes(HANDLE hThread,
@@ -5078,18 +5253,14 @@ prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
 //      Calling the CloseHandle function with this handle has no effect. If
 //      the pseudo handle is duplicated by DuplicateHandle, the duplicate
 //      handle must be closed.
-void prh_thread_time(prh_timeusec_t *t) {
+prh_i64 prh_thread_time(void) {
     HANDLE pseudo_handle = GetCurrentThread();
     FILETIME creation_time, exit_time, kernel_time, user_time;
     PRH_WINOS_BOOLRET(GetThreadTimes(pseudo_handle, &creation_time, &exit_time, &kernal_time, &user_time));
-    prh_i64 kernel_usec = ((prh_i64)kernel_time.dwHighDateTime << 32) | kernel_time.dwLowDateTime;
-    kernel_usec = kernel_usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
-    prh_i64 user_usec = ((prh_i64)user_time.dwHighDateTime << 32) | user_time.dwLowDateTime;
-    user_usec = user_usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
-    t->usec = kernel_usec + user_usec;
+    return prh_impl_filetime_nsec(&kernal_time) + prh_impl_filetime_nsec(&user_time);
 }
 
-prh_i64 prh_precise_tick(void) {
+prh_i64 prh_clock_ticks(void) {
     LARGE_INTEGER ticks;
     prh_boolret(QueryPerformanceCounter(&ticks));
     return ticks.QuadPart; // LONGLONG
@@ -5099,6 +5270,28 @@ void prh_time_init(void) {
     LARGE_INTEGER freq;
     prh_boolret(QueryPerformanceFrequency(&freq));
     PRH_IMPL_TIMEINIT.ticks_per_sec = freq.QuadPart;
+}
+
+prh_i64 prh_elapse_secs(prh_i64 ticks) {
+    return ticks / PRH_IMPL_TIMEINIT.ticks_per_sec;
+}
+
+prh_i64 prh_elapse_msec(prh_i64 ticks) {
+    // To guard against loss-of-precision, we convert to microseconds
+    // *before* dividing by ticks-per-second.
+    return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+}
+
+prh_i64 prh_elapse_usec(prh_i64 ticks) {
+    // To guard against loss-of-precision, we convert to microseconds
+    // *before* dividing by ticks-per-second.
+    return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+}
+
+prh_i64 prh_elapse_nsec(prh_i64 ticks) {
+    // To guard against loss-of-precision, we convert to nanoseconds
+    // *before* dividing by ticks-per-second.
+    return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -5122,23 +5315,23 @@ void prh_impl_time_test(void) {
         while ((t2 = prh_steady_msec()) == t1) {
             count += 1;
         }
-        printf("steady time msec: %lli count %d\n", (long long)t1, count);
+        printf("steady msec: %lli count %d\n", (long long)t1, count);
         t1 = t2;
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time usec: %lli\n", (long long)prh_steady_usec());
+        printf("steady usec: %lli\n", (long long)prh_steady_usec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time nsec: %lli\n", (long long)prh_steady_nsec());
-    }
-    prh_timeusec_t usec;
-    for (i = 0; i < n; i += 1) {
-        prh_thread_time(&usec);
-        printf("thread time usec: %lli\n", (long long)usec.usec);
+        printf("steady nsec: %lli\n", (long long)prh_steady_nsec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("precise ticks: %lli\n", (long long)prh_precise_tick());
+        printf("thread nsec: %lli\n", (long long)prh_thread_time());
     }
+    for (i = 0; i < n; i += 1) {
+        printf("clock ticks: %lli\n", (long long)prh_clock_ticks());
+    }
+    prh_release_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
+    prh_release_assert((1000000000001LL * 1000000000LL / 1000000LL) != 1000000000001000LL);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else  // WINDOWS end POSIX begin
@@ -5189,13 +5382,20 @@ void prh_impl_time_test(void) {
 // 内核，时钟可以设置到100、250（默认）或1000赫兹，对应的jiffy值分别为10、4、1毫秒。
 // 自内核2.6.20，增加了一个频率300赫兹，它可以被两种常见的视频帧速率25帧每秒（PAL）
 // 和30帧每秒（NTSC）整除。
-#include <time.h> // clock_gettime time_t struct timespec
-#include <sys/time.h> // gettimeofday time_t struct timeval
-#if defined(__APPLE__)
-#include <AvailabilityMacros.h>
+#if defined(prh_plat_apple)
+// https://developer.apple.com/forums/thread/735632 (Availability of Low-Level APIs)
+// https://developer.apple.com/documentation/os/reading-unix-manual-pages
+// https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/
+// https://github.com/apple/darwin-xnu/blob/main/EXTERNAL_HEADERS/AvailabilityMacros.h
+// https://developer.apple.com/documentation/kernel/mach
+// https://github.com/phracker/MacOSX-SDKs/tree/master/MacOSX11.3.sdk
+// https://www.manpagez.com/man/3/clock_gettime/
 #include <mach/task.h>
 #include <mach/mach.h>
+#include <mach/mach_time.h>
 #endif
+#include <time.h> // clock_gettime time_t struct timespec
+#include <sys/time.h> // gettimeofday time_t struct timeval
 
 // The system clock represents the system-wide real time wall clock. It may
 // not be monotonic: on most systems, the system time can be adjusted at any
@@ -5207,7 +5407,7 @@ void prh_impl_time_test(void) {
 // changes, however, do not affect it since it is based on the UTC time-zone.
 
 prh_i64 prh_system_secs(void) {
-#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+#if defined(CLOCK_REALTIME)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
     return (prh_i64)ts.tv_sec;
@@ -5219,30 +5419,44 @@ prh_i64 prh_system_secs(void) {
 }
 
 prh_i64 prh_system_msec(void) {
-#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+#if defined(CLOCK_REALTIME)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
-    return (prh_i64)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
+    return (prh_i64)ts.tv_sec * PRH_MSEC_PER_SEC + (ts.tv_nsec / 1000000);
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
-    return (prh_i64)tv.tv_sec * 1000 + (tv.tv_usec / 1000);
+    return (prh_i64)tv.tv_sec * PRH_MSEC_PER_SEC + (tv.tv_usec / 1000);
 #endif
 }
 
 prh_i64 prh_system_usec(void) {
-#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+#if defined(CLOCK_REALTIME)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
-    return (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
+    return (prh_i64)ts.tv_sec * PRH_USEC_PER_SEC + (ts.tv_nsec / 1000);
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
-    return (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
+    return (prh_i64)tv.tv_sec * PRH_USEC_PER_SEC + tv.tv_usec;
 #endif
 }
 
-void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
+void prh_system_time(prh_timeusec_t *t) {
+#if defined(CLOCK_REALTIME)
+    struct timespec ts;
+    prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
+    t->sec = ts.tv_sec;
+    t->usec = ts.tv_nsec / 1000;
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    t->sec = tv.tv_sec;
+    t->usec = tv.tv_usec;
+#endif
+}
+
+void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p) {
     // 夏令时（Daylight Saving Time，DST）是一种为了节约能源而人为调整时钟的做法。
     // 具体来说，它通过在夏季将时钟拨快一定时间（通常是1小时）。夏令时的主要目的是减
     // 少照明需求。通过将时钟拨快1小时，人们在夏季的傍晚可以更晚地开灯，从而节省电力。
@@ -5300,7 +5514,7 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
     //     int tm_yday;  // 0 ~ 365
     //     int tm_isdst; // > 0 dst in effect, = 0 dst not effect, < 0 dst not available
     // };
-    time_t time = (time_t)utc;
+    time_t time = (time_t)p->sec;
     struct tm tm;
     prh_boolret(gmtime_r(&time, &tm));
     t->year = tm.tm_year + 1900; // 正负20亿年
@@ -5310,35 +5524,39 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
     t->hour = tm.tm_hour; // 0 ~ 23
     t->min = tm.tm_min; // 0 ~ 59
     t->sec = tm.tm_sec; // 0 ~ 60 since C99
-    t->msec = 0; // 0 ~ 999
+    t->usec = p->usec; // 0 ~ 999999
 }
 
-// POSIX CLOCK
+// #include <time.h>
 // int clock_gettime(clockid_t clockid, struct timespec *ts);
 // int clock_getres(clockid_t clockid, struct timespec *res);
 // struct timespec {
 //     time_t     tv_sec;   /* Seconds */
 //     /* ... */  tv_nsec;  /* Nanoseconds [0, 999'999'999] */
 // };
-// time.h _POSIX_C_SOURCE >= 199309L POSIX.1-2001, SUSv2. Linux 2.6.
+//
+// _POSIX_C_SOURCE >= 199309L POSIX.1-2001, SUSv2. Linux 2.6.
+//
 // On POSIX systems on which these functions are available, the symbol
 // _POSIX_TIMERS is defined in <unistd.h> to a value greater than 0.
-// POSIX.1-2008 makes these functions mandatory.
-// The symbols _POSIX_MONOTONIC_CLOCK, _POSIX_CPUTIME, _POSIX_THREAD_CPUTIME
-// indicate that CLOCK_MONOTONIC, CLOCK_PROCESS_CPUTIME_ID,
-// CLOCK_THREAD_CPUTIME_ID are available. See also sysconf(3).
-//      Return 0 for success. On error, -1 is returned and errno is set to
-//      indicate the error. EOVERFLOW - The timestamp would not fit in time_t
-//      range. This can happen if an executable with 32-bit time_t is run on
-//      a 64-bit kernel when the time is 2038-01-19 03:14:08 UTC or later.
-//      However, when the system time is out of time_t range in other
-//      situations, the behavior is undefined.
-//      According to POSIX.1-2001, a process with "appropriate privileges"
-//      may set the CLOCK_PROCESS_CPUTIME_ID and CLOCK_THREAD_CPUTIME_ID
-//      clocks using clock_settime(). On Linux, these clocks are not settable
-//      (i.e., no process has "appropriate privileges").
-//      C library/kernel differences: On some architectures, an implementation
-//      of clock_gettime() is provided in the vdso(7).
+// POSIX.1-2008 makes these functions mandatory. The symbols _POSIX_MONOTONIC_CLOCK,
+// _POSIX_CPUTIME, _POSIX_THREAD_CPUTIME indicate that CLOCK_MONOTONIC,
+// CLOCK_PROCESS_CPUTIME_ID, CLOCK_THREAD_CPUTIME_ID are available. See also
+// sysconf(3).
+//
+// Return 0 for success. On error, -1 is returned and errno is set to
+// indicate the error. EOVERFLOW - The timestamp would not fit in time_t
+// range. This can happen if an executable with 32-bit time_t is run on
+// a 64-bit kernel when the time is 2038-01-19 03:14:08 UTC or later.
+// However, when the system time is out of time_t range in other
+// situations, the behavior is undefined.
+//
+// According to POSIX.1-2001, a process with "appropriate privileges"
+// may set the CLOCK_PROCESS_CPUTIME_ID and CLOCK_THREAD_CPUTIME_ID
+// clocks using clock_settime(). On Linux, these clocks are not settable
+// (i.e., no process has "appropriate privileges"). C library/kernel
+// differences: On some architectures, an implementation of clock_gettime()
+// is provided in the vdso(7).
 //
 // The steady clock represents a monotonic clock. The time points of this
 // clock cannot decrease as physical time moves forward and the time between
@@ -5346,40 +5564,40 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
 // time (for example, it can be time since last reboot), and is most suitable
 // for measuring intervals.
 //
-// https://www.man7.org/linux/man-pages/man2/clock_gettime.2.html
+// https://www.man7.org/linux/man-pages/man3/clock_gettime.3.html
+//
 // CLOCK_REALTIME
-//      A settable system-wide clock that measures real (i.e.,
-//      wall-clock) time. Setting this clock requires appropriate
-//      privileges. This clock is affected by discontinuous jumps
-//      in the system time (e.g., if the system administrator
-//      manually changes the clock), and by frequency adjustments
-//      performed by NTP and similar applications via adjtime(3),
-//      adjtimex(2), clock_adjtime(2), and ntp_adjtime(3). This
-//      clock normally counts the number of seconds since
-//      1970-01-01 00:00:00 Coordinated Universal Time (UTC) except
-//      that it ignores leap seconds; near a leap second it is
-//      typically adjusted by NTP to stay roughly in sync with UTC.
+//      A settable system-wide clock that measures real (i.e., wall-clock)
+//      time. Setting this clock requires appropriate privileges. This clock
+//      is affected by discontinuous jumps in the system time (e.g., if the
+//      system administrator manually changes the clock), and by frequency
+//      adjustments performed by NTP and similar applications via adjtime(3),
+//      adjtimex(2), clock_adjtime(2), and ntp_adjtime(3). This clock normally
+//      counts the number of seconds since 1970-01-01 00:00:00 Coordinated
+//      Universal Time (UTC) except that it ignores leap seconds; near a leap
+//      second it is typically adjusted by NTP to stay roughly in sync with
+//      UTC. 不包含闰秒的 UTC 时间。
 // CLOCK_REALTIME_ALARM (since Linux 3.0; Linux-specific)
-//      Like CLOCK_REALTIME, but not settable. See timer_create(2)
-//      for further details.
+//      Like CLOCK_REALTIME, but not settable. See timer_create(2) for further
+//      details. 不可设置。
 // CLOCK_REALTIME_COARSE (since Linux 2.6.32; Linux-specific)
-//      A faster but less precise version of CLOCK_REALTIME.  This
-//      clock is not settable.  Use when you need very fast, but
-//      not fine-grained timestamps.  Requires per-architecture
-//      support, and probably also architecture support for this
-//      flag in the vdso(7).
+//      A faster but less precise version of CLOCK_REALTIME. This clock is not
+//      settable. Use when you need very fast, but not fine-grained timestamps.
+//      Requires per-architecture support, and probably also architecture
+//      support for this flag in the vdso(7).
+//      不可设置，比 CLOCK_REALTIME 速度快，但损失精度。
 // CLOCK_TAI (since Linux 3.10; Linux-specific)
-//      A nonsettable system-wide clock derived from wall-clock
-//      time but counting leap seconds. This clock does not
-//      experience discontinuities or frequency adjustments caused
-//      by inserting leap seconds as CLOCK_REALTIME does.
-//      The acronym TAI refers to International Atomic Time.
+//      A nonsettable system-wide clock derived from wall-clock time but
+//      counting leap seconds. This clock does not experience discontinuities
+//      or frequency adjustments caused by inserting leap seconds as
+//      CLOCK_REALTIME does. The acronym TAI refers to International Atomic
+//      Time. 不可设置，但是包含闰秒。
+//
 // CLOCK_MONOTONIC
-//      A nonsettable system-wide clock that represents monotonic
-//      time since — as described by POSIX — "some unspecified point in
-//      the past". On Linux, that point corresponds to the number
-//      of seconds that the system has been running since it was
-//      booted.
+//      A nonsettable system-wide clock that represents monotonic time
+//      since — as described by POSIX — "some unspecified point in the past".
+//      On Linux, that point corresponds to the number of seconds that the
+//      system has been running since it was booted.
 //      The CLOCK_MONOTONIC clock is not affected by discontinuous
 //      jumps in the system time (e.g., if the system administrator
 //      manually changes the clock), but is affected by frequency
@@ -5388,144 +5606,192 @@ void prh_date_time(prh_datetime_t *t, prh_timesec_t utc) {
 //      guarantee that the time returned by consecutive calls will
 //      not go backwards, but successive calls may — depending on the
 //      architecture — return identical (not-increased) time values.
-//      由于精度原因，后续调用可能返回相同的未增加的时间值。
-// CLOCK_MONOTONIC_COARSE (since Linux 2.6.32; Linux-specific)
-//      A faster but less precise version of CLOCK_MONOTONIC. Use
-//      when you need very fast, but not fine-grained timestamps.
-//      Requires per-architecture support, and probably also
-//      architecture support for this flag in the vdso(7).
+//      不包含系统挂起的时间。由于精度原因，后续调用可能返回相同的未增加的时间值。
 // CLOCK_MONOTONIC_RAW (since Linux 2.6.28; Linux-specific)
 //      Similar to CLOCK_MONOTONIC, but provides access to a raw
 //      hardware-based time that is not subject to frequency
-//      adjustments（不受频率调整影响）. This clock does not count
-//      time that the system is suspended.
+//      adjustments. This clock does not count time that the system is
+//      suspended. 不受频率调整影响，不包含系统挂起时间。
+// CLOCK_MONOTONIC_COARSE (since Linux 2.6.32; Linux-specific)
+//      A faster but less precise version of CLOCK_MONOTONIC. Use when you
+//      need very fast, but not fine-grained timestamps. Requires
+//      per-architecture support, and probably also architecture support
+//      for this flag in the vdso(7). 比 CLOCK_MONOTONIC 更快，但是损失精度。
+//
 // CLOCK_BOOTTIME (since Linux 2.6.39; Linux-specific)
-//      A nonsettable system-wide clock that is identical to
-//      CLOCK_MONOTONIC, except that it also includes any time that
-//      the system is suspended. This allows applications to get a
-//      suspend-aware monotonic clock without having to deal with
-//      the complications of CLOCK_REALTIME, which may have
-//      discontinuities if the time is changed using
-//      settimeofday(2) or similar.
+//      A nonsettable system-wide clock that is identical to CLOCK_MONOTONIC,
+//      except that it also includes any time that the system is suspended.
+//      This allows applications to get a suspend-aware monotonic clock
+//      without having to deal with the complications of CLOCK_REALTIME,
+//      which may have discontinuities if the time is changed using
+//      settimeofday(2) or similar. 与 CLOCK_MONOTONIC 类似，但包含系统挂起时间。
 // CLOCK_BOOTTIME_ALARM (since Linux 3.0; Linux-specific)
 //      Like CLOCK_BOOTTIME. See timer_create(2) for further
 //      details.
-// CLOCK_PROCESS_CPUTIME_ID (since Linux 2.6.12)
-//      This is a clock that measures CPU time consumed by this
-//      process (i.e., CPU time consumed by all threads in the
-//      process). On Linux, this clock is not settable.
-// CLOCK_THREAD_CPUTIME_ID (since Linux 2.6.12)
-//      This is a clock that measures CPU time consumed by this
-//      thread. On Linux, this clock is not settable.
 //
-// https://man.freebsd.org/cgi/man.cgi?query=clock_gettime&apropos=0&sektion=0&manpath=FreeBSD+15.0-CURRENT&arch=default&format=html
+// CLOCK_PROCESS_CPUTIME_ID (since Linux 2.6.12)
+//      This is a clock that measures CPU time consumed by this process
+//      (i.e., CPU time consumed by all threads in the process). On Linux,
+//      this clock is not settable.
+// CLOCK_THREAD_CPUTIME_ID (since Linux 2.6.12)
+//      This is a clock that measures CPU time consumed by this thread.
+//      On Linux, this clock is not settable.
+//
+// https://man.freebsd.org
+// FreeBSD 15.0
+//      CLOCK_MONOTONIC
+//      CLOCK_MONOTONIC_PRECISE
+//      CLOCK_MONOTONIC_FAST
+//      CLOCK_MONOTONIC_COARSE
+//      CLOCK_BOOTTIME
+//          包含系统挂起时间，CLOCK_BOOTTIME 是 CLOCK_MONOTONIC 的别名。
+//      CLOCK_UPTIME
+//      CLOCK_UPTIME_PRECISE
+//      CLOCK_UPTIME_FAST
+//          不包含系统挂起时间。
+// FreeBSD 14.0
+//      CLOCK_MONOTONIC
+//      CLOCK_MONOTONIC_PRECISE
+//      CLOCK_MONOTONIC_FAST
+//      CLOCK_MONOTONIC_COARSE
+//          包含系统挂起时间。
+//      CLOCK_UPTIME
+//      CLOCK_UPTIME_PRECISE
+//      CLOCK_UPTIME_FAST
+//      CLOCK_BOOTTIME
+//          不包含系统挂起时间，CLOCK_BOOTTIME 是 CLOCK_UPTIME 的别名。
+//
+// #if defined(__APPLE__)
+// https://www.manpagez.com/man/3/clock_gettime/
+// https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX11.3.sdk/usr/include/time.h
+//
+// #include <time.h>
+// int clock_gettime(clockid_t clock_id, struct timespec *tp);
+// int clock_settime(clockid_t clock_id, const struct timespec *tp);
+// int clock_getres(clockid_t clock_id, struct timespec *tp);
+// uint64_t clock_gettime_nsec_np(clockid_t clock_id);
+//
+// These functions first appeared in Mac OSX 10.12. The clock_gettime(),
+// clock_settime(), and clock_getres() system calls conform to IEEE Std
+// 1003.1b-1993 (POSIX.1). cleck_gettime_nsec_np() is a non-portable
+// Darwin extension. The clock IDs CLOCK_MONOTONIC_RAW and CLOCK_UPTIME_RAW
+// are extensions to the POSIX interface.
+//
+// #if !defined(_POSIX_C_SOURCE) || defined(_DARWIN_C_SOURCE)
+//      #define CLOCK_MONOTONIC_RAW         _CLOCK_MONOTONIC_RAW
+//      #define CLOCK_MONOTONIC_RAW_APPROX  _CLOCK_MONOTONIC_RAW_APPROX
+//      #define CLOCK_UPTIME_RAW            _CLOCK_UPTIME_RAW
+//      #define CLOCK_UPTIME_RAW_APPROX     _CLOCK_UPTIME_RAW_APPROX
+// #endif
+//
+// For clock_gettime_nsec_np() a return value of non-0 indicates success.
+// A 0 return value indicates an error occurred and an error code is stored
+// in errno.
+//
 // CLOCK_REALTIME
-// CLOCK_REALTIME_PRECISE
-// CLOCK_REALTIME_FAST
-// CLOCK_REALTIME_COARSE
-//      Increments in SI seconds like a wall clock. It uses a 1970
-//      epoch and implements the UTC timescale. The count of physical
-//      SI seconds since 1970, adjusted by subtracting the number of
-//      positive leap seconds and adding the number of negative leap
-//      seconds. Behavior during a leap second is not defined by and
-//      POSIX standard.
+//      the system's real time (i.e. wall time) clock, expressed as the
+//      amount of time since the Epoch. This is the same as the value
+//      returned by gettimeofday(2).
+//
 // CLOCK_MONOTONIC
-// CLOCK_MONOTONIC_PRECISE
-// CLOCK_MONOTONIC_FAST
-// CLOCK_MONOTONIC_COARSE
-// CLOCK_BOOTTIME
-//      Increments in SI seconds, even while the system is suspended.
-//      Its epoch is unspecified. The count is not adjusted by leap
-//      seconds. FreeBSD implements
-// CLOCK_UPTIME
-// CLOCK_UPTIME_PRECISE
-// CLOCK_UPTIME_FAST
-//      Increments monotonically in SI seconds while the machine is
-//      running. The count is not adjusted by leap seconds. The epoch
-//      is unspecified.
-// CLOCK_VIRTUAL
-//      Increments only when the CPU is running in user mode on behalf
-//      of the calling process.
-// CLOCK_PROF
-//      Increments when the CPU is running in user or kernel mode.
-// CLOCK_SECOND
-//      Returns the current second without performing a full time
-//      counter query, using an in-kernel cached value of the current
-//      second.
+//      clock that increments monotonically, tracking the time since an
+//      arbitrary point, and will continue to increment while the system
+//      is asleep. 包含睡眠时间。
+// CLOCK_MONOTONIC_RAW
+//      clock that increments monotonically, tracking the time since an
+//      arbitrary point like CLOCK_MONOTONIC. However, this clock is
+//      unaffected by frequency or time adjustments. It should not be
+//      compared to other system time sources. 不受频率调整、时间调整的影响。
+// CLOCK_MONOTONIC_RAW_APPROX
+//      like CLOCK_MONOTONIC_RAW, but reads a value cached by the system
+//      at context switch. This can be read faster, but at a loss of
+//      accuracy as it may return values that are milliseconds old.
+//      比 CLOCK_MONOTONIC_RAW 更快，但是损失精度，可能返回几毫秒前的时间。
+//
+// CLOCK_UPTIME_RAW
+//      clock that increments monotonically, in the same manner as
+//      CLOCK_MONOTONIC_RAW, but that does not increment while the system
+//      is asleep. The returned value is identical to the result of
+//      **mach_absolute_time()** after the appropriate mach_timebase
+//      conversion is applied. 与 CLOCK_MONOTONIC_RAW 类似，但不包含睡眠时间。
+// CLOCK_UPTIME_RAW_APPROX
+//      like CLOCK_UPTIME_RAW, but reads a value cached by the system at
+//      context switch. This can be read faster, but at a loss of accuracy
+//      as it may return values that are milliseconds old.
+//      比 CLOCK_UPTIME_RAW 更快，但是损失精度，可能返回几毫秒前的时间。
+//
 // CLOCK_PROCESS_CPUTIME_ID
-//      Returns the execution time of the calling process.
+//      clock that tracks the amount of CPU (in user- or kernel-mode) used
+//      by the calling process.
 // CLOCK_THREAD_CPUTIME_ID
-//      Returns the execution time of the calling thread.
-// The clock IDs CLOCK_BOOTTIME, CLOCK_REALTIME, CLOCK_MONOTONIC, and
-// CLOCK_UPTIME perform a full time counter query. The clock IDs with the
-// _FAST suffix, i.e., CLOCK_REALTIME_FAST, CLOCK_MONOTONIC_FAST, and
-// CLOCK_UPTIME_FAST, do not perform a full time counter query, so their
-// accuracy is one timer tick. Similarly, CLOCK_REALTIME_PRECISE,
-// CLOCK_MONOTONIC_PRECISE, and CLOCK_UPTIME_PRECISE are used to get the
-// most exact value as possible, at the expense of execution time. The
-// clock IDs CLOCK_REALTIME_COARSE and CLOCK_MONOTONIC_COARSE are aliases
-// of corresponding IDs with _FAST suffix for compatibility with other
-// systems. Finally, CLOCK_BOOTTIME is an alias for CLOCK_MONOTONIC for
-// compatibility with other systems and is unrelated to the kern.boottime
-// sysctl(8).
+//      clock that tracks the amount of CPU (in user- or kernel-mode) used
+//      by the calling thread.
+//
+// clock_getres()
+//      The resolution of a clock is returned by the clock_getres() call.
+//      This value is placed in a (non-null) *tp. This value may be smaller
+//      than the actual precision of the underlying clock, but represents
+//      a lower bound on the resolution.
+// clock_gettime_nsec_np()
+//      As a non-portable extension, the clock_gettime_nsec_np() function
+//      will return the clock value in 64-bit nanoseconds.
+//
+// https://developer.apple.com/documentation/driverkit/3433733-mach_timebase_info/
+// https://developer.apple.com/documentation/kernel/1462446-mach_absolute_time
+// https://developer.apple.com/documentation/kernel/1646199-mach_continuous_time
+//
+// typedef struct mach_timebase_info *mach_timebase_info_t;
+// typedef struct mach_timebase_info {
+//      uint32_t denom;
+//      uint32_t numer;
+// } mach_timebase_info_data_t; // macOS 10.0+
+//      Raw Mach Time API In general prefer to use the <time.h> API
+//      clock_gettime_nsec_np(3), which deals in the same clocks
+//      (and more) in ns units. Conversion of ns to (resp. from) tick
+//      units as returned by the mach time APIs is performed by division
+//      (resp. multiplication) with the fraction returned by
+//      mach_timebase_info(). 纳秒数除以这个分数可以得到时钟 tick 数。
+//
+// kern_return_t mach_timebase_info(mach_timebase_info_t info); // DriverKit 24.4+
+//      Returns fraction to multiply a value in mach tick units with to
+//      convert it to nanoseconds. Return KERN_SUCCESS if info was filled
+//      in. 返回一个分数 numer / denom，这个分数乘以 tick 数可以转换成纳秒。
+//
+// uint64_t mach_absolute_time(void); // macOS 10.0+
+//      Return current value of a clock that increments monotonically
+//      in tick units (starting at an arbitrary point), this clock does
+//      not increment while the system is asleep. 不包含系统睡眠时间。
+//      等价于 clock_gettime_nsec_np(CLOCK_UPTIME_RAW) 返回的纳秒数。
+//
+// uint64_t mach_continuous_time(void); // macOS 10.12+
+//      Returns current value of a clock that increments monotonically
+//      in tick units (starting at an arbitrary point), including while
+//      the system is asleep. 包含系统睡眠时间。
+//      等价于 clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) 返回的纳秒数。
+// #endif
 
-prh_i64 prh_steady_secs(void) {
-#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+prh_i64 prh_clock_ticks(void) {
+#if defined(prh_plat_apple)
+    #if defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER) // macOS 10.12+
+    return (prh_i64)clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW); // 包含睡眠时间，不受频率或时间调整的影响，等价于 mach_continuous_time
+    #else // macOS 10.0+
+    return (prh_i64)mach_absolute_time(); // 不包含睡眠时间，不受频率或时间调整的影响
+    #endif
+#elif defined(prh_plat_linux)
+    #if defined(CLOCK_BOOTTIME)
+    clockid_t clock_id = CLOCK_BOOTTIME; // Linux 2.6.39，包含睡眠时间
+    #elif defined(CLOCK_MONOTONIC_RAW)
+    clockid_t clock_id = CLOCK_MONOTONIC_RAW; // Linux 2.6.28，不包含睡眠时间，不受频率或时间调整的影响
+    #else
+    clockid_t clock_id = CLOCK_MONOTONIC; // 不包含睡眠时间，受频率或时间调整的影响
+    #endif
     struct timespec ts;
-#if defined(CLOCK_BOOTTIME)
-    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
-#else
+    prh_zeroret(clock_gettime(clock_id, &ts));
+    return (prh_i64)ts.tv_sec * PRH_NSEC_PER_SEC + ts.tv_nsec;
+#elif defined(CLOCK_MONOTONIC)
+    struct timespec ts; // FreeBSD-like system, CLOCK_MONOTONIC 包含系统睡眠时间
     prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
-#endif
-    return (prh_i64)ts.tv_sec;
-#else
-    struct timeval tv;
-    prh_zeroret(gettimeofday(&tv, prh_null));
-    return (prh_i64)tv.tv_sec;
-#endif
-}
-
-prh_i64 prh_steady_msec(void) {
-#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
-    struct timespec ts;
-#if defined(CLOCK_BOOTTIME)
-    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
-#else
-    prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
-#endif
-    return (prh_i64)ts.tv_sec * 1000 + (ts.tv_nsec / 1000000);
-#else
-    struct timeval tv;
-    prh_zeroret(gettimeofday(&tv, prh_null));
-    return (prh_i64)tv.tv_sec * 1000 + tv.tv_usec / 1000;
-#endif
-}
-
-prh_i64 prh_steady_usec(void) {
-#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
-    struct timespec ts;
-#if defined(CLOCK_BOOTTIME)
-    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
-#else
-    prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
-#endif
-    return (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
-#else
-    struct timeval tv;
-    prh_zeroret(gettimeofday(&tv, prh_null));
-    return (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
-#endif
-}
-
-prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
-#if !defined(__APPLE__) || defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
-    struct timespec ts;
-#if defined(CLOCK_BOOTTIME)
-    prh_zeroret(clock_gettime(CLOCK_BOOTTIME, &ts));
-#else
-    prh_zeroret(clock_gettime(CLOCK_MONOTONIC, &ts));
-#endif
-    return (prh_i64)ts.tv_sec * 1000000000 + ts.tv_nsec;
+    return (prh_i64)ts.tv_sec * PRH_NSEC_PER_SEC + ts.tv_nsec;
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
@@ -5533,26 +5799,84 @@ prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
 #endif
 }
 
-void prh_thread_time(prh_timeusec_t *t) {
-// https://www.man7.org/linux/man-pages/man7/posixoptions.7.html
-// defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME > 0)
-#if defined(CLOCK_THREAD_CPUTIME_ID)
-    struct timespec ts;
-    prh_zeroret(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts));
-    t->usec = (prh_i64)ts.tv_sec * 1000000 + (ts.tv_nsec / 1000);
+#if defined(prh_plat_apple) && !defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+#define PRH_IMPL_NSEC_PRECISE 0
+void prh_time_init(void) {
+    mach_timebase_info_data_t info; // ticks * n / d = nsecs => nsecs / (n / d) = ticks => nsecs * d / n = ticks
+    mach_timebase_info(&info); // 1-sec = 1000000000-nsec = 1000000000 * d / n ticks
+    PRH_IMPL_TIMEINIT.ticks_per_sec = prh_impl_mul_div(PRH_NSEC_PER_SEC, info.denom, info.numer);
+}
 #else
-    struct timeval tv;
-    prh_zeroret(gettimeofday(&tv, prh_null));
-    t->usec = (prh_i64)tv.tv_sec * 1000000 + tv.tv_usec;
+#define PRH_IMPL_NSEC_PRECISE 1
+void prh_time_init(void) {
+    prh_i64 ticks_per_sec = PRH_NSEC_PER_SEC;
+}
+#endif
+
+prh_i64 prh_elapse_secs(prh_i64 ticks) {
+#if PRH_IMPL_NSEC_PRECISE
+    return ticks / PRH_NSEC_PER_SEC;
+#else
+    return ticks / PRH_IMPL_TIMEINIT.ticks_per_sec;
 #endif
 }
 
-prh_i64 prh_precise_tick(void) {
-    return prh_steady_nsec();
+prh_i64 prh_elapse_msec(prh_i64 ticks) {
+#if PRH_IMPL_NSEC_PRECISE
+    return ticks / 1000000;
+#else
+    // To guard against loss-of-precision, we convert to microseconds
+    // *before* dividing by ticks-per-second.
+    return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+#endif
 }
 
-void prh_time_init(void) {
-    PRH_IMPL_TIMEINIT.ticks_per_sec = 1000000000;
+prh_i64 prh_elapse_usec(prh_i64 ticks) {
+#if PRH_IMPL_NSEC_PRECISE
+    return ticks / 1000;
+#else
+    // To guard against loss-of-precision, we convert to microseconds
+    // *before* dividing by ticks-per-second.
+    return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+#endif
+}
+
+prh_i64 prh_elapse_nsec(prh_i64 ticks) {
+#if PRH_IMPL_NSEC_PRECISE
+    return ticks;
+#else
+    // To guard against loss-of-precision, we convert to nanoseconds
+    // *before* dividing by ticks-per-second.
+    return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+#endif
+}
+
+prh_i64 prh_steady_secs(void) {
+    return prh_elapse_secs(prh_clock_ticks());
+}
+
+prh_i64 prh_steady_msec(void) {
+    return prh_elapse_msec(prh_clock_ticks());
+}
+
+prh_i64 prh_steady_usec(void) { // 保存微妙可以表示29.2万年
+    return prh_elapse_usec(prh_clock_ticks());
+}
+
+prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
+    return prh_elapse_nsec(prh_clock_ticks());
+}
+
+prh_i64 prh_thread_time(void) {
+    // https://www.man7.org/linux/man-pages/man7/posixoptions.7.html
+    // defined(_POSIX_THREAD_CPUTIME) && (_POSIX_THREAD_CPUTIME > 0)
+#if defined(CLOCK_THREAD_CPUTIME_ID)
+    struct timespec ts;
+    prh_zeroret(clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts));
+    return (prh_i64)ts.tv_sec * PRH_NSEC_PER_SEC + ts.tv_nsec;
+#else
+    return prh_steady_nsec();
+#endif
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -5584,23 +5908,23 @@ void prh_impl_time_test(void) {
         while ((t2 = prh_steady_msec()) == t1) {
             count += 1;
         }
-        printf("steady time msec: %lli count %d\n", (long long)t1, count);
+        printf("steady msec: %lli count %d\n", (long long)t1, count);
         t1 = t2;
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time usec: %lli\n", (long long)prh_steady_usec());
+        printf("steady usec: %lli\n", (long long)prh_steady_usec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("steady time nsec: %lli\n", (long long)prh_steady_nsec());
-    }
-    prh_timeusec_t usec;
-    for (i = 0; i < n; i += 1) {
-        prh_thread_time(&usec);
-        printf("thread time usec: %lli\n", (long long)usec.usec);
+        printf("steady nsec: %lli\n", (long long)prh_steady_nsec());
     }
     for (i = 0; i < n; i += 1) {
-        printf("precise ticks: %lli\n", (long long)prh_precise_tick());
+        printf("thread nsec: %lli\n", (long long)prh_thread_time());
     }
+    for (i = 0; i < n; i += 1) {
+        printf("clock ticks: %lli\n", (long long)prh_clock_ticks());
+    }
+    prh_release_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
+    prh_release_assert((1000000000001LL * 1000000000LL / 1000000LL) != 1000000000001000LL);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // POSIX end
@@ -6856,12 +7180,6 @@ void prh_impl_thrd_test(void) {
     struct rlimit l = {0};
 
     printf("\n\n[GNU][posix]\n");
-#ifdef PRH_GCC_VERSION
-    printf("gcc version %d\n", PRH_GCC_VERSION);
-#endif
-#ifdef PRH_GLIBC_VERSION
-    printf("glibc version %d\n", PRH_GLIBC_VERSION);
-#endif
     printf("_SC_VERSION: %ldL\n", sysconf(_SC_VERSION));
     printf("Resource limit infinity: RLIM_INFINITY = %lld = unlimited\n", (long long)RLIM_INFINITY);
     n = getrlimit(RLIMIT_AS, &l); // address space
@@ -7029,6 +7347,7 @@ void prh_conc_init(int thrdstartid, int numthread) {
 
 prh_cono_t prh_cono_create(prh_coroproc_t proc, int stack_size, void *ptr_udata) {
     prh_coro_t *p = prh_coro_create(0, proc, stack_size, ptr_udata);
+    return (prh_cono_t){p->coro_id};
 }
 
 prh_cono_t prh_cono_ext_create(prh_coroproc_t proc, int stack_size, int userdata_bytes, void (*coroudinit)(void *)) {
@@ -7036,6 +7355,7 @@ prh_cono_t prh_cono_ext_create(prh_coroproc_t proc, int stack_size, int userdata
     if (coroudinit) {
         coroudinit(prh_coroutine_userdata(p));
     }
+    return (prh_cono_t){p->coro_id};
 }
 
 void prh_conc_run(prh_coroproc_t co_main) {
