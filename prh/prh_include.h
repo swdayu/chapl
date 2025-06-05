@@ -1495,6 +1495,21 @@ void prh_test_code(void) {
 #if defined(MAC_OS_X_VERSION_MIN_REQUIRED)
     printf("MAC_OS_X_VERSION_MIN_REQUIRED %d\n", MAC_OS_X_VERSION_MIN_REQUIRED);
 #endif
+#if defined(WINVER_MAXVER)
+    printf("WINVER_MAXVER %x\n", WINVER_MAXVER);
+#endif
+#if defined(WDK_NTDDI_VERSION)
+    printf("WDK_NTDDI_VERSION %x\n", WDK_NTDDI_VERSION);
+#endif
+#if defined(WINVER)
+    printf("WINVER %x\n", WINVER);
+#endif
+#if defined(_WIN32_WINNT)
+    printf("_WIN32_WINNT %x\n", _WIN32_WINNT);
+#endif
+#if defined(NTDDI_VERSION)
+    printf("NTDDI_VERSION %x\n", NTDDI_VERSION);
+#endif
 #if defined(_MSC_VER)
     printf("msc version %d\n", _MSC_VER);
 #endif
@@ -4327,9 +4342,6 @@ typedef struct {
 #define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SEC)
 
 void prh_time_init(void);
-void prh_system_time(prh_timeusec_t *t);
-void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p);
-void prh_date_yday(prh_datetime_t *t);
 prh_i64 prh_system_secs(void);
 prh_i64 prh_system_msec(void);
 prh_i64 prh_system_usec(void);
@@ -4343,6 +4355,14 @@ prh_i64 prh_elapse_msec(prh_i64 ticks);
 prh_i64 prh_elapse_usec(prh_i64 ticks);
 prh_i64 prh_elapse_nsec(prh_i64 ticks);
 prh_i64 prh_thread_time(void); // 当前线程执行时间，包含用户以及内核的执行时间
+
+void prh_system_time(prh_timeusec_t *t);
+void prh_system_date(prh_datetime_t *utc_date);
+void prh_system_date_from(prh_datetime_t *utc_date, const prh_timeusec_t *utc_time);
+void prh_system_time_from_date(prh_timeusec_t *utc_time, const prh_datetime_t *utc_date);
+void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetime_t *local_date);
+void prh_local_date(prh_datetime_t *local_date);
+void prh_local_date_from(prh_datetime_t *local_date, const prh_timeusec_t *utc_time);
 
 prh_inline prh_i64 prh_system_msec_from(const prh_timeusec_t *p) {
     return p->sec * PRH_MSEC_PER_SEC + p->usec / PRH_MSEC_PER_SEC;
@@ -4959,29 +4979,123 @@ prh_i64 prh_impl_filetime_nsec(const FILETIME *f) {
 
 prh_i64 prh_system_secs(void) { // 可表示2.9千亿年
     FILETIME f;
-    GetSystemTimeAsFileTime(&f); 
+    GetSystemTimeAsFileTime(&f);
     return prh_impl_1970_utc_time_secs(&f);
 }
 
 prh_i64 prh_system_msec(void) { // 可表示2.9亿年
     FILETIME f;
-    GetSystemTimeAsFileTime(&f); 
+    GetSystemTimeAsFileTime(&f);
     return prh_impl_1970_utc_time_msec(&f);
+}
+
+void prh_impl_system_filetime(FILETIME *f) {
+#if (_WIN32_WINNT >= 0x0602) // Windows 8
+    GetSystemTimePreciseAsFileTime(f);
+#else
+    GetSystemTimeAsFileTime(f);
+#endif
 }
 
 prh_i64 prh_system_usec(void) { // 可表示29万年
     FILETIME f;
-    GetSystemTimeAsFileTime(&f);
+    prh_impl_system_filetime(&f);
     return prh_impl_1970_utc_time_usec(&f);
 }
 
-void prh_system_time(prh_timeusec_t *t) {
-    prh_i64 time = prh_system_usec();
-    t->sec = time / PRH_USEC_PER_SEC;
-    t->usec = time % PRH_USEC_PER_SEC;
+void prh_impl_usec_to_timeusec(prh_timeusec_t *utc_time, prh_i64 usec) {
+    utc_time->sec = usec / PRH_USEC_PER_SEC;
+    utc_time->usec = usec % PRH_USEC_PER_SEC;
 }
 
-void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p) {
+void prh_system_time(prh_timeusec_t *utc_time) {
+    prh_impl_usec_to_timeusec(utc_time, prh_system_usec());
+}
+
+void prh_impl_date_time(prh_datetime_t *t, const SYSTEMTIME *s, prh_int usec) {
+    // typedef struct _SYSTEMTIME {
+    //      WORD wYear;         // the valid value is 1601 ~ 30827
+    //      WORD wMonth;        // 1 ~ 12
+    //      WORD wDayOfWeek;    // 0 ~ 6 (Sunday = 0)
+    //      WORD wDay;          // 1 ~ 31
+    //      WORD wHour;         // 0 ~ 23
+    //      WORD wMinute;       // 0 ~ 59
+    //      WORD wSecond;       // 0 ~ 59
+    //      WORD wMilliseconds; // 0 ~ 999
+    // } SYSTEMTIME;
+    // Windows 2000 Professional Windows 2000 Server
+    // minwinbase.h (include Windows.h)
+    //      The system can periodically refresh the time by synchronizing with
+    //      a time source. Because the system time can be adjusted either
+    //      forward or backward, do not compare system time readings to
+    //      determine elapsed time.
+    //      The SYSTEMTIME does not check to see if the date represented is a
+    //      real and valid date. When working with this API, you should ensure
+    //      its validity, especially in leap year scenarios. See leap day
+    //      readiness for more information.
+    //      https://techcommunity.microsoft.com/blog/azuredevcommunityblog/it%e2%80%99s-2020-is-your-code-ready-for-leap-day/1157279
+    t->year = s->wYear;
+    t->month = (prh_byte)s->wMonth;
+    t->mday = (prh_byte)s->wDay;
+    t->wday = (prh_byte)s->wDayOfWeek;
+    t->hour = (prh_byte)s->wHour;
+    t->min = (prh_byte)s->wMinute;
+    t->sec = (prh_byte)s->wSecond;
+    t->usec = usec;
+}
+
+void prh_impl_system_date(SYSTEMTIME *s, const prh_datetime_t *t) {
+    s->wYear = (WORD)t->year;
+    s->wMonth = t->month;
+    s->wDayOfWeek = t->wday;
+    s->wDay = t->mday;
+    s->wHour = t->hour;
+    s->wMinute = t->min;
+    s->wSecond = t->sec;
+    s->wMilliseconds = 0;
+}
+
+void prh_system_time_from_date(prh_timeusec_t *utc_time, const prh_datetime_t *utc_date) {
+    SYSTEMTIME s; FILETIME f;
+    prh_impl_system_date(&s, utc_date);
+    PRH_WINOS_BOOLRET(SystemTimeToFileTime(&s, &f));
+    prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + utc_date->usec);
+}
+
+void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetime_t *local_date) {
+    SYSTEMTIME local, s; FILETIME f;
+    prh_impl_system_date(&local, local_date);
+    PRH_WINOS_BOOLRET(TzSpecificLocalTimeToSystemTime(prh_null, &local, &s));
+    PRH_WINOS_BOOLRET(SystemTimeToFileTime(&s, &f));
+    prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + utc_date->usec);
+}
+
+void prh_system_date(prh_datetime_t *utc_date) {
+    FILETIME f; SYSTEMTIME s;
+    prh_impl_system_filetime(&f);
+    prh_i64 filetime = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    prh_boolret(FileTimeToSystemTime(&f, &s));
+    prh_impl_date_time(utc_date, &s, filetime / 10 % 1000000);
+}
+
+void prh_local_date(prh_datetime_t *local_date) {
+    FILETIME f; SYSTEMTIME s, local;
+    prh_impl_system_filetime(&f);
+    prh_i64 filetime = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    prh_boolret(FileTimeToSystemTime(&f, &s));
+    prh_boolret(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
+    prh_impl_date_time(local_date, &local, filetime / 10 % 1000000);
+}
+
+void prh_local_date_from(prh_datetime_t *local_date, const prh_timeusec_t *utc_time) {
+    FILETIME f; SYSTEMTIME s, local;
+    prh_impl_1970_utc_secs_to_filetime(utc_time->sec, &f);
+    PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
+    PRH_WINOS_BOOLRET(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
+    prh_impl_date_time(local_date, &local, utc_time->usec);
+}
+
+void prh_system_date_from(prh_datetime_t *utc_date, const prh_timeusec_t *utc_time) {
     // void GetSystemTime(SYSTEMTIME *SystemTime);
     // void GetLocalTime(SYSTEMTIME *SystemTime);
     // Windows 2000 Professional Windows 2000 Server
@@ -5046,38 +5160,10 @@ void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p) {
     //      on avoiding these issues, see leap year readiness.
     //      If the function fails, the return value is zero. To get extended
     //      error information, call GetLastError.
-    // typedef struct _SYSTEMTIME {
-    //      WORD wYear;         // the valid value is 1601 ~ 30827
-    //      WORD wMonth;        // 1 ~ 12
-    //      WORD wDayOfWeek;    // 0 ~ 6 (Sunday = 0)
-    //      WORD wDay;          // 1 ~ 31
-    //      WORD wHour;         // 0 ~ 23
-    //      WORD wMinute;       // 0 ~ 59
-    //      WORD wSecond;       // 0 ~ 59
-    //      WORD wMilliseconds; // 0 ~ 999
-    // } SYSTEMTIME;
-    // Windows 2000 Professional Windows 2000 Server
-    // minwinbase.h (include Windows.h)
-    //      The system can periodically refresh the time by synchronizing with
-    //      a time source. Because the system time can be adjusted either
-    //      forward or backward, do not compare system time readings to
-    //      determine elapsed time.
-    //      The SYSTEMTIME does not check to see if the date represented is a
-    //      real and valid date. When working with this API, you should ensure
-    //      its validity, especially in leap year scenarios. See leap day
-    //      readiness for more information.
-    //      https://techcommunity.microsoft.com/blog/azuredevcommunityblog/it%e2%80%99s-2020-is-your-code-ready-for-leap-day/1157279
     FILETIME f; SYSTEMTIME s;
-    prh_impl_1970_utc_secs_to_filetime(p->sec, &f);
+    prh_impl_1970_utc_secs_to_filetime(utc_time->sec, &f);
     PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
-    t->year = s.wYear;
-    t->month = s.wMonth;
-    t->mday = s.wDay;
-    t->wday = s.wDayOfWeek;
-    t->hour = s.wHour;
-    t->min = s.wMinute;
-    t->sec = s.wSecond;
-    t->usec = p->usec;
+    prh_impl_date_time(utc_date, &s, utc_time->usec);
 }
 
 // Windows time is the number of milliseconds elapsed since the system was
@@ -5300,9 +5386,6 @@ void prh_impl_time_test(void) {
     prh_time_init();
     printf("\n\n[MSC][time]\n");
     printf("precise tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
-    printf("WINVER %04x\n", WINVER );
-    printf("_WIN32_WINNT %04x\n", _WIN32_WINNT);
-    printf("NTDDI_VERSION %04x\n", NTDDI_VERSION);
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
@@ -5334,7 +5417,7 @@ void prh_impl_time_test(void) {
     prh_release_assert((1000000000001LL * 1000000000LL / 1000000LL) != 1000000000001000LL);
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#else  // WINDOWS end POSIX begin
+#else // WINDOWS end POSIX begin
 // 无论地理位置如何，UNIX系统内部对时间的表示方式均是以自Epoch以来的秒数来度量的，
 // Epoch亦即通用协调时间（UTC，以前也称为格林威治时间或GMT）的1970年1月1日早晨零点。
 // 这也是UNIX系统问世的大致日期。日历时间存储于类型为time_t的变量中，此类型是由SUSv3
@@ -5456,7 +5539,89 @@ void prh_system_time(prh_timeusec_t *t) {
 #endif
 }
 
-void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p) {
+void prh_impl_date_time(prh_datetime_t *t, const struct tm *s, prh_int usec) {
+    // struct tm {
+    //     int tm_sec;   // 0 ~ 60 since C99 allows for a positive leap second
+    //     int tm_min;   // 0 ~ 59
+    //     int tm_hour;  // 0 ~ 23
+    //     int tm_mday;  // 1 ~ 31
+    //     int tm_mon;   // 0 ~ 11
+    //     int tm_year;  // year since 1900
+    //     int tm_wday;  // 0 ~ 6 (sunday = 0)
+    //     int tm_yday;  // 0 ~ 365
+    //     int tm_isdst; // > 0 dst in effect, = 0 dst not effect, < 0 dst not available
+    // };
+    t->year = tm->tm_year + 1900; // 正负20亿年
+    t->month = tm->tm_mon + 1; // 1 ~ 12
+    t->mday = tm->tm_mday; // 1 ~ 31
+    t->wday = tm->tm_wday; // 0 ~ 6 (sunday = 0)
+    t->hour = tm->tm_hour; // 0 ~ 23
+    t->min = tm->tm_min; // 0 ~ 59
+    t->sec = tm->tm_sec; // 0 ~ 60 since C99
+    t->usec = usec; // 0 ~ 999999
+}
+
+void prh_impl_system_date(struct tm *s, const prh_datetime_t *t) {
+    memset(s, 0, sizeof(struct tm));
+    tm->tm_year = t->year - 1900;
+    tm->tm_mon = t->month - 1;
+    tm->tm_mday = t->mday;
+    tm->tm_hour = t->hour;
+    tm->tm_min = t->min;
+    tm->tm_sec = t->sec;
+    tm->tm_wday = t->wday;
+    tm->tm_isdst = -1; // not available
+}
+
+void prh_system_time_from_date(prh_timeusec_t *utc_time, const prh_datetime_t *utc_date) {
+    // #include <time.h>
+    // [[deprecated]] time_t timelocal(struct tm *tm);
+    // time_t timegm(struct tm *tm);
+    // The functions timelocal() and timegm() are the inverses of
+    // localtime(3) and gmtime(3).
+    struct tm utc;
+    prh_impl_system_date(&utc, utc_date);
+    time_t utc_secs = timegm(&utc); // timegm 是 gmtime_r 的反操作，忽略 tm_wday 和 tm_yady
+    if (utc_secs == (time_t)-1) prh_prerr_exit(errno);
+    utc_time->sec = utc_secs;
+    utc_time->usec = local_date->usec;
+}
+
+void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetime_t *local_date) {
+    struct tm local;
+    prh_impl_system_date(&local, local_date);
+    time_t utc_secs = mktime(&local); // mktime 是 localtime_r 的反操作，忽略 tm_wday 和 tm_yady
+    if (utc_secs == (time_t)-1) prh_prerr_exit(errno);
+    utc_time->sec = utc_secs;
+    utc_time->usec = local_date->usec;
+}
+
+void prh_system_date(prh_datetime_t *utc_date) {
+    prh_timeusec_t utc_time;
+    prh_system_time(&utc_time);
+    time_t time = (time_t)utc_time.sec;
+    struct tm tm;
+    prh_boolret(gmtime_r(&time, &tm));
+    prh_impl_date_time(utc_date, &tm, utc_time.usec);
+}
+
+void prh_local_date(prh_datetime_t *local_date) {
+    prh_timeusec_t utc_time;
+    prh_system_time(&utc_time);
+    time_t time = (time_t)utc_time.sec;
+    struct tm tm;
+    prh_boolret(localtime_r(&time, &tm));
+    prh_impl_date_time(local_date, &tm, utc_time.usec);
+}
+
+void prh_local_date_from(prh_datetime_t *local_date, const prh_timeusec_t *utc_time) {
+    time_t time = (time_t)utc_time->sec;
+    struct tm tm;
+    prh_boolret(localtime_r(&time, &tm));
+    prh_impl_date_time(local_date, &tm, utc_time.usec);
+}
+
+void prh_system_date_from(prh_datetime_t *utc_date, const prh_timeusec_t *utc_time) {
     // 夏令时（Daylight Saving Time，DST）是一种为了节约能源而人为调整时钟的做法。
     // 具体来说，它通过在夏季将时钟拨快一定时间（通常是1小时）。夏令时的主要目的是减
     // 少照明需求。通过将时钟拨快1小时，人们在夏季的傍晚可以更晚地开灯，从而节省电力。
@@ -5503,28 +5668,10 @@ void prh_date_time(prh_datetime_t *t, const prh_timeusec_t *p) {
     //      since the Epoch, but with their values forced to the ranges
     //      indicated in the <time.h> entry; the final value of tm_mday shall
     //      not be set until tm_mon and tm_year are determined.
-    // struct tm {
-    //     int tm_sec;   // 0 ~ 60 since C99 allows for a positive leap second
-    //     int tm_min;   // 0 ~ 59
-    //     int tm_hour;  // 0 ~ 23
-    //     int tm_mday;  // 1 ~ 31
-    //     int tm_mon;   // 0 ~ 11
-    //     int tm_year;  // year since 1900
-    //     int tm_wday;  // 0 ~ 6 (sunday = 0)
-    //     int tm_yday;  // 0 ~ 365
-    //     int tm_isdst; // > 0 dst in effect, = 0 dst not effect, < 0 dst not available
-    // };
     time_t time = (time_t)p->sec;
     struct tm tm;
     prh_boolret(gmtime_r(&time, &tm));
-    t->year = tm.tm_year + 1900; // 正负20亿年
-    t->month = tm.tm_mon + 1; // 1 ~ 12
-    t->mday = tm.tm_mday; // 1 ~ 31
-    t->wday = tm.tm_wday; // 0 ~ 6 (sunday = 0)
-    t->hour = tm.tm_hour; // 0 ~ 23
-    t->min = tm.tm_min; // 0 ~ 59
-    t->sec = tm.tm_sec; // 0 ~ 60 since C99
-    t->usec = p->usec; // 0 ~ 999999
+    prh_impl_date_time(utc_date, &tm, utc_time->usec);
 }
 
 // #include <time.h>
