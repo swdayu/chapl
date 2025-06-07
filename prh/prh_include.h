@@ -879,8 +879,10 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
 // | +---+ +-----------------------------------------------+ +---------+ |
 // +---------------------------------------------------------------------+
 // https://developer.apple.com/documentation/kernel/mach
+// https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/
 // https://github.com/phracker/MacOSX-SDKs/tree/master/MacOSX11.3.sdk
 // https://www.manpagez.com/man/3/clock_gettime/
+// https://epir.at/2019/10/30/api-availability-and-target-conditionals/
 #define prh_plat_apple 1
 #endif
 
@@ -1214,6 +1216,7 @@ prh_inline prh_uint prh_to_power_of_2(prh_uint n) {
     #ifndef _DARWIN_C_SOURCE // Restore Darwin APIs removed by _POSIX_C_SOURCE
         #define _DARWIN_C_SOURCE 1
     #endif
+    // https://epir.at/2019/10/30/api-availability-and-target-conditionals/
     #include <Availability.h>
     // https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX11.3.sdk/usr/include/AvailabilityMacros.h
     // https://github.com/phracker/MacOSX-SDKs/blob/master/MacOSX11.3.sdk/usr/include/TargetConditionals.h
@@ -4307,7 +4310,7 @@ void prh_impl_atomic_test(void) {
 // 至 2038/1/19 03:14:07。
 
 // Epoch delta from 0000/1/1 to 1970/1/1
-#define PRH_EPOCH_DELTA_SEC  0x0000000E79844E00LL // 62168256000-sec
+#define PRH_EPOCH_DELTA_SECS 0x0000000E79844E00LL // 62168256000-sec
 #define PRH_EPOCH_DELTA_MSEC 0x0000388AACD0B000LL // 62168256000000-msec
 #define PRH_EPOCH_DELTA_USEC 0x00dcddb30f2f8000LL // 62168256000000000-usec
 
@@ -4338,8 +4341,8 @@ typedef struct {
     prh_byte sec;   // 0 ~ 60 since C99
 } prh_datetime_t;
 
-#define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SEC)
-#define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SEC)
+#define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SECS)
+#define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SECS)
 
 void prh_time_init(void);
 prh_i64 prh_system_secs(void);
@@ -4372,6 +4375,9 @@ prh_inline prh_i64 prh_system_usec_from(const prh_timeusec_t *p) {
     return p->sec * PRH_USEC_PER_SEC + p->usec;
 }
 
+// https://github.com/adobe/chromium/blob/master/base/time_mac.cc
+// https://github.com/adobe/chromium/blob/master/base/time_posix.cc
+// https://github.com/adobe/chromium/blob/master/base/time_win.cc
 #ifdef PRH_TIME_IMPLEMENTATION
 typedef struct {
     prh_i64 ticks_per_sec;
@@ -4931,7 +4937,7 @@ prh_i64 prh_impl_mul_div(prh_i64 value, prh_i64 numer, prh_i64 denom) {
 //      information, call GetLastError. On systems that run Windows XP or
 //      later, the function will always succeed and will thus never return
 //      zero.
-#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SEC  0x00000002B6109100LL // 11644473600-sec
+#define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SECS 0x00000002B6109100LL // 11644473600-sec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC 0x00000A9730B66800LL // 11644473600000-msec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC 0x00295E9648864000LL // 11644473600000000-usec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_100N 0x019DB1DED53E8000LL // 116444736000000000-100nsec
@@ -5385,7 +5391,7 @@ prh_i64 prh_elapse_nsec(prh_i64 ticks) {
 void prh_impl_time_test(void) {
     prh_time_init();
     printf("\n\n[MSC][time]\n");
-    printf("precise tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
+    printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
@@ -6030,22 +6036,10 @@ prh_i64 prh_thread_time(void) {
 void prh_impl_time_test(void) {
     prh_time_init();
     printf("\n\n[GNU][time]\n");
-    printf("precise tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
+    printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds, it is signed integer
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
-    printf("suseconds_t %zi-byte\n", sizeof(suseconds_t)); // microseconds
-    printf("struct timeval %zi-byte\n", sizeof(struct timeval));
-    printf("struct timespec %zi-byte\n", sizeof(struct timespec));
-    struct timespec ts;
-    prh_zeroret(clock_getres(CLOCK_REALTIME, &ts));
-    printf("CLOCK_REALTIME time resolution %d-nsec\n", (int)ts.tv_nsec);
-    prh_zeroret(clock_getres(CLOCK_MONOTONIC, &ts));
-    printf("CLOCK_MONOTONIC time resolution %d-nsec\n", (int)ts.tv_nsec);
-    prh_zeroret(clock_getres(CLOCK_THREAD_CPUTIME_ID, &ts));
-    printf("CLOCK_THREAD_CPUTIME_ID time resolution %d-nsec\n", (int)ts.tv_nsec);
-    prh_zeroret(clock_getres(CLOCK_PROCESS_CPUTIME_ID, &ts));
-    printf("CLOCK_PROCESS_CPUTIME_ID time resolution %d-nsec\n", (int)ts.tv_nsec);
     int i, n = 30, count = 0; prh_i64 t1, t2;
     for (i = 0; i < n; i += 1) {
         printf("system time: %lli\n", (long long)prh_system_usec());
@@ -7239,7 +7233,12 @@ void prh_thrd_sem_ext_wait(prh_thrd_sem_t *p, void (*wakeup_func)(void *), void 
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem_t *p) {
-    prh_thrd_sem_ext_wait(p, prh_null, prh_null);
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    while (p->wakeup_semaphore == 0) {
+        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
+    }
+    p->wakeup_semaphore -= 1;
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
 void prh_thrd_sem_ext_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_func)(void *), void *param) {
@@ -7258,7 +7257,15 @@ void prh_thrd_sem_ext_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_fu
 }
 
 void prh_thrd_sem_post(prh_thrd_sem_t *p, int new_semaphores) {
-    prh_thrd_sem_ext_post(p, new_semaphores, prh_null, prh_null);
+    if (new_semaphores <= 0) return;
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    p->wakeup_semaphore += new_semaphores;
+    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    if (new_semaphores == 1) { // one semaphore available, can wakeup one thread to handle
+        prh_zeroret(pthread_cond_signal(&p->cond));
+    } else { // multi semaphore available, all thread can racing to handle them
+        prh_zeroret(pthread_cond_broadcast(&p->cond));
+    }
 }
 
 void prh_thrd_sleep_start(prh_thrd_cond_t *p) {
@@ -7383,10 +7390,6 @@ void prh_impl_thrd_test(void) {
     printf("pthread_cond_t %d-byte\n", (int)sizeof(pthread_cond_t));
     printf("pthread_mutexattr_t %d-byte\n", (int)sizeof(pthread_mutexattr_t));
     printf("PTHREAD_CANCELED %d\n", (int)(prh_uint)PTHREAD_CANCELED);
-    printf("PTHREAD_CREATE_JOINABLE %d PTHREAD_CREATE_DETACHED %d\n", PTHREAD_CREATE_JOINABLE, PTHREAD_CREATE_DETACHED);
-    printf("PTHREAD_SCOPE_SYSTEM %d PTHREAD_SCOPE_PROCESS %d\n", PTHREAD_SCOPE_SYSTEM, PTHREAD_SCOPE_PROCESS);
-    printf("PTHREAD_INHERIT_SCHED %d PTHREAD_EXPLICIT_SCHED %d\n", PTHREAD_INHERIT_SCHED, PTHREAD_EXPLICIT_SCHED);
-    printf("Sechedure Policy SCHED_FIFO %d SCHED_RR %d SCHED_OTHER %d\n", SCHED_FIFO, SCHED_RR, SCHED_OTHER);
     printf("ETIMEDOUT = %d\n", ETIMEDOUT);
     printf("EDEADLK = %d\n", EDEADLK);
     printf("EINVAL = %d\n", EINVAL);
@@ -7405,7 +7408,7 @@ typedef struct {
     int index;
 } prh_cono_t;
 
-void prh_conc_init(int thrdstartid, int numthread);
+void prh_conc_init(int thrd_start_id, int num_thread);
 void prh_conc_run(prh_coroproc_t co_main);
 
 #ifdef PRH_CONC_STRIP_PREFIX
@@ -7476,18 +7479,18 @@ typedef struct {
 static prh_conc_t PRH_IMPL_CONC;
 int prh_impl_conc_thrd_proc(prh_thrd_t* t);
 
-void prh_conc_init(int thrdstartid, int numthread) {
+void prh_conc_init(int thrd_start_id, int num_thread) {
     prh_conc_t *conc = &PRH_IMPL_CONC;
-    prh_thrdpool_t *pool = prh_thread_init(thrdstartid, numthread, sizeof(prh_thread_t));
+    prh_thrdpool_t *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_thread_t));
     prh_thread_init_main_userdata(pool, (prh_thrdudinit_t)prh_impl_conc_thrd_init);
     prh_thread_t *main = prh_thread_main_userdata(pool);
     prh_atomtype_store(&main->thread_available, false);
     conc->coro_thrd_pool = pool;
     conc->coro_thrd_list = pool->thrd;
-    conc->numcorothrds = (numthread > 0 ? numthread : 0) + 1;
+    conc->numcorothrds = (num_thread > 0 ? num_thread : 0) + 1;
     prh_nodequeue_init(&conc->coro_ready_que);
     prh_atomtype_init(&conc->privilege_thread, prh_atomnull);
-    for (int i = 0; i < numthread; i += 1) {
+    for (int i = 0; i < num_thread; i += 1) {
         prh_thread_ext_create(pool, prh_impl_conc_thrd_proc, 0, sizeof(prh_thread_t), (prh_thrdudinit_t)prh_impl_conc_thrd_init);
     }
 }
@@ -7505,7 +7508,7 @@ prh_cono_t prh_cono_ext_create(prh_coroproc_t proc, int stack_size, int userdata
     return (prh_cono_t){p->coro_id};
 }
 
-void prh_conc_run(prh_coroproc_t co_main) {
+void prh_conc_run(prh_coroproc_t co_main, int stack_size) {
     prh_conc_t *conc = &PRH_IMPL_CONC;
     prh_thrdpool_t *pool = conc->coro_thrd_pool;
     prh_thread_t *main = prh_thread_main_userdata(pool);
