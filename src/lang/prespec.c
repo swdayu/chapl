@@ -91,10 +91,10 @@
 //  length (Point(T) p T) { return type.x * type.x + type.y * type.y }
 //  size (Triple(N, T, U) p typeof(N)) { return N + sizeof(T) + sizeof(U) }
 // 模板类型实例化：                                                      代码中仅允许使用这种简化的形式
-//  ptr(int) ptr(ptr(int))                                              int* int**              type!int* int.type!ptr
-//  array(int, 3)                                                       int[3]                  int.type!array(3)
-//  slice(int)                                                          int.slice               int.type!slice
-//  map(string, int)                                                    string.map(int)         string.type!map(type!int)
+//  ptr(int) ptr(ptr(int))                                              int* int**              type:int* int.type:ptr
+//  array(int, 3)                                                       int[3]                  int.type:array(3)
+//  slice(int)                                                          int.slice               int.type:slice
+//  map(string, int)                                                    string.map(int)         string.type:map(type:int)
 //  Triple(3, int, string)                                              Triple#3(int, string)
 // 指针的指针，指针的数组：
 //  ptr(ptr(int))                                                       int** int**
@@ -453,7 +453,7 @@ taste
 texture
     smooth true
 
-[global]
+[#global]
 a true
 b 1024
 s "hello"
@@ -570,16 +570,6 @@ len typeof(pos) 3
 
 for i int 3 .. 10 { /* */ }
 
-// 为避免歧义，一元操作符使用特殊的语法形式
-
-    #negt()     #-          #-3.14      #-c
-    #posi()     #+          #+6.24      #+c
-    #addr()     (&)         (&)data
-    #dref()     (*)         (*)p        (*)c        (**)pp
-    #comp()     #^          #^c
-    #sizeof(T)
-    #typeof(a + b)
-
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
 // 类型不需要提前声明，因为其名称可以由词法分辨
@@ -601,22 +591,34 @@ extern numb int*
 
 优先级（从高到低） ::
 
-    8 从左向右结合：() [] . -> (type){list}
-    7 从右向左结合：! ~ + - * & (type) 一元操作 #- #+ #^ (&) (*) not (!) ->> <<-
-    6 从左向右结合：* ** \ \\ % %% <-- --> & ^
-    5 从左向右结合：+ - |
-    4 从左向右结合：< << <= <<= > >> >= >>=
-    3 从左向右结合：== !=
-    2 从左向右结合：&& and
-    1 从左向右结合：|| or
-    0 从右向左结合：= := += -= &= |= ^= *= **= \= \\= %= %%= <--= -->=
+    12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
+    11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
+    10 从右到左    #-a #+a #^a !a (type)a (&)a (*)a (**)a (*&)a (**&)a ->> <<-
+     9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
+     8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
+     7 从左到右    a+b a-b a|b a^b             add_op   |^
+     6 从左到右    a<b a>b a<=b a>=b           rel_op
+     5 从左到右    a==b a!=b
+     4 从左到右    a&&b
+     3 从左到右    a||b
+     2 从右到左    a?b:c a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a&=b a^=b a|=b
+     1 从左到右    a,b
 
-为了省略大部分的分号，不使用一元操作符，而用： ::
+为了省略大部分的分号并避免歧义，一元操作符使用特殊的语法形式： ::
 
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
     取地址 & 改为 (&) 地址标记 (&1) (&2)
     解引用 * 改为 (*) (**) (*&) (**&) 地址引用 (*1) (*2)
+
+    #negt()     #-          #-3.14      #-c
+    #posi()     #+          #+6.24      #+c
+    #addr()     (&)         (&)data
+    #dref()     (*)         (*)p        (*)c        (**)pp
+    #comp()     #^          #^c
+    #sizeof(T)
+    #typeof(expr)
+    #alignof(a)
 
 // 条件语句包含传统C的if和switch：
 //  if cond { expr }
@@ -636,7 +638,7 @@ if color case .RED { // 使用break会跳出外层for循环
 defer_return #label
     return
 
-// 函数支持默认参数和重载，以及支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []=，#symmetric
+// 函数支持默认参数和重载，以及支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，#symmetric
 // 禁止函数链式调用 a.getb().bfun()
 // 定义展开函数：
 // func (retrun int) #expand {
