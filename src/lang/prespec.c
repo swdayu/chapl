@@ -293,7 +293,8 @@ data Data {1, 2}
 data Data* (&) data
 data Data[2] {data1, data2}
 
-<found index> array_find(<<array, item)
+found .. index array_find(<<array, item)
+found .. error array_find(<<array, item)
 
 cal2 (int a b int) { return a + b }
 cal2 (int a b int) {return a + b} (1, 2)
@@ -316,6 +317,7 @@ a int ???
 a 42
 a #+99
 b 0
+b a // 一个变量赋值给另一个变量的形式必须在同一行，不能换行
 c #-17
 d 'a
 d \n
