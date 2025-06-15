@@ -7,10 +7,16 @@
 // if else case for range
 // continue break defer return goto
 // struct interface enum const extern
+// tn (type name)
 //
-// 首字母大写，以 _t _it _struct 结束的标识符，或以 type! 开头的标识符，自动识别为类型
-// 标识符。以$开头的名称是非类型，使用关键字命令非类型例如 $int $if。使用 # 开头的标识
-// 符表示编译时标识，@ 开始的标识符表示运行时标识。
+// 首字母大写，或以 _t _struct 结束，或以 tn 关键字开头的标识符，自动识别为类型名。
+// 以$开头的名称是非类型，使用关键字命名非类型例如 $int $if。使用 # 开头的标识表示内置
+// 标识符。对于单个大写字母，
+// A B C D E F G H I J K L
+// O P Q R S T U V W X Y Z
+// 表示类型名，
+// N M
+// 表示整数常量名。
 //
 // 编译时常量：
 //  #file #func #line #retp
@@ -26,20 +32,23 @@
 // #- #+ #^
 // (&) (*) (**) (*&) (**&) (&1) (&2) (*1) (*2)
 //
-// 类型字面量（TypeLit）包括基本类型、匿名类型（AnonyType)、命名类型（NamedType）、实
-// 列化类型（ImpledType）。基本类型定义如下：
-//  any void
-//  bool null byte rune errt strt string type!thrd type!i type!u int type!b type!w type!d type!q type!x type!y type!z type!p
-//  i08 i16 i32 i64 i128 i256 i512 intp int intb intw intd intq intx inty intz intq uinb uinw uind uinq uinx uiny uinz uinq
-//  u08 u16 u32 u64 u128 u256 u512 uint (b w d q x y z p) byte word double-word quad-word xmm-word ymm-word zmm-word
-//  f08 f16 f32 f64 f128 f256 f512 float 
+// 基本类型：
+//  void bool null byte rune errt strt string
+//  i08 i16 i32 i64 i128 i256 i512 int (b w d q x y z p) byte word double-word quad-word xmm-word ymm-word zmm-word
+//  u08 u16 u32 u64 u128 u256 u512 unt
+//  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
-//  a08 a16 a32
 //
-// 匿名类型定义如下，匿名类型除了函数和方法之外只能用来定义新类型：
-//  int  u16  f64  Type  Point  type!myint
-//  int* u16* f64*
+// 类型字面量（TypeLit）包括基本类型（BasicType）、匿名类型（AnonyType)、命名类型（NamedType）、实列化类型（ImpledType）。
+// any          // basic_type + anony_type + named_type + gimpl_type
+// basic_type   // numeric + string
+// numeric      // integer + float + decimal + complex
+// integer      // bool null byte rune errt strt i08~i512 u08~u512 int unt
+//
+// 复合类型和匿名类型：
+//  int  u16  f64  Point  tn myint
+//  int* u16* f64* Point* tn myint*
 //  int[2] u16[2] f64[2]
 //  int[2]* u16[2]* f64[2]*
 //  (int a b) (int a b int) (void) (void int) 参数必须带名称，返回值是一个类型列表不能带名称，函数如果没有参数必须带void
@@ -68,7 +77,7 @@
 //      int**               int[2][3]           int[2][3]**             int**[2][3]
 //      f64**               f64[2][3]           f64[2][3]**             f64**[2][3]
 // 命名类型单指用户定义的类型，虽然基本类型也都是有名字的：
-//  MyInt int type!myint int
+//  MyInt int  tn myint int
 //  ReturnType (struct u32 bool) 相当于定义tuple
 //  Func (int a b int)
 //  Func (void) 参数为空，返回为空
@@ -81,13 +90,13 @@
 //  (int a b int) [m] { ... }
 //  (Point p float factor float) [m] { ... }
 // 定义模板类型，模板类型都是命名的，如果模板是基本类型，则需要使用常量进行实例化：
-//  Ptr [T] (struct T* p)
-//  Pfp [T] (struct T** pp)
-//  Array [T N|int] (struct T[N] a)
-//  Slice [T] (struct T* a int len)
-//  Map [K V] (struct (struct K key V value)[] slice)
-//  Point [T|numeric] (struct T x y) // 只能给结构体定义模板，接口和函数都不能定义模板，但是模板类型可以作为函数的接收类型
-//  Triple [N|uint T U] (struct T[N] a U b)
+//  Ptr (struct T?* p)
+//  Pfp (struct T?** pp)
+//  Array (struct T?[N?int] a)
+//  Slice (struct T?* a int len)
+//  Map (struct (struct K? key V? value)[] slice)
+//  Point (struct T?numeric x y) // 只能给结构体定义模板，接口和函数都不能定义模板，但是模板类型可以作为函数的接收类型
+//  Triple (struct T?[N?unt] a U b)
 //  length (Point(T) p T) { return type.x * type.x + type.y * type.y }
 //  size (Triple(N, T, U) p typeof(N)) { return N + sizeof(T) + sizeof(U) }
 // 模板类型实例化：                                                      代码中仅允许使用这种简化的形式
@@ -209,16 +218,50 @@ T5 Triple#3(((# int a b int)[3]) calc, (Point p float factor)[int])
 T6 Triple#3((int a b int)[3], int*)
 T7 Triple#3((Point p float factor)[3], string[int])
 
-// 定义泛化类型
-
-Node [T] (struct
+Node (struct
     #self next // #self 总是表示的是指针
+    T? data
 )
 
-Triple [T U N|int] (struct
-    T[N] a
-    U b
+Triple (struct
+    T?[N?int] a
+    U? b
 )
+
+Main (i32 argc byte** argv i32)
+
+Scale (Point p int a b)
+
+Calc (int a b int)
+
+tn array (struct
+    T?[N?int] a;
+)
+
+tn array (struct
+    tn t?[N?int] a;
+)
+
+tn array (struct
+    T?* item
+    int capacity
+    unt len
+)
+
+tn calc (int a b int)
+
+tn nods (struct
+    #self next
+    T? data
+)
+
+for i tn i 0 .. 9 {
+    i (int)(tn i)(*)(tn i*)addr
+    pos + (*&)(tn i):(byte*)p + size + f(g)
+}
+
+lock_cmpxchg (tn t?* p tn t old new tn t) #intrinsic
+coro_guard (tn coro coro tn coroguard*) #cdcel #inline
 
 // 类型并不需要提前声明，因为可以通过词法直接分辨，函数类型如果可以通过传递的参数匹配也无需提前声明
 T1;
@@ -229,19 +272,15 @@ T5;
 T6;
 T7;
 Calc;
-type!int;
-type!calc;
-type!coro;
+tn myint;
+tn calc;
+tn coro;
 
 // 定义变量，包括函数变量，一个非类型标识符后跟一个类型表示定义该类型的一个变量
 
-Main (int argc byte** argv int)
+print (##string fmt any ... int)
 
-Sale (Point p int a b)
-
-print (##string fmt any ... intp)
-
-main (int argc byte** argv int) {
+main (i32 argc byte** argv i32) {
     print("%\n", argc)
     return 0
 }
@@ -255,11 +294,11 @@ calc (int a b int) {
     return a + b
 }
 
-calc (int a b int) #cdecl {
+calc Calc #cdecl {
     return a + b
 }
 
-calc (int a b int) #fastcall {
+calc tn calc #fastcall {
     return a + b
 }
 
@@ -302,7 +341,7 @@ cal2 (int a b int)* (int a b int) {return a + b } // 函数不需要声明成指
 cal2 (int a b int)* Calc {return a + b }
 cal2 (int a b int)[2] {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc { return a + b }
-cal2 type!calc { return a + b }
+cal2 tn calc { return a + b }
 cal2 (int a b int) * (&) (int a b int) {return a + b }
 cal2 (int a b int)[2] {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc* (&) (int a b int) {return a + b }
@@ -603,8 +642,9 @@ extern numb int*
      5 从左到右    a==b a!=b
      4 从左到右    a&&b
      3 从左到右    a||b
-     2 从右到左    a?b:c a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a&=b a^=b a|=b
-     1 从左到右    a,b
+     2 从左到右    a?:b
+     1 从右到左    a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a&=b a^=b a|=b
+     0 从左到右    a,b
 
 为了省略大部分的分号并避免歧义，一元操作符使用特殊的语法形式： ::
 
