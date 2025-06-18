@@ -35,8 +35,7 @@ typedef struct {
     Token *token;
 } Context;
 
-static const char *parse_int(const char *expr, int *out)
-{
+static const char *parse_int(const char *expr, int *out) {
     int ch, value = 0;
     for (; (ch = *expr); expr += 1) {
         if (ch >= '0' && ch <= '9') {
@@ -49,10 +48,9 @@ static const char *parse_int(const char *expr, int *out)
     return expr;
 }
 
-coro_proc lexer(coro_t *coro)
-{
+coro_proc lexer(coro_t *coro) {
     int ch;
-    Context *ctx = (Context *)coroutine_userdata(coro);
+    Context *ctx = (Context *)coro_data(coro);
     const char *expr = ctx->expr;
     Token *token = ctx->token;
     if (!expr) goto label_return;
@@ -70,24 +68,23 @@ coro_proc lexer(coro_t *coro)
         } else {
             break;
         }
-        coroutine_yield(coro);
+        coro_yield(coro);
         token = ctx->token;
     }
 label_return:
     token->kind = TOK_EOF;
 }
 
-#define INT_TAG "TOK_INT: "
-#define OPR_TAG "TOK_OPR: "
-#define SUM_TAG "       : "
+#define INT_TAG " TOK_INT: "
+#define OPR_TAG " TOK_OPR: "
+#define SUM_TAG "        : "
 
 void eval(Context *ctx, Token perv_oper);
 
-bool token(Context *ctx, TokenKind kind)
-{
+bool token(Context *ctx, TokenKind kind) {
     Token *t = (kind == TOK_OPER) ? &ctx->oper : &ctx->value;
     ctx->token = t;
-    while (coroutine_start(ctx->main, 1)) {
+    while (coro_await(ctx->main, 1)) {
         if (kind == TOK_OPER) {
             if (t->kind & TOK_OPER) {
                 printf(OPR_TAG"%c\n", (t->kind & 0xff));
@@ -126,8 +123,7 @@ bool token(Context *ctx, TokenKind kind)
     return false;
 }
 
-void calc(int left, TokenKind oper, Token *right)
-{
+void calc(int left, TokenKind oper, Token *right) {
     int result = 0;
     if (oper == TOK_ADD) {
         result = left + right->u.value;
@@ -150,8 +146,7 @@ void calc(int left, TokenKind oper, Token *right)
     right->u.value = result;
 }
 
-void eval(Context *ctx, Token perv_oper)
-{
+void eval(Context *ctx, Token perv_oper) {
     Token left, curr_oper;
     if (!token(ctx, TOK_OPER)) {
         return;
@@ -166,17 +161,16 @@ void eval(Context *ctx, Token perv_oper)
     }
 }
 
-void test_lexer(const char *expr)
-{
-    coro_struct *main = coroutine_init(1);
-    Context ctx = {expr, main};
-    coroutine_create(main, lexer, CORO_STACK_SIZE, &ctx);
+void test_lexer(const char *expr) {
+    coro_struct *s = coro_init(1, 70);
+    Context ctx = {expr, s};
+    coro_create(s, lexer, CORO_STACK_SIZE, &ctx);
     if (expr) {
-        printf("expr: %s\n", expr);
+        printf("    expr: %s\n", expr);
     }
     if (token(&ctx, TOK_INT)) {
         eval(&ctx, (Token){TOK_EOF, {-1}});
     }
     printf("Quit!\n");
-    coroutine_finish(&main);
+    coro_finish(&s);
 }

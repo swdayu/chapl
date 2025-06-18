@@ -12,55 +12,52 @@ typedef struct {
     int coro_to_main;
 } Counter;
 
-coro_proc counter(coro_t *coro)
-{
-    Counter *c = (Counter *)coroutine_userdata(coro);
+coro_proc counter(coro_t *coro) {
+    Counter *c = (Counter *)coro_data(coro);
     int n = c->n ? c->n : 10;
     for (int i = 0; i < n; i += 1) {
-        printf("[coro] %p #%d %d para %d\n", (void *)coro, coroutine_id(coro), i, c->main_to_coro);
+        printf("[coro %02d] %p i=%d recv %d\n", coro_self_id(), (void *)coro, i, c->main_to_coro);
         c->coro_to_main = i;
-        coroutine_yield(coro);
+        coro_yield(coro);
     }
     c->coro_to_main += 1;
 }
 
-void test_yield_cycle(void)
-{
-    coro_struct *main = coroutine_init(3);
-    Counter *c1 = (Counter *)coroutine_ext_create(main, counter, CORO_STACK_SIZE, sizeof(Counter)); c1->n = 3;
-    Counter *c2 = (Counter *)coroutine_ext_create(main, counter, CORO_STACK_SIZE, sizeof(Counter)); c2->n = 5;
-    coroutine_ext_create(main, counter, CORO_STACK_SIZE, sizeof(Counter));
-    while (coroutine_start_cycle(main)) ;
-    coroutine_finish(&main);
+void test_yield_cycle(void) {
+    coro_struct *s = coro_init(3, 10);
+    Counter *c1 = (Counter *)coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter)); c1->n = 3;
+    Counter *c2 = (Counter *)coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter)); c2->n = 5;
+    coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter));
+    while (coro_cycle_await(s)) ;
+    coro_finish(&s);
 }
 
-void test_yield_manual(void)
-{
+void test_yield_manual(void) {
     Counter c = {0};
-    coro_struct *main = coroutine_init(5);
-    coroutine_create(main, counter, CORO_STACK_SIZE, &c);
-    coroutine_create(main, counter, CORO_STACK_SIZE, &c);
-    coroutine_create(main, counter, CORO_STACK_SIZE, &c);
+    coro_struct *s = coro_init(5, 20);
+    coro_create(s, counter, CORO_STACK_SIZE, &c);
+    coro_create(s, counter, CORO_STACK_SIZE, &c);
+    coro_create(s, counter, CORO_STACK_SIZE, &c);
 
     c.n = 3; c.main_to_coro = 200;
-    while (coroutine_start(main, 2)) {
-        printf("[main] %p para %d\n", coroutine_main(main), c.coro_to_main);
+    while (coro_await(s, 2)) {
+        printf("[main %02d] recv i=%d\n", prh_coro_main_id(s), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
     c.n = 7; c.main_to_coro = 100;
-    while (coroutine_start(main, 1)) {
-        printf("[main] %p para %d\n", coroutine_main(main), c.coro_to_main);
+    while (coro_await(s, 1)) {
+        printf("[main %02d] recv i=%d\n", prh_coro_main_id(s), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
     c.n = 5; c.main_to_coro = 300;
-    while (coroutine_start(main, 3)) {
-        printf("[main] %p para %d\n", coroutine_main(main), c.coro_to_main);
+    while (coro_await(s, 3)) {
+        printf("[main %02d] recv i=%d\n", prh_coro_main_id(s), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
-    coroutine_finish(&main);
+    coro_finish(&s);
 }
 
 typedef struct {
@@ -68,38 +65,37 @@ typedef struct {
     int value;
 } SoloTest;
 
-coro_proc solo_count(coro_t *coro)
-{
-    SoloTest *p = (SoloTest *)coroutine_userdata(coro);
+coro_proc solo_count(coro_t *coro) {
+    SoloTest *p = (SoloTest *)coro_data(coro);
     for (int i = 0; i < p->count; i += 1) {
         p->value = i;
-        coroutine_yield(coro);
+        coro_yield(coro);
     }
     p->value += 1;
 }
 
-void test_yield_solo(void)
-{
+void test_yield_solo(void) {
     SoloTest st = {0};
-    solo_struct main = {prh_null};
+    solo_struct solo;
 
-    solo_create(&main, solo_count, 384, &st); st.count = 5;
-    while (solo_start(&main)) {
-        printf("[solo #1] recv %d\n", st.value);
+    solo_init(&solo, 30);
+
+    solo_create(&solo, solo_count, 384, &st); st.count = 5;
+    while (solo_await(&solo)) {
+        printf("[solo %02d] recv %d\n", solo.start_id, st.value);
     }
 
-    solo_reload(&main, solo_count); st.count = 7;
-    while (solo_start(&main)) {
-        printf("[solo #2] recv %d\n", st.value);
+    solo_reload(&solo, solo_count); st.count = 7;
+    while (solo_await(&solo)) {
+        printf("[solo %02d] recv %d\n", solo.start_id, st.value);
     }
 
-    solo_finish(&main);
+    solo_finish(&solo);
 }
 
 void test_lexer(const char *expr);
 
-int main(int argc, char **argv)
-{
+int main(int argc, char **argv) {
     test_yield_cycle();
     test_yield_manual();
     test_yield_solo();

@@ -3264,15 +3264,14 @@ void *prh_sizequeue_pop(prh_sizequeue_t *q) {
 
 // COROUTINES - Very simple single file style coroutine library
 #ifdef PRH_CORO_INCLUDE
-
 typedef struct prh_coro prh_coro_t;
 typedef struct prh_impl_coro_struct prh_coro_struct;
 struct prh_impl_coro_main;
 
 typedef struct {
     struct prh_impl_coro_main *main; // 1nd field dont move
-    prh_coro_t *coro; // 2nd field dont move, curr coro
-    prh_i32 start_id, curr_index; // last field dont move, coro index start from 1
+    prh_i32 start_id, curr_index; // 2nd field dont move, coro index start from 1
+    prh_coro_t *coro; // last field dont move, only used by solo_struct
 } prh_solo_struct;
 
 #define prh_coro_proc prh_fastcall(void)
@@ -3281,14 +3280,16 @@ prh_fastcall_typedef(void, prh_coroproc_t)(prh_coro_t *);
 prh_fastcall(bool) prh_impl_asm_coro_yield(prh_coro_t *coro, prh_coro_t *next);
 prh_coro_t *prh_impl_next_resume_coro(void);
 
-int prh_coro_self_id(void);
-
-prh_inline void *prh_coro_udata(prh_coro_t *coro) {
-    return (char *)coro + 8;
-}
-
 prh_inline void prh_coro_yield(prh_coro_t *coro) {
     prh_impl_asm_coro_yield(coro, prh_impl_next_resume_coro());
+}
+
+prh_inline void *prh_coro_data(prh_coro_t *coro) {
+    return *(void **)((char *)coro + 8);
+}
+
+prh_inline int prh_coro_main_id(prh_coro_struct *s) {
+    return ((prh_solo_struct *)s)->start_id;
 }
 
 prh_coro_struct *prh_coro_init(int maxcoros, int start_id);
@@ -3299,6 +3300,7 @@ bool prh_coro_cycle_await(prh_coro_struct *s);
 bool prh_coro_await(prh_coro_struct *s, int index);
 void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc); // udata is not reset
 void prh_coro_finish(prh_coro_struct **s);
+int prh_coro_self_id(void);
 
 void prh_solo_init(prh_solo_struct *s, int start_id);
 void prh_solo_create(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, void *userdata);
@@ -3312,8 +3314,9 @@ void prh_solo_finish(prh_solo_struct *s);
 #define coro_struct             prh_coro_struct
 #define solo_struct             prh_solo_struct
 #define coro_proc               prh_coro_proc
-#define coro_udata              prh_coro_udata
+#define coro_data               prh_coro_data
 #define coro_self_id            prh_coro_self_id
+#define coro_main_id            prh_coro_main_id
 #define coro_yield              prh_coro_yield
 #define coro_init               prh_coro_init
 #define coro_create             prh_coro_create
@@ -3369,9 +3372,8 @@ void prh_impl_coro_stack_segmentation_fault(prh_coro_t *coro) {
 //  [prh_coro_t *]
 struct prh_impl_coro_struct {
     struct prh_impl_coro_main *main; // 1nd field dont move
-    prh_coro_t *coro; // 2nd field dont move, curr coro
-    prh_i32 start_id, curr_index; // last field dont move, coro index start from 1
-    prh_i32 maxcoros, coro_cnt;
+    prh_i32 start_id, curr_index; // 2nd field dont move, coro index start from 1
+    prh_i32 maxcoros, coro_cnt; // last field dont move, only used by coro_struct
 };
 
 // coroutine stack layout:
@@ -3399,11 +3401,9 @@ struct prh_impl_coro_main {
     prh_coro_struct *chain;
 };
 
-prh_inline int prh_impl_coro_size(void) {
-    return 16;
-}
+#define prh_impl_coro_size 16
 
-prh_static_assert(sizeof(prh_coro_t) <= prh_impl_coro_size());
+prh_static_assert(sizeof(struct prh_coro) <= prh_impl_coro_size);
 
 prh_inline prh_impl_coro_guard_t *prh_impl_coro_guard(prh_coro_t *coro) {
     return (prh_impl_coro_guard_t *)((char *)coro - coro->loweraddr);
@@ -3430,16 +3430,16 @@ void prh_impl_coro_guard_verify(prh_coro_t *coro) {
 }
 
 prh_inline int prh_impl_coro_extend_size(int coro_extend_size) {
-    return prh_impl_coro_size() + prh_round_16_byte(coro_extend_size);
+    return prh_impl_coro_size + (int)prh_round_16_byte(coro_extend_size);
 }
 
 prh_coro_t *prh_impl_coro_alloc(int stack_size, int coro_extend_size, int maxudsize) {
     assert(maxudsize >= 0);
     int coro_size = prh_impl_coro_extend_size(coro_extend_size);
-    int data_size = prh_round_16_byte(maxudsize);
-    assert(stack_size > coro_size + data_size + sizeof(prh_impl_coro_guard_t) + prh_impl_asm_stack_init_depth());
+    int data_size = (int)prh_round_16_byte(maxudsize);
+    assert(stack_size > coro_size + data_size + (int)sizeof(prh_impl_coro_guard_t) + prh_impl_asm_stack_init_depth());
 
-    int stackallocsize = prh_round_16_byte(stack_size);
+    int stackallocsize = (int)prh_round_16_byte(stack_size);
     char *p = (char *)prh_aligned_malloc(stackallocsize);
     prh_coro_t *coro = (prh_coro_t *)(p + stackallocsize - coro_size - data_size);
     memset(coro, 0, coro_size + data_size);
@@ -3453,7 +3453,7 @@ prh_coro_t *prh_impl_coro_alloc(int stack_size, int coro_extend_size, int maxuds
 }
 
 prh_coro_t *prh_impl_coro_alloc_set(prh_coro_t **slot, int stack_size, int coro_extend_size, int maxudsize) {
-    assert(*slot != prh_null);
+    assert(*slot == prh_null);
     prh_coro_t *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, maxudsize);
     *slot = coro;
     return coro;
@@ -3499,7 +3499,7 @@ prh_coro_t **prh_impl_coro_list(prh_coro_struct *s) {
 }
 
 void prh_coro_create(prh_coro_struct *s, prh_coroproc_t proc, int stack_size, void *userdata) {
-    assert(s->coro_cnt >= 0 && s->coro_cnt < s->maxcoro);
+    assert(s->coro_cnt >= 0 && s->coro_cnt < s->maxcoros);
     prh_coro_t **slot = prh_impl_coro_list(s) + s->coro_cnt++;
     prh_coro_t *coro = prh_impl_coro_alloc_set(slot, stack_size, 0, 0);
     prh_impl_coro_load(coro, proc);
@@ -3507,23 +3507,23 @@ void prh_coro_create(prh_coro_struct *s, prh_coroproc_t proc, int stack_size, vo
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
-    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d proc %p\n",
-        s->start_id + s->coro_cnt, (void *)coro, guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
-        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, 0, stack_size, (void *)proc);
+    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
+        s->start_id + s->coro_cnt, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
+        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, 0, stack_size);
 #endif
 }
 
 void *prh_coro_creatx(prh_coro_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize) {
-    assert(s->coro_cnt >= 0 && s->coro_cnt < s->maxcoro);
+    assert(s->coro_cnt >= 0 && s->coro_cnt < s->maxcoros);
     prh_coro_t **slot = prh_impl_coro_list(s) + s->coro_cnt++;
     prh_coro_t *coro = prh_impl_coro_alloc_set(slot, stack_size, 0, maxudsize);
     prh_impl_coro_load(coro, proc);
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
-    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d proc %p\n",
-        s->start_id + s->coro_cnt, (void *)coro, guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
-        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, prh_round_16_byte(maxudsize), stack_size, (void *)proc);
+    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
+        s->start_id + s->coro_cnt, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
+        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, (int)prh_round_16_byte(maxudsize), stack_size);
 #endif
     return coro->userdata;
 }
@@ -3539,9 +3539,9 @@ void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc) {
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
-    printf("[coro %02d] %p reload -- lower %p (left %d) rsp %p coro %p (size %d) data %p -- proc %p\n",
-        s->start_id + index, (void *)coro, guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
-        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, (void *)proc);
+    printf("[coro %02d] %p reload -- lower %p (left %d) rsp %p coro %p (size %d) data %p --\n",
+        s->start_id + index, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
+        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata);
 #endif
 }
 
@@ -3551,13 +3551,13 @@ void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc) {
 prh_thread_local prh_coro_struct *PRH_IMPL_CORO_CHAIN = prh_null;
 
 int prh_coro_self_id(void) {
-    prh_coro_struct *s = &PRH_IMPL_CORO_CHAIN;
+    prh_coro_struct *s = PRH_IMPL_CORO_CHAIN;
     return s->start_id + s->curr_index;
 }
 
 void prh_impl_push_main_coro(prh_coro_struct *s) {
     s->main->chain = PRH_IMPL_CORO_CHAIN;
-    PRH_IMPL_CORO_CHAIN = main;
+    PRH_IMPL_CORO_CHAIN = s;
 }
 
 prh_coro_struct *prh_impl_pop_main_coro(void) {
@@ -3567,7 +3567,7 @@ prh_coro_struct *prh_impl_pop_main_coro(void) {
 }
 
 prh_coro_t *prh_impl_get_next_resume(prh_coro_struct *s) {
-    for (int i = s->curr_index; i < s->coro_cnt; i += 1) {
+    for (int i = s->curr_index; i < s->coro_cnt; i += 1) { // solo_struct never goes here due to yield_cycle = 0
         prh_coro_t *next = prh_impl_coro_list(s)[i];
         if (next && next->rspoffset) {
             s->curr_index = i + 1;
@@ -3583,18 +3583,14 @@ prh_coro_t *prh_impl_next_resume_coro(void) {
     struct prh_impl_coro_main *main = top->main;
     if (main->yield_cycle == 0) return (prh_coro_t *)main;
     prh_coro_t *next = prh_impl_get_next_resume(top);
-    if (next != (prh_coro_t *)main) {
-        top->coro = next; // dont move out, solo need coro unchanged
-    }
     return next;
 }
 
 bool prh_impl_coro_main_yield(prh_coro_struct *s, prh_coro_t *next) {
 #if PRH_CORO_DEBUG
-    printf("[coro %02d] %p await %02x\n", s->start_id, (void *)s->main, s->start_id + s->curr_index);
+    printf("[coro %02d] %p await %02d\n", s->start_id, (void *)s->main, s->start_id + s->curr_index);
 #endif
     prh_impl_push_main_coro(s);
-    s->coro = next;
     bool result = prh_impl_asm_coro_yield((prh_coro_t *)s->main, next);
     prh_impl_pop_main_coro();
     return result;
@@ -3662,9 +3658,9 @@ void prh_solo_create(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, vo
     prh_coro_t *coro = s->coro;
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
-    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d proc %p\n",
-        s->start_id + 1, (void *)coro, guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
-        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, 0, stack_size, (void *)proc);
+    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
+        s->start_id + 1, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
+        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, 0, stack_size);
 #endif
 }
 
@@ -3675,9 +3671,9 @@ void *prh_solo_creatx(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, i
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
-    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d proc %p\n",
-        s->start_id + 1, (void *)coro, guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
-        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, prh_round_16_byte(maxudsize), stack_size, (void *)proc);
+    printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
+        s->start_id + 1, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
+        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, (int)prh_round_16_byte(maxudsize), stack_size);
 #endif
     return coro->userdata;
 }
@@ -3688,9 +3684,9 @@ void prh_solo_reload(prh_solo_struct *s, prh_coroproc_t proc) {
     prh_coro_t *coro = s->coro;
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
-    printf("[coro %02d] %p reload -- lower %p (left %d) rsp %p coro %p (size %d) data %p -- proc %p\n",
-        s->start_id + 1, (void *)coro, guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
-        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, (void *)proc);
+    printf("[coro %02d] %p reload -- lower %p (left %d) rsp %p coro %p (size %d) data %p --\n",
+        s->start_id + 1, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
+        (void *)coro, prh_impl_coro_extend_size(0), coro->userdata);
 #endif
 }
 
