@@ -3271,8 +3271,8 @@ struct prh_impl_coro_main;
 typedef struct {
     struct prh_impl_coro_main *main; // 1nd field dont move
     prh_i32 start_id, curr_index; // 2nd field dont move, coro index start from 1
-    prh_coro_t *coro; // last field dont move, only used by solo_struct
-} prh_solo_struct;
+    prh_coro_t *coro; // last field dont move, only used by soro_struct
+} prh_soro_struct;
 
 #define prh_coro_proc prh_fastcall(void)
 prh_fastcall_typedef(void, prh_coroproc_t)(prh_coro_t *);
@@ -3289,7 +3289,7 @@ prh_inline void *prh_coro_data(prh_coro_t *coro) {
 }
 
 prh_inline int prh_coro_main_id(prh_coro_struct *s) {
-    return ((prh_solo_struct *)s)->start_id;
+    return ((prh_soro_struct *)s)->start_id;
 }
 
 prh_coro_struct *prh_coro_init(int maxcoros, int start_id);
@@ -3302,17 +3302,17 @@ void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc); // uda
 void prh_coro_finish(prh_coro_struct **s);
 int prh_coro_self_id(void);
 
-void prh_solo_init(prh_solo_struct *s, int start_id);
-void prh_solo_create(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, void *userdata);
-void *prh_solo_creatx(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize);
-bool prh_solo_await(prh_solo_struct *s);
-void prh_solo_reload(prh_solo_struct *s, prh_coroproc_t proc); // udata is not reset
-void prh_solo_finish(prh_solo_struct *s);
+void prh_soro_init(prh_soro_struct *s, int start_id);
+void prh_soro_create(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, void *userdata);
+void *prh_soro_creatx(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize);
+bool prh_soro_await(prh_soro_struct *s);
+void prh_soro_reload(prh_soro_struct *s, prh_coroproc_t proc); // udata is not reset
+void prh_soro_finish(prh_soro_struct *s);
 
 #ifdef PRH_CORO_STRIP_PREFIX
 #define coro_t                  prh_coro_t
 #define coro_struct             prh_coro_struct
-#define solo_struct             prh_solo_struct
+#define soro_struct             prh_soro_struct
 #define coro_proc               prh_coro_proc
 #define coro_data               prh_coro_data
 #define coro_self_id            prh_coro_self_id
@@ -3325,12 +3325,12 @@ void prh_solo_finish(prh_solo_struct *s);
 #define coro_await              prh_coro_await
 #define coro_reload             prh_coro_reload
 #define coro_finish             prh_coro_finish
-#define solo_init               prh_solo_init
-#define solo_create             prh_solo_create
-#define solo_creatx             prh_solo_creatx
-#define solo_await              prh_solo_await
-#define solo_reload             prh_solo_reload
-#define solo_finish             prh_solo_finish
+#define soro_init               prh_soro_init
+#define soro_create             prh_soro_create
+#define soro_creatx             prh_soro_creatx
+#define soro_await              prh_soro_await
+#define soro_reload             prh_soro_reload
+#define soro_finish             prh_soro_finish
 #endif // PRH_CORO_STRIP_PREFIX
 
 #ifdef PRH_CORO_IMPLEMENTATION
@@ -3567,7 +3567,7 @@ prh_coro_struct *prh_impl_pop_main_coro(void) {
 }
 
 prh_coro_t *prh_impl_get_next_resume(prh_coro_struct *s) {
-    for (int i = s->curr_index; i < s->coro_cnt; i += 1) { // solo_struct never goes here due to yield_cycle = 0
+    for (int i = s->curr_index; i < s->coro_cnt; i += 1) { // soro_struct never goes here due to yield_cycle = 0
         prh_coro_t *next = prh_impl_coro_list(s)[i];
         if (next && next->rspoffset) {
             s->curr_index = i + 1;
@@ -3646,12 +3646,12 @@ void prh_coro_finish(prh_coro_struct **main) {
     prh_free(s);
 }
 
-void prh_solo_init(prh_solo_struct *s, int start_id) {
+void prh_soro_init(prh_soro_struct *s, int start_id) {
     s->coro = prh_null;
     s->start_id = start_id;
 }
 
-void prh_solo_create(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, void *userdata) {
+void prh_soro_create(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, void *userdata) {
     assert(s->coro == prh_null);
     s->coro = prh_impl_coro_create(proc, stack_size, 0, userdata);
 #if PRH_CORO_DEBUG
@@ -3664,7 +3664,7 @@ void prh_solo_create(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, vo
 #endif
 }
 
-void *prh_solo_creatx(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize) {
+void *prh_soro_creatx(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize) {
     assert(s->coro == prh_null);
     prh_coro_t *coro = prh_impl_coro_creatx(proc, stack_size, 0, maxudsize);
     s->coro = coro;
@@ -3678,7 +3678,7 @@ void *prh_solo_creatx(prh_solo_struct *s, prh_coroproc_t proc, int stack_size, i
     return coro->userdata;
 }
 
-void prh_solo_reload(prh_solo_struct *s, prh_coroproc_t proc) {
+void prh_soro_reload(prh_soro_struct *s, prh_coroproc_t proc) {
     prh_impl_coro_reload(s->coro, proc);
 #if PRH_CORO_DEBUG
     prh_coro_t *coro = s->coro;
@@ -3690,7 +3690,7 @@ void prh_solo_reload(prh_solo_struct *s, prh_coroproc_t proc) {
 #endif
 }
 
-bool prh_solo_await(prh_solo_struct *s) {
+bool prh_soro_await(prh_soro_struct *s) {
     struct prh_impl_coro_main mainstack;
     mainstack.yield_cycle = 0;
     s->main = &mainstack;
@@ -3703,10 +3703,10 @@ bool prh_solo_await(prh_solo_struct *s) {
     return prh_impl_coro_main_yield((prh_coro_struct *)s, next);
 }
 
-void prh_solo_finish(prh_solo_struct *main) {
-    prh_coro_t *solo = main->coro;
-    if (solo == prh_null) return;
-    prh_impl_coro_free(solo);
+void prh_soro_finish(prh_soro_struct *main) {
+    prh_coro_t *soro = main->coro;
+    if (soro == prh_null) return;
+    prh_impl_coro_free(soro);
     main->coro = prh_null;
 }
 #endif // PRH_CORO_IMPLEMENTATION
@@ -7380,7 +7380,7 @@ typedef struct {
 
 typedef struct {
     // only accessed by curr thread
-    prh_solo_struct solo; // 当前执行协程
+    prh_soro_struct soro; // 当前执行协程
     prh_coromsg_t *txmq_atomnodque_tail; // 由当前线程读写
     // only accessed by privilege thread
     prh_coromsg_t *txmq_atomnodque_head; // 由特权线程读写

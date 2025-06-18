@@ -63,10 +63,10 @@ void test_yield_manual(void) {
 typedef struct {
     int count;
     int value;
-} SoloTest;
+} SoroTest;
 
-coro_proc solo_count(coro_t *coro) {
-    SoloTest *p = (SoloTest *)coro_data(coro);
+coro_proc soro_count(coro_t *coro) {
+    SoroTest *p = (SoroTest *)coro_data(coro);
     for (int i = 0; i < p->count; i += 1) {
         p->value = i;
         coro_yield(coro);
@@ -74,23 +74,23 @@ coro_proc solo_count(coro_t *coro) {
     p->value += 1;
 }
 
-void test_yield_solo(void) {
-    SoloTest st = {0};
-    solo_struct solo;
+void test_yield_soro(void) {
+    SoroTest st = {0};
+    soro_struct soro;
 
-    solo_init(&solo, 30);
+    soro_init(&soro, 30);
 
-    solo_create(&solo, solo_count, 384, &st); st.count = 5;
-    while (solo_await(&solo)) {
-        printf("[solo %02d] recv %d\n", solo.start_id, st.value);
+    soro_create(&soro, soro_count, 384, &st); st.count = 5;
+    while (soro_await(&soro)) {
+        printf("[soro %02d] recv %d\n", soro.start_id, st.value);
     }
 
-    solo_reload(&solo, solo_count); st.count = 7;
-    while (solo_await(&solo)) {
-        printf("[solo %02d] recv %d\n", solo.start_id, st.value);
+    soro_reload(&soro, soro_count); st.count = 7;
+    while (soro_await(&soro)) {
+        printf("[soro %02d] recv %d\n", soro.start_id, st.value);
     }
 
-    solo_finish(&solo);
+    soro_finish(&soro);
 }
 
 void test_lexer(const char *expr);
@@ -98,7 +98,7 @@ void test_lexer(const char *expr);
 int main(int argc, char **argv) {
     test_yield_cycle();
     test_yield_manual();
-    test_yield_solo();
+    test_yield_soro();
 
     printf("\n[lexter test #1]\n");
     test_lexer(prh_null);
