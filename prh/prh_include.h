@@ -713,64 +713,6 @@ extern "C" {
     prh_static_assert(sizeof(prh_float) == 4);
 #endif
 
-#ifndef prh_malloc
-#define prh_malloc(size) malloc(size)
-// void *malloc(size_t size);
-// the newly allocated block of memory is not initialized, remaining with indeterminate values.
-// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
-// if fails to allocate the requested block of memory, a null pointer is returned.
-#endif
-
-#ifndef prh_calloc
-#define prh_calloc(size) calloc(1, (size))
-// void *calloc(size_t num, size_t size);
-// allocates a block of memory for an array of num elements, each of them size bytes long, and
-// initializes all its bits to zero. the effective result is the allocation of a zero-initialized
-// memory block of (num*size) bytes.
-// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
-// if fails to allocate the requested block of memory, a null pointer is returned.
-#endif
-
-#ifndef prh_realloc
-#define prh_realloc realloc
-// void *realloc(void *ptr, size_t size);
-// if ptr == prh_null { return malloc(size) }
-// if size == 0 { may be free(ptr) or depends on library implementation }
-// if size > ptr old size { may return the new location and the newer portion is indeterminate }
-// the content is preserved up to min(old and new size), even if moved to a new location.
-// if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
-#endif
-
-#ifndef prh_free
-#define prh_free free
-// void free(void *ptr);
-// if ptr == prh_null { the function does nothing }
-#endif
-
-#ifndef prh_round_ptrsize
-#define prh_round_ptrsize(n) (((prh_unt)(n) + (prh_unt)(sizeof(void*)-1)) & (~(prh_unt)(sizeof(void*)-1)))
-#define prh_round_16_byte(n) (((prh_unt)(n) + 15) & (~(prh_unt)15))
-// 0000 & 0000 -> 0000
-// 0001 & 1111 -> 0001
-// 1010 & 0110 -> 0010
-prh_inline prh_unt prh_lower_most_bit(prh_unt n) {
-    return n & (-(prh_int)n);
-}
-prh_inline prh_unt prh_remove_lower_most_bit(prh_unt n) {
-    return n & (n - 1);
-}
-prh_inline bool prh_is_power_of_2(prh_unt n) {
-    return prh_remove_lower_most_bit(n) == 0; // power of 2 or zero
-}
-prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
-    if (prh_is_power_of_2(n)) return n;
-    // TODO: 字节序交换然后计算lower most bit
-    prh_unt m = prh_lower_most_bit(n);
-    while (m < n) m <<= 1;
-    return m;
-}
-#endif
-
 #ifdef RPH_STRING_INCLUDE
 #define PRH_ARRAY_INCLUDE
 #ifdef PRH_STRING_IMPLEMENTATION
@@ -1349,6 +1291,87 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
 #include <stdio.h> // printf fprintf
 #endif
 
+#ifndef PRH_CACHE_LINE_SIZE
+#define PRH_CACHE_LINE_SIZE 64
+#endif
+
+#ifndef prh_round_ptrsize
+#define prh_round_ptrsize(n) (((prh_unt)(n) + (prh_unt)(sizeof(void*)-1)) & (~(prh_unt)(sizeof(void*)-1)))
+#define prh_round_cache_line_size(n) (((prh_unt)(n)+PRH_CACHE_LINE_SIZE-1) & (~(prh_unt)(PRH_CACHE_LINE_SIZE-1)))
+#define prh_round_16_byte(n) (((prh_unt)(n) + 15) & (~(prh_unt)15))
+// 0000 & 0000 -> 0000
+// 0001 & 1111 -> 0001
+// 1010 & 0110 -> 0010
+prh_inline prh_unt prh_lower_most_bit(prh_unt n) {
+    return n & (-(prh_int)n);
+}
+prh_inline prh_unt prh_remove_lower_most_bit(prh_unt n) {
+    return n & (n - 1);
+}
+prh_inline bool prh_is_power_of_2(prh_unt n) {
+    return prh_remove_lower_most_bit(n) == 0; // power of 2 or zero
+}
+prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
+    if (prh_is_power_of_2(n)) return n;
+    // TODO: 字节序交换然后计算lower most bit
+    prh_unt m = prh_lower_most_bit(n);
+    while (m < n) m <<= 1;
+    return m;
+}
+#endif
+
+// https://en.cppreference.com/w/c/memory/aligned_alloc
+// https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-malloc
+// https://jemalloc.net/
+#ifndef prh_aligned_malloc
+#if defined(prh_cl_msc)
+    #include <malloc.h>
+    // _aligned_malloc is based on malloc. required C header malloc.h.
+    // if alignment isn't a power of 2 or size is zero, this function invokes
+    // the invalid parameter handler. if execution is allowed to continue, this
+    // function returns NULL and sets errno to EINVAL.
+    #define prh_aligned_malloc(alignment, size) _aligned_malloc((size), (alignment))
+    #define prh_cache_line_aligned_malloc(size) _aligned_malloc((size), PRH_CACHE_LINE_SIZE)
+    #define prh_16_byte_aligned_malloc(size) _aligned_malloc((size), 16)
+    #define prh_aligned_free(p) _aligned_free(p)
+#else
+    #include <stdlib.h>
+    // behavior is undefined if size is not an integral multiple of alignment
+    void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
+    #define prh_aligned_malloc(alignment, size) aligned_alloc((alignment), (size))
+    #define prh_cache_line_aligned_malloc(size) aligned_alloc(PRH_CACHE_LINE_SIZE, (size))
+    #define prh_16_byte_aligned_malloc(size) aligned_alloc(16, (size))
+    #define prh_aligned_free(p) free(p)
+#endif
+#endif
+
+#ifndef prh_malloc
+#include <stdlib.h>
+// void *malloc(size_t size);
+// the newly allocated block of memory is not initialized, remaining with indeterminate values.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+#define prh_malloc(size) malloc(size)
+// void *calloc(size_t num, size_t size);
+// allocates a block of memory for an array of num elements, each of them size bytes long, and
+// initializes all its bits to zero. the effective result is the allocation of a zero-initialized
+// memory block of (num*size) bytes.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+#define prh_calloc(size) calloc(1, (size))
+// void *realloc(void *ptr, size_t size);
+// if ptr == prh_null { return malloc(size) }
+// if size == 0 { may be free(ptr) or depends on library implementation }
+// if size > ptr old size { may return the new location and the newer portion is indeterminate }
+// the content is preserved up to min(old and new size), even if moved to a new location.
+// if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
+#define prh_realloc realloc
+// void free(void *ptr);
+// if ptr == prh_null { the function does nothing }
+#define prh_free free
+#endif
+
 #ifdef PRH_ARRAY_IMPLEMENTATION
 #include <assert.h>
 #include <stdlib.h>
@@ -1749,7 +1772,7 @@ typedef struct { // 动态数组头部空间可伸展
     prh_unt extra;
     prh_int capacity;
     prh_int count;
-} prh_impl_arrlax_hdr_t; // relaxed array header space can stretch around
+} prh_impl_arrlax_hdr_t; // relaxed array - header space can stretch around
 
 typedef struct {
     prh_byte *data;
@@ -2905,53 +2928,57 @@ prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i) {
 #endif // PRH_STRING_INCLUDE
 
 #ifdef PRH_LIST_INCLUDE
-typedef struct prh_nods { // node single linked
-    struct prh_nods *next;
-} prh_nods_t;
+typedef struct prh_nose { // node single linked
+    struct prh_nose *next;
+} prh_nose_t;
 
-typedef struct prh_nodx { // node xored double linked (both = prev XOR next)
-    struct prh_nodx *both;
-} prh_nodx_t;
+typedef struct { // zero initialized
+    prh_nose_t *head;
+    prh_nose_t *tail;
+} prh_lise_t;
+
+typedef struct prh_nord { // node xored double linked (both = prev XOR next)
+    struct prh_nord *both;
+} prh_nord_t;
+
+typedef struct { // zero initialized
+    prh_nord_t *head;
+    prh_nord_t *tail;
+} prh_lost_t;
 
 typedef struct prh_node { // node double linked
     struct prh_node *next;
     struct prh_node *prev;
 } prh_node_t;
 
-typedef struct prh_nodr { // node tripple linked
-    struct prh_nodr *next;
-    struct prh_nodr *prev;
-    struct prh_nodr *root;
-} prh_nodr_t;
-
-typedef struct { // zero initialized
-    prh_nods_t *head;
-    prh_nods_t *tail;
-} prh_liss_t;
-
-typedef struct { // zero initialized
-    prh_nodx_t *head;
-    prh_nodx_t *tail;
-} prh_lisx_t;
-
 typedef struct { // zero initialized
     prh_node_t *head;
     prh_node_t *tail;
 } prh_list_t;
 
-void prh_impl_list_free_each_node(prh_nods_t *head, void (*node_free)(void *));
-void prh_impl_list_free_each_node_and_clear(prh_liss_t *list, void (*node_free)(void *));
+typedef struct prh_note { // node tripple linked
+    struct prh_note *next;
+    struct prh_note *prev;
+    struct prh_note *parent;
+} prh_note_t;
+
+typedef struct { // zero initialized
+    prh_note_t *root;
+} prh_lite_t;
+
+void prh_impl_list_free_each_node(prh_nose_t *head, void (*node_free)(void *));
+void prh_impl_list_free_each_node_and_clear(prh_lise_t *list, void (*node_free)(void *));
 
 #ifdef PRH_LIST_IMPLEMENTATION
-void prh_impl_list_free_each_node(prh_nods_t *head, void (*node_free)(void *)) {
+void prh_impl_list_free_each_node(prh_nose_t *head, void (*node_free)(void *)) {
     while (head) {
-        prh_nods_t *curr = head;
+        prh_nose_t *curr = head;
         head = head->next; // get next before free
         node_free(curr);
     }
 }
 
-void prh_impl_list_free_each_node_and_clear(prh_liss_t *list, void (*node_free)(void *)) {
+void prh_impl_list_free_each_node_and_clear(prh_lise_t *list, void (*node_free)(void *)) {
     if (node_free) prh_impl_list_free_each_node(list->head, node_free);
     list->head = prh_null;
 }
@@ -2960,13 +2987,13 @@ void prh_impl_list_free_each_node_and_clear(prh_liss_t *list, void (*node_free)(
 
 #ifdef PRH_STACK_INCLUDE
 // Just link the node into the stack, dont allocate any memory. Each node can
-// have different size, but must cotain prh_nods_t as the header.
+// have different size, but must cotain prh_nose_t as the header.
 //  struct nodestack_custom_node {
-//      prh_nods_t head; // must be 1st field
+//      prh_nose_t head; // must be 1st field
 //      ... other custom node data ...
 //  };
 typedef struct { // zero initialize
-    prh_nods_t *head;
+    prh_nose_t *head;
 } prh_nodestack_t;
 
 prh_inline void prh_nodestack_init(prh_nodestack_t *s) {
@@ -2974,10 +3001,10 @@ prh_inline void prh_nodestack_init(prh_nodestack_t *s) {
 }
 
 prh_inline void prh_nodestack_clear(prh_nodestack_t *s, void (*node_free_func)(void *)) {
-    prh_impl_list_free_each_node_and_clear((prh_liss_t *)s, node_free_func);
+    prh_impl_list_free_each_node_and_clear((prh_lise_t *)s, node_free_func);
 }
 
-prh_inline prh_nods_t *prh_nodestack_top(prh_nodestack_t *s) {
+prh_inline prh_nose_t *prh_nodestack_top(prh_nodestack_t *s) {
     return s->head;
 }
 
@@ -2985,8 +3012,8 @@ prh_inline bool prh_nodestack_empty(prh_nodestack_t *s) {
     return s->head == prh_null;
 }
 
-void prh_nodestack_push(prh_nodestack_t *s, prh_nods_t *node);
-prh_nods_t *prh_nodestack_pop(prh_nodestack_t *s);
+void prh_nodestack_push(prh_nodestack_t *s, prh_nose_t *node);
+prh_nose_t *prh_nodestack_pop(prh_nodestack_t *s);
 
 #ifdef PRH_STACK_STRIP_PREFIX
 #define nodestack_t         prh_nodestack_t
@@ -2999,13 +3026,13 @@ prh_nods_t *prh_nodestack_pop(prh_nodestack_t *s);
 #endif
 
 #ifdef PRH_STACK_IMPLEMENTATION
-void prh_nodestack_push(prh_nodestack_t *s, prh_nods_t *node) {
+void prh_nodestack_push(prh_nodestack_t *s, prh_nose_t *node) {
     node->next = s->head;
     s->head = node;
 }
 
-prh_nods_t *prh_nodestack_pop(prh_nodestack_t *s) {
-    prh_nods_t *head = s->head;
+prh_nose_t *prh_nodestack_pop(prh_nodestack_t *s) {
+    prh_nose_t *head = s->head;
     if (head == prh_null) return prh_null;
     s->head = head->next;
     return head;
@@ -3119,14 +3146,14 @@ void *prh_impl_arrque_push(void *queue, prh_int object_size) {
 #endif // PRH_QUEUE_IMPLEMENTATION
 
 // Just link the node into the queue, dont allocate any memory. Each node can
-// have different size, but must cotain prh_nods_t as the header.
+// have different size, but must cotain prh_nose_t as the header.
 //  struct nodequeue_custom_node {
-//      prh_nods_t head; // must be 1st field
+//      prh_nose_t head; // must be 1st field
 //      ... other custom node data ...
 //  };
 typedef struct { // zero initialize
-    prh_nods_t *head;
-    prh_nods_t *tail;
+    prh_nose_t *head;
+    prh_nose_t *tail;
 } prh_nodequeue_t;
 
 prh_inline void prh_nodequeue_init(prh_nodequeue_t *q) {
@@ -3137,18 +3164,18 @@ prh_inline bool prh_nodequeue_empty(prh_nodequeue_t *q) {
     return q->head == prh_null;
 }
 
-prh_inline prh_nods_t *prh_nodequeue_top(prh_nodequeue_t *q) {
+prh_inline prh_nose_t *prh_nodequeue_top(prh_nodequeue_t *q) {
     return q->head;
 }
 
 prh_inline void prh_nodequeue_clear(prh_nodequeue_t *q, void (*node_free_func)(void *)) {
-    prh_impl_list_free_each_node_and_clear((prh_liss_t *)q, node_free_func);
+    prh_impl_list_free_each_node_and_clear((prh_lise_t *)q, node_free_func);
     q->tail = prh_null;
 }
 
 prh_nodequeue_t prh_nodequeue_move(prh_nodequeue_t *q);
-void prh_nodequeue_push(prh_nodequeue_t *q, prh_nods_t *new_node);
-prh_nods_t *prh_nodequeue_pop(prh_nodequeue_t *q);
+void prh_nodequeue_push(prh_nodequeue_t *q, prh_nose_t *new_node);
+prh_nose_t *prh_nodequeue_pop(prh_nodequeue_t *q);
 
 #ifdef PRH_QUEUE_STRIP_PREFIX
 #define nodequeue_t         prh_nodequeue_t
@@ -3168,15 +3195,15 @@ prh_nodequeue_t prh_nodequeue_move(prh_nodequeue_t *q) {
     return que;
 }
 
-void prh_nodequeue_push(prh_nodequeue_t *q, prh_nods_t *new_node) {
-    prh_nods_t *tail = q->tail;
-    if (tail == prh_null) tail = (prh_nods_t *)q;
+void prh_nodequeue_push(prh_nodequeue_t *q, prh_nose_t *new_node) {
+    prh_nose_t *tail = q->tail;
+    if (tail == prh_null) tail = (prh_nose_t *)q;
     q->tail = tail->next = new_node;
     new_node->next = prh_null;
 }
 
-prh_nods_t *prh_nodequeue_pop(prh_nodequeue_t *q) {
-    prh_nods_t *top = q->head;
+prh_nose_t *prh_nodequeue_pop(prh_nodequeue_t *q) {
+    prh_nose_t *top = q->head;
     if (top == prh_null) return prh_null;
     q->head = top->next;
     if (top == q->tail) {
@@ -3190,8 +3217,8 @@ prh_nods_t *prh_nodequeue_pop(prh_nodequeue_t *q) {
 // with any different size. If the size < sizeof(void *), the size is rounded
 // up to sizeof(void *).
 typedef struct { // zero initialize
-    prh_nods_t *head;
-    prh_nods_t *tail;
+    prh_nose_t *head;
+    prh_nose_t *tail;
 } prh_sizequeue_t;
 
 prh_inline void prh_sizequeue_init(prh_sizequeue_t *q) {
@@ -3203,7 +3230,7 @@ prh_inline bool prh_sizequeue_empty(prh_sizequeue_t *q) {
 }
 
 prh_inline void prh_sizequeue_free_node(void *ptr_node_object) {
-    if (ptr_node_object) prh_free((prh_nods_t *)ptr_node_object - 1);
+    if (ptr_node_object) prh_free((prh_nose_t *)ptr_node_object - 1);
 }
 
 void prh_sizequeue_clear(prh_sizequeue_t *q, void (*object_deinit_func)(void *));
@@ -3225,9 +3252,9 @@ void *prh_sizequeue_pop(prh_sizequeue_t *q); // pop top node but dont free it, r
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
 void prh_sizequeue_clear(prh_sizequeue_t *q, void (*object_deinit_func)(void *)) {
-    prh_nods_t *next = q->head;
+    prh_nose_t *next = q->head;
     while (next) {
-        prh_nods_t *curr = next;
+        prh_nose_t *curr = next;
         next = next->next; // get next before free the node
         if (object_deinit_func) {
             object_deinit_func(curr + 1);
@@ -3245,18 +3272,18 @@ prh_sizequeue_t prh_sizequeue_move(prh_sizequeue_t *q) {
 
 void *prh_sizequeue_push(prh_sizequeue_t *q, int object_size) {
     if (object_size < sizeof(void *)) object_size = sizeof(void *);
-    prh_nods_t *new_node = prh_calloc(sizeof(prh_nods_t) + prh_round_ptrsize(object_size));
+    prh_nose_t *new_node = prh_calloc(sizeof(prh_nose_t) + prh_round_ptrsize(object_size));
     prh_nodequeue_push((prh_nodequeue_t *)q, new_node);
     return (new_node + 1);
 }
 
 void *prh_sizequeue_top(prh_sizequeue_t *q) {
-    prh_nods_t *top = q->head;
+    prh_nose_t *top = q->head;
     return (top == prh_null) ? prh_null : (top + 1);
 }
 
 void *prh_sizequeue_pop(prh_sizequeue_t *q) {
-    prh_nods_t *top = prh_nodequeue_pop((prh_nodequeue_t *)q);
+    prh_nose_t *top = prh_nodequeue_pop((prh_nodequeue_t *)q);
     return (top == prh_null) ? prh_null : (top + 1);
 }
 #endif // PRH_QUEUE_IMPLEMENTATION
@@ -3347,17 +3374,6 @@ typedef struct {
     prh_u32 upper_guard_word;
 } prh_impl_coro_guard_t;
 
-#if defined(prh_cl_msc)
-    #define prh_aligned_malloc(size) _aligned_malloc((size), 16)
-    #define prh_aligned_free(p) _aligned_free(p)
-#elif defined(prh_cl_gnu)
-    void *aligned_alloc(size_t alignment, size_t size);
-    #define prh_aligned_malloc(size) aligned_alloc(16, (size))
-    #define prh_aligned_free(p) free(p)
-#else
-    #error unsupported compiler
-#endif
-
 prh_fastcall(int) prh_impl_asm_stack_init_depth(void);
 prh_fastcall(void) prh_impl_asm_coro_call(void); // args are on coro stack
 
@@ -3440,7 +3456,7 @@ prh_coro_t *prh_impl_coro_alloc(int stack_size, int coro_extend_size, int maxuds
     assert(stack_size > coro_size + data_size + (int)sizeof(prh_impl_coro_guard_t) + prh_impl_asm_stack_init_depth());
 
     int stackallocsize = (int)prh_round_16_byte(stack_size);
-    char *p = (char *)prh_aligned_malloc(stackallocsize);
+    char *p = (char *)prh_16_byte_aligned_malloc(stackallocsize);
     prh_coro_t *coro = (prh_coro_t *)(p + stackallocsize - coro_size - data_size);
     memset(coro, 0, coro_size + data_size);
     coro->loweraddr = (prh_i32)((char *)coro - p);
@@ -3712,16 +3728,34 @@ void prh_soro_finish(prh_soro_struct *main) {
 #endif // PRH_CORO_IMPLEMENTATION
 #endif // PRH_CORO_INCLUDE
 
+// https://en.cppreference.com/w/c/atomic/memory_order
+// https://learn.microsoft.com/en-us/cpp/standard-library/atomic
+// https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html
+// https://gcc.gnu.org/wiki/Atomic/GCCMM/AtomicSync
+// https://research.swtch.com/mm
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
 // 何其他原子操作能够访问该对象之前，每个原子操作都会在该对象上完整地执行完毕。这就保
 // 证了在这些对象上不会出现数据竞争，而这也正是定义原子性的关键特征。
 #include <stdatomic.h>
 
-typedef atomic_bool prh_atombool_t;
-typedef atomic_int prh_atomint_t;
-typedef atomic_uintptr_t prh_atomptr_t;
-#define prh_atomnull ((prh_unt)0)
+typedef prh_byte prh_atom_bool;
+typedef prh_i32 prh_atom_i32;
+typedef prh_u32 prh_atom_u32;
+typedef prh_int prh_atom_int;
+typedef prh_unt prh_atom_ptr;
+
+prh_static_assert(prh_alignof(prh_atom_bool) == prh_alignof(atomic_bool));
+prh_static_assert(prh_alignof(prh_atom_i32) == prh_alignof(atomic_int));
+prh_static_assert(prh_alignof(prh_atom_u32) == prh_alignof(atomic_uint));
+prh_static_assert(prh_alignof(prh_atom_int) == prh_alignof(atomic_intptr_t));
+prh_static_assert(prh_alignof(prh_atom_ptr) == prh_alignof(atomic_uintptr_t));
+
+prh_static_assert(sizeof(prh_atom_bool) == sizeof(atomic_bool));
+prh_static_assert(sizeof(prh_atom_i32) == sizeof(atomic_int));
+prh_static_assert(sizeof(prh_atom_u32) == sizeof(atomic_uint));
+prh_static_assert(sizeof(prh_atom_int) == sizeof(atomic_intptr_t));
+prh_static_assert(sizeof(prh_atom_ptr) == sizeof(atomic_uintptr_t));
 
 // Initializes an existing atomic object.
 // The function is not atomic: concurrent access from another thread, even
@@ -3733,19 +3767,48 @@ typedef atomic_uintptr_t prh_atomptr_t;
 // objects. For example:
 //      _Atomic int *p = malloc(sizeof(_Atomic int));
 //      atomic_init(p, 42);
-#define prh_atomtype_init(a, v) atomic_init((a), (v))
+prh_inline void prh_atom_bool_init(prh_atom_bool *a, bool b) { atomic_init((atomic_bool *)a, b); }
+prh_inline void prh_atom_i32_init(prh_atom_i32 *a, prh_i32 b) { atomic_init((atomic_int *)a, b); }
+prh_inline void prh_atom_u32_init(prh_atom_u32 *a, prh_u32 b) { atomic_init((atomic_uint *)a, b); }
+prh_inline void prh_atom_int_init(prh_atom_int *a, prh_int b) { atomic_init((atomic_intptr_t *)a, b); }
+prh_inline void prh_atom_ptr_init(prh_atom_ptr *a, prh_unt b) { atomic_init((atomic_uintptr_t *)a, b); }
 
 // Atomically perform load (atomic read) operation and return the value.
 // The default memory_order type is memory_order_seq_cst.
-#define prh_atomtype_load(a) atomic_load((a)) // return read value
+prh_inline bool prh_atom_bool_read(const prh_atom_bool *a) { return atomic_load((atomic_bool *)a); } // return read value
+prh_inline prh_i32 prh_atom_i32_read(const prh_atom_i32 *a) { return atomic_load((atomic_int *)a); }
+prh_inline prh_u32 prh_atom_u32_read(const prh_atom_u32 *a) { return atomic_load((atomic_uint *)a); }
+prh_inline prh_int prh_atom_int_read(const prh_atom_int *a) { return atomic_load((atomic_intptr_t *)a); }
+prh_inline prh_unt prh_atom_ptr_read(const prh_atom_ptr *a) { return atomic_load((atomic_uintptr_t *)a); }
 
 // Atomically perform write or read-modify-write operation.
 // The default memory_order type is memory_order_seq_cst.
-#define prh_atomtype_store(a, v) atomic_store((a), (v)) // return void
-#define prh_atomtype_exchange(a, v) atomic_exchange((a), (v)) // return old value
+prh_inline void prh_atom_bool_write(prh_atom_bool *a, bool b) { atomic_store((atomic_bool *)a, b); }
+prh_inline void prh_atom_i32_write(prh_atom_i32 *a, prh_i32 b) { atomic_store((atomic_int *)a, b); }
+prh_inline void prh_atom_u32_write(prh_atom_u32 *a, prh_u32 b) { atomic_store((atomic_uint *)a, b); }
+prh_inline void prh_atom_int_write(prh_atom_int *a, prh_int b) { atomic_store((atomic_intptr_t *)a, b); }
+prh_inline void prh_atom_ptr_write(prh_atom_ptr *a, prh_unt b) { atomic_store((atomic_uintptr_t *)a, b); }
 
-// Atomically perform compare-and-exchange (or compare-and-swap CAS)
-// operation.
+prh_inline bool prh_atom_bool_fetch_write(prh_atom_bool *a, bool b) { return atomic_exchange((atomic_bool *)a, b); } // return old value
+prh_inline prh_i32 prh_atom_i32_fetch_write(prh_atom_i32 *a, prh_i32 b) { return atomic_exchange((atomic_int *)a, b); }
+prh_inline prh_u32 prh_atom_u32_fetch_write(prh_atom_u32 *a, prh_u32 b) { return atomic_exchange((atomic_uint *)a, b); }
+prh_inline prh_int prh_atom_int_fetch_write(prh_atom_int *a, prh_int b) { return atomic_exchange((atomic_intptr_t *)a, b); }
+prh_inline prh_unt prh_atom_ptr_fetch_write(prh_atom_ptr *a, prh_unt b) { return atomic_exchange((atomic_uintptr_t *)a, b); }
+
+// Atomically perform read-modify-wirte operation, and return the old value.
+// The modify operation can be add (+) sub (-) and (&) or (|) xor (^).
+// The default memory_order type is memory_order_seq_cst.
+prh_inline void prh_atom_i32_inc(prh_atom_i32 *a) { atomic_fetch_add((atomic_int *)a, 1); }
+prh_inline void prh_atom_u32_inc(prh_atom_u32 *a) { atomic_fetch_add((atomic_uint *)a, 1); }
+prh_inline void prh_atom_int_inc(prh_atom_int *a) { atomic_fetch_add((atomic_intptr_t *)a, 1); }
+prh_inline void prh_atom_ptr_inc(prh_atom_ptr *a) { atomic_fetch_add((atomic_uintptr_t *)a, 1); }
+
+prh_inline void prh_atom_i32_dec(prh_atom_i32 *a) { atomic_fetch_sub((atomic_int *)a, 1); }
+prh_inline void prh_atom_u32_dec(prh_atom_u32 *a) { atomic_fetch_sub((atomic_uint *)a, 1); }
+prh_inline void prh_atom_int_dec(prh_atom_int *a) { atomic_fetch_sub((atomic_intptr_t *)a, 1); }
+prh_inline void prh_atom_ptr_dec(prh_atom_ptr *a) { atomic_fetch_sub((atomic_uintptr_t *)a, 1); }
+
+// Atomically perform compare-and-exchange (or compare-and-swap CAS) operation.
 //      if read value == *expect value { write newvalue and return true }
 //      else { *expect = read value and return false }
 // If success it operform atomic read-modify-write operation, otherwise it
@@ -3759,33 +3822,32 @@ typedef atomic_uintptr_t prh_atomptr_t;
 // For non-looping algorithms, atomic_compare_exchange_strong is generally
 // preferred.
 // The default memory_order type is memory_order_seq_cst.
-#define prh_atomtype_cas(a, expect_inout, new_value) \
-    atomic_compare_exchange_weak((a), (expect_inout), (new_value))
+prh_inline bool prh_atom_bool_compare_write(prh_atom_bool *a, bool *expect, bool b) { return atomic_compare_exchange_weak((atomic_bool *)a, expect, b); }
+prh_inline bool prh_atom_i32_compare_write(prh_atom_i32 *a, prh_i32 *expect, prh_i32 b) { return atomic_compare_exchange_weak((atomic_int *)a, expect, b); }
+prh_inline bool prh_atom_u32_compare_write(prh_atom_u32 *a, prh_u32 *expect, prh_u32 b) { return atomic_compare_exchange_weak((atomic_uint *)a, expect, b); }
+prh_inline bool prh_atom_int_compare_write(prh_atom_int *a, prh_int *expect, prh_int b) { return atomic_compare_exchange_weak((atomic_intptr_t *)a, expect, b); }
+prh_inline bool prh_atom_ptr_compare_write(prh_atom_ptr *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, expect, b); }
 
-// Atomically perform read-modify-wirte operation, and return the old value.
-// The modify operation can be add (+) sub (-) and (&) or (|) xor (^).
-// The default memory_order type is memory_order_seq_cst.
-#define prh_atomint_inc(a) atomic_fetch_add((a), 1)
-#define prh_atomint_dec(a) atomic_fetch_sub((a), 1)
-
-#ifdef PRH_ATOMIC_STRIP_PREFIX
-#define atombool_t                  prh_atombool_t
-#define atomint_t                   prh_atomint_t
-#define atomptr_t                   prh_atomptr_t
-#define atomtype_init               prh_atomtype_init
-#define atomtype_load               prh_atomtype_load
-#define atomtype_store              prh_atomtype_store
-#define atomtype_exchange           prh_atomtype_exchange
-#define atomtype_compare_exchange   prh_atomtype_compare_exchange
-#define atomint_inc                 prh_atomint_inc
-#define atomint_dec                 prh_atomint_dec
-#endif
+// 针对单生产者和单消费者的无锁单链表队列，队列不负责分配实际的节点，整个节点（包括头部
+// prh_nose_t和节点内容）都由使用者提供，因此节点可以是任意长度，其内容由使用者决定没有
+// 限制。队列只分配纯节点头部无内容的辅助节点，这种节点是为了实现无锁而需要的没有实际意义
+// 的节点，只提供串连功能。这些节点以处理器高速缓存行的大小为单位且对齐的方式批量分配，
+// 避免一个线程对自身缓存的访问引起另一个无关线程的缓存失效。辅助节点释放后可以重复使用，
+// 并按照规则以高速缓存行整体释放。
+// atomic singly linked queue for only 1 producer and 1 consumer. The queue node
+// can be any size and provided by the user. prh_atom_quefit doesn't alloc
+// memory for its node.
+typedef struct {
+    prh_nose_t *head; // only accessed by consumer thread
+    prh_nose_t *tail; // only accessed by producer thread
+    prh_atom_i32 len;
+} prh_atom_quefit; // the queue node is fixed in the original place user provided
 
 // Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
-// The queue node size is fixed, and must cotain prh_nods_t as the header.
+// The queue node size is fixed, and must cotain prh_nose_t as the header.
 //
 //  struct QueueNode {
-//      prh_nods_t node; // must be 1st field
+//      prh_nose_t node; // must be 1st field
 //      ... queue node other custom data ...
 //  };
 //
@@ -3811,12 +3873,12 @@ typedef atomic_uintptr_t prh_atomptr_t;
 #define prh_impl_atomnodque_head(s, q) ((s)->prh_macro_concat_name(q, _atomnodque_head))
 #define prh_impl_atomnodque_tail(s, q) ((s)->prh_macro_concat_name(q, _atomnodque_tail))
 #define prh_impl_atomnodque_len(s, q) ((s)->prh_macro_concat_name(q, _atomnodque_len))
-void prh_impl_atomnodque_free(prh_nods_t *head, void (*node_deinit_func)(void *node));
+void prh_impl_atomnodque_free(prh_nose_t *head, void (*node_deinit_func)(void *node));
 void prh_impl_atomnodque_push(void **tail_addr, prh_int node_size, prh_atomint_t *len);
-void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_nods_t *node);
-prh_nods_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len);
+void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_nose_t *node);
+prh_nose_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len);
 
-prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
+prh_inline void prh_atomnodque_free_node(prh_nose_t *node) {
     if (node) prh_free(node);
 }
 
@@ -3825,7 +3887,7 @@ prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
     prh_impl_node_ptr_t prh_impl_new_node = prh_malloc(sizeof(*prh_impl_atomnodque_head((s), q))); \
     prh_impl_atomnodque_head((s), q) = prh_impl_new_node; /* always alloc a null tail node */ \
     prh_impl_atomnodque_tail((s), q) = prh_impl_new_node; /* let head pointer always valid */ \
-    ((prh_nods_t *)prh_impl_new_node)->next = prh_null;                         \
+    ((prh_nose_t *)prh_impl_new_node)->next = prh_null;                         \
     prh_atomint_t *prh_impl_len = &prh_impl_atomnodque_len((s), q);             \
     prh_atomtype_init(prh_impl_len, 0);                                         \
 }
@@ -3834,7 +3896,7 @@ prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
     typedef prh_typeof(prh_impl_atomnodque_head((s), q)) prh_impl_node_ptr_t;   \
     prh_impl_node_ptr_t prh_impl_head = prh_impl_atomnodque_head((s), q);       \
     if (prh_impl_head) {                                                        \
-        prh_impl_atomnodque_free((prh_nods_t *)prh_impl_head, (node_deinit_func)); \
+        prh_impl_atomnodque_free((prh_nose_t *)prh_impl_head, (node_deinit_func)); \
         prh_impl_atomnodque_head((s), q) = prh_null;                            \
         prh_impl_atomnodque_tail((s), q) = prh_null;                            \
     }                                                                           \
@@ -3866,9 +3928,9 @@ prh_inline void prh_atomnodque_free_node(prh_nods_t *node) {
 #endif
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
-void prh_impl_atomnodque_free(prh_nods_t *head, void (*node_deinit_func)(void *item)) {
+void prh_impl_atomnodque_free(prh_nose_t *head, void (*node_deinit_func)(void *item)) {
     while (head != prh_null) {
-        prh_nods_t *p = head;
+        prh_nose_t *p = head;
         head = head->next;
         if (node_deinit_func) {
             node_deinit_func(p);
@@ -3881,18 +3943,18 @@ void prh_impl_atomnodque_free(prh_nods_t *head, void (*node_deinit_func)(void *i
 // head 总是追不上 tail。push 只会更新 tail 和 tail 空节点，且 push 只被单一生产者
 // 调用，因此 tail 不需要原子操作。
 void prh_impl_atomnodque_push(void **tail_addr, prh_int node_size, prh_atomint_t *len) {
-    prh_nods_t *new_node = prh_malloc(node_size);
-    prh_nods_t *tail = *tail_addr;
+    prh_nose_t *new_node = prh_malloc(node_size);
+    prh_nose_t *tail = *tail_addr;
     *tail_addr = tail->next = new_node;
     new_node->next = prh_null;
     prh_atomint_inc(len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */
     assert(*tail_addr == new_node); // allow only one producer
 }
 
-void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_nods_t *new_node) {
-    prh_nods_t *tail = *tail_addr;
+void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_nose_t *new_node) {
+    prh_nose_t *tail = *tail_addr;
     *tail_addr = tail->next = new_node;
-    memcpy(tail + 1, new_node + 1, node_size - sizeof(prh_nods_t));
+    memcpy(tail + 1, new_node + 1, node_size - sizeof(prh_nose_t));
     new_node->next = prh_null;
     prh_atomint_inc(len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */
     assert(*tail_addr == new_node); // allow only one producer
@@ -3900,10 +3962,10 @@ void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atom
 
 // pop 不会读写 tail，也不会读写 tail 空节点，pop 只会更新 head 和读写已经存在的并且
 // 有效的头节点，且 pop 只被单一消费者调用，因此 head 不需要原子操作。
-prh_nods_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len) {
+prh_nose_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len) {
     if (prh_atomtype_load(len) <= 0) return prh_null;
-    prh_nods_t *head = *head_addr;
-    prh_nods_t *head_next = head->next;
+    prh_nose_t *head = *head_addr;
+    prh_nose_t *head_next = head->next;
     *head_addr = head_next;
     prh_atomint_dec(len); // 更新len，此步骤执行完毕以上更新必须对所有cpu生效
     assert(head_next == *head_addr); // allow only one consumer
@@ -3912,7 +3974,7 @@ prh_nods_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len) {
 #endif // PRH_ATOMIC_IMPLEMENTATION
 
 // Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
-// Each node has a prh_nods_t header and a node item pointer. Each node can
+// Each node has a prh_nose_t header and a node item pointer. Each node can
 // only contain a pointer.
 typedef struct prh_atompszque prh_atompszque_t;
 prh_atompszque_t *prh_atompszque_init(void);
@@ -7371,7 +7433,7 @@ void prh_conc_run(prh_coroproc_t co_main);
 #ifdef PRH_CONC_IMPLEMENTATION
 
 typedef struct {
-    prh_nods_t node;
+    prh_nose_t node;
     prh_cono_t from;
     prh_cono_t to;
     prh_i32 type, flags;
@@ -7403,7 +7465,7 @@ void prh_impl_conc_thrd_free(prh_thread_t *t) {
 }
 
 typedef struct {
-    prh_nods_t node;
+    prh_nose_t node;
     // only accessed by curr thread
     prh_coro_t *coro;
     prh_nodestack_t pending_stack; // waiting curr running coro complete
