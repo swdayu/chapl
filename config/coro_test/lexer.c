@@ -29,7 +29,7 @@ typedef struct {
 
 typedef struct {
     const char *expr;
-    coro_struct *main;
+    coro_struct_t *main;
     Token oper;
     Token value;
     Token *token;
@@ -48,7 +48,7 @@ static const char *parse_int(const char *expr, int *out) {
     return expr;
 }
 
-coro_proc lexer(coro_t *coro) {
+coro_proc_func lexer(coro_t *coro) {
     int ch;
     Context *ctx = (Context *)coro_data(coro);
     const char *expr = ctx->expr;
@@ -162,7 +162,7 @@ void eval(Context *ctx, Token perv_oper) {
 }
 
 void test_lexer(const char *expr) {
-    coro_struct *s = coro_init(1, 70);
+    coro_struct_t *s = coro_init(1, 70);
     Context ctx = {expr, s};
     coro_create(s, lexer, CORO_STACK_SIZE, &ctx);
     if (expr) {

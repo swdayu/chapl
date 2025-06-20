@@ -33,13 +33,14 @@ prh_coro_proc co_main(prh_coro_t *coro) {
         a[i] = i + 1;
     }
     for (i = 0; i < 10; i += 1) {
-        p = prh_cono_ext_create(routine, CORO_STACK_SIZE, sizeof(routine_t));
+        p = prh_cono_1_create(coro, routine, CORO_STACK_SIZE, sizeof(routine_t));
         p->i = i;
         p->start = a + i * 10;
         p->end = p->start + 10;
+        prh_cono_start(p);
     }
     for (i = 0; i < 10; i += 1) {
-        p = prh_cono_wait(coro);
+        p = prh_cono_await(coro);
         result *= p->result;
         printf("recv result [%d] %d\n", p->i, p->result);
     }
@@ -54,6 +55,6 @@ prh_coro_proc co_main(prh_coro_t *coro) {
 // 5. 只执行到把结果传递过去，挂起协程，然后执行特定任务的协程继续执行
 
 void cross_coro_test(void) {
-    prh_conc_init(100, 2);
+    prh_conc_init(2, 100);
     prh_conc_run(co_main, CORO_STACK_SIZE);
 }

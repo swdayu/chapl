@@ -12,7 +12,7 @@ typedef struct {
     int coro_to_main;
 } Counter;
 
-coro_proc counter(coro_t *coro) {
+coro_proc_func counter(coro_t *coro) {
     Counter *c = (Counter *)coro_data(coro);
     int n = c->n ? c->n : 10;
     for (int i = 0; i < n; i += 1) {
@@ -24,7 +24,7 @@ coro_proc counter(coro_t *coro) {
 }
 
 void test_yield_cycle(void) {
-    coro_struct *s = coro_init(3, 10);
+    coro_struct_t *s = coro_init(3, 10);
     Counter *c1 = (Counter *)coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter)); c1->n = 3;
     Counter *c2 = (Counter *)coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter)); c2->n = 5;
     coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter));
@@ -34,7 +34,7 @@ void test_yield_cycle(void) {
 
 void test_yield_manual(void) {
     Counter c = {0};
-    coro_struct *s = coro_init(5, 20);
+    coro_struct_t *s = coro_init(5, 20);
     coro_create(s, counter, CORO_STACK_SIZE, &c);
     coro_create(s, counter, CORO_STACK_SIZE, &c);
     coro_create(s, counter, CORO_STACK_SIZE, &c);
@@ -65,7 +65,7 @@ typedef struct {
     int value;
 } SoroTest;
 
-coro_proc soro_count(coro_t *coro) {
+coro_proc_func soro_count(coro_t *coro) {
     SoroTest *p = (SoroTest *)coro_data(coro);
     for (int i = 0; i < p->count; i += 1) {
         p->value = i;
@@ -76,7 +76,7 @@ coro_proc soro_count(coro_t *coro) {
 
 void test_yield_soro(void) {
     SoroTest st = {0};
-    soro_struct soro;
+    soro_struct_t soro;
 
     soro_init(&soro, 30);
 

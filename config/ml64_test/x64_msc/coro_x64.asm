@@ -457,4 +457,13 @@ main PROC
     call ExitProcess
 main ENDP
 
+; https://retroscience.net/x64-assembly.html
+shadow_call PROC ; rax - func need shadow space
+    and rsp, not 15 ; make sure current stack 16-byte aligned
+    sub rsp, 32
+    call rax
+    add rsp, 32
+    ret
+shadow_call ENDP
+
 END
