@@ -682,17 +682,23 @@ extern "C" {
 #if prh_arch_bits == 32
     typedef prh_i32 prh_int;
     typedef prh_u32 prh_unt;
+    typedef prh_i32 prh_mach_int;
+    typedef prh_u32 prh_mach_unt;
 #elif prh_arch_bits == 64
-    #ifdef prh_32_bits_pointer
+    #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
         typedef prh_u32 prh_unt;
     #else
         typedef prh_i64 prh_int;
         typedef prh_u64 prh_unt;
     #endif
+    typedef prh_i64 prh_mach_int;
+    typedef prh_u64 prh_mach_unt;
 #else
     #error unsupported architecture
 #endif
+    typedef prh_unt prh_void_ptr;
+    typedef prh_mach_unt prh_mach_ptr;
     typedef float prh_f32;
     typedef double prh_f64;
     typedef prh_f32 prh_float;
@@ -709,6 +715,10 @@ extern "C" {
     prh_static_assert(sizeof(prh_i64) == 8);
     prh_static_assert(sizeof(prh_int) == sizeof(void *)); // signed pointer size type
     prh_static_assert(sizeof(prh_unt) == sizeof(void *)); // unsigned pointer size type
+    prh_static_assert(sizeof(prh_mach_int) == prh_arch_bits / 8); // signed machine generic purpose regiter size type
+    prh_static_assert(sizeof(prh_mach_unt) == prh_arch_bits / 8); // unsigned machine generic purpose register size type
+    prh_static_assert(sizeof(prh_void_ptr) == sizeof(prh_unt));
+    prh_static_assert(sizeof(prh_mach_ptr) == sizeof(prh_mach_unt));
     prh_static_assert(sizeof(prh_f32) == 4);
     prh_static_assert(sizeof(prh_f64) == 8);
     prh_static_assert(sizeof(prh_float) == 4);
@@ -735,18 +745,18 @@ extern "C" {
 #endif
 #endif
 
-#ifdef PRH_CONC_INCLUDE
+#ifdef PRH_CONO_INCLUDE
 #define PRH_LIST_INCLUDE
 #define PRH_STACK_INCLUDE
 #define PRH_QUEUE_INCLUDE
 #define PRH_THRD_INCLUDE
 #define PRH_ATOMIC_INCLUDE
 #define PRH_CORO_INCLUDE
-#ifdef PRH_CONC_STRIP_PREFIX
+#ifdef PRH_CONO_STRIP_PREFIX
     #define PRH_ATOMIC_STRIP_PREFIX
     #define PRH_THRD_STRIP_PREFIX
 #endif
-#ifdef PRH_CONC_IMPLEMENTATION
+#ifdef PRH_CONO_IMPLEMENTATION
     #define PRH_BASE_IMPLEMENTATION
     #define PRH_LIST_IMPLEMENTATION
     #define PRH_STACK_IMPLEMENTATION
@@ -872,7 +882,7 @@ extern "C" {
 // Unix software on Windows as is, MSYS2 focuses on building native software
 // built against the Windows APIs.
 
-#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
+#if defined(PRH_CONO_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
     defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION)
 #if defined(prh_plat_windows)
     // Predefined macros:
@@ -1469,8 +1479,8 @@ void prh_impl_time_test(void);
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
 void prh_impl_thrd_test(void);
 #endif
-#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
-void prh_impl_conc_test(void);
+#if defined(PRH_CONO_INCLUDE) && defined(PRH_CONO_IMPLEMENTATION)
+void prh_impl_cono_test(void);
 #endif
 void prh_impl_basic_test(void) {
     int a[6] = {0}, b = 1, count = 0;
@@ -1561,8 +1571,8 @@ void prh_test_code(void) {
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
     prh_impl_thrd_test();
 #endif
-#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
-    prh_impl_conc_test();
+#if defined(PRH_CONO_INCLUDE) && defined(PRH_CONO_IMPLEMENTATION)
+    prh_impl_cono_test();
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
@@ -1638,10 +1648,10 @@ void prh_test_code(void) {
 #define prh_impl_arrfit_data(s, a) (prh_byte *)prh_impl_arrfit_elt(s, a)
 #define prh_impl_arrdyn_data(s, a) (prh_byte *)prh_impl_arrdyn_elt(s, a)
 #define prh_impl_arrlax_data(s, a) (prh_byte *)prh_impl_arrlax_elt(s, a)
-#define prh_impl_arrfix_addr(s, a) (prh_impl_array_t *)&prh_impl_arrfix_elt(s, a)
-#define prh_impl_arrfit_addr(s, a) (prh_impl_array_t *)&prh_impl_arrfit_elt(s, a)
-#define prh_impl_arrdyn_addr(s, a) (prh_impl_array_t *)&prh_impl_arrdyn_elt(s, a)
-#define prh_impl_arrlax_addr(s, a) (prh_impl_array_t *)&prh_impl_arrlax_elt(s, a)
+#define prh_impl_arrfix_addr(s, a) (prh_impl_array *)&prh_impl_arrfix_elt(s, a)
+#define prh_impl_arrfit_addr(s, a) (prh_impl_array *)&prh_impl_arrfit_elt(s, a)
+#define prh_impl_arrdyn_addr(s, a) (prh_impl_array *)&prh_impl_arrdyn_elt(s, a)
+#define prh_impl_arrlax_addr(s, a) (prh_impl_array *)&prh_impl_arrlax_elt(s, a)
 
 #define prh_impl_arrfix_dvar(a) prh_macro_concat_name(a, _arrfix_type)
 #define prh_impl_arrfit_dvar(a) prh_macro_concat_name(a, _arrfit_type)
@@ -1676,10 +1686,10 @@ void prh_test_code(void) {
 #define prh_impl_arrfit_avar_data(a) (prh_byte *)*prh_impl_arrfit_avar(a)
 #define prh_impl_arrdyn_avar_data(a) (prh_byte *)*prh_impl_arrdyn_avar(a)
 #define prh_impl_arrlax_avar_data(a) (prh_byte *)*prh_impl_arrlax_avar(a)
-#define prh_impl_arrfix_avar_addr(a) (prh_impl_array_t *)prh_impl_arrfix_avar(a)
-#define prh_impl_arrfit_avar_addr(a) (prh_impl_array_t *)prh_impl_arrfit_avar(a)
-#define prh_impl_arrdyn_avar_addr(a) (prh_impl_array_t *)prh_impl_arrdyn_avar(a)
-#define prh_impl_arrlax_avar_addr(a) (prh_impl_array_t *)prh_impl_arrlax_avar(a)
+#define prh_impl_arrfix_avar_addr(a) (prh_impl_array *)prh_impl_arrfix_avar(a)
+#define prh_impl_arrfit_avar_addr(a) (prh_impl_array *)prh_impl_arrfit_avar(a)
+#define prh_impl_arrdyn_avar_addr(a) (prh_impl_array *)prh_impl_arrdyn_avar(a)
+#define prh_impl_arrlax_avar_addr(a) (prh_impl_array *)prh_impl_arrlax_avar(a)
 
 #define prh_define_arrvew_struct(struct_name, T)                                \
     typedef struct {                                                            \
@@ -1690,7 +1700,7 @@ void prh_test_code(void) {
 typedef struct { // 只读不拥有内存仅对实际数组进行引用
     prh_int count; // count number of array elements
     prh_byte *data;
-} prh_impl_arrvew_t; // read-only array view
+} prh_impl_arrvew; // read-only array view
 
 #define prh_arrfit_view(s, a, view) {                                           \
     prh_byte *prh_impl_p = prh_impl_arrfit_data((s), a);                        \
@@ -1754,39 +1764,39 @@ typedef struct { // 只读不拥有内存仅对实际数组进行引用
 
 typedef struct { // 数组分配后大小固定
     prh_int count;
-} prh_impl_arrfix_hdr_t; // array with fixed size
+} prh_impl_arrfix_hdr; // array with fixed size
 
 typedef struct { // 数组分配后容量固定，大小可动态调整
     prh_int capacity;
     prh_int count;
-} prh_impl_arrfit_hdr_t; // the allocated memory is fixed in the place
+} prh_impl_arrfit_hdr; // the allocated memory is fixed in the place
 
 typedef struct { // 动态容量动态大小的数组
     prh_int capacity;
     prh_int count;
-} prh_impl_arrdyn_hdr_t; // array can dynamic re-allocated and re-sized
+} prh_impl_arrdyn_hdr; // array can dynamic re-allocated and re-sized
 
 typedef struct { // 动态数组头部空间可伸展
     prh_int start;
     prh_unt extra;
     prh_int capacity;
     prh_int count;
-} prh_impl_arrlax_hdr_t; // relaxed array - header space can stretch around
+} prh_impl_arrlax_hdr; // relaxed array - header space can stretch around
 
 typedef struct {
     prh_byte *data;
-} prh_impl_array_t;
+} prh_impl_array;
 
 prh_inline prh_int *prh_impl_arr_len(prh_byte *elem_ptr) {
     return (prh_int *)elem_ptr - 1;
 }
 
 prh_inline prh_int *prh_impl_arr_cap(prh_byte *elem_ptr) {
-    return (prh_int *)((prh_impl_arrdyn_hdr_t *)elem_ptr - 1);
+    return (prh_int *)((prh_impl_arrdyn_hdr *)elem_ptr - 1);
 }
 
 prh_inline prh_int *prh_impl_arr_start(prh_byte *elem_ptr) {
-    return (prh_int *)((prh_impl_arrlax_hdr_t *)elem_ptr - 1);
+    return (prh_int *)((prh_impl_arrlax_hdr *)elem_ptr - 1);
 }
 
 prh_inline void prh_impl_array_clear(prh_byte *elem_ptr) {
@@ -1802,15 +1812,15 @@ prh_inline void prh_impl_array_clear(prh_byte *elem_ptr) {
 #define prh_arrdyn_v_clear(a) prh_impl_array_clear(prh_impl_arrdyn_dvar_data(a))
 #define prh_arrlax_v_clear(a) prh_impl_array_clear(prh_impl_arrlax_dvar_data(a))
 
-void prh_impl_array_free(prh_impl_array_t *array, prh_int hdr_size);
+void prh_impl_array_free(prh_impl_array *array, prh_int hdr_size);
 
-#define prh_arrfit_free(s, a) prh_impl_array_free(prh_impl_arrfit_addr((s), a), sizeof(prh_impl_arrfit_hdr_t))
-#define prh_arrdyn_free(s, a) prh_impl_array_free(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t))
-#define prh_arrlax_free(s, a) prh_impl_array_free(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t))
+#define prh_arrfit_free(s, a) prh_impl_array_free(prh_impl_arrfit_addr((s), a), sizeof(prh_impl_arrfit_hdr))
+#define prh_arrdyn_free(s, a) prh_impl_array_free(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr))
+#define prh_arrlax_free(s, a) prh_impl_array_free(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr))
 
-#define prh_arrfit_a_free(a) prh_impl_array_free(prh_impl_arrfit_avar_addr(a), sizeof(prh_impl_arrfit_hdr_t))
-#define prh_arrdyn_a_free(a) prh_impl_array_free(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t))
-#define prh_arrlax_a_free(a) prh_impl_array_free(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t))
+#define prh_arrfit_a_free(a) prh_impl_array_free(prh_impl_arrfit_avar_addr(a), sizeof(prh_impl_arrfit_hdr))
+#define prh_arrdyn_a_free(a) prh_impl_array_free(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr))
+#define prh_arrlax_a_free(a) prh_impl_array_free(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr))
 
 void *prh_impl_arrdyn_init(prh_int capacity, prh_int elem_size);
 void *prh_impl_arrlax_init(prh_int capacity, prh_int elem_size);
@@ -1819,34 +1829,34 @@ void *prh_impl_arrlax_init(prh_int capacity, prh_int elem_size);
 #define prh_arrdyn_init(s, a, cap) prh_impl_arrdyn_elt((s), a) = prh_impl_arrdyn_init((cap), prh_impl_arrdyn_size((s), a))
 #define prh_arrlax_init(s, a, cap) prh_impl_arrlax_elt((s), a) = prh_impl_arrlax_init((cap), prh_impl_arrlax_size((s), a))
 
-void prh_impl_array_reserve(prh_impl_array_t *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size);
-void prh_impl_array_expand(prh_impl_array_t *array, prh_int hdr_size, prh_int num_grow_elts, prh_int elem_size);
-void prh_impl_array_shrink(prh_impl_array_t *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size);
+void prh_impl_array_reserve(prh_impl_array *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size);
+void prh_impl_array_expand(prh_impl_array *array, prh_int hdr_size, prh_int num_grow_elts, prh_int elem_size);
+void prh_impl_array_shrink(prh_impl_array *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size);
 
-#define prh_arrdyn_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), (num_grow_elts), prh_impl_arrdyn_size((s), a))
-#define prh_arrlax_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), (num_grow_elts), prh_impl_arrlax_size((s), a))
-#define prh_arrdyn_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), (new_cap), prh_impl_arrdyn_size((s), a))
-#define prh_arrlax_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), (new_cap), prh_impl_arrlax_size((s), a))
+#define prh_arrdyn_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), prh_impl_arrdyn_size((s), a))
+#define prh_arrlax_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), prh_impl_arrlax_size((s), a))
+#define prh_arrdyn_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_cap), prh_impl_arrdyn_size((s), a))
+#define prh_arrlax_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_cap), prh_impl_arrlax_size((s), a))
 
-#define prh_arrdyn_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), (num_grow_elts), prh_impl_arrdyn_avar_size(a))
-#define prh_arrlax_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), (num_grow_elts), prh_impl_arrlax_avar_size(a))
-#define prh_arrdyn_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), (new_cap), prh_impl_arrdyn_avar_size(a))
-#define prh_arrlax_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), (new_cap), prh_impl_arrlax_avar_size(a))
+#define prh_arrdyn_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), prh_impl_arrdyn_avar_size(a))
+#define prh_arrlax_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), prh_impl_arrlax_avar_size(a))
+#define prh_arrdyn_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_cap), prh_impl_arrdyn_avar_size(a))
+#define prh_arrlax_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_cap), prh_impl_arrlax_avar_size(a))
 
 void prh_impl_arrfit_resize(prh_byte *elem_ptr, prh_int new_len);
-void prh_impl_arrdyn_resize(prh_impl_array_t *array, prh_int hdr_size, prh_int new_len, prh_int elem_size);
+void prh_impl_arrdyn_resize(prh_impl_array *array, prh_int hdr_size, prh_int new_len, prh_int elem_size);
 
 #define prh_arrfit_resize(s, a, new_len) prh_impl_arrfit_resize(prh_impl_arrfit_data((s), a), (new_len))
-#define prh_arrdyn_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), (new_len), prh_impl_arrdyn_size((s), a))
-#define prh_arrlax_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), (new_len), prh_impl_arrlax_size((s), a))
+#define prh_arrdyn_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_len), prh_impl_arrdyn_size((s), a))
+#define prh_arrlax_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_len), prh_impl_arrlax_size((s), a))
 
 #define prh_arrfit_v_resize(a, new_len) prh_impl_arrfit_resize(prh_impl_arrfit_dvar_data(a), (new_len))
-#define prh_arrdyn_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), (new_len), prh_impl_arrdyn_avar_size(a))
-#define prh_arrlax_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), (new_len), prh_impl_arrlax_avar_size(a))
+#define prh_arrdyn_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_len), prh_impl_arrdyn_avar_size(a))
+#define prh_arrlax_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_len), prh_impl_arrlax_avar_size(a))
 
 void *prh_impl_arrfit_push(prh_byte *elem_ptr, prh_int num_elts, prh_int elem_size);
 void *prh_impl_arrfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr, prh_int elem_size);
-void *prh_impl_arrdyn_push(prh_impl_array_t *array, prh_int hdr_size, prh_int num_elts, prh_int elem_size);
+void *prh_impl_arrdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts, prh_int elem_size);
 void *prh_impl_array_unchecked_push(prh_byte *elem_ptr, prh_int num_elts, prh_int elem_size);
 
 #define prh_arrfit_push(s, a, elt_value) {                                      \
@@ -1854,11 +1864,11 @@ void *prh_impl_array_unchecked_push(prh_byte *elem_ptr, prh_int num_elts, prh_in
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_arrdyn_push(s, a, elt_value) {                                      \
-    prh_impl_arrdyn_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), 1, prh_impl_arrdyn_size((s), a)); \
+    prh_impl_arrdyn_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1, prh_impl_arrdyn_size((s), a)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_arrlax_push(s, a, elt_value) {                                      \
-    prh_impl_arrlax_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), 1, prh_impl_arrlax_size((s), a)); \
+    prh_impl_arrlax_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1, prh_impl_arrlax_size((s), a)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_arrfit_v_push(a, elt_value) {                                       \
@@ -1866,11 +1876,11 @@ void *prh_impl_array_unchecked_push(prh_byte *elem_ptr, prh_int num_elts, prh_in
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_arrdyn_a_push(a, elt_value) {                                       \
-    prh_impl_arrdyn_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), 1, prh_impl_arrdyn_avar_size(a)); \
+    prh_impl_arrdyn_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1, prh_impl_arrdyn_avar_size(a)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_arrlax_a_push(a, elt_value) {                                       \
-    prh_impl_arrlax_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), 1, prh_impl_arrlax_avar_size(a)); \
+    prh_impl_arrlax_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1, prh_impl_arrlax_avar_size(a)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_arrfit_push_many(s, a, elt_ptr, num_elts) {                         \
@@ -1880,12 +1890,12 @@ void *prh_impl_array_unchecked_push(prh_byte *elem_ptr, prh_int num_elts, prh_in
 }
 #define prh_arrdyn_push_many(s, a, elt_ptr, num_elts) {                         \
     prh_int prh_impl_n = (prh_int)(num_elts); /*个数可以为零此时拷贝不生效*/       \
-    prh_impl_arrdyn_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), prh_impl_n, prh_impl_arrdyn_size((s), a)); \
+    prh_impl_arrdyn_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n, prh_impl_arrdyn_size((s), a)); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n * prh_impl_arrdyn_size((s), a));   \
 }
 #define prh_arrlax_push_many(s, a, elt_ptr, num_elts) {                         \
     prh_int prh_impl_n = (prh_int)(num_elts); /*个数可以为零此时拷贝不生效*/       \
-    prh_impl_arrlax_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), prh_impl_n, prh_impl_arrlax_size((s), a)); \
+    prh_impl_arrlax_type((s), a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), prh_impl_n, prh_impl_arrlax_size((s), a)); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n * prh_impl_arrlax_size((s), a));   \
 }
 #define prh_arrfit_v_push_many(a, elt_ptr, num_elts) {                          \
@@ -1895,12 +1905,12 @@ void *prh_impl_array_unchecked_push(prh_byte *elem_ptr, prh_int num_elts, prh_in
 }
 #define prh_arrdyn_a_push_many(a, elt_ptr, num_elts) {                          \
     prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_impl_arrdyn_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), prh_impl_n, prh_impl_arrdyn_avar_size(a)); \
+    prh_impl_arrdyn_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n, prh_impl_arrdyn_avar_size(a)); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n * prh_impl_arrdyn_avar_size(a));   \
 }
 #define prh_arrlax_a_push_many(a, elt_ptr, num_elts) {                          \
     prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_impl_arrlax_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_avar_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), prh_impl_n, prh_impl_arrlax_avar_size(a)); \
+    prh_impl_arrlax_avar_type(a) prh_impl_p = prh_impl_arrdyn_push(prh_impl_arrlax_avar_addr((s), a), sizeof(prh_impl_arrlax_hdr), prh_impl_n, prh_impl_arrlax_avar_size(a)); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n * prh_impl_arrlax_avar_size(a));   \
 }
 
@@ -2030,12 +2040,12 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_arrdyn_insert(s, a, i, elt_value) {                                 \
-    prh_impl_array_expand(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), 1, prh_impl_arrdyn_size((s), a)); \
+    prh_impl_array_expand(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1, prh_impl_arrdyn_size((s), a)); \
     prh_impl_arrdyn_type((s), a) prh_impl_p = prh_impl_arrdyn_insert(prh_impl_arrdyn_data((s), a), 0, (i), prh_impl_arrdyn_size((s), a)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_arrlax_insert(s, a, i, elt_value) {                                 \
-    prh_impl_array_expand(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), 1, prh_impl_arrlax_size((s), a)); \
+    prh_impl_array_expand(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1, prh_impl_arrlax_size((s), a)); \
     prh_byte *prh_impl_p = prh_impl_arrlax_data((s), a);                        \
     prh_impl_arrlax_type((s), a) prh_impl_elt = prh_impl_arrdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i), prh_impl_arrlax_size((s), a)); \
     *prh_impl_elt = (elt_value);                                                \
@@ -2045,12 +2055,12 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_arrdyn_a_insert(a, i, elt_value) {                                  \
-    prh_impl_array_expand(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), 1, prh_impl_arrdyn_avar_size(a)); \
+    prh_impl_array_expand(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1, prh_impl_arrdyn_avar_size(a)); \
     prh_impl_arrdyn_avar_type(a) prh_impl_p = prh_impl_arrdyn_insert(prh_impl_arrdyn_avar_data(a), 0, (i), prh_impl_arrdyn_avar_size(a)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_arrlax_a_insert(a, i, elt_value) {                                  \
-    prh_impl_array_expand(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), 1, prh_impl_arrlax_avar_size(a)); \
+    prh_impl_array_expand(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1, prh_impl_arrlax_avar_size(a)); \
     prh_byte *prh_impl_p = prh_impl_arrlax_avar_data(a);                        \
     prh_impl_arrlax_avar_type(a) prh_impl_elt = prh_impl_arrdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i), prh_impl_arrlax_avar_size(a)); \
     *prh_impl_elt = (elt_value);                                                \
@@ -2092,14 +2102,14 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
     }                                                                           \
 }
 #define prh_arrdyn_unordered_insert(s, a, i, elt_value) {                       \
-    prh_impl_array_expand(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), 1, prh_impl_arrdyn_size((s), a)); \
+    prh_impl_array_expand(prh_impl_arrdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1, prh_impl_arrdyn_size((s), a)); \
     prh_impl_arrdyn_type((s), a) prh_impl_p = prh_impl_arrdyn_elt((s), a);      \
     prh_int prh_impl_i = (prh_int)(i), prh_impl_last = prh_impl_array_unordered_insert(prh_impl_p, prh_impl_i); \
     prh_impl_p[prh_impl_last] = prh_impl_p[prh_impl_i];                         \
     prh_impl_p[prh_impl_i] = (elt_value);                                       \
 }
 #define prh_arrlax_unordered_insert(s, a, i, elt_value) {                       \
-    prh_impl_array_expand(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), 1, prh_impl_arrlax_size((s), a)); \
+    prh_impl_array_expand(prh_impl_arrlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1, prh_impl_arrlax_size((s), a)); \
     prh_impl_arrlax_type((s), a) prh_impl_p = prh_impl_arrlax_elt((s), a);      \
     prh_int prh_impl_i = (prh_int)(i), prh_impl_start = *prh_impl_arr_start((prh_byte *)prh_impl_p); \
     prh_int prh_impl_last = prh_impl_array_unordered_insert(prh_impl_p, prh_impl_i); \
@@ -2137,14 +2147,14 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
     }                                                                           \
 }
 #define prh_arrdyn_a_unordered_insert(a, i, elt_value) {                        \
-    prh_impl_array_expand(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), 1, prh_impl_arrdyn_avar_size(a)); \
+    prh_impl_array_expand(prh_impl_arrdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1, prh_impl_arrdyn_avar_size(a)); \
     prh_impl_arrdyn_avar_type(a) prh_impl_p = prh_impl_arrdyn_avar(a);          \
     prh_int prh_impl_i = (prh_int)(i), prh_impl_last = prh_impl_array_unordered_insert(prh_impl_p, prh_impl_i); \
     prh_impl_p[prh_impl_last] = prh_impl_p[prh_impl_i];                         \
     prh_impl_p[prh_impl_i] = (elt_value);                                       \
 }
 #define prh_arrlax_a_unordered_insert(a, i, elt_value) {                        \
-    prh_impl_array_expand(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), 1, prh_impl_arrlax_avar_size(a)); \
+    prh_impl_array_expand(prh_impl_arrlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1, prh_impl_arrlax_avar_size(a)); \
     prh_impl_arrlax_avar_type(a) prh_impl_p = prh_impl_arrlax_avar(a);          \
     prh_int prh_impl_i = (prh_int)(i), prh_impl_start = *prh_impl_arr_start((prh_byte *)prh_impl_p); \
     prh_int prh_impl_last = prh_impl_array_unordered_insert(prh_impl_p, prh_impl_i); \
@@ -2322,28 +2332,28 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
 
 #ifdef PRH_ARRAY_IMPLEMENTAION
 void *prh_impl_arrdyn_init(prh_int capacity, prh_int elem_size) {
-    prh_impl_array_t array = {prh_null};
+    prh_impl_array array = {prh_null};
     if (capacity <= 0) return prh_null;
-    prh_impl_array_reserve(&array, sizeof(prh_impl_arrdyn_hdr_t), capacity, elem_size);
+    prh_impl_array_reserve(&array, sizeof(prh_impl_arrdyn_hdr), capacity, elem_size);
     prh_byte *elem_ptr = array->data;
-    prh_impl_arrdyn_hdr_t *p = (prh_impl_arrdyn_hdr_t *)elem_ptr - 1;
+    prh_impl_arrdyn_hdr *p = (prh_impl_arrdyn_hdr *)elem_ptr - 1;
     p->capacity = capacity;
     p->count = 0;
     return elem_ptr;
 }
 
 void *prh_impl_arrlax_init(prh_int capacity, prh_int elem_size) {
-    prh_impl_array_t array = {prh_null};
+    prh_impl_array array = {prh_null};
     if (capacity <= 0) return prh_null;
-    prh_impl_array_reserve(&array, sizeof(prh_impl_arrlax_hdr_t), capacity, elem_size);
+    prh_impl_array_reserve(&array, sizeof(prh_impl_arrlax_hdr), capacity, elem_size);
     prh_byte *elem_ptr = array->data;
-    prh_impl_arrlax_hdr_t *p = (prh_impl_arrlax_hdr_t *)elem_ptr - 1;
-    memset(p, 0, sizeof(prh_impl_arrlax_hdr_t));
+    prh_impl_arrlax_hdr *p = (prh_impl_arrlax_hdr *)elem_ptr - 1;
+    memset(p, 0, sizeof(prh_impl_arrlax_hdr));
     p->capacity = capacity;
     return elem_ptr;
 }
 
-void prh_impl_array_free(prh_impl_array_t *array, prh_int hdr_size) {
+void prh_impl_array_free(prh_impl_array *array, prh_int hdr_size) {
     prh_byte *elem_ptr = array->data;
     prh_assert(elem_ptr != prh_null);
     prh_free(elem_ptr - hdr_size);
@@ -2351,7 +2361,7 @@ void prh_impl_array_free(prh_impl_array_t *array, prh_int hdr_size) {
 }
 
 void *prh_impl_arrfit_push(prh_byte *elem_ptr, prh_int num_elts, prh_int elem_size) {
-    prh_impl_arrfit_hdr_t *p = (prh_impl_arrfit_hdr_t)elem_ptr - 1;
+    prh_impl_arrfit_hdr *p = (prh_impl_arrfit_hdr)elem_ptr - 1;
     prh_assert(elem_ptr != prh_null);
     prh_assert(num_elts >= 0); // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
     prh_int count = p->count;
@@ -2376,7 +2386,7 @@ void *prh_impl_arrfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr, prh_in
     return elem_ptr + count * elem_size;
 }
 
-void *prh_impl_arrdyn_push(prh_impl_array_t *array, prh_int hdr_size, prh_int num_elts, prh_int elem_size) {
+void *prh_impl_arrdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts, prh_int elem_size) {
     prh_impl_array_expand(array, hdr_size, num_elts, elem_size);
     prh_byte *elem_ptr = array->data;
     prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
@@ -2437,7 +2447,7 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
     return source;
 }
 
-void prh_impl_array_expand(prh_impl_array_t *array, prh_int hdr_size, prh_int num_grow_elts, prh_int elem_size) {
+void prh_impl_array_expand(prh_impl_array *array, prh_int hdr_size, prh_int num_grow_elts, prh_int elem_size) {
     prh_byte *elem_ptr = array->data;
     prh_assert(num_grow_elts >= 0);
     prh_int new_cap;
@@ -2449,7 +2459,7 @@ void prh_impl_array_expand(prh_impl_array_t *array, prh_int hdr_size, prh_int nu
     prh_impl_array_reserve(array, hdr_size, new_cap, elem_size);
 }
 
-void prh_impl_array_reserve(prh_impl_array_t *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size) {
+void prh_impl_array_reserve(prh_impl_array *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size) {
     prh_byte *alloc_hdr, *array_hdr;
     prh_byte *elem_ptr = array->data;
     prh_int capacity;
@@ -2470,7 +2480,7 @@ void prh_impl_array_reserve(prh_impl_array_t *array, prh_int hdr_size, prh_int n
     }
 }
 
-void prh_impl_array_shrink(prh_impl_array_t *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size) {
+void prh_impl_array_shrink(prh_impl_array *array, prh_int hdr_size, prh_int new_cap, prh_int elem_size) {
     prh_byte *alloc_hdr, *elem_ptr = array->data;
     prh_assert(elem_prt != prh_null); // 数组为空不能缩减容量
     prh_byte *array_hdr = elem_ptr - hdr_size;
@@ -2495,7 +2505,7 @@ void prh_impl_arrfit_resize(prh_byte *elem_ptr, prh_int new_len) {
     }
 }
 
-void prh_impl_arrdyn_resize(prh_impl_array_t *array, prh_int hdr_size, prh_int new_len, prh_int elem_size) {
+void prh_impl_arrdyn_resize(prh_impl_array *array, prh_int hdr_size, prh_int new_len, prh_int elem_size) {
     prh_assert(new_len >= 0);
     prh_impl_array_reserve(array, hdr_size, new_len, elem_size);
     *prh_impl_arr_len(array->data) = new_len;
@@ -2509,10 +2519,10 @@ void prh_impl_arrdyn_resize(prh_impl_array_t *array, prh_int hdr_size, prh_int n
 #define prh_impl_strdyn_data(s, a) (s->prh_macro_concat_name(a, _string_type))
 #define prh_impl_strlax_data(s, a) (s->prh_macro_concat_name(a, _strlax_type))
 
-#define prh_impl_strfix_addr(s, a) (prh_impl_array_t *)&prh_impl_strfix_data(s, a)
-#define prh_impl_strfit_addr(s, a) (prh_impl_array_t *)&prh_impl_strfit_data(s, a)
-#define prh_impl_strdyn_addr(s, a) (prh_impl_array_t *)&prh_impl_strdyn_data(s, a)
-#define prh_impl_strlax_addr(s, a) (prh_impl_array_t *)&prh_impl_strlax_data(s, a)
+#define prh_impl_strfix_addr(s, a) (prh_impl_array *)&prh_impl_strfix_data(s, a)
+#define prh_impl_strfit_addr(s, a) (prh_impl_array *)&prh_impl_strfit_data(s, a)
+#define prh_impl_strdyn_addr(s, a) (prh_impl_array *)&prh_impl_strdyn_data(s, a)
+#define prh_impl_strlax_addr(s, a) (prh_impl_array *)&prh_impl_strlax_data(s, a)
 
 #define prh_impl_strfix_dvar(a) prh_macro_concat_name(a, _strfix_type)
 #define prh_impl_strfit_dvar(a) prh_macro_concat_name(a, _strfit_type)
@@ -2524,23 +2534,23 @@ void prh_impl_arrdyn_resize(prh_impl_array_t *array, prh_int hdr_size, prh_int n
 #define prh_impl_strdyn_avar(a) (*prh_macro_concat_name(a, _string_addr_type))
 #define prh_impl_strlax_avar(a) (*prh_macro_concat_name(a, _strlax_addr_type))
 
-#define prh_impl_strfix_avar_addr(a) (prh_impl_array_t *)prh_impl_strfix_avar(a)
-#define prh_impl_strfit_avar_addr(a) (prh_impl_array_t *)prh_impl_strfit_avar(a)
-#define prh_impl_strdyn_avar_addr(a) (prh_impl_array_t *)prh_impl_strdyn_avar(a)
-#define prh_impl_strlax_avar_addr(a) (prh_impl_array_t *)prh_impl_strlax_avar(a)
+#define prh_impl_strfix_avar_addr(a) (prh_impl_array *)prh_impl_strfix_avar(a)
+#define prh_impl_strfit_avar_addr(a) (prh_impl_array *)prh_impl_strfit_avar(a)
+#define prh_impl_strdyn_avar_addr(a) (prh_impl_array *)prh_impl_strdyn_avar(a)
+#define prh_impl_strlax_avar_addr(a) (prh_impl_array *)prh_impl_strlax_avar(a)
 
 typedef struct {
     prh_int count; // count bytes of string
     prh_byte *data;
-} prh_strvew_t; // read-only string view
+} prh_strvew; // read-only string view
 
-prh_inline void prh_impl_string_view(prh_byte *elem_ptr, prh_strvew_t *view) {
+prh_inline void prh_impl_string_view(prh_byte *elem_ptr, prh_strvew *view) {
     prh_assert(prh_impl_p != prh_null);
     view->count = *prh_impl_arr_len(prh_impl_p);
     view->data = prh_impl_p;
 }
 
-prh_inline void prh_impl_strlax_view(prh_byte *elem_ptr, prh_strvew_t *view) {
+prh_inline void prh_impl_strlax_view(prh_byte *elem_ptr, prh_strvew *view) {
     prh_assert(prh_impl_p != prh_null);
     view->count = *prh_impl_arr_len(prh_impl_p);
     view->data = prh_impl_p + *prh_impl_arr_start(prh_impl_p);
@@ -2569,39 +2579,39 @@ prh_inline void prh_impl_strlax_view(prh_byte *elem_ptr, prh_strvew_t *view) {
 #define prh_string_v_clear(a) prh_impl_array_clear(prh_impl_string_dvar_data(a))
 #define prh_strlax_v_clear(a) prh_impl_array_clear(prh_impl_strlax_dvar_data(a))
 
-#define prh_strfit_free(s, a) prh_impl_array_free(prh_impl_strfit_addr((s), a), sizeof(prh_impl_arrfit_hdr_t))
-#define prh_string_free(s, a) prh_impl_array_free(prh_impl_string_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t))
-#define prh_strlax_free(s, a) prh_impl_array_free(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t))
+#define prh_strfit_free(s, a) prh_impl_array_free(prh_impl_strfit_addr((s), a), sizeof(prh_impl_arrfit_hdr))
+#define prh_string_free(s, a) prh_impl_array_free(prh_impl_string_addr((s), a), sizeof(prh_impl_arrdyn_hdr))
+#define prh_strlax_free(s, a) prh_impl_array_free(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr))
 
-#define prh_strfit_a_free(a) prh_impl_array_free(prh_impl_strfit_avar_addr(a), sizeof(prh_impl_arrfit_hdr_t))
-#define prh_string_a_free(a) prh_impl_array_free(prh_impl_string_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t))
-#define prh_strlax_a_free(a) prh_impl_array_free(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t))
+#define prh_strfit_a_free(a) prh_impl_array_free(prh_impl_strfit_avar_addr(a), sizeof(prh_impl_arrfit_hdr))
+#define prh_string_a_free(a) prh_impl_array_free(prh_impl_string_avar_addr(a), sizeof(prh_impl_arrdyn_hdr))
+#define prh_strlax_a_free(a) prh_impl_array_free(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr))
 
 #define prh_strfit_init(s, a, cap) prh_impl_strfit_data((s), a) = prh_impl_arrdyn_init((cap), 1)
 #define prh_string_init(s, a, cap) prh_impl_string_data((s), a) = prh_impl_arrdyn_init((cap), 1)
 #define prh_strlax_init(s, a, cap) prh_impl_strlax_data((s), a) = prh_impl_arrlax_init((cap), 1)
 
-#define prh_string_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), (num_grow_elts), 1)
-#define prh_strlax_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), (num_grow_elts), 1)
-#define prh_string_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), (new_cap), 1)
-#define prh_strlax_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), (new_cap), 1)
+#define prh_string_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), 1)
+#define prh_strlax_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), 1)
+#define prh_string_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_cap), 1)
+#define prh_strlax_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_cap), 1)
 
-#define prh_string_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), (num_grow_elts), 1)
-#define prh_strlax_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), (num_grow_elts), 1)
-#define prh_string_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), (new_cap), 1)
-#define prh_strlax_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), (new_cap), 1)
+#define prh_string_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), 1)
+#define prh_strlax_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), 1)
+#define prh_string_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_cap), 1)
+#define prh_strlax_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_cap), 1)
 
 #define prh_strfit_resize(s, a, new_len) prh_impl_arrfit_resize(prh_impl_strfit_data((s), a), (new_len))
-#define prh_string_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), (new_len), 1)
-#define prh_strlax_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), (new_len), 1)
+#define prh_string_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_len), 1)
+#define prh_strlax_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_len), 1)
 
 #define prh_strfit_v_resize(a, new_len) prh_impl_arrfit_resize(prh_impl_strfit_dvar(a), (new_len))
-#define prh_string_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), (new_len), 1)
-#define prh_strlax_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), (new_len), 1)
+#define prh_string_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_len), 1)
+#define prh_strlax_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_len), 1)
 
 prh_byte *prh_impl_strfit_push(prh_byte *elem_ptr, prh_int num_elts);
 prh_byte *prh_impl_strfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr);
-prh_byte *prh_impl_strdyn_push(prh_impl_array_t *array, prh_int hdr_size, prh_int num_elts);
+prh_byte *prh_impl_strdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts);
 prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts);
 
 #define prh_strfit_push(s, a, elt_value) {                                      \
@@ -2609,11 +2619,11 @@ prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts);
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_string_push(s, a, elt_value) {                                      \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), 1); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_strlax_push(s, a, elt_value) {                                      \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), 1); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_strfit_v_push(a, elt_value) {                                       \
@@ -2621,11 +2631,11 @@ prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts);
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_string_a_push(a, elt_value) {                                       \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), 1); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_strlax_a_push(a, elt_value) {                                       \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), 1); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_strfit_push_many(s, a, elt_ptr, num_elts) {                         \
@@ -2635,12 +2645,12 @@ prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts);
 }
 #define prh_string_push_many(s, a, elt_ptr, num_elts) {                         \
     prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), prh_impl_n); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
 }
 #define prh_strlax_push_many(s, a, elt_ptr, num_elts) {                         \
     prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), prh_impl_n); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), prh_impl_n); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
 }
 #define prh_strfit_v_push_many(a, elt_ptr, num_elts) {                          \
@@ -2650,12 +2660,12 @@ prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts);
 }
 #define prh_string_a_push_many(a, elt_ptr, num_elts) {                          \
     prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), prh_impl_n); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
 }
 #define prh_strlax_a_push_many(a, elt_ptr, num_elts) {                          \
     prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), prh_impl_n); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), prh_impl_n); \
     memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
 }
 
@@ -2738,12 +2748,12 @@ prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i);
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_string_insert(s, a, i, elt_value) {                                 \
-    prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr_t), 1, 1); \
+    prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1, 1); \
     prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_data((s), a), 0, (i)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_strlax_insert(s, a, i, elt_value) {                                 \
-    prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr_t), 1, 1); \
+    prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1, 1); \
     prh_byte *prh_impl_p = prh_impl_strlax_data((s), a);                        \
     prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
     *prh_impl_elt = (elt_value);                                                \
@@ -2753,12 +2763,12 @@ prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i);
     if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
 }
 #define prh_string_a_insert(a, i, elt_value) {                                  \
-    prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr_t), 1, 1); \
+    prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1, 1); \
     prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_avar(a), 0, (i)); \
     *prh_impl_p = (elt_value);                                                  \
 }
 #define prh_strlax_a_insert(a, i, elt_value) {                                  \
-    prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr_t), 1, 1); \
+    prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1, 1); \
     prh_byte *prh_impl_p = prh_impl_strlax_avar(a);                             \
     prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
     *prh_impl_elt = (elt_value);                                                \
@@ -2838,7 +2848,7 @@ prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i);
 
 #ifdef PRH_STRING_IMPLEMENTATION
 prh_byte *prh_impl_strfit_push(prh_byte *elem_ptr, prh_int num_elts) {
-    prh_impl_arrfit_hdr_t *p = (prh_impl_arrfit_hdr_t)elem_ptr - 1;
+    prh_impl_arrfit_hdr *p = (prh_impl_arrfit_hdr)elem_ptr - 1;
     prh_assert(elem_ptr != prh_null);
     prh_assert(num_elts >= 0); // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
     prh_int count = p->count;
@@ -2872,7 +2882,7 @@ prh_byte *prh_impl_strfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr) { 
     return elem_ptr + count;
 }
 
-prh_byte *prh_impl_strdyn_push(prh_impl_array_t *array, prh_int hdr_size, prh_int num_elts) {
+prh_byte *prh_impl_strdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts) {
     prh_impl_array_expand(array, hdr_size, num_elts, 1);
     prh_byte *elem_ptr = s->data;
     prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
@@ -2927,80 +2937,103 @@ prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i) {
 #endif // PRH_STRING_INCLUDE
 
 #ifdef PRH_LIST_INCLUDE
-typedef struct prh_nose { // node single linked
-    struct prh_nose *next;
-} prh_nose_t;
+typedef struct prh_snode { // node single linked
+    struct prh_snode *next;
+} prh_snode;
 
 typedef struct {
-    prh_nose_t *next;
-    void *data; // node only contain a pointer
-} prh_wrap_nose_t;
+    prh_snode *next;
+    void *data; // node only contain a data pointer
+} prh_data_snode;
 
 typedef struct { // zero initialized
-    prh_nose_t *head;
-    prh_nose_t *tail;
-} prh_lise_t;
+    prh_snode *head;
+    prh_snode *tail;
+} prh_slist;
+
+typedef struct { // zero initialized
+    prh_snode *head;
+    prh_snode *tail;
+    prh_int size;
+} prh_sized_slist;
 
 typedef struct prh_nord { // node xored double linked (both = prev XOR next)
     struct prh_nord *both;
-} prh_nord_t;
+} prh_xnode;
 
 typedef struct {
-    prh_nord_t *both;
-    void *data; // node only contain a pointer
-} prh_wrap_nord_t;
+    prh_xnode *both;
+    void *data; // node only contain a data pointer
+} prh_data_xnode;
 
 typedef struct { // zero initialized
-    prh_nord_t *head;
-    prh_nord_t *tail;
-} prh_lost_t;
+    prh_xnode *head;
+    prh_xnode *tail;
+} prh_xlist;
+
+typedef struct { // zero initialized
+    prh_xnode *head;
+    prh_xnode *tail;
+    prh_int size;
+} prh_sized_xlist;
 
 typedef struct prh_node { // node double linked
     struct prh_node *next;
     struct prh_node *prev;
-} prh_node_t;
+} prh_node;
 
 typedef struct {
-    prh_node_t *next;
-    prh_node_t *prev;
-    void *data; // node only contain a pointer
-} prh_wrap_node_t;
+    prh_node *next;
+    prh_node *prev;
+    void *data; // node only contain a data pointer
+} prh_data_node;
 
 typedef struct { // zero initialized
-    prh_node_t *head;
-    prh_node_t *tail;
-} prh_list_t;
+    prh_node *head;
+    prh_node *tail;
+} prh_list;
 
-typedef struct prh_note { // node tripple linked
-    struct prh_note *next;
-    struct prh_note *prev;
-    struct prh_note *parent;
-} prh_note_t;
+typedef struct { // zero initialized
+    prh_node *head;
+    prh_node *tail;
+    prh_int size;
+} prh_sized_list;
+
+typedef struct prh_tnode { // node tripple linked
+    struct prh_tnode *next;
+    struct prh_tnode *prev;
+    struct prh_tnode *parent;
+} prh_tnode;
 
 typedef struct {
-    prh_note_t *next;
-    prh_note_t *prev;
-    prh_note_t *parent;
-    void *data; // node only contain a pointer
-} prh_wrap_note_t;
+    prh_tnode *next;
+    prh_tnode *prev;
+    prh_tnode *parent;
+    void *data; // node only contain a data pointer
+} prh_data_tnode;
 
 typedef struct { // zero initialized
-    prh_note_t *root;
-} prh_lite_t;
+    prh_tnode *root;
+} prh_tree;
 
-void prh_impl_list_free_each_node(prh_nose_t *head, void (*node_free)(void *));
-void prh_impl_list_free_each_node_and_clear(prh_lise_t *list, void (*node_free)(void *));
+typedef struct { // zero initialized
+    prh_tnode *root;
+    prh_int size;
+} prh_sized_tree;
+
+void prh_impl_list_free_each_node(prh_snode *head, void (*node_free)(void *));
+void prh_impl_list_free_each_node_and_clear(prh_slist *list, void (*node_free)(void *));
 
 #ifdef PRH_LIST_IMPLEMENTATION
-void prh_impl_list_free_each_node(prh_nose_t *head, void (*node_free)(void *)) {
+void prh_impl_list_free_each_node(prh_snode *head, void (*node_free)(void *)) {
     while (head) {
-        prh_nose_t *curr = head;
+        prh_snode *curr = head;
         head = head->next; // get next before free
         node_free(curr);
     }
 }
 
-void prh_impl_list_free_each_node_and_clear(prh_lise_t *list, void (*node_free)(void *)) {
+void prh_impl_list_free_each_node_and_clear(prh_slist *list, void (*node_free)(void *)) {
     if (node_free) prh_impl_list_free_each_node(list->head, node_free);
     list->head = prh_null;
 }
@@ -3009,52 +3042,52 @@ void prh_impl_list_free_each_node_and_clear(prh_lise_t *list, void (*node_free)(
 
 #ifdef PRH_STACK_INCLUDE
 // Just link the node into the stack, dont allocate any memory. Each node can
-// have different size, but must cotain prh_nose_t as the header.
-//  struct nodestack_custom_node {
-//      prh_nose_t head; // must be 1st field
+// have different size, but must cotain prh_snode as the header.
+//  struct stack_custom_node {
+//      prh_snode head; // must be 1st field
 //      ... other custom node data ...
 //  };
 typedef struct { // zero initialize
-    prh_nose_t *head;
-} prh_nodestack_t;
+    prh_snode *head;
+} prh_nstack;
 
-prh_inline void prh_nodestack_init(prh_nodestack_t *s) {
+prh_inline void prh_nstack_init(prh_nstack *s) {
     s->head = prh_null;
 }
 
-prh_inline void prh_nodestack_clear(prh_nodestack_t *s, void (*node_free_func)(void *)) {
-    prh_impl_list_free_each_node_and_clear((prh_lise_t *)s, node_free_func);
+prh_inline void prh_nstack_clear(prh_nstack *s, void (*node_free_func)(void *)) {
+    prh_impl_list_free_each_node_and_clear((prh_slist *)s, node_free_func);
 }
 
-prh_inline prh_nose_t *prh_nodestack_top(prh_nodestack_t *s) {
+prh_inline prh_snode *prh_nstack_top(prh_nstack *s) {
     return s->head;
 }
 
-prh_inline bool prh_nodestack_empty(prh_nodestack_t *s) {
+prh_inline bool prh_nstack_empty(prh_nstack *s) {
     return s->head == prh_null;
 }
 
-void prh_nodestack_push(prh_nodestack_t *s, prh_nose_t *node);
-prh_nose_t *prh_nodestack_pop(prh_nodestack_t *s);
+void prh_nstack_push(prh_nstack *s, prh_snode *node);
+prh_snode *prh_nstack_pop(prh_nstack *s);
 
 #ifdef PRH_STACK_STRIP_PREFIX
-#define nodestack_t         prh_nodestack_t
-#define nodestack_init      prh_nodestack_init
-#define nodestack_clear     prh_nodestack_clear
-#define nodestack_empty     prh_nodestack_empty
-#define nodestack_push      prh_nodestack_push
-#define nodestack_pop       prh_nodestack_pop
-#define nodestack_top       prh_nodestack_top
+#define nstack_t         prh_nstack
+#define nstack_init      prh_nstack_init
+#define nstack_clear     prh_nstack_clear
+#define nstack_empty     prh_nstack_empty
+#define nstack_push      prh_nstack_push
+#define nstack_pop       prh_nstack_pop
+#define nstack_top       prh_nstack_top
 #endif
 
 #ifdef PRH_STACK_IMPLEMENTATION
-void prh_nodestack_push(prh_nodestack_t *s, prh_nose_t *node) {
+void prh_nstack_push(prh_nstack *s, prh_snode *node) {
     node->next = s->head;
     s->head = node;
 }
 
-prh_nose_t *prh_nodestack_pop(prh_nodestack_t *s) {
-    prh_nose_t *head = s->head;
+prh_snode *prh_nstack_pop(prh_nstack *s) {
+    prh_snode *head = s->head;
     if (head == prh_null) return prh_null;
     s->head = head->next;
     return head;
@@ -3066,23 +3099,23 @@ prh_nose_t *prh_nodestack_pop(prh_nodestack_t *s) {
 // Array queue with power of 2 capacity size.
 //
 //  struct StructContainArrayQueue {
-//      Object *<qname>_array_queue;
+//      Object *<qname>_arrque_type;
 //  };
 //
 //  StructContainArrayQueue s;
-//  prh_arrayqueue_init(&s, qname, 64);
-//  Object *item = prh_arrayqueue_push(&s, qname);
+//  prh_arrque_init(&s, qname, 64);
+//  Object *item = prh_arrque_push(&s, qname);
 //  .. initialize the new item ..
-//  item = prh_arrayqueue_pop(&s, qname);
+//  item = prh_arrque_pop(&s, qname);
 //  .. using the poped item, may be null ..
-//  prh_arrayqueue_free(&s, qname);
+//  prh_arrque_free(&s, qname);
 typedef struct {
     prh_int capacity;
     prh_int head;
     prh_int tail;
-} prh_impl_arrque_t;
+} prh_impl_arrque;
 
-#define prh_impl_arrque(s, q) ((s)->prh_macro_concat_name(q, _array_queue))
+#define prh_impl_arrque(s, q) ((s)->prh_macro_concat_name(q, _arrque_type))
 #define prh_impl_arrque_nextpos(h, pos) (((pos) + 1) & ((h)->capacity - 1))
 void *prh_impl_arrque_init(prh_int capacity, prh_int object_size);
 void prh_impl_arrque_free(void *queue);
@@ -3090,49 +3123,49 @@ void *prh_impl_arrque_pop(void *queue, prh_int object_size);
 void *prh_impl_arrque_push(void *queue, prh_int object_size);
 prh_int prh_impl_arrque_len(void *queue);
 
-prh_inline bool prh_impl_arrque_empty(prh_impl_arrque_t *h) {
+prh_inline bool prh_impl_arrque_empty(prh_impl_arrque *h) {
     return h->head == h->tail;
 }
 
-prh_inline bool prh_impl_arrque_full(prh_impl_arrque_t *h) {
+prh_inline bool prh_impl_arrque_full(prh_impl_arrque *h) {
     return prh_impl_arrque_nextpos(h, h->tail) == h->head;
 }
 
 prh_inline prh_int prh_impl_arrque_cap(void *queue) {
-    prh_impl_arrque_t *h = ((prh_impl_arrque_t *)queue) - 1;
+    prh_impl_arrque *h = ((prh_impl_arrque *)queue) - 1;
     return h->capacity;
 }
 
-#define prh_arrayqueue_init(s, q, size) {                                       \
+#define prh_arrque_init(s, q, size) {                                           \
     prh_impl_arrque((s), q) = prh_impl_arrque_init((size), sizeof(*prh_impl_arrque((s), q))); \
 }
 
-#define prh_arrayqueue_free(s, q) {                                             \
+#define prh_arrque_free(s, q) {                                                 \
     prh_impl_arrque_free(prh_impl_arrque((s), q));                              \
     prh_impl_arrque((s), q) = prh_null;                                         \
 }
 
-#define prh_arrayqueue_push(s, q) (prh_typeof(prh_impl_arrque((s), q)))prh_impl_arrque_push(prh_impl_arrque((s), q), sizeof(*prh_impl_arrque((s), q)))
-#define prh_arrayqueue_pop(s, q) (prh_typeof(prh_impl_arrque((s), q)))prh_impl_arrque_pop(prh_impl_arrque((s), q), sizeof(*prh_impl_arrque((s), q)))
+#define prh_arrque_push(s, q) (prh_typeof(prh_impl_arrque((s), q)))prh_impl_arrque_push(prh_impl_arrque((s), q), sizeof(*prh_impl_arrque((s), q)))
+#define prh_arrque_pop(s, q) (prh_typeof(prh_impl_arrque((s), q)))prh_impl_arrque_pop(prh_impl_arrque((s), q), sizeof(*prh_impl_arrque((s), q)))
 
-#define prh_arrayqueue_cap(s, q) prh_impl_arrque_cap(prh_impl_arrque((s), q))
-#define prh_arrayqueue_len(s, q) prh_impl_arrque_len(prh_impl_arrque((s), q))
+#define prh_arrque_cap(s, q) prh_impl_arrque_cap(prh_impl_arrque((s), q))
+#define prh_arrque_len(s, q) prh_impl_arrque_len(prh_impl_arrque((s), q))
 
 #ifdef PRH_QUEUE_STRIP_PREFIX
-#define arrayqueue_init    prh_arrayqueue_init
-#define arrayqueue_free    prh_arrayqueue_free
-#define arrayqueue_push    prh_arrayqueue_push
-#define arrayqueue_pop     prh_arrayqueue_pop
-#define arrayqueue_cap     prh_arrayqueue_cap
-#define arrayqueue_len     prh_arrayqueue_len
+#define arrque_init    prh_arrque_init
+#define arrque_free    prh_arrque_free
+#define arrque_push    prh_arrque_push
+#define arrque_pop     prh_arrque_pop
+#define arrque_cap     prh_arrque_cap
+#define arrque_len     prh_arrque_len
 #endif
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
 void *prh_impl_arrque_init(prh_int capacity, prh_int object_size) {
     if (capacity == 0) return prh_null;
     assert(prh_is_power_of_2(capacity));
-    prh_int alloc_size = sizeof(prh_impl_arrque_t) + prh_round_ptrsize(object_size * capacity);
-    prh_impl_arrque_t *p = prh_malloc(alloc_size);
+    prh_int alloc_size = sizeof(prh_impl_arrque) + prh_round_ptrsize(object_size * capacity);
+    prh_impl_arrque *p = prh_malloc(alloc_size);
     p->capacity = capacity;
     p->head = p->tail = 0;
     return p + 1;
@@ -3140,18 +3173,18 @@ void *prh_impl_arrque_init(prh_int capacity, prh_int object_size) {
 
 void prh_impl_arrque_free(void *queue) {
     if (queue == prh_null) return;
-    prh_free(((prh_impl_arrque_t *)queue) - 1);
+    prh_free(((prh_impl_arrque *)queue) - 1);
 }
 
 prh_int prh_impl_arrque_len(void *queue) {
-    prh_impl_arrque_t *h = ((prh_impl_arrque_t *)queue) - 1;
+    prh_impl_arrque *h = ((prh_impl_arrque *)queue) - 1;
     prh_int len = h->tail - h->head;
     if (len < 0) return len + h->capacity;
     return len;
 }
 
 void *prh_impl_arrque_pop(void *queue, prh_int object_size) {
-    prh_impl_arrque_t *h = ((prh_impl_arrque_t *)queue) - 1;
+    prh_impl_arrque *h = ((prh_impl_arrque *)queue) - 1;
     if (prh_impl_arrque_empty(h)) return prh_null;
     void *top = (char *)queue + object_size * h->head;
     h->head = prh_impl_arrque_nextpos(h, h->head);
@@ -3159,7 +3192,7 @@ void *prh_impl_arrque_pop(void *queue, prh_int object_size) {
 }
 
 void *prh_impl_arrque_push(void *queue, prh_int object_size) {
-    prh_impl_arrque_t *h = ((prh_impl_arrque_t *)queue) - 1;
+    prh_impl_arrque *h = ((prh_impl_arrque *)queue) - 1;
     if (prh_impl_arrque_full(h)) return prh_null;
     void *tail = (char *)queue + object_size * h->tail;
     h->tail = prh_impl_arrque_nextpos(h, h->tail);
@@ -3168,64 +3201,70 @@ void *prh_impl_arrque_push(void *queue, prh_int object_size) {
 #endif // PRH_QUEUE_IMPLEMENTATION
 
 // Just link the node into the queue, dont allocate any memory. Each node can
-// have different size, but must cotain prh_nose_t as the header.
-//  struct nodequeue_custom_node {
-//      prh_nose_t head; // must be 1st field
+// have different size, but must cotain prh_snode as the header.
+//  struct quefit_custom_node {
+//      prh_snode head; // must be 1st field
 //      ... other custom node data ...
 //  };
 typedef struct { // zero initialize
-    prh_nose_t *head;
-    prh_nose_t *tail;
-} prh_nodequeue_t;
+    prh_snode *head;
+    prh_snode *tail;
+} prh_quefit;
 
-prh_inline void prh_nodequeue_init(prh_nodequeue_t *q) {
+typedef struct { // zero initialize
+    prh_snode *head;
+    prh_snode *tail;
+    prh_int size;
+} prh_sized_quefit;
+
+prh_inline void prh_quefit_init(prh_quefit *q) {
     q->head = q->tail = prh_null;
 }
 
-prh_inline bool prh_nodequeue_empty(prh_nodequeue_t *q) {
+prh_inline bool prh_quefit_empty(prh_quefit *q) {
     return q->head == prh_null;
 }
 
-prh_inline prh_nose_t *prh_nodequeue_top(prh_nodequeue_t *q) {
+prh_inline prh_snode *prh_quefit_top(prh_quefit *q) {
     return q->head;
 }
 
-prh_inline void prh_nodequeue_clear(prh_nodequeue_t *q, void (*node_free_func)(void *)) {
-    prh_impl_list_free_each_node_and_clear((prh_lise_t *)q, node_free_func);
+prh_inline void prh_quefit_clear(prh_quefit *q, void (*node_free_func)(void *)) {
+    prh_impl_list_free_each_node_and_clear((prh_slist *)q, node_free_func);
     q->tail = prh_null;
 }
 
-prh_nodequeue_t prh_nodequeue_move(prh_nodequeue_t *q);
-void prh_nodequeue_push(prh_nodequeue_t *q, prh_nose_t *new_node);
-prh_nose_t *prh_nodequeue_pop(prh_nodequeue_t *q);
+prh_quefit prh_quefit_move(prh_quefit *q);
+void prh_quefit_push(prh_quefit *q, prh_snode *new_node);
+prh_snode *prh_quefit_pop(prh_quefit *q);
 
 #ifdef PRH_QUEUE_STRIP_PREFIX
-#define nodequeue_t         prh_nodequeue_t
-#define nodequeue_init      prh_nodequeue_init
-#define nodequeue_empty     prh_nodequeue_empty
-#define nodequeue_clear     prh_nodequeue_clear
-#define nodequeue_move      prh_nodequeue_move
-#define nodequeue_push      prh_nodequeue_push
-#define nodequeue_pop       prh_nodequeue_pop
-#define nodequeue_top       prh_nodequeue_top
+#define quefit_t         prh_quefit
+#define quefit_init      prh_quefit_init
+#define quefit_empty     prh_quefit_empty
+#define quefit_clear     prh_quefit_clear
+#define quefit_move      prh_quefit_move
+#define quefit_push      prh_quefit_push
+#define quefit_pop       prh_quefit_pop
+#define quefit_top       prh_quefit_top
 #endif
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
-prh_nodequeue_t prh_nodequeue_move(prh_nodequeue_t *q) {
-    prh_nodequeue_t que = *q;
-    prh_nodequeue_init(q);
+prh_quefit prh_quefit_move(prh_quefit *q) {
+    prh_quefit que = *q;
+    prh_quefit_init(q);
     return que;
 }
 
-void prh_nodequeue_push(prh_nodequeue_t *q, prh_nose_t *new_node) {
-    prh_nose_t *tail = q->tail;
-    if (tail == prh_null) tail = (prh_nose_t *)q;
+void prh_quefit_push(prh_quefit *q, prh_snode *new_node) {
+    prh_snode *tail = q->tail;
+    if (tail == prh_null) tail = (prh_snode *)q;
     q->tail = tail->next = new_node;
     new_node->next = prh_null;
 }
 
-prh_nose_t *prh_nodequeue_pop(prh_nodequeue_t *q) {
-    prh_nose_t *top = q->head;
+prh_snode *prh_quefit_pop(prh_quefit *q) {
+    prh_snode *top = q->head;
     if (top == prh_null) return prh_null;
     q->head = top->next;
     if (top == q->tail) {
@@ -3235,77 +3274,95 @@ prh_nose_t *prh_nodequeue_pop(prh_nodequeue_t *q) {
 }
 #endif // PRH_QUEUE_IMPLEMENTATION
 
-// Dynamic allocated size-variable queue. The node can contain any object and
+// Dynamic allocated fixed size queue. The node can only contain a data pointer.
+typedef struct { // zero initialize
+    prh_data_snode *head;
+    prh_data_snode *tail;
+} prh_quefix;
+
+typedef struct { // zero initialize
+    prh_data_snode *head;
+    prh_data_snode *tail;
+    prh_int size;
+} prh_sized_quefix;
+
+// Dynamic allocated variable size queue. The node can contain any object and
 // with any different size. If the size < sizeof(void *), the size is rounded
 // up to sizeof(void *).
 typedef struct { // zero initialize
-    prh_nose_t *head;
-    prh_nose_t *tail;
-} prh_sizequeue_t;
+    prh_snode *head;
+    prh_snode *tail;
+} prh_quedyn;
 
-prh_inline void prh_sizequeue_init(prh_sizequeue_t *q) {
-    prh_nodequeue_init((prh_nodequeue_t *)q);
+typedef struct { // zero initialize
+    prh_snode *head;
+    prh_snode *tail;
+    prh_int size;
+} prh_sized_quedyn;
+
+prh_inline void prh_quedyn_init(prh_quedyn *q) {
+    prh_quefit_init((prh_quefit *)q);
 }
 
-prh_inline bool prh_sizequeue_empty(prh_sizequeue_t *q) {
-    return prh_nodequeue_empty((prh_nodequeue_t *)q);
+prh_inline bool prh_quedyn_empty(prh_quedyn *q) {
+    return prh_quefit_empty((prh_quefit *)q);
 }
 
-prh_inline void prh_sizequeue_free_node(void *ptr_node_object) {
-    if (ptr_node_object) prh_free((prh_nose_t *)ptr_node_object - 1);
+prh_inline void prh_quedyn_free_node(void *ptr_node_object) {
+    if (ptr_node_object) prh_free((prh_snode *)ptr_node_object - 1);
 }
 
-void prh_sizequeue_clear(prh_sizequeue_t *q, void (*object_deinit_func)(void *));
-void *prh_sizequeue_push(prh_sizequeue_t *q, int object_size); // return allocated zero initialized object address
-void *prh_sizequeue_top(prh_sizequeue_t *q); // return null or object address inside the top node
-void *prh_sizequeue_pop(prh_sizequeue_t *q); // pop top node but dont free it, return object address inside the node
+void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *));
+void *prh_quedyn_push(prh_quedyn *q, int object_size); // return allocated zero initialized object address
+void *prh_quedyn_top(prh_quedyn *q); // return null or object address inside the top node
+void *prh_quedyn_pop(prh_quedyn *q); // pop top node but dont free it, return object address inside the node
 
 #ifdef PRH_QUEUE_STRIP_PREFIX
-#define sizequeue_t         prh_sizequeue_t
-#define sizequeue_init      prh_sizequeue_init
-#define sizequeue_empty     prh_sizequeue_empty
-#define sizequeue_free_node prh_sizequeue_free_node
-#define sizequeue_clear     prh_sizequeue_clear
-#define sizequeue_move      prh_sizequeue_move
-#define sizequeue_push      prh_sizequeue_push
-#define sizequeue_top       prh_sizequeue_top
-#define sizequeue_pop       prh_sizequeue_pop
+#define quedyn_t         prh_quedyn
+#define quedyn_init      prh_quedyn_init
+#define quedyn_empty     prh_quedyn_empty
+#define quedyn_free_node prh_quedyn_free_node
+#define quedyn_clear     prh_quedyn_clear
+#define quedyn_move      prh_quedyn_move
+#define quedyn_push      prh_quedyn_push
+#define quedyn_top       prh_quedyn_top
+#define quedyn_pop       prh_quedyn_pop
 #endif
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
-void prh_sizequeue_clear(prh_sizequeue_t *q, void (*object_deinit_func)(void *)) {
-    prh_nose_t *next = q->head;
+void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *)) {
+    prh_snode *next = q->head;
     while (next) {
-        prh_nose_t *curr = next;
+        prh_snode *curr = next;
         next = next->next; // get next before free the node
         if (object_deinit_func) {
             object_deinit_func(curr + 1);
         }
         prh_free(curr);
     }
-    prh_sizequeue_init(q);
+    prh_quedyn_init(q);
 }
 
-prh_sizequeue_t prh_sizequeue_move(prh_sizequeue_t *q) {
-    prh_sizequeue_t que = *q;
-    prh_sizequeue_init(q);
+prh_quedyn prh_quedyn_move(prh_quedyn *q) {
+    prh_quedyn que = *q;
+    prh_quedyn_init(q);
     return que;
 }
 
-void *prh_sizequeue_push(prh_sizequeue_t *q, int object_size) {
+void *prh_quedyn_push(prh_quedyn *q, int object_size) {
     if (object_size < sizeof(void *)) object_size = sizeof(void *);
-    prh_nose_t *new_node = prh_calloc(sizeof(prh_nose_t) + prh_round_ptrsize(object_size));
-    prh_nodequeue_push((prh_nodequeue_t *)q, new_node);
+    prh_snode *new_node = prh_calloc(sizeof(prh_snode) + prh_round_ptrsize(object_size));
+    prh_quefit_push((prh_quefit *)q, new_node);
     return (new_node + 1);
 }
 
-void *prh_sizequeue_top(prh_sizequeue_t *q) {
-    prh_nose_t *top = q->head;
+void *prh_quedyn_top(prh_quedyn *q) {
+    prh_snode *top = q->head;
     return (top == prh_null) ? prh_null : (top + 1);
 }
 
-void *prh_sizequeue_pop(prh_sizequeue_t *q) {
-    prh_nose_t *top = prh_nodequeue_pop((prh_nodequeue_t *)q);
+void *prh_quedyn_pop(prh_quedyn *q) {
+    prh_snode *top = prh_quefit_pop((prh_quefit *)q);
     return (top == prh_null) ? prh_null : (top + 1);
 }
 #endif // PRH_QUEUE_IMPLEMENTATION
@@ -3313,27 +3370,27 @@ void *prh_sizequeue_pop(prh_sizequeue_t *q) {
 
 // COROUTINES - Very simple single file style coroutine library
 #ifdef PRH_CORO_INCLUDE
-typedef struct prh_coro prh_coro_t;
+typedef struct prh_coro prh_coro;
 typedef struct prh_impl_coro_struct prh_coro_struct;
 struct prh_impl_coro_main;
 
 typedef struct {
     struct prh_impl_coro_main *main; // 1nd field dont move
     prh_i32 start_id, curr_index; // 2nd field dont move, coro index start from 1
-    prh_coro_t *coro; // last field dont move, only used by soro_struct
+    prh_coro *coro; // last field dont move, only used by soro_struct
 } prh_soro_struct;
 
 #define prh_coro_proc prh_fastcall(void)
-prh_fastcall_typedef(void, prh_coroproc_t)(prh_coro_t *);
+prh_fastcall_typedef(void, prh_coroproc_t)(prh_coro *);
 
-prh_fastcall(bool) prh_impl_asm_coro_yield(prh_coro_t *coro, prh_coro_t *next);
-prh_coro_t *prh_impl_next_resume_coro(void);
+prh_fastcall(bool) prh_impl_asm_coro_yield(prh_coro *coro, prh_coro *next);
+prh_coro *prh_impl_next_resume_coro(void);
 
-prh_inline void prh_coro_yield(prh_coro_t *coro) {
+prh_inline void prh_coro_yield(prh_coro *coro) {
     prh_impl_asm_coro_yield(coro, prh_impl_next_resume_coro());
 }
 
-prh_inline void *prh_coro_data(prh_coro_t *coro) {
+prh_inline void *prh_coro_data(prh_coro *coro) {
     return *(void **)((char *)coro + 8);
 }
 
@@ -3359,10 +3416,10 @@ void prh_soro_reload(prh_soro_struct *s, prh_coroproc_t proc); // udata is not r
 void prh_soro_finish(prh_soro_struct *s);
 
 #ifdef PRH_CORO_STRIP_PREFIX
-#define coro_t                  prh_coro_t
-#define coro_struct             prh_coro_struct
-#define soro_struct             prh_soro_struct
-#define coro_proc               prh_coro_proc
+#define coro_t                  prh_coro
+#define coro_struct_t           prh_coro_struct
+#define soro_struct_t           prh_soro_struct
+#define coro_proc_func          prh_coro_proc
 #define coro_data               prh_coro_data
 #define coro_self_id            prh_coro_self_id
 #define coro_main_id            prh_coro_main_id
@@ -3394,20 +3451,20 @@ void prh_soro_finish(prh_soro_struct *s);
 typedef struct {
     prh_u32 lower_guard_word;
     prh_u32 upper_guard_word;
-} prh_impl_coro_guard_t;
+} prh_impl_coro_guard;
 
 prh_fastcall(int) prh_impl_asm_stack_init_depth(void);
 prh_fastcall(void) prh_impl_asm_coro_call(void); // args are on coro stack
 
-void prh_impl_coro_stack_segmentation_fault(prh_coro_t *coro) {
+void prh_impl_coro_stack_segmentation_fault(prh_coro *coro) {
     printf("coro %p stack segmentation fault\n", (void *)coro);
     exit(__LINE__);
 }
 
 // prh_coro_struct layout:
 //  [prh_coro_struct]
-//  [prh_coro_t *]
-//  [prh_coro_t *]
+//  [prh_coro *]
+//  [prh_coro *]
 struct prh_impl_coro_struct {
     struct prh_impl_coro_main *main; // 1nd field dont move
     prh_i32 start_id, curr_index; // 2nd field dont move, coro index start from 1
@@ -3416,16 +3473,16 @@ struct prh_impl_coro_struct {
 
 // coroutine stack layout:
 //  lower memery address
-//  [prh_impl_coro_guard_t      ]
-//  [       ...                 ]
-//  [       ...                 ]          ^
-//  [       ...                 ]          ^
-//  [stack memory data          ] <-- rsp  | <-- stack top
-//  [stack memory data          ]
-//  [stack memory data          ] <-- stack bottom
-//  [prh_coro_t: rspoffset      ] <-- coro
-//  [prh_coro_t: ...            ]
-//  [coroutine userdata area    ]
+//  [prh_impl_coro_guard    ]
+//  [       ...             ]
+//  [       ...             ]          ^
+//  [       ...             ]          ^
+//  [stack memory data      ] <-- rsp  | <-- stack top
+//  [stack memory data      ]
+//  [stack memory data      ] <-- stack bottom
+//  [prh_coro: rspoffset    ] <-- coro
+//  [prh_coro: ...          ]
+//  [coroutine userdata area]
 //  upper memory address
 struct prh_coro {
     prh_i32 rspoffset; // 1st field dont move
@@ -3443,8 +3500,8 @@ struct prh_impl_coro_main {
 
 prh_static_assert(sizeof(struct prh_coro) <= prh_impl_coro_size);
 
-prh_inline prh_impl_coro_guard_t *prh_impl_coro_guard(prh_coro_t *coro) {
-    return (prh_impl_coro_guard_t *)((char *)coro - coro->loweraddr);
+prh_inline prh_impl_coro_guard *prh_impl_coro_guard(prh_coro *coro) {
+    return (prh_impl_coro_guard *)((char *)coro - coro->loweraddr);
 }
 
 prh_inline int prh_impl_coro_struct_alloc_size(int maxcoros) {
@@ -3460,8 +3517,8 @@ prh_coro_struct *prh_coro_init(int start_id, int maxcoros) {
     return s;
 }
 
-void prh_impl_coro_guard_verify(prh_coro_t *coro) {
-    prh_impl_coro_guard_t *g = prh_impl_coro_guard(coro);
+void prh_impl_coro_guard_verify(prh_coro *coro) {
+    prh_impl_coro_guard *g = prh_impl_coro_guard(coro);
     if (g->lower_guard_word != prh_lower_guard_word || g->upper_guard_word != prh_upper_guard_word) {
         prh_impl_coro_stack_segmentation_fault(coro);
     }
@@ -3471,33 +3528,33 @@ prh_inline int prh_impl_coro_extend_size(int coro_extend_size) {
     return prh_impl_coro_size + (int)prh_round_16_byte(coro_extend_size);
 }
 
-prh_coro_t *prh_impl_coro_alloc(int stack_size, int coro_extend_size, int maxudsize) {
+prh_coro *prh_impl_coro_alloc(int stack_size, int coro_extend_size, int maxudsize) {
     assert(maxudsize >= 0);
     int coro_size = prh_impl_coro_extend_size(coro_extend_size);
     int data_size = (int)prh_round_16_byte(maxudsize);
-    assert(stack_size > coro_size + data_size + (int)sizeof(prh_impl_coro_guard_t) + prh_impl_asm_stack_init_depth());
+    assert(stack_size > coro_size + data_size + (int)sizeof(prh_impl_coro_guard) + prh_impl_asm_stack_init_depth());
 
     int stackallocsize = (int)prh_round_16_byte(stack_size);
     char *p = (char *)prh_16_byte_aligned_malloc(stackallocsize);
-    prh_coro_t *coro = (prh_coro_t *)(p + stackallocsize - coro_size - data_size);
+    prh_coro *coro = (prh_coro *)(p + stackallocsize - coro_size - data_size);
     memset(coro, 0, coro_size + data_size);
     coro->loweraddr = (prh_i32)((char *)coro - p);
     coro->userdata = (char *)coro + coro_size;
 
-    prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
+    prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     guard->lower_guard_word = prh_lower_guard_word;
     guard->upper_guard_word = prh_upper_guard_word;
     return coro;
 }
 
-prh_coro_t *prh_impl_coro_alloc_set(prh_coro_t **slot, int stack_size, int coro_extend_size, int maxudsize) {
+prh_coro *prh_impl_coro_alloc_set(prh_coro **slot, int stack_size, int coro_extend_size, int maxudsize) {
     assert(*slot == prh_null);
-    prh_coro_t *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, maxudsize);
+    prh_coro *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, maxudsize);
     *slot = coro;
     return coro;
 }
 
-void prh_impl_coro_load(prh_coro_t *coro, prh_coroproc_t proc) {
+void prh_impl_coro_load(prh_coro *coro, prh_coroproc_t proc) {
     prh_impl_coro_guard_verify(coro);
     // [32-bit architecture]
     // pstack + alloc <-- 00 <-- 16字节对齐
@@ -3514,37 +3571,37 @@ void prh_impl_coro_load(prh_coro_t *coro, prh_coroproc_t proc) {
     coro->rspoffset = (prh_u32)((char *)coro - (char *)rsp);
 }
 
-prh_coro_t *prh_impl_coro_create(prh_coroproc_t proc, int stack_size, int coro_extend_size, void *userdata) {
-    prh_coro_t *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, 0);
+prh_coro *prh_impl_coro_create(prh_coroproc_t proc, int stack_size, int coro_extend_size, void *userdata) {
+    prh_coro *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, 0);
     prh_impl_coro_load(coro, proc);
     coro->userdata = userdata;
     return coro;
 }
 
-prh_coro_t *prh_impl_coro_creatx(prh_coroproc_t proc, int stack_size, int coro_extend_size, int maxudsize) {
-    prh_coro_t *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, maxudsize);
+prh_coro *prh_impl_coro_creatx(prh_coroproc_t proc, int stack_size, int coro_extend_size, int maxudsize) {
+    prh_coro *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, maxudsize);
     prh_impl_coro_load(coro, proc);
     return coro;
 }
 
-void prh_impl_coro_reload(prh_coro_t *coro, prh_coroproc_t proc) {
+void prh_impl_coro_reload(prh_coro *coro, prh_coroproc_t proc) {
     assert(coro && coro->rspoffset == 0); // only finished coro can reload
     prh_impl_coro_load(coro, proc);
 }
 
-prh_coro_t **prh_impl_coro_list(prh_coro_struct *s) {
-    return (prh_coro_t **)(s + 1);
+prh_coro **prh_impl_coro_list(prh_coro_struct *s) {
+    return (prh_coro **)(s + 1);
 }
 
 void prh_coro_create(prh_coro_struct *s, prh_coroproc_t proc, int stack_size, void *userdata) {
     assert(s->coro_cnt >= 0 && s->coro_cnt < s->maxcoros);
-    prh_coro_t **slot = prh_impl_coro_list(s) + s->coro_cnt++;
-    prh_coro_t *coro = prh_impl_coro_alloc_set(slot, stack_size, 0, 0);
+    prh_coro **slot = prh_impl_coro_list(s) + s->coro_cnt++;
+    prh_coro *coro = prh_impl_coro_alloc_set(slot, stack_size, 0, 0);
     prh_impl_coro_load(coro, proc);
     coro->userdata = userdata;
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
-    prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
+    prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
         s->start_id + s->coro_cnt, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
         (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, 0, stack_size);
@@ -3553,12 +3610,12 @@ void prh_coro_create(prh_coro_struct *s, prh_coroproc_t proc, int stack_size, vo
 
 void *prh_coro_creatx(prh_coro_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize) {
     assert(s->coro_cnt >= 0 && s->coro_cnt < s->maxcoros);
-    prh_coro_t **slot = prh_impl_coro_list(s) + s->coro_cnt++;
-    prh_coro_t *coro = prh_impl_coro_alloc_set(slot, stack_size, 0, maxudsize);
+    prh_coro **slot = prh_impl_coro_list(s) + s->coro_cnt++;
+    prh_coro *coro = prh_impl_coro_alloc_set(slot, stack_size, 0, maxudsize);
     prh_impl_coro_load(coro, proc);
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
-    prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
+    prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
         s->start_id + s->coro_cnt, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
         (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, (int)prh_round_16_byte(maxudsize), stack_size);
@@ -3566,17 +3623,17 @@ void *prh_coro_creatx(prh_coro_struct *s, prh_coroproc_t proc, int stack_size, i
     return coro->userdata;
 }
 
-prh_coro_t *prh_impl_coro_get(prh_coro_struct *s, int index) {
+prh_coro *prh_impl_coro_get(prh_coro_struct *s, int index) {
     assert(index > 0 && index <= s->coro_cnt);
     return prh_impl_coro_list(s)[index - 1];
 }
 
 void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc) {
-    prh_coro_t *coro = prh_impl_coro_get(s, index);
+    prh_coro *coro = prh_impl_coro_get(s, index);
     prh_impl_coro_reload(coro, proc);
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
-    prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
+    prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[coro %02d] %p reload -- lower %p (left %d) rsp %p coro %p (size %d) data %p --\n",
         s->start_id + index, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
         (void *)coro, prh_impl_coro_extend_size(0), coro->userdata);
@@ -3604,37 +3661,37 @@ prh_coro_struct *prh_impl_pop_main_coro(void) {
     return top;
 }
 
-prh_coro_t *prh_impl_get_next_resume(prh_coro_struct *s) {
+prh_coro *prh_impl_get_next_resume(prh_coro_struct *s) {
     for (int i = s->curr_index; i < s->coro_cnt; i += 1) { // soro_struct never goes here due to yield_cycle = 0
-        prh_coro_t *next = prh_impl_coro_list(s)[i];
+        prh_coro *next = prh_impl_coro_list(s)[i];
         if (next && next->rspoffset) {
             s->curr_index = i + 1;
             return next;
         }
     }
     s->curr_index = 0;
-    return (prh_coro_t *)s->main;
+    return (prh_coro *)s->main;
 }
 
-prh_coro_t *prh_impl_next_resume_coro(void) {
+prh_coro *prh_impl_next_resume_coro(void) {
     prh_coro_struct *top = PRH_IMPL_CORO_CHAIN;
     struct prh_impl_coro_main *main = top->main;
-    if (main->yield_cycle == 0) return (prh_coro_t *)main;
-    prh_coro_t *next = prh_impl_get_next_resume(top);
+    if (main->yield_cycle == 0) return (prh_coro *)main;
+    prh_coro *next = prh_impl_get_next_resume(top);
     return next;
 }
 
-bool prh_impl_coro_main_yield(prh_coro_struct *s, prh_coro_t *next) {
+bool prh_impl_coro_main_yield(prh_coro_struct *s, prh_coro *next) {
 #if PRH_CORO_DEBUG
     printf("[coro %02d] %p await %02d\n", s->start_id, (void *)s->main, s->start_id + s->curr_index);
 #endif
     prh_impl_push_main_coro(s);
-    bool result = prh_impl_asm_coro_yield((prh_coro_t *)s->main, next);
+    bool result = prh_impl_asm_coro_yield((prh_coro *)s->main, next);
     prh_impl_pop_main_coro();
     return result;
 }
 
-prh_fastcall(void *) prh_impl_asm_coro_finish(prh_coro_t *coro) {
+prh_fastcall(void *) prh_impl_asm_coro_finish(prh_coro *coro) {
     coro->rspoffset = 0;
     prh_impl_coro_guard_verify(coro);
     return prh_impl_next_resume_coro();
@@ -3645,8 +3702,8 @@ bool prh_coro_cycle_await(prh_coro_struct *s) {
     mainstack.yield_cycle = 1;
     s->main = &mainstack;
     s->curr_index = 0;
-    prh_coro_t *next = prh_impl_get_next_resume(s);
-    if (next == (prh_coro_t *)&mainstack) {
+    prh_coro *next = prh_impl_get_next_resume(s);
+    if (next == (prh_coro *)&mainstack) {
         return false;
     }
     return prh_impl_coro_main_yield(s, next);
@@ -3656,7 +3713,7 @@ bool prh_coro_await(prh_coro_struct *s, int index) {
     struct prh_impl_coro_main mainstack;
     mainstack.yield_cycle = 0;
     s->main = &mainstack;
-    prh_coro_t *next = prh_impl_coro_get(s, index);
+    prh_coro *next = prh_impl_coro_get(s, index);
     if (next == prh_null || next->rspoffset == 0) {
         s->curr_index = 0;
         return false;
@@ -3665,16 +3722,16 @@ bool prh_coro_await(prh_coro_struct *s, int index) {
     return prh_impl_coro_main_yield(s, next);
 }
 
-prh_inline void prh_impl_coro_free(prh_coro_t *coro) {
+prh_inline void prh_impl_coro_free(prh_coro *coro) {
     prh_aligned_free(prh_impl_coro_guard(coro));
 }
 
 void prh_coro_finish(prh_coro_struct **main) {
     prh_coro_struct *s = *main;
     if (s == prh_null) return;
-    prh_coro_t **start = prh_impl_coro_list(s);
+    prh_coro **start = prh_impl_coro_list(s);
     for (int i = 0; i < s->coro_cnt; i += 1) {
-        prh_coro_t *coro = start[i];
+        prh_coro *coro = start[i];
         if (coro) {
             prh_impl_coro_free(coro);
             start[i] = prh_null;
@@ -3693,9 +3750,9 @@ void prh_soro_create(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, vo
     assert(s->coro == prh_null);
     s->coro = prh_impl_coro_create(proc, stack_size, 0, userdata);
 #if PRH_CORO_DEBUG
-    prh_coro_t *coro = s->coro;
+    prh_coro *coro = s->coro;
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
-    prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
+    prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
         s->start_id + 1, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
         (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, 0, stack_size);
@@ -3704,11 +3761,11 @@ void prh_soro_create(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, vo
 
 void *prh_soro_creatx(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize) {
     assert(s->coro == prh_null);
-    prh_coro_t *coro = prh_impl_coro_creatx(proc, stack_size, 0, maxudsize);
+    prh_coro *coro = prh_impl_coro_creatx(proc, stack_size, 0, maxudsize);
     s->coro = coro;
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
-    prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
+    prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[coro %02d] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
         s->start_id + 1, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
         (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, (int)prh_round_16_byte(maxudsize), stack_size);
@@ -3719,9 +3776,9 @@ void *prh_soro_creatx(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, i
 void prh_soro_reload(prh_soro_struct *s, prh_coroproc_t proc) {
     prh_impl_coro_reload(s->coro, proc);
 #if PRH_CORO_DEBUG
-    prh_coro_t *coro = s->coro;
+    prh_coro *coro = s->coro;
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
-    prh_impl_coro_guard_t *guard = prh_impl_coro_guard(coro);
+    prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[coro %02d] %p reload -- lower %p (left %d) rsp %p coro %p (size %d) data %p --\n",
         s->start_id + 1, (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
         (void *)coro, prh_impl_coro_extend_size(0), coro->userdata);
@@ -3732,7 +3789,7 @@ bool prh_soro_await(prh_soro_struct *s) {
     struct prh_impl_coro_main mainstack;
     mainstack.yield_cycle = 0;
     s->main = &mainstack;
-    prh_coro_t *next = s->coro;
+    prh_coro *next = s->coro;
     if (next == prh_null || next->rspoffset == 0) {
         s->curr_index = 0;
         return false;
@@ -3742,7 +3799,7 @@ bool prh_soro_await(prh_soro_struct *s) {
 }
 
 void prh_soro_finish(prh_soro_struct *main) {
-    prh_coro_t *soro = main->coro;
+    prh_coro *soro = main->coro;
     if (soro == prh_null) return;
     prh_impl_coro_free(soro);
     main->coro = prh_null;
@@ -3765,19 +3822,19 @@ typedef prh_byte prh_atom_bool;
 typedef prh_i32 prh_atom_i32;
 typedef prh_u32 prh_atom_u32;
 typedef prh_int prh_atom_int;
-typedef prh_unt prh_atom_ptr;
+typedef prh_unt prh_atom_unt;
 
 prh_static_assert(prh_alignof(prh_atom_bool) == prh_alignof(atomic_bool));
 prh_static_assert(prh_alignof(prh_atom_i32) == prh_alignof(atomic_int));
 prh_static_assert(prh_alignof(prh_atom_u32) == prh_alignof(atomic_uint));
 prh_static_assert(prh_alignof(prh_atom_int) == prh_alignof(atomic_intptr_t));
-prh_static_assert(prh_alignof(prh_atom_ptr) == prh_alignof(atomic_uintptr_t));
+prh_static_assert(prh_alignof(prh_atom_unt) == prh_alignof(atomic_uintptr_t));
 
 prh_static_assert(sizeof(prh_atom_bool) == sizeof(atomic_bool));
 prh_static_assert(sizeof(prh_atom_i32) == sizeof(atomic_int));
 prh_static_assert(sizeof(prh_atom_u32) == sizeof(atomic_uint));
 prh_static_assert(sizeof(prh_atom_int) == sizeof(atomic_intptr_t));
-prh_static_assert(sizeof(prh_atom_ptr) == sizeof(atomic_uintptr_t));
+prh_static_assert(sizeof(prh_atom_unt) == sizeof(atomic_uintptr_t));
 
 // Initializes an existing atomic object.
 // The function is not atomic: concurrent access from another thread, even
@@ -3793,7 +3850,7 @@ prh_inline void prh_atom_bool_init(prh_atom_bool *a, bool b) { atomic_init((atom
 prh_inline void prh_atom_i32_init(prh_atom_i32 *a, prh_i32 b) { atomic_init((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_init(prh_atom_u32 *a, prh_u32 b) { atomic_init((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_init(prh_atom_int *a, prh_int b) { atomic_init((atomic_intptr_t *)a, b); }
-prh_inline void prh_atom_ptr_init(prh_atom_ptr *a, prh_unt b) { atomic_init((atomic_uintptr_t *)a, b); }
+prh_inline void prh_atom_unt_init(prh_atom_unt *a, prh_unt b) { atomic_init((atomic_uintptr_t *)a, b); }
 
 // Atomically perform load (atomic read) operation and return the value.
 // The default memory_order type is memory_order_seq_cst.
@@ -3801,7 +3858,7 @@ prh_inline bool prh_atom_bool_read(const prh_atom_bool *a) { return atomic_load(
 prh_inline prh_i32 prh_atom_i32_read(const prh_atom_i32 *a) { return atomic_load((atomic_int *)a); }
 prh_inline prh_u32 prh_atom_u32_read(const prh_atom_u32 *a) { return atomic_load((atomic_uint *)a); }
 prh_inline prh_int prh_atom_int_read(const prh_atom_int *a) { return atomic_load((atomic_intptr_t *)a); }
-prh_inline prh_unt prh_atom_ptr_read(const prh_atom_ptr *a) { return atomic_load((atomic_uintptr_t *)a); }
+prh_inline prh_unt prh_atom_unt_read(const prh_atom_unt *a) { return atomic_load((atomic_uintptr_t *)a); }
 
 // Atomically perform write or read-modify-write operation.
 // The default memory_order type is memory_order_seq_cst.
@@ -3809,13 +3866,13 @@ prh_inline void prh_atom_bool_write(prh_atom_bool *a, bool b) { atomic_store((at
 prh_inline void prh_atom_i32_write(prh_atom_i32 *a, prh_i32 b) { atomic_store((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_write(prh_atom_u32 *a, prh_u32 b) { atomic_store((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_write(prh_atom_int *a, prh_int b) { atomic_store((atomic_intptr_t *)a, b); }
-prh_inline void prh_atom_ptr_write(prh_atom_ptr *a, prh_unt b) { atomic_store((atomic_uintptr_t *)a, b); }
+prh_inline void prh_atom_unt_write(prh_atom_unt *a, prh_unt b) { atomic_store((atomic_uintptr_t *)a, b); }
 
 prh_inline bool prh_atom_bool_fetch_write(prh_atom_bool *a, bool b) { return atomic_exchange((atomic_bool *)a, b); } // return old value
 prh_inline prh_i32 prh_atom_i32_fetch_write(prh_atom_i32 *a, prh_i32 b) { return atomic_exchange((atomic_int *)a, b); }
 prh_inline prh_u32 prh_atom_u32_fetch_write(prh_atom_u32 *a, prh_u32 b) { return atomic_exchange((atomic_uint *)a, b); }
 prh_inline prh_int prh_atom_int_fetch_write(prh_atom_int *a, prh_int b) { return atomic_exchange((atomic_intptr_t *)a, b); }
-prh_inline prh_unt prh_atom_ptr_fetch_write(prh_atom_ptr *a, prh_unt b) { return atomic_exchange((atomic_uintptr_t *)a, b); }
+prh_inline prh_unt prh_atom_unt_fetch_write(prh_atom_unt *a, prh_unt b) { return atomic_exchange((atomic_uintptr_t *)a, b); }
 
 // Atomically perform read-modify-wirte operation, and return the old value.
 // The modify operation can be add (+) sub (-) and (&) or (|) xor (^).
@@ -3823,12 +3880,12 @@ prh_inline prh_unt prh_atom_ptr_fetch_write(prh_atom_ptr *a, prh_unt b) { return
 prh_inline void prh_atom_i32_inc(prh_atom_i32 *a) { atomic_fetch_add((atomic_int *)a, 1); }
 prh_inline void prh_atom_u32_inc(prh_atom_u32 *a) { atomic_fetch_add((atomic_uint *)a, 1); }
 prh_inline void prh_atom_int_inc(prh_atom_int *a) { atomic_fetch_add((atomic_intptr_t *)a, 1); }
-prh_inline void prh_atom_ptr_inc(prh_atom_ptr *a) { atomic_fetch_add((atomic_uintptr_t *)a, 1); }
+prh_inline void prh_atom_unt_inc(prh_atom_unt *a) { atomic_fetch_add((atomic_uintptr_t *)a, 1); }
 
 prh_inline void prh_atom_i32_dec(prh_atom_i32 *a) { atomic_fetch_sub((atomic_int *)a, 1); }
 prh_inline void prh_atom_u32_dec(prh_atom_u32 *a) { atomic_fetch_sub((atomic_uint *)a, 1); }
 prh_inline void prh_atom_int_dec(prh_atom_int *a) { atomic_fetch_sub((atomic_intptr_t *)a, 1); }
-prh_inline void prh_atom_ptr_dec(prh_atom_ptr *a) { atomic_fetch_sub((atomic_uintptr_t *)a, 1); }
+prh_inline void prh_atom_unt_dec(prh_atom_unt *a) { atomic_fetch_sub((atomic_uintptr_t *)a, 1); }
 
 // Atomically perform compare-and-exchange (or compare-and-swap CAS) operation.
 //      if read value == *expect value { write newvalue and return true }
@@ -3848,7 +3905,7 @@ prh_inline bool prh_atom_bool_compare_write(prh_atom_bool *a, bool *expect, bool
 prh_inline bool prh_atom_i32_compare_write(prh_atom_i32 *a, prh_i32 *expect, prh_i32 b) { return atomic_compare_exchange_weak((atomic_int *)a, expect, b); }
 prh_inline bool prh_atom_u32_compare_write(prh_atom_u32 *a, prh_u32 *expect, prh_u32 b) { return atomic_compare_exchange_weak((atomic_uint *)a, expect, b); }
 prh_inline bool prh_atom_int_compare_write(prh_atom_int *a, prh_int *expect, prh_int b) { return atomic_compare_exchange_weak((atomic_intptr_t *)a, expect, b); }
-prh_inline bool prh_atom_ptr_compare_write(prh_atom_ptr *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, expect, b); }
+prh_inline bool prh_atom_unt_compare_write(prh_atom_unt *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, expect, b); }
 
 // 针对单生产者和单消费者的无锁单链表队列，队列不负责分配实际的节点，整个节点（包括头部
 // prh_nose_t和节点内容）都由使用者提供，因此节点可以是任意长度，其内容由使用者决定没有
@@ -3860,20 +3917,20 @@ prh_inline bool prh_atom_ptr_compare_write(prh_atom_ptr *a, prh_unt *expect, prh
 // can be any size and provided by the user. prh_atom_quefit doesn't alloc
 // memory for its node.
 typedef struct {
-    prh_nose_t *head; // only accessed by consumer thread
-    prh_nose_t *tail; // only accessed by producer thread
+    prh_snode *head; // only accessed by consumer thread
+    prh_snode *tail; // only accessed by producer thread
     prh_atom_i32 len;
 } prh_atom_quefit; // the queue node is fixed in the original place user provided
 
 // Atomic singly linked queue for only 1 producer and 1 consumer. Each node has
-// a prh_nose_t header and a data pointer. Each node only contain a pointer. The
+// a prh_snode header and a data pointer. Each node only contain a pointer. The
 // node is automatically dynamic allocated by the queue.
 typedef struct prh_atom_dynque_it prh_atom_dynque_it;
 
 typedef struct {
-    prh_wrap_nose_t *head; // 只由单一消费者读写, only modified by pop thread
-    prh_wrap_nose_t *tail; // 只由单一生产者读写, only modified by push thread
-    prh_nose_t free; // 仅由生产者读写，only modified by push thread
+    prh_data_snode *head; // 只由单一消费者读写, only modified by pop thread
+    prh_data_snode *tail; // 只由单一生产者读写, only modified by push thread
+    prh_snode free; // 仅由生产者读写，only modified by push thread
     prh_atom_int quelen;
 } prh_atom_dynque_t;
 
@@ -3887,13 +3944,13 @@ int prh_atom_dynque_len(prh_atom_dynque_t *s);
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
 #define PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
-#define PRH_IMPL_ATOM_DYNQUE_NODE_COUNT (PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE / sizeof(prh_wrap_nose_t))
+#define PRH_IMPL_ATOM_DYNQUE_NODE_COUNT (PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE / sizeof(prh_data_snode))
 prh_static_assert(PRH_IMPL_ATOM_DYNQUE_NODE_COUNT >= 2); // 如果不能分配2个或2个以上，间接块分配没有意义
-prh_static_assert(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE % sizeof(prh_wrap_nose_t) == 0);
+prh_static_assert(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE % sizeof(prh_data_snode) == 0);
 
-void prh_impl_atom_dynque_more_free(prh_atom_dynque_t *q, prh_wrap_nose_t *node) {
-    prh_wrap_nose_t *last = node + PRH_IMPL_ATOM_DYNQUE_NODE_COUNT - 1;
-    prh_wrap_nose_t *first = (void *)q->free.next;
+void prh_impl_atom_dynque_more_free(prh_atom_dynque_t *q, prh_data_snode *node) {
+    prh_data_snode *last = node + PRH_IMPL_ATOM_DYNQUE_NODE_COUNT - 1;
+    prh_data_snode *first = (void *)q->free.next;
     q->free.next = (void *)node;
     last->next = first;
     for (; ;) {
@@ -3905,8 +3962,8 @@ void prh_impl_atom_dynque_more_free(prh_atom_dynque_t *q, prh_wrap_nose_t *node)
     }
 }
 
-prh_wrap_nose_t *prh_impl_atom_dynque_aligned_alloc(prh_atom_dynque_t *q) { // called by push thread
-    prh_wrap_nose_t *node;
+prh_data_snode *prh_impl_atom_dynque_aligned_alloc(prh_atom_dynque_t *q) { // called by push thread
+    prh_data_snode *node;
     if (q->free.next == &q->free) {
         assert(prh_is_power_of_2(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
         prh_impl_atom_dynque_more_free(q, prh_cache_line_aligned_malloc(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
@@ -3917,7 +3974,7 @@ prh_wrap_nose_t *prh_impl_atom_dynque_aligned_alloc(prh_atom_dynque_t *q) { // c
     return node;
 }
 
-prh_weak_func void prh_impl_atom_dynque_aligned_free(prh_atom_dynque_t *q, prh_wrap_nose_t *node) { // called by pop thread
+prh_weak_func void prh_impl_atom_dynque_aligned_free(prh_atom_dynque_t *q, prh_data_snode *node) { // called by pop thread
     if ((prh_unt)(node + 1) & (prh_unt)(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE - 1) == 0) {
         prh_aligned_free(node + 1 - PRH_IMPL_ATOM_DYNQUE_NODE_COUNT);
     }
@@ -3932,8 +3989,8 @@ void prh_atom_dynque_init(prh_atom_dynque_t *q) {
 
 void prh_atom_dynque_push(prh_atom_dynque_t *q, void *data) {
     assert(data != prh_null); // push不会读写head，也不会读写已经存在的节点
-    prh_wrap_nose_t *null_node = prh_impl_atom_dynque_aligned_alloc(q);
-    prh_wrap_nose_t *tail = q->tail;
+    prh_data_snode *null_node = prh_impl_atom_dynque_aligned_alloc(q);
+    prh_data_snode *tail = q->tail;
     q->tail = null_node; // push只会更新tail和tail空节点，且push对应单一生产者，因此tail不需要atom
     tail->next = null_node;
     tail->data = data;
@@ -3947,7 +4004,7 @@ void *prh_atompszque_top(prh_atom_dynque_t *q) {
 }
 
 void prh_impl_atom_dynque_dec(prh_atom_dynque_t *q) {
-    prh_wrap_nose_t *head = q->head; // pop不会读写tail，也不会读写tail空节点
+    prh_data_snode *head = q->head; // pop不会读写tail，也不会读写tail空节点
     q->head = head->next; // pop只会更新head和读写已存在的头节点，且pop对应单一消费者，因此head不需要atom
     assert(q->head == head->next); // 只允许唯一消费者
     prh_impl_atom_dynque_aligned_free(q, head);
@@ -3972,10 +4029,10 @@ int prh_atom_dynque_len(prh_atom_dynque_t *q) {
 #endif // PRH_ATOMIC_IMPLEMENTATION
 
 // Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
-// The queue node size is fixed, and must cotain prh_nose_t as the header.
+// The queue node size is fixed, and must cotain prh_snode as the header.
 //
 //  struct QueueNode {
-//      prh_nose_t node; // must be 1st field
+//      prh_snode node; // must be 1st field
 //      ... queue node other custom data ...
 //  };
 //
@@ -4001,12 +4058,12 @@ int prh_atom_dynque_len(prh_atom_dynque_t *q) {
 #define prh_impl_atomnodque_head(s, q) ((s)->prh_macro_concat_name(q, _atomnodque_head))
 #define prh_impl_atomnodque_tail(s, q) ((s)->prh_macro_concat_name(q, _atomnodque_tail))
 #define prh_impl_atomnodque_len(s, q) ((s)->prh_macro_concat_name(q, _atomnodque_len))
-void prh_impl_atomnodque_free(prh_nose_t *head, void (*node_deinit_func)(void *node));
+void prh_impl_atomnodque_free(prh_snode *head, void (*node_deinit_func)(void *node));
 void prh_impl_atomnodque_push(void **tail_addr, prh_int node_size, prh_atomint_t *len);
-void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_nose_t *node);
-prh_nose_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len);
+void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_snode *node);
+prh_snode *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len);
 
-prh_inline void prh_atomnodque_free_node(prh_nose_t *node) {
+prh_inline void prh_atomnodque_free_node(prh_snode *node) {
     if (node) prh_free(node);
 }
 
@@ -4015,7 +4072,7 @@ prh_inline void prh_atomnodque_free_node(prh_nose_t *node) {
     prh_impl_node_ptr_t prh_impl_new_node = prh_malloc(sizeof(*prh_impl_atomnodque_head((s), q))); \
     prh_impl_atomnodque_head((s), q) = prh_impl_new_node; /* always alloc a null tail node */ \
     prh_impl_atomnodque_tail((s), q) = prh_impl_new_node; /* let head pointer always valid */ \
-    ((prh_nose_t *)prh_impl_new_node)->next = prh_null;                         \
+    ((prh_snode *)prh_impl_new_node)->next = prh_null;                          \
     prh_atomint_t *prh_impl_len = &prh_impl_atomnodque_len((s), q);             \
     prh_atomtype_init(prh_impl_len, 0);                                         \
 }
@@ -4024,7 +4081,7 @@ prh_inline void prh_atomnodque_free_node(prh_nose_t *node) {
     typedef prh_typeof(prh_impl_atomnodque_head((s), q)) prh_impl_node_ptr_t;   \
     prh_impl_node_ptr_t prh_impl_head = prh_impl_atomnodque_head((s), q);       \
     if (prh_impl_head) {                                                        \
-        prh_impl_atomnodque_free((prh_nose_t *)prh_impl_head, (node_deinit_func)); \
+        prh_impl_atomnodque_free((prh_snode *)prh_impl_head, (node_deinit_func)); \
         prh_impl_atomnodque_head((s), q) = prh_null;                            \
         prh_impl_atomnodque_tail((s), q) = prh_null;                            \
     }                                                                           \
@@ -4056,9 +4113,9 @@ prh_inline void prh_atomnodque_free_node(prh_nose_t *node) {
 #endif
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
-void prh_impl_atomnodque_free(prh_nose_t *head, void (*node_deinit_func)(void *item)) {
+void prh_impl_atomnodque_free(prh_snode *head, void (*node_deinit_func)(void *item)) {
     while (head != prh_null) {
-        prh_nose_t *p = head;
+        prh_snode *p = head;
         head = head->next;
         if (node_deinit_func) {
             node_deinit_func(p);
@@ -4071,18 +4128,18 @@ void prh_impl_atomnodque_free(prh_nose_t *head, void (*node_deinit_func)(void *i
 // head 总是追不上 tail。push 只会更新 tail 和 tail 空节点，且 push 只被单一生产者
 // 调用，因此 tail 不需要原子操作。
 void prh_impl_atomnodque_push(void **tail_addr, prh_int node_size, prh_atomint_t *len) {
-    prh_nose_t *new_node = prh_malloc(node_size);
-    prh_nose_t *tail = *tail_addr;
+    prh_snode *new_node = prh_malloc(node_size);
+    prh_snode *tail = *tail_addr;
     *tail_addr = tail->next = new_node;
     new_node->next = prh_null;
     prh_atomint_inc(len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */
     assert(*tail_addr == new_node); // allow only one producer
 }
 
-void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_nose_t *new_node) {
-    prh_nose_t *tail = *tail_addr;
+void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atomint_t *len, prh_snode *new_node) {
+    prh_snode *tail = *tail_addr;
     *tail_addr = tail->next = new_node;
-    memcpy(tail + 1, new_node + 1, node_size - sizeof(prh_nose_t));
+    memcpy(tail + 1, new_node + 1, node_size - sizeof(prh_snode));
     new_node->next = prh_null;
     prh_atomint_inc(len); /* 更新len，此步骤执行完毕后以上更新必须对所有cpu生效 */
     assert(*tail_addr == new_node); // allow only one producer
@@ -4090,10 +4147,10 @@ void prh_impl_atomnodque_copy_push(void **tail_addr, prh_int node_size, prh_atom
 
 // pop 不会读写 tail，也不会读写 tail 空节点，pop 只会更新 head 和读写已经存在的并且
 // 有效的头节点，且 pop 只被单一消费者调用，因此 head 不需要原子操作。
-prh_nose_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len) {
+prh_snode *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len) {
     if (prh_atomtype_load(len) <= 0) return prh_null;
-    prh_nose_t *head = *head_addr;
-    prh_nose_t *head_next = head->next;
+    prh_snode *head = *head_addr;
+    prh_snode *head_next = head->next;
     *head_addr = head_next;
     prh_atomint_dec(len); // 更新len，此步骤执行完毕以上更新必须对所有cpu生效
     assert(head_next == *head_addr); // allow only one consumer
@@ -4102,7 +4159,7 @@ prh_nose_t *prh_impl_atomnodque_pop(void **head_addr, prh_atomint_t *len) {
 #endif // PRH_ATOMIC_IMPLEMENTATION
 
 // Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
-// Each node has a prh_nose_t header and a node item pointer. Each node can
+// Each node has a prh_snode header and a node item pointer. Each node can
 // only contain a pointer.
 typedef struct prh_atompszque prh_atompszque_t;
 prh_atompszque_t *prh_atompszque_init(void);
@@ -4202,81 +4259,96 @@ int prh_atompszque_len(prh_atompszque_t *q) {
 }
 #endif // PRH_ATOMIC_IMPLEMENTATION
 
-// Fixed array atomptr queue for only 1 producer and 1 consumer
-typedef struct prh_atomptrque prh_atomptrque_t;
-int prh_atomptrque_alloc_size(int size); // size must be power of 2
-prh_atomptrque_t *prh_atomptrque_init_inplace(void *addr, int size);
-prh_atomptrque_t *prh_atomptrque_init(int size); // size must be power of 2
-void prh_atomptrque_free(prh_atomptrque_t **p);
-bool prh_atomptrque_push(prh_atomptrque_t *q, void *v); // v shall not be null
-void *prh_atomptrque_pop(prh_atomptrque_t *q); // return null means empty
-void *prh_atomptrque_top(prh_atomptrque_t *q);
-int prh_atomptrque_len(prh_atomptrque_t *q);
-int prh_atomptrque_cap(prh_atomptrque_t *q);
+// Fixed unt array atomic queue for only 1 producer and 1 consumer
+prh_atom_unt_arrque *prh_atom_unt_arrque_init(int size); // size must be power of 2
+void prh_atom_unt_arrque_free(prh_atom_unt_arrque **p);
+bool prh_atom_unt_arrque_push(prh_atom_unt_arrque *q, prh_unt v); // v shall not be null
+prh_unt prh_atom_unt_arrque_pop(prh_atom_unt_arrque *q); // return null means empty
+prh_unt prh_atom_unt_arrque_top(prh_atom_unt_arrque *q);
+int prh_atom_unt_arrque_len(prh_atom_unt_arrque *q);
+int prh_atom_unt_arrque_cap(prh_atom_unt_arrque *q);
 
-// Fixed array atomint queue for only 1 producer and 1 consumer
-typedef struct prh_atomintque prh_atomintque_t;
-int prh_atomintque_alloc_size(int size); // size must be power of 2
-prh_atomintque_t *prh_atomintque_init_inplace(void *addr, int size);
-prh_atomintque_t *prh_atomintque_init(int size); // size must be power of 2
-void prh_atomintque_free(prh_atomintque_t **p);
-bool prh_atomintque_push(prh_atomintque_t *q, int v); // v shall not be 0
-int prh_atomintque_pop(prh_atomintque_t *q); // return 0 means empty
-int prh_atomintque_top(prh_atomintque_t *q);
-int prh_atomintque_len(prh_atomintque_t *q);
-int prh_atomintque_cap(prh_atomintque_t *q);
+typedef prh_atom_unt_arrque prh_atom_int_arrque;
+prh_atom_int_arrque *prh_atom_int_arrque_init(int size); // size must be power of 2
+void prh_atom_int_arrque_free(prh_atom_int_arrque **p);
+bool prh_atom_int_arrque_push(prh_atom_int_arrque *q, prh_int v); // v shall not be null
+prh_int prh_atom_int_arrque_pop(prh_atom_int_arrque *q); // return null means empty
+prh_int prh_atom_int_arrque_top(prh_atom_int_arrque *q);
+int prh_atom_int_arrque_len(prh_atom_int_arrque *q);
+int prh_atom_int_arrque_cap(prh_atom_int_arrque *q);
+
+// Fixed u32 array atomic queue for only 1 producer and 1 consumer
+typedef struct prh_atom_u32_arrque prh_atom_u32_arrque;
+prh_atom_u32_arrque *prh_atom_u32_arrque_init(int size); // size must be power of 2
+void prh_atom_u32_arrque_free(prh_atom_u32_arrque **p);
+bool prh_atom_u32_arrque_push(prh_atom_u32_arrque *q, prh_u32 v); // v shall not be 0
+prh_u32 prh_atom_u32_arrque_pop(prh_atom_u32_arrque *q); // return 0 means empty
+prh_u32 prh_atom_u32_arrque_top(prh_atom_u32_arrque *q);
+int prh_atom_u32_arrque_len(prh_atom_u32_arrque *q);
+int prh_atom_u32_arrque_cap(prh_atom_u32_arrque *q);
+
+typedef struct prh_atom_u32_arrque prh_atom_i32_arrque;
+prh_atom_i32_arrque *prh_atom_i32_arrque_init(int size); // size must be power of 2
+void prh_atom_i32_arrque_free(prh_atom_i32_arrque **p);
+bool prh_atom_i32_arrque_push(prh_atom_i32_arrque *q, prh_i32 v); // v shall not be 0
+prh_i32 prh_atom_i32_arrque_pop(prh_atom_i32_arrque *q); // return 0 means empty
+prh_i32 prh_atom_i32_arrque_top(prh_atom_i32_arrque *q);
+int prh_atom_i32_arrque_len(prh_atom_i32_arrque *q);
+int prh_atom_i32_arrque_cap(prh_atom_i32_arrque *q);
 
 #ifdef PRH_ATOMIC_STRIP_PREFIX
-#define atomptrque_t                prh_atomptrque_t
-#define atomptrque_alloc_size       prh_atomptrque_alloc_size
-#define atomptrque_init_inplace     prh_atomptrque_init_inplace
-#define atomptrque_init             prh_atomptrque_init
-#define atomptrque_free             prh_atomptrque_free
-#define atomptrque_push             prh_atomptrque_push
-#define atomptrque_pop              prh_atomptrque_pop
-#define atomptrque_top              prh_atomptrque_top
-#define atomptrque_len              prh_atomptrque_len
-#define atomptrque_cap              prh_atomptrque_cap
-#define atomintque_t                prh_atomintque_t
-#define atomintque_alloc_size       prh_atomintque_alloc_size
-#define atomintque_init_inplace     prh_atomintque_init_inplace
-#define atomintque_init             prh_atomintque_init
-#define atomintque_free             prh_atomintque_free
-#define atomintque_push             prh_atomintque_push
-#define atomintque_pop              prh_atomintque_pop
-#define atomintque_top              prh_atomintque_top
-#define atomintque_len              prh_atomintque_len
-#define atomintque_cap              prh_atomintque_cap
+#define atom_unt_arrque_t                prh_atom_unt_arrque
+#define atom_unt_arrque_init             prh_atom_unt_arrque_init
+#define atom_unt_arrque_free             prh_atom_unt_arrque_free
+#define atom_unt_arrque_push             prh_atom_unt_arrque_push
+#define atom_unt_arrque_pop              prh_atom_unt_arrque_pop
+#define atom_unt_arrque_top              prh_atom_unt_arrque_top
+#define atom_unt_arrque_len              prh_atom_unt_arrque_len
+#define atom_unt_arrque_cap              prh_atom_unt_arrque_cap
+#define atom_u32_arrque_t                prh_atom_u32_arrque
+#define atom_u32_arrque_init             prh_atom_u32_arrque_init
+#define atom_u32_arrque_free             prh_atom_u32_arrque_free
+#define atom_u32_arrque_push             prh_atom_u32_arrque_push
+#define atom_u32_arrque_pop              prh_atom_u32_arrque_pop
+#define atom_u32_arrque_top              prh_atom_u32_arrque_top
+#define atom_u32_arrque_len              prh_atom_u32_arrque_len
+#define atom_u32_arrque_cap              prh_atom_u32_arrque_cap
 #endif
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
-#define prh_impl_atomptrque_nextpos(q, pos) (((pos) + 1) & ((q)->u.size - 1))
-
-struct prh_atomptrque {
+typedef struct {
     union { prh_u32 size: 31, free: 1; void *align; } u;
-    prh_atomint_t head;
-    prh_atomint_t tail;
-};
+    prh_atom_int head;
+    prh_atom_int tail;
+} prh_atom_unt_arrque;
 
-bool prh_impl_atomptrque_full(prh_atomptrque_t *q) { // is not an atomic operation
-    return (prh_impl_atomptrque_nextpos(q, prh_atomtype_load(&q->tail)) == prh_atomtype_load(&q->head));
+typedef struct {
+    union { prh_u32 size: 31, free: 1; void *align; } u;
+    prh_atom_int head;
+    prh_atom_int tail;
+} prh_atom_u32_arrque;
+
+#define prh_impl_atom_unt_arrque_nextpos(q, pos) (((pos) + 1) & ((q)->u.size - 1))
+
+bool prh_impl_atom_unt_arrque_full(prh_atom_unt_arrque *q) { // is not an atomic operation
+    return (prh_impl_atom_unt_arrque_nextpos(q, prh_atomtype_load(&q->tail)) == prh_atomtype_load(&q->head));
 }
 
-prh_inline int prh_impl_atomptrque_alloc_size(int size, int stride) {
+prh_inline int prh_impl_atom_unt_arrque_alloc_size(int size, int stride) {
     assert(prh_is_power_of_2(size));
-    return prh_round_ptrsize(sizeof(prh_atomptrque_t) + stride * size);
+    return prh_round_ptrsize(sizeof(prh_atom_unt_arrque) + stride * size);
 }
 
-int prh_atomptrque_alloc_size(int size) {
-    return prh_impl_atomptrque_alloc_size(size, sizeof(void *));
+int prh_atom_unt_arrque_alloc_size(int size) {
+    return prh_impl_atom_unt_arrque_alloc_size(size, sizeof(void *));
 }
 
-int prh_atomintque_alloc_size(int size) {
-    return prh_impl_atomptrque_alloc_size(size, sizeof(int));
+int prh_atom_u32_arrque_alloc_size(int size) {
+    return prh_impl_atom_unt_arrque_alloc_size(size, sizeof(int));
 }
 
-prh_atomptrque_t *prh_atomptrque_init_inplace(void *addr, int size) {
-    prh_atomptrque_t *q = (prh_atomptrque_t *)addr;
+prh_atom_unt_arrque *prh_atom_unt_arrque_init_inplace(void *addr, int size) {
+    prh_atom_unt_arrque *q = (prh_atom_unt_arrque *)addr;
     q->u.size = size;
     q->u.free = 0;
     prh_atomtype_init(&q->head, 0);
@@ -4284,26 +4356,26 @@ prh_atomptrque_t *prh_atomptrque_init_inplace(void *addr, int size) {
     return q;
 }
 
-prh_atomintque_t *prh_atomintque_init_inplace(void *addr, int size) {
-    return (prh_atomintque_t *)prh_atomptrque_init_inplace(addr, size);
+prh_atom_u32_arrque *prh_atom_u32_arrque_init_inplace(void *addr, int size) {
+    return (prh_atom_u32_arrque *)prh_atom_unt_arrque_init_inplace(addr, size);
 }
 
-prh_atomptrque_t *prh_atomptrque_init(int size) {
-    void *addr = prh_malloc(atomptrque_alloc_size(size));
-    prh_atomptrque_t *q = prh_atomptrque_init_inplace(addr, size);
+prh_atom_unt_arrque *prh_atom_unt_arrque_init(int size) {
+    void *addr = prh_malloc(atom_unt_arrque_alloc_size(size));
+    prh_atom_unt_arrque *q = prh_atom_unt_arrque_init_inplace(addr, size);
     q->u.free = 1;
     return q;
 }
 
-prh_atomintque_t *prh_atomintque_init(int size) {
-    void *addr = prh_malloc(prh_atomintque_alloc_size(size));
-    prh_atomintque_t *q = prh_atomintque_init_inplace(addr, size);
-    ((prh_atomptrque_t *)q)->u.free = 1;
+prh_atom_u32_arrque *prh_atom_u32_arrque_init(int size) {
+    void *addr = prh_malloc(prh_atom_u32_arrque_alloc_size(size));
+    prh_atom_u32_arrque *q = prh_atom_u32_arrque_init_inplace(addr, size);
+    ((prh_atom_unt_arrque *)q)->u.free = 1;
     return q;
 }
 
-void prh_atomptrque_free(prh_atomptrque_t **p) {
-    prh_atomptrque_t *q = *p;
+void prh_atom_unt_arrque_free(prh_atom_unt_arrque **p) {
+    prh_atom_unt_arrque *q = *p;
     if (q == prh_null)
         return;
     if (q->u.free) {
@@ -4312,31 +4384,31 @@ void prh_atomptrque_free(prh_atomptrque_t **p) {
     *p = prh_null;
 }
 
-void prh_atomintque_free(prh_atomintque_t **p) {
-    prh_atomptrque_free((prh_atomptrque_t **)p);
+void prh_atom_u32_arrque_free(prh_atom_u32_arrque **p) {
+    prh_atom_unt_arrque_free((prh_atom_unt_arrque **)p);
 }
 
-int prh_atomptrque_len(prh_atomptrque_t *q) { // is not an atomic operation
+int prh_atom_unt_arrque_len(prh_atom_unt_arrque *q) { // is not an atomic operation
     int len = prh_atomtype_load(&q->tail) - prh_atomtype_load(&q->head);
     if (len < 0)
         len += q->u.size;
     return len;
 }
 
-int prh_atomptrque_cap(prh_atomptrque_t *q) {
+int prh_atom_unt_arrque_cap(prh_atom_unt_arrque *q) {
     return q->u.size;
 }
 
-int prh_atomintque_len(prh_atomintque_t *q) {
-    return prh_atomptrque_len((prh_atomptrque_t *)q);
+int prh_atom_u32_arrque_len(prh_atom_u32_arrque *q) {
+    return prh_atom_unt_arrque_len((prh_atom_unt_arrque *)q);
 }
 
-int prh_atomintque_cap(prh_atomintque_t *q) {
-    return prh_atomptrque_cap((prh_atomptrque_t *)q);
+int prh_atom_u32_arrque_cap(prh_atom_u32_arrque *q) {
+    return prh_atom_unt_arrque_cap((prh_atom_unt_arrque *)q);
 }
 
-bool prh_impl_atomptrque_finish_push(prh_atomptrque_t *q, int tail) {
-    int next = prh_impl_atomptrque_nextpos(q, tail);
+bool prh_impl_atom_unt_arrque_finish_push(prh_atom_unt_arrque *q, int tail) {
+    int next = prh_impl_atom_unt_arrque_nextpos(q, tail);
     if (next == prh_atomtype_load(&q->head))
         return false;
     assert(prh_atomtype_load(&q->tail) == tail); // only allow one writer
@@ -4344,32 +4416,32 @@ bool prh_impl_atomptrque_finish_push(prh_atomptrque_t *q, int tail) {
     return true;
 }
 
-void prh_impl_atomptrque_finish_pop(prh_atomptrque_t *q, int head) {
+void prh_impl_atom_unt_arrque_finish_pop(prh_atom_unt_arrque *q, int head) {
     assert(prh_atomtype_load(&q->head) == head); // only allow one reader
-    prh_atomtype_store(&q->head, prh_impl_atomptrque_nextpos(q, head));
+    prh_atomtype_store(&q->head, prh_impl_atom_unt_arrque_nextpos(q, head));
 }
 
-#define prh_impl_get_ptr_que(q) ((void **)((prh_atomptrque_t *)(q) + 1))
-#define prh_impl_get_int_que(q) ((int *)((prh_atomptrque_t *)(q) + 1))
+#define prh_impl_get_ptr_que(q) ((void **)((prh_atom_unt_arrque *)(q) + 1))
+#define prh_impl_get_int_que(q) ((int *)((prh_atom_unt_arrque *)(q) + 1))
 
-bool prh_atomptrque_push(prh_atomptrque_t *q, void *v) {
+bool prh_atom_unt_arrque_push(prh_atom_unt_arrque *q, void *v) {
     if (v == prh_null) return false;
     int tail = prh_atomtype_load(&q->tail);
     prh_impl_get_ptr_que(q)[tail] = v;
-    return prh_impl_atomptrque_finish_push(q, tail);
+    return prh_impl_atom_unt_arrque_finish_push(q, tail);
 }
 
-void *prh_atomptrque_pop(prh_atomptrque_t *q) {
+void *prh_atom_unt_arrque_pop(prh_atom_unt_arrque *q) {
     int head = prh_atomtype_load(&q->head);
     if (head == prh_atomtype_load(&q->tail)) {
         return prh_null;
     }
     void *v = prh_impl_get_ptr_que(q)[head];
-    prh_impl_atomptrque_finish_pop(q, head);
+    prh_impl_atom_unt_arrque_finish_pop(q, head);
     return v;
 }
 
-void *prh_atomptrque_top(prh_atomptrque_t *q) {
+void *prh_atom_unt_arrque_top(prh_atom_unt_arrque *q) {
     int head = prh_atomtype_load(&q->head);
     if (head == prh_atomtype_load(&q->tail)) {
         return prh_null;
@@ -4377,26 +4449,26 @@ void *prh_atomptrque_top(prh_atomptrque_t *q) {
     return prh_impl_get_ptr_que(q)[head];
 }
 
-bool prh_atomintque_push(prh_atomintque_t *q, int v) {
+bool prh_atom_u32_arrque_push(prh_atom_u32_arrque *q, int v) {
     if (v == 0) return false;
-    int tail = prh_atomtype_load(&((prh_atomptrque_t *)q)->tail);
+    int tail = prh_atomtype_load(&((prh_atom_unt_arrque *)q)->tail);
     prh_impl_get_int_que(q)[tail] = v;
-    return prh_impl_atomptrque_finish_push((prh_atomptrque_t *)q, tail);
+    return prh_impl_atom_unt_arrque_finish_push((prh_atom_unt_arrque *)q, tail);
 }
 
-int prh_atomintque_pop(prh_atomintque_t *q) { // return 0 means empty
-    int head = prh_atomtype_load(&((prh_atomptrque_t *)q)->head);
-    if (head == prh_atomtype_load(&((prh_atomptrque_t *)q)->tail)) {
+int prh_atom_u32_arrque_pop(prh_atom_u32_arrque *q) { // return 0 means empty
+    int head = prh_atomtype_load(&((prh_atom_unt_arrque *)q)->head);
+    if (head == prh_atomtype_load(&((prh_atom_unt_arrque *)q)->tail)) {
         return 0;
     }
     int v = prh_impl_get_int_que(q)[head];
-    prh_impl_atomptrque_finish_pop((prh_atomptrque_t *)q, head);
+    prh_impl_atom_unt_arrque_finish_pop((prh_atom_unt_arrque *)q, head);
     return v;
 }
 
-int prh_atomintque_top(prh_atomintque_t *q) {
-    int head = prh_atomtype_load(&((prh_atomptrque_t *)q)->head);
-    if (head == prh_atomtype_load(&((prh_atomptrque_t *)q)->tail)) {
+int prh_atom_u32_arrque_top(prh_atom_u32_arrque *q) {
+    int head = prh_atomtype_load(&((prh_atom_unt_arrque *)q)->head);
+    if (head == prh_atomtype_load(&((prh_atom_unt_arrque *)q)->tail)) {
         return 0;
     }
     return prh_impl_get_int_que(q)[head];
@@ -4461,17 +4533,17 @@ void prh_impl_atomic_test(void) {
 #define PRH_USEC_PER_SEC 1000000
 #define PRH_NSEC_PER_SEC 1000000000
 
-typedef prh_i64 prh_timesec_t; // 最大可以表示正负2.9千亿年
+typedef prh_i64 prh_timesec; // 最大可以表示正负2.9千亿年
 
 typedef struct {
-    prh_timesec_t sec;
+    prh_timesec sec;
     prh_i32 usec;
-} prh_timeusec_t;
+} prh_timeusec;
 
 typedef struct {
-    prh_timesec_t sec;
+    prh_timesec sec;
     prh_i32 nsec;
-} prh_timensec_t;
+} prh_timensec;
 
 typedef struct {
     prh_i32 year;   // 正负20亿年
@@ -4482,7 +4554,7 @@ typedef struct {
     prh_byte hour;  // 0 ~ 23
     prh_byte min;   // 0 ~ 59
     prh_byte sec;   // 0 ~ 60 since C99
-} prh_datetime_t;
+} prh_datetime;
 
 #define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SECS)
 #define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SECS)
@@ -4502,19 +4574,19 @@ prh_i64 prh_elapse_usec(prh_i64 ticks);
 prh_i64 prh_elapse_nsec(prh_i64 ticks);
 prh_i64 prh_thread_time(void); // 当前线程执行时间，包含用户以及内核的执行时间
 
-void prh_system_time(prh_timeusec_t *t);
-void prh_system_date(prh_datetime_t *utc_date);
-void prh_system_date_from(prh_datetime_t *utc_date, const prh_timeusec_t *utc_time);
-void prh_system_time_from_date(prh_timeusec_t *utc_time, const prh_datetime_t *utc_date);
-void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetime_t *local_date);
-void prh_local_date(prh_datetime_t *local_date);
-void prh_local_date_from(prh_datetime_t *local_date, const prh_timeusec_t *utc_time);
+void prh_system_time(prh_timeusec *t);
+void prh_system_date(prh_datetime *utc_date);
+void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time);
+void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_date);
+void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime *local_date);
+void prh_local_date(prh_datetime *local_date);
+void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time);
 
-prh_inline prh_i64 prh_system_msec_from(const prh_timeusec_t *p) {
+prh_inline prh_i64 prh_system_msec_from(const prh_timeusec *p) {
     return p->sec * PRH_MSEC_PER_SEC + p->usec / PRH_MSEC_PER_SEC;
 }
 
-prh_inline prh_i64 prh_system_usec_from(const prh_timeusec_t *p) {
+prh_inline prh_i64 prh_system_usec_from(const prh_timeusec *p) {
     return p->sec * PRH_USEC_PER_SEC + p->usec;
 }
 
@@ -4524,9 +4596,9 @@ prh_inline prh_i64 prh_system_usec_from(const prh_timeusec_t *p) {
 #ifdef PRH_TIME_IMPLEMENTATION
 typedef struct {
     prh_i64 ticks_per_sec;
-} prh_impl_timeinit_t;
+} prh_impl_timeinit;
 
-prh_impl_timeinit_t PRH_IMPL_TIMEINIT;
+prh_impl_timeinit PRH_IMPL_TIMEINIT;
 
 // https://github.com/rust-lang/rust/blob/3809bbf47c8557bd149b3e52ceb47434ca8378d5/src/libstd/sys_common/mod.rs#L124
 // Computes (value*numer)/denom without overflow, as long as both
@@ -5152,16 +5224,16 @@ prh_i64 prh_system_usec(void) { // 可表示29万年
     return prh_impl_1970_utc_time_usec(&f);
 }
 
-void prh_impl_usec_to_timeusec(prh_timeusec_t *utc_time, prh_i64 usec) {
+void prh_impl_usec_to_timeusec(prh_timeusec *utc_time, prh_i64 usec) {
     utc_time->sec = usec / PRH_USEC_PER_SEC;
     utc_time->usec = usec % PRH_USEC_PER_SEC;
 }
 
-void prh_system_time(prh_timeusec_t *utc_time) {
+void prh_system_time(prh_timeusec *utc_time) {
     prh_impl_usec_to_timeusec(utc_time, prh_system_usec());
 }
 
-void prh_impl_date_time(prh_datetime_t *t, const SYSTEMTIME *s, prh_i32 usec) {
+void prh_impl_date_time(prh_datetime *t, const SYSTEMTIME *s, prh_i32 usec) {
     // typedef struct _SYSTEMTIME {
     //      WORD wYear;         // the valid value is 1601 ~ 30827
     //      WORD wMonth;        // 1 ~ 12
@@ -5193,7 +5265,7 @@ void prh_impl_date_time(prh_datetime_t *t, const SYSTEMTIME *s, prh_i32 usec) {
     t->usec = usec;
 }
 
-void prh_impl_system_date(SYSTEMTIME *s, const prh_datetime_t *t) {
+void prh_impl_system_date(SYSTEMTIME *s, const prh_datetime *t) {
     s->wYear = (WORD)t->year;
     s->wMonth = t->month;
     s->wDayOfWeek = t->wday;
@@ -5204,14 +5276,14 @@ void prh_impl_system_date(SYSTEMTIME *s, const prh_datetime_t *t) {
     s->wMilliseconds = 0;
 }
 
-void prh_system_time_from_date(prh_timeusec_t *utc_time, const prh_datetime_t *utc_date) {
+void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_date) {
     SYSTEMTIME s; FILETIME f;
     prh_impl_system_date(&s, utc_date);
     PRH_WINOS_BOOLRET(SystemTimeToFileTime(&s, &f));
     prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + utc_date->usec);
 }
 
-void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetime_t *local_date) {
+void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime *local_date) {
     SYSTEMTIME local, s; FILETIME f;
     prh_impl_system_date(&local, local_date);
     PRH_WINOS_BOOLRET(TzSpecificLocalTimeToSystemTime(prh_null, &local, &s));
@@ -5219,7 +5291,7 @@ void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetim
     prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + utc_date->usec);
 }
 
-void prh_system_date(prh_datetime_t *utc_date) {
+void prh_system_date(prh_datetime *utc_date) {
     FILETIME f; SYSTEMTIME s;
     prh_impl_system_filetime(&f);
     prh_i64 filetime = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
@@ -5227,7 +5299,7 @@ void prh_system_date(prh_datetime_t *utc_date) {
     prh_impl_date_time(utc_date, &s, filetime / 10 % 1000000);
 }
 
-void prh_local_date(prh_datetime_t *local_date) {
+void prh_local_date(prh_datetime *local_date) {
     FILETIME f; SYSTEMTIME s, local;
     prh_impl_system_filetime(&f);
     prh_i64 filetime = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
@@ -5236,7 +5308,7 @@ void prh_local_date(prh_datetime_t *local_date) {
     prh_impl_date_time(local_date, &local, filetime / 10 % 1000000);
 }
 
-void prh_local_date_from(prh_datetime_t *local_date, const prh_timeusec_t *utc_time) {
+void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time) {
     FILETIME f; SYSTEMTIME s, local;
     prh_impl_1970_utc_secs_to_filetime(utc_time->sec, &f);
     PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
@@ -5244,7 +5316,7 @@ void prh_local_date_from(prh_datetime_t *local_date, const prh_timeusec_t *utc_t
     prh_impl_date_time(local_date, &local, utc_time->usec);
 }
 
-void prh_system_date_from(prh_datetime_t *utc_date, const prh_timeusec_t *utc_time) {
+void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) {
     // void GetSystemTime(SYSTEMTIME *SystemTime);
     // void GetLocalTime(SYSTEMTIME *SystemTime);
     // Windows 2000 Professional Windows 2000 Server
@@ -5674,7 +5746,7 @@ prh_i64 prh_system_usec(void) {
 #endif
 }
 
-void prh_system_time(prh_timeusec_t *t) {
+void prh_system_time(prh_timeusec *t) {
 #if defined(CLOCK_REALTIME)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
@@ -5688,7 +5760,7 @@ void prh_system_time(prh_timeusec_t *t) {
 #endif
 }
 
-void prh_impl_date_time(prh_datetime_t *t, const struct tm *s, prh_i32 usec) {
+void prh_impl_date_time(prh_datetime *t, const struct tm *s, prh_i32 usec) {
     // struct tm {
     //     int tm_sec;   // 0 ~ 60 since C99 allows for a positive leap second
     //     int tm_min;   // 0 ~ 59
@@ -5710,7 +5782,7 @@ void prh_impl_date_time(prh_datetime_t *t, const struct tm *s, prh_i32 usec) {
     t->usec = usec; // 0 ~ 999999
 }
 
-void prh_impl_system_date(struct tm *s, const prh_datetime_t *t) {
+void prh_impl_system_date(struct tm *s, const prh_datetime *t) {
     memset(s, 0, sizeof(struct tm));
     tm->tm_year = t->year - 1900;
     tm->tm_mon = t->month - 1;
@@ -5722,7 +5794,7 @@ void prh_impl_system_date(struct tm *s, const prh_datetime_t *t) {
     tm->tm_isdst = -1; // not available
 }
 
-void prh_system_time_from_date(prh_timeusec_t *utc_time, const prh_datetime_t *utc_date) {
+void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_date) {
     // #include <time.h>
     // [[deprecated]] time_t timelocal(struct tm *tm);
     // time_t timegm(struct tm *tm);
@@ -5736,7 +5808,7 @@ void prh_system_time_from_date(prh_timeusec_t *utc_time, const prh_datetime_t *u
     utc_time->usec = local_date->usec;
 }
 
-void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetime_t *local_date) {
+void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime *local_date) {
     struct tm local;
     prh_impl_system_date(&local, local_date);
     time_t utc_secs = mktime(&local); // mktime 是 localtime_r 的反操作，忽略 tm_wday 和 tm_yady
@@ -5745,8 +5817,8 @@ void prh_system_time_from_local_date(prh_timeusec_t *utc_time, const prh_datetim
     utc_time->usec = local_date->usec;
 }
 
-void prh_system_date(prh_datetime_t *utc_date) {
-    prh_timeusec_t utc_time;
+void prh_system_date(prh_datetime *utc_date) {
+    prh_timeusec utc_time;
     prh_system_time(&utc_time);
     time_t time = (time_t)utc_time.sec;
     struct tm tm;
@@ -5754,8 +5826,8 @@ void prh_system_date(prh_datetime_t *utc_date) {
     prh_impl_date_time(utc_date, &tm, utc_time.usec);
 }
 
-void prh_local_date(prh_datetime_t *local_date) {
-    prh_timeusec_t utc_time;
+void prh_local_date(prh_datetime *local_date) {
+    prh_timeusec utc_time;
     prh_system_time(&utc_time);
     time_t time = (time_t)utc_time.sec;
     struct tm tm;
@@ -5763,14 +5835,14 @@ void prh_local_date(prh_datetime_t *local_date) {
     prh_impl_date_time(local_date, &tm, utc_time.usec);
 }
 
-void prh_local_date_from(prh_datetime_t *local_date, const prh_timeusec_t *utc_time) {
+void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time) {
     time_t time = (time_t)utc_time->sec;
     struct tm tm;
     prh_boolret(localtime_r(&time, &tm));
     prh_impl_date_time(local_date, &tm, utc_time.usec);
 }
 
-void prh_system_date_from(prh_datetime_t *utc_date, const prh_timeusec_t *utc_time) {
+void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) {
     // 夏令时（Daylight Saving Time，DST）是一种为了节约能源而人为调整时钟的做法。
     // 具体来说，它通过在夏季将时钟拨快一定时间（通常是1小时）。夏令时的主要目的是减
     // 少照明需求。通过将时钟拨快1小时，人们在夏季的傍晚可以更晚地开灯，从而节省电力。
@@ -6221,24 +6293,32 @@ typedef struct {
     prh_unt impl_tid_;
     prh_i32 thrd_id;
     prh_u32 extra;
-} prh_thrd_t;
+} prh_thrd;
 
 typedef struct prh_thrd_struct prh_thrd_struct;
-typedef void *(*prh_thrdproc_t)(prh_thrd_t* thrd);
+typedef prh_void_ptr (*prh_thrdproc_t)(prh_thrd* thrd);
 typedef void (*prh_thrdfree_t)(void *userdata, int thrd_index); // thrd_index 0 for main thrd
 
-prh_thrd_t *prh_thrd_self(void);
-prh_thrd_t *prh_thrd_main(prh_thrd_struct *s);
-prh_thrd_t *prh_thrd_get(prh_thrd_struct *s, int thrd_index);
+prh_thrd *prh_thrd_self(void);
+prh_thrd *prh_thrd_main(prh_thrd_struct *s);
+prh_thrd *prh_thrd_get(prh_thrd_struct *s, int thrd_index);
 int prh_thrd_max_num(prh_thrd_struct *s);
 int prh_thrd_cur_num(prh_thrd_struct *s);
 
-prh_inline void *prh_thrd_data(prh_thrd_t *thrd) {
+prh_inline void *prh_thrd_data(prh_thrd *thrd) {
     return thrd->userdata;
 }
 
-prh_inline int prh_thrd_id(prh_thrd_t *thrd) {
+prh_inline int prh_thrd_id(prh_thrd *thrd) {
     return thrd->thrd_id;
+}
+
+prh_inline int prh_thrd_self_id(void) {
+    return prh_thrd_id(prh_thrd_self());
+}
+
+prh_inline void *prh_thrd_self_data(void) {
+    return prh_thrd_data(prh_thrd_self());
 }
 
 prh_inline int prh_thrd_main_id(prh_thrd_struct *s) {
@@ -6258,43 +6338,43 @@ void prh_thrd_join(prh_thrd_struct *s, int thrd_index, prh_thrdfree_t udfree); /
 void prh_thrd_jall(prh_thrd_struct **s, prh_thrdfree_t udfree); // free all joined thrd including main thrd
 void prh_thrd_free(prh_thrd_struct **s, prh_thrdfree_t udfree); // free main thrd
 
-typedef struct prh_thrd_mutex prh_thrd_mutex_t;
-prh_thrd_mutex_t *prh_thrd_mutex_init(void);
-prh_thrd_mutex_t *prh_thrd_recursive_mutex_init(void);
-void prh_thrd_mutex_lock(prh_thrd_mutex_t *p);
-void prh_thrd_mutex_unlock(prh_thrd_mutex_t *p);
-void prh_thrd_mutex_free(prh_thrd_mutex_t **p);
+typedef struct prh_thrd_mutex prh_thrd_mutex;
+prh_thrd_mutex *prh_thrd_mutex_init(void);
+prh_thrd_mutex *prh_thrd_recursive_mutex_init(void);
+void prh_thrd_mutex_lock(prh_thrd_mutex *p);
+void prh_thrd_mutex_unlock(prh_thrd_mutex *p);
+void prh_thrd_mutex_free(prh_thrd_mutex **p);
 
-typedef struct prh_thrd_cond prh_thrd_cond_t;
-prh_thrd_cond_t *prh_thrd_cond_init(void);
-void prh_thrd_cond_lock(prh_thrd_cond_t *p);
-void prh_thrd_cond_wait(prh_thrd_cond_t *p, bool (*cond_meet)(void *), void *param);
-bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec, bool (*cond_meet)(void *), void *param);
-void prh_thrd_cond_unlock(prh_thrd_cond_t *p);
-void prh_thrd_cond_signal(prh_thrd_cond_t *p);
-void prh_thrd_cond_broadcast(prh_thrd_cond_t *p);
-void prh_thrd_cond_free(prh_thrd_cond_t **p);
+typedef struct prh_thrd_cond prh_thrd_cond;
+prh_thrd_cond *prh_thrd_cond_init(void);
+void prh_thrd_cond_lock(prh_thrd_cond *p);
+void prh_thrd_cond_wait(prh_thrd_cond *p, bool (*cond_meet)(void *), void *param);
+bool prh_thrd_cond_timedwait(prh_thrd_cond *p, prh_u32 msec, bool (*cond_meet)(void *), void *param);
+void prh_thrd_cond_unlock(prh_thrd_cond *p);
+void prh_thrd_cond_signal(prh_thrd_cond *p);
+void prh_thrd_cond_broadcast(prh_thrd_cond *p);
+void prh_thrd_cond_free(prh_thrd_cond **p);
 
-typedef struct prh_thrd_cond prh_thrd_sem_t;
-prh_inline prh_thrd_sem_t *prh_thrd_sem_init(void) { return (prh_thrd_sem_t *)prh_thrd_cond_init(); }
-prh_inline void prh_thrd_sem_free(prh_thrd_sem_t **s) { prh_thrd_cond_free((prh_thrd_cond_t **)s); }
-void prh_thrd_sem_wait(prh_thrd_sem_t *s);
-void prh_thrd_sem_post(prh_thrd_sem_t *s, int n);
-void prh_thrd_sem_ext_wait(prh_thrd_sem_t *s, void (*wakeup_func)(void *), void *param);
-void prh_thrd_sem_ext_post(prh_thrd_sem_t *s, int n, void (*post_func)(void *), void *param);
+typedef struct prh_thrd_cond prh_thrd_sem;
+prh_inline prh_thrd_sem *prh_thrd_sem_init(void) { return (prh_thrd_sem *)prh_thrd_cond_init(); }
+prh_inline void prh_thrd_sem_free(prh_thrd_sem **s) { prh_thrd_cond_free((prh_thrd_cond **)s); }
+void prh_thrd_sem_wait(prh_thrd_sem *s);
+void prh_thrd_sem_post(prh_thrd_sem *s, int n);
+void prh_thrd_sem_ext_wait(prh_thrd_sem *s, void (*wakeup_func)(void *), void *param);
+void prh_thrd_sem_ext_post(prh_thrd_sem *s, int n, void (*post_func)(void *), void *param);
 
-typedef struct prh_thrd_cond prh_sleep_cond_t;
-prh_inline prh_sleep_cond_t *prh_thrd_sleep_init(void) { return (prh_sleep_cond_t *)prh_thrd_cond_init(); }
-prh_inline void prh_thrd_sleep_free(prh_sleep_cond_t **s) { prh_thrd_cond_free((prh_thrd_cond_t **)s); }
-void prh_thrd_sleep_start(prh_sleep_cond_t *p);
-void prh_thrd_sleep(prh_sleep_cond_t *p);
-int prh_thrd_sleep_count(prh_sleep_cond_t *p); // called between sleep_start and sleep_end
-void prh_thrd_sleep_end(prh_sleep_cond_t *p);
-void prh_thrd_wakeup(prh_sleep_cond_t *p);
-void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
+typedef struct prh_thrd_cond prh_sleep_cond;
+prh_inline prh_sleep_cond *prh_thrd_sleep_init(void) { return (prh_sleep_cond *)prh_thrd_cond_init(); }
+prh_inline void prh_thrd_sleep_free(prh_sleep_cond **s) { prh_thrd_cond_free((prh_thrd_cond **)s); }
+void prh_thrd_sleep_start(prh_sleep_cond *p);
+void prh_thrd_sleep(prh_sleep_cond *p);
+int prh_thrd_sleep_count(prh_sleep_cond *p); // called between sleep_start and sleep_end
+void prh_thrd_sleep_end(prh_sleep_cond *p);
+void prh_thrd_wakeup(prh_sleep_cond *p);
+void prh_thrd_wakeup_all(prh_sleep_cond *p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
-#define thrd_t                      prh_thrd_t
+#define thrd_t                      prh_thrd
 #define thrd_struct_t               prh_thrd_struct
 #define thrd_id                     prh_thrd_id
 #define thrd_data                   prh_thrd_data
@@ -6313,13 +6393,13 @@ void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
 #define thrd_join                   prh_thrd_join
 #define thrd_jall                   prh_thrd_jall
 #define thrd_free                   prh_thrd_free
-#define thrd_mutex_t                prh_thrd_mutex_t
+#define thrd_mutex_t                prh_thrd_mutex
 #define thrd_mutex_init             prh_thrd_mutex_init
 #define thrd_recursive_mutex_init   prh_thrd_recursive_mutex_init
 #define thrd_mutex_lock             prh_thrd_mutex_lock
 #define thrd_mutex_unlock           prh_thrd_mutex_unlock
 #define thrd_mutex_free             prh_thrd_mutex_free
-#define thrd_cond_t                 prh_thrd_cond_t
+#define thrd_cond_t                 prh_thrd_cond
 #define thrd_cond_init              prh_thrd_cond_init
 #define thrd_cond_lock              prh_thrd_cond_lock
 #define thrd_cond_wait              prh_thrd_cond_wait
@@ -6328,14 +6408,14 @@ void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
 #define thrd_cond_signal            prh_thrd_cond_signal
 #define thrd_cond_broadcast         prh_thrd_cond_broadcast
 #define thrd_cond_free              prh_thrd_cond_free
-#define thrd_sem_t                  prh_thrd_sem_t
+#define thrd_sem_t                  prh_thrd_sem
 #define thrd_sem_init               prh_thrd_sem_init
 #define thrd_sem_wait               prh_thrd_sem_wait
 #define thrd_sem_post               prh_thrd_sem_post
 #define thrd_sem_ext_wait           prh_thrd_sem_ext_wait
 #define thrd_sem_ext_post           prh_thrd_sem_ext_post
 #define thrd_sem_free               prh_thrd_sem_free
-#define sleep_cond_t                prh_sleep_cond_t
+#define sleep_cond_t                prh_sleep_cond
 #define thrd_sleep_init             prh_thrd_sleep_init
 #define thrd_sleep_free             prh_thrd_sleep_free
 #define thrd_sleep_start            prh_thrd_sleep_start
@@ -6877,9 +6957,9 @@ void prh_thrd_wakeup_all(prh_sleep_cond_t *p);
 
 struct prh_thrd_struct {
     prh_i32 maxthrds, thrd_cnt;
-    prh_thrd_t *main;
-    // [prh_thrd_t *]
-    // [prh_thrd_t *]
+    prh_thrd *main;
+    // [prh_thrd *]
+    // [prh_thrd *]
 };
 
 int prh_thrd_max_num(prh_thrd_struct *s) {
@@ -6890,26 +6970,26 @@ int prh_thrd_cur_num(prh_thrd_struct *s) {
     return (int)s->thrd_cnt;
 }
 
-prh_inline prh_thrd_t **prh_impl_thrd_list(prh_thrd_struct *s) {
+prh_inline prh_thrd **prh_impl_thrd_list(prh_thrd_struct *s) {
     return &s->main;
 }
 
-prh_thrd_t *prh_thrd_main(prh_thrd_struct *s) {
+prh_thrd *prh_thrd_main(prh_thrd_struct *s) {
     assert(s->main == prh_thrd_get(s, 0));
     return s->main;
 }
 
-prh_thrd_t *prh_thrd_get(prh_thrd_struct *s, int index) {
+prh_thrd *prh_thrd_get(prh_thrd_struct *s, int index) {
     assert(index >= 0 && index <= s->maxthrds);
     return prh_impl_thrd_list(s)[index]; // 0 for main thread
 }
 
-int prh_thrd_index(prh_thrd_struct *s, prh_thrd_t *thrd) {
+int prh_thrd_index(prh_thrd_struct *s, prh_thrd *thrd) {
     return thrd->thrd_id - s->main->thrd_id;
 }
 
 #if PRH_THRD_DEBUG && defined(prh_impl_pthread_getattr)
-void prh_impl_print_thrd_info(prh_thrd_t *thrd) {
+void prh_impl_print_thrd_info(prh_thrd *thrd) {
     pthread_t tid = pthread_self();
     void *stack_addr = prh_null;
     size_t stack_size = 0, guard_size = 0;
@@ -6931,17 +7011,19 @@ void prh_impl_print_thrd_info(prh_thrd_t *thrd) {
 #define prh_impl_print_thrd_info(thrd)
 #endif
 
-prh_thread_local prh_thrd_t *PRH_IMPL_THRD = prh_null;
+prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
 
-prh_thrd_t *prh_thrd_self(void) {
+prh_thrd *prh_thrd_self(void) {
     return PRH_IMPL_THRD;
 }
 
-prh_static_assert(sizeof(prh_thrd_t) % 8 == 0);
+#define prh_impl_thrd_head_size sizeof(prh_thrd)
+
+prh_static_assert(prh_impl_thrd_head_size % 8 == 0);
 
 int prh_impl_thrd_size(int thrdudsize) {
     assert(thrdudsize >= 0);
-    return (int)prh_round_cache_line_size(sizeof(prh_thrd_t) + thrdudsize);
+    return (int)prh_round_cache_line_size(prh_impl_thrd_head_size + thrdudsize);
 }
 
 int prh_impl_thrd_struct_size(int maxthrds) {
@@ -6949,22 +7031,22 @@ int prh_impl_thrd_struct_size(int maxthrds) {
     return (int)(sizeof(prh_thrd_struct) + sizeof(void *) * maxthrds);
 }
 
-prh_thrd_t *prh_impl_thrd_create(int thrd_id, int thrdudsize) {
+prh_thrd *prh_impl_thrd_create(int thrd_id, int thrdudsize) {
     assert(thrdudsize >= 0);
     int thrd_size = prh_impl_thrd_size(thrdudsize);
-    prh_thrd_t *thrd = prh_cache_line_aligned_malloc(thrd_size);
+    prh_thrd *thrd = prh_cache_line_aligned_malloc(thrd_size);
     memset(thrd, 0, thrd_size);
     thrd->userdata = thrd + 1;
     thrd->thrd_id = thrd_id;
 }
 
-prh_inline prh_thrd_t *prh_impl_data_to_thrd(void *userdata) {
-    return (prh_thrd_t *)userdata - 1;
+prh_inline prh_thrd *prh_impl_data_to_thrd(void *userdata) {
+    return (prh_thrd *)userdata - 1;
 }
 
 prh_thrd_struct *prh_thrd_inix(int start_id, int maxthrds, int mainudsize) {
     prh_thrd_struct *s = prh_calloc(prh_impl_thrd_struct_size(maxthrds));
-    prh_thrd_t *main = prh_impl_thrd_create(start_id, mainudsize);
+    prh_thrd *main = prh_impl_thrd_create(start_id, mainudsize);
     main->impl_tid_ = (prh_unt)pthread_self();
     s->maxthrds = maxthrds;
     s->main = main;
@@ -6976,20 +7058,20 @@ prh_thrd_struct *prh_thrd_inix(int start_id, int maxthrds, int mainudsize) {
 
 prh_thrd_struct *prh_thrd_init(int start_id, int maxthrds, void *userdata) {
     prh_thrd_struct *s = prh_thrd_inix(start_id, maxthrds, 0);
-    prh_thrd_t *main = prh_thrd_main(s);
+    prh_thrd *main = prh_thrd_main(s);
     main->userdata = userdata;
     return s;
 }
 
 typedef struct {
-    prh_thrd_t *thrd;
+    prh_thrd *thrd;
     prh_thrdproc_t proc;
-    prh_thrd_sem_t *sync;
+    prh_thrd_sem *sync;
 } prh_impl_thrd_para_t;
 
 static void *prh_impl_thrd_start_proc(void *param) {
     prh_impl_thrd_para_t *p = (prh_impl_thrd_para_t *)param;
-    prh_thrd_t *thrd = PRH_IMPL_THRD = p->thrd;
+    prh_thrd *thrd = PRH_IMPL_THRD = p->thrd;
     prh_thrdproc_t proc = p->proc;
 #if PRH_THRD_DEBUG
     prh_impl_print_thrd_info(thrd);
@@ -7017,7 +7099,7 @@ int prh_impl_thread_stack_size(long stacksize) {
     return prh_round_16_byte(stacksize); // stack align 16-byte
 }
 
-void prh_impl_thrd_start(prh_thrd_t *thrd, prh_thrdproc_t proc, int stacksize) {
+void prh_impl_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, int stacksize) {
     prh_impl_thrd_para_t para = {thrd, proc};
     pthread_t *tid = (pthread_t *)&thrd->impl_tid_;
     pthread_attr_t *attr_ptr = prh_null;
@@ -7045,34 +7127,34 @@ void prh_impl_thrd_start(prh_thrd_t *thrd, prh_thrdproc_t proc, int stacksize) {
     prh_thrd_sem_free(&para.sync);
 }
 
-prh_thrd_t *prh_impl_create_set(prh_thrd_struct *s, int thrdudsize) {
+prh_thrd *prh_impl_create_set(prh_thrd_struct *s, int thrdudsize) {
     assert(s->thrd_cnt >= 0 && s->thrd_cnt < s->maxthrds);
     int thrd_index = ++s->thrd_cnt;
-    prh_thrd_t *thrd = prh_impl_thrd_create(prh_thrd_main_id(s) + thrd_index, thrdudsize);
+    prh_thrd *thrd = prh_impl_thrd_create(prh_thrd_main_id(s) + thrd_index, thrdudsize);
     prh_impl_thrd_list(s)[thrd_index] = thrd;
     return thrd;
 }
 
 void *prh_thrd_create(prh_thrd_struct *s, int thrdudsize) {
-    prh_thrd_t *thrd = prh_impl_create_set(s, thrdudsize);
+    prh_thrd *thrd = prh_impl_create_set(s, thrdudsize);
     return thrd->userdata;
 }
 
 int prh_thrd_starx(prh_thrd_struct *s, void *thrd_create_data, prh_thrdproc_t proc, int stacksize) {
-    prh_thrd_t *thrd = prh_impl_data_to_thrd(thrd_create_data);
+    prh_thrd *thrd = prh_impl_data_to_thrd(thrd_create_data);
     prh_impl_thrd_start(thrd, proc, stacksize);
     return prh_thrd_index(s, thrd);
 }
 
 int prh_thrd_start(prh_thrd_struct *s, prh_thrdproc_t proc, int stacksize, void *userdata) {
-    prh_thrd_t *thrd = prh_impl_create_set(s, 0);
+    prh_thrd *thrd = prh_impl_create_set(s, 0);
     thrd->userdata = userdata;
     prh_impl_thrd_start(thrd, proc, stacksize);
     return thrd_index;
 }
 
-void prh_impl_thrd_join(prh_thrd_t **thrd_list, int thrd_index, prh_thrdfree_t udfree) {
-    prh_thrd_t *thrd = thrd_list[thrd_index];
+void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t udfree) {
+    prh_thrd *thrd = thrd_list[thrd_index];
     if (thrd == prh_null) return;
     void *retv = prh_null, *userdata;
     int n = pthread_join(thrd->u.tid_impl, &retv);
@@ -7103,7 +7185,7 @@ void prh_thrd_join(prh_thrd_struct *s, int thrd_index, prh_thrdfree_t udfree) {
 void prh_thrd_free(prh_thrd_struct **main, prh_thrdfree_t udfree) {
     prh_thrd_struct *s = *main;
     if (s == prh_null) return;
-    prh_thrd_t *main_thrd = s->main;
+    prh_thrd *main_thrd = s->main;
     if (main_thrd) {
         if (udfree) {
             udfree(prh_thrd_data(main_thrd), 0);
@@ -7118,7 +7200,7 @@ void prh_thrd_free(prh_thrd_struct **main, prh_thrdfree_t udfree) {
 void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udfree) {
     prh_thrd_struct *s = *main;
     if (s == prh_null) return;
-    prh_thrd_t *thrd_list = prh_impl_thrd_list(s);
+    prh_thrd *thrd_list = prh_impl_thrd_list(s);
     for (int i = 1; i <= s->maxthrds; i += 1) {
         prh_impl_thrd_join(thrd_list, i, udfree);
     }
@@ -7166,14 +7248,14 @@ void prh_impl_thrd_mutex_init(pthread_mutex_t *mutex) {
 #endif
 }
 
-prh_thrd_mutex_t *prh_thrd_mutex_init(void) {
-    prh_thrd_mutex_t *p = prh_malloc(sizeof(prh_thrd_mutex_t));
+prh_thrd_mutex *prh_thrd_mutex_init(void) {
+    prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
     prh_impl_thrd_mutex_init(&p->mutex);
     return p;
 }
 
-prh_thrd_mutex_t *prh_thrd_recursive_mutex_init(void) {
-    prh_thrd_mutex_t *p = prh_malloc(sizeof(prh_thrd_mutex_t));
+prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
+    prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
     pthread_mutexattr_t attr;
     prh_zeroret(pthread_mutexattr_init(&attr));
     prh_zeroret(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE));
@@ -7182,19 +7264,19 @@ prh_thrd_mutex_t *prh_thrd_recursive_mutex_init(void) {
     return p;
 }
 
-void prh_thrd_mutex_free(prh_thrd_mutex_t **mtx) {
-    prh_thrd_mutex_t *p = *mtx;
+void prh_thrd_mutex_free(prh_thrd_mutex **mtx) {
+    prh_thrd_mutex *p = *mtx;
     if (p == prh_null) return;
     prh_zeroret(pthread_mutex_destroy(&p->mutex));
     prh_free(p);
     *mtx = prh_null;
 }
 
-void prh_thrd_mutex_lock(prh_thrd_mutex_t *p) {
+void prh_thrd_mutex_lock(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
 }
 
-void prh_thrd_mutex_unlock(prh_thrd_mutex_t *p) {
+void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
@@ -7203,8 +7285,8 @@ void prh_thrd_mutex_unlock(prh_thrd_mutex_t *p) {
 // a pthread_cond_timedwait() or pthread_cond_wait() may not actually release
 // the mutex (if it had been locked multiple times). If this happens, no other
 // thread can satisfy the condition of the predicate.
-prh_thrd_cond_t *prh_thrd_cond_init(void) {
-    prh_thrd_cond_t *p = prh_malloc(sizeof(prh_thrd_cond_t));
+prh_thrd_cond *prh_thrd_cond_init(void) {
+    prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
     prh_zeroret(pthread_cond_init(&p->cond, prh_null));
     prh_impl_thrd_mutex_init(&p->mutex);
     p->sleep_count = 0;
@@ -7212,10 +7294,10 @@ prh_thrd_cond_t *prh_thrd_cond_init(void) {
     return p;
 }
 
-void prh_thrd_cond_free(prh_thrd_cond_t **cnd) {
+void prh_thrd_cond_free(prh_thrd_cond **cnd) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
-    prh_thrd_cond_t *p = *cnd;
+    prh_thrd_cond *p = *cnd;
     if (p == prh_null) return;
     prh_zeroret(pthread_mutex_destroy(&p->mutex));
     prh_zeroret(pthread_cond_destroy(&p->cond));
@@ -7250,18 +7332,18 @@ void prh_thrd_cond_free(prh_thrd_cond_t **cnd) {
 // 7. ... operation after wait ...
 // 8. pthread_mutex_unlock
 
-void prh_thrd_cond_lock(prh_thrd_cond_t *p) {
+void prh_thrd_cond_lock(prh_thrd_cond *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
 }
 
-void prh_thrd_cond_wait(prh_thrd_cond_t *p, bool (*cond_meet)(void *), void *param) {
+void prh_thrd_cond_wait(prh_thrd_cond *p, bool (*cond_meet)(void *), void *param) {
     while (!cond_meet(param)) {
         prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
     }
     // thread locked and wakeup and cond_meet
 }
 
-bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec, bool (*cond_meet)(void *), void *param) {
+bool prh_thrd_cond_timedwait(prh_thrd_cond *p, prh_u32 msec, bool (*cond_meet)(void *), void *param) {
     prh_i64 abstime = prh_system_msec() + msec; // u32 msec 最大可以表示48天
     struct timespec ts = {.tv_sec = (time_t)(abstime / 1000), .tv_nsec = (int)((abstime % 1000) * 1000000)};
     int n = 0;
@@ -7276,7 +7358,7 @@ bool prh_thrd_cond_timedwait(prh_thrd_cond_t *p, prh_u32 msec, bool (*cond_meet)
     return false;
 }
 
-void prh_thrd_cond_unlock(prh_thrd_cond_t *p) {
+void prh_thrd_cond_unlock(prh_thrd_cond *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
@@ -7290,7 +7372,7 @@ void prh_thrd_cond_unlock(prh_thrd_cond_t *p) {
 // The pthread_cond_broadcast() and pthread_cond_signal() functions shall
 // have no effect if there are no threads currently blocked on cond.
 
-void prh_thrd_cond_signal(prh_thrd_cond_t *p) {
+void prh_thrd_cond_signal(prh_thrd_cond *p) {
     // 唤醒至少一个等待的线程，比broadcast更高效。应用这种方式的典型情况是，所有等待
     // 的线程都在执行完全相同的任务。这种情况下，可以避免唤醒所有等待的线程，然后某一
     // 线程获得调度，此线程检查了共享变量的状态（在相关互斥量的保护下），发现有任务需
@@ -7300,7 +7382,7 @@ void prh_thrd_cond_signal(prh_thrd_cond_t *p) {
     prh_zeroret(pthread_cond_signal(&p->cond));
 }
 
-void prh_thrd_cond_broadcast(prh_thrd_cond_t *p) {
+void prh_thrd_cond_broadcast(prh_thrd_cond *p) {
     // 唤醒所有等待的线程，通常适用的情况是处于等待状态的所有线程执行的任务不同，其各
     // 自关联于条件变量的判定条件不同。条件变量并不保存变量，只是传递应用程序状态信息
     // 的一种通讯机制。发送信号时若无任何线程在等待该条件变量，这个信号也就会不了了
@@ -7309,7 +7391,7 @@ void prh_thrd_cond_broadcast(prh_thrd_cond_t *p) {
     prh_zeroret(pthread_cond_broadcast(&p->cond));
 }
 
-void prh_thrd_sem_ext_wait(prh_thrd_sem_t *p, void (*wakeup_func)(void *), void *param) {
+void prh_thrd_sem_ext_wait(prh_thrd_sem *p, void (*wakeup_func)(void *), void *param) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     while (p->wakeup_semaphore == 0) {
         prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
@@ -7321,7 +7403,7 @@ void prh_thrd_sem_ext_wait(prh_thrd_sem_t *p, void (*wakeup_func)(void *), void 
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
-void prh_thrd_sem_wait(prh_thrd_sem_t *p) {
+void prh_thrd_sem_wait(prh_thrd_sem *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     while (p->wakeup_semaphore == 0) {
         prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
@@ -7330,7 +7412,7 @@ void prh_thrd_sem_wait(prh_thrd_sem_t *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
-void prh_thrd_sem_ext_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_func)(void *), void *param) {
+void prh_thrd_sem_ext_post(prh_thrd_sem *p, int new_semaphores, void (*post_func)(void *), void *param) {
     if (new_semaphores <= 0) return;
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     p->wakeup_semaphore += new_semaphores;
@@ -7345,7 +7427,7 @@ void prh_thrd_sem_ext_post(prh_thrd_sem_t *p, int new_semaphores, void (*post_fu
     }
 }
 
-void prh_thrd_sem_post(prh_thrd_sem_t *p, int new_semaphores) {
+void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
     if (new_semaphores <= 0) return;
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     p->wakeup_semaphore += new_semaphores;
@@ -7357,12 +7439,12 @@ void prh_thrd_sem_post(prh_thrd_sem_t *p, int new_semaphores) {
     }
 }
 
-void prh_thrd_sleep_start(prh_thrd_cond_t *p) {
+void prh_thrd_sleep_start(prh_thrd_cond *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     p->sleep_count += 1;
 }
 
-void prh_thrd_sleep(prh_thrd_cond_t *p) {
+void prh_thrd_sleep(prh_thrd_cond *p) {
     while (p->wakeup_semaphore == 0) {
         prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
     }
@@ -7370,15 +7452,15 @@ void prh_thrd_sleep(prh_thrd_cond_t *p) {
     p->sleep_count -= 1;
 }
 
-int prh_thrd_sleep_count(prh_thrd_cond_t *p) { // called between sleep_start and sleep_end
+int prh_thrd_sleep_count(prh_thrd_cond *p) { // called between sleep_start and sleep_end
     return p->sleep_count;
 }
 
-void prh_thrd_sleep_end(prh_thrd_cond_t *p) {
+void prh_thrd_sleep_end(prh_thrd_cond *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
-void prh_thrd_wakeup(prh_thrd_cond_t *p) {
+void prh_thrd_wakeup(prh_thrd_cond *p) {
     bool need_wakeup = false;
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     if (p->sleep_count > 0 && p->wakeup_semaphore < p->sleep_count) {
@@ -7391,7 +7473,7 @@ void prh_thrd_wakeup(prh_thrd_cond_t *p) {
     }
 }
 
-void prh_thrd_wakeup_all(prh_thrd_cond_t *p) {
+void prh_thrd_wakeup_all(prh_thrd_cond *p) {
     bool need_wakeup = false;
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     if (p->sleep_count > 0 && p->wakeup_semaphore < p->sleep_count) {
@@ -7492,31 +7574,23 @@ void prh_impl_thrd_test(void) {
 #endif // PRH_THRD_INCLUDE
 
 // CONCURRENCY - Very simple single file style concurrency library
-#ifdef PRH_CONC_INCLUDE
-typedef struct {
-    int index;
-} prh_cono_t;
+#ifdef PRH_CONO_INCLUDE
+void prh_cono_init(int mainthrdid, int maxthrds);
+void prh_cono_run(prh_coroproc_t main_coro_proc, int stack_size);
+void *prh_cono_type_1_create(prh_coro *parent, prh_coroproc_t proc, int stack_size, int maxudsize);
+void *prh_cono_await(prh_coro *coro);
+void prh_cono_start(void *cono_create_data);
+void prh_cono_yield(prh_coro *coro);
+void prh_cono_finish(prh_coro *coro);
 
-void prh_conc_init(int thrd_start_id, int num_thread);
-void prh_conc_run(prh_coroproc_t co_main);
-
-#ifdef PRH_CONC_STRIP_PREFIX
-
-#endif // PRH_CONC_STRIP_PREFIX
-
-#ifdef PRH_CONC_IMPLEMENTATION
+#ifdef PRH_CONO_IMPLEMENTATION
 
 typedef struct {
-    prh_nose_t node;
-    prh_cono_t from;
-    prh_cono_t to;
-    prh_i32 type, flags;
-    void *data;
-} prh_coromsg_t;
-
-typedef struct {
-    // only accessed by curr thread
+    // 仅由当前线程访问
     prh_soro_struct soro; // 当前执行协程
+    prh_snode_t cono_2_free_node;
+    // 特权线程也能访问
+    prh_atom_quefix tx_que_to_type_2_cono;
     prh_coromsg_t *txmq_atomnodque_tail; // 由当前线程读写
     // only accessed by privilege thread
     prh_coromsg_t *txmq_atomnodque_head; // 由特权线程读写
@@ -7525,98 +7599,262 @@ typedef struct {
     prh_atomptr_t assigned_ready_coro; // 等待执行的协程，由特权线程写入或窃取清空，由当前协程读取清空
     prh_atombool_t thread_available;
     prh_atombool_t thread_sleeping;
-} prh_thread_t; // 每个线程尽量指定在单一的CPU上运行避免线程切换
+} prh_cono_thrd; // 每个线程尽量指定在单一的CPU上运行避免线程切换
 
-void prh_impl_conc_thrd_init(prh_thread_t *t) {
+// 要实现无锁且省去N*M爆炸内存，必须有一个线程担任中间角色，请求者与中间角色是一对一的，
+// 中间角色与执行者也是一对一的，从而能够实现无锁。但中间角色的加入，必然带来一定延迟，
+// 因此必须保证中间角色负责的中转任务即使在任务繁重的情况下，也能很快的高优先级完成。因
+// 此必须有一个线程偏向性的来执行这些任务，避免所有线程都被一些费时任务霸占，导致轻量任
+// 务被迫挨饿。
+//
+// 可以让主线程偏重执行这种任务，轻量执行时间短且优先级高的任务都属于此类。基本类型的原子
+// 操作可以实现N个线程的竞争执行，但对于队列等复杂数据结构的无锁操作需要依赖一个线程读一
+// 个线程写的一对一模型。如果不依靠一对一模型，N个线程同时竞争，一个任务就需要维护N个数据
+// 结构，这样每个线程才能无锁的互不干扰的对这个任务进行读写。相当于用内存隔离来避免线程的
+// 访问竞争，但是有M个任务就必须爆炸式的分配N*M份内存，在嵌入式等内存短缺的平台上不是一
+// 种好的解决方案。
+//
+// 使用一对一的单生产者和单消费者的模式，请求线程将请求数据暂存到自己的发送队列，作为中间
+// 角色的特权线程，遍历全部线程的发送队列，将发送队列中的请求数据转发到执行协程的接收队列
+// 中，此执行协程此时可能正在某个线程中执行自己的任务，但如果执行协程没有在执行需要将该协
+// 程添加到等待队列中去调度执行。
+
+void prh_impl_cono_thrd_init(prh_cono_thrd *t) {
     prh_atomnodque_init(t, txmq);
     prh_atomtype_init(&t->assigned_ready_coro, prh_atomnull);
     prh_atomtype_init(&t->thread_available, true);
     prh_atomtype_init(&t->thread_sleeping, false);
 }
 
-void prh_impl_conc_thrd_free(prh_thread_t *t) {
+void prh_impl_cono_thrd_free(prh_cono_thrd *t) {
     prh_atomnodque_free(t, txmq, prh_null);
 }
 
+typedef enum {
+    PRH_CONO_TYPE_1 = 1,
+    PRH_CONO_TYPE_2,
+} prh_impl_cono_type;
+
+typedef enum {
+    PRH_CONO_ID_ROOT,
+    PRH_FIXED_CONO_MAX,
+} prh_impl_cono_id;
+
 typedef struct {
-    prh_nose_t node;
+    prh_snode node;
     // only accessed by curr thread
-    prh_coro_t *coro;
-    prh_nodestack_t pending_stack; // waiting curr running coro complete
+    prh_coro *cono_1_parent;
+    prh_nstack pending_stack; // waiting curr running coro complete
     prh_coromsg_t *rxmq_atomnodque_head;
     // only accessed by privilege thread
     prh_coromsg_t *rxmq_atomnodque_tail;
     bool already_in_ready_que;
     // accessed by both threads
     prh_atomint_t rxmq_atomnodque_len;
-} prh_concoro_t; // 跨线程协程
+} prh_cono; // 跨线程协程
 
 typedef struct {
     prh_thrd_struct *coro_thrd_pool;
-    prh_thrd_t **coro_thrd_list;
+    prh_thrd **coro_thrd_list;
     prh_i32 numcorothrds;
     prh_atomint_t coro_count;
     prh_concoro_t *coro_dynamic_array;
     // only accessed by privilege thread
-    prh_nodequeue_t coro_ready_que;
+    prh_quefit coro_ready_que;
     // accessed by both thread
     prh_atomptr_t privilege_thread;
     prh_atomint_t sleeping_count;
     prh_atombool_t exit_thread;
-} prh_conc_t;
+    prh_coro fixed_coro[PRH_FIXED_CONO_MAX];
+} prh_cono_struct;
 
-static prh_conc_t PRH_IMPL_CONC;
-int prh_impl_conc_thrd_proc(prh_thrd_t* t);
+static prh_cono_struct PRH_IMPL_CONO_STRUCT;
+int prh_impl_cono_thrd_proc(prh_thrd* t);
 
-void prh_conc_init(int thrd_start_id, int num_thread) {
-    prh_conc_t *conc = &PRH_IMPL_CONC;
-    prh_thrd_struct *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_thread_t));
-    prh_thread_init_main_userdata(pool, (prh_thrdinit_t)prh_impl_conc_thrd_init);
-    prh_thread_t *main = prh_thread_main_userdata(pool);
+void prh_cono_init(int thrd_start_id, int num_thread) {
+    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
+    prh_thrd_struct *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_cono_thrd));
+    prh_thread_init_main_userdata(pool, (prh_thrdinit_t)prh_impl_cono_thrd_init);
+    prh_cono_thrd *main = prh_thread_main_userdata(pool);
     prh_atomtype_store(&main->thread_available, false);
-    conc->coro_thrd_pool = pool;
-    conc->coro_thrd_list = pool->thrd;
-    conc->numcorothrds = (num_thread > 0 ? num_thread : 0) + 1;
-    prh_nodequeue_init(&conc->coro_ready_que);
-    prh_atomtype_init(&conc->privilege_thread, prh_atomnull);
+    s->coro_thrd_pool = pool;
+    s->coro_thrd_list = pool->thrd;
+    s->numcorothrds = (num_thread > 0 ? num_thread : 0) + 1;
+    prh_quefit_init(&s->coro_ready_que);
+    prh_atomtype_init(&s->privilege_thread, prh_atomnull);
     for (int i = 0; i < num_thread; i += 1) {
-        prh_thread_ext_create(pool, prh_impl_conc_thrd_proc, 0, sizeof(prh_thread_t), (prh_thrdinit_t)prh_impl_conc_thrd_init);
+        prh_thread_ext_create(pool, prh_impl_cono_thrd_proc, 0, sizeof(prh_cono_thrd), (prh_thrdinit_t)prh_impl_cono_thrd_init);
     }
 }
 
-prh_cono_t prh_cono_create(prh_coroproc_t proc, int stack_size, void *ptr_udata) {
-    prh_coro_t *p = prh_coro_create(0, proc, stack_size, ptr_udata);
-    return (prh_cono_t){p->coro_id};
+prh_inline int prh_impl_cono_size(void) {
+    return (int)prh_round_16_byte(sizeof(prh_cono));
 }
 
-prh_cono_t prh_cono_ext_create(prh_coroproc_t proc, int stack_size, int maxudsize, void (*coroudinit)(void *)) {
-    prh_coro_t *p = prh_coro_ext_create(0, proc, stack_size, maxudsize);
-    if (coroudinit) {
-        coroudinit(prh_coroutine_userdata(p));
+prh_inline void *prh_impl_cono_data(prh_cono *cono) {
+    return (char *)cono + prh_impl_cono_size();
+}
+
+prh_inline prh_coro *prh_impl_coro_from_data(void *data) {
+    return (prh_cono *)((char *)data - prh_impl_cono_size() - prh_impl_coro_size);
+}
+
+prh_inline prh_cono *prh_impl_cono_from_coro(prh_coro_t *coro) {
+    return (prh_cono *)((char *)coro + prh_impl_coro_size);
+}
+
+prh_inline prh_cono *prh_impl_cono_from_data(void *data) {
+    return (prh_cono *)((char *)data - prh_impl_cono_size());
+}
+
+prh_inline prh_cono_thrd *prh_impl_get_cono_thrd(prh_thrd *thrd) {
+    return (prh_cono_thrd *)((char *)thrd + prh_impl_thrd_head_size);
+}
+
+prh_inline prh_thrd *prh_impl_get_thrd_head(prh_cono_thrd *thrd) {
+    return (prh_thrd *)((char *)thrd - prh_impl_thrd_head_size);
+}
+
+typedef enum {
+    PRH_ROOT_CONO_START_CREATED_CORO,
+} prh_root_cono_task_id;
+
+typedef struct {
+    prh_unt cono_id_seed;
+} prh_root_cono;
+
+typedf struct {
+    prh_i32 dest_cono_id;
+    prh_i32 cono_task_id;
+} prh_root_cono_start_created_coro;
+
+prh_coro_proc prh_impl_root_coro_proc(prh_coro *coro) {
+    prh_impl_root_cono *root = coro_data(coro);
+    for (; ;) {
+        prh_coro *p = root->created_coro_ready_to_start;
+        prh_cono_2_yield(coro, p);
     }
-    return (prh_cono_t){p->coro_id};
 }
 
-void prh_conc_run(prh_coroproc_t co_main, int stack_size) {
-    prh_conc_t *conc = &PRH_IMPL_CONC;
-    prh_thrd_struct *pool = conc->coro_thrd_pool;
-    prh_thread_t *main = prh_thread_main_userdata(pool);
-    prh_atomtype_store(&main->thread_available, true);
-    prh_impl_conc_thrd_proc(prh_thread_main(pool));
-    prh_thread_join(&conc->coro_thrd_pool, (prh_thrdfree_t)prh_impl_conc_thrd_free);
+void *prh_impl_coro_push(prh_coro *coro, int data_bytes) {
+    prh_byte *rsp = (prh_byte *)coro - coro->rspoffset;
+    data_bytes = prh_round_ptrsize(data_bytes);
+    coro->rspoffset += data_bytes;
+    return rsp + sizeof(void *) - data_bytes;
 }
 
-int prh_impl_conc_thrd_proc(prh_thrd_t* t) {
+void *prh_impl_coro_pop(prh_coro *coro, int data_bytes) {
+    prh_byte *rsp = (prh_byte *)coro - coro->rspoffset;
+    coro->rspoffset -= prh_round_ptrsize(data_bytes);
+    return rsp + sizeof(void *);
+}
+
+void *prh_impl_coro_fast_push(prh_coro *coro, int data_bytes) {
+    prh_byte *rsp = (prh_byte *)coro - coro->rspoffset;
+    return rsp - prh_round_ptrsize(data_bytes);
+}
+
+void *prh_impl_coro_fast_pop(prh_coro *coro, int data_bytes) {
+    prh_byte *rsp = (prh_byte *)coro - coro->rspoffset;
+    return rsp - prh_round_ptrsize(data_bytes);
+}
+
+typedef enum {
+    PRH_THRD_SORO_SUSPEND,
+} prh_thrd_soro_ret_data;
+
+typedef struct {
+    prh_int return_data;
+} prh_thrd_soro_data;
+
+bool prh_impl_thrd_run_coro(prh_cono_thrd *cono_thrd, prh_coro *coro) {
+    prh_soro_struct *soro = &cono_thrd->soro;
+
+    soro->coro = coro;
+    if (prh_soro_await(soro)) {
+        prh_int return_data = ((prh_thrd_soro_data *)prh_coro_data(coro))->return_data;
+        if (return_data == PRH_THRD_SORO_SUSPEND) {
+            return; // 当前执行协程被挂起，可以释放当前线程去做其他任务
+        }
+    }
+}
+
+prh_coro *prh_impl_cono_create(prh_coroproc_t proc, int stack_size, int maxudsize) {
+    return prh_impl_coro_creatx(proc, stack_size, sizeof(prh_cono), maxudsize);
+}
+
+prh_cono_thrd *prh_impl_cono_thrd_init(prh_thrd *thrd) {
+    prh_cono_thrd *cono_thrd = prh_impl_get_cono_thrd(thrd);
+    prh_soro_struct *soro = &cono_thrd->soro;
+    prh_soro_init(soro, prh_thrd_id(thrd));
+    return cono_thrd;
+}
+
+prh_void_ptr prh_impl_cono_main_thrd_proc(prh_thrd* thrd, prh_coroproc_t main_proc, int stack_size) {
+    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd_init(thrd);
+    prh_coro *main_coro = prh_impl_cono_create(main_proc, stack_size, 0);
+
+    prh_impl_thrd_run_coro(cono_thrd, main_coro);
     return 0;
 }
 
+prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* t) {
+    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd_init(thrd);
+
+    return 0;
+}
+
+void prh_cono_run(prh_coroproc_t main_proc, int stack_size) {
+    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
+    prh_thrd_struct *pool = s->coro_thrd_pool;
+    prh_cono_thrd *main = prh_thread_main_userdata(pool);
+    prh_atomtype_store(&main->thread_available, true);
+
+    prh_impl_cono_main_thrd_proc(main, main_proc, stack_size);
+}
+
+void prh_cono_type_2_req_coro_await(prh_coro *req_coro) {
+    prh_thrd_soro *soro = prh_coro_data(req_coro);
+    soro->return_data = PRH_THRD_SORO_SUSPEND_CURR_CORO;
+    prh_coro_yield(req_coro);
+}
+
+void prh_impl_send_to_type_2_cono(prh_coro *req_coro) {
+    prh_cono_thrd *thrd = prh_thrd_self_data();
+    prh_atom_quefix_push(&thrd->tx_que_to_type_2_cono, req_coro);
+    prh_cono_type_2_req_coro_await(req_coro);
+}
+
+void prh_cono_start(void *cono_create_data) {
+    prh_coro *coro = prh_impl_coro_from_data(cono_create_data);
+    prh_root_cono_start_created_coro *req = prh_impl_coro_fast_push(coro, sizeof(prh_root_cono_start_created_coro));
+    req->dest_cono_id = PRH_CONO_ID_ROOT;
+    req->cono_task_id = PRH_ROOT_CONO_START_CREATED_CORO;
+    prh_impl_send_to_type_2_cono(coro);
+}
+
+void *prh_cono_type_1_create(prh_coro *parent, prh_coroproc_t proc, int stack_size, int maxudsize) {
+    prh_coro *coro = prh_impl_coro_creatx(proc, stack_size, sizeof(prh_cono), maxudsize);
+    void *data = prh_coro_data(coro);
+    prh_cono *c = prh_impl_cono_from_data(data);
+    c->parent = parent;
+    c->cono_type = PRH_CONO_TYPE_1;
+    return data;
+}
+
+void prh_cono_finish(void) {
+    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
+    // TODO: trigger thread exit
+    prh_thread_join(&s->coro_thrd_pool, (prh_thrdfree_t)prh_impl_cono_thrd_free);
+}
+
 #ifdef PRH_TEST_IMPLEMENTATION
-void prh_impl_conc_test(void) {
+void prh_impl_cono_test(void) {
 
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#endif // PRH_CONC_IMPLEMENTATION
-#endif // PRH_CONC_INCLUDE
+#endif // PRH_CONO_IMPLEMENTATION
+#endif // PRH_CONO_INCLUDE
 
 #ifdef __cplusplus
 }
