@@ -2931,6 +2931,11 @@ typedef struct prh_nose { // node single linked
     struct prh_nose *next;
 } prh_nose_t;
 
+typedef struct {
+    prh_nose_t *next;
+    void *data; // node only contain a pointer
+} prh_wrap_nose_t;
+
 typedef struct { // zero initialized
     prh_nose_t *head;
     prh_nose_t *tail;
@@ -2939,6 +2944,11 @@ typedef struct { // zero initialized
 typedef struct prh_nord { // node xored double linked (both = prev XOR next)
     struct prh_nord *both;
 } prh_nord_t;
+
+typedef struct {
+    prh_nord_t *both;
+    void *data; // node only contain a pointer
+} prh_wrap_nord_t;
 
 typedef struct { // zero initialized
     prh_nord_t *head;
@@ -2950,6 +2960,12 @@ typedef struct prh_node { // node double linked
     struct prh_node *prev;
 } prh_node_t;
 
+typedef struct {
+    prh_node_t *next;
+    prh_node_t *prev;
+    void *data; // node only contain a pointer
+} prh_wrap_node_t;
+
 typedef struct { // zero initialized
     prh_node_t *head;
     prh_node_t *tail;
@@ -2960,6 +2976,13 @@ typedef struct prh_note { // node tripple linked
     struct prh_note *prev;
     struct prh_note *parent;
 } prh_note_t;
+
+typedef struct {
+    prh_note_t *next;
+    prh_note_t *prev;
+    prh_note_t *parent;
+    void *data; // node only contain a pointer
+} prh_wrap_note_t;
 
 typedef struct { // zero initialized
     prh_note_t *root;
@@ -3833,7 +3856,7 @@ prh_inline bool prh_atom_ptr_compare_write(prh_atom_ptr *a, prh_unt *expect, prh
 // 的节点，只提供串连功能。这些节点以处理器高速缓存行的大小为单位且对齐的方式批量分配，
 // 避免一个线程对自身缓存的访问引起另一个无关线程的缓存失效。辅助节点释放后可以重复使用，
 // 并按照规则以高速缓存行整体释放。
-// atomic singly linked queue for only 1 producer and 1 consumer. The queue node
+// Atomic singly linked queue for only 1 producer and 1 consumer. The queue node
 // can be any size and provided by the user. prh_atom_quefit doesn't alloc
 // memory for its node.
 typedef struct {
@@ -3841,6 +3864,112 @@ typedef struct {
     prh_nose_t *tail; // only accessed by producer thread
     prh_atom_i32 len;
 } prh_atom_quefit; // the queue node is fixed in the original place user provided
+
+// Atomic singly linked queue for only 1 producer and 1 consumer. Each node has
+// a prh_nose_t header and a data pointer. Each node only contain a pointer. The
+// node is automatically dynamic allocated by the queue.
+typedef struct prh_atom_dynque_it prh_atom_dynque_it;
+
+typedef struct {
+    prh_wrap_nose_t *head; // 只由单一消费者读写, only modified by pop thread
+    prh_wrap_nose_t *tail; // 只由单一生产者读写, only modified by push thread
+    prh_nose_t free; // 仅由生产者读写，only modified by push thread
+    prh_atom_int quelen;
+} prh_atom_dynque_t;
+
+void prh_atom_dynque_init(prh_atom_dynque_t *q);
+void prh_atom_dynque_free(prh_atom_dynque_it *it);
+void prh_atom_dynque_push(prh_atom_dynque_t *s, void *data); // data shall not be null
+void *prh_atom_dynque_pop(prh_atom_dynque_t *s); // return null means empty
+void *prh_atom_dynque_top(prh_atom_dynque_t *s); // return null means empty
+void prh_atom_dynque_dec(prh_atom_dynque_t *s);
+int prh_atom_dynque_len(prh_atom_dynque_t *s);
+
+#ifdef PRH_ATOMIC_IMPLEMENTATION
+#define PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
+#define PRH_IMPL_ATOM_DYNQUE_NODE_COUNT (PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE / sizeof(prh_wrap_nose_t))
+prh_static_assert(PRH_IMPL_ATOM_DYNQUE_NODE_COUNT >= 2); // 如果不能分配2个或2个以上，间接块分配没有意义
+prh_static_assert(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE % sizeof(prh_wrap_nose_t) == 0);
+
+void prh_impl_atom_dynque_more_free(prh_atom_dynque_t *q, prh_wrap_nose_t *node) {
+    prh_wrap_nose_t *last = node + PRH_IMPL_ATOM_DYNQUE_NODE_COUNT - 1;
+    prh_wrap_nose_t *first = (void *)q->free.next;
+    q->free.next = (void *)node;
+    last->next = first;
+    for (; ;) {
+        node->next = node + 1;
+        node = node + 1;
+        if (node == last) {
+            break;
+        }
+    }
+}
+
+prh_wrap_nose_t *prh_impl_atom_dynque_aligned_alloc(prh_atom_dynque_t *q) { // called by push thread
+    prh_wrap_nose_t *node;
+    if (q->free.next == &q->free) {
+        assert(prh_is_power_of_2(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
+        prh_impl_atom_dynque_more_free(q, prh_cache_line_aligned_malloc(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
+    }
+    node = q->free.next;
+    q->free.next = node->next;
+    node->next = prh_null; // node->data is set by push
+    return node;
+}
+
+prh_weak_func void prh_impl_atom_dynque_aligned_free(prh_atom_dynque_t *q, prh_wrap_nose_t *node) { // called by pop thread
+    if ((prh_unt)(node + 1) & (prh_unt)(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE - 1) == 0) {
+        prh_aligned_free(node + 1 - PRH_IMPL_ATOM_DYNQUE_NODE_COUNT);
+    }
+}
+
+void prh_atom_dynque_init(prh_atom_dynque_t *q) {
+    q->free.next = &q->free;
+    q->head = q->tail = prh_impl_atom_dynque_aligned_alloc(q); // 总是分配一个tail空节点，让非空head永远追不上tail
+    prh_atom_int_init(&q->quelen, 0);
+    return q;
+}
+
+void prh_atom_dynque_push(prh_atom_dynque_t *q, void *data) {
+    assert(data != prh_null); // push不会读写head，也不会读写已经存在的节点
+    prh_wrap_nose_t *null_node = prh_impl_atom_dynque_aligned_alloc(q);
+    prh_wrap_nose_t *tail = q->tail;
+    q->tail = null_node; // push只会更新tail和tail空节点，且push对应单一生产者，因此tail不需要atom
+    tail->next = null_node;
+    tail->data = data;
+    assert(tail->next == q->tail); // 只允许唯一生产者
+    prh_atom_int_inc(&q->quelen); // 更新quelen，此步骤执行完毕以上更新必须对所有cpu生效
+}
+
+void *prh_atompszque_top(prh_atom_dynque_t *q) {
+    if (!prh_atom_int_read(&q->quelen)) return prh_null;
+    return q->head->data;
+}
+
+void prh_impl_atom_dynque_dec(prh_atom_dynque_t *q) {
+    prh_wrap_nose_t *head = q->head; // pop不会读写tail，也不会读写tail空节点
+    q->head = head->next; // pop只会更新head和读写已存在的头节点，且pop对应单一消费者，因此head不需要atom
+    assert(q->head == head->next); // 只允许唯一消费者
+    prh_impl_atom_dynque_aligned_free(q, head);
+    prh_atom_int_dec(&q->quelen); // 更新quelen，此步骤执行完毕以上更新必须对所有cpu生效
+}
+
+void prh_atom_dynque_dec(prh_atom_dynque_t *q) {
+    if (!prh_atom_int_read(&q->quelen)) return prh_null;
+    prh_impl_atom_dynque_dec(q);
+}
+
+void *prh_atom_dynque_pop(prh_atom_dynque_t *q) {
+    if (!prh_atom_int_read(&q->quelen)) return prh_null;
+    void *data = q->head->data;
+    prh_impl_atom_dynque_dec(q);
+    return data;
+}
+
+int prh_atom_dynque_len(prh_atom_dynque_t *q) {
+    return prh_atom_int_read(&q->quelen);
+}
+#endif // PRH_ATOMIC_IMPLEMENTATION
 
 // Dynamic allocated link list atomic queue for only 1 producer and 1 consumer.
 // The queue node size is fixed, and must cotain prh_nose_t as the header.
