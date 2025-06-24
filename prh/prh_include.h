@@ -3375,7 +3375,7 @@ typedef struct prh_impl_coro_struct prh_coro_struct;
 struct prh_impl_coro_main;
 
 typedef struct {
-    struct prh_impl_coro_main *main; // 1nd field dont move
+    struct prh_impl_coro_main *main; // 1st field dont move
     prh_i32 start_id, curr_index; // 2nd field dont move, coro index start from 1
     prh_coro *coro; // last field dont move, only used by soro_struct
 } prh_soro_struct;
@@ -3466,7 +3466,7 @@ void prh_impl_coro_stack_segmentation_fault(prh_coro *coro) {
 //  [prh_coro *]
 //  [prh_coro *]
 struct prh_impl_coro_struct {
-    struct prh_impl_coro_main *main; // 1nd field dont move
+    struct prh_impl_coro_main *main; // 1st field dont move
     prh_i32 start_id, curr_index; // 2nd field dont move, coro index start from 1
     prh_i32 maxcoros, coro_cnt; // last field dont move, only used by coro_struct
 };
@@ -3823,18 +3823,21 @@ typedef prh_i32 prh_atom_i32;
 typedef prh_u32 prh_atom_u32;
 typedef prh_int prh_atom_int;
 typedef prh_unt prh_atom_unt;
+typedef prh_unt prh_atom_ptr;
 
 prh_static_assert(prh_alignof(prh_atom_bool) == prh_alignof(atomic_bool));
 prh_static_assert(prh_alignof(prh_atom_i32) == prh_alignof(atomic_int));
 prh_static_assert(prh_alignof(prh_atom_u32) == prh_alignof(atomic_uint));
 prh_static_assert(prh_alignof(prh_atom_int) == prh_alignof(atomic_intptr_t));
 prh_static_assert(prh_alignof(prh_atom_unt) == prh_alignof(atomic_uintptr_t));
+prh_static_assert(prh_alignof(prh_atom_ptr) == prh_alignof(atomic_uintptr_t));
 
 prh_static_assert(sizeof(prh_atom_bool) == sizeof(atomic_bool));
 prh_static_assert(sizeof(prh_atom_i32) == sizeof(atomic_int));
 prh_static_assert(sizeof(prh_atom_u32) == sizeof(atomic_uint));
 prh_static_assert(sizeof(prh_atom_int) == sizeof(atomic_intptr_t));
 prh_static_assert(sizeof(prh_atom_unt) == sizeof(atomic_uintptr_t));
+prh_static_assert(sizeof(prh_atom_ptr) == sizeof(atomic_uintptr_t));
 
 // Initializes an existing atomic object.
 // The function is not atomic: concurrent access from another thread, even
@@ -3851,6 +3854,7 @@ prh_inline void prh_atom_i32_init(prh_atom_i32 *a, prh_i32 b) { atomic_init((ato
 prh_inline void prh_atom_u32_init(prh_atom_u32 *a, prh_u32 b) { atomic_init((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_init(prh_atom_int *a, prh_int b) { atomic_init((atomic_intptr_t *)a, b); }
 prh_inline void prh_atom_unt_init(prh_atom_unt *a, prh_unt b) { atomic_init((atomic_uintptr_t *)a, b); }
+prh_inline void prh_atom_ptr_init(prh_atom_ptr *a, void *b) { atomic_init((atomic_uintptr_t *)a, (uintptr_t)b); }
 
 // Atomically perform load (atomic read) operation and return the value.
 // The default memory_order type is memory_order_seq_cst.
@@ -3859,6 +3863,7 @@ prh_inline prh_i32 prh_atom_i32_read(const prh_atom_i32 *a) { return atomic_load
 prh_inline prh_u32 prh_atom_u32_read(const prh_atom_u32 *a) { return atomic_load((atomic_uint *)a); }
 prh_inline prh_int prh_atom_int_read(const prh_atom_int *a) { return atomic_load((atomic_intptr_t *)a); }
 prh_inline prh_unt prh_atom_unt_read(const prh_atom_unt *a) { return atomic_load((atomic_uintptr_t *)a); }
+prh_inline void *prh_atom_ptr_read(const prh_atom_ptr *a) { return (void *)atomic_load((atomic_uintptr_t *)a); }
 
 // Atomically perform write or read-modify-write operation.
 // The default memory_order type is memory_order_seq_cst.
@@ -3867,12 +3872,14 @@ prh_inline void prh_atom_i32_write(prh_atom_i32 *a, prh_i32 b) { atomic_store((a
 prh_inline void prh_atom_u32_write(prh_atom_u32 *a, prh_u32 b) { atomic_store((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_write(prh_atom_int *a, prh_int b) { atomic_store((atomic_intptr_t *)a, b); }
 prh_inline void prh_atom_unt_write(prh_atom_unt *a, prh_unt b) { atomic_store((atomic_uintptr_t *)a, b); }
+prh_inline void prh_atom_ptr_write(prh_atom_ptr *a, void *b) { atomic_store((atomic_uintptr_t *)a, (uintptr_t)b); }
 
 prh_inline bool prh_atom_bool_fetch_write(prh_atom_bool *a, bool b) { return atomic_exchange((atomic_bool *)a, b); } // return old value
 prh_inline prh_i32 prh_atom_i32_fetch_write(prh_atom_i32 *a, prh_i32 b) { return atomic_exchange((atomic_int *)a, b); }
 prh_inline prh_u32 prh_atom_u32_fetch_write(prh_atom_u32 *a, prh_u32 b) { return atomic_exchange((atomic_uint *)a, b); }
 prh_inline prh_int prh_atom_int_fetch_write(prh_atom_int *a, prh_int b) { return atomic_exchange((atomic_intptr_t *)a, b); }
 prh_inline prh_unt prh_atom_unt_fetch_write(prh_atom_unt *a, prh_unt b) { return atomic_exchange((atomic_uintptr_t *)a, b); }
+prh_inline void *prh_atom_ptr_fetch_write(prh_atom_ptr *a, void *b) { return (void *)atomic_exchange((atomic_uintptr_t *)a, (uintptr_t)b); }
 
 // Atomically perform read-modify-wirte operation, and return the old value.
 // The modify operation can be add (+) sub (-) and (&) or (|) xor (^).
@@ -3906,6 +3913,7 @@ prh_inline bool prh_atom_i32_compare_write(prh_atom_i32 *a, prh_i32 *expect, prh
 prh_inline bool prh_atom_u32_compare_write(prh_atom_u32 *a, prh_u32 *expect, prh_u32 b) { return atomic_compare_exchange_weak((atomic_uint *)a, expect, b); }
 prh_inline bool prh_atom_int_compare_write(prh_atom_int *a, prh_int *expect, prh_int b) { return atomic_compare_exchange_weak((atomic_intptr_t *)a, expect, b); }
 prh_inline bool prh_atom_unt_compare_write(prh_atom_unt *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, expect, b); }
+prh_inline bool prh_atom_ptr_compare_write(prh_atom_ptr *a, void **expect, void *b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, (uintptr_t *)expect, (uintptr_t)b); }
 
 // 针对单生产者和单消费者的无锁单链表队列，队列不负责分配实际的节点，整个节点（包括头部
 // prh_nose_t和节点内容）都由使用者提供，因此节点可以是任意长度，其内容由使用者决定没有
@@ -3923,24 +3931,24 @@ typedef struct {
 } prh_atom_quefit; // the queue node is fixed in the original place user provided
 
 // Atomic singly linked queue for only 1 producer and 1 consumer. Each node has
-// a prh_snode header and a data pointer. Each node only contain a pointer. The
-// node is automatically dynamic allocated by the queue.
-typedef struct prh_atom_dynque_it prh_atom_dynque_it;
+// a prh_snode header and a data pointer. The node has fixed size and can only
+// contain a data pointer. The fixed size node is dynamic alloced by the queue.
+typedef struct prh_atom_quefix_it prh_atom_quefix_it;
 
 typedef struct {
     prh_data_snode *head; // 只由单一消费者读写, only modified by pop thread
     prh_data_snode *tail; // 只由单一生产者读写, only modified by push thread
     prh_snode free; // 仅由生产者读写，only modified by push thread
     prh_atom_int quelen;
-} prh_atom_dynque_t;
+} prh_atom_quefix;
 
-void prh_atom_dynque_init(prh_atom_dynque_t *q);
-void prh_atom_dynque_free(prh_atom_dynque_it *it);
-void prh_atom_dynque_push(prh_atom_dynque_t *s, void *data); // data shall not be null
-void *prh_atom_dynque_pop(prh_atom_dynque_t *s); // return null means empty
-void *prh_atom_dynque_top(prh_atom_dynque_t *s); // return null means empty
-void prh_atom_dynque_dec(prh_atom_dynque_t *s);
-int prh_atom_dynque_len(prh_atom_dynque_t *s);
+void prh_atom_quefix_init(prh_atom_quefix *q);
+void prh_atom_quefix_free(prh_atom_quefix_it *it);
+void prh_atom_quefix_push(prh_atom_quefix *s, void *data); // data shall not be null
+void *prh_atom_quefix_pop(prh_atom_quefix *s); // return null means empty
+void *prh_atom_quefix_top(prh_atom_quefix *s); // return null means empty
+void prh_atom_quefix_dec(prh_atom_quefix *s);
+int prh_atom_quefix_len(prh_atom_quefix *s);
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
 #define PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
@@ -3948,10 +3956,10 @@ int prh_atom_dynque_len(prh_atom_dynque_t *s);
 prh_static_assert(PRH_IMPL_ATOM_DYNQUE_NODE_COUNT >= 2); // 如果不能分配2个或2个以上，间接块分配没有意义
 prh_static_assert(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE % sizeof(prh_data_snode) == 0);
 
-void prh_impl_atom_dynque_more_free(prh_atom_dynque_t *q, prh_data_snode *node) {
+void prh_impl_atom_quefix_more_free(prh_atom_quefix *q, prh_data_snode *node) {
     prh_data_snode *last = node + PRH_IMPL_ATOM_DYNQUE_NODE_COUNT - 1;
     prh_data_snode *first = (void *)q->free.next;
-    q->free.next = (void *)node;
+    q->free.next = (void *)node; // add node list to free head
     last->next = first;
     for (; ;) {
         node->next = node + 1;
@@ -3962,34 +3970,34 @@ void prh_impl_atom_dynque_more_free(prh_atom_dynque_t *q, prh_data_snode *node) 
     }
 }
 
-prh_data_snode *prh_impl_atom_dynque_aligned_alloc(prh_atom_dynque_t *q) { // called by push thread
+prh_data_snode *prh_impl_atom_quefix_aligned_alloc(prh_atom_quefix *q) { // called by push thread
     prh_data_snode *node;
-    if (q->free.next == &q->free) {
+    if (q->free.next == prh_null) {
         assert(prh_is_power_of_2(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
-        prh_impl_atom_dynque_more_free(q, prh_cache_line_aligned_malloc(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
+        prh_impl_atom_quefix_more_free(q, prh_cache_line_aligned_malloc(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
     }
-    node = q->free.next;
+    node = q->free.next; // remove first free node
     q->free.next = node->next;
     node->next = prh_null; // node->data is set by push
     return node;
 }
 
-prh_weak_func void prh_impl_atom_dynque_aligned_free(prh_atom_dynque_t *q, prh_data_snode *node) { // called by pop thread
+void prh_impl_atom_quefix_aligned_free(prh_atom_quefix *q, prh_data_snode *node) { // called by pop thread
     if ((prh_unt)(node + 1) & (prh_unt)(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE - 1) == 0) {
         prh_aligned_free(node + 1 - PRH_IMPL_ATOM_DYNQUE_NODE_COUNT);
     }
 }
 
-void prh_atom_dynque_init(prh_atom_dynque_t *q) {
-    q->free.next = &q->free;
-    q->head = q->tail = prh_impl_atom_dynque_aligned_alloc(q); // 总是分配一个tail空节点，让非空head永远追不上tail
+void prh_atom_quefix_init(prh_atom_quefix *q) {
+    q->free.next = prh_null;
+    q->head = q->tail = prh_impl_atom_quefix_aligned_alloc(q); // 总是分配一个tail空节点，让非空head永远追不上tail
     prh_atom_int_init(&q->quelen, 0);
     return q;
 }
 
-void prh_atom_dynque_push(prh_atom_dynque_t *q, void *data) {
+void prh_atom_quefix_push(prh_atom_quefix *q, void *data) {
     assert(data != prh_null); // push不会读写head，也不会读写已经存在的节点
-    prh_data_snode *null_node = prh_impl_atom_dynque_aligned_alloc(q);
+    prh_data_snode *null_node = prh_impl_atom_quefix_aligned_alloc(q);
     prh_data_snode *tail = q->tail;
     q->tail = null_node; // push只会更新tail和tail空节点，且push对应单一生产者，因此tail不需要atom
     tail->next = null_node;
@@ -3998,32 +4006,37 @@ void prh_atom_dynque_push(prh_atom_dynque_t *q, void *data) {
     prh_atom_int_inc(&q->quelen); // 更新quelen，此步骤执行完毕以上更新必须对所有cpu生效
 }
 
-void *prh_atompszque_top(prh_atom_dynque_t *q) {
+void *prh_atompszque_top(prh_atom_quefix *q) {
     if (!prh_atom_int_read(&q->quelen)) return prh_null;
     return q->head->data;
 }
 
-void prh_impl_atom_dynque_dec(prh_atom_dynque_t *q) {
+void prh_impl_atom_quefix_dec(prh_atom_quefix *q) {
     prh_data_snode *head = q->head; // pop不会读写tail，也不会读写tail空节点
     q->head = head->next; // pop只会更新head和读写已存在的头节点，且pop对应单一消费者，因此head不需要atom
     assert(q->head == head->next); // 只允许唯一消费者
-    prh_impl_atom_dynque_aligned_free(q, head);
+#if defined(PRH_CONO_IMPLEMENTATION)
+    extern void prh_impl_cono_atom_quefix_aligned_free(prh_atom_quefix *q, prh_data_snode *node);
+    prh_impl_cono_atom_quefix_aligned_free(q, head);
+#else
+    prh_impl_atom_quefix_aligned_free(q, head);
+#endif
     prh_atom_int_dec(&q->quelen); // 更新quelen，此步骤执行完毕以上更新必须对所有cpu生效
 }
 
-void prh_atom_dynque_dec(prh_atom_dynque_t *q) {
+void prh_atom_quefix_dec(prh_atom_quefix *q) {
     if (!prh_atom_int_read(&q->quelen)) return prh_null;
-    prh_impl_atom_dynque_dec(q);
+    prh_impl_atom_quefix_dec(q);
 }
 
-void *prh_atom_dynque_pop(prh_atom_dynque_t *q) {
+void *prh_atom_quefix_pop(prh_atom_quefix *q) {
     if (!prh_atom_int_read(&q->quelen)) return prh_null;
     void *data = q->head->data;
-    prh_impl_atom_dynque_dec(q);
+    prh_impl_atom_quefix_dec(q);
     return data;
 }
 
-int prh_atom_dynque_len(prh_atom_dynque_t *q) {
+int prh_atom_quefix_len(prh_atom_quefix *q) {
     return prh_atom_int_read(&q->quelen);
 }
 #endif // PRH_ATOMIC_IMPLEMENTATION
@@ -7575,8 +7588,7 @@ void prh_impl_thrd_test(void) {
 
 // CONCURRENCY - Very simple single file style concurrency library
 #ifdef PRH_CONO_INCLUDE
-void prh_cono_init(int mainthrdid, int maxthrds);
-void prh_cono_run(prh_coroproc_t main_coro_proc, int stack_size);
+void prh_cono_main(int thrd_start_id, int num_thread, prh_coroproc_t main_proc, int stack_size);
 void *prh_cono_type_1_create(prh_coro *parent, prh_coroproc_t proc, int stack_size, int maxudsize);
 void *prh_cono_await(prh_coro *coro);
 void prh_cono_start(void *cono_create_data);
@@ -7590,7 +7602,7 @@ typedef struct {
     prh_soro_struct soro; // 当前执行协程
     prh_snode_t cono_2_free_node;
     // 特权线程也能访问
-    prh_atom_quefix tx_que_to_type_2_cono;
+    prh_atom_quefix tx_que_to_type_2_coro;
     prh_coromsg_t *txmq_atomnodque_tail; // 由当前线程读写
     // only accessed by privilege thread
     prh_coromsg_t *txmq_atomnodque_head; // 由特权线程读写
@@ -7600,24 +7612,6 @@ typedef struct {
     prh_atombool_t thread_available;
     prh_atombool_t thread_sleeping;
 } prh_cono_thrd; // 每个线程尽量指定在单一的CPU上运行避免线程切换
-
-// 要实现无锁且省去N*M爆炸内存，必须有一个线程担任中间角色，请求者与中间角色是一对一的，
-// 中间角色与执行者也是一对一的，从而能够实现无锁。但中间角色的加入，必然带来一定延迟，
-// 因此必须保证中间角色负责的中转任务即使在任务繁重的情况下，也能很快的高优先级完成。因
-// 此必须有一个线程偏向性的来执行这些任务，避免所有线程都被一些费时任务霸占，导致轻量任
-// 务被迫挨饿。
-//
-// 可以让主线程偏重执行这种任务，轻量执行时间短且优先级高的任务都属于此类。基本类型的原子
-// 操作可以实现N个线程的竞争执行，但对于队列等复杂数据结构的无锁操作需要依赖一个线程读一
-// 个线程写的一对一模型。如果不依靠一对一模型，N个线程同时竞争，一个任务就需要维护N个数据
-// 结构，这样每个线程才能无锁的互不干扰的对这个任务进行读写。相当于用内存隔离来避免线程的
-// 访问竞争，但是有M个任务就必须爆炸式的分配N*M份内存，在嵌入式等内存短缺的平台上不是一
-// 种好的解决方案。
-//
-// 使用一对一的单生产者和单消费者的模式，请求线程将请求数据暂存到自己的发送队列，作为中间
-// 角色的特权线程，遍历全部线程的发送队列，将发送队列中的请求数据转发到执行协程的接收队列
-// 中，此执行协程此时可能正在某个线程中执行自己的任务，但如果执行协程没有在执行需要将该协
-// 程添加到等待队列中去调度执行。
 
 void prh_impl_cono_thrd_init(prh_cono_thrd *t) {
     prh_atomnodque_init(t, txmq);
@@ -7636,22 +7630,37 @@ typedef enum {
 } prh_impl_cono_type;
 
 typedef enum {
-    PRH_CONO_ID_ROOT,
-    PRH_FIXED_CONO_MAX,
-} prh_impl_cono_id;
+    PRH_CORO_ID_ROOT,
+    PRH_FIXED_CORO_MAX,
+} prh_impl_coro_id;
+
+typedef enum {
+    PRH_CORO_SR_CONTROL_RELEASE,
+    PRH_CORO_SR_
+} prh_impl_coro_suspend_reason;
 
 typedef struct {
+    // 仅由执行线程访问
     prh_snode node;
-    // only accessed by curr thread
-    prh_coro *cono_1_parent;
+    prh_u32 coro_id;
+    prh_i32 coro_type;
+    prh_i32 suspend_reason;
+    void *suspend_para;
+    prh_coro_task_req *task_req;
+    prh_coro *coro_1_parent;
     prh_nstack pending_stack; // waiting curr running coro complete
     prh_coromsg_t *rxmq_atomnodque_head;
-    // only accessed by privilege thread
+    // 特权线程也可访问
+    prh_atom_quefix rx_queue;
     prh_coromsg_t *rxmq_atomnodque_tail;
     bool already_in_ready_que;
     // accessed by both threads
     prh_atomint_t rxmq_atomnodque_len;
 } prh_cono; // 跨线程协程
+
+void prh_impl_cono_init(prh_cono *cono, prh_u32 coro_id) {
+    cono->coro_id = coro_id;
+}
 
 typedef struct {
     prh_thrd_struct *coro_thrd_pool;
@@ -7662,30 +7671,14 @@ typedef struct {
     // only accessed by privilege thread
     prh_quefit coro_ready_que;
     // accessed by both thread
-    prh_atomptr_t privilege_thread;
+    prh_atom_ptr privilege_thread;
     prh_atomint_t sleeping_count;
     prh_atombool_t exit_thread;
-    prh_coro fixed_coro[PRH_FIXED_CONO_MAX];
+    prh_coro *fixed_coro[PRH_FIXED_CORO_MAX];
 } prh_cono_struct;
 
 static prh_cono_struct PRH_IMPL_CONO_STRUCT;
 int prh_impl_cono_thrd_proc(prh_thrd* t);
-
-void prh_cono_init(int thrd_start_id, int num_thread) {
-    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
-    prh_thrd_struct *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_cono_thrd));
-    prh_thread_init_main_userdata(pool, (prh_thrdinit_t)prh_impl_cono_thrd_init);
-    prh_cono_thrd *main = prh_thread_main_userdata(pool);
-    prh_atomtype_store(&main->thread_available, false);
-    s->coro_thrd_pool = pool;
-    s->coro_thrd_list = pool->thrd;
-    s->numcorothrds = (num_thread > 0 ? num_thread : 0) + 1;
-    prh_quefit_init(&s->coro_ready_que);
-    prh_atomtype_init(&s->privilege_thread, prh_atomnull);
-    for (int i = 0; i < num_thread; i += 1) {
-        prh_thread_ext_create(pool, prh_impl_cono_thrd_proc, 0, sizeof(prh_cono_thrd), (prh_thrdinit_t)prh_impl_cono_thrd_init);
-    }
-}
 
 prh_inline int prh_impl_cono_size(void) {
     return (int)prh_round_16_byte(sizeof(prh_cono));
@@ -7715,27 +7708,6 @@ prh_inline prh_thrd *prh_impl_get_thrd_head(prh_cono_thrd *thrd) {
     return (prh_thrd *)((char *)thrd - prh_impl_thrd_head_size);
 }
 
-typedef enum {
-    PRH_ROOT_CONO_START_CREATED_CORO,
-} prh_root_cono_task_id;
-
-typedef struct {
-    prh_unt cono_id_seed;
-} prh_root_cono;
-
-typedf struct {
-    prh_i32 dest_cono_id;
-    prh_i32 cono_task_id;
-} prh_root_cono_start_created_coro;
-
-prh_coro_proc prh_impl_root_coro_proc(prh_coro *coro) {
-    prh_impl_root_cono *root = coro_data(coro);
-    for (; ;) {
-        prh_coro *p = root->created_coro_ready_to_start;
-        prh_cono_2_yield(coro, p);
-    }
-}
-
 void *prh_impl_coro_push(prh_coro *coro, int data_bytes) {
     prh_byte *rsp = (prh_byte *)coro - coro->rspoffset;
     data_bytes = prh_round_ptrsize(data_bytes);
@@ -7749,34 +7721,143 @@ void *prh_impl_coro_pop(prh_coro *coro, int data_bytes) {
     return rsp + sizeof(void *);
 }
 
-void *prh_impl_coro_fast_push(prh_coro *coro, int data_bytes) {
-    prh_byte *rsp = (prh_byte *)coro - coro->rspoffset;
-    return rsp - prh_round_ptrsize(data_bytes);
+prh_inline void *prh_impl_coro_fast_push(prh_coro *coro, int data_bytes) {
+    return (prh_byte *)coro - coro->rspoffset - prh_round_ptrsize(data_bytes);
 }
 
-void *prh_impl_coro_fast_pop(prh_coro *coro, int data_bytes) {
-    prh_byte *rsp = (prh_byte *)coro - coro->rspoffset;
-    return rsp - prh_round_ptrsize(data_bytes);
-}
+#define PRH_CORO_TI_EXIT 0xFF
 
 typedef enum {
-    PRH_THRD_SORO_SUSPEND,
-} prh_thrd_soro_ret_data;
+    PRH_ROOT_TI_CREATING_NEW_CORO,
+} prh_root_task_id;
 
+typedf struct {
+    prh_i32 dest_coro_id;
+    prh_i32 coro_task_id;
+} prh_coro_task_req;
+
+void *prh_cono_create_type_1_coro(prh_coro *parent, prh_coroproc_t proc, int stack_size, int maxudsize) {
+    prh_coro *coro = prh_impl_cono_create(proc, stack_size, maxudsize);
+    void *userdata = prh_coro_data(coro);
+    prh_cono *cono = prh_impl_cono_from_data(userdata);
+    cono->coro_type = PRH_CORO_TYPE_1;
+    cono->coro_1_parent = parent;
+    return userdata;
+}
+
+prh_coro *prh_cono_type_2_coro(prh_coroproc_t proc, int stack_size, prh_void_ptr userdata) {
+    prh_coro *coro = prh_impl_cono_create(proc, stack_size, 0);
+    prh_cono *cono = prh_impl_cono_from_coro(coro);
+    cono->coro_type = PRH_CORO_TYPE_2;
+    coro->userdata = (void *)userdata;
+    return coro;
+}
+
+void *prh_cono_creatx_type_2_coro(prh_coroproc_t proc, int stack_size, int maxudsize) {
+    prh_coro *coro = prh_impl_cono_create(proc, stack_size, maxudsize);
+    void *userdata = prh_coro_data(coro);
+    prh_cono *cono = prh_impl_cono_from_data(userdata);
+    cono->coro_type = PRH_CORO_TYPE_2;
+    return userdata;
+}
+
+// 要实现无锁且省去N*M爆炸内存，必须有一个线程担任中间角色，请求者与中间角色是一对一的，
+// 中间角色与执行者也是一对一的，从而能够实现无锁。但中间角色的加入，必然带来一定延迟，
+// 因此必须保证中间角色负责的中转任务即使在任务繁重的情况下，也能很快的高优先级完成。因
+// 此必须有一个线程偏向性的来执行这些任务，避免所有线程都被一些费时任务霸占，导致轻量任
+// 务被迫挨饿。
+//
+// 可以让主线程偏重执行这个任务，轻量执行时间短且优先级高的任务都属于此类。基本类型的原子
+// 操作可以实现N个线程的竞争执行，但对于队列等复杂数据结构的无锁操作需要依赖一个线程读一
+// 个线程写的一对一模型。如果不依靠一对一模型，N个线程同时竞争，一个任务就需要维护N个数据
+// 结构，这样每个线程才能无锁的互不干扰的对这个任务进行读写。相当于用内存隔离来避免线程的
+// 访问竞争，但是有M个任务就必须爆炸式的分配N*M份内存，在嵌入式等内存短缺的平台上不是一
+// 种好的解决方案。
+//
+// 使用一对一的单生产者和单消费者的模式，请求线程将请求数据暂存到自己的发送队列，作为中间
+// 角色的特权线程，遍历全部线程的发送队列，将发送队列中的请求数据转发到执行协程的接收队列
+// 中，此执行协程此时可能正在某个线程中执行自己的任务，但如果执行协程没有在执行需要将该协
+// 程添加到等待队列中去进行调度。
+//
+// root 协程执行轻量的高优先级任务，主线程完全偏向执行这个协程，另外所有其他线程可以平等
+// 地像执行其他普通协程一样竞争执行这个协程，执行 root 协程的线程也被称为特权线程。主线
+// 程除了最高优先级执行 root 协程外，还可以安排执行其他特殊的轻量高优先级任务。
 typedef struct {
-    prh_int return_data;
-} prh_thrd_soro_data;
+
+} prh_coro_root;
+
+#define PRH_IMPL_ROOT_CORO_STACK_SIZE 128
+
+prh_u32 prh_impl_root_coro_id_seed(prh_coro *root) {
+    prh_u32 *coro_id_seed = (prh_u32 *)&root->userdata;
+    return (*coro_id_seed)++;
+}
+
+void prh_impl_coro_ready_to_run(prh_cono *root_cono, prh_coro *ready_coro) {
+
+}
+
+// 需要保证同一个服务向另一个服务发出的消息不乱序
+bool prh_impl_privilege_task(prh_cono_thrd *privilege) {
+    // 获取特权
+    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
+    prh_atom_ptr *privilege_thread = &s->privilege_thread;
+    void *expect_inout = prh_null;
+    if (!prh_atom_ptr_compare_write(privilege_thread, &expect_inout, privilege)) {
+        return false;
+    }
+
+    // 分发线程消息到目标协程
+
+    // 释放特权
+    prh_atom_ptr_write(privilege_thread, prh_null);
+    return true;
+}
+
+prh_coro_proc prh_impl_root_coro_proc(prh_coro *root) {
+    prh_cono *root_cono = prh_impl_cono_from_coro(root);
+    for (; ;) {
+        prh_coro *req_coro = prh_atom_quefix_pop(&root_cono->rx_queue);
+        if (req_coro == prh_null) {
+            root_cono->suspend_reason = PRH_CORO_SR_CONTROL_RELEASE;
+            prh_coro_yield(root);
+        } else {
+            prh_cono *req_cono = prh_impl_cono_from_coro(req_coro);
+            prh_coro_task_req *task_req = req_cono->task_req;
+            prh_int task_id = task_req->coro_task_id;
+            if (task_id == PRH_ROOT_TI_CREATING_NEW_CORO) {
+                prh_impl_cono_init(req_cono, prh_impl_root_coro_id_seed(root));
+                // 将新创建的协程及其父协程都添加到就绪队列等待调度执行
+                prh_impl_coro_ready_to_run(root_cono, req_cono->coro_1_parent);
+                prh_impl_coro_ready_to_run(root_cono, req_coro);
+            }
+        }
+    }
+}
+
+void prh_impl_cono_init_fixed_coro(prh_coro *coro, prh_u32 coro_id) {
+    assert(coro_id < PRH_FIXED_CORO_MAX);
+    prh_cono *cono = prh_impl_cono_from_coro(coro);
+    prh_impl_cono_init(cono, coro_id);
+    PRH_IMPL_CONO_STRUCT.fixed_coro[coro_id] = coro;
+}
+
+prh_coro *prh_impl_cono_create_root(void) {
+    prh_coro *coro = prh_cono_type_2_coro(prh_impl_root_coro_proc, PRH_IMPL_ROOT_CORO_STACK_SIZE, PRH_FIXED_CORO_MAX);
+    prh_impl_cono_init_fixed_coro(coro, PRH_CORO_ID_ROOT);
+    return coro;
+}
 
 bool prh_impl_thrd_run_coro(prh_cono_thrd *cono_thrd, prh_coro *coro) {
     prh_soro_struct *soro = &cono_thrd->soro;
-
+    prh_cono *cono = prh_impl_cono_from_coro(coro);
     soro->coro = coro;
     if (prh_soro_await(soro)) {
-        prh_int return_data = ((prh_thrd_soro_data *)prh_coro_data(coro))->return_data;
-        if (return_data == PRH_THRD_SORO_SUSPEND) {
-            return; // 当前执行协程被挂起，可以释放当前线程去做其他任务
+        if (cono->suspend_reason == PRH_CORO_SR_CONTROL_RELEASE) {
+            return true; // 当前执行协程被挂起，可以释放当前线程去做其他任务
         }
     }
+    return false;
 }
 
 prh_coro *prh_impl_cono_create(prh_coroproc_t proc, int stack_size, int maxudsize) {
@@ -7790,56 +7871,61 @@ prh_cono_thrd *prh_impl_cono_thrd_init(prh_thrd *thrd) {
     return cono_thrd;
 }
 
-prh_void_ptr prh_impl_cono_main_thrd_proc(prh_thrd* thrd, prh_coroproc_t main_proc, int stack_size) {
-    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd_init(thrd);
-    prh_coro *main_coro = prh_impl_cono_create(main_proc, stack_size, 0);
-
-    prh_impl_thrd_run_coro(cono_thrd, main_coro);
-    return 0;
-}
-
 prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* t) {
     prh_cono_thrd *cono_thrd = prh_impl_cono_thrd_init(thrd);
 
     return 0;
 }
 
-void prh_cono_run(prh_coroproc_t main_proc, int stack_size) {
+void prh_cono_main(int thrd_start_id, int num_thread, prh_coroproc_t main_proc, int stack_size) {
+    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
+    prh_thrd_struct *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_cono_thrd));
+    prh_thread_init_main_userdata(pool, (prh_thrdinit_t)prh_impl_cono_thrd_init);
+    prh_cono_thrd *main = prh_thread_main_userdata(pool);
+    prh_atomtype_store(&main->thread_available, false);
+    s->coro_thrd_pool = pool;
+    s->coro_thrd_list = pool->thrd;
+    s->numcorothrds = (num_thread > 0 ? num_thread : 0) + 1;
+    prh_quefit_init(&s->coro_ready_que);
+    prh_atomtype_init(&s->privilege_thread, prh_atomnull);
+    for (int i = 0; i < num_thread; i += 1) {
+        prh_thread_ext_create(pool, prh_impl_cono_thrd_proc, 0, sizeof(prh_cono_thrd), (prh_thrdinit_t)prh_impl_cono_thrd_init);
+    }
+
     prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
     prh_thrd_struct *pool = s->coro_thrd_pool;
     prh_cono_thrd *main = prh_thread_main_userdata(pool);
     prh_atomtype_store(&main->thread_available, true);
 
-    prh_impl_cono_main_thrd_proc(main, main_proc, stack_size);
+    // 创建根协程
+    prh_coro *root = prh_impl_cono_create_root();
+
+    // 启动入口协程（主协程）
+    // 程序的执行从主线程执行第一个协程开始，这个协程可以称为主协程，但主协程没有与主
+    // 线程进行绑定，只是由主线程发起了执行的动作，后续恢复挂起的主协程的执行可以在任意
+    // 线程，主协程也只是一个普通的协程而已。
+    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd_init(thrd);
+    prh_impl_thrd_run_coro(cono_thrd, prh_impl_cono_create(main_proc, stack_size, 0));
 }
 
-void prh_cono_type_2_req_coro_await(prh_coro *req_coro) {
-    prh_thrd_soro *soro = prh_coro_data(req_coro);
-    soro->return_data = PRH_THRD_SORO_SUSPEND_CURR_CORO;
-    prh_coro_yield(req_coro);
-}
-
-void prh_impl_send_to_type_2_cono(prh_coro *req_coro) {
+void prh_impl_send_to_type_2_coro(prh_coro *req_coro) {
     prh_cono_thrd *thrd = prh_thrd_self_data();
-    prh_atom_quefix_push(&thrd->tx_que_to_type_2_cono, req_coro);
-    prh_cono_type_2_req_coro_await(req_coro);
+    prh_atom_quefix_push(&thrd->tx_que_to_type_2_coro, req_coro);
 }
 
 void prh_cono_start(void *cono_create_data) {
     prh_coro *coro = prh_impl_coro_from_data(cono_create_data);
-    prh_root_cono_start_created_coro *req = prh_impl_coro_fast_push(coro, sizeof(prh_root_cono_start_created_coro));
-    req->dest_cono_id = PRH_CONO_ID_ROOT;
-    req->cono_task_id = PRH_ROOT_CONO_START_CREATED_CORO;
-    prh_impl_send_to_type_2_cono(coro);
-}
-
-void *prh_cono_type_1_create(prh_coro *parent, prh_coroproc_t proc, int stack_size, int maxudsize) {
-    prh_coro *coro = prh_impl_coro_creatx(proc, stack_size, sizeof(prh_cono), maxudsize);
-    void *data = prh_coro_data(coro);
-    prh_cono *c = prh_impl_cono_from_data(data);
-    c->parent = parent;
-    c->cono_type = PRH_CONO_TYPE_1;
-    return data;
+    prh_coro_task_req *task_req = prh_impl_coro_fast_push(coro, sizeof(prh_coro_task_req));
+    task_req->dest_coro_id = PRH_CORO_ID_ROOT;
+    task_req->coro_task_id = PRH_ROOT_TI_CREATING_NEW_CORO;
+    prh_impl_send_to_type_2_coro(coro);
+    // 一个协程在线程中执行时，因创建新协程而挂起，等待新协程创建完毕后恢复。协程挂起后，
+    // 线程可以去做其他任务，不需要再管这个挂起的协程。因为当新协程创建完毕后，会自动恢
+    // 复该协程的执行，并且可能在不同线程。
+    prh_cono *cono = prh_impl_cono_from_coro(coro);
+    cono->task_req = task_req;
+    cono->suspend_reason = PRH_CORO_SR_CONTROL_RELEASE;
+    prh_coro_yield(coro);
 }
 
 void prh_cono_finish(void) {
