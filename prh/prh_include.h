@@ -3915,6 +3915,13 @@ prh_inline bool prh_atom_int_compare_write(prh_atom_int *a, prh_int *expect, prh
 prh_inline bool prh_atom_unt_compare_write(prh_atom_unt *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, expect, b); }
 prh_inline bool prh_atom_ptr_compare_write(prh_atom_ptr *a, void **expect, void *b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, (uintptr_t *)expect, (uintptr_t)b); }
 
+prh_inline bool prh_atom_bool_strong_compare_write(prh_atom_bool *a, bool *expect, bool b) { return atomic_compare_exchange_strong((atomic_bool *)a, expect, b); }
+prh_inline bool prh_atom_i32_strong_compare_write(prh_atom_i32 *a, prh_i32 *expect, prh_i32 b) { return atomic_compare_exchange_strong((atomic_int *)a, expect, b); }
+prh_inline bool prh_atom_u32_strong_compare_write(prh_atom_u32 *a, prh_u32 *expect, prh_u32 b) { return atomic_compare_exchange_strong((atomic_uint *)a, expect, b); }
+prh_inline bool prh_atom_int_strong_compare_write(prh_atom_int *a, prh_int *expect, prh_int b) { return atomic_compare_exchange_strong((atomic_intptr_t *)a, expect, b); }
+prh_inline bool prh_atom_unt_strong_compare_write(prh_atom_unt *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_strong((atomic_uintptr_t *)a, expect, b); }
+prh_inline bool prh_atom_ptr_strong_compare_write(prh_atom_ptr *a, void **expect, void *b) { return atomic_compare_exchange_strong((atomic_uintptr_t *)a, (uintptr_t *)expect, (uintptr_t)b); }
+
 // 针对单生产者和单消费者的无锁单链表队列，队列不负责分配实际的节点，整个节点（包括头部
 // prh_nose_t和节点内容）都由使用者提供，因此节点可以是任意长度，其内容由使用者决定没有
 // 限制。队列只分配纯节点头部无内容的辅助节点，这种节点是为了实现无锁而需要的没有实际意义
@@ -3933,22 +3940,24 @@ typedef struct {
 // Atomic singly linked queue for only 1 producer and 1 consumer. Each node has
 // a prh_snode header and a data pointer. The node has fixed size and can only
 // contain a data pointer. The fixed size node is dynamic alloced by the queue.
-typedef struct prh_atom_quefix_it prh_atom_quefix_it;
-
 typedef struct {
     prh_data_snode *head; // 只由单一消费者读写, only modified by pop thread
     prh_data_snode *tail; // 只由单一生产者读写, only modified by push thread
     prh_snode free; // 仅由生产者读写，only modified by push thread
-    prh_atom_int quelen;
+    prh_atom_ptr last; // 生产者无条件写，消费者负责读和有条件写
 } prh_atom_quefix;
 
+typedef struct {
+    prh_data_snode *head;
+    prh_data_snode *last;
+} prh_atom_quefix_range;
+
 void prh_atom_quefix_init(prh_atom_quefix *q);
-void prh_atom_quefix_free(prh_atom_quefix_it *it);
 void prh_atom_quefix_push(prh_atom_quefix *s, void *data); // data shall not be null
-void *prh_atom_quefix_pop(prh_atom_quefix *s); // return null means empty
 void *prh_atom_quefix_top(prh_atom_quefix *s); // return null means empty
-void prh_atom_quefix_dec(prh_atom_quefix *s);
-int prh_atom_quefix_len(prh_atom_quefix *s);
+void *prh_atom_quefix_pop(prh_atom_quefix *s); // return null means empty
+bool prh_atom_quefix_all(prh_atom_quefix *q, prh_atom_quefix_range *r);
+void prh_atom_quefix_free(prh_atom_quefix *q, prh_atom_quefix_range *r);
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
 #define PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
@@ -3991,53 +4000,67 @@ void prh_impl_atom_quefix_aligned_free(prh_atom_quefix *q, prh_data_snode *node)
 void prh_atom_quefix_init(prh_atom_quefix *q) {
     q->free.next = prh_null;
     q->head = q->tail = prh_impl_atom_quefix_aligned_alloc(q); // 总是分配一个tail空节点，让非空head永远追不上tail
-    prh_atom_int_init(&q->quelen, 0);
+    prh_atom_ptr_init(&q->last, prh_null);
     return q;
 }
 
 void prh_atom_quefix_push(prh_atom_quefix *q, void *data) {
     assert(data != prh_null); // push不会读写head，也不会读写已经存在的节点
-    prh_data_snode *null_node = prh_impl_atom_quefix_aligned_alloc(q);
-    prh_data_snode *tail = q->tail;
-    q->tail = null_node; // push只会更新tail和tail空节点，且push对应单一生产者，因此tail不需要atom
-    tail->next = null_node;
-    tail->data = data;
-    assert(tail->next == q->tail); // 只允许唯一生产者
-    prh_atom_int_inc(&q->quelen); // 更新quelen，此步骤执行完毕以上更新必须对所有cpu生效
+    prh_data_snode *null_tail = prh_impl_atom_quefix_aligned_alloc(q);
+    prh_data_snode *last = q->tail;
+    q->tail = null_tail; // push只会更新tail和tail空节点，且push对应单一生产者，因此tail不需要atom
+    last->next = null_tail;
+    last->data = data;
+    assert(q->tail == null_tail); // 只允许唯一生产者
+    prh_atom_ptr_write(&q->last, last); // 此步骤执行完毕以上更新必须对所有cpu生效
 }
 
-void *prh_atompszque_top(prh_atom_quefix *q) {
-    if (!prh_atom_int_read(&q->quelen)) return prh_null;
+void *prh_atom_quefix_top(prh_atom_quefix *q) {
+    if (!prh_atom_ptr_read(&q->last)) return prh_null;
     return q->head->data;
 }
 
-void prh_impl_atom_quefix_dec(prh_atom_quefix *q) {
-    prh_data_snode *head = q->head; // pop不会读写tail，也不会读写tail空节点
-    q->head = head->next; // pop只会更新head和读写已存在的头节点，且pop对应单一消费者，因此head不需要atom
-    assert(q->head == head->next); // 只允许唯一消费者
+void prh_impl_atom_quefix_free_node(prh_atom_quefix *q, prh_data_snode *node) {
 #if defined(PRH_CONO_IMPLEMENTATION)
     extern void prh_impl_cono_atom_quefix_aligned_free(prh_atom_quefix *q, prh_data_snode *node);
-    prh_impl_cono_atom_quefix_aligned_free(q, head);
+    prh_impl_cono_atom_quefix_aligned_free(q, node);
 #else
-    prh_impl_atom_quefix_aligned_free(q, head);
+    prh_impl_atom_quefix_aligned_free(q, node);
 #endif
-    prh_atom_int_dec(&q->quelen); // 更新quelen，此步骤执行完毕以上更新必须对所有cpu生效
-}
-
-void prh_atom_quefix_dec(prh_atom_quefix *q) {
-    if (!prh_atom_int_read(&q->quelen)) return prh_null;
-    prh_impl_atom_quefix_dec(q);
 }
 
 void *prh_atom_quefix_pop(prh_atom_quefix *q) {
-    if (!prh_atom_int_read(&q->quelen)) return prh_null;
-    void *data = q->head->data;
-    prh_impl_atom_quefix_dec(q);
+    prh_data_snode *last = prh_atom_ptr_read(&q->last);
+    if (last == prh_null) return prh_null;
+    prh_data_snode *head = q->head;
+    prh_data_snode *next = head->next;
+    void *data = head->data; // pop不会读写tail，也不会读写tail空节点
+    q->head = next; // pop只会更新head和读写已存在的头节点，且pop对应单一消费者，因此head不需要atom
+    if (head == last) { // 使用 compare write 是因为 q->last 会随时被 push 更新
+        prh_atom_ptr_strong_compare_write(&q->last, &last, prh_null);
+    }
+    prh_impl_atom_quefix_free_node(q, head);
+    assert(q->head == next); // 只允许唯一消费者
     return data;
 }
 
-int prh_atom_quefix_len(prh_atom_quefix *q) {
-    return prh_atom_int_read(&q->quelen);
+bool prh_atom_quefix_all(prh_atom_quefix *q, prh_atom_quefix_range *r) {
+    prh_data_snode *last = prh_atom_ptr_read(&q->last);
+    if (last == prh_null) return false;
+    r->last = last;
+    r->head = q->head;
+    q->head = last->next; // pop all
+    prh_atom_ptr_strong_compare_write(&q->last, &last, prh_null);
+    assert(q->head == last->next); // 只允许唯一消费者
+    last->next = prh_null; // 方便释放
+    return true;
+}
+
+void prh_atom_quefix_free(prh_atom_quefix *q, prh_atom_quefix_range *r) {
+    prh_data_snode *head = r->head;
+    for (; head; head = head->next) {
+        prh_impl_atom_quefix_free_node(q, head);
+    }
 }
 #endif // PRH_ATOMIC_IMPLEMENTATION
 
@@ -6308,15 +6331,37 @@ typedef struct {
     prh_u32 extra;
 } prh_thrd;
 
-typedef struct prh_thrd_struct prh_thrd_struct;
+typedef struct {
+    prh_i32 maxthrds, thrd_cnt;
+    prh_thrd *main;
+    // [prh_thrd *]
+    // [prh_thrd *]
+} prh_thrd_struct;
+
+prh_inline prh_thrd **prh_thrd_list(prh_thrd_struct *s) {
+    return &s->main;
+}
+
+prh_inline prh_thrd *prh_thrd_get(prh_thrd_struct *s, int index) {
+    assert(index >= 0 && index <= s->maxthrds);
+    return prh_thrd_list(s)[index]; // 0 for main thread
+}
+
+prh_inline prh_thrd *prh_thrd_main(prh_thrd_struct *s) {
+    assert(s->main == prh_thrd_get(s, 0));
+    return s->main;
+}
+
+#define prh_thrd_for_each(thrd_struct) \
+    for (prh_thrd_struct *prh_impl_s = (thrd_struct), prh_thrd **prh_impl_p = prh_thrd_list(prh_impl_s), \
+         prh_thrd *it, prh_int prh_impl_n = prh_impl_s->maxthrds, prh_impl_i = 0; (it = *prh_impl_p++, prh_impl_i <= prh_impl_n); prh_impl_i += 1)
+
 typedef prh_void_ptr (*prh_thrdproc_t)(prh_thrd* thrd);
 typedef void (*prh_thrdfree_t)(void *userdata, int thrd_index); // thrd_index 0 for main thrd
 
 prh_thrd *prh_thrd_self(void);
 prh_thrd *prh_thrd_main(prh_thrd_struct *s);
 prh_thrd *prh_thrd_get(prh_thrd_struct *s, int thrd_index);
-int prh_thrd_max_num(prh_thrd_struct *s);
-int prh_thrd_cur_num(prh_thrd_struct *s);
 
 prh_inline void *prh_thrd_data(prh_thrd *thrd) {
     return thrd->userdata;
@@ -6396,8 +6441,6 @@ void prh_thrd_wakeup_all(prh_sleep_cond *p);
 #define thrd_main_id                prh_thrd_main_id
 #define thrd_main_data              prh_thrd_main_data
 #define thrd_get                    prh_thrd_get
-#define thrd_max_num                prh_thrd_max_num
-#define thrd_cur_num                prh_thrd_cur_num
 #define thrd_init                   prh_thrd_init
 #define thrd_inix                   prh_thrd_inix
 #define thrd_create                 prh_thrd_create
@@ -6968,39 +7011,6 @@ void prh_thrd_wakeup_all(prh_sleep_cond *p);
 // 核，这始于Linux 2.6。值得强调的是，LinuxThreads实现已经过时，并且glibc从2.4版本
 // 开始也已不再支持它，所有新的线程库开发都基于NPTL。
 
-struct prh_thrd_struct {
-    prh_i32 maxthrds, thrd_cnt;
-    prh_thrd *main;
-    // [prh_thrd *]
-    // [prh_thrd *]
-};
-
-int prh_thrd_max_num(prh_thrd_struct *s) {
-    return (int)s->maxthrds;
-}
-
-int prh_thrd_cur_num(prh_thrd_struct *s) {
-    return (int)s->thrd_cnt;
-}
-
-prh_inline prh_thrd **prh_impl_thrd_list(prh_thrd_struct *s) {
-    return &s->main;
-}
-
-prh_thrd *prh_thrd_main(prh_thrd_struct *s) {
-    assert(s->main == prh_thrd_get(s, 0));
-    return s->main;
-}
-
-prh_thrd *prh_thrd_get(prh_thrd_struct *s, int index) {
-    assert(index >= 0 && index <= s->maxthrds);
-    return prh_impl_thrd_list(s)[index]; // 0 for main thread
-}
-
-int prh_thrd_index(prh_thrd_struct *s, prh_thrd *thrd) {
-    return thrd->thrd_id - s->main->thrd_id;
-}
-
 #if PRH_THRD_DEBUG && defined(prh_impl_pthread_getattr)
 void prh_impl_print_thrd_info(prh_thrd *thrd) {
     pthread_t tid = pthread_self();
@@ -7144,13 +7154,17 @@ prh_thrd *prh_impl_create_set(prh_thrd_struct *s, int thrdudsize) {
     assert(s->thrd_cnt >= 0 && s->thrd_cnt < s->maxthrds);
     int thrd_index = ++s->thrd_cnt;
     prh_thrd *thrd = prh_impl_thrd_create(prh_thrd_main_id(s) + thrd_index, thrdudsize);
-    prh_impl_thrd_list(s)[thrd_index] = thrd;
+    prh_thrd_list(s)[thrd_index] = thrd;
     return thrd;
 }
 
 void *prh_thrd_create(prh_thrd_struct *s, int thrdudsize) {
     prh_thrd *thrd = prh_impl_create_set(s, thrdudsize);
     return thrd->userdata;
+}
+
+int prh_thrd_index(prh_thrd_struct *s, prh_thrd *thrd) {
+    return thrd->thrd_id - s->main->thrd_id;
 }
 
 int prh_thrd_starx(prh_thrd_struct *s, void *thrd_create_data, prh_thrdproc_t proc, int stacksize) {
@@ -7192,7 +7206,7 @@ void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t udf
 
 void prh_thrd_join(prh_thrd_struct *s, int thrd_index, prh_thrdfree_t udfree) {
     assert(thrd_index > 0 && thrd_index <= s->maxthrds);
-    prh_impl_thrd_join(prh_impl_thrd_list(s), thrd_index, udfree);
+    prh_impl_thrd_join(prh_thrd_list(s), thrd_index, udfree);
 }
 
 void prh_thrd_free(prh_thrd_struct **main, prh_thrdfree_t udfree) {
@@ -7213,7 +7227,7 @@ void prh_thrd_free(prh_thrd_struct **main, prh_thrdfree_t udfree) {
 void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udfree) {
     prh_thrd_struct *s = *main;
     if (s == prh_null) return;
-    prh_thrd *thrd_list = prh_impl_thrd_list(s);
+    prh_thrd *thrd_list = prh_thrd_list(s);
     for (int i = 1; i <= s->maxthrds; i += 1) {
         prh_impl_thrd_join(thrd_list, i, udfree);
     }
@@ -7663,9 +7677,7 @@ void prh_impl_cono_init(prh_cono *cono, prh_u32 coro_id) {
 }
 
 typedef struct {
-    prh_thrd_struct *coro_thrd_pool;
-    prh_thrd **coro_thrd_list;
-    prh_i32 numcorothrds;
+    prh_thrd_struct *thrd_struct;
     prh_atomint_t coro_count;
     prh_concoro_t *coro_dynamic_array;
     // only accessed by privilege thread
@@ -7808,6 +7820,14 @@ bool prh_impl_privilege_task(prh_cono_thrd *privilege) {
     }
 
     // 分发线程消息到目标协程
+    prh_thrd_for_each(s->thrd_struct) {
+        if (it == prh_null) continue;
+        prh_coro *req_coro = prh_atom_quefix_pop(&it->tx_que_to_type_2_coro);
+        if (req_coro) {
+            prh_cono *req_cono = prh_impl_cono_from_coro(req_coro);
+            prh_int dest_coro_id = req_cono->task_req->dest_coro_id;
+        }
+    }
 
     // 释放特权
     prh_atom_ptr_write(privilege_thread, prh_null);
