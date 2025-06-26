@@ -7850,8 +7850,9 @@ void prh_impl_cono_init(prh_cono *cono, prh_u32 coro_id) {
 }
 
 typedef struct {
-    prh_atom_bool *root_coro_running; // 初始化后只读
     prh_coro *fixed_coro[PRH_FIXED_CORO_MAX]; // 初始化后只读
+    prh_thrd_cond thrd_sleep_cond;
+    bool thrd_exit;
 } prh_cono_struct;
 
 static prh_cono_struct PRH_IMPL_CONO_STRUCT;
@@ -7977,6 +7978,7 @@ typedef struct {
     prh_impl_cono_quefit ready_queue;
     prh_thrd_struct *thrd_struct;
     prh_u32 coro_id_seed;
+    bool steal_coro;
 } prh_impl_root_data;
 
 void prh_impl_push_cono_to_ready_queue(prh_impl_root_data *root_data, prh_cono *cono) {
@@ -7996,52 +7998,6 @@ prh_cono *prh_impl_steal_coro(prh_impl_root_data *root_data) {
         prh_thrd_for_end();
     }
     return prh_null;
-}
-
-// 需要保证同一个服务向另一个服务发出的消息不乱序
-void prh_impl_coro_schedule(prh_impl_root_data *root_data, bool steal_coro) {
-    prh_thrd_struct *thrd_struct = root_data->thrd_struct;
-    prh_impl_cono_quefit *ready_queue = &root_data->ready_queue;
-    prh_cono_thrd *thrd;
-
-    prh_thrd_for_begin(s->thrd_struct) { // 将任务分发给目标协程
-        thrd = prh_impl_get_cono_thrd(it);
-        prh_atom_data_quefix *task_que = &thrd->type_2_coro_task_que;
-        prh_data_quefit all_req;
-        if (!prh_atom_data_quefix_pop_all(task_que, &all_req)) continue;
-        prh_data_quefit_for_begin(&all_req) {
-            prh_cono *dest_cono = prh_impl_deliver_type_2_coro_task_to_dest(it);
-            prh_impl_push_cono_to_ready_queue(root_data, dest_cono); // 目标协程有任务需要执行，将目标协程放入就绪队列
-            prh_data_quefit_for_end();
-        }
-        prh_atom_data_quefix_free_node_list(task_que, &all_req);
-        prh_thrd_for_end();
-    }
-
-    prh_impl_cono_quefit temp_que = {0};
-    prh_cono *assigned_coro, *ready_coro;
-    prh_thrd_for_begin(s->thrd_struct) { // 调度就绪协程
-        thrd = prh_impl_get_cono_thrd(it);
-        prh_relaxed_quefit_top(ready_queue, ready_coro);
-        if (ready_coro == prh_null) break; // 队列中没有就绪协程，不需要调度
-        if ((assigned_coro = prh_atom_ptr_read(&thrd->assigned_coro))) continue;
-        if (prh_atom_bool_read(&ready_coro->running)) { // 不能调度正在执行的协程，将其保留在就绪队列中
-            prh_relaxed_quefit_pop(ready_queue, chain_next, ready_coro);
-            prh_relaxed_quefit_push(&temp_que, ready_coro, chain_next);
-        } else if (prh_atom_compare_write(&thrd->assigned_coro, &assigned_coro, ready_coro)) {
-            prh_relaxed_quefit_pop(ready_queue, chain_next, ready_coro);
-            ready_coro->already_in_ready_queue = 0;
-        }
-        prh_thrd_for_end();
-    }
-    prh_relaxed_quefit_push_queue_front(ready_queue, &temp_que, chain_next); // 将需要继续保留在就绪队列中的协程，重新插入就绪队列
-
-    if (steal_coro) { // 如果当前线程没有分配到协程，从其他线程偷取协程来执行
-        thrd = prh_thrd_self_data();
-        if (thrd->assigned_coro == prh_null) {
-            thrd->assigned_coro = prh_impl_steal_coro(root_data);
-        }
-    }
 }
 
 #define PRH_IMPL_ROOT_CORO_STACK_SIZE 128
@@ -8081,22 +8037,57 @@ prh_cono *prh_impl_deliver_type_2_coro_task_to_dest(prh_data_snode *req_node) {
 prh_coro_proc prh_impl_root_coro_proc(prh_coro *root) {
     prh_cono *root_cono = prh_impl_cono_from_coro(root);
     prh_impl_root_data *root_data = coro_data(root);
+
     for (; ;) {
-        prh_impl_cono_for_each_task_begin(root_cono, prh_coro_task *task) {
-            if (task->task_id == PRH_ROOT_TI_CREATE_CORO) {
-                prh_cono *new_cono = task->req_cono;
-                prh_impl_cono_init(new_cono, ++root_data->coro_id_seed); // 初始化新协程
-                prh_impl_push_cono_to_ready_queue(root_data, new_cono); // 将新协程及其父协程都添加到就绪队列等待调度执行，优先将新协程插入队列
-                prh_impl_push_cono_to_ready_queue(root_data, new_cono->type_1_coro_parent); // 挂起的父协程挂到就绪队列之后，会自动调度并执行
-            } else {
-                assert(task->task_id == PRH_ROOT_TI_SCHEDULE);
-                prh_impl_coro_schedule(root_data);
+        prh_thrd_for_begin(root_data->thrd_struct) { // 将各线程任务队列中的任务分发给目标协程，需要保证同一个服务向另一个服务发出的消息不乱序
+            prh_cono_thrd *thrd = prh_impl_get_cono_thrd(it);
+            prh_atom_data_quefix *task_que = &thrd->type_2_coro_task_que;
+            prh_data_quefit all_req;
+            if (!prh_atom_data_quefix_pop_all(task_que, &all_req)) continue;
+            prh_data_quefit_for_begin(&all_req) {
+                prh_cono *dest_cono = prh_impl_deliver_type_2_coro_task_to_dest(it);
+                prh_impl_push_cono_to_ready_queue(root_data, dest_cono); // 目标协程有任务需要执行，将目标协程放入就绪队列
+                prh_data_quefit_for_end();
             }
-            prh_impl_cono_for_each_task_end();
-        } else { // no task in rx queue
-            root_cono->suspend_reason = PRH_CORO_SR_CONTROL_RELEASE;
-            prh_coro_yield(root);
+            prh_atom_data_quefix_free_node_list(task_que, &all_req);
+            prh_thrd_for_end();
         }
+
+        prh_impl_cono_for_each_task_begin(root_cono, prh_coro_task *task) { // 处理根协程 task_rx_queue 中接收的任务
+            prh_cono *new_cono = task->req_cono;
+            prh_impl_cono_init(new_cono, ++root_data->coro_id_seed); // 初始化新协程
+            prh_impl_push_cono_to_ready_queue(root_data, new_cono); // 将新协程及其父协程都添加到就绪队列等待调度执行，优先将新协程插入队列
+            prh_impl_push_cono_to_ready_queue(root_data, new_cono->type_1_coro_parent); // 挂起的父协程挂到就绪队列之后，会自动调度并执行
+            prh_impl_cono_for_each_task_end();
+        }
+
+        prh_impl_cono_quefit temp_que = {0};
+        prh_thrd_for_begin(thrd_struct) { // 将就绪队列中的协程分配给线程执行
+            prh_cono_thrd *thrd = prh_impl_get_cono_thrd(it);
+            prh_cono *assigned_coro, *ready_coro;
+            prh_relaxed_quefit_top(ready_queue, ready_coro);
+            if (ready_coro == prh_null) break; // 队列中没有就绪协程，不需要调度
+            if ((assigned_coro = prh_atom_ptr_read(&thrd->assigned_coro))) continue;
+            if (prh_atom_bool_read(&ready_coro->running)) { // 不能调度正在执行的协程，将其保留在就绪队列中
+                prh_relaxed_quefit_pop(ready_queue, chain_next, ready_coro);
+                prh_relaxed_quefit_push(&temp_que, ready_coro, chain_next);
+            } else if (prh_atom_compare_write(&thrd->assigned_coro, &assigned_coro, ready_coro)) {
+                prh_relaxed_quefit_pop(ready_queue, chain_next, ready_coro);
+                ready_coro->already_in_ready_queue = 0;
+            }
+            prh_thrd_for_end();
+        }
+        prh_relaxed_quefit_push_queue_front(ready_queue, &temp_que, chain_next); // 将需要继续保留在就绪队列中的协程，重新插入就绪队列
+
+        if (root_data->steal_coro) { // 如果当前线程没有分配到协程，从其他线程偷取协程来执行
+            prh_cono_thrd *thrd = prh_thrd_self_data();
+            if (thrd->assigned_coro == prh_null) {
+                thrd->assigned_coro = prh_impl_steal_coro(root_data);
+            }
+        }
+
+        root_cono->suspend_reason = PRH_CORO_SR_CONTROL_RELEASE;
+        prh_coro_yield(root);
     }
 }
 
@@ -8113,7 +8104,7 @@ prh_coro *prh_impl_cono_create_root(void) {
     return coro;
 }
 
-bool prh_impl_thrd_run_coro(prh_cono_thrd *cono_thrd, prh_coro *coro) {
+bool prh_impl_thrd_execute(prh_cono_thrd *cono_thrd, prh_coro *coro) {
     prh_soro_struct *soro = &cono_thrd->soro;
     prh_cono *cono = prh_impl_cono_from_coro(coro);
     soro->coro = coro;
@@ -8136,8 +8127,40 @@ prh_cono_thrd *prh_impl_cono_thrd_init(prh_thrd *thrd) {
     return cono_thrd;
 }
 
-prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* t) {
-    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd_init(thrd);
+void prh_impl_cono_thrd_sleep(void) {
+    prh_thrd_cond *sleep_cond = &PRH_IMPL_CONO_STRUCT.thrd_sleep_cond;
+}
+
+void prh_impl_cono_thrd_wakeup(void) {
+    prh_thrd_cond *sleep_cond = &PRH_IMPL_CONO_STRUCT.thrd_sleep_cond;
+}
+
+bool prh_impl_root_execute(void) {
+    prh_coro *root = PRH_IMPL_CONO_STRUCT.fixed_coro[PRH_CORO_ID_ROOT];
+    prh_cono *cono_root = prh_impl_cono_from_coro(root);
+    prh_impl_root_data *root_data = prh_coro_data(root);
+}
+
+prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
+    prh_cono_thrd *cono_thrd = prh_impl_get_cono_thrd(thrd);
+    prh_cono *ready_coro;
+
+    for (; ;) {
+        while ((ready_coro = prh_atom_ptr_read(&cono_thrd->assigned_coro))) {
+            if (prh_atom_ptr_compare_write(&cono_thrd->assigned_coro, &ready_coro, prh_null)) {
+                prh_impl_thrd_execute(cono_thrd, ready_coro);
+            } else {
+                prh_impl_root_execute();
+            }
+        }
+
+        if (prh_impl_root_execute()) {
+            continue;
+        }
+
+        if (PRH_IMPL_CONO_STRUCT.thrd_eixt) break;
+        prh_thrd_sleep(thrd);
+    }
 
     return 0;
 }
@@ -8159,18 +8182,20 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_coroproc_t main_proc, 
 
     prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
     prh_thrd_struct *pool = s->coro_thrd_pool;
-    prh_cono_thrd *main = prh_thread_main_userdata(pool);
+    prh_thrd *main_thrd = prh_thrd_main(thrd_struct);
+    prh_cono_thrd *cono_thrd = prh_thrd_data(main_thrd);
     prh_atomtype_store(&main->thread_available, true);
 
     // 创建根协程
     prh_coro *root = prh_impl_cono_create_root();
+    cono_thrd->assigned_coro = prh_impl_cono_from_coro(root);
 
     // 启动入口协程（主协程）
     // 程序的执行从主线程执行第一个协程开始，这个协程可以称为主协程，但主协程没有与主
     // 线程进行绑定，只是由主线程发起了执行的动作，后续恢复挂起的主协程的执行可以在任意
     // 线程，主协程也只是一个普通的协程而已。
     prh_cono_thrd *cono_thrd = prh_impl_cono_thrd_init(thrd);
-    prh_impl_thrd_run_coro(cono_thrd, prh_impl_cono_create(main_proc, stack_size, 0));
+    prh_impl_thrd_execute(cono_thrd, prh_impl_cono_create(main_proc, stack_size, 0));
 }
 
 void prh_impl_deliver_type_2_coro_task(prh_coro *req_coro) {
