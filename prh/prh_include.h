@@ -3374,11 +3374,14 @@ void prh_impl_relaxed_quefit_pop(void **quefit, prh_i32 next_offset);
     prh_impl_relaxed_quefit_push_queue_front((void **)prh_impl_que_ptr, (void **)prh_impl_from_que, (prh_i32)offsetof(prh_impl_node_type, next_field_name)); \
 }
 
+#define prh_relaxed_quefit_empty(relaxed_quefit_ptr) ((relaxed_quefit_ptr)->head == prh_null)
+#define prh_relaxed_quefit_not_empty(relaxed_quefit_ptr) ((relaxed_quefit_ptr)->head != prh_null)
+
 #define prh_relaxed_quefit_top(relaxed_quefit_ptr, node_out) {                  \
     node_out = (relaxed_quefit_ptr)->head;                                      \
 }
 
-#define prh_relaxed_quefit_pop(relaxed_quefit_ptr, next_field_name, node_out) { \
+#define prh_relaxed_quefit_pop(relaxed_quefit_ptr, node_out, next_field_name) { \
     prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
     typedef prh_typeof(*(prh_impl_que_ptr->head)) prh_impl_node_type;           \
     assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
@@ -4090,6 +4093,11 @@ prh_inline bool prh_atom_u32_strong_compare_write(prh_atom_u32 *a, prh_u32 *expe
 prh_inline bool prh_atom_int_strong_compare_write(prh_atom_int *a, prh_int *expect, prh_int b) { return atomic_compare_exchange_strong((atomic_intptr_t *)a, expect, b); }
 prh_inline bool prh_atom_unt_strong_compare_write(prh_atom_unt *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_strong((atomic_uintptr_t *)a, expect, b); }
 prh_inline bool prh_atom_ptr_strong_compare_write(prh_atom_ptr *a, void **expect, void *b) { return atomic_compare_exchange_strong((atomic_uintptr_t *)a, (uintptr_t *)expect, (uintptr_t)b); }
+
+prh_inline bool prh_atom_bool_compare_write_false(prh_atom_bool *a) { bool expect = true; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, false); }
+prh_inline bool prh_atom_bool_compare_write_true(prh_atom_bool *a) { bool expect = false; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, true); }
+prh_inline bool prh_atom_bool_strong_compare_write_false(prh_atom_bool *a) { bool expect = true; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, false); }
+prh_inline bool prh_atom_bool_strong_compare_write_true(prh_atom_bool *a) { bool expect = false; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, true); }
 
 // 针对单生产者和单消费者的无锁单链表队列，队列不负责分配实际的节点，整个节点（包括头部
 // prh_nose_t和节点内容）都由使用者提供，因此节点可以是任意长度，其内容由使用者决定没有
@@ -6575,37 +6583,31 @@ void prh_thrd_free(prh_thrd_struct **s, prh_thrdfree_t udfree); // free main thr
 typedef struct prh_thrd_mutex prh_thrd_mutex;
 prh_thrd_mutex *prh_thrd_mutex_init(void);
 prh_thrd_mutex *prh_thrd_recursive_mutex_init(void);
+void prh_thrd_mutex_free(prh_thrd_mutex **p);
 void prh_thrd_mutex_lock(prh_thrd_mutex *p);
 void prh_thrd_mutex_unlock(prh_thrd_mutex *p);
-void prh_thrd_mutex_free(prh_thrd_mutex **p);
 
 typedef struct prh_thrd_cond prh_thrd_cond;
 prh_thrd_cond *prh_thrd_cond_init(void);
+void prh_thrd_cond_free(prh_thrd_cond **p);
 void prh_thrd_cond_lock(prh_thrd_cond *p);
+void prh_thrd_cond_unlock(prh_thrd_cond *p);
 void prh_thrd_cond_wait(prh_thrd_cond *p, bool (*cond_meet)(void *), void *param);
 bool prh_thrd_cond_timedwait(prh_thrd_cond *p, prh_u32 msec, bool (*cond_meet)(void *), void *param);
-void prh_thrd_cond_unlock(prh_thrd_cond *p);
 void prh_thrd_cond_signal(prh_thrd_cond *p);
 void prh_thrd_cond_broadcast(prh_thrd_cond *p);
-void prh_thrd_cond_free(prh_thrd_cond **p);
 
 typedef struct prh_thrd_cond prh_thrd_sem;
 prh_inline prh_thrd_sem *prh_thrd_sem_init(void) { return (prh_thrd_sem *)prh_thrd_cond_init(); }
 prh_inline void prh_thrd_sem_free(prh_thrd_sem **s) { prh_thrd_cond_free((prh_thrd_cond **)s); }
 void prh_thrd_sem_wait(prh_thrd_sem *s);
 void prh_thrd_sem_post(prh_thrd_sem *s, int n);
-void prh_thrd_sem_ext_wait(prh_thrd_sem *s, void (*wakeup_func)(void *), void *param);
-void prh_thrd_sem_ext_post(prh_thrd_sem *s, int n, void (*post_func)(void *), void *param);
 
-typedef struct prh_thrd_cond prh_sleep_cond;
-prh_inline prh_sleep_cond *prh_thrd_sleep_init(void) { return (prh_sleep_cond *)prh_thrd_cond_init(); }
-prh_inline void prh_thrd_sleep_free(prh_sleep_cond **s) { prh_thrd_cond_free((prh_thrd_cond **)s); }
-void prh_thrd_sleep_start(prh_sleep_cond *p);
+typedef struct prh_sleep_cond prh_sleep_cond;
+prh_sleep_cond *prh_sleep_cond_init(void);
+void prh_sleep_cond_free(prh_sleep_cond **p);
 void prh_thrd_sleep(prh_sleep_cond *p);
-int prh_thrd_sleep_count(prh_sleep_cond *p); // called between sleep_start and sleep_end
-void prh_thrd_sleep_end(prh_sleep_cond *p);
 void prh_thrd_wakeup(prh_sleep_cond *p);
-void prh_thrd_wakeup_all(prh_sleep_cond *p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
 #define thrd_t                      prh_thrd
@@ -6627,35 +6629,28 @@ void prh_thrd_wakeup_all(prh_sleep_cond *p);
 #define thrd_free                   prh_thrd_free
 #define thrd_mutex_t                prh_thrd_mutex
 #define thrd_mutex_init             prh_thrd_mutex_init
+#define thrd_mutex_free             prh_thrd_mutex_free
 #define thrd_recursive_mutex_init   prh_thrd_recursive_mutex_init
 #define thrd_mutex_lock             prh_thrd_mutex_lock
 #define thrd_mutex_unlock           prh_thrd_mutex_unlock
-#define thrd_mutex_free             prh_thrd_mutex_free
 #define thrd_cond_t                 prh_thrd_cond
 #define thrd_cond_init              prh_thrd_cond_init
+#define thrd_cond_free              prh_thrd_cond_free
 #define thrd_cond_lock              prh_thrd_cond_lock
+#define thrd_cond_unlock            prh_thrd_cond_unlock
 #define thrd_cond_wait              prh_thrd_cond_wait
 #define thrd_cond_timedwait         prh_thrd_cond_timedwait
-#define thrd_cond_unlock            prh_thrd_cond_unlock
 #define thrd_cond_signal            prh_thrd_cond_signal
 #define thrd_cond_broadcast         prh_thrd_cond_broadcast
-#define thrd_cond_free              prh_thrd_cond_free
 #define thrd_sem_t                  prh_thrd_sem
 #define thrd_sem_init               prh_thrd_sem_init
+#define thrd_sem_free               prh_thrd_sem_free
 #define thrd_sem_wait               prh_thrd_sem_wait
 #define thrd_sem_post               prh_thrd_sem_post
-#define thrd_sem_ext_wait           prh_thrd_sem_ext_wait
-#define thrd_sem_ext_post           prh_thrd_sem_ext_post
-#define thrd_sem_free               prh_thrd_sem_free
-#define sleep_cond_t                prh_sleep_cond
-#define thrd_sleep_init             prh_thrd_sleep_init
-#define thrd_sleep_free             prh_thrd_sleep_free
-#define thrd_sleep_start            prh_thrd_sleep_start
+#define sleep_cond_init             prh_sleep_cond_init
+#define sleep_cond_free             prh_sleep_cond_free
 #define thrd_sleep                  prh_thrd_sleep
-#define thrd_sleep_end              prh_thrd_sleep_end
 #define thrd_wakeup                 prh_thrd_wakeup
-#define thrd_wakeup_all             prh_thrd_wakeup_all
-#define thrd_sleep_count            prh_thrd_sleep_count
 #endif
 
 #ifdef PRH_THRD_IMPLEMENTATION
@@ -7435,11 +7430,10 @@ struct prh_thrd_mutex {
 struct prh_thrd_cond {
     pthread_cond_t cond;
     pthread_mutex_t mutex;
-    int sleep_count;
-    int wakeup_semaphore;
+    prh_int wakeup_semaphore;
 };
 
-void prh_impl_thrd_mutex_init(pthread_mutex_t *mutex) {
+void prh_impl_pthread_mutex_init(pthread_mutex_t *mutex) {
 #if PRH_THRD_DEBUG
     pthread_mutexattr_t attr;
     prh_zeroret(pthread_mutexattr_init(&attr));
@@ -7453,7 +7447,7 @@ void prh_impl_thrd_mutex_init(pthread_mutex_t *mutex) {
 
 prh_thrd_mutex *prh_thrd_mutex_init(void) {
     prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    prh_impl_thrd_mutex_init(&p->mutex);
+    prh_impl_pthread_mutex_init(&p->mutex);
     return p;
 }
 
@@ -7475,6 +7469,14 @@ void prh_thrd_mutex_free(prh_thrd_mutex **mtx) {
     *mtx = prh_null;
 }
 
+void prh_impl_thrd_mutex_init(prh_thrd_mutex *p) {
+    prh_impl_pthread_mutex_init(&p->mutex);
+}
+
+void prh_impl_thrd_mutex_free(prh_thrd_mutex *p) {
+    prh_zeroret(pthread_mutex_destroy(&p->mutex));
+}
+
 void prh_thrd_mutex_lock(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
 }
@@ -7491,21 +7493,33 @@ void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
 prh_thrd_cond *prh_thrd_cond_init(void) {
     prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
     prh_zeroret(pthread_cond_init(&p->cond, prh_null));
-    prh_impl_thrd_mutex_init(&p->mutex);
-    p->sleep_count = 0;
+    prh_impl_pthread_mutex_init(&p->mutex);
     p->wakeup_semaphore = 0;
     return p;
 }
 
-void prh_thrd_cond_free(prh_thrd_cond **cnd) {
+void prh_thrd_cond_free(prh_thrd_cond **cond) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
-    prh_thrd_cond *p = *cnd;
+    prh_thrd_cond *p = *cond;
     if (p == prh_null) return;
+    *cond = prh_null;
     prh_zeroret(pthread_mutex_destroy(&p->mutex));
     prh_zeroret(pthread_cond_destroy(&p->cond));
     prh_free(p);
-    *cnd = prh_null;
+}
+
+void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
+    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
+    prh_impl_pthread_mutex_init(&p->mutex);
+    p->wakeup_semaphore = 0;
+}
+
+void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
+    // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
+    // pthread_cond_init() 对其进行重新初始化。
+    prh_zeroret(pthread_mutex_destroy(&p->mutex));
+    prh_zeroret(pthread_cond_destroy(&p->cond));
 }
 
 // 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
@@ -7594,18 +7608,6 @@ void prh_thrd_cond_broadcast(prh_thrd_cond *p) {
     prh_zeroret(pthread_cond_broadcast(&p->cond));
 }
 
-void prh_thrd_sem_ext_wait(prh_thrd_sem *p, void (*wakeup_func)(void *), void *param) {
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
-    while (p->wakeup_semaphore == 0) {
-        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
-    }
-    p->wakeup_semaphore -= 1;
-    if (wakeup_func) {
-        wakeup_func(param);
-    }
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
-}
-
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     while (p->wakeup_semaphore == 0) {
@@ -7615,23 +7617,8 @@ void prh_thrd_sem_wait(prh_thrd_sem *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
-void prh_thrd_sem_ext_post(prh_thrd_sem *p, int new_semaphores, void (*post_func)(void *), void *param) {
-    if (new_semaphores <= 0) return;
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
-    p->wakeup_semaphore += new_semaphores;
-    if (post_func) {
-        post_func(param);
-    }
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
-    if (new_semaphores == 1) { // one semaphore available, can wakeup one thread to handle
-        prh_zeroret(pthread_cond_signal(&p->cond));
-    } else { // multi semaphore available, all thread can racing to handle them
-        prh_zeroret(pthread_cond_broadcast(&p->cond));
-    }
-}
-
 void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
-    if (new_semaphores <= 0) return;
+    assert(new_semaphores > 0);
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     p->wakeup_semaphore += new_semaphores;
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
@@ -7642,51 +7629,58 @@ void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
     }
 }
 
-void prh_thrd_sleep_start(prh_thrd_cond *p) {
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
-    p->sleep_count += 1;
+typedef struct prh_sleep_cond {
+    pthread_cond_t cond;
+    pthread_mutex_t mutex;
+    prh_atom_bool wakeup_semaphore;
+} prh_sleep_cond;
+
+prh_sleep_cond *prh_sleep_cond_init(void) {
+    prh_sleep_cond *p = prh_malloc(sizeof(prh_sleep_cond));
+    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
+    prh_impl_pthread_mutex_init(&p->mutex);
+    prh_atom_bool_init(&p->wakeup_semaphore, false);
+    return p;
 }
 
-void prh_thrd_sleep(prh_thrd_cond *p) {
-    while (p->wakeup_semaphore == 0) {
+void prh_sleep_cond_free(prh_sleep_cond **cond) {
+    // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
+    // pthread_cond_init() 对其进行重新初始化。
+    prh_sleep_cond *p = *cond;
+    if (p == prh_null) return;
+    *cond = prh_null;
+    prh_zeroret(pthread_mutex_destroy(&p->mutex));
+    prh_zeroret(pthread_cond_destroy(&p->cond));
+    prh_free(p);
+}
+
+void prh_impl_sleep_cond_init(prh_sleep_cond *p) {
+    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
+    prh_impl_pthread_mutex_init(&p->mutex);
+    prh_atom_bool_init(&p->wakeup_semaphore, false);
+}
+
+void prh_impl_sleep_cond_free(prh_sleep_cond *p) {
+    prh_zeroret(pthread_mutex_destroy(&p->mutex));
+    prh_zeroret(pthread_cond_destroy(&p->cond));
+}
+
+void prh_thrd_sleep(prh_sleep_cond *p) {
+    if (prh_atom_bool_compare_write_false(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
+    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    while (!prh_atom_bool_read(&p->wakeup_semaphore)) {
         prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
     }
-    p->wakeup_semaphore -= 1;
-    p->sleep_count -= 1;
-}
-
-int prh_thrd_sleep_count(prh_thrd_cond *p) { // called between sleep_start and sleep_end
-    return p->sleep_count;
-}
-
-void prh_thrd_sleep_end(prh_thrd_cond *p) {
+    prh_atom_bool_write(&p->wakeup_semaphore, false);
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
-void prh_thrd_wakeup(prh_thrd_cond *p) {
-    bool need_wakeup = false;
+void prh_thrd_wakeup(prh_sleep_cond *p) {
+    if (prh_atom_bool_read(&p->wakeup_semaphore)) return; // 已经有唤醒存在，无需重新唤醒
     prh_zeroret(pthread_mutex_lock(&p->mutex));
-    if (p->sleep_count > 0 && p->wakeup_semaphore < p->sleep_count) {
-        p->wakeup_semaphore += 1;
-        need_wakeup = true;
-    }
+    prh_atom_bool_write(&p->wakeup_semaphore, true);
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
-    if (need_wakeup) {
-        prh_zeroret(pthread_cond_signal(&p->cond));
-    }
-}
-
-void prh_thrd_wakeup_all(prh_thrd_cond *p) {
-    bool need_wakeup = false;
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
-    if (p->sleep_count > 0 && p->wakeup_semaphore < p->sleep_count) {
-        p->wakeup_semaphore = p->sleep_count;
-        need_wakeup = true;
-    }
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
-    if (need_wakeup) {
-        prh_zeroret(pthread_cond_broadcast(&p->cond));
-    }
+    prh_zeroret(pthread_cond_signal(&p->cond));
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -7793,17 +7787,17 @@ typedef struct {
     prh_snode_t cono_2_free_node;
     // 可被特权线程访问
     prh_atom_data_quefix type_2_coro_task_que;
-    prh_atom_ptr assigned_coro; // 由特权线程写入，由特权线程窃取清空，或由当前协程读取清空
-
-    prh_atombool_t thread_available;
-    prh_atombool_t thread_sleeping;
+    prh_atom_ptr assigned_ready_coro; // 由特权线程写入，由特权线程窃取清空，或由当前协程读取清空
+    prh_sleep_cond thrd_sleep_cond;
 } prh_cono_thrd; // 每个线程尽量指定在单一的CPU上运行避免线程切换
 
-void prh_impl_cono_thrd_init(prh_cono_thrd *t) {
-    prh_atomnodque_init(t, txmq);
-    prh_atomtype_init(&t->assigned_coro, prh_atomnull);
-    prh_atomtype_init(&t->thread_available, true);
-    prh_atomtype_init(&t->thread_sleeping, false);
+prh_cono_thrd *prh_impl_cono_thrd_init(prh_thrd *thrd) {
+    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
+    prh_soro_init(&cono_thrd->soro, prh_thrd_id(thrd));
+    prh_atom_data_quefix_init(&cono_thrd->type_2_coro_task_que);
+    prh_atom_ptr_init(&cono_thrd->assigned_ready_coro, prh_null);
+    prh_impl_sleep_cond_init(&cono_thrd->thrd_sleep_cond);
+    return cono_thrd;
 }
 
 void prh_impl_cono_thrd_free(prh_cono_thrd *t) {
@@ -7851,7 +7845,6 @@ void prh_impl_cono_init(prh_cono *cono, prh_u32 coro_id) {
 
 typedef struct {
     prh_coro *fixed_coro[PRH_FIXED_CORO_MAX]; // 初始化后只读
-    prh_thrd_cond thrd_sleep_cond;
     bool thrd_exit;
 } prh_cono_struct;
 
@@ -7878,11 +7871,11 @@ prh_inline prh_cono *prh_impl_cono_from_data(void *data) {
     return (prh_cono *)((char *)data - prh_impl_cono_size());
 }
 
-prh_inline prh_cono_thrd *prh_impl_get_cono_thrd(prh_thrd *thrd) {
+prh_inline prh_cono_thrd *prh_impl_cono_thrd(prh_thrd *thrd) {
     return (prh_cono_thrd *)((char *)thrd + prh_impl_thrd_head_size);
 }
 
-prh_inline prh_thrd *prh_impl_get_thrd_head(prh_cono_thrd *thrd) {
+prh_inline prh_thrd *prh_impl_thrd_head(prh_cono_thrd *thrd) {
     return (prh_thrd *)((char *)thrd - prh_impl_thrd_head_size);
 }
 
@@ -7990,9 +7983,9 @@ void prh_impl_push_cono_to_ready_queue(prh_impl_root_data *root_data, prh_cono *
 
 prh_cono *prh_impl_steal_coro(prh_impl_root_data *root_data) {
     prh_thrd_for_begin(root_data->thrd_struct) {
-        prh_cono_thrd *thrd = prh_impl_get_cono_thrd(it);
-        prh_cono *assigned_coro = prh_atom_ptr_read(&thrd->assigned_coro);
-        if (assigned_coro && prh_atom_compare_write(&thrd->assigned_coro, &assigned_coro, prh_null)) {
+        prh_cono_thrd *thrd = prh_impl_cono_thrd(it);
+        prh_cono *assigned_coro = prh_atom_ptr_read(&thrd->assigned_ready_coro);
+        if (assigned_coro && prh_atom_compare_write(&thrd->assigned_ready_coro, &assigned_coro, prh_null)) {
             return assigned_coro;
         }
         prh_thrd_for_end();
@@ -8040,7 +8033,7 @@ prh_coro_proc prh_impl_root_coro_proc(prh_coro *root) {
 
     for (; ;) {
         prh_thrd_for_begin(root_data->thrd_struct) { // 将各线程任务队列中的任务分发给目标协程，需要保证同一个服务向另一个服务发出的消息不乱序
-            prh_cono_thrd *thrd = prh_impl_get_cono_thrd(it);
+            prh_cono_thrd *thrd = prh_impl_cono_thrd(it);
             prh_atom_data_quefix *task_que = &thrd->type_2_coro_task_que;
             prh_data_quefit all_req;
             if (!prh_atom_data_quefix_pop_all(task_que, &all_req)) continue;
@@ -8061,28 +8054,38 @@ prh_coro_proc prh_impl_root_coro_proc(prh_coro *root) {
             prh_impl_cono_for_each_task_end();
         }
 
-        prh_impl_cono_quefit temp_que = {0};
-        prh_thrd_for_begin(thrd_struct) { // 将就绪队列中的协程分配给线程执行
-            prh_cono_thrd *thrd = prh_impl_get_cono_thrd(it);
+        if (prh_relaxed_quefit_not_empty(&root_data->ready_queue)) {
+            prh_impl_cono_quefit temp_que = {0};
             prh_cono *assigned_coro, *ready_coro;
-            prh_relaxed_quefit_top(ready_queue, ready_coro);
-            if (ready_coro == prh_null) break; // 队列中没有就绪协程，不需要调度
-            if ((assigned_coro = prh_atom_ptr_read(&thrd->assigned_coro))) continue;
-            if (prh_atom_bool_read(&ready_coro->running)) { // 不能调度正在执行的协程，将其保留在就绪队列中
-                prh_relaxed_quefit_pop(ready_queue, chain_next, ready_coro);
-                prh_relaxed_quefit_push(&temp_que, ready_coro, chain_next);
-            } else if (prh_atom_compare_write(&thrd->assigned_coro, &assigned_coro, ready_coro)) {
-                prh_relaxed_quefit_pop(ready_queue, chain_next, ready_coro);
-                ready_coro->already_in_ready_queue = 0;
+            prh_thrd_for_begin(thrd_struct) { // 将就绪队列中的协程分配给线程执行
+                prh_cono_thrd *thrd = prh_impl_cono_thrd(it);
+                if ((assigned_coro = prh_atom_ptr_read(&thrd->assigned_ready_coro))) {
+                    continue; // 该线程已分配协程
+                }
+                prh_relaxed_quefit_pop(&root_data->ready_queue, ready_coro, chain_next);
+                if (prh_atom_bool_read(&ready_coro->running)) { // 不能调度正在执行的协程，将其保留在就绪队列中
+                    prh_relaxed_quefit_push(&temp_que, ready_coro, chain_next);
+                } else {
+                    ready_coro->already_in_ready_queue = 0;
+                    if (prh_atom_compare_write(&thrd->assigned_ready_coro, &assigned_coro, ready_coro)) {
+                        prh_thrd_wakeup(thrd->thrd_sleep_cond);
+                    } else {
+                        ready_coro->already_in_ready_queue = 1;
+                        prh_relaxed_quefit_push_front(&root_data->ready_queue, ready_coro, chain_next);
+                    }
+                }
+                if (prh_relaxed_quefit_empty(&root_data->ready_queue)) {
+                    break;
+                }
+                prh_thrd_for_end();
             }
-            prh_thrd_for_end();
+            prh_relaxed_quefit_push_queue_front(&root_data->ready_queue, &temp_que, chain_next); // 将需要继续保留在就绪队列中的协程，重新插入就绪队列
         }
-        prh_relaxed_quefit_push_queue_front(ready_queue, &temp_que, chain_next); // 将需要继续保留在就绪队列中的协程，重新插入就绪队列
 
         if (root_data->steal_coro) { // 如果当前线程没有分配到协程，从其他线程偷取协程来执行
             prh_cono_thrd *thrd = prh_thrd_self_data();
-            if (thrd->assigned_coro == prh_null) {
-                thrd->assigned_coro = prh_impl_steal_coro(root_data);
+            if (thrd->assigned_ready_coro == prh_null) {
+                thrd->assigned_ready_coro = prh_impl_steal_coro(root_data);
             }
         }
 
@@ -8120,21 +8123,6 @@ prh_coro *prh_impl_cono_create(prh_coroproc_t proc, int stack_size, int maxudsiz
     return prh_impl_coro_creatx(proc, stack_size, sizeof(prh_cono), maxudsize);
 }
 
-prh_cono_thrd *prh_impl_cono_thrd_init(prh_thrd *thrd) {
-    prh_cono_thrd *cono_thrd = prh_impl_get_cono_thrd(thrd);
-    prh_soro_struct *soro = &cono_thrd->soro;
-    prh_soro_init(soro, prh_thrd_id(thrd));
-    return cono_thrd;
-}
-
-void prh_impl_cono_thrd_sleep(void) {
-    prh_thrd_cond *sleep_cond = &PRH_IMPL_CONO_STRUCT.thrd_sleep_cond;
-}
-
-void prh_impl_cono_thrd_wakeup(void) {
-    prh_thrd_cond *sleep_cond = &PRH_IMPL_CONO_STRUCT.thrd_sleep_cond;
-}
-
 bool prh_impl_root_execute(void) {
     prh_coro *root = PRH_IMPL_CONO_STRUCT.fixed_coro[PRH_CORO_ID_ROOT];
     prh_cono *cono_root = prh_impl_cono_from_coro(root);
@@ -8142,24 +8130,24 @@ bool prh_impl_root_execute(void) {
 }
 
 prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
-    prh_cono_thrd *cono_thrd = prh_impl_get_cono_thrd(thrd);
+    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
     prh_cono *ready_coro;
 
     for (; ;) {
-        while ((ready_coro = prh_atom_ptr_read(&cono_thrd->assigned_coro))) {
-            if (prh_atom_ptr_compare_write(&cono_thrd->assigned_coro, &ready_coro, prh_null)) {
+        while ((ready_coro = prh_atom_ptr_read(&cono_thrd->assigned_ready_coro))) {
+            if (prh_atom_ptr_compare_write(&cono_thrd->assigned_ready_coro, &ready_coro, prh_null)) {
                 prh_impl_thrd_execute(cono_thrd, ready_coro);
             } else {
                 prh_impl_root_execute();
             }
         }
-
         if (prh_impl_root_execute()) {
             continue;
         }
-
-        if (PRH_IMPL_CONO_STRUCT.thrd_eixt) break;
-        prh_thrd_sleep(thrd);
+        if (PRH_IMPL_CONO_STRUCT.thrd_eixt) {
+            break;
+        }
+        prh_thrd_sleep(thrd->thrd_sleep_cond);
     }
 
     return 0;
@@ -8188,7 +8176,7 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_coroproc_t main_proc, 
 
     // 创建根协程
     prh_coro *root = prh_impl_cono_create_root();
-    cono_thrd->assigned_coro = prh_impl_cono_from_coro(root);
+    cono_thrd->assigned_ready_coro = prh_impl_cono_from_coro(root);
 
     // 启动入口协程（主协程）
     // 程序的执行从主线程执行第一个协程开始，这个协程可以称为主协程，但主协程没有与主
