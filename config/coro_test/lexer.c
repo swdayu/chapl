@@ -50,7 +50,7 @@ static const char *parse_int(const char *expr, int *out) {
 
 coro_proc_func lexer(coro_t *coro) {
     int ch;
-    Context *ctx = (Context *)coro_data(coro);
+    Context *ctx = (Context *)coro_get_data(coro);
     const char *expr = ctx->expr;
     Token *token = ctx->token;
     if (!expr) goto label_return;
@@ -84,7 +84,7 @@ void eval(Context *ctx, Token perv_oper);
 bool token(Context *ctx, TokenKind kind) {
     Token *t = (kind == TOK_OPER) ? &ctx->oper : &ctx->value;
     ctx->token = t;
-    while (coro_await(ctx->main, 1)) {
+    while (coro_start(ctx->main, 1)) {
         if (kind == TOK_OPER) {
             if (t->kind & TOK_OPER) {
                 printf(OPR_TAG"%c\n", (t->kind & 0xff));
@@ -162,7 +162,7 @@ void eval(Context *ctx, Token perv_oper) {
 }
 
 void test_lexer(const char *expr) {
-    coro_struct_t *s = coro_init(1, 70);
+    coro_struct_t *s = coro_init(70, 1);
     Context ctx = {expr, s};
     coro_create(s, lexer, CORO_STACK_SIZE, &ctx);
     if (expr) {

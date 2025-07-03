@@ -13,10 +13,10 @@ typedef struct {
 } Counter;
 
 coro_proc_func counter(coro_t *coro) {
-    Counter *c = (Counter *)coro_data(coro);
+    Counter *c = (Counter *)coro_get_data(coro);
     int n = c->n ? c->n : 10;
     for (int i = 0; i < n; i += 1) {
-        printf("[coro %02d] %p i=%d recv %d\n", coro_self_id(), (void *)coro, i, c->main_to_coro);
+        printf("[coro %02d] %p i=%d recv %d\n", coro_self_id(coro), (void *)coro, i, c->main_to_coro);
         c->coro_to_main = i;
         coro_yield(coro);
     }
@@ -24,35 +24,35 @@ coro_proc_func counter(coro_t *coro) {
 }
 
 void test_yield_cycle(void) {
-    coro_struct_t *s = coro_init(3, 10);
+    coro_struct_t *s = coro_init(10, 3);
     Counter *c1 = (Counter *)coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter)); c1->n = 3;
     Counter *c2 = (Counter *)coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter)); c2->n = 5;
     coro_creatx(s, counter, CORO_STACK_SIZE, sizeof(Counter));
-    while (coro_cycle_await(s)) ;
+    while (coro_cycle_start(s)) ;
     coro_finish(&s);
 }
 
 void test_yield_manual(void) {
     Counter c = {0};
-    coro_struct_t *s = coro_init(5, 20);
+    coro_struct_t *s = coro_init(20, 5);
     coro_create(s, counter, CORO_STACK_SIZE, &c);
     coro_create(s, counter, CORO_STACK_SIZE, &c);
     coro_create(s, counter, CORO_STACK_SIZE, &c);
 
     c.n = 3; c.main_to_coro = 200;
-    while (coro_await(s, 2)) {
+    while (coro_start(s, 2)) {
         printf("[main %02d] recv i=%d\n", prh_coro_main_id(s), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
     c.n = 7; c.main_to_coro = 100;
-    while (coro_await(s, 1)) {
+    while (coro_start(s, 1)) {
         printf("[main %02d] recv i=%d\n", prh_coro_main_id(s), c.coro_to_main);
         c.main_to_coro += 1;
     }
 
     c.n = 5; c.main_to_coro = 300;
-    while (coro_await(s, 3)) {
+    while (coro_start(s, 3)) {
         printf("[main %02d] recv i=%d\n", prh_coro_main_id(s), c.coro_to_main);
         c.main_to_coro += 1;
     }
@@ -65,11 +65,11 @@ typedef struct {
     int value;
 } SoroTest;
 
-coro_proc_func soro_count(coro_t *coro) {
-    SoroTest *p = (SoroTest *)coro_data(coro);
+soro_proc_func soro_count(soro_t *coro) {
+    SoroTest *p = (SoroTest *)soro_get_data(coro);
     for (int i = 0; i < p->count; i += 1) {
         p->value = i;
-        coro_yield(coro);
+        soro_yield(coro);
     }
     p->value += 1;
 }
@@ -81,12 +81,12 @@ void test_yield_soro(void) {
     soro_init(&soro, 30);
 
     soro_create(&soro, soro_count, 384, &st); st.count = 5;
-    while (soro_await(&soro)) {
+    while (soro_start(&soro)) {
         printf("[soro %02d] recv %d\n", soro.start_id, st.value);
     }
 
     soro_reload(&soro, soro_count); st.count = 7;
-    while (soro_await(&soro)) {
+    while (soro_start(&soro)) {
         printf("[soro %02d] recv %d\n", soro.start_id, st.value);
     }
 
