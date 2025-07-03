@@ -63,7 +63,6 @@ prh_impl_asm_coro_resume:
     popq %r12
     popq %rbp
     popq %rbx
-    movq $1,%rax    # yield 函数的返回值
     ret             # 恢复协程运行
 
 # gas treats all undefined symbols as external
@@ -104,11 +103,39 @@ prh_impl_asm_coro_call:
     # 第一次进入协程函数，初始栈布局如下:
     #   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- rsp 输入参数对齐
     #                <-- 08 proc
-    #                <-- 00 asm_coro_call
+    #                <-- 00 prh_impl_asm_coro_call
     popq %rsi               # 协程函数 proc
     movq %rsp,%rdi          # 协程函数的参数 coro
     call *%rsi              # 执行协程函数 proc(coro)，绝对地址
     movq %rsp,%rdi          # 协程函数执行完毕
     call prh_impl_asm_coro_finish # prh_impl_asm_coro_finish(coro)
+    movq %rax,%rdi          # 执行下一个协程
+    jmp prh_impl_asm_coro_next
+
+.global prh_impl_asm_soro_call
+prh_impl_asm_soro_call:
+    # 第一次进入协程函数，初始栈布局如下:
+    #   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- rsp 输入参数对齐
+    #                <-- 08 proc
+    #                <-- 00 prh_impl_asm_soro_call
+    popq %rsi               # 协程函数 proc
+    movq %rsp,%rdi          # 协程函数的参数 coro
+    call *%rsi              # 执行协程函数 proc(coro)，绝对地址
+    movq %rsp,%rdi          # 协程函数执行完毕
+    call prh_impl_asm_soro_finish # prh_impl_asm_soro_finish(coro)
+    movq %rax,%rdi          # 执行下一个协程
+    jmp prh_impl_asm_coro_next
+
+.global prh_impl_asm_cono_call
+prh_impl_asm_cono_call:
+    # 第一次进入协程函数，初始栈布局如下:
+    #   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- rsp 输入参数对齐
+    #                <-- 08 proc
+    #                <-- 00 prh_impl_asm_cono_call
+    popq %rsi               # 协程函数 proc
+    movq %rsp,%rdi          # 协程函数的参数 coro
+    call *%rsi              # 执行协程函数 proc(coro)，绝对地址
+    movq %rsp,%rdi          # 协程函数执行完毕
+    call prh_impl_asm_cono_finish # prh_impl_asm_cono_finish(coro)
     movq %rax,%rdi          # 执行下一个协程
     jmp prh_impl_asm_coro_next

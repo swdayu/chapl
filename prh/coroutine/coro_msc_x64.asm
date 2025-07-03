@@ -71,7 +71,6 @@ prh_impl_asm_coro_resume PROC PRIVATE
     pop rbx
     pop rsi
     pop rdi
-    mov rax, 1      ; yield 函数的返回值
     pop rcx         ; 函数返回地址
     sub rsp, 32     ; 恢复影子空间
     jmp rcx         ; 恢复协程运行
@@ -132,5 +131,43 @@ prh_impl_asm_coro_call PROC
     mov rcx, rax            ; 执行下一个协程
     jmp prh_impl_asm_coro_next
 prh_impl_asm_coro_call ENDP
+
+prh_impl_asm_soro_finish PROTO
+prh_impl_asm_soro_call PROC
+    ; 第一次进入协程函数，初始栈布局如下:
+    ;   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- rsp
+    ;         rsp-08 <-- 08 proc
+    ;         rsp-16 <-- 00 prh_impl_asm_soro_call
+    ;         rsp-24 <-- 08
+    ;         rsp-32 <-- 00 ; sub rsp,32 输入参数对齐
+    pop rdx                 ; 协程函数 proc
+    mov rcx, rsp            ; 协程函数的参数 coro
+    sub rsp, 32             ; 影子空间并且16字节对齐
+    call rdx                ; 执行协程函数 proc(coro)
+    mov rcx, rsp            ; 协程函数执行完毕
+    add rcx, 32             ; rcx 保存 coro
+    call prh_impl_asm_soro_finish ; prh_impl_asm_soro_finish(coro)
+    mov rcx, rax            ; 执行下一个协程
+    jmp prh_impl_asm_coro_next
+prh_impl_asm_soro_call ENDP
+
+prh_impl_asm_cono_finish PROTO
+prh_impl_asm_cono_call PROC
+    ; 第一次进入协程函数，初始栈布局如下:
+    ;   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- rsp
+    ;         rsp-08 <-- 08 proc
+    ;         rsp-16 <-- 00 prh_impl_asm_cono_call
+    ;         rsp-24 <-- 08
+    ;         rsp-32 <-- 00 ; sub rsp,32 输入参数对齐
+    pop rdx                 ; 协程函数 proc
+    mov rcx, rsp            ; 协程函数的参数 coro
+    sub rsp, 32             ; 影子空间并且16字节对齐
+    call rdx                ; 执行协程函数 proc(coro)
+    mov rcx, rsp            ; 协程函数执行完毕
+    add rcx, 32             ; rcx 保存 coro
+    call prh_impl_asm_cono_finish ; prh_impl_asm_cono_finish(coro)
+    mov rcx, rax            ; 执行下一个协程
+    jmp prh_impl_asm_coro_next
+prh_impl_asm_cono_call ENDP
 
 END

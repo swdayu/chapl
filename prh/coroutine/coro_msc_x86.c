@@ -54,12 +54,11 @@ prh_asm_begin()
     pop ebx
     pop esi
     pop edi
-    mov eax, 1      // yield 函数的返回值
-    ret             // 恢复协程运行
+    ret                     // 恢复协程运行
 prh_asm_end()
 }
 
-prh_naked_fastcall(void) prh_impl_asm_coro_next(prh_coro_t *coro)
+prh_naked_fastcall(void) prh_impl_asm_coro_next(prh_coro *coro)
 {
     // [in]  ecx 目标协程
 prh_asm_begin()
@@ -71,7 +70,7 @@ prh_asm_begin()
 prh_asm_end()
 }
 
-prh_naked_fastcall(bool) prh_impl_asm_coro_yield(prh_coro_t *coro, prh_coro_t *next)
+prh_naked_fastcall(void) prh_impl_asm_coro_yield(prh_coro *coro, prh_coro *next)
 {
     // [in]  ecx 当前协程
     // [in]  edx 目标协程
@@ -93,9 +92,8 @@ prh_asm_begin()
 prh_asm_end()
 }
 
-prh_fastcall(void *) prh_impl_asm_coro_finish(prh_coro_t *coro);
-
-prh_naked_fastcall(void) prh_impl_asm_coro_call(void) // args are on coro stack
+prh_fastcall(void *) prh_impl_asm_coro_finish(prh_coro *coro);
+prh_naked_fastcall(void) prh_impl_asm_coro_call(void)
 {
     // 第一次进入协程函数，初始栈布局如下:
     //   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- esp 输入参数对齐
@@ -107,6 +105,42 @@ prh_asm_begin()
     call edx            // 执行协程函数 proc(coro)
     mov ecx, esp        // 协程函数执行完毕
     call prh_impl_asm_coro_finish // prh_impl_asm_coro_finish(coro)
+    mov ecx, eax        // 执行下一个协程
+    jmp prh_impl_asm_coro_next
+prh_asm_end()
+}
+
+prh_fastcall(void *) prh_impl_asm_soro_finish(prh_coro *coro);
+prh_naked_fastcall(void) prh_impl_asm_soro_call(void)
+{
+    // 第一次进入协程函数，初始栈布局如下:
+    //   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- esp 输入参数对齐
+    //           proc <-- 12
+    //                <-- 08 prh_impl_asm_soro_call
+prh_asm_begin()
+    pop edx             // 协程函数 proc
+    mov ecx, esp        // 协程函数的参数 coro
+    call edx            // 执行协程函数 proc(coro)
+    mov ecx, esp        // 协程函数执行完毕
+    call prh_impl_asm_soro_finish // prh_impl_asm_soro_finish(coro)
+    mov ecx, eax        // 执行下一个协程
+    jmp prh_impl_asm_coro_next
+prh_asm_end()
+}
+
+prh_fastcall(void *) prh_impl_asm_cono_finish(prh_coro *coro);
+prh_naked_fastcall(void) prh_impl_asm_cono_call(void)
+{
+    // 第一次进入协程函数，初始栈布局如下:
+    //   stack bottom <-- 00 <-- 16字节对齐 <-- coro <-- esp 输入参数对齐
+    //           proc <-- 12
+    //                <-- 08 prh_impl_asm_cono_call
+prh_asm_begin()
+    pop edx             // 协程函数 proc
+    mov ecx, esp        // 协程函数的参数 coro
+    call edx            // 执行协程函数 proc(coro)
+    mov ecx, esp        // 协程函数执行完毕
+    call prh_impl_asm_cono_finish // prh_impl_asm_cono_finish(coro)
     mov ecx, eax        // 执行下一个协程
     jmp prh_impl_asm_coro_next
 prh_asm_end()
