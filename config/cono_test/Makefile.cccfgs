@@ -1,0 +1,7 @@
+cccfg-y := gnu_x64_native gnu_x86_native
+
+gnu_x86_native-ldflag-y := -lpthread -latomic
+gnu_x64_native-ldflag-y := -lpthread -latomic
+
+gnu_x86_debug_native-ldflag-y := -lpthread -latomic
+gnu_x64_debug_native-ldflag-y := -lpthread -latomic

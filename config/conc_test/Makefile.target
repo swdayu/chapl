@@ -1,5 +1,0 @@
-target-y := default
-
-default-y := prh/coroutine/ config/conc_test/
-
-default-binary-type := exe

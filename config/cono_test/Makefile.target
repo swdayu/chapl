@@ -1,0 +1,8 @@
+target-y := default cross_coro
+
+default-y := config/cono_test/
+default-binary-type := exe
+
+cross_coro-y := prh/coroutine/ config/cono_test/cross.o
+cross_coro-incdir-y := -Iprh
+cross_coro-binary-type := exe
