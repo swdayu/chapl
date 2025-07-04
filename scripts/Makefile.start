@@ -23,7 +23,7 @@ export VPATH
 export DELIVER_GOALS := show
 export CONFIG_COMPILER := $(subst _, ,$(CCCFG))
 
-filter_deliver_goals = $(if $(filter run,$(MAKECMDGOALS)),run,$(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all)
+filter_deliver_goals = $(if $(or $(filter run,$(MAKECMDGOALS)),$(filter $(1),$(run_target))),run,$(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all)
 
 TARGET_CCCFGS_FILE := config/$(T)/Makefile.cccfgs
 include $(srctree)/$(TARGET_CCCFGS_FILE)
@@ -98,7 +98,7 @@ $(1):
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(ldsflags_y),ldsflags-y := $$(ldsflags_y))
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(stack_size_y),stack-size-y := $$(stack_size_y))
 	$(Q)$(MAKE) -C $(TARGET_OUTPUT) -f $(srctree)/scripts/Makefile.binary DEST=$$(dest_name) \
-	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE=$$(run_outfile) $(filter_deliver_goals)
+	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE=$$(run_outfile) $$(call filter_deliver_goals,$(1))
 else ifneq ($$(filter dll,$$(subst _, ,$($(1)-binary-type))),)
 $(1): dest_name := .target_$(1)
 $(1): dest_makefile := $(TARGET_OUTPUT)/.target_$(1)/Makefile.dest
@@ -126,7 +126,7 @@ $(1):
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(def_file_input_y),def-file-input-y := $$(def_file_input_y))
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(whole_archive_static_lib_y),whole-archive-static-lib-y := $$(whole_archive_static_lib_y))
 	$(Q)$(MAKE) -C $(TARGET_OUTPUT) -f $(srctree)/scripts/Makefile.binary DEST=$$(dest_name) \
-	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE= $(filter_deliver_goals)
+	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE= $$(call filter_deliver_goals,$(1))
 else
 $$(error invalid TARGET_TYPE=$($(1)-binary-type))
 endif

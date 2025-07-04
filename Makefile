@@ -89,6 +89,8 @@ ifeq ($(cccfg-y),)
 $(error compiler config not available)
 endif
 
+export run_target := $(run) # if provide run=target then need trigger build all
+
 PHONY += $(cccfg-y)
 $(cccfg-y):
 	$(call echo-info,CCCFG:$@)
@@ -110,8 +112,8 @@ run: $(if $(filter all,$(MAKECMDGOALS)),,all)
 	@:
 
 PHONY += show
-show:
-	$(call echo-info,Environment:)
+show: $(if $(run_target),$(if $(filter all,$(MAKECMDGOALS)),,all))
+	$(call echo-info,MAKE SYSTEM:)
 	$(call echo-info,  HOST=$(MAKE_HOST))
 	$(call echo-info,  SHELL=$(SHELL))
 	$(call echo-info,  MAKE=$(MAKE))
