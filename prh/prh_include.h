@@ -745,14 +745,14 @@ extern "C" {
 #endif
 #endif
 
-#ifdef PRH_CONC_INCLUDE
+#ifdef PRH_CONO_INCLUDE
 #define PRH_LIST_INCLUDE
 #define PRH_STACK_INCLUDE
 #define PRH_QUEUE_INCLUDE
 #define PRH_THRD_INCLUDE
 #define PRH_ATOMIC_INCLUDE
 #define PRH_CORO_INCLUDE
-#ifdef PRH_CONC_IMPLEMENTATION
+#ifdef PRH_CONO_IMPLEMENTATION
     #define PRH_BASE_IMPLEMENTATION
     #define PRH_LIST_IMPLEMENTATION
     #define PRH_STACK_IMPLEMENTATION
@@ -878,7 +878,7 @@ extern "C" {
 // Unix software on Windows as is, MSYS2 focuses on building native software
 // built against the Windows APIs.
 
-#if defined(PRH_CONC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
+#if defined(PRH_CONO_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
     defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION)
 #if defined(prh_plat_windows)
     // Predefined macros:
@@ -1475,8 +1475,8 @@ void prh_impl_time_test(void);
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
 void prh_impl_thrd_test(void);
 #endif
-#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
-void prh_impl_conc_test(void);
+#if defined(PRH_CONO_INCLUDE) && defined(PRH_CONO_IMPLEMENTATION)
+void prh_impl_cono_test(void);
 #endif
 void prh_impl_basic_test(void) {
     int a[6] = {0}, b = 1, count = 0;
@@ -1567,8 +1567,8 @@ void prh_test_code(void) {
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
     prh_impl_thrd_test();
 #endif
-#if defined(PRH_CONC_INCLUDE) && defined(PRH_CONC_IMPLEMENTATION)
-    prh_impl_conc_test();
+#if defined(PRH_CONO_INCLUDE) && defined(PRH_CONO_IMPLEMENTATION)
+    prh_impl_cono_test();
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
@@ -3546,27 +3546,45 @@ void *prh_quedyn_pop(prh_quedyn *q) {
 
 #ifdef PRH_CORO_INCLUDE
 typedef struct prh_impl_coro prh_coro;
+typedef struct prh_impl_coro_main prh_impl_coro_main;
 typedef struct prh_impl_coro_struct prh_coro_struct;
 
+typedef struct prh_impl_soro prh_soro;
 typedef struct {
-    prh_i32 start_id, real_cnt; // 1st field dont move
+    prh_i32 start_id; // 1st field dont move
     prh_coro *coro; // last field dont move, only used by soro_struct
 } prh_soro_struct;
 
 #define prh_coro_proc prh_fastcall(void)
-#define prh_impl_coro_yield(coro) prh_impl_asm_coro_yield((coro), prh_impl_next_resume_coro())
+#define prh_soro_proc prh_fastcall(void)
 prh_fastcall_typedef(void, prh_coroproc_t)(prh_coro *);
-
+prh_fastcall_typedef(void, prh_soroproc_t)(prh_soro *);
 prh_fastcall(void) prh_impl_asm_coro_yield(prh_coro *coro, prh_coro *next);
 prh_coro *prh_impl_next_resume_coro(void);
-void prh_coro_yield(prh_coro *coro);
+
+prh_inline void prh_coro_yield(prh_coro *coro) {
+    prh_impl_asm_coro_yield(coro, prh_impl_next_resume_coro());
+}
+
+prh_inline void prh_soro_yield(prh_soro *soro) {
+    extern prh_thread_local prh_impl_coro_main *PRH_IMPL_CORO_MAIN;
+    prh_impl_asm_coro_yield((prh_coro *)soro, (prh_coro *)PRH_IMPL_CORO_MAIN);
+}
 
 prh_inline void *prh_coro_data(prh_coro *coro) {
     return *(void **)((prh_byte *)coro + 8);
 }
 
+prh_inline void *prh_soro_data(prh_soro *soro) {
+    return *(void **)((prh_byte *)soro + 8);
+}
+
 prh_inline int prh_coro_main_id(prh_coro_struct *s) {
     return ((prh_soro_struct *)s)->start_id;
+}
+
+prh_inline int prh_soro_main_id(prh_soro_struct *s) {
+    return s->start_id;
 }
 
 prh_coro_struct *prh_coro_init(int start_id, int maxcoros);
@@ -3577,7 +3595,8 @@ bool prh_coro_cycle_start(prh_coro_struct *s);
 bool prh_coro_start(prh_coro_struct *s, int index);
 void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc); // udata is not reset
 void prh_coro_finish(prh_coro_struct **s);
-int prh_coro_self_id(void);
+int prh_coro_self_id(prh_coro *coro);
+int prh_soro_self_id(prh_soro *soro);
 
 void prh_soro_init(prh_soro_struct *s, int start_id);
 void prh_soro_create(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, void *userdata);
@@ -3588,18 +3607,24 @@ void prh_soro_finish(prh_soro_struct *s);
 
 #ifdef PRH_CORO_STRIP_PREFIX
 #define coro_t                  prh_coro
+#define soro_t                  prh_soro
 #define coro_struct_t           prh_coro_struct
 #define soro_struct_t           prh_soro_struct
 #define coro_proc_func          prh_coro_proc
-#define coro_data               prh_coro_data
+#define soro_proc_func          prh_soro_proc
+#define coro_get_data           prh_coro_data
+#define soro_get_data           prh_soro_data
 #define coro_self_id            prh_coro_self_id
+#define soro_self_id            prh_soro_self_id
 #define coro_main_id            prh_coro_main_id
+#define soro_main_id            prh_soro_main_id
 #define coro_yield              prh_coro_yield
+#define soro_yield              prh_soro_yield
 #define coro_init               prh_coro_init
 #define coro_create             prh_coro_create
 #define coro_creatx             prh_coro_creatx
-#define coro_cycle_await        prh_coro_cycle_start
-#define coro_await              prh_coro_start
+#define coro_cycle_start        prh_coro_cycle_start
+#define coro_start              prh_coro_start
 #define coro_reload             prh_coro_reload
 #define coro_finish             prh_coro_finish
 #define soro_init               prh_soro_init
@@ -3625,7 +3650,9 @@ struct prh_impl_coro_guard {
 };
 
 prh_fastcall(int) prh_impl_asm_stack_init_depth(void);
-prh_fastcall(void) prh_impl_asm_coro_call(void); // args are on coro stack
+prh_fastcall(void) prh_impl_asm_coro_call(void);
+prh_fastcall(void) prh_impl_asm_soro_call(void);
+prh_fastcall(void) prh_impl_asm_cono_call(void);
 
 void prh_impl_coro_stack_segmentation_fault(prh_coro *coro) {
     printf("coro %p stack segmentation fault\n", (void *)coro);
@@ -3647,7 +3674,7 @@ void prh_impl_coro_stack_segmentation_fault(prh_coro *coro) {
 //  upper memory address
 struct prh_impl_coro {
     prh_i32 rspoffset; // 1st field dont move
-    prh_u32 loweraddr: 31, cross_thread: 1;
+    prh_i32 loweraddr;
     void *userdata;
 };
 
@@ -3656,21 +3683,30 @@ struct prh_impl_coro {
 //  [prh_coro *]
 //  [prh_coro *]
 struct prh_impl_coro_struct {
-    prh_i32 start_id, real_cnt; // 1st field dont move
-    prh_i32 maxcoros, coro_cnt; // last field dont move, only used by coro_struct
+    prh_i32 start_id; // 1st field dont move
+    prh_i32 real_cnt;
+    prh_i32 maxcoros;
+    prh_i32 coro_cnt;
 };
 
 typedef struct prh_impl_coro_main {
     prh_i32 rspoffset; // 1st field dont move
+    prh_i32 start_id; // 2nd field dont move
+    struct prh_impl_coro_main *next; // 3rd field dont move
     prh_i32 curr_index; // coro index start from 1
-    prh_i32 end_count;
-    prh_u32 start_id: 31, yield_cycle: 1;
+    prh_u32 end_count: 31, yield_cycle: 1;
     prh_coro **coro_list;
-    struct prh_impl_coro_main *next;
 } prh_impl_coro_main;
+
+typedef struct {
+    prh_i32 rspoffset; // 1st field dont move
+    prh_i32 start_id; // 2nd field dont move
+    prh_impl_coro_main *next; // 3rd field dont move
+} prh_impl_soro_main;
 
 prh_inline int prh_impl_coro_struct_alloc_size(int maxcoros) {
     assert(maxcoros >= 1);
+    assert(sizeof(prh_coro_struct) % sizeof(void *) == 0);
     return (int)(sizeof(prh_coro_struct) + maxcoros * sizeof(void *));
 }
 
@@ -3726,7 +3762,7 @@ prh_coro *prh_impl_coro_alloc_set(prh_coro **slot, int stack_size, int coro_exte
     return coro;
 }
 
-void prh_impl_coro_load(prh_coro *coro, prh_coroproc_t proc) {
+void prh_impl_coro_load_stack(prh_coro *coro, prh_void_ptr proc, prh_void_ptr coro_call_func) {
     prh_impl_coro_guard_verify(coro);
     // [32-bit architecture]
     // pstack + alloc <-- 00 <-- 16字节对齐
@@ -3738,27 +3774,40 @@ void prh_impl_coro_load(prh_coro *coro, prh_coroproc_t proc) {
     //                <-- 00 prh_impl_asm_coro_call
     assert((prh_unt)coro % 16 == 0); // initial rsp shall 16-byte aligned
     void **rsp = (void **)coro;
-    *(--rsp) = (void *)(prh_unt)proc;
-    *(--rsp) = (void *)(prh_unt)prh_impl_asm_coro_call;
+    *(--rsp) = (void *)proc;
+    *(--rsp) = (void *)coro_call_func;
     coro->rspoffset = (prh_u32)((char *)coro - (char *)rsp);
 }
 
-prh_coro *prh_impl_coro_create(prh_coroproc_t proc, int stack_size, int coro_extend_size, void *userdata) {
+prh_inline void prh_impl_coro_load(prh_coro *coro, prh_coroproc_t proc) {
+    prh_impl_coro_load_stack(coro, (prh_void_ptr)proc, (prh_void_ptr)prh_impl_asm_coro_call);
+}
+
+prh_inline void prh_impl_soro_load(prh_coro *coro, prh_soroproc_t proc) {
+    prh_impl_coro_load_stack(coro, (prh_void_ptr)proc, (prh_void_ptr)prh_impl_asm_soro_call);
+}
+
+prh_inline void prh_impl_cono_load(prh_coro *coro, prh_conoproc_t proc) {
+    prh_impl_coro_load_stack(coro, (prh_void_ptr)proc, (prh_void_ptr)prh_impl_asm_cono_call);
+}
+
+prh_coro *prh_impl_soro_create(prh_soroproc_t proc, int stack_size, int coro_extend_size, void *userdata) {
     prh_coro *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, 0);
-    prh_impl_coro_load(coro, proc);
+    prh_impl_soro_load(coro, proc);
     coro->userdata = userdata;
     return coro;
 }
 
-prh_coro *prh_impl_coro_creatx(prh_coroproc_t proc, int stack_size, int coro_extend_size, int maxudsize) {
+prh_coro *prh_impl_soro_creatx(prh_soroproc_t proc, int stack_size, int coro_extend_size, int maxudsize) {
     prh_coro *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, maxudsize);
-    prh_impl_coro_load(coro, proc);
+    prh_impl_soro_load(coro, proc);
     return coro;
 }
 
-void prh_impl_coro_reload(prh_coro *coro, prh_coroproc_t proc) {
-    assert(coro && coro->rspoffset == prh_null); // only finished coro can reload
-    prh_impl_coro_load(coro, proc);
+prh_coro *prh_impl_cono_creatx(prh_conoproc_t proc, int stack_size, int coro_extend_size, int maxudsize) {
+    prh_coro *coro = prh_impl_coro_alloc(stack_size, coro_extend_size, maxudsize);
+    prh_impl_cono_load(coro, proc);
+    return coro;
 }
 
 prh_coro **prh_impl_coro_list(prh_coro_struct *s) {
@@ -3813,7 +3862,8 @@ prh_coro *prh_impl_coro_get(prh_coro_struct *s, int index) {
 
 void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc) {
     prh_coro *coro = prh_impl_coro_get(s, index);
-    prh_impl_coro_reload(coro, proc);
+    assert(coro && coro->rspoffset == prh_null); // only finished coro can reload
+    prh_impl_coro_load(coro, proc);
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     struct prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
@@ -3828,15 +3878,17 @@ void prh_coro_reload(prh_coro_struct *s, int index, prh_coroproc_t proc) {
 // 及其关联的子协程组合，而且只有当最深层的组合处理完毕才会处理浅层的组合。
 prh_thread_local prh_impl_coro_main *PRH_IMPL_CORO_MAIN;
 
-int prh_coro_self_id(void) {
+int prh_coro_self_id(prh_coro *coro) {
     struct prh_impl_coro_main *m = PRH_IMPL_CORO_MAIN;
     return m->start_id + m->curr_index;
 }
 
+int prh_soro_self_id(prh_soro *coro) {
+    struct prh_impl_coro_main *m = PRH_IMPL_CORO_MAIN;
+    return m->start_id + 1;
+}
+
 void prh_impl_coro_main_yield(prh_impl_coro_main *m, prh_coro *next) {
-#if PRH_CORO_DEBUG
-    printf("[coro %02d] %p await %02d\n", m->start_id, (void *)m, m->start_id + m->curr_index);
-#endif
     m->next = PRH_IMPL_CORO_MAIN;
     PRH_IMPL_CORO_MAIN = m;
     prh_impl_asm_coro_yield((prh_coro *)m, next);
@@ -3844,7 +3896,7 @@ void prh_impl_coro_main_yield(prh_impl_coro_main *m, prh_coro *next) {
 }
 
 prh_coro *prh_impl_get_next_resume(prh_impl_coro_main *m) {
-    for (int i = m->curr_index; i < m->end_count; i += 1) { // soro_struct never goes here due to yield_cycle = 0
+    for (int i = m->curr_index; i < m->end_count; i += 1) {
         prh_coro *next = m->coro_list[i];
         if (next && next->rspoffset) {
             m->curr_index = i + 1;
@@ -3862,29 +3914,23 @@ prh_coro *prh_impl_next_resume_coro(void) {
     return next;
 }
 
-#if defined(PRH_CONC_IMPLEMENTATION)
-void prh_impl_cross_thread_coro_yield(prh_coro *coro);
-#endif
-
-void prh_coro_yield(prh_coro *coro) {
-#if defined(PRH_CONC_IMPLEMENTATION)
-    if (coro->cross_thread) {
-        prh_impl_cross_thread_coro_yield(coro);
-    }
-#endif
-    prh_impl_coro_yield(coro);
-}
-
 prh_fastcall(void *) prh_impl_asm_coro_finish(prh_coro *coro) {
     coro->rspoffset = prh_null;
-#if defined(PRH_CONC_IMPLEMENTATION)
-    if (coro->cross_thread) {
-        prh_impl_cross_thread_coro_yield(coro);
-    }
-#endif
     prh_impl_coro_guard_verify(coro);
     return prh_impl_next_resume_coro();
 }
+
+prh_fastcall(void *) prh_impl_asm_soro_finish(prh_coro *coro) {
+    coro->rspoffset = prh_null;
+    prh_impl_coro_guard_verify(coro);
+    return PRH_IMPL_CORO_MAIN;
+}
+
+#ifndef PRH_CONO_IMPLEMENTATION
+prh_fastcall(void *) prh_impl_asm_cono_finish(prh_coro *coro) {
+    return prh_impl_asm_soro_finish(coro);
+}
+#endif
 
 bool prh_coro_cycle_start(prh_coro_struct *s) {
     prh_impl_coro_main mainstack;
@@ -3897,6 +3943,9 @@ bool prh_coro_cycle_start(prh_coro_struct *s) {
     if (next == (prh_coro *)&mainstack) {
         return false;
     }
+#if PRH_CORO_DEBUG
+    printf("[coro %02d] %p start %02d\n", s->start_id, (void *)&mainstack, s->start_id + mainstack.curr_index);
+#endif
     prh_impl_coro_main_yield(&mainstack, next);
     return true;
 }
@@ -3912,6 +3961,9 @@ bool prh_coro_start(prh_coro_struct *s, int index) {
         return false;
     }
     mainstack.curr_index = index;
+#if PRH_CORO_DEBUG
+    printf("[coro %02d] %p start %02d\n", s->start_id, (void *)&mainstack, s->start_id + mainstack.curr_index);
+#endif
     prh_impl_coro_main_yield(&mainstack, next);
     return true;
 }
@@ -3936,13 +3988,13 @@ void prh_coro_finish(prh_coro_struct **main) {
 }
 
 void prh_soro_init(prh_soro_struct *s, int start_id) {
-    s->coro = prh_null;
     s->start_id = start_id;
+    s->coro = prh_null;
 }
 
-void prh_soro_create(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, void *userdata) {
+void prh_soro_create(prh_soro_struct *s, prh_soroproc_t proc, int stack_size, void *userdata) {
     assert(s->coro == prh_null);
-    s->coro = prh_impl_coro_create(proc, stack_size, 0, userdata);
+    s->coro = prh_impl_soro_create(proc, stack_size, 0, userdata);
 #if PRH_CORO_DEBUG
     prh_coro *coro = s->coro;
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
@@ -3953,9 +4005,9 @@ void prh_soro_create(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, vo
 #endif
 }
 
-void *prh_soro_creatx(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, int maxudsize) {
+void *prh_soro_creatx(prh_soro_struct *s, prh_soroproc_t proc, int stack_size, int maxudsize) {
     assert(s->coro == prh_null);
-    prh_coro *coro = prh_impl_coro_creatx(proc, stack_size, 0, maxudsize);
+    prh_coro *coro = prh_impl_soro_creatx(proc, stack_size, 0, maxudsize);
     s->coro = coro;
 #if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
@@ -3967,10 +4019,11 @@ void *prh_soro_creatx(prh_soro_struct *s, prh_coroproc_t proc, int stack_size, i
     return coro->userdata;
 }
 
-void prh_soro_reload(prh_soro_struct *s, prh_coroproc_t proc) {
-    prh_impl_coro_reload(s->coro, proc);
-#if PRH_CORO_DEBUG
+void prh_soro_reload(prh_soro_struct *s, prh_soroproc_t proc) {
     prh_coro *coro = s->coro;
+    assert(coro && coro->rspoffset == prh_null); // only finished coro can reload
+    prh_impl_soro_load(coro, proc);
+#if PRH_CORO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     struct prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[coro %02d] %p reload -- lower %p (left %d) rsp %p coro %p (size %d) data %p --\n",
@@ -3979,24 +4032,34 @@ void prh_soro_reload(prh_soro_struct *s, prh_coroproc_t proc) {
 #endif
 }
 
+void prh_impl_soro_start(int start_id, prh_coro *coro) {
+    assert(coro && coro->rspoffset);
+    prh_impl_soro_main mainstack;
+    mainstack.start_id = start_id;
+#if PRH_CORO_DEBUG
+    printf("[soro %02d] %p start %02d\n", start_id, (void *)&mainstack, start_id + 1);
+#endif
+    prh_impl_coro_main_yield((prh_impl_coro_main *)&mainstack, coro);
+}
+
 bool prh_soro_start(prh_soro_struct *s) {
-    prh_impl_coro_main mainstack;
-    mainstack.coro_list = prh_null;
+    prh_impl_soro_main mainstack;
     mainstack.start_id = s->start_id;
-    mainstack.yield_cycle = 0;
     prh_coro *next = s->coro;
     if (next == prh_null || next->rspoffset == prh_null) {
         return false;
     }
-    mainstack.curr_index = 1;
-    prh_impl_coro_main_yield(&mainstack, next);
+#if PRH_CORO_DEBUG
+    printf("[soro %02d] %p start %02d\n", s->start_id, (void *)&mainstack, s->start_id + 1);
+#endif
+    prh_impl_coro_main_yield((prh_impl_coro_main *)&mainstack, next);
     return true;
 }
 
 void prh_soro_finish(prh_soro_struct *main) {
-    prh_coro *soro = main->coro;
-    if (soro == prh_null) return;
-    prh_impl_coro_free(soro);
+    prh_coro *coro = main->coro;
+    if (coro == prh_null) return;
+    prh_impl_coro_free(coro);
     main->coro = prh_null;
 }
 #endif // PRH_CORO_IMPLEMENTATION
@@ -7934,56 +7997,70 @@ void prh_impl_thrd_test(void) {
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
 
-#ifdef PRH_CONC_INCLUDE
+#ifdef PRH_CONO_INCLUDE
+typedef struct prh_impl_cono prh_cono;
+#define prh_cono_proc prh_fastcall(void)
+prh_fastcall_typedef(void, prh_conoproc_t)(prh_cono *);
 typedef struct prh_spawn_data prh_spawn_data;
 typedef struct prh_await_data prh_await_data;
-void prh_concurrency_main(int thrd_start_id, int num_thread, prh_coroproc_t main_proc, int stack_size);
-void *prh_coro_spawn(prh_coro *coro, prh_coroproc_t proc, int stack_size, int maxudsize);
-void prh_coro_sched(prh_coro *coro, prh_spawn_data *coro_spawn_data);
-void *prh_coro_await(prh_coro *coro);
-void prh_coro_continue(prh_coro *coro, prh_await_data *coro_await_data);
 
-#ifdef PRH_CONC_IMPLEMENTATION
+void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size);
+void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize);
+int prh_cono_start(prh_cono *coro, prh_spawn_data *cono_spawn_data);
+void *prh_cono_await(prh_cono *coro);
+void prh_cono_continue(prh_cono *coro, prh_await_data *cono_await_data);
+void prh_impl_cross_thread_coro_yield(prh_cono *coro);
+
+prh_inline void prh_cono_yield(prh_cono *coro) {
+    prh_impl_cross_thread_coro_yield(coro);
+    prh_soro_yield((prh_soro *)coro);
+}
+
+prh_inline void *prh_cono_data(prh_cono *coro) {
+    return prh_soro_data((prh_soro *)coro);
+}
+
+#ifdef PRH_CONO_IMPLEMENTATION
 typedef enum {
-    PRH_CORO_ID_NULL,
-    PRH_FIXED_CORO_MAX,
-} prh_impl_coro_id;
+    PRH_CONO_ID_NULL,
+    PRH_FIXED_CONO_MAX,
+} prh_impl_cono_id;
 
 typedef enum {
-    PRH_CORO_CONTINUE,
-    PRH_CORO_START, // 子协程创建后开始启动
-    PRH_CORO_SWAIT, // 等待子协程启动成功
-    PRH_CORO_YIELD,
-    PRH_CORO_AWAIT,
-    PRH_CORO_PDATA,
-    PRH_CORO_PWAIT,
-    PRH_CORO_EXIT,
-    PRH_CORO_REQ_MAX
-} prh_impl_coro_action;
+    PRH_CONO_CONTINUE,
+    PRH_CONO_START, // 启动新建协程
+    PRH_CONO_YIELD,
+    PRH_CONO_AWAIT,
+    PRH_CONO_PDATA,
+    PRH_CONO_PWAIT,
+    PRH_CONO_EXIT,
+    PRH_CONO_REQ_MAX
+} prh_impl_cono_action;
 
-struct prh_cono;
+struct prh_real_cono;
 typedef struct {
-    struct prh_cono *head;
-    struct prh_cono *tail;
+    struct prh_real_cono *head;
+    struct prh_real_cono *tail;
 } prh_cono_quefit;
 
 typedef struct {
     // 仅由当前线程访问
-    prh_soro_struct soro; // 当前执行协程
-    prh_snode_t cono_2_free_node;
-    bool coro_assigned;
+    bool cono_assigned;
     bool pending_work_exist;
     // 可被特权线程访问
-    prh_atom_data_quefix coro_req_que;
-    prh_atom_ptr ready_coro; // 由特权线程写入，由特权线程窃取清空，或由当前协程读取清空
+    prh_atom_data_quefix cono_req_que;
+    prh_atom_ptr ready_cono; // 由特权线程写入，由特权线程窃取清空，或由当前协程读取清空
     prh_sleep_cond sleep_cond;
 } prh_cono_thrd; // 每个线程尽量指定在单一的CPU上运行避免线程切换
 
+prh_inline prh_cono_thrd *prh_impl_cono_thrd(prh_thrd *thrd) {
+    return (prh_cono_thrd *)((char *)thrd + prh_impl_thrd_head_size);
+}
+
 void prh_impl_cono_thrd_init(prh_thrd *thrd) {
     prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
-    prh_soro_init(&cono_thrd->soro, prh_thrd_id(thrd));
-    prh_atom_data_quefix_init(&cono_thrd->coro_req_que);
-    prh_atom_ptr_init(&cono_thrd->ready_coro, prh_null);
+    prh_atom_data_quefix_init(&cono_thrd->cono_req_que);
+    prh_atom_ptr_init(&cono_thrd->ready_cono, prh_null);
     prh_impl_sleep_cond_init(&cono_thrd->sleep_cond);
 }
 
@@ -7991,61 +8068,68 @@ void prh_impl_cono_thrd_free(prh_cono_thrd *t) {
     prh_atomnodque_free(t, txmq, prh_null);
 }
 
-typedef struct prh_cono {
+typedef struct prh_real_cono {
     // 仅由执行线程访问
-    prh_i32 coro_id;
+    prh_i32 cono_id;
     prh_byte action;
     bool finished;
-    bool idle_wait;
-    prh_cono *caller;
-    prh_cono *callee;
+    bool idle_await;
+    prh_real_cono *caller;
+    prh_real_cono *await_callee;
+    prh_real_cono *start_callee;
     // 仅由特权线程访问
     prh_cono_quefit callee_que;
     prh_quefit pdata_que;
     prh_cono_thrd *assign_thrd;
-    prh_cono *coro_chain;
-} prh_cono; // 跨线程协程
-
-void prh_impl_cono_init(prh_cono *cono, prh_i32 coro_id) {
-    cono->coro_id = coro_id;
-}
+    prh_real_cono *cono_chain;
+} prh_real_cono; // 跨线程协程
 
 typedef struct {
     prh_thrd_struct *thrd_struct; // 初始化后只读
     prh_cono_thrd *main_thread; // 初始化后只读
-    prh_cono *fixed_coro[PRH_FIXED_CORO_MAX]; // 初始化后只读
+    prh_real_cono *fixed_cono[PRH_FIXED_CONO_MAX]; // 初始化后只读
     // 多线程读写
     prh_cono_quefit ready_queue;
-    prh_i32 coro_id_seed;
+    prh_i32 cono_id_seed;
     prh_atom_ptr privilege_thread;
     prh_atom_bool thrd_exit;
-} prh_conc_struct;
+} prh_cono_struct;
 
-static prh_conc_struct PRH_IMPL_CONC_STRUCT;
+static prh_cono_struct PRH_IMPL_CONO_STRUCT;
 
-prh_cono *prh_impl_get_fixed_coro(prh_int coro_id) {
-    assert(coro_id < PRH_FIXED_CORO_MAX);
-    return PRH_IMPL_CONC_STRUCT.fixed_coro[coro_id];
+void prh_impl_cono_init(prh_real_cono *cono, prh_i32 cono_id) {
+    cono->cono_id = cono_id;
+}
+
+void prh_impl_fixed_cono_init(prh_real_cono *cono, prh_i32 cono_id) {
+    prh_impl_cono_init(cono, cono_id);
+    assert(cono_id < PRH_FIXED_CONO_MAX);
+    PRH_IMPL_CONO_STRUCT.fixed_cono[cono_id] = cono;
+}
+
+prh_real_cono *prh_impl_get_fixed_coro(prh_int cono_id) {
+    assert(cono_id < PRH_FIXED_CONO_MAX);
+    return PRH_IMPL_CONO_STRUCT.fixed_cono[cono_id];
 }
 
 prh_inline int prh_impl_cono_size(void) {
-    return (int)prh_round_16_byte(sizeof(prh_cono));
+    return (int)prh_round_16_byte(sizeof(prh_real_cono));
 }
 
-prh_inline void *prh_impl_cono_data(prh_cono *cono) {
+prh_inline void *prh_impl_get_cono_data(prh_real_cono *cono) {
     return (char *)cono + prh_impl_cono_size();
 }
 
-prh_inline prh_cono *prh_impl_cono_from_coro(prh_coro_t *coro) {
-    return (prh_cono *)((char *)coro + prh_impl_coro_size);
+prh_inline prh_real_cono *prh_impl_cono_from_coro(prh_cono *coro) {
+    return (prh_real_cono *)((char *)coro + prh_impl_coro_size);
 }
 
-prh_inline prh_cono *prh_impl_cono_from_data(void *data) {
-    return (prh_cono *)((char *)data - prh_impl_cono_size());
+prh_inline prh_coro *prh_impl_coro_from_cono(prh_real_cono *cono) {
+    return (prh_coro *)((char *)cono - prh_impl_coro_size);
 }
 
-prh_inline prh_cono_thrd *prh_impl_cono_thrd(prh_thrd *thrd) {
-    return (prh_cono_thrd *)((char *)thrd + prh_impl_thrd_head_size);
+prh_inline prh_real_cono *prh_impl_cono_from_data(void *data) {
+    return (prh_real_cono *)((char *)data - prh_impl_cono_size());
 }
 
 // 要实现无锁且省去N*M爆炸内存，必须有一个线程担任中间角色，请求者与中间角色是一对一的，
@@ -8092,143 +8176,160 @@ prh_inline prh_cono_thrd *prh_impl_cono_thrd(prh_thrd *thrd) {
 //          清求协程状态：请求协程发送请求数据给特权协程，特权协程将数据挂到执行协程的WAIT队列中，然后等待执行协程的WAIT挂起
 //          执行协程状态：当执行协程执行完当前任务挂起后，给特权协程发送消息，特权协程收到消息后，取出一个数据直接执行执行协程
 //          特权协程实现：如果执行协程先挂起，但队列中已经没有要处理的任务了，就会设置idle_wait标记，下次接收到请求数据就直接激活执行协程的执行
-typedef void (*prh_impl_coro_req_func)(prh_cono *req_coro, prh_cono_quefit *ready_queue);
-
-void prh_impl_coro_continue_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
-    if (req_coro->finished) {
-        prh_impl_coro_free(prh_impl_coro_from_cono(req_coro));
+void prh_impl_process_cono_continue_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    if (req_cono->finished) {
+        prh_impl_coro_free(prh_impl_coro_from_cono(req_cono));
     } else { // 继续执行协程
-        prh_relaxed_quefit_push(ready_queue, req_coro, coro_chain);
+        prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
     }
 }
 
-void prh_impl_coro_start_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
-    prh_impl_cono_init(req_coro, ++PRH_IMPL_CONC_STRUCT.coro_id_seed); // 初始化新协程
-    prh_relaxed_quefit_push(ready_queue, req_coro, coro_chain); // 新建协程可以安全插入就绪队列
+void prh_impl_process_cono_start_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_real_cono *callee = req_cono->start_callee;
+    prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
+    prh_relaxed_quefit_push(ready_queue, callee, cono_chain); // 优先调度新建协程
+    prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
 }
 
-void prh_impl_coro_swait_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
-
-}
-
-void prh_impl_coro_yield_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
-    prh_cono *caller = req_coro->caller;
+void prh_impl_process_cono_yield_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_real_cono *caller = req_cono->caller;
     if (caller) { // 需要提交执行结果给请求协程
-        if (caller->idle_wait) { // 请求协程正在等待执行结果，且其结果队列为空
-            caller->callee = req_coro;
-            caller->idle_wait = false; // 将结果提交给请求协程，并立即调度其执行
-            prh_relaxed_quefit_push(ready_queue, caller, coro_chain);
+        if (caller->idle_await) { // 请求协程正在等待执行结果，且其结果队列为空
+            caller->await_callee = req_cono;
+            caller->idle_await = false; // 将结果提交给请求协程，并立即调度其执行
+            prh_relaxed_quefit_push(ready_queue, caller, cono_chain);
         } else { // 将执行协程插入请求协程的结果队列中，等待请求下一次WAIT挂起继续执行
-            prh_relaxed_quefit_push(&caller->callee_que, req_coro, coro_chain);
+            prh_relaxed_quefit_push(&caller->callee_que, req_cono, cono_chain);
         }
     } else { // 执行协程不需要将结果提交给请求协程，执行结束或者继续无条件执行
-        prh_impl_coro_continue_req(req_coro);
+        prh_impl_process_cono_continue_req(req_cono);
     }
 }
 
-void prh_impl_coro_await_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
-    prh_cono *callee; // 等待执行协程的执行结果
-    prh_relaxed_quefit_pop(&req_coro->callee_que, callee, coro_chain);
+void prh_impl_process_cono_await_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_real_cono *callee; // 等待执行协程的执行结果
+    prh_relaxed_quefit_pop(&req_cono->callee_que, callee, cono_chain);
     if (callee) { // 协程给特权发送消息，都会挂起等待特权调度继续执行，因此协程的请求都是顺序的，对于一个协程不可能同时有多个等待执行的请求存在
-        req_coro->callee = callee; // 有结果存在，直接交给请求协程继续执行
-        prh_relaxed_quefit_push(ready_queue, caller, coro_chain);
+        req_cono->await_callee = callee; // 有结果存在，直接交给请求协程继续执行
+        prh_relaxed_quefit_push(ready_queue, caller, cono_chain);
     } else {
-        req_coro->idle_wait = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
+        req_cono->idle_await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
     }
 }
 
-void prh_impl_coro_pdata_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
+void prh_impl_process_cono_pdata_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
 
 }
 
-void prh_impl_coro_pwait_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
+void prh_impl_process_cono_pwait_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
 
 }
 
-void prh_impl_coro_exit_req(prh_cono *req_coro, prh_cono_quefit *ready_queue) {
+void prh_impl_process_cono_exit_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
 
 }
 
-static prh_impl_coro_req_func PRH_IMPL_CORO_REQ_FUNC[PRH_CORO_REQ_MAX] = {
-    prh_impl_coro_continue_req,
-    prh_impl_coro_start_req,
-    prh_impl_coro_swait_req,
-    prh_impl_coro_yield_req,
-    prh_impl_coro_await_req,
-    prh_impl_coro_pdata_req,
-    prh_impl_coro_pwait_req,
-    prh_impl_coro_exit_req,
+typedef void (*prh_impl_cono_req_func)(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
+static prh_impl_cono_req_func PRH_IMPL_CONO_REQ_FUNC[PRH_CONO_REQ_MAX] = {
+    prh_impl_process_cono_continue_req,
+    prh_impl_process_cono_start_req,
+    prh_impl_process_cono_yield_req,
+    prh_impl_process_cono_await_req,
+    prh_impl_process_cono_pdata_req,
+    prh_impl_process_cono_pwait_req,
+    prh_impl_process_cono_exit_req,
 };
 
-void prh_impl_coro_req(prh_cono *req_coro, int action) {
-    prh_cono_thrd *thrd = req_coro->assign_thrd;
+void prh_impl_send_cono_req(prh_real_cono *req_cono, int action) {
+    prh_cono_thrd *thrd = req_cono->assign_thrd;
     assert(thrd == prh_thrd_self_data());
-    req_coro->action = action;
-    prh_atom_data_quefix_push(&thrd->coro_req_que, req_coro);
+    req_cono->action = action;
+    prh_atom_data_quefix_push(&thrd->cono_req_que, req_cono);
 }
 
-void prh_impl_callee_continue(prh_cono *coro) {
-    if (coro->callee) {
-        prh_impl_coro_req(coro->callee, PRH_CORO_CONTINUE);
-        coro->callee = prh_null;
+void prh_impl_callee_continue(prh_real_cono *caller) {
+    if (caller->await_callee) {
+        prh_impl_send_cono_req(caller->await_callee, PRH_CONO_CONTINUE);
+        caller->await_callee = prh_null;
     }
 }
 
-void prh_impl_cross_thread_coro_yield(prh_coro *coro) {
-    prh_cono *cono = prh_impl_cono_from_coro(coro);
-    cono->finished = (coro->rspoffset == prh_null);
-    cono->action = PRH_CORO_YIELD;
+void prh_impl_cross_thread_coro_yield(prh_cono *coro) {
+    prh_real_cono *cono = prh_impl_cono_from_coro(coro);
+    cono->action = PRH_CONO_YIELD;
 }
 
-void prh_coro_sched(prh_coro *coro, prh_spawn_data *coro_spawn_data) {
-    prh_cono *callee = prh_impl_cono_from_data(coro_spawn_data);
-    prh_impl_coro_req(callee, PRH_CORO_START);
+prh_fastcall(void *) prh_impl_asm_cono_finish(prh_coro *coro) {
+    prh_real_cono *cono = prh_impl_cono_from_coro((prh_cono *)coro);
+    cono->finished = true;
+    cono->action = PRH_CONO_YIELD;
+    return prh_impl_asm_soro_finish(coro);
 }
 
-void prh_impl_cono_yield(prh_coro *coro, int action) {
-    prh_cono *caller = prh_impl_cono_from_coro(coro);
+void prh_impl_cono_wait(prh_real_cono *cono, int action) {
     caller->action = action;
-    prh_impl_coro_yield(coro);
+    prh_soro_yield((prh_soro *)prh_impl_coro_from_cono(cono));
 }
 
-void *prh_coro_await(prh_coro *coro) {
-    prh_cono *caller = prh_impl_cono_from_coro(coro);
-    prh_impl_cono_yield(coro, PRH_CORO_AWAIT);
-    return prh_impl_cono_data(caller->callee);
+prh_real_cono *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, void *userdata) {
+    prh_coro *coro = prh_impl_cono_creatx(proc, stack_size, sizeof(prh_real_cono), 0);
+    coro->userdata = userdata;
+    return prh_impl_cono_from_coro((prh_cono *)coro);
 }
 
-void prh_coro_continue(prh_coro *coro, void *await_userdata) {
-    prh_cono *caller = prh_impl_cono_from_coro(coro);
-    assert(caller->callee == prh_impl_cono_from_data(await_userdata));
+void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize) {
+    prh_coro *coro = prh_impl_cono_creatx(proc, stack_size, sizeof(prh_real_cono), maxudsize);
+    return prh_coro_data(coro);
+}
+
+int prh_cono_start(prh_cono *coro, prh_spawn_data *cono_spawn_data) {
+    prh_real_cono *caller = prh_impl_cono_from_coro(coro);
+    prh_real_cono *callee = prh_impl_cono_from_data(cono_spawn_data);
+    callee->assign_thrd = caller->assign_thrd;
+    callee->caller = caller;
+    caller->start_callee = callee;
+    prh_impl_cono_wait(caller, PRH_CONO_START);
+    return callee->cono_id;
+}
+
+void *prh_cono_await(prh_cono *coro) {
+    prh_real_cono *caller = prh_impl_cono_from_coro(coro);
+    prh_impl_cono_wait(caller, PRH_CONO_AWAIT);
+    return prh_impl_get_cono_data(caller->await_callee);
+}
+
+void prh_cono_continue(prh_cono *coro, void *cono_await_data) {
+    prh_real_cono *caller = prh_impl_cono_from_coro(coro);
+    assert(caller->await_callee == prh_impl_cono_from_data(cono_await_data));
     prh_impl_callee_continue(caller);
 }
 
-void prh_impl_coro_execute(prh_cono_thrd *cono_thrd, prh_cono *coro) {
-    prh_soro_struct *soro = &cono_thrd->soro;
-    soro->coro = prh_impl_coro_from_cono(coro);
-    if (coro->action == PRH_CORO_AWAIT) {
-        prh_soro_start(soro);
-        prh_impl_callee_continue(coro);
-    } else {
-        prh_soro_start(soro); // 继续执行当前协程，直到协程挂起或执行完毕返回到主协程
+void prh_impl_cono_execute(prh_thrd *thrd, prh_real_cono *cono) {
+    prh_coro *coro = prh_impl_coro_from_cono(cono);
+    if (cono->action == PRH_CONO_AWAIT) {
+        prh_impl_soro_start(thrd->thrd_id, coro);
+        prh_impl_callee_continue(cono);
+    } else { // 继续执行当前协程，直到协程挂起或执行完毕返回到主协程
+        prh_impl_soro_start(thrd->thrd_id, coro);
     }
-    prh_impl_coro_req(coro, coro->action); // 返回主协程之前，coro 会设置好 action
+    prh_impl_send_cono_req(cono, cono->action); // 返回主协程之前，cono会设置好action
 }
 
-prh_inline void prh_impl_coro_req_process(prh_cono *req_coro) {
-    assert(req_coro->action < PRH_CORO_REQ_MAX);
-    PRH_IMPL_CORO_REQ_FUNC[req_coro->action](req_coro);
+prh_inline void prh_impl_cono_req_process(prh_real_cono *req_cono) {
+    assert(req_cono->action < PRH_CONO_REQ_MAX);
+    PRH_IMPL_CONO_REQ_FUNC[req_cono->action](req_cono);
 }
 
 bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
-    prh_atom_ptr *privilege_thread = &PRH_IMPL_CONC_STRUCT.privilege_thread;
-    prh_cono_quefit *ready_queue = &PRH_IMPL_CONC_STRUCT.ready_queue;
+    prh_atom_ptr *privilege_thread = &PRH_IMPL_CONO_STRUCT.privilege_thread;
+    prh_cono_quefit *ready_queue = &PRH_IMPL_CONO_STRUCT.ready_queue;
+    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
     bool pending_work = false;
-    curr_thrd->coro_assigned = false;
+    curr_thrd->cono_assigned = false;
     curr_thrd->pending_work_exist = false;
     prh_cono_thrd *thrd;
     prh_data_quefit all_req;
-    prh_cono *ready_coro;
+    prh_real_cono *ready_cono;
 
     if (strong_check) { // 获取特权
         if (!prh_atom_ptr_strong_compare_null_write(privilege_thread, curr_thrd)) {
@@ -8240,64 +8341,64 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
         }
     }
 
-    prh_thrd **thrd_begin = prh_thrd_list_begin(PRH_IMPL_CONC_STRUCT.thrd_struct);
-    prh_thrd **thrd_end = prh_thrd_list_begin(PRH_IMPL_CONC_STRUCT.thrd_struct);
+    prh_thrd **thrd_begin = prh_thrd_list_begin(thrd_struct);
+    prh_thrd **thrd_end = prh_thrd_list_begin(thrd_struct);
     prh_thrd **thrd_it = thrd_begin;
     for (; thrd_it < thrd_end; thrd_it += 1) { // 处理特权消息，将就绪协程插入就绪队列
         if (*thrd_it == prh_null) continue;
         thrd = prh_impl_cono_thrd(*thrd_it);
-        if (!prh_atom_data_quefix_pop_all(&thrd->coro_req_que, &all_req)) {
+        if (!prh_atom_data_quefix_pop_all(&thrd->cono_req_que, &all_req)) {
             continue;
         }
         prh_data_quefit_for_begin(&all_req) {
-            prh_impl_coro_req_process((prh_cono *)it->data, ready_queue);
+            prh_impl_cono_req_process((prh_real_cono *)it->data, ready_queue);
             prh_data_quefit_for_end();
         }
-        prh_atom_data_quefix_free_node(&thrd->coro_req_que, &all_req);
+        prh_atom_data_quefix_free_node(&thrd->cono_req_que, &all_req);
     }
 
     thrd_it = thrd_begin;
     for (; ;) { // 将就绪队列中的协程分配给线程执行
-        prh_relaxed_quefit_pop(ready_queue, ready_coro, coro_chain);
-        if (ready_coro == prh_null) break;
-        thrd = ready_coro->assign_thrd;
-        if (thrd && prh_atom_ptr_strong_compare_null_write(&thrd->ready_coro, ready_coro)) {
+        prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
+        if (ready_cono == prh_null) break;
+        thrd = ready_cono->assign_thrd;
+        if (thrd && prh_atom_ptr_strong_compare_null_write(&thrd->ready_cono, ready_cono)) {
             prh_thrd_wakeup(thrd->sleep_cond);
             continue; // 尽量将协程分配在同一个线程中执行
         }
         for (; thrd_it < thrd_end; thrd_it += 1) { // 将协程分配给空闲协程
             if (*thrd_it == prh_null) continue;
             thrd = prh_impl_cono_thrd(*thrd_it);
-            if (prh_atom_ptr_strong_compare_null_write(&thrd->ready_coro, ready_coro)) {
-                ready_coro->assign_thrd = thrd;
+            if (prh_atom_ptr_strong_compare_null_write(&thrd->ready_cono, ready_cono)) {
+                ready_cono->assign_thrd = thrd;
                 prh_thrd_wakeup(thrd->sleep_cond);
-                ready_coro = prh_null;
+                ready_cono = prh_null;
                 break;
             }
         }
-        if (ready_coro) { // 没有足够的线程处理该协程，将协程重新插入就绪队列，并退出循环
-            prh_relaxed_quefit_push_front(ready_queue, ready_coro, coro_chain);
+        if (ready_cono) { // 没有足够的线程处理该协程，将协程重新插入就绪队列，并退出循环
+            prh_relaxed_quefit_push_front(ready_queue, ready_cono, cono_chain);
             break;
         }
     }
 
-    if (curr_thrd->ready_coro) { // 如果当前线程没有分配到协程，从其他线程偷取协程来执行
-        curr_thrd->coro_assigned = true;
-    } else if (strong_check && curr_thrd != PRH_IMPL_CONC_STRUCT.main_thread) {
+    if (curr_thrd->ready_cono) { // 如果当前线程没有分配到协程，从其他线程偷取协程来执行
+        curr_thrd->cono_assigned = true;
+    } else if (strong_check && curr_thrd != PRH_IMPL_CONO_STRUCT.main_thread) {
         thrd_it = thrd_begin; // 主线程不需要偷取任务，如果就绪队列里面有任务，第一个分配的线程就是主线程，如果就绪队列里已经没有任务了，表示任务都已经分配完毕了，不需要主线程帮忙
         for (; thrd_it < thrd_end; thrd_it += 1) {
             if (*thrd_it == prh_null) continue;
             thrd = prh_impl_cono_thrd(*thrd_it);
-            if ((ready_coro = prh_atom_ptr_read(&thrd->ready_coro)) && prh_atom_compare_write(&thrd->ready_coro, &ready_coro, prh_null)) {
-                curr_thrd->ready_coro = ready_coro;
-                ready_coro->assign_thrd = curr_thrd;
-                curr_thrd->coro_assigned = true;
+            if ((ready_cono = prh_atom_ptr_read(&thrd->ready_cono)) && prh_atom_compare_write(&thrd->ready_cono, &ready_cono, prh_null)) {
+                curr_thrd->ready_cono = ready_cono;
+                ready_cono->assign_thrd = curr_thrd;
+                curr_thrd->cono_assigned = true;
                 break;
             }
         }
     }
 
-    if (strong_check && curr_thrd == PRH_IMPL_CONC_STRUCT.main_thread) {
+    if (strong_check && curr_thrd == PRH_IMPL_CONO_STRUCT.main_thread) {
         if (prh_relaxed_quefit_not_empty(ready_queue)) {
             curr_thrd->pending_work_exist = true; // 就绪队列不为空，表示所有线程都安排工作后，还有剩余的协程，相当于所有的线程都处于忙碌状态
         } else {
@@ -8305,7 +8406,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
             for (; thrd_it < thrd_end; thrd_it += 1) {
                 if (*thrd_it == prh_null) continue;
                 thrd = prh_impl_cono_thrd(*thrd_it);
-                if ((ready_coro = prh_atom_ptr_read(&thrd->ready_coro))) {
+                if ((ready_cono = prh_atom_ptr_read(&thrd->ready_cono))) {
                     curr_thrd->pending_work_exist = true; // 还有分配的协程没有执行
                     break;
                 }
@@ -8319,22 +8420,22 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
 
 prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
     prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
-    prh_atom_ptr *thrd_ready_coro = &cono_thrd->ready_coro;
-    prh_cono *ready_coro;
+    prh_atom_ptr *thrd_ready_cono = &cono_thrd->ready_cono;
+    prh_real_cono *ready_cono;
 
     for (; ;) {
-        while ((ready_coro = prh_atom_ptr_read(thrd_ready_coro))) {
-            if (prh_atom_ptr_compare_write(thrd_ready_coro, &ready_coro, prh_null)) {
-                prh_impl_coro_execute(cono_thrd, ready_coro);
+        while ((ready_cono = prh_atom_ptr_read(thrd_ready_cono))) {
+            if (prh_atom_ptr_compare_write(thrd_ready_cono, &ready_cono, prh_null)) {
+                prh_impl_cono_execute(thrd, ready_cono);
             } else { // 自己的任务可能被别的线程抢掉
                 prh_impl_privilege_task(cono_thrd, false);
             }
         }
         prh_impl_privilege_task(cono_thrd, true);
-        if (cono_thrd->coro_assigned || prh_atom_ptr_read(thrd_ready_coro)) {
+        if (cono_thrd->cono_assigned || prh_atom_ptr_read(thrd_ready_cono)) {
             continue; // 被安排新任务，或在没抢到特权的情况下，可能被其他特权线程安排任务
         }
-        if (prh_atom_bool_read(PRH_IMPL_CONC_STRUCT.thrd_exit)) {
+        if (prh_atom_bool_read(PRH_IMPL_CONO_STRUCT.thrd_exit)) {
             break;
         }
         prh_thrd_sleep(&thrd->sleep_cond);
@@ -8343,54 +8444,8 @@ prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
     return 0;
 }
 
-prh_coro *prh_impl_cono_create(prh_coroproc_t proc, int stack_size, int maxudsize) {
-    prh_coro *coro = prh_impl_coro_creatx(proc, stack_size, sizeof(prh_cono), maxudsize);
-    coro->cross_thread = 1;
-    return coro;
-}
-
-void *prh_cono_create_type_1_coro(prh_coro *caller, prh_coroproc_t proc, int stack_size, int maxudsize) {
-    prh_coro *coro = prh_impl_cono_create(proc, stack_size, maxudsize);
-    void *userdata = prh_coro_data(coro);
-    prh_cono *cono = prh_impl_cono_from_data(userdata);
-    cono->caller_need_result = prh_impl_cono_from_coro(caller);
-    cono->coro_type = PRH_CORO_TYPE_1;
-    return userdata;
-}
-
-prh_coro *prh_cono_type_2_coro(prh_coroproc_t proc, int stack_size, prh_void_ptr userdata) {
-    prh_coro *coro = prh_impl_cono_create(proc, stack_size, 0);
-    prh_cono *cono = prh_impl_cono_from_coro(coro);
-    cono->coro_type = PRH_CORO_TYPE_2;
-    coro->userdata = (void *)userdata;
-    return coro;
-}
-
-void *prh_cono_creatx_type_2_coro(prh_coroproc_t proc, int stack_size, int maxudsize) {
-    prh_coro *coro = prh_impl_cono_create(proc, stack_size, maxudsize);
-    void *userdata = prh_coro_data(coro);
-    prh_cono *cono = prh_impl_cono_from_data(userdata);
-    cono->coro_type = PRH_CORO_TYPE_2;
-    return userdata;
-}
-
-prh_cono *prh_impl_cono_init_fixed_coro(prh_coro *coro, prh_i32 coro_id) {
-    assert(coro_id < PRH_FIXED_CORO_MAX);
-    prh_cono *cono = prh_impl_cono_from_coro(coro);
-    prh_impl_cono_init(cono, coro_id);
-    PRH_IMPL_CONC_STRUCT.fixed_coro[coro_id] = coro;
-    return cono;
-}
-
-prh_cono *prh_impl_cono_create_root(void) {
-    prh_coro *coro = prh_cono_type_2_coro(prh_impl_root_coro_proc, PRH_IMPL_ROOT_CORO_STACK_SIZE, PRH_FIXED_CORO_MAX);
-    prh_cono *cono = prh_impl_cono_init_fixed_coro(coro, PRH_CORO_ID_ROOT);
-    cono->already_in_ready_queue = 1; // 根协程由特权线程直接执行，不需要插入就绪队列
-    return cono;
-}
-
-void prh_concurrency_main(int thrd_start_id, int num_thread, prh_coroproc_t main_proc, int stack_size) {
-    prh_conc_struct *s = &PRH_IMPL_CONC_STRUCT;
+void prh_cono_main(int thrd_start_id, int num_thread, prh_coroproc_t main_proc, int stack_size) {
+    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
     prh_thrd_struct *pool = prh_thread_init(thrd_start_id, num_thread, sizeof(prh_cono_thrd));
     prh_thread_init_main_userdata(pool, (prh_thrdinit_t)prh_impl_cono_thrd_init);
     prh_cono_thrd *main = prh_thread_main_userdata(pool);
@@ -8404,37 +8459,37 @@ void prh_concurrency_main(int thrd_start_id, int num_thread, prh_coroproc_t main
         prh_thread_ext_create(pool, prh_impl_cono_thrd_proc, 0, sizeof(prh_cono_thrd), (prh_thrdinit_t)prh_impl_cono_thrd_init);
     }
 
-    prh_conc_struct *s = &PRH_IMPL_CONC_STRUCT;
+    prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
     prh_thrd_struct *thrd_struct = s->coro_thrd_pool;
     prh_thrd *thrd = prh_thrd_main(thrd_struct);
     prh_cono_thrd *main_thrd = prh_thrd_data(thrd);
     prh_atomtype_store(&main->thread_available, true);
 
-    prh_atom_ptr *thrd_ready_coro = &main_thrd->ready_coro;
-    prh_cono *ready_coro;
+    prh_atom_ptr *thrd_ready_cono = &main_thrd->ready_cono;
+    prh_real_cono *ready_cono;
 
     // 启动入口协程（主协程）
     // 程序的执行从主线程执行第一个协程开始，这个协程可以称为主协程，但主协程没有与主
     // 线程进行绑定，只是由主线程发起了执行的动作，后续恢复挂起的主协程的执行可以在任意
     // 线程，主协程也只是一个普通的协程而已。
     prh_impl_cono_thrd_init(thrd);
-    prh_impl_coro_execute(main_thrd, prh_impl_cono_create(main_proc, stack_size, 0));
+    prh_impl_cono_execute(thrd, prh_impl_cono_create(main_proc, stack_size, 0));
 
     for (; ;) {
-        while ((ready_coro = prh_atom_ptr_read(thrd_ready_coro))) {
-            if (prh_atom_ptr_compare_write(thrd_ready_coro, &ready_coro, prh_null)) {
-                prh_impl_coro_execute(main_thrd, ready_coro);
+        while ((ready_cono = prh_atom_ptr_read(thrd_ready_cono))) {
+            if (prh_atom_ptr_compare_write(thrd_ready_cono, &ready_cono, prh_null)) {
+                prh_impl_cono_execute(thrd, ready_cono);
             }
             prh_impl_privilege_task(main_thrd, false);
         }
         prh_impl_privilege_task(main_thrd, true);
-        if (curr_thrd->pending_work_exist || prh_atom_ptr_read(thrd_ready_coro)) {
+        if (curr_thrd->pending_work_exist || prh_atom_ptr_read(thrd_ready_cono)) {
             continue;
         }
-        if (prh_atom_bool_read(PRH_IMPL_CONC_STRUCT.thrd_exit)) {
+        if (prh_atom_bool_read(PRH_IMPL_CONO_STRUCT.thrd_exit)) {
             prh_thrd_join_except_main(thrd_struct, prh_impl_cono_thrd_free);
             while (!prh_impl_privilege_task(main_thrd, true)) ;
-            if (curr_thrd->pending_work_exist || prh_atom_ptr_read(thrd_ready_coro) {
+            if (curr_thrd->pending_work_exist || prh_atom_ptr_read(thrd_ready_cono) {
                 continue;
             }
             break;
@@ -8442,16 +8497,16 @@ void prh_concurrency_main(int thrd_start_id, int num_thread, prh_coroproc_t main
         prh_thrd_sleep(thrd->sleep_cond);
     }
 
-    prh_thrd_free(&PRH_IMPL_CONC_STRUCT.thrd_struct, prh_impl_cono_thrd_free);
+    prh_thrd_free(&PRH_IMPL_CONO_STRUCT.thrd_struct, prh_impl_cono_thrd_free);
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
-void prh_impl_conc_test(void) {
+void prh_impl_cono_test(void) {
 
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#endif // PRH_CONC_IMPLEMENTATION
-#endif // PRH_CONC_INCLUDE
+#endif // PRH_CONO_IMPLEMENTATION
+#endif // PRH_CONO_INCLUDE
 
 #ifdef __cplusplus
 }
