@@ -1308,6 +1308,24 @@ extern "C" {
 #include <stdio.h> // printf fprintf
 #endif
 
+// 高速缓存（Cache） 是一种位于 CPU 和主存之间的高速存储器，用于存储 CPU 频繁访问的数据
+// 和指令。它的速度远高于主存，能够显著提升 CPU 的数据处理效率。高速缓存技术利用程序的局
+// 部性原理，将程序中正在使用的部分存放在一个高速的、容量较小的缓存中，使 CPU 的访存操作
+// 大多数针对缓存进行，从而提高程序的执行速度。时间局部性：如果一个存储单元被访问，那么该
+// 单元很可能很快被再次访问。空间局部性：如果一个存储单元被访问，那么该单元邻近的单元也可
+// 能很快被访问。
+//
+// 高速缓存通常被组织成一个有多个缓存组的数组，每个缓存组（Cache Set）包含若干个缓存行
+// （Cache Line）。缓存行是高速缓存中的最小访问单元，用于缓存内存块数据。当 CPU 需要访
+// 问主存中的数据时，高速缓存会拦截所有对内存的访问，并判断所需数据是否已经存在于高速缓存
+// 中。如果缓存命中（即找到所需数据），则直接从缓存中读取数据。如果缓存未命中（即未找到所
+// 需数据），则需要从主存中加载数据到缓存中。组选择（Set Selection）：根据地址中的索引位
+// 找到对应的缓存组。行匹配（Line Matching）：在缓存组中，通过标记位判断是否存在匹配的缓
+// 存行。字抽取（Word Extraction）：如果找到匹配的缓存行，根据偏移量提取所需的数据。
+//
+// 现代 CPU 通常具有多级缓存结构，包括 L1、L2 和 L3 缓存。L1 缓存：位于 CPU 芯片内部，
+// 速度最快，容量最小，通常分为指令缓存和数据缓存。L2 缓存：位于 CPU 芯片内部或外部，速
+// 度稍慢，容量较大。L3 缓存：位于 CPU 芯片外部，速度较慢，容量最大，通常被多个核心共享。
 #ifndef PRH_CACHE_LINE_SIZE
 #define PRH_CACHE_LINE_SIZE 64
 #endif
@@ -1507,7 +1525,11 @@ void prh_impl_basic_test(void) {
     prh_release_assert(prh_offsetof(prh_impl_test_struct, a) == 0);
     prh_release_assert(prh_offsetof(prh_impl_test_struct, b) == 4);
     prh_release_assert(prh_offsetof(prh_impl_test_struct, c) == 8);
+#if prh_arch_32
     prh_release_assert(prh_offsetof(prh_impl_test_struct, d) == 12);
+#elif prh_arch_64
+    prh_release_assert(prh_offsetof(prh_impl_test_struct, d) == 16);
+#endif
 }
 void prh_test_code(void) {
 #if defined(__linux__)
@@ -3523,6 +3545,125 @@ void *prh_quedyn_pop(prh_quedyn *q) {
 #endif // PRH_QUEUE_IMPLEMENTATION
 #endif // PRH_QUEUE_INCLUDE
 
+// https://gcc.gnu.org/wiki/SplitStacks
+//
+// 分段栈（Split Stacks），分段栈的目标是允许一个不连续的栈，该栈会根据需要自动增长。这
+// 意味着你可以运行多个线程，每个线程都从一个较小的栈开始，并且栈会根据程序的需求自动增长
+// 和收缩。因此，在编写多线程程序时，不再需要考虑栈的大小。典型的多线程程序的内存使用量可
+// 以显著减少，因为每个线程不需要最坏情况下的栈大小。在 32 位地址空间中，可以运行数百万个
+// 线程（无论是完整的 NPTL 线程还是协程）。目前，分段栈已在运行 GNU/Linux 的 32 位和
+// 64 位 x86 目标上实现，适用于 gcc 4.6.0 及更高版本。要获得完整功能，你必须使用 gold
+// 链接器，可以通过使用 binutils 2.21 或更高版本并带有 --enable-gold 选项来构建。
+//
+// 栈将有一个始终可用的保证区域（guaranteed zone），保证区域的大小将因目标平台而异。它
+// 将包含足够的栈空间来实际分配更多的栈空间，每个函数都必须验证当前栈是否有足够的空间来
+// 执行。基本验证是栈指针与当前栈底部加上保证区域大小之间的比较，这必须是函数中的第一个
+// 操作，并且也是目标特定的。它必须快速执行，因为每个被调用的函数都会执行它。有两种情况，
+// 对于需要小于保证区域大小的栈帧的函数，我们可以简单地比较栈指针和栈限制。对于需要更大
+// 栈帧的函数，我们必须进行包括栈帧大小的比较。
+//
+// 可能的策略：（一）保留一个寄存器来保存栈底加保证区大小，这必须是一个由被调用者保护的寄
+// 存器。每个需要小栈帧的函数都以两条指令序列开始：
+//          cmp     %sp,%reg    // 大部分情况多两条指令
+//          bg      1f
+//          expand stack
+//      1:
+// （二）使用 TLS 变量。在共享库的一般情况下，这将需要调用 __tls_get_addr 函数。这意味
+// 着该函数必须在不需要任何额外栈空间的情况下工作。除非整个系统都使用分段栈编译，否则这是
+// 不可行的。它需要设置 LD_BIND_NOW，以便在程序启动时解析 __tls_get_addr 函数。即使这
+// 样，除非我们能够确保变量的空间完全分配，否则这可能也不够。一般来说，我认为我们不能确保
+// 这一点，因为 dlopen 可能会导致线程请求更多的空间用于 TLS 变量，而这些空间需要在第一次
+// 调用 __tls_get_addr 时分配，因此我认为这种方法通常无法工作。
+// （三）让栈始终在 N 位边界结束。例如，如果我们总是以 4K（0x1000）的倍数分配栈段，那么
+// 将每个栈段对齐，使栈始终在 12 位边界结束。然后栈上剩余的空间是 SP & 0xfff，栈底地址
+// 值最大 0x1000，栈顶地址值最小 0x0000，32位栈指针的合法范围 [0x0ffc, 0x0000]，栈指
+// 指针指向当前合法的栈顶元素。0x0000 & 0xfff = 0x0000 表示已经没有空间，0x0ffc &
+// 0x0fff = 0x0ffc 表示只使用了 4 字节空间，还有 0x0ffc 大小的空间可用。
+//          mov     %sp,%junkreg    // 大部分情况多四条指令
+//          and     $0xfff,%junkreg
+//          cmp     $framesize plus slop,%junkreg
+//          bg      1f
+//          expand stack
+//      1:
+// （四）引入一个新的函数调用来处理栈指针和栈扩展的比较。这个函数调用将是线程库的一部分，
+// 并且可以使用特殊知识——例如，快速定位当前帧的栈信息的能力。这个函数调用将使用一个特殊
+// 的调用约定序列，带有一个参数，即栈帧的大小。然后每个函数都以调用这个函数开始。在某些
+// 目标上，这个函数调用可以与PIC代码所需的函数调用结合，例如 __i686.get_pc_thunk.bx。
+// （五）重用栈保护器（stack protector）支持字段。当使用 glibc 时，每个线程描述符都有
+// 一个字段用于栈保护器。我们可以重用该字段来保存栈限制。当然，然后就不可能将分段栈与栈
+// 保护器一起使用。
+// （六）至少在 x86 上，安排在 TCB 头中分配一个新字段，可以通过 %fs 或 %gs 访问。这可
+// 能是最好的解决方案，也是为 i386 和 x86_64 实现的解决方案。
+//
+// 扩展栈：扩展栈需要分配额外的内存。这些额外的内存必须仅使用仅由的栈空间余量（stack
+// space slop）来分配。所有用于分配额外栈空间的函数都必须编译为不使用分段栈。因此引入一
+// 个新的函数属性 no_split_stack，表示栈不能被分段。也可以确保栈足够大，以至于在分配函
+// 数调用期间不需要分段栈。
+// 扩展栈后，函数将把任何基于栈的参数从旧栈复制到新栈。幸运的是，所有需要复制或移动构造
+// 函数的 C++ 对象都是隐式地通过引用传递的，因此在栈上复制参数是可以的。对于可变参数函
+// 数，这在一般情况下是不可能的，因此我们将以不同的方式编译可变参数函数：它们将使用一个
+// 参数指针，参数指针不需要基于帧指针。对于返回栈上对象的函数，对象将在旧栈上返回。这通
+// 常会自动发生，因为初始隐藏参数将自然地指向旧栈。
+// 扩展栈时，函数的返回地址将被篡改，指向一个释放分配的栈块并重置栈指针到调用者的函数。
+// 旧栈块的地址和旧栈指针将被保存在新栈块的某个位置。
+//
+// 向后兼容性：我们希望能够在预编译的库（这些库没有使用分段栈编译）的系统上使用分段栈程
+// 序。这意味着我们需要确保在调用任何此类函数之前有足够的栈空间。
+// 每个以分段栈模式编译的对象文件都将被注释以表明函数使用分段栈，但 GNU as 没有创建任意
+// 注释的一般支持。因此，每个以分段栈模式编译的对象文件将有一个特殊名称的空节：
+// .note.GNU-split-stack。如果以分段栈模式编译的对象文件包含一些带有 no_split_stack
+// 属性的函数，那么该对象文件也将有一个 .note.GNU-no-split-stack 节。这将告诉链接器有
+// 些函数可能没有预期的分段栈前序代码。
+// 当链接器链接可执行文件或共享库时，它将寻找从分段栈代码到非分段栈代码的调用。这将包括
+// 对非分段栈共享库的调用（因此，一个链接到分段栈共享库的程序如果在运行时动态链接器发现
+// 了一个非分段栈共享库，可能会失败；可能希望使用一个新的段类型来检测这种情况）。
+// 对于从分段栈代码到非分段栈代码的调用，链接器将更改分段栈（调用者）函数的初始指令。这
+// 意味着链接器将需要对编译器发出的指令有特殊了解。这些更改的效果将是将所需的帧大小增加
+// 一个足够大的数字，以合理地适用于非分段栈。这将是一个目标依赖的数字；默认值将是类似
+// 64K 的东西。请注意，当分段栈函数返回时，这个大的栈将被释放。请注意，我忽略了在共享库
+// 中的分段栈代码调用主可执行文件中的非分段栈代码的情况，这似乎是一个不太可能的问题。
+// 函数指针是一个棘手的情况。一般来说，我们不知道函数指针是否指向分段栈代码。因此，所有
+// 通过函数指针的调用都将被修改为调用（或跳转到）一个特殊的函数 __fnptr_morestack。这
+// 将使用目标特定的函数调用约定序列，并且将被实现为好像它本身是一个函数调用指令。也就是
+// 说，所有参数都将被设置好，然后代码将跳转到 __fnptr_morestack。__fnptr_morestack
+// 函数接受两个参数：要调用的函数指针和推送到栈上的参数字节数。（这尚未实现。）
+//
+// 调试：调试器将需要了解分段栈模式。有两个主要问题：展开栈和查找可变参数函数的参数。幸
+// 运的是，DWARF 足够复杂，可以表示分段栈函数使用的不寻常的返回序列。因此，唯一的主要问
+// 题是 gdb 期望所有栈地址单调递减。需要某种标记来告诉 gdb 禁用这个合理性检查（sanity
+// check）。对于可变参数函数，可变参数将通过一个参数指针而不是在栈上访问。gdb 可能需要
+// 调整以理解这一点。
+//
+// 实现步骤：
+// 添加一个新的目标平台函数 bool supports_split_stack() 以及 TARGET_SUPPORTS_SPLIT_STACK。
+// 在 gcc 中添加 -fsplit-stack 选项。只有当 targetm.supports_split_stack() 返回 true 时，才允许使用此选项。
+// 添加 no_split_stack 函数属性。如果使用 -fno-split-stack，则忽略此属性。
+// 如果使用 -fsplit-stack，则在对象文件中生成分段栈注释。
+// 编写 __generic_morestack 常规函数。它必须在不自己分段栈的情况下分配所需的内存量。这可能是操作系统依赖的。
+// alloca 和动态数组必须改变以检查可用的栈空间。如果没有足够的可用空间，它们必须调用堆分配例程。空间必须在函数退出时释放。
+// 对于每个目标平台：
+//      定义小栈帧函数和大栈帧函数的函数入口序列。
+//      定义 __morestack 常规函数的调用约定。
+//      当使用 -fsplit-stack 且未使用 no_split_stack 属性时，在前序代码中实现此序列。
+//      如果需要，以不同的方式实现可变参数，使用一个单独的参数指针。
+//      定义 __fnptr_morestack 常规函数的调用约定。更改 call define_expands 以使用新的调用约定来调用 REG。
+//      编写 __morestack 常规函数。它必须以目标依赖的方式获取其参数。它必须保存寄存器并切换到一个备用栈。然后它可以调用
+//      __generic_morestack。它必须将调用函数的返回值更改为指向 __releasestack。函数入口序列必须允许可靠地完成此操作。
+//      编写 __releasestack 常规函数。它必须从分配的栈中检索原始栈指针和原始返回地址，释放分配的栈，并将栈指针调整为指向旧栈。
+//      编写 __morestack_nosplit 常规函数。当分段栈代码调用非分段栈代码时，将调用此函数。它类似于 __morestack，但使用目标依赖的大栈大小。
+//      编写 __fnptr_morestack 常规函数。在某些情况下，直接检查函数指针处的代码以查看它是否检查分段栈。如果它这样做，代码可以直接
+//      跳转到被调用的函数。否则，它必须像 __morestack_nosplit 一样分配栈，然后将参数字节复制到新栈上。
+//      如果分段栈对象中的代码调用非分段栈对象中的代码，则更改代码的初始启动序列，始终调用 __morestack_nosplit。
+//      在包含分段栈对象的链接中，如果以非调用方式引用非分段栈对象中的函数（如获取其地址），则改为获取链接器生成的存根函数（stub
+//      function）的地址。存根函数将调用 __morestack_nosplit，如果需要，将参数复制到新栈上，然后跳转到真正的函数。复制参数将不得
+//      不对参数数量做出假设，因此如果传递的参数过多，这将失败。我不确定如何最好地处理这个不太可能的情况。我们只应在一个调用来源于
+//      分段栈函数时才分配新栈。
+// 更改链接器以查找新的分段栈注释。
+// 如果使用 ld -r 将带有分段栈注释的对象与没有分段栈注释的对象链接，发出错误。
+// 调整 gdb 以理解新代码。
+// 想出将此高效地整合到 glibc 的最佳方法。可能需要将 glibc 既编译成分段栈，也编译成非分段栈，并以某种方式安排分段栈代码在运行时获取
+// 分段栈的 glibc。如果程序链接器和动态链接器都能达成一致，或者程序链接器能够以某种方式知道在运行时将使用分段栈的 glibc，那将最好。
+// 理想情况下，glibc 动态链接器应该知道程序是否期望共享库的分段栈版本，并拒绝将其与该库的非分段栈版本链接。
 #ifdef PRH_CORO_INCLUDE
 typedef struct prh_impl_coro prh_coro;
 #define prh_coro_proc prh_fastcall(void)
@@ -8181,7 +8322,6 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     prh_atom_ptr *privilege_thread = &PRH_IMPL_CONO_STRUCT.privilege_thread;
     prh_cono_quefit *ready_queue = &PRH_IMPL_CONO_STRUCT.ready_queue;
     prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
-    int thrd_list_size = thrd_struct->maxthrds + 1;
     prh_data_quefit all_req;
     prh_real_cono *ready_cono;
     prh_cono_thrd *thrd;
@@ -8212,7 +8352,6 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
         prh_atom_data_quefix_free_node(&all_req);
     }
 
-    prh_cono_thrd **wakeup_list = prh_calloc(sizeof(void *) * thrd_list_size);
     thrd_it = thrd_begin;
     for (; ;) { // 将就绪队列中的协程分配给线程执行
         prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
@@ -8222,8 +8361,8 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
 #if PRH_CONO_DEBUG
             printf("[thrd %02d] cono %02d => orig thrd %02d\n", prh_impl_curr_cono_thrd_id(), ready_cono->cono_id, prh_cono_thrd_id(thrd));
 #endif
-            wakeup_list[thrd->cono_thrd_index] = thrd;
-            continue; // 尽量将协程分配在同一个线程中执行
+            prh_thrd_wakeup(&thrd->sleep_cond);
+            continue; // 尽量将协程分配在同一个线程中执行，保证空间访问局部性
         }
         for (; thrd_it < thrd_end; thrd_it += 1) { // 将协程分配给空闲线程
             if (*thrd_it == prh_null) continue;
@@ -8233,7 +8372,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
 #if PRH_CONO_DEBUG
                 printf("[thrd %02d] cono %02d => idle thrd %02d\n", prh_impl_curr_cono_thrd_id(), ready_cono->cono_id, prh_cono_thrd_id(thrd));
 #endif
-                wakeup_list[thrd->cono_thrd_index] = thrd;
+                prh_thrd_wakeup(&thrd->sleep_cond);
                 ready_cono = prh_null;
                 break;
             }
@@ -8283,14 +8422,6 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     }
 
     prh_atom_ptr_write(privilege_thread, prh_null); // 释放特权
-
-    for (int i = 0; i < thrd_list_size; i += 1) {
-        if ((thrd = wakeup_list[i])) { // 释放特权后才去唤醒线程，避免线程唤醒后无意义的争抢特权
-            prh_thrd_wakeup(&thrd->sleep_cond);
-        }
-    }
-    prh_free(wakeup_list);
-
     return true;
 }
 
