@@ -600,10 +600,14 @@ extern "C" {
 
 #ifndef prh_zeroret
 #if PRH_DEBUG // macro arg 'a' can only expand once
+    #define prh_condret(c, a) if (!((a) c)) { exit(__LINE__); }
+    #define prh_numbret(n, a) if ((a) != (n)) { exit(__LINE__); }
     #define prh_zeroret(a) if ((a) != 0) { exit(__LINE__); }
     #define prh_nnegret(a) if ((a) < 0) { exit(__LINE__); }
     #define prh_boolret(a) if (!(a)) { exit(__LINE__); }
 #else
+    #define prh_condret(c, a) a
+    #define prh_numbret(n, a) a
     #define prh_zeroret(a) a
     #define prh_nnegret(a) a
     #define prh_boolret(a) a
@@ -7880,6 +7884,20 @@ void prh_impl_thrd_test(void) {
 #undef prh_plat_windows
 #define prh_plat_linux
 
+// 列出系统中的网络接口，其中包括 MTU 信息：
+//      sudo apt install net-tools
+//      netstat -i
+// 临时端口的分配范围：
+//      cat /proc/sys/net/ipv4/ip_local_port_range
+// 本地记录的主机名或域名到IP地址之间的映射：
+//      cat /etc/hosts
+// 服务名称与端口号之间的映射：
+//      cat /etc/services
+// 域名解析配置文件：
+//      cat /etc/resolv.conf
+// 每个 DNS 服务器都知道的一组根域名服务器：
+//      dig . ns
+//      https://root-servers.org/
 #ifdef PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_IMPLEMENTATION
@@ -8422,7 +8440,553 @@ label_defer:
 }
 #endif // prh_plat_linux
 
+// RFC 791 - Internet Protocol, J. Postel (ed.), 1981
+// RFC 950 - Internet Standard Subnetting Procedure, J. Mogul J. Postel, 1985
+// RFC 793 - Transmission Control Protocol, J. Postel (ed.), 1981
+// RFC 768 - User Datagram Protocol, J. Postel (ed.), 1980
+// RFC 1122 - Requirements for Internet Hosts Communication Layers, R. Braden (ed.), 1989 对早期 TCP/IP 的扩展和修正
+// RFC 1323 - TCP Extensions for High Performance, 1992
+// RFC 2018 - TCP Selective Acknowledgment Options, 1996
+// RFC 2581 - TCP Congestion Control, 1999
+// RFC 2861 - TCP Congestion Window Validation, 2000
+// RFC 2883 - An Extension to the Selective Acknowledgement (SACK) Option, 2000
+// RFC 2988 - Computing TCP's Retransmission Timer, 2000
+// RFC 3168 - The Addition of Explicit Congestion Notification (ECN) to IP, 2001
+// RFC 3390 - Increasing TCP's Initial Window, 2002
+//
+// 流式套接字（SOCK_STREAM）提供可靠双向的字节流通信信道，字节流表示与管道一样不存在消息
+// 边界的概念。流式套接字通常被称为面向连接的，术语对等套接字指连接另一端的套接字，对等
+// 地址表示对端地址。数据包套接字（SOCK_DGRAM）运行数据以数据报的消息的形式进行交换，在
+// 数据报套接字中，消息边界得到了保留，但数据传输是不可靠的。消息的到达可能是无序的、重复
+// 的或者根本就无法到达。数据报套接字是更一般的无连接套接字，与流式套接字不同，一个数据报
+// 套接字在使用时无需与另一个套接字连接。数据包套接字可以与另一个套接字进行连接，但其语义
+// 与连接的流式套接字不同。在 internet domain 中，数据包套接字使用了用户数据报协议（UDP），
+// 而流式套接字则通常使用传输控制协议（TCP），一般来讲在称呼这两种套接字时更偏向于使用术语
+// UDP 套接字和 TCP 套接字。
+//
+// 套接字 I/O 操作可以使用传统的 read() 和 write() 系统调用，或者使用一组套接字特有的
+// 系统调用，如 send() recv() sendto() recvfrom() 来完成。在默认情况下，这些系统调用
+// 在 I/O 操作无法被立即完成时会阻塞。通过使用 fcntl() F_SETFL 操作启用 O_NONBLOCK
+// 打开文件状态标记可以执行非阻塞 I/O。
+//
+// UDP 协议格式：
+//      [源IP地址 4B|目的IP地址 4B|0 1B|17 1B|UDP长度 2B]      伪首部
+//      [源端口 2B|目的端口 2B|整体长度 2B|校验和 2B][数据部分]  UDP数据报
+//
+// UDP 用户数据报头部中校验和的计算方法有些特殊，在计算校验和时，要在UDP用户数据报之前
+// 增加12个字节的伪首部，伪首部仅仅为了计算校验和而用。UDP 和 TCP 使用的校验和的长度只有
+// 16位，并且只是简单的“总结性”校验和，因此无法检测出特定的错误，其结果是无法提供较强的
+// 错误检测机制。繁忙的互联网服务器通常只能每隔几天看一下未检测出的传输错误的平均情况。需
+// 要更多确保数据完整性的应用程序可以使用安全套接字层（Secure Sockets Layer, SSL），它
+// 不仅仅提供了安全的通信，而且还提供更加严格的错误检测过程。或者应用程序也可以实现自己的
+// 错误控制机制。
+//
+// TCP 协议格式：前20个字节固定，后面有4n字节根据需要增加选项
+//      [源端口 2B][目的端口 2B]
+//      [序号 4B]                                   TCP是面向字节流的，在TCP连接中传送的每个字节都按顺序编号，字节流的起始序号在连接建立时设置，序号字段表示的是第一个字节的序号
+//      [确认号 4B]                                 期望收到对方下一个报文段的第一个数据字节的序号
+//      [数据偏移|保留|URG|ACK|PSH|RST|SYN|FIN 2B]   数据偏移字段（4-bit）表示数据部分距离头部起始位置有多远，以4字节为单位，最大可以表示15*4=60字节，这也是TCP首部的最大长度
+//      [窗口 2B]                                   发送本报文段的一方的接收窗口大小，窗口值告诉对方：从本报文段首部中的确认号算起，接收方目前可以接收的数据量
+//      [校验和 2B][紧急指针 2B]                     紧急指针仅在 URG=1 时才有意义，指出本报文段中的紧急数据的字节数，紧急数据结束后才是普通数据，注意即使窗口为零也可发送紧急数据
+//      [可选选项|填充]                              可选字段最长40个字节
+//      [数据部分]
+//      紧急 URG=1 表示紧急指针字段有效，它告诉系统此报文段中有紧急数据，应尽快传送（相当于高优先级数据），而不要按原来的排队顺序传送
+//      确认 ACK=1 表示确认号字段有效，TCP 规定，在连接建立后所有传送的报文段都必须把 ACK 置为 1
+//      推送 PSH=1 当两应用交互时，有时希望键入命令后立即就能收到对方的响应，此时TCP可以使用推送操作，把PSH置1并立即创建一个报文发送出去，接收方也会尽快交付不等缓存满，虽然程序可以选择推送操作但还很少使用
+//      复位 RST=1 表示TCP连接出现了严重差错，如主机崩溃或其他原因，必须释放连接，然后再重新建立连接，复位还用来拒绝一个非法的报文段或拒绝打开一个连接
+//      同步 SYN=1 在连接建立时用来同步序号，当SYN=1而ACK=0时表明这是一个连接请求报文，对方若同意建立连接则应响应SYN=1和ACK=1
+//      终止 FIN=1 用来释放连接，当FIN=1时表示此报文段的发送方的数据已发送完毕，并要求释放连接
+//      窗口字段明确指出现在允许发送方可以发送的数据量，窗口值是经常在动态变化的值。
+//      可选选项最初只有最大报文段长度 MSS（Max Segment Size），即 TCP 数据报数据字段的最大长度；后面增加了窗口扩大选项、时间戳选项、选择确认（SACK）选项等等。
+//      窗口扩大选项是为了扩大窗口，原始窗口大小最大 64KB 字节，虽然对早期的网络是足够的，但对于包含卫星信道的网络，传播时延和带宽都很大，要获得高吞吐率需要更大的窗口大小。
+//      时间戳选项占10字节，其中最主要的字段时间戳值（4字节）和时间戳回送回答（4字节），用来计算往返时间 RTT，以及处理 TCP 序号超过 32-bit 的情况，又称为防止序号绕回 PAWS。
+//
+// 确认、重传、超时：当一个 TCP 段无错地到达目的地时，接收 TCP 会向发送者发送一个确认，
+// 通知它数据接收成功。如果一个段在到达时存在错误，那么这个段会被丢弃，确认也不会被发送。
+// 为了处理段永远不能到达或被丢弃的情况，发送者在发送每一个段时会开启一个定时器。如果在
+// 定时器超时之前没有收到确认，那么就会重传这个段。由于所使用的网络以及当前的流量负载会
+// 影响传输一个段和接收其确认所需的时间，因此 TCP 采用了一个算法来动态地调整重传超时时间
+// （RTO）的大小。接收 TCP 可能不会立即发送确认，而是会等待即毫秒来观察一下是否可以将确
+// 认塞进接收者返回给发送者的响应中。这项被称为延迟 ACK 的技术的目的时能少发一个 TCP
+// 段，从而降低网络中包的数量以及降低发送和接收主机的负载。
+//
+// MSS 并不是考虑接收方应用层的接收缓存可能放不下 TCP 报文段中的数据，实际上 MSS 与接收
+// 窗口值没有关系，它考虑的时网络底层的数据传送能力。我们知道 TCP 报文段的数据部分，至少
+// 要加上 40 字节的头部（包括TCP头部和IP头部）才能组装成一个IP数据报，若选择较小的 MSS
+// 网络利用率就较低。但反过来，若TCP报文段非常长，那么在 IP 层传输时就可能要分解成多个短
+// 数据片，在终点要把收到的各个短数据分片装配成原来的TCP报文段。当传输出错时还要进行重传，
+// 这些也都会使开销增大。因此，MSS 应尽可能大些，只要在 IP 层传输时不需要再分片就行。由于
+// IP 数据报所经历的路径时动态变化的，因此在这条路径上确定的不需要分片的 MSS，如果改走另
+// 一条路径就可能需要进行分片，因此最佳的 MSS 是很难确定的。在连接建立的过程中，双方都把
+// 字节能够支持的 MSS 写入这一字段，以后就按照这个数值传送数据，两个传送方向可以有不同的
+// MSS 值。RFC 879 指出，流行的一种说法是在 TCP 连接建立阶段双方协商 MSS 值，但这是错误
+// 的，因为这里并不存在任何的协商，而只是一方把 MSS 值设定好以后通知另一方而已。若主机未
+// 填写这一项，则 MSS 的默认值是 536 字节，因此所有在因特网上的主机都应能接受的数据报长度
+// 为 536 + 20（TCP固定首部）+ 20（IP固定首部）= 576 字节。
+//
+// 拥塞控制：慢启动和拥塞避免算法。TCP 的拥塞控制算法被设计用来防止快速的发送者压垮整个
+// 网络。如果发送 TCP 的速度要快于一个中间路由器转发的速度，那么该路由器就会开始丢弃包。
+// 这将会导致较高的包丢失率，其结果是如果 TCP 保持以相同的速度发送这些被丢弃的段就会极大
+// 地降低网络性能。TCP 的拥塞控制算法在以下两个场景中比较重要：（一）在连接建立后或空闲
+// 一段时间后继续发送，发送者可以立即向网络中注入尽可能多的分段，只要接收者报告的窗口大小
+// 允许即可。这里的问题在于如果网络无法处理这种分段洪泛，那么发送者会存在立即压垮整个网络
+// 的风险。（二）当拥塞被检测到时，如果发送 TCP 检测到发生了拥塞，那么它就必须降低其传输
+// 速率，TCP 根据分段丢失来检测是否发生了拥塞，因为传输错误率时非常低的，即如果一个包丢
+// 失了就认为发生了拥塞。
+//
+// TCP 的拥塞控制策略组合采用了两种算法：慢启动和拥塞避免。慢启动算法会使发送 TCP 在一开
+// 始的时候以低速传输分段，但同时允许它以指数级的速度提高其速率，只要这些分段都得到接收
+// TCP 的确认。慢启动能够防止一个快速的 TCP 发送者压垮整个网络。但如果不加限制的话，慢
+// 启动在传输速率上的指数级增长意味着发送者在短时间内就会压垮整个网络。TCP 的拥塞控制避免
+// 算法用来防止这种情况的发生，它为速率的增长安排了一个管理实体。有了拥塞避免之后，在连接
+// 刚建立时，发送 TCP 会使用一个较小的拥塞窗口，它会限制所能传输的未确认的数据数量。当发
+// 送者从对等 TCP 处收到确认时，拥塞窗口在一开始时会呈现指数级增长。但一旦拥塞窗口增长到
+// 一个被认为是接近网络传输容量的阈值时，其增长速度就会编程线性，而不是指数级的。对网络
+// 容量的估算时根据检测到拥塞时的传输速率来计算得出的，或者在一开始建立连接时设定为一个
+// 固定值。在任何时刻，发送 TCP 传输的数据数量还会受到接收 TCP 的接收窗口和本地的 TCP
+// 发送缓冲器大小的限制。慢启动和拥塞避免算法组合起来使得发送者可以快速地将传输速度提升
+// 至网络的可用容量，并且不会超出该容量。这些算法的作用时允许数据传输快速地到达一个平衡
+// 状态，即发送者传输包的速率与它从接收者处接收确认的速率一致。
+//
+// TCP 连接的建立：
+//      主机（A）                               主机（B）
+//  CLOSED                                  CLOSED（LISTEN）
+//      SYN=1 seq=x ACK=0 ---------------------->           （1）
+//  SYN-SENT                                SYN-RCVD
+//      <-------------- SYN=1 seq=y ACK=1 ack=x+1           （2）如果不想接受连接，不予理睬或发送RST
+//  ESTABLISHED
+//      SYN=0 seq=x+1 ACK=1 ack=y+1 ------------>           （3）第一个数据包
+//                                          ESTABLISHED
+//
+// TCP 规定 SYN=1 的报文段不能携带数据，但要消耗掉一个字节序号，请求端和接收端都要选择一
+// 个自己的起始序号。TCP 规定 ACK=1 的报文段可以携带数据，但如果不携带数据则不消耗序号。
+// 例如第（3）步中如果不携带数据，下一个数据报文段的序号仍是 seq=x+1。三次握手，请求端
+// 为什么要再次发送一次确认呢？这主要是为了防止已经失效的连接请求报文突然又被传送到接收端
+// 而引起错误。
+//
+// 所谓的“已失效的连接请求报文”是这样产生的，考虑一种正常情况，A 发送连接请求，但因连接
+// 报文丢失而未收到确认，于是 A 再重传一次连接请求。后来收到了确认，建立了连接，这里 A
+// 共发了两个连接请求报文，其中第一个丢失，第二个到达了 B。现在假设出现一种异常情况，即
+// A 发送出去的第一个连接请求并没有丢失，而是在某些网络节点长时间滞留了，以致延误到连接
+// 释放以后的某个时间才到达 B，本来这是一个早已失效的报文。但 B 收到后误认为 A 又发出了
+// 一次连接请求，于是就像 A 发出确认同一建立连接。由于现在 A 并没有发出建立连接的请求，
+// 因此不会理睬 B，但 B 却以为新的连接已经建立了，并一直等待 A 发送数据，这样 B 的许多
+// 资源就白白浪费了。而三次握手需要 A 的确认 B 才能认为连接建立成功，即使第一个丢失的请
+// 求在连接释放后再次到达 B，B 发送了确认，但没有 A 的确认 B 不会认为连接建立成功。
+//
+// TCP 连接的释放：数据传输结束后，通信的双方都可以释放连接，u 等于前面已经传送过的数据的最后一个字节的序号加1
+//      主机（A）                               主机（B）
+//  ESTABLISHED                             ESTABLISHED
+//      =============== 数据传输完毕 ============>
+//      FIN=1 seq=u ACK=1 ack=v ---------------->           （1）接收端通知应用程序，等待应用程序发送被动关闭
+//  FIN-WAIT-1                              CLOSE-WAIT
+//      <-------------- FIN=0 seq=v ACK=1 ack=u+1           （2）
+//  FIN-WAIT-2                              CLOSE-WAIT
+//      <============== 数据传输完毕 =============
+//      <-------------- FIN=1 seq=w ACK=1 ack=u+1           （3）接收端应用程序最终决定关闭
+//  TIME-WAIT                               LAST-ACK
+//      FIN=0 seq=u+1 ACK=1 ack=w+1 ------------>           （4）
+//  TIME-WAIT                               CLOSED
+//  等待 2MSL
+//  CLOSED
+//
+// TCP 规定，FIN=1 报文即使不携带数据，也要消耗掉一个序号。TCP 连接的释放分为两个方向，
+// 两个方向都释放才完成。第（2）之后，一个方向的连接就释放了，此时 TCP 连接处于半关闭
+// （half-close）状态，即 A 已经没有数据要发送了，但 B 若发送数据，A 仍然要接收。也就
+// 是说，从 B 到 A 这个方向的连接并未关闭，这个状态可能会持续一些时间。若 B 也已经没有
+// 要向 A 发送的数据，其应用程序就通知 TCP 释放连接，这时 B 发送释放请求，等待释放的最
+// 后确认（LAST-ACK），B 只要收到最后确认就认为连接成功释放了。
+//
+// 但在 A 发送最后确认之后，需要等待 TIME-WAIT 计时器设置的时间 2MSL 之后，A 才进入释放
+// 状态。时间 MSL 是最长报文段寿命（Max Segment Lifetime），RFC 793 建议设置为 2 分钟。
+// 但这完全是从工程上来考虑，对于现在的网络，MSL=2分钟可能太长了一些，因此 TCP 允许不同
+// 的实现可根据具体情况使用更小的 MSL 值。也因此，A 在 TIME-WAIT 之后需要经过 4 分钟后
+// 才进入释放状态，才能开始建立下一个新的连接。为什么必须等待 2MSL 时间呢，有两个理由。
+// （一）为了保证 A 发送的最后确认报文段能够到达 B，这个确认报文段有可能丢失，B 收不到
+// 最后的确认会超时重传断连请求，这是 A 就能在 2MSL 时间内收到这个重传请求接着重发一次
+// 确认再重新启动 2MSL 计时器。（二）防止上文提到的“已失效的连接请求”出现在本连接中，A
+// 在发送完最后一个确认报文后，再经过 2MSL 时间，就可以使本连接持续的时间内所产生的所有
+// 报文段都从网络中消失。这样就可以使下一个新的连接中不会出现这种旧的连接请求报文段。
+//
+// 另外，TCP 还设有一个保活计时器（keeplive timer），设想这样的情况，客户已主动与服务器
+// 建立了 TCP 连接，但后来客户端主机突然出故障。显然服务器以后就不能再收到客户发来的数据，
+// 因此应当有措施使服务器不要再白白等待下去。这就是使用保活计时器，服务器每收到一次客户的
+// 数据，就重新设置保活计时器，时间的设置通常是两小时。若两小时没有收到客户的数据，服务器
+// 就发送一个探测报文段，以后则每隔75分钟发送一次，若一连发送10个探测报文后仍无客户的响应，
+// 服务器就认为客户端出了故障，接着就关闭这个连接。
+//
+// IP 协议格式：前20个字节固定，后面4n字节可选
+//      [版本|首部长度 1B][区分服务 1B][总长度 2B]      区分服务（DS）实际上一直没有被用过
+//      [标识 2B]                                    对每一个用户数据报标识都会加一，如果由于超过MTU而需要分片，分片的IP数据包中的标识都相同
+//      [标志|片偏移 2B]                              标志：MF=1 还有分片 MF=0 最后一个分片 DF=1 不能分片 DF=0 可以分片；片偏移（13-bit）：分片在原片中的偏移，以8字节为单位
+//      [生存时间 1B]                                 TTL（Time To Live）：数据报在网络中的寿命，定义为被路由器转发的跳数限制，而设置为1则只能在本局域网中传送
+//      [协议 1B][首部检验和 2B]                      协议：ICMP 1 IGMP 2 IP 4 TCP 6 EGP 8 IGP 9 UDP 17 IPv6 41 ESP 50 OSPF 89
+//      [源地址 4B][目的地址 4B]
+//      [可选字段|填充]
+//      [数据部分]
+//
+// IP 层之下的每一种数据链路层协议都规定了一个数据帧中的数据字段的最大长度，称为最大传送
+// 单元 MTU （Max Transfer Unit）。当一个IP数据报封装成链路层帧时，此数据报的总长度，即
+// IP 首部加上数据部分一定不能超过下面的数据链路层所规定的MTU值。例如，最常用的以太网就
+// 规定器 MTU 值是 1500 字节。若所传送的数据报长度超过数据链路层的MTU值，就必须把过长的
+// 数据报进行分片处理。虽然使用尽可能长的IP数据报会使传送效率提高（因为头部长度占比就会
+// 变小），但数据报短些也有好处。每一个IP数据报越短，路由器转发的速度就越快。为此 IP 协议
+// 规定，在因特网中所有的主机和路由器，必须能够接受长度不超过 576 字节的数据报。这是假定
+// 上层交下来的数据长度有 512 字节（合理的长度），加上最长的IP首部 60 字节，再加上 4 字节
+// 的富裕量，就得到 576 字节。当主机需要发送长度超过 576 字节的数据报时，应当先了解一下，
+// 目的主机能否接受所要发送的数据报长度，否则就要进行分片。
+//
+// IP 是一种无连接不可靠协议，它尽最大可能将数据报从发送者传输给接收者，但并不保证包到达
+// 的顺序会与它们被传输的顺序一致，也不保证包是否重复，甚至都不保证包是否到达接收者。IP
+// 也没有提高错误恢复，头信息错误的包会被静默地丢弃。可靠性是通过使用一个可靠的传输层协议
+// 例如TCP或应用程序本身来保证的。
+//
+// IP 数据报分片的发生对于高层协议是透明的，但一般来讲并不希望分片的发生。这里的问题在于
+// IP 并不进行重传并且只有在所有分片都到达目的地之后才能对数据报进行组装，因此如果其中一
+// 些分片丢失或包含传输错误的话，会导致整个数据报不可用。在一些情况下，这会导致极高的数据
+// 丢失率或降低传输速率。现代 TCP 实现采用了一些算法（路径MTU发现）来确定主机之间的一条
+// 路径的 MTU，并根据该值对传递给 IP 的数据进行分解，这样 IP 就不会碰到需要传输大小超过
+// MTU 的数据报的情况了。UDP 并没有提供这种机制，基于 UDP 的应用程序通常不会知道源主机
+// 和目的主机之间路径的 MTU。一般来讲，基于 UDP 的应用程序会采用保守的方法来避免 IP 分片，
+// 即确保传输的 IP 数据报的大小小于 IPv4 的组装缓冲区大小的最小值 576 字节。
+//
+// 众所周知的端口 [0, 1023] 已经永久地分配给特定的应用程序，它是由中央授权机构互联网号码
+// 分配局（IANA）来分配的。IANA 还记录着注册端口，对这些端口的分配就不那么严格了，这也意
+// 味着一个实现无需保证这些端口是否真正用于它们注册时申请的用途。IANA 注册端口范围是
+// [1024, 41951]，不是所有位于这个范围内的端口都被注册了。IANA 众所周知端口和注册端口分
+// 配情况可查看：http://www.iana.org/assignments/port-numbers 。在大多数 TCP/IP 实现
+// 中，包括 Linux，范围在 0 到 1023 间的端口号也是特权端口，这意味着只有特权 CAP_NET_BIND_SERVICE
+// 进程可以绑定到这些端口上，从而防止普通用户通过实现恶意程序，如伪造 ssh，来获取密码。有
+// 些时候，特权端口也被称为保留端口。
+//
+// 尽管端口号相同的 TCP 和 UDP 端口是不同的实体，但同一个众所周知的端口号通常会同时被分配
+// 给基于 TCP 和 UDP 的服务，即使该服务通常只提供其中一种协议服务。这种惯例避免了端口号
+// 在两个协议中产生混淆的情况。
+//
+// 如果一个应用程序没有选择一个特定的端口，即没有调用 bind() 将套接字绑定到一个特定的端口
+// 上，那么 TCP 和 UDP 会为该套接字分配一个唯一的临时端口（即存活时间较短）。在这种情况
+// 下，应用程序，通常是一个客户端，并不关心它所使用的端口号。TCP 和 UDP 在将套接字绑定到
+// 端口 0 也会分配一个临时端口号。IANA 将位于 [49152, 65535] 之间的端口称为动态或私有
+// 端口，这表示这些端口可供本地应用程序使用或作为临时端口分配。然后不同的实现可能会在不同
+// 的范围内分配临时端口。在 Linux 上，这个范围是有包含在以下文件中的两个数值来定义的：
+// cat /proc/sys/net/ipv4/ip_local_port_range
+//
+// libpcap 使用 socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL)) 创建原始套接字，接收
+// 所有链路层数据帧。其接收函数为 packet_rcv()，该函数将数据包放入对应 socket 的接收队
+// 列中。BPF 是 libpcap 的核心过滤机制，它允许用户定义过滤规则（如只捕获 TCP 端口 80
+// 的数据包），并在内核中执行过滤逻辑，减少不必要的数据拷贝。libpcap 的改进版本（如
+// libpcap-mmap）使用 mmap 技术将内核缓冲区映射到用户空间，避免了额外的数据拷贝，提高了
+// 性能。libpcap 在数据链路层插入一个“旁路”，不干扰系统正常协议栈处理。它通过创建 PF_PACKET
+// 类型的原始套接字，直接从链路层驱动获取数据包，绕过 TCP/IP 协议栈，从而提高捕获效率。
+// 当数据包到达网卡时，libpcap 通过以下路径捕获数据：
+// 网卡接收数据包 → 触发中断 → 网卡驱动分配 sk_buff 并拷贝数据（第一次拷贝）；
+// 根据是否启用 NAPI，调用 netif_rx() 或 netif_rx_schedule() 将数据包送入内核网络栈；
+// 触发软中断 NET_RX_SOFTIRQ，执行 net_rx_action()；
+// 调用 netif_receive_skb()，若有抓包程序，数据包进入 BPF 过滤器；
+// 匹配成功的数据包被拷贝到内核缓冲区（第二次拷贝）；
+// 用户空间通过 recvfrom() 系统调用将数据包从内核缓冲区拷贝到用户缓冲区（第三次拷贝）。
+//
+// https://www.man7.org/linux/man-pages/man2/socket.2.html
+//
+// #include <sys/socket.h>
+// int socket(int domain, int type, int protocol);
+//      domain - 指定套接字通信域，AF_UNIX AF_LOCAL sockaddr_un，AF_INET sockaddr_in，AF_INET6 sockaddr_in6
+//      type - 流式套接字 SOCK_STREAM，数据报套接字 SOCK_DGRAM，裸套接字 SOCK_RAW。
+//          从内核 2.6.27 开始，Linux 为 type 参数提供了第二种用途，允许两个非标准的标
+//          记 SOCK_CLOEXEC SOCK_NONBLOCK，第一个标记参见 open() O_CLOEXEC，第二个
+//          标记可以让内核在创建套接字文件描述符后直接设置好 O_NONBLOCK 标记，从而无需
+//          再通过 fcntl() 来设置。
+//      protocol - 一般总是指定为 0，但在裸套接字中（SOCK_RAW）会指定为 IPPROTO_RAW
+// int bind(int sofd, const struct sockaddr *addr, socklen_t addrlen);
+//      将套接字绑定到一个本地地址上，一般来讲，会将一个服务器的套接字绑定到一个众所周知
+//      的地址上，即一个固定的与服务器进行通信的客户端应用程序提前知道的地址。除此之外还
+//      有其他做法，例如对于一个 internet domain 套接字来说，服务器可以不调用 bind()
+//      而直接调用 listen()，这将会导致内核为该套接字选择一个临时端口，之后服务器可以
+//      使用 getsockname() 来获取套接字的地址。在这种场景中，服务器必须要发布其地址使得
+//      客户端能够知道如何定位到服务器的套接字。这种发布可以通过向一个中心目录服务应用程
+//      序注册服务器的地址来完成，之后客户端可以通过这个服务来获取服务器的地址。当然，目录
+//      服务应用程序的套接字必须要位于一个众所周知的地址上。
+//      #include <netinet/in.h>
+//      struct sockaddr {
+//          sa_family_t sa_family;
+//          char sa_data[14];
+//      };
+//      struct sockaddr_in {            // 'in' is for internet
+//          sa_family_t    sin_family;  // address family: AF_INET
+//          in_port_t      sin_port;    // port in network byte-order 端口和地址必须是网络字节序
+//          struct in_addr sin_addr;    // internet address in network byte-order: struct in_addr { uint32_t s_addr; } INADDR_ANY INADDR_LOOPBACK
+//          unsigned char __pad[X];     // pad to size of sockaddr (16-byte)
+//      };
+//      struct sockaddr_in6 {
+//          sa_family_t     sin6_family;   // AF_INET6
+//          in_port_t       sin6_port;     // port number
+//          uint32_t        sin6_flowinfo; // IPv6 flow information
+//          struct in6_addr sin6_addr;     // IPv6 address: struct in6_addr { unsigned char s6_addr[16]; } IN6ADDR_ANY_INIT
+//          uint32_t        sin6_scope_id; // Scope ID (new in kernel 2.4)
+//      };
+//      struct sockaddr_storage { // IPv6 套接字 API 中引入了一个通用的 sockaddr_storage 结构，提供的空间足以存储任意类型的套接字地址
+//          sa_family_t ss_family;
+//          __ss_aligntype __ss_align;
+//          char __ss_padding[SS_PADSIZE];
+//      };
+// int listen(int sofd, int backlog);
+//      将流式套接字标记为被动，这个套接字后面会被动接受来自于其他套接字的连接。无法在一
+//      个已连接的套接字（即已经成功执行 connect 的套接字或由 accept 调用返回的套接字）
+//      上执行 listen()。监听套接字会保持打开状态，并且可以持续接受后续的连接请求。
+//      参数 backlog，要理解 backlog 的用途首先需要注意客户端可能会在服务器调用 accept
+//      之前调用 connect，这种情况是有可能发生的，如服务器可能正忙于处理其他客户端。这将
+//      产生一个未决的连接。内核必须要记录所有未决的连接请求的相关信息，这样后续 accept
+//      就能够处理这些请求。backlog 参数指定这种未决连接的最大数量，在这个限制之内的连接
+//      请求会立即成功，之外的连接请求就会阻塞直到一个未决的连接请求被 accept 调用接受，
+//      并从未决连接队列删除为止。SUSv3 允许实现为 backlog 的可取值规定一个上限并允许一
+//      个实现静默地将 backlog 值向下舍入到这个限制值。SUSv3 规定实现应该通过在定义
+//      SOMAXCONN 常量来发布这个限制，在 Linux 上这个常量的值被定义程了 128。但从内核
+//      2.4.25 起，Linux 允许在运行时通过 Linux 特有的 /proc/sys/net/core/somaxconn
+//      文件来调整这个限制。在最初的 BSD 套接字实现中，backlog 的上限是 5，并且在较早
+//      的代码中可以看到这个数值。所有现代实现允许为 backlog 指定更高的值，这对于使用
+//      TCP 套接字实现大量客户的网络服务器来讲是有必要的。
+//      cat /proc/sys/net/core/somaxconn
+//      4096
+// int accept(int sofd, struct sockaddr *addr, socklen_t *addrlen);
+//      接受监听流套接字上的一个接入连接，如果不存在未决的连接，那么调用 accept 就会阻塞
+//      直到有连接请求到达为止。理解 accept() 的关键点是它会创建一个新 socket，并且正是
+//      这个新套接字会与执行 connect() 的对等套接字进行连接。accept() 调用的返回结果是
+//      已连接的套接字文件描述符。
+//      addrlen 是一个 in-out 参数，执行之前必须将它初始化为 addr 指向的缓冲区的大小，
+//      这样内核就知道有多少空间可用于返回套接字地址了。当 accept 返回后，这个值会被设置
+//      程实际被复制进缓冲区的数据的字节数。如果不关心对等套接字的地址，可以将 addr 和
+//      addrlen 设置为 NULL 和 0。这样可以在后面某个时刻使用 getpeername() 系统调用来
+//      获取对端的地址。
+//      从内核 2.6.28 开始，Linux 支持一个新的非标准系统调用 accept4()，这个系统调用
+//      执行的任务与 accept() 相同，但支持一个额外的参数 flags，可以设置 SOCK_CLOEXEC
+//      和 SOCK_NONBLOCK 两个标志。
+// int connect(int sofd, const struct sockaddr *addr, socklen_t addrlen);
+//      如果 connect 失败并且希望重新进行连接，那么 SUSv3 规定完成这个任务的可移植的方
+//      法是关闭这个套接字，创建一个新套接字，在该新套接字上重新进行连接。
+//
+// 流套接字就像是打电话进行通信，而数据包套接字就像是邮政系统，socket() 的调用等价于创建
+// 一个邮箱，与邮政系统一样，当从一个地址向另一个地址发送多个数据包（信）时无法保证它们
+// 按照被发送的顺序到达，甚至无法保证它们都能够到达。数据包还新增了邮政系统所不具备的一个
+// 特定，由于底层网络协议有时候会重新传输一个数据包，因此同样的数据包可能会多次到达。
+// 在 Linux 上可以使用 sendto() 发送长度为 0 的数据报，但不是所有的 UNIX 实现都允许这样
+// 做。SUSv3 在解除对等关系方面的论断是比较模糊的，它只是声称通过调用一个指定了“空地址”
+// 的 connect() 调用可以重置一个连接。SUSv4 则明确规定了需要使用 AF_UNSPEC。在一些 TCP/IP
+// 实践中，将一个数据报连接到一个对等套接字能够带来性能上的提升。在 Linux 上连接一个数据
+// 报套接字能对性能产生些许差异。设置一个对等套接字主要对那些需要向单个对等套接字（通常是
+// 某种数据报客户端）发送多个数据报的应用程序是比较有用的。
+//
+// 尽管数据报套接字是无连接的，但在数据报套接字上应用 connect() 系统调用仍然起作用。在
+// 数据报套接字上调用 connect() 会导致内核记录这个套接字的对等地址。此后发送数据就不要
+// 带目的地址的参数了，数据报的发送可以使用 write() 或 send() 来完成，与 sendto() 一样，
+// 每个 write() 调用会发送一个独立的数据报。另外这个套接字上只能读取对等套接字发送的数据
+// 报。通过再调用一次 connect() 可以修改已经绑定的目的套接字地址，此外通过指定一个地址族
+// 为 AF_UNSPEC 的地址结构还可以解除地址绑定，但注意的是，其他很多 UNIX 实现并不支持将
+// AF_UNSPEC 用于这个用途。
+//
+// read
+// write
+// send
+// recv
+// ssize_t sendto(int sofd, const void *buffer, size_t len, int flags, const struct sockaddr *dest, socklen_t addrlen);
+// ssize_t recvfrom(int sofd, void *buffer, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen);
+// recvmsg
+//
+
+// #include <sys/socket.h>
+// int getsockname(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict addrlen);
+// int getpeername(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict addrlen);
+#include <sys/socket.h>
+void prh_sock_local_address(int sofd, struct sockaddr_in *addr) {
+    socklen_t addrlen = sizeof(struct sockaddr_in); // EBADF sockfd invalid, EFAULT addr invalid, EINVAL addrlen, ENOBUFS insufficient resources, ENOTSOCK sockfd
+    prh_zeroret(getsockname(sofd, (struct sockaddr *)addr, &addrlen));
+    assert(addrlen == sizeof(struct sockaddr_in));
+}
+void prh_sock_peer_address(int sofd, struct sockaddr_in *addr) {
+    socklen_t addrlen = sizeof(struct sockaddr_in); // ENOTCONN socket is not connected
+    prh_zeroret(getpeername(sofd, (struct sockaddr *)addr, &addrlen));
+    assert(addrlen == sizeof(struct sockaddr_in));
+}
+
+// #include <arpa/inet.h>
+// int inet_pton(int af, const char *restrict src, void *restrict dst); 返回1成功，0非法地址字符串，-1非法地址族
+// const char *inet_ntop(int af, const void *restrict src, char dst[restrict .size], socklen_t size);
+#include <arpa/inet.h>
+prh_u32 prh_sock_ip_address(const char *ip_string) {
+    struct in_addr out; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
+    assert(ip_string != prh_null);
+    prh_numbret(1, inet_pton(AF_INET, ip_string, &out));
+    return out.s_addr;
+}
+void prh_sock_ip_string(prh_u32 ip, char *arr_16_byte) {
+    assert(arr_16_byte != prh_null); // src 指向网络字节序的 struct in_addr，
+    assert(16 >= INET_ADDRSTRLEN); // size 至少为 INET_ADDRSTRLEN
+    prh_boolret(inet_ntop(AF_INET, &ip, arr_16_byte, 16));
+}
+
+// 域名系统（DNS）维护域名和IP地址之间的映射关系，在 DNS 出现以前，主机名和IP地址之间的
+// 映射关系是在一个手工维护的本地文件 /etc/hosts 中进行定义的：
+//      127.0.0.1       localhost
+//      127.0.1.1       home.localdomain home
+//      ::1             ip6-localhost ip6-loopback
+//      fe00::0         ip6-localnet
+// 函数 getaddrinfo() 通过搜索这个文件并找出与规范主机名，或其中一个别名（可选的以空格
+// 分隔），匹配的记录来获取对应的 IP 地址。然而，/etc/hosts 模式的扩展性较差，并且随着
+// 网络主机数量的增长（如因特网中存在者数以亿记的主机），这种方式已经变得不太可行。
+//
+// DNS 被设计用来解决这个问题，DNS 将主机名组织在一个层级名空间中，DNS 层级中的每个节点
+// 都有一个名字，该名字最多可包含63个字符。层级的根是一个无名字的节点，即“匿名节点”。一个
+// 节点的域名由该节点到根节点的路径中所有节点的名字连接而成，例如节点 baidu 对应的域名为
+// baidu.com。完全限定域名（FQDN fully qualified domain name），如 www.baidu.com.，
+// 标识处了层级中的一台主机。区分一个完全限定域名的方法是看名字是否已点结尾，但在很多情况
+// 下这个点会省略。
+//      [匿名根]
+//      [顶级域名] 通用域名 com edu net org 国家域名 cn de eu us
+//      [二级域名] baidu kernel gnu
+//                www ftp
+// 没有一个组织或系统会管理整个层级，相反，存在一个 DNS 服务器层级，每台服务器管理树的一
+// 个分支（一个区域）。通常，每个区域都有一个主要域名服务器，此外还包含一个或多个从域名服
+// 务器，它们在主要域名服务器崩溃时提供备份。区域本身可以被划分成一个个单独管理的更小的区
+// 域。当一台主机被添加到一个区域中，或主机名到IP地址之间的映射关系发生变化时，管理员负责
+// 更新本地域名服务器上域名数据中对应的名字，无需手动更改层级中其他域名服务器数据库。当一
+// 个程序调用 getaddrinfo() 获取主机名对应的IP地址时，它会与本地DNS服务器通信，如果这个
+// 服务器无法提供所需的信息，那么它就会与位于层级中的其他DNS服务器进行通信以便获取信息。
+// 有时候，这个解析过程可能会花费很多时间，DNS服务器采用缓存技术来避免在查询常见域名时所
+// 发生的不必要的通信。使用这种方法使得DNS能够处理大规模的名字空间，同时无需对域名进行集
+// 中管理。
+//
+// DNS 解析请求可以分为两类，递归和迭代。在一个递归请求中，请求者要求服务器处理整个解析任
+// 务，包括在必要时与其他DNS服务器进行通信。当位于本地主机上的一个应用程序调用getaddrinfo()
+// 时，该函数会向本地DNS服务器发起一个递归请求。如果本地 DNS 服务器自己并没有相关信息来
+// 完成解析，那么它就会迭代地解析这个域名。下面通过一个例子来解释迭代域名。假设本地 DNS
+// 服务器需要解析 www.otago.ac.nz，要完成这个任务，它首先与每个 DNS 服务器都知道的一组
+// 根域名服务器中的一个进行通信。给定 www.otago.ac.nz 根域名服务器会告诉本地 DNS 服务器
+// 到其中一台 nz 服务器上查询，然后本地服务器会在 nz 服务器上查询，并收到 ac.nz 服务器
+// 信息，之后继续在 ac.nz 服务器上查询得到 otago.ac.nz 服务器信息，最后本地 DNS 服务器
+// 会在 otago.ac.nz 域名服务器上查询到 www.otago.ac.nz 并获取到所需的 IP 地址。如果
+// 向 getaddrinfo() 传递了一个不完整域名，那么解析器在解析之前会尝试补全。域名补全规则
+// 是在 /etc/resolv.conf 中定义的，参见 resolv.conf(5) 手册。在默认情况下，解析器至少
+// 会使用本机的域名来补全。
+//
+// 众所周知的端口，与对应的服务协议名称，之间的映射。由于服务名称是集中管理并且不会像IP
+// 那样频繁变化，因此没必要采用DNS服务器来管理它们。相反，端口号和服务名称会记录在文件
+// /etc/services 中。函数 getaddrinfo() 和 getnameinfo() 会使用这个文件中的信息在
+// 服务名称和端口号之间进行转换。
+//      tcpmux          1/tcp                           # TCP port service multiplexer
+//      echo            7/tcp
+//      echo            7/udp
+//      systat          11/tcp          users
+//      daytime         13/tcp
+//      daytime         13/udp
+//      netstat         15/tcp
+//      ssh             22/tcp                          # SSH Remote Login Protocol
+//      telnet          23/tcp
+//      smtp            25/tcp          mail （别名）
+//      time            37/tcp          timserver
+//      time            37/udp          timserver
+//      whois           43/tcp          nicname
+//      domain          53/tcp                          # Domain Name Server
+//      domain          53/udp
+//      http            80/tcp          www             # WorldWideWeb HTTP
+//      pop3            110/tcp         pop-3           # POP version 3
+//      ntp             123/udp                         # Network Time Protocol
+//      https           443/tcp                         # http protocol over TLS/SSL
+//
+// TCP 和 UDP 的端口号是相互独立的，相同的端口号可以同时分配给 TCP 和 UDP 用，且可以表
+// 示不同发服务。但 IANA 的策略是将两个端口都分配给同一个服务，即使服务只使用了其中一种
+// 协议，例如 telnet ssh http smtp 都只使用了 TCP，但对应的 UDP 端口也被分配给了这些
+// 服务。响应的 ntp 只使用 udp 但 TCP 端口 123 也分配给了 ntp。在一些情况下，一个服务
+// 既会使用 TCP 也会使用 UDP，例如 DNS 和 echo。最后，还有极少出现的情况将数值相同的
+// UDP 和 TCP 端口分配给了不同的服务，如 rsh 使用 TCP 端口 514，而 syslog daemon 使用
+// DUP 端口 514，这是因为这些端口在采用现行的 IANA 策略之前就分配出去了。
+//
+// #include <sys/types.h>
+// #include <sys/socket.h>
+// #include <netdb.h> // getaddrinfo() 将域名和服务名称，转换成IP地址和端口号的一个链表，getnameinfo() 将IP地址和端口号，转换成域名和服务名称
+// int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
+// void freeaddrinfo(struct addrinfo *res);
+// const char *gai_strerror(int errcode);
+// int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host _Nullable, socklen_t hostlen, char *serv _Nullable, socklen_t servlen, int flags);
+#include <sys/types.h>
+#include <netdb.h>
+prh_u32 prh_sock_resolve_name(const char *domain_name) {
+    // struct addrinfo {
+    //      int              ai_flags;
+    //      int              ai_family; // AF_UNSPEC any family, AF_INET, AF_INET6
+    //      int              ai_socktype; // SOCK_STREAM, SOCK_DGRAM, or 0
+    //      int              ai_protocol; // 0
+    //      socklen_t        ai_addrlen;
+    //      struct sockaddr *ai_addr;
+    //      char            *ai_canonname;
+    //      struct addrinfo *ai_next; };
+    struct addrinfo hints = {0}, *out = prh_null;
+    struct sockaddr_in *sock_addr; int n;
+    // 将 hints 设置为空，等价于：ai_family AF_UNSPEC, ai_socktype ai_protocol 0, ai_flags AI_V4MAPPED|AI_ADDRCONFIG.
+    // 根据 POSIX.1 标准，如果将 hints 参数指定为 NULL，则应默认将 ai_flags 视为 0。然而，GNU C 库（glibc）在这种情况下默认使用
+    // (AI_V4MAPPED|AI_ADDRCONFIG) 的值，因为这一默认值被认为是对标准的一种改进。AI_V4MAPPED：允许 IPv6 地址映射为 IPv4，提高兼
+    // 容性。AI_ADDRCONFIG：根据系统配置返回地址，避免返回不适用的地址（如在没有 IPv6 支持的系统上返回 IPv6 地址）。
+    hints.ai_family = AF_INET; // hints 只需设置前四个参数，其他字段必须为零
+    // 参数 node 和 service 其中一个可以为 NULL。
+    // ai_flag - AI_NUMERICHOST 地址字符串必须是数值型字符串，设置这个标志可以避免昂贵的域名解析流程。数值型字符串可以是，十六进制
+    // 和冒号的 IPv6 地址，十进制或者八进制（0）或十六进制（0x）和点号的 IPv4 地址（a.b.c.d a.b.u16 a.u24 u32）。
+    n = getaddrinfo(domain_name, prh_null, &hints, &out);
+    if (n == EAI_AGAIN) {
+    }
+    assert(n == 0);
+    freeaddrinfo(out);
+}
+
+// #include <fcntl.h>
+// int fcntl(int fd, int op, ... /* arg */ );
+#include <fcntl.h>
+void prh_sock_set_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if (flags & O_NONBLOCK) return;
+    flags |= O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+void prh_sock_set_block(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if ((flags & O_NONBLOCK) == 0) return;
+    flags &= ~O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+
+int prh_raw_socket(void) {
+    int raw_socket = socket(AF_INET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_RAW);
+    assert(raw_socket >= 0);
+    return raw_socket;
+}
+int prh_tcp_socket(void) {
+    int tcp_socket = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    assert(tcp_socket >= 0);
+    return tcp_socket;
+}
+int prh_udp_socket(void) {
+    int udp_socket = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    assert(udp_socket >= 0);
+    return udp_socket;
+}
+
+typedef struct {
+    prh_u32 src_addr;
+    prh_u32 dst_addr;
+    prh_u16 src_port;
+    prh_u16 dst_port;
+} prh_sock_port;
 #endif
+
+#ifdef PRH_TEST_IMPLEMENTATION
+void prh_impl_sock_test(void) {
+#ifdef INET_ADDRSTRLEN
+    printf("INET_ADDRSTRLEN %d\n", INET_ADDRSTRLEN);
+#endif
+#ifdef INET6_ADDRSTRLEN
+    printf("INET6_ADDRSTRLEN %d\n", INET6_ADDRSTRLEN);
+#endif
+}
+#endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_SOCK_INCLUDE
 
