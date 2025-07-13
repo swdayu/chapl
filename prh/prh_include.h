@@ -570,6 +570,7 @@ extern "C" {
 
 #ifndef prh_array_size
     #define prh_array_size(a) (sizeof(a)/sizeof((a)[0]))
+    #define prh_array_elem(a, i) (prh_assert((i) >= 0 && (i) < prh_array_size(a))), (a)[i]
 #endif
 
 #ifndef prh_offsetof
@@ -586,15 +587,18 @@ extern "C" {
 #endif
 
 #ifndef prh_release_assert
-    #define prh_release_assert(a) if (!(a)) prh_impl_assert(__LINE__)
+    #define prh_release_assert(a) ((void)((a) || prh_impl_assert(__LINE__)))
+    #define prh_release_unreachable() prh_abort_error(0xea)
     void prh_impl_assert(int line);
 #endif
 
 #ifndef prh_assert
 #if PRH_DEBUG
     #define prh_assert(a) prh_release_assert(a)
+    #define prh_unreachable() prh_release_unreachable()
 #else
     #define prh_assert(a) ((void)0)
+    #define prh_unreachable() ((void)0)
 #endif
 #endif
 
@@ -7879,6 +7883,29 @@ void prh_impl_thrd_test(void) {
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
 
+#ifdef PRH_FILE_INCLUDE
+
+#ifdef PRH_FILE_IMPLEMENTATION
+#if defined(prh_plat_windows)
+
+#else
+// 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
+// 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
+// 文件描述符的分配基于进程，不同的进程对文件描述符的分配互不干扰。有三个始终打开的文件描
+// 述符 0 1 2，分别表示标准输入（STDIN_FILENO）、表示输出（STDOUT_FILENO）、错误输出
+// （STDERR_FILENO）。更确切的说，每个程序都继承了 shell 文件描述符的副本，在程序执行
+// 之前，shell 代表这个程序为其打开了这3各文件描述符。在 shell 的日常交互中，这3个文件
+// 描述符是始终打开的，这3个文件描述符通常执行 shell 运行所在的终端。这3个文件描述符可以
+// 对其进行重定向。可以使用 0 1 2 来代表这 3 个文件描述符，但是例如使用 freopen 对标准
+// 输出 stdout 进行重定向，无法保证 stdout 变量值仍然为 1。另外如果关闭了 0 1 2 文件
+// 描述符，在创建新的文件描述符时会重用这些已经释放的文件描述符。
+#endif // POSIX IMPLEMENTATION
+#ifdef PRH_TEST_IMPLEMENTATION
+
+#endif // PRH_TEST_IMPLEMENTATION
+#endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_FILE_INCLUDE
+
 #define PRH_SOCK_INCLUDE
 #define PRH_SOCK_IMPLEMENTATION
 #undef prh_plat_windows
@@ -7893,14 +7920,28 @@ void prh_impl_thrd_test(void) {
 //      cat /etc/hosts
 // 服务名称与端口号之间的映射：
 //      cat /etc/services
+// 网络协议（IP协议）分配的号码：
+//      cat /etc/protocols
+//      www.iana.org/assignments/protocol-numbers
 // 域名解析配置文件：
 //      cat /etc/resolv.conf
 // 每个 DNS 服务器都知道的一组根域名服务器：
 //      dig . ns
 //      https://root-servers.org/
+// 目的套接字地址的排序配置（RFC 3484）：
+//      cat /etc/gai.conf
+// 向 inetd 守护进程发送 SIGHUP 信号：
+//      killall -HUP inetd
+// 列出当前运行的进行信息：
+//      ps
+//      ps -C program -o "pid ppid pgid sid tty command"
 #ifdef PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_IMPLEMENTATION
+#ifndef PRH_SOCK_DEBUG
+#define PRH_SOCK_DEBUG PRH_DEBUG
+#endif
+
 #if defined(prh_plat_windows)
 
 #else
@@ -8632,9 +8673,9 @@ label_defer:
 // 数据报进行分片处理。虽然使用尽可能长的IP数据报会使传送效率提高（因为头部长度占比就会
 // 变小），但数据报短些也有好处。每一个IP数据报越短，路由器转发的速度就越快。为此 IP 协议
 // 规定，在因特网中所有的主机和路由器，必须能够接受长度不超过 576 字节的数据报。这是假定
-// 上层交下来的数据长度有 512 字节（合理的长度），加上最长的IP首部 60 字节，再加上 4 字节
-// 的富裕量，就得到 576 字节。当主机需要发送长度超过 576 字节的数据报时，应当先了解一下，
-// 目的主机能否接受所要发送的数据报长度，否则就要进行分片。
+// 上层交下来的数据长度有 512 字节（合理的长度），加上最长的IP首部 60 字节，再加上 4 字
+// 节的富裕量，就得到 576 字节。当主机需要发送长度超过 576 字节的数据报时，应当先了解一
+// 下，目的主机能否接受所要发送的数据报长度，否则就要进行分片。
 //
 // IP 是一种无连接不可靠协议，它尽最大可能将数据报从发送者传输给接收者，但并不保证包到达
 // 的顺序会与它们被传输的顺序一致，也不保证包是否重复，甚至都不保证包是否到达接收者。IP
@@ -8670,21 +8711,6 @@ label_defer:
 // 端口，这表示这些端口可供本地应用程序使用或作为临时端口分配。然后不同的实现可能会在不同
 // 的范围内分配临时端口。在 Linux 上，这个范围是有包含在以下文件中的两个数值来定义的：
 // cat /proc/sys/net/ipv4/ip_local_port_range
-//
-// libpcap 使用 socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL)) 创建原始套接字，接收
-// 所有链路层数据帧。其接收函数为 packet_rcv()，该函数将数据包放入对应 socket 的接收队
-// 列中。BPF 是 libpcap 的核心过滤机制，它允许用户定义过滤规则（如只捕获 TCP 端口 80
-// 的数据包），并在内核中执行过滤逻辑，减少不必要的数据拷贝。libpcap 的改进版本（如
-// libpcap-mmap）使用 mmap 技术将内核缓冲区映射到用户空间，避免了额外的数据拷贝，提高了
-// 性能。libpcap 在数据链路层插入一个“旁路”，不干扰系统正常协议栈处理。它通过创建 PF_PACKET
-// 类型的原始套接字，直接从链路层驱动获取数据包，绕过 TCP/IP 协议栈，从而提高捕获效率。
-// 当数据包到达网卡时，libpcap 通过以下路径捕获数据：
-// 网卡接收数据包 → 触发中断 → 网卡驱动分配 sk_buff 并拷贝数据（第一次拷贝）；
-// 根据是否启用 NAPI，调用 netif_rx() 或 netif_rx_schedule() 将数据包送入内核网络栈；
-// 触发软中断 NET_RX_SOFTIRQ，执行 net_rx_action()；
-// 调用 netif_receive_skb()，若有抓包程序，数据包进入 BPF 过滤器；
-// 匹配成功的数据包被拷贝到内核缓冲区（第二次拷贝）；
-// 用户空间通过 recvfrom() 系统调用将数据包从内核缓冲区拷贝到用户缓冲区（第三次拷贝）。
 //
 // https://www.man7.org/linux/man-pages/man2/socket.2.html
 //
@@ -8760,6 +8786,8 @@ label_defer:
 //      从内核 2.6.28 开始，Linux 支持一个新的非标准系统调用 accept4()，这个系统调用
 //      执行的任务与 accept() 相同，但支持一个额外的参数 flags，可以设置 SOCK_CLOEXEC
 //      和 SOCK_NONBLOCK 两个标志。
+//      由于 accept() 在一些老式实现版本中并不是一个原子化的系统调用，因此可能需要通过一
+//      些互斥技术，以确保每次只有一个进程/线程可以执行 accept() 调用。
 // int connect(int sofd, const struct sockaddr *addr, socklen_t addrlen);
 //      如果 connect 失败并且希望重新进行连接，那么 SUSv3 规定完成这个任务的可移植的方
 //      法是关闭这个套接字，创建一个新套接字，在该新套接字上重新进行连接。
@@ -8783,14 +8811,39 @@ label_defer:
 // 为 AF_UNSPEC 的地址结构还可以解除地址绑定，但注意的是，其他很多 UNIX 实现并不支持将
 // AF_UNSPEC 用于这个用途。
 //
-// read
-// write
-// send
-// recv
-// ssize_t sendto(int sofd, const void *buffer, size_t len, int flags, const struct sockaddr *dest, socklen_t addrlen);
-// ssize_t recvfrom(int sofd, void *buffer, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen);
-// recvmsg
-//
+// #include <fcntl.h>
+// int fcntl(int fd, int op, ... /* arg */ );
+#include <fcntl.h>
+void prh_sock_set_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if (flags & O_NONBLOCK) return;
+    flags |= O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+void prh_sock_set_block(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if ((flags & O_NONBLOCK) == 0) return;
+    flags &= ~O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+
+int prh_raw_socket(void) {
+    int raw_socket = socket(AF_INET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_RAW);
+    assert(raw_socket >= 0);
+    return raw_socket;
+}
+int prh_tcp_socket(void) {
+    int tcp_socket = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    assert(tcp_socket >= 0);
+    return tcp_socket;
+}
+int prh_udp_socket(void) {
+    int udp_socket = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    assert(udp_socket >= 0);
+    return udp_socket;
+}
 
 // #include <sys/socket.h>
 // int getsockname(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict addrlen);
@@ -8906,6 +8959,14 @@ void prh_sock_ip_string(prh_u32 ip, char *arr_16_byte) {
 // void freeaddrinfo(struct addrinfo *res);
 // const char *gai_strerror(int errcode);
 // int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host _Nullable, socklen_t hostlen, char *serv _Nullable, socklen_t servlen, int flags);
+// NI_MAXHOST 1025 域名的最大长度 NI_MAXSERV 32 服务名称的最大长度；getnameinfo() 中的 host 和 serv 至少提供一个。
+// flags - NI_DGRAM 默认返回流式套接字对应的地址字符串，指定该标志标识返回数据报套接字对应的地址字符串，通常这是无关紧要的因为，因为相同的端口对应的服务名通常相同。
+// flags - NI_NAMEREQD 默认情况下，如果无法解析获取到主机名，那么 host 中会返回数据地址字符串，如果制定了该标志，那么会返回错误 EAI_NONAME。
+// flags - NI_NOFQDN 默认情况下会返回主机的完全限定域名，指定该标志时如果主机位于局域网中只返回名字的第一部分（即主机名）。
+// flags - NI_NUMERICHOST 强制返回数值型地址字符串，禁止耗时的 DNS 查询；不指定该标志，仍然可能返回数值型地址，因为可能域名解析获取不到主机名。
+// flags - NI_NUMERICSERV 强制返回数值型服务名称，避免搜索 /etc/services，没有指定该标志也可能返回数值端口号字符串，因为一些端口号根本就不对应任何服务名。
+// EAI_AGAIN EAI_BADFLAGS EAI_FAIL EAI_FAMILY 地址族不能识别或地址长度非法，EAI_MEMORY，EAI_NONAME 指定了NI_NAMEREQD但解析失败或参数host serv都没有提供，
+// EAI_OVERFLOW 参数 host 或 serv 缓存长度不够，EAI_SYSTEM 系统错误 errno。
 #include <sys/types.h>
 #include <netdb.h>
 prh_u32 prh_sock_resolve_name(const char *domain_name) {
@@ -8918,56 +8979,244 @@ prh_u32 prh_sock_resolve_name(const char *domain_name) {
     //      struct sockaddr *ai_addr;
     //      char            *ai_canonname;
     //      struct addrinfo *ai_next; };
-    struct addrinfo hints = {0}, *out = prh_null;
+    struct addrinfo hints = {0}, *addr_info = prh_null, *p;
     struct sockaddr_in *sock_addr; int n;
     // 将 hints 设置为空，等价于：ai_family AF_UNSPEC, ai_socktype ai_protocol 0, ai_flags AI_V4MAPPED|AI_ADDRCONFIG.
     // 根据 POSIX.1 标准，如果将 hints 参数指定为 NULL，则应默认将 ai_flags 视为 0。然而，GNU C 库（glibc）在这种情况下默认使用
     // (AI_V4MAPPED|AI_ADDRCONFIG) 的值，因为这一默认值被认为是对标准的一种改进。AI_V4MAPPED：允许 IPv6 地址映射为 IPv4，提高兼
     // 容性。AI_ADDRCONFIG：根据系统配置返回地址，避免返回不适用的地址（如在没有 IPv6 支持的系统上返回 IPv6 地址）。
     hints.ai_family = AF_INET; // hints 只需设置前四个参数，其他字段必须为零
-    // 参数 node 和 service 其中一个可以为 NULL。
-    // ai_flag - AI_NUMERICHOST 地址字符串必须是数值型字符串，设置这个标志可以避免昂贵的域名解析流程。数值型字符串可以是，十六进制
+    // 参数 node 和 service 其中一个可以为 NULL。如果 service 是服务名称，则会被转换成对应的端口号，如果是数值字符串则直接将字符串
+    // 转换成整数。如果 service 为 NULL，返回的所有套接字地址中的端口都不进行初始化。如果设置了 AI_NUMERICSERV 标志，并且 service
+    // 不为空，那么 service 必须是数值字符串。
+    // ai_flags - AI_NUMERICHOST 地址字符串必须是数值型字符串，设置这个标志可以避免昂贵的域名解析流程。数值型字符串可以是，十六进制
     // 和冒号的 IPv6 地址，十进制或者八进制（0）或十六进制（0x）和点号的 IPv4 地址（a.b.c.d a.b.u16 a.u24 u32）。
-    n = getaddrinfo(domain_name, prh_null, &hints, &out);
-    if (n == EAI_AGAIN) {
+    // ai_flags - AI_PASSIVE 标志如果设置且 node 为 NULL（即只提供了端口号），则返回的套接字地址适用于 bind(2) 用来 accept(2)
+    // 连接，这时返回的套接字地址是通配地址（wildcard address），INADDR_ANY 或 IN6ADDR_ANY_INIT。通配地址常适用于服务器，它可以
+    // 接收本地主机任意网络地址上的连接。如果 node 不为空，则 AI_PASSIVE 标志会被忽略。如果没有 AI_PASSIVE 标志，则返回的套接字地
+    // 址适用于 connect(2) sendto(2) sendmsg(2)，如果 node 为空返回的是回环地址（loopback address)，INADDR_LOOPBACK 或者
+    // IN6ADDR_LOOPBACK_INIT。
+    // ai_flags - AI_CANONNAME 标志如果指定，返回的第一个地址中的 ai_canonname 指向规范域名（official name of the host）。
+    // ai_flags - AI_ADDRCONFIG 标志如果指定，只有当本地系统配置了至少一个 IPv4 地址时才返回 IPv4 地址，只有当配置了至少一个 IPv6
+    // 地址时才返回 IPv6 地址。并且回环地址不被认为是一个有效的配置地址。例如在只配置有 IPv4 的系统上，这个标志可以保证不返回 IPv6
+    // 套接字地址。
+    // ai_flags - AI_V4MAPPED 标志如果设定，并且 hints.ai_family 设定为 AF_INET6，并且没有找到匹配的 IPv6 地址，那么 IPv4 映射
+    // 的 IPv6 地址会被返回。如果同时指定了 AI_V4MAPPED 和 AI_ALL，IPv6 地址和映射的 IPv4 地址都会返回。如果 AI_V4MAPPED 没有指
+    // 定，那么 AI_ALL 会被忽略。
+    assert(domain_name != prh_null);
+    n = getaddrinfo(domain_name, prh_null, &hints, &addr_info);
+    // 成功返回0，否则返回以下错误：
+    // EAI_ADDRFAMILY - 对应的网络主机（node）没有任何与指定的地址族匹配的网络地址。
+    // EAI_AGAIN - 域名服务器返回一个临时失败条件，请稍后重试。
+    // EAI_BADFLAGS - hints.ai_flags 包含非法标志，或者包含 AI_CANONNAME 但是 node 为空。
+    // EAI_FAIL - 域名服务器返回一个永久失败条件，不可恢复的错误。
+    // EAI_FAMILY - 指定的地址族不支持。
+    // EAI_MEMORY - 内存耗尽。
+    // EAI_NODATA - 存在指定的网络主机，但是该主机没有定义任何网络地址。
+    // EAI_NONAME - node 或者 service 非法，或者都是 NULL，或者制定了 AI_NUMERICSERV 但 service 不是数值字符串。
+    // EAI_SERVICE - 找不到指定类型（ai_socktype）的服务，例如指定了 SOCK_DGRAM 但只有流式套接字服务，例如设定了 service 但是 ai_socktype 是 SOCK_RAW。
+    // EAI_SOCKTYPE - 指定的 ai_socktype 不支持，例如与指定的 ai_protocol 不匹配，例如 SOCK_DGRAM 和 IPPROTO_TCP。
+    // EAI_SYSTEM - 其他系统错误，errno 返回错误码。
+    if (n != 0) {
+#if PRH_SOCK_DEBUG
+        printf("getaddrinfo %d %s\n", n, gai_strerror(n));
+#endif
+        if (addr_info) freeaddrinfo(addr_info);
+        return 0;
     }
-    assert(n == 0);
-    freeaddrinfo(out);
+    // 返回的套接字地址的排序规则定义在 RFC3484 中，在一些平台上可以编辑 /etc/gai.conf 配置其行为。域名和服务
+    // 名称对，可以映射多个套接字地址的原因是，例如域名对应的网络主机配置了多个主机地址（the network host is
+    // multihomed），例如既可以通过 IPv4 也可以通过 IPv6 地址访问，或者一个服务提供了多种套接字访问类型（例如
+    // 返回的一个地址是 SOCK_STREAM 类型，另一个地址是 SOCK_DGRAM 类型）。正常情况下，应用程序应该按套接字地
+    // 址的返回顺序优先使用靠前的地址。
+    for (p = addr_info; p; p = p->ai_next) {
+        sock_addr = (struct sockaddr_in *)p->ai_addr;
+        freeaddrinfo(addr_info);
+        return sock_addr->sin_addr.s_addr;
+    }
+    prh_unreachable();
 }
 
-// #include <fcntl.h>
-// int fcntl(int fd, int op, ... /* arg */ );
-#include <fcntl.h>
-void prh_sock_set_nonblock(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    assert(flags != -1);
-    if (flags & O_NONBLOCK) return;
-    flags |= O_NONBLOCK;
-    prh_nnegret(fcntl(fd, F_SETFL, flags));
-}
-void prh_sock_set_block(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    assert(flags != -1);
-    if ((flags & O_NONBLOCK) == 0) return;
-    flags &= ~O_NONBLOCK;
-    prh_nnegret(fcntl(fd, F_SETFL, flags));
-}
-
-int prh_raw_socket(void) {
-    int raw_socket = socket(AF_INET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_RAW);
-    assert(raw_socket >= 0);
-    return raw_socket;
-}
-int prh_tcp_socket(void) {
-    int tcp_socket = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-    assert(tcp_socket >= 0);
-    return tcp_socket;
-}
-int prh_udp_socket(void) {
-    int udp_socket = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-    assert(udp_socket >= 0);
-    return udp_socket;
-}
+// 对于使用套接字的网络服务器程序，有两种常见的设计方式。迭代型：服务器每次只处理一个客户
+// 请求，只有当完全处理完一个客户端的请求后才去处理下一个客户端。并发型：可以同时处理多个
+// 客户请求。迭代型服务器通常只适用于能够快速处理客户请求的场景，因为每个客户都必须等待前
+// 面的客户请求完成。迭代型服务器的典型场景是当客户端和服务器之间交换单个请求和响应时。
+//
+// 并发服务器的其他解决方案，采用服务器集群（server farm）。构建服务器集群最简单的一种方
+// 法是 DNS 轮转负载共享（DNS round-robin load sharing）或称为负载分发（load distribution），
+// 一个地区的域名权威服务器将同一个域名映射到多个IP地址上，即多台服务器共享同一个域名。
+// 后续对 DNS 服务器的域名解析请求将以循环轮转的方式以不同的顺序返回这些 IP 地址。DNS 循
+// 环轮转的优势是成本低，而且容易实施。但是，它也存在一些问题。其中一个问题是远端DNS服务
+// 器上所执行的缓存操作，这意味着今后位于某个特定主机（或一组主机）上的客户端发出的请求会
+// 绕过循环轮转DNS服务器，并总是由同一个服务器来负责处理。此外，循环轮转DNS并没有任何内建
+// 的用来确保达到良好负责均衡（不同客户端在服务上产生的负载不同）或者是确保高可用性的机制
+// （如果其中一台服务器宕机或者运行的服务器程序崩溃了怎么办）。在许多采用多台服务器设备的
+// 设计中，另一个我们需要考虑的因素是服务器的亲和性（server affinity）。这就是说，确保
+// 来自同一个客户端的请求序列能够全部定向到同一台服务器上，这样由服务器维护的任何有关客户
+// 端状态的信息都能保持准确，这里涉及保存的客户注册信息在多个服务器之间的同步问题。
+//
+// 一个更灵活但也更复杂的解决方案是服务器负载均衡（server load balancing）。在这种场景
+// 下，由一台负载均衡服务器将客户端请求路由到服务器集群中的其中一个成员上。为了确保高可用
+// 性，可能还会有一台备用的服务器，一旦负载均衡主服务器崩溃，备用服务器就立刻接管主服务器
+// 的任务。这消除了由远端DNS缓存所引起的问题，因为服务器集群只对外提供一个单独的IP地址，
+// 也就是负载均衡服务器的IP地址。负载均衡服务器结合一些算法来衡量或计算服务器负载，可能是
+// 服务器集群的成员所提供的量值，并智能化地将负载分发到集群中的各个成员之上。负载均衡服务
+// 器也会自动检测集群中失效的成员，如果需要还会自动检测新增加的服务器成员。最后，负载均衡
+// 服务器可能还会提供对服务器亲和力的支持。
+//
+// 如果我们查看一下 /etc/services 的内容，可以看到列出了数百个不同的服务项目，这意味着
+// 一个系统理论上可以运行数量庞大的服务器进程。但是大部分服务器进程通常只是等待着偶尔发送
+// 过来的连接请求或数据报，除此之外它们什么都不做。所有这些服务器进程依然会占用内核进程表
+// 中的资源，而且也会占用一些内存和交换空间，因而对系统产生负载。守护进程 inetd 被设计用
+// 来消除运行大量非常用服务器进程的需要。inetd 可提供两个主要好处：与其为每个服务器运行一
+// 个单独的守护进程，现在只需用一个进程（inetd）就可以监视一组指定的套接字端口，并按照需
+// 要启动其他的服务。因此可以降低系统上运行的进程数量。inetd 简化了启动其他服务的编程工
+// 作，因为由 inetd 执行的一些步骤通常在所有的网络服务启动时都会用到。由于inetd监管着一
+// 系列的服务，可按照需要启动其他的服务，因此 inetd 有时候也被称为 Internet超 级服务器。
+// 在一些 Linux 发行版本中提供有 inetd 的扩展版本 xinetd，关于 xinetd 的 相关信息可参
+// 考 www.xinetd.org。
+//
+// inetd 守护进程通常在系统启动时运行，在称为守护进程后，inetd 执行如下步骤：
+//      1. 对于 /etc/inetd.conf 中配置的每一项服务，inetd 都会创建一个恰当类型的套接字
+//      （即流式套接字或数据报套接字），然后绑定到指定的端口上。此外，每个TCP套接字都会
+//      通过 listen() 调用运行客户端发来连接。
+//      2. 通过 select() 调用，inetd 对前一步中创建的所有套接字进行监控，看是否有数据
+//      报或请求连接发送过来。
+//      3. select() 调用进入阻塞状态，直到一个UDP套接字上有数据报可读或者TCP套接字上收
+//      到连接请求。在TCP连接中，inetd 在进入下一个步骤之前纤维连接执行 accept() 调用。
+//      4. 要启动这个套接字上指定的服务，inetd 调用 fork() 创建一个新的进程，然后通过
+//      exec() 启动服务器程序。在执行exec()前，子进程执行如下的步骤：除了用于 UDP 数据
+//      报和接收TCP连接的文件描述符外，将其他所有从父进程继承而来的文件描述符都关闭；在
+//      文件描述符0、1、2上复制套接字文件描述符，并关闭套接字文件描述符本身，因为已经不再
+//      需要它们了，完成这一步之后，启动的服务器进程就能通过这三个标准文件描述符同套接字
+//      通信了；之后这一步是可选的，为启动的服务器进程设定用户和组ID，设定的值需要配置在
+//      /etc/inetd.conf 中的相应条目中。
+//      5. 第3步骤中，如果在TCP套接字上接收了一个连接，inetd 就关闭这个连接套接字，因为
+//      这个套接字只会在稍后启动的服务器进行中使用。
+//      6. inetd 服务跳转回第2步进行执行。
+// 配置文件 /etc/inetd.conf 中的每一行都描述了一种由 inetd 处理的服务：
+//      # echo stream tcp nowait root internal
+//      # echo dgram  udp wait   root internal
+//      ftp    stream tcp nowait root /usr/sbin/tcpd in.ftpd
+//      talnet stream tcp nowait root /usr/sbin/tcpd in.telnetd
+//      login  stream tcp nowait root /usr/sbin/tcpd in.rlogind
+//
+// 第一列是服务名称，结合第三列协议字段，可以通过 /etc/services 确定服务的端口号。第三
+// 列指定了套接字所使用的协议，/etc/protocols 中列出了所有的 Internet 协议，但大多数服
+// 务使用的都是TCP或UDP。第五列登录名，确定运行的服务器程序的用户ID和组ID，由于inetd以
+// root方式运行，它的子进程也同样是特权级的，因而可以在有需要的时候通过 setuid() 以及
+// setgid() 来修改进程的凭据。第六列服务器程序，该字段指定了被执行的服务器程序的路径名。
+// 第七列服务器程序参数，该字段指定一个或多个参数，参数之间有空格分隔。一些内置服务，例如
+// UDP 和 TCP 的 echo 服务，是由 inetd 服务本身实现的，对于这样的服务，服务器程序字段
+// 应该是 internal，而服务器程序参数字段将被忽略。要启动 echo 服务，将上面 echo 开头的
+// 注释 # 去掉即可。当我们修改了 /etc/inetd.conf 文件后，需要发送一个 SIGHUP 信号给
+// inetd，请求它重新读取配置文件：killall -HUP inetd。
+//
+// 通过 inetd 调用的流式套接字（TCP）服务器通常都被设计为只处理一个单独的客户端连接，处
+// 理完后就终止，把监听其他连接的任务留给 inetd。对于这样的服务，第四列的参数应该设置为
+// nowait。相反如果是有被执行的服务进程来接受连接的话，那么该字段就应该设置为 wait，此时
+// inetd 不会去接受连接，而是将监听套接字的文件描述符当作描述符0传递给被执行的服务进程。
+// 对于大部分的UDP服务器，该字段应该设为 wait。由 inetd 调用的 UDP 服务器通常被设计为读
+// 取并处理所有套接字上未完成的数据报，然后终止。从套接字中读取数据报时，通常需要一些超时
+// 机制，这样在指定的时间间隔内如果没有新的数据报到来，服务进程就会终止。通过指定为 wait，
+// 我们可以阻止 inetd 在套接字上同时尝试做 select() 操作，因为 inetd 可能会在检查数据
+// 报的时候同 UDP 服务之间产生竞争条件，从事如果 inetd 赢了它还会启动另一个 UDP 服务进
+// 程实例。由于 inetd 操作以及它的配置文件的格式并没有在 SUSv3 中指定，因此在配置文件
+// /etc/inetd.conf 中指定的值可能会有一些变动。
+//
+// 守护进程（daemon）是一种具备下列特征的进程：它的声明周期很长，通常一个守护进程会在系统
+// 启动的时候被创建并一直运行直至系统被关闭；它在后台运行并且不拥有控制终端，控制终端的缺
+// 失确保内核永远不会为守护进程自动生成任何任务控制信号以及终端相关的信号，例如 SIGINT、
+// SIGTSTP、SIGHUP。很多标准 daemon 会作为特权进行运行（即有效用户ID为0），因此在编写
+// 守护进程时应该遵循特别的安全规范。特权程序能够访问普通用户无法访问的特性和资源，一个程
+// 序可以下面两种方式已特权方式运行：程序在一个特权用户ID下启动，很多守护进程和网络服务器
+// 通常以 root 身份运行，它们就属于这种类别；另外程序设置了 set-user-Id 或 set-group-ID
+// 权限位，当一个 set-user-ID（set-group-ID）程序被执行之后，它会将进程的有效用户（组）
+// ID修改为与程序文件的所有者（组）一样的ID。如果一个特权程序包含 bug 或可以被恶意用户破
+// 坏，那么系统或应用程序的安全性就会受到影响。从安全的角度来讲，在编写程序的时候应该将系
+// 统受到安全威胁的可能性以及受到安全威胁时产生的损失降到最小。
+//
+// 通常会将守护进程程序的名称以字母d结尾，但并不是所有人都遵循这个惯例。在 Linux 上，特定
+// 的守护进程会作为内核线程运行。实现此类 daemon 的代码时内核的一部分，它们通常在系统启动
+// 的时候被创建。当使用 ps(1) 列出线程时，这些守护进程的名称会用方括号[]括起来。要创建一
+// 个守护进程，需要：
+// （一）执行一个 fork() 之后父进程退出，子进程继续执行，结果时守护进程称为 init 进程的
+// 子进程。之所以要做这一步是因为下面两个原因：假设守护进程是从命令行启动的，父进程的终止
+// 会被 shell 发现，shell 在发现之后会显示出另一个 shell 提示符并让子进程继续在后台运行；
+// 子进程被确保不会成为一个进程组首进程，因为它从其父进程那里继承了进程组ID并且拥有了自己
+// 的唯一的进程ID，而这个进程ID与继承而来的进程组ID是不同的，这样才能够成功地执行下面的
+// 一个步骤。
+// （二）子进程调用 setsid() 开启一个新会话，并释放它与控制终端之间的所有关联关系。
+// （三）如果守护进程从来没有打开过终端设备，那么就无需担心守护进程会重新请求一个控制终端
+// 了。如果守护进程后面可能会打开一个终端设备，那么必须要采取措施来确保这个设备不会成为
+// 控制终端。这可以通过下面两种方式实现：在所有可能应用到一个终端设备上的 open() 调用中
+// 指定 O_NOCTTY 标记；或者更简单的说，在 setsid() 调用之后执行第二个 fork()，然后再次
+// 让父进程退出并让孙子进程继续执行。这样就确保了子进程不会成为会话组长，因此根据 System
+// V 中获取终端的规则（Linux 也遵循这个规则），进程永远不会重新请求一个控制终端。在遵循
+// BSD 规则的实现中，一个进程只能通过一个显式的 ioctl() TIOCSCTTY 操作来获取一个控制
+// 终端，因此第二个 fork() 调用对控制终端的获取并没有任何影响，但多一个 fork() 调用不会
+// 带来任何坏处。
+// （四）清除进程的 umask 以确保当守护进程创建文件和目录时拥有所需的权限。
+// （五）修改进程的当前工作目录，同辉改为根目录，这样做是有必要的，因为守护进程通常会一直
+// 运行直至系统关闭为止。如果守护进程的当前工作目路是不包含/的文件系统，那么就无法卸载该
+// 文件系统。或者守护进程可以将工作目录改为完成任务时所在的目录或在配置文件中定义的一个目
+// 录，只要包含这个目录的文件系统永远不会被卸载即可。如 cron 会将自身放在 /var/spool/cron
+// 目录下。
+// （六）关闭守护进程从其父进程继承而来的所有打开这的文件描述符，守护进程可能需要保持继承
+// 而来的文件描述的打开状态，因此这一步时可选的。之所以需要这样做的原因有很多，由于守护
+// 进程失去了控制终端并且是在后台运行的，因此让守护进程保持文件描述符 0 1 2 的打开状态毫
+// 无意义，因为它们指向的就是控制终端。此外，无法卸载长时间运行的守护进程打开的文件所在的
+// 文件系统，因此通常的做法时关闭所有无用的打开着的文件描述符，因为文件描述符时一种有限的
+// 资源。一些 UNIX 实现提供了一个名为 closefrom(n) 或类似名称的函数，它关闭嗦鱼大于或
+// 等于 n 的文件描述符。Linux 上并不存在这个函数。
+// （七）在关闭了文件描述符 0 1 2 之后，守护进程通常会打开 /dev/null 并使用 dup2() 或
+// 类似的函数，使所有这些描述符指向这个设备。之所以要这样做时因为：它确保了当守护进程调用
+// 了在这些描述符上执行 I/O 的库函数时不会出乎意外地失败；它防止了守护进程后面使用描述符
+// 1 或 2 打开一个文件的情况，因为库函数会将这些描述符当作标准输出和标准错误来写入数据。
+// /dev/null 是一个虚拟设备，它总会将写入的数据丢弃。当需要删除一个 shell 命令的标准输
+// 出和错误时可以将它们重定向到这个文件。从这个设备中读取数据总是会返回文件结束的错误。
+//
+// 一个守护进程通常只有在系统关闭的时候才会终止。很多标准的守护进程通过在系统关闭时执行
+// 特定于应用程序的脚本来停止。而那些不以这种方式终止的守护进程会收到一个 SIGTERM 信号，
+// 因为在系统关闭的时候 init 进程会向所有其子进程发送这个信号。在默认情况下，SIGTERM
+// 信号会终止一个进程。如果守护进程在终止之前需要做些清理工作，那么就需要为这个信号建立
+// 一个处理函数。这个处理函数必须能快速的完成清理工作，因为 init 在发完 SIGTERM 信号 5
+// 秒之后会发送一个 SIGKILL 信号。这并不意味着这个守护进程能够执行 5 秒的 CPU 时间，因
+// 为 init 会同时向系统中的所有进程发送信号，而它们可能都试图在 5 秒内完成清理工作。由于
+// 守护进程是长时间运行的，因此要特别小心潜在的内存泄露问题和文件描述符泄露。很多守护进程
+// 需要确保同一时刻只有一个进程实例处于活跃状态。
+//
+// 由于很多守护进程需要持续执行，因此在设计守护进程时需要克服一些障碍：通常守护进程会在启
+// 动时从相关的配置文件中读取操作参数，但有时候需要在不重启守护进程的情况下快速修改这些参
+// 数；一些守护进程会产生日志文件，如果守护进程永远不关闭日志文件的话，那么日志文件就会无
+// 限制地增长，最终会阻塞文件系统。即使删除了一个文件的文件名，只要有进程还打开着这个文件，
+// 那么这个文件就会一直存在下去。这里需要有一种机制来告诉守护进程关闭其日志文件并打开一个
+// 新文件，这样就能够在需要的时候旋转日志文件了。解决这两个问题的方案时让守护进程为 SIGHUP
+// 建立一个处理函数，并在收到这个信号时采取所需的措施。当控制进程与控制终端断开连接之后就
+// 会生成 SIGHUP 信号。由于守护进程没有控制终端，因此内核永远不会向守护进程发送这个信号，
+// 这样守护进程就可以使用 SIGHUP 信号来达到这个目的。logrotate 程序可以自动旋转守护进程
+// 的日志文件，具体参考 logrotate(8) 手册。一些守护进程在收到 SIGHUP 信号时会使用其他方
+// 法来重新初始化自身：它们会关闭所有文件，然后使用 exec() 重新启动自身。
+//
+// 在编写守护进程时碰到的一个问题时如何显式错误消息，由于守护进程是后台运行的，因此通常无
+// 法像其他消息输出到关联终端上。这个问题的一种解决方式是将消息写入到一个特定于应用程序的
+// 日志文件中。这种方式存在的一个主要问题是让系统管理员管理多个应用程序日志文件和监控其中
+// 是否存在错误比较困难，syslog 工具就用于解决这个问题。syslog 工具提供了一个集中式日志
+// 工具，系统中的所有应用程序都可以使用这个工具来记录日志消息。
+//
+// 服务器写入一个对方已经关闭的套接字 SIGPIPE
+// TCP SO_REUSEADDR
+// read
+// write
+// send
+// recv
+// ssize_t sendto(int sofd, const void *buffer, size_t len, int flags, const struct sockaddr *dest, socklen_t addrlen);
+// ssize_t recvfrom(int sofd, void *buffer, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen);
+// recvmsg
+//
+// 处理同一个客户同时建立多个TCP连接的情况，TCP运行两个端口之间能建立多条连接吗？但是一个
+// 客户账号可以用两台不同的机器来连接，这时就需要对客户账号进行唯一性验证。或者它在同一个
+// 主机上使用不同的端口号进行连接呢，也是需要进行客户账号进行唯一性验证。
 
 typedef struct {
     prh_u32 src_addr;
@@ -8975,7 +9224,39 @@ typedef struct {
     prh_u16 src_port;
     prh_u16 dst_port;
 } prh_sock_port;
+
+typedef struct {
+    prh_sock_port port;
+} prh_tcp_client;
+
+typedef struct {
+    prh_sock_port port;
+    int backlog;
+} prh_tcp_server; // tcpd
+
+typedef struct {
+    prh_sock_port port;
+} prh_tcp_conn;
+
 #endif
+
+// https://www.man7.org/linux/man-pages/man7/packet.7.html
+//
+// libpcap 使用 socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL)) 创建原始套接字，接收
+// 所有链路层数据帧。其接收函数为 packet_rcv()，该函数将数据包放入对应 socket 的接收队
+// 列中。BPF 是 libpcap 的核心过滤机制，它允许用户定义过滤规则（如只捕获 TCP 端口 80
+// 的数据包），并在内核中执行过滤逻辑，减少不必要的数据拷贝。libpcap 的改进版本（如
+// libpcap-mmap）使用 mmap 技术将内核缓冲区映射到用户空间，避免了额外的数据拷贝，提高了
+// 性能。libpcap 在数据链路层插入一个“旁路”，不干扰系统正常协议栈处理。它通过创建 PF_PACKET
+// 类型的原始套接字，直接从链路层驱动获取数据包，绕过 TCP/IP 协议栈，从而提高捕获效率。
+// 当数据包到达网卡时，libpcap 通过以下路径捕获数据：
+// 网卡接收数据包 → 触发中断 → 网卡驱动分配 sk_buff 并拷贝数据（第一次拷贝）；
+// 根据是否启用 NAPI，调用 netif_rx() 或 netif_rx_schedule() 将数据包送入内核网络栈；
+// 触发软中断 NET_RX_SOFTIRQ，执行 net_rx_action()；
+// 调用 netif_receive_skb()，若有抓包程序，数据包进入 BPF 过滤器；
+// 匹配成功的数据包被拷贝到内核缓冲区（第二次拷贝）；
+// 用户空间通过 recvfrom() 系统调用将数据包从内核缓冲区拷贝到用户缓冲区（第三次拷贝）。
+//
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_sock_test(void) {
@@ -8984,6 +9265,12 @@ void prh_impl_sock_test(void) {
 #endif
 #ifdef INET6_ADDRSTRLEN
     printf("INET6_ADDRSTRLEN %d\n", INET6_ADDRSTRLEN);
+#endif
+#ifdef NI_MAXHOST
+    printf("NI_MAXHOST %d\n", NI_MAXHOST); // 最大域名长度
+#endif
+#ifdef NI_MAXSERV
+    printf("NI_MAXSERV %d\n", NI_MAXSERV); // 最大的端口服务名称长度
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
