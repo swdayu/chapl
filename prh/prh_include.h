@@ -630,6 +630,7 @@ extern "C" {
 #endif
 
 #ifndef prh_prerr_if
+    #define prh_preno_if(a) if (a) { prh_prerr(errno); }
     #define prh_prerr_if(err, ...) if (err) { prh_prerr(err); __VA_ARGS__; }
     #define prh_abort_if(err) if (err) { prh_abort_error(err); }
     #define prh_prerr(err) prh_impl_prerr((err), __LINE__)
@@ -8037,8 +8038,6 @@ void prh_impl_thrd_test(void) {
 // #include <sys/epoll.h>
 // int epoll_create(int size); Linux 2.6, glibc 2.3.2.
 // int epoll_create1(int flags); Linux 2.6.27, glibc 2.9.
-// #include <unistd.h>
-// int close(int fd);
 //
 // epoll_create() creates a new epoll(7) instance. Since Linux 2.6.8, the size
 // argument is ignored, but must be greater than zero. epoll_create1() is the
@@ -8442,10 +8441,6 @@ int prh_epoll_create(void) {
     return fd;
 }
 
-void prh_epoll_close(int epfd) {
-    prh_zeroret(close(epfd));
-}
-
 void prh_epoll_del(int epfd, int fd) {
     struct epoll_event event;
     prh_zeroret(epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &event));
@@ -8810,24 +8805,6 @@ label_defer:
 // 报。通过再调用一次 connect() 可以修改已经绑定的目的套接字地址，此外通过指定一个地址族
 // 为 AF_UNSPEC 的地址结构还可以解除地址绑定，但注意的是，其他很多 UNIX 实现并不支持将
 // AF_UNSPEC 用于这个用途。
-//
-// #include <fcntl.h>
-// int fcntl(int fd, int op, ... /* arg */ );
-#include <fcntl.h>
-void prh_sock_set_nonblock(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    assert(flags != -1);
-    if (flags & O_NONBLOCK) return;
-    flags |= O_NONBLOCK;
-    prh_nnegret(fcntl(fd, F_SETFL, flags));
-}
-void prh_sock_set_block(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    assert(flags != -1);
-    if ((flags & O_NONBLOCK) == 0) return;
-    flags &= ~O_NONBLOCK;
-    prh_nnegret(fcntl(fd, F_SETFL, flags));
-}
 
 int prh_raw_socket(void) {
     int raw_socket = socket(AF_INET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_RAW);
@@ -8843,6 +8820,98 @@ int prh_udp_socket(void) {
     int udp_socket = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     assert(udp_socket >= 0);
     return udp_socket;
+}
+
+// #include <sys/socket.h>
+// int shutdown(int sockfd, int how);
+//
+// shutdown() 调用会关闭与 sockfd 关联的套接字上的全双工连接的全部或部分。SHUT_RD 之后
+// 不允许继续读，SHUT_WR 之后不允许继续写，SHUT_RDWR 之后不允许继续读写。
+// EBADF - sockfd 是非法文件描述符。EINVAL - how 是非法值。ENOTCONN - 指定的套接字没
+// 有连接。ENOTSOCK - sockfd 不是套接字文件描述符。
+void prh_sock_shut_read(int sofd) {
+    // 关闭连接的读取端，之后的读操作将返回文件尾。数据仍然可以写入到套接字上，在 UNIX
+    // 域（UNIX domain）流式套接字上执行 SHUT_RD 操作后，对端应用程序将接收到 SIGPIPE
+    // 信号，如果继续尝试在对端套接字上做写操作将产生 EPIPE 错误。SHUT_RD 对于 TCP 套
+    // 接字来说没有什么意义。
+    prh_zeroret(shutdown(sofd, SHUT_RD));
+}
+void prh_sock_shut_write(int sofd) {
+    // 关闭连接的写入端，后续对本地套接字的写操作将产生 SIGPIPE 信号以及 EPIPE 错误，而
+    // 由对端写入的数据仍然可以在套接字上传送。换句话说，这个操作允许我们仍然能读取对端
+    // 发来的数据的同时，通知对方自己的写入端已经关闭，对方可以通过读取到文件尾来完成所有
+    // 的文件读取。在 shutdown() 中最常用到的操作就是 SHUT_WR，有时候也被称为半关闭套
+    // 接字。
+    prh_zeroret(shutdown(sofd, SHUT_WR));
+}
+void prh_sock_shut_read_write(int sofd) {
+    // 将连接的读取端和写入端都关闭，这等用于先执行 SHUT_RD 跟着再执行 SHUT_WR 操作。
+    // 除了 how 参数的语义外，shutdown() 同 close() 之间的另一个重要区别是：无论套接字
+    // 上是否还关联其他的文件描述符，shutdown() 都会关闭套接字通道。换句话说，shutdown
+    // 是根据打开的文件描述（open file description）来执行操作，而与文件描述符无法。
+    // 例如 fd2 = dup(sockfd); close(sockfd); 连接仍然会保证打开状态，我们仍然可以通
+    // 过文件描述符 fd2 在该连接上执行 I/O 操作。但是 shutdown(sockfd, SHUT_RDWR) 后
+    // 那么该连接的双向通道都会关闭，通过 fd2 也无法再执行 I/O 操作了。如果套接字文件描
+    // 述符在 fork() 时被复制，那么此时也会出现相似的场景。如果在 fork() 调用之后，一个
+    // 进程在描述符的副本上执行一次 SHUT_RDWR 操作，那么其他进程就无法再再这个文件描述符
+    // 执行 I/O 操作了。**需要注意的是**，shutdown() 并不会关闭文件描述符，就是参数指定
+    // 为 SHUT_RDWR 时也一样，要关闭文件标书费，我们必须另外调用 close()。
+    prh_zeroret(shutdown(sofd, SHUT_RDWR));
+}
+
+// #include <unistd.h>
+// int close(int fd);
+//
+// close() 关闭一个文件描述符，使其不再指向任何文件，并可被重用。该描述符关联的文件上由
+// 本进程持有的所有记录锁（参见 fcntl(2)）都会被移除，无论当初是通过哪个文件描述符获得的
+// 锁。这会带来一些不幸的后果，因此在使用建议性记录锁（advisory record lock）时应格外小
+// 心。有关风险与后果的讨论，以及（可能更推荐的）open file description locks，请参见
+// fcntl(2)。如果 fd 是底层打开文件描述（参见 open(2)）的最后一个引用，则与该打开文件
+// 描述相关的资源将被释放；如果该文件描述符是对一个已通过 unlink(2) 删除的文件的最后一个
+// 引用，则该文件会被删除。
+//
+// 成功返回0，错误返回-1，errno记录对应的错误。EBADF 非法文件描述符。EINTR 被信号中断。
+// EIO 发生I/O错误。ENOSPC EDQUOT 在 NFS 上，该错误通常不会在对首次超出可用存储空间的
+// write() 调用中立即返回，而是在随后的 write(2)、fsync(2) 或 close() 中才报告。
+// close() 在出错后不应该重试。
+//
+// 一次成功的 close 并不保证数据已真正写回磁盘，因为内核利用缓冲区缓存来延迟写操作。通常，
+// 文件系统在文件关闭时不会刷新缓冲区。如果你必须确认数据已物理写入底层磁盘，请使用
+// fsync(2)，此时还取决于磁盘硬件本身。close-on-exec 文件描述符标志可确保在成功执行
+// execve(2) 时自动关闭该描述符；详见 fcntl(2)。
+//
+// 多线程进程与 close()：在同一进程的其他线程可能正在使用该文件描述符进行系统调用时关闭
+// 它，可能并不明智。由于文件描述符可能被重用，存在一些隐蔽的竞争条件，可能导致意想不到的
+// 副作用。进一步考虑以下场景：两个线程对同一文件描述符进行操作：(1) 一个线程在该描述符上
+// 的 I/O 系统调用中阻塞。例如，它正尝试 write(2) 到一个已满的管道，或尝试 read(2) 一个
+// 当前没有可用数据的数据流套接字。(2) 另一个线程关闭了该文件描述符。此情况下的行为因系统
+// 而异。在某些系统上，当文件描述符被关闭时，阻塞的系统调用会立即返回并报告错误。在 Linux
+// （可能还有其他一些系统）上，行为不同：阻塞的 I/O 系统调用持有对底层打开文件描述的引用，
+// 该引用会在 I/O 系统调用完成前保持描述符打开，参见 open(2) 中关于打开文件描述的讨论。
+// 因此，第一个线程中的阻塞系统调用可能在第二个线程执行 close() 后仍然成功完成。
+//
+// 处理 close() 的错误返回值：谨慎的程序员会检查 close() 的返回值，因为先前 write(2)
+// 操作的错误可能仅在最终释放打开文件描述的 close() 时才报告。关闭文件时不检查返回值可能
+// 导致数据静默丢失。这种情况在使用 NFS 和磁盘配额（disk quota）时尤为明显。然而请注意，
+// 失败返回仅应用于诊断目的（即向应用程序警告可能仍有 I/O 未完成或曾发生失败的 I/O）或补
+// 救目的（例如，再次写入文件或创建备份）。在 close() 返回失败后重试 close() 是错误的，
+// 因为这可能导致关闭另一个线程已重用的文件描述符。这是因为 Linux 内核总是在关闭操作早期
+// 就释放文件描述符，使其可被重用；而可能返回错误的步骤（如将数据刷新到文件系统或设备）发
+// 生在关闭操作的后期。许多其他实现同样总是关闭文件描述符（EBADF 情况除外，表示文件描述符
+// 无效），即使随后从 close() 返回时报告错误。POSIX.1 目前对此未作规定，但计划在下一次
+// 主要标准修订中强制这一行为。
+//
+// 希望了解 I/O 错误的谨慎程序员可在 close() 之前调用 fsync(2)。EINTR 错误是一种较为特
+// 殊的情况。关于 EINTR 错误，POSIX.1-2008 规定：如果 close() 被要捕获的信号中断，它将
+// 返回 -1 并将 errno 设为 EINTR，此时 fildes 的状态未定义。这允许发生在 Linux 和许多
+// 其他实现上的行为：如同 close() 可能报告的其他错误一样，文件描述符保证已被关闭。然而，
+// 它也允许另一种可能：实现返回 EINTR 错误并保持文件描述符打开。根据其文档，HP-UX 的
+// close() 就是这样。调用者必须再次使用 close() 关闭该文件描述符，以避免文件描述符泄漏。
+// 实现行为上的这种差异为可移植应用程序带来了难题，因为在许多实现上，EINTR 错误后绝不能
+// 再次调用 close()，而在至少一种实现上必须再次调用。POSIX.1 下一次主要发布计划解决这一
+// 困境。
+void prh_sock_close(int fd) {
+    prh_preno_if(close(fd));
 }
 
 // #include <sys/socket.h>
@@ -9206,17 +9275,175 @@ prh_u32 prh_sock_resolve_name(const char *domain_name) {
 //
 // 服务器写入一个对方已经关闭的套接字 SIGPIPE
 // TCP SO_REUSEADDR
-// read
-// write
-// send
-// recv
-// ssize_t sendto(int sofd, const void *buffer, size_t len, int flags, const struct sockaddr *dest, socklen_t addrlen);
-// ssize_t recvfrom(int sofd, void *buffer, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen);
-// recvmsg
-//
 // 处理同一个客户同时建立多个TCP连接的情况，TCP运行两个端口之间能建立多条连接吗？但是一个
 // 客户账号可以用两台不同的机器来连接，这时就需要对客户账号进行唯一性验证。或者它在同一个
 // 主机上使用不同的端口号进行连接呢，也是需要进行客户账号进行唯一性验证。
+//
+// 如果套接字上可用的数据比在 read() 中请求的数据要少，那就可能会出现部分读的现象，在这种
+// 情况下，read() 简单地返回可用的字节数。如果没有足够的缓冲空间来传输所有请求字节，并满
+// 足以下条件之一，可能会出现部分写的现象：在 write() 调用过程中传输了部分请求后被信号处
+// 理函数中断；套接字工作在非阻塞模式下，可能当前只能传输一部分请求的字节；在部分请求的字
+// 节已经完成传输后出现了一个异步错误，异步错误例如由于 TCP 连接出现问题，可能会使对端的
+// 应用程序崩溃。如果出现了部分 I/O 现象，那么有时候需要重新调用系统调用来完成全部数据的
+// 传输。
+//
+// #include "rdwrn.h"
+// ssize_t readn(int fd, void *buffer, size_t count); 返回读取的字节数，文件尾返回0，错误返回-1
+// ssize_t writen(int fd, const void *buffer, size_t count); 返回写入的字节数，错误返回-1
+//
+// 函数 readn() 和 writen() 的参数与 read() 和 write() 相同，但是这两个函数使用循环
+// 重新启用这些系统调用，因此确保请求的字节数总是能够全部得到传输，除非出现错误或者read()
+// 检测到文件结束符。
+//
+// #include <sys/types.h>
+// #include <unistd.h>
+// ssize_t read(int fd, void buf[.count], size_t count); 返回读取的字节数，文件尾返回0，错误返回-1
+// ssize_t pread(int fd, void *buf, size_t count, off_t offset); 不会修改文件偏移，文件必须支持 seeking
+//
+// 如果 count 为零，read() 可用来检测下面的错误，如果没有错误或者 read() 不检测错误，
+// read() 会简单的返回0，不会有其他效果。根据 POSIX.1 如果 count 大于 SSIZE_MAX，其
+// 行为是具体实现定义的。在 Linux 上，read() 和类似的系统调用最多传输 0x7fff_f000 个
+// 字节（21_4747_9552），返回实际传输的字节数，在 32-bit 和 64-bit 系统上都成立。
+//
+// 在 NFS 文件系统上，读取少量数据时，时间戳仅在第一次读取时更新，后续调用可能不会更新。
+// 这是由于客户端属性缓存导致的，因为大多数（如果不是全部）NFS 客户端将 st_atime（最后
+// 文件访问时间）的更新留给服务器处理，而客户端缓存满足的读取不会导致服务器上的 st_atime
+// 更新，因为服务器端没有发生读取操作。可以通过禁用客户端属性缓存来获得 UNIX 语义，但在
+// 大多数情况下，这会显著增加服务器负载并降低性能。第一次读取：客户端从服务器读取数据时，
+// 会更新 st_atime，并将新值缓存。后续读取：如果数据在客户端缓存中，客户端直接从缓存读取，
+// 不会再次访问服务器，因此不会更新 st_atime。
+//
+// 根据 POSIX.1-2008/SUSv4 第 XSI 2.9.7 节（“线程与常规文件操作的交互”）：以下所有函
+// 数在 POSIX.1-2008 指定的效果方面，当它们对常规文件或符号链接进行操作时，彼此之间的操
+// 作都应该是原子的：…… 随后列出的 API 包括 read() 和 readv(2)。而在线程（和进程）之间
+// 应该是原子的效果中，包括文件偏移量的更新。然而，在 Linux 3.14 之前，情况并非如此：如
+// 果两个共享打开文件描述，参见 open(2)，的进程同时执行 read() 或 readv(2)，那么 I/O
+// 操作在更新文件偏移量方面不是原子的，结果可能导致两个进程的读取操作（错误地）在它们获取
+// 的数据块上发生重叠。这个问题在 Linux 3.14 中得到了修复。
+//
+// 可能返回的错误：
+//      EAGAIN - 非套接字文件描述符，设置成了非阻塞，该错误表示已经没有可读的内容，稍后尝试。
+//      EAGAIN 或 EWOULDBLOCK - 非阻塞套接字文件描述符，该错误表示稍后尝试，POSIX.1-2002 允许返回这两个值中
+//          的任意一个，且没有要求这两个值必须是相同的，因此可移植程序应该同时检查这两个值。
+//      EBADF - fd 非法文件描述符，或者这个文件打开的目的不是用于读取的。
+//      EFAULT - buf 地址非法。
+//      EINTR - 在没有读取任何数据之前，被信号中断。
+//      EINVAL - fd 对应的对象不适合读取，或者文件使用 O_DIRECT 打开并且buf/count/文件偏移没有适当对齐。
+//          文件描述符是通过 timerfd_create(2) 创建的，但是 read() 提供了错误大小的缓存空间。
+//      EISDIR - fd 对应的是一个文件目录。
+//      EIO - 表示发生了输入/输出错误。例如后台进程组读取控制终端，进程处于后台进程组，尝试从控制终端读取数据，
+//          进程忽略或阻塞 SIGTTIN 信号，或进程组是孤儿进程组，此时 read() 返回 EIO，表示不允许后台进程读取
+//          控制终端。或者从磁盘或磁带读取数据时发生低级 I/O 错误。还如在网络文件系统（如 NFS）上，如果对文件
+//          描述符持有的建议锁（advisory lock）丢失，read() 可能返回 EIO。建议锁用于协调多个进程对文件的访
+//          问，锁丢失可能导致数据不一致。参考：详见 fcntl(2) 的“丢失的锁”部分。
+//      根据fd关联的对象，可能发生其他错误
+//          例如：如果 fd 指向一个套接字，read() 可能返回 ECONNRESET（连接被重置）或 ENOTCONN（套接字未连
+//          接）。如果 fd 指向一个管道，read() 可能返回 EPIPE（管道破裂）。
+//
+// 系统调用 pread() 和 pwrite() 在多线程程序中特别有用，它允许多线程在同一个文件上执行
+// I/O 操作，而不受其他线程修改文件偏移的影响。POSIX 规定：用 O_APPEND 标志打开文件时，
+// pwrite() 的写入位置不应受该标志影响；也就是说，即使文件以追加方式打开，pwrite() 仍应
+// 严格按照调用者给出的 offset 参数在指定偏移处写入数据。然而，在 Linux 上，如果文件以
+// O_APPEND 方式打开，pwrite() 会忽略 offset 参数，始终将数据追加到文件末尾。
+//
+// #include <unistd.h>
+// ssize_t write(int fd, const void buf[.count], size_t count); 返回写入的字节数，错误返回-1
+// ssize_t pwrite(int fd, const void buf[.count], size_t count, off_t offset); 不会更新文件偏移
+//
+// write() 将缓冲区 buf 起始处最多 count 字节的数据写入文件描述符 fd 所指向的文件。实际
+// 写入的字节数可能小于 count，例如：底层物理介质空间不足；遇到 RLIMIT_FSIZE 资源限制
+// （参见 setrlimit(2)）；在写入所有数据之前被信号处理程序中断；非阻塞描述符暂时无法写入
+// 更多数据。
+//
+// 对于位置可以偏移的文件（即可对其使用 lseek(2) 的文件，例如普通文件）：写入发生在当前
+// 文件偏移量处，写入完成后偏移量增加实际写入字节数。若文件以 O_APPEND 打开，则先原子性
+// 将偏移量设为文件末尾，再执行写入。偏移量调整与写入操作视为原子步骤。
+//
+// POSIX 要求：任何可证明在 write() 返回之后发生的 read(2) 必须返回新数据。注意，并非
+// 所有文件系统都符合 POSIX。根据 POSIX.1，若 count 大于 SSIZE_MAX，结果由实现定义。
+// 在 Linux 上，write()（以及类似的系统调用）一次最多传输 0x7ffff000（2,147,479,552）
+// 字节，并返回实际传输的字节数。这在 32 位和 64 位系统上都成立。
+//
+// 成功时返回实际写入的字节数。出错时返回 -1，并设置 errno 指示错误。注意：成功写入的字
+// 节数可能小于 count（部分写入）。部分写入原因包括：磁盘空间不足、阻塞写入被信号中断等。
+// 调用者可再次调用 write() 传输剩余字节，后续调用可能继续传输或返回错误（如磁盘已满）。
+// 若 count 为 0 且 fd 指向普通文件：若检测到错误则返回失败状态；若未检测到错误，返回 0
+// 且不产生其他效果。若 count 为 0 且 fd 指向非普通文件，结果未定义。
+//
+// write() 的成功返回并不保证数据已提交到磁盘。在某些文件系统（包括 NFS）上，它甚至不保
+// 证已为数据成功预留空间。在这种情况下，某些错误可能会延迟到后续的 write()、fsync(2)
+// 或甚至 close(2) 才出现。唯一确保的方法是，在完成所有数据写入后调用 fsync(2)。
+//
+// 标准 POSIX.1-2008，历史 Svr4, 4.3BSD, POSIX.1-2001。在 SVr4 之前，write 可能在任
+// 意时刻被中断并返回 EINTR，而不仅仅是在尚未写入任何数据之前。当前标准，如果 write()
+// 在尚未写入任何字节时被信号处理程序中断，则调用失败并返回错误 EINTR；如果在已写入至少
+// 一个字节后被中断，则调用成功，并返回已写入的字节数。
+//
+// 在使用直接 I/O 执行 write() 时，返回错误并不意味着整个写入失败。可能已写入部分数据，
+// 此时应认为 write() 所尝试的文件偏移处的数据是不一致的。
+//
+// 可能返回的错误：
+//      EAGAIN - 非套接字文件描述符，设置成了非阻塞，该错误表示已经没有可读的内容，稍后尝试。
+//      EAGAIN 或 EWOULDBLOCK - 非阻塞套接字文件描述符，该错误表示稍后尝试，POSIX.1-2002 允许返回这两个值中
+//          的任意一个，且没有要求这两个值必须是相同的，因此可移植程序应该同时检查这两个值。
+//      EBADF - fd 非法文件描述符，或者这个文件打开的目的不是用于写入的。
+//      EDESTADDRREQ - fd 对应数据报套接字，目的地址没有通过 connect(2) 设置。
+//      EDQUOT - 用户在该文件所在文件系统上的磁盘块配额已用尽。
+//      EFBIG - 试图写入的文件大小超过了实现定义的最大文件尺寸，或超出了进程的文件大小限制，或写入位置超过了允许的最大偏移量。
+//      EFAULT - buf 地址非法。
+//      EINTR - 在没有读取任何数据之前，被信号中断。
+//      EINVAL - fd 对应的对象不适合写入，或者文件使用 O_DIRECT 打开并且buf/count/文件偏移没有适当对齐。
+//          文件描述符是通过 timerfd_create(2) 创建的，但是 read() 提供了错误大小的缓存空间。
+//      EIO - 在修改 inode 时发生了底层 I/O 错误。该错误可能与之前某次 write() 写入的数据回写有关，而那次
+//          write() 可能使用了同一文件的不同文件描述符。自 Linux 4.13 起，回写产生的错误保证：后续 write()
+//          请求可能会再次报告该错误；后续 fsync(2) 一定会报告该错误，无论 write() 是否已报告。在网络文件系
+//          统上，另一个导致 EIO 的原因是：文件描述符上曾持有的建议锁已丢失。详见 fcntl(2) 的 “Lost locks”
+//          部分。
+//      ENOSPC - 包含该文件的设备已无剩余空间存放数据。
+//      EPERM - 操作被文件 seal 阻止；参见 fcntl(2)。
+//      EPIPE - fd 连接到一个管道或套接字，其读端已关闭，此时写进程还会收到 SIGPIPE 信号。因此只有在程序捕获、
+//          阻塞或忽略该信号时，才能看到 write 的返回值。
+//      根据fd关联的对象，可能发生其他错误
+//
+// #include <sys/socket.h>
+// ssize_t recv(int sockfd, void *buf, size_t size, int flags);
+// ssize_t recvfrom(int sockfd, void *buf, size_t size, int flags, struct sockaddr *_Nullable src_addr, socklen_t *_Nullable addrlen);
+// ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags);
+//
+// recv() 和 send() 系统调用可在已连接的套接字上执行I/O操作，它们提供了专属于套接字的功
+// 能，而这些功能在传统的 read() 和 write() 系统调用上是没有的。recv() 和 send() 的返
+// 回值和前三个参数同 read() 和 write() 一样。最后一个参数 flags 是一个位掩码，用来修改
+// I/O 操作的行为。
+//
+// #include <sys/socket.h>
+// ssize_t send(int sockfd, const void *buf, size_t size, int flags);
+// ssize_t sendto(int sockfd, const void *buf, size_t size, int flags, const struct sockaddr *dest_addr, socklen_t addrlen);
+// ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags);
+//
+// #include <sys/sendfile.h>
+// ssize_t sendfile(int out_fd, int in_fd, off_t *_Nullable offset, size_t count);
+
+// #include <fcntl.h>
+// int fcntl(int fd, int op, ... /* arg */ );
+#include <fcntl.h>
+void prh_sock_set_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if (flags & O_NONBLOCK) return;
+    flags |= O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+void prh_sock_set_block(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if ((flags & O_NONBLOCK) == 0) return;
+    flags &= ~O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+
+// #include <sys/socket.h> 成功返回 0，失败返回 -1 和 errno
+// int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen);
+// int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
 
 typedef struct {
     prh_u32 src_addr;
