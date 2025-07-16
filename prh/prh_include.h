@@ -7936,6 +7936,13 @@ void prh_impl_thrd_test(void) {
 // 列出当前运行的进行信息：
 //      ps
 //      ps -C program -o "pid ppid pgid sid tty command"
+// 查看套接字状态：
+//      ./program port=55555 &
+//      netstat -a | egrep '(Address|55555)'
+//          Proto   Recv-Q  Send-Q  Local Address   Foreign Address     State
+//          tcp     0       0       *:55555         *:*                 LISTEN
+//          tcp     0       0       localhost:32835 localhost:55555     ESTABLISHED
+//          tcp     0       0       localhost:55555 localhost:32835     ESTABLISHED
 #ifdef PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_IMPLEMENTATION
@@ -8517,6 +8524,8 @@ label_defer:
 // 不仅仅提供了安全的通信，而且还提供更加严格的错误检测过程。或者应用程序也可以实现自己的
 // 错误控制机制。
 //
+// https://www.man7.org/linux/man-pages/man7/tcp.7.html
+//
 // TCP 协议格式：前20个字节固定，后面有4n字节根据需要增加选项
 //      [源端口 2B][目的端口 2B]
 //      [序号 4B]                                   TCP是面向字节流的，在TCP连接中传送的每个字节都按顺序编号，字节流的起始序号在连接建立时设置，序号字段表示的是第一个字节的序号
@@ -8917,6 +8926,11 @@ void prh_sock_close(int fd) {
 // #include <sys/socket.h>
 // int getsockname(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict addrlen);
 // int getpeername(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict addrlen);
+// getsockname() 可以获取映射绑定的套接字本地地址，包括ip和端口。内核会在出现如下情况时
+// 执行一个隐式绑定：（1）已经在 TCP 套接字上执行了 connect() 或 listen() 调用，但之前
+// 并没有调用 bind() 绑定到一个地址上。（2）当在 UDP 套接字上首次调用 sendto() 时，该
+// 套接字还没有绑定到地址上。（3）调用 bind() 时将端口号设置为 0，这种情况下内核会选择一
+// 个临时的端口号给该套接字使用。
 #include <sys/socket.h>
 void prh_sock_local_address(int sofd, struct sockaddr_in *addr) {
     socklen_t addrlen = sizeof(struct sockaddr_in); // EBADF sockfd invalid, EFAULT addr invalid, EINVAL addrlen, ENOBUFS insufficient resources, ENOTSOCK sockfd
@@ -9405,15 +9419,138 @@ prh_u32 prh_sock_resolve_name(const char *domain_name) {
 //          阻塞或忽略该信号时，才能看到 write 的返回值。
 //      根据fd关联的对象，可能发生其他错误
 //
+// #include <sys/uio.h>
+// ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
+// ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+//
 // #include <sys/socket.h>
 // ssize_t recv(int sockfd, void *buf, size_t size, int flags);
 // ssize_t recvfrom(int sockfd, void *buf, size_t size, int flags, struct sockaddr *_Nullable src_addr, socklen_t *_Nullable addrlen);
-// ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags);
 //
 // recv() 和 send() 系统调用可在已连接的套接字上执行I/O操作，它们提供了专属于套接字的功
 // 能，而这些功能在传统的 read() 和 write() 系统调用上是没有的。recv() 和 send() 的返
 // 回值和前三个参数同 read() 和 write() 一样。最后一个参数 flags 是一个位掩码，用来修改
 // I/O 操作的行为。
+//
+// 这三个调用成功时都会返回消息的大小。如果消息太长，无法完全放入提供的缓冲区中，根据消息
+// 来源的套接字类型，多余的字节可能会被丢弃。如果在套接字上没有可用的消息，接收调用会等待
+// 消息到达，除非套接字是非阻塞的，这种情况下会返回值 -1 并将 errno 设置为 EAGAIN 或
+// EWOULDBLOCK。接收调用通常会返回任何可用的数据，最多是请求的数量，而不是等待接收完整数
+// 量的消息。
+//
+// 这些调用返回接收到的字节数，如果发生错误则返回 -1 设置 errno。当流式套接字的对端执行
+// 有序关闭（orderly shutdown）时，返回值将是 0（传统的“文件结束”返回值）。数据报套接字
+// （包括UNIX 域和 Internet 域）允许零大小的数据报，当接收到这样的数据报时，返回值是 0。
+// 如果调用 recv() 时指定的接收字节数为 0，也会返回 0。
+//
+// 如果 recv() 提供的 flags 为零，基本上功能与 read() 一样。唯一不同的是，如果零字节长
+// 度用户数据报正等待处理时，read() 不产生任何效果，数据报仍然在等待，但是 recv() 会消耗
+// 掉这个数据报。
+//
+// 而 recv() 与 recvfrom()，系统调用 recv（sockfd, buf, size, flags) 通常用于已经连
+// 接的套接字，它等价于 recvfrom(sockfd, buf, size, falgs, NULL, NULL)。recvfrom()
+// 将接收到的消息放入缓冲区 buf 中，如果 src_addr 不为 NULL，并且底层协议提供了消息的源
+// 地址，则该源地址将被放置在 src_addr 指向的缓冲区中。在这种情况下，addrlen 是一个
+// in-out 参数。在调用之前，应将其初始化为与 src_addr 相关联的缓冲区的大小。返回时，
+// addrlen 会被更新为包含源地址的实际大小。如果提供的缓冲区太小，返回的地址将被截断；在
+// 这种情况下，addrlen 将返回一个大于调用时提供的值。如果调用者对源地址不感兴趣，则应将
+// src_addr 和 addrlen 指定为 NULL。
+//
+// 标准 POSIX. 1-2008，历史 POSIX.1-2001, 4.4BSD (第一次出现在 4.2BSD)，POSIX.1 仅
+// 描述了 MSG_OOB、MSG_PEEK、MSG_WAITALL 这三个标志。
+//
+// MSG_OOB - 此标志请求接收不会在正常数据流中接收的带外数据。某些协议将加急数据放在正常
+//      数据队列的前面，因此不能与这些协议一起使用此标志。
+// MSG_PEEK - 此标志导致接收操作从接收队列的开头返回数据，但不从队列中移除这些数据。因此，
+//      后续的接收调用将返回相同的数据。
+// MSG_WAITALL Linux 2.2 - 此标志请求操作阻塞，直到满足完整请求为止。然而，如果捕获到
+//      信号、发生错误或连接断开，或者要接收的下一条数据与返回的数据类型不同，调用仍可能
+//      返回少于请求的数据。此标志对数据报套接字无效。
+// MSG_TRUNC Linux 2.2 - 对于原始（AF_PACKET）、网络数据报（Linux 2.4.27/2.6.8）、
+//      netlink（Linux 2.6.22）、UNIX 数据报包括有序数据包（sequenced-packet）（Linux 3.4）
+//      套接字：会返回数据包（packet）或数据报（datagram）的真实大小，即使它比传递的缓
+//      存大小要长。对于该标志对流式套接字的作用，参考 tcp(7)。
+// MSG_DONTWAIT Linux 2.2 - 启用非阻塞操作；如果操作会阻塞，则调用失败并返回错误 EAGAIN
+//      或 EWOULDBLOCK。这与通过 fcntl(2) 的 F_SETFL 操作设置 O_NONBLOCK 标志类似，
+//      但有所不同：MSG_DONTWAIT 是每次调用的选项，而 O_NONBLOCK 是打开的文件描述符上
+//      的设置（参见 open(2)），它会影响调用进程中的所有线程以及其他持有相同打开文件描述
+//      符的进程。
+// MSG_CMSG_CLOEXEC （仅限 recvmsg()；Linux 2.6.23） - 为通过 UNIX 域文件描述符使用
+//      SCM_RIGHTS 操作，参考 unix(7)，接收的文件描述符设置 close-on-exec 标志。此标
+//      志的作用与 open(2) 中的 O_CLOEXEC 标志相同。
+// MSG_ERRQUEUE Linux 2.2 - 此标志指定应从套接字错误队列中接收排队的错误。错误通过附属
+//      数据传递（ancillary data），数据类型取决于协议（对于 IPv4 是 IP_RECVERR）。
+//      用户应提供足够大的缓冲区，请参见 cmsg(3) 和 ip(7)。导致错误的原始数据包的负载
+//      （payload）作为普通数据通过 msg_iov 传递。导致错误的数据报的原始目标地址通过
+//      msg_name 提供。错误通过 sock_extended_err 结构传递：
+//      #define SO_EE_ORIGIN_NONE    0
+//      #define SO_EE_ORIGIN_LOCAL   1
+//      #define SO_EE_ORIGIN_ICMP    2
+//      #define SO_EE_ORIGIN_ICMP6   3
+//      struct sock_extended_err {
+//          uint32_t ee_errno;   /* Error number */ 错误码
+//          uint8_t  ee_origin;  /* Where the error originated */ 错误来源的来源
+//          uint8_t  ee_type;    /* Type */ 其他字段是协议特定的
+//          uint8_t  ee_code;    /* Code */
+//          uint8_t  ee_pad;     /* Padding */
+//          uint32_t ee_info;    /* Additional information */
+//          uint32_t ee_data;    /* Other data */
+//          /* More data may follow */ };
+//      struct sockaddr *SO_EE_OFFENDER(struct sock_extended_err *); 犯错误的人
+//      宏 SO_EE_OFFENDER 根据附属数据的指针返回导致错误的网络对象的地址指针。如果该地
+//      址未知，则 sockaddr 的 sa_family 成员包含 AF_UNSPEC，sockaddr 的其他字段未
+//      定义。导致错误的数据包的负载（payload）会作为普通数据传递。
+//      对于本地错误，不传递地址（可以通过 cmsghdr 的 cmsg_len 成员检查）。对于错误接
+//      收，msghdr 中设置了 MSG_ERRQUEUE 标志。传递错误后，会根据下一个排队的错误重新
+//      生成挂起的套接字错误，并在下一次套接字操作中传递。
+//
+// ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags);
+// struct msghdr {
+//      void         *msg_name;       /* Optional address */ 由调用者分配
+//      socklen_t     msg_namelen;    /* Size of address */
+//      struct iovec *msg_iov;        /* Scatter/gather array */
+//      size_t        msg_iovlen;     /* # elements in msg_iov，根据 POSIX.1 类型应该是 int */
+//      void         *msg_control;    /* ancillary data, see below */ 附属数据，实际的缓存由调用者提供
+//      size_t        msg_controllen; /* ancillary data buffer size, 根据 POSIX.1 类型应该是 socklen_t */
+//      int           msg_flags;      /* Flags on received message */ }; 接收到的消息拥有的标志
+// struct cmsghdr {
+//      size_t cmsg_len;    /* Data byte count, including header (type is socklen_t in POSIX) */
+//      int    cmsg_level;  /* Originating protocol */ 来源协议
+//      int    cmsg_type;   /* Protocol-specific type */ 协议特定类型
+//      /* followed by unsigned char cmsg_data[]; */ };
+//
+// 另外，Linux 提供 recvmmsg(2) 可用来通过一个系统调用接收多个数据报。recvmsg() 使用
+// msghdr 结构来减少直接传递的参数数量。msg_name 指向一个由调用者分配的缓冲区，用于返回
+// 源地址（如果套接字未连接），调用者在调用前应将 msg_namelen 设置为该缓冲区的大小，成功
+// 调用后，msg_namelen 将包含返回地址的大小。如果应用程序不需要知道源地址，可以将 msg_name
+// 指定为 NULL。msg_iov 和 msg_iovlen 字段描述了分散/聚集位置，类似于 readv(2) 中讨论
+// 的内容，它们用于指定多个缓冲区，数据将被分散到这些缓冲区中。msg_control 指向一个缓冲
+// 区，用于存储协议控制相关的消息或其他附属数据，调用 recvmsg() 时，msg_controllen 应
+// 包含 msg_control 缓冲区的大小，成功调用后它将包含控制消息序列的大小。在 recvmsg()
+// 返回时，msghdr 中的 msg_flags 字段会被设置，可能包含以下标志：MSG_EOR - 表示记录结束，
+// 返回的数据结束一个记录，通常用于 SOCK_SEQPACKET 类型的套接字。MSG_TRUNC - 表示数据
+// 报的尾部被丢弃，因为数据报大于提供的缓冲区。MSG_CTRUNC - 表示由于附属数据缓冲区空间
+// 不足，某些控制数据被丢弃。MSG_OOB - 表示接收到加急或带外数据。MSG_ERRQUEUE - 表示没
+// 有接收到数据，但有一个来自套接字错误队列的扩展错误。MSG_CMSG_CLOEXEC Linux 2.6.23
+// 表示在 recvmsg() 的 flags 参数中指定了 MSG_CMSG_CLOEXEC。
+//
+// 附属数据以 cmsghdr 结构的形式出现，附属数据应仅通过 cmsg(3) 中定义的宏来访问。例如
+// Linux 使用这种附属数据机制来传递扩展错误、IP 选项或通过 UNIX 域套接字传递文件描述符。
+// 关于在各种套接字域中使用附属数据的更多信息，请参见 unix(7) 和 ip(7)。
+//
+// recv() recvfrom() recvmsg() 可能返回的错误：
+//      以下是由套接字层产生的一些标准错误，底层协议模块可能会产生并返回其他错误，请参考
+//      协议手册。
+//      EAGAIN 或 EWOULDBLOCK - 套接字被标记为非阻塞，且接收操作会阻塞，或者设置了接收
+//          超时，而在接收到数据之前已经超时。
+//      EBADF - 参数 sockfd 是一个无效的文件描述符。
+//      ECONNREFUSED - 远程主机拒绝接受网络连接（通常是因为它没有运行请求的服务）。
+//      EFAULT - 接收缓冲区指针指向进程地址空间之外。
+//      EINTR - 在任何数据可用之前，接收操作被信号中断；请参阅 signal(7)。
+//      EINVAL - 传递了无效的参数。
+//      ENOMEM - 无法为 recvmsg() 分配内存。
+//      ENOTCONN - 套接字与面向连接的协议相关但尚未连接，参考 connect(2) accept(2)。
+//      ENOTSOCK - 文件描述符 sockfd 不指向套接字。
 //
 // #include <sys/socket.h>
 // ssize_t send(int sockfd, const void *buf, size_t size, int flags);
