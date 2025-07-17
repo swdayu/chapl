@@ -3680,6 +3680,10 @@ void *prh_quedyn_pop(prh_quedyn *q) {
 // 想出将此高效地整合到 glibc 的最佳方法。可能需要将 glibc 既编译成分段栈，也编译成非分段栈，并以某种方式安排分段栈代码在运行时获取
 // 分段栈的 glibc。如果程序链接器和动态链接器都能达成一致，或者程序链接器能够以某种方式知道在运行时将使用分段栈的 glibc，那将最好。
 // 理想情况下，glibc 动态链接器应该知道程序是否期望共享库的分段栈版本，并拒绝将其与该库的非分段栈版本链接。
+//
+// 实现协程栈自动增长的第二种方法，预先分配很大一块虚拟地址空间，但按需进行 commit 和
+// uncommit，初始时 commit 很小一块，但这应该只能按内存页大小进行 commit，而内存页大小
+// 一般为 4KB，对于一般的协程来信，可能还是浪费空间。
 #ifdef PRH_CORO_INCLUDE
 typedef struct prh_impl_coro prh_coro;
 #define prh_coro_proc prh_fastcall(void)
@@ -7900,6 +7904,47 @@ void prh_impl_thrd_test(void) {
 // 对其进行重定向。可以使用 0 1 2 来代表这 3 个文件描述符，但是例如使用 freopen 对标准
 // 输出 stdout 进行重定向，无法保证 stdout 变量值仍然为 1。另外如果关闭了 0 1 2 文件
 // 描述符，在创建新的文件描述符时会重用这些已经释放的文件描述符。
+//
+// O_DIRECT 标志可能会对用户空间缓冲区的长度和地址以及 I/O 的文件偏移量施加对齐限制。在
+// Linux 中，对齐限制因文件系统和内核版本而异，甚至可能完全不存在。对未对齐的 O_DIRECT
+// I/O 的处理方式也各不相同；它们可能会因 EINVAL 错误而失败，或者回退到缓冲 I/O。
+// 自 Linux 6.1 起，可以使用 statx(2) 和 STATX_DIOALIGN 标志查询文件的 O_DIRECT 支持
+// 和对齐限制。对 STATX_DIOALIGN 的支持因文件系统而异；请参见 statx(2)。某些文件系统提
+// 供了自己的接口来查询 O_DIRECT 对齐限制，例如 xfsctl(3) 中的 XFS_IOC_DIOINFO 操作。
+// 应尽量使用 STATX_DIOALIGN，只要它可用。如果以上方法均不可用，则只能根据文件系统的已知
+// 特性、单个文件、底层存储设备以及内核版本来假设直接 I/O 支持和对齐限制。在 Linux 2.4
+// 中，基于块设备的大多数文件系统要求文件偏移量以及所有 I/O 段的长度和内存地址都是文件系
+// 统块大小的倍数（通常是 4096 字节）。在 Linux 2.6.0 中，这一限制放宽到了块设备的逻辑
+// 块大小（通常是 512 字节）。可以通过 ioctl(2) 的 BLKSSZGET 操作或在 shell 中使用以下
+// 命令来确定块设备的逻辑块大小：sudo blockdev --getss /dev/sda 。
+//
+// 不应在 fork(2) 系统调用期间并行执行 O_DIRECT I/O，如果内存缓冲区是私有映射（即使用
+// mmap(2) 的 MAP_PRIVATE 标志创建的映射；这包括在堆上分配的内存和静态分配的缓冲区）。
+// 无论是通过异步 I/O 接口提交的，还是由进程中的其他线程执行的，所有此类 I/O 都应在调用
+// fork(2) 之前完成。未能做到这一点可能会导致父进程和子进程中出现数据损坏和未定义行为。
+// 如果 O_DIRECT I/O 的内存缓冲区是使用 shmat(2) 或带有 MAP_SHARED 标志的 mmap(2)
+// 创建的，则此限制不适用。同样，如果使用 madvise(2) 将内存缓冲区标记为 MADV_DONTFORK，
+// 确保它在 fork(2) 之后不会被子进程使用，此限制也不适用。
+//
+// O_DIRECT 标志最初是在 SGI IRIX 中引入的，它在 IRIX 中的对齐限制与 Linux 2.4 类似。
+// IRIX 还有一个 fcntl(2) 调用来查询适当的对齐方式和大小。FreeBSD 4.x 引入了一个同名的
+// 标志，但没有对齐限制。Linux 2.4.10 添加了对 O_DIRECT 的支持。较旧的 Linux 内核会忽
+// 略此标志。某些文件系统可能未实现该标志，在这种情况下，如果使用了该标志，open() 将因
+// EINVAL 错误而失败。
+//
+// 应用程序应避免对同一文件混合使用 O_DIRECT 和普通 I/O，尤其是对同一文件中重叠的字节区
+// 域。即使文件系统在这种情况下正确处理了一致性问题，整体 I/O 吞吐量也可能会比单独使用任
+// 何一种模式都要慢。同样，应用程序应避免将文件的 mmap(2) 与对同一文件的直接 I/O 混合使
+// 用。
+//
+// O_DIRECT 与 NFS 的行为将与本地文件系统不同。较旧的内核，或者以某些方式配置的内核，可
+// 能不支持这种组合。NFS 协议不支持将该标志传递给服务器，因此 O_DIRECT I/O 只会在客户端
+// 绕过页面缓存；服务器可能仍然会缓存 I/O。客户端会要求服务器使 I/O 同步，以保留 O_DIRECT
+// 的同步语义。在这种情况下，某些服务器的性能可能会很差，尤其是当执行小 I/O 操作时。某些
+// 服务器还可以配置为对客户端撒谎，声称 I/O 已到达稳定存储；这将避免性能损失，但可能会在
+// 服务器断电时对数据完整性带来一定风险。Linux NFS 客户端对 O_DIRECT I/O 没有任何对齐
+// 限制。总之，O_DIRECT 是一个潜在的强大工具，应谨慎使用。建议应用程序将 O_DIRECT 的使
+// 用视为一个默认禁用的性能选项。
 #endif // POSIX IMPLEMENTATION
 #ifdef PRH_TEST_IMPLEMENTATION
 
@@ -9421,9 +9466,42 @@ prh_u32 prh_sock_resolve_name(const char *domain_name) {
 //          阻塞或忽略该信号时，才能看到 write 的返回值。
 //      根据fd关联的对象，可能发生其他错误
 //
-// #include <sys/uio.h>
+// #include <sys/uio.h> // 成功返回读取或写入的字节数，失败返回-1和errno
 // ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
 // ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+// struct iovec {
+//      void *iov_base; /* Starting address */
+//      size_t iov_len; /* Size of the memory pointed to by iov_base. */
+// };
+//
+// iov 结构体数组的最大数量为 IOV_MAX（定义在 limits.h），或者通过 sysconf(_SC_IOV_MAX)
+// 访问对应的值。readv() writev() 返回的错误跟 read(2) write(2) 相同，另外额外定义了
+// 以下错误：EINVAL iov_len 的总和超过 ssize_t 的值，或者 iovcnt 小于零或大于允许的最
+// 大值。
+//
+// readv() 系统调用从与文件描述符 fd 关联的文件中读取到 iovcnt 个 iov 描述的缓冲区，称
+// 为分散输入（scatter input）。writev() 系统调用将 iov 描述的 iovcnt 个数据缓冲区写
+// 入与文件描述符 fd 关联的文件中，称为聚集输出（gather output）。readv() 系统调用的工
+// 作方式与 read(2) 类似，只是它会填充多个缓冲区。writev() 系统调用的工作方式与 write(2)
+// 类似，只是它会写入多个缓冲区。缓冲区是按数组顺序处理的。这意味着 readv() 会先完全填满
+// iov[0]，然后再处理 iov[1]，依此类推，如果数据不足，则 iov 指向的并非所有缓冲区都可能
+// 被填满。同样地，writev() 会先写完 iov[0] 的全部内容，然后才处理 iov[1]，依此类推。
+// readv() 和 writev() 执行的数据传输是原子性的：writev() 写入的数据作为一个单独的块写
+// 入，不会与其他进程的写操作输出混杂；类似地，readv() 保证从文件中读取一个连续的数据块，
+// 无论其他线程或进程（它们的文件描述符引用了相同的打开文件描述）执行了何种读操作，参见
+// open(2)。
+//
+// 历史C库/内核差异：为了应对早期 Linux 版本中 IOV_MAX 值过低的问题，如果底层内核系统
+// 调用因超出此限制而失败，glibc 的 readv() 和 writev() 包装函数会做一些额外的工作。在
+// readv() 的情况下，包装函数会分配一个足够大以容纳 iov 指定的所有项目的临时缓冲区，通过
+// 调用 read(2) 将该缓冲区传递，将数据从缓冲区复制到 iov 元素的 iov_base 字段指定的位
+// 置，然后释放缓冲区。writev() 的包装函数则使用临时缓冲区和对 write(2) 的调用执行类似
+// 的任务。随着 Linux 2.2 及更高版本的出现，glibc 包装函数中这种额外的努力变得不再必要。
+// 然而，直到 glibc 2.10，glibc 仍然提供这种行为。从 glibc 2.9 开始，只有当库检测到系
+// 统运行的 Linux 内核版本早于 Linux 2.6.18（一个随意选择的内核版本）时，包装函数才会
+// 提供这种行为。并且，由于 glibc 2.20（它要求最低为 Linux 2.6.32），glibc 包装函数始
+// 终直接调用系统调用。在现代 Linux 系统中，IOV_MAX 的值为 1024，而在 Linux 2.0 时代，
+// 这个值是 16。
 //
 // #include <sys/socket.h>
 // ssize_t recv(int sockfd, void *buf, size_t size, int flags);
@@ -9723,6 +9801,7 @@ typedef struct {
 //
 
 #ifdef PRH_TEST_IMPLEMENTATION
+#include <limits.h>
 void prh_impl_sock_test(void) {
 #ifdef INET_ADDRSTRLEN
     printf("INET_ADDRSTRLEN %d\n", INET_ADDRSTRLEN);
@@ -9735,6 +9814,9 @@ void prh_impl_sock_test(void) {
 #endif
 #ifdef NI_MAXSERV
     printf("NI_MAXSERV %d\n", NI_MAXSERV); // 最大的端口服务名称长度
+#endif
+#ifdef IOV_MAX
+    printf("IOV_MAX %d\n", IOV_MAX);
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
