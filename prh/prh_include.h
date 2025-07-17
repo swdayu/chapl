@@ -7943,6 +7943,8 @@ void prh_impl_thrd_test(void) {
 //          tcp     0       0       *:55555         *:*                 LISTEN
 //          tcp     0       0       localhost:32835 localhost:55555     ESTABLISHED
 //          tcp     0       0       localhost:55555 localhost:32835     ESTABLISHED
+// 套接字可以发送的附属数据（ancillary data）的最大大小：
+//      cat /proc/sys/net/core/optmem_max
 #ifdef PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_IMPLEMENTATION
@@ -9556,6 +9558,104 @@ prh_u32 prh_sock_resolve_name(const char *domain_name) {
 // ssize_t send(int sockfd, const void *buf, size_t size, int flags);
 // ssize_t sendto(int sockfd, const void *buf, size_t size, int flags, const struct sockaddr *dest_addr, socklen_t addrlen);
 // ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags);
+//
+// 系统调用 send()、sendto() 和 sendmsg() 用于将消息发送到另一个套接字。send() 调用仅
+// 在套接字处于连接状态时（即已知目标接收者）才可用。send() 和 write(2) 之间的唯一区别
+// 在于 flags 参数的存在。如果 flags 参数为零，则 send() 等同于 write(2)。另外
+// send(sockfd, buf, size, flags) 等价于 sendto(sockfd,buf,size,flags,NULL,0)。
+//
+// 如果在面向连接的套接字（SOCK_STREAM、SOCK_SEQPACKET）上使用 sendto()，则会忽略参数
+// dest_addr 和 addrlen（如果它们不是 NULL 和 0，则可能返回错误 EISCONN），并且如果套
+// 接字实际上未连接，则返回错误 ENOTCONN。否则，目标地址由 dest_addr 给出，addrlen 指
+// 定其大小。对于 sendmsg()，目标地址由 msg.msg_name 给出，msg.msg_namelen 指定其大小。
+//
+// 对于 send() 和 sendto()，消息存储在 buf 中，大小为 size。对于 sendmsg()，消息由数
+// 组 msg.msg_iov 的元素指向。sendmsg() 调用还允许发送附属数据（也称为控制信息）。如果
+// 消息太长，无法通过底层协议原子性地传递，则返回错误 EMSGSIZE，并且消息不会被传输。
+// send() 操作本身并不隐含发送失败的指示。本地检测到的错误通过返回值 -1 表示。当消息无法
+// 放入套接字的发送缓冲区时，send() 通常会阻塞，除非套接字已置于非阻塞 I/O 模式。在这种
+// 情况下，如果处于非阻塞模式，则会以错误 EAGAIN 或 EWOULDBLOCK 失败。可以使用
+// select(2) 调用来确定何时可以发送更多数据。
+//
+// sendmsg() 使用 msghdr 结构来减少直接传递的参数数量。另外，Linux 特有的 sendmmsg(2)
+// 可用一个系统调用发送多个数据报。
+//
+// msg_name msg_namelen - 在未连接的套接字上用于指定数据报的目标地址，它指向一个包含地
+//      址的缓冲区；msg_namelen 字段应设置为地址的大小；对于已连接的套接字，这些字段应
+//      分别指定为 NULL 和 0。
+// msg_iov msg_iovlen - 这些字段指定分散/聚集位置，类似于 writev(2)。
+// msg_control msg_controllen - 指定发送控制信息（或称为附属数据），内核可以处理的附属
+//      数据缓冲区的最大大小由 /proc/sys/net/core/optmem_max 中的值限制；更多信息请参
+//      见 socket(7)。关于在各种套接字域中使用附属数据的进一步信息，请参见 unix(7) 和
+//      ip(7)。
+// msg_flags - 该字段被忽略。
+//
+// 标准 POSIX.1-2008 MSG_CONFIRM 是一个 Linux 扩展标志。历史 4.4BSD, SVr4,
+// POSIX.1-2001，第一次出现在 4.2BSD。POSIX.1-2001 仅定义了 MSG_OOB 和 MSG_EOR
+// 标志。POSIX.1-2008 增加了对 MSG_NOSIGNAL 标志的定义。
+//
+// MSG_OOB - 在支持这一概念的套接字（如 SOCK_STREAM 类型）上发送带外数据；底层协议也必
+//      须支持带外数据。
+// MSG_EOR Linux 2.2 - 终止一条记录（在支持这一概念的情况下，例如对于 SOCK_SEQPACKET
+//      类型的套接字）。
+// MSG_NOSIGNAL Linux 2.2 - 如果面向流的套接字的对端已关闭连接，则不会生成 SIGPIPE
+//      信号，但仍会返回 EPIPE 错误。这与使用 sigaction(2) 忽略 SIGPIPE 行为类似，但
+//      不同的是：MSG_NOSIGNAL 是每次调用的特性，而忽略 SIGPIPE 则设置了一个影响进程
+//      内所有线程的进程属性。
+// MSG_DONTROUTE - 发送数据包时不使用网关，仅向直接连接的网络上的主机发送。通常仅由诊断
+//      或路由程序使用。仅针对会进行路由的协议族定义；数据包套接字（packet socket）不适
+//      用。
+// MSG_DONTWAIT Linux 2.2 - 启用非阻塞操作；如果操作会阻塞，则返回 EAGAIN 或 EWOULDBLOCK。
+//      这与通过 fcntl(2) 的 F_SETFL 操作设置 O_NONBLOCK 标志类似，但有所不同：MSG_DONTWAIT
+//      是每次调用的选项，而 O_NONBLOCK 是打开文件描述符上的设置（参见 open(2)），它会
+//      影响调用进程中的所有线程以及其他持有相同打开文件描述符的进程。
+// MSG_MORE Linux 2.4.4 - 调用者还有更多数据要发送。此标志用于 TCP 套接字，以实现与
+//      TCP_CORK 套接字选项（参见 tcp(7)）相同的效果，不同之处在于，此标志可以在每次调
+//      用的基础上设置。自 Linux 2.6 起，此标志也适用于 UDP 套接字，并告知内核将所有设
+//      置了此标志的调用中发送的数据打包到一个数据报中，仅在未设置此标志的调用执行时才发
+//      送该数据报，参考 udp(7) 中描述的 UDP_CORK 套接字选项。
+// MSG_FASTOPEN Linux 3.7 - 尝试 TCP 快速打开（RFC7413），像 connect(2) 和 write(2)
+//      的组合一样，在 SYN 中发送数据，通过执行隐式的 connect(2) 操作来实现。它会阻塞，
+//      直到数据被缓冲并且握手完成。对于非阻塞套接字，它会返回在 SYN 数据包中缓冲并发送
+//      的字节数。如果本地没有可用的 cookie，则返回 EINPROGRESS，并自动发送一个带有
+//      Fast Open cookie 请求的 SYN。当套接字连接成功后，调用者需要重新写入数据。如果
+//      握手失败，它会设置与 connect(2) 相同的 errno。此标志需要在 sysctl net.ipv4.tcp_fastopen
+//      中启用 TCP Fast Open 客户端支持。请参考 tcp(7) 中的 TCP_FASTOPEN_CONNECT 套
+//      接字选项，了解另一种方法。
+// MSG_CONFIRM Linux 2.3.15 - 是 Linux 系统的扩展标志，告知链路层已取得进展：你从对端
+//      收到了成功的回复。如果链路层没有收到这个信号，它会定期重新探测邻居（例如，通过单
+//      播 ARP）。仅在 SOCK_DGRAM 和 SOCK_RAW 套接字上有效，目前仅针对 IPv4 和 IPv6
+//      实现。详情请参见 arp(7)。
+//
+// 可能的错误：以下是由套接字层产生的一些标准错误。底层协议模块可能会产生并返回其他错误；
+// 请参阅它们各自的手册页。
+// EACCES -（对于通过路径名标识的 UNIX 域套接字）对目标套接字文件的写权限被拒绝，或者路
+//      径前缀中的某个目录的搜索权限被拒绝，参见 path_resolution(7)。（对于UDP套接字）
+//      像给单播地址发送数据一样给网络/广播地址发送数据。
+// EAGAIN EWOULDBLOCK - 套接字被标记为非阻塞，且请求的操作会阻塞。POSIX.1-2001 允许对
+//      这种情况返回任一错误，并且不要求这些常量具有相同的值，因此可移植的应用程序应检查
+//      这两种可能性。
+// EAGAIN -（Internet 域数据报套接字）由 sockfd 指向的套接字之前未绑定到地址，并且在尝
+//      试将其绑定到一个临时端口时，发现临时端口范围内的所有端口号当前都在使用。请参见
+//      ip(7) 中关于 /proc/sys/net/ipv4/ip_local_port_range 的讨论。
+// EALREADY - 另一个快速打开操作正在进行。
+// EBADF - sockfd 不是一个有效的打开文件描述符。
+// ECONNRESET - 连接被对端重置。
+// EDESTADDRREQ - 套接字不是面向连接的，并且未设置对端地址。
+// EFAULT - 指定了无效的用户空间地址作为参数。
+// EINTR - 在传输任何数据之前被信号中断；请参见 signal(7)。
+// EINVAL - 传递了无效的参数。
+// EISCONN - 面向连接的套接字已经连接，但指定了一个接收者。现在要么返回此错误，要么忽略
+//      接收者指定。
+// EMSGSIZE - 套接字类型要求消息以原子方式发送，但要发送的消息大小使得这不可能。
+// ENOBUFS - 网络接口的输出队列已满。这通常表明接口已停止发送，但可能是由瞬态拥塞引起的。
+//      通常在 Linux 中不会出现这种情况。当设备队列溢出时，数据包会被静默丢弃。
+// ENOMEM - 没有可用内存。
+// ENOTCONN - 套接字未连接，并且未指定目标。Linux 上可能返回 EPIPE 而不是 ENOTCONN。
+// ENOTSOCK - 文件描述符 sockfd 不指向套接字。
+// EOPNOTSUPP - flags 参数中的某些位对于套接字类型不适合。
+// EPIPE - 在面向连接的套接字上，本地端已经关闭。在这种情况下，除非设置了 MSG_NOSIGNAL，
+//      否则进程还会收到 SIGPIPE。
 //
 // #include <sys/sendfile.h>
 // ssize_t sendfile(int out_fd, int in_fd, off_t *_Nullable offset, size_t count);
