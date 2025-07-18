@@ -683,11 +683,11 @@ Table of Contents
            4 - future sequence numbers that are not yet allowed
 
                        Figure 3: Send Sequence Space
-
-   The send window is the portion of the sequence space labeled 3 in
-   Figure 3.
-
-                          1          2          3
+                                                                                https://www.rfc-editor.org/errata/rfc9293
+   The send window is the portion of the sequence space labeled 3 in            ... the sequence space labeled 2 and 3 in Figure 3.
+   Figure 3.                                                                    Notes:  In Figure 3, the send window shoud be 2 (sequence numbers of
+                                                                                unacknowledged data) and 3 (sequence numbers allowed for new data
+                          1          2          3                               transmission).
                       ----------|----------|----------
                              RCV.NXT    RCV.NXT
                                        +RCV.WND
@@ -3370,10 +3370,10 @@ Table of Contents
       Second, check the RST bit:
 
       -  If the RST bit is set,
-
-         o  A potential blind reset attack is described in RFC 5961 [9].
-            The mitigation described in that document has specific
-            applicability explained therein, and is not a substitute for
+                                                                                https://www.rfc-editor.org/errata/rfc9293
+         o  A potential blind reset attack is described in RFC 5961 [9].        [The text is removed - see notes]
+            The mitigation described in that document has specific              Notes: This entire bullet is removed as RFC 5961 adds no rules to the
+            applicability explained therein, and is not a substitute for        handling of RST segments in the SYN-SENT state.
             cryptographic protection (e.g., IPsec or TCP-AO).  A TCP
             implementation that supports the mitigation described in RFC
             5961 SHOULD first check that the sequence number exactly
@@ -5421,12 +5421,12 @@ Appendix B.  TCP Requirement Summary
     | Receiving ICMP  | MUST-54 |  X   |        |     |        |      |
     | messages from   |         |      |        |     |        |      |
     | IP              |         |      |        |     |        |      |
-    +-----------------+---------+------+--------+-----+--------+------+
-    | *  Dest Unreach | SHLD-25 |  X   |        |     |        |      |
-    |    (0,1,5) =>   |         |      |        |     |        |      |
-    |    inform ALP   |         |      |        |     |        |      |
-    +-----------------+---------+------+--------+-----+--------+------+
-    | *  Abort on     | MUST-56 |      |        |     |        |  X   |
+    +-----------------+---------+------+--------+-----+--------+------+         https://www.rfc-editor.org/errata/rfc9293
+    | *  Dest Unreach | SHLD-25 |  X   |        |     |        |      |         | *  Dest Unreach | SHLD-25 |      |  X     |     |        |      |
+    |    (0,1,5) =>   |         |      |        |     |        |      |         Notes:  This requirement has an X in the "MUST" column, but the X should be
+    |    inform ALP   |         |      |        |     |        |      |         in the "SHOULD" column.  The relevant text for this requirement is "a TCP
+    +-----------------+---------+------+--------+-----+--------+------+         implementation ... SHOULD make the information available to the application
+    | *  Abort on     | MUST-56 |      |        |     |        |  X   |         (SHLD-25)."
     |    Dest Unreach |         |      |        |     |        |      |
     |    (0,1,5)      |         |      |        |     |        |      |
     +-----------------+---------+------+--------+-----+--------+------+
