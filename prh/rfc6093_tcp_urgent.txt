@@ -182,8 +182,8 @@ RFC 6093               On the TCP Urgent Mechanism          January 2011
    the urgent pointer.  The absence of this flag indicates that there is
    no "urgent data" outstanding [RFC0793].
 
-   The TCP urgent mechanism is NOT a mechanism for sending "out-of-band"
-   data: the so-called "urgent data" should be delivered "in-line" to
+   The TCP urgent mechanism is NOT a mechanism for sending "out-of-band"        TCP 的紧急机制不是一种发送“带外”数据的机制：所谓的“紧急数据”应该在“带内”传递给 TCP
+   data: the so-called "urgent data" should be delivered "in-line" to           用户。
    the TCP user.
 
 2.2.  Semantics of the Urgent Pointer
@@ -192,27 +192,27 @@ RFC 6093               On the TCP Urgent Mechanism          January 2011
    semantics of the Urgent Pointer.  Section 3.1 (page 17) of RFC 793
    [RFC0793] states that the Urgent Pointer "communicates the current
    value of the urgent pointer as a positive offset from the sequence
-   number in this segment.  The urgent pointer points to the sequence
-   number of the octet following the urgent data.  This field is only be
+   number in this segment.  The urgent pointer points to the sequence           RFC 793 第17页：紧急指针指向紧急数据之后的第一个字节的序列号，即非紧急数据的第一个字
+   number of the octet following the urgent data.  This field is only be        节。然而 RFC 793 第56页：SND.UP <- SND.NXT-1 表示紧急指针指向紧急数据最后一个字节。
    interpreted in segments with the URG control bit set" (sic).
    However, Section 3.9 (page 56) of RFC 793 [RFC0793] states, when
    describing the processing of the SEND call in the ESTABLISHED and
    CLOSE-WAIT states, that "If the urgent flag is set, then SND.UP <-
    SND.NXT-1 and set the urgent pointer in the outgoing segments".
 
-   RFC 1011 [RFC1011] clarified this ambiguity in RFC 793 stating that
-   "Page 17 is wrong.  The urgent pointer points to the last octet of
-   urgent data (not to the first octet of non-urgent data)".  RFC 1122
-   [RFC1122] formally updated RFC 793 by stating, in Section 4.2.2.4
+   RFC 1011 [RFC1011] clarified this ambiguity in RFC 793 stating that          RFC 1011 [RFC1011] 澄清了 RFC 793 中的这种模糊性，指出“第 17 页是错误的。紧急指针
+   "Page 17 is wrong.  The urgent pointer points to the last octet of           指向紧急数据的最后一个字节（而不是非紧急数据的第一个字节）”。RFC 1122 [RFC1122] 在第
+   urgent data (not to the first octet of non-urgent data)".  RFC 1122          4.2.2.4 节（第 84 页）中正式更新了 RFC 793，指出“紧急指针指向紧急数据序列中最后一个
+   [RFC1122] formally updated RFC 793 by stating, in Section 4.2.2.4            字节的序列号（而不是最后一个字节的下一个字节）”。
    (page 84), that "the urgent pointer points to the sequence number of
-   the LAST octet (not LAST+1) in a sequence of urgent data".
-
+   the LAST octet (not LAST+1) in a sequence of urgent data".                   然而 RFC 9293 又更新了 RFC 1011 和 RFC 1122，将紧急指针定义为指向非紧急数据的第一个
+                                                                                字节。
 2.3.  Allowed Length of "Urgent Data"
 
    RFC 793 [RFC0793] allows TCP peers to send "urgent data" of any
    length, as the TCP urgent mechanism simply provides a pointer to an
    interesting point in the data stream.  In this respect, Section
-   4.2.2.4 (page 84) of RFC 1122 [RFC1122] explicitly states that "A TCP
+   4.2.2.4 (page 84) of RFC 1122 [RFC1122] explicitly states that "A TCP        TCP 必须支持任意长度的紧急数据。
    MUST support a sequence of urgent data of any length".
 
 
@@ -234,39 +234,39 @@ RFC 6093               On the TCP Urgent Mechanism          January 2011
 
    As discussed in Section 2, the TCP urgent mechanism simply permits a
    point in the data stream to be designated as the end of urgent
-   information but does NOT provide a mechanism for sending "out-of-
+   information but does NOT provide a mechanism for sending "out-of-            TCP 的紧急机制指示了紧急数据的结束，但并没有提供一种发送“带外数据”的机制。
    band" data.
 
-   Unfortunately, virtually all TCP implementations process TCP urgent
-   indications differently.  By default, the last byte of "urgent data"
-   is delivered "out of band" to the application.  That is, it is not
-   delivered as part of the normal data stream [UNPv1].  For example,
+   Unfortunately, virtually all TCP implementations process TCP urgent          不幸的是，几乎所有 TCP 实现以一种不同的方式对 TCP 紧急指示进行处理。默认情况下，紧急
+   indications differently.  By default, the last byte of "urgent data"         数据的最后一个字节会以“带外”（out of band）的方式传递给应用程序。也就是说，它不会作为
+   is delivered "out of band" to the application.  That is, it is not           正常数据流的一部分传递。例如，当应用程序使用带有 MSG_OOB 标志的 recv(2) 系统调用时，
+   delivered as part of the normal data stream [UNPv1].  For example,           会读取这个“带外”字节。
    the "out-of-band" byte is read by an application when a recv(2)
    system call with the MSG_OOB flag set is issued.
 
-   Most implementations provide a socket option (SO_OOBINLINE) that
-   allows an application to override the (broken) default processing of
-   urgent indications, so that "urgent data" is delivered "in line" to
+   Most implementations provide a socket option (SO_OOBINLINE) that             大多数实现提供了一个套接字选项（SO_OOBINLINE），允许应用程序覆盖对紧急指示的（有缺陷
+   allows an application to override the (broken) default processing of         的）默认处理方式。通过设置这个选项，紧急数据会以“内联”（in line）的方式传递给应用程序，
+   urgent indications, so that "urgent data" is delivered "in line" to          从而提供 IETF 规范所期望的语义。
    the application, thus providing the semantics intended by the IETF
    specifications.
 
 3.2.  Semantics of the Urgent Pointer
 
-   All the popular implementations that the authors of this document
-   have been able to test interpret the semantics of the TCP Urgent
-   Pointer as specified in Section 3.1 of RFC 793.  This means that even
-   when RFC 1122 formally updated RFC 793 to clarify the ambiguity in
+   All the popular implementations that the authors of this document            不幸的是，本文作者测试过的所有流行的实现都按照 RFC 793 第 3.1 节中指定的语义来解释
+   have been able to test interpret the semantics of the TCP Urgent             TCP 紧急指针的含义。这意味着，即使 RFC 1122 正式更新了 RFC 793 以澄清紧急指针语义
+   Pointer as specified in Section 3.1 of RFC 793.  This means that even        中的模糊性，这种澄清也从未在实际实现中得到反映（即，几乎所有实现都默认采用 RFC 793
+   when RFC 1122 formally updated RFC 793 to clarify the ambiguity in           第 3.1 节中指定的紧急指针的语义）。
    the semantics of the Urgent Pointer, this clarification was never
    reflected in actual implementations (i.e., virtually all
    implementations default to the semantics of the urgent pointer
    specified in Section 3.1 of RFC 793).
 
-   Some operating systems provide a system-wide toggle to override this
-   behavior and interpret the semantics of the Urgent Pointer as
-   clarified in RFC 1122.  However, this system-wide toggle has been
-   found to be inconsistent.  For example, Linux provides the sysctl
-   "tcp_stdurg" (i.e., net.ipv4.tcp_stdurg) that, when set, supposedly
-   changes the system behavior to interpret the semantics of the TCP
+   Some operating systems provide a system-wide toggle to override this         某些操作系统提供了一个系统范围的切换选项，以覆盖这种行为，并按照 RFC 1122 中澄清的语
+   behavior and interpret the semantics of the Urgent Pointer as                义来解释紧急指针的含义。然而，这种系统范围的切换选项已被发现存在不一致性。例如，Linux
+   clarified in RFC 1122.  However, this system-wide toggle has been            提供了一个名为 “tcp_stdurg”（即 net.ipv4.tcp_stdurg）的 sysctl，当设置此选项时，
+   found to be inconsistent.  For example, Linux provides the sysctl            它会改变系统行为，以按照 RFC 1122 中指定的语义来解释 TCP 紧急指针的含义。然而，此
+   "tcp_stdurg" (i.e., net.ipv4.tcp_stdurg) that, when set, supposedly          sysctl 仅改变接收报文段（即，不是发送报文段）的紧急指针的语义。这意味着，如果设置了此
+   changes the system behavior to interpret the semantics of the TCP            sysctl，应用程序可能无法与自身互操作，如果 TCP 发送方和 TCP 接收方都在同一主机上运行。
    Urgent Pointer as specified in RFC 1122. However, this sysctl changes
    the semantics of the Urgent Pointer only for incoming segments (i.e.,
    not for outgoing segments).  This means that if this sysctl is set,
@@ -286,37 +286,37 @@ RFC 6093               On the TCP Urgent Mechanism          January 2011
 
 3.3.  Allowed Length of "Urgent Data"
 
-   While Section 4.2.2.4 (page 84) of RFC 1122 explicitly states that "A
-   TCP MUST support a sequence of urgent data of any length", in
-   practice, all those implementations that interpret TCP urgent
-   indications as a mechanism for sending "out-of-band" data keep a
-   buffer of a single byte for storing the "last byte of urgent data".
+   While Section 4.2.2.4 (page 84) of RFC 1122 explicitly states that "A        尽管 RFC 1122 第 4.2.2.4 节（第 84 页）明确指出 “TCP 必须支持任意长度的紧急数据序
+   TCP MUST support a sequence of urgent data of any length", in                列”，但在实践中，所有那些将 TCP 紧急指示解释为发送 “带外” 数据的机制的实现都只保留了
+   practice, all those implementations that interpret TCP urgent                一个字节的缓冲区，用于存储 “紧急数据的最后一个字节”。因此，如果在应用程序读取待处理的
+   indications as a mechanism for sending "out-of-band" data keep a             “带外” 字节之前连续收到 “紧急数据” 的指示，那么待处理的字节将被丢弃（即，被新的 “紧
+   buffer of a single byte for storing the "last byte of urgent data".          急数据” 字节覆盖）。
    Thus, if successive indications of "urgent data" are received before
    the application reads the pending "out-of-band" byte, that pending
    byte will be discarded (i.e., overwritten by the new byte of "urgent
    data").
 
-   In order to avoid "urgent data" from being discarded, some
-   implementations queue each of the received "urgent bytes", so that
-   even if another urgent indication is received before the pending
-   "urgent data" are consumed by the application, those bytes do not
+   In order to avoid "urgent data" from being discarded, some                   为了避免 “紧急数据” 被丢弃，一些实现会将每个收到的 “紧急字节” 排队，以便即使在应用程
+   implementations queue each of the received "urgent bytes", so that           序消耗待处理的 “紧急数据” 之前又收到另一个紧急指示，这些字节也不需要被丢弃。已知其中
+   even if another urgent indication is received before the pending             一些实现未能对它们排队的 “紧急数据” 的数量施加任何限制；因此，它们容易受到简单的资源
+   "urgent data" are consumed by the application, those bytes do not            耗尽攻击 [CPNI-TCP]。
    need to be discarded.  Some of these implementations have been known
    to fail to enforce any limits on the amount of "urgent data" that
    they queue; thus, they become vulnerable to trivial resource
    exhaustion attacks [CPNI-TCP].
 
-   It should be reinforced that the aforementioned implementations are
+   It should be reinforced that the aforementioned implementations are          必须强调的是，上述实现是有缺陷的。TCP 紧急机制并不是用于发送 “带外” 数据的机制。
    broken.  The TCP urgent mechanism is not a mechanism for delivering
    "out-of-band" data.
 
 3.4.  Interaction of Middleboxes with TCP Urgent Indications
 
-   As a result of the publication of Network Intrusion Detection System
-   (NIDS) evasion techniques based on TCP urgent indications [phrack],
-   some middleboxes clear the urgent indications by clearing the URG
-   flag and setting the Urgent Pointer to zero.  This causes the "urgent
-   data" to become "in line" (that is, accessible by the read(2) call or
-   the recv(2) call without the MSG_OOB flag) in the case of those TCP
+   As a result of the publication of Network Intrusion Detection System         由于基于 TCP 紧急指示的网络入侵检测系统（NIDS）规避技术的发布 [phrack]，一些中间设
+   (NIDS) evasion techniques based on TCP urgent indications [phrack],          备通过清除 URG 标志并将紧急指针设置为零来清除紧急指示。这使得 “紧急数据” 变为 “内联”
+   some middleboxes clear the urgent indications by clearing the URG            （即，可以通过 read(2) 调用或不带 MSG_OOB 标志的 recv(2) 调用来访问），在那些将
+   flag and setting the Urgent Pointer to zero.  This causes the "urgent        TCP 紧急机制解释为用于发送 “带外” 数据的机制的 TCP 实现中（如第 3.1 节所述）。Cisco
+   data" to become "in line" (that is, accessible by the read(2) call or        PIX 防火墙 [Cisco-PIX] 就是这样一个中间设备的例子。这劝阻了应用程序依赖紧急指示来正确
+   the recv(2) call without the MSG_OOB flag) in the case of those TCP          运行，因为紧急指示在当前的互联网中可能不可靠。
    implementations that interpret the TCP urgent mechanism as a facility
    for delivering "out-of-band" data (as described in Section 3.1).  An
    example of such a middlebox is the Cisco PIX firewall [Cisco-PIX].
@@ -326,12 +326,12 @@ RFC 6093               On the TCP Urgent Mechanism          January 2011
 
 4.  Updating RFC 793, RFC 1011, and RFC 1122
 
-   Considering that as long as both the TCP sender and the TCP receiver
-   implement the same semantics for the Urgent Pointer there is no
-   functional difference in having the Urgent Pointer point to "the
-   sequence number of the octet following the urgent data" vs.  "the
-   last octet of urgent data", and that all known implementations
-   interpret the semantics of the Urgent Pointer as pointing to "the
+   Considering that as long as both the TCP sender and the TCP receiver         考虑到只要 TCP 发送方和 TCP 接收方对紧急指针的语义实现相同，紧急指针指向 “紧急数据之
+   implement the same semantics for the Urgent Pointer there is no              后的第一个字节的序列号” 与 “紧急数据的最后一个字节” 之间就没有功能上的差异，并且所有已
+   functional difference in having the Urgent Pointer point to "the             知实现都解释紧急指针的语义为指向 “紧急数据之后的第一个字节的序列号”，我们在此更新 RFC
+   sequence number of the octet following the urgent data" vs.  "the            793 [RFC0793]、RFC 1011 [RFC1011] 和 RFC 1122 [RFC1122]，使 “紧急指针指向紧急数据
+   last octet of urgent data", and that all known implementations               之后的第一个字节的序列号”（在设置了 URG 控制位的报文中），从而适应几乎所有现有的 TCP
+   interpret the semantics of the Urgent Pointer as pointing to "the            实现。
 
 
 
@@ -349,30 +349,30 @@ RFC 6093               On the TCP Urgent Mechanism          January 2011
 
 5.  Advice to New Applications Employing TCP
 
-   As a result of the issues discussed in Section 3.2 and Section 3.4,
-   new applications SHOULD NOT employ the TCP urgent mechanism.
+   As a result of the issues discussed in Section 3.2 and Section 3.4,          由于第 3.2 节和第 3.4 节中讨论的问题，新的应用程序不应该使用 TCP 紧急机制。然而，TCP
+   new applications SHOULD NOT employ the TCP urgent mechanism.                 实现必须仍然支持紧急机制，以便现有的应用程序仍然可以使用它。
    However, TCP implementations MUST still include support for the
    urgent mechanism such that existing applications can still use it.
 
 6.  Advice to Applications That Make Use of the Urgent Mechanism
 
-   Even though applications SHOULD NOT employ the urgent mechanism,
-   applications that still decide to employ it MUST set the SO_OOBINLINE
+   Even though applications SHOULD NOT employ the urgent mechanism,             即使应用程序不应该使用紧急机制，但仍然决定使用它的应用程序必须设置 SO_OOBINLINE 套接
+   applications that still decide to employ it MUST set the SO_OOBINLINE        字选项，以便“紧急数据”以内联方式传递，这符合 IETF 规范的意图。
    socket option, such that "urgent data" is delivered in line, as
    intended by the IETF specifications.
 
-   Additionally, applications that still decide to use the urgent
+   Additionally, applications that still decide to use the urgent               此外，仍然决定使用紧急机制的应用程序需要设计为即使中间设备清除了 URG 标志也能正确运行。
    mechanism need to be designed for correct operation even when the URG
    flag is cleared by middleboxes.
 
 7.  Security Considerations
 
-   Multiple factors can affect the data flow that is actually delivered
-   to an application when the TCP urgent mechanism is employed: for
-   example, the two possible interpretations of the semantics of the
-   Urgent Pointer in current implementations (e.g., depending on the
-   value of the tcp_stdurg sysctl), the possible implementation of the
-   urgent mechanism as an "out-of-band" (OOB) facility (versus "in-band"
+   Multiple factors can affect the data flow that is actually delivered         当使用 TCP 紧急机制时，多个因素可能会影响实际传递给应用程序的数据流：例如，当前实现中
+   to an application when the TCP urgent mechanism is employed: for             紧急指针语义的两种可能解释（例如，取决于 tcp_stdurg sysctl 的值），紧急机制可能被实
+   example, the two possible interpretations of the semantics of the            现为“带外”（OOB）机制（而不是 IETF 规范所期望的“内联”机制），或者中间设备（如数据包
+   Urgent Pointer in current implementations (e.g., depending on the            清理器）或终端系统本身可能会导致“紧急数据”以内联方式处理。这可能会使网络入侵检测系统
+   value of the tcp_stdurg sysctl), the possible implementation of the          （NIDS）难以跟踪传递到目标系统的应用层数据，从而导致 NIDS 中出现假阴性或假阳性结果
+   urgent mechanism as an "out-of-band" (OOB) facility (versus "in-band"        [CPNI-TCP] [phrack]。
    as intended by the IETF specifications), or middleboxes (such as
    packet scrubbers) or the end-systems themselves that could cause the
    "urgent data" to be processed "in line".  This might make it
@@ -381,10 +381,10 @@ RFC 6093               On the TCP Urgent Mechanism          January 2011
    thus lead to false negatives or false positives in the NIDS
    [CPNI-TCP] [phrack].
 
-   Probably the best way to avoid the security implications of TCP
-   "urgent data" is to avoid having applications use the TCP urgent
-   mechanism altogether.  Packet scrubbers could probably be configured
-   to clear the URG bit and set the Urgent Pointer to zero.  This would
+   Probably the best way to avoid the security implications of TCP              避免应用程序使用 TCP 紧急机制可能是避免 TCP“紧急数据”安全隐患的最佳方式。数据包清理
+   "urgent data" is to avoid having applications use the TCP urgent             器可能可以配置为清除 URG 标志并将紧急指针设置为零。这基本上会导致“紧急数据”以内联方式
+   mechanism altogether.  Packet scrubbers could probably be configured         处理。然而，这可能会导致依赖 TCP 紧急机制的应用程序（如 Telnet [RFC0854] 和 FTP
+   to clear the URG bit and set the Urgent Pointer to zero.  This would         [RFC0959]）出现互操作性问题或不期望的行为。
    basically cause the "urgent data" to be put "in line".  However, this
 
 

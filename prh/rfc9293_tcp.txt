@@ -24,7 +24,7 @@ Abstract
    documented in a piecemeal fashion.  This document collects and brings
    those changes together with the protocol specification from RFC 793.
    This document obsoletes RFC 793, as well as RFCs 879, 2873, 6093,
-   6429, 6528, and 6691 that updated parts of RFC 793.  It updates RFCs
+   6429, 6528, and 6691 that updated parts of RFC 793.  It updates RFCs         该规范更新了 RFC 1011 和 RFC 1122，这些文档中涉及 TCP 需求的部分应以本规范为准。
    1011 and 1122, and it should be considered as a replacement for the
    portions of those documents dealing with TCP requirements.  It also
    updates RFC 5961 by adding a small clarification in reset handling
@@ -2061,51 +2061,51 @@ Table of Contents
 
 3.8.5.  The Communication of Urgent Information
 
-   As a result of implementation differences and middlebox interactions,
-   new applications SHOULD NOT employ the TCP urgent mechanism (SHLD-
-   13).  However, TCP implementations MUST still include support for the
+   As a result of implementation differences and middlebox interactions,        由于实现差异和中间设备的交互，新的应用程序不应该使用 TCP 的紧急机制（SHLD-13）。然而，
+   new applications SHOULD NOT employ the TCP urgent mechanism (SHLD-           TCP 实现必须仍然支持紧急机制（MUST-30）。关于一些 TCP 实现如何解释紧急指针的信息可以
+   13).  However, TCP implementations MUST still include support for the        在 RFC 6093 [39] 中找到。
    urgent mechanism (MUST-30).  Information on how some TCP
    implementations interpret the urgent pointer can be found in RFC 6093
    [39].
 
-   The objective of the TCP urgent mechanism is to allow the sending
-   user to stimulate the receiving user to accept some urgent data and
+   The objective of the TCP urgent mechanism is to allow the sending            TCP 紧急机制的目标是允许发送方触发接收方接收一些紧急数据，并允许接收方 TCP 端点提示何
+   user to stimulate the receiving user to accept some urgent data and          时当前已知的所有紧急数据已接收完毕。
    to permit the receiving TCP endpoint to indicate to the receiving
    user when all the currently known urgent data has been received by
    the user.
 
-   This mechanism permits a point in the data stream to be designated as
-   the end of urgent information.  Whenever this point is in advance of
-   the receive sequence number (RCV.NXT) at the receiving TCP endpoint,
-   then the TCP implementation must tell the user to go into "urgent
+   This mechanism permits a point in the data stream to be designated as        该机制允许在数据流中指定一个点作为紧急信息的结束点。只要这个点在接收 TCP 端点的接收序
+   the end of urgent information.  Whenever this point is in advance of         列号（RCV.NXT）的前面，TCP 实现必须告诉用户进入“紧急模式”；当接收序列号追上紧急指针时，
+   the receive sequence number (RCV.NXT) at the receiving TCP endpoint,         TCP 实现必须告诉用户进入“正常模式”。如果用户处于“紧急模式”时更新了紧急指针，更新将对用
+   then the TCP implementation must tell the user to go into "urgent            户不可见。
    mode"; when the receive sequence number catches up to the urgent
    pointer, the TCP implementation must tell user to go into "normal
    mode".  If the urgent pointer is updated while the user is in "urgent
    mode", the update will be invisible to the user.
 
-   The method employs an urgent field that is carried in all segments
-   transmitted.  The URG control flag indicates that the urgent field is
+   The method employs an urgent field that is carried in all segments           该方法使用一个紧急字段，该字段携带在所有传输的段中。URG 控制标志表示紧急字段是有意义的，
+   transmitted.  The URG control flag indicates that the urgent field is        并且必须将其加到段序列号上以得出紧急指针。该标志的缺失表示没有未处理的紧急数据。
    meaningful and must be added to the segment sequence number to yield
    the urgent pointer.  The absence of this flag indicates that there is
    no urgent data outstanding.
 
-   To send an urgent indication, the user must also send at least one
-   data octet.  If the sending user also indicates a push, timely
-   delivery of the urgent information to the destination process is
-   enhanced.  Note that because changes in the urgent pointer correspond
+   To send an urgent indication, the user must also send at least one           要发送紧急指示，用户还必须发送至少一个数据字节。如果发送方用户还指示了一个推送，那么将
+   data octet.  If the sending user also indicates a push, timely               增强将紧急信息及时传递到目标进程的能力。请注意，因为紧急指针的变化对应于发送方应用程序
+   delivery of the urgent information to the destination process is             写入的数据，紧急指针不能超出数据字节序号空间，但 TCP 接收方应该对无效的紧急指针值具有
+   enhanced.  Note that because changes in the urgent pointer correspond        鲁棒性。
    to data being written by a sending application, the urgent pointer
    cannot "recede" in the sequence space, but a TCP receiver should be
    robust to invalid urgent pointer values.
 
-   A TCP implementation MUST support a sequence of urgent data of any
+   A TCP implementation MUST support a sequence of urgent data of any           TCP 实现必须支持任意长度的紧急数据序列（MUST-31）[19]。
    length (MUST-31) [19].
 
-   The urgent pointer MUST point to the sequence number of the octet
-   following the urgent data (MUST-62).
-
-   A TCP implementation MUST (MUST-32) inform the application layer
-   asynchronously whenever it receives an urgent pointer and there was
-   previously no pending urgent data, or whenever the urgent pointer
+   The urgent pointer MUST point to the sequence number of the octet            紧急指针必须指向紧急数据之后的第一个字节的序列号（MUST-62）。RFC 1011 勘误，紧急指针
+   following the urgent data (MUST-62).                                         应该指向紧急数据的最后一个字节。本规范又将紧急指针定义为指向非紧急数据的第一个字节，这
+                                                                                样紧急指针字段实际表示的是紧急数据的长度。
+   A TCP implementation MUST (MUST-32) inform the application layer             TCP 实现必须（MUST-32）在接收到紧急指针且之前没有待处理的紧急数据时，或者紧急指针在数
+   asynchronously whenever it receives an urgent pointer and there was          据流中向前移动时，异步地通知应用层。TCP 实现必须（MUST-33）提供一种方法，让应用程序了
+   previously no pending urgent data, or whenever the urgent pointer            解连接中还有多少紧急数据需要读取，或者至少确定是否还有更多的紧急数据需要读取[19]。
    advances in the data stream.  The TCP implementation MUST (MUST-33)
    provide a way for the application to learn how much urgent data
    remains to be read from the connection, or at least to determine
