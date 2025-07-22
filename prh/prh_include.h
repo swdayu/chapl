@@ -76,96 +76,71 @@
 extern "C" {
 #endif
 
-// https://en.cppreference.com/w/cpp/error/assert
+// Linux 操作系统开发与调试命令
 //
-// The definition of the macro assert depends on another macro, NDEBUG, which
-// is not defined by the standard library. If NDEBUG is defined as a macro name
-// at the point in the source code where <cassert> or <assert.h> is included,
-// the assertion is disabled: assert does nothing. Otherwise, the assertion is
-// enabled.
-//
-// In one source file, you can define and undefine NDEBUG multiple times, each
-// time followed by #include <cassert>, to enable or disable the assert macro
-// multiple times in the same source file.
-//
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-macro-assert-wassert
-//
-// assert 宏通常用于在程序开发过程中识别逻辑错误。通过实现表达式参数仅在程序运行不正
-// 确时评估为假，从而在出现意外条件时停止程序执行。可以通过定义宏 NDEBUG 在编译时关闭
-// 断言检查。你可以通过使用 /DNDEBUG 命令行选项，在不修改源文件的情况下关闭 assert
-// 宏。也可以通过在包含 <assert.h> 之前使用 #define NDEBUG 指令，在源代码中关闭
-// assert 宏。
-//
-// 当表达式评估为假（0）时，assert 会打印一条诊断消息，并调用 abort 来停止程序执行。
-// 如果表达式为真（非零），则不采取任何操作。诊断消息包括失败的表达式、源文件名以及断
-// 言失败的行号。诊断消息以宽字符（wchar_t）形式打印。因此，即使表达式中包含 Unicode
-// 字符，它也能按预期工作。诊断消息的目标取决于调用该例程的应用程序类型。控制台应用程
-// 序通过 stderr 接收消息。在基于 Windows 的应用程序中，assert 调用 Windows 的
-// MessageBox 函数来创建一个消息框以显示消息，该消息框包含三个按钮：中止（Abort）、
-// 重试（Retry）和忽略（Ignore）。如果用户选择“中止”，程序将立即终止。如果用户选择
-// “重试”，将调用调试器（如果启用了即时调试），用户可以调试程序。如果用户选择“忽略”，
-// 程序将继续正常执行。在存在错误条件时点击“忽略”可能会导致未定义行为，因为调用代码的
-// 前置条件未得到满足。要覆盖默认输出行为，无论应用程序类型如何，都可以调用
-// _set_error_mode 来选择是将输出发送到 stderr 还是显示对话框。
-//
-// _assert 和 _wassert 函数是内部 CRT 函数。它们有助于减少对象文件中支持断言所需的
-// 代码量。不建议直接调用这些函数。
-//
-// 当未定义 NDEBUG 时，assert 宏在 C 运行时库的发布版和调试版中都启用。当定义了
-// NDEBUG 时，宏可用，但不会评估其参数，也没有任何效果。当启用时，assert 宏调用
-// _wassert 来实现其功能。其他断言宏，如 _ASSERT、_ASSERTE 和 _ASSERT_EXPR 也
-// 可用，但只有在定义了 _DEBUG 宏且代码链接了调试版的 C 运行时库时，才会评估传递
-// 给它们的表达式。Other assertion macros, _ASSERT, _ASSERTE and _ASSERT_EXPR,
-// are also available, but they only evaluate the expressions passed to them
-// when the _DEBUG macro has been defined and when they are in code linked
-// with the debug version of the C run-time libraries.
-//
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/debug
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-debugging-techniques
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-asserte-assert-expr-macros
-//
-// The compiler defines _DEBUG when you specify the /MTd or /MDd option. These
-// options specify debug versions of the C run-time library.
-//
-// The C runtime (CRT) library provides extensive debugging support. To use one
-// of the CRT debug libraries, you must link with /DEBUG and compile with /MDd,
-// /MTd, or /LDd. The main definitions and macros for CRT debugging can be
-// found in the<crtdbg.h> header file.
-//
-// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏为应用程序提供了一种在调试过程中检查假设的简
-// 洁机制。它们非常灵活，因为不需要用 #ifdef 语句将它们包围起来，以防止它们在应用程序
-// 的零售版本中被调用。这种灵活性是通过使用 _DEBUG 宏实现的。_ASSERT_EXPR、_ASSERT
-// 和 _ASSERTE 只有在编译时定义了 _DEBUG 宏时才可用。如果未定义 _DEBUG 宏，则在预处
-// 理期间会移除对这些宏的调用。
-//
-// 如果结果为假（0），它们会打印一条诊断消息，并调用 _CrtDbgReportW 来生成调试报告。
-// 除非你使用 _CrtSetReportMode 和 _CrtSetReportFile 函数指定了其他方式，否则消息
-// 会出现在一个弹出式对话框中，这相当于设置了：
-//      _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_WNDW); 将断言设置为弹窗
-//
-// 当目标是一个调试消息窗口且用户选择“重试”按钮时，_CrtDbgReportW 返回 1，这将导致
-// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏在启用了即时调试（JIT）的情况下启动调试器。
-// _RPT 和 _RPTF 调试宏也可用于生成调试报告，但它们不评估表达式。_RPT 宏生成简单的报
-// 告，而 _RPTF 宏在生成的报告中包含调用报告宏的源文件和行号。
-//
-// 虽然 _ASSERT_EXPR、_ASSERT 和 _ASSERTE 是宏，并且可以通过包含 <crtdbg.h> 来使
-// 用，但当定义了 _DEBUG 宏时，应用程序必须链接到调试版本的 C 运行时库，因为这些宏调
-// 用了其他运行时函数。
-#if defined(NDEBUG) || defined(PRH_RELEASE) // cc no debug, NDEBUG or PRH_RELEASE defined
-#undef PRH_DEBUG
-#define PRH_DEBUG 0
-#elif defined(_DEBUG) || defined(PRH_DEBUG) // cc with debug option
-#undef PRH_DEBUG
-#define PRH_DEBUG 1
-#else // default in debug developing mode
-#undef PRH_DEBUG
-#define PRH_DEBUG 1
-#endif
-
-#undef _DEBUG
-#if (PRH_DEBUG == 1)
-#define _DEBUG 1
-#endif
+// 查看进程信息，其中包括进程对信号的处理：
+//      cat /proc/521/status
+// 列出系统中的网络接口，其中包括 MTU 信息：
+//      sudo apt install net-tools
+//      netstat -i
+// 临时端口的分配范围：
+//      cat /proc/sys/net/ipv4/ip_local_port_range
+// 本地记录的主机名或域名到IP地址之间的映射：
+//      cat /etc/hosts
+// 服务名称与端口号之间的映射：
+//      cat /etc/services
+// 网络协议（IP协议）分配的号码：
+//      cat /etc/protocols
+//      www.iana.org/assignments/protocol-numbers
+// 域名解析配置文件：
+//      cat /etc/resolv.conf
+// 每个 DNS 服务器都知道的一组根域名服务器：
+//      dig . ns
+//      https://root-servers.org/
+// 目的套接字地址的排序配置（RFC 3484）：
+//      cat /etc/gai.conf
+// 向 inetd 守护进程发送 SIGHUP 信号：
+//      killall -HUP inetd
+// 列出当前运行的进行信息：
+//      ps
+//      ps -C program -o "pid ppid pgid sid tty command"
+// 查看套接字状态：
+//      ./program port=55555 &
+//      netstat -a | egrep '(Address|55555)'
+//          Proto   Recv-Q  Send-Q  Local Address   Foreign Address     State
+//          tcp     0       0       *:55555         *:*                 LISTEN
+//          tcp     0       0       localhost:32835 localhost:55555     ESTABLISHED
+//          tcp     0       0       localhost:55555 localhost:32835     ESTABLISHED
+// 套接字可以发送的附属数据（ancillary data）的最大大小：
+//      cat /proc/sys/net/core/optmem_max
+// 设置非零值开启显式拥塞通知（ECN, explicit congestion notification）功能：
+//      cat /proc/sys/net/ipv4/tcp_ecn
+// 显示所有套接字信息（-a），并显式扩展信息（-e）包括其用户ID：
+//      netstat -a -e
+// 只显示监听套接字信息（-l），并只显示 Internet 域套接字的信息（--inet -4 或 --inet6 -6）
+//      netstat --inet -l
+// 显示 Internet 域 TCP 套接字信息（--tcp），并显示地址和端口号、并以数字形式显示用户ID（-n）
+//      netstat --tcp -a -n
+// 显示 Internet 域 UDP 套接字信息（--udp），并显示进程ID以及套接字所归属程序名（-p）
+//      netstat --udp -a -p
+// 显示 UNIX 域套接字信息
+//      netstat --unix
+// 显示 TCP 套接字信息，并每秒重复刷新（-c）
+//      netstat --tcp -a -c
+// 显示所有ip4 ip6套接字信息：
+//      netstat -4 -6 -a -e
+//          Active Internet connections (servers and established)
+//          Proto Recv-Q Send-Q Local Address           Foreign Address         State       User            Inode
+//          tcp        0      0 127.0.0.53:domain       0.0.0.0:*               LISTEN      systemd-resolve 106370
+//          udp        0      0 127.0.0.53:domain       0.0.0.0:*                           systemd-resolve 106369
+//          udp        0      0 localhost:323           0.0.0.0:*                           root            1199
+//          udp6       0      0 ip6-localhost:323       [::]:*                              root            1200
+//      Proto 表示套接字使用的协议；
+//      Recv-Q 表示套接字接收缓冲区还未被本地应用读取的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
+//      Send-Q 表示套接字发送缓冲区中配对等待发送的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
+//      Local Address 表示套接字绑定到的本地地址
+//      Foreign Address 表示对端套接字的地址，字符串 *:* 表示没有对端地址；
+//      State 表示当前套接字所处的状态，对于TCP即TCP的各种状态；
 
 // architecture
 #ifndef prh_arch_bits
@@ -586,6 +561,97 @@ extern "C" {
     #define prh_impl_macro_concat_name(a, b) a ## b
 #endif
 
+// https://en.cppreference.com/w/cpp/error/assert
+//
+// The definition of the macro assert depends on another macro, NDEBUG, which
+// is not defined by the standard library. If NDEBUG is defined as a macro name
+// at the point in the source code where <cassert> or <assert.h> is included,
+// the assertion is disabled: assert does nothing. Otherwise, the assertion is
+// enabled.
+//
+// In one source file, you can define and undefine NDEBUG multiple times, each
+// time followed by #include <cassert>, to enable or disable the assert macro
+// multiple times in the same source file.
+//
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-macro-assert-wassert
+//
+// assert 宏通常用于在程序开发过程中识别逻辑错误。通过实现表达式参数仅在程序运行不正
+// 确时评估为假，从而在出现意外条件时停止程序执行。可以通过定义宏 NDEBUG 在编译时关闭
+// 断言检查。你可以通过使用 /DNDEBUG 命令行选项，在不修改源文件的情况下关闭 assert
+// 宏。也可以通过在包含 <assert.h> 之前使用 #define NDEBUG 指令，在源代码中关闭
+// assert 宏。
+//
+// 当表达式评估为假（0）时，assert 会打印一条诊断消息，并调用 abort 来停止程序执行。
+// 如果表达式为真（非零），则不采取任何操作。诊断消息包括失败的表达式、源文件名以及断
+// 言失败的行号。诊断消息以宽字符（wchar_t）形式打印。因此，即使表达式中包含 Unicode
+// 字符，它也能按预期工作。诊断消息的目标取决于调用该例程的应用程序类型。控制台应用程
+// 序通过 stderr 接收消息。在基于 Windows 的应用程序中，assert 调用 Windows 的
+// MessageBox 函数来创建一个消息框以显示消息，该消息框包含三个按钮：中止（Abort）、
+// 重试（Retry）和忽略（Ignore）。如果用户选择“中止”，程序将立即终止。如果用户选择
+// “重试”，将调用调试器（如果启用了即时调试），用户可以调试程序。如果用户选择“忽略”，
+// 程序将继续正常执行。在存在错误条件时点击“忽略”可能会导致未定义行为，因为调用代码的
+// 前置条件未得到满足。要覆盖默认输出行为，无论应用程序类型如何，都可以调用
+// _set_error_mode 来选择是将输出发送到 stderr 还是显示对话框。
+//
+// _assert 和 _wassert 函数是内部 CRT 函数。它们有助于减少对象文件中支持断言所需的
+// 代码量。不建议直接调用这些函数。
+//
+// 当未定义 NDEBUG 时，assert 宏在 C 运行时库的发布版和调试版中都启用。当定义了
+// NDEBUG 时，宏可用，但不会评估其参数，也没有任何效果。当启用时，assert 宏调用
+// _wassert 来实现其功能。其他断言宏，如 _ASSERT、_ASSERTE 和 _ASSERT_EXPR 也
+// 可用，但只有在定义了 _DEBUG 宏且代码链接了调试版的 C 运行时库时，才会评估传递
+// 给它们的表达式。Other assertion macros, _ASSERT, _ASSERTE and _ASSERT_EXPR,
+// are also available, but they only evaluate the expressions passed to them
+// when the _DEBUG macro has been defined and when they are in code linked
+// with the debug version of the C run-time libraries.
+//
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/debug
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-debugging-techniques
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-asserte-assert-expr-macros
+//
+// The compiler defines _DEBUG when you specify the /MTd or /MDd option. These
+// options specify debug versions of the C run-time library.
+//
+// The C runtime (CRT) library provides extensive debugging support. To use one
+// of the CRT debug libraries, you must link with /DEBUG and compile with /MDd,
+// /MTd, or /LDd. The main definitions and macros for CRT debugging can be
+// found in the<crtdbg.h> header file.
+//
+// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏为应用程序提供了一种在调试过程中检查假设的简
+// 洁机制。它们非常灵活，因为不需要用 #ifdef 语句将它们包围起来，以防止它们在应用程序
+// 的零售版本中被调用。这种灵活性是通过使用 _DEBUG 宏实现的。_ASSERT_EXPR、_ASSERT
+// 和 _ASSERTE 只有在编译时定义了 _DEBUG 宏时才可用。如果未定义 _DEBUG 宏，则在预处
+// 理期间会移除对这些宏的调用。
+//
+// 如果结果为假（0），它们会打印一条诊断消息，并调用 _CrtDbgReportW 来生成调试报告。
+// 除非你使用 _CrtSetReportMode 和 _CrtSetReportFile 函数指定了其他方式，否则消息
+// 会出现在一个弹出式对话框中，这相当于设置了：
+//      _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_WNDW); 将断言设置为弹窗
+//
+// 当目标是一个调试消息窗口且用户选择“重试”按钮时，_CrtDbgReportW 返回 1，这将导致
+// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏在启用了即时调试（JIT）的情况下启动调试器。
+// _RPT 和 _RPTF 调试宏也可用于生成调试报告，但它们不评估表达式。_RPT 宏生成简单的报
+// 告，而 _RPTF 宏在生成的报告中包含调用报告宏的源文件和行号。
+//
+// 虽然 _ASSERT_EXPR、_ASSERT 和 _ASSERTE 是宏，并且可以通过包含 <crtdbg.h> 来使
+// 用，但当定义了 _DEBUG 宏时，应用程序必须链接到调试版本的 C 运行时库，因为这些宏调
+// 用了其他运行时函数。
+#if defined(NDEBUG) || defined(PRH_RELEASE) // cc no debug, NDEBUG or PRH_RELEASE defined
+#undef PRH_DEBUG
+#define PRH_DEBUG 0
+#elif defined(_DEBUG) || defined(PRH_DEBUG) // cc with debug option
+#undef PRH_DEBUG
+#define PRH_DEBUG 1
+#else // default in debug developing mode
+#undef PRH_DEBUG
+#define PRH_DEBUG 1
+#endif
+
+#undef _DEBUG
+#if (PRH_DEBUG == 1)
+#define _DEBUG 1
+#endif
+
 #ifndef prh_release_assert
     #define prh_release_assert(a) ((void)((a) || prh_impl_assert(__LINE__)))
     #define prh_release_unreachable() prh_abort_error(0xea)
@@ -697,8 +763,8 @@ extern "C" {
 #if prh_arch_bits == 32
     typedef prh_i32 prh_int;
     typedef prh_u32 prh_unt;
-    typedef prh_i32 prh_mach_int;
-    typedef prh_u32 prh_mach_unt;
+    typedef prh_i32 prh_sys_int;
+    typedef prh_u32 prh_sys_unt;
 #elif prh_arch_bits == 64
     #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
@@ -707,13 +773,13 @@ extern "C" {
         typedef prh_i64 prh_int;
         typedef prh_u64 prh_unt;
     #endif
-    typedef prh_i64 prh_mach_int;
-    typedef prh_u64 prh_mach_unt;
+    typedef prh_i64 prh_sys_int;
+    typedef prh_u64 prh_sys_unt;
 #else
     #error unsupported architecture
 #endif
-    typedef prh_unt prh_void_ptr;
-    typedef prh_mach_unt prh_mach_ptr;
+    typedef prh_unt prh_ptr;
+    typedef prh_sys_unt prh_sys_ptr;
     typedef float prh_f32;
     typedef double prh_f64;
     typedef prh_f32 prh_float;
@@ -730,10 +796,10 @@ extern "C" {
     prh_static_assert(sizeof(prh_i64) == 8);
     prh_static_assert(sizeof(prh_int) == sizeof(void *)); // signed pointer size type
     prh_static_assert(sizeof(prh_unt) == sizeof(void *)); // unsigned pointer size type
-    prh_static_assert(sizeof(prh_mach_int) == prh_arch_bits / 8); // signed machine generic purpose regiter size type
-    prh_static_assert(sizeof(prh_mach_unt) == prh_arch_bits / 8); // unsigned machine generic purpose register size type
-    prh_static_assert(sizeof(prh_void_ptr) == sizeof(prh_unt));
-    prh_static_assert(sizeof(prh_mach_ptr) == sizeof(prh_mach_unt));
+    prh_static_assert(sizeof(prh_ptr) == sizeof(prh_unt));
+    prh_static_assert(sizeof(prh_sys_int) == prh_arch_bits / 8); // signed machine generic purpose regiter size type
+    prh_static_assert(sizeof(prh_sys_unt) == prh_arch_bits / 8); // unsigned machine generic purpose register size type
+    prh_static_assert(sizeof(prh_sys_ptr) == sizeof(prh_sys_unt));
     prh_static_assert(sizeof(prh_f32) == 4);
     prh_static_assert(sizeof(prh_f64) == 8);
     prh_static_assert(sizeof(prh_float) == 4);
@@ -3901,7 +3967,7 @@ prh_coro *prh_impl_coro_alloc_set(prh_coro **slot, int stack_size, int coro_exte
     return coro;
 }
 
-void prh_impl_coro_load_stack(prh_coro *coro, prh_void_ptr proc, prh_void_ptr coro_call_func) {
+void prh_impl_coro_load_stack(prh_coro *coro, prh_ptr proc, prh_ptr coro_call_func) {
     prh_impl_coro_guard_verify(coro);
     // [32-bit architecture]
     // pstack + alloc <-- 00 <-- 16字节对齐
@@ -3919,11 +3985,11 @@ void prh_impl_coro_load_stack(prh_coro *coro, prh_void_ptr proc, prh_void_ptr co
 }
 
 prh_inline void prh_impl_coro_load(prh_coro *coro, prh_coroproc_t proc) {
-    prh_impl_coro_load_stack(coro, (prh_void_ptr)proc, (prh_void_ptr)prh_impl_asm_coro_call);
+    prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_coro_call);
 }
 
 prh_inline void prh_impl_soro_load(prh_coro *coro, prh_soroproc_t proc) {
-    prh_impl_coro_load_stack(coro, (prh_void_ptr)proc, (prh_void_ptr)prh_impl_asm_soro_call);
+    prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_soro_call);
 }
 
 prh_coro *prh_impl_soro_create(prh_soroproc_t proc, int stack_size, int coro_extend_size, void *userdata) {
@@ -6639,7 +6705,7 @@ prh_inline prh_thrd *prh_thrd_main(prh_thrd_struct *s) {
         }                                                                       \
     }
 
-typedef prh_void_ptr (*prh_thrdproc_t)(prh_thrd* thrd);
+typedef prh_ptr (*prh_thrdproc_t)(prh_thrd* thrd);
 typedef void (*prh_thrdfree_t)(void *userdata, int thrd_index); // thrd_index 0 for main thrd
 
 prh_thrd *prh_thrd_self(void);
@@ -7515,6 +7581,66 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
     prh_thrd_free(main, udatafree);
 }
 
+// 信号是事件发生时对进程的通知机制，有时也称为软件中断。信号与硬件中断的相似之处在于打
+// 断程序执行的正常流程，大多数情况下，无法预测信号到达的精确时间。一个具有合适权限的进
+// 程能够向另一个进程发送信号，信号的这一用法可作为一种同步技术，甚至是进程间通信（IPC）
+// 的原始形式。进程也可以向自身发送信号。然后，发往进程的诸多信号，通常都源于内核，引发
+// 内核为进程产生信息的各类事件包括：
+//      1. 硬件发生异常，即硬件检测到一个错误条件并通知内核，随即再由内核发送相应信号
+//      给相关进程。硬件异常的例子包括执行一条异常的机器指令，例如被0除，或者引用无法
+//      访问的内存区域。
+//      2. 用户键入能够产生信号的终端特殊字符，其中包括中断字符 SIGINT（通常是CTRL-C）、
+//      暂停字符（通常是CTRL-Z）。
+//      3. 发生了软件事件。 针对文件描述符的输出变为有效，调整了终端窗口大小，定时器到
+//      期，进程执行的CPU时间超限，或者该进程的某个子进程退出。
+//
+// 针对每个信号，都定义了一个唯一的从1开始的整数，<signal.h> 以 SIGxxxx 的形式对这些
+// 整数做了定义。由于每个信号的实际编号随系统不同而不同，所以在程序中应该总是使用这些符
+// 号名。信号分为两大类，第一组用于内核向进程通知事件，构成所谓传统或标准信号。Linux 中
+// 的标准信号编号范围为 1~31，然而 Linux 在 signal(7) 手册中列出的信号名称却超出了31
+// 个，超出的原因有多种。有些名称只是其他名称的同义词，这是为了与其他 UNIX 实现保持源码
+// 兼容性；其他名称名称虽有定义，但却并未使用。另一组信号由实时信息构成，其与标准信号的
+// 差异将在后文介绍。
+//
+// 信号因某些事件而产生，信号生成后，会于稍后被传递给某个进程，而进程也会采取某些措施来
+// 响应信号。在产生和到达期间，信号处于等待（pending）状态。通常，一旦内核接下来要调度
+// 进程运行，等待信号会马上送达，或者如果进程正在运行，则会立即传递信号，例如进程向自身
+// 发送信号。然而，有时需要确保一段代码不被传递过来的信号打断，此时可以将信号添加到进程
+// 的信号掩码中，这样会阻塞该组信号的到达。如果所产生的信号被掩码阻塞，那么信号将保持等
+// 待状态，直至稍后将信号从掩码中移除解除阻塞。信号到达后，进程视具体信号执行如下默认操
+// 作之一。（一）忽略信号：内核将信号丢弃，信号对进程不产生任何影响，进程不知道曾经出现
+// 过该信号。（二）终止（杀死）进程：进程异常终止，而不是因调用 exit() 而发生的正常终
+// 止。（三）产生核心转储文件，同时进程终止，核心转储文件包含对进程虚拟内存的镜像，可将
+// 其加载到调试器中以检查进程终止时的状态。（四）停止进程，暂停进程的执行。（五）于之前
+// 暂停后再度恢复进程的执行。
+//
+// 除了根据特定信号而采取的默认行为外，程序也能改变信号达到时的响应行为，这也被称为对信
+// 号的处置（disposition）设置，程序可以对信号处置设置为：恢复采取默认行为；忽略信号，
+// 这适用于默认行为将终止进程的信号；执行信号处理程序。注意，无法将信号处置设置为终止进
+// 程或转储核心，除非这时信号的默认行为。效果最为近似的是为信号设置一个处理函数，并在其
+// 中调用 exit() 或 abort()。abort() 函数为进程产生一个 SIGABRT 信号，该信号将引发
+// 进行转储核心文件并终止。Linux 特有的 /proc/PID/status 文件包含有各种位掩码字段，
+// 通过检查这些掩码可以确定进程对信号的处理。例如：cat /proc/521/status
+//      Threads:        1
+//      SigQ:   0/7579
+//      SigPnd: 0000000000000000    线程等待的信号
+//      ShdPnd: 0000000000000000    进程等待的信号
+//      SigBlk: 0000000000010000    阻塞的信号
+//      SigIgn: 0000000000380004    忽略的信号
+//      SigCgt: 000000004b817efb    捕获的信号
+//      CapInh: 0000000000000000
+//      CapPrm: 0000000000000000
+//      CapEff: 0000000000000000
+//      CapBnd: 000001ffffffffff
+//      CapAmb: 0000000000000000
+//
+// 信号在 UNIX 实现中出现很早，诞生之后又历经变革。在早期实现中，信号在特定场景下有可能
+// 会丢失（即没有传递到目标进程）。此外，尽管系统提供了执行关键代码时阻塞信号传递的机制，
+// 但阻塞有时不大可靠。BSD4.2 利用所谓可靠信号解决了这些问题，另外还增加了额外的信号来
+// shell 的终端控制。System V 后来也为信号增加了可靠语义，但采用的模型与 BSD 无法兼容，
+// 这一不兼容性直到 POSIX.1-1990 标准出台后才得以解决，该标准针对可靠信号所采取的规范
+// 主要基于 BSD 模型。
+//
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
 // 对这类互斥量的这两种操作都会成功。
@@ -7957,67 +8083,6 @@ void prh_impl_thrd_test(void) {
 #undef prh_plat_windows
 #define prh_plat_linux
 
-// 列出系统中的网络接口，其中包括 MTU 信息：
-//      sudo apt install net-tools
-//      netstat -i
-// 临时端口的分配范围：
-//      cat /proc/sys/net/ipv4/ip_local_port_range
-// 本地记录的主机名或域名到IP地址之间的映射：
-//      cat /etc/hosts
-// 服务名称与端口号之间的映射：
-//      cat /etc/services
-// 网络协议（IP协议）分配的号码：
-//      cat /etc/protocols
-//      www.iana.org/assignments/protocol-numbers
-// 域名解析配置文件：
-//      cat /etc/resolv.conf
-// 每个 DNS 服务器都知道的一组根域名服务器：
-//      dig . ns
-//      https://root-servers.org/
-// 目的套接字地址的排序配置（RFC 3484）：
-//      cat /etc/gai.conf
-// 向 inetd 守护进程发送 SIGHUP 信号：
-//      killall -HUP inetd
-// 列出当前运行的进行信息：
-//      ps
-//      ps -C program -o "pid ppid pgid sid tty command"
-// 查看套接字状态：
-//      ./program port=55555 &
-//      netstat -a | egrep '(Address|55555)'
-//          Proto   Recv-Q  Send-Q  Local Address   Foreign Address     State
-//          tcp     0       0       *:55555         *:*                 LISTEN
-//          tcp     0       0       localhost:32835 localhost:55555     ESTABLISHED
-//          tcp     0       0       localhost:55555 localhost:32835     ESTABLISHED
-// 套接字可以发送的附属数据（ancillary data）的最大大小：
-//      cat /proc/sys/net/core/optmem_max
-// 设置非零值开启显式拥塞通知（ECN, explicit congestion notification）功能：
-//      cat /proc/sys/net/ipv4/tcp_ecn
-// 显示所有套接字信息（-a），并显式扩展信息（-e）包括其用户ID：
-//      netstat -a -e
-// 只显示监听套接字信息（-l），并只显示 Internet 域套接字的信息（--inet -4 或 --inet6 -6）
-//      netstat --inet -l
-// 显示 Internet 域 TCP 套接字信息（--tcp），并显示地址和端口号、并以数字形式显示用户ID（-n）
-//      netstat --tcp -a -n
-// 显示 Internet 域 UDP 套接字信息（--udp），并显示进程ID以及套接字所归属程序名（-p）
-//      netstat --udp -a -p
-// 显示 UNIX 域套接字信息
-//      netstat --unix
-// 显示 TCP 套接字信息，并每秒重复刷新（-c）
-//      netstat --tcp -a -c
-// 显示所有ip4 ip6套接字信息：
-//      netstat -4 -6 -a -e
-//          Active Internet connections (servers and established)
-//          Proto Recv-Q Send-Q Local Address           Foreign Address         State       User            Inode
-//          tcp        0      0 127.0.0.53:domain       0.0.0.0:*               LISTEN      systemd-resolve 106370
-//          udp        0      0 127.0.0.53:domain       0.0.0.0:*                           systemd-resolve 106369
-//          udp        0      0 localhost:323           0.0.0.0:*                           root            1199
-//          udp6       0      0 ip6-localhost:323       [::]:*                              root            1200
-//      Proto 表示套接字使用的协议；
-//      Recv-Q 表示套接字接收缓冲区还未被本地应用读取的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
-//      Send-Q 表示套接字发送缓冲区中配对等待发送的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
-//      Local Address 表示套接字绑定到的本地地址
-//      Foreign Address 表示对端套接字的地址，字符串 *:* 表示没有对端地址；
-//      State 表示当前套接字所处的状态，对于TCP即TCP的各种状态；
 #ifdef PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_IMPLEMENTATION
@@ -10202,7 +10267,7 @@ static prh_cono_struct PRH_IMPL_CONO_STRUCT;
 prh_fastcall(void) prh_impl_asm_cono_call(void);
 
 prh_inline void prh_impl_cono_load(prh_coro *coro, prh_conoproc_t proc) {
-    prh_impl_coro_load_stack(coro, (prh_void_ptr)proc, (prh_void_ptr)prh_impl_asm_cono_call);
+    prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_cono_call);
 }
 
 prh_coro *prh_impl_cono_creatx(prh_conoproc_t proc, int stack_size, int coro_extend_size, int maxudsize) {
@@ -10617,7 +10682,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     return true;
 }
 
-prh_void_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
+prh_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
     prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
     prh_cono_thrd *main_thrd = PRH_IMPL_CONO_STRUCT.main_thread;
     prh_atom_ptr *thrd_ready_cono = &cono_thrd->ready_cono;
