@@ -78,6 +78,10 @@ extern "C" {
 
 // Linux 操作系统开发与调试命令
 //
+// 查看当前配置的资源限制：
+//      ulimit -a
+// 解除对核心文件大小的限制：
+//      ulimit -c unlimited
 // 查看进程信息，其中包括进程对信号的处理：
 //      cat /proc/521/status
 // 列出系统中的网络接口，其中包括 MTU 信息：
@@ -668,22 +672,6 @@ extern "C" {
 #endif
 #endif
 
-#ifndef prh_zeroret
-#if PRH_DEBUG // macro arg 'a' can only expand once
-    #define prh_condret(c, a) if (!((a) c)) { exit(__LINE__); }
-    #define prh_numbret(n, a) if ((a) != (n)) { exit(__LINE__); }
-    #define prh_zeroret(a) if ((a) != 0) { exit(__LINE__); }
-    #define prh_nnegret(a) if ((a) < 0) { exit(__LINE__); }
-    #define prh_boolret(a) if (!(a)) { exit(__LINE__); }
-#else
-    #define prh_condret(c, a) a
-    #define prh_numbret(n, a) a
-    #define prh_zeroret(a) a
-    #define prh_nnegret(a) a
-    #define prh_boolret(a) a
-#endif
-#endif
-
 // The ‘##’ token paste operator has a special meaning when placed between a
 // comma (,) and a variable argument (__VA_ARGS__). If the variable argument
 // is left out when the macro is used, then the comma before the ‘##’ will be
@@ -695,14 +683,34 @@ extern "C" {
     #define prh_defer_if(cond, ...) if (cond) { __VA_ARGS__; goto label_defer; }
 #endif
 
-#ifndef prh_prerr_if
+#ifndef prh_prerr
     #define prh_preno_if(a) if (a) { prh_prerr(errno); }
+    #define prh_abort_nz(a) if (a) { prh_abort_error(errno); }
     #define prh_prerr_if(err, ...) if (err) { prh_prerr(err); __VA_ARGS__; }
     #define prh_abort_if(err) if (err) { prh_abort_error(err); }
     #define prh_prerr(err) prh_impl_prerr((err), __LINE__)
     #define prh_abort_error(err) prh_impl_abort_error((err), __LINE__)
     void prh_impl_prerr(int err, int line);
+    void prh_impl_abort(int line);
     void prh_impl_abort_error(int err, int line);
+    #define prh_release_condret(c, a) if (!((a) c)) { prh_impl_abort(__LINE__); }
+    #define prh_release_numbret(n, a) if ((a) != (n)) { prh_impl_abort(__LINE__); }
+    #define prh_release_zeroret(a) if ((a) != 0) { prh_impl_abort(__LINE__); }
+    #define prh_release_nnegret(a) if ((a) < 0) { prh_impl_abort(__LINE__); }
+    #define prh_release_boolret(a) if (!(a)) { prh_impl_abort(__LINE__); }
+#if PRH_DEBUG // macro arg 'a' can only expand once
+    #define prh_condret(c, a) prh_release_condret((c), (a))
+    #define prh_numbret(n, a) prh_release_numbret((n), (a))
+    #define prh_zeroret(a) prh_release_zeroret(a)
+    #define prh_nnegret(a) prh_release_nnegret(a)
+    #define prh_boolret(a) prh_release_boolret(a)
+#else
+    #define prh_condret(c, a) a
+    #define prh_numbret(n, a) a
+    #define prh_zeroret(a) a
+    #define prh_nnegret(a) a
+    #define prh_boolret(a) a
+#endif
 #endif
 
 #ifndef prh_null
@@ -1510,8 +1518,12 @@ void prh_impl_assert(int line) {
 void prh_impl_prerr(int err, int line) {
     fprintf(stderr, "error %d line %d\n", err, line);
 }
+void prh_impl_abort(int line) {
+    fprintf(stderr, "abort line %d\n", line);
+    abort();
+}
 void prh_impl_abort_error(int err, int line) {
-    prh_impl_prerr(err, line);
+    fprintf(stderr, "abort %d line %d\n", err, line);
     abort();
 }
 #endif // PRH_BASE_IMPLEMENTATION
@@ -7581,6 +7593,8 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
     prh_thrd_free(main, udatafree);
 }
 
+// 异步信号处理（信号相当于是阻塞所有线程的优先级最高的一路线程）
+//
 // 信号是事件发生时对进程的通知机制，有时也称为软件中断。信号与硬件中断的相似之处在于打
 // 断程序执行的正常流程，大多数情况下，无法预测信号到达的精确时间。一个具有合适权限的进
 // 程能够向另一个进程发送信号，信号的这一用法可作为一种同步技术，甚至是进程间通信（IPC）
@@ -7817,13 +7831,298 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // 当处理函数返回时，主程序会在处理器打断的位置恢复执行。
 //
 // 虽然信号处理函数几乎可以为所欲为，但一般而言，设计应力求简单。现实的应用程序一般绝不
-// 会在信号处理函数中调用 stdio 函数。简单的信号处理函数，将降低引发竞争条件的风险，下
-// 面是针对信号处理函数的两种常见设计。
+// 会在信号处理函数中调用 stdio 函数，例如 printf() 会访问全局的标准输出设备，信号的
+// 异步中断可能导致输出混乱，甚至对于未安全实现的 printf() 还可能导致程序崩溃或者数据
+// 破坏。简单的信号处理函数，将降低引发竞争条件的风险，下面是针对信号处理函数的两种常见
+// 设计。（一）信号处理函数设置全局标志变量并退出，主程序对此标志进行周期性检查，一旦置
+// 位随即采取相应动作。主程序若因监控一个或多个文件描述符的 IO 状态而无法进行这种周期性
+// 检查时，则可令信号处理函数向一专用管道写入一个字节的数据，同时将该管道的读取断置于主
+// 程序所监控的文件描述符范围之内。（二）信号处理函数执行某种类型的清理动作，接着终止进
+// 程或者使用非本地跳转将栈解开并将控制返回到主程序中的预定位置。
 //
+// 在执行某信号的处理函数时会阻塞同类信号的传递（除非在调用sigaction时指定了SA_NODEFER  *** 进入信号处理函数之前，内核会自动屏蔽
+// 标志。如果在执行处理函数时再次产生同类信号，那么会将该信号标记为零等待状态并在处理函       当前要处理的信号，除非设置了不延迟的
+// 数返回之后再进行传递。另外，不会对信号进行排队处理，再执行处理函数期间，如果多次产生       标志（SA_NODEFER）。另外，如果同一个
+// 同类信号，那么仍会将其标记为等待状态，但稍后只会传递一次。信号的这种“失踪”方式无疑将       信号处理函数处理多个不同的信号，这个
+// 影响对信号处理函数的设计。首先，无法对信号的产生次数进行可靠的计数；其次，在为信号处       处理函数本身在执行时可能被另一个信号
+// 理函数编码时可能需要考虑处理同类信号多次产生的情况，例如对 SIGCHLD 信号的处理。           中断。
+//
+// https://www.man7.org/linux/man-pages/man7/signal-safety.7.html
+//
+// 在信号处理函数中，并不是所有系统调用以及库函数均可安全调用，这需要理解函数的两种概念：
+// 可重入（reentrant）函数和异步信号安全（async-signal-safe）函数。可重入函数首先需要
+// 区分单线程程序和多线程程序，因为多线程程序同一进程可存在多条独立并发的执行逻辑流。多
+// 执行线程的概念与使用了信号处理函数的程序也有关联，因为信号处理函数可能会在任意时点异
+// 步中断程序的执行，从而在同一个进程中实际形成了两条（即主程序和信号处理函数）独立的虽
+// 然不是并发的执行线程。如果同一进程的多条线程可以同时安全地调用某一函数，那么该函数就
+// 是可重入的。这里的安全意味着，无论其他线程调用该函数的执行状态如何，函数均可产生预期
+// 结果。SUSv3 对可重入函数的定义是：函数由两条或多条线程调用时，即便时交叉执行，其效果
+// 也与各线程以任意顺序一次调用时一致。更新全局变量或静态数据的函数可能是不可重入的，只
+// 用到本地变量的函数可定是可重入的。如果对函数的两个调用同时试图更新同一个全局变量或数
+// 据类型，那么二者很可能会相互干扰并产生不正确的结果。还有一些函数是不可重入的，是因为
+// 它们使用了经静态分配的内存来返回信息。此类函数包括 crypt() getpwnam() gethostbyname()
+// getservbyname() 等待，如果信号处理函数用到这类函数，那么将会覆盖主程序中上次调用同
+// 一函数所返回的信息。将静态数据结构用于内部记账的函数也是不可重入的，最明显的例子是
+// stdio 函数 printf() scanf() 等，它们会为缓冲区I/O更新内部数据结构。如果在信号处理
+// 函数中调用了 printf()，而主程序又在调用 printf() 或其他 stdio 函数期间遭到信号处理
+// 函数的中断，那么有时候就会看到奇怪的输出，甚至导致程序崩溃或者数据破坏。即使未使用不
+// 可重入的库函数，可重入问题依然不可忽视，如果信号处理函数和主程序都要更新由程序员自定
+// 义的全局性数据，那么对于主程序而言，这种信号处理函数就是不可重入的。
+//
+// 异步信号安全（async-signal-safe）函数，如果某一函数是可重入的，或者信号处理函数无法
+// 将其中断，就称该函数时异步信号安全的。仅当信号处理函数中断了不安全函数的执行，且处理
+// 函数本身也调用了这个不安全的函数时，该函数才是异步信号不安全的。换言之，编写信号处理
+// 函数有如下两种选择：（一）确保信号处理函数本身是可重入的，并且只调用异步信号安全的函
+// 数；（二）当主程序执行不安全函数或是去操作信号处理函数也可能更新的全局数据时，阻塞信
+// 号的传递。第二种方法的问题是，在一个复杂程序中，要想确保主程序对不安全函数的调用不被
+// 信号处理函数中断，这有些困难。出于这个原因，通常将上述规则简化为在信号处理函数中绝不
+// 调用不安全的函数。如果使用同一个处理函数来处理多个不同信号，或者在调用 sigaction()
+// 时设置了 SA_NODEFER 标志，那么处理函数就有可能自己中断自己。因此，处理函数如果更新
+// 了全局或静态数据，即便主程序不使用这些变量，那么它们依然可能是不可重入的。
+//
+// 由于可能会更新 errno，线程安全的函数依然会导致信号处理函数不可重入，因为它们可能会
+// 覆盖之前由主程序调用函数时所设置的errno值。有一种变通方法，即当信号处理函数使用了这
+// 些更新 errno 的函数时，在其入口处保持 errno 值，并在其出口处恢复 errno 的旧值。尽
+// 管存在可重入问题，有时仍需要在主程序和信号处理函数之间共享全局变量。信号处理函数可能
+// 随时会修改全局变量，只要主程序能够正确处理这种可能性，共享全局变量就是安全的。一种常
+// 见的设计是，信号处理函数只做一件事情，设置全局变量，主程序则周期性地检查这一标志，并
+// 采取相应动作来响应信号传递同时清除标志。当信号处理函数以此方式来访问全局变量时，应该
+// 总是在声明变量时使用 volatile 关键字，从而防止编译器将其优化到寄存器中。对全局变量
+// 的读写可能不止一条机器指令，而信号处理函数可能会在这些指令序列之间将主程序中断，也将
+// 此类变量访问称为非原子操作。C 语言标准以及 SUSv3 定义了一种整型数据类型 sig_atomic_t，
+// 意在保证读写操作的原子性。因此，所有在主程序与信号处理器函数之间共享的全局变量都应
+// 声明如下： volatile sig_atomic_t flag; 。注意 C 语言的自增和自减操作并不在 sig_atomic_t
+// 的保护范围内。这些操作操作在某些硬件架构上可能不是原子操作，在使用 sig_atomic_t 变
+// 量时唯一能做的就是在信号处理函数中进行设置，在主程序中进行检查，反之亦可。C99 和
+// SUSv3 规定，实现应当定义两个常量 SIG_ATOMIC_MIN 和 SIG_ATOMIC_MAX （stdint.h），
+// 用于规定可赋值给 sig_atomic_t 类型的值范围。标准要求，如果将 sig_atomic_t 表示为
+// 有符号值，其范围至少应该在 -127 ~ 127 之间，如果作为无符号值则应该在 0 ~ 255 之间。
+// 在 Linux 中，这两个常量分别等于有符号 32 为整数的正负极值。
+//
+// 目前为止看到的信号处理函数都是以返回主程序而终结，不过只是简单地从信号处理函数返回并   *** 硬件异常：SIGBUS SIGFPE SIGILL SIGSEGV
+// 不能满足需要，有时候甚至没什么用处。硬件异常可以产生 SIGBUS、SIGFPE、SIGILL、
+// SIGSEGV 信号，调用 kill() 函数来发送此类信号是另一种途径，但较为少见。SUSv3 规定，
+// 在硬件异常的情况下，如果进程从此类信号处理函数中返回，亦或进程忽略或阻塞了此类信号，
+// 那么进程的行为未定义，原因如下。从信号处理函数返回：假设机器语言指令产生了上述信号之
+// 一，并因此而调用了信号处理函数。当从处理函数正常返回后，程序会尝试从其中断处恢复执行，
+// 可当作引发信号产生的恰恰正是这条指令，所以信号会再次光临，程序将进入无限循环，重复调
+// 用信号处理函数。忽略信号：忽略因硬件而产生的信号于清理不合，试想算术异常之后，程序应
+// 当如何继续执行呢？无法明确。当由于硬件异常而产生上述信号之一时，Linux 会强制传递信
+// 号，即使程序已经请求忽略此类信号。阻塞信号：与上一种情况一样，阻塞因硬件而产生的信号
+// 也不和清理，不清楚程序随后应当如何继续处理。Linux 2.4 以及更早版本中，其内核会将阻
+// 塞硬件产生信号的企图一一忽略，信号无论如何都会传递给进程，随后要么进程终止，要么信号
+// 被信号函数处理。Linux 2.6 之后，如果信号预定阻塞，那么该信号总是会立刻杀死进程，即
+// 使进行已经为此信号设置了处理函数。对于因硬件而产生的信号，Linux 2.6 之所以会改变对
+// 其处于阻塞状态下的处理方式，是由于 Linux 2.4 的行为中隐藏有缺陷，并可能在多线程中
+// 引起死锁。正确处理硬件产生的信号的方法有：要么接受信号的默认行为，即进程终止；要么为
+// 其编写不会正常返回的处理函数。处理正常返回之外，终止处理函数执行的手动包括调用 _exit
+// 以终止进程，或者调用 siglongjmp 确保将控制传递回主程序的某一位置（产生信号的指令位
+// 置除外）。
+
+// 以下是从信号处理函数中终止的其他方法：
+//      1. 使用 _exit() 终止进程，处理函数事先可以做以下清理工作。注意不要使用 exit()
+//          来终止信号处理函数，因为他不在安全函数之列。之所以不安全，是因为该函数会在
+//          调用 _exit() 之前刷新 stdio 缓冲区。
+//      2. 使用 kill() raise() 发送信号来杀掉进程，即信号的默认动作是终止进程。
+//      3. 从信号处理函数中执行非本地跳转。
+//      4. 使用 abort() 函数终止进程，并产生核心转储文件。函数 abort() 通过产生 SIGABRT
+//          信号来终止调用进程。对 SIGABRT 的默认动作是产生核心转储文件并终止进程。调
+//          试器可以利用核心转储文件来检测调用 abort() 时的程序状态。SUSv3 要求，无论
+//          阻塞或者忽略 SIGABRT 信号，abort() 调用均不受影响。同时规定，除非进程捕获
+//          SIGABRT 信息后未从信号处理函数返回，否则 abort() 必须终止进程。（一）abort()
+//          函数永远不会返回。（二）abort() 函数首先会清除对 SIGABRT 的屏蔽，然后触发
+//          SIGABRT 信号。（三）如果 SIGABRT 被应用程序设置成被忽略，或者被信号处理函
+//          数捕获处理之后，abort() 函数将 SIGABRT 设置其默认处理函数，然后再次触发
+//          SIGABRT 信号，触发执行默认处理函数终止进程。（四）如果第三步应用程序未更改
+//          SIGABRT 信号的处理行为，就会直接调用默认的信号处理函数终止进程。（五）此类
+//          进程终止属于异常终止，使用 atexit(3) on_exit(3) 注册的函数不会被执行。
+//          （六）在 glibc 2.26 及之前的版本中，如果 abort() 导致进程终止，所有已打开
+//          的流都会被关闭并刷新，相当于调用 fclose(3)。然而，这种做法在某些情况下会导
+//          致死锁或数据损坏。因此，从 glibc 2.27 开始，abort() 终止进程时不再刷新流。
+//          POSIX.1 标准允许这两种行为，指出 abort() “可以尝试对所有已打开的流执行
+//          fclose()” —— 即是否刷新由实现决定。
+//
+// 在信号处理函数里执行非本地跳转。如果使用标准的 longjmp() 函数会存在一个问题，在进入
+// 信号处理函数之前，内核会自动将引发调用的信号以及由 act.sa_mask 所指定的任意信号添加
+// 到进程的信号掩码中，并在处理函数正常返回时再将它们从掩码中清除。如果使用 Longjmp()
+// 退出信号处理函数，那么信号掩码会发生什么情况呢？这取决于特定 UNIX 实现，在 System
+// V 一脉中，longjmp() 不会将信号掩码恢复，亦即在离开处理函数时不会对遭阻塞的信号解除
+// 阻塞。Linux 遵循 System V 这一特性。这通常并非所希望的行为，因为引发对信号处理函数
+// 调用的信号仍将保持阻塞。在源于 BSD 一脉的实现中，setjmp() 将信号掩码保持在 env 参
+// 数种，而信号掩码的保存值由 longjmp() 恢复。鉴于两大 UNIX 流派之间的差异，POSIX.1-1990
+// 选择不对 setjmp() 和 longjmp() 的信号掩码处理进行规范，而是定义了一对新函数
+// sigsetjmp() 和 siglongjmp()，针对执行非本地跳转时的信号掩码进行显式控制。这两个函
+// 数都不在异步信号安全函数的范围内，因为与在信号处理函数中调用这些函数一样，在执行非本
+// 地跳转之后去调用任何非异步信号安全函数也需要冒同样的风险。此外，如果信号处理函数中断
+// 了正在更新数据结构的主程序，那么执行非本地跳转退出处理函数后，这种不完整的更新动作很
+// 可能会将数据结构体置于不一致状态。规避这一问题的一种技术是在程序对敏感数据进行更新
+// 时，借助于 sigprocmask() 临时将信号阻塞起来。因此 longjmp(3p) 推荐应用程序不要在
+// 信号处理函数中调用 longjmp() 和 siglongjmp()。
+//
+// #include <setjmp.h>
+// int sigsetjmp(sigjmp_buf env, int savesigs); // 正常返回0，从longjmp返回val，如果val为0仍然需要返回1
+// void siglongjmp(sigjmp_buf env, int val);
+//
+// typedef struct {
+//     sigjmp_buf sigjmp;
+//     volatile sig_atomic_t canjmp;
+// } prh_sigjmp;
+// int prh_sig_setjmp(prh_sigjmp *p) {
+//     int longjmp_ret = 0; // SUSv3 不允许在赋值语句种调用 setjmp() 和 sigsetjmp()
+//     if (sigsetjmp(p->sigjmp, 1) == 0) {
+//         p->canjmp = 1; // 中断可能在设置canjmp或sigsetjmp调用之前发生
+//     } else { // 或者在 canjmp=1 之后设置处理函数，保证信号触发时 jmpenv 已初始化
+//         longjmp_ret = 1; // 从siglongjmp返回，每次触发信号之后都会重新回到这里，
+//     } // 因此调用 prh_sig_setjmp() 之后主程序基本上不能再做任何有用的事情
+//     return longjmp_ret;
+// }
+// prh_sigjmp jmpenv;
+// int main(int argc, char **argv) {
+//      struct sigaction sa;
+//      sigemptyset(&sa.sa_mask);
+//      sa.sa_flags = 0;
+//      sa.sa_handler = sig_handler;
+//      prh_zeroret(sigaction(SIGINT, &sa, prh_null));
+//      prh_sig_setjmp(&jmpenv);
+//      for (;;) pause(); // 等待信号直到被杀（killed）
+// }
+// void sig_handler(int sig) {
+//      if (jmpenv.canjmp == 0) return;
+//      siglongjmp(jmpenv, 1);
+// }
+//
+// 在备选栈中处理信号 sigaltstack()。在调用信号处理函数时，内核通常会在进程栈中为其创
+// 建函数帧。不过，如果进程对栈的扩展突破了对栈大小的限制时，这种做法就不大可行。例如，
+// 栈的增长过大，以至于会触及到一片映射内存或向上增长的堆，又或者栈的大小以及逼近设置的
+// RLIMIT_STACK 资源限制。当进程堆栈的扩展试图突破其上限时，内核将为该进程产生 SIGSEGV
+// 信号。不过，因为栈空间已经耗尽，内核也就无法为进程安装的 SIGSEGV 处理函数创建栈帧。
+// 结果是，处理函数得不到调用，而进程也就终止了。如果希望在这种情况下确保对 SIGSEGV 信
+// 号处理函数的调用，就需要做如下工作。（一）分配一块被称为 “备选信号栈” 的内存区域，作
+// 为信号处理器函数的栈帧。（二）调用 sigaltstack() 告之内核该备选信号栈的存在。（三）
+// 在创建信号处理函数时指定 SA_ONSTACK 标志，亦即通知内核在备选栈上为处理函数创建栈帧。
+// 利用系统调用 sigaltstack() 既可以创建一个备选信号栈，也可以将已创建的备选信号栈的
+// 相关信息返回。
+//
+// #include <signal.h> 成功返回0，失败返回-1和errno，参数sigstack用于设置，old用于获取已设置的信号栈信息
+// int sigaltstack(const stack_t *sigstack, stack_t *old_sigstack);
+// typedef struct {
+//      void *ss_sp; 栈起始地址，在实际使用信号栈时，内核会将 ss_sp 值自动对齐到与硬件架构相适应的地址边界
+//      int ss_flags; 标志：SS_ONSTACK SS_DISABLE
+//      size_t ss_size; 栈大小
+// } stack_t;
+//
+// 备选信号栈通常既可以静态分配，也可以在堆上动态分配。SUSv3 规定将常量 SIGSTKSZ 作为
+// 划分备选栈大小的典型值，而将 MINSIGSTKSZ 作为调用信号处理器函数所需的最小值。在
+// LINUX/x86-32 系统上，这两个值分别为 8192 和 2048。如果在获取已创建的备选信号栈的当
+// 前信息时 SS_ONSTACK 置位，表明进程正在备选信号栈上执行，这时如果再试图创建一个新的
+// 备选信号栈时会产生 EPERM 错误。在 sigstack 中指定，表示禁用当前已创建的备选信号栈，
+// 在 old_sigstack 中返回表示不存在已创建的备选信号栈。
+#include <signal.h>
+void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, void *ucontext)) {
+    // SIGSEGV 可能因为进程栈耗尽产生，此时该信号设置的处理函数将无法执行，因为已经没
+    // 有栈空间了，因此需要额外分配一个信号栈，让处理函数在这个新栈上执行。
+    stack_t altstk;
+    altstk.ss_sp = prh_malloc(SIGSTKSZ);
+    altstk.ss_size = SIGSTKSZ;
+    altstk.ss_flags = 0;
+    prh_abort_nz(sigaltstack(&altstk, prh_null));
+    struct sigaction sa;
+    sa.sa_sigaction = sigsegv_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = SA_ONSTACK | SA_SIGINFO;
+    prh_abort_nz(sigaction(SIGSEGV, &sa, prh_null));
+}
+
+// 系统调用的中断和重启。考虑如下常量：为某信号创建处理函数；发起一个阻塞式系统调用，例
+// 如从终端设备调用 read() 会阻塞到有数据输入为止；当系统调用阻塞时，信号到来中断系统
+// 调用，执行信号处理函数。那么信号处理函数返回后会发生什么呢？默认情况下，系统调用失败，
+// 并返回 EINTR。不够更为常见的情况是希望遭到中断的系统调用得以继续运行。为此，可在系统
+// 调用被中断后返回，利用如下代码来手动重启系统调用：
+//      while ((n = read(fd, buf, BUF_SIZE)) == -1 && errno == EINTR)
+//          continue;
+//      #define NO_EINTR(expr) while ((expr) == -1 && errno == EINTR);
+//
+// 即使采用了类似 NO_ENTR() 这样的宏，让信号处理函数来中断系统调用还是颇为不便，因为只
+// 要有意重启阻塞的调用，就需要为每个阻塞的系统调用添加代码。反之，可以调用指定了
+// SA_RESTART 标志的 sigaction() 来创建信号处理函数，从而令内核代表进程自动重启系统
+// 调用，还无需处理系统调用可能返回的 EINTR 错误。标志 SA_RESTART 是针对每个信号设置
+// 的，换言之允许某些信号处理函数中断阻塞的系统调用，而其他系统调用则可以自动重启。
+//
+// SA_RESTART 标志对哪些系统调用和库函数有效呢？不幸的是，并非所有的系统调用都可以通过
+// 指定 SA_RESTART 来达到重启的目的。究其原因，有部分历史因素。（一）BSD4.2 引入重启
+// 系统调用的概念，包括中断对 wait() 和 waitpid() 的调用，以及如下 IO 系统调用 read()
+// readv() write() 和阻塞的 ioctl() 操作。IO 系统调用都是可中断的，只有在操作慢速设备
+// 时，才可以利用 SA_RESTART 来自动重启调用。慢速设备包括终端、管道、FIFO 以及套接字。
+// 相比之下，磁盘文件并不在慢速设备之列，因为借助于缓冲区高速缓存，磁盘IO请求一般都可以
+// 立即得到满足。当出现磁盘 IO 请求时，内核会令该进程休眠，直至完成 IO 动作为止。（二）
+// 其他大量阻塞的系统调用则继承自 System V，在其初始设计中并未提供重启系统调用的功能。
+//
+// 在 Linux 中，如果采用 SA_RESTART 标志来创建信号处理函数，则如下阻塞的系统调用以及
+// 建构于其上的库函数在遭到中断时是可以自动重启的：
+//      1. 等待子进程的系统调用 wait() waitpid() wait3() wait4() waitid()。
+//      2. 慢速设备IO系统调用 read() readv() write() writev() ioctl()，如果在收到
+//          信号时以及传递了部分数据，那么还是会中断系统调用，但会返回成功，因为已经成
+//          功传递了部分数据。
+//      3. 系统调用 open()，在可能阻塞的情况下，例如在打开 FIFO 时。
+//      4. 用于套接字的各种系统调用 accept() accept4() connect() send() sendmsg()
+//          sendto() recv() recvfrom() recvmsg()。在 Linux 中，如果使用 setsockopt
+//          来设置超时，这些系统调用不会自动重启，详情参考 signal(7) 手册。
+//      5. 对 POSIX 消息队列继续 IO 操作的系统调用 mq_receive() mq_timedreceive()
+//          mq_send() mq_timedsend()。
+//      6. 用于设置文件锁的系统调用和库函数 flock() fcntl() lockf()。
+//      7. Linux 特有系统调用 futex() 的 FUTEX_WAIT 操作。
+//      8. 用于递减 POSIX 信号量的 sem_wait() sem_timedwait() 函数，但在内核 2.6.22
+//          之前，不管是否设置了 SA_RESTART 标志，futex() sem_wait() sem_timedwait()
+//          遭到中断时总是产生 EINTR 错误。
+//      9. 用于同步 POSIX 线程的函数 pthread_mutex_lock() pthread_mutex_trylock()
+//          pthread_mutex_timedlock() pthread_cond_wait() pthread_cond_timedwait()。
+//
+// 以下阻塞的系统调用以及构建于其上的库函数，即便指定了 SA_RESTART 也不会自动重启：
+//      1. poll() ppoll() select() pselect() 等 IO 多路复用调用，SUSv3 明文规定，
+//          无论设置 SA_RESTART 表示与否，都不对 select() pselect() 遭信号处理函数
+//          中断时的行为进行定义。
+//      2. Linux 特有的 epoll_wait() 和 epoll_pwait() 系统调用。
+//      3. Linux 特有的 io_getevents() 系统调用。
+//      4. 操作 System V 消息队列和信号量的阻塞系统调用 semop() semtimedop() msgrcv()
+//          msgsnd()。虽然 System V 原本并未提供自动启动系统调用的功能，但在某些 UNIX
+//          实现上，如果设置了 SA_RESTART 标志，这些系统调用还是会自动重启。
+//      5. 对 inotify 文件描述符发起的 read() 调用。
+//      6. 用于将进程挂起指定时间的系统调用和库函数 sleep() nanosleep() clock_nanosleep()。
+//      7. 特意设计用来等待某一信号到达的系统调用 pause() sigsuspend() sittimedwait()
+//          sigwaitinfo()。
+//
+// #include <signal.h>
+// int siginterrupt(int sig, int flag); 成功返回0，错误返回-1和errno
+//
+// 函数 siginterrupt() 用于改变信号的 SA_RESTART 设置。若参数 flag 为真（1），则针
+// 对信号 sig 的处理函数将会中断阻塞的系统调用的执行；如果为假，那么在执行 sig 信号处
+// 理函数之后，会自动重启阻塞的系统调用。函数 siginterrupt() 的工作原理是，调用
+// sigaction 获取信号当前的处理函数副本，调整 oldact 中的 SA_RESTART 标志，接着再次
+// 调用 sigaction 来更新信号处理函数。SUSv4 标记 siginterrupt() 已废止，并推荐使用
+// sigaction() 加以替代。
+//
+// 在 Linux 上，即使没有信号处理函数，某些阻塞的系统调用也会产生 EINTR 错误。如果系统
+// 调用遭到阻塞，并且进程因信号 SIGSTOP SIGTSTP SIGTTIN SIGTTOU 而停止，之后又因收
+// 到 SIGCONT 信号而恢复执行时，就会发生这种情况。以下系统调用和函数具有这一行为：
+// epoll_pwait() epoll_wait()，对 Inotify 文件描述符执行的 read 调用，semop()
+// semtimedop() sigtimedwait() sigwaitinfo()。内核 2.6.24 之前，poll() 也曾存在
+// 这种行为，2.6.22 之前的 sem_wait() sem_timedwait() futex(FUTEX_WAIT)，2.6.9
+// 之前的 msgrcv() msgsnd()，以及 2.4 之前的 nanosleep() 也同样如此。在 2.4 之前，
+// 也可以以这种方式中断 sleep()，但是不会返回错误值，而是返回休眠所剩余的秒数。这种行
+// 为的结果是，如果程序可能因信号而停止和重启，那么就需要添加代码来重启这些系统调用，即
+// 便该程序没有为停止信号设置处理函数。
+
 // #include <signal.h>
 // int kill(pid_t pid, int sig); 成功返回0，失败返回-1和errno
 // int raise(int sig);
 // int killpg(pid_t pgrp, int sig);
+// #include <unistd.h>
+// int pause(void); 总是返回 -1 和 EINTR
+// int sigprocmask(int how, const sigset_t *set, sigset_t *oldset); 暂时阻塞信号，当去掉掩码后会继续处理信号
+// int pthread_sigmaks(); 信号掩码实际上时属于线程的属性，每个线程可以独立检查和修改
+// int sigpending(sigset_t *set);
+
+// #include <signal.h>
 // char *strsignal(int sig);
 // void psignal(int sig, const char *msg);
 // int sigemptyset(sigset_t *set);
@@ -7831,19 +8130,63 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // int sigaddset(sigset_t *set, int sig);
 // int sigdelset(sigset_t *set, int sig);
 // int sigismember(const sigset_t *set, int sig); 返回1表示信号集里包含信号sig，否则返回0
-// #include <unistd.h>
-// int pause(void); 总是返回 -1 和 EINTR
 //
+// #include <signal.h> 成功返回0，失败返回-1和errno
 // int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact);
-// struct sigaction { 该结构可能比这里展示的复杂得多
-//      void (*sa_handler)(int);
-//      sigset_t sa_mask;
-//      int sa_flags;
-//      void (*sa_restorer)(void);
+// struct sigaction { 该结构可能比这里展示的复杂
+//      void (*sa_handler)(int sig); 不要同时设置 sa_handler 和 sa_sigaction
+//      void (*sa_sigaction)(int sig, siginfo_t *siginfo, void *ucontext);
+//      sigset_t sa_mask; 信号处理函数执行期间需要阻塞的信号集合
+//      int sa_flags; 用于控制处理函数调用的标志
+//      void (*sa_restorer)(void); 内部实现，外部应用程序不应该使用
 // };
-// int sigprocmask(int how, const sigset_t *set, sigset_t *oldset); 暂时阻塞信号，当去掉掩码后会继续处理信号
-// int pthread_sigmaks(); 信号掩码实际上时属于线程的属性，每个线程可以独立检查和修改
-// int sigpending(sigset_t *set);
+//
+// sig 是要获取或改变的信号编号，该参数可以是除 SIGKILL 和 SIGSTOP 之外的任何信号。
+// act 指向新处理函数的数据结果，如果仅对信号的现有处理函数感兴趣，那么可将该参数设为
+// NULL。oldact 用来返回当前信号的处理函数，如果无意获取当前信息，可将该参数设为NULL。
+// sa_restorer 字段仅供内部使用，用以确保当信号处理函数完成后，会调用专用的 sigreturn
+// 系统调用，借此来恢复进程的指向上下文，以便于进程从信号处理函数中断的位置继续执行。
+// POSIX 没有指定该字段，该字段更多信息参考 sigreturn(2)。
+//
+// sa_handler 指定信号处理函数的地址，亦或是常量 SIG_IGN 或 SIG_DFL，仅当 sa_handler
+// 是地址（不是 SIG_IGN SIG_DFL）时，才会对 sa_mask 和 sa_flags 字段加以处理。sa_mask
+// 定义了一组信号，在调用由 sa_handler 所定义的处理函数时将阻塞该组信号。这些信号会在
+// 处理函数执行之前阻塞，直到信号处理函数返回，将自动清除阻塞。此外，当前引发处理函数调
+// 用的信号或自动添加到信号掩码中（在没有设置 SA_NODEFER 的情况下），这意味着当正在执行
+// 处理函数时，如果同一信号第二次到达，信号处理函数将不会递归中断自己。但由于不会对遭阻
+// 塞的信号进行排队，如果在处理函数执行过程中重复产生这些信号中的任何信号，稍后对信号的
+// 传递都是一次性的。
+//
+// sa_flags 用于控制信号处理函数执行的各种选项：
+//      SA_NOCLDSTOP - 仅当信号为 SIGCHLD 时有效。若设置此标志，当子进程暂停（收到
+//          SIGSTOP、SIGTSTP、SIGTTIN 或 SIGTTOU）或继续执行（收到 SIGCONT）时，不
+//          会产生 SIGCHLD 信号通知父进程，参见 wait(2)。
+//      SA_NOCLDWAIT（Linux 2.6）- 仅当信号为 SIGCHLD 时有效。若设置此标志，子进程
+//          终止时不会变成僵尸进程，参见 waitpid(2)。此标志适用于为 SIGCHLD 建立信号
+//          处理函数，或将 SIGCHLD 的处理方式设为 SIG_DFL 的情况。POSIX.1 未明确规定：
+//          若在为 SIGCHLD 设置处理函数时启用 SA_NOCLDWAIT，子进程终止时是否仍会产生
+//          SIGCHLD 信号。在 Linux 上仍会生成该信号；而其他一些实现则不会。
+//      SA_NODEFER - 在信号处理函数执行期间，不自动阻塞该信号，除非该信号已显式包含在
+//          act.sa_mask 中。因此，同一信号可能在处理函数执行期间再次递达。此标志仅在为
+//          信号建立处理函数时有效。SA_NOMASK 是此标志的过时、非标准别名。
+//      SA_ONSTACK - 由 sigaltstack(2) 提供的替代信号栈上调用信号处理函数。若无替代
+//          栈可用，则使用默认栈。此标志仅在为信号建立处理函数时有效。
+//      SA_RESETHAND - 信号处理函数被调用前，自动将该信号的处理方式恢复为默认行为。此
+//          标志仅在为信号建立处理函数时有效。SA_ONESHOT 是此标志的过时、非标准别名。
+//      SA_RESTART - 使某些被信号中断的系统调用自动重启，以兼容 BSD 信号语义。此标志
+//          仅在为信号建立处理函数时有效。详见 signal(7) 中关于系统调用重启的讨论。
+//      SA_RESTORER - 不供应用程序使用。C 库利用此标志表明 sa_restorer 字段包含 “信
+//          号蹦床”（signal trampoline）的地址。详见 sigreturn(2)。
+//      SA_SIGINFO（Linux 2.2）- 指定信号处理函数接收三个参数（而非默认的一个参数）。
+//          此时应使用 sa_sigaction 字段而非 sa_handler。此标志仅在为信号建立处理函
+//          数时有效。
+//      SA_UNSUPPORTED（Linux 5.11）- 用于动态探测标志位支持情况。若注册处理函数时设
+//          置此标志，并同时包含其他可能不被内核支持的标志位，则可通过后续 sigaction()
+//          调用的 oldact->sa_flags 判断哪些标志位实际支持。
+//      SA_EXPOSE_TAGBITS（Linux 5.11）- 默认情况下，信号递交时，siginfo_t 的
+//          si_addr 字段中的架构相关标签位（tag bits）会被清除。若设置此标志，则会保
+//          留架构特定的部分标签位。若程序需兼容早于 5.11 的 Linux 版本，必须使用
+//          SA_UNSUPPORTED 探测此标志的支持情况。
 
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
@@ -8212,6 +8555,13 @@ void prh_impl_thrd_test(void) {
     printf("ENOTSUP = %d\n", ENOTSUP);
     printf("ESRCH = %d\n", ESRCH);
     assert(sizeof(pthread_t) <= sizeof(void *));
+
+#ifdef SIGSTKSZ
+    printf("SIGSTKSZ %d\n", SIGSTKSZ);
+#endif
+#ifdef MINSIGSTKSZ
+    printf("MINSIGSTKSZ %d\n", MINSIGSTKSZ);
+#endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PTHREAD end
