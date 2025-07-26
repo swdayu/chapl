@@ -1183,7 +1183,7 @@ extern "C" {
     // especially helpful with Windows code. Errors in passing data types are
     // reported at compile time instead of causing fatal errors at run time.
     // With Visual C++, STRICT type checking is defined by default.
-    #define STRICT // #define NO_STRICT
+    #define STRICT 1 // #define NO_STRICT
     // https://learn.microsoft.com/en-us/windows/win32/intl/unicode-in-the-windows-api
     // https://learn.microsoft.com/en-us/windows/win32/intl/unicode
     // https://learn.microsoft.com/en-us/cpp/text/unicode-programming-summary
@@ -1194,11 +1194,11 @@ extern "C" {
     //      Use portable run-time functions and types.
     // The run-time library provides a wide-character version of main. Use
     // wmain to make your application Unicode-aware.
-    #define UNICODE
-    #define _UNICODE
+    #define UNICODE 1
+    #define _UNICODE 1
     // Define WIN32_LEAN_AND_MEAN to exclude APIs such as Cryptography, DDE,
     // RPC, Shell, and Windows Sockets.
-    #define WIN32_LEAN_AND_MEAN
+    #define WIN32_LEAN_AND_MEAN 1
     // Suppress deprecation warnings for the older less secure functions.
     #define _CRT_SECURE_NO_DEPRECATE 1
     #define _CRT_SECURE_NO_WARNINGS 1
@@ -1244,16 +1244,91 @@ extern "C" {
     // of values which may change between systems, a call to sysconf() can
     // be made. The sysconf() argument will be _SC_FOO.
     #define prh_plat_posix 1
-    #define _POSIX_C_SOURCE 200809L
+    // POSIX 可移植操作系统接口（Protable Operating System Interface），其接口分成
+    // 两个部分：必须部分、可选部分。可选接口部分按功能又进一步分成40个功能分区，以下是
+    // POSIX.1 可选接口分组和选项码。其中标出了如果还满足 SUS 单一UNIX规范，必须要实
+    // 现的功能，其中 XSI 表示的是 X/Open 系统接口（X/Open System Interface）。
+    //      选项码  SUS强制     对应宏名称                          描述
+    //      ADV             _POSIX_ADVISORY_INFO                建议性信息
+    //      CPT             _POSIX_CPUTIME                      进程CPU时间
+    //      FSC    (*)      _POSIX_FSYNC                        文件同步
+    //      IP6             _POSIX_IPV6                         IPv6接口
+    //      ML              _POSIX_MEMLOCK                      进程内存加锁
+    //      MLR             _POSIX_MEMLOCK_RANGE                内存区域加锁
+    //      MON             _POSIX_MONOTONIC_CLOCK              单调时钟
+    //      MSG             _POSIX_MESSAGE_PASSING              消息传递
+    //      MX              __STDC_IEC_559__                    IEC 60559 浮点选项
+    //      PIO             _POSIX_PRIORITIZED_IO               优先输入输出
+    //      PS              _POSIX_PRIORITIZED_SCHEDULING       进程调度
+    //      RPI             _POSIX_THREAD_ROBUST_PRIO_INHERIT   线程健壮优先权继承
+    //      RPP             _POSIX_THREAD_ROBUST_PRIO_PROTECT   线程健壮优先权保护
+    //      RS              _POSIX_RAW_SOCKETS                  原始套接字
+    //      SHM             _POSIX_SHARED_MEMORY_OBJECTS        共享内存对象
+    //      SIO             _POSIX_SYNCHRONIZED_IO              同步输入输出
+    //      SPN             _POSIX_SPAWN                        创建子进程
+    //      SS              _POSIX_SPROADIC_SERVER              进程阵发性服务器
+    //      TCT             _POSIX_THREAD_CPUTIME               线程CPU时间
+    //      TPI             _POSIX_THREAD_PRIO_INHERIT          非健壮优先权继承
+    //      TPP             _POSIX_THREAD_PRIO_PROTECT          非健壮优先权保护
+    //      TPS             _POSIX_THREAD_PRIORITY_SCHEDULING   线程优先级调度
+    //      TSA    (*)      _POSIX_THREAD_ATTR_STACKADDR        线程栈地址属性
+    //      TSH    (*)      _POSIX_THREAD_PROCESS_SHARED        线程进程共享同步
+    //      TSP             _POSIX_THREAD_SPORADIC_SERVER       线程阵发性服务器
+    //      TSS    (*)      _POSIX_THREAD_ATTR_STACKSIZE        线程栈长度属性
+    //      TYM             _POSIX_TYPED_MEMORY_OBJECTS         类型内存对象
+    //      XSI    (*)      _XOPEN_UNIX                         X/Open 扩充接口
+    // SUS 单一UNIX规范（Single UNIX Specification）是 POSIX.1 标准的一个超集，它
+    // 定义了一些附加接口扩展 POSIX.1 规范提供的功能。Open Group 拥有 UNIX 商标，他
+    // 们使用 Single UNIX Specification 定义了一系列接口，一个系统要想称为 UNIX 系
+    // 统，其实现必须支持这些接口。只有遵循 X/Open 系统接口（XSI）的实现才能称为UNIX。
+    // 有些接口在遵循 XSI 的系统中是可选的，这些接口根据功能分成若干组：加密 _XOPEN_CRYPE，
+    // 实时 _XOPEN_REALTIME，高级实时，实时线程 _XOPEN_REALTIME_THREADS，高级实时
+    // 线程。
+    // _POSIX_C_SOURCE          1               POSIX.1-1990 and ISO C (1990)
+    //                          >=2             POSIX.2-1992
+    //                          >=199309L       POSIX.1b (real-time extensions)
+    //                          >=199506L       POSIX.1c (threads)
+    //                          >=200112L       POSIX.1-2001 (excluding the XSI extension) and C99
+    //                          >=200809L       POSIX.1-2008 (excluding the XSI extension)
+    // _XOPEN_SOURCE            any value       POSIX.1, POSIX.2, and XPG4
+    //                          >=500           SUSv2 (UNIX 98)
+    //                          >=600           SUSv3 (UNIX 03, POSIX.1-2001 plus the XSI extension) and C99
+    //                          >=700           SUSv4 (POSIX.1-2008 plus the XSI extension)
+    // _XOPEN_SOURCE_EXTENDED   已过时，如果定义 _XOPEN_SOURCE>=500 相当于定义了该宏，XPG4v2 (SUSv1) UNIX extensions (UNIX 95)
+    // 三个由各自独立的组织指定的UNIX标准：ISO C，IEEE POSIX，SUS。但是标准只是接口的
+    // 规范。这些标准是如何于现实世界相关连的呢？UNIX 的各个版本和变体都起源于在 PDP-11
+    // 系统上允许的 UNIX 分时系统第6版（1976）和第7版（1979），通常称为 V6 和 V7。这
+    // 两个版本是在贝尔实验室以外首先得到广泛应用的 UNIX 系统。从这棵树上演进出以下三个
+    // 分支：美国电话电报公司（AT&T），伯克利软件发布（BSD，Berkeley Software Distribution）
+    //      1. AT&T 分支，从此引出了系统 III 和系统 V（被称为 UNIX 的商用版本）
+    //      2. 加州大学伯克利分校分支，从此引出 4.xBSD 实现 => FreeBSD NetBSD OpenBSD
+    //      3. 由 AT&T 贝尔实验室的计算科学研究中心不断开发的 UNIX 研究版本，从此引出
+    //          UNIX 分时系统第8版、第9版、终止于1990年的第10版
+    // Linux - 启发于 MINIX（Minimal UNIX）兼容 POSIX 的 UNIX 系统调用子集的微内核系统
+    // Mac OS X - Mach Kernel, FreeBSD, Other framework and extention（核心操作系统称为 Darwin）
+    #define _POSIX_C_SOURCE 200809L // 定义不同版本的 POSIX.1 标准
+    #define _XOPEN_SOURCE 700 // 定义不同版本的 SUS 版本，其中 >=600 相当于 _POSIX_C_SOURCE>=200112L + XSI，其中 >=700 相当于 _POSIX_C_SOURCE>=200809L + XSI
+    #define _ISOC11_SOURCE 1 // 相当于在编译中指定 -std=c11
     // glibc https://www.gnu.org/software/libc/
     // getconf GNU_LIBC_VERSION, ldd --version, ldd `which ls` | grep libc
-    #ifndef _GNU_SOURCE // Many features require _GNU_SOURCE on various platforms
-    #define _GNU_SOURCE // pthread_getattr_np glibc 2.2.3, __GLIBC__ __GLIBC_MINOR__
-    #endif
-    // Need this so Linux systems define fseek64o, ftell64o and off64_t
-    #ifndef _LARGEFILE64_SOURCE
-    #define _LARGEFILE64_SOURCE 1
-    #endif
+    // Many features require _GNU_SOURCE on various platforms, pthread_getattr_np glibc 2.2.3, __GLIBC__ __GLIBC_MINOR__
+    #define _GNU_SOURCE 1
+    // _LARGEFILE64_SOURCE - 启用由 LFS（Large File Summit） 定义的 SUS “过渡扩展”
+    //参见 http://opengroup.org/platform/lfs.html。该替代 API 提供了一组新对象（函
+    // 数与类型），其名称均以 “64” 为后缀，例如 off64_t 对应 off_t，lseek64() 对应
+    // lseek() 等。新编写的程序不应再使用此宏，应改用 _FILE_OFFSET_BITS=64 来获得大
+    // 文件支持。
+    // _FILE_OFFSET_BITS - 将此宏定义为 64 时，编译器会自动把所有 32 位文件 I/O 及
+    // 文件系统操作相关的函数和数据类型（如 off_t、lseek、stat 等）替换为对应的 64
+    // 位版本。作用：在 32 位系统 上支持大于 2 GB 的大文件；调用仅提供 64 位版本的新
+    // 接口（如 copy_file_range(2)）时无需手工改写代码。只要源码本身写得符合规范，重
+    // 新编译即可获得大文件能力。在 64 位系统 上，文件大小天然支持超过 2 GB，因此该宏
+    // 不起作用。
+    // _TIME_BITS - 将此宏定义为 64 会把 time_t 的位宽改为 64 位，从而能表示 2038
+    // 年以后的时间戳。该宏与 _FILE_OFFSET_BITS 紧密相关，在某些实现中还需同时设置
+    // _FILE_OFFSET_BITS=64。（glibc 2.34 起提供此宏。）
+    #define _FILE_OFFSET_BITS 64
+    #define _TIME_BITS 64
     #if defined(prh_plat_apple)
     #ifndef _DARWIN_C_SOURCE // Restore Darwin APIs removed by _POSIX_C_SOURCE
         #define _DARWIN_C_SOURCE 1
@@ -5993,6 +6068,7 @@ void prh_impl_time_test(void) {
     prh_time_init();
     printf("\n\n[MSC][time]\n");
     printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
+    printf("sizeof(void*) %d-byte\n", (int)sizeof(void*));
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
@@ -7628,11 +7704,11 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //  SIGKILL             确保杀死进程                                term（终止进程）
 //  SIGSTOP             确保停止进程                                stop（停止进程）
 //  SIGCONT             若停止则继续                                cont（恢复一个已停止的进程）
-//  SIGTRAP             跟踪或断点陷进                              core（产生核心转储文件，并终止进程）
+//  SIGTRAP             跟踪或断点陷阱                              core（产生核心转储文件，并终止进程）
 //  SIGABRT             中止进程                                    core（产生核心转储文件，并终止进程）
 //  SIGIOT              同SIGABRT（Linux），硬件错误（某些UNIX）      core（产生核心转储文件，并终止进程）
 //  SIGBUS              内存访问错误                                term（可能产生核心转储文件）
-//  SIGSEGV             无效内存引用                                core（产生核心转储文件，并终止进程）
+//  SIGSEGV             页面非法访问                                core（产生核心转储文件，并终止进程）
 //  SIGEMT              硬件错误                                    term（可能产生核心转储文件）
 //  SIGILL              非法指令                                    core（产生核心转储文件，并终止进程）
 //  SIGFPE              算术异常                                    core（产生核心转储文件，并终止进程）
@@ -7642,7 +7718,7 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //  SIGVTALRM           虚拟定时器到期                              term（终止进程）
 //  SIGPROF             性能定时器到期                              term（终止进程）
 //  SIGSTKFLT           协处理器错误                                term（终止进程）
-//  SIGCHLD SIGCLD      子进程停止或终止                            ignore（忽略该信号）
+//  SIGCHLD SIGCLD      子进程状态变化                              ignore（忽略该信号）
 //  SIGURG              套接字上有紧急数据                          ignore（老版本可能终止进程）
 //  SIGXCPU             超出CPU时间限制                             term（可能产生核心转储文件）
 //  SIGXFSZ             超出文件大小限制                            term（可能产生核心转储文件）
@@ -7701,33 +7777,40 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      将该信号发送给已停止的进程，进程将会恢复运行（即在之后某个时间点重新获得调度）。
 //      当接收信号的进程当前不处于停止状态，默认情况下会忽略该信号。进程可以捕获该信号，
 //      以便在恢复运行时可以执行某些操作。
-// SIGTRAP - 跟踪或断点陷进
+// SIGTRAP - 跟踪或断点陷阱
 //      该信号用来实现断点调试功能以及 strace(1) 命令所执行的跟踪系统套用功能。更多信
 //      息参见 ptrace(2) 手册。
+//      TRAP_BRKPT TRAP_TRACE
 // SIGABRT - 中止进程
 //      当进程调用 abort() 函数时，系统向进程发送该信号。默认行为：终止进程，并产生核
 //      心转储文件。
 // SIGIOT - 中止进程或硬件错误
 //      在 Linux 中，该信号与 SIGABRT 相同。在其他一些 UNIX 实现中，该信号表示发生了
 //      由实现定义的硬件错误。
-// SIGBUS - 内存访问错误
-//      产生总线错误信号即表示发生了某种内存访问错误。例如当使用由 mmap() 创建的内存
-//      映射时，如果试图访问的地址超出了底层内存映射文件的范围，将产生该错误。
-// SIGSEGV - 无效内存引用
-//      这一信号非常常见，当应用程序对内存的引用无效时，就会产生该信号。引起对内存无限
+// SIGSEGV - 页面非法访问，内存地址非法或不可访问
+//      这一信号非常常见，当应用程序对内存的引用无效时，就会产生该信号。引起对内存无效
 //      引用的原因很多，可能是因为要引用的页不存在，或者进程试图更新只读内存中某一位置
 //      的内容，又或者进程企图在用户态去访问内核的部分内存。该信号的命名源于术语段违规。
+//      SEGV_MAPERR SEGV_ACCERR SEGV_BNDERR SEGV_PKUERR
+// SIGBUS - 内存访问错误，内存地址可以访问但访问错误
+//      总线错误即表示发生了某种内存访问错误，例如地址未对齐、对应的物理地址不存在、硬
+//      件内存校验错误等等。
+//      BUS_ADRALN BUS_ADRERR BUS_OBJERR BUS_MCEERR_AR BUS_MCEERR_AO
 // SIGEMT - 硬件错误
 //      UNIX 系统通常用该信号来标识一个依赖于实现的硬件错误。Linux 系统仅在 Sun SPARC
-//      实现中使用了该信号。后缀 EMT 源自仿真器陷进（emulator trap），Digital PDP-11
+//      实现中使用了该信号。后缀 EMT 源自仿真器陷阱（emulator trap），Digital PDP-11
 //      的汇编程序助记符之一。
 // SIGILL - 非法指令
 //      如果进程试图执行非法或格式不正确的机器语言指令，系统将向进程发送该信号。
+//      ILL_ILLOPC ILL_ILLOPN ILL_ILLADR ILL_ILLTRP ILL_PRVOPC ILL_PRVREG
+//      ILL_COPROC ILL_BADSTK
 // SIGFPE - 算术错误
 //      该信号因特定类型的算术错误而产生，比如除以0，后缀 FPE 是浮点异常的缩写，不过整
 //      型算术错误页能产生该信号。该信号何时产生取决于硬件架构和对CPU控制寄存器的设置。
 //      例如在 x86-32 架构中，整数除以0总是产生 SIGFPE 信号，但是对浮点数除以0的处理
 //      取决于是否启用了 FE_DIVBYZERO 异常。更多信息参考 fenv(3) 手册。
+//      FPE_INTDIV FPE_INTOVF FPE_FLTDIV FPE_FLTOVF FPE_FLTUND FPE_FLTRES
+//      FPE_FLTINV FPE_FLTSUB
 // SIGUSR1 SIGUSR2 - 用户自定义信号
 //      这两个信号供程序员自定义使用，内核绝不会为进程产生这些信号。进程可以使用这些信
 //      号来相互通知事件的发生，或是彼此同步。在早期的 UNIX 实现中，这是可供应用随意使
@@ -7750,9 +7833,10 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // SIGSTKFLT - 协处理器栈错误
 //      singal(7) 手册将其记录为"协处理器栈错误"，Linux 对该信号作了定义，但并未加以
 //      使用。
-// SIGCHLD SIGCLD - 子进程停止或终止
+// SIGCHLD SIGCLD - 子进程状态变化
 //      当父进程的某一子进程终止（调用了exit()或被信号杀死）时，内核将向父进程发送该
 //      信号。当父进程的某一子进程因受到信号而停止或恢复时，也可能会向父进程发送该信号。
+//      CLD_EXITED CLD_KILLED CLD_DUMPED CLD_TRAPPED CLD_STOPPED CLD_CONTINUED
 // SIGURG - 紧急数据
 //      系统发送该信号给一个进程，表示套接字上存在带外数据（也称作紧急数据）。
 // SIGXCPU - 超出CPU时间限制
@@ -7763,6 +7847,7 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // SIGIO - 输入输出事件
 //      利用 fcntl() 系统调用，可在特定类型（如终端、套接字）文件描述符上发送 IO 事件
 //      时产生该信号。
+//      POLL_IN POLL_OUT POLL_MSG POLL_ERR POLL_PRI POLL_HUP
 // SIGPOLL - 输入输出事件
 //      该信号从 System V 派生而来，与 Linux 中的 SIGIO 信号同义。
 // SIGPWR - 电量即将耗尽
@@ -7774,7 +7859,8 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      SIGINFO 信号，用于获取前台进程组的状态信息。
 // SIGSYS - 无效系统调用
 //      如果进程发起的系统调用有误，那么将产生该信号，这意味着系统将进程执行的指令视为
-//      一个系统调用陷进（trap），但相关的系统调用编号却是无效的。
+//      一个系统调用陷阱（trap），但相关的系统调用编号却是无效的。
+//      SYS_SECCOMP
 // SIGUNUSED - 未使用或无效系统调用
 //      顾名思义，该信号没有使用。在 Linux 2.4 及其后续版本中，该信号在很多架构中与
 //      SIGSYS 信号同义。换言之，尽管信号还保持向后兼容，但信号编号在这些架构中不再处
@@ -8141,6 +8227,9 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 //      void (*sa_restorer)(void); 内部实现，外部应用程序不应该使用
 // };
 //
+// 可能错误：EFAULT - act 或者 oldact 执行非法内存，EINVAL - 指定了一个非法的信号，
+// 当指定了 SIGKILL 或 SIGSTOP 也会产生这个错误。
+//
 // sig 是要获取或改变的信号编号，该参数可以是除 SIGKILL 和 SIGSTOP 之外的任何信号。
 // act 指向新处理函数的数据结果，如果仅对信号的现有处理函数感兴趣，那么可将该参数设为
 // NULL。oldact 用来返回当前信号的处理函数，如果无意获取当前信息，可将该参数设为NULL。
@@ -8187,7 +8276,188 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 //          si_addr 字段中的架构相关标签位（tag bits）会被清除。若设置此标志，则会保
 //          留架构特定的部分标签位。若程序需兼容早于 5.11 的 Linux 版本，必须使用
 //          SA_UNSUPPORTED 探测此标志的支持情况。
-
+//      动态探测标志位支持：Linux 的 sigaction() 调用接受在 act->sa_flags 中设置未
+//      知标志位而不报错。自 Linux 5.11 起，内核的行为是：第二次 sigaction() 调用会
+//      把 oldact->sa_flags 中的未知位清零，即第二次调用 sigaction() 获取已经设置的
+//      处理函数信息，返回的标志位会清除那些不支持的标记。然而，历史上第二次 sigaction()
+//      调用通常会保留这些未知位。因此，不能仅通过检测 sa_flags 中是否存在某个标志位来
+//      判断新标志是否受支持；程序必须先确认 SA_UNSUPPORTED 已被清零，然后才能依赖
+//      sa_flags 的内容。由于除非检测通过，否则无法保证信号处理函数的行为正确，因此明智
+//      的做法是：在注册处理函数并执行检测时阻塞受影响的信号；若无法阻塞（例如信号是同步
+//      的），则在信号处理函数内部执行第二次 sigaction() 调用执行检查。
+//      对于不支持某个特定标志的内核，即使 act->sa_flags 中设置了该标志，内核也会表现
+//      得如同该标志未被设置一样。标志 SA_NOCLDSTOP、SA_NOCLDWAIT、SA_SIGINFO、
+//      SA_ONSTACK、SA_RESTART、SA_NODEFER、SA_RESETHAND 以及 SA_RESTORER（若架构
+//      有定义）可能无法可靠地用此机制探测，因为它们在 Linux 5.11 之前就已引入。但一般
+//      来说，程序可以假定这些标志受支持，因为它们自 2003 年发布的 Linux 2.6 起就已被
+//      实现。
+//
+// 当使用 sigaction() 建立信号处理函数并设置 SA_SIGINFO 标志时，处理函数有三个参数：
+//      void handler(int sig, siginfo_t *info, void *ucontext);
+// sig - 触发本次信号处理函数调用的信号编号。
+// ucontext - 指向 ucontext_t 结构的指针（被强制转换为 void *）。该结构由内核保存在
+//      用户态栈中，用于记录信号发生时的上下文信息；详情参见 sigreturn(2)。关于
+//      ucontext_t 的进一步说明可参考 getcontext(3) 和 signal(7)。通常情况下，信号
+//      处理函数并不会使用这个参数。
+//      https://www.man7.org/linux/man-pages/man3/getcontext.3.html
+//      https://www.man7.org/linux/man-pages/man3/makecontext.3.html
+//      该结构提供了所谓的用户上下文信息，描述调用信号处理函数前的进程状态。使用该结构
+//      的其他函数有 getcontext() setcontext() makecontext() swapcontext() 分别
+//      允许进程去获取、改变、创建、交换执行上下文。可以使用这些函数来实现协程，令进程
+//      的执行线程在两个或多个函数之间交替。SUSv3 规定了这些函数，但将他们标记为已废
+//      止。SUSv4 则将其删去，并建议使用 POSIX 线程来重写旧有的应用程序。
+// info - 指向 siginfo_t 结构的指针，该结构包含关于信号的更多详细信息：
+//      siginfo_t { 所有信号都定义了前三个字段，其他字段可能是联合体字段，需在特定情况下使用
+//      int      si_signo;     信号编码，所有信号都定义了前三个字段
+//      int      si_errno;     若信号由某次失败的系统调用触发，则存放对应的 errno；否则为 0（Linux 下基本不用）
+//      int      si_code;      产生信号的原因代码，告诉 SA_SIGINFO 信号处理函数“这条信号为什么产生”
+//      int      si_trapno;    /* Trap number that caused hardware-generated signal (unused on most architectures) */ 部分架构上硬件异常对应的陷阱号，大多数平台忽略
+//      pid_t    si_pid;       /* Sending process ID */
+//      uid_t    si_uid;       /* Real user ID of sending process */
+//      int      si_status;    /* Exit value or signal */
+//      clock_t  si_utime;     /* User time consumed */
+//      clock_t  si_stime;     /* System time consumed */
+//      union sigval si_value; /* Signal value */
+//      int      si_int;       /* POSIX.1b signal */
+//      void    *si_ptr;       /* POSIX.1b signal */
+//      int      si_overrun;   /* Timer overrun count; POSIX.1b timers */
+//      int      si_timerid;   /* Timer ID; POSIX.1b timers */
+//      void    *si_addr;      /* Memory location which caused fault */
+//      long     si_band;      /* Band event (was int in glibc 2.3.2 and earlier) */
+//      int      si_fd;        /* File descriptor */
+//      short    si_addr_lsb;  /* Least significant bit of address (since Linux 2.6.32) */
+//      void    *si_lower;     /* Lower bound when address violation occurred (since Linux 3.19) */
+//      void    *si_upper;     /* Upper bound when address violation occurred (since Linux 3.19) */
+//      int      si_pkey;      /* Protection key on PTE that caused fault (since Linux 4.6) */
+//      void    *si_call_addr; /* Address of system call instruction (since Linux 3.5) */
+//      int      si_syscall;   /* Number of attempted system call (since Linux 3.5) */
+//      unsigned int si_arch;  /* Architecture of attempted system call (since Linux 3.5) */
+//      }
+//  使用 kill(2) 或 sigqueue(3) 发送的信号会填充 si_pid（发送进程的 PID）和 si_uid
+// （发送进程的真实 UID）。此外，由 sigqueue(3) 发送的信号还会把发送方指定的整数值或指
+// 针值分别写入 si_int 和 si_ptr；详见 sigqueue(3)。
+//      信号来源                有效字段
+//      kill(2)                 si_pid si_uid
+//      sigqueue(3)             si_pid si_uid si_int/si_ptr
+// 由 POSIX.1b 定时器（Linux 2.6 起）发出的信号会填充 si_overrun 和 si_timerid。
+// si_timerid 是内核内部用来标识该定时器的 ID，它不等于 timer_create(2) 返回的定时
+// 器 ID。si_overrun 给出定时器的 overrun 计数，与调用 timer_getoverrun(2) 得到的
+// 信息相同。这两个字段是 Linux 特有的非标准扩展。
+//      信号来源             有效字段（这两个字段 Linux 特有）
+//      POSIX.1b定时器       si_overrun 定时器超期计数
+//                          si_timerid 内核内部定时器
+// 用于消息队列通知，参见 mq_notify(3) 中对 SIGEV_SIGNAL 的说明。
+//      si_int/si_ptr       保存调用 mq_notify(3) 时给出的 sigev_value
+//      si_pid              消息发送进程的进程ID
+//      si_uid              消息发送者的真实用户ID
+// SIGCHLD 会填充 si_pid、si_uid、si_status、si_utime 和 si_stime，提供关于子进程
+// 的信息。字段 si_utime、si_stime 不包含用于等待子进程的时间，与 getrusage(2)、
+// times(2) 不同。在 Linux 2.6 之前以及 Linux 2.6.27 之后，时间单位为
+// sysconf(_SC_CLK_TCK)；在 Linux 2.6 至 2.6.27 之间因 bug 使用了可由用户配置的
+// system jiffy，见 time(7)。
+//      si_pid              子进程的 PID
+//      si_uid              子进程的真实 UID
+//      si_status           若 si_code 为 CLD_EXITED，则为子进程退出码；否则为导致状态改变的信号编号
+//      si_utime si_stime   子进程消耗的用户态/内核态 CPU 时间
+// SIGILL、SIGFPE、SIGSEGV、SIGBUS 和 SIGTRAP 会填充 si_addr，给出发生错误的地址。
+// 在某些架构上，这些信号还会填充 si_trapno。对于 SIGBUS 的子错误 BUS_MCEERR_AO 和
+// BUS_MCEERR_AR，还会填充 si_addr_lsb，表示出错地址的最低有效位，从而指示损坏范围；
+// 例如整页损坏时，si_addr_lsb = log2(sysconf(_SC_PAGESIZE))。当 SIGTRAP 由 ptrace(2)
+// 事件 (PTRACE_EVENT_foo) 触发时，si_addr 不会被填充，但 si_pid 和 si_uid 会给出
+// 触发该事件的进程 PID 与 UID；若由 seccomp(2) 触发，则显示的是被跟踪进程（tracee）。
+// BUS_MCEERR_* 和 si_addr_lsb 均为 Linux 特有扩展。
+//      SIGILL              si_addr 非法指令地址
+//      SIGFPE              si_addr 算术异常指令的地址
+//      SIGSEGV             si_addr 页故障的地址, SEGV_BNDERR si_lower si_upper 给出越界地址，SEGV_PKUERR si_pkey 触发错误的内存保护键
+//      SIGBUS              si_addr 产生内存访问错误的地址，BUS_MCEERR_AO BUS_MCEERR_AR si_addr_lsb 表示损坏粒度（位掩码）即出错地址的最低有效位
+//      SIGTRAP             si_addr 断点/陷阱地址
+//                          ptrace(2) si_pid si_uid 发送该事件的进程 PID 和 UID，不会指定 si_addr
+//                          seccomp(2) si_pid si_uid 被跟踪进程的 PID 和 UID
+// SIGIO/SIGPOLL（Linux 上两者等价）会填充 si_band 和 si_fd。
+//      si_band             与 poll(2) 的 revents 字段相同的位掩码
+//      si_fd               发生 I/O 事件的文件描述符，详见 fcntl(2) 中对 F_SETSIG 的说明
+// SIGSYS（Linux 3.5 起） 无效系统调用，当 seccomp 过滤器返回 SECOMP_RET_TRAP 时产
+// 生，会填充 si_call_addr、si_syscall、si_arch、si_errno 等字段，具体描述见
+// seccomp(2)。
+//      si_call_addr        触发 seccomp 违规的系统调用指令地址
+//      si_syscall          尝试的系统调用编号
+//      si_arch             系统调用架构编号
+//      si_errno            seccomp 返回的 SECCOMP_RET_TRAP 错误码
+//
+// siginfo_t 中的 si_code 是一个数值（不是位掩码），用来告诉 SA_SIGINFO 信号处理函数
+// “该信号为什么产生”。对于 ptrace(2) 产生的事件，此时 si_code 的值为
+//      (SIGTRAP | PTRACE_EVENT_foo << 8)
+// 即低字节是 SIGTRAP，高字节存放 ptrace 事件编号。对于非 ptrace(2) 事件下面按信号类
+// 别列出 si_code 可能取到的宏值及其含义。自 glibc 2.20 起，只要在包含任何头文件之前
+// 定义下列任一宏，即可从 <signal.h> 获得这些符号定义。但对于 TRAP_* 常量，仅前两条定
+// 义方式可用，glibc 2.20 之前则无需任何特性测试宏即可使用。
+//      _XOPEN_SOURCE >= 500
+//      _XOPEN_SOURCE 与 _XOPEN_SOURCE_EXTENDED 同时定义
+//      _POSIX_C_SOURCE >= 200809L
+// 对于一般信号，si_code 可以是以下值，用来表明信号产生的来源：
+//      SI_USER         用户空间触发的信号，由 kill(2) 或 raise(2) 调用进程发起，其他有效字段 si_pid si_uid
+//      SI_KERNEL       由内核发起的信号
+//      SI_QUEUE        sigqueue(3)，其他有效字段 si_pid si_uid si_int/si_ptr
+//      SI_TIMER        POSIX 定时器、或 setitimer(2)/alarm(2) 超时
+//      SI_MESGQ        POSIX 消息队列状态变化（Linux 2.6.6）
+//      SI_ASYNCIO      异步 I/O （AIO）操作已经完成
+//      SI_SIGIO        入队 SIGIO（仅 Linux 2.2 及以前；2.4 改用 SIGIO/SIGPOLL 专用代码）
+//      SI_TKILL        tkill(2) 或 tgkill(2)（Linux 2.4.19）
+// 非法指令（SIGILL）信号的 si_code 参数，另外 si_addr 字段指出非法指令的地址:
+//      ILL_ILLOPC      非法操作码
+//      ILL_ILLOPN      非法操作数
+//      ILL_ILLADR      非法寻址方式
+//      ILL_ILLTRP      非法陷阱
+//      ILL_PRVOPC      特权操作码
+//      ILL_PRVREG      特权寄存器
+//      ILL_COPROC      协处理器错误
+//      ILL_BADSTK      内部栈错误
+// 算术异常（SIGFPE）信号的 si_code 参数，另外 si_addr 字段指出算术异常指令的地址：
+//      FPE_INTDIV      整数除以 0
+//      FPE_INTOVF      整数溢出
+//      FPE_FLTDIV      浮点除以 0
+//      FPE_FLTOVF      浮点溢出
+//      FPE_FLTUND      浮点下溢
+//      FPE_FLTRES      浮点结果不精确
+//      FPE_FLTINV      浮点无效操作
+//      FPE_FLTSUB      下标越界
+// 段错误或页面非法访问（SIGSEGV）信号的 si_code 参数，另外 si_addr 字段指出对应的非法地址：
+//      SEGV_MAPERR     地址未映射
+//      SEGV_ACCERR     映射对象权限不符
+//      SEGV_BNDERR     地址边界检查失败（Linux 3.19），越界地址范围 si_lower si_upper
+//      SEGV_PKUERR     内存保护键拒绝访问，参见 pkeys(7)（Linux 4.6），应用在本次访问上的内存保护键通过 si_pkey 字段给出
+// 总线或内存访问错误（SIGBUS）信号的 si_code 参数，另外 si_addr 字段指出当前导致内存访问错误的地址：
+//      BUS_ADRALN      地址未对齐
+//      BUS_ADRERR      物理地址不存在
+//      BUS_OBJERR      对象特定的硬件错误
+//      BUS_MCEERR_AR   硬件内存校验错误已消耗，需处理，内核已无法恢复数据完整性，程序捕获异常后只能退出进程（Linux 2.6.32）
+//      BUS_MCEERR_AO   检测到进程中的硬件内存校验错误但未消耗，可选处理，内核不会立即杀死进程而是把错误标记到页表，允许程序选择是否继续运行（Linux 2.6.32）
+// 跟踪或断点陷阱（SIGTRAP）信号的 si_code 参数，另外 si_addr 字段指出触发陷阱的指令地址：
+//      TRAP_BRKPT       进程断点
+//      TRAP_TRACE       进程跟踪陷阱
+//      TRAP_BRANCH      进程分支陷阱（IA64 only，Linux 2.4）
+//      TRAP_HWBKPT      硬件断点/观察点（IA64 only，Linux 2.4）
+// 对于 ptrace(2) 事件产生的跟踪陷阱（SIGTRAP）信号，没有指定 si_addr 字段：
+//      si_code         ((PTRACE_EVENT_foo << 8) | SIGTRAP)
+//      si_pid          触发陷阱的进程ID
+//      si_uid          触发陷阱的真实用户ID
+// 子进程状态变化（SIGCHLD）信号的 si_code 参数，其他表示子进程信息的有效字段 si_pid si_uid si_utime si_stime：
+//      CLD_EXITED       子进程正常退出，字段 si_status 表示退出状态，在其他原因中是导致子进程状态变化的信号编号
+//      CLD_KILLED       子进程被信号杀死
+//      CLD_DUMPED       子进程异常终止并产生核心转储文件
+//      CLD_TRAPPED      被跟踪的子进程进入陷阱
+//      CLD_STOPPED      子进程停止
+//      CLD_CONTINUED    停止的子进程继续（Linux 2.6.9）
+// 输入输出事件（SIGIO/SIGPOLL）信号的 si_code 参数，其他有效字段 si_band si_fd：
+//      POLL_IN         数据可读
+//      POLL_OUT        缓冲区可写
+//      POLL_MSG        输入消息到达
+//      POLL_ERR        I/O 错误
+//      POLL_PRI        高优先级输入
+//      POLL_HUP        设备挂断或断开
+// 无效系统调用（SIGSYS）信号的 si_code 参数，其他有效字段 si_call_addr si_syscall si_arch si_errno：
+//      SYS_SECCOMP     由 seccomp 过滤器规则触发（Linux 3.5）
+//
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
 // 对这类互斥量的这两种操作都会成功。
