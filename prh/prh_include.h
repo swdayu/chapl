@@ -7933,6 +7933,7 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // 影响对信号处理函数的设计。首先，无法对信号的产生次数进行可靠的计数；其次，在为信号处       处理函数本身在执行时可能被另一个信号
 // 理函数编码时可能需要考虑处理同类信号多次产生的情况，例如对 SIGCHLD 信号的处理。           中断。
 //
+// 参见 signal-safety(7) 获取可在信号处理函数内部安全调用的异步信号安全函数列表。
 // https://www.man7.org/linux/man-pages/man7/signal-safety.7.html
 //
 // 在信号处理函数中，并不是所有系统调用以及库函数均可安全调用，这需要理解函数的两种概念：
@@ -8227,8 +8228,23 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 //      void (*sa_restorer)(void); 内部实现，外部应用程序不应该使用
 // };
 //
+// glibc 的 sigaction() 包装函数在试图更改 NPTL 线程库（Native POSIX Threads
+// Library）内部使用的两个实时信号的处理方式时，会返回 EINVAL，参见 nptl(7) 。在支持
+// 信号蹦床（signal trampoline）的架构上，glibc 的 sigaction() 包装函数会把蹦床代码
+// （the trampoline code）的地址填入 act.sa_restorer 字段，并在act.sa_flags 中设置
+// SA_RESTORER 标志，参见 sigreturn(2)。原始的 Linux 系统调用名为 sigaction()，但
+// 随着 Linux 2.2 引入实时信号，旧的固定大小 32 位 sigset_t 已无法满足需求，于是新增
+// 了系统调用 rt_sigaction() 来支持更大的 sigset_t。新系统调用增加第四个参数 size_t
+// sigsetsize，用于指定 act.sa_mask 和 oldact.sa_mask 中信号集的字节数。当前该参数
+// 必须等于 sizeof(sigset_t)，否则返回 EINVAL。glibc 的 sigaction() 包装函数隐藏了
+// 这些细节，当内核提供 rt_sigaction() 时，它会透明地调用后者。可将 sigaction() 的第
+// 二个参数设为 NULL 来查询当前信号处置；也可把第二和第三个参数都设为 NULL 来检查给定
+// 信号在当前机器上是否有效。
+//
 // 可能错误：EFAULT - act 或者 oldact 执行非法内存，EINVAL - 指定了一个非法的信号，
-// 当指定了 SIGKILL 或 SIGSTOP 也会产生这个错误。
+// 当指定了 SIGKILL 或 SIGSTOP 也会产生这个错误。SIGKILL 和 SIGSTOP 信号不能阻塞、
+// 忽略、或设置新的处理函数。无法阻塞 SIGKILL 或 SIGSTOP —— 在 sa_mask 中指定它们会
+// 被静默忽略。
 //
 // sig 是要获取或改变的信号编号，该参数可以是除 SIGKILL 和 SIGSTOP 之外的任何信号。
 // act 指向新处理函数的数据结果，如果仅对信号的现有处理函数感兴趣，那么可将该参数设为
@@ -8245,6 +8261,23 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 // 处理函数时，如果同一信号第二次到达，信号处理函数将不会递归中断自己。但由于不会对遭阻
 // 塞的信号进行排队，如果在处理函数执行过程中重复产生这些信号中的任何信号，稍后对信号的
 // 传递都是一次性的。
+//
+// POSIX.1-1990 禁止将 SIGCHLD 的动作设为 SIG_IGN；POSIX.1-2001 及以后则允许这样做，
+// 以便通过忽略 SIGCHLD 防止僵尸进程产生，见 wait(2)。然而，历史 BSD 与 System V 对
+// 忽略 SIGCHLD 的行为并不一致，因此唯一完全可移植的确保子进程不变成僵尸的方法是：捕获
+// SIGCHLD 并在处理函数中调用 wait(2) 或类似函数。POSIX.1-1990 只规定了 SA_NOCLDSTOP，
+// POSIX.1-2001 增加了 SA_NOCLDWAIT、SA_NODEFER、SA_ONSTACK、SA_RESETHAND、
+// SA_RESTART 和 SA_SIGINFO 作为 XSI 扩展。POSIX.1-2008 把 SA_NODEFER、SA_RESETHAND、
+// SA_RESTART 和 SA_SIGINFO 移入基础标准。在面向旧版 UNIX 的程序中使用这些标志可能降
+// 低可移植性。SA_RESETHAND 与 SVr4 同名标志兼容。SA_NODEFER 与 SVr4 同名标志在 1.3.9
+// 及之后的内核兼容，旧内核允许接收任何信号，而不仅仅是正在安装的信号（即会覆盖任何
+// sa_mask 设置）。
+//
+// 由 fork(2) 创建的子进程会继承父进程信号处置的拷贝。在 execve(2) 执行期间，已处理的
+// 信号处置会被重置为默认；被忽略信号的处置保持不变。根据 POSIX，如果进程忽略一个并非由
+// kill(2) 或 raise(3) 产生的 SIGFPE、SIGILL 或 SIGSEGV，其行为未定义（即忽略一个硬
+// 件信号的行为是未定义的）。整数除以 0 的结果未定义，某些架构会生成 SIGFPE（同样，最小
+// 负整数除以 -1 也可能产生 SIGFPE），忽略该信号可能导致代码死循环。
 //
 // sa_flags 用于控制信号处理函数执行的各种选项：
 //      SA_NOCLDSTOP - 仅当信号为 SIGCHLD 时有效。若设置此标志，当子进程暂停（收到
@@ -8399,6 +8432,7 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 //      SI_KERNEL       由内核发起的信号
 //      SI_QUEUE        sigqueue(3)，其他有效字段 si_pid si_uid si_int/si_ptr
 //      SI_TIMER        POSIX 定时器、或 setitimer(2)/alarm(2) 超时
+//                      POSIX 仅保证由 timer_create(2) 创建的信号会携带 SI_TIMER；实现可对其他类型的定时器也提供该值。Linux 的行为与 NetBSD 一致。
 //      SI_MESGQ        POSIX 消息队列状态变化（Linux 2.6.6）
 //      SI_ASYNCIO      异步 I/O （AIO）操作已经完成
 //      SI_SIGIO        入队 SIGIO（仅 Linux 2.2 及以前；2.4 改用 SIGIO/SIGPOLL 专用代码）
@@ -8458,6 +8492,68 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 // 无效系统调用（SIGSYS）信号的 si_code 参数，其他有效字段 si_call_addr si_syscall si_arch si_errno：
 //      SYS_SECCOMP     由 seccomp 过滤器规则触发（Linux 3.5）
 //
+// 未文档化特性：在引入 SA_SIGINFO 之前，可通过为 sa_handler 提供第二个参数 struct
+// sigcontext 来获取信号附加信息；该结构与 ucontext->uc_mcontext 中的结构相同。详情
+// 见相关 Linux 内核源码，此用法现已废弃。
+//
+// 当内核向 SA_SIGINFO 处理函数递交由硬件异常引起的信号时，并不总是为 siginfo_t 的所
+// 有相关字段提供有意义的值。例如，在 x86 上用非法参数调用 int 指令（除 3 或 128 以外
+// 的任何数）会触发 SIGSEGV，但传给信号处理函数的 siginfo_t 除 si_signo 和 si_code
+// 外全为 0，尽管其他字段（例如 si_addr）本应被设置。在 Linux 2.6.13 及之前版本中，若
+// 在 sa_flags 中指定 SA_NODEFER，不延迟传递信号即立即触发信号，不仅不会阻塞当前递送的
+// 信号，也不会阻塞 sa_mask 中指定的信号。该缺陷在 Linux 2.6.14 修复。
+//
+// 实时信号。定义于 POSIX.1b 中的实时信号，意在弥补对标准信号的诸多限制。较之于标准信
+// 号，实时信号的优势如下。（一）实时信号的信号范围有所扩大，可用于应用程序自定义目的，
+// 而标准信号中可供应用程序随意使用的信号仅两个 SIGUSR1 和 SIGUSR2。（二）对实时信号
+// 所采取的队列化管理，如果将某一实时信号的多个实例发送给一个进程，那么信号将会传递多
+// 次。（三）当发送一个实时信号时，可为信号指定伴随数据，一个整型或指针值，供接收进程
+// 的信号处理函数处理。（四）不同实时信号的传递顺序得到保障，如果有多个不同的实时信号
+// 处于等待状态，那么将率先传递具有最小编号的信号，换言之信号的编号越小其优先级越高。
+// 如果时同一类型的多个信号在排队，那么信号的传递顺序与信号触发的顺序保持一致。
+//
+// SUSv3 要求，实现所提供的各种实时信号不得少于 _POSIX_RTSIG_MAX 个，Linux 内核定义
+// 了 32 个不同的实时信号，编号范围为 32~63。头文件 signal.h 定义的 RTSIG_MAX 表示
+// 实时信号的可用数量，SIGRTMIN 和 SIGRTMAX 表示可用实时信号编号的最小值和最大值。
+// 采用 LinuxThreads 线程实现的系统将 SIGRTMIN 定义为 35，这是因为 LinuxThreads 内
+// 部使用了前三个实时信号，而采用 NPTL 线程实现的系统将 SIGRTMIN 定义为 34，因为 NPTL
+// 内部使用了两个实时信号。
+//
+// 对实时信号的区分方式有别于标准信号，不再依赖所定义常量。然而，程序不应将实时信号编号
+// 的整数值在应用程序代码中写死，因为实时信号的范围因 UNIX 实现的不同而各异。与之相反，
+// 指代实时信号编号可以采用 SIGRTMIN+x 的形式。注意 SUSv3 并未要求 SIGRTMIN 和
+// SIGRTMAX 定义为简单的整数值，可以将其定义为函数，就像 Linux 一样。
+//
+// 排队的实时信号需要内核维护相应的数据结构，由于这些数据结构会消耗内核内存，故而内核对
+// 排队实时信号的数量设置了限制。SUSv3 允许实现为每个进程可排队的各类实时信号数量设置
+// 上限，并要求其下限不得少于 _POSIX_SIGQUEUE_MAX，sysconf(_SC_SIGQUEUE_MAX) 也能
+// 获得这一信息。从 Linux 2.6.8 开始，使用资源限制 RLIMIT_SIGPENDING 来限制，针对
+// 某个特定实际用户 ID 下辖的所有进程可排队的实时信号总数。sysconf() 从 glibc2.10 开
+// 始返回 RLIMIT_SIGPENDING 对应的限制值，至于正在等待某一进程的实时信号数量，可从
+// Linux 专用文件 /proc/PID/status 中的 SigQ 字段获取。
+//
+// 为了能让一对进程收发实时信号，SUSv3 规定：（一）发送进程使用 sigqueue() 系统调用
+// 来发送信号及其伴随数据。使用 kill() killpg() raise() 也能发送实时信号，然而至于
+// 系统是否会对信号进行排队处理，SUSv3 中规定由具体实现决定。这些接口在 Linux 中会对
+// 实时信号进行排队，但在其他许多 UNIX 实现中则不然。（二）要为该信号建立一个处理函数，
+// 接收进程应以 SA_SIGINFO 标志发起 sigaction() 调用，从而能够获取伴随数据。在 Linux
+// 中，即使接收进程在建立信号处理函数时并未指定 SA_SIGINFO，也能对实时信号进行排队，
+// 但在这种情况下，将不可能获得信号的伴随数据。然而，SUSv3 也不要求实现确保这一行为，
+// 所以依赖这一点将有损于应用的可移植性。
+//
+// #include <signal.h>
+// int sigqueue(pid_t pid, int sig, const union sigval value);
+// union sigval {
+//      int sival_int;
+//      void *sival_ptr;
+// };
+//
+// 使用 sigqueue() 发送信号所需要的权限与 kill() 的要求一致，也可以发送空信号，信号
+// 0，其语义与 kill() 中的含义相同。不同于 kill()，sigqueue() 不能通过将 pid 指定
+// 为负值向整个进程组发送信号。一旦触及对排队信号的数量限制，sigqueue() 调用会失败，
+// 并将 errno 置为 EAGAIN，以示需要再次发送信号，即在当前队列中某个信号传递之后的某一
+// 时间点。
+
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
 // 对这类互斥量的这两种操作都会成功。
@@ -8831,6 +8927,28 @@ void prh_impl_thrd_test(void) {
 #endif
 #ifdef MINSIGSTKSZ
     printf("MINSIGSTKSZ %d\n", MINSIGSTKSZ);
+#endif
+#ifdef _POSIX_SIGQUEUE_MAX // 实时信号排队队列的长度不得小于该值
+    printf("_POSIX_SIGQUEUE_MAX %d\n", _POSIX_SIGQUEUE_MAX);
+#endif
+#ifdef _SC_SIGQUEUE_MAX
+    printf("sysconf(_SC_SIGQUEUE_MAX) %d\n", (int)sysconf(_SC_SIGQUEUE_MAX));
+#endif
+#ifdef RLIMIT_SIGPENDING
+    prh_release_zeroret(getrlimit(RLIMIT_SIGPENDING, &l));
+    printf("sysconf(RLIMIT_SIGPENDING) %d\n", (int)l.rlim_cur);
+#endif
+#ifdef _POSIX_RTSIG_MAX
+    printf("_POSIX_RTSIG_MAX %d\n", _POSIX_RTSIG_MAX);
+#endif
+#ifdef RTSIG_MAX // 实时信号的可用数量
+    printf("RTSIG_MAX %d\n", RTSIG_MAX);
+#endif
+#ifdef SIGRTMIN // 实时信号编号的最小值
+    printf("SIGRTMIN %d\n", SIGRTMIN);
+#endif
+#ifdef SIGRTMAX // 实时信号编号的最大值
+    printf("SIGRTMAX %d\n", SIGRTMAX);
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
