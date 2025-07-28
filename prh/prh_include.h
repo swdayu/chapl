@@ -8198,25 +8198,6 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 // 也可以以这种方式中断 sleep()，但是不会返回错误值，而是返回休眠所剩余的秒数。这种行
 // 为的结果是，如果程序可能因信号而停止和重启，那么就需要添加代码来重启这些系统调用，即
 // 便该程序没有为停止信号设置处理函数。
-
-// #include <signal.h>
-// int kill(pid_t pid, int sig); 成功返回0，失败返回-1和errno
-// int raise(int sig);
-// int killpg(pid_t pgrp, int sig);
-// #include <unistd.h>
-// int pause(void); 总是返回 -1 和 EINTR
-// int sigprocmask(int how, const sigset_t *set, sigset_t *oldset); 暂时阻塞信号，当去掉掩码后会继续处理信号
-// int pthread_sigmaks(); 信号掩码实际上时属于线程的属性，每个线程可以独立检查和修改
-// int sigpending(sigset_t *set);
-
-// #include <signal.h>
-// char *strsignal(int sig);
-// void psignal(int sig, const char *msg);
-// int sigemptyset(sigset_t *set);
-// int sigfillset(sigset_t *set);
-// int sigaddset(sigset_t *set, int sig);
-// int sigdelset(sigset_t *set, int sig);
-// int sigismember(const sigset_t *set, int sig); 返回1表示信号集里包含信号sig，否则返回0
 //
 // #include <signal.h> 成功返回0，失败返回-1和errno
 // int sigaction(int sig, const struct sigaction *act, struct sigaction *oldact);
@@ -8553,6 +8534,126 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 // 为负值向整个进程组发送信号。一旦触及对排队信号的数量限制，sigqueue() 调用会失败，
 // 并将 errno 置为 EAGAIN，以示需要再次发送信号，即在当前队列中某个信号传递之后的某一
 // 时间点。
+//
+// https://www.man7.org/linux/man-pages/man2/kill.2.html
+// https://www.man7.org/linux/man-pages/man3/kill.3p.html
+// #include <signal.h>
+// int kill(pid_t pid, int sig); 成功返回0，失败返回-1和errno，EINVAL 非法信号 EPERM 没有权限 ESRCH 进程或进程组不存在
+// int killpg(pid_t pgrp, int sig); EINVAL 非法信号 EPERM 没有权限 ESRCH 进程组不存在或者pgrp为零但当前进程没有所属进程组
+// int raise(int sig); 向进程自身发送信号，返回0成功，非零表示失败。
+//
+// 一个进程可以使用 kill() 系统调用向另一个进程发送信号，之所以称为 kill 是因为早期
+// UNIX 实现中大多数信号默认行为是终止进程。pid 参数可以标识一个或多个目标进程。
+//  1.  如果 pid 大于 0，那么将信号发送给 pid 指定的进程。POSIX.1 规定，若线程向自身
+//      发送信号，且该线程未阻塞该信号，且没有其他线程解除阻塞或在 sigwait(3) 中等待，
+//      其他线程不会抢掉该信号，则在 kill() 返回前，必须至少向该线程交付一个未阻塞的
+//      该信号。
+//  2.  如果 pid 等于 0，那么会将信号发送给与调用进程同组的每个进程，包括调用进程本身。
+//  3.  如果 pid 等于 -1，那么调用进程会向拥有权限的任何进程发送该信号，除了init进程
+//      （进程ID为1）和调用进程自身之外。SUSv3 并未要求将调用进程排除在信号接收范围之
+//      外，Linux 此处所遵循的是 BSD 语义。POSIX.1 要求 kill(-1, sig) 向所有有权发
+//      送信号的进程发送信号，但可排除某些实现定义的系统进程。Linux 允许向自身发信号，
+//      但 kill(-1, sig) 不会向调用进程自身发送信号。显而易见，这种信号发送方式也称为
+//      广播信号。
+//  4.  如果 pid 小于 -1，那么会向组ID为(-pid)的所有进程发送该信号，向一个进程组的所
+//      有进程发送信号在 shell 作业控制中有特殊用途。Linux 2.6 至 2.6.7 存在缺陷：当
+//      向进程组发送信号时，若调用者对进程组中任一成员无权限，则 kill() 会错误地返回
+//      EPERM，尽管信号仍被成功递送到有权限的进程。
+//
+// 进程要发送信号给另一进程，还需要适当的权限：
+//  1.  特权级（在 Linux 上拥有 CAP_KILL 能力）进程可以向任何进程发送信号。
+//  2.  以root用户和组运行的init进程，是一种特例，仅能接收已安装了处理函数的信号，这可
+//      防止系统管理员意外杀死 init 进程。
+//  3.  如果发送者的实际或有效用户ID与接收进程的实际用户ID或者保持设置用户（saved set-user-id）
+//      匹配，那么非特权进程也可以向另一进程发送信号。利用这一规则，用户可以向由他们启
+//      动的 set-user-id 程序发送信号，而无需考虑目标进程有效用户ID的当前设置。将目标
+//      进程有效用户ID排除在检查范围之外，这一举措的辅助作用在于防止用户A向用户B的进程
+//      发送信号，而该进程正在执行的 set-user-id 程序又属于用户A。SUSv3 要求强制执行
+//      该规则，但 kill(2) 手册描述，Linux 内核在 2.0 版本之前所遵循的规则略有不同。
+//  4.  SIGCONT 信号需要特殊处理，无论对用ID的检查结果如何，非特权进程可以向同一会话中的
+//      任何其他进程发送这一信息。利用这一规则，运行作业控制的 shell 可以重启已停止的
+//      作业（进程组），即使作业进程已经修改了它们的用户ID（例如使用系统调用改变其凭据
+//      成为特权级进程）。
+//  Linux 对非特权进程向另一进程发送信号所需的权限规则曾数次变化：
+//      Linux 1.0 – 1.2.2：只要发送方的有效用户 ID 等于目标进程的有效用户 ID，或发送
+//      方的真实用户 ID 等于目标进程的真实用户 ID，即可发送信号。
+//      Linux 1.2.3 – 1.3.77：只要发送方的有效用户 ID 与目标进程的真实或有效用户 ID
+//      之一匹配，即可发送信号。
+//      Linux 1.3.78 起：采用与 POSIX.1 一致的规则。
+//
+// 如果并无进程与指定的 pid 相匹配，那么 kill() 调用失败，同时将 errno 设置为 ESRCH。
+// 如果进程无权发送信号给所请求的 pid，那么调用会失败，errno 为 EPERM。若 pid 表示一系
+// 列进程（即为负值时），只要可以向其中之一发送信号，kill() 就会返回成功。
+//
+// 如果将参数 sig 指定为 0，即空信号，则无信号发送。相反，kill() 仅会去执行错误检查，
+// 查看是否可以向目标进程发送信号。从另一角度来看，这意味着，可以使用空信号来检测具有特
+// 定 pid 的进程是否存在。若 ESRCH 则表明目标进程不存在，若 EPERM 则表示进程存在但无
+// 权向该进程发送信号。特定进程ID存在并不能保证特定进程仍在运行。因为内核会随着进程的生
+// 灭而循环使用进程ID，一段时间之后同一进程ID所指向的可能是另一新的进程。此外，特定进程
+// ID 存在，但可能是一个僵尸进程，即进程已死但其父进程尚未执行wait()来获取其终止状态。
+// 还可使用其他技术来检查某一特定进程是否正在运行：
+//  1.  wait() 系统调用，仅用于监控调用者的子进程。
+//  2.  信号量和独占文件锁，如果进程持续持有某一信号或文件锁，并且一直处于被监控状态，
+//      那么如能获取到信号量或锁时，即表明该进程已经终止。
+//  3.  诸如管道和 FIFO 之类的 IPC 通道，可对监控目标进程进行设置，令其在自身生命周期
+//      内持有对通道进行写操作的打开文件描述符。同时，令监控进程持有针对通道进程读操作
+//      的打开文件描述符，且当通道写入段关闭时即可获知目标进程已经关闭。
+//  4.  例如进程ID为 12345 的进行存在，那么目录 /proc/12345 将存在，可以使用如 stat
+//      之类的系统调用来进行检查。但这一技术，会受进程ID值的循环使用影响。
+//
+// raise() 向进程自身发送信号。单线程程序中相当于调用 kill(getpid(), sig)，多线程程
+// 序中相当于 pthread_kill(pthread_self(), isg)，即将信号发送给当前进程中的当前线程。
+// 相比之下，kill(getpid(), sig) 将发送一个信号给当前进程，并可将该信号传递给该进程的
+// 任一线程。当进程使用 raise() 或者 kill() 向自身发送信号时，信号将立即传递，即信号处
+// 理函数在 raise() 返回给调用者之前执行。Linux 上，glibc 在 2.3.3 版本之后，如果内
+// 核提供 tgkill(2) 系统调用，给特定线程发送信号，那么 raise() 将使用 tgkill(2) 进行
+// 实现；而旧版本将使用 kill(2) 实现。
+//
+// killpg() 可以向某一进程组的所有进程发送一个信号。killpg(pg, sig) 调用相当于
+// kill(-pg, sig)。如果指定 pg 的值为0，那么会向调用所属进程组的所有进程发送此信号，
+// SUSv3 对此未作规范，但大多数 UNIX实现对该情况的处理方式与 Linux 相同。POSIX 规定，
+// 如果 pg 小于等于 1，那么 killpg() 的行为未定义。在 BSD 类型的系统与 System V 类型
+// 的系统中，权限检查存在多种差异，详见 POSIX 对 kill(3p) 的说明。POSIX 未提及的一个
+// 差异是：BSD 规定只要至少有一个目标进程权限检查失败，就不发送任何信号并返回 EPERM；
+// 而 POSIX 只有所有目标进程权限检查都失败时才返回 EPERM。
+//
+// #include <signal.h>
+// #include <string.h>
+// char *strsignal(int sig);
+// const char *sigdescr_np(int sig); 字符串信息不进行本地化
+// void psignal(int sig, const char *s);
+// void psiginfo(const siginfo_t *p, const char *s);
+//
+// strsignal() 返回对应信号的本地语言描述信息，根据当前 locale 中的 LC_MESSAGES 类别
+// 进行本地化。返回的字符串仅在下次调用 strsignal() 之前有效，但该函数是线程安全的。
+// strsignal() 返回与信号编号对应的描述字符串；若编号无效，则返回未知信号提示信息。在一
+// 些系统（不包括 Linux）上，无效编号可能返回 NULL。sigdescr_np() 返回对应的描述字符
+// 串，返回的字符串静态分配，在整个程序生命周期内有效，若信号编号无效，则返回 NULL。
+//
+// psignal() 把一条消息写到标准错误输出，格式为：“字符串s: 信号描述字符串\n”。若 s 为
+// NULL 或空字符串，则省略冒号及空格。若 sig 无效，则提示未知信号。psiginfo() 与
+// psignal() 类似，但针对 siginfo_t 结构 pinfo 提供的信息进行打印。除了输出信号描述
+// 信息外，还额外打印信号来源及其它相关细节，例如：硬件异常时的出错地址，SIGCHLD 时的子
+// 进程 PID，kill(2) / sigqueue(3) 信号发送者的 UID 与 PID。glibc 2.12 之前的
+// psiginfo() 存在以下 bug：某些情况下缺少末尾换行，对实时信号不显示额外细节。
+//
+// #include <signal.h>
+// int sigemptyset(sigset_t *set); 清空，成功返回0，失败返回-1和errno
+// int sigfillset(sigset_t *set); 包含所有信号
+// int sigaddset(sigset_t *set, int sig); 添加一个信号到信号集
+// int sigdelset(sigset_t *set, int sig); 删除一个信号到信号集
+// int sigismember(const sigset_t *set, int sig); 返回1表示信号集里包含信号sig，返回0表示不包含，返回-1和errno表示错误
+//
+// 多个信号可使用一个称之为信号集的数据结构来表示，即 sigset_t。像大多数 UNIX 实现一样，
+// sigset_t 数据类型在 Linux 中是一个位掩码，然而 SUSv3 对此并无要求，但仅要求可对其
+// 进行赋值即可，因此必须使用某些标量类型（比如一个整数）或者一个 C 语言结构体来实现该
+// 类型。类型 sigset_t 必须在使用操作之前通过调用 sigfillset() 或 sigfillset() 进行
+// 初始化，如果不这样做，结果是未定义的。glibc 中的 sigfillset() 在构造所有信号时，不
+// 会把 NPTL线程库内部使用的两个实时信号包含进去，详见 nptl(7)。可能的错误：EINVAL 信
+// 号非法。
+//
+// pthread_kill(tid_t tid, int sig);
+// int pthread_sigmaks(); 信号掩码实际上是属于线程的属性，每个线程可以独立检查和修改
 
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
