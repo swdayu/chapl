@@ -82,8 +82,42 @@ extern "C" {
 //      ulimit -a
 // 解除对核心文件大小的限制：
 //      ulimit -c unlimited
-// 查看进程信息，其中包括进程对信号的处理：
+// 产生核心调试文件：
+//      sudo gcore -o core.file 711
+// 核心文件配置相关：
+//      cat /proc/sys/fs/suid_dumpable    # 对应ID的进程是否能进行转储，参见 proc(5)
+//      cat /proc/711/coredump_filter     # 控制各种文件内存映射的转储，参见 core(5)
+//      cat /proc/sys/kernel/core_pattern # 文件命令规则，参见 core(5)
+// 查看进程的主线程信息，其中包括进程对信号的处理：
 //      cat /proc/521/status
+// 显示进程中的所有线程信息（-L），并显示完整格式（-f）：
+//      ps -Lf # 其中 LWP 表示的是线程 ID（Light Weight Process），NLWP 表示该进程线程总数
+//      UID          PID    PPID     LWP  C NLWP STIME TTY          TIME CMD
+//      localho+     521     520     521  0    1 Jul10 pts/0    00:00:04 -bash
+//      localho+   41590     521   41590  0    1 00:48 pts/0    00:00:00 ps -Lf
+// 显示所有进程：
+//      ps -e   # 显示所有进程
+//      ps -eLf # 显示所有进程和线程信息
+// 查看线程信息：
+//      cat /proc/338/task/380/status
+//      Name:   gmain
+//      Umask:  0022
+//      State:  S (sleeping)
+//      ...
+//      Threads:        2
+//      SigQ:   0/7579
+//      SigPnd: 0000000000000000    待处理的线程定向信号
+//      ShdPnd: 0000000000000000    待处理的进程定向信号
+//      SigBlk: fffffffe7ffbfeff    线程阻塞的信号掩码
+//      SigIgn: 0000000001001000    线程忽略的信号集合，一个进程中所有线程忽略的信号集合都相同，因为信号处置设置是属于进程的属性
+//      SigCgt: 0000000180004003    线程正在捕获的（设置处理函数的）信号集合，一个进程中所有线程捕获的信号集合都相同，因为信号处置设置是属于进程的属性
+//      CapInh: 0000000000000000
+//      CapPrm: 000001ffffffffff
+//      CapEff: 000001ffffffffff
+//      CapBnd: 000001ffffffffff
+//      CapAmb: 0000000000000000
+// 发送信号 SIGUSR1 给进程：
+//      kill -USR1 711
 // 列出系统中的网络接口，其中包括 MTU 信息：
 //      sudo apt install net-tools
 //      netstat -i
@@ -7697,23 +7731,23 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //  SIGINT              终端中断                                    term（终止进程）
 //  SIGTSTP             终端停止                                    stop（停止进程）
 //  SIGQUIT             终端退出                                    core（产生核心转储文件，并终止进程）
-//  SIGTTIN             终端被后台进程从读取                         stop（停止进程）
-//  SIGTTOU             终端被后台进程向写入                         stop（停止进程）
+//  SIGTTIN             终端被后台进程读取                           stop（停止进程）
+//  SIGTTOU             终端被后台进程写入                           stop（停止进程）
 //  SIGWINCH            终端窗口尺寸变化                             ignore（忽略该信号，内核将默默丢弃）
 //  SIGTERM             终止进程                                    term（终止进程）
 //  SIGKILL             确保杀死进程                                term（终止进程）
 //  SIGSTOP             确保停止进程                                stop（停止进程）
 //  SIGCONT             若停止则继续                                cont（恢复一个已停止的进程）
-//  SIGTRAP             跟踪或断点陷阱                              core（产生核心转储文件，并终止进程）
-//  SIGABRT             中止进程                                    core（产生核心转储文件，并终止进程）
+//  SIGABRT             中止进程，来源于abort(3)                     core（产生核心转储文件，并终止进程）
 //  SIGIOT              同SIGABRT（Linux），硬件错误（某些UNIX）      core（产生核心转储文件，并终止进程）
-//  SIGBUS              内存访问错误                                term（可能产生核心转储文件）
+//  SIGBUS              内存访问错误/总线错误                        term（可能产生核心转储文件）
 //  SIGSEGV             页面非法访问                                core（产生核心转储文件，并终止进程）
-//  SIGEMT              硬件错误                                    term（可能产生核心转储文件）
 //  SIGILL              非法指令                                    core（产生核心转储文件，并终止进程）
 //  SIGFPE              算术异常                                    core（产生核心转储文件，并终止进程）
+//  SIGEMT              硬件错误/仿真器陷阱                          term（可能产生核心转储文件）
+//  SIGTRAP             跟踪或断点陷阱                              core（产生核心转储文件，并终止进程）
 //  SIGUSR1 SIGUSR2     用户自定义信号                              term（终止进程）
-//  SIGPIPE             管道断开                                    term（终止进程）
+//  SIGPIPE             管道断开，写入没有读取端的管道                term（终止进程）
 //  SIGALRM             实时定时器到期                              term（终止进程）
 //  SIGVTALRM           虚拟定时器到期                              term（终止进程）
 //  SIGPROF             性能定时器到期                              term（终止进程）
@@ -7727,7 +7761,32 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //  SIGINFO             同SIGPWR（Linux），前台进程信息（某些UNIX）   term（终止进程）
 //  SIGSYS              无效系统调用                                term（可能产生核心转储文件）
 //  SIGUNUSED           未使用或与SIGSYS相同                        core（产生核心转储文件，并终止进程）
-//  SIGLOST             未使用或NFS客户端锁丢失                     term（终止进程）
+//  SIGLOST             未使用或NFS客户端文件锁丢失                  term（终止进程）
+//
+// 可中断和不可中断的进程睡眠状态。SIGKILL 和 SIGSTOP 信号对确保杀死和停止进程，对于
+// 这一论断，此外要加入一条限制。内核经常需要令进程进入休眠，而休眠状态又分为两种：（一）
+// 任务可中断（TASK_INTERRUPTIBLE），进程正在等待某一事件，例如正在等待终端输入，等待
+// 数据写入当前的空管道，或者等待 System V 信号量值的增加。进程在该状态下所耗费的时间可
+// 长可短。如果给这种状态下的进程发送一个信号，那么操作将中断，而传递来的信号将唤醒进程。
+// ps(1) 命令在显式处于可中断状态的进程时，会将其进程状态（STAT）字段标记为字母 S。
+// （二）任务不可中断（TASK_UNINTERRUPTIBLE），进程正在等待某些特定类型的事件，比如磁
+// 盘 IO 的完成。如果给这种状态下的进程产生一个信号，那么在进程摆脱这种状态之前，系统将
+// 不会把信号传递给进程。ps(1) 命令会将该状态的进程标记为字母 D。因为进程处于不可中断的
+// 等待状态时的时间通常转瞬即逝，所以系统在进程脱离该状态时传递信号的现象也不易于被发现。
+// 然而，在极少数情况下，进程可能因硬件故障、NFS 问题或者内核缺陷而在该状态下保持挂起，
+// 这时 SIGKILL 将不会终止挂起的进程。如果问题诱因无法得到解决，那么就只能通过重启系统
+// 来消灭该进程。
+//
+// 大多数 UNIX 系统实现都支持任务中断和不可中断两种状态。从内核 2.6.25 开始，Linux 加
+// 入了第三种状态来解决上述进程挂起问题，任务可杀死（TASK_KILLABLE），该状态类似于不可
+// 状态状态，但是会在进程收到一个致命信号（即一个杀死进程的信号）时将其唤醒。
+//
+// 有六种信号因硬件异常而触发：SIGBUS、SIGEMT、SIGFPE、SIGILL、SIGSEGV 和 SIGTRAP。
+// 然而，对于任何特定的硬件异常，具体会触发哪种信号并没有明确的文档说明，且在某些情况下
+// 显得并不合理。例如，某些 CPU 架构上非法的内存访问会触发 SIGSEGV，而在另一些架构上可
+// 能触发 SIGBUS，反之亦然。再比如，在 x86 架构中，使用 int 指令时传递了非法参数（除了
+// 3 或 128 之外的任何数字），会触发 SIGSEGV，尽管在这种情况下 SIGILL 似乎更合适，因为
+// 这是 CPU 向内核报告非法操作指令的方式。
 //
 // SIGHUP - 终端断开或挂断
 //      当终端断开时，将发送该信号给终端控制进程，后文将描述控制进程的概念以及产生
@@ -7735,6 +7794,9 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      许多守护进程会在收到SIGHUP信号时重新进行初始化并重读配置文件。借助于显式执行
 //      kill 命令或运行同等功能的程序或脚本，系统管理员可向守护进程手动发送 SIGHUP
 //      信号来触发这些行为。
+//      如果程序在执行时发现，已将对由终端产生信号的处置设为了忽略（SIG_IGN），那么不
+//      应再去修改这些终端信号的行为。这并非系统的硬性规定，而是编写应用程序时所应遵循
+//      的管理，终端信号包括 SIGHUP SIGINT SIGTSTP SIGQUIT SIGTTIN SIGTTOU。
 // SIGINT - 终端中断
 //      当用户键入终端中断字符（通常为CTRL-C）时，终端驱动程序将发送该信号给前台进程
 //      组，该信号的默认行为是终止进程。
@@ -7748,10 +7810,10 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      者不再响应时，使用SIGQUIT信号就很合适。键入CTRL-\，再调用gdb加载刚才生成的核
 //      心转储文件，接着用backtrace命令来获取堆栈跟踪信息，就能发现正在执行的是程序的
 //      那部分代码。
-// SIGTTIN - 终端被后台进程从读取
+// SIGTTIN - 终端被后台进程读取
 //      在作业控制 shell 下运行时，若后台进程组试图对终端进行 read() 时，终端驱动程序
 //      则将向该进程组发送此信号。该信号默认将停止进程。
-// SIGTTOU - 终端被后台进程从写入
+// SIGTTOU - 终端被后台进程写入
 //      该信号的目的与 SIGTTIN 类似，但所针对的是后台作业的终端输出。在作业控制 shell
 //      下运行时，如果对终端启用了终端输出停止（TOSTOP）选项，可能时通过 stty tostop
 //      命令，而某一后台进程组试图会终端进行 write() 操作，那么终端驱动程序将向给进程
@@ -7769,7 +7831,10 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      进程，而把 SIGKILL 信号作为最后手段，去对付那些不响应 SIGTERM 信号的失控进程。
 // SIGKILL - 确保杀死进程
 //      此信号为必杀（sure kill）信号，处理程序无法将其阻塞、忽略、或捕获，故而一击必
-//      杀，总能终止进程。
+//      杀，总能终止进程。SIGKILL 默认行为是终止进程，SIGSTOP 默认行为是停止进程，二
+//      者的默认行为均无法改变。不能通过 signal() 和 sigaction() 对其行为进行修改，
+//      也不允许阻塞这两个信号。不允许修改这些信号的默认行为，这也意味着总是可以利用这
+//      些信号来杀死或停止一个进程。
 // SIGSTOP - 确保停止进程
 //      这是一个必停（sure stop）信号，处理器程序无法将其阻塞，忽略或者捕获，故而总是
 //      能停止进程。
@@ -7777,29 +7842,52 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      将该信号发送给已停止的进程，进程将会恢复运行（即在之后某个时间点重新获得调度）。
 //      当接收信号的进程当前不处于停止状态，默认情况下会忽略该信号。进程可以捕获该信号，
 //      以便在恢复运行时可以执行某些操作。
-// SIGTRAP - 跟踪或断点陷阱
-//      该信号用来实现断点调试功能以及 strace(1) 命令所执行的跟踪系统套用功能。更多信
-//      息参见 ptrace(2) 手册。
-//      TRAP_BRKPT TRAP_TRACE
+//      使用 SIGCONT 可以使某些处于停止状态的进行继续运行，包括因 SIGSTOP SIGTSTP
+//      SIGTTIN SIGTTOU 信号而停止的进程。由于这些停止信号具有独特目的，所以再某些情
+//      况下，内核对它们的处理方式将有别于其他信号。如果一个进程处于停止状态，那么一个
+//      SIGCONT 信号的到来总是会促使其恢复运行，即使该进程阻塞或忽略了 SIGCONT 信号。
+//      如果处于停止状态的进程正在阻塞 SIGCONT 信号，并且已经为 SIGCONT 信号建立了处
+//      理函数，那么在进行恢复运行后，并且只有当取消对 SIGCONT 的阻塞时，进程才会去调
+//      用相应的处理函数。如果有任一其他信号发送给一个已经停止的进程，那么在进程收到
+//      SIGCONT 信号恢复运行之前，信号实际上并未传递。SIGKILL 信号则属于例外，因为该
+//      信号总是会杀死进程，即使进程目前处于停止状态。
+//      每当进程收到 SIGCONT 信号时，会将处于等待状态的停止信号丢弃，即进程根本不知道
+//      这些信号。相反，如果任何停止信号传递给了进程，那么进程将自动丢弃任何处于等待状
+//      态的 SIGCONT 信号。之所以采取这些措施，意在防止执行 SIGCONT 信号之后又被停止
+//      信号撤销，反之亦然。
 // SIGABRT - 中止进程
 //      当进程调用 abort() 函数时，系统向进程发送该信号。默认行为：终止进程，并产生核
 //      心转储文件。
 // SIGIOT - 中止进程或硬件错误
 //      在 Linux 中，该信号与 SIGABRT 相同。在其他一些 UNIX 实现中，该信号表示发生了
 //      由实现定义的硬件错误。
+// SIGBUS - 内存访问错误，内存地址可以访问但访问时发生错误
+//      总线错误即表示发生了某种内存访问错误，例如地址未对齐、对应的物理地址不存在、硬
+//      件内存校验错误等等。
+//      BUS_ADRALN BUS_ADRERR BUS_OBJERR BUS_MCEERR_AR BUS_MCEERR_AO
+//      硬件异常可以产生 SIGBUS SIGSEGV SIGILL SIGFPE 信号，调用 kill() 函数也可以
+//      发送这类信号但较为少见。SUSv3 规定，在硬件异常的情况下，如果进程从此类信号处理
+//      函数中返回，亦或进程忽略或阻塞了此类信号，那么进程的行为未定义。原因如下：
+//      1.  从信号处理函数中返回：假设机器语言指令产生了上述信号，并因此而调用了信号处
+//          理函数。当从处理函数正常返回后，程序会尝试从其中断处恢复执行。可当初引发信
+//          号产生的恰恰正是这条指令，所以信号会再次触发，从而导致程序进入无限循环，重
+//          复调用信号处理函数。
+//      2.  忽略信号：忽略因硬件而产生的信号于情理不合，试想算术异常之后，程序应当如何
+//          继续执行呢？无法明确，当由于硬件异常而产生上述信号时，Linux 会强制传递信
+//          号，即使程序已经请求忽略此类信号。
+//      3.  阻塞信号：与上一种情况一样，阻塞因硬件产生的信号也不合情理，不清楚程序随后
+//          应当如何继续执行。在 Linux 2.4 以及更早的版本中，Linux 内核仅会将阻塞硬件
+//          信号的企图忽略，信号无论如果都会传递给进程。而始于 Linux 2.6，如果硬件信号
+//          遭到阻塞，那么该信号总会立即杀死进程，即使进程已经为此信号设置了处理函数。
+//          Linux 2.6 之所以这样做，是由于 Linux 2.4 的行为中隐藏有缺陷，并可能在多
+//          线程程序中引起死锁。
+//      正确处理硬件产生的信号的方法有二：要么接受信号默认行为终止进程，那么为其编写不会
+//      正常返回的处理函数。
 // SIGSEGV - 页面非法访问，内存地址非法或不可访问
 //      这一信号非常常见，当应用程序对内存的引用无效时，就会产生该信号。引起对内存无效
 //      引用的原因很多，可能是因为要引用的页不存在，或者进程试图更新只读内存中某一位置
 //      的内容，又或者进程企图在用户态去访问内核的部分内存。该信号的命名源于术语段违规。
 //      SEGV_MAPERR SEGV_ACCERR SEGV_BNDERR SEGV_PKUERR
-// SIGBUS - 内存访问错误，内存地址可以访问但访问错误
-//      总线错误即表示发生了某种内存访问错误，例如地址未对齐、对应的物理地址不存在、硬
-//      件内存校验错误等等。
-//      BUS_ADRALN BUS_ADRERR BUS_OBJERR BUS_MCEERR_AR BUS_MCEERR_AO
-// SIGEMT - 硬件错误
-//      UNIX 系统通常用该信号来标识一个依赖于实现的硬件错误。Linux 系统仅在 Sun SPARC
-//      实现中使用了该信号。后缀 EMT 源自仿真器陷阱（emulator trap），Digital PDP-11
-//      的汇编程序助记符之一。
 // SIGILL - 非法指令
 //      如果进程试图执行非法或格式不正确的机器语言指令，系统将向进程发送该信号。
 //      ILL_ILLOPC ILL_ILLOPN ILL_ILLADR ILL_ILLTRP ILL_PRVOPC ILL_PRVREG
@@ -7811,6 +7899,14 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      取决于是否启用了 FE_DIVBYZERO 异常。更多信息参考 fenv(3) 手册。
 //      FPE_INTDIV FPE_INTOVF FPE_FLTDIV FPE_FLTOVF FPE_FLTUND FPE_FLTRES
 //      FPE_FLTINV FPE_FLTSUB
+// SIGEMT - 硬件错误
+//      UNIX 系统通常用该信号来标识一个依赖于实现的硬件错误。Linux 系统仅在 Sun SPARC
+//      实现中使用了该信号。后缀 EMT 源自仿真器陷阱（emulator trap），Digital PDP-11
+//      的汇编程序助记符之一。
+// SIGTRAP - 跟踪或断点陷阱
+//      该信号用来实现断点调试功能以及 strace(1) 命令所执行的跟踪系统套用功能。更多信
+//      息参见 ptrace(2) 手册。
+//      TRAP_BRKPT TRAP_TRACE
 // SIGUSR1 SIGUSR2 - 用户自定义信号
 //      这两个信号供程序员自定义使用，内核绝不会为进程产生这些信号。进程可以使用这些信
 //      号来相互通知事件的发生，或是彼此同步。在早期的 UNIX 实现中，这是可供应用随意使
@@ -8104,22 +8200,25 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // 前信息时 SS_ONSTACK 置位，表明进程正在备选信号栈上执行，这时如果再试图创建一个新的
 // 备选信号栈时会产生 EPERM 错误。在 sigstack 中指定，表示禁用当前已创建的备选信号栈，
 // 在 old_sigstack 中返回表示不存在已创建的备选信号栈。
-#include <signal.h>
-void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, void *ucontext)) {
-    // SIGSEGV 可能因为进程栈耗尽产生，此时该信号设置的处理函数将无法执行，因为已经没
-    // 有栈空间了，因此需要额外分配一个信号栈，让处理函数在这个新栈上执行。
-    stack_t altstk;
-    altstk.ss_sp = prh_malloc(SIGSTKSZ);
-    altstk.ss_size = SIGSTKSZ;
-    altstk.ss_flags = 0;
-    prh_abort_nz(sigaltstack(&altstk, prh_null));
-    struct sigaction sa;
-    sa.sa_sigaction = sigsegv_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_ONSTACK | SA_SIGINFO;
-    prh_abort_nz(sigaction(SIGSEGV, &sa, prh_null));
-}
-
+//
+// 备选信号栈也是属于线程的属性，当信号设置的处置标记了 SA_ONSTACK，并且当前线程定义了
+// 备选信号栈，那么会使用这个备选信号栈执行处理函数。
+//
+// void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, void *ucontext)) {
+//     // SIGSEGV 可能因为进程栈耗尽产生，此时该信号设置的处理函数将无法执行，因为已经没
+//     // 有栈空间了，因此需要额外分配一个信号栈，让处理函数在这个新栈上执行。
+//     stack_t altstk;
+//     altstk.ss_sp = prh_malloc(SIGSTKSZ);
+//     altstk.ss_size = SIGSTKSZ;
+//     altstk.ss_flags = 0;
+//     prh_abort_nz(sigaltstack(&altstk, prh_null));
+//     struct sigaction sa;
+//     sa.sa_sigaction = sigsegv_handler;
+//     sigemptyset(&sa.sa_mask);
+//     sa.sa_flags = SA_ONSTACK | SA_SIGINFO;
+//     prh_abort_nz(sigaction(SIGSEGV, &sa, prh_null));
+// }
+//
 // 系统调用的中断和重启。考虑如下常量：为某信号创建处理函数；发起一个阻塞式系统调用，例
 // 如从终端设备调用 read() 会阻塞到有数据输入为止；当系统调用阻塞时，信号到来中断系统
 // 调用，执行信号处理函数。那么信号处理函数返回后会发生什么呢？默认情况下，系统调用失败，
@@ -8652,9 +8751,236 @@ void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, voi
 // 会把 NPTL线程库内部使用的两个实时信号包含进去，详见 nptl(7)。可能的错误：EINVAL 信
 // 号非法。
 //
-// pthread_kill(tid_t tid, int sig);
-// int pthread_sigmaks(); 信号掩码实际上是属于线程的属性，每个线程可以独立检查和修改
-
+// #include <signal.h> 成功返回0，失败返回-1和errno
+// int sigprocmask(int how, const sigset_t *set, sigset_t *oldset); 暂时阻塞信号，当去掉掩码后会继续处理信号；EFULT - set 或 oldset 非法地址，EINVAL - 参数非法
+// int sigpending(sigset_t *set); 获取当前进程中正在等待的信号集；EFULT - set 地址非法
+//
+// 内核会为每个进程维护一组信号掩码，并阻塞其中的信号针对该进程的传递。如果将遭阻塞的信
+// 号发送给某进程，那么对该信号的传递将延后，直至从进程信号掩码中移除该信号，从而解除阻
+// 塞。信号掩码其实是属于线程的属性，在多线程中，每个线程都可使用 pthread_sigmask()
+// 函数来独立检查和修改线程的信号掩码。向信号掩码中添加一个信号，有如下几种方式：
+//  1.  当信号处理函数被调用时，可能将当前信号自动添加到信号掩码中，这处决于 sigaction
+//      函数设置信号处理函数时是否设置 SA_NODEFER 标志。
+//  2.  使用 sigaction 函数设置信号处理函数时，可以指定一组额外信号，当调用处理函数时
+//      会将其阻塞。
+//  3.  使用 sigprocmask() 系统调用，随时可以显式的向信号掩码中添加和移除信号。
+//
+// 等待信号集只是一个掩码，仅表明一个信号是否已经触发，但并未表明其发生的次数。换言之，
+// 如果同一信号在阻塞状态下产生多次，那么会将该信号记录在等待信号集中，并在稍后仅传递
+// 一次。标准信号和实时信号之间的差别之一在于，内核对实时信号进行了排队处理。即使进程
+// 没有阻塞信号，其所接收到的信号也比发送给它的要少得多，比如信号发送速度如此之快，以至
+// 于在内核考虑将执行权调度给接收进程之前，新信号就已经到达，这时就会导致多次发送的信号
+// 在进程等待信号集中只记录了一次。
+//
+// 信号因某些事件而产生，信号生成后，会于稍后被传递给某个进程，而进程也会采取某些措施来
+// 响应信号。在产生和到达期间，信号处于等待（pending）状态。通常，一旦内核接下来要调度
+// 进程运行，等待信号会马上送达，或者如果进程正在运行，则会立即传递信号，例如进程向自身
+// 发送信号。然而，有时需要确保一段代码不被传递过来的信号打断，此时可以将信号添加到进程
+// 的信号掩码中，这样会阻塞该组信号的到达。如果所产生的信号被掩码阻塞，那么信号将保持等
+// 待状态，直至稍后将信号从掩码中移除解除阻塞。
+//
+// 如何传递一个处于等待状态的信号？同步产生的信号会立即传递，执行特定机器指令导致的硬件
+// 异常信号，包括 SIGBUS SIGFPE SIGILL SIGSEGV SIGEMT，以及使用 kill() raise()
+// killpg() 向进程自身发送的信号，这些信号的产生都是同步的。即这些信号在产生的地方就立
+// 即中断主程序，直接触发信号处理函数的调用，比如 raise() 在返回之前就已经执行了信号的
+// 处理函数。当异步产生一个信号时，即使并未将其阻塞，在信号产生和实际传递之间仍可能存在
+// 一个瞬时延迟，在此期间，信号处于等待状态。这是因为内核将等待信号传递给进程的时机是，
+// 该进程正在执行，且发生由内核态到用户态的下一次切换时。实际上，这意味着在以下时刻才会
+// 传递信号：一个线程被调度到CPU上执行时，即在一个时间片的开始处；系统调用返回时，信号
+// 的传递可能引起正在阻塞的系统调用过早完成。
+//
+// 解除对多个信号的阻塞时，信号的传递顺序。如果进程使用 sigprocmask() 解除了对多个等待
+// 信号的阻塞，那么所有这些信号会立即传递给该进程。就目前的 Linux 实现而言，Linux 内核
+// 按照信号编号的升序来传递序号。例如，如果对处于等待状态的信号 SIGINT（编号为2）和
+// SIGQUIT（编号为3）同时解除阻塞，那么无论这两个信号的产生次序如何，SIGINT 都将先于
+// SIGQUIT 而传递。然而，也不能对传递标准信号的特定顺序产生任何依赖，因为 SUSv3 规定
+// 多个信号的传递顺序由系统实现决定。该条款仅适用于标准信号，因为实时信号的相关标准规
+// 定，对于解除阻塞的实时信号而言，其传递顺序必须得到保障。当多个解除了阻塞的信号正在
+// 等待传递时，如果在信号处理函数执行期间发生了内核态到用户态之间的切换，那么将中断此
+// 处理函数的执行，转而去调用第二个信号的处理函数。例如：
+//  1.  解除对处于等待状态的信号 SIGINT 和 SIGCOUNT 的阻塞
+//  2.  内核调用 SIGINT 信号的处理函数
+//  3.  SIGINT 处理函数发起了一个系统调用
+//  4.  内核调用 SIGQUIT 信号的处理函数
+//
+// sigprocmask() 函数既可以修改进程的信号掩码，也可以获取当前的掩码值，或者两者同时操
+// 作。how 参数指定了 sigprocmask() 函数如何设置信号掩码：
+//      SIG_BLOCK - 将 set 中的信号添加到信号掩码中。
+//      SIG_UNBLOCK - 将 set 中的信号从信号掩码中移除，即使要移除的信号并没有处在阻
+//          塞状态，也不会返回错误。
+//      SIG_SETMASK - 将 set 信号集赋值给信号掩码。
+//
+// 上述各种清空下，若 oldset 不为空，则返回设置之前的信号掩码。如果仅获取当前的信号掩
+// 码而不对其进行修改，那么可以将 set 设为空，此时将忽略 how 参数。SUSv3 规定，如果在
+// 解除阻塞时由任何对应的信号，那么在 sigprocmaks() 调用返回前至少传递一个信号。换言
+// 之，如果解除了对某个等待信号的阻塞，那么会立刻将该信号传递给进程执行调用。系统会忽略
+// 对 SIGKILL 和 SIGSTOP 信号的阻塞，如果试图阻塞这些信号，sigprocmask() 既不会予以
+// 关注，也不会产生错误。如果修改了正在等待的阻塞信号的处置函数，那么当后来解除信号的阻
+// 塞时，将根据新的处置来处理信号。例如将信号处置设为忽略（SIG_IGN），或者设置为默认
+// （SIG_DFL）而信号的默认行为是忽略信号，那么对应的正在等待的信号将从进行的等待集中移
+// 除，因此不会传递该信号，相当于阻止了对正处于等待状态的信号的传递。
+//
+// 在多线程进程中使用 sigprocmask() 的行为是不明确（unspecified）的；应该改用
+// pthread_sigmask(3)。内核与 C 库对 sigset_t 的定义大小不同。本手册页把内核使用的类
+// 型称为 kernel_sigset_t（内核源码中仍叫 sigset_t）。glibc 包装函数调用 sigprocmask()
+// 时，glibc 会静默忽略试图阻塞 NPTL 线程实现内部使用的两个实时信号，详见 nptl(7)。
+// 原始系统调用名为 sigprocmask()，Linux 2.2 引入实时信号后，32 位固定大小的旧类型
+// old_kernel_sigset_t 已不够用，于是新增 rt_sigprocmask()，支持更大的 kernel_sigset_t。
+// 新系统调用新增第 4 个参数 size_t sigsetsize，指定 set 与 oldset 的字节数，必须为
+// 架构相关的固定值 sizeof(kernel_sigset_t)。glibc 的 sigprocmask() 包装函数会透明
+// 地在支持时调用 rt_sigprocmask()。每个线程拥有自己独立的信号掩码。fork(2) 的子进程
+// 会继承父进程的信号掩码，信号掩码会跨越 execve(2) 的执行后仍保留。若 SIGBUS、SIGFPE、
+// SIGILL 或 SIGSEGV 在阻塞期间由硬件异常产生，结果将未定义，除非这些信号来自 kill(2)、
+// sigqueue(3) 或 raise(3)。允许（但无意义）同时把 set 和 oldset 设为 NULL。
+//
+// 如果某个信号既被阻塞又被设置为“忽略”，那么当它触发时不会被加入线程的待处理信号集中。
+// 线程的待处理信号集，是该线程自己的待处理信号，与整个进程的待处理信号的合集，详见
+// signal(7)。通过 fork(2) 创建的子进程，其初始待处理信号集为空；跨 execve(2) 执行会
+// 保留现有的待处理信号集。在 glibc 2.2.1 及更早版本中，sigpending() 的包装函数存在一
+// 个缺陷：无法正确返回有关挂起的实时信号（real-time signals）的信息。
+//
+// https://www.man7.org/linux/man-pages/man5/core.5.html
+// https://www.man7.org/linux/man-pages/man1/coredumpctl.1.html
+// https://www.man7.org/linux/man-pages/man8/systemd-coredump.8.html
+//
+// 核心转储文件（core）。特定信号会引发进程创建一个核心转储文件并终止运行。所谓核心转储
+// 是内含进程终止时内存映像的一个文件，术语 core 源于一种老迈的内存技术。将该内存映像加
+// 载到调试器，即可查明信号到达时程序代码和数据的状态。引发程序生成核心转储文件的方式之
+// 一是键入退出字符（通常是CTRL-\），从而生成 SIGQUIT 信号。核心转储文件创建于进程的
+// 工作目录中，名为 core。这是核心转储文件的默认位置和名称，这些默认值都可以进行配置。
+// 借助于许多实现所提供的工具（例如 FreeBSD 中的 gcore），可获取某一正在运行进程的核心
+// 转储文件。Linux 系统也有类似功能，使用 gdb 去连接（attach）一个正在运行的进程，然后
+// 运行 gcore 命令。但要产生核心文件，需要满足一些条件：
+//  1.  进程对核心文件有写权限，并且对应名称的文件在指定目录下能够创建成功
+//  2.  进程的核心文件大小（RLIMIT_CORE）和可创建文件大小（RLIMIT_FSIZE）没有受到限制
+//  3.  用户对正在执行的二进制可执行文件有读取权限
+//  4.  当前目录所在文件系统不能是只读的，空间不能已满，i-node 资源没有耗尽，用户在该
+//      文件系统上还没有达到其配额限制
+//  5.  set-user-id 或 set-group-id 程序必须由文件属主或属组执行时，才会产生核心文
+//      件，这可防止恶意用户将一个安全程序的内存转储出来，再针对诸如密码之类的敏感信息
+//      进行刺探。借助于 Linux 专有的系统调用 prctl() 的 PR_SET_DUMPABLE 操作，可以
+//      为进程设置 dumpable 标志。当非文件属主或属组运行 set-user-id 或 set-group-id
+//      程序时，如果设置了 dumpable 标志则可以生成核心文件。另外，始于内核 2.6.13，针
+//      对 set-user-id 和 set-group-id 进程是否产生核心文件，如下配置文件提供了系统
+//      级控制：/proc/sys/fs/suid_dumpable，参见 proc(5) 手册。
+//  6.  始于内核版本 2.6.23，利用 Linux 特有的 /proc/PID/coredump_filter，可以对写
+//      入核心转储文件的内存映射类型施以进程级控制。该文件中的值是一个4位掩码，分别对应
+//      4中类型的内存映射：私有匿名映射、私有文件映射、共享匿名映射、共享文件映射。文件
+//      文件默认值提供了传统的 Linux 行为，即仅对私有匿名和共享匿名映射进行转储，参见
+//      core(5) 手册。
+//
+// #include <signal.h> 等待信号的发生
+// int sigsuspend(const sigset_t *mask);
+// int sigwait(const sigset_t *set, int *sig);
+// int sigwaitinfo(const sigset_t *set, siginfo_t *info);
+// int sigtimedwait(const sigset_t *set, siginfo_t *info, const struct timespec *timeout);
+// #include <unistd.h> 暂停进程等待被信号中断或进行终止
+// int pause(void); 暂停进程的执行，等待信号的中断或者直至一个未处理信号终止进程为止；总是返回 -1 和 EINTR
+//
+// 在解释 sigsuspend() 之前，先介绍一下它的一种使用场景，在对信号编程时偶尔会遇到如下
+// 情况：（1）临时阻塞一个信号，以防止其中断关键代码片段的执行；（2）解除对信号的阻塞，
+// 然后暂停执行，直至有信号到达。在第2步中，如何检测到在解除阻塞到执行暂停期间的信号呢，
+// 因为信号可能随时到达，如果使用以下代码就检测不到这种情况：
+//      sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+//      pause();
+//
+// 要避免这个问题，需要将解除信号阻塞和挂起进程这两个动作封装成一个原子操作，这正是系统
+// 调用 sigsuspend() 的目的。sigsuspend() 使用 mask 指向的信号集替换进行的信号掩码，
+// 然后挂起进程的执行，直到其捕获到信号，并从信号处理函数返回。一旦处理函数返回，还会将
+// 进程信号掩码恢复为调用前的值。调用 sigsuspend()，相当于以不可中断的方式执行以下操
+// 作。虽然恢复旧的信号掩码咋看起来似乎麻烦，但为了需要反复等待信号的情况下避免竞争条件，
+// 这一做法至关重要。在这种情况下，除非是在 sigsuspend() 调用期间，否则信号必须保持阻
+// 塞状态。若 sigsuspend() 总是返回 -1 和 EINTR 或者 EFAULT 表示 mask 地址非法。
+//      sigprocmask(SIG_SETMASK, &mask, &prev_mask);
+//      pause();
+//      sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+//
+// 因为不能阻塞 SIGKILL 和 SIGSTOP，指定这些信号到 mask 中不会对线程的信号掩码产生效
+// 果。如果信号终止了进程，sigsuspend() 将不会返回。如果等到了信号，那么信号的处理函数
+// 将被调用，并且信号掩码会重置回调用前的值，之后 sigsuspend() 才会返回。
+//
+// 以上描述了使用 sigsuspend() 挂起进程来等待信号，然而这种方法需要编写信号处理函数，
+// 以及需要应对信号异步传递所带来的复杂性。对于某些应用而言，这种方法过于繁杂。作为替代
+// 方案，可以利用 sigwaitinfo() 和 sigtimedwait() 系统调用来同步接收信号。使用这些
+// 同步等待的系统调用，需要首先对 set 中的信号集进行阻塞。如果没有这样做，而信号在首次
+// 调用 sigwaitinfo() 之前，或者两次连续调用 sigwaitinfo() 之间到达，那么对信号的处
+// 理只能依靠当前信号的处理函数。SUSv3 规定，调用 sigwaitinfo() 而不阻塞 set 中的信
+// 号将导致不可预知的行为。sigwaitinfo() 将挂起进程的执行，直至 set 信号集中的某一信
+// 号抵达。如果调用 sigwaitinfo() 时，set 中的某一信号已经处于等待状态，那么该调用将
+// 立即返回。传递的信号就此从进程的等待信号队列中移除，并且将返回信号编号作为函数结果，
+// info 参数如果不为空，则会返回信号的相关信息。sigwaitinfo() 所接收信号的传递顺序和
+// 排队特性与信号的类型相关，也就是说不对标准信号进行排队处理而实行低编号优先的原则，而
+// 对实时信号进行排队处理。除了卸去编写信号处理函数的负担之外，因为 sigwaitinfo() 返回
+// 了对应信号的信息可直接在主程序中进行处理，使用 sigwaitinfo() 来等待信号也要比信号
+// 处理函数外加 sigsuspend() 的组合要稍快一些。
+//
+// sigtimedwait() 系统调用是 sigwaitinfo() 调用的变体，唯一的区别是 sigtimedwait()
+// 允许指定等待时限。如果将时限指定为 0，那么函数将立即超时。如果调用超时而又没有收到信
+// 号，sigtimedwait() 将调用失败，返回 -1 和 EAGAIN。如果将 timeout 参数指定为 NULL，
+// 那么 sigtimedwait() 将完全等同于 sigwaitinfo()。SUSv3 对于 timeout 的 NULL 值
+// 语焉不详，而某些 UNIX 实现则将该值视为轮询请求并立即返回。
+//
+// #include <sys/signalfd.h>
+// int signalfd(int fd, const sigset_t *mask, int flags);
+//
+// Linux 2.6.22 开始提供了非标准的 signalfd() 系统调用，利用该调用可以创建一个特殊的
+// 文件描述符，发往调用者的信号都可从该描述符中读取。signalfd 机制为同步接收信号提供了
+// sigwaitinfo() 之外的另一种选择。mask 是一个信号集，指定了有意通过 sigalfd 文件描
+// 述符来读取的信号。如同 sigwaitinfo() 一样，通常也应该使用 sigprocmask() 阻塞 mask
+// 中的所有信号，以确保有机会读取这些信号之前，不会按照设置的信号处理函数对它们进行处
+// 理。如果指定 fd 为 -1，那么 signalfd() 会创建一个新的文件描述符，否则将修改与 fd
+// 相关的 mask 值，且该 fd 必须是前面某一次 signalfd() 创建的描述符。早期实现将 flag
+// 参数保留下来供将来使用，且必须将其指定为 0。然而，Linux 从版本 2.6.27 开始支持两个
+// 标志 SFD_CLOEXEC SFD_NONBLOCK，参见文件描述符的 O_CLOEXEC 和 O_NONBLOCK。
+//
+// 创建文件描述符之后，可以使用 read() 调用从中读取信号，提供给 read() 的缓冲区必须足
+// 够大，至少应该能够容纳一个 signalfd_siginfo 结构，该结构返回与传统 siginfo_t 结构
+// 类似的字段信息。read() 每次调用都将返回与等待信号数目相等的 signalfd_siginfo 结构，
+// 并填充到提供的缓冲区中。如果调用时并无信号正在等待，那么 read() 将阻塞，直到信号到
+// 达。也可以使用 fcntl() 的 F_SETFL 将文件描述符设置为非阻塞 O_NONBLOCK，使得读操作
+// 不在阻塞，且若无信号等待，则调用失败返回 EAGAIN。
+//
+// select() poll() epoll() 可以将 sigalfd 描述符和其他描述符混合起来进行监控。如果有
+// 信号正在等待，那么这些技术将文件描述符指示为可读取。当不在需要 signalfd 文件描述符
+// 时，应该关闭 signalfd 以释放相关的内核资源。
+//
+// 从某种角度，可将信号视为进程间通信（IPC）的方式之一。然而，信号作为一种 IPC 机制却
+// 饱受限制。首先，与其他 IPC 方法相比，对信号编程集繁杂且困难，具体原因如下：
+//  1.  信号的异步本质就意味着需要面对各种问题，包括可重入性需求、竟态条件以及在信号处
+//      理函数中正确处理全局变量。如果使用 sigwaitinfo() 或者 signalfd() 来同步获取
+//      信号，这些问题中的大部分都不会遇到。
+//  2.  没有对标准信号进行排队处理，即使是对于实时信号，也存在对信号排队数量的限制。这
+//      意味着，为了避免丢失信息，接收信号的进程必须相方设法通知发送者，自己为接收另一
+//      个信号做好了准备。要做的这一点，最显而易见的方法是由接收者向发送者发送信号。
+//
+// 还有一个更深层次的问题，信号所携带的信息量有限：只有信号编号，以及实时信号情况下了一
+// 个整数或指针附加数据。与诸如管道之类的其他 IPC 方法相比，过低的带宽使得信号传输极为
+// 缓慢。由于上述种种限制，很少将信号用户进程间通信。
+//
+// https://www.man7.org/linux/man-pages/man7/signal.7.html
+//
+// #include <signal.h>
+// #include <pthread.h>
+// int pthread_kill(pthread_t thread, int sig);
+// int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
+// int pthread_sigqueue(pthread_t thread, int sig, const union sigval value);
+//
+// 信号处理函数是进程的属性，在一个多线程程序中，一个特定信号的处理函数对于所有线程都是
+// 相同的。由 fork(2) 创建的子进程会继承来自父进程的所有信号处置设置。在一个 execve(2)
+// 执行期间，处理过的信号的处置会重置成默认行为，而忽略的信号处置方式保持不变。
+//
+// 每个线程拥有自己独立的信号掩码。由 fork(2) 创建的子进程会继承父进程的信号掩码，信号
+// 掩码会跨越 execve(2) 保留。信号可以是进程定向的（process-directed）或线程定向的
+// （thread-directed）。进程定向信号是针对整个进程的。若信号由内核非硬件异常原因产生，
+// 或通过 kill(2) 或 sigqueue(3) 发送，则为进程定向。进程定向信号可被任何未阻塞该信号
+// 的线程接收。若多个线程均未阻塞该信号，则内核会任意选择一个线程来投递信号。
+//
+// 线程定向信号是针对特定线程的。若信号因执行特定机器语言指令触发硬件异常（例如，非法内
+// 存访问产生 SIGSEGV，数学错误产生 SIGFPE），或通过 tgkill(2) 或 pthread_kill(3)
+// 等接口向特定线程发送，则为线程定向。线程可以通过 sigpending(2) 获取其当前挂起的信号
+// 集。该集合是进程定向挂起信号集与调用线程自身挂起信号集的并集。通过 fork(2) 创建的子
+// 进程，其初始挂起信号集为空；execve(2) 会保留现有的挂起信号集。
+//
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
 // 对这类互斥量的这两种操作都会成功。
