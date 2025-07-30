@@ -7724,13 +7724,14 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // 的标准信号编号范围为 1~31，然而 Linux 在 signal(7) 手册中列出的信号名称却超出了31
 // 个，超出的原因有多种。有些名称只是其他名称的同义词，这是为了与其他 UNIX 实现保持源码
 // 兼容性；其他名称名称虽有定义，但却并未使用。另一组信号由实时信息构成，其与标准信号的
-// 差异将在后文介绍。
+// 差异将在后文介绍。不存在编号为 0 的信号，kill 函数对信号编号 0 有特殊的应用，POSIX
+// 将此种信号编号值称为空信号。
 //
 //  信号                描述                                        默认行为
 //  SIGHUP              终端断开或挂起                               term（终止进程）
 //  SIGINT              终端中断                                    term（终止进程）
-//  SIGTSTP             终端停止                                    stop（停止进程）
 //  SIGQUIT             终端退出                                    core（产生核心转储文件，并终止进程）
+//  SIGTSTP             终端停止                                    stop（停止进程）
 //  SIGTTIN             终端被后台进程读取                           stop（停止进程）
 //  SIGTTOU             终端被后台进程写入                           stop（停止进程）
 //  SIGWINCH            终端窗口尺寸变化                             ignore（忽略该信号，内核将默默丢弃）
@@ -7800,16 +7801,19 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // SIGINT - 终端中断
 //      当用户键入终端中断字符（通常为CTRL-C）时，终端驱动程序将发送该信号给前台进程
 //      组，该信号的默认行为是终止进程。
-// SIGTSTP - 终端停止
-//      作业控制的停止信号，当用户在键盘上输入挂起字符（通常是CTRL-Z）时，将发送该信号
-//      给前台进程组，使其停止运行。后文描述了进程组（作业）和作业控制，以及程序应在何
-//      时以及如何去处理该信号。该信号名源自终端停止（terminal stop）术语。
+//      path/to/program & # 后台进程
+//      终端 shell 自动将后台进程对 SIGINT 和 SIGQUIT 的处理方式设置为忽略，于是当
+//      按下中断或退出字符时就不会影响到后台进程。
 // SIGQUIT - 终端退出
 //      在用户在键盘上键入退出字符（通常为CTRL-\），该信号将发送给前台进程组。默认情
 //      况下，该信号终止进程，并生成可用于调试的核心转储文件。进程如果陷入无限循环，或
 //      者不再响应时，使用SIGQUIT信号就很合适。键入CTRL-\，再调用gdb加载刚才生成的核
 //      心转储文件，接着用backtrace命令来获取堆栈跟踪信息，就能发现正在执行的是程序的
 //      那部分代码。
+// SIGTSTP - 终端停止
+//      作业控制的停止信号，当用户在键盘上输入挂起字符（通常是CTRL-Z）时，将发送该信号
+//      给前台进程组，使其停止运行。后文描述了进程组（作业）和作业控制，以及程序应在何
+//      时以及如何去处理该信号。该信号名源自终端停止（terminal stop）术语。
 // SIGTTIN - 终端被后台进程读取
 //      在作业控制 shell 下运行时，若后台进程组试图对终端进行 read() 时，终端驱动程序
 //      则将向该进程组发送此信号。该信号默认将停止进程。
@@ -7858,7 +7862,7 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // SIGABRT - 中止进程
 //      当进程调用 abort() 函数时，系统向进程发送该信号。默认行为：终止进程，并产生核
 //      心转储文件。
-// SIGIOT - 中止进程或硬件错误
+// SIGIOT - 中止进程或硬件错误，Input Output Trap
 //      在 Linux 中，该信号与 SIGABRT 相同。在其他一些 UNIX 实现中，该信号表示发生了
 //      由实现定义的硬件错误。
 // SIGBUS - 内存访问错误，内存地址可以访问但访问时发生错误
@@ -8193,6 +8197,10 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //      int ss_flags; 标志：SS_ONSTACK SS_DISABLE
 //      size_t ss_size; 栈大小
 // } stack_t;
+//
+// 可能的错误：EFAULT 参数 ss 或 old_ss 指向非法地址，EINVAL 参数 ss 不为空并且
+// ss_flags 包含非法标志，ENOMEM 指定的 ss_size 小于 MINSIGSTKSZ，EPERM 尝试修改
+// 正处于活动状态的备选信号栈，即线程正执行在当前的备选信号栈之上。
 //
 // 备选信号栈通常既可以静态分配，也可以在堆上动态分配。SUSv3 规定将常量 SIGSTKSZ 作为
 // 划分备选栈大小的典型值，而将 MINSIGSTKSZ 作为调用信号处理器函数所需的最小值。在
@@ -8959,11 +8967,74 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 //
 // https://www.man7.org/linux/man-pages/man7/signal.7.html
 //
-// #include <signal.h>
-// #include <pthread.h>
-// int pthread_kill(pthread_t thread, int sig);
-// int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
-// int pthread_sigqueue(pthread_t thread, int sig, const union sigval value);
+// 系统调用和库函数被信号处理函数中断。如果信号处理函数在某个系统调用或库函数调用被阻塞
+// 时被触发，那么在处理函数执行完毕并且返回之后：主程序调用会自动重启；或者以 EINTR 错
+// 误返回。具体发生哪种行为取决于接口以及信号处理函数是否使用了 SA_RESTART 标志，参见
+// sigaction(2)。不同 UNIX 系统的细节有所不同，以下是 Linux 的细节行为。
+//
+// 如果对以下接口的阻塞调用被信号处理函数中断，那么如果使用了 SA_RESTART 标志，调用会
+// 在信号处理函数返回后自动重启；否则，调用会以 EINTR 错误失败：
+//
+//  1.  “慢速” 设备上的 I/O 调用：read(2)、readv(2)、write(2)、writev(2) 和
+//      ioctl(2)。“慢速” 设备是指 I/O 调用可能无限期阻塞（期限不明确）的设备，例如
+//      终端、管道或套接字。如果在被信号处理函数中断之前，I/O 调用已经传输了一些数据，
+//      那么调用将返回成功状态（通常是传输的字节数）。注意，根据此定义，本地磁盘不是慢
+//      速设备；磁盘设备上的 I/O 操作不会被信号中断。因为磁盘 I/O 操作总会比较快的返
+//      回，并使调用者不再处在阻塞状态，不像真正的 “慢速” 设备，进程可能无限期阻塞，除
+//      非系统停机，否则可能一直阻塞。
+//  2.  可能阻塞的 open(2) 操作，例如打开 FIFO 时，参见 fifo(7)。
+//  3.  进程等待：wait(2)、wait3(2)、wait4(2)、waitid(2) 和 waitpid(2)。
+//  4.  套接字接口：accept(2)、connect(2)、recv(2)、recvfrom(2)、recvmmsg(2)、
+//      recvmsg(2)、send(2)、sendto(2) 和 sendmsg(2)，除非套接字上设置了超时，见下
+//      文。
+//  5.  文件锁定接口：flock(2) 以及 fcntl(2) 的 F_SETLKW 和 F_OFD_SETLKW 操作。
+//  6.  POSIX 消息队列接口：mq_receive(3)、mq_timedreceive(3)、mq_send(3) 和
+//      mq_timedsend(3)。
+//  7.  futex(2) 的 FUTEX_WAIT（Linux 2.6.22 起；在此之前，总是以 EINTR 失败）。
+//  8.  getrandom(2)。
+//  9.  futex(2) 的 FUTEX_WAIT_BITSET。
+//  10. POSIX 信号量接口：sem_wait(3) 和 sem_timedwait(3)（Linux 2.6.22 起；在此
+//      之前，总是以 EINTR 失败）。
+//  11. 从 inotify(7) 文件描述符读取的 read(2)（Linux 3.8 起；在此之前，总是以
+//      EINTR 失败）。
+//
+// 以下接口在被信号处理函数中断后永远不会重启，无论是否使用了 SA_RESTART；它们在被信号
+// 处理函数中断时总是以 EINTR 错误失败：
+//
+//  1.  通过 setsockopt(2) 设置了超时（SO_RCVTIMEO）的 “输入” 套接字接口：
+//      accept(2)、recv(2)、recvfrom(2)、recvmmsg(2)（带有非空超时参数时）和
+//      recvmsg(2)。
+//  2.  通过 setsockopt(2) 设置了超时（SO_SNDTIMEO）的 “输出” 套接字接口：
+//      connect(2)、send(2)、sendto(2) 和 sendmsg(2)。
+//  3.  用于等待信号的接口：pause(2)、sigsuspend(2)、sigtimedwait(2) 和
+//      sigwaitinfo(2)。
+//  4.  文件描述符多路复用接口：epoll_wait(2)、epoll_pwait(2)、poll(2)、ppoll(2)、
+//      select(2) 和 pselect(2)。
+//  5.  System V IPC 接口：msgrcv(2)、msgsnd(2)、semop(2) 和 semtimedop(2)。
+//  6.  睡眠接口：clock_nanosleep(2)、nanosleep(2) 和 usleep(3)。
+//  7.  io_getevents(2)。
+//
+// sleep(3) 函数在被信号处理函数中断时永远不会重启，但会返回成功：剩余的睡眠秒数。在某
+// 些情况下，seccomp(2) 的用户空间通知功能可能会导致某些系统调用在本不会被 SA_RESTART
+// 重启的情况下被重启；详情见 seccomp_unotify(2)。
+//
+// 系统调用和库函数被停止信号中断。在 Linux 上，即使没有信号处理函数，某些阻塞接口在进
+// 程被停止信号停止后，通过 SIGCONT 恢复时，也可能以 EINTR 错误失败。这种行为未被
+// POSIX.1 批准，可能在其他系统上不会发生。具有此行为的 Linux 接口包括：
+//
+//  1.  通过 setsockopt(2) 设置了超时（SO_RCVTIMEO）的 “输入” 套接字接口：
+//      accept(2)、recv(2)、recvfrom(2)、recvmmsg(2)（带有非空超时参数时）和
+//      recvmsg(2)。
+//  2.  通过 setsockopt(2) 设置了超时（SO_SNDTIMEO）的 “输出” 套接字接口：
+//      connect(2)、send(2)、sendto(2) 和 sendmsg(2)。
+//  3.  epoll_wait(2)、epoll_pwait(2)。
+//  4.  semop(2)、semtimedop(2)。
+//  5.  sigtimedwait(2)、sigwaitinfo(2)。
+//  6.  Linux 3.7 及更早版本：从 inotify(7) 文件描述符进行读取 read(2)。
+//  7.  Linux 2.6.21 及更早版本：futex(2) 的 FUTEX_WAIT、sem_timedwait(3)、
+//      sem_wait(3)。
+//  8.  Linux 2.6.8 及更早版本：msgrcv(2)、msgsnd(2)。
+//  9.  Linux 2.4 及更早版本：nanosleep(2)。
 //
 // 信号处理函数是进程的属性，在一个多线程程序中，一个特定信号的处理函数对于所有线程都是
 // 相同的。由 fork(2) 创建的子进程会继承来自父进程的所有信号处置设置。在一个 execve(2)
@@ -8980,6 +9051,70 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
 // 等接口向特定线程发送，则为线程定向。线程可以通过 sigpending(2) 获取其当前挂起的信号
 // 集。该集合是进程定向挂起信号集与调用线程自身挂起信号集的并集。通过 fork(2) 创建的子
 // 进程，其初始挂起信号集为空；execve(2) 会保留现有的挂起信号集。
+//
+// 信号处理函数的执行。每当从内核态切换到用户态执行时（例如从系统调用返回，或线程被调度
+// 到 CPU 上执行），内核会检查是否存在挂起（pending）且未被阻塞的信号，且该信号有对应
+// 的信号处理函数。根据这个步骤，内核可以明确控制内核自己的代码不会被信号打断。如果存在
+// 这样的信号，将执行以下步骤：
+//  (1) 内核为信号处理函数的执行做必要的准备工作：
+//      1.1 从挂起信号集中移除该信号。
+//      1.2 如果信号处理函数是通过带有 SA_ONSTACK 标志的 sigaction(2) 安装的，并且
+//          线程定义了替代信号栈（通过 sigaltstack(2)），则安装使用该替代栈。
+//      1.3 将与信号相关的上下文信息保存到栈上的一个特殊帧中。保存的信息包括：
+//           -  程序计数器寄存器（即信号处理函数返回时应执行的主程序中的下一条指令地址）；
+//           -  架构特定的寄存器状态，用于恢复被中断的程序；
+//           -  线程当前的信号掩码；
+//           -  线程的替代信号栈设置；
+//          如果信号处理函数是通过带有 SA_SIGINFO 标志的 sigaction(2) 安装的，则上
+//          述信息可通过信号处理函数的第三个参数指向的 ucontext_t 对象访问。该对象反
+//          映的是信号递送时的状态，而不是处理函数中的状态；例如，存储在该对象中的阻塞
+//          信号掩码不会包含通过 sigaction(2) 新阻塞的信号。
+//      1.4 将 act->sa_mask 中指定的信号添加到线程的信号掩码中。正在递送的信号也会被
+//          添加到信号掩码中，除非在注册处理函数时指定了 SA_NODEFER。因此，这些信号在
+//          处理函数执行期间被阻塞。
+//  (2) 内核在栈上为信号处理函数构建一个栈帧。内核将线程的程序计数器设置为指向信号处理
+//      函数的第一条指令，并将该函数的返回地址配置为指向用户空间代码中的信号蹦床（在
+//      sigreturn(2) 中描述）。
+//  (3) 内核将控制权交回用户空间，从信号处理函数的起始处开始执行。
+//  (4) 当信号处理函数返回时，控制权传递给信号蹦床代码。
+//  (5) 信号蹦床调用 sigreturn(2)，这是一个系统调用，它使用步骤 1 中创建的栈帧中的信
+//      息，将线程恢复到调用信号处理函数之前的状态。线程的信号掩码和替代信号栈设置作为
+//      此步骤流程的一部分被恢复。sigreturn(2) 调用完成后，内核将控制权交回用户空间，
+//      线程从被信号处理函数中断的地方继续执行。
+//
+// 注意：如果信号处理函数不返回（例如使用 siglongjmp(3) 跳出处理函数，或通过 execve(2)
+// 执行新程序），则不会执行最后一步。在这种情况下，程序员有责任使用 sigprocmask(2) 恢复
+// 信号掩码的状态（如果希望解除信号处理函数入口处阻塞的信号）。需要注意的是，siglongjmp(3)
+// 是否会恢复信号掩码取决于 sigsetjmp(3) 调用时指定的 savesigs 值。
+//
+// 从内核的角度来看，信号处理函数代码的执行与任何其他用户空间代码的执行完全相同。也就是
+// 说，内核不会记录任何特殊状态信息，表明线程当前正在执行信号处理函数。所有必要的状态信
+// 息都保存在用户空间寄存器和用户空间栈中。因此，嵌套信号处理函数的深度仅受用户空间栈
+// （以及合理的软件设计）的限制。
+//
+// #include <signal.h>
+// #include <pthread.h>
+// int pthread_kill(pthread_t thread, int sig);
+// int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
+// int pthread_sigqueue(pthread_t thread, int sig, const union sigval value);
+//
+// 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
+//  1.  进程ID和父进程ID，进程组ID与会话（session）ID，进程凭证（credential）
+//  2.  控制终端，打开的文件描述符
+//  3.  由 fcntl() 创建的记录锁（record lock）
+//  4.  信号处置，间隔定时器和POSIX定时器
+//  5.  文件系统的相关信息，例如文件权限掩码、当前工作目录和根目录
+//  6.  系统 V（System V）信号量撤销（undo semadj）
+//  7.  资源限制（resource limit），资源消耗（getrusage()）
+//  8.  CPU 时间消耗（times()），nice 值（setpriority() nice()）
+//
+// 各线程所独有的属性包括：
+//  1.  线程ID，线程本地存储数据，errno 变量，浮点环境（fenv(3)）
+//  2.  信号掩码，备选信号栈（sigaltstack()）
+//  3.  实时调度策略和优先级
+//  4.  CPU 亲和力（affinity，Linux 所特有）
+//  5.  能力（capability，Linux 所特有）
+//  6.  线程栈，本地变量和函数的调用链接信息
 //
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
