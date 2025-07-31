@@ -6893,7 +6893,7 @@ void prh_thrd_sem_post(prh_thrd_sem *s, int n);
 typedef struct prh_sleep_cond prh_sleep_cond;
 prh_sleep_cond *prh_sleep_cond_init(void);
 void prh_sleep_cond_free(prh_sleep_cond **p);
-void prh_thrd_sleep(prh_sleep_cond *p);
+void prh_thrd_cond_sleep(prh_sleep_cond *p);
 void prh_thrd_wakeup(prh_sleep_cond *p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
@@ -6936,7 +6936,7 @@ void prh_thrd_wakeup(prh_sleep_cond *p);
 #define thrd_sem_post               prh_thrd_sem_post
 #define sleep_cond_init             prh_sleep_cond_init
 #define sleep_cond_free             prh_sleep_cond_free
-#define thrd_sleep                  prh_thrd_sleep
+#define thrd_cond_sleep             prh_thrd_cond_sleep
 #define thrd_wakeup                 prh_thrd_wakeup
 #endif
 
@@ -7701,6 +7701,194 @@ void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
         prh_impl_thrd_join(thrd_list, i, udatafree);
     }
     prh_thrd_free(main, udatafree);
+}
+
+// #include <unistd.h>
+// unsigned int sleep(unsigned int seconds);
+// int usleep(useconds_t usec);
+//
+// sleep(3) 函数会使调用线程进入睡眠状态，直到以下两种情况之一发生：
+//  1.  指定的实际秒数（real-time seconds）已经过去；
+//  2.  收到一个未被忽略的信号。
+//
+// 返回值：如果请求的时间已过去，返回 0；如果被信号处理函数中断，则返回剩余的睡眠秒数。
+// 在 Linux 上，sleep(3) 是通过 nanosleep(2) 实现的。关于所使用的时钟的讨论，可以参
+// 考 nanosleep(2) 的手册页。在其他一些系统上，sleep(3) 可能是通过 alarm(2) 和
+// SIGALRM 实现的（POSIX.1 允许这样做）。因此，将 alarm(2) 和 sleep(3) 的调用混用是
+// 一个糟糕的主意。注意：从信号处理函数中使用 longjmp(3) 或在睡眠期间修改 SIGALRM 的
+// 处理方式会导致未定义行为。
+//
+// usleep(3) 函数使调用线程暂停执行至少 usec 微秒。实际的暂停时间可能会因为系统活动、
+// 处理调用的时间或系统时钟粒度而稍微延长。返回值：成功返回0，失败返回 -1 和 errno。
+// EINTR - 被信号中断，参见 signal(7)。EINVAL - usec 大于或等于 1000000（1s，在某
+// 些系统上，这被认为是错误）。
+//
+// 4.3BSD、POSIX.1-2001：POSIX.1-2001 声明该函数已废弃，建议使用 nanosleep(2) 替
+// 代。在 POSIX.1-2008 中被移除。glibc 2.2.2 之前的实现：返回类型为 void。从 glibc
+// 2.2.2 开始，返回类型为 int，与 POSIX 版本一致。只有 EINVAL 错误返回被 SUSv2 和
+// POSIX.1-2001 文档化。
+//
+// 与信号和定时器的交互：usleep() 函数与 SIGALRM 信号以及其他定时器函数，如 alarm(2)、
+// sleep(3)、nanosleep(2)、setitimer(2)、timer_create(2)、timer_delete(2)、
+// timer_getoverrun(2)、timer_gettime(2)、timer_settime(2)、ualarm(3)）的交互是
+// 未定义的。usleep() 是一个简单的微秒级睡眠函数，但由于其在现代标准中已被废弃，建议在
+// 新代码中使用 nanosleep(2) 或其他更现代的定时器函数。
+//
+// #include <time.h>
+// int nanosleep(const struct timespec *duration, struct timespec *rem);
+// struct timespec {
+//      time_t  tv_sec;   /* Seconds */
+//      ...     tv_nsec;  /* Nanoseconds [0, 999'999'999] */
+// };
+//
+// nanosleep(2) 函数使调用线程暂停执行，直到以下两种情况之一发生：
+//  1.  指定的时间（duration）已经过去；
+//  2.  收到一个信号，该信号触发了调用线程中的信号处理函数或终止了进程。
+//
+// 如果调用被信号处理函数中断，nanosleep() 会返回 -1，将 errno 设置为 EINTR，并将剩
+// 余时间写入 rem 指向的结构中（除非 rem 是 NULL）。然后可以使用 *rem 的值再次调用
+// nanosleep()，以完成指定的暂停。时间粒度：如果 duration 不是底层时钟粒度，参见
+// time(7)，的精确倍数，则时间间隔将向上舍入到下一个倍数。此外，暂停完成后，线程可能仍
+// 需等待一段时间才能再次获得 CPU 的执行权。时间漂移：由于 nanosleep() 睡眠一段相对时
+// 间间隔，如果调用被信号反复中断，那么每次中断和重新启动之间的时间会导致最终完成暂停的
+// 时间逐渐漂移。可以通过使用 clock_nanosleep(2) 并指定绝对时间值来避免此问题。
+//
+// 信号干扰：如果一个捕获信号并使用 nanosleep() 的程序，以极高的频率接收信号，那么内核
+// 在计算睡眠间隔和返回的剩余时间时的调度延迟和舍入误差可能导致剩余时间在连续重启
+// nanosleep() 调用时稳步增加。为了避免此类问题，建议使用带有 TIMER_ABSTIME 标志的
+// clock_nanosleep(2)，以睡眠到绝对截止时间。
+//
+// timespec(3) 结构用于以纳秒精度指定时间间隔。tv_nsec 字段的值必须在 [0, 999999999]
+// 范围内。与 sleep(3) 和 usleep(3) 相比，nanosleep() 具有以下优点：它提供了更高的时
+// 间间隔指定精度；POSIX.1 明确规定它不与信号交互；它使恢复被信号处理函数中断的睡眠变得
+// 更加容易。
+//
+// 如果成功地按照请求的时间持续睡眠，nanosleep() 返回 0。如果调用被信号处理函数中断或
+// 遇到错误，nanosleep() 返回 -1，并设置 errno 以指示错误。EFAULT 从用户空间复制信息
+// 时出错，这通常是因为 duration 或 rem 地址非法。EINTR 被发送到线程的信号中断。剩余
+// 的睡眠时间已写入 *rem，以便线程可以轻松地再次调用 nanosleep()。EINVAL 表示tv_nsec
+// 字段的值不在范围 [0, 999999999] 内，或者 tv_sec 为负数。
+//
+// POSIX.1 规定 nanosleep() 应该基于 CLOCK_REALTIME 时钟测量时间。然而，Linux 使用
+// 的是 CLOCK_MONOTONIC 时钟。这通常不重要，因为 POSIX.1 对 clock_settime(2) 的规
+// 定表明，对 CLOCK_REALTIME 的不连续更改不应影响 nanosleep()：通过 clock_settime(2)
+// 设置 CLOCK_REALTIME 时钟的值，必须不影响等待基于此时钟的相对时间服务的线程，相对时间
+// 服务包括 nanosleep() 函数。因此，这些时间服务将在请求的持续时间过去后到期，与时钟的
+// 新旧值无关。
+//
+// 为了支持需要更精确暂停的应用程序（例如，控制某些时间敏感的硬件），Linux 2.5.39 之前
+// 的版本中，nanosleep() 在使用实时策略（如 SCHED_FIFO 或 SCHED_RR）的线程中，会以微
+// 秒精度忙等最多 2 毫秒。这一特殊扩展在 Linux 2.5.39 中被移除，因此在 Linux 2.6.0
+// 及更高版本的内核中不可用。
+//
+// 在 Linux 2.4 中，如果 nanosleep() 被信号（例如 SIGTSTP）停止，则在被 SIGCONT 信
+// 号恢复后，调用会以 EINTR 错误失败。如果随后重新启动系统调用，则线程在停止状态花费的
+// 时间不会计入睡眠间隔。此问题已在 Linux 2.6.0 及更高版本的内核中修复。
+//
+// #include <time.h>
+// int clock_nanosleep(clockid_t clockid, int flags, const struct timespec *t, struct timespec *remain);
+//
+// 和 nanosleep(2) 一样，clock_nanosleep(2) 允许调用线程以纳秒精度暂停指定的时间间
+// 隔。它与 nanosleep(2) 的区别在于，它允许调用者选择用于测量睡眠间隔的时钟，并且允许
+// 将睡眠间隔指定为绝对值或相对值。参数 clockid 指定用于测量睡眠间隔的时钟。该参数可以
+// 取以下值之一：
+//  1.  CLOCK_REALTIME 一个可设置的系统范围实时钟（real-time clock）
+//  2.  CLOCK_TAI (since Linux 3.10) 一个基于墙钟时间但计算闰秒的系统范围时钟
+//  3.  CLOCK_MONOTONIC 一个不可设置的、单调递增的时钟，测量自系统启动后某个未指定点
+//      的时间。
+//  4.  CLOCK_BOOTTIME (since Linux 2.6.39) 与 CLOCK_MONOTONIC 相同，但包括系统挂
+//      起的时间。
+//  5.  CLOCK_PROCESS_CPUTIME_ID 一个可设置的属于每个进程的时钟，测量进程中所有线程
+//      消耗的 CPU 时间。
+//
+// 关于这些时钟的更多细节，可以参考 clock_getres(2)。此外，由 clock_getcpuclockid(3)
+// 和 pthread_getcpuclockid(3) 返回的 CPU 时钟 ID 也可以传递给 clockid。如果 flags
+// 为 0，则 t 中指定的值被解释为相对于 clockid 指定时钟当前值的相对时间间隔。如果flags
+// 是 TIMER_ABSTIME，则 t 被解释为由 clockid 指定时钟测量的绝对时间，如果 t 小于或等
+// 于当前时钟值，clock_nanosleep() 将立即返回，而不会暂停调用线程。
+//
+// clock_nanosleep() 使调用线程暂停执行，直到以下两种情况之一发生：
+//  1.  指定的时间 t 已经过去；
+//  2.  收到一个信号，该信号触发了调用线程中的信号处理函数或终止了进程。
+//
+// 如果调用被信号处理函数中断，clock_nanosleep() 会以 EINTR 错误失败。此外，如果
+// remain 不为 NULL，且 flags 不是 TIMER_ABSTIME，它会将剩余未睡眠的时间返回到
+// remain 中。然后可以使用这个值再次调用 clock_nanosleep()，以完成（相对）睡眠。
+//
+// 如果成功地按照请求的时间间隔睡眠，clock_nanosleep() 返回 0。如果调用被信号处理函数
+// 中断或遇到错误，clock_nanosleep() 会返回一个正的错误码：
+//      EFAULT - t 或 remain 地址非法。
+//      EINTR - 睡眠被信号处理函数中断，参见 signal(7)。
+//      EINVAL - tv_nsec 字段的值不在范围 [0, 999999999] 内，或者 tv_sec 为负数，
+//          或者 clockid 无效（CLOCK_THREAD_CPUTIME_ID 不是允许的 clockid 值）。
+//      ENOTSUP - 内核不支持使用此 clockid 进行睡眠。
+//
+// 如果 t 中指定的时间间隔不是底层时钟粒度（参见 time(7)）的精确倍数，则时间间隔将向上
+// 舍入到下一个倍数。此外，暂停完成后，线程可能仍需等待一段时间才能再次获得 CPU 的执行
+// 权。使用绝对定时器有助于避免 nanosleep(2) 中描述的定时器漂移问题。这类问题在尝试重
+// 新启动被信号反复中断的相对睡眠的程序中更为严重。为了执行一个避免这些问题的相对睡眠，
+// 可以调用 clock_gettime(2) 获取所需的时钟，将所需的时间间隔加到返回的时间值上，然后
+// 使用 TIMER_ABSTIME 标志调用 clock_nanosleep()。
+//
+// 无论是否使用 sigaction(2) 的 SA_RESTART 标志，clock_nanosleep() 在被信号处理函
+// 数中断后都不会重新启动。当 flags 是 TIMER_ABSTIME 时，remain 参数是未使用的，也是
+// 不必要的。绝对睡眠可以通过相同的 t 参数重新启动。
+//
+// POSIX.1 规定，clock_nanosleep() 对信号的处理方式或信号掩码没有影响。POSIX.1 规定，
+// 通过 clock_settime(2) 更改 CLOCK_REALTIME 时钟的值后，新的时钟值将用于确定绝对
+// 时间 clock_nanosleep() 阻塞的线程何时唤醒；如果新的时钟值超过了睡眠间隔的结束时间，
+// 则 clock_nanosleep() 调用将立即返回。POSIX.1 规定，通过 clock_settime(2) 更改
+// CLOCK_REALTIME 时钟的值对相对时间 clock_nanosleep() 阻塞的线程没有影响。
+//
+// 时间睡眠函数 clock_nanosleep(2) nanosleep(2) usleep(3) sleep(3) 总是会被信号中
+// 断，无论信号是否设置了 SA_RESTART 标志，都不会自动重新启动系统调用。另外，睡眠函数
+// 不会被 SIGSTOP 等停止信号中断，如果一个进程停止后又被 SIGCONT 继续执行，睡眠函数也
+// 会继续执行，进程停止的时间也会计入睡眠时间。
+#include <time.h>
+
+void prh_thrd_sleep(int secs, int nsec) { // 秒数（32位有符号整数）可以表示68年
+    assert(secs >= 0 && nsec >= 0 && nsec < PRH_NSEC_PER_SEC);
+    struct timespec duration = {.tv_sec = secs, .tv_nsec = nsec};
+    nanosleep(&duration, prh_null);
+}
+
+void prh_thrd_strict_sleep(int secs, int nsec) { // 必须严格睡满一段时间
+    assert(secs >= 0 && nsec >= 0 && nsec < PRH_NSEC_PER_SEC);
+    struct timespec duration = {.tv_sec = secs, .tv_nsec = nsec};
+    struct timespec remain;
+#if defined(prh_plat_linux) || defined(CLOCK_MONOTONIC)
+#if defined(prh_plat_linux)
+    clockid_t clockid = CLOCK_BOOTTIME; // Linux CLOCK_BOOTTIME 包含系统睡眠时间
+#else
+    clockid_t clockid = CLOCK_MONOTONIC; // FreeBSD CLOCK_MONOTONIC 包含系统睡眠时间
+#endif
+    prh_zeroret(clock_gettime(clockid, &remain));
+    duration.tv_sec += remain.tv_sec;
+    duration.tv_nsec += remain.tv_nsec;
+    if (duration.tv_nsec >= PRH_NSEC_PER_SEC) {
+        duration.tv_sec += 1;
+        duration.tv_nsec -= PRH_NSEC_PER_SEC;
+    }
+    int n;
+label_continue: // 这里 duration 是绝对时间，被中断后不需要重新计算
+    if ((n = clock_nanosleep(clockid, TIMER_ABSTIME, &duration, prh_null)) == 0) {
+        return;
+    }
+    if (n == EINTR) {
+        goto label_continue;
+    }
+    assert(n == EINTR);
+#else
+label_continue: // 这里 duration 是相对时间，每次中断后需要重新计算
+    if (nanosleep(&duration, &remain) == 0) {
+        return;
+    }
+    if (errno == EINTR) {
+        duration = remain;
+        goto label_continue;
+    }
+    assert(errno == EINTR);
+#endif
 }
 
 // 异步信号处理（信号相当于是阻塞所有线程的优先级最高的一路线程）
@@ -9384,7 +9572,7 @@ bool prh_thrd_try_sleep(prh_sleep_cond *p) {
     }
 }
 
-void prh_thrd_sleep(prh_sleep_cond *p) {
+void prh_thrd_cond_sleep(prh_sleep_cond *p) {
     if (prh_atom_bool_strong_compare_write_false(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
     prh_zeroret(pthread_mutex_lock(&p->mutex));
     while (!prh_atom_bool_read(&p->wakeup_semaphore)) {
@@ -12239,7 +12427,7 @@ label_cont_execute:
 #if PRH_CONO_DEBUG
         printf("[thrd %02d] sleep %d %d\n", thrd_id, atom_write_succ, atom_write_fail);
 #endif
-        prh_thrd_sleep(&cono_thrd->sleep_cond);
+        prh_thrd_cond_sleep(&cono_thrd->sleep_cond);
 #if PRH_CONO_DEBUG
         printf("[thrd %02d] wakeup\n", thrd_id);
 #endif
@@ -12291,7 +12479,7 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, 
 #if PRH_CONO_DEBUG
         printf("[thrd %02d] sleep\n", thrd_id);
 #endif
-        prh_thrd_sleep(&main_thrd->sleep_cond);
+        prh_thrd_cond_sleep(&main_thrd->sleep_cond);
 #if PRH_CONO_DEBUG
         printf("[thrd %02d] wakeup\n", thrd_id);
 #endif
