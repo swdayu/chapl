@@ -1635,6 +1635,32 @@ void prh_impl_abort_error(int err, int line) {
     fprintf(stderr, "abort %d line %d\n", err, line);
     abort();
 }
+void prh_impl_prerr_sigpipe_sigxfsz(int i, bool kernel) {
+    const char *s = "SIGPIPE\0SIGXFSZ";
+    fprintf(stderr, "%s from %s\n", s + i * 8, kernel ? "kernel" : "user");
+}
+void prh_impl_prerr_sigsys(void *calladdr, int err) {
+    fprintf(stderr, "SIGSYS %p errno %d\n", calladdr, err);
+}
+void prh_impl_prerr_sigsegv(int i, void *calladdr) {
+    const char *s = "SEGERR\0 MAPERR\0 ACCERR\0 BNDERR";
+    fprintf(stderr, "SIGSEGV %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigbus(int i, void *calladdr) {
+    const char *s = "BUSERR\0 ADRALN\0 ADRERR\0 OBJERR\0 MCEERR";
+    fprintf(stderr, "SIGBUS %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigill(int i, void *calladdr) {
+    const char *s = "ILLERR\0 ILLOPC\0 ILLOPN\0 ILLADR\0 ILLTRP\0 PRVOPC\0 OPVREG\0 COPROC\0 BADSTK";
+    fprintf(stderr, "SIGILL %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigfpe(int i, void *calladdr) {
+    const char *s = "FPEERR\0 INTDIV\0 INTOVF\0 FLTDIV\0 FLTOVF\0 FLTUND\0 FLTRES\0 FLTINV\0 FLTSUB";
+    fprintf(stderr, "SIGFPE %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigemt(int code, void *calladdr) {
+    fprintf(stderr, "SIGEMT %p code %d\n", calladdr, code);
+}
 #endif // PRH_BASE_IMPLEMENTATION
 
 #ifndef PRH_GLIBC_VERSION
@@ -6976,8 +7002,8 @@ void prh_thrd_wakeup(prh_sleep_cond *p);
 //
 // 在多线程应用中处理信号，需要小心设计，作为通则一般建议在多线程程序中避免使用信号。
 // UNIX 信号模型是基于 UNIX进程模型而设计的，问世比 pthreads 要早几十年。自然而然，
-// 信号与线程模型之间存在一些明显的冲突。注意是因为，一方面针对单线程进程要保持传统的
-// 信号语义（pthreads不应该改变传统进行的信号语义），与此同时有需要开发出适用于多线程
+// 信号与线程模型之间存在一些明显的冲突。主要是因为，一方面针对单线程进程要保持传统的
+// 信号语义（pthreads不应该改变传统进程的信号语义），与此同时又需要开发出适用于多线程
 // 进程环境的新信号模型。信号与线程模型之间的差异意味着，将二者结合使用将会非常复杂，
 // 应尽可能加以避免。尽管如此，有的时候还是必须在多线程中处理信号问题。
 //
@@ -8129,6 +8155,12 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 //      系统发送该信号给一个进程，表示套接字上存在带外数据（也称作紧急数据）。
 // SIGXCPU - 超出CPU时间限制
 //      当进程的 CPU 时间超出对应的资源限制时，参见 RLIMIT_CPU，将发送该信号给进程。
+//      RLIMIT_CPU 对进程可以消耗的 CPU 时间量的限制，以秒为单位。当进程达到软限制时，
+//      它会收到 SIGXCPU 信号。此信号的默认行为是终止进程。然而，该信号可以被捕获，且
+//      处理函数可以返回控制权给主程序。如果进程继续消耗 CPU 时间，它将每秒收到一次
+//      SIGXCPU，直到达到硬限制，此时它将收到 SIGKILL。此描述为 Linux 的行为。不同实
+//      现对达到软限制后继续消耗 CPU 时间的进程的处理方式有所不同。需要捕获此信号的可
+//      移植应用程序应在首次收到 SIGXCPU 时执行有序的终止操作。
 // SIGXFSZ - 超出文件大小限制
 //      如果进程因试图增大文件，调用 write() 或 truncate() 而突破对进程文件大小的资
 //      源限制时，参见 RLIMIT_FSIZE，将发送该信号给进程。
@@ -8290,7 +8322,7 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 // 使进行已经为此信号设置了处理函数。对于因硬件而产生的信号，Linux 2.6 之所以会改变对
 // 其处于阻塞状态下的处理方式，是由于 Linux 2.4 的行为中隐藏有缺陷，并可能在多线程中
 // 引起死锁。正确处理硬件产生的信号的方法有：要么接受信号的默认行为，即进程终止；要么为
-// 其编写不会正常返回的处理函数。处理正常返回之外，终止处理函数执行的手动包括调用 _exit
+// 其编写不会正常返回的处理函数。除了正常返回之外，终止处理函数执行的手动包括调用 _exit
 // 以终止进程，或者调用 siglongjmp 确保将控制传递回主程序的某一位置（产生信号的指令位
 // 置除外）。
 
@@ -8400,19 +8432,19 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 // 备选信号栈也是属于线程的属性，当信号设置的处置标记了 SA_ONSTACK，并且当前线程定义了
 // 备选信号栈，那么会使用这个备选信号栈执行处理函数。
 //
-// void prh_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, void *ucontext)) {
+// void prh_impl_set_sigsegv_action(void (*sigsegv_handler)(int sig, siginfo_t *siginfo, void *ucontext)) {
 //     // SIGSEGV 可能因为进程栈耗尽产生，此时该信号设置的处理函数将无法执行，因为已经没
 //     // 有栈空间了，因此需要额外分配一个信号栈，让处理函数在这个新栈上执行。
 //     stack_t altstk;
 //     altstk.ss_sp = prh_malloc(SIGSTKSZ);
 //     altstk.ss_size = SIGSTKSZ;
 //     altstk.ss_flags = 0;
-//     prh_abort_nz(sigaltstack(&altstk, prh_null));
+//     prh_abort_nz(sigaltstack(&altstk, prh_null)); // 不好的地方，需要为每个线程都创建一个 altstk
 //     struct sigaction sa;
-//     sa.sa_sigaction = sigsegv_handler;
 //     sigemptyset(&sa.sa_mask);
+//     sa.sa_sigaction = sigsegv_handler;
 //     sa.sa_flags = SA_ONSTACK | SA_SIGINFO;
-//     prh_abort_nz(sigaction(SIGSEGV, &sa, prh_null));
+//     prh_zeroret(sigaction(SIGSEGV, &sa, prh_null));
 // }
 //
 // 系统调用的中断和重启。考虑如下常量：为某信号创建处理函数；发起一个阻塞式系统调用，例
@@ -9008,7 +9040,7 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 //
 // 上述各种清空下，若 oldset 不为空，则返回设置之前的信号掩码。如果仅获取当前的信号掩
 // 码而不对其进行修改，那么可以将 set 设为空，此时将忽略 how 参数。SUSv3 规定，如果在
-// 解除阻塞时由任何对应的信号，那么在 sigprocmaks() 调用返回前至少传递一个信号。换言
+// 解除阻塞时由任何对应的信号，那么在 sigprocmask() 调用返回前至少传递一个信号。换言
 // 之，如果解除了对某个等待信号的阻塞，那么会立刻将该信号传递给进程执行调用。系统会忽略
 // 对 SIGKILL 和 SIGSTOP 信号的阻塞，如果试图阻塞这些信号，sigprocmask() 既不会予以
 // 关注，也不会产生错误。如果修改了正在等待的阻塞信号的处置函数，那么当后来解除信号的阻
@@ -9068,8 +9100,8 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 // #include <signal.h> 等待信号的发生
 // int sigsuspend(const sigset_t *mask);
 // int sigwait(const sigset_t *set, int *sig);
-// int sigwaitinfo(const sigset_t *set, siginfo_t *info);
-// int sigtimedwait(const sigset_t *set, siginfo_t *info, const struct timespec *timeout);
+// int sigwaitinfo(const sigset_t *set, siginfo_t *info); *** MacOS 不支持
+// int sigtimedwait(const sigset_t *set, siginfo_t *info, const struct timespec *timeout); *** MacOS 不支持
 // #include <unistd.h> 暂停进程等待被信号中断或进行终止
 // int pause(void); 暂停进程的执行，等待信号的中断或者直至一个未处理信号终止进程为止；总是返回 -1 和 EINTR
 //
@@ -9117,7 +9149,7 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 // 语焉不详，而某些 UNIX 实现则将该值视为轮询请求并立即返回。
 //
 // #include <sys/signalfd.h>
-// int signalfd(int fd, const sigset_t *mask, int flags);
+// int signalfd(int fd, const sigset_t *mask, int flags); *** Linux 特有
 //
 // Linux 2.6.22 开始提供了非标准的 signalfd() 系统调用，利用该调用可以创建一个特殊的
 // 文件描述符，发往调用者的信号都可从该描述符中读取。signalfd 机制为同步接收信号提供了
@@ -9282,9 +9314,39 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 //
 // #include <signal.h>
 // #include <pthread.h>
-// int pthread_kill(pthread_t thread, int sig);
 // int pthread_sigmask(int how, const sigset_t *set, sigset_t *oldset);
-// int pthread_sigqueue(pthread_t thread, int sig, const union sigval value);
+// int pthread_kill(pthread_t thread, int sig);
+// int pthread_sigqueue(pthread_t thread, int sig, const union sigval value); *** Linux 特有函数
+//
+// 新创建的新线程会从其创建者处继承信号掩码的一份拷贝，可以使用 pthread_sigmask() 来
+// 改变或获取当前的信号掩码。pthread_sigmask() 成功返回 0 错误返回正值的错误码。除了
+// 所操作的是线程信号掩码之外，pthread_sigmask() 与 sigprocmask() 用法完全相同。
+// SUSv3 特别指出，在多线程程序中使用函数 sigprocmask() 其结果是未定义的，也无法保证
+// 程序的可移植性。事实上，函数 sigprocmask() 和 pthread_sigmask() 在包括 Linux 在
+// 内的很多系统实现中都是相同的。
+//
+// 函数 pthread_kill() 向同一进程下的另一线程发送信号 sig，目标线程由 thread 指定。
+// 因为仅在同一进程中可保证线程ID的唯一性，所以无法调用 pthread_kill() 向其他进程中的
+// 线程发送信号。在实现函数 pthread_kill() 时，使用了 Linux 特有的 tgkill(tgid, tid, sig)
+// 系统调用，将信号 sig 发送给 tid（由 gettid() 所返回的内核线程 ID）标识的线程，该
+// 线程从属于由 tgid 标识的线程组中。如果 sig 为 0 则不会发送信号，但是会执行错误检查。
+// pthread_kill() 成功返回 0，错误返回正整数值的错误码，EINVAL 参数非法，ESRCH 无效
+// 线程。
+//
+// 在尝试发送 NPTL 线程实现内部使用的两个实时信号时，glibc 的 pthread_kill() 实现会
+// 返回错误（EINVAL）。详情参见 nptl(7)。如果实现检测到线程 ID 在其生命周期结束后被使
+// 用，pthread_kill() 应返回错误 ESRCH。glibc 实现会在可以检测到无效线程 ID 的情况下
+// 返回此错误。POSIX 指出，使用生命周期已结束的线程 ID 会产生未定义行为，而在
+// pthread_kill() 调用中使用无效线程 ID 可能会导致段错误。
+//
+// 信号处理方式是进程范围内的。如果信号 sig 安装了处理函数，该处理函数将在指定的线程
+// thread 中执行。但如果信号的处理方式是默认的 “停止”、“继续” 或 “终止”，这些操作将
+// 影响整个进程。
+//
+// Linux 特有的函数 pthread_sigqueue() 将 pthread_kill() 和 sigqueue() 的功能合二
+// 为一，向同一进程中的另一个线程发送携带附属数据的信号。该函数从 glibc 2.11 开始加入库
+// 中但需要内核的支持，始于 Linux 2.6.31 内核通过系统调用 rt_tgsigqueueinfo() 来提供
+// 这一支持。
 //
 // 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
 //  1.  进程ID和父进程ID，进程组ID与会话（session）ID，进程凭证（credential）
@@ -9304,6 +9366,303 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 //  5.  能力（capability，Linux 所特有）
 //  6.  线程栈，本地变量和函数的调用链接信息
 //
+// 在多线程应用中处理信号，需要小心设计，作为通则一般建议在多线程程序中避免使用信号。
+// UNIX 信号模型是基于 UNIX 进程模型而设计的，问世比 pthreads 要早几十年。自然而然，
+// 信号与线程模型之间存在一些明显的冲突。主要是因为，一方面针对单线程进程要保持传统的
+// 信号语义（pthreads不应该改变传统进程的信号语义），与此同时又需要开发出适用于多线程
+// 进程环境的新信号模型。信号与线程模型之间的差异意味着，将二者结合使用将会非常复杂，
+// 应尽可能加以避免。尽管如此，有的时候还是必须在多线程中处理信号问题。
+//
+// UNIX 信号模型如果映射到线程中。要了解 UNIX 信号如果映射到 pthreads 模型，需要知道
+// 信号模型哪些方面属于进程（由进程中的所有线程共享），哪些方面属于进程中的单个线程。
+//  1.  信号触发的进程停止或终止动作属于进程层面。如果进程中的任一线程收到默认处置的信
+//      号，且其默认行为是停止或终止进程，那么将停止或终止进程中的所有线程。
+//  2.  信号设置的处置属于进程层面，进程中的所有线程共享对每个信号的处置设置。如果某一
+//      线程使用函数 sigaction() 为某一信号创建处理函数，那么当收到该信号使，任何线程
+//      都可能去调用该处理函数。与之类似，如果将信号的处置设置为忽略，那么所有线程都会
+//      忽略该信号。
+//  3.  信号的发送即可针对整个进程，也可针对某个特定线程。满足如下三者之一的信号是面向
+//      线程的：
+//          (1) 信号的产生源来自线程自身上下文中对特定指令的执行导致的硬件异常，例如
+//              SIGBUS SIGFPE SIGILL SIGSEGV SIGEMT SIGTRAP。
+//          (2) 当线程试图对已断开的管道进行写操作时所产生的 SIGPIPE 信号。
+//          (3) 由函数 pthread_kill() 或 pthread_sigqueue() 所发出的信号，这些函
+//              数允许线程向同一进程下的其他线程发送信号。
+//      由其他机制产生的所有信号都是面向进程的。例如其他进程通过调用 kill() 或者
+//      sigqueue() 所发送的信号；用户键入特殊中断字符产生的信号 SIGINT SIGTSTP；还有
+//      一些信号由软件事件产生，例如终端窗口大小的调整（SIGWINCH）或者定时器到期
+//      （例如 SIGALRM）。
+//  4.  当多线程程序收到一个信号，且该进程已然为此信号创建了处理函数时，内核会任选一个
+//      线程来接收这一信号，并在该线程中调用信号处理函数。这种行为与信号的原始语义保持
+//      一致。让进程针对单个信号重复处理多次时没有意义的。
+//  5.  信号掩码是针对当个线程的。对于多线程程序来说，并不存在一个作用于整个进程范围的
+//      信号掩码，可以管理所有线程。使用 pthread_sigmask() 各线程可独立阻止和放行各种
+//      信号。通过操作每个线程的信号掩码，应用程序可以控制哪些线程可以处理进程收到的信
+//      号。新创建的新线程会从其创建者处继承信号掩码的一份拷贝，可以使用 pthread_sigmask()
+//      来改变或获取当前的信号掩码。
+//  6.  针对整个进程所挂起（pending）的信号，以及为每个线程所挂起的信号，内核都分别维
+//      护有记录。调用函数 sigpending() 会返回进程挂起以及当前线程挂起的信号集合。在
+//      新创建的线程中，每个线程的挂起信号初始为空。可以将一个针对线程的信号仅向目标线
+//      程投送，如果该信号遭线程阻塞，那么它会一致保持挂起，直至线程将其放行或者线程终
+//      止。
+//  7.  如果信号处理函数中断了对 pthread_mutex_lock() 的调用，那么该调用总会自动重新
+//      启动。如果一个信号处理函数中断了对 pthread_cond_wait() 的调用，则该调用要么
+//      自动重新启动（Linux 就是如此），那么返回0表示遭遇了假唤醒，此时设计良好的程序
+//      会重新检查相应的判断条件并重新发起调用。SUSv3 对这两个函数的行为要求与此处的
+//      描述一致。
+//  8.  备选信号栈式每个线程特有的，新创建的线程并不从创建线程处继承备选信号栈。更确切
+//      地说，SUSv3 规定每个内核调用实体（KSE）都有一个单独的备选信号栈。在按 1:1 实
+//      现线程的系统中（例如Linux）每一个线程对应一个 KSE。
+//
+// 妥善处理异步信号，信号的各种因素，诸如可重入问题、系统调用中断的重启、以及避免竞争条
+// 件，当使用信号处理函数对异步产生的信号加以处理时，这些都将导致情况变得复杂。另外，没
+// 有任何 pthread 函数属于异步信号安全的，pthread 函数均无法在信号处理函数中安全调用。
+// 因为这些原因，所以当多线程应用程序必须处理异步产生的信号时，通常不应该将信号处理函数
+// 作为接收信号的通知机制，而推荐使用如下方法：
+//  1.  所有线程都阻塞进程可能接收的所有异步信号，最简单的方法是在创建任何其他线程之前，
+//      由主线程阻塞这些先后，后续创建的每个线程都会继承主线程信号掩码的一份拷贝。
+//  2.  再创建一个专用线程，调用 sigwaitinfo() sigtimedwait() sigwait() 来接收收到
+//      的信号。函数 sigwait() 会等待 set 所指向的信号集合中的任意一个信号的到达，接
+//      收该信号，且在参数 sig 中将其返回。如有多个线程在调用 sigwait() 等待同一信号，
+//     那么当信号到达时只有一个线程会实际接收到，也无法确定收到信号的会时哪个线程。
+//
+// 这一方法的优势在于，同步接收异步产生的信号。当接收到信号时，专有线程可以安全地在互斥
+// 量的保护下修改共享变量，并可调用非异步信号安全的函数。也可以就条件变量发出信号，并采
+// 用其他线程或进程的通讯及同步机制。可以构建一个简单的 sigwait_multiple() 例程来实现
+// 多个线程等待同一个信号。可能的实现是让每个 sigwait_multiple() 调用者注册对一组信号
+// 的兴趣。然后，调用者等待线程特定的条件变量。一个单独的服务线程对所有注册信号的并集调
+// 用 sigwait() 函数。当 sigwait() 函数返回时，设置适当的状态并广播条件变量。新的
+// sigwait_multiple() 调用者可能会导致挂起的 sigwait() 调用被取消并重新发出，以更新
+// 正在等待的信号集。
+//
+// 不是同步的信号都是异步信号，同步信号是与当前正在执行的线程或进程相关的信号，例如当
+// 前执行线程执行当前指令触发的硬件异常信号，就是同步信号，硬件异常信号可以由当前执行
+// 线程直接调用进程注册的信号处理函数进行处理。另一种同步信号是当前执行线程调用函数
+// kill() killpg() raise() 向进程自己发送的信号，或者调用 pthread_kill() 以及
+// pthread_sigqueue() 向线程自己发送的信号，也是同步的，这些信号也会在产生的地方直接
+// 进行传递，也即如果阻塞直接挂到当前线程中，如果未阻塞会直接调用处理函数。因为这些自
+// 己发送的信号也可能异步产生，因此也可以通过上面推荐的方式进行处理。同步产生的信号会
+// 立即传递，直接触发信号处理函数的调用，在调用返回前就已经执行了处理函数。
+// 其他信号都是异步的，包括调用 kill() killpg() 向其他进程发送的信号，pthread_kill()
+// pthread_sigqueue() 向当前进程其他线程发送的信号，这些信号只能等待对应线程的下一个
+// CPU 时间片开始执行。即当异步产生一个信号时，即使并未将其阻塞，在信号产生和实际传递
+// 之间仍可能存在一个瞬时延迟，在此期间，信号处于等待状态。这是因为内核将等待信号传递给
+// 进程的时机是，该进程中的线程正在执行，且发生由内核态到用户态的下一次切换时。
+//
+// sigwaitinfo() 怎么处理进程中共享的挂起信号？如果进程中有挂起的信号，并且同时有多个
+// 线程调用 sigwaitinfo() 在等待，每个挂起的信号都会选择其中一个线程来处理。另外每个
+// 线程自己挂起的信号，只能通过自己调用 sigwaitinfo() 来处理。但是如果没有人调用
+// pthread_kill() 或 pthread_sigqueue() 给线程发送信号，那么只需要在主线程执行
+// sigwaitinfo() 也是可行的，因为所有信号都属于进程所有。
+//
+// pthread 函数哪些函数被信号中断后不会自动重启，要设置系统调用重启吗？
+// 进程终止时，是通过什么方式终止线程的
+#include <sys/types.h>
+#include <signal.h>
+
+void prh_impl_sighw_action(int sig, siginfo_t *info, void *ucontext) {
+    // SUSv3 规定，在硬件异常的情况下，如果进程从此类信号处理函数中返回，亦或进程忽略
+    // 或阻塞了此类信号，那么进程的行为未定义。当由于硬件异常而产生上述信号之一时，Linux
+    // 会强制传递信号，即使程序已经请求忽略此类信号。Linux 2.4 以及更早版本中，其内核
+    // 会将阻塞硬件产生信号的企图忽略，信号无论如何都会传递给进程，随后要么进程终止，要
+    // 么信号被信号函数处理。Linux 2.6 之后，如果信号预定阻塞，那么该信号总是会立刻杀
+    // 死进程，即使进程已经为此信号设置了处理函数。对于因硬件而产生的信号，Linux 2.6
+    // 之所以会改变对其处于阻塞状态下的处理方式，是由于 Linux 2.4 的行为中隐藏有缺陷，
+    // 并可能在多线程中引起死锁。正确处理硬件产生的信号的方法有：要么接受信号的默认行
+    // 为，即进程终止；要么为其编写不会正常返回的处理函数。
+    //
+    // 有六种信号因硬件异常而触发：SIGBUS、SIGEMT、SIGFPE、SIGILL、SIGSEGV 和
+    // SIGTRAP。然而，对于任何特定的硬件异常，具体会触发哪种信号并没有明确的文档说明，
+    // 且在某些情况下显得并不合理。例如，某些 CPU 架构上非法的内存访问会触发 SIGSEGV，
+    // 而在另一些架构上可能触发 SIGBUS，反之亦然。再比如，在 x86 架构中，使用 int 指
+    // 令时传递了非法参数（除了 3 或 128 之外的任何数字），会触发 SIGSEGV，尽管在这种
+    // 情况下 SIGILL 似乎更合适，因为这是 CPU 向内核报告非法操作指令的方式。
+    //
+    // SIGSEGV 可能因线程栈耗尽触发，因此这种情况下的硬件异常不会有机会执行到这个处理
+    // 函数中来打印该信号的详细信息。
+    int si_code = info->si_code, code = 0;
+    void *si_addr = info->si_addr;
+    if (sig == SIGSEGV) {
+        switch (si_code) {
+            case SEGV_MAPERR: code = 1; break; // 无效地址映射
+            case SEGV_ACCERR: code = 2; break; // 非法访问权限
+#if defined(SEGV_BNDERR)
+            case SEGV_BNDERR: code = 3; break; // 地址边界检查失败
+#endif
+        }
+        prh_impl_prerr_sigsegv(code, si_addr);
+    } else if (sig == SIGBUS) {
+        switch (si_code) {
+            case BUS_ADRALN: code = 1; break; // 地址未对齐
+            case BUS_ADRERR: code = 2; break; // 物理地址不存在
+            case BUS_OBJERR: code = 3; break; // 对象特定的硬件错误
+#if defined(BUS_MCEERR_AR) && defined(BUS_MCEERR_AO)
+            case BUS_MCEERR_AR: case BUS_MCEERR_AO: code = 4; break; // 硬件内存校验错误
+#elif defined(BUS_OOMERR)
+            case BUS_OOMERR: code = 4; break; // 不能分配内存页映射
+#endif
+        }
+        prh_impl_prerr_sigbus(code, si_addr);
+    } else if (sig == SIGILL) {
+        switch (si_code) {
+            case ILL_ILLOPC: code = 1; break; // 非法操作码
+            case ILL_ILLOPN: code = 2; break; // 非法操作数
+            case ILL_ILLADR: code = 3; break; // 非法寻址方式
+            case ILL_ILLTRP: code = 4; break; // 非法陷阱
+            case ILL_PRVOPC: code = 5; break; // 非法特权操作码
+            case ILL_PRVREG: code = 6; break; // 非法特权寄存器
+            case ILL_COPROC: code = 7; break; // 协处理器错误
+            case ILL_BADSTK: code = 8; break; // 内部栈错误
+        }
+        prh_impl_prerr_sigill(code, si_addr);
+    } else if (sig = SIGFPE) {
+        switch (si_code) {
+            case FPE_INTDIV: code = 1; break; // 整数除零
+            case FPE_INTOVF: code = 2; break; // 整数溢出
+            case FPE_FLTDIV: code = 3; break; // 浮点除零
+            case FPE_FLTOVF: code = 4; break; // 浮点溢出
+            case FPE_FLTUND: code = 5; break; // 浮点下溢
+            case FPE_FLTRES: code = 6; break; // 结果不精确
+            case FPE_FLTINV: code = 7; break; // 无效操作
+            case FPE_FLTSUB: code = 8; break; // 下标越界
+        }
+        prh_impl_prerr_sigfpe(code, si_addr);
+    } else {
+        prh_impl_prerr_sigemt(si_code, si_addr);
+    }
+    abort(); // 硬件异常处理函数不能从处理函数中返回，产生核心文件并终止程序
+}
+
+void prh_impl_sigsys_action(int sig, siginfo_t *info, void *ucontext) {
+    // si_call_addr si_syscall 字段在老版本或非 Linux 平台上可能不存在
+    prh_impl_prerr_sigsys(info->si_addr, info->si_errno);
+    prh_zeroret(raise(SIGKILL)); // 终止进程
+}
+
+void prh_impl_sigpipe_sigxfsz_action(int sig, siginfo_t *info, void *ucontext) {
+    // 当线程试图对已断开的管道进行写操作时所产生的 SIGPIPE 信号，也是属于线程的同步
+    // 信号。另外，当服务器进程终止时会关闭所有打开的文件描述符，这会导致向客户端发送
+    // FIN，而客户端TCP响应ACK，这就是TCP连接终止工作的前半部分。如果此时客户不理会
+    // 读取数据时返回的错误，反而写入更多的数据到服务器上会发生什么呢？这种情况是可能
+    // 发生的，例如客户可能在读回任何数据之前执行两次针对服务器的写操作，而第一次写引
+    // 发了RST。而当一个进程向某个已收到RST的套接字执行写操作时，内核会向该进程发送一
+    // 个SIGPIPE信号。该信号的默认行为是终止进程，因此进程必须捕获以免不情愿的终止。
+    // 不论该进程是捕获该信号并从其信号处理函数返回，还是简单地忽略该信号，写操作都将
+    // 返回EPIPE错误。
+    //
+    // 一个在Usenet上常被问及的问题是如何在第一次写操作而不是在第二次写操作时捕获该信
+    // 号。这是不可能的，第一次写操作引发 RST，第二次写引发 SIGPIPE 信号。因为写一个
+    // 已接收了 FIN 的套接字不成问题，但写一个已接收了 RST 的套接字是一个错误。处理
+    // SIGPIPE 的建议方法取决于它发生时应用进程想做什么。如果没有特殊的事情要做，那么
+    // 将信号处理方法直接设置为 SIG_IGN，并假设后续的输出操作将检查 EPIPE 错误并终止。
+    // 如果信号出现时需采取特殊措施（可能需要在日志文件中记录），那么就必须捕获该信号，
+    // 以便在信号处理函数中执行所有期望的动作。但是必须意识到，如果使用了多个套接字，该
+    // 信号的递交无法告诉我们是哪个套接字出错。如果我们确实需要知道是哪个写操作出错，那
+    // 还是需要在信号处理函数返回后再处理 EPIPE 错误。
+    if (sig == SIGPIPE) {
+        prh_impl_prerr_sigpipe_sigxfsz(0, info->si_code == SI_KERNEL);
+    } else {
+        // 不终止进程让主程序检查 EFBIG 错误
+        prh_impl_prerr_sigpipe_sigxfsz(1, info->si_code == SI_KERNEL);
+    }
+}
+
+void prh_set_sigaction(int sig, void (*action)(int sig, siginfo_t *siginfo, void *ucontext)) {
+    struct sigaction sa; // 信号处理函数是属于进程的属性
+    prh_zeroret(sigfillset(&sa.sa_mask));
+    sa.sa_flags = SA_SIGINFO;
+    sa.sa_sigaction = action;
+    prh_zeroret(sigaction(sig, &sa, prh_null));
+}
+
+void prh_main_sigaction(void) {
+    // （1）终端信号，保持默认行为，关注时注册处理函数处理即可
+    // SIGHUP              终端断开或挂起                               term（终止进程）
+    // SIGINT              终端中断                                    term（终止进程）
+    // SIGQUIT             终端退出                                    core（产生核心转储文件，并终止进程）
+    // SIGTSTP             终端停止                                    stop（停止进程）
+    // SIGTTIN             终端被后台进程读取                           stop（停止进程）
+    // SIGTTOU             终端被后台进程写入                           stop（停止进程）
+    // SIGWINCH            终端窗口尺寸变化                             ignore（忽略该信号，内核将默默丢弃）
+    //
+    // (2) 基本不能干预的信号，无需特别处理的信号，可在用到时再去关注的信号
+    // SIGKILL SIGSTOP     不能干预的信号
+    // SIGCONT             基本不能干预                                cont（恢复一个已停止的进程）
+    // SIGTERM             终止进程                                    term（终止进程）
+    // SIGCHLD SIGCLD      子进程状态变化                              ignore（忽略该信号）
+    // SIGURG              套接字上有紧急数据                          ignore（老版本可能终止进程）
+    // SIGIO SIGPOLL       输入输出事件                                term（Linux），ignore（某些UNIX）
+    // SIGPWR              电量即将耗尽                                term（Linux），ignore（某些UNIX）
+    // SIGINFO             同SIGPWR（Linux），前台进程信息（某些UNIX）   term（终止进程）
+    // SIGUSR1 SIGUSR2     用户自定义信号                              term（终止进程）
+    // SIGALRM             实时定时器到期                              term（终止进程）
+    // SIGVTALRM           虚拟定时器到期                              term（终止进程）
+    // SIGPROF             性能定时器到期                              term（终止进程）
+    // SIGSTKFLT           协处理器错误                                term（终止进程）
+    // SIGLOST             未使用或NFS客户端文件锁丢失                  term（终止进程）
+    // SIGXCPU             超出CPU时间限制                             term（可能产生核心转储文件）
+    // SIGABRT             中止进程，来源于abort(3)                     core（产生核心转储文件，并终止进程），即使设置了处理函数，当处理函数返回到 abort() 后，abort() 会触发执行默认行为终止进程
+    // SIGIOT              同SIGABRT（Linux），硬件错误（某些UNIX）      core（产生核心转储文件，并终止进程）
+    // SIGTRAP             跟踪或断点陷阱                              core（产生核心转储文件，并终止进程），陷阱一般用于跟踪和调整，
+    //
+    // (3) 比较重要的信息，注册处理函数打印信号信息，应该程序如需特别处理可注册新的处理函数
+    // SIGBUS SIGSEGV SIGILL SIGFPE SIGEMT                            硬件异常信号，处理函数不能正常返回
+    // SIGSYS              无效系统调用                                term（可能产生核心转储文件），在处理函数中退出程序
+    // SIGUNUSED           未使用或与SIGSYS相同                        core（产生核心转储文件，并终止进程）
+    // SIGPIPE             管道断开，写入没有读取端的管道                term（终止进程），不终止进程让主程序检查 EPIPE
+    // SIGXFSZ             超出文件大小限制                            term（可能产生核心转储文件），不终止进程让主程序检查 EFBIG
+    int sighw[] = {SIGBUS, SIGSEGV, SIGILL, SIGFPE, SIGEMT};
+    for (int i = 0; i < prh_array_size(sighw); i += 1) {
+        prh_set_sigaction(sighw[i], prh_impl_sighw_action); // 处理函数不能正常返回
+    }
+    prh_set_sigaction(SIGSYS, prh_impl_sigsys_action); // 在处理函数中退出程序
+    // 当线程试图对已断开的管道进行写操作时会产生属于线程的 SIGPIPE 信号，而 SIGPIPE
+    // 默认行为是终止进程。合适的做法是执行自己的处理函数，而不走默认的终止进程的行为。
+    // 让应用程序走检查 EPIPE 错误的流程。
+    prh_set_sigaction(SIGPIPE, prh_impl_sigpipe_sigxfsz_action);
+    // RLIMIT_FSIZE，这是进程可以创建的文件的最大字节大小。尝试将文件扩展到此限制之外
+    // 会导致发送 SIGXFSZ 信号。默认情况下此信号会终止进程，但进程可以选择捕获此信号。
+    // 在这种情况下，相关的系统调用（例如 write(2)、truncate(2)）将因 EFBIG 错误而
+    // 失败。
+    prh_set_sigaction(SIGXFSZ, prh_impl_sigpipe_sigxfsz_action);
+}
+
+#if defined(prh_plat_linux) || defined(prh_plat_freebsd) || defined(prh_plat_netbsd)
+#define PRH_IMPL_SIGTIMEDWAIT_SUPPORT 1
+#else
+#define PRH_IMPL_SIGTIMEDWAIT_SUPPORT 0
+#endif
+
+void prh_main_set_sigmask(void) {
+#if PRH_IMPL_SIGTIMEDWAIT_SUPPORT
+    // 只需主线程在创建新线程之前设置信号掩码，之后新创建的线程都会自动继承这些信号掩码
+    sigset_t sigset;
+    prh_zeroret(sigfillset(sigset));
+    int sigsync[] = {SIGBUS, SIGSEGV, SIGILL, SIGFPE, SIGEMT, SIGSYS, SIGPIPE, SIGXFSZ};
+    for (int i = 0; i < prh_array_size(sigsync); i += 1) {
+        prh_zeroret(sigdelset(sigset, sigsync[i]));
+    }
+    prh_zeroret(pthread_sigmask(SIG_SETMASK, &sigset, prh_null));
+#endif
+}
+
+int prh_thrd_signal_poll(siginfo_t* info) {
+#if PRH_IMPL_SIGTIMEDWAIT_SUPPORT
+    // https://www.man7.org/linux/man-pages/man2/sigwaitinfo.2.html
+    // https://www.man7.org/linux/man-pages/man3/sigtimedwait.3p.html
+    // int sigwaitinfo(const sigset_t *set, siginfo_t*info);
+    // int sigtimedwait(const sigset_t *set, siginfo_t *info, const struct timespec *timeout);
+    // 成功返回信号编号（正数），失败返回-1和errno，EAGAIN 没有信号在挂起状态，EINTR
+    // 系统调用被信号处理函数中断（不是信号集 set 中的信号）或被进程停止后继续执行打断，
+    // EINVAL 非法参数 timeout。
+    struct timespec timeout = {0}; // 不等待只检查当前是否已经有挂起的信号需要处理
+    sigset_t sigset;
+    if (sigtimedwait())
+#else
+    return 0;
+#endif
+}
+
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
 // 对这类互斥量的这两种操作都会成功。
