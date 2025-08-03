@@ -9193,7 +9193,7 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 // sigaction(2)。不同 UNIX 系统的细节有所不同，以下是 Linux 的细节行为。
 //
 // 如果对以下接口的阻塞调用被信号处理函数中断，那么如果使用了 SA_RESTART 标志，调用会
-// 在信号处理函数返回后自动重启；否则，调用会以 EINTR 错误失败：
+// 在信号处理函数返回后自动重启；否则调用会以 EINTR 错误失败：
 //
 //  1.  “慢速” 设备上的 I/O 调用：read(2)、readv(2)、write(2)、writev(2) 和
 //      ioctl(2)。“慢速” 设备是指 I/O 调用可能无限期阻塞（期限不明确）的设备，例如
@@ -9455,9 +9455,46 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 // pthread_kill() 或 pthread_sigqueue() 给线程发送信号，那么只需要在主线程执行
 // sigwaitinfo() 也是可行的，因为所有信号都属于进程所有。
 //
-// pthread 函数哪些函数被信号中断后不会自动重启，要设置系统调用重启吗？
-// 进程终止时，是通过什么方式终止线程的
+// 线程和进程控制。与信号机制类似，exec() fork() exit() 的问世均早于 pthreads，以下
+// 是在多线程程序中使用此类系统调用需要注意的问题。线程和exec()，只要有任一线程调用了
+// exec() 系列函数之一，调用程序将被完全替换，除了调用 exec() 的线程除外，其他所有线程
+// 都将立即消失。没有任何线程会针对线程持有数据执行析构，也不会调用清理函数。该进程的所
+// 有互斥量（为进程私有）和属于进程的条件变量都会消失。调用 exec() 之后，调用线程的线程
+// ID 是不确定的。线程与exit()，如果任何线程调用了exit()，或者主线程执行了 return，那
+// 么所有线程都将消失，也不会执行线程特有数据的析构以及清理函数。
+//
+// 线程和fork()，当多线程进程调用 fork() 时，仅会将发起调用的线程复制到子进程中，子进
+// 程中该线程的线程ID与父进程中发起 fork() 调用的线程ID一致。其他线程均在子进程中消失，
+// 也不会为这些线程调用清理函数以及针对线程特有数据的析构。这将导致以下一些问题：
+//  1.  虽然将发起调用的线程复制到子进程中，但全局变量的状态以及所有的 pthreads 对象，
+//      如互斥量、条件变量等，都会在子进程中得以保留。因为在父进程中为这些 pthreads 对
+//      象分配了内存，而子进程则获得了该内存的一份拷贝。这回导致很棘手的问题。例如，假
+//      设在调用 fork() 时，另一线程已经锁定了某一互斥量，且对某一全局数据结构的更新也
+//      做了一半。此时子进程中的线程无法解锁这一互斥量，因为其并非该互斥量的属主，如果
+//      试图获取这一互斥量，线程会遭阻塞。此外，子进程中的全局数据拷贝可能也处于不一致
+//      状态，因为对其进行更新的线程在执行到一半时就消失了。
+//  2.  因为并未执行清理函数和针对线程持有数据的析构，多线程程序的 fork() 调用会导致子
+//      进程的内存泄露。另外，子进程中的线程很可能无法访问父进程中由其他线程所创建的线
+//      程特有数据项，因为子进程没有相应的引用指针。
+//
+// 由于这些问题，推荐在多线程程序中调用 fork() 的唯一情况是：其后紧跟对 exec() 的调用，
+// 因为新程序会覆盖原有内存，exec() 将导致子进程的所有 pthreads 对象消失。对于那些必须
+// 执行 fork()，而其后又无 exec() 跟随的程序来说，pthreads 提供了一种机制：fork 处理
+// 函数。可以利用 pthread_atfork() 来创建 fork 处理函数：
+//      pthread_atfork(prepare_func, parent_func, child_func);
+// 每一次 pthread_atfork() 调用都会将 prepare_func 添加到一个函数列表中，在调用 fork
+// 创建新的子进程之前，会按注册次序相反的顺序自动执行该函数列表中的函数。与之类似，会将
+// parent_func 和 child_func 添加到一函数列表中，在 fork() 返回前，将分别在父、子进
+// 程中按注册顺序自动运行。在使用线程的库函数时，有时候 fork 处理函数很实用。如果没有这
+// 一机制，对于那些随意调用了此函数库和fork()，又对函数库创建的其他线程一无所知的应用程
+// 序，函数库真就是无计可施。
+//
+// 调用 fork() 所产生的子进程从调用 fork() 的线程处继承 fork 处理函数。执行 exec()
+// 期间，fork 处理函数将不再保留，因为处理函数的代码会在执行 exec() 的过程中遭到覆盖。
+// 在 Linux 上，如果使用 NPTL 线程库的程序执行了 vfork()，那么将不再调用 fork 处理
+// 函数。不过，在使用 LinuxTHreads 程序的同一种情况下却有效。
 #include <sys/types.h>
+#include <pthread.h>
 #include <signal.h>
 
 void prh_impl_sighw_action(int sig, siginfo_t *info, void *ucontext) {
@@ -9633,20 +9670,30 @@ void prh_main_sigaction(void) {
 #define PRH_IMPL_SIGTIMEDWAIT_SUPPORT 0
 #endif
 
-void prh_main_set_sigmask(void) {
 #if PRH_IMPL_SIGTIMEDWAIT_SUPPORT
-    // 只需主线程在创建新线程之前设置信号掩码，之后新创建的线程都会自动继承这些信号掩码
-    sigset_t sigset;
+void prh_impl_sig_mask_set(sigset_t *sigset) {
     prh_zeroret(sigfillset(sigset));
+    int signob[] = {SIGTSTP, SIGTTIN, SIGTTOU, SIGKILL, SIGSTOP, SIGCONT};
+    for (int i = 0; i < prh_array_size(signob); i += 1) {
+        prh_zeroret(sigdelset(sigset, signob[i]));
+    }
     int sigsync[] = {SIGBUS, SIGSEGV, SIGILL, SIGFPE, SIGEMT, SIGSYS, SIGPIPE, SIGXFSZ};
     for (int i = 0; i < prh_array_size(sigsync); i += 1) {
         prh_zeroret(sigdelset(sigset, sigsync[i]));
     }
+}
+#endif
+
+void prh_main_set_sigmask(void) {
+#if PRH_IMPL_SIGTIMEDWAIT_SUPPORT
+    sigset_t sigset;
+    prh_impl_sig_mask_set(&sigset);
+    // 只需主线程在创建新线程之前设置信号掩码，之后新创建的线程都会自动继承这些信号掩码
     prh_zeroret(pthread_sigmask(SIG_SETMASK, &sigset, prh_null));
 #endif
 }
 
-int prh_thrd_signal_poll(siginfo_t* info) {
+int prh_thrd_signal_poll(const sigset_t *set, siginfo_t* info) {
 #if PRH_IMPL_SIGTIMEDWAIT_SUPPORT
     // https://www.man7.org/linux/man-pages/man2/sigwaitinfo.2.html
     // https://www.man7.org/linux/man-pages/man3/sigtimedwait.3p.html
@@ -9657,7 +9704,19 @@ int prh_thrd_signal_poll(siginfo_t* info) {
     // EINVAL 非法参数 timeout。
     struct timespec timeout = {0}; // 不等待只检查当前是否已经有挂起的信号需要处理
     sigset_t sigset;
-    if (sigtimedwait())
+    int sig;
+    if (set == prh_null) {
+        prh_impl_sig_mask_set(&sigset);
+        set = &sigset;
+    }
+label_continue:
+    if ((sig = sisigtimedwait(set, info, &timeout)) > 0) {
+        return sig;
+    }
+    if (sig == -1 && errno == EINTR) {
+        label_continue;
+    }
+    return 0;
 #else
     return 0;
 #endif
