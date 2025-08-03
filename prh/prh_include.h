@@ -78,6 +78,44 @@ extern "C" {
 
 // Linux 操作系统开发与调试命令
 //
+// 进程虚拟内存布局是否是旧布局：
+//      cat /proc/sys/vm/legacy_va_layout
+// 查看虚拟内存布局中分段的随机偏移配置：
+//      cat /proc/sys/kernel/randomize_va_space
+// 查看进程中映射内存的位置：
+//      cat /proc/521/maps
+//      73e4_604b_7000-73e4_604b_9000 /usr/lib/x86_64-linux-gnu/libc-2.31.so
+//      73e4_604c_2000-73e4_604c_3000 /usr/lib/x86_64-linux-gnu/libdl-2.31.so
+//      73e4_6053_1000-73e4_6053_2000 /usr/lib/x86_64-linux-gnu/ld-2.31.so
+// 查看进程中映射内存的空间消耗信息：
+//      cat /proc/521/smaps
+//      73e4_6053_1000-73e4_6053_2000 /usr/lib/x86_64-linux-gnu/ld-2.31.so
+//      Size:                  4 kB
+//      KernelPageSize:        4 kB
+//      MMUPageSize:           4 kB
+//      Rss:                   4 kB
+//      Pss:                   4 kB
+//      Pss_Dirty:             4 kB
+//      Shared_Clean:          0 kB
+//      Shared_Dirty:          0 kB
+//      Private_Clean:         0 kB
+//      Private_Dirty:         4 kB
+//      Referenced:            4 kB
+//      Anonymous:             4 kB
+//      KSM:                   0 kB
+//      LazyFree:              0 kB
+//      AnonHugePages:         0 kB
+//      ShmemPmdMapped:        0 kB
+//      FilePmdMapped:         0 kB
+//      Shared_Hugetlb:        0 kB
+//      Private_Hugetlb:       0 kB
+//      Swap:                  0 kB
+//      SwapPss:               0 kB
+//      Locked:                0 kB
+//      THPeligible:           0
+//      VmFlags: rd wr mr mw me ac sd
+// 查看最大进程号编号：
+//      cat /proc/sys/kernel/pid_max
 // 查看当前配置的资源限制：
 //      ulimit -a
 // 解除对核心文件大小的限制：
@@ -6160,7 +6198,7 @@ void prh_impl_time_test(void) {
     prh_release_assert((1000000000001LL * 1000000000LL / 1000000LL) != 1000000000001000LL);
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#else // WINDOWS end POSIX begin
+#else // POSIX BEGIN
 // 无论地理位置如何，UNIX系统内部对时间的表示方式均是以自Epoch以来的秒数来度量的，
 // Epoch亦即通用协调时间（UTC，以前也称为格林威治时间或GMT）的1970年1月1日早晨零点。
 // 这也是UNIX系统问世的大致日期。日历时间存储于类型为time_t的变量中，此类型是由SUSv3
@@ -6804,9 +6842,278 @@ void prh_impl_time_test(void) {
     prh_release_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#endif // POSIX end
+#endif // POSIX END
 #endif // PRH_TIME_IMPLEMENTATION
 #endif // PRH_TIME_INCLUDE
+
+#ifdef PRH_FILE_INCLUDE
+#endif // PRH_FILE_INCLUDE
+
+#define PRH_ALLOC_INCLUDE
+#define PRH_ALLOC_IMPLEMENTATION
+#undef prh_plat_windows
+
+#ifdef PRH_ALLOC_INCLUDE
+#ifdef PRH_ALLOC_IMPLEMENTATION
+#if defined(prh_plat_windows)
+
+#else // POSIX BEGIN
+// 现代处理器架构一般允许CPU至少在两种不同状态下运行，即用户态和内核态，内核态有时也称
+// 之为监管态（supervisor mode）。执行硬件指令可使CPU在两种状态间来回切换。与之对应，
+// 可将虚拟内存区域划分或标记为用户空间部分和内核空间部分。在用户态下运行时，CPU只能访
+// 问被标记为用户空间的内存，试图访问属于内核空间的内存会引发硬件异常。当运行在内核态
+// 时，CPU 既能访问用户空间内存，也能访问内核空间内存。仅当处理器在内核态运行时，才能
+// 执行某些特定操作，这些操作包括：执行宕机（halt）指令关闭系统，访问内存管理硬件，以
+// 及设备 IO 的初始化等。
+//
+// 从内核角度看，进程由用户内存空间和一系列内核数据结构组成，其中用户内存空间包含了程序
+// 代码以及代码所使用的变量，而内核数据结构则用于维护进程状态信息。记录在内核数据结构种
+// 的信息包括许多与进程相关的标识号（IDs）、虚拟内存表、打开的文件描述表、信号传递及处
+// 理的有关信息、进程资源使用及限制、当前工作目录、以及大量其他信息。
+//
+// 进程内存布局。每个进程分配的内存由多部分组成，通常称之为段（segment）。size(1) 命
+// 令可显式二进制可执行文件的文本段、初始化数据段、非初始化数据段的段大小。
+//  1.  文本段包含了进程运行的程序机器指令，文本段具有只读属性，以防止进程通过错误指针
+//      意外修改自身指令。因为多个进程可同时运行同一程序，所以文本段可设为共享，这样一
+//      份程序代码的拷贝可以映射到所有这些进程的虚拟地址空间中。
+//  2.  初始化数据段包含显式初始化的全局变量和静态变量，当程序加载到内存时，从可执行文
+//      件中读取这些变量的值。
+//  3.  未初始化数据段包含了未进行初始化的全局变量和静态变量。程序启动之前，系统将本段
+//      内所有内存初始化为 0。处于历史原因，此段常被称为 BSS 段，这源于老版本的汇编语
+//      言助记符（block started by symbol）。将初始化和未初始化的数据分开存放，其主
+//      要原因在于程序在存储时，没必要为未初始化的数据分配存储空间。相反，可执行文件只
+//      需记录未初始化数据段的位置及所需大小，直到运行时再由程序加载器分配这一空间。
+//  4.  栈（stack）是一个动态增长和收缩的段，由栈帧（stack frames）组成。系统会为每个
+//      当前调用的函数分配一个栈帧。栈帧给存储了函数的局部变量（所谓自动变量）、实参和
+//      返回值。
+//  5.  堆（heap）是可在运行时动态进行内存分配的一块区域。堆顶称为 program break。
+//
+// 进程是一个可执行程序的实例，同一个程序可以创建多个进程，程序是包含了一系列信息的文
+// 件，这些信息描述了如何在运行时创建一个进程：
+//  1.  二进制文件格式描述，每个程序文件都包含用于描述可执行文件格式的元信息，内核利用
+//      此信息来解释文件中的其他信息。历史上，UNIX 可执行文件曾有两种广泛使用的格式，
+//      分别为最初的 a.out（汇编程序输出）和更加复杂的通用对象文件格式（COFF）。现在，
+//      大多数 UNIX 实现（包括 LINUX）采用可执行链接格式（ELF），这一文件格式比老版本
+//      格式具有更多优点。
+//  2.  机器语言指令，对程序算法进行编码。
+//  3.  程序入口地址，标识程序开始执行时的起始指令位置。
+//  4.  数据，程序文件包含的变量初始值和程序使用的常量值。
+//  5.  符号表及重定位表，描述程序中函数和变量的位置及名称，这些表格有多种用途，其中包
+//      括调式和运行时的符号解析（动态链接）。
+//  6.  共享库和动态链接信息，程序文件所包含的一些字段，列出了程序运行时需要使用的共享
+//      库，以及加载共享库的动态链接器的路径名。
+//  7.  其他信息，程序文件还包含许多其他信息，用以描述如何创建进程。
+//
+// 每个进程都有一个进程号（PID），进程号是一个正整数，用以唯一标识系统中的某个进程。系
+// 统调用 getpid() 返回调用进程的进程号。除了少数系统调用外，比如 init 进程（进程号为
+// 1），程序与运行该程序进程的进程号之间没有固定关系。Linux 内核限制进程号小于等于
+// 32767，新进程创建时，内核会按顺序将下一个可用进程号分配给其使用。每当进程号达到
+// 32767 的限制时，内核将重置进程号计数器，以便从小整数开始分配。在 Linux 2.6 以后，
+// 进程号的默认上限仍是 32767（PID_MAX），但可以通过 Linux 系统特有的配置文件进行调
+// 整（/proc/sys/kernel/pid_max）。
+//
+// 每个进程都有一个创建自己的父进程，使用系统调用 getppid() 可以获取父进程进程号。实际
+// 上，每个进程的父进程号属性反映了系统上所有进程间的树状关系。每个进程的父进程又有自己
+// 的父进程，以此类推，回溯到1号进程（init）。使用 pstree(1) 可以查看这一进程家族树。
+// 如果子进程的父进程终止，则子进程就会变成孤儿，init 进程随即将收养该进程，子进程后续
+// 对 getppid() 的调用将返回进程号1。
+//
+// #include <unistd.h>
+// pid_t getpid(void);
+// pid_t getppid(void);
+//
+// Linux/x86-32 典型的进程内存结构如下，左侧虚拟地址会因内核配置和程序链接选项差异而有
+// 所不同。另外，线程栈的位置可能会与共享库和共享内存区域混杂在一起，这却决于创建线程、
+// 加载共享库、以及映射共享内存的具体顺序。而且，对于不同的 Linux 发行版，线程栈地址也
+// 会有所不同。
+//
+//  0x0000_0000 [XXXXXXXXXXXXXXXXX] 保留区
+//  0x0804_8000 [ text segment    ] 代码段
+//    |         [                 ] etext
+//    |         [ data segment    ] 数据段
+//    |         [                 ] edata
+//    |         [ bss segment     ] 未初始化数据段
+//    |         [                 ] end
+//   (1G)       ------------------- start_brk
+//    |         [ heap            ] 堆
+//    |         [                 ] heap top
+//    |         ------------------- brk (program break)
+//    v         [XXXXXXXXXXXXXXXXX] |
+//    v         [XXXXXXXXXXXXXXXXX] v
+//  0x4000_0000 ------------------- TASK_UNMAPPED_BASE（旧）阻止了堆的扩展（task_size/3）
+//    ^         [ shared libs     ] 共享函数库（同一个物理内存区域可以映射到不同
+//    ^         [ shared memory   ] 共享内存  （进程中的不同虚拟地址来实现共享）
+//    |         [ memory map      ] 内存映射
+//    |         [ thread 1 stack  ] 线程栈         ^
+//    |         [ thread n stack  ] 线程栈         ^
+//    |         ------------------- mmap_base（新）| 内存映射向低地址方向增长
+//    |         [ stack_guard_gap ] 1MB
+//    |         [XXXXXXXXXXXXXXXXX] RLIMIT_STACK（8MB）
+//   (2G)       [XXXXXXXXXXXXXXXXX] ^
+//    |         [XXXXXXXXXXXXXXXXX] |
+//    |         [                 ] stack top
+//    |         [ main stack      ] 主线程栈
+//    |         [ environ         ] 环境变量参数
+//    |         [ argv            ] 命令行参数
+//    |         ------------------- task_size 3G 进程虚拟内存空间和内核空间的分界
+//  0xC000_0000 [ Kernel          ] 内核
+//  0xFFFF_FFFF [XXXXXXXXXXXXXXXXX] 1G
+//
+// 在x86-32架构上，共享内存段被附加在向上增长的堆和向下增长的栈之间未被分配的空间中。
+// 为给堆和栈的增长腾出空间，附加共享内存的虚拟地址从 0x4000_0000 开始。内存映射和共
+// 享库被放置在这个区域中。共享内存映射和内存段默认被放置的位置可能会有些不同，这依赖
+// 于内核版本和进程的 RLIMIT_STACK 资源限制的设置。地址 0x4000_0000 被定义为内核常
+// 量 TASK_UNMAPPED_BASE，通过将这个常量定义成一个不同的值并且重建内核而改变这个地址
+// 的值。然而，如果在调用 shmat() 或 mmap() 时采用了非推荐方法，即显式地指定一个地
+// 址，那么一个共享内存段或内存映射，可以被放置在低于 TASK_UNMAPPED_BASE 的地址处。
+// 通过 Linux 特有的 /proc/PID/maps 文件能够看到一个程序映射的共享内存和共享库的位
+// 置。从内核 2.6.14 开始，Linux 还提供了 /proc/PID/smaps 文件，它给出了一个进程中
+// 各个映射的内存消耗方面的更多信息，请参考 proc(5) 手册。由于动态链接器总是一开始就
+// 被加载，因此可以比较动态链接器被加载地址与其他库的被加载地址，可以看出当前进行使用
+// 的旧式布局（像堆一样向高地址分配）还是新式布局（像栈一样向低地址分配）。
+//
+// 新旧布局可以查看 /proc/sys/vm/legacy_va_layout 文件，0 表示新局部，1 表示旧布局。
+// 如果是旧布局，内存映射区起始地址 mmap_legacy_base 被设置为 __TASK_UNMAPPED_BASE，
+// 其值是 task_size 的三分之一。在新布局中，栈的空间大小会被限制，进程栈（主线程栈）最
+// 大空间大小由 RLIMIT_STACK 控制。由于栈变得有界了，内存映射区可以在进程栈结束的地方
+// 立即开始，为确保与映射区不冲突，栈的结尾还设置了 1MB 的安全间隙 stack_guard_gap。
+//
+// 对于 64 位系统，x64（AMD64）的虚拟内存布局为：
+//
+//  0x00000000_0000_0000 [XXXXXXXXXXXXXXXXXXXXXXXXX] 保留区
+//  0x00000000_0040_0000 [ + random offset         ] 随机偏移
+//    |                  [ text segment            ] 代码段
+//    |                  [                         ] etext
+//    |                  [ + random offset         ]
+//    |                  [ data segment            ] 数据段
+//    |                  [                         ] edata
+//    |                  [ + random offset         ]
+//    |                  [ bss segment             ] 未初始化数据段
+//    |                  [                         ] end
+//    |                  [ + random offset         ]
+//  (~42T)               --------------------------- start_brk
+//    |                  [ heap                    ] 堆
+//    |                  [                         ] heap top
+//    |                  --------------------------- brk (program break)
+//    v                  [XXXXXXXXXXXXXXXXXXXXXXXXX] |
+//    v                  [XXXXXXXXXXXXXXXXXXXXXXXXX] v
+//  0x00002AXX_XXXX_X000 --------------------------- TASK_UNMAPPED_BASE（旧）阻止了堆的扩展 PAGE_ALIGN(task_size/3 + random)
+//    ^                  [ + random offset         ] 随机偏移
+//    ^                  [ shared libs             ] 共享函数库（同一个物理内存区域可以映射到不同
+//    |                  [ shared memory           ] 共享内存  （进程中的不同虚拟地址来实现共享）
+//    |                  [ memory map              ] 内存映射
+//    |                  [ thread 1 stack          ] 线程栈
+//    |                  [ thread n stack          ] 线程栈         ^
+//    |                  [ + random offset         ] 随机偏移       ^
+//    |                  --------------------------- mmap_base（新）| 内存映射向低地址方向增长 (task_size-gap + random)
+//    |                  [ stack_guard_gap         ] 1MB
+//    |                  [XXXXXXXXXXXXXXXXXXXXXXXXX] RLIMIT_STACK（8MB）
+//  (~84T)               [XXXXXXXXXXXXXXXXXXXXXXXXX] ^
+//    |                  [XXXXXXXXXXXXXXXXXXXXXXXXX] |
+//    |                  [                         ] stack top
+//    |                  [ main stack              ] 主线程栈
+//    |                  [ environ                 ] 环境变量参数
+//    |                  [ argv                    ] 命令行参数
+//    |                  --------------------------- stack bottom
+//    |                  [ + random offset         ] 随机偏移
+//  0x00007FFF_FFFF_F000 --------------------------- task_size
+//  0x00007FFF_FFFF_FFFF --------------------------- 128T
+//                       [ canonical address space ] 规范地址空间
+//  0xFFFF8000_0000_0000 [ Kernel                  ] 内核
+//  0xFFFFFFFF_FFFF_FFFF [XXXXXXXXXXXXXXXXXXXXXXXXX] 128T
+//
+// 在 64 位架构中，规范地址（Canonical Address）是指符合特定格式的虚拟地址。由于硬件
+// 限制，当前的 64 位系统并未完全使用 64 位地址空间，而是通过“规范地址”来有效利用地址
+// 空间。在 x86-64 架构中，虚拟地址的高 16 位必须与前一位的值相同，即进行符号扩展。这
+// 样将地址空间分为大小都为 128T 的两个有效部分，分别用于用户空间和内核空间：
+//      低规范地址 0x00000000_0000_0000 到 0x00007FFF_FFFF_FFFF，通常用于用户空间
+//      高规范地址 0xFFFF8000_0000_0000 到 0xFFFFFFFF_FFFF_FFFF，通常用于内核空间
+//
+// 另外，配置文件 /proc/sys/kernel/randomize_va_space (Linux 2.6.12) 设置了随机段
+// 偏移。选择系统的地址空间布局随机化（ASLR）策略（在支持 ASLR 的架构上）。这个文件支
+// 持三种值：
+//      0   关闭 ASLR。这是不支持 ASLR 的架构的默认值，以及当内核使用 norandmaps 参
+//          数启动时的默认值。
+//      1   使 mmap(2) 分配的地址、栈和 VDSO 页面的地址随机化。这还意味着共享库将在
+//          随机地址加载。PIE（位置无关可执行文件）链接的二进制文件的文本段也将加载到
+//          随机地址。如果内核配置了 CONFIG_COMPAT_BRK，这个值是默认值。
+//      2   （Linux 2.6.25）还支持堆随机化。如果内核没有配置 CONFIG_COMPAT_BRK，这
+//          个值是默认值。
+//
+// https://manybutfinite.com/post/anatomy-of-a-program-in-memory/
+// https://manybutfinite.com/post/how-the-kernel-manages-your-memory/
+// https://manybutfinite.com/post/the-thing-king/
+// https://manybutfinite.com/post/page-cache-the-affair-between-memory-and-files/
+// https://manybutfinite.com/post/memory-translation-and-segmentation/
+// https://manybutfinite.com/post/kernel-boot-process/
+//
+// 内存管理是操作系统的核心；它对编程和系统管理都至关重要。虽然概念是通用的，但示例的主
+// 要是 32 位 x86 架构上的 Linux 和 Windows。这篇文章首先描述程序在内存中的布局方式。
+// 在多任务操作系统中，每个进程都在自己的内存沙盒中运行。这个沙盒就是虚拟地址空间，在32
+// 位模式下，它始终是一个 4GB 的内存地址块。这些虚拟地址通过页表映射到物理内存，页表由
+// 操作系统内核维护，并由处理器查询。每个进程都有自己的页表集合，但有一个问题。一旦启用
+// 了虚拟地址，它们就适用于机器上运行的所有软件，包括内核本身。因此，必须为内核保留虚拟
+// 地址空间的一部分。
+//
+// 内核/用户内存划分。这并不意味着内核使用了那么多物理内存，只是它有这部分地址空间可用
+// 于映射任何它想要的物理内存。在页表中标记内核空间仅对特权代码（ring 2 或更低）开放，
+// 因此如果用户模式程序尝试访问它，就会触发页面错误。在 Linux 中，内核空间始终存在，并
+// 在所有进程中映射相同的物理内存。内核代码和数据始终可寻址，随时准备处理中断或系统调
+// 用。相比之下，用户模式部分的地址空间映射会在进程切换时发生变化。
+//
+// 进程切换对虚拟内存的影响。蓝色区域表示映射到物理内存的虚拟地址，而白色区域则未映射。
+// 地址空间中的不同带状区域对应于内存段，如堆、栈等。记住，这些段仅仅是内存地址的范围，
+// 与 Intel 风格的段无关。Linux 进程中灵活的进程地址空间布局。当计算还处于快乐、安全
+// 和温馨的状态时，Linux 进程标准内存段布局显示的段的起始虚拟地址对于机器中的几乎所有
+// 进程都是完全相同的。这使得远程利用安全漏洞变得很容易。攻击通常需要引用绝对内存位置：
+// 栈上的地址、库函数的地址等。远程攻击者必须盲目选择这个位置，指望地址空间都是相同的。
+// 当它们相同时，人们就会被攻破。因此，地址空间随机化变得流行起来。Linux 通过为栈、内
+// 存映射段和堆的起始地址添加偏移量来随机化它们。不幸的是，32 位地址空间相当紧张，留给
+// 随机化的空间很小，削弱了其有效性。
+//
+// 进程地址空间的最顶部（高地址）是栈，它在大多数编程语言中存储局部变量和函数参数。调用
+// 方法或函数会在栈上推送一个新的栈帧。当函数返回时，栈帧被销毁。这种简单的设计之所以可
+// 能，是因为数据遵循严格的后进先出（LIFO）顺序，这意味着不需要复杂的数据结构来跟踪栈内
+// 容，一个指向栈顶的简单指针就足够了。因此，推送和弹出都非常快且确定性强。此外，栈区域
+// 的重复使用倾向于将活动栈内存保留在 CPU 缓存中，从而加快访问速度。进程中的每个线程都
+// 有自己的栈。通过推送比它能容纳的更多的数据，可能会耗尽映射栈的区域。这会触发一个页面
+// 错误，在 Linux 中由 expand_stack() 处理，它反过来调用 acct_stack_growth() 来检查
+// 是否适合扩展栈。如果栈大小低于 RLIMIT_STACK（通常为 8MB），那么通常栈会扩展，程序
+// 继续愉快地运行，不知道刚刚发生了什么。这是栈大小根据需求调整的正常机制。然而，如果达
+// 到了最大栈大小，我们就有了栈溢出，程序会收到一个段错误。尽管映射的栈区域会根据需求扩
+// 展，但当栈变小时，它不会收缩回去。就像联邦预算一样，它只会膨胀。动态栈扩展是访问未映
+// 射内存区域可能有效的唯一情况。对未映射内存的任何其他访问都会触发一个页面错误，导致段
+// 错误。一些映射区域是只读的，因此对这些区域的写入尝试也会导致段错误。
+//
+// 在栈下方（低地址方向），我们有内存映射段。在这里，内核将文件的内容直接映射到内存中。
+// 任何应用程序都可以通过 Linux 的 mmap() 系统调用（实现）或 Windows 中的
+// CreateFileMapping() / MapViewOfFile() 来请求这样的映射。内存映射是一种方便且高性
+// 能的文件 I/O 方式，因此它被用于加载动态库。也可以创建不对应任何文件的匿名内存映射，
+// 而是用于程序数据。在 Linux 中，如果你通过 malloc() 请求一大块内存，C 库会创建这样
+// 一个匿名映射，而不是使用堆内存。“大”意味着大于 MMAP_THRESHOLD 字节，默认为 128kB，
+// 可以通过 mallopt() 调整。
+//
+// 说到堆，它在我们深入地址空间的旅程中排在下一个。堆与栈类似提供运行时内存分配，不同的
+// 是用于必须比执行分配的函数存活时间更长的数据。大多数语言为程序提供堆管理。因此，满足
+// 内存请求是语言运行时和内核之间的共同事务。在 C 中，堆分配的接口是 malloc() 和相关
+// 函数，而在像 C# 这样的垃圾收集语言中，接口是 new 关键字。如果堆中有足够的空间来满足
+// 内存请求，它可以由语言运行时处理，无需内核介入。否则，通过 brk() 系统调用（实现）扩
+// 展堆，为请求的块腾出空间。堆管理很复杂，需要复杂的算法，这些算法努力在我们程序混乱的
+// 分配模式面前实现速度和高效内存使用的平衡。满足堆请求所需的时间可能会有很大差异。实时
+// 系统有特殊的分配器来处理这个问题。另外，堆会变得碎片化。
+//
+// 最后，我们来到了内存的最低段：BSS、数据和程序文本。BSS 和数据都存储 C 中静态变量的
+// 内容。区别在于，BSS 存储未初始化静态变量的内容，这些变量的值未在源代码中由程序员设
+// 置。BSS 内存区域是匿名的：它不映射任何文件。另一方面，数据段存储在源代码中初始化的
+// 静态变量的内容。这个内存区域不是匿名的。它映射程序的二进制镜像中包含源代码中给出的
+// 初始静态值的部分。尽管数据段映射了一个文件的内容，但它是一个私有内存映射，这意味着对
+// 内存的更新不会反映在底层文件中。这必须是这样，否则对全局变量的赋值会改变你磁盘上的二
+// 进制镜像。难以置信！另外，你可以通过读取文件 /proc/PID/maps 来检查 Linux 进程中的
+// 内存区域。还可以使用 nm 和 objdump 命令来检查二进制镜像，以显示符号、它们的地址、
+// 段等。
+#endif // POSIX END
+#endif // PRH_ALLOC_IMPLEMENTATION
+#endif // PRH_ALLOC_INCLUDE
 
 #ifdef PRH_THRD_INCLUDE
 typedef struct {
@@ -6973,7 +7280,7 @@ void prh_thrd_wakeup(prh_sleep_cond *p);
 
 #if defined(prh_plat_windows)
 
-#else // WINDOWS end PTHREAD begin
+#else // PTHREAD BEGIN
 // 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
 //
 // 1. 进程ID和父进程ID，进程组ID与会话（session）ID，进程凭证（credential）
@@ -10120,7 +10427,7 @@ void prh_impl_thrd_test(void) {
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#endif // PTHREAD end
+#endif // PTHREAD END
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
 
