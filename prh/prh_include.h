@@ -120,6 +120,14 @@ extern "C" {
 //      VmFlags: rd wr mr mw me ac sd
 // 查看最大进程号编号：
 //      cat /proc/sys/kernel/pid_max
+// 查看进程所有的文件描述符：
+//      ll /proc/520/fdinfo/
+//      0
+//      1
+//      2
+//      255
+// 查看进程其中一个文件描述符的相关信息：
+//      cat /proc/520/fdinfo/1
 // 查看创建新进程后是否子进程先调度：
 //      cat /proc/sys/kernel/sched_child_runs_first
 // 查看当前配置的资源限制：
@@ -223,6 +231,9 @@ extern "C" {
 //      Local Address 表示套接字绑定到的本地地址
 //      Foreign Address 表示对端套接字的地址，字符串 *:* 表示没有对端地址；
 //      State 表示当前套接字所处的状态，对于TCP即TCP的各种状态；
+// 查看服务端套接字内核允许提前将请求的客户端连接建立起来的最大连接数量：
+//      cat /proc/sys/net/core/somaxconn
+//      4096
 
 // architecture
 #ifndef prh_arch_bits
@@ -734,16 +745,16 @@ extern "C" {
 #define _DEBUG 1
 #endif
 
-#ifndef prh_release_assert
-    #define prh_release_assert(a) ((void)((a) || prh_impl_assert(__LINE__)))
-    #define prh_release_unreachable() prh_abort_error(0xea)
+#ifndef prh_real_assert
+    #define prh_real_assert(a) ((void)((a) || prh_impl_assert(__LINE__)))
+    #define prh_real_unreachable() prh_abort_error(0xea)
     void prh_impl_assert(int line);
 #endif
 
 #ifndef prh_assert
 #if PRH_DEBUG
-    #define prh_assert(a) prh_release_assert(a)
-    #define prh_unreachable() prh_release_unreachable()
+    #define prh_assert(a) prh_real_assert(a)
+    #define prh_unreachable() prh_real_unreachable()
 #else
     #define prh_assert(a) ((void)0)
     #define prh_unreachable() ((void)0)
@@ -764,28 +775,31 @@ extern "C" {
 #ifndef prh_prerr
     #define prh_preno_if(a) if (a) { prh_prerr(errno); }
     #define prh_abort_nz(a) if (a) { prh_abort_error(errno); }
-    #define prh_prerr_if(err, ...) if (err) { prh_prerr(err); __VA_ARGS__; }
-    #define prh_abort_if(err) if (err) { prh_abort_error(err); }
-    #define prh_prerr(err) prh_impl_prerr((err), __LINE__)
-    #define prh_abort_error(err) prh_impl_abort_error((err), __LINE__)
-    void prh_impl_prerr(int err, int line);
+    #define prh_prerr_if(error, ...) if (error) { prh_prerr(error); __VA_ARGS__; }
+    #define prh_abort_if(error) if (error) { prh_abort_error(error); }
+    #define prh_prerr(error) prh_impl_prerr(__LINE__, (error))
+    #define prh_abort_error(error) prh_impl_abort_error(__LINE__, (error))
+    void prh_impl_prerr(int line, int error);
     void prh_impl_abort(int line);
-    void prh_impl_abort_error(int err, int line);
-    #define prh_release_condret(c, a) if (!((a) c)) { prh_impl_abort(__LINE__); }
-    #define prh_release_numbret(n, a) if ((a) != (n)) { prh_impl_abort(__LINE__); }
-    #define prh_release_zeroret(a) if ((a) != 0) { prh_impl_abort(__LINE__); }
-    #define prh_release_nnegret(a) if ((a) < 0) { prh_impl_abort(__LINE__); }
-    #define prh_release_boolret(a) if (!(a)) { prh_impl_abort(__LINE__); }
+    void prh_impl_abort_error(int line, int error);
+    #define prh_real_condret(c, a) if (!((a) c)) { prh_impl_abort(__LINE__); }
+    #define prh_real_numbret(n, a) if ((a) != (n)) { prh_impl_abort(__LINE__); }
+    #define prh_real_zeroret(a) if ((a) != 0) { prh_impl_abort(__LINE__); }
+    #define prh_real_zeroret_or_errno(a) if ((a) != 0) { prh_impl_abort_error(__LINE__, errno); }
+    #define prh_real_nnegret(a) if ((a) < 0) { prh_impl_abort(__LINE__); }
+    #define prh_real_boolret(a) if (!(a)) { prh_impl_abort(__LINE__); }
 #if PRH_DEBUG // macro arg 'a' can only expand once
-    #define prh_condret(c, a) prh_release_condret((c), (a))
-    #define prh_numbret(n, a) prh_release_numbret((n), (a))
-    #define prh_zeroret(a) prh_release_zeroret(a)
-    #define prh_nnegret(a) prh_release_nnegret(a)
-    #define prh_boolret(a) prh_release_boolret(a)
+    #define prh_condret(c, a) prh_real_condret((c), (a))
+    #define prh_numbret(n, a) prh_real_numbret((n), (a))
+    #define prh_zeroret(a) prh_real_zeroret(a)
+    #define prh_zeroret_or_errno(a) prh_real_zeroret_or_errno(a)
+    #define prh_nnegret(a) prh_real_nnegret(a)
+    #define prh_boolret(a) prh_real_boolret(a)
 #else
     #define prh_condret(c, a) a
     #define prh_numbret(n, a) a
     #define prh_zeroret(a) a
+    #define prh_zeroret_or_errno(a) a
     #define prh_nnegret(a) a
     #define prh_boolret(a) a
 #endif
@@ -1668,15 +1682,15 @@ void prh_impl_assert(int line) {
     fprintf(stderr, "assert line %d\n", line);
     abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
 }
-void prh_impl_prerr(int err, int line) {
-    fprintf(stderr, "error %d line %d\n", err, line);
+void prh_impl_prerr(int line, int error) {
+    fprintf(stderr, "error %d line %d\n", error, line);
 }
 void prh_impl_abort(int line) {
     fprintf(stderr, "abort line %d\n", line);
     abort();
 }
-void prh_impl_abort_error(int err, int line) {
-    fprintf(stderr, "abort %d line %d\n", err, line);
+void prh_impl_abort_error(int line, int error) {
+    fprintf(stderr, "abort %d line %d\n", error, line);
     abort();
 }
 void prh_impl_prerr_sigpipe_sigxfsz(int i, bool kernel) {
@@ -1783,20 +1797,20 @@ typedef struct {
 void prh_impl_basic_test(void) {
     int a[6] = {0}, b = 1, count = 0;
     int len, *len_ptr = a;
-    len = (*len_ptr)++; prh_release_assert(len == 0 && a[0] == 1 && len_ptr == a);
-    len = ++*len_ptr; prh_release_assert(len == 2 && a[0] == 2 && len_ptr == a);
-    len = *len_ptr++; prh_release_assert(len == 2 && a[0] == 2 && len_ptr == a + 1);
-    len = *++len_ptr; prh_release_assert(len == 0 && a[0] == 2 && len_ptr == a + 2);
+    len = (*len_ptr)++; prh_real_assert(len == 0 && a[0] == 1 && len_ptr == a);
+    len = ++*len_ptr; prh_real_assert(len == 2 && a[0] == 2 && len_ptr == a);
+    len = *len_ptr++; prh_real_assert(len == 2 && a[0] == 2 && len_ptr == a + 1);
+    len = *++len_ptr; prh_real_assert(len == 0 && a[0] == 2 && len_ptr == a + 2);
     memcpy(&a, &b, count); // 长度参数可以传递数值零
     memmove(&a, &b, count);
     memset(&a, 2, count);
-    prh_release_assert(prh_offsetof(prh_impl_test_struct, a) == 0);
-    prh_release_assert(prh_offsetof(prh_impl_test_struct, b) == 4);
-    prh_release_assert(prh_offsetof(prh_impl_test_struct, c) == 8);
+    prh_real_assert(prh_offsetof(prh_impl_test_struct, a) == 0);
+    prh_real_assert(prh_offsetof(prh_impl_test_struct, b) == 4);
+    prh_real_assert(prh_offsetof(prh_impl_test_struct, c) == 8);
 #if prh_arch_32
-    prh_release_assert(prh_offsetof(prh_impl_test_struct, d) == 12);
+    prh_real_assert(prh_offsetof(prh_impl_test_struct, d) == 12);
 #elif prh_arch_64
-    prh_release_assert(prh_offsetof(prh_impl_test_struct, d) == 16);
+    prh_real_assert(prh_offsetof(prh_impl_test_struct, d) == 16);
 #endif
 }
 void prh_test_code(void) {
@@ -6200,8 +6214,8 @@ void prh_impl_time_test(void) {
     for (i = 0; i < n; i += 1) {
         printf("clock ticks: %lli\n", (long long)prh_clock_ticks());
     }
-    prh_release_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
-    prh_release_assert((1000000000001LL * 1000000000LL / 1000000LL) != 1000000000001000LL);
+    prh_real_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
+    prh_real_assert((1000000000001LL * 1000000000LL / 1000000LL) != 1000000000001000LL);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else // POSIX BEGIN
@@ -6845,7 +6859,7 @@ void prh_impl_time_test(void) {
     for (i = 0; i < n; i += 1) {
         printf("clock ticks: %lli\n", (long long)prh_clock_ticks());
     }
-    prh_release_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
+    prh_real_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // POSIX END
@@ -8511,7 +8525,7 @@ static void *prh_impl_thrd_start_proc(void *param) {
     return (void *)proc(thrd);
 }
 
-int prh_impl_thread_stack_size(long stacksize) {
+int prh_impl_thread_stack_size(long stacksize) { // 改进：因为线程栈最小为16KB，当线程用来执行协程时，将主协程需要的除外可以直接拿来当子协程的栈用
     if (stacksize <= 0) return 0;
     // https://www.man7.org/linux/man-pages/man3/sysconf.3.html
     // https://www.man7.org/linux/man-pages/man3/sysconf.3p.html
@@ -10494,7 +10508,12 @@ void prh_impl_sighw_action(int sig, siginfo_t *info, void *ucontext) {
 void prh_impl_sigsys_action(int sig, siginfo_t *info, void *ucontext) {
     // si_call_addr si_syscall 字段在老版本或非 Linux 平台上可能不存在
     prh_impl_prerr_sigsys(info->si_addr, info->si_errno);
-    prh_zeroret(raise(SIGKILL)); // 终止进程
+    // 当进程收到信号而终止时，将不会调用退出处理函数，此时最佳的应对方式是为可能发送
+    // 给进程的信号建立信号处理函数，并于其中设置标志位，令主程序据此来调用 exit()，
+    // 因为 exit() 不属于异步信号安全函数。即便如此，还是无法处理SIGKILL信号，因为无
+    // 法改变SIGKILL的默认行为。这也是应该避免使用SIGKILL来终止进程的另一原因。建议
+    // 使用SIGTERM，这也是kill命令默认发送的信号。
+    prh_zeroret(raise(SIGTERM)); // 终止进程
 }
 
 void prh_impl_sigpipe_sigxfsz_action(int sig, siginfo_t *info, void *ucontext) {
@@ -10530,6 +10549,14 @@ void prh_set_sigaction(int sig, void (*action)(int sig, siginfo_t *siginfo, void
     prh_zeroret(sigfillset(&sa.sa_mask));
     sa.sa_flags = SA_SIGINFO;
     sa.sa_sigaction = action;
+    prh_zeroret(sigaction(sig, &sa, prh_null));
+}
+
+void prh_ign_sigaction(int sig) {
+    struct sigaction sa;
+    prh_zeroret(sigemptyset(&sa.sa_mask));
+    sa.sa_flags = 0;
+    sa.sa_handler = SIG_IGN;
     prh_zeroret(sigaction(sig, &sa, prh_null));
 }
 
@@ -10583,6 +10610,8 @@ void prh_main_sigaction(void) {
     // 在这种情况下，相关的系统调用（例如 write(2)、truncate(2)）将因 EFBIG 错误而
     // 失败。
     prh_set_sigaction(SIGXFSZ, prh_impl_sigpipe_sigxfsz_action);
+    // 忽略紧急数据，避免应用程序使用TCP紧急机制可能是避免TCP“紧急数据”安全隐患的最佳方式
+    prh_ign_sigaction(SIGURG);
 }
 
 #if defined(prh_plat_linux) || defined(prh_plat_freebsd) || defined(prh_plat_netbsd)
@@ -11235,11 +11264,15 @@ void prh_impl_thrd_test(void) {
 // 同时执行 fork(2) 和 execve(2)。根据执行顺序，这种竞争条件可能导致 open() 返回的文
 // 件描述符意外地泄露到由 fork(2) 创建的子进程中。
 //
-// 可能错误：EMFILE 进程达到最大打开的文件描述符数量；ENFILE 系统达到最大可打开的文件
-// 描述符总数；ENOMEM 没有足够的内存空间用于创建内核对象。Prior to Linux 2.6.29, a
-// /proc/sys/fs/epoll/max_user_instances kernel parameter limited live epolls
-// for each real user ID, and caused epoll_create() to fail with EMFILE on
-// overrun. 版本 2.6.29 之前，有内核参数限制每个真实用户ID中活动的 epoll 最大数量。
+// 成功返回一个文件描述符，非负数，失败返回-1和errno。可能错误：
+//      EINVAL - 参数 size 或 flags 非法。
+//      EMFILE - 进程达到最大打开的文件描述符数量。Prior to Linux 2.6.29, a
+//          /proc/sys/fs/epoll/max_user_instances kernel parameter limited
+//          live epolls for each real user ID, and caused epoll_create() to
+//          fail with EMFILE on overrun. 版本 2.6.29 之前，有内核参数限制每个真
+//          实用户ID中活动的 epoll 最大数量。
+//      ENFILE - 系统达到最大可打开的文件描述符总数。
+//      ENOMEM - 没有足够的内存空间用于创建内核对象。
 //
 // 默认情况下，程序中打开的所有文件描述符在 exec() 执行新程序的过程中保持打开并有效。这
 // 通常很实用，因为文件描述符在新程序中自动有效，让新程序无需再去了解文件名或重新打开。但
@@ -11343,7 +11376,7 @@ void prh_impl_thrd_test(void) {
 //          需要处理文件描述符不再可用的场景。
 //
 // 可用的事件标志包括：
-//      EPOLLET - 默认是水平触发（level-triggered），设置该表示表示边缘触发（edge-triggered）。
+//      EPOLLET - 默认是水平触发（level-triggered），设置该值表示边缘触发（edge-triggered）。
 //      EPOLLONESHOT (Linux 2.6.2) - 一次性通知，当 epoll_wait 通知完后，会将对应的
 //          文件描述符设为禁用不会再报告任何事件，如果要继续监控，需要调用 epoll_ctl
 //          EPOLL_CTL_MOD 重新启用文件描述符并设置新的事件掩码。
@@ -11477,7 +11510,7 @@ void prh_impl_thrd_test(void) {
 //
 // #include <sys/epoll.h> // 返回 0 表示超时返回并没有任何就绪文件描述符，大于 0 表示就绪文件描述符的个数，返回 -1 表示错误
 // int epoll_wait(int epfd, struct epoll_event events[.maxevents], int maxevents, int timeout); // Linux 2.6, glibc 2.3.2
-// int epoll_pwait(... int timeout, const sigset_t *_Nullable sigmask); // // Linux 2.6.19, glibc 2.6
+// int epoll_pwait(... int timeout, const sigset_t *_Nullable sigmask); // Linux 2.6.19, glibc 2.6
 // int epoll_pwait2(... const struct timespec *_Nullable timeout, const sigset_t *_Nullable sigmask); // Linux 5.11
 //
 // 系统调用 epoll_wait() 返回 epoll 实例中处于就绪状态的文件描述符信息，单次调用能返回
@@ -11610,22 +11643,25 @@ void prh_impl_thrd_test(void) {
 //     操作会直接读到新来的数据吗，还是必须再一次 epoll_wait(2) 后才能读到新的数据？
 //     对于 write(2) 呢，也一样吗？
 //      TODO: ？？？
-#include <sys/epoll.h>
+#include <sys/types.h>
 #include <sys/ioctl.h>
+#include <sys/epoll.h>
 
-int prh_epoll_create(void) {
-    int fd = epoll_create1(EPOLL_CLOEXEC);
-    assert(fd >= 0); // 文件描述符是一个非负值
-    return fd;
+static int PRH_IMPL_EPFD;
+
+void prh_epoll_init(void) {
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    assert(epfd >= 0);
+    PRH_IMPL_EPFD = epfd;
 }
 
-void prh_epoll_del(int epfd, int fd) {
-    struct epoll_event event;
-    prh_zeroret(epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &event));
+void prh_epoll_del(int fd) {
+    struct epoll_event event; // Linux 2.6.9 之前的版本，event 参数虽然会被忽略，但不能传递空指针
+    prh_zeroret(epoll_ctl(PRH_IMPL_EPFD, EPOLL_CTL_DEL, fd, &event));
 }
 
 #include <sys/capability.h> // Link with -lcap
-#include <sys/types.h>
+
 
 bool prh_impl_epoll_cap_block_suspend_get(void) {
     assert(CAP_IS_SUPPORTED(CAP_BLOCK_SUSPEND));
@@ -12117,6 +12153,9 @@ label_defer:
 // 报。通过再调用一次 connect() 可以修改已经绑定的目的套接字地址，此外通过指定一个地址族
 // 为 AF_UNSPEC 的地址结构还可以解除地址绑定，但注意的是，其他很多 UNIX 实现并不支持将
 // AF_UNSPEC 用于这个用途。
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
 
 int prh_raw_socket(void) {
     int raw_socket = socket(AF_INET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_RAW);
@@ -12224,42 +12263,6 @@ void prh_sock_shut_read_write(int sofd) {
 // 困境。
 void prh_sock_close(int fd) {
     prh_preno_if(close(fd));
-}
-
-// #include <sys/socket.h>
-// int getsockname(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict addrlen);
-// int getpeername(int sockfd, struct sockaddr *restrict addr, socklen_t *restrict addrlen);
-// getsockname() 可以获取映射绑定的套接字本地地址，包括ip和端口。内核会在出现如下情况时
-// 执行一个隐式绑定：（1）已经在 TCP 套接字上执行了 connect() 或 listen() 调用，但之前
-// 并没有调用 bind() 绑定到一个地址上。（2）当在 UDP 套接字上首次调用 sendto() 时，该
-// 套接字还没有绑定到地址上。（3）调用 bind() 时将端口号设置为 0，这种情况下内核会选择一
-// 个临时的端口号给该套接字使用。
-#include <sys/socket.h>
-void prh_sock_local_address(int sofd, struct sockaddr_in *addr) {
-    socklen_t addrlen = sizeof(struct sockaddr_in); // EBADF sockfd invalid, EFAULT addr invalid, EINVAL addrlen, ENOBUFS insufficient resources, ENOTSOCK sockfd
-    prh_zeroret(getsockname(sofd, (struct sockaddr *)addr, &addrlen));
-    assert(addrlen == sizeof(struct sockaddr_in));
-}
-void prh_sock_peer_address(int sofd, struct sockaddr_in *addr) {
-    socklen_t addrlen = sizeof(struct sockaddr_in); // ENOTCONN socket is not connected
-    prh_zeroret(getpeername(sofd, (struct sockaddr *)addr, &addrlen));
-    assert(addrlen == sizeof(struct sockaddr_in));
-}
-
-// #include <arpa/inet.h>
-// int inet_pton(int af, const char *restrict src, void *restrict dst); 返回1成功，0非法地址字符串，-1非法地址族
-// const char *inet_ntop(int af, const void *restrict src, char dst[restrict .size], socklen_t size);
-#include <arpa/inet.h>
-prh_u32 prh_sock_ip_address(const char *ip_string) {
-    struct in_addr out; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
-    assert(ip_string != prh_null);
-    prh_numbret(1, inet_pton(AF_INET, ip_string, &out));
-    return out.s_addr;
-}
-void prh_sock_ip_string(prh_u32 ip, char *arr_16_byte) {
-    assert(arr_16_byte != prh_null); // src 指向网络字节序的 struct in_addr，
-    assert(16 >= INET_ADDRSTRLEN); // size 至少为 INET_ADDRSTRLEN
-    prh_boolret(inet_ntop(AF_INET, &ip, arr_16_byte, 16));
 }
 
 // 域名系统（DNS）维护域名和IP地址之间的映射关系，在 DNS 出现以前，主机名和IP地址之间的
@@ -13030,25 +13033,10 @@ prh_u32 prh_sock_resolve_name(const char *domain_name) {
 // 另外 MSG_MORE write 标记提供了同 TCP_CORK 相似的功能，只是 MSG_MORE 是基于每次调用
 // 的，而 TCP_CORK 是全局性的。FreeBSD 中的 TCP_NOPUSH 选项提供了类似于 TCP_CORK 的
 // 功能。
-
+//
 // #include <fcntl.h>
 // int fcntl(int fd, int op, ... /* arg */ );
-#include <fcntl.h>
-void prh_sock_set_nonblock(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    assert(flags != -1);
-    if (flags & O_NONBLOCK) return;
-    flags |= O_NONBLOCK;
-    prh_nnegret(fcntl(fd, F_SETFL, flags));
-}
-void prh_sock_set_block(int fd) {
-    int flags = fcntl(fd, F_GETFL);
-    assert(flags != -1);
-    if ((flags & O_NONBLOCK) == 0) return;
-    flags &= ~O_NONBLOCK;
-    prh_nnegret(fcntl(fd, F_SETFL, flags));
-}
-
+//
 // #include <sys/socket.h> 成功返回 0，失败返回 -1 和 errno
 // int getsockopt(int sockfd, int level, int optname, void *optval, socklen_t *optlen);
 // int setsockopt(int sockfd, int level, int optname, const void *optval, socklen_t optlen);
@@ -13088,31 +13076,263 @@ void prh_sock_set_block(int fd) {
 // 的约束：如果主机上有任何可匹配到本地端口的 TCP 连接，则本地端口不能被重用（即对 bind
 // 的调用）。启用 SO_REUSEADDR 套接字选项可以解放这个限制，使得更接近 TCP 的需求。默认
 // 情况下该选项的值为0，可以在绑定套接字之前为该选项设定一个非零值来启用它。
+#include <sys/socket.h>
+#include <fcntl.h>
+
+bool prh_has_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    return (flags & O_NONBLOCK);
+}
+
+void prh_set_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if (flags & O_NONBLOCK) return;
+    flags |= O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+
+void prh_clr_nonblock(int fd) {
+    int flags = fcntl(fd, F_GETFL);
+    assert(flags != -1);
+    if ((flags & O_NONBLOCK) == 0) return;
+    flags &= ~O_NONBLOCK;
+    prh_nnegret(fcntl(fd, F_SETFL, flags));
+}
+
+bool prh_has_cloexec(int fd) {
+    int flags = fcntl(fd, F_GETFD);
+    assert(flags != -1);
+    return (flags & FD_CLOEXEC);
+}
+
+void prh_set_cloexec(int fd) {
+    int flags = fcntl(fd, F_GETFD);
+    assert(flags != -1);
+    if (flags & FD_CLOEXEC) return;
+    flags |= FD_CLOEXEC;
+    prh_nnegret(fcntl(fd, F_SETFD, flags));
+}
+
+void prh_clr_cloexec(int fd) {
+    int flags = fcntl(fd, F_GETFD);
+    assert(flags != -1);
+    if ((flags & FD_CLOEXEC) == 0) return;
+    flags &= ~FD_CLOEXEC;
+    prh_nnegret(fcntl(fd, F_SETFD, flags));
+}
+
+void prh_sock_reuseaddr(int sock, int reuseaddr) {
+    prh_zeroret_or_errno(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(int)));
+}
+
+// #include <sys/socket.h>
+// int getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+// int getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+//
+// getsockname() 可以获取映射绑定的套接字本地地址，包括ip和端口。内核会在出现如下情况时
+// 执行一个隐式绑定：（1）已经在 TCP 套接字上执行了 connect() 或 listen() 调用，但之前
+// 并没有调用 bind() 绑定到一个地址上。（2）当在 UDP 套接字上首次调用 sendto() 时，该
+// 套接字还没有绑定到地址上。（3）调用 bind() 时将端口号设置为 0，这种情况下内核会选择一
+// 个临时的端口号给该套接字使用。
+//
+// #include <arpa/inet.h>
+// int inet_pton(int af, const char *src, void *dst); 返回1成功，0非法地址字符串，-1非法地址族
+// const char *inet_ntop(int af, const void *src, char dst[.size], socklen_t size);
+//
+// #include <arpa/inet.h>
+// uint32_t htonl(uint32_t hostlong);
+// uint16_t htons(uint16_t hostshort);
+// uint32_t ntohl(uint32_t netlong);
+// uint16_t ntohs(uint16_t netshort);
+#include <sys/socket.h>
+#include <arpa/inet.h>
+
+prh_u32 prh_sock_ip_address(const char *ip_string) {
+    struct in_addr out; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
+    assert(ip_string != prh_null);
+    prh_numbret(1, inet_pton(AF_INET, ip_string, &out));
+    return out.s_addr;
+}
+
+void prh_sock_ip6_address(const char *ip_string, char *ip6_16_byte) {
+    // xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx
+    // xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:d.d.d.d (IPv4-mapped IPv6 address)
+    // 0:0:0:0:0:0:0:1 => ::1
+    // 0:0:0:0:0:0:0:0 => ::
+    // ::FFFF:204.152.189.116
+    assert(ip_string != prh_null);
+    prh_numbret(1, inet_pton(AF_INET6, ip_string, ip6_16_byte));
+}
+
+void prh_sock_ip_string(prh_u32 ip, char *str_16_byte) {
+    assert(str_16_byte != prh_null); // src 指向网络字节序的 struct in_addr，
+    assert(INET_ADDRSTRLEN <= 16); // size 至少为 INET_ADDRSTRLEN
+    prh_boolret(inet_ntop(AF_INET, &ip, str_16_byte, INET_ADDRSTRLEN));
+}
+
+void prh_sock_ip6_string(const char *ip6_16_byte, char *str_48_byte) {
+    assert(str_48_byte != prh_null); // src 指向网络字节序的 struct in6_addr，
+    assert(INET6_ADDRSTRLEN <= 48); // size 至少为 INET6_ADDRSTRLEN
+    prh_boolret(inet_ntop(AF_INET6, ip6_16_byte, str_48_byte, INET6_ADDRSTRLEN));
+}
+
+void prh_sock_local_addr(int sock, struct sockaddr_in *addr) {
+    socklen_t addrlen = sizeof(struct sockaddr_in); // EBADF sockfd invalid, EFAULT addr invalid, EINVAL addrlen, ENOBUFS insufficient resources, ENOTSOCK sockfd
+    prh_zeroret_or_errno(getsockname(sock, (struct sockaddr *)addr, &addrlen));
+    assert(addrlen == sizeof(struct sockaddr_in));
+}
+
+void prh_sock_ip6_local_addr(int sock, struct sockaddr_in6 *addr) {
+    socklen_t addrlen = sizeof(struct sockaddr_in6);
+    prh_zeroret_or_errno(getsockname(sock, (struct sockaddr *)addr, &addrlen));
+    assert(addrlen == sizeof(struct sockaddr_in6));
+}
+
+prh_u16 prh_sock_local_port(int sock) {
+    struct sockaddr_in in;
+    prh_sock_local_addr(sock, &in);
+    return ntohs(in.sin_port);
+}
+
+prh_u16 prh_sock_ip6_local_port(int sock) {
+    struct sockaddr_in6 in6;
+    prh_sock_ip6_local_addr(sock, &in6);
+    return ntohs(in6.sin6_port);
+}
+
+void prh_sock_peer_addr(int sock, struct sockaddr_in *addr) {
+    socklen_t addrlen = sizeof(struct sockaddr_in); // ENOTCONN socket is not connected
+    prh_zeroret_or_errno(getpeername(sock, (struct sockaddr *)addr, &addrlen));
+    assert(addrlen == sizeof(struct sockaddr_in));
+}
+
+void prh_sock_ip6_peer_addr(int sock, struct sockaddr_in6 *addr) {
+    socklen_t addrlen = sizeof(struct sockaddr_in6); // ENOTCONN socket is not connected
+    prh_zeroret_or_errno(getpeername(sock, (struct sockaddr *)addr, &addrlen));
+    assert(addrlen == sizeof(struct sockaddr_in6));
+}
 
 typedef struct {
-    prh_u32 src_addr;
-    prh_u32 dst_addr;
-    prh_u16 src_port;
-    prh_u16 dst_port;
-} prh_sock_port;
+    prh_u16 l_port;
+    prh_u16 p_port;
+    prh_u32 l_addr;
+    prh_u32 p_addr;
+} prh_sockaddr;
 
 typedef struct {
-    prh_sock_port port;
-} prh_tcp_client;
+    prh_u16 l_port;
+    prh_u16 p_port;
+    prh_u32 l_addr[4];
+    prh_u32 p_addr[4];
+} prh_ip6_sockaddr;
 
 typedef struct {
-    prh_sock_port port;
-    int backlog;
-} prh_tcp_server; // tcpd
+    int sock;
+    int ip6: 1, addr_any: 1;
+    prh_sockaddr addr;
+} prh_tcpsocket;
 
 typedef struct {
-    prh_sock_port port;
-} prh_tcp_conn;
+    int sock;
+    int ip6: 1, addr_any: 1;
+    prh_ip6_sockaddr addr;
+} prh_ip6_tcpsocket;
+
+#define prh_loopback ((char *)0)
+#define prh_addr_any ((char *)1)
+#define prh_port_any ((prh_u32)0)
+
+void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backlog) {
+    sa_family_t family = addr->sin_family;
+    socklen_t addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+#if defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK)
+    int sock = socket(family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+#else
+    int sock = socket(family, SOCK_STREAM, 0);
+    prh_set_cloexec(sock);
+    prh_set_nonblock(sock);
+#endif
+    assert(sock >= 0);
+    tcp->sock = sock;
+    // 端口如果是 prh_port_any，内核在bind时选择一个可用的临时端口。服务器可以绑定通
+    // 配地址（prh_addr_any），当一个连接到达时，服务器可以调用 getsockname 获取来自
+    // 客户的目的IP地址，服务器然后根据这个客户连接所发往的IP地址来处理客户请求。也可
+    // 以绑定本机特定地址，该IP地址必须属于所在主机的网络接口之一。
+    // bind() 成功返回0，失败返回-1和errno。失败时可能的错误：
+    //  EACCES - 地址受保护，用户不是超级用户。
+    //  EADDRINUSE - 给定的地址正在使用。或者对于inet套接字，没有临时端口可用。
+    //  EBADF - 套接字是非法文件描述符。
+    //  EINVAL - 套接字已经绑定到一个地址。或者地址长度非法，或者地址非法。
+    //  ENOTSOCK - 套接字文件描述符指向的不是一个套接字。
+    //  EADDRNOTAVAIL - 本地没有对应地址的网络接口。
+    // bind 返回的一个常见错误时 EADDRINUSE，这涉及 SO_REUSEADDR 和 SO_REUSEPORT
+    // 这两个套接字选项。SO_REUSEADDR 有一个潜在的安全问题，假设存在一个绑定到通配地
+    // 址和端口5555的套接字，如果指定SO_REUSEADDR，我们就可以把相同的端口绑定到不同
+    // 的IP地址上，譬如说是所在主机的主IP地址。此后目的地为端口5555及新绑定IP地址的数
+    // 据报将被递送到新的套接字，而不是递送到绑定了通配地址的已有套接字。这些数据报可
+    // 以是TCP的SYN报文、SCTP的INIT块或UDP数据报。
+    // 为了安全起见，有些操作系统不允许对已经绑定了通配地址的端口再绑定任何更为明确的
+    // 地址，也就是说不论是否预先设置 SO_REUSEADDR，对应的bind调用都会失败。在这样的
+    // 系统上，执行通配地址捆绑的服务器进程必须最后一个启动。这么做是为了防止把恶意的服
+    // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
+    prh_sock_reuseaddr(sock, 1);
+    prh_real_zeroret_or_errno(bind(sock, (struct sockaddr *)addr, addrlen));
+    if (tcp->addr.l_port == prh_port_any) {
+        tcp->addr.l_port = prh_sock_local_port(sock);
+    }
+    // listen() 系统调用仅由TCP服务程序调用，它做两件事情。当socket函数创建一个套接
+    // 字时，默认是主动套接字，即可以调用connect主动连接的套接字，而listen将一个未连
+    // 接的套接字转换成一个被动套接字，指示内核应接受指向该套接字的连接请求。调用该函
+    // 数导致套接字从CLOSED状态转换到LISTEN状态。该函数的第二个参数指定了内核应该为
+    // 相应套接字排队的最大连接个数。成功返回0，失败返回-1和errno。
+    prh_real_zeroret_or_errno(listen(sock, backlog));
+}
+
+void prh_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
+    struct sockaddr_in in = {0};
+    prh_u32 addr_any = htonl(INADDR_ANY);
+    in.sin_family = AF_INET;
+    in.sin_port = htons(port);
+    if (host == prh_loopback) {
+        in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    } else if (host == prh_addr_any) { // 内核将等到TCP套接字已连接时才选择一个本地IP地址
+        in.sin_addr.s_addr = addr_any;
+    } else {
+        in.sin_addr.s_addr = prh_sock_ip_address(host);
+    }
+    memset(&tcp->addr, 0, sizeof(prh_sockaddr));
+    tcp->addr.l_port = port;
+    tcp->addr.l_addr = in.sin_addr.s_addr;
+    tcp->addr_any = (in.sin_addr.s_addr == addr_any);
+    prh_impl_tcp_listen(tcp, &in, backlog);
+}
+
+void prh_ip6_tcp_listen(prh_ip6_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
+    struct sockaddr_in6 in6 = {0};
+    in6.sin6_family = AF_INET6;
+    in6.sin6_port = htons(port);
+    if (host == prh_loopback) {
+        in6.sin6_addr = in6addr_loopback;
+    } else if (host == prh_addr_any) { // 内核将等到TCP套接字已连接时才选择一个本地IP地址
+        in6.sin6_addr = in6addr_any;
+    } else {
+        prh_sock_ip6_address(host, in6.sin6_addr.s6_addr);
+    }
+    memset(&tcp->addr, 0, sizeof(prh_ip6_sockaddr));
+    tcp->addr.l_port = port;
+    tcp->ip6 = true;
+    memcpy(&tcp->addr.l_addr, in6.sin6_addr.s6_addr, 16);
+    if (memcmp(&in6.sin6_addr, &in6addr_any, sizeof(struct in6_addr)) == 0) {
+        tcp->addr_any = true;
+    }
+    prh_impl_tcp_listen((prh_tcpsocket *)tcp, (struct sockaddr_in *)&in6, backlog);
+}
 
 // 处理同一个客户同时建立多个TCP连接的情况，TCP运行两个端口之间能建立多条连接吗？但是一个
 // 客户账号可以用两台不同的机器来连接，这时就需要对客户账号进行唯一性验证。或者它在同一个
 // 主机上使用不同的端口号进行连接呢，也是需要进行客户账号进行唯一性验证。
-
 #endif
 
 // https://www.man7.org/linux/man-pages/man7/packet.7.html
@@ -13272,8 +13492,8 @@ void prh_impl_cono_thrd_init(prh_cono_thrd *cono_thrd, int thrd_index) {
 
 void prh_impl_cono_thrd_free(void *userdata, int thrd_index) {
     prh_cono_thrd *cono_thrd = userdata;
-    prh_release_assert(prh_atom_data_quefix_empty(&cono_thrd->cono_req_que));
-    prh_release_assert(prh_atom_ptr_read(&cono_thrd->ready_cono) == prh_null);
+    prh_real_assert(prh_atom_data_quefix_empty(&cono_thrd->cono_req_que));
+    prh_real_assert(prh_atom_ptr_read(&cono_thrd->ready_cono) == prh_null);
     prh_impl_sleep_cond_free(&cono_thrd->sleep_cond);
 }
 
@@ -13345,7 +13565,7 @@ prh_real_cono *prh_impl_get_fixed_coro(prh_int cono_id) {
 
 void prh_impl_cono_struct_free(void) {
     prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
-    prh_release_assert(prh_relaxed_quefit_empty(&s->ready_queue));
+    prh_real_assert(prh_relaxed_quefit_empty(&s->ready_queue));
     for (int i = 0; i < PRH_FIXED_CONO_MAX; i += 1) {
         prh_real_cono *fixed_cono = s->fixed_cono[i];
         if (fixed_cono) prh_impl_cono_free(fixed_cono);
