@@ -798,6 +798,7 @@ extern "C" {
     #define prh_zeroret_or_errno(a) prh_real_zeroret_or_errno(a)
     #define prh_nnegret(a) prh_real_nnegret(a)
     #define prh_boolret(a) prh_real_boolret(a)
+    #define prh_debug(...) __VA_ARGS__
 #else
     #define prh_condret(c, a) a
     #define prh_numbret(n, a) a
@@ -805,6 +806,7 @@ extern "C" {
     #define prh_zeroret_or_errno(a) a
     #define prh_nnegret(a) a
     #define prh_boolret(a) a
+    #define prh_debug(...) ((void)0)
 #endif
 #endif
 
@@ -1920,6 +1922,56 @@ void prh_test_code(void) {
 
 // ARRAYS, SLICES, STRINGS
 #ifdef PRH_ARRAY_INCLUDE
+// 标准容器相关操作参考
+// https://en.cppreference.com/w/cpp/container.html
+// 调整容器大小，当增大时需要初始化新增元素
+//  void resize(size_type count); 调整容器大小，尾部多余的元素会被移除，不够的元素会追加默认元素值
+//  void resize(size_type count, const value_type& value); 或追加提供的元素值 value
+//  void resize_and_overwrite(size_type count, void (*method_op)(value_type *p, size_type count)); 在增加元素时避免初始化两次
+//  void clear(); 清除容器所有元素，清除之后容器大小为零
+// 调整容器容量
+//  void reserve(size_type new_capacity); 增大容器容量，如果 new_capacity 大于当前容量将扩容
+//  void shrink_to_fit(); 缩减容器容量，将没用的过多的容量释放掉
+// 移除容器元素，以整个容器为范围（erase），或指定范围内移除元素（remove）
+//  iterator erase(const_iterator pos); 移除所在位置处的元素，返回执行移除操作后其后第一个元素的位置
+//  iterator erase(const_iterator first, const_iterator last); 移除所在范围内的元素
+//  iterator erase_after(const_iterator pos); 移除位置pos后面的那个元素，返回执行移除操作后其后第一个元素的位置
+//  iterator erase_after(const iterator first, const_iterator last); 移除范围内除了first之外的所有元素，即返回end()或last
+//  size_type erase(const T& vlaue); 移除所有与值value相等的元素，返回移除的元素个数
+//  size_type erase_if(Pred pred); 移除所有满足条件的元素，返回移除的元素个数
+//  iterator remove(iterator first, iterator last, const T& value); 将范围内与值value相等的元素移除
+//  iterator remove_if(iterator first, iterator last, Pred pred); 将范围内满足要求的元素移除，返回新容器范围[first, end)中的end位置
+// 插入元素，在指定位置之前插入或之后插入一个或多个元素
+//  iterator insert(const_iterator pos, const value_type& value); 将value插入到pos位置，插入后该值的位置是pos，返回插入元素的迭代器
+//  iterator insert(const_iterator pos, value_type&& value); 将value插入到pos位置，使用移动语义，返回插入元素的迭代器
+//  iterator insert(const_iterator pos, size_type count, const value_type& value); 将多个元素插入到pos位置，返回第一个插入元素的迭代器
+//  iterator insert(const_iterator pos, iterator first, iterator last); 将范围内的元素插入到pos位置
+//  iterator insert(const_iterator pos, initializer_list<value_type> list); 将初始化列表中的元素插入到pos位置
+//  iterator insert_range(const_iterator pos, range_type&& range); 将范围内的元素插入到pos位置之前
+//  iterator insert_after(const_iterator pos, const value_type& value); 将值value插入到pos位置之后，返回插入元素的迭代器
+//  iterator insert_after(const_iterator pos, iterator first, iterator last); 将范围内的元素插入到pos位置之后，返回最后一个插入元素的迭代器
+//  pair<iterator, bool> insert_or_assign(const key_type& key, mapped_type&& value); 映射中已经存在key赋值，否则插入
+//  pair<iterator, bool> insert_or_assign(const_iterator hint, const key_type& key, mapped_type&& value); 插入位置在hint位置
+//  iterator before_begin(); 容器第一个元素的之前的元素位置，用于 insert_after() erase_after() 等函数
+// 插入一个原地构造的元素，新元素使用提供的参数列表直接原地构造（use placement new to construct the element in-place at the location）
+//  iterator emplace(const_iterator pos, Args&&... args); 将新元素插入到pos位置
+//  iterator emplace_after(const_iterator pos, Args&&... args); 将新元素插入到pos位置之后
+//  reference_type emplace_back(Args&&... args); 在容器尾部插入一个元素，该元素使用提供的参数列表直接原地构造，而 push_back() 需要先构造一个对象再将对象拷贝或移动到容器
+//  reference_type emplace_front(Args&&... args); 在容器头部插入一个元素，emplace_back() emplace_front() 可以直接在容器内部构造对象，少了拷贝或移动的操作
+//  pair<iterator, bool> map::emplace(Args&&... args); 使用参数列表构造 pair<key_type, value_type>，并将键值对插入到映射对象，如果键值已经存在返回false此时需要析构新建元素
+//  pair<iterator, bool> map::try_emplace(const key_type& key, Args&&... args); 如果键值已经存在，不会构造新元素，直接返回false
+//  iterator map::emplace_hint(const_iterator hint, Args&&... args); 插入位置在hint位置，参考hint位置插入一个不存在的键值对，如果键已经存在返回false
+//  iterator map::try_emplace(const_iterator hint, const key_type& key, Args&&... args); 参考hint位置插入一个不存在的键值对，如果键已经存在直接返回false
+// 弹压元素
+//  void push_back(const value_type& value); 在容器尾拷贝构造一个新元素
+//  void push_back(value_type&& value); 在容器尾移动构造一个新元素
+//  void push_front(const value_type& value); 在容器头部压入新元素
+//  void push_front(value_type&& value); 在容器头部压入新元素
+//  void pop_back(); 弹出容器尾部元素
+//  void pop_front(); 弹出容器头部元素
+//  void append_range(range_type&& range); 在容器尾部压入多个元素
+//  void prepend_range(range_type&& range); 将多个元素压入到容器头部
+
 typedef struct { void *arrfix, prh_unt size; } prh_impl_arrfix;
 typedef struct { void *arrdyn; prh_unt capacity; prh_unt size; } prh_impl_arrdyn;
 void prh_impl_arrdyn_malloc(prh_impl_arrfix *p, prh_unt size);
@@ -11210,8 +11262,10 @@ void prh_impl_thrd_test(void) {
 #define prh_port_any ((prh_u32)0)
 
 typedef prh_ptr prh_handle;
+
 typedef struct {
     prh_handle sock;
+    prh_epoll_priv priv;
     prh_cono *upper_coro;
     prh_byte upper_subq;
     prh_byte ip6: 1, addr_any: 1, quit: 1;
@@ -11224,6 +11278,7 @@ typedef prh_arrfit(prh_byte) prh_byte_arrfit;
 
 typedef struct {
     prh_handle sock;
+    prh_epoll_priv priv;
     prh_cono *upp_coro;
     prh_cono *tcp_coro;
     prh_arrfit(prh_byte) txbuf;
@@ -11232,7 +11287,7 @@ typedef struct {
     prh_u32 rxbuf_cur;
     prh_byte upp_subq;
     prh_byte tcp_subq;
-    prh_byte ip6: 1, passive: 1, close_req: 1, rxdata: 1, drained: 1;
+    prh_byte ip6: 1, passive: 1, drained: 1, close_req: 1, closing: 1;
     prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
     prh_u16 l_port;
     prh_u16 p_port;
@@ -11824,7 +11879,7 @@ void prh_sock_shut_read_write(int sofd) {
 // 实现行为上的这种差异为可移植应用程序带来了难题，因为在许多实现上，EINTR 错误后绝不能
 // 再次调用 close()，而在至少一种实现上必须再次调用。POSIX.1 下一次主要发布计划解决这一
 // 困境。
-void prh_sock_close(int fd) {
+void prh_impl_close(int fd) {
     prh_preno_if(close(fd));
 }
 
@@ -12999,14 +13054,26 @@ prh_fastcall_typedef(void, prh_conoproc_t)(prh_cono *);
 typedef struct prh_spawn_data prh_spawn_data;
 typedef struct prh_await_data prh_await_data;
 
+#define PRH_COAC_EXIT 0xff
+
+typedef struct {
+    prh_snode node;
+    prh_byte subq_i;
+    prh_byte action;
+    prh_byte event;
+    prh_byte flags;
+    union { prh_u32 size; prh_u32 value; } u;
+} prh_cono_pdata;
+
 void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size);
 void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize);
 void *prh_cono_spawx(prh_byte max_subq, prh_conoproc_t proc, int stack_size, int maxudsize);
 void prh_cono_freely_start(prh_spawn_data *cono_spawn_data); // 启动一个自由协程
 void prh_cono_start(prh_cono *coro, prh_spawn_data *cono_spawn_data, bool await_this_coro); // 启动子协程
-void *prh_cono_await(prh_cono *coro); // 等待子协程（如果需要子协程的执行结果）
+void *prh_cono_await(prh_cono *coro); // 等待子协程结果（如果需要子协程的执行结果的话）
 void prh_cono_continue(prh_cono *coro, prh_await_data *cono_await_data); // 得到子协程结果后，让子协程继续执行
-void prh_cono_pdata(prh_cono *coro, prh_spawn_data *cono_spawn_data, void *pdata, bool await_this_coro); // 向目的协程发送参数请求
+void prh_cono_post(prh_cono *coro, prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata, bool await_this_coro); // 向目的协程发送参数请求
+void prh_cono_freely_post(prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata);
 void *prh_cono_pwait(prh_cono *coro); // 等待请求协程发送数据参数
 void *prh_cono_subq_pwait(prh_cono *coro, prh_byte subq); // 只等待子队列中的请求
 void prh_impl_cross_thread_coro_yield(prh_cono *coro);
@@ -13031,15 +13098,6 @@ typedef struct {
     prh_real_cono *tail;
 } prh_cono_quefit;
 
-typedef struct {
-    prh_snode node;
-    prh_byte subq_i;
-    prh_byte action;
-    prh_byte event;
-    prh_byte flags;
-    union { prh_u32 size; prh_u32 value; } u;
-} prh_pdata_head;
-
 typedef struct prh_cono_thrd prh_cono_thrd;
 struct prh_real_cono {
     // 仅由执行线程访问
@@ -13053,7 +13111,7 @@ struct prh_real_cono {
     prh_real_cono *caller;
     prh_real_cono *await_callee;
     prh_real_cono *start_callee;
-    prh_pdata_head *pwait_data;
+    prh_cono_pdata *pwait_data;
     // 仅由特权线程访问
     prh_cono_quefit callee_que;
     prh_quefit *pwait_subq;
@@ -13137,7 +13195,8 @@ void prh_impl_cono_thrd_free(void *userdata, int thrd_index) {
 }
 
 typedef enum {
-    PRH_CONO_ID_NULL,
+    PRH_CONO_NULL = 0, // 非法协程
+    PRH_CONO_ROOT = 1, // 特权协程在特权线程中直接执行，并没有创建一个真正的协程
     PRH_FIXED_CONO_MAX,
 } prh_impl_cono_id;
 
@@ -13736,6 +13795,33 @@ void prh_impl_cono_test(void) {
 #endif // PRH_CONO_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
+typedef struct {
+    void (*ready)(void *priv, prh_u32 events);
+    void *priv;
+} prh_epoll_priv;
+
+void prh_epoll_parse_events(prh_tcpsocket* socket, prh_u32 events);
+
+void prh_epoll_init(int num_fds_per_time_poll);
+void prh_epoll_free(void);
+void prh_epac_poll_once(void);
+void prh_epac_poll_all(void);
+
+void prh_epac_add_tcp_accept(prh_handle fd, prh_epoll_priv *priv);
+void prh_epac_add_tcp_socket(prh_handle fd, prh_epoll_priv *priv);
+void prh_epac_del_close(prh_handle fd);
+
+#if defined(prh_plat_windows)
+
+#else
+#if defined(prh_plat_linux)
+int prh_impl_epoll_create(void);
+int prh_impl_epoll_wait(int epfd, void *events, int count);
+void prh_impl_epoll_add(int epfd, int fd, prh_u32 events, void *priv);
+void prh_impl_epoll_del(int epfd, int fd);
+#else
+#endif
+#endif
 
 #ifdef PRH_SOCK_IMPLEMENTATION
 #if defined(prh_plat_windows)
@@ -14260,95 +14346,189 @@ void prh_impl_cono_test(void) {
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
 
-static int PRH_IMPL_EPFD;
-
 typedef struct {
     int epfd;
-} prh_epoll_global;
+    int num_fds_per_time_poll;
+    struct epoll_event *events;
+} prh_impl_epoll;
 
-void prh_epoll_init(void) {
-    int epfd = epoll_create1(EPOLL_CLOEXEC);
-    assert(epfd >= 0);
-    PRH_IMPL_EPFD = epfd;
-}
-
-void prh_epoll_del(int fd) {
-    struct epoll_event event; // Linux 2.6.9 之前的版本，event 参数虽然会被忽略，但不能传递空指针
-    prh_real_zeroret_or_errno(epoll_ctl(PRH_IMPL_EPFD, EPOLL_CTL_DEL, fd, &event));
-}
-
-void prh_impl_epoll_add(int fd, struct epoll_event *event) {
-    prh_real_zeroret_or_errno(epoll_ctl(PRH_IMPL_EPFD, EPOLL_CTL_ADD, fd, event));
-}
-
-int prh_epoll_wait(struct epoll_event *events, int max_size) {
-    int n = epoll_wait(PRH_IMPL_EPFD, events, max_size, 0);
-    if (n >= 0) return n;
-    prh_preno_if(errno != EINTR);
-    return 0;
-}
-
-void prh_epoll_tcp_rx_events(prh_tcpsocket* socket, prh_u32 events) {
-    if (events & EPOLLIN) {
-        socket->epoll_in = true;
-    } else if (events & EPOLLOUT) {
-        socket->epoll_out = true;
-    } else if (events & EPOLLRDHUP) { // 对端设备关闭了写入端并发了FIN，连接处于半关闭
-        socket->epoll_rdhup = true;
-    } else if (events & EPOLLHUP) { // 双方都关闭了写入端，不能再继续读写
-        socket->epoll_hup = true;
-    } else if (events & EPOLLERR) {
-        socket->epoll_err = true;
-    }
-}
+static prh_impl_epoll *PRH_IMPL_EPOLL;
 
 typedef struct {
+    PRH_EPAC_DEL_CLOSE,
+    PRH_EPAC_POLL_ONCE,
+    PRH_EPAC_POLL_ALL,
+    PRH_EPAC_MAX_NUM
+} prh_epoll_action;
 
-} prh_epoll_struct;
+void prh_epac_del_close(prh_handle fd) {
+    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
+    pdata->subq_i = 0; // epoll只有一个处理队列
+    pdata->action = PRH_EPAC_DEL_CLOSE;
+    pdata->u.value = (prh_u32)(int)fd;
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
+}
+
+void prh_epac_poll_once(void) {
+    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
+    pdata->subq_i = 0; // epoll只有一个处理队列
+    pdata->action = PRH_EPAC_POLL_ONCE;
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
+}
+
+void prh_epac_poll_all(void) {
+    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
+    pdata->subq_i = 0; // epoll只有一个处理队列
+    pdata->action = PRH_EPAC_POLL_ALL;
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
+}
+
+void prh_epoll_free(void) {
+    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
+    pdata->subq_i = 0; // epoll只有一个处理队列
+    pdata->action = PRH_COAC_EXIT;
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
+}
 
 // 有关线程安全：epoll_ctl() 和 epoll_wait() 本身线程安全的，内核会用锁保护epoll实
 // 例。例如线程A阻塞在epoll_wait()时，线程B/C可以并发地对同一个epfd调用epoll_ctl()
 // 进行添加/修改/删除，因此并发epoll_ctl()并不会破坏数据也不会死锁。但是要注意的是，
-// 例如线程B关闭文件描述符close(fd)之后，线程A仍对其进行 epoll_wait()，可能错误事件
+// 例如线程B关闭文件描述符close(fd)之后，线程A仍对其进行 epoll_wait()，可能错过事件
 // 或发生EBADF。若必须多线程操作同一个epoll实例epfd，确保fd生命周期由引用计数或统一
 // 线程管理。关闭文件描述符的顺序，一般是先epoll_ctl(DEL)，再close(fd)，因为若先
 // close(fd)，再 epoll_ctl(DEL) 时fd可能已被内核回收并复用了，导致EBADF或误操作其他
 // 文件。Linux文档明确指出，对已关闭的fd进行 epoll 操作，结果未定义。当然，如果你确保
 // 所有线程再也不会对该fd做任何epoll调用，可以先close，但一般仍推荐先DEL的顺序，因为
 // 简单且无坑。
-prh_cono_proc prh_epoll_procedure(prh_cono *cono) {
-    subroutine_t *p = prh_cono_data(cono);
-    int result = 0, *start = p->start;
-    for (; start < p->end; start += 1) {
-        result += *start;
+//
+// 不像poll那样每次都需要用户提供跟踪的文件描述符集合，epoll会自动跟踪文件描述符集合，
+// 并且只把有事件发送的就绪集合上报给用户，用户不需要每次都要遍历整个文件描述符列表。
+// 文件描述符一经加入就一直由epoll自动负责监控，用户只需要在感兴趣的时候去查看当前有什
+// 么事件已经就绪，直到文件描述符需要关闭，将文件描述符从epoll中移除，并最后关闭文件
+// 描述符。
+//
+// 文件描述符添加可以直接调用 epoll_ctl(ADD) 添加，不需要特别处理。但是当移除和关闭文
+// 件描述符时，始终让一个线程去做避免出错。
+
+void prh_impl_epoll_add(int epfd, int fd, prh_u32 events, void *priv) {
+    struct epoll_event event;
+    event.events = events;
+    event.data.ptr = priv;
+    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event));
+}
+
+void prh_impl_epoll_del(int epfd, int fd) {
+    struct epoll_event event; // Linux 2.6.9 之前的版本，event 参数虽然会被忽略，但不能传递空指针
+    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &event));
+}
+
+int prh_impl_epoll_create(void) {
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    assert(epfd >= 0);
+    return epfd;
+}
+
+int prh_impl_epoll_wait(int epfd, void *events, int count) {
+    int n = epoll_wait(epfd, events, count, 0);
+    prh_debug(prh_preno_if(n < 0 && errno != EINTR));
+    return n;
+}
+
+void prh_impl_epac_del_close(prh_epoll *epoll, int fd) {
+    prh_impl_epoll_del(epoll->epfd, fd);
+    prh_impl_close(fd);
+}
+
+bool prh_impl_epac_wait(prh_epoll *epoll) {
+    struct epoll_event *events = epoll->events;
+    int num_fds_per_time_poll = epoll->num_fds_per_time_poll;
+    int n = prh_impl_epoll_wait(epoll->epfd, events, num_fds_per_time_poll);
+    if (n <= 0) {
+        return false; // no more ready fds
     }
-    p->result = result;
+    prh_epoll_priv *priv;
+    for (int i = 0; i < n; i += 1) {
+        priv = events[i].data.ptr;
+        priv->ready(priv->priv, events[i].events);
+    }
+    prh_debug(printf("epoll wait %d/%d\n", n, num_fds_per_time_poll));
+    return (n == num_fds_per_time_poll); // more ready fds may exist
 }
 
-void prh_epoll_add_tcp_accept(prh_handle fd, void *priv) { // 接收连接，错误
-    struct epoll_event event;
-    event.events = EPOLLIN | EPOLLET; // EPOLLERR 默认会设置
-    event.data.ptr = sock;
-    prh_impl_epoll_add(*(int*)(&sock->fd), &event);
+#if PRH_DEBUG
+#define PRH_EPOLL_CORO_STACK_SIZE 512
+#else
+#define PRH_EPOLL_CORO_STACK_SIZE 256
+#endif
+
+prh_cono_proc prh_impl_epoll_proc(prh_cono *cono) {
+    prh_epoll *epoll = prh_cono_data(cono);
+    prh_cono_pdata *pdata;
+    prh_byte action;
+    for (; ;) {
+        pdata = prh_cono_pwait(cono);
+        action = pdata->action;
+        if (action == PRH_COAC_EXIT) {
+            break;
+        }
+        switch (action) {
+        case PRH_EPAC_DEL_CLOSE:
+            prh_impl_epac_del_close(epoll, (int)pdata->u.value);
+            break;
+        case PRH_EPAC_POLL_ONCE:
+            prh_impl_epac_wait(epoll);
+            break;
+        case PRH_EPAC_POLL_ALL:
+            while(prh_impl_epac_wait(epoll));
+            break;
+        default:
+            prh_debug(prh_prerr(action));
+            break;
+        }
+    }
 }
 
-void prh_epoll_add_tcp_socket(prh_handle fd, void *priv) { // 连接，断连，读取，写入，错误
-    struct epoll_event event;
-    event.events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
-    event.data.ptr = sock;
-    prh_impl_epoll_add(*(int*)(&sock->fd), &event);
+#define PRH_EPOLL_NUM_FDS_PER_TIME 16
+
+void prh_epoll_init(int num_fds_per_time_poll) {
+    if (num_fds_per_time_poll <= 0) {
+        num_fds_per_time_poll = PRH_EPOLL_NUM_FDS_PER_TIME;
+    }
+    int maxudsize = sizeof(prh_epoll) + sizeof(struct epoll_event) * num_fds_per_time_poll;
+    prh_epoll *epoll = prh_cono_spawn(prh_impl_epoll_proc, PRH_EPOLL_CORO_STACK_SIZE, maxudsize);
+    PRH_IMPL_EPOLL = epoll;
+    epoll->epfd = prh_impl_epoll_create();
+    epoll->num_fds_per_time_poll = num_fds_per_time_poll;
+    epoll->events = (struct epoll_event *)(epoll + 1);
+    prh_cono_freely_start((prh_spawn_data *)epoll);
 }
 
-void prh_epoll_del(prh_handle fd) {
+void prh_epac_add_tcp_accept(prh_handle fd, prh_epoll_priv *priv) { // 接收连接，错误
+    prh_u32 events = EPOLLIN | EPOLLET; // EPOLLERR 默认会设置
+    prh_impl_epoll_add(PRH_IMPL_EPOLL->epfd, (int)fd, events, priv);
+}
 
+void prh_epac_add_tcp_socket(prh_handle fd, prh_epoll_priv *priv) { // 连接，断连，读取，写入，错误
+    prh_u32 events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
+    prh_impl_epoll_add(PRH_IMPL_EPOLL->epfd, (int)fd, events, priv);
+}
+
+void prh_epoll_parse_events(prh_tcpsocket* tcp, prh_u32 events) {
+    if (events & EPOLLIN) {
+        tcp->epoll_in = true;
+    } else if (events & EPOLLOUT) {
+        tcp->epoll_out = true;
+    } else if (events & EPOLLRDHUP) { // 对端设备关闭了写入端并发了FIN，连接处于半关闭
+        tcp->epoll_rdhup = true;
+    } else if (events & EPOLLHUP) { // 双方都关闭了写入端，不能再继续读写
+        tcp->epoll_hup = true;
+    } else if (events & EPOLLERR) {
+        tcp->epoll_err = true;
+    }
 }
 #else // prh_plat_linux
 #endif // UNIX
 #endif // WINDOWS
-
-void prh_epoll_add_tcp_accept(prh_handle fd, void *priv);
-void prh_epoll_add_tcp_socket(prh_handle fd, void *priv);
-void prh_epoll_del(prh_handle fd);
 
 // 如果有人使用通配地址注册一个端口，那么该端口就不能再被其他人注册，之前有人注册过的
 // 也会被强制断开。
@@ -14367,40 +14547,41 @@ typedef struct {
 } prh_tcp_global;
 
 typedef enum {
-    PRH_TCP_SUBQ_UPPER,
     PRH_TCP_SUBQ_EPOLL,
+    PRH_TCP_SUBQ_UPPER,
     PRH_TCP_SUBQ_MAX_NUM,
 } prh_tcp_subq;
 
 typedef enum {
     // upper action: upper layer => tcp layer, TCP层需要主动执行操作
     PRH_TCPA_OPEN_ACCEPT,   // 是否接受连接
-    PRH_TCPA_TXDATA,        // 主动请求发送数据
-    PRH_TCPA_RXDONE,        // 数据接收完毕
+    PRH_TCPA_TX_DATA,       // 主动请求发送数据
+    PRH_TCPA_RX_DONE,       // 数据接收完毕
     PRH_TCPA_CLOSE_REQ,     // 主动发起断连请求
     PRH_TCPA_CLOSE_CFM,     // 告诉下层可以关闭连接
     // lower event: epoll layer => upper layer (tcp here)
-    PRH_TCPA_EPOLL_IND,    // 下层（epoll层）来的事件
+    PRH_TCPA_EPOLL_IND,     // 下层（epoll层）来的事件
 } prh_tcp_action;
 
 typedef enum { // upper event: tcp layer => upper layer
     PRH_TCPE_OPEN_IND,      // 连接请求到来
     PRH_TCPE_OPENED,        // 连接已经打开
-    PRH_TCPE_TXDONE,        // 数据发送完毕
-    PRH_TCPE_RXDATA,        // 有数据需要上层接收
+    PRH_TCPE_TX_DONE,       // 数据发送完毕
+    PRH_TCPE_RX_DATA,       // 有数据需要上层接收
     PRH_TCPE_CLOSE_IND,     // 远方请求断连
     PRH_TCPE_CLOSED,        // 连接已经关闭
 } prh_tcp_event;
 
 typedef enum {
-    prh_pdata_head head;
+    prh_cono_pdata head;
     prh_u32 rxbuf_size;
     prh_u32 txbuf_size;
-} prh_tcp_open_accept;
+} prh_tcpa_open_accept;
 
-void prh_impl_wait_ready_event(prh_handle fd) {
-
-}
+typedef enum {
+    prh_cono_pdata head;
+    prh_byte *data;
+} prh_tcpa_tx_data;
 
 void prh_impl_tcp_socket_init_buffer(prh_tcpsocket *socket, prh_u32 txbuf_size, prh_u32 rxbuf_size) {
     assert(txbuf_size > 0);
@@ -14423,6 +14604,14 @@ void prh_impl_tcp_report_close_ind(prh_tcpsocket *socket) {
 }
 
 void prh_impl_tcp_report_opened(prh_tcpsocket *socket) {
+}
+
+#define PRH_TCPE_TX_DONE_FLAG_SOCKET_ERROR 0x01
+
+void prh_impl_tcp_report_tx_done(prh_tcpsocket *socket) {
+    if (socket->epoll_err) {
+        // 置错误标记，告诉上层不要再发送数据
+    }
 }
 
 void prh_impl_tcp_report_rxdata(prh_tcpsocket *socket) {
@@ -14454,7 +14643,7 @@ void prh_impl_tcp_write_data(prh_tcpsocket *socket) {
     }
 }
 
-void prh_impl_tcp_socket_close(prh_tcpsocket *socket) {
+void prh_impl_tcp_close(prh_tcpsocket *socket) {
     // TODO: 做清理工作
     prh_impl_tcp_report_closed(socket);
 }
@@ -14462,46 +14651,69 @@ void prh_impl_tcp_socket_close(prh_tcpsocket *socket) {
 #define PRH_IMPL_TCP_LISTEN_STACK_SIZE 256
 #define PRH_IMPL_TCP_SOCKET_STACK_SIZE 512
 
-prh_cono_proc prh_impl_tcp_socket_proc(prh_cono *coro) {
-    prh_tcpsocket *socket = prh_cono_data(coro);
-    if (socket->passive) {
-        prh_tcp_open_accept *accept = prh_impl_tcp_report_open_ind(coro, socket);
+prh_inline bool prh_impl_tcp_sending_data(prh_tcpsocket *sk) {
+    return sk->txbuf.size > 0;
+}
+
+prh_inline bool prh_impl_tcp_reading_data(prh_tcpsocket *sk) {
+    return sk->rxbuf.size > 0;
+}
+
+prh_inline bool prh_impl_tcp_closing_req(prh_tcpsocket *sk) {
+    return sk->close_req;
+}
+
+void prh_impl_tcp_socket_ready(void *priv, prh_u32 events) {
+    prh_cono *cono = priv; // 给 tcp cono 发送 epoll 事件
+    prh_cono_pdata data;
+    data.subq_i = PRH_TCP_SUBQ_EPOLL;
+    data.action = PRH_TCPA_EPOLL_IND;
+    data.u.value = events;
+    prh_cono_post(prh_cono_data(cono), &data);
+}
+
+prh_cono_proc prh_impl_tcp_socket_proc(prh_cono *cono) {
+    prh_tcpsocket *tcp = prh_cono_data(cono);
+    if (tcp->passive) {
+        prh_tcp_open_accept *accept = prh_impl_tcp_report_open_ind(cono, tcp);
         if (accept->u.value) {
-            prh_impl_tcp_socket_init_buffer(socket, accept->txbuf_size, accept->rxbuf_size);
+            prh_impl_tcp_socket_init_buffer(tcp, accept->txbuf_size, accept->rxbuf_size);
             goto label_accepted;
         }
-        prh_impl_tcp_socket_close(socket); // 新连接被上层拒绝，关闭该连接，并上报 CLOSED
+        prh_impl_tcp_close(tcp); // 新连接被上层拒绝，关闭该连接，并上报 CLOSED
         return;
     } else {
 label_accepted:
-        prh_impl_tcp_report_opened(cono, socket);
-        prh_epoll_add_tcp_socket(socket->sock, prh_null);
+        prh_impl_tcp_report_opened(cono, tcp);
+        tcp->priv.ready = prh_impl_tcp_socket_ready;
+        tcp->priv.priv = cono;
+        prh_epac_add_tcp_socket(tcp->sock, &tcp->priv);
     }
     for (; ;) {
-        prh_pdata_head *pdata = prh_cono_pwait(cono);
+        prh_cono_pdata *pdata = prh_cono_pwait(cono);
         switch (pdata->head.action) {
-            case PRH_TCPA_TXDATA: {
-                if (socket->close_req || socket->epoll_hup) {
+            case PRH_TCPA_TX_DATA: {
+                if (tcp->close_req || tcp->epoll_hup) {
                     break; // 如果上层发起了断连不能继续发新的数据，或者套接字已经完全断连更不能发任何数据
                 }
-                prh_impl_tcp_write_data(socket);
+                prh_impl_tcp_write_data(tcp);
                 break;
             }
-            case PRH_TCPA_RXDONE: {
-                socket->rxdata = false;
-                if (socket->drained) { // 等待本端发完所有数据，并等待上层发起关闭请求
-                    prh_impl_tcp_report_close_ind(socket);
+            case PRH_TCPA_RX_DONE: {
+                tcp->rxdata = false;
+                if (tcp->drained) { // 等待本端发完所有数据，并等待上层发起关闭请求
+                    prh_impl_tcp_report_close_ind(tcp);
                     break;
                 }
-                prh_impl_tcp_read_data(socket);
+                prh_impl_tcp_read_data(tcp);
                 break;
             }
             case PRH_TCPA_CLOSE_REQ: {
-                if (socket->epoll_hup) {
+                if (tcp->epoll_hup) {
                     // 双方都已经关闭，不需要再继续处理，且已经上报过 CLOSED
                 } else {
-                    socket->close_req = true; // 等待本地写缓冲发送完毕，才能 SHUT_WR
-                    prh_impl_tcp_write_data(socket);
+                    tcp->close_req = true; // 等待本地写缓冲发送完毕，才能 SHUT_WR
+                    prh_impl_tcp_write_data(tcp);
                 }
                 break;
             }
@@ -14509,18 +14721,24 @@ label_accepted:
                 break;
             }
             case PRH_TCPA_EPOLL_IND: {
-                prh_epoll_tcp_rx_events(socket, pdata->head.u.value);
-                if (socket->epoll_hup) {
+                prh_epoll_parse_events(tcp, pdata->head.u.value);
+                if (tcp->epoll_err || tcp->epoll_hup) {
+                    // EPOLLERR 表示内核已检测到不可恢复的套接字错误（通常是 RST、
+                    // ICMP 不可达等），此时：套接字已处于错误状态；所有后续 send()
+                    // 或 recv() 立即返回 -1 和 ECONNRESET|ENETRESET|…；因此收到
+                    // EPOLLERR 后，直接 close(fd) 即可。
+                    // EPOLLHUP 是内核检测到“套接字/管道已彻底挂断”，不能继续读写，
+                    // 能做的只有 close(fd)。
+                    tcp->closing = 1;
                     goto label_socket_close;
                 }
-                if (socket->epoll_in && !socket->rxdata) {
-                    prh_impl_tcp_read_data(socket);
+                if (tcp->epoll_in && !prh_impl_tcp_reading_data(tcp)) {
+                    tcp->epoll_in = 0; // 后面需要一直读取直到 EAGAIN 为止
+                    prh_impl_tcp_read_data(tcp);
                 }
-                if (socket->epoll_out) {
-                    prh_impl_tcp_write_data(socket);
-                }
-                if (socket->epoll_err) {
-                    // TODO: how to handle error ???
+                if (tcp->epoll_out) {
+                    tcp->epoll_out = 0; // 后面可以一直写入直到 EAGAIN 为止
+                    prh_impl_tcp_cont_write(tcp);
                 }
                 break;
             }
@@ -14531,14 +14749,16 @@ label_accepted:
         }
     }
 label_socket_close:
-    prh_epoll_del(socket->sock);
-    prh_impl_tcp_socket_close(socket);
+    prh_epoll_close_fd(tcp->sock);
+    prh_impl_tcp_close(tcp);
 }
 
 prh_cono_proc prh_impl_tcp_listen_proc(prh_cono *cono) {
     prh_tcplisten *listen = prh_cono_data(cono);
     prh_tcpsocket new_connection;
-    prh_epoll_add_tcp_accept(listen->sock, prh_null);
+    listen->priv.ready = prh_impl_tcp_socket_ready;
+    listem->priv.priv = cono;
+    prh_epac_add_tcp_accept(listen->sock, &listen->priv);
     while (!listen->quit) {
         if (!prh_tcp_accept(listen, &new_connection)) { // 添加限流控制
             prh_impl_wait_ready_event(listen->sock);
