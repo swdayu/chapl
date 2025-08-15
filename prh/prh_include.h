@@ -3744,6 +3744,7 @@ prh_snode *prh_quefit_pop(prh_quefit *q) {
 //
 // struct user_relaxed_quefit q = {0};
 // prh_relaxed_quefit_push(&q, user_node, chain);
+#define prh_relaxed_quefit(type) struct { type *head; type *tail; }
 
 void prh_impl_relaxed_quefit_push(void **quefit, void *node, prh_i32 next_offset);
 void prh_impl_relaxed_quefit_push_front(void **quefit, void *node, prh_i32 next_offset);
@@ -4673,6 +4674,16 @@ prh_inline void prh_atom_i32_sub(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_sub(
 prh_inline void prh_atom_u32_sub(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_sub((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_sub(prh_atom_int *a, prh_int b) { atomic_fetch_sub((atomic_intptr_t *)a, b); }
 prh_inline void prh_atom_unt_sub(prh_atom_unt *a, prh_unt b) { atomic_fetch_sub((atomic_uintptr_t *)a, b); }
+
+prh_inline void prh_atom_i32_bit_or(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_or((atomic_int *)a, b); }
+prh_inline void prh_atom_u32_bit_or(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_or((atomic_uint *)a, b); }
+prh_inline void prh_atom_int_bit_or(prh_atom_int *a, prh_int b) { atomic_fetch_or((atomic_intptr_t *)a, b); }
+prh_inline void prh_atom_unt_bit_or(prh_atom_unt *a, prh_unt b) { atomic_fetch_or((atomic_uintptr_t *)a, b); }
+
+prh_inline void prh_atom_i32_bit_and(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_and((atomic_int *)a, b); }
+prh_inline void prh_atom_u32_bit_and(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_and((atomic_uint *)a, b); }
+prh_inline void prh_atom_int_bit_and(prh_atom_int *a, prh_int b) { atomic_fetch_and((atomic_intptr_t *)a, b); }
+prh_inline void prh_atom_unt_bit_and(prh_atom_unt *a, prh_unt b) { atomic_fetch_and((atomic_uintptr_t *)a, b); }
 
 // Atomically perform compare-and-exchange (or compare-and-swap CAS) operation.
 //      if read value == *expect value { write newvalue and return true }
@@ -11265,10 +11276,10 @@ typedef prh_ptr prh_handle;
 
 typedef struct {
     prh_handle sock;
+    prh_spawn_data *upper_coro;
     prh_epoll_priv priv;
-    prh_cono *upper_coro;
     prh_byte upper_subq;
-    prh_byte ip6: 1, addr_any: 1, quit: 1;
+    prh_byte ip6: 1, addr_any: 1, in_wait: 1, quit: 1;
     prh_u16 port;
     prh_u32 addr;
     prh_u32 addr[3];
@@ -11278,15 +11289,14 @@ typedef prh_arrfit(prh_byte) prh_byte_arrfit;
 
 typedef struct {
     prh_handle sock;
-    prh_epoll_priv priv;
-    prh_cono *upp_coro;
-    prh_cono *tcp_coro;
+    prh_spawn_data *upp_coro;
     prh_arrfit(prh_byte) txbuf;
     prh_arrfit(prh_byte) rxbuf;
     prh_u32 txbuf_cur;
     prh_u32 rxbuf_cur;
+    prh_epoll_priv priv;
     prh_byte upp_subq;
-    prh_byte ip6: 1, passive: 1, drained: 1, close_req: 1, closing: 1;
+    prh_byte ip6: 1, passive: 1, in_wait: 1, out_wait: 1, drained: 1, close_req: 1, closing: 1;
     prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
     prh_u16 l_port;
     prh_u16 p_port;
@@ -13064,7 +13074,7 @@ void prh_cono_continue(prh_cono *coro, prh_await_data *cono_await_data); // 得�
 void prh_cono_post(prh_cono *coro, prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata, bool await_this_coro); // 向目的协程发送参数请求
 void prh_cono_freely_post(prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata);
 void *prh_cono_pwait(prh_cono *coro); // 等待请求协程发送数据参数
-void *prh_cono_subq_pwait(prh_cono *coro, prh_byte subq); // 只等待子队列中的请求
+void *prh_cono_pwait_from(prh_cono *coro, prh_byte subq); // 只等待子队列中的请求
 void prh_impl_cross_thread_coro_yield(prh_cono *coro);
 
 prh_inline void prh_cono_yield(prh_cono *coro) {
@@ -13075,8 +13085,6 @@ prh_inline void prh_cono_yield(prh_cono *coro) {
 prh_inline void *prh_cono_data(prh_cono *coro) {
     return prh_soro_data((prh_soro *)coro);
 }
-
-#define PRH_COAC_EXIT 0xff
 
 typedef struct prh_cono_pdata {
     prh_snode node;
@@ -13804,13 +13812,15 @@ void prh_impl_cono_test(void) {
 #endif // PRH_CONO_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
+#define PRH_SUBQ_EPOLL  0
+#define PRH_SUBQ_TCP    1
 
 typedef enum { // tcp layer => upper layer
     PRH_TCPE_OPEN_IND,      // 连接请求到来
     PRH_TCPE_OPENED,        // 连接已经打开
     PRH_TCPE_TX_DONE,       // 数据发送完毕
     PRH_TCPE_RX_DATA,       // 有数据需要上层接收
-    PRH_TCPE_CLOSE_IND,     // 远方断开连接，上层需要在传输完所有数据后执行 prh_tcpa_close_cfm
+    PRH_TCPE_CLOSE_IND,     // 远方断开连接，上层需要在传输完所有数据后执行 prh_tcp_close_cfm
     PRH_TCPE_CLOSED,        // 连接已经关闭
 } prh_tcp_event;
 
@@ -13851,29 +13861,28 @@ typedef struct {
     prh_tcpsocket *tcp;
 } prh_tcpe_closed;
 
-void prh_tcpa_open_accept(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size);
-void prh_tcpa_open_reject(prh_tcpsocket *tcp);
-void prh_tcpa_tx_data(prh_tcpsocket *tcp, prh_u32 size);
-void prh_tcpa_rx_done(prh_tcpsocket *tcp);
-void prh_tcpa_close_cfm(prh_tcpsocket *tcp); // 远方断开连接，上层需要在传输完所有数据之后，才能执行 close cfm
-void prh_tcpa_close_req(prh_tcpsocket *tcp); // 上层需要在传输完所有数据之后，才能执行 close req
+void prh_tcp_open_accept(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size);
+void prh_tcp_open_reject(prh_tcpsocket *tcp);
+void prh_tcp_tx_data(prh_tcpsocket *tcp, prh_u32 size);
+void prh_tcp_rx_done(prh_tcpsocket *tcp);
+void prh_tcp_close_cfm(prh_tcpsocket *tcp); // 远方断开连接，上层需要在传输完所有数据之后，才能执行 close cfm
+void prh_tcp_close_req(prh_tcpsocket *tcp); // 上层需要在传输完所有数据之后，才能执行 close req
 
-typedef struct {
-    void (*ready)(void *priv, prh_u32 events);
-    void *priv;
-} prh_epoll_priv;
+typedef struct prh_epoll_port prh_epoll_port;
 
-void prh_epoll_parse_events(prh_tcpsocket* tcp, prh_u32 events);
+typedef enum {
+    PRH_EPEV_ADDED, // 特定文件描述符添加完毕
+    PRH_EPEV_READY, // 特定文件描述符上有事件发生
+} prh_epoll_event;
 
-void prh_epoll_init(int num_fds_per_time_poll);
-void prh_epoll_free(void);
-
-void prh_epac_poll_once(void);
-void prh_epac_poll_all(void);
-
-void prh_epac_add_tcp_accept(prh_handle fd, prh_epoll_priv *priv);
-void prh_epac_add_tcp_socket(prh_handle fd, prh_epoll_priv *priv);
-void prh_epac_del_close(prh_handle fd);
+void prh_epoll_init(int max_fds_hint, int num_fds_per_time_poll);
+void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_handle fd);
+void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_handle fd);
+void prh_epoll_receive_events(prh_tcpsocket* tcp, prh_epoll_port *port);
+void prh_epoll_tx_data_pending(prh_epoll_port *port);
+void prh_epoll_rx_data_pending(prh_epoll_port *port);
+void prh_epoll_del_and_close(prh_epoll_port *port);
+void prh_epoll_exit(prh_cono *cono, prh_byte subq);
 
 #if defined(prh_plat_windows)
 
@@ -14405,55 +14414,7 @@ void prh_impl_epoll_del(int epfd, int fd);
 // 11. 边缘触发文件描述符就绪后，在进行 read(2) 的期间，又有新的数据到来，后续的 read(2)
 //     操作会直接读到新来的数据吗，还是必须再一次 epoll_wait(2) 后才能读到新的数据？
 //     对于 write(2) 呢，也一样吗？
-//      TODO: ？？？
-#include <sys/types.h>
-#include <sys/ioctl.h>
-#include <sys/epoll.h>
-
-typedef struct {
-    int epfd;
-    int num_fds_per_time_poll;
-    struct epoll_event *events;
-} prh_impl_epoll;
-
-static prh_impl_epoll *PRH_IMPL_EPOLL;
-
-typedef struct {
-    PRH_EPAC_DEL_CLOSE,
-    PRH_EPAC_POLL_ONCE,
-    PRH_EPAC_POLL_ALL,
-    PRH_EPAC_MAX_NUM
-} prh_epoll_action;
-
-void prh_epac_del_close(prh_handle fd) {
-    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
-    pdata->subq_i = 0; // epoll只有一个处理队列
-    pdata->action = PRH_EPAC_DEL_CLOSE;
-    pdata->u.value = (prh_u32)(int)fd;
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
-}
-
-void prh_epac_poll_once(void) {
-    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
-    pdata->subq_i = 0; // epoll只有一个处理队列
-    pdata->action = PRH_EPAC_POLL_ONCE;
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
-}
-
-void prh_epac_poll_all(void) {
-    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
-    pdata->subq_i = 0; // epoll只有一个处理队列
-    pdata->action = PRH_EPAC_POLL_ALL;
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
-}
-
-void prh_epoll_free(void) {
-    prh_cono_pdata *pdata = prh_malloc(sizeof(prh_cono_pdata));
-    pdata->subq_i = 0; // epoll只有一个处理队列
-    pdata->action = PRH_COAC_EXIT;
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, pdata);
-}
-
+//
 // 有关线程安全：epoll_ctl() 和 epoll_wait() 本身线程安全的，内核会用锁保护epoll实
 // 例。例如线程A阻塞在epoll_wait()时，线程B/C可以并发地对同一个epfd调用epoll_ctl()
 // 进行添加/修改/删除，因此并发epoll_ctl()并不会破坏数据也不会死锁。但是要注意的是，
@@ -14473,6 +14434,9 @@ void prh_epoll_free(void) {
 //
 // 文件描述符添加可以直接调用 epoll_ctl(ADD) 添加，不需要特别处理。但是当移除和关闭文
 // 件描述符时，始终让一个线程去做避免出错。
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/epoll.h>
 
 void prh_impl_epoll_add(int epfd, int fd, prh_u32 events, void *priv) {
     struct epoll_event event;
@@ -14498,25 +14462,290 @@ int prh_impl_epoll_wait(int epfd, void *events, int count) {
     return n;
 }
 
-void prh_impl_epac_del_close(prh_epoll *epoll, int fd) {
-    prh_impl_epoll_del(epoll->epfd, fd);
-    prh_impl_close(fd);
+// 协程间消息的1对1模式，两个协程间的通信，发送消息的原则是，请求协程将消息直接写到执行
+// 协程（当然第一次消息发送做不到），执行协程读取属于自己的内存，然后执行对应的操作，然
+// 后将结果也写到自己的内存中，然后告诉请求协程去读取。这样，执行协程大部分时间都只访问
+// 自己的内存（除了第一次消息），内存访问效率会很高，当然如果还能满足，在同一个线程完成
+// 所有的任务，效率会更高。从整体看，内存的修改只发生在，执行协程内的很小一部分区域，不
+// 会导致大范围的内存缓存失效。而且，两个协程所有的消息交互都限定在了这一个小区域内，将
+// 这个小区域对齐到内存缓存行的边界，执行效率会更高。
+
+typedef struct {
+    prh_cono_pdata action;  // PRH_EPAC_CLOSE
+    prh_cono_pdata tx_data; // PRH_EPAC_WAIT
+    prh_cono_pdata rx_data; // PRH_EPAC_WAIT
+    prh_cono_pdata event;
+    prh_spawn_data *from_cono;
+    prh_handle handle;
+    prh_byte from_subq;
+    prh_u32 waiting_i;
+    prh_u32 events;
+    prh_u32 update;
+} prh_epoll_port;
+
+typedef prh_arrdyn(prh_epoll_port*) prh_epoll_port_array;
+
+typedef struct {
+    int epfd, max_fds_hint;
+    int fds_count;
+    int num_fds_per_time_poll; // 估计同一时间最多有多少个文件描述符会同时有事件发生
+    struct epoll_event *events; // 如果发生事件的文件描述符很多，但指定了很小的 num_fds_per_time_poll 值，则需要执行很多次 epoll_wait() 系统调用
+    prh_epoll_port_array wait;
+    prh_cono_pdata priv_poll;
+} prh_impl_epoll;
+
+static prh_impl_epoll *PRH_IMPL_EPOLL;
+
+typedef enum {
+    PRH_EPAC_ADD,   // 向 epoll 添加文件描述符
+    PRH_EPAC_WAIT,  // 协程查询特定的文件描述符
+    PRH_EPAC_POLL,  // 全局查询所有 epoll 事件
+    PRH_EPAC_CLOSE, // 删除并关闭特定文件描述符
+    PRH_EPAC_EXIT,  // 释放 epoll 实例并退出协程
+    PRH_EPAC_MAX_NUM
+} prh_epoll_action;
+
+typedef void (*prh_impl_epoll_proccess)(prh_epoll *epoll, prh_cono_data *pdata);
+void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_data *pdata);
+void prh_impl_process_epac_wait(prh_epoll *epoll, prh_cono_data *pdata);
+void prh_impl_process_epac_poll(prh_epoll *epoll, prh_cono_data *pdata);
+void prh_impl_process_epac_close(prh_epoll *epoll, prh_cono_data *pdata);
+void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_data *pdata);
+
+static prh_impl_epoll_proccess PRH_IMPL_EPFN[PRH_EPAC_MAX_NUM] = {
+    prh_impl_process_epac_add,
+    prh_impl_process_epac_wait,
+    prh_impl_process_epac_poll,
+    prh_impl_process_epac_close,
+    prh_impl_process_epac_exit,
+};
+
+typedef struct {
+    prh_cono_pdata head;
+    prh_spawn_data *from_cono;
+    prh_byte from_subq;
+    prh_u32 events;
+} prh_data_epac_add;
+
+// 上层协程请求向 epoll 添加文件描述符
+
+void prh_impl_epac_add(prh_epoll_port **port, prh_spawn_data *cono, prh_byte subq, prh_handle fd, prh_u32 events) {
+    prh_data_epac_add from;
+    from->head.opcode = PRH_EPAC_ADD;
+    from->head.subq_i = 0; // epoll只有一个处理队列
+    from->head.u.value = (prh_u32)(int)fd;
+    from->from_cono = cono;
+    from->from_subq = subq;
+    from->events = events;
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, &from->head);
+    prh_cono_pdata *event = prh_cono_pwait_from(cono, subq);
+    assert(event->opcode == PRH_EPEV_ADDED);
+    *port = (prh_epoll_port *)((prh_byte *)event - prh_offsetof(prh_epoll_port, event));
 }
 
-bool prh_impl_epac_wait(prh_epoll *epoll) {
-    struct epoll_event *events = epoll->events;
+void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_handle fd) { // 接收连接，错误
+    prh_u32 events = EPOLLIN | EPOLLET; // EPOLLERR 默认会设置
+    prh_impl_epac_add(&tcp->epoll_port, (prh_spawn_data *)tcp, PRH_TCPQ_EPOLL, fd, events);
+}
+
+void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_handle fd) { // 连接，断连，读取，写入，错误
+    prh_u32 events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
+    prh_impl_epac_add(&tcp->epoll_port, (prh_spawn_data *)tcp, PRH_TCPQ_EPOLL, fd, events);
+}
+
+void prh_epoll_receive_events(prh_tcpsocket* tcp, prh_epoll_port *port) {
+    prh_u32 events = port->events;
+    if (events & EPOLLIN) {
+        tcp->epoll_in = true;
+    } else if (events & EPOLLOUT) {
+        tcp->epoll_out = true;
+    } else if (events & EPOLLRDHUP) { // 对端设备关闭了写入端并发了FIN，连接处于半关闭
+        tcp->epoll_rdhup = true;
+    } else if (events & EPOLLHUP) { // 双方都关闭了写入端，不能再继续读写
+        tcp->epoll_hup = true;
+    } else if (events & EPOLLERR) {
+        tcp->epoll_err = true;
+    }
+}
+
+void prh_impl_report_epev_added(prh_epoll_port *port) {
+    prh_cono_pdata *event = &port->event;
+    event->opcode = PRH_EPEV_ADDED;
+    event->subq_i = port->from_subq;
+    prh_cono_freely_post(port->from_cono, event);
+}
+
+void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_data_epac_add *from = (prh_data_epac_add *)pdata;
+    int fd = (int)from->head.u.value;
+    int alloc_size = prh_round_cache_line_size(sizeof(prh_epoll_port));
+    prh_epoll_port *port = prh_cache_line_aligned_malloc(alloc_size);
+    assert(port != prh_null);
+    memset(port, 0, sizeof(prh_epoll_port));
+    port->from_cono = from->from_cono;
+    port->from_subq = from->from_subq;
+    port->handle = fd;
+    epoll->fds_count += 1;
+    prh_impl_epoll_add(PRH_IMPL_EPOLL->epfd, fd, from->events, port);
+    prh_impl_report_epev_added(port);
+}
+
+// 上层协程请求 epoll 去问询文件描述符是否有事件到达
+
+void prh_epoll_wait_events(prh_epoll_port *port) {
+    prh_cono_pdata *action = &port->action;
+    action->opcode = PRH_EPAC_WAIT;
+    action->subq_i = 0; // epoll只有一个处理队列
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, action);
+}
+
+void prh_impl_report_epev_ready(prh_epoll_port *port) {
+    prh_cono_pdata *event = &port->event;
+    event->opcode = PRH_EPEV_READY;
+    event->subq_i = port->from_subq；
+    port->events = port->update;
+    port->update = 0;
+    prh_cono_freely_post(port->from_cono, event);
+}
+
+bool prh_impl_epac_poll_events(prh_epoll *epoll) {
     int num_fds_per_time_poll = epoll->num_fds_per_time_poll;
-    int n = prh_impl_epoll_wait(epoll->epfd, events, num_fds_per_time_poll);
-    if (n <= 0) {
-        return false; // no more ready fds
+    struct epoll_event *start = epoll->events;
+    struct epoll_event *event;
+    int n, epfd = epoll->epfd;
+    bool updated = false;
+    prh_epoll_port *port;
+    while ((n = prh_impl_epoll_wait(epfd, start, num_fds_per_time_poll)) > 0) {
+        for (event = start; event < start + n; event += 1) {
+            port = event->data.ptr;
+            port->update |= event->events;
+            updated = true;
+        }
+        if (n < num_fds_per_time_poll) {
+            break;
+        }
     }
-    prh_epoll_priv *priv;
-    for (int i = 0; i < n; i += 1) {
-        priv = events[i].data.ptr;
-        priv->ready(priv->priv, events[i].events);
+    return updated;
+}
+
+void prh_impl_epoll_add_waiting(prh_epoll *epoll, prh_epoll_port *port) {
+    prh_epoll_port_array *array = &epoll->wait;
+    prh_u32 waiting_i = (prh_u32)array->size;
+    prh_arrdyn_append(array, port);
+    port->waiting_i = waiting_i;
+}
+
+void prh_impl_epoll_check_and_report(prh_epoll *epoll) {
+    prh_epoll_port_array *array = &epoll->wait;
+    prh_epoll_port **p = prh_arrdyn_begin(array);
+    prh_epoll_port **end = prh_arrdyn_end(array);
+    prh_epoll_port *port, *last;
+    while (p < end) {
+        port = *p;
+        if (port->update) {
+            *p = last = *--end;
+            last->waiting_i = port->waiting_i;
+            port->waiting_i = 0;
+            array->size -= 1; // 删除当前元素，将最后一个元素移动到当前位置
+            prh_impl_report_epev_ready(port);
+        } else {
+            p += 1;
+        }
     }
-    prh_debug(printf("epoll wait %d/%d\n", n, num_fds_per_time_poll));
-    return (n == num_fds_per_time_poll); // more ready fds may exist
+}
+
+void prh_impl_process_epac_wait(prh_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_epoll_port *port = (prh_epoll_port *)pdata;
+    if (port->update) { // 该文件描述符上，已经有事件更新
+        prh_impl_report_epev_ready(port);
+        return;
+    }
+    bool updated = prh_impl_epac_poll_events(epoll);
+    if (port->update) {
+        prh_impl_report_epev_ready(port);
+    } else {
+        prh_impl_epoll_add_waiting(epoll, port);
+    }
+    if (updated) {
+        prh_impl_epoll_check_and_report(epoll);
+    }
+}
+
+// 特权线程周期性检查 epoll 事件，TODO：epoll 自行触发？？？
+
+void prh_epac_poll(void) {
+    prh_cono_pdata *action = &PRH_IMPL_EPOLL->priv_poll;
+    action->opcode = PRH_EPAC_POLL;
+    action->subq_i = 0; // epoll只有一个处理队列
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, action);
+}
+
+void prh_impl_process_epac_poll(prh_epoll *epoll, prh_cono_data *pdata) {
+    prh_epoll_port_array *array = &epoll->wait;
+    if (array->size && prh_impl_epac_poll_events(epoll)) {
+        prh_impl_epoll_check_and_report(epoll);
+    }
+}
+
+// 删除并关闭特定文件描述符
+
+void prh_epoll_del_and_close(prh_epoll_port *port) {
+    prh_cono_pdata *action = &port->action;
+    action->opcode = PRH_EPAC_CLOSE;
+    action->subq_i = 0; // epoll只有一个处理队列
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, action);
+}
+
+void prh_impl_process_epac_close(prh_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_epoll_port *port = (prh_epoll_port *)pdata;
+    int fd = (int)port->handle;
+    int waiting_i = port->waiting_i;
+    prh_impl_epoll_del(epoll->epfd, fd);
+    prh_impl_close(fd);
+    if (waiting_i) { // 删除数组中等待的文件描述符
+        prh_epoll_port_array *array = &epoll->wait;
+        prh_epoll_port **begin = prh_arrdyn_begin(array);
+        prh_epoll_port **curr = begin + waiting_i;
+        prh_epoll_port *last = *(begin + array->size - 1);
+        assert(*curr == port);
+        *curr = last;
+        last->waiting_i = waiting_i;
+        port->waiting_i = 0;
+        array->size -= 1;
+    }
+    prh_free(port);
+    epoll->fds_count -= 1;
+}
+
+// 释放 epoll 实例并退出协程
+
+typedef struct {
+    prh_cono_pdata head;
+    prh_spawn_data *cono;
+    prh_byte subq;
+} prh_data_epac_exit;
+
+void prh_epoll_exit(prh_cono *cono, prh_byte subq) {
+    prh_data_epac_exit action;
+    action.head.opcode = PRH_EPAC_EXIT;
+    action.head.subq_i = 0; // epoll只有一个处理队列
+    action.cono = (prh_spawn_data *)prh_cono_data(cono);
+    action.subq = subq;
+    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, &action.head);
+    prh_cono_pwait_from(action.cono, subq);
+}
+
+void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_data_epac_exit *free = (prh_data_epac_exit *)pdata;
+    assert(epoll->fds_count == 0); // 所有添加的文件描述符都已经删除和关闭
+
+
+
+    PRH_IMPL_EPOLL = prh_null;
+    prh_impl_close(epoll->epfd);
+
+    free->head.subq_i = free->subq;
+    prh_cono_freely_post(free->cono, event);
 }
 
 #if PRH_DEBUG
@@ -14531,22 +14760,10 @@ prh_cono_proc prh_impl_epoll_proc(prh_cono *cono) {
     prh_byte action;
     for (; ;) {
         pdata = prh_cono_pwait(cono);
-        action = pdata->action;
-        if (action == PRH_COAC_EXIT) {
-            break;
-        }
-        switch (action) {
-        case PRH_EPAC_DEL_CLOSE:
-            prh_impl_epac_del_close(epoll, (int)pdata->u.value);
-            break;
-        case PRH_EPAC_POLL_ONCE:
-            prh_impl_epac_wait(epoll);
-            break;
-        case PRH_EPAC_POLL_ALL:
-            while(prh_impl_epac_wait(epoll));
-            break;
-        default:
-            prh_debug(prh_prerr(action));
+        action = pdata->head.action;
+        assert(action >= 0 && action < PRH_EPAC_MAX_NUM);
+        PRH_IMPL_EPFN[action](epoll, pdata);
+        if (action == PRH_EPAC_EXIT) {
             break;
         }
     }
@@ -14565,30 +14782,8 @@ void prh_epoll_init(int num_fds_per_time_poll) {
     epoll->num_fds_per_time_poll = num_fds_per_time_poll;
     epoll->events = (struct epoll_event *)(epoll + 1);
     prh_cono_freely_start((prh_spawn_data *)epoll);
-}
 
-void prh_epac_add_tcp_accept(prh_handle fd, prh_epoll_priv *priv) { // 接收连接，错误
-    prh_u32 events = EPOLLIN | EPOLLET; // EPOLLERR 默认会设置
-    prh_impl_epoll_add(PRH_IMPL_EPOLL->epfd, (int)fd, events, priv);
-}
-
-void prh_epac_add_tcp_socket(prh_handle fd, prh_epoll_priv *priv) { // 连接，断连，读取，写入，错误
-    prh_u32 events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
-    prh_impl_epoll_add(PRH_IMPL_EPOLL->epfd, (int)fd, events, priv);
-}
-
-void prh_epoll_parse_events(prh_tcpsocket* tcp, prh_u32 events) {
-    if (events & EPOLLIN) {
-        tcp->epoll_in = true;
-    } else if (events & EPOLLOUT) {
-        tcp->epoll_out = true;
-    } else if (events & EPOLLRDHUP) { // 对端设备关闭了写入端并发了FIN，连接处于半关闭
-        tcp->epoll_rdhup = true;
-    } else if (events & EPOLLHUP) { // 双方都关闭了写入端，不能再继续读写
-        tcp->epoll_hup = true;
-    } else if (events & EPOLLERR) {
-        tcp->epoll_err = true;
-    }
+    prh_arrdyn_push_back(array, prh_null); // 第一个是非法索引
 }
 #else // prh_plat_linux
 #endif // UNIX
@@ -14633,7 +14828,7 @@ typedef struct {
     prh_u32 txbuf_size;
 } prh_impl_tcpa_accept;
 
-void prh_tcpa_open_accept(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size) {
+void prh_tcp_open_accept(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size) {
     prh_impl_tcpa_accept *pdata = prh_cono_malloc_pdata(PRH_TCPA_OPEN_ACCEPT, PRH_TCPQ_UPPER, true, sizeof(prh_impl_tcpa_accept));
     pdata->rxbuf_size = rxbuf_size;
     pdata->txbuf_size = txbuf_size;
@@ -14645,23 +14840,23 @@ void prh_impl_tcpa_post_pdata(prh_tcpsocket *tcp, prh_byte action, prh_u32 value
     prh_cono_freely_post(tcp->tcp_coro, pdata);
 }
 
-void prh_tcpa_open_reject(prh_tcpsocket *tcp) {
+void prh_tcp_open_reject(prh_tcpsocket *tcp) {
     prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_OPEN_ACCEPT, false);
 }
 
-void prh_tcpa_tx_data(prh_tcpsocket *tcp, prh_u32 size) {
+void prh_tcp_tx_data(prh_tcpsocket *tcp, prh_u32 size) {
     prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_TX_DATA, size);
 }
 
-void prh_tcpa_rx_done(prh_tcpsocket *tcp) {
+void prh_tcp_rx_done(prh_tcpsocket *tcp) {
     prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_RX_DONE, size);
 }
 
-void prh_tcpa_close_cfm(prh_tcpsocket *tcp) { // 远方断开连接，上层需要在传输完所有数据之后，才能执行 close cfm
+void prh_tcp_close_cfm(prh_tcpsocket *tcp) { // 远方断开连接，上层需要在传输完所有数据之后，才能执行 close cfm
     prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_CLOSE_CFM, 0);
 }
 
-void prh_tcpa_close_req(prh_tcpsocket *tcp) { // 上层需要在传输完所有数据之后，才能执行 close req
+void prh_tcp_close_req(prh_tcpsocket *tcp) { // 上层需要在传输完所有数据之后，才能执行 close req
     prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_CLOSE_REQ, 0);
 }
 
@@ -14728,7 +14923,7 @@ void prh_impl_tcp_socket_init_buffer(prh_tcpsocket *socket, prh_u32 txbuf_size, 
 
 prh_tcp_open_accept *prh_impl_tcp_report_open_ind(prh_cono *coro, prh_tcpsocket *sock) {
     // TODO: send message to sock->upper_coro's sock->upper_subq
-    prh_tcp_open_accept *pdata = prh_cono_subq_pwait(coro, PRH_TCPQ_UPPER);
+    prh_tcp_open_accept *pdata = prh_cono_pwait_from(coro, PRH_TCPQ_UPPER);
     assert(pdata->head.action == PRH_TCPA_OPEN_ACCEPT);
     return pdata;
 }
@@ -14818,7 +15013,7 @@ label_accepted:
         prh_impl_tcp_report_opened(cono, tcp);
         tcp->priv.ready = prh_impl_tcp_socket_ready;
         tcp->priv.priv = cono;
-        prh_epac_add_tcp_socket(tcp->sock, &tcp->priv);
+        prh_epoll_add_tcp_socket(tcp->sock, &tcp->priv);
     }
     for (; ;) {
         prh_cono_pdata *pdata = prh_cono_pwait(cono);
@@ -14889,7 +15084,7 @@ prh_cono_proc prh_impl_tcp_listen_proc(prh_cono *cono) {
     prh_tcpsocket new_connection;
     listen->priv.ready = prh_impl_tcp_socket_ready;
     listem->priv.priv = cono;
-    prh_epac_add_tcp_accept(listen->sock, &listen->priv);
+    prh_epoll_add_tcp_accept(listen->sock, &listen->priv);
     while (!listen->quit) {
         if (!prh_tcp_accept(listen, &new_connection)) { // 添加限流控制
             prh_impl_wait_ready_event(listen->sock);
