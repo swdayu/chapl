@@ -4885,57 +4885,126 @@ typedef struct prh_hive_quefix_block {
     struct prh_hive_quefix_block *next;
 } prh_hive_quefix_block;
 
+typedef struct {
+    prh_hive_quefix_block *fbqh; // 仅由push线程访问（free block queue head）
+    prh_int fbqh_index;          // 仅由push线程访问（free block queue head index）
+    prh_hive_quefix_block *fbqt; // 仅由pop线程访问（free block queue tail）
+    prh_atom_int fbn; // free block num
+} prh_atom_hive_fbqfix;
+
 // 单生产者单消费者内存块链队列，每个内存块的大小固定
 typedef struct {
     prh_hive_quefix_block *head; // 仅由pop线程访问
     prh_int head_index;          // 仅由pop线程访问
     prh_hive_quefix_block *tail; // 仅由push线程访问
     prh_atom_int len;
+    prh_atom_hive_fbqfix *freeq;
 } prh_atom_hive_quefix;
 
-prh_inline bool prh_atom_hive_quefix_empty(prh_atom_hive_quefix *q) {
-    return !prh_atom_int_read(&q->len);
-}
-
 void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q);
+void prh_atom_hive_quefix_free(prh_atom_hive_quefix *q);
 void prh_atom_hive_quefix_push(prh_atom_hive_quefix *q, void *data);
 void *prh_atom_hive_quefix_top(prh_atom_hive_quefix *q);
 void *prh_atom_hive_quefix_pop(prh_atom_hive_quefix *q);
 bool prh_atom_hive_quefix_pop_all(prh_atom_hive_quefix *q, void (*cb)(void *priv, void *data), void *priv);
 
-#ifdef PRH_ATOMIC_IMPLEMENTATION
-#define PRH_IMPL_ATOM_HIVQUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
-#define PRH_IMPL_ATOM_HIVQUE_BELT_COUNT (PRH_IMPL_ATOM_HIVQUE_BLOCK_SIZE / sizeof(void *))
-#define PRH_IMPL_ATOM_HIVQUE_HEAD_COUNT (prh_int)(sizeof(prh_hive_quefix_block) / sizeof(void *))
-prh_static_assert(PRH_IMPL_ATOM_HIVQUE_BELT_COUNT >= 2); // 如果不能分配2个或2个以上，间接块分配没有意义
-prh_static_assert(PRH_IMPL_ATOM_HIVQUE_BLOCK_SIZE % PRH_CACHE_LINE_SIZE == 0);
-
-prh_inline void **prh_impl_atom_hive_quefix_block_end(prh_hive_quefix_block *b) {
-    return (void **)((prh_byte *)b + PRH_IMPL_ATOM_HIVQUE_BLOCK_SIZE);
+prh_inline bool prh_atom_hive_quefix_empty(prh_atom_hive_quefix *q) {
+    return !prh_atom_int_read(&q->len);
 }
 
-prh_hive_quefix_block *prh_impl_atom_hive_quefix_alloc_block(void) {
-    prh_hive_quefix_block *b = prh_cache_line_aligned_malloc(PRH_IMPL_ATOM_HIVQUE_BLOCK_SIZE);
+#ifdef PRH_ATOMIC_IMPLEMENTATION
+#define PRH_AHQF_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
+#define PRH_AHQF_BLOCK_PTRS (PRH_AHQF_BLOCK_SIZE / sizeof(void *))
+#define PRH_AHQF_BHEAD_PTRS (prh_int)(sizeof(prh_hive_quefix_block) / sizeof(void *))
+prh_static_assert(PRH_AHQF_BLOCK_PTRS >= 2); // 如果不能分配2个或2个以上，间接块分配没有意义
+prh_static_assert(PRH_AHQF_BLOCK_SIZE % PRH_CACHE_LINE_SIZE == 0);
+prh_hive_quefix_block *prh_impl_ahqf_free_block_pop(prh_atom_hive_fbqfix *q);
+
+prh_inline void **prh_impl_ahqf_block_end(prh_hive_quefix_block *b) {
+    return (void **)((prh_byte *)b + PRH_AHQF_BLOCK_SIZE);
+}
+
+prh_inline prh_hive_quefix_block *prh_impl_ahqf_init_block(prh_hive_quefix_block *b) {
     b->tail = (void **)(b + 1);
     b->next = prh_null;
     return b;
 }
 
-void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q) {
-    prh_hive_quefix_block *b = prh_impl_atom_hive_quefix_alloc_block();
-    q->head = q->tail = b;
-    q->head_index = PRH_IMPL_ATOM_HIVQUE_HEAD_COUNT;
+prh_hive_quefix_block *prh_impl_ahqf_alloc_block(prh_atom_hive_fbqfix *q) {
+    prh_hive_quefix_block *free_block = prh_impl_ahqf_free_block_pop(q);
+    if (free_block == prh_null) {
+        free_block = prh_cache_line_aligned_malloc(PRH_AHQF_BLOCK_SIZE);
+    }
+    return prh_impl_ahqf_init_block(free_block);
+}
+
+void prh_atom_hive_fbqfix_init(prh_atom_hive_fbqfix *q) {
+    q->fbqh = q->fbqt = prh_null;
+    prh_atom_int_init(&q->fbn, 0);
+}
+
+void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q, prh_atom_hive_fbqfix *freeq) {
+    q->head = q->tail = prh_impl_ahqf_alloc_block(freeq);
+    q->head_index = PRH_AHQF_BHEAD_PTRS;
+    q->freeq = freeq;
     prh_atom_int_init(&q->len, 0);
+}
+
+void prh_atom_hive_quefix_free(prh_atom_hive_quefix *q) {
+    prh_hive_quefix_block *b = q->head;
+    prh_hive_quefix_block *next;
+    while (b) {
+        next = b->next;
+        prh_free(b);
+        b = next;
+    }
+}
+
+void prh_atom_hive_fbqfix_free(prh_atom_hive_quefix *q) {
+    prh_hive_quefix_block *b = q->fbqh;
+    prh_hive_quefix_block *next;
+    prh_hive_quefix_block *free_block;
+    prh_hive_quefix_blokc **item;
+    while (b) {
+        next = b->next;
+        item = (prh_hive_quefix_block **)(b + 1);
+        for (; item < b->tail; item += 1) {
+            free_block = *item; // 释放内存块内保存的空闲块
+            assert(free_block != prh_null);
+            prh_free(free_block);
+        }
+        prh_free(b);
+        b = next;
+    }
 }
 
 void prh_atom_hive_quefix_push(prh_atom_hive_quefix *q, void *data) {
     assert(data != prh_null);
     prh_hive_quefix_block *b = q->tail;
     *b->tail++ = data;
-    if (b->tail >= prh_impl_atom_hive_quefix_block_end(b)) {
-        q->tail = b->next = prh_impl_atom_hive_quefix_alloc_block();
+    assert(*(b->tail - 1) == data); // 仅允许单生产者和单消费者
+    if (b->tail >= prh_impl_ahqf_block_end(b)) {
+        q->tail = b->next = prh_impl_ahqf_alloc_block(q);
     }
     prh_atom_int_inc(&q->len); // 此步骤执行完毕以上更新必须对所有cpu生效
+}
+
+void prh_impl_ahqf_free_block_push(prh_atom_hive_fbqfix *q, prh_hive_quefix_block *free_block) {
+    assert(free_block != prh_null);
+    int fbn = prh_atom_int_read(&q->fbn);
+    if (fbn == 0) { // 释放的第一个空闲块，当作空闲队列的第一个内存块
+        q->fbqh = q->fbqt = prh_impl_ahqf_init_block(free_block);
+        q->fbqh_index = PRH_AHQF_BHEAD_PTRS;
+    } else {
+        prh_hive_quefix_blcok *b = q->fbqt;
+        if (b->tail >= prh_impl_ahqf_block_end(b)) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
+            q->fbqt = b->next = prh_impl_ahqf_init_block(free_block);
+        } else { // 否则当前内存块还有位置，将空闲块插入空闲队列
+            *b->tail++ = free_block;
+            prh_atom_int_inc(&q->fbn); // 可用空闲块加一
+            assert(*(b->tail - 1) == free_block); // 仅允许单生产者和单消费者
+        }
+    }
 }
 
 void *prh_atom_hive_quefix_top(prh_atom_hive_quefix *q) {
@@ -4947,32 +5016,51 @@ void *prh_atom_hive_quefix_pop(prh_atom_hive_quefix *q) {
     if (!prh_atom_int_read(&q->len)) return prh_null;
     prh_hive_quefix_block *head = q->head;
     void *data = *((void **)head + q->head_index++);
-    if (q->head_index >= PRH_IMPL_ATOM_HIVQUE_BELT_COUNT) {
+    assert(*((void **)head + q->head_index - 1) == data); // 仅允许单生产者和单消费者
+    if (q->head_index >= PRH_AHQF_BLOCK_PTRS) {
         q->head = head->next;
-        q->head_index = PRH_IMPL_ATOM_HIVQUE_HEAD_COUNT;
-        prh_aligned_free(head);
+        q->head_index = PRH_AHQF_BHEAD_PTRS;
+        prh_impl_ahqf_free_block_push(q->freeq, head); // 将释放的空闲块，放入空闲队列
     }
     prh_atom_int_dec(&q->len); // 此步骤执行完毕以上更新必须对所有cpu生效
     return data;
 }
 
-bool prh_atom_hive_quefix_pop_all(prh_atom_hive_quefix *q, void (*cb)(void *priv, void *data), void *priv) {
-    prh_int len = prh_atom_int_read(&q->len); assert(len >= 0);
-    if (len == 0) return false;
+prh_hive_quefix_block *prh_impl_ahqf_free_block_pop(prh_atom_hive_fbqfix *q) {
+    if (!prh_atom_int_read(&q->fbn)) return prh_null;
+    prh_hive_quefix_block *head = q->fbqh;
+    prh_hive_quefix_block *free_block;
+    if (q->fbqh_index >= PRH_AHQF_BLOCK_PTRS) {
+        q->fbqh = head->next; // 如果已到达当前内存块末尾，移动到下一个内存块
+        q->fbqh_index = PRH_AHQF_BHEAD_PTRS;
+        free_block = head; // 需要释放的当前内存块，就是一个可用的空闲块
+    } else {
+        free_block = *((void **)head + q->fbqh_index++);
+        assert(free_block != prh_null);
+        prh_atom_int_dec(&q->fbn); // 可用空闲块减一
+        assert(*((void **)head + q->fbqh_index - 1) == free_block); // 仅允许单生产者和单消费者
+    }
+    return free_block;
+}
+
+bool prh_atom_hive_quefix_pop_all(prh_atom_hive_quefix *q, void (*cb)(void *data, void *priv), void *priv) {
+    prh_int len = prh_atom_int_read(&q->len);
+    if (len == 0) { return false; } assert(len > 0);
     prh_hive_quefix_block *head = q->head;
     prh_int head_index = q->head_index;
     for (prh_int i = 0; i < len; i += 1) {
-        cb(priv, *((void **)head + head_index++));
-        if (head_index >= PRH_IMPL_ATOM_HIVQUE_BELT_COUNT) {
+        cb(*((void **)head + head_index++), priv);
+        if (head_index >= PRH_AHQF_BLOCK_PTRS) {
             prh_hive_quefix_block *next = head->next;
-            head_index = PRH_IMPL_ATOM_HIVQUE_HEAD_COUNT;
-            prh_aligned_free(head);
+            head_index = PRH_AHQF_BHEAD_PTRS;
+            prh_impl_ahqf_free_block_push(q->freeq, head); // 将释放的空闲块，放入空闲队列
             head = next;
         }
     }
     q->head = head;
     q->head_index = head_index;
     prh_atom_int_sub(&q->len, len);
+    assert(q->head == head && q->head_index == head_index); // 仅允许单生产者和单消费者
     return true;
 }
 #endif // PRH_ATOMIC_IMPLEMENTATION
@@ -13069,12 +13157,12 @@ void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize);
 void *prh_cono_spawx(prh_byte max_subq, prh_conoproc_t proc, int stack_size, int maxudsize);
 void prh_cono_freely_start(prh_spawn_data *cono_spawn_data); // 启动一个自由协程
 void prh_cono_start(prh_cono *coro, prh_spawn_data *cono_spawn_data, bool await_this_coro); // 启动子协程
-void *prh_cono_await(prh_cono *coro); // 等待子协程结果（如果需要子协程的执行结果的话）
+void *prh_cono_await(prh_cono *coro); // 等待一个或多个子协程yield或协程结束之后的结果（如果需要子协程执行结果的话）
 void prh_cono_continue(prh_cono *coro, prh_await_data *cono_await_data); // 得到子协程结果后，让子协程继续执行
-void prh_cono_post(prh_cono *coro, prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata, bool await_this_coro); // 向目的协程发送参数请求
+void prh_cono_post(prh_cono *coro, prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata, bool await_this_coro); // 向目的协程发送数据
 void prh_cono_freely_post(prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata);
-void *prh_cono_pwait(prh_cono *coro); // 等待请求协程发送数据参数
-void *prh_cono_pwait_from(prh_cono *coro, prh_byte subq); // 只等待子队列中的请求
+void *prh_cono_pwait(prh_cono *coro); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
+void *prh_cono_pwait_from(prh_cono *coro, prh_byte subq); // 只等待其他协程发到某个子队列中的数据
 void prh_impl_cross_thread_coro_yield(prh_cono *coro);
 
 prh_inline void prh_cono_yield(prh_cono *coro) {
@@ -13088,6 +13176,7 @@ prh_inline void *prh_cono_data(prh_cono *coro) {
 
 typedef struct prh_cono_pdata {
     prh_snode node;
+    prh_real_cono *dest;
     prh_byte subq_i;
     prh_byte opcode;
     prh_byte flags;
@@ -13101,6 +13190,16 @@ prh_cono_pdata *prh_cono_malloc_pdata(prh_byte opcode, prh_byte dest_subq, prh_u
 #define PRH_CONO_DEBUG PRH_DEBUG
 #endif
 
+// 协程发送消息时，先将消息存到本地线程队列，由特权线程负责取各各线程的消息，将其分配到
+// 在不同线程中执行的协程，这样两个线程可以在任意的线程中切换执行，而消息队列的维护可以
+// 做到总是一对一访问。
+//
+// 而如果为了内存缓存效率，一个协程一旦创建成功就一直在某个线程中执行，这种情况下，两个
+// 协程之间的消息发送，也可以做到线程一对一的，而且如果两个线程位于同一线程，还可以无障
+// 碍访问。相比于上面使用特权线程的方案，固定线程执行的方案可能性能更佳。但为了防止协程
+// 饥饿，固定线程的方案，需要实现某种抢占执行方式。！！！不能实现一对一，因为可能多个协
+// 程向同一个目标协程发送消息。
+
 typedef struct prh_real_cono prh_real_cono;
 typedef struct {
     prh_real_cono *head;
@@ -13110,23 +13209,22 @@ typedef struct {
 typedef struct prh_cono_thrd prh_cono_thrd;
 struct prh_real_cono {
     // 仅由执行线程访问
-    prh_real_cono *parent;
-    prh_i32 cono_id;
-    prh_i32 waitq_i; // 等待队列位置0非法
-    prh_byte subq_i;
-    prh_byte subq_n;
     prh_byte action;
+    prh_byte wait_q; // 等待队列位置0非法
     prh_byte idle_await: 1, pwait_all: 1, uncond_run: 1; // 挂起后恢复时无条件执行
+    prh_i32 cono_id;
+    prh_real_cono *parent;
     prh_real_cono *caller;
     prh_real_cono *await_callee;
-    prh_real_cono *start_callee;
     prh_cono_pdata *pwait_data;
-    // 仅由特权线程访问
+    // 仅由特权线程访问，协程可能会插入到特权维护的就绪队列/等待队列，或协程维护的子协程执行结果返回队列
     prh_cono_quefit callee_que;
-    prh_quefit *pwait_subq;
+    prh_quefit post_rx_queue;
     prh_real_cono *cono_chain;
     prh_cono_thrd *assign_thrd;
 };
+
+prh_thread_local prh_real_cono *PRH_IMPL_CONO_SELF;
 
 prh_inline void prh_impl_cono_init(prh_real_cono *cono, prh_i32 cono_id) {
     cono->cono_id = cono_id;
@@ -13170,37 +13268,45 @@ prh_inline prh_real_cono *prh_impl_cono_from_data(void *data) {
 struct prh_cono_thrd {
     prh_int cono_thrd_index;
     prh_real_cono *grabbed_cono;
-    prh_atom_data_quefix cono_req_que; // 由当前线程写入，由特权线程读取
+    prh_atom_hive_fbqfix free_block_q;
+    prh_atom_hive_quefix cono_req_que; // 由当前线程写入，由特权线程读取
+    prh_atom_hive_quefix post_req_que;
     prh_atom_ptr ready_cono; // 由特权线程写入，由特权线程窃取清空，或由当前协程读取清空
     prh_sleep_cond sleep_cond;
 }; // 每个线程尽量指定在单一的CPU上运行避免线程切换
 
 #define prh_impl_cono_thrd_size (int)sizeof(prh_cono_thrd)
 
-prh_inline prh_byte *prh_impl_thrd_pending_work(prh_cono_thrd *cono_thrd) {
-    return ((prh_byte *)cono_thrd - prh_impl_thrd_extra_len); // 仅由当前线程访问
+prh_inline prh_byte *prh_impl_thrd_pending_work(prh_cono_thrd *thrd) {
+    return ((prh_byte *)thrd - prh_impl_thrd_extra_len); // 仅由当前线程访问
 }
 
 prh_inline prh_cono_thrd *prh_impl_cono_thrd(prh_thrd *thrd) {
     return (prh_cono_thrd *)((char *)thrd + prh_impl_thrd_head_size);
 }
 
-prh_inline int prh_cono_thrd_id(prh_cono_thrd *cono_thrd) {
-    return prh_thrd_id((prh_thrd *)((char *)cono_thrd - prh_impl_thrd_head_size));
+prh_inline int prh_cono_thrd_id(prh_cono_thrd *thrd) {
+    return prh_thrd_id((prh_thrd *)((char *)thrd - prh_impl_thrd_head_size));
 }
 
-void prh_impl_cono_thrd_init(prh_cono_thrd *cono_thrd, int thrd_index) {
-    cono_thrd->cono_thrd_index = thrd_index;
-    prh_atom_data_quefix_init(&cono_thrd->cono_req_que);
-    prh_atom_ptr_init(&cono_thrd->ready_cono, prh_null);
-    prh_impl_sleep_cond_init(&cono_thrd->sleep_cond);
+void prh_impl_cono_thrd_init(prh_cono_thrd *thrd, int thrd_index) {
+    thrd->cono_thrd_index = thrd_index;
+    prh_atom_hive_fbqfix_init(&thrd->free_block_q);
+    prh_atom_hive_quefix_init(&thrd->cono_req_que, &thrd->free_block_q);
+    prh_atom_hive_quefix_init(&thrd->post_req_que, &thrd->free_block_q);
+    prh_atom_ptr_init(&thrd->ready_cono, prh_null);
+    prh_impl_sleep_cond_init(&thrd->sleep_cond);
 }
 
 void prh_impl_cono_thrd_free(void *userdata, int thrd_index) {
-    prh_cono_thrd *cono_thrd = userdata;
-    prh_real_assert(prh_atom_data_quefix_empty(&cono_thrd->cono_req_que));
-    prh_real_assert(prh_atom_ptr_read(&cono_thrd->ready_cono) == prh_null);
-    prh_impl_sleep_cond_free(&cono_thrd->sleep_cond);
+    prh_cono_thrd *thrd = userdata;
+    prh_real_assert(prh_atom_hive_quefix_empty(&thrd->cono_req_que));
+    prh_real_assert(prh_atom_hive_quefix_empty(&thrd->post_req_que));
+    prh_real_assert(prh_atom_ptr_read(&thrd->ready_cono) == prh_null);
+    prh_atom_hive_quefix_free(&thrd->cono_req_que);
+    prh_atom_hive_quefix_free(&thrd->post_req_que);
+    prh_atom_hive_fbqfix_free(&thrd->free_block_q);
+    prh_impl_sleep_cond_free(&thrd->sleep_cond);
 }
 
 typedef enum {
@@ -13491,7 +13597,15 @@ void prh_impl_send_cono_req(prh_real_cono *req_cono, int action) {
     }
 #endif
     req_cono->action = action;
-    prh_atom_data_quefix_push(&thrd->cono_req_que, req_cono);
+    prh_atom_hive_quefix_push(&thrd->cono_req_que, req_cono);
+}
+
+void prh_impl_send_post_req(prh_real_cono *req_cono, prh_cono_pdata *pdata) {
+    prh_cono_thrd *thrd = prh_thrd_self_data();
+    prh_debug(
+        printf("[thrd %02d] cono %02d post %d => cono %02d subq %d\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id, pdata->opcode, pdata->dest->cono_id, pdata->subq_i);
+    );
+    prh_atom_hive_quefix_push(&thrd->post_req_que, pdata);
 }
 
 void prh_impl_callee_continue(prh_real_cono *caller) {
@@ -13563,21 +13677,40 @@ void prh_cono_continue(prh_cono *coro, prh_await_data *cono_await_data) {
     prh_impl_callee_continue(caller);
 }
 
+void prh_cono_post(prh_cono_pdata *pdata) { // 向目的协程发送数据
+    prh_impl_send_post_req(PRH_IMPL_CONO_SELF, pdata);
+}
+
+void *prh_cono_pwait_from(prh_byte subq) { // 只等待其他协程发到某个子队列中的数据
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
+    caller->wait_q = subq; // 只接收特定子队列收到的数据，0表示接收所有子队列
+    prh_impl_cono_wait(caller, PRH_CONO_PWAIT);
+    return caller->pwait_data;
+}
+
+void *prh_cono_pwait(void) { // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
+    retrun prh_cono_pwait_from(0);
+}
+
 void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
     prh_coro *coro = prh_impl_coro_from_cono(cono);
 #if PRH_CONO_DEBUG
     printf("[thrd %02d] cono %02d start running\n", thrd_id, cono->cono_id);
 #endif
+    PRH_IMPL_CONO_SELF = cono;
     if (cono->action == PRH_CONO_AWAIT) {
         prh_impl_soro_start(thrd_id, coro);
         prh_impl_callee_continue(cono);
     } else { // 继续执行当前协程，直到协程挂起或执行完毕返回到主协程
         prh_impl_soro_start(thrd_id, coro);
     }
+    PRH_IMPL_CONO_SELF = prh_null;
     prh_impl_send_cono_req(cono, cono->action); // 返回主协程之前，cono会设置好action
 }
 
-prh_inline void prh_impl_process_cono_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+void prh_impl_process_thrd_request(void *data, void *priv) {
+    prh_real_cono *req_cono = data;
+    prh_cono_quefit *ready_queue = priv;
     assert(req_cono->action < PRH_CONO_REQ_MAX);
     PRH_IMPL_CONO_REQ_FUNC[req_cono->action](req_cono, ready_queue);
 }
@@ -13586,7 +13719,6 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     prh_atom_ptr *privilege_thread = &PRH_IMPL_CONO_STRUCT.privilege_thread;
     prh_cono_quefit *ready_queue = &PRH_IMPL_CONO_STRUCT.ready_queue;
     prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
-    prh_data_quefit all_req;
     prh_real_cono *ready_cono;
     prh_cono_thrd *thrd;
 
@@ -13606,14 +13738,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     for (; thrd_it < thrd_end; thrd_it += 1) { // 处理特权消息，将就绪协程插入就绪队列
         if (*thrd_it == prh_null) continue;
         thrd = prh_impl_cono_thrd(*thrd_it);
-        if (!prh_atom_data_quefix_pop_all(&thrd->cono_req_que, &all_req)) {
-            continue;
-        }
-        prh_data_quefit_for_begin(&all_req) {
-            prh_impl_process_cono_req((prh_real_cono *)it->data, ready_queue);
-            prh_data_quefit_for_end();
-        }
-        prh_atom_data_quefix_free_node(&all_req);
+        prh_atom_hive_quefix_pop_all(&thrd->cono_req_que, prh_impl_process_thrd_request, ready_queue);
     }
 
     thrd_it = thrd_begin;
@@ -13677,7 +13802,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
             for (; thrd_it < thrd_end; thrd_it += 1) {
                 if (*thrd_it == prh_null) continue;
                 thrd = prh_impl_cono_thrd(*thrd_it); // 查看各线程是否还有遗留的未处理的消息
-                if (!prh_atom_data_quefix_empty(&thrd->cono_req_que)) {
+                if (!prh_atom_hive_quefix_empty(&thrd->cono_req_que)) {
                     *prh_impl_thrd_pending_work(curr_thrd) = true;
                     break;
                 }
@@ -13727,7 +13852,7 @@ label_cont_execute:
         // 此当前线程在睡眠前，必须先检查是否还有消息未处理，有的话就必须保证主线程不能
         // 睡，让主线程兜底，主线程会至少抢到特权一次，保证当前线程调用 prh_thrd_wakeup
         // 之后，主线程至少会最后一次重新检查未处理的消息。
-        if ((req_que_not_empty = !prh_atom_data_quefix_empty(&cono_thrd->cono_req_que))) {
+        if ((req_que_not_empty = !prh_atom_hive_quefix_empty(&cono_thrd->cono_req_que))) {
             prh_thrd_wakeup(&main_thrd->sleep_cond);
         }
         if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.thrd_exit)) {
@@ -13812,8 +13937,9 @@ void prh_impl_cono_test(void) {
 #endif // PRH_CONO_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
-#define PRH_SUBQ_EPOLL  0
-#define PRH_SUBQ_TCP    1
+#define PRH_SUBQ_NULL   0
+#define PRH_SUBQ_EPOLL  1
+#define PRH_SUBQ_TCP    2
 
 typedef enum { // tcp layer => upper layer
     PRH_TCPE_OPEN_IND,      // 连接请求到来
