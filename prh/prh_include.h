@@ -3720,6 +3720,13 @@ prh_snode *prh_quefit_pop(prh_quefit *q) {
     }
     return top;
 }
+
+prh_snode *prh_quefit_remove_after(prh_quefit *q, prh_snode *node) {
+    prh_snode *next = node->next;
+    node->next = next->next;
+    if (next == q->tail) q->tail = node;
+    return next;
+}
 #endif // PRH_QUEUE_IMPLEMENTATION
 
 // 队列不负责分配实际的节点，整个节点都由使用者提供，节点可以是任意长度，其内容由使用者
@@ -8039,6 +8046,9 @@ int prh_thrd_starx(prh_thrd_struct *s, void *thrd_create_data, prh_thrdproc_t pr
 void prh_thrd_join(prh_thrd_struct *s, int thrd_index, prh_thrdfree_t udatafree); // remember to free main thrd using prh_thrd_free
 void prh_thrd_jall(prh_thrd_struct **s, prh_thrdfree_t udatafree); // free all joined thrd including main thrd
 void prh_thrd_free(prh_thrd_struct **s, prh_thrdfree_t udatafree); // free main thrd
+
+void prh_thrd_sleep(int secs, int nsec);
+void prh_thrd_strict_sleep(int secs, int nsec);
 
 typedef struct prh_thrd_mutex prh_thrd_mutex;
 prh_thrd_mutex *prh_thrd_mutex_init(void);
@@ -13155,14 +13165,12 @@ typedef struct prh_cono_pdata prh_cono_pdata;
 void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size);
 void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize);
 void *prh_cono_spawx(prh_byte max_subq, prh_conoproc_t proc, int stack_size, int maxudsize);
-void prh_cono_freely_start(prh_spawn_data *cono_spawn_data); // 启动一个自由协程
-void prh_cono_start(prh_cono *coro, prh_spawn_data *cono_spawn_data, bool await_this_coro); // 启动子协程
-void *prh_cono_await(prh_cono *coro); // 等待一个或多个子协程yield或协程结束之后的结果（如果需要子协程执行结果的话）
-void prh_cono_continue(prh_cono *coro, prh_await_data *cono_await_data); // 得到子协程结果后，让子协程继续执行
-void prh_cono_post(prh_cono *coro, prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata, bool await_this_coro); // 向目的协程发送数据
-void prh_cono_freely_post(prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata);
-void *prh_cono_pwait(prh_cono *coro); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
-void *prh_cono_pwait_from(prh_cono *coro, prh_byte subq); // 只等待其他协程发到某个子队列中的数据
+void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield); // 启动子协程
+void *prh_cono_await(void); // 等待一个或多个子协程YIELD结果
+void prh_cono_continue(prh_await_data *cono_await_data); // 获取子协程结果后，让子协程继续执行
+void prh_cono_post(prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata); // 向目的协程发送请求数据或执行结果
+void *prh_cono_pwait(void); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
+void *prh_cono_pwait_from(prh_byte subq); // 只等待其他协程发到某个子队列中的数据
 void prh_impl_cross_thread_coro_yield(prh_cono *coro);
 
 prh_inline void prh_cono_yield(prh_cono *coro) {
@@ -13211,16 +13219,16 @@ struct prh_real_cono {
     // 仅由执行线程访问
     prh_byte action;
     prh_byte wait_q; // 等待队列位置0非法
-    prh_byte idle_await: 1, pwait_all: 1, uncond_run: 1; // 挂起后恢复时无条件执行
+    prh_byte idle_await: 1, idle_pwait: 1, uncond_run: 1; // 挂起后恢复时无条件执行
     prh_i32 cono_id;
     prh_real_cono *parent;
     prh_real_cono *caller;
-    prh_real_cono *await_callee;
-    prh_cono_pdata *pwait_data;
+    prh_real_cono *await_callee; // 只会在协程挂起时被特权线程修改，不存在竞争
+    prh_cono_pdata*pwait_data; // 只会在协程挂起时被特权线程修改，不存在竞争
     // 仅由特权线程访问，协程可能会插入到特权维护的就绪队列/等待队列，或协程维护的子协程执行结果返回队列
-    prh_cono_quefit callee_que;
-    prh_quefit post_rx_queue;
-    prh_real_cono *cono_chain;
+    prh_cono_quefit callee_que; // 挂起的返回执行结果的子协程队列
+    prh_quefit post_rx_queue; // 请求数据或执行结果接收队列
+    prh_real_cono *cono_chain; // 使用relaxed quefit是因为，想将被其他线程修改的内容放在一起
     prh_cono_thrd *assign_thrd;
 };
 
@@ -13318,15 +13326,17 @@ typedef enum {
 typedef struct {
     prh_thrd_struct *thrd_struct; // 初始化后只读
     prh_cono_thrd *main_thread; // 初始化后只读
-    prh_real_cono *entry_cono; // 初始化后只读
+    prh_real_cono *main_entry_cono; // 初始化后只读
     prh_real_cono *fixed_cono[PRH_FIXED_CONO_MAX]; // 初始化后只读
     // 仅特权线程读写
     prh_real_cono *cono_waitq_arrdyn_type; // 等待队列位置0非法
     prh_cono_quefit ready_queue;
     prh_i32 cono_id_seed;
+    prh_i32 num_thread;
     // 多线程读写
     prh_atom_ptr privilege_thread;
-    prh_atom_bool thrd_exit;
+    prh_atom_bool term_signal;
+    prh_atom_int num_sleep;
 } prh_cono_struct;
 
 static prh_cono_struct PRH_IMPL_CONO_STRUCT;
@@ -13380,10 +13390,12 @@ prh_cono_struct *prh_impl_cono_struct_init(int thrd_start_id, int num_thread, pr
     prh_thrd_struct *thrd_struct = prh_thrd_inix(thrd_start_id, num_thread, prh_impl_cono_thrd_size);
     s->thrd_struct = thrd_struct;
     s->main_thread = prh_impl_cono_thrd(thrd_struct->main);
-    s->entry_cono = prh_impl_cono_create(main_proc, stack_size, 0);
+    s->main_entry_cono = prh_impl_cono_create(main_proc, stack_size, 0);
+    s->num_thread = num_thread;
     prh_impl_cono_thrd_init(s->main_thread, 0);
     prh_atom_ptr_init(&s->privilege_thread, prh_null);
-    prh_atom_bool_init(&s->thrd_exit, false);
+    prh_atom_bool_init(&s->term_signal, false);
+    prh_atom_int_init(&s->num_sleep, 0);
     return s;
 }
 
@@ -13405,7 +13417,7 @@ void prh_impl_cono_struct_free(void) {
         prh_real_cono *fixed_cono = s->fixed_cono[i];
         if (fixed_cono) prh_impl_cono_free(fixed_cono);
     }
-    prh_impl_cono_free(s->entry_cono);
+    prh_impl_cono_free(s->main_entry_cono);
     prh_thrd_free(&PRH_IMPL_CONO_STRUCT.thrd_struct, prh_impl_cono_thrd_free);
 }
 
@@ -13456,12 +13468,26 @@ void prh_impl_cono_struct_free(void) {
 typedef enum {
     PRH_CONO_CONTINUE,
     PRH_CONO_START, // 启动新建协程
-    PRH_CONO_YIELD, // 协程被挂起
-    PRH_CONO_AWAIT, // 协程正在等待子协程执行结果
-    PRH_CONO_PDATA, // 给其他协程发送请求数据
-    PRH_CONO_PWAIT, // 等待接收来源于其他协程的数据
+    PRH_CONO_YIELD, // 协程挂起或协程结束
+    PRH_CONO_AWAIT, // 等待一个或多个协程YIELD结果
+    PRH_CONO_PWAIT, // 等待接收请求数据或执行结果，请求数据和执行结果通过 prh_cono_post() 发送
     PRH_CONO_REQ_MAX
 } prh_impl_cono_action;
+
+typedef void (*prh_impl_cono_req_func)(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
+void prh_impl_privilege_process_continue_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
+void prh_impl_privilege_process_start_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
+void prh_impl_privilege_process_yield_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
+void prh_impl_privilege_process_await_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
+void prh_impl_privilege_process_pwait_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
+
+static prh_impl_cono_req_func PRH_IMPL_CONO_REQ_FUNC[PRH_CONO_REQ_MAX] = {
+    prh_impl_privilege_process_continue_req,
+    prh_impl_privilege_process_start_req,
+    prh_impl_privilege_process_yield_req,
+    prh_impl_privilege_process_await_req,
+    prh_impl_privilege_process_pwait_req,
+};
 
 #if PRH_CONO_DEBUG
 const char *prh_impl_cono_action_string(int action) {
@@ -13476,101 +13502,6 @@ int prh_impl_curr_cono_thrd_id(void) {
 }
 #endif
 
-void prh_impl_cono_wakeup_all_thrd(void) {
-    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
-    prh_thrd **it = prh_thrd_list_begin(thrd_struct);
-    for (; it < prh_thrd_list_end(thrd_struct); it += 1) {
-        if (*it == prh_null) continue;
-        prh_cono_thrd *thrd = prh_impl_cono_thrd(*it);
-        prh_thrd_wakeup(&thrd->sleep_cond);
-    }
-}
-
-void prh_impl_cono_thrd_exit(void) {
-    prh_atom_bool_write(&PRH_IMPL_CONO_STRUCT.thrd_exit, true);
-    prh_impl_cono_wakeup_all_thrd();
-}
-
-void prh_impl_resume_waiting_cono(prh_real_cono *req_cono) {
-    prh_impl_cono_waitq_del(req_cono);
-    prh_relaxed_quefit_push(&PRH_IMPL_CONO_STRUCT.ready_queue, req_cono, cono_chain);
-}
-
-void prh_impl_process_cono_continue_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-    if (prh_impl_cono_finished(req_cono)) {
-        if (req_cono == PRH_IMPL_CONO_STRUCT.entry_cono) {
-            prh_impl_cono_thrd_exit();
-        } else {
-#if PRH_CONO_DEBUG
-            printf("[thrd %02d] cono %02d finished\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id);
-#endif
-            prh_impl_cono_free(req_cono);
-        }
-    } else if (req_cono->uncond_run) { // 无条件执行
-        prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
-    } else { // 放入等待队列，等待下次执行
-        prh_impl_cono_waitq_add(req_cono);
-    }
-}
-
-#define PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO 0
-
-#if PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO
-void prh_impl_process_cono_start_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-    prh_real_cono *callee = req_cono->start_callee;
-    prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
-    callee->assign_thrd = req_cono->assign_thrd;
-#if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d created by cono %02d\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, req_cono->cono_id);
-#endif
-    prh_relaxed_quefit_push(ready_queue, callee, cono_chain); // 优先调度新建协程
-    prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
-}
-#else
-void prh_impl_process_cono_start_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-    prh_real_cono *callee = req_cono;
-    prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
-#if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d created by cono %02d\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, callee->parent->cono_id);
-#endif
-    prh_relaxed_quefit_push(ready_queue, callee, cono_chain);
-}
-#endif
-
-void prh_impl_process_cono_yield_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-    prh_real_cono *caller = req_cono->caller;
-    if (caller) { // 需要提交执行结果给请求协程
-        if (caller->idle_await) { // 请求协程正在等待执行结果，且其结果队列为空
-            caller->await_callee = req_cono;
-            caller->idle_await = false; // 将结果提交给请求协程，并立即调度其执行
-            prh_relaxed_quefit_push(ready_queue, caller, cono_chain);
-        } else { // 将执行协程插入请求协程的结果队列中，等待请求下一次WAIT挂起继续执行
-            prh_relaxed_quefit_push(&caller->callee_que, req_cono, cono_chain);
-        }
-    } else { // 执行协程不需要将结果提交给请求协程，执行结束或者看继续怎么处理
-        prh_impl_process_cono_continue_req(req_cono, ready_queue);
-    }
-}
-
-void prh_impl_process_cono_await_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-    prh_real_cono *callee; // 等待执行协程的执行结果
-    prh_relaxed_quefit_pop(&req_cono->callee_que, callee, cono_chain);
-    if (callee) { // 协程给特权发送消息，都会挂起等待特权调度继续执行，因此协程的请求都是顺序的，对于一个协程不可能同时有多个等待执行的请求存在
-        req_cono->await_callee = callee; // 有结果存在，直接交给请求协程继续执行
-        prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
-    } else {
-        req_cono->idle_await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
-    }
-}
-
-void prh_impl_process_cono_pdata_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-
-}
-
-void prh_impl_process_cono_pwait_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-
-}
-
 prh_cono_pdata *prh_cono_malloc_pdata(prh_byte opcode, prh_byte dest_subq, prh_u32 value, prh_unt size) {
     assert(size == 0 || size >= sizeof(prh_cono_pdata));
     prh_cono_pdata *pdata = prh_malloc(size == 0 ? sizeof(prh_cono_pdata) : size);
@@ -13578,16 +13509,6 @@ prh_cono_pdata *prh_cono_malloc_pdata(prh_byte opcode, prh_byte dest_subq, prh_u
     pdata->subq_i = dest_subq;
     pdata->u.value = value;
 }
-
-typedef void (*prh_impl_cono_req_func)(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
-static prh_impl_cono_req_func PRH_IMPL_CONO_REQ_FUNC[PRH_CONO_REQ_MAX] = {
-    prh_impl_process_cono_continue_req,
-    prh_impl_process_cono_start_req,
-    prh_impl_process_cono_yield_req,
-    prh_impl_process_cono_await_req,
-    prh_impl_process_cono_pdata_req,
-    prh_impl_process_cono_pwait_req,
-};
 
 void prh_impl_send_cono_req(prh_real_cono *req_cono, int action) {
     prh_cono_thrd *thrd = prh_thrd_self_data();
@@ -13603,16 +13524,14 @@ void prh_impl_send_cono_req(prh_real_cono *req_cono, int action) {
 void prh_impl_send_post_req(prh_real_cono *req_cono, prh_cono_pdata *pdata) {
     prh_cono_thrd *thrd = prh_thrd_self_data();
     prh_debug(
-        printf("[thrd %02d] cono %02d post %d => cono %02d subq %d\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id, pdata->opcode, pdata->dest->cono_id, pdata->subq_i);
+        printf("[thrd %02d] cono %02d post %d to cono %02d %d\n", prh_impl_curr_cono_thrd_id(),
+            req_cono->cono_id, pdata->opcode, pdata->dest->cono_id, pdata->subq_i);
     );
     prh_atom_hive_quefix_push(&thrd->post_req_que, pdata);
 }
 
-void prh_impl_callee_continue(prh_real_cono *caller) {
-    if (caller->await_callee) {
-        prh_impl_send_cono_req(caller->await_callee, PRH_CONO_CONTINUE);
-        caller->await_callee = prh_null;
-    }
+void prh_cono_post(prh_cono_pdata *pdata) { // 向目的协程发送数据，目标协程以及目标协程接收数据的子队列信息填写在pdata中
+    prh_impl_send_post_req(PRH_IMPL_CONO_SELF, pdata);
 }
 
 void prh_impl_cross_thread_coro_yield(prh_cono *coro) {
@@ -13642,77 +13561,241 @@ void *prh_cono_spawx(prh_byte max_subq, prh_conoproc_t proc, int stack_size, int
     return prh_coro_data(coro);
 }
 
+void prh_impl_callee_continue(prh_real_cono *caller) {
+    if (caller->await_callee) {
+        caller->await_callee = prh_null;
+        prh_impl_send_cono_req(caller->await_callee, PRH_CONO_CONTINUE);
+    }
+}
+
+void prh_cono_continue(prh_await_data *cono_await_data) {
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
+    assert(caller->await_callee == prh_impl_cono_from_data(cono_await_data));
+    prh_impl_callee_continue(caller);
+}
+
 #if PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO
-void prh_cono_start(prh_cono *coro, prh_spawn_data *cono_spawn_data, bool await_this_coro) {
-    prh_real_cono *caller = prh_impl_cono_from_coro(coro);
+void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_real_cono *callee = prh_impl_cono_from_data(cono_spawn_data);
     callee->parent = caller;
-    if (await_this_coro) {
+    if (await_cono_yield) {
         callee->caller = caller;
     }
     caller->start_callee = callee;
     prh_impl_cono_wait(caller, PRH_CONO_START);
 }
 #else
-void prh_cono_start(prh_cono *coro, prh_spawn_data *cono_spawn_data, bool await_this_coro) {
-    prh_real_cono *caller = prh_impl_cono_from_coro(coro);
+void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_real_cono *callee = prh_impl_cono_from_data(cono_spawn_data);
     callee->parent = caller;
-    if (await_this_coro) {
+    if (await_cono_yield) {
         callee->caller = caller;
     }
     prh_impl_send_cono_req(callee, PRH_CONO_START);
 }
 #endif
 
-void *prh_cono_await(prh_cono *coro) {
-    prh_real_cono *caller = prh_impl_cono_from_coro(coro);
+void *prh_cono_await(void) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_impl_cono_wait(caller, PRH_CONO_AWAIT);
     return prh_impl_get_cono_data(caller->await_callee);
 }
 
-void prh_cono_continue(prh_cono *coro, prh_await_data *cono_await_data) {
-    prh_real_cono *caller = prh_impl_cono_from_coro(coro);
-    assert(caller->await_callee == prh_impl_cono_from_data(cono_await_data));
-    prh_impl_callee_continue(caller);
-}
-
-void prh_cono_post(prh_cono_pdata *pdata) { // 向目的协程发送数据
-    prh_impl_send_post_req(PRH_IMPL_CONO_SELF, pdata);
-}
-
-void *prh_cono_pwait_from(prh_byte subq) { // 只等待其他协程发到某个子队列中的数据
+void *prh_cono_pwait_from(prh_byte subq) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
-    caller->wait_q = subq; // 只接收特定子队列收到的数据，0表示接收所有子队列
+    caller->wait_q = subq; // 只接收特定子队列收到的数据，或者0表示接收所有子队列收到的数据
     prh_impl_cono_wait(caller, PRH_CONO_PWAIT);
     return caller->pwait_data;
 }
 
-void *prh_cono_pwait(void) { // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
+void *prh_cono_pwait(void) { // 等待其他协程发来的请求数据或执行结果，只等待数据，发送数据的协程无需挂起可继续执行
     retrun prh_cono_pwait_from(0);
 }
 
-void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
-    prh_coro *coro = prh_impl_coro_from_cono(cono);
-#if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d start running\n", thrd_id, cono->cono_id);
-#endif
-    PRH_IMPL_CONO_SELF = cono;
-    if (cono->action == PRH_CONO_AWAIT) {
-        prh_impl_soro_start(thrd_id, coro);
-        prh_impl_callee_continue(cono);
-    } else { // 继续执行当前协程，直到协程挂起或执行完毕返回到主协程
-        prh_impl_soro_start(thrd_id, coro);
+void prh_impl_cono_wakeup_all_thrd(void) {
+    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
+    prh_thrd **it = prh_thrd_list_begin(thrd_struct);
+    for (; it < prh_thrd_list_end(thrd_struct); it += 1) {
+        if (*it == prh_null) continue;
+        prh_cono_thrd *thrd = prh_impl_cono_thrd(*it);
+        prh_thrd_wakeup(&thrd->sleep_cond);
     }
-    PRH_IMPL_CONO_SELF = prh_null;
-    prh_impl_send_cono_req(cono, cono->action); // 返回主协程之前，cono会设置好action
 }
 
-void prh_impl_process_thrd_request(void *data, void *priv) {
+void prh_impl_cono_term_signal(void) {
+    prh_atom_bool_write(&PRH_IMPL_CONO_STRUCT.term_signal, true);
+    prh_impl_cono_wakeup_all_thrd();
+}
+
+void prh_impl_privilege_process_continue_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    if (prh_impl_cono_finished(req_cono)) {
+        if (req_cono == PRH_IMPL_CONO_STRUCT.main_entry_cono) {
+            prh_impl_cono_term_signal();
+        } else {
+#if PRH_CONO_DEBUG
+            printf("[thrd %02d] cono %02d finished\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id);
+#endif
+            prh_impl_cono_free(req_cono);
+        }
+    } else if (req_cono->uncond_run) { // 无条件执行
+        prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
+    } else { // 放入等待队列，等待下次执行
+        prh_impl_cono_waitq_add(req_cono);
+    }
+}
+
+#define PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO 0
+
+#if PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO
+void prh_impl_privilege_process_start_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_real_cono *callee = req_cono->start_callee;
+    prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
+    callee->assign_thrd = req_cono->assign_thrd;
+#if PRH_CONO_DEBUG
+    printf("[thrd %02d] cono %02d created by cono %02d\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, req_cono->cono_id);
+#endif
+    prh_relaxed_quefit_push(ready_queue, callee, cono_chain); // 优先调度新建协程
+    prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
+}
+#else
+void prh_impl_privilege_process_start_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_real_cono *callee = req_cono;
+    prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
+#if PRH_CONO_DEBUG
+    printf("[thrd %02d] cono %02d created by cono %02d\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, callee->parent->cono_id);
+#endif
+    prh_relaxed_quefit_push(ready_queue, callee, cono_chain);
+}
+#endif
+
+void prh_impl_privilege_await_success(prh_cono_quefit *ready_queue, prh_real_cono *cono, prh_real_cono *callee) {
+    cono->await_callee = callee;
+    cono->idle_await = false; // 将结果提交给请求协程，并立即调度其执行
+    prh_relaxed_quefit_push(ready_queue, cono, cono_chain);
+}
+
+void prh_impl_privilege_process_yield_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_real_cono *caller = req_cono->caller;
+    if (caller) { // 需要提交执行结果给请求协程
+        if (caller->idle_await) { // 请求协程正在等待执行结果，且其结果队列为空
+            prh_impl_privilege_await_success(ready_queue, caller, req_cono);
+        } else { // 将执行协程插入请求协程的结果队列中，等待请求下一次WAIT挂起继续执行
+            prh_relaxed_quefit_push(&caller->callee_que, req_cono, cono_chain);
+        }
+    } else { // 执行协程不需要将结果提交给请求协程，执行结束或者看继续怎么处理
+        prh_impl_privilege_process_continue_req(req_cono, ready_queue);
+    }
+}
+
+void prh_impl_privilege_process_await_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_real_cono *callee; // 等待执行协程的执行结果
+    prh_relaxed_quefit_pop(&req_cono->callee_que, callee, cono_chain);
+    if (callee) { // 协程给特权发送消息，都会挂起等待特权调度继续执行，因此协程的请求都是顺序的，对于一个协程不可能同时有多个等待执行的请求存在
+        prh_impl_privilege_await_success(ready_queue, req_cono, callee); // 有结果存在，直接交给请求协程继续执行
+    } else {
+        req_cono->idle_await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
+    }
+}
+
+void prh_impl_privilege_pwait_success(prh_cono_quefit *ready_queue, prh_real_cono *cono, prh_cono_pdata *pdata) {
+    cono->pwait_data = pdata;
+    cono->idle_pwait = false; // 将请求数据或执行结果提交给等待协程，并立即调度其执行
+    prh_relaxed_quefit_push(ready_queue, cono, cono_chain);
+}
+
+prh_cono_pdata *prh_impl_privilege_receive_pwait_data(prh_real_cono *cono, prh_byte subq_i) {
+    prh_quefit *post_rx_queue = &cono->post_rx_queue;
+    prh_snode *prev = (prh_snode *)post_rx_queue;
+    prh_snode *curr = prev->next;
+    for (; curr; curr = curr->next) { // TODO: 将所有固定的pdata分配到一个内存块中
+        prh_cono_pdata *pdata = (prh_cono_pdata)curr;
+        if (subq_i == 0 || subq_i == pdata->subq_i) {
+            prh_quefit_remove_after(post_rx_queue, prev);
+            return pdata;
+        }
+        prev = curr;
+    }
+    return prh_null;
+}
+
+void prh_impl_privilege_process_pwait_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
+    prh_cono_pdata *pdata = prh_impl_privilege_receive_pwait_data(req_cono, req_cono->wait_q);
+    if (pdata) {
+        prh_impl_privilege_pwait_success(ready_queue, req_cono, pdata);
+    } else {
+        req_cono->idle_pwait = true;
+    }
+}
+
+void prh_impl_privilege_process_post_request(void *data, void *priv) { // 处理各个线程发送给不同协程的数据
+    prh_cono_pdata *pdata = data;
+    prh_cono_quefit *ready_queue = priv;
+    prh_real_cono *dest = pdata->dest;
+    if (dest->idle_pwait && (dest->wait_q == 0 || dest->wait_q == pdata->subq_i)) {
+        prh_impl_privilege_pwait_success(ready_queue, dest, pdata);
+    } else {
+        prh_quefit_push(&dest->post_rx_queue, &pdata->node);
+    }
+}
+
+void prh_impl_privilege_process_cono_request(void *data, void *priv) {
     prh_real_cono *req_cono = data;
     prh_cono_quefit *ready_queue = priv;
     assert(req_cono->action < PRH_CONO_REQ_MAX);
     PRH_IMPL_CONO_REQ_FUNC[req_cono->action](req_cono, ready_queue);
+}
+
+// 当前算法是，特权协程会给所有线程分配一个协程，当线程执行完当前的协程后，会自动继续
+// 执行分配的协程，如果线程没有分配到协程，会去抢特权线程执行权，然后如果自己没有分配
+// 到任务，会从其他线程争抢一个协程来执行。
+//
+// 是否可以做成，由线程自己争抢特权只给自己分配协程，这样线程不需要去访问其他线程的内
+// 存，内存访问效率会更高。这样线程的逻辑就很简单，能抢到特权就继续执行，然后分发自己
+// 线程中的消息，然后给自己分配一个协程执行，抢不到特权就释放当前时间片或主动让出一段
+// 时间继续抢，直到抢到一次为止，如果发现没有协程需要处理就进入睡眠。然后将CPU密集型
+// 的协程，可以打上一个标记，让主线程监控对应执行线程的执行时间，如果执行时间太长，则
+// 每隔规定的时间打断一次，避免其他协程饥饿。（第二版）
+//
+// 可以让线程的个数为2的幂，协程根据编号始终分配给固定的线程执行。另外还有一个优先协程
+// 队列，各个线程都会优先执行自己的优先协程，使用1:1的关系，即先执行一个优先协程再执行
+// 一个非优先协程。这样也会减少各线程抢特权的碰撞机会，因为每次线程抢到特权，可以将整个
+// 属于自己的协程都拿来执行，包括自己的优先协程，且属于自己的协程可以在对应的线程内分配
+// 协程栈。这种情况下，主线程需要高优先级负责，将各线程内的消息及时转发。另外，这种方
+// 法导致一个线程中等待的协程饥饿，因为在第二版中，线程总是只执行一个协程，当这个协程
+// 执行相对较长时，等待的协程会被其他线程执行。（第三版）
+
+bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
+    prh_atom_ptr *privilege_thread = &PRH_IMPL_CONO_STRUCT.privilege_thread;
+    prh_cono_quefit *ready_queue = &PRH_IMPL_CONO_STRUCT.ready_queue;
+    prh_real_cono *ready_cono;
+    bool prev_empty;
+
+    if (!prh_atom_ptr_compare_null_write(privilege_thread, curr_thrd)) { // 获取特权
+        return false;
+    }
+
+    prev_empty = prh_relaxed_quefit_empty(ready_queue);
+
+    prh_atom_hive_quefix_pop_all(&curr_thrd->cono_req_que, prh_impl_privilege_process_cono_request, ready_queue);
+    prh_atom_hive_quefix_pop_all(&curr_thrd->post_req_que, prh_impl_privilege_process_post_request, ready_queue);
+    curr_thrd->grabbed_cono = prh_null;
+    prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
+    curr_thrd->grabbed_cono = ready_cono;
+
+    if (ready_cono && prev_empty && prh_relaxed_quefit_not_empty(ready_queue)) {
+        prh_impl_cono_wakeup_all_thrd();
+    }
+
+#if PRH_CONO_DEBUG
+    if (ready_cono) {
+        printf("[thrd %02d] cono %02d grabbed from thrd %d\n", prh_impl_curr_cono_thrd_id(), ready_cono->cono_id, prh_cono_thrd_id(thrd)));
+    }
+#endif
+
+    prh_atom_ptr_write(privilege_thread, prh_null); // 释放特权
+    return true;
 }
 
 bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
@@ -13738,7 +13821,8 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     for (; thrd_it < thrd_end; thrd_it += 1) { // 处理特权消息，将就绪协程插入就绪队列
         if (*thrd_it == prh_null) continue;
         thrd = prh_impl_cono_thrd(*thrd_it);
-        prh_atom_hive_quefix_pop_all(&thrd->cono_req_que, prh_impl_process_thrd_request, ready_queue);
+        prh_atom_hive_quefix_pop_all(&thrd->cono_req_que, prh_impl_privilege_process_cono_request, ready_queue);
+        prh_atom_hive_quefix_pop_all(&thrd->post_req_que, prh_impl_privilege_process_post_request, ready_queue);
     }
 
     thrd_it = thrd_begin;
@@ -13802,7 +13886,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
             for (; thrd_it < thrd_end; thrd_it += 1) {
                 if (*thrd_it == prh_null) continue;
                 thrd = prh_impl_cono_thrd(*thrd_it); // 查看各线程是否还有遗留的未处理的消息
-                if (!prh_atom_hive_quefix_empty(&thrd->cono_req_que)) {
+                if (!prh_atom_hive_quefix_empty(&thrd->cono_req_que) || !prh_atom_hive_quefix_empty(&thrd->post_req_que)) {
                     *prh_impl_thrd_pending_work(curr_thrd) = true;
                     break;
                 }
@@ -13812,6 +13896,55 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
 
     prh_atom_ptr_write(privilege_thread, prh_null); // 释放特权
     return true;
+}
+
+void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
+    prh_coro *coro = prh_impl_coro_from_cono(cono);
+#if PRH_CONO_DEBUG
+    printf("[thrd %02d] cono %02d start running\n", thrd_id, cono->cono_id);
+#endif
+    // 继续执行协程，协程每次挂起时都会设置原因（YIELD/AWAIT/PWAIT）
+    prh_byte prev_yield_reason = cono->action;
+    PRH_IMPL_CONO_SELF = cono;
+    prh_impl_soro_start(thrd_id, coro); // 继续执行当前协程，直到协程再次挂起
+    PRH_IMPL_CONO_SELF = prh_null;
+    if (prev_yield_reason == PRH_CONO_AWAIT) { // 上次挂起之后这次继续执行，是因为等到了子协程的执行结果，此次继续执行需要读取子协程的执行结果，读取完毕之后此次执行过程可以立即调用prh_impl_callee_continue()让子协程继续执行
+        prh_impl_callee_continue(cono); // 如果在执行过程中没有调用prh_impl_callee_continue()，这里提供了最后的保底机会继续让协程执行
+    }
+    // 协程再次挂起，通知特权线程处理挂起的协程，其等待的原因是否可以满足，是否能够继续执行
+    prh_impl_send_cono_req(cono, cono->action);
+}
+
+prh_ptr prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
+    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
+    prh_atom_bool *term_signal = &PRH_IMPL_CONO_STRUCT.term_signal;
+    prh_atom_int *num_sleep = &PRH_IMPL_CONO_STRUCT.num_sleep;
+    int thrd_id = prh_thrd_id(thrd);
+
+    for (; ;) {
+        prh_debug(int privilege_acquire_count = 0);
+        while (!prh_impl_privilege_task_v2(cono_thrd)) { // 至少抢到一次特权
+            prh_debug(privilege_acquire_count += 1);
+            prh_thrd_sleep(0, 0);
+        }
+        if (cono_thrd->grabbed_cono) {
+            prh_impl_cono_execute(thrd_id, cono_thrd->grabbed_cono);
+            continue;
+        }
+        if (prh_atom_bool_read(term_signal)) {
+            if (!prh_thrd_try_sleep(&cono_thrd->sleep_cond)) {
+                continue;
+            }
+            break;
+        }
+        prh_debug(printf("[thrd %02d] sleep %d\n", thrd_id, privilege_acquire_count);
+        prh_atom_int_inc(num_sleep);
+        prh_thrd_cond_sleep(&cono_thrd->sleep_cond);
+        prh_atom_int_dec(num_sleep);
+        prh_debug(printf("[thrd %02d] wakeup\n", thrd_id));
+    }
+
+    return 0;
 }
 
 prh_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
@@ -13855,7 +13988,7 @@ label_cont_execute:
         if ((req_que_not_empty = !prh_atom_hive_quefix_empty(&cono_thrd->cono_req_que))) {
             prh_thrd_wakeup(&main_thrd->sleep_cond);
         }
-        if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.thrd_exit)) {
+        if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.term_signal)) {
             if (!prh_thrd_try_sleep(&cono_thrd->sleep_cond)) {
                 continue;
             }
@@ -13876,24 +14009,43 @@ label_cont_execute:
     return 0;
 }
 
-void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
-    prh_cono_struct *s = prh_impl_cono_struct_init(thrd_start_id, num_thread, main_proc, stack_size);
-    prh_thrd_struct *thrd_struct = s->thrd_struct;
-    prh_cono_thrd *main_thrd = s->main_thread;
-    prh_atom_ptr *thrd_ready_cono = &main_thrd->ready_cono;
-    int i = 0, thrd_id = prh_cono_thrd_id(main_thrd);
-    prh_real_cono *ready_cono;
+void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
+    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
+    bool term_signal = &PRH_IMPL_CONO_STRUCT.term_signal;
+    int thrd_id = prh_cono_thrd_id(main_thrd);
 
-    for (; i < num_thread; i += 1) { // 启动所有线程
-        prh_cono_thrd *cono_thrd = prh_thrd_creatx(thrd_struct, prh_impl_cono_thrd_size);
-        prh_impl_cono_thrd_init(cono_thrd, i + 1);
-        prh_thrd_starx(thrd_struct, cono_thrd, prh_impl_cono_thrd_proc, 0);
+    for (; ;) {
+        prh_debug(int privilege_acquire_count = 0);
+        while (!prh_impl_privilege_task_v2(main_thrd)) { // 至少抢到一次特权
+            prh_debug(privilege_acquire_count += 1);
+            prh_thrd_sleep(0, 0);
+        }
+        if (main_thrd->grabbed_cono) {
+            prh_impl_cono_execute(thrd_id, main_thrd->grabbed_cono);
+            continue;
+        }
+        if (prh_atom_bool_read(term_signal)) {
+            if (!prh_thrd_try_sleep(&main_thrd->sleep_cond)) {
+                continue;
+            }
+            prh_thrd_join_except_main(thrd_struct, prh_impl_cono_thrd_free);
+#if PRH_CONO_DEBUG
+            printf("[thrd %02d] exit\n", thrd_id);
+#endif
+            break;
+        }
+        prh_debug(printf("[thrd %02d] sleep %d\n", thrd_id, privilege_acquire_count);
+        prh_thrd_cond_sleep(&main_thrd->sleep_cond);
+        prh_debug(printf("[thrd %02d] wakeup\n", thrd_id));
     }
+}
 
-    // 启动入口协程（主线程的第一个协程），程序的执行从主线程执行第一个协程开始，入口协
-    // 程并没有绑定在主线程上，只是通过主线程启动，后续执行也只是像普通协程一样，可能在
-    // 任意线程中执行。
-    prh_impl_cono_execute(thrd_id, s->entry_cono);
+void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
+    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
+    prh_atom_ptr *thrd_ready_cono = &main_thrd->ready_cono;
+    bool term_signal = &PRH_IMPL_CONO_STRUCT.term_signal;
+    int thrd_id = prh_cono_thrd_id(main_thrd);
+    prh_real_cono *ready_cono;
 
     for (; ;) {
         while ((ready_cono = prh_atom_ptr_read(thrd_ready_cono))) {
@@ -13906,7 +14058,7 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, 
         if (*prh_impl_thrd_pending_work(main_thrd)) {
             continue;
         }
-        if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.thrd_exit)) {
+        if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.term_signal)) {
             if (!prh_thrd_try_sleep(&main_thrd->sleep_cond)) {
                 continue;
             }
@@ -13924,6 +14076,34 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, 
         printf("[thrd %02d] wakeup\n", thrd_id);
 #endif
     }
+}
+
+#define PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2 1
+
+void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
+    prh_cono_struct *s = prh_impl_cono_struct_init(thrd_start_id, num_thread, main_proc, stack_size);
+    prh_cono_quefit *ready_queue = &s->ready_queue;
+    prh_thrd_struct *thrd_struct = s->thrd_struct;
+    prh_cono_thrd *main_thrd = s->main_thread;
+
+    // 将入口协程加入就绪队列，程序的执行从入口协程执行开始
+    prh_relaxed_quefit_push(ready_queue, s->main_entry_cono, cono_chain);
+
+    for (int i = 0; i < num_thread; i += 1) { // 启动所有线程
+        prh_cono_thrd *cono_thrd = prh_thrd_creatx(thrd_struct, prh_impl_cono_thrd_size);
+        prh_impl_cono_thrd_init(cono_thrd, i + 1);
+#if PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2
+        prh_thrd_starx(thrd_struct, cono_thrd, prh_impl_cono_thrd_proc_v2, 0);
+#else
+        prh_thrd_starx(thrd_struct, cono_thrd, prh_impl_cono_thrd_proc, 0);
+#endif
+    }
+
+#if PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2
+    prh_impl_cono_main_proc_v2(main_thrd); // 启动主线程
+#else
+    prh_impl_cono_main_proc(main_thrd); // 启动主线程
+#endif
 
     prh_impl_cono_struct_free();
 }
