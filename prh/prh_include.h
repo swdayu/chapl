@@ -11366,48 +11366,6 @@ void prh_impl_thrd_test(void) {
 #define prh_plat_linux
 
 #ifdef PRH_SOCK_INCLUDE
-#define prh_loopback ((char *)0)
-#define prh_addr_any ((char *)1)
-#define prh_port_any ((prh_u32)0)
-
-typedef prh_ptr prh_handle;
-
-typedef struct {
-    prh_handle sock;
-    prh_spawn_data *upper_coro;
-    prh_epoll_priv priv;
-    prh_byte upper_subq;
-    prh_byte ip6: 1, addr_any: 1, in_wait: 1, quit: 1;
-    prh_u16 port;
-    prh_u32 addr;
-    prh_u32 addr[3];
-} prh_tcplisten;
-
-typedef prh_arrfit(prh_byte) prh_byte_arrfit;
-
-typedef struct {
-    prh_handle sock;
-    prh_spawn_data *upp_coro;
-    prh_arrfit(prh_byte) txbuf;
-    prh_arrfit(prh_byte) rxbuf;
-    prh_u32 txbuf_cur;
-    prh_u32 rxbuf_cur;
-    prh_epoll_priv priv;
-    prh_byte upp_subq;
-    prh_byte ip6: 1, passive: 1, in_wait: 1, out_wait: 1, drained: 1, close_req: 1, closing: 1;
-    prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
-    prh_u16 l_port;
-    prh_u16 p_port;
-    prh_u32 l_addr;
-    prh_u32 l_addr[3];
-    prh_u32 p_addr;
-    prh_u32 p_addr[3];
-} prh_tcpsocket;
-
-void prh_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
-void prh_ip6_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
-bool prh_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection);
-
 #ifdef PRH_SOCK_IMPLEMENTATION
 #ifndef PRH_SOCK_DEBUG
 #define PRH_SOCK_DEBUG PRH_DEBUG
@@ -13008,7 +12966,7 @@ void prh_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int back
     prh_impl_tcp_listen(tcp, &in, backlog);
 }
 
-void prh_ip6_tcp_listen(prh_ip6_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
+void prh_ipv6_tcp_listen(prh_ip6_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
     struct sockaddr_in6 in6 = {0};
     in6.sin6_family = AF_INET6;
     in6.sin6_port = htons(port);
@@ -13115,17 +13073,61 @@ bool prh_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
     // 采用此语义。历史上 BSD 将 accept 的第三个参数声明为 int*；POSIX.1g 草案曾拟
     // 改为 size_t*，最终标准及 glibc 2.x 采用 socklen_t*。
     bool has_pending_connection;
-    if (errno == EWOULDBLOCK
-#if defined(EAGAIN)
-        || errno == EAGAIN
-#endif
-    ) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
         has_pending_connection = false; // 内核已经没有待处理的连接
     } else {
         has_pending_connection = true;
         prh_preno_if(errno != EINTR);
     }
     return has_pending_connection;
+}
+
+#define PRH_IMPL_TXRX_BYTES 0x7ffff000 // Linux
+
+// 返回true表示可以继续发送更多数据，否则必须等待写就绪事件再发
+bool prh_tcp_send(prh_tcpsocket *tcp) {
+    prh_byte_arrfit *txbuf = &tcp->txbuf;
+    ssize_t size = txbuf->size - tcp->txbuf_cur;
+    assert(size > 0 && size < PRH_IMPL_TXRX_BYTES); // 若 count 为 0 且 fd 指向非普通文件，结果未定义
+    ssize_t n = send((int)tcp->sock, prh_arrfit_begin(txbuf) + tcp->txbuf_cur, size, 0);
+    if (n >= 0) {
+        if (n == size) {
+            prh_arrfit_clear(txbuf);
+            tcp->txbuf_cur = 0;
+            tcp->tx_done = true;
+        } else {
+            tcp->txbuf_cur += n;
+        }
+        return true;
+    }
+    bool can_send_more_data;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        can_send_more_data = false;
+    } else {
+        can_send_more_data = true;
+        prh_preno_if(errno != EINTR);
+    }
+    return can_send_more_data;
+}
+
+// 返回true表示可以继续接收更多数据，否则必须等待读就绪事件再收
+bool prh_tcp_recv(prh_tcpsocket *tcp) {
+    prh_byte_arrfit *rxbuf = &tcp->rxbuf;
+    ssize_t size = txbuf->capacity;
+    assert(size > 0 && size < PRH_IMPL_TXRX_BYTES);
+    ssize_t n = recv((int)tcp->sock, prh_arrfit_begin(rxbuf), size, 0);
+    if (n >= 0) {
+        rxbuf->size = n;
+        return true;
+    }
+    bool can_recv_more_data;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+        can_recv_more_data = false;
+    } else {
+        can_recv_more_data = true;
+        prh_preno_if(errno != EINTR);
+    }
+    return can_recv_more_data;
 }
 
 // 处理同一个客户同时建立多个TCP连接的情况，TCP运行两个端口之间能建立多条连接吗？但是
@@ -13168,7 +13170,7 @@ void *prh_cono_spawx(prh_byte max_subq, prh_conoproc_t proc, int stack_size, int
 void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield); // 启动子协程
 void *prh_cono_await(void); // 等待一个或多个子协程YIELD结果
 void prh_cono_continue(prh_await_data *cono_await_data); // 获取子协程结果后，让子协程继续执行
-void prh_cono_post(prh_spawn_data *cono_spawn_data, prh_cono_pdata *pdata); // 向目的协程发送请求数据或执行结果
+void prh_cono_post(prh_cono_pdata *pdata); // 向目的协程发送请求数据或执行结果
 void *prh_cono_pwait(void); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
 void *prh_cono_pwait_from(prh_byte subq); // 只等待其他协程发到某个子队列中的数据
 void prh_impl_cross_thread_coro_yield(prh_cono *coro);
@@ -13182,12 +13184,11 @@ prh_inline void *prh_cono_data(prh_cono *coro) {
     return prh_soro_data((prh_soro *)coro);
 }
 
+typedef prh_arrfit(prh_cono_pdata *) prh_cono_subq;
+
 typedef struct prh_cono_pdata {
-    prh_snode node;
-    prh_real_cono *dest;
-    prh_byte subq_i;
-    prh_byte opcode;
-    prh_byte flags;
+    prh_cono_subq *subq;
+    prh_byte opcode[4]; // subq+0~3 => opcode[0~3]
     union { prh_u32 size; prh_u32 value; } u;
 } prh_cono_pdata;
 
@@ -14121,13 +14122,15 @@ void prh_impl_cono_test(void) {
 #define PRH_SUBQ_EPOLL  1
 #define PRH_SUBQ_TCP    2
 
+#define PRH_TCPQ_MAX_NUM 6
+
 typedef enum { // tcp layer => upper layer
     PRH_TCPE_OPEN_IND,      // 连接请求到来
     PRH_TCPE_OPENED,        // 连接已经打开
     PRH_TCPE_TX_DONE,       // 数据发送完毕
     PRH_TCPE_RX_DATA,       // 有数据需要上层接收
-    PRH_TCPE_CLOSE_IND,     // 远方断开连接，上层需要在传输完所有数据后执行 prh_tcp_close_cfm
-    PRH_TCPE_CLOSED,        // 连接已经关闭
+    PRH_TCPE_RX_END,        // 远方数据发送完毕，上层可在传输完所有数据后进行 close_req
+    PRH_TCPE_CLOSED,        // 连接已经关闭，上层之后需要调用 tcp_finish 释放资源
 } prh_tcp_event;
 
 typedef struct {
@@ -14139,40 +14142,31 @@ typedef struct {
     prh_cono_pdata head;
     prh_tcpsocket *tcp;
     prh_byte *txbuf;
-    prh_u32 size;
+    prh_byte *rxbuf;
 } prh_tcpe_opened;
 
 typedef struct {
-    prh_cono_pdata head;
-    prh_tcpsocket *tcp;
-    prh_byte *txbuf;
-    prh_u32 size;
-    bool error; // 发送致命错误，不能继续发送数据
+    prh_cono_pdata head; // 如果发生错误，上层不能继续发送数据
 } prh_tcpe_tx_done;
 
 typedef struct {
-    prh_cono_pdata head;
-    prh_tcpsocket *tcp;
-    prh_byte *rxbuf;
-    prh_u32 size;
+    prh_cono_pdata head; // head.u.size
 } prh_tcpe_rx_data;
 
-typedef struct {
-    prh_cono_pdata head;
-    prh_tcpsocket *tcp;
-} prh_tcpe_close_ind;
+prh_inline bool prh_tcpe_tx_done_error(prh_cono_pdata *pdata) {
+    return pdata->opcode[3];
+}
 
-typedef struct {
-    prh_cono_pdata head;
-    prh_tcpsocket *tcp;
-} prh_tcpe_closed;
+prh_inline prh_u32 prh_tcpe_rx_data_size(prh_conn_pdata *pdata) {
+    return pdata->u.size;
+}
 
 void prh_tcp_open_accept(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size);
 void prh_tcp_open_reject(prh_tcpsocket *tcp);
-void prh_tcp_tx_data(prh_tcpsocket *tcp, prh_u32 size);
 void prh_tcp_rx_done(prh_tcpsocket *tcp);
-void prh_tcp_close_cfm(prh_tcpsocket *tcp); // 远方断开连接，上层需要在传输完所有数据之后，才能执行 close cfm
-void prh_tcp_close_req(prh_tcpsocket *tcp); // 上层需要在传输完所有数据之后，才能执行 close req
+void prh_tcp_tx_data(prh_tcpsocket *tcp, prh_u32 size);
+void prh_tcp_tx_end(prh_tcpsocket *tcp); // 上层需要在传输完所有数据之后，才能执行 tx end
+void prh_tcp_finish(prh_tcpsocket *tcp);
 
 typedef struct prh_epoll_port prh_epoll_port;
 
@@ -14185,10 +14179,49 @@ void prh_epoll_init(int max_fds_hint, int num_fds_per_time_poll);
 void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_handle fd);
 void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_handle fd);
 void prh_epoll_receive_events(prh_tcpsocket* tcp, prh_epoll_port *port);
-void prh_epoll_tx_data_pending(prh_epoll_port *port);
-void prh_epoll_rx_data_pending(prh_epoll_port *port);
+void prh_epoll_wait_tx_data(prh_epoll_port *port);
+void prh_epoll_wait_rx_data(prh_epoll_port *port);
 void prh_epoll_del_and_close(prh_epoll_port *port);
 void prh_epoll_exit(prh_cono *cono, prh_byte subq);
+
+#define prh_loopback ((char *)0)
+#define prh_addr_any ((char *)1)
+#define prh_port_any ((prh_u32)0)
+
+typedef prh_ptr prh_handle;
+
+typedef struct {
+    prh_handle sock;
+    prh_cono_subq *upper_subq;
+    prh_epoll_port *epoll_port;
+    prh_byte ip6: 1, addr_any: 1, in_wait: 1, quit: 1;
+    prh_u16 port;
+    prh_u32 addr;
+    prh_u32 addr[3];
+} prh_tcplisten;
+
+typedef prh_arrfit(prh_byte) prh_byte_arrfit;
+
+typedef struct {
+    prh_handle sock;
+    prh_cono_subq *upper_subq;
+    prh_arrfit(prh_byte) txbuf;
+    prh_arrfit(prh_byte) rxbuf;
+    prh_epoll_port *epoll_port;
+    prh_u32 txbuf_cur;
+    prh_byte ip6: 1, passive: 1, drained: 1, tx_done: 1, close_req: 1, local_closed: 1, closed: 1;
+    prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
+    prh_u16 l_port;
+    prh_u16 p_port;
+    prh_u32 l_addr;
+    prh_u32 l_addr[3];
+    prh_u32 p_addr;
+    prh_u32 p_addr[3];
+} prh_tcpsocket;
+
+void prh_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
+void prh_ipv6_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
+bool prh_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection);
 
 #if defined(prh_plat_windows)
 
@@ -14781,9 +14814,7 @@ typedef struct {
     prh_cono_pdata tx_data; // PRH_EPAC_WAIT
     prh_cono_pdata rx_data; // PRH_EPAC_WAIT
     prh_cono_pdata event;
-    prh_spawn_data *from_cono;
     prh_handle handle;
-    prh_byte from_subq;
     prh_u32 waiting_i;
     prh_u32 events;
     prh_u32 update;
@@ -14835,7 +14866,7 @@ typedef struct {
 
 // 上层协程请求向 epoll 添加文件描述符
 
-void prh_impl_epac_add(prh_epoll_port **port, prh_spawn_data *cono, prh_byte subq, prh_handle fd, prh_u32 events) {
+void prh_impl_epac_add(prh_epoll_port **port, prh_cono_subq *subq, prh_handle fd, prh_u32 events) {
     prh_data_epac_add from;
     from->head.opcode = PRH_EPAC_ADD;
     from->head.subq_i = 0; // epoll只有一个处理队列
@@ -14849,18 +14880,18 @@ void prh_impl_epac_add(prh_epoll_port **port, prh_spawn_data *cono, prh_byte sub
     *port = (prh_epoll_port *)((prh_byte *)event - prh_offsetof(prh_epoll_port, event));
 }
 
-void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_handle fd) { // 接收连接，错误
+void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_cono_subq *subq) { // 接收连接，错误
     prh_u32 events = EPOLLIN | EPOLLET; // EPOLLERR 默认会设置
-    prh_impl_epac_add(&tcp->epoll_port, (prh_spawn_data *)tcp, PRH_TCPQ_EPOLL, fd, events);
+    prh_impl_epac_add(&tcp->epoll_port, subq, tcp->sock, events);
 }
 
-void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_handle fd) { // 连接，断连，读取，写入，错误
+void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_cono_subq *subq) { // 连接，断连，读取，写入，错误
     prh_u32 events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
-    prh_impl_epac_add(&tcp->epoll_port, (prh_spawn_data *)tcp, PRH_TCPQ_EPOLL, fd, events);
+    prh_impl_epac_add(&tcp->epoll_port, subq, tcp->sock, events);
 }
 
-void prh_epoll_receive_events(prh_tcpsocket* tcp, prh_epoll_port *port) {
-    prh_u32 events = port->events;
+void prh_epoll_receive_events(prh_tcpsocket* tcp) {
+    prh_u32 events = tcp->epoll_port->events;
     if (events & EPOLLIN) {
         tcp->epoll_in = true;
     } else if (events & EPOLLOUT) {
@@ -15119,14 +15150,33 @@ typedef enum {
 
 typedef enum {
     // upper layer => tcp layer, TCP层需要主动执行操作
-    PRH_TCPA_OPEN_ACCEPT,   // 是否接受连接
+    PRH_TCPA_OPEN_ACCEPT,   // 是否接受连接 2
+    PRH_TCPA_OPEN_REQ,      // 连接请求
+    PRH_TCPA_RX_DONE,       // 本次数据接收完毕
     PRH_TCPA_TX_DATA,       // 主动请求发送数据
-    PRH_TCPA_RX_DONE,       // 数据接收完毕
-    PRH_TCPA_CLOSE_REQ,     // 主动发起断连请求
-    PRH_TCPA_CLOSE_CFM,     // 告诉下层可以关闭连接
+    PRH_TCPA_TX_END,        // 本地数据发送完毕
+    PRH_TCPA_FINISH,        // 最后释放和清理TCP连接
     // epoll layer => tcp layer
     PRH_TCPA_EPOLL_IND,     // 下层（epoll层）来的事件
+    PRH_TCPA_MAX_NUM,
 } prh_tcp_action;
+
+void prh_impl_process_tcpa_invalid(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
+void prh_impl_process_tcpa_rx_done(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
+void prh_impl_process_tcpa_tx_data(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
+void prh_impl_process_tcpa_tx_end(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
+void prh_impl_process_tcpa_epoll_ind(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
+
+typedef void (*prh_impl_tcpa_process_func)(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
+static prh_impl_tcpa_process_func PRH_IMPL_TCPA_FUNC[PRH_TCPA_MAX_NUM] = {
+    prh_impl_process_tcpa_invalid, // PRH_TCPA_OPEN_ACCEPT
+    prh_impl_process_tcpa_invalid, // PRH_TCPA_OPEN_REQ
+    prh_impl_process_tcpa_rx_done,
+    prh_impl_process_tcpa_tx_data,
+    prh_impl_process_tcpa_tx_end,
+    prh_impl_process_tcpa_invalid, // PRH_TCPA_FINISH
+    prh_impl_process_tcpa_epoll_ind,
+};
 
 typedef struct {
     prh_cono_pdata head;
@@ -15134,256 +15184,273 @@ typedef struct {
     prh_u32 txbuf_size;
 } prh_impl_tcpa_accept;
 
-void prh_tcp_open_accept(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size) {
-    prh_impl_tcpa_accept *pdata = prh_cono_malloc_pdata(PRH_TCPA_OPEN_ACCEPT, PRH_TCPQ_UPPER, true, sizeof(prh_impl_tcpa_accept));
-    pdata->rxbuf_size = rxbuf_size;
-    pdata->txbuf_size = txbuf_size;
-    prh_cono_freely_post(tcp->tcp_coro, &pdata->head);
+typedef struct {
+    prh_impl_tcpa_accept action; // 0 OPEN_ACCEPT 1 OPEN_REQ 2 TX_END 3 FINISH
+    prh_cono_pdata tx_data_rx_done; // 0 TX_DATA 1 RX_DONE
+    prh_tcpe_opened event; // 0 OPEN_IND 1 OPENED 2 CLOSED_IND 3 CLOSED
+    prh_tcpe_tx_done tx_done_rx_data; // 0 TX_DONE 1 RX_DATA
+} prh_impl_tcp_port;
+
+prh_impl_tcp_port *prh_impl_get_tcp_port(prh_tcpsocket *tcp) {
+    return (prh_impl_tcp_port *)(tcp + 1);
 }
 
-void prh_impl_tcpa_post_pdata(prh_tcpsocket *tcp, prh_byte action, prh_u32 value) {
-    prh_cono_pdata *pdata = prh_cono_malloc_pdata(action, PRH_TCPQ_UPPER, value, sizeof(prh_cono_pdata));
-    prh_cono_freely_post(tcp->tcp_coro, pdata);
+void prh_impl_tcp_port_init(prh_tcpsocket *tcp, prh_cono_subq *upper_subq, prh_cono_subq *self_subq) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    port->action.head.subq = self_subq;
+    port->action.head.opcode[0] = PRH_TCPA_OPEN_ACCEPT;
+    port->action.head.opcode[1] = PRH_TCPA_OPEN_REQ;
+    port->action.head.opcode[2] = PRH_TCPA_TX_END;
+    port->tx_data_rx_done.subq = self_subq;
+    port->tx_data_rx_done.opcode[0] = PRH_TCPA_TX_DATA;
+    port->tx_data_rx_done.opcode[1] = PRH_TCPA_RX_DONE;
+    port->event.head.subq = upper_subq;
+    port->event.head.opcode[0] = PRH_TCPE_OPEN_IND;
+    port->event.head.opcode[1] = PRH_TCPE_OPENED;
+    port->event.head.opcode[2] = PRH_TCPE_RX_END;
+    port->event.head.opcode[3] = PRH_TCPE_CLOSED;
+    port->tx_done_rx_data.head.subq = upper_subq;
+    port->tx_done_rx_data.head.opcode[0] = PRH_TCPE_TX_DONE;
+    port->tx_done_rx_data.head.opcode[1] = PRH_TCPE_RX_DATA;
+}
+
+void prh_tcp_open_accept(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_impl_tcpa_accept *pdata = &port->action;
+    pdata->head.u.value = true;
+    pdata->rxbuf_size = rxbuf_size;
+    pdata->txbuf_size = txbuf_size;
+    prh_cono_post(&pdata->head, 0); // PRH_TCPA_OPEN_ACCEPT
 }
 
 void prh_tcp_open_reject(prh_tcpsocket *tcp) {
-    prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_OPEN_ACCEPT, false);
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_impl_tcpa_accept *pdata = &port->action;
+    pdata->head.u.value = false;
+    prh_cono_post(&pdata->head, 0); // PRH_TCPA_OPEN_ACCEPT
 }
 
 void prh_tcp_tx_data(prh_tcpsocket *tcp, prh_u32 size) {
-    prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_TX_DATA, size);
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_cono_pdata *tx_data = &port->tx_data_rx_done;
+    tx_data->u.size = size;
+    prh_cono_post(tx_data, 0); // PRH_TCPA_TX_DATA
+}
+
+prh_inline prh_impl_tcp_tx_data_size(prh_cono_pdata *pdata) {
+    return pdata->u.size;
 }
 
 void prh_tcp_rx_done(prh_tcpsocket *tcp) {
-    prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_RX_DONE, size);
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_cono_pdata *rx_done = &port->tx_data_rx_done;
+    prh_cono_post(rx_done, 1); // PRH_TCPA_RX_DONE
 }
 
-void prh_tcp_close_cfm(prh_tcpsocket *tcp) { // 远方断开连接，上层需要在传输完所有数据之后，才能执行 close cfm
-    prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_CLOSE_CFM, 0);
+void prh_tcp_tx_end(prh_tcpsocket *tcp) { // 上层需要在传输完所有数据之后，才能执行 tx end
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_cono_pdata *tx_end = &port->action.head;
+    prh_cono_post(tx_end, 2); // PRH_TCPA_TX_END
 }
 
-void prh_tcp_close_req(prh_tcpsocket *tcp) { // 上层需要在传输完所有数据之后，才能执行 close req
-    prh_impl_tcpa_post_pdata(tcp, PRH_TCPA_CLOSE_REQ, 0);
+void prh_tcp_finish(prh_tcpsocket *tcp) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_cono_pdata *finish = &port->action.head;
+    prh_cono_post(finish, 3); // PRH_TCPA_FINISH
 }
 
-void *prh_impl_tcpe_post_pdata(prh_tcpsocket *tcp, prh_byte action, prh_unt size) {
-    return prh_cono_malloc_pdata(action, tcp->upp_subq, 0, size);
+void prh_impl_report_tcpe_opened(prh_tcpsocket *tcp) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_tcpe_opened *opened = &port->event;
+    opened->tcp = tcp; // PRH_TCPE_OPEN_IND 和 PRH_TCPE_OPENED 是互斥的
+    pdata->txbuf = prh_arrfit_begin(&tcp->txbuf);
+    pdata->rxbuf = prh_arrfit_begin(&tcp->rxbuf);
+    prh_cono_post(&pdata->head, 1); // PRH_TCPE_OPENED
 }
 
-void prh_impl_tcpe_freely_post(prh_tcpsocket *tcp, prh_byte action) {
-    prh_tcpe_open_ind *pdata = prh_impl_tcpe_post_pdata(tcp, action, sizeof(prh_tcpe_open_ind));
-    pdata->tcp = tcp;
-    prh_cono_freely_post(tcp->upp_coro, &pdata->head);
+void prh_impl_report_tcpe_tx_done(prh_tcpsocket *tcp) { // 或者仅在成功发送后才上报 tx done，发生错误或断连时不上报
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_tcpe_tx_done *tx_done = &port->tx_done_rx_data;
+    tx_done->head.opcode[3] = 0; // 发送致命错误，上层不能继续发送数据
+    prh_cono_post(&tx_done->head, 0); // PRH_TCPE_TX_DONE
 }
 
-void prh_impl_tcp_report_open_ind(prh_tcpsocket *tcp) {
-    prh_impl_tcpe_freely_post(tcp, PRH_TCPE_OPEN_IND);
+void prh_impl_report_tcpe_rx_data(prh_tcpsocket *tcp) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_tcpe_rx_data *rx_data = &port->tx_done_rx_data;
+    rx_data->head.u.size = tcp->rxbuf.size;
+    prh_cono_post(&rx_data->head, 1); // PRH_TCPE_RX_DATA
 }
 
-void prh_impl_tcp_report_opened(prh_tcpsocket *tcp) {
-    prh_tcpe_opened *pdata = prh_impl_tcpe_post_pdata(tcp, PRH_TCPE_OPENED, sizeof(prh_tcpe_opened));
-    prh_byte_arrfit *txbuf = &tcp->txbuf;
-    pdata->tcp = tcp;
-    pdata->txbuf = prh_arrfit_begin(txbuf);
-    pdata->size = txbuf->size;
-    prh_cono_freely_post(tcp->upp_coro, &pdata->head);
+void prh_impl_report_tcpe_rx_end(prh_tcpsocket *tcp) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_cono_pdata *rx_end = &port->event.head;
+    prh_cono_post(rx_end, 2); // PRH_TCPE_RX_END
 }
 
-void prh_impl_tcp_report_tx_done(prh_tcpsocket *tcp, bool error) {
-    prh_tcpe_tx_done *pdata = prh_impl_tcpe_post_pdata(tcp, PRH_TCPE_TX_DONE, sizeof(prh_tcpe_tx_done));
-    prh_byte_arrfit *txbuf = &tcp->txbuf;
-    pdata->tcp = tcp;
-    pdata->txbuf = prh_arrfit_begin(txbuf);
-    pdata->size = txbuf->size;
-    pdata->error = error; // 发送致命错误，上层不能继续发送数据
-    prh_cono_freely_post(tcp->upp_coro, &pdata->head);
+void prh_impl_report_tcpe_closed(prh_tcpsocket *tcp) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_cono_pdata *closed = &port->event.head;
+    prh_cono_post(closed, 3); // PRH_TCPE_CLOSED
 }
 
-void prh_impl_tcp_report_rx_data(prh_tcpsocket *tcp) {
-    prh_tcpe_rx_data *pdata = prh_impl_tcpe_post_pdata(tcp, PRH_TCPE_RX_DATA, sizeof(prh_tcpe_rx_data));
-    prh_byte_arrfit *rxbuf = &tcp->rxbuf;
-    pdata->tcp = tcp;
-    pdata->rxbuf = prh_arrfit_begin(rxbuf);
-    pdata->size = rxbuf->size;
-    prh_cono_freely_post(tcp->upp_coro, &pdata->head);
-}
-
-void prh_impl_tcp_report_close_ind(prh_tcpsocket *tcp) {
-    prh_impl_tcpe_freely_post(tcp, PRH_TCPE_CLOSE_IND);
-    assert(sizeof(prh_tcpe_close_ind) == sizeof(prh_tcpe_open_ind));
-}
-
-void prh_impl_tcp_report_closed(prh_tcpsocket *tcp) {
-    prh_impl_tcpe_freely_post(tcp, PRH_TCPE_CLOSED);
-    assert(sizeof(prh_tcpe_closed) == sizeof(prh_tcpe_open_ind));
-}
-
-void prh_impl_tcp_socket_init_buffer(prh_tcpsocket *socket, prh_u32 txbuf_size, prh_u32 rxbuf_size) {
-    assert(txbuf_size > 0);
-    assert(rxbuf_size > 0);
-    socket->txbuf_max = txbuf_size;
-    socket->rxbuf_max = rxbuf_size;
-    socket->txbuf = prh_malloc(txbuf_size);
-    socket->rxbuf = prh_malloc(rxbuf_size);
-}
-
-prh_tcp_open_accept *prh_impl_tcp_report_open_ind(prh_cono *coro, prh_tcpsocket *sock) {
-    // TODO: send message to sock->upper_coro's sock->upper_subq
-    prh_tcp_open_accept *pdata = prh_cono_pwait_from(coro, PRH_TCPQ_UPPER);
-    assert(pdata->head.action == PRH_TCPA_OPEN_ACCEPT);
-    return pdata;
-}
-
-void prh_impl_tcp_report_close_ind(prh_tcpsocket *socket) {
-
-}
-
-void prh_impl_tcp_report_opened(prh_tcpsocket *socket) {
-}
-
-#define PRH_TCPE_TX_DONE_FLAG_SOCKET_ERROR 0x01
-
-void prh_impl_tcp_report_tx_done(prh_tcpsocket *socket) {
-    if (socket->epoll_err) {
-        // 置错误标记，告诉上层不要再发送数据
+void prh_impl_tcp_local_close(prh_tcp_socket *tcp) {
+    if (tcp->txbuf.size > 0) {
+        return; // 等待本地写缓冲发送完毕之后才能关闭
+    }
+    if (!tcp->local_closed) {
+        prh_sock_shut_write((int)tcp->sock);
+        tcp->local_closed = true;
     }
 }
 
-void prh_impl_tcp_report_rxdata(prh_tcpsocket *socket) {
-    socket->rxdata = true;
+void prh_impl_tcp_send_data(prh_tcpsocket *tcp) { // 只在 TX_DATA 发送第一包，然后在 epoll_out 就绪发送剩余包
+    if (!prh_tcp_send(tcp)) {
+        prh_epoll_wait_tx_data(tcp->epoll_port);
+    } else if (tcp->tx_done) {
+        tcp->tx_done = false;
+        if (tcp->close_req) {
+            prh_impl_tcp_local_close(tcp);
+        } else {
+            prh_impl_report_tcpe_tx_done(tcp); // 只在没有错误连接还在，上层可继续发包的情况下上报 TX_DONE
+        }
+    }
 }
 
-void prh_impl_tcp_read_data(prh_tcpsocket *socket) {
-    if (!prh_tcp_read(socket)) {
-        socket->epoll_in = false;
-        if (socket->rdlen) {
-            prh_impl_tcp_report_rxdata(socket);
-            if (socket->epoll_rdhup) { // 对方发送的数据消耗完毕（read drained）
-                socket->drained = true;
+void prh_impl_tcp_recv_data(prh_tcpsocket *tcp) {
+    if (tcp->epoll_rdhup || tcp->epoll_hup) {
+        prh_tcp_recv(tcp);
+        if (tcp->rxbuf.size == 0) { // 本端已经将对方发送的所有数据消耗完毕
+            tcp->drained = true;
+            if (tcp->epoll_rdhup) {
+                prh_impl_report_tcpe_rx_end(tcp); // 只要对端发来 FIN，内核就把该套接字标记为读端已关闭，不需要调用 shut_read
             }
-        } else if (socket->epoll_rdhup) { // 等待本端发完所有数据，并等待上层发起关闭请求
-            prh_impl_tcp_report_close_ind(socket);
+            if (tcp->epoll_hup) {
+                prh_epoll_del_and_close(tcp->epoll_port);
+                tcp->closed = true;
+            }
+        } else {
+            prh_impl_report_tcpe_rx_data(tcp);
         }
     } else {
-        prh_impl_tcp_report_rxdata(socket);
+        if (!prh_tcp_recv(tcp)) {
+            prh_epoll_wait_rx_data(tcp->epoll_port);
+        } else if (tcp->rxbuf.size) {
+            prh_impl_report_tcpe_rx_data(tcp);
+        }
     }
 }
 
-void prh_impl_tcp_write_data(prh_tcpsocket *socket) {
-    if (socket->close_req) {
-        // 发送尽可能多的数据，如果发完执行 SHUT_WR，否则再继续等待下一次发送
-    } else {
-        // 调用系统调用发送一次数据即可，如果本地数据发完，上报 TXDONE
-        prh_impl_tcp_report_txdone(socket);
+void prh_impl_process_tcpa_tx_data(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
+    assert(tcp->txbuf.size == 0); // 上层必须在 tx done 的情况下继续发送数据
+    if (tcp->close_req || tcp->epoll_err || tcp->epoll_hup) return;
+    tcp->txbuf.size = prh_impl_tcp_tx_data_size(pdata);
+    assert(tcp->txbuf.size > 0);
+    prh_impl_tcp_send_data(tcp);
+}
+
+void prh_impl_process_tcpa_tx_end(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
+    if (tcp->close_req || tcp->epoll_err || tcp->epoll_hup) return;
+    tcp->close_req = true;
+    prh_impl_tcp_local_close(tcp);
+}
+
+void prh_impl_process_tcpa_rx_done(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
+    tcp->rxbuf.size = 0;
+    if (tcp->drained || tcp->epoll_err) return; // 对端或双端关闭且读缓存读取完，或发生错误之后：不能继续读取
+    prh_impl_tcp_recv_data(tcp);
+}
+
+void prh_impl_process_tcpa_epoll_ind(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
+    prh_epoll_receive_events(tcp);
+    // 在tcp断连的四次握手之后，内核会立即把 EPOLLHUP 放入就绪队列，与读缓冲区是否还
+    // 有数据无关。如果此时仍有未读数据，epoll_wait 会同时返回 EPOLLIN + EPOLLHUP；
+    // 如果没有数据，会只返回 EPOLLHUP。
+    // EPOLLERR 表示内核已检测到不可恢复的套接字错误（通常是 RST、ICMP 不可达等），此
+    // 时：套接字已处于错误状态；所有后续 send() 或 recv() 立即返回-1和 ECONNRESET|
+    // ENETRESET|…；因此收到 EPOLLERR 后，直接 close(fd) 即可。
+    if (tcp->epoll_err || tcp->epoll_hup && !tcp->epoll_in) {
+        prh_epoll_del_and_close(tcp->epoll_port);
+        tcp->closed = true;
+        return;
+    }
+    if (tcp->epoll_in) { // 收到 EPOLLRDHUP/EPOLLHUP 时，如果读缓冲区有数据会同时设置 EPOLLIN
+        if (tcp->rxbuf.size == 0) { // 如果 rxbuf.size 大于零，表示当前正在读取数据，上层还没有 RX_DONE，读取操作会自动在 RX_DONE 后继续
+            prh_impl_tcp_recv_data(tcp); // 后面可以一直读取直到 EAGAIN 为止
+        }
+        tcp->epoll_in = 0;
+        if (tcp->epoll_hup) { // EPOLLHUP 之后不能继续发送数据
+            return;
+        }
+    }
+    if (tcp->epoll_out) {
+        if (tcp->txbuf.size > 0) { // 如果当前数据已经发送完毕，后续数据等 TX_DATA 时可继续发送
+            prh_impl_tcp_send_data(tcp); // 后面可以一直写入直到 EAGAIN 为止
+        }
+        tcp->epoll_out = 0;
     }
 }
 
-void prh_impl_tcp_close(prh_tcpsocket *socket) {
-    // TODO: 做清理工作
-    prh_impl_tcp_report_closed(socket);
+void prh_impl_tcp_init_buffer(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rxbuf_size) {
+    assert(txbuf_size > 0 && rxbuf_size > 0);
+    prh_byte_arrfit *txbuf = &tcp->txbuf;
+    prh_byte_arrfit *rxbuf = &tcp->rxbuf;
+    prh_arrfit_init(txbuf, txbuf_size);
+    prh_arrfit_init(rxbuf, rxbuf_size);
+}
+
+prh_byte prh_impl_tcp_get_action(prh_cono_pdata *pdata) {
+    prh_byte action = ;
+    assert(action < PRH_TCPA_MAX_NUM);
+}
+
+void prh_impl_process_tcpa_invalid(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
+    prh_debug(prh_prerr(prh_impl_tcp_get_action(pdata)));
+}
+
+bool prh_impl_report_tcpe_open_ind(prh_tcpsocket *tcp) {
+    prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
+    prh_tcpe_open_ind *open_ind = (prh_tcpe_open_ind *)&port->event;
+    open_ind->tcp = tcp; // PRH_TCPE_OPEN_IND 和 PRH_TCPE_OPENED 是互斥的
+    prh_cono_post(&open_ind->head, 0); // PRH_TCPE_OPEN_IND
+    prh_impl_tcpa_accept *accept = prh_cono_pwait_from(PRH_TCPQ_UPPER);
+    assert(accept->head.action == PRH_TCPA_OPEN_ACCEPT);
+    if (accept->u.value) {
+        prh_impl_tcp_init_buffer(tcp, accept->txbuf_size, accept->rxbuf_size);
+        return true;
+    }
+    return false;
+}
+
+void prh_impl_tcp_finish(prh_tcpsocket *tcp) {
+    prh_cono_pdata *pdata;
+    prh_impl_report_tcpe_closed(tcp);
+    pdata = prh_cono_pwait_from(PRH_TCPQ_UPPER);
+    assert(prh_impl_tcp_get_action(pdata) == PRH_TCPA_FINISH);
+    prh_byte_arrfit *txbuf = &tcp->txbuf;
+    prh_byte_arrfit *rxbuf = &tcp->rxbuf;
+    prh_arrfit_free(txbuf);
+    prh_arrfit_free(rxbuf);
+}
+
+prh_cono_proc prh_impl_tcp_socket_proc(void) {
+    prh_tcpsocket *tcp = prh_cono_data();
+    prh_cono_pdata *pdata;
+    if (tcp->passive && !prh_impl_report_tcpe_open_ind(tcp)) {
+        prh_impl_tcp_close(tcp); // 新连接被上层拒绝，关闭该连接
+        return;
+    }
+    prh_impl_report_tcpe_opened(tcp);
+    prh_epoll_add_tcp_socket(tcp, prh_cono_subq(tcp, PRH_TCPQ_EPOLL));
+    while (!tcp->closed) {
+        pdata = prh_cono_pwait();
+        PRH_IMPL_TCPA_FUNC[prh_impl_tcp_get_action(pdata)](tcp, pdata);
+    }
+    prh_impl_tcp_finish(tcp);
 }
 
 #define PRH_TCP_LISTEN_STACK_SIZE 256
-#define PRH_IMPL_TCP_SOCKET_STACK_SIZE 512
-
-prh_inline bool prh_impl_tcp_sending_data(prh_tcpsocket *sk) {
-    return sk->txbuf.size > 0;
-}
-
-prh_inline bool prh_impl_tcp_reading_data(prh_tcpsocket *sk) {
-    return sk->rxbuf.size > 0;
-}
-
-prh_inline bool prh_impl_tcp_closing_req(prh_tcpsocket *sk) {
-    return sk->close_req;
-}
-
-void prh_impl_tcp_socket_ready(void *priv, prh_u32 events) {
-    prh_cono *tcp_coro = priv; // 给 tcp cono 发送 epoll 事件
-    prh_cono_pdata *pdata = prh_cono_malloc_pdata(PRH_TCPA_EPOLL_IND, PRH_TCPQ_EPOLL, events, sizeof(prh_cono_pdata));
-    prh_cono_freely_post(tcp_coro, pdata);
-}
-
-prh_cono_proc prh_impl_tcp_socket_proc(prh_cono *cono) {
-    prh_tcpsocket *tcp = prh_cono_data(cono);
-    if (tcp->passive) {
-        prh_tcp_open_accept *accept = prh_impl_tcp_report_open_ind(cono, tcp);
-        if (accept->u.value) {
-            prh_impl_tcp_socket_init_buffer(tcp, accept->txbuf_size, accept->rxbuf_size);
-            goto label_accepted;
-        }
-        prh_impl_tcp_close(tcp); // 新连接被上层拒绝，关闭该连接，并上报 CLOSED
-        return;
-    } else {
-label_accepted:
-        prh_impl_tcp_report_opened(cono, tcp);
-        tcp->priv.ready = prh_impl_tcp_socket_ready;
-        tcp->priv.priv = cono;
-        prh_epoll_add_tcp_socket(tcp->sock, &tcp->priv);
-    }
-    for (; ;) {
-        prh_cono_pdata *pdata = prh_cono_pwait(cono);
-        switch (pdata->head.action) {
-            case PRH_TCPA_TX_DATA: {
-                if (tcp->close_req || tcp->epoll_hup) {
-                    break; // 如果上层发起了断连不能继续发新的数据，或者套接字已经完全断连更不能发任何数据
-                }
-                prh_impl_tcp_write_data(tcp);
-                break;
-            }
-            case PRH_TCPA_RX_DONE: {
-                tcp->rxdata = false;
-                if (tcp->drained) { // 等待本端发完所有数据，并等待上层发起关闭请求
-                    prh_impl_tcp_report_close_ind(tcp);
-                    break;
-                }
-                prh_impl_tcp_read_data(tcp);
-                break;
-            }
-            case PRH_TCPA_CLOSE_REQ: {
-                if (tcp->epoll_hup) {
-                    // 双方都已经关闭，不需要再继续处理，且已经上报过 CLOSED
-                } else {
-                    tcp->close_req = true; // 等待本地写缓冲发送完毕，才能 SHUT_WR
-                    prh_impl_tcp_write_data(tcp);
-                }
-                break;
-            }
-            case PRH_TCPA_CLOSE_CFM: {
-                break;
-            }
-            case PRH_TCPA_EPOLL_IND: {
-                prh_epoll_parse_events(tcp, pdata->head.u.value);
-                if (tcp->epoll_err || tcp->epoll_hup) {
-                    // EPOLLERR 表示内核已检测到不可恢复的套接字错误（通常是 RST、
-                    // ICMP 不可达等），此时：套接字已处于错误状态；所有后续 send()
-                    // 或 recv() 立即返回 -1 和 ECONNRESET|ENETRESET|…；因此收到
-                    // EPOLLERR 后，直接 close(fd) 即可。
-                    // EPOLLHUP 是内核检测到“套接字/管道已彻底挂断”，不能继续读写，
-                    // 能做的只有 close(fd)。
-                    tcp->closing = 1;
-                    goto label_socket_close;
-                }
-                if (tcp->epoll_in && !prh_impl_tcp_reading_data(tcp)) {
-                    tcp->epoll_in = 0; // 后面需要一直读取直到 EAGAIN 为止
-                    prh_impl_tcp_read_data(tcp);
-                }
-                if (tcp->epoll_out) {
-                    tcp->epoll_out = 0; // 后面可以一直写入直到 EAGAIN 为止
-                    prh_impl_tcp_cont_write(tcp);
-                }
-                break;
-            }
-            default: {
-                prh_prerr(pdata->head.action);
-                break;
-            }
-        }
-    }
-label_socket_close:
-    prh_epoll_close_fd(tcp->sock);
-    prh_impl_tcp_close(tcp);
-}
+#define PRH_TCP_SOCKET_STACK_SIZE 512
 
 prh_cono_proc prh_impl_tcp_listen_proc(prh_cono *cono) {
     prh_tcplisten *listen = prh_cono_data(cono);
@@ -15398,12 +15465,11 @@ prh_cono_proc prh_impl_tcp_listen_proc(prh_cono *cono) {
             continue;
         }
         if (new_connection.sock != PRH_INVASOCK) {
-            prh_tcpsocket *socket = prh_cono_spawx(PRH_TCPQ_MAX_NUM, prh_impl_tcp_socket_proc, PRH_IMPL_TCP_SOCKET_STACK_SIZE, sizeof(prh_tcpsocket));
-            *socket = new_connection;
-            socket->tcp_coro = cono;
-            socket->upp_coro = listen->upp_coro;
-            socket->upp_subq = listen->upp_subq;
-            prh_cono_freely_start((prh_spawn_data *)socket);
+            int size = (int)sizeof(prh_tcpsocket) + (int)sizeof(prh_impl_tcp_port);
+            prh_tcpsocket *tcp = prh_cono_spawx(PRH_TCPQ_MAX_NUM, prh_impl_tcp_socket_proc, PRH_TCP_SOCKET_STACK_SIZE, size);
+            *tcp = new_connection;
+            prh_impl_tcp_port_init(tcp, listen->upper_subq, tcp_subq);
+            prh_cono_start((prh_spawn_data *)tcp, false);
         }
     }
     prh_epoll_del(listen->sock);
@@ -15412,21 +15478,19 @@ prh_cono_proc prh_impl_tcp_listen_proc(prh_cono *cono) {
 
 // 如果有人使用通配地址注册一个端口，那么该端口就不能再被其他人注册，之前有人注册过的
 // 也会被强制断开。
-prh_tcplisten *prh_start_tcp_server(prh_cono *coro, prh_byte coro_subq, const char *host, prh_u16 port, int backlog) {
+prh_tcplisten *prh_start_tcp_server(prh_cono_subq *cono_subq, const char *host, prh_u16 port, int backlog) {
     prh_tcplisten *listen = prh_cono_spawn(prh_impl_tcp_listen_proc, PRH_TCP_LISTEN_STACK_SIZE, sizeof(prh_tcplisten));
     prh_tcp_listen(listen, host, port, backlog);
-    listen->upp_coro = coro;
-    listen->upp_subq = coro_subq;
-    prh_cono_freely_start((prh_spawn_data *)listen);
+    listen->upper_subq = cono_subq;
+    prh_cono_start((prh_spawn_data *)listen, false);
     return listen;
 }
 
-prh_tcplisten *prh_start_ip6_tcp_server(prh_cono *coro, prh_byte coro_subq, const char *host, prh_u16 port, int backlog) {
+prh_tcplisten *prh_start_ipv6_tcp_server(prh_cono_subq *cono_subq, const char *host, prh_u16 port, int backlog) {
     prh_tcplisten *listen = prh_cono_spawn(prh_impl_tcp_listen_proc, PRH_TCP_LISTEN_STACK_SIZE, sizeof(prh_tcplisten));
-    prh_ip6_tcp_listen(listen, host, port, backlog);
-    listen->upper_coro = coro;
-    listen->upper_subq = coro_subq;
-    prh_cono_freely_start((prh_spawn_data *)listen);
+    prh_ipv6_tcp_listen(listen, host, port, backlog);
+    listen->upper_subq = cono_subq;
+    prh_cono_start((prh_spawn_data *)listen, false);
     return listen;
 }
 
