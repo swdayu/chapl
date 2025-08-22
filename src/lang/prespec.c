@@ -6,71 +6,38 @@
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 #fall 表示。
 //  if else case for range
 //  continue break defer await yield return
-//  type const void
+//  const void pub adr der
 //  static extern using
 //  sizeof typeof alignof offsetof
 //
 // 函数参数或者结构体成员声明
-//  type point point p2     Point point p2
-//  *point point p2         *Point point p2
-//  **point point p2        **Point point p2
-//  [2]point point p2       [2]Point point p2
-//  *[2]point point p2      *[2]Point point p2
-//  [2]*point point p2      [2]*Point point p2
+//  Point point p2
+//  *Point point p2
+//  **Point point p2
+//  [2]Point point p2
+//  *[2]Point point p2
+//  [2]*Point point p2
 //
 // 定义泛型类型参数（generic type parameter）compile time const 类型参数
 //  $T $U            定义两个类型参数 T 和 U，相当于：
 //  ${any} T U       上面简写形式例如 $T 之后词法元素，必须以$或其他标点开头，或是关键字、类型名
-//  $T $type.u       也是定义两个类型参数，T 和 type.u
-//  ${any} T type.u  等价形式
-//  $type.t $U       也是定义两个类型参数，type.t 和 U
-//  ${any} type.t U  等价形式
-//  ${integer} Int   整数类型
-//  ${float} Float   浮点类型
-//  ${numeric} Type  数值类型
-//  $T $__type_u
-//  $__type_t $U
+//  ${int} Int   整数类型
+//  ${flo} Float   浮点类型
+//  ${num} Type  数值类型
 //
 // 定义泛型常量参数（generic value parameter）compile time const 常量参数
 //  $T a $U b $int c  定义三个常量参数 a 和 b 和 c，a 的类型是 T，b 的类型是 U，c 的类型是 int
-//  $type.t a $U b    定义两个常量参数 a 和 b，a 的类型是 type.t，b 的类型是 U
-//  $T a $type.u b    定义两个常量参数 a 和 b，a 的类型是 T，b 的类型是 type.u
-//  $type.point point 定义一个常量参数 point，point 的类型是 type.point，不能简化
-//  $type.point p1 p2 定义两个常量参数 p1 和 p2，类型都是 type.point
 //  $string a $int b  定义两个产量参数 a 和 b，a 的类型是字符串，b 的类型是整数
-//  $__type_t a $U b
-//  $T a $__type_u b
-//  $__type_point point
-//  $__type_point p1 p2
-//
-//  $T $U
-//  $T $__type_u
-//  $__type_t $U
-//  ${any} T U
-//  ${any} T __type_u
-//  ${any} __type_t U
-//  ${int} Int
-//  ${flo} Float
-//  ${num} Numeric
-//
-//  $T a $U b $int c
-//  $__type_t a $U b
-//  $T a $__type_u b
-//  $string a $int b
-//  $__type_point point
-//  $__type_point p1 p2
 //
 // 首字母大写，包括单个大写字母，并排除包含两个和两个以上字母但都是大写的标识符之后的所
-// 有标识符都识别为类型名。另外以关键字 type 开始的标识符，或包含在 @{} 之内的标识符，
-// 也都是类型名。以双下划线开始的标识符，是保留关键字。因此使用 __type_ 开始的标识符也
-// 也被当成是类型名称。另外 __type{} 定义的类型名称可以包含任何字符。以 _t 为后缀的名
-// 称也被当成是类型名。
+// 有标识符都识别为类型名。包含在 @type{} 之内的标识符，也是类型名。
 //
-// 其他标识符符都是非类型标识符，包括函数名、变量名、标签、包名等等。另外包含在 @() 之
-// 内的标识符也都是非类型标识符，例如把类型名和关键字当作变量标识符使用：@(int) @(if)
-// @(Type) @(type)。以 # 开头的标识符是编译器指令，包括函数、类型、变量的属性名称等。
-// __name_Type __name_int __name_if，另外 __name{} 定义的非类型名称可以包含任何
-// 字符。
+// 其他标识符符都是非类型标识符，包括函数名、变量名、标签、包名等等。另外包含在 @name{}
+// 之内的标识符也都是非类型标识符，例如把类型名和关键字当作变量标识符使用：@name{int}
+// @name{if} @name{Type}。
+//
+// 以 # 开头的标识符是编译器指令。以 @ 开头的标识符是属性名称，包括函数、类型、变量的
+// 属性名称等。以双下划线开始的标识符，是保留关键字。
 //
 // 编译时常量：
 //  #file #func #line #retp
@@ -86,12 +53,12 @@
 //  this 当前函数（当前函数的地址）或当前结构体，不提供任何面向对象的特殊含义，但匿名类型需要用
 // 操作符
 // #- #+ #^
-// (&) (*) (**) (*&) (**&) (&1) (&2) (*1) (*2) @addr @dref @ddref @dddref @novalue
+// (&) (*) (**) (*&) (**&) (&1) (&2) (*1) (*2) @noinit
 //
 // 基本类型，定义在 type 代码包中：
-//  bool null byte char string @errno
+//  bool null byte char string errno
 //  i08 i16 i32 i64 i128 int int(32) int(64) int(128) (b w d q x y z p r) byte word double-word quad-word xmm-word ymm-word zmm-word
-//  u08 u16 u32 u64 u128 unt unt(32) unt(64) unt(128) ... var_ptr sys_int sys_unt sys_ptr
+//  u08 u16 u32 u64 u128 unt unt(32) unt(64) unt(128) ... Ptr SysPtr SysInt SysUnt
 //  f08 f16 f32 f64 f128 float float(32) float(64) float(128)
 //  d08 d16 d32 d64 d128 decimal decimal(32) decimal(64) ...
 //  c08 c16 c32 c64 c128 complex complex(32) complex(64) ...
@@ -101,10 +68,10 @@
 //                                          arch-32     arch-64 small memory range app  arch-64 large memory range app
 //  int - pointer size signed type          32-bit      32-bit                          64-bit
 //  unt - pointer size unsigned type        32-bit      32-bit                          64-bit
-//  var_ptr - pointer type                  32-bit      32-bit                          64-bit
-//  sys_int - system register size type     32-bit      64-bit                          64-bit
-//  sys_unt - system register size type     32-bit      64-bit                          64-bit
-//  sys_ptr - system register width pointer 32-bit      64-bit                          64-bit
+//  Ptr - pointer type                      32-bit      32-bit                          64-bit
+//  SysInt - system register size type      32-bit      64-bit                          64-bit
+//  SysUnt - system register size type      32-bit      64-bit                          64-bit
+//  SysPtr - system register width pointer  32-bit      64-bit                          64-bit
 //
 // 类型约束：
 // Any Integer Float Unsigned Decimal Complex BasicType AnonyType NamedType GimplType
@@ -116,10 +83,10 @@
 // integer      // bool null byte rune errt strt i08~i512 u08~u512 int unt
 //
 // 复合类型和匿名类型：
-//  int  u16  f64  Point  __type_myint  myint_t
-//  int* u16* f64* Point* __type_myint* myint_t*
-//  int[2] u16[2] f64[2]
-//  int[2]* u16[2]* f64[2]*
+//  int  u16  f64  Point  MyInt
+//  *int *u16 *f64 *Point *MyInt
+//  [2]int [2]u16 [2]f64
+//  *[2]int *[2]u16 *[2]f64
 //  *int *u16 *f64 *Point
 //  *[2]int *[2]u16 *[2]f64
 //  (int a b) (int a b return int) (void) (return int) 参数必须带名称，返回值是一个类型列表不能带名称，函数如果没有参数必须带void
@@ -130,11 +97,11 @@
 //      (return int string) 没有参数，多个返回值
 //      (int a return int)
 //      (int a b)
-//      (__type_point point float factor)
+//      (Point point float factor)
 //      (Point p float factor) 结构体默认传递地址，因此不需要显式指定指针类型，如果不希望对象被函数修改，需要在调用前先拷贝
-//      (int a b yield int i var_ptr p return int) 带有协程中间结果的函数
-//      (int a b [capture_c d] yield var_ptr p return int) 带有捕获参数的闭包函数，闭包函数是在定义时一次性生成的，闭包参数只要名字相同且能完成函数内部的操作就没有问题
-//      定义一个函数类型：__type_calc(int a b return int)
+//      (int a b yield int i Ptr p return int) 带有协程中间结果的函数
+//      (int a b [capture_c d] return [Ptr p] int) 带有捕获参数的闭包函数，闭包函数是在定义时一次性生成的，闭包参数只要名字相同且能完成函数内部的操作就没有问题
+//      定义一个函数类型：Calc(int a b return int)
 //      声明一函数字面量：extern calc(int a b return int)
 //      声明一个函数指针：extern calc Calc
 //      定义一函数字面量：calc(int a b return int) { return a + b }
@@ -147,12 +114,10 @@
 //      (int int)            结构体不能同时定义两个同类型的内嵌字段
 //      (this int int int)   结构体不能内嵌一个指针类型
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
-//      $i08 (RED {const * 2} YELLOW BLUE) // const 是枚举元素的索引值
-//      $int (RED YELLOW BLUE)
+//      $i08 {RED {const * 2} YELLOW BLUE} // const 是枚举元素的索引值
+//      $int {RED YELLOW BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
-//      $T $((T* p int a b int) calc $(T* p int c) get) {}
-//      $T $(*T p int a b return int) calc
-//         $(*T p int c) get {}
+//      $T $(*T p int a b return int) calc $(*T p int c) get {}
 //  Struct 表示定义一个类型
 //      Type {}
 //      { int a b } {1, 2}
@@ -165,40 +130,36 @@
 //      const HI HiData { a(MAX_SIZE) b(3.14) c("hello") p{10, 30} } // 基本类型、结构体、复合类型的初始化怎么统一 ???
 //      const fn (int a b int) calc_func
 // 定义一个类型参数列表
-//      Test($T $int a $string b) {}
+//      Test $T $int a $string b {}
 //      Test(Type, 1, "hello")
 // 复合类型，匿名类型也可用于复合类型声明，不必先定义新命名类型再定义复合类型：
-//      指针                数组                数组的指针              指针的数组
-//      int*                int[2]              int[2]*                 int*[2]
-//      f64*                f64[2]              f64[2]*                 f64*[2]
-//      int**               int[2][3]           int[2][3]**             int**[2][3]
-//      f64**               f64[2][3]           f64[2][3]**             f64**[2][3]
-//      *int                [2]int              *[2]int
-//      *f64                [2]f64              *[2]f64
-//      **int               [2][3]int           **[2][3]int
-//      **f64               [2][3]f64           **[2][3]f64
+//      指针                数组                数组的指针          指针的数组
+//      *int                [2]int              *[2]int             [2]*int
+//      *f64                [2]f64              *[2]f64             [2]*f64
+//      **int               [2][3]int           **[2][3]int         [2][3]**int
+//      **f64               [2][3]f64           **[2][3]f64         [2][3]**f64
 // 命名类型单指用户定义的类型，虽然基本类型也都是有名字的：
-//  MyInt int __type_myint int
-//  Func (int a b int)
+//  MyInt int
+//  Func (int a b return int)
 //  Func (void) 参数为空，返回为空
-//  Func (void u32 bool) 参数为空，返回u32和bool
+//  Func (return u32 bool) 参数为空，返回u32和bool
 //  Method (Point p float factor)
 //  Data { int a b }
-//  Oper $T ((T* p int a b int) calc)
-//  Color $int (RED YELLOW BLUE)
+//  Oper $T $(*T p int a b return int) calc {}
+//  Color $int {RED YELLOW BLUE}
 // 函数包含参数和捕获，函数调用时需要给参数提供实参而捕获不需要：
-//  (int a b int) [m] { ... }
-//  (Point p float factor float) [m] { ... }
+//  (int a b [m] return int) { ... }
+//  (Point p float factor [m] return float) { ... }
 // 定义模板类型，模板类型都是命名的，如果模板是基本类型，则需要使用常量进行实例化：
-//  Ptr $T { T* p }
-//  Pfp $T { T** pp)
-//  Array $T $int size { T[size] a }
-//  Slice $T { T* a int len }
-//  Map $K $V { {K key V value}[] slice }
-//  Point ${numeric} T { T x y } // 只能给结构体定义模板，接口和函数都不能定义模板，但是模板类型可以作为函数的接收类型
-//  Triple $T $unt size { T[size] a U b }
-//  length (type(Point, $T) p return T) { return p.x * p.x + p.y * p.y }
-//  size (type(Triple, $int N, $T, $U) p return int) { return N + sizeof(T) + sizeof(U) }
+//  Ptr $T { *T p }
+//  Pfp $T { **T pp)
+//  Array $T $int size { [size]T a }
+//  Slice $T { *T a int len }
+//  Map $K $V { []{K key V value} slice }
+//  Point ${num} T { T x y } // 只能给结构体定义模板，接口和函数都不能定义模板，但是模板类型可以作为函数的接收类型
+//  Triple $T $unt size { [size]T a U b }
+//  length (Point($T) p return T) { return p.x * p.x + p.y * p.y }
+//  size (Triple($int N, $T, $U) p return int) { return N + sizeof T + sizeof U }
 // 模板类型实例化：                                                      代码中仅允许使用这种简化的形式
 //  ptr(int) ptr(ptr(int))                                              int* int**              type::int* int.type::ptr
 //  array(int, 3)                                                       int[3]                  int.type::array(3)
@@ -284,61 +245,32 @@
 
 Point { float x y }
 Data { int a b (int a b int) f g }
-Reader $T (
-    (T* p int a b int) calc
-    (T* p byte[] a) get
-)
+Get(*$T a int) // 函数参数只能声明类型模板参数
+Read(*$T a Ptr p int n int)
+Reader $T
+    $Get(T) get
+    $Read(T) read
+{}
 
-Get($T* a int) // 函数参数只能声明类型模板参数
-Read($T* a var_ptr p int n int)
-Reader $T (
-    type(Get, T) get
-    type(Read, T) read
-)
+@type{get} (*$T a return int)
+@type{get} (*${any} T a return int)
+@type{read} (*$T a Ptr p int n return int)
+@type{reader} $T $(@type{get}(T) get @type{read}(T) read {}
 
-type get($T* p int)
-type read($T* p var_ptr buf int n int)
-type reader $T (type(get, T) get type(read, T) read)
+hci_rx_buffer_handled_and_free(Hci_Rx_Desc rx_desc u32 ca Hci_Data_Type data_type U line)
 
-@{get} ($T* a int)
-@{get} (${any} T* a int)
-@{read} ($T* a var_ptr p int n int)
-@{reader} $T (tn(@{get}, T) get tn(@{read}, T) read)
-
-hci_rx_buffer_handled_and_free(__type_hci_rx_desc rx_desc u32 ca __type_hci_data_type data_type __type_u line)
-
-__type_l2cap_conn
-__type_l2cap_callback
-__type_hci_conn_type
-__type_bt_status
-__type_btif_l2cap_echo_req_callback
-__type_hci_global
-__type_hci_data_type
-__type_hci_conn_type
-__type_hci_conn_item
-__type_hci_evt_packet
-__type_hci_rx_desc
-__type_hci_tx_desc
-
-__type_reader $T (
-    (T* p int a b int) calc
-    (T* p byte[] a) get
-)
-
-__type_point { float x y }
-__type_data { int a b (int a b int) f g }
-__type_reader $T ((T* p int a b int) calc (T* p byte[] a) get)
-__type_get($T* p int)
-__type_read($T* p var_ptr buf int n int)
-__type_reader $T (__type_get(T) get __type_read(T) read)
-__type_handle(__type_hci_rx_desc* rx_desc u32 ca __type_hci_data_type type __type_u line)
-__type_l2cap_conn
-__type_l2cap_callback
-__type_hci_conn_type
-__type_bt_status
-__type_hci_global
-__type_hci_conn_type
-__type_hci_conn_item
+L2cap_Conn
+L2cap_Callback
+Hci_Conn_Type
+Bt_Status
+Btif_L2cap_Echo_Req_Callback
+Hci_Global
+Hci_Data_Type
+Hci_Conn_Type
+Hci_Conn_Item
+Hci_Evt_Packet
+Hci_Rx_Desc
+Hci_Tx_Desc
 
 Point { float x y }
 Data { int a b (int a b return int) f g }
@@ -361,38 +293,12 @@ using ArrFit
 using ArrDyn
 using ArrLax
 
-type point { float x y }
-type data { int a b (int a b return int) f g }
-type reader $T $(*T p int a b return int) calc $(*T p []byte a) get {}
-type get (*$T p return int)
-type read (*$T p *byte buf int n return int)
-type reader $T $get(T) get $read(T) read {} // $get(T) 类型列表是类型实例化 值列表是函数调用
-type handle (*hcirxdesc rx_desc u32 ca type hcidatatype data_type U line)
-type l2capconn         *l2capconn
-type l2capcallback     *l2capcallback
-type tcpsocket         *tcpsocket
-type btstatus          *btstatus
-type hciglobal         *hciglobal
-type hciconntype       *hciconntype
-type hciconnitem       *hciconnitem
-type quefit
-type quefix
-type arrfix
-type arrfit
-type arrdyn
-type arrlax
-
 T1 int // 禁止
 T3 T2 // 禁止
-T4 { (int a b int) f int a b }
-T5 $T ((T* p int a b int) calc)
-T6 (int a b int)
+T4 { (int a b return int) f int a b }
+T5 $T $(*T p int a b return int) calc {}
+T6 (int a b return int)
 T7 (Point p float factor)
-
-type t4 { (int a b int) f int a b }
-type t5 $T ((T* p int a b int) calc)
-type t6 (int a b int)
-type t7 (Point p float factor)
 
 T1 int[3] // 禁止
 T3 T2[3] // 禁止
@@ -419,34 +325,30 @@ Triple $T $U $int size {
     U b
 }
 
-Main(i32 argc byte** argv i32)
-
-Scale(Point p int a b)
-
-Calc(int a b int)
-
-type calc(int a b int errno) // errno is a type with i32
+Main (i32 argc **byte argv return i32)
+Scale (Point p int a b)
+Calc (int a b return int errno) // errno is a type with i32
 result calc(1, 2)
 if errno { // error handle
 }
 calc(1, 2) #abort(if errno)
 
-using 3rd "array.code" // 文件可提供一个包名，但可以不使用，还可以改名，但不能改成 std 和其他关键字
-array 3rd::type array 3rd::array_init()
+using 3rd "array.code" // 文件可提供一个包名，也可以不提供
+array 3rd::Array 3rd::array_init()
 array 3rd::array_init()
 array.append(2)
 array += 3
 array += 4
 
-using public {
-    type calc
-    type coroutine
-    type array
-    init(*array ~)
-    free(*array ~)
+:::std::: export { // 必须紧跟在 ::: 之后
+    Calc
+    Coroutine
+    Arrfit
+    init(*Arrfit ~)
+    free(*Arrlax ~)
 }
 
-type coro {
+pub Coro { // pub 赋予字段只读权限
     u32 rspoffset // 1st field dont move
     u32 loweraddr
     u32 maxudsize 31 ptr_param 1
@@ -459,36 +361,36 @@ type coro {
     unt loweraddr
     unt maxudsize 31 ptr_param 1
     int coro_id
-    var_ptr address
+    Ptr address
 }
 
-type coroguard {
+pub CoroGuard {
     u32 lower_guard_word
     u32 upper_guard_word
-    type coro @embed
-    *coro coro
+    Coro @embed
+    *Coro coro
     this @embed
     this coro_guard
     (int a b return int) calc
-    (*coro p) func
+    (*Coro p) func
 }
 
-type color $i08 {RED {const + 1} BLUE YELLOW}
-type color $int {red blue { blue_defined_value } yellow}
-type color $int @strict {RED {1} BLUE {2} YELLOW {3}}
-type color $u08 { red blue { blue_defined_value } yellow }
+Color $i08 {RED {const + 1} BLUE YELLOW}
+Color $int {red blue { blue_defined_value } yellow}
+Color $int [[strict]] {RED {1} BLUE {2} YELLOW {3}}
+Color $u08 { red blue { blue_defined_value } yellow }
 
-__type_coroguard { // 内嵌只能内嵌结构体类型，不能是指针
+CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     u32 lower_guard_word
     u32 upper_guard_word
     Coro #embed // 不能内嵌两个相同类型
-    Coro* coro_ptr
+    *Coro coro_ptr
     this #embed // 错误，指针不能内嵌
     this coroguard
-    (int a b int) calc
+    (int a b return int) calc
     (int a) print
-    (this p int a b int) a
-    (__type_coroguard g int a b int) f g
+    (this p int a b return int) a
+    (CoroGuard g int a b return int) f g
     (Coro p) h
     { int a b }
     { int a b } tuple
@@ -496,89 +398,78 @@ __type_coroguard { // 内嵌只能内嵌结构体类型，不能是指针
     $int (red {red_enum_value} blue yellow) color
 )
 
-Color $i08 (
+Color $i08 {
     RED {const + 1}
     BLUE
     YELLOW
-)
+}
 
-Color $int (
+Color $int {
     red
     blue {blue_defined_value}
     yellow
-)
+}
 
-type main (i32 argc **byte argv return i32)
-type calc (int a b return int)
-type coroguard { u32 lower_guard_word type coro @embed *coro coro (*coroguard g int a b return int) f g }
-type node $T { this next T data }
-type triple $T $U $type i size { [size]T a U b }
-type array $T $int size { [size]T a }
-type array $type t $int size { [size]t a }
-type array $T { *T item int capacity unt len }
-type color $i08 {RED {const + 1} BLUE YELLOW}
-type color $int {red blue {blue_defined_value} yellow}
+Color $i08 @strict { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
+    1 RED
+    2 BLUE
+    3 YELLOW
+}
 
-Color $i08 @strict ( // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    RED     1
-    BLUE    2
-    YELLOW  3
-)
-
-BitValue $int (
-    FLAG_BIT1 {1 << const}
+BitValue $int {
+    (1 << const) FLAG_BIT1
     FLAG_BIT2
     FLAG_BIT3
     FLAG_BIT4
-)
+}
 
-__type_main (i32 argc byte** argv i32)
-__type_scale (__type_point int a b)
-__type_calc (int a b int)
-__type_array $__type_t $int size { __type_t[size] a }
-__type_color $i08 (RED 1 BLUE 2 YELLOW 3)
-__type_bit_value $int (FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3)
+Main (i32 argc **byte argv return i32)
+Scale (Point point int a b)
+Calc (int a b return int)
+Array $T $int size { [size]T a }
+Color $i08 {RED 1 BLUE 2 YELLOW 3}
+BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3}
 
-__type_tcp_action $int (
+TcpAction $int {
     TCPA_OPEN_ACCEPT
     TCPA_TX_DATA
     TCPA_RX_DONE
     TCPA_CLOSE_REQ
     TCPA_CLOSE_CFM
     TCPA_EPOLL_IND
-)
+}
 
-__type_tcpa_accept {
-    __type_cono_pdata head
+TcpAccept {
+    ConoPdata head
     u32 rxbuf_size
     u32 txbuf_size
 }
 
-__type_writer $T
-    (T* p int c) put
-    (T* p var_ptr p int n int) write
-    void
+Writer $T
+    $(*T p int c) put
+    $(*T p Ptr p int n return int) write
+{}
 
-__type_color $i08 () // 因为i08是关键字，不能使用关键字定义新的类型参数，因此这里必须是一个常量参数
+Color $i08 {} // 因为i08是关键字，不能使用关键字定义新的类型参数，因此这里必须是一个常量参数
 
-__type_ptr enum { // enum 用来定义 sum type/tagged union type
-    ptr (var_ptr)
-    null @occupy var_ptr 0 // @occupy 只能用于两个元素的enum
+TypePtr enum { // enum 用来定义 sum type/tagged union type
+    ptr (Ptr)
+    null #occupy Ptr 0 // @occupy 只能用于两个元素的enum
 }
 
-__type_token enum { // enum 定义的是一个联合体类型
-    atom {rune id}
-    oper {rune id}
+Token enum { // enum 定义的是一个联合体类型
+    atom {char id}
+    oper {char id}
     eof
 }
 
-__type_expr enum { // enum 定义的是一个联合体类型
+Expr enum { // enum 定义的是一个联合体类型
     value { int n }
     ident { int id }
-    expr {rune op __type_expr lhs rhs}
+    expr {char op Expr lhs rhs}
 }
 
-__type_oper $int {int lpri rpri} { // $int 定义的是一个常量
+Oper $int {int lpri rpri} { // $int 定义的是一个常量
     ass '=' => {200, 201} // a = 2 + b = 3
     add '+' => {211, 210}
     sub '-' => {211, 210}
@@ -589,16 +480,16 @@ __type_oper $int {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-eat (__type_lexer* lexer return __type_token) {
+eat (*Lexer lexer return Token) {
     return lexer.pop()
 }
 
-peek (__type_lexer* lexer return __type_token) {
+peek (*Lexer lexer return Token) {
     return lexer.top()
 }
 
-eval (__type_oper op __type_expr lhs rhs return __type_expr) {
-    res __type_expr ???
+eval (Oper op Expr lhs rhs return Expr) {
+    res Expr ???
     if op case '=' {
         res = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
@@ -616,8 +507,8 @@ eval (__type_oper op __type_expr lhs rhs return __type_expr) {
     return res
 }
 
-parse_expression (__type_lexer* lexer int min_prior) {
-    lhs __type_expr @noinit
+parse_expression (*Lexer lexer int min_prior) {
+    lhs Expr ???
     if lexer.eat() case .atom(it) {
         if it == '0'..'9' {
             lhs = .value(it - '0')
@@ -626,11 +517,11 @@ parse_expression (__type_lexer* lexer int min_prior) {
         } else panic("bad token %d", it)
     } case .oper('(') {
         lhs = eval(parse_expression(lexer, 0)
-        assert_eq(lexer.skip(), __type_token.oper(')'))
+        assert_eq(lexer.skip(), Token.oper(')'))
     } else panic("bad token %d", it)
 
     for {
-        op __type_expr @noinit
+        op Expr ???
         if lexer.peek() case .eof .oper(')') {
             break
         } case .oper(it) {
@@ -638,7 +529,7 @@ parse_expression (__type_lexer* lexer int min_prior) {
         } else panic("bad token %d", it)
         lexer.skip()
 
-        prior match(__type_oper, op.expr.op)
+        prior match(Oper, op.expr.op)
         if prior.lpri < min_prior {
             break
         }
@@ -670,33 +561,33 @@ parse_expression (__type_lexer* lexer int min_prior) {
 //          }
 //      }
 
-ptr var_ptr alloc(1024)
+ptr Ptr alloc(1024)
 ptr.unwrap_or_panic()
 
-token __type_token scan()
+token Token scan()
 if token case .eof {
 }
 
-perform_tcpa_open_accept(__type_tcp_socket* tcp u32 txbuf_size u32 rxbuf_size) {
-    pdata __type_tcpa_accept* cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof(__type_tcpa_accept))
+perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+    pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened(__type_tcp_socket* tcp) {
-    pdata __type_tcpe_opened* tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(__type_tcpe_opened))
-    txbuf __type_byte_arrfit* @addr tcp.txbuf
+report_tcpe_opened(*TcpSocket tcp) {
+    pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
+    txbuf *ByteArrfit addrof tcp.txbuf
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_freely_post(tcp.upp_coro, &pdata->head)
+    cono_freely_post(tcp.upp_coro, addrof pdata->head)
 }
 
-epoll_proc(__type_cono* cono) {
-    epoll __type_epoll* cono_data(cono)
-    pdata __type_pdata* @novalue
-    action byte @novalue
+epoll_proc(*Cono cono) {
+    epoll *Epoll cono_data(cono)
+    pdata *ConoPdata __uninit
+    action byte __uninit
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -713,47 +604,51 @@ epoll_proc(__type_cono* cono) {
     }
 }
 
-__type_main (i32 argc byte** argv return i32)
-__type_scale (__type_point int a b)
-__type_calc (int a b return int)
-__type_array $__type_t $int size { __type_t[size] a }
-__type_color $i08 @strict (RED {1} BLUE {2} YELLOW {3})
-__type_bit_value $int (FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4)
+pub main(int argc **byte argv return int) {
 
-__type_tcp_action $i08 (
+}
+
+Main (i32 argc **byte argv return i32)
+scale (Point point int a b)
+calc (int a b return int)
+Array $T $int size { [size]T a }
+Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
+BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
+
+TcpAction $i08 {
     TCPA_OPEN_ACCEPT
     TCPA_TX_DATA
     TCPA_RX_DONE
     TCPA_CLOSE_REQ
     TCPA_CLOSE_CFM
     TCPA_EPOLL_IND
-)
+}
 
-__type_tcpa_accept {
-    __type_cono_pdata head
+TcpAccept {
+    ConoPdata head
     u32 rxbuf_size
     u32 txbuf_size
 }
 
-perform_tcpa_open_accept(__type_tcp_socket* tcp u32 txbuf_size u32 rxbuf_size) {
-    pdata __type_tcpa_accept* cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof(__type_tcpa_accept))
+perform_tcpa_open_accept (*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+    pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened(__type_tcp_socket* tcp) {
-    pdata __type_tcpe_opened* tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(__type_tcpe_opened))
-    txbuf __type_byte_arrfit* __addr tcp.txbuf
+report_tcpe_opened(*TcpSocket tcp) {
+    pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
+    txbuf *ByteArrfit adr tcp.txbuf
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_freely_post(tcp.upp_coro, &pdata->head)
+    cono_post(adr pdata->head)
 }
 
-epoll_proc(__type_cono* cono) {
-    epoll __type_epoll* cono_data(cono)
-    pdata __cono_pdata* __novalue
+epoll_proc(*Cono cono) {
+    epoll *Epoll cono_data(cono)
+    pdata *ConoPdata __novalue
     action byte __novalue
     for {
         pdata = cono_pwait(cono)
@@ -772,53 +667,53 @@ epoll_proc(__type_cono* cono) {
 }
 
 // 结构体参数是该结构体定义的所有变量都共享的参数，即静态数据
-Writer @comptime $T ( // 可以有两种实现，一种时编译时实现速度快但代码大，一种时运行时实现速度慢一点但代码小
-    (T* p int c) put
-    (T* p var_ptr p int n int) write
-)
+Writer [[comptime]] $T // 可以有两种实现，一种时编译时实现速度快但代码大，一种时运行时实现速度慢一点但代码小
+    $(*T p int c) put
+    $(*T p Ptr p int n int) write
+{}
 
 // File类型的静态数据布局：
 // File.Writer  put(File* self int c)
-//              write(File* self var_ptr p int n int)
+//              write(File* self Ptr p int n int)
 // File.Reader  get(File* self)
-//              read(File* self var_ptr p int n int)
+//              read(File* self Ptr p int n int)
 File {
-    var_ptr fd
+    Ptr fd
     #impl Writer(File, file_put, file_write)
     #impl Reader(File, file_get, file_read)
 }
-generic_write(__type_writer* writer) { // 实际上参数会传递 file 以及 File.Writer 静态数据的地址
+generic_write (*Writer writer) { // 实际上参数会传递 file 以及 File.Writer 静态数据的地址
     func writer.write
     func(writer)
 } // 如果是编译时实现，对每个实现类，都会生成一个特定的 genric_write 函数，其中的 func 会直接替换为实际函数，这种泛型实现是一种非常灵活的填鸭式的代码实现
 
-__type_calc(int a b return int)
+Calc (int a b return int)
 
-__type_snode $T {
+Snode $T {
     this next
     T data
 }
 
-for i __type_i 0 .. 9 {
-    i int (*)(__type_i*)addr
-    pos + (*&)(__type_i)(byte* p + size + f(g))
+for i I 0 .. 9 {
+    i int der *I addr
+    pos + der adr *I (*byte p + size + f(g))
 }
-memcpy (var_ptr dst src int count) #intrinsic
-memcmp (var_ptr dst src int count return int) #intrinsic
-memset (var_ptr dst byte value int count) #intrinsic
-lock_cmpxchg (__type_t* p __type_t old new return __type_t) #intrinsicc
-coroguard (__type_coro* coro return __type_coroguard) #cdcel #inline
+memcpy (Ptr dst src int count) [[intrinsic]]
+memcmp (Ptr dst src int count return int) [[intrinsic]]
+memset (Ptr dst byte value int count) [[intrinsic]]
+lock_cmpxchg (*T p T old new return T) [[intrinsic]]
+coroguard (*Coro coro return CoroGuard) [[cdcel inline]]
 
-__type_calc (int a b return int)
-__type_snode $T { this next T data }
-for i __type_i 0 .. 9 {
-    i int (*)(__type_i*)addr
-    pos + (*&)(__type_i)(byte* p + size + f(g))
+Calc (int a b return int)
+Snode $T { this next T data }
+for i I 0 .. 9 {
+    i int der *I addr
+    pos + der adr I (*byte p + size + f(g))
 }
-memcpy (var_ptr dst src int count)
-memcmp (var_ptr dst src int count return int)
-lock (__type_t* p __type_t old new return __type_t)
-coro_guard (__type_coro* coro return __type_coro_guard)
+memcpy (Ptr dst src int count)
+memcmp (Ptr dst src int count return int)
+lock (*T p T old new return T)
+coro_guard (*Coro coro return CoroGuard)
 
 // 类型并不需要提前声明，因为可以通过词法直接分辨，函数类型如果可以通过传递的参数匹配也无需提前声明
 using T1
@@ -829,58 +724,49 @@ using T5
 using T6
 using T7
 using Calc
-using myint_t
-using calc_t
-using coro_t
-using __type_myint
-using __type_calc
-using __type_coro
+using MyInt
+using Coro
 
 // 定义变量，包括函数变量，一个非类型标识符后跟一个类型表示定义该类型的一个变量
-__type_coro_proc(__type_coro* coro)
+CoroProc(*Coro coro)
 print(##string fmt $T ... return int)
 
-main (int argc byte** argv return int) {
+main (int argc **byte argv return int) {
     return 0
 }
 
-main(i32 argc byte** argv return i32) {
-    print("%\n", argc)
-    return 0
-}
-
-calc(int a b return int) {
+calc (int a b return int) {
     return a + b
 }
 
-scale(Point p float factor) {
+scale (Point p float factor) {
     p.x *= factor
     p.y *= factor
 }
 
-scale(Point p float factor) #cdecl {
+scale (Point p float factor) [[cdecl]] {
     p.x *= factor
     p.y *= factor
 }
 
-scale(Point p float factor) #fastcall {
+scale (Point p float factor) [[fastcall]] {
     p.x *= factor
     p.y *= factor
 }
 
-next(type(Node, $T) p return T*) {
+next (Node($T) p return *T) {
     return p.next
 }
 
-size(type(triple, $int N, $T, $U) p return int) {
-    return p.a + N + sizeof(T)
+size (Triple($int N, $T, $U) p return int) {
+    return p.a + N + sizeof T
 }
 
 data { int a b } {1, 2}
-data { int a b }* (&){1, 2}
-data { int a b }[2] {{1, 2}, {3, 4}}
+data *{ int a b } adr {1, 2}
+data [2]{ int a b } {{1, 2}, {3, 4}}
 data Data {1, 2}
-data Data* (&) data
+data *Data adr data
 data Data[2] {data1, data2}
 
 found .. index array_find(<<array, item)
@@ -888,20 +774,19 @@ found .. error array_find(<<array, item)
 
 cal2 (int a b return int) { return a + b }
 cal2 (int a b return int) { return a + b } (1, 2)
-cal2 (int a b return int)* (int a b int) {return a + b } // 函数不需要声明成指针，因为它本身就是指针
-cal2 (int a b return int)* Calc {return a + b }
-cal2 (int a b return int)[2] {Calc {return a + b}, Calc { return a * b }}
+cal2 *(int a b return int) (int a b int) {return a + b } // 函数不需要声明成指针，因为它本身就是指针
+cal2 *(int a b return int) Calc {return a + b }
+cal2 [2](int a b return int) {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc { return a + b }
-cal2 type.calc { return a + b }
-cal2 (int a b int) * (&) (int a b int) {return a + b }
-cal2 (int a b int)[2] {Calc {return a + b}, Calc { return a * b }}
-cal2 Calc* (&) (int a b int) {return a + b }
-cal2 Calc* (&) {return a + b }
-cal2 (&)Calc{return a + b}
+cal2 *(int a b int) adr {return a + b }
+cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
+cal2 *Calc adr (int a b int) {return a + b }
+cal2 *Calc adr {return a + b }
+cal2 adr Calc{return a + b}
 cal2 Calc[2] {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc[2] {Calc {return a + b}, Calc { return a * b }}
 
-ppb Ppb* malloc(size)
+ppb *Ppb malloc(size)
 
 a int ???
 a 42
@@ -936,54 +821,53 @@ cal2 (int a b int) { return a + b }
 cal2 (int a b int) { return a + b }
 cal2 Calc { return a + b }
 cal2 Calc calc
-cal2 {calc}
+cal2 calc;
 
-dat3 { int a b }* (&){3, 4}
-dat3 { int a b }[2] {{3, 4}, data}
-dat3 { int a b }* (&){3, 4}
-dat3 Data* (&)data
-dat3 Data[2] {{3, 4}, data}
+dat3 *{ int a b } adr {3, 4}
+dat3 [2]{ int a b } {{3, 4}, data}
+dat3 *{ int a b } adr {3, 4}
+dat3 *Data adr data
+dat3 [2]Data {{3, 4}, data}
 
-cal3 (int a b int)* (int a b int) { return a + b }
-cal3 (int a b int)* (&) { return a + b }
-cal3 (int a b int)* (&) calc
+cal3 *(int a b int) adr { return a + b }
+cal3 *(int a b int) adr calc
 cal3 (int a b int) { return a + b }
 cal3 Calc { return a + b }
-cal3 {calc}
+cal3 calc;
 
 // 基本类型和指针不通过大括号进行初始化而是直接给值，根据语法定义一个变量的同时必须进行初始化
 // 一个非类型标识符后跟一个类型表示定义该类型的一个变量
 // 一个非类型标识符后跟一个非类型标识符，表示用后面的非类型标识符的值定义一个变量
 // 一个非类型标识符后跟一个字面常量，表示用字面常量定义一个变量
 
-cal3 (int a b return int)* null
-cal3 (int a b return int)* __addr { a + b }
-cal3 (int a b return int)* calc
+cal3 *(int a b return int) null
+cal3 *(int a b return int) adr { a + b }
+cal3 *(int a b return int) calc
 
-numb errt null
+numb errno null
 numb float 3.14
-numb int* null
-numb int* (&)data
+numb *int null
+numb *int adr data
 numb bool false
 
 data false
 data "Hello World"
 data 3.14
 data 1024 // 可以使用字面量直接赋值
-data {calc} // 但如果是变量值，没有类型转换的情况下必须使用大括号赋值
+data calc // 但如果是变量值，没有类型转换的情况下必须使用大括号赋值
 
 calc Calc { a + b }
 data Data {1, 2}
 data int 1024
 numb errt null
 numb float 3.14
-numb int* (&)data
+numb *int adr data
 calc Calc { a + b }
 data Data {1, 2}
 data int 1024
 numb errt null
 numb float 3.14
-numb int* (&)data
+numb *int adr data
 temp int 1024
 temp float 3.14
 
@@ -999,19 +883,20 @@ bytes {more}, same_as_prev {userdata_bytes != 0}
 // 数据类型转换
 
 aaa Data{3, 4} // 赋值语句因为目标变量只有一个，因此只要将类型不加修饰的放在右表达式开头，相对于对整个表达式类型的转换
-ppb (type.ppb*)ppb_alloc(alloc)
+ppb *Ppb ppb_alloc(alloc)
 
 pos dist + int scale_x(facter)
-len int pos + (&) int* byte* p + size + f(g)
-len int pos + (& int* byte* p) + size + f(g)
+len int pos + adr *int *byte p + size + f(g)
+len int pos + adr (*int *byte p) + size + f(g)
 
 pos int dist + int scale_x(facter)
-len int pos + (*) int* (byte* p + size + f(g))
+len int pos + der *int (*byte p + size + f(g))
 len typeof(pos) 3
+len 3
 
 for i int 3 .. 10 { /* */ }
 
-for (capacity < new_capacity)^^1 { // ^^1 第一次条件检查一定为真
+for ^^(capacity < new_capacity) { // ^^ 第一次条件检查一定为真
     capacity *= 2
 }
 
@@ -1026,7 +911,7 @@ extern data Data
 extern data int
 extern numb errt
 extern numb float
-extern numb int*
+extern numb *int
 
 #if DYN_LINK_PROC {
     calc Calc null
@@ -1040,7 +925,7 @@ extern numb int*
 
 [user User]
 name "fido"
-member_since Date{1999-08-04}
+member_since Date''{1999-08-04}
 age 23
 
 Fruit {
@@ -1055,8 +940,8 @@ Fruit {
 Fruit {
     string name
     int[] rates
-    {===string color shape
-        {===int height width
+    {---string color shape
+        {---int height width
             { string a b } desc
             string info
             string desc
@@ -1074,7 +959,7 @@ taste sweet true
 texture smooth true
 rates [80, 75, 95]
 
-[apple __type_fruit]
+[apple Fruit]
 physical color "红" size height 23 width 24 desc a "a" b "b" size:info "i" desc "d"
 physical shape "round"
 taste sweet true
@@ -1209,13 +1094,13 @@ math:*
 
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
-    取地址 & 改为 (&) 地址标记 (&1) (&2) __addr
-    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 (*1) (*2) __dref __ddref __dddref
+    取地址 & 改为 (&) 地址标记 (&1) (&2) adr
+    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 (*1) (*2) der
 
     #negt()     #-          #-3.14      #-c         (-3.14) (-c)
     #posi()     #+          #+6.24      #+c         (+6.24) (+c)
     #comp()     #^          #^1024      #^c         (^1024) (^c)
-    #addr()     (&)         #&data                  (&)data (*&)data
+    #addr()     (&)         #&data                  (&)data (*&)data    adr data    der adr data
     #dref()     (*)         #*p         #**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（#）
 
 // 条件语句包含传统C的if和switch：
@@ -1249,6 +1134,8 @@ defer_return #label
 // __jai_runtime_init
 // __jai_runtime_fini
 // __system_entry_point
+->> (+ 12 24 13)
+->> (* 13 14 15)
 
 (->> theme
      (symbol-name)
@@ -1303,7 +1190,7 @@ defer_return #label
 //  函数实现为一个 soro 协程，被调函数被调用时自动分配一个自己使用的栈，需要回调的时
 //  候直接yield让主调函数执行，然后主调函数继续切到被调函数，指定执行完毕。
 //
-//      for await (i, elem) array_find_and_erase(int_array, 32) { 封装与开放的平衡
+//      for [i, elem] array_find_and_erase(int_array, 32) { 封装与开放的平衡
 //          printf("int array elem 32 index %d at %p erased\n", i, elem);
 //      }
 //
