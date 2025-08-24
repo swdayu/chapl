@@ -870,13 +870,16 @@ extern "C" {
     typedef prh_u32 prh_unt;
     typedef prh_i32 prh_sys_int;
     typedef prh_u32 prh_sys_unt;
+    #define prh_int_bits 32
 #elif prh_arch_bits == 64
     #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
         typedef prh_u32 prh_unt;
+        #define prh_int_bits 32
     #else
         typedef prh_i64 prh_int;
         typedef prh_u64 prh_unt;
+        #define prh_int_bits 64
     #endif
     typedef prh_i64 prh_sys_int;
     typedef prh_u64 prh_sys_unt;
@@ -1972,11 +1975,23 @@ void prh_test_code(void) {
 //  void append_range(range_type&& range); 在容器尾部压入多个元素
 //  void prepend_range(range_type&& range); 将多个元素压入到容器头部
 
-typedef struct { void *arrfix, prh_unt size; } prh_impl_arrfix;
-typedef struct { void *arrdyn; prh_unt capacity; prh_unt size; } prh_impl_arrdyn;
-void prh_impl_arrdyn_malloc(prh_impl_arrfix *p, prh_unt size);
-void prh_impl_arrdyn_relloc(prh_impl_arrfix *p, prh_unt size);
-bool prh_impl_arrdyn_expand(prh_impl_arrdyn *p, prh_unt growsize);
+typedef struct { void *arrfix, prh_int size; } prh_impl_arrfix;
+typedef struct { void *arrdyn; prh_int capacity; prh_int size; } prh_impl_arrdyn;
+void prh_impl_arrdyn_malloc(prh_impl_arrfix *p, prh_int size);
+void prh_impl_arrdyn_relloc(prh_impl_arrfix *p, prh_int size);
+bool prh_impl_arrdyn_expand(prh_impl_arrdyn *p, prh_int new_capacity);
+
+#define prh_impl_arrvew_eptr_type(p) prh_typeof((p)->arrvew)
+#define prh_impl_arrfix_eptr_type(p) prh_typeof((p)->arrfix)
+#define prh_impl_arrfit_eptr_type(p) prh_typeof((p)->arrfit)
+#define prh_impl_arrdyn_eptr_type(p) prh_typeof((p)->arrdyn)
+#define prh_impl_arrlax_eptr_type(p) prh_typeof((p)->arrlax)
+
+#define prh_impl_arrvew_elem_type(p) prh_typeof(*((p)->arrvew))
+#define prh_impl_arrfix_elem_type(p) prh_typeof(*((p)->arrfix))
+#define prh_impl_arrfit_elem_type(p) prh_typeof(*((p)->arrfit))
+#define prh_impl_arrdyn_elem_type(p) prh_typeof(*((p)->arrdyn))
+#define prh_impl_arrlax_elem_type(p) prh_typeof(*((p)->arrlax))
 
 #define prh_arrvew_type(S, a) prh_typeof(((S){0})->a)
 #define prh_arrfix_type(S, a) prh_typeof(((S){0})->a)
@@ -1984,27 +1999,27 @@ bool prh_impl_arrdyn_expand(prh_impl_arrdyn *p, prh_unt growsize);
 #define prh_arrdyn_type(S, a) prh_typeof(((S){0})->a)
 #define prh_arrlax_type(S, a) prh_typeof(((S){0})->a)
 
-#define prh_arrvew(elem_type) struct { elem_type *arrvew; prh_unt size; } // 只读，不拥有内存
-#define prh_arrfix(elem_type) struct { elem_type *arrfix; prh_unt size; } // 读写，大小固定的定长数组，负责内存分配和释放
-#define prh_arrfit(elem_type) struct { elem_type *arrfit; prh_unt capacity; prh_unt size; } // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存
-#define prh_arrdyn(elem_type) struct { elem_type *arrdyn; prh_unt capacity; prh_unt size; } // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效
-#define prh_arrlax(elem_type) struct { elem_type *arrlax; prh_unt capacity; prh_unt size; prh_unt start; } // 读写，容量和大小都动态可变，数组头部空间可伸展
+#define prh_arrvew(elem_type) struct { elem_type *arrvew; prh_int size; } // 只读，不拥有内存
+#define prh_arrfix(elem_type) struct { elem_type *arrfix; prh_int size; } // 读写，大小固定的定长数组，负责内存分配和释放
+#define prh_arrfit(elem_type) struct { elem_type *arrfit; prh_int capacity; prh_int size; } // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存
+#define prh_arrdyn(elem_type) struct { elem_type *arrdyn; prh_int capacity; prh_int size; } // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效
+#define prh_arrlax(elem_type) struct { elem_type *arrlax; prh_int capacity; prh_int size; prh_int start; } // 读写，容量和大小都动态可变，数组头部空间可伸展
 
 #define prh_slice_type(S, a) prh_typeof(((S){0})->a)
-#define prh_slice(elem_type) struct { elem_type *slice; prh_unt capacity; prh_unt size; } // 读写，不拥有内存
-typedef struct { prh_byte *slice; prh_unt capacity; prh_unt size; } prh_sslice; // 读写，不拥有内存
+#define prh_slice(elem_type) struct { elem_type *slice; prh_int capacity; prh_int size; } // 读写，不拥有内存
+typedef struct { prh_byte *slice; prh_int capacity; prh_int size; } prh_sslice; // 读写，不拥有内存
 
-typedef struct { prh_byte *s; prh_unt size; } prh_strvew; // 只读，不拥有内存
-typedef struct { prh_byte *s; prh_unt size; } prh_strfix; // 读写，大小固定的定长字符串，负责内存分配和释放
-typedef struct { prh_byte *s; prh_unt capacity; prh_unt size; } prh_strfit; // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存
-typedef struct { prh_byte *s; prh_unt capacity; prh_unt size; } prh_string; // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效
-typedef struct { prh_byte *s; prh_unt capacity; prh_unt size; prh_unt start; } prh_strlax; // 读写，容量和大小都动态可变，字符串头部空间可伸展
+typedef struct { prh_byte *s; prh_int size; } prh_strvew; // 只读，不拥有内存
+typedef struct { prh_byte *s; prh_int size; } prh_strfix; // 读写，大小固定的定长字符串，负责内存分配和释放
+typedef struct { prh_byte *s; prh_int capacity; prh_int size; } prh_strfit; // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存
+typedef struct { prh_byte *s; prh_int capacity; prh_int size; } prh_string; // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效
+typedef struct { prh_byte *s; prh_int capacity; prh_int size; prh_int start; } prh_strlax; // 读写，容量和大小都动态可变，字符串头部空间可伸展
 
 #define prh_impl_arrfix_aloc(p, size) prh_impl_arrdyn_malloc((prh_impl_arrfix *)(p), (size))
 #define prh_impl_arrfix_rloc(p, size) prh_impl_arrdyn_relloc((prh_impl_arrfix *)(p), (size))
 #define prh_impl_arrdyn_expd(p, size) prh_impl_arrdyn_expand((prh_impl_arrdyn *)(p), (size))
 #define prh_impl_arrdyn_init(p, capacity, expr) { *(p) = (prh_typeof(*(p))){.capacity = 1}; prh_impl_arrdyn_expd((p), (capacity)); prh_impl_arrfix_aloc((p), expr); }
-#define prh_impl_arrdyn_grow(p, growsize, expr) if (prh_impl_arrdyn_expd((p), (growsize))) { prh_impl_arrfix_rloc((p), expr); }
+#define prh_impl_arrdyn_grow(p, new_size, expr) if (prh_impl_arrdyn_expd((p), (new_size))) { prh_impl_arrfix_rloc((p), expr); }
 
 #define prh_impl_arrfit_size(p) (p)->capacity * sizeof(*((p)->arrfit))
 #define prh_impl_arrdyn_size(p) (p)->capacity * sizeof(*((p)->arrdyn))
@@ -2012,19 +2027,19 @@ typedef struct { prh_byte *s; prh_unt capacity; prh_unt size; prh_unt start; } p
 #define prh_impl_string_size(p) (p)->capacity
 
 #define prh_arrfix_init(p, size) { prh_impl_arrfix_aloc((p), (size) * sizeof(*((p)->arrfix))); (p)->size = size; }
-#define prh_arrfit_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrfit_size(p))
-#define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrdyn_size(p))
-#define prh_arrlax_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrlax_size(p))
+#define prh_arrfit_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrfit_size(p)) // 生成的数组 capacity 总是 2 的幂
+#define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrdyn_size(p)) // 生成的数组 capacity 总是 2 的幂
+#define prh_arrlax_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrlax_size(p)) // 生成的数组 capacity 总是 2 的幂
 
 #define prh_arrfix_free(p) { prh_free((p)->arrfix); memset((p), 0, sizeof(*(p))); }
 #define prh_arrfit_free(p) { prh_free((p)->arrfit); memset((p), 0, sizeof(*(p))); }
 #define prh_arrdyn_free(p) { prh_free((p)->arrdyn); memset((p), 0, sizeof(*(p))); }
 #define prh_arrlax_free(p) { prh_free((p)->arrlax); memset((p), 0, sizeof(*(p))); }
 
-void prh_strfix_init(prh_strfix *p, prh_unt size);
-void prh_strfit_init(prh_strfit *p, prh_unt capacity);
-void prh_string_init(prh_string* p, prh_unt capacity);
-void prh_strlax_init(prh_strlax *p, prh_unt capacity);
+void prh_strfix_init(prh_strfix *p, prh_int size);
+void prh_strfit_init(prh_strfit *p, prh_int capacity);
+void prh_string_init(prh_string* p, prh_int capacity);
+void prh_strlax_init(prh_strlax *p, prh_int capacity);
 
 void prh_strfix_free(prh_strfix *p);
 void prh_strfit_free(prh_strfit *p);
@@ -2066,15 +2081,15 @@ void prh_strlax_free(prh_strlax *p);
     (p)->size = (size);                                                         \
 }
 
-prh_inline void prh_strvew_init(prh_strvew *p, const prh_byte *addr, prh_unt size) {
+prh_inline void prh_strvew_init(prh_strvew *p, const prh_byte *addr, prh_int size) {
     p->s = (prh_byte *)addr; // 不需要释放内存，只读
     p->size = size;
 }
 
-void prh_strfix_slice(prh_sslice *p, const prh_strfix *s, prh_unt i, prh_unt j);
-void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_unt i, prh_unt j);
-void prh_string_slice(prh_sslice *p, const prh_string *s, prh_unt i, prh_unt j);
-void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_unt i, prh_unt j);
+void prh_strfix_slice(prh_sslice *p, const prh_strfix *s, prh_int i, prh_int j);
+void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j);
+void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j);
+void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
 
 #define prh_arrfix_slice(p, a, i, j) /* [i, j) 不需要释放内存，可读可写 */ {      \
     assert((i) >= (0) && (i) < (a)->size);                                      \
@@ -2675,30 +2690,30 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
 
 #ifdef PRH_ARRAY_IMPLEMENTAION
 
-void prh_impl_arrdyn_malloc(prh_impl_arrfix *p, prh_unt size) {
+void prh_impl_arrdyn_malloc(prh_impl_arrfix *p, prh_int size) {
     p->arrfix = prh_malloc(size);
     assert(p->arrfix != prh_null);
 }
 
-void prh_impl_arrdyn_relloc(prh_impl_arrfix *p, prh_unt size) {
+void prh_impl_arrdyn_relloc(prh_impl_arrfix *p, prh_int size) {
     p->arrfix = prh_realloc(p->arrfix, size);
     assert(p->arrfix != prh_null);
 }
 
-void prh_strfix_init(prh_strfix *p, prh_unt size) {
+void prh_strfix_init(prh_strfix *p, prh_int size) {
     prh_impl_arrfix_aloc(p, size);
     p->size = size;
 }
 
-void prh_strfit_init(prh_strfit *p, prh_unt capacity) {
+void prh_strfit_init(prh_strfit *p, prh_int capacity) {
     prh_impl_arrdyn_init(p, capacity, prh_impl_string_size(p));
 }
 
-void prh_string_init(prh_string* p, prh_unt capacity) {
+void prh_string_init(prh_string* p, prh_int capacity) {
     prh_impl_arrdyn_init(p, capacity, prh_impl_string_size(p));
 }
 
-void prh_strlax_init(prh_strlax *p, prh_unt capacity) {
+void prh_strlax_init(prh_strlax *p, prh_int capacity) {
     prh_impl_arrdyn_init(p, capacity, prh_impl_string_size(p));
 }
 
@@ -2722,7 +2737,7 @@ void prh_strlax_free(prh_strlax *p) {
     memset(p, 0, sizeof(*p));
 }
 
-void prh_strfix_slice(prh_sslice *p, const prh_strfix *s, prh_unt i, prh_unt j) {
+void prh_strfix_slice(prh_sslice *p, const prh_strfix *s, prh_int i, prh_int j) {
     assert(i >= 0 && i < s->size); // [i, j) 不需要释放内存，可读可写
     assert(j >= i && j<= s->size);
     p->slice = prh_strfix_begin((prh_strfix *)s) + i;
@@ -2730,7 +2745,7 @@ void prh_strfix_slice(prh_sslice *p, const prh_strfix *s, prh_unt i, prh_unt j) 
     p->size = j - i;
 }
 
-void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_unt i, prh_unt j) {
+void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j) {
     assert(i >= 0 && i < s->size); // [i, j)
     assert(j >= i && j<= s->size);
     p->slice = prh_strfit_begin((prh_strfit *)s) + i;
@@ -2738,7 +2753,7 @@ void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_unt i, prh_unt j) 
     p->size = j - i;
 }
 
-void prh_string_slice(prh_sslice *p, const prh_string *s, prh_unt i, prh_unt j) {
+void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j) {
     assert(i >= 0 && i < s->size); // [i, j)
     assert(j >= i && j<= s->size);
     p->slice = prh_string_begin((prh_string *)s) + i;
@@ -2746,7 +2761,7 @@ void prh_string_slice(prh_sslice *p, const prh_string *s, prh_unt i, prh_unt j) 
     p->size = j - i;
 }
 
-void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_unt i, prh_unt j) {
+void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j) {
     assert(i >= 0 && i < s->size); // [i, j)
     assert(j >= i && j<= s->size);
     p->slice = prh_strlax_begin((prh_strlax *)s) + i;
@@ -2754,9 +2769,8 @@ void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_unt i, prh_unt j) 
     p->size = j - i;
 }
 
-bool prh_impl_arrdyn_expand(prh_impl_arrdyn *p, prh_unt growsize) {
-    prh_unt capacity = p->capacity;
-    prh_unt new_capacity = p->size + grow_size;
+bool prh_impl_arrdyn_expand(prh_impl_arrdyn *p, prh_int new_capacity) {
+    prh_int capacity = p->capacity;
     if (capacity >= new_capacity) return false;
     do capacity *= 2; while (capacity < new_capacity);
     p->capacity = capacity;
@@ -2764,8 +2778,8 @@ bool prh_impl_arrdyn_expand(prh_impl_arrdyn *p, prh_unt growsize) {
 }
 
 bool prh_impl_arrdyn_shrink(prh_impl_arrdyn *p) {
-    prh_unt capacity = p->capacity / 2;
-    prh_unt new_capacity = adddyn->size;
+    prh_int capacity = p->capacity / 2;
+    prh_int new_capacity = adddyn->size;
     if (new_capacity >= capacity) return false;
     while (capacity / 2 > new_capacity) capacity /= 2;
     p->capacity = capacity;
@@ -3518,6 +3532,40 @@ prh_snode *prh_nstack_pop(prh_nstack *s) {
 #endif // PRH_STACK_INCLUDE
 
 #ifdef PRH_QUEUE_INCLUDE
+typedef struct { void *arrdyn; prh_int capacity; prh_int size; prh_int tail; } prh_impl_arrque;
+#define prh_arrque(elem_type) struct { elem_type *arrdyn; prh_int capacity; prh_int size; prh_int tail; }
+
+#define prh_impl_arrque_npos(p, pos) ((pos) & ((p)->capacity - 1)) // 队列数据容量总是 2 的幂
+#define prh_impl_arrque_head_index(p) prh_impl_arrque_npos((p), (p)->tail - (p)->size)
+#define prh_impl_arrque_tail(p) (p)->tail * sizeof(prh_impl_arrdyn_elem_type(p))
+#define prh_impl_arrque_head(p) prh_impl_arrque_head_index(p) * sizeof(prh_impl_arrdyn_elem_type(p))
+
+void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int tail_offset);
+void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int head_offset);
+#define prh_impl_arrq_push(p, value) (*(prh_typeof((p)->arrdyn))prh_impl_arrque_push((p), prh_impl_arrque_tail(p)) = (value))
+#define prh_impl_arrq_pop(p) (prh_typeof((p)->arrdyn))prh_impl_arrque_pop((p), prh_impl_arrque_head(p))
+
+#define prh_arrque_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrdyn_size(p))
+#define prh_arrque_free(p) prh_arrdyn_free(p)
+
+#define prh_arrque_push(p, value) ((p)->size == (p)->capacity) ? false : (prh_impl_arrq_push((p), (value)), true)
+#define prh_arrque_unchecked_push(p, value) (prh_assert((p)->size < (p)->capacity), prh_impl_arrq_push((p), (value)))
+
+#define prh_arrque_pop(p) ((p)->size == 0) ? prh_null : prh_impl_arrq_pop(p)
+#define prh_arrque_unchecked_pop(p) (prh_assert((p)->size > 0), prh_impl_arrq_pop(p))
+
+void *prh_impl_arrque_rpush(prh_impl_arrque *p, prh_int tail_offset);
+void *prh_impl_arrque_reloc(prh_impl_arrque *p, prh_int tail_offset, prh_int newsize);
+
+#define prh_arrque_vsize_push(p, value) {                                      \
+    prh_int prh_impl_t = prh_impl_arrque_tail(p);                               \
+    prh_typeof((p)->arrdyn) prh_impl_p = prh_impl_arrque_rpush((p), prh_impl_t);\
+    if (prh_impl_p == prh_null) {                                               \
+        prh_impl_p = prh_impl_arrque_reloc(p, prh_impl_t, prh_impl_arrdyn_size(p)); \
+    }                                                                           \
+    *prh_impl_p = (value);                                                      \
+}
+
 // Array queue with power of 2 capacity size.
 //
 //  struct StructContainArrayQueue {
@@ -3573,16 +3621,39 @@ prh_inline prh_int prh_impl_arrque_cap(void *queue) {
 #define prh_arrque_cap(s, q) prh_impl_arrque_cap(prh_impl_arrque((s), q))
 #define prh_arrque_len(s, q) prh_impl_arrque_len(prh_impl_arrque((s), q))
 
-#ifdef PRH_QUEUE_STRIP_PREFIX
-#define arrque_init    prh_arrque_init
-#define arrque_free    prh_arrque_free
-#define arrque_push    prh_arrque_push
-#define arrque_pop     prh_arrque_pop
-#define arrque_cap     prh_arrque_cap
-#define arrque_len     prh_arrque_len
-#endif
-
 #ifdef PRH_QUEUE_IMPLEMENTATION
+void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int tail_offset) {
+    p->tail = prh_impl_arrque_npos(p, p->tail + 1);
+    p->size += 1;
+    return (prh_byte *)p->arrdyn + tail_offset;
+}
+
+void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int head_offset) {
+    p->size -= 1;
+    return (prh_byte *)p->arrdyn + head_offset;
+}
+
+void *prh_impl_arrque_rpush(prh_impl_arrque *p, prh_int tail_offset) {
+    if (p->size == p->capacity) {
+        p->capacity *= 2;
+        return prh_null;
+    }
+    p->size += 1;
+    p->tail = prh_impl_arrque_npos(p, p->tail + 1);
+    return (prh_byte *)p->arrdyn + tail_offset;
+}
+
+void *prh_impl_arrque_reloc(prh_impl_arrque *p, prh_int tail_offset, prh_int newsize) {
+    prh_int oldsize = newsize / 2;
+    prh_impl_arrdyn_relloc((prh_impl_arrfix *)p, newsize);
+    prh_byte *tail = (prh_byte *)p->arrdyn + oldsize;
+    if (tail_offset < oldsize) {
+        memcpy(tail, p->arrdyn, tail_offset);
+        return tail + tail_offset;
+    }
+    return tail;
+}
+
 void *prh_impl_arrque_init(prh_int capacity, prh_int object_size) {
     if (capacity == 0) return prh_null;
     assert(prh_is_power_of_2(capacity));
@@ -3873,12 +3944,6 @@ void *prh_impl_relaxed_quefit_pop(void **quefit, prh_i32 next_offset) {
     return head;
 }
 #endif /* PRH_QUEUE_IMPLEMENTATION */
-
-// Dynamic allocated fixed size queue. The node can only contain a data pointer.
-typedef struct { // zero initialize
-    prh_data_snode *head;
-    prh_data_snode *tail;
-} prh_quefix;
 
 // Dynamic allocated variable size queue. The node can contain any object and
 // with any different size. If the size < sizeof(void *), the size is rounded
@@ -13163,16 +13228,18 @@ prh_fastcall_typedef(void, prh_conoproc_t)(prh_cono *);
 typedef struct prh_spawn_data prh_spawn_data;
 typedef struct prh_await_data prh_await_data;
 typedef struct prh_cono_pdata prh_cono_pdata;
+typedef struct { prh_cono_pdata *pdata; prh_byte subq_i; prh_byte opcode; } prh_pwait_data;
 
 void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size);
 void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize);
-void *prh_cono_spawx(prh_byte max_subq, prh_conoproc_t proc, int stack_size, int maxudsize);
-void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield); // 启动子协程
+void *prh_cono_spawx(prh_conoproc_t proc, int stack_size, int maxudsize, prh_byte subq_n, int init_items);
+void *prh_cono_spawx_with_fixed_subq(prh_conoproc_t proc, int stack_size, int maxudsize, prh_byte subq_n, int init_items);
 void *prh_cono_await(void); // 等待一个或多个子协程YIELD结果
+prh_pwait_data prh_cono_pwait(void); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
+prh_pwait_data prh_cono_subq_pwait(prh_byte subq); // 只等待其他协程发到某个子队列中的数据
+void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield); // 启动子协程
 void prh_cono_continue(prh_await_data *cono_await_data); // 获取子协程结果后，让子协程继续执行
-void prh_cono_post(prh_cono_pdata *pdata); // 向目的协程发送请求数据或执行结果
-void *prh_cono_pwait(void); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
-void *prh_cono_pwait_from(prh_byte subq); // 只等待其他协程发到某个子队列中的数据
+void prh_cono_post(prh_cono_pdata *pdata, prh_byte opcode_i); // 向目的协程发送请求数据或执行结果
 void prh_impl_cross_thread_coro_yield(prh_cono *coro);
 
 prh_inline void prh_cono_yield(prh_cono *coro) {
@@ -13184,11 +13251,13 @@ prh_inline void *prh_cono_data(prh_cono *coro) {
     return prh_soro_data((prh_soro *)coro);
 }
 
-typedef prh_arrfit(prh_cono_pdata *) prh_cono_subq;
+typedef prh_arrque(prh_cono_pdata *) prh_pdata_rxq;
+typedef struct { void *cono; prh_unt subq_i: 8, pdata_num: prh_int_bits - 8; } prh_cono_subq;
+prh_cono_subq *prh_cono_get_subq(prh_spawn_data *cono_spawn_data, prh_byte subq_i);
 
 typedef struct prh_cono_pdata {
     prh_cono_subq *subq;
-    prh_byte opcode[4]; // subq+0~3 => opcode[0~3]
+    prh_byte opcode[4];
     union { prh_u32 size; prh_u32 value; } u;
 } prh_cono_pdata;
 
@@ -13218,17 +13287,19 @@ typedef struct {
 typedef struct prh_cono_thrd prh_cono_thrd;
 struct prh_real_cono {
     // 仅由执行线程访问
-    prh_byte action;
-    prh_byte wait_q; // 等待队列位置0非法
-    prh_byte idle_await: 1, idle_pwait: 1, uncond_run: 1; // 挂起后恢复时无条件执行
     prh_i32 cono_id;
-    prh_real_cono *parent;
+    prh_byte yield_state;
+    prh_byte subq_n;
+    prh_byte wait_q;
+    prh_byte await: 1, pwait: 1, uncond_run: 1; // uncond_run 挂起后恢复时无条件执行
+    void (*subq_push)(prh_real_cono *cono, prh_cono_pdata *pdata);
     prh_real_cono *caller;
-    prh_real_cono *await_callee; // 只会在协程挂起时被特权线程修改，不存在竞争
-    prh_cono_pdata*pwait_data; // 只会在协程挂起时被特权线程修改，不存在竞争
+    prh_real_cono *callee; // 只会在协程挂起时被特权线程修改，不存在竞争
+    prh_pwait_data *pwait_data;
     // 仅由特权线程访问，协程可能会插入到特权维护的就绪队列/等待队列，或协程维护的子协程执行结果返回队列
     prh_cono_quefit callee_que; // 挂起的返回执行结果的子协程队列
-    prh_quefit post_rx_queue; // 请求数据或执行结果接收队列
+    prh_pdata_rxq pdata_que;
+    prh_cono_subq *cono_subq; // 请求数据或执行结果接收队列
     prh_real_cono *cono_chain; // 使用relaxed quefit是因为，想将被其他线程修改的内容放在一起
     prh_cono_thrd *assign_thrd;
 };
@@ -13330,7 +13401,6 @@ typedef struct {
     prh_real_cono *main_entry_cono; // 初始化后只读
     prh_real_cono *fixed_cono[PRH_FIXED_CONO_MAX]; // 初始化后只读
     // 仅特权线程读写
-    prh_real_cono *cono_waitq_arrdyn_type; // 等待队列位置0非法
     prh_cono_quefit ready_queue;
     prh_i32 cono_id_seed;
     prh_i32 num_thread;
@@ -13342,26 +13412,6 @@ typedef struct {
 
 static prh_cono_struct PRH_IMPL_CONO_STRUCT;
 prh_fastcall(void) prh_impl_asm_cono_call(void);
-
-void prh_impl_cono_waitq_init(prh_int initial_size) {
-    static prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
-    assert(initial_size >= 1);
-    prh_arrdyn_init(s, cono_waitq, initial_size);
-    prh_arrdyn_push(s, cono_waitq, prh_null); // 等待队列位置0非法
-}
-
-void prh_impl_cono_waitq_add(prh_real_cono *cono) {
-    static prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
-    cono->waitq_i = (prh_i32)prh_arrdyn_len(cono, cono_waitq);
-    prh_arrdyn_push(s, cono_waitq, cono);
-}
-
-void prh_impl_cono_waitq_del(prh_real_cono *cono) {
-    static prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
-    assert(cono->waitq_i); // 等待队列位置0非法
-    prh_arrdyn_unordered_erase(s, cono_waitq, cono->waitq_i);
-    cono->waitq_i = 0;
-}
 
 prh_inline void prh_impl_cono_load(prh_coro *coro, prh_conoproc_t proc) {
     prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_cono_call);
@@ -13472,8 +13522,8 @@ typedef enum {
     PRH_CONO_YIELD, // 协程挂起或协程结束
     PRH_CONO_AWAIT, // 等待一个或多个协程YIELD结果
     PRH_CONO_PWAIT, // 等待接收请求数据或执行结果，请求数据和执行结果通过 prh_cono_post() 发送
-    PRH_CONO_REQ_MAX
-} prh_impl_cono_action;
+    PRH_YIELD_STATE_NUM
+} prh_impl_yield_state;
 
 typedef void (*prh_impl_cono_req_func)(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
 void prh_impl_privilege_process_continue_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
@@ -13482,7 +13532,7 @@ void prh_impl_privilege_process_yield_req(prh_real_cono *req_cono, prh_cono_quef
 void prh_impl_privilege_process_await_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
 void prh_impl_privilege_process_pwait_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue);
 
-static prh_impl_cono_req_func PRH_IMPL_CONO_REQ_FUNC[PRH_CONO_REQ_MAX] = {
+static prh_impl_cono_req_func PRH_IMPL_YIELD_STATE_PROCESS[PRH_YIELD_STATE_NUM] = {
     prh_impl_privilege_process_continue_req,
     prh_impl_privilege_process_start_req,
     prh_impl_privilege_process_yield_req,
@@ -13491,11 +13541,11 @@ static prh_impl_cono_req_func PRH_IMPL_CONO_REQ_FUNC[PRH_CONO_REQ_MAX] = {
 };
 
 #if PRH_CONO_DEBUG
-const char *prh_impl_cono_action_string(int action) {
-    const char *action_string[PRH_CONO_REQ_MAX] = {
+const char *prh_impl_yield_state_string(int yield_state) {
+    const char *state_string[PRH_YIELD_STATE_NUM] = {
         "CONTINUE", "START", "YIELD", "AWAIT", "PDATA", "PWAIT",
     };
-    return action_string[action];
+    return state_string[yield_state];
 }
 
 int prh_impl_curr_cono_thrd_id(void) {
@@ -13511,33 +13561,26 @@ prh_cono_pdata *prh_cono_malloc_pdata(prh_byte opcode, prh_byte dest_subq, prh_u
     pdata->u.value = value;
 }
 
-void prh_impl_send_cono_req(prh_real_cono *req_cono, int action) {
+void prh_impl_send_cono_req(prh_real_cono *req_cono, int yield_state) {
     prh_cono_thrd *thrd = prh_thrd_self_data();
 #if PRH_CONO_DEBUG
-    if (action != PRH_CONO_START) { // 需要启动的新建协程的 cono_id 此时还没有分配
-        printf("[thrd %02d] cono %02d request %s\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id, prh_impl_cono_action_string(action));
+    if (yield_state != PRH_CONO_START) { // 需要启动的新建协程的 cono_id 此时还没有分配
+        printf("[thrd %02d] cono %02d request %s\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id, prh_impl_yield_state_string(yield_state));
     }
 #endif
-    req_cono->action = action;
+    req_cono->yield_state = yield_state;
     prh_atom_hive_quefix_push(&thrd->cono_req_que, req_cono);
 }
 
-void prh_impl_send_post_req(prh_real_cono *req_cono, prh_cono_pdata *pdata) {
+void prh_cono_post(prh_cono_pdata *pdata, prh_byte opcode_i) { // 向目的协程发送数据，目标协程以及目标协程接收数据的子队列信息填写在pdata中
     prh_cono_thrd *thrd = prh_thrd_self_data();
-    prh_debug(
-        printf("[thrd %02d] cono %02d post %d to cono %02d %d\n", prh_impl_curr_cono_thrd_id(),
-            req_cono->cono_id, pdata->opcode, pdata->dest->cono_id, pdata->subq_i);
-    );
-    prh_atom_hive_quefix_push(&thrd->post_req_que, pdata);
-}
-
-void prh_cono_post(prh_cono_pdata *pdata) { // 向目的协程发送数据，目标协程以及目标协程接收数据的子队列信息填写在pdata中
-    prh_impl_send_post_req(PRH_IMPL_CONO_SELF, pdata);
+    assert(((prh_ptr)pdata & 0x3) == 0 && opcode_i < sizeof(pdata->opcode));
+    prh_atom_hive_quefix_push(&thrd->post_req_que, (void *)(((prh_ptr)pdata) | opcode_i));
 }
 
 void prh_impl_cross_thread_coro_yield(prh_cono *coro) {
     prh_real_cono *cono = prh_impl_cono_from_coro(coro);
-    cono->action = PRH_CONO_YIELD;
+    cono->yield_state = PRH_CONO_YIELD;
 }
 
 prh_fastcall(void *) prh_impl_asm_cono_finish(prh_coro *coro) {
@@ -13545,8 +13588,8 @@ prh_fastcall(void *) prh_impl_asm_cono_finish(prh_coro *coro) {
     return prh_impl_asm_soro_finish(coro);
 }
 
-void prh_impl_cono_wait(prh_real_cono *cono, int action) {
-    cono->action = action;
+void prh_impl_cono_wait(prh_real_cono *cono, int yield_state) {
+    cono->yield_state = yield_state;
     prh_soro_yield((prh_soro *)prh_impl_coro_from_cono(cono));
 }
 
@@ -13555,31 +13598,79 @@ void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize) {
     return prh_coro_data(coro);
 }
 
-void *prh_cono_spawx(prh_byte max_subq, prh_conoproc_t proc, int stack_size, int maxudsize) {
-    assert(max_subq >= 0);
-    prh_coro *coro = prh_cono_spawn(proc, stack_size, maxudsize + max_subq * sizeof(prh_quefit));
-    coro->pwait_subq = (prh_quefit *)(coro + 1);
-    return prh_coro_data(coro);
+void prh_impl_fixed_subq_push(prh_real_cono *cono, prh_cono_pdata *pdata) {
+    prh_pdata_rxq *q = &cono->pdata_que;
+    prh_arrque_unchecked_push(q, pdata);
+}
+
+void prh_impl_vsize_subq_push(prh_real_cono *cono, prh_cono_pdata *pdata) {
+    prh_pdata_rxq *q = &cono->pdata_que;
+    prh_arrque_vsize_push(q, pdata);
+}
+
+void *prh_cono_spawx(prh_conoproc_t proc, int stack_size, int maxudsize, prh_byte subq_n, int init_items) {
+    maxudsize = prh_round_ptrsize(maxudsize);
+    int alloc = maxudsize + sizeof(prh_cono_subq) * subq_n; // subq 放在用户数据的最后面
+    prh_real_cono *cono = prh_impl_cono_from_coro(prh_cono_spawn(proc, stack_size, alloc));
+    prh_byte *cono_spawn_data = prh_cono_data(cono);
+    prh_cono_subq *cono_subq = (prh_cono_subq *)(cono_spawn_data + maxudsize);
+    for (int i = 0; i < subq_n; i += 1) {
+        prh_cono_subq *curr_subq = cono_subq + i;
+        curr_subq->cono = cono;
+        curr_subq->subq_i = (prh_byte)i;
+    }
+    cono->subq_push = prh_impl_vsize_subq_push;
+    cono->cono_subq = cono_subq;
+    cono->subq_n = subq_n;
+    prh_arrque_init(&cono->pdata_que, init_items); // 数组容量总是2的幂
+    return cono_spawn_data;
+}
+
+void *prh_cono_spawx_with_fixed_subq(prh_conoproc_t proc, int stack_size, int maxudsize, prh_byte subq_n, int init_items) {
+    assert(prh_is_power_of_2(init_items));
+    maxudsize = prh_round_ptrsize(maxudsize); // 数组容量必须是2的幂
+    int alloc = maxudsize + sizeof(prh_cono_subq) * subq_n + sizeof(void *) * init_items; // subq 放在用户数据的最后面
+    prh_real_cono *cono = prh_impl_cono_from_coro(prh_cono_spawn(proc, stack_size, alloc));
+    prh_byte *cono_spawn_data = prh_cono_data(cono);
+    prh_cono_subq *cono_subq = (prh_cono_subq *)(cono_spawn_data + maxudsize);
+    for (int i = 0; i < subq_n; i += 1) {
+        prh_cono_subq *curr_subq = cono_subq + i;
+        curr_subq->cono = cono;
+        curr_subq->subq_i = (prh_byte)i;
+    }
+    cono->subq_push = prh_impl_fixed_subq_push;
+    cono->cono_subq = cono_subq;
+    cono->subq_n = subq_n;
+    cono->pdata_que.arrdyn = (prh_cono_pdata **)((prh_byte *)cono_subq + sizeof(prh_cono_subq) * subq_n);
+    cono->pdata_que.capacity = init_items;
+    return cono_spawn_data;
+}
+
+prh_cono_subq *prh_cono_get_subq(prh_spawn_data *cono_spawn_data, prh_byte subq_i) {
+    prh_real_cono *cono = prh_impl_cono_from_data(cono_spawn_data);
+    assert(subq_i < cono->subq_n);
+    return cono->cono_subq + subq_i;
 }
 
 void prh_impl_callee_continue(prh_real_cono *caller) {
-    if (caller->await_callee) {
-        caller->await_callee = prh_null;
-        prh_impl_send_cono_req(caller->await_callee, PRH_CONO_CONTINUE);
+    if (caller->callee) {
+        caller->callee = prh_null;
+        prh_impl_send_cono_req(caller->callee, PRH_CONO_CONTINUE);
     }
 }
 
 void prh_cono_continue(prh_await_data *cono_await_data) {
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
-    assert(caller->await_callee == prh_impl_cono_from_data(cono_await_data));
+    assert(caller->callee == prh_impl_cono_from_data(cono_await_data));
     prh_impl_callee_continue(caller);
 }
+
+#define PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO 0
 
 #if PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO
 void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_real_cono *callee = prh_impl_cono_from_data(cono_spawn_data);
-    callee->parent = caller;
     if (await_cono_yield) {
         callee->caller = caller;
     }
@@ -13590,10 +13681,12 @@ void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
 void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_real_cono *callee = prh_impl_cono_from_data(cono_spawn_data);
-    callee->parent = caller;
     if (await_cono_yield) {
         callee->caller = caller;
     }
+#if PRH_CONO_DEBUG
+    printf("[thrd %02d] cono %02d create %p\n", prh_impl_curr_cono_thrd_id(), caller->cono_id, callee);
+#endif
     prh_impl_send_cono_req(callee, PRH_CONO_START);
 }
 #endif
@@ -13601,18 +13694,21 @@ void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
 void *prh_cono_await(void) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_impl_cono_wait(caller, PRH_CONO_AWAIT);
-    return prh_impl_get_cono_data(caller->await_callee);
+    return prh_impl_get_cono_data(caller->callee);
 }
 
-void *prh_cono_pwait_from(prh_byte subq) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
+prh_pwait_data prh_cono_subq_pwait(prh_byte subq) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
-    caller->wait_q = subq; // 只接收特定子队列收到的数据，或者0表示接收所有子队列收到的数据
+    caller->wait_q = subq; // 只接收特定子队列收到的数据，或者0xff表示接收所有子队列收到的数据
+    assert(subq == 0xff || subq < caller->subq_n);
+    prh_pwait_data pwait_data;
+    caller->pwait_data = &pwait_data;
     prh_impl_cono_wait(caller, PRH_CONO_PWAIT);
-    return caller->pwait_data;
+    return pwait_data;
 }
 
-void *prh_cono_pwait(void) { // 等待其他协程发来的请求数据或执行结果，只等待数据，发送数据的协程无需挂起可继续执行
-    retrun prh_cono_pwait_from(0);
+prh_pwait_data prh_cono_pwait(void) { // 等待其他协程发来的请求数据或执行结果，只等待数据，发送数据的协程无需挂起可继续执行
+    retrun prh_cono_subq_pwait(0xff);
 }
 
 void prh_impl_cono_wakeup_all_thrd(void) {
@@ -13647,8 +13743,6 @@ void prh_impl_privilege_process_continue_req(prh_real_cono *req_cono, prh_cono_q
     }
 }
 
-#define PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO 0
-
 #if PRH_IMPL_CALLER_YIELD_WHEN_CREATE_NEW_CORO
 void prh_impl_privilege_process_start_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
     prh_real_cono *callee = req_cono->start_callee;
@@ -13665,22 +13759,22 @@ void prh_impl_privilege_process_start_req(prh_real_cono *req_cono, prh_cono_quef
     prh_real_cono *callee = req_cono;
     prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
 #if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d created by cono %02d\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, callee->parent->cono_id);
+    printf("[thrd %02d] cono %02d %p created\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, callee);
 #endif
     prh_relaxed_quefit_push(ready_queue, callee, cono_chain);
 }
 #endif
 
 void prh_impl_privilege_await_success(prh_cono_quefit *ready_queue, prh_real_cono *cono, prh_real_cono *callee) {
-    cono->await_callee = callee;
-    cono->idle_await = false; // 将结果提交给请求协程，并立即调度其执行
+    cono->callee = callee;
+    cono->await = false; // 将结果提交给请求协程，并立即调度其执行
     prh_relaxed_quefit_push(ready_queue, cono, cono_chain);
 }
 
 void prh_impl_privilege_process_yield_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
     prh_real_cono *caller = req_cono->caller;
     if (caller) { // 需要提交执行结果给请求协程
-        if (caller->idle_await) { // 请求协程正在等待执行结果，且其结果队列为空
+        if (caller->await) { // 请求协程正在等待执行结果，且其结果队列为空
             prh_impl_privilege_await_success(ready_queue, caller, req_cono);
         } else { // 将执行协程插入请求协程的结果队列中，等待请求下一次WAIT挂起继续执行
             prh_relaxed_quefit_push(&caller->callee_que, req_cono, cono_chain);
@@ -13696,56 +13790,75 @@ void prh_impl_privilege_process_await_req(prh_real_cono *req_cono, prh_cono_quef
     if (callee) { // 协程给特权发送消息，都会挂起等待特权调度继续执行，因此协程的请求都是顺序的，对于一个协程不可能同时有多个等待执行的请求存在
         prh_impl_privilege_await_success(ready_queue, req_cono, callee); // 有结果存在，直接交给请求协程继续执行
     } else {
-        req_cono->idle_await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
+        req_cono->await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
     }
 }
 
-void prh_impl_privilege_pwait_success(prh_cono_quefit *ready_queue, prh_real_cono *cono, prh_cono_pdata *pdata) {
-    cono->pwait_data = pdata;
-    cono->idle_pwait = false; // 将请求数据或执行结果提交给等待协程，并立即调度其执行
+prh_inline void prh_impl_privilege_pwait_success(prh_cono_quefit *ready_queue, prh_real_cono *cono) {
+    cono->pwait = false; // 将请求数据或执行结果提交给等待协程，并立即调度其执行
     prh_relaxed_quefit_push(ready_queue, cono, cono_chain);
 }
 
-prh_cono_pdata *prh_impl_privilege_receive_pwait_data(prh_real_cono *cono, prh_byte subq_i) {
-    prh_quefit *post_rx_queue = &cono->post_rx_queue;
-    prh_snode *prev = (prh_snode *)post_rx_queue;
-    prh_snode *curr = prev->next;
-    for (; curr; curr = curr->next) { // TODO: 将所有固定的pdata分配到一个内存块中
-        prh_cono_pdata *pdata = (prh_cono_pdata)curr;
-        if (subq_i == 0 || subq_i == pdata->subq_i) {
-            prh_quefit_remove_after(post_rx_queue, prev);
-            return pdata;
+void *prh_impl_privilege_receive_pdata(prh_real_cono *cono, prh_byte wait_q) {
+    if (wait_q == 0xff) {
+        return prh_arrque_pop(pdata_que);
+    }
+    prh_cono_subq *subq = cono->cono_subq + wait_q;
+    if (subq->pdata_num == 0) {
+        return prh_null;
+    }
+    prh_int head = prh_impl_arrque_head_index(pdata_que);
+    for (prh_int i = 0; i < pdata_que->size; i += 1) {
+        void *data = pdata_que->arrdyn[head];
+        prh_cono_pdata *pdata = (prh_cono_pdata *)(((prh_ptr)data >> 2) << 2);
+        if (pdata->subq == subq) {
+            assert(pdata->subq->subq_i == wait_q);
+            return data;
         }
-        prev = curr;
+        head = prh_impl_arrque_npos(pdata_que, head + 1);
     }
     return prh_null;
 }
 
 void prh_impl_privilege_process_pwait_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-    prh_cono_pdata *pdata = prh_impl_privilege_receive_pwait_data(req_cono, req_cono->wait_q);
-    if (pdata) {
-        prh_impl_privilege_pwait_success(ready_queue, req_cono, pdata);
+    void *data = prh_impl_privilege_receive_pdata(req_cono, req_cono->wait_q);
+    if (data == prh_null) {
+        req_cono->pwait = true;
     } else {
-        req_cono->idle_pwait = true;
+        prh_cono_pdata *pdata = (prh_cono_pdata *)(((prh_ptr)data >> 2) << 2);
+        prh_cono_subq *subq = pdata->subq;
+        assert(subq->cono == req_cono);
+        prh_pwait_data *pwait_data = req_cono->pwait_data;
+        pwait_data->pdata = pdata;
+        pwait_data->subq_i = subq->subq_i;
+        pwait_data->opcode = pdata->opcode[(prh_ptr)data & 0x3];
+        prh_impl_privilege_pwait_success(ready_queue, req_cono);
+        assert(subq->pdata_num > 0);
+        subq->pdata_num -= 1;
     }
 }
 
-void prh_impl_privilege_process_post_request(void *data, void *priv) { // 处理各个线程发送给不同协程的数据
-    prh_cono_pdata *pdata = data;
-    prh_cono_quefit *ready_queue = priv;
-    prh_real_cono *dest = pdata->dest;
-    if (dest->idle_pwait && (dest->wait_q == 0 || dest->wait_q == pdata->subq_i)) {
-        prh_impl_privilege_pwait_success(ready_queue, dest, pdata);
+void prh_impl_privilege_post_data_process(void *data, void *priv) { // 处理各个线程发送给不同协程的数据
+    prh_cono_pdata *pdata = (prh_cono_pdata *)(((prh_ptr)data >> 2) << 2);
+    prh_cono_subq *subq = pdata->subq;
+    prh_real_cono *dest = subq->cono;
+    if (dest->pwait && (dest->wait_q == 0xff || dest->wait_q == subq->subq_i)) {
+        prh_pwait_data *pwait_data = dest->pwait_data;
+        pwait_data->pdata = pdata;
+        pwait_data->subq_i = subq->subq_i;
+        pwait_data->opcode = pdata->opcode[(prh_ptr)data & 0x3];
+        prh_impl_privilege_pwait_success((prh_cono_quefit *)priv, dest);
     } else {
-        prh_quefit_push(&dest->post_rx_queue, &pdata->node);
+        dest->subq_push(dest, (prh_cono_pdata *)data);
+        subq->pdata_num += 1;
     }
 }
 
-void prh_impl_privilege_process_cono_request(void *data, void *priv) {
+void prh_impl_privilege_yield_state_process(void *data, void *priv) {
     prh_real_cono *req_cono = data;
     prh_cono_quefit *ready_queue = priv;
-    assert(req_cono->action < PRH_CONO_REQ_MAX);
-    PRH_IMPL_CONO_REQ_FUNC[req_cono->action](req_cono, ready_queue);
+    assert(req_cono->yield_state < PRH_YIELD_STATE_NUM);
+    PRH_IMPL_YIELD_STATE_PROCESS[req_cono->yield_state](req_cono, ready_queue);
 }
 
 // 当前算法是，特权协程会给所有线程分配一个协程，当线程执行完当前的协程后，会自动继续
@@ -13779,8 +13892,8 @@ bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
 
     prev_empty = prh_relaxed_quefit_empty(ready_queue);
 
-    prh_atom_hive_quefix_pop_all(&curr_thrd->cono_req_que, prh_impl_privilege_process_cono_request, ready_queue);
-    prh_atom_hive_quefix_pop_all(&curr_thrd->post_req_que, prh_impl_privilege_process_post_request, ready_queue);
+    prh_atom_hive_quefix_pop_all(&curr_thrd->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
+    prh_atom_hive_quefix_pop_all(&curr_thrd->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
     curr_thrd->grabbed_cono = prh_null;
     prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
     curr_thrd->grabbed_cono = ready_cono;
@@ -13822,8 +13935,8 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     for (; thrd_it < thrd_end; thrd_it += 1) { // 处理特权消息，将就绪协程插入就绪队列
         if (*thrd_it == prh_null) continue;
         thrd = prh_impl_cono_thrd(*thrd_it);
-        prh_atom_hive_quefix_pop_all(&thrd->cono_req_que, prh_impl_privilege_process_cono_request, ready_queue);
-        prh_atom_hive_quefix_pop_all(&thrd->post_req_que, prh_impl_privilege_process_post_request, ready_queue);
+        prh_atom_hive_quefix_pop_all(&thrd->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
+        prh_atom_hive_quefix_pop_all(&thrd->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
     }
 
     thrd_it = thrd_begin;
@@ -13905,15 +14018,15 @@ void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
     printf("[thrd %02d] cono %02d start running\n", thrd_id, cono->cono_id);
 #endif
     // 继续执行协程，协程每次挂起时都会设置原因（YIELD/AWAIT/PWAIT）
-    prh_byte prev_yield_reason = cono->action;
+    prh_byte prev_yield_state = cono->yield_state;
     PRH_IMPL_CONO_SELF = cono;
     prh_impl_soro_start(thrd_id, coro); // 继续执行当前协程，直到协程再次挂起
     PRH_IMPL_CONO_SELF = prh_null;
-    if (prev_yield_reason == PRH_CONO_AWAIT) { // 上次挂起之后这次继续执行，是因为等到了子协程的执行结果，此次继续执行需要读取子协程的执行结果，读取完毕之后此次执行过程可以立即调用prh_impl_callee_continue()让子协程继续执行
+    if (prev_yield_state == PRH_CONO_AWAIT) { // 上次挂起之后这次继续执行，是因为等到了子协程的执行结果，此次继续执行需要读取子协程的执行结果，读取完毕之后此次执行过程可以立即调用prh_impl_callee_continue()让子协程继续执行
         prh_impl_callee_continue(cono); // 如果在执行过程中没有调用prh_impl_callee_continue()，这里提供了最后的保底机会继续让协程执行
     }
     // 协程再次挂起，通知特权线程处理挂起的协程，其等待的原因是否可以满足，是否能够继续执行
-    prh_impl_send_cono_req(cono, cono->action);
+    prh_impl_send_cono_req(cono, cono->yield_state);
 }
 
 prh_ptr prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
@@ -14118,11 +14231,8 @@ void prh_impl_cono_test(void) {
 #endif // PRH_CONO_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
-#define PRH_SUBQ_NULL   0
-#define PRH_SUBQ_EPOLL  1
-#define PRH_SUBQ_TCP    2
 
-#define PRH_TCPQ_MAX_NUM 6
+#define PRH_SUBQ_TCP_TO_UPPER 4 // 最多只能同时存在 RX_DATA RX_END TX_DONE CLOSED
 
 typedef enum { // tcp layer => upper layer
     PRH_TCPE_OPEN_IND,      // 连接请求到来
@@ -14170,15 +14280,18 @@ void prh_tcp_finish(prh_tcpsocket *tcp);
 
 typedef struct prh_epoll_port prh_epoll_port;
 
+#define PRH_SUBQ_EPOLL_TO_TCP 4
+
 typedef enum {
-    PRH_EPEV_ADDED, // 特定文件描述符添加完毕
-    PRH_EPEV_READY, // 特定文件描述符上有事件发生
+    PRH_EPOLL_FD_ADDED, // 特定文件描述符添加完毕
+    PRH_EPOLL_READY_IND, // 特定文件描述符上有事件发生
+    PRH_EPOLL_EVENT_NUM,
 } prh_epoll_event;
 
 void prh_epoll_init(int max_fds_hint, int num_fds_per_time_poll);
-void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_handle fd);
-void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_handle fd);
-void prh_epoll_receive_events(prh_tcpsocket* tcp, prh_epoll_port *port);
+void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_cono_subq *subq);
+void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_cono_subq *subq);
+void prh_epoll_receive_events(prh_tcpsocket* tcp);
 void prh_epoll_wait_tx_data(prh_epoll_port *port);
 void prh_epoll_wait_rx_data(prh_epoll_port *port);
 void prh_epoll_del_and_close(prh_epoll_port *port);
@@ -14809,6 +14922,15 @@ int prh_impl_epoll_wait(int epfd, void *events, int count) {
 // 会导致大范围的内存缓存失效。而且，两个协程所有的消息交互都限定在了这一个小区域内，将
 // 这个小区域对齐到内存缓存行的边界，执行效率会更高。
 
+typedef enum {
+    PRH_EPAC_ADD,   // 向 epoll 添加文件描述符
+    PRH_EPAC_WAIT,  // 协程查询特定的文件描述符
+    PRH_EPAC_POLL,  // 全局查询所有 epoll 事件
+    PRH_EPAC_CLOSE, // 删除并关闭特定文件描述符
+    PRH_EPAC_EXIT,  // 释放 epoll 实例并退出协程
+    PRH_EPAC_MAX_NUM
+} prh_epoll_action;
+
 typedef struct {
     prh_cono_pdata action;  // PRH_EPAC_CLOSE
     prh_cono_pdata tx_data; // PRH_EPAC_WAIT
@@ -14832,15 +14954,6 @@ typedef struct {
 } prh_impl_epoll;
 
 static prh_impl_epoll *PRH_IMPL_EPOLL;
-
-typedef enum {
-    PRH_EPAC_ADD,   // 向 epoll 添加文件描述符
-    PRH_EPAC_WAIT,  // 协程查询特定的文件描述符
-    PRH_EPAC_POLL,  // 全局查询所有 epoll 事件
-    PRH_EPAC_CLOSE, // 删除并关闭特定文件描述符
-    PRH_EPAC_EXIT,  // 释放 epoll 实例并退出协程
-    PRH_EPAC_MAX_NUM
-} prh_epoll_action;
 
 typedef void (*prh_impl_epoll_proccess)(prh_epoll *epoll, prh_cono_data *pdata);
 void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_data *pdata);
@@ -14874,9 +14987,9 @@ void prh_impl_epac_add(prh_epoll_port **port, prh_cono_subq *subq, prh_handle fd
     from->from_cono = cono;
     from->from_subq = subq;
     from->events = events;
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, &from->head);
-    prh_cono_pdata *event = prh_cono_pwait_from(cono, subq);
-    assert(event->opcode == PRH_EPEV_ADDED);
+    prh_cono_post(&from->head);
+    prh_pwait_data data = prh_cono_subq_pwait(cono, subq);
+    assert(data->opcode == PRH_EPOLL_FD_ADDED);
     *port = (prh_epoll_port *)((prh_byte *)event - prh_offsetof(prh_epoll_port, event));
 }
 
@@ -14907,9 +15020,9 @@ void prh_epoll_receive_events(prh_tcpsocket* tcp) {
 
 void prh_impl_report_epev_added(prh_epoll_port *port) {
     prh_cono_pdata *event = &port->event;
-    event->opcode = PRH_EPEV_ADDED;
+    event->opcode = PRH_EPOLL_FD_ADDED;
     event->subq_i = port->from_subq;
-    prh_cono_freely_post(port->from_cono, event);
+    prh_cono_post(event);
 }
 
 void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_pdata *pdata) {
@@ -14933,16 +15046,16 @@ void prh_epoll_wait_events(prh_epoll_port *port) {
     prh_cono_pdata *action = &port->action;
     action->opcode = PRH_EPAC_WAIT;
     action->subq_i = 0; // epoll只有一个处理队列
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, action);
+    prh_cono_post(action);
 }
 
 void prh_impl_report_epev_ready(prh_epoll_port *port) {
     prh_cono_pdata *event = &port->event;
-    event->opcode = PRH_EPEV_READY;
+    event->opcode = PRH_EPOLL_READY_IND;
     event->subq_i = port->from_subq；
     port->events = port->update;
     port->update = 0;
-    prh_cono_freely_post(port->from_cono, event);
+    prh_cono_post(event);
 }
 
 bool prh_impl_epac_poll_events(prh_epoll *epoll) {
@@ -15014,7 +15127,7 @@ void prh_epac_poll(void) {
     prh_cono_pdata *action = &PRH_IMPL_EPOLL->priv_poll;
     action->opcode = PRH_EPAC_POLL;
     action->subq_i = 0; // epoll只有一个处理队列
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, action);
+    prh_cono_post(action);
 }
 
 void prh_impl_process_epac_poll(prh_epoll *epoll, prh_cono_data *pdata) {
@@ -15030,7 +15143,7 @@ void prh_epoll_del_and_close(prh_epoll_port *port) {
     prh_cono_pdata *action = &port->action;
     action->opcode = PRH_EPAC_CLOSE;
     action->subq_i = 0; // epoll只有一个处理队列
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, action);
+    prh_cono_post(action);
 }
 
 void prh_impl_process_epac_close(prh_epoll *epoll, prh_cono_pdata *pdata) {
@@ -15068,8 +15181,8 @@ void prh_epoll_exit(prh_cono *cono, prh_byte subq) {
     action.head.subq_i = 0; // epoll只有一个处理队列
     action.cono = (prh_spawn_data *)prh_cono_data(cono);
     action.subq = subq;
-    prh_cono_freely_post((prh_spawn_data *)PRH_IMPL_EPOLL, &action.head);
-    prh_cono_pwait_from(action.cono, subq);
+    prh_cono_post(&action.head);
+    prh_cono_subq_pwait(action.cono, subq);
 }
 
 void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
@@ -15082,7 +15195,7 @@ void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
     prh_impl_close(epoll->epfd);
 
     free->head.subq_i = free->subq;
-    prh_cono_freely_post(free->cono, event);
+    prh_cono_post(event);
 }
 
 #if PRH_DEBUG
@@ -15093,10 +15206,9 @@ void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
 
 prh_cono_proc prh_impl_epoll_proc(prh_cono *cono) {
     prh_epoll *epoll = prh_cono_data(cono);
-    prh_cono_pdata *pdata;
-    prh_byte action;
+    prh_pwait_data data;
     for (; ;) {
-        pdata = prh_cono_pwait(cono);
+        data = prh_cono_pwait(cono);
         action = pdata->head.action;
         assert(action >= 0 && action < PRH_EPAC_MAX_NUM);
         PRH_IMPL_EPFN[action](epoll, pdata);
@@ -15142,11 +15254,13 @@ typedef struct {
     prh_tcp_port_reg *reg_arrfit_type;
 } prh_tcp_global;
 
+#define PRH_SUBQ_UPPER_TO_TCP 4 // 最多只能同时存在 RX_DONE TX_DATA TX_END
+
 typedef enum {
-    PRH_TCPQ_EPOLL,
-    PRH_TCPQ_UPPER,
-    PRH_TCPQ_MAX_NUM,
-} prh_tcp_subq;
+    PRH_IMPL_TCPQ_UPPER,
+    PRH_IMPL_TCPQ_EPOLL,
+    PRH_IMPL_TCPQ_NUM,
+} prh_impl_tcp_subq;
 
 typedef enum {
     // upper layer => tcp layer, TCP层需要主动执行操作
@@ -15156,8 +15270,6 @@ typedef enum {
     PRH_TCPA_TX_DATA,       // 主动请求发送数据
     PRH_TCPA_TX_END,        // 本地数据发送完毕
     PRH_TCPA_FINISH,        // 最后释放和清理TCP连接
-    // epoll layer => tcp layer
-    PRH_TCPA_EPOLL_IND,     // 下层（epoll层）来的事件
     PRH_TCPA_MAX_NUM,
 } prh_tcp_action;
 
@@ -15165,17 +15277,15 @@ void prh_impl_process_tcpa_invalid(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
 void prh_impl_process_tcpa_rx_done(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
 void prh_impl_process_tcpa_tx_data(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
 void prh_impl_process_tcpa_tx_end(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
-void prh_impl_process_tcpa_epoll_ind(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
 
 typedef void (*prh_impl_tcpa_process_func)(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
-static prh_impl_tcpa_process_func PRH_IMPL_TCPA_FUNC[PRH_TCPA_MAX_NUM] = {
+static prh_impl_tcpa_process_func PRH_IMPL_TCPA_FROM_UPPER[PRH_TCPA_MAX_NUM] = {
     prh_impl_process_tcpa_invalid, // PRH_TCPA_OPEN_ACCEPT
     prh_impl_process_tcpa_invalid, // PRH_TCPA_OPEN_REQ
     prh_impl_process_tcpa_rx_done,
     prh_impl_process_tcpa_tx_data,
     prh_impl_process_tcpa_tx_end,
     prh_impl_process_tcpa_invalid, // PRH_TCPA_FINISH
-    prh_impl_process_tcpa_epoll_ind,
 };
 
 typedef struct {
@@ -15187,7 +15297,7 @@ typedef struct {
 typedef struct {
     prh_impl_tcpa_accept action; // 0 OPEN_ACCEPT 1 OPEN_REQ 2 TX_END 3 FINISH
     prh_cono_pdata tx_data_rx_done; // 0 TX_DATA 1 RX_DONE
-    prh_tcpe_opened event; // 0 OPEN_IND 1 OPENED 2 CLOSED_IND 3 CLOSED
+    prh_tcpe_opened event; // 0 OPEN_IND 1 OPENED 2 RX_END 3 CLOSED
     prh_tcpe_tx_done tx_done_rx_data; // 0 TX_DONE 1 RX_DATA
 } prh_impl_tcp_port;
 
@@ -15399,11 +15509,6 @@ void prh_impl_tcp_init_buffer(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rx
     prh_arrfit_init(rxbuf, rxbuf_size);
 }
 
-prh_byte prh_impl_tcp_get_action(prh_cono_pdata *pdata) {
-    prh_byte action = ;
-    assert(action < PRH_TCPA_MAX_NUM);
-}
-
 void prh_impl_process_tcpa_invalid(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
     prh_debug(prh_prerr(prh_impl_tcp_get_action(pdata)));
 }
@@ -15413,8 +15518,9 @@ bool prh_impl_report_tcpe_open_ind(prh_tcpsocket *tcp) {
     prh_tcpe_open_ind *open_ind = (prh_tcpe_open_ind *)&port->event;
     open_ind->tcp = tcp; // PRH_TCPE_OPEN_IND 和 PRH_TCPE_OPENED 是互斥的
     prh_cono_post(&open_ind->head, 0); // PRH_TCPE_OPEN_IND
-    prh_impl_tcpa_accept *accept = prh_cono_pwait_from(PRH_TCPQ_UPPER);
-    assert(accept->head.action == PRH_TCPA_OPEN_ACCEPT);
+    prh_pwait_data data = prh_cono_subq_pwait(PRH_IMPL_TCPQ_UPPER);
+    prh_impl_tcpa_accept *accept = (prh_impl_tcpa_accept *)data.pdata;
+    assert(data.opcode == PRH_TCPA_OPEN_ACCEPT);
     if (accept->u.value) {
         prh_impl_tcp_init_buffer(tcp, accept->txbuf_size, accept->rxbuf_size);
         return true;
@@ -15423,10 +15529,9 @@ bool prh_impl_report_tcpe_open_ind(prh_tcpsocket *tcp) {
 }
 
 void prh_impl_tcp_finish(prh_tcpsocket *tcp) {
-    prh_cono_pdata *pdata;
     prh_impl_report_tcpe_closed(tcp);
-    pdata = prh_cono_pwait_from(PRH_TCPQ_UPPER);
-    assert(prh_impl_tcp_get_action(pdata) == PRH_TCPA_FINISH);
+    prh_pwait_data data = prh_cono_subq_pwait(PRH_IMPL_TCPQ_UPPER);
+    assert(data.opcode == PRH_TCPA_FINISH);
     prh_byte_arrfit *txbuf = &tcp->txbuf;
     prh_byte_arrfit *rxbuf = &tcp->rxbuf;
     prh_arrfit_free(txbuf);
@@ -15435,16 +15540,21 @@ void prh_impl_tcp_finish(prh_tcpsocket *tcp) {
 
 prh_cono_proc prh_impl_tcp_socket_proc(void) {
     prh_tcpsocket *tcp = prh_cono_data();
-    prh_cono_pdata *pdata;
+    prh_pwait_data data;
     if (tcp->passive && !prh_impl_report_tcpe_open_ind(tcp)) {
         prh_impl_tcp_close(tcp); // 新连接被上层拒绝，关闭该连接
         return;
     }
     prh_impl_report_tcpe_opened(tcp);
-    prh_epoll_add_tcp_socket(tcp, prh_cono_subq(tcp, PRH_TCPQ_EPOLL));
+    prh_epoll_add_tcp_socket(tcp, prh_cono_subq(tcp, PRH_IMPL_TCPQ_EPOLL));
     while (!tcp->closed) {
-        pdata = prh_cono_pwait();
-        PRH_IMPL_TCPA_FUNC[prh_impl_tcp_get_action(pdata)](tcp, pdata);
+        data = prh_cono_pwait();
+        assert(data->subq_i < PRH_IMPL_TCPQ_NUM);
+        if (data->subq_i == PRH_IMPL_TCPQ_UPPER) {
+            PRH_IMPL_TCPA_FROM_UPPER[data->opcode](tcp, data->pdata);
+        } else {
+            prh_impl_process_tcpa_epoll_ind(tcp, data->pdata);
+        }
     }
     prh_impl_tcp_finish(tcp);
 }
@@ -15466,9 +15576,9 @@ prh_cono_proc prh_impl_tcp_listen_proc(prh_cono *cono) {
         }
         if (new_connection.sock != PRH_INVASOCK) {
             int size = (int)sizeof(prh_tcpsocket) + (int)sizeof(prh_impl_tcp_port);
-            prh_tcpsocket *tcp = prh_cono_spawx(PRH_TCPQ_MAX_NUM, prh_impl_tcp_socket_proc, PRH_TCP_SOCKET_STACK_SIZE, size);
+            prh_tcpsocket *tcp = prh_cono_spawx_with_fixed_subq(prh_impl_tcp_socket_proc, PRH_TCP_SOCKET_STACK_SIZE, size, PRH_IMPL_TCPQ_NUM, PRH_SUBQ_UPPER_TO_TCP + PRH_SUBQ_EPOLL_TO_TCP);
             *tcp = new_connection;
-            prh_impl_tcp_port_init(tcp, listen->upper_subq, tcp_subq);
+            prh_impl_tcp_port_init(tcp, listen->upper_subq, prh_cono_get_subq((prh_spawn_data *)tcp, PRH_IMPL_TCPQ_UPPER));
             prh_cono_start((prh_spawn_data *)tcp, false);
         }
     }
