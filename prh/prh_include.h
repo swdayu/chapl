@@ -425,19 +425,19 @@ extern "C" {
 // class/struct/union types and enumerations. This is not supported in C, but
 // the alignment of a struct type can be controlled by using alignas in a
 // member declaration.
-#ifndef prh_alignas
+#ifndef prh_aligned
 #if defined(__cplusplus) && __cplusplus >= 201103L // C++11 keyword
-    #define prh_alignas(size) alignas(size)
+    #define prh_aligned(size) alignas(size)
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 202311L // C23 keyword
-    #define prh_alignas(size) alignas(size)
+    #define prh_aligned(size) alignas(size)
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L // C11 keyword
-    #define prh_alignas(size) _Alignas(size)
+    #define prh_aligned(size) _Alignas(size)
 #elif defined(_MSC_VER)
     // Before Visual Studio 2015 you could use the Microsoft-specific keywords
     // __alignof and __declspec(align) to specify an alignment greater than
     // the default. Starting in Visual Studio 2015 you should use the C++11
     // standard keywords alignof and alignas for maximum code portability.
-    #define prh_alignas(size) __declspec(align(size))
+    #define prh_aligned(size) __declspec(align(size))
 #elif defined(__GNUC__)
     // The aligned attribute specifies a minimum alignment (in bytes) for
     // variables of the specified type. When specified, alignment must be a
@@ -453,7 +453,7 @@ extern "C" {
     // 的结构体或联合体类型的对齐方式，至少要是该结构体或联合体中所有成员对齐方式的
     // 最小公倍数的整数倍。这意味着，你可以通过为结构体或联合体类型的任意一个成员附
     // 加 aligned 属性，来有效调整该结构体或联合体类型的对齐方式。
-    #define prh_alignas(size) __attribute__ ((aligned (size)))
+    #define prh_aligned(size) __attribute__ ((aligned (size)))
 #endif
 #endif
 
@@ -913,65 +913,6 @@ extern "C" {
     prh_static_assert(sizeof(prh_float) == 4);
 #endif
 
-#ifdef PRH_SOCK_INCLUDE
-#define PRH_CONO_INCLUDE
-#ifdef PRH_SOCK_IMPLEMENTATION
-#define PRH_CONO_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef PRH_CONO_INCLUDE
-#define PRH_THRD_INCLUDE
-#define PRH_CORO_INCLUDE
-#ifdef PRH_CONO_IMPLEMENTATION
-#define PRH_THRD_IMPLEMENTATION
-#define PRH_CORO_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef PRH_THRD_INCLUDE
-#define PRH_ATOMIC_INCLUDE
-#define PRH_TIME_INCLUDE
-#ifdef PRH_THRD_IMPLEMENTATION
-#define PRH_ATOMIC_IMPLEMENTATION
-#define PRH_TIME_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef PRH_TIME_INCLUDE
-#ifdef PRH_TIME_IMPLEMENTATION
-#define PRH_BASE_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef PRH_ATOMIC_INCLUDE
-#define PRH_QUEUE_INCLUDE
-#ifdef PRH_ATOMIC_IMPLEMENTATION
-#define PRH_QUEUE_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef PRH_STACK_INCLUDE
-#define PRH_LIST_INCLUDE
-#ifdef PRH_STACK_IMPLEMENTATION
-#define PRH_LIST_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef PRH_QUEUE_INCLUDE
-#define PRH_LIST_INCLUDE
-#ifdef PRH_QUEUE_IMPLEMENTATION
-#define PRH_LIST_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef RPH_STRING_INCLUDE
-#define PRH_ARRAY_INCLUDE
-#ifdef PRH_STRING_IMPLEMENTATION
-#define PRH_ARRAY_IMPLEMENTATION
-#endif
-#endif
-
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
 // The macro that is only defined if compiling for FreeBSD.
 #define prh_plat_freebsd 1
@@ -1035,10 +976,6 @@ extern "C" {
 #define prh_plat_apple 1
 #endif
 
-#if defined(_MSC_VER) || defined(__MINGW32__) || defined(__MINGW64__)
-#define prh_plat_windows 1
-#endif
-
 // CYGWIN 是一个在 Windows 操作系统上模拟 Unix/Linux 环境的大型工具集，它借助一个
 // 动态链接库cygwin1.dll来模拟许多类 Unix 系统调用和 POSIX API。当你在 CYGWIN 环
 // 境中运行程序时，程序会调用cygwin1.dll，该库再将这些调用转换为 Windows API 调用，
@@ -1079,6 +1016,73 @@ extern "C" {
 // on Cygwin, so there is some overlap there. While Cygwin focuses on building
 // Unix software on Windows as is, MSYS2 focuses on building native software
 // built against the Windows APIs.
+#if defined(_WIN32) || defined(__MINGW32__) || defined(__MINGW64__)
+#define prh_plat_windows 1
+#endif
+
+#define PRH_SOCK_INCLUDE
+#define PRH_SOCK_IMPLEMENTATION
+#define prh_plat_linux
+#undef prh_plat_windows
+
+#ifdef PRH_SOCK_INCLUDE
+#define PRH_CONO_INCLUDE
+#ifdef PRH_SOCK_IMPLEMENTATION
+#define PRH_CONO_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_CONO_INCLUDE
+#define PRH_THRD_INCLUDE
+#define PRH_CORO_INCLUDE
+#ifdef PRH_CONO_IMPLEMENTATION
+#define PRH_THRD_IMPLEMENTATION
+#define PRH_CORO_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_THRD_INCLUDE
+#define PRH_ATOMIC_INCLUDE
+#define PRH_TIME_INCLUDE
+#ifdef PRH_THRD_IMPLEMENTATION
+#define PRH_ATOMIC_IMPLEMENTATION
+#define PRH_TIME_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_TIME_INCLUDE
+#ifdef PRH_TIME_IMPLEMENTATION
+#define PRH_BASE_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_ATOMIC_INCLUDE
+#define PRH_QUEUE_INCLUDE
+#ifdef PRH_ATOMIC_IMPLEMENTATION
+#define PRH_QUEUE_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_STACK_INCLUDE
+#define PRH_LIST_INCLUDE
+#ifdef PRH_STACK_IMPLEMENTATION
+#define PRH_LIST_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef PRH_QUEUE_INCLUDE
+#define PRH_LIST_INCLUDE
+#ifdef PRH_QUEUE_IMPLEMENTATION
+#define PRH_LIST_IMPLEMENTATION
+#endif
+#endif
+
+#ifdef RPH_STRING_INCLUDE
+#define PRH_ARRAY_INCLUDE
+#ifdef PRH_STRING_IMPLEMENTATION
+#define PRH_ARRAY_IMPLEMENTATION
+#endif
+#endif
 
 #if defined(PRH_CONO_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
     defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION)
@@ -11357,74 +11361,26 @@ void prh_impl_thrd_test(void) {
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
 
-#ifdef PRH_FILE_INCLUDE
-
-#ifdef PRH_FILE_IMPLEMENTATION
-#if defined(prh_plat_windows)
-
-#else
-// 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
-// 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
-// 文件描述符的分配基于进程，不同的进程对文件描述符的分配互不干扰。有三个始终打开的文件描
-// 述符 0 1 2，分别表示标准输入（STDIN_FILENO）、表示输出（STDOUT_FILENO）、错误输出
-// （STDERR_FILENO）。更确切的说，每个程序都继承了 shell 文件描述符的副本，在程序执行
-// 之前，shell 代表这个程序为其打开了这3各文件描述符。在 shell 的日常交互中，这3个文件
-// 描述符是始终打开的，这3个文件描述符通常执行 shell 运行所在的终端。这3个文件描述符可以
-// 对其进行重定向。可以使用 0 1 2 来代表这 3 个文件描述符，但是例如使用 freopen 对标准
-// 输出 stdout 进行重定向，无法保证 stdout 变量值仍然为 1。另外如果关闭了 0 1 2 文件
-// 描述符，在创建新的文件描述符时会重用这些已经释放的文件描述符。
-//
-// O_DIRECT 标志可能会对用户空间缓冲区的长度和地址以及 I/O 的文件偏移量施加对齐限制。在
-// Linux 中，对齐限制因文件系统和内核版本而异，甚至可能完全不存在。对未对齐的 O_DIRECT
-// I/O 的处理方式也各不相同；它们可能会因 EINVAL 错误而失败，或者回退到缓冲 I/O。
-// 自 Linux 6.1 起，可以使用 statx(2) 和 STATX_DIOALIGN 标志查询文件的 O_DIRECT 支持
-// 和对齐限制。对 STATX_DIOALIGN 的支持因文件系统而异；请参见 statx(2)。某些文件系统提
-// 供了自己的接口来查询 O_DIRECT 对齐限制，例如 xfsctl(3) 中的 XFS_IOC_DIOINFO 操作。
-// 应尽量使用 STATX_DIOALIGN，只要它可用。如果以上方法均不可用，则只能根据文件系统的已知
-// 特性、单个文件、底层存储设备以及内核版本来假设直接 I/O 支持和对齐限制。在 Linux 2.4
-// 中，基于块设备的大多数文件系统要求文件偏移量以及所有 I/O 段的长度和内存地址都是文件系
-// 统块大小的倍数（通常是 4096 字节）。在 Linux 2.6.0 中，这一限制放宽到了块设备的逻辑
-// 块大小（通常是 512 字节）。可以通过 ioctl(2) 的 BLKSSZGET 操作或在 shell 中使用以下
-// 命令来确定块设备的逻辑块大小：sudo blockdev --getss /dev/sda 。
-//
-// 不应在 fork(2) 系统调用期间并行执行 O_DIRECT I/O，如果内存缓冲区是私有映射（即使用
-// mmap(2) 的 MAP_PRIVATE 标志创建的映射；这包括在堆上分配的内存和静态分配的缓冲区）。
-// 无论是通过异步 I/O 接口提交的，还是由进程中的其他线程执行的，所有此类 I/O 都应在调用
-// fork(2) 之前完成。未能做到这一点可能会导致父进程和子进程中出现数据损坏和未定义行为。
-// 如果 O_DIRECT I/O 的内存缓冲区是使用 shmat(2) 或带有 MAP_SHARED 标志的 mmap(2)
-// 创建的，则此限制不适用。同样，如果使用 madvise(2) 将内存缓冲区标记为 MADV_DONTFORK，
-// 确保它在 fork(2) 之后不会被子进程使用，此限制也不适用。
-//
-// O_DIRECT 标志最初是在 SGI IRIX 中引入的，它在 IRIX 中的对齐限制与 Linux 2.4 类似。
-// IRIX 还有一个 fcntl(2) 调用来查询适当的对齐方式和大小。FreeBSD 4.x 引入了一个同名的
-// 标志，但没有对齐限制。Linux 2.4.10 添加了对 O_DIRECT 的支持。较旧的 Linux 内核会忽
-// 略此标志。某些文件系统可能未实现该标志，在这种情况下，如果使用了该标志，open() 将因
-// EINVAL 错误而失败。
-//
-// 应用程序应避免对同一文件混合使用 O_DIRECT 和普通 I/O，尤其是对同一文件中重叠的字节区
-// 域。即使文件系统在这种情况下正确处理了一致性问题，整体 I/O 吞吐量也可能会比单独使用任
-// 何一种模式都要慢。同样，应用程序应避免将文件的 mmap(2) 与对同一文件的直接 I/O 混合使
-// 用。
-//
-// O_DIRECT 与 NFS 的行为将与本地文件系统不同。较旧的内核，或者以某些方式配置的内核，可
-// 能不支持这种组合。NFS 协议不支持将该标志传递给服务器，因此 O_DIRECT I/O 只会在客户端
-// 绕过页面缓存；服务器可能仍然会缓存 I/O。客户端会要求服务器使 I/O 同步，以保留 O_DIRECT
-// 的同步语义。在这种情况下，某些服务器的性能可能会很差，尤其是当执行小 I/O 操作时。某些
-// 服务器还可以配置为对客户端撒谎，声称 I/O 已到达稳定存储；这将避免性能损失，但可能会在
-// 服务器断电时对数据完整性带来一定风险。Linux NFS 客户端对 O_DIRECT I/O 没有任何对齐
-// 限制。总之，O_DIRECT 是一个潜在的强大工具，应谨慎使用。建议应用程序将 O_DIRECT 的使
-// 用视为一个默认禁用的性能选项。
-#endif // POSIX IMPLEMENTATION
-#ifdef PRH_TEST_IMPLEMENTATION
-
-#endif // PRH_TEST_IMPLEMENTATION
-#endif // PRH_FILE_IMPLEMENTATION
-#endif // PRH_FILE_INCLUDE
-
 #ifdef PRH_CONO_INCLUDE
-typedef struct prh_impl_cono prh_cono;
 #define prh_cono_proc prh_fastcall(void)
-prh_fastcall_typedef(void, prh_conoproc_t)(prh_cono *);
+prh_fastcall_typedef(void, prh_conoproc_t)(void);
+typedef struct prh_real_cono prh_real_cono;
+extern prh_thread_local prh_real_cono *PRH_IMPL_CONO_SELF;
+void prh_impl_cross_thread_coro_yield(prh_real_cono *cono);
+void *prh_cono_spwan_data(void);
+
+prh_inline prh_coro *prh_impl_coro_from_cono(prh_real_cono *cono) {
+    return (prh_coro *)((prh_byte *)cono - prh_impl_coro_size);
+}
+
+prh_inline prh_real_cono *prh_impl_cono_from_coro(prh_coro *coro) {
+    return (prh_real_cono *)((prh_byte *)coro + prh_impl_coro_size);
+}
+
+prh_inline void prh_cono_yield(void) {
+    prh_impl_cross_thread_coro_yield(PRH_IMPL_CONO_SELF);
+    prh_soro_yield((prh_soro *)prh_impl_coro_from_cono(PRH_IMPL_CONO_SELF));
+}
 
 typedef struct prh_spawn_data prh_spawn_data;
 typedef struct prh_await_data prh_await_data;
@@ -11436,25 +11392,16 @@ void *prh_cono_spawn(prh_conoproc_t proc, int stack_size, int maxudsize);
 void *prh_cono_spawx(prh_conoproc_t proc, int stack_size, int maxudsize, prh_byte subq_n, int init_items);
 void *prh_cono_spawx_with_fixed_subq(prh_conoproc_t proc, int stack_size, int maxudsize, prh_byte subq_n, int init_items);
 void *prh_cono_await(void); // 等待一个或多个子协程YIELD结果
-prh_pwait_data prh_cono_pwait(void); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
-prh_pwait_data prh_cono_subq_pwait(prh_byte subq); // 只等待其他协程发到某个子队列中的数据
 void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield); // 启动子协程
 void prh_cono_continue(prh_await_data *cono_await_data); // 获取子协程结果后，让子协程继续执行
 void prh_cono_post(prh_cono_pdata *pdata, prh_byte opcode_i); // 向目的协程发送请求数据或执行结果
 void prh_cono_post_data(prh_cono_pdata *pdata, prh_byte opcode_i, prh_byte opcode);
-void prh_impl_cross_thread_coro_yield(prh_cono *coro);
-
-prh_inline void prh_cono_yield(prh_cono *coro) {
-    prh_impl_cross_thread_coro_yield(coro);
-    prh_soro_yield((prh_soro *)coro);
-}
-
-prh_inline void *prh_cono_data(prh_cono *coro) {
-    return prh_soro_data((prh_soro *)coro);
-}
+prh_pwait_data prh_cono_pwait(void); // 等待其他协程发来的数据，只需要等待数据即可，发送数据的协程无需yield，可以继续无干扰执行
+prh_pwait_data prh_cono_subq_pwait(prh_byte subq); // 只等待其他协程发到某个子队列中的数据
 
 typedef prh_arrque(prh_cono_pdata *) prh_pdata_rxq;
 typedef struct { void *cono; prh_unt subq_i: 8, pdata_num: prh_int_bits - 8; } prh_cono_subq;
+
 prh_cono_subq *prh_cono_get_subq(prh_spawn_data *cono_spawn_data, prh_byte subq_i);
 prh_cono_subq *prh_cono_self_subq(prh_byte subq_i);
 
@@ -11463,8 +11410,6 @@ typedef struct prh_cono_pdata {
     prh_byte opcode[4];
     union { prh_u32 size; prh_u32 value; } u;
 } prh_cono_pdata;
-
-prh_cono_pdata *prh_cono_malloc_pdata(prh_byte opcode, prh_byte dest_subq, prh_u32 value, prh_unt size);
 
 #ifdef PRH_CONO_IMPLEMENTATION
 #ifndef PRH_CONO_DEBUG
@@ -11481,7 +11426,6 @@ prh_cono_pdata *prh_cono_malloc_pdata(prh_byte opcode, prh_byte dest_subq, prh_u
 // 饥饿，固定线程的方案，需要实现某种抢占执行方式。！！！不能实现一对一，因为可能多个协
 // 程向同一个目标协程发送消息。
 
-typedef struct prh_real_cono prh_real_cono;
 typedef struct {
     prh_real_cono *head;
     prh_real_cono *tail;
@@ -11509,12 +11453,24 @@ struct prh_real_cono {
 
 prh_thread_local prh_real_cono *PRH_IMPL_CONO_SELF;
 
-prh_inline void prh_impl_cono_init(prh_real_cono *cono, prh_i32 cono_id) {
-    cono->cono_id = cono_id;
+prh_inline int prh_impl_cono_size(void) {
+    return (int)prh_round_16_byte(sizeof(prh_real_cono));
 }
 
-prh_inline prh_coro *prh_impl_coro_from_cono(prh_real_cono *cono) {
-    return (prh_coro *)((char *)cono - prh_impl_coro_size);
+void *prh_cono_spwan_data(void) {
+    return (prh_byte *)PRH_IMPL_CONO_SELF + prh_impl_cono_size();
+}
+
+prh_inline void *prh_impl_get_spawn_data(prh_real_cono *cono) {
+    return (prh_byte *)cono + prh_impl_cono_size();
+}
+
+prh_inline prh_real_cono *prh_impl_cono_from_data(void *data) {
+    return (prh_real_cono *)((prh_byte *)data - prh_impl_cono_size());
+}
+
+prh_inline void prh_impl_cono_init(prh_real_cono *cono, prh_i32 cono_id) {
+    cono->cono_id = cono_id;
 }
 
 prh_inline void prh_impl_cono_free(prh_real_cono *cono) {
@@ -11530,22 +11486,6 @@ prh_inline void prh_impl_cono_free(prh_real_cono *cono) {
 
 prh_inline bool prh_impl_cono_finished(prh_real_cono *cono) {
     return prh_impl_coro_from_cono(cono)->rspoffset == 0;
-}
-
-prh_inline prh_real_cono *prh_impl_cono_from_coro(prh_cono *coro) {
-    return (prh_real_cono *)((char *)coro + prh_impl_coro_size);
-}
-
-prh_inline int prh_impl_cono_size(void) {
-    return (int)prh_round_16_byte(sizeof(prh_real_cono));
-}
-
-prh_inline void *prh_impl_get_cono_data(prh_real_cono *cono) {
-    return (char *)cono + prh_impl_cono_size();
-}
-
-prh_inline prh_real_cono *prh_impl_cono_from_data(void *data) {
-    return (prh_real_cono *)((char *)data - prh_impl_cono_size());
 }
 
 struct prh_cono_thrd {
@@ -11636,7 +11576,7 @@ prh_coro *prh_impl_cono_creatx(prh_conoproc_t proc, int stack_size, int coro_ext
 prh_real_cono *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, void *userdata) {
     prh_coro *coro = prh_impl_cono_creatx(proc, stack_size, sizeof(prh_real_cono), 0);
     coro->userdata = userdata;
-    return prh_impl_cono_from_coro((prh_cono *)coro);
+    return prh_impl_cono_from_coro(coro);
 }
 
 prh_cono_struct *prh_impl_cono_struct_init(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
@@ -11756,14 +11696,6 @@ int prh_impl_curr_cono_thrd_id(void) {
 }
 #endif
 
-prh_cono_pdata *prh_cono_malloc_pdata(prh_byte opcode, prh_byte dest_subq, prh_u32 value, prh_unt size) {
-    assert(size == 0 || size >= sizeof(prh_cono_pdata));
-    prh_cono_pdata *pdata = prh_malloc(size == 0 ? sizeof(prh_cono_pdata) : size);
-    pdata->opcode = opcode;
-    pdata->subq_i = dest_subq;
-    pdata->u.value = value;
-}
-
 void prh_impl_send_cono_req(prh_real_cono *req_cono, int yield_state) {
     prh_cono_thrd *thrd = prh_thrd_self_data();
 #if PRH_CONO_DEBUG
@@ -11786,13 +11718,13 @@ void prh_cono_post_data(prh_cono_pdata *pdata, prh_byte opcode_i, prh_byte opcod
     prh_cono_post(pdata, opcode_i);
 }
 
-void prh_impl_cross_thread_coro_yield(prh_cono *coro) {
+void prh_impl_cross_thread_coro_yield(prh_real_cono *cono) {
     prh_real_cono *cono = prh_impl_cono_from_coro(coro);
     cono->yield_state = PRH_CONO_YIELD;
 }
 
 prh_fastcall(void *) prh_impl_asm_cono_finish(prh_coro *coro) {
-    prh_impl_cross_thread_coro_yield((prh_cono *)coro);
+    prh_impl_cross_thread_coro_yield(prh_impl_cono_from_coro(coro));
     return prh_impl_asm_soro_finish(coro);
 }
 
@@ -11819,8 +11751,8 @@ void prh_impl_vsize_subq_push(prh_real_cono *cono, prh_cono_pdata *pdata) {
 void *prh_cono_spawx(prh_conoproc_t proc, int stack_size, int maxudsize, prh_byte subq_n, int init_items) {
     maxudsize = prh_round_ptrsize(maxudsize);
     int alloc = maxudsize + sizeof(prh_cono_subq) * subq_n; // subq 放在用户数据的最后面
-    prh_real_cono *cono = prh_impl_cono_from_coro(prh_cono_spawn(proc, stack_size, alloc));
-    prh_byte *cono_spawn_data = prh_cono_data(cono);
+    prh_real_cono *cono = prh_impl_cono_from_data(prh_cono_spawn(proc, stack_size, alloc));
+    prh_byte *cono_spawn_data = prh_impl_get_spawn_data(cono);
     prh_cono_subq *cono_subq = (prh_cono_subq *)(cono_spawn_data + maxudsize);
     for (int i = 0; i < subq_n; i += 1) {
         prh_cono_subq *curr_subq = cono_subq + i;
@@ -11838,8 +11770,8 @@ void *prh_cono_spawx_with_fixed_subq(prh_conoproc_t proc, int stack_size, int ma
     assert(prh_is_power_of_2(init_items));
     maxudsize = prh_round_ptrsize(maxudsize); // 数组容量必须是2的幂
     int alloc = maxudsize + sizeof(prh_cono_subq) * subq_n + sizeof(void *) * init_items; // subq 放在用户数据的最后面
-    prh_real_cono *cono = prh_impl_cono_from_coro(prh_cono_spawn(proc, stack_size, alloc));
-    prh_byte *cono_spawn_data = prh_cono_data(cono);
+    prh_real_cono *cono = prh_impl_cono_from_data(prh_cono_spawn(proc, stack_size, alloc));
+    prh_byte *cono_spawn_data = prh_impl_get_spawn_data(cono);
     prh_cono_subq *cono_subq = (prh_cono_subq *)(cono_spawn_data + maxudsize);
     for (int i = 0; i < subq_n; i += 1) {
         prh_cono_subq *curr_subq = cono_subq + i;
@@ -11908,7 +11840,7 @@ void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
 void *prh_cono_await(void) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_impl_cono_wait(caller, PRH_CONO_AWAIT);
-    return prh_impl_get_cono_data(caller->callee);
+    return prh_impl_get_spawn_data(caller->callee);
 }
 
 prh_pwait_data prh_cono_subq_pwait(prh_byte subq) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
@@ -12443,6 +12375,70 @@ void prh_impl_cono_test(void) {
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_CONO_IMPLEMENTATION
 #endif // PRH_CONO_INCLUDE
+
+#ifdef PRH_FILE_INCLUDE
+
+#ifdef PRH_FILE_IMPLEMENTATION
+#if defined(prh_plat_windows)
+
+#else
+// 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
+// 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
+// 文件描述符的分配基于进程，不同的进程对文件描述符的分配互不干扰。有三个始终打开的文件描
+// 述符 0 1 2，分别表示标准输入（STDIN_FILENO）、表示输出（STDOUT_FILENO）、错误输出
+// （STDERR_FILENO）。更确切的说，每个程序都继承了 shell 文件描述符的副本，在程序执行
+// 之前，shell 代表这个程序为其打开了这3各文件描述符。在 shell 的日常交互中，这3个文件
+// 描述符是始终打开的，这3个文件描述符通常执行 shell 运行所在的终端。这3个文件描述符可以
+// 对其进行重定向。可以使用 0 1 2 来代表这 3 个文件描述符，但是例如使用 freopen 对标准
+// 输出 stdout 进行重定向，无法保证 stdout 变量值仍然为 1。另外如果关闭了 0 1 2 文件
+// 描述符，在创建新的文件描述符时会重用这些已经释放的文件描述符。
+//
+// O_DIRECT 标志可能会对用户空间缓冲区的长度和地址以及 I/O 的文件偏移量施加对齐限制。在
+// Linux 中，对齐限制因文件系统和内核版本而异，甚至可能完全不存在。对未对齐的 O_DIRECT
+// I/O 的处理方式也各不相同；它们可能会因 EINVAL 错误而失败，或者回退到缓冲 I/O。
+// 自 Linux 6.1 起，可以使用 statx(2) 和 STATX_DIOALIGN 标志查询文件的 O_DIRECT 支持
+// 和对齐限制。对 STATX_DIOALIGN 的支持因文件系统而异；请参见 statx(2)。某些文件系统提
+// 供了自己的接口来查询 O_DIRECT 对齐限制，例如 xfsctl(3) 中的 XFS_IOC_DIOINFO 操作。
+// 应尽量使用 STATX_DIOALIGN，只要它可用。如果以上方法均不可用，则只能根据文件系统的已知
+// 特性、单个文件、底层存储设备以及内核版本来假设直接 I/O 支持和对齐限制。在 Linux 2.4
+// 中，基于块设备的大多数文件系统要求文件偏移量以及所有 I/O 段的长度和内存地址都是文件系
+// 统块大小的倍数（通常是 4096 字节）。在 Linux 2.6.0 中，这一限制放宽到了块设备的逻辑
+// 块大小（通常是 512 字节）。可以通过 ioctl(2) 的 BLKSSZGET 操作或在 shell 中使用以下
+// 命令来确定块设备的逻辑块大小：sudo blockdev --getss /dev/sda 。
+//
+// 不应在 fork(2) 系统调用期间并行执行 O_DIRECT I/O，如果内存缓冲区是私有映射（即使用
+// mmap(2) 的 MAP_PRIVATE 标志创建的映射；这包括在堆上分配的内存和静态分配的缓冲区）。
+// 无论是通过异步 I/O 接口提交的，还是由进程中的其他线程执行的，所有此类 I/O 都应在调用
+// fork(2) 之前完成。未能做到这一点可能会导致父进程和子进程中出现数据损坏和未定义行为。
+// 如果 O_DIRECT I/O 的内存缓冲区是使用 shmat(2) 或带有 MAP_SHARED 标志的 mmap(2)
+// 创建的，则此限制不适用。同样，如果使用 madvise(2) 将内存缓冲区标记为 MADV_DONTFORK，
+// 确保它在 fork(2) 之后不会被子进程使用，此限制也不适用。
+//
+// O_DIRECT 标志最初是在 SGI IRIX 中引入的，它在 IRIX 中的对齐限制与 Linux 2.4 类似。
+// IRIX 还有一个 fcntl(2) 调用来查询适当的对齐方式和大小。FreeBSD 4.x 引入了一个同名的
+// 标志，但没有对齐限制。Linux 2.4.10 添加了对 O_DIRECT 的支持。较旧的 Linux 内核会忽
+// 略此标志。某些文件系统可能未实现该标志，在这种情况下，如果使用了该标志，open() 将因
+// EINVAL 错误而失败。
+//
+// 应用程序应避免对同一文件混合使用 O_DIRECT 和普通 I/O，尤其是对同一文件中重叠的字节区
+// 域。即使文件系统在这种情况下正确处理了一致性问题，整体 I/O 吞吐量也可能会比单独使用任
+// 何一种模式都要慢。同样，应用程序应避免将文件的 mmap(2) 与对同一文件的直接 I/O 混合使
+// 用。
+//
+// O_DIRECT 与 NFS 的行为将与本地文件系统不同。较旧的内核，或者以某些方式配置的内核，可
+// 能不支持这种组合。NFS 协议不支持将该标志传递给服务器，因此 O_DIRECT I/O 只会在客户端
+// 绕过页面缓存；服务器可能仍然会缓存 I/O。客户端会要求服务器使 I/O 同步，以保留 O_DIRECT
+// 的同步语义。在这种情况下，某些服务器的性能可能会很差，尤其是当执行小 I/O 操作时。某些
+// 服务器还可以配置为对客户端撒谎，声称 I/O 已到达稳定存储；这将避免性能损失，但可能会在
+// 服务器断电时对数据完整性带来一定风险。Linux NFS 客户端对 O_DIRECT I/O 没有任何对齐
+// 限制。总之，O_DIRECT 是一个潜在的强大工具，应谨慎使用。建议应用程序将 O_DIRECT 的使
+// 用视为一个默认禁用的性能选项。
+#endif // POSIX IMPLEMENTATION
+#ifdef PRH_TEST_IMPLEMENTATION
+
+#endif // PRH_TEST_IMPLEMENTATION
+#endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_FILE_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
 #ifdef PRH_SOCK_IMPLEMENTATION
@@ -13025,7 +13021,7 @@ void prh_sock_shut_read_write(int sofd) {
 // 实现行为上的这种差异为可移植应用程序带来了难题，因为在许多实现上，EINTR 错误后绝不能
 // 再次调用 close()，而在至少一种实现上必须再次调用。POSIX.1 下一次主要发布计划解决这一
 // 困境。
-void prh_impl_close(int fd) {
+prh_inline void prh_impl_close_fd(int fd) {
     prh_preno_if(close(fd));
 }
 
@@ -13916,28 +13912,12 @@ void prh_sock_reuseaddr(int sock, int reuseaddr) {
 
 #define PRH_INVASOCK (-1)
 
-prh_inline int *prh_impl_sock(prh_socket *sock) {
-    return (int *)sock;
-}
-
-prh_inline struct sockaddr_in *prh_impl_sockaddr_in(struct sockaddr_storage *p) {
+prh_inline struct sockaddr_in *prh_impl_sockaddr_in(struct sockaddr_in6 *p) {
     return (struct sockaddr_in *)p;
 }
 
-prh_inline struct sockaddr_in6 *prh_impl_sockaddr_in6(struct sockaddr_storage *p) {
-    return (struct sockaddr_in6 *)p;
-}
-
-prh_inline prh_ip6_tcplisten *prh_impl_ip6_tcplisten(prh_tcplisten *p) {
-    return (prh_ip6_tcplisten *)p;
-}
-
-prh_inline prh_ip6_tcpsocket *prh_impl_ip6_tcpsocket(prh_tcpsocket *p) {
-    return (prh_ip6_tcpsocket *);
-}
-
 prh_u32 prh_sock_ip_address(const char *ip_string) {
-    struct in_addr out; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
+    struct in_addr out = {{0}}; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
     assert(ip_string != prh_null);
     prh_numbret(1, inet_pton(AF_INET, ip_string, &out));
     return out.s_addr;
@@ -13977,14 +13957,12 @@ void prh_sock_peer_addr(int sock, void *addr, socklen_t addrlen) {
 }
 
 prh_u16 prh_sock_local_port(int sock, socklen_t addrlen) {
-    struct sockaddr_storage in;
+    struct sockaddr_in6 in;
     prh_sock_local_addr(sock, &in, addrlen);
     return ntohs(prh_impl_sockaddr_in(&in)->sin_port);
 }
 
-void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backlog) {
-    sa_family_t family = addr->sin_family;
-    socklen_t addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+int prh_impl_tcp_socket(sa_family_t family) {
 #if defined(prh_plat_linux) || (defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK))
     int sock = socket(family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     assert(sock >= 0);
@@ -13994,6 +13972,12 @@ void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backl
     prh_set_cloexec(sock);
     prh_set_nonblock(sock);
 #endif
+}
+
+void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backlog) {
+    sa_family_t family = addr->sin_family;
+    socklen_t addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+    int sock = prh_impl_tcp_socket(family);
     tcp->sock = sock;
     // 端口如果是 prh_port_any，内核在bind时选择一个可用的临时端口。服务器可以绑定通
     // 配地址（prh_addr_any），当一个连接到达时，服务器可以调用 getsockname 获取来自
@@ -14029,7 +14013,7 @@ void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backl
     prh_real_zeroret_or_errno(listen(sock, backlog));
 }
 
-void prh_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
+void prh_sock_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
     struct sockaddr_in in = {0};
     prh_u32 addr_any = htonl(INADDR_ANY);
     in.sin_family = AF_INET;
@@ -14048,7 +14032,7 @@ void prh_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int back
     prh_impl_tcp_listen(tcp, &in, backlog);
 }
 
-void prh_ipv6_tcp_listen(prh_ip6_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
+void prh_ipv6_sock_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
     struct sockaddr_in6 in6 = {0};
     in6.sin6_family = AF_INET6;
     in6.sin6_port = htons(port);
@@ -14069,10 +14053,85 @@ void prh_ipv6_tcp_listen(prh_ip6_tcpsocket *tcp, const char *host, prh_u16 port,
     prh_impl_tcp_listen((prh_tcpsocket *)tcp, (struct sockaddr_in *)&in6, backlog);
 }
 
+void prh_sock_reset_tcp_conn(int sockfd) {
+    // 设置 SO_LINGER 超时为 0，告诉内核“不等缓冲区，立刻 RST”。把 SO_LINGER 设为 {1, 0} 再 close()，即可让内核发送 RST，强制终止 TCP 连接。
+    struct linger l = { .l_onoff = 1, .l_linger = 0 };
+    prh_zeroret_or_errno(setsockopt(sockfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l)));
+    prh_impl_close_fd(sockfd);
+}
+
+void prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
+    // int connect(int sofd, const struct sockaddr *addr, socklen_t addrlen);
+    // 如果 connect 失败并且希望重新进行连接，那么 SUSv3 规定完成这个任务的可移植的方法是关
+    // 闭这个套接字，创建一个新套接字，在该新套接字上重新进行连接。若 connect() 失败则该套接
+    // 字不再可用，必须关闭，我们不能对这样的套接字再次调用 connect() 函数。每次 connect()
+    // 都必须重新调用 socket() 创建套接字拿来使用。
+    //
+    // 套接字地址结构必须包含服务器的IP地址和端口号。客户在调用connect()前不必非得调用bind()，
+    // 因为如果需要的话，内核会确定源IP地址，并选择一个临时端口作为源端口。
+    //
+    // 如果是TCP套接字，调用connect()会触发TCP的三路握手过程，而且仅在连接建立成功或出错时
+    // 才返回。其中出错返回可能有以下几种情况：
+    //  ETIMEOUT - TCP客户端没有收到SYN的响应。例如内核发送一个SYN，若无响应则等待6s后再
+    //      发送一个，若仍无响应则等待24s后再发送一个，若总共等了75s后仍未响应则返回该错误。
+    //  ECONNREFUSED - 收到SYN的响应是RST，则表明该服务器在我们指定的端口上没有进程在等待
+    //      与之连接，例如服务进程也许没有运行，这是一种硬错误（hard error），客户一接收到
+    //      RST就马上返回ECONNREFUSED错误。产生RST响应的三个条件是：目的为某端口的SYN到
+    //      达，然而该端口上没有正在监听的服务；TCP想取消一个已有连接；TCP接收到一个根本不存
+    //      在的连接上的数据包。
+    // EHOSTUNREACH ENETUNREACH - 若客户发出的SYN数据包在中间的某个路由上引发一个目的地
+    //      不可达（destination unreachable）的ICMP错误，则认为是一种软错误（soft
+    //      error）。客户主机内核保存该消息，并按第一种错误中所述的时间间隔继续发送SYN。若
+    //      在某个规定的时间（BSD4.4规定75s）后仍未收到响应，则把保存的消息（即ICMP错误）
+    //      作为EHOSTUNREACH或ENETUNREACH错误返回给进程。以下两种情况也是有可能的：一是
+    //      按照本地系统的转发表，根本没有到达远程系统的路径；二是connect调用根本不等待就返
+    //      回。许多早期系统（譬如BSD4.2）在收到“目的地不可达”ICMP错误时会不正确的放弃建立
+    //      连接的尝试。这种做法不正确是因为ICMP错误可能指示某个暂时的状态，譬如说可能是一个
+    //      可以修复的某个路由问题引起的。注意，即使ICMP错误指示目的网络不可达，但网络不可达
+    //      这个错误被认为已过时，应用进程应该把ENETUNREACH和EHOSTUNREACH作为相同的错误
+    //      对待。
+    sa_family_t family = addr->sin_family;
+    socklen_t addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+    int sock = prh_impl_tcp_socket(sa_family_t family);
+    int n = connect((int)tcp->sock, addr, addrlen);
+}
+
+void prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
+    assert(host != prh_addr_any && port != prh_port_any);
+    struct sockaddr_in in = {0};
+    in.sin_family = AF_INET;
+    in.sin_port = htons(port);
+    if (host == prh_loopback) {
+        in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    } else {
+        in.sin_addr.s_addr = prh_sock_ip_address(host);
+    }
+    tcp->ip6 = false;
+    tcp->addr.l_port = port;
+    tcp->addr.l_addr = in.sin_addr.s_addr;
+    prh_impl_tcp_connect(tcp, &in);
+}
+
+void prh_ipv6_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
+    assert(host != prh_addr_any && port != prh_port_any);
+    struct sockaddr_in6 in6 = {0};
+    in6.sin6_family = AF_INET6;
+    in6.sin6_port = htons(port);
+    if (host == prh_loopback) {
+        in6.sin6_addr = in6addr_loopback;
+    } else {
+        prh_sock_ip6_address(host, in6.sin6_addr.s6_addr);
+    }
+    tcp->ip6 = true;
+    tcp->addr.l_port = port;
+    memcpy(&tcp->addr.l_addr, in6.sin6_addr.s6_addr, 16);
+    prh_impl_tcp_connect(tcp, (struct sockaddr_in *)&in);
+}
+
 // 返回 new_connection->sock != PRH_INVASOCK 表示成功接收到一个客户新连接，另外返回
 // 值表示内核是否还有待处理的连接，返回true表示有。
-bool prh_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
-    struct sockaddr_storage in; errno = 0;
+bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
+    struct sockaddr_in6 in; errno = 0;
     socklen_t addrlen = listen->ip6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
 #if defined(prh_plat_linux) || (defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK))
     int conn_sock = accept4(*prh_impl_sock(&listen->sock), (struct sockaddr *)&in, &addrlen, SOCK_CLOEXEC | SOCK_NONBLOCK);
@@ -14086,7 +14145,7 @@ bool prh_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (conn_sock >= 0) {
         if (errno) { // 新连接套接字出现网络错误
-            prh_sock_close(conn_sock);
+            prh_impl_close_fd(conn_sock);
             conn_sock = PRH_INVASOCK;
         } else {
             memset(new_connection, 0, sizeof(prh_tcpsocket));
@@ -14167,7 +14226,7 @@ bool prh_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
 #define PRH_IMPL_TXRX_BYTES 0x7ffff000 // Linux
 
 // 返回true表示可以继续发送更多数据，否则必须等待写就绪事件再发
-bool prh_tcp_send(prh_tcpsocket *tcp) {
+bool prh_sock_tcp_send(prh_tcpsocket *tcp) {
     prh_byte_arrfit *txbuf = &tcp->txbuf;
     ssize_t size = txbuf->size - tcp->txbuf_cur;
     assert(size > 0 && size < PRH_IMPL_TXRX_BYTES); // 若 count 为 0 且 fd 指向非普通文件，结果未定义
@@ -14193,7 +14252,7 @@ bool prh_tcp_send(prh_tcpsocket *tcp) {
 }
 
 // 返回true表示可以继续接收更多数据，否则必须等待读就绪事件再收
-bool prh_tcp_recv(prh_tcpsocket *tcp) {
+bool prh_spcl_tcp_recv(prh_tcpsocket *tcp) {
     prh_byte_arrfit *rxbuf = &tcp->rxbuf;
     ssize_t size = txbuf->capacity;
     assert(size > 0 && size < PRH_IMPL_TXRX_BYTES);
@@ -14271,11 +14330,11 @@ typedef struct {
     prh_u32 p_addr[3];
 } prh_tcpsocket;
 
-void prh_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
-void prh_ipv6_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
-bool prh_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection);
-bool prh_tcp_send(prh_tcpsocket *tcp);
-bool prh_tcp_recv(prh_tcpsocket *tcp);
+void prh_sock_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
+void prh_ipv6_sock_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
+bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection);
+bool prh_sock_tcp_send(prh_tcpsocket *tcp);
+bool prh_spcl_tcp_recv(prh_tcpsocket *tcp);
 
 #define PRH_MAX_SAME_TIME_POSTS_EPOLL_TO_EACH_FILE_DESCRIPTOR 2
 typedef struct prh_epoll_port prh_epoll_port;
@@ -14936,7 +14995,7 @@ typedef struct { // 保存在内核epoll_data.ptr和上层用户结构体中，�
 } prh_epoll_port;
 
 typedef prh_arrdyn(prh_epoll_port*) prh_epoll_port_array;
-typedef struct {
+typedef struct prh_impl_epoll {
     int epfd, fds_count;
     int poll_fds_each_time; // 估计同一时间最多有多少个文件描述符会同时有事件发生
     struct epoll_event *events; // 如果发生事件的文件描述符很多，但指定了很小的 poll_fds_each_time 值，则需要执行很多次 epoll_wait() 系统调用
@@ -14946,15 +15005,11 @@ typedef struct {
 
 static prh_impl_epoll *PRH_IMPL_EPOLL;
 
-prh_inline void prh_impl_epoll_recv_subq(void) {
-    prh_cono_get_subq((prh_spawn_data *)PRH_IMPL_EPOLL, 0);
-}
-
-typedef void (*prh_impl_epoll_procedurecess)(prh_epoll *epoll, prh_cono_data *pdata);
-void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_data *pdata);
-void prh_impl_process_epac_wait(prh_epoll *epoll, prh_cono_data *pdata);
-void prh_impl_process_epac_del(prh_epoll *epoll, prh_cono_data *pdata);
-void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_data *pdata);
+typedef void (*prh_impl_epoll_procedurecess)(prh_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_wait(prh_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_del(prh_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata);
 
 static prh_impl_epoll_procedurecess PRH_IMPL_EPFN[PRH_EPAC_MAX_NUM] = {
     prh_impl_process_epac_add,
@@ -14971,6 +15026,10 @@ typedef struct {
 } prh_data_epac_add;
 
 // 上层协程请求向EPOLL添加文件描述符
+
+prh_inline void prh_impl_epoll_recv_subq(void) {
+    prh_cono_get_subq((prh_spawn_data *)PRH_IMPL_EPOLL, 0);
+}
 
 void prh_impl_epac_add(prh_epoll_port **port, prh_cono_subq *subq, prh_handle fd, prh_u32 events) {
     prh_data_epac_add from;
@@ -15049,7 +15108,7 @@ void prh_impl_process_epac_del(prh_epoll *epoll, prh_cono_pdata *pdata) {
     int fd = (int)port->handle;
     prh_int wait_i = port->wait_i;
     prh_impl_epoll_del(epoll->epfd, fd);
-    prh_impl_close(fd);
+    prh_impl_close_fd(fd);
     if (wait_i != -1) { // 删除数组中等待的文件描述符
         prh_epoll_port_array *array = &epoll->wait;
         prh_epoll_port **begin = prh_arrdyn_begin(array);
@@ -15156,7 +15215,7 @@ void prh_epoll_exit(void) {
 void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
     prh_data_epac_exit *free = (prh_data_epac_exit *)pdata;
     assert(epoll->fds_count == 0); // 所有添加的文件描述符都已经删除和关闭
-    prh_impl_close(epoll->epfd);
+    prh_impl_close_fd(epoll->epfd);
     PRH_IMPL_EPOLL = prh_null;
     prh_arrdyn_free(&epoll->wait);
 }
@@ -15164,12 +15223,12 @@ void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
 // EPOLL协程循环和初始化
 
 prh_cono_proc prh_impl_epoll_procedure(void) {
-    prh_epoll *epoll = prh_cono_data();
+    prh_epoll *epoll = prh_cono_spwan_data();
     prh_pwait_data data = {0};
     while (data.opcode != PRH_EPAC_EXIT) {
         data = prh_cono_pwait();
         assert(data.opcode < PRH_EPAC_MAX_NUM);
-        PRH_IMPL_EPFN[action](epoll, data.pdata);
+        PRH_IMPL_EPFN[data.opcode](epoll, data.pdata);
     }
 }
 
@@ -15218,7 +15277,6 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
 // 如果有人使用通配地址注册一个端口，那么该端口就不能再被其他人注册，之前有人注册过的
 // 也会被强制断开。
 typedef struct {
-    prh_cono *cono;
     bool addr_any;
     prh_u16 l_port;
     prh_u32 l_addr;
@@ -15240,35 +15298,24 @@ typedef enum {
 
 typedef enum {
     // upper layer => tcp layer, TCP层需要主动执行操作
-    PRH_TCPA_OPEN_ACCEPT,   // 是否接受连接 2
-    PRH_TCPA_OPEN_REQ,      // 连接请求
-    PRH_TCPA_RX_DONE,       // 本次数据接收完毕
     PRH_TCPA_TX_DATA,       // 主动请求发送数据
     PRH_TCPA_TX_END,        // 本地数据发送完毕
+    PRH_TCPA_RX_DONE,       // 本次数据接收完毕
     PRH_TCPA_FINISH,        // 最后释放和清理TCP连接
-    PRH_TCPA_MAX_NUM,
+    PRH_TCPA_OPEN_REQ,      // 上层发起连接请求
+    PRH_TCPA_OPEN_ACCEPT,   // 是否接受当前连接
 } prh_tcp_action;
 
-void prh_impl_process_tcpa_invalid(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
-void prh_impl_process_tcpa_rx_done(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
 void prh_impl_process_tcpa_tx_data(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
 void prh_impl_process_tcpa_tx_end(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
+void prh_impl_process_tcpa_rx_done(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
 
 typedef void (*prh_impl_tcpa_process_func)(prh_tcpsocket *tcp, prh_cono_pdata *pdata);
-static prh_impl_tcpa_process_func PRH_IMPL_TCPA_FROM_UPPER[PRH_TCPA_MAX_NUM] = {
-    prh_impl_process_tcpa_invalid, // PRH_TCPA_OPEN_ACCEPT
-    prh_impl_process_tcpa_invalid, // PRH_TCPA_OPEN_REQ
-    prh_impl_process_tcpa_rx_done,
+static prh_impl_tcpa_process_func PRH_IMPL_TCPA_FROM_UPPER[PRH_TCPA_FINISH] = {
     prh_impl_process_tcpa_tx_data,
     prh_impl_process_tcpa_tx_end,
-    prh_impl_process_tcpa_invalid, // PRH_TCPA_FINISH
+    prh_impl_process_tcpa_rx_done,
 };
-
-typedef struct {
-    prh_cono_pdata head;
-    prh_u32 rxbuf_size;
-    prh_u32 txbuf_size;
-} prh_impl_tcpa_accept;
 
 #define PRH_TCPA_INDEX_OPEN_ACCEPT  &port->action.head, 0
 #define PRH_TCPA_INDEX_OPEN_REQ     &port->action.head, 1
@@ -15282,6 +15329,12 @@ typedef struct {
 #define PRH_TCPE_INDEX_CLOSED       &port->event.head, 3
 #define PRH_TCPE_INDEX_TX_DONE      &port->tx_done_rx_data, 0
 #define PRH_TCPE_INDEX_RX_DATA      &port->tx_done_rx_data, 1
+
+typedef struct {
+    prh_cono_pdata head;
+    prh_u32 rxbuf_size;
+    prh_u32 txbuf_size;
+} prh_impl_tcpa_accept;
 
 typedef struct {
     prh_impl_tcpa_accept action; // PRH_TCPA_OPEN_ACCEPT 0 PRH_TCPA_OPEN_REQ 1 PRH_TCPA_TX_END 2 PRH_TCPA_FINISH 3
@@ -15391,7 +15444,7 @@ void prh_impl_tcp_local_close(prh_tcp_socket *tcp) {
 }
 
 void prh_impl_tcp_send_data(prh_tcpsocket *tcp) { // 只在 TX_DATA 发送第一包，然后在 epoll_out 就绪发送剩余包
-    if (!prh_tcp_send(tcp)) {
+    if (!prh_sock_tcp_send(tcp)) {
         prh_epoll_wait_tx_data(tcp->epoll_port);
     } else if (tcp->tx_done) {
         tcp->tx_done = false;
@@ -15405,7 +15458,7 @@ void prh_impl_tcp_send_data(prh_tcpsocket *tcp) { // 只在 TX_DATA 发送第一
 
 void prh_impl_tcp_recv_data(prh_tcpsocket *tcp) {
     if (tcp->epoll_rdhup || tcp->epoll_hup) {
-        prh_tcp_recv(tcp);
+        prh_spcl_tcp_recv(tcp);
         if (tcp->rxbuf.size == 0) { // 本端已经将对方发送的所有数据消耗完毕
             tcp->drained = true;
             if (tcp->epoll_rdhup) {
@@ -15419,7 +15472,7 @@ void prh_impl_tcp_recv_data(prh_tcpsocket *tcp) {
             prh_impl_report_tcpe_rx_data(tcp);
         }
     } else {
-        if (!prh_tcp_recv(tcp)) {
+        if (!prh_spcl_tcp_recv(tcp)) {
             prh_epoll_wait_rx_data(tcp->epoll_port);
         } else if (tcp->rxbuf.size) {
             prh_impl_report_tcpe_rx_data(tcp);
@@ -15446,6 +15499,84 @@ void prh_impl_process_tcpa_rx_done(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
     if (tcp->drained || tcp->epoll_err) return; // 对端或双端关闭且读缓存读取完，或发生错误之后：不能继续读取
     prh_impl_tcp_recv_data(tcp);
 }
+
+// https://blog.netherlabs.nl/articles/2009/01/18/the-ultimate-so_linger-page-or-why-is-my-tcp-not-reliable
+//
+// Sending data over a TCP socket really does not offer the same ‘it hit the disk’ semantics as
+// writing to a normal file does (if you remember to call fsync()). In fact, all a successful
+// write() in the TCP world means is that the kernel has accepted your data, and will now try to
+// transmit it in its own sweet time. Even when the kernel feels that the packets carrying your
+// data have been sent, in reality, they’ve only been handed off to the network adapter, which
+// might actually even send the packets when it feels like it. From that point on, the data will
+// traverse many such adapters and queues over the network, until it arrives at the remote host.
+// The kernel there will acknowledge the data on receipt, and if the process that owns the socket
+// is actually paying attention and trying to read from it, the data will finally have arrived at
+// the application, and in filesystem speak, ‘hit the disk’. Note that the acknowledgment sent out
+// only means the kernel saw the data - it does not mean the application did!
+//
+// When we issue a close() on a TCP/IP socket, depending on the circumstances, the kernel may do
+// exactly that: close down the socket, and with it the TCP/IP connection that goes with it. And
+// this does in fact happen - even though some of your data was still waiting to be sent, or had
+// been sent but not acknowledged: the kernel can close the whole connection. This issue has led
+// to a large number of postings on mailing lists, Usenet and fora, and these all quickly zero in
+// on the SO_LINGER socket option, which appears to have been written with just this issue in
+// mind: “When enabled, a close(2) or shutdown(2) will not return until all queued messages for
+// the socket have been successfully sent or the linger timeout has been reached. Otherwise, the
+// call returns immediately and the closing is done in the background. When the socket is closed
+// as part of exit(2), it always lingers in the background.”
+//
+// So, we set this option, rerun our program. And it still does not work, not all our million
+// bytes arrive. It turns out that in this case, section 4.2.2.13 of RFC 1122 tells us that a
+// close() with any pending readable data could lead to an immediate reset being sent. “A host
+// MAY implement a ‘half-duplex’ TCP close sequence, so that an application that has called CLOSE
+// cannot continue to read data from the connection. If such a host issues a CLOSE call while
+// received data is still pending in TCP, or if new data is received after CLOSE is called, its
+// TCP SHOULD send a RST to show that data was lost.” And in our case, we have such data pending:
+// the “220 Welcome\r\n” we transmitted in program B, but never read in program A!
+//
+// So, if we read that data first, and LINGER, are we good to go? Not really. The close() call
+// really does not convey what we are trying to tell the kernel: please close the connection after
+// sending all the data I submitted through write(). Luckily, the system call shutdown() is
+// available, which tells the kernel exactly this. However, it alone is not enough. When
+// shutdown() returns, we still have no indication that everything was received by program B.
+// What we can do however is issue a shutdown(), which will lead to a FIN packet being sent to
+// program B. Program B in turn will close down its socket, and we can detect this from program A:
+// a subsequent read() will return 0.
+//
+// Well.. If we look at the HTTP protocol, there data is usually sent with length information
+// included, either at the beginning of an HTTP response, or in the course of transmitting
+// information (so called ‘chunked’ mode). And they do this for a reason. Only in this way can
+// the receiving end be sure it received all information that it was sent. Using the shutdown()
+// technique above really only tells us that the remote closed the connection. It does not actually
+// guarantee that all data was received correctly by program B. The best advice is to send length
+// information, and to have the remote program actively acknowledge that all data was received.
+//
+// What else can be done? If you need to deliver streaming data to a ‘stupid TCP/IP hole in the
+// wall’, as I’ve had to do a number of times, it may be impossible to follow the sage advice
+// above about sending length information, and getting acknowledgments. In such cases, it may not
+// be good enough to accept the closing of the receiving side of the socket as an indication that
+// everything arrived. Luckily, it turns out that Linux keeps track of the amount of unacknowledged
+// data, which can be queried using the SIOCOUTQ ioctl(). Once we see this number hit 0, we can be
+// reasonably sure our data reached at least the remote operating system. Unlike the shutdown()
+// technique described above, SIOCOUTQ appears to be Linux-specific. Updates for other operating
+// systems are welcome.
+//
+// 在处理这种复杂情况时，最好不要同时使用SO_LINGER和非阻塞套接字。因为它们的组合可能会导致难以预料和调试的问题。建议
+// 采用shutdown()函数关闭套接字的写端，然后通过读取操作来检测对方是否关闭了连接（当读取返回0时，表示对方已经关闭了连
+// 接，也就是达到了EOF，即文件结束标志）。这是一种更可靠的方式来确保数据的发送和接收完成情况。
+//
+// A few words on the Linux sendfile() and splice() system calls. It should also be noted that
+// the Linux system calls sendfile() and splice() hit a spot in between - these usually manage
+// to deliver the contents of the file to be sent, even if you immediately call close() after
+// they return. This has to do with the fact that splice() (on which sendfile() is based) can
+// only safely return after all packets have hit the TCP stack since it is zero copy, and can’t
+// very well change its behaviour if you modify a file after the call returns! Please note that
+// the functions do not wait until all the data has been acknowledged, it only waits until it has
+// been sent.
+//
+// sendfile()和splice()通常能够将要发送的文件内容成功地传递给TCP栈，即使在它们返回后立即调用close()。这是因为
+// splice()（sendfile()基于它实现）是零拷贝的，它只能在所有数据包都进入TCP栈后才能安全地返回。如果在splice()返
+// 回后修改文件，它也无法改变其行为。
 
 void prh_impl_process_tcpa_epoll_ind(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
     prh_epoll_receive_events(tcp);
@@ -15485,10 +15616,6 @@ void prh_impl_tcp_init_buffer(prh_tcpsocket *tcp, prh_u32 txbuf_size, prh_u32 rx
     prh_arrfit_init(rxbuf, rxbuf_size);
 }
 
-void prh_impl_process_tcpa_invalid(prh_tcpsocket *tcp, prh_cono_pdata *pdata) {
-    prh_debug(prh_prerr(prh_impl_tcp_get_action(pdata)));
-}
-
 bool prh_impl_report_tcpe_open_ind(prh_tcpsocket *tcp) {
     prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
     port->event.tcp = tcp; // PRH_TCPE_OPEN_IND 和 PRH_TCPE_OPENED 是互斥的
@@ -15514,21 +15641,22 @@ void prh_impl_tcp_finish(prh_tcpsocket *tcp) {
 }
 
 prh_cono_proc prh_impl_tcp_socket_procedure(void) {
-    prh_tcpsocket *tcp = prh_cono_data();
-    prh_pwait_data data;
+    prh_tcpsocket *tcp = prh_cono_spwan_data();
     if (tcp->passive && !prh_impl_report_tcpe_open_ind(tcp)) {
         prh_impl_tcp_close(tcp); // 新连接被上层拒绝，关闭该连接
         return;
     }
     prh_impl_report_tcpe_opened(tcp);
     prh_epoll_add_tcp_socket(tcp, prh_cono_self_subq(PRH_IMPL_TCPQ_EPOLL));
+    prh_pwait_data data;
     while (!tcp->closed) {
         data = prh_cono_pwait();
-        assert(data->subq_i < PRH_IMPL_TCPQ_NUM);
-        if (data->subq_i == PRH_IMPL_TCPQ_UPPER) {
-            PRH_IMPL_TCPA_FROM_UPPER[data->opcode](tcp, data->pdata);
+        if (data.subq_i == PRH_IMPL_TCPQ_UPPER) {
+            assert(data.opcode < PRH_TCPA_FINISH);
+            PRH_IMPL_TCPA_FROM_UPPER[data.opcode](tcp, data.pdata);
         } else {
-            prh_impl_process_tcpa_epoll_ind(tcp, data->pdata);
+            assert(data.subq_i == PRH_IMPL_TCPQ_EPOLL);
+            prh_impl_process_tcpa_epoll_ind(tcp, data.pdata);
         }
     }
     prh_impl_tcp_finish(tcp);
@@ -15537,14 +15665,14 @@ prh_cono_proc prh_impl_tcp_socket_procedure(void) {
 #define PRH_TCP_LISTEN_STACK_SIZE 256
 #define PRH_TCP_SOCKET_STACK_SIZE 512
 
-prh_cono_proc prh_impl_tcp_listen_procedure(prh_cono *cono) {
-    prh_tcplisten *listen = prh_cono_data(cono);
+prh_cono_proc prh_impl_tcp_listen_procedure(void) {
+    prh_tcplisten *listen = prh_cono_spwan_data(cono);
     prh_tcpsocket new_connection, *tcp;
     listen->priv.ready = prh_impl_tcp_socket_ready;
     listem->priv.priv = cono;
     prh_epoll_add_tcp_accept(listen->sock, &listen->priv);
     while (!listen->quit) {
-        if (!prh_tcp_accept(listen, &new_connection)) { // 添加限流控制
+        if (!prh_sock_tcp_accept(listen, &new_connection)) { // 添加限流控制
             prh_impl_wait_ready_event(listen->sock);
             prh_cono_pwait(cono);
             continue;
@@ -15559,25 +15687,31 @@ prh_cono_proc prh_impl_tcp_listen_procedure(prh_cono *cono) {
         }
     }
     prh_epoll_del(listen->sock);
-    prh_sock_close(listen->sock);
+    prh_impl_close_fd(listen->sock);
 }
 
 // 如果有人使用通配地址注册一个端口，那么该端口就不能再被其他人注册，之前有人注册过的
 // 也会被强制断开。
-prh_tcplisten *prh_start_tcp_server(prh_cono_subq *cono_subq, const char *host, prh_u16 port, int backlog) {
+void prh_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 port, int backlog) {
     prh_tcplisten *listen = prh_cono_spawn(prh_impl_tcp_listen_procedure, PRH_TCP_LISTEN_STACK_SIZE, sizeof(prh_tcplisten));
-    prh_tcp_listen(listen, host, port, backlog);
+    prh_sock_tcp_listen(listen, host, port, backlog);
     listen->upper_subq = cono_subq;
     prh_cono_start((prh_spawn_data *)listen, false);
-    return listen;
 }
 
-prh_tcplisten *prh_start_ipv6_tcp_server(prh_cono_subq *cono_subq, const char *host, prh_u16 port, int backlog) {
+void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 port, int backlog) {
     prh_tcplisten *listen = prh_cono_spawn(prh_impl_tcp_listen_procedure, PRH_TCP_LISTEN_STACK_SIZE, sizeof(prh_tcplisten));
-    prh_ipv6_tcp_listen(listen, host, port, backlog);
+    prh_ipv6_sock_tcp_listen(listen, host, port, backlog);
     listen->upper_subq = cono_subq;
     prh_cono_start((prh_spawn_data *)listen, false);
-    return listen;
+}
+
+void prh_tcp_connect(const char *host, prh_u16 port) {
+
+}
+
+void prh_ipv6_tcp_connect(const char *host, prh_u16 port) {
+
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
