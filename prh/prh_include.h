@@ -187,6 +187,8 @@ extern "C" {
 // 每个 DNS 服务器都知道的一组根域名服务器：
 //      dig . ns
 //      https://root-servers.org/
+// 域名解析所花时间：
+//      time nslookup example.com
 // 目的套接字地址的排序配置（RFC 3484）：
 //      cat /etc/gai.conf
 // 向 inetd 守护进程发送 SIGHUP 信号：
@@ -13101,92 +13103,6 @@ prh_inline void prh_impl_close_fd(int fd) {
 // UDP 和 TCP 端口分配给了不同的服务，如 rsh 使用 TCP 端口 514，而 syslog daemon 使用
 // DUP 端口 514，这是因为这些端口在采用现行的 IANA 策略之前就分配出去了。
 //
-// #include <sys/types.h>
-// #include <sys/socket.h>
-// #include <netdb.h> // getaddrinfo() 将域名和服务名称，转换成IP地址和端口号的一个链表，getnameinfo() 将IP地址和端口号，转换成域名和服务名称
-// int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
-// void freeaddrinfo(struct addrinfo *res);
-// const char *gai_strerror(int errcode);
-// int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host _Nullable, socklen_t hostlen, char *serv _Nullable, socklen_t servlen, int flags);
-// NI_MAXHOST 1025 域名的最大长度 NI_MAXSERV 32 服务名称的最大长度；getnameinfo() 中的 host 和 serv 至少提供一个。
-// flags - NI_DGRAM 默认返回流式套接字对应的地址字符串，指定该标志标识返回数据报套接字对应的地址字符串，通常这是无关紧要的因为，因为相同的端口对应的服务名通常相同。
-// flags - NI_NAMEREQD 默认情况下，如果无法解析获取到主机名，那么 host 中会返回数据地址字符串，如果制定了该标志，那么会返回错误 EAI_NONAME。
-// flags - NI_NOFQDN 默认情况下会返回主机的完全限定域名，指定该标志时如果主机位于局域网中只返回名字的第一部分（即主机名）。
-// flags - NI_NUMERICHOST 强制返回数值型地址字符串，禁止耗时的 DNS 查询；不指定该标志，仍然可能返回数值型地址，因为可能域名解析获取不到主机名。
-// flags - NI_NUMERICSERV 强制返回数值型服务名称，避免搜索 /etc/services，没有指定该标志也可能返回数值端口号字符串，因为一些端口号根本就不对应任何服务名。
-// EAI_AGAIN EAI_BADFLAGS EAI_FAIL EAI_FAMILY 地址族不能识别或地址长度非法，EAI_MEMORY，EAI_NONAME 指定了NI_NAMEREQD但解析失败或参数host serv都没有提供，
-// EAI_OVERFLOW 参数 host 或 serv 缓存长度不够，EAI_SYSTEM 系统错误 errno。
-#include <sys/types.h>
-#include <netdb.h>
-
-prh_u32 prh_sock_resolve_name(const char *domain_name) {
-    // struct addrinfo {
-    //      int              ai_flags;
-    //      int              ai_family; // AF_UNSPEC any family, AF_INET, AF_INET6
-    //      int              ai_socktype; // SOCK_STREAM, SOCK_DGRAM, or 0
-    //      int              ai_protocol; // 0
-    //      socklen_t        ai_addrlen;
-    //      struct sockaddr *ai_addr;
-    //      char            *ai_canonname;
-    //      struct addrinfo *ai_next; };
-    struct addrinfo hints = {0}, *addr_info = prh_null, *p;
-    struct sockaddr_in *sock_addr; int n;
-    // 将 hints 设置为空，等价于：ai_family AF_UNSPEC, ai_socktype ai_protocol 0, ai_flags AI_V4MAPPED|AI_ADDRCONFIG.
-    // 根据 POSIX.1 标准，如果将 hints 参数指定为 NULL，则应默认将 ai_flags 视为 0。然而，GNU C 库（glibc）在这种情况下默认使用
-    // (AI_V4MAPPED|AI_ADDRCONFIG) 的值，因为这一默认值被认为是对标准的一种改进。AI_V4MAPPED：允许 IPv6 地址映射为 IPv4，提高兼
-    // 容性。AI_ADDRCONFIG：根据系统配置返回地址，避免返回不适用的地址（如在没有 IPv6 支持的系统上返回 IPv6 地址）。
-    hints.ai_family = AF_INET; // hints 只需设置前四个参数，其他字段必须为零
-    // 参数 node 和 service 其中一个可以为 NULL。如果 service 是服务名称，则会被转换成对应的端口号，如果是数值字符串则直接将字符串
-    // 转换成整数。如果 service 为 NULL，返回的所有套接字地址中的端口都不进行初始化。如果设置了 AI_NUMERICSERV 标志，并且 service
-    // 不为空，那么 service 必须是数值字符串。
-    // ai_flags - AI_NUMERICHOST 地址字符串必须是数值型字符串，设置这个标志可以避免昂贵的域名解析流程。数值型字符串可以是，十六进制
-    // 和冒号的 IPv6 地址，十进制或者八进制（0）或十六进制（0x）和点号的 IPv4 地址（a.b.c.d a.b.u16 a.u24 u32）。
-    // ai_flags - AI_PASSIVE 标志如果设置且 node 为 NULL（即只提供了端口号），则返回的套接字地址适用于 bind(2) 用来 accept(2)
-    // 连接，这时返回的套接字地址是通配地址（wildcard address），INADDR_ANY 或 IN6ADDR_ANY_INIT。通配地址常适用于服务器，它可以
-    // 接收本地主机任意网络地址上的连接。如果 node 不为空，则 AI_PASSIVE 标志会被忽略。如果没有 AI_PASSIVE 标志，则返回的套接字地
-    // 址适用于 connect(2) sendto(2) sendmsg(2)，如果 node 为空返回的是回环地址（loopback address)，INADDR_LOOPBACK 或者
-    // IN6ADDR_LOOPBACK_INIT。
-    // ai_flags - AI_CANONNAME 标志如果指定，返回的第一个地址中的 ai_canonname 指向规范域名（official name of the host）。
-    // ai_flags - AI_ADDRCONFIG 标志如果指定，只有当本地系统配置了至少一个 IPv4 地址时才返回 IPv4 地址，只有当配置了至少一个 IPv6
-    // 地址时才返回 IPv6 地址。并且回环地址不被认为是一个有效的配置地址。例如在只配置有 IPv4 的系统上，这个标志可以保证不返回 IPv6
-    // 套接字地址。
-    // ai_flags - AI_V4MAPPED 标志如果设定，并且 hints.ai_family 设定为 AF_INET6，并且没有找到匹配的 IPv6 地址，那么 IPv4 映射
-    // 的 IPv6 地址会被返回。如果同时指定了 AI_V4MAPPED 和 AI_ALL，IPv6 地址和映射的 IPv4 地址都会返回。如果 AI_V4MAPPED 没有指
-    // 定，那么 AI_ALL 会被忽略。
-    assert(domain_name != prh_null);
-    n = getaddrinfo(domain_name, prh_null, &hints, &addr_info);
-    // 成功返回0，否则返回以下错误：
-    // EAI_ADDRFAMILY - 对应的网络主机（node）没有任何与指定的地址族匹配的网络地址。
-    // EAI_AGAIN - 域名服务器返回一个临时失败条件，请稍后重试。
-    // EAI_BADFLAGS - hints.ai_flags 包含非法标志，或者包含 AI_CANONNAME 但是 node 为空。
-    // EAI_FAIL - 域名服务器返回一个永久失败条件，不可恢复的错误。
-    // EAI_FAMILY - 指定的地址族不支持。
-    // EAI_MEMORY - 内存耗尽。
-    // EAI_NODATA - 存在指定的网络主机，但是该主机没有定义任何网络地址。
-    // EAI_NONAME - node 或者 service 非法，或者都是 NULL，或者制定了 AI_NUMERICSERV 但 service 不是数值字符串。
-    // EAI_SERVICE - 找不到指定类型（ai_socktype）的服务，例如指定了 SOCK_DGRAM 但只有流式套接字服务，例如设定了 service 但是 ai_socktype 是 SOCK_RAW。
-    // EAI_SOCKTYPE - 指定的 ai_socktype 不支持，例如与指定的 ai_protocol 不匹配，例如 SOCK_DGRAM 和 IPPROTO_TCP。
-    // EAI_SYSTEM - 其他系统错误，errno 返回错误码。
-    if (n != 0) {
-#if PRH_SOCK_DEBUG
-        printf("getaddrinfo %d %s\n", n, gai_strerror(n));
-#endif
-        if (addr_info) freeaddrinfo(addr_info);
-        return 0;
-    }
-    // 返回的套接字地址的排序规则定义在 RFC3484 中，在一些平台上可以编辑 /etc/gai.conf 配置其行为。域名和服务
-    // 名称对，可以映射多个套接字地址的原因是，例如域名对应的网络主机配置了多个主机地址（the network host is
-    // multihomed），例如既可以通过 IPv4 也可以通过 IPv6 地址访问，或者一个服务提供了多种套接字访问类型（例如
-    // 返回的一个地址是 SOCK_STREAM 类型，另一个地址是 SOCK_DGRAM 类型）。正常情况下，应用程序应该按套接字地
-    // 址的返回顺序优先使用靠前的地址。
-    for (p = addr_info; p; p = p->ai_next) {
-        sock_addr = (struct sockaddr_in *)p->ai_addr;
-        freeaddrinfo(addr_info);
-        return sock_addr->sin_addr.s_addr;
-    }
-    prh_unreachable();
-}
-
 // 对于使用套接字的网络服务器程序，有两种常见的设计方式。迭代型：服务器每次只处理一个客户
 // 请求，只有当完全处理完一个客户端的请求后才去处理下一个客户端。并发型：可以同时处理多个
 // 客户请求。迭代型服务器通常只适用于能够快速处理客户请求的场景，因为每个客户都必须等待前
@@ -13907,8 +13823,28 @@ void prh_sock_reuseaddr(int sock, int reuseaddr) {
 // uint16_t htons(uint16_t hostshort);
 // uint32_t ntohl(uint32_t netlong);
 // uint16_t ntohs(uint16_t netshort);
+//
+//  struct sockaddr {
+//      sa_family_t sa_family;
+//      char sa_data[14];
+//  };
+//  struct sockaddr_in {            // 'in' is for internet
+//      sa_family_t    sin_family;  // address family: AF_INET
+//      in_port_t      sin_port;    // port in network byte-order 端口和地址必须是网络字节序
+//      struct in_addr sin_addr;    // internet address in network byte-order: struct in_addr { uint32_t s_addr; } INADDR_ANY INADDR_LOOPBACK
+//      unsigned char __pad[X];     // pad to size of sockaddr (16-byte)
+//  };
+//  struct sockaddr_in6 {
+//      sa_family_t     sin6_family;   // AF_INET6
+//      in_port_t       sin6_port;     // port number
+//      uint32_t        sin6_flowinfo; // IPv6 flow information
+//      struct in6_addr sin6_addr;     // IPv6 address: struct in6_addr { unsigned char s6_addr[16]; } IN6ADDR_ANY_INIT
+//      uint32_t        sin6_scope_id; // Scope ID (new in kernel 2.4)
+//  };
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 
 #define PRH_INVASOCK (-1)
 
@@ -13960,6 +13896,19 @@ prh_u16 prh_sock_local_port(int sock, socklen_t addrlen) {
     struct sockaddr_in6 in;
     prh_sock_local_addr(sock, &in, addrlen);
     return ntohs(prh_impl_sockaddr_in(&in)->sin_port);
+}
+
+void prh_impl_tcp_get_local_addr(prh_tcpsocket *tcp) {
+    int sock = (int)tcp->sock;
+    struct sockaddr_in6 in6;
+    struct sockaddr_in *in = (struct sockaddr_in *)&in6;
+    prh_sock_local_addr(sock, in, sizeof(struct sockaddr_in6));
+    if (in.sin6_family == AF_INET) {
+        tcp->addr.l_addr = in->sin_addr.s_addr;
+    } else {
+        memcpy(&tcp->addr.l_addr, in6->sin6_addr.s6_addr, 16);
+    }
+    tcp->l_port = ntohs(in->sin_port);
 }
 
 int prh_impl_tcp_socket(sa_family_t family) {
@@ -14053,14 +14002,51 @@ void prh_ipv6_sock_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port
     prh_impl_tcp_listen((prh_tcpsocket *)tcp, (struct sockaddr_in *)&in6, backlog);
 }
 
-void prh_sock_reset_tcp_conn(int sockfd) {
+void prh_sock_tcp_reset(int sockfd) {
     // 设置 SO_LINGER 超时为 0，告诉内核“不等缓冲区，立刻 RST”。把 SO_LINGER 设为 {1, 0} 再 close()，即可让内核发送 RST，强制终止 TCP 连接。
     struct linger l = { .l_onoff = 1, .l_linger = 0 };
     prh_zeroret_or_errno(setsockopt(sockfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l)));
     prh_impl_close_fd(sockfd);
 }
 
-void prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
+#define PRH_ERROR       0xE0
+#define PRH_ETIMEOUT    0xE1
+#define PRH_EREFUSED    0xE2
+#define PRH_EUNREACH    0xE3
+#define PRH_EUNAVAIL    0xE4
+#define PRH_ENOTSUPP    0xE5
+
+bool prh_impl_is_ipv4_str(const char *host) {
+    char c;
+    while ((c = *host++)) {
+        if ((c < '0' || c > '9') && c != '.') {
+            return false;
+        }
+    }
+    return true;
+}
+
+void prh_impl_tcp_connect_error(prh_tcpsocket *tcp, int error) {
+    int error_code = PRH_ERROR;
+    if (error == ETIMEOUT) error_code = PRH_ETIMEOUT;
+    else if (error == EHOSTUNREACH || error == ENETUNREACH) error_code = PRH_EUNREACH;
+    else if (error == ECONNREFUSED || error == ECONNRESET) error_code = PRH_EREFUSED;
+    tcp->error_code = error_code;
+}
+
+void prh_impl_tcp_connect_get_result(prh_tcpsocket *tcp) {
+    int sock = (int)tcp->sock, error = -1;
+    socklen_t optlen = sizeof(int);
+    prh_zeroret_or_errno(getsockopt(sock, SOL_SOCKET, SO_ERROR, &error, &optlen));
+    if (error == 0) {
+        prh_impl_tcp_get_local_addr(tcp);
+    } else {
+        prh_impl_tcp_connect_error(tcp, error);
+    }
+}
+
+// tcp->sock != PRH_INVASOCK 表示连接成功，返回false表示操作还没有完成，需要继续检查。
+bool prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
     // int connect(int sofd, const struct sockaddr *addr, socklen_t addrlen);
     // 如果 connect 失败并且希望重新进行连接，那么 SUSv3 规定完成这个任务的可移植的方法是关
     // 闭这个套接字，创建一个新套接字，在该新套接字上重新进行连接。若 connect() 失败则该套接
@@ -14068,7 +14054,10 @@ void prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
     // 都必须重新调用 socket() 创建套接字拿来使用。
     //
     // 套接字地址结构必须包含服务器的IP地址和端口号。客户在调用connect()前不必非得调用bind()，
-    // 因为如果需要的话，内核会确定源IP地址，并选择一个临时端口作为源端口。
+    // 因为如果需要的话，内核会确定源IP地址，并选择一个临时端口作为源端口。部分协议套接字（例如
+    // TCP 套接字，以及 UNIX 域和 Internet 域中的数据报套接字）可以通过“连接”到一个特殊地址
+    // 来解除原有的连接关系：在该地址的 sockaddr 结构体中，把sa_family成员设为AF_UNSPEC；
+    // 完成这一步后，该套接字就可以再次连接到其他地址（自 Linux 2.2 起支持 AF_UNSPEC）。
     //
     // 如果是TCP套接字，调用connect()会触发TCP的三路握手过程，而且仅在连接建立成功或出错时
     // 才返回。其中出错返回可能有以下几种情况：
@@ -14090,29 +14079,177 @@ void prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
     //      可以修复的某个路由问题引起的。注意，即使ICMP错误指示目的网络不可达，但网络不可达
     //      这个错误被认为已过时，应用进程应该把ENETUNREACH和EHOSTUNREACH作为相同的错误
     //      对待。
+    //
+    // 若连接或绑定成功，则返回 0；若出错，则返回 -1，并设置 errno 以指明具体错误。以下列出
+    // 的是通用的套接字错误；各协议族还可能有其特有的错误码。
+    //
+    //  EACCES -（针对通过路径名标识的 UNIX 域套接字）对套接字文件没有写权限，或对路径前缀中
+    //      的某个目录没有搜索权限（另见 path_resolution(7)）。
+    //  EACCES - 也可能因 SELinux 策略拒绝连接而返回（例如策略规定 HTTP 代理只能连接 HTTP
+    //      服务器端口，而代理试图连接其他端口）。
+    //  EACCES EPERM - 用户试图在未启用套接字广播标志的情况下连接到广播地址；或者因为本地防
+    //      火墙规则导致连接请求失败。
+    //  EADDRINUSE - 本地地址已被占用。
+    //  EADDRNOTAVAIL -（Internet 域套接字）sockfd 指向的套接字此前未绑定地址，尝试将其
+    //      绑定到临时端口时，发现临时端口范围内的所有端口号当前均已被占用。参见 ip(7) 中
+    //      /proc/sys/net/ipv4/ip_local_port_range 的讨论。
+    //  EAFNOSUPPORT - 传入地址的 sa_family 字段并非正确的地址族。
+    //  EAGAIN - 对于非阻塞 UNIX 域套接字：套接字为非阻塞，且连接无法立即完成。对于其他套接
+    //      字族：路由缓存中条目不足。
+    //  EINPROGRESS - 套接字为非阻塞，且连接无法立即完成（UNIX 域套接字会返回 EAGAIN）。
+    //      可通过 select(2) 或 poll(2) 监听套接字可写事件来等待完成。select(2) 指示可
+    //      写后，使用 getsockopt(2) 读取 SOL_SOCKET 层的 SO_ERROR 选项，判断
+    //      connect() 是否成功（SO_ERROR 为 0）或失败（SO_ERROR 为下文列出的某个常规错
+    //      误码，解释失败原因）。
+    //  EALREADY - 套接字为非阻塞，且先前的连接尝试尚未完成。
+    //  EBADF - sockfd 不是有效的打开文件描述符。
+    //  ECONNREFUSED - 在流式套接字上执行 connect() 时，远程地址无人监听。
+    //  EFAULT - 套接字结构地址位于用户地址空间之外。
+    //  EINTR - 系统调用被捕获的信号中断；参见 signal(7)。
+    //  EISCONN - 套接字已连接。
+    //  ENETUNREACH - 网络不可达。
+    //  ENOTSOCK - 文件描述符 sockfd 并非套接字。
+    //  EPROTOTYPE - 套接字类型不支持请求的通信协议。例如，试图将 UNIX 域数据报套接字连接
+    //      到流式套接字时会发生此错误。
+    //  ETIMEDOUT - 尝试连接时超时。服务器可能太忙，无法接受新连接。注意，对于 IP 套接字，
+    //      若服务器启用了 SYN Cookie，则超时时间可能非常长。
     sa_family_t family = addr->sin_family;
-    socklen_t addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
-    int sock = prh_impl_tcp_socket(sa_family_t family);
-    int n = connect((int)tcp->sock, addr, addrlen);
+    int sock = prh_impl_tcp_socket(family);
+    struct sockaddr_in *in = (struct sockaddr_in *)addr;
+    socklen_t addrlen;
+    if (family == AF_INET) {
+        addrlen = sizeof(struct sockaddr_in);
+        tcp->addr.p_addr = in->sin_addr.s_addr;
+        tcp->ip6 = false;
+    } else {
+        addrlen = sizeof(struct sockaddr_in6);
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
+        memcpy(&tcp->addr.p_addr, in6->sin6_addr.s6_addr, 16);
+        tcp->ip6 = true;
+    }
+    tcp->p_port = ntohs(in->sin_port);
+    tcp->error_code = 0;
+label_continue:
+    if (connect(sock, addr, addrlen) == 0) {
+        tcp->sock = sock;
+        prh_impl_tcp_get_local_addr(tcp);
+        return true;
+    }
+    if (errno == EINTR) {
+        goto label_continue;
+    }
+    bool oper_finished;
+    if (errno == EINPROGRESS) {
+        tcp->sock = sock;
+        oper_finished = false;
+    } else {
+        tcp->sock = PRH_INVASOCK;
+        prh_impl_tcp_connect_error(tcp, errno);
+        prh_impl_close_fd(sock);
+        oper_finished = true;
+    }
+    return oper_finished;
 }
 
-void prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
+bool prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
     assert(host != prh_addr_any && port != prh_port_any);
     struct sockaddr_in in = {0};
     in.sin_family = AF_INET;
     in.sin_port = htons(port);
     if (host == prh_loopback) {
         in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    } else {
-        in.sin_addr.s_addr = prh_sock_ip_address(host);
+        return prh_impl_tcp_connect(tcp, &in);
     }
-    tcp->ip6 = false;
-    tcp->addr.l_port = port;
-    tcp->addr.l_addr = in.sin_addr.s_addr;
-    prh_impl_tcp_connect(tcp, &in);
+    if (prh_impl_is_ipv4_str(host)) {
+        in.sin_addr.s_addr = prh_sock_ip_address(host);
+        return prh_impl_tcp_connect(tcp, &in);
+    }
+    // int getaddrinfo(const char *node, const char *service, const struct addrinfo *hints, struct addrinfo **res);
+    // void freeaddrinfo(struct addrinfo *res); const char *gai_strerror(int errcode);
+    // int getnameinfo(const struct sockaddr *addr, socklen_t addrlen, char *host, socklen_t hostlen, char *serv, socklen_t servlen, int flags);
+    // getaddrinfo() 将域名和服务名称，转换成IP地址和端口号的一个链表，getnameinfo() 将IP地址和端口号，转换成域名和服务名称
+    // NI_MAXHOST 1025 域名的最大长度 NI_MAXSERV 32 服务名称的最大长度。getnameinfo() 中的 host 和 serv 至少提供一个，flags 值如下:
+    //  NI_DGRAM 默认返回流式套接字对应的地址字符串，指定该标志标识返回数据报套接字对应的地址字符串，通常这是无关紧要的因为，因为相同的端口对应的服务名通常相同。
+    //  NI_NAMEREQD 默认情况下，如果无法解析获取到主机名，那么 host 中会返回数据地址字符串，如果制定了该标志，那么会返回错误 EAI_NONAME。
+    //  NI_NOFQDN 默认情况下会返回主机的完全限定域名，指定该标志时如果主机位于局域网中只返回名字的第一部分（即主机名）。
+    //  NI_NUMERICHOST 强制返回数值型地址字符串，禁止耗时的 DNS 查询；不指定该标志，仍然可能返回数值型地址，因为可能域名解析获取不到主机名。
+    //  NI_NUMERICSERV 强制返回数值型服务名称，避免搜索 /etc/services，没有指定该标志也可能返回数值端口号字符串，因为一些端口号根本就不对应任何服务名。
+    // struct addrinfo {
+    //      int              ai_flags;
+    //      int              ai_family; // AF_UNSPEC any family, AF_INET, AF_INET6
+    //      int              ai_socktype; // SOCK_STREAM, SOCK_DGRAM, or 0
+    //      int              ai_protocol; // 0
+    //      socklen_t        ai_addrlen;
+    //      struct sockaddr *ai_addr;
+    //      char            *ai_canonname;
+    //      struct addrinfo *ai_next; };
+    // 其中 ai_flags 可能的值为：
+    //  AI_NUMERICHOST 地址字符串必须是数值型字符串，设置这个标志可以避免昂贵的域名解析流程。数值型字符串可以是，十六
+    //      进制和冒号的 IPv6 地址，十进制或者八进制（0）或十六进制（0x）和点号的 IPv4 地址（a.b.c.d a.b.u16
+    //      a.u24 u32）。
+    //  AI_PASSIVE 标志如果设置且 node 为 NULL（即只提供了端口号），则返回的套接字地址适用于 bind(2) 用来
+    //      accept(2) 连接，这时返回的套接字地址是通配地址（wildcard address），INADDR_ANY 或
+    //      IN6ADDR_ANY_INIT。通配地址常适用于服务器，它可以接收本地主机任意网络地址上的连接。如果 node 不为空，则
+    //      AI_PASSIVE 标志会被忽略。如果没有 AI_PASSIVE 标志，则返回的套接字地址适用于 connect(2) sendto(2)
+    //      sendmsg(2)，如果 node 为空返回的是回环地址（loopback address)，INADDR_LOOPBACK 或者
+    //      IN6ADDR_LOOPBACK_INIT。
+    //  AI_CANONNAME 标志如果指定，返回的第一个地址中的 ai_canonname 指向规范域名（official name
+    //      of the host）。
+    //  AI_ADDRCONFIG 标志如果指定，只有当本地系统配置了至少一个 IPv4 地址时才返回 IPv4 地址，只有当
+    //      配置了至少一个 IPv6 地址时才返回 IPv6 地址。并且回环地址不被认为是一个有效的配置地址。例如在只配置有
+    //      IPv4 的系统上，这个标志可以保证不返回 IPv6 套接字地址。
+    //  AI_V4MAPPED 标志如果设定，并且 hints.ai_family 设定为 AF_INET6，并且没有找到匹配的 IPv6
+    //      地址，那么 IPv4 映射的 IPv6 地址会被返回。如果同时指定了 AI_V4MAPPED 和 AI_ALL，IPv6 地址和映射的
+    //      IPv4 地址都会返回。如果 AI_V4MAPPED 没有指定，那么 AI_ALL 会被忽略。
+    // 将 hints 设置为空，等价于：ai_family AF_UNSPEC, ai_socktype ai_protocol 0, ai_flags AI_V4MAPPED|
+    // AI_ADDRCONFIG。根据 POSIX.1 标准，如果将 hints 参数指定为 NULL，则应默认将 ai_flags 视为 0。然而，GNU
+    // C 库（glibc）在这种情况下默认使用 (AI_V4MAPPED|AI_ADDRCONFIG) 的值，因为这一默认值被认为是对标准的一种改
+    // 进。AI_V4MAPPED：允许 IPv6 地址映射为 IPv4，提高兼容性。AI_ADDRCONFIG：根据系统配置返回地址，避免返回不适
+    // 用的地址（如在没有 IPv6 支持的系统上返回 IPv6 地址）。
+    // 参数 node 和 service 其中一个可以为 NULL。如果 service 是服务名称，则会被转换成对应的端口号，如果是数值字符
+    // 串则直接将字符串转换成整数。如果 service 为 NULL，返回的所有套接字地址中的端口都不进行初始化。如果设置了
+    // AI_NUMERICSERV 标志，并且 service 不为空，那么 service 必须是数值字符串。
+    struct addrinfo hints = {0}; // hints 只需设置前四个参数，其他字段必须为零
+    hints.ai_flags = AI_ADDRCONFIG;
+    hints.ai_family   = AF_UNSPEC;   // 允许 IPv4/IPv6
+    hints.ai_socktype = SOCK_STREAM; // TCP
+    tcp->sock = PRH_INVASOCK;
+    struct addrinfo *res;
+    int n = getaddrinfo(host, prh_null, &hints, &res);
+    // 成功返回0，否则返回以下错误：
+    // EAI_ADDRFAMILY - 对应的网络主机（node）没有任何与指定的地址族匹配的网络地址。
+    // EAI_AGAIN - 域名服务器返回一个临时失败条件，请稍后重试。
+    // EAI_BADFLAGS - hints.ai_flags 包含非法标志，或者包含 AI_CANONNAME 但是 node 为空。
+    // EAI_FAIL - 域名服务器返回一个永久失败条件，不可恢复的错误。
+    // EAI_FAMILY - 指定的地址族不支持。
+    // EAI_MEMORY - 内存耗尽。
+    // EAI_NODATA - 存在指定的网络主机，但是该主机没有定义任何网络地址。
+    // EAI_NONAME - node 或者 service 非法，或者都是 NULL，或者制定了 AI_NUMERICSERV 但 service 不是数值字符串。
+    // EAI_SERVICE - 找不到指定类型（ai_socktype）的服务，例如指定了 SOCK_DGRAM 但只有流式套接字服务，例如设定了 service 但是 ai_socktype 是 SOCK_RAW。
+    // EAI_SOCKTYPE - 指定的 ai_socktype 不支持，例如与指定的 ai_protocol 不匹配，例如 SOCK_DGRAM 和 IPPROTO_TCP。
+    // EAI_SYSTEM - 其他系统错误，errno 返回错误码。
+    if (n != 0) {
+        prh_prerr(errno);
+        return true;
+    }
+    // 返回的套接字地址的排序规则定义在 RFC3484 中，在一些平台上可以编辑 /etc/gai.conf 配置其行为。域名和服务
+    // 名称对，可以映射多个套接字地址的原因是，例如域名对应的网络主机配置了多个主机地址（the network host is
+    // multihomed），例如既可以通过 IPv4 也可以通过 IPv6 地址访问，或者一个服务提供了多种套接字访问类型（例如
+    // 返回的一个地址是 SOCK_STREAM 类型，另一个地址是 SOCK_DGRAM 类型）。正常情况下，应用程序应该按套接字地
+    // 址的返回顺序优先使用靠前的地址。
+    for (struct addrinfo *p = res; p; p = p->ai_next) {
+        ((struct sockaddr_in *)(p->ai_addr))->sin_port = in.sin_port;
+        bool oper_finished = prh_impl_tcp_connect(tcp, p->ai_addr);
+        if (tcp->sock != PRH_INVASOCK) {
+            freeaddrinfo(res);
+            return oper_finished;
+        }
+    }
+    freeaddrinfo(res);
+    return true;
 }
 
-void prh_ipv6_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
+bool prh_ipv6_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
     assert(host != prh_addr_any && port != prh_port_any);
     struct sockaddr_in6 in6 = {0};
     in6.sin6_family = AF_INET6;
@@ -14122,26 +14259,33 @@ void prh_ipv6_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 por
     } else {
         prh_sock_ip6_address(host, in6.sin6_addr.s6_addr);
     }
-    tcp->ip6 = true;
-    tcp->addr.l_port = port;
-    memcpy(&tcp->addr.l_addr, in6.sin6_addr.s6_addr, 16);
-    prh_impl_tcp_connect(tcp, (struct sockaddr_in *)&in);
+    return prh_impl_tcp_connect(tcp, (struct sockaddr_in *)&in);
 }
 
-// 返回 new_connection->sock != PRH_INVASOCK 表示成功接收到一个客户新连接，另外返回
-// 值表示内核是否还有待处理的连接，返回true表示有。
-bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
-    struct sockaddr_in6 in; errno = 0;
-    socklen_t addrlen = listen->ip6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+int prh_impl_sock_accept(int sock, struct sockaddr *in, socklen_t *addrlen) {
+    int conn_sock;
+label_continue:
+    errno = 0;
 #if defined(prh_plat_linux) || (defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK))
-    int conn_sock = accept4(*prh_impl_sock(&listen->sock), (struct sockaddr *)&in, &addrlen, SOCK_CLOEXEC | SOCK_NONBLOCK);
+    conn_sock = accept4(sock, in, addrlen, SOCK_CLOEXEC | SOCK_NONBLOCK);
+    if (errno == EINTR) goto label_continue;
 #else
-    int conn_sock = accept(*prh_impl_sock(&listen->sock), (struct sockaddr *)&in);
+    conn_sock = accept(sock, in, addrlen);
+    if (errno == EINTR) goto label_continue;
     if (conn_sock >= 0) {
         prh_set_cloexec(conn_sock);
         prh_set_nonblock(conn_sock);
     }
 #endif
+    return conn_sock;
+}
+
+// 返回 new_connection->sock != PRH_INVASOCK 表示成功接收到一个客户新连接，另外返回
+// 值表示内核是否还有待处理的连接，返回true表示有。
+bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
+    struct sockaddr_in6 in;
+    socklen_t addrlen = listen->ip6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    int conn_sock = prh_impl_sock_accept((int)listen->sock, (struct sockaddr *)&in, &addrlen);
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (conn_sock >= 0) {
         if (errno) { // 新连接套接字出现网络错误
@@ -14218,7 +14362,7 @@ bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
         has_pending_connection = false; // 内核已经没有待处理的连接
     } else {
         has_pending_connection = true;
-        prh_preno_if(errno != EINTR);
+        prh_prerr(errno);
     }
     return has_pending_connection;
 }
@@ -14230,8 +14374,10 @@ bool prh_sock_tcp_send(prh_tcpsocket *tcp) {
     prh_byte_arrfit *txbuf = &tcp->txbuf;
     ssize_t size = txbuf->size - tcp->txbuf_cur;
     assert(size > 0 && size < PRH_IMPL_TXRX_BYTES); // 若 count 为 0 且 fd 指向非普通文件，结果未定义
-    ssize_t n = send((int)tcp->sock, prh_arrfit_begin(txbuf) + tcp->txbuf_cur, size, 0);
-    if (n >= 0) {
+    bool can_send_more_data;
+    ssize_t n;
+label_continue:
+    if ((n = send((int)tcp->sock, prh_arrfit_begin(txbuf) + tcp->txbuf_cur, size, 0)) >= 0) {
         if (n == size) {
             prh_arrfit_clear(txbuf);
             tcp->txbuf_cur = 0;
@@ -14241,12 +14387,14 @@ bool prh_sock_tcp_send(prh_tcpsocket *tcp) {
         }
         return true;
     }
-    bool can_send_more_data;
+    if (errno == EINTR) {
+        goto label_continue;
+    }
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
         can_send_more_data = false;
     } else {
         can_send_more_data = true;
-        prh_preno_if(errno != EINTR);
+        prh_prerr(errno);
     }
     return can_send_more_data;
 }
@@ -14256,17 +14404,21 @@ bool prh_spcl_tcp_recv(prh_tcpsocket *tcp) {
     prh_byte_arrfit *rxbuf = &tcp->rxbuf;
     ssize_t size = txbuf->capacity;
     assert(size > 0 && size < PRH_IMPL_TXRX_BYTES);
-    ssize_t n = recv((int)tcp->sock, prh_arrfit_begin(rxbuf), size, 0);
-    if (n >= 0) {
+    bool can_recv_more_data;
+    ssize_t n;
+label_continue:
+    if ((n = recv((int)tcp->sock, prh_arrfit_begin(rxbuf), size, 0)) >= 0) {
         rxbuf->size = n;
         return true;
     }
-    bool can_recv_more_data;
+    if (errno == EINTR) {
+        goto label_continue;
+    }
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
         can_recv_more_data = false;
     } else {
         can_recv_more_data = true;
-        prh_preno_if(errno != EINTR);
+        prh_prerr(errno);
     }
     return can_recv_more_data;
 }
@@ -14320,6 +14472,7 @@ typedef struct {
     prh_byte_arrfit rxbuf;
     prh_epoll_port *epoll_port;
     prh_u32 txbuf_cur;
+    prh_i32 error_code;
     prh_byte ip6: 1, passive: 1, drained: 1, tx_done: 1, close_req: 1, local_closed: 1, closed: 1;
     prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
     prh_u16 l_port;
@@ -14345,6 +14498,7 @@ typedef enum {
 } prh_epoll_event;
 
 void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time);
+void prh_epoll_add_tcp_connect(prh_tcpsocket *tcp, prh_cono_subq *subq);
 void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_cono_subq *subq);
 void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_cono_subq *subq);
 void prh_epoll_receive_events(prh_tcpsocket *tcp);
@@ -15041,6 +15195,11 @@ void prh_impl_epac_add(prh_epoll_port **port, prh_cono_subq *subq, prh_handle fd
     prh_pwait_data data = prh_cono_subq_pwait(subq->subq_i);
     assert(data.opcode == PRH_EPEV_ADDED);
     *port = (prh_epoll_port *)((prh_byte *)data.pdata - prh_offsetof(prh_epoll_port, event));
+}
+
+void prh_epoll_add_tcp_connect(prh_tcpsocket *tcp, prh_cono_subq *subq) {
+    prh_u32 events = EPOLLOUT | EPOLLET; // EPOLLERR 默认会设置
+    prh_impl_epac_add(&tcp->epoll_port, subq, tcp->sock, events);
 }
 
 void prh_epoll_add_tcp_accept(prh_tcpsocket *tcp, prh_cono_subq *subq) { // 接收连接，错误
