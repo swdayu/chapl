@@ -4,11 +4,20 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 #fall 表示。
-//  if else case for range
-//  continue break defer await yield return
-//  const void pub adr der
+//  if else case then for range
+//  loop break defer return
+//  const enum void pub adr der deu not and or
 //  static extern using
 //  sizeof typeof alignof offsetof
+//
+// 语句块的控制：
+//  if expr then stmt
+//  if expr : stmt ... ;
+//  if expr { stmt ... }
+//
+// 循环控制：
+//  for expr void
+//  for expr { }
 //
 // 函数参数或者结构体成员声明
 //  Point point p2
@@ -53,7 +62,7 @@
 //  this 当前函数（当前函数的地址）或当前结构体，不提供任何面向对象的特殊含义，但匿名类型需要用
 // 操作符
 // #- #+ #^
-// (&) (*) (**) (*&) (**&) (&1) (&2) (*1) (*2) @noinit
+// (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2) @noinit
 //
 // 基本类型，定义在 type 代码包中：
 //  bool null byte char string errno
@@ -257,20 +266,7 @@ Reader $T
 @type{read} (*$T a Ptr p int n return int)
 @type{reader} $T $(@type{get}(T) get @type{read}(T) read {}
 
-hci_rx_buffer_handled_and_free(Hci_Rx_Desc rx_desc u32 ca Hci_Data_Type data_type U line)
-
-L2cap_Conn
-L2cap_Callback
-Hci_Conn_Type
-Bt_Status
-Btif_L2cap_Echo_Req_Callback
-Hci_Global
-Hci_Data_Type
-Hci_Conn_Type
-Hci_Conn_Item
-Hci_Evt_Packet
-Hci_Rx_Desc
-Hci_Tx_Desc
+hci_rx_buffer_handled_and_free(HciRxDesc rxdesc u32 ca HciDataType datatype U line)
 
 Point { float x y }
 Data { int a b (int a b return int) f g }
@@ -300,8 +296,8 @@ T5 $T $(*T p int a b return int) calc {}
 T6 (int a b return int)
 T7 (Point p float factor)
 
-T1 int[3] // 禁止
-T3 T2[3] // 禁止
+T1 [3]int // 禁止
+T3 [3]T2 // 禁止
 T4 { int a b }[3] // 禁止
 T5 (this p int a b int)[3] // 禁止
 T6 (int a b int)[3] // 禁止
@@ -327,11 +323,16 @@ Triple $T $U $int size {
 
 Main (i32 argc **byte argv return i32)
 Scale (Point p int a b)
+
+// 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b return int errno) // errno is a type with i32
 result calc(1, 2)
-if errno { // error handle
-}
-calc(1, 2) #abort(if errno)
+if result.errno then panic("%", errno)
+result calc(1, 2) or abort() // or 是函数后缀操作符
+p *int getp()! or abort()
+
+size int {f() g() 3+2}
+size int if a > b ? a : b
 
 using 3rd "array.code" // 文件可提供一个包名，也可以不提供
 array 3rd::Array 3rd::array_init()
@@ -394,12 +395,12 @@ CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     (Coro p) h
     { int a b }
     { int a b } tuple
-    $i08 (RED 1 BLUE YELLOW) color
-    $int (red {red_enum_value} blue yellow) color
-)
+    $i08 {RED {1} BLUE YELLOW} color
+    $int {red {red_enum_value} blue yellow} color
+}
 
 Color $i08 {
-    RED {const + 1}
+    RED { const + 1 }
     BLUE
     YELLOW
 }
@@ -410,14 +411,14 @@ Color $int {
     yellow
 }
 
-Color $i08 @strict { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    1 RED
-    2 BLUE
-    3 YELLOW
+Color $i08 [[strict]] { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
+    RED {1}
+    BLUE {2}
+    YELLOW {3}
 }
 
 BitValue $int {
-    (1 << const) FLAG_BIT1
+    FLAG_BIT1 { 1 << const }
     FLAG_BIT2
     FLAG_BIT3
     FLAG_BIT4
@@ -447,7 +448,7 @@ TcpAccept {
 
 Writer $T
     $(*T p int c) put
-    $(*T p Ptr p int n return int) write
+    $(*T p Ptr ptr int n return int) write
 {}
 
 Color $i08 {} // 因为i08是关键字，不能使用关键字定义新的类型参数，因此这里必须是一个常量参数
@@ -480,34 +481,27 @@ Oper $int {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-eat (*Lexer lexer return Token) {
+eat(*Lexer lexer return Token) {
     return lexer.pop()
 }
 
-peek (*Lexer lexer return Token) {
+peek(*Lexer lexer return Token) {
     return lexer.top()
 }
 
-eval (Oper op Expr lhs rhs return Expr) {
+eval(Oper op Expr lhs rhs return Expr) {
     res Expr ???
-    if op case '=' {
-        res = .value(rhs.value.n)
-        get_symbol(lhs.ident.id).value = rhs.value.n
-    } case '+' {
-        res = .value(lhs.value.n + rhs.value.n)
-    } case '-' {
-        res = .value(lhs.value.n - rhs.value.n)
-    } case '*' {
-        res = .value(lhs.value.n * rhs.value.n)
-    } case '/' {
-        res = .value(lhs.value.n / rhs.value.n)
-    } case '^' {
-        res = .value(pow(lhs.value.n, rhs.value.n))
-    } else panic("bad operator %c", op)
+    if op case '=' { res = .value(rhs.value.n) get_symbol(lhs.ident.id).value = rhs.value.n }
+    case '+' then res = .value(lhs.value.n + rhs.value.n)
+    case '-' then res = .value(lhs.value.n - rhs.value.n)
+    case '*' then res = .value(lhs.value.n * rhs.value.n)
+    case '/' then res = .value(lhs.value.n / rhs.value.n)
+    case '^' then res = .value(pow(lhs.value.n, rhs.value.n))
+    else then panic("bad operator %c", op)
     return res
 }
 
-parse_expression (*Lexer lexer int min_prior) {
+parse_expression(*Lexer lexer int min_prior return Expr) {
     lhs Expr ???
     if lexer.eat() case .atom(it) {
         if it == '0'..'9' {
@@ -592,15 +586,14 @@ epoll_proc(*Cono cono) {
         pdata = cono_pwait(cono)
         action = pdata.action
         if action == COAC_EXIT break
-        if action case EPAC_DEL_CLOSE {
+        if action case EPAC_DEL_CLOSE then
             epac_del_close(epoll, (int)pdata.u.value)
-        } case EPAC_POLL_ONCE {
+        case EPAC_POLL_ONCE then
             epac_wait(epoll)
-        } case EPAC_POLL_ALL {
+        case EPAC_POLL_ALL then
             for epac_wait(epoll) void
-        } else {
-            debug(prerr(action));
-        }
+        else then
+            debug(prerr(action))
     }
 }
 
@@ -608,9 +601,9 @@ pub main(int argc **byte argv return int) {
 
 }
 
-Main (i32 argc **byte argv return i32)
-scale (Point point int a b)
-calc (int a b return int)
+Main(i32 argc **byte argv return i32)
+scale(Point point int a b)
+calc(int a b return int)
 Array $T $int size { [size]T a }
 Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
 BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
@@ -630,7 +623,7 @@ TcpAccept {
     u32 txbuf_size
 }
 
-perform_tcpa_open_accept (*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
@@ -648,8 +641,8 @@ report_tcpe_opened(*TcpSocket tcp) {
 
 epoll_proc(*Cono cono) {
     epoll *Epoll cono_data(cono)
-    pdata *ConoPdata __novalue
-    action byte __novalue
+    pdata *ConoPdata ???
+    action byte ???
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -783,14 +776,15 @@ cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
 cal2 *Calc adr (int a b int) {return a + b }
 cal2 *Calc adr {return a + b }
 cal2 adr Calc{return a + b}
-cal2 Calc[2] {Calc {return a + b}, Calc { return a * b }}
-cal2 Calc[2] {Calc {return a + b}, Calc { return a * b }}
+cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
+cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 
 ppb *Ppb malloc(size)
 
+// 变量定义必须指定类型部分
 a int ???
-a 42
-a #+99
+a int 42
+a deu +99
 a if a==0 ? b : c
 b 0
 b a // 一个变量赋值给另一个变量的形式必须在同一行，不能换行
@@ -887,10 +881,10 @@ ppb *Ppb ppb_alloc(alloc)
 
 pos dist + int scale_x(facter)
 len int pos + adr *int *byte p + size + f(g)
-len int pos + adr (*int *byte p) + size + f(g)
+len int pos + der *int *byte (p + size + f(g))
 
 pos int dist + int scale_x(facter)
-len int pos + der *int (*byte p + size + f(g))
+len int pos + der *int *byte (p + size + f(g))
 len typeof(pos) 3
 len 3
 
@@ -930,7 +924,7 @@ age 23
 
 Fruit {
     string name
-    int[] rates
+    []int rates
     { string color shape { int hight width { string a b } desc string info } size } physical
     { string name int id }[#arrfit] varieties
     { bool sweet } taste #optional
@@ -939,7 +933,7 @@ Fruit {
 
 Fruit {
     string name
-    int[] rates
+    []int rates
     {---string color shape
         {---int height width
             { string a b } desc
@@ -1078,7 +1072,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    #-a #+a #^a !a (type)a (&)a (*)a (**)a (*&)a (**&)a ->> <<-
+    10 从右到左    #-a #+a #^a !a (type)a (&)a (*)a (**)a (*&)a (**&)a ->> <<-  not neg int adr der *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -1095,7 +1089,7 @@ math:*
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
     取地址 & 改为 (&) 地址标记 (&1) (&2) adr
-    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 (*1) (*2) der
+    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 (*&1) (*&2) der
 
     #negt()     #-          #-3.14      #-c         (-3.14) (-c)
     #posi()     #+          #+6.24      #+c         (+6.24) (+c)
@@ -1194,7 +1188,19 @@ defer_return #label
 //          printf("int array elem 32 index %d at %p erased\n", i, elem);
 //      }
 //
-// 2. 函数参数的传递
+// 2. 代码各种简写形式，限制代码行的最大字节数1024个字节，代码以行为单位进行解析
+//
+//      port->action.head.opcode[PRH_TCPA_INDEX_OPEN_ACCEPT] = PRH_TCPA_OPEN_ACCEPT
+//      port->action.head.opcode[PRH_TCPA_INDEX_OPEN_REQ] = PRH_TCPA_OPEN_REQ
+//      port->action.head.opcode[PRH_TCPA_INDEX_TX_END] = PRH_TCPA_TX_END
+//      port->action.head.opcode[PRH_TCPA_INDEX_FINISH] = PRH_TCPA_FINISH
+//
+//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##OPEN_ACCEPT
+//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##OPEN_REQ
+//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##TX_END
+//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##FINISH
+//
+// 3. 函数参数的传递
 //
 // 10. 协程的实现
 //
