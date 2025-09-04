@@ -3,12 +3,16 @@
 // 都可以进行调用，变量的调用其实就是函数，类型的调用相当于模板类型实例化变成具体类型。其
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
-// 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 #fall 表示。
+// 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else case then for range
-//  loop break defer return
-//  const enum void pub adr der deu not and or
-//  static extern using
-//  sizeof typeof alignof offsetof
+//  continue break defer return yield
+//  const void adr der let not and or
+//  static using
+//  sizeof typeof alignof offsetof copyof moveof
+//
+// 预定义函数：
+//  zeroes(a)
+//  memset(a, 1)
 //
 // 语句块的控制：
 //  if expr then stmt
@@ -20,12 +24,12 @@
 //  for expr { }
 //
 // 函数参数或者结构体成员声明
-//  Point point p2
-//  *Point point p2
-//  **Point point p2
-//  [2]Point point p2
-//  *[2]Point point p2
-//  [2]*Point point p2
+//  Point point p2          _point point p2
+//  *Point point p2         *_point point p2
+//  **Point point p2        **_point point p2
+//  [2]Point point p2       [2]_point point p2
+//  *[2]Point point p2      *[2]_point point p2
+//  [2]*Point point p2      [2]*_point point p2
 //
 // 定义泛型类型参数（generic type parameter）compile time const 类型参数
 //  $T $U            定义两个类型参数 T 和 U，相当于：
@@ -33,13 +37,21 @@
 //  ${int} Int   整数类型
 //  ${flo} Float   浮点类型
 //  ${num} Type  数值类型
+//  $_t $U
+//  $T $_u
+//  ${any} _t U
+//  ${any} T _u
+//  $_t a $U b $int c
+//  $T a $_u b $int c
+//  $T a $U b $_int c
 //
 // 定义泛型常量参数（generic value parameter）compile time const 常量参数
 //  $T a $U b $int c  定义三个常量参数 a 和 b 和 c，a 的类型是 T，b 的类型是 U，c 的类型是 int
 //  $string a $int b  定义两个产量参数 a 和 b，a 的类型是字符串，b 的类型是整数
 //
 // 首字母大写，包括单个大写字母，并排除包含两个和两个以上字母但都是大写的标识符之后的所
-// 有标识符都识别为类型名。包含在 @type{} 之内的标识符，也是类型名。
+// 有标识符都识别为类型名。以单个下划线开始的标识符也是类型名。包含在 @type{} 之内的标
+// 识符，也是类型名。
 //
 // 其他标识符符都是非类型标识符，包括函数名、变量名、标签、包名等等。另外包含在 @name{}
 // 之内的标识符也都是非类型标识符，例如把类型名和关键字当作变量标识符使用：@name{int}
@@ -48,21 +60,34 @@
 // 以 # 开头的标识符是编译器指令。以 @ 开头的标识符是属性名称，包括函数、类型、变量的
 // 属性名称等。以双下划线开始的标识符，是保留关键字。
 //
+// 编译属性：
+//  @type{}
+//  @name{}
+//  @uninit
+//  @zeroinit
+//  @embed
+//  @useas
+//  @align()
+//  @packed
+//  @cdecl
+//  @stdcall
+//  @fastcall
+//
 // 编译时常量：
 //  #file #func #line #retp
 // 编译时函数：
-//  #equal #assert #align(16) #packed
+//  #static_equal #static_assert
 // 编译时关键字：
 //  #import #dont_import
-//  #fall
 //  #if 条件编译
 // 编译和运行时
 //  #comptime #runtime
+// 初始化属性
 // 预定义类型
 //  this 当前函数（当前函数的地址）或当前结构体，不提供任何面向对象的特殊含义，但匿名类型需要用
 // 操作符
 // #- #+ #^
-// (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2) @noinit
+// (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
 //
 // 基本类型，定义在 type 代码包中：
 //  bool null byte char string errno
@@ -71,6 +96,21 @@
 //  f08 f16 f32 f64 f128 float float(32) float(64) float(128)
 //  d08 d16 d32 d64 d128 decimal decimal(32) decimal(64) ...
 //  c08 c16 c32 c64 c128 complex complex(32) complex(64) ...
+//
+// 类型信息：type|flag
+//  i08 ~ int(128)      0   ~   15
+//  f08 ~ float(128)    16  ~   31
+//  d08 ~ decimal(128)  32  ~   47
+//  c08 ~ complex(128)  48  ~   63
+//  string 64 array 65 slice 66 view 67 struct 68 sumt 69 func 70
+//  int/SysInt: ixx|int: 1
+//  unt/SysUnt: ixx|unt: 1
+//  Ptr/SysPtr: uxx|ptr: 1
+//  bool: u08|bool:1
+//  null: u08|null:1
+//  char: u32|char:1
+//  errno: int|errno: 1
+//  enum: ixx|enum: 1
 //
 // rax rbx rcx rdx rbp rsp rsi rdi rlr rip rpc
 // bax bbx bcx bdx bbp bsp bsi bdi blr bip bpc
@@ -89,7 +129,7 @@
 // any          // basic_type + anony_type + named_type + gimpl_type
 // basic_type   // numeric + string
 // numeric      // integer + float + decimal + complex
-// integer      // bool null byte rune errt strt i08~i512 u08~u512 int unt
+// integer      // bool null byte rune errno strt i08~i512 u08~u512 int unt
 //
 // 复合类型和匿名类型：
 //  int  u16  f64  Point  MyInt
@@ -110,18 +150,18 @@
 //      (Point p float factor) 结构体默认传递地址，因此不需要显式指定指针类型，如果不希望对象被函数修改，需要在调用前先拷贝
 //      (int a b yield int i Ptr p return int) 带有协程中间结果的函数
 //      (int a b [capture_c d] return [Ptr p] int) 带有捕获参数的闭包函数，闭包函数是在定义时一次性生成的，闭包参数只要名字相同且能完成函数内部的操作就没有问题
-//      定义一个函数类型：Calc(int a b return int)
+//      定义一个指针类型：Calc (int a b return int)
 //      声明一函数字面量：extern calc(int a b return int)
 //      声明一个函数指针：extern calc Calc
-//      定义一函数字面量：calc(int a b return int) { return a + b }
+//      定义一函数字面量：calc (int a b return int) { return a + b }
 //      定义一个匿名函数：(int a b return int) { return a + b }
 //      定义一个函数指针；calc_ptr Calc calc
 //      定义一个函数指针：calc_ptr Calc (int a b return int) { return a + b }
 //      给一函数指针赋值：calc_ptr = calc
 //      给一函数指针赋值：calc_ptr = (int a b return int) { return a + b }
 //  Tuple 元组补充结构体表达不了的一些东西（一个类型列表）
-//      (int int)            结构体不能同时定义两个同类型的内嵌字段
-//      (this int int int)   结构体不能内嵌一个指针类型
+//      (int int)            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int 0 int 1}
+//      (this int int int)   结构体不能内嵌一个指针类型，等价于结构体 {this 0 int 1 int 2 int 3}
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
 //      $i08 {RED {const * 2} YELLOW BLUE} // const 是枚举元素的索引值
 //      $int {RED YELLOW BLUE}
@@ -266,8 +306,6 @@ Reader $T
 @type{read} (*$T a Ptr p int n return int)
 @type{reader} $T $(@type{get}(T) get @type{read}(T) read {}
 
-hci_rx_buffer_handled_and_free(HciRxDesc rxdesc u32 ca HciDataType datatype U line)
-
 Point { float x y }
 Data { int a b (int a b return int) f g }
 Reader $T $(*T p int a b return int) calc $(*T p []byte a) get {}
@@ -275,6 +313,7 @@ Get (*$T p return int)
 Read (*$T p *byte buf int n return int)
 Reader $T $Get(T) get $Read(T) read {}
 Handle (*HciRxDesc rx_desc u32 ca HciDataType type U line)
+hci_rx_buffer_handled_and_free(HciRxDesc rxdesc u32 ca HciDataType datatype U line)
 using L2capConn         *L2capConn
 using L2capCallback     *L2capCallback
 using TcpSocket         *TcpSocket
@@ -289,15 +328,38 @@ using ArrFit
 using ArrDyn
 using ArrLax
 
-T1 int // 禁止
-T3 T2 // 禁止
+_点 { float x y }
+_数 { int a b }
+_point { float x y }
+_data { int a b (int a b return int) f g }
+_reader $_t $(*_t p int a b return int) calc $(*_t p []byte a) get {}
+_get (*$_t p return int)
+_read (*$_t p *byte buf int n return int)
+_reader $_t $_get(_t) get $_read(_t) read {}
+_handle (*_hcirxdesc rxdesc u32 ca _hcidatatype type _u line)
+using _l2capconn         *_l2capconn
+using _l2capcallback     *_l2capcallback
+using _tcpsocket         *_tcpsocket
+using _btstatus          *_btstatus
+using _hciglobal         *_hciglobal
+using _hciconntype       *_hciconntype
+using _hciconnitem       *_hciconnitem
+using _quefit
+using _quefix
+using _arrfix
+using _arrfit
+using _arrdyn
+using _arrlax
+
+T1 int // 禁止，使用 using T1 = int
+T3 T2 // 禁止，使用 using T3 = T2
 T4 { (int a b return int) f int a b }
 T5 $T $(*T p int a b return int) calc {}
 T6 (int a b return int)
 T7 (Point p float factor)
 
-T1 [3]int // 禁止
-T3 [3]T2 // 禁止
+T1 [3]int // 禁止，使用 using T1 = [3]int
+T3 [3]T2 // 禁止，使用 using T3 = [3]T2
 T4 { int a b }[3] // 禁止
 T5 (this p int a b int)[3] // 禁止
 T6 (int a b int)[3] // 禁止
@@ -326,20 +388,30 @@ Scale (Point p int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b return int errno) // errno is a type with i32
-result calc(1, 2)
+result let calc(1, 2)
 if result.errno then panic("%", errno)
-result calc(1, 2) or abort() // or 是函数后缀操作符
-p *int getp()! or abort()
+result let calc(1, 2) or abort() // let or 语句
+p *int let getp() or abort()
 
-size int {f() g() 3+2}
-size int if a > b ? a : b
+size int let f(), g(), 3+2  // let逗号语句
+size int let if a case 'a' { a } case 'b' { b } else { c } // let 可以让语句产生一个值，默认语句块的值为空
+size int let a or b         // let or语句
+size int let a>b then a or b // let then or 语句
 
-using 3rd "array.code" // 文件可提供一个包名，也可以不提供
+#import 3rd "lib/std/array.code" // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
 array 3rd::Array 3rd::array_init()
 array 3rd::array_init()
 array.append(2)
 array += 3
 array += 4
+
+#import "lib/std/array.code" // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
+using :::std::: // 导入所有符号
+using std::_array // 导出使用类型 _array，并可以使用类型关联的所有函数
+using std::Array // 导出使用类型 Array，并可以使用类型关联的所有函数
+using Array // 导出使用类型 Array，或对类型 Array 进行提前声明
+using StdArray = std::_array // 定义类型别名
+using StdArray = std::Array
 
 :::std::: export { // 必须紧跟在 ::: 之后
     Calc
@@ -374,6 +446,23 @@ pub CoroGuard {
     this coro_guard
     (int a b return int) calc
     (*Coro p) func
+}
+
+pub _协程 {
+    u32 rspoffset
+    u32 loweraddr
+}
+
+pub _coroguard {
+    u32 lower_guard_word
+    u32 upper_guard_word
+    _coro @embed
+    *_coro coro
+    this @embed
+    this coro_guard
+    (int a b return int) calc
+    (*_coro p) func
+    (_coroguard g int a b return int) f g
 }
 
 Color $i08 {RED {const + 1} BLUE YELLOW}
@@ -453,44 +542,44 @@ Writer $T
 
 Color $i08 {} // 因为i08是关键字，不能使用关键字定义新的类型参数，因此这里必须是一个常量参数
 
-TypePtr enum { // enum 用来定义 sum type/tagged union type
+TypePtr $sum { // enum 用来定义 sum type/tagged union type
     ptr (Ptr)
     null #occupy Ptr 0 // @occupy 只能用于两个元素的enum
 }
 
-Token enum { // enum 定义的是一个联合体类型
+Token $sum { // enum 定义的是一个联合体类型
     atom {char id}
     oper {char id}
     eof
 }
 
-Expr enum { // enum 定义的是一个联合体类型
+Expr $sum { // enum 定义的是一个联合体类型
     value { int n }
     ident { int id }
     expr {char op Expr lhs rhs}
 }
 
-Oper $int {int lpri rpri} { // $int 定义的是一个常量
-    ass '=' => {200, 201} // a = 2 + b = 3
-    add '+' => {211, 210}
-    sub '-' => {211, 210}
-    mul '*' => {221, 220}
-    div '/' => {221, 220}
-    pow '^' => {230, 231}
-    dot '.' => {251, 250}
+Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
+    ass '=' {200, 201} // a = 2 + b = 3
+    add '+' {211, 210}
+    sub '-' {211, 210}
+    mul '*' {221, 220}
+    div '/' {221, 220}
+    pow '^' {230, 231}
+    dot '.' {251, 250}
     end 0 // 默认值为零
 }
 
-eat(*Lexer lexer return Token) {
+eat (*Lexer lexer return Token) {
     return lexer.pop()
 }
 
-peek(*Lexer lexer return Token) {
+peek (*Lexer lexer return Token) {
     return lexer.top()
 }
 
-eval(Oper op Expr lhs rhs return Expr) {
-    res Expr ???
+eval (Oper op Expr lhs rhs return Expr) {
+    res Expr @uninit
     if op case '=' { res = .value(rhs.value.n) get_symbol(lhs.ident.id).value = rhs.value.n }
     case '+' then res = .value(lhs.value.n + rhs.value.n)
     case '-' then res = .value(lhs.value.n - rhs.value.n)
@@ -501,8 +590,8 @@ eval(Oper op Expr lhs rhs return Expr) {
     return res
 }
 
-parse_expression(*Lexer lexer int min_prior return Expr) {
-    lhs Expr ???
+parse_expression (*Lexer lexer int min_prior return Expr) {
+    lhs Expr @uninit
     if lexer.eat() case .atom(it) {
         if it == '0'..'9' {
             lhs = .value(it - '0')
@@ -515,15 +604,17 @@ parse_expression(*Lexer lexer int min_prior return Expr) {
     } else panic("bad token %d", it)
 
     for {
-        op Expr ???
+        op Expr @uninit
         if lexer.peek() case .eof .oper(')') {
             break
         } case .oper(it) {
             op = .expr(it)
-        } else panic("bad token %d", it)
+        } else {
+            panic("bad token %d", it)
+        }
         lexer.skip()
 
-        prior match(Oper, op.expr.op)
+        prior let Oper(op.expr.op)
         if prior.lpri < min_prior {
             break
         }
@@ -562,14 +653,14 @@ token Token scan()
 if token case .eof {
 }
 
-perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept (*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened(*TcpSocket tcp) {
+report_tcpe_opened (*TcpSocket tcp) {
     pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     txbuf *ByteArrfit addrof tcp.txbuf
     pdata.tcp = tcp
@@ -578,10 +669,10 @@ report_tcpe_opened(*TcpSocket tcp) {
     cono_freely_post(tcp.upp_coro, addrof pdata->head)
 }
 
-epoll_proc(*Cono cono) {
+epoll_proc (*Cono cono) {
     epoll *Epoll cono_data(cono)
-    pdata *ConoPdata __uninit
-    action byte __uninit
+    pdata *ConoPdata @uninit
+    action byte @uninit
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -597,13 +688,17 @@ epoll_proc(*Cono cono) {
     }
 }
 
-pub main(int argc **byte argv return int) {
+pub main (int argc **byte argv return int) {
 
 }
 
-Main(i32 argc **byte argv return i32)
-scale(Point point int a b)
-calc(int a b return int)
+pub main (void) {
+    print("hello world\n")
+}
+
+Main (i32 argc **byte argv return i32)
+scale (Point point int a b)
+calc (int a b return int)
 Array $T $int size { [size]T a }
 Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
 BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
@@ -623,14 +718,14 @@ TcpAccept {
     u32 txbuf_size
 }
 
-perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept (*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened(*TcpSocket tcp) {
+report_tcpe_opened (*TcpSocket tcp) {
     pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     txbuf *ByteArrfit adr tcp.txbuf
     pdata.tcp = tcp
@@ -639,10 +734,10 @@ report_tcpe_opened(*TcpSocket tcp) {
     cono_post(adr pdata->head)
 }
 
-epoll_proc(*Cono cono) {
+epoll_proc (*Cono cono) {
     epoll *Epoll cono_data(cono)
-    pdata *ConoPdata ???
-    action byte ???
+    pdata *ConoPdata @uninit
+    action byte @uninit
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -687,6 +782,11 @@ Snode $T {
     T data
 }
 
+_snode $T {
+    *this next
+    T data
+}
+
 for i I 0 .. 9 {
     i int der *I addr
     pos + der adr *I (*byte p + size + f(g))
@@ -699,8 +799,9 @@ coroguard (*Coro coro return CoroGuard) [[cdcel inline]]
 
 Calc (int a b return int)
 Snode $T { this next T data }
-for i I 0 .. 9 {
+for [&] i I 0 .. 9 {
     i int der *I addr
+    if i%2 continue &
     pos + der adr I (*byte p + size + f(g))
 }
 memcpy (Ptr dst src int count)
@@ -721,8 +822,14 @@ using MyInt
 using Coro
 
 // 定义变量，包括函数变量，一个非类型标识符后跟一个类型表示定义该类型的一个变量
-CoroProc(*Coro coro)
-print(##string fmt $T ... return int)
+CoroProc (*Coro coro)
+print $string fmt ($T ... return int)
+print (string fmt $T ... return int)
+print"width % height %\n"(width, height)
+print("width % height %\n", width, height)
+
+calc $int a b (int c d return int)
+calc"2,3"(c, d)
 
 main (int argc **byte argv return int) {
     return 0
@@ -775,30 +882,29 @@ cal2 *(int a b int) adr {return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
 cal2 *Calc adr (int a b int) {return a + b }
 cal2 *Calc adr {return a + b }
-cal2 adr Calc{return a + b}
+cal2 let adr Calc{return a + b}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 
 ppb *Ppb malloc(size)
 
 // 变量定义必须指定类型部分
-a int ???
-a int 42
-a deu +99
-a if a==0 ? b : c
-b 0
-b a // 一个变量赋值给另一个变量的形式必须在同一行，不能换行
-c #-17
-d 'a
-d \n
-e 's' 'r' \s \t 'c' '/' \n
-e 'sr\tc/\n
-f \nsr\tc/\n
+a int @uninit
+a let 42
+a let +99
+a let a==0 then b or c
+b let 0
+b let a // 一个变量赋值给另一个变量的形式必须在同一行，不能换行
+c let -17
+d let 'a'
+e let 's' 'r' \t 'c' '/' \n
 
-integers [1, 2, 3]
-colors ["红", "黄", "绿"]
-nested_array_of_ints [[1,2], [3,4,5]]
-nested_mixed_array [[1,2], ["a", "b", "c"]]
+integers let [1, 2, 3]
+colors let ["红", "黄", "绿"]
+nested_array_of_ints let {[1,2], [3,4,5]}
+nested_mixed_array let {[1,2], ["a", "b", "c"]}
+int_array let nested_mixed_array.0
+str_array let nested_mixed_array.1
 
 dat2 Data {3, 4}
 data (u32 bool) parse_hex_number(slice(hex, it*2, 2))
@@ -815,7 +921,7 @@ cal2 (int a b int) { return a + b }
 cal2 (int a b int) { return a + b }
 cal2 Calc { return a + b }
 cal2 Calc calc
-cal2 calc;
+cal2 let calc
 
 dat3 *{ int a b } adr {3, 4}
 dat3 [2]{ int a b } {{3, 4}, data}
@@ -827,7 +933,7 @@ cal3 *(int a b int) adr { return a + b }
 cal3 *(int a b int) adr calc
 cal3 (int a b int) { return a + b }
 cal3 Calc { return a + b }
-cal3 calc;
+cal3 let calc
 
 // 基本类型和指针不通过大括号进行初始化而是直接给值，根据语法定义一个变量的同时必须进行初始化
 // 一个非类型标识符后跟一个类型表示定义该类型的一个变量
@@ -844,22 +950,22 @@ numb *int null
 numb *int adr data
 numb bool false
 
-data false
-data "Hello World"
-data 3.14
-data 1024 // 可以使用字面量直接赋值
-data calc // 但如果是变量值，没有类型转换的情况下必须使用大括号赋值
+data let false
+data let "Hello World"
+data let 3.14
+data let 1024 // 可以使用字面量直接赋值
+data let calc // 但如果是变量值，没有类型转换的情况下必须使用大括号赋值
 
 calc Calc { a + b }
 data Data {1, 2}
 data int 1024
-numb errt null
+numb errno null
 numb float 3.14
 numb *int adr data
 calc Calc { a + b }
 data Data {1, 2}
 data int 1024
-numb errt null
+numb errno null
 numb float 3.14
 numb *int adr data
 temp int 1024
@@ -876,7 +982,7 @@ bytes {more}, same_as_prev {userdata_bytes != 0}
 
 // 数据类型转换
 
-aaa Data{3, 4} // 赋值语句因为目标变量只有一个，因此只要将类型不加修饰的放在右表达式开头，相对于对整个表达式类型的转换
+aaa Data {3, 4} // 赋值语句因为目标变量只有一个，因此只要将类型不加修饰的放在右表达式开头，相对于对整个表达式类型的转换
 ppb *Ppb ppb_alloc(alloc)
 
 pos dist + int scale_x(facter)
@@ -886,31 +992,31 @@ len int pos + der *int *byte (p + size + f(g))
 pos int dist + int scale_x(facter)
 len int pos + der *int *byte (p + size + f(g))
 len typeof(pos) 3
-len 3
+len let 3
 
 for i int 3 .. 10 { /* */ }
 
-for ^^(capacity < new_capacity) { // ^^ 第一次条件检查一定为真
+for #first_time_true(capacity < new_capacity) { // ^^ 第一次条件检查一定为真
     capacity *= 2
 }
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
 // 类型不需要提前声明，因为其名称可以由词法分辨
-extern calc (int a b return int)
-extern scale (Point p float factor)
-extern data { int a b }
-extern calc Calc
-extern data Data
-extern data int
-extern numb errt
-extern numb float
-extern numb *int
+using calc (int a b return int)
+using scale (Point p float factor)
+using data { int a b }
+using calc Calc
+using data Data
+using data int
+using numb errno
+using numb float
+using numb *int
 
 #if DYN_LINK_PROC {
     calc Calc null
 } else {
-    extern calc Calc
+    using calc Calc
 }
 
 // https://squidfunk.github.io/mkdocs-material/reference/admonitions/
@@ -919,7 +1025,7 @@ extern numb *int
 
 [user User]
 name "fido"
-member_since Date''{1999-08-04}
+member_since Date`{1999-08-04}
 age 23
 
 Fruit {
@@ -934,8 +1040,8 @@ Fruit {
 Fruit {
     string name
     []int rates
-    {---string color shape
-        {---int height width
+    {...string color shape
+        {...int height width
             { string a b } desc
             string info
             string desc
@@ -947,19 +1053,27 @@ Fruit {
 }
 
 [apple Fruit] // 以另一个[var Type]结束，明确是字面常量赋值不需要使用=等号，否则需要使用调用语法进行初始化
-physical color "红" size height 23 width 24 desc a "a" b "b" size:info "i"
+physical color "红" size height 23 width 24 desc a "a" b "b" ||| size info "i"
 physical shape "round"
 taste sweet true
 texture smooth true
 rates [80, 75, 95]
 
-[apple Fruit]
-physical color "红" size height 23 width 24 desc a "a" b "b" size:info "i" desc "d"
+[apple Fruit] // 定义 apple
+physical color "红" size height 23 width 24 desc a "a" b "b"
+physical size info "i" desc "d"
 physical shape "round"
 taste sweet true
 texture smooth true
 
-[apple Fruit] // 0~3个空格是顶格字段，>=4个空格或>=1个Tab才是子字段，size: 回到 size 层级
+[apple.physical] // 给 apple.physical 赋值
+color "黄"
+size height 23 width 24
+shape "round"
+sweet true
+smooth true
+
+[apple Fruit] // 使用顶格和 ||| 控制缩进，0~3个空格是顶格字段，>=4个空格或>=1个Tab才是子字段
 physical
     color "红"
     size
@@ -967,8 +1081,8 @@ physical
         width 24
         desc
             a "a"
-            b "b"
-    size:
+            b "b" |||
+    size
         info "i"
         desc "d"
 physical
@@ -980,35 +1094,29 @@ texture
 
 [apple Fruit]
 physical color "红"
-    size height 23
-    width 24
-    desc a "a"
-    b "b"
-    size:info "i"
-    desc "d"
-physical shape "round"
+    size height 23 width 24 desc a "a" b "b" |||
+    size info "i" desc "d"
+physical
+    shape "round"
 taste sweet true
 texture smooth true
 
-[apple Fruit] {
-    physical
-        color "红"
-        size
-            height 23
-            width 24
-            desc
-                a "a"
-                b "b"
-        size:
-            info "i"
-            desc "d"
-    physical
-        shape "round"
-    taste
-        sweet true
-    texture
-        smooth true
-}
+[apple Fruit]
+physical color "红"
+    size
+        height 23
+        width 24
+        desc a "a" b "b" |||
+    size
+        info "i"
+        desc "d"
+physical
+    shape "round"
+taste
+    sweet true
+texture
+    smooth true
+void
 
 [apple Fruit]
 physical
@@ -1036,7 +1144,7 @@ taste
 texture
     smooth true
 
-[##global]
+[#global]
 a true
 b 1024
 s "hello"
@@ -1088,8 +1196,8 @@ math:*
 
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
-    取地址 & 改为 (&) 地址标记 (&1) (&2) adr
-    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 (*&1) (*&2) der
+    取地址 & 改为 (&) 地址标记 &1 &2 adr
+    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 der
 
     #negt()     #-          #-3.14      #-c         (-3.14) (-c)
     #posi()     #+          #+6.24      #+c         (+6.24) (+c)
@@ -1105,10 +1213,12 @@ math:*
 //  #if cond { expr } else if cond { expr }
 
 if color case .RED { // 使用break会跳出外层for循环
-    #fall
+    continue .GREEN
 } case .BLUE {
+    continue &
+} case .GREEN {
 
-} else {
+} else [&] {
 
 }
 
@@ -1118,7 +1228,7 @@ defer_return #label
 // 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，#symmetric
 // 禁止函数链式调用 a.getb().bfun()
 // 定义展开函数：
-// func (retrun int) #expand {
+// `macro (retrun int) {
 //      `x = 32
 //      retrun `x * 2
 // }
@@ -1128,8 +1238,8 @@ defer_return #label
 // __jai_runtime_init
 // __jai_runtime_fini
 // __system_entry_point
-->> (+ 12 24 13)
-->> (* 13 14 15)
+(+ 12 24 13)
+(* 13 14 15)
 
 (->> theme
      (symbol-name)
@@ -1137,6 +1247,14 @@ defer_return #label
      (intern))
 
 (intern (funcall (-flip #'concat) "-theme" (symbol-name theme)))
+
+// 默认提供编译时类型信息，运行时如果需要提供类型反射信息，传入变量的同时会同时传入类型信息。
+// print 函数的设计：print("a % b %\n", a, b) 会转换成
+print(typestring, "a ")
+print(typeinfo, a)
+print(typestring, " b ")
+print(typeinfo, b)
+print(typestring, "\n")
 
 // 0. 代码编写原则
 //
@@ -1147,9 +1265,9 @@ defer_return #label
 // 码，各部分逻辑清晰完备自洽，就像这个功能就只有这一种自然而然的正确写法，没有多余的代
 // 码，更不需要检查各种边界条件维持程序的正确性。如果你的代码丑陋不堪，更可能是代码设计
 // 的原因。
-//      int at(intarray* a, int i) {
-//          if (i < 0 || i >= a->size) i = 0;
-//          return a->data[i];
+//      at (*IntArray a int i return int) {
+//          if i < 0 || i >= a.size then i = 0
+//          return a.data[i]
 //      }
 //
 // 相比在局部指标不治本的自动修正错误，在代码开发阶段就及早的将错误暴露出来，才是正确
@@ -1157,7 +1275,7 @@ defer_return #label
 // assert 的使用一定不能影响正常的程序逻辑，也就是说，所有的 assert 语句必须是可以去
 // 掉的，在 assert 的表达式中改变变量的值都是不允许的。另外，导致断言失败的原因必须
 // 是程序错误，不能用 assert 去充当实际真正执行的代码逻辑的检查。
-//      assert(i >= 0 && i < a->size);
+//      assert(i >= 0 && i < a.size)
 //
 // 在开发阶段，用 assert() 暴露错误直接让程序死掉，对于开发人员是最好的方案了。一个崩
 // 溃不能继续执行的程序最好地揭示了程序中存在的问题，并且崩溃点离真正出错的位置越近，
@@ -1184,25 +1302,27 @@ defer_return #label
 //  函数实现为一个 soro 协程，被调函数被调用时自动分配一个自己使用的栈，需要回调的时
 //  候直接yield让主调函数执行，然后主调函数继续切到被调函数，指定执行完毕。
 //
-//      for [i, elem] array_find_and_erase(int_array, 32) { 封装与开放的平衡
+//      array_find_and_erase(int_array, 32, func)
+//
+//      yield (i, elem) array_find_and_erase(int_array, 32) { 封装与开放的平衡，既封装又没对回调函数参数进行限制
 //          printf("int array elem 32 index %d at %p erased\n", i, elem);
 //      }
 //
-// 2. 代码各种简写形式，限制代码行的最大字节数1024个字节，代码以行为单位进行解析
+//  2.  代码各种简写形式，限制代码行的最大字节数1024个字节，代码以行为单位进行解析
 //
 //      port->action.head.opcode[PRH_TCPA_INDEX_OPEN_ACCEPT] = PRH_TCPA_OPEN_ACCEPT
 //      port->action.head.opcode[PRH_TCPA_INDEX_OPEN_REQ] = PRH_TCPA_OPEN_REQ
 //      port->action.head.opcode[PRH_TCPA_INDEX_TX_END] = PRH_TCPA_TX_END
 //      port->action.head.opcode[PRH_TCPA_INDEX_FINISH] = PRH_TCPA_FINISH
 //
-//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##OPEN_ACCEPT
-//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##OPEN_REQ
-//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##TX_END
-//      port->action.head.opcode[PRH_TCPA_INDEX_??] = PRH_TCPA_##FINISH
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##OPEN_ACCEPT
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##OPEN_REQ
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##TX_END
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##FINISH
 //
-// 3. 函数参数的传递
+//  3.  函数参数的传递
 //
-// 10. 协程的实现
+//  10. 协程的实现
 //
 // 对于 64 位系统，进程虚拟空间足够大，每个协程可以映射一个足够大的内存来使用，并且按
 // 需对内存进行实际提交。因为用户空间有 128T 可用，而每 1T 虚拟空间可以给100万个协程
