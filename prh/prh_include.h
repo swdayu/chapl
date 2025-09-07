@@ -519,7 +519,7 @@ extern "C" {
     //      #pragma pack(pop, r1, 2)
     //      #pragma pack(show)
     #define prh_packed_struct __pragma(pack(push, 1)) struct
-    #define prh_packing_reset __pragma(pack(pop))
+    #define prh_packing_reset() __pragma(pack(pop))
 #elif defined(__GNUC__)
     // An attribute specifier list may appear as part of a struct, union or
     // enum specifier.
@@ -546,7 +546,7 @@ extern "C" {
     //      #pragma pack(push[,n])
     //      #pragma pack(pop)
     #define prh_packed_struct struct __attribute__ ((packed))
-    #define prh_packing_reset
+    #define prh_packing_reset()
 #else
     // Implementation defined behavior is controlled by #pragma directive.
     //      #pragma pragma_params
@@ -559,7 +559,7 @@ extern "C" {
     //      #pragma pack(push, arg)
     //      #pragma pack(pop)
     #define prh_packed_struct _Pragma("pack(push, 1)") struct
-    #define prh_packing_reset _Pragma("pack(pop)")
+    #define prh_packing_reset() _Pragma("pack(pop)")
 #endif
 #endif
 
@@ -1047,12 +1047,6 @@ extern "C" {
 #endif
 #endif
 
-#ifdef PRH_TIME_INCLUDE
-#ifdef PRH_TIME_IMPLEMENTATION
-#define PRH_BASE_IMPLEMENTATION
-#endif
-#endif
-
 #ifdef PRH_ATOMIC_INCLUDE
 #define PRH_QUEUE_INCLUDE
 #ifdef PRH_ATOMIC_IMPLEMENTATION
@@ -1076,8 +1070,12 @@ extern "C" {
 #endif
 #endif
 
-#if defined(PRH_CONO_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
-    defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION)
+#if defined(PRH_ARRAY_IMPLEMENTATION) || defined(PRH_LIST_IMPLEMENTATION)
+#define PRH_BASE_IMPLEMENTATION
+#endif
+
+#if defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
+    defined(PRH_TIME_IMPLEMENTATION) || defined(PRH_CONO_IMPLEMENTATION)
 #if defined(prh_plat_windows)
     // Predefined macros:
     //      _WIN16      A 16-bit platform
@@ -1555,12 +1553,14 @@ extern "C" {
     #endif
     #include <pthread.h> // pthread_create POSIX.1-2008
     #include <unistd.h> // sysconf confstr POSIX.1-2008
-    #include <errno.h> // ETIMEDOUT ...
     #define PRH_POSIX_ZERORET(a) if (a) { prh_abort_error(errno); }
-#endif
+#endif // prh_plat_posix
 #include <stdatomic.h>
+#endif // ATOMIC THRD TIME CONO_IMPLEMENTATION
+
+// include basic common use C headers
 #include <assert.h> // assert
-#include <stdlib.h> // malloc calloc realloc free exit
+#include <stdlib.h> // malloc calloc realloc free abort exit
 #include <string.h> // memcpy memove memset
 // void *memcpy(void *dest, const void *src, size_t count);
 // void *memmove(void *dest, const void *src, size_t count);
@@ -1569,51 +1569,31 @@ extern "C" {
 // if dest and src memory overlap for memcpy { undefined behavior }
 // the count parameter can be set to zero value.
 #include <stdio.h> // printf fprintf
-#endif
+#include <errno.h> // errno POSIX-compatible error code
 
-// 高速缓存（Cache） 是一种位于 CPU 和主存之间的高速存储器，用于存储 CPU 频繁访问的数据
-// 和指令。它的速度远高于主存，能够显著提升 CPU 的数据处理效率。高速缓存技术利用程序的局
-// 部性原理，将程序中正在使用的部分存放在一个高速的、容量较小的缓存中，使 CPU 的访存操作
-// 大多数针对缓存进行，从而提高程序的执行速度。时间局部性：如果一个存储单元被访问，那么该
-// 单元很可能很快被再次访问。空间局部性：如果一个存储单元被访问，那么该单元邻近的单元也可
-// 能很快被访问。
-//
-// 高速缓存通常被组织成一个有多个缓存组的数组，每个缓存组（Cache Set）包含若干个缓存行
-// （Cache Line）。缓存行是高速缓存中的最小访问单元，用于缓存内存块数据。当 CPU 需要访
-// 问主存中的数据时，高速缓存会拦截所有对内存的访问，并判断所需数据是否已经存在于高速缓存
-// 中。如果缓存命中（即找到所需数据），则直接从缓存中读取数据。如果缓存未命中（即未找到所
-// 需数据），则需要从主存中加载数据到缓存中。组选择（Set Selection）：根据地址中的索引位
-// 找到对应的缓存组。行匹配（Line Matching）：在缓存组中，通过标记位判断是否存在匹配的缓
-// 存行。字抽取（Word Extraction）：如果找到匹配的缓存行，根据偏移量提取所需的数据。
-//
-// 现代 CPU 通常具有多级缓存结构，包括 L1、L2 和 L3 缓存。L1 缓存：位于 CPU 芯片内部，
-// 速度最快，容量最小，通常分为指令缓存和数据缓存。L2 缓存：位于 CPU 芯片内部或外部，速
-// 度稍慢，容量较大。L3 缓存：位于 CPU 芯片外部，速度较慢，容量最大，通常被多个核心共享。
-#ifndef PRH_CACHE_LINE_SIZE
-#define PRH_CACHE_LINE_SIZE 64
-#endif
-
-#ifndef prh_round_ptrsize
-#define prh_round_ptrsize(n) (((prh_unt)(n)+(prh_unt)(sizeof(void*)-1)) & (~(prh_unt)(sizeof(void*)-1)))
-#define prh_round_cache_line_size(n) (((prh_unt)(n)+PRH_CACHE_LINE_SIZE-1) & (~(prh_unt)(PRH_CACHE_LINE_SIZE-1)))
-#define prh_round_08_byte(n) (((prh_unt)(n)+7) & (~(prh_unt)7))
-#define prh_round_16_byte(n) (((prh_unt)(n)+15) & (~(prh_unt)15))
-prh_inline prh_unt prh_lower_most_bit(prh_unt n) {
-    return n & (-(prh_int)n); // 0000 & 0000 -> 0000, 0001 & 1111 -> 0001, 1010 & 0110 -> 0010
-}
-prh_inline prh_unt prh_remove_lower_most_bit(prh_unt n) {
-    return n & (n - 1);
-}
-prh_inline bool prh_is_power_of_2(prh_unt n) {
-    return prh_remove_lower_most_bit(n) == 0; // power of 2 or zero
-}
-prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
-    if (prh_is_power_of_2(n)) return n;
-    // TODO: 字节序交换然后计算lower most bit
-    prh_unt m = prh_lower_most_bit(n);
-    while (m < n) m <<= 1;
-    return m;
-}
+#ifndef prh_malloc
+// void *malloc(size_t size);
+// the newly allocated block of memory is not initialized, remaining with indeterminate values.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+#define prh_malloc(size) malloc(size)
+// void *calloc(size_t num, size_t size);
+// allocates a block of memory for an array of num elements, each of them size bytes long, and
+// initializes all its bits to zero. the effective result is the allocation of a zero-initialized
+// memory block of (num*size) bytes.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+#define prh_calloc(size) calloc(1, (size))
+// void *realloc(void *ptr, size_t size);
+// if ptr == prh_null { return malloc(size) }
+// if size == 0 { may be free(ptr) or depends on library implementation }
+// if size > ptr old size { may return the new location and the newer portion is indeterminate }
+// the content is preserved up to min(old and new size), even if moved to a new location.
+// if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
+#define prh_realloc realloc
+// void free(void *ptr);
+// if ptr == prh_null { the function does nothing }
+#define prh_free free
 #endif
 
 // https://en.cppreference.com/w/c/memory/aligned_alloc
@@ -1641,97 +1621,6 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
     #define prh_aligned_free(p) free(p)
 #endif
 #endif
-
-#ifndef prh_malloc
-#include <stdlib.h>
-// void *malloc(size_t size);
-// the newly allocated block of memory is not initialized, remaining with indeterminate values.
-// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
-// if fails to allocate the requested block of memory, a null pointer is returned.
-#define prh_malloc(size) malloc(size)
-// void *calloc(size_t num, size_t size);
-// allocates a block of memory for an array of num elements, each of them size bytes long, and
-// initializes all its bits to zero. the effective result is the allocation of a zero-initialized
-// memory block of (num*size) bytes.
-// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
-// if fails to allocate the requested block of memory, a null pointer is returned.
-#define prh_calloc(size) calloc(1, (size))
-// void *realloc(void *ptr, size_t size);
-// if ptr == prh_null { return malloc(size) }
-// if size == 0 { may be free(ptr) or depends on library implementation }
-// if size > ptr old size { may return the new location and the newer portion is indeterminate }
-// the content is preserved up to min(old and new size), even if moved to a new location.
-// if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
-#define prh_realloc realloc
-// void free(void *ptr);
-// if ptr == prh_null { the function does nothing }
-#define prh_free free
-#endif
-
-#ifdef PRH_ARRAY_IMPLEMENTATION
-#include <assert.h>
-#include <stdlib.h>
-#include <string.h>
-#endif
-
-#ifdef PRH_QUEUE_IMPLEMENTATION
-#include <assert.h>
-#include <stdlib.h>
-#endif
-
-#ifdef PRH_CORO_IMPLEMENTATION
-#include <assert.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#endif
-
-#ifdef PRH_BASE_IMPLEMENTATION
-#include <stdio.h>
-#include <stdlib.h>
-int prh_impl_assert(int line) {
-    fprintf(stderr, "assert line %d\n", line);
-    abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
-    return 0;
-}
-void prh_impl_prerr(int line, int error) {
-    fprintf(stderr, "error %d line %d\n", error, line);
-}
-void prh_impl_abort(int line) {
-    fprintf(stderr, "abort line %d\n", line);
-    abort();
-}
-void prh_impl_abort_error(int line, int error) {
-    fprintf(stderr, "abort %d line %d\n", error, line);
-    abort();
-}
-void prh_impl_prerr_sigpipe_sigxfsz(int i, bool kernel) {
-    const char *s = "SIGPIPE\0SIGXFSZ";
-    fprintf(stderr, "%s from %s\n", s + i * 8, kernel ? "kernel" : "user");
-}
-void prh_impl_prerr_sigsys(void *calladdr, int err) {
-    fprintf(stderr, "SIGSYS %p errno %d\n", calladdr, err);
-}
-void prh_impl_prerr_sigsegv(int i, void *calladdr) {
-    const char *s = "SEGERR\0 MAPERR\0 ACCERR\0 BNDERR";
-    fprintf(stderr, "SIGSEGV %p %s\n", calladdr, s + i * 8);
-}
-void prh_impl_prerr_sigbus(int i, void *calladdr) {
-    const char *s = "BUSERR\0 ADRALN\0 ADRERR\0 OBJERR\0 MCEERR";
-    fprintf(stderr, "SIGBUS %p %s\n", calladdr, s + i * 8);
-}
-void prh_impl_prerr_sigill(int i, void *calladdr) {
-    const char *s = "ILLERR\0 ILLOPC\0 ILLOPN\0 ILLADR\0 ILLTRP\0 PRVOPC\0 OPVREG\0 COPROC\0 BADSTK";
-    fprintf(stderr, "SIGILL %p %s\n", calladdr, s + i * 8);
-}
-void prh_impl_prerr_sigfpe(int i, void *calladdr) {
-    const char *s = "FPEERR\0 INTDIV\0 INTOVF\0 FLTDIV\0 FLTOVF\0 FLTUND\0 FLTRES\0 FLTINV\0 FLTSUB";
-    fprintf(stderr, "SIGFPE %p %s\n", calladdr, s + i * 8);
-}
-void prh_impl_prerr_sigemt(int code, void *calladdr) {
-    fprintf(stderr, "SIGEMT %p code %d\n", calladdr, code);
-}
-#endif // PRH_BASE_IMPLEMENTATION
 
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
@@ -1786,6 +1675,96 @@ void prh_impl_prerr_sigemt(int code, void *calladdr) {
     #endif
 #endif // prh_impl_pthread_getattr
 #endif // prh_plat_posix
+
+// 高速缓存（Cache） 是一种位于 CPU 和主存之间的高速存储器，用于存储 CPU 频繁访问的数据
+// 和指令。它的速度远高于主存，能够显著提升 CPU 的数据处理效率。高速缓存技术利用程序的局
+// 部性原理，将程序中正在使用的部分存放在一个高速的、容量较小的缓存中，使 CPU 的访存操作
+// 大多数针对缓存进行，从而提高程序的执行速度。时间局部性：如果一个存储单元被访问，那么该
+// 单元很可能很快被再次访问。空间局部性：如果一个存储单元被访问，那么该单元邻近的单元也可
+// 能很快被访问。
+//
+// 高速缓存通常被组织成一个有多个缓存组的数组，每个缓存组（Cache Set）包含若干个缓存行
+// （Cache Line）。缓存行是高速缓存中的最小访问单元，用于缓存内存块数据。当 CPU 需要访
+// 问主存中的数据时，高速缓存会拦截所有对内存的访问，并判断所需数据是否已经存在于高速缓存
+// 中。如果缓存命中（即找到所需数据），则直接从缓存中读取数据。如果缓存未命中（即未找到所
+// 需数据），则需要从主存中加载数据到缓存中。组选择（Set Selection）：根据地址中的索引位
+// 找到对应的缓存组。行匹配（Line Matching）：在缓存组中，通过标记位判断是否存在匹配的缓
+// 存行。字抽取（Word Extraction）：如果找到匹配的缓存行，根据偏移量提取所需的数据。
+//
+// 现代 CPU 通常具有多级缓存结构，包括 L1、L2 和 L3 缓存。L1 缓存：位于 CPU 芯片内部，
+// 速度最快，容量最小，通常分为指令缓存和数据缓存。L2 缓存：位于 CPU 芯片内部或外部，速
+// 度稍慢，容量较大。L3 缓存：位于 CPU 芯片外部，速度较慢，容量最大，通常被多个核心共享。
+#ifndef PRH_CACHE_LINE_SIZE
+#define PRH_CACHE_LINE_SIZE 64
+#endif
+
+#ifndef prh_round_ptrsize
+#define prh_round_ptrsize(n) (((prh_unt)(n)+(prh_unt)(sizeof(void*)-1)) & (~(prh_unt)(sizeof(void*)-1)))
+#define prh_round_cache_line_size(n) (((prh_unt)(n)+PRH_CACHE_LINE_SIZE-1) & (~(prh_unt)(PRH_CACHE_LINE_SIZE-1)))
+#define prh_round_08_byte(n) (((prh_unt)(n)+7) & (~(prh_unt)7))
+#define prh_round_16_byte(n) (((prh_unt)(n)+15) & (~(prh_unt)15))
+prh_inline prh_unt prh_lower_most_bit(prh_unt n) {
+    return n & (-(prh_int)n); // 0000 & 0000 -> 0000, 0001 & 1111 -> 0001, 1010 & 0110 -> 0010
+}
+prh_inline prh_unt prh_remove_lower_most_bit(prh_unt n) {
+    return n & (n - 1);
+}
+prh_inline bool prh_is_power_of_2(prh_unt n) {
+    return prh_remove_lower_most_bit(n) == 0; // power of 2 or zero
+}
+prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
+    if (prh_is_power_of_2(n)) return n;
+    // TODO: 字节序交换然后计算lower most bit
+    prh_unt m = prh_lower_most_bit(n);
+    while (m < n) m <<= 1;
+    return m;
+}
+#endif
+
+#ifdef PRH_BASE_IMPLEMENTATION
+int prh_impl_assert(int line) {
+    fprintf(stderr, "assert line %d\n", line);
+    abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
+    return 0;
+}
+void prh_impl_prerr(int line, int error) {
+    fprintf(stderr, "error %d line %d\n", error, line);
+}
+void prh_impl_abort(int line) {
+    fprintf(stderr, "abort line %d\n", line);
+    abort();
+}
+void prh_impl_abort_error(int line, int error) {
+    fprintf(stderr, "abort %d line %d\n", error, line);
+    abort();
+}
+void prh_impl_prerr_sigpipe_sigxfsz(int i, bool kernel) {
+    const char *s = "SIGPIPE\0SIGXFSZ";
+    fprintf(stderr, "%s from %s\n", s + i * 8, kernel ? "kernel" : "user");
+}
+void prh_impl_prerr_sigsys(void *calladdr, int err) {
+    fprintf(stderr, "SIGSYS %p errno %d\n", calladdr, err);
+}
+void prh_impl_prerr_sigsegv(int i, void *calladdr) {
+    const char *s = "SEGERR\0 MAPERR\0 ACCERR\0 BNDERR";
+    fprintf(stderr, "SIGSEGV %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigbus(int i, void *calladdr) {
+    const char *s = "BUSERR\0 ADRALN\0 ADRERR\0 OBJERR\0 MCEERR";
+    fprintf(stderr, "SIGBUS %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigill(int i, void *calladdr) {
+    const char *s = "ILLERR\0 ILLOPC\0 ILLOPN\0 ILLADR\0 ILLTRP\0 PRVOPC\0 OPVREG\0 COPROC\0 BADSTK";
+    fprintf(stderr, "SIGILL %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigfpe(int i, void *calladdr) {
+    const char *s = "FPEERR\0 INTDIV\0 INTOVF\0 FLTDIV\0 FLTOVF\0 FLTUND\0 FLTRES\0 FLTINV\0 FLTSUB";
+    fprintf(stderr, "SIGFPE %p %s\n", calladdr, s + i * 8);
+}
+void prh_impl_prerr_sigemt(int code, void *calladdr) {
+    fprintf(stderr, "SIGEMT %p code %d\n", calladdr, code);
+}
+#endif // PRH_BASE_IMPLEMENTATION
 
 #ifdef PRH_TEST_IMPLEMENTATION
 #if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
@@ -2430,7 +2409,7 @@ void *prh_impl_arrdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i, prh_i
     prh_impl_p[prh_impl_i] = (elt_value);                                       \
 }
 
-#ifdef PRH_ARRAY_IMPLEMENTAION
+#ifdef PRH_ARRAY_IMPLEMENTATION
 void prh_impl_arrdyn_initial_expand(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) {
     prh_int capacity = 1;
     while (new_capacity > capacity) capacity *= 2;
