@@ -1561,7 +1561,7 @@ extern "C" {
 // include basic common use C headers
 #include <assert.h> // assert
 #include <stdlib.h> // malloc calloc realloc free abort exit
-#include <string.h> // memcpy memove memset
+#include <string.h> // memcpy memmove memset
 // void *memcpy(void *dest, const void *src, size_t count);
 // void *memmove(void *dest, const void *src, size_t count);
 // void *memset(void *ptr, int value, size_t count);
@@ -2005,10 +2005,10 @@ typedef struct { prh_byte *slice; prh_int capacity; prh_int size; } prh_sslice; 
 #define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrdyn_elem_size(p)) // 生成的数组 capacity 总是 2 的幂
 #define prh_arrlax_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrlax_elem_size(p)); (p)->start = 0; } // 生成的数组 capacity 总是 2 的幂
 
-#define prh_arrfix_free(p) { prh_free((p)->arrfix); }
-#define prh_arrfit_free(p) { prh_free((p)->arrfit); }
-#define prh_arrdyn_free(p) { prh_free((p)->arrdyn); }
-#define prh_arrlax_free(p) { prh_free((p)->arrlax); }
+#define prh_arrfix_free(p) { prh_free((p)->arrfix); prh_debug((p)->arrfix = prh_null); }
+#define prh_arrfit_free(p) { prh_free((p)->arrfit); prh_debug((p)->arrfit = prh_null); }
+#define prh_arrdyn_free(p) { prh_free((p)->arrdyn); prh_debug((p)->arrdyn = prh_null); }
+#define prh_arrlax_free(p) { prh_free((p)->arrlax); prh_debug((p)->arrlax = prh_null); }
 
 prh_inline void prh_impl_arrdyn_clear(prh_impl_arrdyn *p) { p->size = 0; }
 #define prh_arrfit_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrfit_addr(p))
@@ -2022,6 +2022,8 @@ prh_int prh_impl_arrdyn_expand_size(prh_impl_arrdyn *p, prh_int expand_size, prh
 prh_int prh_impl_arrlax_expand_size(prh_impl_arrlax *p, prh_int expand_size, prh_int elem_size); // 增加元素个数时容量可能增大
 prh_int prh_impl_arrdyn_shrink_size(prh_impl_arrdyn *p, prh_int shrink_size); // 缩减元素个数时保持容量不变
 prh_int prh_impl_arrlax_shrink_size(prh_impl_arrlax *p, prh_int shrink_size); // 缩减元素个数时保持容量不变
+prh_int prh_impl_arrdyn_unchecked_push(prh_impl_arrdyn *p, prh_int expand_size);
+prh_int prh_impl_arrlax_unchecked_push(prh_impl_arrlax *p, prh_int expand_size);
 
 #define prh_arrdyn_reserve(p, new_capacity) prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)(p), (new_capacity), prh_impl_arrdyn_elem_size(p))
 #define prh_arrlax_reserve(p, new_capacity) prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)(p), (new_capacity), prh_impl_arrlax_elem_size(p))
@@ -2065,10 +2067,10 @@ prh_inline void prh_strfit_init(prh_strfit *p, prh_int capacity) { prh_impl_stri
 prh_inline void prh_string_init(prh_string *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
 prh_inline void prh_strlax_init(prh_strlax *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); p->start = 0; }
 
-prh_inline void prh_strfix_free(prh_strfix *p) { prh_free(p->s); }
-prh_inline void prh_strfit_free(prh_strfit *p) { prh_free(p->s); }
-prh_inline void prh_string_free(prh_string *p) { prh_free(p->s); }
-prh_inline void prh_strlax_free(prh_strlax *p) { prh_free(p->s); }
+prh_inline void prh_strfix_free(prh_strfix *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strfit_free(prh_strfit *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_string_free(prh_string *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strlax_free(prh_strlax *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
 
 prh_inline void prh_strfit_clear(prh_strfit *p) { p->size = 0; }
 prh_inline void prh_string_clear(prh_string *p) { p->size = 0; }
@@ -2102,8 +2104,8 @@ prh_inline prh_byte *prh_strlax_unchecked_multi_pop_back(prh_strlax *p, prh_int 
 
 prh_inline prh_byte *prh_string_pop_back(prh_string *p) { return (p->size > 0) ? prh_string_unchecked_pop_back(p) : prh_null; }
 prh_inline prh_byte *prh_strlax_pop_back(prh_strlax *p) { return (p->size > 0) ? prh_strlax_unchecked_pop_back(p) : prh_null; }
-prh_inline prh_byte *prh_string_multi_pop_back(prh_string *p, prh_int n) { return (p->size >= n) prh_string_unchecked_multi_pop_back(p, n) : prh_null; }
-prh_inline prh_byte *prh_strlax_multi_pop_back(prh_strlax *p, prh_int n) { return (p->size >= n) prh_strlax_unchecked_multi_pop_back(p, n) : prh_null; }
+prh_inline prh_byte *prh_string_multi_pop_back(prh_string *p, prh_int n) { return (p->size >= n) ? prh_string_unchecked_multi_pop_back(p, n) : prh_null; }
+prh_inline prh_byte *prh_strlax_multi_pop_back(prh_strlax *p, prh_int n) { return (p->size >= n) ? prh_strlax_unchecked_multi_pop_back(p, n) : prh_null; }
 
 #define prh_arrfix_begin(p) ((p)->arrfix)
 #define prh_arrfit_begin(p) ((p)->arrfit)
@@ -2267,7 +2269,7 @@ prh_inline void prh_strlax_multi_remove(prh_strlax *p, prh_int i, prh_int n) {
     ((elem_ptr) = prh_priv_arrlax_insert_at((p), (i))), ((p)->arrlax[(p)->start + (p)->size - 1] = *(elem_ptr)), (elem_ptr))
 
 prh_inline void *prh_impl_arrdyn_insert(void *pos, prh_int len, prh_int elem_size) {
-    memove((prh_byte *)pos + elem_size, pos, (len - 1) * elem_size); // [0,1,(2),3,4,5,6,7] size 8 => copy len (origin_size - 2) = 6
+    memmove((prh_byte *)pos + elem_size, pos, (len - 1) * elem_size); // [0,1,(2),3,4,5,6,7] size 8 => copy len (origin_size - 2) = 6
     return pos;
 }
 
@@ -2285,7 +2287,7 @@ prh_inline void *prh_impl_arrdyn_insert(void *pos, prh_int len, prh_int elem_siz
 
 prh_inline void *prh_impl_arrdyn_multi_insert(void *pos, prh_int len, prh_int insert_elems, prh_int elem_size) {
     assert(insert_elems > 0);
-    memove((prh_byte *)pos + insert_elems * elem_size, pos, (len - insert_elems) * elem_size);
+    memmove((prh_byte *)pos + insert_elems * elem_size, pos, (len - insert_elems) * elem_size);
     return pos;
 }
 
@@ -2399,24 +2401,15 @@ prh_inline void prh_strvew_init(prh_strvew *p, const prh_byte *addr, prh_int siz
     p->size = size;
 }
 
-void prh_strfix_slice(prh_sslice *p, const prh_strfix *s, prh_int i, prh_int j);
 void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j);
 void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j);
 void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
 
-#define prh_arrfix_slice(p, a, i, j) /* [i, j) 不需要释放内存，可读可写 */ {        \
-    assert((i) >= (0) && (i) < (a)->size);                                      \
-    assert((j) >= (i) && (j)<= (a)->size);                                      \
-    (p)->slice = prh_arrfix_begin(a) + (i);                                     \
-    (p)->capacity = prh_arrfix_tail(a) - (p)->slice;                            \
-    (p)->size = (j) - (i);                                                      \
-}
-
-#define prh_arrfit_slice(p, a, i, j) /* [i, j) */ {                             \
+#define prh_arrfit_slice(p, a, i, j) /* [i, j) 不需要释放内存，可读可写 */ {         \
     assert((i) >= (0) && (i) < (a)->size);                                      \
     assert((j) >= (i) && (j)<= (a)->size);                                      \
     (p)->slice = prh_arrfit_begin(a) + (i);                                     \
-    (p)->capacity = prh_arrfit_tail(a) - (p)->slice;                            \
+    (p)->capacity = prh_arrfit_cap_end(a) - (p)->slice;                         \
     (p)->size = (j) - (i);                                                      \
 }
 
@@ -2424,7 +2417,7 @@ void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
     assert((i) >= (0) && (i) < (a)->size);                                      \
     assert((j) >= (i) && (j)<= (a)->size);                                      \
     (p)->slice = prh_arrdyn_begin(a) + (i);                                     \
-    (p)->capacity = prh_arrdyn_tail(a) - (p)->slice;                            \
+    (p)->capacity = prh_arrdyn_cap_end(a) - (p)->slice;                         \
     (p)->size = (j) - (i);                                                      \
 }
 
@@ -2432,7 +2425,7 @@ void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
     assert((i) >= (0) && (i) < (a)->size);                                      \
     assert((j) >= (i) && (j)<= (a)->size);                                      \
     (p)->slice = prh_arrlax_begin(a) + (i);                                     \
-    (p)->capacity = prh_arrlax_tail(a) - (p)->slice;                            \
+    (p)->capacity = prh_arrlax_cap_end(a) - (p)->slice;                         \
     (p)->size = (j) - (i);                                                      \
 }
 
@@ -2514,7 +2507,7 @@ prh_int prh_impl_string_expand_size(prh_impl_arrdyn *p, prh_int expand_size) {
 prh_int prh_impl_arrlax_expand_size(prh_impl_arrlax *p, prh_int expand_size, prh_int elem_size) {
     assert(expand_size > 0);
     prh_int size = p->start + p->size;
-    prh_impl_arrdyn_expand_capacity(p, size + expand_size, elem_size);
+    prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)p, size + expand_size, elem_size);
     p->size += expand_size;
     return size;
 }
@@ -2522,7 +2515,7 @@ prh_int prh_impl_arrlax_expand_size(prh_impl_arrlax *p, prh_int expand_size, prh
 prh_int prh_impl_strlax_expand_size(prh_impl_arrlax *p, prh_int expand_size) {
     assert(expand_size > 0);
     prh_int size = p->start + p->size;
-    prh_impl_string_expand_capacity(p, size + expand_size);
+    prh_impl_string_expand_capacity((prh_impl_arrdyn *)p, size + expand_size);
     p->size += expand_size;
     return size;
 }
@@ -2553,19 +2546,11 @@ prh_int prh_impl_arrlax_unchecked_push(prh_impl_arrlax *p, prh_int expand_size) 
     return size;
 }
 
-void prh_strfix_slice(prh_sslice *p, const prh_strfix *s, prh_int i, prh_int j) {
+void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j) {
     assert(i >= 0 && i < s->size); // [i, j) 不需要释放内存，可读可写
     assert(j >= i && j<= s->size);
-    p->slice = prh_strfix_begin((prh_strfix *)s) + i;
-    p->capacity = prh_strfix_tail((prh_strfix *)s) - p->slice;
-    p->size = j - i;
-}
-
-void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j) {
-    assert(i >= 0 && i < s->size); // [i, j)
-    assert(j >= i && j<= s->size);
     p->slice = prh_strfit_begin((prh_strfit *)s) + i;
-    p->capacity = prh_strfit_tail((prh_strfit *)s) - p->slice;
+    p->capacity = prh_strfit_cap_end((prh_strfit *)s) - p->slice;
     p->size = j - i;
 }
 
@@ -2573,7 +2558,7 @@ void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j) 
     assert(i >= 0 && i < s->size); // [i, j)
     assert(j >= i && j<= s->size);
     p->slice = prh_string_begin((prh_string *)s) + i;
-    p->capacity = prh_string_tail((prh_string *)s) - p->slice;
+    p->capacity = prh_string_cap_end((prh_string *)s) - p->slice;
     p->size = j - i;
 }
 
@@ -2581,7 +2566,7 @@ void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j) 
     assert(i >= 0 && i < s->size); // [i, j)
     assert(j >= i && j<= s->size);
     p->slice = prh_strlax_begin((prh_strlax *)s) + i;
-    p->capacity = prh_strlax_tail((prh_strlax *)s) - p->slice;
+    p->capacity = prh_strlax_cap_end((prh_strlax *)s) - p->slice;
     p->size = j - i;
 }
 #endif // PRH_ARRAY_IMPLEMENTAION
@@ -3151,71 +3136,61 @@ prh_snode *prh_nstack_pop(prh_nstack *s) {
 #endif // PRH_STACK_INCLUDE
 
 #ifdef PRH_QUEUE_INCLUDE
-typedef struct { void *arrdyn; prh_int capacity; prh_int size; prh_int tail; } prh_impl_arrque;
-#define prh_arrque(elem_type) struct { elem_type *arrdyn; prh_int capacity; prh_int size; prh_int tail; }
-
+typedef struct { void *arrque; prh_int capacity; prh_int size; prh_int tail; } prh_impl_arrque;
+#define prh_arrque(elem_type) struct { elem_type *arrque; prh_int capacity; prh_int size; prh_int tail; }
 #define prh_impl_arrque_npos(p, pos) ((pos) & ((p)->capacity - 1)) // 队列数据容量总是 2 的幂
-#define prh_impl_arrque_head_index(p) prh_impl_arrque_npos((p), (p)->tail - (p)->size)
-#define prh_impl_arrque_tail(p) (p)->tail * sizeof(prh_impl_arrdyn_elem_type(p))
-#define prh_impl_arrque_head(p) prh_impl_arrque_head_index(p) * sizeof(prh_impl_arrdyn_elem_type(p))
+#define prh_impl_arrque_elem_size(p) sizeof(*((p)->arrque))
+#define prh_impl_arrque_eptr_type(p) prh_typeof((p)->arrque)
+
+#define prh_arrque_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrque_elem_size(p)); (p)->tail = 0; }
+#define prh_arrque_free(p) { prh_free((p)->arrque); prh_debug((p)->arrque = prh_null); }
 
 void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int tail_offset);
-void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int head_offset);
-#define prh_impl_arrq_push(p, value) (*(prh_typeof((p)->arrdyn))prh_impl_arrque_push((p), prh_impl_arrque_tail(p)) = (value))
-#define prh_impl_arrq_pop(p) (prh_typeof((p)->arrdyn))prh_impl_arrque_pop((p), prh_impl_arrque_head(p))
+void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size);
 
-#define prh_arrque_init(p, capacity) prh_impl_arrdyn_init((p), (capacity), prh_impl_arrdyn_size(p))
-#define prh_arrque_free(p) prh_arrdyn_free(p)
+#define prh_arrque_push(p) prh_impl_arrque_eptr_type(p)(((p)->size < (p)->capacity) ? prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null)
+#define prh_arrque_unchecked_push(p) prh_impl_arrque_eptr_type(p)prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p))
+#define prh_arrque_auto_grow_push(p) prh_impl_arrque_eptr_type(p)prh_impl_arrque_auto_grow_push(p)
 
-#define prh_arrque_push(p, value) ((p)->size == (p)->capacity) ? false : (prh_impl_arrq_push((p), (value)), true)
-#define prh_arrque_unchecked_push(p, value) (prh_assert((p)->size < (p)->capacity), prh_impl_arrq_push((p), (value)))
-
-#define prh_arrque_pop(p) ((p)->size == 0) ? prh_null : prh_impl_arrq_pop(p)
-#define prh_arrque_unchecked_pop(p) (prh_assert((p)->size > 0), prh_impl_arrq_pop(p))
-
-void *prh_impl_arrque_rpush(prh_impl_arrque *p, prh_int tail_offset);
-void *prh_impl_arrque_reloc(prh_impl_arrque *p, prh_int tail_offset, prh_int newsize);
-
-#define prh_arrque_vsize_push(p, value) {                                       \
-    prh_int prh_impl_t = prh_impl_arrque_tail(p);                               \
-    prh_typeof((p)->arrdyn) prh_impl_p = prh_impl_arrque_rpush((p), prh_impl_t);\
-    if (prh_impl_p == prh_null) {                                               \
-        prh_impl_p = prh_impl_arrque_reloc(p, prh_impl_t, prh_impl_arrdyn_size(p)); \
-    }                                                                           \
-    *prh_impl_p = (value);                                                      \
-}
+#define prh_arrque_top(p) prh_impl_arrque_eptr_type(p)((p)->size > 0 ? prh_impl_arrque_top((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null)
+#define prh_arrque_pop(p) prh_impl_arrque_eptr_type(p)((p)->size > 0 ? prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null)
+#define prh_arrque_unchecked_pop(p) prh_impl_arrque_eptr_type(p)prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p))
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
-void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int tail_offset) {
+void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size) {
+    prh_int tail_offset = p->tail * elem_size;
     p->tail = prh_impl_arrque_npos(p, p->tail + 1);
     p->size += 1;
-    return (prh_byte *)p->arrdyn + tail_offset;
+    return (prh_byte *)p->arrque + tail_offset;
 }
 
-void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int head_offset) {
+void *prh_impl_arrque_top(prh_impl_arrque *p, prh_int elem_size) {
+    prh_int head_offset = prh_impl_arrque_npos(p, p->tail - p->size) * elem_size;
+    return (prh_byte *)p->arrque + head_offset;
+}
+
+void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int elem_size) {
+    void *top = prh_impl_arrque_top(p, elem_size);
     p->size -= 1;
-    return (prh_byte *)p->arrdyn + head_offset;
+    return top;
 }
 
-void *prh_impl_arrque_rpush(prh_impl_arrque *p, prh_int tail_offset) {
-    if (p->size == p->capacity) {
+void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size) {
+    prh_int capacity = p->capacity;
+    prh_int middle_offset, new_capacity = (p->size += 1);
+    prh_int tail_offset = p->tail * elem_size;
+    if (new_capacity > capacity) {
+        middle_offset = capacity * elem_size;
+        p->arrque = prh_realloc(p->arrque, middle_offset * 2);
+        assert(p->arrque != prh_null);
+        memcpy((prh_byte *)p->arrque + middle_offset, p->arrque, tail_offset);
+        tail_offset += middle_offset; // 当tail_offset恰好为0时最后一个元素恰好在数组尾部不需要拷贝，参数 tail_offset 为零 memcpy 实际也不会拷贝
+        p->tail += capacity + 1;
         p->capacity *= 2;
-        return prh_null;
+    } else {
+        p->tail = prh_impl_arrque_npos(p, p->tail + 1);
     }
-    p->size += 1;
-    p->tail = prh_impl_arrque_npos(p, p->tail + 1);
-    return (prh_byte *)p->arrdyn + tail_offset;
-}
-
-void *prh_impl_arrque_reloc(prh_impl_arrque *p, prh_int tail_offset, prh_int newsize) {
-    prh_int oldsize = newsize / 2;
-    prh_impl_arrdyn_relloc((prh_impl_arrfix *)p, newsize);
-    prh_byte *tail = (prh_byte *)p->arrdyn + oldsize;
-    if (tail_offset < oldsize) {
-        memcpy(tail, p->arrdyn, tail_offset);
-        return tail + tail_offset;
-    }
-    return tail;
+    return (prh_byte *)p->arrque + tail_offset;
 }
 #endif // PRH_QUEUE_IMPLEMENTATION
 
@@ -4499,7 +4474,7 @@ typedef struct {
     prh_atom_hive_fbqfix *freeq;
 } prh_atom_hive_quefix;
 
-void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q);
+void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q, prh_atom_hive_fbqfix *freeq);
 void prh_atom_hive_quefix_free(prh_atom_hive_quefix *q);
 void prh_atom_hive_quefix_push(prh_atom_hive_quefix *q, void *data);
 void *prh_atom_hive_quefix_top(prh_atom_hive_quefix *q);
