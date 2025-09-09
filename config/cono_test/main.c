@@ -3,7 +3,7 @@
 #define PRH_TEST_IMPLEMENTATION
 #include "prh_include.h"
 
-prh_void_ptr thrd_proc(prh_thrd *thrd) {
+prh_ptr thrd_proc(prh_thrd *thrd) {
     return 0;
 }
 
