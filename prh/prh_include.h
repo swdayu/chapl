@@ -427,19 +427,19 @@ extern "C" {
 // class/struct/union types and enumerations. This is not supported in C, but
 // the alignment of a struct type can be controlled by using alignas in a
 // member declaration.
-#ifndef prh_aligned
+#ifndef prh_align
 #if defined(__cplusplus) && __cplusplus >= 201103L // C++11 keyword
-    #define prh_aligned(size) alignas(size)
+    #define prh_align(size) alignas(size)
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 202311L // C23 keyword
-    #define prh_aligned(size) alignas(size)
+    #define prh_align(size) alignas(size)
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L // C11 keyword
-    #define prh_aligned(size) _Alignas(size)
+    #define prh_align(size) _Alignas(size)
 #elif defined(_MSC_VER)
     // Before Visual Studio 2015 you could use the Microsoft-specific keywords
     // __alignof and __declspec(align) to specify an alignment greater than
     // the default. Starting in Visual Studio 2015 you should use the C++11
     // standard keywords alignof and alignas for maximum code portability.
-    #define prh_aligned(size) __declspec(align(size))
+    #define prh_align(size) __declspec(align(size))
 #elif defined(__GNUC__)
     // The aligned attribute specifies a minimum alignment (in bytes) for
     // variables of the specified type. When specified, alignment must be a
@@ -455,7 +455,7 @@ extern "C" {
     // 的结构体或联合体类型的对齐方式，至少要是该结构体或联合体中所有成员对齐方式的
     // 最小公倍数的整数倍。这意味着，你可以通过为结构体或联合体类型的任意一个成员附
     // 加 aligned 属性，来有效调整该结构体或联合体类型的对齐方式。
-    #define prh_aligned(size) __attribute__ ((aligned (size)))
+    #define prh_align(size) __attribute__ ((aligned (size)))
 #endif
 #endif
 
@@ -2365,7 +2365,7 @@ prh_inline prh_byte *prh_strlax_multi_insert(prh_strlax *p, prh_int i, prh_int n
     return pos;
 }
 
-#define prh_arrvew_init(p, addr, size) /* 不需要释放内存，只读 */ {                 \
+#define prh_arrvew_init(p, addr, size) /* 不需要释放内存，只读 */ {               \
     (p)->arrvew = (addr);                                                       \
     (p)->size = (size);                                                         \
 }
@@ -2379,7 +2379,7 @@ void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j);
 void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j);
 void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
 
-#define prh_arrfit_slice(p, a, i, j) /* [i, j) 不需要释放内存，可读可写 */ {         \
+#define prh_arrfit_slice(p, a, i, j) /* [i, j) 不需要释放内存，可读可写 */ {       \
     assert((i) >= (0) && (i) < (a)->size);                                      \
     assert((j) >= (i) && (j)<= (a)->size);                                      \
     (p)->slice = prh_arrfit_begin(a) + (i);                                     \
@@ -7553,6 +7553,7 @@ typedef void (*prh_thrdfree_t)(void *userdata, int thrd_index); // thrd_index 0 
 prh_thrd *prh_thrd_self(void);
 prh_thrd *prh_thrd_main(prh_thrd_struct *s);
 prh_thrd *prh_thrd_get(prh_thrd_struct *s, int thrd_index);
+void prh_set_fault_handler(void);
 
 prh_inline void *prh_thrd_data(prh_thrd *thrd) {
     return thrd->userdata;
@@ -10251,6 +10252,7 @@ void prh_impl_sighw_action(int sig, siginfo_t *info, void *ucontext) {
     // 函数中来打印该信号的详细信息。
     int si_code = info->si_code;
     int code = 0;
+    // psiginfo(info, prh_null);
     if (sig == SIGSEGV) {
         switch (si_code) {
             case SEGV_MAPERR: code = 1; break; // 无效地址映射
@@ -10482,6 +10484,10 @@ label_continue:
 #else
     return 0;
 #endif
+}
+
+void prh_set_fault_handler(void) {
+    prh_main_sigaction();
 }
 
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
@@ -11099,7 +11105,7 @@ prh_coro *prh_impl_cono_creatx(prh_conoproc_t proc, int stack_size, int coro_ext
 #if PRH_CONO_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
     struct prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
-    printf("[cono ##] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
+    printf("[cono __] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
         (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
         (void *)coro, prh_impl_coro_extend_size(0), coro->userdata, (int)prh_round_16_byte(maxudsize), stack_size);
 #endif
@@ -11322,8 +11328,8 @@ prh_cono_subq *prh_cono_self_subq(prh_byte subq_i) {
 
 void prh_impl_callee_continue(prh_real_cono *caller) {
     if (caller->callee) {
-        caller->callee = prh_null;
         prh_impl_send_cono_req(caller->callee, PRH_CONO_CONTINUE);
+        caller->callee = prh_null;
     }
 }
 
@@ -11703,9 +11709,9 @@ prh_ptr prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
     prh_atom_bool *term_signal = &PRH_IMPL_CONO_STRUCT.term_signal;
     prh_atom_int *num_sleep = &PRH_IMPL_CONO_STRUCT.num_sleep;
     int thrd_id = prh_thrd_id(thrd);
+    prh_debug(int privilege_acquire_count = 0);
 
     for (; ;) {
-        prh_debug(int privilege_acquire_count = 0);
         while (!prh_impl_privilege_task_v2(cono_thrd)) { // 至少抢到一次特权
             prh_debug(privilege_acquire_count += 1);
             prh_thrd_sleep(0, 0);
@@ -11725,6 +11731,7 @@ prh_ptr prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
         prh_thrd_cond_sleep(&cono_thrd->sleep_cond);
         prh_atom_int_dec(num_sleep);
         prh_debug(printf("[thrd %02d] wakeup\n", thrd_id));
+        prh_debug(privilege_acquire_count = 0);
     }
 
     return 0;
@@ -11795,9 +11802,9 @@ label_cont_execute:
 void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
     prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
     int thrd_id = prh_cono_thrd_id(main_thrd);
+    prh_debug(int privilege_acquire_count = 0);
 
     for (; ;) {
-        prh_debug(int privilege_acquire_count = 0);
         while (!prh_impl_privilege_task_v2(main_thrd)) { // 至少抢到一次特权
             prh_debug(privilege_acquire_count += 1);
             prh_thrd_sleep(0, 0);
@@ -11819,6 +11826,7 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
         prh_debug(printf("[thrd %02d] sleep %d\n", thrd_id, privilege_acquire_count));
         prh_thrd_cond_sleep(&main_thrd->sleep_cond);
         prh_debug(printf("[thrd %02d] wakeup\n", thrd_id));
+        prh_debug(privilege_acquire_count = 0);
     }
 }
 
@@ -11866,6 +11874,8 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, 
     prh_cono_quefit *ready_queue = &s->ready_queue;
     prh_thrd_struct *thrd_struct = s->thrd_struct;
     prh_cono_thrd *main_thrd = s->main_thread;
+
+    prh_set_fault_handler();
 
     // 将入口协程加入就绪队列，程序的执行从入口协程执行开始
     prh_relaxed_quefit_push(ready_queue, s->main_entry_cono, cono_chain);
@@ -11962,6 +11972,57 @@ void prh_impl_cono_test(void) {
 #endif // PRH_FILE_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
+#define prh_loopback ((char *)0)
+#define prh_addr_any ((char *)1)
+#define prh_port_any ((prh_u32)0)
+
+#define PRH_ERROR       0xE0
+#define PRH_ETIMEOUT    0xE1
+#define PRH_EREFUSED    0xE2
+#define PRH_EUNREACH    0xE3
+#define PRH_EUNAVAIL    0xE4
+#define PRH_ENOTSUPP    0xE5
+#define PRH_ENAMERES    0xE6
+
+typedef prh_ptr prh_handle;
+typedef struct prh_epoll_port prh_epoll_port;
+
+typedef struct {
+    prh_handle sock;
+    prh_cono_subq *upper_subq;
+    prh_epoll_port *epoll_port;
+    prh_byte ipv6: 1, addr_any: 1, quit: 1;
+    prh_u16 port;
+    prh_u32 addr;
+    prh_u32 addr_[3];
+} prh_tcplisten;
+
+typedef prh_arrfit(prh_byte) prh_byte_arrfit;
+typedef struct {
+    prh_handle sock;
+    prh_cono_subq *upper_subq;
+    prh_byte_arrfit txbuf;
+    prh_byte_arrfit rxbuf;
+    prh_epoll_port *epoll_port;
+    prh_u32 txbuf_cur;
+    prh_i32 error_code;
+    prh_byte ipv6: 1, passive: 1, conn_wait_open: 1, drained: 1, tx_done: 1, close_req: 1, local_closed: 1, closed: 1;
+    prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
+    prh_u16 l_port;
+    prh_u16 p_port;
+    prh_u32 l_addr;
+    prh_u32 l_addr_[3];
+    prh_u32 p_addr;
+    prh_u32 p_addr_[3];
+} prh_tcpsocket;
+
+void prh_sock_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
+void prh_ipv6_sock_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
+void prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port);
+bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection);
+bool prh_sock_tcp_send(prh_tcpsocket *tcp);
+bool prh_sock_tcp_recv(prh_tcpsocket *tcp);
+
 #ifdef PRH_SOCK_IMPLEMENTATION
 #if defined(prh_plat_windows)
 #define PRH_INVASOCK
@@ -13372,20 +13433,20 @@ prh_inline struct sockaddr_in *prh_impl_sockaddr_in(struct sockaddr_in6 *p) {
 }
 
 prh_u32 prh_sock_ip_address(const char *ip_string) {
-    struct in_addr out = {{0}}; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
+    struct in_addr out = {0}; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
     assert(ip_string != prh_null);
     prh_numbret(1, inet_pton(AF_INET, ip_string, &out));
     return out.s_addr;
 }
 
-void prh_sock_ip6_address(const char *ip_string, char *ip6_16_byte) {
+void prh_sock_ipv6_address(const char *ip_string, prh_byte *ipv6_16_byte) {
     // xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:xxxx
     // xxxx:xxxx:xxxx:xxxx:xxxx:xxxx:d.d.d.d (IPv4-mapped IPv6 address)
     // 0:0:0:0:0:0:0:1 => ::1
     // 0:0:0:0:0:0:0:0 => ::
     // ::FFFF:204.152.189.116
     assert(ip_string != prh_null);
-    prh_numbret(1, inet_pton(AF_INET6, ip_string, ip6_16_byte));
+    prh_numbret(1, inet_pton(AF_INET6, ip_string, ipv6_16_byte));
 }
 
 void prh_sock_ip_string(prh_u32 ip, char *str_16_byte) {
@@ -13394,10 +13455,10 @@ void prh_sock_ip_string(prh_u32 ip, char *str_16_byte) {
     prh_boolret(inet_ntop(AF_INET, &ip, str_16_byte, INET_ADDRSTRLEN));
 }
 
-void prh_sock_ip6_string(const char *ip6_16_byte, char *str_48_byte) {
+void prh_sock_ipv6_string(const char *ipv6_16_byte, char *str_48_byte) {
     assert(str_48_byte != prh_null); // src 指向网络字节序的 struct in6_addr，
     assert(INET6_ADDRSTRLEN <= 48); // size 至少为 INET6_ADDRSTRLEN
-    prh_boolret(inet_ntop(AF_INET6, ip6_16_byte, str_48_byte, INET6_ADDRSTRLEN));
+    prh_boolret(inet_ntop(AF_INET6, ipv6_16_byte, str_48_byte, INET6_ADDRSTRLEN));
 }
 
 void prh_sock_local_addr(int sock, void *addr, socklen_t addrlen) {
@@ -13422,15 +13483,15 @@ void prh_impl_tcp_get_local_addr(prh_tcpsocket *tcp) {
     struct sockaddr_in6 in6;
     struct sockaddr_in *in = (struct sockaddr_in *)&in6;
     prh_sock_local_addr(sock, in, sizeof(struct sockaddr_in6));
-    if (in.sin6_family == AF_INET) {
-        tcp->addr.l_addr = in->sin_addr.s_addr;
+    if (in6.sin6_family == AF_INET) {
+        tcp->l_addr = in->sin_addr.s_addr;
     } else {
-        memcpy(&tcp->addr.l_addr, in6->sin6_addr.s6_addr, 16);
+        memcpy(&tcp->l_addr, in6.sin6_addr.s6_addr, 16);
     }
     tcp->l_port = ntohs(in->sin_port);
 }
 
-int prh_impl_tcp_socket(sa_family_t family) {
+int prh_impl_create_tcp_socket(sa_family_t family) {
 #if defined(prh_plat_linux) || (defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK))
     int sock = socket(family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     assert(sock >= 0);
@@ -13440,12 +13501,13 @@ int prh_impl_tcp_socket(sa_family_t family) {
     prh_set_cloexec(sock);
     prh_set_nonblock(sock);
 #endif
+    return sock;
 }
 
-void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backlog) {
+void prh_impl_tcp_listen(prh_tcplisten *tcp, struct sockaddr_in *addr, int backlog) {
     sa_family_t family = addr->sin_family;
     socklen_t addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
-    int sock = prh_impl_tcp_socket(family);
+    int sock = prh_impl_create_tcp_socket(family);
     tcp->sock = sock;
     // 端口如果是 prh_port_any，内核在bind时选择一个可用的临时端口。服务器可以绑定通
     // 配地址（prh_addr_any），当一个连接到达时，服务器可以调用 getsockname 获取来自
@@ -13470,8 +13532,8 @@ void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backl
     // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
     prh_sock_reuseaddr(sock, 1);
     prh_real_zeroret_or_errno(bind(sock, (struct sockaddr *)addr, addrlen));
-    if (tcp->addr.l_port == prh_port_any) {
-        tcp->addr.l_port = prh_sock_local_port(sock, addrlen);
+    if (tcp->port == prh_port_any) {
+        tcp->port = prh_sock_local_port(sock, addrlen);
     }
     // listen() 系统调用仅由TCP服务程序调用，它做两件事情。当socket函数创建一个套接
     // 字时，默认是主动套接字，即可以调用connect主动连接的套接字，而listen将一个未连
@@ -13481,7 +13543,7 @@ void prh_impl_tcp_listen(prh_tcpsocket *tcp, struct sockaddr_in *addr, int backl
     prh_real_zeroret_or_errno(listen(sock, backlog));
 }
 
-void prh_sock_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
+void prh_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port, int backlog) {
     struct sockaddr_in in = {0};
     prh_u32 addr_any = htonl(INADDR_ANY);
     in.sin_family = AF_INET;
@@ -13493,14 +13555,13 @@ void prh_sock_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int
     } else {
         in.sin_addr.s_addr = prh_sock_ip_address(host);
     }
-    memset(&tcp->addr, 0, sizeof(prh_sockaddr));
-    tcp->addr.l_port = port;
-    tcp->addr.l_addr = in.sin_addr.s_addr;
+    tcp->port = port;
+    tcp->addr = in.sin_addr.s_addr;
     tcp->addr_any = (in.sin_addr.s_addr == addr_any);
     prh_impl_tcp_listen(tcp, &in, backlog);
 }
 
-void prh_ipv6_sock_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port, int backlog) {
+void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port, int backlog) {
     struct sockaddr_in6 in6 = {0};
     in6.sin6_family = AF_INET6;
     in6.sin6_port = htons(port);
@@ -13509,32 +13570,23 @@ void prh_ipv6_sock_tcp_listen(prh_tcpsocket *tcp, const char *host, prh_u16 port
     } else if (host == prh_addr_any) { // 内核将等到TCP套接字已连接时才选择一个本地IP地址
         in6.sin6_addr = in6addr_any;
     } else {
-        prh_sock_ip6_address(host, in6.sin6_addr.s6_addr);
+        prh_sock_ipv6_address(host, in6.sin6_addr.s6_addr);
     }
-    memset(&tcp->addr, 0, sizeof(prh_ip6_sockaddr));
-    tcp->addr.l_port = port;
-    tcp->ip6 = true;
-    memcpy(&tcp->addr.l_addr, in6.sin6_addr.s6_addr, 16);
+    tcp->port = port;
+    tcp->ipv6 = true;
+    memcpy(&tcp->addr, in6.sin6_addr.s6_addr, 16);
     if (memcmp(&in6.sin6_addr, &in6addr_any, sizeof(struct in6_addr)) == 0) {
         tcp->addr_any = true;
     }
-    prh_impl_tcp_listen((prh_tcpsocket *)tcp, (struct sockaddr_in *)&in6, backlog);
+    prh_impl_tcp_listen(tcp, (struct sockaddr_in *)&in6, backlog);
 }
 
-void prh_sock_tcp_reset(int sockfd) {
+void prh_sock_tcp_reset(prh_handle sockfd) {
     // 设置 SO_LINGER 超时为 0，告诉内核“不等缓冲区，立刻 RST”。把 SO_LINGER 设为 {1, 0} 再 close()，即可让内核发送 RST，强制终止 TCP 连接。
     struct linger l = { .l_onoff = 1, .l_linger = 0 };
-    prh_zeroret_or_errno(setsockopt(sockfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l)));
-    prh_impl_close_fd(sockfd);
+    prh_zeroret_or_errno(setsockopt((int)sockfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l)));
+    prh_impl_close_fd((int)sockfd);
 }
-
-#define PRH_ERROR       0xE0
-#define PRH_ETIMEOUT    0xE1
-#define PRH_EREFUSED    0xE2
-#define PRH_EUNREACH    0xE3
-#define PRH_EUNAVAIL    0xE4
-#define PRH_ENOTSUPP    0xE5
-#define PRH_ENAMERES    0xE6
 
 bool prh_impl_is_ipv4_str(const char *host) {
     char c;
@@ -13548,7 +13600,7 @@ bool prh_impl_is_ipv4_str(const char *host) {
 
 void prh_impl_tcp_connect_error(prh_tcpsocket *tcp, int error) {
     int error_code = PRH_ERROR;
-    if (error == ETIMEOUT) error_code = PRH_ETIMEOUT;
+    if (error == ETIMEDOUT) error_code = PRH_ETIMEOUT;
     else if (error == EHOSTUNREACH || error == ENETUNREACH) error_code = PRH_EUNREACH;
     else if (error == ECONNREFUSED || error == ECONNRESET) error_code = PRH_EREFUSED;
     tcp->error_code = error_code;
@@ -13582,7 +13634,7 @@ void prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
     //
     // 如果是TCP套接字，调用connect()会触发TCP的三路握手过程，而且仅在连接建立成功或出错时
     // 才返回。其中出错返回可能有以下几种情况：
-    //  ETIMEOUT - TCP客户端没有收到SYN的响应。例如内核发送一个SYN，若无响应则等待6s后再
+    //  ETIMEDOUT - TCP客户端没有收到SYN的响应。例如内核发送一个SYN，若无响应则等待6s后再
     //      发送一个，若仍无响应则等待24s后再发送一个，若总共等了75s后仍未响应则返回该错误。
     //  ECONNREFUSED - 收到SYN的响应是RST，则表明该服务器在我们指定的端口上没有进程在等待
     //      与之连接，例如服务进程也许没有运行，这是一种硬错误（hard error），客户一接收到
@@ -13635,24 +13687,23 @@ void prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
     //  ETIMEDOUT - 尝试连接时超时。服务器可能太忙，无法接受新连接。注意，对于 IP 套接字，
     //      若服务器启用了 SYN Cookie，则超时时间可能非常长。
     sa_family_t family = addr->sin_family;
-    int sock = prh_impl_tcp_socket(family);
-    struct sockaddr_in *in = (struct sockaddr_in *)addr;
+    int sock = prh_impl_create_tcp_socket(family);
     socklen_t addrlen;
     if (family == AF_INET) {
         addrlen = sizeof(struct sockaddr_in);
-        tcp->addr.p_addr = in->sin_addr.s_addr;
-        tcp->ip6 = false;
+        tcp->p_addr = addr->sin_addr.s_addr;
+        tcp->ipv6 = false;
     } else {
         addrlen = sizeof(struct sockaddr_in6);
         struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)addr;
-        memcpy(&tcp->addr.p_addr, in6->sin6_addr.s6_addr, 16);
-        tcp->ip6 = true;
+        memcpy(&tcp->p_addr, in6->sin6_addr.s6_addr, 16);
+        tcp->ipv6 = true;
     }
-    tcp->p_port = ntohs(in->sin_port);
+    tcp->p_port = ntohs(addr->sin_port);
     tcp->error_code = 0;
     tcp->conn_wait_open = 0;
 label_continue:
-    if (connect(sock, addr, addrlen) == 0) {
+    if (connect(sock, (struct sockaddr *)addr, addrlen) == 0) {
         tcp->sock = sock;
         prh_impl_tcp_get_local_addr(tcp);
         return;
@@ -13735,6 +13786,11 @@ void prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
     hints.ai_family   = AF_UNSPEC;   // 允许 IPv4/IPv6
     hints.ai_socktype = SOCK_STREAM; // TCP
     struct addrinfo *res;
+    // warning: Using 'getaddrinfo' in statically linked applications requires at runtime the shared libraries from the glibc version used for linking.
+    // 这条警告不是编译错误，而是 glibc 的设计限制：它依赖动态加载的 NSS（Name Service Switch）插件来实现
+    // getaddrinfo、gethostbyname 等函数。这些插件无法静态链接，因此当你用 -static 时，glibc 只能把调用地
+    // 址写进可执行文件，运行时仍需去文件系统里 dlopen 对应的共享库（如 libnss_dns.so、libnss_files.so）。
+    // 如果目标系统没有这些库或 glibc 版本不同，解析就会失败。
     int n = getaddrinfo(host, prh_null, &hints, &res);
     // 成功返回0，否则返回以下错误：
     // EAI_ADDRFAMILY - 对应的网络主机（node）没有任何与指定的地址族匹配的网络地址。
@@ -13762,7 +13818,7 @@ void prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
     // 址的返回顺序优先使用靠前的地址。
     for (struct addrinfo *p = res; p; p = p->ai_next) {
         ((struct sockaddr_in *)(p->ai_addr))->sin_port = in.sin_port;
-        prh_impl_tcp_connect(tcp, p->ai_addr);
+        prh_impl_tcp_connect(tcp, (struct sockaddr_in *)p->ai_addr);
         if (tcp->error_code == 0) {
             break;
         }
@@ -13778,9 +13834,9 @@ void prh_ipv6_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 por
     if (host == prh_loopback) {
         in6.sin6_addr = in6addr_loopback;
     } else {
-        prh_sock_ip6_address(host, in6.sin6_addr.s6_addr);
+        prh_sock_ipv6_address(host, in6.sin6_addr.s6_addr);
     }
-    prh_impl_tcp_connect(tcp, (struct sockaddr_in *)&in);
+    prh_impl_tcp_connect(tcp, (struct sockaddr_in *)&in6);
 }
 
 int prh_impl_sock_accept(int sock, struct sockaddr *in, socklen_t *addrlen) {
@@ -13805,7 +13861,7 @@ label_continue:
 // 值表示内核是否还有待处理的连接，返回true表示有。
 bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
     struct sockaddr_in6 in;
-    socklen_t addrlen = listen->ip6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    socklen_t addrlen = listen->ipv6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
     int conn_sock = prh_impl_sock_accept((int)listen->sock, (struct sockaddr *)&in, &addrlen);
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (conn_sock >= 0) {
@@ -13814,17 +13870,17 @@ bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
             conn_sock = PRH_INVASOCK;
         } else {
             memset(new_connection, 0, sizeof(prh_tcpsocket));
-            new_connection->ip6 = listen->ip6;
+            new_connection->ipv6 = listen->ipv6;
             new_connection->passive = true;
             new_connection->p_port = prh_impl_sockaddr_in(&in)->sin_port;
             new_connection->l_port = listen->port;
-            if (listen->ip6) {
-                memcpy(prh_impl_ip6_tcpsocket(new_connection)->p_addr, prh_impl_sockaddr_in6(&in)->sin6_addr.s6_addr, 16);
+            if (listen->ipv6) {
+                memcpy(&new_connection->p_addr, in.sin6_addr.s6_addr, 16);
                 if (listen->addr_any) {
                     prh_sock_local_addr(conn_sock, &in, addrlen); // 获取当前连接的本地地址暂存到 in，原来存的是对方地址
-                    memcpy(prh_impl_ip6_tcpsocket(new_connection)->l_addr, prh_impl_sockaddr_in6(&in)->sin6_addr.s6_addr, 16);
+                    memcpy(&new_connection->l_addr, in.sin6_addr.s6_addr, 16);
                 } else {
-                    memcpy(prh_impl_ip6_tcpsocket(new_connection)->l_addr, prh_impl_ip6_tcplisten(listen)->addr, 16);
+                    memcpy(&new_connection->l_addr, &listen->addr, 16);
                 }
             } else {
                 new_connection->p_addr = prh_impl_sockaddr_in(&in)->sin_addr.s_addr;
@@ -13839,7 +13895,7 @@ bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
     } else {
         conn_sock = PRH_INVASOCK;
     }
-    *prh_impl_sock(&new_connection->sock) = conn_sock;
+    new_connection->sock = conn_sock;
     // 成功返回非负的已连接的套接字文件描述符，失败返回-1和errno并且addrlen没被修改。
     // Linux accept() 和 accept4() 会把已在新 socket 上挂起的网络层错误当作错误码
     // 直接返回。这种行为与多数 BSD 套接字实现不同。为了保证可靠运行，应用程序在
@@ -13879,7 +13935,11 @@ bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
     // 采用此语义。历史上 BSD 将 accept 的第三个参数声明为 int*；POSIX.1g 草案曾拟
     // 改为 size_t*，最终标准及 glibc 2.x 采用 socklen_t*。
     bool has_pending_connection;
+#if EAGAIN == EWOULDBLOCK
+    if (errno == EAGAIN) {
+#else
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
+#endif
         has_pending_connection = false; // 内核已经没有待处理的连接
     } else {
         has_pending_connection = true;
@@ -13911,7 +13971,11 @@ label_continue:
     if (errno == EINTR) {
         goto label_continue;
     }
+#if EAGAIN == EWOULDBLOCK
+    if (errno == EAGAIN) {
+#else
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
+#endif
         can_send_more_data = false;
     } else {
         can_send_more_data = true;
@@ -13921,9 +13985,9 @@ label_continue:
 }
 
 // 返回true表示可以继续接收更多数据，否则必须等待读就绪事件再收
-bool prh_spcl_tcp_recv(prh_tcpsocket *tcp) {
+bool prh_sock_tcp_recv(prh_tcpsocket *tcp) {
     prh_byte_arrfit *rxbuf = &tcp->rxbuf;
-    ssize_t size = txbuf->capacity;
+    ssize_t size = rxbuf->capacity;
     assert(size > 0 && size < PRH_IMPL_TXRX_BYTES);
     bool can_recv_more_data;
     ssize_t n;
@@ -13935,7 +13999,11 @@ label_continue:
     if (errno == EINTR) {
         goto label_continue;
     }
+#if EAGAIN == EWOULDBLOCK
+    if (errno == EAGAIN) {
+#else
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
+#endif
         can_recv_more_data = false;
     } else {
         can_recv_more_data = true;
@@ -13970,47 +14038,6 @@ label_continue:
 #endif // PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
-#define prh_loopback ((char *)0)
-#define prh_addr_any ((char *)1)
-#define prh_port_any ((prh_u32)0)
-
-typedef prh_ptr prh_handle;
-typedef struct {
-    prh_handle sock;
-    prh_cono_subq *upper_subq;
-    prh_epoll_port *epoll_port;
-    prh_byte ip6: 1, addr_any: 1, in_wait: 1, quit: 1;
-    prh_u16 port;
-    prh_u32 addr;
-    prh_u32 addr[3];
-} prh_tcplisten;
-
-typedef prh_arrfit(prh_byte) prh_byte_arrfit;
-typedef struct {
-    prh_handle sock;
-    prh_cono_subq *upper_subq;
-    prh_byte_arrfit txbuf;
-    prh_byte_arrfit rxbuf;
-    prh_epoll_port *epoll_port;
-    prh_u32 txbuf_cur;
-    prh_i32 error_code;
-    prh_byte ip6: 1, passive: 1, conn_wait_open: 1, drained: 1, tx_done: 1, close_req: 1, local_closed: 1, closed: 1;
-    prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
-    prh_u16 l_port;
-    prh_u16 p_port;
-    prh_u32 l_addr;
-    prh_u32 l_addr[3];
-    prh_u32 p_addr;
-    prh_u32 p_addr[3];
-} prh_tcpsocket;
-
-void prh_sock_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
-void prh_ipv6_sock_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
-bool prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port);
-bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection);
-bool prh_sock_tcp_send(prh_tcpsocket *tcp);
-bool prh_spcl_tcp_recv(prh_tcpsocket *tcp);
-
 #define PRH_MAX_SAME_TIME_POSTS_EPOLL_TO_EACH_FILE_DESCRIPTOR 2
 typedef struct prh_epoll_port prh_epoll_port;
 typedef enum {
@@ -14066,6 +14093,7 @@ void prh_tcp_finish(prh_tcpsocket *tcp); // finish之后不能再使用tcp，ope
 int prh_impl_epoll_create(void);
 int prh_impl_epoll_wait(int epfd, void *events, int count);
 void prh_impl_epoll_add(int epfd, int fd, prh_u32 events, void *priv);
+void prh_impl_epoll_mod(int epfd, int fd, prh_u32 events, void *priv);
 void prh_impl_epoll_del(int epfd, int fd);
 #else
 
@@ -14670,7 +14698,7 @@ typedef enum { // 因为每次WAIT都会将所有就绪文件描述符检查一�
 #define PRH_EPEV_INDEX_ADDED   0
 #define PRH_EPEV_INDEX_READY   1
 
-typedef struct { // 保存在内核epoll_data.ptr和上层用户结构体中，在add时分配在del时释放
+typedef struct prh_epoll_port { // 保存在内核epoll_data.ptr和上层用户结构体中，在add时分配在del时释放
     prh_cono_pdata action; // PRH_EPAC_TX_WAIT 0 PRH_EPAC_RX_WAIT 1 PRH_EPAC_DEL 2 PRH_EPAC_MOD 3
     prh_cono_pdata event; // PRH_EPEV_ADDED 0 PRH_EPEV_READY 1
     prh_handle handle;
@@ -14690,12 +14718,12 @@ typedef struct prh_impl_epoll {
 
 static prh_impl_epoll *PRH_IMPL_EPOLL;
 
-typedef void (*prh_impl_epoll_procedurecess)(prh_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_mod(prh_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_wait(prh_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_del(prh_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata);
+typedef void (*prh_impl_epoll_procedurecess)(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_mod(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_wait(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_exit(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
 
 static prh_impl_epoll_procedurecess PRH_IMPL_EPFN[PRH_EPAC_MAX_NUM] = {
     prh_impl_process_epac_add,
@@ -14714,17 +14742,17 @@ typedef struct {
 
 // 上层协程请求向EPOLL添加文件描述符
 
-prh_inline void prh_impl_epoll_recv_subq(void) {
-    prh_cono_get_subq((prh_spawn_data *)PRH_IMPL_EPOLL, 0);
+prh_inline prh_cono_subq *prh_impl_epoll_recv_subq(void) {
+    return prh_cono_get_subq((prh_spawn_data *)PRH_IMPL_EPOLL, 0);
 }
 
 void prh_impl_epac_add(prh_epoll_port **port, prh_cono_subq *subq, prh_handle fd, prh_u32 events) {
     prh_data_epac_add from;
-    from->head.subq = prh_impl_epoll_recv_subq();
-    from->head.u.value = (prh_u32)(int)fd;
-    from->from_subq = subq;
-    from->events = events;
-    prh_cono_post_data(&from->head, 0, PRH_EPAC_ADD);
+    from.head.subq = prh_impl_epoll_recv_subq();
+    from.head.u.value = (prh_u32)(int)fd;
+    from.from_subq = subq;
+    from.events = events;
+    prh_cono_post_data(&from.head, 0, PRH_EPAC_ADD);
     prh_pwait_data data = prh_cono_subq_pwait(subq->subq_i);
     assert(data.opcode == PRH_EPEV_ADDED);
     *port = (prh_epoll_port *)((prh_byte *)data.pdata - prh_offsetof(prh_epoll_port, event));
@@ -14775,7 +14803,7 @@ void prh_impl_report_epev_added(prh_epoll_port *port) {
     prh_cono_post(&port->event, PRH_EPEV_INDEX_ADDED);
 }
 
-void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_pdata *pdata) {
+void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     prh_data_epac_add *from = (prh_data_epac_add *)pdata;
     int fd = (int)from->head.u.value;
     int alloc_size = prh_round_cache_line_size(sizeof(prh_epoll_port));
@@ -14797,7 +14825,7 @@ void prh_impl_process_epac_add(prh_epoll *epoll, prh_cono_pdata *pdata) {
     prh_impl_report_epev_added(port);
 }
 
-void prh_impl_process_epac_mod(prh_epoll *epoll, prh_cono_pdata *pdata) {
+void prh_impl_process_epac_mod(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     prh_epoll_port *port = (prh_epoll_port *)pdata;
     prh_u32 events = pdata->u.value;
     int fd = (int)port->handle;
@@ -14810,7 +14838,7 @@ void prh_epoll_del_and_close(prh_epoll_port *port) {
     prh_cono_post(&port->action, PRH_EPAC_INDEX_DEL);
 }
 
-void prh_impl_process_epac_del(prh_epoll *epoll, prh_cono_pdata *pdata) {
+void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     prh_epoll_port *port = (prh_epoll_port *)pdata;
     int fd = (int)port->handle;
     prh_int wait_i = port->wait_i;
@@ -14847,7 +14875,7 @@ void prh_impl_report_epev_ready(prh_epoll_port *port) {
     prh_cono_post(&port->event, PRH_EPEV_INDEX_READY);
 }
 
-bool prh_impl_epac_poll_events(prh_epoll *epoll) {
+bool prh_impl_epac_poll_events(prh_impl_epoll *epoll) {
     int poll_fds_each_time = epoll->poll_fds_each_time;
     struct epoll_event *start = epoll->events;
     struct epoll_event *event;
@@ -14867,15 +14895,15 @@ bool prh_impl_epac_poll_events(prh_epoll *epoll) {
     return updated;
 }
 
-void prh_impl_epoll_add_waiting(prh_epoll *epoll, prh_epoll_port *port) {
+void prh_impl_epoll_add_waiting(prh_impl_epoll *epoll, prh_epoll_port *port) {
     if (port->wait_i != -1) return; // 已经在等待队列中
     prh_epoll_port_array *array = &epoll->wait;
     prh_int wait_i = array->size;
-    prh_arrdyn_push(array, port);
+    *prh_arrdyn_push_back(array) = port;
     port->wait_i = wait_i;
 }
 
-void prh_impl_epoll_check_and_report(prh_epoll *epoll) {
+void prh_impl_epoll_check_and_report(prh_impl_epoll *epoll) {
     prh_epoll_port_array *array = &epoll->wait;
     prh_epoll_port **p = prh_arrdyn_begin(array);
     prh_epoll_port **end = prh_arrdyn_end(array);
@@ -14894,7 +14922,7 @@ void prh_impl_epoll_check_and_report(prh_epoll *epoll) {
     }
 }
 
-void prh_impl_process_epac_wait(prh_epoll *epoll, prh_cono_pdata *pdata) {
+void prh_impl_process_epac_wait(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     prh_epoll_port *port = (prh_epoll_port *)pdata;
     if (port->update) { // 该文件描述符上，已经有事件更新
         prh_impl_report_epev_ready(port);
@@ -14914,13 +14942,12 @@ void prh_impl_process_epac_wait(prh_epoll *epoll, prh_cono_pdata *pdata) {
 // 释放EPOLL实例并退出协程
 
 void prh_epoll_exit(void) {
-    prh_cono_pdata *epoll_exit = PRH_IMPL_EPOLL->epoll_exit;
+    prh_cono_pdata *epoll_exit = &PRH_IMPL_EPOLL->epoll_exit;
     epoll_exit->subq = prh_impl_epoll_recv_subq();
     prh_cono_post_data(epoll_exit, 0, PRH_EPAC_EXIT);
 }
 
-void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
-    prh_data_epac_exit *free = (prh_data_epac_exit *)pdata;
+void prh_impl_process_epac_exit(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     assert(epoll->fds_count == 0); // 所有添加的文件描述符都已经删除和关闭
     prh_impl_close_fd(epoll->epfd);
     PRH_IMPL_EPOLL = prh_null;
@@ -14930,7 +14957,7 @@ void prh_impl_process_epac_exit(prh_epoll *epoll, prh_cono_pdata *pdata) {
 // EPOLL协程循环和初始化
 
 prh_cono_proc prh_impl_epoll_procedure(void) {
-    prh_epoll *epoll = prh_cono_spwan_data();
+    prh_impl_epoll *epoll = prh_cono_spwan_data();
     prh_pwait_data data = {0};
     while (data.opcode != PRH_EPAC_EXIT) {
         data = prh_cono_pwait();
@@ -14949,21 +14976,21 @@ prh_cono_proc prh_impl_epoll_procedure(void) {
 
 void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
     int maxudsize, initial_wait_array_size, initial_active_fds_at_same_time, initial_subq_total_posts;
-    prh_epoll *epoll;
+    prh_impl_epoll *epoll;
     if (PRH_IMPL_EPOLL) {
         return;
     }
     if (poll_fds_each_time <= 0) {
         poll_fds_each_time = PRH_EPOLL_FDS_EACH_TIME;
     }
-    if (max_num_fds_hint > 0 && max_num_fds_hint /= 4) { // 根据二八定律使用25%
+    if (max_num_fds_hint > 0 && (max_num_fds_hint /= 4)) { // 根据二八定律使用25%
         initial_wait_array_size = max_num_fds_hint;
         initial_active_fds_at_same_time = max_num_fds_hint;
     } else {
         initial_wait_array_size = 2;
         initial_active_fds_at_same_time = 2;
     }
-    maxudsize = sizeof(prh_epoll) + sizeof(struct epoll_event) * poll_fds_each_time;
+    maxudsize = sizeof(prh_impl_epoll) + sizeof(struct epoll_event) * poll_fds_each_time;
     initial_subq_total_posts = initial_active_fds_at_same_time * PRH_MAX_SAME_TIME_POSTS_UPPER_TO_EPOLL_PER_FILE_DESCRIPTOR;
     PRH_IMPL_EPOLL = epoll = prh_cono_spawx(prh_impl_epoll_procedure, PRH_EPOLL_STACK_SIZE, maxudsize, 1, initial_subq_total_posts);
     epoll->epfd = prh_impl_epoll_create();
@@ -15114,8 +15141,8 @@ void prh_impl_report_tcpe_opened(prh_tcpsocket *tcp) {
     prh_impl_tcp_port *port = prh_impl_get_tcp_port(tcp);
     prh_tcpe_opened *opened = &port->event;
     opened->tcp = tcp; // PRH_TCPE_OPEN_IND 和 PRH_TCPE_OPENED 是互斥的
-    pdata->txbuf = prh_arrfit_begin(&tcp->txbuf);
-    pdata->rxbuf = prh_arrfit_begin(&tcp->rxbuf);
+    opened->txbuf = prh_arrfit_begin(&tcp->txbuf);
+    opened->rxbuf = prh_arrfit_begin(&tcp->rxbuf);
     prh_cono_post(PRH_TCPE_INDEX_OPENED);
 }
 
@@ -15142,7 +15169,7 @@ void prh_impl_report_tcpe_closed(prh_tcpsocket *tcp) {
     tcp->closed = true;
 }
 
-void prh_impl_tcp_local_close(prh_tcp_socket *tcp) {
+void prh_impl_tcp_local_close(prh_tcpsocket *tcp) {
     if (tcp->txbuf.size > 0) {
         return; // 等待本地写缓冲发送完毕之后才能关闭
     }
@@ -15167,7 +15194,7 @@ void prh_impl_tcp_send_data(prh_tcpsocket *tcp) { // 只在 TX_DATA 发送第一
 
 void prh_impl_tcp_recv_data(prh_tcpsocket *tcp) {
     if (tcp->epoll_rdhup || tcp->epoll_hup) {
-        prh_spcl_tcp_recv(tcp);
+        prh_sock_tcp_recv(tcp);
         if (tcp->rxbuf.size == 0) { // 本端已经将对方发送的所有数据消耗完毕
             tcp->drained = true;
             if (tcp->epoll_rdhup) {
@@ -15180,7 +15207,7 @@ void prh_impl_tcp_recv_data(prh_tcpsocket *tcp) {
             prh_impl_report_tcpe_rx_data(tcp);
         }
     } else {
-        if (!prh_spcl_tcp_recv(tcp)) {
+        if (!prh_sock_tcp_recv(tcp)) {
             prh_epoll_wait_rx_data(tcp->epoll_port);
         } else if (tcp->rxbuf.size) {
             prh_impl_report_tcpe_rx_data(tcp);
@@ -15294,7 +15321,7 @@ void prh_impl_process_tcp_epoll_events(prh_tcpsocket *tcp) {
     // EPOLLERR 表示内核已检测到不可恢复的套接字错误（通常是 RST、ICMP 不可达等），此
     // 时：套接字已处于错误状态；所有后续 send() 或 recv() 立即返回-1和 ECONNRESET|
     // ENETRESET|...；因此收到 EPOLLERR 后，直接 close(fd) 即可。
-    if (tcp->epoll_err || tcp->epoll_hup && !tcp->epoll_in) {
+    if (tcp->epoll_err || (tcp->epoll_hup && !tcp->epoll_in)) {
         prh_impl_report_tcpe_closed(tcp);
         return;
     }
@@ -15315,7 +15342,7 @@ void prh_impl_process_tcp_epoll_events(prh_tcpsocket *tcp) {
     }
 }
 
-void prh_impl_process_tcp_connect(prh_tcpsocket *tcp) {
+void prh_impl_finish_tcp_connect(prh_tcpsocket *tcp) {
     prh_epoll_receive_events(tcp);
     if (tcp->epoll_out && prh_impl_tcp_connect_result(tcp)) {
         prh_epoll_mod_tcp_connect(tcp);
@@ -15340,7 +15367,7 @@ bool prh_impl_report_tcpe_open_ind(prh_tcpsocket *tcp) {
     prh_pwait_data data = prh_cono_subq_pwait(PRH_IMPL_TCPQ_UPPER);
     prh_impl_tcpa_accept *accept = (prh_impl_tcpa_accept *)data.pdata;
     assert(data.opcode == PRH_TCPA_OPEN_ACCEPT);
-    if (accept->u.value) {
+    if (accept->head.u.value) {
         prh_impl_tcp_init_buffer(tcp, accept->txbuf_size, accept->rxbuf_size);
         return true;
     }
@@ -15361,7 +15388,7 @@ void prh_impl_wait_tcp_finish(prh_tcpsocket *tcp) {
 prh_cono_proc prh_impl_tcp_socket_procedure(void) {
     prh_tcpsocket *tcp = prh_cono_spwan_data();
     if (tcp->passive && !prh_impl_report_tcpe_open_ind(tcp)) {
-        prh_impl_tcp_close(tcp); // 新连接被上层拒绝，关闭该连接
+        prh_sock_tcp_reset(tcp->sock); // 新连接被上层拒绝，关闭该连接
         return;
     }
     if (tcp->sock != PRH_INVASOCK) {
@@ -15370,7 +15397,7 @@ prh_cono_proc prh_impl_tcp_socket_procedure(void) {
             prh_epoll_wait_tx_data(tcp->epoll_port); // 监听套接字可写事件来等待连接完成
             prh_pwait_data data = prh_cono_subq_pwait(PRH_IMPL_TCPQ_EPOLL);
             assert(data.opcode == PRH_EPEV_READY);
-            prh_impl_process_tcp_connect(tcp);
+            prh_impl_finish_tcp_connect(tcp);
         } else {
             prh_epoll_add_tcp_socket(tcp, prh_cono_self_subq(PRH_IMPL_TCPQ_EPOLL));
         }
@@ -15385,7 +15412,7 @@ prh_cono_proc prh_impl_tcp_socket_procedure(void) {
             PRH_IMPL_TCPA_FROM_UPPER[data.opcode](tcp, data.pdata);
         } else {
             assert(data.subq_i == PRH_IMPL_TCPQ_EPOLL);
-            prh_impl_process_tcp_epoll_events(tcp, data.pdata);
+            prh_impl_process_tcp_epoll_events(tcp);
         }
     }
     prh_impl_wait_tcp_finish(tcp);
@@ -15402,7 +15429,7 @@ void prh_impl_start_tcp_socket_procedure(prh_cono_subq *cono_subq, prh_tcpsocket
 
 void prh_tcp_connect(prh_cono_subq *cono_subq, const char *host, prh_u16 port) {
     prh_tcpsocket new_connection = {0};
-    prh_sock_tcp_connect(&tcp, host, port);
+    prh_sock_tcp_connect(&new_connection, host, port);
     prh_impl_start_tcp_socket_procedure(cono_subq, &new_connection);
 }
 
