@@ -27,8 +27,9 @@ OUT_OBJ_FILE = -o $@
 OUT_ASM_FILE = -o $@
 CLOPT_FIRST_PREREQ = $<
 
-INIT_C_ONLY += -std=c11 -pedantic -pedantic-errors
-INIT_CXX_ON += -std=c++17 -pedantic -pedantic-errors -fno-rtti
+PEDANTIC_FLAGS := # -pedantic -pedantic-errors
+INIT_C_ONLY += -std=c11 $(PEDANTIC_FLAGS)
+INIT_CXX_ON += -std=c++17 $(PEDANTIC_FLAGS) -fno-rtti
 
 # INIT_CFLAGS += $(call cc-option,-march=winchip=c6,-march=i586)
 # INIT_AFLAGS += $(call as-option,-isa=foo)

@@ -94,6 +94,7 @@ target_ld_libs := $(filter -l%,$(init-ldflag-y))
 target_ld_flags := $(filter-out $(target_ld_dirs) $(target_ld_libs),$(init-ldflag-y))
 
 $(built_in_file): FORCE
+	$(call echo-info,  $(TARGET_OUTPUT)/$(target_file))
 	@$(call outfile_new,$(built_makefile),obj-y := $(target-obj-y))
 	$(Q)$(MAKE) -f $(srctree)/scripts/Makefile.build obj=. mkf=$(built_makefile) $(filter $(DELIVER_GOALS),$(MAKECMDGOALS)) all
 
