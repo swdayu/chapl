@@ -2,7 +2,7 @@
 #define PRH_CONO_IMPLEMENTATION
 #include "prh_include.h"
 
-#define MAIN_CORO_STACK_SIZE 1000*1024
+#define MAIN_CORO_STACK_SIZE 100*1024
 #define SUBR_CORO_STACK_SIZE 1024
 
 typedef struct {
@@ -20,9 +20,9 @@ prh_cono_proc subroutine(void) {
 }
 
 prh_cono_proc main_coro_proc(void) {
-    int a[100000];
+    int a[10000];
     int sub_coro_cnt = 10;
-    int calc_per_sub = 10000;
+    int calc_per_sub = 1000;
     int i = 0, result = 0;
     subroutine_t *p;
     for (; i < prh_array_size(a); i += 1) {
