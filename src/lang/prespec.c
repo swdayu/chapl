@@ -4,10 +4,10 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else case then for range
+//  if else case for range
 //  continue break defer return yield
-//  const void adr der let not and or
-//  static using
+//  const void adr der let not or
+//  static extern struct
 //  sizeof typeof alignof offsetof copyof moveof
 //
 // 预定义函数：
@@ -24,12 +24,12 @@
 //  for expr { }
 //
 // 函数参数或者结构体成员声明
-//  Point point p2          _point point p2
-//  *Point point p2         *_point point p2
-//  **Point point p2        **_point point p2
-//  [2]Point point p2       [2]_point point p2
-//  *[2]Point point p2      *[2]_point point p2
-//  [2]*Point point p2      [2]*_point point p2
+//  Point point p2          struct point point p2
+//  *Point point p2         struct *point point p2
+//  **Point point p2        struct **point point p2
+//  [2]Point point p2       struct [2]point point p2
+//  *[2]Point point p2      struct *[2]point point p2
+//  [2]*Point point p2      struct [2]*point point p2
 //
 // 定义泛型类型参数（generic type parameter）compile time const 类型参数
 //  $T $U            定义两个类型参数 T 和 U，相当于：
@@ -37,41 +37,45 @@
 //  ${int} Int   整数类型
 //  ${flo} Float   浮点类型
 //  ${num} Type  数值类型
-//  $_t $U
-//  $T $_u
-//  ${any} _t U
-//  ${any} T _u
-//  $_t a $U b $int c
-//  $T a $_u b $int c
-//  $T a $U b $_int c
+//  $struct t $U        // 为了清晰，$T ${any} T 定义类型参数只能使用首字母大写形式
+//  $T $struct u        // 禁止
+//  ${any} struct t U   // 禁止
+//  ${any} T struct u   // 禁止
+//  struct $t a $U b    // 但使用已定义类型定义常量参数是允许的
+//  $T a struct $u b
 //
 // 定义泛型常量参数（generic value parameter）compile time const 常量参数
 //  $T a $U b $int c  定义三个常量参数 a 和 b 和 c，a 的类型是 T，b 的类型是 U，c 的类型是 int
 //  $string a $int b  定义两个产量参数 a 和 b，a 的类型是字符串，b 的类型是整数
 //
 // 首字母大写，包括单个大写字母，并排除包含两个和两个以上字母但都是大写的标识符之后的所
-// 有标识符都识别为类型名。以单个下划线开始的标识符也是类型名。包含在 @type{} 之内的标
-// 识符，也是类型名。
+// 有标识符都识别为类型名。包含在 @type{} 之内的标识符，也是类型名。
 //
 // 其他标识符符都是非类型标识符，包括函数名、变量名、标签、包名等等。另外包含在 @name{}
 // 之内的标识符也都是非类型标识符，例如把类型名和关键字当作变量标识符使用：@name{int}
 // @name{if} @name{Type}。
 //
 // 以 # 开头的标识符是编译器指令。以 @ 开头的标识符是属性名称，包括函数、类型、变量的
-// 属性名称等。以双下划线开始的标识符，是保留关键字。
+// 属性名称等。以单下划线或双下划线开始的标识符，是保留关键字。
 //
 // 编译属性：
 //  @type{}
 //  @name{}
-//  @uninit
 //  @zeroinit
-//  @embed
 //  @useas
 //  @align()
 //  @packed
 //  @cdecl
 //  @stdcall
 //  @fastcall
+//
+// 下划线保留字：
+//  _uninit_
+//  _embed_
+//  __file__
+//  __func__
+//  __line__
+//  __retp__
 //
 // 编译时常量：
 //  #file #func #line #retp
@@ -138,27 +142,27 @@
 //  *[2]int *[2]u16 *[2]f64
 //  *int *u16 *f64 *Point
 //  *[2]int *[2]u16 *[2]f64
-//  (int a b) (int a b return int) (void) (return int) 参数必须带名称，返回值是一个类型列表不能带名称，函数如果没有参数必须带void
+//  (int a b) (int a b int) (void) (void int) 参数必须带名称，返回值是一个类型列表不能带名称，函数如果没有参数必须带void
 //  (Point p float factor) (Point p) (Point(N, T, U) p)
 //  Function
 //      (void) 没有参数，没有返回值，空括号 () 表示没有参数的函数调用
-//      (return int) 没有参数，单个返回值，参数不能省略，如果没有参数必须声明为void，而返回值可以没有
-//      (return int string) 没有参数，多个返回值
-//      (int a return int)
+//      (void int) 没有参数，单个返回值，参数不能省略，如果没有参数必须声明为void，而返回值可以没有
+//      (void int string) 没有参数，多个返回值
+//      (int a int)
 //      (int a b)
 //      (Point point float factor)
 //      (Point p float factor) 结构体默认传递地址，因此不需要显式指定指针类型，如果不希望对象被函数修改，需要在调用前先拷贝
-//      (int a b yield int i Ptr p return int) 带有协程中间结果的函数
-//      (int a b [capture_c d] return [Ptr p] int) 带有捕获参数的闭包函数，闭包函数是在定义时一次性生成的，闭包参数只要名字相同且能完成函数内部的操作就没有问题
-//      定义一个指针类型：Calc (int a b return int)
-//      声明一函数字面量：extern calc(int a b return int)
+//      (int a b yield int i Ptr p int) 带有协程中间结果的函数
+//      (int a b int) [capture d] 带有捕获参数的闭包函数，闭包函数是在定义时一次性生成的，闭包参数只要名字相同且能完成函数内部的操作就没有问题
+//      定义一个指针类型：Calc (int a b int)
+//      声明一函数字面量：extern calc(int a b int)
 //      声明一个函数指针：extern calc Calc
-//      定义一函数字面量：calc (int a b return int) { return a + b }
-//      定义一个匿名函数：(int a b return int) { return a + b }
+//      定义一函数字面量：calc (int a b int) { return a + b }
+//      定义一个匿名函数：(int a b int) { return a + b }
 //      定义一个函数指针；calc_ptr Calc calc
-//      定义一个函数指针：calc_ptr Calc (int a b return int) { return a + b }
+//      定义一个函数指针：calc_ptr Calc (int a b int) { return a + b }
 //      给一函数指针赋值：calc_ptr = calc
-//      给一函数指针赋值：calc_ptr = (int a b return int) { return a + b }
+//      给一函数指针赋值：calc_ptr = (int a b int) { return a + b }
 //  Tuple 元组补充结构体表达不了的一些东西（一个类型列表）
 //      (int int)            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int 0 int 1}
 //      (this int int int)   结构体不能内嵌一个指针类型，等价于结构体 {this 0 int 1 int 2 int 3}
@@ -166,7 +170,7 @@
 //      $i08 {RED {const * 2} YELLOW BLUE} // const 是枚举元素的索引值
 //      $int {RED YELLOW BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
-//      $T $(*T p int a b return int) calc $(*T p int c) get {}
+//      $T $(*T p int a b int) calc $(*T p int c) get {}
 //  Struct 表示定义一个类型
 //      Type {}
 //      { int a b } {1, 2}
@@ -189,16 +193,16 @@
 //      **f64               [2][3]f64           **[2][3]f64         [2][3]**f64
 // 命名类型单指用户定义的类型，虽然基本类型也都是有名字的：
 //  MyInt int
-//  Func (int a b return int)
+//  Func (int a b int)
 //  Func (void) 参数为空，返回为空
 //  Func (return u32 bool) 参数为空，返回u32和bool
 //  Method (Point p float factor)
 //  Data { int a b }
-//  Oper $T $(*T p int a b return int) calc {}
+//  Oper $T $(*T p int a b int) calc {}
 //  Color $int {RED YELLOW BLUE}
 // 函数包含参数和捕获，函数调用时需要给参数提供实参而捕获不需要：
-//  (int a b [m] return int) { ... }
-//  (Point p float factor [m] return float) { ... }
+//  (int a b int) [m] { ... }
+//  (Point p float factor float) [m] { ... }
 // 定义模板类型，模板类型都是命名的，如果模板是基本类型，则需要使用常量进行实例化：
 //  Ptr $T { *T p }
 //  Pfp $T { **T pp)
@@ -207,8 +211,8 @@
 //  Map $K $V { []{K key V value} slice }
 //  Point ${num} T { T x y } // 只能给结构体定义模板，接口和函数都不能定义模板，但是模板类型可以作为函数的接收类型
 //  Triple $T $unt size { [size]T a U b }
-//  length (Point($T) p return T) { return p.x * p.x + p.y * p.y }
-//  size (Triple($int N, $T, $U) p return int) { return N + sizeof T + sizeof U }
+//  length (Point($T) p T) { return p.x * p.x + p.y * p.y }
+//  size (Triple($int N, $T, $U) p int) { return N + sizeof T + sizeof U }
 // 模板类型实例化：                                                      代码中仅允许使用这种简化的形式
 //  ptr(int) ptr(ptr(int))                                              int* int**              type::int* int.type::ptr
 //  array(int, 3)                                                       int[3]                  int.type::array(3)
@@ -294,68 +298,82 @@
 
 Point { float x y }
 Data { int a b (int a b int) f g }
-Get(*$T a int) // 函数参数只能声明类型模板参数
-Read(*$T a Ptr p int n int)
+Get($*T a int) // 函数参数只能声明类型模板参数
+Read($*T a Ptr p int n int)
 Reader $T
     $Get(T) get
     $Read(T) read
 {}
 
-@type{get} (*$T a return int)
-@type{get} (*${any} T a return int)
-@type{read} (*$T a Ptr p int n return int)
+@type{get} ($*T a int)
+@type{get} (${any} *T a int)
+@type{read} ($*T a Ptr p int n int)
 @type{reader} $T $(@type{get}(T) get @type{read}(T) read {}
 
 Point { float x y }
-Data { int a b (int a b return int) f g }
-Reader $T $(*T p int a b return int) calc $(*T p []byte a) get {}
-Get (*$T p return int)
-Read (*$T p *byte buf int n return int)
+Data { int a b (int a b int) f g }
+Reader $T $(*T p int a b int) calc $(*T p []byte a) get {}
+Get ($*T p int)
+Read ($*T p *byte buf int n int)
 Reader $T $Get(T) get $Read(T) read {}
 Handle (*HciRxDesc rx_desc u32 ca HciDataType type U line)
 hci_rx_buffer_handled_and_free(HciRxDesc rxdesc u32 ca HciDataType datatype U line)
-using L2capConn         *L2capConn
-using L2capCallback     *L2capCallback
-using TcpSocket         *TcpSocket
-using BtStatus          *BtStatus
-using HciGlobal         *HciGlobal
-using HciConnType       *HciConnType
-using HciConnItem       *HciConnItem
-using QueFit
-using QueFix
-using ArrFix
-using ArrFit
-using ArrDyn
-using ArrLax
+extern L2capConn         *L2capConn
+extern L2capCallback     *L2capCallback
+extern TcpSocket         *TcpSocket
+extern BtStatus          *BtStatus
+extern HciGlobal         *HciGlobal
+extern HciConnType       *HciConnType
+extern HciConnItem       *HciConnItem
+extern QueFit
+extern QueFix
+extern ArrFix
+extern ArrFit
+extern ArrDyn
+extern ArrLax
 
-_点 { float x y }
-_数 { int a b }
-_point { float x y }
-_data { int a b (int a b return int) f g }
-_reader $_t $(*_t p int a b return int) calc $(*_t p []byte a) get {}
-_get (*$_t p return int)
-_read (*$_t p *byte buf int n return int)
-_reader $_t $_get(_t) get $_read(_t) read {}
-_handle (*_hcirxdesc rxdesc u32 ca _hcidatatype type _u line)
-using _l2capconn         *_l2capconn
-using _l2capcallback     *_l2capcallback
-using _tcpsocket         *_tcpsocket
-using _btstatus          *_btstatus
-using _hciglobal         *_hciglobal
-using _hciconntype       *_hciconntype
-using _hciconnitem       *_hciconnitem
-using _quefit
-using _quefix
-using _arrfix
-using _arrfit
-using _arrdyn
-using _arrlax
+struct 点 { float x y }
+struct 数 { int a b }
+struct point { float x y }
+struct data { int a b (int a b int) f g }
+struct reader $T $(*T p int a b int) calc $(*T p []byte a) get { }
+struct get (struct $*t p int)
+struct read (struct $*t p *byte buf int n int)
+struct reader $T struct $get(T) get struct $read(T) read { }
+struct array $T $int size { [size]T a }
+struct color $i08 { RED 1 BLUE 2 YELLOW 3 }
+struct bitvalue $int { FLAT_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 }
+struct tcpaction $int { TCPA_OPEN_ACCEPT TCPA_TX_DATA TCPA_RX_DONE }
+struct 协程 { u32 rspoffset loweraddr }
+struct coroguard { u32 lower_guard_word struct *coro coro (struct *coroguard g int a b int) f g }
+struct test $T $U { T t U u }
+struct test ${any} T U { T t U u }
+struct test struct $t a $U b $int size { }
+struct test $T a struct $u b $int size { }
+struct handle(struct *hcirxdesc rxdesc u32 ca struct hcidatatype type struct u line)
+struct main(int argc **byte argv int)
+struct scale(struct point point int a b)
+struct calc(int a b int)
+
+extern struct l2capconn         struct *l2capconn        struct [2]l2capconn
+extern struct l2capcallback     struct *l2capcallback    struct [2]l2capcallback
+extern struct tcpsocket         struct *tcpsocket        struct [2]tcpsocket
+extern struct btstatus          struct *btstatus         struct [2]btstatus
+extern struct hciglobal         struct *hciglobal        struct [2]hciglobal
+extern struct hciconntype       struct *hciconntype      struct [2]hciconntype
+extern struct hciconnitem       struct *hciconnitem      struct [2]hciconnitem
+extern struct quefit
+extern struct quefix
+extern struct arrfix
+extern struct arrfit
+extern struct arrdyn
+extern struct arrlax
 
 T1 int // 禁止，使用 using T1 = int
 T3 T2 // 禁止，使用 using T3 = T2
-T4 { (int a b return int) f int a b }
-T5 $T $(*T p int a b return int) calc {}
-T6 (int a b return int)
+T4 { (int a b int) f int a b }
+T5 $T $(*T p int a b int) calc {}
+T6 (int a b int)
 T7 (Point p float factor)
 
 T1 [3]int // 禁止，使用 using T1 = [3]int
@@ -383,11 +401,11 @@ Triple $T $U $int size {
     U b
 }
 
-Main (i32 argc **byte argv return i32)
+Main (i32 argc **byte argv i32)
 Scale (Point p int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
-Calc (int a b return int errno) // errno is a type with i32
+Calc (int a b int errno) // errno is a type with i32
 result let calc(1, 2)
 if result.errno then panic("%", errno)
 result let calc(1, 2) or abort() // let or 语句
@@ -421,7 +439,7 @@ using StdArray = std::Array
     free(*Arrlax ~)
 }
 
-pub Coro { // pub 赋予字段只读权限
+Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字段都是只读的，写操作必须通过公开函数
     u32 rspoffset // 1st field dont move
     u32 loweraddr
     u32 maxudsize 31 ptr_param 1
@@ -437,33 +455,37 @@ pub Coro { // pub 赋予字段只读权限
     Ptr address
 }
 
-pub CoroGuard {
+CoroGuard {
     u32 lower_guard_word
     u32 upper_guard_word
-    Coro @embed
+    Coro _embed_
     *Coro coro
-    this @embed
+    this _embed_
     this coro_guard
-    (int a b return int) calc
+    (int a b int) calc
     (*Coro p) func
 }
 
-pub _协程 {
+struct 协程 {
     u32 rspoffset
     u32 loweraddr
 }
 
-pub _coroguard {
+:::std:::
+
+struct coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    _coro @embed
-    *_coro coro
-    this @embed
+    struct coro _embed_
+    struct *coro coro
+    this _embed_
     this coro_guard
-    (int a b return int) calc
-    (*_coro p) func
-    (_coroguard g int a b return int) f g
+    (int a b int) calc
+    (struct *coro p) func
+    (struct *coro_guard g int a b int) f g
 }
+
+verify(struct *coro_guard guard)
 
 Color $i08 {RED {const + 1} BLUE YELLOW}
 Color $int {red blue { blue_defined_value } yellow}
@@ -473,14 +495,14 @@ Color $u08 { red blue { blue_defined_value } yellow }
 CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     u32 lower_guard_word
     u32 upper_guard_word
-    Coro #embed // 不能内嵌两个相同类型
+    Coro _embed_ // 不能内嵌两个相同类型
     *Coro coro_ptr
-    this #embed // 错误，指针不能内嵌
+    this _embed_ // 错误，指针不能内嵌
     this coroguard
-    (int a b return int) calc
+    (int a b int) calc
     (int a) print
-    (this p int a b return int) a
-    (CoroGuard g int a b return int) f g
+    (this p int a b int) a
+    (CoroGuard g int a b int) f g
     (Coro p) h
     { int a b }
     { int a b } tuple
@@ -513,9 +535,9 @@ BitValue $int {
     FLAG_BIT4
 }
 
-Main (i32 argc **byte argv return i32)
-Scale (Point point int a b)
-Calc (int a b return int)
+Main(i32 argc **byte argv i32)
+Scale(Point point int a b)
+Calc(int a b int)
 Array $T $int size { [size]T a }
 Color $i08 {RED 1 BLUE 2 YELLOW 3}
 BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3}
@@ -537,7 +559,7 @@ TcpAccept {
 
 Writer $T
     $(*T p int c) put
-    $(*T p Ptr ptr int n return int) write
+    $(*T p Ptr ptr int n int) write
 {}
 
 Color $i08 {} // 因为i08是关键字，不能使用关键字定义新的类型参数，因此这里必须是一个常量参数
@@ -570,60 +592,110 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-eat (*Lexer lexer return Token) {
+eat(*Lexer lexer Token) {
     return lexer.pop()
 }
 
-peek (*Lexer lexer return Token) {
+peek(*Lexer lexer Token) {
     return lexer.top()
 }
 
-eval (Oper op Expr lhs rhs return Expr) {
-    res Expr @uninit
-    if op case '=' { res = .value(rhs.value.n) get_symbol(lhs.ident.id).value = rhs.value.n }
-    case '+' then res = .value(lhs.value.n + rhs.value.n)
-    case '-' then res = .value(lhs.value.n - rhs.value.n)
-    case '*' then res = .value(lhs.value.n * rhs.value.n)
-    case '/' then res = .value(lhs.value.n / rhs.value.n)
-    case '^' then res = .value(pow(lhs.value.n, rhs.value.n))
-    else then panic("bad operator %c", op)
+eval(Oper op Expr lhs rhs Expr) {
+    res Expr _uninit_
+    if op case '=' {
+        res = .value(rhs.value.n)
+        get_symbol(lhs.ident.id).value = rhs.value.n }
+    case '+'
+        res = .value(lhs.value.n + rhs.value.n)
+    case '-'
+        res = .value(lhs.value.n - rhs.value.n)
+    case '*'
+        res = .value(lhs.value.n * rhs.value.n)
+    case '/'
+        res = .value(lhs.value.n / rhs.value.n)
+    case '^'
+        res = .value(pow(lhs.value.n, rhs.value.n))
+    else
+        panic("bad operator %c", op)
     return res
 }
 
-parse_expression (*Lexer lexer int min_prior return Expr) {
-    lhs Expr @uninit
+parse_expression(*Lexer lexer int min_prior Expr) {
+    lhs Expr _uninit_
     if lexer.eat() case .atom(it) {
-        if it == '0'..'9' {
+        if it == '0'..'9'
             lhs = .value(it - '0')
-        } else if it == 'a'..'z' || it == 'A'..'Z' {
+        else if it == 'a'..'z' || it == 'A'..'Z'
             lhs = .value(get_symbol(it).value)
-        } else panic("bad token %d", it)
+        else
+            panic("bad token %d", it)
     } case .oper('(') {
         lhs = eval(parse_expression(lexer, 0)
         assert_eq(lexer.skip(), Token.oper(')'))
-    } else panic("bad token %d", it)
-
+    } else {
+        panic("bad token %d", it)
+    }
     for {
-        op Expr @uninit
-        if lexer.peek() case .eof .oper(')') {
+        op Expr _uninit_
+        if lexer.peek() case .eof .oper(')')
             break
-        } case .oper(it) {
+        case .oper(it)
             op = .expr(it)
-        } else {
+        else
             panic("bad token %d", it)
-        }
         lexer.skip()
-
         prior let Oper(op.expr.op)
-        if prior.lpri < min_prior {
+        if prior.lpri < min_prior
             break
-        }
-
         rhs parse_expression(lexer, prior.rpri)
         lhs = eval(op.expr.op, lhs, rhs)
     }
-
     return lhs
+}
+
+eat(struct *lexer lexer struct token) {
+    return lexer.pop()
+}
+
+peek(struct *lexer lexer struct token) {
+    return lexer.top()
+}
+
+parse_expression(struct *lexer lexer int min_prior struct expr) {
+    lhs struct expr _uninit_
+}
+
+tcp_poll(struct *file file struct *socket sock struct *poll_table wait struct poll) @public {
+    mask struct poll _uninit_
+    sk struct *sock sock.sk
+    tp struct *tcp_sock tcp_sk(sk)
+    shutdown byte _uninit_
+    state int _uninit_
+
+    sock_poll_wait(file, sock, wait)
+
+    state = inet_sk_state_load(sk)
+    if state == TCP_LISTEN
+        return inet_csk_listen_poll(sk)
+
+    mask = 0
+
+    shutdown = READ_ONCE(sk.sk_shutdown)
+    if shutdown == SHUTDOWN_MASK || state == TCP_CLOSE
+        mask != EPOLLHUP
+    if shutdown & RCV_SHUTDOWN
+        mask |= EPOLLIN | EPOLLRDNORM | EPOLLRDHUP
+
+    if state != TCP_SYN_SENT && (state != TCP_SYN_RECV || rcu_access_pointer(tp.fastopen_rsk)) {
+        target int sock_rcvlowat(sk, 0, INT_MAX)
+        urg_data u16 READ_ONCE(tp.urg_data)
+    }
+
+    smp_rmb()
+    if READ_ONCE(sk.sk_err) || !skb_queue_empty_lockless(&sk.sk_error_queue)
+        mask |= EPOLLERR
+
+    return mask
 }
 
 // a * b + c / 3
@@ -653,14 +725,14 @@ token Token scan()
 if token case .eof {
 }
 
-perform_tcpa_open_accept (*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened (*TcpSocket tcp) {
+report_tcpe_opened(*TcpSocket tcp) {
     pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     txbuf *ByteArrfit addrof tcp.txbuf
     pdata.tcp = tcp
@@ -669,36 +741,39 @@ report_tcpe_opened (*TcpSocket tcp) {
     cono_freely_post(tcp.upp_coro, addrof pdata->head)
 }
 
-epoll_proc (*Cono cono) {
+epoll_proc(*Cono cono) {
     epoll *Epoll cono_data(cono)
-    pdata *ConoPdata @uninit
-    action byte @uninit
+    pdata *ConoPdata _uninit_
+    action byte _uninit_
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
-        if action == COAC_EXIT break
-        if action case EPAC_DEL_CLOSE then
+        if action == COAC_EXIT // 省略大括号，读取一条语句
+            break
+        if action case EPAC_DEL_CLOSE
             epac_del_close(epoll, (int)pdata.u.value)
-        case EPAC_POLL_ONCE then
+        case EPAC_POLL_ONCE
             epac_wait(epoll)
-        case EPAC_POLL_ALL then
+        case EPAC_POLL_ALL
             for epac_wait(epoll) void
-        else then
+        else
             debug(prerr(action))
     }
 }
 
-pub main (int argc **byte argv return int) {
-
-}
-
-pub main (void) {
+main(int argc **byte argv int) @public {
     print("hello world\n")
 }
 
-Main (i32 argc **byte argv return i32)
-scale (Point point int a b)
-calc (int a b return int)
+main(void) [m] @public @inline {
+    print("hello world\n")
+}
+
+struct main(int argc **byte argv int)
+
+Main(i32 argc **byte argv i32)
+scale(Point point int a b)
+calc(int a b int)
 Array $T $int size { [size]T a }
 Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
 BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
@@ -718,14 +793,14 @@ TcpAccept {
     u32 txbuf_size
 }
 
-perform_tcpa_open_accept (*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened (*TcpSocket tcp) {
+report_tcpe_opened(*TcpSocket tcp) {
     pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     txbuf *ByteArrfit adr tcp.txbuf
     pdata.tcp = tcp
@@ -734,23 +809,23 @@ report_tcpe_opened (*TcpSocket tcp) {
     cono_post(adr pdata->head)
 }
 
-epoll_proc (*Cono cono) {
+epoll_proc(*Cono cono) {
     epoll *Epoll cono_data(cono)
-    pdata *ConoPdata @uninit
-    action byte @uninit
+    pdata *ConoPdata _uninit_
+    action byte _uninit_
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
-        if action == COAC_EXIT break
-        if action case EPAC_DEL_CLOSE {
+        if action == COAC_EXIT
+            break
+        if action case EPAC_DEL_CLOSE
             epac_del_close(epoll, (int)pdata.u.value)
-        } case EPAC_POLL_ONCE {
+        case EPAC_POLL_ONCE
             epac_wait(epoll)
-        } case EPAC_POLL_ALL {
+        case EPAC_POLL_ALL
             for epac_wait(epoll) void
-        } else {
-            debug(prerr(action));
-        }
+        else
+            debug(prerr(action))
     }
 }
 
@@ -770,12 +845,12 @@ File {
     #impl Writer(File, file_put, file_write)
     #impl Reader(File, file_get, file_read)
 }
-generic_write (*Writer writer) { // 实际上参数会传递 file 以及 File.Writer 静态数据的地址
+generic_write(*Writer writer) { // 实际上参数会传递 file 以及 File.Writer 静态数据的地址
     func writer.write
     func(writer)
 } // 如果是编译时实现，对每个实现类，都会生成一个特定的 genric_write 函数，其中的 func 会直接替换为实际函数，这种泛型实现是一种非常灵活的填鸭式的代码实现
 
-Calc (int a b return int)
+Calc(int a b int)
 
 Snode $T {
     this next
@@ -791,13 +866,13 @@ for i I 0 .. 9 {
     i int der *I addr
     pos + der adr *I (*byte p + size + f(g))
 }
-memcpy (Ptr dst src int count) [[intrinsic]]
-memcmp (Ptr dst src int count return int) [[intrinsic]]
-memset (Ptr dst byte value int count) [[intrinsic]]
-lock_cmpxchg (*T p T old new return T) [[intrinsic]]
-coroguard (*Coro coro return CoroGuard) [[cdcel inline]]
+memcpy(Ptr dst src int count) [[intrinsic]]
+memcmp(Ptr dst src int count int) [[intrinsic]]
+memset(Ptr dst byte value int count) [[intrinsic]]
+lock_cmpxchg(*T p T old new T) [[intrinsic]]
+coroguard(*Coro coro CoroGuard) [[cdcel inline]]
 
-Calc (int a b return int)
+Calc (int a b int)
 Snode $T { this next T data }
 for [&] i I 0 .. 9 {
     i int der *I addr
@@ -805,60 +880,60 @@ for [&] i I 0 .. 9 {
     pos + der adr I (*byte p + size + f(g))
 }
 memcpy (Ptr dst src int count)
-memcmp (Ptr dst src int count return int)
-lock (*T p T old new return T)
-coro_guard (*Coro coro return CoroGuard)
+memcmp (Ptr dst src int count int)
+lock (*T p T old new T)
+coro_guard (*Coro coro CoroGuard)
 
 // 类型并不需要提前声明，因为可以通过词法直接分辨，函数类型如果可以通过传递的参数匹配也无需提前声明
-using T1
-using T2
-using T3
-using T4
-using T5
-using T6
-using T7
-using Calc
-using MyInt
-using Coro
+extern T1
+extern T2
+extern T3
+extern T4
+extern T5
+extern T6
+extern T7
+extern Calc
+extern MyInt
+extern Coro
 
 // 定义变量，包括函数变量，一个非类型标识符后跟一个类型表示定义该类型的一个变量
 CoroProc (*Coro coro)
-print $string fmt ($T ... return int)
-print (string fmt $T ... return int)
+print $string fmt ($T ... int)
+print (string fmt $T ... int)
 print"width % height %\n"(width, height)
 print("width % height %\n", width, height)
 
-calc $int a b (int c d return int)
+calc $int a b (int c d int)
 calc"2,3"(c, d)
 
-main (int argc **byte argv return int) {
+main(int argc **byte argv int) {
     return 0
 }
 
-calc (int a b return int) {
+calc(int a b int) {
     return a + b
 }
 
-scale (Point p float factor) {
+scale(Point p float factor) {
     p.x *= factor
     p.y *= factor
 }
 
-scale (Point p float factor) [[cdecl]] {
+scale(Point p float factor) callconv(cdecl) {
     p.x *= factor
     p.y *= factor
 }
 
-scale (Point p float factor) [[fastcall]] {
+scale(Point p float factor) callconv(fastcall) {
     p.x *= factor
     p.y *= factor
 }
 
-next (Node($T) p return *T) {
+next(Node($T) p *T) {
     return p.next
 }
 
-size (Triple($int N, $T, $U) p return int) {
+size(Triple($int N, $T, $U) p int) {
     return p.a + N + sizeof T
 }
 
@@ -872,11 +947,11 @@ data Data[2] {data1, data2}
 found .. index array_find(<<array, item)
 found .. error array_find(<<array, item)
 
-cal2 (int a b return int) { return a + b }
-cal2 (int a b return int) { return a + b } (1, 2)
-cal2 *(int a b return int) (int a b int) {return a + b } // 函数不需要声明成指针，因为它本身就是指针
-cal2 *(int a b return int) Calc {return a + b }
-cal2 [2](int a b return int) {Calc {return a + b}, Calc { return a * b }}
+cal2 (int a b int) { return a + b }
+cal2 (int a b int) { return a + b } (1, 2)
+cal2 *(int a b int) (int a b int) {return a + b } // 函数不需要声明成指针，因为它本身就是指针
+cal2 *(int a b int) Calc {return a + b }
+cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc { return a + b }
 cal2 *(int a b int) adr {return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
@@ -889,7 +964,7 @@ cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 ppb *Ppb malloc(size)
 
 // 变量定义必须指定类型部分
-a int @uninit
+a int _uninit_
 a let 42
 a let +99
 a let a==0 then b or c
@@ -899,7 +974,7 @@ c let -17
 d let 'a'
 e let 's' 'r' \t 'c' '/' \n
 
-integers let [1, 2, 3]
+integers let [1, 2, 3] // let 只能用于不能简单表达的类型上
 colors let ["红", "黄", "绿"]
 nested_array_of_ints let {[1,2], [3,4,5]}
 nested_mixed_array let {[1,2], ["a", "b", "c"]}
@@ -940,9 +1015,9 @@ cal3 let calc
 // 一个非类型标识符后跟一个非类型标识符，表示用后面的非类型标识符的值定义一个变量
 // 一个非类型标识符后跟一个字面常量，表示用字面常量定义一个变量
 
-cal3 *(int a b return int) null
-cal3 *(int a b return int) adr { a + b }
-cal3 *(int a b return int) calc
+cal3 *(int a b int) null
+cal3 *(int a b int) adr { a + b }
+cal3 *(int a b int) calc
 
 numb errno null
 numb float 3.14
@@ -1003,20 +1078,20 @@ for #first_time_true(capacity < new_capacity) { // ^^ 第一次条件检查一�
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
 // 类型不需要提前声明，因为其名称可以由词法分辨
-using calc (int a b return int)
-using scale (Point p float factor)
-using data { int a b }
-using calc Calc
-using data Data
-using data int
-using numb errno
-using numb float
-using numb *int
+extern calc (int a b int)
+extern scale (Point p float factor)
+extern data { int a b }
+extern calc Calc
+extern data Data
+extern data int
+extern numb errno
+extern numb float
+extern numb *int
 
 #if DYN_LINK_PROC {
     calc Calc null
 } else {
-    using calc Calc
+    extern calc Calc
 }
 
 // https://squidfunk.github.io/mkdocs-material/reference/admonitions/
@@ -1192,6 +1267,9 @@ math:*
      1 从右到左    a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a&=b a^=b a|=b
      0 从左到右    a,b
 
+     逻辑操作符 || && 混用时，强制要求添加括号；
+     所有的赋值语句如果不是单独成一个语句，而是出现在语句中，强制要求添加括号；
+
 为了省略大部分的分号并避免歧义，一元操作符使用特殊的语法形式： ::
 
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
@@ -1256,7 +1334,7 @@ print(typestring, " b ")
 print(typeinfo, b)
 print(typestring, "\n")
 
-// 0. 代码编写原则
+//  0.  代码编写原则
 //
 // 不要过度的进行输入参数检查，也不要让程序用治标不治本的方法自动修正错误，这只会种下
 // 更大的隐患。例如下面的例子，因为越界参数的调用，已经说明程序前面的逻辑发生了错误，隐
@@ -1265,7 +1343,7 @@ print(typestring, "\n")
 // 码，各部分逻辑清晰完备自洽，就像这个功能就只有这一种自然而然的正确写法，没有多余的代
 // 码，更不需要检查各种边界条件维持程序的正确性。如果你的代码丑陋不堪，更可能是代码设计
 // 的原因。
-//      at (*IntArray a int i return int) {
+//      at (*IntArray a int i int) {
 //          if i < 0 || i >= a.size then i = 0
 //          return a.data[i]
 //      }
