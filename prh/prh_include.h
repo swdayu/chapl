@@ -1693,6 +1693,10 @@ extern "C" {
 // 现代 CPU 通常具有多级缓存结构，包括 L1、L2 和 L3 缓存。L1 缓存：位于 CPU 芯片内部，
 // 速度最快，容量最小，通常分为指令缓存和数据缓存。L2 缓存：位于 CPU 芯片内部或外部，速
 // 度稍慢，容量较大。L3 缓存：位于 CPU 芯片外部，速度较慢，容量最大，通常被多个核心共享。
+//
+// 为了提供高速缓存效率，我们应该把只读或大部分时间只读的数据与可读可写数据分别存放，还
+// 应该把差不多会在同一时间访问的数据组织在一起。并尽最大努力只让一个线程访问数据或只让
+// 一个 CPU 访问数据（使用 thread affinity），这样可以完全避免高速缓存行的问题。
 #ifndef PRH_CACHE_LINE_SIZE
 #define PRH_CACHE_LINE_SIZE 64
 #endif
@@ -4140,6 +4144,9 @@ void prh_soro_finish(prh_soro_struct *main) {
 // 证了在这些对象上不会出现数据竞争，而这也正是定义原子性的关键特征。
 #include <stdatomic.h>
 
+// 这里的原子类型不需要声明成 volatile，因为它们总是通过变量的地址进行访问，而不是直接
+// 访问变量的值。如果传一个变量的地址给函数，那么函数必须从内存中读取它的值，变量值不会
+// 被优化到寄存器中，因此编译器优化不会对此产生影响。
 typedef prh_byte prh_atom_bool;
 typedef prh_i32 prh_atom_i32;
 typedef prh_u32 prh_atom_u32;
@@ -7594,29 +7601,28 @@ void prh_thrd_strict_sleep(int secs, int nsec);
 typedef struct prh_thrd_mutex prh_thrd_mutex;
 prh_thrd_mutex *prh_thrd_mutex_init(void);
 prh_thrd_mutex *prh_thrd_recursive_mutex_init(void);
-void prh_thrd_mutex_free(prh_thrd_mutex **p);
+void prh_thrd_mutex_free(prh_thrd_mutex *p);
 void prh_thrd_mutex_lock(prh_thrd_mutex *p);
+bool prh_thrd_mutex_try_lock(prh_thrd_mutex *p);
 void prh_thrd_mutex_unlock(prh_thrd_mutex *p);
 
 typedef struct prh_thrd_cond prh_thrd_cond;
 prh_thrd_cond *prh_thrd_cond_init(void);
-void prh_thrd_cond_free(prh_thrd_cond **p);
+void prh_thrd_cond_free(prh_thrd_cond *p);
 void prh_thrd_cond_lock(prh_thrd_cond *p);
 void prh_thrd_cond_unlock(prh_thrd_cond *p);
-void prh_thrd_cond_wait(prh_thrd_cond *p, bool (*cond_meet)(void *), void *param);
-bool prh_thrd_cond_timedwait(prh_thrd_cond *p, prh_u32 msec, bool (*cond_meet)(void *), void *param);
 void prh_thrd_cond_signal(prh_thrd_cond *p);
 void prh_thrd_cond_broadcast(prh_thrd_cond *p);
 
 typedef struct prh_thrd_cond prh_thrd_sem;
 prh_inline prh_thrd_sem *prh_thrd_sem_init(void) { return (prh_thrd_sem *)prh_thrd_cond_init(); }
-prh_inline void prh_thrd_sem_free(prh_thrd_sem **s) { prh_thrd_cond_free((prh_thrd_cond **)s); }
+prh_inline void prh_thrd_sem_free(prh_thrd_sem *s) { prh_thrd_cond_free((prh_thrd_cond *)s); }
 void prh_thrd_sem_wait(prh_thrd_sem *s);
 void prh_thrd_sem_post(prh_thrd_sem *s, int n);
 
 typedef struct prh_sleep_cond prh_sleep_cond;
 prh_sleep_cond *prh_sleep_cond_init(void);
-void prh_sleep_cond_free(prh_sleep_cond **p);
+void prh_sleep_cond_free(prh_sleep_cond *p);
 void prh_thrd_cond_sleep(prh_sleep_cond *p);
 void prh_thrd_wakeup(prh_sleep_cond *p);
 
@@ -7664,13 +7670,281 @@ void prh_thrd_wakeup(prh_sleep_cond *p);
 #define thrd_wakeup                 prh_thrd_wakeup
 #endif
 
+void prh_impl_plat_cond_wait(prh_thrd_cond *p);
+prh_ptr prh_impl_plat_cond_timed_msec(prh_i64 *ptr, prh_u32 msec);
+bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time);
+
+#define prh_thrd_cond_wait(p, cond) {                                           \
+    /* calling thread locked by the p->mutex */                                 \
+    while (!(cond)) {                                                           \
+        prh_impl_plat_cond_wait(p);                                             \
+    }                                                                           \
+    /* calling thread locked and wakeup and cond meet */                        \
+}
+
+#define prh_thrd_cond_timedwait(p, msec, cond) ({                               \
+    prh_i64 timespec[2];                                                        \
+    prh_ptr time = prh_impl_plat_cond_timed_msec(timespec, msec);               \
+    bool timeout = false;                                                       \
+    /* calling thread locked by the p->mutex */                                 \
+    while (!(cond)) {                                                           \
+        if (prh_impl_plat_cond_timedwait((p), time)) {                          \
+            timeout = true;                                                     \
+            break;                                                              \
+        }                                                                       \
+    }                                                                           \
+    /* calling thread locked and wakeup and (timeout or cond meet) */           \
+    timeout;                                                                    \
+})
+
 #ifdef PRH_THRD_IMPLEMENTATION
 #ifndef PRH_THRD_DEBUG
 #define PRH_THRD_DEBUG PRH_DEBUG
 #endif
-
 #if defined(prh_plat_windows)
+int prh_cache_line_bytes(void) {
+    GetLogicalProcessorInformation();
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION
+    CACHE_DESCRIPTOR
+    Cache
+    LineSize
+}
 
+struct prh_thrd_mutex {
+    CRITICAL_SECTION mutex;
+};
+
+struct prh_thrd_cond {
+    CRITICAL_SECTION mutex; // 1st field
+    CONDITION_VARIABLE cond;
+    prh_int wakeup_semaphore;
+};
+
+struct prh_sleep_cond {
+    CRITICAL_SECTION mutex; // 1st field
+    CONDITION_VARIABLE cond;
+    prh_atom_bool wakeup_semaphore;
+};
+
+void prh_impl_plat_mutex_init(prh_thrd_mutex *p) {
+    // 当线程被关键段阻塞时，函数会将调用线程切换到等待状态，这意味着线程必须从用户模式
+    // 切换到内核模式（大约1000个CPU时钟周期），这个切换开销比较大。在配有多处理器的机
+    // 器上，当前占用资源的线程可能在另一个处理器上运行，而且可能很快就会结束对资源的访
+    // 问。事实上，在需要等待的线程完全切换到内核模式之前，占用资源的线程可能就已经释放
+    // 了资源。如果发送这种情况，那么会浪费大量 CPU 时间。为了提高关键段的性能，WIN32
+    // 把旋转锁合并到了关键段中，当调用 EnterCriticalSection 时，它会用一个旋转锁不断
+    // 地循环，尝试在一段时间内获得对资源的访问权。只有当尝试失败的时候，线程才会切换到
+    // 内核模式并进入等待状态。
+    // InitializeCriticalSectionAndSpinCount() 可传入的旋转次数是从 0 到 0xff_ffff
+    // 之间的一个值。注意，如果是在单处理器上调用这个函数，那么函数会忽略旋转次数，总是
+    // 0 次。这样做是因为在单处理器机器上设置循环次数毫无用处，如果一个线程正在循环，那
+    // 么占用资源的线程将没有机会放弃对资源的访问权。我们一般应该总是在使用关键段的时候
+    // 同时使用旋转锁，因为这样做不会损失任何东西。难点在于如何确定旋转次数，为了得到最
+    // 佳性能，最简单的方法就是尝试各种数值，直到对性能感到满意为止。用来保护进程堆的关
+    // 键段所使用的旋转次数大约是 4000，这可作为我们的一个参考值。
+    // Initialize 函数可能因为没有内存而调用失败，InitializeCriticalSection 会抛出
+    // STATUS_NO_MEMEORY，InitializeCriticalSectionAndSpinCount 会返回 FALSE。
+#if 0
+    InitializeCriticalSection(&p->mutex);
+#else
+    DWORD SpinCount = 1000;
+    prh_boolret(InitializeCriticalSectionAndSpinCount(&p->mutex, SpinCount));
+    //prh_boolret(InitializeCriticalSectionEx(&p->mutex, SpinCount, CRITICAL_SECTION_NO_DEBUG_INFO));
+#endif
+}
+
+void prh_impl_plat_mutex_free(prh_thrd_mutex *p) {
+    DeleteCriticalSection(&p->mutex);
+}
+
+prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
+    return prh_thrd_mutex_init();
+}
+
+prh_thrd_mutex *prh_thrd_mutex_init(void) {
+    prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
+    assert(p != prh_null);
+    prh_impl_plat_mutex_init(p);
+    return p;
+}
+
+void prh_thrd_mutex_free(prh_thrd_mutex *p) {
+    prh_impl_plat_mutex_free(p);
+    prh_free(p);
+}
+
+void prh_thrd_mutex_lock(prh_thrd_mutex *p) {
+    // 被 EnterCriticalSection 阻塞的线程，如果长时间获取不到锁，会在一定时间后超时。
+    // 超时时间设置在注册表中 HKEY_LOCAL_MACHINE/System/CurrentControlSet/Control/
+    // Session Manager/CriticalSectionTimeout。这个值以秒为单位，它的默认值大约是30
+    // 天，259_2000 秒。同一个线程在 leave 之前可以多次 enter 同一个关键段。
+    // 在使用关键段时还可能产生另一个问题，如果有两个或两个以上线程在同一时刻争夺同一个
+    // 关键段，那么关键段会在内部使用一个事件内核对象，由于争夺现象很少发生，因此只有当
+    // 第一次要用到事件内核对象的时候，系统才会真正创建它。Windows XP 之前，当内存不足
+    // 以分配事件内核对象时，EnterCriticalSection 会抛出 EXCEPTION_INVALID_HANDLE
+    // 异常。自 Windows XP 开始，引入了新的有键事件（keyed event）类型的内核对象，用
+    // 来帮助解决资源不足的情况下创建事件的问题。当操作系统创建进程的时候，总是会创建一
+    // 个有键事件，我们可以使用 Sysinternals 的 Process Explorer 工具找到这个名叫
+    // \KernelObjects\CritSecOutOfMemoryEvent 的实例。这个未公开的内核对象的行为与
+    // 事件内核对象相同，唯一的不同之处在于它的一个实例能够同步不同的线程组，每组由一个
+    // 指针大小的键值来标识和阻挡。在关键段的情况中，当内存不足以创建一个事件内核对象的
+    // 时候，可以将关键段的地址当作键值来使用。通过将关键段的地址当作键值，系统可以对试
+    // 图进入这个关键段的线程进行同步，并在必要的情况下将它们阻挡在外。
+    EnterCriticalSection(&p->mutex);
+}
+
+bool prh_thrd_mutex_try_lock(prh_thrd_mutex *p) {
+    // 如果返回 true 表示已经成功锁定了关键段，之后必须有一个对应的 leave 调用。
+    return (TRUE == TryEnterCriticalSection(&p->mutex));
+}
+
+void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
+    LeaveCriticalSection(&p->mutex);
+}
+
+void prh_impl_plat_cond_init(prh_thrd_cond *p) {
+    prh_impl_plat_mutex_init((prh_thrd_mutex *)p);
+    InitializeConditionVariable(&p->cond);
+}
+
+void prh_impl_plat_cond_free(prh_thrd_cond *p) {
+    prh_impl_plat_mutex_free((prh_thrd_mutex *)p);
+    // A condition variable cannot be moved or copied while in use. The process
+    // must not modify the object, and must instead treat it as logically
+    // opaque. Only use the condition variable functions to manage condition
+    // variables.
+    // A condition variable with no waiting threads is in its initial state and
+    // can be copied, moved, and forgotten without being explicitly destroyed.
+}
+
+prh_thrd_cond *prh_thrd_cond_init(void) {
+    prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
+    assert(p != prh_null);
+    prh_impl_plat_cond_init(p);
+    p->wakeup_semaphore = 0;
+    return p;
+}
+
+void prh_impl_sleep_cond_init(prh_sleep_cond *p) {
+    prh_impl_plat_cond_init((prh_thrd_cond *)p);
+    prh_atom_bool_init(&p->wakeup_semaphore, false);
+}
+
+void prh_thrd_cond_free(prh_thrd_cond *p) {
+    // 仅当没有任何线程等待条件变量，将其销毁才是安全的。
+    prh_impl_plat_cond_free(p);
+    prh_free(p);
+}
+
+void prh_thrd_cond_lock(prh_thrd_cond *p) {
+    prh_thrd_mutex_lock((prh_thrd_mutex *)p);
+}
+
+void prh_impl_plat_cond_wait(prh_thrd_cond *p) {
+    // the critical section must be entered exactly once by the caller at the
+    // time SleepConditionVariableCS is called.
+    prh_boolret(SleepConditionVariableCS(&p->cond, &p->mutex, INFINITE));
+}
+
+prh_ptr prh_impl_plat_cond_timed_msec(prh_i64 *ptr, prh_u32 msec) {
+    return (prh_ptr)msec;
+}
+
+bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time) { // 返回真表示等待超时
+    DWORD msec = (DWORD)time;
+    if (SleepConditionVariableCS(&p->cond, &p->mutex, msec)) {
+        return false; // 线程进入等待后，在超时之前成功被唤醒
+    }
+    DWORD error = GetLastError();
+    if (error != ERROR_TIMEOUT) {
+        prh_abort_error(error);
+    }
+    return true; // 等待超时，或调用失败
+}
+
+void prh_thrd_cond_unlock(prh_thrd_cond *p) {
+    prh_thrd_mutex_unlock((prh_thrd_mutex *)p);
+}
+
+void prh_thrd_cond_signal(prh_thrd_cond *p) {
+    WakeConditionVariable(&p->cond);
+}
+
+void prh_thrd_cond_broadcast(prh_thrd_cond *p) {
+    WakeAllConditionVariable(&p->cond);
+}
+
+void prh_thrd_sem_wait(prh_thrd_sem *p) {
+    prh_thrd_cond_lock(p);
+    while (p->wakeup_semaphore == 0) {
+        prh_impl_plat_cond_wait(p);
+    }
+    p->wakeup_semaphore -= 1;
+    prh_thrd_cond_unlock(p);
+}
+
+void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
+    assert(new_semaphores > 0);
+    prh_thrd_cond_lock(p);
+    p->wakeup_semaphore += new_semaphores;
+    prh_thrd_cond_unlock(p);
+    if (new_semaphores == 1) { // one semaphore available, can wakeup one thread to handle
+        prh_thrd_cond_signal(p);
+    } else { // multi semaphore available, all thread can racing to handle them
+        prh_thrd_cond_broadcast(p);
+    }
+}
+
+prh_sleep_cond *prh_sleep_cond_init(void) {
+    prh_sleep_cond *p = prh_malloc(sizeof(prh_sleep_cond));
+    assert(p != prh_null);
+    prh_impl_sleep_cond_init(p);
+    return p;
+}
+
+void prh_sleep_cond_free(prh_sleep_cond *p) {
+    prh_impl_plat_cond_free((prh_thrd_cond *)p);
+    prh_free(p);
+}
+
+void prh_impl_sleep_cond_free(prh_sleep_cond *p) {
+    prh_impl_plat_cond_free((prh_thrd_cond *)p);
+}
+
+bool prh_thrd_try_sleep(prh_sleep_cond *p) {
+    if (prh_atom_bool_strong_clear_if_set(&p->wakeup_semaphore)) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
+void prh_thrd_cond_sleep(prh_sleep_cond *p) {
+    if (prh_atom_bool_strong_clear_if_set(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
+    while (!prh_atom_bool_read(&p->wakeup_semaphore)) {
+        prh_impl_plat_cond_wait((prh_thrd_cond *)p);
+    }
+    prh_atom_bool_write(&p->wakeup_semaphore, false);
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
+}
+
+void prh_thrd_wakeup(prh_sleep_cond *p) {
+    if (prh_atom_bool_read(&p->wakeup_semaphore)) return; // 已经有唤醒存在，无需重新唤醒
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
+    prh_atom_bool_write(&p->wakeup_semaphore, true);
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
+    prh_zeroret(pthread_cond_signal(&p->cond));
+}
+
+#ifdef PRH_TEST_IMPLEMENTATION
+void prh_impl_thrd_test(void) {
+    printf("BOOL %d-byte\n", sizeof(BOOL));
+    printf("TRUE %d FALSE %d\n", TRUE, FALSE);
+    printf("CRITICAL_SECTION %d-byte\n", sizeof(CRITICAL_SECTION));
+    printf("CONDITION_VARIABLE %d-byte\n", sizeof(CONDITION_VARIABLE));
+}
+#endif // PRH_TEST_IMPLEMENTATION
 #else // PTHREAD BEGIN
 // 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
 //
@@ -8332,7 +8606,7 @@ void prh_impl_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, int stacksize) {
         prh_zeroret(pthread_attr_destroy(attr_ptr));
     }
 
-    prh_thrd_sem_free(&para.sync);
+    prh_thrd_sem_free(para.sync);
 }
 
 prh_thrd *prh_impl_create_set(prh_thrd_struct *s, int thrdudsize) {
@@ -10513,31 +10787,35 @@ struct prh_thrd_mutex {
 };
 
 struct prh_thrd_cond {
+    pthread_mutex_t mutex; // 1st field
     pthread_cond_t cond;
-    pthread_mutex_t mutex;
     prh_int wakeup_semaphore;
 };
 
-void prh_impl_pthread_mutex_init(pthread_mutex_t *mutex) {
-#if PRH_THRD_DEBUG
-    pthread_mutexattr_t attr;
-    prh_zeroret(pthread_mutexattr_init(&attr));
-    prh_zeroret(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK));
-    prh_zeroret(pthread_mutex_init(mutex, &attr));
-    prh_zeroret(pthread_mutexattr_destroy(&attr));
-#else
-    prh_zeroret(pthread_mutex_init(mutex, prh_null));
-#endif
+struct prh_sleep_cond {
+    pthread_mutex_t mutex; // 1st field
+    pthread_cond_t cond;
+    prh_atom_bool wakeup_semaphore;
+};
+
+void prh_impl_plat_mutex_init(prh_thrd_mutex *p) {
+    prh_zeroret(pthread_mutex_init(&p->mutex, prh_null));
+}
+
+void prh_impl_plat_mutex_free(prh_thrd_mutex *p) {
+    prh_zeroret(pthread_mutex_destroy(&p->mutex));
 }
 
 prh_thrd_mutex *prh_thrd_mutex_init(void) {
     prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    prh_impl_pthread_mutex_init(&p->mutex);
+    assert(p != prh_null);
+    prh_impl_plat_mutex_init(p);
     return p;
 }
 
 prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
     prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
+    assert(p != prh_null);
     pthread_mutexattr_t attr;
     prh_zeroret(pthread_mutexattr_init(&attr));
     prh_zeroret(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE));
@@ -10546,28 +10824,36 @@ prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
     return p;
 }
 
-void prh_thrd_mutex_free(prh_thrd_mutex **mtx) {
-    prh_thrd_mutex *p = *mtx;
-    if (p == prh_null) return;
-    prh_zeroret(pthread_mutex_destroy(&p->mutex));
+void prh_thrd_mutex_free(prh_thrd_mutex *p) {
+    prh_impl_plat_mutex_free(p);
     prh_free(p);
-    *mtx = prh_null;
-}
-
-void prh_impl_thrd_mutex_init(prh_thrd_mutex *p) {
-    prh_impl_pthread_mutex_init(&p->mutex);
-}
-
-void prh_impl_thrd_mutex_free(prh_thrd_mutex *p) {
-    prh_zeroret(pthread_mutex_destroy(&p->mutex));
 }
 
 void prh_thrd_mutex_lock(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
 }
 
+bool prh_thrd_mutex_try_lock(prh_thrd_mutex *p) {
+    int n = pthread_mutex_trylock(&p->mutex);
+    if (n == 0) return true;
+    if (errno != EBUSY) prh_abort_error(errno);
+    return false;
+}
+
 void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
+}
+
+void prh_impl_plat_cond_init(prh_thrd_cond *p) {
+    prh_impl_plat_mutex_init((prh_thrd_mutex *)p);
+    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
+}
+
+void prh_impl_plat_cond_free(prh_thrd_cond *p) {
+    // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
+    // pthread_cond_init() 对其进行重新初始化。
+    prh_impl_plat_mutex_free((prh_thrd_mutex *)p);
+    prh_zeroret(pthread_cond_destroy(&p->cond));
 }
 
 // It is advised that an application should not use a PTHREAD_MUTEX_RECURSIVE
@@ -10577,34 +10863,22 @@ void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
 // thread can satisfy the condition of the predicate.
 prh_thrd_cond *prh_thrd_cond_init(void) {
     prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
-    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
-    prh_impl_pthread_mutex_init(&p->mutex);
+    assert(p != prh_null);
+    prh_impl_plat_cond_init(p);
     p->wakeup_semaphore = 0;
     return p;
 }
 
-void prh_thrd_cond_free(prh_thrd_cond **cond) {
+void prh_impl_sleep_cond_init(prh_sleep_cond *p) {
+    prh_impl_plat_cond_init((prh_thrd_cond *)p);
+    prh_atom_bool_init(&p->wakeup_semaphore, false);
+}
+
+void prh_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
-    prh_thrd_cond *p = *cond;
-    if (p == prh_null) return;
-    *cond = prh_null;
-    prh_zeroret(pthread_mutex_destroy(&p->mutex));
-    prh_zeroret(pthread_cond_destroy(&p->cond));
+    prh_impl_plat_cond_free(p);
     prh_free(p);
-}
-
-void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
-    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
-    prh_impl_pthread_mutex_init(&p->mutex);
-    p->wakeup_semaphore = 0;
-}
-
-void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
-    // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
-    // pthread_cond_init() 对其进行重新初始化。
-    prh_zeroret(pthread_mutex_destroy(&p->mutex));
-    prh_zeroret(pthread_cond_destroy(&p->cond));
 }
 
 // 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
@@ -10635,33 +10909,30 @@ void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
 // 8. pthread_mutex_unlock
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    prh_thrd_mutex_lock((prh_thrd_mutex *)p);
 }
 
-void prh_thrd_cond_wait(prh_thrd_cond *p, bool (*cond_meet)(void *), void *param) {
-    while (!cond_meet(param)) {
-        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
-    }
-    // thread locked and wakeup and cond_meet
+void prh_impl_plat_cond_wait(prh_thrd_cond *p) {
+    prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
 }
 
-bool prh_thrd_cond_timedwait(prh_thrd_cond *p, prh_u32 msec, bool (*cond_meet)(void *), void *param) {
-    prh_i64 abstime = prh_system_msec() + msec; // u32 msec 最大可以表示48天
-    struct timespec ts = {.tv_sec = (time_t)(abstime / 1000), .tv_nsec = (int)((abstime % 1000) * 1000000)};
-    int n = 0;
-    while (n != ETIMEDOUT && !cond_meet(param)) {
-        n = pthread_cond_timedwait(&p->cond, &p->mutex, &ts);
-    }
-    // thread locked and wakeup and (ETIMEDOUT or cond_meet)
-    if (n == ETIMEDOUT) {
-        return true; // true WAIT TIMEOUT false WAIT SUCCESS
-    }
-    prh_prerr_if(n,);
-    return false;
+prh_ptr prh_impl_plat_cond_timed_msec(prh_i64 *ptr, prh_u32 msec) {
+    prh_i64 system_abstime = prh_system_msec() + msec; // u32 msec 最大可表示48天
+    struct timespec *ts = (struct timespec *)ptr;
+    ts->tv_sec = (time_t)(system_abstime / 1000);
+    ts->tv_nsec = (int)((system_abstime % 1000) * 1000000);
+    return (prh_ptr)ts;
+}
+
+bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time) { // 返回真表示等待超时
+    int n = pthread_cond_timedwait(&p->cond, &p->mutex, (struct timespec *)time);
+    if (n == 0) return false; // 线程进入等待后，在超时之前成功被唤醒
+    if (n != ETIMEDOUT) prh_abort_error(n);
+    return true; // 等待超时，或调用失败
 }
 
 void prh_thrd_cond_unlock(prh_thrd_cond *p) {
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    prh_thrd_mutex_unlock((prh_thrd_mutex *)p);
 }
 
 // The pthread_cond_broadcast() function shall wakeup all threads currently
@@ -10694,60 +10965,42 @@ void prh_thrd_cond_broadcast(prh_thrd_cond *p) {
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    prh_thrd_cond_lock(p);
     while (p->wakeup_semaphore == 0) {
-        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
+        prh_impl_plat_cond_wait(p);
     }
     p->wakeup_semaphore -= 1;
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    prh_thrd_cond_unlock(p);
 }
 
 void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
     assert(new_semaphores > 0);
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    prh_thrd_cond_lock(p);
     p->wakeup_semaphore += new_semaphores;
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    prh_thrd_cond_unlock(p);
     if (new_semaphores == 1) { // one semaphore available, can wakeup one thread to handle
-        prh_zeroret(pthread_cond_signal(&p->cond));
+        prh_thrd_cond_signal(p);
     } else { // multi semaphore available, all thread can racing to handle them
-        prh_zeroret(pthread_cond_broadcast(&p->cond));
+        prh_thrd_cond_broadcast(p);
     }
 }
 
-typedef struct prh_sleep_cond {
-    pthread_cond_t cond;
-    pthread_mutex_t mutex;
-    prh_atom_bool wakeup_semaphore;
-} prh_sleep_cond;
-
 prh_sleep_cond *prh_sleep_cond_init(void) {
-    prh_sleep_cond *p = prh_malloc(sizeof(prh_sleep_cond));
-    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
-    prh_impl_pthread_mutex_init(&p->mutex);
-    prh_atom_bool_init(&p->wakeup_semaphore, false);
+    prh_sleep_cond *p = prh_malloc(sizeof(prh_thrd_cond));
+    assert(p != prh_null);
+    prh_impl_sleep_cond_init(p);
     return p;
 }
 
-void prh_sleep_cond_free(prh_sleep_cond **cond) {
+void prh_sleep_cond_free(prh_sleep_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
-    prh_sleep_cond *p = *cond;
-    if (p == prh_null) return;
-    *cond = prh_null;
-    prh_zeroret(pthread_mutex_destroy(&p->mutex));
-    prh_zeroret(pthread_cond_destroy(&p->cond));
+    prh_impl_plat_cond_free((prh_thrd_cond *)p);
     prh_free(p);
 }
 
-void prh_impl_sleep_cond_init(prh_sleep_cond *p) {
-    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
-    prh_impl_pthread_mutex_init(&p->mutex);
-    prh_atom_bool_init(&p->wakeup_semaphore, false);
-}
-
 void prh_impl_sleep_cond_free(prh_sleep_cond *p) {
-    prh_zeroret(pthread_mutex_destroy(&p->mutex));
-    prh_zeroret(pthread_cond_destroy(&p->cond));
+    prh_impl_plat_cond_free((prh_thrd_cond *)p);
 }
 
 bool prh_thrd_try_sleep(prh_sleep_cond *p) {
@@ -10760,20 +11013,20 @@ bool prh_thrd_try_sleep(prh_sleep_cond *p) {
 
 void prh_thrd_cond_sleep(prh_sleep_cond *p) {
     if (prh_atom_bool_strong_clear_if_set(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
     while (!prh_atom_bool_read(&p->wakeup_semaphore)) {
-        prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
+        prh_impl_plat_cond_wait((prh_thrd_cond *)p);
     }
     prh_atom_bool_write(&p->wakeup_semaphore, false);
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
 }
 
 void prh_thrd_wakeup(prh_sleep_cond *p) {
     if (prh_atom_bool_read(&p->wakeup_semaphore)) return; // 已经有唤醒存在，无需重新唤醒
-    prh_zeroret(pthread_mutex_lock(&p->mutex));
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
     prh_atom_bool_write(&p->wakeup_semaphore, true);
-    prh_zeroret(pthread_mutex_unlock(&p->mutex));
-    prh_zeroret(pthread_cond_signal(&p->cond));
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
+    prh_thrd_cond_signal((prh_thrd_cond *)p);
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
