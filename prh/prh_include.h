@@ -78,6 +78,11 @@ extern "C" {
 
 // Linux 操作系统开发与调试命令
 //
+// 打印系统信息：
+//      getconf -a
+// 打印处理器信息：
+//      lscpu
+//      cat /proc/cpuinfo
 // 打印当前系统中的环境变量：
 //      printenv
 // 查看属于某一进程的环境变量：
@@ -784,9 +789,9 @@ extern "C" {
     #define prh_abort_if(error) if (error) { prh_abort_error(error); }
     #define prh_prerr(error) prh_impl_prerr(__LINE__, (error))
     #define prh_abort_error(error) prh_impl_abort_error(__LINE__, (error))
-    void prh_impl_prerr(int line, int error);
-    void prh_impl_abort(int line);
-    void prh_impl_abort_error(int line, int error);
+    void prh_impl_prerr(unsigned int line, unsigned int error);
+    void prh_impl_abort(unsigned int line);
+    void prh_impl_abort_error(unsigned int line, unsigned int error);
     #define prh_real_condret(c, a) if (!((a) c)) { prh_impl_abort(__LINE__); }
     #define prh_real_numbret(n, a) if ((a) != (n)) { prh_impl_abort(__LINE__); }
     #define prh_real_zeroret(a) if ((a) != 0) { prh_impl_abort(__LINE__); }
@@ -1266,14 +1271,15 @@ extern "C" {
     // 一样。就像“一个关于 21 世纪初疯狂日子里人们不得不做的事情的小故事。谢天谢地，
     // 我们再也不用担心这些了！”
     //
-    // GetTickCount64 Windows Vista Windows Server 2008         0x0600
-    // QueryInterruptTime Windows 7 Windows Server 2008 S2      0x0601
+    // GetTickCount64 Windows Vista Windows Server 2008             0x0600
+    // QueryInterruptTime Windows 7 Windows Server 2008 S2          0x0601
+    // GetCurrentThreadStackLimits Windows 8 Windows Server 2012    0x0602
     #include <WinSDKVer.h>
     #include <sdkddkver.h>
-    #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
+    #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0602)
     #undef _WIN32_WINNT
     #undef NTDDI_VERSION
-    #define _WIN32_WINNT 0x0600
+    #define _WIN32_WINNT 0x0602
     #include <sdkddkver.h>
     #endif
     // When you define the STRICT symbol, you enable features that require more
@@ -1310,7 +1316,8 @@ extern "C" {
     #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
     #error unsupported windows minimum version
     #endif
-    #define PRH_WINOS_BOOLRET(a) if (!(a)) { prh_abort_error(GetLastError()); }
+    #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_abort_error(GetLastError()); }
+    #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_prerr(GetLastError()); }
 #else
     // POSIX allows an application to test at compile or run time whether
     // certain options are supported, or what the value is of certain
@@ -1725,19 +1732,19 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
 #endif
 
 #ifdef PRH_BASE_IMPLEMENTATION
-int prh_impl_assert(int line) {
+int prh_impl_assert(unsigned int line) {
     fprintf(stderr, "assert line %d\n", line);
     abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
     return 0;
 }
-void prh_impl_prerr(int line, int error) {
+void prh_impl_prerr(unsigned int line, unsigned int error) {
     fprintf(stderr, "error %d line %d\n", error, line);
 }
-void prh_impl_abort(int line) {
+void prh_impl_abort(unsigned int line) {
     fprintf(stderr, "abort line %d\n", line);
     abort();
 }
-void prh_impl_abort_error(int line, int error) {
+void prh_impl_abort_error(unsigned int line, unsigned int error) {
     fprintf(stderr, "abort %d line %d\n", error, line);
     abort();
 }
@@ -5631,15 +5638,15 @@ void prh_impl_system_date(SYSTEMTIME *s, const prh_datetime *t) {
 void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_date) {
     SYSTEMTIME s; FILETIME f;
     prh_impl_system_date(&s, utc_date);
-    PRH_WINOS_BOOLRET(SystemTimeToFileTime(&s, &f));
+    PRH_BOOLRET_OR_ABORT(SystemTimeToFileTime(&s, &f));
     prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + utc_date->usec);
 }
 
 void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime *local_date) {
     SYSTEMTIME local, s; FILETIME f;
     prh_impl_system_date(&local, local_date);
-    PRH_WINOS_BOOLRET(TzSpecificLocalTimeToSystemTime(prh_null, &local, &s));
-    PRH_WINOS_BOOLRET(SystemTimeToFileTime(&s, &f));
+    PRH_BOOLRET_OR_ABORT(TzSpecificLocalTimeToSystemTime(prh_null, &local, &s));
+    PRH_BOOLRET_OR_ABORT(SystemTimeToFileTime(&s, &f));
     prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + utc_date->usec);
 }
 
@@ -5663,8 +5670,8 @@ void prh_local_date(prh_datetime *local_date) {
 void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time) {
     FILETIME f; SYSTEMTIME s, local;
     prh_impl_1970_utc_secs_to_filetime(utc_time->sec, &f);
-    PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
-    PRH_WINOS_BOOLRET(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
+    PRH_BOOLRET_OR_ABORT(FileTimeToSystemTime(&f, &s));
+    PRH_BOOLRET_OR_ABORT(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
     prh_impl_date_time(local_date, &local, utc_time->usec);
 }
 
@@ -5735,7 +5742,7 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
     //      error information, call GetLastError.
     FILETIME f; SYSTEMTIME s;
     prh_impl_1970_utc_secs_to_filetime(utc_time->sec, &f);
-    PRH_WINOS_BOOLRET(FileTimeToSystemTime(&f, &s));
+    PRH_BOOLRET_OR_ABORT(FileTimeToSystemTime(&f, &s));
     prh_impl_date_time(utc_date, &s, utc_time->usec);
 }
 
@@ -5915,7 +5922,7 @@ prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
 prh_i64 prh_thread_time(void) {
     HANDLE pseudo_handle = GetCurrentThread();
     FILETIME creation_time, exit_time, kernel_time, user_time;
-    PRH_WINOS_BOOLRET(GetThreadTimes(pseudo_handle, &creation_time, &exit_time, &kernal_time, &user_time));
+    PRH_BOOLRET_OR_ABORT(GetThreadTimes(pseudo_handle, &creation_time, &exit_time, &kernal_time, &user_time));
     return prh_impl_filetime_nsec(&kernel_time) + prh_impl_filetime_nsec(&user_time);
 }
 
@@ -7512,7 +7519,7 @@ void prh_impl_time_test(void) {
 #ifdef PRH_THRD_INCLUDE
 typedef struct {
     void *userdata;
-    prh_unt impl_tid_;
+    prh_ptr impl_tid_;
     prh_i32 thrd_id;
     prh_u32 extra;
 } prh_thrd;
@@ -7554,7 +7561,7 @@ prh_inline prh_thrd *prh_thrd_main(prh_thrd_struct *s) {
         }                                                                       \
     }
 
-typedef prh_ptr (*prh_thrdproc_t)(prh_thrd* thrd);
+typedef int (*prh_thrdproc_t)(prh_thrd* thrd);
 typedef void (*prh_thrdfree_t)(void *userdata, int thrd_index); // thrd_index 0 for main thrd
 
 prh_thrd *prh_thrd_self(void);
@@ -7697,17 +7704,186 @@ bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time);
     timeout;                                                                    \
 })
 
+typedef struct {
+    int page_size; // 虚拟内存页面大小
+    int alloc_unit; // 虚拟内存分配颗粒度
+    int cache_line_size; // 处理器缓存行大小
+    int processor_count; // 逻辑处理器个数
+} prh_sys_info;
+
+void prh_system_info(prh_sys_info *info);
+
 #ifdef PRH_THRD_IMPLEMENTATION
 #ifndef PRH_THRD_DEBUG
 #define PRH_THRD_DEBUG PRH_DEBUG
 #endif
+
+#define prh_impl_thrd_head_size sizeof(prh_thrd)
+#define prh_impl_thrd_extra_len sizeof(prh_u32)
+
+prh_static_assert(prh_impl_thrd_head_size % 8 == 0);
+
+prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
+
+prh_ptr prh_impl_thrd_self(void);
+
+prh_thrd *prh_thrd_self(void) {
+    return PRH_IMPL_THRD;
+}
+
+int prh_impl_thrd_size(int thrdudsize) {
+    assert(thrdudsize >= 0);
+    return (int)prh_round_cache_line_size(prh_impl_thrd_head_size + thrdudsize);
+}
+
+int prh_impl_thrd_struct_size(int maxthrds) {
+    assert(maxthrds >= 0);
+    return (int)(sizeof(prh_thrd_struct) + sizeof(void *) * maxthrds);
+}
+
+prh_thrd *prh_impl_thrd_create(int thrd_id, int thrdudsize) {
+    assert(thrdudsize >= 0);
+    int thrd_size = prh_impl_thrd_size(thrdudsize);
+    prh_thrd *thrd = prh_cache_line_aligned_malloc(thrd_size);
+    memset(thrd, 0, thrd_size);
+    thrd->userdata = thrd + 1;
+    thrd->thrd_id = thrd_id;
+    return thrd;
+}
+
+prh_inline prh_thrd *prh_impl_data_to_thrd(void *userdata) {
+    return (prh_thrd *)userdata - 1;
+}
+
 #if defined(prh_plat_windows)
-int prh_cache_line_bytes(void) {
-    GetLogicalProcessorInformation();
-    SYSTEM_LOGICAL_PROCESSOR_INFORMATION
-    CACHE_DESCRIPTOR
-    Cache
-    LineSize
+void prh_system_info(prh_sys_info *info) {
+    // typedef struct _SYSTEM_INFO {
+    // union {
+    //     DWORD dwOemId; // 过时
+    //     struct {
+    //     WORD wProcessorArchitecture; // 处理器架构信息
+    //     WORD wReserved;
+    //     } DUMMYSTRUCTNAME;
+    // } DUMMYUNIONNAME;
+    // DWORD     dwPageSize; // 虚拟内存页面大小
+    // LPVOID    lpMinimumApplicationAddress; // 应用程序或DLL可访问的地址范围
+    // LPVOID    lpMaximumApplicationAddress; // 应用程序或DLL可访问的地址范围
+    // DWORD_PTR dwActiveProcessorMask; // 处理器掩码值
+    // DWORD     dwNumberOfProcessors; // 当前处理器组（current processor group）的的逻辑处理器个数
+    // DWORD     dwProcessorType; // 过时
+    // DWORD     dwAllocationGranularity; // 虚拟内存分配颗粒度
+    // WORD      wProcessorLevel;
+    // WORD      wProcessorRevision;
+    // } SYSTEM_INFO, *LPSYSTEM_INFO;
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    info.page_size = (int)info.dwPageSize;
+    info.alloc_unit = (int)info.dwAllocationGranularity;
+
+    // https://devblogs.microsoft.com/oldnewthing/20200824-00/?p=104116
+    // 客户发现，他们原来用 GetSystemInfo 读取 dwNumberOfProcessors 来获取处理器数
+    // 量。但文档指出，这只能给出当前处理器组里的处理器数，可能小于系统总数量。例如，在
+    // 一台拥有 80 颗处理器的机器上（令人羡慕），dwNumberOfProcessors 只返回了 40 颗。
+    // 如何跨所有处理器组获取总处理器数？简单方法：调用 GetActiveProcessorCount(ALL_PROCESSOR_GROUPS)，
+    // 它会一次性统计所有组的处理器总数。麻烦方法：调用 GetLogicalProcessorInformationEx(RelationGroup)，
+    // 然后遍历所有活跃组，把每组的 ActiveProcessorCount 累加。虽然代码量更大，但你也
+    // 能看到处理器在各组中的分布情况，如果这正是你需要的额外信息。
+    // DWORD GetActiveProcessorCount([in] WORD GroupNumber);
+    //      参数处理器组的数值，或 ALL_PROCESSOR_GROUPS。如果失败返回零。
+    //      winbase.h (include Windows.h)
+    //      Kernel32.lib Kernel32.dll
+    //      Windows 7 Windows Server 2008 R2 _WIN32_WINNT >= 0x0601
+    DWORD processor_count = GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+    PRH_BOOLRET_OR_ERROR(processor_count);
+    info->processor_count = (int)processor_count;
+
+    // BOOL GetLogicalProcessorInformationEx(
+    //      [in]            LOGICAL_PROCESSOR_RELATIONSHIP           RelationshipType,
+    //      [out, optional] PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX Buffer,
+    //      [in, out]       PDWORD                                   ReturnedLength)
+    // typedef struct _SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX {
+    //  LOGICAL_PROCESSOR_RELATIONSHIP Relationship;
+    //  DWORD                          Size; // 该结构体的大小
+    //  union {
+    //      PROCESSOR_RELATIONSHIP Processor;
+    //      NUMA_NODE_RELATIONSHIP NumaNode;
+    //      CACHE_RELATIONSHIP     Cache;
+    //      GROUP_RELATIONSHIP     Group;
+    //  } DUMMYUNIONNAME;
+    // } SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX, *PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX;
+    // typedef enum _LOGICAL_PROCESSOR_RELATIONSHIP { // 同一类逻辑处理器之间的关系
+    //  RelationProcessorCore,      // 共享单个处理器核心的所有逻辑处理器
+    //  RelationNumaNode,           // 相同 NUMA 结点中的所有逻辑处理器
+    //  RelationCache,              // 共享同一个缓存的逻辑处理器
+    //  RelationProcessorPackage,   // 指定的逻辑处理器共享同一个物理封装（即主板上的一个插槽或焊接的封装，其内可能包含多个处理器核心或线程，每个核心或线程都被操作系统视为独立的处理器）。
+    //  RelationGroup,              // 共享单个处理器组（a single processor group）的逻辑处理器
+    //  RelationProcessorDie,       // 共享同一颗处理器芯片（die）
+    //  RelationNumaNodeEx,         // 在 Windows Server 2022（21H2，构建 20348）中引入。用于请求返回完整的亲和性信息。与其他关系类型不同，RelationNumaNodeEx 不作为输入使用；它只是请求以完整组信息的形式返回 RelationNumaNode 的信息。
+    //  RelationProcessorModule,
+    //  RelationAll = 0xffff
+    // } LOGICAL_PROCESSOR_RELATIONSHIP;
+    // typedef struct _PROCESSOR_RELATIONSHIP {
+    //   BYTE           Flags;
+    //   BYTE           EfficiencyClass;
+    //   BYTE           Reserved[20];
+    //   WORD           GroupCount;
+    //   GROUP_AFFINITY GroupMask[ANYSIZE_ARRAY];
+    // } PROCESSOR_RELATIONSHIP, *PPROCESSOR_RELATIONSHIP;
+    // typedef struct _NUMA_NODE_RELATIONSHIP {
+    //   DWORD NodeNumber;
+    //   BYTE  Reserved[18];
+    //   WORD  GroupCount;
+    //   union {
+    //     GROUP_AFFINITY GroupMask;
+    //     GROUP_AFFINITY GroupMasks[ANYSIZE_ARRAY];
+    //   } DUMMYUNIONNAME;
+    // } NUMA_NODE_RELATIONSHIP, *PNUMA_NODE_RELATIONSHIP;
+    // typedef struct _CACHE_RELATIONSHIP {
+    //   BYTE                 Level; // 1 L1 2 L2 3 L3
+    //   BYTE                 Associativity;
+    //   WORD                 LineSize;
+    //   DWORD                CacheSize;
+    //   PROCESSOR_CACHE_TYPE Type;
+    //   BYTE                 Reserved[18];
+    //   WORD                 GroupCount; // 保留
+    //   union {
+    //     GROUP_AFFINITY GroupMask; // 保留
+    //     GROUP_AFFINITY GroupMasks[ANYSIZE_ARRAY]; // 保留
+    //   } DUMMYUNIONNAME;
+    // } CACHE_RELATIONSHIP, *PCACHE_RELATIONSHIP;
+    // typedef enum _PROCESSOR_CACHE_TYPE {
+    //   // Unified Cache（统一缓存）是一种同时存放指令和数据的缓存结构，与分离式（Harvard）缓存相对。通常
+    //   // 位于更高层级（L2/L3），在多核 CPU 里常被所有核共享，例如 Intel 的共享 L3、ARM 的 big.LITTLE
+    //   // 统一 L2。一套硬件同时缓存指令和数据，面积省、弹性高，但要承受结构冲突代价；常用于 L2/L3 共享层。
+    //   CacheUnified,
+    //   CacheInstruction,
+    //   CacheData,
+    //   CacheTrace,
+    //   CacheUnknown
+    // } PROCESSOR_CACHE_TYPE, *PPROCESSOR_CACHE_TYPE;
+    SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX *info = prh_null;
+    DWORD count = 0;
+    BOOL status = GetLogicalProcessorInformationEx(RelationCache, info, &count);
+    if (status != FALSE || GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+        prh_prerr(GetLastError());
+        return;
+    }
+    info = prh_malloc(count * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
+    assert(info != prh_null);
+    if (!GetLogicalProcessorInformationEx(RelationCache, info, &count)) {
+        prh_prerr(GetLastError());
+        prh_free(info);
+        return;
+    }
+    int cache_line_size = 0;
+    for (int i = 0; i < (int)count; i += 1) {
+        CACHE_RELATIONSHIP *cache = &info[i].DUMMYUNIONNAME.Cache;
+        if (cache->Level == 1 && (cache->Type == CacheData || cache->Type == CacheUnified) && cache_line_size < cache->LineSize) {
+            cache_line_size = cache->LineSize;
+        }
+    }
+    info->cache_line_size = cache_line_size;
+    prh_free(info);
 }
 
 struct prh_thrd_mutex {
@@ -7943,6 +8119,32 @@ void prh_impl_thrd_test(void) {
     printf("TRUE %d FALSE %d\n", TRUE, FALSE);
     printf("CRITICAL_SECTION %d-byte\n", sizeof(CRITICAL_SECTION));
     printf("CONDITION_VARIABLE %d-byte\n", sizeof(CONDITION_VARIABLE));
+    printf("void* %d-byte\n", sizeof(void *));
+    printf("HANDLE %d-byte\n", sizeof(HANDLE));
+    SYSTEM_INFO info;
+    GetSystemInfo(&info);
+    int arch = info.DUMMYUNIONNAME.DUMMYSTRUCTNAME.wProcessorArchitecture;
+    if (arch == PROCESSOR_ARCHITECTURE_INTEL) {
+        printf("PROCESSOR_ARCHITECTURE_INTEL X86\n");
+    } else if (arch == PROCESSOR_ARCHITECTURE_AMD64) {
+        printf("PROCESSOR_ARCHITECTURE_AMD64 X64\n");
+    } else if (arch == PROCESSOR_ARCHITECTURE_ARM) {
+        printf("PROCESSOR_ARCHITECTURE_ARM\n");
+    } else if (arch == PROCESSOR_ARCHITECTURE_ARM64) {
+        printf("PROCESSOR_ARCHITECTURE_ARM64\n");
+    } else {
+        printf("PROCESSOR_ARCHITECTURE_UNKNOWN\n");
+    }
+    printf("SYSTEM_INFO dwActiveProcessorMask %p\n", (void *)info.dwActiveProcessorMask);
+    printf("SYSTEM_INFO dwNumberOfProcessors %d\n", (int)info.dwNumberOfProcessors);
+    printf("SYSTEM_INFO lpMinimumApplicationAddress %p\n", (void *)info.lpMinimumApplicationAddress);
+    printf("SYSTEM_INFO lpMaximumApplicationAddress %p\n", (void *)info.lpMaximumApplicationAddress);
+    prh_sys_info sys_info;
+    prh_system_info(&sys_info);
+    printf("page size %d %dKB\n", sys_info.page_size, sys_info.page_size/1024);
+    printf("alloc unit %d %dKB\n", sys_info.alloc_unit, sys_info.alloc_unit/1024);
+    printf("cache line size %d\n", sys_info.cache_line_size);
+    printf("active processor count %d\n", sys_info.processor_count);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else // PTHREAD BEGIN
@@ -8483,8 +8685,9 @@ void prh_impl_print_thrd_info(prh_thrd *thrd) {
     prh_zeroret(pthread_attr_getstack(&attr, &stack_addr, &stack_size));
     prh_zeroret(pthread_attr_getguardsize(&attr, &guard_size));
     prh_zeroret(pthread_attr_destroy(&attr));
-    printf("[thrd %02d] stack %p %d-byte guard %d-byte\n",
-        prh_thrd_id(thrd), stack_addr, (int)stack_size, (int)guard_size);
+    printf("[thrd %02d] stack %p %d-byte (%dKB) guard %d-byte (%dKB)\n",
+        prh_thrd_id(thrd), stack_addr, (int)stack_size, (int)(stack_size/1024),
+        (int)guard_size, (int)(guard_size/1024));
 }
 #else
 #define prh_impl_print_thrd_info(thrd)
@@ -11029,6 +11232,50 @@ void prh_thrd_wakeup(prh_sleep_cond *p) {
     prh_thrd_cond_signal((prh_thrd_cond *)p);
 }
 
+#if !defined(_SC_NPROCESSORS_ONLN)
+#include <sys/sysinfo.h> // get_nprocs
+#endif
+
+#if defined(prh_plat_apple)
+#include <sys/sysctl.h> // sysctlbyname
+#endif
+
+void prh_system_info(prh_sys_info *info) {
+    // https://www.man7.org/linux/man-pages/man3/sysconf.3p.html
+    errno = 0;
+    info->page_size = (int)sysconf(_SC_PAGESIZE);
+    info->alloc_unit = (int)sysconf(_SC_THREAD_STACK_MIN);
+#if defined(_SC_NPROCESSORS_ONLN)
+    info->processor_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
+#else
+    info->processor_count = get_nprocs();
+#endif
+#if !defined(prh_plat_apple)
+#if defined(_SC_LEVEL1_DCACHE_LINESIZE)
+    info->cache_line_size = (int)sysconf(_SC_LEVEL1_DCACHE_LINESIZE);
+#elif defined(prh_plat_linux)
+    FILE *file = fopen("/sys/devices/system/cpu/cpu0/cache/index0/coherency_line_size", "rb");
+    if (file != prh_null) {
+        fscanf(file, "%d", &info->cache_line_size);
+    } else {
+        prh_prerr(__LINE__);
+    }
+#else
+    info->cache_line_size = PRH_CACHE_LINE_SIZE; // 使用默认大小
+#endif
+#endif
+    prh_preno_if(errno != 0);
+#if defined(prh_plat_apple)
+    // https://developer.apple.com/documentation/kernel/1387446-sysctlbyname
+    // int sysctlbyname(const char *name, void *get, size_t *getlen, void *set, size_t setlen); macOS 10.0+
+    prh_i64 cache_line_size = 0;
+    size_t size = sizeof(cache_line_size);
+    int n = sysctlbyname("hw.cachelinesize", &cache_line_size, &size, NULL, 0);
+    prh_preno_if(n != 0);
+    info->cache_line_size = (int)cache_line_size;
+#endif
+}
+
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <sys/resource.h> // getrlimit POSIX.1-2008
 // In SUSv2 the getpagesize() call was labeled LEGACY, and it was removed in
@@ -11057,8 +11304,12 @@ void prh_impl_thrd_test(void) {
     n = getrlimit(RLIMIT_NICE, &l);
     printf("[%d] The max nice value can be raised: %lldB max %lldB\n", (int)n, (long long)l.rlim_cur, (long long)l.rlim_max);
     n = sysconf(_SC_PAGESIZE);
-    printf("_SC_PAGESIZE: %ld-byte\n", n);
-    printf("getpagesize() %d-byte\n", getpagesize());
+    printf("_SC_PAGESIZE: %dKB\n", (int)(n/1024));
+    printf("getpagesize() %dKB\n", (int)(getpagesize()/1024));
+#if defined(_SC_LEVEL1_DCACHE_LINESIZE)
+    n = sysconf(_SC_LEVEL1_DCACHE_LINESIZE);
+    printf("_SC_LEVEL1_DCACHE_LINESIZE: %d\n", (int)n);
+#endif
     n = sysconf(_SC_2_VERSION);
     printf("_SC_2_VERSION: %ldL\n", n);
     n = sysconf(_SC_THREADS);
@@ -11084,11 +11335,13 @@ void prh_impl_thrd_test(void) {
     n = sysconf(_SC_THREAD_KEYS_MAX);
     printf("_SC_THREAD_KEYS_MAX: %ld\n", n);
     n = sysconf(_SC_THREAD_STACK_MIN);
-    printf("_SC_THREAD_STACK_MIN: %ld\n", n);
+    printf("_SC_THREAD_STACK_MIN: %dKB\n", (int)(n/1024));
     n = sysconf(_SC_THREAD_THREADS_MAX);
     printf("_SC_THREAD_THREADS_MAX: %ld\n", n);
     n = sysconf(_SC_MAPPED_FILES);
     printf("_SC_MAPPED_FILES: %ld\n", n);
+    n = sysconf(_SC_LINE_MAX);
+    printf("_SC_LINE_MAX: %ld\n", n);
     confstr(_CS_GNU_LIBC_VERSION, buf, sizeof(buf));
     printf("_CS_GNU_LIBC_VERSION: %s\n", buf);
     confstr(_CS_GNU_LIBPTHREAD_VERSION, buf, sizeof(buf));
