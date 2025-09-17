@@ -790,9 +790,9 @@ extern "C" {
     #define prh_abort_errno_if(a) if (a) { prh_abort_error(errno); }
     #define prh_prerr(error) prh_impl_prerr(__LINE__, (error))
     #define prh_abort_error(error) prh_impl_abort_error(__LINE__, (error))
-    void prh_impl_prerr(unsigned int line, unsigned int error);
-    void prh_impl_abort(unsigned int line);
-    void prh_impl_abort_error(unsigned int line, unsigned int error);
+    void prh_impl_prerr(int line, unsigned int error);
+    void prh_impl_abort(int line);
+    void prh_impl_abort_error(int line, unsigned int error);
     void prh_print_exit_code(int thrd_id, int exit_code);
     #define prh_real_condret(c, a) if (!((a) c)) { prh_impl_abort(__LINE__); }
     #define prh_real_numbret(n, a) if ((a) != (n)) { prh_impl_abort(__LINE__); }
@@ -1734,19 +1734,19 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
 #endif
 
 #ifdef PRH_BASE_IMPLEMENTATION
-int prh_impl_assert(unsigned int line) {
+int prh_impl_assert(int line) {
     fprintf(stderr, "assert line %d\n", line);
     abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
     return 0;
 }
-void prh_impl_prerr(unsigned int line, unsigned int error) {
+void prh_impl_prerr(int line, unsigned int error) {
     fprintf(stderr, "error %d line %d\n", error, line);
 }
-void prh_impl_abort(unsigned int line) {
+void prh_impl_abort(int line) {
     fprintf(stderr, "abort line %d\n", line);
     abort();
 }
-void prh_impl_abort_error(unsigned int line, unsigned int error) {
+void prh_impl_abort_error(int line, unsigned int error) {
     fprintf(stderr, "abort %d line %d\n", error, line);
     abort();
 }
@@ -4115,10 +4115,13 @@ void prh_soro_reload(prh_soro_struct *s, prh_soroproc_t proc) {
 #endif
 }
 
-void prh_impl_soro_start(int start_id, prh_coro *coro) {
+void prh_impl_soro_start(int thrd_id, int cono_id, prh_coro *coro) {
     assert(coro && coro->rspoffset);
     prh_impl_soro_main mainstack;
-    mainstack.start_id = start_id;
+    mainstack.start_id = thrd_id;
+#if PRH_CORO_DEBUG
+    printf("[thrd %02d] %p start running cono %02d\n", thrd_id, (void *)&mainstack, cono_id);
+#endif
     prh_impl_coro_main_yield((prh_impl_coro_main *)&mainstack, coro);
 }
 
@@ -7522,16 +7525,16 @@ void prh_impl_time_test(void) {
 #endif // PRH_ALLOC_INCLUDE
 
 #ifdef PRH_THRD_INCLUDE
-#define prh_thrd_struct(...)                \
-struct {                                    \
+// impl_hdl_ => x64 pthread_t size 8-byte
+#define prh_thrd_struct(...) {              \
     prh_ptr impl_hdl_;                      \
     prh_ptr extra_ptr;                      \
     prh_u32 thrd_id: 31, created: 1;        \
     __VA_ARGS__                             \
 }
 
-typedef prh_thrd_struct(void *userdata;) prh_user_thrd;
-typedef prh_thrd_struct() prh_thrd;
+typedef struct prh_thrd_struct(void *userdata;) prh_user_thrd;
+typedef struct prh_thrd_struct() prh_thrd;
 typedef struct {
     prh_i32 thrd_cnt;
     prh_u32 thrd_max: 31, thrd_end: 1;
@@ -7564,17 +7567,19 @@ extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
         }                                                                       \
     }
 
+#define prh_thrd_id(thrd) ((int)((thrd)->thrd_id))
 prh_inline prh_thrd *prh_thrd_self(void) { return PRH_IMPL_THRD; }
-prh_inline void *prh_thrd_self_data(void) { return ((prh_user_thrd *)prh_thrd_self(s))->userdata; }
-prh_inline int prh_thrd_self_id(void) { return prh_thrd_self()->thrd_id; }
+prh_inline void *prh_thrd_self_data(void) { return ((prh_user_thrd *)prh_thrd_self())->userdata; }
+prh_inline int prh_thrd_self_id(void) { return prh_thrd_id(prh_thrd_self()); }
 
 prh_inline prh_thrd **prh_thrd_begin(prh_thrds *s) { return &s->main; }
 prh_inline prh_thrd **prh_thrd_end(prh_thrds *s) { return &s->main + s->thrd_max + 1; }
 prh_inline prh_thrd *prh_thrd_get(prh_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= s->thrd_max); return prh_thrd_begin(s)[thrd_index]; /* 0 for main thrd */ }
+prh_inline prh_thrd *prh_thrd_get_with_end(prh_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= s->thrd_max + 1); return prh_thrd_begin(s)[thrd_index]; /* 0 for main thrd */ }
 prh_inline prh_thrd *prh_thrd_main(prh_thrds *s) { return s->main; }
 prh_inline void *prh_thrd_main_data(prh_thrds *s) { return ((prh_user_thrd *)prh_thrd_main(s))->userdata; }
-prh_inline int prh_thrd_main_id(prh_thrds *s) { return prh_thrd_main(s)->thrd_id; }
-#define prh_thrd_index(thrds, thrd) ((thrd)->thrd_id - prh_thrd_main_id(thrds))
+prh_inline int prh_thrd_main_id(prh_thrds *s) { return prh_thrd_id(prh_thrd_main(s)); }
+#define prh_thrd_index(thrds, thrd) (prh_thrd_id(thrd) - prh_thrd_main_id(thrds))
 
 prh_thrds *prh_thrd_init(int start_id, int thrd_max, void *main_userdata); // 使用 prh_thrd_main_data() 获取主线程的 userdata
 prh_thrds *prh_thrd_init_with_size(int start_id, int thrd_max, prh_int main_thrd_size);
@@ -7590,18 +7595,19 @@ void prh_thrd_exit(int exit_code);
 #define prh_simp_thrd_for_begin(THRD_TYPE, s, begin, end) {                     \
         THRD_TYPE *it = (THRD_TYPE *)(begin);                                   \
         prh_thrd *prh_impl_e = (end);                                           \
-        for (; it < prh_impl_e; it = prh_simp_thrd_next((s), (prh_thrd *)it)) {
+        for (; (prh_thrd *)it < prh_impl_e; it = (THRD_TYPE *)prh_simp_thrd_next((s), (prh_thrd *)it)) {
 #define prh_simp_thrd_for_end()                                                 \
-        }
+        }                                                                       \
     }
 
 prh_inline prh_thrd *prh_simp_thrd_begin(prh_simple_thrds *s) { return (prh_thrd *)((prh_byte *)s + PRH_SIMPLE_THRD_ALIGNOF); }
 prh_inline prh_thrd *prh_simp_thrd_next(prh_simple_thrds *s, prh_thrd *curr_thrd) { return (prh_thrd *)((prh_byte *)curr_thrd + s->thrd_size); }
-prh_inline prh_thrd *prh_simp_thrd_end(prh_simple_thrds *s) { return (prh_thrd *)((prh_byte *)prh_simp_thrd_begin() + (s->thrd_max + 1) * s->thrd_size); }
+prh_inline prh_thrd *prh_simp_thrd_end(prh_simple_thrds *s) { return (prh_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + (s->thrd_max + 1) * s->thrd_size); }
 prh_inline prh_thrd *prh_simp_thrd_get(prh_simple_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= s->thrd_max); return (prh_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + thrd_index * s->thrd_size); /* 0 for main thrd */ }
+prh_inline prh_thrd *prh_simp_thrd_get_with_end(prh_simple_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= s->thrd_max + 1); return (prh_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + thrd_index * s->thrd_size); /* 0 for main thrd */ }
 prh_inline prh_thrd *prh_simp_thrd_main(prh_simple_thrds *s) { return prh_simp_thrd_begin(s); }
-prh_inline int prh_simp_thrd_main_id(prh_simple_thrds *s) { return prh_simp_thrd_main(s)->thrd_id; }
-#define prh_simp_thrd_index(simple_thrds, thrd) ((thrd)->thrd_id - prh_simp_thrd_main_id(simple_thrds))
+prh_inline int prh_simp_thrd_main_id(prh_simple_thrds *s) { return prh_thrd_id(prh_simp_thrd_main(s)); }
+#define prh_simp_thrd_index(simple_thrds, thrd) (prh_thrd_id(thrd) - prh_simp_thrd_main_id(simple_thrds))
 
 prh_simple_thrds *prh_simp_thrd_init(int start_id, int thrd_max, prh_int thrd_size);
 void *prh_simp_thrd_create(prh_simple_thrds *s); // 仅创建线程，创建之后可以自由初始化，然后使用 prh_thrd_sched() 启动线程
@@ -7637,7 +7643,7 @@ typedef struct prh_cond_sleep prh_cond_sleep;
 prh_cond_sleep *prh_init_cond_sleep(void);
 void prh_free_cond_sleep(prh_cond_sleep *p);
 void prh_thrd_cond_sleep(prh_cond_sleep *p);
-void prh_thrd_try_sleep(prh_cond_sleep *p);
+bool prh_thrd_try_sleep(prh_cond_sleep *p);
 void prh_thrd_wakeup(prh_cond_sleep *p);
 
 #define prh_thrd_cond_wait(p, cond) {                                           \
@@ -7682,10 +7688,10 @@ prh_ptr prh_impl_plat_cond_timed_msec(prh_i64 *ptr, prh_u32 msec);
 #ifdef PRH_THRD_IMPLEMENTATION
 void prh_impl_plat_print_thrd_info(prh_thrd *thrd);
 void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size);
-void prh_impl_plat_thrd_join(prh_ptr thrd_impl_hdl, int thrd_id);
+void prh_impl_plat_thrd_join(prh_thrd *thrd);
 prh_ptr prh_impl_plat_thrd_self(void);
 
-void prh_impl_thrd_mutex_init(prh_thrd_mutex *p)
+void prh_impl_thrd_mutex_init(prh_thrd_mutex *p);
 void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p);
 void prh_impl_thrd_mutex_free(prh_thrd_mutex *p);
 void prh_impl_thrd_cond_init(prh_thrd_cond *p);
@@ -7707,7 +7713,7 @@ int prh_impl_thrd_start_proc(prh_thrd *thrd) {
 #if PRH_THRD_DEBUG
     prh_impl_plat_print_thrd_info(thrd);
 #endif
-    thrd->extra_ptr = prh_null; // 可以在用户线程函数中重用 extra_ptr
+    thrd->extra_ptr = 0; // 可以在用户线程函数中重用 extra_ptr
     return proc(thrd);
 }
 
@@ -7727,7 +7733,7 @@ prh_unt prh_impl_simp_thrds_size(int thrd_max, prh_int thrd_size) {
 }
 
 prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size) {
-    prh_int thrd_size = prh_impl_thrd_size(thrd_size);
+    thrd_size = prh_impl_thrd_size(thrd_size);
     prh_thrd *thrd = prh_cache_line_aligned_malloc(thrd_size);
     assert(thrd != prh_null);
     memset(thrd, 0, thrd_size);
@@ -7760,8 +7766,8 @@ prh_thrds *prh_thrd_init(int start_id, int thrd_max, void *main_userdata) {
     return s;
 }
 
-prh_simple_thrds *prh_simp_thrd_init(int start_id, int thrd_max, prh_int all_thrd_size) {
-    prh_int thrd_size = prh_impl_thrd_size(all_thrd_size);
+prh_simple_thrds *prh_simp_thrd_init(int start_id, int thrd_max, prh_int each_thrd_size) {
+    prh_int thrd_size = prh_impl_thrd_size(each_thrd_size);
     prh_unt simp_thrds_size = prh_impl_simp_thrds_size(thrd_max, thrd_size);
     prh_simple_thrds *s = prh_cache_line_aligned_malloc(simp_thrds_size);
     assert(s != prh_null);
@@ -7777,10 +7783,12 @@ prh_simple_thrds *prh_simp_thrd_init(int start_id, int thrd_max, prh_int all_thr
 
 prh_thrd *prh_impl_create_and_set(prh_thrds *s, prh_int thrd_size) {
     int thrd_index = 1; // 从非主线程开始查找空线程
+    prh_thrd *created_thrd;
+    prh_thrd **thrd_pptr;
     if (s->thrd_end) {
-        prh_thrd **s = prh_thrd_begin(s)
+        thrd_pptr = prh_thrd_begin(s);
         for (; thrd_index <= s->thrd_max; thrd_index += 1) {
-            if (*(s + thrd_index) == prh_null) {
+            if (*(thrd_pptr + thrd_index) == prh_null) {
                 s->thrd_cnt += 1;
                 goto label_find_empty_thrd;
             }
@@ -7795,16 +7803,16 @@ prh_thrd *prh_impl_create_and_set(prh_thrds *s, prh_int thrd_size) {
     }
     prh_abort_error(__LINE__);
 label_find_empty_thrd:
-    prh_thrd *thrd = prh_impl_thrd_create(prh_thrd_main_id(s) + thrd_index, thrd_size);
-    prh_thrd_begin(s)[thrd_index] = thrd;
-    return thrd;
+    created_thrd = prh_impl_thrd_create(prh_thrd_main_id(s) + thrd_index, thrd_size);
+    prh_thrd_begin(s)[thrd_index] = created_thrd;
+    return created_thrd;
 }
 
 int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, prh_int stack_size, void *userdata) {
     prh_user_thrd *thrd = (prh_user_thrd *)prh_impl_create_and_set(s, sizeof(prh_user_thrd));
     thrd->userdata = userdata;
-    prh_impl_plat_thrd_start(thrd, proc, stack_size);
-    return prh_thrd_index(s, thrd);
+    prh_impl_plat_thrd_start((prh_thrd *)thrd, proc, stack_size);
+    return prh_thrd_index(s, (prh_thrd *)thrd);
 }
 
 void *prh_thrd_create(prh_thrds *s, prh_int thrd_size) {
@@ -7814,19 +7822,20 @@ void *prh_thrd_create(prh_thrds *s, prh_int thrd_size) {
 
 int prh_thrd_sched(prh_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size) {
     prh_impl_plat_thrd_start(created_thrd, proc, stack_size);
-    return prh_thrd_index(s, created_thrd);
+    return prh_thrd_index(s, (prh_thrd *)created_thrd);
 }
 
 void *prh_simp_thrd_create(prh_simple_thrds *s) {
     prh_thrd *thrd = prh_null;
+    int thrd_index = 1;
     if (s->thrd_end) {
-        prh_simp_thrd_for_begin(prh_thrd, s, prh_simp_thrd_get(s, 1), prh_simp_thrd_end(s))
-            if (it->created == 0) {
+        thrd = prh_simp_thrd_get_with_end(s, thrd_index);
+        for (; thrd_index <= s->thrd_max; thrd_index += 1, thrd = prh_simp_thrd_next(s, thrd)) {
+            if (thrd->created == 0) {
                 s->thrd_cnt += 1;
-                thrd = it;
                 goto label_find_empty_thrd;
             }
-        prh_simp_thrd_for_end()
+        }
     } else {
         assert(s->thrd_cnt >= 0 && s->thrd_cnt < s->thrd_max);
         thrd_index = ++s->thrd_cnt;
@@ -7839,18 +7848,19 @@ void *prh_simp_thrd_create(prh_simple_thrds *s) {
     prh_abort_error(__LINE__);
 label_find_empty_thrd:
     thrd->created = 1;
+    thrd->thrd_id = prh_simp_thrd_main_id(s) + thrd_index;
     return thrd;
 }
 
 int prh_simp_thrd_sched(prh_simple_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size) {
     prh_impl_plat_thrd_start(created_thrd, proc, stack_size);
-    return prh_simp_thrd_index(s, created_thrd);
+    return prh_simp_thrd_index(s, (prh_thrd *)created_thrd);
 }
 
 void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t thrd_free) {
     prh_thrd *thrd = thrd_list[thrd_index];
     if (thrd == prh_null) return;
-    prh_impl_plat_thrd_join(thrd->impl_hdl_, thrd->thrd_id);
+    prh_impl_plat_thrd_join(thrd);
     if (thrd_free) {
         thrd_free(thrd, thrd_index);
     }
@@ -7898,7 +7908,7 @@ void prh_thrd_free(prh_thrds **main, prh_thrdfree_t thrd_free) {
 
 void prh_impl_simp_thrd_join(prh_thrd *thrd, int thrd_index, prh_thrdfree_t thrd_free) {
     if (thrd->created == 0) return;
-    prh_impl_plat_thrd_join(thrd->impl_hdl_, thrd->thrd_id);
+    prh_impl_plat_thrd_join(thrd);
     if (thrd_free) {
         thrd_free(thrd, thrd_index);
     }
@@ -7913,7 +7923,7 @@ void prh_simp_thrd_join(prh_simple_thrds *s, int thrd_index, prh_thrdfree_t thrd
 
 void prh_simp_thrd_join_except_main(prh_simple_thrds *s, prh_thrdfree_t thrd_free) {
     int thrd_index = 1;
-    prh_simp_thrd_for_begin(prh_thrd, s, prh_simp_thrd_get(s, thrd_index), prh_simp_thrd_end(s))
+    prh_simp_thrd_for_begin(prh_thrd, s, prh_simp_thrd_get_with_end(s, thrd_index), prh_simp_thrd_end(s))
         prh_impl_simp_thrd_join(it, thrd_index++, thrd_free);
     prh_simp_thrd_for_end()
     s->thrd_cnt = 0;
@@ -7921,14 +7931,14 @@ void prh_simp_thrd_join_except_main(prh_simple_thrds *s, prh_thrdfree_t thrd_fre
 }
 
 void prh_simp_thrd_jall(prh_simple_thrds **main, prh_thrdfree_t thrd_free) {
-    prh_thrds *s = *main;
+    prh_simple_thrds *s = *main;
     if (s == prh_null) return;
     prh_simp_thrd_join_except_main(s, thrd_free);
-    prh_thrd_free(main, thrd_free);
+    prh_simp_thrd_free(main, thrd_free);
 }
 
 void prh_simp_thrd_free(prh_simple_thrds **main, prh_thrdfree_t thrd_free) {
-    prh_thrds *s = *main;
+    prh_simple_thrds *s = *main;
     if (s == prh_null) return;
     prh_thrd *main_thrd = prh_simp_thrd_main(s);
     if (main_thrd->created) {
@@ -8098,7 +8108,7 @@ void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
     prh_int stack_size = stack_high_limit - stack_low_limit;
     SYSTEM_INFO info;
     GetSystemInfo(&info);
-    printf("[thrd %02d] stack %p %p %d-byte (%dKB) guard %d-byte\n",
+    printf("[thrd %02d] %p %p stack %d-byte (%dKB) guard %d-byte\n",
         prh_thrd_id(thrd), (void *)stack_low_limit, (void *)stack_high_limit,
         (int)stack_size, (int)(stack_size/1024), (int)info.dwPageSize);
 }
@@ -8205,12 +8215,13 @@ void prh_impl_close_handle(HANDLE handle) {
     PRH_BOOLRET_OR_ERROR(CloseHandle(handle));
 }
 
-void prh_impl_plat_thrd_join(prh_ptr thrd_impl_hdl, int thrd_id) {
-    DWROD n = WaitForSingleObject((HANDLE)thrd_impl_hdl, INFINITE);
+void prh_impl_plat_thrd_join(prh_thrd *thrd) {
+    HANDLE thrd_impl_hdl = (HANDLE)thrd->impl_hdl_;
+    DWROD n = WaitForSingleObject(thrd_impl_hdl, INFINITE);
     int exit_code = 0;
     if (n == WAIT_OBJECT_0) {
         DWORD ExitCode;
-        if (GetExitCodeThread((HANDLE)thrd_impl_hdl, &ExitCode)) {
+        if (GetExitCodeThread(thrd_impl_hdl, &ExitCode)) {
             exit_code = (int)ExitCode;
             goto label_close_handle;
         }
@@ -8221,15 +8232,14 @@ void prh_impl_plat_thrd_join(prh_ptr thrd_impl_hdl, int thrd_id) {
     prh_prerr(GetLastError());
 label_close_handle:
     // 终止线程并不一定会从操作系统中删除线程对象，当线程的最后一个句柄被关闭时，线程对象才会被删除。
-    prh_impl_close_handle((HANDLE)thrd_impl_hdl);
+    prh_impl_close_handle(thrd_impl_hdl);
 #if PRH_THRD_DEBUG
-    printf("[thrd %02d] joined %d\n", thrd_id, exit_code);
+    printf("[thrd %02d] joined %d\n", prh_thrd_id(thrd), exit_code);
 #else
     if (exit_code != 0) {
-        prh_print_exit_code(thrd_id, exit_code);
+        prh_print_exit_code(prh_thrd_id(thrd), exit_code);
     }
 #endif
-    return exit_code;
 }
 
 prh_ptr prh_impl_plat_thrd_self(void) {
@@ -8370,11 +8380,6 @@ void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
     p->wakeup_semaphore = 0;
 }
 
-void prh_impl_init_cond_sleep(prh_cond_sleep *p) {
-    prh_impl_plat_cond_init((prh_thrd_cond *)p);
-    prh_atom_bool_init(&p->wakeup_semaphore, false);
-}
-
 prh_thrd_cond *prh_thrd_cond_init(void) {
     prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
     assert(p != prh_null);
@@ -8451,6 +8456,14 @@ void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
     }
 }
 
+// TODO: 使用 WaitOnAddress() 重新实现 thrd cond sleep
+// https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitonaddress
+
+void prh_impl_init_cond_sleep(prh_cond_sleep *p) {
+    prh_impl_plat_cond_init((prh_thrd_cond *)p);
+    prh_atom_bool_init(&p->wakeup_semaphore, false);
+}
+
 prh_cond_sleep *prh_init_cond_sleep(void) {
     prh_cond_sleep *p = prh_malloc(sizeof(prh_cond_sleep));
     assert(p != prh_null);
@@ -8492,6 +8505,8 @@ void prh_thrd_wakeup(prh_cond_sleep *p) {
     prh_thrd_cond_unlock((prh_thrd_cond *)p);
     prh_zeroret(pthread_cond_signal(&p->cond));
 }
+
+// TODO: 实现 windows 版本 prh_thrd_sleep()
 
 void prh_system_info(prh_sys_info *info) {
     // typedef struct _SYSTEM_INFO {
@@ -9196,7 +9211,7 @@ void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
     prh_zeroret(pthread_attr_getguardsize(&attr, &guard_size));
     prh_zeroret(pthread_attr_destroy(&attr));
     // stackaddr 是内存块的起始地址，一般对齐到内存页面大小边界，stacksize 是内存页面的整数倍
-    printf("[thrd %02d] stack %p %d-byte (%dKB) guard %d-byte (%dKB)\n",
+    printf("[thrd %02d] %p stack %d-byte (%dKB) guard %d-byte (%dKB)\n",
         prh_thrd_id(thrd), stackaddr, (int)stacksize, (int)(stacksize/1024),
         (int)guard_size, (int)(guard_size/1024));
 }
@@ -9208,7 +9223,7 @@ void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
 #endif
 
 static void *prh_impl_plat_thrd_procedure(void *param) {
-    return (void *)prh_impl_thrd_start_proc((prh_thrd *)param);
+    return (void *)(prh_int)prh_impl_thrd_start_proc((prh_thrd *)param);
 }
 
 prh_int prh_impl_thread_stack_size(prh_int stacksize) { // 改进：因为线程栈最小为16KB，当线程用来执行协程时，将主协程需要的除外可以直接拿来当子协程的栈用
@@ -9227,7 +9242,7 @@ prh_int prh_impl_thread_stack_size(prh_int stacksize) { // 改进：因为线程
 }
 
 void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stacksize) {
-    // 1. stacksize 最小 16KB，必须是页面大小的整数倍，默认值一般是 2MB，线程的栈大小在创建线程时就已固定，只有主线程的栈可以动态增长
+    // 1. stacksize 最小 16KB，必须是页面大小的整数倍，默认值通常是 2MB 到 8MB，线程的栈大小在创建线程时就已固定，只有主线程的栈可以动态增长
     // 2. pthread_attr_setstack() 可以同时控制线程栈的大小和位置，不过设置栈的地址将降低程序的可移植性
     // 3. 指定的 stackaddr 是内存块的起始地址，必须对齐到页面大小的边界，分配的页面必须具有可读可写权限
     // 4. 当应用程序使用 pthread_attr_setstack() 时，它就承担起了分配栈的责任，使用 pthread_attr_setguardsize() 设置的任何警戒区大小值都将被忽略
@@ -9276,13 +9291,14 @@ void prh_thrd_exit(int exit_code) {
     // 当线程组领头线程已调用 pthread_exit() 并死亡时。这可能导致某些问题，例如：
     // 向前台进程发送停止信号，但其线程组领头线程已经调用 pthread_exit()，可能导致终
     // 端被锁死等现象。
-    pthread_exit((void *)exit_code);
+    pthread_exit((void *)(prh_int)exit_code);
 }
 
-void prh_impl_plat_thrd_join(prh_ptr thrd_impl_hdl, int thrd_id) {
+void prh_impl_plat_thrd_join(prh_thrd *thrd) {
     void *retv = prh_null;
     pthread_t tid = *(pthread_t *)&thrd->impl_hdl_;
     int n = pthread_join(tid, &retv); // 返回0或错误码
+    int thrd_id = prh_thrd_id(thrd);
     int exit_code = 0;
     if (n == 0) {
         exit_code = (int)(prh_int)retv;
@@ -9300,7 +9316,6 @@ void prh_impl_plat_thrd_join(prh_ptr thrd_impl_hdl, int thrd_id) {
         prh_print_exit_code(thrd_id, exit_code);
     }
 #endif
-    return exit_code;
 }
 
 prh_ptr prh_impl_plat_thrd_self(void) {
@@ -11178,14 +11193,6 @@ label_continue:
 #endif
 }
 
-void prh_set_fault_handler(prh_thrd *thrd, bool main_thrd) {
-    static bool fault_handler_set = false;
-    if (main_thrd && !fault_handler_set) {
-        prh_main_sigaction();
-        fault_handler_set = true;
-    }
-}
-
 // 互斥量类型，PTHREAD_MUTEX_NORMAL 不具死锁自检功能，线程加锁已经由自己锁定的互斥量
 // 会发生死锁，线程解锁未锁定的或由其他线程锁定的互斥量会导致不确定的结果，但在Linux上
 // 对这类互斥量的这两种操作都会成功。
@@ -11695,6 +11702,14 @@ void prh_system_info(prh_sys_info *info) {
 #endif
 }
 
+void prh_set_fault_handler(prh_thrd *thrd, bool main_thrd) {
+    static bool fault_handler_set = false;
+    if (main_thrd && !fault_handler_set) {
+        prh_main_sigaction();
+        fault_handler_set = true;
+    }
+}
+
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <sys/resource.h> // getrlimit POSIX.1-2008
 // In SUSv2 the getpagesize() call was labeled LEGACY, and it was removed in
@@ -11953,20 +11968,20 @@ prh_inline bool prh_impl_cono_finished(prh_real_cono *cono) {
     return prh_impl_coro_from_cono(cono)->rspoffset == 0;
 }
 
-struct prh_cono_thrd {
-    prh_int cono_thrd_index;
-    prh_real_cono *grabbed_cono;
+struct prh_cono_thrd prh_thrd_struct(
+    bool thrd_pending_work;
     prh_atom_hive_fbqfix free_block_q;
     prh_atom_hive_quefix cono_req_que; // 由当前线程写入，由特权线程读取
     prh_atom_hive_quefix post_req_que;
     prh_atom_ptr ready_cono; // 由特权线程写入，由特权线程窃取清空，或由当前协程读取清空
     prh_cond_sleep cond_sleep;
-}; // 每个线程尽量指定在单一的CPU上运行避免线程切换
+); // 每个线程尽量指定在单一的CPU上运行避免线程切换
 
-#define prh_impl_cono_thrd_size (int)sizeof(prh_cono_thrd)
+prh_real_cono **prh_impl_thrd_grabbed_cono(prh_cono_thrd *thrd) {
+    return (prh_real_cono **)&thrd->extra_ptr;
+}
 
-void prh_impl_cono_thrd_init(prh_cono_thrd *thrd, int thrd_index) {
-    thrd->cono_thrd_index = thrd_index;
+void prh_impl_cono_thrd_init(prh_cono_thrd *thrd) {
     prh_atom_hive_fbqfix_init(&thrd->free_block_q);
     prh_atom_hive_quefix_init(&thrd->cono_req_que, &thrd->free_block_q);
     prh_atom_hive_quefix_init(&thrd->post_req_que, &thrd->free_block_q);
@@ -11974,15 +11989,15 @@ void prh_impl_cono_thrd_init(prh_cono_thrd *thrd, int thrd_index) {
     prh_impl_init_cond_sleep(&thrd->cond_sleep);
 }
 
-void prh_impl_cono_thrd_free(void *userdata, int thrd_index) {
-    prh_cono_thrd *thrd = userdata;
-    prh_real_assert(prh_atom_hive_quefix_empty(&thrd->cono_req_que));
-    prh_real_assert(prh_atom_hive_quefix_empty(&thrd->post_req_que));
-    prh_real_assert(prh_atom_ptr_read(&thrd->ready_cono) == prh_null);
-    prh_atom_hive_quefix_free(&thrd->cono_req_que);
-    prh_atom_hive_quefix_free(&thrd->post_req_que);
-    prh_atom_hive_fbqfix_free(&thrd->free_block_q);
-    prh_impl_free_cond_sleep(&thrd->cond_sleep);
+void prh_impl_cono_thrd_free(prh_thrd *thrd, int thrd_index) {
+    prh_cono_thrd *cono_thrd = (prh_cono_thrd *)thrd;
+    prh_real_assert(prh_atom_hive_quefix_empty(&cono_thrd->cono_req_que));
+    prh_real_assert(prh_atom_hive_quefix_empty(&cono_thrd->post_req_que));
+    prh_real_assert(prh_atom_ptr_read(&cono_thrd->ready_cono) == prh_null);
+    prh_atom_hive_quefix_free(&cono_thrd->cono_req_que);
+    prh_atom_hive_quefix_free(&cono_thrd->post_req_que);
+    prh_atom_hive_fbqfix_free(&cono_thrd->free_block_q);
+    prh_impl_free_cond_sleep(&cono_thrd->cond_sleep);
 }
 
 typedef enum {
@@ -11992,14 +12007,12 @@ typedef enum {
 } prh_impl_cono_id;
 
 typedef struct {
-    prh_thrds *thrds; // 初始化后只读
-    prh_cono_thrd *main_thread; // 初始化后只读
+    prh_simple_thrds *thrds; // 初始化后只读
     prh_real_cono *main_entry_cono; // 初始化后只读
     prh_real_cono *fixed_cono[PRH_FIXED_CONO_MAX]; // 初始化后只读
     // 仅特权线程读写
     prh_cono_quefit ready_queue;
     prh_i32 cono_id_seed;
-    prh_i32 num_thread;
     // 多线程读写
     prh_atom_ptr privilege_thread;
     prh_atom_bool term_signal;
@@ -12032,14 +12045,12 @@ prh_real_cono *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, void *u
     return prh_impl_cono_from_coro(coro);
 }
 
-prh_cono_struct *prh_impl_cono_struct_init(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
+prh_cono_struct *prh_impl_cono_struct_init(int thrd_start_id, int num_threads, prh_conoproc_t main_proc, int stack_size) {
     prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
-    prh_thrds *thrds = prh_thrd_init_with_size(thrd_start_id, num_thread, prh_impl_cono_thrd_size);
+    prh_simple_thrds *thrds = prh_simp_thrd_init(thrd_start_id, num_threads, sizeof(prh_cono_thrd));
     s->thrds = thrds;
-    s->main_thread = prh_impl_cono_thrd(thrds->main);
     s->main_entry_cono = prh_impl_cono_create(main_proc, stack_size, 0);
-    s->num_thread = num_thread;
-    prh_impl_cono_thrd_init(s->main_thread, 0);
+    prh_impl_cono_thrd_init((prh_cono_thrd *)prh_simp_thrd_main(thrds));
     prh_atom_ptr_init(&s->privilege_thread, prh_null);
     prh_atom_bool_init(&s->term_signal, false);
     prh_atom_int_init(&s->num_sleep, 0);
@@ -12065,7 +12076,7 @@ void prh_impl_cono_struct_free(void) {
         if (fixed_cono) prh_impl_cono_free(fixed_cono);
     }
     prh_impl_cono_free(s->main_entry_cono);
-    prh_thrd_free(&PRH_IMPL_CONO_STRUCT.thrds, prh_impl_cono_thrd_free);
+    prh_simp_thrd_free(&PRH_IMPL_CONO_STRUCT.thrds, prh_impl_cono_thrd_free);
 }
 
 // 要实现无锁且省去N*M爆炸内存，必须有一个线程担任中间角色，请求者与中间角色是一对一的，
@@ -12143,17 +12154,13 @@ const char *prh_impl_yield_state_string(int yield_state) {
     };
     return state_string[yield_state];
 }
-
-int prh_impl_curr_cono_thrd_id(void) {
-    return prh_thrd_id(prh_thrd_self());
-}
 #endif
 
 void prh_impl_send_cono_req(prh_real_cono *req_cono, int yield_state) {
-    prh_cono_thrd *thrd = prh_thrd_self_data();
+    prh_cono_thrd *thrd = (prh_cono_thrd *)prh_thrd_self();
 #if PRH_CONO_DEBUG
     if (yield_state != PRH_CONO_START) { // 需要启动的新建协程的 cono_id 此时还没有分配
-        printf("[thrd %02d] cono %02d request %s\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id, prh_impl_yield_state_string(yield_state));
+        printf("[thrd %02d] cono %02d request %s\n", prh_thrd_self_id(), req_cono->cono_id, prh_impl_yield_state_string(yield_state));
     }
 #endif
     req_cono->yield_state = yield_state;
@@ -12161,7 +12168,7 @@ void prh_impl_send_cono_req(prh_real_cono *req_cono, int yield_state) {
 }
 
 void prh_cono_post(prh_cono_pdata *pdata, prh_byte opcode_i) { // 向目的协程发送数据，目标协程以及目标协程接收数据的子队列信息填写在pdata中
-    prh_cono_thrd *thrd = prh_thrd_self_data();
+    prh_cono_thrd *thrd = (prh_cono_thrd *)prh_thrd_self();
     assert(((prh_ptr)pdata & 0x3) == 0 && opcode_i < sizeof(pdata->opcode));
     prh_atom_hive_quefix_push(&thrd->post_req_que, (void *)(((prh_ptr)pdata) | opcode_i));
 }
@@ -12273,7 +12280,7 @@ void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
         callee->caller = caller;
     }
 #if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d create %p\n", prh_impl_curr_cono_thrd_id(), caller->cono_id, (void *)callee);
+    printf("[thrd %02d] cono %02d create %p\n", prh_thrd_self_id(), caller->cono_id, (void *)callee);
 #endif
     prh_impl_send_cono_req(callee, PRH_CONO_START);
 }
@@ -12300,13 +12307,10 @@ prh_pwait_data prh_cono_pwait(void) { // 等待其他协程发来的请求数据
 }
 
 void prh_impl_cono_wakeup_all_thrd(void) {
-    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
-    prh_thrd **it = prh_thrd_begin(thrds);
-    for (; it < prh_thrd_end(thrds); it += 1) {
-        if (*it == prh_null) continue;
-        prh_cono_thrd *thrd = prh_impl_cono_thrd(*it);
-        prh_thrd_wakeup(&thrd->cond_sleep);
-    }
+    prh_simple_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
+    prh_simp_thrd_for_begin(prh_cono_thrd, thrds, prh_simp_thrd_begin(thrds), prh_simp_thrd_end(thrds))
+        prh_thrd_wakeup(&it->cond_sleep);
+    prh_simp_thrd_for_end()
 }
 
 void prh_impl_cono_term_signal(void) {
@@ -12320,7 +12324,7 @@ void prh_impl_privilege_process_continue_req(prh_real_cono *req_cono, prh_cono_q
             prh_impl_cono_term_signal();
         } else {
 #if PRH_CONO_DEBUG
-            printf("[thrd %02d] cono %02d finished\n", prh_impl_curr_cono_thrd_id(), req_cono->cono_id);
+            printf("[thrd %02d] cono %02d finished\n", prh_thrd_self_id(), req_cono->cono_id);
 #endif
             prh_impl_cono_free(req_cono);
         }
@@ -12337,7 +12341,7 @@ void prh_impl_privilege_process_start_req(prh_real_cono *req_cono, prh_cono_quef
     prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
     callee->assign_thrd = req_cono->assign_thrd;
 #if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d created by cono %02d\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, req_cono->cono_id);
+    printf("[thrd %02d] cono %02d created by cono %02d\n", prh_thrd_self_id(), callee->cono_id, req_cono->cono_id);
 #endif
     prh_relaxed_quefit_push(ready_queue, callee, cono_chain); // 优先调度新建协程
     prh_relaxed_quefit_push(ready_queue, req_cono, cono_chain);
@@ -12347,7 +12351,7 @@ void prh_impl_privilege_process_start_req(prh_real_cono *req_cono, prh_cono_quef
     prh_real_cono *callee = req_cono;
     prh_impl_cono_init(callee, ++PRH_IMPL_CONO_STRUCT.cono_id_seed); // 初始化新协程
 #if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d %p created\n", prh_impl_curr_cono_thrd_id(), callee->cono_id, (void *)callee);
+    printf("[thrd %02d] cono %02d %p created\n", prh_thrd_self_id(), callee->cono_id, (void *)callee);
 #endif
     prh_relaxed_quefit_push(ready_queue, callee, cono_chain);
 }
@@ -12479,13 +12483,14 @@ bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
         return false;
     }
 
+    prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(curr_thrd);
     prev_empty = prh_relaxed_quefit_empty(ready_queue);
 
     prh_atom_hive_quefix_pop_all(&curr_thrd->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
     prh_atom_hive_quefix_pop_all(&curr_thrd->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
-    curr_thrd->grabbed_cono = prh_null;
+    *grabbed_cono = prh_null;
     prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
-    curr_thrd->grabbed_cono = ready_cono;
+    *grabbed_cono = ready_cono;
 
     if (ready_cono && prev_empty && prh_relaxed_quefit_not_empty(ready_queue)) {
         prh_impl_cono_wakeup_all_thrd();
@@ -12493,7 +12498,7 @@ bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
 
 #if PRH_CONO_DEBUG
     if (ready_cono) {
-        printf("[thrd %02d] cono %02d grabbed from thrd %d\n", prh_impl_curr_cono_thrd_id(), ready_cono->cono_id, prh_cono_thrd_id(curr_thrd));
+        printf("[thrd %02d] cono %02d grabbed from thrd %d\n", prh_thrd_self_id(), ready_cono->cono_id, prh_thrd_id(curr_thrd));
     }
 #endif
 
@@ -12504,51 +12509,47 @@ bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
 bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     prh_atom_ptr *privilege_thread = &PRH_IMPL_CONO_STRUCT.privilege_thread;
     prh_cono_quefit *ready_queue = &PRH_IMPL_CONO_STRUCT.ready_queue;
-    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
+    prh_simple_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
+    prh_cono_thrd *main_thrd = (prh_cono_thrd *)prh_simp_thrd_main(thrds);
     prh_real_cono *ready_cono;
-    prh_cono_thrd *thrd;
 
     if (!prh_atom_ptr_weak_write_if_null(privilege_thread, curr_thrd)) { // 获取特权
         return false;
     }
 
+    prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(curr_thrd);
     if (strong_check) {
-        curr_thrd->grabbed_cono = prh_null;
-        *prh_impl_thrd_pending_work(curr_thrd) = false;
+        *grabbed_cono = prh_null;
+        curr_thrd->thrd_pending_work = false;
     }
 
-    prh_thrd **thrd_begin = prh_thrd_begin(thrds);
-    prh_thrd **thrd_end = prh_thrd_end(thrds);
-    prh_thrd **thrd_it = thrd_begin;
+    prh_thrd *thrd_begin = prh_simp_thrd_begin(thrds);
+    prh_thrd *thrd_end = prh_simp_thrd_end(thrds);
+    prh_simp_thrd_for_begin(prh_cono_thrd, thrds, thrd_begin, thrd_end) // 处理特权消息，将就绪协程插入就绪队列
+        if (it->created == 0) continue; // TODO: 原子访问 created
+        prh_atom_hive_quefix_pop_all(&it->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
+        prh_atom_hive_quefix_pop_all(&it->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
+    prh_simp_thrd_for_end()
 
-    for (; thrd_it < thrd_end; thrd_it += 1) { // 处理特权消息，将就绪协程插入就绪队列
-        if (*thrd_it == prh_null) continue;
-        thrd = prh_impl_cono_thrd(*thrd_it);
-        prh_atom_hive_quefix_pop_all(&thrd->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
-        prh_atom_hive_quefix_pop_all(&thrd->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
-    }
-
-    thrd_it = thrd_begin;
+    prh_cono_thrd *thrd_it = (prh_cono_thrd *)thrd_begin;
     for (; ;) { // 将就绪队列中的协程分配给线程执行
         prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
         if (ready_cono == prh_null) break;
-        thrd = ready_cono->assign_thrd;
-        if (thrd && prh_atom_ptr_strong_write_if_null(&thrd->ready_cono, ready_cono)) {
+        prh_cono_thrd *thrd = ready_cono->assign_thrd;
+        if (thrd && thrd->created && prh_atom_ptr_strong_write_if_null(&thrd->ready_cono, ready_cono)) {
 #if PRH_CONO_DEBUG
-            printf("[thrd %02d] cono %02d => orig thrd %02d\n", prh_impl_curr_cono_thrd_id(), ready_cono->cono_id, prh_cono_thrd_id(thrd));
+            printf("[thrd %02d] cono %02d => orig thrd %02d\n", prh_thrd_self_id(), ready_cono->cono_id, prh_thrd_id(thrd));
 #endif
             prh_thrd_wakeup(&thrd->cond_sleep);
             continue; // 尽量将协程分配在同一个线程中执行，保证空间访问局部性
         }
-        for (; thrd_it < thrd_end; thrd_it += 1) { // 将协程分配给空闲线程
-            if (*thrd_it == prh_null) continue;
-            thrd = prh_impl_cono_thrd(*thrd_it);
-            if (prh_atom_ptr_strong_write_if_null(&thrd->ready_cono, ready_cono)) {
-                ready_cono->assign_thrd = thrd;
+        for (; (prh_thrd *)thrd_it < thrd_end; thrd_it = (prh_cono_thrd *)prh_simp_thrd_next(thrds, (prh_thrd *)thrd_it)) { // 将协程分配给空闲线程
+            if (thrd_it->created && prh_atom_ptr_strong_write_if_null(&thrd_it->ready_cono, ready_cono)) {
+                ready_cono->assign_thrd = thrd_it;
 #if PRH_CONO_DEBUG
-                printf("[thrd %02d] cono %02d => idle thrd %02d\n", prh_impl_curr_cono_thrd_id(), ready_cono->cono_id, prh_cono_thrd_id(thrd));
+                printf("[thrd %02d] cono %02d => idle thrd %02d\n", prh_thrd_self_id(), ready_cono->cono_id, prh_thrd_id(thrd_it));
 #endif
-                prh_thrd_wakeup(&thrd->cond_sleep);
+                prh_thrd_wakeup(&thrd_it->cond_sleep);
                 ready_cono = prh_null;
                 break;
             }
@@ -12559,25 +12560,23 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
         }
     }
 
-    if (strong_check && curr_thrd != PRH_IMPL_CONO_STRUCT.main_thread && !curr_thrd->ready_cono) { // 如果当前线程没有分配到协程，从其他线程争抢已分配的协程来执行
-        thrd_it = thrd_begin; // 主线程不需要争抢任务，如果就绪队列里面有任务，第一个分配的线程就是主线程，如果就绪队列里已经没有任务了，表示任务都已经分配完毕了，不需要主线程帮忙
-        for (; thrd_it < thrd_end; thrd_it += 1) {
-            if (*thrd_it == prh_null) continue;
-            thrd = prh_impl_cono_thrd(*thrd_it);
-            if ((ready_cono = prh_atom_ptr_read(&thrd->ready_cono)) && prh_atom_ptr_weak_write(&thrd->ready_cono, (void **)&ready_cono, prh_null)) {
+    if (strong_check && curr_thrd != main_thrd && !curr_thrd->ready_cono) { // 如果当前线程没有分配到协程，从其他线程争抢已分配的协程来执行
+        thrd_it = (prh_cono_thrd *)thrd_begin; // 主线程不需要争抢任务，如果就绪队列里面有任务，第一个分配的线程就是主线程，如果就绪队列里已经没有任务了，表示任务都已经分配完毕了，不需要主线程帮忙
+        for (; (prh_thrd *)thrd_it < thrd_end; (prh_cono_thrd *)prh_simp_thrd_next(thrds, (prh_thrd *)thrd_it)) {
+            if (thrd_it->created && (ready_cono = prh_atom_ptr_read(&thrd_it->ready_cono)) && prh_atom_ptr_weak_write(&thrd_it->ready_cono, (void **)&ready_cono, prh_null)) {
 #if PRH_CONO_DEBUG
-                printf("[thrd %02d] cono %02d grabbed from thrd %d\n", prh_impl_curr_cono_thrd_id(), ready_cono->cono_id, prh_cono_thrd_id(thrd));
+                printf("[thrd %02d] cono %02d grabbed from thrd %d\n", prh_thrd_self_id(), ready_cono->cono_id, prh_thrd_id(thrd_it));
 #endif
-                curr_thrd->grabbed_cono = ready_cono; // 不赋值给 curr_thrd->ready_cono 是避免刚抢的协程又被别的线程抢掉
+                *grabbed_cono = ready_cono; // 不赋值给 curr_thrd->ready_cono 是避免刚抢的协程又被别的线程抢掉
                 ready_cono->assign_thrd = curr_thrd;
                 break;
             }
         }
     }
 
-    if (strong_check && curr_thrd == PRH_IMPL_CONO_STRUCT.main_thread) {
+    if (strong_check && curr_thrd == main_thrd) {
         if (curr_thrd->ready_cono) {
-            *prh_impl_thrd_pending_work(curr_thrd) = true;
+            curr_thrd->thrd_pending_work = true;
         } else {
             // 如果不进行下面的检查，会发生所有线程都睡眠的情况，例如：
             // 1. 主线程唤醒，抢到特权，将一个子协程分配给第二个线程处理
@@ -12585,12 +12584,10 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
             // 3. 第二个线程唤醒，处理入口协程，创建一个新协程到消息队列，因为抢不到特权而睡眠
             // 4. 主线程处理完特权任务后，没有检查各线程中是否还有等待的消息，就退出特权然后睡眠
             // 5. 此时所有线程都睡眠，但线程中还有特处理的消息
-            thrd_it = thrd_begin;
-            for (; thrd_it < thrd_end; thrd_it += 1) {
-                if (*thrd_it == prh_null) continue;
-                thrd = prh_impl_cono_thrd(*thrd_it); // 查看各线程是否还有遗留的未处理的消息
-                if (!prh_atom_hive_quefix_empty(&thrd->cono_req_que) || !prh_atom_hive_quefix_empty(&thrd->post_req_que)) {
-                    *prh_impl_thrd_pending_work(curr_thrd) = true;
+            thrd_it = (prh_cono_thrd *)thrd_begin;
+            for (; (prh_thrd *)thrd_it < thrd_end; (prh_cono_thrd *)prh_simp_thrd_next(thrds, (prh_thrd *)thrd_it)) { // 查看各线程是否还有遗留的未处理的消息
+                if (thrd_it->created && (!prh_atom_hive_quefix_empty(&thrd_it->cono_req_que) || !prh_atom_hive_quefix_empty(&thrd_it->post_req_que))) {
+                    curr_thrd->thrd_pending_work = true;
                     break;
                 }
             }
@@ -12603,13 +12600,10 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
 
 void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
     prh_coro *coro = prh_impl_coro_from_cono(cono);
-#if PRH_CONO_DEBUG
-    printf("[thrd %02d] cono %02d start running\n", thrd_id, cono->cono_id);
-#endif
     // 继续执行协程，协程每次挂起时都会设置原因（YIELD/AWAIT/PWAIT）
     prh_byte prev_yield_state = cono->yield_state;
     PRH_IMPL_CONO_SELF = cono;
-    prh_impl_soro_start(thrd_id, coro); // 继续执行当前协程，直到协程再次挂起
+    prh_impl_soro_start(thrd_id, cono->cono_id, coro); // 继续执行当前协程，直到协程再次挂起
     PRH_IMPL_CONO_SELF = prh_null;
     if (prev_yield_state == PRH_CONO_AWAIT) { // 上次挂起之后这次继续执行，是因为等到了子协程的执行结果，此次继续执行需要读取子协程的执行结果，读取完毕之后此次执行过程可以立即调用prh_impl_callee_continue()让子协程继续执行
         prh_impl_callee_continue(cono); // 如果在执行过程中没有调用prh_impl_callee_continue()，这里提供了最后的保底机会继续让协程执行
@@ -12618,10 +12612,11 @@ void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
     prh_impl_send_cono_req(cono, cono->yield_state);
 }
 
-prh_ptr prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
-    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
+int prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
+    prh_cono_thrd *cono_thrd = (prh_cono_thrd *)thrd;
     prh_atom_bool *term_signal = &PRH_IMPL_CONO_STRUCT.term_signal;
     prh_atom_int *num_sleep = &PRH_IMPL_CONO_STRUCT.num_sleep;
+    prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(cono_thrd);
     int thrd_id = prh_thrd_id(thrd);
     prh_debug(int privilege_acquire_count = 0);
 
@@ -12630,8 +12625,8 @@ prh_ptr prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
             prh_debug(privilege_acquire_count += 1);
             prh_thrd_sleep(0, 0);
         }
-        if (cono_thrd->grabbed_cono) {
-            prh_impl_cono_execute(thrd_id, cono_thrd->grabbed_cono);
+        if (*grabbed_cono) {
+            prh_impl_cono_execute(thrd_id, *grabbed_cono);
             continue;
         }
         if (prh_atom_bool_read(term_signal)) {
@@ -12651,10 +12646,11 @@ prh_ptr prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
     return 0;
 }
 
-prh_ptr prh_impl_cono_thrd_proc(prh_thrd* thrd) {
-    prh_cono_thrd *cono_thrd = prh_impl_cono_thrd(thrd);
-    prh_cono_thrd *main_thrd = PRH_IMPL_CONO_STRUCT.main_thread;
+int prh_impl_cono_thrd_proc(prh_thrd* thrd) {
+    prh_cono_thrd *cono_thrd = (prh_cono_thrd *)thrd;
+    prh_cono_thrd *main_thrd = (prh_cono_thrd *)prh_simp_thrd_main(PRH_IMPL_CONO_STRUCT.thrds);
     prh_atom_ptr *thrd_ready_cono = &cono_thrd->ready_cono;
+    prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(cono_thrd);
     prh_real_cono *ready_cono;
     bool req_que_not_empty;
     int thrd_id = prh_thrd_id(thrd);
@@ -12678,8 +12674,8 @@ label_cont_execute:
                 prh_impl_privilege_task(cono_thrd, false);
             }
         }
-        if (prh_impl_privilege_task(cono_thrd, true) && cono_thrd->grabbed_cono) {
-            prh_impl_cono_execute(thrd_id, cono_thrd->grabbed_cono);
+        if (prh_impl_privilege_task(cono_thrd, true) && *grabbed_cono) {
+            prh_impl_cono_execute(thrd_id, *grabbed_cono);
         }
         if ((ready_cono = prh_atom_ptr_read(thrd_ready_cono))) {
             goto label_cont_execute; // 被安排新任务，或在没抢到特权的情况下，可能被其他特权线程安排任务
@@ -12714,8 +12710,9 @@ label_cont_execute:
 }
 
 void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
-    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
-    int thrd_id = prh_cono_thrd_id(main_thrd);
+    prh_simple_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
+    prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(main_thrd);
+    int thrd_id = prh_thrd_id(main_thrd);
     prh_debug(int privilege_acquire_count = 0);
 
     for (; ;) {
@@ -12723,15 +12720,15 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
             prh_debug(privilege_acquire_count += 1);
             prh_thrd_sleep(0, 0);
         }
-        if (main_thrd->grabbed_cono) {
-            prh_impl_cono_execute(thrd_id, main_thrd->grabbed_cono);
+        if (*grabbed_cono) {
+            prh_impl_cono_execute(thrd_id, *grabbed_cono);
             continue;
         }
         if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.term_signal)) {
             if (!prh_thrd_try_sleep(&main_thrd->cond_sleep)) {
                 continue;
             }
-            prh_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
+            prh_simp_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
 #if PRH_CONO_DEBUG
             printf("[thrd %02d] exit\n", thrd_id);
 #endif
@@ -12745,9 +12742,9 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
 }
 
 void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
-    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
+    prh_simple_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
     prh_atom_ptr *thrd_ready_cono = &main_thrd->ready_cono;
-    int thrd_id = prh_cono_thrd_id(main_thrd);
+    int thrd_id = prh_thrd_id(main_thrd);
     prh_real_cono *ready_cono;
 
     for (; ;) {
@@ -12758,14 +12755,14 @@ void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
             prh_impl_privilege_task(main_thrd, false);
         }
         while (!prh_impl_privilege_task(main_thrd, true)) ; // 为了兜底，主线程必须抢到一次特权
-        if (*prh_impl_thrd_pending_work(main_thrd)) {
+        if (main_thrd->thrd_pending_work) {
             continue;
         }
         if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.term_signal)) {
             if (!prh_thrd_try_sleep(&main_thrd->cond_sleep)) {
                 continue;
             }
-            prh_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
+            prh_simp_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
 #if PRH_CONO_DEBUG
             printf("[thrd %02d] exit\n", thrd_id);
 #endif
@@ -12786,19 +12783,19 @@ void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
 void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
     prh_cono_struct *s = prh_impl_cono_struct_init(thrd_start_id, num_thread, main_proc, stack_size);
     prh_cono_quefit *ready_queue = &s->ready_queue;
-    prh_thrds *thrds = s->thrds;
-    prh_cono_thrd *main_thrd = s->main_thread;
+    prh_simple_thrds *thrds = s->thrds;
+    prh_cono_thrd *main_thrd = (prh_cono_thrd *)prh_simp_thrd_main(thrds);
 
     // 将入口协程加入就绪队列，程序的执行从入口协程执行开始
     prh_relaxed_quefit_push(ready_queue, s->main_entry_cono, cono_chain);
 
     for (int i = 0; i < num_thread; i += 1) { // 启动所有线程
-        prh_cono_thrd *cono_thrd = prh_thrd_create(thrds, prh_impl_cono_thrd_size);
-        prh_impl_cono_thrd_init(cono_thrd, i + 1);
+        prh_cono_thrd *cono_thrd = prh_simp_thrd_create(thrds);
+        prh_impl_cono_thrd_init(cono_thrd);
 #if PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2
-        prh_thrd_sched(thrds, cono_thrd, prh_impl_cono_thrd_proc_v2, 0);
+        prh_simp_thrd_sched(thrds, cono_thrd, prh_impl_cono_thrd_proc_v2, 0);
 #else
-        prh_thrd_sched(thrds, cono_thrd, prh_impl_cono_thrd_proc, 0);
+        prh_simp_thrd_sched(thrds, cono_thrd, prh_impl_cono_thrd_proc, 0);
 #endif
     }
 
