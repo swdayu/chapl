@@ -7517,40 +7517,53 @@ void prh_impl_time_test(void) {
 #endif // PRH_ALLOC_INCLUDE
 
 #ifdef PRH_THRD_INCLUDE
-typedef struct {
-    void *userdata;
-    prh_ptr impl_tid_;
-    prh_i32 thrd_id;
-    prh_u32 extra;
-} prh_thrd;
+#define prh_thrd(...)           \
+struct {                        \
+    prh_ptr impl_tid_;          \
+    void *userdata;             \
+    prh_i32 thrd_id;            \
+    prh_u32 extra;              \
+    __VA_ARGS__                 \
+}
 
+#define prh_simple_thrd(...)    \
+struct {                        \
+    prh_ptr impl_tid_;          \
+    __VA_ARGS__                 \
+}
+
+typedef prh_thrd() prh_impl_thrd;
 typedef struct {
-    prh_i32 maxthrds, thrd_cnt;
+    prh_i32 thrd_cnt, thrd_max;
     prh_thrd *main;
     // [prh_thrd *]
     // [prh_thrd *]
-} prh_thrd_struct;
+} prh_thrds;
 
-prh_inline prh_thrd **prh_thrd_list_begin(prh_thrd_struct *s) {
-    return &s->main;
-}
+typedef prh_simple_thrd() prh_impl_simple_thrd;
+typedef struct {
+    prh_i32 thrd_cnt, thrd_max;
+} prh_simple_thrds;
 
-prh_inline prh_thrd **prh_thrd_list_end(prh_thrd_struct *s) {
-    return &s->main + s->maxthrds + 1;
-}
+typedef int (*prh_thrdproc_t)(void *thrd);
+typedef void (*prh_thrdfree_t)(void *thrd, int thrd_index); // thrd_index 0 for main thrd
+extern prh_thread_local void *PRH_IMPL_THRD;
 
-prh_inline prh_thrd *prh_thrd_get(prh_thrd_struct *s, int index) {
-    assert(index >= 0 && index <= s->maxthrds);
+prh_inline prh_thrd **prh_thrd_list_begin(prh_thrds *s) { return &s->main; }
+prh_inline prh_thrd **prh_thrd_list_end(prh_thrds *s) { return &s->main + s->thrd_max + 1; }
+
+prh_inline prh_thrd *prh_thrd_get(prh_thrds *s, int index) {
+    assert(index >= 0 && index <= s->thrd_max);
     return prh_thrd_list_begin(s)[index]; // 0 for main thread
 }
 
-prh_inline prh_thrd *prh_thrd_main(prh_thrd_struct *s) {
+prh_inline prh_thrd *prh_thrd_main(prh_thrds *s) {
     assert(s->main == prh_thrd_get(s, 0));
     return s->main;
 }
 
-#define prh_thrd_for_begin(thrd_struct) {                                       \
-        prh_thrd_struct *prh_impl_s = (thrd_struct);                            \
+#define prh_thrd_for_begin(thrds) {                                       \
+        prh_thrds *prh_impl_s = (thrds);                            \
         prh_thrd **prh_impl_p = prh_thrd_list_begin(prh_impl_s);                \
         prh_thrd **prh_impl_last = prh_thrd_list_end(prh_impl_s);               \
         while (prh_impl_p < prh_impl_last) {                                    \
@@ -7561,12 +7574,11 @@ prh_inline prh_thrd *prh_thrd_main(prh_thrd_struct *s) {
         }                                                                       \
     }
 
-typedef int (*prh_thrdproc_t)(prh_thrd* thrd);
-typedef void (*prh_thrdfree_t)(void *userdata, int thrd_index); // thrd_index 0 for main thrd
+
 
 prh_thrd *prh_thrd_self(void);
-prh_thrd *prh_thrd_main(prh_thrd_struct *s);
-prh_thrd *prh_thrd_get(prh_thrd_struct *s, int thrd_index);
+prh_thrd *prh_thrd_main(prh_thrds *s);
+prh_thrd *prh_thrd_get(prh_thrds *s, int thrd_index);
 void prh_set_fault_handler(void);
 
 prh_inline void *prh_thrd_data(prh_thrd *thrd) {
@@ -7585,22 +7597,22 @@ prh_inline void *prh_thrd_self_data(void) {
     return prh_thrd_data(prh_thrd_self());
 }
 
-prh_inline int prh_thrd_main_id(prh_thrd_struct *s) {
+prh_inline int prh_thrd_main_id(prh_thrds *s) {
     return prh_thrd_id(prh_thrd_main(s));
 }
 
-prh_inline void *prh_thrd_main_data(prh_thrd_struct *s) {
+prh_inline void *prh_thrd_main_data(prh_thrds *s) {
     return prh_thrd_data(prh_thrd_main(s));
 }
 
-prh_thrd_struct *prh_thrd_init(int start_id, int maxthrds, void *userdata);
-prh_thrd_struct *prh_thrd_inix(int start_id, int maxthrds, int mainudsize); // get prh_thrd_main_data() to init userdata
-void *prh_thrd_creatx(prh_thrd_struct *s, int thrdudsize); // only create thrd, after init userdata, call prh_thrd_starx
-int prh_thrd_start(prh_thrd_struct *s, prh_thrdproc_t proc, int stacksize, void *userdata); // return thrd index
-int prh_thrd_starx(prh_thrd_struct *s, void *thrd_create_data, prh_thrdproc_t proc, int stacksize); // return thrd index
-void prh_thrd_join(prh_thrd_struct *s, int thrd_index, prh_thrdfree_t udatafree); // remember to free main thrd using prh_thrd_free
-void prh_thrd_jall(prh_thrd_struct **s, prh_thrdfree_t udatafree); // free all joined thrd including main thrd
-void prh_thrd_free(prh_thrd_struct **s, prh_thrdfree_t udatafree); // free main thrd
+prh_thrds *prh_thrd_init(int start_id, int thrd_max, void *userdata);
+prh_thrds *prh_thrd_inix(int start_id, int thrd_max, int mainudsize); // get prh_thrd_main_data() to init userdata
+void *prh_thrd_creatx(prh_thrds *s, int thrdudsize); // only create thrd, after init userdata, call prh_thrd_starx
+int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, int stacksize, void *userdata); // return thrd index
+int prh_thrd_starx(prh_thrds *s, void *thrd_create_data, prh_thrdproc_t proc, int stacksize); // return thrd index
+void prh_thrd_join(prh_thrds *s, int thrd_index, prh_thrdfree_t udatafree); // remember to free main thrd using prh_thrd_free
+void prh_thrd_jall(prh_thrds **s, prh_thrdfree_t udatafree); // free all joined thrd including main thrd
+void prh_thrd_free(prh_thrds **s, prh_thrdfree_t udatafree); // free main thrd
 
 void prh_thrd_sleep(int secs, int nsec);
 void prh_thrd_strict_sleep(int secs, int nsec);
@@ -7635,7 +7647,7 @@ void prh_thrd_wakeup(prh_sleep_cond *p);
 
 #ifdef PRH_THRD_STRIP_PREFIX
 #define thrd_t                      prh_thrd
-#define thrd_struct_t               prh_thrd_struct
+#define thrds_t                     prh_thrds
 #define thrd_id                     prh_thrd_id
 #define thrd_data                   prh_thrd_data
 #define thrd_self                   prh_thrd_self
@@ -7720,11 +7732,8 @@ void prh_system_info(prh_sys_info *info);
 
 #define prh_impl_thrd_head_size sizeof(prh_thrd)
 #define prh_impl_thrd_extra_len sizeof(prh_u32)
-
 prh_static_assert(prh_impl_thrd_head_size % 8 == 0);
-
-prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
-
+prh_thread_local void *PRH_IMPL_THRD = prh_null;
 prh_ptr prh_impl_thrd_self(void);
 
 prh_thrd *prh_thrd_self(void) {
@@ -7736,9 +7745,9 @@ int prh_impl_thrd_size(int thrdudsize) {
     return (int)prh_round_cache_line_size(prh_impl_thrd_head_size + thrdudsize);
 }
 
-int prh_impl_thrd_struct_size(int maxthrds) {
-    assert(maxthrds >= 0);
-    return (int)(sizeof(prh_thrd_struct) + sizeof(void *) * maxthrds);
+int prh_impl_thrds_size(int thrd_max) {
+    assert(thrd_max >= 0);
+    return (int)(sizeof(prh_thrds) + sizeof(void *) * thrd_max);
 }
 
 prh_thrd *prh_impl_thrd_create(int thrd_id, int thrdudsize) {
@@ -7884,6 +7893,399 @@ void prh_system_info(prh_sys_info *info) {
     }
     info->cache_line_size = cache_line_size;
     prh_free(info);
+}
+
+prh_ptr prh_impl_thrd_self(void) {
+    // HANDLE GetCurrentThread()
+    //      processthreadsapi.h (include Windows.h)
+    //      Kernel32.lib Kernel32.dll
+    //      Windows XP Windows Server 2003
+    // 返回当前调用线程的伪句柄。伪句柄（pseudo handle）是一种特殊常量，仅用作当前线
+    // 程的句柄。调用线程可在需要线程句柄的任何场合使用它来指代自身。伪句柄不会被子进
+    // 程继承。该句柄对线程对象拥有 THREAD_ALL_ACCESS 访问权限。更多信息请参阅《线程
+    // 安全与访问权限》。Windows Server 2003 与 Windows XP：此句柄拥有线程安全描述
+    // 符所允许的最大访问权限，作用于进程主令牌（the primary token of the process）。
+    // 本函数不能被线程 A 用来创建一个可供线程 B 引用的句柄；该句柄始终被解释为正在使
+    // 用它的线程本身。线程可以通过在 DuplicateHandle 调用中将伪句柄作为源句柄，来创
+    // 建一个 “真实”句柄，该句柄可被其他线程使用，或被其他进程继承。伪句柄不再需要时无
+    // 需关闭。对此句柄调用CloseHandle函数不会产生任何效果。如果通过 DuplicateHandle
+    // 复制了伪句柄，则必须关闭所得到的重复句柄。
+    // 不要在模拟（impersonating）安全上下文时创建线程。调用会成功，但新建线程在随后
+    // 调用 GetCurrentThread 时，对自身将拥有降低的访问权限；这些权限来源于被模拟用户
+    // 对进程的访问权限。某些访问权限（包括 THREAD_SET_THREAD_TOKEN 和
+    // THREAD_GET_CONTEXT）可能不存在，导致意外失败。
+    return (prh_ptr)GetCurrentThread();
+}
+
+void prh_impl_thrd_stack_limits(prh_ptr *low, prh_ptr *high) {
+    // VOID GetCurrentThreadStackLimits([out] PULONG_PTR LowLimit, [out] PULONG_PTR HighLimit)
+    //      processthreadsapi.h
+    //      Kernel32.lib Kernel32.dll
+    //      Windows 8 Windows Server 2012
+    // 获取系统为当前线程所分配栈的边界地址。用户模式代码有可能在线程创建时系统分配的
+    // 区域之外的栈内存中执行。调用者可使用 GetCurrentThreadStackLimits 函数来验证
+    // 当前栈指针是否位于返回的限制范围内。要编译使用此函数的应用程序，请将
+    // _WIN32_WINNT 设置为 ≥ 0x0602（即 Windows 8）。
+    GetCurrentThreadStackLimits((PULONG_PTR)low, (PULONG_PTR)high);
+}
+
+prh_thrds *prh_thrd_inix(int start_id, int thrd_max, int mainudsize) {
+    prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_max));
+    prh_thrd *main = prh_impl_thrd_create(start_id, mainudsize);
+    main->impl_tid_ = (prh_unt)pthread_self();
+    s->thrd_max = thrd_max;
+    s->main = main;
+    PRH_IMPL_THRD = main;
+#if PRH_THRD_DEBUG
+    prh_impl_print_thrd_info(main);
+#endif
+    return s;
+}
+
+prh_thrds *prh_thrd_init(int start_id, int thrd_max, void *userdata) {
+    prh_thrds *s = prh_thrd_inix(start_id, thrd_max, 0);
+    prh_thrd *main = prh_thrd_main(s);
+    main->userdata = userdata;
+    return s;
+}
+
+typedef struct {
+    prh_thrd *thrd;
+    prh_thrdproc_t proc;
+    prh_thrd_sem *sync;
+} prh_impl_thrd_para_t;
+
+// DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
+// HANDLE CreateThread(
+//      [in, optional]  LPSECURITY_ATTRIBUTES   lpThreadAttributes,
+//      [in]            SIZE_T                  dwStackSize,
+//      [in]            LPTHREAD_START_ROUTINE  lpStartAddress,
+//      [in, optional]  __drv_aliasesMem LPVOID lpParameter,
+//      [in]            DWORD                   dwCreationFlags,
+//      [out, optional] LPDWORD                 lpThreadId)
+// 参数 lpThreadAttributes 指向 SECURITY_ATTRIBUTES 结构的指针，用于指定新线程的安
+// 全描述符，并决定返回的句柄是否可被子进程继承。若为 NULL，则线程获得默认安全描述符，
+// 且句柄无法被继承。默认安全描述符中的访问控制列表（ACL）来自创建者进程的主令牌。
+// 参数 dwStackSize 新线程的初始栈大小，以字节为单位。系统会将该值向上取整到最近的页
+// 面大小。若为 0，则新线程使用可执行文件的默认栈大小。若设置了
+// STACK_SIZE_PARAM_IS_A_RESERVATION（0x00010000），则 dwStackSize 表示栈的保留大
+// 小；否则表示提交大小。
+// 参数 dwCreationFlags 控制线程创建的标志。CREATE_SUSPENDED (0x00000004) 线程以挂
+// 起状态创建，需调用 ResumeThread 恢复执行。STACK_SIZE_PARAM_IS_A_RESERVATION
+// (0x00010000) dwStackSize 表示栈的保留大小；否则表示提交大小
+// 参数 lpThreadId 指向接收线程标识符的变量。若为 NULL，则不返回线程 ID。
+// 若函数成功，返回值为新线程的句柄（具有 THREAD_ALL_ACCESS 访问权限）。若函数失败，
+// 返回值为 NULL。要获取扩展错误信息，请调用 GetLastError。注意：CreateThread 即使
+// lpStartAddress 指向无效地址也可能成功；若启动地址无效，线程运行时将发生异常并终止，
+// 进程视为异常退出。
+// 进程可创建的线程数受可用虚拟内存限制。默认情况下，每个线程拥有 1 MB 的栈空间。因此，
+// 在 32 位系统上若未启用 /3GB 启动选项，就无法创建 2,048 个或更多线程。如果减小默认
+// 栈大小，就可以创建更多线程；但更好的做法是每个处理器只创建一个线程，并用应用自己维护
+// 的队列来保存请求上下文——线程先处理完一个队列里的所有请求，再处理下一个队列，这样性能
+// 更优。
+// 新线程句柄被创建时即带有 THREAD_ALL_ACCESS 访问权限。若创建线程时没有提供安全描述
+// 符，系统会用创建者进程的主令牌构造一个默认安全描述符。随后其他线程调用 OpenThread
+// 时，其有效令牌将与该安全描述符比对，以决定是否授予访问权。新线程在调用 GetCurrentThread
+// 时，对自身拥有完全访问权限。
+// Windows Server 2003 特殊行为：若线程是在远程进程中创建的，系统会用远程进程的主令牌
+// 来计算线程对自身的访问权限；结果可能导致新线程调用 GetCurrentThread 时权限被削减
+// （例如缺少 THREAD_SET_THREAD_TOKEN 或 THREAD_GET_CONTEXT），从而引发意外失败。
+// 因此，不建议在模拟（impersonating）其他用户时创建线程。
+// 如果线程以可运行状态创建（即未使用 CREATE_SUSPENDED 标志），它可能在 CreateThread
+// 返回之前就开始执行，甚至早于调用者收到线程句柄和标识符。线程从 lpStartAddress 指定
+// 的函数开始执行；该函数返回时，其 DWORD 返回值被用作 ExitThread 的退出码。可用 GetExitCodeThread
+// 获取该返回值。
+// 线程被创建时的优先级为 THREAD_PRIORITY_NORMAL；可用 GetThreadPriority
+// SetThreadPriority 调整。线程终止后，其对象变为 signaled 状态，唤醒所有等待该对象
+// 的线程；线程对象直到线程终止且所有句柄都被 CloseHandle 关闭后才从系统中删除。
+// CreateThread、ExitThread、ExitProcess、CreateRemoteThread 以及由 CreateProcess
+// 启动的新进程，在同一地址空间内串行化：任一时刻只能有一个事件发生。因此：
+// - 在进程启动和 DLL 初始化期间，可创建新线程，但它们直到进程 DLL 初始化完成才开始执行；
+// - 同一时刻仅一个线程可处于 DLL 初始化或分离例程中；
+// - ExitProcess 会等待所有 DLL 初始化/分离例程结束才返回。
+// 若可执行文件使用 C 运行时库（CRT），应使用 _beginthreadex/_endthreadex 管理线程，
+// 而非 CreateThread/ExitThread；否则低内存时 CRT 可能终止进程。
+//
+// 每一个新线程或纤程都会获得自己的栈空间，该空间由“保留”和“初始已提交”两部分内存组成。
+// 保留内存的大小代表栈在虚拟内存中的总分配量，因此，保留大小受限于虚拟地址范围。初始已
+// 提交的页面在被访问之前不会占用物理内存；然而它们会从系统总提交限额（the system
+// total commit limit），页文件（page file）大小 + 物理内存大小，中扣除相应页数。系
+// 统会根据需要继续从保留的栈内存中提交额外页面，直到：栈达到 “保留大小减 1 页”（最后
+// 一页用作保护页，防止栈溢出），或系统内存过低，操作失败。
+// 最佳做法是尽可能选择小的栈尺寸，只提交线程或纤程可靠运行所需的部分。为栈保留的每一页
+// 都不能再用于其他任何用途。栈随其线程退出而被释放；若线程被其他线程终止，则栈不会释放。
+// 保留与初始提交栈内存的默认值在可执行文件头中指定。如果内存不足以保留或提交所请求的字
+// 节数，线程或纤程创建将失败。链接器使用的默认栈保留大小为 1 MB。要为所有线程或纤程指
+// 定不同的默认栈保留大小，可在模块定义文件（.def）中使用 STACKSIZE 语句。操作系统会把
+// 指定大小向上取整到系统分配粒度的最近倍数（通常为 64 KB）。可用 GetSystemInfo 函数
+// 获取当前系统的分配粒度。
+// 若要改变初始提交的栈空间，可使用 CreateThread、CreateRemoteThread 或 CreateFiber
+// 的 dwStackSize 参数。该值会被向上取整到最近的页边界。通常，保留大小就是可执行头中指
+// 定的默认保留大小。然而，若 dwStackSize 指定的初始提交大小 ≥ 默认保留大小，则保留大
+// 小将变为“新提交大小向上取整到 1 MB 的最近倍数”。若要改变保留栈大小，可把 CreateThread
+// 或 CreateRemoteThread 的 dwCreationFlags 设为 STACK_SIZE_PARAM_IS_A_RESERVATION，
+// 并通过 dwStackSize 参数指定保留大小；此时初始提交大小仍使用可执行头中的默认值。对于
+// 纤程，可使用 CreateFiberEx 的 dwStackReserveSize 参数。提交大小则在 dwStackCommitSize
+// 参数中指定。
+// SetThreadStackGuarantee 函数可在栈溢出时，为线程或纤程设置保证可用的最小栈大小。
+//
+// uintptr_t _beginthreadex(
+//      void *security,
+//      unsigned stack_size,
+//      unsigned (__stdcall *start_address)(void *),
+//      void *arglist,
+//      unsigned initflag,
+//      unsigned *thrdaddr)
+// 参数 ecurity 指向 SECURITY_ATTRIBUTES 结构的指针，用于决定返回的句柄是否可以被子
+// 进程继承。如果 security 为 NULL，则句柄不能被继承。
+// 参数 initflag 控制新线程的初始状态。设置为 0 表示线程立即运行；设置为 CREATE_SUSPENDED
+// 表示线程以挂起状态创建，需使用 ResumeThread 来恢复执行；设置为 STACK_SIZE_PARAM_IS_A_RESERVATION
+// 标志，表示将 stack_size 作为栈的初始保留大小（以字节为单位）；如果未指定此标志，则
+// stack_size 表示栈的提交大小（commit size）。
+// 参数 thrdaddr 指向一个 32 位变量，用于接收线程标识符（thread id）。如果为 NULL，
+// 则不使用。
+// 返回值，如果成功，这些函数将返回指向新创建线程的句柄；然而，如果新创建的线程退出过
+// 快，_beginthread 可能不会返回有效句柄（详见下文）。出错时：_beginthread 返回 -1L，
+// 并设置 errno 为：EAGAIN 线程过多，EINVAL 参数无效或栈大小错误，EACCES 资源不足
+// （如内存）。_beginthreadex 返回 0，并设置 errno 和 _doserrno。如果 start_address
+// 为 NULL，将触发无效参数处理程序；若继续执行，这些函数将设置 errno 为 EINVAL 并返回
+// -1。有关返回码的更多信息，请参考 errno、_doserrno、_sys_errlist 和 _sys_nerr。
+// _beginthread 函数创建一个线程，该线程从 start_address 指定的例程开始执行。
+// 该例程必须使用 __cdecl（原生代码）或 __clrcall（托管代码）调用约定，并且 不应有返
+// 回值。当线程从该例程返回时，它会自动终止。有关更多信息，请参见 Multithreading
+// support for older code (Visual C++)。
+// _beginthreadex 比 _beginthread 更接近 Win32 CreateThread API。_beginthreadex
+// 与 _beginthread 的区别如下：
+//  * _beginthreadex 有三个额外参数：initflag、Security 和 thrdaddr。新线程可以以
+//    挂起状态创建，可指定安全属性，并可通过 thrdaddr（线程 ID）访问。
+//  * 传递给 _beginthreadex 的例程必须使用 __stdcall（原生代码）或 __clrcall（托管
+//    代码）调用约定，并且必须返回一个线程退出码。
+//  * _beginthreadex 失败时返回 0，而不是 -1L。
+//  * 使用 _beginthreadex 创建的线程通过调用 _endthreadex 终止。
+// _beginthreadex 比 _beginthread 提供了更多控制线程创建方式的能力，_endthreadex
+// 也更灵活。例如，使用 _beginthreadex，你可以使用安全信息、设置线程初始状态（运行或
+// 挂起），并获取新线程的线程标识符。你还可以将 _beginthreadex 返回的线程句柄用于同步
+// API，而 _beginthread 不行。
+// _beginthreadex 比 _beginthread 更安全。如果由 _beginthread 生成的线程退出过快，
+// 返回给调用者的句柄可能无效或指向另一个线程。然而，由 _beginthreadex 返回的句柄必
+// 须由调用者关闭，因此只要 _beginthreadex 没有返回错误，它就保证是有效句柄。
+// 你可以显式调用 _endthread 或 _endthreadex 来终止线程；然而，当线程从传递给
+// _beginthread 或 _beginthreadex 的例程返回时，_endthread 或 _endthreadex 会被自
+// 动调用。通过调用 _endthread 或 _endthreadex 终止线程，有助于确保为线程分配的资源
+// 正确回收。
+// 注意，对于链接到 Libcmt.lib 的可执行文件，不要调用 ExitThread，否则会阻止运行时系
+// 统回收资源。_endthread 和 _endthreadex 会回收线程资源，然后调用 ExitThread。
+// _endthread 会自动关闭线程句柄，而 _endthreadex 不会。因此，当你使用 _beginthread
+// 和 _endthread 时，不要显式调用 CloseHandle；而使用 _beginthreadex 和 _endthreadex
+// 时，必须调用 CloseHandle。_endthread 和 _endthreadex 会导致线程中待处理的 C++ 析
+// 构函数不被调用。
+// 当调用 _beginthread 或 _beginthreadex 时，操作系统负责分配线程栈；你无需将线程栈
+// 地址传递给这些函数。此外，stack_size 参数可以为 0，此时操作系统将使用与主线程相同的
+// 栈大小。
+// 如果任何线程调用了 abort、exit、_exit 或 ExitProcess，所有线程都将终止。新线程的
+// 区域设置（locale）使用每进程全局当前区域设置初始化。如果通过 _configthreadlocale
+// 启用了每线程区域设置，线程可以通过 setlocale 或 _wsetlocale 独立更改其区域设置。
+// 未设置每线程区域设置标志的线程会影响所有其他未设置该标志的线程的区域设置，以及所有新
+// 创建的线程。更多信息，请参见 Locale。
+// 这些函数，仅适用于多线程版本的 C 运行时库。要使用 _beginthread 或 _beginthreadex，
+// 应用程序必须链接到多线程 C 运行时库（例如 libcmt.lib）。
+
+#if PRH_THRD_DEBUG
+void prh_impl_print_thrd_info(prh_thrd *thrd) {
+}
+#endif
+
+static unsigned __stdcall prh_impl_thrd_start_proc(void *param) {
+    prh_impl_thrd_para_t *p = (prh_impl_thrd_para_t *)param;
+    prh_thrd *thrd = PRH_IMPL_THRD = p->thrd;
+    prh_thrdproc_t proc = p->proc;
+#if PRH_THRD_DEBUG
+    prh_impl_print_thrd_info(thrd);
+#endif
+    prh_thrd_sem_post(p->sync, 1);
+    int n = proc(thrd);
+    assert(n != STILL_ACTIVE);
+    return (unsigned)n;
+}
+
+void prh_impl_close_handle(HANDLE handle) {
+    // 如果函数失败，返回值为零。要获取扩展错误信息，请调用 GetLastError。如果应用程
+    // 序在调试器下运行，当函数接收到无效句柄值或伪句柄值时，将引发异常。这种情况可能发
+    // 生在：你关闭了一个句柄两次，或你对 FindFirstFile 返回的句柄调用了 CloseHandle，
+    // 而不是调用 FindClose 函数。
+    PRH_BOOLRET_OR_ERROR(CloseHandle(handle));
+}
+
+void prh_impl_thrd_exit(int exit_code) {
+    // ExitThread 是在 C 代码中退出线程的首选方法。然而，在 C++ 代码中，调用 ExitThread
+    // 会导致线程在调用任何析构函数或执行其他自动清理操作之前就终止。因此，在 C++ 代码
+    // 中，应该从线程函数中返回。
+    // 当调用此函数（无论是显式调用还是从线程过程返回）时，当前线程栈将被释放，所有由该
+    // 线程发起的、未与完成端口关联的挂起 I/O 将被取消，并且线程将终止。所有已附加的动
+    // 态链接库（DLL）的入口点函数将被调用，并传入一个值，指示该线程正在从 DLL 中分离。
+    // 如果当此函数被调用时，该线程是进程中的最后一个线程，则该线程的进程也将终止。线程
+    // 对象的状态变为已触发（signaled），释放任何一直在等待该线程终止的其他线程。线程
+    // 的终止状态从 STILL_ACTIVE 更改为 dwExitCode 参数的值。
+    // 终止线程并不一定会从操作系统中删除线程对象。当线程的最后一个句柄被关闭时，线程对
+    // 象才会被删除。ExitProcess、ExitThread、CreateThread、CreateRemoteThread 函
+    // 数以及正在启动的进程（作为 CreateProcess 调用的结果）在进程内部彼此串行化。在
+    // 同一时刻，这些事件中只有一个可以在一个地址空间中发生。这意味着以下限制成立：在进
+    // 程启动和 DLL 初始化例程期间，可以创建新线程，但它们直到进程的 DLL 初始化完成后
+    // 才开始执行。在进程中，一次只能有一个线程处于 DLL 初始化或分离例程中。ExitProcess
+    // 不会返回，直到没有线程处于它们的 DLL 初始化或分离例程中。
+    // 链接到静态 C 运行时库（CRT）的可执行文件中的线程应使用 _beginthread 和 _endthread
+    // 进行线程管理，而不是 CreateThread 和 ExitThread。如果不这样做，则当线程调用
+    // ExitThread 时会导致小的内存泄漏。另一种解决方法是将可执行文件链接到 DLL 中的
+    // CRT，而不是静态 CRT。请注意，只有当 DLL 链接到静态 CRT 并且线程调用 DisableThreadLibraryCalls
+    // 函数时，才会从 DLL 发生此内存泄漏。从链接到静态 CRT 的 DLL 中的线程调用
+    // CreateThread 和 ExitThread 是安全的。
+    //
+    // void _endthreadex(unsigned retval)
+    // 你可以显式调用 _endthread 或 _endthreadex 来终止线程；然而，当线程从作为参数
+    // 传递给 _beginthread 或 _beginthreadex 的例程返回时，_endthread 或 _endthreadex
+    // 会被自动调用。通过调用 _endthread 或 _endthreadex 来终止线程，有助于确保为线程
+    // 分配的资源的正确回收。
+    // 注意，对于与 Libcmt.lib 链接的可执行文件，不要调用 Win32 ExitThread API；这会
+    // 阻止运行时系统回收已分配的资源。_endthread 和 _endthreadex 会回收为线程分配的
+    // 资源，然后调用 ExitThread。_endthread 会自动关闭线程句柄，此行为与 ExitThread
+    // 不同。因此，当你使用 _beginthread 和 _endthread 时，不要通过调用 CloseHandle
+    // 显式关闭线程句柄。与 ExitThread API 类似，_endthreadex 不会关闭线程句柄。因
+    // 此，当你使用 _beginthreadex 和 _endthreadex 时，必须通过调用 CloseHandle 关
+    // 闭线程句柄。
+    // 注意，_endthread 和 _endthreadex 会导致线程中待处理的 C++ 析构函数不被调用。
+    //
+    // GetExitCodeThread 函数仅在线程终止后返回由应用程序定义的有效错误代码。 因此，
+    // 应用程序不应使用 STILL_ACTIVE (259) 作为错误代码。如果线程返回 STILL_ACTIVE
+    // (259) 作为错误代码，则测试此值的应用程序可能会将其解释为表示线程仍在运行，并在
+    // 线程终止后继续测试线程完成情况，这可能会使应用程序进入无限循环。为避免此问题，
+    // 调用方应仅在确认线程退出后调用 GetExitCodeThread 函数。使用等待持续时间为零的
+    // WaitForSingleObject 函数来确定线程是否已退出。
+    assert(exit_code != STILL_ACTIVE); // The return value should never be set to STILL_ACTIVE (259).
+#if 1
+    _endthreadex((unsigned)exit_code);
+#else
+    ExitThread((DWORD)exit_code);
+#endif
+}
+
+void prh_impl_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, int stacksize) {
+    prh_impl_thrd_para_t para = {thrd, proc};
+    pthread_t *tid = (pthread_t *)&thrd->impl_tid_;
+    pthread_attr_t *attr_ptr = prh_null;
+    pthread_attr_t attr;
+    int n;
+
+    stacksize = prh_impl_thread_stack_size(stacksize);
+    if (stacksize > 0) {
+        attr_ptr = &attr;
+        prh_zeroret(pthread_attr_init(attr_ptr));
+        n = pthread_attr_setstacksize(attr_ptr, stacksize);
+        prh_abort_if(n);
+    }
+
+    para.sync = prh_thrd_sem_init();
+    n = pthread_create(tid, attr_ptr, prh_impl_thrd_start_proc, &para);
+    prh_abort_if(n) else {
+        prh_thrd_sem_wait(para.sync); // 如果wait之前新线程已经post，这里会直接返回，否则会等待新线程
+    }
+
+    if (attr_ptr) {
+        prh_zeroret(pthread_attr_destroy(attr_ptr));
+    }
+
+    prh_thrd_sem_free(para.sync);
+}
+
+prh_thrd *prh_impl_create_set(prh_thrds *s, int thrdudsize) {
+    assert(s->thrd_cnt >= 0 && s->thrd_cnt < s->thrd_max);
+    int thrd_index = ++s->thrd_cnt;
+    prh_thrd *thrd = prh_impl_thrd_create(prh_thrd_main_id(s) + thrd_index, thrdudsize);
+    prh_thrd_list_begin(s)[thrd_index] = thrd;
+    return thrd;
+}
+
+void *prh_thrd_creatx(prh_thrds *s, int thrdudsize) {
+    prh_thrd *thrd = prh_impl_create_set(s, thrdudsize);
+    return thrd->userdata;
+}
+
+int prh_thrd_index(prh_thrds *s, prh_thrd *thrd) {
+    return thrd->thrd_id - s->main->thrd_id;
+}
+
+int prh_thrd_starx(prh_thrds *s, void *thrd_create_data, prh_thrdproc_t proc, int stacksize) {
+    prh_thrd *thrd = prh_impl_data_to_thrd(thrd_create_data);
+    prh_impl_thrd_start(thrd, proc, stacksize);
+    return prh_thrd_index(s, thrd);
+}
+
+int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, int stacksize, void *userdata) {
+    prh_thrd *thrd = prh_impl_create_set(s, 0);
+    thrd->userdata = userdata;
+    prh_impl_thrd_start(thrd, proc, stacksize);
+    return prh_thrd_index(s, thrd);
+}
+
+void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t udatafree) {
+    prh_thrd *thrd = thrd_list[thrd_index];
+    if (thrd == prh_null) return;
+    void *retv = prh_null;
+    pthread_t *tid_ptr = (pthread_t *)&thrd->impl_tid_;
+    int n = pthread_join(*tid_ptr, &retv);
+    if (n != 0) {
+        prh_prerr(n);
+    } else if ((prh_unt)retv != 0) { // -1 is PTHREAD_CANCELED
+        prh_prerr((int)(prh_unt)retv);
+    }
+#if PRH_THRD_DEBUG
+    if ((prh_unt)retv == (prh_unt)PTHREAD_CANCELED) {
+        printf("[thrd %02d] canceled join\n", prh_thrd_id(thrd));
+    } else {
+        printf("[thrd %02d] join retval %d\n", prh_thrd_id(thrd), (int)(prh_unt)retv);
+    }
+#endif
+    if (udatafree) {
+        udatafree(prh_thrd_data(thrd), thrd_index);
+    }
+    prh_aligned_free(thrd);
+    thrd_list[thrd_index] = prh_null;
+}
+
+void prh_thrd_join(prh_thrds *s, int thrd_index, prh_thrdfree_t udatafree) {
+    assert(thrd_index > 0 && thrd_index <= s->thrd_max);
+    prh_impl_thrd_join(prh_thrd_list_begin(s), thrd_index, udatafree);
+}
+
+void prh_thrd_free(prh_thrds **main, prh_thrdfree_t udatafree) {
+    prh_thrds *s = *main;
+    if (s == prh_null) return;
+    prh_thrd *main_thrd = s->main;
+    if (main_thrd) {
+        if (udatafree) {
+            udatafree(prh_thrd_data(main_thrd), 0);
+        }
+        prh_aligned_free(main_thrd);
+        s->main = prh_null;
+    }
+    prh_free(s);
+    *main = prh_null;
+}
+
+void prh_thrd_join_except_main(prh_thrds *s, prh_thrdfree_t udatafree) {
+    prh_thrd **thrd_list = prh_thrd_list_begin(s);
+    for (int i = 1; i <= s->thrd_max; i += 1) {
+        prh_impl_thrd_join(thrd_list, i, udatafree);
+    }
+}
+
+void prh_thrd_jall(prh_thrds **main, prh_thrdfree_t udatafree) {
+    prh_thrds *s = *main;
+    if (s == prh_null) return;
+    prh_thrd **thrd_list = prh_thrd_list_begin(s);
+    for (int i = 1; i <= s->thrd_max; i += 1) {
+        prh_impl_thrd_join(thrd_list, i, udatafree);
+    }
+    prh_thrd_free(main, udatafree);
 }
 
 struct prh_thrd_mutex {
@@ -8709,9 +9111,9 @@ int prh_impl_thrd_size(int thrdudsize) {
     return (int)prh_round_cache_line_size(prh_impl_thrd_head_size + thrdudsize);
 }
 
-int prh_impl_thrd_struct_size(int maxthrds) {
-    assert(maxthrds >= 0);
-    return (int)(sizeof(prh_thrd_struct) + sizeof(void *) * maxthrds);
+int prh_impl_thrds_size(int thrd_max) {
+    assert(thrd_max >= 0);
+    return (int)(sizeof(prh_thrds) + sizeof(void *) * thrd_max);
 }
 
 prh_thrd *prh_impl_thrd_create(int thrd_id, int thrdudsize) {
@@ -8728,11 +9130,11 @@ prh_inline prh_thrd *prh_impl_data_to_thrd(void *userdata) {
     return (prh_thrd *)userdata - 1;
 }
 
-prh_thrd_struct *prh_thrd_inix(int start_id, int maxthrds, int mainudsize) {
-    prh_thrd_struct *s = prh_calloc(prh_impl_thrd_struct_size(maxthrds));
+prh_thrds *prh_thrd_inix(int start_id, int thrd_max, int mainudsize) {
+    prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_max));
     prh_thrd *main = prh_impl_thrd_create(start_id, mainudsize);
     main->impl_tid_ = (prh_unt)pthread_self();
-    s->maxthrds = maxthrds;
+    s->thrd_max = thrd_max;
     s->main = main;
     PRH_IMPL_THRD = main;
 #if PRH_THRD_DEBUG
@@ -8741,8 +9143,8 @@ prh_thrd_struct *prh_thrd_inix(int start_id, int maxthrds, int mainudsize) {
     return s;
 }
 
-prh_thrd_struct *prh_thrd_init(int start_id, int maxthrds, void *userdata) {
-    prh_thrd_struct *s = prh_thrd_inix(start_id, maxthrds, 0);
+prh_thrds *prh_thrd_init(int start_id, int thrd_max, void *userdata) {
+    prh_thrds *s = prh_thrd_inix(start_id, thrd_max, 0);
     prh_thrd *main = prh_thrd_main(s);
     main->userdata = userdata;
     return s;
@@ -8812,34 +9214,55 @@ void prh_impl_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, int stacksize) {
     prh_thrd_sem_free(para.sync);
 }
 
-prh_thrd *prh_impl_create_set(prh_thrd_struct *s, int thrdudsize) {
-    assert(s->thrd_cnt >= 0 && s->thrd_cnt < s->maxthrds);
+prh_thrd *prh_impl_create_set(prh_thrds *s, int thrdudsize) {
+    assert(s->thrd_cnt >= 0 && s->thrd_cnt < s->thrd_max);
     int thrd_index = ++s->thrd_cnt;
     prh_thrd *thrd = prh_impl_thrd_create(prh_thrd_main_id(s) + thrd_index, thrdudsize);
     prh_thrd_list_begin(s)[thrd_index] = thrd;
     return thrd;
 }
 
-void *prh_thrd_creatx(prh_thrd_struct *s, int thrdudsize) {
+void *prh_thrd_creatx(prh_thrds *s, int thrdudsize) {
     prh_thrd *thrd = prh_impl_create_set(s, thrdudsize);
     return thrd->userdata;
 }
 
-int prh_thrd_index(prh_thrd_struct *s, prh_thrd *thrd) {
+int prh_thrd_index(prh_thrds *s, prh_thrd *thrd) {
     return thrd->thrd_id - s->main->thrd_id;
 }
 
-int prh_thrd_starx(prh_thrd_struct *s, void *thrd_create_data, prh_thrdproc_t proc, int stacksize) {
+int prh_thrd_starx(prh_thrds *s, void *thrd_create_data, prh_thrdproc_t proc, int stacksize) {
     prh_thrd *thrd = prh_impl_data_to_thrd(thrd_create_data);
     prh_impl_thrd_start(thrd, proc, stacksize);
     return prh_thrd_index(s, thrd);
 }
 
-int prh_thrd_start(prh_thrd_struct *s, prh_thrdproc_t proc, int stacksize, void *userdata) {
+int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, int stacksize, void *userdata) {
     prh_thrd *thrd = prh_impl_create_set(s, 0);
     thrd->userdata = userdata;
     prh_impl_thrd_start(thrd, proc, stacksize);
     return prh_thrd_index(s, thrd);
+}
+
+void prh_thrd_exit(int exit_code) {
+    // pthread_exit() 函数用于终止当前线程，并通过参数 retval 返回一个退出码；如果该
+    // 线程是可 join 的，则这个返回值可以被同一进程中另一个调用 pthread_join(3) 的线
+    // 程获取。
+    // 任何通过 pthread_cleanup_push(3) 注册的、尚未弹出的清理处理程序，将按照与压入
+    // 顺序相反的顺序被弹出并执行。如果线程拥有线程局部数据（TLS），则在清理处理程序执
+    // 行完毕后，相应的析构函数也会被调用（顺序未指定）。当线程终止时，进程共享资源（如
+    // 互斥锁、条件变量、信号量、文件描述符）不会被释放，并且通过 atexit(3) 注册的函数
+    // 不会被执行。当进程中最后一个线程终止时，进程将以退出状态 0 终止，等效于调用
+    // exit(3)；此时，进程共享资源会被释放，并且通过 atexit(3) 注册的函数会被调用。
+    // 从非主线程的起始函数返回将隐式调用 pthread_exit()，并以该函数的返回值作为线程
+    // 的退出状态。为了允许其他线程继续运行，主线程应调用 pthread_exit() 而不是 exit(3)
+    // 来终止自身。retval 所指向的值不应位于调用线程的栈上，因为线程终止后，该栈的内容
+    // 是未定义的。
+    // 已知缺陷（BUGS）。目前，内核在等待一个已停止的线程组时存在实现逻辑限制，特别是
+    // 当线程组领头线程已调用 pthread_exit() 并死亡时。这可能导致某些问题，例如：
+    // 向前台进程发送停止信号，但其线程组领头线程已经调用 pthread_exit()，可能导致终
+    // 端被锁死等现象。
+    pthread_exit((void *)exit_code);
 }
 
 void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t udatafree) {
@@ -8867,13 +9290,13 @@ void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t uda
     thrd_list[thrd_index] = prh_null;
 }
 
-void prh_thrd_join(prh_thrd_struct *s, int thrd_index, prh_thrdfree_t udatafree) {
-    assert(thrd_index > 0 && thrd_index <= s->maxthrds);
+void prh_thrd_join(prh_thrds *s, int thrd_index, prh_thrdfree_t udatafree) {
+    assert(thrd_index > 0 && thrd_index <= s->thrd_max);
     prh_impl_thrd_join(prh_thrd_list_begin(s), thrd_index, udatafree);
 }
 
-void prh_thrd_free(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
-    prh_thrd_struct *s = *main;
+void prh_thrd_free(prh_thrds **main, prh_thrdfree_t udatafree) {
+    prh_thrds *s = *main;
     if (s == prh_null) return;
     prh_thrd *main_thrd = s->main;
     if (main_thrd) {
@@ -8887,18 +9310,18 @@ void prh_thrd_free(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
     *main = prh_null;
 }
 
-void prh_thrd_join_except_main(prh_thrd_struct *s, prh_thrdfree_t udatafree) {
+void prh_thrd_join_except_main(prh_thrds *s, prh_thrdfree_t udatafree) {
     prh_thrd **thrd_list = prh_thrd_list_begin(s);
-    for (int i = 1; i <= s->maxthrds; i += 1) {
+    for (int i = 1; i <= s->thrd_max; i += 1) {
         prh_impl_thrd_join(thrd_list, i, udatafree);
     }
 }
 
-void prh_thrd_jall(prh_thrd_struct **main, prh_thrdfree_t udatafree) {
-    prh_thrd_struct *s = *main;
+void prh_thrd_jall(prh_thrds **main, prh_thrdfree_t udatafree) {
+    prh_thrds *s = *main;
     if (s == prh_null) return;
     prh_thrd **thrd_list = prh_thrd_list_begin(s);
-    for (int i = 1; i <= s->maxthrds; i += 1) {
+    for (int i = 1; i <= s->thrd_max; i += 1) {
         prh_impl_thrd_join(thrd_list, i, udatafree);
     }
     prh_thrd_free(main, udatafree);
@@ -11584,7 +12007,7 @@ typedef enum {
 } prh_impl_cono_id;
 
 typedef struct {
-    prh_thrd_struct *thrd_struct; // 初始化后只读
+    prh_thrds *thrds; // 初始化后只读
     prh_cono_thrd *main_thread; // 初始化后只读
     prh_real_cono *main_entry_cono; // 初始化后只读
     prh_real_cono *fixed_cono[PRH_FIXED_CONO_MAX]; // 初始化后只读
@@ -11626,9 +12049,9 @@ prh_real_cono *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, void *u
 
 prh_cono_struct *prh_impl_cono_struct_init(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
     prh_cono_struct *s = &PRH_IMPL_CONO_STRUCT;
-    prh_thrd_struct *thrd_struct = prh_thrd_inix(thrd_start_id, num_thread, prh_impl_cono_thrd_size);
-    s->thrd_struct = thrd_struct;
-    s->main_thread = prh_impl_cono_thrd(thrd_struct->main);
+    prh_thrds *thrds = prh_thrd_inix(thrd_start_id, num_thread, prh_impl_cono_thrd_size);
+    s->thrds = thrds;
+    s->main_thread = prh_impl_cono_thrd(thrds->main);
     s->main_entry_cono = prh_impl_cono_create(main_proc, stack_size, 0);
     s->num_thread = num_thread;
     prh_impl_cono_thrd_init(s->main_thread, 0);
@@ -11657,7 +12080,7 @@ void prh_impl_cono_struct_free(void) {
         if (fixed_cono) prh_impl_cono_free(fixed_cono);
     }
     prh_impl_cono_free(s->main_entry_cono);
-    prh_thrd_free(&PRH_IMPL_CONO_STRUCT.thrd_struct, prh_impl_cono_thrd_free);
+    prh_thrd_free(&PRH_IMPL_CONO_STRUCT.thrds, prh_impl_cono_thrd_free);
 }
 
 // 要实现无锁且省去N*M爆炸内存，必须有一个线程担任中间角色，请求者与中间角色是一对一的，
@@ -11892,9 +12315,9 @@ prh_pwait_data prh_cono_pwait(void) { // 等待其他协程发来的请求数据
 }
 
 void prh_impl_cono_wakeup_all_thrd(void) {
-    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
-    prh_thrd **it = prh_thrd_list_begin(thrd_struct);
-    for (; it < prh_thrd_list_end(thrd_struct); it += 1) {
+    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
+    prh_thrd **it = prh_thrd_list_begin(thrds);
+    for (; it < prh_thrd_list_end(thrds); it += 1) {
         if (*it == prh_null) continue;
         prh_cono_thrd *thrd = prh_impl_cono_thrd(*it);
         prh_thrd_wakeup(&thrd->sleep_cond);
@@ -12096,7 +12519,7 @@ bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
 bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     prh_atom_ptr *privilege_thread = &PRH_IMPL_CONO_STRUCT.privilege_thread;
     prh_cono_quefit *ready_queue = &PRH_IMPL_CONO_STRUCT.ready_queue;
-    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
+    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
     prh_real_cono *ready_cono;
     prh_cono_thrd *thrd;
 
@@ -12109,8 +12532,8 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
         *prh_impl_thrd_pending_work(curr_thrd) = false;
     }
 
-    prh_thrd **thrd_begin = prh_thrd_list_begin(thrd_struct);
-    prh_thrd **thrd_end = prh_thrd_list_end(thrd_struct);
+    prh_thrd **thrd_begin = prh_thrd_list_begin(thrds);
+    prh_thrd **thrd_end = prh_thrd_list_end(thrds);
     prh_thrd **thrd_it = thrd_begin;
 
     for (; thrd_it < thrd_end; thrd_it += 1) { // 处理特权消息，将就绪协程插入就绪队列
@@ -12306,7 +12729,7 @@ label_cont_execute:
 }
 
 void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
-    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
+    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
     int thrd_id = prh_cono_thrd_id(main_thrd);
     prh_debug(int privilege_acquire_count = 0);
 
@@ -12323,7 +12746,7 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
             if (!prh_thrd_try_sleep(&main_thrd->sleep_cond)) {
                 continue;
             }
-            prh_thrd_join_except_main(thrd_struct, prh_impl_cono_thrd_free);
+            prh_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
 #if PRH_CONO_DEBUG
             printf("[thrd %02d] exit\n", thrd_id);
 #endif
@@ -12337,7 +12760,7 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
 }
 
 void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
-    prh_thrd_struct *thrd_struct = PRH_IMPL_CONO_STRUCT.thrd_struct;
+    prh_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
     prh_atom_ptr *thrd_ready_cono = &main_thrd->ready_cono;
     int thrd_id = prh_cono_thrd_id(main_thrd);
     prh_real_cono *ready_cono;
@@ -12357,7 +12780,7 @@ void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
             if (!prh_thrd_try_sleep(&main_thrd->sleep_cond)) {
                 continue;
             }
-            prh_thrd_join_except_main(thrd_struct, prh_impl_cono_thrd_free);
+            prh_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
 #if PRH_CONO_DEBUG
             printf("[thrd %02d] exit\n", thrd_id);
 #endif
@@ -12378,7 +12801,7 @@ void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
 void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
     prh_cono_struct *s = prh_impl_cono_struct_init(thrd_start_id, num_thread, main_proc, stack_size);
     prh_cono_quefit *ready_queue = &s->ready_queue;
-    prh_thrd_struct *thrd_struct = s->thrd_struct;
+    prh_thrds *thrds = s->thrds;
     prh_cono_thrd *main_thrd = s->main_thread;
 
     prh_set_fault_handler();
@@ -12387,12 +12810,12 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, 
     prh_relaxed_quefit_push(ready_queue, s->main_entry_cono, cono_chain);
 
     for (int i = 0; i < num_thread; i += 1) { // 启动所有线程
-        prh_cono_thrd *cono_thrd = prh_thrd_creatx(thrd_struct, prh_impl_cono_thrd_size);
+        prh_cono_thrd *cono_thrd = prh_thrd_creatx(thrds, prh_impl_cono_thrd_size);
         prh_impl_cono_thrd_init(cono_thrd, i + 1);
 #if PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2
-        prh_thrd_starx(thrd_struct, cono_thrd, prh_impl_cono_thrd_proc_v2, 0);
+        prh_thrd_starx(thrds, cono_thrd, prh_impl_cono_thrd_proc_v2, 0);
 #else
-        prh_thrd_starx(thrd_struct, cono_thrd, prh_impl_cono_thrd_proc, 0);
+        prh_thrd_starx(thrds, cono_thrd, prh_impl_cono_thrd_proc, 0);
 #endif
     }
 
