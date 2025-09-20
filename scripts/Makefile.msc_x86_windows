@@ -46,7 +46,7 @@ else ifneq ($(filter driver,$(CONFIG_COMPILER)),)
 subsystem := NATIVE
 LINK_DRIVER_FLAGS := /DRIVER:WDM
 else
-subsystem := CONSOLE
+subsystem := CONSOLE # 默认是 console
 endif
 
 unicode_windows_api := 1
@@ -77,7 +77,7 @@ CLOPT_FIRST_PREREQ = $(call windows_path_style,$<)
 COMPILE_ASM_TO_OBJ := /c /Ta
 ASM_TO_OBJ_OUTFILE = /Sf /Sa /Fl$(basename $@).lst /Fo$@
 
-INIT_C_ONLY += /std:c11 /TC #/Zc:__STDC__
+INIT_C_ONLY += /std:c11 /experimental:c11atomics /TC #/Zc:__STDC__
 INIT_CXX_ON += /std:c++17 /Zc:__cplusplus /TP
 INIT_AFLAGS := /X /W3 /WX
 
@@ -300,7 +300,7 @@ INIT_CFLAGS += \
 # /MDd msvcrtd.lib	ucrtd.lib (ucrtbased.dll)	vcruntimed.lib (vcruntime<v>d.dll)
 
 msc-crt-y := # libcmt.lib libucrt.lib ucrt.lib
-msc-lib-y = $(msc-crt-y) kernel32.lib dbghelp.lib
+msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib # dbghelp.lib
 
 OPTION_LDLIBS = $(patsubst -l%,%,$(1))
 OPTION_LDDIRS = $(foreach d,$(patsubst -L%,%,$(1)),/LIBPATH:$(call windows_path_style,$(d)))

@@ -78,6 +78,9 @@ INIT_LDFLAG += $(TARGET_ARCH_OPTIONS)
 # INIT_CFLAGS += -fmessage-length=0
 INIT_CFLAGS += -funsigned-char
 
+# -fstack-usage 使编译器按函数输出程序的堆栈使用信息
+INIT_CFLAGS += -fstack-usage
+
 # 警告选项
 # -w 关闭所有警告
 # -Wall 启用所有可疑的且易于修改的警告

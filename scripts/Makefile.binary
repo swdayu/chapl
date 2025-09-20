@@ -49,7 +49,7 @@ export init-ldflag-y := $(INIT_LDFLAG) $(cccfg-ldflag-y) $(filter -L% -l%,$(INIT
 ifneq ($(filter exe,$(TARGET_TYPE)),)
 target_lds_file := $(filter %.lds,$(strip $(lds-file-y)))
 target_ldsflags := $(strip $(init-macros-y) $(init-incdir-y) $(ldsflags-y))
-target_stack_size := $(strip $(stack-size-y))
+target_stack_size := $(if $(strip $(stack-reserve-size-y)),$(if $(strip $(stack-commit-size-y)),$(strip $(stack-reserve-size-y))$(comma)$(strip $(stack-commit-size-y)),$(strip $(stack-reserve-size-y))))
 
 # lds-stem
 # foo/image_link.lds => image_link

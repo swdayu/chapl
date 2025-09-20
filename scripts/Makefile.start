@@ -81,7 +81,8 @@ $(1): incdir_y := $(COMMON_INCDIR) $(filter -I%,$($(1)-incdir-y) $($(1)-ccflags-
 $(1): ldflag_y := $(COMMON_LDFLAG) $(filter -L% -l%,$($(1)-ldflag-y) $($(1)-ccflags-y))
 $(1): lds_file_y := $($(1)-lds-file-y)
 $(1): ldsflags_y := $($(1)-ldsflags-y)
-$(1): stack_size_y := $($(1)-stack-size-y)
+$(1): stack_reserve_size_y := $($(1)-stack-reserve-size-y)
+$(1): stack_commit_size_y := $($(1)-stack-commit-size-y)
 $(1):
 	$$(call echo-info,  [$$(dest_name)])
 	@$$(call CMDMKDIR,$(TARGET_OUTPUT)/$$(dest_name))
@@ -96,7 +97,8 @@ $(1):
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(ldflag_y),ldflag-y := $$(ldflag_y))
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(lds_file_y),lds-file-y := $$(lds_file_y))
 	@$$(call outfile_add_ex,$$(dest_makefile),$$(ldsflags_y),ldsflags-y := $$(ldsflags_y))
-	@$$(call outfile_add_ex,$$(dest_makefile),$$(stack_size_y),stack-size-y := $$(stack_size_y))
+	@$$(call outfile_add_ex,$$(dest_makefile),$$(stack_reserve_size_y),stack-reserve-size-y := $$(stack_reserve_size_y))
+	@$$(call outfile_add_ex,$$(dest_makefile),$$(stack_commit_size_y),stack-commit-size-y := $$(stack_commit_size_y))
 	$(Q)$(MAKE) -C $(TARGET_OUTPUT) -f $(srctree)/scripts/Makefile.binary DEST=$$(dest_name) \
 	    TARGET_NAME=$$(target_name) TARGET_TYPE=$($(1)-binary-type) RUN_OUTFILE=$$(run_outfile) $$(call filter_deliver_goals,$(1))
 else ifneq ($$(filter dll,$$(subst _, ,$($(1)-binary-type))),)
