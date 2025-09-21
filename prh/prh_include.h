@@ -1309,6 +1309,53 @@ extern "C" {
     #include <windows.h>
     #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_abort_error(GetLastError()); }
     #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_prerr(GetLastError()); }
+    // https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
+    // 检测内存泄漏的主要工具是 C/C++ 调试器和 CRT 调试堆函数。要启用所有调试堆函数，
+    // 需要在你的 C++ 程序中按以下顺序包含下面的语句。其中 #define _CRTDBG_MAP_ALLOC
+    // 将 CRT 堆函数的基本版本映射到相应的调试版本。如果省略了 #define 语句，内存泄漏
+    // 信息将不够详细。包含 crtdbg.h 会将 malloc 和 free 函数映射到它们的调试版本 _malloc_dbg
+    // 和 _free_dbg，这些版本会跟踪内存分配和释放。这种映射仅在具有 _DEBUG 的调试生成
+    // 中发生。发布生成使用普通的 malloc 和 free 函数。
+    // 通过使用前面的语句启用了调试堆函数后，在应用程序退出点之前调用 _CrtDumpMemoryLeaks()，
+    // 以在应用程序退出时显示内存泄漏报告。如果你的应用程序有多个退出点，你无需手动在每
+    // 个退出点放置 _CrtDumpMemoryLeaks()。为了在每个退出点自动调用 _CrtDumpMemoryLeaks()，
+    // 在应用程序开头放置一个对 _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF)
+    // 的调用即可。
+    // 默认情况下， _CrtDumpMemoryLeaks 将内存泄漏报告输出到“输出”窗口的“调试”窗格。
+    // 如果你使用了库，库可能会将输出重置到另一个位置。你可以使用 _CrtSetReportMode
+    // 将报告重定向到另一个位置，或者像下面这样重新定向回“输出”窗口：
+    //      _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
+    //
+    // 内存块类型有 “normal”、“client” 和 “CRT”。普通块是由你的程序分配的普通内存。
+    // “client”块是 MFC 程序用于需要析构函数的对象的特殊类型的内存块。MFC 的 new 运
+    // 算符会根据被创建的对象类型创建普通块或客户端块。“CRT” 块是由 CRT 库为其自身用
+    // 途分配的。CRT 库会处理这些块的释放，因此除非 CRT 库出现严重问题，否则 CRT 块
+    // 不会出现在内存泄漏报告中。还有两种内存块类型永远不会出现在内存泄漏报告中。“free”
+    // 块是已经释放的内存，按定义不会泄漏。“ignore” 块是你明确标记为从内存泄漏报告中
+    // 排除的内存。
+    //
+    // 前面的技术可以识别使用标准 CRT malloc 函数分配的内存的内存泄漏。然而，如果你的
+    // 程序使用 C++ 的 new 运算符分配内存，你可能只能在内存泄漏报告中看到 operator
+    // new 调用 _malloc_dbg 的文件名和行号。为了创建更有用的内存泄漏报告，你可以编写
+    // 一个像下面这样的宏来报告 new 分配的行，然后你可以使用 DBG_NEW 宏在代码中替换
+    // new 运算符。
+    // #ifdef _DEBUG
+    //     #define DBG_NEW new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
+    //     // Replace _NORMAL_BLOCK with _CLIENT_BLOCK if you want the
+    //     // allocations to be of _CLIENT_BLOCK type
+    // #else
+    //     #define DBG_NEW new
+    // #endif
+    //
+    // 内存分配编号可以告诉你泄漏的内存块是在何时分配的。例如，一个内存分配编号为 18
+    // 的块是在应用程序运行期间分配的第 18 个内存块。CRT 报告会统计运行期间的所有内存
+    // 块分配，包括 CRT 库和其他库（如 MFC）的分配。因此，内存分配块编号 18 可能不是
+    // 你的代码分配的第 18 个内存块。你可以使用分配编号在内存分配上设置断点。
+    #if PRH_DEBUG
+    #define _CRTDBG_MAP_ALLOC
+    #include <stdlib.h>
+    #include <crtdbg.h>
+    #endif
 #else
     // POSIX allows an application to test at compile or run time whether
     // certain options are supported, or what the value is of certain
@@ -1722,6 +1769,8 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
 }
 #endif
 
+void prh_main_init(void);
+
 #ifdef PRH_BASE_IMPLEMENTATION
 void prh_impl_assert(int line) {
     fprintf(stderr, "assert line %d\n", line);
@@ -1741,6 +1790,152 @@ void prh_impl_abort_error(int line, unsigned int error) {
 void prh_print_exit_code(int thrd_id, int exit_code) {
     fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
 }
+
+#if defined(prh_plat_windows)
+#if PRH_DEBUG
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
+void prh_impl_dump_memory_leaks(void) {
+    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG | _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+    _CrtDumpMemoryLeaks();
+}
+#endif
+#endif // WINDOWS
+
+#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+void prh_impl_plat_set_fault_handler(void);
+#endif
+#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+void prh_impl_time_init(void);
+#endif
+#if defined(PRH_TEST_IMPLEMENTATION)
+void prh_impl_test_code(void);
+#endif
+
+void prh_main_init(void) {
+#if defined(prh_plat_windows)
+#if PRH_DEBUG
+    prh_zeroret(atexit(prh_impl_dump_memory_leaks));
+#endif
+#endif // WINDOWS
+#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+    prh_impl_plat_set_fault_handler();
+#endif
+#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+    prh_impl_time_init();
+#endif
+#if defined(PRH_TEST_IMPLEMENTATION)
+    prh_impl_test_code();
+#endif
+}
+
+#if defined(prh_plat_windows)
+// https://learn.microsoft.com/en-us/cpp/c-language/main-function-and-program-execution
+// https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
+// https://learn.microsoft.com/en-us/cpp/c-language/customizing-c-command-line-processing
+// https://learn.microsoft.com/en-us/windows/apps/design/globalizing/use-utf8-code-page
+// https://learn.microsoft.com/en-us/windows/win32/sbscs/application-manifests
+// https://learn.microsoft.com/en-us/windows/win32/api/shellapi/nf-shellapi-commandlinetoargvw
+// https://devblogs.microsoft.com/oldnewthing/20100916-00/?p=12843
+// https://devblogs.microsoft.com/oldnewthing/20100917-00/?p=12833
+// https://alter.org.ua/en/docs/win/args/
+#if defined(_CONSOLE)
+// 每个 C 程序都有一个主函数，它必须命名为 main。主函数是程序执行的起点。主函数有
+// 一些限制，这些限制不适用于任何其他 C 函数。主函数：不能声明为 inline；不能声明
+// 为 static；不能取其地址；不能从程序中调用。main 的声明语法将如下所示：
+// int main(void);
+// int main(int argc, char *argv[]);
+// int main(int argc, char *argv[], char *envp[]);
+// 通过使用这些签名之一，主函数被隐式声明。在定义主函数时，你可以使用这些签名中的
+// 任何一个。当没有返回值时，Microsoft 编译器还允许 main 的返回类型为 void。main
+// 的 argv 和 envp 参数也可以定义为类型 char**。
+// 在 Unicode 编程模型中，你可以定义主函数的宽字符版本。如果你想编写符合 Unicode
+// 编程模型的可移植代码，请使用 wmain 而不是 main。wmain 函数也没有声明，因为它内
+// 置于语言中。如果它有，wmain 的声明语法将如下所示：
+// int wmain(void);
+// int wmain(int argc, wchar_t *argv[]);
+// int wmain(int argc, wchar_t *argv[], wchar_t *envp[]);
+#if defined(_UNICODE)
+extern int main(int argc, char **argv);
+int wmain(int argc, wchar_t *wargv[]) {
+    return main(argc, (char **)wargv); // TODO: 将 wargv 转换成 UTF-8 版本的 argv
+}
+#endif
+#else
+// 每个 Windows 程序都包含一个名为 WinMain 或 wWinMain 的入口点函数。wWinMain 的四
+// 个参数如下：
+// * hInstance 是实例句柄或模块句柄。操作系统使用此值在内存中加载时识别可执行文件。某
+//   些 Windows 函数需要实例句柄，例如加载图标或位图。
+// * hPrevInstance 没有意义。它在 16 位 Windows 中使用，但现在始终为零。
+// * pCmdLine 包含命令行参数，包含 Unicode 字符串。
+// * nCmdShow 是一个标志，指示主应用程序窗口是处于最小化、最大化还是正常显示状态。
+// 该函数返回一个 int 值。操作系统不会使用返回值，但你可以使用该值向其他程序传递状态码。
+// WinMain 函数与 wWinMain 相同，只是命令行参数作为 ANSI 字符串传递。Unicode 字符串
+// 是首选。
+// 即使你将程序编译为 Unicode，也可以使用 ANSI 的 WinMain 函数。要获取命令行参数的
+// Unicode 版本，请调用 GetCommandLine 函数。此函数返回一个包含所有参数的单一字符串。
+// 如果你希望将参数作为类似 argv 的数组，将此字符串传递给 CommandLineToArgvW。编译器
+// 如何知道调用 wWinMain 而不是标准的 main 函数呢？实际上，Microsoft C 运行时库
+// （CRT）提供了一个 main 的实现，它会调用 WinMain 或 wWinMain。CRT 在 main 中还做
+// 了一些其他工作。例如，它会在调用 wWinMain 之前调用任何静态初始化器。虽然你可以告诉
+// 链接器使用不同的入口点函数，但如果你链接到 CRT，应该使用默认值。否则，CRT 初始化代
+// 码将被跳过，可能会导致不可预测的结果，例如全局对象没有正确初始化。
+//
+// LPWSTR * CommandLineToArgvW(
+//   [in]  LPCWSTR lpCmdLine,
+//   [out] int     *pNumArgs
+// );
+// shellapi.h Shell32.lib Shell32.dll (version 6.0 or later)
+// Windows 2000 Professional, Windows XP
+// Windows 2000 Server, Windows Server 2003
+//
+// 解析 Unicode 命令行字符串，并返回一个指向命令行参数的指针数组，以及参数的数量，类似
+// 于标准 C 运行时中的 argv 和 argc。如果函数失败，返回值为 NULL。要获取扩展错误信息，
+// 请调用 GetLastError。
+//
+// 参数 lpCmdLine 指向一个以空字符结尾的 Unicode 字符串，该字符串包含完整的命令行。如
+// 果此参数为空字符串，函数将返回当前可执行文件的路径。参数 pNumArgs 指向一个整数的指
+// 针，该整数接收返回的数组元素数量，类似于 argc。返回 LPWSTR*，一个指向 LPWSTR 值的
+// 数组的指针，类似于 argv。
+//
+// CommandLineToArgvW 返回的地址是 LPWSTR 值数组的第一个元素的地址；数组中的指针数量
+// 由 pNumArgs 指示。每个指向以空字符结尾的 Unicode 字符串的指针表示命令行中的一个单
+// 独参数。CommandLineToArgvW 为指向参数字符串的指针和参数字符串本身分配一块连续的内
+// 存；调用应用程序在不再需要参数列表时必须释放这些内存。要释放内存，请调用 LocalFree
+// 函数。
+//
+// 可以使用 GetCommandLineW 函数获取适合用作 lpCmdLine 参数的命令行字符串。此函数接
+// 受包含程序名称的命令行；程序名称可以用引号括起来，也可以不加引号。当反斜杠字符后面跟
+// 着一个引号字符（"）时，CommandLineToArgvW 对反斜杠字符有特殊的解释。这种解释假设任
+// 何前面的参数都是有效的文件系统路径，否则其行为可能不可预测。
+//
+// 这种特殊解释控制了解析器跟踪的“在引号内”模式。当该模式关闭时，空白字符终止当前参数。
+// 当该模式开启时，空白字符像其他字符一样被添加到参数中。2n 个反斜杠后跟一个引号：产生
+// n 个反斜杠后跟开始/结束引号。这不会成为解析参数的一部分，但会切换“在引号内”模式。
+// (2n) + 1 个反斜杠后跟一个引号：再次产生 n 个反斜杠后跟一个引号字面量（"）。这不会切
+// 换“在引号内”模式。n 个反斜杠后不跟引号：直接产生 n 个反斜杠。
+//
+// 重要提示，CommandLineToArgvW 将引号外的空白字符视为参数分隔符。但是，如果 lpCmdLine
+// 以任意数量的空白字符开头，CommandLineToArgvW 会将第一个参数视为一个空字符串。lpCmdLine
+// 末尾多余的空白字符将被忽略。
+#if defined(_UNICODE)
+#include <shellapi.h>
+extern int main(int argc, char **argv);
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
+    int argc = 0;
+    wchar_t **wargv;
+    wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (wargv == prh_null) prh_prerr(GetLastError());
+    int n = main(argc, (char **)wargv); // TODO: 将 wargv 转换成 UTF-8 版本的 argv
+    if (wargv) LocalFree(wargv);
+    return n;
+}
+#else
+// int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow);
+#error "please use unicode for windows application"
+#endif
+#endif
+#endif // WINDOWS
 #endif // PRH_BASE_IMPLEMENTATION
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -1784,7 +1979,7 @@ void prh_impl_basic_test(void) {
     prh_real_assert(prh_offsetof(prh_impl_test_struct, d) == 16);
 #endif
 }
-void prh_test_code(void) {
+void prh_impl_test_code(void) {
 #if defined(__linux__)
     printf("__linux__ %d defined\n", __linux__);
 #endif
@@ -4942,7 +5137,6 @@ typedef struct {
 #define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SECS)
 #define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SECS)
 
-void prh_time_init(void);
 prh_i64 prh_system_secs(void);
 prh_i64 prh_system_msec(void);
 prh_i64 prh_system_usec(void);
@@ -5953,7 +6147,7 @@ prh_i64 prh_clock_ticks(void) {
     return ticks.QuadPart; // LONGLONG
 }
 
-void prh_time_init(void) {
+void prh_impl_time_init(void) {
     LARGE_INTEGER freq;
     prh_boolret(QueryPerformanceFrequency(&freq));
     PRH_IMPL_TIMEINIT.ticks_per_sec = freq.QuadPart;
@@ -5984,7 +6178,6 @@ prh_i64 prh_elapse_nsec(prh_i64 ticks) {
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <time.h>
 void prh_impl_time_test(void) {
-    prh_time_init();
     printf("\n\n[MSC][time]\n");
     printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("void * %zd-byte\n", sizeof(void *));
@@ -6552,14 +6745,14 @@ prh_i64 prh_clock_ticks(void) {
 
 #if defined(prh_plat_apple) && !defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
 #define PRH_IMPL_NSEC_PRECISE 0
-void prh_time_init(void) {
+void prh_impl_time_init(void) {
     mach_timebase_info_data_t info; // ticks * n / d = nsecs => nsecs / (n / d) = ticks => nsecs * d / n = ticks
     mach_timebase_info(&info); // 1-sec = 1000000000-nsec = 1000000000 * d / n ticks
     PRH_IMPL_TIMEINIT.ticks_per_sec = prh_impl_mul_div(PRH_NSEC_PER_SEC, info.denom, info.numer);
 }
 #else
 #define PRH_IMPL_NSEC_PRECISE 1
-void prh_time_init(void) {
+void prh_impl_time_init(void) {
     PRH_IMPL_TIMEINIT.ticks_per_sec = PRH_NSEC_PER_SEC;
 }
 #endif
@@ -6632,7 +6825,6 @@ prh_i64 prh_thread_time(void) {
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_time_test(void) {
-    prh_time_init();
     printf("\n\n[GNU][time]\n");
     printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds, it is signed integer
@@ -7722,7 +7914,6 @@ typedef struct {
 } prh_sys_info;
 
 void prh_system_info(prh_sys_info *info);
-void prh_set_fault_handler(prh_thrd *thrd, bool main_thrd);
 void prh_thrd_sleep_secs(int secs); // 32位有符号整数保存秒可以表示68年
 void prh_thrd_sleep_msec(int msec); // 32位有符号整数保存毫秒可以表示24天
 void prh_thrd_sleep(int secs, int nsec);
@@ -7732,6 +7923,7 @@ bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time);
 prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec);
 
 #ifdef PRH_THRD_IMPLEMENTATION
+void prh_impl_plat_set_fault_handler(void);
 void prh_impl_plat_print_thrd_info(prh_thrd *thrd);
 void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reserved_stack_size);
 void prh_impl_plat_thrd_join(prh_thrd *thrd);
@@ -9173,6 +9365,10 @@ void prh_system_info(prh_sys_info *info) {
     prh_free(processor_info);
 }
 
+void prh_impl_plat_set_fault_handler(void) {
+
+}
+
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_thrd_test(void) {
     printf("BOOL %zd-byte\n", sizeof(BOOL));
@@ -9211,6 +9407,19 @@ void prh_impl_thrd_test(void) {
     printf("vmem unit %d %dKB\n", sys_info.vmem_unit, sys_info.vmem_unit/1024);
     printf("cache line size %d\n", sys_info.cache_line_size);
     printf("active processor count %d\n", sys_info.processor_count);
+#if defined(UNICODE)
+    printf("UNICODE is defined\n");
+#else
+    printf("UNICODE is NOT defined\n");
+#endif
+#if defined(_UNICODE)
+    printf("_UNICODE is defined\n");
+#endif
+#if defined(_CONSOLE)
+    printf("_CONSOLE is defined\n");
+#else
+    printf("_CONSOLE is NOT defined\n");
+#endif
 #if defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
     printf("CREATE_WAITABLE_TIMER_HIGH_RESOLUTION is defined\n");
 #endif
@@ -12299,12 +12508,8 @@ void prh_system_info(prh_sys_info *info) {
 #endif
 }
 
-void prh_set_fault_handler(prh_thrd *thrd, bool main_thrd) {
-    static bool fault_handler_set = false;
-    if (main_thrd && !fault_handler_set) {
-        prh_main_sigaction();
-        fault_handler_set = true;
-    }
+void prh_impl_plat_set_fault_handler(void) {
+    prh_main_sigaction();
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
