@@ -1274,10 +1274,7 @@ extern "C" {
     #include <WinSDKVer.h>
     #include <sdkddkver.h>
     #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0602)
-    #undef _WIN32_WINNT
-    #undef NTDDI_VERSION
-    #define _WIN32_WINNT 0x0602
-    #include <sdkddkver.h>
+    #error "target windows platform shall >= 0x0602"
     #endif
     // When you define the STRICT symbol, you enable features that require more
     // care in declaring and using types. This helps you write more portable
@@ -1310,9 +1307,6 @@ extern "C" {
     // NOCOMM excludes the serial communication API. For a list of support
     // NOapi symbols, see Windows.h. such as #define NOCOMM
     #include <windows.h>
-    #if !defined(_WIN32_WINNT) || (_WIN32_WINNT < 0x0600)
-    #error unsupported windows minimum version
-    #endif
     #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_abort_error(GetLastError()); }
     #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_prerr(GetLastError()); }
 #else
@@ -1562,7 +1556,7 @@ extern "C" {
 #endif // ATOMIC THRD TIME CONO_IMPLEMENTATION
 
 // include basic common use C headers
-#include <assert.h> // assert 如果在这之前定义了 NDEBUG 断言将失效 
+#include <assert.h> // assert 如果在这之前定义了 NDEBUG 断言将失效
 #include <stdlib.h> // malloc calloc realloc free abort exit
 #include <string.h> // memcpy memmove memset
 // void *memcpy(void *dest, const void *src, size_t count);
@@ -7643,6 +7637,11 @@ void prh_simp_thrd_jall(prh_simple_thrds **s, prh_thrdfree_t thrd_free); // 释�
 void prh_simp_thrd_free(prh_simple_thrds **s, prh_thrdfree_t thrd_free); // 释放主线程
 
 typedef struct prh_thrd_mutex prh_thrd_mutex;
+int prh_impl_thrd_mutex_size(void);
+void prh_impl_thrd_mutex_init(prh_thrd_mutex *p);
+void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p);
+void prh_impl_thrd_mutex_free(prh_thrd_mutex *p);
+
 prh_thrd_mutex *prh_thrd_mutex_init(void);
 prh_thrd_mutex *prh_thrd_recursive_mutex_init(void);
 void prh_thrd_mutex_free(prh_thrd_mutex *p);
@@ -7651,6 +7650,10 @@ bool prh_thrd_mutex_try_lock(prh_thrd_mutex *p);
 void prh_thrd_mutex_unlock(prh_thrd_mutex *p);
 
 typedef struct prh_thrd_cond prh_thrd_cond;
+int prh_impl_thrd_cond_size(void);
+void prh_impl_thrd_cond_init(prh_thrd_cond *p);
+void prh_impl_thrd_cond_free(prh_thrd_cond *p);
+
 prh_thrd_cond *prh_thrd_cond_init(void);
 void prh_thrd_cond_free(prh_thrd_cond *p);
 void prh_thrd_cond_lock(prh_thrd_cond *p);
@@ -7658,73 +7661,83 @@ void prh_thrd_cond_unlock(prh_thrd_cond *p);
 void prh_thrd_cond_signal(prh_thrd_cond *p);
 void prh_thrd_cond_broadcast(prh_thrd_cond *p);
 
-typedef struct prh_thrd_cond prh_thrd_sem;
-prh_inline prh_thrd_sem *prh_thrd_sem_init(void) { return (prh_thrd_sem *)prh_thrd_cond_init(); }
-prh_inline void prh_thrd_sem_free(prh_thrd_sem *s) { prh_thrd_cond_free((prh_thrd_cond *)s); }
+typedef struct prh_thrd_sem prh_thrd_sem;
+int prh_impl_thrd_sem_size(void);
+void prh_impl_thrd_sem_init(prh_thrd_sem *p);
+void prh_impl_thrd_sem_free(prh_thrd_sem *p);
+
+prh_thrd_sem *prh_thrd_sem_init(void);
+void prh_thrd_sem_free(prh_thrd_sem *s);
 void prh_thrd_sem_wait(prh_thrd_sem *s);
 void prh_thrd_sem_post(prh_thrd_sem *s, int n);
 
 typedef struct prh_cond_sleep prh_cond_sleep;
+int prh_impl_thrd_sleep_size(void);
+void prh_impl_init_cond_sleep(prh_cond_sleep *p);
+void prh_impl_free_cond_sleep(prh_cond_sleep *p);
+
 prh_cond_sleep *prh_init_cond_sleep(void);
 void prh_free_cond_sleep(prh_cond_sleep *p);
 void prh_thrd_cond_sleep(prh_cond_sleep *p);
 bool prh_thrd_try_sleep(prh_cond_sleep *p);
 void prh_thrd_wakeup(prh_cond_sleep *p);
 
+// 线程等待条件变量时会进入睡眠状态，有三种情况会导致线程被唤醒：
+// 1. 意外唤醒，线程被系统意外唤醒，此时条件并没有真正成立
+// 2. 真实唤醒，线程成功等到被系统唤醒，但条件可能被其他线程抢夺，当线程重新获取锁之后，条件可能不再成立
+// 3. 等待超时，线程在设定的超时时间内，没有等到条件变量被触发
+//
+// 对于 prh_thrd_cond_timedwait(), 由于意外唤醒和被其他线程抢夺的存在，该函数不能真
+// 正做到在条件未成立的情况下等满 msec 时间，参数 msec 仅表示一个最长等待时间。
+
 #define prh_thrd_cond_wait(p, cond) {                                           \
-    /* calling thread locked by the p->mutex */                                 \
+    prh_thrd_cond_lock(p);                                                      \
+    /* calling thread locked by the cond mutex */                               \
     while (!(cond)) {                                                           \
         prh_impl_plat_cond_wait(p);                                             \
     }                                                                           \
     /* calling thread locked and wakeup and cond meet */                        \
+    prh_thrd_cond_unlock(p);                                                    \
 }
 
-#define prh_thrd_cond_timedwait(p, msec, cond) ({                               \
-    prh_i64 timespec[2];                                                        \
-    prh_ptr time = prh_impl_plat_cond_timed_msec(timespec, msec);               \
-    bool timeout = false;                                                       \
-    /* calling thread locked by the p->mutex */                                 \
-    while (!(cond)) {                                                           \
-        if (prh_impl_plat_cond_timedwait((p), time)) {                          \
-            timeout = true;                                                     \
-            break;                                                              \
-        }                                                                       \
+#define prh_thrd_cond_timedwait(p, msec, cond_expr, cond_meet) {                \
+    prh_thrd_cond_lock(p);                                                      \
+    /* calling thread locked by the cond mutex */                               \
+    prh_i64 prh_impl_ts[2];                                                     \
+    bool prh_impl_timedwait = false;                                            \
+label_cond_check:                                                               \
+    if (cond_expr) {                                                            \
+        prh_impl_timedwait = false;                                             \
+    } else if (!prh_impl_timedwait) {                                           \
+        prh_impl_timedwait = true;                                              \
+        prh_impl_plat_cond_timedwait((p), prh_impl_plat_cond_time(prh_impl_ts, (msec))); \
+        goto label_cond_check;                                                  \
     }                                                                           \
-    /* calling thread locked and wakeup and (timeout or cond meet) */           \
-    timeout;                                                                    \
-})
+    (cond_meet) = !prh_impl_timedwait;                                          \
+    /* calling thread locked and wakeup and cond may meet */                    \
+    prh_thrd_cond_unlock(p);                                                    \
+}
 
 typedef struct {
     int page_size; // 虚拟内存页面大小
-    int alloc_unit; // 虚拟内存分配颗粒度
+    int vmem_unit; // 虚拟内存分配颗粒度
     int cache_line_size; // 处理器缓存行大小
     int processor_count; // 逻辑处理器个数
 } prh_sys_info;
 
 void prh_system_info(prh_sys_info *info);
-void prh_thrd_sleep(int secs, int nsec);
-void prh_thrd_strict_sleep(int secs, int nsec);
 void prh_set_fault_handler(prh_thrd *thrd, bool main_thrd);
+void prh_thrd_sleep(int secs, int nsec);
 
 void prh_impl_plat_cond_wait(prh_thrd_cond *p);
 bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time);
-prh_ptr prh_impl_plat_cond_timed_msec(prh_i64 *ptr, prh_u32 msec);
+prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec);
 
 #ifdef PRH_THRD_IMPLEMENTATION
 void prh_impl_plat_print_thrd_info(prh_thrd *thrd);
-void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size);
+void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reserved_stack_size);
 void prh_impl_plat_thrd_join(prh_thrd *thrd);
 prh_ptr prh_impl_plat_thrd_self(void);
-
-void prh_impl_thrd_mutex_init(prh_thrd_mutex *p);
-void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p);
-void prh_impl_thrd_mutex_free(prh_thrd_mutex *p);
-void prh_impl_thrd_cond_init(prh_thrd_cond *p);
-void prh_impl_thrd_cond_free(prh_thrd_cond *p);
-void prh_impl_init_cond_sleep(prh_cond_sleep *p);
-void prh_impl_free_cond_sleep(prh_cond_sleep *p);
-#define prh_impl_thrd_sem_init(p) prh_impl_thrd_cond_init(p)
-#define prh_impl_thrd_sem_free(p) prh_impl_thrd_cond_free(p)
 
 #ifndef PRH_THRD_DEBUG
 #define PRH_THRD_DEBUG PRH_DEBUG
@@ -8154,19 +8167,19 @@ static unsigned __stdcall prh_impl_plat_thrd_procedure(void *param) {
 // 慢。如果你没有使用 __declspec(dllexport) 关键字来导出 DLL 的函数，那么该 DLL 必须
 // 提供一个 .def 文件。
 
-void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size) {
+void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reserved_stack_size) {
     // 1. stack_size 总是向上取整到 page size 的整数倍，并且调整为分配颗粒度的整数倍（通常为 64KB，可调用 GetSystemInfo 获取），如果为0则使用可执行文件设置的默认栈大小
     // 2. 预留栈大小（reserved pages）和初始提交大小（commited pages）的默认值在可执行文件头部中指定，可用使用编译选项控制 /STACK:reserve[,commit]
-    // 3. reserve 和 commit 的单位为字节，默认预留大小为 1MB，默认初始提交大小为 4KB，/STACK 编译选项在构建 .dll 文件时会被忽略
+    // 3. reserve 和 commit 的单位为字节，默认预留大小为 1MB，默认初始提交大小是一个页面为 4KB，/STACK 编译选项在构建 .dll 文件时会被忽略
     // 4. 另一种设置栈大小的方法是：在模块定义（.def）文件中使用 STACKSIZE 语句，若同时指定了 STACKSIZE 和链接器选项 /STACK，则 STACKSIZE 会覆盖 /STACK 的设置
     // 5. STACKSIZE reserve[,commit]，该选项对 .dll 文件无用；也可以在 .exe 文件生成后，使用 EDITBIN 工具修改栈大小，editbin STACK:reserve[,commit] <exe-file>
-    // 6. 创建线程时，指定了 stack_size 表示的是初始提交大小，如果指定了 STACK_SIZE_PARAM_IS_A_RESERVATION 标志则表示的是预留大小
+    // 6. 注意，stack_size 默认指的是初始提交大小，但是一般我们要控制的是栈的总大小（预留大小），因此指定 STACK_SIZE_PARAM_IS_A_RESERVATION 标志来表示预留大小
     // 7. 系统会根据需要继续从预留的栈内存中提交额外页面，直到可用线程栈大小上限，其值为 “预留的栈大小 - 1个内存页面大小”，最后一页为保护页用于检测栈溢出
     // 8. 为栈预留的每一页都不能再用于其他任何用途，栈随其线程退出而被释放，若线程被其他线程终止，则栈不会释放
     // 9. SetThreadStackGuarantee 函数可在栈溢出时，为线程或纤程设置保证可用的最小栈大小
-    assert(stack_size >= 0 && proc != prh_null);
-    thrd->extra_ptr = (prh_ptr)proc;
-    HANDLE thrd_hdl = (HANDLE)_beginthreadex(prh_null, (unsigned int)stack_size, prh_impl_plat_thrd_procedure, thrd, 0, prh_null);
+    assert(reserved_stack_size >= 0 && proc != prh_null);
+    thrd->extra_ptr = (prh_ptr)proc; // 如果指定的栈大小 < 64KB，将使用默认的栈大小 1MB
+    HANDLE thrd_hdl = (HANDLE)_beginthreadex(prh_null, (unsigned int)reserved_stack_size, prh_impl_plat_thrd_procedure, thrd, STACK_SIZE_PARAM_IS_A_RESERVATION, prh_null);
     if (thrd_hdl > 0) {
         thrd->impl_hdl_ = (prh_ptr)thrd_hdl;
     } else {
@@ -8236,22 +8249,25 @@ void prh_impl_close_handle(HANDLE handle) {
     PRH_BOOLRET_OR_ERROR(CloseHandle(handle));
 }
 
+bool prh_impl_wait_single_object(HANDLE handle, DWORD msec) {
+    DWORD n = WaitForSingleObject(handle, msec);
+    if (n == WAIT_OBJECT_0) return true;
+    if (n == WAIT_FAILED) prh_prerr(GetLastError());
+    else if (n != WAIT_TIMEOUT) prh_prerr(n);
+    return false;
+}
+
 void prh_impl_plat_thrd_join(prh_thrd *thrd) {
     HANDLE thrd_impl_hdl = (HANDLE)thrd->impl_hdl_;
-    DWORD n = WaitForSingleObject(thrd_impl_hdl, INFINITE);
     int exit_code = 0;
-    if (n == WAIT_OBJECT_0) {
+    if (prh_impl_wait_single_object(thrd_impl_hdl, INFINITE)) {
         DWORD ExitCode;
         if (GetExitCodeThread(thrd_impl_hdl, &ExitCode)) {
             exit_code = (int)ExitCode;
-            goto label_close_handle;
+        } else {
+            prh_prerr(GetLastError());
         }
-    } else if (n != WAIT_FAILED) {
-        prh_prerr(n);
-        goto label_close_handle;
     }
-    prh_prerr(GetLastError());
-label_close_handle:
     // 终止线程并不一定会从操作系统中删除线程对象，当线程的最后一个句柄被关闭时，线程对象才会被删除。
     prh_impl_close_handle(thrd_impl_hdl);
 #if PRH_THRD_DEBUG
@@ -8292,14 +8308,35 @@ struct prh_thrd_mutex {
 struct prh_thrd_cond {
     CRITICAL_SECTION mutex; // 1st field
     CONDITION_VARIABLE cond;
+};
+
+struct prh_thrd_sem {
+    CRITICAL_SECTION mutex; // 1st field
+    CONDITION_VARIABLE cond; // 2nd field
     prh_int wakeup_semaphore;
 };
 
 struct prh_cond_sleep {
     CRITICAL_SECTION mutex; // 1st field
-    CONDITION_VARIABLE cond;
+    CONDITION_VARIABLE cond; // 2nd field
     prh_atom_bool wakeup_semaphore;
 };
+
+int prh_impl_thrd_mutex_size(void) {
+    return (int)sizeof(prh_thrd_mutex);
+}
+
+int prh_impl_thrd_cond_size(void) {
+    return (int)sizeof(prh_thrd_cond);
+}
+
+int prh_impl_thrd_sem_size(void) {
+    return (int)sizeof(prh_thrd_sem);
+}
+
+int prh_impl_thrd_sleep_size(void) {
+    return (int)sizeof(prh_cond_sleep);
+}
 
 void prh_impl_thrd_mutex_init(prh_thrd_mutex *p) {
     // 当线程被关键段阻塞时，函数会将调用线程切换到等待状态，这意味着线程必须从用户模式
@@ -8328,12 +8365,12 @@ void prh_impl_thrd_mutex_init(prh_thrd_mutex *p) {
 #endif
 }
 
-void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p) {
-    prh_impl_thrd_mutex_init(p);
-}
-
 void prh_impl_thrd_mutex_free(prh_thrd_mutex *p) {
     DeleteCriticalSection(&p->mutex);
+}
+
+void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p) {
+    prh_impl_thrd_mutex_init(p);
 }
 
 prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
@@ -8381,12 +8418,12 @@ void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
     LeaveCriticalSection(&p->mutex);
 }
 
-void prh_impl_plat_cond_init(prh_thrd_cond *p) {
+void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
     prh_impl_thrd_mutex_init((prh_thrd_mutex *)p);
     InitializeConditionVariable(&p->cond);
 }
 
-void prh_impl_plat_cond_free(prh_thrd_cond *p) {
+void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
     prh_impl_thrd_mutex_free((prh_thrd_mutex *)p);
     // A condition variable cannot be moved or copied while in use. The process
     // must not modify the object, and must instead treat it as logically
@@ -8396,20 +8433,11 @@ void prh_impl_plat_cond_free(prh_thrd_cond *p) {
     // can be copied, moved, and forgotten without being explicitly destroyed.
 }
 
-void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
-    prh_impl_plat_cond_init(p);
-    p->wakeup_semaphore = 0;
-}
-
 prh_thrd_cond *prh_thrd_cond_init(void) {
     prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
     assert(p != prh_null);
     prh_impl_thrd_cond_init(p);
     return p;
-}
-
-void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
-    prh_impl_plat_cond_free(p);
 }
 
 void prh_thrd_cond_free(prh_thrd_cond *p) {
@@ -8428,20 +8456,15 @@ void prh_impl_plat_cond_wait(prh_thrd_cond *p) {
     prh_boolret(SleepConditionVariableCS(&p->cond, &p->mutex, INFINITE));
 }
 
-prh_ptr prh_impl_plat_cond_timed_msec(prh_i64 *ptr, prh_u32 msec) {
-    return (prh_ptr)msec;
+bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time) {
+    DWORD msec = (DWORD)time, error;
+    if (SleepConditionVariableCS(&p->cond, &p->mutex, msec)) return true; // 线程被成功唤醒或被虚假唤醒
+    if ((error = GetLastError()) != ERROR_TIMEOUT) prh_prerr(error); // 线程要么被唤醒，要么等待超时，其他情况不应该发生
+    return false; // 线程等待超时
 }
 
-bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time) { // 返回真表示等待超时
-    DWORD msec = (DWORD)time;
-    if (SleepConditionVariableCS(&p->cond, &p->mutex, msec)) {
-        return false; // 线程进入等待后，在超时之前成功被唤醒
-    }
-    DWORD error = GetLastError();
-    if (error != ERROR_TIMEOUT) {
-        prh_abort_error(error);
-    }
-    return true; // 等待超时，或调用失败
+prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec) {
+    return (prh_ptr)msec;
 }
 
 void prh_thrd_cond_unlock(prh_thrd_cond *p) {
@@ -8456,24 +8479,45 @@ void prh_thrd_cond_broadcast(prh_thrd_cond *p) {
     WakeAllConditionVariable(&p->cond);
 }
 
+void prh_impl_thrd_sem_init(prh_thrd_sem *p) {
+    prh_impl_thrd_cond_init((prh_thrd_cond *)p);
+    p->wakeup_semaphore = 0;
+}
+
+void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
+    prh_impl_thrd_cond_free((prh_thrd_cond *)p);
+}
+
+prh_thrd_sem *prh_thrd_sem_init(void) {
+    prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
+    assert(p != prh_null);
+    prh_impl_thrd_sem_init(p);
+    return p;
+}
+
+void prh_thrd_sem_free(prh_thrd_sem *p) {
+    prh_impl_thrd_sem_free(p);
+    prh_free(p);
+}
+
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
-    prh_thrd_cond_lock(p);
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
     while (p->wakeup_semaphore == 0) {
-        prh_impl_plat_cond_wait(p);
+        prh_impl_plat_cond_wait((prh_thrd_cond *)p);
     }
     p->wakeup_semaphore -= 1;
-    prh_thrd_cond_unlock(p);
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
 }
 
 void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
     assert(new_semaphores > 0);
-    prh_thrd_cond_lock(p);
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
     p->wakeup_semaphore += new_semaphores;
-    prh_thrd_cond_unlock(p);
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
     if (new_semaphores == 1) { // one semaphore available, can wakeup one thread to handle
-        prh_thrd_cond_signal(p);
+        prh_thrd_cond_signal((prh_thrd_cond *)p);
     } else { // multi semaphore available, all thread can racing to handle them
-        prh_thrd_cond_broadcast(p);
+        prh_thrd_cond_broadcast((prh_thrd_cond *)p);
     }
 }
 
@@ -8481,8 +8525,12 @@ void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
 // https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitonaddress
 
 void prh_impl_init_cond_sleep(prh_cond_sleep *p) {
-    prh_impl_plat_cond_init((prh_thrd_cond *)p);
+    prh_impl_thrd_cond_init((prh_thrd_cond *)p);
     prh_atom_bool_init(&p->wakeup_semaphore, false);
+}
+
+void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
+    prh_impl_thrd_cond_free((prh_thrd_cond *)p);
 }
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
@@ -8493,12 +8541,8 @@ prh_cond_sleep *prh_init_cond_sleep(void) {
 }
 
 void prh_free_cond_sleep(prh_cond_sleep *p) {
-    prh_impl_plat_cond_free((prh_thrd_cond *)p);
+    prh_impl_free_cond_sleep(p);
     prh_free(p);
-}
-
-void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
-    prh_impl_plat_cond_free((prh_thrd_cond *)p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -8527,11 +8571,6 @@ void prh_thrd_wakeup(prh_cond_sleep *p) {
     prh_thrd_cond_signal((prh_thrd_cond *)p);
 }
 
-// TODO: 实现 windows 版本 prh_thrd_sleep()
-void prh_thrd_sleep(int secs, int nsec) {
-    Sleep(0);
-}
-
 void prh_system_info(prh_sys_info *info) {
     // typedef struct _SYSTEM_INFO {
     // union {
@@ -8554,7 +8593,7 @@ void prh_system_info(prh_sys_info *info) {
     SYSTEM_INFO system_info;
     GetSystemInfo(&system_info);
     info->page_size = (int)system_info.dwPageSize;
-    info->alloc_unit = (int)system_info.dwAllocationGranularity;
+    info->vmem_unit = (int)system_info.dwAllocationGranularity;
 
     // https://devblogs.microsoft.com/oldnewthing/20200824-00/?p=104116
     // 客户发现，他们原来用 GetSystemInfo 读取 dwNumberOfProcessors 来获取处理器数
@@ -8666,10 +8705,13 @@ void prh_system_info(prh_sys_info *info) {
 void prh_impl_thrd_test(void) {
     printf("BOOL %zd-byte\n", sizeof(BOOL));
     printf("TRUE %d FALSE %d\n", TRUE, FALSE);
+    printf("UINT %zd-byte\n", sizeof(UINT));
     printf("CRITICAL_SECTION %zd-byte\n", sizeof(CRITICAL_SECTION));
     printf("CONDITION_VARIABLE %zd-byte\n", sizeof(CONDITION_VARIABLE));
     printf("void* %zd-byte\n", sizeof(void *));
     printf("HANDLE %zd-byte\n", sizeof(HANDLE));
+    printf("MMSYSERR_NOERROR %d\n", MMSYSERR_NOERROR);
+    printf("MAX_PATH %d\n", MAX_PATH);
     SYSTEM_INFO info;
     GetSystemInfo(&info);
     int arch = info.wProcessorArchitecture;
@@ -8688,12 +8730,18 @@ void prh_impl_thrd_test(void) {
     printf("SYSTEM_INFO dwNumberOfProcessors %d\n", (int)info.dwNumberOfProcessors);
     printf("SYSTEM_INFO lpMinimumApplicationAddress %p\n", (void *)info.lpMinimumApplicationAddress);
     printf("SYSTEM_INFO lpMaximumApplicationAddress %p\n", (void *)info.lpMaximumApplicationAddress);
+    prh_u32 min_msec = 0, max_msec = 0;
+    prh_impl_timer_resolution(&min_msec, &max_msec);
+    printf("Timer Supported Resolution: %u ms %u ms\n", min_msec, max_msec);
     prh_sys_info sys_info;
     prh_system_info(&sys_info);
     printf("page size %d %dKB\n", sys_info.page_size, sys_info.page_size/1024);
-    printf("alloc unit %d %dKB\n", sys_info.alloc_unit, sys_info.alloc_unit/1024);
+    printf("vmem unit %d %dKB\n", sys_info.vmem_unit, sys_info.vmem_unit/1024);
     printf("cache line size %d\n", sys_info.cache_line_size);
     printf("active processor count %d\n", sys_info.processor_count);
+#if defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+    printf("CREATE_WAITABLE_TIMER_HIGH_RESOLUTION is defined\n");
+#endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else // PTHREAD BEGIN
@@ -9265,10 +9313,10 @@ prh_int prh_impl_thread_stack_size(prh_int stacksize) { // 改进：因为线程
     return pagesize * times; // stacksize 是 pagesize 的整数倍
 }
 
-void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stacksize) {
-    // 1. stacksize 最小 16KB，必须是页面大小的整数倍，默认值通常是 2MB 到 8MB，线程的栈大小在创建线程时就已固定，只有主线程的栈可以动态增长
-    // 2. pthread_attr_setstack() 可以同时控制线程栈的大小和位置，不过设置栈的地址将降低程序的可移植性
-    // 3. 指定的 stackaddr 是内存块的起始地址，必须对齐到页面大小的边界，分配的页面必须具有可读可写权限
+void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reserved_stack_size) {
+    // 1. stacksize 最小 16KB，必须是页面大小的整数倍，默认值通常 2MB 到 8MB，线程的栈大小在创建线程时就已固定，只有主线程的栈可以动态增长
+    // 2. stacksize 是线程栈的预留大小（reserved size），pthread 只能设置预留大小，物理页随用随配，没有对初始提交大小进行设置的接口。
+    // 3. pthread_attr_setstack() 可以同时控制线程栈的大小和位置，不过设置栈的地址将降低程序的可移植性，指定的 stackaddr 是内存块的起始地址，必须对齐到页面大小的边界，分配的页面必须具有可读可写权限
     // 4. 当应用程序使用 pthread_attr_setstack() 时，它就承担起了分配栈的责任，使用 pthread_attr_setguardsize() 设置的任何警戒区大小值都将被忽略
     // 5. 如果认为有必要，应用程序有责任分配一个警戒区（一个或多个受保护的页面，禁止读写）来处理栈溢出的可能性，可以使用 mprotect() 手动在其分配的栈末尾定义一个警戒区
     // 6. 如果一个线程的栈溢出到警戒区，在大多数硬件架构上，它会收到一个 SIGSEGV 信号，从而得知发生了栈溢出
@@ -9279,7 +9327,7 @@ void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack
     pthread_attr_t *attr_ptr = prh_null;
     pthread_attr_t attr;
 
-    stacksize = prh_impl_thread_stack_size(stacksize);
+    prh_int stacksize = prh_impl_thread_stack_size(reserved_stack_size);
     if (stacksize > 0) {
         attr_ptr = &attr;
         prh_zeroret(pthread_attr_init(attr_ptr));
@@ -11242,14 +11290,35 @@ struct prh_thrd_mutex {
 struct prh_thrd_cond {
     pthread_mutex_t mutex; // 1st field
     pthread_cond_t cond;
+};
+
+struct prh_thrd_sem {
+    pthread_mutex_t mutex; // 1st field
+    pthread_cond_t cond; // 2nd field
     prh_int wakeup_semaphore;
 };
 
 struct prh_cond_sleep {
     pthread_mutex_t mutex; // 1st field
-    pthread_cond_t cond;
+    pthread_cond_t cond; // 2nd field
     prh_atom_bool wakeup_semaphore;
 };
+
+int prh_impl_thrd_mutex_size(void) {
+    return (int)sizeof(prh_thrd_mutex);
+}
+
+int prh_impl_thrd_cond_size(void) {
+    return (int)sizeof(prh_thrd_cond);
+}
+
+int prh_impl_thrd_sem_size(void) {
+    return (int)sizeof(prh_thrd_sem);
+}
+
+int prh_impl_thrd_sleep_size(void) {
+    return (int)sizeof(prh_cond_sleep);
+}
 
 void prh_impl_thrd_mutex_init(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutex_init(&p->mutex, prh_null));
@@ -11301,31 +11370,22 @@ void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
-void prh_impl_plat_cond_init(prh_thrd_cond *p) {
-    prh_impl_thrd_mutex_init((prh_thrd_mutex *)p);
-    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
-}
-
-void prh_impl_plat_cond_free(prh_thrd_cond *p) {
-    // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
-    // pthread_cond_init() 对其进行重新初始化。
-    prh_impl_thrd_mutex_free((prh_thrd_mutex *)p);
-    prh_zeroret(pthread_cond_destroy(&p->cond));
-}
-
 // It is advised that an application should not use a PTHREAD_MUTEX_RECURSIVE
 // mutex with condition variables because the implicit unlock performed for
 // a pthread_cond_timedwait() or pthread_cond_wait() may not actually release
 // the mutex (if it had been locked multiple times). If this happens, no other
 // thread can satisfy the condition of the predicate.
+
 void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
-    prh_impl_plat_cond_init(p);
-    p->wakeup_semaphore = 0;
+    prh_impl_thrd_mutex_init((prh_thrd_mutex *)p);
+    prh_zeroret(pthread_cond_init(&p->cond, prh_null));
 }
 
-void prh_impl_init_cond_sleep(prh_cond_sleep *p) {
-    prh_impl_plat_cond_init((prh_thrd_cond *)p);
-    prh_atom_bool_init(&p->wakeup_semaphore, false);
+void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
+    // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
+    // pthread_cond_init() 对其进行重新初始化。
+    prh_impl_thrd_mutex_free((prh_thrd_mutex *)p);
+    prh_zeroret(pthread_cond_destroy(&p->cond));
 }
 
 prh_thrd_cond *prh_thrd_cond_init(void) {
@@ -11333,10 +11393,6 @@ prh_thrd_cond *prh_thrd_cond_init(void) {
     assert(p != prh_null);
     prh_impl_thrd_cond_init(p);
     return p;
-}
-
-void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
-    prh_impl_plat_cond_free(p);
 }
 
 void prh_thrd_cond_free(prh_thrd_cond *p) {
@@ -11377,23 +11433,36 @@ void prh_thrd_cond_lock(prh_thrd_cond *p) {
     prh_thrd_mutex_lock((prh_thrd_mutex *)p);
 }
 
+// pthread_cond_wait() pthread_cond_timedwait()
+//
+// 如果一个信号被传递给正在等待条件变量的线程，那么当信号处理程序返回后，该线程将继续
+// 等待该条件变量，就好像它从未被中断过一样；或者，由于虚假唤醒（spurious wakeup），
+// 它可能返回零。如果一个信号处理函数中断了对 pthread_cond_wait() 的调用，则该调用要
+// 么自动重新启动（Linux 就是如此），那么返回 0 表示遭遇了假唤醒，此时设计良好的程序
+// 会重新检查相应的判断条件并重新发起调用。这些函数不应返回 EINTR 错误码。
+//
+// 如果在条件变量 cond 被触发（signal）或广播（broadcast）之前，abstime 指定的绝对
+// 时间已经到达（即系统时间等于或超过 abstime），或在调用时 abstime 指定的绝对时间已
+// 经过去，则函数将返回一个错误 ETIMEDOUT。
+
 void prh_impl_plat_cond_wait(prh_thrd_cond *p) {
+    // pthread_cond_wait() 和 pthread_cond_timedwait() 都不会因为 EINTR 而返回
     prh_zeroret(pthread_cond_wait(&p->cond, &p->mutex));
 }
 
-prh_ptr prh_impl_plat_cond_timed_msec(prh_i64 *ptr, prh_u32 msec) {
+bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time) {
+    int n = pthread_cond_timedwait(&p->cond, &p->mutex, (struct timespec *)time);
+    if (n == 0) return true; // 线程被成功唤醒或被虚假唤醒
+    if (n != ETIMEDOUT) prh_abort_error(n); // 线程要么被唤醒，要么等待超时，其他情况不应该发生
+    return false; // 线程等待超时
+}
+
+prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec) {
     prh_i64 system_abstime = prh_system_msec() + msec; // u32 msec 最大可表示48天
     struct timespec *ts = (struct timespec *)ptr;
     ts->tv_sec = (time_t)(system_abstime / 1000);
     ts->tv_nsec = (int)((system_abstime % 1000) * 1000000);
     return (prh_ptr)ts;
-}
-
-bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time) { // 返回真表示等待超时
-    int n = pthread_cond_timedwait(&p->cond, &p->mutex, (struct timespec *)time);
-    if (n == 0) return false; // 线程进入等待后，在超时之前成功被唤醒
-    if (n != ETIMEDOUT) prh_abort_error(n);
-    return true; // 等待超时，或调用失败
 }
 
 void prh_thrd_cond_unlock(prh_thrd_cond *p) {
@@ -11429,25 +11498,55 @@ void prh_thrd_cond_broadcast(prh_thrd_cond *p) {
     prh_zeroret(pthread_cond_broadcast(&p->cond));
 }
 
+void prh_impl_thrd_sem_init(prh_thrd_sem *p) {
+    prh_impl_thrd_cond_init((prh_thrd_cond *)p);
+    p->wakeup_semaphore = 0;
+}
+
+void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
+    prh_impl_thrd_cond_free((prh_thrd_cond *)p);
+}
+
+prh_thrd_sem *prh_thrd_sem_init(void) {
+    prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
+    assert(p != prh_null);
+    prh_impl_thrd_sem_init(p);
+    return p;
+}
+
+void prh_thrd_sem_free(prh_thrd_sem *p) {
+    prh_impl_thrd_sem_free(p);
+    prh_free(p);
+}
+
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
-    prh_thrd_cond_lock(p);
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
     while (p->wakeup_semaphore == 0) {
-        prh_impl_plat_cond_wait(p);
+        prh_impl_plat_cond_wait((prh_thrd_cond *)p);
     }
     p->wakeup_semaphore -= 1;
-    prh_thrd_cond_unlock(p);
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
 }
 
 void prh_thrd_sem_post(prh_thrd_sem *p, int new_semaphores) {
     assert(new_semaphores > 0);
-    prh_thrd_cond_lock(p);
+    prh_thrd_cond_lock((prh_thrd_cond *)p);
     p->wakeup_semaphore += new_semaphores;
-    prh_thrd_cond_unlock(p);
+    prh_thrd_cond_unlock((prh_thrd_cond *)p);
     if (new_semaphores == 1) { // one semaphore available, can wakeup one thread to handle
-        prh_thrd_cond_signal(p);
+        prh_thrd_cond_signal((prh_thrd_cond *)p);
     } else { // multi semaphore available, all thread can racing to handle them
-        prh_thrd_cond_broadcast(p);
+        prh_thrd_cond_broadcast((prh_thrd_cond *)p);
     }
+}
+
+void prh_impl_init_cond_sleep(prh_cond_sleep *p) {
+    prh_impl_thrd_cond_init((prh_thrd_cond *)p);
+    prh_atom_bool_init(&p->wakeup_semaphore, false);
+}
+
+void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
+    prh_impl_thrd_cond_free((prh_thrd_cond *)p);
 }
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
@@ -11460,12 +11559,8 @@ prh_cond_sleep *prh_init_cond_sleep(void) {
 void prh_free_cond_sleep(prh_cond_sleep *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
-    prh_impl_plat_cond_free((prh_thrd_cond *)p);
+    prh_impl_free_cond_sleep(p);
     prh_free(p);
-}
-
-void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
-    prh_impl_plat_cond_free((prh_thrd_cond *)p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -11637,13 +11732,16 @@ void prh_thrd_wakeup(prh_cond_sleep *p) {
 // 会继续执行，进程停止的时间也会计入睡眠时间。
 #include <time.h>
 
-void prh_thrd_sleep(int secs, int nsec) { // 秒数（32位有符号整数）可以表示68年
-    assert(secs >= 0 && nsec >= 0 && nsec < PRH_NSEC_PER_SEC);
-    struct timespec duration = {.tv_sec = secs, .tv_nsec = nsec};
-    nanosleep(&duration, prh_null);
+void prh_thrd_sleep_secs(int secs) { // 32位有符号整数保存秒可以表示68年
+    prh_thrd_sleep(secs, 0);
 }
 
-void prh_thrd_strict_sleep(int secs, int nsec) { // 必须严格睡满一段时间
+void prh_thrd_sleep_msec(int msec) { // 32位有符号整数保存毫秒可以表示24天
+    int nsec = (msec % 1000) * 1000000;
+    prh_thrd_sleep(msec / 1000, nsec);
+}
+
+void prh_thrd_sleep(int secs, int nsec) { // 严格睡满一段时间
     assert(secs >= 0 && nsec >= 0 && nsec < PRH_NSEC_PER_SEC);
     struct timespec duration = {.tv_sec = secs, .tv_nsec = nsec};
     struct timespec remain;
@@ -11682,6 +11780,9 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 #endif
 }
 
+void prh_thrd_sleep_and_trigger_system_wakeup(int secs, int nsec) {
+}
+
 #if !defined(_SC_NPROCESSORS_ONLN)
 #include <sys/sysinfo.h> // get_nprocs
 #endif
@@ -11694,7 +11795,7 @@ void prh_system_info(prh_sys_info *info) {
     // https://www.man7.org/linux/man-pages/man3/sysconf.3p.html
     errno = 0;
     info->page_size = (int)sysconf(_SC_PAGESIZE);
-    info->alloc_unit = (int)sysconf(_SC_THREAD_STACK_MIN);
+    info->vmem_unit = (int)sysconf(_SC_THREAD_STACK_MIN);
 #if defined(_SC_NPROCESSORS_ONLN)
     info->processor_count = (int)sysconf(_SC_NPROCESSORS_ONLN);
 #else
