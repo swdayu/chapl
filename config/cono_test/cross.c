@@ -44,6 +44,7 @@ prh_cono_proc main_coro_proc(void) {
 }
 
 int main(int argc, char **argv) {
+    prh_main_init();
     printf("\n\n");
     prh_cono_main(70, 3, main_coro_proc, MAIN_CORO_STACK_SIZE);
     printf("\n\nOnly use main thread:\n");
