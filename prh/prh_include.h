@@ -4918,15 +4918,13 @@ void prh_impl_atomic_test(void) {
 #define PRH_USEC_PER_SEC 1000000
 #define PRH_NSEC_PER_SEC 1000000000
 
-typedef prh_i64 prh_timesec; // 最大可以表示正负2.9千亿年
-
 typedef struct {
-    prh_timesec sec;
+    prh_i64 secs; // 最大可以表示正负2.9千亿年
     prh_i32 usec;
 } prh_timeusec;
 
 typedef struct {
-    prh_timesec sec;
+    prh_i64 secs;
     prh_i32 nsec;
 } prh_timensec;
 
@@ -4968,11 +4966,11 @@ void prh_local_date(prh_datetime *local_date);
 void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time);
 
 prh_inline prh_i64 prh_system_msec_from(const prh_timeusec *p) {
-    return p->sec * PRH_MSEC_PER_SEC + p->usec / PRH_MSEC_PER_SEC;
+    return p->secs * PRH_MSEC_PER_SEC + p->usec / PRH_MSEC_PER_SEC;
 }
 
 prh_inline prh_i64 prh_system_usec_from(const prh_timeusec *p) {
-    return p->sec * PRH_USEC_PER_SEC + p->usec;
+    return p->secs * PRH_USEC_PER_SEC + p->usec;
 }
 
 // https://github.com/adobe/chromium/blob/master/base/time_mac.cc
@@ -5583,24 +5581,26 @@ prh_i64 prh_impl_filetime_nsec(const FILETIME *f) {
     return nsec * 100;
 }
 
+prh_i64 prh_impl_system_time(void) {
+    FILETIME f;
+    GetSystemTimePreciseAsFileTime(&f);
+    return ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+}
+
 prh_i64 prh_system_secs(void) { // 可表示2.9千亿年
     FILETIME f;
-    GetSystemTimeAsFileTime(&f);
+    GetSystemTimePreciseAsFileTime(&f);
     return prh_impl_1970_utc_time_secs(&f);
 }
 
 prh_i64 prh_system_msec(void) { // 可表示2.9亿年
     FILETIME f;
-    GetSystemTimeAsFileTime(&f);
+    GetSystemTimePreciseAsFileTime(&f);
     return prh_impl_1970_utc_time_msec(&f);
 }
 
 void prh_impl_system_filetime(FILETIME *f) {
-#if (_WIN32_WINNT >= 0x0602) // Windows 8
     GetSystemTimePreciseAsFileTime(f);
-#else
-    GetSystemTimeAsFileTime(f);
-#endif
 }
 
 prh_i64 prh_system_usec(void) { // 可表示29万年
@@ -5610,7 +5610,7 @@ prh_i64 prh_system_usec(void) { // 可表示29万年
 }
 
 void prh_impl_usec_to_timeusec(prh_timeusec *utc_time, prh_i64 usec) {
-    utc_time->sec = usec / PRH_USEC_PER_SEC;
+    utc_time->secs = usec / PRH_USEC_PER_SEC;
     utc_time->usec = usec % PRH_USEC_PER_SEC;
 }
 
@@ -5695,7 +5695,7 @@ void prh_local_date(prh_datetime *local_date) {
 
 void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time) {
     FILETIME f; SYSTEMTIME s, local;
-    prh_impl_1970_utc_secs_to_filetime(utc_time->sec, &f);
+    prh_impl_1970_utc_secs_to_filetime(utc_time->secs, &f);
     PRH_BOOLRET_OR_ABORT(FileTimeToSystemTime(&f, &s));
     PRH_BOOLRET_OR_ABORT(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
     prh_impl_date_time(local_date, &local, utc_time->usec);
@@ -5767,7 +5767,7 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
     //      If the function fails, the return value is zero. To get extended
     //      error information, call GetLastError.
     FILETIME f; SYSTEMTIME s;
-    prh_impl_1970_utc_secs_to_filetime(utc_time->sec, &f);
+    prh_impl_1970_utc_secs_to_filetime(utc_time->secs, &f);
     PRH_BOOLRET_OR_ABORT(FileTimeToSystemTime(&f, &s));
     prh_impl_date_time(utc_date, &s, utc_time->usec);
 }
@@ -5869,13 +5869,9 @@ prh_i64 prh_steady_secs(void) {
     return (prh_i64)GetTickCount64() / PRH_MSEC_PER_SEC; // 包含睡眠时间
 }
 
-prh_i64 prh_steady_msec(void) {
-#if 0
+prh_i64 prh_steady_msec(void) { // GetTickCount64() 精度 10msec ~ 16msec，包含睡眠时间
     prh_i64 ticks = prh_clock_ticks();
     return prh_elapse_msec(ticks);
-#else
-    return (prh_i64)GetTickCount64(); // 精度 10msec ~ 16msec，包含睡眠时间
-#endif
 }
 
 prh_i64 prh_steady_usec(void) {
@@ -6137,12 +6133,12 @@ void prh_system_time(prh_timeusec *t) {
 #if defined(CLOCK_REALTIME)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
-    t->sec = ts.tv_sec;
+    t->secs = ts.tv_sec;
     t->usec = ts.tv_nsec / 1000;
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
-    t->sec = tv.tv_sec;
+    t->secs = tv.tv_sec;
     t->usec = tv.tv_usec;
 #endif
 }
@@ -6191,7 +6187,7 @@ void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_d
     prh_impl_system_date(&utc, utc_date);
     time_t utc_secs = timegm(&utc); // timegm 是 gmtime_r 的反操作，忽略 tm_wday 和 tm_yady
     if (utc_secs == (time_t)-1) prh_abort_error(errno);
-    utc_time->sec = utc_secs;
+    utc_time->secs = utc_secs;
     utc_time->usec = utc_date->usec;
 }
 
@@ -6200,14 +6196,14 @@ void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime 
     prh_impl_system_date(&local, local_date);
     time_t utc_secs = mktime(&local); // mktime 是 localtime_r 的反操作，忽略 tm_wday 和 tm_yady
     if (utc_secs == (time_t)-1) prh_abort_error(errno);
-    utc_time->sec = utc_secs;
+    utc_time->secs = utc_secs;
     utc_time->usec = local_date->usec;
 }
 
 void prh_system_date(prh_datetime *utc_date) {
     prh_timeusec utc_time;
     prh_system_time(&utc_time);
-    time_t time = (time_t)utc_time.sec;
+    time_t time = (time_t)utc_time.secs;
     struct tm tm;
     prh_boolret(gmtime_r(&time, &tm));
     prh_impl_date_time(utc_date, &tm, utc_time.usec);
@@ -6216,14 +6212,14 @@ void prh_system_date(prh_datetime *utc_date) {
 void prh_local_date(prh_datetime *local_date) {
     prh_timeusec utc_time;
     prh_system_time(&utc_time);
-    time_t time = (time_t)utc_time.sec;
+    time_t time = (time_t)utc_time.secs;
     struct tm tm;
     prh_boolret(localtime_r(&time, &tm));
     prh_impl_date_time(local_date, &tm, utc_time.usec);
 }
 
 void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time) {
-    time_t time = (time_t)utc_time->sec;
+    time_t time = (time_t)utc_time->secs;
     struct tm tm;
     prh_boolret(localtime_r(&time, &tm));
     prh_impl_date_time(local_date, &tm, utc_time->usec);
@@ -6276,7 +6272,7 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
     //      since the Epoch, but with their values forced to the ranges
     //      indicated in the <time.h> entry; the final value of tm_mday shall
     //      not be set until tm_mon and tm_year are determined.
-    time_t time = (time_t)utc_time->sec;
+    time_t time = (time_t)utc_time->secs;
     struct tm tm;
     prh_boolret(gmtime_r(&time, &tm));
     prh_impl_date_time(utc_date, &tm, utc_time->usec);
@@ -7727,6 +7723,8 @@ typedef struct {
 
 void prh_system_info(prh_sys_info *info);
 void prh_set_fault_handler(prh_thrd *thrd, bool main_thrd);
+void prh_thrd_sleep_secs(int secs); // 32位有符号整数保存秒可以表示68年
+void prh_thrd_sleep_msec(int msec); // 32位有符号整数保存毫秒可以表示24天
 void prh_thrd_sleep(int secs, int nsec);
 
 void prh_impl_plat_cond_wait(prh_thrd_cond *p);
@@ -8569,6 +8567,480 @@ void prh_thrd_wakeup(prh_cond_sleep *p) {
     prh_atom_bool_write(&p->wakeup_semaphore, true);
     prh_thrd_cond_unlock((prh_thrd_cond *)p);
     prh_thrd_cond_signal((prh_thrd_cond *)p);
+}
+
+// VOID Sleep(DWORD dwMilliseconds);
+//
+// 挂起当前线程的执行，直到指定的时间间隔超时。若要进入 “可提醒” 的等待状态，需要使用
+// SleepEx 函数。参数 dwMilliseconds 线程将被挂起的时间间隔，以毫秒为单位。值为 0
+// 时，线程会放弃剩余时间片，让给任何已就绪的线程；如果没有其他就绪线程，函数立即返回，
+// 当前线程继续执行。Windows XP：值为 0 时，仅让给同等优先级的就绪线程；若无同等优先
+// 级就绪线程，函数立即返回，当前线程继续执行。此行为从 Windows Server 2003 起改变。
+// 值为 INFINITE 表示挂起永不超时（实际极少使用）。
+//
+// 本函数使线程放弃剩余时间片，并在 dwMilliseconds 指定的时间段内变为不可运行状态。
+// 系统时钟以固定频率（ticks）“滴答” 。若 dwMilliseconds 小于系统时钟分辨率，线程
+// 实际休眠时间可能短于指定值。若请求时间介于 1 与 2 个滴答之间，实际等待将在 1–2 滴
+// 答范围内，以此类推。
+//
+// 为提高休眠间隔精度，先调用 timeGetDevCaps 获取系统支持的最小计时器分辨率，再调用
+// timeBeginPeriod 将分辨率设为最小值。调用 timeBeginPeriod 需谨慎，频繁调用会显著
+// 影响系统时钟、电源和调度器。若调用 timeBeginPeriod，应在应用早期调用一次，并务必
+// 在应用结束时调用 timeEndPeriod 恢复。
+//
+// 休眠间隔过后，线程变为“就绪”状态。若指定 0 毫秒，线程将放弃剩余时间片但仍保持就绪。
+// 注意，就绪线程不保证立即运行。因此，线程将在休眠时间间隔过去后的某个任意时间才会运
+// 行，具体取决于系统“滴答”频率和其他进程的负载。详见 “调度优先级” 文档。在以下场景中
+// 使用 Sleep 时需格外小心：
+//
+//  1.  直接或间接创建窗口的代码（例如 DDE、COM CoInitialize）。若线程创建任何窗口，
+//      则必须处理消息。系统会向所有窗口广播消息。若线程使用 Sleep(INFINITE) 或
+//      SleepEx(INFINITE) 无限等待，系统将死锁。
+//  2.  受并发控制的线程（例如 I/O 完成端口、线程池）。例如，I/O 完成端口或线程池限制
+//      可运行的关联线程数量。若已达最大并发线程数，则必须等某一线程执行结束，额外的新
+//      关联线程才能运行。如果一个线程使用 Sleep(0) 或 SleepEx(0) 等待额外的关联线程
+//      完成工作，进程可能死锁。因为当前执行线程调用 Sleep(0) 后执行并没有结束，额外
+//      的线程可能没有机会得到执行，因此当前执行线程可能永远也等不到这个额外线程完成工
+//      作。
+//
+// 对于这些场景，请使用 MsgWaitForMultipleObjects 或 MsgWaitForMultipleObjectsEx，
+// 而非 Sleep 或 SleepEx。
+//
+// DWORD SleepEx(DWORD dwMilliseconds, BOOL bAlertable);
+//
+// 挂起当前线程，直到满足指定条件。执行将在以下任一情况发生时恢复：
+//
+//  * 一个 I/O 完成回调函数（I/O completion callback function）被调用。
+//  * 一个异步过程调用（Asynchronous Procedure Call, APC）被排队到该线程。
+//  * 超时时间间隔已过去。
+//
+// 参数 bAlertable，如果该参数为 FALSE，函数直到超时时间过去才会返回。如果发生 I/O
+// 完成端口回调，函数不会立即返回，且 I/O 完成函数不会被执行。如果有 APC 被排队到线
+// 程，函数不会立即返回，且 APC 函数不会被执行。
+//
+// 如果该参数为 TRUE，并且调用此函数的线程与调用 I/O 扩展函数（ReadFileEx 或
+// WriteFileEx）的线程相同，则函数将在超时时间过去或发生 I/O 完成端口回调时返回。如
+// 果发生 I/O 完成回调，则调用 I/O 完成函数。如果有 APC 被排队到线程（QueueUserAPC），
+// 则函数将在超时时间过去或 APC 函数被调用时返回。
+//
+// 如果指定的超时时间间隔已过去，则返回值为零。如果函数因一个或多个 I/O 完成回调函数而
+// 返回，则返回值为 WAIT_IO_COMPLETION。这种情况仅在 bAlertable 为 TRUE，并且调用
+// SleepEx 函数的线程与调用 I/O 扩展函数的线程相同时才会发生。
+//
+// 本函数可与 ReadFileEx 或 WriteFileEx 函数配合使用，以挂起线程直到 I/O 操作完成。
+// 这些函数指定一个完成例程，当 I/O 操作完成时将被执行。为了让完成例程被执行，当发生
+// 完成端口回调时，调用 I/O 函数的线程必须处于“可提醒等待”状态。线程通过调用 SleepEx、
+// MsgWaitForMultipleObjectsEx、WaitForSingleObjectEx 或 WaitForMultipleObjectsEx，
+// 并将 bAlertable 参数设为 TRUE，即可进入可提醒等待状态。
+//
+// MMRESULT timeGetDevCaps(LPTIMECAPS ptc, UINT cbtc);
+// typedef struct timecaps_tag {
+//      UINT wPeriodMin; // 计时器支持的最小精度值，单位毫秒（milliseconds）
+//      UINT wPeriodMax; // 计时器支持的最大精度值
+// } TIMECAPS, *PTIMECAPS, *NPTIMECAPS, *LPTIMECAPS;
+//
+// timeapi.h (include windows.h)
+// Windows 2000 Professional Windows 2000 Server
+// Winmm.lib Winmm.dll
+//
+// 参数 cbtc，结构体 TIMECAPS 的字节大小。返回值 MMSYSERR_NOERROR 表示成功，一般错误
+// MMSYSERR_ERROR，非法参数或其他错误 TIMERR_NOCANDO。
+//
+// MMRESULT timeBeginPeriod(UINT uPeriodMsec); // 设置周期性计时器的最小精度值
+// MMRESULT timeEndPeriod(UINT uPeriodMsec); // 清除最小精度值的设置
+//
+// 请在即将使用计时器服务之前调用此函数 timeBeginPeriod，并在使用完毕之后立即调用
+// timeEndPeriod 函数。每一次对 timeBeginPeriod 的调用都必须与一次对 timeEndPeriod
+// 的调用相匹配，且两次调用中指定的最小分辨率必须相同。应用程序可以多次调用
+// timeBeginPeriod，只要每一次调用都有对应的 timeEndPeriod 调用即可。
+//
+// 在 Windows 10 版本 2004 之前，此函数会影响全局 Windows 设置。对于所有进程，
+// Windows 会使用 “任何进程所请求的最小值”（即最高分辨率）。从 Windows 10 版本 2004
+// 开始，此函数不再影响全局计时器分辨率。对于调用了此函数的进程，Windows 会使用
+// “该进程所请求的最小值”（即最高分辨率）。对于未调用此函数的进程，Windows 不保证提供
+// 高于默认系统分辨率的精度。
+//
+// 从 Windows 11 开始，如果一个拥有窗口的进程被完全遮挡、最小化，或以其他方式对用户不
+// 可见或不可听，Windows 不保证提供高于默认系统分辨率的精度。有关此行为的更多信息，请
+// 参阅 SetProcessInformation。
+//
+// 设置更高的分辨率可以提高等待函数中超时间隔的准确性，但同时也会降低整体系统性能，因
+// 为线程调度器会更频繁地切换任务。高分辨率还可能阻止 CPU 电源管理系统进入省电模式。设
+// 置更高的分辨率并不会提高高分辨率性能计数器的准确性。
+#include <timeapi.h>
+
+prh_static_assert(MMSYSERR_NOERROR == 0);
+
+void prh_impl_timer_resolution(prh_u32 *min_msec, prh_u32 *max_msec) {
+    TIMECAPS TimeCaps;
+    prh_zeroret(timeGetDevCaps(&TimeCaps, (UINT)sizeof(TIMECAPS)));
+    *min_msec = (prh_u32)TimeCaps.wPeriodMin;
+    *max_msec = (prh_u32)TimeCaps.wPeriodMax;
+}
+
+void prh_thrd_sleep_secs(int secs) { // 32位有符号整数保存秒可以表示68年
+    // 1. Sleep(0) 线程仍然处于就绪状态，如果没有其他就绪线程，当前线程会继续执行
+    // 2. 如果有其他就绪线程，当前线程会放弃当前时间片，将在下次调度机会继续执行
+    Sleep(secs * 1000);
+}
+
+// Win32 的 Sleep(ms) 实际精度由系统时钟中断周期决定，默认粒度约为 15 ms（典型值
+// 15.625 ms）。调用 timeBeginPeriod(1) 可把全局时钟分辨率降到 1 ms，实测 1 ~ 3
+// 毫秒左右。但 timeBeginPeriod(1) 会影响系统全局，或影响进程全局（Windows 10 2004
+// 开始）计时器分辨率。
+//
+// 除了 Sleep，还可以使用内核可等待计时器 CreateWaitableTimerEx。可等待计时器是一个
+// 内核对象，可在多个线程间共享，如果设置了名称可以在多进程间共享，多个线程可以同时等待
+// 该计时器，如果计时器是手动重置的，那么多个等待线程可以变为可调度状态。
+//
+// 手动重置和自动重置可等待计时器的区别，手动重置像电灯开关：你不去关它就常亮；自动重置
+// 像点动按钮：按下去亮一下，松手就灭，且只能“服务”一个人。
+// 手动重置 CREATE_WAITABLE_TIMER_MANUAL_RESET 0x00000001
+//      到期时设为触发状态并持续保持，直到再次调用 SetWaitableTimer 或 CancelWaitableTimer 手动把它关掉
+//      所有阻塞在 WaitForSingleObject/WaitForMultipleObjects 的线程同时被唤醒
+//      需要再次调用 SetWaitableTimer，否则对象一直“亮着”，后续等待会立即返回
+//      典型用法: 想一次性通知多个线程，或自己要多次“消费”这个触发信号
+// 自动重置 0x00000000
+//      到期时设为触发状态（signaling），但只唤醒一个正在等待的线程，随后内核立即把它自动清零（非触发状态）
+//      仅一个线程被唤醒；其余线程继续等待下一次到期
+//      不需要再次调用 SetWaitableTimer，周期字段 lPeriod 仍有效，下次到期内核会再次置信号
+//      典型用法: 只想每次把一个工作线程放进线程池取任务
+//
+// SetWaitableTimerEx 与 SetWaitableTimer 的主要区别是，新 API “操作系统可以将到期
+// 时刻往后挪”，也就是 Windows 的“定时器汇聚（Timer Coalescing）”机制。它新增了参数
+// TolerableDelay（毫秒）告诉 OS “只要误差不超过这个值，就可以把我的定时器跟别人的凑
+// 一起唤醒”，当 TolerableDelay > 0 时，OS 可把多个应用定时器合并到一次时钟中断里，
+// 减少 CPU 唤醒次数。另外还新增 WakeContext（REASON_CONTEXT）用于系统遥测/诊断日志，
+// 方便在 powercfg /sleepstudy 里看到是谁唤醒了机器。总之，旧 API 到期就必须准点唤醒，
+// 新 API 允许你“宽限几毫秒”，OS 借此把多个定时器合并到一次唤醒，笔记本省电、服务器降
+// CPU 占用。如果应用对 ±1 ms 抖动并不敏感，优先用 SetWaitableTimerEx 并给 TolerableDelay
+// 填 5~50 ms，即可免费拿到功耗收益。
+//
+// HANDLE CreateWaitableTimerExW(
+//   [in, optional] LPSECURITY_ATTRIBUTES lpTimerAttributes,
+//   [in, optional] LPCWSTR               lpTimerName,
+//   [in]           DWORD                 dwFlags,
+//   [in]           DWORD                 dwDesiredAccess
+// );
+// synchapi.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+// Windows Vista Windows Server 2008
+//
+// 创建或打开一个可等待的计时器对象，并返回指向该对象的句柄。如果函数成功，返回值是计时
+// 器对象的句柄。如果命名的计时器对象在函数调用之前已存在，函数将返回现有对象的句柄，并
+// 且 GetLastError 返回 ERROR_ALREADY_EXISTS。如果函数失败，返回值为 NULL。要获取扩
+// 展错误信息，请调用 GetLastError。
+//
+// 参数 lpTimerAttributes 指向一个 SECURITY_ATTRIBUTES 结构的指针。如果此参数为
+// NULL，计时器句柄不能被子进程继承。如果 lpTimerAttributes 为 NULL，计时器对象将
+// 获得默认安全描述符，且句柄不能被继承。计时器的默认安全描述符中的访问控制列表（ACL）
+// 来自创建者的主令牌或模拟令牌（primary or impersonation token）。
+//
+// 参数 lpTimerName 计时器对象的名称。名称限制为 MAX_PATH 个字符。名称区分大小写。如
+// 果 lpTimerName 为 NULL，计时器对象创建后将没有名称。如果 lpTimerName 与现有事件、
+// 信号量、互斥体、作业或文件映射对象的名称匹配，函数将失败，并且 GetLastError 返回
+// ERROR_INVALID_HANDLE。这是因为这些对象共享相同的命名空间。名称可以带有 “Global”
+// 或 “Local” 前缀，以显式地在全局或会话命名空间中创建对象。名称的其余部分可以包含任
+// 何字符，但不能包含反斜杠字符（\）。有关详细信息，请参阅 Kernel Object Namespaces。
+// 快速用户切换是通过终端服务会话实现的。内核对象名称必须遵循终端服务的指南，以便应用
+// 程序能够支持多个用户。对象可以在私有命名空间中创建。有关详细信息，请参阅 Object
+// Namespaces。
+//
+// 参数 dwFlags 可以为 0 或以下值：
+//      CREATE_WAITABLE_TIMER_MANUAL_RESET 0x00000001 计时器必须手动重置。否则，
+//      系统会在释放单个等待线程后自动重置计时器。
+//      CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002 创建一个高分辨率计时器。
+//      在时间敏感的情况下，当几毫秒的到期延迟不可接受时，使用此值。此值在 Windows 10
+//      版本 1803 及更高版本中受支持。
+//
+// 参数 dwDesiredAccess 计时器对象的访问掩码。有关访问权限的列表，请参阅
+// Synchronization Object Security and Access Rights。
+//
+// 调用进程的任何线程可以在任意等待函数中，指定计时器对象句柄来进行等待。多个进程可以
+// 拥有指向同一个计时器对象的句柄，从而可以使用该对象进行进程间同步。
+//
+//  * 如果 CreateWaitableTimerEx 的 lpTimerAttributes 参数启用了继承，则由
+//    CreateProcess 函数创建的进程可以继承计时器对象的句柄。
+//  * 进程可以在调用 DuplicateHandle 函数时指定计时器对象句柄。结果句柄可以被另一个
+//    进程使用。
+//  * 进程可以在调用 OpenWaitableTimer 或 CreateWaitableTimerEx 函数时指定计时器
+//    对象的名称。
+//
+// 使用 CloseHandle 函数关闭句柄。系统会在进程终止时自动关闭句柄。当最后一个句柄被关
+// 闭时，计时器对象被销毁。要将计时器与窗口关联，请使用 SetTimer 函数。
+//
+// BOOL SetWaitableTimer(
+//   [in]           HANDLE              hTimer,
+//   [in]           const LARGE_INTEGER *lpDueTime,
+//   [in]           LONG                lPeriod,
+//   [in, optional] PTIMERAPCROUTINE    pfnCompletionRoutine,
+//   [in, optional] LPVOID              lpArgToCompletionRoutine,
+//   [in]           BOOL                fResume
+// );
+// BOOL CancelWaitableTimer(
+//   [in] HANDLE hTimer
+// );
+// synchapi.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+// Windows XP Windows Server 2003
+//
+// 激活指定的可等待计时器。当到期时间到达时，计时器被触发，并且设置计时器的线程调用可选
+// 的完成例程。如果函数成功，返回值是非零值。如果函数失败，返回值为零。要获取扩展错误信
+// 息，请调用 GetLastError。
+//
+// 参数 hTimer 指向计时器对象的句柄。该句柄由 CreateWaitableTimer 或 OpenWaitableTimer
+// 函数返回。该句柄必须具有 TIMER_MODIFY_STATE 访问权限。有关详细信息，请参阅 Synchronization
+// Object Security and Access Rights。
+//
+// 参数 lpDueTime 计时器状态被设置为触发的时间，以 100 纳秒间隔表示。使用 FILETIME
+// 结构描述的格式。正值表示绝对时间。请确保使用基于 UTC 的绝对时间，因为系统内部使用
+// 基于 UTC 的时间。负值表示相对时间。实际的计时器精度取决于硬件的能力。有关基于 UTC
+// 的时间的详细信息，请参阅 System Time。Windows XP、Windows Server 2003、Windows
+// Vista、Windows 7、Windows Server 2008 和 Windows Server 2008 R2：如果指定相对
+// 时间，计时器包括在低功耗状态下的时间。例如，计时器在计算机处于睡眠状态时继续倒计时。
+// Windows 8 及更高版本、Windows Server 2012 及更高版本：如果指定相对时间，计时器不
+// 包括在低功耗状态下的时间。例如，计时器在计算机处于睡眠状态时不会继续倒计时。
+//
+// 因为相对时间在新版本操作系统中，不包含低功耗状态下的时间，也因此不可能具有在低功耗
+// 状态被唤醒的功能（fResume）。计时器到期时，如果系统处于低功耗状态，如果需要将系统
+// 即时唤醒处理计时器事件，请使用绝对时间。
+//
+// 参数 lPeriod 计时器的周期，以毫秒为单位。如果 lPeriod 为零，计时器触发一次。如果
+// lPeriod 大于零，计时器是周期性的。周期性计时器在每个周期结束时自动重新激活，直到使
+// 用 CancelWaitableTimer 函数取消计时器或使用 SetWaitableTimer 函数重置计时器。如
+// 果 lPeriod 小于零，函数失败。
+//
+// 参数 pfnCompletionRoutine 可选完成例程的指针。完成例程是应用程序定义的函数，类型
+// 为 PTIMERAPCROUTINE，在计时器触发时执行。有关计时器回调函数的详细信息，请参阅
+// TimerAPCProc。有关 APC 和线程池线程的详细信息，请参阅备注。
+//
+// 参数 lpArgToCompletionRoutine 传递给完成例程的参数。参数 fResume 如果为 TRUE，
+// 当计时器触发时，将对处于挂起功耗模式的系统进行恢复。否则，系统不会恢复。如果系统不
+// 支持恢复，函数调用成功，但 GetLastError 返回 ERROR_NOT_SUPPORTED。
+//
+// 计时器最初是不活动的。要激活计时器，请调用 SetWaitableTimer。如果在调用 SetWaitableTimer
+// 时计时器已经处于活动状态，计时器将停止，然后重新激活。以这种方式停止计时器不会将计时
+// 器状态设置为触发，因此在计时器上阻塞的线程仍然保持阻塞。但是，它会取消任何待处理的完
+// 成例程（completion routines）。
+//
+// 当指定的到期时间到达时，计时器变为不活动状态，并且如果没有任何待处理的 APC 已经排队
+// （no outstanding APC already queued），则将可选的 APC（即可选参数 pfnCompletionRoutine
+// 指定的过程）排队到设置计时器的线程。计时器的状态被设置为触发，使用指定的周期重新激活
+// 计时器，并且设置计时器的已进入可警报等待状态的线程将调用完成例程。有关详细信息，请参
+// 阅 QueueUserAPC。
+//
+// 请注意，APC 对于线程池线程不如其他触发机制（signaling mechanisms）有效，因为系统控
+// 制线程池线程的生命周期，因此在通知传递之前，线程可能会被终止。与其使用 pfnCompletionRoutine
+// 参数或其他基于 APC 的触发机制，不如使用可等待对象，例如 CreateThreadpoolTimer 创建
+// 的计时器。对于 I/O，使用 CreateThreadpoolIo 创建的 I/O 完成对象或基于 hEvent 的
+// OVERLAPPED 结构，其中事件可以传递给 SetThreadpoolWait 函数。
+//
+// 如果设置计时器的线程终止并且存在关联的完成例程，计时器将被取消。但是，计时器的状态保
+// 持不变。如果没有完成例程，则终止线程对计时器没有影响。当手动重置的计时器被设置为触发
+// 状态时，它保持在此状态，直到调用 SetWaitableTimer 重置计时器。因此，周期性手动重置
+// 的计时器在初始到期时间到达时被设置为触发状态，并保持触发状态，直到被重置。当同步计时
+// 器（默认的非手动计时器）被设置为触发状态时，它保持在此状态，直到线程完成对计时器对象
+// 的等待操作。
+//
+// 如果系统时间被调整，任何待处理的绝对计时器的到期时间将被调整。要编译使用此函数的应用
+// 程序，请定义 _WIN32_WINNT 为 0x0400 或更高版本。有关详细信息，请参阅 Using the
+// Windows Headers。要使用计时器为窗口调度事件（to schedule an event for a window），
+// 请使用 SetTimer 函数。
+//
+// 处理计时器的 API 使用各种不同的硬件时钟。这些时钟的分辨率可能与您预期的有很大不同：
+// 有些以毫秒为单位（对于那些使用基于 RTC 的计时器芯片），有些以纳秒为单位（对于那些使
+// 用 ACPI 或 TSC 计数器）。您可以使用 timeBeginPeriod 和 timeEndPeriod 函数调用更
+// 改 API 的分辨率。您可以更改的分辨率的精确度取决于特定 API 使用的硬件时钟。有关详细
+// 信息，请查阅您的硬件文档。Real Time Clock（RTC），Advanced Configuration and
+// Power Interface（ACPI），Time Stamp Counter（TSC）。
+//
+// CancelWaitableTimer 函数不会改变计时器的触发状态。它会在计时器被设置为触发状态之前
+// 停止计时器，并取消待处理的 APC。因此，对计时器执行等待操作的线程会继续等待，直到它们
+// 等待函数超时，或者计时器被重新激活并且其状态被设置为触发。如果计时器已经处于触发状态，
+// 它将保持在该状态。要重新激活计时器，请调用 SetWaitableTimer 函数。
+//
+// BOOL SetWaitableTimerEx(
+//   [in] HANDLE              hTimer,
+//   [in] const LARGE_INTEGER *lpDueTime,
+//   [in] LONG                lPeriod,
+//   [in] PTIMERAPCROUTINE    pfnCompletionRoutine,
+//   [in] LPVOID              lpArgToCompletionRoutine,
+//   [in] PREASON_CONTEXT     WakeContext, ***
+//   [in] ULONG               TolerableDelay ***
+// );
+// typedef struct _REASON_CONTEXT {
+//   ULONG Version;
+//   DWORD Flags;
+//   union {
+//     struct {
+//       HMODULE LocalizedReasonModule;
+//       ULONG   LocalizedReasonId;
+//       ULONG   ReasonStringCount;
+//       LPWSTR  *ReasonStrings;
+//     } Detailed;
+//     LPWSTR SimpleReasonString;
+//   } Reason;
+// } REASON_CONTEXT, *PREASON_CONTEXT;
+// synchapi.h (include Windows.h) minwinbase.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+// Windows 7 Windows Server 2008
+//
+// 激活指定的可等待计时器，并为计时器提供上下文信息。当到期时间到达时，计时器被触发，设
+// 置计时器的线程将调用可选的完成例程。SetWaitableTimerEx 函数与 SetWaitableTimer
+// 函数类似，但 SetWaitableTimerEx 可以用于指定计时器到期的上下文字符串和可容忍延迟。
+//
+// 参数 WakeContext 指向一个 REASON_CONTEXT 结构的指针，该结构包含计时器的上下文信息。
+// 参数 TolerableDelay 到期时间的可容忍延迟，以毫秒为单位。
+//
+// 要编译使用此函数的应用程序，请定义 _WIN32_WINNT 为 0x0601 或更高版本。如果设置计时
+// 器的线程终止并且存在关联的完成例程，计时器将被取消。但是，计时器的状态保持不变。如果
+// 没有完成例程，则终止线程对计时器没有影响。如果调用 SetWaitableTimerEx 的线程退出，
+// 计时器将被取消。这会在计时器被设置为触发状态之前停止计时器，并取消待处理的 APC；它不
+// 会改变计时器的触发状态。
+//
+// REASON_CONTEXT 结构包含有关电源请求的信息。此结构由 PowerCreateRequest 和 SetWaitableTimerEx
+// 函数使用。
+//
+// * 版本 Version 结构的版本号。此参数必须设置为 POWER_REQUEST_CONTEXT_VERSION。
+// * 标志 Flags，电源请求原因的格式。此参数可以是以下值之一：
+//      POWER_REQUEST_CONTEXT_DETAILED_STRING 0x00000002，Detailed 结构体标识一个
+//      可本地化的字符串资源，用于描述电源请求的原因。
+//      POWER_REQUEST_CONTEXT_SIMPLE_STRING	0x00000001，SimpleReasonString 参数
+//      包含一个简单的、不可本地化的字符串，用于描述电源请求的原因。
+// * 原因 Reason，一个联合体，包含 Detailed 结构或字符串。
+// * Reason.Detailed，一个结构体，标识一个可本地化的字符串资源，用于描述电源请求原因。
+// * Reason.Detailed.LocalizedReasonModule 包含字符串资源的模块。
+// * Reason.Detailed.LocalizedReasonId 字符串资源的 ID。
+// * Reason.Detailed.ReasonStringCount，ReasonStrings 参数中的字符串数量。
+// * Reason.Detailed.ReasonStrings，字符串数组，用于在运行时替换字符串资源中的占位符。
+// * Reason.SimpleReasonString，一个不可本地化的字符串，用于描述电源请求的原因。
+//
+// 将只读字符串作为 SimpleReasonString 或 ReasonStrings 传递是安全的，因为 PowerCreateRequest
+// 和 SetWaitableTimerEx 函数会从字符串中读取内容，而不会写入它们。
+//
+// 是否唤醒休眠的系统，SetWaitableTimer 传入 fResume = TRUE，SetWaitableTimerEx 传
+// 入非空的 WakeContext，即表示到期唤醒系统。当系统正处于睡眠（S3）/休眠（S4）状态时，
+// 是否允许此定时器到期事件把机器唤醒，使其恢复到工作状态。
+//  fResume = TRUE
+//      如果定时器到期时整机处于睡眠/休眠，Windows 会主动唤醒系统，并像正常开机那样继
+//      续执行后续流程（APC、线程等待等）。这是实现 “定时开机” “半夜自动下载” 等功能的
+//      关键开关。
+//  fResume = FALSE
+//      定时器仍然会在内部到期，但不会唤醒系统；只有等到用户手动开机后，内核才会把已经
+//      “过期” 的信号补发给等待线程。适用于纯软件定时任务，对“是否及时唤醒机器”无要求。
+// 使用限制与注意。需要管理员权限；普通进程把 fResume 置 TRUE 会返回 ERROR_PRIVILEGE_NOT_HELD。
+// 只对绝对时间（lpDueTime 为正）定时器有效；相对时间定时器即使置 TRUE 也会被内核忽
+// 略。从 Windows 10 开始，若系统固件支持 “新式待机(S0 低功耗空闲)”，fResume 同样适
+// 用于把机器从 S0 空闲 拉回活动状态。唤醒成功后，系统会给调用进程额外 2 min 的“宽限
+// 期”，期间空闲计时器被自动延长，方便代码调用 SetThreadExecutionState 声明自己“正在
+// 工作”，防止立刻再次睡眠。
+//
+// https://mirrors.arcadecontrols.com/www.sysinternals.com/Information/HighResolutionTimers.html
+//
+// 高分辨率计时器在各种不同的应用程序中都非常有用。例如，在 Windows 中，此类计时器最常
+// 见的用途是多媒体应用程序生成声音或音频时需要精确控制。MIDI 是一个完美的例子，因为
+// MIDI 序列器必须以 1 毫秒的精度保持 MIDI 事件的节奏。本文描述了 NT 中高分辨率计时器
+// 的实现方式，并记录了 NtSetTimerResolution 和 NtQueryTimerResolution，这两个 NT
+// 内核函数用于操作和返回有关系统时钟的信息。不幸的是，NtSetTimerResolution 和 NtQueryTimerResolution
+// 并没有被 NT 内核导出，因此它们不可用于内核模式设备驱动程序。
+//
+// Windows NT 的所有计时器支持都基于一个系统时钟中断，默认运行在 10 毫秒的粒度上。因
+// 此，标准 Windows 计时器的分辨率就是 10 毫秒。当多媒体应用程序使用 timeBeginPeriod
+// 多媒体 API 时，该 API 由 Windows NT 动态链接库 WINMM.DLL 导出，调用会被重定向到
+// Windows NT 内核模式函数 NtSetTimerResolution，该函数由本地 Windows NT 库 NTDLL.DLL
+// 导出。
+//
+// NtSetTimerResolution 和 NtQueryTimerResolution 的定义如下。所有时间都以 100 纳
+// 秒为单位指定。
+//
+// NTSTATUS NTAPI NtSetTimerResolution (
+//     IN ULONG RequestedResolution,
+//     IN BOOLEAN Set,
+//     OUT PULONG ActualResolution
+// );
+//
+// 参数 RequestedResolution 期望的计时器分辨率。必须在 NT 支持的系统计时器值的合法范
+// 围内。在标准 x86 系统上，这个范围是 1-10 毫秒。在标准 x86 HAL 中，可接受范围内的值
+// 会被四舍五入到下一个最高的毫秒边界。如果 Set 参数为 FALSE，则忽略此参数。
+//
+// 参数 Set，如果请求新的计时器分辨率，则为 TRUE；如果应用程序表示不再需要之前设置的分
+// 辨率，则为 FALSE。参数 ActualResolution，调用返回后生效的计时器分辨率。
+//
+// 如果请求的分辨率在有效范围内的计时器值内，NtSetTimerResolution 返回 STATUS_SUCCESS。
+// 如果 Set 为 FALSE，调用者必须之前调用过 NtSetTimerResolution，否则返回
+// STATUS_TIMER_RESOLUTION_NOT_SET。
+//
+// NTSTATUS NTAPI NtQueryTimerResolution (
+//     OUT PULONG MinimumResolution,
+//     OUT PULONG MaximumResolution,
+//     OUT PULONG ActualResolution
+// );
+//
+// 参数 MinimumResolution 最小计时器分辨率。在标准 x86 系统上，大约是 1 毫秒。参数
+// MaximumResolution 最大计时器分辨率。在标准 x86 系统上为 0x2625A，大约是 15 毫秒。
+// 参数 ActualResolution 系统时钟的当前分辨率。
+//
+// 实现细节，NtSetTimerResolution 可以被多个应用程序调用来设置计时器分辨率。为了支持
+// 后续进程设置计时器分辨率而不违反之前调用者的分辨率假设，NtSetTimerResolution 从不
+// 降低计时器的分辨率，只提高它。例如，如果一个进程将分辨率设置为 5 毫秒，后续将分辨率
+// 设置为 5 到 10 毫秒之间的调用将返回一个状态码表示成功，但计时器将保持在 5 毫秒。
+// NtSetTimerResolution 还会在其进程控制块中跟踪进程是否设置了计时器分辨率，以便在调
+// 用时 Set 等于 FALSE 时可以验证调用者之前是否请求过新的分辨率。每次设置新的分辨率时，
+// 全局计数器会递增，每次重置时，计数器会递减。当计数器在重置调用时变为 0 时，计时器会
+// 恢复到默认速率，否则不采取任何操作。同样，这通过保证分辨率至少与它们指定的一样好，来
+// 保留所有请求高分辨率计时器的应用程序的计时器分辨率假设。
+//
+// 你可以使用 Sysinternals 的 ClockRes 小工具查看系统当前的时钟分辨率。
+
+void prh_impl_thrd_sleep(prh_i64 due_time_100ns, bool resume) {
+    if (due_time_100ns <= 0) {
+        Sleep(0);
+        return;
+    }
+
+    HANDLE timer;
+#if defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+    timer = CreateWaitableTimerExW(prh_null, prh_null, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+#else
+    timer = CreateWaitableTimerExW(prh_null, prh_null, 0, TIMER_ALL_ACCESS);
+#endif
+    if (timer == prh_null) {
+        prh_abort_error(GetLastError());
+    }
+
+    LARGE_INTEGER due_time;
+    if (resume) {
+        due_time.QuadPart = prh_impl_system_time() + due_time_100ns; // 100ns 为单位，绝对时间
+    } else {
+        due_time.QuadPart = -(due_time_100ns); // 100ns 为单位，相对时间
+    }
+#if !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+    prh_zeroret(timeBeginPeriod(1));
+#endif
+    if (SetWaitableTimer(timer, &due_time, 0, prh_null, prh_null, resume)) {
+        prh_impl_wait_single_object(timer, INFINITE);
+    } else {
+        prh_prerr(GetLastError());
+    }
+#if !defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
+    prh_zeroret(timeEndPeriod(1));
+#endif
+
+    prh_impl_close_handle(timer);
+}
+
+void prh_thrd_sleep_msec(int msec) { // 32位有符号整数保存毫秒可以表示24天
+    prh_impl_thrd_sleep(((prh_i64)msec) * 1000 * 10, false);
+}
+
+void prh_thrd_sleep(int secs, int nsec) { // 32位有符号整数保存秒可以表示68年
+    prh_i64 due_time_100ns = (prh_i64)secs * 1000 * 1000 * 10 + nsec / 100;
+    prh_impl_thrd_sleep(due_time_100ns, false);
+}
+
+void prh_thrd_sleep_and_trigger_system_wakeup(int secs, int nsec) {
+    prh_i64 due_time_100ns = (prh_i64)secs * 1000 * 1000 * 10 + nsec / 100;
+    prh_impl_thrd_sleep(due_time_100ns, true);
 }
 
 void prh_system_info(prh_sys_info *info) {
