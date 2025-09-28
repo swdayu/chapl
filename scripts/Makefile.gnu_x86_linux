@@ -46,7 +46,10 @@ as-option = $(call try-run,$(TRY_AS) $(call OPTION_AS_FLAGS,$(INIT_AFLAGS) $(1))
 ld-option = $(call try-run,$(TRY_LD) $(call OPTION_LD_FLAGS,$(INIT_LDFLAG) $(1)) $(OPTION_TRY_LD),$(1),$(2))
 ld-lib-option = $(call try-run,$(TRY_LD) $(OPTION_TRY_LD) $(1),$(1),$(2))
 
-INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(srctree)\"
+# INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(srctree)\"
+ifneq ($(filter dll,$(TARGET_TYPE)),)
+INIT_MACROS += -DCONFIG_BUILD_DLL
+endif
 
 # 记录源文件路径时省去 $(srctree) 前缀，例如 __FILE__
 INIT_CFLAGS += -ffile-prefix-map=$(srctree)/= # -fmacro-prefix-map=$(srctree)/=

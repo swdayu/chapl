@@ -13,10 +13,6 @@ INIT_XLFLAG := # 直接透传给链接器的选项
 INIT_LDDIRS :=
 INIT_LDLIBS :=
 
-ifneq ($(filter ndebug,$(CONFIG_COMPILER)),)
-INIT_MACROS += -DNDEBUG
-endif
-
 # x86 - x86/x86_32/i386 for 32 bit
 # x64 - x64/x86_64 for 64 bit
 # arm - arm 32 bit
@@ -34,8 +30,4 @@ include $(srctree)/scripts/Makefile.msc_x86_windows
 target-file-suffix = $(if $(filter exe,$(1)),.exe,$(if $(filter lib,$(1)),.lib,$(if $(filter dll,$(1)),.dll,.exe)))
 else
 $(error unsupported compiler '$(CONFIG_COMPILER)')
-endif
-
-ifneq ($(filter dll,$(TARGET_TYPE)),)
-INIT_MACROS += -DCONFIG_BUILD_DLL
 endif

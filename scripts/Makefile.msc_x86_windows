@@ -38,10 +38,10 @@ build_dll := 0
 endif
 
 LINK_DRIVER_FLAGS :=
-LINK_MAIN_ENTRY := main
+LINK_MAIN_ENTRY := mainCRTStartup
 ifneq ($(filter windows,$(CONFIG_COMPILER)),)
 subsystem := WINDOWS
-LINK_MAIN_ENTRY := WinMain
+LINK_MAIN_ENTRY := WinMainCRTStartup
 else ifneq ($(filter driver,$(CONFIG_COMPILER)),)
 subsystem := NATIVE
 LINK_DRIVER_FLAGS := /DRIVER:WDM
@@ -87,7 +87,10 @@ INIT_AFLAGS += /Zi
 INIT_MACROS += /D_DEBUG
 endif
 
-INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
+# INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
+ifneq ($(filter dll,$(TARGET_TYPE)),)
+INIT_MACROS += -DCONFIG_BUILD_DLL
+endif
 
 # linker warning LNK4001: no object files specified; libraries used
 #   The linker was passed one or more .lib files, but no .obj files. Because the linker is not able to access
@@ -124,7 +127,7 @@ LINK_DLL_FLAGS += /VERBOSE
 ARCH_LIB_FLAGS += /VERBOSE
 endif
 
-ifeq ($(subsystem),CONSOLE)
+ifeq ($(strip $(subsystem)),CONSOLE)
 INIT_MACROS += /D_CONSOLE
 endif
 
@@ -300,7 +303,7 @@ INIT_CFLAGS += \
 # /MDd msvcrtd.lib	ucrtd.lib (ucrtbased.dll)	vcruntimed.lib (vcruntime<v>d.dll)
 
 msc-crt-y := # libcmt.lib libucrt.lib ucrt.lib
-msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib # dbghelp.lib
+msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib shell32.lib dbghelp.lib
 
 OPTION_LDLIBS = $(patsubst -l%,%,$(1))
 OPTION_LDDIRS = $(foreach d,$(patsubst -L%,%,$(1)),/LIBPATH:$(call windows_path_style,$(d)))
@@ -314,7 +317,7 @@ link-com-obj = $(archive-cmd)
 # input .o .a (.obj .lib) output .exe
 LINK_STACK_SIZE = $(if $(target_stack_size),/STACK:$(target_stack_size))
 link-exe-cmd = $(LD) $(LINK_EXE_FLAGS) $(target_ld_flags) $(call OPTION_LDDIRS,$(target_ld_dirs)) \
-    $(if $(2),,/ENTRY:$(LINK_MAIN_ENTRY)) $(LINK_STACK_SIZE) /MAP:$(basename $@).map /OUT:$@ \
+    /ENTRY:$(strip $(LINK_MAIN_ENTRY)) $(LINK_STACK_SIZE) /MAP:$(basename $@).map /OUT:$@ \
     $(LIBPATH_FLAGS) $(2)$(1) $(call OPTION_LDDIRS,$(target_ld_libs)) $(msc-lib-y)
 link-exe-with-opt-file = $(call link-exe-cmd,$(1),@)
 
