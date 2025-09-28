@@ -1924,6 +1924,11 @@ extern int main(int argc, char **argv);
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
     int argc = 0;
     wchar_t **wargv;
+    UNREFERENCED_PARAMETER(hPrevInstance);
+    UNREFERENCED_PARAMETER(pCmdLine);
+    // 运行 GUI 应用程序时，C 运行库启动代码会调用 Windows 函数 GetCommandLineW() 来
+    // 获取进程的完整命令行，忽略可执行文件的名称，然后将执行命令行剩余部分的指针传给主
+    // 函数的 pCmdLine 参数。
     wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
     if (wargv == prh_null) prh_prerr(GetLastError());
     int n = main(argc, (char **)wargv); // TODO: 将 wargv 转换成 UTF-8 版本的 argv
@@ -8491,6 +8496,127 @@ prh_ptr prh_impl_plat_thrd_self(void) {
     return (prh_ptr)GetCurrentThread();
 }
 
+// 调用 DWORD SuspendThread(HANDLE handle) 可以将对应线程挂起，它返回线程的原本的挂
+// 起次数，如果失败返回 0xFFFFFFFF。一个线程可以被多次挂起（MAXIMUM_SUSPEND_COUNT），
+// WinNT.h 中定义为 127 次。假如线程挂起了三次，在有资格让系统为它分配 CPU 之前，必须
+// 恢复三次。显然，线程可以将自己挂起，但是它无法自己恢复。请注意，就内核模式下执行情况
+// 而言，SuspendThread 是异步的，但在线程恢复之前，它是无法在用户模式下执行的。
+//
+// 实际开发中，应用程序在调用 SuspendThread 时必须小心，因为试图挂起一个线程时，我们不
+// 知道线程在做什么。例如，如果线程正在分配堆中的内存，线程将锁定堆。当其他线程要访问堆
+// 的时候，它们的执行将被中止，直到第一个线程恢复。只有在确切知道目标线程时哪个，或者它
+// 在做什么，而且采取完备措施避免出现因挂起线程而引起问题或者死锁的时候，手动挂起才是安
+// 全的。
+//
+// 怎样挂起一个进程中的所有线程。在一个特殊情况下，即调试器处理 WaitForDebugEvent 返回
+// 的调试事件时，Windows 将冻结被调试进程中的所有线程，直至调试器调用 ContinueDebugEvent。
+// Windows 没有提供其他方式挂起进程中的所有线程，因为存在竞态条件问题。虽然没有十全十美
+// SuspendProcess 函数，但是可以使用 CreateToolHelp32Snapshot() 创建一个适用于大多数
+// 情况的版本。这里我们借助 ToolHelp 函数来枚举系统中的线程列表，一旦找到属于某个进程的
+// 线程，便调用 OpenThread 和 SuspendThread。我们不难理解 SuspendProcess 不能随便使
+// 用，因为在枚举线程集合的时候，可能会有新的线程创建，也可能有线程被销毁。更糟糕的是，
+// 在枚举线程 ID 时，可能会销毁一个已有线程，创建一个新的线程，而这两个线程恰好 ID 相同。
+// 这样可能挂起任意一个线程，可能这个线程属于目标进程之外的进程。
+//
+// 函数 BOOL SwitchToThread() 可以切换到另一个可调度线程。调用该函数时，系统查看是否
+// 存在急需 CPU 时间的饥饿线程，如果没有 SwithToThread() 会立即返回。如果存在，将调度
+// 该线程，其优先级可能比 SwitchToThread 的主调线程低。饥饿线程可以运行一个时间量，然
+// 后系统调度程序恢复正常运行。通过这个函数，需要莫格资源的线程可以强制一个可能拥有该资
+// 源的低优先级线程放弃资源。如果在调用 SwitchToThread 时没有其他线程可以运行，则函数
+// 返回 FALSE，否则函数将返回一个非零值。调用 SwitchToThread 与调用 Sleep(0) 类似。
+// 区别在于，SwitchToThread 允许执行低优先级线程，Sleep 会立即重新调度主调线程，即使
+// 低优先级线程还处于饥饿状态。
+//
+// 在超线程 CPU 上切换到另一个线程。超线程（hyper-threading）是 Xeon，Pentium 4 和
+// 更新的 CPU 支持的一种技术。超线程处理器芯片有多个逻辑 CPU，每个都可以运行一个线程。
+// 每个线程都有自己的体系结构状态（一组寄存器），但是所有线程共享主要的执行执行资源，比
+// 如 CPU 高速缓存。当一个线程中止时，CPU 自动执行另一个线程，无需操作系统干预，只有在
+// 缓存未命中，分支预测错误和需要等待前一个指令的结果等情况下，CPU 才会暂停。
+//
+// 在超线程 CPU 上执行旋转循环（spin loop）时，需要我们强制当前线程暂停，使另一个线程
+// 可以访问芯片的资源。x86 体系结构支持一个名为 PAUSE 的汇编语言指令，PAUSE 指令可以确
+// 保避免内存顺序违规，从而改进性能。此外，该指令还可以通过在非常耗电、密集的循环中添加
+// 间歇（hiccup）性的空操作，以减少能源消耗。在 x86 上，PAUSE 指令等价于 REP NOP 指令，
+// 这样就能够兼容更早的不支持超线程的 IA-32 CPU。PAUSE 会导致一定的延时（有些 CPU 上
+// 为 0）。在 Win32 API 中，x86 PAUSE 指令使通过调用 WinNT.h 中定义的 YieldProcessor
+// 宏实现的。有了这个宏，我们就可以编写与 CPU 体系结构无关的代码了。
+//
+// GetThreadTimes GetProcessTimes QueryThreadCycleTime QueryProcessCycleTime
+// GetProcessTimes() 会返回进程中所有线程花费的时间，即使线程已经终止。
+//
+// 一般而言，有较高优先级的线程大多数时候都应是不可调度的，当这种线程要执行什么任务时，
+// 很快就能得到 CPU 时间。这时，线程应该尽可能少地执行 CPU 指令，并重新进入睡眠，等待
+// 再次被调度。相反，优先级低的可以保持为可调度状态，执行大量 CPU 指令以完成其任务。如
+// 果遵循这些规则，整个操作系统就能够很好地响应用户。
+//
+// 系统通过线程的相对优先级，加上线程所属进程的优先级来确定线程的优先级值。有时候，这也
+// 被称为线程的基本优先级（base priority level）。偶尔，系统也会提升一个线程的优先级，
+// 通常是为了响应某种 I/O 事件比如窗口消息或者磁盘读取。系统只提升优先级值在 1~15 的线
+// 程。事实上，正因为如此，这个范围被称为动态优先级范围。而且，系统不会把线程的优先级提
+// 升到实时范围（高于 15）。因为实时范围内的线程执行了大多数操作系统功能，对提升设置上
+// 限，可以防止应用程序影响操作系统。
+//
+// 另一种情况也会导致系统动态提升线程的优先级，例如有一个优先级为 4 的线程，它已经准备
+// 好运行了，但是由于有一个优先级为 8 的线程一直处于可调度状态，因此它无法运行。这种情
+// 况下，优先级为 4 的线程处于 CPU 时间饥饿状态，当系统检测到有线程已经处于饥饿状态 3
+// 到 4 秒时，它会动态将饥饿线程的优先级提升至 15，并允许该线程运行两个时间片。当两个
+// 时间片结束时，线程的优先级立即恢复到基本优先级。
+//
+// 设置线程优先级将影响系统如何给线程分配 CPU 资源。但是，线程还要执行 I/O 请求，以及
+// 对磁盘文件读写数据。如果一个低优先级线程获得 CPU 时间，它可能很轻易地在很短时间内将
+// 成百上千个 I/O 请求入列。因为 I/O 请求一般都需要时间进行处理，导致低优先级线程会挂
+// 起高优先级线程，使它们无法完成任务，从而显著影响系统的响应性。因此，我们可以看到，在
+// 执行一些运行时间较长的低优先级服务比如磁盘碎片整理程序、病毒扫描程序、内容索引程序的
+// 时候，机器的响应性会变得很差。
+//
+// 从 Windows Vista 开始，线程可以在进行 I/O 请求时设置优先级了。我们可以通过调用
+// SetThreadPriority 并传入 THREAD_MODE_BACKGROUND_BEGIN 来告诉 Windows，线程应该
+// 发送低优先级的 I/O 请求。注意，这也将降低线程的 CPU 调度优先级。并可以传入 THREAD_MODE_BACKGROUND_END
+// 让线程进行 normal 优先级 I/O 以及 normal CPU 调度优先级。系统不允许线程改变另一个
+// 线程的 I/O 优先级。如果想让进程中的所有线程都进行低优先级的 I/O 请求和低 CPU 调度，
+// 那么我们可以调用 SetPriorityClass，并传入 PROCESS_MODE_BACKGROUND_BEGIN 和
+// PROCESS_MODE_BACKGROUND_END 标志实现。系统不允许线程改变另一个进程中线程的 I/O
+// 优先级。在更细的粒度上，normal 优先级线程还可以执行对某个文件执行后台优先级 I/O，
+// SetFileInformationByHandle(file, FileIoPriorityHintInfo, &phi, sizeof(PriorityHint))。
+//
+// 在默认情况下，如果其他因素都一样，系统将使线程在上一次运行的处理器上运行。让线程始终
+// 在同一个处理器上运行有助于重用仍在处理器高速缓存中的数据。有一种称为 NUMA（Non-Uniform
+// Memory Access）非统一内存访问的计算机体系结构，结构的计算机中由多个系统板（board）
+// 组成，每个系统板都有自己的 CPU 和内存板块。NUMA 系统在 CPU 只访问自己所在系统板上的
+// 内存时，可达到最佳性能。如果 CPU 需要访问其他系统板上的内存，性能下降得很厉害。
+//
+// Windows 允许我们设置进程和线程的关联性（affinity），也就是说，我们可以控制 CPU 让
+// 哪些 CPU 运行特定的线程，这称为硬关联（hard affinity）。默认情况下，系统可以将任何
+// CPU 调度给任何线程使用。如果要限制某些线程只在可用 CPU 的一个子集上运行，可以调用函
+// 数 SetProcessAffinityMask。请注意，子进程将继承进程关联性。此外，我们还可以使用作
+// 业内核对象，来限制一组进程只在一组 CPU 上运行。另外，Windows 任务管理器运行我们更改
+// 进程的 CPU 关联性。
+//
+// 有时候，我们还需要限制进程中的一个线程只在一组 CPU 上运行，例如需要让一个有 4 个线程
+// 的进程运行在一台有 4 个 CPU 的机器上。如果有些线程中有一个线程总在执行重要任务，需要
+// 尽量使它总是获得 CPU，就需要限制其他三个线程不能在 CPU 0 上运行，只能在 CPU 1 2 3
+// 上运行，可以调用 SetThreadAffinityMask 实现，其中 dwThreadAffinityMask 必须是进
+// 程关联性掩码的真子集。为了更高效地使用 CPU 时间，调度程序可能会在多个 CPU 之间迁移
+// 线程。在大多数环境里，改变线程的关联性，将妨碍调度程序的这种能力。例如：
+//      线程            优先级              关联性
+//      A                4                  CPU 0
+//      B                8                  CPU 0 CPU 1
+//      C                6                  CPU 1
+// 当线程 A 被唤醒时，调度程序看到该线程可以在 CPU 0 上运行，就将其分配给 A。然后线程
+// B 唤醒，调度程序将 CPU1 分配给 B。现在还一切正常，然后线程 C 唤醒，调度程序看到它只
+// 能在 CPU1 上运行，但 CPU1 已经被优先级为 8 的线程 B 使用了。因为线程 C 的优先级为
+// 6，所以它无法抢占线程 B，它本来可以抢占优先级为 4 的线程 A，但是因为线程 C 不能在
+// CPU 0 上运行，所以调度程序也不能抢占线程 A。这说明设置线程的硬关联性，将影响调度程序
+// 的调度方案。
+//
+// 有时候强制一个线程只使用特定的某个 CPU 并不是什么好主意。例如，可能有三个线程都只能
+// 使用 CPU 0，而 CPU 1 2 3 却无所事事。如果能够告诉系统，我们想让一个线程运行在一个
+// CPU 上，但系统运行将它移到另一个空闲的 CPU，那就更好了。要给线程设置一个理想的 CPU，
+// 可以调用 DWORD SetThreadIdealProcessor(HANDLE thread, DWORD dwIdealProcessor)。
+// 其中 dwIdealProcessor 不是位掩码，他是一个 0 到 31/63 之间的整数，表示线程希望设置
+// 的 CPU。可以传入一个 MAXIMUM_PROCESSORS 值（WinNT.h 中定义，在 32 位操作系统中定
+// 义为 32，64 位操作系统中定义为 64），表示线程没有理想 CPU。
+
 struct prh_thrd_mutex {
     CRITICAL_SECTION mutex;
 };
@@ -9380,6 +9506,9 @@ void prh_impl_thrd_test(void) {
     printf("HANDLE %zd-byte\n", sizeof(HANDLE));
     printf("MMSYSERR_NOERROR %d\n", MMSYSERR_NOERROR);
     printf("MAX_PATH %d\n", MAX_PATH);
+    printf("MAXIMUM_SUSPEND_COUNT %d\n", MAXIMUM_SUSPEND_COUNT);
+    printf("MAXIMUM_WAIT_OBJECTS %d\n", MAXIMUM_WAIT_OBJECTS);
+    printf("MAXIMUM_PROCESSORS %d\n", MAXIMUM_PROCESSORS);
     SYSTEM_INFO info;
     GetSystemInfo(&info);
     int arch = info.wProcessorArchitecture;
