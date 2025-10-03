@@ -9306,7 +9306,6 @@ HANDLE prh_impl_create_completion_port_and_add_file_handle(DWORD concurrent_thre
 int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entry, DWORD msec) {
     assert(completion_port != prh_null);
     assert(entry != prh_null); // 超时时间在 Windows 8 及更高版本上，不包含系统睡眠时间
-    entry->lpOverlapped = prh_null;
     BOOL b = GetQueuedCompletionStatus(completion_port, &entry->dwNumberOfBytesTransferred, (PULONG_PTR)&entry->lpCompletionKey, &entry->lpOverlapped, msec);
     if (b || entry->lpOverlapped) return 1; // get success or related I/O failed
     DWORD error = GetLastError();
@@ -14519,9 +14518,154 @@ bool prh_sock_tcp_recv(prh_tcpsocket *tcp);
 
 #ifdef PRH_SOCK_IMPLEMENTATION
 #if defined(prh_plat_windows)
-#define PRH_INVASOCK
+// 若 Winsock 在其规范种更新或增添了一个新函数，该函数名将带有 WSA 前缀。比如，建立套
+// 接字的 Winsock 1 函数只是被简单称为 socket，而 Winsock 2 引入该函数的新版本时，其
+// 命名为 WSAScoket，该函数可以使用 Winsock 2 中出现的一些新特性。但注意，该命名规则
+// 有几个例外，如 WSAStartup WSACleanup WSARecvEx WSAGetLastError 都属于 Winsock
+// 1.1 规范函数。
+//
+// 在使用 Winsock 前，必须了解需要哪些文件和库。旧版本可以使用 winsock.h，链接库文件
+// wsock32.lib。新版本包含头文件 winsock2.h，链接库文件 ws2_32.lib。另外还有一个头文
+// 件 mswsock.h，该头文件用于微软专用编程扩展，这些扩展通常用于高效 Winsock 应用程序
+// 的开发，此时还必须链接 mswsock.dll。
+//
+// 每个 Winsock 应用都必须加载合适的 Winsock DLL 版本，如果调用一个 Winsock 函数之前
+// 没有加载 Winsock 库，这个函数就会返回一个 SOCKET_ERROR，错误信息是 WSANOTINITIALISED。
+// 加载 Winsock 库通过调用 WSAStartup 函数实现。
+//
+// int WSAStartup(
+//      [in]  WORD      wVersionRequired,
+//      [out] LPWSADATA lpWSAData
+// );
+//
+// 参数 wVersionRequired 指定 Windows 套接字规范的最高版本。高字节指定次版本号；低字
+// 节指定主版本号。
+//
+// 如果成功，WSAStartup 函数返回零。否则，它返回以下列出的错误代码之一。WSAStartup 函
+// 数直接在返回值中返回扩展错误代码。不需要调用 WSAGetLastError 函数，也不应使用它。
+//  * WSASYSNOTREADY - 底层网络子系统尚未准备好进行网络通信。
+//  * WSAVERNOTSUPPORTED - 请求的 Windows 套接字支持版本未被此特定 Windows 套接字实
+//    现提供。
+//  * WSAEINPROGRESS - 一个阻塞的 Windows 套接字 1.1 操作正在进行中。
+//  * WSAEPROCLIM - 已达到 Windows 套接字实现支持的任务数量限制。
+//  * WSAEFAULT - lpWSAData 参数不是一个有效的指针。
+//
+// typedef struct WSAData {
+//      WORD           wVersion;
+//      WORD           wHighVersion;
+//      char           szDescription[WSADESCRIPTION_LEN + 1];
+//      char           szSystemStatus[WSASYS_STATUS_LEN + 1];
+//      unsigned short iMaxSockets;
+//      unsigned short iMaxUdpDg;
+//      char           *lpVendorInfo;
+// } WSADATA;
+//
+// 字段 wVersion 为 Ws2_32.dll 期望调用方使用的 Windows 套接字规范版本。高字节指定次
+// 版本号，低字节指定主版本号。字段 wHighVersion 为 Ws2_32.dll 能够支持的 Windows 套
+// 接字规范的最高版本。高字节指定次版本号，低字节指定主版本号。当传递给 WSAStartup 函数
+// 的 wVersionRequested 参数请求的版本是 Ws2_32.dll 能够支持的最高版本时，此值与 wVersion
+// 成员的值相同。
+//
+// 字段 iMaxSockets 可以打开的最大套接字数量。对于 Windows 套接字 2 及更高版本，应忽
+// 略此成员。iMaxSockets 成员保留用于与 Windows 套接字规范 1.1 兼容，但在开发新应用程
+// 序时不应使用。没有单一值可以适用于所有底层服务提供程序。Windows 套接字的架构在版本 2
+// 中发生了变化，以支持多个提供程序，WSADATA 结构不再适用于单一供应商的堆栈。
+//
+// 字段 iMaxUdpDg 最大数据报消息大小。对于 Windows 套接字 2 及更高版本，此成员被忽略。
+// iMaxUdpDg 成员保留用于与 Windows 套接字规范 1.1 兼容，但在开发新应用程序时不应使用。
+// Windows 套接字的架构在版本 2 中发生了变化，以支持多个提供程序，WSADATA 结构不再适用
+// 于单一供应商的堆栈。对于特定 Windows 套接字服务提供程序和套接字类型的实际最大消息大
+// 小，应用程序应在创建套接字后使用 getsockopt 获取 SO_MAX_MSG_SIZE 选项的值。
+//
+// 字段 lpVendorInfo 指向供应商特定信息。对于 Windows 套接字 2 及更高版本，应忽略此成
+// 员。lpVendorInfo 成员保留用于与 Windows 套接字规范 1.1 兼容。Windows 套接字的架构
+// 在版本 2 中发生了变化，以支持多个提供程序，WSADATA 结构不再适用于单一供应商的堆栈。
+// 需要访问供应商特定配置信息的应用程序应使用 getsockopt 获取 PVD_CONFIG 选项的值以获
+// 取供应商特定信息。
+//
+// 字段 szDescription[WSADESCRIPTION_LEN + 1]，Ws2_32.dll 将 Windows 套接字实现的
+// 描述复制到其中的以 NULL 结尾的 ASCII 字符串。文本（最多 256 个字符）可以包含任何字
+// 符，但不能包含控制字符和格式化字符。应用程序最有可能使用此成员的方式是将其（可能截断）
+// 显示在状态消息中。
+//
+// 字段 szSystemStatus[WSASYS_STATUS_LEN + 1]，Ws2_32.dll 将相关的状态或配置信息复
+// 制到其中的以 NULL 结尾的 ASCII 字符串。Ws2_32.dll 应仅在信息可能对用户或支持人员有
+// 用时使用此参数。不应将此成员视为 szDescription 参数的扩展。
+//
+// WSAStartup 函数启动一个进程对 Windows 套接字 DLL 的使用。WSAStartup 函数通过 lpWSAData
+// 参数返回指向 WSADATA 结构的指针。当前版本的 Windows 套接字规范在 WSADATA 结构的
+// wHighVersion 成员中返回的是 2.2 版本，主版本号存储在低字节中，次版本号存储在高字节
+// 中。当前版本的 Winsock DLL（Ws2_32.dll）支持请求以下版本的 Windows 套接字规范的应
+// 用程序：1.0 1.1 2.0 2.1 2.2。根据应用程序请求的版本，上述版本号之一将作为主版本号存
+// 储在低字节中，次版本号存储在高字节中，返回在 WSADATA 结构的 wVersion 成员中。注意，
+// 如果在成功调用 WSAStartup 后，wVersion 中的值至少为 2，则应用程序应忽略 WSADATA 中
+// 的 iMaxsockets、iMaxUdpDg 和 lpVendorInfo 成员。这是因为 Windows 套接字的架构在
+// 版本 2 中发生了变化，以支持多个提供程序，WSADATA 不再适用于单一供应商的堆栈。引入了
+// 两个新的套接字选项以提供特定于提供程序的信息：SO_MAX_MSG_SIZE（替代 iMaxUdpDg 成员）
+// 和 PVD_CONFIG（允许进行任何其他特定于提供程序的配置）。
+//
+// int WSACleanup();
+//
+// WSACleanup 函数终止对 Winsock 2 动态链接库（Ws2_32.dll）的使用。如果操作成功，返
+// 回值为零。否则，返回值为 SOCKET_ERROR，可以通过调用 WSAGetLastError 获取特定的错误
+// 编号。在多线程环境中，WSACleanup 会终止该进程内所有线程的 Windows 套接字操作。
+//  * WSANOTINITIALISED - 在调用此函数之前，必须先成功调用 WSAStartup。
+//  * WSAENETDOWN - 网络子系统已失败。
+//  * WSAEINPROGRESS - 一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程
+//    序仍在处理回调函数。
+//
+// 应用程序或 DLL 在使用 Windows 套接字服务之前，必须先成功调用 WSAStartup。当完成对
+// Windows 套接字的使用后，应用程序或 DLL 必须调用 WSACleanup 以从 Windows 套接字实
+// 现中注销自身，并允许实现释放为应用程序或 DLL 分配的任何资源。
+//
+// 调用 WSACleanup 时，该进程内任何线程发出的任何挂起的阻塞或异步 Windows 套接字调用
+// 将被取消，不会发布任何通知消息或触发任何事件对象。该进程内任何线程发出的任何挂起的重
+// 叠发送或接收操作（例如，使用重叠套接字的 WSASend、WSASendTo、WSARecv 或 WSARecvFrom）
+// 也会被取消，不会设置事件对象或调用完成例程（如果指定了）。在这种情况下，挂起的重叠操
+// 作将以 WSA_OPERATION_ABORTED 错误状态失败。
+//
+// 在调用 WSACleanup 时处于打开状态的套接字将被重置并自动释放，就像调用了 closesocket
+// 一样。已经使用 closesocket 关闭但仍有待发送的挂起数据的套接字可能会受到 WSACleanup
+// 调用的影响。在这种情况下，如果 WS2_32.DLL 在应用程序退出时从内存中卸载，挂起的数据
+// 可能会丢失。为了确保所有挂起的数据都被发送，应用程序应该使用 shutdown 关闭连接，然后
+// 等待关闭完成，再调用 closesocket 和 WSACleanup。所有资源和内部状态（如排队的未发布
+// 或已发布消息）都必须被释放，以便可供下一个用户使用。
+//
+// 对于每次成功的 WSAStartup 调用，都必须有一次 WSACleanup 调用。只有最后一次 WSACleanup
+// 函数调用才会执行实际的清理操作。之前的调用只是简单地减少 WS2_32.DLL 中的内部引用计
+// 数。注意 WSACleanup 不会注销可能已通过 Windows 套接字命名空间提供程序（如对等名称
+// 解析协议 PNRP 命名空间提供程序）注册的名称（例如对等名称）。
+//
+// 在 Windows 套接字 1.1 中，从阻塞钩子中调用 WSACleanup 并且未检查返回代码是一个常见
+// 的编程错误。如果 Winsock 1.1 应用程序需要在挂起的阻塞调用期间退出，应用程序必须先使
+// 用 WSACancelBlockingCall 取消阻塞调用，然后在控制权返回到应用程序后调用 WSACleanup。
+// 在 Windows 套接字 2 中，这个问题不存在，WSACancelBlockingCall 函数已被移除。
+//
+// WSACleanup 函数通常会导致特定于协议的辅助 DLL 被卸载。因此，不应从应用程序 DLL 的
+// DllMain 函数中调用 WSACleanup 函数。这可能会导致死锁。有关详细信息，请参阅 DLL 主
+// 函数。
+#include <winsock2.h>
+#define PRH_INVASOCK INVALID_SOCKET
+#define prh_wsa_prerr() prh_impl_prerr(__LINE__, WSAGetLastError())
 
-#else
+void prh_impl_wsasocket_cleanup(void) {
+    if (WSACleanup() != 0) prh_wsa_prerr();
+}
+
+void prh_impl_wsasocket_startup(void) {
+    WSADATA wsa_data; // MAKEWORD(lowbyte, highbyte)
+    int error = WSAStartup(MAKEWORD(2, 2), &wsa_data);
+    if (error != 0) {
+        prh_prerr(error);
+        return;
+    }
+    if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2) {
+        prh_error(PRH_EVERSION);
+        prh_impl_wsasocket_cleanup();
+    }
+}
+
+#else // POSIX begin
 // RFC 791 - Internet Protocol, J. Postel (ed.), 1981
 // RFC 950 - Internet Standard Subnetting Procedure, J. Mogul J. Postel, 1985
 // RFC 793 - Transmission Control Protocol, J. Postel (ed.), 1981
