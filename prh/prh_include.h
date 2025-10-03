@@ -9253,24 +9253,65 @@ HANDLE prh_impl_create_completion_port_and_add_file_handle(DWORD concurrent_thre
 // 在 Windows Vista 中，当我们调用 CloseHandle 关闭完成端口句柄时，系统会将所有正在
 // 等待 GetQueuedCompletionStatus 的线程唤醒，并返回 FALSE。此时调用 GetLastError
 // 会返回 ERROR_INVALID_HANDLE，线程可以通过这种方式来知道自己应该得体地退出。
+//
+// BOOL GetQueuedCompletionStatus(
+//      [in]  HANDLE       CompletionPort,
+//      [out] LPDWORD      lpNumberOfBytesTransferred,
+//      [out] PULONG_PTR   lpCompletionKey,
+//      [out] LPOVERLAPPED *lpOverlapped,
+//      [in]  DWORD        dwMilliseconds
+// );
+//
+// 尝试从指定的 I/O 完成端口获取一个 I/O 完成数据包。如果没有排队的完成数据包，该函数
+// 将等待完成端口上关联 I/O 操作的完成。要一次性获取多个 I/O 完成数据包，可以调用函数
+// GetQueuedCompletionStatusEx。成功返回非零值（TRUE），否则返回零（FALSE）。要获取
+// 扩展错误信息，请调用 GetLastError。
+//
+// 参数 CompletionPort 完成端口的句柄。参数 lpNumberOfBytesTransferred 指向一个变量，
+// 该变量接收完成的 I/O 操作传输的字节数。参数 lpCompletionKey 指向一个变量，该变量接
+// 收与完成 I/O 操作的文件句柄关联的完成键值。完成键是在调用 CreateIoCompletionPort
+// 时指定的基于文件句柄的键。
+//
+// 参数 lpOverlapped 指向一个变量，该变量接收完成 I/O 操作启动时指定的 OVERLAPPED 结
+// 构的地址。即使你已经传递了一个与完成端口关联的文件句柄和有效的 OVERLAPPED 结构，应用
+// 程序也可以阻止完成端口通知。这是通过为 OVERLAPPED 结构的 hEvent 成员指定一个有效的
+// 事件句柄并设置其低阶位来完成的。低阶位被设置的有效事件句柄会阻止重叠 I/O 完成时将完
+// 成数据包排队到完成端口。
+//
+// 参数 dwMilliseconds 调用方愿意等待完成数据包出现的毫秒数。如果在指定时间内没有出现
+// 完成数据包，函数将超时，返回 FALSE，并将 *lpOverlapped 设置为 NULL。如果 dwMilliseconds
+// 是 INFINITE (0xFFFFFFFF)，函数将永远不会超时。如果 dwMilliseconds 是零且没有 I/O
+// 操作可以出队，函数将立即超时。Windows XP、Windows Server 2003、Windows Vista、
+// Windows 7、Windows Server 2008 和 Windows Server 2008 R2：dwMilliseconds 值包
+// 括在低功耗状态下花费的时间。例如，超时会在计算机处于睡眠状态时继续倒计时。Windows 8
+// 及更高版本、Windows Server 2012 及更高版本：dwMilliseconds 值不包括在低功耗状态下
+// 花费的时间。例如，超时不会在计算机处于睡眠状态时继续倒计时。
+//
+// 此函数将线程与指定的完成端口关联。一个线程最多只能与一个完成端口关联。如果由于与之关
+// 联的完成端口句柄在调用期间被关闭而导致 GetQueuedCompletionStatus 调用失败，函数将
+// 返回 FALSE，*lpOverlapped 将为 NULL，GetLastError 将返回 ERROR_ABANDONED_WAIT_0。
+// Windows Server 2003 和 Windows XP：在调用期间关闭完成端口句柄不会导致上述行为。函
+// 数将继续等待，直到从端口移除条目或超时（如果指定的值不是 INFINITE）。
+//
+// 如果 GetQueuedCompletionStatus 函数成功，它将从完成端口弹出一个成功的 I/O 操作的
+// 完成数据包，并将信息存储在以下参数指向的变量中：lpNumberOfBytes、lpCompletionKey
+// 和 lpOverlapped。失败时（返回值为 FALSE），这些参数可能会包含特定的值组合，如下所示：
+//  1.  如果 *lpOverlapped 为 NULL，函数没有从完成端口弹出完成数据包。在这种情况下，
+//      函数不会将信息存储在 lpNumberOfBytes 和 lpCompletionKey 参数指向的变量中，它
+//      们的值是不确定的。
+//  2.  如果 *lpOverlapped 不为 NULL 且函数从完成端口弹出了一个失败的 I/O 操作的完成
+//      数据包，函数将有关失败操作的信息存储在 lpNumberOfBytes、lpCompletionKey 和
+//      lpOverlapped 指向的变量中。要获取扩展错误信息，请调用 GetLastError。
 
 int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entry, DWORD msec) {
     assert(completion_port != prh_null);
-    assert(entry != prh_null);
-    BOOL succ = GetQueuedCompletionStatus(completion_port, &entry->dwNumberOfBytesTransferred,
-        (PULONG_PTR)&entry->lpCompletionKey, &entry->lpOverlapped, msec);
-    if (succ) {
-        entry->Internal = 0;
-        return 0;
-    }
-    DWORD error_code = entry->Internal = GetLastError();
-    if (error_code == WAIT_TIMEOUT) {
-        return 1; // wait timeout
-    }
-    // if entry->lpOverlapped I/O request failed
-    // else bad call to GetQueuedCompletionStatus
-    prh_prerr(error_code);
-    return -1;
+    assert(entry != prh_null); // 超时时间在 Windows 8 及更高版本上，不包含系统睡眠时间
+    entry->lpOverlapped = prh_null;
+    BOOL b = GetQueuedCompletionStatus(completion_port, &entry->dwNumberOfBytesTransferred, (PULONG_PTR)&entry->lpCompletionKey, &entry->lpOverlapped, msec);
+    if (b || entry->lpOverlapped) return 1; // get success or related I/O failed
+    DWORD error = GetLastError();
+    if (error != WAIT_TIMEOUT) prh_prerr(error);
+    return 0;
 }
 
 // 如果预计会不断收到大量的 I/O 请求，可以调用 GetQueuedCompletionStatusEx 函数来同
@@ -9320,15 +9361,62 @@ int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entr
 // 将该线程发出的任何待处理请求都取消掉。而在 Windows Vista 中，已经不存在类似的规定，
 // 线程现在可以发出请求并终止，请求仍然能够得到处理，处理结果将会被添加到完成端口的队列
 // 中。
+//
+// BOOL WINAPI GetQueuedCompletionStatusEx(
+//      _In_  HANDLE             CompletionPort,
+//      _Out_ LPOVERLAPPED_ENTRY lpCompletionPortEntries,
+//      _In_  ULONG              ulCount,
+//      _Out_ PULONG             ulNumEntriesRemoved,
+//      _In_  DWORD              dwMilliseconds,
+//      _In_  BOOL               fAlertable
+// );
+//
+// typedef struct _OVERLAPPED_ENTRY {
+//      ULONG_PTR    lpCompletionKey;
+//      LPOVERLAPPED lpOverlapped;
+//      ULONG_PTR    Internal; // 保留，没有明确的含义，不应该使用
+//      DWORD        dwNumberOfBytesTransferred;
+// } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
+//
+// 同时检索多个完成端口条目。它等待与指定完成端口关联的 I/O 操作的完成。要逐个出队 I/O
+// 完成数据包，请使用 GetQueuedCompletionStatus 函数。成功时返回非零值 TRUE，否则返回
+// 零 FALSE。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpCompletionPortEntries 输入时，指向一个预先分配的 OVERLAPPED_ENTRY 结构数组。
+// 输出时，接收一个包含条目的 OVERLAPPED_ENTRY 结构数组。数组元素的数量由 ulNumEntriesRemoved
+// 提供。每个 I/O 传输的字节数、指示每个 I/O 发生在哪个文件上的完成键以及每个原始 I/O
+// 中使用的重叠结构地址都返回在 lpCompletionPortEntries 数组中。
+//
+// 参数 fAlertable 如果为 FALSE，函数会在超时结束或检索到条目之前不返回。如果参数为
+// TRUE 且没有可用条目，函数将执行可警报等待。当系统将 I/O 完成例程（completion routine）
+// 或 APC 添加到线程并执行该函数时，线程返回。当指定完成例程的 ReadFileEx 或 WriteFileEx
+// 函数完成且调用线程是启动操作的线程时，完成例程会被排队到该线程。当调用 QueueUserAPC
+// 时，APC 会被排队到指定线程。
+//
+// 此函数将线程与指定的完成端口关联。一个线程最多只能与一个完成端口关联。当至少有一个挂
+// 起的 I/O 完成时，此函数返回 TRUE，但有可能一个或多个 I/O 操作失败。请注意，检查
+// lpCompletionPortEntries 返回的条目确定哪些条目的 I/O 操作可能失败的责任在于此函数
+// 的调用者，方法是查看每个 OVERLAPPED_ENTRY 中的 lpOverlapped 成员所包含的状态。
+//
+// 当没有 I/O 操作被出队时，此函数返回 FALSE。这通常意味着在处理此调用的参数时发生了错
+// 误，或者 CompletionPort 句柄被关闭或无效。GetLastError 函数提供扩展错误信息。如果
+// 由于与之关联的句柄被关闭而导致 GetQueuedCompletionStatusEx 调用失败，函数将返回
+// FALSE，GetLastError 将返回 ERROR_ABANDONED_WAIT_0。服务器应用程序可能有多个线程
+// 为同一个完成端口调用 GetQueuedCompletionStatusEx 函数。随着 I/O 操作的完成，它们
+// 会以先进先出的顺序被排队到该端口。如果一个线程正在积极地在此调用上等待，那么一个或多
+// 个排队的完成请求将只会满足该线程的调用。
 
 int prh_impl_completion_port_wait_multiple(HANDLE completion_port, OVERLAPPED_ENTRY *entry, int count, DWORD msec) {
     assert(completion_port != prh_null);
     assert(entry != prh_null);
-    assert(count >= 0);
-    ULONG finished = 0;
-    BOOL succ = GetQueuedCompletionStatusEx(completion_port, entry, count, &finished, msec, FALSE);
-    // entry->Internal 没有明确的含义，不应该使用
-    return finished;
+    assert(count > 0);
+    ULONG n = 0;
+    if (!GetQueuedCompletionStatusEx(completion_port, entry, count, &n, msec, FALSE)) {
+        DWORD error = GetLastError();
+        if (error != WAIT_TIMEOUT) prh_prerr(error);
+        return 0;
+    }
+    return n;
 }
 
 // I/O 完成端口并不一定要用于设备 I/O，它还是一项非常棒的技术用来进行线程间通信。在
@@ -9344,15 +9432,26 @@ int prh_impl_completion_port_wait_multiple(HANDLE completion_port, OVERLAPPED_EN
 // 因为线程是以后入先出的方式被唤醒的。因此，为了确保线程池种的每个线程都能有机会得到
 // 模拟的完成通知，我们还必须在应该程序种采用其他线程同步机制，否则同一个线程可能会多
 // 次得到相同的通知。
+//
+// BOOL WINAPI PostQueuedCompletionStatus(
+//      _In_     HANDLE       CompletionPort,
+//      _In_     DWORD        dwNumberOfBytesTransferred,
+//      _In_     ULONG_PTR    dwCompletionKey,
+//      _In_opt_ LPOVERLAPPED lpOverlapped
+// );
+//
+// 将一个 I/O 完成数据包发布到 I/O 完成端口。如果函数成功，返回值是非零值。如果函数失
+// 败，返回值是零。要获取扩展错误信息，请调用 GetLastError。
+//
+// I/O 完成数据包将满足一个挂起的对 GetQueuedCompletionStatus 函数的调用。该函数返回
+// 时会携带作为 PostQueuedCompletionStatus 调用的第二个、第三个和第四个参数传递的三个
+// 值。系统不会使用或验证这些值。特别是，lpOverlapped 不必指向一个 OVERLAPPED 结构。
 
-bool prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *entry) {
+void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *entry) {
     assert(completion_port != prh_null);
     assert(entry != prh_null);
-    BOOL succ = PostQueuedCompletionStatus(completion_port, entry->dwNumberOfBytesTransferred,
-        entry->lpCompletionKey, entry->lpOverlapped);
-    if (succ) return true;
-    prh_prerr(GetLastError());
-    return false;
+    BOOL b = PostQueuedCompletionStatus(completion_port, entry->dwNumberOfBytesTransferred, entry->lpCompletionKey, entry->lpOverlapped);
+    if (!b) prh_prerr(GetLastError());
 }
 
 // I/O 完成端口为在多处理器系统上处理多个异步 I/O 请求提供了一种高效的线程模型。当一个
