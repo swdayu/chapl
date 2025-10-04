@@ -14665,6 +14665,161 @@ void prh_impl_wsasocket_startup(void) {
     }
 }
 
+// Winsock 提供了两种套接字模式，阻塞模式和非阻塞模式。在阻塞模式下，I/O 操作完成之前，
+// 执行操作的 Winsock 调用（例如 send 和 recv）会一直等待下去直到操作完成，不会立即返
+// 回将控制权交还给程序。而在非阻塞模式下，Winsock 函数无论如何都会立即返回。
+//
+// 非阻塞套接字上的 WSAEWOULDBLOCK 场景：
+//      WSAAccept/accept                        无连接请求，等待连接到来
+//      closesocket                             在大多数情况下，意味着使用 SO_LINGER 选项调用了 setsockopt，而且已设定了一个非零的超时值
+//      WSAConnect/connect                      连接已初始化，等待连接完成
+//      WSARecv/recv/WSARecvFrom/recvfrom       无接收数据
+//      WSASend/send/WSASendTo/sendto           无发送缓冲区可用
+//
+// 阻塞和非阻塞套接字模式都存在着各自的优点和缺点，其中从概念的角度来说，阻塞套接字更容
+// 易使用。但在应付建立连接的多个套接字时，或在数据的收发量不均、时间不定时、将显得极难
+// 管理。而另一方面，由于需要编写更多的代码，以便在每个 winsock 调用中，对可能收到的
+// WSAEWOULDBLOCK 进行处理，非阻塞套接字显得难于操作。在这些情况下，可考虑使用套接字
+// I/O 模型，它将帮助应用程序通过一种异步方式，同时对一个或多个套接字上进行的通信加以
+// 管理。
+//
+// 共有 6 种类型的套接字 I/O 模型，可让 Winsock 应用程序对 I/O 进行管理。它们包括：
+// 阻塞（blocking）、选择（select）、异步选择（WSAAsyncSelect）、事件选择（WSAEventSelect）、
+// 重叠（overlapped）、完成端口（completion port）。
+//
+// 重叠模型的基本设计原理是让应用程序使用重叠的数据结构，一次投递一个或多个 Winsock I/O
+// 请求。针对提交的请求，在它们完成之后，应用程序可为它们提供服务。要想在一个套接字上使
+// 用重叠 I/O 模型，首先必须创建一个设置了重叠标志的套接字。成功建好一个套接字，同时将
+// 它与一个本地接口绑定到一起后，便可开始进行重叠 I/O 操作。方法是调用下列 Winsock 函数，
+// 同时指定一个可选的 WSAOVERLAPPED 结构：
+//      WSASend WSASendTo
+//      WSARecv WSARecvFrom WSARecvMsg
+//      WSAIoctl WSANSPIoctl
+//      AcceptEx
+//      ConnectEx
+//      DisconnectEx
+//      TransmitFile
+//
+// 如果开发的是一个以 Windows 为基础的应用程序，要进行窗口消息的管理，那么因为 WSAAyncSelect
+// 本身便是以 Windows 消息模型借鉴来的，所以 WSAAyncSelect 模型是一种好的选择。采用这
+// 种模型，程序一开始便具备了处理消息的能力。该模型的缺点是，用一个单窗口程序处理成千上
+// 万的套接字中的所有事件，将称为性能瓶颈，这意味着这个模型的伸缩性不太好。
+//
+// 要想使用 WSAAsyncSelect 模型，在应用程序中，首先必须用 CreateWindow 函数创建一个
+// 窗口，再为该窗口提供一个窗口过程支持函数，亦可使用一个对话框，为其提供一个对话过程来
+// 代替窗口过程，这是因为对话框本质也是窗口。
+//
+// int WSAAsyncSelect(SOCKET s, HWND hwnd, unsigned int msg, long event);
+//
+// 参数 s 表示感兴趣的套接字。hwnd 指定窗口句柄，表示网络事件发生之后，想要收到通知的
+// 哪个窗口或对话框。msg 指定再发生网络事件时，打算接收的消息，该消息将被投递到由 hwnd
+// 指定的窗口，通常应用程序需要将这些消息设置为比 WM_USER 大一个值，以避免网络窗口消息
+// 与预定义的标准窗口消息发生混淆。event 表示一个位掩码，指定一系列感兴趣的网络事件组合，
+// 大多数应用程序感兴趣的网络事件包括：FD_READ、FD_WRITE、FD_ACCEPT、FD_CONNECT、
+// FD_CLOSE。例如：
+//
+// WSAAsyncSelect(s, hwnd, WM_SOCKET, FD_CONNECT|FD_READ|FD_WRITE|FD_CLOSE);
+//
+// 这样，应用程序便可在套接字 s 上，接收到有关连接、发送、接收、以及关闭套接字这一系列
+// 网络事件的通知。若将 event 参数设置位 0，则相当于停止套接字上所有网络事件的通知。
+//
+// 为了使用重叠 I/O，每个函数都把 WSAOVERLAPPED 结构作为参数。若用一个 WSAOVERLAPPED
+// 结构一起调用这些函数，函数会立即完成并返回，而不管套接字是否设置为阻塞模式，这些函数
+// 依赖于 WSAOVERLAPPED 结构来管理一个 I/O 请求的完成。
+//
+// 应用程序主要有两种方法可以来管理重叠 I/O 请求的完成情况：等待事情对象通知（event
+// object notification），或者通过完成例程（completion routines）。完成例程在重叠
+// 请求完成后被调用。
+//
+// 重叠 I/O 的事件通知方法要求将 Windows 事件对象与 WSAOVERLAPPED 结构关联在一起。若
+// 使用一个 WSAOVERLAPPED 结构，调用像 WSASend 和 WSARecv 这样的 I/O 函数会立即返回。
+// 稍后的某个时间，应用程序需要等待与 WSAOVERLAPPED 相关联的事件对象，判断某个重叠 I/O
+// 请求的完成，WSAOVERLAPPED 为重叠 I/O 请求的初始化及其后续完成之间提供了一种通信媒介。
+// WSAOVERLAPPED 结构体成员 Internal、InternalHigh、Offset、OffsetHigh 均由系统在内
+// 不使用，不能由应用程序直接处理或使用，hEvent 成员则由应用程序将事件对象的句柄同操作
+// 进行关联。
+//
+// 一个重叠 I/O 请求完成后，应用程序需要负责获取重叠 I/O 操作的结果。一般只需简单地调用
+// WSAWaitForMultipleEvent 函数，便可判断重叠 I/O 操作是否完成，该函数会等待一段指定
+// 的时间，等待一个或多个事件对象进入触发状态。WSAWaitForMultipleEvent 函数最多只能等
+// 待 64 个事件对象。确认某个重叠请求完成之后，接着需要调用 WSAGetOverlappedResult
+// 函数，判断这个重叠 I/O 是成功还是失败。
+//
+// BOOL WSAGetOverlappedResult(SOCKET s, LPWSAOVERLAPPED overlapped, LPDWORD transfer, BOOL wait, LPDWORD flags);
+//
+// 其中，s 表示重叠 I/O 操作对应的套接字，overlapped 表示重叠 I/O 操作对应的重叠结构，
+// transfer 接收重叠 I/O 发送或接收操作实际传送的字节数，wait 用于决定函数是否应该等待
+// 重叠操作的完成，如果不等待而且操作仍未完成，那么该函数会返回 FALSE 以及 WSA_IO_INCOMPLETE。
+// 但就目前的情况来说，由于需要在已触发的事件上等待重叠操作完成，所以该参数无论怎么设置
+// 效果都一样。最后一个参数 flags 负责接收结果标志，假如原理重叠调用时通过 WSARecv 或
+// WSARecvFrom 函数进行的。如果 WSAGetOverlappedResult 返回成功，意味着重叠 I/O 操作
+// 已成功完成，且 transfer 所指向的值进行了更新。若返回失败，那么可能由下述任何一个原因
+// 造成。失败后， transfer 不会更新，应用程序应调用 WSAGetLastError 获取失败原因。
+//
+//  1.  重叠 I/O 操作仍处于挂起状态
+//  2.  重叠操作已经完成，但含有错误
+//  3.  传递给 WSAGetOverlappedResult 的参数有误，无法判断重叠操作的完成状态
+//
+// 完成例程时应用程序用来管理重叠 I/O 操作完成的另一种方法。完成例程其实就是一个函数，
+// 我们将这些函数传递给重叠 I/O 请求，以供重叠 I/O 请求完成时由系统调用。它们的基本设计
+// 宗旨，时通过调用者的线程，为已完成的 I/O 请求提供服务。除此之外，应用程序可通过完成
+// 例程，继续进行重叠 I/O 的处理。
+//
+// 如果希望用完成例程为重叠 I/O 请求提供服务，应用程序必须为一个 I/O Winsock 函数绑定
+// 一个完成例程，同时指定一个 WSAOVERLAPPED 结构，完成例程的函数原型如下。
+//
+// void CALLBACK CompletionRoutine(DWORD error, DWORD transfer, LPWSAOVERLAPPED overlapped, DWORD flags);
+//
+// 完成例程与事件对象通知，存在一个非常重要的区别，WSAOVERLAPPED 结构中的事件字段未被
+// 使用。也就是说，不可以将一个事件对象同重叠请求关联到一起，用完成例程发出重叠 I/O 调用
+// 之后，调用线程最终必须为完成例程提供服务。这样便要求我们将调用线程置于警觉的等待状态
+// （alertable wait state），并在 I/O 操作完成后，对完成例程加以处理。WSAWaitForMultipleEvent
+// 函数可用来将线程置于警觉等待状态，但这样做的缺点，我们还必须由一个事件对象可用于
+// WSAWaitForMultipleEvent 函数。假定应用程序只用完成例程对重叠请求进行处理，便不大可
+// 能有什么事件对象需要处理。作为一种变通方法，可用 SleepEx 函数将线程置为警觉状态。当
+// 重叠 I/O 操作完成之后，警觉等待状态中线程会被唤醒，并调用其队列中的完成例程，最后返回
+// WSA_IO_COMPLETION。
+//
+// 完成端口模型可以提供最后的伸缩性，这个模型非常适合用来处理数百乃至上千个套接字。从本
+// 质上，完成端口模型要求创建一个 Windows 完成端口对象，该对象通过指定数量的线程，对重
+// 叠 I/O 请求进行管理，以便为已经完成的重叠 I/O 请求提供服务。
+//
+// 要获取重叠 I/O 请求的执行结果，需要调用 GetQueuedCompletionStatus 函数，让一个或
+// 多个线程在完成端口上等待。当一个工作线程从 GetQueuedCompletionStatus 调用中接收到
+// I/O 完成通知后，在 completion_key 和 overlapped 参数中，包含必要的套接字信息，可
+// 利用这些信息，通过完成端口继续在一个套接字上进行 I/O 处理。通过这些参数，可以获得两个
+// 重要的套接字数据：基于句柄的数据（completion_key），以及基于单个 I/O 操作的数据。
+//
+// 基于单个 I/O 操作的数据，是工作线程处理每一个完成数据时，需要知道的信息。可以将 OVERLAPPED
+// 结构作为基于单个 I/O 操作数据的第一个字段使用，例如可定义以下数据结构，实现对基于单个
+// I/O 操作数据的管理。这样在每个需要 OVERLAPPED 参数的函数中，只需传递这个结构。
+//      typedef struct {
+//          OVERLAPPED Overlapped;
+//          char Buffer[DATA_BUFSIZE];
+//          int BufferLen;
+//          int OperationType;
+//      } PER_IO_DATA;
+//
+// 可以使用 OperationType 来指示被投递的操作类型，从而可以确定到底是哪个操作投递到了句
+// 柄之上，这个字段可以设为表示读写等操作的值。这样，我们可以在同一个句柄上，同时管理多
+// 个 I/O 操作（读/写、多个读、多个写等等）。或许大家会产生这样的疑问，在同一个套接字上，
+// 真的有必要同时投递多个 I/O 操作吗？答案在于系统的伸缩性，或者说扩展能力。例如每个处
+// 理器都在执行一个工作线程，那么在同一个时候，完全可能有几个不同的处理器在同一个套接字
+// 上，进行数据的收发操作。
+//
+// 这里强调一下 Windows 完成端口有关的一个重要的点，所以重叠操作可以确保按照应用程序安
+// 排好的顺序执行，然而不能确保从完成端口返回的完成通知也按照相同的顺序返回。例如对先后
+// 两个重叠 WSARecv 操作，如果一个应用程序给前者提供 10KB 缓冲，后者 12KB 缓冲，其中
+// 10KB 先被填满，然后是 12KB 缓冲被填满。应用程序的工作线程调用 GetQueuedCompletionStatus
+// 时可能先收到 12KB WSARecv 的通知。当然，在一个套接字上投递多重操作时，这个问题不会
+// 造成多大影响。
+//
+// 对于一个给定的重叠操作，如果发生错误，GetQueuedCompletionStatus 将返回 FALSE。因为
+// 完成端口是 Windows 采用的一种 I/O 构造机制，所以如果调用 GetLastError 或 WSAGetLastError，
+// 则错误代码极有可能是一个 Windows 错误代码，而非 Winsock 错误代码。要想找到对等的
+// Winsock 错误代码，可以指定套接字和 WSAOVERLAPPED 结构，对已完成的操作调用 WSAGetOverlappedResult，
+// 之后 WSAGetLastError 将返回转换后的 Winsock 错误代码。
+
 #else // POSIX begin
 // RFC 791 - Internet Protocol, J. Postel (ed.), 1981
 // RFC 950 - Internet Standard Subnetting Procedure, J. Mogul J. Postel, 1985
