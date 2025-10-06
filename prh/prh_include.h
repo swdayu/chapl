@@ -1042,9 +1042,11 @@ extern "C" {
 
 #ifdef PRH_THRD_INCLUDE
 #define PRH_ATOMIC_INCLUDE
+#define PRH_EPOLL_INCLUDE
 #define PRH_TIME_INCLUDE
 #ifdef PRH_THRD_IMPLEMENTATION
 #define PRH_ATOMIC_IMPLEMENTATION
+#define PRH_EPOLL_IMPLEMENTATION
 #define PRH_TIME_IMPLEMENTATION
 #endif
 #endif
@@ -1800,6 +1802,9 @@ void prh_impl_dump_memory_leaks(void) {
     _CrtDumpMemoryLeaks();
 }
 #endif
+#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
+void prh_impl_wsasocket_startup(void);
+#endif
 #endif // WINDOWS
 
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
@@ -1816,6 +1821,9 @@ void prh_main_init(void) {
 #if defined(prh_plat_windows)
 #if PRH_DEBUG
     prh_zeroret(atexit(prh_impl_dump_memory_leaks));
+#endif
+#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
+    prh_impl_wsasocket_startup();
 #endif
 #endif // WINDOWS
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
@@ -9453,93 +9461,6 @@ void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *ent
     if (!b) prh_prerr(GetLastError());
 }
 
-// I/O 完成端口为在多处理器系统上处理多个异步 I/O 请求提供了一种高效的线程模型。当一个
-// 进程创建一个 I/O 完成端口时，系统会为专门用于处理这些请求的线程创建一个关联的队列对
-// 象。通过使用 I/O 完成端口与预先分配的线程池相结合，而不是在收到 I/O 请求时创建线程，
-// 处理大量并发异步 I/O 请求的进程可以更快、更高效地完成任务。
-//
-// I/O 完成端口的工作原理，CreateIoCompletionPort 函数创建一个 I/O 完成端口，并将一个
-// 或多个文件句柄与该端口关联。当其中一个文件句柄上的异步 I/O 操作完成时，I/O 完成数据
-// 包会以先进先出 (FIFO) 的顺序排队到关联的 I/O 完成端口。这种机制的一个强大用途是将多
-// 个文件句柄的同步点合并到一个对象中，尽管还有其他有用的应用。请注意，尽管数据包是以
-// FIFO 的顺序排队的，但它们可能会以不同的顺序出队。
-//
-// 当一个文件句柄与完成端口关联时，传递的状态块直到数据包从完成端口移除时才会更新。唯一
-// 的例外是原始操作以错误同步返回。一个线程（可以是主线程创建的线程或主线程本身）使用
-// GetQueuedCompletionStatus 函数来等待完成端口种的完成数据包，而不是直接等待异步 I/O
-// 完成。在 I/O 完成端口上阻塞执行的线程以后进先出 (LIFO) 的顺序释放，下一个完成数据包
-// 从 I/O 完成端口的 FIFO 队列中拉取给该线程。这意味着，当一个完成数据包被释放给一个线
-// 程时，系统会释放与该端口关联的最后一个（最近的）线程，并将最旧的 I/O 完成信息传递给
-// 它。
-//
-// 尽管任何数量的线程都可以以指定的 I/O 完成端口调用 GetQueuedCompletionStatus，但当
-// 一个指定的线程第一次调用 GetQueuedCompletionStatus 时，它就与指定的 I/O 完成端口
-// 关联，直到发生以下三种情况之一。换句话说，一个线程最多只能与一个 I/O 完成端口关联。
-//  1.  线程退出
-//  2.  指定不同的 I/O 完成端口
-//  3.  关闭 I/O 完成端口
-//
-// 当一个完成数据包被排队到 I/O 完成端口时，系统首先检查与该端口关联的运行线程数量。如
-// 果运行线程的数量小于并发值，则允许等待线程（最近的一个）处理完成数据包。当一个运行线
-// 程完成其处理时，它通常会再次调用 GetQueuedCompletionStatus，此时它要么返回下一个完
-// 成数据包，要么在队列为空时等待。
-//
-// 线程可以使用 PostQueuedCompletionStatus 函数将完成数据包放入 I/O 完成端口的队列中。
-// 这样做，完成端口不仅可以接收来自 I/O 系统的 I/O 完成数据包，还可以接收来自进程其他线
-// 程的通信。PostQueuedCompletionStatus 函数允许应用程序将自己特殊的完成数据包排队到
-// I/O 完成端口，而无需启动异步 I/O 操作。这对于，例如通知工作线程外部事件非常有用。
-//
-// I/O 完成端口句柄以及与该特定 I/O 完成端口关联的每个文件句柄都称为对 I/O 完成端口的
-// 引用。当没有更多引用时，I/O 完成端口将被释放。因此，所有这些句柄都必须正确关闭，以释
-// 放 I/O 完成端口及其关联的系统资源。在满足这些条件后，应用程序应通过调用 CloseHandle
-// 函数关闭 I/O 完成端口句柄。注意，I/O 完成端口与创建它的进程相关联，不能在进程之间共
-// 享。然而，同一个进程中的线程可以共享一个完成端口句柄。
-//
-// 线程和并发，需要仔细考虑的 I/O 完成端口最重要的属性是并发值。完成端口的并发值在使用
-// CreateIoCompletionPort 创建时通过 NumberOfConcurrentThreads 参数指定。此值限制
-// 了与完成端口关联的可运行线程数量。当与完成端口关联的可运行线程总数达到并发值时，系统
-// 会阻止与该完成端口关联的后续线程的执行，直到可运行线程数量低于并发值。
-//
-// 最高效的情况是队列中存在等待的完成数据包，但由于端口达到其并发限制而无法满足等待的
-// 线程。考虑并发值为一且多个线程在 GetQueuedCompletionStatus 函数调用中等待的情况。
-// 在这种情况下，如果队列始终有完成数据包等待，当运行线程调用 GetQueuedCompletionStatus
-// 时，它不会阻塞执行，因为如前所述，线程队列是 LIFO。相反，这个线程会立即捡起下一个排队
-// 的完成数据包。不会发生线程上下文切换，因为运行线程持续捡起完成数据包，而其他线程无法
-// 运行。注意，在前面的例子中，额外的线程似乎毫无用处且从未运行，但这假设运行线程从未被
-// 其他机制置于等待状态、终止或以其他方式关闭其关联的 I/O 完成端口。在设计应用程序时，
-// 要考虑所有这些线程执行的影响。
-//
-// 为并发值选择的最佳总体最大值是计算机上的 CPU 数量。如果您的事务需要长时间计算，较大
-// 的并发值将允许更多线程运行。每个完成数据包可能需要较长时间才能完成，但同时会处理更多
-// 的完成数据包。您可以结合分析工具尝试并发值，以实现应用程序的最佳效果。
-//
-// 系统还允许在 GetQueuedCompletionStatus 调用中等待的线程处理完成数据包，如果与同一
-// I/O 完成端口关联的另一个运行线程因其他原因进入等待状态，例如 SuspendThread 函数。当
-// 处于等待状态的线程再次开始运行时，可能会有一段短暂的时间，活动线程的数量超过并发值。
-// 然而，系统通过不允许任何新活动线程运行，直到活动线程的数量低于并发值，迅速减少这个数
-// 量。这是应用程序在其线程池中创建比并发值更多的线程的原因之一。线程池管理超出了本主题
-// 的范围，但一个好的经验法则是，线程池中的线程数量至少是系统上处理器数量的两倍。有关线
-// 程池的更多信息，请参阅线程池。
-//
-// 支持的 I/O 函数，以下函数可用于启动 I/O 操作，使其通过 I/O 完成端口完成操作。你必须
-// 将 OVERLAPPED 结构的实例和之前与 I/O 完成端口关联的文件句柄传递给该函数，以启用 I/O
-// 完成端口机制：
-//  * AcceptEx
-//  * ConnectNamedPipe
-//  * DeviceIoControl
-//  * LockFileEx
-//  * ReadDirectoryChangesW
-//  * ReadFile
-//  * TransactNamedPipe
-//  * WaitCommEvent
-//  * WriteFile
-//  * WSASendMsg
-//  * WSASendTo
-//  * WSASend
-//  * WSARecvFrom
-//  * LPFN_WSARECVMSG (WSARecvMsg)
-//  * WSARecv
-
 // VOID Sleep(DWORD dwMilliseconds);
 //
 // 挂起当前线程的执行，直到指定的时间间隔超时。若要进入 “可提醒” 的等待状态，需要使用
@@ -14400,6 +14321,1013 @@ void prh_impl_cono_test(void) {
 #endif // PRH_CONO_IMPLEMENTATION
 #endif // PRH_CONO_INCLUDE
 
+#ifdef PRH_EPOLL_INCLUDE
+#define PRH_MAX_SAME_TIME_POSTS_EPOLL_TO_EACH_FILE_DESCRIPTOR 2
+typedef struct prh_epoll_port prh_epoll_port;
+typedef enum {
+    PRH_EPEV_ADDED, // 特定文件描述符添加完毕
+    PRH_EPEV_READY, // 特定文件描述符上有事件发生
+    PRH_EPEV_MAX_NUM,
+} prh_epoll_event;
+
+void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time);
+void prh_epoll_add_tcp_accept(prh_tcplisten *listen, prh_cono_subq *subq);
+void prh_epoll_add_tcp_connect(prh_tcpsocket *tcp, prh_cono_subq *subq);
+void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_cono_subq *subq);
+void prh_epoll_receive_events(prh_tcpsocket *tcp);
+void prh_epoll_wait_tx_data(prh_epoll_port *port);
+void prh_epoll_wait_rx_data(prh_epoll_port *port);
+void prh_epoll_del_and_close(prh_epoll_port *port);
+void prh_epoll_exit(void);
+
+#ifdef PRH_EPOLL_IMPLEMENTATION
+#if defined(prh_plat_windows)
+// I/O 完成端口为在多处理器系统上处理多个异步 I/O 请求提供了一种高效的线程模型。当一个
+// 进程创建一个 I/O 完成端口时，系统会为专门用于处理这些请求的线程创建一个关联的队列对
+// 象。通过使用 I/O 完成端口与预先分配的线程池相结合，而不是在收到 I/O 请求时创建线程，
+// 处理大量并发异步 I/O 请求的进程可以更快、更高效地完成任务。
+//
+// I/O 完成端口的工作原理，CreateIoCompletionPort 函数创建一个 I/O 完成端口，并将一个
+// 或多个文件句柄与该端口关联。当其中一个文件句柄上的异步 I/O 操作完成时，I/O 完成数据
+// 包会以先进先出 (FIFO) 的顺序排队到关联的 I/O 完成端口。这种机制的一个强大用途是将多
+// 个文件句柄的同步点合并到一个对象中，尽管还有其他有用的应用。请注意，尽管数据包是以
+// FIFO 的顺序排队的，但它们可能会以不同的顺序出队。
+//
+// 当一个文件句柄与完成端口关联时，传递的状态块直到数据包从完成端口移除时才会更新。唯一
+// 的例外是原始操作以错误同步返回。一个线程（可以是主线程创建的线程或主线程本身）使用
+// GetQueuedCompletionStatus 函数来等待完成端口种的完成数据包，而不是直接等待异步 I/O
+// 完成。在 I/O 完成端口上阻塞执行的线程以后进先出 (LIFO) 的顺序释放，下一个完成数据包
+// 从 I/O 完成端口的 FIFO 队列中拉取给该线程。这意味着，当一个完成数据包被释放给一个线
+// 程时，系统会释放与该端口关联的最后一个（最近的）线程，并将最旧的 I/O 完成信息传递给
+// 它。
+//
+// 尽管任何数量的线程都可以以指定的 I/O 完成端口调用 GetQueuedCompletionStatus，但当
+// 一个指定的线程第一次调用 GetQueuedCompletionStatus 时，它就与指定的 I/O 完成端口
+// 关联，直到发生以下三种情况之一。换句话说，一个线程最多只能与一个 I/O 完成端口关联。
+//  1.  线程退出
+//  2.  指定不同的 I/O 完成端口
+//  3.  关闭 I/O 完成端口
+//
+// 当一个完成数据包被排队到 I/O 完成端口时，系统首先检查与该端口关联的运行线程数量。如
+// 果运行线程的数量小于并发值，则允许等待线程（最近的一个）处理完成数据包。当一个运行线
+// 程完成其处理时，它通常会再次调用 GetQueuedCompletionStatus，此时它要么返回下一个完
+// 成数据包，要么在队列为空时等待。
+//
+// 线程可以使用 PostQueuedCompletionStatus 函数将完成数据包放入 I/O 完成端口的队列中。
+// 这样做，完成端口不仅可以接收来自 I/O 系统的 I/O 完成数据包，还可以接收来自进程其他线
+// 程的通信。PostQueuedCompletionStatus 函数允许应用程序将自己特殊的完成数据包排队到
+// I/O 完成端口，而无需启动异步 I/O 操作。这对于，例如通知工作线程外部事件非常有用。
+//
+// I/O 完成端口句柄以及与该特定 I/O 完成端口关联的每个文件句柄都称为对 I/O 完成端口的
+// 引用。当没有更多引用时，I/O 完成端口将被释放。因此，所有这些句柄都必须正确关闭，以释
+// 放 I/O 完成端口及其关联的系统资源。在满足这些条件后，应用程序应通过调用 CloseHandle
+// 函数关闭 I/O 完成端口句柄。注意，I/O 完成端口与创建它的进程相关联，不能在进程之间共
+// 享。然而，同一个进程中的线程可以共享一个完成端口句柄。
+//
+// 线程和并发，需要仔细考虑的 I/O 完成端口最重要的属性是并发值。完成端口的并发值在使用
+// CreateIoCompletionPort 创建时通过 NumberOfConcurrentThreads 参数指定。此值限制
+// 了与完成端口关联的可运行线程数量。当与完成端口关联的可运行线程总数达到并发值时，系统
+// 会阻止与该完成端口关联的后续线程的执行，直到可运行线程数量低于并发值。
+//
+// 最高效的情况是队列中存在等待的完成数据包，但由于端口达到其并发限制而无法满足等待的
+// 线程。考虑并发值为一且多个线程在 GetQueuedCompletionStatus 函数调用中等待的情况。
+// 在这种情况下，如果队列始终有完成数据包等待，当运行线程调用 GetQueuedCompletionStatus
+// 时，它不会阻塞执行，因为如前所述，线程队列是 LIFO。相反，这个线程会立即捡起下一个排队
+// 的完成数据包。不会发生线程上下文切换，因为运行线程持续捡起完成数据包，而其他线程无法
+// 运行。注意，在前面的例子中，额外的线程似乎毫无用处且从未运行，但这假设运行线程从未被
+// 其他机制置于等待状态、终止或以其他方式关闭其关联的 I/O 完成端口。在设计应用程序时，
+// 要考虑所有这些线程执行的影响。
+//
+// 为并发值选择的最佳总体最大值是计算机上的 CPU 数量。如果您的事务需要长时间计算，较大
+// 的并发值将允许更多线程运行。每个完成数据包可能需要较长时间才能完成，但同时会处理更多
+// 的完成数据包。您可以结合分析工具尝试并发值，以实现应用程序的最佳效果。
+//
+// 系统还允许在 GetQueuedCompletionStatus 调用中等待的线程处理完成数据包，如果与同一
+// I/O 完成端口关联的另一个运行线程因其他原因进入等待状态，例如 SuspendThread 函数。当
+// 处于等待状态的线程再次开始运行时，可能会有一段短暂的时间，活动线程的数量超过并发值。
+// 然而，系统通过不允许任何新活动线程运行，直到活动线程的数量低于并发值，迅速减少这个数
+// 量。这是应用程序在其线程池中创建比并发值更多的线程的原因之一。线程池管理超出了本主题
+// 的范围，但一个好的经验法则是，线程池中的线程数量至少是系统上处理器数量的两倍。有关线
+// 程池的更多信息，请参阅线程池。
+//
+// 支持的 I/O 函数，以下函数可用于启动 I/O 操作，使其通过 I/O 完成端口完成操作。你必须
+// 将 OVERLAPPED 结构的实例和之前与 I/O 完成端口关联的文件句柄传递给该函数，以启用 I/O
+// 完成端口机制：
+//  * AcceptEx
+//  * ConnectNamedPipe
+//  * DeviceIoControl
+//  * LockFileEx
+//  * ReadDirectoryChangesW
+//  * ReadFile
+//  * TransactNamedPipe
+//  * WaitCommEvent
+//  * WriteFile
+//  * WSASendMsg
+//  * WSASendTo
+//  * WSASend
+//  * WSARecvFrom
+//  * LPFN_WSARECVMSG (WSARecvMsg)
+//  * WSARecv
+
+#elif defined(prh_plat_linux)
+#include <sys/types.h>
+#include <sys/ioctl.h>
+#include <sys/epoll.h>
+// EPOLL API 是 Linux 专有的特性，首次出现是在 Linux 2.6 版中。同 I/O 多路复用 API
+// 一样，epoll api 允许进程同时检查多个文件描述符，看其中任意一个是否能执行 I/O 操作。
+// 同信号驱动 I/O 一样，当同时检查大量文件描述符时，epoll 能提供更好的性能。实际上 I/O
+// 多路复用、信号驱动 I/O 以及 epoll 都是用来实现同一个目标的技术，即同时检查多个文件
+// 描述符，看它们是否已经准备好执行 I/O 操作，准确地说，是看 I/O 系统调用是否可以非阻塞
+// 地执行。文件描述符就绪状态的转化是通过一些 I/O 事件来触发的，比如输入数据到达，套接字
+// 连接建立完成，或者是之前满载的套接字发送缓冲区在 TCP 发送数据传送到对端之后有了剩余
+// 空间。同时检查多个文件描述符在类似网络服务器的应用中很有用处，或者是那些必须同时检查
+// 终端以及管道或套接字输入的应用程序。需要注意的是这些技术都不会执行实际的I/O操作，它们
+// 只是告诉我们某个文件描述符已经处于就绪状态了，这时需要调用其他的系统调用来完成实际的
+// I/O操作。
+//
+// 这里没有介绍的一种 I/O 模型是 POSIX 异步 I/O （AIO）。POSIX AIO 允许进程将 I/O
+// 操作排列到一个文件中，当操作完成后得到通知。POSIX AIO 的优点在于最初的 I/O 调用将
+// 立刻返回，因此进程不会一直等待数据传输到内核或者等待操作完成。这使得进程可以同 I/O
+// 操作一起并行处理其他任务（包括未来可能进入队列的其他I/O操作）。对于特定类型的应用，
+// POSIX AIO 能提供有用的性能优势。目前，Linux 在 glibc 中提供有基于线程的 POSIX
+// AIO 实现，并且正在朝着内核化的 POSIX AIO 实现而努力，这应该能提供更好的伸缩性能。
+//
+// 同 epoll 一样，信号驱动 I/O 可以让应用程序高效地检查大量的文件描述符。然而 epoll
+// 有着信号驱动 I/O 没有的一些优点：避免了处理信号的复杂性；可以指定想要检查的事件类型，
+// 例如读就绪或者写就绪；可以选择一水平触发或边缘触发的形式来通知进程。为了不同系统的
+// 可移植性，一个名为 libevent 的软件层库提供了文件描述符 I/O 事件的抽象，已经移植到
+// 了多个 UNIX 系统中。Libevent 的底层机制能够以透明的方式，应用各种I/O模型：select、
+// poll、信号驱动I/O或者epoll，同样也支持 Solaris 专有的 /dev/poll 接口和 BSD 系统
+// 的 kqueue 接口。对于最基础的 select() 和 poll() 在 UNIX 系统中已经存在很长时间，
+// 相比其他技术，它最主要的优势是可移植性，但是缺点在于当同时检查大量的（数百或数千个）
+// 文件描述符时性能延展性不佳。
+//
+// 在讨论I/O机制之前，我们需要先区分两种文件描述符准备就绪的通知模式。水平触发通知：如果
+// 文件描述符上可以非阻塞地执行I/O系统调用，此时认为它已经就绪。边缘触发通知：如果文件
+// 描述符自上次状态检查以来有了新的I/O活动，比如新的输入，此时需要触发通知。其中 select
+// 和 poll 使用的是水平触发，信号驱动I/O使用的是边缘触发，epoll 默认使用水平触发但也
+// 支持边缘触发。
+//
+// 当采用水平触发通知时，我们可以在任意时刻检查文件描述符的就绪状态。这表示当我们确定了
+// 文件描述符就绪态时，比如存在有输入的数据，就可以对其执行一些I/O操作。水平触发模式
+// 因为可以在任意时刻重复检查I/O状态，就没有必要每次就绪后必须尽可能多地执行I/O，因为即
+// 使执行少量的I/O或者不执行，下次检查就绪状态都还在，可以继续再执行。
+//
+// 但是如果使用边缘触发，只有当I/O事件发生时我们才会收到通知，在另一个I/O事件到了前不会
+// 再收到任何新的通知。另外，当文件描述符收到I/O事件通知时，通常我们并不知道要处理多少
+// I/O，例如有多少字节可读。因此，采用边缘触发通知的程序通常要按照以下规则来设计。
+//
+// （一）在收到一个I/O事件通知后，程序在某个时刻应该在相应的文件描述符上尽可能多地执行
+// I/O，比如尽可能多地读取字节。如果程序没这么做，那么就可能失去执行I/O的机会。因为直到
+// 产生另一个I/O事件为止，在此之前程序都不会再接收到通知了，因此也就不知道此时应该执行
+// I/O操作。这将导致数据丢失或者程序中出现阻塞。这里提到的程序在“某个时刻”应该执行尽可能
+// 多的I/O操作，是因为有时候我们确定了文件描述符处于就绪状态时，可能并不适合马上执行所有
+// 的I/O操作。原因是因为如果我们仅对一个文件描述符执行大量的I/O操作，可能会让其他文件
+// 描述符处于饥饿状态。
+//
+// （二）如果程序采用循环来对文件描述符执行尽可能多的I/O，而文件描述符又被置为可阻塞的，
+// 那么最终当没有更多的I/O可执行时，I/O系统调用就会阻塞。基于这个原因，每个被检查的文件
+// 描述符通常都应该设为非阻塞模式，在得到I/O事件通知后重复执行I/O操作，直到相应的系统
+// 调用，比如 read() write() 以错误码 EAGAIN 或 EWOULDBLOCK 的形式失败。
+//
+// 这里的 I/O 模型通常和非阻塞I/O（O_NONBLOCK标志）一起使用，下面列出了一些例子，以说
+// 明为什么这么做会很有用：非阻塞I/O通常和提供有边缘触发通知机制的I/O模型一起使用；如果
+// 多个进程（线程）在同一个打开的文件描述符上执行I/O操作，那么从某个特定进程的角度来看，
+// 文件描述符的就绪状态可能会在通知就绪和执行后续I/O调用之间发生改变，结果就是一个阻塞
+// 式的I/O调用将阻塞，进行再也不能去检查其他的文件描述符；尽管水平触发模式的API通知我们
+// 流式套接字的文件描述符已经写就绪了，如果我们在单个write()或send()调用中写入足够大块
+// 的数据，那么该调用将阻塞；在非常罕见的情况下，水平触发型API比如select和poll，会返回
+// 虚假的就绪通知，它们会错误地通知我们文件描述符已经就绪了，这可能式由内核bug造成的，
+// 或非普通情况下的设计方案所期望的行为。一个BSD系统上的监听套接字的虚假就绪通知的例子，
+// 如果客户端先连接到服务器的监听套接字上，然后再重置连接，服务器的select()调用在这两个
+// 事件之间将提示监听套接字为可读就绪，但随后当客户端重置连接后，服务器端的accept()调用
+// 阻塞。
+//
+// Linux 的 epoll（event poll）API 的主要优点：当检查大量的文件描述符时，epoll 的性能
+// 延展性比 select() 和 poll() 高很多；另外 epoll 既支持水平触发也支持边缘触发；而于
+// 信号驱动I/O相比，epoll 可以避免复杂的信号处理流程 ，例如信号队列溢出时的处理，还更
+// 灵活，可以指定我们希望检查的事件类型，例如检查读就绪、写就绪、或两者同时指定。
+//
+// epoll api 的核心数据结构称作 epoll 实例，它和一个打开的文件描述符相关联。这个文件
+// 描述符不是用来做I/O操作的，它只是内核数据结构的句柄，该数据结构记录了在进程中声明过
+// 的感兴趣的文件描述符列表，兴趣列表（interest list），还维护了处于 I/O 就绪态的文件
+// 描述符列表，就绪列表（ready list）。就绪列表中的成员是兴趣列表的子集。epoll api
+// 由以下三个系统调用组成：epoll_create 创建一个 epoll 实例，返回代表该实例的文件描述
+// 符；epoll_ctl 操作同 epoll 实例相关联的兴趣列表；epoll_wait 返回与 epoll 实例
+// 相关联的就绪列表中的成员。通过 epoll_ctl 可以增加新的描述符到列表中，或移除已有的文
+// 件描述符。
+//
+// https://www.man7.org/linux/man-pages/man2/epoll_create.2.html
+// https://www.man7.org/linux/man-pages/man7/epoll.7.html
+//
+// #include <sys/epoll.h>
+// int epoll_create(int size); Linux 2.6, glibc 2.3.2.
+// int epoll_create1(int flags); Linux 2.6.27, glibc 2.9.
+//
+// epoll_create() creates a new epoll(7) instance. Since Linux 2.6.8, the size
+// argument is ignored, but must be greater than zero. epoll_create1() is the
+// same as epoll_create(). The following value can be included in flags to
+// obtain different behavior: EPOLL_CLOEXEC.
+//
+// 参数 flags 可以设置为 0 或者 EPOLL_CLOEXEC 标志，如果 flags 为 0，则 epoll_create1()
+// 与 epoll_create() 的行为相同，只是省略了过时的 size 参数。EPOLL_CLOEXEC 标志会给
+// epoll 文件描述符设置 FD_CLOEXEC 标志，这确保在执行 exec 系统调用时，该文件描述符不
+// 会被继承到子进程中。详情可以参考 open(2) 中对 O_CLOEXEC 标志的描述。在多线程环境中，
+// 如果不设置 FD_CLOEXEC 标志，子进程可能会意外地继承父进程的文件描述符，这可能导致安全
+// 问题或资源泄漏。即在创建 epoll 文件描述符的同时就设置好“关闭执行”标志，避免多线程竞争
+// 导致该标志设置失效，设置此标志后，子进程不能访问这个在父进程中的文件描述符。
+//
+// 如果不是一创建就设置，使用单独的 fcntl(2) 设置 FD_CLOEXEC 标志可能会导致竞争条件。
+// 例如，一个线程打开一个文件描述符并尝试使用 fcntl(2) 设置其关闭执行标志，而另一个线程
+// 同时执行 fork(2) 和 execve(2)。根据执行顺序，这种竞争条件可能导致 open() 返回的文
+// 件描述符意外地泄露到由 fork(2) 创建的子进程中。
+//
+// 成功返回一个文件描述符，非负数，失败返回-1和errno。可能错误：
+//      EINVAL - 参数 size 或 flags 非法。
+//      EMFILE - 进程达到最大打开的文件描述符数量。Prior to Linux 2.6.29, a
+//          /proc/sys/fs/epoll/max_user_instances kernel parameter limited
+//          live epolls for each real user ID, and caused epoll_create() to
+//          fail with EMFILE on overrun. 版本 2.6.29 之前，有内核参数限制每个真
+//          实用户ID中活动的 epoll 最大数量。
+//      ENFILE - 系统达到最大可打开的文件描述符总数。
+//      ENOMEM - 没有足够的内存空间用于创建内核对象。
+//
+// 默认情况下，程序中打开的所有文件描述符在 exec() 执行新程序的过程中保持打开并有效。这
+// 通常很实用，因为文件描述符在新程序中自动有效，让新程序无需再去了解文件名或重新打开。但
+// 一些情况下在执行 exec() 前确保关闭某些特定的文件描述符，尤其是在特权进程中调用 exec()
+// 来启动一个未知程序时，或启动程序并不需要这些已打开的文件描述符时，从安全编程的角度出发，
+// 应当在加载新程序之前关闭那些不必要的文件描述符。为此，内核为每个文件描述符提供了执行时
+// 关闭标志，如果设置了这一标志，如果调用 exec() 成功会自动关闭该文件描述符，如果调用
+// exec() 失败则文件描述符会继续保持打开。系统调用 fork() 允许一进程（父进程）创建一新
+// 进程（子进程），子进程几乎是父进程的翻版（可认为父进程一分为二了），它获得了父进程的栈、
+// 数据段、堆和执行文本段的拷贝。执行 fork() 时，子进程会获得父进程所有文件描述符的副本，
+// 这些副本的创建方式类似于 dup()，这也意味着父子进程中对应的描述符均指向相同的打开文件句
+// 柄。文件句柄包含了当前文件偏移量以及文件状态标志，因此这些属性是在父子进程间共享的，例
+// 如子进程如果更新了文件偏移量，那么这种改变也会影响到父进程中相应的描述符。系统调用
+// exec() 用于执行一个新程序，它将新程序加载到当前进程中，这将丢弃现存的程序段，并为新程
+// 序重新创建栈、数据段以及堆。
+//
+// 通过进程的 /proc/pid/fdinfo 目录中 epoll 文件描述符的条目，可以查看正通过一个 epoll
+// 文件描述符监控的文件描述符集合。请参阅 proc(5) 以获取更多详细信息。假如 epfd 的值为
+// 5，当前进程 pid 为 1234，则可以查看： cat /proc/1234/fdinfo/5 。
+//
+// kcmp(2) 的 KCMP_EPOLL_TFD 操作可用于测试一个文件描述符是否在一个 epoll 实例中：
+//      if (kcmp(getpid(), getpid(), KCMP_EPOLL_TFD, epfd, fd) == 0) {
+//          printf("fd is in the epoll instance\n");
+//      }
+//
+// https://www.man7.org/linux/man-pages/man2/epoll_ctl.2.html
+// https://www.man7.org/linux/man-pages/man3/epoll_event.3type.html
+// https://www.man7.org/linux/man-pages/man2/ioctl_eventpoll.2.html
+//
+// #include <sys/epoll.h> // epoll_ctl 返回 0 表示成功，返回 -1 表示失败 errno
+// int epoll_ctl(int epfd, int op, int fd, struct epoll_event *_Nullable event);
+// struct epoll_event { // 该结构体指定内核在文件描述符就绪时，需要保存和返回的数据
+//     uint32_t      events;  /* Epoll events */ 设置关注的事件类型和事件标志
+//     epoll_data_t  data;    /* User data variable */
+// };
+// union epoll_data {
+//     void     *ptr;
+//     int       fd;
+//     uint32_t  u32;
+//     uint64_t  u64;
+// };
+// typedef union epoll_data epoll_data_t;
+//
+// 从 epoll 的兴趣列表中新增、删除、或修改对应的文件描述符 fd，该描述符可以是代表管道、
+// FIFO、套接字、POSIX 消息队列、inotify 实例、终端、设备、甚至是另一个 epoll 实例的
+// 文件描述符（例如我们可以为受检查的描述符建立起一种层次关系）。但是，这里的 fd 不能是
+// 普通文件或目录的文件描述符，会出现 EPERM 错误。epoll 支持所有在 poll(2) 中支持的
+// 文件描述符。
+//      EPOLL_CTL_ADD - 如果兴趣列表中已经存在该文件描述符，报 EEXIST 错误。
+//      EPOLL_CTL_MOD - 如果文件描述符不在兴趣列表中，会报 ENOENT 错误。
+//      EPOLL_CTL_DEL - 如果文件描述符不在兴趣列表中，会报 ENOENT 错误。如果要兼容
+//          Linux 2.6.9 之前的版本，event 参数虽然会被忽略，但不能传递空指针。
+//          Before Linux 2.6.9, the EPOLL_CTL_DEL operation required a non-null
+//          pointer in event, even though this argument is ignored. Since Linux
+//          2.6.9, event can be specified as NULL when using EPOLL_CTL_DEL.
+//          Applications that need to be portable to kernels before Linux 2.6.9
+//          should specify a non-null pointer in event.
+//          关闭一个文件描述符，会自动将其从所有的 epoll 实例的兴趣列表中移除。其实具体
+//          的，epoll 实例中保存的文件描述符是位于内核中的文件描述（file description），
+//          用户空间中可以存在多个文件描述符（file descriptor）指向这个内核中的文件描述，
+//          只有所有用户空间中的执行同一个文件描述的文件描述符都关闭了，内核才知道此时
+//          已经没有引用的用户空间的程序，可以将文件描述回收。因此准确的说，当所有指向
+//          打开的文件描述的文件描述符都被关闭后，这个打开的文件描述才从 epoll 的兴趣
+//          列表中移除。
+//
+// 参数 events 是比特位，可以或上零个或多个事件类型（event type），事件类型也会在文件
+// 描述符就绪时被 epoll_wait 返回，还可以或上事件标志（event flag），事件标志会影响
+// 文件描述符就绪的触发行为，但不会被 epoll_wait 返回。事件类型包括：
+//      EPOLLIN - 文件可以进行 read 操作，读取非优先级数据。
+//      EPOLLPRI - There is an exceptional condition on the file descriptor.
+//          See the discussion of POLLPRI in poll(2). 文件描述符上有异常条件，这
+//          通常用于检测和读取紧急数据（如带外数据），具体可能包括：
+//          •  There is out-of-band data on a TCP socket (see tcp(7)).
+//          •  A pseudoterminal master in packet mode has seen a state
+//             change on the slave (see ioctl_tty(2)).
+//          •  A cgroup.events file has been modified (see cgroups(7)).
+//      EPOLLOUT - 文件可以进行 write 操作
+//      EPOLLERR - 关联文件描述符有错误事件发生，或当管道的读取端已经关闭时写入端也会
+//          也会触发该事件。 This event is also reported for the write end of a
+//          pipe when the read end has been closed.
+//          错误事件总会被 epoll_wait 上报，调用 epoll_ctl 设置该类型是不必须的。
+//          epoll_wait(2) will always report for this event; it is not necessary
+//          to set it in events when calling epoll_ctl().
+//      EPOLLRDHUP (Linux 2.6.17) - Stream socket peer closed connection, or
+//          shut down writing half of connection. (This flag is especially
+//          useful for writing simple code to detect peer shutdown when using
+//          edge-triggered monitoring.) 对方挂断事件，即流式套接字对端关闭了连接，或
+//          关闭了连接的写入部分。这个标志特别适用于使用边缘触发监控对端的关闭情况。
+//      EPOLLHUP - 文件描述符发生了挂断事件，epoll_wait(2) 总是会上报这个事件，因此
+//          不需要特别设置。从管道或流式套接字等通道进行读取操作时，这个事件仅表示对端
+//          关闭了其端的通道，只有当通道中所有未处理的数据都会消费后，后续的读取操作
+//          才会返回0（文件尾）。例如读取标准输入流 STDIN_FILENO，在终端上的写入端输入
+//          CTRL+D 表示 EOF，来关闭写入端的通道。
+//          Note that when reading from a channel such as a pipe or a stream
+//          socket, this event merely indicates that the peer closed its end of
+//          the channel. Subsequent reads from the channel will return 0 (end
+//          of file) only after all outstanding data in the channel has been
+//          consumed.
+//          只要关联的文件已经关闭或已经断开连接，或者读取端检测到对端关闭了写入端，都会
+//          触发该事件。EPOLLRDHUP 适用于精确检测对端关闭连接的场景，EPOLLHUP 适用于
+//          需要处理文件描述符不再可用的场景。
+//
+// 可用的事件标志包括：
+//      EPOLLET - 默认是水平触发（level-triggered），设置该值表示边缘触发（edge-triggered）。
+//      EPOLLONESHOT (Linux 2.6.2) - 一次性通知，当 epoll_wait 通知完后，会将对应的
+//          文件描述符设为禁用不会再报告任何事件，如果要继续监控，需要调用 epoll_ctl
+//          EPOLL_CTL_MOD 重新启用文件描述符并设置新的事件掩码。
+//      EPOLLWAKEUP (Linux 3.5) - If EPOLLONESHOT and EPOLLET are clear and the
+//          process has the CAP_BLOCK_SUSPEND capability, ensure that the system
+//          does not enter "suspend" or "hibernate" while this event is pending
+//          or being processed. 如果没有设置 EPOLLET 和 EPOLLONESHOT，EPOLLWAKEUP
+//          确保 CAP_BLOCK_SUSPEND 能力的进程在文件描述符对应的事件待处理或处理期间，
+//          系统不会进入“挂起”或“休眠”状态。适用于需要在事件处理期间防止系统进入低功耗
+//          状态的场景，例如后台服务或实时应用程序。事件被视为“处理中”的时间是从 epoll_wait(2)
+//          返回事件开始，直到下一次对同一个 epoll 文件描述符调用 epoll_wait(2)，或者
+//          关闭该文件描述符，或者使用 EPOLL_CTL_DEL 移除事件文件描述符，或者使用
+//          EPOLL_CTL_MOD 清除事件文件描述符的 EPOLLWAKEUP。
+//          如果 EPOLLWAKEUP 被设置，但调用进程不具备 CAP_BLOCK_SUSPEND 能力，EPOLLWAKEUP
+//          标志将被静默忽略。一个健壮的应用程序在尝试使用 EPOLLWAKEUP 标志时，应该先
+//          检查它是否具有 CAP_BLOCK_SUSPEND 能力。
+//          Capabilities are a per-thread attribute. CAP_BLOCK_SUSPEND (since
+//          Linux 3.5) Employ features that can block system suspend (epoll(7)
+//          EPOLLWAKEUP, /proc/sys/wake_lock).
+//      https://www.man7.org/linux/man-pages/man7/epoll.7.html
+//          如果系统通过 /sys/power/autosleep 处于自动睡眠模式，并且发生了一个事件，该
+//          事件使设备从睡眠状态中唤醒，设备驱动程序将只保持设备唤醒状态，直到该事件被排队。
+//          为了使设备在发生的事件被处理并在处理完成之前，一直保持唤醒状态，需要使用 epoll_ctl(2)
+//          的 EPOLLWAKEUP 标志。
+//          当 EPOLLWAKEUP 标志设置在 struct epoll_event 的 events 字段中时，系统将
+//          从事件被排队的那一刻起保持唤醒状态，通过返回事件的 epoll_wait(2) 调用，直到
+//          随后的 epoll_wait(2) 调用。如果事件需要在那之后的时间内保持系统唤醒，那么应
+//          该在第二次 epoll_wait(2) 调用之前获取一个单独的 wake_lock。
+//      EPOLLEXCLUSIVE (Linux 4.5) - 设置独占唤醒模式，适用于需要避免多个 epoll 实例
+//          同时唤醒引发“雷鸣事件”，从而减少资源竞争和性能问题。雷鸣般的牧群问题（thundering
+//          herd problems）。
+//          同一个文件描述符可能被添加到多个 epoll 实例中，如果这些 epoll 实例都设置了
+//          EPOLLEXCLUSIVE，那么只有至少一个 epoll 会被唤醒。而默认没有设置 EPOLLEXCLUSIVE
+//          的情况下，所有epoll 都会被唤醒。
+//          If the same file descriptor is in multiple epoll instances, some
+//          with the EPOLLEXCLUSIVE flag, and others without, then events will
+//          be provided to all epoll instances that did not specify EPOLLEXCLUSIVE,
+//          and at least one of the epoll instances that did specify EPOLLEXCLUSIVE.
+//          如果其中一些设置了，而另外一些没有设置，没有设置的所有 epoll 都会收到通知，
+//          设置了的只有至少一个收到通知。
+//          以下值可以与 EPOLLEXCLUSIVE 一起指定：EPOLLIN、EPOLLOUT、EPOLLWAKEUP 和
+//          EPOLLET，也可以指定 EPOLLHUP 和 EPOLLERR，但这不是必需的。在 events 中指
+//          定其他值会导致 EINVAL 错误。
+//          EPOLLEXCLUSIVE 可能只能在 EPOLL_CTL_ADD 操作中使用，尝试在 EPOLL_CTL_MOD
+//          操作中使用它会导致错误。如果已经使用 epoll_ctl() 设置了 EPOLLEXCLUSIVE，
+//          那么对同一 epfd 和 fd 对的后续 EPOLL_CTL_MOD 操作将导致错误。同样，如果在
+//          events 中指定 EPOLLEXCLUSIVE 并将 epoll 实例作为目标文件描述符传入也会失
+//          败。在所有这些情况下，错误都是 EINVAL。
+//          A call to epoll_ctl() that specifies EPOLLEXCLUSIVE in events and
+//          specifies the target file descriptor fd as an epoll instance will
+//          likewise fail.
+//      https://www.man7.org/linux/man-pages/man7/epoll.7.html
+//          如果多个线程（或者进程，如果子进程通过 fork(2) 继承了 epoll 文件描述符）在
+//          epoll_wait(2) 中阻塞，等待同一个 epoll 文件描述符，且关注列表中一个标记为
+//          边缘触发（EPOLLET）通知的文件描述符准备就绪，那么只有一个线程（或进程）会从
+//          epoll_wait(2) 中被唤醒。这在某些场景下提供了一个有用的优化，用于避免 thundering
+//          herd 唤醒。
+//          1. 多个线程等待同一个 epfd，边缘触发文件描述符如果就绪，只会通知一个线程
+//          2. 多个进程等待同一个 epfd，边缘触发文件描述符如果就绪，只会通知一个进程
+//          3. 多个 epfd 关注同一个 fd，如果该文件描述符就绪，没有给该 fd 设置独占标志
+//             的所有 epfd 都会被唤醒，所有给 fd 设置了独占标志的 epfd 只有至少一个被
+//             唤醒
+//
+// #include <sys/capability.h> // Link with -lcap
+// bool prh_impl_epoll_cap_block_suspend_get(void) {
+//     assert(CAP_IS_SUPPORTED(CAP_BLOCK_SUSPEND));
+//     cap_t caps = cap_get_proc();
+//     assert(caps != prh_null);
+//     cap_flag_value_t cap_set = CAP_CLEAR;
+//     prh_zeroret(cap_get_flag(caps, CAP_BLOCK_SUSPEND, CAP_EFFECTIVE, &cap_set));
+//     prh_zeroret(cap_free(caps));
+//     return cap_set == CAP_SET;
+// }
+// void prh_impl_epoll_cap_block_suspend_set(void) {
+//     assert(CAP_IS_SUPPORTED(CAP_BLOCK_SUSPEND));
+//     cap_t caps = cap_get_proc();
+//     assert(caps != prh_null);
+//     cap_flag_value_t cap_set = CAP_CLEAR;
+//     prh_zeroret(cap_get_flag(caps, CAP_BLOCK_SUSPEND, CAP_EFFECTIVE, &cap_set));
+//     prh_defer_if(cap_set == CAP_SET,);
+//     prh_zeroret(cap_get_flag(caps, CAP_SETPCAP, CAP_EFFECTIVE, &cap_set));
+//     prh_defer_if(cap_set != CAP_SET, prh_prerr(CAP_SETPCAP));
+//     cap_value_t cap_list[1] = {CAP_BLOCK_SUSPEND};
+//     prh_zeroret(cap_set_flag(caps, CAP_EFFECTIVE, 1, cap_list, CAP_SET));
+//     prh_zeroret(cap_set_proc(caps)); // 设置 CAP_BLOCK_SUSPEND 需要具有相应的权限，通常只有 root 用户或具有 CAP_SETPCAP 权限的用户才能设置其他能力。
+// label_defer:
+//     prh_zeroret(cap_free(caps));
+// }
+//
+// 可能返回的错误：
+//      EBADF - epfd 或 fd 是非法文件描述符。
+//      EEXIST - EPOLL_CTL_ADD 一个已经注册的 fd。
+//      EINVAL - epfd 不是一个 epoll 文件描述符, 或者 fd 与 epfd 相同，或者提供的 op
+//          操作不被支持。不允许一起指定的事件类型，指定了 EPOLLEXCLUSIVE 标志。
+//          EPOLL_CTL_MOD 操作一起指定了 EPOLLEXCLUSIVE 标志。如果 epfd fd 对之前
+//          设置了 EPOLLEXCLUSIVE 标志，再 EPOLL_CTL_MOD 进行修改。设置了 EPOLLEXCLUSIVE
+//          并且 fd 指向另一个 epoll 实例。
+//      ELOOP - EPOLL_CTL_ADD 添加一个指向另一个 epoll 实例的 fd，导致 epoll 实例
+//          引用循环，或者 epoll 的嵌套深度超过了 5 次。
+//      ENOENT - EPOLL_CTL_MOD 或 EPOLL_CTL_DEL 一个没有注册的 fd。
+//      ENOMEM - 没有足够的内存空间来完成对应的操作。
+//      ENOSPC - The limit imposed by /proc/sys/fs/epoll/max_user_watches was
+//          encountered while trying to register (EPOLL_CTL_ADD) a new file
+//          descriptor on an epoll instance. See epoll(7) for further details.
+//          注册的监控个数达到 epoll 用户配置的最大值。因为每个注册到 epoll 实例的文件
+//          描述符需要占用一小段不能被交换的内核内存空间，因此内核提供了一个接口用来定义
+//          每个用户可以注册到 epoll 实例上的文件描述符总数。这个上限值可以通过 max_user_watches
+//          文件来查看和修改。默认的上限值根据可用的系统内存来计算得出，参考 epoll(7)
+//          用户手册页。
+//      https://www.man7.org/linux/man-pages/man7/epoll.7.html
+//          以下接口可用于限制 epoll 消耗的内核内存量：
+//          /proc/sys/fs/epoll/max_user_watches (自 Linux 2.6.28 起可用)
+//          它指定一个用户可以在系统上所有 epoll 实例中注册的文件描述符总数的限制。
+//          在 32 位内核上，每个注册的文件描述符大约占用 90 字节；在 64 位内核上，大约
+//          占用 160 字节。
+//          Currently, the default value for max_user_watches is 1/25 (4%) of
+//          the available low memory, divided by the registration cost in bytes.
+//          当前 max_user_watches 的默认值是，例如64位系统可用低内存为 1GB，那么其值
+//          为 1GB * 0.04 / 160-byte ≈ 26214。
+//      EPERM - 文件描述符指向的目标文件不支持 epoll，例如是一个普通文件或目录。
+//
+// #include <sys/epoll.h>
+// #include <sys/ioctl.h>
+// struct epoll_params {
+//     uint32_t busy_poll_usecs;    /* Number of usecs to busy poll */
+//     uint16_t busy_poll_budget;   /* Max packets per poll */
+//     uint8_t prefer_busy_poll;    /* Boolean preference  */
+//     /* pad the struct to a multiple of 64 bits */
+//     uint8_t __pad;   必须为零，这是一个填充字段，用于对齐和扩展性。
+// }; // 成功返回 0，失败返回 -1 和 errno，Linux 6.9 glibc 2.40
+// int ioctl(int epfd, EPIOCSPARAMS, const struct epoll_params *argp);
+// int ioctl(int epfd, EPIOCGPARAMS, struct epoll_params *argp);
+//
+// 获取（EPIOCGPARAMS）和设置（EPIOCSPARAMS）epoll 的参数，通过合理配置这些参数，可以
+// 优化网络处理的性能，特别是在高负载的系统中。epoll_params 结构体用于配置 epoll 的参数，
+// 特别是在 Linux 6.9 及更高版本中引入的忙碌轮询（busy polling）功能。
+// busy_poll_usecs - 表示网络协议栈将进行忙碌轮询的微秒数，在此时间段内，网络设备将被反
+//      复轮询以获取数据包，该值不能超过 INT_MAX。
+// busy_poll_budget - 表示网络协议栈在每次轮询尝试中可取出的最大数据包数量，该值不能超
+//      过 NAPI_POLL_WEIGHT（截至 Linux 6.9，其值为 64），除非进程以 CAP_NET_ADMIN
+//      权限运行。
+// prefer_busy_poll - 如果启用，这表示向网络协议栈表明忙碌轮询是处理网络数据的首选方法，
+//      网络栈应给予应用程序进行忙碌轮询的机会。如果没有此选项，非常繁忙的系统可能会继续
+//      通过正常的 IRQ 触发 softIRQ 和 NAPI 的方法进行网络处理。
+// 另见 linux.git/Documentation/networking/napi.rst
+//      linux.git/Documentation/admin-guide/sysctl/net.rst
+//
+// 可能的错误：
+//      EOPNOTSUPP - 内核的编译版本不支持忙碌轮询（busy poll）功能
+//      EINVAL - epfd 是一个非法的文件描述符，__pad 参数不是零，busy_poll_usecs 超
+//          过 INT_MAX 的大小，prefer_busy_poll 不是 0 也不是 1
+//      EPERM - 运行线程没有 CAP_NET_ADMIN 能力并且指定的 busy_poll_budget 超过
+//          NAPI_POLL_WEIGHT 的大小
+//      EFAULT - 传入的 argp 是一个非法地址
+//
+// https://www.man7.org/linux/man-pages/man2/epoll_wait.2.html
+//
+// #include <sys/epoll.h> // 返回 0 表示超时返回并没有任何就绪文件描述符，大于 0 表示就绪文件描述符的个数，返回 -1 表示错误
+// int epoll_wait(int epfd, struct epoll_event events[.maxevents], int maxevents, int timeout); // Linux 2.6, glibc 2.3.2
+// int epoll_pwait(... int timeout, const sigset_t *_Nullable sigmask); // Linux 2.6.19, glibc 2.6
+// int epoll_pwait2(... const struct timespec *_Nullable timeout, const sigset_t *_Nullable sigmask); // Linux 5.11
+//
+// 系统调用 epoll_wait() 返回 epoll 实例中处于就绪状态的文件描述符信息，单次调用能返回
+// 多个就绪文件描述符的信息。数组 events 的空间由调用者负责申请，其能包含的元素个数由
+// maxevents 参数指定，maxevents 参数必须大于零。每个数组元素，返回的都是单个就绪文件
+// 描述符的信息，events 字段返回了在该描述符上已经发生的事件类型。如果 timeout 设置为
+// -1 则表示一直阻塞，直到兴趣列表中的文件描述符有事件发生，或者调用被信号处理函数中断。
+// 如果等于 0 则表示执行一次非阻塞式检查。如果大于 0 表示最多阻塞 timeout 毫秒，使用的
+// 是 CLOCK_MONOTONIC 时钟，注意时间会近似到系统时钟的颗粒度，并且内核调度的延迟会让阻
+// 塞间隔超长一小段时间。另外 epoll_pwait2 提供纳秒级别的等待时间，如果传递空指针则表示
+// 一直阻塞。
+//
+// 在 Linux 2.6.37 之前，大于大约 LONG_MAX / HZ 毫秒的超时值会被当作 -1（无穷大）。
+// 因此，例如，在一个 sizeof(long) 为 4 且内核 HZ 值为 1000 的系统上，这意味着大于
+// 35.79 分钟的超时值会被当作无穷大，即 2147483647 / 1000。HZ 表示内核的时钟频率，在
+// 许多系统上，HZ 的默认值为 1000。
+//
+// epoll_pwait 可以完全的让应用程序安全的等待文件描述符就绪，或者接收到一个信号。如果
+// 提供的参数 sigmask 为空，epoll_pwait 等价于 epoll_wait。下面的 epoll_pwait 调用：
+//      ready = epoll_pwait(epfd, &events, n, timeout, &sigmask);
+// 等价于原子的执行以下代码：
+//      sigset_t origmask;
+//      pthread_sigmask(SIG_SETMASK, &sigmask, &origmask);
+//      ready = epoll_wait(epfd, &events, maxevents, timeout);
+//      pthread_sigmask(SIG_SETMASK, &origmask, NULL);
+// 原始的 epoll_pwait() 和 epoll_pwait2() 系统调用有一个第六个参数，size_t sigsetsize，
+// 它指定了 sigmask 参数的大小（以字节为单位）。Glibc 的 epoll_pwait() 包装函数将这个
+// 参数指定为一个固定值 sizeof(sigset_t)。
+//
+// 在多线程程序中，可以一个线程 epoll_wait() 一边检测，另一个线程使用 epoll_ctl() 来添
+// 加或修改感兴趣的文件描述符。需要注意的是，可以在一个当前关注列表为空的 epoll 实例上调
+// 用 epoll_wait()，或者因为其他线程关闭或移除了文件描述符，导致关注列表变为空。调用将阻
+// 塞，直到另一个线程将某个文件描述符添加到关注列表中，并且该文件描述符准备就绪。
+// While one thread is blocked in a call to epoll_wait(), it is possible for
+// another thread to add a file descriptor to the waited-upon epoll instance.
+// If the new file descriptor becomes ready, it will cause the epoll_wait() call
+// to unblock.
+//
+// 如果在调用 epoll_wait() 时有超过 maxevents 个文件描述符准备就绪，那么连续的 epoll_wait()
+// 调用将依次轮询这些准备就绪的文件描述符。这种行为有助于避免饥饿场景，即一个进程因为专注
+// 于一组已经就绪的文件描述符，而未能注意到其他文件描述符也已经就绪。
+//
+// 可能的错误：
+//      EBADF - epfd 是一个非法的文件描述符
+//      EFAULT - events 指向的内存区域没有写权限
+//      EINTR - 在收到文件描述符事件或超时之前，调用被信号处理函数中断，参考 signal(7)
+//      EINVAL - epfd 不是一个合法的 epoll 文件描述符，或者 maxevents 小于等于 0
+//
+// 当采用边缘触发通知时避免出现文件描述符饥饿现象：假设我们采用边缘触发通知监控多个文件
+// 描述符，其中一个处于就绪状态的文件描述符上有着大量的输入存在，可能是一个不间断的输入
+// 流。如果在检测到该文件描述符处于就绪状态后，就通过非阻塞式的读操作将所有的输入都读取，
+// 那么此时就会有使其他文件描述符处于饥饿状态的风险，因为非阻塞式的不断读取可能因为输入
+// 的不断到来一直读取不完或花费很长时间才读完。该问题的一种解决方案是让应用程序维护一个
+// 列表，列表中存放着已经被通知为就绪状态的文件描述符，通过一个循环按照如下方式不断处理：
+// （一）调用 epoll_wait() 检查文件描述符，将处于就绪态的描述符添加到应用程序维护的列表
+// 中。如果没有就绪的文件描述符，应用程序就继续处理已经处于就绪态的文件描述符。
+// （二）在应用程序维护的列表中，只在已经就绪的文件描述符上进行一定限度的I/O操作，可能是
+// 轮转方式循环处理（round-robin），而不是每次 epoll_wait() 调用后都从列表开头开始处理。
+// 当相关非阻塞I/O系统调用出现 EAGAIN 或 EWOULDBLOCK 时，文件描述符就可以从维护列表中
+// 移除。
+// （三）尽管采用这种方法需要做一些额外的编程工作，但是除了能避免出现文件描述符饥饿现象外，
+// 我们还能获得其他益处。比如，我们可以在上述循环中加入其他的步骤，比如处理定时器以及用
+// sigwaitinfo() 或其他类似的机制来接收信号。
+//
+// 因为信号驱动I/O也是采用边缘触发通知机制，因此也需要考虑文件描述符饥饿的情况。与之相反，
+// 在采用水平触发通知机制的应用程序中，考虑文件描述符饥饿的情况并不是必须的。因为我们可以
+// 采用水平触发通知在非阻塞式的文件描述符上通过循环连续地检查描述符的就绪状态，然后在下一
+// 次检查文件描述符的状态前在处于就绪态的描述符上做一些I/O处理就可以了。
+//
+// https://www.man7.org/linux/man-pages/man7/epoll.7.html
+//
+// 可能的陷阱及避免方法：（一）饥饿（边缘触发），如果有巨大数值的 I/O 空间，尝试耗尽它可
+// 能会导致其他文件无法得到处理，从而造成饥饿（这个问题并不特定于 epoll）。解决方案是维护
+// 一个就绪列表，并在其关联的数据结构中标记文件描述符为就绪，从而使应用程序记住哪些文件需
+// 要处理，并在所有就绪文件之间轮询，这也支持忽略后续收到的已就绪文件的事件。
+// （二）如果使用事件缓存，如果你使用事件缓存或存储从 epoll_wait(2) 返回的所有文件描述符，
+// 则确保提供一种动态标记其关闭的方法。假设你从 epoll_wait(2) 收到 100 个事件，而在事件
+// #47 中，一个条件导致事件 #13 被关闭。如果你直接移除其结构并调用 close(2) 关闭对应的
+// 文件描述符，那么你的事件缓存可能仍然会显示该文件描述符有事件等待。解决这个问题的一个方
+// 法是在处理事件 47 时，调用 epoll_ctl(EPOLL_CTL_DEL) 删除文件描述符 13 并调用 close(2)，
+// 然后将其关联的数据结构标记为已移除，并将其添加到清理列表中。如果你在批量处理中发现另一
+// 个事件为文件描述符 13，你将发现该文件描述符之前已被移除，因此不会产生混淆。
+//
+// 问题与解答
+// 1. 如何区分关注列表（interest list）中注册的文件描述符？
+//      在区分时使用的键是用户空间文件描述符编号（file descriptor number）和内核打开的
+//      文件描述（open file description 或 open file handle）的组合。
+// 2. 如果在同一个 epoll 实例中注册同一个文件描述符两次会发生什么？
+//      你可能会收到 EEXIST 错误。然而，可以将一个重复的（dup(2)、dup2(2)、fcntl(2)
+//      F_DUPFD）文件描述符添加到同一个 epoll 实例中。如果重复的文件描述符用不同的事件
+//      掩码注册，这可以是一种有用的事件过滤技术。
+// 3. 两个 epoll 实例可以等待同一个文件描述符吗？如果是，事件会报告给两个 epoll 文件描述符吗？
+//      是的，事件会报告给两个。然而，正确实现这一点可能需要谨慎编程。
+// 4. epoll 文件描述符本身可以被 poll/epoll/select 吗？
+//      可以。如果一个 epoll 文件描述符有等待的事件，它将表示为可读。
+// 5. 如果试图将一个 epoll 文件描述符放入自己的文件描述符集中会发生什么？
+//      epoll_ctl(2) 调用会失败（EINVAL）。然而，你可以将一个 epoll 文件描述符添加到
+//      另一个 epoll 文件描述符集中。
+// 6. 我可以将一个 epoll 文件描述符通过 UNIX 域套接字发送给另一个进程吗？
+//      可以，但这没有意义，因为接收进程不会有关注列表中文件描述符的副本。
+// 7. 关闭一个文件描述符会导致它从所有 epoll 关注列表中移除吗？
+//      是的，但请注意以下要点。文件描述符是对打开文件描述的引用，参见 open(2)。每当文件
+//      描述符通过 dup(2)、dup2(2)、fcntl(2) F_DUPFD 或 fork(2) 复制时，都会创建一个
+//      指向相同打开文件描述的新文件描述符。一个打开文件描述会一直存在，直到所有引用它的
+//      文件描述符都被关闭。
+//      只有在所有引用底层打开文件描述的文件描述符都被关闭后，文件描述符才会从关注列表中
+//      移除。这意味着，即使一个属于关注列表的文件描述符已经被关闭，如果还有其他引用相同
+//      底层文件描述的文件描述符保持打开状态，事件仍可能为该文件描述符报告。为了避免这种
+//      情况发生，必须在复制文件描述符之前，显式地从关注列表中移除该文件描述符（使用
+//      EPOLL_CTL_DEL）。或者，应用程序必须确保所有文件描述符都被关闭（这可能很困难，如
+//      果文件描述符被库函数在幕后通过 dup(2) 或 fork(2) 复制）。
+// 8. 如果在两次 epoll_wait(2) 调用之间发生多个事件，它们是合并还是分别报告？
+//      它们将被合并。
+// 9. 对文件描述符的操作会影响已经收集但尚未报告的事件吗？
+//      在已经存在的文件描述符上，你只能执行两种操作，移除在这种情况下没有意义，修改将重
+//      新读取可用的 I/O。
+// 10. 使用 EPOLLET 标志（边缘触发行为）时，我需要持续读取/写入文件描述符，直到遇到 EAGAIN 吗？
+//      从 epoll_wait(2) 接收到事件，表示这样的文件描述符已准备好进行请求的 I/O 操作。
+//      你应该认为它一直可用，直到下一次（非阻塞）读取/写入返回 EAGAIN。何时以及如何使用
+//      文件描述符完全取决于你。
+//      对于分组（packed-oriented）或令牌导向（token-oriented）的文件，例如数据报套接
+//      字、处于规范模式的终端，检测读取/写入 I/O 空间结束的唯一方法是继续读取/写入，直
+//      到遇到 EAGAIN。
+//      对于流导向（stream-oriented）文件，例如管道、FIFO、流套接字，也可以通过检查从
+//      目标文件描述符读取/写入的数据量来检测读取/写入 I/O 空间耗尽的情况。例如，如果你
+//      通过调用 read(2) 要求读取一定数量的数据，而 read(2) 返回的字节数较少，你可以确
+//      信该文件描述符的读取 I/O 空间已经耗尽，写入时使用 write(2) 也是如此。如果不能
+//      保证监控的文件描述符总是引用流导向的文件，则避免使用后一种技术。
+// 11. 边缘触发文件描述符就绪后，在进行 read(2) 的期间，又有新的数据到来，后续的 read(2)
+//     操作会直接读到新来的数据吗，还是必须再一次 epoll_wait(2) 后才能读到新的数据？
+//     对于 write(2) 呢，也一样吗？
+//
+// 有关线程安全：epoll_ctl() 和 epoll_wait() 本身线程安全的，内核会用锁保护epoll实
+// 例。例如线程A阻塞在epoll_wait()时，线程B/C可以并发地对同一个epfd调用epoll_ctl()
+// 进行添加/修改/删除，因此并发epoll_ctl()并不会破坏数据也不会死锁。但是要注意的是，
+// 例如线程B关闭文件描述符close(fd)之后，线程A仍对其进行 epoll_wait()，可能错过事件
+// 或发生EBADF。若必须多线程操作同一个epoll实例epfd，确保fd生命周期由引用计数或统一
+// 线程管理。关闭文件描述符的顺序，一般是先epoll_ctl(DEL)，再close(fd)，因为若先
+// close(fd)，再 epoll_ctl(DEL) 时fd可能已被内核回收并复用了，导致EBADF或误操作其他
+// 文件。Linux文档明确指出，对已关闭的fd进行 epoll 操作，结果未定义。当然，如果你确保
+// 所有线程再也不会对该fd做任何epoll调用，可以先close，但一般仍推荐先DEL的顺序，因为
+// 简单且无坑。
+//
+// 不像poll那样每次都需要用户提供跟踪的文件描述符集合，epoll会自动跟踪文件描述符集合，
+// 并且只把有事件发送的就绪集合上报给用户，用户不需要每次都要遍历整个文件描述符列表。
+// 文件描述符一经加入就一直由epoll自动负责监控，用户只需要在感兴趣的时候去查看当前有什
+// 么事件已经就绪，直到文件描述符需要关闭，将文件描述符从epoll中移除，并最后关闭文件
+// 描述符。
+
+void prh_impl_epoll_add(int epfd, int fd, prh_u32 events, void *priv) {
+    struct epoll_event event;
+    event.events = events;
+    event.data.ptr = priv;
+    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event));
+}
+
+void prh_impl_epoll_mod(int epfd, int fd, prh_u32 events, void *priv) {
+    struct epoll_event event;
+    event.events = events;
+    event.data.ptr = priv;
+    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &event));
+}
+
+void prh_impl_epoll_del(int epfd, int fd) {
+    struct epoll_event event; // Linux 2.6.9 之前的版本，event 参数虽然会被忽略，但不能传递空指针
+    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &event));
+}
+
+int prh_impl_epoll_create(void) {
+    int epfd = epoll_create1(EPOLL_CLOEXEC);
+    assert(epfd >= 0);
+    return epfd;
+}
+
+int prh_impl_epoll_wait(int epfd, void *events, int count) {
+    int n = epoll_wait(epfd, events, count, 0);
+    prh_debug(prh_preno_if(n < 0 && errno != EINTR));
+    return n;
+}
+
+// 协程间消息的1对1模式，两个协程间的通信，发送消息的原则是，请求协程将消息直接写到执行
+// 协程（当然第一次消息发送做不到），执行协程读取属于自己的内存，然后执行对应的操作，然
+// 后将结果也写到自己的内存中，然后告诉请求协程去读取。这样，执行协程大部分时间都只访问
+// 自己的内存（除了第一次消息），内存访问效率会很高，当然如果还能满足，在同一个线程完成
+// 所有的任务，效率会更高。从整体看，内存的修改只发生在，执行协程内的很小一部分区域，不
+// 会导致大范围的内存缓存失效。而且，两个协程所有的消息交互都限定在了这一个小区域内，将
+// 这个小区域对齐到内存缓存行的边界，执行效率会更高。
+
+#define PRH_MAX_SAME_TIME_POSTS_UPPER_TO_EPOLL_PER_FILE_DESCRIPTOR 4 // MOD(1) WAIT(2) DEL(1)，ADD会同步等待，EXIT使用全局epoll_exit
+typedef enum { // 因为每次WAIT都会将所有就绪文件描述符检查一遍，因此不需要周期性EPOLL
+    PRH_EPAC_ADD,     // 向 epoll 添加文件描述符
+    PRH_EPAC_MOD,     // 修改文件描述符监听事件
+    PRH_EPAC_TX_WAIT, // 等待文件描述符可写
+    PRH_EPAC_RX_WAIT, // 等待文件描述符可读
+    PRH_EPAC_DEL,     // 删除并关闭特定文件描述符
+    PRH_EPAC_EXIT,    // 释放 epoll 实例退出协程
+    PRH_EPAC_MAX_NUM
+} prh_epoll_action;
+
+#define PRH_EPAC_INDEX_TX_WAIT 0
+#define PRH_EPAC_INDEX_RX_WAIT 1
+#define PRH_EPAC_INDEX_DEL     2
+#define PRH_EPAC_INDEX_MOD     3
+#define PRH_EPEV_INDEX_ADDED   0
+#define PRH_EPEV_INDEX_READY   1
+
+typedef struct prh_epoll_port { // 保存在内核epoll_data.ptr和上层用户结构体中，在add时分配在del时释放
+    prh_cono_pdata action; // PRH_EPAC_TX_WAIT 0 PRH_EPAC_RX_WAIT 1 PRH_EPAC_DEL 2 PRH_EPAC_MOD 3
+    prh_cono_pdata event; // PRH_EPEV_ADDED 0 PRH_EPEV_READY 1
+    prh_handle handle;
+    prh_int wait_i; // -1 表示没有在等待
+    prh_u32 events;
+    prh_u32 update;
+} prh_epoll_port;
+
+typedef prh_arrdyn(prh_epoll_port*) prh_epoll_port_array;
+typedef struct prh_impl_epoll {
+    int epfd, fds_count;
+    int poll_fds_each_time; // 估计同一时间最多有多少个文件描述符会同时有事件发生
+    struct epoll_event *events; // 如果发生事件的文件描述符很多，但指定了很小的 poll_fds_each_time 值，则需要执行很多次 epoll_wait() 系统调用
+    prh_epoll_port_array wait; // 只有在wait才会上报READY
+    prh_cono_pdata epoll_exit;
+} prh_impl_epoll;
+
+static prh_impl_epoll *PRH_IMPL_EPOLL;
+
+typedef void (*prh_impl_epoll_procedurecess)(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_mod(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_wait(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+void prh_impl_process_epac_exit(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
+
+static prh_impl_epoll_procedurecess PRH_IMPL_EPFN[PRH_EPAC_MAX_NUM] = {
+    prh_impl_process_epac_add,
+    prh_impl_process_epac_mod,
+    prh_impl_process_epac_wait,
+    prh_impl_process_epac_wait,
+    prh_impl_process_epac_del,
+    prh_impl_process_epac_exit,
+};
+
+typedef struct {
+    prh_cono_pdata head;
+    prh_cono_subq *from_subq;
+    prh_u32 events;
+} prh_data_epac_add;
+
+// 上层协程请求向EPOLL添加文件描述符
+
+prh_inline prh_cono_subq *prh_impl_epoll_recv_subq(void) {
+    return prh_cono_get_subq((prh_spawn_data *)PRH_IMPL_EPOLL, 0);
+}
+
+void prh_impl_epac_add(prh_epoll_port **port, prh_cono_subq *subq, prh_handle fd, prh_u32 events) {
+    prh_data_epac_add from;
+    from.head.subq = prh_impl_epoll_recv_subq();
+    from.head.u.value = (prh_u32)(int)fd;
+    from.from_subq = subq;
+    from.events = events;
+    prh_cono_post_data(&from.head, 0, PRH_EPAC_ADD);
+    prh_pwait_data data = prh_cono_subq_pwait(subq->subq_i);
+    assert(data.opcode == PRH_EPEV_ADDED);
+    *port = (prh_epoll_port *)((prh_byte *)data.pdata - prh_offsetof(prh_epoll_port, event));
+}
+
+void prh_epoll_add_tcp_accept(prh_tcplisten *listen, prh_cono_subq *subq) { // 接收连接，错误
+    prh_u32 events = EPOLLIN | EPOLLET; // EPOLLERR 和 EPOLLHUP 默认会设置
+    prh_impl_epac_add(&listen->epoll_port, subq, listen->sock, events);
+}
+
+void prh_epoll_add_tcp_connect(prh_tcpsocket *tcp, prh_cono_subq *subq) {
+    prh_u32 events = EPOLLOUT | EPOLLET; // EPOLLERR 和 EPOLLHUP 默认会设置
+    prh_impl_epac_add(&tcp->epoll_port, subq, tcp->sock, events);
+}
+
+void prh_epoll_mod_tcp_connect(prh_tcpsocket *tcp) {
+    prh_epoll_port *port = tcp->epoll_port;
+    prh_cono_pdata *action = &port->action;
+    action->u.value = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
+    prh_cono_post(action, PRH_EPAC_INDEX_MOD);
+}
+
+void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_cono_subq *subq) { // 连接，断连，读取，写入，错误
+    prh_u32 events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
+    prh_impl_epac_add(&tcp->epoll_port, subq, tcp->sock, events);
+}
+
+void prh_epoll_receive_events(prh_tcpsocket* tcp) {
+    prh_u32 events = tcp->epoll_port->events;
+    if (events & EPOLLIN) {
+        tcp->epoll_in = true;
+    }
+    if (events & EPOLLOUT) {
+        tcp->epoll_out = true;
+    }
+    if (events & EPOLLRDHUP) { // 对端设备关闭了写入端并发了FIN，连接处于半关闭
+        tcp->epoll_rdhup = true;
+    }
+    if (events & EPOLLHUP) { // 双方都关闭了写入端，不能再继续读写
+        tcp->epoll_hup = true;
+    }
+    if (events & EPOLLERR) {
+        tcp->epoll_err = true;
+    }
+}
+
+void prh_impl_report_epev_added(prh_epoll_port *port) {
+    prh_cono_post(&port->event, PRH_EPEV_INDEX_ADDED);
+}
+
+void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_data_epac_add *from = (prh_data_epac_add *)pdata;
+    int fd = (int)from->head.u.value;
+    int alloc_size = prh_round_cache_line_size(sizeof(prh_epoll_port));
+    prh_epoll_port *port = prh_cache_line_aligned_malloc(alloc_size);
+    assert(port != prh_null);
+    memset(port, 0, sizeof(prh_epoll_port));
+    port->action.subq = prh_impl_epoll_recv_subq();
+    port->action.opcode[PRH_EPAC_INDEX_TX_WAIT] = PRH_EPAC_TX_WAIT;
+    port->action.opcode[PRH_EPAC_INDEX_RX_WAIT] = PRH_EPAC_RX_WAIT;
+    port->action.opcode[PRH_EPAC_INDEX_DEL] = PRH_EPAC_DEL;
+    port->action.opcode[PRH_EPAC_INDEX_MOD] = PRH_EPAC_MOD;
+    port->event.subq = from->from_subq;
+    port->event.opcode[PRH_EPEV_INDEX_ADDED] = PRH_EPEV_ADDED;
+    port->event.opcode[PRH_EPEV_INDEX_READY] = PRH_EPEV_READY;
+    port->handle = fd;
+    port->wait_i = -1;
+    epoll->fds_count += 1;
+    prh_impl_epoll_add(PRH_IMPL_EPOLL->epfd, fd, from->events, port);
+    prh_impl_report_epev_added(port);
+}
+
+void prh_impl_process_epac_mod(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_epoll_port *port = (prh_epoll_port *)pdata;
+    prh_u32 events = pdata->u.value;
+    int fd = (int)port->handle;
+    prh_impl_epoll_mod(PRH_IMPL_EPOLL->epfd, fd, events, port);
+}
+
+// 删除并关闭特定文件描述符
+
+void prh_epoll_del_and_close(prh_epoll_port *port) {
+    prh_cono_post(&port->action, PRH_EPAC_INDEX_DEL);
+}
+
+void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_epoll_port *port = (prh_epoll_port *)pdata;
+    int fd = (int)port->handle;
+    prh_int wait_i = port->wait_i;
+    prh_impl_epoll_del(epoll->epfd, fd);
+    prh_impl_close_fd(fd);
+    if (wait_i != -1) { // 删除数组中等待的文件描述符
+        prh_epoll_port_array *array = &epoll->wait;
+        prh_epoll_port **begin = prh_arrdyn_begin(array);
+        prh_epoll_port **curr = begin + wait_i;
+        prh_epoll_port *last = *(begin + array->size - 1);
+        assert(*curr == port);
+        *curr = last;
+        last->wait_i = wait_i;
+        port->wait_i = -1;
+        array->size -= 1;
+    }
+    prh_aligned_free(port);
+    epoll->fds_count -= 1;
+}
+
+// 上层协程请求EPOLL去问询文件描述符是否有事件到达
+
+void prh_epoll_wait_tx_data(prh_epoll_port *port) {
+    prh_cono_post(&port->action, PRH_EPAC_INDEX_TX_WAIT);
+}
+
+void prh_epoll_wait_rx_data(prh_epoll_port *port) {
+    prh_cono_post(&port->action, PRH_EPAC_INDEX_RX_WAIT);
+}
+
+void prh_impl_report_epev_ready(prh_epoll_port *port) {
+    port->events = port->update;
+    port->update = 0;
+    prh_cono_post(&port->event, PRH_EPEV_INDEX_READY);
+}
+
+bool prh_impl_epac_poll_events(prh_impl_epoll *epoll) {
+    int poll_fds_each_time = epoll->poll_fds_each_time;
+    struct epoll_event *start = epoll->events;
+    struct epoll_event *event;
+    int n, epfd = epoll->epfd;
+    bool updated = false;
+    prh_epoll_port *port;
+    while ((n = prh_impl_epoll_wait(epfd, start, poll_fds_each_time)) > 0) {
+        for (event = start; event < start + n; event += 1) {
+            port = event->data.ptr;
+            port->update |= event->events;
+            updated = true;
+        }
+        if (n < poll_fds_each_time) {
+            break;
+        }
+    }
+    return updated;
+}
+
+void prh_impl_epoll_add_waiting(prh_impl_epoll *epoll, prh_epoll_port *port) {
+    if (port->wait_i != -1) return; // 已经在等待队列中
+    prh_epoll_port_array *array = &epoll->wait;
+    prh_int wait_i = array->size;
+    *prh_arrdyn_push_back(array) = port;
+    port->wait_i = wait_i;
+}
+
+void prh_impl_epoll_check_and_report(prh_impl_epoll *epoll) {
+    prh_epoll_port_array *array = &epoll->wait;
+    prh_epoll_port **p = prh_arrdyn_begin(array);
+    prh_epoll_port **end = prh_arrdyn_end(array);
+    prh_epoll_port *port, *last;
+    while (p < end) {
+        port = *p;
+        if (port->update) {
+            *p = last = *--end;
+            last->wait_i = port->wait_i;
+            port->wait_i = -1;
+            array->size -= 1; // 删除当前元素，将最后一个元素移动到当前位置
+            prh_impl_report_epev_ready(port);
+        } else {
+            p += 1;
+        }
+    }
+}
+
+void prh_impl_process_epac_wait(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
+    prh_epoll_port *port = (prh_epoll_port *)pdata;
+    if (port->update) { // 该文件描述符上，已经有事件更新
+        prh_impl_report_epev_ready(port);
+        return;
+    }
+    bool updated = prh_impl_epac_poll_events(epoll);
+    if (port->update) {
+        prh_impl_report_epev_ready(port);
+    } else {
+        prh_impl_epoll_add_waiting(epoll, port);
+    }
+    if (updated) {
+        prh_impl_epoll_check_and_report(epoll);
+    }
+}
+
+// 释放EPOLL实例并退出协程
+
+void prh_epoll_exit(void) {
+    prh_cono_pdata *epoll_exit = &PRH_IMPL_EPOLL->epoll_exit;
+    epoll_exit->subq = prh_impl_epoll_recv_subq();
+    prh_cono_post_data(epoll_exit, 0, PRH_EPAC_EXIT);
+}
+
+void prh_impl_process_epac_exit(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
+    assert(epoll->fds_count == 0); // 所有添加的文件描述符都已经删除和关闭
+    prh_impl_close_fd(epoll->epfd);
+    PRH_IMPL_EPOLL = prh_null;
+    prh_arrdyn_free(&epoll->wait);
+}
+
+// EPOLL协程循环和初始化
+
+prh_cono_proc prh_impl_epoll_procedure(void) {
+    prh_impl_epoll *epoll = prh_cono_spwan_data();
+    prh_pwait_data data = {0};
+    while (data.opcode != PRH_EPAC_EXIT) {
+        data = prh_cono_pwait();
+        assert(data.opcode < PRH_EPAC_MAX_NUM);
+        PRH_IMPL_EPFN[data.opcode](epoll, data.pdata);
+    }
+}
+
+#if PRH_DEBUG
+#define PRH_EPOLL_STACK_SIZE 512
+#else
+#define PRH_EPOLL_STACK_SIZE 256
+#endif
+
+#define PRH_EPOLL_FDS_EACH_TIME 32
+
+void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
+    int maxudsize, initial_wait_array_size, initial_active_fds_at_same_time, initial_subq_total_posts;
+    prh_impl_epoll *epoll;
+    if (PRH_IMPL_EPOLL) {
+        return;
+    }
+    if (poll_fds_each_time <= 0) {
+        poll_fds_each_time = PRH_EPOLL_FDS_EACH_TIME;
+    }
+    if (max_num_fds_hint > 0 && (max_num_fds_hint /= 4)) { // 根据二八定律使用25%
+        initial_wait_array_size = max_num_fds_hint;
+        initial_active_fds_at_same_time = max_num_fds_hint;
+    } else {
+        initial_wait_array_size = 2;
+        initial_active_fds_at_same_time = 2;
+    }
+    maxudsize = sizeof(prh_impl_epoll) + sizeof(struct epoll_event) * poll_fds_each_time;
+    initial_subq_total_posts = initial_active_fds_at_same_time * PRH_MAX_SAME_TIME_POSTS_UPPER_TO_EPOLL_PER_FILE_DESCRIPTOR;
+    PRH_IMPL_EPOLL = epoll = prh_cono_spawx(prh_impl_epoll_procedure, PRH_EPOLL_STACK_SIZE, maxudsize, 1, initial_subq_total_posts);
+    epoll->epfd = prh_impl_epoll_create();
+    epoll->poll_fds_each_time = poll_fds_each_time;
+    epoll->events = (struct epoll_event *)(epoll + 1);
+    prh_arrdyn_init(&epoll->wait, initial_wait_array_size);
+    prh_cono_start((prh_spawn_data *)epoll, false);
+}
+#else
+
+#endif
+#endif // PRH_EPOLL_IMPLEMENTATION
+#endif // PRH_EPOLL_INCLUDE
+
 #ifdef PRH_FILE_INCLUDE
 
 #ifdef PRH_FILE_IMPLEMENTATION
@@ -14662,7 +15590,9 @@ void prh_impl_wsasocket_startup(void) {
     if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2) {
         prh_error(PRH_EVERSION);
         prh_impl_wsasocket_cleanup();
+        return;
     }
+    prh_zeroret(atexit(prh_impl_wsasocket_cleanup));
 }
 
 // Winsock 提供了两种套接字模式，阻塞模式和非阻塞模式。在阻塞模式下，I/O 操作完成之前，
@@ -14819,6 +15749,80 @@ void prh_impl_wsasocket_startup(void) {
 // 则错误代码极有可能是一个 Windows 错误代码，而非 Winsock 错误代码。要想找到对等的
 // Winsock 错误代码，可以指定套接字和 WSAOVERLAPPED 结构，对已完成的操作调用 WSAGetOverlappedResult，
 // 之后 WSAGetLastError 将返回转换后的 Winsock 错误代码。
+//
+// u_long htonl(u_long hostlong);
+// u_short htons(u_short hostshort);
+// int WSAHtonl(SOCKET s, u_long hostlong, u_long *netlong);
+// int WSAHtons(SOCKET s, u_short hostshort, u_short *netshort);
+//
+// u_long ntohl(u_long netlong);
+// u_short ntohs(u_short netshort);
+// int WSANtohl(SOCKET s, u_long netlong, u_long *hostlong);
+// int WSANtohs(SOCKET s, u_short netshort, u_short *hostshort);
+//
+// SOCKET socket(int af, int type, int protocol);
+// SOCKET WSASocket(int af, int type, int protocol, LPWSAPROTOCOL_INFO protocol_info, GROUP group, DWORD flags);
+// int closesocket(SOCKET s);
+//
+// unsigned long inet_addr(const char *ip);
+// char *inet_ntoa(struct in_addr in);
+// getaddrinfo
+// getnameinfo
+// gethostbyaddr
+// gethostbyname
+// gethostname
+// getprotobyname
+// getprotobynumber
+// getservbyname
+// getservbyport
+// WSAAddressToString
+// WSAStringToAddress
+// WSAAsyncGetHostByAddr
+// WSAAsyncGetHostByName
+// WSAAsyncGetProtoByName
+// WSAAsyncGetProtoByNumber
+// WSAAsyncGetServByName
+// WSAAsyncGetServByPort
+// int WSACancelAsyncRequest(HANDLE async_task_handle);
+//
+// setsockopt
+// getsockopt
+// ioctlsocket
+// WSAIoctl
+// int WSAEnumProtocols(LPINT protocols, LPWSAPROTOCOL_INFO protocol_buffer LPDWORD buffer_length);
+// int getpeername(SOCKET s, struct sockaddr *name, int *namelen);
+// int getsockname(SOCKET s, struct sockaddr *name, int *namelen);
+// int WSADuplicateSocket(SOCKET s, DWORD process_id, LPWSAPROTOCOL_INFO protocol_info);
+//
+// int bind(SOCKET s, const struct sockaddr *name, int namelen);
+// int listen(SOCKET s, int backlog);
+//
+// SOCKET accept(SOCKET s, struct sockaddr *addr, int *addrlen);
+// WSAAccept()
+// AcceptEx()
+// GetAcceptExSockaddrs()
+//
+// int connect(SOCKET s, const struct sockaddr *name, int namelen);
+// WSAConnect()
+// ConnectEx()
+// int shutdown(SOCKET s, int how);
+// DisconnectEx
+//
+// int send(SOCKET s, const char *buf, int len, int flags);
+// int WSASend(SOCKET s, LPWSABUF buffers, DWORD buffer_count, LPDWORD bytes_sent, DWORD flags, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
+// int WSASendDisconnect(SOCKET s, LPWSABUF outbound_disconnect_data);
+// int sendto(SOCKET s, const char *buf, int len, int flags, const struct sockaddr *to, int tolen);
+// int WSASendTo(SOCKET s, LPWSABUF buffers, DWORD buffer_count, LPDWORD bytes_sent, DWORD flags, const struct sockaddr *to; int tolen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
+//
+// int recv(SOCKET s, char *buf, int len, int flags);
+// int WSARecv(SOCKET s, LPWSABUF buffers DWORD buffer_count, LPDWORD bytes_recv, LPDWORD flags, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
+// int WSARecvDisconnect(SOCKET s, LPWSABUF inbound_disconnect_data);
+// int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
+// int WSARecvFrom(SOCKET s, LPSWABUF buffers, DWORD buffer_count, LPDWORD bytes_recvd, LPDWORD flags, struct sockaddr *from, LPINT fromlen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE cmpletion_routine);
+//
+// TransmitFile
+// TransmitPackets
+// WSARecvMsg
 
 #else // POSIX begin
 // RFC 791 - Internet Protocol, J. Postel (ed.), 1981
@@ -16805,6 +17809,27 @@ label_continue:
     return can_recv_more_data;
 }
 
+#ifdef PRH_TEST_IMPLEMENTATION
+#include <limits.h>
+void prh_impl_sock_test(void) {
+#ifdef INET_ADDRSTRLEN
+    printf("INET_ADDRSTRLEN %d\n", INET_ADDRSTRLEN);
+#endif
+#ifdef INET6_ADDRSTRLEN
+    printf("INET6_ADDRSTRLEN %d\n", INET6_ADDRSTRLEN);
+#endif
+#ifdef NI_MAXHOST
+    printf("NI_MAXHOST %d\n", NI_MAXHOST); // 最大域名长度
+#endif
+#ifdef NI_MAXSERV
+    printf("NI_MAXSERV %d\n", NI_MAXSERV); // 最大的端口服务名称长度
+#endif
+#ifdef IOV_MAX
+    printf("IOV_MAX %d\n", IOV_MAX);
+#endif
+}
+#endif // PRH_TEST_IMPLEMENTATION
+
 // 处理同一个客户同时建立多个TCP连接的情况，TCP运行两个端口之间能建立多条连接吗？但是
 // 一个客户账号可以用两台不同的机器来连接，这时就需要对客户账号进行唯一性验证。或者它在
 // 同一个主机上使用不同的端口号进行连接呢，也是需要进行客户账号进行唯一性验证。
@@ -16831,24 +17856,6 @@ label_continue:
 #endif // PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
-#define PRH_MAX_SAME_TIME_POSTS_EPOLL_TO_EACH_FILE_DESCRIPTOR 2
-typedef struct prh_epoll_port prh_epoll_port;
-typedef enum {
-    PRH_EPEV_ADDED, // 特定文件描述符添加完毕
-    PRH_EPEV_READY, // 特定文件描述符上有事件发生
-    PRH_EPEV_MAX_NUM,
-} prh_epoll_event;
-
-void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time);
-void prh_epoll_add_tcp_accept(prh_tcplisten *listen, prh_cono_subq *subq);
-void prh_epoll_add_tcp_connect(prh_tcpsocket *tcp, prh_cono_subq *subq);
-void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_cono_subq *subq);
-void prh_epoll_receive_events(prh_tcpsocket *tcp);
-void prh_epoll_wait_tx_data(prh_epoll_port *port);
-void prh_epoll_wait_rx_data(prh_epoll_port *port);
-void prh_epoll_del_and_close(prh_epoll_port *port);
-void prh_epoll_exit(void);
-
 #define PRH_MAX_SAME_TIME_POSTS_TCP_TO_UPPER 4 // 最多只能同时存在 RX_DATA RX_END TX_DONE CLOSED
 typedef enum { // tcp layer => upper layer
     PRH_TCPE_OPEN_IND, // 连接请求到来
@@ -16878,926 +17885,6 @@ void prh_tcp_rx_done(prh_tcpsocket *tcp);
 void prh_tcp_tx_data(prh_tcpsocket *tcp, prh_u32 size);
 void prh_tcp_tx_end(prh_tcpsocket *tcp); // 上层需要在传输完所有数据之后，才能执行TX_END
 void prh_tcp_finish(prh_tcpsocket *tcp); // finish之后不能再使用tcp，opened fail 和 closed 之后需要调用 finish
-
-#if defined(prh_plat_windows)
-
-#else
-#if defined(prh_plat_linux)
-int prh_impl_epoll_create(void);
-int prh_impl_epoll_wait(int epfd, void *events, int count);
-void prh_impl_epoll_add(int epfd, int fd, prh_u32 events, void *priv);
-void prh_impl_epoll_mod(int epfd, int fd, prh_u32 events, void *priv);
-void prh_impl_epoll_del(int epfd, int fd);
-#else
-
-#endif // POSIX END
-#endif // WINDOWS END
-#endif // PRH_SOCK_INCLUDE
-
-#ifdef PRH_SOCK_INCLUDE
-#ifdef PRH_SOCK_IMPLEMENTATION
-#if defined(prh_plat_windows)
-
-#else
-#if defined(prh_plat_linux)
-#include <sys/types.h>
-#include <sys/ioctl.h>
-#include <sys/epoll.h>
-// EPOLL API 是 Linux 专有的特性，首次出现是在 Linux 2.6 版中。同 I/O 多路复用 API
-// 一样，epoll api 允许进程同时检查多个文件描述符，看其中任意一个是否能执行 I/O 操作。
-// 同信号驱动 I/O 一样，当同时检查大量文件描述符时，epoll 能提供更好的性能。实际上 I/O
-// 多路复用、信号驱动 I/O 以及 epoll 都是用来实现同一个目标的技术，即同时检查多个文件
-// 描述符，看它们是否已经准备好执行 I/O 操作，准确地说，是看 I/O 系统调用是否可以非阻塞
-// 地执行。文件描述符就绪状态的转化是通过一些 I/O 事件来触发的，比如输入数据到达，套接字
-// 连接建立完成，或者是之前满载的套接字发送缓冲区在 TCP 发送数据传送到对端之后有了剩余
-// 空间。同时检查多个文件描述符在类似网络服务器的应用中很有用处，或者是那些必须同时检查
-// 终端以及管道或套接字输入的应用程序。需要注意的是这些技术都不会执行实际的I/O操作，它们
-// 只是告诉我们某个文件描述符已经处于就绪状态了，这时需要调用其他的系统调用来完成实际的
-// I/O操作。
-//
-// 这里没有介绍的一种 I/O 模型是 POSIX 异步 I/O （AIO）。POSIX AIO 允许进程将 I/O
-// 操作排列到一个文件中，当操作完成后得到通知。POSIX AIO 的优点在于最初的 I/O 调用将
-// 立刻返回，因此进程不会一直等待数据传输到内核或者等待操作完成。这使得进程可以同 I/O
-// 操作一起并行处理其他任务（包括未来可能进入队列的其他I/O操作）。对于特定类型的应用，
-// POSIX AIO 能提供有用的性能优势。目前，Linux 在 glibc 中提供有基于线程的 POSIX
-// AIO 实现，并且正在朝着内核化的 POSIX AIO 实现而努力，这应该能提供更好的伸缩性能。
-//
-// 同 epoll 一样，信号驱动 I/O 可以让应用程序高效地检查大量的文件描述符。然而 epoll
-// 有着信号驱动 I/O 没有的一些优点：避免了处理信号的复杂性；可以指定想要检查的事件类型，
-// 例如读就绪或者写就绪；可以选择一水平触发或边缘触发的形式来通知进程。为了不同系统的
-// 可移植性，一个名为 libevent 的软件层库提供了文件描述符 I/O 事件的抽象，已经移植到
-// 了多个 UNIX 系统中。Libevent 的底层机制能够以透明的方式，应用各种I/O模型：select、
-// poll、信号驱动I/O或者epoll，同样也支持 Solaris 专有的 /dev/poll 接口和 BSD 系统
-// 的 kqueue 接口。对于最基础的 select() 和 poll() 在 UNIX 系统中已经存在很长时间，
-// 相比其他技术，它最主要的优势是可移植性，但是缺点在于当同时检查大量的（数百或数千个）
-// 文件描述符时性能延展性不佳。
-//
-// 在讨论I/O机制之前，我们需要先区分两种文件描述符准备就绪的通知模式。水平触发通知：如果
-// 文件描述符上可以非阻塞地执行I/O系统调用，此时认为它已经就绪。边缘触发通知：如果文件
-// 描述符自上次状态检查以来有了新的I/O活动，比如新的输入，此时需要触发通知。其中 select
-// 和 poll 使用的是水平触发，信号驱动I/O使用的是边缘触发，epoll 默认使用水平触发但也
-// 支持边缘触发。
-//
-// 当采用水平触发通知时，我们可以在任意时刻检查文件描述符的就绪状态。这表示当我们确定了
-// 文件描述符就绪态时，比如存在有输入的数据，就可以对其执行一些I/O操作。水平触发模式
-// 因为可以在任意时刻重复检查I/O状态，就没有必要每次就绪后必须尽可能多地执行I/O，因为即
-// 使执行少量的I/O或者不执行，下次检查就绪状态都还在，可以继续再执行。
-//
-// 但是如果使用边缘触发，只有当I/O事件发生时我们才会收到通知，在另一个I/O事件到了前不会
-// 再收到任何新的通知。另外，当文件描述符收到I/O事件通知时，通常我们并不知道要处理多少
-// I/O，例如有多少字节可读。因此，采用边缘触发通知的程序通常要按照以下规则来设计。
-//
-// （一）在收到一个I/O事件通知后，程序在某个时刻应该在相应的文件描述符上尽可能多地执行
-// I/O，比如尽可能多地读取字节。如果程序没这么做，那么就可能失去执行I/O的机会。因为直到
-// 产生另一个I/O事件为止，在此之前程序都不会再接收到通知了，因此也就不知道此时应该执行
-// I/O操作。这将导致数据丢失或者程序中出现阻塞。这里提到的程序在“某个时刻”应该执行尽可能
-// 多的I/O操作，是因为有时候我们确定了文件描述符处于就绪状态时，可能并不适合马上执行所有
-// 的I/O操作。原因是因为如果我们仅对一个文件描述符执行大量的I/O操作，可能会让其他文件
-// 描述符处于饥饿状态。
-//
-// （二）如果程序采用循环来对文件描述符执行尽可能多的I/O，而文件描述符又被置为可阻塞的，
-// 那么最终当没有更多的I/O可执行时，I/O系统调用就会阻塞。基于这个原因，每个被检查的文件
-// 描述符通常都应该设为非阻塞模式，在得到I/O事件通知后重复执行I/O操作，直到相应的系统
-// 调用，比如 read() write() 以错误码 EAGAIN 或 EWOULDBLOCK 的形式失败。
-//
-// 这里的 I/O 模型通常和非阻塞I/O（O_NONBLOCK标志）一起使用，下面列出了一些例子，以说
-// 明为什么这么做会很有用：非阻塞I/O通常和提供有边缘触发通知机制的I/O模型一起使用；如果
-// 多个进程（线程）在同一个打开的文件描述符上执行I/O操作，那么从某个特定进程的角度来看，
-// 文件描述符的就绪状态可能会在通知就绪和执行后续I/O调用之间发生改变，结果就是一个阻塞
-// 式的I/O调用将阻塞，进行再也不能去检查其他的文件描述符；尽管水平触发模式的API通知我们
-// 流式套接字的文件描述符已经写就绪了，如果我们在单个write()或send()调用中写入足够大块
-// 的数据，那么该调用将阻塞；在非常罕见的情况下，水平触发型API比如select和poll，会返回
-// 虚假的就绪通知，它们会错误地通知我们文件描述符已经就绪了，这可能式由内核bug造成的，
-// 或非普通情况下的设计方案所期望的行为。一个BSD系统上的监听套接字的虚假就绪通知的例子，
-// 如果客户端先连接到服务器的监听套接字上，然后再重置连接，服务器的select()调用在这两个
-// 事件之间将提示监听套接字为可读就绪，但随后当客户端重置连接后，服务器端的accept()调用
-// 阻塞。
-//
-// Linux 的 epoll（event poll）API 的主要优点：当检查大量的文件描述符时，epoll 的性能
-// 延展性比 select() 和 poll() 高很多；另外 epoll 既支持水平触发也支持边缘触发；而于
-// 信号驱动I/O相比，epoll 可以避免复杂的信号处理流程 ，例如信号队列溢出时的处理，还更
-// 灵活，可以指定我们希望检查的事件类型，例如检查读就绪、写就绪、或两者同时指定。
-//
-// epoll api 的核心数据结构称作 epoll 实例，它和一个打开的文件描述符相关联。这个文件
-// 描述符不是用来做I/O操作的，它只是内核数据结构的句柄，该数据结构记录了在进程中声明过
-// 的感兴趣的文件描述符列表，兴趣列表（interest list），还维护了处于 I/O 就绪态的文件
-// 描述符列表，就绪列表（ready list）。就绪列表中的成员是兴趣列表的子集。epoll api
-// 由以下三个系统调用组成：epoll_create 创建一个 epoll 实例，返回代表该实例的文件描述
-// 符；epoll_ctl 操作同 epoll 实例相关联的兴趣列表；epoll_wait 返回与 epoll 实例
-// 相关联的就绪列表中的成员。通过 epoll_ctl 可以增加新的描述符到列表中，或移除已有的文
-// 件描述符。
-//
-// https://www.man7.org/linux/man-pages/man2/epoll_create.2.html
-// https://www.man7.org/linux/man-pages/man7/epoll.7.html
-//
-// #include <sys/epoll.h>
-// int epoll_create(int size); Linux 2.6, glibc 2.3.2.
-// int epoll_create1(int flags); Linux 2.6.27, glibc 2.9.
-//
-// epoll_create() creates a new epoll(7) instance. Since Linux 2.6.8, the size
-// argument is ignored, but must be greater than zero. epoll_create1() is the
-// same as epoll_create(). The following value can be included in flags to
-// obtain different behavior: EPOLL_CLOEXEC.
-//
-// 参数 flags 可以设置为 0 或者 EPOLL_CLOEXEC 标志，如果 flags 为 0，则 epoll_create1()
-// 与 epoll_create() 的行为相同，只是省略了过时的 size 参数。EPOLL_CLOEXEC 标志会给
-// epoll 文件描述符设置 FD_CLOEXEC 标志，这确保在执行 exec 系统调用时，该文件描述符不
-// 会被继承到子进程中。详情可以参考 open(2) 中对 O_CLOEXEC 标志的描述。在多线程环境中，
-// 如果不设置 FD_CLOEXEC 标志，子进程可能会意外地继承父进程的文件描述符，这可能导致安全
-// 问题或资源泄漏。即在创建 epoll 文件描述符的同时就设置好“关闭执行”标志，避免多线程竞争
-// 导致该标志设置失效，设置此标志后，子进程不能访问这个在父进程中的文件描述符。
-//
-// 如果不是一创建就设置，使用单独的 fcntl(2) 设置 FD_CLOEXEC 标志可能会导致竞争条件。
-// 例如，一个线程打开一个文件描述符并尝试使用 fcntl(2) 设置其关闭执行标志，而另一个线程
-// 同时执行 fork(2) 和 execve(2)。根据执行顺序，这种竞争条件可能导致 open() 返回的文
-// 件描述符意外地泄露到由 fork(2) 创建的子进程中。
-//
-// 成功返回一个文件描述符，非负数，失败返回-1和errno。可能错误：
-//      EINVAL - 参数 size 或 flags 非法。
-//      EMFILE - 进程达到最大打开的文件描述符数量。Prior to Linux 2.6.29, a
-//          /proc/sys/fs/epoll/max_user_instances kernel parameter limited
-//          live epolls for each real user ID, and caused epoll_create() to
-//          fail with EMFILE on overrun. 版本 2.6.29 之前，有内核参数限制每个真
-//          实用户ID中活动的 epoll 最大数量。
-//      ENFILE - 系统达到最大可打开的文件描述符总数。
-//      ENOMEM - 没有足够的内存空间用于创建内核对象。
-//
-// 默认情况下，程序中打开的所有文件描述符在 exec() 执行新程序的过程中保持打开并有效。这
-// 通常很实用，因为文件描述符在新程序中自动有效，让新程序无需再去了解文件名或重新打开。但
-// 一些情况下在执行 exec() 前确保关闭某些特定的文件描述符，尤其是在特权进程中调用 exec()
-// 来启动一个未知程序时，或启动程序并不需要这些已打开的文件描述符时，从安全编程的角度出发，
-// 应当在加载新程序之前关闭那些不必要的文件描述符。为此，内核为每个文件描述符提供了执行时
-// 关闭标志，如果设置了这一标志，如果调用 exec() 成功会自动关闭该文件描述符，如果调用
-// exec() 失败则文件描述符会继续保持打开。系统调用 fork() 允许一进程（父进程）创建一新
-// 进程（子进程），子进程几乎是父进程的翻版（可认为父进程一分为二了），它获得了父进程的栈、
-// 数据段、堆和执行文本段的拷贝。执行 fork() 时，子进程会获得父进程所有文件描述符的副本，
-// 这些副本的创建方式类似于 dup()，这也意味着父子进程中对应的描述符均指向相同的打开文件句
-// 柄。文件句柄包含了当前文件偏移量以及文件状态标志，因此这些属性是在父子进程间共享的，例
-// 如子进程如果更新了文件偏移量，那么这种改变也会影响到父进程中相应的描述符。系统调用
-// exec() 用于执行一个新程序，它将新程序加载到当前进程中，这将丢弃现存的程序段，并为新程
-// 序重新创建栈、数据段以及堆。
-//
-// 通过进程的 /proc/pid/fdinfo 目录中 epoll 文件描述符的条目，可以查看正通过一个 epoll
-// 文件描述符监控的文件描述符集合。请参阅 proc(5) 以获取更多详细信息。假如 epfd 的值为
-// 5，当前进程 pid 为 1234，则可以查看： cat /proc/1234/fdinfo/5 。
-//
-// kcmp(2) 的 KCMP_EPOLL_TFD 操作可用于测试一个文件描述符是否在一个 epoll 实例中：
-//      if (kcmp(getpid(), getpid(), KCMP_EPOLL_TFD, epfd, fd) == 0) {
-//          printf("fd is in the epoll instance\n");
-//      }
-//
-// https://www.man7.org/linux/man-pages/man2/epoll_ctl.2.html
-// https://www.man7.org/linux/man-pages/man3/epoll_event.3type.html
-// https://www.man7.org/linux/man-pages/man2/ioctl_eventpoll.2.html
-//
-// #include <sys/epoll.h> // epoll_ctl 返回 0 表示成功，返回 -1 表示失败 errno
-// int epoll_ctl(int epfd, int op, int fd, struct epoll_event *_Nullable event);
-// struct epoll_event { // 该结构体指定内核在文件描述符就绪时，需要保存和返回的数据
-//     uint32_t      events;  /* Epoll events */ 设置关注的事件类型和事件标志
-//     epoll_data_t  data;    /* User data variable */
-// };
-// union epoll_data {
-//     void     *ptr;
-//     int       fd;
-//     uint32_t  u32;
-//     uint64_t  u64;
-// };
-// typedef union epoll_data epoll_data_t;
-//
-// 从 epoll 的兴趣列表中新增、删除、或修改对应的文件描述符 fd，该描述符可以是代表管道、
-// FIFO、套接字、POSIX 消息队列、inotify 实例、终端、设备、甚至是另一个 epoll 实例的
-// 文件描述符（例如我们可以为受检查的描述符建立起一种层次关系）。但是，这里的 fd 不能是
-// 普通文件或目录的文件描述符，会出现 EPERM 错误。epoll 支持所有在 poll(2) 中支持的
-// 文件描述符。
-//      EPOLL_CTL_ADD - 如果兴趣列表中已经存在该文件描述符，报 EEXIST 错误。
-//      EPOLL_CTL_MOD - 如果文件描述符不在兴趣列表中，会报 ENOENT 错误。
-//      EPOLL_CTL_DEL - 如果文件描述符不在兴趣列表中，会报 ENOENT 错误。如果要兼容
-//          Linux 2.6.9 之前的版本，event 参数虽然会被忽略，但不能传递空指针。
-//          Before Linux 2.6.9, the EPOLL_CTL_DEL operation required a non-null
-//          pointer in event, even though this argument is ignored. Since Linux
-//          2.6.9, event can be specified as NULL when using EPOLL_CTL_DEL.
-//          Applications that need to be portable to kernels before Linux 2.6.9
-//          should specify a non-null pointer in event.
-//          关闭一个文件描述符，会自动将其从所有的 epoll 实例的兴趣列表中移除。其实具体
-//          的，epoll 实例中保存的文件描述符是位于内核中的文件描述（file description），
-//          用户空间中可以存在多个文件描述符（file descriptor）指向这个内核中的文件描述，
-//          只有所有用户空间中的执行同一个文件描述的文件描述符都关闭了，内核才知道此时
-//          已经没有引用的用户空间的程序，可以将文件描述回收。因此准确的说，当所有指向
-//          打开的文件描述的文件描述符都被关闭后，这个打开的文件描述才从 epoll 的兴趣
-//          列表中移除。
-//
-// 参数 events 是比特位，可以或上零个或多个事件类型（event type），事件类型也会在文件
-// 描述符就绪时被 epoll_wait 返回，还可以或上事件标志（event flag），事件标志会影响
-// 文件描述符就绪的触发行为，但不会被 epoll_wait 返回。事件类型包括：
-//      EPOLLIN - 文件可以进行 read 操作，读取非优先级数据。
-//      EPOLLPRI - There is an exceptional condition on the file descriptor.
-//          See the discussion of POLLPRI in poll(2). 文件描述符上有异常条件，这
-//          通常用于检测和读取紧急数据（如带外数据），具体可能包括：
-//          •  There is out-of-band data on a TCP socket (see tcp(7)).
-//          •  A pseudoterminal master in packet mode has seen a state
-//             change on the slave (see ioctl_tty(2)).
-//          •  A cgroup.events file has been modified (see cgroups(7)).
-//      EPOLLOUT - 文件可以进行 write 操作
-//      EPOLLERR - 关联文件描述符有错误事件发生，或当管道的读取端已经关闭时写入端也会
-//          也会触发该事件。 This event is also reported for the write end of a
-//          pipe when the read end has been closed.
-//          错误事件总会被 epoll_wait 上报，调用 epoll_ctl 设置该类型是不必须的。
-//          epoll_wait(2) will always report for this event; it is not necessary
-//          to set it in events when calling epoll_ctl().
-//      EPOLLRDHUP (Linux 2.6.17) - Stream socket peer closed connection, or
-//          shut down writing half of connection. (This flag is especially
-//          useful for writing simple code to detect peer shutdown when using
-//          edge-triggered monitoring.) 对方挂断事件，即流式套接字对端关闭了连接，或
-//          关闭了连接的写入部分。这个标志特别适用于使用边缘触发监控对端的关闭情况。
-//      EPOLLHUP - 文件描述符发生了挂断事件，epoll_wait(2) 总是会上报这个事件，因此
-//          不需要特别设置。从管道或流式套接字等通道进行读取操作时，这个事件仅表示对端
-//          关闭了其端的通道，只有当通道中所有未处理的数据都会消费后，后续的读取操作
-//          才会返回0（文件尾）。例如读取标准输入流 STDIN_FILENO，在终端上的写入端输入
-//          CTRL+D 表示 EOF，来关闭写入端的通道。
-//          Note that when reading from a channel such as a pipe or a stream
-//          socket, this event merely indicates that the peer closed its end of
-//          the channel. Subsequent reads from the channel will return 0 (end
-//          of file) only after all outstanding data in the channel has been
-//          consumed.
-//          只要关联的文件已经关闭或已经断开连接，或者读取端检测到对端关闭了写入端，都会
-//          触发该事件。EPOLLRDHUP 适用于精确检测对端关闭连接的场景，EPOLLHUP 适用于
-//          需要处理文件描述符不再可用的场景。
-//
-// 可用的事件标志包括：
-//      EPOLLET - 默认是水平触发（level-triggered），设置该值表示边缘触发（edge-triggered）。
-//      EPOLLONESHOT (Linux 2.6.2) - 一次性通知，当 epoll_wait 通知完后，会将对应的
-//          文件描述符设为禁用不会再报告任何事件，如果要继续监控，需要调用 epoll_ctl
-//          EPOLL_CTL_MOD 重新启用文件描述符并设置新的事件掩码。
-//      EPOLLWAKEUP (Linux 3.5) - If EPOLLONESHOT and EPOLLET are clear and the
-//          process has the CAP_BLOCK_SUSPEND capability, ensure that the system
-//          does not enter "suspend" or "hibernate" while this event is pending
-//          or being processed. 如果没有设置 EPOLLET 和 EPOLLONESHOT，EPOLLWAKEUP
-//          确保 CAP_BLOCK_SUSPEND 能力的进程在文件描述符对应的事件待处理或处理期间，
-//          系统不会进入“挂起”或“休眠”状态。适用于需要在事件处理期间防止系统进入低功耗
-//          状态的场景，例如后台服务或实时应用程序。事件被视为“处理中”的时间是从 epoll_wait(2)
-//          返回事件开始，直到下一次对同一个 epoll 文件描述符调用 epoll_wait(2)，或者
-//          关闭该文件描述符，或者使用 EPOLL_CTL_DEL 移除事件文件描述符，或者使用
-//          EPOLL_CTL_MOD 清除事件文件描述符的 EPOLLWAKEUP。
-//          如果 EPOLLWAKEUP 被设置，但调用进程不具备 CAP_BLOCK_SUSPEND 能力，EPOLLWAKEUP
-//          标志将被静默忽略。一个健壮的应用程序在尝试使用 EPOLLWAKEUP 标志时，应该先
-//          检查它是否具有 CAP_BLOCK_SUSPEND 能力。
-//          Capabilities are a per-thread attribute. CAP_BLOCK_SUSPEND (since
-//          Linux 3.5) Employ features that can block system suspend (epoll(7)
-//          EPOLLWAKEUP, /proc/sys/wake_lock).
-//      https://www.man7.org/linux/man-pages/man7/epoll.7.html
-//          如果系统通过 /sys/power/autosleep 处于自动睡眠模式，并且发生了一个事件，该
-//          事件使设备从睡眠状态中唤醒，设备驱动程序将只保持设备唤醒状态，直到该事件被排队。
-//          为了使设备在发生的事件被处理并在处理完成之前，一直保持唤醒状态，需要使用 epoll_ctl(2)
-//          的 EPOLLWAKEUP 标志。
-//          当 EPOLLWAKEUP 标志设置在 struct epoll_event 的 events 字段中时，系统将
-//          从事件被排队的那一刻起保持唤醒状态，通过返回事件的 epoll_wait(2) 调用，直到
-//          随后的 epoll_wait(2) 调用。如果事件需要在那之后的时间内保持系统唤醒，那么应
-//          该在第二次 epoll_wait(2) 调用之前获取一个单独的 wake_lock。
-//      EPOLLEXCLUSIVE (Linux 4.5) - 设置独占唤醒模式，适用于需要避免多个 epoll 实例
-//          同时唤醒引发“雷鸣事件”，从而减少资源竞争和性能问题。雷鸣般的牧群问题（thundering
-//          herd problems）。
-//          同一个文件描述符可能被添加到多个 epoll 实例中，如果这些 epoll 实例都设置了
-//          EPOLLEXCLUSIVE，那么只有至少一个 epoll 会被唤醒。而默认没有设置 EPOLLEXCLUSIVE
-//          的情况下，所有epoll 都会被唤醒。
-//          If the same file descriptor is in multiple epoll instances, some
-//          with the EPOLLEXCLUSIVE flag, and others without, then events will
-//          be provided to all epoll instances that did not specify EPOLLEXCLUSIVE,
-//          and at least one of the epoll instances that did specify EPOLLEXCLUSIVE.
-//          如果其中一些设置了，而另外一些没有设置，没有设置的所有 epoll 都会收到通知，
-//          设置了的只有至少一个收到通知。
-//          以下值可以与 EPOLLEXCLUSIVE 一起指定：EPOLLIN、EPOLLOUT、EPOLLWAKEUP 和
-//          EPOLLET，也可以指定 EPOLLHUP 和 EPOLLERR，但这不是必需的。在 events 中指
-//          定其他值会导致 EINVAL 错误。
-//          EPOLLEXCLUSIVE 可能只能在 EPOLL_CTL_ADD 操作中使用，尝试在 EPOLL_CTL_MOD
-//          操作中使用它会导致错误。如果已经使用 epoll_ctl() 设置了 EPOLLEXCLUSIVE，
-//          那么对同一 epfd 和 fd 对的后续 EPOLL_CTL_MOD 操作将导致错误。同样，如果在
-//          events 中指定 EPOLLEXCLUSIVE 并将 epoll 实例作为目标文件描述符传入也会失
-//          败。在所有这些情况下，错误都是 EINVAL。
-//          A call to epoll_ctl() that specifies EPOLLEXCLUSIVE in events and
-//          specifies the target file descriptor fd as an epoll instance will
-//          likewise fail.
-//      https://www.man7.org/linux/man-pages/man7/epoll.7.html
-//          如果多个线程（或者进程，如果子进程通过 fork(2) 继承了 epoll 文件描述符）在
-//          epoll_wait(2) 中阻塞，等待同一个 epoll 文件描述符，且关注列表中一个标记为
-//          边缘触发（EPOLLET）通知的文件描述符准备就绪，那么只有一个线程（或进程）会从
-//          epoll_wait(2) 中被唤醒。这在某些场景下提供了一个有用的优化，用于避免 thundering
-//          herd 唤醒。
-//          1. 多个线程等待同一个 epfd，边缘触发文件描述符如果就绪，只会通知一个线程
-//          2. 多个进程等待同一个 epfd，边缘触发文件描述符如果就绪，只会通知一个进程
-//          3. 多个 epfd 关注同一个 fd，如果该文件描述符就绪，没有给该 fd 设置独占标志
-//             的所有 epfd 都会被唤醒，所有给 fd 设置了独占标志的 epfd 只有至少一个被
-//             唤醒
-//
-// #include <sys/capability.h> // Link with -lcap
-// bool prh_impl_epoll_cap_block_suspend_get(void) {
-//     assert(CAP_IS_SUPPORTED(CAP_BLOCK_SUSPEND));
-//     cap_t caps = cap_get_proc();
-//     assert(caps != prh_null);
-//     cap_flag_value_t cap_set = CAP_CLEAR;
-//     prh_zeroret(cap_get_flag(caps, CAP_BLOCK_SUSPEND, CAP_EFFECTIVE, &cap_set));
-//     prh_zeroret(cap_free(caps));
-//     return cap_set == CAP_SET;
-// }
-// void prh_impl_epoll_cap_block_suspend_set(void) {
-//     assert(CAP_IS_SUPPORTED(CAP_BLOCK_SUSPEND));
-//     cap_t caps = cap_get_proc();
-//     assert(caps != prh_null);
-//     cap_flag_value_t cap_set = CAP_CLEAR;
-//     prh_zeroret(cap_get_flag(caps, CAP_BLOCK_SUSPEND, CAP_EFFECTIVE, &cap_set));
-//     prh_defer_if(cap_set == CAP_SET,);
-//     prh_zeroret(cap_get_flag(caps, CAP_SETPCAP, CAP_EFFECTIVE, &cap_set));
-//     prh_defer_if(cap_set != CAP_SET, prh_prerr(CAP_SETPCAP));
-//     cap_value_t cap_list[1] = {CAP_BLOCK_SUSPEND};
-//     prh_zeroret(cap_set_flag(caps, CAP_EFFECTIVE, 1, cap_list, CAP_SET));
-//     prh_zeroret(cap_set_proc(caps)); // 设置 CAP_BLOCK_SUSPEND 需要具有相应的权限，通常只有 root 用户或具有 CAP_SETPCAP 权限的用户才能设置其他能力。
-// label_defer:
-//     prh_zeroret(cap_free(caps));
-// }
-//
-// 可能返回的错误：
-//      EBADF - epfd 或 fd 是非法文件描述符。
-//      EEXIST - EPOLL_CTL_ADD 一个已经注册的 fd。
-//      EINVAL - epfd 不是一个 epoll 文件描述符, 或者 fd 与 epfd 相同，或者提供的 op
-//          操作不被支持。不允许一起指定的事件类型，指定了 EPOLLEXCLUSIVE 标志。
-//          EPOLL_CTL_MOD 操作一起指定了 EPOLLEXCLUSIVE 标志。如果 epfd fd 对之前
-//          设置了 EPOLLEXCLUSIVE 标志，再 EPOLL_CTL_MOD 进行修改。设置了 EPOLLEXCLUSIVE
-//          并且 fd 指向另一个 epoll 实例。
-//      ELOOP - EPOLL_CTL_ADD 添加一个指向另一个 epoll 实例的 fd，导致 epoll 实例
-//          引用循环，或者 epoll 的嵌套深度超过了 5 次。
-//      ENOENT - EPOLL_CTL_MOD 或 EPOLL_CTL_DEL 一个没有注册的 fd。
-//      ENOMEM - 没有足够的内存空间来完成对应的操作。
-//      ENOSPC - The limit imposed by /proc/sys/fs/epoll/max_user_watches was
-//          encountered while trying to register (EPOLL_CTL_ADD) a new file
-//          descriptor on an epoll instance. See epoll(7) for further details.
-//          注册的监控个数达到 epoll 用户配置的最大值。因为每个注册到 epoll 实例的文件
-//          描述符需要占用一小段不能被交换的内核内存空间，因此内核提供了一个接口用来定义
-//          每个用户可以注册到 epoll 实例上的文件描述符总数。这个上限值可以通过 max_user_watches
-//          文件来查看和修改。默认的上限值根据可用的系统内存来计算得出，参考 epoll(7)
-//          用户手册页。
-//      https://www.man7.org/linux/man-pages/man7/epoll.7.html
-//          以下接口可用于限制 epoll 消耗的内核内存量：
-//          /proc/sys/fs/epoll/max_user_watches (自 Linux 2.6.28 起可用)
-//          它指定一个用户可以在系统上所有 epoll 实例中注册的文件描述符总数的限制。
-//          在 32 位内核上，每个注册的文件描述符大约占用 90 字节；在 64 位内核上，大约
-//          占用 160 字节。
-//          Currently, the default value for max_user_watches is 1/25 (4%) of
-//          the available low memory, divided by the registration cost in bytes.
-//          当前 max_user_watches 的默认值是，例如64位系统可用低内存为 1GB，那么其值
-//          为 1GB * 0.04 / 160-byte ≈ 26214。
-//      EPERM - 文件描述符指向的目标文件不支持 epoll，例如是一个普通文件或目录。
-//
-// #include <sys/epoll.h>
-// #include <sys/ioctl.h>
-// struct epoll_params {
-//     uint32_t busy_poll_usecs;    /* Number of usecs to busy poll */
-//     uint16_t busy_poll_budget;   /* Max packets per poll */
-//     uint8_t prefer_busy_poll;    /* Boolean preference  */
-//     /* pad the struct to a multiple of 64 bits */
-//     uint8_t __pad;   必须为零，这是一个填充字段，用于对齐和扩展性。
-// }; // 成功返回 0，失败返回 -1 和 errno，Linux 6.9 glibc 2.40
-// int ioctl(int epfd, EPIOCSPARAMS, const struct epoll_params *argp);
-// int ioctl(int epfd, EPIOCGPARAMS, struct epoll_params *argp);
-//
-// 获取（EPIOCGPARAMS）和设置（EPIOCSPARAMS）epoll 的参数，通过合理配置这些参数，可以
-// 优化网络处理的性能，特别是在高负载的系统中。epoll_params 结构体用于配置 epoll 的参数，
-// 特别是在 Linux 6.9 及更高版本中引入的忙碌轮询（busy polling）功能。
-// busy_poll_usecs - 表示网络协议栈将进行忙碌轮询的微秒数，在此时间段内，网络设备将被反
-//      复轮询以获取数据包，该值不能超过 INT_MAX。
-// busy_poll_budget - 表示网络协议栈在每次轮询尝试中可取出的最大数据包数量，该值不能超
-//      过 NAPI_POLL_WEIGHT（截至 Linux 6.9，其值为 64），除非进程以 CAP_NET_ADMIN
-//      权限运行。
-// prefer_busy_poll - 如果启用，这表示向网络协议栈表明忙碌轮询是处理网络数据的首选方法，
-//      网络栈应给予应用程序进行忙碌轮询的机会。如果没有此选项，非常繁忙的系统可能会继续
-//      通过正常的 IRQ 触发 softIRQ 和 NAPI 的方法进行网络处理。
-// 另见 linux.git/Documentation/networking/napi.rst
-//      linux.git/Documentation/admin-guide/sysctl/net.rst
-//
-// 可能的错误：
-//      EOPNOTSUPP - 内核的编译版本不支持忙碌轮询（busy poll）功能
-//      EINVAL - epfd 是一个非法的文件描述符，__pad 参数不是零，busy_poll_usecs 超
-//          过 INT_MAX 的大小，prefer_busy_poll 不是 0 也不是 1
-//      EPERM - 运行线程没有 CAP_NET_ADMIN 能力并且指定的 busy_poll_budget 超过
-//          NAPI_POLL_WEIGHT 的大小
-//      EFAULT - 传入的 argp 是一个非法地址
-//
-// https://www.man7.org/linux/man-pages/man2/epoll_wait.2.html
-//
-// #include <sys/epoll.h> // 返回 0 表示超时返回并没有任何就绪文件描述符，大于 0 表示就绪文件描述符的个数，返回 -1 表示错误
-// int epoll_wait(int epfd, struct epoll_event events[.maxevents], int maxevents, int timeout); // Linux 2.6, glibc 2.3.2
-// int epoll_pwait(... int timeout, const sigset_t *_Nullable sigmask); // Linux 2.6.19, glibc 2.6
-// int epoll_pwait2(... const struct timespec *_Nullable timeout, const sigset_t *_Nullable sigmask); // Linux 5.11
-//
-// 系统调用 epoll_wait() 返回 epoll 实例中处于就绪状态的文件描述符信息，单次调用能返回
-// 多个就绪文件描述符的信息。数组 events 的空间由调用者负责申请，其能包含的元素个数由
-// maxevents 参数指定，maxevents 参数必须大于零。每个数组元素，返回的都是单个就绪文件
-// 描述符的信息，events 字段返回了在该描述符上已经发生的事件类型。如果 timeout 设置为
-// -1 则表示一直阻塞，直到兴趣列表中的文件描述符有事件发生，或者调用被信号处理函数中断。
-// 如果等于 0 则表示执行一次非阻塞式检查。如果大于 0 表示最多阻塞 timeout 毫秒，使用的
-// 是 CLOCK_MONOTONIC 时钟，注意时间会近似到系统时钟的颗粒度，并且内核调度的延迟会让阻
-// 塞间隔超长一小段时间。另外 epoll_pwait2 提供纳秒级别的等待时间，如果传递空指针则表示
-// 一直阻塞。
-//
-// 在 Linux 2.6.37 之前，大于大约 LONG_MAX / HZ 毫秒的超时值会被当作 -1（无穷大）。
-// 因此，例如，在一个 sizeof(long) 为 4 且内核 HZ 值为 1000 的系统上，这意味着大于
-// 35.79 分钟的超时值会被当作无穷大，即 2147483647 / 1000。HZ 表示内核的时钟频率，在
-// 许多系统上，HZ 的默认值为 1000。
-//
-// epoll_pwait 可以完全的让应用程序安全的等待文件描述符就绪，或者接收到一个信号。如果
-// 提供的参数 sigmask 为空，epoll_pwait 等价于 epoll_wait。下面的 epoll_pwait 调用：
-//      ready = epoll_pwait(epfd, &events, n, timeout, &sigmask);
-// 等价于原子的执行以下代码：
-//      sigset_t origmask;
-//      pthread_sigmask(SIG_SETMASK, &sigmask, &origmask);
-//      ready = epoll_wait(epfd, &events, maxevents, timeout);
-//      pthread_sigmask(SIG_SETMASK, &origmask, NULL);
-// 原始的 epoll_pwait() 和 epoll_pwait2() 系统调用有一个第六个参数，size_t sigsetsize，
-// 它指定了 sigmask 参数的大小（以字节为单位）。Glibc 的 epoll_pwait() 包装函数将这个
-// 参数指定为一个固定值 sizeof(sigset_t)。
-//
-// 在多线程程序中，可以一个线程 epoll_wait() 一边检测，另一个线程使用 epoll_ctl() 来添
-// 加或修改感兴趣的文件描述符。需要注意的是，可以在一个当前关注列表为空的 epoll 实例上调
-// 用 epoll_wait()，或者因为其他线程关闭或移除了文件描述符，导致关注列表变为空。调用将阻
-// 塞，直到另一个线程将某个文件描述符添加到关注列表中，并且该文件描述符准备就绪。
-// While one thread is blocked in a call to epoll_wait(), it is possible for
-// another thread to add a file descriptor to the waited-upon epoll instance.
-// If the new file descriptor becomes ready, it will cause the epoll_wait() call
-// to unblock.
-//
-// 如果在调用 epoll_wait() 时有超过 maxevents 个文件描述符准备就绪，那么连续的 epoll_wait()
-// 调用将依次轮询这些准备就绪的文件描述符。这种行为有助于避免饥饿场景，即一个进程因为专注
-// 于一组已经就绪的文件描述符，而未能注意到其他文件描述符也已经就绪。
-//
-// 可能的错误：
-//      EBADF - epfd 是一个非法的文件描述符
-//      EFAULT - events 指向的内存区域没有写权限
-//      EINTR - 在收到文件描述符事件或超时之前，调用被信号处理函数中断，参考 signal(7)
-//      EINVAL - epfd 不是一个合法的 epoll 文件描述符，或者 maxevents 小于等于 0
-//
-// 当采用边缘触发通知时避免出现文件描述符饥饿现象：假设我们采用边缘触发通知监控多个文件
-// 描述符，其中一个处于就绪状态的文件描述符上有着大量的输入存在，可能是一个不间断的输入
-// 流。如果在检测到该文件描述符处于就绪状态后，就通过非阻塞式的读操作将所有的输入都读取，
-// 那么此时就会有使其他文件描述符处于饥饿状态的风险，因为非阻塞式的不断读取可能因为输入
-// 的不断到来一直读取不完或花费很长时间才读完。该问题的一种解决方案是让应用程序维护一个
-// 列表，列表中存放着已经被通知为就绪状态的文件描述符，通过一个循环按照如下方式不断处理：
-// （一）调用 epoll_wait() 检查文件描述符，将处于就绪态的描述符添加到应用程序维护的列表
-// 中。如果没有就绪的文件描述符，应用程序就继续处理已经处于就绪态的文件描述符。
-// （二）在应用程序维护的列表中，只在已经就绪的文件描述符上进行一定限度的I/O操作，可能是
-// 轮转方式循环处理（round-robin），而不是每次 epoll_wait() 调用后都从列表开头开始处理。
-// 当相关非阻塞I/O系统调用出现 EAGAIN 或 EWOULDBLOCK 时，文件描述符就可以从维护列表中
-// 移除。
-// （三）尽管采用这种方法需要做一些额外的编程工作，但是除了能避免出现文件描述符饥饿现象外，
-// 我们还能获得其他益处。比如，我们可以在上述循环中加入其他的步骤，比如处理定时器以及用
-// sigwaitinfo() 或其他类似的机制来接收信号。
-//
-// 因为信号驱动I/O也是采用边缘触发通知机制，因此也需要考虑文件描述符饥饿的情况。与之相反，
-// 在采用水平触发通知机制的应用程序中，考虑文件描述符饥饿的情况并不是必须的。因为我们可以
-// 采用水平触发通知在非阻塞式的文件描述符上通过循环连续地检查描述符的就绪状态，然后在下一
-// 次检查文件描述符的状态前在处于就绪态的描述符上做一些I/O处理就可以了。
-//
-// https://www.man7.org/linux/man-pages/man7/epoll.7.html
-//
-// 可能的陷阱及避免方法：（一）饥饿（边缘触发），如果有巨大数值的 I/O 空间，尝试耗尽它可
-// 能会导致其他文件无法得到处理，从而造成饥饿（这个问题并不特定于 epoll）。解决方案是维护
-// 一个就绪列表，并在其关联的数据结构中标记文件描述符为就绪，从而使应用程序记住哪些文件需
-// 要处理，并在所有就绪文件之间轮询，这也支持忽略后续收到的已就绪文件的事件。
-// （二）如果使用事件缓存，如果你使用事件缓存或存储从 epoll_wait(2) 返回的所有文件描述符，
-// 则确保提供一种动态标记其关闭的方法。假设你从 epoll_wait(2) 收到 100 个事件，而在事件
-// #47 中，一个条件导致事件 #13 被关闭。如果你直接移除其结构并调用 close(2) 关闭对应的
-// 文件描述符，那么你的事件缓存可能仍然会显示该文件描述符有事件等待。解决这个问题的一个方
-// 法是在处理事件 47 时，调用 epoll_ctl(EPOLL_CTL_DEL) 删除文件描述符 13 并调用 close(2)，
-// 然后将其关联的数据结构标记为已移除，并将其添加到清理列表中。如果你在批量处理中发现另一
-// 个事件为文件描述符 13，你将发现该文件描述符之前已被移除，因此不会产生混淆。
-//
-// 问题与解答
-// 1. 如何区分关注列表（interest list）中注册的文件描述符？
-//      在区分时使用的键是用户空间文件描述符编号（file descriptor number）和内核打开的
-//      文件描述（open file description 或 open file handle）的组合。
-// 2. 如果在同一个 epoll 实例中注册同一个文件描述符两次会发生什么？
-//      你可能会收到 EEXIST 错误。然而，可以将一个重复的（dup(2)、dup2(2)、fcntl(2)
-//      F_DUPFD）文件描述符添加到同一个 epoll 实例中。如果重复的文件描述符用不同的事件
-//      掩码注册，这可以是一种有用的事件过滤技术。
-// 3. 两个 epoll 实例可以等待同一个文件描述符吗？如果是，事件会报告给两个 epoll 文件描述符吗？
-//      是的，事件会报告给两个。然而，正确实现这一点可能需要谨慎编程。
-// 4. epoll 文件描述符本身可以被 poll/epoll/select 吗？
-//      可以。如果一个 epoll 文件描述符有等待的事件，它将表示为可读。
-// 5. 如果试图将一个 epoll 文件描述符放入自己的文件描述符集中会发生什么？
-//      epoll_ctl(2) 调用会失败（EINVAL）。然而，你可以将一个 epoll 文件描述符添加到
-//      另一个 epoll 文件描述符集中。
-// 6. 我可以将一个 epoll 文件描述符通过 UNIX 域套接字发送给另一个进程吗？
-//      可以，但这没有意义，因为接收进程不会有关注列表中文件描述符的副本。
-// 7. 关闭一个文件描述符会导致它从所有 epoll 关注列表中移除吗？
-//      是的，但请注意以下要点。文件描述符是对打开文件描述的引用，参见 open(2)。每当文件
-//      描述符通过 dup(2)、dup2(2)、fcntl(2) F_DUPFD 或 fork(2) 复制时，都会创建一个
-//      指向相同打开文件描述的新文件描述符。一个打开文件描述会一直存在，直到所有引用它的
-//      文件描述符都被关闭。
-//      只有在所有引用底层打开文件描述的文件描述符都被关闭后，文件描述符才会从关注列表中
-//      移除。这意味着，即使一个属于关注列表的文件描述符已经被关闭，如果还有其他引用相同
-//      底层文件描述的文件描述符保持打开状态，事件仍可能为该文件描述符报告。为了避免这种
-//      情况发生，必须在复制文件描述符之前，显式地从关注列表中移除该文件描述符（使用
-//      EPOLL_CTL_DEL）。或者，应用程序必须确保所有文件描述符都被关闭（这可能很困难，如
-//      果文件描述符被库函数在幕后通过 dup(2) 或 fork(2) 复制）。
-// 8. 如果在两次 epoll_wait(2) 调用之间发生多个事件，它们是合并还是分别报告？
-//      它们将被合并。
-// 9. 对文件描述符的操作会影响已经收集但尚未报告的事件吗？
-//      在已经存在的文件描述符上，你只能执行两种操作，移除在这种情况下没有意义，修改将重
-//      新读取可用的 I/O。
-// 10. 使用 EPOLLET 标志（边缘触发行为）时，我需要持续读取/写入文件描述符，直到遇到 EAGAIN 吗？
-//      从 epoll_wait(2) 接收到事件，表示这样的文件描述符已准备好进行请求的 I/O 操作。
-//      你应该认为它一直可用，直到下一次（非阻塞）读取/写入返回 EAGAIN。何时以及如何使用
-//      文件描述符完全取决于你。
-//      对于分组（packed-oriented）或令牌导向（token-oriented）的文件，例如数据报套接
-//      字、处于规范模式的终端，检测读取/写入 I/O 空间结束的唯一方法是继续读取/写入，直
-//      到遇到 EAGAIN。
-//      对于流导向（stream-oriented）文件，例如管道、FIFO、流套接字，也可以通过检查从
-//      目标文件描述符读取/写入的数据量来检测读取/写入 I/O 空间耗尽的情况。例如，如果你
-//      通过调用 read(2) 要求读取一定数量的数据，而 read(2) 返回的字节数较少，你可以确
-//      信该文件描述符的读取 I/O 空间已经耗尽，写入时使用 write(2) 也是如此。如果不能
-//      保证监控的文件描述符总是引用流导向的文件，则避免使用后一种技术。
-// 11. 边缘触发文件描述符就绪后，在进行 read(2) 的期间，又有新的数据到来，后续的 read(2)
-//     操作会直接读到新来的数据吗，还是必须再一次 epoll_wait(2) 后才能读到新的数据？
-//     对于 write(2) 呢，也一样吗？
-//
-// 有关线程安全：epoll_ctl() 和 epoll_wait() 本身线程安全的，内核会用锁保护epoll实
-// 例。例如线程A阻塞在epoll_wait()时，线程B/C可以并发地对同一个epfd调用epoll_ctl()
-// 进行添加/修改/删除，因此并发epoll_ctl()并不会破坏数据也不会死锁。但是要注意的是，
-// 例如线程B关闭文件描述符close(fd)之后，线程A仍对其进行 epoll_wait()，可能错过事件
-// 或发生EBADF。若必须多线程操作同一个epoll实例epfd，确保fd生命周期由引用计数或统一
-// 线程管理。关闭文件描述符的顺序，一般是先epoll_ctl(DEL)，再close(fd)，因为若先
-// close(fd)，再 epoll_ctl(DEL) 时fd可能已被内核回收并复用了，导致EBADF或误操作其他
-// 文件。Linux文档明确指出，对已关闭的fd进行 epoll 操作，结果未定义。当然，如果你确保
-// 所有线程再也不会对该fd做任何epoll调用，可以先close，但一般仍推荐先DEL的顺序，因为
-// 简单且无坑。
-//
-// 不像poll那样每次都需要用户提供跟踪的文件描述符集合，epoll会自动跟踪文件描述符集合，
-// 并且只把有事件发送的就绪集合上报给用户，用户不需要每次都要遍历整个文件描述符列表。
-// 文件描述符一经加入就一直由epoll自动负责监控，用户只需要在感兴趣的时候去查看当前有什
-// 么事件已经就绪，直到文件描述符需要关闭，将文件描述符从epoll中移除，并最后关闭文件
-// 描述符。
-
-void prh_impl_epoll_add(int epfd, int fd, prh_u32 events, void *priv) {
-    struct epoll_event event;
-    event.events = events;
-    event.data.ptr = priv;
-    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &event));
-}
-
-void prh_impl_epoll_mod(int epfd, int fd, prh_u32 events, void *priv) {
-    struct epoll_event event;
-    event.events = events;
-    event.data.ptr = priv;
-    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_MOD, fd, &event));
-}
-
-void prh_impl_epoll_del(int epfd, int fd) {
-    struct epoll_event event; // Linux 2.6.9 之前的版本，event 参数虽然会被忽略，但不能传递空指针
-    prh_real_zeroret_or_errno(epoll_ctl(epfd, EPOLL_CTL_DEL, fd, &event));
-}
-
-int prh_impl_epoll_create(void) {
-    int epfd = epoll_create1(EPOLL_CLOEXEC);
-    assert(epfd >= 0);
-    return epfd;
-}
-
-int prh_impl_epoll_wait(int epfd, void *events, int count) {
-    int n = epoll_wait(epfd, events, count, 0);
-    prh_debug(prh_preno_if(n < 0 && errno != EINTR));
-    return n;
-}
-
-// 协程间消息的1对1模式，两个协程间的通信，发送消息的原则是，请求协程将消息直接写到执行
-// 协程（当然第一次消息发送做不到），执行协程读取属于自己的内存，然后执行对应的操作，然
-// 后将结果也写到自己的内存中，然后告诉请求协程去读取。这样，执行协程大部分时间都只访问
-// 自己的内存（除了第一次消息），内存访问效率会很高，当然如果还能满足，在同一个线程完成
-// 所有的任务，效率会更高。从整体看，内存的修改只发生在，执行协程内的很小一部分区域，不
-// 会导致大范围的内存缓存失效。而且，两个协程所有的消息交互都限定在了这一个小区域内，将
-// 这个小区域对齐到内存缓存行的边界，执行效率会更高。
-
-#define PRH_MAX_SAME_TIME_POSTS_UPPER_TO_EPOLL_PER_FILE_DESCRIPTOR 4 // MOD(1) WAIT(2) DEL(1)，ADD会同步等待，EXIT使用全局epoll_exit
-typedef enum { // 因为每次WAIT都会将所有就绪文件描述符检查一遍，因此不需要周期性EPOLL
-    PRH_EPAC_ADD,     // 向 epoll 添加文件描述符
-    PRH_EPAC_MOD,     // 修改文件描述符监听事件
-    PRH_EPAC_TX_WAIT, // 等待文件描述符可写
-    PRH_EPAC_RX_WAIT, // 等待文件描述符可读
-    PRH_EPAC_DEL,     // 删除并关闭特定文件描述符
-    PRH_EPAC_EXIT,    // 释放 epoll 实例退出协程
-    PRH_EPAC_MAX_NUM
-} prh_epoll_action;
-
-#define PRH_EPAC_INDEX_TX_WAIT 0
-#define PRH_EPAC_INDEX_RX_WAIT 1
-#define PRH_EPAC_INDEX_DEL     2
-#define PRH_EPAC_INDEX_MOD     3
-#define PRH_EPEV_INDEX_ADDED   0
-#define PRH_EPEV_INDEX_READY   1
-
-typedef struct prh_epoll_port { // 保存在内核epoll_data.ptr和上层用户结构体中，在add时分配在del时释放
-    prh_cono_pdata action; // PRH_EPAC_TX_WAIT 0 PRH_EPAC_RX_WAIT 1 PRH_EPAC_DEL 2 PRH_EPAC_MOD 3
-    prh_cono_pdata event; // PRH_EPEV_ADDED 0 PRH_EPEV_READY 1
-    prh_handle handle;
-    prh_int wait_i; // -1 表示没有在等待
-    prh_u32 events;
-    prh_u32 update;
-} prh_epoll_port;
-
-typedef prh_arrdyn(prh_epoll_port*) prh_epoll_port_array;
-typedef struct prh_impl_epoll {
-    int epfd, fds_count;
-    int poll_fds_each_time; // 估计同一时间最多有多少个文件描述符会同时有事件发生
-    struct epoll_event *events; // 如果发生事件的文件描述符很多，但指定了很小的 poll_fds_each_time 值，则需要执行很多次 epoll_wait() 系统调用
-    prh_epoll_port_array wait; // 只有在wait才会上报READY
-    prh_cono_pdata epoll_exit;
-} prh_impl_epoll;
-
-static prh_impl_epoll *PRH_IMPL_EPOLL;
-
-typedef void (*prh_impl_epoll_procedurecess)(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_mod(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_wait(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
-void prh_impl_process_epac_exit(prh_impl_epoll *epoll, prh_cono_pdata *pdata);
-
-static prh_impl_epoll_procedurecess PRH_IMPL_EPFN[PRH_EPAC_MAX_NUM] = {
-    prh_impl_process_epac_add,
-    prh_impl_process_epac_mod,
-    prh_impl_process_epac_wait,
-    prh_impl_process_epac_wait,
-    prh_impl_process_epac_del,
-    prh_impl_process_epac_exit,
-};
-
-typedef struct {
-    prh_cono_pdata head;
-    prh_cono_subq *from_subq;
-    prh_u32 events;
-} prh_data_epac_add;
-
-// 上层协程请求向EPOLL添加文件描述符
-
-prh_inline prh_cono_subq *prh_impl_epoll_recv_subq(void) {
-    return prh_cono_get_subq((prh_spawn_data *)PRH_IMPL_EPOLL, 0);
-}
-
-void prh_impl_epac_add(prh_epoll_port **port, prh_cono_subq *subq, prh_handle fd, prh_u32 events) {
-    prh_data_epac_add from;
-    from.head.subq = prh_impl_epoll_recv_subq();
-    from.head.u.value = (prh_u32)(int)fd;
-    from.from_subq = subq;
-    from.events = events;
-    prh_cono_post_data(&from.head, 0, PRH_EPAC_ADD);
-    prh_pwait_data data = prh_cono_subq_pwait(subq->subq_i);
-    assert(data.opcode == PRH_EPEV_ADDED);
-    *port = (prh_epoll_port *)((prh_byte *)data.pdata - prh_offsetof(prh_epoll_port, event));
-}
-
-void prh_epoll_add_tcp_accept(prh_tcplisten *listen, prh_cono_subq *subq) { // 接收连接，错误
-    prh_u32 events = EPOLLIN | EPOLLET; // EPOLLERR 和 EPOLLHUP 默认会设置
-    prh_impl_epac_add(&listen->epoll_port, subq, listen->sock, events);
-}
-
-void prh_epoll_add_tcp_connect(prh_tcpsocket *tcp, prh_cono_subq *subq) {
-    prh_u32 events = EPOLLOUT | EPOLLET; // EPOLLERR 和 EPOLLHUP 默认会设置
-    prh_impl_epac_add(&tcp->epoll_port, subq, tcp->sock, events);
-}
-
-void prh_epoll_mod_tcp_connect(prh_tcpsocket *tcp) {
-    prh_epoll_port *port = tcp->epoll_port;
-    prh_cono_pdata *action = &port->action;
-    action->u.value = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
-    prh_cono_post(action, PRH_EPAC_INDEX_MOD);
-}
-
-void prh_epoll_add_tcp_socket(prh_tcpsocket *tcp, prh_cono_subq *subq) { // 连接，断连，读取，写入，错误
-    prh_u32 events = EPOLLIN | EPOLLOUT | EPOLLRDHUP | EPOLLET; // EPOLLERR 和 EPOLLHUP 会默认会设置
-    prh_impl_epac_add(&tcp->epoll_port, subq, tcp->sock, events);
-}
-
-void prh_epoll_receive_events(prh_tcpsocket* tcp) {
-    prh_u32 events = tcp->epoll_port->events;
-    if (events & EPOLLIN) {
-        tcp->epoll_in = true;
-    }
-    if (events & EPOLLOUT) {
-        tcp->epoll_out = true;
-    }
-    if (events & EPOLLRDHUP) { // 对端设备关闭了写入端并发了FIN，连接处于半关闭
-        tcp->epoll_rdhup = true;
-    }
-    if (events & EPOLLHUP) { // 双方都关闭了写入端，不能再继续读写
-        tcp->epoll_hup = true;
-    }
-    if (events & EPOLLERR) {
-        tcp->epoll_err = true;
-    }
-}
-
-void prh_impl_report_epev_added(prh_epoll_port *port) {
-    prh_cono_post(&port->event, PRH_EPEV_INDEX_ADDED);
-}
-
-void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
-    prh_data_epac_add *from = (prh_data_epac_add *)pdata;
-    int fd = (int)from->head.u.value;
-    int alloc_size = prh_round_cache_line_size(sizeof(prh_epoll_port));
-    prh_epoll_port *port = prh_cache_line_aligned_malloc(alloc_size);
-    assert(port != prh_null);
-    memset(port, 0, sizeof(prh_epoll_port));
-    port->action.subq = prh_impl_epoll_recv_subq();
-    port->action.opcode[PRH_EPAC_INDEX_TX_WAIT] = PRH_EPAC_TX_WAIT;
-    port->action.opcode[PRH_EPAC_INDEX_RX_WAIT] = PRH_EPAC_RX_WAIT;
-    port->action.opcode[PRH_EPAC_INDEX_DEL] = PRH_EPAC_DEL;
-    port->action.opcode[PRH_EPAC_INDEX_MOD] = PRH_EPAC_MOD;
-    port->event.subq = from->from_subq;
-    port->event.opcode[PRH_EPEV_INDEX_ADDED] = PRH_EPEV_ADDED;
-    port->event.opcode[PRH_EPEV_INDEX_READY] = PRH_EPEV_READY;
-    port->handle = fd;
-    port->wait_i = -1;
-    epoll->fds_count += 1;
-    prh_impl_epoll_add(PRH_IMPL_EPOLL->epfd, fd, from->events, port);
-    prh_impl_report_epev_added(port);
-}
-
-void prh_impl_process_epac_mod(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
-    prh_epoll_port *port = (prh_epoll_port *)pdata;
-    prh_u32 events = pdata->u.value;
-    int fd = (int)port->handle;
-    prh_impl_epoll_mod(PRH_IMPL_EPOLL->epfd, fd, events, port);
-}
-
-// 删除并关闭特定文件描述符
-
-void prh_epoll_del_and_close(prh_epoll_port *port) {
-    prh_cono_post(&port->action, PRH_EPAC_INDEX_DEL);
-}
-
-void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
-    prh_epoll_port *port = (prh_epoll_port *)pdata;
-    int fd = (int)port->handle;
-    prh_int wait_i = port->wait_i;
-    prh_impl_epoll_del(epoll->epfd, fd);
-    prh_impl_close_fd(fd);
-    if (wait_i != -1) { // 删除数组中等待的文件描述符
-        prh_epoll_port_array *array = &epoll->wait;
-        prh_epoll_port **begin = prh_arrdyn_begin(array);
-        prh_epoll_port **curr = begin + wait_i;
-        prh_epoll_port *last = *(begin + array->size - 1);
-        assert(*curr == port);
-        *curr = last;
-        last->wait_i = wait_i;
-        port->wait_i = -1;
-        array->size -= 1;
-    }
-    prh_aligned_free(port);
-    epoll->fds_count -= 1;
-}
-
-// 上层协程请求EPOLL去问询文件描述符是否有事件到达
-
-void prh_epoll_wait_tx_data(prh_epoll_port *port) {
-    prh_cono_post(&port->action, PRH_EPAC_INDEX_TX_WAIT);
-}
-
-void prh_epoll_wait_rx_data(prh_epoll_port *port) {
-    prh_cono_post(&port->action, PRH_EPAC_INDEX_RX_WAIT);
-}
-
-void prh_impl_report_epev_ready(prh_epoll_port *port) {
-    port->events = port->update;
-    port->update = 0;
-    prh_cono_post(&port->event, PRH_EPEV_INDEX_READY);
-}
-
-bool prh_impl_epac_poll_events(prh_impl_epoll *epoll) {
-    int poll_fds_each_time = epoll->poll_fds_each_time;
-    struct epoll_event *start = epoll->events;
-    struct epoll_event *event;
-    int n, epfd = epoll->epfd;
-    bool updated = false;
-    prh_epoll_port *port;
-    while ((n = prh_impl_epoll_wait(epfd, start, poll_fds_each_time)) > 0) {
-        for (event = start; event < start + n; event += 1) {
-            port = event->data.ptr;
-            port->update |= event->events;
-            updated = true;
-        }
-        if (n < poll_fds_each_time) {
-            break;
-        }
-    }
-    return updated;
-}
-
-void prh_impl_epoll_add_waiting(prh_impl_epoll *epoll, prh_epoll_port *port) {
-    if (port->wait_i != -1) return; // 已经在等待队列中
-    prh_epoll_port_array *array = &epoll->wait;
-    prh_int wait_i = array->size;
-    *prh_arrdyn_push_back(array) = port;
-    port->wait_i = wait_i;
-}
-
-void prh_impl_epoll_check_and_report(prh_impl_epoll *epoll) {
-    prh_epoll_port_array *array = &epoll->wait;
-    prh_epoll_port **p = prh_arrdyn_begin(array);
-    prh_epoll_port **end = prh_arrdyn_end(array);
-    prh_epoll_port *port, *last;
-    while (p < end) {
-        port = *p;
-        if (port->update) {
-            *p = last = *--end;
-            last->wait_i = port->wait_i;
-            port->wait_i = -1;
-            array->size -= 1; // 删除当前元素，将最后一个元素移动到当前位置
-            prh_impl_report_epev_ready(port);
-        } else {
-            p += 1;
-        }
-    }
-}
-
-void prh_impl_process_epac_wait(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
-    prh_epoll_port *port = (prh_epoll_port *)pdata;
-    if (port->update) { // 该文件描述符上，已经有事件更新
-        prh_impl_report_epev_ready(port);
-        return;
-    }
-    bool updated = prh_impl_epac_poll_events(epoll);
-    if (port->update) {
-        prh_impl_report_epev_ready(port);
-    } else {
-        prh_impl_epoll_add_waiting(epoll, port);
-    }
-    if (updated) {
-        prh_impl_epoll_check_and_report(epoll);
-    }
-}
-
-// 释放EPOLL实例并退出协程
-
-void prh_epoll_exit(void) {
-    prh_cono_pdata *epoll_exit = &PRH_IMPL_EPOLL->epoll_exit;
-    epoll_exit->subq = prh_impl_epoll_recv_subq();
-    prh_cono_post_data(epoll_exit, 0, PRH_EPAC_EXIT);
-}
-
-void prh_impl_process_epac_exit(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
-    assert(epoll->fds_count == 0); // 所有添加的文件描述符都已经删除和关闭
-    prh_impl_close_fd(epoll->epfd);
-    PRH_IMPL_EPOLL = prh_null;
-    prh_arrdyn_free(&epoll->wait);
-}
-
-// EPOLL协程循环和初始化
-
-prh_cono_proc prh_impl_epoll_procedure(void) {
-    prh_impl_epoll *epoll = prh_cono_spwan_data();
-    prh_pwait_data data = {0};
-    while (data.opcode != PRH_EPAC_EXIT) {
-        data = prh_cono_pwait();
-        assert(data.opcode < PRH_EPAC_MAX_NUM);
-        PRH_IMPL_EPFN[data.opcode](epoll, data.pdata);
-    }
-}
-
-#if PRH_DEBUG
-#define PRH_EPOLL_STACK_SIZE 512
-#else
-#define PRH_EPOLL_STACK_SIZE 256
-#endif
-
-#define PRH_EPOLL_FDS_EACH_TIME 32
-
-void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
-    int maxudsize, initial_wait_array_size, initial_active_fds_at_same_time, initial_subq_total_posts;
-    prh_impl_epoll *epoll;
-    if (PRH_IMPL_EPOLL) {
-        return;
-    }
-    if (poll_fds_each_time <= 0) {
-        poll_fds_each_time = PRH_EPOLL_FDS_EACH_TIME;
-    }
-    if (max_num_fds_hint > 0 && (max_num_fds_hint /= 4)) { // 根据二八定律使用25%
-        initial_wait_array_size = max_num_fds_hint;
-        initial_active_fds_at_same_time = max_num_fds_hint;
-    } else {
-        initial_wait_array_size = 2;
-        initial_active_fds_at_same_time = 2;
-    }
-    maxudsize = sizeof(prh_impl_epoll) + sizeof(struct epoll_event) * poll_fds_each_time;
-    initial_subq_total_posts = initial_active_fds_at_same_time * PRH_MAX_SAME_TIME_POSTS_UPPER_TO_EPOLL_PER_FILE_DESCRIPTOR;
-    PRH_IMPL_EPOLL = epoll = prh_cono_spawx(prh_impl_epoll_procedure, PRH_EPOLL_STACK_SIZE, maxudsize, 1, initial_subq_total_posts);
-    epoll->epfd = prh_impl_epoll_create();
-    epoll->poll_fds_each_time = poll_fds_each_time;
-    epoll->events = (struct epoll_event *)(epoll + 1);
-    prh_arrdyn_init(&epoll->wait, initial_wait_array_size);
-    prh_cono_start((prh_spawn_data *)epoll, false);
-}
-#else // LINUX END
-
-#endif // POSIX END
-#endif // WINDOWS END
-#endif // PRH_SOCK_IMPLEMENTATION
-#endif // PRH_SOCK_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
 #ifdef PRH_SOCK_IMPLEMENTATION
@@ -18259,27 +18346,6 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
     listen->upper_subq = cono_subq;
     prh_cono_start((prh_spawn_data *)listen, false);
 }
-
-#ifdef PRH_TEST_IMPLEMENTATION
-#include <limits.h>
-void prh_impl_sock_test(void) {
-#ifdef INET_ADDRSTRLEN
-    printf("INET_ADDRSTRLEN %d\n", INET_ADDRSTRLEN);
-#endif
-#ifdef INET6_ADDRSTRLEN
-    printf("INET6_ADDRSTRLEN %d\n", INET6_ADDRSTRLEN);
-#endif
-#ifdef NI_MAXHOST
-    printf("NI_MAXHOST %d\n", NI_MAXHOST); // 最大域名长度
-#endif
-#ifdef NI_MAXSERV
-    printf("NI_MAXSERV %d\n", NI_MAXSERV); // 最大的端口服务名称长度
-#endif
-#ifdef IOV_MAX
-    printf("IOV_MAX %d\n", IOV_MAX);
-#endif
-}
-#endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_SOCK_INCLUDE
 
