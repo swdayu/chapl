@@ -15664,16 +15664,72 @@ void prh_impl_wsasocket_startup(void) {
     prh_zeroret(atexit(prh_impl_wsasocket_cleanup));
 }
 
+// int WSAAPI ioctlsocket(SOCKET s, long cmd, [in, out] u_long *argp);
+// int WSAAPI WSAIoctl(
+//      [in]  SOCKET                             s,
+//      [in]  DWORD                              dwIoControlCode,
+//      [in]  LPVOID                             lpvInBuffer,
+//      [in]  DWORD                              cbInBuffer,
+//      [out] LPVOID                             lpvOutBuffer,
+//      [in]  DWORD                              cbOutBuffer,
+//      [out] LPDWORD                            lpcbBytesReturned,
+//      [in]  LPWSAOVERLAPPED                    lpOverlapped,
+//      [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+//
+// ioctlsocket 函数用于控制套接字的 I/O 模式。参数 cmd 要在套接字 s 上执行的命令。参数
+// argp 指向 cmd 的参数的指针。成功完成时，ioctlsocket 返回零。否则返回 SOCKET_ERROR，
+// 可以通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提
+//                          供程序仍在处理回调函数。
+//      WSAENOTSOCK         描述符 s 不是套接字。
+//      WSAEFAULT           argp 参数不是用户地址空间的有效部分。
+//
+// ioctlsocket 函数可用于任何状态的任何套接字。它用于设置或检索与套接字相关的一些操作
+// 参数，这些参数与协议和通信子系统无关。以下是在 cmd 参数中使用的支持命令及其语义：
+//      FIONREAD    获取套接字接收缓冲区中可读取的数据量。argp 参数应指向一个整数，该
+//                  整数将被设置为可读取的数据量。
+//      FIONBIO     设置或检索套接字的阻塞模式。argp 参数应指向一个整数，非零值表示非
+//                  阻塞模式，零值表示阻塞模式。
+//      SIOCATMARK  检查套接字带外数据标记是否已到达。argp 参数应指向一个整数，该整数
+//                  将被设置为非零值（表示已到达标记）或零（表示未到达标记）。
+//
+// WSAIoctl 函数用于设置或检索与套接字、传输协议或通信子系统相关联的操作参数。WSAIoctl
+// 函数比 ioctlsocket 函数更强大，并支持大量可能的操作参数值。
+//
+// 兼容性，与 Berkeley 套接字中的 ioctl 函数相比，ioctlsocket 函数仅在套接字上执行一
+// 部分功能。ioctlsocket 函数没有与 ioctl 的 FIOASYNC 等效的命令参数，SIOCATMARK 是
+// ioctlsocket 唯一支持的套接字级别命令。
+//
+// https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls
+
+void prh_sock_setnonblock(prh_handle sock, int nonblock) {
+    u_long set_nonblock = nonblock; // 0 blcok mode, 1 nonblock mode
+    int n = ioctlsocket((SOCKET)sock, FIONBIO, &set_nonblock);
+    prh_wsa_prerr_if(n != 0);
+}
+
 // Winsock 提供了两种套接字模式，阻塞模式和非阻塞模式。在阻塞模式下，I/O 操作完成之前，
 // 执行操作的 Winsock 调用（例如 send 和 recv）会一直等待下去直到操作完成，不会立即返
 // 回将控制权交还给程序。而在非阻塞模式下，Winsock 函数无论如何都会立即返回。
 //
-// 非阻塞套接字上的 WSAEWOULDBLOCK 场景：
+// 将一个套接字置为非阻塞模式之后，处理收发数据或处理连接的 Winsock API 调用会立即返回。
+// 大多数情况下，这些调用在失败时会返回 WSAEWOULDBLOCK，这意味着请求的操作在调用期间没
+// 有足够的时间来完成。例如，在系统的输入缓冲区中，尚不存在被挂起的数据，那么 recv 调用
+// 就会返回 WSAEWOULDBLOCK。通常，需要重复调用同一个函数，直至获得成功的返回代码。非阻
+// 塞套接字上的 WSAEWOULDBLOCK 场景：
 //      WSAAccept/accept                        无连接请求，等待连接到来
-//      closesocket                             在大多数情况下，意味着使用 SO_LINGER 选项调用了 setsockopt，而且已设定了一个非零的超时值
+//      closesocket                             在大多数情况下，意味着使用 SO_LINGER 选项调用了 setsockopt，而且已设定了一个
+//                                              非零的超时值
 //      WSAConnect/connect                      连接已初始化，等待连接完成
 //      WSARecv/recv/WSARecvFrom/recvfrom       无接收数据
 //      WSASend/send/WSASendTo/sendto           无发送缓冲区可用
+//
+// 由于非阻塞调用会频繁返回 WSAEWOULDBLOCK，所以在任何时候，都应仔细检查所有返回代码，
+// 并作好失败的准备。当返回 WSAEWOULDBLOCK 时，我们需要一个时机再次调用函数，为此
+// Winsock 的套接字 I/O 模型可以帮助应用程序判断一个套接字何时可供读写。
 //
 // 阻塞和非阻塞套接字模式都存在着各自的优点和缺点，其中从概念的角度来说，阻塞套接字更容
 // 易使用。但在应付建立连接的多个套接字时，或在数据的收发量不均、时间不定时、将显得极难
@@ -16081,9 +16137,13 @@ prh_handle prh_impl_tcp_socket(int family) {
 #endif
         );
     prh_wsa_abort_if(sock == INVALID_SOCKET);
+    prh_sock_setnonblock(sock, 1);
     return (prh_handle)sock;
 }
 
+// int WSAEnumProtocols(LPINT protocols, LPWSAPROTOCOL_INFO protocol_buffer LPDWORD buffer_length);
+// int WSADuplicateSocket(SOCKET s, DWORD process_id, LPWSAPROTOCOL_INFO protocol_info);
+//
 // int shutdown(SOCKET s, int how);
 //
 // shutdown 函数用于禁用套接字上的发送或接收操作。
@@ -16299,6 +16359,8 @@ prh_inline void prh_impl_close_socket(prh_handle sock) {
 // getprotobynumber
 // getservbyname
 // getservbyport
+// int getpeername(SOCKET s, struct sockaddr *name, int *namelen);
+// int getsockname(SOCKET s, struct sockaddr *name, int *namelen);
 // WSAAddressToString
 // WSAStringToAddress
 // WSAAsyncGetHostByAddr
@@ -16309,15 +16371,106 @@ prh_inline void prh_impl_close_socket(prh_handle sock) {
 // WSAAsyncGetServByPort
 // int WSACancelAsyncRequest(HANDLE async_task_handle);
 //
-// setsockopt
-// getsockopt
-// ioctlsocket
-// WSAIoctl
-// int WSAEnumProtocols(LPINT protocols, LPWSAPROTOCOL_INFO protocol_buffer LPDWORD buffer_length);
-// int getpeername(SOCKET s, struct sockaddr *name, int *namelen);
-// int getsockname(SOCKET s, struct sockaddr *name, int *namelen);
-// int WSADuplicateSocket(SOCKET s, DWORD process_id, LPWSAPROTOCOL_INFO protocol_info);
+// int setsockopt(SOCKET s, int level, int optname, const char *optval, int optlen);
+// int getsockopt(SOCKET s, int level, int optname, char *optval, [in, out] int *optlen);
 //
+// setsockopt 函数设置套接字选项。如果没有错误发生，setsockopt 返回零。否则返回 SOCKET_ERROR，
+// 可以通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEFAULT           optval 参数所指向的缓冲区不在进程地址空间的有效部分，或者
+//                          optlen 参数太小。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提
+//                          供程序仍在处理回调函数。
+//      WSAEINVAL           level 参数无效，或者 optval 参数所指向缓冲区中的信息无效。
+//      WSAENETRESET        当设置 SO_KEEPALIVE 时，连接已超时。
+//      WSAENOPROTOOPT      选项对于指定的提供程序或套接字是未知的或不支持的（请参阅
+//                          SO_GROUP_PRIORITY 的限制）。
+//      WSAENOTCONN         当设置 SO_KEEPALIVE 时，连接已被重置。
+//      WSAENOTSOCK         描述符不是套接字。
+//
+// 参数 s 标识套接字的描述符。参数 level 定义选项的级别（例如 SOL_SOCKET）。参数
+// optname 要设置的套接字选项（例如 SO_BROADCAST）。optname 参数必须是指定级别中定义
+// 的套接字选项，否则行为是未定义的。参数 optval 指向指定请求选项值的缓冲区指针。参数
+// optlen，optval 参数所指向缓冲区的大小，以字节为单位。
+//
+// setsockopt 函数设置与任何类型、任何状态套接字关联的套接字选项的当前值。尽管选项可存
+// 在于多个协议级别，但它们始终存在于套接字级别的最上层。选项影响套接字操作，例如是否在
+// 正常数据流中接收紧急数据（例如 OOB 数据），以及是否可以在套接字上发送广播消息。
+//
+// 注意，如果在调用 bind 函数之前调用 setsockopt 函数，TCP/IP 选项将不会通过 TCP/IP
+// 进行检查，直到 bind 发生。在这种情况下，setsockopt 函数调用将始终成功，但 bind 函
+// 数调用可能会因早期 setsockopt 调用失败而失败。如果打开套接字，调用 setsockopt，然
+// 后调用 sendto，则 Windows 套接字将执行隐式 bind 函数调用。
+//
+// 套接字选项有两种类型：启用或禁用功能或行为的布尔选项，以及需要整数值或结构的选项。要
+// 启用布尔选项，optval 参数指向一个非零整数。要禁用选项，optval 指向一个等于零的整数。
+// 对于布尔选项，optlen 参数应等于 sizeof(int)。对于其他选项，optval 指向一个包含选项
+// 所需值的整数或结构，optlen 是整数或结构的长度。以下表格列出了一些由 setsockopt 函数
+// 支持的常见选项。类型列标识 optval 参数所指向的数据类型。描述列提供有关套接字选项的一
+// 些基本信息。有关套接字选项的更完整列表和更详细的信息（例如默认值），请参阅套接字选项
+// 下的详细信息。https://learn.microsoft.com/en-us/windows/win32/winsock/socket-options
+//
+// level = SOL_SOCKET 更完整的信息参考 SOL_SOCKET 套接字选项。
+//      SO_BROADCAST                BOOL    配置套接字以发送广播数据。
+//      SO_CONDITIONAL_ACCEPT       BOOL    启用传入连接由应用程序接受或拒绝，而不是由协议栈接受。
+//      SO_DEBUG                    BOOL    启用调试输出。Microsoft 提供程序目前不输出任何调试信息。
+//      SO_DONTLINGER               BOOL    关闭时不阻塞等待未发送数据被发送。设置此选项等同于将 SO_LINGER
+//                                          的 l_onoff 设置为零。
+//      SO_DONTROUTE                BOOL    设置是否应将传出数据发送到套接字绑定的接口，而不是在其他接口上
+//                                          路由。此选项不支持 ATM 套接字（会导致错误）。
+//      SO_GROUP_PRIORITY           int     保留。
+//      SO_KEEPALIVE                BOOL    启用套接字连接发送保持活动数据包。不支持 ATM 套接字（会导致错误）。
+//      SO_LINGER                   LINGER  如果存在未发送数据，则关闭时停留。
+//      SO_OOBINLINE                BOOL    指示应将带外数据与常规数据一起返回。此选项仅适用于支持带外数据
+//                                          的面向连接的协议。有关此主题的讨论，请参阅协议无关的带外数据。
+//      SO_RCVBUF                   int     指定为接收保留的每个套接字缓冲区空间的总量。
+//      SO_REUSEADDR                BOOL    允许套接字绑定到已被使用的地址。有关更多信息，请参阅 bind。不
+//                                          适用于 ATM 套接字。
+//      SO_EXCLUSIVEADDRUSE         BOOL    启用套接字以独占方式绑定。不需要管理员权限。
+//      SO_RCVTIMEO                 DWORD   设置阻塞接收调用的超时时间，以毫秒为单位。
+//      SO_SNDBUF                   int     指定为发送保留的每个套接字缓冲区空间的总量。
+//      SO_SNDTIMEO                 DWORD   设置阻塞发送调用的超时时间，以毫秒为单位。
+//      SO_UPDATE_ACCEPT_CONTEXT    UINT_PTR        使用监听套接字的上下文更新接受套接字。
+//      PVD_CONFIG                  服务提供程序依赖  此对象存储与套接字 s 关联的服务提供程序的配置信息。
+//                                          此数据结构的确切格式是服务提供程序特定的。
+//
+// level = IPPROTO_TCP
+//      请参阅 IPPROTO_TCP 套接字选项中的 TCP_NODELAY。有关 level = IPPROTO_TCP 的
+//      套接字选项的更完整和详细信息，请参阅该对象选项详情。
+//
+// level = NSPROTO_IPX，更完整和详细信息参考 NSPROTO_IPX 套接字选项。
+//      IPX_PTYPE                   int     设置 IPX 数据包类型。
+//      IPX_FILTERPTYPE             int     设置接收过滤数据包类型。
+//      IPX_STOPFILTERPTYPE         int     停止过滤使用 IPX_FILTERTYPE 设置的过滤类型。
+//      IPX_DSTYPE                  int     设置每个发送的数据包的 SPX 头中的数据流字段的值。
+//      IPX_EXTENDED_ADDRESS        BOOL    设置是否启用扩展寻址。
+//      IPX_RECVHDR                 BOOL    设置是否在所有接收头中发送协议头。
+//      IPX_RECEIVE_BROADCAST       BOOL    指示套接字上可能有广播数据包。默认设置为 TRUE。不使用广播的应
+//                                          用程序应将其设置为 FALSE，以提高系统性能。
+//      IPX_IMMEDIATESPXACK         BOOL    指示 SPX 连接在发送 ACK 时不延迟。没有往返流量的应用程序应将
+//                                          其设置为 TRUE，以提高性能。
+//
+// 不支持的 BSD 选项，以下列出了不支持 setsockopt 的 BSD 选项。
+//      SO_ACCEPTCONN               BOOL    返回套接字是否处于监听模式。此选项仅适用于面向连接的协议。此套
+//                                          接字选项不支持设置。
+//      SO_RCVLOWAT                 int     从 BSD UNIX 包含的套接字选项，用于向后兼容。此选项设置套接字
+//                                          输入操作要处理的最小字节数。
+//      SO_SNDLOWAT                 int     从 BSD UNIX 包含的套接字选项，用于向后兼容。此选项设置套接字
+//                                          输出操作要处理的最小字节数。
+//      SO_TYPE                     int     返回给定套接字的套接字类型（例如 SOCK_STREAM 或 SOCK_DGRAM）。
+//                                          此套接字选项不支持设置套接字类型。
+//
+// 注意，在发出阻塞的 Winsock 调用（如 setsockopt）时，Winsock 可能需要等待网络事件才
+// 能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步过
+// 程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个
+// 阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
+
+void prh_sock_reuseaddr(prh_handle sock, int reuse) {
+    int n = setsockopt((SOCKET)sock, SOL_SOCKET, SO_REUSEADDR, (char *)&reuse, (int)sizeof(int));
+    prh_wsa_prerr_if(n != 0);
+}
+
 // int bind(SOCKET s, const sockaddr *name, int namelen);
 //
 // bind 函数将本地地址与套接字关联。如果没有错误发生，bind 返回零。否则返回 SOCKET_ERROR，
@@ -16411,17 +16564,6 @@ prh_inline void prh_impl_close_socket(prh_handle sock) {
 // Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
 
 void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
-    // 端口如果是 prh_port_any，内核在bind时选择一个可用的临时端口。服务器可以绑定通
-    // 配地址（prh_addr_any），当一个连接到达时，服务器可以调用 getsockname 获取来自
-    // 客户的目的IP地址，服务器然后根据这个客户连接所发往的IP地址来处理客户请求。也可
-    // 以绑定本机特定地址，该IP地址必须属于所在主机的网络接口之一。
-    // bind() 成功返回0，失败返回-1和errno。失败时可能的错误：
-    //  EACCES - 地址受保护，用户不是超级用户。
-    //  EADDRINUSE - 给定的地址正在使用。或者对于inet套接字，没有临时端口可用。
-    //  EBADF - 套接字是非法文件描述符。
-    //  EINVAL - 套接字已经绑定到一个地址。或者地址长度非法，或者地址非法。
-    //  ENOTSOCK - 套接字文件描述符指向的不是一个套接字。
-    //  EADDRNOTAVAIL - 本地没有对应地址的网络接口。
     // bind 返回的一个常见错误时 EADDRINUSE，这涉及 SO_REUSEADDR 和 SO_REUSEPORT
     // 这两个套接字选项。SO_REUSEADDR 有一个潜在的安全问题，假设存在一个绑定到通配地
     // 址和端口5555的套接字，如果指定SO_REUSEADDR，我们就可以把相同的端口绑定到不同
@@ -16511,15 +16653,14 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
 // int WSASendDisconnect(SOCKET s, LPWSABUF outbound_disconnect_data);
 // int sendto(SOCKET s, const char *buf, int len, int flags, const struct sockaddr *to, int tolen);
 // int WSASendTo(SOCKET s, LPWSABUF buffers, DWORD buffer_count, LPDWORD bytes_sent, DWORD flags, const struct sockaddr *to; int tolen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
+// TransmitFile
+// TransmitPackets
 //
 // int recv(SOCKET s, char *buf, int len, int flags);
 // int WSARecv(SOCKET s, LPWSABUF buffers DWORD buffer_count, LPDWORD bytes_recv, LPDWORD flags, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
 // int WSARecvDisconnect(SOCKET s, LPWSABUF inbound_disconnect_data);
 // int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
 // int WSARecvFrom(SOCKET s, LPSWABUF buffers, DWORD buffer_count, LPDWORD bytes_recvd, LPDWORD flags, struct sockaddr *from, LPINT fromlen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE cmpletion_routine);
-//
-// TransmitFile
-// TransmitPackets
 // WSARecvMsg
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -17868,8 +18009,8 @@ void prh_clr_cloexec(int fd) {
     prh_nnegret(fcntl(fd, F_SETFD, flags));
 }
 
-void prh_sock_reuseaddr(int sock, int reuseaddr) {
-    prh_zeroret_or_errno(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(int)));
+void prh_sock_reuseaddr(prh_handle sock, int reuse) {
+    prh_zeroret_or_errno(setsockopt((int)sock, SOL_SOCKET, SO_REUSEADDR, &reuse, (int)sizeof(int)));
 }
 
 // #include <sys/socket.h>
