@@ -15446,6 +15446,78 @@ bool prh_sock_tcp_recv(prh_tcpsocket *tcp);
 
 #ifdef PRH_SOCK_IMPLEMENTATION
 #if defined(prh_plat_windows)
+#include <winsock2.h>
+#define PRH_INVASOCK INVALID_SOCKET
+#define prh_wsa_prerr() prh_impl_prerr(__LINE__, WSAGetLastError())
+#define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
+#define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
+#else
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#define PRH_INVASOCK (-1)
+#endif
+
+void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen);
+void prh_impl_tcp_listen(prh_handle sock, int backlog);
+void prh_sock_ipv6_address(const char *ip_string, prh_byte *ipv6_16_byte);
+prh_u32 prh_sock_ipv4_address(const char *ip_string);
+prh_handle prh_impl_tcp_socket(int family);
+prh_u16 prh_sock_local_port(prh_handle sock, int addrlen);
+
+void prh_impl_sock_tcp_listen(prh_tcplisten *tcp, struct sockaddr_in *addr, int backlog) {
+    int family = addr->sin_family;
+    int addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+    prh_handle sock = prh_impl_tcp_socket(family);
+    tcp->sock = sock;
+    prh_impl_tcp_bind(sock, addr, addrlen);
+    if (tcp->port == prh_port_any) {
+        tcp->port = prh_sock_local_port(sock, addrlen);
+    }
+    prh_impl_tcp_listen(sock, backlog);
+}
+
+void prh_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port, int backlog) {
+    struct sockaddr_in in = {0};
+    prh_u32 addr_any = 0; // htonl(INADDR_ANY)
+    in.sin_family = AF_INET;
+    in.sin_port = htons(port);
+    if (host == prh_loopback) {
+        prh_byte *ipv4_addr = (prh_byte *)&in.sin_addr.s_addr; // htonl(INADDR_LOOPBACK)
+        ipv4_addr[0] = 127;
+        ipv4_addr[3] = 1;
+    } else if (host != prh_addr_any) {
+        in.sin_addr.s_addr = prh_sock_ipv4_address(host);
+    }
+    tcp->port = port;
+    tcp->addr = in.sin_addr.s_addr;
+    tcp->addr_any = (in.sin_addr.s_addr == addr_any); // 内核将等到TCP套接字已连接时才选择一个本地IP地址
+    prh_impl_sock_tcp_listen(tcp, &in, backlog);
+}
+
+void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port, int backlog) {
+    struct sockaddr_in6 in6 = {0};
+    struct in6_addr ipv6_addr_any = {{0}}; // in6addr_any
+    in6.sin6_family = AF_INET6;
+    in6.sin6_port = htons(port);
+    if (host == prh_loopback) {
+        prh_byte *ipv6_addr = (prh_byte *)&in6.sin6_addr; // in6addr_loopback
+        ipv6_addr[15] = 1;
+    } else if (host != prh_addr_any) {
+        prh_sock_ipv6_address(host, in6.sin6_addr.s6_addr);
+    }
+    tcp->port = port;
+    tcp->ipv6 = true;
+    memcpy(&tcp->addr, in6.sin6_addr.s6_addr, 16);
+    if (memcmp(&in6.sin6_addr, &ipv6_addr_any, sizeof(struct in6_addr)) == 0) {
+        tcp->addr_any = true; // 内核将等到TCP套接字已连接时才选择一个本地IP地址
+    }
+    prh_impl_sock_tcp_listen(tcp, (struct sockaddr_in *)&in6, backlog);
+}
+
+#if defined(prh_plat_windows)
 // 若 Winsock 在其规范种更新或增添了一个新函数，该函数名将带有 WSA 前缀。比如，建立套
 // 接字的 Winsock 1 函数只是被简单称为 socket，而 Winsock 2 引入该函数的新版本时，其
 // 命名为 WSAScoket，该函数可以使用 Winsock 2 中出现的一些新特性。但注意，该命名规则
@@ -15572,11 +15644,6 @@ bool prh_sock_tcp_recv(prh_tcpsocket *tcp);
 // WSACleanup 函数通常会导致特定于协议的辅助 DLL 被卸载。因此，不应从应用程序 DLL 的
 // DllMain 函数中调用 WSACleanup 函数。这可能会导致死锁。有关详细信息，请参阅 DLL 主
 // 函数。
-#include <winsock2.h>
-#define PRH_INVASOCK INVALID_SOCKET
-#define prh_wsa_prerr() prh_impl_prerr(__LINE__, WSAGetLastError())
-#define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
-#define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
 
 void prh_impl_wsasocket_cleanup(void) {
     if (WSACleanup() != 0) prh_wsa_prerr();
@@ -16007,7 +16074,7 @@ void prh_impl_wsasocket_startup(void) {
 // 常量的定义自动选择 ANSI 或 Unicode 版本的函数。将编码中立的别名与非编码中立的代码
 // 混合使用可能会导致不匹配，从而引发编译时或运行时错误。
 
-prh_handle prh_impl_create_tcp_socket(int family) {
+prh_handle prh_impl_tcp_socket(int family) {
     SOCKET sock = WSASocket(family, SOCK_STREAM, IPPROTO_TCP, prh_null, 0, WSA_FLAG_OVERLAPPED
 #if defined(WSA_FLAG_NO_HANDLE_INHERIT)
         | WSA_FLAG_NO_HANDLE_INHERIT
@@ -16251,9 +16318,184 @@ prh_inline void prh_impl_close_socket(prh_handle sock) {
 // int getsockname(SOCKET s, struct sockaddr *name, int *namelen);
 // int WSADuplicateSocket(SOCKET s, DWORD process_id, LPWSAPROTOCOL_INFO protocol_info);
 //
-// int bind(SOCKET s, const struct sockaddr *name, int namelen);
+// int bind(SOCKET s, const sockaddr *name, int namelen);
+//
+// bind 函数将本地地址与套接字关联。如果没有错误发生，bind 返回零。否则返回 SOCKET_ERROR，
+// 可以通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSANOTINITIALISED   注意：在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEACCES           尝试以被其访问权限禁止的方式访问套接字。如果因为未启用 setsockopt 选项 SO_BROADCAST，
+//                          而将数据报套接字绑定到广播地址失败，则会返回此错误。
+//      WSAEADDRINUSE       通常只允许每个套接字地址（协议/网络地址/端口）使用一次。如果计算机上的进程已经
+//                          绑定到相同的完全限定地址，并且套接字未使用 SO_REUSEADDR 标记为允许地址重用，则
+//                          会返回此错误。例如，name 参数中指定的 IP 地址和端口已被另一个应用程序使用的另
+//                          一个套接字绑定。有关更多信息，请参阅 SOL_SOCKET 套接字选项中的 SO_REUSEADDR
+//                          套接字选项、使用 SO_REUSEADDR 和 SO_EXCLUSIVEADDRUSE 以及 SO_EXCLUSIVEADDRUSE。
+//      WSAEADDRNOTAVAIL    请求的地址在其上下文中无效。如果 name 参数指向的指定地址不是此计算机上的有效本
+//                          地 IP 地址，则会返回此错误。
+//      WSAEFAULT           系统在尝试使用指针参数进行调用时检测到无效的指针地址。如果 name 参数为 NULL，
+//                          name 或 namelen 参数不是用户地址空间的有效部分，namelen 参数太小，name 参数
+//                          包含与关联地址族不匹配的地址格式，或者由 name 指定的内存块的前两个字节与套接字
+//                          描述符 s 关联的地址族不匹配，则会返回此错误。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINVAL           提供了无效的参数。如果套接字 s 已经绑定到地址，则会返回此错误。
+//      WSAENOBUFS          由于系统缺乏足够的缓冲区空间或队列已满，无法对套接字执行操作。如果没有足够的缓
+//                          冲区可用或连接过多，则会返回此错误。
+//      WSAENOTSOCK         在不是套接字的对象上尝试执行操作。如果 s 参数中的描述符不是套接字，则会返回此错误。
+//
+// 参数 s 标识未绑定套接字的描述符。参数 name 指向本地地址的 sockaddr 结构，该地址将
+// 被分配给绑定的套接字。参数 namelen 表示 name 参数所指向值的长度，以字节为单位。
+//
+// 在调用 listen 函数之前，未连接的套接字需要调用 bind 函数。它通常用于绑定到面向连接
+// （流式）或无连接（数据报）套接字。bind 函数也可以用于绑定到原始套接字（通过调用 socket
+// 函数并设置类型参数为 SOCK_RAW 创建套接字）。bind 函数也可以在调用 connect、ConnectEx、
+// WSAConnect、WSAConnectByList 或 WSAConnectByName 函数之前，用于绑定到未连接的套
+// 接字，以便在发送操作之前使用。
+//
+// 当通过调用 socket 函数创建套接字时，它存在于一个命名空间（地址族）中，但未分配任何名
+// 称。使用 bind 函数通过为无名套接字分配本地名称来建立套接字的本地关联。
+//
+// 使用 Internet 地址族时，名称由三部分组成：地址族，主机地址，用于标识应用程序的端口号。
+//
+// 在 Windows 套接字版本 2 中，name 参数并不严格解释为指向 sockaddr 结构的指针。为了
+// 与 Windows 套接字版本 1.1 兼容，它被强制转换为这种类型。服务提供程序可以将其视为指
+// 向大小为 namelen 的内存块的指针。此内存块的前两个字节（对应于 sockaddr 结构的 sa_family
+// 成员、sockaddr_in 结构的 sin_family 成员或 sockaddr_in6 结构的 sin6_family 成员）
+// 必须包含用于创建套接字的地址族。否则，将发生 WSAEFAULT 错误。
+//
+// 如果应用程序不关心分配特定的本地地址，可以在 name 参数的 sa_data 成员中指定 IPv4 本
+// 地地址的常量值 INADDR_ANY 或 IPv6 本地地址的常量值 in6addr_any。这允许底层服务提供
+// 程序使用任何适当的网络地址，可能简化了在多宿主主机（即具有多个网络接口和地址的主机）
+// 上进行应用程序编程。
+//
+// 对于 TCP/IP，如果端口指定为零，则服务提供程序将从动态客户端端口范围中为应用程序分配
+// 一个唯一的端口。在 Windows Vista 及更高版本中，动态客户端端口范围是 49152 到 65535
+// 之间的值。这与 Windows Server 2003 及更早版本不同，后者的动态客户端端口范围是 1025
+// 到 5000 之间的值。可以通过在以下注册表项下设置值来更改客户端动态端口范围的最大值：
+//      HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters
+//
+// MaxUserPort 注册表值设置动态客户端端口范围的最大值。必须重新启动计算机才能使此设置
+// 生效。在 Windows Vista 及更高版本中，可以使用 netsh 命令查看和更改动态客户端端口范
+// 围。可以分别为 UDP 和 TCP 以及 IPv4 和 IPv6 设置不同的动态客户端端口范围。有关更多
+// 信息，请参阅 KB 929851。https://support.microsoft.com/kb/929851
+//
+// 应用程序可以在调用 bind 后使用 getsockname 了解已分配给套接字的地址和端口。如果 Internet
+// 地址等于 INADDR_ANY 或 in6addr_any，则在套接字连接之前，getsockname 无法提供地址，
+// 因为如果主机是多宿主的，则多个地址可能是有效的。不建议客户端应用程序绑定到除端口 0 之
+// 外的特定端口号，因为存在与本地计算机上已使用该端口号的另一个套接字冲突的危险。
+//
+// 注意，当使用 bind 与 SO_EXCLUSIVEADDRUSE 或 SO_REUSEADDR 套接字选项时，必须在执行
+// bind 之前设置套接字选项，才能产生任何影响。有关更多信息，请参阅 SO_EXCLUSIVEADDRUSE
+// 和使用 SO_REUSEADDR 和 SO_EXCLUSIVEADDRUSE。
+//
+// 对于多播操作，推荐的方法是调用 bind 函数将套接字与本地 IP 地址关联，然后加入多播组。
+// 尽管这种操作顺序不是强制性的，但强烈推荐。因此，多播应用程序将首先选择本地计算机上的
+// IPv4 或 IPv6 地址、IPv4 通配符地址（INADDR_ANY）或 IPv6 通配符地址（in6addr_any）。
+// 然后，多播应用程序将调用 bind 函数，并在 name 参数的 sa_data 成员中使用此地址，将本
+// 地 IP 地址与套接字关联。如果指定了通配符地址，则 Windows 将选择要使用的本地 IP 地址。
+// 在 bind 函数完成后，应用程序将加入感兴趣的多播组。有关如何加入多播组的更多信息，请参
+// 阅多播编程部分。然后可以使用 recv、recvfrom、WSARecv、WSARecvEx、WSARecvFrom 或
+// LPFN_WSARECVMSG (WSARecvMsg) 函数通过此套接字从多播组接收多播数据包。
+//
+// 对于向多播组发送操作，通常不需要 bind 函数。sendto、WSASendMsg 和 WSASendTo 函数
+// 如果套接字尚未绑定，则会隐式地将套接字绑定到通配符地址。bind 函数在使用 send 或 WSASend
+// 函数之前是必需的，这些函数不会执行隐式绑定，并且仅允许在已连接的套接字上使用，这意味
+// 着套接字必须已经绑定才能连接。如果应用程序希望在具有多个网络接口和本地 IP 地址的本地
+// 计算机上选择特定的本地 IP 地址，则可以在使用 sendto、WSASendMsg 或 WSASendTo 函数
+// 进行发送操作之前使用 bind 函数。否则，使用 sendto、WSASendMsg 或 WSASendTo 函数进
+// 行的隐式绑定可能会导致使用不同的本地 IP 地址进行发送操作。
+//
+// 注意，在发出阻塞的 Winsock 调用（如 bind）时，Winsock 可能需要等待网络事件才能完成
+// 调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步过程调用
+// （APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个阻塞
+// Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
+
+void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
+    // 端口如果是 prh_port_any，内核在bind时选择一个可用的临时端口。服务器可以绑定通
+    // 配地址（prh_addr_any），当一个连接到达时，服务器可以调用 getsockname 获取来自
+    // 客户的目的IP地址，服务器然后根据这个客户连接所发往的IP地址来处理客户请求。也可
+    // 以绑定本机特定地址，该IP地址必须属于所在主机的网络接口之一。
+    // bind() 成功返回0，失败返回-1和errno。失败时可能的错误：
+    //  EACCES - 地址受保护，用户不是超级用户。
+    //  EADDRINUSE - 给定的地址正在使用。或者对于inet套接字，没有临时端口可用。
+    //  EBADF - 套接字是非法文件描述符。
+    //  EINVAL - 套接字已经绑定到一个地址。或者地址长度非法，或者地址非法。
+    //  ENOTSOCK - 套接字文件描述符指向的不是一个套接字。
+    //  EADDRNOTAVAIL - 本地没有对应地址的网络接口。
+    // bind 返回的一个常见错误时 EADDRINUSE，这涉及 SO_REUSEADDR 和 SO_REUSEPORT
+    // 这两个套接字选项。SO_REUSEADDR 有一个潜在的安全问题，假设存在一个绑定到通配地
+    // 址和端口5555的套接字，如果指定SO_REUSEADDR，我们就可以把相同的端口绑定到不同
+    // 的IP地址上，譬如说是所在主机的主IP地址。此后目的地为端口5555及新绑定IP地址的数
+    // 据报将被递送到新的套接字，而不是递送到绑定了通配地址的已有套接字。这些数据报可
+    // 以是TCP的SYN报文、SCTP的INIT块或UDP数据报。
+    // 为了安全起见，有些操作系统不允许对已经绑定了通配地址的端口再绑定任何更为明确的
+    // 地址，也就是说不论是否预先设置 SO_REUSEADDR，对应的bind调用都会失败。在这样的
+    // 系统上，执行通配地址捆绑的服务器进程必须最后一个启动。这么做是为了防止把恶意的服
+    // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
+    prh_sock_reuseaddr(sock, 1);
+    int n = bind((SOCKET)sock, (sockaddr *)addr, namelen);
+    prh_wsa_prerr_if(n != 0);
+}
+
 // int listen(SOCKET s, int backlog);
 //
+// listen 函数将套接字置于监听传入连接的状态。如果没有错误发生，listen 返回零。否则返回
+// SOCKET_ERROR，可以通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN	        网络子系统已失败。
+//      WSAEADDRINUSE       套接字的本地地址已被使用，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错
+//                          误通常在执行 bind 函数时发生，但如果 bind 是对通配符地址（涉及 ADDR_ANY）进行
+//                          的，并且需要在该函数执行时提交特定地址，则可能会延迟到此函数。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINVAL           套接字未使用 bind 绑定。
+//      WSAEISCONN          套接字已连接。
+//      WSAEMFILE           没有更多的套接字描述符可用。
+//      WSAENOBUFS          没有可用的缓冲区空间。
+//      WSAENOTSOCK         描述符不是套接字。
+//      WSAEOPNOTSUPP       引用的套接字不是支持 listen 操作的类型。
+//
+// 参数 s 标识已绑定但未连接的套接字的描述符。参数 backlog 挂起连接队列的最大长度。如果
+// 设置为 SOMAXCONN，负责套接字 s 的底层服务提供程序将把队列长度设置为一个合理的最大值。
+// 如果设置为 SOMAXCONN_HINT(N)（其中 N 是一个数字），队列长度将被调整为 N，并确保在范
+// 围 (200, 65535) 内。注意，SOMAXCONN_HINT 可以用来设置比 SOMAXCONN 更大的队列长度。
+// 注意 SOMAXCONN_HINT 仅由 Microsoft TCP/IP 服务提供程序支持。没有标准方法可以获取实
+// 际的队列长度。底层服务提供程序会将 backlog 参数静默地（silently）限制在一个合理的范
+// 围内。非法值将被替换为最接近的合法值。没有标准方法可以获取实际的队列长度。
+//
+// 要接受连接，首先使用 socket 函数创建套接字，并使用 bind 函数将其绑定到本地地址。使用
+// listen 指定传入连接的队列长度，然后使用 accept 函数接受连接。面向连接的套接字，例如
+// SOCK_STREAM 类型的套接字，可以调用 listen。套接字 s 将被置于被动模式，其中传入的连
+// 接请求被确认并排队，等待进程接受。
+//
+// SOMAXCONN 是一个特殊常量，指示负责套接字 s 的底层服务提供程序将挂起连接队列的长度设
+// 置为一个合理的最大值。在 Windows 套接字版本 2 中，此最大值默认为一个较大的值（通常是
+// 几百或更多）。
+//
+// 在蓝牙应用程序中调用 listen 函数时，强烈建议使用较低的值作为 backlog 参数（通常为 2
+// 到 4），因为只接受少量客户端连接。这减少了为监听套接字分配的系统资源。此建议也适用于
+// 其他仅期望少量客户端连接的网络应用程序。
+//
+// listen 函数通常用于可以同时处理多个连接请求的服务器。如果连接请求到达且队列已满，客
+// 户端将收到一个错误，指示 WSAECONNREFUSED。
+//
+// 如果没有可用的套接字描述符，listen 尝试继续运行。如果描述符变得可用，后续对 listen
+// 或 accept 的调用将尽可能将队列重新填充到当前或最近指定的 backlog 参数值，并恢复监听
+// 连入连接（incoming connections）。
+//
+// 如果在已经处于监听状态的套接字上调用 listen 函数，它将成功返回而不改变 backlog 参数
+// 的值。在后续对监听套接字的 listen 调用中，将 backlog 参数设置为 0 不被视为适当的重
+// 置，特别是如果套接字上有连接时。
+//
+// 注意 在发出阻塞的 Winsock 调用（如 listen）时，Winsock 可能需要等待网络事件才能完
+// 成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步过程
+// 调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个
+// 阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
+
+void prh_impl_tcp_listen(prh_handle sock, int backlog) {
+    int n = listen((SOCKET)sock, backlog);
+    prh_wsa_prerr_if(n != 0);
+}
+
 // SOCKET accept(SOCKET s, struct sockaddr *addr, int *addrlen);
 // WSAAccept()
 // AcceptEx()
@@ -16750,10 +16992,7 @@ void prh_impl_sock_test(void) {
 // 报。通过再调用一次 connect() 可以修改已经绑定的目的套接字地址，此外通过指定一个地址族
 // 为 AF_UNSPEC 的地址结构还可以解除地址绑定，但注意的是，其他很多 UNIX 实现并不支持将
 // AF_UNSPEC 用于这个用途。
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-
+//
 // #include <sys/socket.h>
 // int shutdown(int sockfd, int how);
 // shutdown() 调用会关闭与 sockfd 关联的套接字上的全双工连接的全部或部分。SHUT_RD 之后
@@ -17670,18 +17909,12 @@ void prh_sock_reuseaddr(int sock, int reuseaddr) {
 //      struct in6_addr sin6_addr;     // IPv6 address: struct in6_addr { unsigned char s6_addr[16]; } IN6ADDR_ANY_INIT
 //      uint32_t        sin6_scope_id; // Scope ID (new in kernel 2.4)
 //  };
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-
-#define PRH_INVASOCK (-1)
 
 prh_inline struct sockaddr_in *prh_impl_sockaddr_in(struct sockaddr_in6 *p) {
     return (struct sockaddr_in *)p;
 }
 
-prh_u32 prh_sock_ip_address(const char *ip_string) {
+prh_u32 prh_sock_ipv4_address(const char *ip_string) {
     struct in_addr out = {0}; // ddd.ddd.ddd.ddd => u32 网络字节序，d 的范围 [0, 255]，每个字节最多3个d
     assert(ip_string != prh_null);
     prh_numbret(1, inet_pton(AF_INET, ip_string, &out));
@@ -17710,18 +17943,18 @@ void prh_sock_ipv6_string(const char *ipv6_16_byte, char *str_48_byte) {
     prh_boolret(inet_ntop(AF_INET6, ipv6_16_byte, str_48_byte, INET6_ADDRSTRLEN));
 }
 
-void prh_sock_local_addr(int sock, void *addr, socklen_t addrlen) {
+void prh_sock_local_addr(prh_handle sock, void *addr, int addrlen) {
     // EBADF sockfd invalid, EFAULT addr invalid, EINVAL addrlen, ENOBUFS insufficient resources, ENOTSOCK sockfd
     prh_zeroret_or_errno(getsockname(sock, (struct sockaddr *)addr, &addrlen));
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
 }
 
-void prh_sock_peer_addr(int sock, void *addr, socklen_t addrlen) {
+void prh_sock_peer_addr(prh_handle sock, void *addr, int addrlen) {
     prh_zeroret_or_errno(getpeername(sock, (struct sockaddr *)addr, &addrlen)); // ENOTCONN socket is not connected
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
 }
 
-prh_u16 prh_sock_local_port(int sock, socklen_t addrlen) {
+prh_u16 prh_sock_local_port(prh_handle sock, int addrlen) {
     struct sockaddr_in6 in;
     prh_sock_local_addr(sock, &in, addrlen);
     return ntohs(prh_impl_sockaddr_in(&in)->sin_port);
@@ -17740,24 +17973,20 @@ void prh_impl_tcp_get_local_addr(prh_tcpsocket *tcp) {
     tcp->l_port = ntohs(in->sin_port);
 }
 
-int prh_impl_create_tcp_socket(sa_family_t family) {
+prh_handle prh_impl_tcp_socket(int family) {
 #if defined(prh_plat_linux) || (defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK))
-    int sock = socket(family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+    int sock = socket((sa_family_t)family, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
     assert(sock >= 0);
 #else
-    int sock = socket(family, SOCK_STREAM, 0);
+    int sock = socket((sa_family_t)family, SOCK_STREAM, 0);
     assert(sock >= 0);
     prh_set_cloexec(sock);
     prh_set_nonblock(sock);
 #endif
-    return sock;
+    return (prh_handle)sock;
 }
 
-void prh_impl_tcp_listen(prh_tcplisten *tcp, struct sockaddr_in *addr, int backlog) {
-    sa_family_t family = addr->sin_family;
-    socklen_t addrlen = (family == AF_INET) ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
-    int sock = prh_impl_create_tcp_socket(family);
-    tcp->sock = sock;
+void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
     // 端口如果是 prh_port_any，内核在bind时选择一个可用的临时端口。服务器可以绑定通
     // 配地址（prh_addr_any），当一个连接到达时，服务器可以调用 getsockname 获取来自
     // 客户的目的IP地址，服务器然后根据这个客户连接所发往的IP地址来处理客户请求。也可
@@ -17781,53 +18010,15 @@ void prh_impl_tcp_listen(prh_tcplisten *tcp, struct sockaddr_in *addr, int backl
     // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
     prh_sock_reuseaddr(sock, 1);
     prh_real_zeroret_or_errno(bind(sock, (struct sockaddr *)addr, addrlen));
-    if (tcp->port == prh_port_any) {
-        tcp->port = prh_sock_local_port(sock, addrlen);
-    }
+}
+
+void prh_impl_tcp_listen(prh_handle sock, int backlog) {
     // listen() 系统调用仅由TCP服务程序调用，它做两件事情。当socket函数创建一个套接
     // 字时，默认是主动套接字，即可以调用connect主动连接的套接字，而listen将一个未连
     // 接的套接字转换成一个被动套接字，指示内核应接受指向该套接字的连接请求。调用该函
     // 数导致套接字从CLOSED状态转换到LISTEN状态。该函数的第二个参数指定了内核应该为
     // 相应套接字排队的最大连接个数。成功返回0，失败返回-1和errno。
     prh_real_zeroret_or_errno(listen(sock, backlog));
-}
-
-void prh_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port, int backlog) {
-    struct sockaddr_in in = {0};
-    prh_u32 addr_any = htonl(INADDR_ANY);
-    in.sin_family = AF_INET;
-    in.sin_port = htons(port);
-    if (host == prh_loopback) {
-        in.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    } else if (host == prh_addr_any) { // 内核将等到TCP套接字已连接时才选择一个本地IP地址
-        in.sin_addr.s_addr = addr_any;
-    } else {
-        in.sin_addr.s_addr = prh_sock_ip_address(host);
-    }
-    tcp->port = port;
-    tcp->addr = in.sin_addr.s_addr;
-    tcp->addr_any = (in.sin_addr.s_addr == addr_any);
-    prh_impl_tcp_listen(tcp, &in, backlog);
-}
-
-void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port, int backlog) {
-    struct sockaddr_in6 in6 = {0};
-    in6.sin6_family = AF_INET6;
-    in6.sin6_port = htons(port);
-    if (host == prh_loopback) {
-        in6.sin6_addr = in6addr_loopback;
-    } else if (host == prh_addr_any) { // 内核将等到TCP套接字已连接时才选择一个本地IP地址
-        in6.sin6_addr = in6addr_any;
-    } else {
-        prh_sock_ipv6_address(host, in6.sin6_addr.s6_addr);
-    }
-    tcp->port = port;
-    tcp->ipv6 = true;
-    memcpy(&tcp->addr, in6.sin6_addr.s6_addr, 16);
-    if (memcmp(&in6.sin6_addr, &in6addr_any, sizeof(struct in6_addr)) == 0) {
-        tcp->addr_any = true;
-    }
-    prh_impl_tcp_listen(tcp, (struct sockaddr_in *)&in6, backlog);
 }
 
 void prh_sock_tcp_reset(prh_handle sockfd) {
@@ -17936,7 +18127,7 @@ void prh_impl_tcp_connect(prh_tcpsocket *tcp, struct sockaddr_in *addr) {
     //  ETIMEDOUT - 尝试连接时超时。服务器可能太忙，无法接受新连接。注意，对于 IP 套接字，
     //      若服务器启用了 SYN Cookie，则超时时间可能非常长。
     sa_family_t family = addr->sin_family;
-    int sock = prh_impl_create_tcp_socket(family);
+    int sock = prh_impl_tcp_socket(family);
     socklen_t addrlen;
     if (family == AF_INET) {
         addrlen = sizeof(struct sockaddr_in);
@@ -17981,7 +18172,7 @@ void prh_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 port) {
         return;
     }
     if (prh_impl_is_ipv4_str(host)) {
-        in.sin_addr.s_addr = prh_sock_ip_address(host);
+        in.sin_addr.s_addr = prh_sock_ipv4_address(host);
         prh_impl_tcp_connect(tcp, &in);
         return;
     }
@@ -18264,6 +18455,18 @@ label_continue:
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <limits.h>
 void prh_impl_sock_test(void) {
+    prh_u32 ipv4_loopback = htonl(INADDR_LOOPBACK);
+    prh_u32 ipv4_addr_any = htonl(INADDR_ANY);
+    struct in6_addr ip6_loopback = in6addr_loopback;
+    struct in6_addr ip6_addr_any = in6addr_any;
+    prh_u16 *ipv6_loopback = (prh_u16 *)&ip6_loopback;
+    prh_u16 *ipv6_addr_any = (prh_u16 *)&ip6_addr_any;
+    printf("ipv4 loopback: %d.%d.%d.%d addr_any: %d.%d.%d.%d\n",
+        (ipv4_loopback & 0xff), (ipv4_loopback >> 8) & 0xff, (ipv4_loopback >> 16) & 0xff, (ipv4_loopback >> 24) & 0xff,
+        (ipv4_addr_any & 0xff), (ipv4_addr_any >> 8) & 0xff, (ipv4_addr_any >> 16) & 0xff, (ipv4_addr_any >> 24) & 0xff);
+    printf("ipv6 loopback: %04x::%04x::%04x::%04x::%04x::%04x::%04x::%04x\n",
+        ipv6_loopback[0], ipv6_loopback[1], ipv6_loopback[2], ipv6_loopback[3], ipv6_loopback[4], ipv6_loopback[5], ipv6_loopback[6], ipv6_loopback[7],
+        ipv6_addr_any[0], ipv6_addr_any[1], ipv6_addr_any[2], ipv6_addr_any[3], ipv6_addr_any[4], ipv6_addr_any[5], ipv6_addr_any[6], ipv6_addr_any[7]);
     printf("sa_family_t %d-byte\n", sizeof(sa_family_t));
 #ifdef INET_ADDRSTRLEN
     printf("INET_ADDRSTRLEN %d\n", INET_ADDRSTRLEN);
