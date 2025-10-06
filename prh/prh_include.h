@@ -15166,7 +15166,7 @@ void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     int fd = (int)port->handle;
     prh_int wait_i = port->wait_i;
     prh_impl_epoll_del(epoll->epfd, fd);
-    prh_impl_close_fd(fd);
+    prh_impl_close_handle(fd);
     if (wait_i != -1) { // 删除数组中等待的文件描述符
         prh_epoll_port_array *array = &epoll->wait;
         prh_epoll_port **begin = prh_arrdyn_begin(array);
@@ -15272,7 +15272,7 @@ void prh_epoll_exit(void) {
 
 void prh_impl_process_epac_exit(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     assert(epoll->fds_count == 0); // 所有添加的文件描述符都已经删除和关闭
-    prh_impl_close_fd(epoll->epfd);
+    prh_impl_close_handle(epoll->epfd);
     PRH_IMPL_EPOLL = prh_null;
     prh_arrdyn_free(&epoll->wait);
 }
@@ -15575,6 +15575,8 @@ bool prh_sock_tcp_recv(prh_tcpsocket *tcp);
 #include <winsock2.h>
 #define PRH_INVASOCK INVALID_SOCKET
 #define prh_wsa_prerr() prh_impl_prerr(__LINE__, WSAGetLastError())
+#define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
+#define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
 
 void prh_impl_wsasocket_cleanup(void) {
     if (WSACleanup() != 0) prh_wsa_prerr();
@@ -15762,8 +15764,463 @@ void prh_impl_wsasocket_startup(void) {
 //
 // SOCKET socket(int af, int type, int protocol);
 // SOCKET WSASocket(int af, int type, int protocol, LPWSAPROTOCOL_INFO protocol_info, GROUP group, DWORD flags);
+//
+// WSASocket 函数创建一个绑定到特定传输服务提供程序的套接字。如果没有错误发生，WSASocket
+// 返回一个引用新套接字的描述符。否则返回 INVALID_SOCKET，可通过调用 WSAGetLastError
+// 获取特定的错误代码。
+//      WSANOTINITIALISED       在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN             网络子系统已失败。
+//      WSAEAFNOSUPPORT         指定的地址族不受支持。
+//      WSAEFAULT               lpProtocolInfo 参数不在进程地址空间的有效部分。
+//      WSAEINPROGRESS          一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINVAL               如果满足以下任意条件，则此值为真。指定的 g 参数无效；lpProtocolInfo 指向的 WSAPROTOCOL_INFO
+//                              结构不完整、内容无效或已在早期重复套接字操作中使用；套接字三元组 <af、type 和 protocol> 的成员
+//                              指定的值分别受支持，但给定的组合不受支持。
+//      WSAEINVALIDPROVIDER     服务提供程序返回的版本不是 2.2。
+//      WSAEINVALIDPROCTABLE    服务提供程序返回的程序表无效或不完整。
+//      WSAEMFILE               没有更多的套接字描述符可用。
+//      WSAENOBUFS              没有可用的缓冲区空间。无法创建套接字。
+//      WSAEPROTONOSUPPORT      指定的协议不受支持。
+//      WSAEPROTOTYPE           指定的协议类型与套接字类型不匹配。
+//      WSAEPROVIDERFAILEDINIT  服务提供程序初始化失败。如果分层服务提供程序 (LSP) 或命名空间提供程序安装不当，或者提供程序无法
+//                              正常运行，则会返回此错误。
+//      WSAESOCKTNOSUPPORT      指定的套接字类型在此地址族中不受支持。
+//
+// 参数 af 地址族规范。地址族的可能值在 Winsock2.h 头文件中定义。在为 Windows Vista
+// 及更高版本发布的 Windows SDK 中，头文件的组织结构发生了变化，地址族的可能值在 Ws2def.h
+// 头文件中定义。注意，Ws2def.h 头文件会自动包含在 Winsock2.h 中，不应直接使用。
+//
+// 目前支持的值是 AF_INET 和 AF_INET6，它们分别是 IPv4 和 IPv6 的 Internet 地址族格
+// 式。如果安装了对应地址族的 Windows 套接字服务提供程序，其他地址族选项（例如用于 NetBIOS
+// 的 AF_NETBIOS）也可能支持。注意，AF_ 地址族和 PF_ 协议族常量的值是相同的（例如，AF_INET
+// 和 PF_INET），因此可以使用这两个常量中的任意一个。下表列出了地址族的一些常见值，尽管
+// 还有许多其他可能的值。
+//      AF_UNSPEC       0       地址族未指定。
+//      AF_INET         2       Internet 协议版本 4 (IPv4) 地址族。
+//      AF_IPX          6       IPX/SPX 地址族。仅当安装了 NWLink IPX/SPX NetBIOS 兼容传输协议时才支持
+//                              此地址族。此地址族在 Windows Vista 及更高版本上不支持。
+//      AF_APPLETALK    16      AppleTalk 地址族。仅当安装了 AppleTalk 协议时才支持此地址族。此地址族在
+//                              Windows Vista 及更高版本上不支持。
+//      AF_NETBIOS      17      NetBIOS 地址族。仅当安装了 NetBIOS 的 Windows 套接字提供程序时才支持此
+//                              地址族。NetBIOS 的 Windows 套接字提供程序支持 32 位版本的 Windows，并且
+//                              默认安装在 32 位版本的 Windows 上。NetBIOS 的 Windows 套接字提供程序不
+//                              支持 64 位版本的 Windows，包括 Windows 7、Windows Server 2008、Windows
+//                              Vista、Windows Server 2003 或 Windows XP。NetBIOS 的 Windows 套接字提
+//                              供程序仅支持将类型参数设置为 SOCK_DGRAM 的套接字。NetBIOS 的 Windows 套
+//                              接字提供程序与 NetBIOS 编程接口没有直接关系。Windows Vista、Windows Server
+//                              2008 及更高版本不支持 NetBIOS 编程接口。
+//      AF_INET6        23      Internet 协议版本 6 (IPv6) 地址族。
+//      AF_IRDA         26      红外数据协会 (IrDA) 地址族。仅当计算机安装了红外端口和驱动程序时才支持此
+//                              地址族。
+//      AF_BTH          32      蓝牙地址族。如果计算机安装了蓝牙适配器和驱动程序，则在 Windows XP SP2 或
+//                              更高版本上支持此地址族。
+//
+// 参数 type 新套接字的类型规范。套接字类型的可能值在 Winsock2.h 头文件中定义。下表列
+// 出了 Windows 套接字版本 2 中支持的类型参数的可能值。
+//      SOCK_STREAM     1       提供有序的、可靠的、双向的、基于连接的字节流，并带有带外数据传输机制的套接
+//                              字类型。此套接字类型使用 Internet 地址族 (AF_INET 或 AF_INET6) 的传输控
+//                              制协议 (TCP)。
+//      SOCK_DGRAM      2       支持数据报的套接字类型，数据报是无连接的、不可靠的、固定（通常较小）最大长
+//                              度的缓冲区。此套接字类型使用 Internet 地址族 (AF_INET 或 AF_INET6) 的用
+//                              户数据报协议 (UDP)。
+//      SOCK_RAW        3       提供原始套接字，允许应用程序操作下一层协议头。要操作 IPv4 头，必须在套接字
+//                              上设置 IP_HDRINCL 套接字选项。要操作 IPv6 头，必须在套接字上设置 IPV6_HDRINCL
+//                              套接字选项。
+//      SOCK_RDM        4       提供可靠消息数据报的套接字类型。例如，Windows 中实用的通用多播 (Pragmatic
+//                              General Multicast, PGM) 多播协议实现，通常称为可靠多播编程（Reliable Multicast
+//                              Programming）。仅当安装了可靠多播协议时才支持此类型值。
+//      SOCK_SEQPACKET  5       提供基于数据报的伪流套接字类型。
+//
+// 在 Windows 套接字版本 2 中，引入了新的套接字类型。应用程序可以通过 WSAEnumProtocols 函数动态发现每个可用
+// 传输协议的属性。因此，应用程序可以确定地址族的可能套接字类型和协议选项，并在指定此参数时使用这些信息。随着
+// 新的套接字类型、地址族和协议的定义，Winsock2.h 和 Ws2def.h 头文件中的套接字类型定义将定期更新。在 Windows
+// 套接字版本 1.1 中，唯一可能的套接字类型是 SOCK_DGRAM 和 SOCK_STREAM。
+//
+// 参数 protocol 要使用的协议。协议参数的可能选项特定于指定的地址族和套接字类型。协议的
+// 可能值在 Winsock2.h 和 Wsrm.h 头文件中定义。在为 Windows Vista 及更高版本发布的
+// Windows SDK 中，头文件的组织结构发生了变化，此参数可以是 Ws2def.h 头文件中定义的
+// IPPROTO 枚举类型的值之一。注意，Ws2def.h 头文件会自动包含在 Winsock2.h 中，不应直
+// 接使用。
+//
+// 如果指定的值为 0，则调用方不想指定协议，服务提供程序将选择要使用的协议。当 af 参数为
+// AF_INET 或 AF_INET6 且类型为 SOCK_RAW 时，协议指定的值将设置在 IPv6 或 IPv4 数据
+// 包头的协议字段中。下表列出了协议的一些常见值，尽管还有许多其他可能的值。
+//      IPPROTO_ICMP    1       Internet 控制消息协议 (ICMP)。当 af 参数为 AF_UNSPEC、AF_INET 或 AF_INET6
+//                              且类型参数为 SOCK_RAW 或未指定时，这是一个可能的值。此协议值支持 Windows
+//                              XP 及更高版本。
+//      IPPROTO_IGMP    2       Internet 组管理协议 (IGMP)。当 af 参数为 AF_UNSPEC、AF_INET 或 AF_INET6
+//                              且类型参数为 SOCK_RAW 或未指定时，这是一个可能的值。此协议值支持 Windows
+//                              XP 及更高版本。
+//      BTHPROTO_RFCOMM 3       蓝牙无线通信协议 (Bluetooth RFCOMM)。当 af 参数为 AF_BTH 且类型参数为
+//                              SOCK_STREAM 时，这是一个可能的值。此协议值支持 Windows XP SP2 及更高版本。
+//      IPPROTO_TCP     6       传输控制协议 (TCP)。当 af 参数为 AF_INET 或 AF_INET6 且类型参数为 SOCK_STREAM
+//                              时，这是一个可能的值。
+//      IPPROTO_UDP     17      用户数据报协议 (UDP)。当 af 参数为 AF_INET 或 AF_INET6 且类型参数为 SOCK_DGRAM
+//                              时，这是一个可能的值。
+//      IPPROTO_ICMPV6  58      Internet 控制消息协议版本 6 (ICMPv6)。当 af 参数为 AF_UNSPEC、AF_INET
+//                              或 AF_INET6 且类型参数为 SOCK_RAW 或未指定时，这是一个可能的值。此协议值
+//                              支持 Windows XP 及更高版本。
+//      IPPROTO_RM      113     可靠多播的 PGM 协议。当 af 参数为 AF_INET 且类型参数为 SOCK_RDM 时，这是
+//                              一个可能的值。在为 Windows Vista 及更高版本发布的 Windows SDK 中，此协议
+//                              也称为 IPPROTO_PGM。仅当安装了可靠多播协议时才支持此协议值。
+//
+// 参数 lpProtocolInfo 指向 WSAPROTOCOL_INFO 结构，该结构定义了要创建的套接字的特性。如果此参数不为 NULL，
+// 则套接字将绑定到与指示的 WSAPROTOCOL_INFO 结构关联的提供程序。
+//
+// 参数 g 现有的套接字组 ID 或在创建新套接字和新套接字组时要采取的适当操作。如果 g 是
+// 现有的套接字组 ID，则在满足该组设置的所有要求的前提下，将新套接字加入此套接字组。如果
+// g 不是现有的套接字组 ID，则可能的值如下。
+//      0                               不执行组操作。
+//      SG_UNCONSTRAINED_GROUP  0x01    创建一个无约束的套接字组，并使新套接字成为第一个成员。对于无约束组，
+//                                      Winsock 不限制套接字组中的所有套接字必须使用相同的类型和协议参数
+//                                      创建。
+//      SG_CONSTRAINED_GROUP    0x02    创建一个有约束的套接字组，并使新套接字成为第一个成员。对于有约束的
+//                                      套接字组，Winsock 限制套接字组中的所有套接字必须使用相同的类型和
+//                                      协议参数创建。有约束的套接字组只能由面向连接的套接字组成，并且要求
+//                                      所有组内套接字的连接都必须是同一主机上的同一地址。
+//
+// 注意 SG_UNCONSTRAINED_GROUP 和 SG_CONSTRAINED_GROUP 常量目前未在公共头文件中定义。
+//
+// 参数 dwFlags 用于指定附加套接字属性的一组标志。可以设置这些标志的组合如下，尽管某些
+// 组合是不允许的。
+//      WSA_FLAG_OVERLAPPED                 0x01    创建支持重叠 I/O 操作的套接字。大多数套接字都应该设置此标志创建。重叠套接字
+//                                                  可以使用 WSASend、WSASendTo、WSARecv、WSARecvFrom 和 WSAIoctl 进行重叠
+//                                                  I/O 操作，从而允许同时启动并进行多个操作。所有允许重叠操作的函数（WSASend、
+//                                                  WSARecv、WSASendTo、WSARecvFrom、WSAIoctl）也支持在重叠套接字上使用非重
+//                                                  叠模式，只要与重叠操作相关的参数值为 NULL 即可。
+//      WSA_FLAG_MULTIPOINT_C_ROOT          0x02    创建一个多点会话中的 c_root 套接字。仅当创建套接字的传输提供程序的 WSAPROTOCOL_INFO
+//                                                  结构支持多点或组播机制，并且多点会话的控制平面是根控的时，才允许此属性。这
+//                                                  通过 WSAPROTOCOL_INFO 结构的 dwServiceFlags1 成员设置 XP1_SUPPORT_MULTIPOINT
+//                                                  和 XP1_MULTIPOINT_CONTROL_PLANE 标志来指示。
+//      WSA_FLAG_MULTIPOINT_C_LEAF          0x04    创建一个多点会话中的 c_leaf 套接字。仅当创建套接字的传输提供程序的 WSAPROTOCOL_INFO
+//                                                  结构支持多点或组播机制，并且多点会话的控制平面是非根控的时，才允许此属性。
+//                                                  这通过 WSAPROTOCOL_INFO 结构的 dwServiceFlags1 成员设置 XP1_SUPPORT_MULTIPOINT
+//                                                  标志且未设置 XP1_MULTIPOINT_CONTROL_PLANE 标志来指示。
+//      WSA_FLAG_MULTIPOINT_D_ROOT          0x08    创建一个多点会话中的 d_root 套接字。仅当创建套接字的传输提供程序的 WSAPROTOCOL_INFO
+//                                                  结构支持多点或组播机制，并且多点会话的数据平面是根控的时，才允许此属性。这
+//                                                  通过 WSAPROTOCOL_INFO 结构的 dwServiceFlags1 成员设置 XP1_SUPPORT_MULTIPOINT
+//                                                  和 XP1_MULTIPOINT_DATA_PLANE 标志来指示。
+//      WSA_FLAG_MULTIPOINT_D_LEAF          0x10    创建一个多点会话中的 d_leaf 套接字。仅当创建套接字的传输提供程序的 WSAPROTOCOL_INFO
+//                                                  结构支持多点或组播机制，并且多点会话的数据平面是非根控的时，才允许此属性。这
+//                                                  通过 WSAPROTOCOL_INFO 结构的 dwServiceFlags1 成员设置 XP1_SUPPORT_MULTIPOINT
+//                                                  标志且未设置 XP1_MULTIPOINT_DATA_PLANE 标志来指示。
+//      WSA_FLAG_ACCESS_SYSTEM_SECURITY     0x40    创建一个允许在套接字的安全描述符上设置包含系统访问控制列表 (SACL) 的安全描
+//                                                  述符的套接字，而不仅仅是自由访问控制列表 (DACL)。SACL 用于在对对象进行访问
+//                                                  检查时生成审核和警报。对于套接字，访问检查用于确定套接字是否允许绑定到 bind
+//                                                  函数指定的特定地址。ACCESS_SYSTEM_SECURITY 访问权限控制获取或设置对象安全
+//                                                  描述符中 SACL 的能力。系统仅在请求线程的访问令牌中启用了 SE_SECURITY_NAME
+//                                                  特权时才授予此访问权限。
+//      WSA_FLAG_NO_HANDLE_INHERIT          0x80    创建一个不可继承的套接字。由 WSASocket 或 socket 函数创建的套接字句柄默认
+//                                                  是可继承的。设置此标志时，套接字句柄将不可继承。可以使用 GetHandleInformation
+//                                                  函数确定套接字句柄是否是使用 WSA_FLAG_NO_HANDLE_INHERIT 标志创建的。GetHandleInformation
+//                                                  函数将返回对应的 HANDLE_FLAG_INHERIT 标志值。此标志支持 Windows 7 SP1、
+//                                                  Windows Server 2008 R2 SP1 及更高版本。
+//
+// 重要提示：对于多点会话套接字，只能指定 WSA_FLAG_MULTIPOINT_C_ROOT 或 WSA_FLAG_MULTIPOINT_C_LEAF
+// 中的一个标志，以及 WSA_FLAG_MULTIPOINT_D_ROOT 或 WSA_FLAG_MULTIPOINT_D_LEAF 中
+// 的一个标志。有关多点会话的更多信息，请参阅多点和组播语义。
+//
+// WSASocket 函数会导致套接字描述符及相关资源被分配并绑定到传输服务提供程序。大多数套接
+// 字都应该在 dwFlags 参数中设置 WSA_FLAG_OVERLAPPED 属性创建。使用此属性创建的套接字
+// 支持重叠 I/O 操作，从而提供更高的性能。默认情况下，使用 WSASocket 函数创建的套接字不
+// 会设置此重叠属性。相比之下，socket 函数创建的套接字默认支持重叠 I/O 操作。
+//
+// 如果 lpProtocolInfo 参数为 NULL，Winsock 将使用第一个支持在 af、type 和 protocol
+// 参数中指定的地址族、套接字类型和协议组合的可用传输服务提供程序。
+//
+// 如果 lpProtocolInfo 参数不为 NULL，则套接字将绑定到与指定的 WSAPROTOCOL_INFO 结构
+// 关联的提供程序。在这种情况下，应用程序可以将 af、type 或 protocol 参数中的任意一个
+// 的值指定为 FROM_PROTOCOL_INFO 表示常量。这表示应使用指定的 WSAPROTOCOL_INFO 结构
+// 中的相应值（iAddressFamily、iSocketType、iProtocol）。在任何情况下，af、type 和
+// protocol 的指定值都会未经修改地传递给传输服务提供程序。
+//
+// 当根据 af、type 和 protocol 选择协议及其支持的服务提供程序时，此过程只会选择一个基
+// 础协议或一个协议链（a protocol chain），而不是一个单独的协议层自己（a protocol
+// layer）。未链接的协议层（unchained protocol layers）也不会被视为部分匹配 type 或
+// af。也就是说，如果找不到合适的协议，它们不会导致 WSAEAFNOSUPPORT 或 WSAEPROTONOSUPPORT
+// 错误代码。注意，虽然在头文件中仍然定义了 AF_UNSPEC 表示常量，但强烈不建议使用它，因
+// 为它可能导致协议参数值的解释产生歧义。
+//
+// 鼓励应用程序使用 AF_INET6 作为 af 参数，并创建一个可以用于 IPv4 和 IPv6 的双模套接
+// 字。
+//
+// 如果使用 WSASocket 函数创建套接字，则 dwFlags 参数必须设置 WSA_FLAG_OVERLAPPED
+// 属性，以便 SO_RCVTIMEO 或 SO_SNDTIMEO 套接字选项能够正常工作。否则，超时将永远不会
+// 在套接字上生效。
+//
+// 面向连接的套接字（如 SOCK_STREAM）提供全双工连接，并且必须在能够通过它们发送或接收
+// 任何数据之前处于已连接状态。通过调用 connect 或 WSAConnect 函数建立与指定套接字的
+// 连接。连接后，可以使用 send/WSASend 和 recv/WSARecv 调用传输数据。完成会话后，应
+// 调用 closesocket 函数释放与套接字关联的资源。对于面向连接的套接字，在调用 closesocket
+// 函数之前，应调用 shutdown 函数停止套接字上的数据传输。
+//
+// 用于实现可靠、面向连接的套接字的通信协议确保数据不会丢失或重复。如果对等协议无法在合
+// 理的时间内成功传输数据，则认为连接已断开，随后的调用将因超时而失败，错误代码设置为
+// WSAETIMEDOUT。
+//
+// 无连接的、面向消息的套接字允许使用 sendto/WSASendTo 和 recvfrom/WSARecvFrom 向任
+// 意对等方发送和接收数据报。如果此类套接字连接到特定对等方，则可以使用 send/WSASend
+// 向该对等方发送数据报，并且可以使用 recv/WSARecv 从（仅）该对等方接收数据报。
+//
+// 不要求支持类型为 SOCK_RAW 的套接字，但鼓励服务提供程序尽可能支持原始套接字。
+//
+// 可以使用 WSASocket 函数创建一个用于服务的套接字，以便如果另一个套接字尝试绑定到服务
+// 使用的同一端口，则会生成审核记录。要启用此选项，应用程序需要执行以下操作：
+//  1.  调用 AdjustTokenPrivileges 函数以在进程的访问令牌中启用 SE_SECURITY_NAME 特
+//      权。此特权是设置对象安全描述符上 ACCESS_SYSTEM_SECURITY 访问权限所必需的。
+//  2.  调用 WSASocket 函数创建一个设置了 WSA_FLAG_ACCESS_SYSTEM_SECURITY 选项的套
+//      接字。如果未先调用 AdjustTokenPrivileges 函数以启用此操作所需的 SE_SECURITY_NAME
+//      特权，则 WSASocket 函数将失败。
+//  3.  调用 SetSecurityInfo 函数在套接字上设置带有系统访问控制列表 (SACL) 的安全描述
+//      符。由 WSASocket 函数返回的套接字句柄将作为 handle 参数传递。如果函数成功，则
+//      会在套接字的安全描述符上设置 ACCESS_SYSTEM_SECURITY 访问权限。
+//  4.  调用 bind 函数将套接字绑定到特定端口。如果 bind 函数成功，则当另一个套接字尝试
+//      绑定到同一端口时，将生成审核记录。
+//  5.  调用 AdjustTokenPrivileges 函数从进程的访问令牌中移除 SE_SECURITY_NAME 特权，
+//      因为不再需要此特权。
+//
+// 有关 ACCESS_SYSTEM_SECURITY 的更多信息，请参阅授权文档中的 SACL 访问权限和审核生成。
+//
+// WinSock 2 引入了套接字组的概念，允许应用程序或一组协作应用程序，向底层服务提供程序
+// 表明特定的一组套接字是相关的，并且由此形成的组具有某些属性。组属性包括组内各个套接字
+// 的相对优先级以及组服务质量规范。需要通过网络交换多媒体流的应用程序是能够建立一组套接
+// 字之间特定关系的典型示例。传输层如何处理套接字组由传输本身决定。
+//
+// 可以使用 WSASocket 和 WSAAccept 函数在创建新套接字时显式创建并加入套接字组。可以通
+// 过使用 getsockopt 函数（将级别参数设置为 SOL_SOCKET，将 optname 参数设置为 SO_GROUP_ID）
+// 检索套接字的套接字组 ID。套接字组及其关联的套接字组 ID 一直有效，直到属于该套接字组
+// 的最后一个套接字关闭。套接字组 ID 对于给定服务提供程序的所有进程都是唯一的。套接字组
+// ID 为零表示套接字不属于任何套接字组。
+//
+// 可以通过使用 getsockopt 函数（将级别参数设置为 SOL_SOCKET，将 optname 参数设置为
+// SO_GROUP_PRIORITY）访问套接字组的相对组优先级。可以通过使用 setsockopt 函数（将级
+// 别参数设置为 SOL_SOCKET，将 optname 参数设置为 SO_GROUP_PRIORITY）设置套接字组的
+// 相对组优先级。
+//
+// 随 Windows 提供的 Winsock 提供程序允许创建套接字组，并强制执行 SG_CONSTRAINED_GROUP。
+// 属于有约束套接字组的所有套接字必须使用相同的类型和协议参数创建。有约束套接字组只能由
+// 面向连接的套接字组成，并且要求所有组内套接字的连接都必须是同一主机上的同一地址。这是
+// 随 Windows 提供的 Winsock 提供程序对套接字组应用的唯一限制。套接字组优先级目前未被
+// 随 Windows 提供的 Winsock 提供程序或 TCP/IP 栈使用。
+//
+// 注意 winsock2.h 头文件将 WSASocket 定义为一个别名，该别名会根据 UNICODE 预处理器
+// 常量的定义自动选择 ANSI 或 Unicode 版本的函数。将编码中立的别名与非编码中立的代码
+// 混合使用可能会导致不匹配，从而引发编译时或运行时错误。
+
+prh_handle prh_impl_create_tcp_socket(int family) {
+    SOCKET sock = WSASocket(family, SOCK_STREAM, IPPROTO_TCP, prh_null, 0, WSA_FLAG_OVERLAPPED
+#if defined(WSA_FLAG_NO_HANDLE_INHERIT)
+        | WSA_FLAG_NO_HANDLE_INHERIT
+#endif
+        );
+    prh_wsa_abort_if(sock == INVALID_SOCKET);
+    return (prh_handle)sock;
+}
+
+// int shutdown(SOCKET s, int how);
+//
+// shutdown 函数用于禁用套接字上的发送或接收操作。
+//      SD_RECEIVE  0   禁用接收操作
+//      SD_SEND     1   禁用发送操作
+//      SD_BOTH     2   禁用发送和接收操作
+//
+// 如果没有错误发生，shutdown 返回零。否则，返回值为 SOCKET_ERROR，可以通过调用 WSAGetLastError
+// 获取特定的错误代码。
+//      WSAECONNABORTED     虚拟电路因超时或其他故障而终止。应用程序应关闭套接字，因为它已不再可用。此错误
+//                          仅适用于面向连接的套接字。
+//      WSAECONNRESET       虚拟电路被远程方通过执行硬关闭或强制关闭而重置。应用程序应关闭套接字，因为它已
+//                          不再可用。此错误仅适用于面向连接的套接字。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINVAL           how 参数无效，或者与套接字类型不一致。例如，使用 UNI_RECV 套接字类型时使用了
+//                          SD_SEND。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAENOTCONN         套接字未连接。此错误仅适用于面向连接的套接字。
+//      WSAENOTSOCK         注意：描述符不是套接字。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//
+// shutdown 函数可用于所有类型的套接字，以禁用接收、发送或都禁止。如果 how 参数为 SD_RECEIVE，
+// 后续对该套接字的 recv 函数调用将被禁止。这不会影响底层协议层。对于 TCP 套接字，如果
+// 套接字上仍有排队等待接收的数据，或者后续有数据到达，连接将被重置，因为数据无法传递给
+// 用户。对于 UDP 套接字，传入的数据报将被接受并排队。在任何情况下，都不会生成 ICMP 错
+// 误数据包。
+//
+// 如果 how 参数为 SD_SEND，后续对该套接字的 send 函数调用将被禁止。对于 TCP 套接字，
+// 在所有数据发送并被接收方确认后，将发送 FIN。将 how 设置为 SD_BOTH 会禁用发送和接收，
+// 如上所述。
+//
+// shutdown 函数不会关闭套接字。除非调用 closesocket，否则与套接字关联的任何资源都不会
+// 被释放。为了确保在关闭连接之前，已连接的套接字上的所有数据都已发送和接收，应用程序应
+// 在调用 closesocket 之前使用 shutdown 关闭连接。一种等待远程端发送所有数据并启动优雅
+// 断开连接的方法是使用 WSAEventSelect 函数，如下所示：
+//  1.  调用 WSAEventSelect 注册 FD_CLOSE 通知。
+//  2.  调用 shutdown，将 how 设置为 SD_SEND。
+//  3.  当收到 FD_CLOSE 时，调用 recv 或 WSARecv，直到函数成功完成并指示已接收零字节。
+//      如果返回 SOCKET_ERROR，则无法实现优雅断开连接。
+//  4.  调用 closesocket。
+//
+// 另一种等待远程端发送所有数据并启动优雅断开连接的方法是使用重叠接收调用，如下所示：
+//  1.  调用 shutdown，将 how 设置为 SD_SEND。
+//  2.  调用 recv 或 WSARecv，直到函数成功完成并指示已接收零字节。如果返回 SOCKET_ERROR，
+//      则无法实现优雅断开连接。
+//  3.  调用 closesocket。
+//
+// 注意 无论套接字上的 SO_LINGER 设置如何，shutdown 函数都不会阻塞。有关更多信息，请参
+// 阅“优雅关闭、逗留选项和套接字关闭”部分。https://learn.microsoft.com/en-us/windows/desktop/WinSock/graceful-shutdown-linger-options-and-socket-closure-2
+//
+// 一旦调用 shutdown 函数禁用了发送、接收或两种都禁止，就无法重新启用现有套接字连接上的
+// 发送或接收。应用程序不应依赖在关闭后重用套接字。特别是，Windows 套接字提供程序没强制
+// 要求必须支持在已关闭（shut down）的套接字上使用 connect。
+//
+// 如果应用程序希望重用套接字，则应调用 DisconnectEx 函数，并将 dwFlags 参数设置为 TF_REUSE_SOCKET，
+// 以关闭套接字上的连接并准备套接字句柄以供重用。当 DisconnectEx 请求完成时，可以将套接
+// 字句柄传递给 AcceptEx 或 ConnectEx 函数。
+//
+// 如果应用程序希望重用套接字，可以调用 TransmitFile 或 TransmitPackets 函数，并将 dwFlags
+// 参数设置为 TF_DISCONNECT 和 TF_REUSE_SOCKET，以在所有数据排队传输完成后断开连接并
+// 准备套接字句柄以供重用。当 TransmitFile 请求完成时，可以将套接字句柄传递给之前用于
+// 建立连接的函数调用，例如 AcceptEx 或 ConnectEx。当 TransmitPackets 函数完成时，可
+// 以将套接字句柄传递给 AcceptEx 函数。
+//
+// 注意，套接字级断开连接受底层传输行为的影响。例如，TCP 套接字可能会受到 TCP TIME_WAIT
+// 状态的影响，导致 DisconnectEx、TransmitFile 或 TransmitPackets 调用被延迟。在发出
+// 阻塞的 Winsock 调用（如 shutdown）时，Winsock 可能需要等待网络事件才能完成调用。在
+// 这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步过程调用（APC）
+// 中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个阻塞 Winsock
+// 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
+
+void prh_sock_shut_read(prh_handle sock) {
+    int n = shutdown((SOCKET)sock, SD_RECEIVE);
+    prh_wsa_prerr_if(n != 0);
+}
+
+void prh_sock_shut_write(prh_handle sock) {
+    int n = shutdown((SOCKET)sock, SD_SEND);
+    prh_wsa_prerr_if(n != 0);
+}
+
+void prh_sock_shut_read_write(prh_handle sock) {
+    int n = shutdown((SOCKET)sock, SD_BOTH);
+    prh_wsa_prerr_if(n != 0);
+}
+
 // int closesocket(SOCKET s);
 //
+// closesocket 函数用于关闭现有的套接字。如果未发生错误，closesocket 返回零。否则，返
+// 回值为 SOCKET_ERROR，可以通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAENOTSOCK         描述符不是套接字。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINTR            阻塞的 Windows 套接字 1.1 调用通过 WSACancelBlockingCall 被取消。
+//      WSAEWOULDBLOCK      套接字被标记为非阻塞，但 linger 结构的 l_onoff 成员设置为非零值，且 linger 结
+//                          构的 l_linger 成员设置为非零超时值。
+//
+// closesocket 函数用于关闭套接字。使用它来释放通过 s 参数传递的套接字描述符。请注意，
+// 一旦发出 closesocket 函数调用，传递给 s 参数的套接字描述符可能会立即被系统重用。因
+// 此，期望对传递给 s 参数的套接字描述符的进一步引用会因 WSAENOTSOCK 错误而失败。Winsock
+// 客户端绝不应在另一个 Winsock 函数调用的同时并发地对 s 发起 closesocket。
+//
+// 该进程中的任何线程发出的任何挂起的重叠发送和接收操作（使用重叠套接字的 WSASend/WSASendTo/
+// WSARecv/WSARecvFrom）也会被取消。为这些重叠操作指定的任何事件、完成例程或完成端口操
+// 作都将执行。挂起的重叠操作将以 WSA_OPERATION_ABORTED 错误状态失败。
+//
+// 应用程序不应假设当 closesocket 返回时，套接字上所有未完成的 I/O 操作都将保证完成。
+// closesocket 函数将启动对未完成 I/O 操作的取消，但这并不意味着当 closesocket 函数
+// 返回时，应用程序将收到这些 I/O 操作的 I/O 完成。因此，应用程序应在 I/O 请求确实完成
+// 之前，不要清理任何被未完成 I/O 请求引用的资源（例如 WSAOVERLAPPED 结构）。
+//
+// 应用程序应该对每个成功的 socket 调用都有一个匹配的 closesocket 调用，以将任何套接字
+// 资源返回给系统。
+//
+// linger 结构维护有关特定套接字的信息，指定当数据排队等待发送且对套接字调用 closesocket
+// 函数时，该套接字的行为。linger 结构的 l_onoff 成员确定在对套接字调用 closesocket
+// 函数后，套接字是否应在指定的时间内保持打开状态以发送排队的数据。可以通过两种方式修改
+// 此成员：
+//  1.  调用 setsockopt 函数，并将 optname 参数设置为 SO_DONTLINGER。optval 参数决
+//      定如何修改 l_onoff 成员。
+//  2.  调用 setsockopt 函数，并将 optname 参数设置为 SO_LINGER。optval 参数指定如
+//      何修改 l_onoff 和 l_linger 两个成员。
+//
+// linger 结构的 l_linger 成员确定套接字应保持打开状态的时间（以秒为单位）。只有当 linger
+// 结构的 l_onoff 成员非零时，此成员才适用。套接字的默认参数是 linger 结构的 l_onoff
+// 成员为零，表示套接字不应保持打开状态。linger 结构的 l_linger 成员的默认值为零，但当
+// l_onoff 成员设置为零时，此值将被忽略。
+//
+// 要使套接字保持打开状态，应用程序应将 l_onoff 成员设置为非零值，并将 l_linger 成员设
+// 置为所需的超时时间（以秒为单位）。要禁用套接字保持打开状态，应用程序只需将 linger 结
+// 构的 l_onoff 成员设置为零。
+//
+// 如果应用程序调用 setsockopt 函数，并将 optname 参数设置为 SO_DONTLINGER 以将 l_onoff
+// 成员设置为非零值，则未指定 l_linger 成员的值。在这种情况下，使用的超时时间取决于实现。
+// 如果之前为套接字建立了超时时间（通过调用 setsockopt 函数并将 optname 参数设置为
+// SO_LINGER），服务提供程序应重新使用此超时值。
+//
+// linger 结构成员的设置影响 closesocket 函数的行为。
+//      l_onoff     l_linger    关闭类型                                        是否等待关闭完成
+//      0           任意        优雅关闭                                        否
+//      非零        0           强制关闭                                        否
+//      非零        非零        如果在 l_linger 指定的超时时间内发送所有数据，
+//                              则为优雅关闭；否则为强制关闭	                  是
+//
+// 如果流式套接字的 LINGER 结构的 l_onoff 成员为零，则 closesocket 调用将立即返回，
+// 并且无论套接字是阻塞还是非阻塞，都不会收到 WSAEWOULDBLOCK 错误。然而，如果可能，将
+// 在关闭底层套接字之前发送排队等待传输的数据。这称为优雅断开连接或关闭。在这种情况下，
+// Windows 套接字提供程序无法在任意时间内释放套接字和其他资源，从而影响期望使用所有可用
+// 套接字的应用程序。这是套接字的默认行为。
+//
+// 如果 linger 结构的 l_onoff 成员非零且 l_linger 成员为零，则即使排队的数据尚未发送
+// 或确认，closesocket 也不会阻塞。这称为强制关闭或强制关闭，因为套接字的虚拟电路将立
+// 即重置，任何未发送的数据都将丢失。在 Windows 上，电路远程端的任何 recv 调用都将因
+// WSAECONNRESET 错误而失败。
+//
+// 如果在阻塞套接字上将 linger 结构的 l_onoff 成员设置为非零，并且 l_linger 成员设置
+// 为非零超时时间，则 closesocket 调用将阻塞，直到所有数据发送完毕或超时到期。如果在
+// l_linger 成员指定的超时时间内发送了所有数据，则称为优雅关闭；如果超时到期前未发送所
+// 有数据，则 Windows 套接字实现将在 closesocket 返回之前终止连接，这称为强制关闭。
+//
+// 不建议在非阻塞套接字上将 linger 结构的 l_onoff 成员设置为非零，并将 l_linger 成员
+// 设置为非零超时时间。在这种情况下，如果无法立即完成关闭操作，则 closesocket 调用将因
+// WSAEWOULDBLOCK 错误而失败。如果 closesocket 因 WSAEWOULDBLOCK 错误失败，则套接字
+// 句柄仍然有效，并且不会启动断开连接。应用程序必须再次调用 closesocket 来关闭套接字。
+//
+// 如果在阻塞套接字上将 linger 结构的 l_onoff 成员设置为非零，并且 l_linger 成员设置
+// 为非零超时时间，则无法使用 closesocket 函数的结果来确定是否已将所有数据发送到对等方。
+// 如果在 l_linger 成员指定的超时时间内发送了数据，或者连接被中止，则 closesocket 函数
+// 不会返回错误代码（closesocket 函数的返回值为零）。
+//
+// closesocket 调用将仅阻塞，直到所有数据已传递给对等方或超时到期。如果因超时到期而重置
+// 连接，则套接字不会进入 TIME_WAIT 状态。如果在超时时间内发送了所有数据，则套接字可能
+// 会进入 TIME_WAIT 状态。
+//
+// 如果在阻塞套接字上将 linger 结构的 l_onoff 成员设置为非零，并且 l_linger 成员设置
+// 为零超时时间，则 closesocket 调用将重置连接。套接字不会进入 TIME_WAIT 状态。
+//
+// 可以通过调用 getsockopt 函数，并将 optname 参数设置为 SO_LINGER，来检索与套接字关
+// 联的 linger 结构的当前值。注意，为确保在连接上发送和接收所有数据，应用程序应在调用
+// closesocket 之前调用 shutdown（有关更多信息，请参阅优雅关闭、逗留选项和套接字关闭）。
+// 请注意，在调用 closesocket 之后，不会发布 FD_CLOSE 网络事件。
+//
+// 以下是 closesocket 行为的总结：
+//  1.  如果 LINGER 结构的 l_onoff 成员为零（套接字的默认值），则 closesocket 立即
+//      返回，连接将在后台优雅关闭。
+//  2.  如果将 linger 结构的 l_onoff 成员设置为非零值，并且 l_linger 成员设置为零
+//      （无超时），则 closesocket 立即返回，连接将被重置或终止。
+//  3.  如果将 linger 结构的 l_onoff 成员设置为非零值，并且 l_linger 成员设置为非零
+//      超时时间：对于阻塞套接字，closesocket 将阻塞直到所有数据发送完毕或超时到期；
+//      对于非阻塞套接字，closesocket 立即返回，表示失败。
+//
+// 有关更多信息，请参阅优雅关闭、逗留选项和套接字关闭。
+// https://learn.microsoft.com/en-us/windows/desktop/WinSock/graceful-shutdown-linger-options-and-socket-closure-2
+//
+// 注意 在发出阻塞的 Winsock 调用（如 closesocket）时，Winsock 可能需要等待网络事件
+// 才能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步
+// 过程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一
+// 个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
+
+prh_inline void prh_impl_close_socket(prh_handle sock) {
+    prh_wsa_prerr_if(closesocket((SOCKET)sock));
+}
+
 // unsigned long inet_addr(const char *ip);
 // char *inet_ntoa(struct in_addr in);
 // getaddrinfo
@@ -15805,7 +16262,6 @@ void prh_impl_wsasocket_startup(void) {
 // int connect(SOCKET s, const struct sockaddr *name, int namelen);
 // WSAConnect()
 // ConnectEx()
-// int shutdown(SOCKET s, int how);
 // DisconnectEx
 //
 // int send(SOCKET s, const char *buf, int len, int flags);
@@ -15824,6 +16280,12 @@ void prh_impl_wsasocket_startup(void) {
 // TransmitPackets
 // WSARecvMsg
 
+#ifdef PRH_TEST_IMPLEMENTATION
+void prh_impl_sock_test(void) {
+    printf("SOCKET %d-byte\n", (int)sizeof(SOCKET));
+    printf("INVALID_SOCKET %d\n", INVALID_SOCKET);
+}
+#endif // PRH_TEST_IMPLEMENTATION
 #else // POSIX begin
 // RFC 791 - Internet Protocol, J. Postel (ed.), 1981
 // RFC 950 - Internet Standard Subnetting Procedure, J. Mogul J. Postel, 1985
@@ -16292,24 +16754,6 @@ void prh_impl_wsasocket_startup(void) {
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-int prh_raw_socket(void) {
-    int raw_socket = socket(AF_INET, SOCK_RAW | SOCK_CLOEXEC | SOCK_NONBLOCK, IPPROTO_RAW);
-    assert(raw_socket >= 0);
-    return raw_socket;
-}
-
-int prh_tcp_socket(void) {
-    int tcp_socket = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-    assert(tcp_socket >= 0);
-    return tcp_socket;
-}
-
-int prh_udp_socket(void) {
-    int udp_socket = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
-    assert(udp_socket >= 0);
-    return udp_socket;
-}
-
 // #include <sys/socket.h>
 // int shutdown(int sockfd, int how);
 // shutdown() 调用会关闭与 sockfd 关联的套接字上的全双工连接的全部或部分。SHUT_RD 之后
@@ -16322,7 +16766,8 @@ void prh_sock_shut_read(int sofd) {
     // 域（UNIX domain）流式套接字上执行 SHUT_RD 操作后，对端应用程序将接收到 SIGPIPE
     // 信号，如果继续尝试在对端套接字上做写操作将产生 EPIPE 错误。SHUT_RD 对于 TCP 套
     // 接字来说没有什么意义。
-    prh_zeroret(shutdown(sofd, SHUT_RD));
+    int n = shutdown(sofd, SHUT_RD);
+    prh_preno_if(n != 0);
 }
 
 void prh_sock_shut_write(int sofd) {
@@ -16331,7 +16776,8 @@ void prh_sock_shut_write(int sofd) {
     // 发来的数据的同时，通知对方自己的写入端已经关闭，对方可以通过读取到文件尾来完成所有
     // 的文件读取。在 shutdown() 中最常用到的操作就是 SHUT_WR，有时候也被称为半关闭套
     // 接字。
-    prh_zeroret(shutdown(sofd, SHUT_WR));
+    int n = shutdown(sofd, SHUT_WR);
+    prh_preno_if(n != 0);
 }
 
 void prh_sock_shut_read_write(int sofd) {
@@ -16346,7 +16792,8 @@ void prh_sock_shut_read_write(int sofd) {
     // 进程在描述符的副本上执行一次 SHUT_RDWR 操作，那么其他进程就无法再再这个文件描述符
     // 执行 I/O 操作了。**需要注意的是**，shutdown() 并不会关闭文件描述符，就是参数指定
     // 为 SHUT_RDWR 时也一样，要关闭文件标书费，我们必须另外调用 close()。
-    prh_zeroret(shutdown(sofd, SHUT_RDWR));
+    int n = shutdown(sofd, SHUT_RDWR);
+    prh_preno_if(n != 0);
 }
 
 // #include <unistd.h>
@@ -16400,8 +16847,13 @@ void prh_sock_shut_read_write(int sofd) {
 // 实现行为上的这种差异为可移植应用程序带来了难题，因为在许多实现上，EINTR 错误后绝不能
 // 再次调用 close()，而在至少一种实现上必须再次调用。POSIX.1 下一次主要发布计划解决这一
 // 困境。
-prh_inline void prh_impl_close_fd(int fd) {
-    prh_preno_if(close(fd));
+
+prh_inline void prh_impl_close_handle(prh_handle fd) {
+    prh_preno_if(close((int)fd));
+}
+
+prh_inline void prh_impl_close_socket(prh_handle sock) {
+    prh_preno_if(close((int)sock));
 }
 
 // 域名系统（DNS）维护域名和IP地址之间的映射关系，在 DNS 出现以前，主机名和IP地址之间的
@@ -17382,7 +17834,7 @@ void prh_sock_tcp_reset(prh_handle sockfd) {
     // 设置 SO_LINGER 超时为 0，告诉内核“不等缓冲区，立刻 RST”。把 SO_LINGER 设为 {1, 0} 再 close()，即可让内核发送 RST，强制终止 TCP 连接。
     struct linger l = { .l_onoff = 1, .l_linger = 0 };
     prh_zeroret_or_errno(setsockopt((int)sockfd, SOL_SOCKET, SO_LINGER, &l, sizeof(l)));
-    prh_impl_close_fd((int)sockfd);
+    prh_impl_close_socket(sockfd);
 }
 
 bool prh_impl_is_ipv4_str(const char *host) {
@@ -17514,7 +17966,7 @@ label_continue:
     } else {
         tcp->sock = PRH_INVASOCK;
         prh_impl_tcp_connect_error(tcp, errno);
-        prh_impl_close_fd(sock);
+        prh_impl_close_socket(sock);
     }
 }
 
@@ -17663,7 +18115,7 @@ bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (conn_sock >= 0) {
         if (errno) { // 新连接套接字出现网络错误
-            prh_impl_close_fd(conn_sock);
+            prh_impl_close_socket(conn_sock);
             conn_sock = PRH_INVASOCK;
         } else {
             memset(new_connection, 0, sizeof(prh_tcpsocket));
@@ -17812,6 +18264,7 @@ label_continue:
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <limits.h>
 void prh_impl_sock_test(void) {
+    printf("sa_family_t %d-byte\n", sizeof(sa_family_t));
 #ifdef INET_ADDRSTRLEN
     printf("INET_ADDRSTRLEN %d\n", INET_ADDRSTRLEN);
 #endif
