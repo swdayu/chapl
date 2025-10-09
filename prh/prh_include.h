@@ -15405,8 +15405,21 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
 #define PRH_ENOTSUPP    0xE5
 #define PRH_ENAMERES    0xE6
 
+#define PRH_NET_IPV4 0
+#define PRH_NET_IPV6 1
+#define PRH_TCP 0
+#define PRH_UDP 1
+
 typedef prh_ptr prh_handle;
 typedef struct prh_epoll_port prh_epoll_port;
+
+typedef struct {
+    prh_u08 family;
+    prh_u08 protocol;
+    prh_u16 port;
+    prh_u32 addr;
+    prh_u32 addr_[3];
+} prh_sockaddr;
 
 typedef struct {
     prh_handle sock;
@@ -16638,11 +16651,259 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
     prh_wsa_prerr_if(n != 0);
 }
 
-// SOCKET accept(SOCKET s, struct sockaddr *addr, int *addrlen);
-// WSAAccept()
-// AcceptEx()
-// GetAcceptExSockaddrs()
+// 注意必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 AcceptEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_ACCEPTEX，
+// 这是一个全局唯一标识符（GUID），其值标识 AcceptEx 扩展函数。成功时，WSAIoctl 函数
+// 返回的输出包含指向 AcceptEx 函数的指针。WSAID_ACCEPTEX GUID 在 Mswsock.h 头文件中
+// 定义。
 //
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 GetAcceptExSockaddrs 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区
+// 必须包含 WSAID_GETACCEPTEXSOCKADDRS，这是一个全局唯一标识符（GUID），其值标识
+// GetAcceptExSockaddrs 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 GetAcceptExSockaddrs
+// 函数的指针。WSAID_GETACCEPTEXSOCKADDRS GUID 在 Mswsock.h 头文件中定义。
+#include <mswsock.h>
+static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
+static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
+
+void *prh_impl_wsasocket_load_func(SOCKET s, GUID guid) {
+    void *func;
+    if (WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(GUID),
+        &func, sizeof(void *), &bytes, prh_null, prh_null) == 0) {
+        return func;
+    }
+    return prh_null;
+}
+
+void prh_impl_mswsock_funcs(SOCKET s) {
+    PRH_IMPL_ACCEPTEX = prh_impl_wsasocket_load_func(s, WSAID_ACCEPTEX);
+    prh_wsa_abort_if(PRH_IMPL_ACCEPTEX == prh_null);
+    PRH_IMPL_GETACCEPTEXSOCKADDRS = prh_impl_wsasocket_load_func(s, WSAID_GETACCEPTEXSOCKADDRS);
+    prh_wsa_abort_if(PRH_IMPL_GETACCEPTEXSOCKADDRS == prh_null);
+}
+
+// #include <winsock2.h> // ws2_32.lib ws2_32.dll
+// SOCKET accept(SOCKET s, struct sockaddr *addr, int *addrlen);
+// SOCKET WSAAPI WSAAccept(
+//      [in]      SOCKET          s,
+//      [out]     sockaddr        *addr,
+//      [in, out] LPINT           addrlen,
+//      [in]      LPCONDITIONPROC lpfnCondition,
+//      [in]      DWORD_PTR       dwCallbackData
+// );
+//
+// #include <mswsock.h> // mswsock.lib mswsock.dll
+// BOOL AcceptEx(
+//      [in]  SOCKET       sListenSocket,
+//      [in]  SOCKET       sAcceptSocket,
+//      [in]  PVOID        lpOutputBuffer,
+//      [in]  DWORD        dwReceiveDataLength,
+//      [in]  DWORD        dwLocalAddressLength,
+//      [in]  DWORD        dwRemoteAddressLength,
+//      [out] LPDWORD      lpdwBytesReceived,
+//      [in]  LPOVERLAPPED lpOverlapped
+// );
+//
+// AcceptEx 函数接受新的连接，返回本地和远程地址，并接收客户端应用程序发送的第一个数据
+// 块。注意，该函数是 Microsoft 对 Windows 套接字规范的特定扩展。如果没有错误发生，
+// AcceptEx 函数成功完成并返回 TRUE 值。如果函数失败，AcceptEx 返回 FALSE。然后可以
+// 调用 WSAGetLastError 函数以返回扩展错误信息。如果 WSAGetLastError 返回 ERROR_IO_PENDING，
+// 则表示操作已成功启动且仍在进行中。如果错误是 WSAECONNRESET，则表示有传入连接，但随后
+// 在接受调用之前被远程对等方终止。
+//
+// 参数 sListenSocket 标识已调用 listen 函数的套接字的描述符。服务器应用程序在此套接
+// 字上等待连接。
+//
+// 参数 sAcceptSocket 标识用于接受传入连接的套接字的描述符。此套接字必须未绑定且未连接。
+//
+// 参数 lpOutputBuffer 指向缓冲区的指针，该缓冲区接收新连接上发送的第一个数据块、服务
+// 器的本地地址和客户端的远程地址。接收数据写入缓冲区的起始部分（从偏移量零开始），而地
+// 址写入缓冲区的后半部分。必须指定此参数。
+//
+// 参数 dwReceiveDataLength 表示 lpOutputBuffer 中用于实际接收数据的字节数，位于缓冲
+// 区的起始位置。此大小不应包括服务器的本地地址大小，也不应包括客户端的远程地址大小。如
+// 果 dwReceiveDataLength 为零，则接受连接不会导致接收操作。相反，AcceptEx 在连接到达
+// 时立即完成，而不等待任何数据。
+//
+// 参数 dwLocalAddressLength 为本地地址信息保留的字节数。此值必须至少比使用的传输协
+// 议的最大地址长度多 16 字节。
+//
+// 参数 dwRemoteAddressLength 为远程地址信息保留的字节数。此值必须至少比使用的传输协
+// 议的最大地址长度多 16 字节。不能为零。
+//
+// 参数 lpdwBytesReceived 指向 DWORD 的指针，用于接收实际收到的数据字节数。仅当操作同
+// 步完成时，才设置此参数。如果返回 ERROR_IO_PENDING 并稍后完成，则此 DWORD 永远不会被
+// 设置，必须从完成通知机制中获取读取的字节数。
+//
+// 参数 lpOverlapped 用于处理请求的 OVERLAPPED 结构。必须指定此参数；它不能为 NULL。
+//
+// AcceptEx 函数将多个套接字函数合并为一个 API 或内核切换。当成功时，AcceptEx 函数执行
+// 三个任务：
+//  1.  接受新的连接。
+//  2.  返回连接的本地和远程地址。
+//  3.  接收远程发送的第一个数据块。
+//
+// 使用 AcceptEx 而不是 accept 函数，可以更快地建立与套接字的连接。单个输出缓冲区接收
+// 数据、本地套接字地址（服务器）和远程套接字地址（客户端）。使用单个缓冲区可以提高性能。
+// 当使用 AcceptEx 时，必须调用 GetAcceptExSockaddrs 函数将缓冲区解析为其三个不同的
+// 部分（数据、本地套接字地址和远程套接字地址）。在 Windows XP 及更高版本中，一旦 AcceptEx
+// 函数完成并且在已接受的套接字上设置了 SO_UPDATE_ACCEPT_CONTEXT 选项，就可以使用
+// getsockname 函数检索与已接受套接字关联的本地地址。同样，可以使用 getpeername 函数
+// 检索与已接受套接字关联的远程地址。
+//
+// 本地和远程地址的缓冲区大小必须比使用的传输协议的 sockaddr 结构大小多 16 字节，因为
+// 地址以内部格式写入。例如，sockaddr_in（TCP/IP 的地址结构）的大小为 16 字节。因此，
+// 必须为本地和远程地址指定至少 32 字节的缓冲区大小。
+//
+// 与 accept 函数不同，AcceptEx 函数使用重叠 I/O。如果您的应用程序使用 AcceptEx，它
+// 可以使用相对较少的线程来服务大量客户端。与所有重叠的 Windows 函数一样，可以使用 Windows
+// 事件或完成端口作为完成通知机制。AcceptEx 函数与 accept 函数的另一个关键区别是，AcceptEx
+// 要求调用者已经拥有两个套接字：
+//  1.  一个指定用于监听的套接字。
+//  2.  一个指定用于接受连接的套接字。
+//
+// sAcceptSocket 参数必须是一个未绑定且未连接的打开套接字。GetQueuedCompletionStatus
+// 函数或 GetOverlappedResult 函数的 lpNumberOfBytesTransferred 参数指示请求中接收
+// 的字节数。当此操作成功完成时，可以传递 sAcceptSocket，但只能传递给以下函数：
+//  - ReadFile
+//  - WriteFile
+//  - send
+//  - WSASend
+//  - recv
+//  - WSARecv
+//  - TransmitFile
+//  - closesocket
+//  - setsockopt（仅用于 SO_UPDATE_ACCEPT_CONTEXT）
+//
+// 注意，如果使用 TF_DISCONNECT 和 TF_REUSE_SOCKET 标志调用 TransmitFile 函数，则指
+// 定的套接字已返回到既未绑定也未连接的状态。然后可以将套接字句柄传递给 AcceptEx 函数的
+// sAcceptSocket 参数，但不能将套接字传递给 ConnectEx 函数。
+//
+// 当 AcceptEx 函数返回时，套接字 sAcceptSocket 处于已连接套接字的默认状态。直到在套
+// 接字上设置 SO_UPDATE_ACCEPT_CONTEXT 选项后，套接字 sAcceptSocket 才继承与 sListenSocket
+// 参数关联的套接字的属性。使用 setsockopt 函数设置 SO_UPDATE_ACCEPT_CONTEXT 选项，
+// 指定 sAcceptSocket 作为套接字句柄，sListenSocket 作为选项值。
+//      // Need to #include <mswsock.h> for SO_UPDATE_ACCEPT_CONTEXT
+//      int iResult = 0;
+//      iResult = setsockopt(sAcceptSocket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT,
+//          (char *)&sListenSocket, sizeof(sListenSocket));
+//
+// 如果提供了接收缓冲区，则重叠操作不会完成，直到接受连接并读取数据。使用 getsockopt
+// 函数和 SO_CONNECT_TIME 选项检查是否已接受连接。如果已接受连接，您可以确定连接已建立
+// 多长时间。返回值是套接字已连接的秒数。如果套接字未连接，则 getsockopt 返回 0xFFFFFFFF。
+// 结合 SO_CONNECT_TIME 选项检查重叠操作是否完成的应用程序可以确定连接已接受但未接收数
+// 据。以这种方式检查连接使应用程序能够确定已建立一段时间但未接收数据的连接。建议通过关闭
+// 已接受的套接字来终止此类连接，这将强制 AcceptEx 函数调用以错误完成。
+//      INT seconds;
+//      INT bytes = sizeof(seconds);
+//      int iResult = 0;
+//      iResult = getsockopt(sAcceptSocket, SOL_SOCKET, SO_CONNECT_TIME, (char *)&seconds, (PINT)&bytes);
+//      if (iResult != NO_ERROR) {
+//          printf("getsockopt(SO_CONNECT_TIME) failed: %u\n", WSAGetLastError());
+//          exit(1);
+//      }
+//
+// 注意，当给定线程退出时，该线程启动的所有 I/O 都将被取消。对于重叠套接字，如果在线程
+// 关闭之前操作未完成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
+//
+// 关于 QoS 的注意事项，TransmitFile 函数允许设置两个标志，TF_DISCONNECT 或 TF_REUSE_SOCKET，
+// 在文件传输完成后将套接字返回到“未连接，可重用”状态。不应在请求了服务质量的套接字上使
+// 用这些标志，因为服务提供程序可能会在文件传输完成之前立即删除与套接字关联的任何服务质
+// 量。对于启用了 QoS 的套接字，最好的方法是在文件传输完成后简单地调用 closesocket 函
+// 数，而不是依赖这些标志。
+//
+// VOID GetAcceptExSockaddrs(
+//      [in]  PVOID    lpOutputBuffer,
+//      [in]  DWORD    dwReceiveDataLength,
+//      [in]  DWORD    dwLocalAddressLength,
+//      [in]  DWORD    dwRemoteAddressLength,
+//      [out] sockaddr **LocalSockaddr,
+//      [out] LPINT    LocalSockaddrLength,
+//      [out] sockaddr **RemoteSockaddr,
+//      [out] LPINT    RemoteSockaddrLength
+// );
+//
+// GetAcceptExSockaddrs 函数解析从 AcceptEx 函数调用中获得的数据，并将本地和远程地址
+// 传递给 sockaddr 结构。注意该函数是 Microsoft 对 Windows 套接字规范的特定扩展。
+//
+// 参数 lpOutputBuffer 指向从 AcceptEx 调用返回的连接上发送的第一个数据块的缓冲区的
+// 指针。必须与传递给 AcceptEx 函数的 lpOutputBuffer 参数相同。
+//
+// 参数 dwReceiveDataLength 用于接收第一个数据的缓冲区中的字节数。此值必须等于传递给
+// AcceptEx 函数的 dwReceiveDataLength 参数。
+//
+// 参数 dwLocalAddressLength 为本地地址信息保留的字节数。此值必须等于传递给 AcceptEx
+// 函数的 dwLocalAddressLength 参数。
+//
+// 参数 dwRemoteAddressLength 为远程地址信息保留的字节数。此值必须等于传递给 AcceptEx
+// 函数的 dwRemoteAddressLength 参数。
+//
+// 参数 LocalSockaddr 指向 sockaddr 结构的指针，该结构接收连接的本地地址（与 getsockname
+// 函数返回的信息相同）。必须指定此参数。
+//
+// 参数 LocalSockaddrLength 本地地址的大小，以字节为单位。必须指定此参数。
+//
+// 参数 RemoteSockaddr 指向 sockaddr 结构的指针，该结构接收连接的远程地址（与 getpeername
+// 函数返回的信息相同）。必须指定此参数。
+//
+// 参数 RemoteSockaddrLength 远程地址的大小，以字节为单位。必须指定此参数。
+//
+// GetAcceptExSockaddrs 函数专门与 AcceptEx 函数一起使用，用于将套接字接收到的第一个
+// 数据解析为本地和远程地址。AcceptEx 函数以内部格式返回本地和远程地址信息。如果需要包
+// 含本地或远程地址的 sockaddr 结构，应用程序开发人员需要使用 GetAcceptExSockaddrs
+// 函数。
+
+#define PRH_IMPL_ACCEPT_ADDRSIZE (int)(sizeof(struct sockaddr_in6) + 16)
+
+typedef struct {
+    OVERLAPPED overlapped; // 1st field
+    prh_handle handle;
+} prh_iocp_data;
+
+void prh_impl_get_sockaddr(struct sockaddr_in *in, prh_sockaddr *out) {
+    if (in->sim_family == AF_INET) {
+        out->family == PRH_IPV4;
+        out->port = ntohs(in->sin_port);
+        out->addr = in->sin_addr.s_addr;
+    } else {
+        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)in;
+        out->family == PRH_IPV6;
+        out->port = ntohs(in6->sin6_port);
+        memcpy(&out->addr, in6->sin6_addr.s6_addr, 16);
+    }
+}
+
+int prh_impl_sock_accept(prh_handle listen, prh_sockaddr *local, prh_sockaddr *peer, prh_iocp_data *accept) {
+    assert(peer != prh_null);
+    assert(accept != prh_null);
+    prh_byte addrbuf[PRH_IMPL_ACCEPT_ADDRSIZE * 2];
+    prh_handle newsock = prh_impl_tcp_socket(AF_INET6); // 鼓励应用程序使用 AF_INET6 创建可用于 IPv4 和 IPv6 的双模套接字
+    if (PRH_IMPL_ACCEPTEX((SOCKET)listen, (SOCKET)newsock, addrbuf, 0, PRH_IMPL_ACCEPT_ADDRSIZE, PRH_IMPL_ACCEPT_ADDRSIZE, prh_null, &accept->overlapped)) {
+        accept->handle = newsock;
+        sockaddr_in *l_addr, *p_addr;
+        INT l_addrlen = 0, p_addrlen = 0;
+        PRH_IMPL_GETACCEPTEXSOCKADDRS(addrbuf, 0, PRH_IMPL_ACCEPT_ADDRSIZE, PRH_IMPL_ACCEPT_ADDRSIZE, (sockaddr *)&l_addr, &l_addrlen, (sockaddr *)&p_addr, &p_addrlen);
+        assert(l_addrlen == sizeof(struct sockaddr_in) || l_addrlen == sizeof(struct sockaddr_in6));
+        assert(p_addrlen == sizeof(struct sockaddr_in) || p_addrlen == sizeof(struct sockaddr_in6));
+        assert(l_addr->sin_family == AF_INET || l_addr->sin_family == AF_INET6);
+        assert(p_addr->sin_family == AF_INET || p_addr->sin_family == AF_INET6);
+        prh_impl_get_sockaddr(p_addr, peer);
+        peer->protocol = PRH_TCP;
+        if (local) {
+            prh_impl_get_sockaddr(l_addr, local);
+            local->protocol = PRH_TCP;
+        }
+        return 1;
+    }
+    accept->handle = PRH_INVASOCK;
+    prh_impl_close_socket(newsock);
+    if (WSAGetLastError() == ERROR_IO_PENDING) {
+        return 0;
+    }
+    PRH_DEBUG(prh_wsa_prerr());
+    return -1;
+}
+
 // int connect(SOCKET s, const struct sockaddr *name, int namelen);
 // WSAConnect()
 // ConnectEx()
@@ -18162,6 +18423,115 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
     prh_real_zeroret_or_errno(listen(sock, backlog));
 }
 
+int prh_impl_sock_accept(int sock, struct sockaddr *in, socklen_t *addrlen) {
+    int conn_sock;
+label_continue:
+    errno = 0;
+#if defined(prh_plat_linux) || (defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK))
+    conn_sock = accept4(sock, in, addrlen, SOCK_CLOEXEC | SOCK_NONBLOCK);
+    if (errno == EINTR) goto label_continue;
+#else
+    conn_sock = accept(sock, in, addrlen);
+    if (errno == EINTR) goto label_continue;
+    if (conn_sock >= 0) {
+        prh_set_cloexec(conn_sock);
+        prh_set_nonblock(conn_sock);
+    }
+#endif
+    return conn_sock;
+}
+
+// 返回 new_connection->sock != PRH_INVASOCK 表示成功接收到一个客户新连接，另外返回
+// 值表示内核是否还有待处理的连接，返回true表示有。
+bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
+    struct sockaddr_in6 in;
+    socklen_t addrlen = listen->ipv6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
+    int conn_sock = prh_impl_sock_accept((int)listen->sock, (struct sockaddr *)&in, &addrlen);
+    assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
+    if (conn_sock >= 0) {
+        if (errno) { // 新连接套接字出现网络错误
+            prh_impl_close_socket(conn_sock);
+            conn_sock = PRH_INVASOCK;
+        } else {
+            memset(new_connection, 0, sizeof(prh_tcpsocket));
+            new_connection->ipv6 = listen->ipv6;
+            new_connection->passive = true;
+            new_connection->p_port = prh_impl_sockaddr_in(&in)->sin_port;
+            new_connection->l_port = listen->port;
+            if (listen->ipv6) {
+                memcpy(&new_connection->p_addr, in.sin6_addr.s6_addr, 16);
+                if (listen->addr_any) {
+                    prh_sock_local_addr(conn_sock, &in, addrlen); // 获取当前连接的本地地址暂存到 in，原来存的是对方地址
+                    memcpy(&new_connection->l_addr, in.sin6_addr.s6_addr, 16);
+                } else {
+                    memcpy(&new_connection->l_addr, &listen->addr, 16);
+                }
+            } else {
+                new_connection->p_addr = prh_impl_sockaddr_in(&in)->sin_addr.s_addr;
+                if (listen->addr_any) {
+                    prh_sock_local_addr(conn_sock, &in, addrlen); // 获取当前连接的本地地址暂存到 in，原来存的是对方地址
+                    new_connection->l_addr = prh_impl_sockaddr_in(&in)->sin_addr.s_addr;
+                } else {
+                    new_connection->l_addr = listen->addr;
+                }
+            }
+        }
+    } else {
+        conn_sock = PRH_INVASOCK;
+    }
+    new_connection->sock = conn_sock;
+    // 成功返回非负的已连接的套接字文件描述符，失败返回-1和errno并且addrlen没被修改。
+    // Linux accept() 和 accept4() 会把已在新 socket 上挂起的网络层错误当作错误码
+    // 直接返回。这种行为与多数 BSD 套接字实现不同。为了保证可靠运行，应用程序在
+    // accept() 之后必须检测协议所定义的这类网络错误，并像对待 EAGAIN 那样重试。对于
+    // TCP/IP，这些错误码包括：ENETDOWN、EPROTO、ENOPROTOOPT、EHOSTDOWN、ENONET、
+    // EHOSTUNREACH、EOPNOTSUPP 和 ENETUNREACH。
+    //
+    // 可能的错误码：
+    //      EAGAIN EWOULDBLOCK - 套接字被设为非阻塞（O_NONBLOCK）且当前没有待接受
+    //          的连接。POSIX.1-2001 与 POSIX.1-2008 允许两者之一返回，并且不要求
+    //          这两个宏值相同，故可移植代码应同时检查。
+    //      EBADF - sockfd 不是有效的打开文件描述符。
+    //      ECONNABORTED - 已建立的连接被对端或网络异常中止。
+    //      EFAULT - addr 指向的内存不可写。
+    //      EINTR - 系统调用在有效连接到达前被捕获的信号中断。
+    //      EINVAL - 套接字未处于监听状态，或 addrlen 无效（如为负值）。accept4()
+    //          flags 含非法位。
+    //      EMFILE - 进程级文件描述符数量达到上限。
+    //      ENFILE - 系统级文件描述符总量达到上限。
+    //      ENOBUFS / ENOMEM - 内核套接字缓存区不足；通常受 socket buffer 限制，而
+    //          非系统内存总量。
+    //      ENOTSOCK - sockfd 并非套接字描述符。
+    //      EOPNOTSUPP - 套接字类型不是 SOCK_STREAM。
+    //      EPERM - 防火墙规则禁止连接。
+    //      EPROTO - 协议层错误。
+    //  此外，新套接字上已存在的网络错误（如 ENETDOWN、EHOSTUNREACH 等）也可能在
+    //  accept() 时返回。不同 Linux 版本还可能返回 ENOSR、ESOCKTNOSUPPORT 等；追
+    //  踪时可见 ERESTARTSYS。
+    //
+    // 版本差异。Linux 中，accept() 返回的新套接字不会继承监听套接字的 O_NONBLOCK、
+    // O_ASYNC 等文件状态标志；这与 BSD 规范实现不同。可移植程序应显式设置所需标志。
+    // 非阻塞注意事项。即使 SIGIO 或 select/poll/epoll 报告可读，也可能因异步网络错
+    // 误或另一线程抢先 accept() 导致无连接可取。此时 accept() 将阻塞等待下一个连
+    // 接。若要保证 accept() 永不阻塞，监听套接字必须设置 O_NONBLOCK。对于需要显式确
+    // 认的协议（如 DECnet），accept() 只取出下一个连接请求而不表示确认；后续对新的
+    // fd 进行普通读/写即视为确认，关闭新套接字则表示拒绝。目前 Linux 上仅 DECnet
+    // 采用此语义。历史上 BSD 将 accept 的第三个参数声明为 int*；POSIX.1g 草案曾拟
+    // 改为 size_t*，最终标准及 glibc 2.x 采用 socklen_t*。
+    bool has_pending_connection;
+#if EAGAIN == EWOULDBLOCK
+    if (errno == EAGAIN) {
+#else
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+#endif
+        has_pending_connection = false; // 内核已经没有待处理的连接
+    } else {
+        has_pending_connection = true;
+        prh_prerr(errno);
+    }
+    return has_pending_connection;
+}
+
 void prh_sock_tcp_reset(prh_handle sockfd) {
     // 设置 SO_LINGER 超时为 0，告诉内核“不等缓冲区，立刻 RST”。把 SO_LINGER 设为 {1, 0} 再 close()，即可让内核发送 RST，强制终止 TCP 连接。
     struct linger l = { .l_onoff = 1, .l_linger = 0 };
@@ -18418,115 +18788,6 @@ void prh_ipv6_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 por
         prh_sock_ipv6_address(host, in6.sin6_addr.s6_addr);
     }
     prh_impl_tcp_connect(tcp, (struct sockaddr_in *)&in6);
-}
-
-int prh_impl_sock_accept(int sock, struct sockaddr *in, socklen_t *addrlen) {
-    int conn_sock;
-label_continue:
-    errno = 0;
-#if defined(prh_plat_linux) || (defined(SOCK_CLOEXEC) && defined(SOCK_NONBLOCK))
-    conn_sock = accept4(sock, in, addrlen, SOCK_CLOEXEC | SOCK_NONBLOCK);
-    if (errno == EINTR) goto label_continue;
-#else
-    conn_sock = accept(sock, in, addrlen);
-    if (errno == EINTR) goto label_continue;
-    if (conn_sock >= 0) {
-        prh_set_cloexec(conn_sock);
-        prh_set_nonblock(conn_sock);
-    }
-#endif
-    return conn_sock;
-}
-
-// 返回 new_connection->sock != PRH_INVASOCK 表示成功接收到一个客户新连接，另外返回
-// 值表示内核是否还有待处理的连接，返回true表示有。
-bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
-    struct sockaddr_in6 in;
-    socklen_t addrlen = listen->ipv6 ? sizeof(struct sockaddr_in6) : sizeof(struct sockaddr_in);
-    int conn_sock = prh_impl_sock_accept((int)listen->sock, (struct sockaddr *)&in, &addrlen);
-    assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
-    if (conn_sock >= 0) {
-        if (errno) { // 新连接套接字出现网络错误
-            prh_impl_close_socket(conn_sock);
-            conn_sock = PRH_INVASOCK;
-        } else {
-            memset(new_connection, 0, sizeof(prh_tcpsocket));
-            new_connection->ipv6 = listen->ipv6;
-            new_connection->passive = true;
-            new_connection->p_port = prh_impl_sockaddr_in(&in)->sin_port;
-            new_connection->l_port = listen->port;
-            if (listen->ipv6) {
-                memcpy(&new_connection->p_addr, in.sin6_addr.s6_addr, 16);
-                if (listen->addr_any) {
-                    prh_sock_local_addr(conn_sock, &in, addrlen); // 获取当前连接的本地地址暂存到 in，原来存的是对方地址
-                    memcpy(&new_connection->l_addr, in.sin6_addr.s6_addr, 16);
-                } else {
-                    memcpy(&new_connection->l_addr, &listen->addr, 16);
-                }
-            } else {
-                new_connection->p_addr = prh_impl_sockaddr_in(&in)->sin_addr.s_addr;
-                if (listen->addr_any) {
-                    prh_sock_local_addr(conn_sock, &in, addrlen); // 获取当前连接的本地地址暂存到 in，原来存的是对方地址
-                    new_connection->l_addr = prh_impl_sockaddr_in(&in)->sin_addr.s_addr;
-                } else {
-                    new_connection->l_addr = listen->addr;
-                }
-            }
-        }
-    } else {
-        conn_sock = PRH_INVASOCK;
-    }
-    new_connection->sock = conn_sock;
-    // 成功返回非负的已连接的套接字文件描述符，失败返回-1和errno并且addrlen没被修改。
-    // Linux accept() 和 accept4() 会把已在新 socket 上挂起的网络层错误当作错误码
-    // 直接返回。这种行为与多数 BSD 套接字实现不同。为了保证可靠运行，应用程序在
-    // accept() 之后必须检测协议所定义的这类网络错误，并像对待 EAGAIN 那样重试。对于
-    // TCP/IP，这些错误码包括：ENETDOWN、EPROTO、ENOPROTOOPT、EHOSTDOWN、ENONET、
-    // EHOSTUNREACH、EOPNOTSUPP 和 ENETUNREACH。
-    //
-    // 可能的错误码：
-    //      EAGAIN EWOULDBLOCK - 套接字被设为非阻塞（O_NONBLOCK）且当前没有待接受
-    //          的连接。POSIX.1-2001 与 POSIX.1-2008 允许两者之一返回，并且不要求
-    //          这两个宏值相同，故可移植代码应同时检查。
-    //      EBADF - sockfd 不是有效的打开文件描述符。
-    //      ECONNABORTED - 已建立的连接被对端或网络异常中止。
-    //      EFAULT - addr 指向的内存不可写。
-    //      EINTR - 系统调用在有效连接到达前被捕获的信号中断。
-    //      EINVAL - 套接字未处于监听状态，或 addrlen 无效（如为负值）。accept4()
-    //          flags 含非法位。
-    //      EMFILE - 进程级文件描述符数量达到上限。
-    //      ENFILE - 系统级文件描述符总量达到上限。
-    //      ENOBUFS / ENOMEM - 内核套接字缓存区不足；通常受 socket buffer 限制，而
-    //          非系统内存总量。
-    //      ENOTSOCK - sockfd 并非套接字描述符。
-    //      EOPNOTSUPP - 套接字类型不是 SOCK_STREAM。
-    //      EPERM - 防火墙规则禁止连接。
-    //      EPROTO - 协议层错误。
-    //  此外，新套接字上已存在的网络错误（如 ENETDOWN、EHOSTUNREACH 等）也可能在
-    //  accept() 时返回。不同 Linux 版本还可能返回 ENOSR、ESOCKTNOSUPPORT 等；追
-    //  踪时可见 ERESTARTSYS。
-    //
-    // 版本差异。Linux 中，accept() 返回的新套接字不会继承监听套接字的 O_NONBLOCK、
-    // O_ASYNC 等文件状态标志；这与 BSD 规范实现不同。可移植程序应显式设置所需标志。
-    // 非阻塞注意事项。即使 SIGIO 或 select/poll/epoll 报告可读，也可能因异步网络错
-    // 误或另一线程抢先 accept() 导致无连接可取。此时 accept() 将阻塞等待下一个连
-    // 接。若要保证 accept() 永不阻塞，监听套接字必须设置 O_NONBLOCK。对于需要显式确
-    // 认的协议（如 DECnet），accept() 只取出下一个连接请求而不表示确认；后续对新的
-    // fd 进行普通读/写即视为确认，关闭新套接字则表示拒绝。目前 Linux 上仅 DECnet
-    // 采用此语义。历史上 BSD 将 accept 的第三个参数声明为 int*；POSIX.1g 草案曾拟
-    // 改为 size_t*，最终标准及 glibc 2.x 采用 socklen_t*。
-    bool has_pending_connection;
-#if EAGAIN == EWOULDBLOCK
-    if (errno == EAGAIN) {
-#else
-    if (errno == EAGAIN || errno == EWOULDBLOCK) {
-#endif
-        has_pending_connection = false; // 内核已经没有待处理的连接
-    } else {
-        has_pending_connection = true;
-        prh_prerr(errno);
-    }
-    return has_pending_connection;
 }
 
 #define PRH_IMPL_TXRX_BYTES 0x7ffff000 // Linux
