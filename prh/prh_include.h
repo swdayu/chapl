@@ -16662,9 +16662,24 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
 // 必须包含 WSAID_GETACCEPTEXSOCKADDRS，这是一个全局唯一标识符（GUID），其值标识
 // GetAcceptExSockaddrs 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 GetAcceptExSockaddrs
 // 函数的指针。WSAID_GETACCEPTEXSOCKADDRS GUID 在 Mswsock.h 头文件中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 ConnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_CONNECTEX，
+// 这是一个全局唯一标识符（GUID），其值标识 ConnectEx 扩展函数。成功时，WSAIoctl 函数
+// 返回的输出包含指向 ConnectEx 函数的指针。WSAID_CONNECTEX GUID 在 Mswsock.h 头文件
+// 中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 DisconnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
+// WSAID_DISCONNECTEX，这是一个全局唯一标识符（GUID），其值标识 DisconnectEx 扩展函
+// 数。成功时，WSAIoctl 函数返回的输出包含指向 DisconnectEx 函数的指针。WSAID_DISCONNECTEX
+// GUID 在 Mswsock.h 头文件中定义。
+
 #include <mswsock.h>
 static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
 static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
+static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
+static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
 
 void *prh_impl_wsasocket_load_func(SOCKET s, GUID guid) {
     void *func;
@@ -16715,6 +16730,8 @@ void prh_impl_mswsock_funcs(SOCKET s) {
 // 字上等待连接。
 //
 // 参数 sAcceptSocket 标识用于接受传入连接的套接字的描述符。此套接字必须未绑定且未连接。
+// 因为套接字创建开销较大，如果一个服务器希望尽可能快地处理客户连接，它就需要一个已创建
+// 的套接字库，以便尽快接收新的连接。
 //
 // 参数 lpOutputBuffer 指向缓冲区的指针，该缓冲区接收新连接上发送的第一个数据块、服务
 // 器的本地地址和客户端的远程地址。接收数据写入缓冲区的起始部分（从偏移量零开始），而地
@@ -16723,7 +16740,9 @@ void prh_impl_mswsock_funcs(SOCKET s) {
 // 参数 dwReceiveDataLength 表示 lpOutputBuffer 中用于实际接收数据的字节数，位于缓冲
 // 区的起始位置。此大小不应包括服务器的本地地址大小，也不应包括客户端的远程地址大小。如
 // 果 dwReceiveDataLength 为零，则接受连接不会导致接收操作。相反，AcceptEx 在连接到达
-// 时立即完成，而不等待任何数据。
+// 时立即完成，而不等待任何数据。如果 dwReceiveDataLength 大于零，则重叠操作只有在连接
+// 之后至少收到一个字节数据后才能完成。因此恶意的客户端可能投递许多连接，但决不发送任何
+// 数据，可以使用 SO_CONNECT_TIME 套接字选项避免这种情况。
 //
 // 参数 dwLocalAddressLength 为本地地址信息保留的字节数。此值必须至少比使用的传输协
 // 议的最大地址长度多 16 字节。
@@ -16905,10 +16924,258 @@ int prh_impl_sock_accept(prh_handle listen, prh_sockaddr *local, prh_sockaddr *p
 }
 
 // int connect(SOCKET s, const struct sockaddr *name, int namelen);
-// WSAConnect()
-// ConnectEx()
-// DisconnectEx
+// int WSAAPI WSAConnect(
+//      [in]  SOCKET         s,
+//      [in]  const sockaddr *name,
+//      [in]  int            namelen,
+//      [in]  LPWSABUF       lpCallerData,
+//      [out] LPWSABUF       lpCalleeData,
+//      [in]  LPQOS          lpSQOS,
+//      [in]  LPQOS          lpGQOS
+// );
 //
+// BOOL WSAConnectByList(
+//      [in]      SOCKET               s,
+//      [in]      PSOCKET_ADDRESS_LIST SocketAddress,
+//      [in, out] LPDWORD              LocalAddressLength,
+//      [out]     LPSOCKADDR           LocalAddress,
+//      [in, out] LPDWORD              RemoteAddressLength,
+//      [out]     LPSOCKADDR           RemoteAddress,
+//      [in]      const timeval        *timeout,
+//      [in]      LPWSAOVERLAPPED      Reserved
+// );
+//
+// BOOL WSAConnectByNameA(
+//      [in]      SOCKET          s,
+//      [in]      LPCSTR          nodename,
+//      [in]      LPCSTR          servicename,
+//      [in, out] LPDWORD         LocalAddressLength,
+//      [out]     LPSOCKADDR      LocalAddress,
+//      [in, out] LPDWORD         RemoteAddressLength,
+//      [out]     LPSOCKADDR      RemoteAddress,
+//      [in]      const timeval   *timeout,
+//                LPWSAOVERLAPPED Reserved
+// );
+//
+// BOOL Connectex(
+//      [in]           SOCKET s,
+//      [in]           const sockaddr *name,
+//      [in]           int namelen,
+//      [in, optional] PVOID lpSendBuffer,
+//      [in]           DWORD dwSendDataLength,
+//      [out]          LPDWORD lpdwBytesSent,
+//      [in]           LPOVERLAPPED lpOverlapped
+// );
+//
+// ConnectEx 函数建立与指定套接字的连接，并可选地在建立连接后发送数据。该函数仅支持面向
+// 连接的套接字。注意 该函数是 Microsoft 对 Windows 套接字规范的特定扩展。成功时，ConnectEx
+// 函数返回 TRUE。失败时，函数返回 FALSE。使用 WSAGetLastError 函数获取扩展错误信息。
+// 如果 WSAGetLastError 函数返回的错误码为 ERROR_IO_PENDING，则表示操作已成功启动且
+// 正在进行。在这种情况下，调用可能在重叠操作完成时仍然失败。如果返回的错误码是 WSAECONNREFUSED、
+// WSAENETUNREACH 或 WSAETIMEDOUT，应用程序可以在同一个套接字上调用 ConnectEx、WSAConnect
+// 或 connect。
+//      WSANOTINITIALISED   在调用 ConnectEx 之前，必须先成功调用 WSAStartup 函数。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEADDRINUSE       套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此
+//                          错误通常在绑定操作期间发生，但如果 bind 函数使用通配符地址（INADDR_ANY 或 in6addr_any）
+//                          指定了本地 IP 地址，则错误可能会延迟到 ConnectEx 函数调用。ConnectEx 函数需要
+//                          隐式绑定到特定的 IP 地址。
+//      WSAEALREADY         在指定的套接字上正在进行非阻塞的 connect、WSAConnect 或 ConnectEx 函数调用。
+//      WSAEADDRNOTAVAIL    远程地址不是有效地址，例如 ADDR_ANY（ConnectEx 函数仅支持面向连接的套接字）。
+//      WSAEAFNOSUPPORT     指定地址族的地址不能与该套接字一起使用。
+//      WSAECONNREFUSED     连接尝试被拒绝。
+//      WSAEFAULT           name、lpSendBuffer 或 lpOverlapped 参数不是用户地址空间的有效部分，或者 namelen
+//                          太小。
+//      WSAEINVAL           参数 s 是未绑定的或监听套接字。
+//      WSAEISCONN          套接字已连接。
+//      WSAENETUNREACH      当前无法从该主机到达网络。
+//      WSAEHOSTUNREACH     尝试对无法到达的主机执行套接字操作。
+//      WSAENOBUFS          没有可用的缓冲区空间；套接字无法连接。
+//      WSAENOTSOCK         描述符不是套接字。
+//      WSAETIMEDOUT        连接尝试超时而未建立连接。
+//
+// 参数 s 标识一个未连接的、之前已绑定的套接字的描述符。参数 name 指向 sockaddr 结构，
+// 该结构指定要连接的地址。对于 IPv4，sockaddr 包含地址族的 AF_INET、目标 IPv4 地址和
+// 目标端口。对于 IPv6，sockaddr 结构包含地址族的 AF_INET6、目标 IPv6 地址、目标端口，
+// 并可能包含额外的 IPv6 流和作用域 ID 信息。参数 namelen 表示 name 参数所指向的 sockaddr
+// 结构的长度，以字节为单位。
+//
+// 参数 lpSendBuffer 指向在建立连接后要传输的缓冲区的指针。此参数是可选的。如果在调用
+// ConnectEx 之前在 s 上启用了 TCP_FASTOPEN 选项，则在建立连接期间可能会发送这些数据
+// 的一部分。参数 dwSendDataLength 表示 lpSendBuffer 参数所指向的数据的长度，以字节
+// 为单位。如果 lpSendBuffer 参数为 NULL，则忽略此参数。
+//
+// 参数 lpdwBytesSent 在成功返回时，此参数指向一个 DWORD 值，该值指示在建立连接后发送
+// 的字节数。发送的字节来自 lpSendBuffer 参数所指向的缓冲区。如果 lpSendBuffer 参数为
+// NULL，则忽略此参数。
+//
+// 参数 lpOverlapped 用于处理请求的 OVERLAPPED 结构。必须指定 lpOverlapped 参数，它
+// 不能为 NULL。
+//
+// ConnectEx 函数将多个套接字函数合并为一个 API或内核切换。当 ConnectEx 函数调用成功
+// 完成时，执行以下操作：
+//  1.  建立新的连接。
+//  2.  在建立连接后发送可选的数据块。
+//
+// 对于面向 Windows Vista 及更高版本的应用程序，建议使用 WSAConnectByList 或 WSAConnectByName
+// 函数，这些函数大大简化了客户端应用程序的设计。
+//
+// ConnectEx 函数只能与面向连接的套接字一起使用。在 s 参数中传递的套接字必须使用 SOCK_STREAM、
+// SOCK_RDM 或 SOCK_SEQPACKET 类型创建。lpSendBuffer 参数指向在建立连接后要发送的数
+// 据缓冲区。dwSendDataLength 参数指定要发送的数据长度（以字节为单位）。应用程序可以使
+// 用 ConnectEx 请求发送较大的数据缓冲区，就像使用 send 和 WSASend 函数一样。但强烈建
+// 议不要使用 ConnectEx 在单次调用中发送巨大的缓冲区，因为此操作会占用大量系统内存资源，
+// 直到整个缓冲区发送完成。
+//
+// 如果 ConnectEx 函数成功，表示已建立连接，并且 lpSendBuffer 参数所指向的所有数据都
+// 已发送到 name 参数所指向的 sockaddr 结构中指定的地址。
+//
+// ConnectEx 函数使用重叠 I/O。因此，ConnectEx 函数使应用程序能够使用相对较少的线程来
+// 服务大量客户端。相比之下，不使用重叠 I/O 的 WSAConnect 函数通常需要一个单独的线程来
+// 处理每个连接请求，当同时收到多个请求时。注意，当给定线程退出时，该线程启动的所有 I/O
+// 都将被取消。对于重叠套接字，如果在线程关闭之前操作未完成，则挂起的异步操作可能会失败。
+// 有关更多信息，请参阅 ExitThread。
+//
+// 面向连接的套接字通常无法立即完成连接，因此操作被启动，函数立即返回 ERROR_IO_PENDING
+// 或 WSA_IO_PENDING 错误。当连接操作完成并且成功或失败时，状态将通过 lpOverlapped 中
+// 指示的完成通知机制报告。与所有重叠函数调用一样，可以使用事件或完成端口作为完成通知机
+// 制。GetQueuedCompletionStatus、GetOverlappedResult 或 WSAGetOverlappedResult
+// 函数的 lpNumberOfBytesTransferred 参数指示请求中发送的字节数。
+//
+// 当 ConnectEx 函数成功完成时，套接字句柄 s 可以传递给以下函数：
+//  - ReadFile
+//  - WriteFile
+//  - send 或 WSASend
+//  - recv 或 WSARecv
+//  - TransmitFile
+//  - closesocket
+//
+// 如果在已连接的套接字上调用 TransmitFile 函数，并使用 TF_DISCONNECT 和 TF_REUSE_SOCKET
+// 标志，则指定的套接字将返回到未连接但已绑定的状态。在这种情况下，可以将套接字的句柄传
+// 递给 ConnectEx 函数的 s 参数，但不能在 AcceptEx 函数调用中重用该套接字。同样，使用
+// TransmitFile 函数重用的已接受套接字不能用于 ConnectEx 函数调用。注意，对于重用的套
+// 接字，ConnectEx 受底层传输行为的影响。例如，TCP 套接字可能会受到 TCP TIME_WAIT 状
+// 态的影响，导致 ConnectEx 调用被延迟。
+//
+// 当 ConnectEx 函数返回 TRUE 时，套接字 s 处于已连接套接字的默认状态。直到在套接字上
+// 设置 SO_UPDATE_CONNECT_CONTEXT 选项后，套接字 s 才启用之前设置的属性或选项。使用
+// setsockopt 函数设置 SO_UPDATE_CONNECT_CONTEXT 选项。
+//      // Need to #include <mswsock.h> for SO_UPDATE_CONNECT_CONTEXT
+//      int iResult = 0;
+//      iResult = setsockopt(s, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+//
+// 可以使用 getsockopt 函数和 SO_CONNECT_TIME 套接字选项，在 ConnectEx 进行中时检查
+// 是否已建立连接。如果已建立连接，传递给 getsockopt 函数的 optval 参数返回的值是套接
+// 字已连接的秒数。如果套接字未连接，则返回的 optval 参数包含 0xFFFFFFFF。以这种方式检
+// 查连接是必要的，以确定连接是否已建立一段时间而未发送任何数据；在这种情况下，建议终止
+// 此类连接。
+//      // Need to #include <mswsock.h> for SO_CONNECT_TIME
+//      int seconds;
+//      int bytes = sizeof(seconds);
+//      int iResult = 0;
+//      iResult = getsockopt(s, SOL_SOCKET, SO_CONNECT_TIME, (char *)&seconds, (PINT)&bytes);
+//      if (iResult != NO_ERROR) {
+//          printf("getsockopt(SO_CONNECT_TIME) failed with error: %u\n", WSAGetLastError());
+//      } else {
+//          if (seconds == 0xFFFFFFFF)
+//              printf("Connection not established yet\n");
+//          else
+//              printf("Connection has been established %ld seconds\n", seconds);
+//      }
+//
+// 注意，如果打开套接字，调用 setsockopt，然后调用 sendto，则 Windows 套接字将执行隐式
+// bind 函数调用。
+//
+// 如果 sockaddr 结构中 name 参数指向的地址参数全为零，则 ConnectEx 返回 WSAEADDRNOTAVAIL
+// 错误。任何尝试重新连接活动连接的操作都将因 WSAEISCONN 错误代码而失败。
+//
+// 当因任何原因关闭已连接的套接字时，建议丢弃该套接字并创建一个新的套接字。这样做的原因
+// 是，假设当已连接的套接字因任何原因出现问题时，应用程序必须丢弃该套接字并重新创建所需
+// 的套接字，以便恢复到稳定状态。
+//
+// 如果调用 DisconnectEx 函数并使用 TF_REUSE_SOCKET 标志，则指定的套接字将返回到未连
+// 接但已绑定的状态。在这种情况下，可以将套接字的句柄传递给 ConnectEx 函数的 s 参数。
+//
+// TCP 在释放已关闭连接并重用其资源之前必须经过的时间间隔称为 TIME_WAIT 状态或 2MSL
+// 状态。在此期间，重新打开连接的成本远低于建立新连接。
+//
+// TIME_WAIT 行为在 RFC 793 中指定，要求 TCP 在关闭连接后至少维持一个间隔，该间隔等于
+// 网络最大报文段生命周期（MSL）的两倍。当连接被释放时，其套接字对和用于套接字的内部资源
+// 可以用于支持另一个连接。
+//
+// Windows TCP 在关闭连接后进入 TIME_WAIT 状态。在 TIME_WAIT 状态下，套接字对不能被
+// 重用。可以通过修改以下 DWORD 注册表设置来配置 TIME_WAIT 间隔，该设置表示 TIME_WAIT
+// 间隔（以秒为单位）。HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\TCPIP\
+// Parameters\TcpTimedWaitDelay
+//
+// 默认情况下，MSL 定义为 120 秒。TcpTimedWaitDelay 注册表设置默认为 240 秒的值，这表
+// 示 120 秒的最大报文段生命周期的两倍，即 4 分钟。然而，可以使用此条目自定义间隔。降低
+// 此条目的值可以让 TCP 更快地释放已关闭的连接，从而为新连接提供更多资源。然而，如果值过
+// 低，TCP 可能在连接完成之前释放连接资源，导致服务器需要使用额外的资源重新建立连接。此
+// 注册值可设置的范围从 0 到 300 秒。
+//
+// BOOL Disconnectex(
+//      SOCKET s,
+//      LPOVERLAPPED lpOverlapped,
+//      DWORD dwFlags,
+//      DWORD dwReserved
+// );
+//
+// DisconnectEx 函数关闭套接字上的连接，并允许重用套接字句柄。注意，该函数是 Microsoft
+// 对 Windows 套接字规范的特定扩展。成功时，DisconnectEx 函数返回 TRUE。失败返回 FALSE。
+// 使用 WSAGetLastError 函数获取扩展错误信息。如果 WSAGetLastError 函数返回 ERROR_IO_PENDING，
+// 则表示操作已成功启动且正在进行。在这种情况下，调用可能在操作完成时仍然失败。
+//  - WSAEFAULT     系统在尝试使用指针参数时检测到无效的指针地址。如果在 lpOverlapped 参数中传递了无效的指
+//                  针值，则返回此错误。
+//  - WSAEINVAL     传递了无效的参数。如果 dwFlags 参数指定了除 TF_REUSE_SOCKET 之外的零值，则返回此错误。
+//  - WSAENOTCONN   套接字未连接。如果套接字 s 参数不在连接状态，则返回此错误。如果套接字处于从先前请求的传
+//                  输关闭状态，并且 dwFlags 参数未设置为 TF_REUSE_SOCKET 以请求重用套接字，则也可以返回
+//                  此错误。
+//
+// 参数 s 已连接的、面向连接的套接字的句柄。参数 lpOverlapped 指向 OVERLAPPED 结构的
+// 指针。如果套接字句柄以重叠方式打开，则指定此参数将导致重叠（异步）I/O 操作。
+//
+// 参数 dwFlags 一组标志，用于自定义函数调用的处理。当此参数设置为零时，不设置任何标志。
+// dwFlags 参数可以具有以下值。
+//      TF_REUSE_SOCKET     准备重用套接字句柄。当 DisconnectEx 请求完成时，可以将
+//                          套接字句柄传递给 AcceptEx 或 ConnectEx 函数。
+//
+// 注意：套接字级别的断开连接受底层传输行为的影响。例如，TCP 套接字可能会受到 TCP TIME_WAIT
+// 状态的影响，导致 DisconnectEx 调用被延迟。
+//
+// 参数 dwReserved 保留。必须为零。如果非零，则返回 WSAEINVAL。
+//
+// DisconnectEx 函数不支持数据报套接字。因此，由 hSocket 指定的套接字必须是面向连接的，
+// 例如 SOCK_STREAM、SOCK_SEQPACKET 或 SOCK_RDM 套接字。
+//
+// 当 lpOverlapped 不为 NULL 时，重叠 I/O 可能在 DisconnectEx 返回之前未完成，导致
+// DisconnectEx 函数返回 FALSE，并且调用 WSAGetLastError 函数返回 ERROR_IO_PENDING
+// 这种设计使调用者可以在断开连接操作完成时继续处理。请求完成后，Windows 将 OVERLAPPED
+// 结构的 hEvent 成员指定的事件或由 hSocket 指定的套接字设置为已触发状态。
+//
+// 如果这个函数被一个重叠结构调用，且套接字上还有挂起的操作，则 DisconnectEx 会返回
+// FALSE，错误为 WSA_IO_PENDING。一旦所有挂起的操作完成，且传输层断开操作已经发动，
+// 操作就会结束。否则，如果以阻塞方式调用这个函数，则只有所有挂起的 I/O 都完成，且断开
+// 操作已经发动（transport level disconnect has been issued）之后，函数才会返回。
+//
+// 注意，当给定线程退出时，该线程启动的所有 I/O 都将被取消。对于重叠套接字，如果在线程
+// 关闭之前操作未完成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
+//
+// TIME_WAIT 状态决定了 TCP 在释放已关闭连接并重用其资源之前必须经过的时间间隔。这个关
+// 闭和释放之间的间隔称为 TIME_WAIT 状态或 2MSL 状态。在此期间，重新打开连接的成本远低
+// 于建立新连接。TIME_WAIT 行为在 RFC 793 中指定，要求 TCP 在关闭连接后至少维持一个间
+// 隔，该间隔等于网络最大报文段生命周期（MSL）的两倍。当连接被释放时，其套接字对和用于套
+// 接字的内部资源可以用于支持另一个连接。
+//
+// Windows TCP 在关闭连接后进入 TIME_WAIT 状态。在 TIME_WAIT 状态下，套接字对不能被
+// 重用。可以通过修改以下 DWORD 注册表设置来配置 TIME_WAIT 间隔，该设置表示 TIME_WAIT
+// 间隔（以秒为单位）。HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\TCPIP\
+// Parameters\TcpTimedWaitDelay。默认情况下，MSL 定义为 120 秒。TcpTimedWaitDelay
+// 注册表设置默认为 240 秒的值，这表示 120 秒的最大报文段生命周期的两倍，即 4 分钟。然
+// 而，可以使用此条目自定义间隔。降低此条目的值可以让 TCP 更快地释放已关闭的连接，从而
+// 为新连接提供更多资源。然而，如果值过低，TCP 可能在连接完成之前释放连接资源，导致服务
+// 器需要使用额外的资源重新建立连接。此注册值可设置的范围从 0 到 300 秒。
+
 // int send(SOCKET s, const char *buf, int len, int flags);
 // int WSASend(SOCKET s, LPWSABUF buffers, DWORD buffer_count, LPDWORD bytes_sent, DWORD flags, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
 // int WSASendDisconnect(SOCKET s, LPWSABUF outbound_disconnect_data);
