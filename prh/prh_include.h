@@ -9425,6 +9425,30 @@ int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entr
 // 为同一个完成端口调用 GetQueuedCompletionStatusEx 函数。随着 I/O 操作的完成，它们
 // 会以先进先出的顺序被排队到该端口。如果一个线程正在积极地在此调用上等待，那么一个或多
 // 个排队的完成请求将只会满足该线程的调用。
+//
+// GetQueuedCompletionStatusEx 相比传统的 GetQueuedCompletionStatus，主要带来
+// “一次等待，批量收割” 的能力，在高并发场景下可以显著减少系统调用次数和线程调度开销。
+// 具体收益如下：
+//
+//  1.  一次可取回多个完成包
+//      允许传入一个 _OVERLAPPED_ENTRY[] 数组，内核把当前已排队的完成包尽可能多地一次
+//      性拷贝给你，上限由你自己指定（常见 64～256 个）。同样数目的 I/O 完成，系统调用
+//      次数从 N → ⌈N / 数组长度⌉，降低 1~2 个数量级。
+//  2.  天然负载均衡
+//      当多个工作线程同时调用 GetQueuedCompletionStatusEx 时，内核采用轮转队列算法，
+//      保证每个线程大致均等地拿到完成包，避免某一个线程忙死、其余线程空转的现象。
+//  3.  减少用户/内核模式往返
+//      批量返回意味着每包分摊的往返成本降低；在 10 Gbps、小包高 QPS 的测试中，可把
+//      CPU 占用降低 10–30%。
+//  4.  支持可唤醒的阻塞
+//      仍可通过 dwMilliseconds 指定超时；也可配合 PostQueuedCompletionStatus 发
+//      “退出” 包，线程统一返回，编码模型与旧 API 完全一致。
+//  5.  对单个完成包的场景略慢
+//      如果当前时刻队列里只有 1 个包，那么 Ex 版要多拷贝一次数组、做更多判断，实测会
+//      比原版慢近一倍；所以很多框架会在 “最近几次只拿到 1 包” 时自动降级回 GetQueuedCompletionStatus。
+//
+// 连接数高、吞吐大：优先用 GetQueuedCompletionStatusEx，批量收割、均衡负载。连接数低、
+// 完成稀疏：继续用 GetQueuedCompletionStatus，避免“杀鸡用牛刀”带来的额外开销。
 
 int prh_impl_completion_port_wait_multiple(HANDLE completion_port, OVERLAPPED_ENTRY *entry, int count, DWORD msec) {
     assert(completion_port != prh_null);
@@ -14334,6 +14358,76 @@ void prh_impl_cono_test(void) {
 #endif // PRH_CONO_IMPLEMENTATION
 #endif // PRH_CONO_INCLUDE
 
+// Reactor Pattern 和 Proactor Pattern
+//
+// Reactor = 事件驱动 + 非阻塞 I/O，用户负责搬数据。
+// Proactor = 真正的异步 I/O，内核负责搬数据，用户只处理“完成”回调。
+//
+// 把一次网络 I/O 简化成 “等待事件 → 把数据搬进/搬出用户缓冲区 → 通知用户代码” 三步，
+// 就可以看清两种模式的本质区别：
+//
+// 1. Reactor（反应器）
+//
+//  谁来等：框架/库帮你等事件（select/epoll/IOCP 的“事件”端口）。
+//  谁来搬数据：用户代码自己搬——事件到了，框架只告诉你“fd 可读了”或“fd 可写了”，然后你自己调用 read/write/recv/send。
+//  回调里做什么：只做“非阻塞”的拷贝，如果一次没拷完，要保留状态，等下一次事件再继续。
+//  典型实现：Java NIO、libevent、libuv（默认）、Redis、Nginx、Linux epoll。
+//  一句话：“通知我什么时候能干，但活我自己干。”
+//
+// 2. Proactor（前摄器）
+//
+//  谁来等：操作系统/框架把数据搬到事先给定的缓冲区之后，才把“已完成”事件递给你。
+//  谁来搬数据：内核或底层异步引擎（Windows IOCP、Linux io_uring 的 IOSQE_IO_LINK+readv、Boost.ASIO 的 “true async” 模式）。
+//  回调里做什么：直接处理完整的数据，不用再管“半包”“粘包”重试；失败也只要看错误码。
+//  典型实现：Windows IOCP + AcceptEx/ReadFileEx、Boost.ASIO（Proactor 模式）、io_uring 的异步接口、Windows RIO。
+//  一句话：“通知我活已经干完了。”
+//
+// 以读操作为例：
+//  步骤        Reactor                     Proactor
+//  ① 注册      告诉框架“等可读事件”         告诉框架/内核“把数据读进这个缓冲区，完事叫我”
+//  ② 等待      select/epoll_wait 阻塞      内核异步搬运数据
+//  ③ 通知      “fd 可读了”                 “已经读好 n 字节，缓冲区里有数据”
+//  ④ 处理      用户代码 read/recv          直接拿数据用
+//
+// 无论是 epoll_wait() 还是 GetQueuedCompletionStatusEx() 都可以尝试获取指定大小的
+// 事件数组；这样的话就可以设计一个统一的优化策略：如果某次大小为 n 的数组用满了，下一
+// 轮之前可以将数组大小翻倍（或者 1.5x 放大）。
+//
+// 虽然理论上异步 IO 的性能要高于非阻塞同步 IO，但是异步 IO 割裂了上下文，尤其是资源上
+// 下文，因此在资源管理上充满了艰险。首先为了让 os kernel 能够直接将网卡收到的数据写入
+// 内存页，这部分内存必须事先提供；而操作系统避免内存页被内存管理 swap-out，必须将这块
+// 内存页 pin 住。对于每个发出去的 read 异步请求，都伴随着一块被 PIN 住的 mem-page，
+// 更揪心的是在请求 complete 之前，内存页始终被 pin 的死死的。如果有很多恶意连接，建立
+// 了连接之后就什么都不做，那么按照每个内存页 4K 计算，用不了多少时间内存管理就撑不住了。
+// 在 Windows 上这个时候异步的 IO 操作就会返回一个错误 WSAENOBUFS，表示 too many
+// pinned memory pages。对于这个问题，我的想法是使用 read-probe-request，即对于新建
+// 立的连接，先发一个大小为 0 的异步 read，如果之后这个请求完成了，那就说明 socket 存
+// 在可读数据，后面就可以大胆读了。当然，不排除有恶意客户端针对性的搞破坏，那样就要做一
+// 些资源使用的处理了。
+//
+// 对于 accept 调用来说，这个问题稍微没有那么严重，因为可以控制 concurrent outstanding
+// accept requests 的数量在一个比较小的值，比如 10；甚至完全不考虑做优化，顺序依次的发
+// 都行，毕竟这个优化对应到 epoll 也要求调用 accept() 直到出现 EAGAIN，并不是一个每个
+// 人都会做的优化。
+//
+// 相比较下，同步 IO 一个明显的优势是可以利用 stack，内存资源的使用上更加紧凑。这个很
+// 容易理解，因为 read() 操作的发起和结束是在一个函数调用上下文，完全可以在 read() 调
+// 用时使用一部分 stack 空间，比如 64-KB，利用 readv() 读取一个 buffer vetor 即可。
+// 等到这个栈帧结束，这部分资源完璧归赵。对于异步 IO 来说，因为 request 和 completion
+// 是分开的上下文，栈内存就别想了，只能动一些其他的手段。
+//
+// 对于关闭逻辑，对于服务端程序来说，应该尽量避免主动 shutdown；主要是为了避免进入
+// TIME-WAIT，毕竟这个时间段长达 2MSL（据说在 Linux 上固定是 60s)。那么正确的关闭逻辑
+// 应该这样操作：
+//
+// 服务端通过 EPOLLRDHUP 或者 read() 知道对端关闭，然后进入被动关闭流程。如果服务端自
+// 己要结束，则服务端通过 shutdown() 先关闭 socket 的写端，保留读端（因为可能有数据还
+// 在路上）；这样的客户端通过 EPOLLRDHUP 或者 read() 返回 0 就主动断开连接，发出 FIN
+// 包；然后服务端接着进入被动关闭流程。对于一些异常的 socket，服务端别无法他，只能主动
+// 断开，一般来说这种关闭的连接数量较少。
+//
+// https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
+
 #ifdef PRH_EPOLL_INCLUDE
 #define PRH_MAX_SAME_TIME_POSTS_EPOLL_TO_EACH_FILE_DESCRIPTOR 2
 typedef struct prh_epoll_port prh_epoll_port;
@@ -16628,6 +16722,9 @@ void prh_sock_setnonblock(prh_handle sock, int nonblock) {
 // WSAID_WSASENDMSG，这是一个全局唯一标识符（GUID），其值标识 WSASendMsg 扩展函数。
 // 成功时，WSAIoctl 函数返回的输出包含指向 WSASendMsg 函数的指针。WSAID_WSASENDMSG
 // GUID 在 Mswsock.h 头文件中定义。
+//
+// 一旦获取了扩展函数（如 TransmitFile）的函数指针，就可以直接调用它，而无需将应用程序
+// 链接到 Mswsock.lib 库。这实际上减少了对 Mswsock.lib 的一个中间函数调用。
 #include <mswsock.h>
 
 static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
@@ -17135,6 +17232,10 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
 typedef struct {
     OVERLAPPED overlapped; // 1st field
     prh_handle handle;
+    prh_byte_arrfit txbuf;
+    prh_byte_arrfit rxbuf;
+    prh_u32 txbuf_cur;
+    prh_u32 flags;
 } prh_iocp_data;
 
 void prh_impl_get_sockaddr(struct sockaddr_in *in, prh_sockaddr *out) {
@@ -17180,6 +17281,49 @@ int prh_impl_sock_accept(prh_handle listen, prh_sockaddr *local, prh_sockaddr *p
     PRH_DEBUG(prh_wsa_prerr());
     return -1;
 }
+
+// 一个服务器最常见的动作是接收客户连接，微软扩展函数 AcceptEx 是唯一一个通过重叠 I/O
+// 方式接收客户连接的 Winsock 函数。前面已经提到，AcceptEx 函数需要预先创建一个客户套
+// 接字用于接收客户连接，这个套接字必须是未绑定且未连接，当然也可以重用调用 TransmitFile、
+// TransmitPackets、DisconnectEx 等函数后的套接字。
+//
+// 可响应的服务器必须总是有足够多的 AcceptEx 调用，用来立即接收到来的客户请求。TCP/IP
+// 协议栈亏自动代表监听应用程序接收连接，直到 backlog 设置的限制数量。对于 Windows NT
+// 服务器，这个值最大可以是 200。如果服务器投递 15 个 AcceptEx 调用，然后瞬间有 50 个
+// 连接同时到来，那么有 15 个连接将立即被 AcceptEx 处理，然后 35 个被内核协议栈自动接
+// 收，不会有连接请求被拒绝。然后服务器可以继续投递额外的 AcceptEx 调用，这些调用会立即
+// 成功返回，因为已经有排队的待处理的连接在队列中等待。
+//
+// 决定要发布多少个 AcceptEx 操作对服务器的行为起着重要作用。例如，预计要处理来自大量
+// 客户端的许多短生命周期连接的服务器，可能希望发布比处理较少但生命周期更长的连接的服务
+// 器更多的并发 AcceptEx 操作。一个良好的策略是允许 AcceptEx 调用的数量在低水位和高水
+// 位之间变化。应用程序可以跟踪挂起的 AcceptEx 操作的数量。然后，当这些操作中的一个或
+// 多个完成且挂起的数量低于设定的水位时，可以发布更多的 AcceptEx 调用。当然，如果在某
+// 个时刻一个 AcceptEx 完成且挂起的接受数量大于或等于高水位，则在处理当前 AcceptEx 时
+// 不应发布额外的调用。初始时可以创建低水位的 AcceptEx（accept_min_burst_requests），
+// 每当一个 AcceptEx 完成时接收的客户请求继续处理，同时创建一个新的 AcceptEx 维持接收
+// 客户请求的数量不小于低水位，但有一个同时处理客户请求的最大数量限制（concurrent_process_requests），
+// 同时处理的请求超出这个数量，不再创建新的 AcceptEx。当客户请求处理完毕，会将这个现有
+// 的客户套接字重用来创建 AcceptEx，直到达到 accept_min_burst_requests，多余的套接字
+// 关闭。如果在单位时间内接收的请求数量激增，可以将 AcceptEx 维持的水位从低水位提高到
+// 高水位（accept_max_burst_requests），当请求数量下降时再切回到低水位。
+//
+// 尽管在处理来自完成端口通知的工作线程中发布 AcceptEx 请求似乎更合乎逻辑且更简单，但
+// 应避免这样做，因为套接字创建过程是昂贵的。此外，应避免在工作线程中进行任何复杂的计算，
+// 以便服务器能够尽可能快速地处理完成通知。套接字创建昂贵的一个原因是 Winsock 2.0 的分
+// 层架构。当服务器创建一个套接字时，它可能会通过多个提供程序，每个提供程序都会执行自己
+// 的任务，然后才会创建并返回套接字给应用程序。相反，服务器应该从一个单独的线程中创建客
+// 户端套接字并发布 AcceptEx 操作。当工作线程中的重叠 AcceptEx 完成时，可以使用事件来
+// 通知接受 AcceptEx 发布线程。
+//
+// 同一个线程可以多次调用 AcceptEx 投递多个重叠 I/O 操作，只要每次使用独立的 OVERLAPPED、
+// 缓冲区和客户套接字即可。在监听套接字上，可以一次性投递多个 AcceptEx 请求，以应对突发
+// 连接高峰。这些请求会以 “先入先出” 的方式被完成端口处理，无需等待前一个完成再投递下一
+// 个。
+//
+// AcceptEx 的完成通知会通过 IOCP 返回，你可以安全地并发处理多个连接请求。投递的 AcceptEx
+// 操作完成时会通过 GetQueuedCompletionStatus 返回，你可以通过 lpCompletionKey 和
+// lpOverlapped 区分是哪个 AcceptEx 完成。
 
 // int connect(SOCKET s, const struct sockaddr *name, int namelen);
 // int WSAAPI WSAConnect(
