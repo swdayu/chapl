@@ -17568,14 +17568,270 @@ int prh_impl_sock_accept(prh_handle listen, prh_sockaddr *local, prh_sockaddr *p
 // 从这个函数返回允许为该套接字调用另一个挂起的完成例程。所有等待的完成例程将在警报线程
 // 的等待以 WSA_IO_COMPLETION 返回码满足之前被调用。完成例程可以以任何顺序被调用，不一
 // 定是重叠操作完成的相同顺序。但是，发送的缓冲区保证按照它们指定的顺序发送。
-
+//
 // int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
-// int WSARecvFrom(SOCKET s, LPSWABUF buffers, DWORD buffer_count, LPDWORD bytes_recvd, LPDWORD flags, struct sockaddr *from, LPINT fromlen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE cmpletion_routine);
+// int WSAAPI WSARecvFrom(
+//      [in]      SOCKET                             s,
+//      [in, out] LPWSABUF                           lpBuffers,
+//      [in]      DWORD                              dwBufferCount,
+//      [out]     LPDWORD                            lpNumberOfBytesRecvd,
+//      [in, out] LPDWORD                            lpFlags,
+//      [out]     sockaddr                           *lpFrom,
+//      [in, out] LPINT                              lpFromlen,
+//      [in]      LPWSAOVERLAPPED                    lpOverlapped,
+//      [in]      LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+// INT WSARecvMsg(
+//      SOCKET s,
+//      LPWSAMSG lpMsg,
+//      LPDWORD lpdwNumberOfBytesRecvd,
+//      LPWSAOVERLAPPED lpOverlapped,
+//      LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
 //
 // int recv(SOCKET s, char *buf, int len, int flags);
-// int WSARecv(SOCKET s, LPWSABUF buffers DWORD buffer_count, LPDWORD bytes_recv, LPDWORD flags, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
-// int WSARecvDisconnect(SOCKET s, LPWSABUF inbound_disconnect_data);
-// WSARecvMsg
+// int WSAAPI WSARecv(
+//      [in]      SOCKET                             s,
+//      [in, out] LPWSABUF                           lpBuffers,
+//      [in]      DWORD                              dwBufferCount,
+//      [out]     LPDWORD                            lpNumberOfBytesRecvd,
+//      [in, out] LPDWORD                            lpFlags,
+//      [in]      LPWSAOVERLAPPED                    lpOverlapped,
+//      [in]      LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+//
+// WSARecv 函数从已连接的套接字或已绑定的无连接套接字接收数据。如果没有错误发生且接收操
+// 作已立即完成，WSARecv 返回零。在这种情况下，完成例程将被安排在调用线程处于可警报状态
+// 时调用一次。否则，返回值为 SOCKET_ERROR，可以通过调用 WSAGetLastError 获取特定的错
+// 误代码。错误代码 WSA_IO_PENDING 表示重叠操作已成功启动，完成将在稍后时间指示。任何
+// 其他错误代码表示重叠操作未成功启动，不会发生完成指示。
+//      WSAECONNABORTED         虚拟电路因超时或其他故障而终止。
+//      WSAECONNRESET           对于流式套接字，虚拟电路被远程方重置。应用程序应关闭套接字，因为它已不再可用。对于 UDP 数据报套
+//                              接字，此错误表示之前的发送操作导致了 ICMP“端口不可达”消息。
+//      WSAEDISCON              套接字 s 是面向消息的，且虚拟电路已被远程方优雅关闭。
+//      WSAEFAULT               lpBuffers 参数未完全包含在用户地址空间的有效部分。
+//      WSAEINPROGRESS          一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINTR                通过 WSACancelBlockingCall 函数取消了（阻塞）调用。
+//      WSAEINVAL               套接字未绑定（例如，未使用 bind）。
+//      WSAEMSGSIZE             消息太大，无法放入指定的缓冲区，并且（仅适用于不可靠协议）消息中未放入缓冲区的尾部部分已被丢弃。
+//      WSAENETDOWN             网络子系统已失败。
+//      WSAENETRESET            对于面向连接的套接字，此错误表示由于在操作进行中检测到故障而通过保持活动操作断开了连接。对于数据
+//                              报套接字，此错误表示生存时间已到期。
+//      WSAENOTCONN             套接字未连接。
+//      WSAENOTSOCK             描述符不是套接字。
+//      WSAEOPNOTSUPP           指定了 MSG_OOB，但套接字不是流式套接字（如 SOCK_STREAM），OOB 数据在与该套接字关联的通信域中不
+//                              支持，或者套接字是单向的且仅支持发送操作。
+//      WSAESHUTDOWN            套接字已关闭；在调用 shutdown 后，无法在套接字上使用 WSARecv，其中 how 设置为 SD_RECEIVE 或
+//                              SD_BOTH。
+//      WSAETIMEDOUT            由于网络故障或对等系统未响应，连接已断开。
+//      WSAEWOULDBLOCK          Windows NT：重叠套接字：存在过多的未完成重叠 I/O 请求。非重叠套接字：套接字被标记为非阻塞，且接
+//                              收操作无法立即完成。
+//      WSANOTINITIALISED       在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSA_IO_PENDING          重叠操作已成功启动，完成将在稍后时间指示。
+//      WSA_OPERATION_ABORTED   由于套接字关闭，重叠操作已被取消。
+//
+// 参数 s 标识已连接套接字的描述符。参数 lpBuffers 指向 WSABUF 结构数组的指针。每个
+// WSABUF 结构包含指向缓冲区的指针以及缓冲区的长度（以字节为单位）。参数 dwBufferCount
+// 表示 lpBuffers 数组中的 WSABUF 结构数量。
+//
+// 参数 lpNumberOfBytesRecvd，如果接收操作立即完成，此参数指向本次调用接收的字节数。
+// 如果 lpOverlapped 参数不为 NULL，为了避免可能出现的错误结果，应将此参数设置为 NULL。
+// 仅当 lpOverlapped 参数不为 NULL 时，此参数可以为 NULL。
+//
+// 参数 lpFlags 指向用于修改 WSARecv 函数调用行为的标志的指针。参数 lpOverlapped 指向
+// WSAOVERLAPPED 结构（对于非重叠套接字将被忽略）。参数 lpCompletionRoutine 指向完成
+// 例程，当接收操作完成时调用（对于非重叠套接字将被忽略）。
+//
+// 与标准 recv 函数相比，WSARecv 函数在三个重要方面提供了一些额外功能：
+//  1.  它可以与重叠套接字一起使用以执行重叠接收操作。
+//  2.  它允许指定多个接收缓冲区，使其适用于分散/聚集类型的 I/O。
+//  3.  lpFlags 参数既用于输入，也在输出时返回，允许应用程序感知 MSG_PARTIAL 标志位的
+//      输出状态。然而，并非所有协议都支持 MSG_PARTIAL 标志位。
+//
+// WSARecv 函数用于由 s 参数指定的已连接套接字或已绑定的无连接套接字，用于读取传入数据。
+// 套接字的本地地址必须已知。对于服务器应用程序，这通常是通过 bind 显式完成的，或者通过
+// accept 或 WSAAccept 隐式完成。不建议客户端应用程序显式绑定。对于客户端应用程序，套
+// 接字可以通过 connect、WSAConnect、sendto、WSASendTo 或 WSAJoinLeaf 隐式绑定到本
+// 地地址。
+//
+// 对于已连接的无连接套接字，此函数限制了接受来源消息的地址。该函数仅返回连接中指定的远
+// 程地址的消息。来自其他地址的消息将被（静默地）丢弃。
+//
+// 对于重叠套接字，WSARecv 用于发布一个或多个缓冲区，当数据可用时，传入数据将被放入这些
+// 缓冲区，之后将发生应用程序指定的完成指示（调用完成例程或设置事件对象）。如果操作未立
+// 即完成，则通过完成例程或 WSAGetOverlappedResult 获取最终完成状态。
+//
+// 注意，当给定线程退出时，该线程启动的所有 I/O 都将被取消。对于重叠套接字，如果在线程
+// 关闭之前操作未完成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
+//
+// 如果 lpOverlapped 和 lpCompletionRoutine 均为 NULL，则此函数中的套接字将被视为非
+// 重叠套接字。对于非重叠套接字，阻塞语义与标准 recv 函数完全相同，lpOverlapped 和
+// lpCompletionRoutine 参数将被忽略。任何已被传输接收并缓冲的数据将被复制到指定的用户
+// 缓冲区。在阻塞套接字当前未接收并缓冲任何数据的情况下，调用将阻塞，直到接收到数据。Windows
+// 套接字版本 2 不为此函数定义任何标准的阻塞超时机制。对于作为字节流协议运行的协议，协议
+// 栈会尝试返回尽可能多的数据，具体取决于可用的缓冲区空间和已接收的数据量。然而，接收单
+// 个字节就足以解除调用者的阻塞。不能保证返回的字节数会超过一个。对于作为面向消息的协议
+// 运行的协议，需要一个完整的消息才能解除调用者的阻塞。注意，套接字选项 SO_RCVTIMEO 和
+// SO_SNDTIMEO 仅适用于阻塞套接字。
+//
+// 协议是否作为字节流运行取决于其 WSAPROTOCOL_INFO 结构中 XP1_MESSAGE_ORIENTED 和
+// XP1_PSEUDO_STREAM 的设置，以及传递给此函数的 MSG_PARTIAL 标志（对于支持该标志的协
+// 议）。下表列出了相关的组合，星号 (*) 表示在此情况下该位的设置无关紧要。
+//      XP1_MESSAGE_ORIENTED    XP1_PSEUDO_STREAM   MSG_PARTIAL     行为
+//      未设置                   *                   *              字节流
+//      *                       设置                 *              字节流
+//      设置                    未设置              设置            字节流
+//      设置                    未设置              未设置          面向消息
+//
+// 缓冲区按 lpBuffers 参数指向的数组中出现的顺序填充，并且缓冲区被紧凑打包（the buffers
+// are packed），以便不创建空洞。如果以重叠方式完成此函数，则 Winsock 服务提供程序负责
+// 在从该调用返回之前捕获 WSABUF 结构。这使应用程序可以构建由 lpBuffers 参数指向的基于
+// 堆栈的 WSABUF 数组。
+//
+// 对于字节流式套接字（例如，类型为 SOCK_STREAM），传入数据将被放入缓冲区，直到缓冲区
+// 被填满、连接关闭或内部缓冲的数据耗尽。无论传入数据是否填满所有缓冲区，对于重叠套接字
+// 都会发生完成指示。
+//
+// 对于面向消息的套接字（例如，类型为 SOCK_DGRAM），传入消息将被放入缓冲区，直到达到缓
+// 冲区的总大小，并且对于重叠套接字会发生完成指示。如果消息大于缓冲区，缓冲区将被填入消
+// 息的第一部分。如果底层服务提供程序支持 MSG_PARTIAL 特性，则在 lpFlags 中设置 MSG_PARTIAL
+// 标志，后续接收操作将检索消息的其余部分。如果 MSG_PARTIAL 不受支持但协议是可靠的，
+// WSARecv 会生成 WSAEMSGSIZE 错误，后续接收操作可以使用更大的缓冲区来检索整个消息。
+// 否则（即协议不可靠且不支持 MSG_PARTIAL），多余的数据将丢失，WSARecv 会生成 WSAEMSGSIZE
+// 错误。
+//
+// 对于面向连接的套接字，WSARecv 可以通过两种方式之一指示虚拟电路的优雅终止，这取决于
+// 套接字是字节流还是面向消息。对于字节流，读取零字节（通过返回值指示成功，且 lpNumberOfBytesRecvd
+// 值为零）表示优雅关闭，且不会再读取任何字节。对于面向消息的套接字，零字节消息通常是允
+// 许的，因此使用 WSAEDISCON 错误代码的失败表示优雅关闭。在任何情况下，返回错误代码
+// WSAECONNRESET 表示发生了强制关闭。
+//
+// lpFlags 参数可用于在关联套接字指定的选项之外影响函数调用的行为。也就是说，该函数的
+// 语义由套接字选项和 lpFlags 参数决定。后者是通过使用按位 OR 运算符与以下表中列出的值
+// 中的任何一个组合而成的。
+//      MSG_PEEK            查看传入数据。数据被复制到缓冲区，但不会从输入队列中移除。此标志仅适用于非重叠套接字。
+//      MSG_OOB             处理带外数据。
+//      MSG_PARTIAL         仅适用于面向消息的套接字。在输出时，此标志表示指定的数据是发送方传输的消息的一部分。消息的剩余部分将
+//                          在后续接收操作中指定。作为输入参数时，此标志表示即使仅接收到了消息的一部分，接收操作也应完成。
+//      MSG_PUSH_IMMEDIATE  仅适用于面向流的套接字。此标志允许使用流式套接字的应用程序告诉传输提供程序不要延迟挂起的（pending）
+//                          部分填充接收请求的完成。这是提示传输提供程序，表示应用程序愿意尽快接收任何传入数据，而不必等待可能仍
+//                          在传输中的其余数据。什么是部分填充的挂起接收请求是传输特定的。
+//                          在 TCP 的情况下，这指的是传入的 TCP 数据段被放入接收请求数据缓冲区，但没有任何 TCP 数据段指示 PUSH
+//                          位值为 1。在这种情况下，TCP 可能会稍微延迟部分填充的接收请求，以便让其余数据与设置了 PUSH 位的 TCP
+//                          数据段一起到达。此标志告诉 TCP 不要延迟接收请求，而是立即完成它。
+//                          不建议在大块传输中使用此标志，因为处理部分数据块通常不是最优的。此标志仅适用于接收和处理部分数据可以
+//                          立即帮助减少处理延迟的情况。此标志是一个提示，而不是实际的保证。此标志在 Windows 8.1、Windows Server
+//                          2012 R2 及更高版本中受支持。
+//      MSG_WAITALL         接收请求仅在以下事件之一发生时完成：
+//                              * 调用方提供的缓冲区完全填满。
+//                              * 连接已关闭。
+//                              * 请求被取消或发生错误。
+//                          请注意，如果底层传输提供程序不支持 MSG_WAITALL，或者套接字处于非阻塞模式，则此调用将因 WSAEOPNOTSUPP
+//                          错误而失败。此外，如果 MSG_WAITALL 与 MSG_OOB、MSG_PEEK 或 MSG_PARTIAL 一起指定，则此调用将因
+//                          WSAEOPNOTSUPP 错误而失败。
+//                          此标志不适用于数据报套接字或面向消息的套接字。
+//
+// 对于面向消息的套接字，如果收到部分消息，则在 lpFlags 参数中设置 MSG_PARTIAL 位。如
+// 果收到完整消息，则在 lpFlags 中清除 MSG_PARTIAL。在延迟完成的情况下，lpFlags 指向
+// 的值不会被更新。完成指示后，应用程序应调用 WSAGetOverlappedResult 并检查 lpdwFlags
+// 参数指示的标志。
+//
+// 注意，当使用 WSARecv 发出阻塞的 Winsock 调用且 lpOverlapped 参数设置为 NULL 时，
+// Winsock 可能需要等待网络事件才能完成调用。在这种情况下，Winsock 会执行可警报等待，
+// 这可能会被同一线程上安排的异步过程调用（APC）中断。在中断了同一线程上正在进行的阻塞
+// Winsock 调用的 APC 中发出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户
+// 端绝对不应尝试此操作。
+//
+// 重叠套接字 I/O，如果重叠操作立即完成，WSARecv 返回零值，并且 lpNumberOfBytesRecvd
+// 参数将被更新为接收的字节数，lpFlags 参数指示的标志位也将被更新。如果重叠操作已成功启
+// 动且稍后完成，WSARecv 返回 SOCKET_ERROR 并指示错误代码 WSA_IO_PENDING。在这种情况
+// 下，lpNumberOfBytesRecvd 和 lpFlags 不会被更新。当重叠操作完成时，通过完成例程中的
+// cbTransferred 参数（如果已指定）或 WSAGetOverlappedResult 中的 lpcbTransfer 参数
+// 指示传输的数据量。通过检查 WSAGetOverlappedResult 的 lpdwFlags 参数获取标志值。
+//
+// 使用重叠 I/O 的 WSARecv 函数可以在 WSARecv、WSARecvFrom、WSASend 或 WSASendTo
+// 函数的完成例程中调用。对于给定的套接字，I/O 完成例程不会嵌套。这允许时间敏感的数据传
+// 输完全在抢占式上下文中发生。
+//
+// lpOverlapped 参数必须在整个重叠操作期间有效。如果同时有多个 I/O 操作挂起，则每个操
+// 作都必须引用一个单独的 WSAOVERLAPPED 结构。
+//
+// 如果 lpCompletionRoutine 参数为 NULL，则当重叠操作完成且 lpOverlapped 中包含有效
+// 的事件对象句柄时，lpOverlapped 的 hEvent 参数将被触发。应用程序可以使用 WSAWaitForMultipleEvents
+// 或 WSAGetOverlappedResult 在事件对象上等待或轮询。
+//
+// 如果 lpCompletionRoutine 不为 NULL，则忽略 hEvent 参数，应用程序可以使用它将上下
+// 文信息传递给完成例程。传递非 NULL lpCompletionRoutine 的调用者稍后为相同的重叠 I/O
+// 请求调用 WSAGetOverlappedResult 时，不得将该调用的 fWait 参数设置为 TRUE。在这种
+// 情况下，hEvent 参数的使用是未定义的，尝试等待 hEvent 参数将产生不可预测的结果。
+//
+// 完成例程遵循 Windows 文件 I/O 完成例程规定的相同规则。完成例程将在线程处于可警报等
+// 待状态时被调用，例如在调用函数 WSAWaitForMultipleEvents 且 fAlertable 参数设置为
+// TRUE 时。完成例程的原型如下：
+//      void CALLBACK CompletionRoutine(
+//          IN DWORD dwError,
+//          IN DWORD cbTransferred,
+//          IN LPWSAOVERLAPPED lpOverlapped,
+//          IN DWORD dwFlags
+//      );
+//
+// CompletionRoutine 是应用程序定义或库定义的函数名称的占位符。dwError 参数指定由
+// lpOverlapped 参数指示的重叠操作的完成状态。cbTransferred 参数指定接收的字节数。
+// dwFlags 参数包含如果接收操作立即完成将在 lpFlags 中出现的信息。此函数不返回值。
+//
+// 从这个函数返回允许为该套接字调用另一个挂起的完成例程。当使用 WSAWaitForMultipleEvents
+// 时，所有等待的完成例程将在警报线程的等待以 WSA_IO_COMPLETION 返回码满足之前被调用。
+// 完成例程可以以任何顺序被调用，不一定是重叠操作完成的相同顺序。但是，发送的缓冲区保证
+// 按照它们指定的顺序填充。如果使用的是 I/O 完成端口，请注意，对 WSARecv 的调用顺序也
+// 是缓冲区被填充的顺序。不应从不同线程并发地在同一个套接字上调用 WSARecv，因为这可能
+// 导致不可预测的缓冲区顺序。
+//
+// int WSAAPI WSARecvDisconnect(
+//      [in]  SOCKET   s,
+//      [out] LPWSABUF lpInboundDisconnectData
+// );
+//
+// WSARecvDisconnect 函数用于终止套接字上的接收，并在套接字是面向连接的情况下检索断开
+// 连接数据。如果没有错误发生，WSARecvDisconnect 返回零。否则返回 SOCKET_ERROR，可以
+// 通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEFAULT           lpInboundDisconnectData 参数引用的缓冲区太小。
+//      WSAENOPROTOOPT      指定的协议族不支持断开连接数据。注意，不支持断开连接数据的 TCP/IP 实现不要求返回 WSAENOPROTOOPT 错
+//                          误代码。有关 Microsoft 实现的 TCP/IP 的信息，请参阅备注部分。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAENOTCONN         套接字未连接（仅适用于面向连接的套接字）。
+//      WSAENOTSOCK         描述符不是套接字。
+//
+// 参数 s 标识套接字的描述符。参数 lpInboundDisconnectData 指向传入的断开连接数据。
+//
+// WSARecvDisconnect 函数用于面向连接的套接字，以禁用接收并从远方检索任何传入的断开连
+// 接数据。这相当于调用 shutdown (SD_RECEIVE)，但 WSARecvDisconnect 还允许接收断开
+// 连接数据（在支持该功能的协议中）。
+//
+// 成功调用此函数后，后续对该套接字的接收操作将被禁止。调用 WSARecvDisconnect 对底层
+// 协议层没有影响。对于 TCP 套接字，如果套接字上仍有排队等待接收的数据，或者后续有数据
+// 到达，连接将被重置，因为数据无法传递给用户。对于 UDP，传入的数据报将被接受并排队。在
+// 任何情况下，都不会生成 ICMP 错误数据包。
+//
+// 注意，Windows 上的原生 TCP/IP 实现不支持断开连接数据。断开连接数据仅在具有 XP1_DISCONNECT_DATA
+// 标志的 Windows 套接字提供程序的 WSAPROTOCOL_INFO 结构中受支持。可以使用 WSAEnumProtocols
+// 函数获取所有已安装提供程序的 WSAPROTOCOL_INFO 结构。
+//
+// 为了成功接收传入的断开连接数据，应用程序必须使用其他机制来确定电路已关闭。例如，应用
+// 程序需要接收 FD_CLOSE 通知、接收零返回值，或者从 recv/WSARecv 接收 WSAEDISCON 或
+// WSAECONNRESET 错误代码。
+//
+// WSARecvDisconnect 函数不会关闭套接字，与套接字关联的资源直到调用 closesocket 时才
+// 会被释放。无论套接字上的 SO_LINGER 设置如何，WSARecvDisconnect 函数都不会阻塞。
+//
+// 应用程序不应依赖在使用 WSARecvDisconnect 断开连接后重用套接字。特别是，Windows 套
+// 接字提供程序不要求支持在这样的套接字上使用 connect 或 WSAConnect。
+//
+// 注意，当发出阻塞的 Winsock 调用（如 WSARecvDisconnect）时，Winsock 可能需要等待网
+// 络事件才能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排
+// 的异步过程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发
+// 出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_sock_test(void) {
