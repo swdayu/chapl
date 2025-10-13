@@ -1308,6 +1308,19 @@ extern "C" {
     // Define one or more of the NOapi symbols to exclude the API. For example,
     // NOCOMM excludes the serial communication API. For a list of support
     // NOapi symbols, see Windows.h. such as #define NOCOMM
+    // Windows API Data Types:
+    //  Data type   Size        Signed?
+    //  BYTE        8 bits      Unsigned
+    //  WORD        16 bits     Unsigned
+    //  DWORD       32 bits     Unsigned
+    //  UINT32      32 bits     Unsigned
+    //  ULONG       32 bits     Unsigned
+    //  INT32       32 bits     Signed
+    //  LONG        32 bits     Signed
+    //  INT64       64 bits     Signed
+    //  LONGLONG    64 bits     Signed
+    //  UINT64      64 bits     Unsigned
+    //  ULONGLONG   64 bits     Unsigned
     #include <windows.h>
     #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_abort_error(GetLastError()); }
     #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_prerr(GetLastError()); }
@@ -1803,7 +1816,7 @@ void prh_impl_dump_memory_leaks(void) {
 }
 #endif
 #if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
-void prh_impl_wsasocket_startup(void);
+void prh_impl_wsasocket_init(void);
 #endif
 #endif // WINDOWS
 
@@ -1823,7 +1836,7 @@ void prh_main_init(void) {
     prh_zeroret(atexit(prh_impl_dump_memory_leaks));
 #endif
 #if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
-    prh_impl_wsasocket_startup();
+    prh_impl_wsasocket_init();
 #endif
 #endif // WINDOWS
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
@@ -15677,53 +15690,6 @@ void prh_impl_wsasocket_startup(void) {
     prh_zeroret(atexit(prh_impl_wsasocket_cleanup));
 }
 
-// int WSAAPI ioctlsocket(SOCKET s, long cmd, [in, out] u_long *argp);
-// int WSAAPI WSAIoctl(
-//      [in]  SOCKET                             s,
-//      [in]  DWORD                              dwIoControlCode,
-//      [in]  LPVOID                             lpvInBuffer,
-//      [in]  DWORD                              cbInBuffer,
-//      [out] LPVOID                             lpvOutBuffer,
-//      [in]  DWORD                              cbOutBuffer,
-//      [out] LPDWORD                            lpcbBytesReturned,
-//      [in]  LPWSAOVERLAPPED                    lpOverlapped,
-//      [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
-// );
-//
-// ioctlsocket 函数用于控制套接字的 I/O 模式。参数 cmd 要在套接字 s 上执行的命令。参数
-// argp 指向 cmd 的参数的指针。成功完成时，ioctlsocket 返回零。否则返回 SOCKET_ERROR，
-// 可以通过调用 WSAGetLastError 获取特定的错误代码。
-//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
-//      WSAENETDOWN         网络子系统已失败。
-//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提
-//                          供程序仍在处理回调函数。
-//      WSAENOTSOCK         描述符 s 不是套接字。
-//      WSAEFAULT           argp 参数不是用户地址空间的有效部分。
-//
-// ioctlsocket 函数可用于任何状态的任何套接字。它用于设置或检索与套接字相关的一些操作
-// 参数，这些参数与协议和通信子系统无关。以下是在 cmd 参数中使用的支持命令及其语义：
-//      FIONREAD    获取套接字接收缓冲区中可读取的数据量。argp 参数应指向一个整数，该
-//                  整数将被设置为可读取的数据量。
-//      FIONBIO     设置或检索套接字的阻塞模式。argp 参数应指向一个整数，非零值表示非
-//                  阻塞模式，零值表示阻塞模式。
-//      SIOCATMARK  检查套接字带外数据标记是否已到达。argp 参数应指向一个整数，该整数
-//                  将被设置为非零值（表示已到达标记）或零（表示未到达标记）。
-//
-// WSAIoctl 函数用于设置或检索与套接字、传输协议或通信子系统相关联的操作参数。WSAIoctl
-// 函数比 ioctlsocket 函数更强大，并支持大量可能的操作参数值。
-//
-// 兼容性，与 Berkeley 套接字中的 ioctl 函数相比，ioctlsocket 函数仅在套接字上执行一
-// 部分功能。ioctlsocket 函数没有与 ioctl 的 FIOASYNC 等效的命令参数，SIOCATMARK 是
-// ioctlsocket 唯一支持的套接字级别命令。
-//
-// https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls
-
-void prh_sock_setnonblock(prh_handle sock, int nonblock) {
-    u_long set_nonblock = nonblock; // 0 blcok mode, 1 nonblock mode
-    int n = ioctlsocket((SOCKET)sock, FIONBIO, &set_nonblock);
-    prh_wsa_prerr_if(n != 0);
-}
-
 // Winsock 提供了两种套接字模式，阻塞模式和非阻塞模式。在阻塞模式下，I/O 操作完成之前，
 // 执行操作的 Winsock 调用（例如 send 和 recv）会一直等待下去直到操作完成，不会立即返
 // 回将控制权交还给程序。而在非阻塞模式下，Winsock 函数无论如何都会立即返回。
@@ -16143,6 +16109,8 @@ void prh_sock_setnonblock(prh_handle sock, int nonblock) {
 // 常量的定义自动选择 ANSI 或 Unicode 版本的函数。将编码中立的别名与非编码中立的代码
 // 混合使用可能会导致不匹配，从而引发编译时或运行时错误。
 
+void prh_sock_setnonblock(prh_handle sock, int nonblock);
+
 prh_handle prh_impl_tcp_socket(int family) {
     SOCKET sock = WSASocket(family, SOCK_STREAM, IPPROTO_TCP, prh_null, 0, WSA_FLAG_OVERLAPPED
 #if defined(WSA_FLAG_NO_HANDLE_INHERIT)
@@ -16359,6 +16327,342 @@ void prh_sock_shut_read_write(prh_handle sock) {
 
 prh_inline void prh_impl_close_socket(prh_handle sock) {
     prh_wsa_prerr_if(closesocket((SOCKET)sock));
+}
+
+// int WSAAPI ioctlsocket(SOCKET s, long cmd, [in, out] u_long *argp);
+//
+// ioctlsocket 函数用于控制套接字的 I/O 模式。参数 cmd 要在套接字 s 上执行的命令。参数
+// argp 指向 cmd 的参数的指针。成功完成时，ioctlsocket 返回零。否则返回 SOCKET_ERROR，
+// 可以通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提
+//                          供程序仍在处理回调函数。
+//      WSAENOTSOCK         描述符 s 不是套接字。
+//      WSAEFAULT           argp 参数不是用户地址空间的有效部分。
+//
+// ioctlsocket 函数可用于任何状态的任何套接字。它用于设置或检索与套接字相关的一些操作
+// 参数，这些参数与协议和通信子系统无关。以下是在 cmd 参数中使用的支持命令及其语义：
+//      FIONREAD    获取套接字接收缓冲区中可读取的数据量。argp 参数应指向一个整数，该
+//                  整数将被设置为可读取的数据量。
+//      FIONBIO     设置或检索套接字的阻塞模式。argp 参数应指向一个整数，非零值表示非
+//                  阻塞模式，零值表示阻塞模式。
+//      SIOCATMARK  检查套接字带外数据标记是否已到达。argp 参数应指向一个整数，该整数
+//                  将被设置为非零值（表示已到达标记）或零（表示未到达标记）。
+//
+// WSAIoctl 函数用于设置或检索与套接字、传输协议或通信子系统相关联的操作参数。WSAIoctl
+// 函数比 ioctlsocket 函数更强大，并支持大量可能的操作参数值。
+//
+// 兼容性，与 Berkeley 套接字中的 ioctl 函数相比，ioctlsocket 函数仅在套接字上执行一
+// 部分功能。ioctlsocket 函数没有与 ioctl 的 FIOASYNC 等效的命令参数，SIOCATMARK 是
+// ioctlsocket 唯一支持的套接字级别命令。
+//
+
+void prh_sock_setnonblock(prh_handle sock, int nonblock) {
+    u_long set_nonblock = nonblock; // 0 blcok mode, 1 nonblock mode
+    int n = ioctlsocket((SOCKET)sock, FIONBIO, &set_nonblock);
+    prh_wsa_prerr_if(n != 0);
+}
+
+// int WSAAPI WSAIoctl(
+//      [in]  SOCKET                             s,
+//      [in]  DWORD                              dwIoControlCode,
+//      [in]  LPVOID                             lpvInBuffer,
+//      [in]  DWORD                              cbInBuffer,
+//      [out] LPVOID                             lpvOutBuffer,
+//      [in]  DWORD                              cbOutBuffer,
+//      [out] LPDWORD                            lpcbBytesReturned,
+//      [in]  LPWSAOVERLAPPED                    lpOverlapped,
+//      [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+//
+// WSAIoctl 函数用于控制套接字的模式。成功完成时，WSAIoctl 返回零。否则返回 SOCKET_ERROR，
+// 可以通过调用 WSAGetLastError 获取特定的错误代码。
+//      WSA_IO_PENDING      重叠操作已成功启动，操作将在稍后时间完成。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEFAULT           lpvInBuffer、lpvOutBuffer、lpcbBytesReturned、lpOverlapped 或 lpCompletionRoutine 参数未完全包
+//                          含在有效的用户地址空间中，或者 cbInBuffer 或 cbOutBuffer 参数太小。
+//      WSAEINVAL           dwIoControlCode 参数不是有效命令，或者指定的输入参数不可接受，或者该命令不适用于指定类型的套接字。
+//      WSAEINPROGRESS      在回调正在进行时调用了该函数。
+//      WSAENOTSOCK         描述符 s 不是套接字。
+//      WSAEOPNOTSUPP       指定的 IOCTL 命令无法实现。例如 SIO_SET_QOS 或 SIO_SET_GROUP_QOS 中指定的 FLOWSPEC 结构无法满足。
+//      WSAEWOULDBLOCK      套接字被标记为非阻塞，且请求的操作将阻塞。
+//      WSAENOPROTOOPT      指定的协议上不支持套接字选项。例如，在 IPv6 套接字上尝试使用 SIO_GET_BROADCAST_ADDRESS IOCTL，或者
+//                          在数据报套接字上尝试使用 TCP SIO_KEEPALIVE_VALS IOCTL。
+//
+// 参数 s 标识套接字的描述符。参数 dwIoControlCode 要执行的操作的控制代码。请参阅
+// Winsock IOCTLs。
+//
+// 参数 lpvInBuffer 指向输入缓冲区的指针。参数 cbInBuffer 输入缓冲区的大小，以字节为
+// 单位。参数 lpvOutBuffer 指向输出缓冲区的指针。参数 cbOutBuffer 输出缓冲区的大小，
+// 以字节为单位。参数 lpcbBytesReturned 指向实际输出字节数的指针。
+//
+// 参数 lpOverlapped 指向 WSAOVERLAPPED 结构的指针（对于非重叠套接字将被忽略）。
+// 参数 lpCompletionRoutine 指向完成例程的指针，当操作完成时调用（对于非重叠套接字将
+// 被忽略）。
+//
+// WSAIoctl 函数用于设置或检索与套接字、传输协议或通信子系统相关联的操作参数。如果 lpOverlapped
+// 和 lpCompletionRoutine 均为 NULL，则此函数中的套接字将被视为非重叠套接字。对于非重
+// 叠套接字，lpOverlapped 和 lpCompletionRoutine 参数将被忽略，这使得该函数的行为类
+// 似于标准的 ioctlsocket 函数，只是如果套接字 s 处于阻塞模式，该函数可能会阻塞。如果
+// 套接字 s 处于非阻塞模式，当指定的操作无法立即完成时，此函数可能会返回 WSAEWOULDBLOCK。
+// 在这种情况下，应用程序可以将套接字更改为阻塞模式并重新发出请求，或者使用基于 Windows
+// 消息（使用 WSAAsyncSelect）或基于事件（使用 WSAEventSelect）的通知机制等待相应的网
+// 络事件（例如在 SIO_ROUTING_INTERFACE_CHANGE 或 SIO_ADDRESS_LIST_CHANGE 的情况
+// 下，FD_ROUTING_INTERFACE_CHANGE 或 FD_ADDRESS_LIST_CHANGE 网络事件）。
+//
+// 对于重叠套接字，无法立即完成的操作将被启动，完成将在稍后时间指示。返回的 lpcbBytesReturned
+// 参数指向的 DWORD 值可以被忽略。当操作完成时，最终完成状态和返回的字节数可以通过适当
+// 的完成方法触发时获取。
+//
+// 任何 IOCTL 都可能会无限期阻塞，具体取决于服务提供程序的实现。如果应用程序无法容忍
+// WSAIoctl 调用中的阻塞，则建议对特别可能阻塞的 IOCTL 使用重叠 I/O，包括：
+//      SIO_ADDRESS_LIST_CHANGE
+//      SIO_FINDROUTE
+//      SIO_FLUSH
+//      SIO_GET_QOS
+//      SIO_GET_GROUP_QOS
+//      SIO_ROUTING_INTERFACE_CHANGE
+//      SIO_SET_QOS
+//      SIO_SET_GROUP_QOS
+//
+// 某些特定于协议的 IOCTL 也可能特别容易阻塞。请查阅相关的特定于协议的附录，了解任何可
+// 用信息。
+//
+// dwIoControlCode 参数现在是一个 32 位实体，允许在保留与 Windows 套接字 1.1 和 Unix
+// 控制代码向后兼容性的同时，为新控制代码添加协议和供应商独立性。dwIoControlCode 参数的
+// 格式如下：
+//      I   O   V   T       Vendor/address family               Code
+//      31  30  29  28 27   26 25 24 23 22 21 20 19 18 17 16    15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0
+//
+// 注意 dwIoControlCode 参数中的位应从上到下按列垂直读取。因此，最左边的位是第 31 位，
+// 下一个位是第 30 位，最右边的位是第 0 位。
+//
+// I：如果输入缓冲区对操作码有效，则设置，如 IOC_IN。
+// O：如果输出缓冲区对操作码有效，则设置，如 IOC_OUT。使用输入和输出缓冲区的操作码同时设置 I 和 O。
+// V：如果操作码没有参数，则设置，如 IOC_VOID。
+// T：一个 2 位的量，定义 IOCTL 的类型。定义了以下值：
+//      0   该 IOCTL 是标准的 Unix IOCTL 操作码，如 FIONREAD 和 FIONBIO。
+//      1   该 IOCTL 是通用的 Windows 套接字版本 2 的 IOCTL 操作码。为 Windows 套接字版本 2 定义的新 IOCTL 操作码将有 T == 1。
+//      2   该 IOCTL 仅适用于特定的地址族。
+//      3   该 IOCTL 仅适用于特定供应商的提供程序，如 IOC_VENDOR。此类型允许公司被分配一个在供应商/地址族参数中出现的供应商编号。
+//          然后，供应商可以定义特定于该供应商的新 IOCTL，而无需向注册机构注册 IOCTL，从而提供供应商灵活性和隐私。
+// Vendor/Address family：一个 11 位的量，定义拥有操作码的供应商（如果 T == 3）或包含
+// 操作码适用的地址族（如果 T == 2）。如果这是 Unix IOCTL 操作码（T == 0），则此参数在
+// Unix 上具有与操作码相同的值。如果这是通用的 Windows 套接字版本 2 IOCTL（T == 1），
+// 则此参数可以用作操作码参数的扩展，以提供额外的操作码值。
+// Code：一个 16 位的量，包含特定于操作的 IOCTL 操作码。
+//
+// 如果重叠操作立即完成，WSAIoctl 返回零值，并且 lpcbBytesReturned 参数将被更新为输出
+// 缓冲区中的字节数。如果重叠操作已成功启动且稍后完成，此函数返回 SOCKET_ERROR 并指示
+// 错误代码 WSA_IO_PENDING。在这种情况下，lpcbBytesReturned 不会被更新。当重叠操作完
+// 成时，输出缓冲区中的数据量通过完成例程中的 cbTransferred 参数（如果已指定）或 WSAGetOverlappedResult
+// 中的 lpcbTransfer 参数指示。
+//
+// 当使用重叠套接字调用时，lpOverlapped 参数必须在整个重叠操作期间有效。lpOverlapped
+// 参数包含 WSAOVERLAPPED 结构的地址。如果 lpCompletionRoutine 参数为 NULL，则当重
+// 叠操作完成且 lpOverlapped 中包含有效的事件对象句柄时，lpOverlapped 的 hEvent 参数
+// 将被触发。应用程序可以使用 WSAWaitForMultipleEvents 或 WSAGetOverlappedResult 在
+// 事件对象上等待或轮询。
+//
+// 注意，当给定线程退出时，该线程启动的所有 I/O 都将被取消。对于重叠套接字，如果在线程
+// 关闭之前操作未完成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
+//
+// 如果 lpCompletionRoutine 不为 NULL，则忽略 hEvent 参数，应用程序可以使用它将上下
+// 文信息传递给完成例程。传递非 NULL lpCompletionRoutine 的调用者稍后为相同的重叠 I/O
+// 请求调用 WSAGetOverlappedResult 时，不得将该调用的 fWait 参数设置为 TRUE。在这种
+// 情况下，hEvent 参数的使用是未定义的，尝试等待 hEvent 参数将产生不可预测的结果。
+//
+// 完成例程的原型如下：
+//      void CALLBACK CompletionRoutine(
+//          IN DWORD dwError,
+//          IN DWORD cbTransferred,
+//          IN LPWSAOVERLAPPED lpOverlapped,
+//          IN DWORD dwFlags
+//      );
+//
+// 此 CompletionRoutine 是应用程序定义或库定义的函数的占位符。仅当线程处于可警报状态时，
+// 才会调用完成例程。要使线程进入可警报状态，请使用 WSAWaitForMultipleEvents、WaitForSingleObjectEx
+// 或 WaitForMultipleObjectsEx 函数，并将 fAlertable 或 bAlertable 参数设置为 TRUE。
+//
+// CompletionRoutine 的 dwError 参数指定由 lpOverlapped 参数指示的重叠操作的完成状态。
+// cbTransferred 参数指定返回的字节数。目前没有定义 dwFlags 标志值，其值为零。CompletionRoutine
+// 函数不返回值。
+//
+// 从这个函数返回允许为该套接字调用另一个挂起的完成例程。完成例程可以以任何顺序被调用，
+// 不一定是重叠操作完成的相同顺序。
+//
+// 兼容性，T == 0 的 IOCTL 操作码是 Berkeley 套接字中使用的 IOCTL 操作码的一个子集。
+// 特别是，没有与 FIOASYNC 等效的命令。注意，某些 IOCTL 操作码需要额外的头文件。例如，
+// 使用 SIO_RCVALL IOCTL 需要 Mstcpip.h 头文件。
+//
+// https://learn.microsoft.com/en-us/windows/win32/winsock/winsock-ioctls
+//
+// Winsock IOCTLs，可以使用 WSAIoctl 或 WSPIoctl 函数发出 Winsock IOCTL，以控制套
+// 接字、传输协议或通信子系统的模式。dwIoControlCode 参数的设计允许在添加新的控制码时
+// 实现协议和供应商的独立性，同时保留与 Windows 套接字 1.1 和 Unix 控制码的向后兼容性。
+//
+// Unix IOCTL 操作码，以下是受支持的 Unix IOCTL 操作码（命令）。
+//      FIONBIO     在套接字 s 上启用或禁用非阻塞模式。lpvInBuffer 参数指向一个非零
+//                  值的无符号长整型（QoS），以启用非阻塞模式，零值则禁用非阻塞模式。
+//                  创建套接字时，默认为阻塞模式（即非阻塞模式被禁用）。这与 BSD 套接
+//                  字一致。
+//                  WSAAsyncSelect 或 WSAEventSelect 会自动将套接字设置为非阻塞模
+//                  式。如果已对套接字调用了 WSAAsyncSelect 或 WSAEventSelect，则
+//                  尝试使用 WSAIoctl 将套接字重新设置为阻塞模式将因 WSAEINVAL 错误
+//                  而失败。要将套接字重新设置为阻塞模式，应用程序必须首先通过调用
+//                  WSAAsyncSelect（将 lEvent 参数设置为零）或 WSAEventSelect（将
+//                  lNetworkEvents 参数设置为零）来禁用 WSAAsyncSelect 或 WSAEventSelect。
+//      FIONREAD    确定可以从套接字 s 原子地读取的数据量。lpvOutBuffer 参数指向一个
+//                  无符号长整型，WSAIoctl 在其中存储结果。
+//                  如果 s 参数中的套接字是面向流的（例如，类型为 SOCK_STREAM），FIONREAD
+//                  返回单次接收操作可以读取的总数据量；这通常与套接字上排队的总数据量
+//                  相同（由于数据流是字节导向的，因此不能保证）。
+//                  如果 s 参数中的套接字是面向消息的（例如，类型为 SOCK_DGRAM），FIONREAD
+//                  返回可用的总字节数，而不是套接字上排队的第一个数据报（消息）的大小。
+//      SIOCATMARK  确定是否已读取所有带外数据。这仅适用于已配置为内联接收任何带外数据
+//                  （SO_OOBINLINE）的流式套接字（例如，类型为 SOCK_STREAM）。如果没
+//                  有带外数据等待读取，则该操作返回 TRUE。否则，返回 FALSE，且套接字
+//                  上执行的下一个接收操作将检索标记之前的一些或全部数据；应用程序应使
+//                  用 SIOCATMARK 操作来确定是否仍有剩余数据。如果有任何普通数据在紧
+//                  急（带外）数据之前，则将以顺序接收。（注意，recv 操作永远不会在同
+//                  一个调用中混杂带外数据和普通数据。）lpvOutBuffer 指向一个布尔值，
+//                  WSAIoctl 在其中存储结果。
+//
+// Windows 套接字版本 2 支持的操作码：
+//
+// SIO_ACQUIRE_PORT_RESERVATION (opcode setting: I, T==3)
+// SIO_ADDRESS_LIST_CHANGE (opcode setting: V, T==1)
+// SIO_ADDRESS_LIST_QUERY (opcode setting: O, T==1)
+// SIO_APPLY_TRANSPORT_SETTING (opcode setting: I, T==3)
+// SIO_ASSOCIATE_HANDLE (opcode setting: I, T==1)
+// SIO_ASSOCIATE_PORT_RESERVATION (opcode setting: I, T==3)
+// SIO_BASE_HANDLE (opcode setting: O, T==1)
+// SIO_BSP_HANDLE (opcode setting: O, T==1)
+// SIO_BSP_HANDLE_SELECT (opcode setting: O, T==1)
+// SIO_BSP_HANDLE_POLL (opcode setting: O, T==1)
+// SIO_CHK_QOS (opcode setting: I, O, T==3)
+// SIO_CPU_AFFINITY (opcode setting: I, T==3)
+// SIO_ENABLE_CIRCULAR_QUEUEING (opcode setting: V, T==1)
+// SIO_FIND_ROUTE (opcode setting: O, T==1)
+// SIO_FLUSH (opcode setting: V, T==1)
+// SIO_GET_BROADCAST_ADDRESS (opcode setting: O, T==1)
+// SIO_GET_GROUP_QOS (opcode setting: O, I, T==1)
+// SIO_GET_INTERFACE_LIST (opcode setting: O, T==0)
+// SIO_GET_INTERFACE_LIST_EX (opcode setting: O, T==0)
+// SIO_GET_QOS (opcode setting: O, T==1)
+// SIO_GET_TX_TIMESTAMP
+// SIO_IDEAL_SEND_BACKLOG_CHANGE (opcode setting: V, T==0)
+// SIO_IDEAL_SEND_BACKLOG_QUERY (opcode setting: O, T==0)
+// SIO_KEEPALIVE_VALS (opcode setting: I, T==3)
+// SIO_LOOPBACK_FAST_PATH (opcode setting: I, T==3)
+// SIO_MULTIPOINT_LOOPBACK (opcode setting: V, T==1)
+// SIO_MULTICAST_SCOPE (opcode setting: I, T==1)
+// SIO_QUERY_RSS_PROCESSOR_INFO (opcode setting: O, T==1)
+// SIO_QUERY_RSS_SCALABILITY_INFO (opcode setting: O, T==3)
+// SIO_QUERY_TRANSPORT_SETTING (opcode setting: I, T==3)
+// SIO_QUERY_WFP_ALE_ENDPOINT_HANDLE (opcode setting: O, T==3)
+// SIO_QUERY_WFP_CONNECTION_REDIRECT_CONTEXT (opcode setting: I, T==3)
+// SIO_QUERY_WFP_CONNECTION_REDIRECT_RECORDS (opcode setting: I, T==3)
+// SIO_RCVALL (opcode setting: I, T==3)
+// SIO_RCVALL_IGMPMCAST (opcode setting: I, T==3)
+// SIO_RCVALL_MCAST (opcode setting: I, T==3)
+// SIO_RELEASE_PORT_RESERVATION (opcode setting: I, T==3)
+// SIO_ROUTING_INTERFACE_CHANGE (opcode setting: I, T==1)
+// SIO_ROUTING_INTERFACE_QUERY (opcode setting: I, O, T==1)
+// SIO_SET_COMPATIBILITY_MODE (opcode setting: I, T==3)
+// SIO_SET_GROUP_QOS (opcode setting: I, T==1)
+// SIO_SET_PRIORITY_HINT (opcode setting: I, T==3)
+// SIO_SET_QOS (opcode setting: I, T==1)
+// SIO_TCP_INITIAL_RTO (opcode setting: I, T==3)
+// SIO_TIMESTAMPING
+// SIO_TRANSLATE_HANDLE (opcode setting: I, O, T==1)
+// SIO_UDP_CONNRESET (opcode setting: I, T==3)
+// SIO_UDP_NETRESET
+// SIO_SET_WFP_CONNECTION_REDIRECT_RECORDS (opcode setting: I, T==3)
+// SIO_TCP_INFO (opcode setting: I, O, T==3)
+//
+// SIO_GET_EXTENSION_FUNCTION_POINTER (操作码设置：O, I, T==1)
+//
+// 检索与服务提供程序关联的指定扩展函数的指针。输入缓冲区包含一个全局唯一标识符（GUID），
+// 其值标识要检索的扩展函数。输出缓冲区返回指向所需函数的指针。扩展函数标识符由服务提供
+// 程序供应商建立，并应包含在描述扩展函数功能和语义的供应商文档中。
+//
+// Windows TCP/IP 服务提供程序支持的扩展函数的 GUID 值在 Mswsock.h 头文件中定义。这些
+// GUID 的可能值如下：
+//     WSAID_ACCEPTEX                  AcceptEx 扩展函数。
+//     WSAID_CONNECTEX                 ConnectEx 扩展函数。
+//     WSAID_DISCONNECTEX              DisconnectEx 扩展函数。
+//     WSAID_GETACCEPTEXSOCKADDRS      GetAcceptExSockaddrs 扩展函数。
+//     WSAID_TRANSMITFILE              TransmitFile 扩展函数。
+//     WSAID_TRANSMITPACKETS           TransmitPackets 扩展函数。
+//     WSAID_WSARECVMSG                LPFN_WSARECVMSG (WSARecvMsg) 扩展函数。
+//     WSAID_WSASENDMSG                WSASendMsg 扩展函数。
+//
+// 注意必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 AcceptEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_ACCEPTEX，
+// 这是一个全局唯一标识符（GUID），其值标识 AcceptEx 扩展函数。成功时，WSAIoctl 函数
+// 返回的输出包含指向 AcceptEx 函数的指针。WSAID_ACCEPTEX GUID 在 Mswsock.h 头文件中
+// 定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 GetAcceptExSockaddrs 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区
+// 必须包含 WSAID_GETACCEPTEXSOCKADDRS，这是一个全局唯一标识符（GUID），其值标识
+// GetAcceptExSockaddrs 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 GetAcceptExSockaddrs
+// 函数的指针。WSAID_GETACCEPTEXSOCKADDRS GUID 在 Mswsock.h 头文件中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 ConnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_CONNECTEX，
+// 这是一个全局唯一标识符（GUID），其值标识 ConnectEx 扩展函数。成功时，WSAIoctl 函数
+// 返回的输出包含指向 ConnectEx 函数的指针。WSAID_CONNECTEX GUID 在 Mswsock.h 头文件
+// 中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 DisconnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
+// WSAID_DISCONNECTEX，这是一个全局唯一标识符（GUID），其值标识 DisconnectEx 扩展函
+// 数。成功时，WSAIoctl 函数返回的输出包含指向 DisconnectEx 函数的指针。WSAID_DISCONNECTEX
+// GUID 在 Mswsock.h 头文件中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 WSASendMsg 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
+// WSAID_WSASENDMSG，这是一个全局唯一标识符（GUID），其值标识 WSASendMsg 扩展函数。
+// 成功时，WSAIoctl 函数返回的输出包含指向 WSASendMsg 函数的指针。WSAID_WSASENDMSG
+// GUID 在 Mswsock.h 头文件中定义。
+#include <mswsock.h>
+
+static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
+static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
+static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
+static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
+
+void *prh_impl_wsaioctl_extension_func(prh_handle s, GUID guid) {
+    void *extension_func;
+    DWORD bytes_returned = 0;
+    if (WSAIoctl((SOCKET)s, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(GUID), &extension_func, sizeof(void *), &bytes_returned, prh_null, prh_null) != 0) {
+        prh_wsa_prerr();
+        return prh_null;
+    }
+    return extension_func;
+}
+
+void prh_impl_mswsock_load_funcs(void) {
+    prh_handle s = prh_impl_tcp_socket(AF_INET);
+
+    PRH_IMPL_ACCEPTEX = prh_impl_wsaioctl_extension_func(s, WSAID_ACCEPTEX);
+    prh_wsa_abort_if(PRH_IMPL_ACCEPTEX == prh_null);
+
+    PRH_IMPL_GETACCEPTEXSOCKADDRS = prh_impl_wsaioctl_extension_func(s, WSAID_GETACCEPTEXSOCKADDRS);
+    prh_wsa_abort_if(PRH_IMPL_GETACCEPTEXSOCKADDRS == prh_null);
+
+    PRH_IMPL_CONNECTEX = prh_impl_wsaioctl_extension_func(s, WSAID_CONNECTEX);
+    prh_wsa_abort_if(PRH_IMPL_CONNECTEX == prh_null);
+
+    prh_impl_close_socket(s);
+}
+
+void prh_impl_wsasocket_init(void) {
+    prh_impl_wsasocket_startup();
+    prh_impl_mswsock_load_funcs();
 }
 
 // unsigned long inet_addr(const char *ip);
@@ -16651,58 +16955,6 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
     prh_wsa_prerr_if(n != 0);
 }
 
-// 注意必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 AcceptEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_ACCEPTEX，
-// 这是一个全局唯一标识符（GUID），其值标识 AcceptEx 扩展函数。成功时，WSAIoctl 函数
-// 返回的输出包含指向 AcceptEx 函数的指针。WSAID_ACCEPTEX GUID 在 Mswsock.h 头文件中
-// 定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 GetAcceptExSockaddrs 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区
-// 必须包含 WSAID_GETACCEPTEXSOCKADDRS，这是一个全局唯一标识符（GUID），其值标识
-// GetAcceptExSockaddrs 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 GetAcceptExSockaddrs
-// 函数的指针。WSAID_GETACCEPTEXSOCKADDRS GUID 在 Mswsock.h 头文件中定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 ConnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_CONNECTEX，
-// 这是一个全局唯一标识符（GUID），其值标识 ConnectEx 扩展函数。成功时，WSAIoctl 函数
-// 返回的输出包含指向 ConnectEx 函数的指针。WSAID_CONNECTEX GUID 在 Mswsock.h 头文件
-// 中定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 DisconnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
-// WSAID_DISCONNECTEX，这是一个全局唯一标识符（GUID），其值标识 DisconnectEx 扩展函
-// 数。成功时，WSAIoctl 函数返回的输出包含指向 DisconnectEx 函数的指针。WSAID_DISCONNECTEX
-// GUID 在 Mswsock.h 头文件中定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 WSASendMsg 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
-// WSAID_WSASENDMSG，这是一个全局唯一标识符（GUID），其值标识 WSASendMsg 扩展函数。
-// 成功时，WSAIoctl 函数返回的输出包含指向 WSASendMsg 函数的指针。WSAID_WSASENDMSG
-// GUID 在 Mswsock.h 头文件中定义。
-
-#include <mswsock.h>
-static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
-static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
-static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
-static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
-
-void *prh_impl_wsasocket_load_func(SOCKET s, GUID guid) {
-    void *func;
-    if (WSAIoctl(s, SIO_GET_EXTENSION_FUNCTION_POINTER, &guid, sizeof(GUID),
-        &func, sizeof(void *), &bytes, prh_null, prh_null) == 0) {
-        return func;
-    }
-    return prh_null;
-}
-
-void prh_impl_mswsock_funcs(SOCKET s) {
-    PRH_IMPL_ACCEPTEX = prh_impl_wsasocket_load_func(s, WSAID_ACCEPTEX);
-    prh_wsa_abort_if(PRH_IMPL_ACCEPTEX == prh_null);
-    PRH_IMPL_GETACCEPTEXSOCKADDRS = prh_impl_wsasocket_load_func(s, WSAID_GETACCEPTEXSOCKADDRS);
-    prh_wsa_abort_if(PRH_IMPL_GETACCEPTEXSOCKADDRS == prh_null);
-}
-
 // #include <winsock2.h> // ws2_32.lib ws2_32.dll
 // SOCKET accept(SOCKET s, struct sockaddr *addr, int *addrlen);
 // SOCKET WSAAPI WSAAccept(
@@ -16716,7 +16968,7 @@ void prh_impl_mswsock_funcs(SOCKET s) {
 // #include <mswsock.h> // mswsock.lib mswsock.dll
 // BOOL AcceptEx(
 //      [in]  SOCKET       sListenSocket,
-//      [in]  SOCKET       sAcceptSocket,
+//      [in]  SOCKET       sAcceptSocket, // 必须是未绑定未连接的
 //      [in]  PVOID        lpOutputBuffer,
 //      [in]  DWORD        dwReceiveDataLength,
 //      [in]  DWORD        dwLocalAddressLength,
