@@ -16674,6 +16674,12 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
 // WSAID_DISCONNECTEX，这是一个全局唯一标识符（GUID），其值标识 DisconnectEx 扩展函
 // 数。成功时，WSAIoctl 函数返回的输出包含指向 DisconnectEx 函数的指针。WSAID_DISCONNECTEX
 // GUID 在 Mswsock.h 头文件中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 WSASendMsg 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
+// WSAID_WSASENDMSG，这是一个全局唯一标识符（GUID），其值标识 WSASendMsg 扩展函数。
+// 成功时，WSAIoctl 函数返回的输出包含指向 WSASendMsg 函数的指针。WSAID_WSASENDMSG
+// GUID 在 Mswsock.h 头文件中定义。
 
 #include <mswsock.h>
 static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
@@ -17176,19 +17182,399 @@ int prh_impl_sock_accept(prh_handle listen, prh_sockaddr *local, prh_sockaddr *p
 // 为新连接提供更多资源。然而，如果值过低，TCP 可能在连接完成之前释放连接资源，导致服务
 // 器需要使用额外的资源重新建立连接。此注册值可设置的范围从 0 到 300 秒。
 
-// int send(SOCKET s, const char *buf, int len, int flags);
-// int WSASend(SOCKET s, LPWSABUF buffers, DWORD buffer_count, LPDWORD bytes_sent, DWORD flags, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
-// int WSASendDisconnect(SOCKET s, LPWSABUF outbound_disconnect_data);
+// BOOL TransmitFile(
+//      SOCKET                  hSocket,
+//      HANDLE                  hFile,
+//      DWORD                   nNumberOfBytesToWrite,
+//      DWORD                   nNumberOfBytesPerSend,
+//      LPOVERLAPPED            lpOverlapped,
+//      LPTRANSMIT_FILE_BUFFERS lpTransmitBuffers,
+//      DWORD                   dwReserved
+// );
+//
+// BOOL Transmitpackets(
+//      SOCKET hSocket,
+//      LPTRANSMIT_PACKETS_ELEMENT lpPacketArray,
+//      DWORD nElementCount,
+//      DWORD nSendSize,
+//      LPOVERLAPPED lpOverlapped,
+//      DWORD dwFlags
+// );
+//
 // int sendto(SOCKET s, const char *buf, int len, int flags, const struct sockaddr *to, int tolen);
-// int WSASendTo(SOCKET s, LPWSABUF buffers, DWORD buffer_count, LPDWORD bytes_sent, DWORD flags, const struct sockaddr *to; int tolen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
-// TransmitFile
-// TransmitPackets
+// int WSAAPI WSASendTo(
+//      [in]  SOCKET                             s,
+//      [in]  LPWSABUF                           lpBuffers,
+//      [in]  DWORD                              dwBufferCount,
+//      [out] LPDWORD                            lpNumberOfBytesSent,
+//      [in]  DWORD                              dwFlags,
+//      [in]  const sockaddr                     *lpTo,
+//      [in]  int                                iTolen,
+//      [in]  LPWSAOVERLAPPED                    lpOverlapped,
+//      [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+//
+// int send(SOCKET s, const char *buf, int len, int flags);
+// int WSAAPI WSASend(
+//      [in]  SOCKET                             s,
+//      [in]  LPWSABUF                           lpBuffers,
+//      [in]  DWORD                              dwBufferCount,
+//      [out] LPDWORD                            lpNumberOfBytesSent,
+//      [in]  DWORD                              dwFlags,
+//      [in]  LPWSAOVERLAPPED                    lpOverlapped,
+//      [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+// typedef struct _WSABUF {
+//      ULONG len;
+//      CHAR  *buf;
+// } WSABUF, *LPWSABUF;
+//
+// WSASend 函数在已连接的套接字上发送数据。如果没有错误发生且发送操作已立即完成，WSASend
+// 返回零。在这种情况下，完成例程将被安排在调用线程处于可警报状态时调用一次。否则返回值
+// SOCKET_ERROR，可以通过调用 WSAGetLastError 获取特定的错误代码。错误代码 WSA_IO_PENDING
+// 表示重叠操作已成功启动，完成将在稍后时间指示。任何其他错误代码表示重叠操作未成功启动，
+// 不会发生完成指示。
+//      WSAECONNABORTED           虚拟电路因超时或其他故障而终止。
+//      WSAECONNRESET             对于流式套接字，虚拟电路被远程方重置。应用程序应关闭套接字，因为它已不再可用。对于 UDP 数据报
+//                                套接字，此错误表示之前的发送操作导致了 ICMP“端口不可达”消息。
+//      WSAEFAULT                 lpBuffers、lpNumberOfBytesSent、lpOverlapped 或 lpCompletionRoutine 参数未完全包含在用户
+//                                地址空间的有效部分。
+//      WSAEINTR                  通过 WSACancelBlockingCall 取消了阻塞的 Windows 套接字 1.1 调用。
+//      WSAEINPROGRESS            一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINVAL                 套接字未使用 bind 绑定，或者套接字未使用重叠标志创建。
+//      WSAEMSGSIZE               套接字是面向消息的，且消息大于底层传输支持的最大值。
+//      WSAENETDOWN               网络子系统已失败。
+//      WSAENETRESET              对于流式套接字，由于在操作进行中检测到故障而通过保持活动操作断开了连接。对于数据报套接字，此错
+//                                误表示生存时间已到期。
+//      WSAENOBUFS                Windows 套接字提供程序报告缓冲区死锁。
+//      WSAENOTCONN               套接字未连接。
+//      WSAENOTSOCK               描述符不是套接字。
+//      WSAEOPNOTSUPP             指定了 MSG_OOB，但套接字不是流式套接字（如 SOCK_STREAM），OOB 数据在与该套接字关联的通信域中
+//                                不支持，MSG_PARTIAL 不受支持，或者套接字是单向的且仅支持接收操作。
+//      WSAESHUTDOWN              套接字已关闭；在调用 shutdown 后，无法在套接字上使用 WSASend，其中 how 设置为 SD_SEND 或
+//                                SD_BOTH。
+//      WSAEWOULDBLOCK            Windows NT：重叠套接字：存在过多的未完成重叠 I/O 请求。非重叠套接字：套接字被标记为非阻塞，且
+//                                发送操作无法立即完成。
+//      WSANOTINITIALISED         在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSA_IO_PENDING            重叠操作已成功启动，完成将在稍后时间指示。
+//      WSA_OPERATION_ABORTED     由于套接字关闭、在 WSAIoctl 中执行“SIO_FLUSH”命令或启动重叠请求的线程在操作完成前退出，重叠
+//                                操作已被取消。有关详细信息，请参阅备注部分。
+//
+// 参数 s 标识已连接套接字的描述符。参数 lpBuffers 指向 WSABUF 结构数组的指针。每个
+// WSABUF 结构包含指向缓冲区的指针以及缓冲区的长度（以字节为单位）。对于 Winsock 应用
+// 程序，一旦调用 WSASend 函数，系统将拥有这些缓冲区，应用程序不得访问它们。此数组在发
+// 送操作期间必须有效。参数 dwBufferCount 表示 lpBuffers 数组中的 WSABUF 结构数量。
+//
+// 参数 lpNumberOfBytesSent 如果 I/O 操作立即完成，此参数指向本次调用发送的字节数。如
+// 果 lpOverlapped 参数不为 NULL，为了避免可能出现的错误结果，应将此参数设置为 NULL。
+// 仅当 lpOverlapped 参数不为 NULL 时，此参数可以为 NULL。
+//
+// 参数 dwFlags 用于修改 WSASend 函数调用行为。参数 lpOverlapped 指向 WSAOVERLAPPED
+// 结构的指针。对于非重叠套接字，此参数将被忽略。参数 lpCompletionRoutine 指向完成例程
+// 的指针，当发送操作完成时调用。对于非重叠套接字，此参数将被忽略。
+//
+// WSASend 函数在两个重要方面提供了超出标准 send 函数的功能：
+//  1.  它可以与重叠套接字一起使用以执行重叠发送操作。
+//  2.  它允许指定多个发送缓冲区，使其适用于分散/聚集类型的 I/O。
+//
+// WSASend 函数用于在由 s 指定的面向连接的套接字上从一个或多个缓冲区写入传出数据。它也
+// 可以用于通过 connect 或 WSAConnect 函数建立默认对等地址的无连接套接字。
+//
+// 通过 socket 函数创建的套接字将以重叠属性作为默认值。通过 WSASocket 函数创建的套接字，
+// 如果在传递给 WSASocket 的 dwFlags 参数中设置了 WSA_FLAG_OVERLAPPED 位，则将具有重
+// 叠属性。对于具有重叠属性的套接字，除非 lpOverlapped 和 lpCompletionRoutine 参数均
+// 为 NULL，否则 WSASend 使用重叠 I/O。在这种情况下，套接字被视为非重叠套接字。当缓冲区
+// 被传输消耗时，将发生完成指示，调用完成例程或设置事件对象。如果操作未立即完成，则通过
+// 完成例程或 WSAGetOverlappedResult 获取最终完成状态。
+//
+// 如果 lpOverlapped 和 lpCompletionRoutine 均为 NULL，则此函数中的套接字将被视为非
+// 重叠套接字。对于非重叠套接字，最后两个参数（lpOverlapped、lpCompletionRoutine）将
+// 被忽略，WSASend 采用与 send 相同的阻塞语义。数据从缓冲区复制到传输的缓冲区。如果套
+// 接字是非阻塞且面向流的，并且传输的缓冲区中没有足够的空间，WSASend 将仅返回部分已消耗
+// 缓冲区大小。在相同的缓冲区情况下，对于阻塞套接字，WSASend 将阻塞，直到应用程序缓冲区
+// 内容都被消耗。注意，套接字选项 SO_RCVTIMEO 和 SO_SNDTIMEO 仅适用于阻塞套接字。
+//
+// 如果以重叠方式完成此函数，则 Winsock 服务提供程序负责在返回之前捕获 WSABUF 结构。这
+// 使应用程序可以构建基于堆栈的 WSABUF 数组。对于面向消息的套接字，不要超出底层提供程序
+// 的最大消息大小，该大小可以通过获取套接字选项 SO_MAX_MSG_SIZE 的值来获得。如果数据太
+// 长，无法通过底层协议原子地传递，则返回错误 WSAEMSGSIZE，并且不传输任何数据。Windows
+// Me/98/95：WSASend 函数不支持超过 16 个缓冲区。注意，WSASend 的成功完成并不表示数据
+// 已成功传递。
+//
+// 参数 dwFlags 可用于在关联套接字指定的选项之外影响函数调用的行为。也就是说，该函数的
+// 语义由套接字选项和 dwFlags 参数决定。后者是通过使用按位 OR 运算符与以下表中列出的值
+// 组合而成。
+//      MSG_DONTROUTE   指定数据不应受路由影响。Windows 套接字服务提供程序可以选择忽略此标志。
+//      MSG_OOB         仅在流式套接字（如 SOCK_STREAM）上发送 OOB 数据。
+//      MSG_PARTIAL     指定 lpBuffers 仅包含部分消息。请注意，如果协议不支持部分消息传输，将返回错误代码 WSAEOPNOTSUPP。
+//
+// 注意，当使用 WSASend 发出阻塞的 Winsock 调用且 lpOverlapped 参数设置为 NULL 时，
+// Winsock 可能需要等待网络事件才能完成调用。在这种情况下，Winsock 会执行可警报等待，
+// 这可能会被同一线程上安排的异步过程调用（APC）中断。在中断了同一线程上正在进行的阻塞
+// Winsock 调用的 APC 中发出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户
+// 端绝对不应尝试此操作。
+//
+// 重叠套接字 I/O，如果重叠操作立即完成，WSASend 返回零值，并且 lpNumberOfBytesSent
+// 参数将被更新为发送的字节数。如果重叠操作已成功启动且稍后完成，WSASend 返回 SOCKET_ERROR
+// 和错误代码 WSA_IO_PENDING。在这种情况下，lpNumberOfBytesSent 不会被更新。当重叠操
+// 作完成时，通过完成例程中的 cbTransferred 参数（如果已指定）或 WSAGetOverlappedResult
+// 中的 lpcbTransfer 参数指示传输的数据量。
+//
+// 注意，当给定线程退出时，该线程启动的所有 I/O 都将被取消。对于重叠套接字，如果在线程
+// 关闭之前操作未完成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
+//
+// 可以使用重叠 I/O 的 WSASend 函数在 WSARecv、WSARecvFrom、WSASend 或 WSASendTo
+// 函数的完成例程中调用。这使得时间敏感的数据传输可以发生在抢占式上下文中。
+//
+// lpOverlapped 参数必须在整个重叠操作期间有效。如果同时有多个 I/O 操作挂起，则每个操
+// 作都必须引用一个单独的 WSAOVERLAPPED 结构。
+//
+// 如果 lpCompletionRoutine 参数为 NULL，则当重叠操作完成且 lpOverlapped 中包含有效
+// 的事件对象句柄时，lpOverlapped 的 hEvent 参数将被触发。应用程序可以使用 WSAWaitForMultipleEvents
+// 或 WSAGetOverlappedResult 在事件对象上等待或轮询。
+//
+// 如果 lpCompletionRoutine 不为 NULL，则忽略 hEvent 参数，应用程序可以使用它将上下
+// 文信息传递给完成例程。传递非 NULL lpCompletionRoutine 的调用者稍后为相同的重叠 I/O
+// 请求调用 WSAGetOverlappedResult 时，不得将该调用的 fWait 参数设置为 TRUE。在这种
+// 情况下，hEvent 参数的使用是未定义的，尝试等待 hEvent 参数将产生不可预测的结果。
+//
+// 完成例程遵循 Windows 文件 I/O 完成例程规定的相同规则。完成例程将在线程处于可警报等
+// 待状态时被调用，例如在调用函数 WSAWaitForMultipleEvents 且 fAlertable 参数设置为
+// TRUE 时。
+//
+// 传输提供程序允许应用程序从套接字 I/O 完成例程的上下文中调用发送和接收操作，并保证对
+// 于给定套接字，I/O 完成例程不会嵌套。这允许时间敏感的数据传输完全在抢占式上下文中发生。
+// 以下是完成例程的原型。
+//      void CALLBACK CompletionRoutine(
+//          IN DWORD dwError,
+//          IN DWORD cbTransferred,
+//          IN LPWSAOVERLAPPED lpOverlapped,
+//          IN DWORD dwFlags
+//      );
+//
+// CompletionRoutine 函数是应用程序定义或库定义的函数名称的占位符。dwError 参数指定由
+// lpOverlapped 指示的重叠操作的完成状态。cbTransferred 指定发送的字节数。目前没有定
+// 义标志 dwFlags 值，将为零。此函数不返回值。
+//
+// 从这个函数返回允许为该套接字调用另一个挂起的完成例程。所有等待的完成例程将在警报线程
+// 的等待中以 WSA_IO_COMPLETION 返回码满足之前被调用。完成例程可以以任何顺序被调用，不
+// 一定是重叠操作完成的相同顺序。但是，发送的缓冲区保证按照它们指定的顺序发送。
+//
+// 对 WSASend 的调用顺序也是将缓冲区传输到传输层的顺序。不应从不同线程并发地在同一个面
+// 向流的套接字上调用 WSASend，因为某些 Winsock 提供程序可能会将较大的发送请求拆分为多
+// 次传输，这可能导致来自多个并发发送请求的同一面向流的套接字上的数据意外交织。
+//
+// int WSAAPI WSASendDisconnect(
+//      [in] SOCKET   s,
+//      [in] LPWSABUF lpOutboundDisconnectData
+// );
+//
+// WSASendDisconnect 函数用于启动套接字连接的终止，并发送断开连接数据。如果没有错误发
+// 生，WSASendDisconnect 返回零。否则，返回值为 SOCKET_ERROR，可以通过调用 WSAGetLastError
+// 获取特定的错误代码。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAENOPROTOOPT      lpOutboundDisconnectData 参数不为 NULL，且服务提供程序不支持断开连接数据。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAENOTCONN         套接字未连接（仅适用于面向连接的套接字）。
+//      WSAENOTSOCK         描述符不是套接字。
+//      WSAEFAULT           lpOutboundDisconnectData 参数未完全包含在有效的用户地址空间中。
+//
+// 参数 s 标识套接字的描述符。参数 lpOutboundDisconnectData 指向外出的（outgoing）断
+// 开数据。
+//
+// WSASendDisconnect 函数用于面向连接的套接字，以禁用传输并启动连接的终止，同时发送断
+// 开连接数据（如果支持）。这相当于调用 shutdown (SD_SEND)，但 WSASendDisconnect 还
+// 允许发送断开连接数据（在支持该功能的协议中）。成功调用此函数后，后续的发送操作将被禁
+// 止。
+//
+// 如果 lpOutboundDisconnectData 不为 NULL，则指向一个包含要发送给远方的数据的缓冲区，
+// 远方可以使用 WSARecvDisconnect 检索这些数据。注意，Windows 上的原生 TCP/IP 实现不
+// 支持断开连接数据。断开连接数据仅在具有 XP1_DISCONNECT_DATA 标志的 Windows 套接字提
+// 供程序的 WSAPROTOCOL_INFO 结构中受支持。可以使用 WSAEnumProtocols 函数获取所有已
+// 安装提供程序的 WSAPROTOCOL_INFO 结构。
+//
+// WSASendDisconnect 函数不会关闭套接字，与套接字关联的资源直到调用 closesocket 时才
+// 会被释放。无论套接字上的 SO_LINGER 设置如何，WSASendDisconnect 函数都不会阻塞。应
+// 用程序不应依赖在调用 WSASendDisconnect 后重用套接字。特别是，Windows 套接字提供程
+// 序不要求支持在这样的套接字上使用 connect/WSAConnect。
+//
+// 注意 当发出阻塞的 Winsock 调用（如 WSASendDisconnect）时，Winsock 可能需要等待网
+// 络事件才能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排
+// 的异步过程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发
+// 出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
+//
+// int WSAAPI WSASendMsg(
+//      [in]  SOCKET                             Handle,
+//      [in]  LPWSAMSG                           lpMsg,
+//      [in]  DWORD                              dwFlags,
+//      [out] LPDWORD                            lpNumberOfBytesSent,
+//      [in]  LPWSAOVERLAPPED                    lpOverlapped,
+//      [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+//
+//      typedef struct _WSAMSG {
+//          LPSOCKADDR     name;
+//          INT            namelen;
+//          LPWSABUF       lpBuffers;
+//          ULONG/DWROD    dwBufferCount;
+//          WSABUF         Control;
+//          ULONG/DWROD    dwFlags;
+//      } WSAMSG, *PWSAMSG, *LPWSAMSG;
+//
+// WSASendMsg 函数从已连接和未连接的套接字发送数据和可选的控制信息。注意，该函数是 Microsoft
+// 对 Windows 套接字规范的特定扩展。成功且立即完成时返回零。当返回零时，指定的完成例程
+// 将在调用线程处于可警报状态时被调用。返回值为 SOCKET_ERROR，且后续调用 WSAGetLastError
+// 返回 WSA_IO_PENDING，表示重叠操作已成功启动；完成将通过其他方式（如事件或完成端口）
+// 指示。失败时返回 SOCKET_ERROR，且后续调用 WSAGetLastError 返回的值不是 WSA_IO_PENDING。
+// 以下列出了错误代码。
+//      WSAEACCES               请求的地址是广播地址，但未设置适当的标志。
+//      WSAECONNRESET           对于 UDP 数据报套接字，此错误表示之前的发送操作导致了 ICMP “端口不可达” 消息。
+//      WSAEFAULT               lpMsg、lpNumberOfBytesSent、lpOverlapped 或 lpCompletionRoutine 参数未完全包含在有效的用户
+//                              地址空间中。如果 WSAMSG 结构中 lpMsg 参数指向的 name 成员是 NULL 指针，且 WSAMSG 结构的 namelen
+//                              成员未设置为零，也会返回此错误。如果 WSAMSG 结构中 lpMsg 参数指向的 Control.buf 成员是 NULL
+//                              指针，且 WSAMSG 结构的 Control.len 成员未设置为零，也会返回此错误。
+//      WSAEINPROGRESS          一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEINTR                通过 WSACancelBlockingCall 取消了阻塞的 Windows 套接字 1.1 调用。
+//      WSAEINVAL               套接字未使用 bind 绑定，或者套接字未使用重叠标志创建。
+//      WSAEMSGSIZE             套接字是面向消息的，且消息大于底层传输支持的最大值。
+//      WSAENETDOWN             网络子系统已失败。
+//      WSAENETRESET            对于数据报套接字，此错误表示生存时间已到期。
+//      WSAENETUNREACH          网络不可达。
+//      WSAENOBUFS              Windows 套接字提供程序报告缓冲区死锁。
+//      WSAENOTCONN             套接字未连接。
+//      WSAENOTSOCK             描述符不是套接字。
+//      WSAEOPNOTSUPP           套接字操作不受支持。如果 lpMsg 参数指向的 WSAMSG 结构的 dwFlags 成员包含对 WSASendMsg 无效的
+//                              任何控制标志，则返回此错误。
+//      WSAESHUTDOWN            套接字已关闭；在调用 shutdown 后，无法在套接字上使用 WSASendMsg，其中 how 设置为 SD_SEND 或
+//                              SD_BOTH。
+//      WSAETIMEDOUT            套接字超时。如果套接字使用 SO_SNDTIMEO 套接字选项指定了等待超时，并且超时已超过，则返回此错误。
+//      WSAEWOULDBLOCK          重叠套接字：存在过多的未完成重叠 I/O 请求。非重叠套接字：套接字被标记为非阻塞，且发送操作无法立
+//                              即完成。
+//      WSANOTINITIALISED       在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSA_IO_PENDING          重叠操作已成功启动，完成将在稍后时间指示。
+//      WSA_OPERATION_ABORTED   由于套接字关闭或在 WSAIoctl 中执行 SIO_FLUSH 命令，重叠操作已被取消。
+//
+// 参数 Handle 标识套接字的描述符。参数 lpMsg 存储 Posix.1g msghdr 结构的 WSAMSG 结
+// 构。参数 dwFlags 用于修改 WSASendMsg 函数调用行为的标志。参数 dwFlags 参数只能包含
+// 以下控制标志的组合：MSG_DONTROUTE、MSG_PARTIAL 和 MSG_OOB。lpMsg 参数指向的 WSAMSG
+// 结构的 dwFlags 成员在输入时被忽略，在输出时也不使用。参数 dwFlags 输入参数可用于在
+// 关联套接字指定的选项之外影响函数调用的行为。也就是说，该函数的语义由套接字选项和
+// dwFlags 参数决定。后者是通过使用按位 OR 运算符与以下值中的任何一个组合而成的。
+//      MSG_DONTROUTE   指定数据不应受路由影响。Windows 套接字服务提供程序可以选择忽略此标志。
+//      MSG_PARTIAL     指定 lpMsg->lpBuffers 仅包含部分消息。注意，不支持部分消息传输的传输将返回错误代码 WSAEOPNOTSUPP。
+//
+// 参数 lpNumberOfBytesSent，如果 I/O 操作立即完成，此参数指向本次调用发送的字节数。
+// 如果 lpOverlapped 参数不为 NULL，为了避免可能出现的错误结果，应将此参数设置为 NULL。
+// 仅当 lpOverlapped 参数不为 NULL 时，此参数可以为 NULL。
+//
+// 参数 lpOverlapped 指向 WSAOVERLAPPED 结构的指针。对于非重叠套接字，此参数将被忽略。
+// 参数 lpCompletionRoutine 指向完成例程的指针，当发送操作完成时调用。对于非重叠套接字，
+// 此参数将被忽略。
+//
+// WSASendMsg 函数可以替代 WSASend 和 WSASendTo 函数。WSASendMsg 函数只能用于数据报
+// 和原始套接字。s 参数中的套接字描述符必须以 SOCK_DGRAM 或 SOCK_RAW 类型打开。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 WSASendMsg 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
+// WSAID_WSASENDMSG，这是一个全局唯一标识符（GUID），其值标识 WSASendMsg 扩展函数。
+// 成功时，WSAIoctl 函数返回的输出包含指向 WSASendMsg 函数的指针。WSAID_WSASENDMSG
+// GUID 在 Mswsock.h 头文件中定义。
+//
+// 通过设置 WSA_FLAG_OVERLAPPED 标志的 WSASocket 函数调用创建重叠套接字。对于重叠套
+// 接字，除非 lpOverlapped 和 lpCompletionRoutine 均为 NULL，否则发送信息使用重叠
+// I/O；当 lpOverlapped 和 lpCompletionRoutine 均为 NULL 时，套接字被视为非重叠套
+// 接字。对于重叠套接字，会发生完成指示；一旦缓冲区被传输消耗，将触发完成例程或设置事件
+// 对象。如果操作未立即完成，则通过完成例程或调用 WSAGetOverlappedResult 函数获取最终
+// 完成状态。
+//
+// 对于非重叠套接字，lpOverlapped 和 lpCompletionRoutine 参数将被忽略，WSASendMsg
+// 采用与 send 函数相同的阻塞语义：数据从缓冲区复制到传输的缓冲区。如果套接字是非阻塞且
+// 面向流的，并且传输的缓冲区中没有足够的空间，WSASendMsg 将仅返回部分已被消耗的缓冲区
+// 大小。相比之下，对于阻塞套接字，这种缓冲区情况会导致 WSASendMsg 阻塞，直到应用程序
+// 缓冲区内容都被消耗。
+//
+// 如果以重叠方式完成此函数，则 Winsock 服务提供程序负责在返回之前捕获此 WSABUF 结构。
+// 这使应用程序可以构建由 lpMsg 参数指向的 WSAMSG 结构的 lpBuffers 成员指向基于堆栈
+// 的 WSABUF 数组。
+//
+// 对于面向消息的套接字，必须小心不要超出底层提供程序的最大消息大小，该大小可以通过获取
+// 套接字选项 SO_MAX_MSG_SIZE 的值来获得。如果数据太长，无法通过底层协议原子地传递，则
+// 返回错误 WSAEMSGSIZE，并且不传输任何数据。
+//
+// 在类型为 SOCK_DGRAM 或 SOCK_RAW 的 IPv4 套接字上，应用程序可以使用 WSASendMsg 函
+// 数指定用于发送的本地 IPv4 源地址。在 WSASendMsg 函数的 WSAMSG 结构中传递的控制数据
+// 对象之一可能包含一个 in_pktinfo 结构，用于指定发送的本地 IPv4 源地址。
+//
+// 在类型为 SOCK_DGRAM 或 SOCK_RAW 的 IPv6 套接字上，应用程序可以使用 WSASendMsg 函
+// 数指定用于发送的本地 IPv6 源地址。在 WSASendMsg 函数的 WSAMSG 结构中传递的控制数据
+// 对象之一可能包含一个 in6_pktinfo 结构，用于指定发送的本地 IPv6 源地址。
+//
+// 对于双栈套接字，当使用 WSASendMsg 函数发送数据报并且应用程序想要指定要使用的特定本
+// 地 IP 源地址时，处理方法取决于目标 IP 地址。当发送到 IPv4 目标地址或 IPv4 映射的
+// IPv6 目标地址时，lpMsg 参数指向的 WSAMSG 结构中传递的控制数据对象之一应包含一个
+// in_pktinfo 结构，其中包含用于发送的本地 IPv4 源地址。当发送到不是 IPv4 映射的 IPv6
+// 目标地址时，lpMsg 参数指向的 WSAMSG 结构中传递的控制数据对象之一应包含一个 in6_pktinfo
+// 结构，其中包含用于发送的本地 IPv6 源地址。
+//
+// 注意，套接字选项 SO_SNDTIMEO 仅适用于阻塞套接字。WSASendMsg 的成功完成并不表示数据
+// 已成功传递。当使用 WSASendMsg 发出阻塞的 Winsock 调用且 lpOverlapped 参数设置为
+// NULL 时，Winsock 可能需要等待网络事件才能完成调用。在这种情况下，Winsock 会执行可
+// 警报等待，这可能会被同一线程上安排的异步过程调用（APC）中断。在中断了同一线程上正在
+// 进行的阻塞 Winsock 调用的 APC 中发出另一个阻塞 Winsock 调用，将导致未定义行为，
+// Winsock 客户端绝对不应尝试此操作。
+//
+// 重叠套接字 I/O，如果重叠操作立即完成，WSASendMsg 返回零值，并且 lpNumberOfBytesSent
+// 参数将被更新为发送的字节数。如果重叠操作已成功启动且稍后完成，WSASendMsg 返回 SOCKET_ERROR
+// 并指示错误代码 WSA_IO_PENDING。在这种情况下，lpNumberOfBytesSent 不会被更新。当重
+// 叠操作完成时，通过完成例程中的 cbTransferred 参数（如果已指定）或 WSAGetOverlappedResult
+// 中的 lpcbTransfer 参数指示传输的数据量。
+//
+// 注意，当给定线程退出时，该线程启动的所有 I/O 都将被取消。对于重叠套接字，如果在线程
+// 关闭之前操作未完成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
+//
+// 可以使用重叠 I/O 的 WSASendMsg 函数在 WSARecv、WSARecvFrom、WSARecvMsg、WSASend、
+// WSASendMsg 或 WSASendTo 函数的完成例程中调用。这使得时间敏感的数据传输可以完全发生
+// 在抢占式上下文中。
+//
+// lpOverlapped 参数必须在整个重叠操作期间有效。如果同时有多个 I/O 操作挂起，则每个操
+// 作都必须引用一个单独的 WSAOVERLAPPED 结构。
+//
+// 如果 lpCompletionRoutine 参数为 NULL，则当重叠操作完成且 lpOverlapped 中包含有效
+// 的事件对象句柄时，lpOverlapped 的 hEvent 参数将被触发。应用程序可以使用 WSAWaitForMultipleEvents
+// 或 WSAGetOverlappedResult 在事件对象上等待或轮询。
+//
+// 如果 lpCompletionRoutine 不为 NULL，则忽略 hEvent 参数，应用程序可以使用它将上下
+// 文信息传递给完成例程。传递非 NULL lpCompletionRoutine 的调用者稍后为相同的重叠 I/O
+// 请求调用 WSAGetOverlappedResult 时，不得将该调用的 fWait 参数设置为 TRUE。在这种
+// 情况下，hEvent 参数的使用是未定义的，尝试等待 hEvent 参数将产生不可预测的结果。
+//
+// 完成例程遵循 Windows 文件 I/O 完成例程规定的相同规则。完成例程将在线程处于可警报等
+// 待状态时被调用，例如在调用函数 WSAWaitForMultipleEvents 且 fAlertable 参数设置为
+// TRUE 时。传输提供程序允许应用程序从套接字 I/O 完成例程的上下文中调用发送和接收操作，
+// 并保证对于给定套接字，I/O 完成例程不会嵌套。这允许时间敏感的数据传输完全在抢占式上下
+// 文中发生。完成例程的原型如下。
+//      void CALLBACK CompletionRoutine(
+//          IN DWORD dwError,
+//          IN DWORD cbTransferred,
+//          IN LPWSAOVERLAPPED lpOverlapped,
+//          IN DWORD dwFlags
+//      );
+//
+// CompletionRoutine 函数是应用程序定义或库定义的函数名称的占位符。dwError 参数指定由
+// lpOverlapped 参数指示的重叠操作的完成状态。cbTransferred 参数指示发送的字节数。目
+// 前没有定义 dwFlags 标志值，参数将为零。CompletionRoutine 函数不返回值。
+//
+// 从这个函数返回允许为该套接字调用另一个挂起的完成例程。所有等待的完成例程将在警报线程
+// 的等待以 WSA_IO_COMPLETION 返回码满足之前被调用。完成例程可以以任何顺序被调用，不一
+// 定是重叠操作完成的相同顺序。但是，发送的缓冲区保证按照它们指定的顺序发送。
+
+// int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
+// int WSARecvFrom(SOCKET s, LPSWABUF buffers, DWORD buffer_count, LPDWORD bytes_recvd, LPDWORD flags, struct sockaddr *from, LPINT fromlen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE cmpletion_routine);
 //
 // int recv(SOCKET s, char *buf, int len, int flags);
 // int WSARecv(SOCKET s, LPWSABUF buffers DWORD buffer_count, LPDWORD bytes_recv, LPDWORD flags, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE completion_routine);
 // int WSARecvDisconnect(SOCKET s, LPWSABUF inbound_disconnect_data);
-// int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
-// int WSARecvFrom(SOCKET s, LPSWABUF buffers, DWORD buffer_count, LPDWORD bytes_recvd, LPDWORD flags, struct sockaddr *from, LPINT fromlen, LPWSAOVERLAPPED overlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE cmpletion_routine);
 // WSARecvMsg
 
 #ifdef PRH_TEST_IMPLEMENTATION
