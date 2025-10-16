@@ -781,10 +781,11 @@ extern "C" {
     #define prh_preno_if(a) if (a) { prh_prerr(errno); }
     #define prh_abort_nz(a) if (a) { prh_abort_error(errno); }
     #define prh_prerr_if(error, ...) if (error) { prh_prerr(error); __VA_ARGS__; }
-    #define prh_abort_if(error) if (error) { prh_abort_error(error); }
+    #define prh_abort_if_error(error) if (error) { prh_abort_error(error); }
     #define prh_abort_errno_if(a) if (a) { prh_abort_error(errno); }
     #define prh_prerr(error) prh_impl_prerr(__LINE__, (error))
     #define prh_abort_error(error) prh_impl_abort_error(__LINE__, (error))
+    #define prh_abort_if(a) if (a) { prh_impl_abort(__LINE__); }
     void prh_impl_prerr(int line, unsigned int error);
     void prh_impl_abort(int line);
     void prh_impl_abort_error(int line, unsigned int error);
@@ -1042,11 +1043,9 @@ extern "C" {
 
 #ifdef PRH_THRD_INCLUDE
 #define PRH_ATOMIC_INCLUDE
-#define PRH_EPOLL_INCLUDE
 #define PRH_TIME_INCLUDE
 #ifdef PRH_THRD_IMPLEMENTATION
 #define PRH_ATOMIC_IMPLEMENTATION
-#define PRH_EPOLL_IMPLEMENTATION
 #define PRH_TIME_IMPLEMENTATION
 #endif
 #endif
@@ -7850,6 +7849,10 @@ void prh_simp_thrd_join_except_main(prh_simple_thrds *s, prh_thrdfree_t thrd_fre
 void prh_simp_thrd_jall(prh_simple_thrds **s, prh_thrdfree_t thrd_free); // 释放所有 joined 线程，包括主线程
 void prh_simp_thrd_free(prh_simple_thrds **s, prh_thrdfree_t thrd_free); // 释放主线程
 
+prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size);
+void prh_impl_thrd_sched(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size);
+void prh_impl_thrd_join(prh_thrd *thrd, prh_thrdfree_t thrd_free);
+
 typedef struct prh_thrd_mutex prh_thrd_mutex;
 int prh_impl_thrd_mutex_size(void);
 void prh_impl_thrd_mutex_init(prh_thrd_mutex *p);
@@ -8074,6 +8077,10 @@ void *prh_thrd_create(prh_thrds *s, prh_int thrd_size) {
     return thrd;
 }
 
+void prh_impl_thrd_sched(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size) {
+    prh_impl_plat_thrd_start(thrd, proc, stack_size);
+}
+
 int prh_thrd_sched(prh_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size) {
     prh_impl_plat_thrd_start(created_thrd, proc, stack_size);
     return prh_thrd_index(s, (prh_thrd *)created_thrd);
@@ -8111,7 +8118,15 @@ int prh_simp_thrd_sched(prh_simple_thrds *s, void *created_thrd, prh_thrdproc_t 
     return prh_simp_thrd_index(s, (prh_thrd *)created_thrd);
 }
 
-void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t thrd_free) {
+void prh_impl_thrd_join(prh_thrd *thrd, prh_thrdfree_t thrd_free) {
+    prh_impl_plat_thrd_join(thrd);
+    if (thrd_free) {
+        thrd_free(thrd, thrd->thrd_id);
+    }
+    prh_aligned_free(thrd);
+}
+
+void prh_impl_thrd_single_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t thrd_free) {
     prh_thrd *thrd = thrd_list[thrd_index];
     if (thrd == prh_null) return;
     prh_impl_plat_thrd_join(thrd);
@@ -8124,7 +8139,7 @@ void prh_impl_thrd_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t thr
 
 void prh_thrd_join(prh_thrds *s, int thrd_index, prh_thrdfree_t thrd_free) {
     assert(thrd_index > 0 && thrd_index <= (int)s->thrd_max);
-    prh_impl_thrd_join(prh_thrd_begin(s), thrd_index, thrd_free);
+    prh_impl_thrd_single_join(prh_thrd_begin(s), thrd_index, thrd_free);
     s->thrd_cnt -= 1;
     s->thrd_end = 1;
 }
@@ -8132,7 +8147,7 @@ void prh_thrd_join(prh_thrds *s, int thrd_index, prh_thrdfree_t thrd_free) {
 void prh_thrd_join_except_main(prh_thrds *s, prh_thrdfree_t thrd_free) {
     prh_thrd **thrd_list = prh_thrd_begin(s);
     for (int i = 1; i <= (int)s->thrd_max; i += 1) {
-        prh_impl_thrd_join(thrd_list, i, thrd_free);
+        prh_impl_thrd_single_join(thrd_list, i, thrd_free);
     }
     s->thrd_cnt = 0;
     s->thrd_end = 0;
@@ -8922,7 +8937,7 @@ void prh_thrd_wakeup(prh_cond_sleep *p) {
 // 用户模式下的同步机制慢几个数量级的原因，是伴随调度新线程而来的刷新高速缓存以及错过高
 // 速缓存（即未命中），这里我们谈论的是成百上千个 CPU 周期。
 //
-// 我们已经讨论了好集中内核对象，包括进程、线程、以及作业（Job）。几乎所有这些内核对象
+// 我们已经讨论了好几种内核对象，包括进程、线程、以及作业（Job）。几乎所有这些内核对象
 // 都可以用来进行同步。对线程同步来说，这些内核对象中的每一种要么处于触发（signaled）
 // 状态，要么处于未触发（nonsignaled）状态。Miscrosoft 未每种对象创建了一些规则，规定
 // 如何在这两种状态之间进行转换。例如，进程内核对象在创建的时候总是处于未触发状态。当进
@@ -8948,555 +8963,6 @@ void prh_thrd_wakeup(prh_cond_sleep *p) {
 // 用户模式切换到内核模式的时候，大概需要花费 200 个 CPU 周期（在 x86 平台上），而且
 // 对线程进行重新调度甚至需要更多的时间。其次，如果没有 SignalObjectAndWait()，那么一
 // 个线程就无法知道另一个线程何时出于等待状态。
-//
-// 当线程发出一个异步设备 I/O 请求的时候，它会被临时挂起，直到设备完成 I/O 请求为止。
-// 此类挂起会损害性能，这是因为线程无法进行有用的工作，比如开始对另一个客户请求进行处
-// 理。因此简而言之，我们希望线程不会被阻塞，这样它们就能始终进行有用的工作。Microsoft
-// 开发出了一种非常好的机制称为 I/O 完成端口（I/O completion port），它可以帮助我们
-// 创建高性能而且伸缩性好的应用程序。通过使用 I/O 完成端口，我们可以让线程在读取设备和
-// 写入设备的时候不必等待设备的响应，从而显著地提高吞吐量。值得注意的是，I/O 完成端口也
-// 可以和设备 I/O 完全无关，它是一种有无数种用途的绝佳的线程间通信机制。
-//
-// 存在两种类型的输入输出同步方式：同步 I/O 和异步 I/O。异步 I/O 也被称为重叠 I/O。同
-// 步 I/O 中，线程启动 I/O 操作后会立即进入等待状态，直到 I/O 请求完成。执行异步 I/O
-// 的线程通过调用适当的函数将 I/O 请求发送到内核。如果内核接受了该请求，调用线程将继续
-// 处理其他任务，直到内核向线程发出信号，表明 I/O 操作已完成。然后，线程会中断当前任务，
-// 并处理 I/O 操作后的数据。在某些情况下，I/O 请求预计会花费大量时间，例如刷新或备份大
-// 型数据库，或者通过慢速通信链路进行传输，此时异步 I/O 通常是优化处理效率的好方法。然
-// 而，对于相对快速的 I/O 操作，处理内核 I/O 请求和内核信号的开销可能会使异步 I/O 的优
-// 势降低，特别是当需要执行许多快速 I/O 操作时。在这种情况下，同步 I/O 会更好。完成这些
-// 任务的机制和实现细节会根据所使用的设备句柄类型以及应用程序的具体需求而有所不同。换句
-// 话说，通常有多种方法可以解决问题。
-//
-// 同步和异步 I/O 的注意事项，如果文件或设备以同步 I/O 方式打开（即未指定 FILE_FLAG_OVERLAPPED），
-// 后续对 WriteFile 等函数的调用可能会阻塞调用线程的执行，直到发生以下事件之一：
-//  1.  I/O 操作完成（此例中，为数据写入）。
-//  2.  发生 I/O 错误（例如，管道从另一端关闭）。
-//  3.  调用本身存在错误（例如，一个或多个参数无效）。
-//  4.  进程中的另一个线程使用被阻塞线程的线程句柄调用 CancelSynchronousIo 函数，这将
-//      终止该线程的 I/O 操作，导致 I/O 操作失败。
-//  5.  被阻塞的线程被系统终止；例如，进程本身被终止，或者另一个线程使用被阻塞线程的句
-//      柄调用 TerminateThread 函数。这通常被视为最后的手段，不是良好的应用程序设计。
-//
-// 在某些情况下，这种延迟可能无法被应用程序的设计和目的所接受，因此应用程序设计者应考虑
-// 使用异步 I/O，并结合适当的线程同步对象，例如 I/O 完成端口。有关线程同步的详细信息，
-// 请参阅关于同步（About Synchronization）。
-//
-// 进程在调用 CreateFile 时通过在 dwFlagsAndAttributes 参数中指定 FILE_FLAG_OVERLAPPED
-// 标志来以异步 I/O 方式打开文件。如果未指定 FILE_FLAG_OVERLAPPED，则文件以同步 I/O
-// 方式打开。当文件以异步 I/O 方式打开后，需要将指向 OVERLAPPED 结构的指针传递给 ReadFile
-// 和 WriteFile 的调用。在执行同步 I/O 时，此结构在调用 ReadFile 和 WriteFile 时不是
-// 必需的。注意，如果以异步 I/O 方式打开文件或设备，使用该句柄对 WriteFile 等函数的后
-// 续调用通常会立即返回，但也可以表现出与阻塞执行相关的同步行为。有关详细信息，可以参考：
-// https://learn.microsoft.com/en-us/previous-versions/troubleshoot/windows/win32/asynchronous-disk-io-synchronous
-//
-// 尽管 CreateFile 是用于打开文件、磁盘卷、匿名管道以及其他类似设备的最常用函数，但也
-// 可以使用其他系统对象（例如由 socket 或 accept 函数创建的套接字）的句柄类型来执行
-// I/O 操作。通过调用 CreateFile 函数并使用 FILE_FLAG_BACKUP_SEMANTICS 属性，可以
-// 获取目录对象的句柄。目录句柄几乎从不使用，备份应用程序是少数通常会使用它们的应用程序
-// 之一。
-//
-// typedef struct _OVERLAPPED {
-//      ULONG_PTR Internal;
-//      ULONG_PTR InternalHigh;
-//      union {
-//          struct {
-//              DWORD Offset;
-//              DWORD OffsetHigh;
-//          } DUMMYSTRUCTNAME;
-//          PVOID Pointer;
-//      } DUMMYUNIONNAME;
-//      HANDLE hEvent;
-// } OVERLAPPED, *LPOVERLAPPED;
-//
-// 在以异步 I/O 方式打开文件对象后，必须正确创建、初始化并将 OVERLAPPED 结构传递给
-// ReadFile 和 WriteFile 的每次调用。在异步读取和写入操作中使用 OVERLAPPED 结构时，
-// 请注意以下几点：
-//  1.  在完成对文件对象的所有异步 I/O 操作之前，不要释放或修改 OVERLAPPED 结构或数据
-//      缓冲区。
-//  2.  如果将 OVERLAPPED 结构的指针声明为局部变量，则在完成对文件对象的所有异步 I/O
-//      操作之前，不要退出局部函数。如果局部函数提前退出，OVERLAPPED 结构将超出作用
-//      域，并且它将在该函数外部遇到的任何 ReadFile 或 WriteFile 函数中无法访问。
-//
-// 你还可以创建一个事件，并将其句柄放入 OVERLAPPED 结构中；然后可以使用等待函数通过等
-// 待事件句柄来等待 I/O 操作完成。
-//
-// 如前所述，当使用异步句柄时，应用程序在决定何时释放与该句柄上指定 I/O 操作相关的资源
-// 时应格外小心。如果句柄被提前释放，ReadFile 或 WriteFile 可能会错误地报告 I/O 操作
-// 已完成。此外，WriteFile 函数有时也会返回 TRUE，并且 GetLastError 的值为 ERROR_SUCCESS
-// 即使使用的是异步句柄（它也可能返回 FALSE 和 ERROR_IO_PENDING）。习惯于同步 I/O 设
-// 计的程序员通常会在这一点释放数据缓冲区资源，因为 TRUE 和 ERROR_SUCCESS 表示操作已
-// 完成。然而，如果使用 I/O 完成端口与这个异步句柄一起使用，即使 I/O 操作立即完成，也会
-// 发送一个完成数据包。换句话说，如果应用程序在 WriteFile 返回 TRUE 和 ERROR_SUCCESS
-// 之后以及在 I/O 完成端口例程中释放资源，它将出现双重释放错误条件。在此例中，建议让完
-// 成端口例程完全负责此类资源的所有释放操作。
-//
-// 系统不会维护支持文件指针（即寻址设备）的文件和设备的异步句柄上的文件指针，因此必须在
-// OVERLAPPED 结构的相关偏移数据成员中将文件位置传递给读取和写入函数。有关详细信息，请
-// 参阅 WriteFile 和 ReadFile。对于同步句柄，系统会在读取或写入数据时维护文件指针位置，
-// 也可以使用 SetFilePointer 或 SetFilePointerEx 函数进行更新。
-//
-// 应用程序还可以等待文件句柄以同步到一个 I/O 操作的完成，但这样做需要格外小心。每次启
-// 动 I/O 操作时，操作系统都会将文件句柄设置为非信号状态。每次 I/O 操作完成时，操作系
-// 统都会将文件句柄设置为信号状态。因此，如果应用程序启动了两个 I/O 操作并等待文件句柄，
-// 当句柄被设置为信号状态时，将无法确定哪个操作已完成。如果应用程序必须在单个文件上执行
-// 多个异步 I/O 操作，则应等待每个 I/O 操作的特定 OVERLAPPED 结构中的事件句柄，而不是
-// 等待公共文件句柄。
-//
-// 取消 I/O 操作，要取消所有挂起的异步 I/O 操作，请使用以下方法之一：
-//  1.  CancelIo：此函数仅取消调用线程为指定文件句柄发出的操作。
-//  2.  CancelIoEx：此函数取消所有线程为指定文件句柄发出的操作。
-//
-// 使用 CancelSynchronousIo 取消挂起的同步 I/O 操作。ReadFileEx 和 WriteFileEx 函
-// 数允许应用程序指定一个例程（请参阅 FileIOCompletionRoutine），在异步 I/O 请求完成
-// 时执行。
-//
-// 可警报 I/O 是应用程序线程仅在处于可警报状态时处理异步 I/O 请求的方法。要了解线程何
-// 时处于可警报状态，请考虑以下场景：
-//  1.  线程通过调用 ReadFileEx 并传递一个指向回调函数的指针来启动异步读取请求。
-//  2.  线程通过调用 WriteFileEx 并传递一个指向回调函数的指针来启动异步写入请求。
-//  3.  线程调用一个从远程数据库服务器获取一行数据的函数。
-//
-// 在此场景中，对 ReadFileEx 和 WriteFileEx 的调用很可能在步骤 3 的函数调用之前返回。
-// 当它们返回时，内核会将回调函数的指针放入线程的异步过程调用 (APC) 队列中。内核维护此
-// 队列，专门用于存放返回的 I/O 请求数据，直到对应的线程能够处理它们。
-//
-// 当行获取完成且线程从函数返回时，其最高优先级是通过调用回调函数来处理队列中返回的 I/O
-// 请求。为此，它必须进入可警报状态。线程只能通过调用以下函数之一并使用适当的标志来实现
-// 这一点：
-//  * SleepEx
-//  * WaitForSingleObjectEx
-//  * WaitForMultipleObjectsEx
-//  * SignalObjectAndWait
-//  * MsgWaitForMultipleObjectsEx
-//
-// 当线程进入可警报状态时，会发生以下事件：
-//  1.  内核检查线程的 APC 队列。如果队列中包含回调函数指针，内核会从队列中移除该指针
-//      并将其发送给线程。
-//  2.  线程执行回调函数。
-//  3.  步骤 1 和 2 会针对队列中剩余的每个指针重复执行。
-//  4.  当队列为空时，线程将从使其进入可警报状态的函数返回。
-//
-// 在此场景中，一旦线程进入可警报状态，它将调用发送给 ReadFileEx 和 WriteFileEx 的回
-// 调函数，然后从使其进入可警报状态的函数返回。如果线程在 APC 队列为空时进入可警报状态，
-// 内核将暂停线程的执行，直到以下情况之一发生：
-//  * 正在等待的内核对象被触发。
-//  * 回调函数指针被放入 APC 队列。
-//
-// 使用可警报 I/O 的线程比简单地等待 OVERLAPPED 结构中的事件标志被设置能更高效地处理
-// 异步 I/O 请求，而且可警报 I/O 机制比 I/O 完成端口更简单。然而，可警报 I/O 只将 I/O
-// 请求的结果返回给发起它的线程。I/O 完成端口没有这个限制。
-//
-// 一般，我们能够采用以下两种模型来架构一个服务应用程序。串行模型（serial model），一
-// 个线程等待一个客户发出请求，当请求达到时，线程会唤醒并对客户请求进行处理。并发模型
-// （concurrent model），一个线程等待一个客户请求，并创建一个新的线程来处理请求。当新
-// 线程正在处理客户请求时，原来的线程会进入下一次循环并等待另一个客户请求。当处理客户请
-// 求的线程完成整个处理过程的时候，该线程就会终止。
-//
-// 并发模型的优点在于等待请求的线程只有很少的工作需要做，大多数时间它都处于睡眠状态。
-// 当客户请求到达的时候，该线程会被唤醒，创建一个新的线程来处理请求，然后等待下一个客户
-// 请求，这意味着能够对客户的请求进行快捷的处理。但是，如果同时处理许多客户请求，这意味
-// 着系统中会有许多线程并发执行，由于所有这些线程都处于可运行状态，Windows 内核各可执行
-// 线程之间会有大量时间进行上下文切换，以至于各线程都没有多少 CPU 时间来完成它们的任务。
-// 为了将 Windows 打造成一个出色的服务器环境，Microsoft 实现了 I/O 完成端口内核对象。
-//
-// I/O 完成端口背后的理论是并发运行的线程数量必须有一个上限，也就是说，同时发出的 500
-// 个客户请求不应该允许出现 500 个可执行的线程。那么，可运行线程的数量是多少才算合适
-// 呢？无需考虑太长时间，我们就会意识到如果机器只有两个 CPU，那么允许可运行线程的数量
-// 大于 2，每个处理器一个线程，将没有什么意义。一旦可运行线程的数量大于可用的 CPU 数量，
-// 系统就必须花时间来执行线程上下文切换，而这会浪费宝贵的 CPU 周期，这也是并发模型的一
-// 个潜在缺点。
-//
-// HANDLE WINAPI CreateIoCompletionPort(
-//      _In_     HANDLE    FileHandle,
-//      _In_opt_ HANDLE    ExistingCompletionPort,
-//      _In_     ULONG_PTR CompletionKey,
-//      _In_     DWORD     NumberOfConcurrentThreads
-// );
-//
-// 创建一个完成端口，并将其与指定的文件句柄关联，或者创建一个尚未与文件句柄关联的完成端
-// 口，允许在稍后的时间进行关联。将打开的文件句柄实例与 I/O 完成端口关联，允许进程接收
-// 涉及该文件句柄的异步 I/O 操作完成的通知。注意，这里使用的 “文件句柄” 是指代重叠 I/O
-// 端点（an overlapped I/O endpoint）的系统抽象，而不仅仅是磁盘上的文件。任何支持重叠
-// I/O 的系统对象，如网络端点（network endpoints）、TCP 套接字、命名管道、邮件槽（mail
-// slots），都可以用作文件句柄。
-//
-// 参数 FileHandle 打开的文件句柄或 INVALID_HANDLE_VALUE。句柄必须是支持重叠 I/O 的
-// 对象。如果提供了句柄，则必须是已打开的用于重叠 I/O 完成的对象。例如，使用 CreateFile
-// 函数获取句柄时，必须指定 FILE_FLAG_OVERLAPPED 标志。如果指定 INVALID_HANDLE_VALUE，
-// 函数将创建一个未与文件句柄关联的 I/O 完成端口。在这种情况下，ExistingCompletionPort
-// 参数必须为 NULL，CompletionKey 参数将被忽略。
-//
-// 参数 ExistingCompletionPort 现有 I/O 完成端口的句柄或 NULL。如果此参数指定现有的
-// I/O 完成端口，函数将将其与 FileHandle 参数指定的句柄关联。如果成功，函数返回现有
-// I/O 完成端口的句柄；它不会创建新的 I/O 完成端口。如果此参数为 NULL，函数将创建一个
-// 新的 I/O 完成端口，并且如果 FileHandle 参数有效，则将其与新的 I/O 完成端口关联。
-// 否则，不会发生文件句柄关联。如果成功，函数返回新的 I/O 完成端口的句柄。
-//
-// 参数 CompletionKey 基于文件句柄的用户定义完成键，包含在每个 I/O 完成数据包中。参数
-// NumberOfConcurrentThreads 操作系统可以同时处理 I/O 完成端口的 I/O 完成数据包的最
-// 大线程数。如果 ExistingCompletionPort 参数不是 NULL，则忽略此参数。如果此参数为零，
-// 系统允许与系统中的处理器数量一样多的并发运行线程。
-//
-// 返回值，如果函数成功，返回值是 I/O 完成端口的句柄：如果 ExistingCompletionPort 参
-// 数为 NULL，返回值是新的句柄。如果 ExistingCompletionPort 参数是有效的 I/O 完成端
-// 口句柄，返回值是相同的句柄。如果 FileHandle 参数是有效的句柄，该文件句柄现在与返回
-// 的 I/O 完成端口关联。如果函数失败，返回值为 NULL。要获取扩展错误信息，请调用 GetLastError
-// 函数。
-//
-// I/O 系统将 I/O 完成通知数据包发送到 I/O 完成端口，并在那里进行排队。I/O 完成端口
-// 和它的句柄，与创建它的进程相关联，不能在进程之间共享。但是，单个完成端口句柄可以在
-// 同一进程中的线程之间共享。
-//
-// CreateIoCompletionPort 可以以三种不同的模式使用：
-//  1.  仅创建一个 I/O 完成端口而不与文件句柄关联。
-//  2.  将现有的 I/O 完成端口与文件句柄关联。
-//  3.  在单个调用中同时完成创建和关联。
-//
-// 要创建一个 I/O 完成端口而不与之关联，请将 FileHandle 参数设置为 INVALID_HANDLE_VALUE，
-// ExistingCompletionPort 参数设置为 NULL，CompletionKey 参数设置为零（在这种情况下
-// 被忽略）。将 NumberOfConcurrentThreads 参数设置为新 I/O 完成端口所需的并发值，或者
-// 为零以获取默认值（系统中的处理器数量）。
-//
-// FileHandle 参数中传递的句柄可以是任何支持重叠 I/O 的句柄。最常见的是，这是使用
-// FILE_FLAG_OVERLAPPED 标志通过 CreateFile 函数打开的句柄（例如，文件、邮件槽和管
-// 道）。由其他函数（如 socket）创建的对象也可以与 I/O 完成端口关联。有关使用套接字的
-// 示例，请参阅 AcceptEx。一个句柄只能与一个 I/O 完成端口关联，并且在关联后，句柄保持
-// 与该 I/O 完成端口关联，直到它被关闭。有关 I/O 完成端口理论、用法和相关函数的详细信
-// 息，请参阅 I/O Completion Ports。
-//
-// 可以通过多次调用 CreateIoCompletionPort，在 ExistingCompletionPort 参数中使用相
-// 同的 I/O 完成端口句柄，并在每次调用时在 FileHandle 参数中使用不同的文件句柄，将多个
-// 文件句柄与单个 I/O 完成端口关联。
-//
-// 使用 CompletionKey 参数帮助你的应用程序跟踪哪些 I/O 操作已完成。此值不会被 CreateIoCompletionPort
-// 使用；相反，它在与 I/O 完成端口关联时附加到 FileHandle 参数中指定的文件句柄。此完成
-// 键应对每个文件句柄唯一，并且它在整个内部排队过程中始终与文件句柄关联。当完成数据包到
-// 达时，调用 GetQueuedCompletionStatus 函数获取。CompletionKey 参数还被 PostQueuedCompletionStatus
-// 函数用于插入自己的特殊用途的完成数据包。
-//
-// 将打开的句柄实例与 I/O 完成端口关联后，它不能用于 ReadFileEx 或 WriteFileEx 函数，
-// 因为这些函数有自己的异步 I/O 机制。
-//
-// 最好不要通过句柄继承或调用 DuplicateHandle 函数来共享与 I/O 完成端口关联的文件句柄。
-// 使用此类重复句柄执行的操作会产生完成通知，建议谨慎考虑。
-//
-// I/O 完成端口句柄和与该特定 I/O 完成端口关联的每个文件句柄都对 I/O 完成端口的进行了
-// 引用。当没有更多引用时，I/O 完成端口被自动释放。因此，所有这些句柄都必须正确关闭，以
-// 释放 I/O 完成端口及其关联的系统资源。在满足这些条件后，通过调用 CloseHandle 函数关
-// 闭 I/O 完成端口句柄。
-//
-// 在 Windows 8 和 Windows Server 2012 中，此函数支持以下技术：
-//      技术                                                            支持
-//      Server Message Block (SMB) 3.0 protocol                         是
-//      SMB 3.0 Transparent Failover (TFO)                              是
-//      SMB 3.0 with Scale-out File Shares (SO)                         是
-//      Cluster Shared Volume File System (CsvFS)                       是
-//      Resilient File System (ReFS)                                    是
-//
-// CreateIoCompletionPort 不需要传 SECURITY_ATTRIBUTES 结构，在所有用来创建内核对象
-// 的 Windows 函数中，CreateIoCompletionPort 大概是绝无仅有的。这是因为 I/O 完成端口
-// 的设计初衷是只在一个进程中使用。
-
-HANDLE prh_impl_create_completion_port(DWORD concurrent_thread_count) { // 传 0 表示系统处理器数量
-    HANDLE completion_port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, prh_null, 0, concurrent_thread_count);
-    if (completion_port == prh_null) prh_abort_error(GetLastError());
-    return completion_port;
-}
-
-void prh_impl_completion_port_add_file_handle(HANDLE completion_port, HANDLE file_handle, void *completion_key) {
-    assert(completion_port != prh_null);
-    assert(file_handle != prh_null && file_handle != INVALID_HANDLE_VALUE);
-    HANDLE exist_port = CreateIoCompletionPort(file_handle, completion_port, (ULONG_PTR)completion_key);
-    if (exist_port != completion_port) prh_abort_error(GetLastError());
-}
-
-HANDLE prh_impl_create_completion_port_and_add_file_handle(DWORD concurrent_thread_count, HANDLE file_handle, void *completion_key) {
-    prh_impl_completion_port_add_file_handle(prh_impl_create_completion_port(concurrent_thread_count),
-        file_handle, completion_key);
-}
-
-// 当我们创建一个 I/O 完成端口的时候，系统内核实际上会创建 5 个不同的数据结构。分别是：
-//  1.  设备列表或文件句柄列表，每条记录包含 (file_handle, completion_key)，添加文件
-//      句柄时添加一项，文件句柄关闭时移除一项。
-//  2.  I/O 完成队列（***先入先出***），每条记录包含 (bytes_transferred, completion_key,
-//      overlapped, error)，当 I/O 请求完成或 PostQueuedCompletionStatus 被调用时
-//      添加一项，完成端口移除线程等待队列中的一个线程时，会移除一项。当设备的一个异步
-//      I/O 请求完成时，系统会检查设备是否与一个 I/O 完成端口相关联，如果是那么系统会
-//      将该完成数据添加到完成队列的尾部。该数据包含已传输字节数、与句柄关联的完成键、
-//      指向 I/O 请求的 OVERLAPPED 结构的指针、以及一个错误码。
-//  3.  线程等待队列（***后入先出***），每条记录 (thread_id)，线程调用 GetQueuedCompletionStatus
-//      时添加一项，满足以下条件时会移除一个线程：I/O 完成队列不为空，且正在运行的线程
-//      数小于最大并发数时。 GetQueuedCompletionStatus 会先从 I/O 完成队列中删除对应
-//      的一项完成数据，然后将 thread_id 转移到线程执行列表，最后函数返回。等待队列使
-//      得 I/O 完成端口内核对象始终能够知道，有哪些线程当前正在等待，当端口中的完成队列
-//      中出现一项的时候，该完成端口会唤醒线程等待队列中的一个线程。
-//  4.  线程执行列表，每条记录包含 (thread_id)，当完成端口在线程等待队列中唤醒一个线
-//      程，或者一个线程暂停列表中的一个线程被成功唤醒时，添加一项。当线程再次调用
-//      GetQueuedCompletionStatus 时将线程转移到线程等待队列，或者线程调用一个函数将
-//      自己挂起时将线程转移到线程暂停队列。
-//  5.  线程暂停列表，每条记录包含 (thread_id)，当线程执行列表中的一个线程调用一个函数
-//      将自己挂起时，线程转移到线程暂停队列。当暂停的线程被唤醒时，线程回到线程执行队列。
-//
-// 向设备发出 I/O 请求，但不把该项已完成的 I/O 完成数据添加到 I/O 完成端口的队列中也是
-// 有可能的。通常我们并不需要这样做，但这样做偶尔还是有用的，例如我们通过一个套接字发送
-// 数据，但并不关心数据实际上到底有没有送达。为了发出一个在完成的时候不被添加到完成队列
-// 中，我们必须在 OVERLAPPED 结构的 hEvent 成员中保存一个有效的事件句柄，并将它与 1
-// 按位或：
-//
-//      Overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
-//      Overlapped.hEvent = (HANDLE)((DWORD_PTR)Overlapped.hEvent | 1);
-//      ReadFile(..., &Overlapped);
-//      CloseHandle((HANDLE)((DWORD_PTR)Overlapped.hEvent & ~1));
-//
-// 线程池中的所有线程应该执行同一个函数，一般来说，这个线程函数会先进行一些初始化，然后
-// 进入一个循环，当服务进程被告知要停止的时候，这个循环也应该就此终止。在循环内部，线程
-// 调用 GetQueuedCompletionStatus 切换到睡眠状态，来等待设备 I/O 请求的完成通知。
-// GetQueuedCompletionStatus 基本上是将调用线程切换到睡眠状态，直到指定的完成端口有
-// 完成数据出现，或者等待的事件出现超时。
-//
-// 移除 I/O 完成队列中完成数据是以先入先出的方式进行的，但可能没有预料的是，唤醒线程等待
-// 队列中的线程是以后入先出的方式。例如，假设有 4 个线程在等待，如果出现了完成数据项，
-// 那么最后一个调用 GetQueuedCompletionStatus 的线程会被唤醒来进行处理。当最后这个线
-// 程完成处理后再次调用 GetQueuedCompletionStatus 进入等待队列，如果又出现一个完成数
-// 据项，那么同一个线程会被唤醒来处理这个新的数据项。
-//
-// 如果 I/O 请求完成得足够慢，使得一个线程就能够将它们全部处理完，那么系统会不断地唤醒
-// 同一个线程，而让其他线程继续睡眠。通过使用这种后入先出算法，系统可以将那些未被调度的
-// 先出内存资源，例如栈空间，换出到磁盘，并将它们从处理器的高速缓存中清除。这意味着让许
-// 多线程等待一个完成端口并不是什么坏事，如果正在等待的线程数量大于已完成的 I/O 请求数
-// 量，那么系统会将多余的大多数资源换出内存。
-//
-// 一旦一个线程调用 GetQueuedCompletionStatus，该线程会与指定的完成端口关联，系统假定
-// 被关联的线程都是以该完成端口的名义来完成工作的。有 3 中方式解除这种关联：线程退出，
-// 线程用一个不同的完成端口句柄调用 GetQueuedCompletionStatus，销毁指定的完成端口。
-//
-// 在 Windows Vista 中，当我们调用 CloseHandle 关闭完成端口句柄时，系统会将所有正在
-// 等待 GetQueuedCompletionStatus 的线程唤醒，并返回 FALSE。此时调用 GetLastError
-// 会返回 ERROR_INVALID_HANDLE，线程可以通过这种方式来知道自己应该得体地退出。
-//
-// BOOL GetQueuedCompletionStatus(
-//      [in]  HANDLE       CompletionPort,
-//      [out] LPDWORD      lpNumberOfBytesTransferred,
-//      [out] PULONG_PTR   lpCompletionKey,
-//      [out] LPOVERLAPPED *lpOverlapped,
-//      [in]  DWORD        dwMilliseconds
-// );
-//
-// 尝试从指定的 I/O 完成端口获取一个 I/O 完成数据包。如果没有排队的完成数据包，该函数
-// 将等待完成端口上关联 I/O 操作的完成。要一次性获取多个 I/O 完成数据包，可以调用函数
-// GetQueuedCompletionStatusEx。成功返回非零值（TRUE），否则返回零（FALSE）。要获取
-// 扩展错误信息，请调用 GetLastError。
-//
-// 参数 CompletionPort 完成端口的句柄。参数 lpNumberOfBytesTransferred 指向一个变量，
-// 该变量接收完成的 I/O 操作传输的字节数。参数 lpCompletionKey 指向一个变量，该变量接
-// 收与完成 I/O 操作的文件句柄关联的完成键值。完成键是在调用 CreateIoCompletionPort
-// 时指定的基于文件句柄的键。
-//
-// 参数 lpOverlapped 指向一个变量，该变量接收完成 I/O 操作启动时指定的 OVERLAPPED 结
-// 构的地址。即使你已经传递了一个与完成端口关联的文件句柄和有效的 OVERLAPPED 结构，应用
-// 程序也可以阻止完成端口通知。这是通过为 OVERLAPPED 结构的 hEvent 成员指定一个有效的
-// 事件句柄并设置其低阶位来完成的。低阶位被设置的有效事件句柄会阻止重叠 I/O 完成时将完
-// 成数据包排队到完成端口。
-//
-// 参数 dwMilliseconds 调用方愿意等待完成数据包出现的毫秒数。如果在指定时间内没有出现
-// 完成数据包，函数将超时，返回 FALSE，并将 *lpOverlapped 设置为 NULL。如果 dwMilliseconds
-// 是 INFINITE (0xFFFFFFFF)，函数将永远不会超时。如果 dwMilliseconds 是零且没有 I/O
-// 操作可以出队，函数将立即超时。Windows XP、Windows Server 2003、Windows Vista、
-// Windows 7、Windows Server 2008 和 Windows Server 2008 R2：dwMilliseconds 值包
-// 括在低功耗状态下花费的时间。例如，超时会在计算机处于睡眠状态时继续倒计时。Windows 8
-// 及更高版本、Windows Server 2012 及更高版本：dwMilliseconds 值不包括在低功耗状态下
-// 花费的时间。例如，超时不会在计算机处于睡眠状态时继续倒计时。
-//
-// 此函数将线程与指定的完成端口关联。一个线程最多只能与一个完成端口关联。如果由于与之关
-// 联的完成端口句柄在调用期间被关闭而导致 GetQueuedCompletionStatus 调用失败，函数将
-// 返回 FALSE，*lpOverlapped 将为 NULL，GetLastError 将返回 ERROR_ABANDONED_WAIT_0。
-// Windows Server 2003 和 Windows XP：在调用期间关闭完成端口句柄不会导致上述行为。函
-// 数将继续等待，直到从端口移除条目或超时（如果指定的值不是 INFINITE）。
-//
-// 如果 GetQueuedCompletionStatus 函数成功，它将从完成端口弹出一个成功的 I/O 操作的
-// 完成数据包，并将信息存储在以下参数指向的变量中：lpNumberOfBytes、lpCompletionKey
-// 和 lpOverlapped。失败时（返回值为 FALSE），这些参数可能会包含特定的值组合，如下所示：
-//  1.  如果 *lpOverlapped 为 NULL，函数没有从完成端口弹出完成数据包。在这种情况下，
-//      函数不会将信息存储在 lpNumberOfBytes 和 lpCompletionKey 参数指向的变量中，它
-//      们的值是不确定的。
-//  2.  如果 *lpOverlapped 不为 NULL 且函数从完成端口弹出了一个失败的 I/O 操作的完成
-//      数据包，函数将有关失败操作的信息存储在 lpNumberOfBytes、lpCompletionKey 和
-//      lpOverlapped 指向的变量中。要获取扩展错误信息，请调用 GetLastError。
-
-int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entry, DWORD msec) {
-    assert(completion_port != prh_null);
-    assert(entry != prh_null); // 超时时间在 Windows 8 及更高版本上，不包含系统睡眠时间
-    BOOL b = GetQueuedCompletionStatus(completion_port, &entry->dwNumberOfBytesTransferred, (PULONG_PTR)&entry->lpCompletionKey, &entry->lpOverlapped, msec);
-    if (b || entry->lpOverlapped) return 1; // get success or related I/O failed
-    DWORD error = GetLastError();
-    if (error != WAIT_TIMEOUT) prh_prerr(error);
-    return 0;
-}
-
-// 如果预计会不断收到大量的 I/O 请求，可以调用 GetQueuedCompletionStatusEx 函数来同
-// 时获取多个 I/O 结果，而不必让许多线程等待完成端口，从而可以避免由此产生的上下文切换
-// 所带来的开销。
-//
-// 最后一个参数 bAlertable，如果设为 FALSE，那么函数会一直等待一个已完成的 I/O 请求添
-// 加到完成端口，或者指定的时间超时。如果设为 TRUE，如果队列中没有已完成的 I/O 请求，
-// 那么线程将进入可提醒状态。
-//
-// 如果一个设备又完成端口与之关联，那么当我们向它发出一个异步 I/O 请求时，Windows 会将
-// 请求结果添加到完成队列中，即使异步请求是以同步方式完成的，Windows 仍然会这样做，其
-// 目的是为了向开发人员提供一个一致的编程模型。但是，维护编程模型的一致性会略微损害性能，
-// 这是因为已完成的请求信息必须被放到端口的完成队列中，线程也必须从端口的队列中取得这些
-// 信息。为了能够略微提高性能，可以调用 SetFileCompletionNotificationModes 函数，并
-// 传入 FILE_SKIP_COMPLETION_PORT_ON_SUCCESS 标志，以此告诉 Windows 不要将以同步方
-// 式完成的异步请求添加到与设备相关联的完成端口中。对性能极其关注的开发人员，还可以考虑
-// 使用 SetFileIoOverlappedRange 函数。
-//
-// 完成端口只允许同时唤醒指定数量的线程，那么为什么还要让更多的线程在线程池中等待呢？举
-// 个例子，假设机器有 2 个 CPU，我们创建一个 I/O 完成端口时，告诉它同时最多只能有两个
-// 线程来处理已完成的项。但我们创建了 4 个线程（CPU 数量的两倍），看起来有两个多余的线
-// 程，但 I/O 完成端口是非常智能的。当完成端口唤醒一个线程的时候，会将该线程的线程标识
-// 保存到线程执行列表中，如果执行线程切换到等待状态（Sleep、WaitFor*、SignalObjectAndWait、
-// 一个异步 I/O 调用、或者任何导致线程变成不可运行状态的函数），那么完成端口会检测到这
-// 一情况，将线程移动到线程暂停列表。此时线程执行列表会缩减，完成端口就可以释放另一个正
-// 在等待的线程。如果一个已暂停的线程被唤醒，那么它会移动到执行列表，这意味着此时执行线
-// 程的数量将大于最大允许的并发线程数量。完成端口会知道这一点，在执行线程数量降低到小于
-// CPU 数量之前，它不会再唤醒任何线程。I/O 完成端口体系结构假定可运行线程的数量只会在
-// 很短时间内高于最大允许的线程数量。
-//
-// 线程池中应该有多少线程才合适？有两个问题需要考虑，首先，当服务应用程序初始化的时候，
-// 我们创建最少数量的线程，其次我们设置一个最大线程数量，这是因为创建太多线程会浪费系统
-// 资源。我们可能想要用不同数量的线程来进行实验，但大多数服务使用启发式的算法来对它们的
-// 线程池进行管理。例如，可以创建下面的变量来管理线程池： int thrd_min, thrd_max,
-// thrd_cur, thrd_bsy 。在应用程序初始化的时候，可以创建 thrd_min 个线程，所有线程
-// 都执行同一个线程函数。thrd_cur 指的是当前已经创建的线程数量，thrd_bsy 在线程等待时
-// 减一，在线程唤醒时加一。当 thrd_cur == thrd_cur 并且 thrd_bsy < thrd_max 时，如
-// 果 cpu usage < 75，可能可以考虑增加线程数量。如果线程等待超时，或 cpu usage > 90
-// 并且 thrd_cur > thrd_min，可以考虑销毁当前线程。当前线程如果有未完成的 I/O 请求正
-// 在处理时，仍然可以销毁。另外，我们必须确保线程池种总是至少有一个线程，否则客户请求将
-// 永远得不到处理。
-//
-// 当一个线程终止时，系统会自动将该线程发出的所有待处理的 I/O 请求取消掉（取消队列中的
-// 设备 I/O 请求）。在 Windows Vista 之前的版本，当线程向一个完成端口管理的设备发出
-// I/O 请求时，存在一条硬性规定，即在请求完成之前，该线程必须不能终止，否则 Windows 会
-// 将该线程发出的任何待处理请求都取消掉。而在 Windows Vista 中，已经不存在类似的规定，
-// 线程现在可以发出请求并终止，请求仍然能够得到处理，处理结果将会被添加到完成端口的队列
-// 中。
-//
-// BOOL WINAPI GetQueuedCompletionStatusEx(
-//      _In_  HANDLE             CompletionPort,
-//      _Out_ LPOVERLAPPED_ENTRY lpCompletionPortEntries,
-//      _In_  ULONG              ulCount,
-//      _Out_ PULONG             ulNumEntriesRemoved,
-//      _In_  DWORD              dwMilliseconds,
-//      _In_  BOOL               fAlertable
-// );
-//
-// typedef struct _OVERLAPPED_ENTRY {
-//      ULONG_PTR    lpCompletionKey;
-//      LPOVERLAPPED lpOverlapped;
-//      ULONG_PTR    Internal; // 保留，没有明确的含义，不应该使用
-//      DWORD        dwNumberOfBytesTransferred;
-// } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
-//
-// 同时检索多个完成端口条目。它等待与指定完成端口关联的 I/O 操作的完成。要逐个出队 I/O
-// 完成数据包，请使用 GetQueuedCompletionStatus 函数。成功时返回非零值 TRUE，否则返回
-// 零 FALSE。要获取扩展错误信息，请调用 GetLastError。
-//
-// 参数 lpCompletionPortEntries 输入时，指向一个预先分配的 OVERLAPPED_ENTRY 结构数组。
-// 输出时，接收一个包含条目的 OVERLAPPED_ENTRY 结构数组。数组元素的数量由 ulNumEntriesRemoved
-// 提供。每个 I/O 传输的字节数、指示每个 I/O 发生在哪个文件上的完成键以及每个原始 I/O
-// 中使用的重叠结构地址都返回在 lpCompletionPortEntries 数组中。
-//
-// 参数 fAlertable 如果为 FALSE，函数会在超时结束或检索到条目之前不返回。如果参数为
-// TRUE 且没有可用条目，函数将执行可警报等待。当系统将 I/O 完成例程（completion routine）
-// 或 APC 添加到线程并执行该函数时，线程返回。当指定完成例程的 ReadFileEx 或 WriteFileEx
-// 函数完成且调用线程是启动操作的线程时，完成例程会被排队到该线程。当调用 QueueUserAPC
-// 时，APC 会被排队到指定线程。
-//
-// 此函数将线程与指定的完成端口关联。一个线程最多只能与一个完成端口关联。当至少有一个挂
-// 起的 I/O 完成时，此函数返回 TRUE，但有可能一个或多个 I/O 操作失败。请注意，检查
-// lpCompletionPortEntries 返回的条目确定哪些条目的 I/O 操作可能失败的责任在于此函数
-// 的调用者，方法是查看每个 OVERLAPPED_ENTRY 中的 lpOverlapped 成员所包含的状态。
-//
-// 当没有 I/O 操作被出队时，此函数返回 FALSE。这通常意味着在处理此调用的参数时发生了错
-// 误，或者 CompletionPort 句柄被关闭或无效。GetLastError 函数提供扩展错误信息。如果
-// 由于与之关联的句柄被关闭而导致 GetQueuedCompletionStatusEx 调用失败，函数将返回
-// FALSE，GetLastError 将返回 ERROR_ABANDONED_WAIT_0。服务器应用程序可能有多个线程
-// 为同一个完成端口调用 GetQueuedCompletionStatusEx 函数。随着 I/O 操作的完成，它们
-// 会以先进先出的顺序被排队到该端口。如果一个线程正在积极地在此调用上等待，那么一个或多
-// 个排队的完成请求将只会满足该线程的调用。
-//
-// GetQueuedCompletionStatusEx 相比传统的 GetQueuedCompletionStatus，主要带来
-// “一次等待，批量收割” 的能力，在高并发场景下可以显著减少系统调用次数和线程调度开销。
-// 具体收益如下：
-//
-//  1.  一次可取回多个完成包
-//      允许传入一个 _OVERLAPPED_ENTRY[] 数组，内核把当前已排队的完成包尽可能多地一次
-//      性拷贝给你，上限由你自己指定（常见 64～256 个）。同样数目的 I/O 完成，系统调用
-//      次数从 N → ⌈N / 数组长度⌉，降低 1~2 个数量级。
-//  2.  天然负载均衡
-//      当多个工作线程同时调用 GetQueuedCompletionStatusEx 时，内核采用轮转队列算法，
-//      保证每个线程大致均等地拿到完成包，避免某一个线程忙死、其余线程空转的现象。
-//  3.  减少用户/内核模式往返
-//      批量返回意味着每包分摊的往返成本降低；在 10 Gbps、小包高 QPS 的测试中，可把
-//      CPU 占用降低 10–30%。
-//  4.  支持可唤醒的阻塞
-//      仍可通过 dwMilliseconds 指定超时；也可配合 PostQueuedCompletionStatus 发
-//      “退出” 包，线程统一返回，编码模型与旧 API 完全一致。
-//  5.  对单个完成包的场景略慢
-//      如果当前时刻队列里只有 1 个包，那么 Ex 版要多拷贝一次数组、做更多判断，实测会
-//      比原版慢近一倍；所以很多框架会在 “最近几次只拿到 1 包” 时自动降级回 GetQueuedCompletionStatus。
-//
-// 连接数高、吞吐大：优先用 GetQueuedCompletionStatusEx，批量收割、均衡负载。连接数低、
-// 完成稀疏：继续用 GetQueuedCompletionStatus，避免“杀鸡用牛刀”带来的额外开销。
-
-int prh_impl_completion_port_wait_multiple(HANDLE completion_port, OVERLAPPED_ENTRY *entry, int count, DWORD msec) {
-    assert(completion_port != prh_null);
-    assert(entry != prh_null);
-    assert(count > 0);
-    ULONG n = 0;
-    if (!GetQueuedCompletionStatusEx(completion_port, entry, count, &n, msec, FALSE)) {
-        DWORD error = GetLastError();
-        if (error != WAIT_TIMEOUT) prh_prerr(error);
-        return 0;
-    }
-    return n;
-}
-
-// I/O 完成端口并不一定要用于设备 I/O，它还是一项非常棒的技术用来进行线程间通信。在
-// “可提醒 I/O” 中，我们调用 QueueUserAPC 允许线程将一个 APC 项添加到另一个线程的队
-// 列中，I/O 完成端口也有一个类似的函数 PostQueuedCompletionStatus。该函数提供了一
-// 种方式来与线程池种的所有线程进行通信。例如，当用户终止服务应用程序的时候，我们想要
-// 让所有线程都干净地退出。但如果各线程还在等待完成端口但又没有已完成的 I/O 请求，那么
-// 它们将无法被唤醒。通过为线程池种的每个线程都调用一次 PostQueuedCompletionStatus，
-// 我们可以将它们都唤醒。每个线程会对 GetQueuedCompletionStatus 的返回值进行检查，
-// 如果发现应用程序正在终止，那么它可以进行清理工作并正常地退出。
-//
-// 但是这种机制需要唤醒的线程不能再次调用 GetQueuedCompletionStatus 进行等待，这是
-// 因为线程是以后入先出的方式被唤醒的。因此，为了确保线程池种的每个线程都能有机会得到
-// 模拟的完成通知，我们还必须在应该程序种采用其他线程同步机制，否则同一个线程可能会多
-// 次得到相同的通知。
-//
-// BOOL WINAPI PostQueuedCompletionStatus(
-//      _In_     HANDLE       CompletionPort,
-//      _In_     DWORD        dwNumberOfBytesTransferred,
-//      _In_     ULONG_PTR    dwCompletionKey,
-//      _In_opt_ LPOVERLAPPED lpOverlapped
-// );
-//
-// 将一个 I/O 完成数据包发布到 I/O 完成端口。如果函数成功，返回值是非零值。如果函数失
-// 败，返回值是零。要获取扩展错误信息，请调用 GetLastError。
-//
-// I/O 完成数据包将满足一个挂起的对 GetQueuedCompletionStatus 函数的调用。该函数返回
-// 时会携带作为 PostQueuedCompletionStatus 调用的第二个、第三个和第四个参数传递的三个
-// 值。系统不会使用或验证这些值。特别是，lpOverlapped 不必指向一个 OVERLAPPED 结构。
-
-void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *entry) {
-    assert(completion_port != prh_null);
-    assert(entry != prh_null);
-    BOOL b = PostQueuedCompletionStatus(completion_port, entry->dwNumberOfBytesTransferred, entry->lpCompletionKey, entry->lpOverlapped);
-    if (!b) prh_prerr(GetLastError());
-}
 
 // VOID Sleep(DWORD dwMilliseconds);
 //
@@ -10753,13 +10219,13 @@ void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reser
         attr_ptr = &attr;
         prh_zeroret(pthread_attr_init(attr_ptr));
         int n = pthread_attr_setstacksize(attr_ptr, stacksize);
-        prh_abort_if(n);
+        prh_abort_if_error(n);
     }
 
     assert(proc != prh_null);
     thrd->extra_ptr = (prh_ptr)proc;
     int n = pthread_create(tid, attr_ptr, prh_impl_plat_thrd_procedure, thrd);
-    prh_abort_if(n);
+    prh_abort_if_error(n);
 
     if (attr_ptr) {
         prh_zeroret(pthread_attr_destroy(attr_ptr));
@@ -13430,9 +12896,9 @@ typedef struct prh_cono_pdata {
 #define PRH_CONO_DEBUG PRH_DEBUG
 #endif
 
-// 协程发送消息时，先将消息存到本地线程队列，由特权线程负责取各各线程的消息，将其分配到
-// 在不同线程中执行的协程，这样两个线程可以在任意的线程中切换执行，而消息队列的维护可以
-// 做到总是一对一访问。
+// 协程发送消息时，先将消息存到本地线程队列，由特权线程负责获取每个线程的消息，分配到在
+// 不同线程中执行的协程，这样每个协程可以在任意的线程中切换执行，而消息队列的维护可以做
+// 到总是一对一的线程访问。
 //
 // 而如果为了内存缓存效率，一个协程一旦创建成功就一直在某个线程中执行，这种情况下，两个
 // 协程之间的消息发送，也可以做到线程一对一的，而且如果两个线程位于同一线程，还可以无障
@@ -14428,7 +13894,7 @@ void prh_impl_cono_test(void) {
 //
 // https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
 
-#ifdef PRH_EPOLL_INCLUDE
+#ifdef PRH_THRD_INCLUDE
 #define PRH_MAX_SAME_TIME_POSTS_EPOLL_TO_EACH_FILE_DESCRIPTOR 2
 typedef struct prh_epoll_port prh_epoll_port;
 typedef enum {
@@ -14447,8 +13913,663 @@ void prh_epoll_wait_rx_data(prh_epoll_port *port);
 void prh_epoll_del_and_close(prh_epoll_port *port);
 void prh_epoll_exit(void);
 
-#ifdef PRH_EPOLL_IMPLEMENTATION
+#ifdef PRH_THRD_IMPLEMENTATION
 #if defined(prh_plat_windows)
+// 当线程发出一个异步设备 I/O 请求的时候，它会被临时挂起，直到设备完成 I/O 请求为止。
+// 此类挂起会损害性能，这是因为线程无法进行有用的工作，比如开始对另一个客户请求进行处
+// 理。因此简而言之，我们希望线程不会被阻塞，这样它们就能始终进行有用的工作。Microsoft
+// 开发出了一种非常好的机制称为 I/O 完成端口（I/O completion port），它可以帮助我们
+// 创建高性能而且伸缩性好的应用程序。通过使用 I/O 完成端口，我们可以让线程在读取设备和
+// 写入设备的时候不必等待设备的响应，从而显著地提高吞吐量。值得注意的是，I/O 完成端口也
+// 可以和设备 I/O 完全无关，它是一种有无数种用途的绝佳的线程间通信机制。
+//
+// 存在两种类型的输入输出同步方式：同步 I/O 和异步 I/O。异步 I/O 也被称为重叠 I/O。同
+// 步 I/O 中，线程启动 I/O 操作后会立即进入等待状态，直到 I/O 请求完成。执行异步 I/O
+// 的线程通过调用适当的函数将 I/O 请求发送到内核。如果内核接受了该请求，调用线程将继续
+// 处理其他任务，直到内核向线程发出信号，表明 I/O 操作已完成。然后，线程会中断当前任务，
+// 并处理 I/O 操作后的数据。在某些情况下，I/O 请求预计会花费大量时间，例如刷新或备份大
+// 型数据库，或者通过慢速通信链路进行传输，此时异步 I/O 通常是优化处理效率的好方法。然
+// 而，对于相对快速的 I/O 操作，处理内核 I/O 请求和内核信号的开销可能会使异步 I/O 的优
+// 势降低，特别是当需要执行许多快速 I/O 操作时。在这种情况下，同步 I/O 会更好。完成这些
+// 任务的机制和实现细节会根据所使用的设备句柄类型以及应用程序的具体需求而有所不同。换句
+// 话说，通常有多种方法可以解决问题。
+//
+// 同步和异步 I/O 的注意事项，如果文件或设备以同步 I/O 方式打开（即未指定 FILE_FLAG_OVERLAPPED），
+// 后续对 WriteFile 等函数的调用可能会阻塞调用线程的执行，直到发生以下事件之一：
+//  1.  I/O 操作完成（此例中，为数据写入）。
+//  2.  发生 I/O 错误（例如，管道从另一端关闭）。
+//  3.  调用本身存在错误（例如，一个或多个参数无效）。
+//  4.  进程中的另一个线程使用被阻塞线程的线程句柄调用 CancelSynchronousIo 函数，这将
+//      终止该线程的 I/O 操作，导致 I/O 操作失败。
+//  5.  被阻塞的线程被系统终止；例如，进程本身被终止，或者另一个线程使用被阻塞线程的句
+//      柄调用 TerminateThread 函数。这通常被视为最后的手段，不是良好的应用程序设计。
+//
+// 在某些情况下，这种延迟可能无法被应用程序的设计和目的所接受，因此应用程序设计者应考虑
+// 使用异步 I/O，并结合适当的线程同步对象，例如 I/O 完成端口。有关线程同步的详细信息，
+// 请参阅关于同步（About Synchronization）。
+//
+// 进程在调用 CreateFile 时通过在 dwFlagsAndAttributes 参数中指定 FILE_FLAG_OVERLAPPED
+// 标志来以异步 I/O 方式打开文件。如果未指定 FILE_FLAG_OVERLAPPED，则文件以同步 I/O
+// 方式打开。当文件以异步 I/O 方式打开后，需要将指向 OVERLAPPED 结构的指针传递给 ReadFile
+// 和 WriteFile 的调用。在执行同步 I/O 时，此结构在调用 ReadFile 和 WriteFile 时不是
+// 必需的。注意，如果以异步 I/O 方式打开文件或设备，使用该句柄对 WriteFile 等函数的后
+// 续调用通常会立即返回，但也可以表现出与阻塞执行相关的同步行为。有关详细信息，可以参考：
+// https://learn.microsoft.com/en-us/previous-versions/troubleshoot/windows/win32/asynchronous-disk-io-synchronous
+//
+// 尽管 CreateFile 是用于打开文件、磁盘卷、匿名管道以及其他类似设备的最常用函数，但也
+// 可以使用其他系统对象（例如由 socket 或 accept 函数创建的套接字）的句柄类型来执行
+// I/O 操作。通过调用 CreateFile 函数并使用 FILE_FLAG_BACKUP_SEMANTICS 属性，可以
+// 获取目录对象的句柄。目录句柄几乎从不使用，备份应用程序是少数通常会使用它们的应用程序
+// 之一。
+//
+// typedef struct _OVERLAPPED {
+//      ULONG_PTR Internal;
+//      ULONG_PTR InternalHigh;
+//      union {
+//          struct {
+//              DWORD Offset;
+//              DWORD OffsetHigh;
+//          } DUMMYSTRUCTNAME;
+//          PVOID Pointer;
+//      } DUMMYUNIONNAME;
+//      HANDLE hEvent;
+// } OVERLAPPED, *LPOVERLAPPED;
+//
+// 在以异步 I/O 方式打开文件对象后，必须正确创建、初始化并将 OVERLAPPED 结构传递给
+// ReadFile 和 WriteFile 的每次调用。在异步读取和写入操作中使用 OVERLAPPED 结构时，
+// 请注意以下几点：
+//  1.  在完成对文件对象的所有异步 I/O 操作之前，不要释放或修改 OVERLAPPED 结构或数据
+//      缓冲区。
+//  2.  如果将 OVERLAPPED 结构的指针声明为局部变量，则在完成对文件对象的所有异步 I/O
+//      操作之前，不要退出局部函数。如果局部函数提前退出，OVERLAPPED 结构将超出作用
+//      域，并且它将在该函数外部遇到的任何 ReadFile 或 WriteFile 函数中无法访问。
+//
+// 你还可以创建一个事件，并将其句柄放入 OVERLAPPED 结构中；然后可以使用等待函数通过等
+// 待事件句柄来等待 I/O 操作完成。
+//
+// 如前所述，当使用异步句柄时，应用程序在决定何时释放与该句柄上指定 I/O 操作相关的资源
+// 时应格外小心。如果句柄被提前释放，ReadFile 或 WriteFile 可能会错误地报告 I/O 操作
+// 已完成。此外，WriteFile 函数有时也会返回 TRUE，并且 GetLastError 的值为 ERROR_SUCCESS
+// 即使使用的是异步句柄（它也可能返回 FALSE 和 ERROR_IO_PENDING）。习惯于同步 I/O 设
+// 计的程序员通常会在这一点释放数据缓冲区资源，因为 TRUE 和 ERROR_SUCCESS 表示操作已
+// 完成。然而，如果使用 I/O 完成端口与这个异步句柄一起使用，即使 I/O 操作立即完成，也会
+// 发送一个完成数据包。换句话说，如果应用程序在 WriteFile 返回 TRUE 和 ERROR_SUCCESS
+// 之后以及在 I/O 完成端口例程中释放资源，它将出现双重释放错误条件。在此例中，建议让完
+// 成端口例程完全负责此类资源的所有释放操作。
+//
+// 系统不会维护支持文件指针（即寻址设备）的文件和设备的异步句柄上的文件指针，因此必须在
+// OVERLAPPED 结构的相关偏移数据成员中将文件位置传递给读取和写入函数。有关详细信息，请
+// 参阅 WriteFile 和 ReadFile。对于同步句柄，系统会在读取或写入数据时维护文件指针位置，
+// 也可以使用 SetFilePointer 或 SetFilePointerEx 函数进行更新。
+//
+// 应用程序还可以等待文件句柄以同步到一个 I/O 操作的完成，但这样做需要格外小心。每次启
+// 动 I/O 操作时，操作系统都会将文件句柄设置为非信号状态。每次 I/O 操作完成时，操作系
+// 统都会将文件句柄设置为信号状态。因此，如果应用程序启动了两个 I/O 操作并等待文件句柄，
+// 当句柄被设置为信号状态时，将无法确定哪个操作已完成。如果应用程序必须在单个文件上执行
+// 多个异步 I/O 操作，则应等待每个 I/O 操作的特定 OVERLAPPED 结构中的事件句柄，而不是
+// 等待公共文件句柄。
+//
+// 取消 I/O 操作，要取消所有挂起的异步 I/O 操作，请使用以下方法之一：
+//  1.  CancelIo：此函数仅取消调用线程为指定文件句柄发出的操作。
+//  2.  CancelIoEx：此函数取消所有线程为指定文件句柄发出的操作。
+//
+// 使用 CancelSynchronousIo 取消挂起的同步 I/O 操作。ReadFileEx 和 WriteFileEx 函
+// 数允许应用程序指定一个例程（请参阅 FileIOCompletionRoutine），在异步 I/O 请求完成
+// 时执行。
+//
+// 可警报 I/O 是应用程序线程仅在处于可警报状态时处理异步 I/O 请求的方法。要了解线程何
+// 时处于可警报状态，请考虑以下场景：
+//  1.  线程通过调用 ReadFileEx 并传递一个指向回调函数的指针来启动异步读取请求。
+//  2.  线程通过调用 WriteFileEx 并传递一个指向回调函数的指针来启动异步写入请求。
+//  3.  线程调用一个从远程数据库服务器获取一行数据的函数。
+//
+// 在此场景中，对 ReadFileEx 和 WriteFileEx 的调用很可能在步骤 3 的函数调用之前返回。
+// 当它们返回时，内核会将回调函数的指针放入线程的异步过程调用 (APC) 队列中。内核维护此
+// 队列，专门用于存放返回的 I/O 请求数据，直到对应的线程能够处理它们。
+//
+// 当行获取完成且线程从函数返回时，其最高优先级是通过调用回调函数来处理队列中返回的 I/O
+// 请求。为此，它必须进入可警报状态。线程只能通过调用以下函数之一并使用适当的标志来实现
+// 这一点：
+//  * SleepEx
+//  * WaitForSingleObjectEx
+//  * WaitForMultipleObjectsEx
+//  * SignalObjectAndWait
+//  * MsgWaitForMultipleObjectsEx
+//
+// 当线程进入可警报状态时，会发生以下事件：
+//  1.  内核检查线程的 APC 队列。如果队列中包含回调函数指针，内核会从队列中移除该指针
+//      并将其发送给线程。
+//  2.  线程执行回调函数。
+//  3.  步骤 1 和 2 会针对队列中剩余的每个指针重复执行。
+//  4.  当队列为空时，线程将从使其进入可警报状态的函数返回。
+//
+// 在此场景中，一旦线程进入可警报状态，它将调用发送给 ReadFileEx 和 WriteFileEx 的回
+// 调函数，然后从使其进入可警报状态的函数返回。如果线程在 APC 队列为空时进入可警报状态，
+// 内核将暂停线程的执行，直到以下情况之一发生：
+//  * 正在等待的内核对象被触发。
+//  * 回调函数指针被放入 APC 队列。
+//
+// 使用可警报 I/O 的线程比简单地等待 OVERLAPPED 结构中的事件标志被设置能更高效地处理
+// 异步 I/O 请求，而且可警报 I/O 机制比 I/O 完成端口更简单。然而，可警报 I/O 只将 I/O
+// 请求的结果返回给发起它的线程。I/O 完成端口没有这个限制。
+//
+// 一般，我们能够采用以下两种模型来架构一个服务应用程序。串行模型（serial model），一
+// 个线程等待一个客户发出请求，当请求达到时，线程会唤醒并对客户请求进行处理。并发模型
+// （concurrent model），一个线程等待一个客户请求，并创建一个新的线程来处理请求。当新
+// 线程正在处理客户请求时，原来的线程会进入下一次循环并等待另一个客户请求。当处理客户请
+// 求的线程完成整个处理过程的时候，该线程就会终止。
+//
+// 并发模型的优点在于等待请求的线程只有很少的工作需要做，大多数时间它都处于睡眠状态。
+// 当客户请求到达的时候，该线程会被唤醒，创建一个新的线程来处理请求，然后等待下一个客户
+// 请求，这意味着能够对客户的请求进行快捷的处理。但是，如果同时处理许多客户请求，这意味
+// 着系统中会有许多线程并发执行，由于所有这些线程都处于可运行状态，Windows 内核各可执行
+// 线程之间会有大量时间进行上下文切换，以至于各线程都没有多少 CPU 时间来完成它们的任务。
+// 为了将 Windows 打造成一个出色的服务器环境，Microsoft 实现了 I/O 完成端口内核对象。
+//
+// I/O 完成端口背后的理论是并发运行的线程数量必须有一个上限，也就是说，同时发出的 500
+// 个客户请求不应该允许出现 500 个可执行的线程。那么，可运行线程的数量是多少才算合适
+// 呢？无需考虑太长时间，我们就会意识到如果机器只有两个 CPU，那么允许可运行线程的数量
+// 大于 2，每个处理器一个线程，将没有什么意义。一旦可运行线程的数量大于可用的 CPU 数量，
+// 系统就必须花时间来执行线程上下文切换，而这会浪费宝贵的 CPU 周期，这也是并发模型的一
+// 个潜在缺点。
+//
+// HANDLE WINAPI CreateIoCompletionPort(
+//      _In_     HANDLE    FileHandle,
+//      _In_opt_ HANDLE    ExistingCompletionPort,
+//      _In_     ULONG_PTR CompletionKey,
+//      _In_     DWORD     NumberOfConcurrentThreads
+// );
+//
+// 创建一个完成端口，并将其与指定的文件句柄关联，或者创建一个尚未与文件句柄关联的完成端
+// 口，允许在稍后的时间进行关联。将打开的文件句柄实例与 I/O 完成端口关联，允许进程接收
+// 涉及该文件句柄的异步 I/O 操作完成的通知。注意，这里使用的 “文件句柄” 是指代重叠 I/O
+// 端点（an overlapped I/O endpoint）的系统抽象，而不仅仅是磁盘上的文件。任何支持重叠
+// I/O 的系统对象，如网络端点（network endpoints）、TCP 套接字、命名管道、邮件槽（mail
+// slots），都可以用作文件句柄。
+//
+// 参数 FileHandle 打开的文件句柄或 INVALID_HANDLE_VALUE。句柄必须是支持重叠 I/O 的
+// 对象。如果提供了句柄，则必须是已打开的用于重叠 I/O 完成的对象。例如，使用 CreateFile
+// 函数获取句柄时，必须指定 FILE_FLAG_OVERLAPPED 标志。如果指定 INVALID_HANDLE_VALUE，
+// 函数将创建一个未与文件句柄关联的 I/O 完成端口。在这种情况下，ExistingCompletionPort
+// 参数必须为 NULL，CompletionKey 参数将被忽略。
+//
+// 参数 ExistingCompletionPort 现有 I/O 完成端口的句柄或 NULL。如果此参数指定现有的
+// I/O 完成端口，函数将将其与 FileHandle 参数指定的句柄关联。如果成功，函数返回现有
+// I/O 完成端口的句柄；它不会创建新的 I/O 完成端口。如果此参数为 NULL，函数将创建一个
+// 新的 I/O 完成端口，并且如果 FileHandle 参数有效，则将其与新的 I/O 完成端口关联。
+// 否则，不会发生文件句柄关联。如果成功，函数返回新的 I/O 完成端口的句柄。
+//
+// 参数 CompletionKey 基于文件句柄的用户定义完成键，包含在每个 I/O 完成数据包中。参数
+// NumberOfConcurrentThreads 操作系统可以同时处理 I/O 完成端口的 I/O 完成数据包的最
+// 大线程数。如果 ExistingCompletionPort 参数不是 NULL，则忽略此参数。如果此参数为零，
+// 系统允许与系统中的处理器数量一样多的并发运行线程。
+//
+// 返回值，如果函数成功，返回值是 I/O 完成端口的句柄：如果 ExistingCompletionPort 参
+// 数为 NULL，返回值是新的句柄。如果 ExistingCompletionPort 参数是有效的 I/O 完成端
+// 口句柄，返回值是相同的句柄。如果 FileHandle 参数是有效的句柄，该文件句柄现在与返回
+// 的 I/O 完成端口关联。如果函数失败，返回值为 NULL。要获取扩展错误信息，请调用 GetLastError
+// 函数。
+//
+// I/O 系统将 I/O 完成通知数据包发送到 I/O 完成端口，并在那里进行排队。I/O 完成端口
+// 和它的句柄，与创建它的进程相关联，不能在进程之间共享。但是，单个完成端口句柄可以在
+// 同一进程中的线程之间共享。
+//
+// CreateIoCompletionPort 可以以三种不同的模式使用：
+//  1.  仅创建一个 I/O 完成端口而不与文件句柄关联。
+//  2.  将现有的 I/O 完成端口与文件句柄关联。
+//  3.  在单个调用中同时完成创建和关联。
+//
+// 要创建一个 I/O 完成端口而不与之关联，请将 FileHandle 参数设置为 INVALID_HANDLE_VALUE，
+// ExistingCompletionPort 参数设置为 NULL，CompletionKey 参数设置为零（在这种情况下
+// 被忽略）。将 NumberOfConcurrentThreads 参数设置为新 I/O 完成端口所需的并发值，或者
+// 为零以获取默认值（系统中的处理器数量）。
+//
+// FileHandle 参数中传递的句柄可以是任何支持重叠 I/O 的句柄。最常见的是，这是使用
+// FILE_FLAG_OVERLAPPED 标志通过 CreateFile 函数打开的句柄（例如，文件、邮件槽和管
+// 道）。由其他函数（如 socket）创建的对象也可以与 I/O 完成端口关联。有关使用套接字的
+// 示例，请参阅 AcceptEx。一个句柄只能与一个 I/O 完成端口关联，并且在关联后，句柄保持
+// 与该 I/O 完成端口关联，直到它被关闭。有关 I/O 完成端口理论、用法和相关函数的详细信
+// 息，请参阅 I/O Completion Ports。
+//
+// 可以通过多次调用 CreateIoCompletionPort，在 ExistingCompletionPort 参数中使用相
+// 同的 I/O 完成端口句柄，并在每次调用时在 FileHandle 参数中使用不同的文件句柄，将多个
+// 文件句柄与单个 I/O 完成端口关联。
+//
+// 使用 CompletionKey 参数帮助你的应用程序跟踪哪些 I/O 操作已完成。此值不会被 CreateIoCompletionPort
+// 使用；相反，它在与 I/O 完成端口关联时附加到 FileHandle 参数中指定的文件句柄。此完成
+// 键应对每个文件句柄唯一，并且它在整个内部排队过程中始终与文件句柄关联。当完成数据包到
+// 达时，调用 GetQueuedCompletionStatus 函数获取。CompletionKey 参数还被 PostQueuedCompletionStatus
+// 函数用于插入自己的特殊用途的完成数据包。
+//
+// 将打开的句柄实例与 I/O 完成端口关联后，它不能用于 ReadFileEx 或 WriteFileEx 函数，
+// 因为这些函数有自己的异步 I/O 机制。
+//
+// 最好不要通过句柄继承或调用 DuplicateHandle 函数来共享与 I/O 完成端口关联的文件句柄。
+// 使用此类重复句柄执行的操作会产生完成通知，建议谨慎考虑。
+//
+// I/O 完成端口句柄和与该特定 I/O 完成端口关联的每个文件句柄都对 I/O 完成端口的进行了
+// 引用。当没有更多引用时，I/O 完成端口被自动释放。因此，所有这些句柄都必须正确关闭，以
+// 释放 I/O 完成端口及其关联的系统资源。在满足这些条件后，通过调用 CloseHandle 函数关
+// 闭 I/O 完成端口句柄。
+//
+// 在 Windows 8 和 Windows Server 2012 中，此函数支持以下技术：
+//      技术                                                            支持
+//      Server Message Block (SMB) 3.0 protocol                         是
+//      SMB 3.0 Transparent Failover (TFO)                              是
+//      SMB 3.0 with Scale-out File Shares (SO)                         是
+//      Cluster Shared Volume File System (CsvFS)                       是
+//      Resilient File System (ReFS)                                    是
+//
+// CreateIoCompletionPort 不需要传 SECURITY_ATTRIBUTES 结构，在所有用来创建内核对象
+// 的 Windows 函数中，CreateIoCompletionPort 大概是绝无仅有的。这是因为 I/O 完成端口
+// 的设计初衷是只在一个进程中使用。
+
+HANDLE prh_impl_create_completion_port(DWORD concurrent_thread_count) { // 传 0 表示系统处理器数量
+    HANDLE completion_port = CreateIoCompletionPort(INVALID_HANDLE_VALUE, prh_null, 0, concurrent_thread_count);
+    if (completion_port == prh_null) prh_abort_error(GetLastError());
+    return completion_port;
+}
+
+void prh_impl_completion_port_attach(HANDLE completion_port, HANDLE file_handle, void *per_handle_completion_key) {
+    assert(completion_port != prh_null);
+    assert(file_handle != prh_null && file_handle != INVALID_HANDLE_VALUE);
+    HANDLE exist_port = CreateIoCompletionPort(file_handle, completion_port, (ULONG_PTR)per_handle_completion_key);
+    if (exist_port != completion_port) prh_abort_error(GetLastError());
+}
+
+HANDLE prh_impl_create_completion_port_and_attach(DWORD concurrent_thread_count, HANDLE file_handle, void *per_handle_completion_key) {
+    prh_impl_completion_port_attach(prh_impl_create_completion_port(concurrent_thread_count),
+        file_handle, per_handle_completion_key);
+}
+
+// 当我们创建一个 I/O 完成端口的时候，系统内核实际上会创建 5 个不同的数据结构。分别是：
+//  1.  设备列表或文件句柄列表，每条记录包含 (file_handle, completion_key)，添加文件
+//      句柄时添加一项，文件句柄关闭时移除一项。
+//  2.  I/O 完成队列（***先入先出***），每条记录包含 (bytes_transferred, completion_key,
+//      overlapped, error)，当 I/O 请求完成或 PostQueuedCompletionStatus 被调用时
+//      添加一项，完成端口移除线程等待队列中的一个线程时，会移除一项。当设备的一个异步
+//      I/O 请求完成时，系统会检查设备是否与一个 I/O 完成端口相关联，如果是那么系统会
+//      将该完成数据添加到完成队列的尾部。该数据包含已传输字节数、与句柄关联的完成键、
+//      指向 I/O 请求的 OVERLAPPED 结构的指针、以及一个错误码。
+//  3.  线程等待队列（***后入先出***），每条记录 (thread_id)，线程调用 GetQueuedCompletionStatus
+//      时添加一项，满足以下条件时会移除一个线程：I/O 完成队列不为空，且正在运行的线程
+//      数小于最大并发数时。 GetQueuedCompletionStatus 会先从 I/O 完成队列中删除对应
+//      的一项完成数据，然后将 thread_id 转移到线程执行列表，最后函数返回。等待队列使
+//      得 I/O 完成端口内核对象始终能够知道，有哪些线程当前正在等待，当端口中的完成队列
+//      中出现一项的时候，该完成端口会唤醒线程等待队列中的一个线程。
+//  4.  线程执行列表，每条记录包含 (thread_id)，当完成端口在线程等待队列中唤醒一个线
+//      程，或者一个线程暂停列表中的一个线程被成功唤醒时，添加一项。当线程再次调用
+//      GetQueuedCompletionStatus 时将线程转移到线程等待队列，或者线程调用一个函数将
+//      自己挂起时将线程转移到线程暂停队列。
+//  5.  线程暂停列表，每条记录包含 (thread_id)，当线程执行列表中的一个线程调用一个函数
+//      将自己挂起时，线程转移到线程暂停队列。当暂停的线程被唤醒时，线程回到线程执行队列。
+//
+// 向设备发出 I/O 请求，但不把该项已完成的 I/O 完成数据添加到 I/O 完成端口的队列中也是
+// 有可能的。通常我们并不需要这样做，但这样做偶尔还是有用的，例如我们通过一个套接字发送
+// 数据，但并不关心数据实际上到底有没有送达。为了发出一个在完成的时候不被添加到完成队列
+// 中，我们必须在 OVERLAPPED 结构的 hEvent 成员中保存一个有效的事件句柄，并将它与 1
+// 按位或：
+//
+//      Overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+//      Overlapped.hEvent = (HANDLE)((DWORD_PTR)Overlapped.hEvent | 1);
+//      ReadFile(..., &Overlapped);
+//      CloseHandle((HANDLE)((DWORD_PTR)Overlapped.hEvent & ~1));
+//
+// 线程池中的所有线程应该执行同一个函数，一般来说，这个线程函数会先进行一些初始化，然后
+// 进入一个循环，当服务进程被告知要停止的时候，这个循环也应该就此终止。在循环内部，线程
+// 调用 GetQueuedCompletionStatus 切换到睡眠状态，来等待设备 I/O 请求的完成通知。
+// GetQueuedCompletionStatus 基本上是将调用线程切换到睡眠状态，直到指定的完成端口有
+// 完成数据出现，或者等待的事件出现超时。
+//
+// 移除 I/O 完成队列中完成数据是以先入先出的方式进行的，但可能没有预料的是，唤醒线程等待
+// 队列中的线程是以后入先出的方式。例如，假设有 4 个线程在等待，如果出现了完成数据项，
+// 那么最后一个调用 GetQueuedCompletionStatus 的线程会被唤醒来进行处理。当最后这个线
+// 程完成处理后再次调用 GetQueuedCompletionStatus 进入等待队列，如果又出现一个完成数
+// 据项，那么同一个线程会被唤醒来处理这个新的数据项。
+//
+// 如果 I/O 请求完成得足够慢，使得一个线程就能够将它们全部处理完，那么系统会不断地唤醒
+// 同一个线程，而让其他线程继续睡眠。通过使用这种后入先出算法，系统可以将那些未被调度的
+// 先出内存资源，例如栈空间，换出到磁盘，并将它们从处理器的高速缓存中清除。这意味着让许
+// 多线程等待一个完成端口并不是什么坏事，如果正在等待的线程数量大于已完成的 I/O 请求数
+// 量，那么系统会将多余的大多数资源换出内存。
+//
+// 一旦一个线程调用 GetQueuedCompletionStatus，该线程会与指定的完成端口关联，系统假定
+// 被关联的线程都是以该完成端口的名义来完成工作的。有 3 中方式解除这种关联：线程退出，
+// 线程用一个不同的完成端口句柄调用 GetQueuedCompletionStatus，销毁指定的完成端口。
+//
+// 在 Windows Vista 中，当我们调用 CloseHandle 关闭完成端口句柄时，系统会将所有正在
+// 等待 GetQueuedCompletionStatus 的线程唤醒，并返回 FALSE。此时调用 GetLastError
+// 会返回 ERROR_INVALID_HANDLE，线程可以通过这种方式来知道自己应该得体地退出。
+//
+// BOOL GetQueuedCompletionStatus(
+//      [in]  HANDLE       CompletionPort,
+//      [out] LPDWORD      lpNumberOfBytesTransferred,
+//      [out] PULONG_PTR   lpCompletionKey,
+//      [out] LPOVERLAPPED *lpOverlapped,
+//      [in]  DWORD        dwMilliseconds
+// );
+//
+// 尝试从指定的 I/O 完成端口获取一个 I/O 完成数据包。如果没有排队的完成数据包，该函数
+// 将等待完成端口上关联 I/O 操作的完成。要一次性获取多个 I/O 完成数据包，可以调用函数
+// GetQueuedCompletionStatusEx。成功返回非零值（TRUE），否则返回零（FALSE）。要获取
+// 扩展错误信息，请调用 GetLastError。
+//
+// 参数 CompletionPort 完成端口的句柄。参数 lpNumberOfBytesTransferred 指向一个变量，
+// 该变量接收完成的 I/O 操作传输的字节数。参数 lpCompletionKey 指向一个变量，该变量接
+// 收与完成 I/O 操作的文件句柄关联的完成键值。完成键是在调用 CreateIoCompletionPort
+// 时指定的基于文件句柄的键。
+//
+// 参数 lpOverlapped 指向一个变量，该变量接收完成 I/O 操作启动时指定的 OVERLAPPED 结
+// 构的地址。即使你已经传递了一个与完成端口关联的文件句柄和有效的 OVERLAPPED 结构，应用
+// 程序也可以阻止完成端口通知。这是通过为 OVERLAPPED 结构的 hEvent 成员指定一个有效的
+// 事件句柄并设置其低阶位来完成的。低阶位被设置的有效事件句柄会阻止重叠 I/O 完成时将完
+// 成数据包排队到完成端口。
+//
+// 参数 dwMilliseconds 调用方愿意等待完成数据包出现的毫秒数。如果在指定时间内没有出现
+// 完成数据包，函数将超时，返回 FALSE，并将 *lpOverlapped 设置为 NULL。如果 dwMilliseconds
+// 是 INFINITE (0xFFFFFFFF)，函数将永远不会超时。如果 dwMilliseconds 是零且没有 I/O
+// 操作可以出队，函数将立即超时。Windows XP、Windows Server 2003、Windows Vista、
+// Windows 7、Windows Server 2008 和 Windows Server 2008 R2：dwMilliseconds 值包
+// 括在低功耗状态下花费的时间。例如，超时会在计算机处于睡眠状态时继续倒计时。Windows 8
+// 及更高版本、Windows Server 2012 及更高版本：dwMilliseconds 值不包括在低功耗状态下
+// 花费的时间。例如，超时不会在计算机处于睡眠状态时继续倒计时。
+//
+// 此函数将线程与指定的完成端口关联。一个线程最多只能与一个完成端口关联。如果由于与之关
+// 联的完成端口句柄在调用期间被关闭而导致 GetQueuedCompletionStatus 调用失败，函数将
+// 返回 FALSE，*lpOverlapped 将为 NULL，GetLastError 将返回 ERROR_ABANDONED_WAIT_0。
+// Windows Server 2003 和 Windows XP：在调用期间关闭完成端口句柄不会导致上述行为。函
+// 数将继续等待，直到从端口移除条目或超时（如果指定的值不是 INFINITE）。
+//
+// 如果 GetQueuedCompletionStatus 函数成功，它将从完成端口弹出一个成功的 I/O 操作的
+// 完成数据包，并将信息存储在以下参数指向的变量中：lpNumberOfBytes、lpCompletionKey
+// 和 lpOverlapped。失败时（返回值为 FALSE），这些参数可能会包含特定的值组合，如下所示：
+//  1.  如果 *lpOverlapped 为 NULL，函数没有从完成端口弹出完成数据包。在这种情况下，
+//      函数不会将信息存储在 lpNumberOfBytes 和 lpCompletionKey 参数指向的变量中，它
+//      们的值是不确定的。
+//  2.  如果 *lpOverlapped 不为 NULL 且函数从完成端口弹出了一个失败的 I/O 操作的完成
+//      数据包，函数将有关失败操作的信息存储在 lpNumberOfBytes、lpCompletionKey 和
+//      lpOverlapped 指向的变量中。要获取扩展错误信息，请调用 GetLastError。
+
+int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entry, DWORD msec) {
+    assert(completion_port != prh_null);
+    assert(entry != prh_null); // 超时时间在 Windows 8 及更高版本上，不包含系统睡眠时间
+    BOOL b = GetQueuedCompletionStatus(completion_port, &entry->dwNumberOfBytesTransferred, (PULONG_PTR)&entry->lpCompletionKey, &entry->lpOverlapped, msec);
+    if (b || entry->lpOverlapped) return 1; // get success or related I/O failed
+    DWORD error = GetLastError();
+    if (error != WAIT_TIMEOUT) prh_prerr(error);
+    return 0;
+}
+
+// 如果预计会不断收到大量的 I/O 请求，可以调用 GetQueuedCompletionStatusEx 函数来同
+// 时获取多个 I/O 结果，而不必让许多线程等待完成端口，从而可以避免由此产生的上下文切换
+// 所带来的开销。
+//
+// 最后一个参数 bAlertable，如果设为 FALSE，那么函数会一直等待一个已完成的 I/O 请求添
+// 加到完成端口，或者指定的时间超时。如果设为 TRUE，如果队列中没有已完成的 I/O 请求，
+// 那么线程将进入可提醒状态。
+//
+// 如果一个设备有完成端口与之关联，那么当我们向它发出一个异步 I/O 请求时，Windows 会将
+// 请求结果添加到完成队列中，即使异步请求是以同步方式完成的，Windows 仍然会这样做，其
+// 目的是为了向开发人员提供一个一致的编程模型。但是，维护编程模型的一致性会略微损害性能，
+// 这是因为已完成的请求信息必须被放到端口的完成队列中，线程也必须从端口的队列中取得这些
+// 信息。为了能够略微提高性能，可以调用 SetFileCompletionNotificationModes 函数，并
+// 传入 FILE_SKIP_COMPLETION_PORT_ON_SUCCESS 标志，以此告诉 Windows 不要将以同步方
+// 式完成的异步请求添加到与设备相关联的完成端口中。对性能极其关注的开发人员，还可以考虑
+// 使用 SetFileIoOverlappedRange 函数。
+//
+// 完成端口只允许同时唤醒指定数量的线程，那么为什么还要让更多的线程在线程池中等待呢？举
+// 个例子，假设机器有 2 个 CPU，我们创建一个 I/O 完成端口时，告诉它同时最多只能有两个
+// 线程来处理已完成的项。但我们创建了 4 个线程（CPU 数量的两倍），看起来有两个多余的线
+// 程，但 I/O 完成端口是非常智能的。当完成端口唤醒一个线程的时候，会将该线程的线程标识
+// 保存到线程执行列表中，如果执行线程切换到等待状态（Sleep、WaitFor*、SignalObjectAndWait、
+// 一个异步 I/O 调用、或者任何导致线程变成不可运行状态的函数），那么完成端口会检测到这
+// 一情况，将线程移动到线程暂停列表。此时线程执行列表会缩减，完成端口就可以释放另一个正
+// 在等待的线程。如果一个已暂停的线程被唤醒，那么它会移动到执行列表，这意味着此时执行线
+// 程的数量将大于最大允许的并发线程数量。完成端口会知道这一点，在执行线程数量降低到小于
+// CPU 数量之前，它不会再唤醒任何线程。I/O 完成端口体系结构假定可运行线程的数量只会在
+// 很短时间内高于最大允许的线程数量。
+//
+// 线程池中应该有多少线程才合适？有两个问题需要考虑，首先，当服务应用程序初始化的时候，
+// 我们创建最少数量的线程，其次我们设置一个最大线程数量，这是因为创建太多线程会浪费系统
+// 资源。我们可能想要用不同数量的线程来进行实验，但大多数服务使用启发式的算法来对它们的
+// 线程池进行管理。例如，可以创建下面的变量来管理线程池： int thrd_min, thrd_max,
+// thrd_cur, thrd_bsy 。在应用程序初始化的时候，可以创建 thrd_min 个线程，所有线程
+// 都执行同一个线程函数。thrd_cur 指的是当前已经创建的线程数量，thrd_bsy 在线程等待时
+// 减一，在线程唤醒时加一。当 thrd_cur == thrd_cur 并且 thrd_bsy < thrd_max 时，如
+// 果 cpu usage < 75，可能可以考虑增加线程数量。如果线程等待超时，或 cpu usage > 90
+// 并且 thrd_cur > thrd_min，可以考虑销毁当前线程。当前线程如果有未完成的 I/O 请求正
+// 在处理时，仍然可以销毁。另外，我们必须确保线程池种总是至少有一个线程，否则客户请求将
+// 永远得不到处理。
+//
+// 当一个线程终止时，系统会自动将该线程发出的所有待处理的 I/O 请求取消掉（取消队列中的
+// 设备 I/O 请求）。在 Windows Vista 之前的版本，当线程向一个完成端口管理的设备发出
+// I/O 请求时，存在一条硬性规定，即在请求完成之前，该线程必须不能终止，否则 Windows 会
+// 将该线程发出的任何待处理请求都取消掉。而在 Windows Vista 中，已经不存在类似的规定，
+// 线程现在可以发出请求并终止，请求仍然能够得到处理，处理结果将会被添加到完成端口的队列
+// 中。
+//
+// BOOL WINAPI GetQueuedCompletionStatusEx(
+//      _In_  HANDLE             CompletionPort,
+//      _Out_ LPOVERLAPPED_ENTRY lpCompletionPortEntries,
+//      _In_  ULONG              ulCount,
+//      _Out_ PULONG             ulNumEntriesRemoved,
+//      _In_  DWORD              dwMilliseconds,
+//      _In_  BOOL               fAlertable
+// );
+//
+// typedef struct _OVERLAPPED_ENTRY {
+//      ULONG_PTR    lpCompletionKey;
+//      LPOVERLAPPED lpOverlapped;
+//      ULONG_PTR    Internal; // 保留，没有明确的含义，不应该使用
+//      DWORD        dwNumberOfBytesTransferred;
+// } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
+//
+// 同时检索多个完成端口条目。它等待与指定完成端口关联的 I/O 操作的完成。要逐个出队 I/O
+// 完成数据包，请使用 GetQueuedCompletionStatus 函数。成功时返回非零值 TRUE，否则返回
+// 零 FALSE。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpCompletionPortEntries 输入时，指向一个预先分配的 OVERLAPPED_ENTRY 结构数组。
+// 输出时，接收一个包含条目的 OVERLAPPED_ENTRY 结构数组。数组元素的数量由 ulNumEntriesRemoved
+// 提供。每个 I/O 传输的字节数、指示每个 I/O 发生在哪个文件上的完成键以及每个原始 I/O
+// 中使用的重叠结构地址都返回在 lpCompletionPortEntries 数组中。
+//
+// 参数 fAlertable 如果为 FALSE，函数会在超时结束或检索到条目之前不返回。如果参数为
+// TRUE 且没有可用条目，函数将执行可警报等待。当系统将 I/O 完成例程（completion routine）
+// 或 APC 添加到线程并执行该函数时，线程返回。当指定完成例程的 ReadFileEx 或 WriteFileEx
+// 函数完成且调用线程是启动操作的线程时，完成例程会被排队到该线程。当调用 QueueUserAPC
+// 时，APC 会被排队到指定线程。
+//
+// 此函数将线程与指定的完成端口关联。一个线程最多只能与一个完成端口关联。当至少有一个挂
+// 起的 I/O 完成时，此函数返回 TRUE，但有可能一个或多个 I/O 操作失败。请注意，检查
+// lpCompletionPortEntries 返回的条目确定哪些条目的 I/O 操作可能失败的责任在于此函数
+// 的调用者，方法是查看每个 OVERLAPPED_ENTRY 中的 lpOverlapped 成员所包含的状态。
+//
+// 当没有 I/O 操作被出队时，此函数返回 FALSE。这通常意味着在处理此调用的参数时发生了错
+// 误，或者 CompletionPort 句柄被关闭或无效。GetLastError 函数提供扩展错误信息。如果
+// 由于与之关联的句柄被关闭而导致 GetQueuedCompletionStatusEx 调用失败，函数将返回
+// FALSE，GetLastError 将返回 ERROR_ABANDONED_WAIT_0。服务器应用程序可能有多个线程
+// 为同一个完成端口调用 GetQueuedCompletionStatusEx 函数。随着 I/O 操作的完成，它们
+// 会以先进先出的顺序被排队到该端口。如果一个线程正在积极地在此调用上等待，那么一个或多
+// 个排队的完成请求将只会满足该线程的调用。
+//
+// GetQueuedCompletionStatusEx 相比传统的 GetQueuedCompletionStatus，主要带来
+// “一次等待，批量收割” 的能力，在高并发场景下可以显著减少系统调用次数和线程调度开销。
+// 具体收益如下：
+//
+//  1.  一次可取回多个完成包
+//      允许传入一个 _OVERLAPPED_ENTRY[] 数组，内核把当前已排队的完成包尽可能多地一次
+//      性拷贝给你，上限由你自己指定（常见 64～256 个）。同样数目的 I/O 完成，系统调用
+//      次数从 N → ⌈N / 数组长度⌉，降低 1~2 个数量级。
+//  2.  天然负载均衡
+//      当多个工作线程同时调用 GetQueuedCompletionStatusEx 时，内核采用轮转队列算法，
+//      保证每个线程大致均等地拿到完成包，避免某一个线程忙死、其余线程空转的现象。
+//  3.  减少用户/内核模式往返
+//      批量返回意味着每包分摊的往返成本降低；在 10 Gbps、小包高 QPS 的测试中，可把
+//      CPU 占用降低 10–30%。
+//  4.  支持可唤醒的阻塞
+//      仍可通过 dwMilliseconds 指定超时；也可配合 PostQueuedCompletionStatus 发
+//      “退出” 包，线程统一返回，编码模型与旧 API 完全一致。
+//  5.  对单个完成包的场景略慢
+//      如果当前时刻队列里只有 1 个包，那么 Ex 版要多拷贝一次数组、做更多判断，实测会
+//      比原版慢近一倍；所以很多框架会在 “最近几次只拿到 1 包” 时自动降级回 GetQueuedCompletionStatus。
+//
+// 连接数高、吞吐大：优先用 GetQueuedCompletionStatusEx，批量收割、均衡负载。连接数低、
+// 完成稀疏：继续用 GetQueuedCompletionStatus，避免“杀鸡用牛刀”带来的额外开销。
+
+int prh_impl_completion_port_wait_ex(HANDLE completion_port, OVERLAPPED_ENTRY *entry, int count, DWORD msec) {
+    assert(entry != prh_null);
+    assert(count > 0);
+    ULONG n = 0;
+    if (!GetQueuedCompletionStatusEx(completion_port, entry, count, &n, msec, FALSE)) {
+        DWORD error = GetLastError();
+        if (error != WAIT_TIMEOUT) prh_prerr(error);
+        return 0;
+    }
+    return n;
+}
+
+// BOOL GetOverlappedResult(
+//      [in]  HANDLE       hFile,
+//      [in]  LPOVERLAPPED lpOverlapped,
+//      [out] LPDWORD      lpNumberOfBytesTransferred,
+//      [in]  BOOL         bWait
+// );
+//
+// GetOverlappedResult 函数用于检索指定文件、命名管道或通信设备上重叠操作的结果。若需
+// 指定超时间隔或等待可警报线程，请使用 GetOverlappedResultEx。如果函数成功，返回值非
+// 零。如果函数失败，返回值为零。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 hFile 指向文件、命名管道或通信设备的句柄，是以下函数启动重叠操作时对应的句柄：
+//      ReadFile
+//      WriteFile
+//      ConnectNamedPipe
+//      TransactNamedPipe
+//      DeviceIoControl
+//      WaitCommEvent
+//      ReadDirectoryChangesW
+//      LockFileEx
+//
+// 参数 lpOverlapped 指向启动重叠操作时指定的 OVERLAPPED 结构。
+//
+// 参数 lpNumberOfBytesTransferred 指向一个变量，该变量接收实际由读取或写入操作传输
+// 的字节数。对于 TransactNamedPipe 操作，这是从管道中读取的字节数。对于 DeviceIoControl
+// 操作，这是设备驱动程序返回的输出数据字节数。对于 ConnectNamedPipe 或 WaitCommEvent
+// 操作，此值未定义。
+//
+// 参数 bWait，如果此参数为 TRUE，且 lpOverlapped 结构的 Internal 成员为 STATUS_PENDING，
+// 则函数不会返回，直到操作完成。如果此参数为 FALSE 且操作仍在挂起，则函数返回 FALSE，
+// GetLastError 函数返回 ERROR_IO_INCOMPLETE。
+//
+// GetOverlappedResult 函数报告的结果是与指定句柄的最后一次重叠操作相关的结果，该操作
+// 使用了指定的 OVERLAPPED 结构，并且操作结果已处于等待状态。当启动操作的函数返回 FALSE
+// 且 GetLastError 函数返回 ERROR_IO_PENDING 时，表示操作处于挂起状态。当 I/O 操作处
+// 于挂起状态时，启动操作的函数会将 OVERLAPPED 结构的 hEvent 成员重置为非触发状态。然
+// 后，当挂起的操作完成时，系统将事件对象设置为触发状态。
+//
+// 如果 bWait 参数为 TRUE，GetOverlappedResult 通过等待事件对象处于触发状态来确定挂起
+// 的操作是否已完成。如果 OVERLAPPED 结构的 hEvent 成员为 NULL，系统会使用 hFile 句柄
+// 的状态来指示操作已完成，不推荐将该方法用于文件、命名管道或通信设备句柄。使用事件对象
+// 更安全，因为在同一个文件、命名管道或通信设备上同时执行多个重叠操作时，可能会发生混淆。
+// 在这种情况下，无法知道是哪个操作导致了对象状态的触发。
+//
+// BOOL GetOverlappedResultEx(
+//      [in]  HANDLE       hFile,
+//      [in]  LPOVERLAPPED lpOverlapped,
+//      [out] LPDWORD      lpNumberOfBytesTransferred,
+//      [in]  DWORD        dwMilliseconds,
+//      [in]  BOOL         bAlertable
+// );
+//
+// GetOverlappedResultEx 函数用于在指定的超时间隔内检索指定文件、命名管道或通信设备上
+// 重叠操作的结果。调用线程可以执行可警报等待。如果函数成功，返回值非零。如果函数失败，
+// 返回值为零。可以调用 GetLastError 获取扩展错误信息。常见的错误代码包括以下内容：
+//      如果 dwMilliseconds 为零且操作仍在进行中，GetLastError 返回 ERROR_IO_INCOMPLETE。
+//      如果 dwMilliseconds 非零且排队了 I/O 完成例程或 APC，GetLastError 返回 WAIT_IO_COMPLETION。
+//      如果 dwMilliseconds 非零且指定的超时间隔到期，GetLastError 返回 WAIT_TIMEOUT。
+//
+// 参数 hFile 指向文件、命名管道或通信设备的句柄，是以下函数启动重叠操作时对应的句柄：
+//      ReadFile
+//      WriteFile
+//      ConnectNamedPipe
+//      TransactNamedPipe
+//      DeviceIoControl
+//      WaitCommEvent
+//
+// 参数 lpOverlapped 指向启动重叠操作时指定的 OVERLAPPED 结构。
+//
+// 参数 lpNumberOfBytesTransferred 指向一个变量，该变量接收实际由读取或写入操作传输的
+// 字节数。对于 TransactNamedPipe 操作，这是从管道中读取的字节数。对于 DeviceIoControl
+// 操作，这是设备驱动程序返回的输出数据字节数。对于 ConnectNamedPipe 或 WaitCommEvent
+// 操作，此值未定义。
+//
+// 参数 dwMilliseconds 超时间隔，以毫秒为单位。dwMilliseconds 值不包括在低功耗状态下
+// 花费的时间。例如，超时在计算机处于睡眠状态时不会继续倒计时。
+//  -   如果 dwMilliseconds 为零且操作仍在进行中，函数将立即返回，GetLastError 函数返回 ERROR_IO_INCOMPLETE。
+//  -   如果 dwMilliseconds 非零且操作仍在进行中，函数将等待，直到对象被触发、I/O 完成例程或 APC 被排队，或者超时间隔到期。可以
+//      使用 GetLastError 获取扩展错误信息。
+//  -   如果 dwMilliseconds 为 INFINITE，函数仅在对象被触发或 I/O 完成例程或 APC 被排队时返回。
+//
+// 参数 bAlertable，如果此参数为 TRUE 且调用线程处于等待状态，则当系统将 I/O 完成例程
+// 或 APC 排队时，函数将返回。然后调用线程将运行该例程或函数。否则，函数不会返回，且完
+// 成例程或 APC 函数不会被执行。当指定的 ReadFileEx 或 WriteFileEx 函数完成时，将排队
+// 完成例程。仅当 bAlertable 为 TRUE 且调用线程是启动读取或写入操作的线程时，函数才会
+// 返回并调用完成例程。当调用 QueueUserAPC 时，将排队 APC。
+//
+// GetOverlappedResultEx 函数与 GetOverlappedResult 的区别在于：dwMilliseconds 参
+// 数可以指定操作的超时间隔，bAlertable 参数可以指定调用线程应执行可警报等待。
+//
+// GetOverlappedResultEx 函数报告的结果是与指定句柄的最后一次重叠操作相关的结果，该操
+// 作使用了指定的 OVERLAPPED 结构，并且操作结果已处于等待状态。当启动操作的函数返回 FALSE
+// 且 GetLastError 函数返回 ERROR_IO_PENDING 时，表示操作处于挂起状态。当 I/O 操作处
+// 于挂起状态时，启动操作的函数会将 OVERLAPPED 结构的 hEvent 成员重置为非触发状态。然后，
+// 当挂起的操作完成时，系统将事件对象设置为触发状态。
+//
+// 在 OVERLAPPED 结构中指定手动重置事件对象。如果使用自动重置事件对象，则在启动重叠操作
+// 和调用 GetOverlappedResultEx 之间的间隔内，事件句柄不应在任何其他等待操作中指定。例
+// 如，有时会在等待函数中指定事件对象以等待操作完成。当等待函数返回时，系统将自动重置事
+// 件的状态设置为非触发状态，随后调用 GetOverlappedResultEx 并将 dwMilliseconds 参数
+// 设置为 INFINITE，将导致函数无限期阻塞。
+//
+// 如果 OVERLAPPED 结构的 hEvent 成员为 NULL，系统会使用 hFile 句柄的状态来指示操作已
+// 完成，此方法不应使用于文件、命名管道或通信设备句柄。使用事件对象更安全，因为在同一个
+// 文件、命名管道或通信设备上同时执行多个重叠操作时，可能会发生混淆。在这种情况下，无法
+// 知道是哪个操作导致了对象状态的触发。
+
+// I/O 完成端口并不一定要用于设备 I/O，它还是一项非常棒的技术用来进行线程间通信。在
+// “可提醒 I/O” 中，我们调用 QueueUserAPC 允许线程将一个 APC 项添加到另一个线程的队
+// 列中，I/O 完成端口也有一个类似的函数 PostQueuedCompletionStatus。该函数提供了一
+// 种方式来与线程池种的所有线程进行通信。例如，当用户终止服务应用程序的时候，我们想要
+// 让所有线程都干净地退出。但如果各线程还在等待完成端口但又没有已完成的 I/O 请求，那么
+// 它们将无法被唤醒。通过为线程池种的每个线程都调用一次 PostQueuedCompletionStatus，
+// 我们可以将它们都唤醒。每个线程会对 GetQueuedCompletionStatus 的返回值进行检查，
+// 如果发现应用程序正在终止，那么它可以进行清理工作并正常地退出。
+//
+// 但是这种机制需要唤醒的线程不能再次调用 GetQueuedCompletionStatus 进行等待，这是
+// 因为线程是以后入先出的方式被唤醒的。因此，为了确保线程池种的每个线程都能有机会得到
+// 模拟的完成通知，我们还必须在应该程序种采用其他线程同步机制，否则同一个线程可能会多
+// 次得到相同的通知。
+//
+// BOOL WINAPI PostQueuedCompletionStatus(
+//      _In_     HANDLE       CompletionPort,
+//      _In_     DWORD        dwNumberOfBytesTransferred,
+//      _In_     ULONG_PTR    dwCompletionKey,
+//      _In_opt_ LPOVERLAPPED lpOverlapped
+// );
+//
+// 将一个 I/O 完成数据包发布到 I/O 完成端口。如果函数成功，返回值是非零值。如果函数失
+// 败，返回值是零。要获取扩展错误信息，请调用 GetLastError。
+//
+// I/O 完成数据包将满足一个挂起的对 GetQueuedCompletionStatus 函数的调用。该函数返回
+// 时会携带作为 PostQueuedCompletionStatus 调用的第二个、第三个和第四个参数传递的三个
+// 值。系统不会使用或验证这些值。特别是，lpOverlapped 不必指向一个 OVERLAPPED 结构。
+
+void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *entry) {
+    assert(completion_port != prh_null);
+    assert(entry != prh_null);
+    BOOL b = PostQueuedCompletionStatus(completion_port, entry->dwNumberOfBytesTransferred, entry->lpCompletionKey, entry->lpOverlapped);
+    if (!b) prh_prerr(GetLastError());
+}
+
 // I/O 完成端口为在多处理器系统上处理多个异步 I/O 请求提供了一种高效的线程模型。当一个
 // 进程创建一个 I/O 完成端口时，系统会为专门用于处理这些请求的线程创建一个关联的队列对
 // 象。通过使用 I/O 完成端口与预先分配的线程池相结合，而不是在收到 I/O 请求时创建线程，
@@ -14462,7 +14583,7 @@ void prh_epoll_exit(void);
 //
 // 当一个文件句柄与完成端口关联时，传递的状态块直到数据包从完成端口移除时才会更新。唯一
 // 的例外是原始操作以错误同步返回。一个线程（可以是主线程创建的线程或主线程本身）使用
-// GetQueuedCompletionStatus 函数来等待完成端口种的完成数据包，而不是直接等待异步 I/O
+// GetQueuedCompletionStatus 函数来等待完成端口中的完成数据包，而不是直接等待异步 I/O
 // 完成。在 I/O 完成端口上阻塞执行的线程以后进先出 (LIFO) 的顺序释放，下一个完成数据包
 // 从 I/O 完成端口的 FIFO 队列中拉取给该线程。这意味着，当一个完成数据包被释放给一个线
 // 程时，系统会释放与该端口关联的最后一个（最近的）线程，并将最旧的 I/O 完成信息传递给
@@ -14535,6 +14656,48 @@ void prh_epoll_exit(void);
 //  * WSARecvFrom
 //  * LPFN_WSARECVMSG (WSARecvMsg)
 //  * WSARecv
+
+static HANDLE PRH_IMPL_IOCP;
+typedef void (*prh_iocp_completion_routine)(OVERLAPPED_ENTRY *entry);
+
+void prh_impl_thrd_init(void) {
+    DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
+    PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
+}
+
+int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
+    // typedef struct _OVERLAPPED_ENTRY {
+    //      ULONG_PTR    lpCompletionKey;
+    //      LPOVERLAPPED lpOverlapped;
+    //      ULONG_PTR    Internal;
+    //      DWORD        dwNumberOfBytesTransferred;
+    // } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
+    // typedef struct _OVERLAPPED {
+    //      ULONG_PTR Internal;
+    //      ULONG_PTR InternalHigh;
+    //      union {
+    //          struct {
+    //              DWORD Offset;
+    //              DWORD OffsetHigh;
+    //          } DUMMYSTRUCTNAME;
+    //          PVOID Pointer;
+    //      } DUMMYUNIONNAME;
+    //      HANDLE hEvent;
+    // } OVERLAPPED, *LPOVERLAPPED;
+    int n = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, entry, count, INFINITE);
+    for (int i = 0; i < n; i += 1) {
+        OVERLAPPED_ENTRY *curr_entry = entry + i;
+        prh_iocp_completion_routine completion_routine = (prh_iocp_completion_routine)curr_entry->lpCompletionKey;
+        assert(completion_routine != prh_null);
+        assert(curr_entry->lpOverlapped != prh_null);
+        completion_routine(curr_entry);
+    }
+    return n;
+}
+
+int prh_impl_sched_thrd_procedure(prh_thrd *thrd) {
+
+}
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
@@ -15432,8 +15595,8 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
 #else
 
 #endif
-#endif // PRH_EPOLL_IMPLEMENTATION
-#endif // PRH_EPOLL_INCLUDE
+#endif // PRH_THRD_IMPLEMENTATION
+#endif // PRH_THRD_INCLUDE
 
 #ifdef PRH_FILE_INCLUDE
 
@@ -15547,7 +15710,7 @@ typedef struct {
     prh_epoll_port *epoll_port;
     prh_u32 txbuf_cur;
     prh_i32 error_code;
-    prh_byte ipv6: 1, passive: 1, conn_wait_open: 1, drained: 1, tx_done: 1, close_req: 1, local_closed: 1, closed: 1;
+    prh_byte ipv6: 1, server_accepted_socket: 1, conn_wait_open: 1, drained: 1, tx_done: 1, close_req: 1, local_closed: 1, closed: 1;
     prh_byte epoll_in: 1, epoll_out: 1, epoll_rdhup: 1, epoll_hup: 1, epoll_err: 1;
     prh_u16 l_port;
     prh_u16 p_port;
@@ -15555,6 +15718,8 @@ typedef struct {
     prh_u32 l_addr_[3];
     prh_u32 p_addr;
     prh_u32 p_addr_[3];
+    prh_sockaddr local;
+    prh_sockaddr peer;
 } prh_tcpsocket;
 
 void prh_sock_tcp_listen(prh_tcplisten *listen, const char *host, prh_u16 port, int backlog);
@@ -15638,7 +15803,7 @@ void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port
 }
 
 #if defined(prh_plat_windows)
-// 若 Winsock 在其规范种更新或增添了一个新函数，该函数名将带有 WSA 前缀。比如，建立套
+// 若 Winsock 在其规范中更新或增添了一个新函数，该函数名将带有 WSA 前缀。比如，建立套
 // 接字的 Winsock 1 函数只是被简单称为 socket，而 Winsock 2 引入该函数的新版本时，其
 // 命名为 WSAScoket，该函数可以使用 Winsock 2 中出现的一些新特性。但注意，该命名规则
 // 有几个例外，如 WSAStartup WSACleanup WSARecvEx WSAGetLastError 都属于 Winsock
@@ -15935,7 +16100,7 @@ void prh_impl_wsasocket_startup(void) {
 // 理器都在执行一个工作线程，那么在同一个时候，完全可能有几个不同的处理器在同一个套接字
 // 上，进行数据的收发操作。
 //
-// 这里强调一下 Windows 完成端口有关的一个重要的点，所以重叠操作可以确保按照应用程序安
+// 这里强调一下 Windows 完成端口有关的一个重要的点，所有重叠操作可以确保按照应用程序安
 // 排好的顺序执行，然而不能确保从完成端口返回的完成通知也按照相同的顺序返回。例如对先后
 // 两个重叠 WSARecv 操作，如果一个应用程序给前者提供 10KB 缓冲，后者 12KB 缓冲，其中
 // 10KB 先被填满，然后是 12KB 缓冲被填满。应用程序的工作线程调用 GetQueuedCompletionStatus
@@ -15947,6 +16112,80 @@ void prh_impl_wsasocket_startup(void) {
 // 则错误代码极有可能是一个 Windows 错误代码，而非 Winsock 错误代码。要想找到对等的
 // Winsock 错误代码，可以指定套接字和 WSAOVERLAPPED 结构，对已完成的操作调用 WSAGetOverlappedResult，
 // 之后 WSAGetLastError 将返回转换后的 Winsock 错误代码。
+//
+// BOOL WSAAPI WSAGetOverlappedResult(
+//      [in]  SOCKET          s,
+//      [in]  LPWSAOVERLAPPED lpOverlapped,
+//      [out] LPDWORD         lpcbTransfer,
+//      [in]  BOOL            fWait,
+//      [out] LPDWORD         lpdwFlags
+// );
+//
+// WSAGetOverlappedResult 函数用于检索指定套接字上重叠操作的结果。如果 WSAGetOverlappedResult
+// 成功，返回值为 TRUE。这意味着重叠操作已成功完成，并且 lpcbTransfer 指向的值已更新。
+// 如果 WSAGetOverlappedResult 返回 FALSE，这意味着重叠操作尚未完成、操作完成但存在
+// 错误，或者由于 WSAGetOverlappedResult 的一个或多个参数中的错误，无法确定重叠操作的
+// 完成状态。失败时，lpcbTransfer 指向的值不会被更新。使用 WSAGetLastError 确定失败的
+// 原因（无论是由 WSAGetOverlappedResult 函数还是相关的重叠操作引起的）。
+//      WSANOTINITIALISED       在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN             网络子系统已失败。
+//      WSAENOTSOCK             描述符不是套接字。
+//      WSA_INVALID_HANDLE      WSAOVERLAPPED 结构的 hEvent 参数不包含有效的事件对象句柄。
+//      WSA_INVALID_PARAMETER   一个参数不可接受。
+//      WSA_IO_INCOMPLETE       fWait 参数为 FALSE，且 I/O 操作尚未完成。
+//      WSAEFAULT               lpOverlapped、lpcbTransfer 或 lpdwFlags 参数中的一个或多个不在有效的用户地址空间中。如果在
+//                              Windows Server 2003 及更早版本上，lpOverlapped、lpcbTransfer 或 lpdwFlags 参数为 NULL 指
+//                              针，则返回此错误。
+//
+// 参数 s 标识套接字的描述符。这是在以下 Winsock 函数调用中启动重叠操作时指定的相同套
+// 接字，这些函数支持重叠操作。这些函数包括：
+//      AcceptEx
+//      ConnectEx
+//      DisconnectEx
+//      TransmitFile
+//      TransmitPackets
+//      WSARecv
+//      WSARecvFrom
+//      LPFN_WSARECVMSG (WSARecvMsg)
+//      WSASend
+//      WSASendMsg
+//      WSASendTo
+//      WSAIoctl
+//
+// 参数 lpOverlapped 指向启动重叠操作时指定的 WSAOVERLAPPED 结构的指针。此参数不能为
+// NULL 指针。
+//
+// 参数 lpcbTransfer 指向一个 32 位变量，该变量接收实际由发送或接收操作传输的字节数，
+// 或者由 WSAIoctl 函数传输的字节数。此参数不能为 NULL 指针。
+//
+// 参数 fWait 一个标志，指定函数是否应等待挂起的重叠操作完成。如果为 TRUE，则函数不会
+// 返回，直到操作完成。如果为 FALSE 且操作仍在挂起，则函数返回 FALSE，WSAGetLastError
+// 函数返回 WSA_IO_INCOMPLETE。只有当重叠操作选择了基于事件的完成通知时，fWait 参数才
+// 可以设置为 TRUE。
+//
+// 参数 lpdwFlags 指向一个 32 位变量，该变量将接收一个或多个补充完成状态的标志。如果重
+// 叠操作是通过 WSARecv 或 WSARecvFrom 启动的，则此参数将包含 lpFlags 参数的结果值。
+// 此参数不能为 NULL 指针。
+//
+// WSAGetOverlappedResult 函数报告 s 参数中指定的套接字的 lpOverlapped 重叠操作的结
+// 果。WSAGetOverlappedResult 函数传递套接字描述符和启动重叠函数时指定的 WSAOVERLAPPED
+// 结构。当启动操作的函数返回 FALSE 且 WSAGetLastError 函数返回 WSA_IO_PENDING 时，
+// 表示操作处于挂起状态。当类似 WSARecv 的 I/O 操作处于挂起状态时，启动操作的函数会将
+// WSAOVERLAPPED 结构的 hEvent 成员重置为非触发状态。然后，当挂起的操作完成时，系统将
+// 事件对象设置为触发状态。
+//
+// 如果 fWait 参数为 TRUE，WSAGetOverlappedResult 通过等待事件对象处于触发状态来确定
+// 挂起的操作是否已完成。客户端可以将 fWait 参数设置为 TRUE，但前提是它在请求 I/O 操作
+// 时选择了基于事件的完成通知。如果选择了其他形式的通知，则 WSAOVERLAPPED 结构的 hEvent
+// 参数的使用方式不同，将 fWait 设置为 TRUE 会导致不可预测的结果。
+//
+// 如果在 Windows Vista 上调用 WSAGetOverlappedResult 函数时，lpOverlapped、lpcbTransfer
+// 或 lpdwFlags 参数设置为 NULL 指针，将导致访问冲突。如果在 Windows Server 2003 及
+// 更早版本上调用 WSAGetOverlappedResult 函数时，lpOverlapped、lpcbTransfer 或 lpdwFlags
+// 参数设置为 NULL 指针，将返回 WSAEFAULT 错误代码。
+//
+// 注意，当线程退出时，所有 I/O 都将被取消。对于重叠套接字，如果在线程关闭之前操作未完
+// 成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
 //
 // u_long htonl(u_long hostlong);
 // u_short htons(u_short hostshort);
@@ -17226,62 +17465,7 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
 // 数据解析为本地和远程地址。AcceptEx 函数以内部格式返回本地和远程地址信息。如果需要包
 // 含本地或远程地址的 sockaddr 结构，应用程序开发人员需要使用 GetAcceptExSockaddrs
 // 函数。
-
-#define PRH_IMPL_ACCEPT_ADDRSIZE (int)(sizeof(struct sockaddr_in6) + 16)
-
-typedef struct {
-    OVERLAPPED overlapped; // 1st field
-    prh_handle handle;
-    prh_byte_arrfit txbuf;
-    prh_byte_arrfit rxbuf;
-    prh_u32 txbuf_cur;
-    prh_u32 flags;
-} prh_iocp_data;
-
-void prh_impl_get_sockaddr(struct sockaddr_in *in, prh_sockaddr *out) {
-    if (in->sim_family == AF_INET) {
-        out->family == PRH_IPV4;
-        out->port = ntohs(in->sin_port);
-        out->addr = in->sin_addr.s_addr;
-    } else {
-        struct sockaddr_in6 *in6 = (struct sockaddr_in6 *)in;
-        out->family == PRH_IPV6;
-        out->port = ntohs(in6->sin6_port);
-        memcpy(&out->addr, in6->sin6_addr.s6_addr, 16);
-    }
-}
-
-int prh_impl_sock_accept(prh_handle listen, prh_sockaddr *local, prh_sockaddr *peer, prh_iocp_data *accept) {
-    assert(peer != prh_null);
-    assert(accept != prh_null);
-    prh_byte addrbuf[PRH_IMPL_ACCEPT_ADDRSIZE * 2];
-    prh_handle newsock = prh_impl_tcp_socket(AF_INET6); // 鼓励应用程序使用 AF_INET6 创建可用于 IPv4 和 IPv6 的双模套接字
-    if (PRH_IMPL_ACCEPTEX((SOCKET)listen, (SOCKET)newsock, addrbuf, 0, PRH_IMPL_ACCEPT_ADDRSIZE, PRH_IMPL_ACCEPT_ADDRSIZE, prh_null, &accept->overlapped)) {
-        accept->handle = newsock;
-        sockaddr_in *l_addr, *p_addr;
-        INT l_addrlen = 0, p_addrlen = 0;
-        PRH_IMPL_GETACCEPTEXSOCKADDRS(addrbuf, 0, PRH_IMPL_ACCEPT_ADDRSIZE, PRH_IMPL_ACCEPT_ADDRSIZE, (sockaddr *)&l_addr, &l_addrlen, (sockaddr *)&p_addr, &p_addrlen);
-        assert(l_addrlen == sizeof(struct sockaddr_in) || l_addrlen == sizeof(struct sockaddr_in6));
-        assert(p_addrlen == sizeof(struct sockaddr_in) || p_addrlen == sizeof(struct sockaddr_in6));
-        assert(l_addr->sin_family == AF_INET || l_addr->sin_family == AF_INET6);
-        assert(p_addr->sin_family == AF_INET || p_addr->sin_family == AF_INET6);
-        prh_impl_get_sockaddr(p_addr, peer);
-        peer->protocol = PRH_TCP;
-        if (local) {
-            prh_impl_get_sockaddr(l_addr, local);
-            local->protocol = PRH_TCP;
-        }
-        return 1;
-    }
-    accept->handle = PRH_INVASOCK;
-    prh_impl_close_socket(newsock);
-    if (WSAGetLastError() == ERROR_IO_PENDING) {
-        return 0;
-    }
-    PRH_DEBUG(prh_wsa_prerr());
-    return -1;
-}
-
+//
 // 一个服务器最常见的动作是接收客户连接，微软扩展函数 AcceptEx 是唯一一个通过重叠 I/O
 // 方式接收客户连接的 Winsock 函数。前面已经提到，AcceptEx 函数需要预先创建一个客户套
 // 接字用于接收客户连接，这个套接字必须是未绑定且未连接，当然也可以重用调用 TransmitFile、
@@ -19760,7 +19944,7 @@ bool prh_sock_tcp_accept(prh_tcplisten *listen, prh_tcpsocket *new_connection) {
         } else {
             memset(new_connection, 0, sizeof(prh_tcpsocket));
             new_connection->ipv6 = listen->ipv6;
-            new_connection->passive = true;
+            new_connection->server_accepted_socket = true;
             new_connection->p_port = prh_impl_sockaddr_in(&in)->sin_port;
             new_connection->l_port = listen->port;
             if (listen->ipv6) {
@@ -20630,7 +20814,7 @@ void prh_impl_wait_tcp_finish(prh_tcpsocket *tcp) {
 
 prh_cono_proc prh_impl_tcp_socket_procedure(void) {
     prh_tcpsocket *tcp = prh_cono_spwan_data();
-    if (tcp->passive && !prh_impl_report_tcpe_open_ind(tcp)) {
+    if (tcp->server_accepted_socket && !prh_impl_report_tcpe_open_ind(tcp)) {
         prh_sock_tcp_reset(tcp->sock); // 新连接被上层拒绝，关闭该连接
         return;
     }
@@ -20659,6 +20843,14 @@ prh_cono_proc prh_impl_tcp_socket_procedure(void) {
         }
     }
     prh_impl_wait_tcp_finish(tcp);
+}
+
+prh_tcpsocket *prh_impl_create_tcp_socket_routine(prh_cono_subq *cono_subq) {
+    int size = (int)sizeof(prh_tcpsocket) + (int)sizeof(prh_impl_tcp_port);
+    int subq_total_posts = 8; // PRH_MAX_SAME_TIME_POSTS_UPPER_TO_TCP 4 PRH_MAX_SAME_TIME_POSTS_EPOLL_TO_EACH_FILE_DESCRIPTOR 2
+    prh_tcpsocket *tcp = prh_cono_spawx_fixed_subq(prh_impl_tcp_socket_procedure, PRH_TCP_SOCKET_STACK_SIZE, size, PRH_IMPL_TCPQ_NUM, subq_total_posts);
+    prh_impl_tcp_port_init(tcp, cono_subq, prh_cono_get_subq((prh_spawn_data *)tcp, PRH_IMPL_TCPQ_UPPER));
+    return tcp;
 }
 
 void prh_impl_start_tcp_socket_procedure(prh_cono_subq *cono_subq, prh_tcpsocket *new_connection) {
