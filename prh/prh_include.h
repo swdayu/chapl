@@ -13865,7 +13865,7 @@ void prh_impl_cono_test(void) {
 // 事件数组；这样的话就可以设计一个统一的优化策略：如果某次大小为 n 的数组用满了，下一
 // 轮之前可以将数组大小翻倍（或者 1.5x 放大）。
 //
-// 虽然理论上异步 IO 的性能要高于非阻塞同步 IO，但是异步 IO 割裂了上下文，尤其是资源上
+// 虽然理论上异步 IO 的性能要高于非阻塞同步 IO，但是异步 IO 割裂了上下文，尤其是资源上    *** 虽然理论上异步 IO 性能高于非阻塞同步 IO，但异步 IO 割裂了上下文
 // 下文，因此在资源管理上充满了艰险。首先为了让 os kernel 能够直接将网卡收到的数据写入
 // 内存页，这部分内存必须事先提供；而操作系统避免内存页被内存管理 swap-out，必须将这块
 // 内存页 pin 住。对于每个发出去的 read 异步请求，都伴随着一块被 PIN 住的 mem-page，
@@ -13892,11 +13892,11 @@ void prh_impl_cono_test(void) {
 // TIME-WAIT，毕竟这个时间段长达 2MSL（据说在 Linux 上固定是 60s)。那么正确的关闭逻辑
 // 应该这样操作：
 //
-// 服务端通过 EPOLLRDHUP 或者 read() 知道对端关闭，然后进入被动关闭流程。如果服务端自
-// 己要结束，则服务端通过 shutdown() 先关闭 socket 的写端，保留读端（因为可能有数据还
-// 在路上）；这样的客户端通过 EPOLLRDHUP 或者 read() 返回 0 就主动断开连接，发出 FIN
-// 包；然后服务端接着进入被动关闭流程。对于一些异常的 socket，服务端别无法他，只能主动
-// 断开，一般来说这种关闭的连接数量较少。
+//      服务端通过 EPOLLRDHUP 或者 read() 知道对端关闭，然后进入被动关闭流程。如果服务
+//      端自己要结束，则服务端通过 shutdown() 先关闭 socket 的写端，保留读端（因为可能   *** 服务器关闭写端实际就是主动关闭
+//      有数据还在路上）；这样的客户端通过 EPOLLRDHUP 或者 read() 返回 0 就主动断开连
+//      接，发出 FIN 包；然后服务端接着进入被动关闭流程。对于一些异常的 socket，服务端
+//      别无法他，只能主动断开，一般来说这种关闭的连接数量较少。
 //
 // https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
 
@@ -17142,6 +17142,11 @@ void prh_setsockopt_ipv6_accept_v4_mapped_address(prh_handle sock, int enable) {
     prh_wsa_prerr_if(n != 0);
 }
 
+void prh_setsockopt_update_connect_context(prh_handle sock) {
+    int n = setsockopt((SOCKET)sock, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, prh_null, 0);
+    prh_wsa_prerr_if(n != 0);
+}
+
 // int bind(SOCKET s, const sockaddr *name, int namelen);
 //
 // bind 函数将本地地址与套接字关联。如果没有错误发生，bind 返回零。否则返回 SOCKET_ERROR，
@@ -17697,6 +17702,152 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 //      [in]  LPQOS          lpGQOS
 // );
 //
+// typedef struct _flowspec {
+//      ULONG       TokenRate;
+//      ULONG       TokenBucketSize;
+//      ULONG       PeakBandwidth;
+//      ULONG       Latency;
+//      ULONG       DelayVariation;
+//      SERVICETYPE ServiceType;
+//      ULONG       MaxSduSize;
+//      ULONG       MinimumPolicedSize;
+// } FLOWSPEC, *PFLOWSPEC, *LPFLOWSPEC;
+//
+// WSAConnect 函数用于建立与另一个套接字应用程序的连接，交换连接数据，并根据指定的 FLOWSPEC
+// 配置所需的 QoS（服务质量）。如果没有错误发生，WSAConnect 返回零。否则，返回值为
+// SOCKET_ERROR，可以通过调用 WSAGetLastError 获取特定的错误代码。对于阻塞套接字，返
+// 回值指示连接尝试是否成功。对于非阻塞套接字，连接尝试无法立即完成。在这种情况下，WSAConnect
+// 将返回 SOCKET_ERROR，WSAGetLastError 将返回 WSAEWOULDBLOCK；应用程序可以：
+//  1.  使用 select 通过检查套接字是否可写来确定连接请求的完成。
+//  2.  如果应用程序使用 WSAAsyncSelect 表示对连接事件感兴趣，则在连接操作完成时（成功与否），应用程序将收到 FD_CONNECT 通知。
+//  3.  如果应用程序使用 WSAEventSelect 表示对连接事件感兴趣，则在连接操作完成时（成功与否），关联的事件对象将被触发。
+//
+// 对于非阻塞套接字，在连接尝试完成之前，对该套接字的所有后续 WSAConnect 调用都将因
+// WSAEALREADY 错误代码而失败。如果返回的错误代码表明连接尝试失败（即 WSAECONNREFUSED、
+// WSAENETUNREACH、WSAETIMEDOUT），应用程序可以为同一个套接字再次调用 WSAConnect。
+//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEADDRINUSE       套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错误通常在执行 bind
+//                          时发生，但如果 bind 函数操作的是部分通配符地址（涉及 ADDR_ANY），并且需要在该函数执行时提交特定地址，
+//                          则可能会延迟到此函数。
+//      WSAEINTR            通过 WSACancelBlockingCall 取消了（阻塞）Windows 套接字 1.1 调用。
+//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//      WSAEALREADY         在指定的套接字上正在进行非阻塞连接或 WSAConnect 调用。
+//      WSAEADDRNOTAVAIL    远程地址不是有效地址（例如 ADDR_ANY）。
+//      WSAEAFNOSUPPORT     指定地址族的地址不能与该套接字一起使用。
+//      WSAECONNREFUSED     连接尝试被拒绝。
+//      WSAEFAULT           name 或 namelen 参数不是用户地址空间的有效部分，namelen 参数太小，lpCalleeData、lpSQOS 和 lpGQOS
+//                          的缓冲区长度太小，或者 lpCallerData 的缓冲区长度太大。
+//      WSAEINVAL           参数 s 是监听套接字，或者指定的目标地址与套接字所属的受限组不一致，或者 lpGQOS 参数不是 NULL。
+//      WSAEISCONN          套接字已连接（仅适用于面向连接的套接字）。
+//      WSAENETUNREACH      当前无法从该主机到达网络。
+//      WSAEHOSTUNREACH     尝试对无法到达的主机执行套接字操作。
+//      WSAENOBUFS          没有可用的缓冲区空间。套接字无法连接。
+//      WSAENOTSOCK         描述符不是套接字。
+//      WSAEOPNOTSUPP       lpSQOS 和 lpGQOS 中指定的 FLOWSPEC 结构无法满足。
+//      WSAEPROTONOSUPPORT  服务提供程序不支持 lpCallerData 参数。
+//      WSAETIMEDOUT        连接尝试超时而未建立连接。
+//      WSAEWOULDBLOCK      套接字被标记为非阻塞，且连接无法立即完成。
+//      WSAEACCES           尝试将数据报套接字连接到广播地址失败，因为未启用 setsockopt SO_BROADCAST。
+//
+// 参数 s 标识一个未连接的套接字的描述符。参数 name 指向 sockaddr 结构，该结构指定要
+// 连接的地址。对于 IPv4，sockaddr 包含地址族的 AF_INET、目标 IPv4 地址和目标端口。
+// 对于 IPv6，sockaddr 结构包含地址族的 AF_INET6、目标 IPv6 地址、目标端口，并可能包
+// 含额外的流和作用域 ID 信息。参数 namelen 表示 name 参数所指向的 sockaddr 结构的长
+// 度，以字节为单位。
+//
+// 参数 lpCallerData 指向要与连接请求一起发送的用户数据的指针（称为连接数据）。这是附
+// 加数据，不在正常的网络数据流中，而是与建立连接的网络请求一起发送。此选项用于遗留协议，
+// 如 DECNet、OSI TP4 等。
+//
+// 参数 lpCalleeData 指向从另一个套接字返回的用户数据，作为连接建立的一部分。lpCalleeData
+// 参数指向的 WSABUF 结构的 len 成员最初包含应用程序为 WSABUF 结构的 buf 成员分配的
+// 缓冲区的长度。如果未返回用户数据，则 lpCalleeData 参数指向的 WSABUF 结构的 len 成
+// 员将被设置为零。lpCalleeData 信息在连接操作完成时有效。对于阻塞套接字，当 WSAConnect
+// 函数返回时，连接操作完成。对于非阻塞套接字，完成将在 FD_CONNECT 通知发生后。如果 lpCalleeData
+// 为 NULL，则不返回用户数据。用户数据的确切格式特定于套接字所属的地址族。
+//
+// 参数 lpSQOS 指向套接字 s 的 FLOWSPEC 结构，每个方向一个，后跟任何额外的提供程序特定
+// 参数。如果与套接字关联的传输提供程序或特定类型的套接字无法满足 QoS 请求，则会返回错
+// 误。对于单向套接字，将分别忽略发送或接收流规范值。如果未指定提供程序特定参数，则 lpCalleeData
+// 参数指向的 WSABUF 结构的 buf 和 len 成员应分别设置为 NULL 和零。lpSQOS 参数的 NULL
+// 值表示没有应用程序提供的服务质量。
+//
+// 参数 lpGQOS 保留供未来与套接字组一起使用。lpGQOS 指定套接字组的 FLOWSPEC 结构（如
+// 果适用），每个方向一个，后跟任何额外的提供程序特定参数。如果未指定提供程序特定参数，
+// 则 lpCalleeData 参数指向的 WSABUF 结构的 buf 和 len 成员应分别设置为 NULL 和零。
+// lpGQOS 的 NULL 值表示没有应用程序提供的组服务质量。如果 s 不是套接字组的创建者，则
+// 忽略此参数。
+//
+// WSAConnect 函数用于创建与指定目标的连接，并在连接时执行一些其他辅助操作。如果套接字    *** 如果套接字未绑定系统将自动绑定本地地址
+// s 未绑定，系统将为本地关联分配唯一值，并将套接字标记为已绑定。
+//
+// 对于面向 Windows Vista 及更高版本的应用程序，建议使用 WSAConnectByList 或 WSAConnectByName
+// 函数，这些函数大大简化了客户端应用程序的设计。
+//
+// 对于面向连接的套接字（例如 SOCK_STREAM），将使用 name（套接字命名空间中的地址；有关
+// 详细描述，请参阅 bind）主动建立与远程主机的连接。当此调用成功完成时，套接字已准备好
+// 发送/接收数据。如果 name 结构的地址参数全为零，WSAConnect 将返回 WSAEADDRNOTAVAIL
+// 错误。任何尝试重新连接活动连接的操作都将因 WSAEISCONN 错误代码而失败。注意，如果打开
+// 套接字，调用 setsockopt，然后调用 sendto，则 Windows 套接字将执行隐式 bind 函数调
+// 用。
+//
+// 对于面向连接的非阻塞套接字，通常无法立即完成连接。在这种情况下，该函数返回 WSAEWOULDBLOCK
+// 错误代码。然而，操作仍在进行中。当成功或失败的结果已知时，可以通过几种方式报告，具体
+// 取决于客户端如何注册通知。如果客户端使用 select，则在 writefds 集合中报告成功，在
+// exceptfds 集合中报告失败。如果客户端使用 WSAAsyncSelect 或 WSAEventSelect，则通过
+// FD_CONNECT 通知宣布通知，FD_CONNECT 关联的错误代码表示成功或失败的具体原因。
+//
+// 对于无连接的套接字（例如 SOCK_DGRAM），WSAConnect 执行的操作仅仅是建立一个默认目标
+// 地址，以便后续可以在连接的 send 和 receive 操作（send、WSASend、recv 和 WSARecv）
+// 中使用该套接字。从除目标地址之外的地址接收到的任何数据报将被丢弃。如果整个 name 结构   *** 如果用全零 sockaddr 结构进行调用将清除默认远程地址
+// 全为零（不仅仅是 name 结构的地址参数），则套接字将被断开连接。然后，默认远程地址将不
+// 确定，因此 send、WSASend、recv 和 WSARecv 调用将返回 WSAENOTCONN 错误代码。然而，
+// sendto、WSASendTo、recvfrom 和 WSARecvFrom 仍然可以使用。默认目标可以通过简单地再   *** 对于无连接套接字可以多次调用更改默认远程地址
+// 次调用 WSAConnect 来更改，即使套接字已经连接。如果 name 与之前的 WSAConnect 不同，   *** 但是更改目标地址之后，之前正在等待接收的数据包将被丢弃
+// 则丢弃为接收排队的任何数据报。
+//
+// 对于无连接的套接字，name 可以指示任何有效地址，包括广播地址。然而，要连接到广播地址，
+// 套接字必须启用 setsockopt SO_BROADCAST。否则，WSAConnect 将因 WSAEACCES 错误代码
+// 而失败。在无连接的套接字上，无法交换用户到用户数据，相应的参数将被静默忽略。
+//
+// 应用程序负责为其指定的任何参数直接或间接指向的内存空间分配内存。lpCallerData 参数包
+// 含指向任何用户数据的指针，这些数据将与连接请求一起发送（称为连接数据）。这是附加数据，
+// 不在正常的网络数据流中，而是与建立连接的网络请求一起发送。此选项由 DECNet、OSI TP4
+// 等旧协议使用。注意 Windows 中的 TCP/IP 协议不支持连接数据。连接数据仅在原始套接字上   *** TCP/IP 不支持连接数据
+// 的 ATM（RAWWAN）上受支持。
+//
+// 如果 lpCallerData 为 NULL，则不会有用户数据传递给对等方。lpCalleeData 是一个结果
+// 参数，将包含从其他套接字作为连接建立的一部分传递回来的任何用户数据，位于 WSABUF 结构
+// 中。lpCalleeData 参数指向的 WSABUF 结构的 len 成员最初包含应用程序为 WSABUF 结构的
+// buf 成员分配的缓冲区的长度。如果未传递回用户数据，则 lpCalleeData 参数指向的 WSABUF
+// 结构的 len 成员将被设置为零。lpCalleeData 信息在连接操作完成时有效。对于阻塞套接字，
+// 当 WSAConnect 函数返回时，连接操作完成。对于非阻塞套接字，完成将在 FD_CONNECT 通知
+// 发生后。如果 lpCalleeData 为 NULL，则不会传递回用户数据。用户数据的确切格式特定于套
+// 接字所属的地址族。
+//
+// 在连接时，应用程序可以使用 lpSQOS 和 lpGQOS 参数来覆盖之前通过 WSAIoctl 与 SIO_SET_QOS
+// 或 SIO_SET_GROUP_QOS 操作码为套接字进行的任何服务质量规范。
+//
+// lpSQOS 参数指定套接字 s 的 FLOWSPEC 结构，每个方向一个，后跟任何额外的提供程序特定
+// 参数。如果关联的传输提供程序或特定类型的套接字无法满足服务质量请求，则会返回错误。对
+// 于任何单向套接字，将分别忽略发送或接收流规范值。如果未指定提供程序特定参数，则 lpCalleeData
+// 参数指向的 WSABUF 结构的 buf 和 len 成员应分别设置为 NULL 和零。lpSQOS 参数的 NULL
+// 值表示没有应用程序提供的服务质量。
+//
+// lpGQOS 保留供未来与套接字组一起使用，指定套接字组（如果适用）的 FLOWSPEC 结构，每个
+// 方向一个，后跟任何额外的提供程序特定参数。如果未指定提供程序特定参数，则 lpCalleeData
+// 参数指向的 WSABUF 结构的 buf 和 len 成员应分别设置为 NULL 和零。lpGQOS 的 NULL 值
+// 表示没有应用程序提供的组服务质量。如果 s 不是套接字组的创建者，则忽略此参数。
+//
+// 当连接的套接字因任何原因关闭时，应丢弃并重新创建。最安全的假设是，当连接的套接字因任    *** 当已连接的套接字因任何原因出现问题时应丢弃并重新创建所需的套接字用于连接
+// 何原因出现问题时，应用程序必须丢弃并重新创建所需的套接字，以便返回到稳定状态。         *** 但对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 失败的未连接套接字可以用来重连
+//
+// 注意，当发出阻塞的 Winsock 调用（如 WSAConnect）时，Winsock 可能需要等待网络事件才
+// 能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步过
+// 程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个
+// 阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
+//
 // BOOL WSAConnectByList(
 //      [in]      SOCKET               s,
 //      [in]      PSOCKET_ADDRESS_LIST SocketAddress,
@@ -17707,6 +17858,112 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 //      [in]      const timeval        *timeout,
 //      [in]      LPWSAOVERLAPPED      Reserved
 // );
+//
+// typedef struct _SOCKET_ADDRESS {
+//      LPSOCKADDR lpSockaddr;
+//      INT        iSockaddrLength;
+// } SOCKET_ADDRESS, *PSOCKET_ADDRESS, *LPSOCKET_ADDRESS;
+//
+// typedef struct _SOCKET_ADDRESS_LIST {
+//      INT            iAddressCount;
+//      SOCKET_ADDRESS Address[1];
+// } SOCKET_ADDRESS_LIST, *PSOCKET_ADDRESS_LIST, FAR *LPSOCKET_ADDRESS_LIST;
+//
+// WSAConnectByList 函数用于建立与一组可能目标地址（主机名和端口）中的一个连接。该函数
+// 接受所有传递的目标地址以及本地所有源地址，并尝试使用所有可能的地址组合进行连接，直到
+// 放弃为止。该函数支持 IPv4 和 IPv6 地址。如果建立连接，WSAConnectByList 返回 TRUE，
+// 并且如果调用方提供了缓冲区，将填充 LocalAddress 和 RemoteAddress 参数。如果调用失
+// 败，返回 FALSE。然后可以调用 WSAGetLastError 以获取扩展错误信息。
+//      WSAEHOSTUNREACH     作为 nodename 参数传递的主机无法到达。
+//      WSAEINVAL           向函数传递了无效参数。Reserved 参数必须为 NULL。
+//      WSAENOBUFS          无法分配足够的内存。
+//      WSAENOTSOCK         向函数传递了无效套接字。s 参数不能是 INVALID_SOCKET 或 NULL。
+//      WSAETIMEDOUT        在 timeout 参数指定的时间内未收到远程应用的响应。
+//
+// 参数 s 标识一个未绑定且未连接的套接字的描述符。注意，与其他用于建立连接的 Winsock      *** 需要一个未绑定且未连接的套接字
+// 调用（例如 WSAConnect）不同，WSAConnectByList 函数需要一个未绑定的套接字。
+//
+// 参数 SocketAddress 指向 SOCKET_ADDRESS_LIST 结构，该结构表示要连接到对等方的可能
+// 目标地址和端口的一个列表。
+//
+// 参数 LocalAddressLength，在输入时，指向由调用方提供的 LocalAddress 缓冲区大小（以
+// 字节为单位）的指针。在输出时，指向由系统在调用成功完成时填充的 LocalAddress 缓冲区
+// 中存储的本地地址的 SOCKADDR 大小（以字节为单位）的指针。参数 LocalAddress 指向 SOCKADDR
+// 结构，该结构接收连接的本地地址。该参数的大小正好是 LocalAddressLength 中返回的大小。
+// 这是 getsockname 函数将返回的相同信息。如果该参数为 NULL，则忽略 LocalAddressLength
+// 参数。
+//
+// 参数 RemoteAddressLength，在输入时，指向由调用方提供的 RemoteAddress 缓冲区大小
+// （以字节为单位）的指针。在输出时，指向由系统在调用成功完成时填充的 RemoteAddress 缓
+// 冲区中存储的远程地址的 SOCKADDR 大小（以字节为单位）的指针。参数 RemoteAddress 指
+// 向 SOCKADDR 结构，该结构接收连接的远程地址。这是 getpeername 函数将返回的相同信息。
+// 如果该参数为 NULL，则忽略 RemoteAddressLength 参数。
+//
+// 参数 timeout 等待远程应用响应的时间（以毫秒为单位），在放弃调用之前。如果该参数为
+// NULL，则 WSAConnectByList 将在成功建立连接或尝试所有连接失败后返回。
+//
+// 参数 Reserved 为未来实现保留。此参数必须设置为 NULL。
+//
+// WSAConnectByList 与 WSAConnectByName 函数类似。与接受单个主机名和服务名（端口）不
+// 同，WSAConnectByList 接受一组地址（主机地址和端口），并连接到其中一个地址。WSAConnectByList
+// 函数旨在支持点对点（peer-to-peer）协作场景，其中应用程序需要连接到潜在节点列表中的任
+// 何可用节点。WSAConnectByList 兼容 IPv6 和 IPv4 版本。
+//
+// 由调用方提供可能目标的集合，该集合由地址列表表示。WSAConnectByList 不仅仅尝试连接到
+// 许多可能的目标地址中的一个。具体来说，该函数接受调用方传递的所有远程地址、所有本地地
+// 址，然后首先尝试使用最有可能成功的地址对进行连接。因此，WSAConnectByList 不仅确保如
+// 果可能的话将建立连接，还最小化了建立连接所需的时间。
+//
+// 调用方可以指定 LocalAddress 和 RemoteAddress 缓冲区及其长度，以确定成功建立连接的
+// 本地和远程地址。
+//
+// timeout 参数允许调用方限制函数在建立连接上花费的时间。在内部，WSAConnectByList 执
+// 行多个操作（连接尝试）。在每次操作之间，检查 timeout 参数以查看是否超出了超时时间，
+// 如果是，则中止调用。注意，一旦超出了超时时间，单个操作（连接）不会被中断，因此 WSAConnectByList
+// 调用的实际超时时间可能比 timeout 参数中指定的值更长。
+//
+// WSAConnectByList 有以下限制：它仅适用于面向连接的套接字，例如 SOCK_STREAM 类型的
+// 套接字。该函数不支持重叠 I/O 或非阻塞行为。即使套接字处于非阻塞模式，WSAConnectByList   *** 该函数不支持重叠 I/O 或非阻塞行为
+// 也会阻塞。WSAConnectByList 将依次尝试连接到调用方提供的各种地址。每个连接尝试都可能
+// 以不同的错误代码失败。由于只能返回一个错误代码，因此返回的值是最后一次连接尝试的错误
+// 代码。
+//
+// 为了使 IPv6 和 IPv4 地址都能在函数接受的单一地址列表中传递，必须在调用函数之前执行
+// 以下步骤：
+//  1.  必须在为 AF_INET6 地址族创建的套接字上调用 setsockopt 函数，以在调用 WSAConnectByList
+//      之前禁用 IPV6_V6ONLY 套接字选项。这是通过将 setsockopt 函数的 level 参数设置
+//      为 IPPROTO_IPV6（参见 IPPROTO_IPV6 套接字选项），optname 参数设置为 IPV6_V6ONLY，
+//      以及 optvalue 参数值设置为零来完成的。
+//  2.  任何 IPv4 地址都必须以 IPv4 映射的 IPv6 地址格式表示，这使得仅有 IPv6 的应用
+//      程序能够与 IPv4 节点通信。IPv4 映射的 IPv6 地址格式允许将 IPv4 节点的 IPv4
+//      地址表示为 IPv6 地址。IPv4 地址被编码到 IPv6 地址的低 32 位中，高 96 位持有
+//      固定的前缀 0:0:0:0:0:FFFF。IPv4 映射的 IPv6 地址格式在 RFC 4291 中指定。有
+//      关更多信息，请参见 www.ietf.org/rfc/rfc4291.txt。Mstcpip.h 中的 IN6ADDR_SETV4MAPPED
+//      宏可用于将 IPv4 地址转换为所需的 IPv4 映射的 IPv6 地址格式。
+//
+// 传递给 SocketAddressList 参数的指针数组指向一个通用数据类型的 SOCKET_ADDRESS 结构
+// 数组。RemoteAddress 和 LocalAddress 参数也指向 SOCKADDR 结构。当调用 WSAConnectByList
+// 时，期望在这些参数中实际传递特定于正在使用的网络协议或地址族的套接字地址类型。因此，
+// 对于 IPv4 地址，当作为参数传递时，sockaddr_in 结构的指针将被强制转换为 SOCKADDR 的
+// 指针。对于 IPv6 地址，当作为参数传递时，sockaddr_in6 结构的指针将被强制转换为 SOCKADDR
+// 的指针。SocketAddressList 参数可以包含指向 IPv4 和 IPv6 地址的混合指针。因此，一些
+// SOCKET_ADDRESS 指针可以指向 sockaddr_in 结构，而其他指针可以指向 sockaddr_in6 结构。
+// 如果期望可以使用 IPv6 地址，则 RemoteAddress 和 LocalAddress 参数应该指向 sockaddr_in6
+// 结构，并被强制转换为 SOCKADDR 结构。RemoteAddressLength 和 LocalAddressLength 参
+// 数必须表示这些较大结构的长度。
+//
+// 当 WSAConnectByList 函数返回 TRUE 时，套接字 s 处于已连接套接字的默认状态。直到在
+// 套接字上设置 SO_UPDATE_CONNECT_CONTEXT 选项后，套接字 s 才启用之前设置的属性或选项。
+// 使用 setsockopt 函数设置 SO_UPDATE_CONNECT_CONTEXT 选项。
+//      //Need to #include <mswsock.h> for SO_UPDATE_CONNECT_CONTEXT
+//      int iResult = 0;
+//      iResult = setsockopt(s, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+//
+// 注意 当使用 WSAConnectByList 发出阻塞的 Winsock 调用且 timeout 参数设置为 NULL
+// 时，Winsock 可能需要等待网络事件才能完成调用。在这种情况下，Winsock 会执行可警报等
+// 待，这可能会被同一线程上安排的异步过程调用（APC）中断。在中断了同一线程上正在进行的
+// 阻塞 Winsock 调用的 APC 中发出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock
+// 客户端绝对不应尝试此操作。
 //
 // BOOL WSAConnectByNameA(
 //      [in]      SOCKET          s,
@@ -17720,6 +17977,82 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 //                LPWSAOVERLAPPED Reserved
 // );
 //
+// WSAConnectByName 函数用于建立与指定主机和端口的连接。该函数提供了一种快速连接到网络
+// 端点的方法，只需提供主机名和端口即可。该函数支持 IPv4 和 IPv6 地址。如果建立连接，
+// WSAConnectByName 返回 TRUE，并且如果调用方提供了缓冲区，则填充 LocalAddress 和
+// RemoteAddress 参数。如果调用失败，返回 FALSE。然后可以调用 WSAGetLastError 以获取
+// 扩展错误信息。
+//      WSAEHOSTUNREACH 作为 nodename 参数传递的主机无法到达。
+//      WSAEINVAL       向函数传递了无效参数。nodename 或 servicename 参数不能为 NULL。Reserved 参数必须为 NULL。
+//      WSAENOBUFS      无法分配足够的内存。
+//      WSAENOTSOCK     向函数传递了无效套接字。s 参数不能是 INVALID_SOCKET 或 NULL。
+//      WSAETIMEDOUT    在 timeout 参数指定的时间内未收到远程应用的响应。
+//
+// 参数 s 标识一个未连接的套接字的描述符。注意，在 Windows 7、Windows Server 2008 R2
+// 及更早版本中，WSAConnectByName 函数需要一个未绑定且未连接的套接字。这与其他用于建立   *** 需指定一个未绑定且未连接的套接字
+// 连接的 Winsock 调用（例如 WSAConnect）不同。
+//
+// 参数 nodename 一个以 NULL 结尾的字符串，包含要连接的主机的名称或 IPv4/IPv6 地址。
+//
+// 参数 servicename 一个以 NULL 结尾的字符串，包含要连接的主机的服务名或目标端口。服务
+// 名是端口号的字符串别名。例如，“http” 是由互联网工程任务组（IETF）定义的端口 80 的别
+// 名，用于 HTTP 协议的默认端口。参数 servicename 的可能值列在以下文件中：
+//      %WINDIR%\system32\drivers\etc\services
+//
+// 参数 LocalAddressLength，在输入时，指向由调用方提供的 LocalAddress 缓冲区大小（以
+// 字节为单位）的指针。在输出时，指向由系统在调用成功完成时填充的 LocalAddress 缓冲区
+// 中存储的本地地址的 SOCKADDR 大小（以字节为单位）的指针。参数 LocalAddress 指向 SOCKADDR
+// 结构，该结构接收连接的本地地址。该参数的大小正好是 LocalAddressLength 中返回的大小。
+// 这是 getsockname 函数将返回的相同信息。如果该参数为 NULL，则忽略 LocalAddressLength
+// 参数。
+//
+// 参数 RemoteAddressLength，在输入时，指向由调用方提供的 RemoteAddress 缓冲区大小
+// （以字节为单位）的指针。在输出时，指向由系统在调用成功完成时填充的 RemoteAddress 缓
+// 冲区中存储的远程地址的 SOCKADDR 大小（以字节为单位）的指针。参数 RemoteAddress 指
+// 向 SOCKADDR 结构，该结构接收连接的远程地址。这是 getpeername 函数将返回的相同信息。
+// 如果该参数为 NULL，则忽略 RemoteAddressLength 参数。
+//
+// 参数 timeout 等待远程应用响应的时间（以毫秒为单位），在放弃调用之前。
+//
+// 参数 Reserved 为未来实现保留。此参数必须设置为 NULL。
+//
+// WSAConnectByName 提供了一种快速透明地连接到特定端口上的远程主机的方法。它兼容 IPv6
+// 和 IPv4 版本。为了启用 IPv6 和 IPv4 通信，请使用以下方法：
+//  1.  必须在为 AF_INET6 地址族创建的套接字上调用 setsockopt 函数，以在调用 WSAConnectByName
+//      之前禁用 IPV6_V6ONLY 套接字选项。这是通过将 setsockopt 函数的 level 参数设置
+//      为 IPPROTO_IPV6（参见 IPPROTO_IPV6 套接字选项），optname 参数设置为 IPV6_V6ONLY，
+//      以及 optvalue 参数值设置为零来完成的。
+//
+// WSAConnectByName 有以下限制：它仅适用于面向连接的套接字，例如 SOCK_STREAM 类型的套   *** 该函数仅适用于面向连接的套接字
+// 接字。该函数不支持重叠 I/O 或非阻塞行为。即使套接字处于非阻塞模式，WSAConnectByName   *** 该函数不支持重叠 I/O 或非阻塞行为
+// 也会阻塞。
+//
+// WSAConnectByName 不支持在建立连接期间提供用户数据。此调用也不支持 FLOWSPEC 结构。
+// 在需要这些功能的情况下，必须使用 WSAConnect。
+//
+// 在 Windows 10 之前的版本中，如果应用程序需要绑定到特定的本地地址或端口，则不能使用     *** Windows 10 之前不能绑定到特定的本地地址或端口
+// WSAConnectByName，因为传递给 WSAConnectByName 的套接字参数必须是未绑定的套接字。
+// 此限制在 Windows 10 中被移除。
+//
+// RemoteAddress 和 LocalAddress 参数指向一个通用数据类型的 SOCKADDR 结构。当调用
+// WSAConnectByName 时，期望在这些参数中实际传递特定于正在使用的网络协议或地址族的套接
+// 字地址类型。因此，对于 IPv4 地址，sockaddr_in 结构的指针将被强制转换为 SOCKADDR 的
+// 指针，作为 RemoteAddress 和 LocalAddress 参数。对于 IPv6 地址，sockaddr_in6 结构
+// 的指针将被强制转换为 SOCKADDR 的指针，作为 RemoteAddress 和 LocalAddress 参数。
+//
+// 当 WSAConnectByName 函数返回 TRUE 时，套接字 s 处于已连接套接字的默认状态。直到在
+// 套接字上设置 SO_UPDATE_CONNECT_CONTEXT 选项后，套接字 s 才启用之前设置的属性或选
+// 项。使用 setsockopt 函数设置 SO_UPDATE_CONNECT_CONTEXT 选项。
+//      //Need to #include <mswsock.h> for SO_UPDATE_CONNECT_CONTEXT
+//      int iResult = 0;
+//      iResult = setsockopt(s, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, NULL, 0);
+//
+// 注意 当使用 WSAConnectByName 发出阻塞的 Winsock 调用且 timeout 参数设置为 NULL
+// 时，Winsock 可能需要等待网络事件才能完成调用。在这种情况下，Winsock 会执行可警报等
+// 待，这可能会被同一线程上安排的异步过程调用（APC）中断。在中断了同一线程上正在进行的
+// 阻塞 Winsock 调用的 APC 中发出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock
+// 客户端绝对不应尝试此操作。
+//
 // BOOL Connectex(
 //      [in]           SOCKET s,
 //      [in]           const sockaddr *name,
@@ -17730,13 +18063,13 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 //      [in]           LPOVERLAPPED lpOverlapped
 // );
 //
-// ConnectEx 函数建立与指定套接字的连接，并可选地在建立连接后发送数据。该函数仅支持面向
+// ConnectEx 函数建立与指定套接字的连接，并可选地在建立连接后发送数据。该函数仅支持面向   *** 该函数仅支持面向连接的套接字
 // 连接的套接字。注意 该函数是 Microsoft 对 Windows 套接字规范的特定扩展。成功时，ConnectEx
 // 函数返回 TRUE。失败时，函数返回 FALSE。使用 WSAGetLastError 函数获取扩展错误信息。
 // 如果 WSAGetLastError 函数返回的错误码为 ERROR_IO_PENDING，则表示操作已成功启动且
-// 正在进行。在这种情况下，调用可能在重叠操作完成时仍然失败。如果返回的错误码是 WSAECONNREFUSED、
-// WSAENETUNREACH 或 WSAETIMEDOUT，应用程序可以在同一个套接字上调用 ConnectEx、WSAConnect
-// 或 connect。
+// 正在进行。在这种情况下，调用可能在重叠操作完成时仍然失败。如果返回的错误码是
+// WSAECONNREFUSED、WSAENETUNREACH 或 WSAETIMEDOUT，应用程序可以在同一个套接字上调用   *** 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连
+// ConnectEx、WSAConnect 或 connect。
 //      WSANOTINITIALISED   在调用 ConnectEx 之前，必须先成功调用 WSAStartup 函数。
 //      WSAENETDOWN         网络子系统已失败。
 //      WSAEADDRINUSE       套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此
@@ -17757,7 +18090,7 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 //      WSAENOTSOCK         描述符不是套接字。
 //      WSAETIMEDOUT        连接尝试超时而未建立连接。
 //
-// 参数 s 标识一个未连接的、之前已绑定的套接字的描述符。参数 name 指向 sockaddr 结构，
+// 参数 s 标识一个未连接的、之前已绑定的套接字的描述符。参数 name 指向 sockaddr 结构，   *** 提供一个未连接之前已绑定的套接字描述符
 // 该结构指定要连接的地址。对于 IPv4，sockaddr 包含地址族的 AF_INET、目标 IPv4 地址和
 // 目标端口。对于 IPv6，sockaddr 结构包含地址族的 AF_INET6、目标 IPv6 地址、目标端口，
 // 并可能包含额外的 IPv6 流和作用域 ID 信息。参数 namelen 表示 name 参数所指向的 sockaddr
@@ -17816,9 +18149,9 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // 如果在已连接的套接字上调用 TransmitFile 函数，并使用 TF_DISCONNECT 和 TF_REUSE_SOCKET
 // 标志，则指定的套接字将返回到未连接但已绑定的状态。在这种情况下，可以将套接字的句柄传
 // 递给 ConnectEx 函数的 s 参数，但不能在 AcceptEx 函数调用中重用该套接字。同样，使用
-// TransmitFile 函数重用的已接受套接字不能用于 ConnectEx 函数调用。注意，对于重用的套
-// 接字，ConnectEx 受底层传输行为的影响。例如，TCP 套接字可能会受到 TCP TIME_WAIT 状
-// 态的影响，导致 ConnectEx 调用被延迟。
+// TransmitFile 函数重用的已接受套接字（accepted socket）不能用于 ConnectEx 函数调用。
+// 注意，对于重用的套接字，ConnectEx 受底层传输行为的影响。例如，TCP 套接字可能会受到     *** 注意在重用时 ConnectEx 可能由于 TIME_WAIT 状态影响而延迟
+// TCP TIME_WAIT 状态的影响，导致 ConnectEx 调用被延迟。
 //
 // 当 ConnectEx 函数返回 TRUE 时，套接字 s 处于已连接套接字的默认状态。直到在套接字上
 // 设置 SO_UPDATE_CONNECT_CONTEXT 选项后，套接字 s 才启用之前设置的属性或选项。使用
@@ -17853,14 +18186,25 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // 错误。任何尝试重新连接活动连接的操作都将因 WSAEISCONN 错误代码而失败。
 //
 // 当因任何原因关闭已连接的套接字时，建议丢弃该套接字并创建一个新的套接字。这样做的原因
-// 是，假设当已连接的套接字因任何原因出现问题时，应用程序必须丢弃该套接字并重新创建所需
+// 是，假设当已连接的套接字因任何原因出现问题时，应用程序必须丢弃该套接字并重新创建所需    *** 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
 // 的套接字，以便恢复到稳定状态。
 //
-// 如果调用 DisconnectEx 函数并使用 TF_REUSE_SOCKET 标志，则指定的套接字将返回到未连
+// 如果调用 DisconnectEx 函数并使用 TF_REUSE_SOCKET 标志，则指定的套接字将返回到未连    *** 调用 DisconnectEx 重用套接字，套接字回到已绑定未连接状态
 // 接但已绑定的状态。在这种情况下，可以将套接字的句柄传递给 ConnectEx 函数的 s 参数。
 //
-// TCP 在释放已关闭连接并重用其资源之前必须经过的时间间隔称为 TIME_WAIT 状态或 2MSL
-// 状态。在此期间，重新打开连接的成本远低于建立新连接。
+// TCP 在释放已关闭连接并重用其资源之前必须经过的时间间隔称为 TIME_WAIT 状态或 2MSL      *** 在 TIME_WAIT 期间重新打开连接的成本远低于建立新连接
+// 状态。在此期间，重新打开连接的成本远低于建立新连接。在 TIME_WAIT 结束之前，如果再次
+// 收到远端发过来的同一四元组 SYN（即对端试图重建同一条逻辑连接），内核可以直接用还在
+// TIME_WAIT 槽里的连接控制块（TCB），省掉一次完整的端口查找、TCB 分配和初始序列号验证，
+// 所以处理成本比 “全新连接” 略低。应用程序看到的依旧是一条全新的 socket，旧连接不会
+// “复活” 继续传数据。SO_REUSEADDR 让内核提前回收或忽略 TIME_WAIT，允许监听套接字立即
+// 绑定到刚才处于 TIME_WAIT 的本地端口，只要远端地址不同即可成功。但仍然不能让同一个四
+// 元组的两条连接同时存在，它只是把 “端口仍被占用” 的检查放宽。
+//
+// 客户端 “立刻重连”怎么办？客户端主动关闭后也会进入 TIME_WAIT。最简单的是使用随机源端    *** 不管是服务端还是客户端，主动关闭连接的一方都会进入 TIME_WAIT 状态
+// 口 bind(0)，几乎不会撞车。必须固定端口时，同样给客户端 SO_REUSEADDR，然后 bind 同
+// 一个 (addr,port) 再 connect，只要远端端口与旧连接不同，就能成功，当然完全相同的四元
+// 组仍会被内核拒绝（WSAEADDRINUSE）。
 //
 // TIME_WAIT 行为在 RFC 793 中指定，要求 TCP 在关闭连接后至少维持一个间隔，该间隔等于
 // 网络最大报文段生命周期（MSL）的两倍。当连接被释放时，其套接字对和用于套接字的内部资源
@@ -17871,7 +18215,7 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // 间隔（以秒为单位）。HKEY_LOCAL_MACHINE\System\CurrentControlSet\Services\TCPIP\
 // Parameters\TcpTimedWaitDelay
 //
-// 默认情况下，MSL 定义为 120 秒。TcpTimedWaitDelay 注册表设置默认为 240 秒的值，这表
+// 默认情况下，MSL 定义为 120 秒。TcpTimedWaitDelay 注册表设置默认为 240 秒的值，这表    *** 默认情况下，TIME_WAIT 的结束将需要 4 分钟
 // 示 120 秒的最大报文段生命周期的两倍，即 4 分钟。然而，可以使用此条目自定义间隔。降低
 // 此条目的值可以让 TCP 更快地释放已关闭的连接，从而为新连接提供更多资源。然而，如果值过
 // 低，TCP 可能在连接完成之前释放连接资源，导致服务器需要使用额外的资源重新建立连接。此
@@ -17885,28 +18229,25 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // );
 //
 // DisconnectEx 函数关闭套接字上的连接，并允许重用套接字句柄。注意，该函数是 Microsoft
-// 对 Windows 套接字规范的特定扩展。成功时，DisconnectEx 函数返回 TRUE。失败返回 FALSE。
+// 对 Windows 套接字规范的特定扩展。成功时，DisconnectEx 返回 TRUE。失败返回 FALSE。
 // 使用 WSAGetLastError 函数获取扩展错误信息。如果 WSAGetLastError 函数返回 ERROR_IO_PENDING，
 // 则表示操作已成功启动且正在进行。在这种情况下，调用可能在操作完成时仍然失败。
-//  - WSAEFAULT     系统在尝试使用指针参数时检测到无效的指针地址。如果在 lpOverlapped 参数中传递了无效的指
-//                  针值，则返回此错误。
-//  - WSAEINVAL     传递了无效的参数。如果 dwFlags 参数指定了除 TF_REUSE_SOCKET 之外的零值，则返回此错误。
-//  - WSAENOTCONN   套接字未连接。如果套接字 s 参数不在连接状态，则返回此错误。如果套接字处于从先前请求的传
-//                  输关闭状态，并且 dwFlags 参数未设置为 TF_REUSE_SOCKET 以请求重用套接字，则也可以返回
-//                  此错误。
+//      WSAEFAULT       系统在尝试使用指针参数时检测到无效的指针地址。如果在 lpOverlapped 参数中传递了无效的指针值，则返回此错误。
+//      WSAEINVAL       传递了无效的参数。如果 dwFlags 参数指定了除 TF_REUSE_SOCKET 之外的零值，则返回此错误。
+//      WSAENOTCONN     套接字未连接。如果套接字 s 参数不在连接状态，则返回此错误。如果套接字处于从先前请求的传输关闭状态，并且
+//                      dwFlags 参数未设置为 TF_REUSE_SOCKET 以请求重用套接字，则也可以返回此错误。
 //
 // 参数 s 已连接的、面向连接的套接字的句柄。参数 lpOverlapped 指向 OVERLAPPED 结构的
-// 指针。如果套接字句柄以重叠方式打开，则指定此参数将导致重叠（异步）I/O 操作。
+// 指针。如果套接字句柄以重叠方式打开，则指定此参数将导致重叠（异步）I/O 操作。参数
+// dwReserved 保留，必须为零。如果非零，则返回 WSAEINVAL。
 //
 // 参数 dwFlags 一组标志，用于自定义函数调用的处理。当此参数设置为零时，不设置任何标志。
 // dwFlags 参数可以具有以下值。
 //      TF_REUSE_SOCKET     准备重用套接字句柄。当 DisconnectEx 请求完成时，可以将
 //                          套接字句柄传递给 AcceptEx 或 ConnectEx 函数。
 //
-// 注意：套接字级别的断开连接受底层传输行为的影响。例如，TCP 套接字可能会受到 TCP TIME_WAIT
+// 注意：套接字级别的断开连接受底层传输行为的影响。例如，TCP 套接字可能会受到 TIME_WAIT   *** 受 TIME_WAIT 状态影响 DisconnectEx 操作可能会延迟
 // 状态的影响，导致 DisconnectEx 调用被延迟。
-//
-// 参数 dwReserved 保留。必须为零。如果非零，则返回 WSAEINVAL。
 //
 // DisconnectEx 函数不支持数据报套接字。因此，由 hSocket 指定的套接字必须是面向连接的，
 // 例如 SOCK_STREAM、SOCK_SEQPACKET 或 SOCK_RDM 套接字。
@@ -17916,7 +18257,7 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // 这种设计使调用者可以在断开连接操作完成时继续处理。请求完成后，Windows 将 OVERLAPPED
 // 结构的 hEvent 成员指定的事件或由 hSocket 指定的套接字设置为已触发状态。
 //
-// 如果这个函数被一个重叠结构调用，且套接字上还有挂起的操作，则 DisconnectEx 会返回
+// 如果这个函数被一个重叠结构调用，且套接字上还有挂起的操作，则 DisconnectEx 会返回       *** DisconnectEx 会等待底层挂起的操作先完成
 // FALSE，错误为 WSA_IO_PENDING。一旦所有挂起的操作完成，且传输层断开操作已经发动，
 // 操作就会结束。否则，如果以阻塞方式调用这个函数，则只有所有挂起的 I/O 都完成，且断开
 // 操作已经发动（transport level disconnect has been issued）之后，函数才会返回。
