@@ -1307,7 +1307,7 @@ extern "C" {
     // Define one or more of the NOapi symbols to exclude the API. For example,
     // NOCOMM excludes the serial communication API. For a list of support
     // NOapi symbols, see Windows.h. such as #define NOCOMM
-    // Windows API Data Types:
+    // 基本类型
     //  Data type   Size        Signed?
     //  BYTE        8 bits      Unsigned
     //  WORD        16 bits     Unsigned
@@ -1320,6 +1320,12 @@ extern "C" {
     //  LONGLONG    64 bits     Signed
     //  UINT64      64 bits     Unsigned
     //  ULONGLONG   64 bits     Unsigned
+    // 指针长度的整型
+    //  DWORD_PTR
+    //  INT_PTR
+    //  LONG_PTR
+    //  ULONG_PTR
+    //  UINT_PTR
     #include <windows.h>
     #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_abort_error(GetLastError()); }
     #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_prerr(GetLastError()); }
@@ -14660,6 +14666,12 @@ void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *ent
 static HANDLE PRH_IMPL_IOCP;
 typedef void (*prh_iocp_completion_routine)(OVERLAPPED_ENTRY *entry);
 
+typedef struct {
+    prh_atom_hive_fbqfix free_block_q;
+    prh_atom_hive_quefix cono_req_que;
+    prh_atom_hive_quefix post_req_que;
+} prh_sched_thrd;
+
 void prh_impl_thrd_init(void) {
     DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
     PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
@@ -17119,8 +17131,14 @@ void prh_impl_wsasocket_init(void) {
 // 程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个
 // 阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
 
-void prh_sock_reuseaddr(prh_handle sock, int reuse) {
+void prh_setsockopt_reuseaddr(prh_handle sock, int reuse) {
     int n = setsockopt((SOCKET)sock, SOL_SOCKET, SO_REUSEADDR, (char *)&reuse, (int)sizeof(int));
+    prh_wsa_prerr_if(n != 0);
+}
+
+void prh_setsockopt_ipv6_accept_v4_mapped_address(prh_handle sock, int enable) {
+    int ipv6_v6_only = !enable; // IPv6 监听，必须加 IPV6_V6ONLY=0 才能同时接收 v4-mapped 地址
+    int n = setsockopt((SOCKET)sock, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&ipv6_v6_only, (int)sizeof(int));
     prh_wsa_prerr_if(n != 0);
 }
 
@@ -17227,7 +17245,7 @@ void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
     // 地址，也就是说不论是否预先设置 SO_REUSEADDR，对应的bind调用都会失败。在这样的
     // 系统上，执行通配地址捆绑的服务器进程必须最后一个启动。这么做是为了防止把恶意的服
     // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
-    prh_sock_reuseaddr(sock, 1);
+    prh_setsockopt_reuseaddr(sock, 1);
     int n = bind((SOCKET)sock, (sockaddr *)addr, namelen);
     prh_wsa_prerr_if(n != 0);
 }
@@ -17509,27 +17527,38 @@ void prh_impl_tcp_listen(prh_handle sock, int backlog) {
 // 操作完成时会通过 GetQueuedCompletionStatus 返回，你可以通过 lpCompletionKey 和
 // lpOverlapped 区分是哪个 AcceptEx 完成。
 
-#define PRH_IMPL_ACCEPT_ADDRSIZE (int)(sizeof(struct sockaddr_in6) + 16)
-prh_impl_static_assert(WSA_IO_PENDING == ERROR_IO_PENDING);
-prh_impl_static_assert(sizeof(ULONG_PTR) == sizeof(void *));
+#define PRH_IMPL_ACCEPT_V4_ADDRSIZE (int)(sizeof(struct sockaddr_in) + 16)
+#define PRH_IMPL_ACCEPT_V6_ADDRSIZE (int)(sizeof(struct sockaddr_in6) + 16)
+
+prh_static_assert(WSA_IO_PENDING == ERROR_IO_PENDING);
+prh_static_assert(sizeof(ULONG_PTR) == sizeof(void *));
+prh_static_assert(PRH_IMPL_ACCEPT_V6_ADDRSIZE <= 256);
+prh_static_assert(sizeof(SOCKET) == sizeof(int));
 
 typedef struct {
     OVERLAPPED overlapped; // 1st field
     SOCKET accept_socket;
-    int request_index; // 初始化后只读
-    prh_byte addrbuf[PRH_IMPL_ACCEPT_ADDRSIZE * 2];
+    prh_u32 request_index: 24, addr_size: 8; // 初始化后只读
 } prh_accept_request;
 
 typedef struct {
     SOCKET listen; // 初始化后只读
+    int listen_address_family; // 初始化后只读
     int accept_request_count; // 初始化后只读
     int min_pending_accepts; // 初始化后只读
     void *from_cono_subq; // 初始化后只读
     prh_accept_request request[1];
 } prh_iocp_accept;
 
+prh_inline int prh_impl_iocp_each_accept_size(prh_accept_request *req) {
+    return (int)(sizeof(prh_accept_request) + req->addr_size * 2);
+}
 prh_inline prh_iocp_accept *prh_impl_iocp_get_accept(prh_accept_request *req) {
-    return (prh_iocp_accept *)((prh_byte *)req - sizeof(prh_accept_request) * req->request_index - prh_offsetof(prh_iocp_accept, request));
+    return (prh_iocp_accept *)((prh_byte *)req - prh_impl_iocp_each_accept_size(req) * req->request_index - prh_offsetof(prh_iocp_accept, request));
+}
+
+prh_inline prh_byte *prh_impl_iocp_accept_addrbuf(prh_accept_request *req) {
+    return (prh_byte *)(req + 1);
 }
 
 void prh_iocp_accept_req(prh_accept_request *req) { // 可以多个线程同时投递数组中不同的 accept 请求
@@ -17538,10 +17567,10 @@ void prh_iocp_accept_req(prh_accept_request *req) { // 可以多个线程同时�
     BOOL b = PRH_IMPL_ACCEPTEX(
         /* [in]  SOCKET       sListenSocket         */  accept->listen,
         /* [in]  SOCKET       sAcceptSocket         */  req->accept_socket, // 必须是未绑定未连接的套接字句柄
-        /* [in]  PVOID        lpOutputBuffer        */  req->addrbuf,
+        /* [in]  PVOID        lpOutputBuffer        */  prh_impl_iocp_accept_addrbuf(req),
         /* [in]  DWORD        dwReceiveDataLength,  */  0,
-        /* [in]  DWORD        dwLocalAddressLength, */  PRH_IMPL_ACCEPT_ADDRSIZE,
-        /* [in]  DWORD        dwRemoteAddressLength,*/  PRH_IMPL_ACCEPT_ADDRSIZE,
+        /* [in]  DWORD        dwLocalAddressLength, */  req->addr_size,
+        /* [in]  DWORD        dwRemoteAddressLength,*/  req->addr_size,
         /* [out] LPDWORD      lpdwBytesReceived,    */  prh_null, // 仅操作同步完成时才设置此参数，如果 ERROR_IO_PENDING 永远不会被设置，必须从完成机制中获取读取的字节数
         /* [in]  LPOVERLAPPED lpOverlapped          */  &req->overlapped,
         );
@@ -17583,7 +17612,7 @@ void prh_impl_iocp_accept_completion(OVERLAPPED_ENTRY *entry) {
     // 开始处理当前接收的客户连接，将客户连接提交到调度任务池分配给等待的线程处理
     sockaddr_in *l_addr, *p_addr;
     INT l_addrlen = 0, p_addrlen = 0;
-    PRH_IMPL_GETACCEPTEXSOCKADDRS(req->addrbuf, 0, PRH_IMPL_ACCEPT_ADDRSIZE, PRH_IMPL_ACCEPT_ADDRSIZE, (sockaddr *)&l_addr, &l_addrlen, (sockaddr *)&p_addr, &p_addrlen);
+    PRH_IMPL_GETACCEPTEXSOCKADDRS(prh_impl_iocp_accept_addrbuf(req), 0, req->addr_size, req->addr_size, (sockaddr *)&l_addr, &l_addrlen, (sockaddr *)&p_addr, &p_addrlen);
     assert(l_addrlen == sizeof(struct sockaddr_in) || l_addrlen == sizeof(struct sockaddr_in6));
     assert(p_addrlen == sizeof(struct sockaddr_in) || p_addrlen == sizeof(struct sockaddr_in6));
     assert(l_addr->sin_family == AF_INET || l_addr->sin_family == AF_INET6);
@@ -17597,7 +17626,7 @@ void prh_impl_iocp_accept_completion(OVERLAPPED_ENTRY *entry) {
 
     // 总是保持数组中最低 min_pending_accepts 个 AcceptEx 时刻等待客户连接
     if (req->request_index < accept->min_pending_accepts) {
-        req->accept_socket = prh_impl_tcp_socket(AF_INET6); // 鼓励应用程序使用 AF_INET6 创建可用于 IPv4 和 IPv6 的双模套接字
+        req->accept_socket = prh_impl_tcp_socket(accept->listen_address_family);
         prh_iocp_accept_req(req);
     } else {
         req->accept_socket = PRH_INVASOCK;
@@ -17621,21 +17650,26 @@ void prh_impl_iocp_reuse_accept_socket(prh_accept_request *req, prh_handle accep
 #endif
 }
 
-prh_iocp_accept *prh_iocp_accept_init(prh_cono_subq *from_cono_subq, prh_handle listen, int accept_request_count, int min_pending_accepts) {
+prh_iocp_accept *prh_iocp_accept_init(prh_cono_subq *from_cono_subq, prh_handle listen, int listen_address_family, int accept_request_count, int min_pending_accepts) {
     assert(accept_request_count >= min_pending_accepts);
     assert(min_pending_accepts > 0);
-    prh_int alloc_size = sizeof(prh_iocp_accept) + sizeof(prh_accept_request) * (accept_request_count - 1);
+    assert(accept_request_count <= 0x00FFFFFF);
+    int accept_addr_size = prh_round_ptrsize((listen_address_family == AF_INET6) ? PRH_IMPL_ACCEPT_V6_ADDRSIZE : PRH_IMPL_ACCEPT_V4_ADDRSIZE);
+    int each_accept_size = sizeof(prh_accept_request) + accept_addr_size * 2;
+    prh_int alloc_size = sizeof(prh_iocp_accept) - sizeof(prh_accept_request) + each_accept_size * accept_request_count;
     prh_iocp_accept *accept = prh_malloc(alloc_size);
     assert(accept != prh_null);
     memset(accept, 0, alloc_size);
     prh_accept_request *req = accept->request;
     accept->listen = (SOCKET)listen;
+    accept->listen_address_family = listen_address_family;
     accept->accept_request_count = accept_request_count;
     accept->min_pending_accepts = min_pending_accepts;
     accept->from_cono_subq = from_cono_subq;
     for (int i = 0; i < accept_request_count; i += 1) {
-        req[i].accept_socket = prh_impl_tcp_socket(AF_INET6); // 鼓励应用程序使用 AF_INET6 创建可用于 IPv4 和 IPv6 的双模套接字
+        req[i].accept_socket = prh_impl_tcp_socket(listen_address_family);
         req[i].request_index = i;
+        req[i].addr_size = accept_addr_size;
     }
     prh_impl_completion_port_attach(PRH_IMPL_IOCP, accept->listen, (void *)prh_impl_iocp_accept_completion);
 }
@@ -19902,7 +19936,7 @@ void prh_clr_cloexec(int fd) {
     prh_nnegret(fcntl(fd, F_SETFD, flags));
 }
 
-void prh_sock_reuseaddr(prh_handle sock, int reuse) {
+void prh_setsockopt_reuseaddr(prh_handle sock, int reuse) {
     prh_zeroret_or_errno(setsockopt((int)sock, SOL_SOCKET, SO_REUSEADDR, &reuse, (int)sizeof(int)));
 }
 
@@ -20042,7 +20076,7 @@ void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
     // 地址，也就是说不论是否预先设置 SO_REUSEADDR，对应的bind调用都会失败。在这样的
     // 系统上，执行通配地址捆绑的服务器进程必须最后一个启动。这么做是为了防止把恶意的服
     // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
-    prh_sock_reuseaddr(sock, 1);
+    prh_setsockopt_reuseaddr(sock, 1);
     prh_real_zeroret_or_errno(bind(sock, (struct sockaddr *)addr, addrlen));
 }
 
