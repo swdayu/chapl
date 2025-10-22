@@ -14706,6 +14706,11 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 //      PRIO_NOTIFICATION_COMPLETION NotificationCompletion
 // );
 //
+// typedef enum _RIO_NOTIFICATION_COMPLETION_TYPE {
+//      RIO_EVENT_COMPLETION = 1,
+//      RIO_IOCP_COMPLETION = 2
+// } RIO_NOTIFICATION_COMPLETION_TYPE, *PRIO_NOTIFICATION_COMPLETION_TYPE;
+//
 // typedef struct _RIO_NOTIFICATION_COMPLETION {
 //      RIO_NOTIFICATION_COMPLETION_TYPE Type;
 //      union {
@@ -14946,6 +14951,85 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 //
 // 如果在 CQ 参数中传递了一个无效的完成队列（例如 RIO_INVALID_CQ），RIOCloseCompletionQueue
 // 函数将忽略它。
+//
+// RIO_RQ RIOCreateRequestQueue(
+//      SOCKET Socket,
+//      ULONG MaxOutstandingReceive,
+//      ULONG MaxReceiveDataBuffers,
+//      ULONG MaxOutstandingSend,
+//      ULONG MaxSendDataBuffers,
+//      RIO_CQ ReceiveCQ,
+//      RIO_CQ SendCQ,
+//      PVOID SocketContext
+// );
+//
+// RIOCreateRequestQueue 函数用于创建一个 RIO 套接字描述符，使用指定的套接字和 I/O 完
+// 成队列，以供 Winsock RIO 扩展函数使用。如果没有错误发生，RIOCreateRequestQueue 函
+// 数返回一个新的请求队列的描述符。否则返回 RIO_INVALID_RQ，可以通过调用 WSAGetLastError
+// 函数获取特定的错误代码。
+//      WSAEINVAL       向函数传递了无效参数。如果 ReceiveCQ 或 SendCQ 参数包含 RIO_INVALID_CQ，则返回此错误。如果 MaxOutstandingReceive
+//                      和 MaxOutstandingSend 参数均为零，也返回此错误。如果 Socket 参数中的套接字正在初始化或关闭过程中，也返回此错误。
+//      WSAENOBUFS      无法分配足够的内存。如果根据参数无法为请求队列分配足够的内存，则返回此错误。如果超出网络会话限制，也返回此错误。
+//      WSAENOTSOCK     描述符不是套接字。如果 Socket 参数不是有效套接字，则返回此错误。
+//      WSAEOPNOTSUPP   尝试的操作不支持引用的对象类型。如果 Socket 参数中的套接字类型不受支持（例如 SOCK_RAW），则返回此错误。
+//
+// 参数 Socket 标识套接字的描述符。
+//
+// 参数 MaxOutstandingReceive 允许在套接字上挂起的最大接收操作的数量。注意，对于大多
+// 数应用程序，此参数通常是一个较小的数字。参数 MaxReceiveDataBuffers 套接字上的最大
+// 接收数据缓冲区的数量。注意，对于 Windows 8 和 Windows Server 2012 此参数必须为 1。
+//
+// 参数 MaxOutstandingSend 允许在套接字上挂起的最大发送操作的数量。参数 MaxSendDataBuffers
+// 套接字上的最大发送数据缓冲区的数量。注意，对于 Windows 8 和 Windows Server 2012，
+// 此参数必须为 1。
+//
+// 参数 ReceiveCQ 表示用于保存接收请求完成通知的 I/O 完成队列。参数 SendCQ 表示用于保
+// 存发送请求完成通知的 I/O 完成队列。此参数可以与 ReceiveCQ 参数具有相同的值。
+//
+// 参数 SocketContext，与该请求队列关联的套接字上下文。
+//
+// RIOCreateRequestQueue 函数使用指定的套接字和 I/O 完成队列创建一个 RIO 套接字描述符。
+// 应用程序必须调用 RIOCreateRequestQueue 以获取 Winsock 套接字的 RIO_RQ，然后才能使
+// 用 RIOSend、RIOSendEx、RIOReceive 或 RIOReceiveEx 函数。为了获取 RIO_RQ，Winsock
+// 套接字必须与发送和接收的完成队列关联。
+//
+// 由于完成队列的大小是有限的，只有在保证不会超过总排队完成的容量时，套接字才可能与发送
+// 和接收操作的完成队列关联。因此，通过调用 RIOCreateRequestQueue 函数为套接字建立了特
+// 定的限制。这些限制既用于在 RIOCreateRequestQueue 调用期间验证完成队列中有足够的空间
+// 来容纳套接字请求，也用于在请求发起时确保请求不会导致套接字超出其限制。
+//
+// 发送和接收队列可以与多个套接字关联。发送和接收队列的大小必须大于或等于所有附加套接字    *** 发送操作的完成队列和接收操作的完成队列，可以与多个套接字关联，直到套接字被关闭
+// 的发送和接收大小。随着使用 closesocket 函数关闭套接字，请求队列被关闭，这些插槽将被
+// 释放，供其他套接字使用。当应用程序完成对 RIO_RQ 的使用时，应用程序应调用 closesocket
+// 函数关闭套接字并释放相关资源。
+//
+// BOOL RIOResizeRequestQueue(
+//      RIO_RQ RQ,
+//      DWORD MaxOutstandingReceive,
+//      DWORD MaxOutstandingSend
+// );
+//
+// RIOResizeRequestQueue 函数用于调整请求队列的大小，使其变大或变小。如果没有错误发生，
+// RIOResizeRequestQueue 函数返回 TRUE。否则返回，可以通过调用 WSAGetLastError 函数
+// 获取特定的错误代码。
+//      WSAEINVAL           向函数传递了无效参数。如果 RQ 参数无效（例如 RIO_INVALID_RQ），或者 MaxOutstandingReceive 和 MaxOutstandingSend 参数均为零，则返回此错误。
+//      WSAENOBUFS          无法分配足够的内存。如果无法为调整大小后的请求队列分配内存，则返回此错误。
+//      WSAETOOMANYREFS     仍有太多操作引用请求队列。此时无法将此请求队列调整为更小的大小。
+//
+// 参数 RQ 标识要调整大小的现有 RIO 套接字描述符（请求队列）。
+//
+// 参数 MaxOutstandingReceive 允许在套接字上挂起的最大接收操作数。此值可以大于或小于
+// 原始数量。注意，对于大多数应用程序，此参数通常是一个较小的数字。
+//
+// 参数 MaxOutstandingSend 允许在套接字上挂起的最大发送操作数。此值可以大于或小于原始
+// 数量。
+//
+// RIOResizeRequestQueue 函数用于调整请求队列的大小，使其变大或变小。如果请求队列中已
+// 经包含条目，这些条目将被复制到新的请求队列中。
+//
+// 请求队列有一个所需的最小大小，这取决于当前条目数量（请求队列上的发送和接收操作数量）。
+// 如果应用程序调用 RIOResizeRequestQueue 函数并尝试将队列设置得比现有条目数量还小，
+// 则调用将失败，队列不会被调整大小。
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
@@ -19355,7 +19439,6 @@ void prh_impl_sock_test(void) {
     printf("struct sockaddr_in %d-byte\n", (int)sizeof(struct sockaddr_in));
     printf("struct sockaddr_in6 %d-byte\n", (int)sizeof(struct sockaddr_in6));
     printf("RIO_MAX_CQ_SIZE %d\n", RIO_MAX_CQ_SIZE);
-    printf("RIO_MAX_RQ_SIZE %d\n", RIO_MAX_RQ_SIZE);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else // POSIX begin
