@@ -14797,7 +14797,8 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 //
 // RIO_CQ 完成队列对象​​用于保存 Winsock RIO 网络发送操作和接收操作的完成通知。应用程序
 // 可通过以下方式管理完成队列：应用程序可以调用 RIONotify 函数请求在 RIO_CQ 队列非空时
-// 触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队列进行轮询。
+// 触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队列进行轮询。使
+// 用 RIONotify 函数注册的通知机制，可以减少轮询的频率，提高性能。
 //
 // RIO_CQ 对象是通过调用 RIOCreateCompletionQueue 函数创建的。在创建时，应用程序必须
 // 指定队列的大小，这决定了它可以容纳多少个完成条目。当应用程序调用 RIOCreateRequestQueue
@@ -14807,7 +14808,9 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 // 占用关联的完成队列的容量。如果队列没有足够的剩余容量，RIOCreateRequestQueue 调用将
 // 因 WSAENOBUFS 错误而失败。
 //
-// INT RIONotify(RIO_CQ CQ);
+// INT RIONotify(
+//      RIO_CQ CQ
+// );
 //
 // RIONotify 函数用于为 Winsock RIO 注册完成通知，当调用该函数后，对应的完成队列如果
 // 有操作完成，会根据完成队列对应的通知机制进行完成通知。若未发生错误，RIONotify 函数
@@ -14865,6 +14868,84 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 //
 // ​​线程安全​​，多线程通过 RIODequeueCompletion 访问同一 RIO_CQ 时，需使用临界区、轻量级
 // 读写锁（slim reader writer lock）等互斥机制协调。若完成队列非共享，则无需互斥。
+//
+// ULONG RIODequeueCompletion(
+//      RIO_CQ CQ,
+//      PRIORESULT Array,
+//      ULONG ArraySize
+// );
+//
+// typedef struct _RIORESULT {
+//      LONG      Status;
+//      ULONG     BytesTransferred;
+//      ULONGLONG SocketContext;
+//      ULONGLONG RequestContext;
+// } RIORESULT, *PRIORESULT;
+//
+// RIODequeueCompletion 函数用于从 I/O 完成队列中移除条目。如果没有错误发生，函数返回
+// 从指定完成队列中移除的完成条目数。否则返回 RIO_CORRUPT_CQ，表示由于内存损坏或滥用
+// RIO 函数，CQ 参数中传递的 RIO_CQ 的状态已损坏。
+//
+// 参数 CQ 指定 I/O 完成队列。参数 Array 指定 RIORESULT 结构数组，用于接收已出队的完
+// 成通知。参数 ArraySize，Array 中可写入的最大条目数。
+//
+// RIODequeueCompletion 函数用于从 I/O 完成队列中移除发送和接收请求的条目，这些请求与
+// Winsock RIO 扩展相关。
+//
+// RIODequeueCompletion 函数是应用程序了解已完成的发送和接收请求的机制。应用程序通常
+// 在完成队列不为空时，根据 RIONotify 函数注册的方法接收通知后，调用 RIODequeueCompletion
+// 函数。I/O 完成队列的通知行为在创建 RIO_CQ 时设置。
+//
+// 当 RIODequeueCompletion 函数完成时，Array 参数包含一个指向已出队的完成发送和接收请
+// 求的 RIORESULT 结构体数组。返回的 RIORESULT 结构的成员提供了已完成请求的完成状态信
+// 息和传输的字节数。每个返回的 RIORESULT 结构还包括一个套接字上下文和一个应用程序上下
+// 文，可用于识别特定的已完成请求。
+//
+// 如果 CQ 参数中传递的 I/O 完成队列无效或已损坏，RIODequeueCompletion 函数返回 RIO_CORRUPT_CQ。
+// 如果没有任何已完成的发送或接收请求需要出队，RIODequeueCompletion 函数返回零值。只有
+// 在操作请求完成且被出队后，系统才会释放其缓冲区和缓冲区注册的关联，以及其配额费用。
+//
+// BOOL RIOResizeCompletionQueue(
+//      RIO_CQ CQ,
+//      DWORD QueueSize
+// );
+//
+// RIOResizeCompletionQueue 函数用于调整 I/O 完成队列的大小，使其变大或变小。如果没有
+// 错误发生，RIOResizeCompletionQueue 函数返回 TRUE。否则返回 FALSE，可以通过调用
+// WSAGetLastError 函数获取特定的错误代码。
+//      WSAEFAULT           系统在尝试使用指针参数时检测到无效的指针地址。如果 CQ 参数中指定的完成队列包含无效指针，则返回此错误。
+//      WSAEINVAL           向函数传递了无效参数。如果 CQ 参数无效（例如 RIO_INVALID_CQ），或者 QueueSize 参数指定的队列大小大于 RIO_CQ_MAX_SIZE，则返回此错误。
+//      WSAENOBUFS          无法分配足够的内存。如果无法为 QueueSize 参数指定的队列分配内存，则返回此错误。
+//      WSAETOOMANYREFS     仍有太多操作引用 I/O 完成队列。此时无法将此 I/O 完成队列调整为更小的大小。
+//
+// 参数 CQ 标识要调整大小的现有 I/O 完成队列的描述符。参数 QueueSize 要调整到的新大小，
+// 以条目数为单位。
+//
+// RIOResizeCompletionQueue 函数用于调整 I/O 完成队列的大小，使其变大或变小。如果 I/O
+// 完成队列中已经包含完成条目，这些完成条目将被复制到新的完成队列中。                    *** 现存的完成条目会复制到新的完成队列中
+//
+// I/O 完成队列有一个所需的最小大小，这取决于与完成队列关联的请求队列的数量以及请求队列
+// 上的发送和接收操作的数量。如果应用程序调用 RIOResizeCompletionQueue 函数并尝试将队
+// 列设置得比 I/O 完成队列中现有的完成条目数量还小，则调用将失败，队列不会被调整大小。    *** 完成队列应维持一个最小的队列大小，可以满足关联的请求队列以及触发的发送和接收操作的数量
+//
+// 如果多个线程尝试使用 RIODequeueCompletion 或 RIOResizeCompletionQueue 函数访问同
+// 一个 RIO_CQ，必须通过临界区、轻量级读写锁或类似的互斥机制协调访问。如果完成队列不共
+// 享，则不需要互斥。
+//
+// VOID RIOCloseCompletionQueue(
+//      RIO_CQ CQ
+// );
+//
+// RIOCloseCompletionQueue 函数用于关闭一个现有的 I/O 完成队列，该队列用于保存通过
+// Winsock RIO 发送操作和接收操作的完成通知。参数 CQ 指定一个现有的完成队列。
+//
+// RIOCloseCompletionQueue 函数关闭一个现有的 I/O 完成队列。CQ 参数中传递的 RIO_CQ
+// 被内核锁定为写入状态（locked for writing by the kernel）。完成队列被标记为无效，     *** 完成队列关闭后，挂起操作的完成通知将被丢弃
+// 因此无法添加新的完成条目。任何要添加的新完成条目将被静默丢弃。应用程序应跟踪任何挂起
+// 的发送或接收操作。
+//
+// 如果在 CQ 参数中传递了一个无效的完成队列（例如 RIO_INVALID_CQ），RIOCloseCompletionQueue
+// 函数将忽略它。
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
