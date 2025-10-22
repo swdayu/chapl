@@ -14666,12 +14666,6 @@ void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *ent
 static HANDLE PRH_IMPL_IOCP;
 typedef void (*prh_iocp_completion_routine)(OVERLAPPED_ENTRY *entry);
 
-typedef struct {
-    prh_atom_hive_fbqfix free_block_q;
-    prh_atom_hive_quefix cono_req_que;
-    prh_atom_hive_quefix post_req_que;
-} prh_sched_thrd;
-
 void prh_impl_thrd_init(void) {
     DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
     PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
@@ -14707,9 +14701,170 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
     return n;
 }
 
-int prh_impl_sched_thrd_procedure(prh_thrd *thrd) {
-
-}
+// RIO_CQ RIOCreateCompletionQueue(
+//      DWORD QueueSize, // [1, RIO_MAX_CQ_SIZE]
+//      PRIO_NOTIFICATION_COMPLETION NotificationCompletion
+// );
+//
+// typedef struct _RIO_NOTIFICATION_COMPLETION {
+//      RIO_NOTIFICATION_COMPLETION_TYPE Type;
+//      union {
+//          struct {
+//              HANDLE EventHandle;
+//              BOOL   NotifyReset;
+//          } Event;
+//          struct {
+//              HANDLE IocpHandle;
+//              PVOID  CompletionKey;
+//              PVOID  Overlapped;
+//          } Iocp;
+//      };
+// } RIO_NOTIFICATION_COMPLETION, *PRIO_NOTIFICATION_COMPLETION;
+//
+// RIOCreateCompletionQueue 函数用于创建一个特定大小的 I/O 完成队列，以供 Winsock
+// RIO 扩展使用。如果没有错误发生，RIOCreateCompletionQueue 函数返回一个引用新完成队
+// 列的描述符。否则返回 RIO_INVALID_CQ，可以通过 WSAGetLastError 函数获取错误代码。
+//      WSAEFAULT   系统在尝试使用指针参数时检测到无效的指针地址。
+//      WSAEINVAL   向函数传递了无效参数。如果 QueueSize 参数小于 1 或大于 Mswsockdef.h 头文件中定义的 RIO_MAX_CQ_SIZE，则返回此错误。
+//      WSAENOBUFS  无法分配足够的内存。如果根据 QueueSize 参数请求的完成队列无法分配足够的内存，则返回此错误。
+//
+// 参数 QueueSize 要创建的完成队列的大小，以条目数为单位。参数 NotificationCompletion，
+// 基于 RIO_NOTIFICATION_COMPLETION 结构 Type 成员的类型，确定使用的通知完成类型（I/O
+// 完成或事件通知）。
+//  1.  如果 Type 成员设置为 RIO_EVENT_COMPLETION，则 RIO_NOTIFICATION_COMPLETION
+//      结构的 Event 成员必须设置。
+//  2.  如果 Type 成员设置为 RIO_IOCP_COMPLETION，则 RIO_NOTIFICATION_COMPLETION
+//      结构的 Iocp 成员必须设置，并且 RIO_NOTIFICATION_COMPLETION 结构的 Iocp.Overlapped
+//      成员不能为 NULL。
+//  3.  如果 NotificationCompletion 参数为 NULL，则表示不使用通知完成，必须通过轮询来
+//      确定完成。
+//
+// RIOCreateCompletionQueue 函数创建一个特定大小的 I/O 完成队列。完成队列的大小限制了
+// 可以与完成队列关联的注册 I/O 套接字的集合。创建 RIO_CQ 时，NotificationCompletion
+// 参数指向的 RIO_NOTIFICATION_COMPLETION 结构决定了应用程序将如何接收完成队列通知。
+//
+// 如果在创建完成队列时提供了 RIO_NOTIFICATION_COMPLETION 结构，则应用程序可以调用
+// RIONotify 函数请求完成队列通知。通常，当完成队列不为空时会触发通知。这可能立即发生，
+// 或者当下一个完成条目插入完成队列时发生。但是，发送和接收请求可以标记为 RIO_MSG_DONT_NOTIFY，
+// 此类请求不会触发完成队列通知。如果完成队列中只有设置了 RIO_MSG_DONT_NOTIFY 标志的
+// 条目，则不会触发完成队列通知。此外，当新条目进入完成队列时，只有当关联请求未设置
+// RIO_MSG_DONTIFY 标志时，才会触发完成队列通知。仍然可以使用 RIODequeueCompletion
+// 函数通过轮询检索任何已完成的请求。一旦完成队列通知触发，应用程序必须调用 RIONotify
+// 函数才能接收另一个完成队列通知。当完成队列通知发生时，应用程序通常调用 RIODequeueCompletion
+// 函数来获取已完成的发送或接收请求。
+//
+// 完成队列通知有两种选项：
+//
+// 事件句柄：如果 RIO_NOTIFICATION_COMPLETION 结构的 Type 成员设置为 RIO_EVENT_COMPLETION，
+// 则使用事件句柄来发出完成队列通知。事件句柄通过 RIOCreateCompletionQueue 函数
+// RIO_NOTIFICATION_COMPLETION 结构中的 EventNotify.EventHandle 成员提供。Event.EventHandle
+// 成员应包含由 WSACreateEvent 或 CreateEvent 函数创建的事件的句柄。为了接收 RIONotify
+// 完成通知，应用程序应使用 WSAWaitForMultipleEvents 或类似的等待例程等待指定的事件句
+// 柄。调用 RIONotify 函数会触发对应的 RIO_CQ 事件的完成通知。传递给 RIOCreateCompletionQueue
+// 函数的 RIO_NOTIFICATION_COMPLETION 结构中的 Event.NotifyReset 成员指示是否应在
+// RIONotify 函数调用时重置事件。如果应用程序计划重置并重用事件，则可以通过将 Event.NotifyReset
+// 成员设置为非零值来减少开销。这将导致事件在通知发生时由 RIONotify 函数自动重置，避免
+// 了在 RIONotify 函数调用之间调用 WSAResetEvent 函数来重置事件。
+//
+// I/O 完成端口：如果 RIO_NOTIFICATION_COMPLETION 结构的 Type 成员设置为 RIO_IOCP_COMPLETION，
+// 则使用 I/O 完成端口来发出完成队列通知。I/O 完成端口句柄通过 RIOCreateCompletionQueue
+// 函数的 RIO_NOTIFICATION_COMPLETION 结构中的 Iocp.IocpHandle 成员提供。此 RIO_CQ
+// 对 RIONotify 函数的调用将向对应的 RIO_CQ 完成端口排队一个条目，可以使用 GetQueuedCompletionStatus
+// 或 GetQueuedCompletionStatusEx 函数检索该条目。排队的条目返回的 lpCompletionKey
+// 参数值，对应于 RIO_NOTIFICATION_COMPLETION 结构的 Iocp.CompletionKey 成员中指定
+// 的值，RIO_NOTIFICATION_COMPLETION 结构的 Iocp.Overlapped 成员是一个非 NULL 值。
+//
+// 就其使用而言，完成队列通知旨在唤醒等待的应用程序线程，以便线程可以检查完成队列。唤醒
+// 和调度线程是有代价的，因此如果这种情况发生得太频繁，将对应用程序性能产生负面影响。提
+// 供 RIO_MSG_DONT_NOTIFY 标志，以便应用程序可以控制这些事件的频率，并限制它们对性能的
+// 过度影响。
+//
+// 注意，为了提高效率，对完成队列（RIO_CQ 结构）和请求队列（RIO_RQ 结构）的访问不受同
+// 步原语保护。如果需要从多个线程访问完成队列或请求队列，则应通过临界区、轻量级读写锁或
+// 类似的机制协调访问。单个线程访问时不需要锁定。不同线程可以访问不同的请求/完成队列，
+// 无需锁定。只有当多个线程尝试访问同一个队列时，才需要同步。如果多个线程在同一个套接字
+// 上发出发送和接收操作，也需要同步，因为发送和接收操作使用套接字的请求队列。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 RIOCreateCompletionQueue 函数的函数指针。传递给 WSAIoctl 函数的输入
+// 缓冲区必须包含 WSAID_MULTIPLE_RIO，这是一个全局唯一标识符（GUID），其值标识 Winsock
+// RIO 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 RIO_EXTENSION_FUNCTION_TABLE
+// 结构的指针，该结构包含指向 Winsock RIO 扩展函数的指针。SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
+// IOCTL 在 Ws2def.h 头文件中定义。WSAID_MULTIPLE_RIO GUID 在 Mswsock.h 头文件中定
+// 义。
+//
+// typedef struct RIO_CQ_t* RIO_CQ, **PRIO_CQ;
+//
+// RIO_CQ 完成队列对象​​用于保存 Winsock RIO 网络发送操作和接收操作的完成通知。应用程序
+// 可通过以下方式管理完成队列：应用程序可以调用 RIONotify 函数请求在 RIO_CQ 队列非空时
+// 触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队列进行轮询。
+//
+// RIO_CQ 对象是通过调用 RIOCreateCompletionQueue 函数创建的。在创建时，应用程序必须
+// 指定队列的大小，这决定了它可以容纳多少个完成条目。当应用程序调用 RIOCreateRequestQueue
+// 函数以获取 RIO_RQ 句柄时，应用程序必须指定一个用于发送完成的 RIO_CQ 句柄和一个用于
+// 接收完成的 RIO_CQ 句柄。当应该使用相同的队列进行发送和接收完成时，这些句柄可以相同。
+// RIOCreateRequestQueue 函数还需要一个最大未完成的发送和接收操作数量，这些操作数量会
+// 占用关联的完成队列的容量。如果队列没有足够的剩余容量，RIOCreateRequestQueue 调用将
+// 因 WSAENOBUFS 错误而失败。
+//
+// INT RIONotify(RIO_CQ CQ);
+//
+// RIONotify 函数用于为 Winsock RIO 注册完成通知，当调用该函数后，对应的完成队列如果
+// 有操作完成，会根据完成队列对应的通知机制进行完成通知。若未发生错误，RIONotify 函数
+// 返回 ERROR_SUCCESS；否则返回特定错误代码。
+//      ​​WSAEINVAL     函数接收到无效参数。若传入的完成队列无效（如 RIO_INVALID_CQ）或发生内部错误时返回此错误。
+//      WSAEALREADY​​   尝试对已有操作进行的非阻塞套接字继续请求操作。若前一次 RIONotify 请求尚未完成则返回此错误。
+//
+// ​参数​​ ​CQ​​ 指定对应的 I/O 完成队列。
+//
+// 该函数是应用程序获知请求已完成且待调用 RIODequeueCompletion 的机制。当 I/O 完成队
+// 列非空且包含操作结果时，RIONotify 会设置触发通知行为的方法。只要让 RIO 完成队列在
+// "有新完成包" 时主动唤醒你，就要先调用一次 RIONotify，调一次 RIONotify 只负责 “下一
+// 次” 完成到达后的信号触发，调一次只生效一次，用完必须再调。每次 RIODequeueCompletion
+// 把队列抽空后，必须再次调用 RIONotify，否则新完成包进来不会触发事件或 IOCP。消费完队
+// 列就再按一次，让 RIO 在新完成包到达时重新点亮事件或 IOCP，否则通知链条会断掉。
+//
+// 三种通知模型与 RIONotify 的使用方式
+//  模型            什么时候调 RIONotify            之后如何拿到完成结果
+//  轮询            不调（或调了也不用等事件）       直接循环 RIODequeueCompletion
+//  事件通知        每次消费完队列后再调一次         WaitForSingleObject(hev, …) 被唤醒，再 RIODequeueCompletion
+//  IOCP 通知       同上，消费完再调                GetQueuedCompletionStatus(Ex) 返回，再 RIODequeueCompletion
+//
+//      // 1. 创建队列时指定通知对象
+//      RIO_CQ cq = rio.RIOCreateCompletionQueue(queueSize, &event); // 或 &iocp
+//      // 2. 初始投递一批 RIOReceive / RIOSend
+//      for (...) rio.RIOReceive(rq, &buf, 1, 0, context);
+//      // 3. 先调一次 RIONotify 启动 “信号-armed” 状态
+//      rio.RIONotify(cq);
+//      for (; ;) {
+//          // 4. 等事件/IOCP
+//          WaitForSingleObject(event, INFINITE); // 或 GetQueuedCompletionStatus
+//          // 5. 收割
+//          ULONG n;
+//          while ((n = rio.RIODequeueCompletion(cq, results, MAX)) > 0) {
+//              HandleCompletions(results, n);
+//          }
+//          // 6. 队列再次为空，重新装填准备发射（armed）
+//          rio.RIONotify(cq);
+//      }
+//
+// 完成队列的通知行为在其创建时即被确定。创建 RIO_CQ 时需向 RIOCreateCompletionQueue
+// 函数传递 RIO_NOTIFICATION_COMPLETION 结构体：
+//
+// ​事件通知​​：将结构体的 Type 成员设为 RIO_EVENT_COMPLETION，Event.EventHandle 成员
+// 应为 WSACreateEvent 或 CreateEvent 创建的事件句柄。应用程序需通过 WSAWaitForMultipleEvents
+// 等例程等待该句柄。若需重复使用事件，可将 Event.NotifyReset 设为非零值以自动重置事件，
+// 避免调用 WSAResetEvent。
+//
+// IOCP 通知​​：将 Type 设为 RIO_IOCP_COMPLETION，Iocp.IocpHandle 成员应为 CreateIoCompletionPort
+// 创建的 IOCP 句柄。应用程序需调用 GetQueuedCompletionStatus(Ex)，并通过专用 OVERLAPPED
+// 对象及 CompletionKey 区分不同队列的通知。
+//
+// 使用线程池的应用程序可通过线程池等待对象接收通知，此时应在调用 RIONotify 后立即调用
+// SetThreadpoolWait。若顺序颠倒且依赖 RIONotify 清除事件对象，可能导致回调函数误触发。
+//
+// ​​线程安全​​，多线程通过 RIODequeueCompletion 访问同一 RIO_CQ 时，需使用临界区、轻量级
+// 读写锁（slim reader writer lock）等互斥机制协调。若完成队列非共享，则无需互斥。
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
@@ -15748,6 +15903,7 @@ bool prh_sock_tcp_recv(prh_tcpsocket *tcp);
 #define prh_wsa_prerr() prh_impl_prerr(__LINE__, WSAGetLastError())
 #define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
 #define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
+#define prh_wsa_abort_error() prh_impl_abort_error(__LINE__, WSAGetLastError())
 #else
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -16982,6 +17138,7 @@ static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
 static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
 static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
 static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
+static RIO_EXTENSION_FUNCTION_TABLE RPH_IMPL_RIO;
 
 void *prh_impl_wsaioctl_extension_func(prh_handle s, GUID guid) {
     void *extension_func;
@@ -16993,9 +17150,7 @@ void *prh_impl_wsaioctl_extension_func(prh_handle s, GUID guid) {
     return extension_func;
 }
 
-void prh_impl_mswsock_load_funcs(void) {
-    prh_handle s = prh_impl_tcp_socket(AF_INET);
-
+void prh_impl_mswsock_load_ext_funcs(prh_handle sock) {
     PRH_IMPL_ACCEPTEX = prh_impl_wsaioctl_extension_func(s, WSAID_ACCEPTEX);
     prh_wsa_abort_if(PRH_IMPL_ACCEPTEX == prh_null);
 
@@ -17004,13 +17159,49 @@ void prh_impl_mswsock_load_funcs(void) {
 
     PRH_IMPL_CONNECTEX = prh_impl_wsaioctl_extension_func(s, WSAID_CONNECTEX);
     prh_wsa_abort_if(PRH_IMPL_CONNECTEX == prh_null);
+}
 
-    prh_impl_close_socket(s);
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 RIOCreateCompletionQueue 函数的函数指针。传递给 WSAIoctl 函数的输入
+// 缓冲区必须包含 WSAID_MULTIPLE_RIO，这是一个全局唯一标识符（GUID），其值标识 Winsock
+// RIO 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 RIO_EXTENSION_FUNCTION_TABLE
+// 结构的指针，该结构包含指向 Winsock RIO 扩展函数的指针。SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
+// IOCTL 在 Ws2def.h 头文件中定义。WSAID_MULTIPLE_RIO GUID 在 Mswsock.h 头文件中定
+// 义。
+//
+// typedef struct _RIO_EXTENSION_FUNCTION_TABLE {
+//      DWORD                         cbSize;
+//      LPFN_RIORECEIVE               RIOReceive;
+//      LPFN_RIORECEIVEEX             RIOReceiveEx;
+//      LPFN_RIOSEND                  RIOSend;
+//      LPFN_RIOSENDEX                RIOSendEx;
+//      LPFN_RIOCLOSECOMPLETIONQUEUE  RIOCloseCompletionQueue;
+//      LPFN_RIOCREATECOMPLETIONQUEUE RIOCreateCompletionQueue;
+//      LPFN_RIOCREATEREQUESTQUEUE    RIOCreateRequestQueue;
+//      LPFN_RIODEQUEUECOMPLETION     RIODequeueCompletion;
+//      LPFN_RIODEREGISTERBUFFER      RIODeregisterBuffer;
+//      LPFN_RIONOTIFY                RIONotify;
+//      LPFN_RIOREGISTERBUFFER        RIORegisterBuffer;
+//      LPFN_RIORESIZECOMPLETIONQUEUE RIOResizeCompletionQueue;
+//      LPFN_RIORESIZEREQUESTQUEUE    RIOResizeRequestQueue;
+// } RIO_EXTENSION_FUNCTION_TABLE, *PRIO_EXTENSION_FUNCTION_TABLE;
+#include <ws2def.h>
+
+void prh_impl_mswsock_load_rio_funcs(prh_handle sock) {
+    RIO_EXTENSION_FUNCTION_TABLE *table = &PRH_IMPL_RIO;
+    DWORD ioctl = SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER;
+    GUID rios = WSAID_MULTIPLE_RIO;
+    DWORD bytes_returned = 0;
+    int n = WSAIoctl((SOCKET)sock, ioctl, &rios, sizeof(GUID), table, sizeof(RIO_EXTENSION_FUNCTION_TABLE), &bytes_returned, prh_null, prh_null);
+    prh_wsa_abort_if(n != 0);
 }
 
 void prh_impl_wsasocket_init(void) {
     prh_impl_wsasocket_startup();
-    prh_impl_mswsock_load_funcs();
+    prh_handle sock = prh_impl_tcp_socket(AF_INET);
+    prh_impl_mswsock_load_ext_funcs(sock);
+    prh_impl_mswsock_load_rio_funcs(sock);
+    prh_impl_close_socket(sock);
 }
 
 // unsigned long inet_addr(const char *ip);
@@ -19082,6 +19273,8 @@ void prh_impl_sock_test(void) {
     printf("INVALID_SOCKET %d\n", INVALID_SOCKET);
     printf("struct sockaddr_in %d-byte\n", (int)sizeof(struct sockaddr_in));
     printf("struct sockaddr_in6 %d-byte\n", (int)sizeof(struct sockaddr_in6));
+    printf("RIO_MAX_CQ_SIZE %d\n", RIO_MAX_CQ_SIZE);
+    printf("RIO_MAX_RQ_SIZE %d\n", RIO_MAX_RQ_SIZE);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else // POSIX begin
