@@ -15279,6 +15279,185 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 //
 // Flags 参数可用于影响 RIOSendEx 函数的行为，此函数的行为由与 SocketQueue 关联套接字
 // 选项以及在 Flags 参数中指定的值的组合决定。
+//
+// BOOL RIOReceive(
+//      RIO_RQ SocketQueue,
+//      PRIO_BUF pData,
+//      ULONG DataBufferCount,
+//      DWORD Flags,
+//      PVOID RequestContext
+// );
+//
+// RIOReceive 函数用于在已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套接字上接收网络数
+// 据。如果没有错误发生，RIOReceive 函数返回 TRUE。在这种情况下，接收操作已成功启动，
+// 完成已经排队，或完成将在稍后排队。返回值为 FALSE 表示函数失败，操作未成功启动，且不
+// 会排队完成通知。可以通过调用 WSAGetLastError 函数获取特定的错误代码。
+//      WSAEFAULT               系统在尝试使用指针参数调用时检测到无效的指针地址。如果在操作排队或调用之前，传递给参数的任何 RIO_BUF
+//                              结构的缓冲区标识符被注销或缓冲区被释放，则返回此错误。
+//      WSAEINVAL               传递给函数的参数无效。如果 SocketQueue 参数无效，Flags 参数包含对接收操作无效的值，或者完成队列
+//                              的完整性受到损害，则返回此错误。此错误也可能因其他参数问题而返回。
+//      WSAENOBUFS              无法分配足够的内存。如果与 SocketQueue 参数关联的 I/O 完成队列已满，或者 I/O 完成队列是用零接收
+//                              条目创建的，则返回此错误。
+//      WSA_OPERATION_ABORTED   在接收操作挂起时，操作已被取消。如果套接字被本地或远程关闭，或者在此套接字上执行了 WSAIoctl 的
+//                              SIO_FLUSH 命令，则返回此错误。
+//
+// 参数 SocketQueue 一个描述符，用于标识已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套
+// 接字。参数 pData 对注册缓冲区中用于接收数据的部分的描述。如果应用程序不需要接收 UDP
+// 数据报中的数据负载，则对于已绑定的 RIO UDP 套接字，此参数可以为 NULL。参数 DataBufferCount
+// 表示是否要在 pData 参数指向的缓冲区中接收数据。如果 pData 为 NULL，则此参数应设置为
+// 零。否则，此参数应设置为 1。
+//
+// 参数 Flags 一组修改 RIOReceive 函数行为的标志。Flags 参数可以包含以下选项的组合，
+// 这些选项在 Mswsockdef.h 头文件中定义：
+//      RIO_MSG_COMMIT_ONLY     之前使用 RIO_MSG_DEFER 标志添加的请求将被提交。当设置了 RIO_MSG_COMMIT_ONLY 标志时，不得指定
+//                              其他标志。当设置了 RIO_MSG_COMMIT_ONLY 标志时，pData 和 RequestContext 参数必须为 NULL，
+//                              DataBufferCount 参数必须为零。
+//                              通常情况下，此标志会在使用 RIO_MSG_DEFER 标志发出多个请求后偶尔使用。这消除了在使用 RIO_MSG_DEFER
+//                              标志时需要发出最后一个没有 RIO_MSG_DEFER 标志的请求的需求，否则最后一个请求的完成速度会比其他请
+//                              求慢得多。
+//                              与其他对 RIOReceive 函数的调用不同，当设置了 RIO_MSG_COMMIT_ONLY 标志时，对 RIOReceive 函数的
+//                              调用不需要序列化。对于单个 RIO_RQ，可以在一个线程上调用带有 RIO_MSG_COMMIT_ONLY 的 RIOReceive
+//                              函数，同时在另一个线程上调用 RIOReceive 函数。
+//      RIO_MSG_DONT_NOTIFY     当请求完成被插入到其完成队列中时，不应触发 RIONotify 函数。
+//      RIO_MSG_DEFER           请求不需要立即执行。这会将请求插入到请求队列中，但可能会也可能不会触发请求的执行。数据接收可能会
+//                              延迟，直到在 SocketQueue 参数中传递的 RIO_RQ 上发出一个没有设置 RIO_MSG_DEFER 标志的接收请求。
+//                              要触发请求队列中所有接收的执行，请调用没有设置 RIO_MSG_DEFER 标志的 RIOReceive 或 RIOReceiveEx
+//                              函数。
+//                              注意，无论是否设置了 RIO_MSG_DEFER，接收请求都会占用 SocketQueue 参数中传递的 RIO_RQ 上的未完
+//                              成 I/O 容量。
+//      RIO_MSG_WAITALL         RIOReceive 函数不会完成，直到以下事件之一发生。此标志不支持 UDP 套接字。
+//                              * 调用者在 pData 参数中提供的缓冲区段完全填满。
+//                              * 连接已关闭。
+//                              * 请求被取消或发生错误。
+//
+//  参数 RequestContext 与此次接收操作关联的请求上下文。
+//
+// 应用程序可以使用 RIOReceive 函数将网络数据接收进完全包含在单个注册缓冲区内的任何缓
+// 冲区。pData 参数指向的 RIO_BUF 结构的 Offset 和 Length 成员决定了网络数据在缓冲区
+// 中的接收位置。
+//
+// 一旦调用了 RIOReceive 函数，pData 参数中传递的缓冲区，包括 RIO_BUF 结构的 BufferId
+// 成员中的 RIO_BUFFERID，必须在整个接收操作期间保持有效。
+//
+// 为了避免竞争条件，与接收请求关联的缓冲区在请求完成之前不应被读取或写入。这包括将缓冲
+// 区用作发送请求的源或另一个接收请求的目的地。未与任何接收请求关联的注册缓冲区的部分不
+// 受此限制。
+//
+// Flags 参数可用于影响 RIOReceive 函数调用的行为，此函数的行为由与 SocketQueue 关联
+// 的套接字选项以及在 Flags 参数中指定的值组合决定。
+//
+// int RIOReceiveEx(
+//      RIO_RQ SocketQueue,
+//      PRIO_BUF pData,
+//      ULONG DataBufferCount,
+//      PRIO_BUF pLocalAddress,
+//      PRIO_BUF pRemoteAddress,
+//      PRIO_BUF pControlContext,
+//      PRIO_BUF pFlags,
+//      DWORD Flags,
+//      PVOID RequestContext
+// );
+//
+// typedef union _SOCKADDR_INET {
+//      SOCKADDR_IN    Ipv4;
+//      SOCKADDR_IN6   Ipv6;
+//      ADDRESS_FAMILY si_family;
+// } SOCKADDR_INET, *PSOCKADDR_INET;
+//
+// RIOSendEx 函数用于在已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套接字上发送网络数据，
+// 并提供了与 Winsock RIO 扩展一起使用的附加选项。如果没有错误发生，RIOSendEx 函数返回
+// TRUE。在这种情况下，接收操作已成功启动，完成已经排队，或完成将在稍后时间排队。FALSE
+// 表示函数失败，操作未成功启动，完成通知不会排队。可以通过调用 WSAGetLastError 函数获
+// 取特定的错误代码。
+//      WSAEFAULT               系统在尝试使用指针参数时检测到无效的指针地址。如果在操作排队或调用之前，为参数传递的任何 RIO_BUF
+//                              结构注销了缓冲区标识符或释放了缓冲区，则返回此错误。
+//      WSAEINVAL               向函数传递了无效参数。如果 SocketQueue 参数无效，dwFlags 参数包含对发送操作无效的值，或者完成队
+//                              列的完整性受到损害，则返回此错误。此错误也可能因其他参数问题而返回。
+//      WSAENOBUFS              无法分配足够的内存。如果与 SocketQueue 参数关联的 I/O 完成队列已满，或者 I/O 完成队列是用零发送
+//                              条目创建的，则返回此错误。
+//      WSA_IO_PENDING          操作已成功启动，完成将在稍后时间排队。
+//      WSA_OPERATION_ABORTED   操作已被取消，而接收操作仍在挂起。如果套接字在本地或远程关闭，或者执行了 WSAIoctl 中的 SIO_FLUSH
+//                              命令，则返回此错误。
+//
+// 参数 SocketQueue 标识已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套接字的描述符。
+//
+// 参数 pData 用于接收数据的缓冲区区域。如果应用程序不需要在 UDP 数据报中接收数据负载，
+// 则对于已绑定的 RIO UDP 套接字，此参数可以为 NULL。参数 DataBufferCount 表示是否要
+// 使用 pData 参数指向的缓冲区接收数据。如果 pData 为 NULL，则此参数应设置为零。否则，
+// 此参数应设置为 1。
+//
+// 参数 pLocalAddress 一个缓冲区段，完成时将包含接收网络数据的本地地址。如果应用程序不
+// 想接收本地地址，则此参数可以为 NULL。如果此参数不为 NULL，则缓冲区段的大小必须至少为
+// SOCKADDR_INET 结构的大小。
+//
+// 参数 pRemoteAddress 一个缓冲区段，完成时将包含接收网络数据的远程地址。如果应用程序
+// 不想接收远程地址，则此参数可以为 NULL。如果此参数不为 NULL，则缓冲区段的大小必须至少
+// 为 SOCKADDR_INET 结构的大小。
+//
+// 参数 pControlContext 一个缓冲区切片，完成时将包含有关接收操作的额外控制信息。如果应
+// 用程序不想接收额外的控制信息，则此参数可以为 NULL。参数 pFlags 在完成时将包含有关接
+// 收操作的附加标志信息。如果应用程序不需要接收附加标志信息，则此参数可以为 NULL。
+//
+// 参数 Flags 一组标志，用于修改 RIOReceiveEx 函数的行为。Flags 参数可以包含以下选项
+// 的组合，这些选项在 Mswsockdef.h 头文件中定义：
+//      RIO_MSG_COMMIT_ONLY     之前使用 RIO_MSG_DEFER 标志添加的请求将被提交。当设置 RIO_MSG_COMMIT_ONLY 标志时，不能指定其
+//                              他标志。当设置 RIO_MSG_COMMIT_ONLY 标志时，pData、pLocalAddress、pRemoteAddress、pControlContext、
+//                              pFlags 和 RequestContext 参数必须为 NULL，DataBufferCount 参数必须为零。
+//                              通常在使用 RIO_MSG_DEFER 标志发出多个请求后，偶尔使用此标志。这避免了在使用 RIO_MSG_DEFER 标志
+//                              时需要发出最后一个没有 RIO_MSG_DEFER 标志的请求，这会导致最后一个请求比其他请求慢得多。
+//                              与其他 RIOReceiveEx 函数调用不同，当设置 RIO_MSG_COMMIT_ONLY 标志时，对 RIOReceiveEx 函数的
+//                              调用不需要序列化。对于单个 RIO_RQ，可以在一个线程上使用 RIO_MSG_COMMIT_ONLY 调用 RIOReceiveEx
+//                              函数，同时在另一个线程上调用 RIOReceiveEx 函数。
+//      RIO_MSG_DONT_NOTIFY     请求在完成队列中插入完成时不应触发 RIONotify 函数。
+//      RIO_MSG_DEFER           请求不需要立即执行。这将把请求插入请求队列，但可能会也可能不会触发请求的执行。
+//                              数据接收可能会延迟，直到在 SocketQueue 参数传递的 RIO_RQ 上发出没有设置 RIO_MSG_DEFER 标志的
+//                              接收请求。要触发请求队列中所有接收的执行，请调用 RIOReceive 或 RIOReceiveEx 函数，且不设置
+//                              RIO_MSG_DEFER 标志。
+//                              注意：无论是否设置了 RIO_MSG_DEFER，接收请求都会占用 SocketQueue 参数传递的 RIO_RQ 上的未完成
+//                              I/O 容量。
+//      RIO_MSG_WAITALL         RIOSendEx 函数不会完成，直到发生以下事件之一。此标志不支持数据报套接字或面向消息的无连接套接字。
+//                              * 调用方在 pData 参数中提供的缓冲区切片完全填满。
+//                              * 连接已关闭。
+//                              * 请求被取消或发生错误。
+//
+// 参数 RequestContext 与此次接收操作关联的请求上下文。
+//
+// 应用程序可以使用 RIOSendEx 函数将网络数据接收进完全包含在单个注册缓冲区内的任何缓冲
+// 区。pData 参数指向的 RIO_BUF 结构的 Offset 和 Length 成员确定网络数据在缓冲区中的
+// 接收位置。
+//
+// 调用 RIOSendEx 函数后，pData 参数传递的缓冲区，包括 RIO_BUF 结构的 BufferId 成员中
+// 的 RIO_BUFFERID，必须在整个接收操作期间保持有效。
+//
+// 为了避免竞争条件，与接收请求关联的缓冲区在请求完成之前不应被读取或写入。这包括将缓冲
+// 区用作发送请求的源或另一个接收请求的目的地。未与任何接收请求关联的注册缓冲区的部分不
+// 受此限制。
+//
+// pLocalAddress 参数可用于检索数据接收的本地地址。pRemoteAddress 参数可用于检索数据
+// 发送的远程地址。本地和远程地址以 SOCKADDR_INET 结构的形式返回。因此，pLocalAddress
+// 或 pRemoteAddress 参数指向的 RIO_BUF 的 Length 成员应等于或大于 SOCKADDR_INET 结
+// 构的大小。
+//
+// 以下是与 pControlContext 相关的控制信息：
+//  协议    cmsg_level      cmsg_type               描述
+//  IPv4    IPPROTO_IP      IP_ORIGINAL_ARRIVAL_IF  接收数据报套接字接收数据包的原始 IPv4 到达接口。此控制数据用于防火墙，当使用 Teredo、6to4 或 ISATAP 隧道进行 IPv4 NAT 穿越时。
+//  IPv4    IPPROTO_IP      IP_PKTINFO              指定/接收数据包信息。
+//  IPv6    IPPROTO_IPV6    IPV6_DSTOPTS            指定/接收目标选项。
+//  IPv6    IPPROTO_IPV6    IPV6_HOPLIMIT           指定/接收跳数限制。
+//  IPv6    IPPROTO_IPV6    IPV6_HOPOPTS            指定/接收逐跳选项。
+//  IPv6    IPPROTO_IPV6    IPV6_NEXTHOP            指定下一跳地址。
+//  IPv6    IPPROTO_IPV6    IPV6_PKTINFO            指定/接收数据包信息。
+//  IPv6    IPPROTO_IPV6    IPV6_RTHDR              指定/接收路由头。
+//
+// 控制数据由一个或多个控制数据对象组成，每个对象都以 WSACMSGHDR 结构开始，定义如下：
+//      typedef struct WSACMSGHDR_t {
+//          int cmsg_len;    // 从 WSACMSGHDR 开始到数据末尾的字节数（不包括可能跟随数据的填充字节）
+//          int cmsg_level;  // 产生控制信息的协议
+//          int cmsg_type;   // 协议特定的控制信息类型
+//      } WSACMSGHDR;
+//
+// Flags 参数可用于在关联套接字指定的选项之外影响 RIOSendEx 函数调用的行为。该函数的行
+// 为由关联套接字上设置的任何套接字选项与 Flags 参数中指定的值的组合决定。
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
