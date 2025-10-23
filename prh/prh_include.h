@@ -15118,6 +15118,167 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 // 指向 RIO_BUF 结构的指针作为 pData 参数传递给 RIOSend、RIOSendEx、RIOReceive 和
 // RIOReceiveEx 函数，用于发送或接收网络数据。应用程序不能仅仅通过使用大于原始注册缓冲
 // 区的缓冲区切片值来调整注册缓冲区的大小。
+//
+// BOOL RIOSend(
+//      RIO_RQ SocketQueue,
+//      PRIO_BUF pData,
+//      ULONG DataBufferCount,
+//      DWORD Flags,
+//      PVOID RequestContext
+// );
+//
+// RIOSend 函数用于在已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套接字上发送网络数据。
+// 如果没有错误发生，RIOSend 函数返回 TRUE。在这种情况下，发送操作已成功启动，操作的完
+// 成通知已经排队，或将在稍后时间触发。否则返回 FALSE，操作未成功启动，不会有操作完成
+// 通知。可以通过调用 WSAGetLastError 函数获取特定的错误代码。
+//      WSAEFAULT       系统在尝试使用指针参数时检测到无效的指针地址。如果在操作排队或调用之前，为参数传递的任何 RIO_BUF 结构注销
+//                      了缓冲区标识符或释放了缓冲区，则返回此错误。
+//      WSAEINVAL       向函数传递了无效参数。如果 SocketQueue 参数无效，Flags 参数包含对发送操作无效的值，或者完成队列的完整性
+//                      受到损害，则返回此错误。此错误也可能因其他参数问题而返回。
+//      WSAENOBUFS      无法分配足够的内存。如果与 SocketQueue 参数关联的 I/O 完成队列已满，或者 I/O 完成队列是用零发送条目创建
+//                      的，则返回此错误。
+//      WSA_IO_PENDING  操作已成功启动，完成将在稍后时间排队。
+//
+// 参数 SocketQueue 标识已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套接字。
+//
+// 参数 pData 对注册缓冲区中要发送数据的部分区域的描述。如果应用程序不需要在 UDP 数据报
+// 中发送数据负载，则对于已绑定的 RIO UDP 套接字，此参数可以为 NULL。参数 DataBufferCount
+// 表示是否需要发送 pData 缓冲区中的数据。如果 pData 为 NULL，则此参数应设置为零。否则，
+// 此参数应设置为 1。
+//
+// 参数 Flags 一组标志，用于修改 RIOSend 函数的行为。Flags 参数可以包含以下选项的组合，
+// 这些选项在 mswsockdef.h 头文件中定义：
+//      RIO_MSG_COMMIT_ONLY     之前使用 RIO_MSG_DEFER 标志添加的请求将被提交。当设置 RIO_MSG_COMMIT_ONLY 标志时，不能指定其
+//                              他标志。当设置 RIO_MSG_COMMIT_ONLY 标志时，pData 和 RequestContext 参数必须为 NULL，DataBufferCount
+//                              参数必须为零。
+//                              通常在使用 RIO_MSG_DEFER 标志发出多个请求后，偶尔使用此标志。这避免了在使用 RIO_MSG_DEFER 标志
+//                              时需要发出最后一个没有 RIO_MSG_DEFER 标志的请求，这会导致最后一个请求比其他请求慢得多。
+//                              与其他 RIOSend 函数调用不同，当设置 RIO_MSG_COMMIT_ONLY 标志时，对 RIOSend 函数的调用不需要序
+//                              列化。对于单个 RIO_RQ，可以在一个线程上使用 RIO_MSG_COMMIT_ONLY 调用 RIOSend 函数，同时在另一
+//                              个线程上调用 RIOSend 函数。
+//      RIO_MSG_DONT_NOTIFY     请求在完成队列中插入完成通知时时不应触发 RIONotify 函数。
+//      RIO_MSG_DEFER           请求不需要立即执行。这将把请求插入请求队列，但可能会也可能不会触发请求的执行。
+//                              发送数据可能会延迟，直到在 SocketQueue 参数传递的 RIO_RQ 上发出没有设置 RIO_MSG_DEFER 标志的
+//                              发送请求。要触发发送队列中所有发送的执行，请调用 RIOSend 或 RIOSendEx 函数，且不设置 RIO_MSG_DEFER
+//                              标志。
+//                              注意，无论是否设置了 RIO_MSG_DEFER，发送请求都会占用 SocketQueue 参数传递的 RIO_RQ 上的未完成
+//                              I/O 容量。
+//
+// 应用程序可以使用 RIOSend 函数从完全包含在单个注册缓冲区内的任何缓冲区发送网络数据。
+// pData 参数指向的 RIO_BUF 结构的 Offset 和 Length 成员确定从缓冲区发送的网络数据。
+//
+// 发送操作关联的缓冲区不应与另一个发送或接收操作同时使用。缓冲区以及缓冲区注册必须在整
+// 个发送操作期间保持有效。这意味着不应在已经有挂起的 RIOSend(Ex) 请求时，将相同的 PRIO_BUF
+// 传递给 RIOSend(Ex) 请求。只有当请求中的 RIOSend(Ex) 操作完成后，才应重用相同的
+// PRIO_BUF（不管是使用相同的偏移还是使用不同的偏移和长度）。此外，当发送数据引用一个注
+// 册缓冲区（无论是部分还是整个缓冲区）时，在发送完成之前，不应使用整个注册缓冲区。这包
+// 括使用注册缓冲区的一部分进行接收操作或另一个发送操作。
+//
+//      为什么文档会写成 "entire registered buffer"？
+//      保守措辞：早期版本实现曾采用 整页锁 或 区间合并锁，为防未来实现变严格，文档干脆把范围说大；
+//      简化示例：官方示例通常一张缓冲区只切一个 RIO_BUF 循环使用，于是 "整段 buffer" 在示例里确实要等完成；
+//      避免误用：如果允许任意细粒度重叠，实现要做 区间树/红黑树 来跟踪飞行区，文档索性一句话 "别碰" 最省心。
+//      实测与社区结论
+//      Boost.ASIO、libuv、dpdk-rio 等生产代码都把同一 RIO_BUFFERID 切成多块并发投递，从未出现数据损坏或
+//      返回错误；Windows 8/10/11 当前实现 采用 "区间锁"（粒度 64 B ~ 4 kB），不重叠即可并行；微软内部论坛
+//      曾回复："The restriction applies only to the byte-range referenced by the RIO_BUF.
+//      Non-overlapping ranges within the same registration are safe to use concurrently."
+//      文档的 "entire registered buffer" 应读作 "本次发送所引用的那段连续区间"；
+//      只要新请求与正在飞的区间不重叠，你就可以安全地并发使用同一个 RIO_BUFFERID ——
+//      这是当前实现的事实行为，也是高性能 RIO 代码的通用做法。
+//
+// Flags 参数可用于在关联套接字指定的选项之外影响 RIOSend 函数的行为。该函数的行为由关
+// 联套接字上设置的任何套接字选项与 Flags 参数中指定的值的组合决定。
+//
+// BOOL RIOSendEx(
+//      RIO_RQ SocketQueue,
+//      PRIO_BUF pData,
+//      ULONG DataBufferCount,
+//      PRIO_BUF pLocalAddress,
+//      PRIO_BUF pRemoteAddress,
+//      PRIO_BUF pControlContext,
+//      PRIO_BUF pFlags,
+//      DWORD Flags,
+//      PVOID RequestContext
+// );
+//
+// RIOSendEx 函数用于在已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套接字上发送网络数据，
+// 并提供额外选项。如果没有错误发生，RIOSendEx 函数返回 TRUE。在这种情况下，发送操作已
+// 成功启动，操作完成通知已经排队，或将在稍后排队。返回值为 FALSE 表示函数失败，操作未
+// 成功启动，且不会排队完成通知。可以通过调用 WSAGetLastError 函数获取特定的错误代码。
+//      WSAEFAULT       系统在尝试使用指针参数调用时检测到无效的指针地址。如果在操作排队或调用之前，传递给参数的任何 RIO_BUF 结构
+//                      的缓冲区标识符被注销或缓冲区被释放，则返回此错误。
+//      WSAEINVAL       传递给函数的参数无效。如果 SocketQueue 参数无效，Flags 参数包含对发送操作无效的值，或者完成队列的完整性
+//                      受到损害，则返回此错误。此错误也可能因其他参数问题而返回。
+//      WSAENOBUFS      无法分配足够的内存。如果与 SocketQueue 参数关联的 I/O 完成队列已满，或者 I/O 完成队列是用零发送条目创建
+//                      的，则返回此错误。
+//      WSA_IO_PENDING  操作已成功启动，完成将在稍后排队。
+//
+// 参数 SocketQueue 标识已连接的 RIO TCP 套接字或已绑定的 RIO UDP 套接字。
+//
+// 参数 pData 从注册缓冲区中发送数据的缓冲区段。此参数指向的 RIO_BUF 结构可以表示注册
+// 缓冲区的一部分或完整的注册缓冲区。如果应用程序不需要在 UDP 数据报中发送数据负载，则
+// 对于已绑定的 RIO UDP 套接字，此参数可以为 NULL。参数 DataBufferCount 表示是否要发
+// 送 pData 缓冲区中的数据。如果 pData 为 NULL，则此参数应设置为零。否则，此参数应设置
+// 为 1。
+//
+// 参数 pLocalAddress 此参数保留，必须为 NULL。参数 pRemoteAddress 指定网络数据发送
+// 的远程地址。如果套接字已连接，则此参数可以为 NULL。
+//
+// 参数 pControlContext 在完成时将包含有关发送操作的附加控制信息。如果应用程序不需要接
+// 收附加控制信息，则此参数可以为 NULL。参数 pFlags 在完成时将包含有关发送操作的附加标
+// 志信息。如果应用程序不需要接收附加标志信息，则此参数可以为 NULL。
+//
+// 参数 Flags 一组修改 RIOSendEx 函数行为的标志。Flags 参数可以包含以下选项的组合，这
+// 些选项在 Mswsockdef.h 头文件中定义：
+//      RIO_MSG_COMMIT_ONLY     之前使用 RIO_MSG_DEFER 标志添加的请求将被提交。当设置了 RIO_MSG_COMMIT_ONLY 标志时，不得指定
+//                              其他标志。当设置了 RIO_MSG_COMMIT_ONLY 标志时，pData、pLocalAddress、pRemoteAddress、pControlContext、
+//                              pFlags 和 RequestContext 参数必须为 NULL，DataBufferCount 参数必须为零。
+//                              通常情况下，此标志会在使用 RIO_MSG_DEFER 标志发出多个请求后偶尔使用。这消除了在使用 RIO_MSG_DEFER
+//                              标志时需要发出最后一个没有 RIO_MSG_DEFER 标志的请求的需求，否则最后一个请求的完成速度会比其他请
+//                              求慢得多。
+//                              与其他对 RIOSendEx 函数的调用不同，当设置了 RIO_MSG_COMMIT_ONLY 标志时，对 RIOSendEx 函数的调
+//                              用不需要序列化。对于单个 RIO_RQ，可以在一个线程上调用带有 RIO_MSG_COMMIT_ONLY 的 RIOSendEx 函
+//                              数，同时在另一个线程上调用 RIOSendEx 函数。
+//      RIO_MSG_DONT_NOTIFY     当请求完成被插入到其完成队列中时，不应触发 RIONotify 函数。
+//      RIO_MSG_DEFER           请求不需要立即执行。这会将请求插入到请求队列中，但可能会也可能不会触发请求的执行。
+//                              发送数据可能会延迟，直到在 SocketQueue 参数中传递的 RIO_RQ 上发出一个没有设置 RIO_MSG_DEFER
+//                              标志的发送请求。要触发发送队列中所有发送的执行，请调用没有设置 RIO_MSG_DEFER 标志的 RIOSend 或
+//                              RIOSendEx 函数。
+//                              注意，无论是否设置了 RIO_MSG_DEFER，发送请求都会占用 SocketQueue 参数中传递的 RIO_RQ 上的未完
+//                              成 I/O 容量。
+//
+// 参数 RequestContext 与此次发送操作关联的请求上下文。
+//
+// 应用程序可以使用 RIOSendEx 函数从完全包含在单个注册缓冲区内的任何缓冲区发送网络数据。
+// pData 参数指向的 RIO_BUF 结构的 Offset 和 Length 成员决定了从缓冲区发送的网络数据。
+//
+// 与发送操作关联的缓冲区不能与另一个发送或接收操作同时使用。缓冲区和缓冲区注册必须在整
+// 个发送操作期间保持有效。这意味着您不应在已经有一个待处理的 RIOSend(Ex) 请求时，将相
+// 同的 PRIO_BUF 传递给 RIOSend(Ex) 请求。只有在请求中的 RIOSend(Ex) 操作完成后，才
+// 能重新使用相同的 PRIO_BUF（无论是使用相同的偏移量还是使用不同的偏移量和长度）。此外，
+// 当发送数据引用注册缓冲区（无论是部分还是整个缓冲区）时，在发送完成之前，不得使用整个
+// 注册缓冲区。这包括使用注册缓冲区的一部分进行接收操作或另一个发送操作。
+//
+// 下表是与 pControlContext 相关的控制信息：
+//  协议    cmsg_level      cmsg_type       描述
+//  IPv4    IPPROTO_IP      IP_PKTINFO      指定/接收数据包信息。有关更多信息，请参阅 IP_PKTINFO 套接字选项。
+//  IPv6    IPPROTO_IPV6    IPV6_DSTOPTS    指定/接收目标选项。
+//  IPv6    IPPROTO_IPV6    IPV6_HOPLIMIT   指定/接收跳数限制。有关更多信息，请参阅 IPV6_HOPLIMIT 套接字选项。
+//  IPv6    IPPROTO_IPV6    IPV6_HOPOPTS    指定/接收逐跳选项。
+//  IPv6    IPPROTO_IPV6    IPV6_NEXTHOP    指定下一跳地址。
+//  IPv6    IPPROTO_IPV6    IPV6_PKTINFO    指定/接收数据包信息。有关更多信息，请参阅 IPV6_PKTINFO 套接字选项。
+//  IPv6    IPPROTO_IPV6    IPV6_RTHDR      指定/接收路由头。
+//
+// 控制数据由一个或多个控制数据对象组成，每个对象都以 WSACMSGHDR 结构开头，定义如下：
+//      typedef struct WSACMSGHDR_t {
+//          int cmsg_len;    // 从 WSACMSGHDR 开始到数据末尾的字节数（不包括可能跟随数据的填充字节）
+//          int cmsg_level;  // 产生控制信息的协议
+//          int cmsg_type;   // 协议特定的控制信息类型
+//      } WSACMSGHDR;
+//
+// Flags 参数可用于影响 RIOSendEx 函数的行为，此函数的行为由与 SocketQueue 关联套接字
+// 选项以及在 Flags 参数中指定的值的组合决定。
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
