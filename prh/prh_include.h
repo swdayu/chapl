@@ -15003,6 +15003,15 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 // 释放，供其他套接字使用。当应用程序完成对 RIO_RQ 的使用时，应用程序应调用 closesocket
 // 函数关闭套接字并释放相关资源。
 //
+// typedef struct RIO_RQ_t* RIO_RQ, **PRIO_RQ;
+//
+// Winsock RIO 扩展函数主要在 RIO_RQ 对象上操作，而不是直接在套接字上。应用程序通过调
+// 用 RIOCreateRequestQueue 函数为现有的套接字获取一个 RIO_RQ。输入的套接字必须通过在   *** 请求队列关联的套接字必须设置 WSA_FLAG_RIO 标志
+// dwFlags 参数中设置 WSA_FLAG_RIO 标志调用 WSASocket 函数创建。
+//
+// 获取 RIO_RQ 对象后，底层套接字描述符仍然有效。应用程序可以继续使用底层套接字来设置和
+// 查询套接字选项、发出 IOCTL 调用，最终关闭套接字。
+//
 // BOOL RIOResizeRequestQueue(
 //      RIO_RQ RQ,
 //      DWORD MaxOutstandingReceive,
@@ -15030,6 +15039,85 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 // 请求队列有一个所需的最小大小，这取决于当前条目数量（请求队列上的发送和接收操作数量）。
 // 如果应用程序调用 RIOResizeRequestQueue 函数并尝试将队列设置得比现有条目数量还小，
 // 则调用将失败，队列不会被调整大小。
+//
+// RIO_BUFFERID RIORegisterBuffer(
+//      PCHAR DataBuffer,
+//      DWORD DataLength
+// );
+//
+// RIORegisterBuffer 函数用于注册一个 RIO_BUFFERID，以便与指定的缓冲区一起使用 Winsock
+// RIO 扩展函数。如果没有错误发生，RIORegisterBuffer 函数返回一个注册的缓冲区描述符。
+// 否则返回 RIO_INVALID_BUFFERID，可以调用 WSAGetLastError 函数获取特定的错误代码。
+//      WSAEFAULT   系统在尝试使用指针参数时检测到无效的指针地址。如果 DataBuffer 参数传递了无效的缓冲区指针，则返回此错误。
+//      WSAEINVAL   向函数传递了无效参数。如果 DataLength 参数为零，则返回此错误。
+//
+// 参数 DataBuffer 指向要注册的内存缓冲区的起始位置的指针。参数 DataLength 要注册的缓
+// 冲区中的字节长度。
+//
+// RIORegisterBuffer 函数为指定的缓冲区创建一个注册缓冲区标识符。当缓冲区被注册时，包
+// 含缓冲区的虚拟内存页面将被锁定在物理内存中。
+//
+// 如果注册了多个小的、不连续的缓冲区，这些缓冲区的物理内存占用可能实际上每个注册都相当
+// 于一个完整的内存页面。在这种情况下，将多个请求缓冲区一起分配可能会更有益。
+//
+// 注册缓冲区本身也会占用少量的物理内存开销。因此，如果许多分配被聚合到一个更大的分配中，
+// 通过聚合缓冲区注册，物理内存占用可能会进一步减少。在这种情况下，应用程序可能需要格外
+// 小心，以确保最终注销了缓冲区，但不要在任何发送或接收请求仍然挂起时注销。
+//
+// 注册缓冲区的一部分通过 RIOSend、RIOSendEx、RIOReceive 和 RIOReceiveEx 函数的
+// pData 参数传递，用于发送或接收数据。当不再需要缓冲区标识符时，调用 RIODeregisterBuffer
+// 函数注销缓冲区标识符。
+//
+// VOID RIODeregisterBuffer(
+//      RIO_BUFFERID BufferId
+// );
+//
+// RIODeregisterBuffer 函数用于注销与 Winsock RIO 扩展函数一起使用的注册缓冲区。参数
+// BufferId 标识一个注册缓冲区的描述符。
+//
+// RIODeregisterBuffer 函数注销一个注册缓冲区。当缓冲区被注销时，应用程序表示它已经完
+// 成了对 BufferId 参数中传递的缓冲区标识符的使用。任何后续尝试使用此缓冲区标识符的其他
+// 函数调用都将失败。如果注销了一个仍在使用的缓冲区，结果是未定义的。这被视为一个严重错    *** 注销一个仍在使用的缓冲区，结果未定义
+// 误。在 RIODequeueCompletion 函数返回的 RIORESULT 结构中，状态将保持正常状态不变。
+// 应用程序开发人员可以使用 Application Verifier 工具检测此错误条件。
+//
+// 如果在 BufferId 参数中传递了一个无效的缓冲区标识符，RIODeregisterBuffer 函数将忽略
+// 它。
+//
+// typedef struct RIO_BUFFERID_t* RIO_BUFFERID, **PRIO_BUFFERID;
+//
+// typedef struct _RIO_BUF {
+//      RIO_BUFFERID BufferId;
+//      ULONG        Offset;
+//      ULONG        Length;
+// } RIO_BUF, *PRIO_BUF;
+//
+// Winsock RIO 扩展函数主要通过 RIO_BUFFERID 对象操作注册缓冲区。应用程序通过调用
+// RIORegisterBuffer 函数为现有的缓冲区获取一个 RIO_BUFFERID。应用程序可以使用
+// RIODeregisterBuffer 函数释放注册的缓冲区。
+//
+// 当现有的缓冲区通过 RIORegisterBuffer 函数注册为 RIO_BUFFERID 对象时，会从物理内存
+// 中分配某些内部资源，并将现有的应用程序缓冲区锁定到物理内存中。调用 RIODeregisterBuffer
+// 函数注销缓冲区，释放这些内部资源，并允许缓冲区从物理内存中解锁并释放。
+//
+// 使用 Winsock RIO 扩展函数反复注册和注销应用程序缓冲区可能会导致显著的性能下降。在设
+// 计使用 Winsock RIO 扩展函数的应用程序中，应考虑以下缓冲区管理方法，以最小化应用程序
+// 缓冲区的重复注册和注销：
+//  1.  最大化缓冲区的重用。
+//  2.  维护一个有限的未使用注册缓冲区池，供应用程序使用。
+//  3.  维护一个有限的注册缓冲区池，并在这些注册缓冲区和其他未注册缓冲区之间执行缓冲区复制。
+//
+// RIO_BUFFERID 类型定义在 Mswsockdef.h 头文件中，该文件会自动包含在 Mswsock.h 头文
+// 件中。不应直接使用 Mswsockdef.h 头文件。
+//
+// Winsock RIO 扩展函数通常在注册缓冲区的部分区间（有时称为缓冲区切片）上操作。需要使用
+// 少量注册内存发送或接收网络数据的应用程序会使用 RIO_BUF 结构。通过注册一个大缓冲区，
+// 然后根据需要使用缓冲区的小块，应用程序通常可以提高性能。RIO_BUF 结构可以描述单个缓冲
+// 区注册中包含的任何连续内存段。
+//
+// 指向 RIO_BUF 结构的指针作为 pData 参数传递给 RIOSend、RIOSendEx、RIOReceive 和
+// RIOReceiveEx 函数，用于发送或接收网络数据。应用程序不能仅仅通过使用大于原始注册缓冲
+// 区的缓冲区切片值来调整注册缓冲区的大小。
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
