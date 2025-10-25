@@ -432,19 +432,19 @@ extern "C" {
 // class/struct/union types and enumerations. This is not supported in C, but
 // the alignment of a struct type can be controlled by using alignas in a
 // member declaration.
-#ifndef prh_aligned
+#ifndef prh_alignas
 #if defined(__cplusplus) && __cplusplus >= 201103L // C++11 keyword
-    #define prh_aligned(size) alignas(size)
+    #define prh_alignas(size) alignas(size)
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 202311L // C23 keyword
-    #define prh_aligned(size) alignas(size)
+    #define prh_alignas(size) alignas(size)
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L // C11 keyword
-    #define prh_aligned(size) _Alignas(size)
+    #define prh_alignas(size) _Alignas(size)
 #elif defined(_MSC_VER)
     // Before Visual Studio 2015 you could use the Microsoft-specific keywords
     // __alignof and __declspec(align) to specify an alignment greater than
     // the default. Starting in Visual Studio 2015 you should use the C++11
     // standard keywords alignof and alignas for maximum code portability.
-    #define prh_aligned(size) __declspec(align(size))
+    #define prh_alignas(size) __declspec(align(size))
 #elif defined(__GNUC__)
     // The aligned attribute specifies a minimum alignment (in bytes) for
     // variables of the specified type. When specified, alignment must be a
@@ -460,7 +460,7 @@ extern "C" {
     // 的结构体或联合体类型的对齐方式，至少要是该结构体或联合体中所有成员对齐方式的
     // 最小公倍数的整数倍。这意味着，你可以通过为结构体或联合体类型的任意一个成员附
     // 加 aligned 属性，来有效调整该结构体或联合体类型的对齐方式。
-    #define prh_aligned(size) __attribute__ ((aligned (size)))
+    #define prh_alignas(size) __attribute__ ((aligned (size)))
 #endif
 #endif
 
@@ -2001,6 +2001,12 @@ void prh_impl_basic_test(void) {
     memcpy(&a, &b, count); // 长度参数可以传递数值零
     memmove(&a, &b, count);
     memset(&a, 2, count);
+    prh_u32 s = 0xfffffffe;
+    prh_u32 a[] = {0xfffffffe, 0xffffffff, 0, 1};
+    prh_real_assert((prh_u32)(a[0] - s) == 0);
+    prh_real_assert((prh_u32)(a[1] - s) == 1);
+    prh_real_assert((prh_u32)(a[2] - s) == 2);
+    prh_real_assert((prh_u32)(a[3] - s) == 3);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, a) == 0);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, b) == 4);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, c) == 8);
@@ -3212,6 +3218,9 @@ typedef struct prh_snode { // node single linked
     struct prh_snode *next;
 } prh_snode;
 
+typedef bool (*prh_less_than)(prh_snode *a, prh_snode *b);
+void prh_snode_priority_push(prh_snode *head, prh_snode *node, prh_less_than less); // 节点从小到大串连
+
 typedef struct prh_data_snode {
     struct prh_data_snode *next;
     void *data; // node only contain a data pointer
@@ -3288,6 +3297,17 @@ void prh_impl_list_free_each_node(prh_snode *head, void (*node_free)(void *)) {
 void prh_impl_list_free_each_node_and_clear(prh_slist *list, void (*node_free)(void *)) {
     if (node_free) prh_impl_list_free_each_node(list->head, node_free);
     list->head = prh_null;
+}
+
+void prh_snode_priority_push(prh_snode *head, prh_snode *node, prh_less_than less) { // 节点从小到大串连
+    prh_snode *curr;
+    assert(head != prh_null);
+    assert(node != prh_null);
+    while ((curr = head->next) && less(curr, node)) {
+        head = curr;
+    }
+    head->next = node;
+    node->next = curr;
 }
 #endif // PRH_LIST_IMPLEMENTATION
 #endif // PRH_LIST_INCLUDE
@@ -4472,20 +4492,31 @@ prh_inline void *prh_atom_ptr_fetch_write(prh_atom_ptr *a, void *b) { return (vo
 // Atomically perform read-modify-wirte operation, and return the old value.
 // The modify operation can be add (+) sub (-) and (&) or (|) xor (^).
 // The default memory_order type is memory_order_seq_cst.
+
+prh_inline prh_i32 prh_atom_i32_fetch_inc(prh_atom_i32 *a) { return atomic_fetch_add((atomic_int *)a, 1); }
+prh_inline prh_u32 prh_atom_u32_fetch_inc(prh_atom_u32 *a) { return atomic_fetch_add((atomic_uint *)a, 1); }
+prh_inline prh_int prh_atom_int_fetch_inc(prh_atom_int *a) { return atomic_fetch_add((atomic_intptr_t *)a, 1); }
+prh_inline prh_unt prh_atom_unt_fetch_inc(prh_atom_unt *a) { return atomic_fetch_add((atomic_uintptr_t *)a, 1); }
+
+prh_inline prh_i32 prh_atom_i32_fetch_dec(prh_atom_i32 *a) { return atomic_fetch_sub((atomic_int *)a, 1); }
+prh_inline prh_u32 prh_atom_u32_fetch_dec(prh_atom_u32 *a) { return atomic_fetch_sub((atomic_uint *)a, 1); }
+prh_inline prh_int prh_atom_int_fetch_dec(prh_atom_int *a) { return atomic_fetch_sub((atomic_intptr_t *)a, 1); }
+prh_inline prh_unt prh_atom_unt_fetch_dec(prh_atom_unt *a) { return atomic_fetch_sub((atomic_uintptr_t *)a, 1); }
+
 prh_inline void prh_atom_i32_inc(prh_atom_i32 *a) { atomic_fetch_add((atomic_int *)a, 1); }
 prh_inline void prh_atom_u32_inc(prh_atom_u32 *a) { atomic_fetch_add((atomic_uint *)a, 1); }
 prh_inline void prh_atom_int_inc(prh_atom_int *a) { atomic_fetch_add((atomic_intptr_t *)a, 1); }
 prh_inline void prh_atom_unt_inc(prh_atom_unt *a) { atomic_fetch_add((atomic_uintptr_t *)a, 1); }
 
-prh_inline void prh_atom_i32_add(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_add((atomic_int *)a, b); }
-prh_inline void prh_atom_u32_add(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_add((atomic_uint *)a, b); }
-prh_inline void prh_atom_int_add(prh_atom_int *a, prh_int b) { atomic_fetch_add((atomic_intptr_t *)a, b); }
-prh_inline void prh_atom_unt_add(prh_atom_unt *a, prh_unt b) { atomic_fetch_add((atomic_uintptr_t *)a, b); }
-
 prh_inline void prh_atom_i32_dec(prh_atom_i32 *a) { atomic_fetch_sub((atomic_int *)a, 1); }
 prh_inline void prh_atom_u32_dec(prh_atom_u32 *a) { atomic_fetch_sub((atomic_uint *)a, 1); }
 prh_inline void prh_atom_int_dec(prh_atom_int *a) { atomic_fetch_sub((atomic_intptr_t *)a, 1); }
 prh_inline void prh_atom_unt_dec(prh_atom_unt *a) { atomic_fetch_sub((atomic_uintptr_t *)a, 1); }
+
+prh_inline void prh_atom_i32_add(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_add((atomic_int *)a, b); }
+prh_inline void prh_atom_u32_add(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_add((atomic_uint *)a, b); }
+prh_inline void prh_atom_int_add(prh_atom_int *a, prh_int b) { atomic_fetch_add((atomic_intptr_t *)a, b); }
+prh_inline void prh_atom_unt_add(prh_atom_unt *a, prh_unt b) { atomic_fetch_add((atomic_uintptr_t *)a, b); }
 
 prh_inline void prh_atom_i32_sub(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_sub((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_sub(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_sub((atomic_uint *)a, b); }
@@ -4723,7 +4754,7 @@ void prh_atom_hive_quefix_free(prh_atom_hive_quefix *q);
 void prh_atom_hive_quefix_push(prh_atom_hive_quefix *q, void *data);
 void *prh_atom_hive_quefix_top(prh_atom_hive_quefix *q);
 void *prh_atom_hive_quefix_pop(prh_atom_hive_quefix *q);
-bool prh_atom_hive_quefix_pop_all(prh_atom_hive_quefix *q, void (*cb)(void *priv, void *data), void *priv);
+bool prh_atom_hive_quefix_pops(prh_atom_hive_quefix *q, bool (*cb)(void *priv, void *data), void *priv);
 
 prh_inline bool prh_atom_hive_quefix_empty(prh_atom_hive_quefix *q) {
     return !prh_atom_int_read(&q->len);
@@ -4860,13 +4891,16 @@ prh_hive_quefix_block *prh_impl_ahqf_free_block_pop(prh_atom_hive_fbqfix *q) {
     return free_block;
 }
 
-bool prh_atom_hive_quefix_pop_all(prh_atom_hive_quefix *q, void (*cb)(void *data, void *priv), void *priv) {
+bool prh_atom_hive_quefix_pops(prh_atom_hive_quefix *q, bool (*cb)(void *data, void *priv), void *priv) {
     prh_int len = prh_atom_int_read(&q->len);
     if (len == 0) { return false; } assert(len > 0);
     prh_hive_quefix_block *head = q->head;
     prh_int head_index = q->head_index;
     for (prh_int i = 0; i < len; i += 1) {
-        cb(*((void **)head + head_index++), priv);
+        if (!cb(*((void **)head + head_index), priv)) {
+            break; // 返回 true 表示移除该项，返回 false 表示不移除
+        }
+        head_index += 1;
         if (head_index >= PRH_AHQF_BLOCK_PTRS) {
             prh_hive_quefix_block *next = head->next;
             head_index = PRH_AHQF_BHEAD_PTRS;
@@ -13445,7 +13479,7 @@ void prh_impl_privilege_process_pwait_req(prh_real_cono *req_cono, prh_cono_quef
     }
 }
 
-void prh_impl_privilege_post_data_process(void *data, void *priv) { // 处理各个线程发送给不同协程的数据
+bool prh_impl_privilege_post_data_process(void *data, void *priv) { // 处理各个线程发送给不同协程的数据
     prh_cono_pdata *pdata = (prh_cono_pdata *)(((prh_ptr)data >> 2) << 2);
     prh_cono_subq *subq = pdata->subq;
     prh_real_cono *dest = subq->cono;
@@ -13459,13 +13493,15 @@ void prh_impl_privilege_post_data_process(void *data, void *priv) { // 处理各
         dest->subq_push(dest, (prh_cono_pdata *)data);
         subq->post_count += 1;
     }
+    return true;
 }
 
-void prh_impl_privilege_yield_state_process(void *data, void *priv) {
+bool prh_impl_privilege_yield_state_process(void *data, void *priv) {
     prh_real_cono *req_cono = data;
     prh_cono_quefit *ready_queue = priv;
     assert(req_cono->yield_state < PRH_YIELD_STATE_NUM);
     PRH_IMPL_YIELD_STATE_PROCESS[req_cono->yield_state](req_cono, ready_queue);
+    return true;
 }
 
 // 当前算法是，特权协程会给所有线程分配一个协程，当线程执行完当前的协程后，会自动继续
@@ -13500,8 +13536,8 @@ bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
     prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(curr_thrd);
     prev_empty = prh_relaxed_quefit_empty(ready_queue);
 
-    prh_atom_hive_quefix_pop_all(&curr_thrd->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
-    prh_atom_hive_quefix_pop_all(&curr_thrd->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
+    prh_atom_hive_quefix_pops(&curr_thrd->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
+    prh_atom_hive_quefix_pops(&curr_thrd->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
     *grabbed_cono = prh_null;
     prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
     *grabbed_cono = ready_cono;
@@ -13541,8 +13577,8 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     prh_thrd *thrd_end = prh_simp_thrd_end(thrds);
     prh_simp_thrd_for_begin(prh_cono_thrd, thrds, thrd_begin, thrd_end) // 处理特权消息，将就绪协程插入就绪队列
         if (it->created == 0) continue; // TODO: 原子访问 created
-        prh_atom_hive_quefix_pop_all(&it->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
-        prh_atom_hive_quefix_pop_all(&it->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
+        prh_atom_hive_quefix_pops(&it->cono_req_que, prh_impl_privilege_yield_state_process, ready_queue);
+        prh_atom_hive_quefix_pops(&it->post_req_que, prh_impl_privilege_post_data_process, ready_queue);
     prh_simp_thrd_for_end()
 
     prh_cono_thrd *thrd_it = (prh_cono_thrd *)thrd_begin;
@@ -14663,42 +14699,31 @@ void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *ent
 //  * LPFN_WSARECVMSG (WSARecvMsg)
 //  * WSARecv
 
-static HANDLE PRH_IMPL_IOCP;
-typedef void (*prh_iocp_completion_routine)(OVERLAPPED_ENTRY *entry);
+#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
+#include <mswsock.h>
 
-void prh_impl_thrd_init(void) {
-    DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
-    PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
+static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
+static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
+static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
+static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
+static RIO_EXTENSION_FUNCTION_TABLE RPH_IMPL_RIO;
+
+void *prh_impl_wsaioctl_extension_func(prh_handle sock, GUID guid);
+void prh_impl_wsaioctl_rio_extensions(prh_handle sock, void *table);
+
+void prh_impl_mswsock_load_ext_funcs(prh_handle sock) {
+    PRH_IMPL_ACCEPTEX = prh_impl_wsaioctl_extension_func(s, WSAID_ACCEPTEX);
+    prh_wsa_abort_if(PRH_IMPL_ACCEPTEX == prh_null);
+
+    PRH_IMPL_GETACCEPTEXSOCKADDRS = prh_impl_wsaioctl_extension_func(s, WSAID_GETACCEPTEXSOCKADDRS);
+    prh_wsa_abort_if(PRH_IMPL_GETACCEPTEXSOCKADDRS == prh_null);
+
+    PRH_IMPL_CONNECTEX = prh_impl_wsaioctl_extension_func(s, WSAID_CONNECTEX);
+    prh_wsa_abort_if(PRH_IMPL_CONNECTEX == prh_null);
 }
 
-int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
-    // typedef struct _OVERLAPPED_ENTRY {
-    //      ULONG_PTR    lpCompletionKey;
-    //      LPOVERLAPPED lpOverlapped;
-    //      ULONG_PTR    Internal;
-    //      DWORD        dwNumberOfBytesTransferred;
-    // } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
-    // typedef struct _OVERLAPPED {
-    //      ULONG_PTR Internal;
-    //      ULONG_PTR InternalHigh;
-    //      union {
-    //          struct {
-    //              DWORD Offset;
-    //              DWORD OffsetHigh;
-    //          } DUMMYSTRUCTNAME;
-    //          PVOID Pointer;
-    //      } DUMMYUNIONNAME;
-    //      HANDLE hEvent;
-    // } OVERLAPPED, *LPOVERLAPPED;
-    int n = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, entry, count, INFINITE);
-    for (int i = 0; i < n; i += 1) {
-        OVERLAPPED_ENTRY *curr_entry = entry + i;
-        prh_iocp_completion_routine completion_routine = (prh_iocp_completion_routine)curr_entry->lpCompletionKey;
-        assert(completion_routine != prh_null);
-        assert(curr_entry->lpOverlapped != prh_null);
-        completion_routine(curr_entry);
-    }
-    return n;
+void prh_impl_mswsock_load_rio_funcs(prh_handle sock) {
+    prh_impl_wsaioctl_rio_extensions(sock, &PRH_IMPL_RIO);
 }
 
 // RIO_CQ RIOCreateCompletionQueue(
@@ -15458,6 +15483,123 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 //
 // Flags 参数可用于在关联套接字指定的选项之外影响 RIOSendEx 函数调用的行为。该函数的行
 // 为由关联套接字上设置的任何套接字选项与 Flags 参数中指定的值的组合决定。
+
+#endif // PRH_SOCK_IMPLEMENTATION
+
+static HANDLE PRH_IMPL_IOCP;
+typedef void (*prh_impl_iocp_completion)(OVERLAPPED_ENTRY *entry);
+
+void prh_impl_thrd_init(void) {
+    DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
+    PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
+}
+
+int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
+    // typedef struct _OVERLAPPED_ENTRY {
+    //      ULONG_PTR    lpCompletionKey;
+    //      LPOVERLAPPED lpOverlapped;
+    //      ULONG_PTR    Internal;
+    //      DWORD        dwNumberOfBytesTransferred;
+    // } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
+    // typedef struct _OVERLAPPED {
+    //      ULONG_PTR Internal;
+    //      ULONG_PTR InternalHigh;
+    //      union {
+    //          struct {
+    //              DWORD Offset;
+    //              DWORD OffsetHigh;
+    //          } DUMMYSTRUCTNAME;
+    //          PVOID Pointer;
+    //      } DUMMYUNIONNAME;
+    //      HANDLE hEvent;
+    // } OVERLAPPED, *LPOVERLAPPED;
+    int n = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, entry, count, INFINITE);
+    for (int i = 0; i < n; i += 1) {
+        OVERLAPPED_ENTRY *curr_entry = entry + i;
+        prh_impl_iocp_completion completion_routine = (prh_impl_iocp_completion)curr_entry->lpCompletionKey;
+        assert(completion_routine != prh_null);
+        assert(curr_entry->lpOverlapped != prh_null);
+        completion_routine(curr_entry);
+    }
+    return n;
+}
+
+typedef struct prh_iocp_post prh_iocp_post;
+typedef void (*prh_continue_routine)(prh_iocp_post *post);
+
+struct prh_iocp_post {
+    prh_continue_routine continue_routine;
+    void *context;
+    prh_u32 post_seqn;
+    prh_u32 error_code;
+};
+
+typedef struct {
+    prh_u32 concurrent_threads;
+    prh_u32 prev_turn_seqn;
+    prh_atom_u32 post_seqn_seed;
+    prh_atom_hive_quefix *thrd_req_que;
+    prh_cond_sleep sched_cond_sleep;
+} prh_iocp_global;
+
+static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
+
+void prh_impl_wakeup_sched_thrd(void) {
+    prh_thrd_wakeup(&PRH_IOCP_GLOBAL.sched_cond_sleep);
+}
+
+void prh_iocp_thrd_post(int thrd_index, prh_iocp_post *post, prh_continue_routine routine, void *context) {
+    prh_atom_hive_quefix *quefix = PRH_IOCP_GLOBAL.thrd_req_que + thrd_index + 1; // 第1个默认给调度线程使用
+    post->continue_routine = routine;
+    post->context = context;
+    prh_atom_hive_quefix_push(quefix, post); // 必须先插入再更新 post_seqn_seed，确保调度线程拿到 post_seqn_seed 之后对应的 post 已经插入队列
+    post->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed);
+    prh_impl_wakeup_sched_thrd();
+}
+
+typedef prh_arrfit(prh_iocp_post *) prh_post_array;
+typedef struct {
+    prh_post_array *array;
+    prh_u32 post_count;
+} prh_impl_sched_post_priv;
+
+bool prh_impl_sched_thrd_get_each_post(void *post, void *priv) {
+    prh_u32 index = ((prh_iocp_post *)post)->post_seqn - PRH_IOCP_GLOBAL.prev_turn_seqn; // post_seqn 最大值绕回也成立
+    prh_post_array *array = ((prh_impl_sched_post_priv *)priv)->array;
+    prh_iocp_post **post_array = array->arrfit;
+    if (index < ((prh_impl_sched_post_priv *)priv)->post_count) {
+        post_array[index] = (prh_iocp_post *)post;
+        array->size += 1;
+        return true;
+    }
+    return false;
+}
+
+prh_u32 prh_impl_sched_thrd_collect_post(prh_post_array *array) {
+    prh_atom_hive_quefix *quefix = PRH_IOCP_GLOBAL.thrd_req_que;
+    prh_atom_hive_quefix *endque = quefix + PRH_IOCP_GLOBAL.concurrent_threads; // 包含最后一个队列
+    prh_u32 prev_turn_seqn = PRH_IOCP_GLOBAL.prev_turn_seqn;
+    prh_u32 post_count = prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed) - prev_turn_seqn;
+    prh_u32 array_max_items = (prh_u32)array->capacity;
+
+    if (post_count > array_max_items) {
+        post_count = array_max_items;
+    }
+
+    if (post_count == 0) {
+        return 0;
+    }
+
+    prh_impl_sched_post_priv post_priv = {array, post_count};
+    prh_arrfit_clear(array);
+    for (; quefix <= endque; quefix += 1) {
+        prh_atom_hive_quefix_pops(quefix, prh_impl_sched_thrd_get_each_post, &post_priv);
+    }
+
+    prh_real_assert(post_count == array->size);
+    PRH_IOCP_GLOBAL.prev_turn_seqn = prev_turn_seqn + post_count;
+    return post_count;
+}
 
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
@@ -16710,6 +16852,14 @@ void prh_impl_wsasocket_startup(void) {
     prh_zeroret(atexit(prh_impl_wsasocket_cleanup));
 }
 
+void prh_impl_wsasocket_init(void) {
+    prh_impl_wsasocket_startup();
+    prh_handle sock = prh_impl_tcp_socket(AF_INET);
+    prh_impl_mswsock_load_ext_funcs(sock);
+    prh_impl_mswsock_load_rio_funcs(sock);
+    prh_impl_close_socket(sock);
+}
+
 // Winsock 提供了两种套接字模式，阻塞模式和非阻塞模式。在阻塞模式下，I/O 操作完成之前，
 // 执行操作的 Winsock 调用（例如 send 和 recv）会一直等待下去直到操作完成，不会立即返
 // 回将控制权交还给程序。而在非阻塞模式下，Winsock 函数无论如何都会立即返回。
@@ -17727,12 +17877,6 @@ void prh_sock_setnonblock(prh_handle sock, int nonblock) {
 // 链接到 Mswsock.lib 库。这实际上减少了对 Mswsock.lib 的一个中间函数调用。
 #include <mswsock.h>
 
-static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
-static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
-static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
-static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
-static RIO_EXTENSION_FUNCTION_TABLE RPH_IMPL_RIO;
-
 void *prh_impl_wsaioctl_extension_func(prh_handle s, GUID guid) {
     void *extension_func;
     DWORD bytes_returned = 0;
@@ -17741,17 +17885,6 @@ void *prh_impl_wsaioctl_extension_func(prh_handle s, GUID guid) {
         return prh_null;
     }
     return extension_func;
-}
-
-void prh_impl_mswsock_load_ext_funcs(prh_handle sock) {
-    PRH_IMPL_ACCEPTEX = prh_impl_wsaioctl_extension_func(s, WSAID_ACCEPTEX);
-    prh_wsa_abort_if(PRH_IMPL_ACCEPTEX == prh_null);
-
-    PRH_IMPL_GETACCEPTEXSOCKADDRS = prh_impl_wsaioctl_extension_func(s, WSAID_GETACCEPTEXSOCKADDRS);
-    prh_wsa_abort_if(PRH_IMPL_GETACCEPTEXSOCKADDRS == prh_null);
-
-    PRH_IMPL_CONNECTEX = prh_impl_wsaioctl_extension_func(s, WSAID_CONNECTEX);
-    prh_wsa_abort_if(PRH_IMPL_CONNECTEX == prh_null);
 }
 
 // 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
@@ -17780,21 +17913,12 @@ void prh_impl_mswsock_load_ext_funcs(prh_handle sock) {
 // } RIO_EXTENSION_FUNCTION_TABLE, *PRIO_EXTENSION_FUNCTION_TABLE;
 #include <ws2def.h>
 
-void prh_impl_mswsock_load_rio_funcs(prh_handle sock) {
-    RIO_EXTENSION_FUNCTION_TABLE *table = &PRH_IMPL_RIO;
+void prh_impl_mswsock_load_rio_funcs(prh_handle sock, void *table) {
     DWORD ioctl = SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER;
     GUID rios = WSAID_MULTIPLE_RIO;
     DWORD bytes_returned = 0;
     int n = WSAIoctl((SOCKET)sock, ioctl, &rios, sizeof(GUID), table, sizeof(RIO_EXTENSION_FUNCTION_TABLE), &bytes_returned, prh_null, prh_null);
     prh_wsa_abort_if(n != 0);
-}
-
-void prh_impl_wsasocket_init(void) {
-    prh_impl_wsasocket_startup();
-    prh_handle sock = prh_impl_tcp_socket(AF_INET);
-    prh_impl_mswsock_load_ext_funcs(sock);
-    prh_impl_mswsock_load_rio_funcs(sock);
-    prh_impl_close_socket(sock);
 }
 
 // unsigned long inet_addr(const char *ip);
