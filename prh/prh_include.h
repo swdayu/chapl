@@ -15637,10 +15637,11 @@ void prh_iocp_thrd_post(prh_iocp_post *post) {
 }
 
 void prh_impl_iocp_thrd_exec(prh_iocp_post *post) {
-    while (post->intermed_routine) {
+    if (post->intermed_routine) {
         post->intermed_routine(post);
+    } else {
+        post->continue_routine(post);
     }
-    post->continue_routine(post);
 }
 
 typedef prh_arrfit(prh_iocp_post *) prh_post_array;
@@ -18044,8 +18045,6 @@ void prh_impl_mswsock_load_rio_funcs(prh_handle sock, void *table) {
 // getprotobynumber
 // getservbyname
 // getservbyport
-// int getpeername(SOCKET s, struct sockaddr *name, int *namelen);
-// int getsockname(SOCKET s, struct sockaddr *name, int *namelen);
 // WSAAddressToString
 // WSAStringToAddress
 // WSAAsyncGetHostByAddr
@@ -18056,6 +18055,81 @@ void prh_impl_mswsock_load_rio_funcs(prh_handle sock, void *table) {
 // WSAAsyncGetServByPort
 // int WSACancelAsyncRequest(HANDLE async_task_handle);
 //
+// int getsockname(
+//      [in]      SOCKET   s, // 已绑定或已连接套接字
+//      [out]     sockaddr *name,
+//      [in, out] int      *namelen
+// );
+//
+// getsockname 函数用于检索套接字的本地名称。如果没有错误发生，getsockname 返回零。
+// 否则返回 SOCKET_ERROR，可以通过调用 WSAGetLastError 获取具体的错误代码。
+//      WSANOTINITIALISED   在使用此 API 之前，必须成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEFAULT           name 或 namelen 参数不是用户地址空间的有效部分，或者 namelen 参数太小。
+//      WSAEINPROGRESS      正在执行一个阻塞的 Windows 套接字 1.1 调用，或者服务提供程序仍在处理回调函数。
+//      WSAENOTSOCK         描述符不是套接字。
+//      WSAEINVAL           套接字尚未使用 bind 绑定到地址，或者在 bind 中指定了 ADDR_ANY，但尚未建立连接。
+//
+// 参数 s 标识套接字的描述符。参数 name 指向 SOCKADDR 结构，该结构接收套接字的地址。
+// 参数 namelen 指定 name 缓冲区的大小，以字节为单位。
+//
+// getsockname 函数检索指定套接字描述符的当前名称，并存储在 name 中。参数 s 指定已绑定
+// 或已连接的套接字。当没有先 bind 的情况下调用 connect 时此调用特别有用，getsockname
+// 函数是确定系统设置的本地关联的唯一方法。
+//
+// 在调用时，namelen 参数包含 name 缓冲区的大小，以字节为单位。返回时，namelen 参数包
+// 含 name 参数的实际大小，以字节为单位。
+//
+// 当套接字绑定到未指定地址时（例如使用 ADDR_ANY），getsockname 函数并不总是返回主机
+// 地址信息，除非套接字已通过 connect 或 accept 连接。Windows 套接字应用程序不应假设
+// 地址已指定，除非套接字已连接。在多宿主主机中使用时，除非套接字已连接，否则不知道将用
+// 于套接字的地址。如果套接字使用无连接协议，则在套接字上发生 I/O 之前，地址可能不可用。
+
+void prh_sock_local_addr(prh_handle sock, struct sockaddr *addr) {
+    int namelen = (addr->sa_family == AF_INET) ? (int)sizeof(struct sockaddr_in) : (int)sizeof(struct sockaddr_in6);
+    if (getsockname((SOCKET)sock, addr, &namelen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
+    assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
+}
+
+// int getpeername(
+//      [in]      SOCKET   s, // 已连接套接字
+//      [out]     sockaddr *name,
+//      [in, out] int      *namelen
+// );
+//
+// getpeername 函数用于检索已连接套接字的对端地址。如果没有错误发生，getpeername 返回
+// 零。否则返回 SOCKET_ERROR，可以通过调用 WSAGetLastError 获取具体的错误代码。
+//      WSANOTINITIALISED   在使用此函数之前，必须成功调用 WSAStartup。
+//      WSAENETDOWN         网络子系统已失败。
+//      WSAEFAULT           name 或 namelen 参数不在用户地址空间的有效部分中，或者 namelen 参数太小。
+//      WSAEINPROGRESS      正在执行一个阻塞的 Windows 套接字 1.1 调用，或者服务提供程序仍在处理回调函数。
+//      WSAENOTCONN         套接字未连接。
+//      WSAENOTSOCK         描述符不是套接字。
+//
+// 参数 s 标识已连接套接字的描述符。参数 name 接收对端地址的 SOCKADDR 结构。参数 namelen
+// 指向 name 参数大小（以字节为单位）。
+//
+// getpeername 函数检索与套接字 s 连接的对端地址，并将其存储在由 name 参数标识的 SOCKADDR
+// 结构中。此函数适用于任何地址族，仅返回套接字连接到的地址。getpeername 函数只能用于已
+// 连接的套接字。
+//
+// 对于数据报套接字，仅返回在先前的 connect 调用中指定的对端地址。先前的 sendto 调用中
+// 指定的地址不会被 getpeername 返回。
+//
+// 在调用时，namelen 参数包含 name 缓冲区的大小（以字节为单位）。返回时，namelen 参数
+// 包含返回的 name 参数的实际大小（以字节为单位）。
+
+prh_u32 prh_sock_peer_addr(prh_handle sock, struct sockaddr *addr) {
+    int namelen = (addr->sa_family == AF_INET) ? (int)sizeof(struct sockaddr_in) : (int)sizeof(struct sockaddr_in6);
+    if (getpeername((SOCKET)sock, addr, &namelen)) {
+        DWORD error_code = WSAGetLastError();
+        prh_prerr(error_code);
+        return error_code;
+    }
+    assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
+    return 0;
+}
+
 // int setsockopt(SOCKET s, int level, int optname, const char *optval, int optlen);
 // int getsockopt(SOCKET s, int level, int optname, char *optval, [in, out] int *optlen);
 //
@@ -18626,6 +18700,29 @@ void prh_impl_get_sockaddr(struct sockaddr_in *in, prh_sockaddr *out) {
         out->port = ntohs(in6->sin6_port);
         memcpy(&out->addr, in6->sin6_addr.s6_addr, 16);
     }
+}
+
+void prh_impl_iocp_accept_socket_info(prh_iocp_sock_setup *setup, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn) {
+    prh_impl_accept_req *req = (prh_impl_accept_req *)setup;
+    sockaddr_in *l_addr, *p_addr;
+    INT l_addrlen = 0, p_addrlen = 0;
+    PRH_IMPL_GETACCEPTEXSOCKADDRS(
+        /* [in]  PVOID    lpOutputBuffer        */ prh_impl_iocp_accept_addrbuf(req),
+        /* [in]  DWORD    dwReceiveDataLength   */ 0,
+        /* [in]  DWORD    dwLocalAddressLength  */ req->addr_size,
+        /* [in]  DWORD    dwRemoteAddressLength */ req->addr_size,
+        /* [out] sockaddr **LocalSockaddr       */ (sockaddr *)&l_addr,
+        /* [out] LPINT    LocalSockaddrLength   */ &l_addrlen,
+        /* [out] sockaddr **RemoteSockaddr      */ (sockaddr *)&p_addr,
+        /* [out] LPINT    RemoteSockaddrLength  */ &p_addrlen);
+    assert(l_addrlen == sizeof(struct sockaddr_in) || l_addrlen == sizeof(struct sockaddr_in6));
+    assert(p_addrlen == sizeof(struct sockaddr_in) || p_addrlen == sizeof(struct sockaddr_in6));
+    assert(l_addr->sin_family == AF_INET || l_addr->sin_family == AF_INET6);
+    assert(p_addr->sin_family == AF_INET || p_addr->sin_family == AF_INET6);
+    prh_impl_get_sockaddr((struct sockaddr_in *)l_addr, local);
+    prh_impl_get_sockaddr((struct sockaddr_in *)p_addr, remote);
+    local->protocol = remote->protocol = PRH_TCP;
+    *server_accept_conn = true;
 }
 
 void prh_impl_iocp_accept_completion(OVERLAPPED_ENTRY *entry) {
@@ -19324,12 +19421,12 @@ prh_iocp_connect *prh_impl_iocp_get_connect_req_from_overlapped(OVERLAPPED *over
     return (prh_iocp_connect *)((prh_byte *)overlapped - prh_offsetof(prh_iocp_connect, overlapped));
 }
 
-void prh_impl_iocp_connect_socket_info(prh_iocp_sock_setup *post, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn) {
-    prh_iocp_connect *req = (prh_iocp_connect *)post;
+void prh_impl_iocp_connect_socket_info(prh_iocp_sock_setup *setup, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn) {
+    prh_iocp_connect *req = (prh_iocp_connect *)setup;
     struct sockaddr_in6 *sa_remote = &req->remote;
     struct sockaddr_in6 sa_local;
     sa_local.sin6_family = remote->sin6_family;
-    prh_sock_local_addr(post->connect_socket, &l);
+    prh_sock_local_addr(setup->socket, &l);
     prh_impl_get_sockaddr((struct sockaddr_in *)&sa_local, local);
     prh_impl_get_sockaddr((struct sockaddr_in *)sa_remote, remote);
     local->protocol = remote->protocol = PRH_TCP;
@@ -19366,7 +19463,7 @@ void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
         req->head.socket = connect_socket;  // 在 prh_iocp_connect 重用时，会注册一个新的套接字到 PRH_IMPL_IOCP 中
         req->head.info = prh_impl_iocp_connect_socket_info;
     }
-    post->intermed_routine = prh_null;
+    post->continue_routine(post);
 }
 
 void prh_impl_iocp_connect_post(prh_iocp_post *post, prh_u32 error_code) {
