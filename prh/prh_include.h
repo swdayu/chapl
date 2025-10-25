@@ -1654,6 +1654,16 @@ extern "C" {
 // if size > ptr old size { may return the new location and the newer portion is indeterminate }
 // the content is preserved up to min(old and new size), even if moved to a new location.
 // if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
+// if ptr != NULL
+//      if size != 0
+//          return realloc(ptr, size)
+//      else
+//          **MAYBE** free(ptr) return NULL
+// else
+//      if size != 0
+//          return malloc(size)
+//      else
+//          return NULL
 #define prh_realloc realloc
 // void free(void *ptr);
 // if ptr == prh_null { the function does nothing }
@@ -1671,7 +1681,7 @@ extern "C" {
     // if alignment isn't a power of 2 or size is zero, this function invokes
     // the invalid parameter handler. if execution is allowed to continue, this
     // function returns NULL and sets errno to EINVAL.
-    #define prh_aligned_malloc(alignment, size) _aligned_malloc((size), (alignment))
+    #define prh_aligned_malloc(size, alignment) _aligned_malloc((size), (alignment))
     #define prh_cache_line_aligned_malloc(size) _aligned_malloc((size), PRH_CACHE_LINE_SIZE)
     #define prh_16_byte_aligned_malloc(size) _aligned_malloc((size), 16)
     #define prh_aligned_free(p) _aligned_free(p)
@@ -1679,7 +1689,7 @@ extern "C" {
     #include <stdlib.h>
     // behavior is undefined if size is not an integral multiple of alignment
     void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
-    #define prh_aligned_malloc(alignment, size) aligned_alloc((alignment), (size))
+    #define prh_aligned_malloc(size, alignment) aligned_alloc((alignment), (size))
     #define prh_cache_line_aligned_malloc(size) aligned_alloc(PRH_CACHE_LINE_SIZE, (size))
     #define prh_16_byte_aligned_malloc(size) aligned_alloc(16, (size))
     #define prh_aligned_free(p) free(p)
@@ -1789,26 +1799,64 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
 }
 #endif
 
+typedef enum {
+    PRH_IOCP_ACCEPT,
+    PRH_IOCP_CONNECT,
+    prh_ALLOC_ENUM_MAX
+} prh_alloc_id_enum;
+
+prh_static_assert(prh_ALLOC_ENUM_MAX <= 0xffff);
+
+typedef void *(*prh_memory_alloc_func)(prh_unt size, prh_unt alignment_allocid);
+typedef void (*prh_memory_free_func)(void *ptr, prh_unt allocid);
+extern prh_thread_local prh_memory_alloc_func PRH_IMPL_ALLOC;
+extern prh_thread_local prh_memory_free_func PRH_IMPL_FREE;
+
+#define prh_memory_aligned_alloc(id, size, alignment) PRH_IMPL_ALLOC((size), (id)|((alignment)<<16))
+#define prh_memory_alloc(id, size) PRH_IMPL_ALLOC((size), (id)|(sizeof(void*)<<16))
+#define prh_memory_free(id, ptr) PRH_IMPL_FREE((ptr), (id))
+
 void prh_main_init(void);
+void prh_memory_alloc_init(prh_memory_alloc_func alloc, prh_memory_free_func free);
 
 #ifdef PRH_BASE_IMPLEMENTATION
 void prh_impl_assert(int line) {
     fprintf(stderr, "assert line %d\n", line);
     abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
 }
+
 void prh_impl_prerr(int line, unsigned int error) {
     fprintf(stderr, "error %d line %d\n", error, line);
 }
+
 void prh_impl_abort(int line) {
     fprintf(stderr, "abort line %d\n", line);
     abort();
 }
+
 void prh_impl_abort_error(int line, unsigned int error) {
     fprintf(stderr, "abort %d line %d\n", error, line);
     abort();
 }
+
 void prh_print_exit_code(int thrd_id, int exit_code) {
     fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
+}
+
+prh_thread_local prh_memory_alloc_func PRH_IMPL_ALLOC;
+prh_thread_local prh_memory_free_func PRH_IMPL_FREE;
+
+void *prh_impl_default_memory_alloc(prh_unt size, prh_unt alignment_allocid) {
+    return prh_aligned_malloc(size, alignment_allocid >> 16);
+}
+
+void prh_impl_default_memory_free(void *ptr, prh_unt allocid) {
+    prh_aligned_free(ptr);
+}
+
+void prh_memory_alloc_init(prh_memory_alloc_func alloc, prh_memory_free_func free) {
+    PRH_IMPL_ALLOC = alloc;
+    PRH_IMPL_FREE = free;
 }
 
 #if defined(prh_plat_windows)
@@ -1836,6 +1884,7 @@ void prh_impl_test_code(void);
 #endif
 
 void prh_main_init(void) {
+    prh_memory_alloc_init(prh_impl_default_memory_alloc, prh_impl_default_memory_free);
 #if defined(prh_plat_windows)
 #if PRH_DEBUG
     prh_zeroret(atexit(prh_impl_dump_memory_leaks));
@@ -7839,10 +7888,13 @@ extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
         }                                                                       \
     }
 
+#define PRH_THRD_INDEX_MASK 0xffff
 #define prh_thrd_id(thrd) ((int)((thrd)->thrd_id))
+#define prh_thrd_index(thrd) (prh_thrd_id(thrd) & PRH_THRD_INDEX_MASK)
 prh_inline prh_thrd *prh_thrd_self(void) { return PRH_IMPL_THRD; }
 prh_inline void *prh_thrd_self_data(void) { return ((prh_user_thrd *)prh_thrd_self())->userdata; }
 prh_inline int prh_thrd_self_id(void) { return prh_thrd_id(prh_thrd_self()); }
+prh_inline int prh_thrd_self_index(void) { return prh_thrd_index(prh_thrd_self()); }
 
 prh_inline prh_thrd **prh_thrd_begin(prh_thrds *s) { return &s->main; }
 prh_inline prh_thrd **prh_thrd_end(prh_thrds *s) { return &s->main + (int)s->thrd_max + 1; }
@@ -7851,10 +7903,9 @@ prh_inline prh_thrd *prh_thrd_get_with_end(prh_thrds *s, int thrd_index) { asser
 prh_inline prh_thrd *prh_thrd_main(prh_thrds *s) { return s->main; }
 prh_inline void *prh_thrd_main_data(prh_thrds *s) { return ((prh_user_thrd *)prh_thrd_main(s))->userdata; }
 prh_inline int prh_thrd_main_id(prh_thrds *s) { return prh_thrd_id(prh_thrd_main(s)); }
-#define prh_thrd_index(thrds, thrd) (prh_thrd_id(thrd) - prh_thrd_main_id(thrds))
 
-prh_thrds *prh_thrd_init(int start_id, int thrd_max, void *main_userdata); // 使用 prh_thrd_main_data() 获取主线程的 userdata
-prh_thrds *prh_thrd_init_with_size(int start_id, int thrd_max, prh_int main_thrd_size);
+prh_thrds *prh_thrd_init(int thrd_group, int thrd_num, void *main_userdata); // 使用 prh_thrd_main_data() 获取主线程的 userdata
+prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size);
 void *prh_thrd_create(prh_thrds *s, prh_int thrd_size); // 仅创建线程，创建之后可以自由初始化，然后使用 prh_thrd_sched() 启动线程
 int prh_thrd_sched(prh_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size); // 返回 thrd_index
 int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, prh_int stack_size, void *userdata); // 线程需要初始化的仅有 userdata ，返回 thrd_index，使用 prh_thrd_self_data() 获取 userdata
@@ -7881,7 +7932,7 @@ prh_inline prh_thrd *prh_simp_thrd_main(prh_simple_thrds *s) { return prh_simp_t
 prh_inline int prh_simp_thrd_main_id(prh_simple_thrds *s) { return prh_thrd_id(prh_simp_thrd_main(s)); }
 #define prh_simp_thrd_index(simple_thrds, thrd) (prh_thrd_id(thrd) - prh_simp_thrd_main_id(simple_thrds))
 
-prh_simple_thrds *prh_simp_thrd_init(int start_id, int thrd_max, prh_int thrd_size);
+prh_simple_thrds *prh_simp_thrd_init(int thrd_group, int thrd_num, prh_int thrd_size);
 void *prh_simp_thrd_create(prh_simple_thrds *s); // 仅创建线程，创建之后可以自由初始化，然后使用 prh_thrd_sched() 启动线程
 int prh_simp_thrd_sched(prh_simple_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size); // 返回 thrd_index
 void prh_simp_thrd_join(prh_simple_thrds *s, int thrd_index, prh_thrdfree_t thrd_free); // 记得调用 prh_thrd_free() 释放主线程
@@ -8019,14 +8070,14 @@ prh_int prh_impl_thrd_size(prh_int thrd_size) {
     return (prh_int)prh_round_cache_line_size(thrd_size);
 }
 
-prh_unt prh_impl_thrds_size(int thrd_max) {
-    assert(thrd_max >= 0);
-    return (prh_unt)(sizeof(prh_thrds) + sizeof(void *) * thrd_max);
+prh_unt prh_impl_thrds_size(int thrd_num) {
+    assert(thrd_num >= 0 && thrd_num < PRH_THRD_INDEX_MASK - 1);
+    return (prh_unt)(sizeof(prh_thrds) + sizeof(void *) * thrd_num);
 }
 
-prh_unt prh_impl_simp_thrds_size(int thrd_max, prh_int thrd_size) {
-    assert(thrd_max >= 0);
-    return PRH_SIMPLE_THRD_ALIGNOF + (thrd_max + 1) * thrd_size;
+prh_unt prh_impl_simp_thrds_size(int thrd_num, prh_int thrd_size) {
+    assert(thrd_num >= 0 && thrd_num < PRH_THRD_INDEX_MASK - 1);
+    return PRH_SIMPLE_THRD_ALIGNOF + (thrd_num + 1) * thrd_size;
 }
 
 prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size) {
@@ -8046,33 +8097,35 @@ void prh_impl_launch_main_thrd(prh_thrd *main) {
 #endif
 }
 
-prh_thrds *prh_thrd_init_with_size(int start_id, int thrd_max, prh_int main_thrd_size) {
-    prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_max));
+prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size) {
+    prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_num));
     assert(s != prh_null);
-    prh_thrd *main = prh_impl_thrd_create(start_id, main_thrd_size ? main_thrd_size : sizeof(prh_thrd));
-    s->thrd_max = thrd_max;
+    assert(thrd_group >= 0 && thrd_group < 0x3fff);
+    prh_thrd *main = prh_impl_thrd_create(thrd_group << 16, main_thrd_size ? main_thrd_size : sizeof(prh_thrd));
+    s->thrd_max = thrd_num;
     s->main = main;
     prh_impl_launch_main_thrd(main);
     return s;
 }
 
-prh_thrds *prh_thrd_init(int start_id, int thrd_max, void *main_userdata) {
-    prh_thrds *s = prh_thrd_init_with_size(start_id, thrd_max, sizeof(prh_user_thrd));
+prh_thrds *prh_thrd_init(int thrd_group, int thrd_num, void *main_userdata) {
+    prh_thrds *s = prh_thrd_init_with_size(thrd_group, thrd_num, sizeof(prh_user_thrd));
     prh_user_thrd *main = (prh_user_thrd *)prh_thrd_main(s);
     main->userdata = main_userdata;
     return s;
 }
 
-prh_simple_thrds *prh_simp_thrd_init(int start_id, int thrd_max, prh_int each_thrd_size) {
+prh_simple_thrds *prh_simp_thrd_init(int thrd_group, int thrd_num, prh_int each_thrd_size) {
     prh_int thrd_size = prh_impl_thrd_size(each_thrd_size);
-    prh_unt simp_thrds_size = prh_impl_simp_thrds_size(thrd_max, thrd_size);
+    prh_unt simp_thrds_size = prh_impl_simp_thrds_size(thrd_num, thrd_size);
     prh_simple_thrds *s = prh_cache_line_aligned_malloc(simp_thrds_size);
     assert(s != prh_null);
+    assert(thrd_group >= 0 && thrd_group < 0x3fff);
     memset(s, 0, simp_thrds_size);
     prh_thrd *main = prh_simp_thrd_main(s);
-    main->thrd_id = start_id;
+    main->thrd_id = thrd_group << 16;
     main->created = 1;
-    s->thrd_max = thrd_max;
+    s->thrd_max = thrd_num;
     s->thrd_size = thrd_size;
     prh_impl_launch_main_thrd(main);
     return s;
@@ -8109,7 +8162,7 @@ int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, prh_int stack_size, void *
     prh_user_thrd *thrd = (prh_user_thrd *)prh_impl_create_and_set(s, sizeof(prh_user_thrd));
     thrd->userdata = userdata;
     prh_impl_plat_thrd_start((prh_thrd *)thrd, proc, stack_size);
-    return prh_thrd_index(s, (prh_thrd *)thrd);
+    return prh_thrd_index((prh_thrd *)thrd);
 }
 
 void *prh_thrd_create(prh_thrds *s, prh_int thrd_size) {
@@ -8123,7 +8176,7 @@ void prh_impl_thrd_sched(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size
 
 int prh_thrd_sched(prh_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size) {
     prh_impl_plat_thrd_start(created_thrd, proc, stack_size);
-    return prh_thrd_index(s, (prh_thrd *)created_thrd);
+    return prh_thrd_index((prh_thrd *)created_thrd);
 }
 
 void *prh_simp_thrd_create(prh_simple_thrds *s) {
@@ -15524,15 +15577,30 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
     return n;
 }
 
-typedef struct prh_iocp_post prh_iocp_post;
-typedef void (*prh_continue_routine)(prh_iocp_post *post);
+struct prh_iocp_post;
+struct prh_iocp_sock_setup;
 
-struct prh_iocp_post {
+typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
+typedef void (*prh_iocp_socket_info)(struct prh_iocp_sock_setup *post, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn);
+
+typedef struct {
     prh_continue_routine continue_routine;
+    prh_continue_routine intermed_routine;
     void *context;
     prh_u32 post_seqn;
     prh_u32 error_code;
-};
+} prh_iocp_post;
+
+typedef struct {
+    prh_iocp_post post;
+    prh_handle socket;
+    prh_iocp_socket_info info;
+} prh_iocp_sock_setup;
+
+typedef struct {
+    prh_iocp_post post;
+    prh_handle socket;
+} prh_iocp_sock_inout;
 
 typedef struct {
     prh_u32 concurrent_threads;
@@ -15548,13 +15616,31 @@ void prh_impl_wakeup_sched_thrd(void) {
     prh_thrd_wakeup(&PRH_IOCP_GLOBAL.sched_cond_sleep);
 }
 
-void prh_iocp_thrd_post(int thrd_index, prh_iocp_post *post, prh_continue_routine routine, void *context) {
-    prh_atom_hive_quefix *quefix = PRH_IOCP_GLOBAL.thrd_req_que + thrd_index + 1; // 第1个默认给调度线程使用
+// 工作线程投递任务给调度线程分配，每个工作线程都有一个独立的任务队列供自己使用。工作线
+// 程投递的每个任务，都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，都最多只
+// 处理固定数量的任务，例如 [prev_turn_seqn, prev_trun_seqn + N)，每一轮最多只有在此
+// 区间内的任务被处理。在处理时，调度线程首先将范围内的任务，按编号顺序收集到一个大小为
+// N 的固定数组中，然后大致负载均衡地分配给各线程处理。
+
+void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void *context) {
+    memset(post, 0, sizeof(prh_iocp_post));
     post->continue_routine = routine;
     post->context = context;
+}
+
+void prh_iocp_thrd_post(prh_iocp_post *post) {
+    int thrd_index = prh_thrd_self_index();
+    prh_atom_hive_quefix *quefix = PRH_IOCP_GLOBAL.thrd_req_que + (thrd_index == PRH_THRD_INDEX_MASK) ? 0 : (thrd_index + 1); // 第1个默认给调度线程使用
     prh_atom_hive_quefix_push(quefix, post); // 必须先插入再更新 post_seqn_seed，确保调度线程拿到 post_seqn_seed 之后对应的 post 已经插入队列
     post->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed);
     prh_impl_wakeup_sched_thrd();
+}
+
+void prh_impl_iocp_thrd_exec(prh_iocp_post *post) {
+    while (post->intermed_routine) {
+        post->intermed_routine(post);
+    }
+    post->continue_routine(post);
 }
 
 typedef prh_arrfit(prh_iocp_post *) prh_post_array;
@@ -16565,9 +16651,11 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
 #endif // PRH_FILE_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
+#define prh_port_any ((prh_u16)0)
 #define prh_loopback ((char *)0)
 #define prh_addr_any ((char *)1)
-#define prh_port_any ((prh_u32)0)
+#define prh_ipv6_loopback ((char *)2)
+#define prh_ipv6_addr_any ((char *)3)
 
 #define PRH_ERROR       0xE0
 #define PRH_ETIMEOUT    0xE1
@@ -16706,6 +16794,30 @@ void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port
 }
 
 #if defined(prh_plat_windows)
+// https://learn.microsoft.com/en-us/windows/win32/debug/system-error-code-lookup-tool
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55
+// https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-getlasterror
+// https://learn.microsoft.com/en-us/windows/win32/debug/system-error-codes--9000-11999-
+// https://learn.microsoft.com/en-us/windows/win32/api/winsock/nf-winsock-wsagetlasterror
+// https://learn.microsoft.com/en-us/windows/win32/winsock/windows-sockets-error-codes-2
+// https://learn.microsoft.com/en-us/windows/win32/winsock/handling-winsock-errors
+
+// WSAEFAULT            10014 (0x271E)
+// WSAEINVAL            10022 (0x2726)
+// WSAEALREADY          10037 (0x2735)
+// WSAENOTSOCK          10038 (0x2736)
+// WSAEAFNOSUPPORT      10047 (0x273F)
+// WSAEADDRINUSE        10048 (0x2740)
+// WSAEADDRNOTAVAIL     10049 (0x2741)
+// WSAENETDOWN          10050 (0x2742) 套接字操作遇到网络故障。这可能表明网络系统出现了严重故障、网络接口或本地网络本身出现了问题。
+// WSAENETUNREACH       10051 (0x2743) 尝试对一个不可达的网络执行套接字操作。这通常意味着本地软件没有找到到达远程主机的路由。
+// WSAENOBUFS           10055 (0x2747)
+// WSAEISCONN           10056 (0x2748)
+// WSAETIMEDOUT         10060 (0x274C) 连接因对方在一段时间内未正确响应而失败，或者已建立的连接因连接的主机未响应而失败。
+// WSAECONNREFUSED      10061 (0x274D) 连接被目标主机拒绝，可能目标主机没有允许服务端程序
+// WSAEHOSTUNREACH      10065 (0x2751) 没有到主机的路由。尝试对一个不可达的主机执行套接字操作，参阅 WSAENETUNREACH
+// WSANOTINITIALISED    10093 (0x276D)
+
 // 若 Winsock 在其规范中更新或增添了一个新函数，该函数名将带有 WSA 前缀。比如，建立套
 // 接字的 Winsock 1 函数只是被简单称为 socket，而 Winsock 2 引入该函数的新版本时，其
 // 命名为 WSAScoket，该函数可以使用 Winsock 2 中出现的一些新特性。但注意，该命名规则
@@ -18449,32 +18561,40 @@ prh_static_assert(PRH_IMPL_ACCEPT_V6_ADDRSIZE <= 256);
 prh_static_assert(sizeof(SOCKET) == sizeof(int));
 
 typedef struct {
-    OVERLAPPED overlapped; // 1st field
+    prh_iocp_post post; // 1st field
+    OVERLAPPED overlapped;
     SOCKET accept_socket;
-    prh_u32 request_index: 24, addr_size: 8; // 初始化后只读
-} prh_accept_req;
+    struct sockaddr *local;
+    struct sockaddr *remote;
+    int request_index; // 初始化后只读
+    int addr_size; // 初始化后只读
+} prh_impl_accept_req;
 
 typedef struct {
     SOCKET listen; // 初始化后只读
     int listen_address_family; // 初始化后只读
     int accept_request_count; // 初始化后只读
     int min_pending_accepts; // 初始化后只读
-    void *from_cono_subq; // 初始化后只读
-    prh_accept_req request[1];
+    prh_impl_accept_req request[1];
 } prh_iocp_accept;
 
-prh_inline int prh_impl_iocp_each_accept_size(prh_accept_req *req) {
-    return (int)(sizeof(prh_accept_req) + req->addr_size * 2);
+prh_inline int prh_impl_iocp_each_accept_size(prh_impl_accept_req *req) {
+    return (int)(sizeof(prh_impl_accept_req) + req->addr_size * 2);
 }
-prh_inline prh_iocp_accept *prh_impl_iocp_get_accept(prh_accept_req *req) {
+
+prh_inline prh_iocp_accept *prh_impl_iocp_get_accept(prh_impl_accept_req *req) {
     return (prh_iocp_accept *)((prh_byte *)req - prh_impl_iocp_each_accept_size(req) * req->request_index - prh_offsetof(prh_iocp_accept, request));
 }
 
-prh_inline prh_byte *prh_impl_iocp_accept_addrbuf(prh_accept_req *req) {
+prh_inline prh_byte *prh_impl_iocp_accept_addrbuf(prh_impl_accept_req *req) {
     return (prh_byte *)(req + 1);
 }
 
-void prh_iocp_accept_req(prh_accept_req *req) { // 可以多个线程同时投递数组中不同的 accept 请求
+prh_impl_accept_req *prh_impl_accept_req_from_overlapped(OVERLAPPED *overlapped) {
+    return (prh_byte *)overlapped - prh_offsetof(prh_impl_accept_req, overlapped);
+}
+
+void prh_iocp_accept_req(prh_impl_accept_req *req) { // 可以多个线程同时投递数组中不同的 accept 请求
     prh_iocp_accept *accept = prh_impl_iocp_get_accept(req);
     assert(req->accept_socket != PRH_INVASOCK);
     BOOL b = PRH_IMPL_ACCEPTEX(
@@ -18510,7 +18630,7 @@ void prh_impl_get_sockaddr(struct sockaddr_in *in, prh_sockaddr *out) {
 
 void prh_impl_iocp_accept_completion(OVERLAPPED_ENTRY *entry) {
     DWORD error_code = entry->Internal; // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
-    prh_accept_req *req = (prh_accept_req *)entry->lpOverlapped;
+    prh_impl_accept_req *req = prh_impl_accept_req_from_overlapped(entry->lpOverlapped);
     prh_iocp_accept *accept = prh_impl_iocp_get_accept(req);
 
     // 本次 AcceptEx 失败，重用 accept_request 继续 AcceptEx
@@ -18546,7 +18666,7 @@ void prh_impl_iocp_accept_completion(OVERLAPPED_ENTRY *entry) {
     }
 }
 
-void prh_impl_iocp_reuse_accept_socket(prh_accept_req *req, prh_handle accept_socket) {
+void prh_impl_iocp_reuse_accept_socket(prh_impl_accept_req *req, prh_handle accept_socket) {
     prh_iocp_accept *accept = prh_impl_iocp_get_accept(req);
     if (req->request_index < accept->min_pending_accepts) { // 只读，可跨线程访问
         prh_impl_close_socket(p->accepted_socket); // 不可重用，直接关闭套接字
@@ -18568,12 +18688,12 @@ prh_iocp_accept *prh_iocp_accept_init(prh_cono_subq *from_cono_subq, prh_handle 
     assert(min_pending_accepts > 0);
     assert(accept_request_count <= 0x00FFFFFF);
     int accept_addr_size = prh_round_ptrsize((listen_address_family == AF_INET6) ? PRH_IMPL_ACCEPT_V6_ADDRSIZE : PRH_IMPL_ACCEPT_V4_ADDRSIZE);
-    int each_accept_size = sizeof(prh_accept_req) + accept_addr_size * 2;
-    prh_int alloc_size = sizeof(prh_iocp_accept) - sizeof(prh_accept_req) + each_accept_size * accept_request_count;
+    int each_accept_size = sizeof(prh_impl_accept_req) + accept_addr_size * 2;
+    prh_int alloc_size = sizeof(prh_iocp_accept) - sizeof(prh_impl_accept_req) + each_accept_size * accept_request_count;
     prh_iocp_accept *accept = prh_malloc(alloc_size);
     assert(accept != prh_null);
     memset(accept, 0, alloc_size);
-    prh_accept_req *req = accept->request;
+    prh_impl_accept_req *req = accept->request;
     accept->listen = (SOCKET)listen;
     accept->listen_address_family = listen_address_family;
     accept->accept_request_count = accept_request_count;
@@ -18589,7 +18709,7 @@ prh_iocp_accept *prh_iocp_accept_init(prh_cono_subq *from_cono_subq, prh_handle 
 
 void prh_iocp_accept_free(prh_iocp_accept *accept) {
     int accept_request_count = accept->accept_request_count;
-    prh_accept_req *req = accept->request;
+    prh_impl_accept_req *req = accept->request;
     for (int i = 0; i < accept_request_count; i += 1) {
         if (req[i].accept_socket != PRH_INVASOCK) {
             prh_impl_close_socket(req[i].accept_socket);
@@ -19188,35 +19308,97 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // 为新连接提供更多资源。然而，如果值过低，TCP 可能在连接完成之前释放连接资源，导致服务
 // 器需要使用额外的资源重新建立连接。此注册值可设置的范围从 0 到 300 秒。
 
-#define PRH_IPV4_BYTE_ARRAY 0x10000 // prh_byte ipv4[4] = {127, 0, 0, 1};
-#define PRH_IPV6_BYTE_ARRAY 0x20000 // prh_byte ipv6[16] = { ... };
+#define PRH_IPV4_BYTE_ARRAY 0x10000000 // prh_byte ipv4[4] = {127, 0, 0, 1};
+#define PRH_IPV6_BYTE_ARRAY 0x20000000 // prh_byte ipv6[16] = { ... };
 
 typedef void (*prh_complete_routine)(void *req);
-typedef void (*prh_continue_routine)(void *req, void *priv, prh_ptr data);
 
 typedef struct {
-    OVERLAPPED overlapped; // 1st field
-    prh_complete_routine complete_routine;
-    prh_continue_routine continue_routine;
-    void *priv;
-} prh_socket_req;
-
-typedef struct {
-    prh_socket_req head;
+    prh_iocp_sock_setup head; // 1st field
+    OVERLAPPED overlapped;
     SOCKET connect_socket;
-    prh_u32 error_code;
     struct sockaddr_in6 remote;
-} prh_connect_req;
+} prh_iocp_connect;
 
-void prh_impl_iocp_create_connect_socket(prh_connect_req *req, int family);
-void prh_impl_iocp_close_connect_socket(prh_connect_req *req);
-void prh_impl_iocp_connect_complete(void *req);
+prh_iocp_connect *prh_impl_iocp_get_connect_req_from_overlapped(OVERLAPPED *overlapped) {
+    return (prh_iocp_connect *)((prh_byte *)overlapped - prh_offsetof(prh_iocp_connect, overlapped));
+}
 
-void prh_impl_iocp_connect_req(prh_connect_req *req) {
+void prh_impl_iocp_connect_socket_info(prh_iocp_sock_setup *post, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn) {
+    prh_iocp_connect *req = (prh_iocp_connect *)post;
+    struct sockaddr_in6 *sa_remote = &req->remote;
+    struct sockaddr_in6 sa_local;
+    sa_local.sin6_family = remote->sin6_family;
+    prh_sock_local_addr(post->connect_socket, &l);
+    prh_impl_get_sockaddr((struct sockaddr_in *)&sa_local, local);
+    prh_impl_get_sockaddr((struct sockaddr_in *)sa_remote, remote);
+    local->protocol = remote->protocol = PRH_TCP;
+    *server_accept_conn = false;
+}
+
+void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
+    prh_iocp_connect *req = (prh_iocp_connect *)post;
+    if (post->error_code) { // 不管成功还是失败，上层在处理完 prh_iocp_sock_setup 之后 prh_iocp_connect 就可以重用
+        req->head.socket = PRH_INVASOCK; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_connect_socket 主动关闭
+        req->head.info = prh_null;
+        // 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连
+        // WSAECONNREFUSED      连接尝试被拒绝。
+        // WSAENETUNREACH       当前无法从该主机到达网络。
+        // WSAETIMEDOUT         连接尝试超时而未建立连接。
+        // WSANOTINITIALISED    在调用 ConnectEx 之前，必须先成功调用 WSAStartup 函数。
+        // WSAENETDOWN          网络子系统已失败。
+        // WSAEADDRINUSE        套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错误通常在绑定操作
+        //                      期间发生，但如果 bind 函数使用通配符地址（INADDR_ANY 或 in6addr_any）指定了本地 IP 地址，则错
+        //                      误可能会延迟到 ConnectEx 函数调用。ConnectEx 函数需要隐式绑定到特定的 IP 地址。
+        // WSAEALREADY          在指定的套接字上正在进行非阻塞的 connect、WSAConnect 或 ConnectEx 函数调用。
+        // WSAEADDRNOTAVAIL     远程地址不是有效地址，例如 ADDR_ANY（ConnectEx 函数仅支持面向连接的套接字）。
+        // WSAEAFNOSUPPORT      指定地址族的地址不能与该套接字一起使用。
+        // WSAEFAULT            name、lpSendBuffer 或 lpOverlapped 参数不是用户地址空间的有效部分，或者 namelen 太小。
+        // WSAEINVAL            参数 s 是未绑定的或监听套接字。
+        // WSAEISCONN           套接字已连接。
+        // WSAEHOSTUNREACH      尝试对无法到达的主机执行套接字操作。
+        // WSAENOBUFS           没有可用的缓冲区空间；套接字无法连接。
+        // WSAENOTSOCK          描述符不是套接字。
+    } else {
+        prh_handle connect_socket = req->connect_socket;
+        prh_setsockopt_update_connect_context(connect_socket); // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
+        req->connect_socket = PRH_INVASOCK; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到套接字断连关闭
+        req->head.socket = connect_socket;  // 在 prh_iocp_connect 重用时，会注册一个新的套接字到 PRH_IMPL_IOCP 中
+        req->head.info = prh_impl_iocp_connect_socket_info;
+    }
+    post->intermed_routine = prh_null;
+}
+
+void prh_impl_iocp_connect_post(prh_iocp_post *post, prh_u32 error_code) {
+    post->error_code = error_code;
+    post->intermed_routine = prh_impl_iocp_connect_continue;
+    prh_iocp_thrd_post(post);
+}
+
+#include <winternl.h>
+
+void prh_impl_iocp_connect_complete(OVERLAPPED_ENTRY *entry) {
+    prh_iocp_connect *req = prh_impl_iocp_get_connect_req_from_overlapped(entry->lpOverlapped);
+    DWORD error_code;
+    if (entry->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
+        error_code = RtlNtStatusToDosError((NTSTATUS)entry->Internal); // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
+        prh_prerr(error_code);
+    } else {
+        error_code = 0;
+    }
+    prh_impl_iocp_connect_post(&req->head.post, error_code);
+}
+
+void prh_impl_iocp_create_connect_socket(prh_iocp_connect *req, int family) {
+    prh_handle sock = prh_impl_tcp_socket(family);
+    req->connect_socket = sock;
+    prh_impl_completion_port_attach(PRH_IMPL_IOCP, sock, (void *)prh_impl_iocp_connect_complete);
+}
+
+void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
     struct sockaddr *remote = (struct sockaddr *)&req->remote;
     int family = remote->sa_family;
     int namelen = (family == AF_INET6) ? (int)sizeof(struct sockaddr_in6) : (int)sizeof(struct sockaddr_in);
-    req->head.complete_routine = prh_impl_iocp_connect_complete;
     if (req->connect_socket == PRH_INVASOCK) {
         prh_impl_iocp_create_connect_socket(req, family);
     }
@@ -19227,82 +19409,20 @@ void prh_impl_iocp_connect_req(prh_connect_req *req) {
         /* [in, optional] PVOID lpSendBuffer        */ prh_null,
         /* [in]           DWORD dwSendDataLength    */ 0,
         /* [out]          LPDWORD lpdwBytesSent     */ prh_null,
-        /* [in]           LPOVERLAPPED lpOverlapped */ &req->head.overlapped,
+        /* [in]           LPOVERLAPPED lpOverlapped */ &req->overlapped,
         );
     prh_abort_if(b == TRUE); // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
-    DWORD error = WSAGetLastError();
-    if (error == WSA_IO_PENDING) {
+    DWORD error_code = WSAGetLastError();
+    if (error_code == WSA_IO_PENDING) {
         return; // 请求已经成功投递
     }
-    prh_prerr(error); // TODO 传递给 continue_routine
-    prh_impl_iocp_close_connect_socket(req);
+    prh_prerr(error_code);
+    prh_impl_iocp_connect_post(&req->head.post, error_code);
 }
 
-void prh_impl_iocp_connect_continue(void *req_data) {
-    prh_connect_req *req = (prh_connect_req *)req_data;
-    prh_continue_routine continue_routine = req->head.continue_routine;
-    if (req->error_code) {
-        prh_prerr(error_code);
-        prh_impl_iocp_close_connect_socket(req);
-        continue_routine(req, req->head.priv, PRH_INVASOCK);
-    } else {
-        prh_handle connect_socket = req->connect_socket;
-        prh_setsockopt_update_connect_context(connect_socket);
-        continue_routine(req, req->head.priv, connect_socket);
-        req->connect_socket = PRH_INVASOCK;
-    }
-}
-
-void prh_impl_iocp_connect_complete(void *req) {
-    OVERLAPPED_ENTRY *entry = (OVERLAPPED_ENTRY *)req;
-    DWORD error_code = (DWORD)entry->Internal; // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
-    prh_connect_req *req = (prh_accept_req *)entry->lpOverlapped;
-    req->error_code = error_code;
-    req->head.complete_routine = prh_impl_iocp_connect_continue;
-    prh_impl_sched_new_routine(req);
-}
-
-void prh_impl_iocp_socket_complete(OVERLAPPED_ENTRY *entry) {
-    prh_socket_req *req = (prh_accept_req *)entry->lpOverlapped;
-    prh_complete_routine complete_routine = req->complete_routine;
-    complete_routine(entry);
-}
-
-void prh_impl_iocp_create_connect_socket(prh_connect_req *req, int family) {
-    prh_handle sock = prh_impl_tcp_socket(family);
-    req->connect_socket = sock;
-    prh_impl_completion_port_attach(PRH_IMPL_IOCP, sock, (void *)prh_impl_iocp_socket_complete);
-}
-
-void prh_impl_iocp_close_connect_socket(prh_connect_req *req) {
-    prh_impl_close_socket(req->connect_socket);
-    req->connect_socket = PRH_INVASOCK;
-}
-
-prh_connect_req *prh_impl_alloc_connect_req(void) {
-    prh_connect_req *req = prh_malloc(sizeof(prh_connect_req));
-    assert(req != prh_null);
-    memset(req, 0, sizeof(prh_connect_req));
-    req->connect_socket = PRH_INVASOCK;
-}
-
-prh_connect_req *prh_impl_get_connect_req(prh_connect_req *req, prh_continue_routine continue_routine, void *priv) {
-    if (req == prh_null) {
-        req = prh_impl_alloc_connect_req();
-    } else {
-        memset(&req->remote, 0, sizeof(req->remote));
-    }
-    req->head.continue_routine = continue_routine;
-    req->head.priv = priv;
-}
-
-void prh_iocp_connect_req(prh_connect_req *req, const char *host, int flags_port, prh_continue_routine continue_routine, void *priv) {
-    prh_u16 port = (prh_u16)(flags_port & 0xffff);
-    assert(host != prh_addr_any);
-    assert(port != prh_port_any);
-    req = prh_impl_get_connect_req(req, continue_routine, priv);
-    struct sockaddr_in6 *in6 = &req->remote;
+void prh_impl_sock_address(struct sockaddr_in6 *in6, const char *host, int flags_port) {
     struct sockaddr_in *in = (struct sockaddr_in *)in6;
+    prh_u16 port = (prh_u16)(flags_port & 0xffff);
     if (flags_port & PRH_IPV4_BYTE_ARRAY) {
         in->sin_family = AF_INET;
         in->sin_port = htons(port);
@@ -19319,6 +19439,14 @@ void prh_iocp_connect_req(prh_connect_req *req, const char *host, int flags_port
         in6->sin6_family = AF_INET6;
         in6->sin6_port = htons(port);
         in6->sin6_addr = in6addr_loopback;
+    } else if (host == prh_addr_any) {
+        in->sin_family = AF_INET;
+        in->sin_port = htons(port);
+        in->sin_addr.s_addr = htonl(INADDR_ANY);
+    } else if (host == prh_ipv6_addr_any) {
+        in6->sin6_family = AF_INET6;
+        in6->sin6_port = htons(port);
+        in6->sin6_addr = in6addr_any;
     } else if (prh_impl_is_ipv4_str(host)) {
         in->sin_family = AF_INET;
         in->sin_port = htons(port);
@@ -19330,6 +19458,31 @@ void prh_iocp_connect_req(prh_connect_req *req, const char *host, int flags_port
     } else {
         prh_impl_abort(__LINE__); // TODO 添加域名解析
     }
+}
+
+int prh_iocp_connect_size(void) {
+    return sizeof(prh_iocp_connect);
+}
+
+void prh_iocp_connect_init(prh_iocp_connect *req, prh_continue_routine routine, void *context) {
+    memset(req, 0, sizeof(prh_iocp_connect));
+    prh_iocp_post_init(&req->post, reoutine, context);
+    req->connect_socket = PRH_INVASOCK;
+}
+
+void prh_iocp_close_connect_socket(prh_iocp_connect *req) { // 当 prh_iocp_connect 不再使用时，记得调用 prh_iocp_close_connect_socket
+    prh_handle connect_sock = req->connect_socket;
+    if (connect_sock != PRH_INVASOCK) {
+        prh_impl_close_socket(connect_sock);
+        req->connect_socket = PRH_INVASOCK;
+    }
+}
+
+void prh_iocp_connect_req(prh_iocp_connect *req, const char *host, int flags_port) {
+    assert(req != prh_null);
+    assert(host != prh_addr_any && host != prh_ipv6_addr_any);
+    assert((flags_port & 0xffff) != prh_port_any);
+    prh_impl_sock_address(&req->remote, host, flags_port);
     prh_impl_iocp_connect_req(req);
 }
 
