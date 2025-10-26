@@ -9723,6 +9723,10 @@ void prh_impl_thrd_test(void) {
 #if defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
     printf("CREATE_WAITABLE_TIMER_HIGH_RESOLUTION is defined\n");
 #endif
+
+    printf("prh_thrd_mutex %d-byte\n", (int)sizeof(prh_thrd_mutex));
+    printf("prh_thrd_cond %d-byte\n", (int)sizeof(prh_thrd_cond));
+    printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else // PTHREAD BEGIN
@@ -12929,6 +12933,10 @@ void prh_impl_thrd_test(void) {
 #ifdef SIGRTMAX // 实时信号编号的最大值
     printf("SIGRTMAX %d\n", SIGRTMAX);
 #endif
+
+    printf("prh_thrd_mutex %d-byte\n", (int)sizeof(prh_thrd_mutex));
+    printf("prh_thrd_cond %d-byte\n", (int)sizeof(prh_thrd_cond));
+    printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PTHREAD END
@@ -15579,29 +15587,29 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 }
 
 struct prh_iocp_post;
-struct prh_iocp_sock_setup;
-
 typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
-typedef void (*prh_iocp_socket_info)(struct prh_iocp_sock_setup *post, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn);
+typedef void (*prh_iocp_post_result)(struct prh_iocp_post *post, void *result);
 
 typedef struct {
-    prh_continue_routine continue_routine;
-    prh_continue_routine intermed_routine;
-    void *context;
+    prh_handle accept_socket;
+    prh_sockaddr *local;
+    prh_sockaddr *remote;
+} prh_iocp_accept_result;
+
+typedef struct {
+    prh_handle connect_socket;
+    prh_sockaddr *local;
+    prh_sockaddr *remote;
+} prh_iocp_connect_result;
+
+typedef struct {
     prh_u32 post_seqn;
     prh_u32 error_code;
+    void *context;
+    prh_continue_routine continue_routine;
+    prh_continue_routine intermed_routine;
+    prh_iocp_post_result iocp_post_result;
 } prh_iocp_post;
-
-typedef struct {
-    prh_iocp_post post;
-    prh_handle socket;
-    prh_iocp_socket_info info;
-} prh_iocp_sock_setup;
-
-typedef struct {
-    prh_iocp_post post;
-    prh_handle socket;
-} prh_iocp_sock_inout;
 
 typedef struct {
     prh_atom_hive_quefix thrd_req_que;
@@ -15611,8 +15619,8 @@ typedef struct {
     prh_u32 concurrent_threads;
     prh_u32 prev_turn_seqn;
     prh_atom_u32 post_seqn_seed;
-    prh_cond_sleep sched_cond_sleep;
     prh_iocp_thrd_data *thrd_data;
+    prh_cond_sleep sched_cond_sleep;
 } prh_iocp_global;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
@@ -18726,10 +18734,11 @@ void prh_impl_get_sockaddr(struct sockaddr_in *in, prh_sockaddr *out) {
     }
 }
 
-void prh_impl_iocp_accept_socket_info(prh_iocp_sock_setup *setup, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn) {
-    prh_impl_accept_req *req = (prh_impl_accept_req *)setup;
+void prh_impl_iocp_accept_result(prh_iocp_post *post, void *result) {
+    prh_impl_accept_req *req = (prh_impl_accept_req *)post;
     sockaddr_in *l_addr, *p_addr;
     INT l_addrlen = 0, p_addrlen = 0;
+
     PRH_IMPL_GETACCEPTEXSOCKADDRS(
         /* [in]  PVOID    lpOutputBuffer        */ prh_impl_iocp_accept_addrbuf(req),
         /* [in]  DWORD    dwReceiveDataLength   */ 0,
@@ -18743,10 +18752,13 @@ void prh_impl_iocp_accept_socket_info(prh_iocp_sock_setup *setup, prh_sockaddr *
     assert(p_addrlen == sizeof(struct sockaddr_in) || p_addrlen == sizeof(struct sockaddr_in6));
     assert(l_addr->sin_family == AF_INET || l_addr->sin_family == AF_INET6);
     assert(p_addr->sin_family == AF_INET || p_addr->sin_family == AF_INET6);
+
+    prh_sockaddr *local = ((prh_iocp_accept_result *)result)->local;
+    prh_sockaddr *remote = ((prh_iocp_accept_result *)result)->remote;;
+    ((prh_iocp_accept_result *)result)->accept_socket = req->accept_socket;
     prh_impl_get_sockaddr((struct sockaddr_in *)l_addr, local);
     prh_impl_get_sockaddr((struct sockaddr_in *)p_addr, remote);
     local->protocol = remote->protocol = PRH_TCP;
-    *server_accept_conn = true;
 }
 
 void prh_impl_iocp_accept_completion(OVERLAPPED_ENTRY *entry) {
@@ -19435,7 +19447,7 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 typedef void (*prh_complete_routine)(void *req);
 
 typedef struct {
-    prh_iocp_sock_setup head; // 1st field
+    prh_iocp_post post; // 1st field
     OVERLAPPED overlapped;
     SOCKET connect_socket;
     struct sockaddr_in6 remote;
@@ -19445,23 +19457,25 @@ prh_iocp_connect *prh_impl_iocp_get_connect_req_from_overlapped(OVERLAPPED *over
     return (prh_iocp_connect *)((prh_byte *)overlapped - prh_offsetof(prh_iocp_connect, overlapped));
 }
 
-void prh_impl_iocp_connect_socket_info(prh_iocp_sock_setup *setup, prh_sockaddr *local, prh_sockaddr *remote, bool *server_accept_conn) {
-    prh_iocp_connect *req = (prh_iocp_connect *)setup;
+void prh_impl_iocp_connect_result(prh_iocp_post *post, void *result) {
+    prh_iocp_connect *req = (prh_iocp_connect *)post;
+    prh_handle connect_socket = req->connect_socket;
     struct sockaddr_in6 *sa_remote = &req->remote;
     struct sockaddr_in6 sa_local;
     sa_local.sin6_family = remote->sin6_family;
-    prh_sock_local_addr(setup->socket, &l);
+    prh_sock_local_addr(connect_socket, &sa_local);
+    prh_sockaddr *local = ((prh_iocp_connect_result *)result)->local;
+    prh_sockaddr *remote = ((prh_iocp_connect_result *)result)->remote;;
+    ((prh_iocp_connect_result *)result)->connect_socket = connect_socket;
     prh_impl_get_sockaddr((struct sockaddr_in *)&sa_local, local);
     prh_impl_get_sockaddr((struct sockaddr_in *)sa_remote, remote);
     local->protocol = remote->protocol = PRH_TCP;
-    *server_accept_conn = false;
 }
 
 void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
     prh_iocp_connect *req = (prh_iocp_connect *)post;
-    if (post->error_code) { // 不管成功还是失败，上层在处理完 prh_iocp_sock_setup 之后 prh_iocp_connect 就可以重用
-        req->head.socket = PRH_INVASOCK; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_connect_socket 主动关闭
-        req->head.info = prh_null;
+    if (post->error_code) { // 不管成功还是失败，上层在 continue_routine 中调用完 prh_impl_iocp_connect_result 之后 prh_iocp_connect 就可以重用
+        req->post.iocp_post_result = prh_null; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_connect_socket 主动关闭
         // 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连
         // WSAECONNREFUSED      连接尝试被拒绝。
         // WSAENETUNREACH       当前无法从该主机到达网络。
@@ -19480,14 +19494,12 @@ void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
         // WSAEHOSTUNREACH      尝试对无法到达的主机执行套接字操作。
         // WSAENOBUFS           没有可用的缓冲区空间；套接字无法连接。
         // WSAENOTSOCK          描述符不是套接字。
-    } else {
-        prh_handle connect_socket = req->connect_socket;
-        prh_setsockopt_update_connect_context(connect_socket); // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
-        req->connect_socket = PRH_INVASOCK; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到套接字断连关闭
-        req->head.socket = connect_socket;  // 在 prh_iocp_connect 重用时，会注册一个新的套接字到 PRH_IMPL_IOCP 中
-        req->head.info = prh_impl_iocp_connect_socket_info;
+    } else { // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
+        prh_setsockopt_update_connect_context(req->connect_socket); // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到套接字断连关闭
+        req->post.iocp_post_result = prh_impl_iocp_connect_result; // 在 prh_iocp_connect 重用时，会注册一个新的套接字到 PRH_IMPL_IOCP 中
+        post->continue_routine(post); // 调用 continue_routine 之后，才能清空 connect_socket
+        req->connect_socket = PRH_INVASOCK;
     }
-    post->continue_routine(post);
 }
 
 void prh_impl_iocp_connect_post(prh_iocp_post *post, prh_u32 error_code) {
