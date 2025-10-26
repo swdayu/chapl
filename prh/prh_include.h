@@ -15613,12 +15613,20 @@ typedef struct {
 
 typedef struct {
     prh_atom_hive_quefix thrd_req_que;
+    prh_atom_hive_quefix recv_que;
+    prh_atom_u32 thrd_wait_seqn;
+    prh_atom_bool thrd_is_waiting;
+    prh_atom_bool wakeup_semaphore;
+    prh_thrd_cond post_wait_cond;
 } prh_iocp_thrd_data;
 
 typedef struct {
     prh_u32 concurrent_threads;
-    prh_u32 prev_turn_seqn;
+    prh_u32 prev_post_seqn;
+    prh_u32 prev_wait_seqn;
+    prh_atom_i32 recv_seqn_seed;
     prh_atom_u32 post_seqn_seed;
+    prh_atom_u32 thrd_wait_seed;
     prh_iocp_thrd_data *thrd_data;
     prh_cond_sleep sched_cond_sleep;
 } prh_iocp_global;
@@ -15651,7 +15659,7 @@ void prh_impl_wakeup_sched_thrd(void) {
 
 // 工作线程投递任务给调度线程分配，每个工作线程都有一个独立的任务队列供自己使用。工作线
 // 程投递的每个任务，都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，都最多只
-// 处理固定数量的任务，例如 [prev_turn_seqn, prev_trun_seqn + N)，每一轮最多只有在此
+// 处理固定数量的任务，例如 [prev_post_seqn, prev_post_seqn + N)，每一轮最多只有在此
 // 区间内的任务被处理。在处理时，调度线程首先将范围内的任务，按编号顺序收集到一个大小为
 // N 的固定数组中，然后大致负载均衡地分配给各线程处理。
 
@@ -15659,6 +15667,46 @@ void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void 
     memset(post, 0, sizeof(prh_iocp_post));
     post->continue_routine = routine;
     post->context = context;
+}
+
+void prh_impl_iocp_thrd_sleep(prh_iocp_thrd_data *thrd) {
+    if (prh_atom_bool_strong_clear_if_set(&thrd->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
+    prh_thrd_cond *cond = &thrd->post_wait_cond;
+    prh_thrd_cond_lock(cond); // wakeup_semaphore 可能在 prh_thrd_cond_lock 之前又设为 true
+    if (prh_atom_bool_read(&thrd->wakeup_semaphore)) {
+        goto label_already_wakeup;
+    }
+    prh_atom_u32_write(&thrd->thrd_wait_seqn, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.thrd_wait_seed));
+    prh_atom_bool_write(&thrd->thrd_is_waiting, true);
+label_continue_waiting:
+    prh_impl_plat_cond_wait(cond);
+    if (!prh_atom_bool_read(&thrd->wakeup_semaphore)) {
+        goto label_continue_waiting;
+    } // 在调度线程处理完一次 thrd_wait_seqn 之后，只要在 thrd_wait_seed 最大值又绕回到 thrd_wait_seqn 之前将 thrd_is_waiting 设成 false 就是安全的
+    prh_atom_bool_write(&thrd->thrd_is_waiting, false); // 因为 32 位整数有 4 亿多个数，而可能并行的线程个数最多几百上千个，thrd_wait_seed 需要至少上百万轮才会绕回
+label_already_wakeup:
+    prh_atom_bool_write(&p->wakeup_semaphore, false);
+    prh_thrd_cond_unlock(cond);
+}
+
+void prh_impl_iocp_thrd_wakeup(prh_iocp_thrd_data *thrd) {
+    if (prh_atom_bool_read(&thrd->wakeup_semaphore)) return; // 已经有唤醒存在，无需重新唤醒
+    prh_thrd_cond *cond = &thrd->post_wait_cond;
+    prh_thrd_cond_lock(cond);
+    prh_atom_bool_write(&thrd->wakeup_semaphore, true);
+    prh_thrd_cond_unlock(cond);
+    prh_thrd_cond_signal(cond);
+}
+
+void prh_iocp_thrd_wait(void) {
+    prh_iocp_thrd_data *thrd = PRH_IOCP_GLOBAL.thrd_data + (int)((prh_i16)prh_thrd_self_index() + (prh_i16)1); // 第1个默认给调度线程使用
+    prh_i32 recv_seqn = prh_atom_i32_fetch_dec(&PRH_IOCP_GLOBAL.recv_seqn_seed);
+    if (recv_seqn >= 0) {
+        // 接收 recv_seqn 对应的任务包去处理
+    } else {
+        // 进入睡眠，等待调度线程唤醒
+        prh_impl_iocp_thrd_sleep(thrd);
+    }
 }
 
 void prh_iocp_thrd_post(prh_iocp_post *post) {
@@ -15683,7 +15731,7 @@ typedef struct {
 } prh_impl_sched_post_priv;
 
 bool prh_impl_sched_thrd_get_each_post(void *post, void *priv) {
-    prh_u32 index = ((prh_iocp_post *)post)->post_seqn - PRH_IOCP_GLOBAL.prev_turn_seqn; // post_seqn 最大值绕回也成立
+    prh_u32 index = ((prh_iocp_post *)post)->post_seqn - PRH_IOCP_GLOBAL.prev_post_seqn; // post_seqn 最大值绕回也成立
     prh_post_array *array = ((prh_impl_sched_post_priv *)priv)->array;
     prh_iocp_post **post_array = array->arrfit;
     if (index < ((prh_impl_sched_post_priv *)priv)->post_count) {
@@ -15697,8 +15745,8 @@ bool prh_impl_sched_thrd_get_each_post(void *post, void *priv) {
 prh_u32 prh_impl_sched_thrd_collect_post(prh_post_array *array) {
     prh_iocp_thrd_data *begin = PRH_IOCP_GLOBAL.thrd_data;
     prh_iocp_thrd_data *end = prh_iocp_thrd_data_next(begin, PRH_IOCP_GLOBAL.concurrent_threads); // 包含最后一个
-    prh_u32 prev_turn_seqn = PRH_IOCP_GLOBAL.prev_turn_seqn;
-    prh_u32 post_count = prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed) - prev_turn_seqn;
+    prh_u32 prev_post_seqn = PRH_IOCP_GLOBAL.prev_post_seqn;
+    prh_u32 post_count = prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed) - prev_post_seqn;
     prh_u32 array_max_items = (prh_u32)array->capacity;
 
     if (post_count > array_max_items) {
@@ -15716,8 +15764,37 @@ prh_u32 prh_impl_sched_thrd_collect_post(prh_post_array *array) {
     }
 
     prh_real_assert(post_count == array->size);
-    PRH_IOCP_GLOBAL.prev_turn_seqn = prev_turn_seqn + post_count;
+    PRH_IOCP_GLOBAL.prev_post_seqn = prev_post_seqn + post_count;
     return post_count;
+}
+
+prh_u32 prh_impl_sched_thrd_check_wait_que(prh_iocp_thrd_data *thrd_wait_que) {
+    prh_iocp_thrd_data *begin = PRH_IOCP_GLOBAL.thrd_data;
+    prh_iocp_thrd_data *end = prh_iocp_thrd_data_next(begin, PRH_IOCP_GLOBAL.concurrent_threads); // 包含最后一个
+    prh_u32 curr_wait_seqn = prh_atom_u32_read(&PRH_IOCP_GLOBAL.thrd_wait_seed);
+    prh_u32 prev_wait_seqn = PRH_IOCP_GLOBAL.prev_wait_seqn;
+    prh_u32 wait_thrd_count = curr_wait_seqn - prev_wait_seqn; // curr_wait_seqn 最大值绕回也成立
+    prh_u32 array_size = 0;
+
+    if (wait_thrd_count == 0) {
+        return 0;
+    }
+
+    prh_real_assert(wait_thrd_count <= PRH_IOCP_GLOBAL.concurrent_threads);
+
+    begin = prh_iocp_thrd_data_next(begin, 1); // 跳过调度线程
+    for (; begin <= end; begin = prh_iocp_thrd_data_next(begin, 1)) { // 包含最后一个
+        if (!prh_atom_bool_read(&begin->thrd_is_waiting)) continue;
+        prh_u32 thrd_wait_index = prh_atom_u32_read(begin->thrd_wait_seqn) - prev_wait_seqn;
+        if (thrd_wait_index < wait_thrd_count) {
+            thrd_wait_que[thrd_wait_index] = begin;
+            array_size += 1;
+        }
+    }
+
+    prh_real_assert(wait_thrd_count == array_size);
+    PRH_IOCP_GLOBAL.prev_wait_seqn = curr_wait_seqn;
+    return wait_thrd_count;
 }
 
 #elif defined(prh_plat_linux)
@@ -16689,6 +16766,8 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
 #define prh_addr_any ((char *)1)
 #define prh_ipv6_loopback ((char *)2)
 #define prh_ipv6_addr_any ((char *)3)
+#define PRH_IPV4_BYTE_ARRAY 0x10000000 // prh_byte ipv4[4] = {127, 0, 0, 1};
+#define PRH_IPV6_BYTE_ARRAY 0x20000000 // prh_byte ipv6[16] = { ... };
 
 #define PRH_ERROR       0xE0
 #define PRH_ETIMEOUT    0xE1
@@ -19440,11 +19519,7 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // 而，可以使用此条目自定义间隔。降低此条目的值可以让 TCP 更快地释放已关闭的连接，从而
 // 为新连接提供更多资源。然而，如果值过低，TCP 可能在连接完成之前释放连接资源，导致服务
 // 器需要使用额外的资源重新建立连接。此注册值可设置的范围从 0 到 300 秒。
-
-#define PRH_IPV4_BYTE_ARRAY 0x10000000 // prh_byte ipv4[4] = {127, 0, 0, 1};
-#define PRH_IPV6_BYTE_ARRAY 0x20000000 // prh_byte ipv6[16] = { ... };
-
-typedef void (*prh_complete_routine)(void *req);
+#include <winternl.h> // RtlNtStatusToDosError
 
 typedef struct {
     prh_iocp_post post; // 1st field
@@ -19507,8 +19582,6 @@ void prh_impl_iocp_connect_post(prh_iocp_post *post, prh_u32 error_code) {
     post->intermed_routine = prh_impl_iocp_connect_continue;
     prh_iocp_thrd_post(post);
 }
-
-#include <winternl.h>
 
 void prh_impl_iocp_connect_complete(OVERLAPPED_ENTRY *entry) {
     prh_iocp_connect *req = prh_impl_iocp_get_connect_req_from_overlapped(entry->lpOverlapped);
