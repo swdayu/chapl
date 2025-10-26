@@ -1802,6 +1802,7 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
 typedef enum {
     PRH_IOCP_ACCEPT,
     PRH_IOCP_CONNECT,
+    PRH_IOCP_THRD_DATA,
     prh_ALLOC_ENUM_MAX
 } prh_alloc_id_enum;
 
@@ -15603,14 +15604,38 @@ typedef struct {
 } prh_iocp_sock_inout;
 
 typedef struct {
+    prh_atom_hive_quefix thrd_req_que;
+} prh_iocp_thrd_data;
+
+typedef struct {
     prh_u32 concurrent_threads;
     prh_u32 prev_turn_seqn;
     prh_atom_u32 post_seqn_seed;
-    prh_atom_hive_quefix *thrd_req_que;
     prh_cond_sleep sched_cond_sleep;
+    prh_iocp_thrd_data *thrd_data;
 } prh_iocp_global;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
+prh_static_assert(sizeof(prh_iocp_thrd_data) <= PRH_CACHE_LINE_SIZE);
+
+prh_inline int prh_iocp_thrd_data_size(void) {
+    return PRH_CACHE_LINE_SIZE;
+}
+
+prh_inline prh_iocp_thrd_data *prh_iocp_thrd_data_next(prh_iocp_thrd_data *thrd_data, int count) {
+    return (prh_iocp_thrd_data *)((prh_byte *)thrd_data + prh_iocp_thrd_data_size() * count);
+}
+
+void prh_iocp_global_init(int concurrent_thread_count) {
+    assert(concurrent_thread_count > 0 && concurrent_thread_count < PRH_THRD_INDEX_MASK);
+    prh_unt alloc = (concurrent_thread_count + 1) * prh_iocp_thrd_data_size(); // 包含调度线程自身
+    void *thrd_data = prh_memory_aligned_alloc(PRH_IOCP_THRD_DATA, alloc, PRH_CACHE_LINE_SIZE);
+    assert(thrd_data != prh_null);
+    PRH_IOCP_GLOBAL.thrd_data = thrd_data;
+    PRH_IOCP_GLOBAL.concurrent_threads = concurrent_thread_count;
+    prh_atom_u32_init(&PRH_IOCP_GLOBAL.post_seqn_seed);
+    prh_impl_init_cond_sleep(&PRH_IOCP_GLOBAL.sched_cond_sleep);
+}
 
 void prh_impl_wakeup_sched_thrd(void) {
     prh_thrd_wakeup(&PRH_IOCP_GLOBAL.sched_cond_sleep);
@@ -15629,9 +15654,8 @@ void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void 
 }
 
 void prh_iocp_thrd_post(prh_iocp_post *post) {
-    int thrd_index = prh_thrd_self_index();
-    prh_atom_hive_quefix *quefix = PRH_IOCP_GLOBAL.thrd_req_que + (thrd_index == PRH_THRD_INDEX_MASK) ? 0 : (thrd_index + 1); // 第1个默认给调度线程使用
-    prh_atom_hive_quefix_push(quefix, post); // 必须先插入再更新 post_seqn_seed，确保调度线程拿到 post_seqn_seed 之后对应的 post 已经插入队列
+    prh_iocp_thrd_data *thrd_data = PRH_IOCP_GLOBAL.thrd_data + (int)((prh_i16)prh_thrd_self_index() + (prh_i16)1); // 第1个默认给调度线程使用
+    prh_atom_hive_quefix_push(&thrd_data->thrd_req_que, post); // 必须先插入再更新 post_seqn_seed，确保调度线程拿到 post_seqn_seed 之后对应的 post 已经插入队列
     post->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed);
     prh_impl_wakeup_sched_thrd();
 }
@@ -15663,8 +15687,8 @@ bool prh_impl_sched_thrd_get_each_post(void *post, void *priv) {
 }
 
 prh_u32 prh_impl_sched_thrd_collect_post(prh_post_array *array) {
-    prh_atom_hive_quefix *quefix = PRH_IOCP_GLOBAL.thrd_req_que;
-    prh_atom_hive_quefix *endque = quefix + PRH_IOCP_GLOBAL.concurrent_threads; // 包含最后一个队列
+    prh_iocp_thrd_data *begin = PRH_IOCP_GLOBAL.thrd_data;
+    prh_iocp_thrd_data *end = prh_iocp_thrd_data_next(begin, PRH_IOCP_GLOBAL.concurrent_threads); // 包含最后一个
     prh_u32 prev_turn_seqn = PRH_IOCP_GLOBAL.prev_turn_seqn;
     prh_u32 post_count = prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed) - prev_turn_seqn;
     prh_u32 array_max_items = (prh_u32)array->capacity;
@@ -15679,8 +15703,8 @@ prh_u32 prh_impl_sched_thrd_collect_post(prh_post_array *array) {
 
     prh_impl_sched_post_priv post_priv = {array, post_count};
     prh_arrfit_clear(array);
-    for (; quefix <= endque; quefix += 1) {
-        prh_atom_hive_quefix_pops(quefix, prh_impl_sched_thrd_get_each_post, &post_priv);
+    for (; begin <= end; begin = prh_iocp_thrd_data_next(begin, 1)) { // 包含最后一个
+        prh_atom_hive_quefix_pops(&begin->thrd_req_que, prh_impl_sched_thrd_get_each_post, &post_priv);
     }
 
     prh_real_assert(post_count == array->size);
