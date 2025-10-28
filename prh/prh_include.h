@@ -19681,7 +19681,7 @@ typedef struct {
 
 void prh_impl_iocp_connect_result(prh_iocp_post *post, void *result) {
     prh_iocp_connect *req = (prh_iocp_connect *)post;
-    prh_handle connect_socket = req->connect_socket;
+    prh_handle connect_socket = (prh_handle)req->overlapped.hEvent; // 使用 hEvent 临时保存 connect_socket
     struct sockaddr_in6 *sa_remote = &req->remote;
     struct sockaddr_in6 sa_local;
     sa_local.sin6_family = remote->sin6_family;
@@ -19697,7 +19697,7 @@ void prh_impl_iocp_connect_result(prh_iocp_post *post, void *result) {
 void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
     prh_iocp_connect *req = (prh_iocp_connect *)post;
     if (post->error_code) { // 不管成功还是失败，上层在 continue_routine 中调用完 prh_impl_iocp_connect_result 之后 prh_iocp_connect 就可以重用
-        req->post.iocp_post_result = prh_null; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_connect_socket 主动关闭
+        post->iocp_post_result = prh_null; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_connect_socket 主动关闭
         // 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连
         // WSAECONNREFUSED      连接尝试被拒绝。
         // WSAENETUNREACH       当前无法从该主机到达网络。
@@ -19718,10 +19718,12 @@ void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
         // WSAENOTSOCK          描述符不是套接字。
     } else { // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
         prh_setsockopt_update_connect_context(req->connect_socket); // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到套接字断连关闭
-        req->post.iocp_post_result = prh_impl_iocp_connect_result; // 在 prh_iocp_connect 重用时，会注册一个新的套接字到 PRH_IMPL_IOCP 中
-        post->continue_routine(post); // 调用 continue_routine 之后，才能清空 connect_socket
-        req->connect_socket = PRH_INVASOCK;
+        prh_static_assert(sizeof(req->overlapped.hEvent) == sizeof(void *));
+        req->overlapped.hEvent = (HANDLE)req->connect_socket; // 使用 hEvent 临时保存 connect_socket
+        req->connect_socket = PRH_INVASOCK; // 在 prh_iocp_connect 重用时，会注册一个新的套接字到 PRH_IMPL_IOCP 中
+        post->iocp_post_result = prh_impl_iocp_connect_result;
     }
+    post->continue_routine(post);
 }
 
 void prh_impl_iocp_connect_post(prh_iocp_post *post) {
@@ -20218,7 +20220,110 @@ void prh_iocp_connect_req(prh_iocp_connect *req, const char *host, int flags_por
 // 从这个函数返回允许为该套接字调用另一个挂起的完成例程。所有等待的完成例程将在警报线程
 // 的等待以 WSA_IO_COMPLETION 返回码满足之前被调用。完成例程可以以任何顺序被调用，不一
 // 定是重叠操作完成的相同顺序。但是，发送的缓冲区保证按照它们指定的顺序发送。
-//
+
+typedef struct {
+    prh_iocp_post post; // 1st field
+    OVERLAPPED overlapped;
+    prh_handle socket;
+    prh_u32 bytes_transferred;
+} prh_iocp_wsasend;
+
+void prh_impl_iocp_wsasend_result(prh_iocp_post *post, void *result) {
+    prh_iocp_wsasend *req = (prh_iocp_wsasend *)post;
+    *((prh_u32 *)result) = req->bytes_transferred;
+}
+
+void prh_impl_iocp_wsasend_continue(prh_iocp_post *post) {
+    prh_iocp_wsasend *req = (prh_iocp_wsasend *)post;
+    if (post->error_code) {
+        post->iocp_post_result = prh_null;
+        // 错误代码 WSA_IO_PENDING 表示重叠操作已成功启动，操作将在稍后完成。任何其他
+        // 错误代码表示重叠操作未成功启动，不会产生操作完成通知。
+        // WSAECONNABORTED           虚拟电路因超时或其他故障而终止。
+        // WSAECONNRESET             对于流式套接字，虚拟电路被远程方重置。应用程序应关闭套接字，因为它已不再可用。对于 UDP 数据报
+        //                           套接字，此错误表示之前的发送操作导致了 ICMP“端口不可达”消息。
+        // WSAEFAULT                 lpBuffers、lpNumberOfBytesSent、lpOverlapped 或 lpCompletionRoutine 参数未完全包含在用户
+        //                           地址空间的有效部分。
+        // WSAEINTR                  通过 WSACancelBlockingCall 取消了阻塞的 Windows 套接字 1.1 调用。
+        // WSAEINPROGRESS            一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+        // WSAEINVAL                 套接字未使用 bind 绑定，或者套接字未使用重叠标志创建。
+        // WSAEMSGSIZE               套接字是面向消息的，且消息大于底层传输支持的最大值。
+        // WSAENETDOWN               网络子系统已失败。
+        // WSAENETRESET              对于流式套接字，由于在操作进行中检测到故障而通过保持活动操作断开了连接。对于数据报套接字，此错
+        //                           误表示生存时间已到期。
+        // WSAENOBUFS                Windows 套接字提供程序报告缓冲区死锁。
+        // WSAENOTCONN               套接字未连接。
+        // WSAENOTSOCK               描述符不是套接字。
+        // WSAEOPNOTSUPP             指定了 MSG_OOB，但套接字不是流式套接字（如 SOCK_STREAM），OOB 数据在与该套接字关联的通信域中
+        //                           不支持，MSG_PARTIAL 不受支持，或者套接字是单向的且仅支持接收操作。
+        // WSAESHUTDOWN              套接字已关闭；在调用 shutdown 后，无法在套接字上使用 WSASend，其中 how 设置为 SD_SEND 或
+        //                           SD_BOTH。
+        // WSAEWOULDBLOCK            Windows NT：重叠套接字：存在过多的未完成重叠 I/O 请求。非重叠套接字：套接字被标记为非阻塞，且
+        //                           发送操作无法立即完成。
+        // WSANOTINITIALISED         在调用此函数之前，必须先成功调用 WSAStartup。
+        // WSA_IO_PENDING            重叠操作已成功启动，完成将在稍后时间指示。
+        // WSA_OPERATION_ABORTED     由于套接字关闭、在 WSAIoctl 中执行“SIO_FLUSH”命令或启动重叠请求的线程在操作完成前退出，重叠
+        //                           操作已被取消。有关详细信息，请参阅备注部分。
+    } else {
+        post->post.iocp_post_result = prh_impl_iocp_wsasend_result;
+    }
+    post->continue_routine(post);
+}
+
+void prh_impl_iocp_wsasend_post(prh_iocp_post *post) {
+    prh_iocp_wsasend *req = (prh_iocp_wsasend *)post;
+    req->bytes_transferred = prh_impl_iocp_get_bytes_transferred(post); // 必须在 prh_iocp_thrd_post 之前获取 bytes_transferred
+    post->complete_routine = prh_impl_iocp_wsasend_continue;
+    prh_iocp_thrd_post(post);
+}
+
+void prh_impl_iocp_wsasend_complete(prh_iocp_post *post) {
+    prh_impl_iocp_wsasend_post(post);
+}
+
+int prh_iocp_wsasend_alloc_size(void) {
+    return (int)sizeof(prh_iocp_wsasend);
+}
+
+void prh_iocp_wsasend_init(prh_iocp_wsasend *req, prh_handle socket, prh_continue_routine routine, void *context) {
+    memset(req, 0, sizeof(prh_iocp_wsasend));
+    prh_iocp_post_init(&req->post, reoutine, context);
+    req->socket = socket;
+}
+
+void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const void *buffer, prh_int length) {
+    assert(req != prh_null);
+    assert(buffer != prh_null);
+    assert(length > 0 && length < PRH_IMPL_TXRX_BYTES);
+    // 如果以重叠方式完成此函数，Winsock 服务提供程序负责在返回之前捕获 WSABUF 结构。
+    // 这使得应用程序可以构建基于堆栈的 WSABUF 数组。Windows Me/98/95：WSASend 函数
+    // 不支持超过 16 个缓冲区。
+    WSABUF send_buffer = {(ULONG)length, (CHAR *)buffer};
+    // 如果传输缓冲区没有足够的空间，WSASend 将仅返回部分已消耗缓冲区大小。在相同的情况
+    // 下，对于阻塞套接字，WSASend 将阻塞直到应用程序缓冲区内容都被消耗。不应从不同线程
+    // 并发地在同一个面向流的套接字上调用 WSASend，因为某些 Winsock 提供程序可能会将较
+    // 大的发送请求拆分为多次传输，这可能导致来自多个并发发送请求的同一面向流的套接字上
+    // 的数据意外交织。
+    req->post.complete_routine = prh_impl_iocp_wsasend_complete;
+    int n = WSASend(
+        /* [in]  SOCKET             s                   */ (SOCKET)req->socket,
+        /* [in]  LPWSABUF           lpBuffers           */ &send_buffer, // 一旦调用 WSASend 函数，系统将拥有这些缓冲区，此数组在发送操作期间必须有效
+        /* [in]  DWORD              dwBufferCount       */ 1, // 传入的 WSABUF 个数
+        /* [out] LPDWORD            lpNumberOfBytesSent */ prh_null, // 仅当 lpOverlapped 参数不为 NULL 时，此参数可以为 NULL
+        /* [in]  DWORD              dwFlags             */ 0, // MSG_PARTIAL
+        /* [in]  LPWSAOVERLAPPED    lpOverlapped        */ &req->overlapped,
+        /* [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE     */ prh_null,
+        );
+    prh_abort_if(n == 0);
+    DWORD error_code = WSAGetLastError();
+    if (error_code == WSA_IO_PENDING) {
+        return; // 请求已经成功投递
+    }
+    prh_prerr(error_code);
+    prh_impl_iocp_set_post_result(&req->post, error_code);
+    prh_impl_iocp_wsasend_post(&req->post);
+}
+
 // int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
 // int WSAAPI WSARecvFrom(
 //      [in]      SOCKET                             s,
