@@ -15670,12 +15670,44 @@ void prh_impl_mswsock_load_rio_funcs(prh_handle sock) {
 
 #endif // PRH_SOCK_IMPLEMENTATION
 
+#include <winternl.h> // RtlNtStatusToDosError
+
 static HANDLE PRH_IMPL_IOCP;
 typedef void (*prh_impl_iocp_completion)(OVERLAPPED_ENTRY *entry);
 
 void prh_impl_thrd_init(void) {
     DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
     PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
+}
+
+prh_inline prh_iocp_post *prh_impl_iocp_get_post_from_overlapped(OVERLAPPED *overlapped) {
+    return (prh_iocp_post *)((prh_byte *)overlapped - sizeof(prh_iocp_post));
+}
+
+prh_inline prh_u32 prh_impl_iocp_get_bytes_transferred(prh_iocp_post *post) {
+    return post->post_seqn; // 使用 post_seqn 临时保存 dwNumberOfBytesTransferred
+}
+
+void prh_impl_iocp_set_post_result(prh_iocp_post *post, DWORD error_code) {
+    post->post_seqn = 0; // 使用 post_seqn 临时保存 dwNumberOfBytesTransferred
+    post->error_code = error_code;
+}
+
+void prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) {
+    prh_iocp_post *post = prh_impl_iocp_get_post_from_overlapped(entry->lpOverlapped);
+    if (entry->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
+        DWORD error_code = RtlNtStatusToDosError((NTSTATUS)entry->Internal); // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
+        prh_prerr(error_code);
+        post->error_code = error_code;
+    } else {
+        post->error_code = 0;
+    }
+    post->post_seqn = entry->dwNumberOfBytesTransferred; // 使用 post_seqn 临时保存 dwNumberOfBytesTransferred
+    post->complete_routine(post);
+}
+
+void prh_impl_iocp_attach_socket(prh_handle socket) {
+    prh_impl_completion_port_attach(PRH_IMPL_IOCP, socket, (void *)prh_impl_iocp_socket_completion);
 }
 
 int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
@@ -15709,6 +15741,7 @@ int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count) {
 }
 
 struct prh_iocp_post;
+typedef void (*prh_complete_routine)(struct prh_iocp_post *post);
 typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
 typedef void (*prh_iocp_post_result)(struct prh_iocp_post *post, void *result);
 
@@ -15728,8 +15761,8 @@ typedef struct {
     prh_u32 post_seqn;
     prh_u32 error_code;
     void *context;
+    prh_complete_routine complete_routine;
     prh_continue_routine continue_routine;
-    prh_continue_routine intermed_routine;
     prh_iocp_post_result iocp_post_result;
 } prh_iocp_post;
 
@@ -15839,8 +15872,8 @@ void prh_iocp_thrd_post(prh_iocp_post *post) {
 }
 
 void prh_impl_iocp_thrd_exec(prh_iocp_post *post) {
-    if (post->intermed_routine) {
-        post->intermed_routine(post);
+    if (post->complete_routine) {
+        post->complete_routine(post);
     } else {
         post->continue_routine(post);
     }
@@ -16890,6 +16923,7 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
 #define prh_ipv6_addr_any ((char *)3)
 #define PRH_IPV4_BYTE_ARRAY 0x10000000 // prh_byte ipv4[4] = {127, 0, 0, 1};
 #define PRH_IPV6_BYTE_ARRAY 0x20000000 // prh_byte ipv6[16] = { ... };
+#define PRH_IMPL_TXRX_BYTES 0x7ffff000 // Linux
 
 #define PRH_ERROR       0xE0
 #define PRH_ETIMEOUT    0xE1
@@ -18897,13 +18931,10 @@ prh_inline prh_byte *prh_impl_iocp_accept_addrbuf(prh_impl_accept_req *req) {
     return (prh_byte *)(req + 1);
 }
 
-prh_impl_accept_req *prh_impl_accept_req_from_overlapped(OVERLAPPED *overlapped) {
-    return (prh_byte *)overlapped - prh_offsetof(prh_impl_accept_req, overlapped);
-}
-
 void prh_iocp_accept_req(prh_impl_accept_req *req) { // 可以多个线程同时投递数组中不同的 accept 请求
     prh_iocp_accept *accept = prh_impl_iocp_get_accept(req);
     assert(req->accept_socket != PRH_INVASOCK);
+    req->post.complete_routine = prh_impl_iocp_accept_completion;
     BOOL b = PRH_IMPL_ACCEPTEX(
         /* [in]  SOCKET       sListenSocket         */  accept->listen,
         /* [in]  SOCKET       sAcceptSocket         */  req->accept_socket, // 必须是未绑定未连接的套接字句柄
@@ -18962,14 +18993,13 @@ void prh_impl_iocp_accept_result(prh_iocp_post *post, void *result) {
     local->protocol = remote->protocol = PRH_TCP;
 }
 
-void prh_impl_iocp_accept_completion(OVERLAPPED_ENTRY *entry) {
-    DWORD error_code = entry->Internal; // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
-    prh_impl_accept_req *req = prh_impl_accept_req_from_overlapped(entry->lpOverlapped);
+void prh_impl_iocp_accept_completion(prh_iocp_post *post) {
+    prh_impl_accept_req *req = (prh_impl_accept_req *)post;
     prh_iocp_accept *accept = prh_impl_iocp_get_accept(req);
 
     // 本次 AcceptEx 失败，重用 accept_request 继续 AcceptEx
-    if (error_code) {
-        prh_prerr(error_code);
+    if (post->error_code) {
+        prh_prerr(post->error_code);
         prh_iocp_accept_req(req); // 失败的这里不重用，将没有任何地方将它重用起来
         return;
     }
@@ -19038,7 +19068,7 @@ prh_iocp_accept *prh_iocp_accept_init(prh_cono_subq *from_cono_subq, prh_handle 
         req[i].request_index = i;
         req[i].addr_size = accept_addr_size;
     }
-    prh_impl_completion_port_attach(PRH_IMPL_IOCP, accept->listen, (void *)prh_impl_iocp_accept_completion);
+    prh_impl_iocp_attach_socket(accept->listen);
 }
 
 void prh_iocp_accept_free(prh_iocp_accept *accept) {
@@ -19641,7 +19671,6 @@ void prh_iocp_accept_free(prh_iocp_accept *accept) {
 // 而，可以使用此条目自定义间隔。降低此条目的值可以让 TCP 更快地释放已关闭的连接，从而
 // 为新连接提供更多资源。然而，如果值过低，TCP 可能在连接完成之前释放连接资源，导致服务
 // 器需要使用额外的资源重新建立连接。此注册值可设置的范围从 0 到 300 秒。
-#include <winternl.h> // RtlNtStatusToDosError
 
 typedef struct {
     prh_iocp_post post; // 1st field
@@ -19649,10 +19678,6 @@ typedef struct {
     SOCKET connect_socket;
     struct sockaddr_in6 remote;
 } prh_iocp_connect;
-
-prh_iocp_connect *prh_impl_iocp_get_connect_req_from_overlapped(OVERLAPPED *overlapped) {
-    return (prh_iocp_connect *)((prh_byte *)overlapped - prh_offsetof(prh_iocp_connect, overlapped));
-}
 
 void prh_impl_iocp_connect_result(prh_iocp_post *post, void *result) {
     prh_iocp_connect *req = (prh_iocp_connect *)post;
@@ -19699,28 +19724,19 @@ void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
     }
 }
 
-void prh_impl_iocp_connect_post(prh_iocp_post *post, prh_u32 error_code) {
-    post->error_code = error_code;
-    post->intermed_routine = prh_impl_iocp_connect_continue;
+void prh_impl_iocp_connect_post(prh_iocp_post *post) {
+    post->complete_routine = prh_impl_iocp_connect_continue;
     prh_iocp_thrd_post(post);
 }
 
-void prh_impl_iocp_connect_complete(OVERLAPPED_ENTRY *entry) {
-    prh_iocp_connect *req = prh_impl_iocp_get_connect_req_from_overlapped(entry->lpOverlapped);
-    DWORD error_code;
-    if (entry->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
-        error_code = RtlNtStatusToDosError((NTSTATUS)entry->Internal); // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
-        prh_prerr(error_code);
-    } else {
-        error_code = 0;
-    }
-    prh_impl_iocp_connect_post(&req->head.post, error_code);
+void prh_impl_iocp_connect_complete(prh_iocp_post *post) {
+    prh_impl_iocp_connect_post(post);
 }
 
 void prh_impl_iocp_create_connect_socket(prh_iocp_connect *req, int family) {
-    prh_handle sock = prh_impl_tcp_socket(family);
-    req->connect_socket = sock;
-    prh_impl_completion_port_attach(PRH_IMPL_IOCP, sock, (void *)prh_impl_iocp_connect_complete);
+    prh_handle connect_socket = prh_impl_tcp_socket(family);
+    req->connect_socket = connect_socket;
+    prh_impl_iocp_attach_socket(connect_socket);
 }
 
 void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
@@ -19730,6 +19746,7 @@ void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
     if (req->connect_socket == PRH_INVASOCK) {
         prh_impl_iocp_create_connect_socket(req, family);
     }
+    req->post.complete_routine = prh_impl_iocp_connect_complete;
     BOOL b = PRH_IMPL_CONNECTEX(
         /* [in]           SOCKET s                  */ req->connect_socket,
         /* [in]           const sockaddr *name      */ remote;
@@ -19745,7 +19762,8 @@ void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
         return; // 请求已经成功投递
     }
     prh_prerr(error_code);
-    prh_impl_iocp_connect_post(&req->head.post, error_code);
+    prh_impl_iocp_set_post_result(&req->post, error_code);
+    prh_impl_iocp_connect_post(&req->post);
 }
 
 void prh_impl_sock_address(struct sockaddr_in6 *in6, const char *host, int flags_port) {
@@ -19788,8 +19806,8 @@ void prh_impl_sock_address(struct sockaddr_in6 *in6, const char *host, int flags
     }
 }
 
-int prh_iocp_connect_size(void) {
-    return sizeof(prh_iocp_connect);
+int prh_iocp_connect_alloc_size(void) {
+    return (int)sizeof(prh_iocp_connect);
 }
 
 void prh_iocp_connect_init(prh_iocp_connect *req, prh_continue_routine routine, void *context) {
@@ -22333,8 +22351,6 @@ void prh_ipv6_sock_tcp_connect(prh_tcpsocket *tcp, const char *host, prh_u16 por
     }
     prh_impl_tcp_connect(tcp, (struct sockaddr_in *)&in6);
 }
-
-#define PRH_IMPL_TXRX_BYTES 0x7ffff000 // Linux
 
 // 返回true表示可以继续发送更多数据，否则必须等待写就绪事件再发
 bool prh_sock_tcp_send(prh_tcpsocket *tcp) {
