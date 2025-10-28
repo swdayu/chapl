@@ -5052,6 +5052,47 @@ prh_inline void prh_atom_int_arrque_pop_all_end(prh_atom_int_arrque *q, prh_atom
 prh_inline void prh_atom_unt_arrque_pop_all_end(prh_atom_unt_arrque *q, prh_atom_unt_arrque_data *data) { prh_impl_atom_arrque_pop_all_end(q, data); }
 prh_inline void prh_atom_ptr_arrque_pop_all_end(prh_atom_ptr_arrque *q, prh_atom_ptr_arrque_data *data) { prh_impl_atom_arrque_pop_all_end(q, data); }
 
+// 单生产者多消费者固定大小的数组队列，数组长度必须是2的幂
+typedef struct prh_atom_1wnr_i32_arrque prh_atom_1wnr_i32_arrque;
+typedef struct prh_atom_1wnr_u32_arrque prh_atom_1wnr_u32_arrque;
+typedef struct prh_atom_1wnr_int_arrque prh_atom_1wnr_int_arrque;
+typedef struct prh_atom_1wnr_unt_arrque prh_atom_1wnr_unt_arrque;
+typedef struct prh_atom_1wnr_ptr_arrque prh_atom_1wnr_ptr_arrque;
+
+// fixed size array atomic queue for only 1 producer and n consumer, the size must be power of 2
+prh_int prh_atom_1wnr_arrque_alloc_size(prh_int size, prh_int elem_bytes);
+void prh_impl_atom_1wnr_arrque_init(void *arrque, prh_int size);
+bool prh_impl_atom_1wnr_arrque_push_u32(void *arrque, prh_u32 a);
+bool prh_impl_atom_1wnr_arrque_push_unt(void *arrque, prh_unt a);
+prh_u32 prh_impl_atom_1wnr_arrque_pop_u32(void *arrque);
+prh_unt prh_impl_atom_1wnr_arrque_pop_unt(void *arrque);
+prh_u32 prh_impl_atom_1wnr_arrque_weak_pop_u32(void *arrque, bool *race_condition);
+prh_unt prh_impl_atom_1wnr_arrque_weak_pop_unt(void *arrque, bool *race_condition);
+
+prh_inline void prh_atom_1wnr_i32_arrque_init(prh_atom_1wnr_i32_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
+prh_inline void prh_atom_1wnr_u32_arrque_init(prh_atom_1wnr_u32_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
+prh_inline void prh_atom_1wnr_int_arrque_init(prh_atom_1wnr_int_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
+prh_inline void prh_atom_1wnr_unt_arrque_init(prh_atom_1wnr_unt_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
+prh_inline void prh_atom_1wnr_ptr_arrque_init(prh_atom_1wnr_ptr_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
+
+prh_inline bool prh_atom_1wnr_i32_arrque_push(prh_atom_1wnr_i32_arrque *q, prh_i32 a) { return prh_impl_atom_1wnr_arrque_push_u32(q, a); }
+prh_inline bool prh_atom_1wnr_u32_arrque_push(prh_atom_1wnr_u32_arrque *q, prh_u32 a) { return prh_impl_atom_1wnr_arrque_push_u32(q, a); }
+prh_inline bool prh_atom_1wnr_int_arrque_push(prh_atom_1wnr_int_arrque *q, prh_int a) { return prh_impl_atom_1wnr_arrque_push_unt(q, a); }
+prh_inline bool prh_atom_1wnr_unt_arrque_push(prh_atom_1wnr_unt_arrque *q, prh_unt a) { return prh_impl_atom_1wnr_arrque_push_unt(q, a); }
+prh_inline bool prh_atom_1wnr_ptr_arrque_push(prh_atom_1wnr_ptr_arrque *q, void *a) { return prh_impl_atom_1wnr_arrque_push_unt(q, (prh_unt)a); }
+
+prh_inline prh_i32 prh_atom_1wnr_i32_arrque_pop(prh_atom_1wnr_i32_arrque *q) { return (prh_i32)prh_impl_atom_1wnr_arrque_pop_u32(q); }
+prh_inline prh_u32 prh_atom_1wnr_u32_arrque_pop(prh_atom_1wnr_u32_arrque *q) { return (prh_u32)prh_impl_atom_1wnr_arrque_pop_u32(q); }
+prh_inline prh_int prh_atom_1wnr_int_arrque_pop(prh_atom_1wnr_int_arrque *q) { return (prh_int)prh_impl_atom_1wnr_arrque_pop_unt(q); }
+prh_inline prh_unt prh_atom_1wnr_unt_arrque_pop(prh_atom_1wnr_unt_arrque *q) { return (prh_unt)prh_impl_atom_1wnr_arrque_pop_unt(q); }
+prh_inline void *prh_atom_1wnr_ptr_arrque_pop(prh_atom_1wnr_ptr_arrque *q) { return (void *)prh_impl_atom_1wnr_arrque_pop_unt(q); }
+
+prh_inline prh_i32 prh_atom_1wnr_i32_arrque_weak_pop(prh_atom_1wnr_i32_arrque *q, bool *race_condition) { return (prh_i32)prh_impl_atom_1wnr_arrque_weak_pop_u32(q, race_condition); }
+prh_inline prh_u32 prh_atom_1wnr_u32_arrque_weak_pop(prh_atom_1wnr_u32_arrque *q, bool *race_condition) { return (prh_u32)prh_impl_atom_1wnr_arrque_weak_pop_u32(q, race_condition); }
+prh_inline prh_int prh_atom_1wnr_int_arrque_weak_pop(prh_atom_1wnr_int_arrque *q, bool *race_condition) { return (prh_int)prh_impl_atom_1wnr_arrque_weak_pop_unt(q, race_condition); }
+prh_inline prh_unt prh_atom_1wnr_unt_arrque_weak_pop(prh_atom_1wnr_unt_arrque *q, bool *race_condition) { return (prh_unt)prh_impl_atom_1wnr_arrque_weak_pop_unt(q, race_condition); }
+prh_inline void *prh_atom_1wnr_ptr_arrque_weak_pop(prh_atom_1wnr_ptr_arrque *q, bool *race_condition) { return (void *)prh_impl_atom_1wnr_arrque_weak_pop_unt(q, race_condition); }
+
 #ifdef PRH_ATOMIC_IMPLEMENTATION
 typedef struct {
     prh_int head; // 仅由pop线程读写，head永远追不上tail
@@ -5183,13 +5224,14 @@ prh_inline void *prh_impl_atom_1wnr_arrque_elem(prh_impl_atom_1wnr_arrque *q) {
     return q + 1;
 }
 
-prh_inline prh_int prh_atom_1wnr_arrque_alloc_size(prh_int size, prh_int elem_size) {
+prh_int prh_atom_1wnr_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
     assert(size > 0 && prh_is_power_of_2(size));
-    return sizeof(prh_impl_atom_1wnr_arrque) + elem_size * size;
+    return sizeof(prh_impl_atom_1wnr_arrque) + elem_bytes * size;
 }
 
-void *prh_impl_atom_1wnr_arrque_init(prh_impl_atom_1wnr_arrque *q, prh_int size) {
+void prh_impl_atom_1wnr_arrque_init(void *arrque, prh_int size) {
     assert(size > 0 && prh_is_power_of_2(size));
+    prh_impl_atom_1wnr_arrque *q = arrque;
     prh_atom_int_init(&q->head, 0);
     prh_atom_int_init(&q->tail, 0);
     q->size_minus_one = size - 1;
@@ -15675,13 +15717,18 @@ void prh_impl_mswsock_load_rio_funcs(prh_handle sock) {
 static HANDLE PRH_IMPL_IOCP;
 typedef void (*prh_impl_iocp_completion)(OVERLAPPED_ENTRY *entry);
 
+typedef struct {
+    prh_iocp_post post;
+    OVERLAPPED overalpped;
+} prh_impl_iocp_post;
+
 void prh_impl_thrd_init(void) {
     DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
     PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
 }
 
 prh_inline prh_iocp_post *prh_impl_iocp_get_post_from_overlapped(OVERLAPPED *overlapped) {
-    return (prh_iocp_post *)((prh_byte *)overlapped - sizeof(prh_iocp_post));
+    return (prh_iocp_post *)((prh_byte *)overlapped - prh_offsetof(prh_impl_iocp_post, overalpped));
 }
 
 prh_inline prh_u32 prh_impl_iocp_get_bytes_transferred(prh_iocp_post *post) {
