@@ -15824,14 +15824,26 @@ typedef struct {
 
 typedef struct {
     prh_u32 concurrent_threads;
+    prh_u32 query_entries_each_time;
+    prh_u32 post_collect_array_size;
     prh_u32 prev_post_seqn;
     prh_u32 prev_wait_seqn;
     prh_atom_i32 recv_seqn_seed;
     prh_atom_u32 post_seqn_seed;
     prh_atom_u32 thrd_wait_seed;
     prh_iocp_thrd_data *thrd_data;
+    prh_iocp_thrd_data *thrd_wait_array;
+    prh_iocp_post *post_collect_array;
+    prh_atom_1wnr_ptr_arrque *post_dispatch_que;
     prh_cond_sleep sched_cond_sleep;
 } prh_iocp_global;
+
+typedef struct {
+    int concurrent_thread_count;
+    int post_dispatch_que_size; // 必须是 2 的幂
+    int query_entries_each_time;
+    int post_collect_array_size;
+} prh_iocp_config;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
 prh_static_assert(sizeof(prh_iocp_thrd_data) <= PRH_CACHE_LINE_SIZE);
@@ -15844,14 +15856,41 @@ prh_inline prh_iocp_thrd_data *prh_iocp_thrd_data_next(prh_iocp_thrd_data *thrd_
     return (prh_iocp_thrd_data *)((prh_byte *)thrd_data + prh_iocp_thrd_data_size() * count);
 }
 
-void prh_iocp_global_init(int concurrent_thread_count) {
+void prh_iocp_global_init(prh_iocp_config *config) {
+    int concurrent_thread_count = config->concurrent_thread_count;
+    int post_dispatch_que_size = config->post_dispatch_que_size;
+    int query_entries_each_time = config->query_entries_each_time;
+    int post_collect_array_size = config->post_collect_array_size;
+
     assert(concurrent_thread_count > 0 && concurrent_thread_count < PRH_THRD_INDEX_MASK);
-    prh_unt alloc = (concurrent_thread_count + 1) * prh_iocp_thrd_data_size(); // 包含调度线程自身
-    void *thrd_data = prh_memory_aligned_alloc(PRH_IOCP_THRD_DATA, alloc, PRH_CACHE_LINE_SIZE);
+    assert(post_dispatch_que_size >= concurrent_thread_count);
+    assert(query_entries_each_time > 0);
+    assert(post_collect_array_size >= query_entries_each_time);
+
+    prh_unt thrd_data_array_size = (concurrent_thread_count + 1) * prh_iocp_thrd_data_size(); // 包含调度线程自身
+    prh_int thrd_wait_array_size = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
+    prh_int post_arrque_fixed_size = prh_round_cache_line_size(prh_atom_1wnr_arrque_alloc_size(post_dispatch_que_size, sizeof(void *)));
+    post_collect_array_size = prh_round_cache_line_size(sizeof(void *) * post_collect_array_size);
+    void *thrd_data;
+
+    thrd_data = prh_memory_aligned_alloc(PRH_IOCP_THRD_DATA, thrd_data_array_size + thrd_wait_array_size + post_collect_array_size + post_arrque_fixed_size, PRH_CACHE_LINE_SIZE);
     assert(thrd_data != prh_null);
-    PRH_IOCP_GLOBAL.thrd_data = thrd_data;
     PRH_IOCP_GLOBAL.concurrent_threads = concurrent_thread_count;
-    prh_atom_u32_init(&PRH_IOCP_GLOBAL.post_seqn_seed);
+    PRH_IOCP_GLOBAL.thrd_data = thrd_data;
+    PRH_IOCP_GLOBAL.thrd_wait_array = (prh_iocp_thrd_data *)((prh_byte *)thrd_data + thrd_data_array_size);
+
+    PRH_IOCP_GLOBAL.post_collect_array = (prh_iocp_post *)((prh_byte *)thrd_data + thrd_data_array_size + thrd_wait_array_size);
+    PRH_IOCP_GLOBAL.post_collect_array_size = post_collect_array_size / sizeof(void *);
+    PRH_IOCP_GLOBAL.query_entries_each_time = query_entries_each_time;
+
+    prh_atom_1wnr_ptr_arrque *post_dispatch_que = (prh_atom_1wnr_ptr_arrque *)((prh_byte *)thrd_data + thrd_data_array_size + thrd_wait_array_size + post_collect_array_size);
+    prh_impl_atom_1wnr_arrque_init(post_dispatch_que, post_dispatch_que_size);
+    PRH_IOCP_GLOBAL.post_dispatch_que = post_dispatch_que;
+
+    prh_atom_u32_init(&PRH_IOCP_GLOBAL.recv_seqn_seed, 0);
+    prh_atom_u32_init(&PRH_IOCP_GLOBAL.post_seqn_seed, 0);
+    prh_atom_u32_init(&PRH_IOCP_GLOBAL.thrd_wait_seed, 0);
+
     prh_impl_init_cond_sleep(&PRH_IOCP_GLOBAL.sched_cond_sleep);
 }
 
