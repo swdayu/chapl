@@ -2210,7 +2210,9 @@ void prh_impl_test_code(void) {
 //  void append_range(range_type&& range); 在容器尾部压入多个元素
 //  void prepend_range(range_type&& range); 将多个元素压入到容器头部
 
+typedef struct { void *arrvew; prh_int size; } prh_impl_arrvew;
 typedef struct { void *arrfix; prh_int size; } prh_impl_arrfix;
+typedef struct { void *arrfit; prh_int capacity; prh_int size; } prh_impl_arrfit;
 typedef struct { void *arrdyn; prh_int capacity; prh_int size; } prh_impl_arrdyn;
 typedef struct { void *arrlax; prh_int capacity; prh_int size; prh_int start; } prh_impl_arrlax;
 
@@ -2246,11 +2248,11 @@ typedef struct { prh_byte *slice; prh_int capacity; prh_int size; } prh_sslice; 
 #define prh_impl_arrdyn_elem_size(p) sizeof(*((p)->arrdyn))
 #define prh_impl_arrlax_elem_size(p) sizeof(*((p)->arrlax))
 
-#define prh_impl_arrvew_addr(p) (&((p)->arrvew))
-#define prh_impl_arrfix_addr(p) (&((p)->arrfix))
-#define prh_impl_arrfit_addr(p) (&((p)->arrfit))
-#define prh_impl_arrdyn_addr(p) (&((p)->arrdyn))
-#define prh_impl_arrlax_addr(p) (&((p)->arrlax))
+#define prh_impl_arrvew_addr(p) (prh_impl_arrvew *)(&((p)->arrvew))
+#define prh_impl_arrfix_addr(p) (prh_impl_arrfix *)(&((p)->arrfix))
+#define prh_impl_arrfit_addr(p) (prh_impl_arrfit *)(&((p)->arrfit))
+#define prh_impl_arrdyn_addr(p) (prh_impl_arrdyn *)(&((p)->arrdyn))
+#define prh_impl_arrlax_addr(p) (prh_impl_arrlax *)(&((p)->arrlax))
 
 #define prh_arrvew_type(S, a) prh_typeof(((S){0})->a)
 #define prh_arrfix_type(S, a) prh_typeof(((S){0})->a)
@@ -2259,8 +2261,24 @@ typedef struct { prh_byte *slice; prh_int capacity; prh_int size; } prh_sslice; 
 #define prh_arrlax_type(S, a) prh_typeof(((S){0})->a)
 #define prh_slice_type(S, a)  prh_typeof(((S){0})->a)
 
-#define prh_arrfix_init(p, size) { (p)->arrfix = prh_malloc((size) * prh_impl_arrfix_elem_size(p)); assert((p)->arrfix != prh_null); (p)->size = size; }
-#define prh_arrfit_init(p, capacity) prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrfit_elem_size(p)) // 生成的数组 capacity 总是 2 的幂
+prh_inline void prh_impl_arrfix_init_inplace(prh_impl_arrfix *arrfix, void *buffer, prh_int size) {
+    assert(buffer != prh_null);
+    assert(size > 0);
+    arrfix->arrfix = buffer;
+    arrfix->size = size;
+}
+
+prh_inline void prh_impl_arrfit_init_inplace(prh_impl_arrfit *arrfit, void *buffer, prh_int capacity) {
+    assert(buffer != prh_null);
+    assert(capacity > 0);
+    arrfit->arrfit = buffer;
+    arrfit->capacity = capacity;
+    arrfit->size = 0;
+}
+
+#define prh_arrfix_init(p, size) prh_impl_arrfix_init_inplace(prh_impl_arrfix_addr(p), prh_malloc((size) * prh_impl_arrfix_elem_size(p)), (size))
+#define prh_arrfit_init(p, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), prh_malloc((capacity) * prh_impl_arrfix_elem_size(p)), (capacity))
+#define prh_arrfit_init_inplace(p, buffer, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), (buffer), (capacity))
 #define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrdyn_elem_size(p)) // 生成的数组 capacity 总是 2 的幂
 #define prh_arrlax_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrlax_elem_size(p)); (p)->start = 0; } // 生成的数组 capacity 总是 2 的幂
 
@@ -15822,6 +15840,8 @@ typedef struct {
     prh_thrd_cond thrd_wait_cond;
 } prh_iocp_thrd_data;
 
+typedef prh_arrfit(prh_iocp_post *) prh_post_array;
+
 typedef struct {
     prh_u32 concurrent_threads;
     prh_u32 query_entries_each_time;
@@ -15833,7 +15853,7 @@ typedef struct {
     prh_atom_u32 thrd_wait_seed;
     prh_iocp_thrd_data *thrd_data;
     prh_iocp_thrd_data *thrd_wait_array;
-    prh_iocp_post *post_collect_array;
+    prh_post_array post_collect_array;
     prh_atom_1wnr_ptr_arrque *post_dispatch_que;
     prh_cond_sleep sched_cond_sleep;
 } prh_iocp_global;
@@ -15867,23 +15887,27 @@ void prh_iocp_global_init(prh_iocp_config *config) {
     assert(query_entries_each_time > 0);
     assert(post_collect_array_size >= query_entries_each_time);
 
-    prh_unt thrd_data_array_size = (concurrent_thread_count + 1) * prh_iocp_thrd_data_size(); // 包含调度线程自身
+    prh_int thrd_data_array_size = (concurrent_thread_count + 1) * prh_iocp_thrd_data_size(); // 包含调度线程自身
     prh_int thrd_wait_array_size = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
     prh_int post_arrque_fixed_size = prh_round_cache_line_size(prh_atom_1wnr_arrque_alloc_size(post_dispatch_que_size, sizeof(void *)));
     post_collect_array_size = prh_round_cache_line_size(sizeof(void *) * post_collect_array_size);
-    void *thrd_data;
 
-    thrd_data = prh_memory_aligned_alloc(PRH_IOCP_THRD_DATA, thrd_data_array_size + thrd_wait_array_size + post_collect_array_size + post_arrque_fixed_size, PRH_CACHE_LINE_SIZE);
-    assert(thrd_data != prh_null);
+    prh_byte *buffer_offset = prh_memory_aligned_alloc(PRH_IOCP_THRD_DATA, thrd_data_array_size + thrd_wait_array_size + post_collect_array_size + post_arrque_fixed_size, PRH_CACHE_LINE_SIZE);
+    assert(buffer_offset != prh_null);
+
     PRH_IOCP_GLOBAL.concurrent_threads = concurrent_thread_count;
-    PRH_IOCP_GLOBAL.thrd_data = thrd_data;
-    PRH_IOCP_GLOBAL.thrd_wait_array = (prh_iocp_thrd_data *)((prh_byte *)thrd_data + thrd_data_array_size);
+    PRH_IOCP_GLOBAL.thrd_data = (prh_iocp_thrd_data *)buffer_offset;
+    buffer_offset += thrd_data_array_size;
 
-    PRH_IOCP_GLOBAL.post_collect_array = (prh_iocp_post *)((prh_byte *)thrd_data + thrd_data_array_size + thrd_wait_array_size);
-    PRH_IOCP_GLOBAL.post_collect_array_size = post_collect_array_size / sizeof(void *);
+    PRH_IOCP_GLOBAL.thrd_wait_array = (prh_iocp_thrd_data *)buffer_offset;
+    buffer_offset += thrd_wait_array_size;
+
     PRH_IOCP_GLOBAL.query_entries_each_time = query_entries_each_time;
+    PRH_IOCP_GLOBAL.post_collect_array_size = post_collect_array_size / sizeof(void *);
+    prh_arrfit_init_inplace(&PRH_IOCP_GLOBAL.post_collect_array, (prh_iocp_post **)buffer_offset, PRH_IOCP_GLOBAL.post_collect_array_size);
+    buffer_offset += post_collect_array_size;
 
-    prh_atom_1wnr_ptr_arrque *post_dispatch_que = (prh_atom_1wnr_ptr_arrque *)((prh_byte *)thrd_data + thrd_data_array_size + thrd_wait_array_size + post_collect_array_size);
+    prh_atom_1wnr_ptr_arrque *post_dispatch_que = (prh_atom_1wnr_ptr_arrque *)buffer_offset;
     prh_impl_atom_1wnr_arrque_init(post_dispatch_que, post_dispatch_que_size);
     PRH_IOCP_GLOBAL.post_dispatch_que = post_dispatch_que;
 
