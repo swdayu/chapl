@@ -4806,7 +4806,7 @@ typedef struct {
     prh_int fbqh_index;          // 仅由push线程访问（free block queue head index）
     prh_hive_quefix_block *fbqt; // 仅由pop线程访问（free block queue tail）
     prh_atom_int fbn; // free block num
-} prh_atom_hive_fbqfix;
+} prh_atom_hive_fbqfix; // 16-byte (32-bit) 32-byte (64-bit)
 
 // 单生产者单消费者内存块链队列，每个内存块的大小固定，队列尾永远向前推进，队列头永远追不上队列尾
 typedef struct {
@@ -4815,7 +4815,7 @@ typedef struct {
     prh_hive_quefix_block *tail; // 仅由push线程访问
     prh_atom_int len;
     prh_atom_hive_fbqfix *freeq;
-} prh_atom_hive_quefix;
+} prh_atom_hive_quefix; // 20-byte (32-bit) 40-byte (64-bit)
 
 void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q, prh_atom_hive_fbqfix *freeq);
 void prh_atom_hive_quefix_free(prh_atom_hive_quefix *q);
@@ -5264,7 +5264,7 @@ bool prh_impl_atom_1wnr_arrque_push_u32(void *arrque, prh_u32 a) {
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     ((prh_u32 *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
     assert(q->tail == tail); // 只允许一个生产者
-    prh_atom_int_write(&q->tail, next); // tail 只由第一生产者更新
+    prh_atom_int_write(&q->tail, next); // tail 只由单一生产者更新
     return true;
 }
 
@@ -5277,7 +5277,7 @@ bool prh_impl_atom_1wnr_arrque_push_unt(void *arrque, prh_unt a) {
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     ((prh_unt *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
     assert(q->tail == tail); // 只允许一个生产者
-    prh_atom_int_write(&q->tail, next); // tail 只由第一生产者更新
+    prh_atom_int_write(&q->tail, next); // tail 只由单一生产者更新
     return true;
 }
 
@@ -15733,6 +15733,7 @@ void prh_impl_mswsock_load_rio_funcs(prh_handle sock) {
 #include <winternl.h> // RtlNtStatusToDosError
 
 static HANDLE PRH_IMPL_IOCP;
+static HANDLE PRH_PIRO_IOCP; // 处理高优先级任务
 typedef void (*prh_impl_iocp_completion)(OVERLAPPED_ENTRY *entry);
 
 typedef struct {
@@ -15743,6 +15744,7 @@ typedef struct {
 void prh_impl_thrd_init(void) {
     DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
     PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
+    PRH_PIRO_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
 }
 
 prh_inline prh_iocp_post *prh_impl_iocp_get_post_from_overlapped(OVERLAPPED *overlapped) {
@@ -15834,8 +15836,6 @@ typedef struct {
 typedef struct {
     prh_atom_hive_quefix thrd_req_que;
     prh_atom_hive_quefix recv_que;
-    prh_atom_u32 thrd_wait_seqn;
-    prh_atom_bool thrd_is_waiting;
     prh_atom_bool wakeup_semaphore;
     prh_thrd_cond thrd_wait_cond;
 } prh_iocp_thrd_data;
@@ -15844,15 +15844,14 @@ typedef prh_arrfit(prh_iocp_post *) prh_post_array;
 
 typedef struct {
     prh_u32 concurrent_threads;
+    prh_u32 thrd_wait_count;
     prh_u32 query_entries_each_time;
     prh_u32 post_collect_array_size;
     prh_u32 prev_post_seqn;
-    prh_u32 prev_wait_seqn;
     prh_atom_i32 recv_seqn_seed;
     prh_atom_u32 post_seqn_seed;
-    prh_atom_u32 thrd_wait_seed;
     prh_iocp_thrd_data *thrd_data;
-    prh_iocp_thrd_data *thrd_wait_array;
+    prh_iocp_thrd_data **thrd_wait_array;
     prh_post_array post_collect_array;
     prh_atom_1wnr_ptr_arrque *post_dispatch_que;
     prh_cond_sleep sched_cond_sleep;
@@ -15860,7 +15859,7 @@ typedef struct {
 
 typedef struct {
     int concurrent_thread_count;
-    int post_dispatch_que_size; // 必须是 2 的幂
+    int post_dispatch_que_size; // 必须是 2 的幂，至少是并行执行线程数量的两倍
     int query_entries_each_time;
     int post_collect_array_size;
 } prh_iocp_config;
@@ -15883,7 +15882,7 @@ void prh_iocp_global_init(prh_iocp_config *config) {
     int post_collect_array_size = config->post_collect_array_size;
 
     assert(concurrent_thread_count > 0 && concurrent_thread_count < PRH_THRD_INDEX_MASK);
-    assert(post_dispatch_que_size >= concurrent_thread_count);
+    assert(post_dispatch_que_size >= concurrent_thread_count * 2);
     assert(query_entries_each_time > 0);
     assert(post_collect_array_size >= query_entries_each_time);
 
@@ -15899,7 +15898,8 @@ void prh_iocp_global_init(prh_iocp_config *config) {
     PRH_IOCP_GLOBAL.thrd_data = (prh_iocp_thrd_data *)buffer_offset;
     buffer_offset += thrd_data_array_size;
 
-    PRH_IOCP_GLOBAL.thrd_wait_array = (prh_iocp_thrd_data *)buffer_offset;
+    PRH_IOCP_GLOBAL.thrd_wait_array = (prh_iocp_thrd_data **)buffer_offset;
+    PRH_IOCP_GLOBAL.thrd_wait_count = 0;
     buffer_offset += thrd_wait_array_size;
 
     PRH_IOCP_GLOBAL.query_entries_each_time = query_entries_each_time;
@@ -15913,7 +15913,6 @@ void prh_iocp_global_init(prh_iocp_config *config) {
 
     prh_atom_u32_init(&PRH_IOCP_GLOBAL.recv_seqn_seed, 0);
     prh_atom_u32_init(&PRH_IOCP_GLOBAL.post_seqn_seed, 0);
-    prh_atom_u32_init(&PRH_IOCP_GLOBAL.thrd_wait_seed, 0);
 
     prh_impl_init_cond_sleep(&PRH_IOCP_GLOBAL.sched_cond_sleep);
 }
@@ -15934,21 +15933,26 @@ void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void 
     post->context = context;
 }
 
+void prh_impl_sched_thrd_collect_wait_array(OVERLAPPED_ENTRY *entry) {
+    prh_iocp_thrd_data *thrd = (prh_iocp_thrd_data *)entry->lpOverlapped;
+    assert(PRH_IOCP_GLOBAL.thrd_wait_count < PRH_IOCP_GLOBAL.concurrent_thread_count);
+    PRH_IOCP_GLOBAL.thrd_wait_array[PRH_IOCP_GLOBAL.thrd_wait_count++] = thrd;
+}
+
 void prh_impl_iocp_thrd_sleep(prh_iocp_thrd_data *thrd) {
     if (prh_atom_bool_strong_clear_if_set(&thrd->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
     prh_thrd_cond *cond = &thrd->thrd_wait_cond;
+    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)prh_impl_sched_thrd_collect_wait_array, .lpOverlapped = thrd};
     prh_thrd_cond_lock(cond); // wakeup_semaphore 可能在 prh_thrd_cond_lock 之前又设为 true
     if (prh_atom_bool_read(&thrd->wakeup_semaphore)) {
         goto label_already_wakeup;
     }
-    prh_atom_u32_write(&thrd->thrd_wait_seqn, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.thrd_wait_seed));
-    prh_atom_bool_write(&thrd->thrd_is_waiting, true); // thrd_is_waiting 设为 true 之前，thrd_wait_seqn 必须已经设置好
+    prh_impl_completion_port_post(PRH_PRIO_IOCP, &overlapped_entry);
 label_continue_waiting:
     prh_impl_plat_cond_wait(cond);
     if (!prh_atom_bool_read(&thrd->wakeup_semaphore)) {
         goto label_continue_waiting;
-    } // 在调度线程处理完一次 thrd_wait_seqn 之后，只要在 thrd_wait_seed 最大值又绕回到 thrd_wait_seqn 之前将 thrd_is_waiting 设成 false 就是安全的
-    prh_atom_bool_write(&thrd->thrd_is_waiting, false); // 因为 32 位整数有 4 亿多个数，而可能并行的线程个数最多几百上千个，thrd_wait_seed 需要至少上百万轮才会绕回
+    }
 label_already_wakeup:
     prh_atom_bool_write(&p->wakeup_semaphore, false);
     prh_thrd_cond_unlock(cond);
@@ -16033,33 +16037,16 @@ prh_u32 prh_impl_sched_thrd_collect_post(prh_post_array *array) {
     return post_count;
 }
 
-prh_u32 prh_impl_sched_thrd_check_wait_que(prh_iocp_thrd_data *thrd_wait_que, prh_u32 exist_size) {
-    prh_iocp_thrd_data *begin = PRH_IOCP_GLOBAL.thrd_data;
-    prh_iocp_thrd_data *end = prh_iocp_thrd_data_next(begin, PRH_IOCP_GLOBAL.concurrent_threads); // 包含最后一个
-    prh_u32 curr_wait_seqn = prh_atom_u32_read(&PRH_IOCP_GLOBAL.thrd_wait_seed);
-    prh_u32 prev_wait_seqn = PRH_IOCP_GLOBAL.prev_wait_seqn;
-    prh_u32 wait_thrd_count = curr_wait_seqn - prev_wait_seqn; // curr_wait_seqn 最大值绕回也成立
-    prh_u32 array_size = 0;
+bool prh_impl_sched_thrd_assign_work(void) {
+    //  1.  将各个线程中投递的任务（包括调度线程投递的内核任务）按投递顺序收集到一个数组中
+    //  sche_req_que ---.-------> post_collect_array
+    //  thrd_req_que ---'
+    //  thrd_req_que ---'
+    //  ...          ---'
+    prh_u32 posts = prh_impl_sched_thrd_collect_post(&PRH_IOCP_GLOBAL.post_collect_array);
+    if (posts == 0) return false;
 
-    if (wait_thrd_count == 0) {
-        return 0;
-    }
-
-    prh_real_assert(wait_thrd_count + exist_size <= PRH_IOCP_GLOBAL.concurrent_threads);
-
-    begin = prh_iocp_thrd_data_next(begin, 1); // 跳过调度线程
-    for (; begin <= end; begin = prh_iocp_thrd_data_next(begin, 1)) { // 包含最后一个
-        if (!prh_atom_bool_read(&begin->thrd_is_waiting)) continue;
-        prh_u32 thrd_wait_index = prh_atom_u32_read(begin->thrd_wait_seqn) - prev_wait_seqn;
-        if (thrd_wait_index < wait_thrd_count) {
-            thrd_wait_que[exist_size + thrd_wait_index] = begin;
-            array_size += 1;
-        }
-    }
-
-    prh_real_assert(wait_thrd_count == array_size);
-    PRH_IOCP_GLOBAL.prev_wait_seqn = curr_wait_seqn;
-    return wait_thrd_count;
+    return true;
 }
 
 #elif defined(prh_plat_linux)
