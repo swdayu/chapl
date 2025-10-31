@@ -5244,6 +5244,46 @@ prh_inline void prh_atom_1wnr_int_arrque_init(prh_atom_1wnr_int_arrque *q, prh_i
 prh_inline void prh_atom_1wnr_unt_arrque_init(prh_atom_1wnr_unt_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
 prh_inline void prh_atom_1wnr_ptr_arrque_init(prh_atom_1wnr_ptr_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
 
+prh_inline prh_int prh_atom_1wnr_i32_arrque_len(prh_atom_1wnr_i32_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
+prh_inline prh_int prh_atom_1wnr_u32_arrque_len(prh_atom_1wnr_u32_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
+prh_inline prh_int prh_atom_1wnr_int_arrque_len(prh_atom_1wnr_int_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
+prh_inline prh_int prh_atom_1wnr_unt_arrque_len(prh_atom_1wnr_unt_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
+prh_inline prh_int prh_atom_1wnr_ptr_arrque_len(prh_atom_1wnr_ptr_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
+
+prh_inline prh_int prh_atom_1wnr_i32_arrque_empty_items(prh_atom_1wnr_i32_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_1wnr_u32_arrque_empty_items(prh_atom_1wnr_u32_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_1wnr_int_arrque_empty_items(prh_atom_1wnr_int_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_1wnr_unt_arrque_empty_items(prh_atom_1wnr_unt_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_1wnr_ptr_arrque_empty_items(prh_atom_1wnr_ptr_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
+
+typedef struct {
+    prh_int tail; // tail 仅由 write 单一线程写入
+    prh_int empty_items;
+} prh_atom_1wnr_arrque_snapshot;
+
+bool prh_impl_atom_1wnr_arrque_snapshot_begin(void *arrque, prh_atom_1wnr_arrque_snapshot *shot);
+void prh_impl_atom_1wnr_arrque_snapshot_push_u32(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_u32 a);
+void prh_impl_atom_1wnr_arrque_snapshot_push_unt(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_unt a);
+void prh_impl_atom_1wnr_arrque_snapshot_end(void *arrque, prh_atom_1wnr_arrque_snapshot *shot);
+
+prh_inline bool prh_atom_1wnr_i32_arrque_snapshot_begin(prh_atom_1wnr_i32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
+prh_inline bool prh_atom_1wnr_u32_arrque_snapshot_begin(prh_atom_1wnr_u32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
+prh_inline bool prh_atom_1wnr_int_arrque_snapshot_begin(prh_atom_1wnr_int_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
+prh_inline bool prh_atom_1wnr_unt_arrque_snapshot_begin(prh_atom_1wnr_unt_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
+prh_inline bool prh_atom_1wnr_ptr_arrque_snapshot_begin(prh_atom_1wnr_ptr_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
+
+prh_inline bool prh_atom_1wnr_i32_arrque_snapshot_push(prh_atom_1wnr_i32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_i32 a) { prh_impl_atom_1wnr_arrque_snapshot_push_u32(q, shot, a); }
+prh_inline bool prh_atom_1wnr_u32_arrque_snapshot_push(prh_atom_1wnr_u32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_u32 a) { prh_impl_atom_1wnr_arrque_snapshot_push_u32(q, shot, a); }
+prh_inline bool prh_atom_1wnr_int_arrque_snapshot_push(prh_atom_1wnr_int_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_int a) { prh_impl_atom_1wnr_arrque_snapshot_push_unt(q, shot, a); }
+prh_inline bool prh_atom_1wnr_unt_arrque_snapshot_push(prh_atom_1wnr_unt_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_unt a) { prh_impl_atom_1wnr_arrque_snapshot_push_unt(q, shot, a); }
+prh_inline bool prh_atom_1wnr_ptr_arrque_snapshot_push(prh_atom_1wnr_ptr_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, void *a) { prh_impl_atom_1wnr_arrque_snapshot_push_unt(q, shot, (prh_unt)a); }
+
+prh_inline bool prh_atom_1wnr_i32_arrque_snapshot_end(prh_atom_1wnr_i32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
+prh_inline bool prh_atom_1wnr_u32_arrque_snapshot_end(prh_atom_1wnr_u32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
+prh_inline bool prh_atom_1wnr_int_arrque_snapshot_end(prh_atom_1wnr_int_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
+prh_inline bool prh_atom_1wnr_unt_arrque_snapshot_end(prh_atom_1wnr_unt_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
+prh_inline bool prh_atom_1wnr_ptr_arrque_snapshot_end(prh_atom_1wnr_ptr_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
+
 prh_inline bool prh_atom_1wnr_i32_arrque_push(prh_atom_1wnr_i32_arrque *q, prh_i32 a) { return prh_impl_atom_1wnr_arrque_push_u32(q, a); }
 prh_inline bool prh_atom_1wnr_u32_arrque_push(prh_atom_1wnr_u32_arrque *q, prh_u32 a) { return prh_impl_atom_1wnr_arrque_push_u32(q, a); }
 prh_inline bool prh_atom_1wnr_int_arrque_push(prh_atom_1wnr_int_arrque *q, prh_int a) { return prh_impl_atom_1wnr_arrque_push_unt(q, a); }
