@@ -3436,7 +3436,45 @@ prh_snode *prh_nstack_pop(prh_nstack *s) {
 #endif // PRH_STACK_INCLUDE
 
 #ifdef PRH_QUEUE_INCLUDE
-typedef struct { void *arrque; prh_int capacity; prh_int size; prh_int tail; } prh_impl_arrque;
+#define prh_fixed_arrque_ptr(elem_type) struct {                                \
+    prh_int fixed_arrque_head;                                                  \
+    prh_int fixed_arrque_len;                                                   \
+    prh_int fixed_arrque_size_minus_one;                                        \
+    elem_type fixed_arrque;                                                     \
+} *
+
+prh_int prh_fixed_arrque_alloc_size(prh_int size, prh_int elem_bytes);
+void prh_impl_fixed_arrque_init(void *arrque, prh_int size);
+prh_int prh_impl_fixed_arrque_empty_items(void *arrque);
+prh_int prh_impl_fixed_arrque_push(void *arrque);
+prh_int prh_impl_fixed_arrque_push_at(void *arrque, prh_int index);
+prh_int prh_impl_fixed_arrque_pop(void *arrque);
+
+#define prh_fixed_arrque_init(p, size) prh_impl_fixed_arrque_init(&(p)->fixed_arrque_head, (size))
+#define prh_fixed_arrque_elem_size(p) ((int)sizeof((p)->fixed_arrque))
+#define prh_fixed_arrque_eptr_type(p) prh_typeof(&(p)->fixed_arrque))
+#define prh_fixed_arrque_elem_addr(p) (&(p)->fixed_arrque)
+#define prh_fixed_arrque_len(p) ((p)->fixed_arrque_len)
+#define prh_fixed_arrque_cap(p) ((p)->fixed_arrque_size_minus_one + 1)
+#define prh_fixed_arrque_empty_items(p) prh_impl_fixed_arrque_empty_items(&(p)->fixed_arrque_head)
+#define prh_fixed_arrque_unchecked_push(p) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_push(&(p)->fixed_arrque_head))
+#define prh_fixed_arrque_unchecked_push_at(p, index) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_push_at(&(p)->fixed_arrque_head, (index)))
+#define prh_fixed_arrque_unchecked_pop(p) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_pop(&(p)->fixed_arrque_head))
+#define prh_impl_fixed_arrque_top(p) (prh_fixed_arrque_elem_addr(p) + (p)->fixed_arrque_head)
+
+#if defined(prh_cl_msc)
+#define prh_fixed_arrque_push(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push(p) : prh_null))
+#define prh_fixed_arrque_push_at(p, index) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push_at((p), (index)) : prh_null))
+#define prh_fixed_arrque_top(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_len(p) ? prh_impl_fixed_arrque_top(p) : prh_null))
+#define prh_fixed_arrque_pop(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_len(p) ? prh_fixed_arrque_unchecked_pop(p) : prh_null))
+#else
+#define prh_fixed_arrque_push(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push(p) : prh_null); prh_impl_ptr;})
+#define prh_fixed_arrque_push_at(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push_at((p), (index)) : prh_null); prh_impl_ptr;})
+#define prh_fixed_arrque_top(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_len(p) ? prh_impl_fixed_arrque_top(p) : prh_null); prh_impl_ptr;})
+#define prh_fixed_arrque_pop(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_len(p) ? prh_fixed_arrque_unchecked_pop(p) : prh_null); prh_impl_ptr;})
+#endif
+
+typedef struct { void *arrque; prh_int capacity; prh_int size; prh_int tail; } prh_impl_arrque; // arrque 动态分配，可以自动增长
 #define prh_arrque(elem_type) struct { elem_type *arrque; prh_int capacity; prh_int size; prh_int tail; }
 #define prh_impl_arrque_npos(p, pos) ((pos) & ((p)->capacity - 1)) // 队列数据容量总是 2 的幂
 #define prh_impl_arrque_head_index(p) prh_impl_arrque_npos((p), (p)->tail - (p)->size)
@@ -3468,6 +3506,48 @@ void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int elem_size);
 #endif
 
 #ifdef PRH_QUEUE_IMPLEMENTATION
+typedef struct {
+    prh_int head;
+    prh_int len;
+    prh_int size_minus_one; // size 必须是 2 的幂
+} prh_impl_fixed_arrque;
+
+prh_int prh_fixed_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
+    assert(size > 0 && prh_is_power_of_2(size));
+    assert(elem_bytes > 0);
+    return prh_round_16_byte(sizeof(prh_impl_fixed_arrque)) + prh_round_ptrsize(size * elem_bytes);
+}
+
+void prh_impl_fixed_arrque_init(void *arrque, prh_int size) {
+    assert(size > 0 && prh_is_power_of_2(size));
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    arrque->head = arrque->len = 0;
+    arrque->size_minus_one = size - 1;
+}
+
+prh_int prh_impl_fixed_arrque_empty_items(void *arrque) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    return q->size_minus_one + 1 - q->len;
+}
+
+prh_int prh_impl_fixed_arrque_push(void *arrque) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    return (q->head + q->len++) & q->size_minus_one;
+}
+
+prh_int prh_impl_fixed_arrque_push_at(void *arrque, prh_int index) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    return (q->head + q->len++ + index) & q->size_minus_one;
+}
+
+prh_int prh_impl_fixed_arrque_pop(void *arrque) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    prh_int head = q->head;
+    q->len -= 1;
+    q->head = (head + 1) & q->size_minus_one;
+    return head;
+}
+
 void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size) {
     prh_int tail_offset = p->tail * elem_size;
     p->tail = prh_impl_arrque_npos(p, p->tail + 1);
@@ -4823,7 +4903,7 @@ typedef struct {
     prh_hive_quefix_block *tail; // 仅由push线程访问
     prh_atom_int len;
     prh_atom_hive_fbqfix *freeq;
-} prh_atom_ext_hive_quefix;
+} prh_atom_ext_hive_quefix; // 20-byte or 40-byte
 
 void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q, prh_atom_hive_fbqfix *freeq);
 void prh_atom_hive_quefix_free(prh_atom_hive_quefix *q);
@@ -5313,6 +5393,16 @@ prh_inline void *prh_impl_atom_1wnr_arrque_elem(prh_impl_atom_1wnr_arrque *q) {
     return q + 1;
 }
 
+prh_int prh_impl_atom_1wnr_arrque_empty_items(void *arrque) {
+    prh_int head = prh_atom_int_read(&((prh_impl_atom_1wnr_arrque *)arrque)->head); // 以此为基点写入，tail 不能等于和超过 head
+    prh_int tail = prh_atom_int_read(&((prh_impl_atom_1wnr_arrque *)arrque)->tail); // tail 仅由 write 单一线程写入
+    return ((head - tail - 1) & ((prh_impl_atom_1wnr_arrque *)arrque)->size_minus_one);
+}
+
+prh_int prh_impl_atom_1wnr_arrque_len(void *arrque) {
+    return ((prh_impl_atom_1wnr_arrque *)arrque)->size_minus_one - prh_impl_atom_1wnr_arrque_empty_items(arrque);
+}
+
 prh_int prh_atom_1wnr_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
     assert(size > 0 && prh_is_power_of_2(size));
     return sizeof(prh_impl_atom_1wnr_arrque) + elem_bytes * size;
@@ -5326,46 +5416,38 @@ void prh_impl_atom_1wnr_arrque_init(void *arrque, prh_int size) {
     q->size_minus_one = size - 1;
 }
 
-typedef struct {
-    void *array_address;
-    prh_int elems_can_push;
-    prh_int tail; // tail 仅由 write 单一线程写入
-    prh_int size_minus_one; // 数组固定大小，必须是2的幂，只读
-} prh_impl_atom_1wnr_arrque_snapshot;
-
-bool prh_impl_atom_1wnr_arrque_snapshot_begin(void *arrque, prh_impl_atom_1wnr_arrque_snapshot *shot) {
+bool prh_impl_atom_1wnr_arrque_snapshot_begin(void *arrque, prh_atom_1wnr_arrque_snapshot *shot) {
     prh_impl_atom_1wnr_arrque *q = arrque;
     prh_int head = prh_atom_int_read(&q->head); // 以此为基点写入，tail 不能等于和超过 head
     prh_int tail = prh_atom_int_read(&q->tail); // tail 仅由 write 单一线程写入
     prh_int size_minus_one = q->size_minus_one;
-    prh_int elems_can_push = ((head - tail - 1) & size_minus_one);
-    shot->elems_can_push = elems_can_push;
-    if (elems_can_push == 0) return false; // 队列满
-    shot->array_address = prh_impl_atom_1wnr_arrque_elem(q);
+    prh_int empty_items = ((head - tail - 1) & size_minus_one);
     shot->tail = tail;
-    shot->size_minus_one = size_minus_one;
-    return true;
+    shot->empty_items = empty_items;
+    return empty_items > 0;
 }
 
-void prh_impl_atom_1wnr_arrque_snapshot_push_u32(prh_impl_atom_1wnr_arrque_snapshot *shot, prh_u32 a) {
-    assert(shot->elems_can_push > 0);
+void prh_impl_atom_1wnr_arrque_snapshot_push_u32(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_u32 a) {
+    prh_impl_atom_1wnr_arrque *q = arrque;
+    assert(shot->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     prh_int tail = shot->tail;
-    ((prh_u32 *)shot->array_address)[tail] = a;
-    shot->tail = prh_impl_atom_1wnr_arrque_pos(tail + 1, shot->size_minus_one);
-    shot->elems_can_push -= 1;
+    ((prh_u32 *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
+    shot->tail = prh_impl_atom_1wnr_arrque_pos(tail + 1, q->size_minus_one);
+    prh_debug(shot->empty_items -= 1);
 }
 
-void prh_impl_atom_1wnr_arrque_snapshot_push_unt(prh_impl_atom_1wnr_arrque_snapshot *shot, prh_unt a) {
-    assert(shot->elems_can_push > 0);
+void prh_impl_atom_1wnr_arrque_snapshot_push_unt(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_unt a) {
+    prh_impl_atom_1wnr_arrque *q = arrque;
+    assert(shot->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     prh_int tail = shot->tail;
-    ((prh_unt *)shot->array_address)[tail] = a;
-    shot->tail = prh_impl_atom_1wnr_arrque_pos(tail + 1, shot->size_minus_one);
-    shot->elems_can_push -= 1;
+    ((prh_unt *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
+    shot->tail = prh_impl_atom_1wnr_arrque_pos(tail + 1, q->size_minus_one);
+    prh_debug(shot->empty_items -= 1);
 }
 
-void prh_impl_atom_1wnr_arrque_snapshot_end(void *arrque, prh_impl_atom_1wnr_arrque_snapshot *shot) {
+void prh_impl_atom_1wnr_arrque_snapshot_end(void *arrque, prh_atom_1wnr_arrque_snapshot *shot) {
     prh_impl_atom_1wnr_arrque *q = arrque;
     prh_atom_int_write(&q->tail, shot->tail); // tail 只由单一生产者更新
 }
@@ -15893,36 +15975,6 @@ void prh_impl_iocp_attach_socket(prh_handle socket) {
     prh_impl_completion_port_attach(PRH_IMPL_IOCP, socket, (void *)prh_impl_iocp_socket_completion);
 }
 
-int prh_impl_iocp_thrd_wait(OVERLAPPED_ENTRY *entry, int count, DWORD msec) {
-    // typedef struct _OVERLAPPED_ENTRY {
-    //      ULONG_PTR    lpCompletionKey;
-    //      LPOVERLAPPED lpOverlapped;
-    //      ULONG_PTR    Internal;
-    //      DWORD        dwNumberOfBytesTransferred;
-    // } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
-    // typedef struct _OVERLAPPED {
-    //      ULONG_PTR Internal;
-    //      ULONG_PTR InternalHigh;
-    //      union {
-    //          struct {
-    //              DWORD Offset;
-    //              DWORD OffsetHigh;
-    //          } DUMMYSTRUCTNAME;
-    //          PVOID Pointer;
-    //      } DUMMYUNIONNAME;
-    //      HANDLE hEvent;
-    // } OVERLAPPED, *LPOVERLAPPED;
-    int n = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, entry, count, msec); // INFINITE
-    for (int i = 0; i < n; i += 1) {
-        OVERLAPPED_ENTRY *curr_entry = entry + i;
-        prh_impl_iocp_completion completion_routine = (prh_impl_iocp_completion)curr_entry->lpCompletionKey;
-        assert(completion_routine != prh_null);
-        assert(curr_entry->lpOverlapped != prh_null);
-        completion_routine(curr_entry);
-    }
-    return n;
-}
-
 struct prh_iocp_post;
 typedef void (*prh_complete_routine)(struct prh_iocp_post *post);
 typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
@@ -15941,8 +15993,8 @@ typedef struct {
 } prh_iocp_connect_result;
 
 typedef struct {
-    prh_u32 post_seqn;
     prh_u32 error_code;
+    prh_u32 bytes_transferred;
     void *context;
     prh_complete_routine complete_routine;
     prh_continue_routine continue_routine;
@@ -15950,35 +16002,39 @@ typedef struct {
 } prh_iocp_post;
 
 typedef struct {
-    prh_atom_hive_quefix thrd_req_que;
-    prh_atom_hive_quefix recv_que;
     prh_atom_bool wakeup_semaphore;
     prh_thrd_cond thrd_wait_cond;
 } prh_iocp_thrd_data;
 
-typedef prh_arrfit(prh_iocp_post *) prh_post_array;
+typedef prh_fixed_arrque_ptr(prh_iocp_post *) prh_post_collect_que_ptr;
 
 typedef struct {
     int concurrent_threads;
     int thrd_wait_count;
-    int dispatch_que_size;
-    prh_u32 query_entries_each_time;
-    prh_u32 post_collect_array_size;
-    prh_u32 prev_post_seqn;
+    int query_entries_each_time;
+    int thrd_req_que_size;
+    int sched_req_que_max_size;
+    int post_collect_que_size;
+    int post_dispatch_que_size;
+    prh_u32 cfmd_post_seqn;
     prh_atom_i32 recv_seqn_seed;
     prh_atom_u32 post_seqn_seed;
+    prh_atom_u32 cfmd_post_seed;
     prh_iocp_thrd_data *thrd_data;
     prh_iocp_thrd_data **thrd_wait_array;
-    prh_post_array post_collect_array;
+    void *thrd_wait_overlapped_entry;
+    void *overlapped_entry_array;
+    prh_atom_ext_hive_quefix *thrd_req_que;
+    prh_post_collect_que_ptr post_collect_que;
     prh_atom_1wnr_ptr_arrque *post_dispatch_que;
     prh_cond_sleep sched_cond_sleep;
 } prh_iocp_global;
 
 typedef struct {
     int concurrent_thread_count;
-    int post_dispatch_que_size; // 必须是 2 的幂，至少是并行执行线程数量的两倍
     int query_entries_each_time;
-    int post_collect_array_size;
+    int post_collect_que_size; // 必须是 2 的幂
+    int post_dispatch_que_size; // 必须是 2 的幂，至少是并行执行线程数量的两倍
 } prh_iocp_config;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
@@ -15994,43 +16050,54 @@ prh_inline prh_iocp_thrd_data *prh_iocp_thrd_data_next(prh_iocp_thrd_data *thrd_
 
 void prh_iocp_global_init(prh_iocp_config *config) {
     int concurrent_thread_count = config->concurrent_thread_count;
-    int post_dispatch_que_size = config->post_dispatch_que_size;
     int query_entries_each_time = config->query_entries_each_time;
-    int post_collect_array_size = config->post_collect_array_size;
+    int thrd_req_que_size = concurrent_thread_count + 1;
+    int post_collect_que_size = config->post_collect_que_size; // 必须是 2 的幂
+    int post_dispatch_que_size = config->post_dispatch_que_size; // 必须是 2 的幂
+    int i;
 
     assert(concurrent_thread_count > 0 && concurrent_thread_count < PRH_THRD_INDEX_MASK);
-    assert(post_dispatch_que_size >= concurrent_thread_count * 2);
     assert(query_entries_each_time > 0);
-    assert(post_collect_array_size >= query_entries_each_time);
+    assert(post_collect_que_size >= query_entries_each_time);
+    assert(post_dispatch_que_size >= concurrent_thread_count * 2 && post_dispatch_que_size >= post_collect_que_size);
 
-    prh_int thrd_data_array_size = (concurrent_thread_count + 1) * prh_iocp_thrd_data_size(); // 包含调度线程自身
-    prh_int thrd_wait_array_size = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
-    prh_int post_arrque_fixed_size = prh_round_cache_line_size(prh_atom_1wnr_arrque_alloc_size(post_dispatch_que_size, sizeof(void *)));
-    post_collect_array_size = prh_round_cache_line_size(sizeof(void *) * post_collect_array_size);
+    prh_int thrd_data_array_bytes = (concurrent_thread_count + 1) * prh_iocp_thrd_data_size(); // 包含调度线程自身
+    prh_int thrd_wait_array_bytes = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
+    prh_int thrd_req_que_bytes = prh_round_cache_line_size(thrd_req_que_size * sizeof(prh_atom_ext_hive_quefix));
+    prh_int post_collect_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(post_collect_que_size, sizeof(void *)));
+    prh_int post_dispatch_que_bytes = prh_round_cache_line_size(prh_atom_1wnr_arrque_alloc_size(post_dispatch_que_size, sizeof(void *)));
 
-    prh_byte *buffer_offset = prh_memory_aligned_alloc(PRH_IOCP_THRD_DATA, thrd_data_array_size + thrd_wait_array_size + post_collect_array_size + post_arrque_fixed_size, PRH_CACHE_LINE_SIZE);
+    prh_byte *buffer_offset = prh_memory_aligned_alloc(PRH_IOCP_THRD_DATA, thrd_data_array_bytes + thrd_wait_array_bytes + thrd_req_que_bytes + post_collect_que_bytes + post_dispatch_que_bytes, PRH_CACHE_LINE_SIZE);
     assert(buffer_offset != prh_null);
 
     PRH_IOCP_GLOBAL.concurrent_threads = concurrent_thread_count;
     PRH_IOCP_GLOBAL.thrd_data = (prh_iocp_thrd_data *)buffer_offset;
-    buffer_offset += thrd_data_array_size;
+    buffer_offset += thrd_data_array_bytes;
+    for (i = 0; i <= concurrent_thread_count; i += 1) {
+        prh_impl_iocp_thrd_data_init(PRH_IOCP_GLOBAL.thrd_data + i);
+    }
 
     PRH_IOCP_GLOBAL.thrd_wait_array = (prh_iocp_thrd_data **)buffer_offset;
     PRH_IOCP_GLOBAL.thrd_wait_count = 0;
-    buffer_offset += thrd_wait_array_size;
+    buffer_offset += thrd_wait_array_bytes;
+
+    PRH_IOCP_GLOBAL.thrd_req_que = (prh_atom_ext_hive_quefix *)buffer_offset;
+    PRH_IOCP_GLOBAL.thrd_req_que_size = thrd_req_que_size;
+    buffer_offset += thrd_req_que_bytes;
 
     PRH_IOCP_GLOBAL.query_entries_each_time = query_entries_each_time;
-    PRH_IOCP_GLOBAL.post_collect_array_size = post_collect_array_size / sizeof(void *);
-    prh_arrfit_init_inplace(&PRH_IOCP_GLOBAL.post_collect_array, (prh_iocp_post **)buffer_offset, PRH_IOCP_GLOBAL.post_collect_array_size);
-    buffer_offset += post_collect_array_size;
+    PRH_IOCP_GLOBAL.post_collect_que = (prh_post_collect_que_ptr)buffer_offset;
+    prh_fixed_arrque_init(PRH_IOCP_GLOBAL.post_collect_que, post_collect_que_size);
+    buffer_offset += post_collect_que_bytes;
 
     prh_atom_1wnr_ptr_arrque *post_dispatch_que = (prh_atom_1wnr_ptr_arrque *)buffer_offset;
     prh_impl_atom_1wnr_arrque_init(post_dispatch_que, post_dispatch_que_size);
     PRH_IOCP_GLOBAL.post_dispatch_que = post_dispatch_que;
-    PRH_IOCP_GLOBAL.dispatch_que_size = post_dispatch_que_size - 1;
+    PRH_IOCP_GLOBAL.post_dispatch_que_size = post_dispatch_que_size - 1;
 
     prh_atom_u32_init(&PRH_IOCP_GLOBAL.recv_seqn_seed, 0);
     prh_atom_u32_init(&PRH_IOCP_GLOBAL.post_seqn_seed, 0);
+    prh_atom_u32_init(&PRH_IOCP_GLOBAL.cfmd_post_seed, 0);
 
     prh_impl_init_cond_sleep(&PRH_IOCP_GLOBAL.sched_cond_sleep);
 }
@@ -16039,19 +16106,13 @@ void prh_impl_wakeup_sched_thrd(void) {
     prh_thrd_wakeup(&PRH_IOCP_GLOBAL.sched_cond_sleep);
 }
 
-// 工作线程投递任务给调度线程分配，每个工作线程都有一个独立的任务队列供自己使用。工作线
-// 程投递的每个任务，都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，都最多只
-// 处理固定数量的任务，例如 [prev_post_seqn, prev_post_seqn + N)，每一轮最多只有在此
-// 区间内的任务被处理。在处理时，调度线程首先将范围内的任务，按编号顺序收集到一个大小为
-// N 的固定数组中，然后大致负载均衡地分配给各线程处理。
-
 void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void *context) {
     memset(post, 0, sizeof(prh_iocp_post));
     post->continue_routine = routine;
     post->context = context;
 }
 
-void prh_impl_sched_thrd_collect_wait_array(OVERLAPPED_ENTRY *entry) {
+void prh_impl_sched_thrd_wait_array_push(OVERLAPPED_ENTRY *entry) {
     prh_iocp_thrd_data *thrd = (prh_iocp_thrd_data *)entry->lpOverlapped;
     assert(PRH_IOCP_GLOBAL.thrd_wait_count < PRH_IOCP_GLOBAL.concurrent_thread_count);
     PRH_IOCP_GLOBAL.thrd_wait_array[PRH_IOCP_GLOBAL.thrd_wait_count++] = thrd;
@@ -16060,7 +16121,7 @@ void prh_impl_sched_thrd_collect_wait_array(OVERLAPPED_ENTRY *entry) {
 void prh_impl_iocp_thrd_sleep(prh_iocp_thrd_data *thrd) {
     if (prh_atom_bool_strong_clear_if_set(&thrd->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
     prh_thrd_cond *cond = &thrd->thrd_wait_cond;
-    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)prh_impl_sched_thrd_collect_wait_array, .lpOverlapped = thrd};
+    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)prh_impl_sched_thrd_wait_array_push, .lpOverlapped = thrd};
     prh_thrd_cond_lock(cond); // wakeup_semaphore 可能在 prh_thrd_cond_lock 之前又设为 true
     if (prh_atom_bool_read(&thrd->wakeup_semaphore)) {
         goto label_already_wakeup;
@@ -16083,23 +16144,22 @@ void prh_impl_iocp_thrd_wakeup(prh_iocp_thrd_data *thrd) {
     prh_atom_bool_write(&thrd->wakeup_semaphore, true);
     prh_thrd_cond_unlock(cond);
     prh_thrd_cond_signal(cond);
-}
-
-void prh_iocp_thrd_wait(void) {
-    prh_iocp_thrd_data *thrd = PRH_IOCP_GLOBAL.thrd_data + (int)((prh_i16)prh_thrd_self_index() + (prh_i16)1); // 第1个默认给调度线程使用
-    prh_i32 recv_seqn = prh_atom_i32_fetch_dec(&PRH_IOCP_GLOBAL.recv_seqn_seed);
-    if (recv_seqn >= 0) {
-        // 接收 recv_seqn 对应的任务包去处理
-    } else {
-        // 进入睡眠，等待调度线程唤醒
-        prh_impl_iocp_thrd_sleep(thrd);
+    // 因为要以 LIFO 的方式唤醒等待的线程，这里等待线程确实被成功唤醒
+    prh_debug(int debug_wait_thrd_wakeup_count = 0);
+    while (prh_atom_bool_read(&thrd->wakeup_semaphore)) {
+        prh_debug(debug_wait_thrd_wakeup_count += 1);
     }
+    prh_debug(printf("debug_wait_thrd_wakeup_count %d\n", debug_wait_thrd_wakeup_count));
 }
 
 void prh_iocp_thrd_post(prh_iocp_post *post) {
-    prh_iocp_thrd_data *thrd_data = PRH_IOCP_GLOBAL.thrd_data + (int)((prh_i16)prh_thrd_self_index() + (prh_i16)1); // 第1个默认给调度线程使用
-    prh_atom_hive_quefix_push(&thrd_data->thrd_req_que, post); // 必须先插入再更新 post_seqn_seed，确保调度线程拿到 post_seqn_seed 之后对应的 post 已经插入队列
-    post->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed);
+    // 工作线程投递任务给调度线程分派，每个工作线程都有一个独立的任务队列供自己使用。工作线程投递的每个任务，
+    // 都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，都最多只处理固定数量的任务，例如 [cfmd_post_seqn, cfmd_post_seqn + N)，
+    // 每一轮最多只有在此区间内的任务被处理。在处理时，调度线程首先将范围内的任务，按编号顺序收集到一个大小固
+    // 定队列中（post_collect_que），然后分派到各线程争抢的任务分派队列中（post_dispatch_que）
+    int thrd_index = (int)((prh_i16)prh_thrd_self_index() + (prh_i16)1); // 第1个默认给调度线程使用
+    prh_atom_ext_hive_quefix_push(PRH_IOCP_GLOBAL.thrd_req_que + thrd_index, post, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed));
+    prh_atom_u32_inc(&PRH_IOCP_GLOBAL.cfmd_post_seed);
     prh_impl_wakeup_sched_thrd();
 }
 
@@ -16111,60 +16171,15 @@ void prh_impl_iocp_thrd_exec(prh_iocp_post *post) {
     }
 }
 
-typedef prh_arrfit(prh_iocp_post *) prh_post_array;
-typedef struct {
-    prh_post_array *array;
-    prh_u32 post_count;
-} prh_impl_sched_post_priv;
-
-bool prh_impl_sched_thrd_get_each_post(void *priv, void *post) {
-    prh_u32 index = ((prh_iocp_post *)post)->post_seqn - PRH_IOCP_GLOBAL.prev_post_seqn; // post_seqn 最大值绕回也成立
-    prh_post_array *array = ((prh_impl_sched_post_priv *)priv)->array;
-    prh_iocp_post **post_array = array->arrfit;
-    if (index < ((prh_impl_sched_post_priv *)priv)->post_count) {
-        post_array[index] = (prh_iocp_post *)post;
-        array->size += 1;
-        return true;
+void prh_impl_work_thrd_routine(void) {
+    prh_iocp_thrd_data *thrd = PRH_IOCP_GLOBAL.thrd_data + (int)((prh_i16)prh_thrd_self_index() + (prh_i16)1); // 第1个默认给调度线程使用
+    prh_i32 recv_seqn = prh_atom_i32_fetch_dec(&PRH_IOCP_GLOBAL.recv_seqn_seed);
+    if (recv_seqn >= 0) {
+        // 接收 recv_seqn 对应的任务包去处理
+    } else {
+        // 进入睡眠，等待调度线程唤醒
+        prh_impl_iocp_thrd_sleep(thrd);
     }
-    return false;
-}
-
-prh_u32 prh_impl_sched_thrd_collect_post(prh_post_array *array) {
-    prh_iocp_thrd_data *begin = PRH_IOCP_GLOBAL.thrd_data;
-    prh_iocp_thrd_data *end = prh_iocp_thrd_data_next(begin, PRH_IOCP_GLOBAL.concurrent_threads); // 包含最后一个
-    prh_u32 prev_post_seqn = PRH_IOCP_GLOBAL.prev_post_seqn;
-    prh_u32 post_count = prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed) - prev_post_seqn;
-    prh_u32 array_max_items = (prh_u32)array->capacity;
-
-    if (post_count > array_max_items) {
-        post_count = array_max_items;
-    }
-
-    if (post_count == 0) {
-        return 0;
-    }
-
-    prh_impl_sched_post_priv post_priv = {array, post_count};
-    prh_arrfit_clear(array);
-    for (; begin <= end; begin = prh_iocp_thrd_data_next(begin, 1)) { // 包含最后一个
-        prh_atom_hive_quefix_pops(&begin->thrd_req_que, prh_impl_sched_thrd_get_each_post, &post_priv);
-    }
-
-    prh_real_assert(post_count == array->size);
-    PRH_IOCP_GLOBAL.prev_post_seqn = prev_post_seqn + post_count;
-    return post_count;
-}
-
-bool prh_impl_sched_thrd_assign_work(void) {
-    //  1.  将各个线程中投递的任务（包括调度线程投递的内核任务）按投递顺序收集到一个数组中
-    //  sche_req_que ---.-------> post_collect_array
-    //  thrd_req_que ---'
-    //  thrd_req_que ---'
-    //  ...          ---'
-    prh_u32 posts = prh_impl_sched_thrd_collect_post(&PRH_IOCP_GLOBAL.post_collect_array);
-    if (posts == 0) return false;
-
-    return true;
 }
 
 #elif defined(prh_plat_linux)
