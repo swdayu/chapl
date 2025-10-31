@@ -16222,6 +16222,226 @@ void prh_impl_work_thrd_routine(void) {
     }
 }
 
+int prh_impl_sched_thrd_collect_que_len(void) {
+    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.post_collect_que);
+}
+
+int prh_impl_sched_thrd_collect_que_empty_items(void) {
+    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.post_collect_que);
+}
+
+void prh_impl_sched_thrd_collect_que_push(prh_iocp_post *post, prh_u32 index) {
+    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
+    *prh_fixed_arrque_unchecked_push_at(post_collect_que, index) = post;
+}
+
+prh_iocp_post *prh_impl_sched_thrd_collect_que_pop(void) {
+    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
+    if (prh_fixed_arrque_len(post_collect_que) == 0) return prh_null;
+    prh_iocp_post **post_addr = prh_impl_fixed_arrque_top(post_collect_que);
+    prh_iocp_post *post = *post_addr;
+    if (post != prh_null) {
+        prh_fixed_arrque_pop(post_collect_que);
+        PRH_IOCP_GLOBAL.cfmd_post_seqn += 1;
+        *post_addr = prh_null; // 移除的元素必须清零
+    }
+    return post;
+}
+
+bool prh_impl_sched_thrd_get_each_post(void *post_seqn_range, void *post, prh_ptr post_seqn) {
+    prh_u32 index = ((prh_u32)post_seqn) - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
+    if (index < (prh_u32)post_seqn_range) {
+        prh_impl_sched_thrd_collect_que_push(post, index);
+        return true;
+    }
+    return false;
+}
+
+int prh_impl_sched_thrd_collect_post(void) {
+    prh_atom_ext_hive_quefix *req_que_begin = PRH_IOCP_GLOBAL.thrd_req_que;
+    prh_atom_ext_hive_quefix *req_que_end = req_que_begin + PRH_IOCP_GLOBAL.thrd_req_que_size;
+    prh_u32 cfmd_post_seqn = PRH_IOCP_GLOBAL.cfmd_post_seqn;
+    prh_u32 curr_post_seed = prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed);
+    prh_u32 post_seqn_range = curr_post_seed - cfmd_post_seqn;
+
+    // 对于 post_seqn < curr_post_seed 的 post，这些 post 已经分配了序号，但是对应的线程可能还未来得及将其插入到 thrd_req_que 队列中
+    // 因此需要维护一个已经确认收集并且已经投递到 post_dispatch_que 的 post 序号 cfmd_post_seqn，用来跟踪哪些 post 已经确认被投递
+    // cfmd_post_seqn 必须按序号一个一个进行递增，每次将 post_collect_que 头部的一个非空的 post 投递到 post_dispatch_que，cfmd_post_seqn 都加一
+
+    int collect_que_empty_items = prh_impl_sched_thrd_collect_que_empty_items();
+    if (collect_que_empty_items < post_seqn_range) post_seqn_range = collect_que_empty_items;
+    if (post_seqn_range == 0) goto label_collect_finish;
+
+    for (; req_que_begin < req_que_end; req_que_begin += 1) {
+        prh_atom_ext_hive_quefix_pops(req_que_begin, prh_impl_sched_thrd_get_each_post, (void *)(prh_ptr)post_seqn_range);
+    }
+
+label_collect_finish:
+    return prh_impl_sched_thrd_collect_que_len();
+}
+
+void prh_impl_sched_thrd_dispatch_post(void) {
+    prh_atom_1wnr_ptr_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
+    prh_atom_1wnr_arrque_snapshot snapshot;
+    if (prh_atom_1wnr_ptr_arrque_snapshot_begin(post_dispatch_que, snapshot)) {
+        for (int i = 0; i < (int)snapshot.empty_items; i += 1) {
+            prh_iocp_post *post = prh_impl_sched_thrd_collect_que_pop();
+            if (post == prh_null) break;
+            prh_atom_1wnr_ptr_arrque_snapshot_push(post_dispatch_que, &snapshot, post);
+        }
+        prh_atom_1wnr_ptr_arrque_snapshot_end(post_dispatch_que, &snapshot);
+    }
+}
+
+int prh_impl_sched_thrd_dispatch_que_len(void) {
+    return (int)prh_atom_1wnr_ptr_arrque_len(PRH_IOCP_GLOBAL.post_dispatch_que);
+}
+
+int prh_impl_sched_thrd_que_len(void) {
+    return (int)prh_atom_ext_hive_quefix_len(PRH_IOCP_GLOBAL.thrd_req_que);
+}
+
+int prh_impl_sched_thrd_que_empty_items(void) {
+    int len = prh_impl_sched_thrd_que_len();
+    if (len < PRH_IOCP_GLOBAL.sched_req_que_max_size) {
+        return PRH_IOCP_GLOBAL.sched_req_que_max_size - len;
+    }
+    return 0;
+}
+
+bool prh_impl_sched_thrd_que_full(void) {
+    return prh_impl_sched_thrd_que_len() >= PRH_IOCP_GLOBAL.sched_req_que_max_size;
+}
+
+void prh_impl_sched_thrd_process_entry(OVERLAPPED_ENTRY *entry) {
+    // typedef struct _OVERLAPPED_ENTRY {
+    //      ULONG_PTR    lpCompletionKey;
+    //      LPOVERLAPPED lpOverlapped;
+    //      ULONG_PTR    Internal;
+    //      DWORD        dwNumberOfBytesTransferred;
+    // } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
+    // typedef struct _OVERLAPPED {
+    //      ULONG_PTR Internal;
+    //      ULONG_PTR InternalHigh;
+    //      union {
+    //          struct {
+    //              DWORD Offset;
+    //              DWORD OffsetHigh;
+    //          } DUMMYSTRUCTNAME;
+    //          PVOID Pointer;
+    //      } DUMMYUNIONNAME;
+    //      HANDLE hEvent;
+    // } OVERLAPPED, *LPOVERLAPPED;
+    prh_impl_iocp_completion completion_routine = (prh_impl_iocp_completion)entry->lpCompletionKey;
+    assert(completion_routine != prh_null);
+    assert(entry->lpOverlapped != prh_null);
+    completion_routine(entry);
+}
+
+void prh_impl_sched_thrd_collect_wait_array(void) {
+    OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.thrd_wait_overlapped_entry;
+    int overlapped_array_size = PRH_IOCP_GLOBAL.concurrent_thread_count;
+    int entry_count = prh_impl_completion_port_wait_ex(PRH_PRIO_IOCP, overlapped_entry, overlapped_array_size, 0);
+    for (int i = 0; i < entry_count; i += 1) {
+        prh_impl_sched_thrd_process_entry(overlapped_entry + i);
+    }
+}
+
+void prh_impl_sched_thrd_routine(void) {
+    OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.overlapped_entry_array;
+    OVERLAPPED_ENTRY *entry_end = prh_null, *entry_ptr = prh_null;
+    int overlapped_array_size = PRH_IOCP_GLOBAL.query_entries_each_time;
+    int entry_count = 0, remain_entry_count, sched_req_que_empty_items;
+    int dispatch_que_posts, wakeup_count, i;
+    bool activity_exist;
+    DWORD wait_msec = 0;
+
+    for (; ;) {
+        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（overlapped_array_size）的完成条目
+        if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
+            entry_count = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, overlapped_entry, overlapped_array_size, wait_msec);
+            if (entry_count) {
+                entry_ptr = overlapped_entry;
+                entry_end = overlapped_entry + entry_count;
+            }
+        }
+
+        //  2.  处理完成条目会向调度线程的 thrd_req_que 投递线程任务，调度线程的队列有一个最大大小限制（sched_req_que_max_size），因此只有在调度线程队列未满时才能处理完成条目
+        remain_entry_count = entry_end - entry_ptr;
+        sched_req_que_empty_items = prh_impl_sched_thrd_que_empty_items();
+        if (remain_entry_count && sched_req_que_empty_items) {
+            if (remain_entry_count > sched_req_que_empty_items) { // 只有部分完成条目可以处理
+                remain_entry_count = sched_req_que_empty_items;
+            }
+            for (i = 0; i < remain_entry_count; i += 1) {
+                prh_impl_sched_thrd_process_entry(entry_ptr);
+                entry_ptr += 1;
+            }
+            for (; entry_ptr < entry_end; entry_ptr += 1) {
+                if (prh_impl_sched_thrd_que_full()) break;
+                prh_impl_sched_thrd_process_entry(entry_ptr);
+            }
+        }
+
+        //  3.  将各个线程中的任务（包括调度线程投递的内核任务）按任务序号从小到大收集到一个固定大小的全局队列中（post_collect_que）
+        //  sche_req_que thrd_req_que thrd_req_que ... -------> post_collect_que
+        if (!prh_impl_sched_thrd_collect_post()) {
+            goto label_after_dispatch_post; // 暂时没有任务需要分派
+        }
+
+        //  4.  将仅由调度线程持有的 post_collect_que 中的任务，按顺序投递到各线程争抢的任务分派队列中（post_dispatch_que），任务分派队列也是固定大小
+        prh_impl_sched_thrd_dispatch_post();
+
+label_after_dispatch_post:
+        dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len();
+
+        //  5.  如果任务分派队列已经有分派的任务，根据当前等待的线程数量，按后入先出的顺序唤醒线程
+        prh_impl_sched_thrd_collect_wait_array();
+        wakeup_count = PRH_IOCP_GLOBAL.thrd_wait_count;
+        if (wakeup_count && dispatch_que_posts) {
+            if (dispatch_que_posts < wakeup_count) wakeup_count = dispatch_que_posts;
+            for (i = 0; i < wakeup_count; i += 1) {
+                prh_impl_iocp_thrd_wakeup(PRH_IOCP_GLOBAL.thrd_wait_array[--PRH_IOCP_GLOBAL.thrd_wait_count]);
+            }
+        }
+
+        //  6.  调度线程根据状态决定是否无限等待
+        if (PRH_IOCP_GLOBAL.thrd_wait_count < PRH_IOCP_GLOBAL.concurrent_thread_count) {
+            // 只要还有工作线程在执行，调度线程就必须保持活动状态，因为工作线程随时都可能投递线程任务，调度线程必须及时进行分派
+            activity_exist = true;
+        } else if (entry_ptr < entry_end) {
+            // 接收的完成条目还没有完全处理完毕，调度线程需要继续活动
+            //  a.  唯一的原因是调度线程的队列已经达到最大大小限制（sched_req_que_max_size），需要继续执行第 3 步收集调度线程队列中的任务
+            //  b.  第 3 步可能被 post_collect_que 队列已经填满阻塞，此时调度线程要成功执行第 3 步，需要持续跟踪分派队列的大小先成功执行第 4 步
+            activity_exist = true;
+        } else if (prh_impl_sched_thrd_collect_que_len()) {
+            // 收集的任务还没有完全分派，调度线程必须继续活动
+            //  a.  可能 post_collect_que 队列中的第一个任务，序列号已经分配，但对应的线程还没有来得及将其插入到 thrd_req_que 队列中，因此调度线程还未成功收集该任务导致
+            //      已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
+            //  b.  可能任务分派队列 post_dispatch_que 已经填满，调度线程需要动态跟踪分派队列的大小，继续执行步骤 4 进行任务分派
+            activity_exist = true;
+        } else if (prh_atom_u32_read(&PRH_IOCP_GLOBAL.cfmd_post_seed) != prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed)) {
+            // 成功投递的任务序列号，还没有追上已经分配的任务序列号，表示存在已经分配的任务没有被对应的线程成功投递，调度线程需要继续跟踪
+            //  a.  调度线程需要继续执行步骤 3 直到所有分配的任务序列号都成功收集
+            activity_exist = true;
+        } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed)) {
+            // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号，表示还存在新分配的任务没有收集
+            //  a.  调度线程需要继续执行步骤 3 收集线程任务
+            activity_exist = true;
+        } else {
+            //  a.  所有工作线程都已经进入到了随眠状态，表明所有分派到 post_dispatch_que 队列中的任务都处理完毕，并且工作线程不可能继续投递线程任务
+            //  b.  当前接收的完成条目都已经处理完毕
+            //  c.  当前收集的线程任务都处理完毕
+            //  d.  不存在未成功投递的但已经成功分配的任务序列号
+            //  e.  所有分配的任务序列号都已经成功分派到分派队列
+            //  f.  此时调度线程唯一可做的就是在完成端口上进行无限等待
+            activity_exist = false;
+        }
+
+        wait_msec = activity_exist ? 0 : INFINITE;
+    }
+}
+
 #elif defined(prh_plat_linux)
 #include <sys/types.h>
 #include <sys/ioctl.h>
