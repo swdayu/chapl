@@ -16091,7 +16091,6 @@ typedef struct {
     prh_iocp_thrd *sched_thrd;
     prh_u32 cfmd_post_seqn;
     prh_atom_u32 post_seqn_seed;
-    prh_atom_u32 cfmd_post_seed;
     prh_iocp_thrd **thrd_wait_array;
     void *thrd_wait_overlapped_entry;
     void *overlapped_entry_array;
@@ -16171,7 +16170,6 @@ void prh_iocp_main_init(prh_iocp_config *config) {
     PRH_IOCP_GLOBAL.post_dispatch_que_size = post_dispatch_que_size - 1;
 
     prh_atom_u32_init(&PRH_IOCP_GLOBAL.post_seqn_seed, 0);
-    prh_atom_u32_init(&PRH_IOCP_GLOBAL.cfmd_post_seed, 0);
 
     prh_impl_init_cond_sleep(&PRH_IOCP_GLOBAL.sched_cond_sleep);
 
@@ -16252,7 +16250,6 @@ void prh_iocp_thrd_post(prh_iocp_post *post) {
     // 定队列中（post_collect_que），然后分派到各线程争抢的任务分派队列中（post_dispatch_que）
     prh_atom_ext_hive_quefix *thrd_req_que = ((prh_iocp_thrd *)prh_thrd_self())->extra_ptr;
     prh_atom_ext_hive_quefix_push(thrd_req_que, post, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed));
-    prh_atom_u32_inc(&PRH_IOCP_GLOBAL.cfmd_post_seed);
     prh_impl_wakeup_sched_thrd();
 }
 
@@ -16477,13 +16474,10 @@ label_after_dispatch_post:
             //      已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
             //  b.  可能任务分派队列 post_dispatch_que 已经填满，调度线程需要动态跟踪分派队列的大小，继续执行步骤 4 进行任务分派
             activity_exist = true;
-        } else if (prh_atom_u32_read(&PRH_IOCP_GLOBAL.cfmd_post_seed) != prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed)) {
-            // 成功投递的任务序列号，还没有追上已经分配的任务序列号，表示存在已经分配的任务没有被对应的线程成功投递，调度线程需要继续跟踪
-            //  a.  调度线程需要继续执行步骤 3 直到所有分配的任务序列号都成功收集
-            activity_exist = true;
         } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed)) {
-            // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号，表示还存在新分配的任务没有收集
-            //  a.  调度线程需要继续执行步骤 3 收集线程任务
+            // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号
+            //  a.  要么已经分配的任务没有被对应的线程成功投递，需要调度线程继续跟踪收集任务
+            //  b.  要么还存在新分配的任务没有收集，都需要调度线程需继续执行步骤 3 收集线程任务
             activity_exist = true;
         } else {
             //  a.  所有工作线程都已经进入到了随眠状态，表明所有分派到 post_dispatch_que 队列中的任务都处理完毕，并且工作线程不可能继续投递线程任务
