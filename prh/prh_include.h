@@ -15997,13 +15997,9 @@ prh_inline prh_iocp_post *prh_impl_iocp_get_post_from_overlapped(OVERLAPPED *ove
     return (prh_iocp_post *)((prh_byte *)overlapped - prh_offsetof(prh_impl_iocp_post, overalpped));
 }
 
-prh_inline prh_u32 prh_impl_iocp_get_bytes_transferred(prh_iocp_post *post) {
-    return post->post_seqn; // 使用 post_seqn 临时保存 dwNumberOfBytesTransferred
-}
-
-void prh_impl_iocp_set_post_result(prh_iocp_post *post, DWORD error_code) {
-    post->post_seqn = 0; // 使用 post_seqn 临时保存 dwNumberOfBytesTransferred
+void prh_impl_iocp_error_occurred(prh_iocp_post *post, prh_u32 error_code) {
     post->error_code = error_code;
+    post->bytes_transferred = 0;
 }
 
 void prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) {
@@ -16015,7 +16011,7 @@ void prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) {
     } else {
         post->error_code = 0;
     }
-    post->post_seqn = entry->dwNumberOfBytesTransferred; // 使用 post_seqn 临时保存 dwNumberOfBytesTransferred
+    post->bytes_transferred = entry->dwNumberOfBytesTransferred;
     post->complete_routine(post);
 }
 
@@ -20267,13 +20263,9 @@ void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
     post->continue_routine(post);
 }
 
-void prh_impl_iocp_connect_post(prh_iocp_post *post) {
+void prh_impl_iocp_connect_complete(prh_iocp_post *post) {
     post->complete_routine = prh_impl_iocp_connect_continue;
     prh_iocp_thrd_post(post);
-}
-
-void prh_impl_iocp_connect_complete(prh_iocp_post *post) {
-    prh_impl_iocp_connect_post(post);
 }
 
 void prh_impl_iocp_create_connect_socket(prh_iocp_connect *req, int family) {
@@ -20305,8 +20297,8 @@ void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
         return; // 请求已经成功投递
     }
     prh_prerr(error_code);
-    prh_impl_iocp_set_post_result(&req->post, error_code);
-    prh_impl_iocp_connect_post(&req->post);
+    prh_impl_iocp_error_occurred(&req->post, error_code);
+    prh_impl_iocp_connect_complete(&req->post);
 }
 
 void prh_impl_sock_address(struct sockaddr_in6 *in6, const char *host, int flags_port) {
@@ -20766,12 +20758,46 @@ typedef struct {
     prh_iocp_post post; // 1st field
     OVERLAPPED overlapped;
     prh_handle socket;
-    prh_u32 bytes_transferred;
 } prh_iocp_wsasend;
 
-void prh_impl_iocp_wsasend_result(prh_iocp_post *post, void *result) {
-    prh_iocp_wsasend *req = (prh_iocp_wsasend *)post;
-    *((prh_u32 *)result) = req->bytes_transferred;
+typedef struct {
+    prh_iocp_post post; // 1st field
+    OVERLAPPED overlapped;
+    prh_handle socket;
+} prh_iocp_wsarecv;
+
+typedef struct {
+    prh_iocp_post post; // 1st field
+    OVERLAPPED overlapped;
+    prh_handle socket;
+} prh_iocp_riosend;
+
+typedef struct {
+    prh_iocp_post post; // 1st field
+    OVERLAPPED overlapped;
+    prh_handle socket;
+} prh_iocp_riorecv;
+
+prh_static_assert(sizeof(prh_iocp_wsasend) == sizeof(prh_iocp_wsarecv));
+prh_static_assert(sizeof(prh_iocp_wsasend) == sizeof(prh_iocp_riosend));
+prh_static_assert(sizeof(prh_iocp_riosend) == sizeof(prh_iocp_riorecv));
+
+prh_inline int prh_impl_iocp_transmit_alloc_size(void) {
+    return (int)sizeof(prh_iocp_wsasend);
+}
+
+prh_inline void prh_impl_iocp_transmit_init(void *req, prh_handle socket, prh_continue_routine routine, void *context) {
+    memset(req, 0, sizeof(prh_iocp_wsasend));
+    prh_iocp_post_init(&req->post, reoutine, context);
+    req->socket = socket;
+}
+
+int prh_iocp_wsasend_alloc_size(void) {
+    return prh_impl_iocp_transmit_alloc_size();
+}
+
+void prh_iocp_wsasend_init(prh_iocp_wsasend *req, prh_handle socket, prh_continue_routine routine, void *context) {
+    prh_impl_iocp_transmit_init(req, socket routine, context);
 }
 
 void prh_impl_iocp_wsasend_continue(prh_iocp_post *post) {
@@ -20811,25 +20837,10 @@ void prh_impl_iocp_wsasend_continue(prh_iocp_post *post) {
     post->continue_routine(post);
 }
 
-void prh_impl_iocp_wsasend_post(prh_iocp_post *post) {
+void prh_impl_iocp_wsasend_complete(prh_iocp_post *post) {
     prh_iocp_wsasend *req = (prh_iocp_wsasend *)post;
-    req->bytes_transferred = prh_impl_iocp_get_bytes_transferred(post); // 必须在 prh_iocp_thrd_post 之前获取 bytes_transferred
     post->complete_routine = prh_impl_iocp_wsasend_continue;
     prh_iocp_thrd_post(post);
-}
-
-void prh_impl_iocp_wsasend_complete(prh_iocp_post *post) {
-    prh_impl_iocp_wsasend_post(post);
-}
-
-int prh_iocp_wsasend_alloc_size(void) {
-    return (int)sizeof(prh_iocp_wsasend);
-}
-
-void prh_iocp_wsasend_init(prh_iocp_wsasend *req, prh_handle socket, prh_continue_routine routine, void *context) {
-    memset(req, 0, sizeof(prh_iocp_wsasend));
-    prh_iocp_post_init(&req->post, reoutine, context);
-    req->socket = socket;
 }
 
 void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const void *buffer, prh_int length) {
@@ -20861,8 +20872,8 @@ void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const void *buffer, prh_int len
         return; // 请求已经成功投递
     }
     prh_prerr(error_code);
-    prh_impl_iocp_set_post_result(&req->post, error_code);
-    prh_impl_iocp_wsasend_post(&req->post);
+    prh_impl_iocp_error_occurred(&req->post, error_code);
+    prh_impl_iocp_wsasend_complete(&req->post);
 }
 
 // int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
