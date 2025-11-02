@@ -14875,6 +14875,8 @@ void prh_impl_cono_test(void) {
 // Winsock 错误代码，可以指定套接字和 WSAOVERLAPPED 结构，对已完成的操作调用 WSAGetOverlappedResult，
 // 之后 WSAGetLastError 将返回转换后的 Winsock 错误代码。
 //
+// https://learn.microsoft.com/en-us/windows/win32/api/ioapiset/nf-ioapiset-getqueuedcompletionstatus
+//
 // 向设备发出 I/O 请求，但不把该项已完成的 I/O 完成数据添加到 I/O 完成端口的队列中也是    *** 可以在 hEvent 成员位或上 1 表示不要将操作的完成通知添加到完成端口的完成队列中
 // 有可能的。通常我们并不需要这样做，但这样做偶尔还是有用的，例如我们通过一个套接字发送
 // 数据，但并不关心数据实际上到底有没有送达。为了发出一个在完成的时候不被添加到完成队列
@@ -14885,7 +14887,11 @@ void prh_impl_cono_test(void) {
 //      Overlapped.hEvent = (HANDLE)((DWORD_PTR)Overlapped.hEvent | 1);
 //      ReadFile(..., &Overlapped);
 //      CloseHandle((HANDLE)((DWORD_PTR)Overlapped.hEvent & ~1));
-//
+
+void prh_impl_prevent_operation_enqueue_to_completion_port(OVERLAPPED *overlapped, HANDLE event) {
+    overlapped->hEvent = (HANDLE)((DWORD_PTR)event | 1); // 低阶位被设置的有效事件句柄会阻止重叠 I/O 完成时将完成数据包排队到完成端口
+}
+
 // 如果一个设备有完成端口与之关联，那么当我们向它发出一个异步 I/O 请求时，Windows 会将    *** 如果一个句柄与完成端口关联，即使异步请求以同步方式完成了操作，其结果任然会被添加到完成端口队列中
 // 请求结果添加到完成队列中，即使异步请求是以同步方式完成的，Windows 仍然会这样做，其     *** 这种维护编程模型一致性的行为会略微损失性能，可以 SetFileCompletionNotificationModes 和 SetFileIoOverlappedRange
 // 目的是为了向开发人员提供一个一致的编程模型。但是，维护编程模型的一致性会略微损害性能，
@@ -15076,8 +15082,8 @@ void prh_impl_close_completion_port(HANDLE completion_port) {
 //
 // 参数 lpOverlapped 指向一个变量，该变量接收完成 I/O 操作启动时指定的 OVERLAPPED 结
 // 构的地址。即使你已经传递了一个与完成端口关联的文件句柄和有效的 OVERLAPPED 结构，应用
-// 程序也可以阻止完成端口通知。这是通过为 OVERLAPPED 结构的 hEvent 成员指定一个有效的
-// 事件句柄并设置其低阶位来完成的。低阶位被设置的有效事件句柄会阻止重叠 I/O 完成时将完
+// 程序也可以阻止完成端口通知。这是通过为 OVERLAPPED 结构的 hEvent 成员指定一个有效的    *** 可以在 hEvent 成员位或上 1 表示不要将操作的完成通知添加到完成端口的完成队列中
+// 事件句柄并设置其低阶位来完成的。低阶位被设置的有效事件句柄会阻止重叠 I/O 完成时将完     *** 低阶位被设置的有效事件句柄会阻止重叠 I/O 完成时将完成数据包排队到完成端口
 // 成数据包排队到完成端口。
 //
 // 参数 dwMilliseconds 调用方愿意等待完成数据包出现的毫秒数。如果在指定时间内没有出现
@@ -17242,13 +17248,6 @@ void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_u16 port
 // WSACleanup 函数通常会导致特定于协议的辅助 DLL 被卸载。因此，不应从应用程序 DLL 的
 // DllMain 函数中调用 WSACleanup 函数。这可能会导致死锁。有关详细信息，请参阅 DLL 主
 // 函数。
-#include <mswsock.h>
-
-static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
-static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
-static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
-static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
-static RIO_EXTENSION_FUNCTION_TABLE RPH_IMPL_RIO;
 
 void prh_impl_wsasocket_cleanup(void) {
     if (WSACleanup() != 0) prh_wsa_prerr();
@@ -17269,6 +17268,57 @@ void prh_impl_wsasocket_startup(void) {
     prh_zeroret(atexit(prh_impl_wsasocket_cleanup));
 }
 
+// Windows TCP/IP 服务提供程序支持的扩展函数的 GUID 值在 Mswsock.h 头文件中定义。这些
+// GUID 的可能值如下：
+//     WSAID_ACCEPTEX                  AcceptEx 扩展函数。
+//     WSAID_CONNECTEX                 ConnectEx 扩展函数。
+//     WSAID_DISCONNECTEX              DisconnectEx 扩展函数。
+//     WSAID_GETACCEPTEXSOCKADDRS      GetAcceptExSockaddrs 扩展函数。
+//     WSAID_TRANSMITFILE              TransmitFile 扩展函数。
+//     WSAID_TRANSMITPACKETS           TransmitPackets 扩展函数。
+//     WSAID_WSARECVMSG                LPFN_WSARECVMSG (WSARecvMsg) 扩展函数。
+//     WSAID_WSASENDMSG                WSASendMsg 扩展函数。
+//
+// 注意必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 AcceptEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_ACCEPTEX，
+// 这是一个全局唯一标识符（GUID），其值标识 AcceptEx 扩展函数。成功时，WSAIoctl 函数
+// 返回的输出包含指向 AcceptEx 函数的指针。WSAID_ACCEPTEX GUID 在 Mswsock.h 头文件中
+// 定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 GetAcceptExSockaddrs 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区
+// 必须包含 WSAID_GETACCEPTEXSOCKADDRS，这是一个全局唯一标识符（GUID），其值标识
+// GetAcceptExSockaddrs 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 GetAcceptExSockaddrs
+// 函数的指针。WSAID_GETACCEPTEXSOCKADDRS GUID 在 Mswsock.h 头文件中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 ConnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_CONNECTEX，
+// 这是一个全局唯一标识符（GUID），其值标识 ConnectEx 扩展函数。成功时，WSAIoctl 函数
+// 返回的输出包含指向 ConnectEx 函数的指针。WSAID_CONNECTEX GUID 在 Mswsock.h 头文件
+// 中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 DisconnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
+// WSAID_DISCONNECTEX，这是一个全局唯一标识符（GUID），其值标识 DisconnectEx 扩展函
+// 数。成功时，WSAIoctl 函数返回的输出包含指向 DisconnectEx 函数的指针。WSAID_DISCONNECTEX
+// GUID 在 Mswsock.h 头文件中定义。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 WSASendMsg 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
+// WSAID_WSASENDMSG，这是一个全局唯一标识符（GUID），其值标识 WSASendMsg 扩展函数。
+// 成功时，WSAIoctl 函数返回的输出包含指向 WSASendMsg 函数的指针。WSAID_WSASENDMSG
+// GUID 在 Mswsock.h 头文件中定义。
+//
+// 一旦获取了扩展函数（如 TransmitFile）的函数指针，就可以直接调用它，而无需将应用程序
+// 链接到 Mswsock.lib 库。这实际上减少了对 Mswsock.lib 的一个中间函数调用。
+#include <mswsock.h>
+
+static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
+static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
+static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
+static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
+static RIO_EXTENSION_FUNCTION_TABLE RPH_IMPL_RIO;
+
 void *prh_impl_wsaioctl_extension_func(prh_handle sock, GUID guid);
 void prh_impl_wsaioctl_rio_extensions(prh_handle sock, void *table);
 
@@ -17281,6 +17331,13 @@ void prh_impl_mswsock_load_ext_funcs(prh_handle sock) {
 
     PRH_IMPL_CONNECTEX = prh_impl_wsaioctl_extension_func(s, WSAID_CONNECTEX);
     prh_wsa_abort_if(PRH_IMPL_CONNECTEX == prh_null);
+
+    // WSAID_TRANSMITFILE
+    // WSAID_TRANSMITPACKETS
+    // WSAID_DISCONNECTEX
+    // WSAID_WSARECVMSG
+    // WSAID_WSASENDMSG
+    // WSAID_WSAPOLL
 }
 
 void prh_impl_mswsock_load_rio_funcs(prh_handle sock) {
@@ -18018,50 +18075,6 @@ void prh_sock_setnonblock(prh_handle sock, int nonblock) {
 // 检索与服务提供程序关联的指定扩展函数的指针。输入缓冲区包含一个全局唯一标识符（GUID），
 // 其值标识要检索的扩展函数。输出缓冲区返回指向所需函数的指针。扩展函数标识符由服务提供
 // 程序供应商建立，并应包含在描述扩展函数功能和语义的供应商文档中。
-//
-// Windows TCP/IP 服务提供程序支持的扩展函数的 GUID 值在 Mswsock.h 头文件中定义。这些
-// GUID 的可能值如下：
-//     WSAID_ACCEPTEX                  AcceptEx 扩展函数。
-//     WSAID_CONNECTEX                 ConnectEx 扩展函数。
-//     WSAID_DISCONNECTEX              DisconnectEx 扩展函数。
-//     WSAID_GETACCEPTEXSOCKADDRS      GetAcceptExSockaddrs 扩展函数。
-//     WSAID_TRANSMITFILE              TransmitFile 扩展函数。
-//     WSAID_TRANSMITPACKETS           TransmitPackets 扩展函数。
-//     WSAID_WSARECVMSG                LPFN_WSARECVMSG (WSARecvMsg) 扩展函数。
-//     WSAID_WSASENDMSG                WSASendMsg 扩展函数。
-//
-// 注意必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 AcceptEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_ACCEPTEX，
-// 这是一个全局唯一标识符（GUID），其值标识 AcceptEx 扩展函数。成功时，WSAIoctl 函数
-// 返回的输出包含指向 AcceptEx 函数的指针。WSAID_ACCEPTEX GUID 在 Mswsock.h 头文件中
-// 定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 GetAcceptExSockaddrs 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区
-// 必须包含 WSAID_GETACCEPTEXSOCKADDRS，这是一个全局唯一标识符（GUID），其值标识
-// GetAcceptExSockaddrs 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 GetAcceptExSockaddrs
-// 函数的指针。WSAID_GETACCEPTEXSOCKADDRS GUID 在 Mswsock.h 头文件中定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 ConnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含 WSAID_CONNECTEX，
-// 这是一个全局唯一标识符（GUID），其值标识 ConnectEx 扩展函数。成功时，WSAIoctl 函数
-// 返回的输出包含指向 ConnectEx 函数的指针。WSAID_CONNECTEX GUID 在 Mswsock.h 头文件
-// 中定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 DisconnectEx 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
-// WSAID_DISCONNECTEX，这是一个全局唯一标识符（GUID），其值标识 DisconnectEx 扩展函
-// 数。成功时，WSAIoctl 函数返回的输出包含指向 DisconnectEx 函数的指针。WSAID_DISCONNECTEX
-// GUID 在 Mswsock.h 头文件中定义。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 WSASendMsg 函数的函数指针。传递给 WSAIoctl 函数的输入缓冲区必须包含
-// WSAID_WSASENDMSG，这是一个全局唯一标识符（GUID），其值标识 WSASendMsg 扩展函数。
-// 成功时，WSAIoctl 函数返回的输出包含指向 WSASendMsg 函数的指针。WSAID_WSASENDMSG
-// GUID 在 Mswsock.h 头文件中定义。
-//
-// 一旦获取了扩展函数（如 TransmitFile）的函数指针，就可以直接调用它，而无需将应用程序
-// 链接到 Mswsock.lib 库。这实际上减少了对 Mswsock.lib 的一个中间函数调用。
 
 void *prh_impl_wsaioctl_extension_func(prh_handle s, GUID guid) {
     void *extension_func;
@@ -20176,6 +20189,13 @@ void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const void *buffer, prh_int len
 //      LPDWORD lpdwNumberOfBytesRecvd,
 //      LPWSAOVERLAPPED lpOverlapped,
 //      LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine
+// );
+//
+// int WSARecvEx(
+//   [in]      SOCKET s,
+//   [out]     char   *buf,
+//   [in]      int    len,
+//   [in, out] int    *flags
 // );
 //
 // int recv(SOCKET s, char *buf, int len, int flags);
