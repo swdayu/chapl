@@ -5527,6 +5527,7 @@ bool prh_impl_atom_1wnr_arrque_push_unt(void *arrque, prh_unt a) {
 
 prh_u32 prh_impl_atom_1wnr_arrque_pop_u32(void *arrque) {
     prh_impl_atom_1wnr_arrque *q = arrque;
+    prh_int size_minus_one = q->size_minus_one;
     prh_int tail, head, next;
     prh_u32 a = 0;
     prh_debug(prh_int race_times = 0);
@@ -5534,7 +5535,7 @@ label_continue:
     tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     if (head == tail) goto label_return; // 队列空
-    next = prh_impl_atom_1wnr_arrque_pos(head + 1, q->size_minus_one);
+    next = prh_impl_atom_1wnr_arrque_pos(head + 1, size_minus_one);
     a = ((prh_u32 *)prh_impl_atom_1wnr_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
         prh_debug(race_times += 1);
@@ -5562,6 +5563,7 @@ prh_u32 prh_impl_atom_1wnr_arrque_weak_pop_u32(void *arrque, bool *race_conditio
 
 prh_unt prh_impl_atom_1wnr_arrque_pop_unt(void *arrque) {
     prh_impl_atom_1wnr_arrque *q = arrque;
+    prh_int size_minus_one = q->size_minus_one;
     prh_int tail, head, next;
     prh_unt a = 0;
     prh_debug(prh_int race_times = 0);
@@ -5569,7 +5571,7 @@ label_continue:
     tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     if (head == tail) goto label_return; // 队列空
-    next = prh_impl_atom_1wnr_arrque_pos(head + 1, q->size_minus_one);
+    next = prh_impl_atom_1wnr_arrque_pos(head + 1, size_minus_one);
     a = ((prh_unt *)prh_impl_atom_1wnr_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
         prh_debug(race_times += 1);
@@ -15909,7 +15911,7 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     prh_iocp_thrd *sched_thrd = (prh_iocp_thrd *)thrd_ptr;
     int overlapped_array_size = PRH_IOCP_GLOBAL.query_entries_each_time;
     int entry_count = 0, remain_entry_count, sched_req_que_empty_items;
-    int dispatch_que_posts, wakeup_count, i;
+    int dispatch_que_posts, wait_count, i;
     bool sched_thrd_can_sleep = false;
 
     sched_thrd->extra_ptr = PRH_IOCP_GLOBAL.thrd_req_que; // 将线程队列保存到未使用的额外指针变量中
@@ -15945,22 +15947,21 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
         //  3.  将各个线程中的任务（包括调度线程投递的内核任务）按任务序号从小到大收集到一个固定大小的全局队列中（post_collect_que）
         //  sche_req_que thrd_req_que thrd_req_que ... -------> post_collect_que
         if (!prh_impl_sched_thrd_collect_post()) {
-            goto label_after_dispatch_post; // 暂时没有任务需要分派
+            goto label_wakeup_thread_if_needed; // 暂时没有任务需要分派
         }
 
         //  4.  将仅由调度线程持有的 post_collect_que 中的任务，按顺序投递到各线程争抢的任务分派队列中（post_dispatch_que），任务分派队列也是固定大小
         prh_impl_sched_thrd_dispatch_post();
 
-label_after_dispatch_post:
-        dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len();
-
         //  5.  如果任务分派队列已经有分派的任务，根据当前等待的线程数量，按后入先出的顺序唤醒线程
-        prh_impl_sched_thrd_collect_wait_array();
-        wakeup_count = PRH_IOCP_GLOBAL.thrd_wait_count;
-        if (wakeup_count && dispatch_que_posts) {
-            if (dispatch_que_posts < wakeup_count) wakeup_count = dispatch_que_posts;
-            for (i = 0; i < wakeup_count; i += 1) {
-                prh_impl_iocp_thrd_wakeup(PRH_IOCP_GLOBAL.thrd_wait_array[--PRH_IOCP_GLOBAL.thrd_wait_count]);
+label_wakeup_thread_if_needed:
+        if ((dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len())) {
+            prh_impl_sched_thrd_collect_wait_array();
+            if ((wait_count = PRH_IOCP_GLOBAL.thrd_wait_count)) {
+                if (dispatch_que_posts < wait_count) wait_count = dispatch_que_posts;
+                for (i = 0; i < wait_count; i += 1) {
+                    prh_impl_iocp_thrd_wakeup(PRH_IOCP_GLOBAL.thrd_wait_array[--PRH_IOCP_GLOBAL.thrd_wait_count]);
+                }
             }
         }
 
