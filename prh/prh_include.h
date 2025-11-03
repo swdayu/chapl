@@ -15539,8 +15539,7 @@ typedef struct {
     prh_iocp_thrd *sched_thrd;
     prh_u32 cfmd_post_seqn;
     prh_atom_u32 post_seqn_seed;
-    prh_atom_u32 req_post_count;
-    prh_atom_u32 posted_wakeup_count;
+    prh_atom_u32 keep_sched_thrd_alive;
     prh_iocp_thrd **thrd_wait_array;
     void *thrd_wait_overlapped_entry;
     void *overlapped_entry_array;
@@ -15622,8 +15621,7 @@ void prh_iocp_main_init(prh_iocp_config *config) {
     PRH_IOCP_GLOBAL.post_dispatch_que_size = post_dispatch_que_size - 1;
 
     prh_atom_u32_init(&PRH_IOCP_GLOBAL.post_seqn_seed, 0);
-    prh_atom_u32_init(&PRH_IOCP_GLOBAL.req_post_count, 0);
-    prh_atom_u32_init(&PRH_IOCP_GLOBAL.posted_wakeup_count, 0);
+    prh_atom_u32_init(&PRH_IOCP_GLOBAL.keep_sched_thrd_alive, 0);
 
     prh_impl_init_cond_sleep(&PRH_IOCP_GLOBAL.sched_cond_sleep);
 
@@ -15659,15 +15657,19 @@ void prh_impl_sched_thrd_wait_array_push(OVERLAPPED_ENTRY *entry) {
     PRH_IOCP_GLOBAL.thrd_wait_array[PRH_IOCP_GLOBAL.thrd_wait_count++] = thrd;
 }
 
+void prh_impl_iocp_enqueue_completion_item(HANDLE completion_port, prh_ptr completion_key, void *overlapped) {
+    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)completion_key, .lpOverlapped = overlapped};
+    prh_impl_completion_port_post(completion_port, &overlapped_entry);
+}
+
 void prh_impl_iocp_thrd_sleep(prh_iocp_thrd *thrd) {
     if (prh_atom_bool_strong_clear_if_set(&thrd->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
     prh_thrd_cond *cond = &thrd->thrd_wait_cond;
-    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)prh_impl_sched_thrd_wait_array_push, .lpOverlapped = thrd};
     prh_thrd_cond_lock(cond); // wakeup_semaphore 可能在 prh_thrd_cond_lock 之前又设为 true
     if (prh_atom_bool_read(&thrd->wakeup_semaphore)) {
         goto label_already_wakeup;
     }
-    prh_impl_completion_port_post(PRH_PRIO_IOCP, &overlapped_entry);
+    prh_impl_iocp_enqueue_completion_item(PRH_PRIO_IOCP, (prh_ptr)prh_impl_sched_thrd_wait_array_push, thrd);
 label_continue_waiting:
     prh_impl_plat_cond_wait(cond);
     if (!prh_atom_bool_read(&thrd->wakeup_semaphore)) {
@@ -15694,16 +15696,8 @@ void prh_impl_iocp_thrd_wakeup(prh_iocp_thrd *thrd) {
 }
 
 void prh_impl_sched_thrd_wakeup_complete(OVERLAPPED_ENTRY *entry) {
-    prh_atom_u32_dec(&PRH_IOCP_GLOBAL.posted_wakeup_count);
-}
-
-void prh_impl_iocp_wakeup_sched_thrd(void) {
-    prh_atom_u32 *posted_wakeup_count = &PRH_IOCP_GLOBAL.posted_wakeup_count;
-    if (!prh_atom_bool_read(PRH_IOCP_GLOBAL.sched_thrd->wakeup_semaphore) && !prh_atom_u32_read(posted_wakeup_count)) {
-        prh_atom_u32_inc(posted_wakeup_count);
-        OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)prh_impl_sched_thrd_wakeup_complete, .lpOverlapped = (void *)posted_wakeup_count};
-        prh_impl_completion_port_post(PRH_IMPL_IOCP, &overlapped_entry);
-    }
+    // 工作线程可能在这个位置检测到 keep_sched_thrd_alive 大于 0，不会向完成端口投递保活包，但是此时调度线程已经醒来，已经插入的线程任务会保证调度线程不会睡眠
+    prh_atom_u32_dec(&PRH_IOCP_GLOBAL.keep_sched_thrd_alive);
 }
 
 void prh_iocp_thrd_post(prh_iocp_post *post) {
@@ -15713,8 +15707,12 @@ void prh_iocp_thrd_post(prh_iocp_post *post) {
     // 定队列中（post_collect_que），然后分派到各线程争抢的任务分派队列中（post_dispatch_que）
     prh_atom_ext_hive_quefix *thrd_req_que = ((prh_iocp_thrd *)prh_thrd_self())->extra_ptr;
     prh_atom_ext_hive_quefix_push(thrd_req_que, post, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed));
-    prh_atom_u32_inc(&PRH_IOCP_GLOBAL.req_post_count);
-    prh_impl_iocp_wakeup_sched_thrd();
+    // 工作线程投递任务后，只要确保有一个保活包存在于完成端口中，即可保证调度线程活跃
+    prh_atom_u32 *keep_sched_thrd_alive = &PRH_IOCP_GLOBAL.keep_sched_thrd_alive;
+    if (prh_atom_u32_read(keep_sched_thrd_alive) == 0) {
+        prh_atom_u32_inc(keep_sched_thrd_alive);
+        prh_impl_iocp_enqueue_completion_item(PRH_IMPL_IOCP, (prh_ptr)prh_impl_sched_thrd_wakeup_complete, keep_sched_thrd_alive);
+    }
 }
 
 int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
@@ -15768,7 +15766,6 @@ bool prh_impl_sched_thrd_get_each_post(void *post_seqn_range, void *post, prh_pt
     prh_u32 index = ((prh_u32)post_seqn) - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
     if (index < (prh_u32)post_seqn_range) {
         prh_impl_sched_thrd_collect_que_push(post, index);
-        prh_atom_u32_dec(&PRH_IOCP_GLOBAL.req_post_count);
         return true;
     }
     return false;
@@ -15888,23 +15885,6 @@ void prh_impl_sched_thrd_collect_wait_array(void) {
     }
 }
 
-int prh_impl_sched_thrd_wait(OVERLAPPED_ENTRY *entry, int count, bool sched_thrd_can_sleep) {
-    int waited_entries;
-    if (sched_thrd_can_sleep) {
-        DWORD wait_msec = INFINITE;
-        prh_iocp_thrd *sched_thrd = PRH_IOCP_GLOBAL.sched_thrd;
-        // 1. 如果工作线程在此位置或之前检测调度线程，因为调度线程还是醒的不会去唤醒调度线程，但是 req_post_count 已经加一
-        prh_atom_bool_write(&sched_thrd->wakeup_semaphore, false);
-        // 2. 如果工作线程在此位置或稍后检测调度线程，因为调度线程已经不再处于 wakeup 状态，工作线程会触发去唤醒调度线程
-        if (prh_atom_u32_read(&PRH_IOCP_GLOBAL.req_post_count)) wait_msec = 0; // 有新投递的线程任务需要处理，不能无限等待完成端口
-        waited_entries = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, entry, count, wait_msec);
-        prh_atom_bool_write(&sched_thrd->wakeup_semaphore, true);
-    } else {
-        waited_entries = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, entry, count, 0);
-    }
-    return waited_entries;
-}
-
 void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.overlapped_entry_array;
     OVERLAPPED_ENTRY *entry_end = prh_null, *entry_ptr = prh_null;
@@ -15912,7 +15892,7 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     int overlapped_array_size = PRH_IOCP_GLOBAL.query_entries_each_time;
     int entry_count = 0, remain_entry_count, sched_req_que_empty_items;
     int dispatch_que_posts, wait_count, i;
-    bool sched_thrd_can_sleep = false;
+    bool keep_sched_thrd_alive = true;
 
     sched_thrd->extra_ptr = PRH_IOCP_GLOBAL.thrd_req_que; // 将线程队列保存到未使用的额外指针变量中
     prh_atom_bool_write(&sched_thrd->wakeup_semaphore, true);
@@ -15920,7 +15900,7 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     for (; ;) {
         //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（overlapped_array_size）的完成条目
         if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
-            entry_count = prh_impl_sched_thrd_wait(overlapped_entry, overlapped_array_size, sched_thrd_can_sleep);
+            entry_count = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, overlapped_entry, overlapped_array_size, keep_sched_thrd_alive ? 0 : INFINITE);
             if (entry_count) {
                 entry_ptr = overlapped_entry;
                 entry_end = overlapped_entry + entry_count;
@@ -15971,21 +15951,17 @@ label_wakeup_thread_if_needed:
             //  a.  可能 post_collect_que 队列中的第一个任务，序列号已经分配，但对应的线程还没有来得及将其插入到 thrd_req_que 队列中，因此调度线程还未成功收集该任务导致
             //      已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
             //  b.  可能任务分派队列 post_dispatch_que 已经填满，调度线程需要动态跟踪分派队列的大小，继续执行步骤 4 进行任务分派
-            sched_thrd_can_sleep = false;
+            keep_sched_thrd_alive = true;
         } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed)) {
             // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号
             //  a.  要么已经分配的任务没有被对应的线程成功投递，需要调度线程继续跟踪收集任务
             //  b.  要么还存在新分配的任务没有收集，都需要调度线程需继续执行步骤 3 收集线程任务
-            sched_thrd_can_sleep = false;
-        } else if (prh_atom_u32_read(&PRH_IOCP_GLOBAL.req_post_count)) {
-            // 线程请求队列中还存在线程任务需要处理，调度线程还需要继续活动
-            sched_thrd_can_sleep = false;
+            keep_sched_thrd_alive = true;
         } else {
             //  a.  成功收集的线程任务都已经分派出去
             //  b.  所有分配的任务序列号都已经成功分派到分派队列
-            //  c.  线程请求队列中已经没有线程任务需要处理
-            //  d.  此时调度线程唯一可做的就是在完成端口上进行无限等待
-            sched_thrd_can_sleep = true;
+            //  c.  此时调度线程唯一可做的就是在完成端口上进行无限等待
+            keep_sched_thrd_alive = false;
         }
     }
 }
