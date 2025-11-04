@@ -20077,7 +20077,7 @@ int prh_iocp_wsasend_alloc_size(void) {
 }
 
 void prh_iocp_wsasend_init(prh_iocp_wsasend *req, prh_handle socket, prh_continue_routine routine, void *context) {
-    prh_impl_iocp_txrxreq_init(req, socket routine, context);
+    prh_impl_iocp_txrxreq_init(req, socket, routine, context);
 }
 
 void prh_impl_iocp_wsasend_continue(prh_iocp_post *post) {
@@ -20120,7 +20120,7 @@ void prh_impl_iocp_wsasend_complete(prh_iocp_post *post) {
     prh_iocp_thrd_post(post);
 }
 
-void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const void *buffer, prh_int length) {
+void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const prh_byte *buffer, int length) {
     assert(req != prh_null);
     assert(buffer != prh_null);
     assert(length > 0 && length < PRH_IMPL_TXRX_BYTES);
@@ -20430,7 +20430,7 @@ int prh_iocp_wsarecv_alloc_size(void) {
 }
 
 void prh_iocp_wsarecv_init(prh_iocp_wsarecv *req, prh_handle socket, prh_continue_routine routine, void *context) {
-    prh_impl_iocp_txrxreq_init(req, socket routine, context);
+    prh_impl_iocp_txrxreq_init(req, socket, routine, context);
 }
 
 void prh_impl_iocp_wsarecv_continue(prh_iocp_post *post) {
@@ -20472,7 +20472,7 @@ void prh_impl_iocp_wsarecv_complete(prh_iocp_post *post) {
     prh_iocp_thrd_post(post);
 }
 
-void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, prh_int length) {
+void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, int length) {
     assert(req != prh_null);
     assert(buffer != prh_null);
     assert(length > 0 && length < PRH_IMPL_TXRX_BYTES);
@@ -21021,6 +21021,39 @@ void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) {
     PRH_IMPL_RIO.RIODeregisterBuffer((RIO_BUFFERID)buffer);
 }
 
+static prh_rio_cqueue *PRH_IMPL_RIO_CQUEUE;
+static prh_rio_buffer PRH_IMPL_RIO_BUFFER;
+static prh_byte *PRH_IMPL_RIO_BUFBEG, *PRH_IMPL_RIO_BUFEND;
+
+void prh_impl_iocp_rio_cqueue_init(int queue_size, prh_ptr completion_key, void *overlapped) {
+    PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(queue_size, PRH_IMPL_IOCP, completion_key, overlapped);
+}
+
+void prh_impl_iocp_rio_buffer_init(prh_byte *buffer, int length) {
+    assert(buffer != prh_null && ((prh_ptr)buffer % PRH_CACHE_LINE_SIZE) == 0);
+    assert(length > 0 && (length % PRH_CACHE_LINE_SIZE) == 0);
+    PRH_IMPL_RIO_BUFFER = prh_impl_rio_buffer_register(buffer, length);
+    PRH_IMPL_RIO_BUFBEG = buffer;
+    PRH_IMPL_RIO_BUFEND = buffer + length;
+}
+
+void prh_impl_iocp_rio_free(void) {
+    prh_impl_rio_cqueue_close(PRH_IMPL_RIO_CQUEUE);
+    prh_impl_rio_buffer_deregister(PRH_IMPL_RIO_BUFFER);
+}
+
+void prh_impl_iocp_rio_notify(void) {
+    prh_impl_rio_notify(PRH_IMPL_RIO_CQUEUE);
+}
+
+int prh_impl_iocp_rio_query(RIORESULT *entry, int count) {
+    return prh_impl_rio_cqueue_query(PRH_IMPL_RIO_CQUEUE, entry, count);
+}
+
+prh_rio_socket prh_impl_iocp_create_rio_socket(prh_handle socket) {
+    return prh_impl_rio_rqueue_create(socket, PRH_IMPL_RIO_CQUEUE, (void *)socket);
+}
+
 // BOOL RIOSend(
 //      RIO_RQ SocketQueue,
 //      PRIO_BUF pData,
@@ -21181,7 +21214,50 @@ void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) {
 //
 // Flags 参数可用于影响 RIOSendEx 函数的行为，此函数的行为由与 SocketQueue 关联套接字
 // 选项以及在 Flags 参数中指定的值的组合决定。
-//
+
+DWORD prh_impl_rio_send(prh_rio_rqueue *rqueue, RIO_BUF *buffer, DWORD flags, void *request_context) {
+    BOOL b = PRH_IMPL_RIO.RIOSend(
+        /* RIO_RQ SocketQueue       */ (RIO_RQ)rqueue,
+        /* PRIO_BUF pData           */ buffer,
+        /* ULONG DataBufferCount    */ 1,
+        /* DWORD Flags              */ flags,
+        /* PVOID RequestContext     */ (PVOID)request_context
+        );
+    return b == TRUE ? 0 : WSAGetLastError();
+}
+
+int prh_iocp_riosend_alloc_size(void) {
+    return prh_impl_iocp_txrxreq_alloc_size();
+}
+
+void prh_iocp_riosend_init(prh_iocp_riosend *req, prh_rio_socket rio_socket, prh_continue_routine routine, void *context) {
+    prh_impl_iocp_txrxreq_init(req, (prh_handle)rio_socket, routine, context);
+}
+
+void prh_impl_iocp_riosend_req(prh_iocp_riosend *req, const prh_byte *buffer, int length, prh_u32 flags) {
+    assert(buffer >= PRH_IMPL_RIO_BUFBEG && buffer < PRH_IMPL_RIO_BUFEND && (buffer % PRH_CACHE_LINE_SIZE) == 0);
+    assert(length > 0 && length < PRH_IMPL_TXRX_BYTES && buffer + length < PRH_IMPL_RIO_BUFEND);
+    RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
+    DWORD error_code = prh_impl_rio_send((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
+    if (error_code == 0 || error_code == WSA_IO_PENDING) {
+        if ((flags & RIO_MSG_DONT_NOTIFY) == 0) {
+            prh_impl_iocp_rio_notify();
+        }
+        return; // 请求立即完成或已经成功投递
+    }
+    prh_prerr(error_code);
+    prh_impl_iocp_error_occurred(&req->post, error_code);
+    prh_impl_iocp_wsasend_complete(&req->post);
+}
+
+void prh_iocp_riosend_req(prh_iocp_riosend *req, const prh_byte *buffer, int length) {
+    prh_impl_iocp_riosend_req(req, buffer, length, 0);
+}
+
+void prh_iocp_riosend_dont_notify_req(prh_iocp_riosend *req, const prh_byte *buffer, int length) {
+    prh_impl_iocp_riosend_req(req, buffer, length, RIO_MSG_DONT_NOTIFY);
+}
+
 // BOOL RIOReceive(
 //      RIO_RQ SocketQueue,
 //      PRIO_BUF pData,
@@ -21360,6 +21436,47 @@ void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) {
 //
 // Flags 参数可用于在关联套接字指定的选项之外影响 RIOSendEx 函数调用的行为。该函数的行
 // 为由关联套接字上设置的任何套接字选项与 Flags 参数中指定的值的组合决定。
+
+DWORD prh_impl_rio_recv(prh_rio_rqueue *rqueue, RIO_BUF *buffer, DWORD flags, void *request_context) {
+    BOOL b = PRH_IMPL_RIO.RIORecv(
+        /* RIO_RQ SocketQueue       */ (RIO_RQ)rqueue,
+        /* PRIO_BUF pData           */ buffer,
+        /* ULONG DataBufferCount    */ 1,
+        /* DWORD Flags              */ flags,
+        /* PVOID RequestContext     */ (PVOID)request_context
+        );
+    return b == TRUE ? 0 : WSAGetLastError();
+}
+
+int prh_iocp_riorecv_alloc_size(void) {
+    return prh_impl_iocp_txrxreq_alloc_size();
+}
+
+void prh_iocp_riorecv_init(prh_iocp_riorecv *req, prh_rio_socket rio_socket, prh_continue_routine routine, void *context) {
+    prh_impl_iocp_txrxreq_init(req, (prh_handle)rio_socket, routine, context);
+}
+
+void prh_impl_iocp_riorecv_req(prh_iocp_riorecv *req, prh_byte *buffer, int length, prh_u32 flags) {
+    assert(buffer >= PRH_IMPL_RIO_BUFBEG && buffer < PRH_IMPL_RIO_BUFEND && (buffer % PRH_CACHE_LINE_SIZE) == 0);
+    assert(length > 0 && length < PRH_IMPL_TXRX_BYTES && buffer + length < PRH_IMPL_RIO_BUFEND);
+    RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
+    DWORD error_code = prh_impl_rio_recv((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
+    if (error_code == 0 || error_code == WSA_IO_PENDING) {
+        if ((flags & RIO_MSG_DONT_NOTIFY) == 0) prh_impl_iocp_rio_notify();
+        return; // 请求立即完成或已经成功投递
+    }
+    prh_prerr(error_code);
+    prh_impl_iocp_error_occurred(&req->post, error_code);
+    prh_impl_iocp_wsarecv_complete(&req->post);
+}
+
+void prh_iocp_riorecv_req(prh_iocp_riorecv *req, const prh_byte *buffer, int length) {
+    prh_impl_iocp_riorecv_req(req, buffer, length, 0);
+}
+
+void prh_iocp_riorecv_dont_notify_req(prh_iocp_riorecv *req, const prh_byte *buffer, int length) {
+    prh_impl_iocp_riorecv_req(req, buffer, length, RIO_MSG_DONT_NOTIFY);
+}
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_sock_test(void) {
