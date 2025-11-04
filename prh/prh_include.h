@@ -15439,7 +15439,7 @@ struct prh_iocp_post;
 typedef void (*prh_complete_routine)(struct prh_iocp_post *post);
 typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
 
-typedef struct {
+typedef struct prh_iocp_post {
     prh_u32 error_code;
     prh_u32 bytes_transferred;
     void *context;
@@ -15452,21 +15452,17 @@ typedef struct {
     OVERLAPPED overalpped;
 } prh_impl_iocp_post;
 
-void prh_impl_thrd_init(void) {
-    DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
-    PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
+void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void *context) {
+    memset(post, 0, sizeof(prh_iocp_post));
+    post->continue_routine = routine;
+    post->context = context;
 }
 
 prh_inline prh_iocp_post *prh_impl_iocp_get_post_from_overlapped(OVERLAPPED *overlapped) {
     return (prh_iocp_post *)((prh_byte *)overlapped - prh_offsetof(prh_impl_iocp_post, overalpped));
 }
 
-void prh_impl_iocp_error_occurred(prh_iocp_post *post, prh_u32 error_code) {
-    post->error_code = error_code;
-    post->bytes_transferred = 0;
-}
-
-bool prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) {
+static bool prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
     if (prh_impl_sched_thrd_cqueue_len() >= PRH_IOCP_GLOBAL.sched_thrd_cqueue_size) return false;
     prh_iocp_post *post = prh_impl_iocp_get_post_from_overlapped(entry->lpOverlapped);
     if (entry->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
@@ -15481,8 +15477,539 @@ bool prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) {
     return true;
 }
 
+void prh_impl_iocp_error_occurred(prh_iocp_post *post, prh_u32 error_code) {
+    post->error_code = error_code;
+    post->bytes_transferred = 0;
+}
+
 void prh_impl_iocp_attach_socket(prh_handle socket) {
     prh_impl_completion_port_attach(PRH_IMPL_IOCP, socket, (void *)prh_impl_iocp_socket_completion);
+}
+
+void prh_impl_iocp_enqueue_completion_item(prh_iocp_completion_routine completion_key, void *overlapped) {
+    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)completion_key, .lpOverlapped = overlapped};
+    prh_impl_completion_port_post(PRH_IMPL_IOCP, &overlapped_entry);
+}
+
+// RIO_CQ RIOCreateCompletionQueue(
+//      DWORD QueueSize, // [1, RIO_MAX_CQ_SIZE]
+//      PRIO_NOTIFICATION_COMPLETION NotificationCompletion
+// );
+//
+// typedef enum _RIO_NOTIFICATION_COMPLETION_TYPE {
+//      RIO_EVENT_COMPLETION = 1,
+//      RIO_IOCP_COMPLETION = 2
+// } RIO_NOTIFICATION_COMPLETION_TYPE, *PRIO_NOTIFICATION_COMPLETION_TYPE;
+//
+// typedef struct _RIO_NOTIFICATION_COMPLETION {
+//      RIO_NOTIFICATION_COMPLETION_TYPE Type;
+//      union {
+//          struct {
+//              HANDLE EventHandle;
+//              BOOL   NotifyReset;
+//          } Event;
+//          struct {
+//              HANDLE IocpHandle;
+//              PVOID  CompletionKey;
+//              PVOID  Overlapped;
+//          } Iocp;
+//      };
+// } RIO_NOTIFICATION_COMPLETION, *PRIO_NOTIFICATION_COMPLETION;
+//
+// RIOCreateCompletionQueue 函数用于创建一个特定大小的 I/O 完成队列，以供 Winsock
+// RIO 扩展使用。如果没有错误发生，RIOCreateCompletionQueue 函数返回一个引用新完成队
+// 列的描述符。否则返回 RIO_INVALID_CQ，可以通过 WSAGetLastError 函数获取错误代码。
+//      WSAEFAULT   系统在尝试使用指针参数时检测到无效的指针地址。
+//      WSAEINVAL   向函数传递了无效参数。如果 QueueSize 参数小于 1 或大于 Mswsockdef.h 头文件中定义的 RIO_MAX_CQ_SIZE，则返回此错误。
+//      WSAENOBUFS  无法分配足够的内存。如果根据 QueueSize 参数请求的完成队列无法分配足够的内存，则返回此错误。
+//
+// 参数 QueueSize 要创建的完成队列的大小，以条目数为单位。参数 NotificationCompletion，
+// 基于 RIO_NOTIFICATION_COMPLETION 结构 Type 成员的类型，确定使用的通知完成类型（I/O
+// 完成或事件通知）。
+//  1.  如果 Type 成员设置为 RIO_EVENT_COMPLETION，则 RIO_NOTIFICATION_COMPLETION
+//      结构的 Event 成员必须设置。
+//  2.  如果 Type 成员设置为 RIO_IOCP_COMPLETION，则 RIO_NOTIFICATION_COMPLETION
+//      结构的 Iocp 成员必须设置，并且 RIO_NOTIFICATION_COMPLETION 结构的 Iocp.Overlapped
+//      成员不能为 NULL。
+//  3.  如果 NotificationCompletion 参数为 NULL，则表示不使用通知完成，必须通过轮询来
+//      确定完成。
+//
+// RIOCreateCompletionQueue 函数创建一个特定大小的 I/O 完成队列。完成队列的大小限制了
+// 可以与完成队列关联的注册 I/O 套接字的集合。创建 RIO_CQ 时，NotificationCompletion
+// 参数指向的 RIO_NOTIFICATION_COMPLETION 结构决定了应用程序将如何接收完成队列通知。
+//
+// 如果在创建完成队列时提供了 RIO_NOTIFICATION_COMPLETION 结构，则应用程序可以调用
+// RIONotify 函数请求完成队列通知。通常，当完成队列不为空时会触发通知。这可能立即发生，
+// 或者当下一个完成条目插入完成队列时发生。但是，发送和接收请求可以标记为 RIO_MSG_DONT_NOTIFY，
+// 此类请求不会触发完成队列通知。如果完成队列中只有设置了 RIO_MSG_DONT_NOTIFY 标志的
+// 条目，则不会触发完成队列通知。此外，当新条目进入完成队列时，只有当关联请求未设置
+// RIO_MSG_DONT_NOTIFY 标志时，才会触发完成队列通知。仍然可以使用 RIODequeueCompletion
+// 函数通过轮询检索任何已完成的请求。一旦完成队列通知触发，应用程序必须调用 RIONotify
+// 函数才能接收另一个完成队列通知。当完成队列通知发生时，应用程序通常调用 RIODequeueCompletion
+// 函数来获取已完成的发送或接收请求。
+//
+// 完成队列通知有两种选项：
+//
+// 事件句柄：如果 RIO_NOTIFICATION_COMPLETION 结构的 Type 成员设置为 RIO_EVENT_COMPLETION，
+// 则使用事件句柄来发出完成队列通知。事件句柄通过 RIOCreateCompletionQueue 函数
+// RIO_NOTIFICATION_COMPLETION 结构中的 EventNotify.EventHandle 成员提供。Event.EventHandle
+// 成员应包含由 WSACreateEvent 或 CreateEvent 函数创建的事件的句柄。为了接收 RIONotify
+// 完成通知，应用程序应使用 WSAWaitForMultipleEvents 或类似的等待例程等待指定的事件句
+// 柄。调用 RIONotify 函数会触发对应的 RIO_CQ 事件的完成通知。传递给 RIOCreateCompletionQueue
+// 函数的 RIO_NOTIFICATION_COMPLETION 结构中的 Event.NotifyReset 成员指示是否应在
+// RIONotify 函数调用时重置事件。如果应用程序计划重置并重用事件，则可以通过将 Event.NotifyReset
+// 成员设置为非零值来减少开销。这将导致事件在通知发生时由 RIONotify 函数自动重置，避免
+// 了在 RIONotify 函数调用之间调用 WSAResetEvent 函数来重置事件。
+//
+// I/O 完成端口：如果 RIO_NOTIFICATION_COMPLETION 结构的 Type 成员设置为 RIO_IOCP_COMPLETION，
+// 则使用 I/O 完成端口来发出完成队列通知。I/O 完成端口句柄通过 RIOCreateCompletionQueue
+// 函数的 RIO_NOTIFICATION_COMPLETION 结构中的 Iocp.IocpHandle 成员提供。此 RIO_CQ
+// 对 RIONotify 函数的调用将向对应的 RIO_CQ 完成端口排队一个条目，可以使用 GetQueuedCompletionStatus
+// 或 GetQueuedCompletionStatusEx 函数检索该条目。排队的条目返回的 lpCompletionKey
+// 参数值，对应于 RIO_NOTIFICATION_COMPLETION 结构的 Iocp.CompletionKey 成员中指定
+// 的值，RIO_NOTIFICATION_COMPLETION 结构的 Iocp.Overlapped 成员是一个非 NULL 值。
+//
+// 就其使用而言，完成队列通知旨在唤醒等待的应用程序线程，以便线程可以检查完成队列。唤醒
+// 和调度线程是有代价的，因此如果这种情况发生得太频繁，将对应用程序性能产生负面影响。提
+// 供 RIO_MSG_DONT_NOTIFY 标志，以便应用程序可以控制这些事件的频率，并限制它们对性能的
+// 过度影响。
+//
+// 注意，为了提高效率，对完成队列（RIO_CQ 结构）和请求队列（RIO_RQ 结构）的访问不受同
+// 步原语保护。如果需要从多个线程访问完成队列或请求队列，则应通过临界区、轻量级读写锁或
+// 类似的机制协调访问。单个线程访问时不需要锁定。不同线程可以访问不同的请求/完成队列，
+// 无需锁定。只有当多个线程尝试访问同一个队列时，才需要同步。如果多个线程在同一个套接字
+// 上发出发送和接收操作，也需要同步，因为发送和接收操作使用套接字的请求队列。
+//
+// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
+// 操作码来获取 RIOCreateCompletionQueue 函数的函数指针。传递给 WSAIoctl 函数的输入
+// 缓冲区必须包含 WSAID_MULTIPLE_RIO，这是一个全局唯一标识符（GUID），其值标识 Winsock
+// RIO 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 RIO_EXTENSION_FUNCTION_TABLE
+// 结构的指针，该结构包含指向 Winsock RIO 扩展函数的指针。SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
+// IOCTL 在 Ws2def.h 头文件中定义。WSAID_MULTIPLE_RIO GUID 在 Mswsock.h 头文件中定
+// 义。
+//
+// typedef struct RIO_CQ_t* RIO_CQ, **PRIO_CQ;
+//
+// RIO_CQ 完成队列对象​​用于保存 Winsock RIO 网络发送操作和接收操作的完成通知。应用程序
+// 可通过以下方式管理完成队列：应用程序可以调用 RIONotify 函数请求在 RIO_CQ 队列非空时
+// 触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队列进行轮询。使
+// 用 RIONotify 函数注册的通知机制，可以减少轮询的频率，提高性能。
+//
+// RIO_CQ 对象是通过调用 RIOCreateCompletionQueue 函数创建的。在创建时，应用程序必须
+// 指定队列的大小，这决定了它可以容纳多少个完成条目。当应用程序调用 RIOCreateRequestQueue
+// 函数以获取 RIO_RQ 句柄时，应用程序必须指定一个用于发送完成的 RIO_CQ 句柄和一个用于
+// 接收完成的 RIO_CQ 句柄。当应该使用相同的队列进行发送和接收完成时，这些句柄可以相同。
+// RIOCreateRequestQueue 函数还需要一个最大未完成的发送和接收操作数量，这些操作数量会
+// 占用关联的完成队列的容量。如果队列没有足够的剩余容量，RIOCreateRequestQueue 调用将
+// 因 WSAENOBUFS 错误而失败。
+//
+// INT RIONotify(
+//      RIO_CQ CQ
+// );
+//
+// RIONotify 函数用于为 Winsock RIO 注册完成通知，当调用该函数后，对应的完成队列如果
+// 有操作完成，会根据完成队列对应的通知机制进行完成通知。若未发生错误，RIONotify 函数
+// 返回 ERROR_SUCCESS；否则返回特定错误代码。
+//      ​​WSAEINVAL     函数接收到无效参数。若传入的完成队列无效（如 RIO_INVALID_CQ）或发生内部错误时返回此错误。
+//      WSAEALREADY​​   尝试对已有操作进行的非阻塞套接字继续请求操作。若前一次 RIONotify 请求尚未完成则返回此错误。
+//
+// ​参数​​ ​CQ​​ 指定对应的 I/O 完成队列。
+//
+// 该函数是应用程序获知请求已完成且待调用 RIODequeueCompletion 的机制。当 I/O 完成队
+// 列非空且包含操作结果时，RIONotify 会设置触发通知行为的方法。只要让 RIO 完成队列在
+// "有新完成包" 时主动唤醒你，就要先调用一次 RIONotify，调一次 RIONotify 只负责 “下一
+// 次” 完成到达后的信号触发，调一次只生效一次，用完必须再调。每次 RIODequeueCompletion
+// 把队列抽空后，必须再次调用 RIONotify，否则新完成包进来不会触发事件或 IOCP。消费完队
+// 列就再按一次，让 RIO 在新完成包到达时重新点亮事件或 IOCP，否则通知链条会断掉。
+//
+// 三种通知模型与 RIONotify 的使用方式
+//  模型            什么时候调 RIONotify            之后如何拿到完成结果
+//  轮询            不调（或调了也不用等事件）       直接循环 RIODequeueCompletion
+//  事件通知        每次消费完队列后再调一次         WaitForSingleObject(hev, …) 被唤醒，再 RIODequeueCompletion
+//  IOCP 通知       同上，消费完再调                GetQueuedCompletionStatus(Ex) 返回，再 RIODequeueCompletion
+//
+//      // 1. 创建队列时指定通知对象
+//      RIO_CQ cq = rio.RIOCreateCompletionQueue(queueSize, &event); // 或 &iocp
+//      // 2. 初始投递一批 RIOReceive / RIOSend
+//      for (...) rio.RIOReceive(rq, &buf, 1, 0, context);
+//      // 3. 先调一次 RIONotify 启动 “信号-armed” 状态
+//      rio.RIONotify(cq);
+//      for (; ;) {
+//          // 4. 等事件/IOCP
+//          WaitForSingleObject(event, INFINITE); // 或 GetQueuedCompletionStatus
+//          // 5. 收割
+//          ULONG n;
+//          while ((n = rio.RIODequeueCompletion(cq, results, MAX)) > 0) {
+//              HandleCompletions(results, n);
+//          }
+//          // 6. 队列再次为空，重新装填准备发射（armed）
+//          rio.RIONotify(cq);
+//      }
+//
+// 完成队列的通知行为在其创建时即被确定。创建 RIO_CQ 时需向 RIOCreateCompletionQueue
+// 函数传递 RIO_NOTIFICATION_COMPLETION 结构体：
+//
+// ​事件通知​​：将结构体的 Type 成员设为 RIO_EVENT_COMPLETION，Event.EventHandle 成员
+// 应为 WSACreateEvent 或 CreateEvent 创建的事件句柄。应用程序需通过 WSAWaitForMultipleEvents
+// 等例程等待该句柄。若需重复使用事件，可将 Event.NotifyReset 设为非零值以自动重置事件，
+// 避免调用 WSAResetEvent。
+//
+// IOCP 通知​​：将 Type 设为 RIO_IOCP_COMPLETION，Iocp.IocpHandle 成员应为 CreateIoCompletionPort
+// 创建的 IOCP 句柄。应用程序需调用 GetQueuedCompletionStatus(Ex)，并通过专用 OVERLAPPED
+// 对象及 CompletionKey 区分不同队列的通知。
+//
+// 使用线程池的应用程序可通过线程池等待对象接收通知，此时应在调用 RIONotify 后立即调用
+// SetThreadpoolWait。若顺序颠倒且依赖 RIONotify 清除事件对象，可能导致回调函数误触发。
+//
+// ​​线程安全​​，多线程通过 RIODequeueCompletion 访问同一 RIO_CQ 时，需使用临界区、轻量级
+// 读写锁（slim reader writer lock）等互斥机制协调。若完成队列非共享，则无需互斥。
+//
+// ULONG RIODequeueCompletion(
+//      RIO_CQ CQ,
+//      PRIORESULT Array,
+//      ULONG ArraySize
+// );
+//
+// typedef struct _RIORESULT {
+//      LONG      Status;
+//      ULONG     BytesTransferred;
+//      ULONGLONG SocketContext;
+//      ULONGLONG RequestContext;
+// } RIORESULT, *PRIORESULT;
+//
+// RIODequeueCompletion 函数用于从 I/O 完成队列中移除条目。如果没有错误发生，函数返回
+// 从指定完成队列中移除的完成条目数。否则返回 RIO_CORRUPT_CQ，表示由于内存损坏或滥用
+// RIO 函数，CQ 参数中传递的 RIO_CQ 的状态已损坏。
+//
+// 参数 CQ 指定 I/O 完成队列。参数 Array 指定 RIORESULT 结构数组，用于接收已出队的完
+// 成通知。参数 ArraySize，Array 中可写入的最大条目数。
+//
+// RIODequeueCompletion 函数用于从 I/O 完成队列中移除发送和接收请求的条目，这些请求与
+// Winsock RIO 扩展相关。
+//
+// RIODequeueCompletion 函数是应用程序了解已完成的发送和接收请求的机制。应用程序通常
+// 在完成队列不为空时，根据 RIONotify 函数注册的方法接收通知后，调用 RIODequeueCompletion
+// 函数。I/O 完成队列的通知行为在创建 RIO_CQ 时设置。
+//
+// 当 RIODequeueCompletion 函数完成时，Array 参数包含一个指向已出队的完成发送和接收请
+// 求的 RIORESULT 结构体数组。返回的 RIORESULT 结构的成员提供了已完成请求的完成状态信
+// 息和传输的字节数。每个返回的 RIORESULT 结构还包括一个套接字上下文和一个应用程序上下
+// 文，可用于识别特定的已完成请求。
+//
+// 如果 CQ 参数中传递的 I/O 完成队列无效或已损坏，RIODequeueCompletion 函数返回 RIO_CORRUPT_CQ。
+// 如果没有任何已完成的发送或接收请求需要出队，RIODequeueCompletion 函数返回零值。只有
+// 在操作请求完成且被出队后，系统才会释放其缓冲区和缓冲区注册的关联，以及其配额费用。
+//
+// BOOL RIOResizeCompletionQueue(
+//      RIO_CQ CQ,
+//      DWORD QueueSize
+// );
+//
+// RIOResizeCompletionQueue 函数用于调整 I/O 完成队列的大小，使其变大或变小。如果没有
+// 错误发生，RIOResizeCompletionQueue 函数返回 TRUE。否则返回 FALSE，可以通过调用
+// WSAGetLastError 函数获取特定的错误代码。
+//      WSAEFAULT           系统在尝试使用指针参数时检测到无效的指针地址。如果 CQ 参数中指定的完成队列包含无效指针，则返回此错误。
+//      WSAEINVAL           向函数传递了无效参数。如果 CQ 参数无效（例如 RIO_INVALID_CQ），或者 QueueSize 参数指定的队列大小大于 RIO_CQ_MAX_SIZE，则返回此错误。
+//      WSAENOBUFS          无法分配足够的内存。如果无法为 QueueSize 参数指定的队列分配内存，则返回此错误。
+//      WSAETOOMANYREFS     仍有太多操作引用 I/O 完成队列。此时无法将此 I/O 完成队列调整为更小的大小。
+//
+// 参数 CQ 标识要调整大小的现有 I/O 完成队列的描述符。参数 QueueSize 要调整到的新大小，
+// 以条目数为单位。
+//
+// RIOResizeCompletionQueue 函数用于调整 I/O 完成队列的大小，使其变大或变小。如果 I/O
+// 完成队列中已经包含完成条目，这些完成条目将被复制到新的完成队列中。                    *** 现存的完成条目会复制到新的完成队列中
+//
+// I/O 完成队列有一个所需的最小大小，这取决于与完成队列关联的请求队列的数量以及请求队列
+// 上的发送和接收操作的数量。如果应用程序调用 RIOResizeCompletionQueue 函数并尝试将队
+// 列设置得比 I/O 完成队列中现有的完成条目数量还小，则调用将失败，队列不会被调整大小。    *** 完成队列应维持一个最小的队列大小，可以满足关联的请求队列以及触发的发送和接收操作的数量
+//
+// 如果多个线程尝试使用 RIODequeueCompletion 或 RIOResizeCompletionQueue 函数访问同
+// 一个 RIO_CQ，必须通过临界区、轻量级读写锁或类似的互斥机制协调访问。如果完成队列不共
+// 享，则不需要互斥。
+//
+// VOID RIOCloseCompletionQueue(
+//      RIO_CQ CQ
+// );
+//
+// RIOCloseCompletionQueue 函数用于关闭一个现有的 I/O 完成队列，该队列用于保存通过
+// Winsock RIO 发送操作和接收操作的完成通知。参数 CQ 指定一个现有的完成队列。
+//
+// RIOCloseCompletionQueue 函数关闭一个现有的 I/O 完成队列。CQ 参数中传递的 RIO_CQ
+// 被内核锁定为写入状态（locked for writing by the kernel）。完成队列被标记为无效，     *** 完成队列关闭后，挂起操作的完成通知将被丢弃
+// 因此无法添加新的完成条目。任何要添加的新完成条目将被静默丢弃。应用程序应跟踪任何挂起
+// 的发送或接收操作。
+//
+// 如果在 CQ 参数中传递了一个无效的完成队列（例如 RIO_INVALID_CQ），RIOCloseCompletionQueue
+// 函数将忽略它。
+#include <mswsock.h>
+
+static RIO_EXTENSION_FUNCTION_TABLE PRH_IMPL_RIO;
+typedef struct prh_rio_cqueue prh_rio_cqueue;
+
+prh_rio_cqueue *prh_impl_rio_cqueue_create(int queue_size, HANDLE completion_port, prh_ptr completion_key, void *overlapped) {
+    assert(queue_size > 0 && queue_size <= RIO_MAX_CQ_SIZE); // mswsockdef.h #define RIO_MAX_CQ_SIZE 0x800_0000
+    RIO_NOTIFICATION_COMPLETION completion;
+    completion.Type = RIO_IOCP_COMPLETION;
+    completion.Iocp.IocpHandle = completion_port;
+    completion.Iocp.CompletionKey = (PVOID)completion_key;
+    completion.Iocp.Overlapped = (PVOID)overlapped;
+    RIO_CQ *rio_cq = PRH_IMPL_RIO.RIOCreateCompletionQueue(queue_size, &completion);
+    prh_wsa_abort_if(rio_cq == prh_null);
+    return (prh_rio_cqueue *)rio_cq;
+}
+
+void prh_impl_rio_cqueue_resize(prh_rio_cqueue *cqueue, int new_queue_size) {
+    assert(new_queue_size > 0 && new_queue_size <= RIO_MAX_CQ_SIZE);
+    BOOL b = PRH_IMPL_RIO.RIOResizeCompletionQueue((RIO_CQ)cqueue, new_queue_size);
+    prh_wsa_prerr_if(b == FALSE);
+}
+
+void prh_impl_rio_cqueue_close(prh_rio_cqueue *cqueue) {
+    PRH_IMPL_RIO.RIOCloseCompletionQueue((RIO_CQ)cqueue);
+}
+
+void prh_impl_rio_notify(prh_rio_cqueue *cqueue) {
+    // 应用程序可通过两种方式管理完成队列：应用程序可以调用 RIONotify 请求在 RIO_CQ
+    // 队列非空时触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队
+    // 列进行轮询。使用 RIONotify 函数注册的通知机制，可以减少轮询的频率，提高性能。
+    INT n = PRH_IMPL_RIO.RIONotify((RIO_CQ)cqueue);
+    prh_wsa_prerr_if(n != 0);
+}
+
+int prh_impl_rio_cqueue_query(prh_rio_cqueue *cqueue, RIORESULT *entry, int count) {
+    // typedef struct _RIORESULT {
+    //      LONG      Status;
+    //      ULONG     BytesTransferred;
+    //      ULONGLONG SocketContext;
+    //      ULONGLONG RequestContext;
+    // } RIORESULT, *PRIORESULT;
+    assert(entry != prh_null && count > 0);
+    ULONG n = PRH_IMPL_RIO.RIODequeueCompletion((RIO_CQ)cqueue, entry, count);
+    prh_wsa_abort_if(n == RIO_CORRUPT_CQ);
+    return (int)n;
+}
+
+// RIO_RQ RIOCreateRequestQueue(
+//      SOCKET Socket,
+//      ULONG MaxOutstandingReceive,
+//      ULONG MaxReceiveDataBuffers,
+//      ULONG MaxOutstandingSend,
+//      ULONG MaxSendDataBuffers,
+//      RIO_CQ ReceiveCQ,
+//      RIO_CQ SendCQ,
+//      PVOID SocketContext
+// );
+//
+// RIOCreateRequestQueue 函数用于创建一个 RIO 套接字描述符，使用指定的套接字和 I/O 完
+// 成队列，以供 Winsock RIO 扩展函数使用。如果没有错误发生，RIOCreateRequestQueue 函
+// 数返回一个新的请求队列的描述符。否则返回 RIO_INVALID_RQ，可以通过调用 WSAGetLastError
+// 函数获取特定的错误代码。
+//      WSAEINVAL       向函数传递了无效参数。如果 ReceiveCQ 或 SendCQ 参数包含 RIO_INVALID_CQ，则返回此错误。如果 MaxOutstandingReceive
+//                      和 MaxOutstandingSend 参数均为零，也返回此错误。如果 Socket 参数中的套接字正在初始化或关闭过程中，也返回此错误。
+//      WSAENOBUFS      无法分配足够的内存。如果根据参数无法为请求队列分配足够的内存，则返回此错误。如果超出网络会话限制，也返回此错误。
+//      WSAENOTSOCK     描述符不是套接字。如果 Socket 参数不是有效套接字，则返回此错误。
+//      WSAEOPNOTSUPP   尝试的操作不支持引用的对象类型。如果 Socket 参数中的套接字类型不受支持（例如 SOCK_RAW），则返回此错误。
+//
+// 参数 Socket 标识套接字的描述符。
+//
+// 参数 MaxOutstandingReceive 允许在套接字上挂起的最大接收操作的数量。注意，对于大多
+// 数应用程序，此参数通常是一个较小的数字。参数 MaxReceiveDataBuffers 套接字上的最大
+// 接收数据缓冲区的数量。注意，对于 Windows 8 和 Windows Server 2012 此参数必须为 1。
+//
+// 参数 MaxOutstandingSend 允许在套接字上挂起的最大发送操作的数量。参数 MaxSendDataBuffers
+// 套接字上的最大发送数据缓冲区的数量。注意，对于 Windows 8 和 Windows Server 2012，
+// 此参数必须为 1。
+//
+// 参数 ReceiveCQ 表示用于保存接收请求完成通知的 I/O 完成队列。参数 SendCQ 表示用于保
+// 存发送请求完成通知的 I/O 完成队列。此参数可以与 ReceiveCQ 参数具有相同的值。
+//
+// 参数 SocketContext，与该请求队列关联的套接字上下文。
+//
+// RIOCreateRequestQueue 函数使用指定的套接字和 I/O 完成队列创建一个 RIO 套接字描述符。
+// 应用程序必须调用 RIOCreateRequestQueue 以获取 Winsock 套接字的 RIO_RQ，然后才能使
+// 用 RIOSend、RIOSendEx、RIOReceive 或 RIOReceiveEx 函数。为了获取 RIO_RQ，Winsock
+// 套接字必须与发送和接收的完成队列关联。
+//
+// 由于完成队列的大小是有限的，只有在保证不会超过总排队完成的容量时，套接字才可能与发送
+// 和接收操作的完成队列关联。因此，通过调用 RIOCreateRequestQueue 函数为套接字建立了特
+// 定的限制。这些限制既用于在 RIOCreateRequestQueue 调用期间验证完成队列中有足够的空间
+// 来容纳套接字请求，也用于在请求发起时确保请求不会导致套接字超出其限制。
+//
+// 发送和接收队列可以与多个套接字关联。发送和接收队列的大小必须大于或等于所有附加套接字    *** 发送操作的完成队列和接收操作的完成队列，可以与多个套接字关联，直到套接字被关闭
+// 的发送和接收大小。随着使用 closesocket 函数关闭套接字，请求队列被关闭，这些插槽将被
+// 释放，供其他套接字使用。当应用程序完成对 RIO_RQ 的使用时，应用程序应调用 closesocket
+// 函数关闭套接字并释放相关资源。
+//
+// typedef struct RIO_RQ_t* RIO_RQ, **PRIO_RQ;
+//
+// Winsock RIO 扩展函数主要在 RIO_RQ 对象上操作，而不是直接在套接字上。应用程序通过调
+// 用 RIOCreateRequestQueue 函数为现有的套接字获取一个 RIO_RQ。输入的套接字必须通过在   *** 请求队列关联的套接字必须设置 WSA_FLAG_RIO 标志
+// dwFlags 参数中设置 WSA_FLAG_RIO 标志调用 WSASocket 函数创建。
+//
+// 获取 RIO_RQ 对象后，底层套接字描述符仍然有效。应用程序可以继续使用底层套接字来设置和
+// 查询套接字选项、发出 IOCTL 调用，最终关闭套接字。
+//
+// BOOL RIOResizeRequestQueue(
+//      RIO_RQ RQ,
+//      DWORD MaxOutstandingReceive,
+//      DWORD MaxOutstandingSend
+// );
+//
+// RIOResizeRequestQueue 函数用于调整请求队列的大小，使其变大或变小。如果没有错误发生，
+// RIOResizeRequestQueue 函数返回 TRUE。否则返回，可以通过调用 WSAGetLastError 函数
+// 获取特定的错误代码。
+//      WSAEINVAL           向函数传递了无效参数。如果 RQ 参数无效（例如 RIO_INVALID_RQ），或者 MaxOutstandingReceive 和 MaxOutstandingSend 参数均为零，则返回此错误。
+//      WSAENOBUFS          无法分配足够的内存。如果无法为调整大小后的请求队列分配内存，则返回此错误。
+//      WSAETOOMANYREFS     仍有太多操作引用请求队列。此时无法将此请求队列调整为更小的大小。
+//
+// 参数 RQ 标识要调整大小的现有 RIO 套接字描述符（请求队列）。
+//
+// 参数 MaxOutstandingReceive 允许在套接字上挂起的最大接收操作数。此值可以大于或小于
+// 原始数量。注意，对于大多数应用程序，此参数通常是一个较小的数字。
+//
+// 参数 MaxOutstandingSend 允许在套接字上挂起的最大发送操作数。此值可以大于或小于原始
+// 数量。
+//
+// RIOResizeRequestQueue 函数用于调整请求队列的大小，使其变大或变小。如果请求队列中已
+// 经包含条目，这些条目将被复制到新的请求队列中。
+//
+// 请求队列有一个所需的最小大小，这取决于当前条目数量（请求队列上的发送和接收操作数量）。
+// 如果应用程序调用 RIOResizeRequestQueue 函数并尝试将队列设置得比现有条目数量还小，
+// 则调用将失败，队列不会被调整大小。
+
+typedef struct prh_rio_rqueue prh_rio_rqueue, *prh_rio_socket;
+
+prh_rio_rqueue *prh_impl_rio_rqueue_create(prh_handle socket, prh_rio_cqueue *cqueue, void *socket_context) {
+    RIO_RQ rio_rq = PRH_IMPL_RIO.RIOCreateRequestQueue(
+        /* SOCKET Socket                */ (SOCKET)socket,
+        /* ULONG MaxOutstandingReceive  */ 1, // 一个套接字同时只允许一个待完成的接收操作
+        /* ULONG MaxReceiveDataBuffers  */ 1, // 一个套接字只使用一个缓冲区用于接收
+        /* ULONG MaxOutstandingSend     */ 1, // 一个套接字同时只允许一个待完成的发送操作
+        /* ULONG MaxSendDataBuffers     */ 1, // 一个套接字只使用一个缓冲区用于发送
+        /* RIO_CQ ReceiveCQ             */ (RIO_CQ)cqueue, // 关联接收操作使用的完成队列
+        /* RIO_CQ SendCQ                */ (RIO_CQ)cqueue, // 关联发送操作使用的完成队列
+        /* PVOID SocketContext          */ (PVOID)socket_context
+        );
+    prh_wsa_abort_if(rio_rq == prh_null);
+    return (prh_rio_rqueue *)rio_rq;
+}
+
+void prh_impl_rio_rqueue_resize(prh_rio_rqueue *rqueue, int max_out_recv, int max_out_send) {
+    BOOL b = PRH_IMPL_RIO.RIOResizeRequestQueue((RIO_RQ)rqueue, max_out_recv, max_out_send);
+    prh_wsa_prerr_if(b == FALSE);
+}
+
+// RIO_BUFFERID RIORegisterBuffer(
+//      PCHAR DataBuffer,
+//      DWORD DataLength
+// );
+//
+// RIORegisterBuffer 函数用于注册一个 RIO_BUFFERID，以便与指定的缓冲区一起使用 Winsock
+// RIO 扩展函数。如果没有错误发生，RIORegisterBuffer 函数返回一个注册的缓冲区描述符。
+// 否则返回 RIO_INVALID_BUFFERID，可以调用 WSAGetLastError 函数获取特定的错误代码。
+//      WSAEFAULT   系统在尝试使用指针参数时检测到无效的指针地址。如果 DataBuffer 参数传递了无效的缓冲区指针，则返回此错误。
+//      WSAEINVAL   向函数传递了无效参数。如果 DataLength 参数为零，则返回此错误。
+//
+// 参数 DataBuffer 指向要注册的内存缓冲区的起始位置的指针。参数 DataLength 要注册的缓
+// 冲区中的字节长度。
+//
+// RIORegisterBuffer 函数为指定的缓冲区创建一个注册缓冲区标识符。当缓冲区被注册时，包
+// 含缓冲区的虚拟内存页面将被锁定在物理内存中。
+//
+// 如果注册了多个小的、不连续的缓冲区，这些缓冲区的物理内存占用可能实际上每个注册都相当
+// 于一个完整的内存页面。在这种情况下，将多个请求缓冲区一起分配可能会更有益。
+//
+// 注册缓冲区本身也会占用少量的物理内存开销。因此，如果许多分配被聚合到一个更大的分配中，
+// 通过聚合缓冲区注册，物理内存占用可能会进一步减少。在这种情况下，应用程序可能需要格外
+// 小心，以确保最终注销了缓冲区，但不要在任何发送或接收请求仍然挂起时注销。
+//
+// 注册缓冲区的一部分通过 RIOSend、RIOSendEx、RIOReceive 和 RIOReceiveEx 函数的
+// pData 参数传递，用于发送或接收数据。当不再需要缓冲区标识符时，调用 RIODeregisterBuffer
+// 函数注销缓冲区标识符。
+//
+// VOID RIODeregisterBuffer(
+//      RIO_BUFFERID BufferId
+// );
+//
+// RIODeregisterBuffer 函数用于注销与 Winsock RIO 扩展函数一起使用的注册缓冲区。参数
+// BufferId 标识一个注册缓冲区的描述符。
+//
+// RIODeregisterBuffer 函数注销一个注册缓冲区。当缓冲区被注销时，应用程序表示它已经完
+// 成了对 BufferId 参数中传递的缓冲区标识符的使用。任何后续尝试使用此缓冲区标识符的其他
+// 函数调用都将失败。如果注销了一个仍在使用的缓冲区，结果是未定义的。这被视为一个严重错    *** 注销一个仍在使用的缓冲区，结果未定义
+// 误。在 RIODequeueCompletion 函数返回的 RIORESULT 结构中，状态将保持正常状态不变。
+// 应用程序开发人员可以使用 Application Verifier 工具检测此错误条件。
+//
+// 如果在 BufferId 参数中传递了一个无效的缓冲区标识符，RIODeregisterBuffer 函数将忽略
+// 它。
+//
+// typedef struct RIO_BUFFERID_t* RIO_BUFFERID, **PRIO_BUFFERID;
+//
+// typedef struct _RIO_BUF {
+//      RIO_BUFFERID BufferId;
+//      ULONG        Offset;
+//      ULONG        Length;
+// } RIO_BUF, *PRIO_BUF;
+//
+// Winsock RIO 扩展函数主要通过 RIO_BUFFERID 对象操作注册缓冲区。应用程序通过调用
+// RIORegisterBuffer 函数为现有的缓冲区获取一个 RIO_BUFFERID。应用程序可以使用
+// RIODeregisterBuffer 函数释放注册的缓冲区。
+//
+// 当现有的缓冲区通过 RIORegisterBuffer 函数注册为 RIO_BUFFERID 对象时，会从物理内存
+// 中分配某些内部资源，并将现有的应用程序缓冲区锁定到物理内存中。调用 RIODeregisterBuffer
+// 函数注销缓冲区，释放这些内部资源，并允许缓冲区从物理内存中解锁并释放。
+//
+// 使用 Winsock RIO 扩展函数反复注册和注销应用程序缓冲区可能会导致显著的性能下降。在设
+// 计使用 Winsock RIO 扩展函数的应用程序中，应考虑以下缓冲区管理方法，以最小化应用程序
+// 缓冲区的重复注册和注销：
+//  1.  最大化缓冲区的重用。
+//  2.  维护一个有限的未使用注册缓冲区池，供应用程序使用。
+//  3.  维护一个有限的注册缓冲区池，并在这些注册缓冲区和其他未注册缓冲区之间执行缓冲区复制。
+//
+// RIO_BUFFERID 类型定义在 Mswsockdef.h 头文件中，该文件会自动包含在 Mswsock.h 头文
+// 件中。不应直接使用 Mswsockdef.h 头文件。
+//
+// Winsock RIO 扩展函数通常在注册缓冲区的部分区间（有时称为缓冲区切片）上操作。需要使用
+// 少量注册内存发送或接收网络数据的应用程序会使用 RIO_BUF 结构。通过注册一个大缓冲区，
+// 然后根据需要使用缓冲区的小块，应用程序通常可以提高性能。RIO_BUF 结构可以描述单个缓冲
+// 区注册中包含的任何连续内存段。
+//
+// 指向 RIO_BUF 结构的指针作为 pData 参数传递给 RIOSend、RIOSendEx、RIOReceive 和
+// RIOReceiveEx 函数，用于发送或接收网络数据。应用程序不能仅仅通过使用大于原始注册缓冲
+// 区的缓冲区切片值来调整注册缓冲区的大小。
+
+typedef struct prh_impl_rio_buffer *prh_rio_buffer;
+
+prh_rio_buffer prh_impl_rio_buffer_register(prh_byte *buffer, int length) {
+    assert(buffer != prh_null && length > 0);
+    // 当缓冲区被注册时，包含缓冲区的虚拟内存页面将被锁定在物理内存中。如果注册了多个小
+    // 的、不连续的缓冲区，这些缓冲区的物理内存占用可能实际上每个注册都相当于一个完整的
+    // 内存页面。在这种情况下，将多个请求缓冲区一起分配可能会更有益。注册缓冲区本身也会
+    // 占用少量的物理内存开销。因此，如果许多分配被聚合到一个更大的分配中，通过聚合缓冲
+    // 区注册，物理内存占用可能会进一步减少。
+    RIO_BUFFERID buffer = PRH_IMPL_RIO.RIORegisterBuffer((PCHAR)buffer, length);
+    prh_wsa_abort_if(buffer == prh_null);
+    return (void *)buffer;
+}
+
+void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) {
+    PRH_IMPL_RIO.RIODeregisterBuffer((RIO_BUFFERID)buffer);
+}
+
+static prh_rio_cqueue *PRH_IMPL_RIO_CQUEUE;
+static prh_rio_buffer PRH_IMPL_RIO_BUFFER;
+static prh_byte *PRH_IMPL_RIO_BUFBEG, *PRH_IMPL_RIO_BUFEND;
+
+void prh_impl_iocp_rio_notify(void) {
+    prh_impl_rio_notify(PRH_IMPL_RIO_CQUEUE);
+}
+
+int prh_impl_iocp_rio_query(RIORESULT *entry, int count) {
+    return prh_impl_rio_cqueue_query(PRH_IMPL_RIO_CQUEUE, entry, count);
+}
+
+prh_rio_socket prh_iocp_create_rio_socket(prh_handle socket) {
+    return prh_impl_rio_rqueue_create(socket, PRH_IMPL_RIO_CQUEUE, (void *)socket);
 }
 
 typedef struct {
@@ -15556,11 +16083,323 @@ typedef struct {
 } prh_iocp_global;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
-int prh_impl_worker_thrd_routine(prh_thrd *thrd);
-void prh_impl_sched_thrd_routine(prh_thrd *thrd);
+
+void prh_impl_iocp_rio_init(int cqueue_size, prh_byte *register_trx_buffer, int buffer_length, prh_iocp_completion_routine completion) {
+    assert(register_trx_buffer != prh_null && ((prh_ptr)register_trx_buffer % PRH_CACHE_LINE_SIZE) == 0);
+    assert(buffer_length > 0 && (buffer_length % PRH_CACHE_LINE_SIZE) == 0);
+    PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(cqueue_size, PRH_IMPL_IOCP, (prh_ptr)completion, (void *)&PRH_IMPL_RIO_CQUEUE);
+    PRH_IMPL_RIO_BUFFER = prh_impl_rio_buffer_register(register_trx_buffer, buffer_length);
+    PRH_IMPL_RIO_BUFBEG = register_trx_buffer;
+    PRH_IMPL_RIO_BUFEND = register_trx_buffer + buffer_length;
+}
+
+void prh_impl_iocp_rio_free(void) {
+    prh_impl_rio_cqueue_close(PRH_IMPL_RIO_CQUEUE);
+    prh_impl_rio_buffer_deregister(PRH_IMPL_RIO_BUFFER);
+}
+
+static bool prh_impl_sched_thrd_wakeup_complete(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
+    // 工作线程可能在这个位置检测到 keep_sched_thrd_alive 大于 0，不会向完成端口投递保活包
+    // 但是此时调度线程已经醒来，已经插入的线程任务（或休眠线程已经插入等待队列），会保证调度线程不会睡眠
+    prh_atom_u32_dec(&PRH_IOCP_GLOBAL.keep_sched_thrd_alive);
+    return true; // 不需要消耗调度线程的完成队列
+}
+
+void prh_impl_iocp_keep_sched_thrd_alive(void) {
+    // 1. 工作线程投递任务后，只要确保有一个保活包存在于完成端口中，即可保证调度线程活跃
+    // 2. 工作线程进入睡眠后，以防还有分派的任务存在，确保调度线程是最后一个进入睡眠的线程
+    prh_atom_u32 *keep_sched_thrd_alive = &PRH_IOCP_GLOBAL.keep_sched_thrd_alive;
+    if (prh_atom_u32_read(keep_sched_thrd_alive) == 0) {
+        prh_atom_u32_inc(keep_sched_thrd_alive);
+        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_wakeup_complete, keep_sched_thrd_alive);
+    }
+}
+
+bool prh_impl_sched_thrd_iocp_entry_completed(OVERLAPPED_ENTRY *entry) {
+    // typedef struct _OVERLAPPED_ENTRY {
+    //     ULONG_PTR lpCompletionKey;
+    //     LPOVERLAPPED lpOverlapped;
+    //     ULONG_PTR Internal;
+    //     DWORD dwNumberOfBytesTransferred;
+    // } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
+    //
+    // typedef struct _OVERLAPPED {     // minwinbase.h (included in WinBase.h)
+    //     ULONG_PTR Internal;          // [out] Error Code
+    //     ULONG_PTR InternalHigh;      // [out] Number of bytes transferred
+    //     union {
+    //         struct {
+    //             DWORD Offset;        // [in] Low 32-bit file offset
+    //             DWORD OffsetHigh;    // [in] High 32-bit file offset
+    //         } DUMMYSTRUCTNAME;
+    //         PVOID Pointer;
+    //     } DUMMYUNIONNAME;
+    //     HANDLE hEvent;               // [in] Event handle or data
+    // } OVERLAPPED, *LPOVERLAPPED;
+    //
+    // #define WSAEVENT                HANDLE
+    // #define LPWSAEVENT              LPHANDLE
+    // #define WSAOVERLAPPED           OVERLAPPED
+    // typedef struct _OVERLAPPED *    LPWSAOVERLAPPED; // winsock2.h
+    //
+    // 三个成员，Offset OffsetHigh hEvent 必须在调用异步操作函数之前进行初始化，其他
+    // 两个成员 Internal InternalHigh 由驱动程序来设置，当 I/O 操作完成时我们可以检
+    // 查它们的值。当使用可提醒 I/O 操作完成时，设备驱动程序不会试图去触发一个事件对象。
+    // 实际上，此时设备根本就没有用到 OVERLAPPED 结构的 hEvent 成员，因此如果需要，我
+    // 们可以将 hEvent 据为己用。
+    //
+    // Internal 成员用来保存已处理的 I/O 请求的错误码，一旦我们发出一个异步 I/O 请求，
+    // 设备驱动程序立即将 Internal 设为 STATUS_PENDING，表示没有错误操作尚未开始。实
+    // 际上，WinBase.h 中定义的 HasOverlappedIoCompleted 宏允许我们检查一个异步 I/O
+    // 操作是否已经完成（Internal != STATUS_PENDING）。
+    //
+    // 在最初设计 OVERLAPPED 结构的时候，Microsoft 决定不公开 Internal 和 InternalHigh
+    // 成员。随着时间的推移，Microsoft 认识到这些成员中包含的信息会对开发人员有用，因此
+    // 把它们公开了。但是 Microsoft 没有改变这些成员的名字，这是因为操作系统的源代码频
+    // 繁地用到它们，而 Microsoft 并不想为此修改源代码。由于现在 Microsoft 已经公开了
+    // Internal 和 Internal High 成员，因此 GetOverlappedResult 函数（获取 lpNumberOfBytesTransferred
+    // 并设置错误码）就不怎么有用了。
+    prh_iocp_completion_routine completion_routine = (prh_iocp_completion_routine)entry->lpCompletionKey;
+    assert(completion_routine != prh_null);
+    assert(entry->lpOverlapped != prh_null);
+    return completion_routine(entry);
+}
+
+int prh_impl_sched_thrd_wait_iocp_entries(OVERLAPPED_ENTRY *overlapped_entry, int count, bool keep_sched_thrd_alive) {
+    return prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, overlapped_entry, count, keep_sched_thrd_alive ? 0 : INFINITE);
+}
+
+void prh_impl_iocp_thrd_wait_que_push(prh_iocp_thrd *thrd) {
+    prh_thrd_mutex *mutex = &PRH_IOCP_GLOBAL.thrd_wait_que_mutex;
+    prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_GLOBAL.thrd_wait_queue;
+    prh_thrd_mutex_lock(mutex);
+    thrd_wait_queue[PRH_IOCP_GLOBAL.thrd_wait_que_items++] = thrd;
+    prh_thrd_mutex_unlock(mutex);
+}
+
+prh_iocp_thrd *prh_impl_iocp_thrd_wait_que_pop(void) {
+    prh_thrd_mutex *mutex = &PRH_IOCP_GLOBAL.thrd_wait_que_mutex;
+    prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_GLOBAL.thrd_wait_queue;
+    prh_iocp_thrd *thrd = prh_null;
+    prh_thrd_mutex_lock(mutex);
+    if (PRH_IOCP_GLOBAL.thrd_wait_que_items) { // 按后入先出的顺序唤醒线程
+        thrd = thrd_wait_queue[--PRH_IOCP_GLOBAL.thrd_wait_que_items];
+    }
+    prh_thrd_mutex_unlock(mutex);
+    return thrd;
+}
+
+void prh_impl_iocp_thrd_sleep(prh_iocp_thrd *thrd) {
+    prh_thrd_cond *cond = &thrd->thrd_wait_cond;
+    prh_thrd_cond_lock(cond);
+    if (thrd->wakeup_semaphore) {
+        goto label_already_wakeup;
+    }
+    prh_impl_iocp_thrd_wait_que_push(thrd);
+    prh_impl_iocp_keep_sched_thrd_alive(); // 以防还有分派的任务存在，但是工作线程和调度线程都进入了睡眠
+label_continue_waiting:
+    prh_impl_plat_cond_wait(cond);
+    if (!thrd->wakeup_semaphore) {
+        goto label_continue_waiting;
+    }
+label_already_wakeup:
+    p->wakeup_semaphore = false;
+    prh_thrd_cond_unlock(cond);
+}
+
+bool prh_impl_iocp_thrd_wakeup(prh_iocp_thrd *thrd) {
+    if (thrd == prh_null) return false;
+    prh_thrd_cond *cond = &thrd->thrd_wait_cond;
+    prh_thrd_cond_lock(cond);
+    thrd->wakeup_semaphore = true;
+    prh_thrd_cond_unlock(cond);
+    prh_thrd_cond_signal(cond);
+    return true;
+}
+
+static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
+    prh_atom_1wnr_ptr_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
+    prh_iocp_thrd *thrd = (prh_iocp_thrd *)thrd_ptr;
+    thrd->extra_ptr = PRH_IOCP_GLOBAL.thrd_req_que + prh_thrd_index(thrd) + 1; // 将线程队列保存到未使用的额外指针变量中，第一个队列默认给调度线程使用
+    prh_iocp_post *post;
+    for (; ;) {
+        while ((post = prh_atom_1wnr_ptr_arrque_pop(post_dispatch_que))) {
+            if (post->complete_routine) {
+                post->complete_routine(post);
+            } else {
+                post->continue_routine(post);
+            }
+        }
+        prh_impl_iocp_thrd_sleep(thrd); // 进入睡眠，等待调度线程唤醒
+        if (prh_atom_bool_read(&thrd->thrd_exit)) {
+            break;
+        }
+    }
+    return 0;
+}
+
+void prh_iocp_thrd_post(prh_iocp_post *post) {
+    // 工作线程投递任务给调度线程分派，每个工作线程都有一个独立的任务队列供自己使用。工作线程投递的每个任务，
+    // 都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，都最多只处理固定数量的任务，例如 [cfmd_post_seqn, cfmd_post_seqn + N)，
+    // 每一轮最多只有在此区间内的任务被处理。在处理时，调度线程首先将范围内的任务，按编号顺序收集到一个大小固
+    // 定队列中（post_collect_que），然后分派到各线程争抢的任务分派队列中（post_dispatch_que）
+    prh_atom_ext_hive_quefix *thrd_req_que = ((prh_iocp_thrd *)prh_thrd_self())->extra_ptr;
+    prh_atom_ext_hive_quefix_push(thrd_req_que, post, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed));
+    prh_impl_iocp_keep_sched_thrd_alive();
+}
+
+int prh_impl_sched_thrd_cqueue_len(void) {
+    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
+}
+
+int prh_impl_sched_thrd_cqueue_empty_items(void) {
+    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
+}
+
+void prh_impl_iocp_sched_thrd_post(prh_iocp_post *post) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
+    assert(prh_impl_sched_thrd_cqueue_empty_items() > 0);
+    prh_sched_cqueue_ptr sched_thrd_cqueue = PRH_IOCP_GLOBAL.sched_thrd_cqueue;
+    *prh_fixed_arrque_unchecked_push(sched_thrd_cqueue) = (prh_sched_cqueue_item){post, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed)};
+}
+
+int prh_impl_sched_thrd_collect_que_len(void) {
+    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.post_collect_que);
+}
+
+int prh_impl_sched_thrd_collect_que_empty_items(void) {
+    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.post_collect_que);
+}
+
+void prh_impl_sched_thrd_collect_que_push(prh_iocp_post *post, prh_u32 index) {
+    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
+    *prh_fixed_arrque_unchecked_push_at(post_collect_que, index) = post;
+}
+
+prh_iocp_post *prh_impl_sched_thrd_collect_que_pop(void) {
+    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
+    if (prh_fixed_arrque_len(post_collect_que) == 0) return prh_null;
+    prh_iocp_post **post_addr = prh_impl_fixed_arrque_top(post_collect_que);
+    prh_iocp_post *post = *post_addr;
+    if (post != prh_null) {
+        prh_impl_fixed_arrque_pop(post_collect_que);
+        PRH_IOCP_GLOBAL.cfmd_post_seqn += 1;
+        *post_addr = prh_null; // 移除的元素必须清零
+    }
+    return post;
+}
+
+bool prh_impl_sched_thrd_collect_each_post(void *collect_seqn_range, void *post, prh_ptr post_seqn) {
+    prh_u32 index = ((prh_u32)post_seqn) - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
+    if (index < (prh_u32)collect_seqn_range) {
+        prh_impl_sched_thrd_collect_que_push(post, index);
+        return true;
+    }
+    return false;
+}
+
+prh_u32 prh_impl_sched_thrd_collect_seqn_range(prh_u32 curr_post_seed) {
+    // 对于 post_seqn < curr_post_seed 的 post，这些 post 已经分配了序号，但是对应的线程可能还未来得及将其插入到 thrd_req_que 队列中
+    // 因此需要维护一个已经确认收集并且已经投递到 post_dispatch_que 的 post 序号 cfmd_post_seqn，用来跟踪哪些 post 已经确认被投递
+    // cfmd_post_seqn 必须按序号一个一个进行递增，每次将 post_collect_que 头部的一个非空的 post 投递到 post_dispatch_que，cfmd_post_seqn 都加一
+    prh_u32 cfmd_post_seqn = PRH_IOCP_GLOBAL.cfmd_post_seqn;
+    prh_u32 collect_seqn_range = curr_post_seed - cfmd_post_seqn;
+    int collect_que_empty_items = prh_impl_sched_thrd_collect_que_empty_items();
+    return (collect_que_empty_items < collect_seqn_range) ? collect_que_empty_items : collect_seqn_range;
+}
+
+int prh_impl_sched_thrd_collect_post(void) {
+    prh_u32 collect_seqn_range = prh_impl_sched_thrd_collect_seqn_range(prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed));
+    if (collect_seqn_range) {
+        // 收集调度线程完成队列中的线程任务
+        prh_sched_cqueue_ptr sched_thrd_cqueue = PRH_IOCP_GLOBAL.sched_thrd_cqueue;
+        prh_sched_cqueue_item *item;
+        while ((item = prh_fixed_arrque_top(sched_thrd_cqueue)) && prh_impl_sched_thrd_collect_each_post((void *)(prh_ptr)collect_seqn_range, item->post, item->post_seqn)) {
+            prh_impl_fixed_arrque_pop(sched_thrd_cqueue);
+        }
+        // 收集各线程各自独立投递的线程任务
+        prh_atom_ext_hive_quefix *req_que_begin = PRH_IOCP_GLOBAL.thrd_req_que, *req_que_end;
+        for (req_que_end = req_que_begin + PRH_IOCP_GLOBAL.thrd_req_que_count; req_que_begin < req_que_end; req_que_begin += 1) {
+            prh_atom_ext_hive_quefix_pops(req_que_begin, prh_impl_sched_thrd_collect_each_post, (void *)(prh_ptr)collect_seqn_range);
+        }
+    }
+    return prh_impl_sched_thrd_collect_que_len();
+}
+
+int prh_impl_sched_thrd_dispatch_que_len(void) {
+    return (int)prh_atom_1wnr_ptr_arrque_len(PRH_IOCP_GLOBAL.post_dispatch_que);
+}
+
+void prh_impl_sched_thrd_dispatch_post(void) {
+    prh_atom_1wnr_ptr_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
+    prh_atom_1wnr_arrque_snapshot snapshot;
+    if (prh_atom_1wnr_ptr_arrque_snapshot_begin(post_dispatch_que, snapshot)) {
+        for (int i = 0; i < (int)snapshot.empty_items; i += 1) {
+            prh_iocp_post *post = prh_impl_sched_thrd_collect_que_pop();
+            if (post == prh_null) break;
+            prh_atom_1wnr_ptr_arrque_snapshot_push(post_dispatch_que, &snapshot, post);
+        }
+        prh_atom_1wnr_ptr_arrque_snapshot_end(post_dispatch_que, &snapshot);
+    }
+}
+
+static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
+    OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.overlapped_entry_array;
+    OVERLAPPED_ENTRY *entry_end = prh_null, *entry_ptr = prh_null;
+    prh_iocp_thrd *sched_thrd = ((prh_iocp_thrd *)thrd_ptr);
+    sched_thrd->extra_ptr = PRH_IOCP_GLOBAL.thrd_req_que; // 将线程队列保存到未使用的额外指针变量中
+    int entry_count = 0, dispatch_que_posts;
+    bool keep_sched_thrd_alive = true;
+
+    for (; ;) {
+        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（query_entries_each_time）的完成条目
+        if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
+            if ((entry_count = prh_impl_sched_thrd_wait_iocp_entries(overlapped_entry, PRH_IOCP_GLOBAL.query_entries_each_time, keep_sched_thrd_alive))) {
+                entry_ptr = overlapped_entry;
+                entry_end = overlapped_entry + entry_count;
+            }
+        }
+
+        //  2.  每个完成条目的处理都会向调度线程的完成队列 sched_thrd_cqueue 投递一个线程任务，调度线程的完成队列有一个最大大小限制（sched_thrd_cqueue_size）
+        for (; entry_ptr < entry_end; entry_ptr += 1) {
+            if (!prh_impl_sched_thrd_iocp_entry_completed(entry_ptr)) {
+                break;
+            }
+        }
+
+        //  3.  按任务序号小大收集各线程任务到一个固定大小的调度线程持有的本地队列中（post_collect_que），然后分派到各线程争抢的分派队列中（post_dispatch_que），分派队列大小也固定
+        if (prh_impl_sched_thrd_collect_post()) {
+            prh_impl_sched_thrd_dispatch_post();
+        }
+
+        //  4.  如果任务分派队列已经有分派的任务，根据当前等待的线程数量，按后入先出的顺序唤醒线程
+        dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len();
+        while (dispatch_que_posts > 0 && prh_impl_iocp_thrd_wakeup(prh_impl_iocp_thrd_wait_que_pop())) {
+            dispatch_que_posts -= 1;
+        }
+
+        //  5.  调度线程根据状态决定是否睡眠
+        if (prh_impl_sched_thrd_collect_que_len()) {
+            // 收集的任务还没有完全分派，调度线程必须继续活动
+            //  a.  可能 post_collect_que 队列中的第一个任务，序列号已经分配，但对应的线程还没有来得及将其插入到 thrd_req_que 队列中，因此调度线程还未成功收集该任务导致
+            //      已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
+            //  b.  可能任务分派队列 post_dispatch_que 已经填满，调度线程需要动态跟踪分派队列的大小，继续执行步骤 4 进行任务分派
+            keep_sched_thrd_alive = true;
+        } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed)) {
+            // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号
+            //  a.  要么已经分配的任务没有被对应的线程成功投递，需要调度线程继续跟踪收集任务
+            //  b.  要么还存在新分配的任务没有收集，都需要调度线程需继续执行步骤 3 收集线程任务
+            keep_sched_thrd_alive = true;
+        } else {
+            //  a.  成功收集的线程任务都已经分派出去
+            //  b.  所有分配的任务序列号都已经成功分派到分派队列
+            //  c.  此时调度线程唯一可做的就是在完成端口上进行无限等待
+            keep_sched_thrd_alive = false;
+        }
+    }
+}
 
 void prh_impl_iocp_global_init(prh_iocp_config *config) {
-
+    DWORD concurrent_thread_count = 1; // 仅由调度线程等待操作完成
+    PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
 }
 
 void prh_impl_iocp_global_free(void) {
@@ -15657,316 +16496,6 @@ void prh_iocp_start_run(void) {
     prh_debug(printf("[thrd %02d] exit\n", prh_thrd_id(sched_thrd)));
 
     prh_impl_iocp_global_free();
-}
-
-void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void *context) {
-    memset(post, 0, sizeof(prh_iocp_post));
-    post->continue_routine = routine;
-    post->context = context;
-}
-
-void prh_impl_iocp_enqueue_completion_item(prh_iocp_completion_routine completion_key, void *overlapped) {
-    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)completion_key, .lpOverlapped = overlapped};
-    prh_impl_completion_port_post(PRH_IMPL_IOCP, &overlapped_entry);
-}
-
-bool prh_impl_sched_thrd_wakeup_complete(OVERLAPPED_ENTRY *entry) {
-    // 工作线程可能在这个位置检测到 keep_sched_thrd_alive 大于 0，不会向完成端口投递保活包
-    // 但是此时调度线程已经醒来，已经插入的线程任务（或休眠线程已经插入等待队列），会保证调度线程不会睡眠
-    prh_atom_u32_dec(&PRH_IOCP_GLOBAL.keep_sched_thrd_alive);
-    return true; // 不需要消耗调度线程的完成队列
-}
-
-void prh_impl_iocp_keep_sched_thrd_alive(void) {
-    // 1. 工作线程投递任务后，只要确保有一个保活包存在于完成端口中，即可保证调度线程活跃
-    // 2. 工作线程进入睡眠后，以防还有分派的任务存在，确保调度线程是最后一个进入睡眠的线程
-    prh_atom_u32 *keep_sched_thrd_alive = &PRH_IOCP_GLOBAL.keep_sched_thrd_alive;
-    if (prh_atom_u32_read(keep_sched_thrd_alive) == 0) {
-        prh_atom_u32_inc(keep_sched_thrd_alive);
-        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_wakeup_complete, keep_sched_thrd_alive);
-    }
-}
-
-void prh_impl_iocp_thrd_wait_que_push(prh_iocp_thrd *thrd) {
-    prh_thrd_mutex *mutex = &PRH_IOCP_GLOBAL.thrd_wait_que_mutex;
-    prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_GLOBAL.thrd_wait_queue;
-    prh_thrd_mutex_lock(mutex);
-    thrd_wait_queue[PRH_IOCP_GLOBAL.thrd_wait_que_items++] = thrd;
-    prh_thrd_mutex_unlock(mutex);
-}
-
-prh_iocp_thrd *prh_impl_iocp_thrd_wait_que_pop(void) {
-    prh_thrd_mutex *mutex = &PRH_IOCP_GLOBAL.thrd_wait_que_mutex;
-    prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_GLOBAL.thrd_wait_queue;
-    prh_iocp_thrd *thrd = prh_null;
-    prh_thrd_mutex_lock(mutex);
-    if (PRH_IOCP_GLOBAL.thrd_wait_que_items) { // 按后入先出的顺序唤醒线程
-        thrd = thrd_wait_queue[--PRH_IOCP_GLOBAL.thrd_wait_que_items];
-    }
-    prh_thrd_mutex_unlock(mutex);
-    return thrd;
-}
-
-void prh_impl_iocp_thrd_sleep(prh_iocp_thrd *thrd) {
-    prh_thrd_cond *cond = &thrd->thrd_wait_cond;
-    prh_thrd_cond_lock(cond);
-    if (thrd->wakeup_semaphore) {
-        goto label_already_wakeup;
-    }
-    prh_impl_iocp_thrd_wait_que_push(thrd);
-    prh_impl_iocp_keep_sched_thrd_alive(); // 以防还有分派的任务存在，但是工作线程和调度线程都进入了睡眠
-label_continue_waiting:
-    prh_impl_plat_cond_wait(cond);
-    if (!thrd->wakeup_semaphore) {
-        goto label_continue_waiting;
-    }
-label_already_wakeup:
-    p->wakeup_semaphore = false;
-    prh_thrd_cond_unlock(cond);
-}
-
-bool prh_impl_iocp_thrd_wakeup(prh_iocp_thrd *thrd) {
-    if (thrd == prh_null) return false;
-    prh_thrd_cond *cond = &thrd->thrd_wait_cond;
-    prh_thrd_cond_lock(cond);
-    thrd->wakeup_semaphore = true;
-    prh_thrd_cond_unlock(cond);
-    prh_thrd_cond_signal(cond);
-    return true;
-}
-
-void prh_iocp_thrd_post(prh_iocp_post *post) {
-    // 工作线程投递任务给调度线程分派，每个工作线程都有一个独立的任务队列供自己使用。工作线程投递的每个任务，
-    // 都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，都最多只处理固定数量的任务，例如 [cfmd_post_seqn, cfmd_post_seqn + N)，
-    // 每一轮最多只有在此区间内的任务被处理。在处理时，调度线程首先将范围内的任务，按编号顺序收集到一个大小固
-    // 定队列中（post_collect_que），然后分派到各线程争抢的任务分派队列中（post_dispatch_que）
-    prh_atom_ext_hive_quefix *thrd_req_que = ((prh_iocp_thrd *)prh_thrd_self())->extra_ptr;
-    prh_atom_ext_hive_quefix_push(thrd_req_que, post, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed));
-    prh_impl_iocp_keep_sched_thrd_alive();
-}
-
-int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
-    prh_atom_1wnr_ptr_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
-    prh_iocp_thrd *thrd = (prh_iocp_thrd *)thrd_ptr;
-    thrd->extra_ptr = PRH_IOCP_GLOBAL.thrd_req_que + prh_thrd_index(thrd) + 1; // 将线程队列保存到未使用的额外指针变量中，第一个队列默认给调度线程使用
-    prh_iocp_post *post;
-    for (; ;) {
-        while ((post = prh_atom_1wnr_ptr_arrque_pop(post_dispatch_que))) {
-            if (post->complete_routine) {
-                post->complete_routine(post);
-            } else {
-                post->continue_routine(post);
-            }
-        }
-        prh_impl_iocp_thrd_sleep(thrd); // 进入睡眠，等待调度线程唤醒
-        if (prh_atom_bool_read(&thrd->thrd_exit)) {
-            break;
-        }
-    }
-    return 0;
-}
-
-int prh_impl_sched_thrd_cqueue_len(void) {
-    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
-}
-
-int prh_impl_sched_thrd_cqueue_empty_items(void) {
-    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
-}
-
-int prh_impl_sched_thrd_collect_que_len(void) {
-    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.post_collect_que);
-}
-
-int prh_impl_sched_thrd_collect_que_empty_items(void) {
-    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.post_collect_que);
-}
-
-void prh_impl_sched_thrd_collect_que_push(prh_iocp_post *post, prh_u32 index) {
-    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
-    *prh_fixed_arrque_unchecked_push_at(post_collect_que, index) = post;
-}
-
-prh_iocp_post *prh_impl_sched_thrd_collect_que_pop(void) {
-    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
-    if (prh_fixed_arrque_len(post_collect_que) == 0) return prh_null;
-    prh_iocp_post **post_addr = prh_impl_fixed_arrque_top(post_collect_que);
-    prh_iocp_post *post = *post_addr;
-    if (post != prh_null) {
-        prh_impl_fixed_arrque_pop(post_collect_que);
-        PRH_IOCP_GLOBAL.cfmd_post_seqn += 1;
-        *post_addr = prh_null; // 移除的元素必须清零
-    }
-    return post;
-}
-
-bool prh_impl_sched_thrd_collect_each_post(void *collect_seqn_range, void *post, prh_ptr post_seqn) {
-    prh_u32 index = ((prh_u32)post_seqn) - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
-    if (index < (prh_u32)collect_seqn_range) {
-        prh_impl_sched_thrd_collect_que_push(post, index);
-        return true;
-    }
-    return false;
-}
-
-prh_u32 prh_impl_sched_thrd_collect_seqn_range(prh_u32 curr_post_seed) {
-    // 对于 post_seqn < curr_post_seed 的 post，这些 post 已经分配了序号，但是对应的线程可能还未来得及将其插入到 thrd_req_que 队列中
-    // 因此需要维护一个已经确认收集并且已经投递到 post_dispatch_que 的 post 序号 cfmd_post_seqn，用来跟踪哪些 post 已经确认被投递
-    // cfmd_post_seqn 必须按序号一个一个进行递增，每次将 post_collect_que 头部的一个非空的 post 投递到 post_dispatch_que，cfmd_post_seqn 都加一
-    prh_u32 cfmd_post_seqn = PRH_IOCP_GLOBAL.cfmd_post_seqn;
-    prh_u32 collect_seqn_range = curr_post_seed - cfmd_post_seqn;
-    int collect_que_empty_items = prh_impl_sched_thrd_collect_que_empty_items();
-    return (collect_que_empty_items < collect_seqn_range) ? collect_que_empty_items : collect_seqn_range;
-}
-
-int prh_impl_sched_thrd_collect_post(void) {
-    prh_u32 collect_seqn_range = prh_impl_sched_thrd_collect_seqn_range(prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed));
-    if (collect_seqn_range) {
-        // 收集调度线程完成队列中的线程任务
-        prh_sched_cqueue_ptr sched_thrd_cqueue = PRH_IOCP_GLOBAL.sched_thrd_cqueue;
-        prh_sched_cqueue_item *item;
-        while ((item = prh_fixed_arrque_top(sched_thrd_cqueue)) && prh_impl_sched_thrd_collect_each_post((void *)(prh_ptr)collect_seqn_range, item->post, item->post_seqn)) {
-            prh_impl_fixed_arrque_pop(sched_thrd_cqueue);
-        }
-        // 收集各线程各自独立投递的线程任务
-        prh_atom_ext_hive_quefix *req_que_begin = PRH_IOCP_GLOBAL.thrd_req_que, *req_que_end;
-        for (req_que_end = req_que_begin + PRH_IOCP_GLOBAL.thrd_req_que_count; req_que_begin < req_que_end; req_que_begin += 1) {
-            prh_atom_ext_hive_quefix_pops(req_que_begin, prh_impl_sched_thrd_collect_each_post, (void *)(prh_ptr)collect_seqn_range);
-        }
-    }
-    return prh_impl_sched_thrd_collect_que_len();
-}
-
-void prh_impl_sched_thrd_dispatch_post(void) {
-    prh_atom_1wnr_ptr_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
-    prh_atom_1wnr_arrque_snapshot snapshot;
-    if (prh_atom_1wnr_ptr_arrque_snapshot_begin(post_dispatch_que, snapshot)) {
-        for (int i = 0; i < (int)snapshot.empty_items; i += 1) {
-            prh_iocp_post *post = prh_impl_sched_thrd_collect_que_pop();
-            if (post == prh_null) break;
-            prh_atom_1wnr_ptr_arrque_snapshot_push(post_dispatch_que, &snapshot, post);
-        }
-        prh_atom_1wnr_ptr_arrque_snapshot_end(post_dispatch_que, &snapshot);
-    }
-}
-
-int prh_impl_sched_thrd_dispatch_que_len(void) {
-    return (int)prh_atom_1wnr_ptr_arrque_len(PRH_IOCP_GLOBAL.post_dispatch_que);
-}
-
-int prh_impl_sched_thrd_wait_iocp_entries(OVERLAPPED_ENTRY *overlapped_entry, int count, bool keep_sched_thrd_alive) {
-    return prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, overlapped_entry, count, keep_sched_thrd_alive ? 0 : INFINITE);
-}
-
-bool prh_impl_sched_thrd_iocp_entry_completed(OVERLAPPED_ENTRY *entry) {
-    // typedef struct _OVERLAPPED_ENTRY {
-    //     ULONG_PTR lpCompletionKey;
-    //     LPOVERLAPPED lpOverlapped;
-    //     ULONG_PTR Internal;
-    //     DWORD dwNumberOfBytesTransferred;
-    // } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
-    //
-    // typedef struct _OVERLAPPED {     // minwinbase.h (included in WinBase.h)
-    //     ULONG_PTR Internal;          // [out] Error Code
-    //     ULONG_PTR InternalHigh;      // [out] Number of bytes transferred
-    //     union {
-    //         struct {
-    //             DWORD Offset;        // [in] Low 32-bit file offset
-    //             DWORD OffsetHigh;    // [in] High 32-bit file offset
-    //         } DUMMYSTRUCTNAME;
-    //         PVOID Pointer;
-    //     } DUMMYUNIONNAME;
-    //     HANDLE hEvent;               // [in] Event handle or data
-    // } OVERLAPPED, *LPOVERLAPPED;
-    //
-    // #define WSAEVENT                HANDLE
-    // #define LPWSAEVENT              LPHANDLE
-    // #define WSAOVERLAPPED           OVERLAPPED
-    // typedef struct _OVERLAPPED *    LPWSAOVERLAPPED; // winsock2.h
-    //
-    // 三个成员，Offset OffsetHigh hEvent 必须在调用异步操作函数之前进行初始化，其他
-    // 两个成员 Internal InternalHigh 由驱动程序来设置，当 I/O 操作完成时我们可以检
-    // 查它们的值。当使用可提醒 I/O 操作完成时，设备驱动程序不会试图去触发一个事件对象。
-    // 实际上，此时设备根本就没有用到 OVERLAPPED 结构的 hEvent 成员，因此如果需要，我
-    // 们可以将 hEvent 据为己用。
-    //
-    // Internal 成员用来保存已处理的 I/O 请求的错误码，一旦我们发出一个异步 I/O 请求，
-    // 设备驱动程序立即将 Internal 设为 STATUS_PENDING，表示没有错误操作尚未开始。实
-    // 际上，WinBase.h 中定义的 HasOverlappedIoCompleted 宏允许我们检查一个异步 I/O
-    // 操作是否已经完成（Internal != STATUS_PENDING）。
-    //
-    // 在最初设计 OVERLAPPED 结构的时候，Microsoft 决定不公开 Internal 和 InternalHigh
-    // 成员。随着时间的推移，Microsoft 认识到这些成员中包含的信息会对开发人员有用，因此
-    // 把它们公开了。但是 Microsoft 没有改变这些成员的名字，这是因为操作系统的源代码频
-    // 繁地用到它们，而 Microsoft 并不想为此修改源代码。由于现在 Microsoft 已经公开了
-    // Internal 和 Internal High 成员，因此 GetOverlappedResult 函数（获取 lpNumberOfBytesTransferred
-    // 并设置错误码）就不怎么有用了。
-    prh_iocp_completion_routine completion_routine = (prh_iocp_completion_routine)entry->lpCompletionKey;
-    assert(completion_routine != prh_null);
-    assert(entry->lpOverlapped != prh_null);
-    return completion_routine(entry);
-}
-
-void prh_impl_iocp_sched_thrd_post(prh_iocp_post *post) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
-    assert(prh_impl_sched_thrd_cqueue_empty_items() > 0);
-    prh_sched_cqueue_ptr sched_thrd_cqueue = PRH_IOCP_GLOBAL.sched_thrd_cqueue;
-    *prh_fixed_arrque_unchecked_push(sched_thrd_cqueue) = (prh_sched_cqueue_item){post, prh_atom_u32_fetch_inc(&PRH_IOCP_GLOBAL.post_seqn_seed)};
-}
-
-void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
-    OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.overlapped_entry_array;
-    OVERLAPPED_ENTRY *entry_end = prh_null, *entry_ptr = prh_null;
-    prh_iocp_thrd *sched_thrd = ((prh_iocp_thrd *)thrd_ptr);
-    sched_thrd->extra_ptr = PRH_IOCP_GLOBAL.thrd_req_que; // 将线程队列保存到未使用的额外指针变量中
-    int entry_count = 0, dispatch_que_posts;
-    bool keep_sched_thrd_alive = true;
-
-    for (; ;) {
-        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（query_entries_each_time）的完成条目
-        if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
-            if ((entry_count = prh_impl_sched_thrd_wait_iocp_entries(overlapped_entry, PRH_IOCP_GLOBAL.query_entries_each_time, keep_sched_thrd_alive))) {
-                entry_ptr = overlapped_entry;
-                entry_end = overlapped_entry + entry_count;
-            }
-        }
-
-        //  2.  每个完成条目的处理都会向调度线程的完成队列 sched_thrd_cqueue 投递一个线程任务，调度线程的完成队列有一个最大大小限制（sched_thrd_cqueue_size）
-        for (; entry_ptr < entry_end; entry_ptr += 1) {
-            if (!prh_impl_sched_thrd_iocp_entry_completed(entry_ptr)) {
-                break;
-            }
-        }
-
-        //  3.  按任务序号小大收集各线程任务到一个固定大小的调度线程持有的本地队列中（post_collect_que），然后分派到各线程争抢的分派队列中（post_dispatch_que），分派队列大小也固定
-        if (prh_impl_sched_thrd_collect_post()) {
-            prh_impl_sched_thrd_dispatch_post();
-        }
-
-        //  4.  如果任务分派队列已经有分派的任务，根据当前等待的线程数量，按后入先出的顺序唤醒线程
-        dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len();
-        while (dispatch_que_posts > 0 && prh_impl_iocp_thrd_wakeup(prh_impl_iocp_thrd_wait_que_pop())) {
-            dispatch_que_posts -= 1;
-        }
-
-        //  5.  调度线程根据状态决定是否睡眠
-        if (prh_impl_sched_thrd_collect_que_len()) {
-            // 收集的任务还没有完全分派，调度线程必须继续活动
-            //  a.  可能 post_collect_que 队列中的第一个任务，序列号已经分配，但对应的线程还没有来得及将其插入到 thrd_req_que 队列中，因此调度线程还未成功收集该任务导致
-            //      已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
-            //  b.  可能任务分派队列 post_dispatch_que 已经填满，调度线程需要动态跟踪分派队列的大小，继续执行步骤 4 进行任务分派
-            keep_sched_thrd_alive = true;
-        } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != prh_atom_u32_read(&PRH_IOCP_GLOBAL.post_seqn_seed)) {
-            // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号
-            //  a.  要么已经分配的任务没有被对应的线程成功投递，需要调度线程继续跟踪收集任务
-            //  b.  要么还存在新分配的任务没有收集，都需要调度线程需继续执行步骤 3 收集线程任务
-            keep_sched_thrd_alive = true;
-        } else {
-            //  a.  成功收集的线程任务都已经分派出去
-            //  b.  所有分配的任务序列号都已经成功分派到分派队列
-            //  c.  此时调度线程唯一可做的就是在完成端口上进行无限等待
-            keep_sched_thrd_alive = false;
-        }
-    }
 }
 
 #elif defined(prh_plat_linux)
@@ -17319,7 +17848,6 @@ static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
 static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
 static LPFN_CONNECTEX PRH_IMPL_CONNECTEX;
 static LPFN_DISCONNECTEX PRH_IMPL_DISCONNECTEX;
-static RIO_EXTENSION_FUNCTION_TABLE RPH_IMPL_RIO;
 
 void *prh_impl_wsaioctl_extension_func(prh_handle sock, GUID guid);
 void prh_impl_wsaioctl_rio_extensions(prh_handle sock, void *table);
@@ -20543,539 +21071,6 @@ void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, int length) {
     prh_prerr(error_code);
     prh_impl_iocp_error_occurred(&req->post, error_code);
     prh_impl_iocp_wsarecv_complete(&req->post);
-}
-
-// RIO_CQ RIOCreateCompletionQueue(
-//      DWORD QueueSize, // [1, RIO_MAX_CQ_SIZE]
-//      PRIO_NOTIFICATION_COMPLETION NotificationCompletion
-// );
-//
-// typedef enum _RIO_NOTIFICATION_COMPLETION_TYPE {
-//      RIO_EVENT_COMPLETION = 1,
-//      RIO_IOCP_COMPLETION = 2
-// } RIO_NOTIFICATION_COMPLETION_TYPE, *PRIO_NOTIFICATION_COMPLETION_TYPE;
-//
-// typedef struct _RIO_NOTIFICATION_COMPLETION {
-//      RIO_NOTIFICATION_COMPLETION_TYPE Type;
-//      union {
-//          struct {
-//              HANDLE EventHandle;
-//              BOOL   NotifyReset;
-//          } Event;
-//          struct {
-//              HANDLE IocpHandle;
-//              PVOID  CompletionKey;
-//              PVOID  Overlapped;
-//          } Iocp;
-//      };
-// } RIO_NOTIFICATION_COMPLETION, *PRIO_NOTIFICATION_COMPLETION;
-//
-// RIOCreateCompletionQueue 函数用于创建一个特定大小的 I/O 完成队列，以供 Winsock
-// RIO 扩展使用。如果没有错误发生，RIOCreateCompletionQueue 函数返回一个引用新完成队
-// 列的描述符。否则返回 RIO_INVALID_CQ，可以通过 WSAGetLastError 函数获取错误代码。
-//      WSAEFAULT   系统在尝试使用指针参数时检测到无效的指针地址。
-//      WSAEINVAL   向函数传递了无效参数。如果 QueueSize 参数小于 1 或大于 Mswsockdef.h 头文件中定义的 RIO_MAX_CQ_SIZE，则返回此错误。
-//      WSAENOBUFS  无法分配足够的内存。如果根据 QueueSize 参数请求的完成队列无法分配足够的内存，则返回此错误。
-//
-// 参数 QueueSize 要创建的完成队列的大小，以条目数为单位。参数 NotificationCompletion，
-// 基于 RIO_NOTIFICATION_COMPLETION 结构 Type 成员的类型，确定使用的通知完成类型（I/O
-// 完成或事件通知）。
-//  1.  如果 Type 成员设置为 RIO_EVENT_COMPLETION，则 RIO_NOTIFICATION_COMPLETION
-//      结构的 Event 成员必须设置。
-//  2.  如果 Type 成员设置为 RIO_IOCP_COMPLETION，则 RIO_NOTIFICATION_COMPLETION
-//      结构的 Iocp 成员必须设置，并且 RIO_NOTIFICATION_COMPLETION 结构的 Iocp.Overlapped
-//      成员不能为 NULL。
-//  3.  如果 NotificationCompletion 参数为 NULL，则表示不使用通知完成，必须通过轮询来
-//      确定完成。
-//
-// RIOCreateCompletionQueue 函数创建一个特定大小的 I/O 完成队列。完成队列的大小限制了
-// 可以与完成队列关联的注册 I/O 套接字的集合。创建 RIO_CQ 时，NotificationCompletion
-// 参数指向的 RIO_NOTIFICATION_COMPLETION 结构决定了应用程序将如何接收完成队列通知。
-//
-// 如果在创建完成队列时提供了 RIO_NOTIFICATION_COMPLETION 结构，则应用程序可以调用
-// RIONotify 函数请求完成队列通知。通常，当完成队列不为空时会触发通知。这可能立即发生，
-// 或者当下一个完成条目插入完成队列时发生。但是，发送和接收请求可以标记为 RIO_MSG_DONT_NOTIFY，
-// 此类请求不会触发完成队列通知。如果完成队列中只有设置了 RIO_MSG_DONT_NOTIFY 标志的
-// 条目，则不会触发完成队列通知。此外，当新条目进入完成队列时，只有当关联请求未设置
-// RIO_MSG_DONT_NOTIFY 标志时，才会触发完成队列通知。仍然可以使用 RIODequeueCompletion
-// 函数通过轮询检索任何已完成的请求。一旦完成队列通知触发，应用程序必须调用 RIONotify
-// 函数才能接收另一个完成队列通知。当完成队列通知发生时，应用程序通常调用 RIODequeueCompletion
-// 函数来获取已完成的发送或接收请求。
-//
-// 完成队列通知有两种选项：
-//
-// 事件句柄：如果 RIO_NOTIFICATION_COMPLETION 结构的 Type 成员设置为 RIO_EVENT_COMPLETION，
-// 则使用事件句柄来发出完成队列通知。事件句柄通过 RIOCreateCompletionQueue 函数
-// RIO_NOTIFICATION_COMPLETION 结构中的 EventNotify.EventHandle 成员提供。Event.EventHandle
-// 成员应包含由 WSACreateEvent 或 CreateEvent 函数创建的事件的句柄。为了接收 RIONotify
-// 完成通知，应用程序应使用 WSAWaitForMultipleEvents 或类似的等待例程等待指定的事件句
-// 柄。调用 RIONotify 函数会触发对应的 RIO_CQ 事件的完成通知。传递给 RIOCreateCompletionQueue
-// 函数的 RIO_NOTIFICATION_COMPLETION 结构中的 Event.NotifyReset 成员指示是否应在
-// RIONotify 函数调用时重置事件。如果应用程序计划重置并重用事件，则可以通过将 Event.NotifyReset
-// 成员设置为非零值来减少开销。这将导致事件在通知发生时由 RIONotify 函数自动重置，避免
-// 了在 RIONotify 函数调用之间调用 WSAResetEvent 函数来重置事件。
-//
-// I/O 完成端口：如果 RIO_NOTIFICATION_COMPLETION 结构的 Type 成员设置为 RIO_IOCP_COMPLETION，
-// 则使用 I/O 完成端口来发出完成队列通知。I/O 完成端口句柄通过 RIOCreateCompletionQueue
-// 函数的 RIO_NOTIFICATION_COMPLETION 结构中的 Iocp.IocpHandle 成员提供。此 RIO_CQ
-// 对 RIONotify 函数的调用将向对应的 RIO_CQ 完成端口排队一个条目，可以使用 GetQueuedCompletionStatus
-// 或 GetQueuedCompletionStatusEx 函数检索该条目。排队的条目返回的 lpCompletionKey
-// 参数值，对应于 RIO_NOTIFICATION_COMPLETION 结构的 Iocp.CompletionKey 成员中指定
-// 的值，RIO_NOTIFICATION_COMPLETION 结构的 Iocp.Overlapped 成员是一个非 NULL 值。
-//
-// 就其使用而言，完成队列通知旨在唤醒等待的应用程序线程，以便线程可以检查完成队列。唤醒
-// 和调度线程是有代价的，因此如果这种情况发生得太频繁，将对应用程序性能产生负面影响。提
-// 供 RIO_MSG_DONT_NOTIFY 标志，以便应用程序可以控制这些事件的频率，并限制它们对性能的
-// 过度影响。
-//
-// 注意，为了提高效率，对完成队列（RIO_CQ 结构）和请求队列（RIO_RQ 结构）的访问不受同
-// 步原语保护。如果需要从多个线程访问完成队列或请求队列，则应通过临界区、轻量级读写锁或
-// 类似的机制协调访问。单个线程访问时不需要锁定。不同线程可以访问不同的请求/完成队列，
-// 无需锁定。只有当多个线程尝试访问同一个队列时，才需要同步。如果多个线程在同一个套接字
-// 上发出发送和接收操作，也需要同步，因为发送和接收操作使用套接字的请求队列。
-//
-// 注意，必须在运行时通过调用 WSAIoctl 函数并指定 SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
-// 操作码来获取 RIOCreateCompletionQueue 函数的函数指针。传递给 WSAIoctl 函数的输入
-// 缓冲区必须包含 WSAID_MULTIPLE_RIO，这是一个全局唯一标识符（GUID），其值标识 Winsock
-// RIO 扩展函数。成功时，WSAIoctl 函数返回的输出包含指向 RIO_EXTENSION_FUNCTION_TABLE
-// 结构的指针，该结构包含指向 Winsock RIO 扩展函数的指针。SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER
-// IOCTL 在 Ws2def.h 头文件中定义。WSAID_MULTIPLE_RIO GUID 在 Mswsock.h 头文件中定
-// 义。
-//
-// typedef struct RIO_CQ_t* RIO_CQ, **PRIO_CQ;
-//
-// RIO_CQ 完成队列对象​​用于保存 Winsock RIO 网络发送操作和接收操作的完成通知。应用程序
-// 可通过以下方式管理完成队列：应用程序可以调用 RIONotify 函数请求在 RIO_CQ 队列非空时
-// 触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队列进行轮询。使
-// 用 RIONotify 函数注册的通知机制，可以减少轮询的频率，提高性能。
-//
-// RIO_CQ 对象是通过调用 RIOCreateCompletionQueue 函数创建的。在创建时，应用程序必须
-// 指定队列的大小，这决定了它可以容纳多少个完成条目。当应用程序调用 RIOCreateRequestQueue
-// 函数以获取 RIO_RQ 句柄时，应用程序必须指定一个用于发送完成的 RIO_CQ 句柄和一个用于
-// 接收完成的 RIO_CQ 句柄。当应该使用相同的队列进行发送和接收完成时，这些句柄可以相同。
-// RIOCreateRequestQueue 函数还需要一个最大未完成的发送和接收操作数量，这些操作数量会
-// 占用关联的完成队列的容量。如果队列没有足够的剩余容量，RIOCreateRequestQueue 调用将
-// 因 WSAENOBUFS 错误而失败。
-//
-// INT RIONotify(
-//      RIO_CQ CQ
-// );
-//
-// RIONotify 函数用于为 Winsock RIO 注册完成通知，当调用该函数后，对应的完成队列如果
-// 有操作完成，会根据完成队列对应的通知机制进行完成通知。若未发生错误，RIONotify 函数
-// 返回 ERROR_SUCCESS；否则返回特定错误代码。
-//      ​​WSAEINVAL     函数接收到无效参数。若传入的完成队列无效（如 RIO_INVALID_CQ）或发生内部错误时返回此错误。
-//      WSAEALREADY​​   尝试对已有操作进行的非阻塞套接字继续请求操作。若前一次 RIONotify 请求尚未完成则返回此错误。
-//
-// ​参数​​ ​CQ​​ 指定对应的 I/O 完成队列。
-//
-// 该函数是应用程序获知请求已完成且待调用 RIODequeueCompletion 的机制。当 I/O 完成队
-// 列非空且包含操作结果时，RIONotify 会设置触发通知行为的方法。只要让 RIO 完成队列在
-// "有新完成包" 时主动唤醒你，就要先调用一次 RIONotify，调一次 RIONotify 只负责 “下一
-// 次” 完成到达后的信号触发，调一次只生效一次，用完必须再调。每次 RIODequeueCompletion
-// 把队列抽空后，必须再次调用 RIONotify，否则新完成包进来不会触发事件或 IOCP。消费完队
-// 列就再按一次，让 RIO 在新完成包到达时重新点亮事件或 IOCP，否则通知链条会断掉。
-//
-// 三种通知模型与 RIONotify 的使用方式
-//  模型            什么时候调 RIONotify            之后如何拿到完成结果
-//  轮询            不调（或调了也不用等事件）       直接循环 RIODequeueCompletion
-//  事件通知        每次消费完队列后再调一次         WaitForSingleObject(hev, …) 被唤醒，再 RIODequeueCompletion
-//  IOCP 通知       同上，消费完再调                GetQueuedCompletionStatus(Ex) 返回，再 RIODequeueCompletion
-//
-//      // 1. 创建队列时指定通知对象
-//      RIO_CQ cq = rio.RIOCreateCompletionQueue(queueSize, &event); // 或 &iocp
-//      // 2. 初始投递一批 RIOReceive / RIOSend
-//      for (...) rio.RIOReceive(rq, &buf, 1, 0, context);
-//      // 3. 先调一次 RIONotify 启动 “信号-armed” 状态
-//      rio.RIONotify(cq);
-//      for (; ;) {
-//          // 4. 等事件/IOCP
-//          WaitForSingleObject(event, INFINITE); // 或 GetQueuedCompletionStatus
-//          // 5. 收割
-//          ULONG n;
-//          while ((n = rio.RIODequeueCompletion(cq, results, MAX)) > 0) {
-//              HandleCompletions(results, n);
-//          }
-//          // 6. 队列再次为空，重新装填准备发射（armed）
-//          rio.RIONotify(cq);
-//      }
-//
-// 完成队列的通知行为在其创建时即被确定。创建 RIO_CQ 时需向 RIOCreateCompletionQueue
-// 函数传递 RIO_NOTIFICATION_COMPLETION 结构体：
-//
-// ​事件通知​​：将结构体的 Type 成员设为 RIO_EVENT_COMPLETION，Event.EventHandle 成员
-// 应为 WSACreateEvent 或 CreateEvent 创建的事件句柄。应用程序需通过 WSAWaitForMultipleEvents
-// 等例程等待该句柄。若需重复使用事件，可将 Event.NotifyReset 设为非零值以自动重置事件，
-// 避免调用 WSAResetEvent。
-//
-// IOCP 通知​​：将 Type 设为 RIO_IOCP_COMPLETION，Iocp.IocpHandle 成员应为 CreateIoCompletionPort
-// 创建的 IOCP 句柄。应用程序需调用 GetQueuedCompletionStatus(Ex)，并通过专用 OVERLAPPED
-// 对象及 CompletionKey 区分不同队列的通知。
-//
-// 使用线程池的应用程序可通过线程池等待对象接收通知，此时应在调用 RIONotify 后立即调用
-// SetThreadpoolWait。若顺序颠倒且依赖 RIONotify 清除事件对象，可能导致回调函数误触发。
-//
-// ​​线程安全​​，多线程通过 RIODequeueCompletion 访问同一 RIO_CQ 时，需使用临界区、轻量级
-// 读写锁（slim reader writer lock）等互斥机制协调。若完成队列非共享，则无需互斥。
-//
-// ULONG RIODequeueCompletion(
-//      RIO_CQ CQ,
-//      PRIORESULT Array,
-//      ULONG ArraySize
-// );
-//
-// typedef struct _RIORESULT {
-//      LONG      Status;
-//      ULONG     BytesTransferred;
-//      ULONGLONG SocketContext;
-//      ULONGLONG RequestContext;
-// } RIORESULT, *PRIORESULT;
-//
-// RIODequeueCompletion 函数用于从 I/O 完成队列中移除条目。如果没有错误发生，函数返回
-// 从指定完成队列中移除的完成条目数。否则返回 RIO_CORRUPT_CQ，表示由于内存损坏或滥用
-// RIO 函数，CQ 参数中传递的 RIO_CQ 的状态已损坏。
-//
-// 参数 CQ 指定 I/O 完成队列。参数 Array 指定 RIORESULT 结构数组，用于接收已出队的完
-// 成通知。参数 ArraySize，Array 中可写入的最大条目数。
-//
-// RIODequeueCompletion 函数用于从 I/O 完成队列中移除发送和接收请求的条目，这些请求与
-// Winsock RIO 扩展相关。
-//
-// RIODequeueCompletion 函数是应用程序了解已完成的发送和接收请求的机制。应用程序通常
-// 在完成队列不为空时，根据 RIONotify 函数注册的方法接收通知后，调用 RIODequeueCompletion
-// 函数。I/O 完成队列的通知行为在创建 RIO_CQ 时设置。
-//
-// 当 RIODequeueCompletion 函数完成时，Array 参数包含一个指向已出队的完成发送和接收请
-// 求的 RIORESULT 结构体数组。返回的 RIORESULT 结构的成员提供了已完成请求的完成状态信
-// 息和传输的字节数。每个返回的 RIORESULT 结构还包括一个套接字上下文和一个应用程序上下
-// 文，可用于识别特定的已完成请求。
-//
-// 如果 CQ 参数中传递的 I/O 完成队列无效或已损坏，RIODequeueCompletion 函数返回 RIO_CORRUPT_CQ。
-// 如果没有任何已完成的发送或接收请求需要出队，RIODequeueCompletion 函数返回零值。只有
-// 在操作请求完成且被出队后，系统才会释放其缓冲区和缓冲区注册的关联，以及其配额费用。
-//
-// BOOL RIOResizeCompletionQueue(
-//      RIO_CQ CQ,
-//      DWORD QueueSize
-// );
-//
-// RIOResizeCompletionQueue 函数用于调整 I/O 完成队列的大小，使其变大或变小。如果没有
-// 错误发生，RIOResizeCompletionQueue 函数返回 TRUE。否则返回 FALSE，可以通过调用
-// WSAGetLastError 函数获取特定的错误代码。
-//      WSAEFAULT           系统在尝试使用指针参数时检测到无效的指针地址。如果 CQ 参数中指定的完成队列包含无效指针，则返回此错误。
-//      WSAEINVAL           向函数传递了无效参数。如果 CQ 参数无效（例如 RIO_INVALID_CQ），或者 QueueSize 参数指定的队列大小大于 RIO_CQ_MAX_SIZE，则返回此错误。
-//      WSAENOBUFS          无法分配足够的内存。如果无法为 QueueSize 参数指定的队列分配内存，则返回此错误。
-//      WSAETOOMANYREFS     仍有太多操作引用 I/O 完成队列。此时无法将此 I/O 完成队列调整为更小的大小。
-//
-// 参数 CQ 标识要调整大小的现有 I/O 完成队列的描述符。参数 QueueSize 要调整到的新大小，
-// 以条目数为单位。
-//
-// RIOResizeCompletionQueue 函数用于调整 I/O 完成队列的大小，使其变大或变小。如果 I/O
-// 完成队列中已经包含完成条目，这些完成条目将被复制到新的完成队列中。                    *** 现存的完成条目会复制到新的完成队列中
-//
-// I/O 完成队列有一个所需的最小大小，这取决于与完成队列关联的请求队列的数量以及请求队列
-// 上的发送和接收操作的数量。如果应用程序调用 RIOResizeCompletionQueue 函数并尝试将队
-// 列设置得比 I/O 完成队列中现有的完成条目数量还小，则调用将失败，队列不会被调整大小。    *** 完成队列应维持一个最小的队列大小，可以满足关联的请求队列以及触发的发送和接收操作的数量
-//
-// 如果多个线程尝试使用 RIODequeueCompletion 或 RIOResizeCompletionQueue 函数访问同
-// 一个 RIO_CQ，必须通过临界区、轻量级读写锁或类似的互斥机制协调访问。如果完成队列不共
-// 享，则不需要互斥。
-//
-// VOID RIOCloseCompletionQueue(
-//      RIO_CQ CQ
-// );
-//
-// RIOCloseCompletionQueue 函数用于关闭一个现有的 I/O 完成队列，该队列用于保存通过
-// Winsock RIO 发送操作和接收操作的完成通知。参数 CQ 指定一个现有的完成队列。
-//
-// RIOCloseCompletionQueue 函数关闭一个现有的 I/O 完成队列。CQ 参数中传递的 RIO_CQ
-// 被内核锁定为写入状态（locked for writing by the kernel）。完成队列被标记为无效，     *** 完成队列关闭后，挂起操作的完成通知将被丢弃
-// 因此无法添加新的完成条目。任何要添加的新完成条目将被静默丢弃。应用程序应跟踪任何挂起
-// 的发送或接收操作。
-//
-// 如果在 CQ 参数中传递了一个无效的完成队列（例如 RIO_INVALID_CQ），RIOCloseCompletionQueue
-// 函数将忽略它。
-
-typedef struct prh_rio_cqueue prh_rio_cqueue;
-
-prh_rio_cqueue *prh_impl_rio_cqueue_create(int queue_size, HANDLE completion_port, prh_ptr completion_key, void *overlapped) {
-    assert(queue_size > 0 && queue_size <= RIO_MAX_CQ_SIZE); // mswsockdef.h #define RIO_MAX_CQ_SIZE 0x800_0000
-    RIO_NOTIFICATION_COMPLETION completion;
-    completion.Type = RIO_IOCP_COMPLETION;
-    completion.Iocp.IocpHandle = completion_port;
-    completion.Iocp.CompletionKey = (PVOID)completion_key;
-    completion.Iocp.Overlapped = (PVOID)overlapped;
-    RIO_CQ *rio_cq = PRH_IMPL_RIO.RIOCreateCompletionQueue(queue_size, &completion);
-    prh_wsa_abort_if(rio_cq == prh_null);
-    return (prh_rio_cqueue *)rio_cq;
-}
-
-void prh_impl_rio_cqueue_resize(prh_rio_cqueue *cqueue, int new_queue_size) {
-    assert(new_queue_size > 0 && new_queue_size <= RIO_MAX_CQ_SIZE);
-    BOOL b = PRH_IMPL_RIO.RIOResizeCompletionQueue((RIO_CQ)cqueue, new_queue_size);
-    prh_wsa_prerr_if(b == FALSE);
-}
-
-void prh_impl_rio_cqueue_close(prh_rio_cqueue *cqueue) {
-    PRH_IMPL_RIO.RIOCloseCompletionQueue((RIO_CQ)cqueue);
-}
-
-void prh_impl_rio_notify(prh_rio_cqueue *cqueue) {
-    // 应用程序可通过两种方式管理完成队列：应用程序可以调用 RIONotify 请求在 RIO_CQ
-    // 队列非空时触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队
-    // 列进行轮询。使用 RIONotify 函数注册的通知机制，可以减少轮询的频率，提高性能。
-    INT n = PRH_IMPL_RIO.RIONotify((RIO_CQ)cqueue);
-    prh_wsa_prerr_if(n != 0);
-}
-
-int prh_impl_rio_cqueue_query(prh_rio_cqueue *cqueue, RIORESULT *entry, int count) {
-    // typedef struct _RIORESULT {
-    //      LONG      Status;
-    //      ULONG     BytesTransferred;
-    //      ULONGLONG SocketContext;
-    //      ULONGLONG RequestContext;
-    // } RIORESULT, *PRIORESULT;
-    assert(entry != prh_null && count > 0);
-    ULONG n = PRH_IMPL_RIO.RIODequeueCompletion((RIO_CQ)cqueue, entry, count);
-    prh_wsa_abort_if(n == RIO_CORRUPT_CQ);
-    return (int)n;
-}
-
-// RIO_RQ RIOCreateRequestQueue(
-//      SOCKET Socket,
-//      ULONG MaxOutstandingReceive,
-//      ULONG MaxReceiveDataBuffers,
-//      ULONG MaxOutstandingSend,
-//      ULONG MaxSendDataBuffers,
-//      RIO_CQ ReceiveCQ,
-//      RIO_CQ SendCQ,
-//      PVOID SocketContext
-// );
-//
-// RIOCreateRequestQueue 函数用于创建一个 RIO 套接字描述符，使用指定的套接字和 I/O 完
-// 成队列，以供 Winsock RIO 扩展函数使用。如果没有错误发生，RIOCreateRequestQueue 函
-// 数返回一个新的请求队列的描述符。否则返回 RIO_INVALID_RQ，可以通过调用 WSAGetLastError
-// 函数获取特定的错误代码。
-//      WSAEINVAL       向函数传递了无效参数。如果 ReceiveCQ 或 SendCQ 参数包含 RIO_INVALID_CQ，则返回此错误。如果 MaxOutstandingReceive
-//                      和 MaxOutstandingSend 参数均为零，也返回此错误。如果 Socket 参数中的套接字正在初始化或关闭过程中，也返回此错误。
-//      WSAENOBUFS      无法分配足够的内存。如果根据参数无法为请求队列分配足够的内存，则返回此错误。如果超出网络会话限制，也返回此错误。
-//      WSAENOTSOCK     描述符不是套接字。如果 Socket 参数不是有效套接字，则返回此错误。
-//      WSAEOPNOTSUPP   尝试的操作不支持引用的对象类型。如果 Socket 参数中的套接字类型不受支持（例如 SOCK_RAW），则返回此错误。
-//
-// 参数 Socket 标识套接字的描述符。
-//
-// 参数 MaxOutstandingReceive 允许在套接字上挂起的最大接收操作的数量。注意，对于大多
-// 数应用程序，此参数通常是一个较小的数字。参数 MaxReceiveDataBuffers 套接字上的最大
-// 接收数据缓冲区的数量。注意，对于 Windows 8 和 Windows Server 2012 此参数必须为 1。
-//
-// 参数 MaxOutstandingSend 允许在套接字上挂起的最大发送操作的数量。参数 MaxSendDataBuffers
-// 套接字上的最大发送数据缓冲区的数量。注意，对于 Windows 8 和 Windows Server 2012，
-// 此参数必须为 1。
-//
-// 参数 ReceiveCQ 表示用于保存接收请求完成通知的 I/O 完成队列。参数 SendCQ 表示用于保
-// 存发送请求完成通知的 I/O 完成队列。此参数可以与 ReceiveCQ 参数具有相同的值。
-//
-// 参数 SocketContext，与该请求队列关联的套接字上下文。
-//
-// RIOCreateRequestQueue 函数使用指定的套接字和 I/O 完成队列创建一个 RIO 套接字描述符。
-// 应用程序必须调用 RIOCreateRequestQueue 以获取 Winsock 套接字的 RIO_RQ，然后才能使
-// 用 RIOSend、RIOSendEx、RIOReceive 或 RIOReceiveEx 函数。为了获取 RIO_RQ，Winsock
-// 套接字必须与发送和接收的完成队列关联。
-//
-// 由于完成队列的大小是有限的，只有在保证不会超过总排队完成的容量时，套接字才可能与发送
-// 和接收操作的完成队列关联。因此，通过调用 RIOCreateRequestQueue 函数为套接字建立了特
-// 定的限制。这些限制既用于在 RIOCreateRequestQueue 调用期间验证完成队列中有足够的空间
-// 来容纳套接字请求，也用于在请求发起时确保请求不会导致套接字超出其限制。
-//
-// 发送和接收队列可以与多个套接字关联。发送和接收队列的大小必须大于或等于所有附加套接字    *** 发送操作的完成队列和接收操作的完成队列，可以与多个套接字关联，直到套接字被关闭
-// 的发送和接收大小。随着使用 closesocket 函数关闭套接字，请求队列被关闭，这些插槽将被
-// 释放，供其他套接字使用。当应用程序完成对 RIO_RQ 的使用时，应用程序应调用 closesocket
-// 函数关闭套接字并释放相关资源。
-//
-// typedef struct RIO_RQ_t* RIO_RQ, **PRIO_RQ;
-//
-// Winsock RIO 扩展函数主要在 RIO_RQ 对象上操作，而不是直接在套接字上。应用程序通过调
-// 用 RIOCreateRequestQueue 函数为现有的套接字获取一个 RIO_RQ。输入的套接字必须通过在   *** 请求队列关联的套接字必须设置 WSA_FLAG_RIO 标志
-// dwFlags 参数中设置 WSA_FLAG_RIO 标志调用 WSASocket 函数创建。
-//
-// 获取 RIO_RQ 对象后，底层套接字描述符仍然有效。应用程序可以继续使用底层套接字来设置和
-// 查询套接字选项、发出 IOCTL 调用，最终关闭套接字。
-//
-// BOOL RIOResizeRequestQueue(
-//      RIO_RQ RQ,
-//      DWORD MaxOutstandingReceive,
-//      DWORD MaxOutstandingSend
-// );
-//
-// RIOResizeRequestQueue 函数用于调整请求队列的大小，使其变大或变小。如果没有错误发生，
-// RIOResizeRequestQueue 函数返回 TRUE。否则返回，可以通过调用 WSAGetLastError 函数
-// 获取特定的错误代码。
-//      WSAEINVAL           向函数传递了无效参数。如果 RQ 参数无效（例如 RIO_INVALID_RQ），或者 MaxOutstandingReceive 和 MaxOutstandingSend 参数均为零，则返回此错误。
-//      WSAENOBUFS          无法分配足够的内存。如果无法为调整大小后的请求队列分配内存，则返回此错误。
-//      WSAETOOMANYREFS     仍有太多操作引用请求队列。此时无法将此请求队列调整为更小的大小。
-//
-// 参数 RQ 标识要调整大小的现有 RIO 套接字描述符（请求队列）。
-//
-// 参数 MaxOutstandingReceive 允许在套接字上挂起的最大接收操作数。此值可以大于或小于
-// 原始数量。注意，对于大多数应用程序，此参数通常是一个较小的数字。
-//
-// 参数 MaxOutstandingSend 允许在套接字上挂起的最大发送操作数。此值可以大于或小于原始
-// 数量。
-//
-// RIOResizeRequestQueue 函数用于调整请求队列的大小，使其变大或变小。如果请求队列中已
-// 经包含条目，这些条目将被复制到新的请求队列中。
-//
-// 请求队列有一个所需的最小大小，这取决于当前条目数量（请求队列上的发送和接收操作数量）。
-// 如果应用程序调用 RIOResizeRequestQueue 函数并尝试将队列设置得比现有条目数量还小，
-// 则调用将失败，队列不会被调整大小。
-
-typedef struct prh_rio_rqueue prh_rio_rqueue, *prh_rio_socket;
-
-prh_rio_rqueue *prh_impl_rio_rqueue_create(prh_handle socket, prh_rio_cqueue *cqueue, void *socket_context) {
-    RIO_RQ rio_rq = PRH_IMPL_RIO.RIOCreateRequestQueue(
-        /* SOCKET Socket                */ (SOCKET)socket,
-        /* ULONG MaxOutstandingReceive  */ 1, // 一个套接字同时只允许一个待完成的接收操作
-        /* ULONG MaxReceiveDataBuffers  */ 1, // 一个套接字只使用一个缓冲区用于接收
-        /* ULONG MaxOutstandingSend     */ 1, // 一个套接字同时只允许一个待完成的发送操作
-        /* ULONG MaxSendDataBuffers     */ 1, // 一个套接字只使用一个缓冲区用于发送
-        /* RIO_CQ ReceiveCQ             */ (RIO_CQ)cqueue, // 关联接收操作使用的完成队列
-        /* RIO_CQ SendCQ                */ (RIO_CQ)cqueue, // 关联发送操作使用的完成队列
-        /* PVOID SocketContext          */ (PVOID)socket_context
-        );
-    prh_wsa_abort_if(rio_rq == prh_null);
-    return (prh_rio_rqueue *)rio_rq;
-}
-
-void prh_impl_rio_rqueue_resize(prh_rio_rqueue *rqueue, int max_out_recv, int max_out_send) {
-    BOOL b = PRH_IMPL_RIO.RIOResizeRequestQueue((RIO_RQ)rqueue, max_out_recv, max_out_send);
-    prh_wsa_prerr_if(b == FALSE);
-}
-
-// RIO_BUFFERID RIORegisterBuffer(
-//      PCHAR DataBuffer,
-//      DWORD DataLength
-// );
-//
-// RIORegisterBuffer 函数用于注册一个 RIO_BUFFERID，以便与指定的缓冲区一起使用 Winsock
-// RIO 扩展函数。如果没有错误发生，RIORegisterBuffer 函数返回一个注册的缓冲区描述符。
-// 否则返回 RIO_INVALID_BUFFERID，可以调用 WSAGetLastError 函数获取特定的错误代码。
-//      WSAEFAULT   系统在尝试使用指针参数时检测到无效的指针地址。如果 DataBuffer 参数传递了无效的缓冲区指针，则返回此错误。
-//      WSAEINVAL   向函数传递了无效参数。如果 DataLength 参数为零，则返回此错误。
-//
-// 参数 DataBuffer 指向要注册的内存缓冲区的起始位置的指针。参数 DataLength 要注册的缓
-// 冲区中的字节长度。
-//
-// RIORegisterBuffer 函数为指定的缓冲区创建一个注册缓冲区标识符。当缓冲区被注册时，包
-// 含缓冲区的虚拟内存页面将被锁定在物理内存中。
-//
-// 如果注册了多个小的、不连续的缓冲区，这些缓冲区的物理内存占用可能实际上每个注册都相当
-// 于一个完整的内存页面。在这种情况下，将多个请求缓冲区一起分配可能会更有益。
-//
-// 注册缓冲区本身也会占用少量的物理内存开销。因此，如果许多分配被聚合到一个更大的分配中，
-// 通过聚合缓冲区注册，物理内存占用可能会进一步减少。在这种情况下，应用程序可能需要格外
-// 小心，以确保最终注销了缓冲区，但不要在任何发送或接收请求仍然挂起时注销。
-//
-// 注册缓冲区的一部分通过 RIOSend、RIOSendEx、RIOReceive 和 RIOReceiveEx 函数的
-// pData 参数传递，用于发送或接收数据。当不再需要缓冲区标识符时，调用 RIODeregisterBuffer
-// 函数注销缓冲区标识符。
-//
-// VOID RIODeregisterBuffer(
-//      RIO_BUFFERID BufferId
-// );
-//
-// RIODeregisterBuffer 函数用于注销与 Winsock RIO 扩展函数一起使用的注册缓冲区。参数
-// BufferId 标识一个注册缓冲区的描述符。
-//
-// RIODeregisterBuffer 函数注销一个注册缓冲区。当缓冲区被注销时，应用程序表示它已经完
-// 成了对 BufferId 参数中传递的缓冲区标识符的使用。任何后续尝试使用此缓冲区标识符的其他
-// 函数调用都将失败。如果注销了一个仍在使用的缓冲区，结果是未定义的。这被视为一个严重错    *** 注销一个仍在使用的缓冲区，结果未定义
-// 误。在 RIODequeueCompletion 函数返回的 RIORESULT 结构中，状态将保持正常状态不变。
-// 应用程序开发人员可以使用 Application Verifier 工具检测此错误条件。
-//
-// 如果在 BufferId 参数中传递了一个无效的缓冲区标识符，RIODeregisterBuffer 函数将忽略
-// 它。
-//
-// typedef struct RIO_BUFFERID_t* RIO_BUFFERID, **PRIO_BUFFERID;
-//
-// typedef struct _RIO_BUF {
-//      RIO_BUFFERID BufferId;
-//      ULONG        Offset;
-//      ULONG        Length;
-// } RIO_BUF, *PRIO_BUF;
-//
-// Winsock RIO 扩展函数主要通过 RIO_BUFFERID 对象操作注册缓冲区。应用程序通过调用
-// RIORegisterBuffer 函数为现有的缓冲区获取一个 RIO_BUFFERID。应用程序可以使用
-// RIODeregisterBuffer 函数释放注册的缓冲区。
-//
-// 当现有的缓冲区通过 RIORegisterBuffer 函数注册为 RIO_BUFFERID 对象时，会从物理内存
-// 中分配某些内部资源，并将现有的应用程序缓冲区锁定到物理内存中。调用 RIODeregisterBuffer
-// 函数注销缓冲区，释放这些内部资源，并允许缓冲区从物理内存中解锁并释放。
-//
-// 使用 Winsock RIO 扩展函数反复注册和注销应用程序缓冲区可能会导致显著的性能下降。在设
-// 计使用 Winsock RIO 扩展函数的应用程序中，应考虑以下缓冲区管理方法，以最小化应用程序
-// 缓冲区的重复注册和注销：
-//  1.  最大化缓冲区的重用。
-//  2.  维护一个有限的未使用注册缓冲区池，供应用程序使用。
-//  3.  维护一个有限的注册缓冲区池，并在这些注册缓冲区和其他未注册缓冲区之间执行缓冲区复制。
-//
-// RIO_BUFFERID 类型定义在 Mswsockdef.h 头文件中，该文件会自动包含在 Mswsock.h 头文
-// 件中。不应直接使用 Mswsockdef.h 头文件。
-//
-// Winsock RIO 扩展函数通常在注册缓冲区的部分区间（有时称为缓冲区切片）上操作。需要使用
-// 少量注册内存发送或接收网络数据的应用程序会使用 RIO_BUF 结构。通过注册一个大缓冲区，
-// 然后根据需要使用缓冲区的小块，应用程序通常可以提高性能。RIO_BUF 结构可以描述单个缓冲
-// 区注册中包含的任何连续内存段。
-//
-// 指向 RIO_BUF 结构的指针作为 pData 参数传递给 RIOSend、RIOSendEx、RIOReceive 和
-// RIOReceiveEx 函数，用于发送或接收网络数据。应用程序不能仅仅通过使用大于原始注册缓冲
-// 区的缓冲区切片值来调整注册缓冲区的大小。
-
-typedef struct prh_impl_rio_buffer *prh_rio_buffer;
-
-prh_rio_buffer prh_impl_rio_buffer_register(prh_byte *buffer, int length) {
-    assert(buffer != prh_null && length > 0);
-    // 当缓冲区被注册时，包含缓冲区的虚拟内存页面将被锁定在物理内存中。如果注册了多个小
-    // 的、不连续的缓冲区，这些缓冲区的物理内存占用可能实际上每个注册都相当于一个完整的
-    // 内存页面。在这种情况下，将多个请求缓冲区一起分配可能会更有益。注册缓冲区本身也会
-    // 占用少量的物理内存开销。因此，如果许多分配被聚合到一个更大的分配中，通过聚合缓冲
-    // 区注册，物理内存占用可能会进一步减少。
-    RIO_BUFFERID buffer = PRH_IMPL_RIO.RIORegisterBuffer((PCHAR)buffer, length);
-    prh_wsa_abort_if(buffer == prh_null);
-    return (void *)buffer;
-}
-
-void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) {
-    PRH_IMPL_RIO.RIODeregisterBuffer((RIO_BUFFERID)buffer);
-}
-
-static prh_rio_cqueue *PRH_IMPL_RIO_CQUEUE;
-static prh_rio_buffer PRH_IMPL_RIO_BUFFER;
-static prh_byte *PRH_IMPL_RIO_BUFBEG, *PRH_IMPL_RIO_BUFEND;
-
-void prh_iocp_rio_init(int cqueue_size, prh_byte *register_trx_buffer, int buffer_length, prh_iocp_completion_routine completion) {
-    assert(register_trx_buffer != prh_null && ((prh_ptr)register_trx_buffer % PRH_CACHE_LINE_SIZE) == 0);
-    assert(buffer_length > 0 && (buffer_length % PRH_CACHE_LINE_SIZE) == 0);
-    PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(cqueue_size, PRH_IMPL_IOCP, (prh_ptr)completion, (void *)&PRH_IMPL_RIO_CQUEUE);
-    PRH_IMPL_RIO_BUFFER = prh_impl_rio_buffer_register(register_trx_buffer, buffer_length);
-    PRH_IMPL_RIO_BUFBEG = register_trx_buffer;
-    PRH_IMPL_RIO_BUFEND = register_trx_buffer + buffer_length;
-}
-
-void prh_iocp_rio_free(void) {
-    prh_impl_rio_cqueue_close(PRH_IMPL_RIO_CQUEUE);
-    prh_impl_rio_buffer_deregister(PRH_IMPL_RIO_BUFFER);
-}
-
-void prh_iocp_rio_notify(void) {
-    prh_impl_rio_notify(PRH_IMPL_RIO_CQUEUE);
-}
-
-int prh_iocp_rio_query(RIORESULT *entry, int count) {
-    return prh_impl_rio_cqueue_query(PRH_IMPL_RIO_CQUEUE, entry, count);
-}
-
-prh_rio_socket prh_iocp_create_rio_socket(prh_handle socket) {
-    return prh_impl_rio_rqueue_create(socket, PRH_IMPL_RIO_CQUEUE, (void *)socket);
 }
 
 // BOOL RIOSend(
