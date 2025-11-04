@@ -15433,7 +15433,19 @@ void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *ent
 #include <winternl.h> // RtlNtStatusToDosError
 
 static HANDLE PRH_IMPL_IOCP;
-typedef void (*prh_impl_iocp_completion)(OVERLAPPED_ENTRY *entry);
+typedef void (*prh_iocp_completion_routine)(OVERLAPPED_ENTRY *entry);
+
+struct prh_iocp_post;
+typedef void (*prh_complete_routine)(struct prh_iocp_post *post);
+typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
+
+typedef struct {
+    prh_u32 error_code;
+    prh_u32 bytes_transferred;
+    void *context;
+    prh_complete_routine complete_routine;
+    prh_continue_routine continue_routine;
+} prh_iocp_post;
 
 typedef struct {
     prh_iocp_post post;
@@ -15471,10 +15483,6 @@ void prh_impl_iocp_attach_socket(prh_handle socket) {
     prh_impl_completion_port_attach(PRH_IMPL_IOCP, socket, (void *)prh_impl_iocp_socket_completion);
 }
 
-struct prh_iocp_post;
-typedef void (*prh_complete_routine)(struct prh_iocp_post *post);
-typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
-
 typedef struct {
     prh_handle accept_socket;
     prh_sockaddr *local;
@@ -15486,14 +15494,6 @@ typedef struct {
     prh_sockaddr *local;
     prh_sockaddr *remote;
 } prh_iocp_connect_result;
-
-typedef struct {
-    prh_u32 error_code;
-    prh_u32 bytes_transferred;
-    void *context;
-    prh_complete_routine complete_routine;
-    prh_continue_routine continue_routine;
-} prh_iocp_post;
 
 typedef struct prh_thrd_struct(
     bool wakeup_semaphore;
@@ -15839,7 +15839,7 @@ bool prh_impl_sched_thrd_que_full(void) {
     return prh_impl_sched_thrd_que_len() >= PRH_IOCP_GLOBAL.sched_req_que_max_size;
 }
 
-void prh_impl_sched_thrd_process_entry(OVERLAPPED_ENTRY *entry) {
+void prh_impl_sched_completion_entry(OVERLAPPED_ENTRY *entry) {
     // typedef struct _OVERLAPPED_ENTRY {
     //     ULONG_PTR lpCompletionKey;
     //     LPOVERLAPPED lpOverlapped;
@@ -15882,7 +15882,7 @@ void prh_impl_sched_thrd_process_entry(OVERLAPPED_ENTRY *entry) {
     // 繁地用到它们，而 Microsoft 并不想为此修改源代码。由于现在 Microsoft 已经公开了
     // Internal 和 Internal High 成员，因此 GetOverlappedResult 函数（获取 lpNumberOfBytesTransferred
     // 并设置错误码）就不怎么有用了。
-    prh_impl_iocp_completion completion_routine = (prh_impl_iocp_completion)entry->lpCompletionKey;
+    prh_iocp_completion_routine completion_routine = (prh_iocp_completion_routine)entry->lpCompletionKey;
     assert(completion_routine != prh_null);
     assert(entry->lpOverlapped != prh_null);
     completion_routine(entry);
@@ -15913,12 +15913,12 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
                 remain_entry_count = sched_req_que_empty_items;
             }
             for (int i = 0; i < remain_entry_count; i += 1) {
-                prh_impl_sched_thrd_process_entry(entry_ptr);
+                prh_impl_sched_completion_entry(entry_ptr);
                 entry_ptr += 1;
             }
             for (; entry_ptr < entry_end; entry_ptr += 1) {
                 if (prh_impl_sched_thrd_que_full()) break;
-                prh_impl_sched_thrd_process_entry(entry_ptr);
+                prh_impl_sched_completion_entry(entry_ptr);
             }
         }
 
@@ -19486,6 +19486,11 @@ void prh_impl_iocp_connect_complete(prh_iocp_post *post) {
     prh_iocp_thrd_post(post);
 }
 
+void prh_impl_iocp_connect_completed_from_port(prh_iocp_post *post) {
+    post->complete_routine = prh_impl_iocp_connect_continue;
+    prh_iocp_sched_thrd_post(post);
+}
+
 void prh_impl_iocp_create_connect_socket(prh_iocp_connect *req, int family) {
     prh_handle connect_socket = prh_impl_tcp_socket(family);
     req->connect_socket = connect_socket;
@@ -19500,7 +19505,6 @@ void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
         prh_impl_iocp_create_connect_socket(req, family);
     }
     req->overlapped.hEvent = prh_null;
-    req->post.complete_routine = prh_impl_iocp_connect_complete;
     BOOL b = PRH_IMPL_CONNECTEX(
         /* [in]           SOCKET s                  */ req->connect_socket,
         /* [in]           const sockaddr *name      */ remote;
@@ -19514,6 +19518,7 @@ void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
+        req->post.complete_routine = prh_impl_iocp_connect_completed_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -20062,22 +20067,22 @@ prh_static_assert(sizeof(prh_iocp_wsasend) == sizeof(prh_iocp_wsarecv));
 prh_static_assert(sizeof(prh_iocp_wsasend) == sizeof(prh_iocp_riosend));
 prh_static_assert(sizeof(prh_iocp_riosend) == sizeof(prh_iocp_riorecv));
 
-prh_inline int prh_impl_iocp_txrxreq_alloc_size(void) {
+prh_inline int prh_impl_iocp_trxreq_alloc_size(void) {
     return (int)sizeof(prh_iocp_wsasend);
 }
 
-prh_inline void prh_impl_iocp_txrxreq_init(void *req, prh_handle socket, prh_continue_routine routine, void *context) {
+prh_inline void prh_impl_iocp_trxreq_init(void *req, prh_handle socket, prh_continue_routine routine, void *context) {
     memset(req, 0, sizeof(prh_iocp_wsasend));
     prh_iocp_post_init(&req->post, reoutine, context);
     req->socket = socket;
 }
 
 int prh_iocp_wsasend_alloc_size(void) {
-    return prh_impl_iocp_txrxreq_alloc_size();
+    return prh_impl_iocp_trxreq_alloc_size();
 }
 
 void prh_iocp_wsasend_init(prh_iocp_wsasend *req, prh_handle socket, prh_continue_routine routine, void *context) {
-    prh_impl_iocp_txrxreq_init(req, socket, routine, context);
+    prh_impl_iocp_trxreq_init(req, socket, routine, context);
 }
 
 void prh_impl_iocp_wsasend_continue(prh_iocp_post *post) {
@@ -20115,9 +20120,13 @@ void prh_impl_iocp_wsasend_continue(prh_iocp_post *post) {
 }
 
 void prh_impl_iocp_wsasend_complete(prh_iocp_post *post) {
-    prh_iocp_wsasend *req = (prh_iocp_wsasend *)post;
     post->complete_routine = prh_impl_iocp_wsasend_continue;
     prh_iocp_thrd_post(post);
+}
+
+void prh_impl_iocp_wsasend_completed_from_port(prh_iocp_post *post) {
+    post->complete_routine = prh_impl_iocp_wsasend_continue;
+    prh_iocp_sched_thrd_post(post);
 }
 
 void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const prh_byte *buffer, int length) {
@@ -20133,7 +20142,6 @@ void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const prh_byte *buffer, int len
     // 并发地在同一个面向流的套接字上调用 WSASend，因为某些 Winsock 提供程序可能会将较
     // 大的发送请求拆分为多次传输，这可能导致来自多个并发发送请求的同一面向流的套接字上
     // 的数据意外交织。
-    req->post.complete_routine = prh_impl_iocp_wsasend_complete;
     int n = WSASend(
         /* [in]  SOCKET             s                   */ (SOCKET)req->socket,
         /* [in]  LPWSABUF           lpBuffers           */ &send_buffer, // 一旦调用 WSASend 函数，系统将拥有这些缓冲区，此数组在发送操作期间必须有效
@@ -20147,6 +20155,7 @@ void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const prh_byte *buffer, int len
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
+        req->post.complete_routine = prh_impl_iocp_wsasend_completed_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -20426,11 +20435,11 @@ void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const prh_byte *buffer, int len
 // 出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
 
 int prh_iocp_wsarecv_alloc_size(void) {
-    return prh_impl_iocp_txrxreq_alloc_size();
+    return prh_impl_iocp_trxreq_alloc_size();
 }
 
 void prh_iocp_wsarecv_init(prh_iocp_wsarecv *req, prh_handle socket, prh_continue_routine routine, void *context) {
-    prh_impl_iocp_txrxreq_init(req, socket, routine, context);
+    prh_impl_iocp_trxreq_init(req, socket, routine, context);
 }
 
 void prh_impl_iocp_wsarecv_continue(prh_iocp_post *post) {
@@ -20467,9 +20476,13 @@ void prh_impl_iocp_wsarecv_continue(prh_iocp_post *post) {
 }
 
 void prh_impl_iocp_wsarecv_complete(prh_iocp_post *post) {
-    prh_iocp_wsarecv *req = (prh_iocp_wsarecv *)post;
     post->complete_routine = prh_impl_iocp_wsarecv_continue;
     prh_iocp_thrd_post(post);
+}
+
+void prh_impl_iocp_wsarecv_completed_from_port(prh_iocp_post *post) {
+    post->complete_routine = prh_impl_iocp_wsarecv_continue;
+    prh_iocp_sched_thrd_post(post);
 }
 
 void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, int length) {
@@ -20500,7 +20513,6 @@ void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, int length) {
     // 当对同一个套接字同时调用多次 WSARecv 函数时，如果使用的是 I/O 完成端口，对 WSARecv
     // 的调用顺序也是缓冲区被填充的顺序。不应从不同线程并发地在同一个套接字上调用 WSARecv，
     // 因为这可能导致不可预测的缓冲区顺序。
-    req->post.complete_routine = prh_impl_iocp_wsarecv_complete;
     int n = WSARecv(
         /* [in]      SOCKET             s                    */ (SOCKET)req->socket,
         /* [in, out] LPWSABUF           lpBuffers            */ &recv_buffer,
@@ -20514,6 +20526,7 @@ void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, int length) {
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
+        req->post.complete_routine = prh_impl_iocp_wsarecv_completed_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -20573,7 +20586,7 @@ void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, int length) {
 // 或者当下一个完成条目插入完成队列时发生。但是，发送和接收请求可以标记为 RIO_MSG_DONT_NOTIFY，
 // 此类请求不会触发完成队列通知。如果完成队列中只有设置了 RIO_MSG_DONT_NOTIFY 标志的
 // 条目，则不会触发完成队列通知。此外，当新条目进入完成队列时，只有当关联请求未设置
-// RIO_MSG_DONTIFY 标志时，才会触发完成队列通知。仍然可以使用 RIODequeueCompletion
+// RIO_MSG_DONT_NOTIFY 标志时，才会触发完成队列通知。仍然可以使用 RIODequeueCompletion
 // 函数通过轮询检索任何已完成的请求。一旦完成队列通知触发，应用程序必须调用 RIONotify
 // 函数才能接收另一个完成队列通知。当完成队列通知发生时，应用程序通常调用 RIODequeueCompletion
 // 函数来获取已完成的发送或接收请求。
@@ -20797,6 +20810,9 @@ void prh_impl_rio_cqueue_close(prh_rio_cqueue *cqueue) {
 }
 
 void prh_impl_rio_notify(prh_rio_cqueue *cqueue) {
+    // 应用程序可通过两种方式管理完成队列：应用程序可以调用 RIONotify 请求在 RIO_CQ
+    // 队列非空时触发完成通知，或者以非阻塞方式随时调用 RIODequeueCompletion 对完成队
+    // 列进行轮询。使用 RIONotify 函数注册的通知机制，可以减少轮询的频率，提高性能。
     INT n = PRH_IMPL_RIO.RIONotify((RIO_CQ)cqueue);
     prh_wsa_prerr_if(n != 0);
 }
@@ -21025,32 +21041,29 @@ static prh_rio_cqueue *PRH_IMPL_RIO_CQUEUE;
 static prh_rio_buffer PRH_IMPL_RIO_BUFFER;
 static prh_byte *PRH_IMPL_RIO_BUFBEG, *PRH_IMPL_RIO_BUFEND;
 
-void prh_impl_iocp_rio_cqueue_init(int queue_size, prh_ptr completion_key, void *overlapped) {
-    PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(queue_size, PRH_IMPL_IOCP, completion_key, overlapped);
+void prh_iocp_rio_init(int cqueue_size, prh_byte *register_trx_buffer, int buffer_length, prh_iocp_completion_routine completion) {
+    assert(register_trx_buffer != prh_null && ((prh_ptr)register_trx_buffer % PRH_CACHE_LINE_SIZE) == 0);
+    assert(buffer_length > 0 && (buffer_length % PRH_CACHE_LINE_SIZE) == 0);
+    PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(cqueue_size, PRH_IMPL_IOCP, (prh_ptr)completion, (void *)&PRH_IMPL_RIO_CQUEUE);
+    PRH_IMPL_RIO_BUFFER = prh_impl_rio_buffer_register(register_trx_buffer, buffer_length);
+    PRH_IMPL_RIO_BUFBEG = register_trx_buffer;
+    PRH_IMPL_RIO_BUFEND = register_trx_buffer + buffer_length;
 }
 
-void prh_impl_iocp_rio_buffer_init(prh_byte *buffer, int length) {
-    assert(buffer != prh_null && ((prh_ptr)buffer % PRH_CACHE_LINE_SIZE) == 0);
-    assert(length > 0 && (length % PRH_CACHE_LINE_SIZE) == 0);
-    PRH_IMPL_RIO_BUFFER = prh_impl_rio_buffer_register(buffer, length);
-    PRH_IMPL_RIO_BUFBEG = buffer;
-    PRH_IMPL_RIO_BUFEND = buffer + length;
-}
-
-void prh_impl_iocp_rio_free(void) {
+void prh_iocp_rio_free(void) {
     prh_impl_rio_cqueue_close(PRH_IMPL_RIO_CQUEUE);
     prh_impl_rio_buffer_deregister(PRH_IMPL_RIO_BUFFER);
 }
 
-void prh_impl_iocp_rio_notify(void) {
+void prh_iocp_rio_notify(void) {
     prh_impl_rio_notify(PRH_IMPL_RIO_CQUEUE);
 }
 
-int prh_impl_iocp_rio_query(RIORESULT *entry, int count) {
+int prh_iocp_rio_query(RIORESULT *entry, int count) {
     return prh_impl_rio_cqueue_query(PRH_IMPL_RIO_CQUEUE, entry, count);
 }
 
-prh_rio_socket prh_impl_iocp_create_rio_socket(prh_handle socket) {
+prh_rio_socket prh_iocp_create_rio_socket(prh_handle socket) {
     return prh_impl_rio_rqueue_create(socket, PRH_IMPL_RIO_CQUEUE, (void *)socket);
 }
 
@@ -21091,7 +21104,7 @@ prh_rio_socket prh_impl_iocp_create_rio_socket(prh_handle socket) {
 //                              与其他 RIOSend 函数调用不同，当设置 RIO_MSG_COMMIT_ONLY 标志时，对 RIOSend 函数的调用不需要序
 //                              列化。对于单个 RIO_RQ，可以在一个线程上使用 RIO_MSG_COMMIT_ONLY 调用 RIOSend 函数，同时在另一
 //                              个线程上调用 RIOSend 函数。
-//      RIO_MSG_DONT_NOTIFY     请求在完成队列中插入完成通知时时不应触发 RIONotify 函数。
+//      RIO_MSG_DONT_NOTIFY     请求完成在插入完成队列时不应触发 RIONotify 函数。
 //      RIO_MSG_DEFER           请求不需要立即执行。这将把请求插入请求队列，但可能会也可能不会触发请求的执行。
 //                              发送数据可能会延迟，直到在 SocketQueue 参数传递的 RIO_RQ 上发出没有设置 RIO_MSG_DEFER 标志的
 //                              发送请求。要触发发送队列中所有发送的执行，请调用 RIOSend 或 RIOSendEx 函数，且不设置 RIO_MSG_DEFER
@@ -21227,11 +21240,11 @@ DWORD prh_impl_rio_send(prh_rio_rqueue *rqueue, RIO_BUF *buffer, DWORD flags, vo
 }
 
 int prh_iocp_riosend_alloc_size(void) {
-    return prh_impl_iocp_txrxreq_alloc_size();
+    return prh_impl_iocp_trxreq_alloc_size();
 }
 
 void prh_iocp_riosend_init(prh_iocp_riosend *req, prh_rio_socket rio_socket, prh_continue_routine routine, void *context) {
-    prh_impl_iocp_txrxreq_init(req, (prh_handle)rio_socket, routine, context);
+    prh_impl_iocp_trxreq_init(req, (prh_handle)rio_socket, routine, context);
 }
 
 void prh_impl_iocp_riosend_req(prh_iocp_riosend *req, const prh_byte *buffer, int length, prh_u32 flags) {
@@ -21240,9 +21253,7 @@ void prh_impl_iocp_riosend_req(prh_iocp_riosend *req, const prh_byte *buffer, in
     RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
     DWORD error_code = prh_impl_rio_send((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
     if (error_code == 0 || error_code == WSA_IO_PENDING) {
-        if ((flags & RIO_MSG_DONT_NOTIFY) == 0) {
-            prh_impl_iocp_rio_notify();
-        }
+        req->post.complete_routine = prh_impl_iocp_wsasend_completed_from_port; // 严格来说，是通过查询完成队列来完成操作
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -21255,6 +21266,7 @@ void prh_iocp_riosend_req(prh_iocp_riosend *req, const prh_byte *buffer, int len
 }
 
 void prh_iocp_riosend_dont_notify_req(prh_iocp_riosend *req, const prh_byte *buffer, int length) {
+    // 设置了 RIO_MSG_DONT_NOTIFY 的操作，请求完成之后会插入 RIO_CQ 完成队列，但是不会通知关联的完成端口
     prh_impl_iocp_riosend_req(req, buffer, length, RIO_MSG_DONT_NOTIFY);
 }
 
@@ -21386,7 +21398,7 @@ void prh_iocp_riosend_dont_notify_req(prh_iocp_riosend *req, const prh_byte *buf
 //                              与其他 RIOReceiveEx 函数调用不同，当设置 RIO_MSG_COMMIT_ONLY 标志时，对 RIOReceiveEx 函数的
 //                              调用不需要序列化。对于单个 RIO_RQ，可以在一个线程上使用 RIO_MSG_COMMIT_ONLY 调用 RIOReceiveEx
 //                              函数，同时在另一个线程上调用 RIOReceiveEx 函数。
-//      RIO_MSG_DONT_NOTIFY     请求在完成队列中插入完成时不应触发 RIONotify 函数。
+//      RIO_MSG_DONT_NOTIFY     请求完成在插入完成队列中时不应触发 RIONotify 函数。
 //      RIO_MSG_DEFER           请求不需要立即执行。这将把请求插入请求队列，但可能会也可能不会触发请求的执行。
 //                              数据接收可能会延迟，直到在 SocketQueue 参数传递的 RIO_RQ 上发出没有设置 RIO_MSG_DEFER 标志的
 //                              接收请求。要触发请求队列中所有接收的执行，请调用 RIOReceive 或 RIOReceiveEx 函数，且不设置
@@ -21449,11 +21461,11 @@ DWORD prh_impl_rio_recv(prh_rio_rqueue *rqueue, RIO_BUF *buffer, DWORD flags, vo
 }
 
 int prh_iocp_riorecv_alloc_size(void) {
-    return prh_impl_iocp_txrxreq_alloc_size();
+    return prh_impl_iocp_trxreq_alloc_size();
 }
 
 void prh_iocp_riorecv_init(prh_iocp_riorecv *req, prh_rio_socket rio_socket, prh_continue_routine routine, void *context) {
-    prh_impl_iocp_txrxreq_init(req, (prh_handle)rio_socket, routine, context);
+    prh_impl_iocp_trxreq_init(req, (prh_handle)rio_socket, routine, context);
 }
 
 void prh_impl_iocp_riorecv_req(prh_iocp_riorecv *req, prh_byte *buffer, int length, prh_u32 flags) {
@@ -21462,7 +21474,7 @@ void prh_impl_iocp_riorecv_req(prh_iocp_riorecv *req, prh_byte *buffer, int leng
     RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
     DWORD error_code = prh_impl_rio_recv((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
     if (error_code == 0 || error_code == WSA_IO_PENDING) {
-        if ((flags & RIO_MSG_DONT_NOTIFY) == 0) prh_impl_iocp_rio_notify();
+        req->post.complete_routine = prh_impl_iocp_wsarecv_completed_from_port; // 严格来说，是通过查询完成队列来完成操作
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -21475,6 +21487,7 @@ void prh_iocp_riorecv_req(prh_iocp_riorecv *req, const prh_byte *buffer, int len
 }
 
 void prh_iocp_riorecv_dont_notify_req(prh_iocp_riorecv *req, const prh_byte *buffer, int length) {
+    // 设置了 RIO_MSG_DONT_NOTIFY 的操作，请求完成之后会插入 RIO_CQ 完成队列，但是不会通知关联的完成端口
     prh_impl_iocp_riorecv_req(req, buffer, length, RIO_MSG_DONT_NOTIFY);
 }
 
