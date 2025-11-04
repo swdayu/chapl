@@ -17594,11 +17594,7 @@ void prh_impl_wsasocket_init(void) {
 void prh_sock_setnonblock(prh_handle sock, int nonblock);
 
 prh_handle prh_impl_tcp_socket(int family) {
-    SOCKET sock = WSASocket(family, SOCK_STREAM, IPPROTO_TCP, prh_null, 0, WSA_FLAG_OVERLAPPED
-#if defined(WSA_FLAG_NO_HANDLE_INHERIT)
-        | WSA_FLAG_NO_HANDLE_INHERIT
-#endif
-        );
+    SOCKET sock = WSASocket(family, SOCK_STREAM, IPPROTO_TCP, prh_null, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_RIO | WSA_FLAG_NO_HANDLE_INHERIT);
     prh_wsa_abort_if(sock == INVALID_SOCKET);
     prh_sock_setnonblock(sock, 1);
     return (prh_handle)sock;
@@ -20778,11 +20774,11 @@ void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, prh_int lengt
 
 typedef struct prh_rio_cqueue prh_rio_cqueue;
 
-prh_rio_cqueue *prh_impl_rio_cqueue_create(int queue_size, prh_ptr completion_key, void *overlapped) {
+prh_rio_cqueue *prh_impl_rio_cqueue_create(int queue_size, HANDLE completion_port, prh_ptr completion_key, void *overlapped) {
     assert(queue_size > 0 && queue_size <= RIO_MAX_CQ_SIZE); // mswsockdef.h #define RIO_MAX_CQ_SIZE 0x800_0000
     RIO_NOTIFICATION_COMPLETION completion;
     completion.Type = RIO_IOCP_COMPLETION;
-    completion.Iocp.IocpHandle = PRH_IMPL_IOCP;
+    completion.Iocp.IocpHandle = completion_port;
     completion.Iocp.CompletionKey = (PVOID)completion_key;
     completion.Iocp.Overlapped = (PVOID)overlapped;
     RIO_CQ *rio_cq = PRH_IMPL_RIO.RIOCreateCompletionQueue(queue_size, &completion);
@@ -20905,7 +20901,29 @@ int prh_impl_rio_cqueue_query(prh_rio_cqueue *cqueue, RIORESULT *entry, int coun
 // 请求队列有一个所需的最小大小，这取决于当前条目数量（请求队列上的发送和接收操作数量）。
 // 如果应用程序调用 RIOResizeRequestQueue 函数并尝试将队列设置得比现有条目数量还小，
 // 则调用将失败，队列不会被调整大小。
-//
+
+typedef struct prh_rio_rqueue prh_rio_rqueue, *prh_rio_socket;
+
+prh_rio_rqueue *prh_impl_rio_rqueue_create(prh_handle socket, prh_rio_cqueue *cqueue, void *socket_context) {
+    RIO_RQ rio_rq = PRH_IMPL_RIO.RIOCreateRequestQueue(
+        /* SOCKET Socket                */ (SOCKET)socket,
+        /* ULONG MaxOutstandingReceive  */ 1, // 一个套接字同时只允许一个待完成的接收操作
+        /* ULONG MaxReceiveDataBuffers  */ 1, // 一个套接字只使用一个缓冲区用于接收
+        /* ULONG MaxOutstandingSend     */ 1, // 一个套接字同时只允许一个待完成的发送操作
+        /* ULONG MaxSendDataBuffers     */ 1, // 一个套接字只使用一个缓冲区用于发送
+        /* RIO_CQ ReceiveCQ             */ (RIO_CQ)cqueue, // 关联接收操作使用的完成队列
+        /* RIO_CQ SendCQ                */ (RIO_CQ)cqueue, // 关联发送操作使用的完成队列
+        /* PVOID SocketContext          */ (PVOID)socket_context
+        );
+    prh_wsa_abort_if(rio_rq == prh_null);
+    return (prh_rio_rqueue *)rio_rq;
+}
+
+void prh_impl_rio_rqueue_resize(prh_rio_rqueue *rqueue, int max_out_recv, int max_out_send) {
+    BOOL b = PRH_IMPL_RIO.RIOResizeRequestQueue((RIO_RQ)rqueue, max_out_recv, max_out_send);
+    prh_wsa_prerr_if(b == FALSE);
+}
+
 // RIO_BUFFERID RIORegisterBuffer(
 //      PCHAR DataBuffer,
 //      DWORD DataLength
@@ -20984,7 +21002,25 @@ int prh_impl_rio_cqueue_query(prh_rio_cqueue *cqueue, RIORESULT *entry, int coun
 // 指向 RIO_BUF 结构的指针作为 pData 参数传递给 RIOSend、RIOSendEx、RIOReceive 和
 // RIOReceiveEx 函数，用于发送或接收网络数据。应用程序不能仅仅通过使用大于原始注册缓冲
 // 区的缓冲区切片值来调整注册缓冲区的大小。
-//
+
+typedef struct prh_impl_rio_buffer *prh_rio_buffer;
+
+prh_rio_buffer prh_impl_rio_buffer_register(prh_byte *buffer, int length) {
+    assert(buffer != prh_null && length > 0);
+    // 当缓冲区被注册时，包含缓冲区的虚拟内存页面将被锁定在物理内存中。如果注册了多个小
+    // 的、不连续的缓冲区，这些缓冲区的物理内存占用可能实际上每个注册都相当于一个完整的
+    // 内存页面。在这种情况下，将多个请求缓冲区一起分配可能会更有益。注册缓冲区本身也会
+    // 占用少量的物理内存开销。因此，如果许多分配被聚合到一个更大的分配中，通过聚合缓冲
+    // 区注册，物理内存占用可能会进一步减少。
+    RIO_BUFFERID buffer = PRH_IMPL_RIO.RIORegisterBuffer((PCHAR)buffer, length);
+    prh_wsa_abort_if(buffer == prh_null);
+    return (void *)buffer;
+}
+
+void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) {
+    PRH_IMPL_RIO.RIODeregisterBuffer((RIO_BUFFERID)buffer);
+}
+
 // BOOL RIOSend(
 //      RIO_RQ SocketQueue,
 //      PRIO_BUF pData,
