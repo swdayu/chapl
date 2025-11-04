@@ -15893,15 +15893,13 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     OVERLAPPED_ENTRY *entry_end = prh_null, *entry_ptr = prh_null;
     prh_iocp_thrd *sched_thrd = (prh_iocp_thrd *)thrd_ptr;
     sched_thrd->extra_ptr = PRH_IOCP_GLOBAL.thrd_req_que; // 将线程队列保存到未使用的额外指针变量中
-    int overlapped_array_size = PRH_IOCP_GLOBAL.query_entries_each_time;
     int entry_count = 0, remain_entry_count, sched_req_que_empty_items;
-    int dispatch_que_posts, i;
     bool keep_sched_thrd_alive = true;
 
     for (; ;) {
-        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（overlapped_array_size）的完成条目
+        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（query_entries_each_time）的完成条目
         if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
-            entry_count = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, overlapped_entry, overlapped_array_size, keep_sched_thrd_alive ? 0 : INFINITE);
+            entry_count = prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, overlapped_entry, PRH_IOCP_GLOBAL.query_entries_each_time, keep_sched_thrd_alive ? 0 : INFINITE);
             if (entry_count) {
                 entry_ptr = overlapped_entry;
                 entry_end = overlapped_entry + entry_count;
@@ -15910,12 +15908,11 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
 
         //  2.  处理完成条目会向调度线程的 thrd_req_que 投递线程任务，调度线程的队列有一个最大大小限制（sched_req_que_max_size），因此只有在调度线程队列未满时才能处理完成条目
         remain_entry_count = entry_end - entry_ptr;
-        sched_req_que_empty_items = prh_impl_sched_thrd_que_empty_items();
-        if (remain_entry_count && sched_req_que_empty_items) {
+        if (remain_entry_count && (sched_req_que_empty_items = prh_impl_sched_thrd_que_empty_items())) {
             if (remain_entry_count > sched_req_que_empty_items) { // 只有部分完成条目可以处理
                 remain_entry_count = sched_req_que_empty_items;
             }
-            for (i = 0; i < remain_entry_count; i += 1) {
+            for (int i = 0; i < remain_entry_count; i += 1) {
                 prh_impl_sched_thrd_process_entry(entry_ptr);
                 entry_ptr += 1;
             }
@@ -15926,7 +15923,6 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
         }
 
         //  3.  将各个线程中的任务（包括调度线程投递的内核任务）按任务序号从小到大收集到一个固定大小的全局队列中（post_collect_que）
-        //  sche_req_que thrd_req_que thrd_req_que ... -------> post_collect_que
         if (!prh_impl_sched_thrd_collect_post()) {
             goto label_wakeup_thread_if_needed; // 暂时没有任务需要分派
         }
@@ -15936,7 +15932,7 @@ void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
 
         //  5.  如果任务分派队列已经有分派的任务，根据当前等待的线程数量，按后入先出的顺序唤醒线程
 label_wakeup_thread_if_needed:
-        dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len();
+        int dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len();
         while (dispatch_que_posts > 0 && prh_impl_iocp_thrd_wakeup(prh_impl_iocp_thrd_wait_que_pop())) {
             dispatch_que_posts -= 1;
         }
@@ -20779,7 +20775,49 @@ void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, prh_int lengt
 //
 // 如果在 CQ 参数中传递了一个无效的完成队列（例如 RIO_INVALID_CQ），RIOCloseCompletionQueue
 // 函数将忽略它。
-//
+
+typedef struct prh_rio_cqueue prh_rio_cqueue;
+
+prh_rio_cqueue *prh_impl_rio_cqueue_create(int queue_size, prh_ptr completion_key, void *overlapped) {
+    assert(queue_size > 0 && queue_size <= RIO_MAX_CQ_SIZE); // mswsockdef.h #define RIO_MAX_CQ_SIZE 0x800_0000
+    RIO_NOTIFICATION_COMPLETION completion;
+    completion.Type = RIO_IOCP_COMPLETION;
+    completion.Iocp.IocpHandle = PRH_IMPL_IOCP;
+    completion.Iocp.CompletionKey = (PVOID)completion_key;
+    completion.Iocp.Overlapped = (PVOID)overlapped;
+    RIO_CQ *rio_cq = PRH_IMPL_RIO.RIOCreateCompletionQueue(queue_size, &completion);
+    prh_wsa_abort_if(rio_cq == prh_null);
+    return (prh_rio_cqueue *)rio_cq;
+}
+
+void prh_impl_rio_cqueue_resize(prh_rio_cqueue *cqueue, int new_queue_size) {
+    assert(new_queue_size > 0 && new_queue_size <= RIO_MAX_CQ_SIZE);
+    BOOL b = PRH_IMPL_RIO.RIOResizeCompletionQueue((RIO_CQ)cqueue, new_queue_size);
+    prh_wsa_prerr_if(b == FALSE);
+}
+
+void prh_impl_rio_cqueue_close(prh_rio_cqueue *cqueue) {
+    PRH_IMPL_RIO.RIOCloseCompletionQueue((RIO_CQ)cqueue);
+}
+
+void prh_impl_rio_notify(prh_rio_cqueue *cqueue) {
+    INT n = PRH_IMPL_RIO.RIONotify((RIO_CQ)cqueue);
+    prh_wsa_prerr_if(n != 0);
+}
+
+int prh_impl_rio_cqueue_query(prh_rio_cqueue *cqueue, RIORESULT *entry, int count) {
+    // typedef struct _RIORESULT {
+    //      LONG      Status;
+    //      ULONG     BytesTransferred;
+    //      ULONGLONG SocketContext;
+    //      ULONGLONG RequestContext;
+    // } RIORESULT, *PRIORESULT;
+    assert(entry != prh_null && count > 0);
+    ULONG n = PRH_IMPL_RIO.RIODequeueCompletion((RIO_CQ)cqueue, entry, count);
+    prh_wsa_abort_if(n == RIO_CORRUPT_CQ);
+    return (int)n;
+}
+
 // RIO_RQ RIOCreateRequestQueue(
 //      SOCKET Socket,
 //      ULONG MaxOutstandingReceive,
@@ -21293,7 +21331,7 @@ void prh_impl_sock_test(void) {
     printf("INVALID_SOCKET %d\n", INVALID_SOCKET);
     printf("struct sockaddr_in %d-byte\n", (int)sizeof(struct sockaddr_in));
     printf("struct sockaddr_in6 %d-byte\n", (int)sizeof(struct sockaddr_in6));
-    printf("RIO_MAX_CQ_SIZE %d\n", RIO_MAX_CQ_SIZE);
+    printf("RIO_MAX_CQ_SIZE %d (%08x)\n", RIO_MAX_CQ_SIZE, RIO_MAX_CQ_SIZE);
 }
 #endif // PRH_TEST_IMPLEMENTATION
 #else // POSIX begin
