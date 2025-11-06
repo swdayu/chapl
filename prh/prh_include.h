@@ -1783,6 +1783,10 @@ extern "C" {
 #define PRH_CACHE_LINE_SIZE 64
 #endif
 
+#ifndef PRH_MEMORY_PAGE_SIZE
+#define PRH_MEMORY_PAGE_SIZE 4096
+#endif
+
 #ifndef prh_round_ptrsize
 #define prh_round_ptrsize(n) (((prh_unt)(n)+(prh_unt)(sizeof(void*)-1)) & (~(prh_unt)(sizeof(void*)-1)))
 #define prh_round_cache_line_size(n) (((prh_unt)(n)+PRH_CACHE_LINE_SIZE-1) & (~(prh_unt)(PRH_CACHE_LINE_SIZE-1)))
@@ -15462,24 +15466,27 @@ prh_inline prh_iocp_post *prh_impl_iocp_get_post_from_overlapped(OVERLAPPED *ove
     return (prh_iocp_post *)((prh_byte *)overlapped - prh_offsetof(prh_impl_iocp_post, overalpped));
 }
 
-static bool prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
-    if (prh_impl_sched_thrd_cqueue_len() >= PRH_IOCP_GLOBAL.sched_thrd_cqueue_size) return false;
-    prh_iocp_post *post = prh_impl_iocp_get_post_from_overlapped(entry->lpOverlapped);
-    if (entry->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
-        DWORD error_code = RtlNtStatusToDosError((NTSTATUS)entry->Internal); // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
-        prh_prerr(error_code);
-        post->error_code = error_code;
-    } else {
-        post->error_code = 0;
-    }
-    post->bytes_transferred = entry->dwNumberOfBytesTransferred;
-    post->complete_routine(post);
-    return true;
-}
-
 void prh_impl_iocp_error_occurred(prh_iocp_post *post, prh_u32 error_code) {
     post->error_code = error_code;
     post->bytes_transferred = 0;
+}
+
+void prh_impl_iocp_entry_completed_from_port(OVERLAPPED *overlapped, prh_u32 error_code, prh_u32 bytes_transferred) {
+    prh_iocp_post *post = prh_impl_iocp_get_post_from_overlapped(overlapped);
+    post->error_code = error_code;
+    post->bytes_transferred = bytes_transferred;
+    post->complete_routine(post); // 调用 <operation>_completed_from_port 函数，该函数向 sched_thrd_cqueue 投递一个线程任务
+}
+
+static bool prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
+    DWORD error_code = 0;
+    if (prh_impl_sched_thrd_cqueue_len() >= PRH_IOCP_GLOBAL.sched_thrd_cqueue_size) return false;
+    if (entry->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
+        error_code = RtlNtStatusToDosError((NTSTATUS)entry->Internal); // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
+        prh_prerr(error_code);
+    }
+    prh_impl_iocp_entry_completed_from_port(entry->lpOverlapped, error_code, entry->dwNumberOfBytesTransferred);
+    return true;
 }
 
 void prh_impl_iocp_attach_socket(prh_handle socket) {
@@ -15764,7 +15771,7 @@ void prh_impl_rio_cqueue_resize(prh_rio_cqueue *cqueue, int new_queue_size) {
     prh_wsa_prerr_if(b == FALSE);
 }
 
-void prh_impl_rio_cqueue_close(prh_rio_cqueue *cqueue) {
+void prh_impl_rio_cqueue_close(prh_rio_cqueue *cqueue) { // 如果传递一个无效完成队列（RIO_INVALID_CQ）将被忽略
     PRH_IMPL_RIO.RIOCloseCompletionQueue((RIO_CQ)cqueue);
 }
 
@@ -15992,7 +15999,7 @@ prh_rio_buffer prh_impl_rio_buffer_register(prh_byte *buffer, int length) {
     return (void *)buffer;
 }
 
-void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) {
+void prh_impl_rio_buffer_deregister(prh_rio_buffer buffer) { // 如果传递了一个无效的缓冲区标识符（RIO_INVALID_BUFFERID）将被忽略
     PRH_IMPL_RIO.RIODeregisterBuffer((RIO_BUFFERID)buffer);
 }
 
@@ -16000,7 +16007,7 @@ static prh_rio_cqueue *PRH_IMPL_RIO_CQUEUE;
 static prh_rio_buffer PRH_IMPL_RIO_BUFFER;
 static prh_byte *PRH_IMPL_RIO_BUFBEG, *PRH_IMPL_RIO_BUFEND;
 
-void prh_impl_iocp_rio_notify(void) {
+void prh_iocp_rio_notify(void) {
     prh_impl_rio_notify(PRH_IMPL_RIO_CQUEUE);
 }
 
@@ -16073,8 +16080,8 @@ typedef struct {
     prh_atom_u32 post_seqn_seed;
     prh_atom_u32 keep_sched_thrd_alive;
     prh_iocp_thrd **thrd_wait_queue;
-    void *thrd_wait_overlapped_entry;
     void *overlapped_entry_array;
+    void *rio_result_entry_array;
     prh_atom_ext_hive_quefix *thrd_req_que;
     prh_sched_cqueue_ptr sched_thrd_cqueue;
     prh_post_collect_que_ptr post_collect_que;
@@ -16084,10 +16091,32 @@ typedef struct {
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
 
-void prh_impl_iocp_rio_init(int cqueue_size, prh_byte *register_trx_buffer, int buffer_length, prh_iocp_completion_routine completion) {
+static bool prh_impl_iocp_rio_socket_completion(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
+    RIORESULT *rio_result_entry_array = PRH_IOCP_GLOBAL.rio_result_entry_array;
+    int max_count = prh_impl_sched_thrd_cqueue_empty_items();
+    if (max_count > 0) {
+        int n = prh_impl_iocp_rio_query(rio_result_entry_array, max_count);
+        // typedef struct _RIORESULT {
+        //      LONG      Status;
+        //      ULONG     BytesTransferred;
+        //      ULONGLONG SocketContext;
+        //      ULONGLONG RequestContext;
+        // } RIORESULT, *PRIORESULT;
+        for (int i = 0; i < n; i += 1) {
+            RIORESULT *entry = rio_result_entry_array + i;
+            DWORD error_code = entry->Status;
+            if (error_code) prh_prerr(error_code);
+            prh_impl_iocp_entry_completed_from_port((OVERLAPPED *)(prh_ptr)entry->RequestContext, error_code, entry->BytesTransferred);
+        }
+    }
+    prh_iocp_rio_notify();
+    return true;
+}
+
+void prh_iocp_rio_init(int cqueue_size, prh_byte *register_trx_buffer, int buffer_length) {
     assert(register_trx_buffer != prh_null && ((prh_ptr)register_trx_buffer % PRH_CACHE_LINE_SIZE) == 0);
     assert(buffer_length > 0 && (buffer_length % PRH_CACHE_LINE_SIZE) == 0);
-    PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(cqueue_size, PRH_IMPL_IOCP, (prh_ptr)completion, (void *)&PRH_IMPL_RIO_CQUEUE);
+    PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(cqueue_size, PRH_IMPL_IOCP, (prh_ptr)prh_impl_iocp_rio_socket_completion, (void *)&PRH_IMPL_RIO_CQUEUE);
     PRH_IMPL_RIO_BUFFER = prh_impl_rio_buffer_register(register_trx_buffer, buffer_length);
     PRH_IMPL_RIO_BUFBEG = register_trx_buffer;
     PRH_IMPL_RIO_BUFEND = register_trx_buffer + buffer_length;
@@ -16102,7 +16131,7 @@ static bool prh_impl_sched_thrd_wakeup_complete(OVERLAPPED_ENTRY *entry) { // �
     // 工作线程可能在这个位置检测到 keep_sched_thrd_alive 大于 0，不会向完成端口投递保活包
     // 但是此时调度线程已经醒来，已经插入的线程任务（或休眠线程已经插入等待队列），会保证调度线程不会睡眠
     prh_atom_u32_dec(&PRH_IOCP_GLOBAL.keep_sched_thrd_alive);
-    return true; // 不需要消耗调度线程的完成队列
+    return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
 }
 
 void prh_impl_iocp_keep_sched_thrd_alive(void) {
@@ -16161,7 +16190,7 @@ bool prh_impl_sched_thrd_iocp_entry_completed(OVERLAPPED_ENTRY *entry) {
     prh_iocp_completion_routine completion_routine = (prh_iocp_completion_routine)entry->lpCompletionKey;
     assert(completion_routine != prh_null);
     assert(entry->lpOverlapped != prh_null);
-    return completion_routine(entry);
+    return completion_routine(entry); // 调用完成键 lpCompletionKey 对应的 prh_iocp_completion_routine 函数
 }
 
 int prh_impl_sched_thrd_wait_iocp_entries(OVERLAPPED_ENTRY *overlapped_entry, int count, bool keep_sched_thrd_alive) {
@@ -16223,11 +16252,7 @@ static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
     prh_iocp_post *post;
     for (; ;) {
         while ((post = prh_atom_1wnr_ptr_arrque_pop(post_dispatch_que))) {
-            if (post->complete_routine) {
-                post->complete_routine(post);
-            } else {
-                post->continue_routine(post);
-            }
+            post->complete_routine(post); // 调用被 _complete 或 _completed_from_port 设置的完成函数
         }
         prh_impl_iocp_thrd_sleep(thrd); // 进入睡眠，等待调度线程唤醒
         if (prh_atom_bool_read(&thrd->thrd_exit)) {
@@ -16405,6 +16430,7 @@ void prh_impl_iocp_global_init(prh_iocp_config *config) {
 void prh_impl_iocp_global_free(void) {
     prh_simp_thrd_free(&PRH_IOCP_GLOBAL.thrds, prh_impl_iocp_thrd_free);
     prh_impl_close_completion_port(PRH_IMPL_IOCP);
+    prh_impl_iocp_rio_free();
 }
 
 void prh_iocp_main_init(prh_iocp_config *config) {
@@ -19287,7 +19313,6 @@ prh_inline prh_byte *prh_impl_iocp_accept_addrbuf(prh_impl_accept_req *req) {
 void prh_iocp_accept_req(prh_impl_accept_req *req) { // 可以多个线程同时投递数组中不同的 accept 请求
     prh_iocp_accept *accept = prh_impl_iocp_get_accept(req);
     assert(req->accept_socket != PRH_INVASOCK);
-    req->post.complete_routine = prh_impl_iocp_accept_completion;
     BOOL b = PRH_IMPL_ACCEPTEX(
         /* [in]  SOCKET       sListenSocket         */  accept->listen,
         /* [in]  SOCKET       sAcceptSocket         */  req->accept_socket, // 必须是未绑定未连接的套接字句柄
@@ -19302,6 +19327,7 @@ void prh_iocp_accept_req(prh_impl_accept_req *req) { // 可以多个线程同时
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
+        req->post.complete_routine = prh_impl_iocp_accept_completion_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
