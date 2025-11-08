@@ -17231,6 +17231,71 @@ bool prh_impl_privilege_yield_state_process(void *priv, void *data) {
 
 #endif // PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
 
+#if (PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3 == 1)
+
+void prh_impl_cono_thrd_post(prh_real_cono *req_cono, prh_continue_routine continue_routine) {
+    req_cono->continue_routine = continue_routine;
+    prh_iocp_thrd_post((prh_iocp_post *)req_cono);
+}
+
+void prh_impl_cono_sched_thrd_synced_post(prh_real_cono *req_cono, prh_sched_thrd_synced_routine sched_thrd_synced_routine) {
+    req_cono->continue_routine = (prh_continue_routine)sched_thrd_synced_routine;
+    prh_iocp_thrd_post((prh_iocp_post *)((prh_ptr)req_cono & PRH_IMPL_SCHED_THRD_SYNCED_EXEC));
+}
+
+void prh_impl_cono_execute(prh_iocp_post *post_ptr) {
+    prh_real_cono *cono = (prh_real_cono *)post_ptr;
+    PRH_IMPL_CONO_SELF = cono; // 继续执行协程，协程只有三种挂起原因（YIELD/AWAIT/PWAIT）
+    prh_impl_soro_start(cono->cono_id, prh_impl_coro_from_cono(cono)); // 继续执行当前协程，直到协程再次挂起
+    PRH_IMPL_CONO_SELF = prh_null;
+    cono->continue_routine(post_ptr);
+}
+
+void prh_impl_cono_continue_process(prh_real_cono *req_cono) {
+    if (prh_impl_cono_finished(req_cono)) {
+        if (req_cono == PRH_IMPL_CONO_STRUCT.main_entry_cono) {
+            prh_impl_cono_term_signal();
+        } else {
+#if PRH_CONO_DEBUG
+            printf("[thrd %02d] cono %02d finished\n", prh_thrd_self_id(), req_cono->cono_id);
+#endif
+            prh_impl_cono_free(req_cono);
+        }
+    } else if (req_cono->uncond_run) { // 无条件执行
+        prh_impl_cono_thrd_post(req_cono, prh_impl_cono_execute);
+    } else {
+        prh_abort_error(__LINE__); // 子协程提交执行结果后要么执行完毕，要么无条件继续执行
+    }
+}
+
+void prh_impl_callee_continue(prh_real_cono *caller) {
+    prh_real_cono *callee = caller->callee;
+    caller->callee = prh_null;
+    prh_impl_cono_continue_process(callee);
+}
+
+void prh_cono_continue(prh_await_data *cono_await_data) {
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
+    assert(caller->callee == prh_impl_cono_from_data(cono_await_data));
+    prh_impl_callee_continue(caller);
+}
+
+void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
+    prh_real_cono *callee = prh_impl_cono_from_data(cono_spawn_data);
+    callee->cono_id = prh_atom_u32_fetch_inc(PRH_IOCP_SHARED_GLOBAL.cono_id_seed) + 1;
+    if (await_cono_yield) {
+        caller->wait_callee_count += 1;
+        callee->caller = caller;
+    }
+#if PRH_CONO_DEBUG
+    printf("[thrd %02d] cono %02d create callee cono %02d\n", prh_thrd_self_id(), caller->cono_id, callee->cono_id);
+#endif
+    prh_impl_cono_thrd_post(callee, prh_impl_cono_execute);
+}
+
+#endif // PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
+
 // 当前算法是，特权协程会给所有线程分配一个协程，当线程执行完当前的协程后，会自动继续
 // 执行分配的协程，如果线程没有分配到协程，会去抢特权线程执行权，然后如果自己没有分配
 // 到任务，会从其他线程争抢一个协程来执行。
