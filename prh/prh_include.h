@@ -4523,12 +4523,11 @@ void prh_soro_reload(prh_soro_struct *s, prh_soroproc_t proc) {
 #endif
 }
 
-void prh_impl_soro_start(int thrd_id, int cono_id, prh_coro *coro) {
+void prh_impl_soro_start(int cono_id, prh_coro *coro) {
     assert(coro && coro->rspoffset);
     prh_impl_soro_main mainstack;
-    mainstack.start_id = thrd_id;
 #if PRH_CORO_DEBUG
-    printf("[thrd %02d] %p start running cono %02d\n", thrd_id, (void *)&mainstack, cono_id);
+    printf("[thrd %02d] cono %02d launched at stack %p <=> %p\n", prh_thrd_self_id(), cono_id, (void *)&mainstack, coro);
 #endif
     prh_impl_coro_main_yield((prh_impl_coro_main *)&mainstack, coro);
 }
@@ -14534,11 +14533,11 @@ typedef void (*prh_complete_routine)(struct prh_iocp_post *post);
 typedef void (*prh_continue_routine)(struct prh_iocp_post *post);
 
 typedef struct prh_iocp_post {
+    prh_continue_routine continue_routine;  // 必须是第一个成员
+    prh_complete_routine complete_routine;  // 必须是第二个成员
+    void *context;
     prh_u32 error_code;
     prh_u32 bytes_transferred;
-    void *context;
-    prh_complete_routine complete_routine;
-    prh_continue_routine continue_routine;
 } prh_iocp_post;
 
 typedef struct {
@@ -14558,9 +14557,9 @@ typedef struct {
     prh_sockaddr *remote;
 } prh_iocp_connect_result;
 
-void prh_iocp_post_init(prh_iocp_post *post, prh_continue_routine routine, void *context) {
+void prh_iocp_post_init(prh_iocp_post *post, prh_complete_routine routine, void *context) {
     memset(post, 0, sizeof(prh_iocp_post));
-    post->continue_routine = routine;
+    post->complete_routine = routine;
     post->context = context;
 }
 
@@ -14577,7 +14576,7 @@ void prh_impl_iocp_entry_completed_from_port(OVERLAPPED *overlapped, prh_u32 err
     prh_iocp_post *post = prh_impl_iocp_get_post_from_overlapped(overlapped);
     post->error_code = error_code;
     post->bytes_transferred = bytes_transferred;
-    post->complete_routine(post); // 调用 <operation>_completed_from_port 函数，该函数向 sched_thrd_cqueue 投递一个线程任务
+    post->continue_routine(post); // 调用 <operation>_completed_from_port 函数，该函数向 sched_thrd_cqueue 投递一个线程任务
 }
 
 static bool prh_impl_iocp_socket_completion(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
@@ -15146,6 +15145,7 @@ prh_inline int prh_impl_iocp_shared_thrd_data_size(void) {
 typedef struct { // 被工作线程和调度线程共享的全局数据
     prh_atom_u32 post_seqn_seed;
     prh_atom_u32 keep_sched_thrd_alive;
+    prh_atom_u32 cono_id_seed;
     int thrd_wait_que_items;
     prh_iocp_shared_thrd_data **thrd_wait_que; // 指向的内容被工作线程和调度线程访问
     prh_thrd_mutex thrd_wait_que_mutex;
@@ -15414,15 +15414,21 @@ void prh_impl_sched_thrd_collect_que_push(prh_iocp_post *post, prh_u32 index) {
     *prh_fixed_arrque_unchecked_push_at(post_collect_que, index) = post;
 }
 
+#define PRH_IMPL_SCHED_THRD_SYNCED_EXEC 0x02
+typedef prh_iocp_post *(*prh_sched_thrd_synced_routine)(prh_iocp_post *post);
+
 prh_iocp_post *prh_impl_sched_thrd_collect_que_pop(void) {
     prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
     if (prh_fixed_arrque_len(post_collect_que) == 0) return prh_null;
     prh_iocp_post **post_addr = prh_impl_fixed_arrque_top(post_collect_que);
     prh_iocp_post *post = *post_addr;
-    if (post != prh_null) {
-        prh_impl_fixed_arrque_pop(post_collect_que);
-        PRH_IOCP_GLOBAL.cfmd_post_seqn += 1;
-        *post_addr = prh_null; // 移除的元素必须清零
+    if (post == prh_null) return prh_null;
+    prh_impl_fixed_arrque_pop(post_collect_que);
+    PRH_IOCP_GLOBAL.cfmd_post_seqn += 1;
+    *post_addr = prh_null; // 移除的元素必须清零
+    if (post & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) {
+        post = (prh_iocp_post *)((prh_ptr)post & ~((prh_ptr)PRH_IMPL_SCHED_THRD_SYNCED_EXEC));
+        return ((prh_sched_thrd_synced_routine)(post->continue_routine))(post);
     }
     return post;
 }
@@ -15549,7 +15555,7 @@ static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
     prh_iocp_post *post;
     for (; ;) {
         while ((post = prh_atom_1wnr_ptr_arrque_pop(post_dispatch_que))) {
-            post->complete_routine(post); // 调用被 _complete 或 _completed_from_port 设置的完成函数
+            post->continue_routine(post); // 调用被 <operation>_complete 或 <operation>_completed_from_port 设置的函数
         }
         if (prh_atom_bool_read(atom_thrd_exit)) {
             if (thrd_is_exit) break;
@@ -16648,6 +16654,9 @@ typedef struct prh_cono_pdata {
 #define PRH_CONO_DEBUG PRH_DEBUG
 #endif
 
+#define PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3 1
+#define PRH_IMPL_CONO_SCHEDULE_STRATEGY_V2 1
+
 // 协程发送消息时，先将消息存到本地线程队列，由特权线程负责获取每个线程的消息，分配到在
 // 不同线程中执行的协程，这样每个协程可以在任意的线程中切换执行，而消息队列的维护可以做
 // 到总是一对一的线程访问。
@@ -16665,6 +16674,8 @@ typedef struct {
 
 typedef struct prh_cono_thrd prh_cono_thrd;
 struct prh_real_cono {
+    prh_continue_routine continue_routine;  // 必须是第一个成员
+    int wait_callee_count;
     // 仅由执行线程访问
     prh_i32 cono_id;
     prh_byte yield_state;
@@ -16883,6 +16894,7 @@ void prh_impl_cono_struct_free(void) {
 //          清求协程状态：请求协程发送请求数据给特权协程，特权协程将数据挂到执行协程的WAIT队列中，然后等待执行协程的WAIT挂起
 //          执行协程状态：当执行协程执行完当前任务挂起后，给特权协程发送消息，特权协程收到消息后，取出一个数据直接执行执行协程
 //          特权协程实现：如果执行协程先挂起，但队列中已经没有要处理的任务了，就会设置idle_wait标记，下次接收到请求数据就直接激活执行协程的执行
+#if (PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3 == 0)
 typedef enum {
     PRH_CONO_CONTINUE,
     PRH_CONO_START, // 启动新建协程
@@ -17008,9 +17020,10 @@ prh_cono_subq *prh_cono_self_subq(prh_byte subq_i) {
 }
 
 void prh_impl_callee_continue(prh_real_cono *caller) {
-    if (caller->callee) {
-        prh_impl_send_cono_req(caller->callee, PRH_CONO_CONTINUE);
+    prh_real_cono *callee = caller->callee;
+    if (callee) {
         caller->callee = prh_null;
+        prh_impl_send_cono_req(callee, PRH_CONO_CONTINUE);
     }
 }
 
@@ -17216,6 +17229,8 @@ bool prh_impl_privilege_yield_state_process(void *priv, void *data) {
     return true;
 }
 
+#endif // PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
+
 // 当前算法是，特权协程会给所有线程分配一个协程，当线程执行完当前的协程后，会自动继续
 // 执行分配的协程，如果线程没有分配到协程，会去抢特权线程执行权，然后如果自己没有分配
 // 到任务，会从其他线程争抢一个协程来执行。
@@ -17360,12 +17375,13 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     return true;
 }
 
-void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
+#if (PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3 == 0)
+void prh_impl_cono_execute(prh_real_cono *cono) {
     prh_coro *coro = prh_impl_coro_from_cono(cono);
     // 继续执行协程，协程每次挂起时都会设置原因（YIELD/AWAIT/PWAIT）
     prh_byte prev_yield_state = cono->yield_state;
     PRH_IMPL_CONO_SELF = cono;
-    prh_impl_soro_start(thrd_id, cono->cono_id, coro); // 继续执行当前协程，直到协程再次挂起
+    prh_impl_soro_start(cono->cono_id, coro); // 继续执行当前协程，直到协程再次挂起
     PRH_IMPL_CONO_SELF = prh_null;
     if (prev_yield_state == PRH_CONO_AWAIT) { // 上次挂起之后这次继续执行，是因为等到了子协程的执行结果，此次继续执行需要读取子协程的执行结果，读取完毕之后此次执行过程可以立即调用prh_impl_callee_continue()让子协程继续执行
         prh_impl_callee_continue(cono); // 如果在执行过程中没有调用prh_impl_callee_continue()，这里提供了最后的保底机会继续让协程执行
@@ -17373,13 +17389,13 @@ void prh_impl_cono_execute(int thrd_id, prh_real_cono *cono) {
     // 协程再次挂起，通知特权线程处理挂起的协程，其等待的原因是否可以满足，是否能够继续执行
     prh_impl_send_cono_req(cono, cono->yield_state);
 }
+#endif
 
 int prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
     prh_cono_thrd *cono_thrd = (prh_cono_thrd *)thrd;
     prh_atom_bool *term_signal = &PRH_IMPL_CONO_STRUCT.term_signal;
     prh_atom_int *num_sleep = &PRH_IMPL_CONO_STRUCT.num_sleep;
     prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(cono_thrd);
-    int thrd_id = prh_thrd_id(thrd);
     prh_debug(int privilege_acquire_count = 0);
 
     for (; ;) {
@@ -17388,7 +17404,7 @@ int prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
             prh_thrd_sleep(0, 0);
         }
         if (*grabbed_cono) {
-            prh_impl_cono_execute(thrd_id, *grabbed_cono);
+            prh_impl_cono_execute(*grabbed_cono);
             continue;
         }
         if (prh_atom_bool_read(term_signal)) {
@@ -17397,11 +17413,11 @@ int prh_impl_cono_thrd_proc_v2(prh_thrd* thrd) {
             }
             break;
         }
-        prh_debug(printf("[thrd %02d] sleep %d\n", thrd_id, privilege_acquire_count));
+        prh_debug(printf("[thrd %02d] sleep %d\n", prh_thrd_id(thrd), privilege_acquire_count));
         prh_atom_int_inc(num_sleep);
         prh_thrd_cond_sleep(&cono_thrd->cond_sleep);
         prh_atom_int_dec(num_sleep);
-        prh_debug(printf("[thrd %02d] wakeup\n", thrd_id));
+        prh_debug(printf("[thrd %02d] wakeup\n", prh_thrd_id(thrd)));
         prh_debug(privilege_acquire_count = 0);
     }
 
@@ -17415,7 +17431,6 @@ int prh_impl_cono_thrd_proc(prh_thrd* thrd) {
     prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(cono_thrd);
     prh_real_cono *ready_cono;
     bool req_que_not_empty;
-    int thrd_id = prh_thrd_id(thrd);
 #if PRH_CONO_DEBUG
     int atom_write_succ = 0;
     int atom_write_fail = 0;
@@ -17428,7 +17443,7 @@ label_cont_execute:
 #if PRH_CONO_DEBUG
                 atom_write_succ += 1;
 #endif
-                prh_impl_cono_execute(thrd_id, ready_cono);
+                prh_impl_cono_execute(ready_cono);
             } else { // 自己的任务可能被别的线程抢掉
 #if PRH_CONO_DEBUG
                 atom_write_fail += 1;
@@ -17437,7 +17452,7 @@ label_cont_execute:
             }
         }
         if (prh_impl_privilege_task(cono_thrd, true) && *grabbed_cono) {
-            prh_impl_cono_execute(thrd_id, *grabbed_cono);
+            prh_impl_cono_execute(*grabbed_cono);
         }
         if ((ready_cono = prh_atom_ptr_read(thrd_ready_cono))) {
             goto label_cont_execute; // 被安排新任务，或在没抢到特权的情况下，可能被其他特权线程安排任务
@@ -17460,11 +17475,11 @@ label_cont_execute:
             break;
         }
 #if PRH_CONO_DEBUG
-        printf("[thrd %02d] sleep %d %d\n", thrd_id, atom_write_succ, atom_write_fail);
+        printf("[thrd %02d] sleep %d %d\n", prh_thrd_id(thrd), atom_write_succ, atom_write_fail);
 #endif
         prh_thrd_cond_sleep(&cono_thrd->cond_sleep);
 #if PRH_CONO_DEBUG
-        printf("[thrd %02d] wakeup\n", thrd_id);
+        printf("[thrd %02d] wakeup\n", prh_thrd_id(thrd));
 #endif
     }
 
@@ -17474,7 +17489,6 @@ label_cont_execute:
 void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
     prh_simple_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
     prh_real_cono **grabbed_cono = prh_impl_thrd_grabbed_cono(main_thrd);
-    int thrd_id = prh_thrd_id(main_thrd);
     prh_debug(int privilege_acquire_count = 0);
 
     for (; ;) {
@@ -17483,7 +17497,7 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
             prh_thrd_sleep(0, 0);
         }
         if (*grabbed_cono) {
-            prh_impl_cono_execute(thrd_id, *grabbed_cono);
+            prh_impl_cono_execute(*grabbed_cono);
             continue;
         }
         if (prh_atom_bool_read(&PRH_IMPL_CONO_STRUCT.term_signal)) {
@@ -17492,13 +17506,13 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
             }
             prh_simp_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
 #if PRH_CONO_DEBUG
-            printf("[thrd %02d] exit\n", thrd_id);
+            printf("[thrd %02d] exit\n", prh_thrd_id(main_thrd));
 #endif
             break;
         }
-        prh_debug(printf("[thrd %02d] sleep %d\n", thrd_id, privilege_acquire_count));
+        prh_debug(printf("[thrd %02d] sleep %d\n", prh_thrd_id(main_thrd), privilege_acquire_count));
         prh_thrd_cond_sleep(&main_thrd->cond_sleep);
-        prh_debug(printf("[thrd %02d] wakeup\n", thrd_id));
+        prh_debug(printf("[thrd %02d] wakeup\n", prh_thrd_id(main_thrd)));
         prh_debug(privilege_acquire_count = 0);
     }
 }
@@ -17506,13 +17520,12 @@ void prh_impl_cono_main_proc_v2(prh_cono_thrd* main_thrd) {
 void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
     prh_simple_thrds *thrds = PRH_IMPL_CONO_STRUCT.thrds;
     prh_atom_ptr *thrd_ready_cono = &main_thrd->ready_cono;
-    int thrd_id = prh_thrd_id(main_thrd);
     prh_real_cono *ready_cono;
 
     for (; ;) {
         while ((ready_cono = prh_atom_ptr_read(thrd_ready_cono))) {
             if (prh_atom_ptr_weak_write(thrd_ready_cono, (void **)&ready_cono, prh_null)) {
-                prh_impl_cono_execute(thrd_id, ready_cono);
+                prh_impl_cono_execute(ready_cono);
             }
             prh_impl_privilege_task(main_thrd, false);
         }
@@ -17526,21 +17539,19 @@ void prh_impl_cono_main_proc(prh_cono_thrd* main_thrd) {
             }
             prh_simp_thrd_join_except_main(thrds, prh_impl_cono_thrd_free);
 #if PRH_CONO_DEBUG
-            printf("[thrd %02d] exit\n", thrd_id);
+            printf("[thrd %02d] exit\n", prh_thrd_id(main_thrd));
 #endif
             break;
         }
 #if PRH_CONO_DEBUG
-        printf("[thrd %02d] sleep\n", thrd_id);
+        printf("[thrd %02d] sleep\n", prh_thrd_id(main_thrd));
 #endif
         prh_thrd_cond_sleep(&main_thrd->cond_sleep);
 #if PRH_CONO_DEBUG
-        printf("[thrd %02d] wakeup\n", thrd_id);
+        printf("[thrd %02d] wakeup\n", prh_thrd_id(main_thrd));
 #endif
     }
 }
-
-#define PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2 1
 
 void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, int stack_size) {
     prh_cono_struct *s = prh_impl_cono_struct_init(thrd_start_id, num_thread, main_proc, stack_size);
@@ -17554,14 +17565,14 @@ void prh_cono_main(int thrd_start_id, int num_thread, prh_conoproc_t main_proc, 
     for (int i = 0; i < num_thread; i += 1) { // 启动所有线程
         prh_cono_thrd *cono_thrd = prh_simp_thrd_create(thrds);
         prh_impl_cono_thrd_init(cono_thrd);
-#if PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2
+#if PRH_IMPL_CONO_SCHEDULE_STRATEGY_V2
         prh_simp_thrd_sched(thrds, cono_thrd, prh_impl_cono_thrd_proc_v2, 0);
 #else
         prh_simp_thrd_sched(thrds, cono_thrd, prh_impl_cono_thrd_proc, 0);
 #endif
     }
 
-#if PRH_IMPL_CONO_PRIVILEGE_SCHEDULE_V2
+#if PRH_IMPL_CONO_SCHEDULE_STRATEGY_V2
     prh_impl_cono_main_proc_v2(main_thrd); // 启动主线程
 #else
     prh_impl_cono_main_proc(main_thrd); // 启动主线程
@@ -19463,7 +19474,7 @@ void prh_iocp_accept_req(prh_impl_accept_req *req) { // 可以多个线程同时
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
-        req->post.complete_routine = prh_impl_iocp_accept_completion_from_port;
+        req->post.continue_routine = prh_impl_iocp_accept_completion_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -20179,16 +20190,16 @@ void prh_impl_iocp_connect_continue(prh_iocp_post *post) {
         req->overlapped.hEvent = (HANDLE)req->connect_socket; // 使用 hEvent 临时保存 connect_socket
         req->connect_socket = PRH_INVASOCK; // 在 prh_iocp_connect 重用时，会注册一个新的套接字到 PRH_IMPL_IOCP 中
     }
-    post->continue_routine(post);
+    post->complete_routine(post);
 }
 
 void prh_impl_iocp_connect_complete(prh_iocp_post *post) {
-    post->complete_routine = prh_impl_iocp_connect_continue;
+    post->continue_routine = prh_impl_iocp_connect_continue;
     prh_iocp_thrd_post(post);
 }
 
 void prh_impl_iocp_connect_completed_from_port(prh_iocp_post *post) {
-    post->complete_routine = prh_impl_iocp_connect_continue;
+    post->continue_routine = prh_impl_iocp_connect_continue;
     prh_impl_iocp_sched_thrd_post(post);
 }
 
@@ -20219,7 +20230,7 @@ void prh_impl_iocp_connect_req(prh_iocp_connect *req) {
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
-        req->post.complete_routine = prh_impl_iocp_connect_completed_from_port;
+        req->post.continue_routine = prh_impl_iocp_connect_completed_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -20817,16 +20828,16 @@ void prh_impl_iocp_wsasend_continue(prh_iocp_post *post) {
         // WSA_OPERATION_ABORTED     由于套接字关闭、在 WSAIoctl 中执行“SIO_FLUSH”命令或启动重叠请求的线程在操作完成前退出，重叠
         //                           操作已被取消。有关详细信息，请参阅备注部分。
     }
-    post->continue_routine(post);
+    post->complete_routine(post);
 }
 
 void prh_impl_iocp_wsasend_complete(prh_iocp_post *post) {
-    post->complete_routine = prh_impl_iocp_wsasend_continue;
+    post->continue_routine = prh_impl_iocp_wsasend_continue;
     prh_iocp_thrd_post(post);
 }
 
 void prh_impl_iocp_wsasend_completed_from_port(prh_iocp_post *post) {
-    post->complete_routine = prh_impl_iocp_wsasend_continue;
+    post->continue_routine = prh_impl_iocp_wsasend_continue;
     prh_impl_iocp_sched_thrd_post(post);
 }
 
@@ -20856,7 +20867,7 @@ void prh_iocp_wsasend_req(prh_iocp_wsasend *req, const prh_byte *buffer, int len
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
-        req->post.complete_routine = prh_impl_iocp_wsasend_completed_from_port;
+        req->post.continue_routine = prh_impl_iocp_wsasend_completed_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -21173,16 +21184,16 @@ void prh_impl_iocp_wsarecv_continue(prh_iocp_post *post) {
         // WSA_IO_PENDING          重叠操作已成功启动，完成将在稍后时间指示。
         // WSA_OPERATION_ABORTED   由于套接字关闭，重叠操作已被取消。
     }
-    post->continue_routine(post);
+    post->complete_routine(post);
 }
 
 void prh_impl_iocp_wsarecv_complete(prh_iocp_post *post) {
-    post->complete_routine = prh_impl_iocp_wsarecv_continue;
+    post->continue_routine = prh_impl_iocp_wsarecv_continue;
     prh_iocp_thrd_post(post);
 }
 
 void prh_impl_iocp_wsarecv_completed_from_port(prh_iocp_post *post) {
-    post->complete_routine = prh_impl_iocp_wsarecv_continue;
+    post->continue_routine = prh_impl_iocp_wsarecv_continue;
     prh_impl_iocp_sched_thrd_post(post);
 }
 
@@ -21227,7 +21238,7 @@ void prh_iocp_wsarecv_req(prh_iocp_wsarecv *req, prh_byte *buffer, int length) {
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
-        req->post.complete_routine = prh_impl_iocp_wsarecv_completed_from_port;
+        req->post.continue_routine = prh_impl_iocp_wsarecv_completed_from_port;
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -21421,7 +21432,7 @@ void prh_impl_iocp_riosend_req(prh_iocp_riosend *req, const prh_byte *buffer, in
     RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
     DWORD error_code = prh_impl_rio_send((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
     if (error_code == 0 || error_code == WSA_IO_PENDING) {
-        req->post.complete_routine = prh_impl_iocp_wsasend_completed_from_port; // 严格来说，是通过查询完成队列来完成操作
+        req->post.continue_routine = prh_impl_iocp_wsasend_completed_from_port; // 严格来说，是通过查询完成队列来完成操作
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
@@ -21642,7 +21653,7 @@ void prh_impl_iocp_riorecv_req(prh_iocp_riorecv *req, prh_byte *buffer, int leng
     RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
     DWORD error_code = prh_impl_rio_recv((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
     if (error_code == 0 || error_code == WSA_IO_PENDING) {
-        req->post.complete_routine = prh_impl_iocp_wsarecv_completed_from_port; // 严格来说，是通过查询完成队列来完成操作
+        req->post.continue_routine = prh_impl_iocp_wsarecv_completed_from_port; // 严格来说，是通过查询完成队列来完成操作
         return; // 请求立即完成或已经成功投递
     }
     prh_prerr(error_code);
