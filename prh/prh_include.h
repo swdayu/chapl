@@ -17174,29 +17174,42 @@ typedef struct {
     prh_byte opcode;
 } prh_pwait_data;
 
-typedef struct { // 协程线程与调度线程共享的协程数据
-    bool coro_is_await;
-    bool coro_is_pwait;
-    prh_atom_dynque_producer callee_rx_que_producer;
-    prh_atom_dynque_producer subq_post_que_producer;
+typedef struct prh_shared_coro_data {
+    // 协程线程与调度线程共享的协程数据
     prh_atom_dynque_length callee_rx_que_length;
     prh_atom_dynque_length subq_post_que_length;
+    // 仅由调度线程访问的协程数据
+    bool coro_is_await, coro_is_pwait;
+    struct prh_shared_coro_data *caller_need_result_in_synced_way; // 保证调度线程只访问 shared_coro_data 部分的数据
+    prh_atom_dynque_producer callee_rx_que_producer;
+    prh_atom_dynque_producer subq_post_que_producer;
 } prh_shared_coro_data;
 
 // struct prh_impl_coro
-//  prh_i32 rspoffset; // 1st field dont move
-//  prh_i32 loweraddr;
-//  void *userdata;
+//  prh_i32 rspoffset;                      //  +4  4   4
+//  prh_i32 loweraddr;                      //  +4  8   8
+//  void *userdata;                         //  +p  12  16
+typedef struct {
+    prh_ext_coro *caller;
+} prh_exec_coro;
+
+// struct prh_impl_coro
+//  prh_i32 rspoffset;                      //  +4  4   4
+//  prh_i32 loweraddr;                      //  +4  8   8
+//  void *userdata;                         //  +p  12  16
 struct prh_real_cono {
-    prh_continue_routine continue_routine; // 必须是第一个成员
-    prh_atom_dynque_consumer callee_rx_que; // 与调度线程交流的单生产者单消费者队列
-    prh_atom_dynque_consumer subq_post_que;
-    prh_shared_coro_data *shared_coro_data;
-    int wait_callee_count;
-    prh_byte subq_num;
-    prh_byte subq_wait;
-    prh_real_cono *awaited_callee;
-    prh_real_cono *yield_result_for_caller;
+    prh_atom_dynque_consumer callee_rx_que; //  +2p 20  32
+    prh_atom_dynque_consumer subq_post_que; //  +2p 24  40
+    int cono_id, wait_callee_count;                  //  +8  32  48
+    prh_byte subq_num, subq_wait;                     //  +p  36  56
+    prh_byte uncond_run: 1;
+    prh_real_cono *waited_callee;          //  +p  40  64
+    prh_real_cono *caller_need_result_in_synced_way;
+
+    // 与调度线程共享的数据
+    prh_alignas(PRH_CACHE_LINE_SIZE)
+    prh_shared_coro_data shared_coro_data;
+
     // 仅由执行线程访问
     prh_i32 cono_id;
     prh_byte subq_n;
@@ -17213,6 +17226,10 @@ struct prh_real_cono {
     prh_real_cono *cono_chain; // 使用relaxed quefit是因为，想将被其他线程修改的内容放在一起
     prh_cono_thrd *assign_thrd;
 };
+
+prh_real_cono *prh_impl_coro_from_shared_data(prh_shared_coro_data *shared_coro_data) {
+    return (prh_real_cono *)((prh_byte *)shared_coro_data - prh_offsetof(prh_real_cono, shared_coro_data));
+}
 #else
 typedef struct {
     prh_real_cono *head;
@@ -17787,7 +17804,8 @@ void prh_impl_cono_execute(prh_iocp_post *post_ptr) {
     cono->continue_routine(post_ptr);
 }
 
-void prh_impl_cono_continue_process(prh_real_cono *req_cono) {
+bool prh_impl_cono_continue_process(prh_real_cono *req_cono) {
+    bool coro_continue_run = false;
     if (prh_impl_cono_finished(req_cono)) {
         if (req_cono == PRH_IMPL_CONO_STRUCT.main_entry_cono) {
             prh_impl_cono_term_signal();
@@ -17799,15 +17817,19 @@ void prh_impl_cono_continue_process(prh_real_cono *req_cono) {
         }
     } else if (req_cono->uncond_run) { // 无条件执行
         prh_iocp_thrd_post((prh_iocp_post *)req_cono, prh_impl_cono_execute);
+        coro_continue_run = true;
     } else {
         prh_abort_error(__LINE__); // 子协程提交执行结果后要么执行完毕，要么无条件继续执行
     }
+    return coro_continue_run;
 }
 
 void prh_impl_callee_continue(prh_real_cono *caller) {
     prh_real_cono *callee = caller->callee;
     caller->callee = prh_null;
-    prh_impl_cono_continue_process(callee);
+    if (prh_impl_cono_continue_process(callee)) {
+        caller->wait_callee_count += 1;
+    }
 }
 
 void prh_cono_continue(prh_await_data *cono_await_data) {
@@ -17816,18 +17838,119 @@ void prh_cono_continue(prh_await_data *cono_await_data) {
     prh_impl_callee_continue(caller);
 }
 
+void prh_impl_cono_start_req_caller_yield_callee_run(prh_iocp_post *post_ptr) {
+    prh_real_cono *caller = (prh_real_cono *)post_ptr;
+    prh_real_cono *callee = caller->waited_callee;
+    caller->waited_callee = prh_null; // 将临时保存的 callee 清除
+    prh_iocp_thrd_post((prh_iocp_post *)caller, prh_impl_cono_execute);
+    prh_impl_cono_execute((prh_iocp_post *)callee);
+}
+
 void prh_cono_start(prh_spawn_data *cono_spawn_data, bool await_cono_yield) {
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_real_cono *callee = prh_impl_cono_from_data(cono_spawn_data);
     callee->cono_id = prh_atom_u32_fetch_inc(PRH_IOCP_SHARED_GLOBAL.cono_id_seed) + 1;
-    if (await_cono_yield) {
-        caller->wait_callee_count += 1;
-        callee->caller = caller;
-    }
 #if PRH_CONO_DEBUG
     printf("[thrd %02d] cono %02d create callee cono %02d\n", prh_thrd_self_id(), caller->cono_id, callee->cono_id);
 #endif
-    prh_iocp_thrd_post((prh_iocp_post *)callee, prh_impl_cono_execute);
+    if (await_cono_yield) {
+        callee->caller_need_result_in_synced_way = caller;
+        callee->shared_coro_data.caller_need_result_in_synced_way = &caller->shared_coro_data; // 保证调度线程只访问 shared_coro_data 部分的数据
+        caller->wait_callee_count += 1;
+        caller->waited_callee = callee; // 临时保存 callee
+        caller->continue_routine = prh_impl_cono_start_req_caller_yield_callee_run;
+        prh_soro_yield((prh_soro *)prh_impl_coro_from_cono(caller));
+    } else {
+        prh_iocp_thrd_post((prh_iocp_post *)callee, prh_impl_cono_execute);
+    }
+}
+
+bool prh_impl_coro_callee_que_empty(prh_shared_coro_data *shared_coro_data) {
+    return prh_atom_dynque_empty(&shared_coro_data->callee_rx_que_length);
+}
+
+void prh_impl_coro_begin_free_rxque_block(prh_atom_dynque_block *free_block) {
+    prh_sched_thrd_synced_post((prh_iocp_post *)free_block, prh_impl_sched_thrd_synced_free_block);
+}
+
+prh_real_cono *prh_impl_coro_thrd_pop_callee_rx_que(prh_real_cono *caller) {
+    prh_shared_coro_data *shared_coro_data = caller->shared_coro_data;
+    prh_real_cono *callee = prh_atom_dynque_pop(caller->callee_rx_que, &shared_coro_data->callee_rx_que_length, prh_impl_coro_begin_free_rxque_block);
+    prh_real_assert(callee != prh_null);
+    return callee;
+}
+
+void prh_impl_sched_thrd_push_callee_rx_que(prh_shared_coro_data *shared_coro_data, prh_real_cono *callee) {
+    prh_atom_dynque_push(&shared_coro_data->callee_rx_que_producer, &shared_coro_data->callee_rx_que_length, callee, &PRH_IOCP_GLOBAL.coro_freed_block_que);
+}
+
+bool prh_impl_cono_sched_thrd_synced_yield_req(prh_iocp_post_req *post_req) {
+    prh_shared_coro_data *shared_callee_data = (prh_real_cono *)post_req->iocp_post; // 保证调度线程只访问 shared_coro_data 部分的数据
+    assert(shared_callee_data->caller_need_result_in_synced_way != prh_null);
+    prh_shared_coro_data *shared_caller_data = shared_callee_data->caller_need_result_in_synced_way;
+    prh_impl_sched_thrd_push_callee_rx_que(shared_caller_data, callee);
+    if (shared_caller_data->coro_is_await) {
+        shared_caller_data->coro_is_await = false;
+        post_req->iocp_post = (prh_iocp_post *)prh_impl_coro_from_shared_data(shared_caller_data);
+        post_req->continue_routine = prh_impl_cono_execute;
+        return true; // 让等到 callee 的 caller 协程继续执行
+    }
+    return false; // caller 没有在等待，callee 插入到 callee_rx_que 之后无需做其他事
+}
+
+void prh_impl_cono_begin_yield_req(prh_iocp_post *post_ptr) {
+    prh_real_cono *callee = (prh_real_cono *)post_ptr;
+    if (callee->caller_need_result_in_synced_way) { // 需要提交执行结果给请求协程
+        prh_sched_thrd_synced_post((prh_iocp_post *)&callee->shared_coro_data, prh_impl_cono_sched_thrd_synced_yield_req);
+    } else { // 执行协程不需要将结果提交给请求协程，执行结束或者看继续怎么处理
+        prh_impl_cono_continue_process(callee);
+    }
+}
+
+void prh_impl_cross_thread_coro_yield(prh_real_cono *cono) {
+    cono->continue_routine = prh_impl_cono_begin_yield_req;
+}
+
+prh_fastcall(void *) prh_impl_asm_cono_finish(prh_coro *coro) {
+    prh_impl_cross_thread_coro_yield(prh_impl_cono_from_coro(coro));
+    return prh_impl_asm_soro_finish(coro);
+}
+
+bool prh_impl_cono_sched_thrd_synced_await_req(prh_iocp_post_req *post_req) {
+    prh_shared_coro_data *shared_coro_data = (prh_shared_coro_data *)post_req->iocp_post;
+    if (prh_impl_coro_callee_que_empty(shared_coro_data)) {
+        shared_coro_data->coro_is_await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
+        return false;
+    }
+    post_req->iocp_post = (prh_iocp_post *)prh_impl_coro_from_shared_data(shared_coro_data);
+    post_req->continue_routine = prh_impl_cono_execute; // 已经有待处理的 callee，让 caller 继续执行
+    return true; // 让工作线程争抢继续执行 continue_routine
+}
+
+void prh_impl_cono_begin_await_req(prh_iocp_post *caller) {
+    prh_shared_coro_data *shared_coro_data = &((prh_real_cono *)caller)->shared_coro_data;
+    prh_sched_thrd_synced_post((prh_iocp_post *)shared_coro_data, prh_impl_cono_sched_thrd_synced_await_req);
+}
+
+void *prh_cono_await(void) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
+    if (caller->waited_callee) { // 上次挂起之后这次继续执行，是因为等到了子协程的执行结果，此次继续执行需要读取子协程的执行结果，读取完毕之后此次执行过程可以立即调用prh_impl_callee_continue()让子协程继续执行
+        prh_impl_callee_continue(caller); // 如果在执行过程中没有调用prh_impl_callee_continue()，这里提供了最后的保底机会继续让协程执行
+    }
+    if (caller->wait_callee_count <= 0) {
+        return prh_null; // 所有 callee 都处理完毕
+    }
+    if (prh_impl_coro_callee_que_empty(&caller->shared_coro_data)) {
+        // 调用 prh_soro_yield 期间的执行步骤：
+        // 1. 回到 prh_impl_cono_execute 并执行 prh_impl_cono_begin_await_req，然后以 PRH_CONO_AWAIT 状态退出 prh_impl_cono_execute
+        // 2. 当该协程再次获得执行机会时，再次执行 prh_impl_cono_execute，然后 prh_soro_yield 会会返回，继续执行本函数后面的代码
+        cono->continue_routine = prh_impl_cono_begin_await_req;
+        prh_soro_yield((prh_soro *)prh_impl_coro_from_cono(caller));
+    }
+    prh_real_cono *callee = prh_impl_coro_thrd_pop_callee_rx_que(caller);
+    caller->waited_callee = callee;
+    caller->wait_callee_count -= 1;
+    return prh_impl_get_spawn_data(callee);
 }
 
 #endif // PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
