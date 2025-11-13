@@ -4,24 +4,15 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else case for range
+//  if else tr for range
 //  continue break defer return yield
 //  const void adr der let not or
 //  static extern struct
-//  sizeof typeof alignof offsetof copyof moveof
+//  sizeof typeof alignof alignas offsetof copyof moveof
 //
 // 预定义函数：
 //  zeroes(a)
 //  memset(a, 1)
-//
-// 语句块的控制：
-//  if expr then stmt
-//  if expr : stmt ... ;
-//  if expr { stmt ... }
-//
-// 循环控制：
-//  for expr void
-//  for expr { }
 //
 // 函数参数或者结构体成员声明
 //  Point point p2          struct point point p2
@@ -43,6 +34,15 @@
 //  ${any} T struct u   // 禁止
 //  struct $t a $U b    // 但使用已定义类型定义常量参数是允许的
 //  $T a struct $u b
+//  ---
+//  $T $U        // 相当于定义了两个类型参数 struct t 和 struct u
+//  ${any} T U   // 与上一行等价
+//  ${int} Int          // 相当于定义了一个类型参数 struct Int，该类型必须是一个整型
+//  ${flo} Float
+//  ${num} Type
+//  const string a b
+//  const int a b
+//  const struct point a b
 //
 // 定义泛型常量参数（generic value parameter）compile time const 常量参数
 //  $T a $U b $int c  定义三个常量参数 a 和 b 和 c，a 的类型是 T，b 的类型是 U，c 的类型是 int
@@ -53,7 +53,7 @@
 //
 // 其他标识符符都是非类型标识符，包括函数名、变量名、标签、包名等等。另外包含在 @name{}
 // 之内的标识符也都是非类型标识符，例如把类型名和关键字当作变量标识符使用：@name{int}
-// @name{if} @name{Type}。
+// @name{if} @name{Type}。      @{if}   struct @{if}
 //
 // 以 # 开头的标识符是编译器指令。以 @ 开头的标识符是属性名称，包括函数、类型、变量的
 // 属性名称等。以单下划线或双下划线开始的标识符，是保留关键字。
@@ -94,22 +94,22 @@
 // (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
 //
 // 基本类型，定义在 type 代码包中：
-//  bool null byte char string errno
-//  i08 i16 i32 i64 i128 int int(32) int(64) int(128) (b w d q x y z p r) byte word double-word quad-word xmm-word ymm-word zmm-word
-//  u08 u16 u32 u64 u128 unt unt(32) unt(64) unt(128) ... Ptr SysPtr SysInt SysUnt
-//  f08 f16 f32 f64 f128 float float(32) float(64) float(128)
-//  d08 d16 d32 d64 d128 decimal decimal(32) decimal(64) ...
-//  c08 c16 c32 c64 c128 complex complex(32) complex(64) ...
+//  bool null byte char string errno struct "32-byte" i32 u32 int unt sys_int sys_unt sys_ptr struct i struct u struct p
+//  i08 i16 i32 i64 i128 int <32>int <64>int <128>int (b w d q x y z p r) byte word double-word quad-word xmm-word ymm-word zmm-word
+//  u08 u16 u32 u64 u128 unt <32>unt <64>unt <128>unt ...
+//  f08 f16 f32 f64 f128 float <32>float <64>float <128>float
+//  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
+//  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
 // 类型信息：type|flag
-//  i08 ~ int(128)      0   ~   15
-//  f08 ~ float(128)    16  ~   31
-//  d08 ~ decimal(128)  32  ~   47
-//  c08 ~ complex(128)  48  ~   63
+//  i08 ~ <128>int      0   ~   15
+//  f08 ~ <128>float    16  ~   31
+//  d08 ~ <128>decimal  32  ~   47
+//  c08 ~ <128>complex  48  ~   63
 //  string 64 array 65 slice 66 view 67 struct 68 sumt 69 func 70
-//  int/SysInt: ixx|int: 1
-//  unt/SysUnt: ixx|unt: 1
-//  Ptr/SysPtr: uxx|ptr: 1
+//  int/sys_int: ixx|int: 1
+//  unt/sys_unt: ixx|unt: 1
+//  ptr/sys_ptr: uxx|ptr: 1
 //  bool: u08|bool:1
 //  null: u08|null:1
 //  char: u32|char:1
@@ -121,10 +121,10 @@
 //                                          arch-32     arch-64 small memory range app  arch-64 large memory range app
 //  int - pointer size signed type          32-bit      32-bit                          64-bit
 //  unt - pointer size unsigned type        32-bit      32-bit                          64-bit
-//  Ptr - pointer type                      32-bit      32-bit                          64-bit
-//  SysInt - system register size type      32-bit      64-bit                          64-bit
-//  SysUnt - system register size type      32-bit      64-bit                          64-bit
-//  SysPtr - system register width pointer  32-bit      64-bit                          64-bit
+//  ptr - pointer type                      32-bit      32-bit                          64-bit
+//  sys_int - system register size type     32-bit      64-bit                          64-bit
+//  sys_unt - system register size type     32-bit      64-bit                          64-bit
+//  sys_ptr - system register width pointer 32-bit      64-bit                          64-bit
 //
 // 类型约束：
 // Any Integer Float Unsigned Decimal Complex BasicType AnonyType NamedType GimplType
@@ -134,6 +134,8 @@
 // basic_type   // numeric + string
 // numeric      // integer + float + decimal + complex
 // integer      // bool null byte rune errno strt i08~i512 u08~u512 int unt
+// instant_type
+// generic_type
 //
 // 复合类型和匿名类型：
 //  int  u16  f64  Point  MyInt
@@ -167,8 +169,8 @@
 //      (int int)            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int 0 int 1}
 //      (this int int int)   结构体不能内嵌一个指针类型，等价于结构体 {this 0 int 1 int 2 int 3}
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
-//      $i08 {RED {const * 2} YELLOW BLUE} // const 是枚举元素的索引值
-//      $int {RED YELLOW BLUE}
+//      const i08 {RED {const * 2} YELLOW BLUE} // const 是枚举元素的索引值
+//      const int {RED YELLOW BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
 //      $T $(*T p int a b int) calc $(*T p int c) get {}
 //  Struct 表示定义一个类型
@@ -177,11 +179,11 @@
 //      { (this p int a b int) calc }
 //      $T $U $int size { T[size] a U b }
 //  常量类型，可以表示任意常量，包括结构体常量，常量类型定义一个对应类型的常量值，是一个值不是类型
-//      const PI f16 3.14
-//      const PI 3.1415926
-//      const HI { int a float b string c Point p } { a 1 b 3.14 p(10, 30) }
-//      const HI HiData { a(MAX_SIZE) b(3.14) c("hello") p{10, 30} } // 基本类型、结构体、复合类型的初始化怎么统一 ???
-//      const fn (int a b int) calc_func
+//      PI const f16 3.14
+//      PI const 3.1415926
+//      HI const { int a float b string c Point p } { a 1 b 3.14 p(10, 30) }
+//      HI const HiData { a(MAX_SIZE) b(3.14) c("hello") p{10, 30} } // 基本类型、结构体、复合类型的初始化怎么统一 ???
+//      fn const (int a b int) calc_func
 // 定义一个类型参数列表
 //      Test $T $int a $string b {}
 //      Test(Type, 1, "hello")
@@ -296,7 +298,23 @@
 //      如果前面的表达式是一个变量，则进行函数调用
 //      如果前面的表达式是一个常量，则报错
 
-Point { float x y }
+struct point {
+    float x y
+}
+
+struct data {
+    int a b
+    (int a b return int) f g
+}
+
+struct get ($*T a return int) // 函数参数只能声明类型模板参数
+struct read ($*T a struct ptr p int n return int) // 函数只有第一个参数才能是泛型类型
+struct reader $T ${"T"get} get ${"T"read} read {} // 在 ${} 表达式中需要省略 struct 关键字
+
+struct @{get} ($*T a return int)
+struct @{read} ($*T a struct ptr p int n return int)
+struct @{reader} $T ${"T"@{get}} get ${"T"@{read}} read {}
+
 Data { int a b (int a b int) f g }
 Get($*T a int) // 函数参数只能声明类型模板参数
 Read($*T a Ptr p int n int)
@@ -316,6 +334,7 @@ Reader $T $(*T p int a b int) calc $(*T p []byte a) get {}
 Get ($*T p int)
 Read ($*T p *byte buf int n int)
 Reader $T $Get(T) get $Read(T) read {}
+Reader $T <T>Get get <T>Read read {}
 Handle (*HciRxDesc rx_desc u32 ca HciDataType type U line)
 hci_rx_buffer_handled_and_free(HciRxDesc rxdesc u32 ca HciDataType datatype U line)
 extern L2capConn         *L2capConn
@@ -335,25 +354,77 @@ extern ArrLax
 struct 点 { float x y }
 struct 数 { int a b }
 struct point { float x y }
-struct data { int a b (int a b int) f g }
-struct reader $T $(*T p int a b int) calc $(*T p []byte a) get { }
-struct get (struct $*t p int)
-struct read (struct $*t p *byte buf int n int)
-struct reader $T struct $get(T) get struct $read(T) read { }
-struct array $T $int size { [size]T a }
+struct data { int a b (int a b return int) f g }
+struct reader $T ${(*T p int a b return int)} calc ${(*T p []byte a)} get { }
+struct get ($*t p return int)
+struct read ($*t p *byte buf int n return int)
+struct reader $T ${get(T)} get ${read(T)} read { }
 struct color $i08 { RED 1 BLUE 2 YELLOW 3 }
 struct bitvalue $int { FLAT_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 }
 struct tcpaction $int { TCPA_OPEN_ACCEPT TCPA_TX_DATA TCPA_RX_DONE }
 struct 协程 { u32 rspoffset loweraddr }
 struct coroguard { u32 lower_guard_word struct *coro coro (struct *coroguard g int a b int) f g }
-struct test $T $U { T t U u }
-struct test ${any} T U { T t U u }
-struct test struct $t a $U b $int size { }
-struct test $T a struct $u b $int size { }
 struct handle(struct *hcirxdesc rxdesc u32 ca struct hcidatatype type struct u line)
 struct main(int argc **byte argv int)
 struct scale(struct point point int a b)
 struct calc(int a b int)
+
+struct array const int size $t {
+    struct [size]t a
+}
+
+struct int_N_array ${const int} size = struct "size int" array
+struct type_size_array ${const int} size $type = struct "size type" array
+struct int_array = struct "20 int" array
+struct some_array_type = struct "8 (10 (20 int_N_array))" array
+struct int_array_of_array = struct "8 int_array" array
+struct int_array_of_array = struct "8 (20 int)" array
+
+struct test $t $u {
+    struct t t
+    struct u u
+}
+
+point const point {
+    100,
+    200,
+}
+
+pi const float 3.1415926
+
+struct color const int {
+    RED const + 1,
+    BLUE,
+    GREEN,
+    YELLOW,
+}
+
+struct test ${"? int"array} t ${any} u const int size const point point {
+    struct t t
+    struct u u
+}
+
+struct test
+    const struct a a
+    const struct b b
+    const int size
+{}
+
+struct test $t $u {
+    struct t t
+    struct u u
+}
+
+struct test ${any} t u {
+    struct t t
+    struct u u
+}
+
+struct test
+    const struct a a
+    const struct b b
+    const int size
+{}
 
 extern struct l2capconn         struct *l2capconn        struct [2]l2capconn
 extern struct l2capcallback     struct *l2capcallback    struct [2]l2capcallback
@@ -391,18 +462,18 @@ T5 Triple#3(((# int a b int)[3]) calc, (Point p float factor)[int])
 T6 Triple#3((int a b int)[3], int*)
 T7 Triple#3((Point p float factor)[3], string[int])
 
-Node $T {
+struct node $t {
     this next
-    T data
+    struct t data
 }
 
-Triple $T $U $int size {
-    T[size] a
-    U b
+struct tripple $t $u const int size {
+    struct [size]t a
+    struct u b
 }
 
-Main (i32 argc **byte argv i32)
-Scale (Point p int a b)
+struct main (int argc **byte argv return int)
+struct scale (struct point p int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b int errno) // errno is a type with i32
@@ -476,9 +547,9 @@ struct 协程 {
 struct coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    struct coro _embed_
+    struct coro #embed
     struct *coro coro
-    this _embed_
+    this #embed
     this coro_guard
     (int a b int) calc
     (struct *coro p) func
@@ -592,6 +663,37 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
+struct color const u08 {}
+
+struct operator const u32 -> priority const {u08 lpri rpri} {
+    ass '=' {200, 201},
+    add '+' {211, 210},
+    sub '-' {211, 210},
+    mul '*' {221, 220},
+    div '/' {221, 220},
+    pow '^' {230, 231},
+    dot '.' {251, 250},
+    end 0 // 默认值为零
+}
+
+struct ptr_type unt {
+    null 0,
+    uptr ... // 其余值
+}
+
+struct token const byte {
+    atom {byte id},
+    oper {byte id},
+    eof
+}
+
+// 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
+struct expr const byte { // 相当于是一种泛型类型
+    value {int n}, // 相当于存储 {byte 0 int n}
+    ident {int id}, // 相当于存储 {byte 1 int n}
+    expr {int op struct *expr lhs rhs}, // 相当于存储 {byte 2 int op unt lhs rhs}
+}
+
 eat(*Lexer lexer Token) {
     return lexer.pop()
 }
@@ -600,48 +702,47 @@ peek(*Lexer lexer Token) {
     return lexer.top()
 }
 
-eval(Oper op Expr lhs rhs Expr) {
-    res Expr _uninit_
-    if op case '=' {
+eval(struct oper op struct expr lhs rhs return struct expr res) {
+    if [op] '=' {
         res = .value(rhs.value.n)
-        get_symbol(lhs.ident.id).value = rhs.value.n }
-    case '+'
+        get_symbol(lhs.ident.id).value = rhs.value.n
+    } else if '+' {
         res = .value(lhs.value.n + rhs.value.n)
-    case '-'
+    } else if '-' {
         res = .value(lhs.value.n - rhs.value.n)
-    case '*'
+    } else if '*' {
         res = .value(lhs.value.n * rhs.value.n)
-    case '/'
+    } else if '/' {
         res = .value(lhs.value.n / rhs.value.n)
-    case '^'
+    } else if '^' {
         res = .value(pow(lhs.value.n, rhs.value.n))
-    else
+    } else {
         panic("bad operator %c", op)
+    }
     return res
 }
 
-parse_expression(*Lexer lexer int min_prior Expr) {
-    lhs Expr _uninit_
-    if lexer.eat() case .atom(it) {
-        if it == '0'..'9'
+parse_expression(struct *lexer lexer int min_prior return struct expr lhs) {
+    if [lexer.eat()] atom(it) {
+        if it == '0'..'9' then
             lhs = .value(it - '0')
-        else if it == 'a'..'z' || it == 'A'..'Z'
+        else if it == 'a'..'z' || it == 'A'..'Z' then
             lhs = .value(get_symbol(it).value)
-        else
+        else then
             panic("bad token %d", it)
-    } case .oper('(') {
+    } else if oper('(') {
         lhs = eval(parse_expression(lexer, 0)
         assert_eq(lexer.skip(), Token.oper(')'))
     } else {
         panic("bad token %d", it)
     }
     for {
-        op Expr _uninit_
-        if lexer.peek() case .eof .oper(')')
+        op struct expr _uninit_
+        if [lexer.peek()] eof oper(')')
             break
-        case .oper(it)
+        else if oper(it) then
             op = .expr(it)
-        else
+        else then
             panic("bad token %d", it)
         lexer.skip()
         prior let Oper(op.expr.op)
@@ -653,7 +754,7 @@ parse_expression(*Lexer lexer int min_prior Expr) {
     return lhs
 }
 
-eat(struct *lexer lexer struct token) {
+eat (struct * lexer lexer return struct token) {
     return lexer.pop()
 }
 
@@ -665,7 +766,7 @@ parse_expression(struct *lexer lexer int min_prior struct expr) {
     lhs struct expr _uninit_
 }
 
-tcp_poll(struct *file file struct *socket sock struct *poll_table wait struct poll) @public {
+tcp_poll(struct *file file struct *socket sock struct *poll_table wait return struct poll) [m] #public {
     mask struct poll _uninit_
     sk struct *sock sock.sk
     tp struct *tcp_sock tcp_sk(sk)
@@ -752,28 +853,28 @@ epoll_proc(*Cono cono) {
             break
         if action case EPAC_DEL_CLOSE
             epac_del_close(epoll, (int)pdata.u.value)
-        case EPAC_POLL_ONCE
+        else case EPAC_POLL_ONCE
             epac_wait(epoll)
-        case EPAC_POLL_ALL
+        else case EPAC_POLL_ALL
             for epac_wait(epoll) void
         else
             debug(prerr(action))
     }
 }
 
-main(int argc **byte argv int) @public {
+main(int argc struct **byte argv return int) { // main 函数默认是 public
     print("hello world\n")
 }
 
-main(void) [m] @public @inline {
+main(return int) [m] #public #inline {
     print("hello world\n")
 }
 
-struct main(int argc **byte argv int)
+struct main(int argc **byte argv return int)
 
-Main(i32 argc **byte argv i32)
+Main(i32 argc **byte argv return i32)
 scale(Point point int a b)
-calc(int a b int)
+calc(int a b return int)
 Array $T $int size { [size]T a }
 Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
 BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
@@ -866,9 +967,11 @@ for i I 0 .. 9 {
     i int der *I addr
     pos + der adr *I (*byte p + size + f(g))
 }
-memcpy(Ptr dst src int count) [[intrinsic]]
-memcmp(Ptr dst src int count int) [[intrinsic]]
-memset(Ptr dst byte value int count) [[intrinsic]]
+
+memcpy(S ptr dst src int count)
+memcpy(S ptr dst src int count) [[intrinsic]]
+memcmp(S ptr dst src int count int) [[intrinsic]]
+memset(S ptr dst byte value int count) [[intrinsic]]
 lock_cmpxchg(*T p T old new T) [[intrinsic]]
 coroguard(*Coro coro CoroGuard) [[cdcel inline]]
 
@@ -883,6 +986,7 @@ memcpy (Ptr dst src int count)
 memcmp (Ptr dst src int count int)
 lock (*T p T old new T)
 coro_guard (*Coro coro CoroGuard)
+get_coro_guard(struct *coro coro struct ptr)
 
 // 类型并不需要提前声明，因为可以通过词法直接分辨，函数类型如果可以通过传递的参数匹配也无需提前声明
 extern T1
@@ -906,11 +1010,11 @@ print("width % height %\n", width, height)
 calc $int a b (int c d int)
 calc"2,3"(c, d)
 
-main(int argc **byte argv int) {
+main(int argc **char argv return int) {
     return 0
 }
 
-calc(int a b int) {
+calc(int a b return int) {
     return a + b
 }
 
@@ -1071,9 +1175,9 @@ len let 3
 
 for i int 3 .. 10 { /* */ }
 
-for #first_time_true(capacity < new_capacity) { // ^^ 第一次条件检查一定为真
+for {
     capacity *= 2
-}
+} ? (capacity < new_capacity)
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
@@ -1290,18 +1394,54 @@ math:*
 //  #if cond { expr } else { expr }
 //  #if cond { expr } else if cond { expr }
 
-if color case .RED { // 使用break会跳出外层for循环
-    continue .GREEN
-} case .BLUE {
-    continue &
-} case .GREEN {
+if expr { stmt ... } // 条件语句块有两种大括号，一种是左大括号在表达式 expr 结束的同一行，第二种是表达式结束后是一个换行，第二种语句块以 ||| 结束，并且必须有相同的对齐
+if expr then stmt
+if expr return stmt
 
-} else [&] {
+if expr
+    return stmt
+else if expr
+    aaa
+    bbb
+    if ccc
+        stmt |||
+    |||
+else
+    stmt
+    if expr
+        stmt
+        |||
+    stmt
+    |||
+
+if [color] RED
+    continue GREEN
+else if BLUE
+    continue &
+else if GREEN
+    |||
+else &
+    |||
+
+if [color] RED { // 使用break会跳出外层for循环
+    continue GREEN
+} else if BLUE {
+    continue &
+} else if GREEN {
+
+} else & {
 
 }
 
 defer_return #label
     return
+
+// 循环语句
+
+for expr { stmt ... }
+for expr then stmt
+for { stmt ... }
+for { stmt ... } $(expr)
 
 // 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，#symmetric
 // 禁止函数链式调用 a.getb().bfun()
