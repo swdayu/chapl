@@ -15567,19 +15567,9 @@ typedef struct prh_callee_rx_item {
 prh_static_assert((((prh_ptr)PRH_ATOM_DYNQUE_BLOCK_END) & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG) == 0);
 prh_static_assert((((prh_ptr)PRH_ATOM_DYNQUE_ITEM_FREE) & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG) == 0);
 
-#if prh_lit_endian
-#define prh_impl_subq_post_flag 0
-#define prh_impl_subq_post_subq_i 1
-#define prh_impl_subq_post_opcode 2
-#else
-#define prh_impl_subq_post_flag (sizeof(void *) - 1)
-#define prh_impl_subq_post_subq_i (sizeof(void *) - 2)
-#define prh_impl_subq_post_opcode (sizeof(void *) - 3)
-#endif
-
-typedef struct {
-    prh_byte bytes[sizeof(void *)];
-    void *coro_post;
+typedef struct prh_subq_post_item {
+    struct prh_subq_post_item *next;
+    prh_ptr coro_post;
 } prh_subq_post_item;
 
 prh_static_assert(sizeof(prh_iocp_post_req) == 2 * sizeof(void *));
@@ -16063,7 +16053,7 @@ void prh_atom_sched_coro_que_free(prh_atom_sched_coro_que_consumer *c) {
     }
 }
 
-void prh_impl_atom_sched_coro_que_push_end(prh_atom_sched_coro_que_producer *p, prh_atom_int *que_length) {
+void prh_impl_atom_sched_coro_que_push_end(prh_atom_sched_coro_que_producer *p) {
     prh_debug(void **tail_item = p->tail_block_tail_item);
     p->tail_block_tail_item += 2;
     assert(p->tail_block_tail_item == tail_item + 2); // 仅允许单生产者和单消费者
@@ -16072,32 +16062,32 @@ void prh_impl_atom_sched_coro_que_push_end(prh_atom_sched_coro_que_producer *p, 
         p->tail_block_tail_item[1] = next;
         p->tail_block_tail_item = (void **)next;
     }
-    prh_atom_int_inc(que_length); // 此步骤执行完毕以上更新必须对所有cpu生效
 }
 
 void prh_atom_sched_coro_que_push_callee(prh_sched_only_data *sched_only_data, prh_real_cono *callee) {
     prh_atom_sched_coro_que_producer *p = &sched_only_data->coro_que_producer;
     prh_callee_rx_item *tail = sched_only_data->callee_rx_que_end;
     prh_callee_rx_item *next = (prh_callee_rx_item *)p->tail_block_tail_item;
-    assert(((prh_ptr)next & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG) == 0);
-    sched_only_data->callee_rx_que_end = next;
     tail->next = next; tail->callee = callee;
-    prh_impl_atom_sched_coro_que_push_end(p, sched_only_data->callee_rx_que_length);
+    sched_only_data->callee_rx_que_end = next;
+    prh_impl_atom_sched_coro_que_push_end(p);
+    prh_atom_int_inc(&sched_only_data->callee_rx_que_length); // 此步骤执行完毕以上更新必须对消费者cpu生效
 }
 
-void prh_atom_sched_coro_que_push_post(prh_coro_subq *coro_subq, void *coro_post, prh_byte opcode) {
-    prh_byte subq_i = coro_subq->subq_i;
-    prh_sched_only_data *sched_only_data = prh_impl_sched_only_data_from_subq(coro_subq, subq_i);
+void prh_atom_sched_coro_que_push_post(prh_coro_subq *coro_subq, prh_ptr coro_post) {
+    prh_sched_only_data *sched_only_data = prh_impl_sched_only_data_from_subq(coro_subq);
     prh_atom_sched_coro_que_producer *p = &sched_only_data->coro_que_producer;
-    prh_subq_post_item *tail = (prh_subq_post_item *)prh_atom_ptr_read(sched_only_data->subq_post_que_end);
+    prh_subq_post_item *tail = sched_only_data->subq_post_que_end;
     prh_subq_post_item *next = (prh_subq_post_item *)p->tail_block_tail_item;
-    next->bytes[prh_impl_subq_post_flag] = PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG;
-    assert((*((void **)next)) & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG);
-    prh_atom_ptr_write(sched_only_data->subq_post_que_end, next);
-    tail->bytes[prh_impl_subq_post_subq_i] = subq_i;
-    tail->opcode[prh_impl_subq_post_opcode] = opcode;
-    tail->coro_post = coro_post;
-    prh_impl_atom_sched_coro_que_push_end(p, &coro_subq->subq_length);
+    tail->next = next; tail->coro_post = coro_post;
+    sched_only_data->subq_post_que_end = next;
+    prh_impl_atom_sched_coro_que_push_end(p);
+    if (prh_atom_i16_read(&coro_subq->subq_len) == -1) {
+        coro_subq->subq_post_head = tail;
+        prh_atom_i16_write(&coro_subq->subq_len, 1);
+    } else {
+        prh_atom_i16_inc(&coro_subq->subq_len); // 此步骤执行完毕以上更新必须对消费者cpu生效
+    }
 }
 
 void prh_impl_atom_sched_coro_que_pop_head_item(prh_atom_sched_coro_que_consumer *c) {
@@ -16132,64 +16122,24 @@ prh_real_cono *prh_atom_sched_coro_que_pop_callee(prh_real_cono *cono) {
         head_item->next = PRH_ATOM_DYNQUE_ITEM_FREE;
         cono->freed_item_count += 1;
     }
-    prh_atom_int_dec(callee_rx_que_length); // 此步骤执行完毕以上更新必须对所有cpu生效
+    prh_atom_int_dec(callee_rx_que_length); // 此步骤执行完毕以上更新必须对生产者cpu生效
     assert(callee != prh_null);
     return callee;
 }
 
-prh_subq_post_item *prh_impl_atom_sched_find_next_subq_post(prh_atom_sched_coro_que_consumer *c, prh_subq_post_item *que_end) {
-    prh_subq_post_item *post = (prh_subq_post_item *)(c->head_block_head_item + 2);
-    while (post != que_end) {
-        prh_ptr first_field = *(void **)post;
-        if (first_field == (prh_ptr)PRH_ATOM_DYNQUE_BLOCK_END) {
-            post = (prh_subq_post_item *)((void **)post)[1];
-        } else if (first_field & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG) {
-            return post;
-        } else {
-            post += 1;
-        }
-    }
-    return que_end;
-}
-
-prh_subq_post_item *prh_impl_atom_sched_find_next_post_of_subq_i(prh_atom_sched_coro_que_consumer *c, prh_subq_post_item *que_end, prh_byte subq_i) {
-    prh_subq_post_item *post = (prh_subq_post_item *)(c->head_block_head_item + 2);
-    while (post != que_end) {
-        prh_ptr first_field = *(void **)post;
-        if (first_field == (prh_ptr)PRH_ATOM_DYNQUE_BLOCK_END) {
-            post = (prh_subq_post_item *)((void **)post)[1];
-        } else if ((first_field & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG) && post->bytes[prh_impl_subq_post_subq_i] == subq_i) {
-            return post;
-        } else {
-            post += 1;
-        }
-    }
-    prh_impl_abort(__LINE__);
-    return prh_null;
-}
-
-bool prh_atom_sched_coro_que_pop_post(prh_real_cono *cono, prh_byte subq_i, prh_ptr *data, prh_byte *opcode) {
+bool prh_atom_sched_coro_que_pop_post(prh_real_cono *cono, prh_byte subq_i, prh_ptr *data) {
     prh_coro_subq *coro_subq = cono->share_coro_data.coro_subq + subq_i; assert(subq_i < cono->subq_num);
-    prh_int subq_posts; assert(subq_i == coro_subq->subq_i);
-    if (!(subq_posts = prh_atom_int_read(&coro_subq->subq_length))) return false;
+    assert(subq_i == coro_subq->subq_i);
+    if (prh_atom_i16_read(&coro_subq->subq_len) <= 0) return false;
     prh_atom_sched_coro_que_consumer *c = &cono->coro_que_consumer;
-    prh_subq_post_item *subq_post = cono->subq_post_head;
-    prh_subq_post_item *que_end = prh_atom_ptr_read(&cono->share_coro_data.subq_post_que_end);
-    if (subq_post->bytes[prh_impl_subq_post_subq_i] == subq_i) {
-        *data = subq_post->coro_post; *opcode = subq_post->bytes[prh_impl_subq_post_opcode];
-        cono->subq_post_head = prh_impl_atom_sched_find_next_subq_post(c, que_end);
-        if (!prh_impl_atom_sched_coro_que_pop_head_items(c, (void **)subq_post)) {
-            *(void **)subq_post = PRH_ATOM_DYNQUE_ITEM_FREE;
-            cono->freed_item_count += 1;
-        }
-    } else {
-        subq_post = prh_impl_atom_sched_find_next_post_of_subq_i(c, que_end, subq_i); // 因为 subq_posts 不为零，一定能够找到
-        *data = subq_post->coro_post; *opcode = subq_post->bytes[prh_impl_subq_post_opcode];
-        *(void **)subq_post = PRH_ATOM_DYNQUE_ITEM_FREE;
+    prh_subq_post_item *subq_post = coro_subq->subq_post_head;
+    *data = subq_post->coro_post;
+    coro_subq->subq_post_head = subq_post->next;
+    if (!prh_impl_atom_sched_coro_que_pop_head_items(c, (void **)subq_post)) {
+        subq_post->next = PRH_ATOM_DYNQUE_ITEM_FREE;
         cono->freed_item_count += 1;
     }
-    prh_atom_int_dec(&coro_subq->subq_length); // 此步骤执行完毕以上更新必须对所有cpu生效
-    assert(*opcode != 0);
+    prh_atom_i16_dec(&coro_subq->subq_len); // 此步骤执行完毕以上更新必须对生产者cpu生效
     return true;
 }
 
@@ -17398,21 +17348,21 @@ typedef struct prh_cono_pdata {
 // 程向同一个目标协程发送消息。
 #if PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
 typedef struct prh_coro_subq {
-    prh_byte subq_i;
-    prh_atom_int subq_length;
+    prh_byte subq_i; prh_atom_i16 subq_len;
+    prh_subq_post_item *subq_post_head;
 } prh_coro_subq;
 
 typedef struct { // 协程线程与调度线程共享的协程数据
     prh_atom_int callee_rx_que_length;
-    prh_atom_ptr subq_post_que_end;
+    prh_ptr padding_for_align;
     prh_coro_subq coro_subq[1]; // 使用额外的一个在 userdata 之前保存 prh_real_cono
 } prh_share_coro_data;
 
 typedef struct prh_sched_only_data { // 仅由调度线程访问的协程数据
     prh_atom_sched_coro_que_producer coro_que_producer; //  +2p 8   16
     prh_atom_int *callee_rx_que_length;                 //  +1p 12  24
-    prh_atom_ptr *subq_post_que_end;                    //  +1p 24  48
     prh_callee_rx_item *callee_rx_que_end;              //  +1p 16  32
+    prh_subq_post_item *subq_post_que_end;
     prh_real_cono *running_thread;
     struct prh_sched_only_data *caller;                 //  +1p 28  56
     bool coro_is_await, coro_is_pwait;                  //  +1p 32  64
@@ -17424,7 +17374,6 @@ struct prh_real_cono {
     union { struct prh_impl_coro coro; prh_byte aligned[prh_impl_coro_size]; } head;
     prh_atom_sched_coro_que_consumer coro_que_consumer; //  +2p 24  32
     prh_callee_rx_item *callee_rx_head;                 //  +1p 28  40
-    prh_subq_post_item *subq_post_head;                 //  +1p 32  48
     prh_continue_routine routine_after_yield;           //  +1p 36  56
     prh_u32 wait_callee_count, freed_item_count;        //  +4  40  60
     prh_byte subq_num, subq_wait, cont_run, has_caller; //  +4  44  64
@@ -17453,18 +17402,21 @@ void *prh_impl_spawn_data_from_cono(prh_real_cono *cono) {
     return (prh_byte *)cono + prh_impl_cono_extend_size(cono);
 }
 
-prh_inline prh_sched_only_data *prh_impl_sched_only_data_from_subq(prh_coro_subq *coro_subq, int subq_i) {
-    return (prh_sched_only_data *)((prh_byte *)(coro_subq - subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - PRH_CACHE_LINE_SIZE);
+prh_inline prh_sched_only_data *prh_impl_sched_only_data_from_subq(prh_coro_subq *coro_subq) {
+    return (prh_sched_only_data *)((prh_byte *)(coro_subq - coro_subq->subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - PRH_CACHE_LINE_SIZE);
 }
 
+// 当 start 一个需要 await_cono_yield 的子协程时，caller 协程需要创建 callee_rx_que
+// 当 spwan 一个拥有 subq 的协程时，该协程需要创建 subq_post_que
 void prh_impl_cono_init_rx_que(prh_real_cono *cono) {
-    void **block = (void **)prh_impl_atom_sched_coro_que_aligned_alloc(prh_null);
-    cono->coro_que_consumer.head_block_head_item = block;
-    cono->sched_only_data.coro_que_producer.tail_block_tail_item = block + 4;
-    cono->callee_rx_head = cono->sched_only_data.callee_rx_que_end = (void *)block;
-    cono->subq_post_head = (void *)(block + 2);
-    cono->subq_post_head->bytes[prh_impl_subq_post_flag] = PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG;
-    prh_atom_ptr_write(&cono->share_coro_data.subq_post_que_end, cono->subq_post_head);
+    prh_atom_sched_coro_que_producer *p = &cono->sched_only_data.coro_que_producer;
+    if (p->tail_block_tail_item == prh_null) {
+        void **block = (void **)prh_impl_atom_sched_coro_que_aligned_alloc(prh_null);
+        cono->coro_que_consumer.head_block_head_item = block;
+        cono->callee_rx_head = cono->sched_only_data.callee_rx_que_end = (void *)block;
+        cono->sched_only_data.subq_post_que_end = (void *)(block + 2);
+        p->tail_block_tail_item = block + 4;
+    }
 }
 
 void prh_impl_cono_free(prh_real_cono *cono) {
@@ -17474,17 +17426,16 @@ void prh_impl_cono_free(prh_real_cono *cono) {
 void prh_impl_cono_init(prh_real_cono *cono, prh_byte subq_num) {
     prh_share_coro_data *share_coro_data = &cono->share_coro_data;
     prh_atom_int *callee_rx_que_length = &share_coro_data->callee_rx_que_length;
-    prh_atom_ptr *subq_post_que_end = &share_coro_data->subq_post_que_end;
     prh_atom_int_init(callee_rx_que_length, 0);
     prh_coro_subq *coro_subq = share_coro_data->coro_subq;
     for (int i = 0; i < subq_num; i += 1) {
         coro_subq[i].subq_i = i;
-        prh_atom_int_init(&coro_subq[i].subq_length, 0);
+        coro_subq[i].subq_post_head = prh_null;
+        prh_atom_i16_init(&coro_subq[i].subq_len, -1);
     }
 
     prh_sched_only_data *sched_only_data = &cono->sched_only_data;
     sched_only_data->callee_rx_que_length = callee_rx_que_length;
-    sched_only_data->subq_post_que_end = subq_post_que_end;
     // coro_size 和 data_size 都已初始化为零
     cono->subq_num = subq_num;
 }
