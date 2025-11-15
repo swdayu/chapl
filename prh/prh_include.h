@@ -15888,10 +15888,10 @@ void prh_iocp_thrd_post(prh_iocp_post *post, prh_continue_routine continue_routi
     prh_impl_iocp_thrd_post(post, continue_routine, 0);
 }
 
-void prh_coro_thrd_post(prh_coro_subq *coro_subq, void *coro_post, prh_byte opcode) {
-    assert(((prh_ptr)post & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) == 0);
+void prh_coro_thrd_post(prh_coro_subq *coro_subq, void *post_data, prh_byte opcode) {
+    assert(((prh_ptr)coro_subq & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) == 0);
     assert(opcode != 0); // opcode 如果为零，对应的消息将不会投递
-    prh_impl_iocp_thrd_post((prh_iocp_post *)coro_subq, (prh_continue_routine)coro_post, opcode);
+    prh_impl_iocp_thrd_post((prh_iocp_post *)coro_subq, (prh_continue_routine)post_data, opcode);
 }
 
 void prh_sched_thrd_synced_post(prh_iocp_post *post, prh_sched_thrd_synced_routine continue_routine) {
@@ -15899,129 +15899,20 @@ void prh_sched_thrd_synced_post(prh_iocp_post *post, prh_sched_thrd_synced_routi
     prh_impl_iocp_thrd_post((prh_iocp_post *)((prh_ptr)post & PRH_IMPL_SCHED_THRD_SYNCED_EXEC), continue_routine, 0);
 }
 
-int prh_impl_sched_thrd_cqueue_len(void) {
-    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
+void prh_sched_thrd_synced_ext_post(prh_iocp_post *post, prh_sched_thrd_synced_routine continue_routine, prh_byte opcode) {
+    assert(((prh_ptr)post & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) == 0);
+    prh_impl_iocp_thrd_post((prh_iocp_post *)((prh_ptr)post & PRH_IMPL_SCHED_THRD_SYNCED_EXEC), continue_routine, opcode);
 }
 
-int prh_impl_sched_thrd_cqueue_empty_items(void) {
-    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
-}
-
-void prh_impl_iocp_sched_thrd_post(prh_iocp_post *post, prh_continue_routine continue_routine) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
-    assert(prh_impl_sched_thrd_cqueue_empty_items() > 0);
-    prh_iocp_thrd_req *cqueue_item = prh_fixed_arrque_unchecked_push(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
-    cqueue_item->iocp_post = post;
-    cqueue_item->continue_routine = continue_routine;
-    cqueue_item->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
-}
-
-int prh_impl_sched_thrd_collect_que_len(void) {
-    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.post_collect_que);
-}
-
-int prh_impl_sched_thrd_collect_que_empty_items(void) {
-    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.post_collect_que);
-}
-
-void prh_impl_sched_thrd_collect_que_push(prh_iocp_post_req *post_req, prh_u32 index) {
-    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
-    *prh_fixed_arrque_unchecked_push_at(post_collect_que, index) = *post_req;
-}
-
-prh_iocp_post_req *prh_impl_sched_thrd_collect_que_pop(void) {
-    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
-    if (prh_fixed_arrque_len(post_collect_que) == 0) return prh_null;
-    prh_iocp_post_req *post_req = prh_impl_fixed_arrque_top(post_collect_que);
-    if (post_req->iocp_post == prh_null) return prh_null; // 头部已分配序号的线程任务还未被成功收集
-    prh_impl_fixed_arrque_pop(post_collect_que);
-    PRH_IOCP_GLOBAL.cfmd_post_seqn = (PRH_IOCP_GLOBAL.cfmd_post_seqn + 1) & PRH_IMPL_THRD_POST_SEQN_MASK;
-    return true;
-}
-
-bool prh_impl_sched_thrd_collect_each_post_req(void *collect_seqn_range, prh_iocp_thrd_req *thrd_req) {
-    prh_u32 index = thrd_req->post_seqn - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
-    if (index >= (prh_u32)collect_seqn_range) return false;
-    prh_iocp_post *post = thrd_req->iocp_post;
-    if (thrd_req->opcode) {
-        prh_impl_sched_dispatch_coro_subq_post(thrd_req);
-        thrd_req->iocp_post = PRH_IMPL_SCHED_COLL_POST_REMOVED;
-    } else if (post & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) {
-        thrd_req->iocp_post = (prh_iocp_post *)((prh_ptr)post & ~((prh_ptr)PRH_IMPL_SCHED_THRD_SYNCED_EXEC));
-        if (!((prh_sched_thrd_synced_routine)(thrd_req->continue_routine))(thrd_req)) {
-            thrd_req->iocp_post = PRH_IMPL_SCHED_COLL_POST_REMOVED;
-        }
-    }
-    prh_impl_sched_thrd_collect_que_push((prh_iocp_post_req *)thrd_req, index);
-    return true;
-}
-
-bool prh_impl_sched_thrd_collect_each_cqueue_item(void *collect_seqn_range, prh_iocp_thrd_req *cqueue_item) {
-    prh_u32 index = cqueue_item->post_seqn - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
-    if (index >= (prh_u32)collect_seqn_range) return false;
-    prh_impl_sched_thrd_collect_que_push((prh_iocp_post_req *)cqueue_item, index);
-    return true;
-}
-
-prh_u32 prh_impl_sched_thrd_collect_seqn_range(prh_u32 curr_post_seed) {
-    // 对于 post_seqn < curr_post_seed 的 post，这些 post 已经分配了序号，但是对应的线程可能还未来得及将其插入到 thrd_req_que 队列中
-    // 因此需要维护一个已经确认收集并且已经投递到 post_dispatch_que 的 post 序号 cfmd_post_seqn，用来跟踪哪些 post 已经确认被投递
-    // cfmd_post_seqn 必须按序号一个一个进行递增，每次将 post_collect_que 头部的一个非空的 post 投递到 post_dispatch_que，cfmd_post_seqn 都加一
-    prh_u32 cfmd_post_seqn = PRH_IOCP_GLOBAL.cfmd_post_seqn;
-    prh_u32 collect_seqn_range = curr_post_seed - cfmd_post_seqn;
-    int collect_que_empty_items = prh_impl_sched_thrd_collect_que_empty_items();
-    return (collect_que_empty_items < collect_seqn_range) ? collect_que_empty_items : collect_seqn_range;
-}
-
-int prh_impl_sched_thrd_collect_post(void) {
-    prh_u32 curr_post_seed = (prh_atom_u32_read(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed) & PRH_IMPL_THRD_POST_SEQN_MASK);
-    prh_u32 collect_seqn_range = prh_impl_sched_thrd_collect_seqn_range(curr_post_seed);
-    if (collect_seqn_range) {
-        // 收集调度线程完成队列中的线程任务
-        prh_sched_cqueue_ptr sched_thrd_cqueue = PRH_IOCP_GLOBAL.sched_thrd_cqueue;
-        prh_iocp_thrd_req *cqueue_item;
-        while ((cqueue_item = prh_fixed_arrque_top(sched_thrd_cqueue)) && prh_impl_sched_thrd_collect_each_cqueue_item((void *)(prh_ptr)collect_seqn_range, cqueue_item)) {
-            prh_impl_fixed_arrque_pop(sched_thrd_cqueue);
-        }
-        // 收集各线程各自独立投递的线程任务
-        prh_sched_thrd_req_que_consumer *q = PRH_IOCP_GLOBAL.thrd_req_que;
-        prh_sched_thrd_req_que_consumer *thrd_req_que_end = PRH_IOCP_GLOBAL.thrd_req_que_end;
-        for (; q < thrd_req_que_end; q += 1) {
-            prh_atom_thrd_req_queue_pops(&q->thrd_req_que_consumer, q->thrd_req_que_length, prh_impl_sched_thrd_collect_each_post_req, (void *)(prh_ptr)collect_seqn_range);
-        }
-    }
-    return prh_impl_sched_thrd_collect_que_len();
-}
-
-int prh_impl_sched_thrd_dispatch_que_len(void) {
-    return (int)prh_atom_1wnr_ext_arrque_len(PRH_IOCP_GLOBAL.post_dispatch_que);
-}
-
-void prh_impl_sched_thrd_dispatch_post(void) {
-    prh_atom_1wnr_ext_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
-    prh_atom_1wnr_arrque_snapshot snapshot;
-    if (prh_atom_1wnr_ext_arrque_snapshot_begin(post_dispatch_que, snapshot)) {
-        for (int i = 0; i < (int)snapshot.empty_items; i += 1) {
-            prh_iocp_post_req *post_req = prh_impl_sched_thrd_collect_que_pop();
-            if (post_req == prh_null) break;
-            if (post_req->iocp_post != PRH_IMPL_SCHED_COLL_POST_REMOVED) {
-                prh_atom_1wnr_ext_arrque_snapshot_push(post_dispatch_que, &snapshot, (prh_ptr)post_req->iocp_post, (prh_ptr)post_req->continue_routine);
-            }
-            post_req->iocp_post = prh_null; // 移除的元素必须清零
-        }
-        prh_atom_1wnr_ext_arrque_snapshot_end(post_dispatch_que, &snapshot);
-    }
-}
-
-// 在 32 位机器上，64/128/256/512 个字节可以分配 7/15/31/63 个 prh_callee_rx_item/prh_coro_post_item
-// 在 64 位机器上，64/128/256/512 个字节可以分配 3/ 7/15/31 个 prh_callee_rx_item/prh_coro_post_item
+// 在 32 位机器上，64/128/256/512 个字节可以分配 7/15/31/63 个 prh_coro_post_item
+// 在 64 位机器上，64/128/256/512 个字节可以分配 3/ 7/15/31 个 prh_coro_post_item
 #ifndef PRH_SCHED_CORO_RX_BLOCK_SIZE
 #define PRH_SCHED_CORO_RX_BLOCK_SIZE PRH_CACHE_LINE_SIZE
 #endif
 
 #define PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET ((PRH_SCHED_CORO_RX_BLOCK_SIZE) - 2 * sizeof(void *))
 prh_static_assert((PRH_SCHED_CORO_RX_BLOCK_SIZE) > 0 && ((PRH_SCHED_CORO_RX_BLOCK_SIZE) % PRH_CACHE_LINE_SIZE) == 0);
-void prh_atom_sched_coro_que_push_callee(prh_sched_only_data *sched_only_data, void *callee);
-void prh_atom_sched_coro_que_push_post(prh_coro_subq *coro_subq, prh_ptr coro_post);
+void prh_impl_sched_thrd_dispatch_coro_post(prh_iocp_thrd_req *thrd_req);
 
 typedef struct {
     void **tail_block_tail_item;
@@ -16090,6 +15981,119 @@ void prh_impl_atom_sched_coro_que_pop_head_item(prh_atom_sched_coro_que_consumer
         head = (void **)((prh_byte *)c->head_block_head_item - PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET);
         c->head_block_head_item = (void **)c->head_block_head_item[1];
         prh_impl_coro_begin_free_rxque_block((void *)head); // 需要将释放的空闲块还给生产者线程
+    }
+}
+
+int prh_impl_sched_thrd_cqueue_len(void) {
+    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
+}
+
+int prh_impl_sched_thrd_cqueue_empty_items(void) {
+    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
+}
+
+void prh_impl_iocp_sched_thrd_post(prh_iocp_post *post, prh_continue_routine continue_routine) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
+    assert(prh_impl_sched_thrd_cqueue_empty_items() > 0);
+    prh_iocp_thrd_req *cqueue_item = prh_fixed_arrque_unchecked_push(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
+    cqueue_item->iocp_post = post;
+    cqueue_item->continue_routine = continue_routine;
+    cqueue_item->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
+}
+
+int prh_impl_sched_thrd_collect_que_len(void) {
+    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.post_collect_que);
+}
+
+int prh_impl_sched_thrd_collect_que_empty_items(void) {
+    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.post_collect_que);
+}
+
+void prh_impl_sched_thrd_collect_que_push(prh_iocp_post_req *post_req, prh_u32 index) {
+    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
+    *prh_fixed_arrque_unchecked_push_at(post_collect_que, index) = *post_req;
+}
+
+prh_iocp_post_req *prh_impl_sched_thrd_collect_que_pop(void) {
+    prh_post_collect_que_ptr post_collect_que = PRH_IOCP_GLOBAL.post_collect_que;
+    if (prh_fixed_arrque_len(post_collect_que) == 0) return prh_null;
+    prh_iocp_post_req *post_req = prh_impl_fixed_arrque_top(post_collect_que);
+    if (post_req->iocp_post == prh_null) return prh_null; // 头部已分配序号的线程任务还未被成功收集
+    prh_impl_fixed_arrque_pop(post_collect_que);
+    PRH_IOCP_GLOBAL.cfmd_post_seqn = (PRH_IOCP_GLOBAL.cfmd_post_seqn + 1) & PRH_IMPL_THRD_POST_SEQN_MASK;
+    return true;
+}
+
+bool prh_impl_sched_thrd_collect_each_post_req(void *collect_seqn_range, prh_iocp_thrd_req *thrd_req) {
+    prh_u32 index = thrd_req->post_seqn - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
+    if (index >= (prh_u32)collect_seqn_range) return false;
+    prh_iocp_post *post = thrd_req->iocp_post;
+    if (post & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) {
+        thrd_req->iocp_post = (prh_iocp_post *)((prh_ptr)post & ~((prh_ptr)PRH_IMPL_SCHED_THRD_SYNCED_EXEC));
+        if (!((prh_sched_thrd_synced_routine)(thrd_req->continue_routine))(thrd_req)) {
+            thrd_req->iocp_post = PRH_IMPL_SCHED_COLL_POST_REMOVED;
+        }
+    } else if (thrd_req->opcode) {
+        prh_impl_sched_thrd_dispatch_coro_post(thrd_req);
+        thrd_req->iocp_post = PRH_IMPL_SCHED_COLL_POST_REMOVED;
+    }
+    prh_impl_sched_thrd_collect_que_push((prh_iocp_post_req *)thrd_req, index);
+    return true;
+}
+
+bool prh_impl_sched_thrd_collect_each_cqueue_item(void *collect_seqn_range, prh_iocp_thrd_req *cqueue_item) {
+    prh_u32 index = cqueue_item->post_seqn - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
+    if (index >= (prh_u32)collect_seqn_range) return false;
+    prh_impl_sched_thrd_collect_que_push((prh_iocp_post_req *)cqueue_item, index);
+    return true;
+}
+
+prh_u32 prh_impl_sched_thrd_collect_seqn_range(prh_u32 curr_post_seed) {
+    // 对于 post_seqn < curr_post_seed 的 post，这些 post 已经分配了序号，但是对应的线程可能还未来得及将其插入到 thrd_req_que 队列中
+    // 因此需要维护一个已经确认收集并且已经投递到 post_dispatch_que 的 post 序号 cfmd_post_seqn，用来跟踪哪些 post 已经确认被投递
+    // cfmd_post_seqn 必须按序号一个一个进行递增，每次将 post_collect_que 头部的一个非空的 post 投递到 post_dispatch_que，cfmd_post_seqn 都加一
+    prh_u32 cfmd_post_seqn = PRH_IOCP_GLOBAL.cfmd_post_seqn;
+    prh_u32 collect_seqn_range = curr_post_seed - cfmd_post_seqn;
+    int collect_que_empty_items = prh_impl_sched_thrd_collect_que_empty_items();
+    return (collect_que_empty_items < collect_seqn_range) ? collect_que_empty_items : collect_seqn_range;
+}
+
+int prh_impl_sched_thrd_collect_post(void) {
+    prh_u32 curr_post_seed = (prh_atom_u32_read(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed) & PRH_IMPL_THRD_POST_SEQN_MASK);
+    prh_u32 collect_seqn_range = prh_impl_sched_thrd_collect_seqn_range(curr_post_seed);
+    if (collect_seqn_range) {
+        // 收集调度线程完成队列中的线程任务
+        prh_sched_cqueue_ptr sched_thrd_cqueue = PRH_IOCP_GLOBAL.sched_thrd_cqueue;
+        prh_iocp_thrd_req *cqueue_item;
+        while ((cqueue_item = prh_fixed_arrque_top(sched_thrd_cqueue)) && prh_impl_sched_thrd_collect_each_cqueue_item((void *)(prh_ptr)collect_seqn_range, cqueue_item)) {
+            prh_impl_fixed_arrque_pop(sched_thrd_cqueue);
+        }
+        // 收集各线程各自独立投递的线程任务
+        prh_sched_thrd_req_que_consumer *q = PRH_IOCP_GLOBAL.thrd_req_que;
+        prh_sched_thrd_req_que_consumer *thrd_req_que_end = PRH_IOCP_GLOBAL.thrd_req_que_end;
+        for (; q < thrd_req_que_end; q += 1) {
+            prh_atom_thrd_req_queue_pops(&q->thrd_req_que_consumer, q->thrd_req_que_length, prh_impl_sched_thrd_collect_each_post_req, (void *)(prh_ptr)collect_seqn_range);
+        }
+    }
+    return prh_impl_sched_thrd_collect_que_len();
+}
+
+int prh_impl_sched_thrd_dispatch_que_len(void) {
+    return (int)prh_atom_1wnr_ext_arrque_len(PRH_IOCP_GLOBAL.post_dispatch_que);
+}
+
+void prh_impl_sched_thrd_dispatch_post(void) {
+    prh_atom_1wnr_ext_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
+    prh_atom_1wnr_arrque_snapshot snapshot;
+    if (prh_atom_1wnr_ext_arrque_snapshot_begin(post_dispatch_que, snapshot)) {
+        for (int i = 0; i < (int)snapshot.empty_items; i += 1) {
+            prh_iocp_post_req *post_req = prh_impl_sched_thrd_collect_que_pop();
+            if (post_req == prh_null) break;
+            if (post_req->iocp_post != PRH_IMPL_SCHED_COLL_POST_REMOVED) {
+                prh_atom_1wnr_ext_arrque_snapshot_push(post_dispatch_que, &snapshot, (prh_ptr)post_req->iocp_post, (prh_ptr)post_req->continue_routine);
+            }
+            post_req->iocp_post = prh_null; // 移除的元素必须清零
+        }
+        prh_atom_1wnr_ext_arrque_snapshot_end(post_dispatch_que, &snapshot);
     }
 }
 
@@ -18195,11 +18199,12 @@ typedef struct prh_coro_subq {
     prh_byte subq_i; prh_atom_u16 subq_len;
 } prh_coro_subq;
 
+#define PRH_IMPL_SUBQ_PADDING_SIZE (2 * sizeof(void *) / sizeof(prh_coro_subq))
+
 typedef struct { // 协程线程与调度线程共享的协程数据
     prh_atom_int callee_rx_que_length;
     prh_atom_int coro_post_que_length;
-    prh_atom_int subq_wait;
-    prh_coro_subq coro_subq[2]; // 使用额外的一个在 userdata 之前保存 prh_real_cono
+    prh_coro_subq coro_subq[PRH_IMPL_SUBQ_PADDING_SIZE]; // 需要在 userdata 之前额外保存 prh_real_cono
 } prh_share_coro_data;
 
 typedef struct prh_sched_only_data { // 仅由调度线程访问的协程数据
@@ -18210,6 +18215,7 @@ typedef struct prh_sched_only_data { // 仅由调度线程访问的协程数据
     prh_real_cono *running_thread;                      //  +1p 20  40
     struct prh_sched_only_data *caller;                 //  +1p 24  48
     bool coro_is_await, coro_is_pwait;                  //  +1p 28  56
+    bool pwait_one_subq; prh_byte subq_wait;
 } prh_sched_only_data;
 
 prh_static_assert(prh_offsetof(prh_share_coro_data, coro_subq) == 2 * sizeof(void *));
@@ -18597,6 +18603,75 @@ void *prh_cono_await(void) {
     prh_impl_cono_waited_callee(caller) = callee;
     caller->wait_callee_count -= 1;
     return prh_impl_spawn_data_from_cono(callee);
+}
+
+bool prh_impl_cono_sched_thrd_synced_pwait_req(prh_iocp_thrd_req *thrd_req) {
+    prh_real_cono *caller = (prh_real_cono *)thrd_req->iocp_post;
+    prh_sched_only_data *sched_only_data = &caller->sched_only_data;
+    if (prh_impl_sched_thrd_coro_post_que_empty(sched_only_data)) {
+        sched_only_data->coro_is_pwait = true; // 暂时没有任务可以处理，等待后续任务的投递
+        return false;
+    }
+    thrd_req->continue_routine = prh_impl_cono_execute;
+    return true; // 已经有待处理的任务，让 caller 继续执行
+}
+
+void prh_impl_cono_begin_pwait_req(prh_iocp_post *caller) {
+    prh_sched_thrd_synced_post(caller, prh_impl_cono_sched_thrd_synced_pwait_req);
+}
+
+void prh_impl_cono_pwait_data(prh_real_cono *caller, prh_pwait_data *data) {
+    if (!prh_atom_sched_coro_que_pop_post(caller, data)) {
+        cono->routine_after_yield = prh_impl_cono_begin_pwait_req;
+        prh_soro_yield((prh_soro *)caller);
+    }
+    if (!prh_atom_sched_coro_que_pop_post(caller, data)) {
+        prh_impl_abort(__LINE__);
+    }
+}
+
+bool prh_impl_cono_sched_thrd_synced_subq_pwait_req(prh_iocp_thrd_req *thrd_req) {
+    prh_real_cono *caller = (prh_real_cono *)thrd_req->iocp_post;
+    prh_sched_only_data *sched_only_data = &caller->sched_only_data;
+    prh_byte subq_wait = thrd_req->opcode;
+    if (prh_impl_sched_thrd_one_coro_subq_empty(caller->share_coro_data.coro_subq + subq_wait)) {
+        sched_only_data->pwait_one_subq = true; // 子队列中暂时没有任务可以处理，等待后续任务的投递
+        sched_only_data->subq_wait = subq_wait;
+        return false;
+    }
+    thrd_req->continue_routine = prh_impl_cono_execute;
+    return true; // 已经有待处理的 callee，让 caller 继续执行
+}
+
+void prh_impl_cono_begin_subq_pwait_req(prh_iocp_post *caller) {
+    prh_sched_thrd_synced_ext_post(caller, prh_impl_cono_sched_thrd_synced_subq_pwait_req, caller->subq_wait);
+}
+
+void prh_impl_cono_ext_pwait_data(prh_real_cono *caller, prh_byte subq_i, prh_pwait_data *data) {
+    if (!prh_atom_sched_coro_que_ext_pop_post(caller, subq_i, data)) {
+        caller->subq_wait = subq_i;
+        cono->routine_after_yield = prh_impl_cono_begin_subq_pwait_req;
+        prh_soro_yield((prh_soro *)caller);
+    }
+    if (!prh_atom_sched_coro_que_ext_pop_post(caller, subq_i, data)) {
+        prh_impl_abort(__LINE__);
+    }
+}
+
+prh_pwait_data prh_cono_ext_pwait(int subq_i) {
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
+    prh_pwait_data data;
+    if (subq_i == -1) {
+        prh_impl_cono_pwait_data(caller, &data);
+    } else {
+        assert(subq_i >= 0 && subq_i < caller->subq_num);
+        prh_impl_cono_ext_pwait_data(caller, (prh_byte)subq_i, &data);
+    }
+    return data;
+}
+
+prh_pwait_data prh_cono_pwait(void) {
+    return prh_cono_ext_pwait(-1);
 }
 
 #endif // PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
