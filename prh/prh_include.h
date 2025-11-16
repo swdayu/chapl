@@ -15912,7 +15912,7 @@ void prh_sched_thrd_synced_ext_post(prh_iocp_post *post, prh_sched_thrd_synced_r
 
 #define PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET ((PRH_SCHED_CORO_RX_BLOCK_SIZE) - 2 * sizeof(void *))
 prh_static_assert((PRH_SCHED_CORO_RX_BLOCK_SIZE) > 0 && ((PRH_SCHED_CORO_RX_BLOCK_SIZE) % PRH_CACHE_LINE_SIZE) == 0);
-void prh_impl_sched_thrd_dispatch_coro_post(prh_iocp_thrd_req *thrd_req);
+bool prh_impl_sched_thrd_dispatch_coro_post(prh_iocp_thrd_req *thrd_req);
 
 typedef struct {
     void **tail_block_tail_item;
@@ -16033,8 +16033,9 @@ bool prh_impl_sched_thrd_collect_each_post_req(void *collect_seqn_range, prh_ioc
             thrd_req->iocp_post = PRH_IMPL_SCHED_COLL_POST_REMOVED;
         }
     } else if (thrd_req->opcode) {
-        prh_impl_sched_thrd_dispatch_coro_post(thrd_req);
-        thrd_req->iocp_post = PRH_IMPL_SCHED_COLL_POST_REMOVED;
+        if (!prh_impl_sched_thrd_dispatch_coro_post(thrd_req)) {
+            thrd_req->iocp_post = PRH_IMPL_SCHED_COLL_POST_REMOVED;
+        }
     }
     prh_impl_sched_thrd_collect_que_push((prh_iocp_post_req *)thrd_req, index);
     return true;
@@ -18265,8 +18266,8 @@ void *prh_impl_spawn_data_from_cono(prh_real_cono *cono) {
     return (prh_byte *)cono + prh_impl_cono_struct_size(cono->subq_num);
 }
 
-prh_inline prh_sched_only_data *prh_impl_sched_only_data_from_subq(prh_coro_subq *coro_subq, int subq_i) {
-    return (prh_sched_only_data *)((prh_byte *)(coro_subq - subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - PRH_CACHE_LINE_SIZE);
+prh_inline prh_sched_only_data *prh_impl_sched_only_data_from_subq(prh_coro_subq *coro_subq) {
+    return (prh_sched_only_data *)((prh_byte *)(coro_subq - coro_subq->subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - PRH_CACHE_LINE_SIZE);
 }
 
 // 当 start 一个需要 await_cono_yield 的子协程时，caller 协程需要创建 callee_rx_que
@@ -18321,12 +18322,11 @@ void prh_atom_sched_coro_que_push_callee(prh_sched_only_data *sched_only_data, v
 // 不好为每个子队列都维护一个链表，因为必须为每个子队列预先都分配一个头节点，且每个子队列都必须保存一个头节点和尾节点成员以及长度
 // 浪费空间，而且可能用处不大，因为只在一些特殊的情况下才专门去等待特定的子队列，这些情况对应子队列都会很快投递消息，即使线性查找也不会花太多时间
 void prh_atom_sched_coro_que_push_post(prh_coro_subq *coro_subq, prh_ptr post_data) {
-    prh_byte subq_i = coro_subq->subq_i;
-    prh_sched_only_data *sched_only_data = prh_impl_sched_only_data_from_subq(coro_subq, subq_i);
+    prh_sched_only_data *sched_only_data = prh_impl_sched_only_data_from_subq(coro_subq);
     prh_atom_sched_coro_que_producer *p = &sched_only_data->coro_post_que_producer;
     prh_coro_post_item *tail = (prh_coro_post_item *)p->tail_block_tail_item;
     tail->bytes[prh_impl_sched_coro_post_flag_field] = PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG;
-    tail->bytes[prh_impl_sched_coro_post_subq_i_field] = subq_i;
+    tail->bytes[prh_impl_sched_coro_post_subq_i_field] = coro_subq->subq_i;
     tail->post_data = post_data; assert(((prh_ptr)*(void **)tail) & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG);
     prh_impl_atom_sched_coro_que_push_end(p, 2);
     prh_atom_int_inc(sched_only_data->coro_post_que_length);
@@ -18603,6 +18603,26 @@ void *prh_cono_await(void) {
     prh_impl_cono_waited_callee(caller) = callee;
     caller->wait_callee_count -= 1;
     return prh_impl_spawn_data_from_cono(callee);
+}
+
+bool prh_impl_sched_thrd_dispatch_coro_post(prh_iocp_thrd_req *thrd_req) {
+    prh_coro_subq *coro_subq = ((prh_coro_thrd_req *)thrd_req)->coro_subq;
+    prh_atom_sched_coro_que_push_post(coro_subq, ((prh_coro_thrd_req *)thrd_req)->post_data);
+    prh_sched_only_data *sched_only_data = prh_impl_sched_only_data_from_subq(coro_subq);
+    if (sched_only_data->coro_is_pwait) {
+        sched_only_data->coro_is_pwait = false;
+    } else if (sched_only_data->pwait_one_subq && sched_only_data->subq_wait == coro_subq->subq_i) {
+        sched_only_data->pwait_one_subq = false;
+    } else { // 协程没有在等待，任务投递到队列之后无需做其他事
+        return false;
+    }
+    thrd_req->iocp_post = (prh_iocp_post *)prh_impl_cono_from_sched_only_data(sched_only_data);
+    thrd_req->continue_routine = prh_impl_cono_execute;
+    return true; // 让等到任务的协程继续执行
+}
+
+void prh_cono_post(prh_coro_subq *coro_subq, void *post_data, prh_byte opcode) {
+    prh_coro_thrd_post(coro_subq, post_data, opcode);
 }
 
 bool prh_impl_cono_sched_thrd_synced_pwait_req(prh_iocp_thrd_req *thrd_req) {
