@@ -4616,6 +4616,10 @@ void prh_soro_finish(prh_soro_struct *main) {
 // 访问变量的值。如果传一个变量的地址给函数，那么函数必须从内存中读取它的值，变量值不会
 // 被优化到寄存器中，因此编译器优化不会对此产生影响。
 typedef prh_byte prh_atom_bool;
+typedef prh_i08 prh_atom_i08;
+typedef prh_u08 prh_atom_u08;
+typedef prh_i16 prh_atom_i16;
+typedef prh_u16 prh_atom_u16;
 typedef prh_i32 prh_atom_i32;
 typedef prh_u32 prh_atom_u32;
 typedef prh_int prh_atom_int;
@@ -4623,6 +4627,10 @@ typedef prh_unt prh_atom_unt;
 typedef prh_unt prh_atom_ptr;
 
 prh_static_assert(prh_alignof(prh_atom_bool) == prh_alignof(atomic_bool));
+prh_static_assert(prh_alignof(prh_atom_i08) == prh_alignof(atomic_schar));
+prh_static_assert(prh_alignof(prh_atom_u08) == prh_alignof(atomic_uchar));
+prh_static_assert(prh_alignof(prh_atom_i16) == prh_alignof(atomic_short));
+prh_static_assert(prh_alignof(prh_atom_u16) == prh_alignof(atomic_ushort));
 prh_static_assert(prh_alignof(prh_atom_i32) == prh_alignof(atomic_int));
 prh_static_assert(prh_alignof(prh_atom_u32) == prh_alignof(atomic_uint));
 prh_static_assert(prh_alignof(prh_atom_int) == prh_alignof(atomic_intptr_t));
@@ -4630,6 +4638,10 @@ prh_static_assert(prh_alignof(prh_atom_unt) == prh_alignof(atomic_uintptr_t));
 prh_static_assert(prh_alignof(prh_atom_ptr) == prh_alignof(atomic_uintptr_t));
 
 prh_static_assert(sizeof(prh_atom_bool) == sizeof(atomic_bool));
+prh_static_assert(sizeof(prh_atom_i08) == sizeof(atomic_schar));
+prh_static_assert(sizeof(prh_atom_u08) == sizeof(atomic_uchar));
+prh_static_assert(sizeof(prh_atom_i16) == sizeof(atomic_short));
+prh_static_assert(sizeof(prh_atom_u16) == sizeof(atomic_ushort));
 prh_static_assert(sizeof(prh_atom_i32) == sizeof(atomic_int));
 prh_static_assert(sizeof(prh_atom_u32) == sizeof(atomic_uint));
 prh_static_assert(sizeof(prh_atom_int) == sizeof(atomic_intptr_t));
@@ -4647,6 +4659,10 @@ prh_static_assert(sizeof(prh_atom_ptr) == sizeof(atomic_uintptr_t));
 //      _Atomic int *p = malloc(sizeof(_Atomic int));
 //      atomic_init(p, 42);
 prh_inline void prh_atom_bool_init(prh_atom_bool *a, bool b) { atomic_init((atomic_bool *)a, b); }
+prh_inline void prh_atom_i08_init(prh_atom_i08 *a, prh_i08 b) { atomic_init((atomic_schar *)a, b); }
+prh_inline void prh_atom_u08_init(prh_atom_u08 *a, prh_u08 b) { atomic_init((atomic_uchar *)a, b); }
+prh_inline void prh_atom_i16_init(prh_atom_i16 *a, prh_i16 b) { atomic_init((atomic_short *)a, b); }
+prh_inline void prh_atom_u16_init(prh_atom_u16 *a, prh_u16 b) { atomic_init((atomic_ushort *)a, b); }
 prh_inline void prh_atom_i32_init(prh_atom_i32 *a, prh_i32 b) { atomic_init((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_init(prh_atom_u32 *a, prh_u32 b) { atomic_init((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_init(prh_atom_int *a, prh_int b) { atomic_init((atomic_intptr_t *)a, b); }
@@ -4656,6 +4672,10 @@ prh_inline void prh_atom_ptr_init(prh_atom_ptr *a, void *b) { atomic_init((atomi
 // Atomically perform load (atomic read) operation and return the value.
 // The default memory_order type is memory_order_seq_cst.
 prh_inline bool prh_atom_bool_read(const prh_atom_bool *a) { return atomic_load((atomic_bool *)a); } // return read value
+prh_inline prh_i08 prh_atom_i08_read(const prh_atom_i08 *a) { return atomic_load((atomic_schar *)a); }
+prh_inline prh_u08 prh_atom_u08_read(const prh_atom_u08 *a) { return atomic_load((atomic_uchar *)a); }
+prh_inline prh_i16 prh_atom_i16_read(const prh_atom_i16 *a) { return atomic_load((atomic_short *)a); }
+prh_inline prh_u16 prh_atom_u16_read(const prh_atom_u16 *a) { return atomic_load((atomic_ushort *)a); }
 prh_inline prh_i32 prh_atom_i32_read(const prh_atom_i32 *a) { return atomic_load((atomic_int *)a); }
 prh_inline prh_u32 prh_atom_u32_read(const prh_atom_u32 *a) { return atomic_load((atomic_uint *)a); }
 prh_inline prh_int prh_atom_int_read(const prh_atom_int *a) { return atomic_load((atomic_intptr_t *)a); }
@@ -4665,6 +4685,10 @@ prh_inline void *prh_atom_ptr_read(const prh_atom_ptr *a) { return (void *)atomi
 // Atomically perform write or read-modify-write operation.
 // The default memory_order type is memory_order_seq_cst.
 prh_inline void prh_atom_bool_write(prh_atom_bool *a, bool b) { atomic_store((atomic_bool *)a, b); }
+prh_inline void prh_atom_i08_write(prh_atom_i08 *a, prh_i08 b) { atomic_store((atomic_schar *)a, b); }
+prh_inline void prh_atom_u08_write(prh_atom_u08 *a, prh_u08 b) { atomic_store((atomic_uchar *)a, b); }
+prh_inline void prh_atom_i16_write(prh_atom_i16 *a, prh_i16 b) { atomic_store((atomic_short *)a, b); }
+prh_inline void prh_atom_u16_write(prh_atom_u16 *a, prh_u16 b) { atomic_store((atomic_ushort *)a, b); }
 prh_inline void prh_atom_i32_write(prh_atom_i32 *a, prh_i32 b) { atomic_store((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_write(prh_atom_u32 *a, prh_u32 b) { atomic_store((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_write(prh_atom_int *a, prh_int b) { atomic_store((atomic_intptr_t *)a, b); }
@@ -4672,6 +4696,10 @@ prh_inline void prh_atom_unt_write(prh_atom_unt *a, prh_unt b) { atomic_store((a
 prh_inline void prh_atom_ptr_write(prh_atom_ptr *a, void *b) { atomic_store((atomic_uintptr_t *)a, (prh_unt)b); }
 
 prh_inline bool prh_atom_bool_fetch_write(prh_atom_bool *a, bool b) { return atomic_exchange((atomic_bool *)a, b); } // return old value
+prh_inline prh_i08 prh_atom_i08_fetch_write(prh_atom_i08 *a, prh_i08 b) { return atomic_exchange((atomic_schar *)a, b); }
+prh_inline prh_u08 prh_atom_u08_fetch_write(prh_atom_u08 *a, prh_u08 b) { return atomic_exchange((atomic_uchar *)a, b); }
+prh_inline prh_i16 prh_atom_i16_fetch_write(prh_atom_i16 *a, prh_i16 b) { return atomic_exchange((atomic_short *)a, b); }
+prh_inline prh_u16 prh_atom_u16_fetch_write(prh_atom_u16 *a, prh_u16 b) { return atomic_exchange((atomic_ushort *)a, b); }
 prh_inline prh_i32 prh_atom_i32_fetch_write(prh_atom_i32 *a, prh_i32 b) { return atomic_exchange((atomic_int *)a, b); }
 prh_inline prh_u32 prh_atom_u32_fetch_write(prh_atom_u32 *a, prh_u32 b) { return atomic_exchange((atomic_uint *)a, b); }
 prh_inline prh_int prh_atom_int_fetch_write(prh_atom_int *a, prh_int b) { return atomic_exchange((atomic_intptr_t *)a, b); }
@@ -4682,51 +4710,109 @@ prh_inline void *prh_atom_ptr_fetch_write(prh_atom_ptr *a, void *b) { return (vo
 // The modify operation can be add (+) sub (-) and (&) or (|) xor (^).
 // The default memory_order type is memory_order_seq_cst.
 
+prh_inline prh_i08 prh_atom_i08_fetch_inc(prh_atom_i08 *a) { return atomic_fetch_add((atomic_schar *)a, 1); }
+prh_inline prh_u08 prh_atom_u08_fetch_inc(prh_atom_u08 *a) { return atomic_fetch_add((atomic_uchar *)a, 1); }
+prh_inline prh_i16 prh_atom_i16_fetch_inc(prh_atom_i16 *a) { return atomic_fetch_add((atomic_short *)a, 1); }
+prh_inline prh_u16 prh_atom_u16_fetch_inc(prh_atom_u16 *a) { return atomic_fetch_add((atomic_ushort *)a, 1); }
 prh_inline prh_i32 prh_atom_i32_fetch_inc(prh_atom_i32 *a) { return atomic_fetch_add((atomic_int *)a, 1); }
 prh_inline prh_u32 prh_atom_u32_fetch_inc(prh_atom_u32 *a) { return atomic_fetch_add((atomic_uint *)a, 1); }
 prh_inline prh_int prh_atom_int_fetch_inc(prh_atom_int *a) { return atomic_fetch_add((atomic_intptr_t *)a, 1); }
 prh_inline prh_unt prh_atom_unt_fetch_inc(prh_atom_unt *a) { return atomic_fetch_add((atomic_uintptr_t *)a, 1); }
 
+prh_inline prh_i08 prh_atom_i08_fetch_dec(prh_atom_i08 *a) { return atomic_fetch_sub((atomic_schar *)a, 1); }
+prh_inline prh_u08 prh_atom_u08_fetch_dec(prh_atom_u08 *a) { return atomic_fetch_sub((atomic_uchar *)a, 1); }
+prh_inline prh_i16 prh_atom_i16_fetch_dec(prh_atom_i16 *a) { return atomic_fetch_sub((atomic_short *)a, 1); }
+prh_inline prh_u16 prh_atom_u16_fetch_dec(prh_atom_u16 *a) { return atomic_fetch_sub((atomic_ushort *)a, 1); }
 prh_inline prh_i32 prh_atom_i32_fetch_dec(prh_atom_i32 *a) { return atomic_fetch_sub((atomic_int *)a, 1); }
 prh_inline prh_u32 prh_atom_u32_fetch_dec(prh_atom_u32 *a) { return atomic_fetch_sub((atomic_uint *)a, 1); }
 prh_inline prh_int prh_atom_int_fetch_dec(prh_atom_int *a) { return atomic_fetch_sub((atomic_intptr_t *)a, 1); }
 prh_inline prh_unt prh_atom_unt_fetch_dec(prh_atom_unt *a) { return atomic_fetch_sub((atomic_uintptr_t *)a, 1); }
 
+prh_inline void prh_atom_i08_inc(prh_atom_i08 *a) { atomic_fetch_add((atomic_schar *)a, 1); }
+prh_inline void prh_atom_u08_inc(prh_atom_u08 *a) { atomic_fetch_add((atomic_uchar *)a, 1); }
+prh_inline void prh_atom_i16_inc(prh_atom_i16 *a) { atomic_fetch_add((atomic_short *)a, 1); }
+prh_inline void prh_atom_u16_inc(prh_atom_u16 *a) { atomic_fetch_add((atomic_ushort *)a, 1); }
 prh_inline void prh_atom_i32_inc(prh_atom_i32 *a) { atomic_fetch_add((atomic_int *)a, 1); }
 prh_inline void prh_atom_u32_inc(prh_atom_u32 *a) { atomic_fetch_add((atomic_uint *)a, 1); }
 prh_inline void prh_atom_int_inc(prh_atom_int *a) { atomic_fetch_add((atomic_intptr_t *)a, 1); }
 prh_inline void prh_atom_unt_inc(prh_atom_unt *a) { atomic_fetch_add((atomic_uintptr_t *)a, 1); }
 
+prh_inline void prh_atom_i08_dec(prh_atom_i08 *a) { atomic_fetch_sub((atomic_schar *)a, 1); }
+prh_inline void prh_atom_u08_dec(prh_atom_u08 *a) { atomic_fetch_sub((atomic_uchar *)a, 1); }
+prh_inline void prh_atom_i16_dec(prh_atom_i16 *a) { atomic_fetch_sub((atomic_short *)a, 1); }
+prh_inline void prh_atom_u16_dec(prh_atom_u16 *a) { atomic_fetch_sub((atomic_ushort *)a, 1); }
 prh_inline void prh_atom_i32_dec(prh_atom_i32 *a) { atomic_fetch_sub((atomic_int *)a, 1); }
 prh_inline void prh_atom_u32_dec(prh_atom_u32 *a) { atomic_fetch_sub((atomic_uint *)a, 1); }
 prh_inline void prh_atom_int_dec(prh_atom_int *a) { atomic_fetch_sub((atomic_intptr_t *)a, 1); }
 prh_inline void prh_atom_unt_dec(prh_atom_unt *a) { atomic_fetch_sub((atomic_uintptr_t *)a, 1); }
 
+prh_inline prh_i08 prh_atom_i08_fetch_add(prh_atom_i08 *a, prh_i08 b) { return atomic_fetch_add((atomic_schar *)a, b); }
+prh_inline prh_u08 prh_atom_u08_fetch_add(prh_atom_u08 *a, prh_u08 b) { return atomic_fetch_add((atomic_uchar *)a, b); }
+prh_inline prh_i16 prh_atom_i16_fetch_add(prh_atom_i16 *a, prh_i16 b) { return atomic_fetch_add((atomic_short *)a, b); }
+prh_inline prh_u16 prh_atom_u16_fetch_add(prh_atom_u16 *a, prh_u16 b) { return atomic_fetch_add((atomic_ushort *)a, b); }
 prh_inline prh_i32 prh_atom_i32_fetch_add(prh_atom_i32 *a, prh_i32 b) { return atomic_fetch_add((atomic_int *)a, b); }
 prh_inline prh_u32 prh_atom_u32_fetch_add(prh_atom_u32 *a, prh_u32 b) { return atomic_fetch_add((atomic_uint *)a, b); }
 prh_inline prh_int prh_atom_int_fetch_add(prh_atom_int *a, prh_int b) { return atomic_fetch_add((atomic_intptr_t *)a, b); }
 prh_inline prh_unt prh_atom_unt_fetch_add(prh_atom_unt *a, prh_unt b) { return atomic_fetch_add((atomic_uintptr_t *)a, b); }
 
+prh_inline prh_i08 prh_atom_i32_fetch_sub(prh_atom_i08 *a, prh_i08 b) { return atomic_fetch_sub((atomic_schar *)a, b); }
+prh_inline prh_u08 prh_atom_u32_fetch_sub(prh_atom_u08 *a, prh_u08 b) { return atomic_fetch_sub((atomic_uchar *)a, b); }
+prh_inline prh_i16 prh_atom_i32_fetch_sub(prh_atom_i16 *a, prh_i16 b) { return atomic_fetch_sub((atomic_short *)a, b); }
+prh_inline prh_u16 prh_atom_u32_fetch_sub(prh_atom_u16 *a, prh_u16 b) { return atomic_fetch_sub((atomic_ushort *)a, b); }
 prh_inline prh_i32 prh_atom_i32_fetch_sub(prh_atom_i32 *a, prh_i32 b) { return atomic_fetch_sub((atomic_int *)a, b); }
 prh_inline prh_u32 prh_atom_u32_fetch_sub(prh_atom_u32 *a, prh_u32 b) { return atomic_fetch_sub((atomic_uint *)a, b); }
 prh_inline prh_int prh_atom_int_fetch_sub(prh_atom_int *a, prh_int b) { return atomic_fetch_sub((atomic_intptr_t *)a, b); }
 prh_inline prh_unt prh_atom_unt_fetch_sub(prh_atom_unt *a, prh_unt b) { return atomic_fetch_sub((atomic_uintptr_t *)a, b); }
 
+prh_inline void prh_atom_i08_add(prh_atom_i08 *a, prh_i08 b) { atomic_fetch_add((atomic_schar *)a, b); }
+prh_inline void prh_atom_u08_add(prh_atom_u08 *a, prh_u08 b) { atomic_fetch_add((atomic_uchar *)a, b); }
+prh_inline void prh_atom_i16_add(prh_atom_i16 *a, prh_i16 b) { atomic_fetch_add((atomic_short *)a, b); }
+prh_inline void prh_atom_u16_add(prh_atom_u16 *a, prh_u16 b) { atomic_fetch_add((atomic_ushort *)a, b); }
 prh_inline void prh_atom_i32_add(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_add((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_add(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_add((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_add(prh_atom_int *a, prh_int b) { atomic_fetch_add((atomic_intptr_t *)a, b); }
 prh_inline void prh_atom_unt_add(prh_atom_unt *a, prh_unt b) { atomic_fetch_add((atomic_uintptr_t *)a, b); }
 
+prh_inline void prh_atom_i08_sub(prh_atom_i08 *a, prh_i08 b) { atomic_fetch_sub((atomic_schar *)a, b); }
+prh_inline void prh_atom_u08_sub(prh_atom_u08 *a, prh_u08 b) { atomic_fetch_sub((atomic_uchar *)a, b); }
+prh_inline void prh_atom_i16_sub(prh_atom_i16 *a, prh_i16 b) { atomic_fetch_sub((atomic_short *)a, b); }
+prh_inline void prh_atom_u16_sub(prh_atom_u16 *a, prh_u16 b) { atomic_fetch_sub((atomic_ushort *)a, b); }
 prh_inline void prh_atom_i32_sub(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_sub((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_sub(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_sub((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_sub(prh_atom_int *a, prh_int b) { atomic_fetch_sub((atomic_intptr_t *)a, b); }
 prh_inline void prh_atom_unt_sub(prh_atom_unt *a, prh_unt b) { atomic_fetch_sub((atomic_uintptr_t *)a, b); }
 
+prh_inline prh_i08 prh_atom_i08_fetch_bit_or(prh_atom_i08 *a, prh_i08 b) { return atomic_fetch_or((atomic_schar *)a, b); }
+prh_inline prh_u08 prh_atom_u08_fetch_bit_or(prh_atom_u08 *a, prh_u08 b) { return atomic_fetch_or((atomic_uchar *)a, b); }
+prh_inline prh_i16 prh_atom_i16_fetch_bit_or(prh_atom_i16 *a, prh_i16 b) { return atomic_fetch_or((atomic_short *)a, b); }
+prh_inline prh_u16 prh_atom_u16_fetch_bit_or(prh_atom_u16 *a, prh_u16 b) { return atomic_fetch_or((atomic_ushort *)a, b); }
+prh_inline prh_i32 prh_atom_i32_fetch_bit_or(prh_atom_i32 *a, prh_i32 b) { return atomic_fetch_or((atomic_int *)a, b); }
+prh_inline prh_u32 prh_atom_u32_fetch_bit_or(prh_atom_u32 *a, prh_u32 b) { return atomic_fetch_or((atomic_uint *)a, b); }
+prh_inline prh_int prh_atom_int_fetch_bit_or(prh_atom_int *a, prh_int b) { return atomic_fetch_or((atomic_intptr_t *)a, b); }
+prh_inline prh_unt prh_atom_unt_fetch_bit_or(prh_atom_unt *a, prh_unt b) { return atomic_fetch_or((atomic_uintptr_t *)a, b); }
+
+prh_inline prh_i08 prh_atom_i08_fetch_bit_and(prh_atom_i08 *a, prh_i08 b) { return atomic_fetch_and((atomic_schar *)a, b); }
+prh_inline prh_u08 prh_atom_u08_fetch_bit_and(prh_atom_u08 *a, prh_u08 b) { return atomic_fetch_and((atomic_uchar *)a, b); }
+prh_inline prh_i16 prh_atom_i16_fetch_bit_and(prh_atom_i16 *a, prh_i16 b) { return atomic_fetch_and((atomic_short *)a, b); }
+prh_inline prh_u16 prh_atom_u16_fetch_bit_and(prh_atom_u16 *a, prh_u16 b) { return atomic_fetch_and((atomic_ushort *)a, b); }
+prh_inline prh_i32 prh_atom_i32_fetch_bit_and(prh_atom_i32 *a, prh_i32 b) { return atomic_fetch_and((atomic_int *)a, b); }
+prh_inline prh_u32 prh_atom_u32_fetch_bit_and(prh_atom_u32 *a, prh_u32 b) { return atomic_fetch_and((atomic_uint *)a, b); }
+prh_inline prh_int prh_atom_int_fetch_bit_and(prh_atom_int *a, prh_int b) { return atomic_fetch_and((atomic_intptr_t *)a, b); }
+prh_inline prh_unt prh_atom_unt_fetch_bit_and(prh_atom_unt *a, prh_unt b) { return atomic_fetch_and((atomic_uintptr_t *)a, b); }
+
+prh_inline void prh_atom_i08_bit_or(prh_atom_i08 *a, prh_i08 b) { atomic_fetch_or((atomic_schar *)a, b); }
+prh_inline void prh_atom_u08_bit_or(prh_atom_u08 *a, prh_u08 b) { atomic_fetch_or((atomic_uchar *)a, b); }
+prh_inline void prh_atom_i16_bit_or(prh_atom_i16 *a, prh_i16 b) { atomic_fetch_or((atomic_short *)a, b); }
+prh_inline void prh_atom_u16_bit_or(prh_atom_u16 *a, prh_u16 b) { atomic_fetch_or((atomic_ushort *)a, b); }
 prh_inline void prh_atom_i32_bit_or(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_or((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_bit_or(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_or((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_bit_or(prh_atom_int *a, prh_int b) { atomic_fetch_or((atomic_intptr_t *)a, b); }
 prh_inline void prh_atom_unt_bit_or(prh_atom_unt *a, prh_unt b) { atomic_fetch_or((atomic_uintptr_t *)a, b); }
 
+prh_inline void prh_atom_i08_bit_and(prh_atom_i08 *a, prh_i08 b) { atomic_fetch_and((atomic_schar *)a, b); }
+prh_inline void prh_atom_u08_bit_and(prh_atom_u08 *a, prh_u08 b) { atomic_fetch_and((atomic_uchar *)a, b); }
+prh_inline void prh_atom_i16_bit_and(prh_atom_i16 *a, prh_i16 b) { atomic_fetch_and((atomic_short *)a, b); }
+prh_inline void prh_atom_u16_bit_and(prh_atom_u16 *a, prh_u16 b) { atomic_fetch_and((atomic_ushort *)a, b); }
 prh_inline void prh_atom_i32_bit_and(prh_atom_i32 *a, prh_i32 b) { atomic_fetch_and((atomic_int *)a, b); }
 prh_inline void prh_atom_u32_bit_and(prh_atom_u32 *a, prh_u32 b) { atomic_fetch_and((atomic_uint *)a, b); }
 prh_inline void prh_atom_int_bit_and(prh_atom_int *a, prh_int b) { atomic_fetch_and((atomic_intptr_t *)a, b); }
@@ -4747,6 +4833,10 @@ prh_inline void prh_atom_unt_bit_and(prh_atom_unt *a, prh_unt b) { atomic_fetch_
 // preferred.
 // The default memory_order type is memory_order_seq_cst.
 prh_inline bool prh_atom_bool_weak_write(prh_atom_bool *a, bool *expect, bool b) { return atomic_compare_exchange_weak((atomic_bool *)a, expect, b); }
+prh_inline bool prh_atom_i08_weak_write(prh_atom_i08 *a, prh_i08 *expect, prh_i08 b) { return atomic_compare_exchange_weak((atomic_schar *)a, expect, b); }
+prh_inline bool prh_atom_u08_weak_write(prh_atom_u08 *a, prh_u08 *expect, prh_u08 b) { return atomic_compare_exchange_weak((atomic_uchar *)a, expect, b); }
+prh_inline bool prh_atom_i16_weak_write(prh_atom_i16 *a, prh_i16 *expect, prh_i16 b) { return atomic_compare_exchange_weak((atomic_short *)a, expect, b); }
+prh_inline bool prh_atom_u16_weak_write(prh_atom_u16 *a, prh_u16 *expect, prh_u16 b) { return atomic_compare_exchange_weak((atomic_ushort *)a, expect, b); }
 prh_inline bool prh_atom_i32_weak_write(prh_atom_i32 *a, prh_i32 *expect, prh_i32 b) { return atomic_compare_exchange_weak((atomic_int *)a, expect, b); }
 prh_inline bool prh_atom_u32_weak_write(prh_atom_u32 *a, prh_u32 *expect, prh_u32 b) { return atomic_compare_exchange_weak((atomic_uint *)a, expect, b); }
 prh_inline bool prh_atom_int_weak_write(prh_atom_int *a, prh_int *expect, prh_int b) { return atomic_compare_exchange_weak((atomic_intptr_t *)a, expect, b); }
@@ -4754,28 +4844,40 @@ prh_inline bool prh_atom_unt_weak_write(prh_atom_unt *a, prh_unt *expect, prh_un
 prh_inline bool prh_atom_ptr_weak_write(prh_atom_ptr *a, void **expect, void *b) { return atomic_compare_exchange_weak((atomic_uintptr_t *)a, (prh_unt *)expect, (prh_unt)b); }
 
 prh_inline bool prh_atom_bool_strong_write(prh_atom_bool *a, bool *expect, bool b) { return atomic_compare_exchange_strong((atomic_bool *)a, expect, b); }
+prh_inline bool prh_atom_i08_strong_write(prh_atom_i08 *a, prh_i08 *expect, prh_i08 b) { return atomic_compare_exchange_strong((atomic_schar *)a, expect, b); }
+prh_inline bool prh_atom_u08_strong_write(prh_atom_u08 *a, prh_u08 *expect, prh_u08 b) { return atomic_compare_exchange_strong((atomic_uchar *)a, expect, b); }
+prh_inline bool prh_atom_i16_strong_write(prh_atom_i16 *a, prh_i16 *expect, prh_i16 b) { return atomic_compare_exchange_strong((atomic_short *)a, expect, b); }
+prh_inline bool prh_atom_u16_strong_write(prh_atom_u16 *a, prh_u16 *expect, prh_u16 b) { return atomic_compare_exchange_strong((atomic_ushort *)a, expect, b); }
 prh_inline bool prh_atom_i32_strong_write(prh_atom_i32 *a, prh_i32 *expect, prh_i32 b) { return atomic_compare_exchange_strong((atomic_int *)a, expect, b); }
 prh_inline bool prh_atom_u32_strong_write(prh_atom_u32 *a, prh_u32 *expect, prh_u32 b) { return atomic_compare_exchange_strong((atomic_uint *)a, expect, b); }
 prh_inline bool prh_atom_int_strong_write(prh_atom_int *a, prh_int *expect, prh_int b) { return atomic_compare_exchange_strong((atomic_intptr_t *)a, expect, b); }
 prh_inline bool prh_atom_unt_strong_write(prh_atom_unt *a, prh_unt *expect, prh_unt b) { return atomic_compare_exchange_strong((atomic_uintptr_t *)a, expect, b); }
 prh_inline bool prh_atom_ptr_strong_write(prh_atom_ptr *a, void **expect, void *b) { return atomic_compare_exchange_strong((atomic_uintptr_t *)a, (prh_unt *)expect, (prh_unt)b); }
 
-prh_inline bool prh_atom_bool_weak_clear_if_set(prh_atom_bool *a) { bool expect = true; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, false); }
-prh_inline bool prh_atom_bool_weak_set_if_clear(prh_atom_bool *a) { bool expect = false; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, true); }
-prh_inline bool prh_atom_bool_strong_clear_if_set(prh_atom_bool *a) { bool expect = true; return atomic_compare_exchange_strong((atomic_bool *)a, &expect, false); }
-prh_inline bool prh_atom_bool_strong_set_if_clear(prh_atom_bool *a) { bool expect = false; return atomic_compare_exchange_strong((atomic_bool *)a, &expect, true); }
+prh_inline bool prh_atom_bool_weak_clear(prh_atom_bool *a) { bool expect = true; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, false); }
+prh_inline bool prh_atom_bool_weak_set(prh_atom_bool *a) { bool expect = false; return atomic_compare_exchange_weak((atomic_bool *)a, &expect, true); }
+prh_inline bool prh_atom_bool_strong_clear(prh_atom_bool *a) { bool expect = true; return atomic_compare_exchange_strong((atomic_bool *)a, &expect, false); }
+prh_inline bool prh_atom_bool_strong_set(prh_atom_bool *a) { bool expect = false; return atomic_compare_exchange_strong((atomic_bool *)a, &expect, true); }
 
-prh_inline bool prh_atom_i32_weak_write_if_zero(prh_atom_i32 *a, prh_i32 b) { prh_i32 expect = 0; return atomic_compare_exchange_weak((atomic_int *)a, &expect, b); }
-prh_inline bool prh_atom_u32_weak_write_if_zero(prh_atom_u32 *a, prh_u32 b) { prh_u32 expect = 0; return atomic_compare_exchange_weak((atomic_uint *)a, &expect, b); }
-prh_inline bool prh_atom_int_weak_write_if_zero(prh_atom_int *a, prh_int b) { prh_int expect = 0; return atomic_compare_exchange_weak((atomic_intptr_t *)a, &expect, b); }
-prh_inline bool prh_atom_unt_weak_write_if_zero(prh_atom_unt *a, prh_unt b) { prh_unt expect = 0; return atomic_compare_exchange_weak((atomic_uintptr_t *)a, &expect, b); }
-prh_inline bool prh_atom_ptr_weak_write_if_null(prh_atom_ptr *a, void *b) { prh_unt expect = 0; return atomic_compare_exchange_weak((atomic_uintptr_t *)a, &expect, (prh_unt)b); }
+prh_inline bool prh_atom_i08_weak_write_non_zero(prh_atom_i08 *a, prh_i32 b) { prh_i08 expect = 0; return atomic_compare_exchange_weak((atomic_schar *)a, &expect, b); }
+prh_inline bool prh_atom_u08_weak_write_non_zero(prh_atom_u08 *a, prh_u32 b) { prh_u08 expect = 0; return atomic_compare_exchange_weak((atomic_uchar *)a, &expect, b); }
+prh_inline bool prh_atom_i16_weak_write_non_zero(prh_atom_i16 *a, prh_i32 b) { prh_i16 expect = 0; return atomic_compare_exchange_weak((atomic_short *)a, &expect, b); }
+prh_inline bool prh_atom_u16_weak_write_non_zero(prh_atom_u16 *a, prh_u32 b) { prh_u16 expect = 0; return atomic_compare_exchange_weak((atomic_ushort *)a, &expect, b); }
+prh_inline bool prh_atom_i32_weak_write_non_zero(prh_atom_i32 *a, prh_i32 b) { prh_i32 expect = 0; return atomic_compare_exchange_weak((atomic_int *)a, &expect, b); }
+prh_inline bool prh_atom_u32_weak_write_non_zero(prh_atom_u32 *a, prh_u32 b) { prh_u32 expect = 0; return atomic_compare_exchange_weak((atomic_uint *)a, &expect, b); }
+prh_inline bool prh_atom_int_weak_write_non_zero(prh_atom_int *a, prh_int b) { prh_int expect = 0; return atomic_compare_exchange_weak((atomic_intptr_t *)a, &expect, b); }
+prh_inline bool prh_atom_unt_weak_write_non_zero(prh_atom_unt *a, prh_unt b) { prh_unt expect = 0; return atomic_compare_exchange_weak((atomic_uintptr_t *)a, &expect, b); }
+prh_inline bool prh_atom_ptr_weak_write_non_null(prh_atom_ptr *a, void *b) { prh_unt expect = 0; return atomic_compare_exchange_weak((atomic_uintptr_t *)a, &expect, (prh_unt)b); }
 
-prh_inline bool prh_atom_i32_strong_write_if_zero(prh_atom_i32 *a, prh_i32 b) { prh_i32 expect = 0; return atomic_compare_exchange_strong((atomic_int *)a, &expect, b); }
-prh_inline bool prh_atom_u32_strong_write_if_zero(prh_atom_u32 *a, prh_u32 b) { prh_u32 expect = 0; return atomic_compare_exchange_strong((atomic_uint *)a, &expect, b); }
-prh_inline bool prh_atom_int_strong_write_if_zero(prh_atom_int *a, prh_int b) { prh_int expect = 0; return atomic_compare_exchange_strong((atomic_intptr_t *)a, &expect, b); }
-prh_inline bool prh_atom_unt_strong_write_if_zero(prh_atom_unt *a, prh_unt b) { prh_unt expect = 0; return atomic_compare_exchange_strong((atomic_uintptr_t *)a, &expect, b); }
-prh_inline bool prh_atom_ptr_strong_write_if_null(prh_atom_ptr *a, void *b) { prh_unt expect = 0; return atomic_compare_exchange_strong((atomic_uintptr_t *)a, &expect, (prh_unt)b); }
+prh_inline bool prh_atom_i08_strong_write_non_zero(prh_atom_i08 *a, prh_i32 b) { prh_i08 expect = 0; return atomic_compare_exchange_strong((atomic_schar *)a, &expect, b); }
+prh_inline bool prh_atom_u08_strong_write_non_zero(prh_atom_u08 *a, prh_u32 b) { prh_u08 expect = 0; return atomic_compare_exchange_strong((atomic_uchar *)a, &expect, b); }
+prh_inline bool prh_atom_i16_strong_write_non_zero(prh_atom_i16 *a, prh_i32 b) { prh_i16 expect = 0; return atomic_compare_exchange_strong((atomic_short *)a, &expect, b); }
+prh_inline bool prh_atom_u16_strong_write_non_zero(prh_atom_u16 *a, prh_u32 b) { prh_u16 expect = 0; return atomic_compare_exchange_strong((atomic_ushort *)a, &expect, b); }
+prh_inline bool prh_atom_i32_strong_write_non_zero(prh_atom_i32 *a, prh_i32 b) { prh_i32 expect = 0; return atomic_compare_exchange_strong((atomic_int *)a, &expect, b); }
+prh_inline bool prh_atom_u32_strong_write_non_zero(prh_atom_u32 *a, prh_u32 b) { prh_u32 expect = 0; return atomic_compare_exchange_strong((atomic_uint *)a, &expect, b); }
+prh_inline bool prh_atom_int_strong_write_non_zero(prh_atom_int *a, prh_int b) { prh_int expect = 0; return atomic_compare_exchange_strong((atomic_intptr_t *)a, &expect, b); }
+prh_inline bool prh_atom_unt_strong_write_non_zero(prh_atom_unt *a, prh_unt b) { prh_unt expect = 0; return atomic_compare_exchange_strong((atomic_uintptr_t *)a, &expect, b); }
+prh_inline bool prh_atom_ptr_strong_write_non_null(prh_atom_ptr *a, void *b) { prh_unt expect = 0; return atomic_compare_exchange_strong((atomic_uintptr_t *)a, &expect, (prh_unt)b); }
 
 // Atomic singly linked queue for only 1 producer and 1 consumer. Each node has
 // a prh_snode header and a data pointer. The node has fixed size and can only
@@ -9931,7 +10033,7 @@ void prh_free_cond_sleep(prh_cond_sleep *p) {
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
-    if (prh_atom_bool_strong_clear_if_set(&p->wakeup_semaphore)) {
+    if (prh_atom_bool_strong_clear(&p->wakeup_semaphore)) {
         return false;
     } else {
         return true;
@@ -9939,7 +10041,7 @@ bool prh_thrd_try_sleep(prh_cond_sleep *p) {
 }
 
 void prh_thrd_cond_sleep(prh_cond_sleep *p) {
-    if (prh_atom_bool_strong_clear_if_set(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
+    if (prh_atom_bool_strong_clear(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
     prh_thrd_cond_lock((prh_thrd_cond *)p);
     while (!prh_atom_bool_read(&p->wakeup_semaphore)) {
         prh_impl_plat_cond_wait((prh_thrd_cond *)p);
@@ -13489,7 +13591,7 @@ void prh_free_cond_sleep(prh_cond_sleep *p) {
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
-    if (prh_atom_bool_strong_clear_if_set(&p->wakeup_semaphore)) {
+    if (prh_atom_bool_strong_clear(&p->wakeup_semaphore)) {
         return false;
     } else {
         return true;
@@ -13497,7 +13599,7 @@ bool prh_thrd_try_sleep(prh_cond_sleep *p) {
 }
 
 void prh_thrd_cond_sleep(prh_cond_sleep *p) {
-    if (prh_atom_bool_strong_clear_if_set(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
+    if (prh_atom_bool_strong_clear(&p->wakeup_semaphore)) return; // 已经有唤醒存在，不需要睡眠
     prh_thrd_cond_lock((prh_thrd_cond *)p);
     while (!prh_atom_bool_read(&p->wakeup_semaphore)) {
         prh_impl_plat_cond_wait((prh_thrd_cond *)p);
@@ -17877,7 +17979,7 @@ bool prh_impl_privilege_task_v2(prh_cono_thrd *curr_thrd) {
     prh_real_cono *ready_cono;
     bool prev_empty;
 
-    if (!prh_atom_ptr_weak_write_if_null(privilege_thread, curr_thrd)) { // 获取特权
+    if (!prh_atom_ptr_weak_write_non_null(privilege_thread, curr_thrd)) { // 获取特权
         return false;
     }
 
@@ -17911,7 +18013,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
     prh_cono_thrd *main_thrd = (prh_cono_thrd *)prh_simp_thrd_main(thrds);
     prh_real_cono *ready_cono;
 
-    if (!prh_atom_ptr_weak_write_if_null(privilege_thread, curr_thrd)) { // 获取特权
+    if (!prh_atom_ptr_weak_write_non_null(privilege_thread, curr_thrd)) { // 获取特权
         return false;
     }
 
@@ -17934,7 +18036,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
         prh_relaxed_quefit_pop(ready_queue, ready_cono, cono_chain);
         if (ready_cono == prh_null) break;
         prh_cono_thrd *thrd = ready_cono->assign_thrd;
-        if (thrd && thrd->created && prh_atom_ptr_strong_write_if_null(&thrd->ready_cono, ready_cono)) {
+        if (thrd && thrd->created && prh_atom_ptr_strong_write_non_null(&thrd->ready_cono, ready_cono)) {
 #if PRH_CONO_DEBUG
             printf("[thrd %02d] cono %02d => orig thrd %02d\n", prh_thrd_self_id(), ready_cono->cono_id, prh_thrd_id(thrd));
 #endif
@@ -17942,7 +18044,7 @@ bool prh_impl_privilege_task(prh_cono_thrd *curr_thrd, bool strong_check) {
             continue; // 尽量将协程分配在同一个线程中执行，保证空间访问局部性
         }
         for (; (prh_thrd *)thrd_it < thrd_end; thrd_it = (prh_cono_thrd *)prh_simp_thrd_next(thrds, (prh_thrd *)thrd_it)) { // 将协程分配给空闲线程
-            if (thrd_it->created && prh_atom_ptr_strong_write_if_null(&thrd_it->ready_cono, ready_cono)) {
+            if (thrd_it->created && prh_atom_ptr_strong_write_non_null(&thrd_it->ready_cono, ready_cono)) {
                 ready_cono->assign_thrd = thrd_it;
 #if PRH_CONO_DEBUG
                 printf("[thrd %02d] cono %02d => idle thrd %02d\n", prh_thrd_self_id(), ready_cono->cono_id, prh_thrd_id(thrd_it));
