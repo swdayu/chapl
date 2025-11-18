@@ -15941,9 +15941,15 @@ prh_atom_dynque_block *prh_impl_atom_sched_coro_que_alloc_block(void) {
 
 void prh_atom_sched_coro_que_free(prh_atom_sched_coro_que_consumer *c) {
     prh_atom_dynque_block *head_block = (void *)c->head_block_head_item;
-    while (*(void **)head_block != PRH_ATOM_DYNQUE_BLOCK_END) { // TODO 可以优化以 64 的倍数跳跃
-        head_block = (void *)((prh_byte *)head_block + 2 * sizeof(void *));
-    }
+    // 64 32 16 08 04 02 01 以 64 的倍数跳跃
+    //  1  0  0  0  0  0  0  mask 63 0x3f
+    //  0 + 64 = 0100_0000 & 1100_0000 = 64
+    //  1 + 64 = 0100_0001 & 1100_0000 = 64
+    // 63 + 64 = 0111_1111 & 1100_0000 = 64
+    // 64 + 64 = 1000_0000 & 1100_0000 = 128
+label_continue:
+    head_block = (void *)((((prh_ptr)head_block + 64) & (~(prh_ptr)63)) - 2 * sizeof(void *));
+    if (head_block != PRH_ATOM_DYNQUE_BLOCK_END) goto label_continue;
     head_block = (void *)((prh_byte *)head_block - PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET);
     while (head_block) {
         prh_atom_dynque_block *next = prh_impl_atom_sched_coro_que_block_end(head_block)->next;
