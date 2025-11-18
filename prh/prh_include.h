@@ -16043,6 +16043,7 @@ prh_atom_dynque_block *prh_impl_atom_sched_coro_que_alloc_block(void) {
 
 void prh_atom_sched_coro_que_free(prh_atom_sched_coro_que_consumer *c) {
     prh_atom_dynque_block *head_block = (void *)c->head_block_head_item;
+    if (head_block == prh_null) return;
     // 64 32 16 08 04 02 01 以 64 的倍数跳跃
     //  1  0  0  0  0  0  0  mask 63 0x3f
     //  0 + 64 = 0100_0000 & 1100_0000 = 64
@@ -16058,6 +16059,7 @@ label_continue:
         prh_aligned_free(head_block);
         head_block = next;
     }
+    c->head_block_head_item = prh_null;
 }
 
 void prh_impl_atom_sched_coro_que_push_end(prh_atom_sched_coro_que_producer *p, int n) {
@@ -17410,7 +17412,7 @@ struct prh_real_cono {
     prh_i32 cono_id;
     prh_byte yield_state;
     prh_byte subq_n;
-    prh_byte wait_q;
+    prh_byte wait_que;
     prh_byte await: 1, pwait: 1, uncond_run: 1; // uncond_run 挂起后恢复时无条件执行
     void (*subq_push)(prh_real_cono *cono, prh_cono_pdata *pdata);
     prh_real_cono *caller;
@@ -17792,7 +17794,7 @@ void *prh_cono_await(void) { // 协程挂起时必须设置原因，然后回到
 
 prh_pwait_data prh_cono_subq_pwait(prh_byte subq) { // 协程挂起时必须设置原因，然后回到 prh_impl_cono_execute() 真正进入了挂起状态，然后发送消息给特权线程，去检查挂起的原因是否可以继续执行
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
-    caller->wait_q = subq; // 只接收特定子队列收到的数据，或者0xff表示接收所有子队列收到的数据
+    caller->wait_que = subq; // 只接收特定子队列收到的数据，或者0xff表示接收所有子队列收到的数据
     assert(subq == 0xff || subq < caller->subq_n);
     prh_pwait_data pwait_data;
     caller->pwait_data = &pwait_data;
@@ -17889,12 +17891,12 @@ prh_inline void prh_impl_privilege_pwait_success(prh_cono_quefit *ready_queue, p
     prh_relaxed_quefit_push(ready_queue, cono, cono_chain);
 }
 
-void *prh_impl_privilege_receive_pdata(prh_real_cono *cono, prh_byte wait_q) {
+void *prh_impl_privilege_receive_pdata(prh_real_cono *cono, prh_byte wait_que) {
     prh_pdata_rxq *post_que = &cono->post_que;
-    if (wait_q == 0xff) {
+    if (wait_que == 0xff) {
         return prh_arrque_pop(post_que);
     }
-    prh_cono_subq *subq = cono->cono_subq + wait_q;
+    prh_cono_subq *subq = cono->cono_subq + wait_que;
     if (subq->post_count == 0) {
         return prh_null;
     }
@@ -17903,7 +17905,7 @@ void *prh_impl_privilege_receive_pdata(prh_real_cono *cono, prh_byte wait_q) {
         void *data = post_que->arrque[head];
         prh_cono_pdata *pdata = (prh_cono_pdata *)(((prh_ptr)data >> 2) << 2);
         if (pdata->subq == subq) {
-            assert(pdata->subq->subq_i == wait_q);
+            assert(pdata->subq->subq_i == wait_que);
             return data;
         }
         head = prh_impl_arrque_npos(post_que, head + 1);
@@ -17912,7 +17914,7 @@ void *prh_impl_privilege_receive_pdata(prh_real_cono *cono, prh_byte wait_q) {
 }
 
 void prh_impl_privilege_process_pwait_req(prh_real_cono *req_cono, prh_cono_quefit *ready_queue) {
-    void *data = prh_impl_privilege_receive_pdata(req_cono, req_cono->wait_q);
+    void *data = prh_impl_privilege_receive_pdata(req_cono, req_cono->wait_que);
     if (data == prh_null) {
         req_cono->pwait = true;
     } else {
@@ -17933,7 +17935,7 @@ bool prh_impl_privilege_post_data_process(void *priv, void *data) { // 处理各
     prh_cono_pdata *pdata = (prh_cono_pdata *)(((prh_ptr)data >> 2) << 2);
     prh_cono_subq *subq = pdata->subq;
     prh_real_cono *dest = subq->cono;
-    if (dest->pwait && (dest->wait_q == 0xff || dest->wait_q == subq->subq_i)) {
+    if (dest->pwait && (dest->wait_que == 0xff || dest->wait_que == subq->subq_i)) {
         prh_pwait_data *pwait_data = dest->pwait_data;
         pwait_data->pdata = pdata;
         pwait_data->subq_i = (prh_byte)subq->subq_i;
@@ -18308,7 +18310,7 @@ typedef struct prh_coro_subq {
     prh_byte subq_i; prh_atom_u16 subq_len;
 } prh_coro_subq;
 
-#define PRH_IMPL_SUBQ_PADDING_SIZE (2 * sizeof(void *) / sizeof(prh_coro_subq))
+#define PRH_IMPL_SUBQ_PADDING_SIZE (sizeof(void *) / sizeof(prh_coro_subq))
 
 typedef struct { // 协程线程与调度线程共享的协程数据
     prh_atom_int callee_rx_que_length;
@@ -18317,39 +18319,52 @@ typedef struct { // 协程线程与调度线程共享的协程数据
 } prh_share_coro_data;
 
 typedef struct prh_sched_only_data { // 仅由调度线程访问的协程数据
-    prh_atom_sched_coro_que_producer callee_rx_que_producer; //  +1p 4   8
-    prh_atom_sched_coro_que_producer coro_post_que_producer;
-    prh_atom_int *callee_rx_que_length;                 //  +1p 8   16
-    prh_atom_int *coro_post_que_length;
-    prh_real_cono *running_thread;                      //  +1p 20  40
-    struct prh_sched_only_data *caller;                 //  +1p 24  48
-    bool coro_is_await, coro_is_pwait;                  //  +1p 28  56
-    bool pwait_one_subq; prh_byte subq_wait;
+    prh_atom_sched_coro_que_producer callee_rx_que_producer;    // +1p  4   8
+    prh_atom_sched_coro_que_producer coro_post_que_producer;    // +1p  8   16
+    prh_atom_int *callee_rx_que_length;                         // +1p  12  24
+    prh_atom_int *coro_post_que_length;                         // +1p  16  32
+    prh_real_cono *running_thread;                              // +1p  20  40
+    struct prh_sched_only_data *caller;                         // +1p  24  48
+    bool coro_await, coro_pwait, subq_pwait; prh_byte wait_que; // +1p  28  56
 } prh_sched_only_data;
 
 prh_static_assert(prh_offsetof(prh_share_coro_data, coro_subq) == 2 * sizeof(void *));
-prh_static_assert(sizeof(prh_sched_only_data) == 8 * sizeof(void *));
+prh_static_assert(sizeof(prh_share_coro_data) == 3 * sizeof(void *));
+prh_static_assert(sizeof(prh_sched_only_data) <= 8 * sizeof(void *));
 
 struct prh_real_cono {
-    union { struct prh_impl_coro coro; prh_byte aligned[prh_impl_coro_size]; } head;
-    prh_atom_sched_coro_que_consumer callee_rx_que_consumer; //  +2p 24  32
-    prh_atom_sched_coro_que_consumer coro_post_que_consumer;
-    prh_continue_routine routine_after_yield;           //  +1p 36  56
-    prh_u32 wait_callee_count, freed_item_count;        //  +4  40  60
-    prh_byte subq_num, subq_wait;                       //  +4  44  64
-    prh_byte cont_run: 1, has_caller: 1;
+    union { prh_impl_coro coro; prh_byte a[prh_impl_coro_size]; } base; // +16  16  16
+    prh_atom_sched_coro_que_consumer callee_rx_que_consumer;            // +1p  20  24
+    prh_atom_sched_coro_que_consumer coro_post_que_consumer;            // +1p  24  32
+    prh_continue_routine routine_after_yield;                           // +1p  28  40
+    prh_u32 wait_callee_count, freed_item_count;                        // +8   36  48
+    prh_byte data_offset, subq_num, wait_que, uncond_run, has_caller;   // +*p  44  56
     prh_alignas(PRH_CACHE_LINE_SIZE) prh_sched_only_data sched_only_data;
     prh_alignas(PRH_CACHE_LINE_SIZE) prh_share_coro_data share_coro_data;
 };
 
 #define prh_impl_cono_fixed_size (PRH_CACHE_LINE_SIZE * 3)
 #define prh_impl_cono_fixed_extend_size (prh_impl_cono_fixed_size - prh_impl_coro_size)
-prh_static_assert(prh_offsetof(prh_real_cono, coro_que_consumer) == prh_impl_coro_size);
+#define prh_impl_cono_waited_callee(cono) (cono)->base.coro.userdata
+prh_static_assert(prh_offsetof(prh_real_cono, callee_rx_que_consumer) == prh_impl_coro_size);
 prh_static_assert(prh_offsetof(prh_real_cono, sched_only_data) == 64);
 prh_static_assert(prh_offsetof(prh_real_cono, share_coro_data) == 128);
+prh_fastcall(void) prh_impl_asm_cono_call(void);
+
+prh_inline prh_real_cono *prh_impl_cono_from_spawn_data(void *spawn_data) {
+    return *(prh_real_cono **)((void **)spawn_data - 1);
+}
+
+prh_inline void *prh_impl_spawn_data_from_cono(prh_real_cono *cono) {
+    return (prh_byte *)cono + cono->data_offset * PRH_CACHE_LINE_SIZE;
+}
 
 prh_inline prh_real_cono *prh_impl_cono_from_sched_only_data(prh_sched_only_data *sched_only_data) {
     return (prh_real_cono *)((prh_byte *)sched_only_data - prh_offsetof(prh_real_cono, sched_only_data));
+}
+
+prh_inline prh_sched_only_data *prh_impl_sched_only_data_from_subq(prh_coro_subq *coro_subq) {
+    return (prh_sched_only_data *)((prh_byte *)(coro_subq - coro_subq->subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - PRH_CACHE_LINE_SIZE);
 }
 
 int prh_impl_cono_extend_size(prh_byte subq_num) {
@@ -18364,18 +18379,6 @@ int prh_impl_cono_struct_size(prh_byte subq_num) {
     if (share_coro_data_size <= PRH_CACHE_LINE_SIZE) return prh_impl_cono_fixed_size;
     int exceeded_size = share_coro_data_size - PRH_CACHE_LINE_SIZE;
     return prh_impl_cono_fixed_size + (int)prh_round_cache_line_size(exceeded_size);
-}
-
-prh_inline prh_real_cono *prh_impl_cono_from_spawn_data(void *spawn_data) {
-    return *(prh_real_cono **)((void **)spawn_data - 1);
-}
-
-void *prh_impl_spawn_data_from_cono(prh_real_cono *cono) {
-    return (prh_byte *)cono + prh_impl_cono_struct_size(cono->subq_num);
-}
-
-prh_inline prh_sched_only_data *prh_impl_sched_only_data_from_subq(prh_coro_subq *coro_subq) {
-    return (prh_sched_only_data *)((prh_byte *)(coro_subq - coro_subq->subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - PRH_CACHE_LINE_SIZE);
 }
 
 // 当 start 一个需要 await_cono_yield 的子协程时，caller 协程需要创建 callee_rx_que
@@ -18393,12 +18396,7 @@ void prh_impl_sched_thrd_init_coro_post_que(prh_real_cono *cono) {
     if (p->tail_block_tail_item == prh_null) {
         void **block = (void **)prh_impl_atom_sched_coro_que_aligned_alloc(prh_null);
         cono->coro_post_que_consumer.head_block_head_item = p->tail_block_tail_item = block;
-        prh_atom_ptr_write(cono->sched_only_data.coro_post_que_end, block);
     }
-}
-
-void prh_impl_cono_free(prh_real_cono *cono) {
-    prh_atom_sched_coro_que_free(&cono->coro_que_consumer);
 }
 
 void prh_impl_cono_init(prh_real_cono *cono, prh_byte subq_num) {
@@ -18418,6 +18416,19 @@ void prh_impl_cono_init(prh_real_cono *cono, prh_byte subq_num) {
     sched_only_data->coro_post_que_length = coro_post_que_length;
     // coro_size 和 data_size 都已初始化为零
     cono->subq_num = subq_num;
+}
+
+void prh_impl_cono_free(prh_real_cono *cono) {
+    prh_atom_sched_coro_que_free(&cono->callee_rx_que_consumer);
+    prh_atom_sched_coro_que_free(&cono->coro_post_que_consumer);
+}
+
+void prh_impl_cono_reset(prh_real_cono *cono, prh_conoproc_t proc) {
+    prh_byte subq_num = cono->subq_num, data_offset = cono->data_offset;
+    memset((prh_byte *)cono + prh_impl_coro_size, 0, prh_impl_cono_extend_size(subq_num));
+    prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_cono_call);
+    prh_impl_cono_init(cono, subq_num);
+    cono->data_offset = data_offset;
 }
 
 void prh_atom_sched_coro_que_push_callee(prh_sched_only_data *sched_only_data, void *callee) {
@@ -18510,18 +18521,11 @@ bool prh_atom_sched_coro_que_ext_pop_post(prh_real_cono *cono, prh_byte subq_i, 
     return true;
 }
 
-#define prh_impl_cono_waited_callee(cono) (cono)->head.coro.userdata
-prh_fastcall(void) prh_impl_asm_cono_call(void);
-
-prh_inline void prh_impl_cono_load(prh_coro *coro, prh_conoproc_t proc) {
-    prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_cono_call);
-}
-
 prh_coro *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, int maxudsize, int subq_num) {
     int cono_extend_size = prh_impl_cono_extend_size(subq_num);
     void *coro_stack = prh_cache_line_aligned_malloc(prh_impl_coro_cache_line_aligned_alloc_size(stack_size, cono_extend_size, maxudsize));
     prh_coro *coro = prh_impl_coro_cache_line_aligned_init(coro_stack, stack_size, cono_extend_size, maxudsize);
-    prh_impl_cono_load(coro, proc);
+    prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_cono_call);
     void *userdata = coro->userdata;
 #if PRH_DEBUG
     char *rsp = (char *)coro - prh_impl_asm_stack_init_depth();
@@ -18531,6 +18535,8 @@ prh_coro *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, int maxudsiz
         (void *)coro, (prh_impl_coro_size + cono_extend_size), userdata, (int)prh_round_cache_line_size(maxudsize), stack_size);
 #endif
     *((void **)((void **)userdata - 1)) = coro;
+    int times_of_cache_line_size = prh_impl_cono_struct_size(subq_num) / PRH_CACHE_LINE_SIZE;
+    ((prh_real_cono *)coro)->data_offset = (prh_byte)times_of_cache_line_size; assert(times_of_cache_line_size <= 255);
     return coro;
 }
 
@@ -18639,8 +18645,8 @@ bool prh_impl_cono_sched_thrd_synced_yield_req(prh_iocp_thrd_req *thrd_req) {
     assert(callee->sched_only_data.caller != prh_null);
     prh_sched_only_data *caller = callee->sched_only_data.caller;
     prh_atom_sched_coro_que_push_callee(caller, callee);
-    if (caller->coro_is_await) {
-        caller->coro_is_await = false;
+    if (caller->coro_await) {
+        caller->coro_await = false;
         thrd_req->iocp_post = (prh_iocp_post *)prh_impl_cono_from_sched_only_data(caller);
         thrd_req->continue_routine = prh_impl_cono_execute;
         return true; // 让等到 callee 的 caller 协程继续执行
@@ -18682,7 +18688,7 @@ bool prh_impl_cono_sched_thrd_synced_await_req(prh_iocp_thrd_req *thrd_req) {
     prh_real_cono *caller = (prh_real_cono *)thrd_req->iocp_post;
     prh_sched_only_data *sched_only_data = &caller->sched_only_data;
     if (prh_impl_sched_thrd_caller_rx_que_empty(sched_only_data)) {
-        sched_only_data->coro_is_await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
+        sched_only_data->coro_await = true; // 暂时没有执行结果可以处理，等待下一次执行协程的结果
         return false;
     }
     thrd_req->continue_routine = prh_impl_cono_execute;
@@ -18717,10 +18723,10 @@ bool prh_impl_sched_thrd_dispatch_coro_post(prh_iocp_thrd_req *thrd_req) {
     prh_coro_subq *coro_subq = ((prh_coro_thrd_req *)thrd_req)->coro_subq;
     prh_atom_sched_coro_que_push_post(coro_subq, ((prh_coro_thrd_req *)thrd_req)->post_data);
     prh_sched_only_data *sched_only_data = prh_impl_sched_only_data_from_subq(coro_subq);
-    if (sched_only_data->coro_is_pwait) {
-        sched_only_data->coro_is_pwait = false;
-    } else if (sched_only_data->pwait_one_subq && sched_only_data->subq_wait == coro_subq->subq_i) {
-        sched_only_data->pwait_one_subq = false;
+    if (sched_only_data->coro_pwait) {
+        sched_only_data->coro_pwait = false;
+    } else if (sched_only_data->subq_pwait && sched_only_data->wait_que == coro_subq->subq_i) {
+        sched_only_data->subq_pwait = false;
     } else { // 协程没有在等待，任务投递到队列之后无需做其他事
         return false;
     }
@@ -18737,7 +18743,7 @@ bool prh_impl_cono_sched_thrd_synced_pwait_req(prh_iocp_thrd_req *thrd_req) {
     prh_real_cono *caller = (prh_real_cono *)thrd_req->iocp_post;
     prh_sched_only_data *sched_only_data = &caller->sched_only_data;
     if (prh_impl_sched_thrd_coro_post_que_empty(sched_only_data)) {
-        sched_only_data->coro_is_pwait = true; // 暂时没有任务可以处理，等待后续任务的投递
+        sched_only_data->coro_pwait = true; // 暂时没有任务可以处理，等待后续任务的投递
         return false;
     }
     thrd_req->continue_routine = prh_impl_cono_execute;
@@ -18761,10 +18767,10 @@ void prh_impl_cono_pwait_data(prh_real_cono *caller, prh_pwait_data *data) {
 bool prh_impl_cono_sched_thrd_synced_subq_pwait_req(prh_iocp_thrd_req *thrd_req) {
     prh_real_cono *caller = (prh_real_cono *)thrd_req->iocp_post;
     prh_sched_only_data *sched_only_data = &caller->sched_only_data;
-    prh_byte subq_wait = thrd_req->opcode;
-    if (prh_impl_sched_thrd_one_coro_subq_empty(caller->share_coro_data.coro_subq + subq_wait)) {
-        sched_only_data->pwait_one_subq = true; // 子队列中暂时没有任务可以处理，等待后续任务的投递
-        sched_only_data->subq_wait = subq_wait;
+    prh_byte wait_que = thrd_req->opcode;
+    if (prh_impl_sched_thrd_one_coro_subq_empty(caller->share_coro_data.coro_subq + wait_que)) {
+        sched_only_data->subq_pwait = true; // 子队列中暂时没有任务可以处理，等待后续任务的投递
+        sched_only_data->wait_que = wait_que;
         return false;
     }
     thrd_req->continue_routine = prh_impl_cono_execute;
@@ -18772,12 +18778,12 @@ bool prh_impl_cono_sched_thrd_synced_subq_pwait_req(prh_iocp_thrd_req *thrd_req)
 }
 
 void prh_impl_cono_begin_subq_pwait_req(prh_iocp_post *caller) {
-    prh_sched_thrd_synced_ext_post(caller, prh_impl_cono_sched_thrd_synced_subq_pwait_req, caller->subq_wait);
+    prh_sched_thrd_synced_ext_post(caller, prh_impl_cono_sched_thrd_synced_subq_pwait_req, caller->wait_que);
 }
 
 void prh_impl_cono_ext_pwait_data(prh_real_cono *caller, prh_byte subq_i, prh_pwait_data *data) {
     if (!prh_atom_sched_coro_que_ext_pop_post(caller, subq_i, data)) {
-        caller->subq_wait = subq_i;
+        caller->wait_que = subq_i;
         cono->routine_after_yield = prh_impl_cono_begin_subq_pwait_req;
         prh_soro_yield((prh_soro *)caller);
     }
