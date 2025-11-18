@@ -752,7 +752,8 @@ extern "C" {
 #endif
 
 #ifndef prh_real_assert
-    #define prh_real_assert(a) ((void)((a) || (prh_impl_assert(__LINE__), 1)))
+    #define prh_impl_real_assert(a, line) ((void)((a) || (prh_impl_assert(line), false)))
+    #define prh_real_assert(a) prh_impl_real_assert((a), __LINE__)
     #define prh_real_unreachable() prh_abort_error(0xea)
     void prh_impl_assert(int line);
 #endif
@@ -760,9 +761,11 @@ extern "C" {
 #ifndef prh_assert
 #if PRH_DEBUG
     #define prh_assert(a) prh_real_assert(a)
+    #define prh_assert_line(a, line) prh_impl_real_assert((a), (line))
     #define prh_unreachable() prh_real_unreachable()
 #else
     #define prh_assert(a) ((void)0)
+    #define prh_assert_line(a, line) ((void)0)
     #define prh_unreachable() ((void)0)
 #endif
 #endif
@@ -1647,18 +1650,32 @@ extern "C" {
 #include <errno.h> // errno POSIX-compatible error code
 
 #ifndef prh_malloc
+#define prh_malloc(size) prh_impl_malloc((size), __LINE__)
+#define prh_calloc(size) prh_impl_calloc((size), __LINE__)
+#define prh_realloc(ptr, size) prh_impl_realloc((ptr), (size), __LINE__)
+
 // void *malloc(size_t size);
 // the newly allocated block of memory is not initialized, remaining with indeterminate values.
 // if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
 // if fails to allocate the requested block of memory, a null pointer is returned.
-#define prh_malloc(size) malloc(size)
+prh_inline void *prh_impl_malloc(prh_unt size, int line) {
+    void *p = malloc(size);
+    prh_assert_line(p != prh_null, line);
+    return p;
+}
+
 // void *calloc(size_t num, size_t size);
 // allocates a block of memory for an array of num elements, each of them size bytes long, and
 // initializes all its bits to zero. the effective result is the allocation of a zero-initialized
 // memory block of (num*size) bytes.
 // if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
 // if fails to allocate the requested block of memory, a null pointer is returned.
-#define prh_calloc(size) calloc(1, (size))
+prh_inline void *prh_impl_calloc(prh_unt size, int line) {
+    void *p = calloc(1, size);
+    prh_assert_line(p != prh_null, line);
+    return p;
+}
+
 // void *realloc(void *ptr, size_t size);
 // if ptr == prh_null { return malloc(size) }
 // if size == 0 { may be free(ptr) or depends on library implementation }
@@ -1675,11 +1692,12 @@ extern "C" {
 //          return malloc(size)
 //      else
 //          return NULL
-#define prh_realloc realloc
+void *prh_impl_realloc(void *ptr, prh_unt size, int line);
+
 // void free(void *ptr);
 // if ptr == prh_null { the function does nothing }
 #define prh_free free
-#endif
+#endif // prh_malloc
 
 // https://en.cppreference.com/w/c/memory/aligned_alloc
 // https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
@@ -1692,19 +1710,23 @@ extern "C" {
     // if alignment isn't a power of 2 or size is zero, this function invokes
     // the invalid parameter handler. if execution is allowed to continue, this
     // function returns NULL and sets errno to EINVAL.
-    #define prh_aligned_malloc(size, alignment) _aligned_malloc((size), (alignment))
-    #define prh_cache_line_aligned_malloc(size) _aligned_malloc((size), PRH_CACHE_LINE_SIZE)
-    #define prh_16_byte_aligned_malloc(size) _aligned_malloc((size), 16)
+    #define prh_plat_aligned_malloc(size, alignment) _aligned_malloc((size), (alignment))
     #define prh_aligned_free(p) _aligned_free(p)
 #else
     #include <stdlib.h>
     // behavior is undefined if size is not an integral multiple of alignment
     void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
-    #define prh_aligned_malloc(size, alignment) aligned_alloc((alignment), (size))
-    #define prh_cache_line_aligned_malloc(size) aligned_alloc(PRH_CACHE_LINE_SIZE, (size))
-    #define prh_16_byte_aligned_malloc(size) aligned_alloc(16, (size))
+    #define prh_plat_aligned_malloc(size, alignment) aligned_alloc((alignment), (size))
     #define prh_aligned_free(p) free(p)
 #endif
+prh_inline void *prh_impl_aligned_malloc(prh_unt size, prh_unt alignment, int line) {
+    void *p = prh_plat_aligned_malloc(size, alignment);
+    prh_assert_line(p != prh_null, line);
+    return p;
+}
+#define prh_aligned_malloc(size, alignment) prh_impl_aligned_malloc((size), (alignment), __LINE__)
+#define prh_cache_line_aligned_malloc(size) prh_aligned_malloc((size), PRH_CACHE_LINE_SIZE)
+#define prh_16_byte_aligned_malloc(size) prh_aligned_malloc((size), 16)
 #endif
 
 #ifndef PRH_GLIBC_VERSION
@@ -1792,19 +1814,18 @@ extern "C" {
 #endif
 
 #ifndef prh_round_ptrsize
-#define prh_round_ptrsize(n) (((prh_unt)(n)+(prh_unt)(sizeof(void*)-1)) & (~(prh_unt)(sizeof(void*)-1)))
-#define prh_round_cache_line_size(n) (((prh_unt)(n)+PRH_CACHE_LINE_SIZE-1) & (~(prh_unt)(PRH_CACHE_LINE_SIZE-1)))
-#define prh_round_08_byte(n) (((prh_unt)(n)+7) & (~(prh_unt)7))
-#define prh_round_16_byte(n) (((prh_unt)(n)+15) & (~(prh_unt)15))
 prh_inline prh_unt prh_lower_most_bit(prh_unt n) {
     return n & (-(prh_int)n); // 0000 & 0000 -> 0000, 0001 & 1111 -> 0001, 1010 & 0110 -> 0010
 }
+
 prh_inline prh_unt prh_remove_lower_most_bit(prh_unt n) {
     return n & (n - 1);
 }
+
 prh_inline bool prh_is_power_of_2(prh_unt n) {
     return prh_remove_lower_most_bit(n) == 0; // power of 2 or zero
 }
+
 prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
     if (prh_is_power_of_2(n)) return n;
     // TODO: 字节序交换然后计算lower most bit
@@ -1812,28 +1833,49 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
     while (m < n) m <<= 1;
     return m;
 }
-#endif
 
-typedef enum {
-    PRH_IOCP_ACCEPT,
-    PRH_IOCP_CONNECT,
-    PRH_IOCP_THRD_DATA,
-    prh_ALLOC_ENUM_MAX
-} prh_alloc_id_enum;
+#define prh_round_ptrsize(n) (((prh_unt)(n)+(prh_unt)(sizeof(void*)-1)) & (~(prh_unt)(sizeof(void*)-1)))
+#define prh_round_cache_line_size(n) (((prh_unt)(n)+PRH_CACHE_LINE_SIZE-1) & (~(prh_unt)(PRH_CACHE_LINE_SIZE-1)))
+#define prh_round_08_byte(n) (((prh_unt)(n)+7) & (~(prh_unt)7))
+#define prh_round_16_byte(n) (((prh_unt)(n)+15) & (~(prh_unt)15))
+#endif // prh_round_ptrsize
 
-prh_static_assert(prh_ALLOC_ENUM_MAX <= 0xffff);
+#ifndef prh_memory_alloc
+// void *realloc(void *ptr, prh_unt size);
+// if ptr != NULL
+//      if size != 0
+//          return realloc(ptr, size)
+//      else
+//          **MAYBE** free(ptr) return NULL
+// else
+//      if size != 0
+//          return malloc(size)
+//      else
+//          return NULL
+typedef void *(*prh_realloc_func)(void *ptr, prh_unt size);
 
-typedef void *(*prh_memory_alloc_func)(prh_unt size, prh_unt alignment_allocid);
-typedef void (*prh_memory_free_func)(void *ptr, prh_unt allocid);
-extern prh_thread_local prh_memory_alloc_func PRH_IMPL_ALLOC;
-extern prh_thread_local prh_memory_free_func PRH_IMPL_FREE;
+// void *alloc_free(prh_ptr size); 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
+// if size & 0x02
+//      return malloc(size)
+// else
+//      free((void *)size) return NULL
+typedef void *(*prh_alloc_free)(prh_ptr size);
+prh_alloc_free prh_default_alloc_free(void);
 
-#define prh_memory_aligned_alloc(id, size, alignment) PRH_IMPL_ALLOC((size), (id)|((alignment)<<16))
-#define prh_memory_alloc(id, size) PRH_IMPL_ALLOC((size), (id)|(sizeof(void*)<<16))
-#define prh_memory_free(id, ptr) PRH_IMPL_FREE((ptr), (id))
+prh_inline void *prh_impl_memory_alloc(prh_alloc_free alloc, prh_unt size, int line) {
+    void *p = alloc(size | 0x02);
+    prh_assert_line(p != prh_null && (((prh_ptr)p) & 0x02) == 0, line);
+    return p;
+}
 
-void prh_main_init(void);
-void prh_memory_alloc_init(prh_memory_alloc_func alloc, prh_memory_free_func free);
+prh_inline void *prh_impl_memory_free(prh_alloc_free alloc, void *ptr, int line) {
+    prh_assert_line((((prh_ptr)ptr) & 0x02) == 0, line); // 分配的内存至少对齐到指针大小
+    return alloc((prh_ptr)ptr);
+}
+
+#define prh_memory_alloc(alloc, size) prh_impl_memory_alloc(alloc, size, __LINE__)
+#define prh_memory_free(alloc, ptr) ((void)prh_impl_memory_free(alloc, ptr, __LINE__))
+#endif // prh_memory_alloc
 
 #ifdef PRH_BASE_IMPLEMENTATION
 void prh_impl_assert(int line) {
@@ -1859,20 +1901,29 @@ void prh_print_exit_code(int thrd_id, int exit_code) {
     fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
 }
 
-prh_thread_local prh_memory_alloc_func PRH_IMPL_ALLOC;
-prh_thread_local prh_memory_free_func PRH_IMPL_FREE;
-
-void *prh_impl_default_memory_alloc(prh_unt size, prh_unt alignment_allocid) {
-    return prh_aligned_malloc(size, alignment_allocid >> 16);
+void *prh_impl_realloc(void *ptr, prh_unt size, int line) {
+    if (ptr != prh_null) {
+        if (size == 0) { free(ptr); return prh_null; }
+        ptr = ralloc(ptr, size);
+    } else {
+        if (size == 0) return prh_null; // 相当于 free(prh_null)
+        ptr = malloc(size);
+    }
+    prh_assert_line(ptr != prh_null, line);
+    return ptr;
 }
 
-void prh_impl_default_memory_free(void *ptr, prh_unt allocid) {
-    prh_aligned_free(ptr);
+void *prh_impl_default_alloc_free(prh_ptr size) {
+    if (size & 0x02) {
+        return prh_plat_aligned_malloc(size & (~(prh_ptr)0x02), sizeof(void *));
+    } else {
+        prh_aligned_free((void *)size);
+        return prh_null;
+    }
 }
 
-void prh_memory_alloc_init(prh_memory_alloc_func alloc, prh_memory_free_func free) {
-    PRH_IMPL_ALLOC = alloc;
-    PRH_IMPL_FREE = free;
+prh_alloc_free prh_default_alloc_free(void) {
+    return prh_impl_default_alloc_free;
 }
 
 #if defined(prh_plat_windows)
@@ -2354,7 +2405,7 @@ void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity); 
 prh_int prh_impl_string_expand_size(prh_impl_arrdyn *p, prh_int expand_size); // 增加元素个数时容量可能增大
 prh_int prh_impl_strlax_expand_size(prh_impl_arrlax *p, prh_int expand_size); // 增加元素个数时容量可能增大
 
-prh_inline void prh_strfix_init(prh_strfix *p, prh_int size) { (p)->s = prh_malloc(size); assert((p)->s != prh_null); (p)->size = size; }
+prh_inline void prh_strfix_init(prh_strfix *p, prh_int size) { (p)->s = prh_malloc(size); (p)->size = size; }
 prh_inline void prh_strfit_init(prh_strfit *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
 prh_inline void prh_string_init(prh_string *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
 prh_inline void prh_strlax_init(prh_strlax *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); p->start = 0; }
@@ -2735,7 +2786,6 @@ void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_in
     prh_int capacity = 1;
     while (new_capacity > capacity) capacity *= 2;
     p->arrdyn = prh_malloc(capacity * elem_size);
-    assert(p->arrdyn != prh_null);
     p->capacity = capacity;
     p->size = 0;
 }
@@ -2744,7 +2794,6 @@ void prh_impl_string_initialize(prh_impl_arrdyn *p, prh_int new_capacity) {
     prh_int capacity = 1;
     while (new_capacity > capacity) capacity *= 2;
     p->arrdyn = prh_malloc(capacity);
-    assert(p->arrdyn != prh_null);
     p->capacity = capacity;
     p->size = 0;
 }
@@ -2755,7 +2804,6 @@ void prh_impl_arrdyn_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity, p
         do capacity *= 2; while (new_capacity > capacity);
         p->capacity = capacity;
         p->arrdyn = prh_realloc(p->arrdyn, capacity * elem_size);
-        assert(p->arrdyn != prh_null);
     }
 }
 
@@ -2765,7 +2813,6 @@ void prh_impl_string_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
         do capacity *= 2; while (new_capacity > capacity);
         p->capacity = capacity;
         p->arrdyn = prh_realloc(p->arrdyn, capacity);
-        assert(p->arrdyn != prh_null);
     }
 }
 
@@ -2775,7 +2822,6 @@ void prh_impl_arrdyn_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity, p
         do capacity /= 2; while (new_capacity <= capacity / 2);
         p->capacity = capacity;
         p->arrdyn = prh_realloc(p->arrdyn, capacity * elem_size);
-        assert(p->arrdyn != prh_null);
     }
 }
 
@@ -2785,7 +2831,6 @@ void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
         do capacity /= 2; while (new_capacity <= capacity / 2);
         p->capacity = capacity;
         p->arrdyn = prh_realloc(p->arrdyn, capacity);
-        assert(p->arrdyn != prh_null);
     }
 }
 
@@ -3588,7 +3633,6 @@ void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size) {
     if (new_capacity > capacity) {
         middle_offset = capacity * elem_size;
         p->arrque = prh_realloc(p->arrque, middle_offset * 2);
-        assert(p->arrque != prh_null);
         memcpy((prh_byte *)p->arrque + middle_offset, p->arrque, tail_offset);
         tail_offset += middle_offset; // 当tail_offset恰好为0时最后一个元素恰好在数组尾部不需要拷贝，参数 tail_offset 为零 memcpy 实际也不会拷贝
         p->tail += capacity + 1;
@@ -9141,7 +9185,6 @@ void prh_impl_launch_main_thrd(prh_thrd *main) {
 
 prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size) {
     prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_num));
-    assert(s != prh_null);
     assert(thrd_group >= 0 && thrd_group < 0x3fff);
     prh_thrd *main = prh_impl_thrd_create(thrd_group << 16, main_thrd_size ? main_thrd_size : sizeof(prh_thrd));
     s->thrd_max = thrd_num;
@@ -9866,7 +9909,6 @@ prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
 
 prh_thrd_mutex *prh_thrd_mutex_init(void) {
     prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    assert(p != prh_null);
     prh_impl_thrd_mutex_init(p);
     return p;
 }
@@ -9922,7 +9964,6 @@ void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
 
 prh_thrd_cond *prh_thrd_cond_init(void) {
     prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
-    assert(p != prh_null);
     prh_impl_thrd_cond_init(p);
     return p;
 }
@@ -9977,7 +10018,6 @@ void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
 
 prh_thrd_sem *prh_thrd_sem_init(void) {
     prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
-    assert(p != prh_null);
     prh_impl_thrd_sem_init(p);
     return p;
 }
@@ -10022,7 +10062,6 @@ void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
     prh_cond_sleep *p = prh_malloc(sizeof(prh_cond_sleep));
-    assert(p != prh_null);
     prh_impl_init_cond_sleep(p);
     return p;
 }
@@ -10686,7 +10725,6 @@ void prh_system_info(prh_sys_info *info) {
         return;
     }
     processor_info = prh_malloc(count * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
-    assert(processor_info != prh_null);
     if (!GetLogicalProcessorInformationEx(RelationCache, processor_info, &count)) {
         prh_prerr(GetLastError());
         prh_free(processor_info);
@@ -13365,14 +13403,12 @@ void prh_impl_thrd_mutex_free(prh_thrd_mutex *p) {
 
 prh_thrd_mutex *prh_thrd_mutex_init(void) {
     prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    assert(p != prh_null);
     prh_impl_thrd_mutex_init(p);
     return p;
 }
 
 prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
     prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    assert(p != prh_null);
     prh_impl_thrd_recursive_mutex_init(p);
     return p;
 }
@@ -13417,7 +13453,6 @@ void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
 
 prh_thrd_cond *prh_thrd_cond_init(void) {
     prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
-    assert(p != prh_null);
     prh_impl_thrd_cond_init(p);
     return p;
 }
@@ -13536,7 +13571,6 @@ void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
 
 prh_thrd_sem *prh_thrd_sem_init(void) {
     prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
-    assert(p != prh_null);
     prh_impl_thrd_sem_init(p);
     return p;
 }
@@ -13578,7 +13612,6 @@ void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
     prh_cond_sleep *p = prh_malloc(sizeof(prh_thrd_cond));
-    assert(p != prh_null);
     prh_impl_init_cond_sleep(p);
     return p;
 }
@@ -18887,19 +18920,24 @@ typedef struct {
     prh_u32 r_addr[3];
 } prh_sockaddr;
 
-typedef enum {
-    PRH_CONNECT_SUCCESS = 0,
-    PRH_CONNECT_FAILURE, // 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，不能绑定到本地地址，指定的套接字正在执行连接操作或者已经连接
-    PRH_CONNECT_INVALID, // 无效参数，无效内存，无效远程地址
-    PRH_CONNECT_UNREACH, // 找不到到达远程主机的路由
-    PRH_CONNECT_TIMEOUT, // 已到达目标主机，但目标主机在规定的时间内没有响应
-    PRH_CONNECT_REFUSED, // 连接被目标主机拒绝，可能目标主机没有运行服务程序
-} prh_tcp_connect_error;
+#define PRH_SUCCESS 0
+#define PRH_FAILURE 1
+#define PRH_INVALID 2
+#define PRH_UNREACH 3
+#define PRH_TIMEOUT 4
+#define PRH_REFUSED 5
+#define PRH_RESETED 6
+
+#define PRH_CONNECT_FAILURE PRH_FAILURE // 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，不能绑定到本地地址，指定的套接字正在执行连接操作或者已经连接
+#define PRH_CONNECT_INVALID PRH_INVALID // 无效参数，无效内存，无效远程地址
+#define PRH_CONNECT_UNREACH PRH_UNREACH // 找不到到达远程主机的路由
+#define PRH_CONNECT_TIMEOUT PRH_TIMEOUT // 已到达目标主机，但目标主机在规定的时间内没有响应
+#define PRH_CONNECT_REFUSED PRH_REFUSED // 连接被目标主机拒绝，可能目标主机没有运行服务程序
 
 struct tcp_callback {
-    void (*open_rsp)(void *context, prh_tcp_connect_error error);
-    void (*send_rsp)(void *context, prh_u32 error_code, prh_u32 bytes_transferred);
-    void (*recv_rsp)(void *context, prh_u32 error_code, prh_u32 bytes_transferred);
+    void (*open_rsp)(void *context, prh_u32 connect_error);
+    void (*send_rsp)(void *context, prh_u32 send_error, prh_u32 bytes_transferred);
+    void (*recv_rsp)(void *context, prh_u32 recv_error, prh_u32 bytes_transferred);
     void (*disc_rsp)(void *context);
 };
 
@@ -18917,6 +18955,17 @@ struct tcp_socket {
     prh_impl_tcp_flags flags;
     prh_byte family;
     prh_sockaddr address;
+};
+
+struct tcp_listen {
+    prh_handle socket;
+    struct tcp_callback *callback;
+    void *context;
+    prh_byte bind_any: 1, valid_socket: 1, quit: 1;
+    prh_byte family;
+    prh_u16 l_port;
+    prh_u32 l_addr;
+    prh_u32 l_addr[3];
 };
 
 typedef struct {
@@ -20417,7 +20466,7 @@ void prh_setsockopt_update_connect_context(prh_handle sock) {
 // （APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个阻塞
 // Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
 
-void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
+prh_u32 prh_impl_sock_bind(prh_handle socket, struct sockaddr *local, int addrlen) {
     // bind 返回的一个常见错误时 EADDRINUSE，这涉及 SO_REUSEADDR 和 SO_REUSEPORT
     // 这两个套接字选项。SO_REUSEADDR 有一个潜在的安全问题，假设存在一个绑定到通配地
     // 址和端口5555的套接字，如果指定SO_REUSEADDR，我们就可以把相同的端口绑定到不同
@@ -20428,9 +20477,14 @@ void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
     // 地址，也就是说不论是否预先设置 SO_REUSEADDR，对应的bind调用都会失败。在这样的
     // 系统上，执行通配地址捆绑的服务器进程必须最后一个启动。这么做是为了防止把恶意的服
     // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
-    prh_setsockopt_reuseaddr(sock, 1);
-    int n = bind((SOCKET)sock, (sockaddr *)addr, namelen);
-    prh_wsa_prerr_if(n != 0);
+    prh_setsockopt_reuseaddr(socket, 1);
+    int n = bind((SOCKET)socket, local, addrlen);
+    prh_u32 error_code = 0;
+    if (n != 0) {
+        error_code = WSAGetLastError();
+        prh_prerr(error_code);
+    }
+    return error_code;
 }
 
 // int listen(SOCKET s, int backlog);
@@ -20487,9 +20541,86 @@ void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen) {
 // 调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个
 // 阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
 
-void prh_impl_tcp_listen(prh_handle sock, int backlog) {
-    int n = listen((SOCKET)sock, backlog);
-    prh_wsa_prerr_if(n != 0);
+prh_u32 prh_impl_sock_listen(prh_handle socket, int backlog) {
+    int n = listen((SOCKET)socket, backlog);
+    prh_u32 error_code = 0;
+    if (n != 0) {
+        error_code = WSAGetLastError();
+        prh_prerr(error_code);
+    }
+    return error_code;
+}
+
+void prh_impl_sock_address(const char *host, int flags_port, prh_byte *family, prh_u16 *port, prh_u32 *addr) {
+    *port = (prh_u16)(flags_port & 0xffff);
+    if (flags_port & PRH_IPV4_BYTE_ARRAY) {
+        *family = PRH_AF_IPV4;
+        memcpy(addr, host, 4);
+    } else if (flags_port & PRH_IPV6_BYTE_ARRAY) {
+        *family = PRH_AF_IPV6;
+        memcpy(addr, host, 16);
+    } else if (host == prh_loopback) {
+        *family = PRH_AF_IPV4;
+        *addr = htonl(INADDR_LOOPBACK);
+    } else if (host == prh_ipv6_loopback) {
+        *family = PRH_AF_IPV6;
+        *(struct in6_addr *)addr = in6addr_loopback;
+    } else if (host == prh_addr_any) {
+        *family = PRH_AF_IPV4;
+        *addr = htonl(INADDR_ANY);
+    } else if (host == prh_ipv6_addr_any) {
+        *family = PRH_AF_IPV6;
+        *(struct in6_addr *)addr = in6addr_any;
+    } else if (prh_impl_is_ipv4_str(host)) {
+        *family = PRH_AF_IPV4;
+        *addr = prh_sock_ipv4_address(host);
+    } else if (prh_impl_is_ipv6_str(host)) {
+        *family = PRH_AF_IPV6;
+        prh_sock_ipv6_address(host, (prh_byte *)addr);
+    } else {
+        prh_impl_abort(__LINE__); // TODO 添加域名解析
+    }
+}
+
+int prh_impl_init_sockaddr(struct sockaddr_in6 *in6, int family, prh_u16 port, prh_u32 *addr) {
+    // struct sockaddr {
+    //   sa_family_t sa_family;
+    //   char sa_data[14];
+    // };
+    // struct sockaddr_in {          // 'in' is for internet
+    //   sa_family_t    sin_family;  // address family: AF_INET
+    //   in_port_t      sin_port;    // port in network byte-order 端口和地址必须是网络字节序
+    //   struct in_addr sin_addr;    // internet address in network byte-order: struct in_addr { uint32_t s_addr; } INADDR_ANY INADDR_LOOPBACK
+    //   unsigned char __pad[8];     // pad to size of sockaddr (16-byte)
+    // };
+    // struct sockaddr_in6 {
+    //   sa_family_t     sin6_family;   // AF_INET6
+    //   in_port_t       sin6_port;     // port number
+    //   uint32_t        sin6_flowinfo; // IPv6 flow information
+    //   struct in6_addr sin6_addr;     // IPv6 address: struct in6_addr { unsigned char s6_addr[16]; } IN6ADDR_ANY_INIT
+    //   uint32_t        sin6_scope_id; // Scope ID (new in kernel 2.4)
+    // };
+    int namelen;
+    if (family == AF_INET6) {
+        in6->sin6_family = AF_INET6;
+        in6->sin6_port = htons(port);
+        in6->sin6_addr = *(struct in6_addr *)addr;
+        namelen = (int)sizeof(struct sockaddr_in6);
+    } else {
+        struct sockaddr_in *in = (struct sockaddr_in *)in6;
+        in->sin_family = AF_INET;
+        in->sin_port = htons(port);
+        in->sin_addr.s_addr = *addr;
+        namelen = (int)sizeof(struct sockaddr_in);
+    }
+    return namelen;
+}
+
+void prh_tcp_server_init(struct tcp_listen *tcp, struct tcp_callback *callback, void *context, int outgoing_accept_reqs, int min_accept_hint) {
+    assert(tcp != prh_null && callback != prh_null);
+    memset(tcp, 0, sizeof(struct tcp_listen));
+    tcp->callback = callback;
+    tcp->context = context;
 }
 
 // #include <winsock2.h> // ws2_32.lib ws2_32.dll
@@ -20871,7 +21002,6 @@ prh_iocp_accept *prh_iocp_accept_init(prh_cono_subq *from_cono_subq, prh_handle 
     int each_accept_size = sizeof(prh_impl_accept_req) + accept_addr_size * 2;
     prh_int alloc_size = sizeof(prh_iocp_accept) - sizeof(prh_impl_accept_req) + each_accept_size * accept_request_count;
     prh_iocp_accept *accept = prh_malloc(alloc_size);
-    assert(accept != prh_null);
     memset(accept, 0, alloc_size);
     prh_impl_accept_req *req = accept->request;
     accept->listen = (SOCKET)listen;
@@ -21493,38 +21623,9 @@ void prh_impl_iocp_create_connect_socket(struct tcp_socket *tcp, int family) {
 }
 
 void prh_impl_iocp_connect_req(struct tcp_socket *tcp) {
-    // struct sockaddr {
-    //   sa_family_t sa_family;
-    //   char sa_data[14];
-    // };
-    // struct sockaddr_in {              // 'in' is for internet
-    //   sa_family_t    sin_family;  // address family: AF_INET
-    //   in_port_t      sin_port;    // port in network byte-order 端口和地址必须是网络字节序
-    //   struct in_addr sin_addr;    // internet address in network byte-order: struct in_addr { uint32_t s_addr; } INADDR_ANY INADDR_LOOPBACK
-    //   unsigned char __pad[8];     // pad to size of sockaddr (16-byte)
-    // };
-    // struct sockaddr_in6 {
-    //   sa_family_t     sin6_family;   // AF_INET6
-    //   in_port_t       sin6_port;     // port number
-    //   uint32_t        sin6_flowinfo; // IPv6 flow information
-    //   struct in6_addr sin6_addr;     // IPv6 address: struct in6_addr { unsigned char s6_addr[16]; } IN6ADDR_ANY_INIT
-    //   uint32_t        sin6_scope_id; // Scope ID (new in kernel 2.4)
-    // };
-    struct sockaddr_in6 in6 = {0};
-    struct sockaddr *remote = (struct sockaddr *)&in6;
-    int namelen;
-    if (tcp->family == PRH_AF_IPV6) {
-        in6.sin6_family = AF_INET6;
-        in6.sin6_port = htons(tcp->address.r_port);
-        in6.sin6_addr = *(struct in6_addr *)tcp->address.r_addr;
-        namelen = (int)sizeof(struct sockaddr_in6);
-    } else {
-        struct sockaddr_in *in = (struct sockaddr_in *)&in6;
-        in->sin_family = AF_INET;
-        in->sin_port = htons(tcp->address.r_port);
-        in->sin_addr.s_addr = tcp->address.r_addr;
-        namelen = (int)sizeof(struct sockaddr_in);
-    }
+    struct sockaddr_in6 in6_remote = {0};
+    int family = (tcp->family == PRH_AF_IPV6) ? AF_INET6 : AF_INET;
+    int namelen = prh_impl_init_sockaddr(&in6_remote, family, tcp->address.r_port, &tcp->address.r_addr);
     if (!tcp->flags.valid_socket) {
         prh_impl_iocp_create_connect_socket(req, family);
     }
@@ -21532,7 +21633,7 @@ void prh_impl_iocp_connect_req(struct tcp_socket *tcp) {
     post->overlapped.hEvent = prh_null; // 确保完成操作被投递到完成端口
     BOOL b = PRH_IMPL_CONNECTEX(
         /* [in]           SOCKET s                  */ tcp->socket,
-        /* [in]           const sockaddr *name      */ remote;
+        /* [in]           const sockaddr *name      */ (struct sockaddr *)&in6_remote;
         /* [in]           int namelen               */ namelen,
         /* [in, optional] PVOID lpSendBuffer        */ prh_null,
         /* [in]           DWORD dwSendDataLength    */ 0,
@@ -21550,38 +21651,7 @@ void prh_impl_iocp_connect_req(struct tcp_socket *tcp) {
     prh_impl_iocp_connect_immediately_complete(tcp, error_code);
 }
 
-void prh_impl_sock_address(const char *host, int flags_port, prh_byte *family, prh_u16 *port, prh_u32 *addr) {
-    *port = (prh_u16)(flags_port & 0xffff);
-    if (flags_port & PRH_IPV4_BYTE_ARRAY) {
-        *family = PRH_AF_IPV4;
-        memcpy(addr, host, 4);
-    } else if (flags_port & PRH_IPV6_BYTE_ARRAY) {
-        *family = PRH_AF_IPV6;
-        memcpy(addr, host, 16);
-    } else if (host == prh_loopback) {
-        *family = PRH_AF_IPV4;
-        *addr = htonl(INADDR_LOOPBACK);
-    } else if (host == prh_ipv6_loopback) {
-        *family = PRH_AF_IPV6;
-        *(struct in6_addr *)addr = in6addr_loopback;
-    } else if (host == prh_addr_any) {
-        *family = PRH_AF_IPV4;
-        *addr = htonl(INADDR_ANY);
-    } else if (host == prh_ipv6_addr_any) {
-        *family = PRH_AF_IPV6;
-        *(struct in6_addr *)addr = in6addr_any;
-    } else if (prh_impl_is_ipv4_str(host)) {
-        *family = PRH_AF_IPV4;
-        *addr = prh_sock_ipv4_address(host);
-    } else if (prh_impl_is_ipv6_str(host)) {
-        *family = PRH_AF_IPV6;
-        prh_sock_ipv6_address(host, (prh_byte *)addr);
-    } else {
-        prh_impl_abort(__LINE__); // TODO 添加域名解析
-    }
-}
-
-void prh_iocp_connect_req(struct tcp_socket *tcp, const char *host, int flags_port) {
+void prh_tcp_connect_req(struct tcp_socket *tcp, const char *host, int flags_port) {
     assert(host != prh_addr_any && host != prh_ipv6_addr_any);
     assert((flags_port & 0xffff) != prh_port_any);
     if (tcp->flags.client_connect || tcp->flags.server_accept || tcp->flags.opened || !tcp->flags.closed) {
@@ -21590,8 +21660,15 @@ void prh_iocp_connect_req(struct tcp_socket *tcp, const char *host, int flags_po
         return;
     }
     tcp->flags.client_connect = true;
-    prh_impl_sock_address(host, flags_port, &tcp->family, &tcp->address.r_port, tcp->address.r_addr);
+    prh_impl_sock_address(host, flags_port, &tcp->family, &tcp->address.r_port, &tcp->address.r_addr);
     prh_impl_iocp_connect_req(tcp);
+}
+
+void prh_tcp_client_init(struct tcp_socket *tcp, struct tcp_callback *callback, void *context) {
+    assert(tcp != prh_null && callback != prh_null);
+    memset(tcp, 0, sizeof(struct tcp_socket));
+    tcp->callback = callback;
+    tcp->context = context;
 }
 
 // BOOL TransmitFile(
