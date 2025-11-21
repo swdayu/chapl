@@ -15098,6 +15098,9 @@ typedef bool (*prh_iocp_complete_routine)(OVERLAPPED_ENTRY *entry);
 typedef void (*prh_iocp_continue_routine)(void *overlapped);
 typedef void (*prh_continue_routine)(void *post_req);
 
+prh_static_assert(sizeof(ULONG_PTR) == sizeof(void *));
+prh_static_assert(sizeof(HANDLE) == sizeof(void *));
+
 prh_inline void prh_impl_iocp_set_continue_routine(OVERLAPPED *overlappped, prh_iocp_continue_routine iocp_continue) {
     // typedef struct _OVERLAPPED {     // minwinbase.h (included in WinBase.h)
     //     ULONG_PTR Internal;          // [out] Error Code
@@ -15112,7 +15115,6 @@ prh_inline void prh_impl_iocp_set_continue_routine(OVERLAPPED *overlappped, prh_
     //     HANDLE hEvent;               // [in] Event handle or data
     // } OVERLAPPED, *LPOVERLAPPED;
     assert(((prh_ptr)iocp_continue & 0x01) == 0); // 低阶位置一会阻止重叠 I/O 将完成数据包排队到完成端口
-    assert(sizeof(HANDLE) == sizeof(void *));
     overlapped->hEvent = (HANDLE)iocp_continue;
 }
 
@@ -18921,11 +18923,12 @@ typedef prh_ptr prh_handle;
 #define PRH_REFUSED 5
 #define PRH_RESETED 6
 
-#define PRH_CONNECT_FAILURE PRH_FAILURE // 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，不能绑定到本地地址，指定的套接字正在执行连接操作或者已经连接
-#define PRH_CONNECT_INVALID PRH_INVALID // 无效参数，无效内存，无效远程地址
-#define PRH_CONNECT_UNREACH PRH_UNREACH // 找不到到达远程主机的路由
-#define PRH_CONNECT_TIMEOUT PRH_TIMEOUT // 已到达目标主机，但目标主机在规定的时间内没有响应
-#define PRH_CONNECT_REFUSED PRH_REFUSED // 连接被目标主机拒绝，可能目标主机没有运行服务程序
+#define PRH_ECONN_FAILURE PRH_FAILURE // 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，不能绑定到本地地址，指定的套接字操作正在执行或者已经连接
+#define PRH_ECONN_INVALID PRH_INVALID // 无效参数，无效内存，无效远程地址，无效地址长度，accept前未调用listen
+#define PRH_ECONN_UNREACH PRH_UNREACH // 找不到到达远程主机的路由
+#define PRH_ECONN_TIMEOUT PRH_TIMEOUT // 已到达目标主机，但目标主机在规定的时间内没有响应
+#define PRH_ECONN_REFUSED PRH_REFUSED // 连接被目标主机拒绝，可能目标主机没有运行服务程序
+#define PRH_ECONN_RESETED PRH_RESETED // 连接被对方重置而终止
 
 typedef struct {
     prh_byte client_connect: 1, server_accept: 1, opened: 1, closed: 1, lhup_pending: 1, lhup: 1, rhup: 1;
@@ -18949,7 +18952,7 @@ struct tcp_socket {
 prh_static_assert(sizeof(struct tcp_socket) <= PRH_TCP_SOCKET_STRUCT_SIZE);
 
 struct tcp_callback {
-    void (*open_rsp)(void *context, prh_u32 connect_error, struct tcp_socket *tcp);
+    void (*conn_rsp)(void *context, prh_u32 conn_error, struct tcp_socket *tcp);
     void (*send_rsp)(void *context, prh_u32 send_error, prh_u32 bytes_transferred);
     void (*recv_rsp)(void *context, prh_u32 recv_error, prh_u32 bytes_transferred);
     void (*disc_rsp)(void *context);
@@ -18960,12 +18963,13 @@ struct tcp_listen {
     /* +1p +1p */ struct tcp_callback *callback;
     /* +1p +1p */ void *context;
     /* +1p +1p */ prh_alloc_free alloc;
-    /* +2p +1p */ int num_accept_reqs, always_keep_reqs;
-    /* +1p +1p */ prh_byte bind_any: 1, quit: 1;
-    /* +0p +0p */ prh_byte family;
-    /* +0p +0p */ prh_u16 l_port;
-    /* +1p +0p */ prh_u32 l_addr;
-    /* +3p +2p */ prh_u32 l_addr[3];
+    /* +1p +1p */ prh_snode accept_idle_chain;
+    /* +1p +1p */ int outgoing_accept_reqs; // 可以同时发出的接收连接请求的数量
+    /* +1p +0p */ int same_time_connections; // 可以同时服务的最大客户连接数量
+    /* +1p +1p */ int accept_rate_per_second;
+    /* +1p +0p */ int connection_count; // 仅在调度线程进行更新
+    /* +1p +1p */ int curr_outgoing_reqs;
+    /* +1p +0p */ prh_byte family, quit;
 };  /* 11p  8p (32-bit) 44-byte (64-bit) 64-byte */
 
 #define PRH_TCP_LISTEN_STRUCT_SIZE PRH_CACHE_LINE_SIZE
@@ -20580,7 +20584,7 @@ prh_u32 prh_impl_sock_listen(prh_handle socket, int backlog) {
     return error_code;
 }
 
-void prh_impl_sock_address(const char *host, int flags_port, prh_byte *family, prh_u16 *port, prh_u32 *addr) {
+void prh_impl_parse_address(const char *host, int flags_port, prh_byte *family, prh_u16 *port, prh_u32 *addr) {
     *port = (prh_u16)(flags_port & 0xffff);
     if (flags_port & PRH_IPV4_BYTE_ARRAY) {
         *family = PRH_AF_IPV4;
@@ -20608,6 +20612,17 @@ void prh_impl_sock_address(const char *host, int flags_port, prh_byte *family, p
         prh_sock_ipv6_address(host, (prh_byte *)addr);
     } else {
         prh_impl_abort(__LINE__); // TODO 添加域名解析
+    }
+}
+
+void prh_impl_recv_sockaddr(struct sockaddr_in6 *in6, prh_u16 *port, prh_u32 *addr) {
+    if (in6->sin6_family == AF_INET6) {
+        *port = ntohs(in6->sin6_port);
+        *(struct in6_addr *)addr = in6->sin6_addr;
+    } else {
+        struct sockaddr_in *in = (struct sockaddr_in *)in6;
+        *port = ntohs(in->sin_port);
+        *addr = in->sin_addr.s_addr;
     }
 }
 
@@ -20646,7 +20661,9 @@ int prh_impl_init_sockaddr(int family, prh_u16 port, prh_u32 *addr, struct socka
 }
 
 void prh_impl_iocp_create_socket(struct tcp_socket *tcp, int family) {
-    tcp->socket = prh_impl_tcp_socket(family);
+    prh_handle socket = prh_impl_tcp_socket(family);
+    prh_impl_iocp_attach_handle(socket);
+    tcp->socket = socket;
 }
 
 // #include <winsock2.h> // ws2_32.lib ws2_32.dll
@@ -20869,55 +20886,177 @@ void prh_impl_iocp_create_socket(struct tcp_socket *tcp, int family) {
 
 #define PRH_IMPL_ACCEPT_V4_ADDRSIZE (int)(sizeof(struct sockaddr_in) + 16)
 #define PRH_IMPL_ACCEPT_V6_ADDRSIZE (int)(sizeof(struct sockaddr_in6) + 16)
-
+void prh_impl_iocp_accept_req(struct prh_impl_accept_v6_req *req);
 prh_static_assert(WSA_IO_PENDING == ERROR_IO_PENDING);
-prh_static_assert(sizeof(ULONG_PTR) == sizeof(void *));
+
+struct tcp_socket *prh_impl_iocp_alloc_tcp_socket(prh_alloc_free alloc) {
+    struct tcp_socket *tcp = prh_memory_alloc(alloc, PRH_TCP_SOCKET_STRUCT_SIZE);
+    memset(tcp, 0, sizeof(struct tcp_socket));
+    return tcp;
+}
+
+void prh_impl_iocp_prepare_accept_socket(struct tcp_listen *listen, struct prh_impl_accept_v6_req *accept_req, struct tcp_socket *socket) {
+    accept_req->accept = socket;
+    memset(&socket->flags, 0, sizeof(socket->flags));
+    socket->flags.server_accept = true;
+    socket->family = listen->family;
+    socket->callback = listen->callback;
+    socket->context = listen;
+}
+
+void prh_impl_iocp_listen_resue_socket(struct tcp_listen *listen, struct tcp_socket *socket) {
+    bool empty_idle_accept_found = false;
+    struct prh_impl_accept_v6_req *idle_accept = prh_null;
+    prh_snode *idle_node = &listen->accept_idle_chain;
+    assert(socket->flags.server_accept);
+    assert(socket->flags.closed);
+    if (listen->connection_count > 0) { // 只有连接成功的 tcp_socket 才会传递给上层
+        listen->connection_count -= 1;
+    }
+
+    for (; idle_node->next; idle_node = idle_node->next) {
+        idle_accept = (struct prh_impl_accept_v6_req *)idle_node->next;
+        if (idle_accept->accept == prh_null) {
+            prh_impl_iocp_prepare_accept_socket(listen, idle_accept, socket);
+            empty_idle_accept_found = true;
+            break;
+        }
+    }
+    if (!empty_idle_accept_found) {
+        prh_memory_free(listen->alloc, socket);
+    }
+
+    int num_accept_can_request = listen->same_time_connections - listen->connection_count;
+    if (idle_accept && listen->curr_outgoing_reqs < num_accept_can_request) {
+        listen->curr_outgoing_reqs += 1;
+        idle_node->next = ((prh_snode *)idle_accept)->next; // 移除该空闲节点
+        prh_impl_iocp_accept_req(idle_accept); // 此时 idle_accept->accept 一定不为空
+    }
+}
+
+bool prh_impl_sched_synced_listen_reuse_socket(prh_iocp_thrd_req *thrd_req) {
+    struct tcp_socket *socket = (void *)thrd_req->post_req;
+    struct tcp_listen *listen = socket->context;
+    prh_impl_iocp_listen_resue_socket(listen, socket);
+    return false;
+}
+
+void prh_iocp_listen_reuse_socket(struct tcp_listen *listen, struct tcp_socket *socket) {
+    socket->context = listen;
+    prh_sched_thrd_synced_post(socket, prh_impl_sched_synced_listen_reuse_socket);
+}
+
+bool prh_impl_sched_synced_idle_accept_req(prh_iocp_thrd_req *thrd_req) {
+    struct prh_impl_accept_v6_req *accept_req = (void *)thrd_req->post_req;
+    struct tcp_listen *listen = (void *)accept_req->overlapped.hEvent;
+    int num_accept_can_request = listen->same_time_connections - listen->connection_count;
+    if (listen->curr_outgoing_reqs < num_accept_can_request) {
+        listen->curr_outgoing_reqs += 1;
+        if (accept_req->accept == prh_null) {
+            prh_impl_iocp_prepare_accept_socket(listen, accept_req, prh_impl_iocp_alloc_tcp_socket(listen->alloc));
+        }
+        prh_impl_iocp_accept_req(accept_req);
+    } else { // 将 accept_req 插入空闲列表
+        prh_snode *idle_node = (prh_snode *)accept_req;
+        idle_node->next = listen->accept_idle_chain.next;
+        listen->accept_idle_chain.next = idle_node;
+    }
+    return false;
+}
 
 void prh_impl_iocp_accept_continue(void *overlapped) {
     struct prh_impl_accept_v6_req *req = (struct prh_impl_accept_v6_req *)overlapped;
     struct tcp_socket *tcp = req->accept;
     struct tcp_listen *listen = tcp->context;
-
     prh_u32 error_code = (prh_u32)((OVERLAPPED *)overlapped)->Internal;
     if (error_code) {
-        if (error_code == WSAENETUNREACH || error_code == WSAEHOSTUNREACH) {
-            error_code = PRH_CONNECT_UNREACH;
-        } else if (error_code == WSAETIMEDOUT) {
-            error_code = PRH_CONNECT_TIMEOUT;
-        } else if (error_code == WSAECONNREFUSED) {
-            error_code = PRH_CONNECT_REFUSED;
-        } else if (error_code == WSAEADDRNOTAVAIL || error_code == WSAEAFNOSUPPORT || error_code == WSAEFAULT || error_code == WSAEINVAL || error_code == WSAENOTSOCK) {
-            error_code = PRH_CONNECT_INVALID;
+        // PRH_ECONN_FAILURE 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，指定的套接字操作正在执行或者已经连接
+        //      WSANOTINITIALISED   在使用此函数之前，必须成功调用 WSAStartup。
+        //      WSAEINTR            通过 WSACancelBlockingCall 取消了一个阻塞的 Windows Sockets 1.1 调用。
+        //      WSAEINPROGRESS      一个阻塞的 Windows Sockets 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+        //      WSAEMFILE           在进入 accept 时队列非空，但没有可用的描述符。
+        //      WSAENETDOWN         网络子系统已失败。
+        //      WSAENOBUFS          没有可用的缓冲区空间。
+        //      WSAEWOULDBLOCK      套接字被标记为非阻塞，且没有连接可供接受。
+        // PRH_ECONN_INVALID 无效参数，无效内存，无效地址长度，accept前未调用listen
+        //      WSAEFAULT           addrlen 参数太小，或者 addr 不是用户地址空间的有效部分。
+        //      WSAEINVAL           在调用 accept 之前，未调用 listen 函数。
+        //      WSAENOTSOCK         描述符不是套接字。
+        //      WSAEOPNOTSUPP       引用的套接字不是支持面向连接服务的类型。
+        // PRH_ECONN_RESETED 连接被对方重置而终止
+        //      WSAECONNRESET       已指示一个传入连接，但在接受调用之前，该连接已被远程对等方终止。
+        if (error_code == WSAECONNRESET) { // 如果错误是 WSAECONNRESET，则表示有传入连接，但随后在接受调用之前被远程对等方终止
+            error_code = PRH_ECONN_RESETED;
+        } else if (error_code == WSAEFAULT || error_code == WSAEINVAL || error_code == WSAENOTSOCK || error_code == WSAEOPNOTSUPP) {
+            error_code = PRH_ECONN_INVALID;
         } else {
-            error_code = PRH_CONNECT_FAILURE;
+            prh_abort_error(error_code);
         }
-    } else { // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
-        prh_handle connect_socket = tcp->socket; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到套接字断连关闭
-        prh_setsockopt_update_connect_context(connect_socket);
-        struct sockaddr_in6 in6_local;
-        in6_local.sin6_family = (tcp->family == PRH_AF_IPV6) ? AF_INET6 : AF_INET;
-        prh_sock_local_addr(connect_socket, &in6_local);
-        prh_impl_get_sockaddr((struct sockaddr_in *)&in6_local, &tcp->address.l_port, &tcp->address.l_addr);
+        req->overlapped.hEvent = (HANDLE)listen;
+        prh_sched_thrd_synced_post(req, prh_impl_sched_synced_idle_accept_req);
+        listen->callback->conn_rsp(listen->context, error_code, prh_null);
+    } else {
+        struct sockaddr_in6 l_addr, p_addr;
+        INT l_addrlen = 0, p_addrlen = 0;
+        DWORD addrbuf_length;
+        prh_debug(INT addrlen; int family);
+        if (listen->family == PRH_AF_IPV6) {
+            prh_debug(family = AF_INET6; addrlen = sizeof(struct sockaddr_in6));
+            addrbuf_length = PRH_IMPL_ACCEPT_V6_ADDRSIZE;
+        } else {
+            prh_debug(family = AF_INET; addrlen = sizeof(struct sockaddr_in));
+            addrbuf_length = PRH_IMPL_ACCEPT_V4_ADDRSIZE;
+        }
+        PRH_IMPL_GETACCEPTEXSOCKADDRS(
+            /* [in]  PVOID    lpOutputBuffer        */ &req->addr,
+            /* [in]  DWORD    dwReceiveDataLength   */ 0,
+            /* [in]  DWORD    dwLocalAddressLength  */ addrbuf_length,
+            /* [in]  DWORD    dwRemoteAddressLength */ addrbuf_length,
+            /* [out] sockaddr **LocalSockaddr       */ (sockaddr *)&l_addr,
+            /* [out] LPINT    LocalSockaddrLength   */ &l_addrlen,
+            /* [out] sockaddr **RemoteSockaddr      */ (sockaddr *)&p_addr,
+            /* [out] LPINT    RemoteSockaddrLength  */ &p_addrlen
+            );
+        assert(l_addrlen == addrlen);
+        assert(p_addrlen == addrlen);
+        assert(l_addr.sin6_family == family);
+        assert(p_addr.sin6_family == family);
+        prh_impl_recv_sockaddr(&l_addr, &tcp->l_port, &tcp->l_addr);
+        prh_impl_recv_sockaddr(&p_addr, &tcp->p_port, &tcp->p_addr);
+        req->accept = prh_null;
+        req->overlapped.hEvent = (HANDLE)listen;
+        prh_sched_thrd_synced_post(req, prh_impl_sched_synced_idle_accept_req);
+        tcp->context = listen->context;
+        tcp->callback->conn_rsp(tcp->context, 0, tcp);
     }
-    tcp->callback = listen->callback;
-    tcp->context = listen->context;
-    tcp->callback->open_rsp(tcp->context, error_code, tcp);
+}
+
+void prh_impl_iocp_accept_immediately_complete(struct prh_impl_accept_v6_req *req, prh_u32 error_code) {
+    assert(error_code != 0);
+    req->overlapped.Internal = error_code;
+    prh_iocp_thrd_post(&req->overlapped, prh_impl_iocp_accept_continue);
 }
 
 void prh_impl_iocp_accept_completed_from_port(void *overlapped) {
+    struct prh_impl_accept_v6_req *req = (struct prh_impl_accept_v6_req *)overlapped;
+    struct tcp_listen *listen = req->accept->context;
+    if (req->overlapped.Internal == 0 && listen->connection_count < listen->same_time_connections) {
+        listen->connection_count += 1; // 成功接收连接
+    }
+    listen->curr_outgoing_reqs -= 1;
     prh_impl_iocp_sched_thrd_post(overlapped, prh_impl_iocp_accept_continue);
 }
 
-void prh_impl_iocp_accept_req(struct prh_impl_accept_v6_req *req) { // 可以多个线程同时投递数组中不同的 accept 请求
-    struct tcp_socket *tcp = req->accept;
-    struct tcp_listen *listen = tcp->context;
-    int family; DWORD addr_length;
+void prh_impl_iocp_accept_req(struct prh_impl_accept_v6_req *req) {
+    struct tcp_socket *tcp = req->accept; assert(tcp != prh_null);
+    struct tcp_listen *listen = tcp->context; assert(listen != prh_null);
+    int family; DWORD addrbuf_length;
     if (listen->family == PRH_AF_IPV6) {
         family = AF_INET6;
-        addr_length = PRH_IMPL_ACCEPT_V6_ADDRSIZE;
+        addrbuf_length = PRH_IMPL_ACCEPT_V6_ADDRSIZE;
     } else {
         family = AF_INET;
-        addr_length = PRH_IMPL_ACCEPT_V4_ADDRSIZE;
+        addrbuf_length = PRH_IMPL_ACCEPT_V4_ADDRSIZE;
     }
     if (tcp->socket == PRH_INVASOCK) {
         prh_impl_iocp_create_socket(tcp, family);
@@ -20928,104 +21067,119 @@ void prh_impl_iocp_accept_req(struct prh_impl_accept_v6_req *req) { // 可以多
         /* [in]  SOCKET       sAcceptSocket         */  (SOCKET)tcp->socket, // 必须是未绑定未连接的套接字句柄
         /* [in]  PVOID        lpOutputBuffer        */  &req->addr,
         /* [in]  DWORD        dwReceiveDataLength,  */  0,
-        /* [in]  DWORD        dwLocalAddressLength, */  addr_length,
-        /* [in]  DWORD        dwRemoteAddressLength,*/  addr_length,
+        /* [in]  DWORD        dwLocalAddressLength, */  addrbuf_length,
+        /* [in]  DWORD        dwRemoteAddressLength,*/  addrbuf_length,
         /* [out] LPDWORD      lpdwBytesReceived,    */  prh_null, // 仅操作同步完成时才设置此参数，如果 ERROR_IO_PENDING 永远不会被设置，必须从完成机制中获取读取的字节数
-        /* [in]  LPOVERLAPPED lpOverlapped          */  &req->overlapped,
+        /* [in]  LPOVERLAPPED lpOverlapped          */  &req->overlapped
         );
     // 如果一个句柄与完成端口关联，即使异步请求以同步方式完成了操作，其结果任然会被添加到完成端口队列中
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
-    if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
+    if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) { // 请求立即完成或已经成功投递
         prh_impl_iocp_set_continue_routine(&req->overlapped, prh_impl_iocp_accept_completed_from_port);
-        return; // 请求立即完成或已经成功投递
-    }
-    if (error_code == WSAECONNRESET) { // 如果错误是 WSAECONNRESET，则表示有传入连接，但随后在接受调用之前被远程对等方终止
-        prh_impl_iocp_accept_req(req); // 重新投递接收连接请求
     } else {
-        prh_abort_error(error_code);
+        listen->curr_outgoing_reqs -= 1;
+        prh_prerr(error_code);
+        if (error_code == 0) error_code = WSAEINVAL;
+        prh_impl_iocp_accept_immediately_complete(req, error_code);
     }
 }
 
-void prh_iocp_accept_result(void *post_req, prh_iocp_accept_result *result) {
-    prh_impl_accept_req *req = (prh_impl_accept_req *)post;
-    sockaddr_in *l_addr, *p_addr;
-    INT l_addrlen = 0, p_addrlen = 0;
-
-    PRH_IMPL_GETACCEPTEXSOCKADDRS(
-        /* [in]  PVOID    lpOutputBuffer        */ prh_impl_iocp_accept_addrbuf(req),
-        /* [in]  DWORD    dwReceiveDataLength   */ 0,
-        /* [in]  DWORD    dwLocalAddressLength  */ req->addr_size,
-        /* [in]  DWORD    dwRemoteAddressLength */ req->addr_size,
-        /* [out] sockaddr **LocalSockaddr       */ (sockaddr *)&l_addr,
-        /* [out] LPINT    LocalSockaddrLength   */ &l_addrlen,
-        /* [out] sockaddr **RemoteSockaddr      */ (sockaddr *)&p_addr,
-        /* [out] LPINT    RemoteSockaddrLength  */ &p_addrlen);
-    assert(l_addrlen == sizeof(struct sockaddr_in) || l_addrlen == sizeof(struct sockaddr_in6));
-    assert(p_addrlen == sizeof(struct sockaddr_in) || p_addrlen == sizeof(struct sockaddr_in6));
-    assert(l_addr->sin_family == AF_INET || l_addr->sin_family == AF_INET6);
-    assert(p_addr->sin_family == AF_INET || p_addr->sin_family == AF_INET6);
-
-    prh_sockaddr *local = result->local;
-    prh_sockaddr *remote = result->remote;;
-    result->accept_socket = req->accept_socket;
-    prh_impl_get_sockaddr((struct sockaddr_in *)l_addr, local);
-    prh_impl_get_sockaddr((struct sockaddr_in *)p_addr, remote);
-    local->protocol = remote->protocol = PRH_TCP;
+struct tcp_listen *prh_iocp_tcp_server(prh_alloc_free alloc, struct tcp_callback *callback, void *context, int outgoing_accept_reqs, int same_time_connections, int accept_rate_per_second) {
+    if (alloc == prh_null) alloc = prh_impl_default_alloc_free;
+    if (same_time_connections <= 0) same_time_connections = 1; // 至少可以服务一个客户
+    if (outgoing_accept_reqs > same_time_connections) {
+        outgoing_accept_reqs = same_time_connections; // 同时发出接收连接请求的数量，大于最大连接数是一种浪费
+    }
+    prh_unt alloc_size = PRH_TCP_LISTEN_STRUCT_SIZE + outgoing_accept_reqs * PRH_TCP_ACCEPT_STRUCT_SIZE;
+    struct tcp_listen *listen = prh_memory_alloc(alloc, alloc_size);
+    memset(listen, 0, alloc_size);
+    listen->socket = PRH_INVASOCK;
+    listen->callback = callback;
+    listen->context = context;
+    listen->alloc = alloc;
+    listen->outgoing_accept_reqs = outgoing_accept_reqs;
+    listen->same_time_connections = same_time_connections;
+    listen->accept_rate_per_second = accept_rate_per_second;
+    struct prh_impl_accept_req *accept_req = (struct prh_impl_accept_req *)((prh_byte *)listen + PRH_TCP_LISTEN_STRUCT_SIZE);
+    struct prh_impl_accept_req *accept_end = accept_req + outgoing_accept_reqs;
+    for (; accept_req < accept_end; accept_req += 1) {
+        prh_impl_iocp_prepare_accept_socket(listen, (struct prh_impl_accept_v6_req *)accept_req, prh_impl_iocp_alloc_tcp_socket(alloc));
+    }
+    return listen;
 }
 
-void prh_impl_iocp_accept_completion(void *post_req) {
-    prh_impl_accept_req *req = (prh_impl_accept_req *)post;
-    prh_impl_iocp_accept *accept = prh_impl_iocp_get_accept(req);
-
-    // 本次 AcceptEx 失败，重用 accept_request 继续 AcceptEx
-    if (post->error_code) {
-        prh_prerr(post->error_code);
-        prh_iocp_accept_req(req); // 失败的这里不重用，将没有任何地方将它重用起来
-        return;
+bool prh_impl_sched_synced_listen_start_accept_req(prh_iocp_thrd_req *thrd_req) {
+    struct tcp_listen *listen = (void *)thrd_req->post_req;
+    struct prh_impl_accept_req *accept_req = (struct prh_impl_accept_req *)((prh_byte *)listen + PRH_TCP_LISTEN_STRUCT_SIZE);
+    struct prh_impl_accept_req *accept_end = accept_req + listen->outgoing_accept_reqs;
+    prh_handle listen_socket = listen->socket;
+    prh_impl_iocp_attach_handle(listen_socket);
+    listen->curr_outgoing_reqs = listen->outgoing_accept_reqs;
+    for (; accept_req < accept_end; accept_req += 1) {
+        struct tcp_socket *tcp = ((struct prh_impl_accept_v6_req *)accept_req)->accept;
+        tcp->family = listen->family;
+        prh_impl_iocp_create_socket(tcp, family);
+        prh_impl_iocp_accept_req((struct prh_impl_accept_v6_req *)accept_req);
     }
-
-    // TODO 添加限流控制
-
-    // 开始处理当前接收的客户连接，将客户连接提交到调度任务池分配给等待的线程处理
-    sockaddr_in *l_addr, *p_addr;
-    INT l_addrlen = 0, p_addrlen = 0;
-    PRH_IMPL_GETACCEPTEXSOCKADDRS(prh_impl_iocp_accept_addrbuf(req), 0, req->addr_size, req->addr_size, (sockaddr *)&l_addr, &l_addrlen, (sockaddr *)&p_addr, &p_addrlen);
-    assert(l_addrlen == sizeof(struct sockaddr_in) || l_addrlen == sizeof(struct sockaddr_in6));
-    assert(p_addrlen == sizeof(struct sockaddr_in) || p_addrlen == sizeof(struct sockaddr_in6));
-    assert(l_addr->sin_family == AF_INET || l_addr->sin_family == AF_INET6);
-    assert(p_addr->sin_family == AF_INET || p_addr->sin_family == AF_INET6);
-    prh_tcpsocket *tcp = prh_impl_create_tcp_socket_routine(accept->from_cono_subq, req);
-    prh_impl_get_sockaddr(l_addr, &tcp->local);
-    prh_impl_get_sockaddr(p_addr, &tcp->peer);
-    tcp->sock = req->accept_socket;
-    tcp->server_accepted_socket = 1;
-    prh_impl_sched_new_routine(tcp);
-
-    // 总是保持数组中最低 min_pending_accepts 个 AcceptEx 时刻等待客户连接
-    if (req->request_index < accept->min_pending_accepts) {
-        req->accept_socket = prh_impl_tcp_socket(accept->listen_address_family);
-        prh_iocp_accept_req(req);
-    } else {
-        req->accept_socket = PRH_INVASOCK;
-    }
+    return false;
 }
 
-void prh_impl_iocp_reuse_accept_socket(prh_impl_accept_req *req, prh_handle accept_socket) {
-    prh_impl_iocp_accept *accept = prh_impl_iocp_get_accept(req);
-    if (req->request_index < accept->min_pending_accepts) { // 只读，可跨线程访问
-        prh_impl_close_socket(p->accepted_socket); // 不可重用，直接关闭套接字
-    } else { // 可以重用
-        assert(req->accept_socket == PRH_INVASOCK);
-        req->accept_socket = (SOCKET)accept_socket;
-        prh_iocp_accept_req(req);
-#if 0
-        OVERLAPPED_ENTRY entry;
-        entry.lpCompletionKey = (ULONG_PTR)prh_impl_iocp_accept_socket_disconnected;
-        entry.lpOverlapped = (LPOVERLAPPED)req;
-        entry.Internal = (ULONG_PTR)accept_socket;
-        prh_impl_completion_port_post(PRH_IMPL_IOCP, &entry);
-#endif
+void prh_iocp_tcp_listen(struct tcp_listen *listen, const char *host, int flags_port, int backlog) {
+    if (listen->socket != PRH_INVASOCK) { prh_prerr(__LINE__); return; }
+    prh_u16 l_port; prh_u32 l_addr[4];
+    prh_impl_parse_address(host, flags_port, &listen->family, &l_port, l_addr);
+    int family = (listen->family == PRH_AF_IPV6) ? AF_INET6 : AF_INET;
+    prh_handle listen_socket = prh_impl_tcp_socket(family);
+    listen->socket = listen_socket;
+
+    // bind 函数将本地地址与套接字关联。如果没有错误发生，bind 返回零。否则返回 SOCKET_ERROR，可以通过调用
+    // WSAGetLastError 获取特定的错误代码。
+    // WSANOTINITIALISED   注意：在调用此函数之前，必须先成功调用 WSAStartup。
+    // WSAENETDOWN         网络子系统已失败。
+    // WSAEACCES           尝试以被其访问权限禁止的方式访问套接字。如果因为未启用 setsockopt 选项 SO_BROADCAST，
+    //                     而将数据报套接字绑定到广播地址失败，则会返回此错误。
+    // WSAEADDRINUSE       通常只允许每个套接字地址（协议/网络地址/端口）使用一次。如果计算机上的进程已经
+    //                     绑定到相同的完全限定地址，并且套接字未使用 SO_REUSEADDR 标记为允许地址重用，则
+    //                     会返回此错误。例如，name 参数中指定的 IP 地址和端口已被另一个应用程序使用的另
+    //                     一个套接字绑定。有关更多信息，请参阅 SOL_SOCKET 套接字选项中的 SO_REUSEADDR
+    //                     套接字选项、使用 SO_REUSEADDR 和 SO_EXCLUSIVEADDRUSE 以及 SO_EXCLUSIVEADDRUSE。
+    // WSAEADDRNOTAVAIL    请求的地址在其上下文中无效。如果 name 参数指向的指定地址不是此计算机上的有效本
+    //                     地 IP 地址，则会返回此错误。
+    // WSAEFAULT           系统在尝试使用指针参数进行调用时检测到无效的指针地址。如果 name 参数为 NULL，
+    //                     name 或 namelen 参数不是用户地址空间的有效部分，namelen 参数太小，name 参数
+    //                     包含与关联地址族不匹配的地址格式，或者由 name 指定的内存块的前两个字节与套接字
+    //                     描述符 s 关联的地址族不匹配，则会返回此错误。
+    // WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+    // WSAEINVAL           提供了无效的参数。如果套接字 s 已经绑定到地址，则会返回此错误。
+    // WSAENOBUFS          由于系统缺乏足够的缓冲区空间或队列已满，无法对套接字执行操作。如果没有足够的缓
+    //                     冲区可用或连接过多，则会返回此错误。
+    // WSAENOTSOCK         在不是套接字的对象上尝试执行操作。如果 s 参数中的描述符不是套接字，则会返回此错误。
+    struct sockaddr_in6 in6_local = {0};
+    int addrlen = prh_impl_init_sockaddr(family, l_port, l_addr, &in6_local);
+    prh_u32 error_code = prh_impl_sock_bind(listen_socket, (struct sockaddr *)&in6_local, addrlen);
+    if (error_code) goto label_error_handle;
+
+    // listen 函数将套接字置于监听传入连接的状态。如果没有错误发生，listen 返回零。否则返回 SOCKET_ERROR，
+    // 可以通过调用 WSAGetLastError 获取特定的错误代码。
+    // WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+    // WSAENETDOWN	        网络子系统已失败。
+    // WSAEADDRINUSE       套接字的本地地址已被使用，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错
+    //                     误通常在执行 bind 函数时发生，但如果 bind 是对通配符地址（涉及 ADDR_ANY）进行
+    //                     的，并且需要在该函数执行时提交特定地址，则可能会延迟到此函数。
+    // WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+    // WSAEINVAL           套接字未使用 bind 绑定。
+    // WSAEISCONN          套接字已连接。
+    // WSAEMFILE           没有更多的套接字描述符可用。
+    // WSAENOBUFS          没有可用的缓冲区空间。
+    // WSAENOTSOCK         描述符不是套接字。
+    // WSAEOPNOTSUPP       引用的套接字不是支持 listen 操作的类型。
+    error_code = prh_impl_sock_listen(listen_socket, backlog);
+    if (error_code) goto label_error_handle;
+    prh_sched_thrd_synced_post(listen, prh_impl_sched_synced_listen_start_accept_req);
+
+label_error_handle:
+    prh_prerr(error_code);
 }
 
 // int connect(SOCKET s, const struct sockaddr *name, int namelen);
@@ -21564,33 +21718,38 @@ void prh_impl_iocp_connect_continue(void *post_req) {
     if (error_code) { // 不管成功还是失败，上层在 continue_routine 中调用完 prh_iocp_connect_result 之后 prh_iocp_connect 就可以重用
         // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_connect_socket 主动关闭
         // 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连
-        // WSAECONNREFUSED      连接尝试被拒绝。
-        // WSAENETUNREACH       当前无法从该主机到达网络。
-        // WSAETIMEDOUT         连接尝试超时而未建立连接。
-        // WSANOTINITIALISED    在调用 ConnectEx 之前，必须先成功调用 WSAStartup 函数。
-        // WSAENETDOWN          网络子系统已失败。
-        // WSAEADDRINUSE        套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错误通常在绑定操作
-        //                      期间发生，但如果 bind 函数使用通配符地址（INADDR_ANY 或 in6addr_any）指定了本地 IP 地址，则错
-        //                      误可能会延迟到 ConnectEx 函数调用。ConnectEx 函数需要隐式绑定到特定的 IP 地址。
-        // WSAEALREADY          在指定的套接字上正在进行非阻塞的 connect、WSAConnect 或 ConnectEx 函数调用。
-        // WSAEADDRNOTAVAIL     远程地址不是有效地址，例如 ADDR_ANY（ConnectEx 函数仅支持面向连接的套接字）。
-        // WSAEAFNOSUPPORT      指定地址族的地址不能与该套接字一起使用。
-        // WSAEFAULT            name、lpSendBuffer 或 lpOverlapped 参数不是用户地址空间的有效部分，或者 namelen 太小。
-        // WSAEINVAL            参数 s 是未绑定的或监听套接字。
-        // WSAEISCONN           套接字已连接。
-        // WSAEHOSTUNREACH      尝试对无法到达的主机执行套接字操作。
-        // WSAENOBUFS           没有可用的缓冲区空间；套接字无法连接。
-        // WSAENOTSOCK          描述符不是套接字。
+        // PRH_ECONN_UNREACH
+        //      WSAENETUNREACH      当前无法从该主机到达网络。
+        //      WSAEHOSTUNREACH     尝试对无法到达的主机执行套接字操作。
+        // PRH_ECONN_TIMEOUT
+        //      WSAETIMEDOUT        连接尝试超时而未建立连接。
+        // PRH_ECONN_REFUSED
+        //      WSAECONNREFUSED     连接尝试被拒绝。
+        // PRH_ECONN_INVALID
+        //      WSAEADDRNOTAVAIL    远程地址不是有效地址，例如 ADDR_ANY（ConnectEx 函数仅支持面向连接的套接字）。
+        //      WSAEAFNOSUPPORT     指定地址族的地址不能与该套接字一起使用。
+        //      WSAEFAULT           name、lpSendBuffer 或 lpOverlapped 参数不是用户地址空间的有效部分，或者 namelen 太小。
+        //      WSAEINVAL           参数 s 是未绑定的或监听套接字。
+        //      WSAENOTSOCK         描述符不是套接字。
+        // PRH_ECONN_FAILURE
+        //      WSANOTINITIALISED   在调用 ConnectEx 之前，必须先成功调用 WSAStartup 函数。
+        //      WSAENETDOWN         网络子系统已失败。
+        //      WSAENOBUFS          没有可用的缓冲区空间；套接字无法连接。
+        //      WSAEADDRINUSE       套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错误通常在绑
+        //                          定操作期间发生，但如果 bind 函数使用通配符地址（INADDR_ANY 或 in6addr_any）指定了本地 IP
+        //                          地址，则错误可能会延迟到 ConnectEx 函数调用。ConnectEx 函数需要隐式绑定到特定的 IP 地址。
+        //      WSAEALREADY         在指定的套接字上正在进行非阻塞的 connect、WSAConnect 或 ConnectEx 函数调用。
+        //      WSAEISCONN          套接字已连接。
         if (error_code == WSAENETUNREACH || error_code == WSAEHOSTUNREACH) {
-            error_code = PRH_CONNECT_UNREACH;
+            error_code = PRH_ECONN_UNREACH;
         } else if (error_code == WSAETIMEDOUT) {
-            error_code = PRH_CONNECT_TIMEOUT;
+            error_code = PRH_ECONN_TIMEOUT;
         } else if (error_code == WSAECONNREFUSED) {
-            error_code = PRH_CONNECT_REFUSED;
+            error_code = PRH_ECONN_REFUSED;
         } else if (error_code == WSAEADDRNOTAVAIL || error_code == WSAEAFNOSUPPORT || error_code == WSAEFAULT || error_code == WSAEINVAL || error_code == WSAENOTSOCK) {
-            error_code = PRH_CONNECT_INVALID;
+            error_code = PRH_ECONN_INVALID;
         } else {
-            error_code = PRH_CONNECT_FAILURE;
+            error_code = PRH_ECONN_FAILURE;
         }
     } else { // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
         prh_handle connect_socket = tcp->socket; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到套接字断连关闭
@@ -21598,9 +21757,9 @@ void prh_impl_iocp_connect_continue(void *post_req) {
         struct sockaddr_in6 in6_local;
         in6_local.sin6_family = (tcp->family == PRH_AF_IPV6) ? AF_INET6 : AF_INET;
         prh_sock_local_addr(connect_socket, &in6_local);
-        prh_impl_get_sockaddr((struct sockaddr_in *)&in6_local, &tcp->address.l_port, &tcp->address.l_addr);
+        prh_impl_recv_sockaddr((struct sockaddr_in *)&in6_local, &tcp->address.l_port, &tcp->address.l_addr);
     }
-    tcp->callback->open_rsp(tcp->context, (prh_tcp_connect_error)error_code, tcp);
+    tcp->callback->conn_rsp(tcp->context, (prh_tcp_connect_error)error_code, tcp);
 }
 
 void prh_impl_iocp_connect_immediately_complete(struct tcp_socket *tcp, prh_u32 error_code) {
@@ -21618,7 +21777,6 @@ void prh_impl_iocp_connect_req(struct tcp_socket *tcp) {
     int namelen = prh_impl_init_sockaddr(&in6_remote, family, tcp->address.r_port, &tcp->address.r_addr);
     if (tcp->socket == PRH_INVASOCK) {
         prh_impl_iocp_create_socket(req, family);
-        prh_impl_iocp_attach_handle(tcp->socket);
     }
     prh_impl_iocp_post *post = &tcp->open_close_tx_node;
     post->overlapped.hEvent = prh_null; // 确保完成操作被投递到完成端口
@@ -21642,6 +21800,14 @@ void prh_impl_iocp_connect_req(struct tcp_socket *tcp) {
     prh_impl_iocp_connect_immediately_complete(tcp, error_code);
 }
 
+void prh_iocp_tcp_client_init(struct tcp_socket *tcp, struct tcp_callback *callback, void *context) {
+    assert(tcp != prh_null && callback != prh_null);
+    memset(tcp, 0, sizeof(struct tcp_socket));
+    tcp->callback = callback;
+    tcp->context = context;
+    tcp->socket = PRH_INVASOCK;
+}
+
 void prh_iocp_tcp_connect_req(struct tcp_socket *tcp, const char *host, int flags_port) {
     assert(host != prh_addr_any && host != prh_ipv6_addr_any);
     assert((flags_port & 0xffff) != prh_port_any);
@@ -21651,7 +21817,7 @@ void prh_iocp_tcp_connect_req(struct tcp_socket *tcp, const char *host, int flag
         return;
     }
     tcp->flags.client_connect = true;
-    prh_impl_sock_address(host, flags_port, &tcp->family, &tcp->address.r_port, &tcp->address.r_addr);
+    prh_impl_parse_address(host, flags_port, &tcp->family, &tcp->address.r_port, &tcp->address.r_addr);
     prh_impl_iocp_connect_req(tcp);
 }
 
