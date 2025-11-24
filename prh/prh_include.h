@@ -3976,6 +3976,430 @@ void *prh_quedyn_pop(prh_quedyn *q) {
 #ifdef PRH_ALLOC_IMPLEMENTATION
 #if defined(prh_plat_windows)
 
+// LPVOID VirtualAlloc(
+//  [in, optional] LPVOID lpAddress,
+//  [in]           SIZE_T dwSize,
+//  [in]           DWORD  flAllocationType,
+//  [in]           DWORD  flProtect
+// );
+//
+// 在调用进程的虚拟地址空间中保留、提交或更改一个页面区域的状态。通过此函数分配的内存将
+// 自动初始化为零。若要在另一个进程的地址空间中分配内存，请使用 VirtualAllocEx 函数。
+// 如果函数成功，则返回值是已分配页面区域的基地址。如果函数失败，则返回值为 NULL。要获取
+// 扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpAddress 要分配区域的起始地址。如果正在保留内存，则指定的地址会向下舍入（rounded
+// down）到分配粒度的最近倍数。如果内存已经保留且正在提交，则地址会向下舍入到下一个页面
+// 边界。要确定宿主计算机上的页面大小和分配粒度，请使用 GetSystemInfo 函数。如果此参数
+// 为 NULL，系统将确定在何处分配该区域。
+//
+// 如果此地址位于你尚未通过调用 InitializeEnclave 初始化的安全区域中，VirtualAlloc 会
+// 在该地址处为安全区域分配一个零内容页面。该页面必须是先前未提交的，并且不会通过 Intel
+// 软件保护扩展编程模型的 EEXTEND 指令进行测量。如果地址位于你已初始化的安全区域中，则分
+// 配操作会因 ERROR_INVALID_ADDRESS 错误而失败。对于不支持动态内存管理的安全区域（即
+// SGX1），这是真的。而 SGX2 安全区域将允许分配，并且在分配后，页面必须被安全区域接受。
+//
+// 参数 dwSize 区域的大小（以字节为单位）。如果 lpAddress 参数为 NULL，则此值会向上舍
+// 入（rounded up）到下一个页面边界。否则，分配的页面包含从 lpAddress 到 lpAddress+dwSize
+// 范围内的所有页面。这意味着一个跨越页面边界的 2 字节范围会导致两个页面都被包含在分配的
+// 区域内。
+//
+// 作为一种替代动态分配的方法，进程可以直接提交整个区域，而不仅仅是保留它。这两种方法在物  *** 按需提交和直接提交两种方法在物理内存使用上相同
+// 理内存使用上结果相同，因为已提交的页面直到首次被访问时才会消耗实际物理存储。动态分配的
+// 优点在于，它将系统上已提交页面的总数降至最低。对于非常大的分配，预先提交整个分配可能会
+// 导致系统耗尽可提交的页面，从而导致虚拟内存分配失败。
+//
+// 参数 AllocationType 内存分配的类型。此参数必须包含以下值之一。
+//
+//  MEM_COMMIT      0x00001000
+//          为指定的保留内存页面分配内存（来自内存和磁盘上的分页文件）。该函数还保证，当
+//          调用方稍后首次访问内存时，内容将为零。实际的物理页面只有在虚拟地址实际被访问   *** 物理页面只有在虚拟地址实际被访问时才会被分配
+//          时才会被分配。
+//          要同时保留和提交页面，同时指定 MEM_COMMIT 和 MEM_RESERVE。尝试通过指定
+//          MEM_COMMIT 而不使用 MEM_RESERVE 和非 NULL lpAddress 来提交特定地址范围会
+//          失败，除非整个范围已经保留。导致的错误代码是 ERROR_INVALID_ADDRESS。
+//          尝试提交已经提交的页面不会导致函数失败。这意味着你可以提交页面，而无需先确定
+//          每页的当前提交状态。
+//          如果 lpAddress 指定安全区域内的地址，则 flAllocationType 必须是 MEM_COMMIT。
+//  MEM_RESERVE     0x00002000
+//          在不分配实际物理存储（在内存或磁盘上的分页文件中）的情况下，保留进程虚拟地址
+//          空间的一个范围。
+//          你可以通过后续对 VirtualAlloc 函数的调用来提交保留的页面。要同时保留和提交
+//          页面，同时指定 MEM_COMMIT 和 MEM_RESERVE。
+//          其他内存分配函数（如 malloc 和 LocalAlloc）无法使用保留的内存范围。
+//  MEM_RESET       0x00080000
+//          指示 lpAddress 和 dwSize 指定的内存范围内的数据不再感兴趣。不应将页面读取
+//          或写入到分页文件中。但是，稍后还会再次使用该内存块，因此不应取消提交。此值
+//          不能与其他值一起使用。
+//          使用此值并不能保证使用 MEM_RESET 操作的范围将包含零。如果希望范围包含零，
+//          请取消提交内存，然后重新提交。
+//          当你指定 MEM_RESET 时，VirtualAlloc 函数会忽略 flProtect 的值。但是，仍
+//          必须将 flProtect 设置为有效的保护值，例如 PAGE_NOACCESS。
+//          如果使用 MEM_RESET 并且内存范围映射到文件，VirtualAlloc 将返回错误。只有
+//          映射到分页文件的共享视图才是可接受的。
+//  MEM_RESET_UNDO  0x1000000
+//          MEM_RESET_UNDO 只能在之前成功应用了 MEM_RESET 的地址范围上调用。它表明调
+//          用方对 lpAddress 和 dwSize 指定的内存范围内的数据感兴趣，并尝试撤销 MEM_RESET
+//          的效果。如果函数成功，则表示指定地址范围内的所有数据都保持完整。如果函数失败，
+//          则地址范围内的至少部分数据已被零替换。
+//          此值不能与其他值一起使用。如果在之前未使用 MEM_RESET 的地址范围上调用 MEM_RESET_UNDO，
+//          行为是未定义的。当指定 MEM_RESET 时，VirtualAlloc 函数会忽略 flProtect
+//          的值。但是，你仍必须将 flProtect 设置为有效的保护值，例如 PAGE_NOACCESS。
+//          Windows Server 2008 R2、Windows 7、Windows Server 2008、Windows Vista、
+//          Windows Server 2003 和 Windows XP：直到 Windows 8 和 Windows Server 2012
+//          才支持 MEM_RESET_UNDO 标志。
+//  MEM_LARGE_PAGES 0x20000000
+//          使用大页面支持分配内存。大小和对齐必须是大页面最小值的倍数。要获取此值，请使
+//          用 GetLargePageMinimum 函数。
+//          如果指定此值，则还必须指定 MEM_RESERVE 和 MEM_COMMIT。
+//  MEM_PHYSICAL    0x00400000
+//          保留一个可以用来映射地址窗口扩展（AWE）页面的地址范围。此值必须与 MEM_RESERVE
+//          一起使用，且不能与其他值一起使用。
+//  MEM_TOP_DOWN    0x00100000
+//          在尽可能高的地址处分配内存。这可能比普通分配更慢，尤其是当存在许多分配时。
+//  MEM_WRITE_WATCH 0x00200000
+//          使系统跟踪已分配区域内被写入的页面。如果指定此值，则还必须指定 MEM_RESERVE。
+//          要检索自区域分配或写入跟踪状态重置以来已写入的页面的地址，请调用 GetWriteWatch
+//          函数。要重置写入跟踪状态，请调用 GetWriteWatch 或 ResetWriteWatch。写入跟
+//          踪功能将一直启用，直到释放该内存区域。
+//
+// 参数 flProtect 要分配页面区域的内存保护。如果正在提交页面，则可以指定以下内存保护常量
+// 之一。
+//
+//  PAGE_EXECUTE (0x10)
+//      启用对已提交页面区域的执行访问权限。尝试写入已提交区域将导致访问违规。
+//      注意：CreateFileMapping 函数不支持此标志。
+//  PAGE_EXECUTE_READ (0x20)
+//      启用对已提交页面区域的执行或只读访问权限。尝试写入已提交区域将导致访问违规。
+//      注意：Windows Server 2003 和 Windows XP（SP2 之前）不支持此标志。
+//  PAGE_EXECUTE_READWRITE (0x40)
+//      启用对已提交页面区域的执行、只读或读写访问权限。
+//      注意：Windows Server 2003 和 Windows XP（SP2 之前）不支持此标志。
+//  PAGE_EXECUTE_WRITECOPY (0x80)
+//      启用对文件映射对象的映射视图的执行、只读或写时复制访问权限。尝试写入已提交的写时
+//      复制页面时，将为进程创建该页面的私有副本，并标记为 PAGE_EXECUTE_READWRITE。
+//      注意：VirtualAlloc 和 VirtualAllocEx 函数不支持此标志。Windows Server 2003
+//      和 Windows XP（SP1 之前）不支持此标志。
+//  PAGE_NOACCESS (0x01)
+//      禁止对已提交页面区域的所有访问。尝试读取、写入或执行已提交区域将导致访问违规。
+//      注意：CreateFileMapping 函数不支持此标志。
+//  PAGE_READONLY (0x02)
+//      启用对已提交页面区域的只读访问权限。尝试写入已提交区域将导致访问违规。
+//      如果启用了数据执行保护（DEP），尝试在已提交区域中执行代码将导致访问违规。
+//  PAGE_READWRITE (0x04)
+//      启用对已提交页面区域的只读或读写访问权限。
+//      如果启用了数据执行保护（DEP），尝试在已提交区域中执行代码将导致访问违规。
+//  PAGE_WRITECOPY (0x08)
+//      启用对文件映射对象的映射视图的只读或写时复制访问权限。尝试写入已提交的写时复制页
+//      面时，将为进程创建该页面的私有副本，并标记为 PAGE_READWRITE。
+//      如果启用了数据执行保护（DEP），尝试在已提交区域中执行代码将导致访问违规。
+//      注意：VirtualAlloc 和 VirtualAllocEx 函数不支持此标志。
+//  PAGE_TARGETS_INVALID (0x40000000)
+//      将页面中的所有位置设置为 CFG（控制流保护）的无效目标。与任何执行页面保护（如 PAGE_EXECUTE、
+//      PAGE_EXECUTE_READ、PAGE_EXECUTE_READWRITE 和 PAGE_EXECUTE_WRITECOPY）一起
+//      使用。任何对这些页面的间接调用都会导致 CFG 检查失败，进程将被终止。
+//      注意：VirtualProtect 和 CreateFileMapping 函数不支持此标志。
+//  PAGE_TARGETS_NO_UPDATE (0x40000000)
+//      在使用 VirtualProtect 更改保护时，区域中的页面不会更新其 CFG 信息。例如，如果
+//      区域中的页面是使用 PAGE_TARGETS_INVALID 分配的，则在页面保护更改时，无效信息将
+//      被保留。此标志仅在保护更改为执行类型（如 PAGE_EXECUTE、PAGE_EXECUTE_READ、PAGE_EXECUTE_READWRITE
+//      和 PAGE_EXECUTE_WRITECOPY）时有效。
+//      注意：VirtualProtect 更改为执行保护时的默认行为是将所有位置标记为 CFG 的有效调
+//      用目标。
+//  PAGE_GUARD (0x100)
+//      将区域中的页面设置为保护页面。尝试访问保护页面会导致系统引发 STATUS_GUARD_PAGE_VIOLATION
+//      异常，并关闭保护页面状态。保护页面因此充当一次性访问报警。
+//      注意：不能与 PAGE_NOACCESS 一起使用。CreateFileMapping 函数不支持此标志。
+//  PAGE_NOCACHE (0x200)
+//      将所有页面设置为不可缓存。应用程序除非明确需要，否则不应使用此属性。使用 interlocked
+//      函数访问映射为 SEC_NOCACHE 的内存将导致 EXCEPTION_ILLEGAL_INSTRUCTION 异常。
+//      注意：不能与 PAGE_GUARD、PAGE_NOACCESS 或 PAGE_WRITECOMBINE 标志一起使用。
+//      只能在使用 VirtualAlloc、VirtualAllocEx 或 VirtualAllocExNuma 函数分配私有
+//      内存时使用。要为共享内存启用不可缓存内存访问，请在调用 CreateFileMapping 函数
+//      时指定 SEC_NOCACHE 标志。
+//  PAGE_WRITECOMBINE (0x400)
+//      将所有页面设置为写时合并。应用程序除非明确需要，否则不应使用此属性。使用 interlocked
+//      函数访问映射为写时合并的内存可能会导致 EXCEPTION_ILLEGAL_INSTRUCTION 异常。
+//      注意：不能与 PAGE_NOACCESS、PAGE_GUARD 或 PAGE_NOCACHE 标志一起使用。
+//      只能在使用 VirtualAlloc、VirtualAllocEx 或 VirtualAllocExNuma 函数分配私有
+//      内存时使用。要为共享内存启用写时合并内存访问，请在调用 CreateFileMapping 函数
+//      时指定 SEC_WRITECOMBINE 标志。
+//      注意：Windows Server 2003 和 Windows XP（SP1 之前）不支持此标志。
+//
+// 以下常量仅在指定具有 Intel 软件保护扩展（SGX）架构的安全区域时，才能与支持的函数一起
+// 使用。
+//
+//  PAGE_ENCLAVE_DECOMMIT
+//      表示页面将被保护，以防止在安全区域中进一步使用。注意：此标志不能与其他标志一起使
+//      用，仅适用于 SGX2 安全区域。支持函数：VirtualProtect。
+//  PAGE_ENCLAVE_THREAD_CONTROL
+//      页面包含线程控制结构（TCS）。支持函数：LoadEnclaveData、VirtualProtect。
+//  PAGE_ENCLAVE_UNVALIDATED
+//      提供的页面内容将被排除在 Intel SGX 编程模型的 EEXTEND 指令的测量之外。
+//      支持函数：LoadEnclaveData
+//
+// 如果 lpAddress 指定安全区域内的地址，则 flProtect 不能是以下值之一：
+//  *   PAGE_NOACCESS       禁止访问
+//  *   PAGE_GUARD          设置页面保护以启用访问时生成的硬件异常
+//  *   PAGE_NOCACHE        禁用 CPU 缓存
+//  *   PAGE_WRITECOMBINE   禁用 CPU 缓存并允许写入合并
+//
+// 当为安全区域分配动态内存时，flProtect 参数必须是 PAGE_READWRITE 或 PAGE_EXECUTE_READWRITE。
+//
+// 每个页面都有一个关联的页面状态。VirtualAlloc 函数可以执行以下操作：
+//  *   提交一个保留页面区域
+//  *   保留一个空闲页面区域
+//  *   同时保留和提交一个空闲页面区域
+//
+// VirtualAlloc 不能保留一个已经保留的页面。它可以提交一个已经提交的页面。这意味着你可
+// 以提交一个页面范围，无论它们是否已经提交，函数都不会失败。
+//
+// 你可以使用 VirtualAlloc 预留一个页面块，然后进行额外的 VirtualAlloc 调用来提交保留
+// 块中的单个页面。这使得一个进程可以在不消耗物理存储的情况下预留其虚拟地址空间的一个范围，
+// 直到需要时为止。
+//
+// 如果 lpAddress 参数不为 NULL，则函数使用 lpAddress 和 dwSize 参数来计算要分配的页
+// 面区域。整个页面范围的当前状态必须与 flAllocationType 参数指定的分配类型兼容。否则，
+// 函数将失败，且不会分配任何页面。如前所述，这种兼容性要求不排除提交一个已经提交的页面。
+//
+// 为了执行动态生成的代码，请使用 VirtualAlloc 分配内存，并使用 VirtualProtect 函数授
+// 予 PAGE_EXECUTE 访问权限。
+//
+// VirtualAlloc 函数可用于在指定进程的虚拟地址空间内预留一个地址窗口扩展（AWE）内存区域。
+// 然后，该区域可用于根据应用程序的需求将物理页面映射到虚拟内存中或从虚拟内存中移出。必须
+// 在 AllocationType 参数中设置 MEM_PHYSICAL 和 MEM_RESERVE 值，必须不设置 MEM_COMMIT
+// 值。页面保护必须设置为 PAGE_READWRITE。
+//
+// VirtualFree 函数可以取消提交一个已提交的页面，释放页面的存储空间，或者同时执行取消提
+// 交并释放一个已提交的页面两个操作。它还可以释放一个保留的页面，使其成为一个空闲页面。
+//
+// 当创建一个可执行区域时，调用程序有责任通过调用 FlushInstructionCache（在适当的时候）
+// 确保缓存一致性，一旦代码就位。否则，尝试从新可执行区域执行代码可能会产生不可预测的结果。
+//
+// BOOL FlushInstructionCache(
+//   [in] HANDLE  hProcess,
+//   [in] LPCVOID lpBaseAddress,
+//   [in] SIZE_T  dwSize
+// );
+//
+// 如果应用程序在内存中生成或修改代码，则应调用 FlushInstructionCache。CPU 无法检测到
+// 更改，可能会执行其缓存的旧代码。如果函数成功，则返回值是非零值。如果函数失败，则返回值
+// 是零。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 hProcess 要刷新指令缓存的进程的句柄。参数 lpBaseAddress 指向要刷新的区域的基地
+// 址的指针，此参数可以为 NULL。参数 dwSize 如果 lpBaseAddress 参数不为 NULL，则为要
+// 刷新的区域的大小（以字节为单位）。
+//
+// BOOL VirtualProtect(
+//   [in]  LPVOID lpAddress,
+//   [in]  SIZE_T dwSize,
+//   [in]  DWORD  flNewProtect,
+//   [out] PDWORD lpflOldProtect
+// );
+//
+// 更改调用进程虚拟地址空间中已提交页面区域的保护。若要更改任何进程的访问保护，请使用
+// VirtualProtectEx 函数。如果函数成功，则返回值是非零值。如果函数失败，则返回值是零。
+// 要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpAddress 要更改访问保护属性的页面区域的起始页面的地址。指定区域中的所有页面必须
+// 位于调用 VirtualAlloc 或 VirtualAllocEx 函数时使用 MEM_RESERVE 分配的同一保留区域
+// 内。页面不能跨越通过单独调用 VirtualAlloc 或 VirtualAllocEx（使用 MEM_RESERVE）分
+// 配的相邻保留区域。
+//
+// 参数 dwSize 要更改访问保护属性的区域的大小（以字节为单位）。受影响的页面区域包含从
+// lpAddress 参数到 (lpAddress+dwSize) 范围内的所有页面。这意味着一个跨越页面边界的
+// 2 字节范围会导致两个页面的保护属性都被更改。
+//
+// 参数 flNewProtect 内存保护选项。此参数可以是内存保护常量之一。对于映射视图，此值必须
+// 与映射视图时指定的访问保护兼容（参见 MapViewOfFile、MapViewOfFileEx 和 MapViewOfFileExNuma）。
+//
+// 参数 lpflOldProtect 指向一个变量的指针，该变量接收指定页面区域中第一页的先前访问保护
+// 值。如果此参数为 NULL 或不指向有效的变量，则函数失败。
+//
+// 只能在已提交的页面上设置访问保护值。如果指定区域中任何页面的状态不是已提交，函数将失败，
+// 并且不会修改指定区域中任何页面的访问保护。PAGE_GUARD 保护修饰符用于建立保护页面。保护
+// 页面作为一次性访问报警。
+//
+// 最好避免使用 VirtualProtect 更改由 GlobalAlloc、HeapAlloc 或 LocalAlloc 分配的内
+// 存块的页面保护，因为单个页面上可能存在多个内存块。堆管理器假定堆中的所有页面至少授予读
+// 取和写入访问权限。
+//
+// 当保护一个可执行区域时，调用程序有责任通过调用 FlushInstructionCache（在适当的时候）
+// 确保缓存一致性，一旦代码就位。否则，尝试从新可执行区域执行代码可能会产生不可预测的结果。
+//
+// BOOL VirtualFree(
+//   [in] LPVOID lpAddress,
+//   [in] SIZE_T dwSize,
+//   [in] DWORD  dwFreeType
+// );
+//
+// 释放、取消提交或释放并取消提交调用进程虚拟地址空间内的一个页面区域。若要释放通过 VirtualAllocEx
+// 函数在另一个进程中分配的内存，请使用 VirtualFreeEx 函数。如果函数成功，则返回值是非
+// 零值。如果函数失败，则返回值是 0。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpAddress 指向要释放的页面区域的基地址的指针。如果 dwFreeType 参数是 MEM_RELEASE，
+// 则此参数必须是 VirtualAlloc 函数在保留页面区域时返回的基地址。
+//
+// 参数 dwSize 要释放的内存区域的大小（以字节为单位）。如果 dwFreeType 参数是 MEM_RELEASE，
+// 则此参数必须是 0（零）。函数将释放 VirtualAlloc 初始分配调用中保留的整个区域。如果
+// dwFreeType 参数是 MEM_DECOMMIT，则函数会取消提交从 lpAddress 参数到 (lpAddress+dwSize)
+// 范围内包含的所有内存页面。例如，一个跨越页面边界的 2 字节内存区域会导致两个页面都被取
+// 消提交。如果 lpAddress 是 VirtualAlloc 返回的基地址且 dwSize 是 0（零），则函数会
+// 取消提交 VirtualAlloc 分配的整个区域。之后，整个区域处于保留状态。
+//
+// 参数 dwFreeType 释放操作的类型。此参数必须是以下值之一。
+//
+//  MEM_DECOMMIT    0x00004000
+//      取消提交指定的已提交页面区域。操作完成后，页面处于保留状态。如果你尝试取消提交一
+//      个未提交的页面，函数不会失败。这意味着你可以取消提交一个页面范围，而无需先确定每
+//      页的当前提交状态。
+//      当 lpAddress 参数提供安全区域的基地址时，不支持 MEM_DECOMMIT 值。这适用于不支
+//      持动态内存管理的安全区域（即 SGX1）。SGX2 安全区域允许在安全区域内的任何位置使
+//      用 MEM_DECOMMIT。
+//  MEM_RELEASE     0x00008000
+//      释放指定的页面区域，或占位符（对于占位符，地址空间被释放并可用于其他分配）。操作
+//      完成后，页面处于空闲状态。
+//      如果指定此值，则 dwSize 必须是 0（零），且 lpAddress 必须指向 VirtualAlloc 函
+//      数在保留区域时返回的基地址。如果这些条件中的任何一个未满足，则函数失败。
+//      如果区域中的任何页面当前处于已提交状态，则函数首先会取消提交，然后释放它们。
+//      如果你尝试释放处于不同状态的页面（有些保留，有些已提交），函数不会失败。这意味着
+//      你可以释放一个页面范围，而无需先确定每页的当前提交状态。
+//
+// 当使用 MEM_RELEASE 时，此参数还可以指定以下值之一。
+//
+//  MEM_COALESCE_PLACEHOLDERS   0x00000001
+//      要合并两个相邻的占位符，请指定 MEM_RELEASE | MEM_COALESCE_PLACEHOLDERS。当你
+//      合并占位符时，lpAddress 和 dwSize 必须完全匹配要合并的占位符的整个范围。
+//  MEM_PRESERVE_PLACEHOLDER    0x00000002
+//      在调用 VirtualAlloc2 或 Virtual2AllocFromApp 将占位符替换为私有分配之后，拆分
+//      占位符。要将占位符拆分为两个占位符，请指定 MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER。
+//
+// 进程虚拟地址空间中的每个内存页面都有一个页面状态。VirtualFree 函数可以取消提交处于
+// 不同状态的页面范围，有些已提交，有些未提交。这意味着你可以取消提交一个页面范围，而无需
+// 先确定每页的当前提交状态。取消提交页面会释放其物理存储，无论是在内存中还是在磁盘上的分
+// 页文件中。
+//
+// 如果页面被取消提交但未释放，其状态会变为保留。之后，你可以调用 VirtualAlloc 来提交它，
+// 或者调用 VirtualFree 来释放它。尝试读取或写入保留页面会导致访问违规异常。
+//
+// VirtualFree 函数可以释放处于不同状态的页面范围，有些保留，有些已提交。这意味着你可以
+// 释放一个页面范围，而无需先确定每页的当前提交状态。VirtualAlloc 函数最初保留的整个页
+// 面范围必须同时释放。
+//
+// 如果页面被释放，其状态会变为空闲，可用于后续分配操作。释放或取消提交内存后，你永远不能
+// 再引用该内存。该内存中可能包含的任何信息都已永远丢失。尝试读取或写入空闲页面会导致访问
+// 违规异常。如果你需要保留信息，请不要取消提交或释放包含该信息的内存。
+//
+// VirtualFree 函数可用于地址窗口扩展（AWE）内存区域，并在释放地址空间时使区域中的任何
+// 物理页面映射失效。但是，物理页面不会被删除，应用程序可以使用它们。应用程序必须显式调用
+// FreeUserPhysicalPages 来释放物理页面。当进程终止时，所有资源将自动清理。
+//
+// Windows 10（版本 1709）及更高版本和 Windows 11：完成使用安全区域后，调用 DeleteEnclave
+// 来删除安全区域。你不能通过调用 VirtualFree 或 VirtualFreeEx 函数来删除 VBS 安全区域。
+// 你仍然可以通过调用 VirtualFree 或 VirtualFreeEx 来删除 SGX 安全区域。
+//
+// Windows 10（版本 1507）、Windows 10（版本 1511）、Windows 10（版本 1607）和 Windows 10
+// （版本 1703）：完成使用安全区域后，调用 VirtualFree 或 VirtualFreeEx 函数并指定以
+// 下值：
+//  *   lpAddress 参数的安全区域的基地址。
+//  *   dwSize 参数为 0。
+//  *   dwFreeType 参数为 MEM_RELEASE。
+
+#define PRH_VMEM_RESERVE_UNIT 0x10000 // 64KB
+
+void *prh_virtual_reserve(prh_unt size) {
+    LPVOID p = VirtualAlloc(
+        /* [in, optional] LPVOID lpAddress          */ prh_null,
+        /* [in]           SIZE_T dwSize             */ size,
+        /* [in]           DWORD  flAllocationType   */ MEM_RESERVE,
+        /* [in]           DWORD  flProtect          */ PAGE_NOACCESS);
+    if (p == prh_null) prh_abort_error(GetLastError());
+    return p;
+}
+
+void *prh_virtual_reserve_from(void *base_address, prh_unt size) {
+    LPVOID p = VirtualAlloc(
+        /* [in, optional] LPVOID lpAddress          */ base_address,
+        /* [in]           SIZE_T dwSize             */ size,
+        /* [in]           DWORD  flAllocationType   */ MEM_RESERVE,
+        /* [in]           DWORD  flProtect          */ PAGE_NOACCESS);
+    if (p == prh_null) prh_abort_error(GetLastError());
+    return p;
+}
+
+void *prh_virtual_alloc(prh_unt size) {
+    LPVOID p = VirtualAlloc(
+        /* [in, optional] LPVOID lpAddress          */ prh_null,
+        /* [in]           SIZE_T dwSize             */ size,
+        /* [in]           DWORD  flAllocationType   */ MEM_RESERVE | MEM_COMMIT,
+        /* [in]           DWORD  flProtect          */ PAGE_READWRITE);
+    if (p == prh_null) prh_abort_error(GetLastError());
+    return p;
+}
+
+void *prh_virtual_alloc_from(void *base_address, prh_unt size) {
+    LPVOID p = VirtualAlloc(
+        /* [in, optional] LPVOID lpAddress          */ base_address,
+        /* [in]           SIZE_T dwSize             */ size,
+        /* [in]           DWORD  flAllocationType   */ MEM_RESERVE | MEM_COMMIT,
+        /* [in]           DWORD  flProtect          */ PAGE_READWRITE);
+    if (p == prh_null) prh_abort_error(GetLastError());
+    return p;
+}
+
+void prh_virtual_commit(void *page, prh_unt size) {
+    LPVOID p = VirtualAlloc(
+        /* [in, optional] LPVOID lpAddress          */ page,
+        /* [in]           SIZE_T dwSize             */ size,
+        /* [in]           DWORD  flAllocationType   */ MEM_COMMIT,
+        /* [in]           DWORD  flProtect          */ PAGE_READWRITE);
+    if (p == prh_null) prh_abort_error(GetLastError());
+}
+
+void prh_virtual_set_execute(void *page, prh_unt size) {
+    DWORD old_protect;
+    BOOL b = VirtualProtect(
+      /* [in]  LPVOID lpAddress         */ page,
+      /* [in]  SIZE_T dwSize            */ size,
+      /* [in]  DWORD  flNewProtect      */ PAGE_EXECUTE,
+      /* [out] PDWORD lpflOldProtect    */ &old_protect);
+    if (b == FALSE) prh_abort_error(GetLastError());
+}
+
+void prh_virtual_set_readwrite(void *page, prh_unt size) {
+    DWORD old_protect;
+    BOOL b = VirtualProtect(
+      /* [in]  LPVOID lpAddress         */ page,
+      /* [in]  SIZE_T dwSize            */ size,
+      /* [in]  DWORD  flNewProtect      */ PAGE_READWRITE,
+      /* [out] PDWORD lpflOldProtect    */ &old_protect);
+    if (b == FALSE) prh_abort_error(GetLastError());
+}
+
+void prh_flush_code_cache(void *page, prh_unt size) {
+    BOOL b = FlushInstructionCache(
+      /* [in] HANDLE  hProcess,        */ GetCurrentProcess(),
+      /* [in] LPCVOID lpBaseAddress,   */ page,
+      /* [in] SIZE_T  dwSize           */ size);
+    if (b == FALSE) prh_abort_error(GetLastError());
+}
+
+void prh_virtual_free(void *base_address) {
+    BOOL b = VirtualFree(
+      /* [in] LPVOID lpAddress      */ base_address,
+      /* [in] SIZE_T dwSize         */ 0,
+      /* [in] DWORD  dwFreeType     */ MEM_RELEASE);
+    if (b == FALSE) prh_abort_error(GetLastError());
+}
+
+void prh_virtual_decommit(void *page, prh_unt size) {
+    BOOL b = VirtualFree(
+      /* [in] LPVOID lpAddress      */ page,
+      /* [in] SIZE_T dwSize         */ size,
+      /* [in] DWORD  dwFreeType     */ MEM_DECOMMIT);
+    if (b == FALSE) prh_abort_error(GetLastError());
+}
+
 #else // POSIX BEGIN
 // 现代处理器架构一般允许CPU至少在两种不同状态下运行，即用户态和内核态，内核态有时也称
 // 之为监管态（supervisor mode）。执行硬件指令可使CPU在两种状态间来回切换。与之对应，
