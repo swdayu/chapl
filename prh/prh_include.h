@@ -20293,6 +20293,224 @@ prh_inline void prh_impl_close_socket(prh_handle sock) {
     prh_wsa_prerr_if(closesocket((SOCKET)sock));
 }
 
+// LINGER 结构用于维护特定套接字的信息，指定在套接字上有排队的数据待发送且调用 closesocket
+// 函数时，该套接字的行为。套接字的默认参数是 linger 结构的 l_onoff 成员为零，表示套接
+// 字不应保持在打开状态。
+//      typedef struct linger { // linger 逗留；苟延残喘；磨蹭；继续存留；缓慢消失
+//          u_short l_onoff;
+//          u_short l_linger;
+//      } LINGER, *PLINGER, *LPLINGER;
+//
+// 成员 l_onoff 指定在调用 closesocket 函数后，套接字是否应保持打开状态以发送排队的数
+// 据。此成员可以有以下值：
+//      0       套接字不会保持打开状态。如果使用 setsockopt 函数且 optname 参数设置为 SO_DONTLINGER，optval 参数为零，则设置此
+//              值。如果使用 setsockopt 函数且 optname 参数设置为 SO_LINGER，传递到 optval 参数的 linger 结构的 l_onoff 成员
+//              设置为 0，则也会设置此值。
+//      非零    套接字将保持打开状态一段时间。如果使用 setsockopt 函数且 optname 参数设置为 SO_DONTLINGER，optval 参数为非零值，
+//              则设置此值。如果使用 setsockopt 函数且 optname 参数设置为 SO_LINGER，传递到 optval 参数的 linger 结构的 l_onoff
+//              成员设置为非零值，则也会设置此值。
+//
+// 成员 l_linger 指定在调用 closesocket 函数后，套接字保持打开状态的时间（以秒为单位）。
+// 此成员仅在 linger 结构的 l_onoff 成员设置为非零值时才适用。如果使用 setsockopt 函
+// 数且 optname 参数设置为 SO_LINGER，则会设置此值。传递给 setsockopt 函数的 optval
+// 参数必须包含一个 linger 结构，该结构将被复制到为套接字维护的内部 linger 结构中。
+//
+// linger 结构的 l_onoff 成员决定了在调用 closesocket 函数后，套接字是否应保持打开状
+// 态以发送排队的数据。有些令人困惑的是，此成员可以通过两种方式修改：
+//  *   调用 setsockopt 函数，将 optname 参数设置为 SO_DONTLINGER。optval 参数决定了如何修改 l_onoff 成员。
+//  *   调用 setsockopt 函数，将 optname 参数设置为 SO_LINGER。optval 参数指定了如何修改 l_onoff 和 l_linger 成员。
+//
+// linger 结构的 l_linger 成员决定了套接字应保持打开状态的时间（以秒为单位）。此成员仅
+// 在 linger 结构的 l_onoff 成员非零时才适用。为了使套接字保持打开状态，应用程序应将
+// l_onoff 成员设置为非零值，并将 l_linger 成员设置为所需的超时时间（以秒为单位）。为了
+// 禁用套接字保持打开状态，应用程序只需将 linger 结构的 l_onoff 成员设置为零。
+//
+// 如果应用程序调用 setsockopt 函数，将 optname 参数设置为 SO_DONTLINGER 以将 l_onoff
+// 成员设置为非零值，则未指定 l_linger 成员的值。在这种情况下，使用的超时时间取决于实现。
+// 如果之前为套接字设置了超时时间（通过启用 SO_LINGER），服务提供程序应恢复此超时值。
+//
+// 可以调用 getsockopt 函数，将 optname 参数设置为 SO_LINGER，以检索与套接字关联的当
+// 前 linger 结构的值。
+//
+// SO_DONTLINGER 类型 DWORD（布尔值）- 指示与套接字关联的 linger 结构的 l_onoff 成员
+// 的状态。如果此成员为非零值，则在调用 closesocket 函数后，套接字将保持打开状态一段时
+// 间，以便发送排队的数据。此选项仅适用于可靠的、面向连接的协议。
+//
+// SO_LINGER 类型 struct linger - 指示与套接字关联的 linger 结构的状态。如果 linger
+// 结构的 l_onoff 成员为非零值，则在调用 closesocket 函数后，套接字将保持打开状态一段
+// 时间，以便发送排队的数据。保持打开状态的时间（以秒为单位）由 linger 结构的 l_linger
+// 成员指定。此选项仅适用于可靠的、面向连接的协议。
+//
+// linger 结构成员的设置影响 closesocket 函数的行为：
+//      l_onoff     l_linger    关闭类型                        是否等待关闭完成
+//      0           任意        优雅关闭                              否，调用立即返回。如果可能，排队等待传输的数据将在关闭底层套接字之前发送，但连接可能还需要在返回之后在后台优雅关闭。
+//      非零        0           强制关闭                              否，调用立即返回。强制关闭，套接字连接将被立即重置，任何未发送的数据都将丢失，套接字不会进入 TIME_WAIT 状态。
+//      非零        非零        如果在 l_linger 指定的超时时间内发送    是，阻塞模式将阻塞到未发送的数据发送完毕或超时。
+//                             所有数据，则为优雅关闭；否则为强制关闭       非阻塞模式，如果不能立即完成关闭，将返回 WSAEWOULDBLOCK，后续需要继续调用 closesocket 直到成功返回。
+//
+// 请注意，不建议在非阻塞套接字上启用非零超时时间。因为如果无法立即完成关闭操作，closesocket
+// 调用将返回 WSAEWOULDBLOCK。此时，套接字句柄仍然有效，并且不会启动断开连接，应用程序
+// 必须再次调用 closesocket 来关闭套接字。
+//
+// 对于阻塞套接字，closesocket 调用将会阻塞，直到所有数据已传递给对方或时间超时。如果因
+// 超时到期而重置连接，则套接字不会进入 TIME_WAIT 状态。如果在超时时间内发送了所有数据，
+// 则套接字可能会进入 TIME_WAIT 状态。对于 closesocket 阻塞调用，不能通过 closesocket
+// 的返回结果确定所有的数据都已经发送给了对方，因为在超时时间内发送了数据已经连接被中止
+// （connection aborted），closesocket 都不会返回错误。
+//
+// 请注意，在调用 closesocket 之后，不会发布 FD_CLOSE 网络事件。
+//
+// 以下是 closesocket 行为的总结：
+//  1.  如果 LINGER 结构的 l_onoff 成员为零（套接字的默认值），则 closesocket 立即
+//      返回，连接将在后台优雅关闭。Windows 套接字提供程序可能无法在预期时限内释放套接
+//      字和其他资源，从而影响期望使用所有可用套接字的应用程序。这是套接字的默认行为。
+//  2.  如果将 linger 结构的 l_onoff 成员设置为非零值，并且 l_linger 成员设置为零
+//      （无超时），则 closesocket 立即返回，连接将被重置或终止。
+//  3.  如果将 linger 结构的 l_onoff 成员设置为非零值，并且 l_linger 成员设置为非零
+//      超时时间：对于阻塞套接字，closesocket 将阻塞直到所有数据发送完毕或超时到期；
+//      对于非阻塞套接字，closesocket 立即返回 WSAEWOULDBLOCK，表示失败。
+//
+// 平稳关闭、留置选项和套接字关闭
+// https://learn.microsoft.com/en-us/windows/desktop/WinSock/graceful-shutdown-linger-options-and-socket-closure-2
+//
+// 以下内容旨在澄清关闭套接字连接和关闭套接字之间的区别。这两个概念非常重要。关闭套接字
+// 连接涉及两个端点之间协议消息的交换，被称为关闭序列。关闭序列分为两类：平稳关闭和强制
+// 关闭（也称为硬关闭）。在平稳关闭序列中，可以在关闭连接之前发送所有已排队但尚未传输的
+// 数据。在强制关闭中，任何未发送的数据都会丢失。无论哪种关闭序列发生（平稳或强制），都
+// 可以向相关应用程序提供 FD_CLOSE 指示，表明关闭正在进行。
+//
+// 关闭套接字则会导致套接字句柄被释放，从而使应用程序无法再以任何方式引用或使用该套接字。
+// 在 Windows Sockets 中，shutdown 函数和 WSASendDisconnect 函数都可以用来启动关闭
+// 序列，而 closesocket 函数则用于释放套接字句柄并释放任何相关资源。然而，closesocket
+// 函数会隐式地触发一个关闭序列，如果尚未发生的话。实际上，许多程序员依赖这一特性，使用
+// closesocket 来同时启动关闭序列和释放套接字句柄。
+//
+// 为了方便这种用法，套接字接口通过套接字选项机制提供了控制功能，允许程序员指定隐式关闭
+// 序列应该是平稳的还是强制的，以及 closesocket 函数是否应该留置（即不立即完成）以允许
+// 平稳关闭序列完成。这种用法的重要性以及由此产生的影响仍然没有被广泛理解。
+//
+// 通过为 SO_LINGER 和 SO_DONTLINGER 套接字选项设置适当的值，可以在调用 closesocket
+// 时实现以下行为：
+//  *   强制关闭序列，closesocket 立即返回。
+//  *   平稳关闭，延迟返回，直到关闭序列完成或指定的时间间隔到期。如果在平稳关闭序列完成
+//      之前时间间隔到期，则会发生强制关闭序列，closesocket 返回。
+//  *   平稳关闭，closesocket 立即返回——允许关闭序列在后台完成。虽然这是默认行为，但应
+//      用程序无法知道（或是否）平稳关闭序列实际完成的时间。
+//
+// 为了最小化连接拆除期间出现问题的可能性，应避免依赖 closesocket 隐式启动关闭。相反，
+// 使用 shutdown 或 WSASendDisconnect 中的两个显式关闭函数。这会导致对等应用程序接收
+// 到 FD_CLOSE 指示，表明所有待处理数据已接收。以下表格显示了应用程序的客户端和服务器组
+// 件将调用的函数，其中客户端负责启动平稳关闭。
+//
+//  客户端                                        服务器端
+//  (1) 调用 shutdown(s, SD_SEND) 以指示会话结束，
+//      客户端没有更多数据要发送。                  (2) 接收 FD_CLOSE，表明平稳关闭正在进行，所有数据已接收。
+//                                                (3) 发送任何剩余的响应数据。
+//  (local timing significance only) 调用 recv    (4) 调用 shutdown(s, SD_SEND) 以指示服务器没有更多数据
+//      获取服务器发送的任何响应数据。                  要发送。
+//  (5) 接收 FD_CLOSE 指示。                       (local timing significance only) 调用 closesocket。
+//  (6) 调用 closesocket。
+//
+// 连接建立与拆除。WSAAccept 函数允许应用程序在决定是否接受传入连接请求之前，通过回调应
+// 用程序提供的条件函数，获取呼叫者信息，如呼叫者身份标识和服务质量。只要服务提供程序支
+// 持此功能，WSAConnect 函数的参数和 WSAAccept 的条件函数指定的用户到用户数据，可以在
+// 建立连接时传输到对等方。
+//
+// 对于支持此功能的协议，也可以在连接拆除时在端点之间交换用户数据。发起拆除的一端可以调用
+// WSASendDisconnect 函数，表明不再发送数据并启动连接拆除序列。对于某些协议，拆除的一部
+// 分是从拆除发起者处传递断开连接数据。在收到远端已发起拆除的通知后（通常通过 FD_CLOSE
+// 指示），可以调用 WSARecvDisconnect 函数来接收断开连接数据（如果有的话）。
+//
+// 为了说明如何使用断开连接数据，考虑以下场景。客户端负责终止客户端/服务器应用程序中的套
+// 接字连接。在终止的同时，它提供了（使用断开连接数据）与服务器处理的事务总数。服务器反
+// 过来响应所有客户端处理的事务总数。调用和指示的顺序可能如下：
+//
+//  客户端                                          服务器端
+//  (1) 调用 WSASendDisconnect 以结束会话并提供事务
+//      总数。                                      (2) 收到 FD_CLOSE，recv 返回值为零，或 WSARecv 返回
+//                                                     的 WSAEDISCON 错误，表明正在执行平稳关闭。
+//                                                 (3) 调用 WSARecvDisconnect 以获取客户端的事务总数。
+//                                                 (4) 计算所有事务的累计总数。
+//                                                 (5) 调用 WSASendDisconnect 以发送总数。
+//  (6) 收到 FD_CLOSE 指示。                        (5a) 调用 closesocket。
+//  (7) 调用 WSARecvDisconnect 以接收并存储事务总数。
+//  (8) 调用 closesocket。
+//  注意，步骤 (5a) 必须在步骤 (5) 之后执行，但与步骤 (6)、(7) 或 (8) 没有时间关系。
+
+void prh_setsockopt_linger_disable(prh_handle socket) {
+    LINGER linger = {.l_onoff = 0, .l_linger = 0};
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_LINGER, (char *)&linger, (int)sizeof(linger));
+    prh_wsa_prerr_if(n != 0);
+}
+
+void prh_setsockopt_linger_enable(prh_handle socket, prh_u16 keep_open_time_secs) {
+    LINGER linger = {.l_onoff = 1, .l_linger = keep_open_time_secs};
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_LINGER, (char *)&linger, (int)sizeof(linger));
+    prh_wsa_prerr_if(n != 0);
+}
+
+void prh_setsockopt_linger_enable_with_default_keep_open_time(prh_handle socket) {
+    DWORD enable = 0; // 在套接字连接上启动发送保活数据包
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_DONTLINGER, (char *)&enable, (int)sizeof(enable));
+    prh_wsa_prerr_if(n != 0);
+}
+
+bool prh_getsockopt_linger(prh_handle socket, prh_u16 *keep_open_time_secs) {
+    LINGER linger = {0};
+    int optlen = (int)sizeof(linger);
+    int n = getsockopt((SOCKET)socket, SOL_SOCKET, SO_LINGER, (char *)&linger, &optlen);
+    prh_wsa_prerr_if(n != 0);
+    *keep_open_time_secs = linger.l_linger;
+    return linger.l_onoff != 0;
+}
+
+#if PRH_DEBUG
+void prh_impl_test_print_linger(prh_handle socket) {
+    prh_u16 keep_open_time_secs = 0;
+    bool enable = prh_getsockopt_linger(socket, &keep_open_time_secs);
+    printf("TEST: linger %d keep_open_time_secs %d\n", enable, keep_open_time_secs);
+}
+#endif
+
+// shutdown 函数可以用来禁用发送和接收，TCP 禁止接收后，如果仍有排队等待接收的数据或后
+// 续有数据到达，连接将被重置。TCP 禁止发送后，在所有数据发送并被接收方确认后将发送 FIN
+// 数据包。
+//
+// 应用程序不应依赖 shutdown 套接字后重用套接字，特别是 Windows 套接字提供程序并不要求
+// 必须强制支持在已 shutdown 的套接字上使用 connect。如果应用程序希望重用套接字，应该
+// 调用 DisconnectEx 并设置 TF_REUSE_SOCKET，当 DisconnectEx 请求完成时，可以将套接
+// 字句柄传递给 AcceptEx 或 ConnectEx 函数。TransmitFile 或 TransmitPackets 函数也
+// 有同样的行为，TF_DISCONNECT 和 TF_REUSE_SOCKET。但是要注意，套接字级别的连接断开
+// 受底层传输行为的影响，例如 TCP 套接字 TIME_WAIT 状态的影响，导致 DisconnectEx、
+// TransmitFile 或 TransmitPackets 调用被延迟。
+//
+// 当 TCP 处于 TIME_WAIT 状态时，套接字对不能被重用。(The TIME_WAIT state determines
+// the time that must elapse before TCP can release a closed connection and reuse
+// its resources. While in the TIME_WAIT state, a socket pair cannot be re-used.)
+//
+// 处于 TIME_WAIT 状态的是主动关闭连接的那一端，该间隔等于网络最大报文段生命周期（MSL，
+// Maximum Segment Lifetime）的两倍，其目的是：
+//  1.  保证最后发出的 ACK 能被对方收到
+//  2.  防止在本次连接中 “迷途” 的报文段被误认为是下一次使用相同四元组的新连接中的合法
+//      数据，相当于保证清空旧连接在网络上的数据污染
+//
+// 因此，只要本地仍然占据着这条连接记录，任何一方都无法用完全相同的四元组再次握手成功。
+// 对方如果尝试发 SYN，本地会回 RST，连接无法建立。只有当 TIME_WAIT 定时器到期、本地内
+// 核把表项删除后，同一台机器才能再次使用相同的四元组。
+//
+// 或者改用新的本地端口，或启用了 SO_REUSEADDR / SO_LINGER / net.ipv4.tcp_tw_reuse
+// 等选项（需双方内核支持且时间戳检查通过），新的连接才能顺利建立。
+//
+// closesocket 函数用于关闭套接字。关闭的套接字可能被立即重用，因此不要多个线程关闭同一
+// 个套接字，这可能导致新创建的套接字也被关闭。关闭套接字时，如果存在还未完成的操作，这
+// 些操作将以 WSA_OPERATION_ABORTED 错误而失败。
+
+void prh_impl_iocp_force_close(struct tcp_socket *tcp) {
+    prh_handle socket = tcp->socket;
+    prh_setsockopt_linger_enable(socket, 0); // 套接字连接将被立即重置，任何未发送的数据都将丢失，套接字不会进入 TIME_WAIT 状态
+    prh_impl_close_socket(socket);
+}
+
 // int setsockopt(SOCKET s, int level, int optname, const char *optval, int optlen);
 // int getsockopt(SOCKET s, int level, int optname, char *optval, [in, out] int *optlen);
 //
