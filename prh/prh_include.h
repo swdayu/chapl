@@ -18932,6 +18932,8 @@ typedef prh_ptr prh_handle;
 #define PRH_TXCLOSE 0x0e
 #define PRH_DISCONN 0x0f
 
+#define PRH_EBIND_ADDRINUSE PRH_ISINUSE
+
 #define PRH_ECONN_FAILURE PRH_FAILURE // 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，不能绑定到本地地址，指定的套接字操作正在执行或者已经连接
 #define PRH_ECONN_INVALID PRH_INVALID // 无效参数，无效内存，无效远程地址，无效地址长度，accept前未调用listen
 #define PRH_ECONN_UNREACH PRH_UNREACH // 找不到到达远程主机的路由
@@ -20652,8 +20654,11 @@ void prh_impl_iocp_force_close(struct tcp_socket *tcp) {
 // 不推荐的，因为它可能导致不期望的效果，例如重置连接。例如，如果对等方接收到了数据但仍未
 // 确认，而本地计算机关闭了设置了 SO_LINGER 的套接字，则两台计算机之间的连接将被重置，对
 // 等方将丢弃未确认的数据。选择合适的停留时间是困难的，因为较短的超时值通常会导致连接突然
-// 中断，而较大的超时值会使系统容易受到拒绝服务攻击（通过建立许多连接并可能阻塞应用程序
-// 线程）。关闭具有非零停留超时值的套接字也可能导致 closesocket 调用阻塞。
+// 中断，而较大的超时时间可能会使系统容易受到拒绝服务攻击（通过建立许多连接，从而阻塞大量
+// 应用程序线程）。关闭具有非零停留超时值的套接字也可能导致 closesocket 调用阻塞。
+//
+// 注意，使用 SO_EXCLUSIVEADDRUSE 选项的套接字必须在关闭之前正确断连。未能做到这一点可
+// 能会导致拒绝服务攻击，如果相关服务需要重新启动的话。
 //
 // 增强套接字安全
 //
@@ -20671,7 +20676,7 @@ void prh_impl_iocp_force_close(struct tcp_socket *tcp) {
 //      第一次绑定调用              第二次绑定调用
 //                                  默认            SO_REUSEADDR  SO_EXCLUSIVEADDRUSE
 //                                  通配符  特定    通配符  特定    通配符  特定
-//      默认	            通配符  INUSE   成功    ACCESS  成功    INUSE   成功
+//      默认                通配符  INUSE   成功    ACCESS  成功    INUSE   成功
 //                          特定    成功    INUSE   成功    ACCESS  INUSE   INUSE
 //      SO_REUSEADDR        通配符  INUSE   成功    成功    成功    INUSE   成功
 //                          特定    成功    INUSE   成功    成功    INUSE   INUSE
@@ -20738,7 +20743,8 @@ void prh_impl_iocp_force_close(struct tcp_socket *tcp) {
 //
 // 最后，尽管 Windows Server 2003 中的套接字安全有所改进，但应用程序始终应该设置 SO_EXCLUSIVEADDRUSE
 // 套接字选项，以确保它绑定到进程请求的所有特定接口。Windows Server 2003 中的套接字安全
-// 为遗留应用程序增加了安全级别，但应用程序开发人员仍然必须在设计产品时考虑所有安全方面。
+// 为遗留应用程序增加了安全级别，但应用程序开发人员仍然必须在设计产品时全面考虑所有安全
+// 因素。
 
 void prh_setsockopt_reuseaddr(prh_handle socket, bool enable) {
     DWORD reuseaddr = enable;
@@ -20746,7 +20752,7 @@ void prh_setsockopt_reuseaddr(prh_handle socket, bool enable) {
     prh_wsa_prerr_if(n != 0);
 }
 
-bool prh_setsockopt_reuseaddr(prh_handle socket) {
+bool prh_getsockopt_reuseaddr(prh_handle socket) {
     DWORD reuseaddr = 0;
     int n = getsockopt((SOCKET)socket, SOL_SOCKET, SO_REUSEADDR, (char *)&reuseaddr, (int)sizeof(DWORD));
     prh_wsa_prerr_if(n != 0);
@@ -20764,6 +20770,74 @@ void prh_getsockopt_exclusiveaddruse(prh_handle socket) {
     int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&exclusiveaddruse, (int)sizeof(DWORD));
     prh_wsa_prerr_if(n != 0);
     return exclusiveaddruse != 0;
+}
+
+// SO_PORT_SCALABILITY 套接字选项通过允许在本地计算机上为不同的本地地址和端口对多次分配
+// 通配符端口，从而最大化端口分配，实现本地端口的可扩展性。
+//
+// 注意，在同时支持 SO_PORT_SCALABILITY 和 SO_REUSE_UNICASTPORT 的平台上，建议优先使
+// 用 SO_REUSE_UNICASTPORT。
+//
+// 代理服务器环境由于本地端口可用性有限而存在可扩展性问题。一种解决方法是为机器添加更多的
+// IP 地址。然而，默认情况下，使用 bind 函数的通配符端口仅限于本地计算机的动态端口范围大
+// 小（最多 64K 端口，但通常更少），无论本地计算机上有多少 IP 地址。解决此问题需要应用程
+// 序维护自己的端口池，可以使用端口预留或启发式方法。
+//
+// 为了避免每个需要可扩展性的应用程序都管理自己的端口池，并在保持应用程序兼容性的同时实现
+// 更大的可扩展性，Windows Server 2008 引入了 SO_PORT_SCALABILITY 套接字选项，以帮助
+// 最大化通配符端口分配。通过允许应用程序为每个唯一的本地地址和端口对分配通配符端口，从而
+// 最大化端口分配。因此，如果本地计算机有四个 IP 地址，则可以通过通配符绑定函数请求分配多
+// 达 256K 的通配符端口（64K 端口 × 4 个 IP 地址）。
+//
+// 当在套接字上设置了 SO_PORT_SCALABILITY 套接字选项，并对指定地址和通配符端口（name
+// 参数设置为特定地址和端口 0）调用 bind 函数时，Winsock 将为指定地址分配一个端口。此分
+// 配将基于本地计算机上所有可能的 IP 地址和每个地址上的端口。如果使用 SO_PORT_SCALABILITY
+// 选项获取了通配符端口，则没有设置 SO_PORT_SCALABILITY 选项的另一个套接字无法分配该端
+// 口。此限制是为了避免与假设通配符本地端口不能重用的应用程序出现向后兼容性问题。请注意，
+// 这意味着使用 SO_PORT_SCALABILITY 获取大量端口的应用程序可能会使传统应用程序缺乏端口。
+// 如果至少为一个地址使用 SO_PORT_SCALABILITY 获取了所有可用的临时端口，则在没有套接字
+// 选项的情况下，不再可能进行通配符端口分配。
+//
+// 简而言之，SO_PORT_SCALABILITY 可以 bind(ip_1, 0) 动态绑定到端口 a 之后，可以继续
+// 调用 bind(ip_2, 0) 动态绑定到相同的端口 a，即使得每个 IP 地址有一个独立的端口分配
+// 空间。
+//
+// 为了产生任何效果，必须在调用 bind 函数之前设置 SO_PORT_SCALABILITY 选项。以下概述了
+// 如何在具有两个地址的计算机上使用此选项的示例：
+//  1.  进程调用 socket 函数创建一个套接字。
+//  2.  调用 setsockopt 函数在新创建的套接字上启用 SO_PORT_SCALABILITY 套接字选项。
+//  3.  调用 bind 函数将套接字绑定到本地计算机的一个 IP 地址和端口 0。
+//  4.  调用 connect 函数连接到远程 IP 地址。应用程序需使用该套接字。
+//  5.  同一进程（可能是不同的线程）调用 socket 函数创建第二个套接字。
+//  6.  调用 setsockopt 函数在新创建的第二个套接字上启用 SO_PORT_SCALABILITY 选项。
+//  7.  调用 bind 函数，将套接字绑定到本地计算机的第二个 IP 地址和端口 0。即使所有端口
+//      都已预先分配，此调用也会成功，因为本地计算机上有多个 IP 地址，并且在同一个进程的
+//      两个套接字上都设置了 SO_PORT_SCALABILITY 套接字选项。
+//  8.  调用 connect 函数连接到远程 IP 地址。应用程序需使用第二个套接字。
+//
+// SO_REUSE_UNICASTPORT DWORD（布尔值）- 设置后，允许需要显式绑定的 Winsock API 连接
+// 函数（例如 ConnectEx）重用临时端口。请注意，具有隐式绑定的连接函数（例如没有显式绑定
+// 的 connect）默认已设置此选项。如果平台同时支持这两种选项，请使用此选项而不是 SO_PORT_SCALABILITY。
+
+void prh_setsockopt_reuse_unicastport(prh_handle socket, bool enable) {
+    DWORD reuseport = enable;
+#ifdef SO_REUSE_UNICASTPORT
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_REUSE_UNICASTPORT, (char *)&reuseport, (int)sizeof(DWORD));
+#else
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_PORT_SCALABILITY, (char *)&reuseport, (int)sizeof(DWORD));
+#endif
+    prh_wsa_prerr_if(n != 0);
+}
+
+bool prh_getsockopt_reuse_unicastport(prh_handle socket) {
+    DWORD reuseport = 0;
+#ifdef SO_REUSE_UNICASTPORT
+    int n = getsockopt((SOCKET)socket, SOL_SOCKET, SO_REUSE_UNICASTPORT, (char *)&reuseport, (int)sizeof(DWORD));
+#else
+    int n = getsockopt((SOCKET)socket, SOL_SOCKET, SO_PORT_SCALABILITY, (char *)&reuseport, (int)sizeof(DWORD));
+#endif
+    prh_wsa_prerr_if(n != 0);
+    return reuseport != 0;
 }
 
 // int setsockopt(SOCKET s, int level, int optname, const char *optval, int optlen);
@@ -22004,7 +22078,7 @@ bool prh_impl_sched_synced_listen_start_accept_req(prh_iocp_thrd_req *thrd_req) 
     return false;
 }
 
-void prh_iocp_tcp_listen(struct tcp_listen *listen, const char *host, int flags_port, int backlog) {
+int prh_iocp_tcp_listen(struct tcp_listen *listen, const char *host, int flags_port, int backlog) {
     if (listen->socket != PRH_INVASOCK) { prh_prerr(__LINE__); return; }
     prh_u16 l_port; prh_u32 l_addr[4];
     prh_impl_parse_address(host, flags_port, &listen->family, &l_port, l_addr);
@@ -22043,7 +22117,7 @@ void prh_iocp_tcp_listen(struct tcp_listen *listen, const char *host, int flags_
     // listen 函数将套接字置于监听传入连接的状态。如果没有错误发生，listen 返回零。否则返回 SOCKET_ERROR，
     // 可以通过调用 WSAGetLastError 获取特定的错误代码。
     // WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
-    // WSAENETDOWN	        网络子系统已失败。
+    // WSAENETDOWN         网络子系统已失败。
     // WSAEADDRINUSE       套接字的本地地址已被使用，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错
     //                     误通常在执行 bind 函数时发生，但如果 bind 是对通配符地址（涉及 ADDR_ANY）进行
     //                     的，并且需要在该函数执行时提交特定地址，则可能会延迟到此函数。
@@ -22057,8 +22131,13 @@ void prh_iocp_tcp_listen(struct tcp_listen *listen, const char *host, int flags_
     error_code = prh_impl_sock_listen(listen_socket, backlog);
     if (error_code) goto label_error_handle;
     prh_sched_thrd_synced_post(listen, prh_impl_sched_synced_listen_start_accept_req);
+    return 0;
 label_error_handle:
     prh_prerr(error_code);
+    if (error_code == WSAEADDRINUSE || error_code == WSAEACCES) {
+        return PRH_EBIND_ADDRINUSE;
+    }
+    return PRH_FAILURE;
 }
 
 // int connect(SOCKET s, const struct sockaddr *name, int namelen);
