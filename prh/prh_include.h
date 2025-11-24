@@ -18915,22 +18915,24 @@ void prh_impl_cono_test(void) {
 
 typedef prh_ptr prh_handle;
 
-#define PRH_SUCCESS 0x00
-#define PRH_FAILURE 0x01
-#define PRH_NOTCONN 0x02
-#define PRH_INVALID 0x03
-#define PRH_IGNORED 0x04
-#define PRH_ISINUSE 0x05
-#define PRH_UNREACH 0x06
-#define PRH_TIMEOUT 0x07
-#define PRH_REFUSED 0x08
-#define PRH_RESETED 0x09
-#define PRH_ABORTED 0x0a
-#define PRH_OPEXIST 0x0b
-#define PRH_OPABORT 0x0c
-#define PRH_RXCLOSE 0x0d
-#define PRH_TXCLOSE 0x0e
-#define PRH_DISCONN 0x0f
+typedef enum {
+    PRH_SUCCESS = 0x00,
+    PRH_FAILURE,
+    PRH_NOTCONN,
+    PRH_INVALID,
+    PRH_IGNORED,
+    PRH_ISINUSE,
+    PRH_UNREACH,
+    PRH_TIMEOUT,
+    PRH_REFUSED,
+    PRH_RESETED,
+    PRH_ABORTED,
+    PRH_OPEXIST,
+    PRH_OPABORT,
+    PRH_RXCLOSE,
+    PRH_TXCLOSE,
+    PRH_DISCONN,
+} prh_error_enum;
 
 #define PRH_EBIND_ADDRINUSE PRH_ISINUSE
 
@@ -20936,21 +20938,83 @@ bool prh_getsockopt_reuse_unicastport(prh_handle socket) {
 // 程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个
 // 阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
 
-void prh_setsockopt_ipv6_accept_v4_mapped_address(prh_handle sock, int enable) {
+void prh_setsockopt_ipv6_accept_v4_mapped_address(prh_handle socket, int enable) {
     int ipv6_v6_only = !enable; // IPv6 监听，必须加 IPV6_V6ONLY=0 才能同时接收 v4-mapped 地址
-    int n = setsockopt((SOCKET)sock, IPPROTO_IPV6, IPV6_V6ONLY, (char*)&ipv6_v6_only, (int)sizeof(int));
+    int n = setsockopt((SOCKET)socket, IPPROTO_IPV6, IPV6_V6ONLY, (char *)&ipv6_v6_only, (int)sizeof(int));
     prh_wsa_prerr_if(n != 0);
 }
 
-void prh_setsockopt_update_connect_context(prh_handle sock) {
-    int n = setsockopt((SOCKET)sock, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, prh_null, 0);
+void prh_setsockopt_update_connect_context(prh_handle socket) {
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_UPDATE_CONNECT_CONTEXT, prh_null, 0);
     prh_wsa_prerr_if(n != 0);
 }
+
+void prh_setsockopt_updata_accept_context(prh_handle accept_socket, prh_handle from_listen_socket) {
+    int n = setsockopt((SOCKET)accept_socket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, (char *)&from_listen_socket, (int)sizeof(SOCKET));
+    prh_wsa_prerr_if(n != 0);
+}
+
+prh_u32 prh_getsockopt_connect_time(prh_handle socket) {
+    // SO_CONNECT_TIME 此选项返回套接字已连接的秒数，此选项仅适用于面向连接的协议。此选
+    // 项可以与 getsockopt 函数一起使用，以检查连接是否已建立。在 ConnectEx 函数调用正
+    // 在进行的过程中，也可以使用此选项。如果连接已建立，SO_CONNECT_TIME 选项可以确定连
+    // 接已建立的时长。如果套接字未连接，getsockopt 将返回 SOCKET_ERROR。以这种方式检查
+    // 连接是必要的，以便查看已建立一段时间但未发送任何数据的连接，建议应用程序终止这些连
+    // 接。
+    DWORD connect_time_secs = 0;
+    getsockopt((SOCKET)socket, SOL_SOCKET, SO_CONNECT_TIME, (char *)&connect_time_secs, (int)sizeof(DWORD));
+    return connect_time_secs;
+}
+
+// 调用带有 SO_KEEPALIVE 套接字选项的 getsockopt 函数允许应用程序检索保活选项的当前状
+// 态，尽管此功能通常不被使用。如果应用程序需要在套接字上启用保活数据包，它只需调用 setsockopt
+// 函数来启用该选项。调用带有 SO_KEEPALIVE 套接字选项的 setsockopt 函数允许应用程序为
+// 套接字连接启用保活数据包。套接字的 SO_KEEPALIVE 选项默认是禁用的（设置为 FALSE）。
+//
+// 启用此套接字选项后，当连接在一定间隔内未收到任何数据或确认数据包时，TCP 栈会发送保活
+// 数据包。有关保活选项的更多信息，请参阅 RFC 1122 中的第 4.2.3.6 节 “Internet 主机要
+// 求——通信层”，可在 IETF 网站上找到。
+//
+// SO_KEEPALIVE 套接字选项仅适用于支持保活概念的协议（面向连接的协议）。对于 TCP，默认
+// 的保活超时时间为 2 小时，保活间隔为 1 秒。默认的保活探测次数根据 Windows 的版本而有
+// 所不同。
+//
+// 可以使用 SIO_KEEPALIVE_VALS 控制代码为单个连接启用或禁用保活功能，并调整超时时间和间
+// 隔。如果使用 SO_KEEPALIVE 启用了保活功能，则除非使用 SIO_KEEPALIVE_VALS 更改了这些
+// 值，否则将使用默认的 TCP 设置作为保活超时时间和间隔。
+//
+// 默认的系统范围的保活超时时间可以通过 KeepAliveTime 注册表设置进行控制，该设置的值以
+// 毫秒为单位。默认的系统范围的保活间隔可以通过 KeepAliveInterval 注册表设置进行控制，
+// 该设置的值以毫秒为单位。
+//
+// 在 Windows Vista 及更高版本中，保活探测次数（数据重传次数）被设置为 10，并且无法更改。
+// 在 Windows Server 2003、Windows XP 和 Windows 2000 上，默认的保活探测次数设置为 5。
+// 保活探测次数可以通过 TcpMaxDataRetransmissions 和 PPTPTcpMaxDataRetransmissions
+// 注册表设置进行控制。保活探测次数被设置为这两个注册表项值中较大的一个。如果此数字为 0，
+// 则不会发送保活探测。如果此数字高于 255，则会被调整为 255。
+//
+// 在 Windows Vista 及更高版本中，只有在套接字处于已知状态（而非过渡状态）时，才能使用
+// setsockopt 函数设置 SO_KEEPALIVE 套接字选项。对于 TCP，应在调用连接函数（connect、
+// ConnectEx、WSAConnect、WSAConnectByList 或 WSAConnectByName）之前，或在连接请求
+// 实际完成之后设置 SO_KEEPALIVE 套接字选项。如果连接函数是异步调用的，则需要等待连接完
+// 成，然后才能尝试设置 SO_KEEPALIVE 套接字选项。如果应用程序在连接请求仍在进行时尝试设
+// 置 SO_KEEPALIVE 套接字选项，setsockopt 函数将失败并返回 WSAEINVAL。
+//
+// 在 Windows Server 2003、Windows XP 和 Windows 2000 上，可以在套接字处于过渡状态
+// （连接请求仍在进行中）以及已知状态时，使用 setsockopt 函数设置 SO_KEEPALIVE 套接字
+// 选项。请注意，Ws2def.h 头文件会自动包含在 Winsock2.h 中，不应直接使用。
 
 void prh_setsockopt_keepalive(prh_handle socket, bool enable) {
     DWORD keepalive = enable; // 在套接字连接上启动发送保活数据包
     int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_KEEPALIVE, (char *)&keepalive, (int)sizeof(keepalive));
     prh_wsa_prerr_if(n != 0);
+}
+
+bool prh_getsockopt_keepalive(prh_handle socket) {
+    DWORD keepalive = 0;
+    int n = getsockopt((SOCKET)socket, SOL_SOCKET, SO_KEEPALIVE, (char *)&keepalive, (int)sizeof(keepalive));
+    prh_wsa_prerr_if(n != 0);
+    return keepalive != 0;
 }
 
 // int WSAAPI ioctlsocket(SOCKET s, long cmd, [in, out] u_long *argp);
