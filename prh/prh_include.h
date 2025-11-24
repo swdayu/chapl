@@ -18920,16 +18920,17 @@ typedef prh_ptr prh_handle;
 #define PRH_NOTCONN 0x02
 #define PRH_INVALID 0x03
 #define PRH_IGNORED 0x04
-#define PRH_UNREACH 0x05
-#define PRH_TIMEOUT 0x06
-#define PRH_REFUSED 0x07
-#define PRH_RESETED 0x08
-#define PRH_ABORTED 0x09
-#define PRH_OPEXIST 0x0a
-#define PRH_OPABORT 0x0b
-#define PRH_RXCLOSE 0x0c
-#define PRH_TXCLOSE 0x0d
-#define PRH_DISCONN 0x0e
+#define PRH_ISINUSE 0x05
+#define PRH_UNREACH 0x06
+#define PRH_TIMEOUT 0x07
+#define PRH_REFUSED 0x08
+#define PRH_RESETED 0x09
+#define PRH_ABORTED 0x0a
+#define PRH_OPEXIST 0x0b
+#define PRH_OPABORT 0x0c
+#define PRH_RXCLOSE 0x0d
+#define PRH_TXCLOSE 0x0e
+#define PRH_DISCONN 0x0f
 
 #define PRH_ECONN_FAILURE PRH_FAILURE // 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，不能绑定到本地地址，指定的套接字操作正在执行或者已经连接
 #define PRH_ECONN_INVALID PRH_INVALID // 无效参数，无效内存，无效远程地址，无效地址长度，accept前未调用listen
@@ -20511,6 +20512,260 @@ void prh_impl_iocp_force_close(struct tcp_socket *tcp) {
     prh_impl_close_socket(socket);
 }
 
+// 使用 SO_REUSEADDR 和 SO_EXCLUSIVEADDRUSE
+// https://learn.microsoft.com/en-us/windows/win32/winsock/using-so-reuseaddr-and-so-exclusiveaddruse
+//
+// 开发安全的高级网络基础设施是大多数网络应用程序开发人员的首要任务。然而，套接字安全常常
+// 被忽视，尽管在考虑完整的安全解决方案时，它非常关键。套接字安全特别涉及绑定到同一端口的
+// 进程，这些端口之前已被其他应用程序进程绑定。在过去，网络应用程序可能会 “劫持” 另一个
+// 应用程序的端口，这很容易导致 “拒绝服务” 攻击或数据窃取（denial of service attack or
+// data theft）。
+//
+// 一般来说，套接字安全适用于服务器端进程。更具体地说，套接字安全适用于任何接受连接并接收
+// IP 数据报流量的网络应用程序。这些应用程序通常绑定到一个众所周知的端口，并且是恶意网络
+//代码的常见攻击目标。
+//
+// 客户端应用程序不太可能是此类攻击的目标——不是因为它们更不容易受到攻击，而是因为大多数客
+// 户端绑定到 “临时” 本地端口，而不是静态的 “服务” 端口。客户端网络应用程序应始终绑定到
+// 临时端口（通过在调用 bind 函数时，将指向 SOCKADDR 结构的 name 参数指定为端口 0），除
+// 非有令人信服的架构原因不这么做。临时本地端口是大于 49151 的端口，大多数专用服务的服务
+// 器应用程序绑定到小于或等于 49151 的知名保留端口。因此，对于大多数应用程序来说，客户端
+// 和服务器应用程序之间的绑定请求通常不会发生冲突。
+//
+// 对于 TCP/IP，如果端口指定为零，则服务提供程序将从动态客户端端口范围中为应用程序分配
+// 一个唯一的端口。在 Windows Vista 及更高版本中，动态客户端端口范围是 [49152, 65535]。
+// Windows Server 2003 及更早版本的动态客户端端口范围是 [1025, 5000] 之间的值。
+//
+// 本节描述了各种 Microsoft Windows 平台上的默认安全级别，以及特定的套接字选项 SO_REUSEADDR
+// 和 SO_EXCLUSIVEADDRUSE 如何影响网络应用程序的安全性。在 Windows Server 2003 及更高
+// 版本中，提供了一种称为增强套接字安全的附加功能。这些套接字选项和增强套接字安全的可用性
+// 在 Microsoft 操作系统的不同版本中有所不同，如下表所示。
+//
+//      平台                    SO_REUSEADDR    SO_EXCLUSIVEADDRUSE     增强套接字安全（Enhanced Socket Security）
+//      Windows 95              可用            不可用                      不可用
+//      Windows 98              可用            不可用                      不可用
+//      Windows Me              可用            不可用                      不可用
+//      Windows NT 4.0          可用            从 Service Pack 4 开始可用  不可用
+//      Windows 2000            可用            可用                        不可用
+//      Windows XP              可用            可用                        不可用
+//      Windows Server 2003     可用            可用                        可用
+//      Windows Vista           可用            可用                        可用
+//      Windows Server 2008     可用            可用                        可用
+//      Windows 7 及更高版本     可用            可用                        可用
+//
+// 使用 SO_REUSEADDR
+//
+// SO_REUSEADDR 套接字选项允许一个套接字强制绑定到已被另一个套接字使用的端口。第二个套
+// 接字在绑定到与原始套接字相同的端口之前，通过调用 setsockopt 并将 optname 参数设置为
+// SO_REUSEADDR，optval 参数设置为布尔值 TRUE。一旦第二个套接字成功绑定，所有绑定到该
+// 端口的套接字的行为将变得不确定。例如，如果所有绑定到同一端口的套接字都提供 TCP 服务，
+// 那么无法保证任何传入的 TCP 连接请求都将由正确的套接字处理——行为是非确定性的。恶意程序
+// 可以使用 SO_REUSEADDR 强制绑定已被标准网络协议服务使用的套接字，以拒绝对该服务的访问。
+// 使用此选项不需要特殊权限。
+//
+// 如果客户端应用程序在服务器应用程序能够绑定到同一端口之前绑定到端口，则可能会出现问题。
+// 如果服务器应用程序使用 SO_REUSEADDR 套接字选项强制绑定到同一端口，则所有绑定到该端口
+// 的套接字的行为将变得不确定。
+//
+// 这种非确定性行为的例外是多播套接字。如果两个套接字绑定到同一接口和端口，并且是同一多播
+// 组的成员，则数据将被传递到两个套接字，而不是任意选择一个。
+//
+// https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-getsockopt
+//
+// 默认情况下，套接字无法绑定到已经处于使用中的本地地址（参见 bind）。然而，在某些情况下，
+// 可能需要以这种方式重用地址。由于每个连接都是通过本地和远程地址的组合唯一标识的，因此只
+// 要远程地址不同，两个套接字绑定到同一个本地地址是没有问题的。为了告知 Windows Sockets
+// 提供程序，绑定到一个套接字的地址不应因为该地址已被另一个套接字使用而被禁止，应用程序应
+// 在发出 bind 之前为该套接字设置 SO_REUSEADDR 套接字选项。请注意，该选项仅在绑定时被解
+// 释：因此，在不绑定到现有地址的套接字上设置该选项是不必要的（但无害的），并且在绑定之后
+// 设置或重置该选项对该套接字或其他任何套接字都没有影响。SO_REUSEADDR 不适用于 ATM 套接
+// 字，尽管重用地址的请求不会导致错误，但它们对 ATM 套接字的使用没有影响。
+//
+// 对于客户端程序，一般都绑定到动态本地端口，因此不需要使用该套接字选项。对于服务端程序，
+// 监听套接字才可能需要绑定到特定的服务端口，但为了安全性，当相同的服务已经在运行时，不
+// 应该启动另一个相同的服务，因此通常也不需要设置这个套接字选项。唯一的例外是，服务器主动
+// 关闭了一个客户连接，并且同一个客户使用相同的地址和端口来重来，这个客户在 TIME_WAIT
+// 时间内重连不上。但是只要客户使用动态端口，这种情况不会发生。另外，服务端可以不主动关闭
+// 连接，即使需要主动关闭的情况下，可以使用强制主动重置连接，此时 TCP 不会进入 TIME_WAIT
+// 状态。
+//
+// 使用 SO_EXCLUSIVEADDRUSE
+//
+// 在引入 SO_EXCLUSIVEADDRUSE 套接字选项之前，网络应用程序开发人员几乎无法阻止恶意程序
+// 绑定到网络应用程序已绑定套接字的端口。为了应对这一安全问题，Windows Sockets 引入了
+// SO_EXCLUSIVEADDRUSE 套接字选项，该选项从 Windows NT 4.0 的 Service Pack 4 (SP4)
+// 开始可用。
+//
+// 通过在套接字绑定之前调用 setsockopt 函数，并将 optname 参数设置为 SO_EXCLUSIVEADDRUSE，
+// optval 参数设置为布尔值 TRUE 来设置 SO_EXCLUSIVEADDRUSE 选项。设置该选项后，后续绑
+// 定调用的行为将根据每个绑定调用中指定的网络地址而有所不同。
+//
+// SO_EXCLUSIVEADDRUSE 套接字选项只能由 Windows XP 及更早版本中的管理员安全组成员使用。
+// 在 Windows Server 2003 及更高版本中，这一要求发生了变化。下表描述了在 Windows XP
+// 及更早版本中，当第二个套接字尝试绑定到已被第一个套接字绑定的地址时发生的行为。注意下表
+// 中，“通配符” 表示给定协议的通配符地址（IPv4 的 “0.0.0.0” 和 IPv6 的 “::”）。“特定”
+// 表示分配给接口的特定 IP 地址。表中的单元格指示绑定是否成功（“成功”）或返回错误（“INUSE”
+// 表示 WSAEADDRINUSE 错误；“ACCESS”表示 WSAEACCES 错误）。
+//
+//      第一次绑定调用            第二次绑定调用
+//                                  默认            SO_REUSEADDR    SO_EXCLUSIVEADDRUSE
+//                                  通配符  特定    通配符  特定    通配符  特定
+//      默认                通配符  INUSE   INUSE   成功    成功    INUSE   INUSE
+//                          特定    INUSE   INUSE   成功    成功    INUSE   INUSE
+//      SO_REUSEADDR        通配符  INUSE   INUSE   成功    成功    INUSE   INUSE
+//                          特定    INUSE   INUSE   成功    成功    INUSE   INUSE
+//      SO_EXCLUSIVEADDRUSE 通配符  INUSE   INUSE   ACCESS  ACCESS  INUSE   INUSE
+//                          特定    INUSE   INUSE   ACCESS  ACCESS  INUSE   INUSE
+//
+// 当两个套接字绑定到同一端口号但位于不同的显式接口上时，不会发生冲突。例如，在计算机有两
+// 个 IP 接口（10.0.0.1 和 10.99.99.99）的情况下，如果第一次绑定调用是在 10.0.0.1 上，
+// 端口设置为 5150，并且指定了 SO_EXCLUSIVEADDRUSE，则第二次在 10.99.99.99 上绑定，端
+// 口也设置为 5150，且未指定任何选项的调用将成功。然而，如果第一个套接字绑定到通配符地址
+// 和端口 5150，则任何后续绑定到端口 5150 并设置了 SO_EXCLUSIVEADDRUSE 的调用都将失败，
+// 绑定操作将返回 WSAEADDRINUSE 或 WSAEACCES。
+//
+// 如果第一次绑定调用设置了 SO_REUSEADDR 或未设置任何套接字选项，则第二次绑定调用将 “劫持”
+// 端口，应用程序将无法确定两个套接字中哪一个接收了发送到 “共享” 端口的特定数据包。典型调
+// 用 bind 函数的应用程序不会为绑定的套接字分配独占使用，除非在调用 bind 函数之前在套接
+// 字上设置了 SO_EXCLUSIVEADDRUSE 套接字选项。如果客户端应用程序在服务器应用程序绑定到
+// 同一端口之前绑定到临时端口或特定端口，则可能会出现问题。服务器应用程序可以通过在调用
+// bind 函数之前在套接字上使用 SO_REUSEADDR 套接字选项强制绑定到同一端口，但此时所有绑
+// 定到该端口的套接字的行为将变得不确定。如果服务器应用程序尝试使用 SO_EXCLUSIVEADDRUSE
+// 套接字选项以独占方式使用端口，则请求将失败。
+//
+// 相反，设置了 SO_EXCLUSIVEADDRUSE 的套接字在套接字关闭后不一定能够立即被重用。例如，
+// 如果设置了 SO_EXCLUSIVEADDRUSE 的监听套接字接受了一个连接，然后随后被关闭，另一个套
+// 接字（也设置了 SO_EXCLUSIVEADDRUSE）将无法绑定到与第一个套接字相同的端口，直到原始
+// 连接变为非活动状态。
+//
+// 这个问题可能会变得复杂，因为底层传输协议可能不会在套接字关闭后终止连接。即使应用程序已
+// 经关闭了套接字，系统仍必须传输任何缓冲的数据，向对等方发送优雅的断开连接消息，并等待对
+// 等方的相应优雅断开连接消息。有可能底层传输协议永远不会释放连接；例如，参与原始连接的对
+// 等方可能会发布零大小的窗口，或者某种其他形式的 “攻击” 配置。在这种情况下，尽管请求关闭
+// 连接，但客户端连接仍然处于活动状态，因为未确认的数据仍然保留在缓冲区中。
+//
+// 为了避免这种情况，网络应用程序应通过调用 shutdown 并设置 SD_SEND 标志，然后在 recv
+// 循环中等待，直到连接上返回零字节，从而确保优雅关闭。这可以保证所有数据都被对等方接收，
+// 并且同样确认已接收对等方传输的所有数据，同时避免上述端口重用问题。
+//
+// 可以在套接字上设置 SO_LINGER 套接字选项，以防止端口进入 “活动” 等待状态；然而，这是
+// 不推荐的，因为它可能导致不期望的效果，例如重置连接。例如，如果对等方接收到了数据但仍未
+// 确认，而本地计算机关闭了设置了 SO_LINGER 的套接字，则两台计算机之间的连接将被重置，对
+// 等方将丢弃未确认的数据。选择合适的停留时间是困难的，因为较短的超时值通常会导致连接突然
+// 中断，而较大的超时值会使系统容易受到拒绝服务攻击（通过建立许多连接并可能阻塞应用程序
+// 线程）。关闭具有非零停留超时值的套接字也可能导致 closesocket 调用阻塞。
+//
+// 增强套接字安全
+//
+// 增强套接字安全是在 Windows Server 2003 发布时添加的。在以前的 Microsoft 服务器操作
+// 系统版本中，套接字安全很容易让进程从毫无戒备的应用程序中劫持端口。在 Windows Server
+// 2003 中，默认情况下套接字不是处于可共享状态。因此，如果应用程序希望允许其他进程重用已
+// 绑定套接字的端口，则必须明确启用它。如果出现这种情况，则首次对该端口调用 bind 的套接
+// 字必须在套接字上设置 SO_REUSEADDR。唯一的例外是，当第二次 bind 调用是由最初调用 bind
+// 的同一用户帐户执行的。此例外仅用于提供向后兼容性。
+//
+// 下表描述了在 Windows Server 2003 及更高版本操作系统中，当第二个套接字尝试绑定到已被
+// 第一个套接字绑定的地址时发生的行为。还请注意，此表中的两次绑定调用都是在同一个用户帐户
+// 下进行的。
+//
+//      第一次绑定调用              第二次绑定调用
+//                                  默认            SO_REUSEADDR  SO_EXCLUSIVEADDRUSE
+//                                  通配符  特定    通配符  特定    通配符  特定
+//      默认	            通配符  INUSE   成功    ACCESS  成功    INUSE   成功
+//                          特定    成功    INUSE   成功    ACCESS  INUSE   INUSE
+//      SO_REUSEADDR        通配符  INUSE   成功    成功    成功    INUSE   成功
+//                          特定    成功    INUSE   成功    成功    INUSE   INUSE
+//      SO_EXCLUSIVEADDRUSE 通配符  INUSE   ACCESS  ACCESS  ACCESS  INUSE   ACCESS
+//                          特定    成功    INUSE   成功    ACCESS  INUSE   INUSE
+//
+// 上表中的一些条目需要解释。例如，如果第一个调用者在特定地址上设置了 SO_EXCLUSIVEADDRUSE，
+// 而第二个调用者尝试在相同端口上使用通配符地址调用 bind，则第二次绑定调用将成功。在这种
+// 特定情况下，第二个调用者绑定到除第一个调用者绑定的特定地址之外的所有接口。请注意，这种
+// 情况的相反情况并不成立：如果第一个调用者设置了 SO_EXCLUSIVEADDRUSE 并使用通配符标志
+// 调用 bind，第二个调用者将无法使用相同的端口调用 bind。
+//
+// 当使用不同用户帐户进行套接字绑定调用时，套接字绑定行为会发生变化。下表指定了在 Windows
+// Server 2003 及更高版本操作系统中，当第二个套接字尝试绑定到已被第一个套接字绑定的地址
+// 时发生的行为，并且使用了不同的用户帐户。
+//
+//      第一次绑定调用              第二次绑定调用
+//                                  默认            SO_REUSEADDR  SO_EXCLUSIVEADDRUSE
+//                                  通配符  特定    通配符  特定    通配符  特定
+//      默认                通配符  INUSE   ACCESS  ACCESS  ACCESS  INUSE   ACCESS
+//                          特定    成功    INUSE   成功    ACCESS  INUSE   INUSE
+//      SO_REUSEADDR        通配符  INUSE   ACCESS  成功    成功    INUSE   ACCESS
+//                          特定    成功    INUSE   成功    成功    INUSE   INUSE
+//      SO_EXCLUSIVEADDRUSE 通配符  INUSE   ACCESS  ACCESS  ACCESS  INUSE   ACCESS
+//                          特定    成功    INUSE   成功    ACCESS  INUSE   INUSE
+//
+// 请注意，当绑定调用是在不同用户帐户下进行时，默认行为是不同的。如果第一个调用者未在套接
+// 字上设置任何选项并绑定到通配符地址，则第二个调用者无法设置 SO_REUSEADDR 选项并成功绑
+// 定到同一端口。没有设置任何选项的默认行为，也将返回错误。
+//
+// 在 Windows Vista 及更高版本中，可以创建一个双栈套接字，该套接字在 IPv6 和 IPv4 上运
+// 行。当双栈套接字绑定到通配符地址时，给定端口将同时在 IPv4 和 IPv6 网络栈上保留，并且
+// 如果设置了 SO_REUSEADDR 和 SO_EXCLUSIVEADDRUSE（如果设置），将进行相关检查。这些检
+// 查必须在两个网络堆栈上都成功。例如，如果双栈 TCP 套接字设置了 SO_EXCLUSIVEADDRUSE，
+// 然后尝试绑定到端口 5000，则不能有其他 TCP 套接字先前绑定到端口 5000（无论是通配符还是
+// 特定）。在这种情况下，如果一个 IPv4 TCP 套接字先前绑定了端口 5000 上的回环地址，则双
+// 栈套接字的绑定调用将因 WSAEACCES 而失败。
+//
+// 在 Windows Vista 及以上版本上，创建 “双栈套接字” 只需 3 步：
+//  1.  创建一个 IPv6 地址族的套接字
+//  2.  在绑定之前把套接字选项 IPV6_V6ONLY 设成 0（允许 IPv4 映射地址）
+//  3.  绑定到通配地址 in6addr_any 或指定端口即可
+//
+// 此后，这一个套接字就能同时接收 IPv4 与 IPv6 的入站连接，也能向两种地址族发起出站连接。
+// 仅在 Windows Vista 及以后支持；XP/2003 需分别建 IPv4、IPv6 两个套接字。必须在 bind
+// 前关闭 IPV6_V6ONLY，否则默认仅允许 IPv6 。客户端 connect 时，把 IPv4 地址写成映射形
+// 式 ::ffff:a.b.c.d 即可，系统会自动走 IPv4 路径。
+//
+// 应用程序策略
+//
+// 在开发套接字层运行的网络应用程序时，重要的是要考虑所需的套接字安全类型。客户端应用程序，
+// 连接或向服务发送数据的应用程序，很少需要任何额外的步骤，因为它们绑定到随机的本地（临时）
+// 端口。如果客户端确实需要特定的本地端口绑定才能正常工作，则必须考虑套接字安全。
+//
+// 除了多播套接字（数据被传递到绑定在同一端口上的所有套接字）之外，SO_REUSEADDR 选项在正
+// 常应用程序中的用途很少。否则，任何设置了此套接字选项的应用程序都应该重新设计以去除依赖，
+// 因为它极易受到 “套接字劫持” 的攻击。只要 SO_REUSEADDR 套接字选项可以用于在服务器应用
+// 程序中潜在地劫持端口，该应用程序就必须被视为不安全的。
+//
+// 所有服务器应用程序都必须设置 SO_EXCLUSIVEADDRUSE，以实现高级别的套接字安全。它不仅防
+// 止恶意软件劫持端口，还可以指示是否有其他应用程序绑定到请求的端口。例如，如果一个具有
+// SO_EXCLUSIVEADDRUSE 套接字选项的进程在通配符地址上绑定，而另一个进程当前在特定接口上
+// 绑定到同一端口，则该绑定调用将失败。
+//
+// 最后，尽管 Windows Server 2003 中的套接字安全有所改进，但应用程序始终应该设置 SO_EXCLUSIVEADDRUSE
+// 套接字选项，以确保它绑定到进程请求的所有特定接口。Windows Server 2003 中的套接字安全
+// 为遗留应用程序增加了安全级别，但应用程序开发人员仍然必须在设计产品时考虑所有安全方面。
+
+void prh_setsockopt_reuseaddr(prh_handle socket, bool enable) {
+    DWORD reuseaddr = enable;
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_REUSEADDR, (char *)&reuseaddr, (int)sizeof(DWORD));
+    prh_wsa_prerr_if(n != 0);
+}
+
+bool prh_setsockopt_reuseaddr(prh_handle socket) {
+    DWORD reuseaddr = 0;
+    int n = getsockopt((SOCKET)socket, SOL_SOCKET, SO_REUSEADDR, (char *)&reuseaddr, (int)sizeof(DWORD));
+    prh_wsa_prerr_if(n != 0);
+    return reuseaddr != 0;
+}
+
+void prh_setsockopt_exclusiveaddruse(prh_handle socket, bool enable) {
+    DWORD exclusiveaddruse = enable;
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&exclusiveaddruse, (int)sizeof(DWORD));
+    prh_wsa_prerr_if(n != 0);
+}
+
+void prh_getsockopt_exclusiveaddruse(prh_handle socket) {
+    DWORD exclusiveaddruse = 0;
+    int n = setsockopt((SOCKET)socket, SOL_SOCKET, SO_EXCLUSIVEADDRUSE, (char *)&exclusiveaddruse, (int)sizeof(DWORD));
+    prh_wsa_prerr_if(n != 0);
+    return exclusiveaddruse != 0;
+}
+
 // int setsockopt(SOCKET s, int level, int optname, const char *optval, int optlen);
 // int getsockopt(SOCKET s, int level, int optname, char *optval, [in, out] int *optlen);
 //
@@ -20606,11 +20861,6 @@ void prh_impl_iocp_force_close(struct tcp_socket *tcp) {
 // 能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步过
 // 程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个
 // 阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
-
-void prh_setsockopt_reuseaddr(prh_handle sock, int reuse) {
-    int n = setsockopt((SOCKET)sock, SOL_SOCKET, SO_REUSEADDR, (char *)&reuse, (int)sizeof(int));
-    prh_wsa_prerr_if(n != 0);
-}
 
 void prh_setsockopt_ipv6_accept_v4_mapped_address(prh_handle sock, int enable) {
     int ipv6_v6_only = !enable; // IPv6 监听，必须加 IPV6_V6ONLY=0 才能同时接收 v4-mapped 地址
@@ -21138,7 +21388,6 @@ prh_u32 prh_impl_sock_bind(prh_handle socket, struct sockaddr *local, int addrle
     // 地址，也就是说不论是否预先设置 SO_REUSEADDR，对应的bind调用都会失败。在这样的
     // 系统上，执行通配地址捆绑的服务器进程必须最后一个启动。这么做是为了防止把恶意的服
     // 务器绑定到某个系统服务正在使用的IP地址和端口上，造成合法请求被截取。
-    prh_setsockopt_reuseaddr(socket, 1);
     int n = bind((SOCKET)socket, local, addrlen);
     prh_u32 error_code = 0;
     if (n != 0) {
@@ -21762,6 +22011,9 @@ void prh_iocp_tcp_listen(struct tcp_listen *listen, const char *host, int flags_
     int family = (listen->family == PRH_AF_IPV6) ? AF_INET6 : AF_INET;
     prh_handle listen_socket = prh_impl_tcp_socket(family);
     listen->socket = listen_socket;
+    // 所有服务器应用程序都必须设置 SO_EXCLUSIVEADDRUSE，以实现高级别的套接字安全。它
+    // 不仅防止恶意软件劫持端口，还可以指示是否有其他应用程序绑定到请求的端口。
+    prh_setsockopt_exclusiveaddruse(listen_socket, true);
     // bind 函数将本地地址与套接字关联。如果没有错误发生，bind 返回零。否则返回 SOCKET_ERROR，可以通过调用
     // WSAGetLastError 获取特定的错误代码。
     // WSANOTINITIALISED   注意：在调用此函数之前，必须先成功调用 WSAStartup。
