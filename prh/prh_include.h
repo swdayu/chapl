@@ -16086,6 +16086,20 @@ prh_rio_socket prh_iocp_create_rio_socket(prh_handle socket) {
     return prh_impl_rio_rqueue_create(socket, PRH_IMPL_RIO_CQUEUE, (void *)socket);
 }
 
+// 在 32 位机器上，64/128/256/512 个字节可以分配 7/15/31/63 个 prh_iocp_thrd_req
+// 在 64 位机器上，64/128/256/512 个字节可以分配 3/ 7/15/31 个 prh_iocp_thrd_req
+#ifndef PRH_THRD_QUE_BLOCK_SIZE
+#define PRH_THRD_QUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE
+#endif
+
+typedef struct {
+    void **tail_block_tail_item;
+} prh_atom_thrd_que_producer;
+
+typedef struct {
+    void **head_block_head_item;
+} prh_atom_thrd_que_consumer;
+
 typedef struct {
     void *post_req; // 必须是第一个成员
     prh_continue_routine continue_routine; // 必须是第二个成员
@@ -16161,7 +16175,9 @@ typedef struct {
 //  prh_u32 thrd_id: 31, created: 1;                            //  12  20  只读
 typedef struct prh_thrd_struct(                                 //
     prh_atom_bool atom_thrd_exit;                               //  16  24  仅在程序退出时被调度线程写入一次，其他时间仅由工作线程访问
-    prh_atom_ext_hive_quefix_producer thrd_req_que_producer;    //  28  48  仅由工作线程访问
+    prh_atom_thrd_que_producer thrd_req_que_producer;    //  28  48  仅由工作线程访问
+    prh_byte *linear_memory_buffer_top; // 只能释放最后分配的内存，只能线性地在一条绳索上滑动
+    prh_byte *braver_memory_cache_line; // 分配了就分配了释放不了的内存，永远向前不能后退的内存，每次分配缓存行的整数倍
     // 被工作线程和调度线程共享的线程数据
     prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_share_thrd_data share_thrd_data;
 ) prh_iocp_thrd;
@@ -16178,6 +16194,29 @@ typedef struct { // 被工作线程和调度线程共享的全局数据
 } prh_iocp_shared_global;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_shared_global PRH_IOCP_SHARED_GLOBAL;
+
+void *prh_thrd_braver_memory_alloc(prh_unt size) {
+    assert(size > 0 && (size % PRH_CACHE_LINE_SIZE) == 0);
+    prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
+    void *alloc = thrd->braver_memory_cache_line;
+    thrd->braver_memory_cache_line += size;
+    return alloc;
+}
+
+void *prh_thrd_linear_memory_push(prh_unt size) {
+    assert(size > 0 && (size % sizeof(void *)) == 0);
+    prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
+    void *alloc = thrd->linear_memory_buffer_top;
+    thrd->linear_memory_buffer_top += size;
+    return alloc;
+}
+
+void *prh_thrd_linear_memory_pop(prh_unt size) {
+    assert(size > 0 && (size % sizeof(void *)) == 0);
+    prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
+    thrd->linear_memory_buffer_top -= size;
+    return thrd->linear_memory_buffer_top;
+}
 
 void prh_impl_iocp_shared_global_init(prh_iocp_share_thrd_data **thrd_wait_que) {
     prh_atom_u32_init(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed, 0);
@@ -16279,6 +16318,8 @@ typedef struct {
     int sched_thrd_cqueue_size; // 必须是 2 的幂，同时也是 overlapped_entry_array 和 rio_result_entry_array 的大小
     int post_collect_que_size; // 必须是 2 的幂
     int post_dispatch_que_size; // 必须是 2 的幂
+    int thrd_linear_memory_size;
+    int thrd_braver_memory_size;
 } prh_iocp_config;
 
 typedef struct {
@@ -16292,6 +16333,8 @@ typedef struct { // 仅由调度线程访问的数据
     bool single_thrd_program;                                   // 只读
     int concurrent_threads;                                     // 只读
     int sched_thrd_cqueue_size;                                 // 只读
+    int thrd_linear_memory_size;                                // 只读
+    int thrd_braver_memory_size;                                // 只读
     prh_u32 cfmd_post_seqn;                                     // 可写，仅由调度线程访问
     prh_simple_thrds *iocp_thrds;                               // 只读
     prh_iocp_thrd *sched_thrd;                                  // 只读
@@ -16699,11 +16742,23 @@ static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
 static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
     prh_atom_1wnr_ext_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
     prh_iocp_thrd *thrd = (prh_iocp_thrd *)thrd_ptr;
-    prh_impl_iocp_thrd_attach_extra(thrd, &PRH_IOCP_GLOBAL.thrd_req_que[prh_thrd_index(thrd_ptr)].thrd_req_que_consumer);
     prh_atom_bool *atom_thrd_exit = &thrd->atom_thrd_exit;
+    void *linear_memory = prh_null;
+    void *braver_memory = prh_null;
     bool thrd_is_exit = false;
-    prh_iocp_post_req post_req;
+
+    prh_impl_iocp_thrd_attach_extra(thrd, &PRH_IOCP_GLOBAL.thrd_req_que[prh_thrd_index(thrd_ptr)].thrd_req_que_consumer);
+    if (PRH_IOCP_GLOBAL.thrd_linear_memory_size > 0) {
+        linear_memory = prh_virtual_alloc(PRH_IOCP_GLOBAL.thrd_linear_memory_size);
+        thrd->linear_memory_buffer_top = linear_memory;
+    }
+    if (PRH_IOCP_GLOBAL.thrd_braver_memory_size > 0) {
+        braver_memory = prh_virtual_alloc(PRH_IOCP_GLOBAL.thrd_braver_memory_size);
+        thrd->braver_memory_cache_line = braver_memory;
+    }
+
     for (; ;) {
+        prh_iocp_post_req post_req;
         while (prh_atom_1wnr_ext_arrque_pop(post_dispatch_que, &post_req)) {
             post_req.continue_routine(post_req.post_req); // 调用被 <operation>_complete 或 <operation>_completed_from_port 设置的函数
         }
@@ -16714,7 +16769,10 @@ static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
             prh_impl_iocp_thrd_sleep(&thrd->share_thrd_data); // 进入睡眠，等待调度线程唤醒
         }
     }
+
     prh_debug(printf("[thrd %02d] exit\n", prh_thrd_id(thrd_ptr)));
+    if (linear_memory) prh_virtual_free(linear_memory);
+    if (braver_memory) prh_virtual_free(braver_memory);
     return 0;
 }
 
