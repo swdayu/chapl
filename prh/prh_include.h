@@ -257,7 +257,7 @@ extern "C" {
     #endif
     #define prh_arch_bits 64
     #define prh_arch_32 0
-    #define prh_arch_64 64
+    #define prh_arch_64 1
 #else
     #if defined(__i386) || defined(_M_IX86)
         #define prh_arch_x86 1
@@ -267,7 +267,7 @@ extern "C" {
         #error "architecture unsupported!!!"
     #endif
     #define prh_arch_bits 32
-    #define prh_arch_32 32
+    #define prh_arch_32 1
     #define prh_arch_64 0
 #endif
 #endif // prh_arch_bits
@@ -883,15 +883,21 @@ extern "C" {
     typedef prh_i32 prh_sys_int;
     typedef prh_u32 prh_sys_unt;
     #define prh_int_bits 32
+    #define prh_int_32 1
+    #define prh_int_64 0
 #elif prh_arch_bits == 64
     #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
         typedef prh_u32 prh_unt;
         #define prh_int_bits 32
+        #define prh_int_32 1
+        #define prh_int_64 0
     #else
         typedef prh_i64 prh_int;
         typedef prh_u64 prh_unt;
         #define prh_int_bits 64
+        #define prh_int_32 0
+        #define prh_int_64 1
     #endif
     typedef prh_i64 prh_sys_int;
     typedef prh_u64 prh_sys_unt;
@@ -2126,9 +2132,9 @@ void prh_impl_basic_test(void) {
     prh_real_assert(prh_offsetof(prh_impl_test_struct, a) == 0);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, b) == 4);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, c) == 8);
-#if prh_arch_32
+#if prh_int_32
     prh_real_assert(prh_offsetof(prh_impl_test_struct, d) == 12);
-#elif prh_arch_64
+#elif prh_int_64
     prh_real_assert(prh_offsetof(prh_impl_test_struct, d) == 16);
 #endif
 }
@@ -16086,19 +16092,52 @@ prh_rio_socket prh_iocp_create_rio_socket(prh_handle socket) {
     return prh_impl_rio_rqueue_create(socket, PRH_IMPL_RIO_CQUEUE, (void *)socket);
 }
 
-// 在 32 位机器上，64/128/256/512 个字节可以分配 7/15/31/63 个 prh_iocp_thrd_req
-// 在 64 位机器上，64/128/256/512 个字节可以分配 3/ 7/15/31 个 prh_iocp_thrd_req
-#ifndef PRH_THRD_QUE_BLOCK_SIZE
-#define PRH_THRD_QUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE
+// 指针长度     32-bit              64-bit
+// 64  个字节    16 个指针（14）      8 个指针（6*）
+// 128 个字节    32 个指针（30*）    16 个指针（14）
+//  192个字节    48 个指针（46）     24 个指针（22）
+// 256 个字节    64 个指针（62）     32 个指针（30*）
+//  320个字节    80 个指针（78*）    40 个指针（38）
+//  384个字节    96 个指针（94）     48 个指针（46）
+//  448个字节    112个指针（110）    56 个指针（54*）
+// 512 个字节    128个指针（126*）   64 个指针（62）
+//  576个字节    144个指针（142）    72 个指针（70）
+//  640个字节    160个指针（158）    80 个指针（78*）
+//  704个字节    176个指针（174*）   88 个指针（86）
+//  768个字节    192个指针（190）    96 个指针（94）
+//  832个字节    208个指针（206）    104个指针（102*）
+//  896个字节    224个指针（222*）   112个指针（110）
+//  960个字节    240个指针（238）    120个指针（118）
+// 1024个字节    256个指针（254）    128个指针（126*）
+//
+// 在 32 位机器上，128/512 个字节可保存 30/126 个 prh_iocp_thrd_req
+// 在 64 位机器上，256/1024个字节可保存 30/126 个 prh_iocp_thrd_req
+#define PRH_IMPL_THRD_TX_QUE_BLOCK_SIZE_L1 ((int)(32 * sizeof(void *)))
+#define PRH_IMPL_THRD_TX_QUE_BLOCK_SIZE_L2 ((int)(128 * sizeof(void *)))
+
+#ifndef PRH_THRD_TX_QUE_BLOCK_SIZE
+#define PRH_THRD_TX_QUE_BLOCK_SIZE PRH_IMPL_THRD_TX_QUE_BLOCK_SIZE_L1
 #endif
+
+prh_static_assert(PRH_THRD_TX_QUE_BLOCK_SIZE == PRH_IMPL_THRD_TX_QUE_BLOCK_SIZE_L1 ||
+                  PRH_THRD_TX_QUE_BLOCK_SIZE == PRH_IMPL_THRD_TX_QUE_BLOCK_SIZE_L2);
+
+#define PRH_IMPL_THRD_TX_QUE_BLOCK_END_OFFSET (PRH_THRD_TX_QUE_BLOCK_SIZE - 2 * (int)sizeof(void *))
 
 typedef struct {
     void **tail_block_tail_item;
+    void **free_block_head_item;
 } prh_atom_thrd_que_producer;
 
 typedef struct {
     void **head_block_head_item;
+    void **free_block_tail_item;
 } prh_atom_thrd_que_consumer;
+
+typedef struct {
+    prh_atom_int queue_length;
+    prh_atom_int free_block_count;
+} prh_atom_thrd_que_length;
 
 typedef struct {
     void *post_req; // 必须是第一个成员
@@ -16128,7 +16167,7 @@ prh_static_assert(sizeof(prh_coro_post_item) == 2 * sizeof(void *));
 prh_static_assert((((prh_ptr)PRH_ATOM_DYNQUE_BLOCK_END) & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG) == 0);
 prh_static_assert((((prh_ptr)PRH_ATOM_DYNQUE_ITEM_FREE) & PRH_IMPL_SCHED_CORO_SUBQ_POST_FLAG) == 0);
 
-#if prh_arch_32
+#if prh_int_32
 #define PRH_IMPL_THRD_POST_SEQN_MASK 0x00ffffff
 typedef struct {
     void *post_req; // 必须是第一个成员
@@ -16143,7 +16182,7 @@ typedef struct {
     prh_ptr post_data; // 必须是第二个成员
     prh_u32 post_seqn: 24, opcode: 8; // 必须是第三个成员
 } prh_coro_thrd_req;
-#elif prh_arch_64
+#elif prh_int_64
 #define PRH_IMPL_THRD_POST_SEQN_MASK 0xffffffff
 typedef struct {
     void *post_req; // 必须是第一个成员
@@ -16216,6 +16255,73 @@ void *prh_thrd_linear_memory_pop(prh_unt size) {
     prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
     thrd->linear_memory_buffer_top -= size;
     return thrd->linear_memory_buffer_top;
+}
+
+prh_inline prh_atom_dynque_block *prh_impl_atom_thrd_tx_que_block_from_block_end(void **block_end) {
+    return (prh_atom_dynque_block *)((prh_byte *)block_end - PRH_IMPL_THRD_TX_QUE_BLOCK_END_OFFSET);
+}
+
+prh_inline prh_atom_dynque_block_end *prh_impl_atom_thrd_tx_que_block_end(prh_atom_dynque_block *block) {
+    return prh_impl_atom_dynque_block_end(block, PRH_IMPL_THRD_TX_QUE_BLOCK_END_OFFSET);
+}
+
+void prh_impl_atom_thrd_tx_que_push_free_block(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_length *l, prh_atom_dynque_block *free_block) {
+    assert(free_block != prh_null);
+    if (c->free_block_tail_item[0] == PRH_ATOM_DYNQUE_BLOCK_END) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
+        // 不需要修改 free_block->next 为空，因为总是可以通过 PRH_ATOM_DYNQUE_BLOCK_END 判断尾部，而且空闲块是通过 braver memory 分配的，不需要释放
+        c->free_block_tail_item[1] = (void **)free_block;
+        c->free_block_tail_item = (void **)free_block;
+    } else { // 否则当前内存块还有位置，将空闲块插入空闲队列
+        *c->free_block_tail_item++ = free_block;
+        assert(*(c->free_block_tail_item - 1) == free_block); // 仅允许单生产者和单消费者
+    }
+    prh_atom_int_inc(&l->free_block_count); // 可用空闲块加一
+}
+
+prh_atom_dynque_block *prh_impl_atom_thrd_tx_que_pop_free_block(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l) {
+    prh_atom_int *free_block_count = &l->free_block_count;
+    if (!prh_atom_int_read(free_block_count)) return prh_null;
+    prh_atom_dynque_block *free_block;
+    if (p->free_block_head_item[0] == PRH_ATOM_DYNQUE_BLOCK_END) { // 如果已到达当前内存块末尾，移动到下一个内存块
+        free_block = prh_impl_atom_thrd_tx_que_block_from_block_end(p->free_block_head_item); // 需要释放的当前内存块，就是一个可用的空闲块
+        p->free_block_head_item = (void **)p->free_block_head_item[1];
+    } else {
+        free_block = *p->free_block_head_item++;
+        assert(free_block != prh_null);
+        assert(*(p->free_block_head_item - 1) == free_block); // 仅允许单生产者和单消费者
+    }
+    prh_atom_int_dec(free_block_count); // 可用空闲块减一
+    return free_block;
+}
+
+void *prh_atom_thrd_tx_que_malloc(void) { // braver memory 已初始化为零
+    void *block = prh_thrd_braver_memory_alloc(PRH_THRD_TX_QUE_BLOCK_SIZE);
+    prh_impl_atom_thrd_tx_que_block_end(block)->block_end_data = PRH_ATOM_DYNQUE_BLOCK_END;
+    return block;
+}
+
+prh_atom_dynque_block *prh_impl_atom_thrd_tx_que_get_block(prh_atom_dynque_block *free_block) {
+    if (free_block == prh_null) {
+        free_block = prh_atom_thrd_tx_que_malloc();
+    } else {
+        prh_impl_atom_thrd_tx_que_block_end(free_block)->next = prh_null;
+    }
+    return free_block;
+}
+
+prh_atom_dynque_block *prh_impl_atom_thrd_tx_que_alloc_block(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l) {
+    return prh_impl_atom_thrd_tx_que_get_block(prh_impl_atom_thrd_tx_que_pop_free_block(p, l));
+}
+
+void prh_atom_thrd_tx_que_init(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_length *l) {
+    // 空闲块队列必须有一个隐藏的头节点，因为在仅剩一个空闲块的时候移除该空闲块时：
+    //  1.  空闲队列消费者线程需要违法只修改头指针的规则，因为已经没有空闲块存在，尾指针也要改为空
+    //  2.  这种修改无法做到不说，空闲队列消费者线程无法阻止空闲队列生产者线程继续在原有的空闲块上添加空闲块
+    //  3.  只有总存在一个节点时，头指针总是在追赶尾指针，当头指针追赶到下一个节点时，上一个节点就可以自然而然的安全释放
+    p->free_block_head_item = c->free_block_tail_item = prh_atom_thrd_tx_que_malloc();
+    prh_atom_int_init(&l->free_block_count, 0); // 先对 free block 进行初始化
+    c->head_block_head_item = p->tail_block_tail_item = (void **)prh_impl_atom_thrd_tx_que_get_block(prh_null);
+    prh_atom_int_init(&l->queue_length, 0);
 }
 
 void prh_impl_iocp_shared_global_init(prh_iocp_share_thrd_data **thrd_wait_que) {
@@ -16500,7 +16606,7 @@ typedef struct {
 } prh_atom_sched_coro_que_consumer;
 
 prh_inline prh_atom_dynque_block_end *prh_impl_atom_sched_coro_que_block_end(prh_atom_dynque_block *block) {
-    return (prh_atom_dynque_block_end *)((prh_byte *)block + PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET);
+    return prh_impl_atom_dynque_block_end(block, PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET);
 }
 
 prh_atom_dynque_block *prh_impl_atom_sched_coro_que_aligned_alloc(prh_atom_dynque_block *free_block) {
