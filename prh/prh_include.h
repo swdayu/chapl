@@ -16224,8 +16224,9 @@ prh_static_assert(prh_offsetof(prh_iocp_thrd, share_thrd_data) == PRH_CACHE_LINE
 
 typedef struct { // 被工作线程和调度线程共享的全局数据
     prh_atom_u32 post_seqn_seed;
-    prh_atom_u32 keep_sched_thrd_alive;
     prh_atom_u32 cono_id_seed;
+    prh_atom_bool keep_alive_to_collect_tx_post;
+    prh_atom_bool keep_alive_to_deliver_post;
     int thrd_wait_que_items;
     prh_iocp_share_thrd_data **thrd_wait_que; // 等待调度的工作线程队列
     prh_thrd_mutex thrd_wait_que_mutex;
@@ -16397,7 +16398,8 @@ bool prh_atom_thrd_tx_que_pops(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_
 
 void prh_impl_iocp_shared_global_init(prh_iocp_share_thrd_data **thrd_wait_que) {
     prh_atom_u32_init(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed, 0);
-    prh_atom_u32_init(&PRH_IOCP_SHARED_GLOBAL.keep_sched_thrd_alive, 0);
+    prh_atom_bool_init(&PRH_IOCP_SHARED_GLOBAL.keep_alive_to_collect_tx_post, false);
+    prh_atom_bool_init(&PRH_IOCP_SHARED_GLOBAL.keep_alive_to_deliver_post, false);
     PRH_IOCP_SHARED_GLOBAL.thrd_wait_que = thrd_wait_que;
     PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items = 0;
     prh_impl_thrd_mutex_init(&PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex);
@@ -16443,20 +16445,44 @@ prh_iocp_share_thrd_data *prh_impl_iocp_thrd_wait_que_pop(void) {
     return thrd;
 }
 
-static bool prh_impl_sched_thrd_wakeup_complete(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
-    // 工作线程可能在这个位置检测到 keep_sched_thrd_alive 大于 0，不会向完成端口投递保活包
-    // 但是此时调度线程已经醒来，已经插入的线程任务（或休眠线程已经插入等待队列），会保证调度线程不会睡眠
-    prh_atom_u32_dec(&PRH_IOCP_SHARED_GLOBAL.keep_sched_thrd_alive);
+bool prh_impl_sched_thrd_do_nothing_entry_complete(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
     return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
 }
 
-void prh_impl_iocp_keep_sched_thrd_alive(void) {
-    // 1. 工作线程投递任务后，只要确保有一个保活包存在于完成端口中，即可保证调度线程活跃
-    // 2. 工作线程进入睡眠后，以防还有分派的任务存在，确保调度线程是最后一个进入睡眠的线程
-    prh_atom_u32 *keep_sched_thrd_alive = &PRH_IOCP_SHARED_GLOBAL.keep_sched_thrd_alive;
-    if (prh_atom_u32_read(keep_sched_thrd_alive) == 0) {
-        prh_atom_u32_inc(keep_sched_thrd_alive);
-        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_wakeup_complete, keep_sched_thrd_alive);
+void prh_impl_sched_thrd_complete_keep_alive_to_collect_tx_post(void) {
+    PRH_IOCP_GLOBAL.recv_keep_alive_to_collect_tx_post_entry = false;
+    prh_atom_bool *keep_alive_to_collect_tx_post = &PRH_IOCP_SHARED_GLOBAL.keep_alive_to_collect_tx_post;
+    prh_atom_bool_write(keep_alive_to_collect_tx_post, false);
+    prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_do_nothing_entry_complete, keep_alive_to_collect_tx_post);
+}
+
+bool prh_impl_sched_thrd_handle_keep_alive_to_collect_tx_post(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
+    PRH_IOCP_GLOBAL.recv_keep_alive_to_collect_tx_post_entry = true;
+    return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
+}
+
+void prh_impl_iocp_keep_sched_thrd_alive_to_collect_tx_post(void) {
+    // 工作线程投递任务后，只要确保有一个保活包存在于完成端口中，即可保证调度线程活跃
+    prh_atom_bool *keep_alive_to_collect_tx_post = &PRH_IOCP_SHARED_GLOBAL.keep_alive_to_collect_tx_post;
+    if (!prh_atom_bool_read(keep_alive_to_collect_tx_post)) { // 这里可能 enqueue 多个也没问题
+        prh_atom_bool_write(keep_alive_to_collect_tx_post, true);
+        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_handle_keep_alive_to_collect_tx_post, keep_alive_to_collect_tx_post);
+    }
+}
+
+bool prh_impl_sched_thrd_handle_keep_alive_to_deliver_post(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
+    // 工作线程可能在这个位置检测到 keep_alive_to_deliver_post 为真，不会向完成端口投递保活包
+    // 但是此时调度线程已经醒来，已经插入的线程任务（或休眠线程已经插入等待队列），会保证调度线程不会睡眠
+    prh_atom_bool_write(&PRH_IOCP_SHARED_GLOBAL.keep_alive_to_deliver_post, false);
+    return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
+}
+
+void prh_impl_iocp_keep_sched_thrd_alive_to_deliver_post(void) {
+    // 工作线程进入睡眠后，以防还有分派的任务存在，确保调度线程是最后一个进入睡眠的线程
+    prh_atom_u32 *keep_alive_to_deliver_post = &PRH_IOCP_SHARED_GLOBAL.keep_alive_to_deliver_post;
+    if (!prh_atom_bool_read(keep_alive_to_deliver_post)) {
+        prh_atom_bool_write(keep_alive_to_deliver_post, true);
+        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_wakeup_complete, keep_alive_to_deliver_post);
     }
 }
 
@@ -16505,11 +16531,12 @@ typedef struct {
 typedef prh_fixed_arrque_ptr(prh_iocp_post_req) prh_post_collect_que_ptr;
 typedef prh_fixed_arrque_ptr(prh_iocp_thrd_req) prh_sched_cqueue_ptr;
 typedef struct { // 仅由调度线程访问的数据
-    bool single_thrd_program;                                   // 只读
     int concurrent_threads;                                     // 只读
     int sched_thrd_cqueue_size;                                 // 只读
     int thrd_linear_memory_size;                                // 只读
     int thrd_braver_memory_size;                                // 只读
+    bool single_thrd_program;                                   // 只读
+    bool recv_keep_alive_to_collect_tx_post_entry;              // 可写，仅由调度线程访问
     prh_u32 cfmd_post_seqn;                                     // 可写，仅由调度线程访问
     prh_simple_thrds *iocp_thrds;                               // 只读
     prh_iocp_thrd *sched_thrd;                                  // 只读
@@ -16621,9 +16648,9 @@ typedef bool (*prh_sched_thrd_synced_routine)(prh_iocp_thrd_req *thrd_req);
 
 void prh_impl_iocp_thrd_post(void *post_req, prh_continue_routine continue_routine, prh_byte opcode) {
     // 工作线程投递任务给调度线程分派，每个工作线程都有一个独立的任务队列供自己使用。工作线程投递的每个任务，
-    // 都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，都最多只处理固定数量的任务，例如 [cfmd_post_seqn, cfmd_post_seqn + N)，
+    // 都使用一个全局的原子整数自加进行编号。调度线程每一轮调度，最多只处理固定数量的任务，例如 [cfmd_post_seqn, cfmd_post_seqn + N)，
     // 每一轮最多只有在此区间内的任务被处理。在处理时，调度线程首先将范围内的任务，按编号顺序收集到一个大小固
-    // 定队列中（post_collect_que），然后分派到各线程争抢的任务分派队列中（post_dispatch_que）
+    // 定的队列中（post_collect_que），然后分派到各线程争抢的任务分派队列中（post_dispatch_que）
     assert(post_req != prh_null);
     prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
     prh_iocp_thrd_req *thrd_req = prh_atom_thrd_tx_que_push_begin(&thrd->thrd_tx_que_producer);
@@ -16818,8 +16845,12 @@ prh_u32 prh_impl_sched_thrd_collect_seqn_range(prh_u32 curr_post_seed) {
     return (collect_que_empty_items < collect_seqn_range) ? collect_que_empty_items : collect_seqn_range;
 }
 
+prh_u32 prh_impl_sched_thrd_curr_post_seed(void) {
+    return prh_atom_u32_read(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed) & PRH_IMPL_THRD_POST_SEQN_MASK;
+}
+
 int prh_impl_sched_thrd_collect_post(void) {
-    prh_u32 curr_post_seed = (prh_atom_u32_read(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed) & PRH_IMPL_THRD_POST_SEQN_MASK);
+    prh_u32 curr_post_seed = PRH_IOCP_GLOBAL.prev_post_seed_processed = prh_impl_sched_thrd_curr_post_seed();
     prh_u32 collect_seqn_range = prh_impl_sched_thrd_collect_seqn_range(curr_post_seed);
     if (collect_seqn_range) {
         // 收集调度线程完成队列中的线程任务
@@ -16862,12 +16893,12 @@ static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.overlapped_entry_array;
     OVERLAPPED_ENTRY *entry_end = prh_null, *entry_ptr = prh_null;
     int entry_array_size = PRH_IOCP_GLOBAL.sched_thrd_cqueue_size, entry_count = 0, dispatch_que_posts;
-    bool keep_sched_thrd_alive = true;
+    bool sched_thrd_need_wakeup = true;
 
     for (; ;) {
         //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（query_entries_each_time）的完成条目
         if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
-            if ((entry_count = prh_impl_sched_thrd_wait_iocp_entries(overlapped_entry, entry_array_size, keep_sched_thrd_alive))) {
+            if ((entry_count = prh_impl_sched_thrd_wait_iocp_entries(overlapped_entry, entry_array_size, sched_thrd_need_wakeup))) {
                 entry_ptr = overlapped_entry;
                 entry_end = overlapped_entry + entry_count;
             }
@@ -16894,20 +16925,25 @@ static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
         //  5.  调度线程根据状态决定是否睡眠
         if (prh_impl_sched_thrd_collect_que_len()) {
             // 收集的任务还没有完全分派，调度线程必须继续活动
-            //  a.  可能 post_collect_que 队列中的第一个任务，序列号已经分配，但对应的线程还没有来得及将其插入到 thrd_tx_que 队列中，因此调度线程还未成功收集该任务导致
-            //      已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
+            //  a.  可能 post_collect_que 队列中的第一个任务，序列号已经分配，但对应的线程还没有来得及将其插入到 thrd_tx_que 队
+            //      列中，因此调度线程还未成功收集该任务导致已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
             //  b.  可能任务分派队列 post_dispatch_que 已经填满，调度线程需要动态跟踪分派队列的大小，继续执行步骤 4 进行任务分派
-            keep_sched_thrd_alive = true;
-        } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != (prh_atom_u32_read(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed) & PRH_IMPL_THRD_POST_SEQN_MASK)) {
+            sched_thrd_need_wakeup = true;
+        } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != prh_impl_sched_thrd_curr_post_seed()) {
             // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号
             //  a.  要么已经分配的任务没有被对应的线程成功投递，需要调度线程继续跟踪收集任务
             //  b.  要么还存在新分配的任务没有收集，都需要调度线程需继续执行步骤 3 收集线程任务
-            keep_sched_thrd_alive = true;
+            sched_thrd_need_wakeup = true;
         } else {
             //  a.  成功收集的线程任务都已经分派出去
             //  b.  所有分配的任务序列号都已经成功分派到分派队列
             //  c.  此时调度线程唯一可做的就是在完成端口上进行无限等待
-            keep_sched_thrd_alive = false;
+            sched_thrd_need_wakeup = false;
+        }
+
+        // 如果调度线程是活跃的，工作线程不需要向完成端口投递保活包
+        if (PRH_IOCP_GLOBAL.recv_keep_alive_to_collect_tx_post_entry && !sched_thrd_need_wakeup) {
+            prh_impl_sched_thrd_complete_keep_alive_to_collect_tx_post();
         }
     }
 }
