@@ -387,9 +387,9 @@ struct reader $t $(struct *t int a b return int) calc $(struct *t  struct []byte
 struct get ($*t p return int)
 struct read ($*t p struct *byte buf int n return int)
 struct reader $T $get(T) get $read(T) read { }
-struct color const i08 { RED 1 BLUE 2 YELLOW 3 }
-struct bitvalue const int { FLAT_BIT1 1 << const, FLAG_BIT2, FLAG_BIT3 }
-struct tcpaction const int { TCPA_OPEN_ACCEPT, TCPA_TX_DATA, TCPA_RX_DONE }
+struct color i08 { RED 1 BLUE 2 YELLOW 3 }
+struct bitvalue int { FLAT_BIT1 1 << const, FLAG_BIT2, FLAG_BIT3 }
+struct tcpaction int { TCPA_OPEN_ACCEPT, TCPA_TX_DATA, TCPA_RX_DONE }
 struct 协程 { u32 rspoffset loweraddr }
 struct coroguard { u32 lower_guard_word struct *coro coro (struct *coroguard g int a b int) f g }
 struct handle(struct *hcirxdesc rxdesc u32 ca struct hcidatatype type struct u line)
@@ -397,11 +397,11 @@ struct main(int argc **byte argv int)
 struct scale(struct point point int a b)
 struct calc(int a b int)
 
-struct array const int size $t {
+struct array int size $t {
     struct [size]t a
 }
 
-struct array const int size $a { // $ 定义一个类型参数 a
+struct array int size $a { // $ 定义一个类型参数 a
     struct [size]a
 }
 
@@ -410,8 +410,8 @@ struct test $a $b {
     struct b
 }
 
-struct int_N_array const int size = struct "size int" array
-struct type_size_array const int size $t = struct "size type" array
+struct int_N_array int size = struct "size int" array
+struct type_size_array int size $t = struct "size type" array
 struct int_array = struct "20 int" array
 struct some_array_type = struct "8 (10 (20 int_N_array))" array
 struct int_array_of_array = struct "8 int_array" array
@@ -426,27 +426,24 @@ struct test $t $u {
 
 const float PI 3.1415926
 
-const int color {
+const point {
+    100,
+    200,
+}
+
+struct color int {
     red const + 1,
     blue,
     green,
     yellow,
 }
 
-const point {
-    100,
-    200,
-}
-
-struct test const int size $t $array(size, t) a $u const point {
+struct test int size $t $array(size, t) a $u point {
     struct t t
     struct u u
 }
 
-struct test
-    const a
-    const b
-    const int size
+struct test t u int size
 {}
 
 struct test $t $u {
@@ -458,12 +455,6 @@ struct test $any t u {
     struct t t
     struct u u
 }
-
-struct test
-    const struct a a
-    const struct b b
-    const int size
-{}
 
 extern struct l2capconn         struct *l2capconn        struct [2]l2capconn
 extern struct l2capcallback     struct *l2capcallback    struct [2]l2capcallback
@@ -506,7 +497,7 @@ struct node $t {
     struct t data
 }
 
-struct tripple $t $u const int size {
+struct tripple $t $u int size {
     struct [size]t a
     struct u b
 }
@@ -714,13 +705,18 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-const u08 color {
-    red,
-    green,
-    blue,
+struct color u08 {
+    red,    // 0
+    green,  // 1
+    blue,   // 2
 }
 
-const u32 operator -> const {u08 lpri rpri} { // const sum type
+struct ptr_type unsigned {
+    null 0, // 0
+    ptr ... // 其余值
+}
+
+struct operator u32 -> {u08 lpri rpri} { // const sum type
     ass '=' {200, 201},
     add '+' {211, 210},
     sub '-' {211, 210},
@@ -731,19 +727,14 @@ const u32 operator -> const {u08 lpri rpri} { // const sum type
     end 0 // 默认值为零
 }
 
-const byte token -> struct { // sum type
+struct token byte -> struct { // sum type
     atom {byte id},
     oper {byte id},
     eof
 }
 
-struct ptr_type unsigned {
-    null 0,
-    ptr ... // 其余值
-}
-
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
-struct expr const byte { // 相当于是一种泛型类型
+struct expr byte -> struct { // 相当于是一种泛型类型
     value {int n}, // 相当于存储 {byte 0 int n}
     ident {int id}, // 相当于存储 {byte 1 int n}
     expr {int op struct *expr lhs rhs}, // 相当于存储 {byte 2 int op unt lhs rhs}
@@ -1130,7 +1121,7 @@ next(struct *node($t) return *t) {
     return node.next
 }
 
-size(struct *triple(const int size, $t, $u) return int) {
+size(struct *triple(int size, $t, $u) return int) {
     return triple.a + size + sizeof t
 }
 
