@@ -424,18 +424,18 @@ struct test $t $u {
 
 // 类型通过 struct 定义，变量通过 const 或 let 定义
 
-const point {
-    100,
-    200,
-}
-
 const float PI 3.1415926
 
-struct color const int {
+const int color {
     red const + 1,
     blue,
     green,
     yellow,
+}
+
+const point {
+    100,
+    200,
 }
 
 struct test const int size $t $array(size, t) a $u const point {
@@ -714,9 +714,13 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-struct color const u08 {}
+const u08 color {
+    red,
+    green,
+    blue,
+}
 
-struct operator const u32 -> const {u08 lpri rpri} {
+const u32 operator -> const {u08 lpri rpri} { // const sum type
     ass '=' {200, 201},
     add '+' {211, 210},
     sub '-' {211, 210},
@@ -727,15 +731,15 @@ struct operator const u32 -> const {u08 lpri rpri} {
     end 0 // 默认值为零
 }
 
-struct ptr_type unt {
-    null 0,
-    uptr ... // 其余值
-}
-
-struct token const byte {
+const byte token -> struct { // sum type
     atom {byte id},
     oper {byte id},
     eof
+}
+
+struct ptr_type unsigned {
+    null 0,
+    ptr ... // 其余值
 }
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
