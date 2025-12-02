@@ -102,9 +102,9 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  i08 i16 i32 i64 i128 i256 i512 int sys_int  signed integer
-//  u08 u16 u32 u64 u128 u256 u512 unt sys_unt  unsigned integer
-//  f08 f16 f32 f64 f128 f256 f512              float point
+//  i08 i16 i32 i64 i128 i256 i512 int      sys_int
+//  u08 u16 u32 u64 u128 u256 u512 unsigned sys_ptr struct ptr
+//  f08 f16 f32 f64 f128 f256 f512 float
 //
 // 简洁尽量实现使用最少字符
 //  布尔类型    布尔常量    空值    字符类型    字符串类型
@@ -149,7 +149,7 @@
 // any          // basic_type + anony_type + named_type + gimpl_type
 // basic_type   // numeric + string
 // numeric      // integer + float + decimal + complex
-// integer      // bool null byte rune errno strt i08~i512 u08~u512 int unt
+// integer      // 枚举类型 bool null byte rune errno strt i08~i512 u08~u512 int unt
 // instant_type
 // generic_type
 //
@@ -328,7 +328,7 @@ struct data {
 }
 
 struct get ($*T a return int) // 函数参数只能声明类型模板参数
-struct read ($*T a unt p int n return int) // 函数只有第一个参数才能是泛型类型
+struct read ($*T a unsigned p int n return int) // 函数只有第一个参数才能是泛型类型
 struct reader $T $get(T) get $read(T) read {} // 在 ${} 表达式中需要省略 struct 关键字
 
 struct @{get} ($*T a return int)
@@ -547,13 +547,13 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     u32 loweraddr
     u32 maxudsize 31 ptr_param 1
     i32 coro_id
-    unt rspoffset
-    unt loweraddr
-    unt maxudsize 31 ptr_param 1
+    unsigned rspoffset
+    unsigned loweraddr
+    unsigned maxudsize 31 ptr_param 1
     int coro_id
-    unt rspoffset
-    unt loweraddr
-    unt maxudsize 31 ptr_param 1
+    unsigned rspoffset
+    unsigned loweraddr
+    unsigned maxudsize 31 ptr_param 1
     int coro_id
     struct ptr address
 }
@@ -563,7 +563,7 @@ struct coro {
     u32 loweraddr
     i32 maxudsize 31 ptr_param 1
     i32 coro_id
-    unt rspoffset
+    unsigned rspoffset
     int maxudsize
     int coro_id
 }
@@ -737,7 +737,7 @@ struct token byte -> struct { // sum type
 struct expr byte -> struct { // 相当于是一种泛型类型
     value {int n}, // 相当于存储 {byte 0 int n}
     ident {int id}, // 相当于存储 {byte 1 int n}
-    expr {int op struct *expr lhs rhs}, // 相当于存储 {byte 2 int op unt lhs rhs}
+    expr {int op struct *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
 eat(*Lexer lexer Token) {
@@ -841,7 +841,7 @@ parse_expression(struct *lexer int min_prior struct expr) {
     let struct expr 'uninit'
 }
 
-main(int argc struct **char argv return int) {
+main(int argc **char argv return int) {
 
 }
 
@@ -897,8 +897,7 @@ tcp_poll(struct *file struct *socket struct *poll_table return poll) [m] 'fastca
 //          }
 //      }
 
-ptr Ptr alloc(1024)
-ptr.unwrap_or_panic()
+let ptr alloc(1024) or panic()
 
 token Token scan()
 if token case .eof {
@@ -944,7 +943,7 @@ main(void) {
     print("hello")
 }
 
-main(int argc struct **byte argv return int) { // main 函数默认是 public
+main(int argc **byte argv return int) { // main 函数默认是 public
     print("hello world\n")
     return 0
 }
@@ -954,7 +953,7 @@ main(return int) [m] {
     return 0
 }
 
-struct main(int argc struct **byte argv return int)
+struct main(int argc **byte argv return int)
 
 Main(i32 argc **byte argv return i32)
 scale(Point point int a b)
@@ -1052,12 +1051,12 @@ for i I 0 .. 9 {
     pos + der adr *I (*byte p + size + f(g))
 }
 
-memcpy(S ptr dst src int count)
-memcpy(S ptr dst src int count) [[intrinsic]]
-memcmp(S ptr dst src int count int) [[intrinsic]]
-memset(S ptr dst byte value int count) [[intrinsic]]
-lock_cmpxchg(*T p T old new T) [[intrinsic]]
-coroguard(*Coro coro CoroGuard) [[cdcel inline]]
+memcpy(struct ptr dst src int count)
+memcpy(struct ptr dst src int count) 'intrinsic'
+memcmp(struct ptr dst src int count int) 'intrinsic'
+memset(struct ptr dst byte value int count) 'intrinsic'
+lock_cmpxchg(*T p T old new T) 'intrinsic'
+coroguard(*Coro coro CoroGuard) 'cdcel inline'
 
 Calc (int a b int)
 Snode $T { this next T data }
@@ -1636,6 +1635,10 @@ print(typestring, "\n")
 //      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##FINISH
 //
 //  3.  函数参数的传递
+//
+//      基本类型 int unsigned sys_int sys_ptr struct ptr float 和枚举类型，可以显式传值或指针
+//      结构体类型总是传指针，不允许 struct *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
+//      如果结构体声明为 struct type_name #as int { }，将结构体当作基本类型使用，则可以显式传值或指针
 //
 //  10. 协程的实现
 //
