@@ -7125,97 +7125,97 @@ prh_inline void prh_atom_unt_arrque_pop_all_end(prh_atom_unt_arrque *q, prh_atom
 prh_inline void prh_atom_ptr_arrque_pop_all_end(prh_atom_ptr_arrque *q, prh_atom_ptr_arrque_data *data) { prh_impl_atom_arrque_pop_all_end(q, data); }
 
 // 单生产者多消费者固定大小的数组队列，数组长度必须是2的幂
-typedef struct prh_atom_1wnr_i32_arrque prh_atom_1wnr_i32_arrque;
-typedef struct prh_atom_1wnr_u32_arrque prh_atom_1wnr_u32_arrque;
-typedef struct prh_atom_1wnr_int_arrque prh_atom_1wnr_int_arrque;
-typedef struct prh_atom_1wnr_unt_arrque prh_atom_1wnr_unt_arrque;
-typedef struct prh_atom_1wnr_ptr_arrque prh_atom_1wnr_ptr_arrque;
-typedef struct prh_atom_1wnr_ext_arrque prh_atom_1wnr_ext_arrque;
+typedef struct prh_atom_i32_mult_rd_arrque prh_atom_i32_mult_rd_arrque;
+typedef struct prh_atom_u32_mult_rd_arrque prh_atom_u32_mult_rd_arrque;
+typedef struct prh_atom_int_mult_rd_arrque prh_atom_int_mult_rd_arrque;
+typedef struct prh_atom_unt_mult_rd_arrque prh_atom_unt_mult_rd_arrque;
+typedef struct prh_atom_ptr_mult_rd_arrque prh_atom_ptr_mult_rd_arrque;
+typedef struct prh_atom_ext_mult_rd_arrque prh_atom_ext_mult_rd_arrque;
 
 // fixed size array atomic queue for only 1 producer and n consumer, the size must be power of 2
-prh_int prh_atom_1wnr_arrque_alloc_size(prh_int size, prh_int elem_bytes);
-void prh_impl_atom_1wnr_arrque_init(void *arrque, prh_int size);
-bool prh_impl_atom_1wnr_arrque_push_u32(void *arrque, prh_u32 a);
-bool prh_impl_atom_1wnr_arrque_push_unt(void *arrque, prh_unt a);
-bool prh_impl_atom_1wnr_arrque_push_ext(void *arrque, prh_ptr a, prh_ptr b);
-prh_u32 prh_impl_atom_1wnr_arrque_pop_u32(void *arrque);
-prh_unt prh_impl_atom_1wnr_arrque_pop_unt(void *arrque);
-bool prh_impl_atom_1wnr_arrque_pop_ext(void *arrque, prh_ptr *out);
-prh_u32 prh_impl_atom_1wnr_arrque_weak_pop_u32(void *arrque, bool *race_condition);
-prh_unt prh_impl_atom_1wnr_arrque_weak_pop_unt(void *arrque, bool *race_condition);
+prh_int prh_atom_mult_rd_arrque_alloc_size(prh_int size, prh_int elem_bytes);
+void prh_impl_atom_mult_rd_arrque_init(void *arrque, prh_int size);
+bool prh_impl_atom_mult_rd_arrque_push_u32(void *arrque, prh_u32 a);
+bool prh_impl_atom_mult_rd_arrque_push_unt(void *arrque, prh_unt a);
+bool prh_impl_atom_mult_rd_arrque_push_ext(void *arrque, prh_ptr a, prh_ptr b);
+prh_u32 prh_impl_atom_mult_rd_arrque_pop_u32(void *arrque);
+prh_unt prh_impl_atom_mult_rd_arrque_pop_unt(void *arrque);
+bool prh_impl_atom_mult_rd_arrque_pop_ext(void *arrque, void **out);
+prh_u32 prh_impl_atom_mult_rd_arrque_weak_pop_u32(void *arrque, bool *race_condition);
+prh_unt prh_impl_atom_mult_rd_arrque_weak_pop_unt(void *arrque, bool *race_condition);
 
-prh_inline void prh_atom_1wnr_i32_arrque_init(prh_atom_1wnr_i32_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
-prh_inline void prh_atom_1wnr_u32_arrque_init(prh_atom_1wnr_u32_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
-prh_inline void prh_atom_1wnr_int_arrque_init(prh_atom_1wnr_int_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
-prh_inline void prh_atom_1wnr_unt_arrque_init(prh_atom_1wnr_unt_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
-prh_inline void prh_atom_1wnr_ptr_arrque_init(prh_atom_1wnr_ptr_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
-prh_inline void prh_atom_1wnr_ext_arrque_init(prh_atom_1wnr_ext_arrque *q, prh_int size) { return prh_impl_atom_1wnr_arrque_init(q, size); }
+prh_inline void prh_atom_i32_mult_rd_arrque_init(prh_atom_i32_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_u32_mult_rd_arrque_init(prh_atom_u32_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_int_mult_rd_arrque_init(prh_atom_int_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_unt_mult_rd_arrque_init(prh_atom_unt_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_ptr_mult_rd_arrque_init(prh_atom_ptr_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_ext_mult_rd_arrque_init(prh_atom_ext_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
 
-prh_inline prh_int prh_atom_1wnr_i32_arrque_len(prh_atom_1wnr_i32_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
-prh_inline prh_int prh_atom_1wnr_u32_arrque_len(prh_atom_1wnr_u32_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
-prh_inline prh_int prh_atom_1wnr_int_arrque_len(prh_atom_1wnr_int_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
-prh_inline prh_int prh_atom_1wnr_unt_arrque_len(prh_atom_1wnr_unt_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
-prh_inline prh_int prh_atom_1wnr_ptr_arrque_len(prh_atom_1wnr_ptr_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
-prh_inline prh_int prh_atom_1wnr_ext_arrque_len(prh_atom_1wnr_ext_arrque *q) { return prh_impl_atom_1wnr_arrque_len(q); }
+prh_inline prh_int prh_atom_i32_mult_rd_arrque_len(prh_atom_i32_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
+prh_inline prh_int prh_atom_u32_mult_rd_arrque_len(prh_atom_u32_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
+prh_inline prh_int prh_atom_int_mult_rd_arrque_len(prh_atom_int_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
+prh_inline prh_int prh_atom_unt_mult_rd_arrque_len(prh_atom_unt_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
+prh_inline prh_int prh_atom_ptr_mult_rd_arrque_len(prh_atom_ptr_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
+prh_inline prh_int prh_atom_ext_mult_rd_arrque_len(prh_atom_ext_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
 
-prh_inline prh_int prh_atom_1wnr_i32_arrque_empty_items(prh_atom_1wnr_i32_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
-prh_inline prh_int prh_atom_1wnr_u32_arrque_empty_items(prh_atom_1wnr_u32_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
-prh_inline prh_int prh_atom_1wnr_int_arrque_empty_items(prh_atom_1wnr_int_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
-prh_inline prh_int prh_atom_1wnr_unt_arrque_empty_items(prh_atom_1wnr_unt_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
-prh_inline prh_int prh_atom_1wnr_ptr_arrque_empty_items(prh_atom_1wnr_ptr_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
-prh_inline prh_int prh_atom_1wnr_ext_arrque_empty_items(prh_atom_1wnr_ext_arrque *q) { return prh_impl_atom_1wnr_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_i32_mult_rd_arrque_empty_items(prh_atom_i32_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_u32_mult_rd_arrque_empty_items(prh_atom_u32_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_int_mult_rd_arrque_empty_items(prh_atom_int_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_unt_mult_rd_arrque_empty_items(prh_atom_unt_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_ptr_mult_rd_arrque_empty_items(prh_atom_ptr_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_empty_items(q); }
+prh_inline prh_int prh_atom_ext_mult_rd_arrque_empty_items(prh_atom_ext_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_empty_items(q); }
 
 typedef struct {
     prh_int tail; // tail 仅由 write 单一线程写入
     prh_int empty_items;
-} prh_atom_1wnr_arrque_snapshot;
+} prh_atom_mult_rd_arrque_stamp;
 
-bool prh_impl_atom_1wnr_arrque_snapshot_begin(void *arrque, prh_atom_1wnr_arrque_snapshot *shot);
-void prh_impl_atom_1wnr_arrque_snapshot_push_u32(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_u32 a);
-void prh_impl_atom_1wnr_arrque_snapshot_push_unt(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_unt a);
-void prh_impl_atom_1wnr_arrque_snapshot_push_ext(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_ptr a, prh_ptr b);
-void prh_impl_atom_1wnr_arrque_snapshot_end(void *arrque, prh_atom_1wnr_arrque_snapshot *shot);
+bool prh_impl_atom_mult_rd_arrque_push_begin(void *arrque, prh_atom_mult_rd_arrque_stamp *shot);
+void prh_impl_atom_mult_rd_arrque_push_item_u32(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_u32 a);
+void prh_impl_atom_mult_rd_arrque_push_item_unt(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_unt a);
+void prh_impl_atom_mult_rd_arrque_push_item_ext(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_ptr a, prh_ptr b);
+void prh_impl_atom_mult_rd_arrque_push_end(void *arrque, prh_atom_mult_rd_arrque_stamp *shot);
 
-prh_inline bool prh_atom_1wnr_i32_arrque_snapshot_begin(prh_atom_1wnr_i32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
-prh_inline bool prh_atom_1wnr_u32_arrque_snapshot_begin(prh_atom_1wnr_u32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
-prh_inline bool prh_atom_1wnr_int_arrque_snapshot_begin(prh_atom_1wnr_int_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
-prh_inline bool prh_atom_1wnr_unt_arrque_snapshot_begin(prh_atom_1wnr_unt_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
-prh_inline bool prh_atom_1wnr_ptr_arrque_snapshot_begin(prh_atom_1wnr_ptr_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
-prh_inline bool prh_atom_1wnr_ext_arrque_snapshot_begin(prh_atom_1wnr_ext_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { return prh_impl_atom_1wnr_arrque_snapshot_begin(q, shot); }
+prh_inline bool prh_atom_i32_mult_rd_arrque_push_begin(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
+prh_inline bool prh_atom_u32_mult_rd_arrque_push_begin(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
+prh_inline bool prh_atom_int_mult_rd_arrque_push_begin(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
+prh_inline bool prh_atom_unt_mult_rd_arrque_push_begin(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
+prh_inline bool prh_atom_ptr_mult_rd_arrque_push_begin(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_push_begin(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
 
-prh_inline bool prh_atom_1wnr_i32_arrque_snapshot_push(prh_atom_1wnr_i32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_i32 a) { prh_impl_atom_1wnr_arrque_snapshot_push_u32(q, shot, a); }
-prh_inline bool prh_atom_1wnr_u32_arrque_snapshot_push(prh_atom_1wnr_u32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_u32 a) { prh_impl_atom_1wnr_arrque_snapshot_push_u32(q, shot, a); }
-prh_inline bool prh_atom_1wnr_int_arrque_snapshot_push(prh_atom_1wnr_int_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_int a) { prh_impl_atom_1wnr_arrque_snapshot_push_unt(q, shot, a); }
-prh_inline bool prh_atom_1wnr_unt_arrque_snapshot_push(prh_atom_1wnr_unt_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_unt a) { prh_impl_atom_1wnr_arrque_snapshot_push_unt(q, shot, a); }
-prh_inline bool prh_atom_1wnr_ptr_arrque_snapshot_push(prh_atom_1wnr_ptr_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, void *a) { prh_impl_atom_1wnr_arrque_snapshot_push_unt(q, shot, (prh_unt)a); }
-prh_inline bool prh_atom_1wnr_ext_arrque_snapshot_push(prh_atom_1wnr_ext_arrque *q, prh_atom_1wnr_arrque_snapshot *shot, prh_ptr a, prh_ptr b) { prh_impl_atom_1wnr_arrque_snapshot_push_ext(q, shot, a, b); }
+prh_inline bool prh_atom_i32_mult_rd_arrque_push_item(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_i32 a) { prh_impl_atom_mult_rd_arrque_push_item_u32(q, shot, a); }
+prh_inline bool prh_atom_u32_mult_rd_arrque_push_item(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_u32 a) { prh_impl_atom_mult_rd_arrque_push_item_u32(q, shot, a); }
+prh_inline bool prh_atom_int_mult_rd_arrque_push_item(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_int a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, shot, a); }
+prh_inline bool prh_atom_unt_mult_rd_arrque_push_item(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_unt a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, shot, a); }
+prh_inline bool prh_atom_ptr_mult_rd_arrque_push_item(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, void *a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, shot, (prh_unt)a); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_push_item(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_ptr a, prh_ptr b) { prh_impl_atom_mult_rd_arrque_push_item_ext(q, shot, a, b); }
 
-prh_inline bool prh_atom_1wnr_i32_arrque_snapshot_end(prh_atom_1wnr_i32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
-prh_inline bool prh_atom_1wnr_u32_arrque_snapshot_end(prh_atom_1wnr_u32_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
-prh_inline bool prh_atom_1wnr_int_arrque_snapshot_end(prh_atom_1wnr_int_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
-prh_inline bool prh_atom_1wnr_unt_arrque_snapshot_end(prh_atom_1wnr_unt_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
-prh_inline bool prh_atom_1wnr_ptr_arrque_snapshot_end(prh_atom_1wnr_ptr_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
-prh_inline bool prh_atom_1wnr_ext_arrque_snapshot_end(prh_atom_1wnr_ext_arrque *q, prh_atom_1wnr_arrque_snapshot *shot) { prh_impl_atom_1wnr_arrque_snapshot_end(q, shot); }
+prh_inline bool prh_atom_i32_mult_rd_arrque_push_end(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
+prh_inline bool prh_atom_u32_mult_rd_arrque_push_end(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
+prh_inline bool prh_atom_int_mult_rd_arrque_push_end(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
+prh_inline bool prh_atom_unt_mult_rd_arrque_push_end(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
+prh_inline bool prh_atom_ptr_mult_rd_arrque_push_end(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_push_end(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
 
-prh_inline bool prh_atom_1wnr_i32_arrque_push(prh_atom_1wnr_i32_arrque *q, prh_i32 a) { return prh_impl_atom_1wnr_arrque_push_u32(q, a); }
-prh_inline bool prh_atom_1wnr_u32_arrque_push(prh_atom_1wnr_u32_arrque *q, prh_u32 a) { return prh_impl_atom_1wnr_arrque_push_u32(q, a); }
-prh_inline bool prh_atom_1wnr_int_arrque_push(prh_atom_1wnr_int_arrque *q, prh_int a) { return prh_impl_atom_1wnr_arrque_push_unt(q, a); }
-prh_inline bool prh_atom_1wnr_unt_arrque_push(prh_atom_1wnr_unt_arrque *q, prh_unt a) { return prh_impl_atom_1wnr_arrque_push_unt(q, a); }
-prh_inline bool prh_atom_1wnr_ptr_arrque_push(prh_atom_1wnr_ptr_arrque *q, void *a) { return prh_impl_atom_1wnr_arrque_push_unt(q, (prh_unt)a); }
-prh_inline bool prh_atom_1wnr_ext_arrque_push(prh_atom_1wnr_ext_arrque *q, prh_ptr a, prh_ptr b) { return prh_impl_atom_1wnr_arrque_push_ext(q, a, b); }
+prh_inline bool prh_atom_i32_mult_rd_arrque_push(prh_atom_i32_mult_rd_arrque *q, prh_i32 a) { return prh_impl_atom_mult_rd_arrque_push_u32(q, a); }
+prh_inline bool prh_atom_u32_mult_rd_arrque_push(prh_atom_u32_mult_rd_arrque *q, prh_u32 a) { return prh_impl_atom_mult_rd_arrque_push_u32(q, a); }
+prh_inline bool prh_atom_int_mult_rd_arrque_push(prh_atom_int_mult_rd_arrque *q, prh_int a) { return prh_impl_atom_mult_rd_arrque_push_unt(q, a); }
+prh_inline bool prh_atom_unt_mult_rd_arrque_push(prh_atom_unt_mult_rd_arrque *q, prh_unt a) { return prh_impl_atom_mult_rd_arrque_push_unt(q, a); }
+prh_inline bool prh_atom_ptr_mult_rd_arrque_push(prh_atom_ptr_mult_rd_arrque *q, void *a) { return prh_impl_atom_mult_rd_arrque_push_unt(q, (prh_unt)a); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_push(prh_atom_ext_mult_rd_arrque *q, prh_ptr a, prh_ptr b) { return prh_impl_atom_mult_rd_arrque_push_ext(q, a, b); }
 
-prh_inline prh_i32 prh_atom_1wnr_i32_arrque_pop(prh_atom_1wnr_i32_arrque *q) { return (prh_i32)prh_impl_atom_1wnr_arrque_pop_u32(q); }
-prh_inline prh_u32 prh_atom_1wnr_u32_arrque_pop(prh_atom_1wnr_u32_arrque *q) { return (prh_u32)prh_impl_atom_1wnr_arrque_pop_u32(q); }
-prh_inline prh_int prh_atom_1wnr_int_arrque_pop(prh_atom_1wnr_int_arrque *q) { return (prh_int)prh_impl_atom_1wnr_arrque_pop_unt(q); }
-prh_inline prh_unt prh_atom_1wnr_unt_arrque_pop(prh_atom_1wnr_unt_arrque *q) { return (prh_unt)prh_impl_atom_1wnr_arrque_pop_unt(q); }
-prh_inline void *prh_atom_1wnr_ptr_arrque_pop(prh_atom_1wnr_ptr_arrque *q) { return (void *)prh_impl_atom_1wnr_arrque_pop_unt(q); }
-prh_inline bool prh_atom_1wnr_ext_arrque_pop(prh_atom_1wnr_ext_arrque *q, prh_ptr *out) { return prh_impl_atom_1wnr_arrque_pop_ext(q, out); }
+prh_inline prh_i32 prh_atom_i32_mult_rd_arrque_pop(prh_atom_i32_mult_rd_arrque *q) { return (prh_i32)prh_impl_atom_mult_rd_arrque_pop_u32(q); }
+prh_inline prh_u32 prh_atom_u32_mult_rd_arrque_pop(prh_atom_u32_mult_rd_arrque *q) { return (prh_u32)prh_impl_atom_mult_rd_arrque_pop_u32(q); }
+prh_inline prh_int prh_atom_int_mult_rd_arrque_pop(prh_atom_int_mult_rd_arrque *q) { return (prh_int)prh_impl_atom_mult_rd_arrque_pop_unt(q); }
+prh_inline prh_unt prh_atom_unt_mult_rd_arrque_pop(prh_atom_unt_mult_rd_arrque *q) { return (prh_unt)prh_impl_atom_mult_rd_arrque_pop_unt(q); }
+prh_inline void *prh_atom_ptr_mult_rd_arrque_pop(prh_atom_ptr_mult_rd_arrque *q) { return (void *)prh_impl_atom_mult_rd_arrque_pop_unt(q); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_pop(prh_atom_ext_mult_rd_arrque *q, void *out) { return prh_impl_atom_mult_rd_arrque_pop_ext(q, (void **)out); }
 
-prh_inline prh_i32 prh_atom_1wnr_i32_arrque_weak_pop(prh_atom_1wnr_i32_arrque *q, bool *race_condition) { return (prh_i32)prh_impl_atom_1wnr_arrque_weak_pop_u32(q, race_condition); }
-prh_inline prh_u32 prh_atom_1wnr_u32_arrque_weak_pop(prh_atom_1wnr_u32_arrque *q, bool *race_condition) { return (prh_u32)prh_impl_atom_1wnr_arrque_weak_pop_u32(q, race_condition); }
-prh_inline prh_int prh_atom_1wnr_int_arrque_weak_pop(prh_atom_1wnr_int_arrque *q, bool *race_condition) { return (prh_int)prh_impl_atom_1wnr_arrque_weak_pop_unt(q, race_condition); }
-prh_inline prh_unt prh_atom_1wnr_unt_arrque_weak_pop(prh_atom_1wnr_unt_arrque *q, bool *race_condition) { return (prh_unt)prh_impl_atom_1wnr_arrque_weak_pop_unt(q, race_condition); }
-prh_inline void *prh_atom_1wnr_ptr_arrque_weak_pop(prh_atom_1wnr_ptr_arrque *q, bool *race_condition) { return (void *)prh_impl_atom_1wnr_arrque_weak_pop_unt(q, race_condition); }
+prh_inline prh_i32 prh_atom_i32_mult_rd_arrque_weak_pop(prh_atom_i32_mult_rd_arrque *q, bool *race_condition) { return (prh_i32)prh_impl_atom_mult_rd_arrque_weak_pop_u32(q, race_condition); }
+prh_inline prh_u32 prh_atom_u32_mult_rd_arrque_weak_pop(prh_atom_u32_mult_rd_arrque *q, bool *race_condition) { return (prh_u32)prh_impl_atom_mult_rd_arrque_weak_pop_u32(q, race_condition); }
+prh_inline prh_int prh_atom_int_mult_rd_arrque_weak_pop(prh_atom_int_mult_rd_arrque *q, bool *race_condition) { return (prh_int)prh_impl_atom_mult_rd_arrque_weak_pop_unt(q, race_condition); }
+prh_inline prh_unt prh_atom_unt_mult_rd_arrque_weak_pop(prh_atom_unt_mult_rd_arrque *q, bool *race_condition) { return (prh_unt)prh_impl_atom_mult_rd_arrque_weak_pop_unt(q, race_condition); }
+prh_inline void *prh_atom_ptr_mult_rd_arrque_weak_pop(prh_atom_ptr_mult_rd_arrque *q, bool *race_condition) { return (void *)prh_impl_atom_mult_rd_arrque_weak_pop_unt(q, race_condition); }
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
 typedef struct {
@@ -7338,41 +7338,41 @@ typedef struct {
     prh_atom_int head; // 由多个线程读取，head 不能追上 tail
     prh_atom_int tail; // 仅由 write 线程写入，tail 指向当前可写入的空位（如果下一位置是 head，表示队列满，当前 tail 不可写）
     prh_int size_minus_one; // 数组固定大小，必须是2的幂，只读
-} prh_impl_atom_1wnr_arrque;
+} prh_impl_atom_mult_rd_arrque;
 
-prh_inline prh_int prh_impl_atom_1wnr_arrque_pos(prh_int pos, prh_int size_minus_one) {
+prh_inline prh_int prh_impl_atom_mult_rd_arrque_pos(prh_int pos, prh_int size_minus_one) {
     return pos & size_minus_one;
 }
 
-prh_inline void *prh_impl_atom_1wnr_arrque_elem(prh_impl_atom_1wnr_arrque *q) {
+prh_inline void *prh_impl_atom_mult_rd_arrque_elem(prh_impl_atom_mult_rd_arrque *q) {
     return q + 1;
 }
 
-prh_int prh_impl_atom_1wnr_arrque_empty_items(void *arrque) {
-    prh_int head = prh_atom_int_read(&((prh_impl_atom_1wnr_arrque *)arrque)->head); // 以此为基点写入，tail 不能等于和超过 head
-    prh_int tail = prh_atom_int_read(&((prh_impl_atom_1wnr_arrque *)arrque)->tail); // tail 仅由 write 单一线程写入
-    return ((head - tail - 1) & ((prh_impl_atom_1wnr_arrque *)arrque)->size_minus_one);
+prh_int prh_impl_atom_mult_rd_arrque_empty_items(void *arrque) {
+    prh_int head = prh_atom_int_read(&((prh_impl_atom_mult_rd_arrque *)arrque)->head); // 以此为基点写入，tail 不能等于和超过 head
+    prh_int tail = prh_atom_int_read(&((prh_impl_atom_mult_rd_arrque *)arrque)->tail); // tail 仅由 write 单一线程写入
+    return ((head - tail - 1) & ((prh_impl_atom_mult_rd_arrque *)arrque)->size_minus_one);
 }
 
-prh_int prh_impl_atom_1wnr_arrque_len(void *arrque) {
-    return ((prh_impl_atom_1wnr_arrque *)arrque)->size_minus_one - prh_impl_atom_1wnr_arrque_empty_items(arrque);
+prh_int prh_impl_atom_mult_rd_arrque_len(void *arrque) {
+    return ((prh_impl_atom_mult_rd_arrque *)arrque)->size_minus_one - prh_impl_atom_mult_rd_arrque_empty_items(arrque);
 }
 
-prh_int prh_atom_1wnr_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
+prh_int prh_atom_mult_rd_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
     assert(size > 0 && prh_is_power_of_2(size));
-    return sizeof(prh_impl_atom_1wnr_arrque) + elem_bytes * size;
+    return sizeof(prh_impl_atom_mult_rd_arrque) + elem_bytes * size;
 }
 
-void prh_impl_atom_1wnr_arrque_init(void *arrque, prh_int size) {
+void prh_impl_atom_mult_rd_arrque_init(void *arrque, prh_int size) {
     assert(size > 0 && prh_is_power_of_2(size));
-    prh_impl_atom_1wnr_arrque *q = arrque;
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_atom_int_init(&q->head, 0);
     prh_atom_int_init(&q->tail, 0);
     q->size_minus_one = size - 1;
 }
 
-bool prh_impl_atom_1wnr_arrque_snapshot_begin(void *arrque, prh_atom_1wnr_arrque_snapshot *shot) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+bool prh_impl_atom_mult_rd_arrque_push_begin(void *arrque, prh_atom_mult_rd_arrque_stamp *shot) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int head = prh_atom_int_read(&q->head); // 以此为基点写入，tail 不能等于和超过 head
     prh_int tail = prh_atom_int_read(&q->tail); // tail 仅由 write 单一线程写入
     prh_int size_minus_one = q->size_minus_one;
@@ -7382,75 +7382,75 @@ bool prh_impl_atom_1wnr_arrque_snapshot_begin(void *arrque, prh_atom_1wnr_arrque
     return empty_items > 0;
 }
 
-void prh_impl_atom_1wnr_arrque_snapshot_push_u32(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_u32 a) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+void prh_impl_atom_mult_rd_arrque_push_item_u32(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_u32 a) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     assert(shot->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     prh_int tail = shot->tail;
-    ((prh_u32 *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
-    shot->tail = prh_impl_atom_1wnr_arrque_pos(tail + 1, q->size_minus_one);
+    ((prh_u32 *)prh_impl_atom_mult_rd_arrque_elem(q))[tail] = a;
+    shot->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
     prh_debug(shot->empty_items -= 1);
 }
 
-void prh_impl_atom_1wnr_arrque_snapshot_push_unt(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_unt a) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+void prh_impl_atom_mult_rd_arrque_push_item_unt(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_unt a) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     assert(shot->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     prh_int tail = shot->tail;
-    ((prh_unt *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
-    shot->tail = prh_impl_atom_1wnr_arrque_pos(tail + 1, q->size_minus_one);
+    ((prh_unt *)prh_impl_atom_mult_rd_arrque_elem(q))[tail] = a;
+    shot->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
     prh_debug(shot->empty_items -= 1);
 }
 
-void prh_impl_atom_1wnr_arrque_snapshot_push_ext(void *arrque, prh_atom_1wnr_arrque_snapshot *shot, prh_ptr a, prh_ptr b) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
-    prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_1wnr_arrque_elem(q);
+void prh_impl_atom_mult_rd_arrque_push_item_ext(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_ptr a, prh_ptr b) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
+    prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_mult_rd_arrque_elem(q);
     assert(shot->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     prh_int tail = shot->tail;
     elem_ptr[tail] = a;
     elem_ptr[tail + 1] = b;
-    shot->tail = prh_impl_atom_1wnr_arrque_pos(tail + 2, q->size_minus_one);
+    shot->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 2, q->size_minus_one);
     prh_debug(shot->empty_items -= 1);
 }
 
-void prh_impl_atom_1wnr_arrque_snapshot_end(void *arrque, prh_atom_1wnr_arrque_snapshot *shot) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+void prh_impl_atom_mult_rd_arrque_push_end(void *arrque, prh_atom_mult_rd_arrque_stamp *shot) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_atom_int_write(&q->tail, shot->tail); // tail 只由单一生产者更新
 }
 
-bool prh_impl_atom_1wnr_arrque_push_u32(void *arrque, prh_u32 a) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+bool prh_impl_atom_mult_rd_arrque_push_u32(void *arrque, prh_u32 a) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int head = prh_atom_int_read(&q->head); // 以此为基点写入，tail 不能等于和超过 head
     prh_int tail = prh_atom_int_read(&q->tail); // tail 仅由 write 单一线程写入
-    prh_int next = prh_impl_atom_1wnr_arrque_pos(tail + 1, q->size_minus_one);
+    prh_int next = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
     if (next == head) return false; // 队列满
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
-    ((prh_u32 *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
+    ((prh_u32 *)prh_impl_atom_mult_rd_arrque_elem(q))[tail] = a;
     assert(q->tail == tail); // 只允许一个生产者
     prh_atom_int_write(&q->tail, next); // tail 只由单一生产者更新
     return true;
 }
 
-bool prh_impl_atom_1wnr_arrque_push_unt(void *arrque, prh_unt a) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+bool prh_impl_atom_mult_rd_arrque_push_unt(void *arrque, prh_unt a) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int head = prh_atom_int_read(&q->head); // 以此为基点写入，tail 不能等于和超过 head
     prh_int tail = prh_atom_int_read(&q->tail); // tail 仅由 write 单一线程写入
-    prh_int next = prh_impl_atom_1wnr_arrque_pos(tail + 1, q->size_minus_one);
+    prh_int next = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
     if (next == head) return false; // 队列满
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
-    ((prh_unt *)prh_impl_atom_1wnr_arrque_elem(q))[tail] = a;
+    ((prh_unt *)prh_impl_atom_mult_rd_arrque_elem(q))[tail] = a;
     assert(q->tail == tail); // 只允许一个生产者
     prh_atom_int_write(&q->tail, next); // tail 只由单一生产者更新
     return true;
 }
 
-bool prh_impl_atom_1wnr_arrque_push_ext(void *arrque, prh_ptr a, prh_ptr b) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
-    prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_1wnr_arrque_elem(q);
+bool prh_impl_atom_mult_rd_arrque_push_ext(void *arrque, prh_ptr a, prh_ptr b) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
+    prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_mult_rd_arrque_elem(q);
     prh_int head = prh_atom_int_read(&q->head); // 以此为基点写入，tail 不能等于和超过 head
     prh_int tail = prh_atom_int_read(&q->tail); // tail 仅由 write 单一线程写入
-    prh_int next = prh_impl_atom_1wnr_arrque_pos(tail + 2, q->size_minus_one);
+    prh_int next = prh_impl_atom_mult_rd_arrque_pos(tail + 2, q->size_minus_one);
     if (next == head) return false; // 队列满
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
     elem_ptr[tail] = a;
@@ -7460,8 +7460,8 @@ bool prh_impl_atom_1wnr_arrque_push_ext(void *arrque, prh_ptr a, prh_ptr b) {
     return true;
 }
 
-prh_u32 prh_impl_atom_1wnr_arrque_pop_u32(void *arrque) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+prh_u32 prh_impl_atom_mult_rd_arrque_pop_u32(void *arrque) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int size_minus_one = q->size_minus_one;
     prh_int tail, head, next;
     prh_u32 a = 0;
@@ -7470,25 +7470,25 @@ label_continue:
     tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     if (head == tail) goto label_return; // 队列空
-    next = prh_impl_atom_1wnr_arrque_pos(head + 1, size_minus_one);
-    a = ((prh_u32 *)prh_impl_atom_1wnr_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
+    next = prh_impl_atom_mult_rd_arrque_pos(head + 1, size_minus_one);
+    a = ((prh_u32 *)prh_impl_atom_mult_rd_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
         prh_debug(race_times += 1);
         goto label_continue; // 被其他线程抢先更新，争夺下一个
     }
 label_return:
-    prh_debug(if (race_times) printf("atom_1wnr_arrque race times %d\n", race_times));
+    prh_debug(if (race_times) printf("atom_mult_rd_arrque race times %d\n", race_times));
     return a;
 }
 
-prh_u32 prh_impl_atom_1wnr_arrque_weak_pop_u32(void *arrque, bool *race_condition) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+prh_u32 prh_impl_atom_mult_rd_arrque_weak_pop_u32(void *arrque, bool *race_condition) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     prh_int head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     *race_condition = false;
     if (head == tail) return 0; // 队列空
-    prh_int next = prh_impl_atom_1wnr_arrque_pos(head + 1, q->size_minus_one);
-    prh_u32 a = ((prh_u32 *)prh_impl_atom_1wnr_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
+    prh_int next = prh_impl_atom_mult_rd_arrque_pos(head + 1, q->size_minus_one);
+    prh_u32 a = ((prh_u32 *)prh_impl_atom_mult_rd_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
         *race_condition = true;
         return 0; // 被其他线程抢先更新
@@ -7496,8 +7496,8 @@ prh_u32 prh_impl_atom_1wnr_arrque_weak_pop_u32(void *arrque, bool *race_conditio
     return a;
 }
 
-prh_unt prh_impl_atom_1wnr_arrque_pop_unt(void *arrque) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+prh_unt prh_impl_atom_mult_rd_arrque_pop_unt(void *arrque) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int size_minus_one = q->size_minus_one;
     prh_int tail, head, next;
     prh_unt a = 0;
@@ -7506,25 +7506,25 @@ label_continue:
     tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     if (head == tail) goto label_return; // 队列空
-    next = prh_impl_atom_1wnr_arrque_pos(head + 1, size_minus_one);
-    a = ((prh_unt *)prh_impl_atom_1wnr_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
+    next = prh_impl_atom_mult_rd_arrque_pos(head + 1, size_minus_one);
+    a = ((prh_unt *)prh_impl_atom_mult_rd_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
         prh_debug(race_times += 1);
         goto label_continue; // 被其他线程抢先更新，争夺下一个
     }
 label_return:
-    prh_debug(if (race_times) printf("atom_1wnr_arrque unt race times %d\n", race_times));
+    prh_debug(if (race_times) printf("atom_mult_rd_arrque unt race times %d\n", race_times));
     return a;
 }
 
-prh_unt prh_impl_atom_1wnr_arrque_weak_pop_unt(void *arrque, bool *race_condition) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
+prh_unt prh_impl_atom_mult_rd_arrque_weak_pop_unt(void *arrque, bool *race_condition) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     prh_int head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     *race_condition = false;
     if (head == tail) return 0; // 队列空
-    prh_int next = prh_impl_atom_1wnr_arrque_pos(head + 1, q->size_minus_one);
-    prh_unt a = ((prh_unt *)prh_impl_atom_1wnr_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
+    prh_int next = prh_impl_atom_mult_rd_arrque_pos(head + 1, q->size_minus_one);
+    prh_unt a = ((prh_unt *)prh_impl_atom_mult_rd_arrque_elem(q))[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
         *race_condition = true;
         return 0; // 被其他线程抢先更新
@@ -7532,9 +7532,9 @@ prh_unt prh_impl_atom_1wnr_arrque_weak_pop_unt(void *arrque, bool *race_conditio
     return a;
 }
 
-bool prh_impl_atom_1wnr_arrque_pop_ext(void *arrque, prh_ptr *out) {
-    prh_impl_atom_1wnr_arrque *q = arrque;
-    prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_1wnr_arrque_elem(q);
+bool prh_impl_atom_mult_rd_arrque_pop_ext(void *arrque, void **out) {
+    prh_impl_atom_mult_rd_arrque *q = arrque;
+    prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_mult_rd_arrque_elem(q);
     prh_int size_minus_one = q->size_minus_one;
     prh_int tail, head, next;
     prh_debug(prh_int race_times = 0);
@@ -7542,7 +7542,7 @@ label_continue:
     tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     if (head == tail) goto label_return; // 队列空
-    next = prh_impl_atom_1wnr_arrque_pos(head + 2, size_minus_one);
+    next = prh_impl_atom_mult_rd_arrque_pos(head + 2, size_minus_one);
     out[0] = elem_ptr[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
     out[1] = elem_ptr[head + 1];
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
@@ -7550,7 +7550,7 @@ label_continue:
         goto label_continue; // 被其他线程抢先更新，争夺下一个
     }
 label_return:
-    prh_debug(if (race_times) printf("atom_1wnr_arrque ext race times %d\n", race_times));
+    prh_debug(if (race_times) printf("atom_mult_rd_arrque ext race times %d\n", race_times));
     return a;
 }
 
@@ -16143,6 +16143,29 @@ typedef struct { // 生产者和消费者线程共同访问
     prh_atom_int free_block_count;
 } prh_atom_thrd_que_length;
 
+typedef struct { // 仅由生产者线程访问
+    void **tail_block_tail_item;
+} prh_atom_thrd_rx_producer;
+
+typedef struct { // 仅由消费者线程访问
+    void **head_block_head_item;
+} prh_atom_thrd_rx_consumer;
+
+typedef struct { // 生产者和消费者线程共同访问
+    prh_atom_int queue_length;
+} prh_atom_thrd_rx_length;
+
+typedef struct { // 仅由生产者线程访问
+    void **head_block_head_item;
+    void **tail_block_tail_item;
+    prh_int free_block_count;
+} prh_atom_thrd_rx_freed_queue;
+
+prh_static_assert(prh_offsetof(prh_atom_thrd_rx_producer, tail_block_tail_item) == prh_offsetof(prh_atom_thrd_que_producer, tail_block_tail_item));
+prh_static_assert(prh_offsetof(prh_atom_thrd_rx_consumer, head_block_head_item) == prh_offsetof(prh_atom_thrd_que_consumer, head_block_head_item));
+prh_static_assert(prh_offsetof(prh_atom_thrd_rx_length, queue_length) == prh_offsetof(prh_atom_thrd_que_length, queue_length));
+prh_static_assert(sizeof(prh_atom_thrd_rx_length) == sizeof(prh_atom_thrd_que_length) / 2);
+
 typedef struct {
     void *post_req; // 必须是第一个成员
     prh_continue_routine continue_routine; // 必须是第二个成员
@@ -16208,7 +16231,8 @@ prh_static_assert(sizeof(prh_coro_thrd_req) == 3 * sizeof(void *));
 
 typedef struct { // 被工作线程和调度线程共享的线程数据
     prh_atom_thrd_que_length thrd_tx_que_length;                //  8   16
-    bool thrd_wakeup_cond;                                      //  12  24
+    prh_atom_thrd_rx_length thrd_rx_que_length;                 //  12  24
+    bool thrd_wakeup_cond;                                      //  16  32
     prh_thrd_cond thrd_sleep_cond;                              //
 } prh_iocp_share_thrd_data;
 
@@ -16218,9 +16242,10 @@ typedef struct { // 被工作线程和调度线程共享的线程数据
 //  prh_u32 thrd_id: 31, created: 1;                            //  12  20  只读
 typedef struct prh_thrd_struct(                                 //
     prh_atom_bool atom_thrd_exit;                               //  16  24  仅在程序退出时被调度线程写入一次，其他时间仅由工作线程访问
-    prh_atom_thrd_que_producer thrd_tx_que_producer;    //  28  48  仅由工作线程访问
-    prh_byte *linear_memory_buffer_top; // 只能释放最后分配的内存，只能线性地在一条绳索上滑动
-    prh_byte *braver_memory_cache_line; // 分配了就分配了释放不了的内存，永远向前不能后退的内存，每次分配缓存行的整数倍
+    prh_atom_thrd_que_producer thrd_tx_que_producer;            //  24  40  仅由工作线程访问
+    prh_atom_thrd_rx_consumer thrd_rx_consumer;                 //  28  48  仅由工作线程访问
+    prh_byte *linear_memory_buffer_top;                         //  32  56  只能释放最后分配的内存，只能线性地在一条绳索上滑动
+    prh_byte *braver_memory_cache_line;                         //  36  64  分配了就分配了释放不了的内存，永远向前不能后退的内存，每次分配缓存行的整数倍
     prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_share_thrd_data share_thrd_data;
 ) prh_iocp_thrd;
 
@@ -16232,7 +16257,7 @@ typedef struct { // 被工作线程和调度线程共享的全局数据
     prh_atom_bool keep_collect_tx_post;
     prh_atom_bool keep_alive_to_deliver_post;
     int thrd_wait_que_items;
-    prh_iocp_share_thrd_data **thrd_wait_que; // 等待调度的工作线程队列
+    prh_iocp_share_thrd_data **thrd_wait_que; // 等待调度的工作线程后入先出指针队列
     prh_thrd_mutex thrd_wait_que_mutex;
 } prh_iocp_shared_global;
 
@@ -16408,29 +16433,6 @@ bool prh_atom_thrd_tx_que_pops(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_
     return true;
 }
 
-typedef struct { // 仅由生产者线程访问
-    void **tail_block_tail_item;
-} prh_atom_thrd_rx_producer;
-
-typedef struct { // 仅由消费者线程访问
-    void **head_block_head_item;
-} prh_atom_thrd_rx_consumer;
-
-typedef struct { // 生产者和消费者线程共同访问
-    prh_atom_int queue_length;
-} prh_atom_thrd_rx_length;
-
-typedef struct { // 仅由生产者线程访问
-    void **head_block_head_item;
-    void **tail_block_tail_item;
-    prh_int free_block_count;
-} prh_atom_thrd_rx_freed_queue;
-
-prh_static_assert(prh_offsetof(prh_atom_thrd_rx_producer, tail_block_tail_item) == prh_offsetof(prh_atom_thrd_que_producer, tail_block_tail_item));
-prh_static_assert(prh_offsetof(prh_atom_thrd_rx_consumer, head_block_head_item) == prh_offsetof(prh_atom_thrd_que_consumer, head_block_head_item));
-prh_static_assert(prh_offsetof(prh_atom_thrd_rx_length, queue_length) == prh_offsetof(prh_atom_thrd_que_length, queue_length));
-prh_static_assert(sizeof(prh_atom_thrd_rx_length) == sizeof(prh_atom_thrd_que_length) / 2);
-
 void prh_atom_rx_freed_queue_push(prh_atom_rx_freed_queue *q, prh_atom_queue_block *free_block) {
     assert(free_block != prh_null && free_block != PRH_ATOM_DYNQUE_BLOCK_END);
     if (q->free_block_count == 0) {
@@ -16591,6 +16593,7 @@ typedef struct {
     bool single_thread_program;
     int concurrent_thread_count;
     int iocp_query_max_entries;
+    int sched_collect_que_size;
     int thrd_linear_memory_size;
     int thrd_braver_memory_size;
 } prh_iocp_config;
@@ -16620,7 +16623,7 @@ typedef struct { // 仅由调度线程访问的数据
     prh_sched_thrd_tx_que_consumer *thrd_tx_que;        // 只读，指向的内容仅由调度线程访问
     prh_sched_thrd_tx_que_consumer *thrd_tx_que_end;    // 只读，指向的内容仅由调度线程访问
     prh_post_collect_que_ptr post_collect_que;          // 只读，指向的内容仅被调度线程访问
-    prh_atom_1wnr_ext_arrque *post_dispatch_que;        // 只读，指向的内容被工作线程和调度线程访问，指针基本仅由调度线程访问，工作线程仅在线程初始化时访问一次
+    prh_atom_ext_mult_rd_arrque *post_dispatch_que;     // 只读，指向的内容被工作线程和调度线程访问，指针基本仅由调度线程访问，工作线程仅在线程初始化时访问一次
     prh_atom_rx_freed_queue coro_freed_block_que;       // 可写，仅由调度线程访问
 } prh_iocp_global;
 
@@ -16767,10 +16770,10 @@ int prh_impl_iocp_continue_que_empty_items(void) {
 
 void prh_impl_iocp_sched_thrd_post(void *post_req, prh_continue_routine continue_routine) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
     assert(prh_impl_iocp_continue_que_empty_items() > 0);
-    prh_iocp_thrd_req *cqueue_item = prh_fixed_arrque_unchecked_push(PRH_IOCP_GLOBAL.iocp_continue_que);
-    cqueue_item->post_req = post_req;
-    cqueue_item->continue_routine = continue_routine;
-    cqueue_item->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
+    prh_iocp_thrd_req *continue_item = prh_fixed_arrque_unchecked_push(PRH_IOCP_GLOBAL.iocp_continue_que);
+    continue_item->post_req = post_req;
+    continue_item->continue_routine = continue_routine;
+    continue_item->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
 }
 
 // 在 32 位机器上， 64/128/256 个字节可以分配 7/15/31 个 prh_coro_post_item
@@ -16839,7 +16842,7 @@ prh_iocp_post_req *prh_impl_sched_thrd_collect_que_pop(void) {
     if (post_req->post_req == prh_null) return prh_null; // 头部已分配序号的线程任务还未被成功收集
     prh_impl_fixed_arrque_pop(post_collect_que);
     PRH_IOCP_GLOBAL.cfmd_post_seqn = (PRH_IOCP_GLOBAL.cfmd_post_seqn + 1) & PRH_IMPL_THRD_POST_SEQN_MASK;
-    return true;
+    return post_req;
 }
 
 bool prh_impl_sched_thrd_collect_each_post_req(void *collect_seqn_range, prh_iocp_thrd_req *thrd_req) {
@@ -16860,13 +16863,6 @@ bool prh_impl_sched_thrd_collect_each_post_req(void *collect_seqn_range, prh_ioc
     return true;
 }
 
-bool prh_impl_sched_thrd_collect_each_cqueue_item(void *collect_seqn_range, prh_iocp_thrd_req *cqueue_item) {
-    prh_u32 index = cqueue_item->post_seqn - PRH_IOCP_GLOBAL.cfmd_post_seqn; // post_seqn 最大值绕回也成立
-    if (index >= (prh_u32)collect_seqn_range) return false;
-    prh_impl_sched_thrd_collect_que_push((prh_iocp_post_req *)cqueue_item, index);
-    return true;
-}
-
 prh_u32 prh_impl_sched_thrd_collect_seqn_range(prh_u32 curr_post_seed) {
     // 对于 post_seqn < curr_post_seed 的 post，这些 post 已经分配了序号，但是对应的线程可能还未来得及将其插入到 thrd_tx_que 队列中
     // 因此需要维护一个已经确认收集并且已经投递到 post_dispatch_que 的 post 序号 cfmd_post_seqn，用来跟踪哪些 post 已经确认被投递
@@ -16883,41 +16879,39 @@ prh_u32 prh_impl_sched_thrd_curr_post_seed(void) {
 
 int prh_impl_sched_thrd_collect_post(void) {
     prh_u32 curr_post_seed = PRH_IOCP_GLOBAL.prev_post_seed_processed = prh_impl_sched_thrd_curr_post_seed();
-    prh_u32 collect_seqn_range = prh_impl_sched_thrd_collect_seqn_range(curr_post_seed);
+    void *collect_seqn_range = (void *)(prh_ptr)prh_impl_sched_thrd_collect_seqn_range(curr_post_seed);
     if (collect_seqn_range) {
-        // 收集调度线程完成队列中的线程任务
         prh_iocp_continue_que_ptr iocp_continue_que = PRH_IOCP_GLOBAL.iocp_continue_que;
-        prh_iocp_thrd_req *cqueue_item;
-        while ((cqueue_item = prh_fixed_arrque_top(iocp_continue_que)) && prh_impl_sched_thrd_collect_each_cqueue_item((void *)(prh_ptr)collect_seqn_range, cqueue_item)) {
+        prh_iocp_thrd_req *continue_item; // 收集调度线程完成端口中的任务
+        while ((continue_item = prh_fixed_arrque_top(iocp_continue_que)) && prh_impl_sched_thrd_collect_each_post_req(collect_seqn_range, continue_item)) {
             prh_impl_fixed_arrque_pop(iocp_continue_que);
         }
-        // 收集各线程各自独立投递的线程任务
         prh_sched_thrd_tx_que_consumer *q = PRH_IOCP_GLOBAL.thrd_tx_que;
         prh_sched_thrd_tx_que_consumer *thrd_tx_que_end = PRH_IOCP_GLOBAL.thrd_tx_que_end;
-        for (; q < thrd_tx_que_end; q += 1) {
-            prh_atom_thrd_tx_queue_pops(&q->thrd_tx_que_consumer, q->thrd_tx_que_length, prh_impl_sched_thrd_collect_each_post_req, (void *)(prh_ptr)collect_seqn_range);
+        for (; q < thrd_tx_que_end; q += 1) { // 收集各线程各自独立投递的线程任务
+            prh_atom_thrd_tx_queue_pops(&q->thrd_tx_que_consumer, q->thrd_tx_que_length, prh_impl_sched_thrd_collect_each_post_req, collect_seqn_range);
         }
     }
     return prh_impl_sched_thrd_collect_que_len();
 }
 
 int prh_impl_sched_thrd_dispatch_que_len(void) {
-    return (int)prh_atom_1wnr_ext_arrque_len(PRH_IOCP_GLOBAL.post_dispatch_que);
+    return (int)prh_atom_ext_mult_rd_arrque_len(PRH_IOCP_GLOBAL.post_dispatch_que);
 }
 
 void prh_impl_sched_thrd_dispatch_post(void) {
-    prh_atom_1wnr_ext_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
-    prh_atom_1wnr_arrque_snapshot snapshot;
-    if (prh_atom_1wnr_ext_arrque_snapshot_begin(post_dispatch_que, snapshot)) {
-        for (int i = 0; i < (int)snapshot.empty_items; i += 1) {
+    prh_atom_ext_mult_rd_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
+    prh_atom_mult_rd_arrque_stamp stamp;
+    if (prh_atom_ext_mult_rd_arrque_push_begin(post_dispatch_que, stamp)) {
+        for (int i = 0; i < (int)stamp.empty_items; i += 1) {
             prh_iocp_post_req *post_req = prh_impl_sched_thrd_collect_que_pop();
             if (post_req == prh_null) break;
             if (post_req->post_req != PRH_IMPL_SCHED_POST_REQ_REMOVED) {
-                prh_atom_1wnr_ext_arrque_snapshot_push(post_dispatch_que, &snapshot, (prh_ptr)post_req->post_req, (prh_ptr)post_req->continue_routine);
+                prh_atom_ext_mult_rd_arrque_push_item(post_dispatch_que, &stamp, (prh_ptr)post_req->post_req, (prh_ptr)post_req->continue_routine);
             }
             post_req->post_req = prh_null; // 移除的元素必须清零
         }
-        prh_atom_1wnr_ext_arrque_snapshot_end(post_dispatch_que, &snapshot);
+        prh_atom_ext_mult_rd_arrque_push_end(post_dispatch_que, &stamp);
     }
 }
 
@@ -16929,57 +16923,38 @@ static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     bool sched_thrd_need_wakeup = true;
 
     for (; ;) {
-        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（entry_array_size）的完成条目
-        if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
+        if (entry_ptr >= entry_end) { // 接收完成端口中待处理的完成条目，每次最多获取固定大小的完成条目，只有当前一次所有 entry 都处理完毕，才开始新一轮接收
             if ((entry_count = prh_impl_sched_thrd_query_iocp_entries(overlapped_entry, entry_array_size, sched_thrd_need_wakeup))) {
                 entry_ptr = overlapped_entry;
                 entry_end = overlapped_entry + entry_count;
             }
         }
 
-        //  2.  每个完成条目的处理都会向调度线程的完成队列 iocp_continue_que 投递一个线程任务，调度线程的完
-        //      成队列有一个最大大小限制（iocp_continue_que_size）
-        for (; entry_ptr < entry_end; entry_ptr += 1) {
+        for (; entry_ptr < entry_end; entry_ptr += 1) { // 每个完成条目的处理都会向调度线程的 iocp_continue_que 固定队列投递一个线程任务
             if (!prh_impl_sched_thrd_iocp_entry_completed(entry_ptr)) {
                 break;
             }
         }
 
-        //  3.  按任务序号大小收集各线程任务到一个固定大小的调度线程持有的本地队列中（post_collect_que），然
-        //      后分派到各线程争抢的分派队列中（post_dispatch_que），分派队列大小也固定
-        if (prh_impl_sched_thrd_collect_post()) {
+        if (prh_impl_sched_thrd_collect_post()) { // 按序号收集完成端口投递的和各线程投递的任务到调度线程持有的 post_collect_que 队列中，然后分派到各线程争抢的 post_dispatch_que 队列中
             prh_impl_sched_thrd_dispatch_post();
         }
 
-        //  4.  如果任务分派队列已经有分派的任务，根据当前等待的线程数量，按后入先出的顺序唤醒线程
-        dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len();
+        dispatch_que_posts = prh_impl_sched_thrd_dispatch_que_len(); // 如果存在已分派的任务和睡眠的线程，以后入先出的顺序唤醒线程去处理分派的任务
         while (dispatch_que_posts > 0 && prh_impl_iocp_thrd_wakeup(prh_impl_iocp_thrd_wait_que_pop())) {
             dispatch_que_posts -= 1;
         }
 
-        //  5.  调度线程根据状态决定是否睡眠
         if (prh_impl_sched_thrd_collect_que_len()) {
-            // 收集的任务还没有完全分派，调度线程必须继续活动
-            //  a.  可能 post_collect_que 队列中的第一个任务，序列号已经分配，但对应的线程还没有来得及将其插入到 thrd_tx_que 队
-            //      列中，因此调度线程还未成功收集该任务导致已经收集的序列靠后的任务阻塞，需要继续执行步骤 3 进行收集
-            //  b.  可能任务分派队列 post_dispatch_que 已经填满，调度线程需要动态跟踪分派队列的大小，继续执行步骤 4 进行任务分派
-            sched_thrd_need_wakeup = true;
+            sched_thrd_need_wakeup = true; // 收集的任务还未分派，需要时刻跟踪 post_dispatch_que 可用大小进行分派
         } else if (PRH_IOCP_GLOBAL.cfmd_post_seqn != prh_impl_sched_thrd_curr_post_seed()) {
-            // 成功分派到 post_dispatch_que 队列中的任务序列号，还没有追上已经分配的任务序列号
-            //  a.  要么已经分配的任务没有被对应的线程成功投递，需要调度线程继续跟踪收集任务
-            //  b.  要么还存在新分配的任务没有收集，都需要调度线程需继续执行步骤 3 收集线程任务
-            sched_thrd_need_wakeup = true;
+            sched_thrd_need_wakeup = true; // 已收集的任务都已分派，但还存在新投递的任务没有收集和分派
         } else {
-            //  a.  成功收集的线程任务都已经分派出去
-            //  b.  所有分配的任务序列号都已经成功分派到分派队列
-            //  c.  此时调度线程唯一可做的就是在完成端口上进行无限等待
-            sched_thrd_need_wakeup = false;
+            sched_thrd_need_wakeup = false; // 所有的任务都已经收集和分派，调度线程可以休息，留下工作线程处理分派队列中的任务
         }
 
-        // 如果调度线程是活跃的，工作线程不需要向完成端口投递保活包
-        // 只要有待处理的任务，调度线程就会一直活跃，工作线程也就一直不需要投递保活包
         if (PRH_IOCP_GLOBAL.recv_keep_collect_tx_post_entry && !sched_thrd_need_wakeup) {
-            prh_impl_sched_thrd_complete_keep_collect_tx_post();
+            prh_impl_sched_thrd_complete_keep_collect_tx_post(); // 如果调度线程是活跃的，工作线程不需要投递保活包
         }
     }
 }
@@ -16994,7 +16969,7 @@ void prh_impl_create_thrd_memory(prh_iocp_thrd *thrd) {
 }
 
 static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
-    prh_atom_1wnr_ext_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
+    prh_atom_ext_mult_rd_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
     prh_iocp_thrd *thrd = (prh_iocp_thrd *)thrd_ptr;
     prh_atom_bool *atom_thrd_exit = &thrd->atom_thrd_exit;
     void *linear_memory, *braver_memory;
@@ -17005,9 +16980,9 @@ static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
     braver_memory = thrd->braver_memory_cache_line;
 
     for (; ;) {
-        prh_iocp_post_req post_req;
-        while (prh_atom_1wnr_ext_arrque_pop(post_dispatch_que, &post_req)) {
-            post_req.continue_routine(post_req.post_req); // 调用被 <operation>_complete 或 <operation>_completed_from_port 设置的函数
+        prh_iocp_post_req post;
+        while (prh_atom_ext_mult_rd_arrque_pop(post_dispatch_que, &post)) {
+            post.continue_routine(post.post_req); // 调用被 <operation>_complete 或 <operation>_completed_from_port 设置的函数
         }
         if (prh_atom_bool_read(atom_thrd_exit)) {
             if (thrd_is_exit) break;
@@ -17037,14 +17012,18 @@ void prh_impl_iocp_global_free(void) {
     if (PRH_IOCP_GLOBAL.sched_braver_buffer) prh_virtual_free(PRH_IOCP_GLOBAL.sched_braver_buffer);
 }
 
-void prh_iocp_main_init(prh_iocp_config *config) {
+void prh_impl_iocp_init(prh_iocp_config *config) {
+    prh_iocp_config default_config = {0};
+    if (config == prh_null) config = &default_config;
     int concurrent_thread_count = config->concurrent_thread_count;
     int iocp_query_max_entries = config->iocp_query_max_entries;
+    int collect_que_size = config->sched_collect_que_size;
+    int dispatch_que_size;
     int iocp_thrd_count;
 
     prh_sys_info *sys_info = prh_get_sys_info();
     PRH_IOCP_GLOBAL.single_thread_program = config->single_thread_program;
-    if (concurrent_thread_count == 0) {
+    if (concurrent_thread_count <= 0) {
         concurrent_thread_count = sys_info->processor_count;
         if (concurrent_thread_count > 1) {
             concurrent_thread_count -= 1; // 主线程是调度线程，并行执行的工作线程数量需要减去1个
@@ -17060,8 +17039,10 @@ void prh_iocp_main_init(prh_iocp_config *config) {
 
     if (iocp_query_max_entries <= 0) iocp_query_max_entries = PRH_IMPL_IOCP_QUERY_ENTRY_COUNT;
     iocp_query_max_entries = prh_to_power_of_2(iocp_query_max_entries); // 需要作为 iocp_continue_que 的大小
-    sched_post_que_size = 2 * iocp_query_max_entries; // 收集完成端口任务和线程投递的任务
     PRH_IOCP_GLOBAL.iocp_query_max_entries = iocp_query_max_entries;
+
+    if (collect_que_size <= 0) collect_que_size = 2 * iocp_query_max_entries; // 收集完成端口任务和线程投递的任务
+    dispatch_que_size = 2 * collect_que_size; // 至少要 >= collect_que_size，因为实际的 dispatch_que_size 比 2 的幂少一个，因此至少是 collect_que_size 的两倍
 
     if (config->thrd_linear_memory_size <= 0) config->thrd_linear_memory_size = PRH_VMEM_RESERVE_UNIT;
     if (config->thrd_braver_memory_size <= 0) config->thrd_braver_memory_size = PRH_VMEM_RESERVE_UNIT;
@@ -17086,9 +17067,9 @@ void prh_iocp_main_init(prh_iocp_config *config) {
     prh_int overlapped_entry_array_bytes = prh_round_cache_line_size(sizeof(OVERLAPPED_ENTRY) * iocp_query_max_entries);
     prh_int rio_result_entry_array_bytes = prh_round_cache_line_size(sizeof(RIORESULT) * iocp_query_max_entries);
     prh_int iocp_continue_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(iocp_query_max_entries, sizeof(prh_iocp_thrd_req)));
-    prh_int post_collect_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(sched_post_que_size, sizeof(prh_iocp_post_req)));
+    prh_int post_collect_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(collect_que_size, sizeof(prh_iocp_post_req)));
     prh_int thrd_tx_que_consumer_bytes = prh_round_cache_line_size(sizeof(prh_sched_thrd_tx_que_consumer) * iocp_thrd_count);
-    prh_int post_dispatch_que_bytes = prh_round_cache_line_size(prh_atom_1wnr_arrque_alloc_size(sched_post_que_size, sizeof(prh_iocp_post_req)));
+    prh_int post_dispatch_que_bytes = prh_round_cache_line_size(prh_atom_mult_rd_arrque_alloc_size(dispatch_que_size, sizeof(prh_iocp_post_req)));
     prh_int thrd_wait_que_bytes = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
     prh_byte *sched_thrd_buffer = prh_impl_thrd_braver_memory_alloc(overlapped_entry_array_bytes + rio_result_entry_array_bytes + iocp_continue_que_bytes +
         post_collect_que_bytes + thrd_tx_que_consumer_bytes + post_dispatch_que_bytes + thrd_wait_que_bytes, PRH_IOCP_GLOBAL.sched_thrd);
@@ -17103,19 +17084,18 @@ void prh_iocp_main_init(prh_iocp_config *config) {
     sched_thrd_buffer += iocp_continue_que_bytes;
 
     PRH_IOCP_GLOBAL.post_collect_que = (prh_post_collect_que_ptr)sched_thrd_buffer;
-    prh_fixed_arrque_init(PRH_IOCP_GLOBAL.post_collect_que, sched_post_que_size);
+    prh_fixed_arrque_init(PRH_IOCP_GLOBAL.post_collect_que, collect_que_size);
     sched_thrd_buffer += post_collect_que_bytes;
 
     PRH_IOCP_GLOBAL.thrd_tx_que = (prh_sched_thrd_tx_que_consumer *)sched_thrd_buffer;
     PRH_IOCP_GLOBAL.thrd_tx_que_end = PRH_IOCP_GLOBAL.thrd_tx_que + iocp_thrd_count;
     sched_thrd_buffer += thrd_tx_que_consumer_bytes;
 
-    prh_atom_1wnr_ext_arrque *post_dispatch_que = (prh_atom_1wnr_ext_arrque *)thrd_shared_buffer;
-    prh_impl_atom_1wnr_arrque_init(post_dispatch_que, sched_post_que_size);
+    prh_atom_ext_mult_rd_arrque *post_dispatch_que = (prh_atom_ext_mult_rd_arrque *)thrd_shared_buffer;
+    prh_atom_ext_mult_rd_arrque_init(post_dispatch_que, dispatch_que_size);
     PRH_IOCP_GLOBAL.post_dispatch_que = post_dispatch_que;
     thrd_shared_buffer += post_dispatch_que_bytes;
 
-    prh_impl_iocp_global_init();
     prh_impl_iocp_shared_global_init((prh_iocp_share_thrd_data **)thrd_shared_buffer);
     thrd_shared_buffer += thrd_wait_que_bytes;
 
@@ -17128,7 +17108,10 @@ void prh_iocp_main_init(prh_iocp_config *config) {
     }
 }
 
-void prh_iocp_start_run(void) {
+void prh_iocp_startup(prh_iocp_config *config) {
+    prh_impl_iocp_global_init();
+    prh_impl_iocp_init(config);
+
     prh_iocp_thrd *sched_thrd = PRH_IOCP_GLOBAL.sched_thrd;
     prh_real_assert(sched_thrd == (prh_iocp_thrd *)prh_thrd_self()); // 必须从主线程启动
 
