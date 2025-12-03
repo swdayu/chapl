@@ -15204,7 +15204,7 @@ void prh_impl_close_completion_port(HANDLE completion_port) {
 //      数据包，函数将有关失败操作的信息存储在 lpNumberOfBytes、lpCompletionKey 和
 //      lpOverlapped 指向的变量中。要获取扩展错误信息，请调用 GetLastError。
 
-int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entry, DWORD msec) {
+int prh_impl_completion_port_query(HANDLE completion_port, OVERLAPPED_ENTRY *entry, DWORD msec) {
     assert(completion_port != prh_null);
     assert(entry != prh_null); // 超时时间在 Windows 8 及更高版本上，不包含系统睡眠时间
     BOOL b = GetQueuedCompletionStatus(completion_port, &entry->dwNumberOfBytesTransferred, (PULONG_PTR)&entry->lpCompletionKey, &entry->lpOverlapped, msec);
@@ -15294,7 +15294,7 @@ int prh_impl_completion_port_wait(HANDLE completion_port, OVERLAPPED_ENTRY *entr
 // 连接数高、吞吐大：优先用 GetQueuedCompletionStatusEx，批量收割、均衡负载。连接数低、
 // 完成稀疏：继续用 GetQueuedCompletionStatus，避免“杀鸡用牛刀”带来的额外开销。
 
-int prh_impl_completion_port_wait_ex(HANDLE completion_port, OVERLAPPED_ENTRY *entry, int count, DWORD msec) {
+int prh_impl_completion_port_ext_query(HANDLE completion_port, OVERLAPPED_ENTRY *entry, int count, DWORD msec) {
     assert(entry != prh_null);
     assert(count > 0);
     ULONG n = 0;
@@ -15549,7 +15549,7 @@ prh_inline void prh_impl_iocp_set_continue_routine(OVERLAPPED *overlappped, prh_
 }
 
 static bool prh_impl_iocp_entry_completed_from_port(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
-    if (prh_impl_sched_thrd_cqueue_len() >= PRH_IOCP_GLOBAL.sched_thrd_cqueue_size) return false;
+    if (prh_impl_iocp_continue_que_len() >= PRH_IOCP_GLOBAL.iocp_query_max_entries) return false;
     OVERLAPPED *overlapped = entry->lpOverlapped;
     assert(entry->Internal == overlapped->Internal);
     assert(entry->dwNumberOfBytesTransferred == overlapped->InternalHigh);
@@ -15558,7 +15558,7 @@ static bool prh_impl_iocp_entry_completed_from_port(OVERLAPPED_ENTRY *entry) { /
         prh_prerr(error_code);
         overlapped->Internal = error_code;
     }
-    ((prh_iocp_continue_routine)overlapped->hEvent)(overlapped); // 调用 <operation>_completed_from_port 函数，该函数向 sched_thrd_cqueue 投递一个线程任务
+    ((prh_iocp_continue_routine)overlapped->hEvent)(overlapped); // 调用 <operation>_completed_from_port 函数，该函数向 iocp_continue_que 投递一个线程任务
     return true;
 }
 
@@ -16225,7 +16225,7 @@ prh_static_assert(prh_offsetof(prh_iocp_thrd, share_thrd_data) == PRH_CACHE_LINE
 typedef struct { // 被工作线程和调度线程共享的全局数据
     prh_atom_u32 post_seqn_seed;
     prh_atom_u32 cono_id_seed;
-    prh_atom_bool keep_alive_to_collect_tx_post;
+    prh_atom_bool keep_collect_tx_post;
     prh_atom_bool keep_alive_to_deliver_post;
     int thrd_wait_que_items;
     prh_iocp_share_thrd_data **thrd_wait_que; // 等待调度的工作线程队列
@@ -16234,12 +16234,15 @@ typedef struct { // 被工作线程和调度线程共享的全局数据
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_shared_global PRH_IOCP_SHARED_GLOBAL;
 
-void *prh_thrd_braver_memory_alloc(prh_unt size) {
+void *prh_impl_thrd_braver_memory_alloc(prh_unt size, prh_iocp_thrd *thrd) {
     assert(size > 0 && (size % PRH_CACHE_LINE_SIZE) == 0);
-    prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
     void *alloc = thrd->braver_memory_cache_line;
     thrd->braver_memory_cache_line += size;
     return alloc;
+}
+
+void *prh_thrd_braver_memory_alloc(prh_unt size) {
+    return prh_impl_thrd_braver_memory_alloc(size, (prh_iocp_thrd *)prh_thrd_self());
 }
 
 void *prh_thrd_linear_memory_push(prh_unt size) {
@@ -16398,7 +16401,7 @@ bool prh_atom_thrd_tx_que_pops(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_
 
 void prh_impl_iocp_shared_global_init(prh_iocp_share_thrd_data **thrd_wait_que) {
     prh_atom_u32_init(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed, 0);
-    prh_atom_bool_init(&PRH_IOCP_SHARED_GLOBAL.keep_alive_to_collect_tx_post, false);
+    prh_atom_bool_init(&PRH_IOCP_SHARED_GLOBAL.keep_collect_tx_post, false);
     prh_atom_bool_init(&PRH_IOCP_SHARED_GLOBAL.keep_alive_to_deliver_post, false);
     PRH_IOCP_SHARED_GLOBAL.thrd_wait_que = thrd_wait_que;
     PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items = 0;
@@ -16449,40 +16452,40 @@ bool prh_impl_sched_thrd_do_nothing_entry_complete(OVERLAPPED_ENTRY *entry) { //
     return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
 }
 
-void prh_impl_sched_thrd_complete_keep_alive_to_collect_tx_post(void) {
-    PRH_IOCP_GLOBAL.recv_keep_alive_to_collect_tx_post_entry = false;
-    prh_atom_bool *keep_alive_to_collect_tx_post = &PRH_IOCP_SHARED_GLOBAL.keep_alive_to_collect_tx_post;
-    prh_atom_bool_write(keep_alive_to_collect_tx_post, false);
-    prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_do_nothing_entry_complete, keep_alive_to_collect_tx_post);
+void prh_impl_sched_thrd_complete_keep_collect_tx_post(void) {
+    PRH_IOCP_GLOBAL.recv_keep_collect_tx_post_entry = false;
+    prh_atom_bool *keep_collect_tx_post = &PRH_IOCP_SHARED_GLOBAL.keep_collect_tx_post;
+    prh_atom_bool_write(keep_collect_tx_post, false);
+    prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_do_nothing_entry_complete, keep_collect_tx_post);
 }
 
-bool prh_impl_sched_thrd_handle_keep_alive_to_collect_tx_post(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
-    PRH_IOCP_GLOBAL.recv_keep_alive_to_collect_tx_post_entry = true;
+bool prh_impl_sched_thrd_handle_keep_collect_tx_post(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
+    PRH_IOCP_GLOBAL.recv_keep_collect_tx_post_entry = true;
     return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
 }
 
-void prh_impl_iocp_keep_sched_thrd_alive_to_collect_tx_post(void) {
+void prh_impl_iocp_keep_sched_alive_to_collect_tx_post(void) {
     // 工作线程投递任务后，只要确保有一个保活包存在于完成端口中，即可保证调度线程活跃
-    prh_atom_bool *keep_alive_to_collect_tx_post = &PRH_IOCP_SHARED_GLOBAL.keep_alive_to_collect_tx_post;
-    if (!prh_atom_bool_read(keep_alive_to_collect_tx_post)) { // 这里可能 enqueue 多个也没问题
-        prh_atom_bool_write(keep_alive_to_collect_tx_post, true);
-        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_handle_keep_alive_to_collect_tx_post, keep_alive_to_collect_tx_post);
+    prh_atom_bool *keep_collect_tx_post = &PRH_IOCP_SHARED_GLOBAL.keep_collect_tx_post;
+    if (!prh_atom_bool_read(keep_collect_tx_post)) { // 这里可能 enqueue 多个也没问题
+        prh_atom_bool_write(keep_collect_tx_post, true);
+        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_handle_keep_collect_tx_post, keep_collect_tx_post);
     }
 }
 
-bool prh_impl_sched_thrd_handle_keep_alive_to_deliver_post(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
+bool prh_impl_sched_thrd_handle_keep_deliver_post(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
     // 工作线程可能在这个位置检测到 keep_alive_to_deliver_post 为真，不会向完成端口投递保活包
     // 但是此时调度线程已经醒来，已经插入的线程任务（或休眠线程已经插入等待队列），会保证调度线程不会睡眠
     prh_atom_bool_write(&PRH_IOCP_SHARED_GLOBAL.keep_alive_to_deliver_post, false);
     return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
 }
 
-void prh_impl_iocp_keep_sched_thrd_alive_to_deliver_post(void) {
+void prh_impl_iocp_keep_sched_alive_to_deliver_post(void) {
     // 工作线程进入睡眠后，以防还有分派的任务存在，确保调度线程是最后一个进入睡眠的线程
     prh_atom_u32 *keep_alive_to_deliver_post = &PRH_IOCP_SHARED_GLOBAL.keep_alive_to_deliver_post;
     if (!prh_atom_bool_read(keep_alive_to_deliver_post)) {
         prh_atom_bool_write(keep_alive_to_deliver_post, true);
-        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_wakeup_complete, keep_alive_to_deliver_post);
+        prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_handle_keep_deliver_post, keep_alive_to_deliver_post);
     }
 }
 
@@ -16493,7 +16496,7 @@ void prh_impl_iocp_thrd_sleep(prh_iocp_share_thrd_data *thrd_data) {
         goto label_already_wakeup;
     }
     prh_impl_iocp_thrd_wait_que_push(thrd_data);
-    prh_impl_iocp_keep_sched_thrd_alive(); // 以防还有分派的任务存在，但是工作线程和调度线程都进入了睡眠
+    prh_impl_iocp_keep_sched_alive_to_deliver_post(); // 以防还有分派的任务存在，但是工作线程和调度线程都进入了睡眠
 label_continue_waiting:
     prh_impl_plat_cond_wait(cond);
     if (!thrd_data->thrd_wakeup_cond) {
@@ -16514,11 +16517,12 @@ bool prh_impl_iocp_thrd_wakeup(prh_iocp_share_thrd_data *thrd_data) {
     return true;
 }
 
+#define PRH_IMPL_IOCP_QUERY_ENTRY_COUNT 8
+
 typedef struct {
+    bool single_thread_program;
     int concurrent_thread_count;
-    int sched_thrd_cqueue_size; // 必须是 2 的幂，同时也是 overlapped_entry_array 和 rio_result_entry_array 的大小
-    int post_collect_que_size; // 必须是 2 的幂
-    int post_dispatch_que_size; // 必须是 2 的幂
+    int iocp_query_max_entries; // overlapped_entry_array 和 rio_result_entry_array 的大小
     int thrd_linear_memory_size;
     int thrd_braver_memory_size;
 } prh_iocp_config;
@@ -16528,24 +16532,26 @@ typedef struct {
     prh_atom_thrd_que_length *thrd_tx_que_length;
 } prh_sched_thrd_tx_que_consumer;
 
+typedef prh_fixed_arrque_ptr(prh_iocp_thrd_req) prh_iocp_continue_que_ptr;
 typedef prh_fixed_arrque_ptr(prh_iocp_post_req) prh_post_collect_que_ptr;
-typedef prh_fixed_arrque_ptr(prh_iocp_thrd_req) prh_sched_cqueue_ptr;
 typedef struct { // 仅由调度线程访问的数据
     int concurrent_threads;                                     // 只读
-    int sched_thrd_cqueue_size;                                 // 只读
+    int iocp_query_max_entries;                                 // 只读
     int thrd_linear_memory_size;                                // 只读
     int thrd_braver_memory_size;                                // 只读
-    bool single_thrd_program;                                   // 只读
-    bool recv_keep_alive_to_collect_tx_post_entry;              // 可写，仅由调度线程访问
+    bool single_thread_program;                                 // 只读
+    bool recv_keep_collect_tx_post_entry;              // 可写，仅由调度线程访问
     prh_u32 cfmd_post_seqn;                                     // 可写，仅由调度线程访问
     prh_simple_thrds *iocp_thrds;                               // 只读
     prh_iocp_thrd *sched_thrd;                                  // 只读
+    void *sched_linear_buffer;                                  // 只读
+    void *sched_braver_buffer;                                  // 只读
     void *overlapped_entry_array;                               // 只读，指向的内容仅被调度线程访问
     void *rio_result_entry_array;                               // 只读，指向的内容仅被调度线程访问
-    prh_sched_cqueue_ptr sched_thrd_cqueue;                     // 只读，指向的内容仅被调度线程访问
-    prh_post_collect_que_ptr post_collect_que;                  // 只读，指向的内容仅被调度线程访问
+    prh_iocp_continue_que_ptr iocp_continue_que;                // 只读，指向的内容仅被调度线程访问
     prh_sched_thrd_tx_que_consumer *thrd_tx_que;                // 只读，指向的内容仅由调度线程访问
     prh_sched_thrd_tx_que_consumer *thrd_tx_que_end;            // 只读，指向的内容仅由调度线程访问
+    prh_post_collect_que_ptr post_collect_que;                  // 只读，指向的内容仅被调度线程访问
     prh_atom_1wnr_ext_arrque *post_dispatch_que;                // 只读，指向的内容被工作线程和调度线程访问，指针基本仅由调度线程访问，工作线程仅在线程初始化时访问一次
     prh_atom_dynque_freed_blocks coro_freed_block_que;          // 可写，仅由调度线程访问
 } prh_iocp_global;
@@ -16554,7 +16560,7 @@ static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
 
 static bool prh_impl_iocp_rio_socket_completion(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
     RIORESULT *rio_result_entry_array = PRH_IOCP_GLOBAL.rio_result_entry_array;
-    int max_count = prh_impl_sched_thrd_cqueue_empty_items();
+    int max_count = prh_impl_iocp_continue_que_empty_items();
     if (max_count > 0) {
         int n = prh_impl_iocp_rio_query(rio_result_entry_array, max_count);
         // typedef struct _RIORESULT {
@@ -16637,11 +16643,11 @@ bool prh_impl_sched_thrd_iocp_entry_completed(OVERLAPPED_ENTRY *entry) {
     return completion_routine(entry); // 调用完成键 lpCompletionKey 对应的 prh_iocp_complete_routine 函数
 }
 
-int prh_impl_sched_thrd_wait_iocp_entries(OVERLAPPED_ENTRY *overlapped_entry, int count, bool keep_sched_thrd_alive) {
-    return prh_impl_completion_port_wait_ex(PRH_IMPL_IOCP, overlapped_entry, count, keep_sched_thrd_alive ? 0 : INFINITE);
+int prh_impl_sched_thrd_query_iocp_entries(OVERLAPPED_ENTRY *overlapped_entry, int count, bool keep_sched_thrd_alive) {
+    return prh_impl_completion_port_ext_query(PRH_IMPL_IOCP, overlapped_entry, count, keep_sched_thrd_alive ? 0 : INFINITE);
 }
 
-#define PRH_IMPL_SCHED_COLL_POST_REMOVED ((void *)(prh_ptr)(-1))
+#define PRH_IMPL_SCHED_POST_REQ_REMOVED ((void *)(prh_ptr)(-1))
 #define PRH_IMPL_SCHED_THRD_SYNCED_EXEC 0x02
 
 typedef bool (*prh_sched_thrd_synced_routine)(prh_iocp_thrd_req *thrd_req);
@@ -16659,7 +16665,7 @@ void prh_impl_iocp_thrd_post(void *post_req, prh_continue_routine continue_routi
     thrd_req->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
     thrd_req->opcode = opcode;
     prh_atom_thrd_tx_que_push_end(&thrd->thrd_tx_que_producer, &thrd->share_thrd_data.thrd_tx_que_length);
-    prh_impl_iocp_keep_sched_thrd_alive();
+    prh_impl_iocp_keep_sched_alive_to_collect_tx_post();
 }
 
 void prh_iocp_thrd_post(void *post_req, prh_continue_routine continue_routine) {
@@ -16681,6 +16687,22 @@ void prh_sched_thrd_synced_post(void *post_req, prh_sched_thrd_synced_routine co
 void prh_sched_thrd_synced_ext_post(void *post_req, prh_sched_thrd_synced_routine continue_routine, prh_byte opcode) {
     assert(((prh_ptr)post_req & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) == 0);
     prh_impl_iocp_thrd_post((void *)((prh_ptr)post_req & PRH_IMPL_SCHED_THRD_SYNCED_EXEC), continue_routine, opcode);
+}
+
+int prh_impl_iocp_continue_que_len(void) {
+    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.iocp_continue_que);
+}
+
+int prh_impl_iocp_continue_que_empty_items(void) {
+    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.iocp_continue_que);
+}
+
+void prh_impl_iocp_sched_thrd_post(void *post_req, prh_continue_routine continue_routine) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
+    assert(prh_impl_iocp_continue_que_empty_items() > 0);
+    prh_iocp_thrd_req *cqueue_item = prh_fixed_arrque_unchecked_push(PRH_IOCP_GLOBAL.iocp_continue_que);
+    cqueue_item->post_req = post_req;
+    cqueue_item->continue_routine = continue_routine;
+    cqueue_item->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
 }
 
 // 在 32 位机器上，64/128/256/512 个字节可以分配 7/15/31/63 个 prh_coro_post_item
@@ -16771,22 +16793,6 @@ void prh_impl_atom_sched_coro_que_pop_head_item(prh_atom_sched_coro_que_consumer
     }
 }
 
-int prh_impl_sched_thrd_cqueue_len(void) {
-    return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
-}
-
-int prh_impl_sched_thrd_cqueue_empty_items(void) {
-    return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
-}
-
-void prh_impl_iocp_sched_thrd_post(void *post_req, prh_continue_routine continue_routine) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
-    assert(prh_impl_sched_thrd_cqueue_empty_items() > 0);
-    prh_iocp_thrd_req *cqueue_item = prh_fixed_arrque_unchecked_push(PRH_IOCP_GLOBAL.sched_thrd_cqueue);
-    cqueue_item->post_req = post_req;
-    cqueue_item->continue_routine = continue_routine;
-    cqueue_item->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
-}
-
 int prh_impl_sched_thrd_collect_que_len(void) {
     return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.post_collect_que);
 }
@@ -16817,11 +16823,11 @@ bool prh_impl_sched_thrd_collect_each_post_req(void *collect_seqn_range, prh_ioc
     if (post_req & PRH_IMPL_SCHED_THRD_SYNCED_EXEC) {
         thrd_req->post_req = (void *)(post_req & ~((prh_ptr)PRH_IMPL_SCHED_THRD_SYNCED_EXEC));
         if (!((prh_sched_thrd_synced_routine)(thrd_req->continue_routine))(thrd_req)) {
-            thrd_req->post_req = PRH_IMPL_SCHED_COLL_POST_REMOVED;
+            thrd_req->post_req = PRH_IMPL_SCHED_POST_REQ_REMOVED;
         }
     } else if (thrd_req->opcode) {
         if (!prh_impl_sched_thrd_dispatch_coro_post(thrd_req)) {
-            thrd_req->post_req = PRH_IMPL_SCHED_COLL_POST_REMOVED;
+            thrd_req->post_req = PRH_IMPL_SCHED_POST_REQ_REMOVED;
         }
     }
     prh_impl_sched_thrd_collect_que_push((prh_iocp_post_req *)thrd_req, index);
@@ -16854,10 +16860,10 @@ int prh_impl_sched_thrd_collect_post(void) {
     prh_u32 collect_seqn_range = prh_impl_sched_thrd_collect_seqn_range(curr_post_seed);
     if (collect_seqn_range) {
         // 收集调度线程完成队列中的线程任务
-        prh_sched_cqueue_ptr sched_thrd_cqueue = PRH_IOCP_GLOBAL.sched_thrd_cqueue;
+        prh_iocp_continue_que_ptr iocp_continue_que = PRH_IOCP_GLOBAL.iocp_continue_que;
         prh_iocp_thrd_req *cqueue_item;
-        while ((cqueue_item = prh_fixed_arrque_top(sched_thrd_cqueue)) && prh_impl_sched_thrd_collect_each_cqueue_item((void *)(prh_ptr)collect_seqn_range, cqueue_item)) {
-            prh_impl_fixed_arrque_pop(sched_thrd_cqueue);
+        while ((cqueue_item = prh_fixed_arrque_top(iocp_continue_que)) && prh_impl_sched_thrd_collect_each_cqueue_item((void *)(prh_ptr)collect_seqn_range, cqueue_item)) {
+            prh_impl_fixed_arrque_pop(iocp_continue_que);
         }
         // 收集各线程各自独立投递的线程任务
         prh_sched_thrd_tx_que_consumer *q = PRH_IOCP_GLOBAL.thrd_tx_que;
@@ -16880,7 +16886,7 @@ void prh_impl_sched_thrd_dispatch_post(void) {
         for (int i = 0; i < (int)snapshot.empty_items; i += 1) {
             prh_iocp_post_req *post_req = prh_impl_sched_thrd_collect_que_pop();
             if (post_req == prh_null) break;
-            if (post_req->post_req != PRH_IMPL_SCHED_COLL_POST_REMOVED) {
+            if (post_req->post_req != PRH_IMPL_SCHED_POST_REQ_REMOVED) {
                 prh_atom_1wnr_ext_arrque_snapshot_push(post_dispatch_que, &snapshot, (prh_ptr)post_req->post_req, (prh_ptr)post_req->continue_routine);
             }
             post_req->post_req = prh_null; // 移除的元素必须清零
@@ -16892,26 +16898,29 @@ void prh_impl_sched_thrd_dispatch_post(void) {
 static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.overlapped_entry_array;
     OVERLAPPED_ENTRY *entry_end = prh_null, *entry_ptr = prh_null;
-    int entry_array_size = PRH_IOCP_GLOBAL.sched_thrd_cqueue_size, entry_count = 0, dispatch_que_posts;
+    int entry_array_size = PRH_IOCP_GLOBAL.iocp_query_max_entries;
+    int entry_count = 0, dispatch_que_posts;
     bool sched_thrd_need_wakeup = true;
 
     for (; ;) {
-        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（query_entries_each_time）的完成条目
+        //  1.  接收完成端口中待处理的完成条目，每次最多获取固定大小（entry_array_size）的完成条目
         if (entry_ptr >= entry_end) { // 只有当前一次所有的 entry 都处理完毕，才开始新一轮接收
-            if ((entry_count = prh_impl_sched_thrd_wait_iocp_entries(overlapped_entry, entry_array_size, sched_thrd_need_wakeup))) {
+            if ((entry_count = prh_impl_sched_thrd_query_iocp_entries(overlapped_entry, entry_array_size, sched_thrd_need_wakeup))) {
                 entry_ptr = overlapped_entry;
                 entry_end = overlapped_entry + entry_count;
             }
         }
 
-        //  2.  每个完成条目的处理都会向调度线程的完成队列 sched_thrd_cqueue 投递一个线程任务，调度线程的完成队列有一个最大大小限制（sched_thrd_cqueue_size）
+        //  2.  每个完成条目的处理都会向调度线程的完成队列 iocp_continue_que 投递一个线程任务，调度线程的完
+        //      成队列有一个最大大小限制（iocp_continue_que_size）
         for (; entry_ptr < entry_end; entry_ptr += 1) {
             if (!prh_impl_sched_thrd_iocp_entry_completed(entry_ptr)) {
                 break;
             }
         }
 
-        //  3.  按任务序号小大收集各线程任务到一个固定大小的调度线程持有的本地队列中（post_collect_que），然后分派到各线程争抢的分派队列中（post_dispatch_que），分派队列大小也固定
+        //  3.  按任务序号大小收集各线程任务到一个固定大小的调度线程持有的本地队列中（post_collect_que），然
+        //      后分派到各线程争抢的分派队列中（post_dispatch_que），分派队列大小也固定
         if (prh_impl_sched_thrd_collect_post()) {
             prh_impl_sched_thrd_dispatch_post();
         }
@@ -16942,9 +16951,19 @@ static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
         }
 
         // 如果调度线程是活跃的，工作线程不需要向完成端口投递保活包
-        if (PRH_IOCP_GLOBAL.recv_keep_alive_to_collect_tx_post_entry && !sched_thrd_need_wakeup) {
-            prh_impl_sched_thrd_complete_keep_alive_to_collect_tx_post();
+        // 只要有待处理的任务，调度线程就会一直活跃，工作线程也就一直不需要投递保活包
+        if (PRH_IOCP_GLOBAL.recv_keep_collect_tx_post_entry && !sched_thrd_need_wakeup) {
+            prh_impl_sched_thrd_complete_keep_collect_tx_post();
         }
+    }
+}
+
+void prh_impl_create_thrd_memory(prh_iocp_thrd *thrd) {
+    if (PRH_IOCP_GLOBAL.thrd_linear_memory_size > 0) {
+        thrd->linear_memory_buffer_top = prh_virtual_alloc(PRH_IOCP_GLOBAL.thrd_linear_memory_size);
+    }
+    if (PRH_IOCP_GLOBAL.thrd_braver_memory_size > 0) {
+        thrd->braver_memory_cache_line = prh_virtual_alloc(PRH_IOCP_GLOBAL.thrd_braver_memory_size);
     }
 }
 
@@ -16952,18 +16971,12 @@ static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
     prh_atom_1wnr_ext_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
     prh_iocp_thrd *thrd = (prh_iocp_thrd *)thrd_ptr;
     prh_atom_bool *atom_thrd_exit = &thrd->atom_thrd_exit;
-    void *linear_memory = prh_null;
-    void *braver_memory = prh_null;
+    void *linear_memory, *braver_memory;
     bool thrd_is_exit = false;
 
-    if (PRH_IOCP_GLOBAL.thrd_linear_memory_size > 0) {
-        linear_memory = prh_virtual_alloc(PRH_IOCP_GLOBAL.thrd_linear_memory_size);
-        thrd->linear_memory_buffer_top = linear_memory;
-    }
-    if (PRH_IOCP_GLOBAL.thrd_braver_memory_size > 0) {
-        braver_memory = prh_virtual_alloc(PRH_IOCP_GLOBAL.thrd_braver_memory_size);
-        thrd->braver_memory_cache_line = braver_memory;
-    }
+    prh_impl_create_thrd_memory(thrd);
+    linear_memory = thrd->linear_memory_buffer_top;
+    braver_memory = thrd->braver_memory_cache_line;
 
     for (; ;) {
         prh_iocp_post_req post_req;
@@ -16993,93 +17006,96 @@ void prh_impl_iocp_global_free(void) {
     prh_simp_thrd_free(&PRH_IOCP_GLOBAL.thrds, prh_impl_iocp_thrd_free);
     prh_impl_close_completion_port(PRH_IMPL_IOCP);
     prh_impl_iocp_rio_free();
-
-    void *sched_thrd_buffer = PRH_IOCP_GLOBAL.overlapped_entry_array;
-    prh_aligned_free(sched_thrd_buffer);
-
-    void *thrd_shared_buffer = PRH_IOCP_GLOBAL.post_dispatch_que;
-    prh_aligned_free(thrd_shared_buffer);
-
     prh_atom_dynque_freed_blocks_free(&PRH_IOCP_GLOBAL.coro_freed_block_que);
     prh_impl_iocp_shared_global_free();
+    if (PRH_IOCP_GLOBAL.sched_linear_buffer) prh_virtual_free(PRH_IOCP_GLOBAL.sched_linear_buffer);
+    if (PRH_IOCP_GLOBAL.sched_braver_buffer) prh_virtual_free(PRH_IOCP_GLOBAL.sched_braver_buffer);
 }
 
 void prh_iocp_main_init(prh_iocp_config *config) {
     int concurrent_thread_count = config->concurrent_thread_count;
-    int sched_thrd_cqueue_size = config->sched_thrd_cqueue_size; // 必须是 2 的幂
-    int post_collect_que_size = config->post_collect_que_size; // 必须是 2 的幂
-    int post_dispatch_que_size = config->post_dispatch_que_size; // 必须是 2 的幂
-    int iocp_thrd_count, i;
+    int iocp_query_max_entries = config->iocp_query_max_entries;
+    int iocp_thrd_count;
 
     prh_sys_info *sys_info = prh_get_sys_info();
-    PRH_IOCP_GLOBAL.single_thrd_program = false;
+    PRH_IOCP_GLOBAL.single_thread_program = config->single_thread_program;
     if (concurrent_thread_count == 0) {
         concurrent_thread_count = sys_info->processor_count;
         if (concurrent_thread_count > 1) {
             concurrent_thread_count -= 1; // 主线程是调度线程，并行执行的工作线程数量需要减去1个
         } else {
             concurrent_thread_count = 0;
-            PRH_IOCP_GLOBAL.single_thrd_program = true;
+            PRH_IOCP_GLOBAL.single_thread_program = true;
         }
     }
+
     iocp_thrd_count = concurrent_thread_count + 1;
     PRH_IOCP_GLOBAL.concurrent_threads = concurrent_thread_count;
+    assert(concurrent_thread_count >= 0 && concurrent_thread_count < PRH_THRD_INDEX_MASK);
+
+    if (iocp_query_max_entries <= 0) iocp_query_max_entries = PRH_IMPL_IOCP_QUERY_ENTRY_COUNT;
+    iocp_query_max_entries = prh_to_power_of_2(iocp_query_max_entries); // 需要作为 iocp_continue_que 的大小
+    sched_post_que_size = 2 * iocp_query_max_entries; // 收集完成端口任务和线程投递的任务
+    PRH_IOCP_GLOBAL.iocp_query_max_entries = iocp_query_max_entries;
+
+    if (config->thrd_linear_memory_size <= 0) config->thrd_linear_memory_size = PRH_VMEM_RESERVE_UNIT;
+    if (config->thrd_braver_memory_size <= 0) config->thrd_braver_memory_size = PRH_VMEM_RESERVE_UNIT;
+    assert((config->thrd_linear_memory_size % PRH_VMEM_RESERVE_UNIT) == 0);
+    assert((config->thrd_braver_memory_size % PRH_VMEM_RESERVE_UNIT) == 0);
+
+    PRH_IOCP_GLOBAL.thrd_linear_memory_size = config->thrd_linear_memory_size;
+    PRH_IOCP_GLOBAL.thrd_braver_memory_size = config->thrd_braver_memory_size;
     PRH_IOCP_GLOBAL.cfmd_post_seqn = 0;
     prh_atom_dynque_freed_blocks_init(&PRH_IOCP_GLOBAL.coro_freed_block_que);
-
-    assert(concurrent_thread_count >= 0 && concurrent_thread_count < PRH_THRD_INDEX_MASK);
-    assert(sched_thrd_cqueue_size >= concurrent_thread_count)
-    assert(post_collect_que_size >= sched_thrd_cqueue_size);
-    assert(post_dispatch_que_size >= post_collect_que_size);
-
-    // 分配的内存仅被调度线程访问
-    prh_int overlapped_entry_array_bytes = prh_round_cache_line_size(sizeof(OVERLAPPED_ENTRY) * sched_thrd_cqueue_size);
-    prh_int rio_result_entry_array_bytes = prh_round_cache_line_size(sizeof(RIORESULT) * sched_thrd_cqueue_size);
-    prh_int sched_thrd_cqueue_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(sched_thrd_cqueue_size, sizeof(prh_iocp_thrd_req)));
-    prh_int post_collect_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(post_collect_que_size, sizeof(prh_iocp_post_req)));
-    prh_int thrd_tx_que_consumer_bytes = prh_round_cache_line_size(sizeof(prh_sched_thrd_tx_que_consumer) * iocp_thrd_count);
-    prh_byte *sched_thrd_buffer = prh_aligned_malloc(overlapped_entry_array_bytes + rio_result_entry_array_bytes + sched_thrd_cqueue_bytes + post_collect_que_bytes + thrd_tx_que_consumer_bytes, PRH_CACHE_LINE_SIZE);
-
-    PRH_IOCP_GLOBAL.overlapped_entry_array = sched_thrd_buffer;
-    sched_thrd_buffer += overlapped_entry_array_bytes;
-
-    PRH_IOCP_GLOBAL.rio_result_entry_array = sched_thrd_buffer;
-    sched_thrd_buffer += rio_result_entry_array_bytes;
-
-    PRH_IOCP_GLOBAL.sched_thrd_cqueue = (prh_sched_cqueue_ptr)sched_thrd_buffer;
-    PRH_IOCP_GLOBAL.sched_thrd_cqueue_size = sched_thrd_cqueue_size;
-    prh_fixed_arrque_init(PRH_IOCP_GLOBAL.sched_thrd_cqueue, sched_thrd_cqueue_size);
-    sched_thrd_buffer += sched_thrd_cqueue_bytes;
-
-    PRH_IOCP_GLOBAL.post_collect_que = (prh_post_collect_que_ptr)sched_thrd_buffer;
-    prh_fixed_arrque_init(PRH_IOCP_GLOBAL.post_collect_que, post_collect_que_size);
-    sched_thrd_buffer += post_collect_que_bytes;
-
-    PRH_IOCP_GLOBAL.thrd_tx_que = (prh_sched_thrd_tx_que_consumer *)sched_thrd_buffer;
-    PRH_IOCP_GLOBAL.thrd_tx_que_end = PRH_IOCP_GLOBAL.thrd_tx_que + iocp_thrd_count;
-    sched_thrd_buffer += thrd_tx_que_consumer_bytes;
-
-    // 分配的内部被工作线程和调度线程共享访问
-    prh_int post_dispatch_que_bytes = prh_round_cache_line_size(prh_atom_1wnr_arrque_alloc_size(post_dispatch_que_size, sizeof(prh_iocp_post_req)));
-    prh_int thrd_wait_que_bytes = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
-    prh_byte *thrd_shared_buffer = prh_aligned_malloc(post_dispatch_que_bytes + thrd_wait_que_bytes, PRH_CACHE_LINE_SIZE);
-
-    prh_atom_1wnr_ext_arrque *post_dispatch_que = (prh_atom_1wnr_ext_arrque *)thrd_shared_buffer;
-    prh_impl_atom_1wnr_arrque_init(post_dispatch_que, post_dispatch_que_size);
-    PRH_IOCP_GLOBAL.post_dispatch_que = post_dispatch_que;
-    thrd_shared_buffer += post_dispatch_que_bytes;
-
-    prh_impl_iocp_shared_global_init((prh_iocp_share_thrd_data **)thrd_shared_buffer);
-    thrd_shared_buffer += thrd_wait_que_bytes;
 
     // 创建调度线程
     PRH_IOCP_GLOBAL.iocp_thrds = prh_simp_thrd_init(0, concurrent_thread_count, sizeof(prh_iocp_thrd));
     PRH_IOCP_GLOBAL.sched_thrd = (prh_iocp_thrd *)prh_simp_thrd_main(PRH_IOCP_GLOBAL.iocp_thrds);
     prh_impl_iocp_thrd_init(PRH_IOCP_GLOBAL.sched_thrd, &PRH_IOCP_GLOBAL.thrd_tx_que->thrd_tx_que_consumer);
     PRH_IOCP_GLOBAL.thrd_tx_que->thrd_tx_que_length = &PRH_IOCP_GLOBAL.sched_thrd.share_thrd_data.thrd_tx_que_length;
+    prh_impl_create_thrd_memory(PRH_IOCP_GLOBAL.sched_thrd);
+    PRH_IOCP_GLOBAL.sched_linear_buffer = PRH_IOCP_GLOBAL.sched_thrd->linear_memory_buffer_top;
+    PRH_IOCP_GLOBAL.sched_braver_buffer = PRH_IOCP_GLOBAL.sched_thrd->braver_memory_cache_line;
+
+    // 分配的内存仅被调度线程访问
+    prh_int overlapped_entry_array_bytes = prh_round_cache_line_size(sizeof(OVERLAPPED_ENTRY) * iocp_query_max_entries);
+    prh_int rio_result_entry_array_bytes = prh_round_cache_line_size(sizeof(RIORESULT) * iocp_query_max_entries);
+    prh_int iocp_continue_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(iocp_query_max_entries, sizeof(prh_iocp_thrd_req)));
+    prh_int post_collect_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(sched_post_que_size, sizeof(prh_iocp_post_req)));
+    prh_int thrd_tx_que_consumer_bytes = prh_round_cache_line_size(sizeof(prh_sched_thrd_tx_que_consumer) * iocp_thrd_count);
+    prh_int post_dispatch_que_bytes = prh_round_cache_line_size(prh_atom_1wnr_arrque_alloc_size(sched_post_que_size, sizeof(prh_iocp_post_req)));
+    prh_int thrd_wait_que_bytes = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
+    prh_byte *sched_thrd_buffer = prh_impl_thrd_braver_memory_alloc(overlapped_entry_array_bytes + rio_result_entry_array_bytes + iocp_continue_que_bytes +
+        post_collect_que_bytes + thrd_tx_que_consumer_bytes + post_dispatch_que_bytes + thrd_wait_que_bytes, PRH_IOCP_GLOBAL.sched_thrd);
+
+    PRH_IOCP_GLOBAL.overlapped_entry_array = sched_thrd_buffer;
+    sched_thrd_buffer += overlapped_entry_array_bytes;
+    PRH_IOCP_GLOBAL.rio_result_entry_array = sched_thrd_buffer;
+    sched_thrd_buffer += rio_result_entry_array_bytes;
+
+    PRH_IOCP_GLOBAL.iocp_continue_que = (prh_iocp_continue_que_ptr)sched_thrd_buffer;
+    prh_fixed_arrque_init(PRH_IOCP_GLOBAL.iocp_continue_que, iocp_query_max_entries);
+    sched_thrd_buffer += iocp_continue_que_bytes;
+
+    PRH_IOCP_GLOBAL.post_collect_que = (prh_post_collect_que_ptr)sched_thrd_buffer;
+    prh_fixed_arrque_init(PRH_IOCP_GLOBAL.post_collect_que, sched_post_que_size);
+    sched_thrd_buffer += post_collect_que_bytes;
+
+    PRH_IOCP_GLOBAL.thrd_tx_que = (prh_sched_thrd_tx_que_consumer *)sched_thrd_buffer;
+    PRH_IOCP_GLOBAL.thrd_tx_que_end = PRH_IOCP_GLOBAL.thrd_tx_que + iocp_thrd_count;
+    sched_thrd_buffer += thrd_tx_que_consumer_bytes;
+
+    prh_atom_1wnr_ext_arrque *post_dispatch_que = (prh_atom_1wnr_ext_arrque *)thrd_shared_buffer;
+    prh_impl_atom_1wnr_arrque_init(post_dispatch_que, sched_post_que_size);
+    PRH_IOCP_GLOBAL.post_dispatch_que = post_dispatch_que;
+    thrd_shared_buffer += post_dispatch_que_bytes;
+
+    prh_impl_iocp_global_init();
+    prh_impl_iocp_shared_global_init((prh_iocp_share_thrd_data **)thrd_shared_buffer);
+    thrd_shared_buffer += thrd_wait_que_bytes;
 
     // 创建工作线程并启动
-    for (i = 0; i < concurrent_thread_count; i += 1) {
+    for (int i = 0; i < concurrent_thread_count; i += 1) {
         prh_iocp_thrd *iocp_thrd = prh_simp_thrd_create(PRH_IOCP_GLOBAL.iocp_thrds);
         prh_impl_iocp_thrd_init(iocp_thrd, &PRH_IOCP_GLOBAL.thrd_tx_que[i + 1].thrd_tx_que_consumer);
         PRH_IOCP_GLOBAL.thrd_tx_que[i + 1].thrd_tx_que_length = iocp_thrd->share_thrd_data.thrd_tx_que_length;
@@ -17090,8 +17106,6 @@ void prh_iocp_main_init(prh_iocp_config *config) {
 void prh_iocp_start_run(void) {
     prh_iocp_thrd *sched_thrd = PRH_IOCP_GLOBAL.sched_thrd;
     prh_real_assert(sched_thrd == (prh_iocp_thrd *)prh_thrd_self()); // 必须从主线程启动
-
-    prh_impl_iocp_global_init();
 
     prh_impl_sched_thrd_routine(sched_thrd); // 启动调度线程
     prh_simp_thrd_join_except_main(PRH_IOCP_GLOBAL.thrds, prh_impl_iocp_thrd_free);
