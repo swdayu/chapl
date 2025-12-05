@@ -3981,7 +3981,6 @@ void *prh_quedyn_pop(prh_quedyn *q) {
 #ifdef PRH_ALLOC_INCLUDE
 #ifdef PRH_ALLOC_IMPLEMENTATION
 #if defined(prh_plat_windows)
-
 // LPVOID VirtualAlloc(
 //  [in, optional] LPVOID lpAddress,
 //  [in]           SIZE_T dwSize,
@@ -5935,6 +5934,147 @@ void prh_soro_finish(prh_soro_struct *main) {
 // https://gcc.gnu.org/onlinedocs/gcc/_005f_005fatomic-Builtins.html
 // https://gcc.gnu.org/wiki/Atomic/GCCMM/AtomicSync
 // https://research.swtch.com/mm
+//
+// 在串行程序中，程序的不变性比较容易维护，例如队列的元素数量必须小于或等于用来存储元素
+// 的数组长度、头节点和尾节点的下标必须在合理范围内等等，我们只要在所有共有方法的入口点
+// 和出口点都维持这个不变性，那么就足以保证代码的正确性。
+//
+// 当在系统中引入并发时，事件将变得非常困难。除非使用了某种特殊方法，否则你将不得不在编
+// 写每一行代码时都要保证这些不变性。然而，即便如此也往往还不够，因为有时候一行代码（无
+// 论你采用何种高级编程语言）会被编译为多条机器语言指令。而且，如果在操作中涉及多个变量，
+// 那么这项任务将几乎不可能完成，这就需要某种特别形式的状态管理方式，例如彼此独立、不可
+// 修改、或者保持同步。
+//
+// 当然最简单的方法是完全避免对数据进行共享或者更新。但不幸的是，即使采用这种方法，在有
+// 些情况下仍然需要使用同步。例如，你需要将状态的中间变化过程局限在某个线程中，直到所有
+// 操作完成。然后，当需要将状态向外公开时，你必须通过某种机制将这些变化通知到全局内存空
+// 间，其他线程则需要从全局内存空间读取这些状态，这两个动作必须是单一的和不可分割的原子
+// 操作。要实现这种方式并不容易，由于目前的硬件并不支持以原子的方式来读取和写入任意数量
+// 的内存空间，因此在软件中必须通过临界区来模拟这一过程。临界区能够保证每次只有一个线程
+// 执行某段特定的代码，这就消除了在多个线程之间发生相互干扰的问题，并且强制实施依次执行
+// 的顺序。这意味着系统中的一些线程必须等到其他线程完成工作之后，才能开始执行它自己的工
+// 作。
+//
+// 一个简单的数据竞争示例。int *a = ...; (*a)++; 这里 a 是一个指向某个共享内存位置的
+// 指针，(*a)++ 是对这个共享位置的数据进行加一操作，当编译成机器代码时将包含多条机器指
+// 令： 读取 mov eax, [a]   更新 inc eax    写入 mov [a], eax 。实际上，这一步骤类
+// 似于将代码改为：int *a = ...; int tmp = *a; tmp++; *a = tmp; 。
+//
+// 任何需要多条机器指令的运算都是非原子的，此外还有一些非原子的操作并非像上面代码那样明
+// 显。在现代处理器中通常能够保证：如果在递增运算中对内存的读写操作是以机器字长大小单位
+// （即 CPU 的内存寻址单位），那么将以原子方式来执行这些操作，例如在 32 位机器上执行 32
+// 位值的递增，在 64 位机器上执行 64 位值的递增。相反，如果在读写数据时使用的字节数要大
+// 于 CPU 的内存寻址单位，那么这些操作是非原子的。例如，如果在 32 位机器上写入一个 64
+// 位的值，那么这个操作就需要两条 mov 指令将这个值从处理器的私有内存移动动到共有内存，其
+// 中每条指令复制 4 各字节。同样，如果在未对齐的地址，即地址的范围至少跨越了一个内存寻址
+// 单位，上执行读写操作，那么也需要执行多次内存操作，此外还可能需要一些位掩码操作和移动
+// 操作，即使这个值所占的内存空间小于或者等于机器的内存寻址单位也是如此。对齐是一个非常
+// 复杂的主题。
+//
+// 那么，为什么在并发执行非原子运算时会出现问题？虽然加载寄存器和保存寄存器本身都是原子
+// 的，但是将加载、递增、保存这三条指令放在一起组成的操作却是非原子的。每个线程都在单独
+// 的处理器上运行，这意味着每个处理器都拥有自己的私有 eax 寄存器，但所有线程看到的 a 都
+// 指向相同的并且访问同一块共享内存，我们可以通过时间刻度来分析这个并发指向行为。这三条
+// 指令不会真正地同时执行，虽然处理器可以同时执行多条指令，但有一点非常重要，即带有缓存
+// 一致性机制的内存系统将确保一致的内存全局视图。因此，我们可以以一种简单的、串行的时间
+// 刻度来描述程序的执行流程。
+//
+// 执行以下流程我们编写的算法仍然是安全的：
+//      t1 -> t1 -> t1 -> t3 -> t3 -> t3 -> t2 -> t2 -> t2
+//      t2 -> t2 -> t2 -> t1 -> t1 -> t1 -> t3 -> t3 -> t3
+//      t2 -> t2 -> t2 -> t3 -> t3 -> t3 -> t1 -> t1 -> t1
+//      t3 -> t3 -> t3 -> t1 -> t1 -> t1 -> t2 -> t2 -> t2
+//
+// 这些执行流程都将产生正确的结果，因为每个线程的操作都不会与其他线程的操作发生相互干扰，
+// 在每个执行流程中，第一个线程都将一直运行到结束，然后是第二个第三个线程依次执行完成。
+// 在这些执行流程中，所有线程都是串行执行的，或者说执行流程是串行的。
+//
+// 然而，这个示例的正确运行完全是出于偶然，在程序中没有采取任何措施防止在多个线程的操作
+// 之间发生干扰，这将使得多个线程的执行时间相互重叠并导致竟态条件的发生。让我们暂时先忽
+// 略 t3：  t1 -> t2 -> t2 -> t2 -> t1 -> t1 。如果 *a 最开始的值为 0，由于执行了两
+// 次递增运算，我们期待结果是 2，但实际上最终结果为 1。这很明显违背了算法的第一个正确性
+// 条件：每个线程在执行了递增运算之后，全局的计数器都将增加 1。这是一个典型的竟态条件问
+// 题，或者更准确地说是一个数据竞争问题，这个问题是由于缺乏对数据进行同步而导致的。之所
+// 以被称为 “竞争”，是因为代码执行的正确性完全依赖于多个线程之间的竞争结果。每个线程都
+// 试图最先执行完代码，并且根据哪个线程最先执行完成，程序将产生不同的结果，这些结果有时
+// 候是正确的，有时候是错误的。竞争只是在涉及共享状态时出现的众多问题之一，它可能对程序
+// 的正确性造成严重的危害。
+//
+// 注意，在单处理器的机器上同样可能出现这个问题，如果 t1 刚刚将 a 的值移入 eax 或者 t1
+// 刚刚执行完递增操作时就发生了上下文切换。发生切换的原因可能是 t1 的执行时间片已经使用
+// 完，或者由于 t2 是一个更高优先级的线程，那么都会导致同样的问题。
+//
+// 我们将 t3 加入到执行流程示意图中，那么将可能违背递增运算的第二个正确性条件：
+//      t3 -> t1 -> t1 -> t1 -> t2 -> t2 -> t2 -> t3 -> t3
+//
+// 第二个正确性条件是这个值只能单调地增长，当 t1 和 t2 执行完时，从系统其他线程的角度，
+// 一切似乎都在正确的运行，因为值从 0 递增到了 1 和 2。但是此时 t3 继续执行时，它将覆盖
+// t1 和 t2 的执行结果，重新将值设置为 1。此时如果 t2 再次运行，它所看到的值将比前一次
+// 看到的值（2）要小。这很明显是一个问题，并且这个问题将破坏整个算法。
+//
+// 一个重要的问题是，程序中的许多操作都不是原子操作，因为在这些操作中包含了多个逻辑步骤，
+// 而每个逻辑步骤又可能包含多个物理步骤等。简单来说，原子性就是指单个操作或者一组操作能
+// 够一次性执行完成，并且不会被打断。任何状态修改以及相应的操作都是快速执行完成的，系统
+// 中的所有其他线程将看不到在原子操作中出现的中间状态。同样，原子操作一定不能在更新状态
+// 的过程中发生故障，如果发生故障，那么必须通过相应的回滚机制恢复到之前的状态。
+//
+// 根据这个定义，我们很难在实际编程中实现原子性。虽然处理器能够在对对齐的内存执行写入操
+// 作时保证原子性，但一些更高级别的逻辑操作（例如调用对象的某个方法）则并非如此简单。事
+// 实上，有时候我们希望在执行一些跨越机器物理边界的操作时也能实现原子性，这些操作可能需
+// 要与 Web 服务或者数据库交互，此时保证原子性的难度将更大。在实现原子性时，除了简单的
+// 读写操作外，我们还必须使用系统提供的各种控制机制。比如已提到的临界区可以模拟内存更新
+// 操作的原子性。当涉及多个资源或者持久化的资源时，数据库中的事务、COM+ 以及 .NET 中的
+// System.Transactions 命名空间等，都是一些颇具吸引力的解决方案。Win32 和 .NET 框架
+// 平台提供了一组工具通过数据同步来实现原子性。熟悉关系数据库的开发人员可能会在其中发现
+// 一些相似之处：数据库通过事务来实现串行化的操作，并为程序员提供了一个接口来使用原子性、
+// 一致性、独立性、和持久性（Atomicity Consistency Isolation Durabiliry, ACID）。
+//
+// 当程序需要使用共享的可变状态时，同步时唯一能够保证程序正确的技术。目前，同步这个术语
+// 已经被过度地使用，这使得它的含义变得非常模糊。我们应该对两种不同但却紧密相关的同步进
+// 行区别：数据同步和控制同步。
+//
+// 数据同步，我们必须对共享资源（包括内存）进行保护，这一当多个线程以并行方式使用相同的
+// 资源时不会发生相互干扰。控制同步，在多个线程之间，一个线程通常需要等待其他线程执行到
+// 程序中的某个特定点，例如由于在执行完算法的某个步骤之后需要汇总和交换数据，或者由于线
+// 程需要协调其他的线程并且告诉它们接下来需要做什么。这两种技术并不是相互排斥的，我们通
+// 常需要将它们结合起来使用。例如，我们可能希望生产者线程向共享缓冲区中写入一些数据后，
+// 能够通知消费者线程，此时就需要使用控制同步，我们同样还需要确保生产者和消费者能够安全
+// 访问这个数据，这就需要使用数据同步。
+//
+// 所有的同步操作大致上都可以归类到这两种类型种。在实际情况种，我们可以通过多种方式来实
+// 现程序种的数据同步和控制同步。实现方式的选择对于能否成功地使用并发来说是非常重要的。
+// 在这个选择过程种需要考虑很多因素。比如正确性，即所选择的实现方式能否带来正确的代码；
+// 性能，即对算法串行性能的影响；可伸缩性，即如果提供更多的处理器，那么系统的吞吐量能否
+// 相应的提升，或者至少不会降低。
+//
+// 对于一般性的数据竞争问题，解决方案之一就是将共享状态的并发访问串行化。互斥是最常使用
+// 的一种技术，用来保证每次只有一个线程能够执行那些容易发生并发问题的指令区域。涉及的技
+// 术有锁（Lock），互斥量（Mutex），临界区（Critical Section），监视器（Monitor），
+// 二值信号量（Binary Semaphore），读写锁（R/W Lock），以及事务。信号量是临界区思想的
+// 一种扩展，它允许一定数量的线程同时出现在临界区中。
+//
+// 程序在临界区中执行的时间要尽量可能少，这是为了提高程序的执行性能。另外，最令人注意的
+// 问题就是如何对临界区中抛出的异常进行处理。通常，程序希望确保正确的退出临界区，即使临
+// 界区在异常环境中被终止。然而，如果在发生故障时只是简单地释放锁，那么往往还不够。还记
+// 得原子性的定义中：原子操作要么完全完成，要么完全不完成。如果在发生故障后立即释放锁，
+// 那么可能会在程序的剩余部分造成数据破坏。
+//
+// 当使用临界区时，你必须确定哪些数据需要在临界区中保护。有两种方式来组织临界区：粗粒度
+// 和细粒度。粗粒度通过单个临界区来保护程序中的所有数据，这使得程序以单线程形式运行，因
+// 为每次只有一个线程能够执行操作。这是保持程序正确性的最简单的方式，只有一个锁需要管理，
+// 并且只有一个锁需要获取和释放，这种方式减少了在实现同步时需要的空间和时间，我们只需要
+// 非常少的工作就可以确保程序的安全性。然而，这种过程保守的方法可能会由于伪共享（false
+// sharing）问题而对程序的可伸缩性带来负面影响。伪共享不必要地阻止对某些数据的并发访问，
+// 即通过对访问施加一些不必要的保护来确保程序执行的正确性。为了提高程序的可伸缩性，我们
+// 可以对每一部分数据都使用一个锁，这使得多个线程能够同时访问不相交的数据部分。这种方式
+// 能够减少或消除伪共享，使线程实现更高程度的并发以提高可伸缩性。这种方法的缺点在于需要
+// 管理大量的锁，空间时间上的复杂性大大增加，如果使用不当还会导致死锁问题。如果在多个数
+// 据结构之间存在着复杂的不变性关系，那么要消除数据竞争问题就会变得更加困难。
+//
+// 没有任何一种方法能够适用于所有情况，程序通常会将这两种极端情况之间找到某种平衡并且将
+// 一些技术结合起来使用。但一条通用的经验法则是，首先从粗粒度的锁定开始以确保程序的正确
+// 性，然后再根据可伸缩性的需求来调整更细粒度的区域，通过这种方法将可以实现更可维护的、
+// 更易于理解的和错误更少的程序。
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
 // 何其他原子操作能够访问该对象之前，每个原子操作都会在该对象上完整地执行完毕。这就保
@@ -7168,34 +7308,34 @@ prh_inline prh_int prh_atom_ext_mult_rd_arrque_empty_items(prh_atom_ext_mult_rd_
 typedef struct {
     prh_int tail; // tail 仅由 write 单一线程写入
     prh_int empty_items;
-} prh_atom_mult_rd_arrque_stamp;
+} prh_atom_mult_rd_arrque_view;
 
-bool prh_impl_atom_mult_rd_arrque_push_begin(void *arrque, prh_atom_mult_rd_arrque_stamp *shot);
-void prh_impl_atom_mult_rd_arrque_push_item_u32(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_u32 a);
-void prh_impl_atom_mult_rd_arrque_push_item_unt(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_unt a);
-void prh_impl_atom_mult_rd_arrque_push_item_ext(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_ptr a, prh_ptr b);
-void prh_impl_atom_mult_rd_arrque_push_end(void *arrque, prh_atom_mult_rd_arrque_stamp *shot);
+bool prh_impl_atom_mult_rd_arrque_push_begin(void *arrque, prh_atom_mult_rd_arrque_view *view);
+void prh_impl_atom_mult_rd_arrque_push_item_u32(void *arrque, prh_atom_mult_rd_arrque_view *view, prh_u32 a);
+void prh_impl_atom_mult_rd_arrque_push_item_unt(void *arrque, prh_atom_mult_rd_arrque_view *view, prh_unt a);
+void prh_impl_atom_mult_rd_arrque_push_item_ext(void *arrque, prh_atom_mult_rd_arrque_view *view, prh_ptr a, prh_ptr b);
+void prh_impl_atom_mult_rd_arrque_push_end(void *arrque, prh_atom_mult_rd_arrque_view *view);
 
-prh_inline bool prh_atom_i32_mult_rd_arrque_push_begin(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
-prh_inline bool prh_atom_u32_mult_rd_arrque_push_begin(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
-prh_inline bool prh_atom_int_mult_rd_arrque_push_begin(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
-prh_inline bool prh_atom_unt_mult_rd_arrque_push_begin(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
-prh_inline bool prh_atom_ptr_mult_rd_arrque_push_begin(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
-prh_inline bool prh_atom_ext_mult_rd_arrque_push_begin(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { return prh_impl_atom_mult_rd_arrque_push_begin(q, shot); }
+prh_inline bool prh_atom_i32_mult_rd_arrque_push_begin(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { return prh_impl_atom_mult_rd_arrque_push_begin(q, view); }
+prh_inline bool prh_atom_u32_mult_rd_arrque_push_begin(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { return prh_impl_atom_mult_rd_arrque_push_begin(q, view); }
+prh_inline bool prh_atom_int_mult_rd_arrque_push_begin(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { return prh_impl_atom_mult_rd_arrque_push_begin(q, view); }
+prh_inline bool prh_atom_unt_mult_rd_arrque_push_begin(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { return prh_impl_atom_mult_rd_arrque_push_begin(q, view); }
+prh_inline bool prh_atom_ptr_mult_rd_arrque_push_begin(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { return prh_impl_atom_mult_rd_arrque_push_begin(q, view); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_push_begin(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { return prh_impl_atom_mult_rd_arrque_push_begin(q, view); }
 
-prh_inline bool prh_atom_i32_mult_rd_arrque_push_item(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_i32 a) { prh_impl_atom_mult_rd_arrque_push_item_u32(q, shot, a); }
-prh_inline bool prh_atom_u32_mult_rd_arrque_push_item(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_u32 a) { prh_impl_atom_mult_rd_arrque_push_item_u32(q, shot, a); }
-prh_inline bool prh_atom_int_mult_rd_arrque_push_item(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_int a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, shot, a); }
-prh_inline bool prh_atom_unt_mult_rd_arrque_push_item(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_unt a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, shot, a); }
-prh_inline bool prh_atom_ptr_mult_rd_arrque_push_item(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, void *a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, shot, (prh_unt)a); }
-prh_inline bool prh_atom_ext_mult_rd_arrque_push_item(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot, prh_ptr a, prh_ptr b) { prh_impl_atom_mult_rd_arrque_push_item_ext(q, shot, a, b); }
+prh_inline bool prh_atom_i32_mult_rd_arrque_push_item(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view, prh_i32 a) { prh_impl_atom_mult_rd_arrque_push_item_u32(q, view, a); }
+prh_inline bool prh_atom_u32_mult_rd_arrque_push_item(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view, prh_u32 a) { prh_impl_atom_mult_rd_arrque_push_item_u32(q, view, a); }
+prh_inline bool prh_atom_int_mult_rd_arrque_push_item(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view, prh_int a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, view, a); }
+prh_inline bool prh_atom_unt_mult_rd_arrque_push_item(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view, prh_unt a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, view, a); }
+prh_inline bool prh_atom_ptr_mult_rd_arrque_push_item(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view, void *a) { prh_impl_atom_mult_rd_arrque_push_item_unt(q, view, (prh_unt)a); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_push_item(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view, prh_ptr a, prh_ptr b) { prh_impl_atom_mult_rd_arrque_push_item_ext(q, view, a, b); }
 
-prh_inline bool prh_atom_i32_mult_rd_arrque_push_end(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
-prh_inline bool prh_atom_u32_mult_rd_arrque_push_end(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
-prh_inline bool prh_atom_int_mult_rd_arrque_push_end(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
-prh_inline bool prh_atom_unt_mult_rd_arrque_push_end(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
-prh_inline bool prh_atom_ptr_mult_rd_arrque_push_end(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
-prh_inline bool prh_atom_ext_mult_rd_arrque_push_end(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_stamp *shot) { prh_impl_atom_mult_rd_arrque_push_end(q, shot); }
+prh_inline bool prh_atom_i32_mult_rd_arrque_push_end(prh_atom_i32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { prh_impl_atom_mult_rd_arrque_push_end(q, view); }
+prh_inline bool prh_atom_u32_mult_rd_arrque_push_end(prh_atom_u32_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { prh_impl_atom_mult_rd_arrque_push_end(q, view); }
+prh_inline bool prh_atom_int_mult_rd_arrque_push_end(prh_atom_int_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { prh_impl_atom_mult_rd_arrque_push_end(q, view); }
+prh_inline bool prh_atom_unt_mult_rd_arrque_push_end(prh_atom_unt_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { prh_impl_atom_mult_rd_arrque_push_end(q, view); }
+prh_inline bool prh_atom_ptr_mult_rd_arrque_push_end(prh_atom_ptr_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { prh_impl_atom_mult_rd_arrque_push_end(q, view); }
+prh_inline bool prh_atom_ext_mult_rd_arrque_push_end(prh_atom_ext_mult_rd_arrque *q, prh_atom_mult_rd_arrque_view *view) { prh_impl_atom_mult_rd_arrque_push_end(q, view); }
 
 prh_inline bool prh_atom_i32_mult_rd_arrque_push(prh_atom_i32_mult_rd_arrque *q, prh_i32 a) { return prh_impl_atom_mult_rd_arrque_push_u32(q, a); }
 prh_inline bool prh_atom_u32_mult_rd_arrque_push(prh_atom_u32_mult_rd_arrque *q, prh_u32 a) { return prh_impl_atom_mult_rd_arrque_push_u32(q, a); }
@@ -7371,52 +7511,52 @@ void prh_impl_atom_mult_rd_arrque_init(void *arrque, prh_int size) {
     q->size_minus_one = size - 1;
 }
 
-bool prh_impl_atom_mult_rd_arrque_push_begin(void *arrque, prh_atom_mult_rd_arrque_stamp *shot) {
+bool prh_impl_atom_mult_rd_arrque_push_begin(void *arrque, prh_atom_mult_rd_arrque_view *view) {
     prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_int head = prh_atom_int_read(&q->head); // 以此为基点写入，tail 不能等于和超过 head
     prh_int tail = prh_atom_int_read(&q->tail); // tail 仅由 write 单一线程写入
     prh_int size_minus_one = q->size_minus_one;
     prh_int empty_items = ((head - tail - 1) & size_minus_one);
-    shot->tail = tail;
-    shot->empty_items = empty_items;
+    view->tail = tail;
+    view->empty_items = empty_items;
     return empty_items > 0;
 }
 
-void prh_impl_atom_mult_rd_arrque_push_item_u32(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_u32 a) {
+void prh_impl_atom_mult_rd_arrque_push_item_u32(void *arrque, prh_atom_mult_rd_arrque_view *view, prh_u32 a) {
     prh_impl_atom_mult_rd_arrque *q = arrque;
-    assert(shot->empty_items > 0);
+    assert(view->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
-    prh_int tail = shot->tail;
+    prh_int tail = view->tail;
     ((prh_u32 *)prh_impl_atom_mult_rd_arrque_elem(q))[tail] = a;
-    shot->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
-    prh_debug(shot->empty_items -= 1);
+    view->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
+    prh_debug(view->empty_items -= 1);
 }
 
-void prh_impl_atom_mult_rd_arrque_push_item_unt(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_unt a) {
+void prh_impl_atom_mult_rd_arrque_push_item_unt(void *arrque, prh_atom_mult_rd_arrque_view *view, prh_unt a) {
     prh_impl_atom_mult_rd_arrque *q = arrque;
-    assert(shot->empty_items > 0);
+    assert(view->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
-    prh_int tail = shot->tail;
+    prh_int tail = view->tail;
     ((prh_unt *)prh_impl_atom_mult_rd_arrque_elem(q))[tail] = a;
-    shot->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
-    prh_debug(shot->empty_items -= 1);
+    view->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 1, q->size_minus_one);
+    prh_debug(view->empty_items -= 1);
 }
 
-void prh_impl_atom_mult_rd_arrque_push_item_ext(void *arrque, prh_atom_mult_rd_arrque_stamp *shot, prh_ptr a, prh_ptr b) {
+void prh_impl_atom_mult_rd_arrque_push_item_ext(void *arrque, prh_atom_mult_rd_arrque_view *view, prh_ptr a, prh_ptr b) {
     prh_impl_atom_mult_rd_arrque *q = arrque;
     prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_mult_rd_arrque_elem(q);
-    assert(shot->empty_items > 0);
+    assert(view->empty_items > 0);
     assert(a != 0); // 方便区分 pop 的时候返回 0 确切表示队列为空
-    prh_int tail = shot->tail;
+    prh_int tail = view->tail;
     elem_ptr[tail] = a;
     elem_ptr[tail + 1] = b;
-    shot->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 2, q->size_minus_one);
-    prh_debug(shot->empty_items -= 1);
+    view->tail = prh_impl_atom_mult_rd_arrque_pos(tail + 2, q->size_minus_one);
+    prh_debug(view->empty_items -= 1);
 }
 
-void prh_impl_atom_mult_rd_arrque_push_end(void *arrque, prh_atom_mult_rd_arrque_stamp *shot) {
+void prh_impl_atom_mult_rd_arrque_push_end(void *arrque, prh_atom_mult_rd_arrque_view *view) {
     prh_impl_atom_mult_rd_arrque *q = arrque;
-    prh_atom_int_write(&q->tail, shot->tail); // tail 只由单一生产者更新
+    prh_atom_int_write(&q->tail, view->tail); // tail 只由单一生产者更新
 }
 
 bool prh_impl_atom_mult_rd_arrque_push_u32(void *arrque, prh_u32 a) {
@@ -16901,17 +17041,17 @@ int prh_impl_sched_thrd_dispatch_que_len(void) {
 
 void prh_impl_sched_thrd_dispatch_post(void) {
     prh_atom_ext_mult_rd_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
-    prh_atom_mult_rd_arrque_stamp stamp;
-    if (prh_atom_ext_mult_rd_arrque_push_begin(post_dispatch_que, stamp)) {
-        for (int i = 0; i < (int)stamp.empty_items; i += 1) {
+    prh_atom_mult_rd_arrque_view view;
+    if (prh_atom_ext_mult_rd_arrque_push_begin(post_dispatch_que, &view)) {
+        for (int i = 0; i < (int)view.empty_items; i += 1) {
             prh_iocp_post_req *post_req = prh_impl_sched_thrd_collect_que_pop();
             if (post_req == prh_null) break;
             if (post_req->post_req != PRH_IMPL_SCHED_POST_REQ_REMOVED) {
-                prh_atom_ext_mult_rd_arrque_push_item(post_dispatch_que, &stamp, (prh_ptr)post_req->post_req, (prh_ptr)post_req->continue_routine);
+                prh_atom_ext_mult_rd_arrque_push_item(post_dispatch_que, &view, (prh_ptr)post_req->post_req, (prh_ptr)post_req->continue_routine);
             }
             post_req->post_req = prh_null; // 移除的元素必须清零
         }
-        prh_atom_ext_mult_rd_arrque_push_end(post_dispatch_que, &stamp);
+        prh_atom_ext_mult_rd_arrque_push_end(post_dispatch_que, &view);
     }
 }
 
