@@ -6075,6 +6075,176 @@ void prh_soro_finish(prh_soro_struct *main) {
 // 一些技术结合起来使用。但一条通用的经验法则是，首先从粗粒度的锁定开始以确保程序的正确
 // 性，然后再根据可伸缩性的需求来调整更细粒度的区域，通过这种方法将可以实现更可维护的、
 // 更易于理解的和错误更少的程序。
+//
+// 在实际编程中很少会直接将内核对象作为主要的同步机制，理由很简单，直接使用内核对象需要
+// 做更多的工作，在访问和管理这些对象时需要执行内核切换操作，这将消耗大量的时钟周期，此
+// 外操作系统的各个辅助数据结构也将消耗大量的内存空间。然而，如果程序必须精确地等待某个
+// 事件发生，那么你最终还是不得不使用某种形式的内核对象。但即便如此，我们通常还是会优先
+// 选择更高层的抽象同步结构，这些结构隐藏了对内核对象的使用和管理。
+//
+// Win32 和 .NET 框架都提供了一些机制来实现这种抽象，这些机制通常会使用延迟分配（Lazy
+// Allocation）技术并且在某些情况下还将使用对象池结构，这样可以将单个内核对象在多个高层
+// 并发对象中重用。延迟分配是指将分配操作尽可能地推迟到最晚的时间点，并且只有在绝对必要
+// 时才触发内核切换操作，因此既节约了空间又节约了时间。这些抽象层除了确保正确的功能以及
+// 提供更优的性能外，还形成了一些常见的编程模式，如果没有这些模式，那么你将需要通过内核
+// 对象来手动构造它们，例如共享模式的锁以及条件变量。
+//
+// Win32 的临界区（Critical Section）为非托管代码提供了更为高效的互斥机制。它们在功能
+// 上基本等同于互斥体，并且支持递归获取。进入临界区和离开临界区等操作都是在用户态中执行
+// 的，除了在发生锁竞争的很少情况下，需要使用一个真正的内核对象来等待。此时执行获取操作
+// 的线程将在这个临界区上等待，这个等待是通过将自旋等待与临界区底层的自动重置内核对象结
+// 合起来实现的。可以以任何形式创建 CRITICAL_SECTION，唯一的要求就是，在初始化临界区后，
+// 永远都不要复制或者移动临界区的内存。CRITICAL_SECTION 的大小在 32 位系统上大概 24 个
+// 字节，在 64 位系统上大概 40 个字节。临界区的初始化和删除操作，必须确保在任何时刻，在
+// 任意一个临界区对象上只能有一个线程调用初始化或删除函数，并且只有在没有其他线程拥有这
+// 个临界区对象的情况下才可以执行这些操作。如果忽略了这个要求，那么可能导致不可预期的行
+// 为。
+//
+// 临界区通常会通过自旋来避免在多处理器机器上发生阻塞，简单来说，自旋比等待将浪费更少的
+// CPU 时钟周期。如果线程在执行自旋等待时临界区变得可用，那么线程就不需要在内部事件上发
+// 生阻塞。对于获取这个锁的线程来说，阻塞操作至少需要两次上下文切换，每次切换都将消耗数
+// 千个时钟周期：当线程开始等待时发生一次切换，当锁被释放时线程必须醒来获得这个锁，此时
+// 将发生第二次切换。在执行等待时至少需要一次内核切换操作。如果在自旋上所花的时间小于在
+// 切换操作中所花的时间，那么通过避免阻塞将极大地提高吞吐量。另一方面，如果在执行自旋等
+// 待时临界区依然没有变得可用，那么线程将由于自旋而浪费一定的 CPU 时钟周期，这些时钟周
+// 期本可以用于上下文切换操作，并且让其他的线程运行。因此，在使用自旋等待时必须非常小心
+// 和谨慎。在默认情况下，EnterCriticalSection 不会执行任何自旋等待，每个临界区都有一个
+// 默认的自旋计数值 0。在单处理器机器上通常会忽略自旋计数值，因为在这种情况下自旋操作是
+// 没有意义的。最优的自旋计数值并不是唯一的，在不同的机器之间可能有着不同的值。根据堆管
+// 理器开发团队提供的经验，MSDN 文档推荐的最优值为 4000。对平均情况而言，1500 左右的值
+// 是一个更为合理的起始点，但应该根据实际测试的可伸缩性来进行调节。虽然在初始化临界区之
+// 后还可以通过 SetCriticalSectionSpinCount 修改，并且根据执行过程中收集的统计信息进
+// 行调整，但自旋计数通常是一个在性能测试期间确定的常量值。
+//
+// Windows Vista 有一个新功能可以动态地调节自旋计数。虽然在操作系统内部使用了这个功能，
+// 但它并没有被公开。在将来的 Windows SDK 中可能会正式地公开和支持这个功能，但也可能不
+// 会公开，因此我建议不要依赖它。如果使用了 InitializeCriticalSectionEx，并且在 Flags
+// 值中指定 RTL_CRITICAL_SECTION_FLAG_DYNAMIC_SPIN，那么生成的临界区将会使用过一种动
+// 态的自旋算法。这个值是在 WinNT.h 中定义的，而不是在 Windows.h 中。当通过这种方式来
+// 初始化临界区，那么指定的自旋计数将被忽略。相反，自旋计数值在开始时将是某个默认的数值，
+// 并且操作系统将根据之前的自旋操作与阻塞的比较来对其进行动态调整。这种动态调整算法的目
+// 的是将自旋计数稳定下来，并且如果自旋并不能在统计上减少上下文切换的发生次数，那么将停
+// 止自旋。虽然这个功能很有意思，但它只是一个实验性的功能，这也就是为什么它没有被公开的
+// 原因，并且我们也不清楚在程序中使用这个功能是否会带来任何重要的价值。
+//      #include <windows.h>
+//      #include <winnt.h>
+//      InitializeCriticalSectionEx(&cs, 0, RTL_CRITICAL_SECTION_FLAG_DYNAMIC_SPIN);
+//
+// Windows 增加了一种新的内核对象类型来处理低资源情况，称之为键值事件（Keyed Event）。   *** 键值事件是隐藏在内核中，并没有直接公开出来
+// 键值事件是隐藏在内核中，并没有直接公开出来，尽管我们将在新的 Windows Vista 同步原语
+// 中看到大量地使用了它（与轻量读写锁以及条件变量一样）。当内存不足以分配一个真正的事件
+// 时，EnterCriticalSection 将使用键值事件。此时进程的所有临界区之间将共享一个键值事件，
+// 称之为 \KernelObjects\CritSecOutOfMemoryEvent。每个进程都有一个指向键值事件的句柄，
+// 在调试器中执行 !handle 命令将会看到这个句柄。在程序代码中不需要初始化或者创建这个对
+// 象，它总是存在的和可用的，而不管机器上的资源处于何种情况。
+//
+// 键值事件的工作原理是什么？键值事件使得多个线程能够在同一个事件上执行设置或者等待操作。
+// 但只有一个全局的事件并不足以解决临界区问题，事实上，每个临界区都需要有一个事件。为了
+// 解决这种困境，当线程在这个事件上执行等待或者设置等操作时，它必须指定一个键值，这个键
+// 值是一个指针大小的值，它代表对事件的某种抽象和唯一标识。当线程使用某个键值 K 设置了
+// 事件，那么将唤醒一个在 K 上等待的线程。然而，只有当前进程中的等待线程会被唤醒，因此
+// 不同进程之间的 K 相互是独立的。内存地址通常被用作 K 值，这也是临界区、轻量读写锁、条
+// 件变量使用键值事件的方式。你可以在进程中获取任意数量的抽象事件，并且不需要为每个地址
+// 分配一个真正的事件对象。
+//
+// 如果有 N 个等待线程必须被唤醒，那么同样的键值 K 必须被设置 N 次。因此，要模拟一个手
+// 动重置的事件，需要通过一个辅助数据结构来记录等待线程列表。当然临界区并不需要这个功能，
+// 但对于读写锁和条件变量需要这种功能。Windows XP 中的键值事件实现并不是高效的，键值事
+// 件以链表形式来维护等待列表，因此在查找和设置一个键值是遍历性能为 O(N)。这里的 N 是在
+// 事件上等待的线程数量，并不区分不同的键值。Windows Vista 对键值事件做出了较大的改进，
+// 现在，键值事件不是将等待者放入到链表中，而是使用一个散列表并以键值 K 为散列键（Hash
+// Key），虽然这种方式增加了发生散列冲突的概率（因此将出现一定程度的竞争不可预测性），但
+// 却提升了查找的性能。这种改进带来的性能提升足以使得键值事件在 Vista 的轻量读写锁、条件
+// 变量、单次初始化（One-Time Initialization）等 API 中用作唯一的事件机制。在这些新的
+// 功能中都没有使用传统的事件，它们只使用键值事件，这就是为什么新的同步原语都是轻量级的，
+// 经常只占据一个指针大小的空间，并且不需要使用任何专门的内核对象。键值事件不仅提升了系统
+// 的可靠性，而且还减轻了句柄和非分页等资源的压力，这种改进在整体上是非常受欢迎的。键值
+// 事件可以通过条件变量来直接访问，因为它们在内部封装了对键值事件对象的访问。
+
+#ifdef PRH_THRD_INCLUDE
+#ifdef PRH_THRD_IMPLEMENTATION
+#if defined(prh_plat_windows)
+#include <winnt.h> // RTL_CRITICAL_SECTION_FLAG_DYNAMIC_SPIN
+prh_inline void prh_impl_critical_section_init(void *critical_section) {
+    // VOID InitializeCriticalSection(LPCRITICAL_SECTION); // Windows XP Server 2003 may raise STATUS_NO_MEMORY exception, Windows Vista always succeeds
+    // BOOL InitializeCriticalSectionAndSpinCount(LPCRITICAL_SECTION, DWORD Spin); // Windows XP Server 2003 may return FALSE, Windows Vista always succeeds
+    // BOOL InitializeCriticalSectionEx(LPCRITICAL_SECTION, DWORD Spin, DWORD Flags); // Windows Vista Windows Server 2008
+    // 可传入的旋转次数是从 0 到 0xff_ffff 之间的一个值，注意，如果是在单处理器上调用这个函数那么函数会忽略旋转计数
+    // 在临界区中包含了大量的可用调试信息，基本的信息包括所有者线程的标识、递归计数、用于等待的内核对象句柄，以及其他一些信息。如果
+    // 在初始化临界区时没有指定 CRITICAL_SECTION_NO_DEBUG_INFO，那么还将包含更多信息，例如临界区被进入的次数、所经历的竞争等。这
+    // 些信息会被调试器、性能分析器等工具访问。在调试器中（WinDbg）输入 !locks 命令将输出进程中所有被持有的锁，或 !locks-v 打印所
+    // 有的锁，而不考虑它们的所有权状态。
+    //      typedef struct _RTL_CRITICAL_SECTION_DEBUG {
+    //          WORD Type, CreatorBackTraceIndex;
+    //          struct _RTL_CRITICAL_SECTION *CriticalSection;
+    //          LIST_ENTRY ProcessLocksList;
+    //          DWORD EntryCount, ContentionCount, Flags;
+    //          WORD CreatorBackTraceIndexHigh, Identifier;
+    //      } RTL_CRITICAL_SECTION_DEBUG;
+    //      typedef struct _RTL_CRITICAL_SECTION { // 六个指针（24-byte）或五个指针（40-byte）
+    //          PRTL_CRITICAL_SECTION_DEBUG DebugInfo;
+    //          LONG LockCount, RecursionCount;
+    //          HANDLE OwningThread;
+    //          HANDLE LockSemaphore;
+    //          ULONG_PTR SpinCount;
+    //      } RTL_CRITICAL_SECTION
+    DWORD SpinCount = 1000, Flags = CRITICAL_SECTION_NO_DEBUG_INFO; // | RTL_CRITICAL_SECTION_FLAG_DYNAMIC_SPIN;
+    prh_boolret(InitializeCriticalSectionEx(critical_section, SpinCount, Flags));
+}
+#endif
+#endif
+#endif
+
+// 通常互斥行为只是一种更强的保证，而并不是绝对必要的。如果将一个代码区域都标记为临界区，
+// 毫无疑问它确实可以简化工作，并使得代码更容易理解维护和调试。但有时候，我们也会考虑到
+// 读/读冲突（多个线程同时读取）是一种安全的行为，我们可以运行多个并发的读取操作访问共享
+// 数据，只要在同时不存在写入操作即可。因为读取操作的数量通常大于写入操作的数量（在 mscorlib.dll
+// 中，这个比值大约为 2.5 比 1），因此同时进行多个读取操作可以极大地提高代码的可伸缩性。
+// 虽然情况并非总是如此，但大多数情况都是这样的。这正是读写锁（RWL）发挥作用的地方。虽然
+// 各种 RWL 在具体实现细节上可能有所不同，但基本上都满足以下需求：
+//      1.  当线程获取锁时，必须指定这是一个读取操作还是写入操作
+//      2.  在任何时刻，最多只有一个写入操作可以持有这个锁，即互斥模式
+//      3.  只要存在一个写入操作，那么所有的读取操作都不能持有这个锁
+//      4.  在任何时刻，任意数量的读取操作可以同时持有这个锁，即共享模式
+//
+// Win32 的 “轻量级” 读写锁（Slim R/W Lock）是在 Windows Vista 和 Server 2008 中新
+// 引入的，它提供了互斥（Exclusive）和共享（Shared）两种模式，后者可用于只读操作中。共
+// 享模式可以是多个执行读操作的线程同时获得锁。这种行为是安全的，并且通常会带来更高程度
+// 的并发性以及更好的可伸缩性。SRWL 是比临界区更轻量级的原语，它基本上都是在用户态中执行
+// 的并且等于指针的大小，此外在 SRWL 内部也不会使用标准的内核对象来实现等待。这二者之间
+// 也存在一些功能差异，例如 SRWL 是不可递归的。在使用 SRWLOCK 之前，必须通过初始化函数
+// 进行初始化。由于 SRWL 在内部并没有使用任何动态分配的事件或者内存，因此在使用完之后不
+// 需要进行删除。
+//
+// 如果锁被另一个线程持有，并且持有模式与试图获取的模式不兼容，那么试图获取锁的线程将被
+// 阻塞。阻塞是通过一个非警觉等待来实现的，当锁被释放时，如果有读取操作和写入操作同时在
+// 等待，那么锁将优先唤醒等待中的写入操作，当没有写入操作时所有的读取操作都将被唤醒。SRWL
+// 能够在低资源情况下运行的原因，与临界区能够在低资源情况下运行的原因是一样的，因为都使
+// 用了键值事件。在 Windows Vista 中，键值事件的性能得到了极大的提升，这使得可以在 SRWL
+// 中可以将键值事件用作唯一的等待机制。事实上，你更希望通过 SRWL 而不是临界区来实现独占   *** 其实可以使用 SRWL 的独占模式来实现 mutex
+// 模式的获取操作和释放操作，因为 SRWL 有着轻量级特性。对于小规模的竞争情况，SRWL 确实
+// 比临界区更优越。SRWL 也使用了自旋等待，并且自旋操作的数量是固定的，这个数值即不可配置
+// 也不是动态的，而是根据平均性能来选择的。还要注意的是，Vista SRWL 并不支持在锁已经被
+// 获取之后再修改锁的模式，例如从共享模式升级为独占模式，或者从独占模式降级为共享模式，
+// 等由于它的轻量级特性，Vista 并不支持这些功能。
+//
+// SRWL 并不支持递归的独占锁获取操作。如果线程已经获取了某个 SRWL 的读取锁或者写入锁，
+// 那么在同一个线程上再次获取读取锁或者写入锁将导致死锁。这种行为是可以理解的，因为在前
+// 面已经提到过，递归地获取操作将导致脆弱的设计。然而，这种行为仍会给一些需要递归的设计
+// 带来困难。此外，还有另外一层微妙的含义。由于 SRWL 不需要支持递归获取，因此它也就不需
+// 要记录所有权信息。后一个原因使得 SRWL 非常轻量级，但同样也使得它更难以调试：与临界区
+// 结构不同的是，SRWLOCK 并没有维护操作系统线程 ID，当然你可以在调试时自行记录，这使得
+// 调式工作更为困难。
+//
+// 如果在一个不属于当前线程的 SRWLOCK 上调用 ReleaseSRWLockExclusive/Shared，那么将
+// 引发一个异常。这个异常的类型没有被公开，在 NtStatus.h 中被定义为 STATUS_RESOURCE_NOT_OWNED，
+// 值为 0xC0000264。这种处理方式是很好的，你很少会希望捕获到这个异常，因为它表示在程序
+// 中存在错误。但当你在调试中遇到一个未处理异常时，知道这个异常码是有帮助的。因为 SRWL
+// 并不记录所有权信息，因此即使不持有锁的线程也可以对另一个线程的锁执行释放操作。这个锁
+// 并不能将这种情况与正确的锁释放操作区分开来，最终当某个线程试图释放锁时，却发现锁已经
+// 不再被持有了，这将导致一个异常。此时，异常错误发生的源头信息已经丢失了，因此必须通过
+// 分析将错的情况重构出来。
+
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
 // 何其他原子操作能够访问该对象之前，每个原子操作都会在该对象上完整地执行完毕。这就保
@@ -9600,18 +9770,18 @@ prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size);
 void prh_impl_thrd_sched(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size);
 void prh_impl_thrd_join(prh_thrd *thrd, prh_thrdfree_t thrd_free);
 
-typedef struct prh_thrd_mutex prh_thrd_mutex;
-int prh_impl_thrd_mutex_size(void);
-void prh_impl_thrd_mutex_init(prh_thrd_mutex *p);
-void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p);
-void prh_impl_thrd_mutex_free(prh_thrd_mutex *p);
+typedef struct prh_mutex prh_mutex;
+int prh_mutex_size(void);
+void prh_mutex_init(prh_mutex *p);
+void prh_recursive_mutex_init(prh_mutex *p);
+void prh_mutex_free(prh_mutex *p);
 
-prh_thrd_mutex *prh_thrd_mutex_init(void);
-prh_thrd_mutex *prh_thrd_recursive_mutex_init(void);
-void prh_thrd_mutex_free(prh_thrd_mutex *p);
-void prh_thrd_mutex_lock(prh_thrd_mutex *p);
-bool prh_thrd_mutex_try_lock(prh_thrd_mutex *p);
-void prh_thrd_mutex_unlock(prh_thrd_mutex *p);
+prh_mutex *prh_mutex_init(void);
+prh_mutex *prh_recursive_mutex_init(void);
+void prh_mutex_free(prh_mutex *p);
+void prh_mutex_lock(prh_mutex *p);
+bool prh_mutex_try_lock(prh_mutex *p);
+void prh_mutex_unlock(prh_mutex *p);
 
 typedef struct prh_thrd_cond prh_thrd_cond;
 int prh_impl_thrd_cond_size(void);
@@ -10401,9 +10571,30 @@ prh_ptr prh_impl_plat_thrd_self(void) {
 // 的 CPU。可以传入一个 MAXIMUM_PROCESSORS 值（WinNT.h 中定义，在 32 位操作系统中定
 // 义为 32，64 位操作系统中定义为 64），表示线程没有理想 CPU。
 
-struct prh_thrd_mutex {
+#if prh_arch_32
+#define PRH_MUTEX_SIZE_PTRS 6
+#else prh_arch_64
+#define PRH_MUTEX_SIZE_PTRS 5
+#endif
+
+#define PRH_RWLOCK_SIZE_PTRS 1
+#define PRH_COND_SIZE_PTRS 1
+
+struct prh_mutex {
     CRITICAL_SECTION mutex;
 };
+
+struct prh_rwlock {
+    SRWLOCK rwlock;
+};
+
+struct prh_cond {
+    CONDITION_VARIABLE cond;
+};
+
+prh_static_assert(sizeof(struct prh_mutex) <= PRH_MUTEX_SIZE_PTRS * sizeof(void *));
+prh_static_assert(sizeof(struct prh_rwlock) <= PRH_RWLOCK_SIZE_PTRS * sizeof(void *));
+prh_static_assert(sizeof(struct prh_cond) <= PRH_COND_SIZE_PTRS * sizeof(void *));
 
 struct prh_thrd_cond {
     CRITICAL_SECTION mutex; // 1st field
@@ -10422,8 +10613,16 @@ struct prh_cond_sleep {
     prh_atom_bool wakeup_semaphore;
 };
 
-int prh_impl_thrd_mutex_size(void) {
-    return (int)sizeof(prh_thrd_mutex);
+int prh_mutex_size(void) {
+    return (int)sizeof(prh_mutex);
+}
+
+int prh_rwlock_size(void) {
+    return (int)sizeof(prh_rwlock);
+}
+
+int prh_cond_size(void) {
+    return (int)sizeof(prh_cond);
 }
 
 int prh_impl_thrd_cond_size(void) {
@@ -10438,57 +10637,19 @@ int prh_impl_thrd_sleep_size(void) {
     return (int)sizeof(prh_cond_sleep);
 }
 
-void prh_impl_thrd_mutex_init(prh_thrd_mutex *p) {
-    // 当线程被关键段阻塞时，函数会将调用线程切换到等待状态，这意味着线程必须从用户模式
-    // 切换到内核模式（大约1000个CPU时钟周期），这个切换开销比较大。在配有多处理器的机
-    // 器上，当前占用资源的线程可能在另一个处理器上运行，而且可能很快就会结束对资源的访
-    // 问。事实上，在需要等待的线程完全切换到内核模式之前，占用资源的线程可能就已经释放
-    // 了资源。如果发送这种情况，那么会浪费大量 CPU 时间。为了提高关键段的性能，WIN32
-    // 把旋转锁合并到了关键段中，当调用 EnterCriticalSection 时，它会用一个旋转锁不断
-    // 地循环，尝试在一段时间内获得对资源的访问权。只有当尝试失败的时候，线程才会切换到
-    // 内核模式并进入等待状态。
-    // InitializeCriticalSectionAndSpinCount() 可传入的旋转次数是从 0 到 0xff_ffff
-    // 之间的一个值。注意，如果是在单处理器上调用这个函数，那么函数会忽略旋转次数，总是
-    // 0 次。这样做是因为在单处理器机器上设置循环次数毫无用处，如果一个线程正在循环，那
-    // 么占用资源的线程将没有机会放弃对资源的访问权。我们一般应该总是在使用关键段的时候
-    // 同时使用旋转锁，因为这样做不会损失任何东西。难点在于如何确定旋转次数，为了得到最
-    // 佳性能，最简单的方法就是尝试各种数值，直到对性能感到满意为止。用来保护进程堆的关
-    // 键段所使用的旋转次数大约是 4000，这可作为我们的一个参考值。
-    // Initialize 函数可能因为没有内存而调用失败，InitializeCriticalSection 会抛出
-    // STATUS_NO_MEMEORY，InitializeCriticalSectionAndSpinCount 会返回 FALSE。
-#if 0
-    InitializeCriticalSection(&p->mutex);
-#else
-    DWORD SpinCount = 1000;
-    prh_boolret(InitializeCriticalSectionAndSpinCount(&p->mutex, SpinCount));
-    //prh_boolret(InitializeCriticalSectionEx(&p->mutex, SpinCount, CRITICAL_SECTION_NO_DEBUG_INFO));
-#endif
+void prh_mutex_init(prh_mutex *p) {
+    prh_impl_critical_section_init(&p->mutex);
 }
 
-void prh_impl_thrd_mutex_free(prh_thrd_mutex *p) {
+void prh_recursive_mutex_init(prh_mutex *p) {
+    prh_mutex_init(p);
+}
+
+void prh_mutex_free(prh_mutex *p) {
     DeleteCriticalSection(&p->mutex);
 }
 
-void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p) {
-    prh_impl_thrd_mutex_init(p);
-}
-
-prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
-    return prh_thrd_mutex_init();
-}
-
-prh_thrd_mutex *prh_thrd_mutex_init(void) {
-    prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    prh_impl_thrd_mutex_init(p);
-    return p;
-}
-
-void prh_thrd_mutex_free(prh_thrd_mutex *p) {
-    prh_impl_thrd_mutex_free(p);
-    prh_free(p);
-}
-
-void prh_thrd_mutex_lock(prh_thrd_mutex *p) {
+void prh_mutex_lock(prh_mutex *p) {
     // 被 EnterCriticalSection 阻塞的线程，如果长时间获取不到锁，会在一定时间后超时。
     // 超时时间设置在注册表中 HKEY_LOCAL_MACHINE/System/CurrentControlSet/Control/
     // Session Manager/CriticalSectionTimeout。这个值以秒为单位，它的默认值大约是30
@@ -10508,22 +10669,54 @@ void prh_thrd_mutex_lock(prh_thrd_mutex *p) {
     EnterCriticalSection(&p->mutex);
 }
 
-bool prh_thrd_mutex_try_lock(prh_thrd_mutex *p) {
+bool prh_mutex_try_lock(prh_mutex *p) {
     // 如果返回 true 表示已经成功锁定了关键段，之后必须有一个对应的 leave 调用。
     return (TRUE == TryEnterCriticalSection(&p->mutex));
 }
 
-void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
+void prh_mutex_unlock(prh_mutex *p) {
     LeaveCriticalSection(&p->mutex);
 }
 
+void prh_rwlock_init(prh_rwlock *p) {
+    InitializeSRWLock(&p->rwlock);
+}
+
+void prh_rwlock_free(prh_rwlock *p) {
+    // SRWLOCK no need to free
+}
+
+void prh_rwlock_enter_read(prh_rwlock *p) { // Windows Vista Server 2008
+    AcquireSRWLockShared(&p->rwlock);
+}
+
+bool prh_rwlock_try_read(prh_rwlock *p) { // Windows 7 Server 2008 R2
+    return TryAcquireSRWLockShared(&p->rwlock) != 0;
+}
+
+void prh_rwlock_leave_read(prh_rwlock *p) { // Windows Vista Server 2008
+    ReleaseSRWLockShared(&p->rwlock);
+}
+
+void prh_rwlock_enter_write(prh_rwlock *p) { // Windows Vista Server 2008
+    AcquireSRWLockExclusive(&p->rwlock);
+}
+
+bool prh_rwlock_try_write(prh_rwlock *p) { // Windows 7 Server 2008 R2
+    return TryAcquireSRWLockExclusive(&p->rwlock) != 0;
+}
+
+void prh_rwlock_leave_write(prh_rwlock *p) { // Windows Vista Server 2008
+    ReleaseSRWLockExclusive(&p->rwlock);
+}
+
 void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
-    prh_impl_thrd_mutex_init((prh_thrd_mutex *)p);
+    prh_mutex_init((prh_mutex *)p);
     InitializeConditionVariable(&p->cond);
 }
 
 void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
-    prh_impl_thrd_mutex_free((prh_thrd_mutex *)p);
+    prh_mutex_free((prh_mutex *)p);
     // A condition variable cannot be moved or copied while in use. The process
     // must not modify the object, and must instead treat it as logically
     // opaque. Only use the condition variable functions to manage condition
@@ -10545,7 +10738,7 @@ void prh_thrd_cond_free(prh_thrd_cond *p) {
 }
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
-    prh_thrd_mutex_lock((prh_thrd_mutex *)p);
+    prh_mutex_lock((prh_mutex *)p);
 }
 
 void prh_impl_plat_cond_wait(prh_thrd_cond *p) {
@@ -10566,7 +10759,7 @@ prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec) {
 }
 
 void prh_thrd_cond_unlock(prh_thrd_cond *p) {
-    prh_thrd_mutex_unlock((prh_thrd_mutex *)p);
+    prh_mutex_unlock((prh_mutex *)p);
 }
 
 void prh_thrd_cond_signal(prh_thrd_cond *p) {
@@ -11374,7 +11567,7 @@ void prh_impl_thrd_test(void) {
     printf("CREATE_WAITABLE_TIMER_HIGH_RESOLUTION is defined\n");
 #endif
 
-    printf("prh_thrd_mutex %d-byte\n", (int)sizeof(prh_thrd_mutex));
+    printf("prh_mutex %d-byte\n", (int)sizeof(prh_mutex));
     printf("prh_thrd_cond %d-byte\n", (int)sizeof(prh_thrd_cond));
     printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
@@ -13918,7 +14111,7 @@ label_continue:
 // 条件变量总是结合互斥量使用，条件变量就共享变量的状态改变发出通知，而互斥量则提供该
 // 共享变量访问的互斥。
 
-struct prh_thrd_mutex {
+struct prh_mutex {
     pthread_mutex_t mutex;
 };
 
@@ -13939,8 +14132,8 @@ struct prh_cond_sleep {
     prh_atom_bool wakeup_semaphore;
 };
 
-int prh_impl_thrd_mutex_size(void) {
-    return (int)sizeof(prh_thrd_mutex);
+int prh_mutex_size(void) {
+    return (int)sizeof(prh_mutex);
 }
 
 int prh_impl_thrd_cond_size(void) {
@@ -13955,11 +14148,11 @@ int prh_impl_thrd_sleep_size(void) {
     return (int)sizeof(prh_cond_sleep);
 }
 
-void prh_impl_thrd_mutex_init(prh_thrd_mutex *p) {
+void prh_mutex_init(prh_mutex *p) {
     prh_zeroret(pthread_mutex_init(&p->mutex, prh_null));
 }
 
-void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p) {
+void prh_recursive_mutex_init(prh_mutex *p) {
     pthread_mutexattr_t attr;
     prh_zeroret(pthread_mutexattr_init(&attr));
     prh_zeroret(pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE));
@@ -13967,39 +14160,39 @@ void prh_impl_thrd_recursive_mutex_init(prh_thrd_mutex *p) {
     prh_zeroret(pthread_mutexattr_destroy(&attr));
 }
 
-void prh_impl_thrd_mutex_free(prh_thrd_mutex *p) {
+void prh_mutex_free(prh_mutex *p) {
     prh_zeroret(pthread_mutex_destroy(&p->mutex));
 }
 
-prh_thrd_mutex *prh_thrd_mutex_init(void) {
-    prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    prh_impl_thrd_mutex_init(p);
+prh_mutex *prh_mutex_init(void) {
+    prh_mutex *p = prh_malloc(sizeof(prh_mutex));
+    prh_mutex_init(p);
     return p;
 }
 
-prh_thrd_mutex *prh_thrd_recursive_mutex_init(void) {
-    prh_thrd_mutex *p = prh_malloc(sizeof(prh_thrd_mutex));
-    prh_impl_thrd_recursive_mutex_init(p);
+prh_mutex *prh_recursive_mutex_init(void) {
+    prh_mutex *p = prh_malloc(sizeof(prh_mutex));
+    prh_recursive_mutex_init(p);
     return p;
 }
 
-void prh_thrd_mutex_free(prh_thrd_mutex *p) {
-    prh_impl_thrd_mutex_free(p);
+void prh_mutex_free(prh_mutex *p) {
+    prh_mutex_free(p);
     prh_free(p);
 }
 
-void prh_thrd_mutex_lock(prh_thrd_mutex *p) {
+void prh_mutex_lock(prh_mutex *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
 }
 
-bool prh_thrd_mutex_try_lock(prh_thrd_mutex *p) {
+bool prh_mutex_try_lock(prh_mutex *p) {
     int n = pthread_mutex_trylock(&p->mutex);
     if (n == 0) return true;
     if (errno != EBUSY) prh_abort_error(errno);
     return false;
 }
 
-void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
+void prh_mutex_unlock(prh_mutex *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
@@ -14010,14 +14203,14 @@ void prh_thrd_mutex_unlock(prh_thrd_mutex *p) {
 // thread can satisfy the condition of the predicate.
 
 void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
-    prh_impl_thrd_mutex_init((prh_thrd_mutex *)p);
+    prh_mutex_init((prh_mutex *)p);
     prh_zeroret(pthread_cond_init(&p->cond, prh_null));
 }
 
 void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
-    prh_impl_thrd_mutex_free((prh_thrd_mutex *)p);
+    prh_mutex_free((prh_mutex *)p);
     prh_zeroret(pthread_cond_destroy(&p->cond));
 }
 
@@ -14062,7 +14255,7 @@ void prh_thrd_cond_free(prh_thrd_cond *p) {
 // 8. pthread_mutex_unlock
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
-    prh_thrd_mutex_lock((prh_thrd_mutex *)p);
+    prh_mutex_lock((prh_mutex *)p);
 }
 
 // pthread_cond_wait() pthread_cond_timedwait()
@@ -14098,7 +14291,7 @@ prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec) {
 }
 
 void prh_thrd_cond_unlock(prh_thrd_cond *p) {
-    prh_thrd_mutex_unlock((prh_thrd_mutex *)p);
+    prh_mutex_unlock((prh_mutex *)p);
 }
 
 // The pthread_cond_broadcast() function shall wakeup all threads currently
@@ -14587,7 +14780,7 @@ void prh_impl_thrd_test(void) {
     printf("SIGRTMAX %d\n", SIGRTMAX);
 #endif
 
-    printf("prh_thrd_mutex %d-byte\n", (int)sizeof(prh_thrd_mutex));
+    printf("prh_mutex %d-byte\n", (int)sizeof(prh_mutex));
     printf("prh_thrd_cond %d-byte\n", (int)sizeof(prh_thrd_cond));
     printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
@@ -16398,7 +16591,7 @@ typedef struct { // 被工作线程和调度线程共享的全局数据
     prh_atom_bool keep_alive_to_deliver_post;
     int thrd_wait_que_items;
     prh_iocp_share_thrd_data **thrd_wait_que; // 等待调度的工作线程后入先出指针队列
-    prh_thrd_mutex thrd_wait_que_mutex;
+    prh_mutex thrd_wait_que_mutex;
 } prh_iocp_shared_global;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_shared_global PRH_IOCP_SHARED_GLOBAL;
@@ -16615,11 +16808,11 @@ void prh_impl_iocp_shared_global_init(prh_iocp_share_thrd_data **thrd_wait_que) 
     prh_atom_bool_init(&PRH_IOCP_SHARED_GLOBAL.keep_alive_to_deliver_post, false);
     PRH_IOCP_SHARED_GLOBAL.thrd_wait_que = thrd_wait_que;
     PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items = 0;
-    prh_impl_thrd_mutex_init(&PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex);
+    prh_mutex_init(&PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex);
 }
 
 void prh_impl_iocp_shared_global_free(void) {
-    prh_impl_thrd_mutex_free(&PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex);
+    prh_mutex_free(&PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex);
 }
 
 void prh_impl_iocp_thrd_init(prh_iocp_thrd *thrd, prh_atom_thrd_que_consumer *thrd_tx_que_consumer) {
@@ -16639,22 +16832,22 @@ void prh_impl_iocp_thrd_free(prh_thrd *thrd_ptr, int thrd_index) {
 }
 
 void prh_impl_iocp_thrd_wait_que_push(prh_iocp_share_thrd_data *thrd_data) {
-    prh_thrd_mutex *mutex = &PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex;
+    prh_mutex *mutex = &PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex;
     prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_SHARED_GLOBAL.thrd_wait_queue;
-    prh_thrd_mutex_lock(mutex);
+    prh_mutex_lock(mutex);
     thrd_wait_queue[PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items++] = thrd_data;
-    prh_thrd_mutex_unlock(mutex);
+    prh_mutex_unlock(mutex);
 }
 
 prh_iocp_share_thrd_data *prh_impl_iocp_thrd_wait_que_pop(void) {
-    prh_thrd_mutex *mutex = &PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex;
+    prh_mutex *mutex = &PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex;
     prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_SHARED_GLOBAL.thrd_wait_queue;
     prh_iocp_thrd *thrd = prh_null;
-    prh_thrd_mutex_lock(mutex);
+    prh_mutex_lock(mutex);
     if (PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items) { // 按后入先出的顺序唤醒线程
         thrd = thrd_wait_queue[--PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items];
     }
-    prh_thrd_mutex_unlock(mutex);
+    prh_mutex_unlock(mutex);
     return thrd;
 }
 
