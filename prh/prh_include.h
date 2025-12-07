@@ -6244,6 +6244,36 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 并不能将这种情况与正确的锁释放操作区分开来，最终当某个线程试图释放锁时，却发现锁已经
 // 不再被持有了，这将导致一个异常。此时，异常错误发生的源头信息已经丢失了，因此必须通过
 // 分析将错的情况重构出来。
+//
+// 条件变量是一种常见的控制同步，线程通常需要等待某些程序特定的条件建立起来之后再运行。
+// 在确认条件是否满足时通常需要对某个谓词进行求值，而在求值过程中又涉及对共享状态的读取。
+// 由于涉及共享状态，因此需要使用数据同步。而且，如果条件还没有满足，那么其他线程将需要
+// 通过数据同步来确保安全地修改求值过程中与条件相关的状态。在退出临界区以及等待一个事件
+// 发生的过程中，存在着一个内在的条件竞争，SignalObjectAndWait 可应对这种情况，它以原
+// 子的方式触发一个对象并且在另一个对象上等待。但在使用了临界区或者 SRWL 之后，将不能使
+// 用这个功能，因为同步机制被隐藏起来了，你不能通过触发一个内核对象来释放这个锁，用户态
+// 锁本身控制了所有这些行为。这正是为什么 Windows Vista 中引入条件变量的原因。条件变量
+// 与临界区或 SRWL 一起来实现在于特定锁相关的逻辑条件变量上执行等待和触发等操作。与临界
+// 区一样，条件变量的作用范围是在进程之内，与 SRWL 一样它也是非常轻量级的，每个条件变量
+// 和指针一样大小，并且将键值事件作为唯一的等待和触发机制，这意味着它不需要分配任何内核
+// 事件对象。条件变量是在用户态中实现的，并且执行等待或触发操作时会导致内核切换发生。在
+// 实现条件变量时考虑了尽量将内核切换发生次数降至最低。同样需要注意的是，条件变量是最接
+// 近于 Windows 键值事件的对象。
+//
+// Win32 通过 CONDITION_VARIABLE 来支持条件变量，条件变量可以使一个或多个线程等待同一
+// 个事件的发生，并且通过与临界区或 SRWL 结合，使得能够以原子方式来释放一个锁并且在一个
+// 条件变量上开始等待，这样就消除了复杂的竟态条件问题。这些原语都是在 Windows Vista 和
+// Server 2008 中新引入的。与 SRWL 一样，它们的大小也是和指针一样的，并且不会通过传统
+// 的内核对象来实现等待。在单个锁上可以有任意数量的条件变量，并且每个条件变量都表示一种
+// 不同的抽象条件。与 SRWL 一样，条件变量没有相关的资源需要释放。
+//
+// 当线程激活一个或多个线程等待的条件时，必须唤醒这些线程，可以唤醒其中一个或唤醒所有。
+// 调用这些唤醒函数时不需要持有一个锁，尽管这么做是更安全的。如果没有持有锁，那么被唤醒
+// 的线程可以重新获得锁醒来。如果持有锁唤醒，那么被唤醒的线程在尝试重新获取唤醒线程持有
+// 的锁时会失败，因此唤醒的线程会立即在这个锁上进行等待。另外，条件变量在进行等待之前，
+// 对于临界区来说必须锁定一次，但必须要小心的是必须确保不能递归锁定多次，因为条件变量进
+// 入等待状态之前仅会释放一次锁定，如果锁定多次条件变量就不能释放这个锁，其他线程再也不
+// 能更新条件导致死锁。
 
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
@@ -9775,13 +9805,19 @@ int prh_mutex_size(void);
 void prh_mutex_init(prh_mutex *p);
 void prh_recursive_mutex_init(prh_mutex *p);
 void prh_mutex_free(prh_mutex *p);
+void prh_mutex_enter(prh_mutex *p);
+bool prh_mutex_try_enter(prh_mutex *p);
+void prh_mutex_exit(prh_mutex *p);
 
-prh_mutex *prh_mutex_init(void);
-prh_mutex *prh_recursive_mutex_init(void);
-void prh_mutex_free(prh_mutex *p);
-void prh_mutex_lock(prh_mutex *p);
-bool prh_mutex_try_lock(prh_mutex *p);
-void prh_mutex_unlock(prh_mutex *p);
+int prh_rwlock_size(void);
+void prh_rwlock_init(prh_rwlock *p);
+void prh_rwlock_free(prh_rwlock *p);
+void prh_rwlock_enter_read(prh_rwlock *p);
+bool prh_rwlock_try_read(prh_rwlock *p);
+void prh_rwlock_exit_read(prh_rwlock *p);
+void prh_rwlock_enter_write(prh_rwlock *p);
+bool prh_rwlock_try_write(prh_rwlock *p);
+void prh_rwlock_exit_write(prh_rwlock *p);
 
 typedef struct prh_thrd_cond prh_thrd_cond;
 int prh_impl_thrd_cond_size(void);
@@ -10649,7 +10685,7 @@ void prh_mutex_free(prh_mutex *p) {
     DeleteCriticalSection(&p->mutex);
 }
 
-void prh_mutex_lock(prh_mutex *p) {
+void prh_mutex_enter(prh_mutex *p) {
     // 被 EnterCriticalSection 阻塞的线程，如果长时间获取不到锁，会在一定时间后超时。
     // 超时时间设置在注册表中 HKEY_LOCAL_MACHINE/System/CurrentControlSet/Control/
     // Session Manager/CriticalSectionTimeout。这个值以秒为单位，它的默认值大约是30
@@ -10669,12 +10705,12 @@ void prh_mutex_lock(prh_mutex *p) {
     EnterCriticalSection(&p->mutex);
 }
 
-bool prh_mutex_try_lock(prh_mutex *p) {
+bool prh_mutex_try_enter(prh_mutex *p) {
     // 如果返回 true 表示已经成功锁定了关键段，之后必须有一个对应的 leave 调用。
     return (TRUE == TryEnterCriticalSection(&p->mutex));
 }
 
-void prh_mutex_unlock(prh_mutex *p) {
+void prh_mutex_exit(prh_mutex *p) {
     LeaveCriticalSection(&p->mutex);
 }
 
@@ -10694,7 +10730,7 @@ bool prh_rwlock_try_read(prh_rwlock *p) { // Windows 7 Server 2008 R2
     return TryAcquireSRWLockShared(&p->rwlock) != 0;
 }
 
-void prh_rwlock_leave_read(prh_rwlock *p) { // Windows Vista Server 2008
+void prh_rwlock_exit_read(prh_rwlock *p) { // Windows Vista Server 2008
     ReleaseSRWLockShared(&p->rwlock);
 }
 
@@ -10706,8 +10742,51 @@ bool prh_rwlock_try_write(prh_rwlock *p) { // Windows 7 Server 2008 R2
     return TryAcquireSRWLockExclusive(&p->rwlock) != 0;
 }
 
-void prh_rwlock_leave_write(prh_rwlock *p) { // Windows Vista Server 2008
+void prh_rwlock_exit_write(prh_rwlock *p) { // Windows Vista Server 2008
     ReleaseSRWLockExclusive(&p->rwlock);
+}
+
+void prh_cond_init(prh_cond *p) {
+    InitializeConditionVariable(&p->cond);
+}
+
+void prh_cond_free(prh_cond *p) {
+    // CONDITION_VARIABLE no need to free
+}
+
+void prh_cond_wait_with_mutex_exit_reenter(prh_cond *p, prh_mutex *mutex) {
+    prh_boolret(SleepConditionVariableCS(&p->cond, &mutex->mutex, INFINITE)); // 临界区必须在此函数调用之前精确地进入一次
+}
+
+void prh_cond_wait_with_read_exit_reenter(prh_cond *p, prh_rwlock *lock) {
+    prh_boolret(SleepConditionVariableSRW(&p->cond, &lock->rwlock, INFINITE, CONDITION_VARIABLE_LOCKMODE_SHARED));
+}
+
+void prh_cond_wait_with_write_exit_reenter(prh_cond *p, prh_rwlock *lock) {
+    prh_boolret(SleepConditionVariableSRW(&p->cond, &lock->rwlock, INFINITE, 0));
+}
+
+void prh_cond_timed_wait_with_mutex_exit_reenter(prh_cond *p, prh_mutex *mutex, prh_u32 msec) {
+    BOOL b = SleepConditionVariableCS(&p->cond, &mutex->mutex, msec); // 临界区必须在此函数调用之前精确地进入一次
+    if (b == FALSE && GetLastError() != ERROR_TIMEOUT) prh_prerr(GetLastError());
+}
+
+void prh_cond_timed_wait_with_read_exit_reenter(prh_cond *p, prh_rwlock *lock, prh_u32 msec) {
+    BOOL b = SleepConditionVariableSRW(&p->cond, &lock->rwlock, msec, CONDITION_VARIABLE_LOCKMODE_SHARED);
+    if (b == FALSE && GetLastError() != ERROR_TIMEOUT) prh_prerr(GetLastError());
+}
+
+void prh_cond_timed_wait_with_write_exit_reenter(prh_cond *p, prh_rwlock *lock, prh_u32 msec) {
+    BOOL b = SleepConditionVariableSRW(&p->cond, &lock->rwlock, msec, 0);
+    if (b == FALSE && GetLastError() != ERROR_TIMEOUT) prh_prerr(GetLastError());
+}
+
+void prh_cond_signal(prh_cond *p) {
+    WakeConditionVariable(&p->cond);
+}
+
+void prh_cond_broadcast(prh_cond *p) {
+    WakeAllConditionVariable(&p->cond);
 }
 
 void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
@@ -10738,7 +10817,7 @@ void prh_thrd_cond_free(prh_thrd_cond *p) {
 }
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
-    prh_mutex_lock((prh_mutex *)p);
+    prh_mutex_enter((prh_mutex *)p);
 }
 
 void prh_impl_plat_cond_wait(prh_thrd_cond *p) {
@@ -10759,7 +10838,7 @@ prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec) {
 }
 
 void prh_thrd_cond_unlock(prh_thrd_cond *p) {
-    prh_mutex_unlock((prh_mutex *)p);
+    prh_mutex_exit((prh_mutex *)p);
 }
 
 void prh_thrd_cond_signal(prh_thrd_cond *p) {
@@ -14181,18 +14260,18 @@ void prh_mutex_free(prh_mutex *p) {
     prh_free(p);
 }
 
-void prh_mutex_lock(prh_mutex *p) {
+void prh_mutex_enter(prh_mutex *p) {
     prh_zeroret(pthread_mutex_lock(&p->mutex));
 }
 
-bool prh_mutex_try_lock(prh_mutex *p) {
+bool prh_mutex_try_enter(prh_mutex *p) {
     int n = pthread_mutex_trylock(&p->mutex);
     if (n == 0) return true;
     if (errno != EBUSY) prh_abort_error(errno);
     return false;
 }
 
-void prh_mutex_unlock(prh_mutex *p) {
+void prh_mutex_exit(prh_mutex *p) {
     prh_zeroret(pthread_mutex_unlock(&p->mutex));
 }
 
@@ -14255,7 +14334,7 @@ void prh_thrd_cond_free(prh_thrd_cond *p) {
 // 8. pthread_mutex_unlock
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
-    prh_mutex_lock((prh_mutex *)p);
+    prh_mutex_enter((prh_mutex *)p);
 }
 
 // pthread_cond_wait() pthread_cond_timedwait()
@@ -14291,7 +14370,7 @@ prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_u32 msec) {
 }
 
 void prh_thrd_cond_unlock(prh_thrd_cond *p) {
-    prh_mutex_unlock((prh_mutex *)p);
+    prh_mutex_exit((prh_mutex *)p);
 }
 
 // The pthread_cond_broadcast() function shall wakeup all threads currently
@@ -16834,20 +16913,20 @@ void prh_impl_iocp_thrd_free(prh_thrd *thrd_ptr, int thrd_index) {
 void prh_impl_iocp_thrd_wait_que_push(prh_iocp_share_thrd_data *thrd_data) {
     prh_mutex *mutex = &PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex;
     prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_SHARED_GLOBAL.thrd_wait_queue;
-    prh_mutex_lock(mutex);
+    prh_mutex_enter(mutex);
     thrd_wait_queue[PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items++] = thrd_data;
-    prh_mutex_unlock(mutex);
+    prh_mutex_exit(mutex);
 }
 
 prh_iocp_share_thrd_data *prh_impl_iocp_thrd_wait_que_pop(void) {
     prh_mutex *mutex = &PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex;
     prh_iocp_thrd **thrd_wait_queue = PRH_IOCP_SHARED_GLOBAL.thrd_wait_queue;
     prh_iocp_thrd *thrd = prh_null;
-    prh_mutex_lock(mutex);
+    prh_mutex_enter(mutex);
     if (PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items) { // 按后入先出的顺序唤醒线程
         thrd = thrd_wait_queue[--PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_items];
     }
-    prh_mutex_unlock(mutex);
+    prh_mutex_exit(mutex);
     return thrd;
 }
 
