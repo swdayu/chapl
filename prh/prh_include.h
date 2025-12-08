@@ -6574,17 +6574,17 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // Synchronizes-With” 的机制，通过因果性和可见性来描述合法的排序。注意，这里没有给出
 // 一些更弱的模型，例如 Alpha 和 PowerPC，因为当前 Windows 不能在这些架构上运行。根据
 // 最新的 Intel 和 AMD 处理器文档，X86 Intel64 AMD64 的内存模型都禁止大多数形式的 Load-Load
-// 重排，但对于一些情况，特别是在满足本地处理器写入缓存区中的未决写入操作时，它们允许对
+// 重排，但对于一些情况，特别是在本地处理器写缓存中存在满足的未决写入操作时，它们允许对
 // 读操作进行重排。这可能导致读操作看上去被重排了（抽象地），尽管在物理上并没有发生任何
 // 重排。由于需要从非常具体的条件来思考，因此情况将变得复杂，这样当存在疑问时，更安全的
 // 回答就是：是的，这些处理器允许 Load-Load 重排。在某些情况下，你可以利用这种特殊的规
 // 则，但这将为编写和维护可移植的并且正确的代码增加困难。
 //                                              X86     Intel64     AMD64   IA64（安腾处理器）
 //  一个读操作和随后另一个读操作（Load-Load）       否*     否*         否*         是
-//  一个读操作和随后另一个写操作（Load-Store）      否      否          是*         是
+//  一个读操作和随后另一个写操作（Load-Store）      否      否         (是)         是
 //  一个写操作和随后另一个写操作（Store-Store）     否      否          否          是
-//  一个写操作和随后另一个读操作（Store-Load）      是*     是*         是*         是
-//      否*：除了存储缓存等一些情况
+//  一个写操作和随后另一个读操作（Store-Load）     (是)    (是)        (是)         是
+//      否*：除了写缓存或转发等一些情况（except for store buffer/forwarding）
 //
 // 在表格中有一些值得注意的地方。有些处理器在指令缓存和数据缓存中分别采用了不同的策略，
 // 尤其是在读操作和写操作的执行顺序，这里的内容仅限于普通的数据缓存。开发编译器的人员在
@@ -6651,7 +6651,7 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 在 VC++ 中创建栅栏要更为复杂，因为编译器是高度可控的。而且，你可以使用多种类型的栅栏，
 // 这与 .NET 不同，因此你可以编写特定于处理器的代码来使用某种栅栏。与 .NET 类似的是，在
 // VC++ 中，对 volatile 变量执行读操作和写操作将分别产生获取栅栏和释放栅栏，并且同样可
-// 以防止编译器将这些操作提升到循环之外。然而，VC++ 和 .NET 之间存在一个巨大的差异，这
+// 以防止编译器将这些操作提升到循环之外。然而，VC++ 和 .NET 之间存在一个巨大的差异，这    *** VC++ 与 .NET 不同，volatile 生成的栅栏无法在处理器级别上起作用
 // 些栅栏只能适用于编译器级别，而无法在处理器级别上发挥作用。当人们第一次听到这种情况时，
 // 往往都会感到吃惊。类似地，在 Windows.h 中有一个 MemoryBarrier 宏，这个宏将在处理器
 // 级别上生成一个双向栅栏，但不能在编译器级别上保证同样的作用。
@@ -6678,6 +6678,135 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 //      t0: x = 1;                  t1: y = 1;
 //          _ReadWriteBarrier()         _ReadWriteBarrier()
 //          a = y;                      b = x;
+//
+// 无锁编程（Lock Free Programming），从名字可以看出，就是在编写并发安全的代码中不使用
+// 锁。这听起来很简单，但确实一个很容易发生错误的过程，在使用这项技术时需要对底层有深入
+// 理解。无锁编程在学术论文等资料中通常称为无阻塞算法（Nonblocking），我们需要了解三种
+// 类型的无阻塞算法。
+//
+//  1.  无障碍算法（Obstruction Freedom），在系统中的其他线程被挂起的情况下，线程仍然
+//      可以通过这个算法继续执行。换句话说，系统中的其他线程都不会持有这个线程需要的锁
+//      或共享资源。
+//  2.  无锁算法，这个算法比无障碍算法更强，它意味着每当某个线程无法继续执行时，我们要
+//      确保这是因为系统中有另一个线程已经执行了。尽管任何一个线程都可能饥饿，但系统在
+//      整体上的执行将取得进展。
+//  3.  无等待算法（Wait Freedom），这个算法是三者中最强的，它意味着系统中的任意线程都
+//      将在有限数量的步骤中执行完成。换句话说，线程不会像无锁算法一样出现饥饿情况。
+//
+// 在许多实际的系统中，这些差异并不重要，并且很多时候只是在理论上才会引起人们的注意。因
+// 此，当我们提到无阻塞时，通常所有这些算法都成为无锁算法。这其中包含了重要的一点，在实
+// 现无锁算法时仍然可以使用原子的硬件指令。有些人可能会发现这有一些误导的含义，因为互锁
+// 操作的开销可能像锁的开销一样大，有几种无锁算法并不要求互锁操作，但它们使用得很少。在
+// 某些情况下，我们甚至将曲解无锁算法的含义，例如双检查锁定可以要求获取一个锁。
+//
+// 无锁算法的主要好处在于它的无阻塞特性，由于没有任何线程会阻塞，以及任何一个线程都不会
+// 阻碍其他线程的执行，因此将获得非常高的可伸缩性。上下文切换将减少，吞吐量将上升。尽管
+// 如此，但无锁算法经常遇到活锁（Live Lock）问题，有一段时间陷入空忙的状态。无锁的另一
+// 个好处（不太明显）就是可靠性，由于执行的粒度必须被压缩到一个原子操作中，因此单个线程
+// 的失败将不会破坏无锁数据结构的一致性。例如，在重要的操作系统数据结构中将注意这个问题，
+// 但在用户态的数据结构中则更少注意，其中在更新数据结构时出现的失败通常是灾难性的，并且
+// 会导致整个进程被破坏。
+//
+// 无锁数据结构需要非常小心才能正确地实现，由于不能防止其他线程并发地看到这个结构处于不
+// 一致的状态，因此这个数据结构绝不能进入到不一致的状态。从某种意义上来说，这使得编码实
+// 现它们将更为简单，如果没有其他要求，算法的作用域将更小和更简单，因为每个更新操作都必
+// 须被归结为一个原子操作（通常是一个互锁操作）。这单个操作时线性化点，在这个点上，更新
+// 操作将发挥作用并且变得可见。如果我们注意数据结构的不变性或者检查它们，那么会发现无锁
+// 代码的一个通常需求就是，永远都不要违背这些不变性，每个原子更新必须将这个结构从一个合
+// 法的状态移动到另一个合法的状态。
+//
+// 延迟初始化与双重检查锁定。在延迟初始化中使用的双重检查锁定模式是一种声名狼藉的模式，
+// 这不仅是因为它被广泛地用作为一种有效的初始化机制，而且还因为它在多种常见的硬件内存模
+// 型中会失败。这些硬件架构包括 Alpha 和 IA64。值得指出的是，这种模式的大多数变化形式
+// 都可以在 X86 Intel64 AMD64 上工作，CLR 2.0 的内存模型同样确保了双重检查锁定能够正
+// 确地工作。
+//
+// 延迟初始化的一个简单的（但性能不高）示例如下。延时初始化，在许多情况下被用于尽可能地
+// 延迟开销很大的资源的分配。下面的代码有它的缺点，由于只有第一次才需要对值进行初始化，
+// 没必要每次访问这个值都进行锁定，只要确保在初始化时锁定就好了。
+//      struct lazy_init { void *value; }
+//      void *get_value(struct lazy_init *p) {
+//          void *value;
+//          mutex.enter();
+//          if (p->value == prh_null) {
+//              p->value = create_object();
+//          }
+//          value = p->value;
+//          mutex.exit();
+//          return value;
+//      }
+//
+// 解决这个问题的通常方式就是使用双重检查锁定模式。首先在锁的外面进行一次检查看这个值是
+// 否已经被初始化了，如果已被初始化那么就需要使用锁，如果还没有被初始化那么就需要获取锁
+// 并且初始化这个值。这种模式的一个微妙的地方在于，有一次检查是在锁的内部完成，这与可以
+// 确保另一个线程不会并发地初始化这个值。因为可能有多个线程同时进入到 mutex.enter() 这
+// 一行，但只有一个线程真正的去执行初始化操作。注意，在允许 store-store 乱序的机器上，
+// 例如安腾处理器 IA64，这里存在一个隐藏的错误。当创建 value 这个对象时，一个写操作是
+// 将对象的地址写入到 value，但 create_object() 时还存在其他的写操作来初始化对象的成
+// 员。在不乱序的情况下，将地址写入到 value 当然最后一个执行。如果产生乱序，当写入地址
+// 的时候，可能指向的对象并没有完全初始化。这样，当一个线程判断 p->value 不为空的时候，
+// 这个对象可能是一个未完全初始化的垃圾数据。你需要添加一个 _WriteBarrier()，当然这个
+// _WriteBarrier() 在 X86 Intel64 AMD64 平台上不需要。
+//      void *get_value(struct lazy_init *p) {
+//          if (p->value == prh_null) {
+//              mutex.enter();
+//              if (p->value == prh_null) {                 if (p->value == prh_null) {
+//                  p->value = create_object();                 void *ptr = create_object(); _WriteBarrier(); p->value = ptr;
+//              }                                           }
+//              mutex.exit();
+//          }
+//          return p->value;                                _ReadBarrier(); return p->value;
+//      }
+//
+// 对象成员的读取操作也存在着相同的问题，因为上面介绍的所有处理器平台，以及包括 .NET 内
+// 存模型，都允许在某些情况进行 Load-Load 重排，因此读取 value 的操作可能被移动到用户
+// 调用 get_value() 之后读取对象成员的操作之后。对于某些读者来说，这看上去有些不可思议，
+// 在获得一个指向对象本身的指针之前，如果读取对象的成员呢？这看上去违背了数据依赖性，但
+// 其实不然。一些新的处理器（例如 IA64）采用了值猜测的方法来提前执行读取操作，如果处理器
+// 碰巧猜对了指针和字段在指针写入之前一样的值，推测读取可能会失效并产生问题。解决的方法
+// 是像上面一样添加一个 _ReadBarrier()，然而需要指出的是，在 X86 Intel64 AMD64 处理器
+// 上将不需要这个栅栏。一些弱处理器如 IA64 则需要这个栅栏，但如果你希望编写完全特定于处
+// 理器的代码，那么可以考虑添加这个栅栏或者使用 #ifdef IA64 宏包起来。另外，可以使用单
+// 次初始化（One-Time Initialization）API 来编写可移植的延迟初始化代码，而无须关系具
+// 体的内存模型。
+// （If the processor happens to guess the correct value of the pointer and field
+// as it was before the pointer was written, the speculative read could retire
+// and create a problem. It's unfortunate that we need this read barrier because
+// the only dangerous period of time is immediately after construction. Because
+// there's no fixed length on this window of time, it is generally not possible
+// to remove the barrier. This is surprisingly needed for processors like IA64
+// that do pointer and value speculation.）
+//
+// 另外，如果需要初始化的值不仅仅是一个指针，可以添加一个 initialized 成员来辅助初始化。
+// 但我们必须非常小心，因为需要确保初始化标志（initialized）与需要初始化的数据写操作不
+// 会被重排。
+//      void *get_value(struct lazy_init *p) {
+//          if (p->initialized == false) {
+//              mutex.enter();
+//              if (p->initialized == false) {
+//                  p->value = create_object();
+//                  _WriteBarrier();
+//                  p->initialized = true;
+//              }
+//              mutex.exit();
+//          }
+//          _ReadBarrier();
+//          return p->value;
+//      }
+//
+// 是否可以实现一个无锁的版本呢，我们可以对上面的算法做一些细微的改动以放松算法的要求，
+// 下面提供了第一个真正的无等待算法示例。由于互锁操作的限制，需要初始化的值必须是一个指
+// 针。
+//      void *get_value(struct lazy_init *p) {
+//          if (p->value == prh_null) {
+//              void *obj = create_object();
+//              if (InterlockedCompareExchange(p->value, obj, prh_null) != prh_null) { // 返回的是旧值
+//                  release_object(obj); // 释放写失败的线程创建的垃圾对象
+//              }
+//          }
+//          _ReadBarrier();
+//          return p->value;
+//      }
 
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
