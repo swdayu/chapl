@@ -10342,15 +10342,35 @@ void prh_mutex_enter(prh_mutex *p);
 bool prh_mutex_try_enter(prh_mutex *p);
 void prh_mutex_exit(prh_mutex *p);
 
+typedef struct prh_rwlock prh_rwlock;
 int prh_rwlock_size(void);
 void prh_rwlock_init(prh_rwlock *p);
 void prh_rwlock_free(prh_rwlock *p);
-void prh_rwlock_enter_read(prh_rwlock *p);
+void prh_rwlock_read_enter(prh_rwlock *p);
 bool prh_rwlock_try_read(prh_rwlock *p);
-void prh_rwlock_exit_read(prh_rwlock *p);
-void prh_rwlock_enter_write(prh_rwlock *p);
+void prh_rwlock_read_exit(prh_rwlock *p);
+void prh_rwlock_write_enter(prh_rwlock *p);
 bool prh_rwlock_try_write(prh_rwlock *p);
-void prh_rwlock_exit_write(prh_rwlock *p);
+void prh_rwlock_write_exit(prh_rwlock *p);
+
+typedef struct prh_cond prh_cond;
+int prh_cond_size(void);
+void prh_cond_init(prh_cond *p);
+void prh_cond_free(prh_cond *p);
+void prh_cond_wait_with_mutex_exit_reenter(prh_cond *p, prh_mutex *mutex);
+void prh_cond_wait_with_read_exit_reenter(prh_cond *p, prh_rwlock *lock);
+void prh_cond_wait_with_write_exit_reenter(prh_cond *p, prh_rwlock *lock);
+void prh_cond_timed_wait_with_mutex_exit_reenter(prh_cond *p, prh_mutex *mutex, prh_u32 msec);
+void prh_cond_timed_wait_with_read_exit_reenter(prh_cond *p, prh_rwlock *lock, prh_u32 msec);
+void prh_cond_timed_wait_with_write_exit_reenter(prh_cond *p, prh_rwlock *lock, prh_u32 msec);
+void prh_cond_signal(prh_cond *p);
+void prh_cond_broadcast(prh_cond *p);
+
+typedef struct prh_once prh_once;
+typedef prh_u32 (*prh_once_init_routine)(prh_once *p, void *param, void **value);
+int prh_once_size(void);
+void prh_once_init(prh_once *p);
+bool prh_once_execute(prh_once *p, prh_once_init_routine init, void *param, void **value);
 
 typedef struct prh_thrd_cond prh_thrd_cond;
 int prh_impl_thrd_cond_size(void);
@@ -11148,6 +11168,7 @@ prh_ptr prh_impl_plat_thrd_self(void) {
 
 #define PRH_RWLOCK_SIZE_PTRS 1
 #define PRH_COND_SIZE_PTRS 1
+#define PRH_ONCE_SIZE_PTRS 1
 
 struct prh_mutex {
     CRITICAL_SECTION mutex;
@@ -11159,6 +11180,10 @@ struct prh_rwlock {
 
 struct prh_cond {
     CONDITION_VARIABLE cond;
+};
+
+struct prh_once {
+    INIT_ONCE once;
 };
 
 prh_static_assert(sizeof(struct prh_mutex) <= PRH_MUTEX_SIZE_PTRS * sizeof(void *));
@@ -11192,6 +11217,10 @@ int prh_rwlock_size(void) {
 
 int prh_cond_size(void) {
     return (int)sizeof(prh_cond);
+}
+
+int prh_once_size(void) {
+    return (int)sizeof(prh_once);
 }
 
 int prh_impl_thrd_cond_size(void) {
@@ -11255,7 +11284,7 @@ void prh_rwlock_free(prh_rwlock *p) {
     // SRWLOCK no need to free
 }
 
-void prh_rwlock_enter_read(prh_rwlock *p) { // Windows Vista Server 2008
+void prh_rwlock_read_enter(prh_rwlock *p) { // Windows Vista Server 2008
     AcquireSRWLockShared(&p->rwlock);
 }
 
@@ -11263,11 +11292,11 @@ bool prh_rwlock_try_read(prh_rwlock *p) { // Windows 7 Server 2008 R2
     return TryAcquireSRWLockShared(&p->rwlock) != 0;
 }
 
-void prh_rwlock_exit_read(prh_rwlock *p) { // Windows Vista Server 2008
+void prh_rwlock_read_exit(prh_rwlock *p) { // Windows Vista Server 2008
     ReleaseSRWLockShared(&p->rwlock);
 }
 
-void prh_rwlock_enter_write(prh_rwlock *p) { // Windows Vista Server 2008
+void prh_rwlock_write_enter(prh_rwlock *p) { // Windows Vista Server 2008
     AcquireSRWLockExclusive(&p->rwlock);
 }
 
@@ -11275,7 +11304,7 @@ bool prh_rwlock_try_write(prh_rwlock *p) { // Windows 7 Server 2008 R2
     return TryAcquireSRWLockExclusive(&p->rwlock) != 0;
 }
 
-void prh_rwlock_exit_write(prh_rwlock *p) { // Windows Vista Server 2008
+void prh_rwlock_write_exit(prh_rwlock *p) { // Windows Vista Server 2008
     ReleaseSRWLockExclusive(&p->rwlock);
 }
 
@@ -11321,6 +11350,130 @@ void prh_cond_signal(prh_cond *p) {
 void prh_cond_broadcast(prh_cond *p) {
     WakeAllConditionVariable(&p->cond);
 }
+
+// VOID InitOnceInitialize(PINIT_ONCE InitOnce); // Windows Vista Server 2008
+//
+// InitOnceInitialize 函数用于动态初始化一次性初始化结构。若要静态初始化该结构，请将常
+// 量 INIT_ONCE_STATIC_INIT 赋值给结构体。若要编译使用此函数，请将 _WIN32_WINNT 定义
+// 为 0x0600 或更高版本。一次性初始化对象不能被移动或复制。进程必须不得修改初始化对象，
+// 而应将其视为逻辑上不透明。只能使用一次性初始化函数来管理一次性初始化对象。
+
+void prh_once_init(prh_once *p) {
+    InitOnceInitialize(&p->once);
+}
+
+// BOOL InitOnceExecuteOnce(
+//  [in, out]           PINIT_ONCE    InitOnce,
+//  [in]                PINIT_ONCE_FN InitFn,
+//  [in, optional]      PVOID         Parameter,
+//  [in, out, optional] LPVOID        *Context
+// );
+// PINIT_ONCE_FN PinitOnceFn;
+// BOOL PinitOnceFn(
+//   [in, out]           PINIT_ONCE InitOnce,
+//   [in, out, optional] PVOID Parameter,
+//   [out, optional]     PVOID *Context
+// );
+//
+// 当多个线程调用 InitOnceExecuteOnce 并传递相同的初始化块时，只有一个线程会执行 InitFn
+// 指定的回调函数。其余线程将阻塞，直到回调函数完成。如果回调函数返回 TRUE 表示成功，
+// InitOnceExecuteOnce 将一次性返回 TRUE 给所有调用者。然而，如果回调返回 FALSE 表示
+// 失败，InitOnceExecuteOnce 仅返回 FALSE 给执行回调函数的单个线程。此时，其中一个剩余
+// 的阻塞线程将解除阻塞并再次执行 InitFn。因此，在 InitFn 可能间歇性失败且需要重试的情
+// 况下，所有线程应继续调用 InitOnceExecuteOnce，直到返回 TRUE。
+//
+// 参数 InitOnce 指向一次性初始化结构的指针。InitFn 指向应用程序定义回调函数。Parameter
+// 要传递给回调函数的参数。
+//
+// 参数 Context 成功时接收与一次性初始化结构关联的数据。数据的低阶 INIT_ONCE_CTX_RESERVED_BITS
+// 位始终为零。如果 Context 指向一个数据结构，则该结构必须 DWORD 对齐。在 Arm32 上，
+// Context 不能是代码指针，因为 Arm32 代码指针的最低有效位始终为 1。
+//
+// 如果函数成功，返回值是非零值。如果失败返回零，调用 GetLastError 获取扩展错误信息。
+//
+// 此函数用于同步的一次性初始化。对于异步的一次性初始化，需要使用带有 INIT_ONCE_ASYNC
+// 标志的 InitOnceBeginInitialize 函数。任何时刻只有一个线程可以执行 InitFn 指定的回
+// 调函数。指定相同一次性初始化结构的其他线程将阻塞，直到回调完成。
+//
+// 要获得初始化的值，需要调用 InitOnceExecuteOnce，它将在内部使用双重检查锁定，并且在
+// 需要时调用 InitFn 进行初始化，最后在 Context 参数中返回这个值。
+
+bool prh_once_execute(prh_once *p, prh_once_init_routine init, void *param, void **value) {
+    assert(((prh_ptr)value & 0x03) == 0); // 地址必须 DWORD 四字节对齐，INIT_ONCE_CTX_RESERVED_BITS 的值为 2
+    return InitOnceExecuteOnce(&p->once, init, param, value) != 0;
+}
+
+// https://learn.microsoft.com/en-us/windows/win32/sync/using-one-time-initialization
+//
+// BOOL InitOnceBeginInitialize(
+//  [in, out]       LPINIT_ONCE lpInitOnce,
+//  [in]            DWORD       dwFlags,
+//  [out]           PBOOL       fPending,
+//  [out, optional] LPVOID      *lpContext
+// );
+//
+// 开始一次性初始化。如果未指定 INIT_ONCE_CHECK_ONLY 且函数成功，则返回值为 TRUE。如
+// 果指定了 INIT_ONCE_CHECK_ONLY 且初始化已经完成，则返回值为 TRUE。否则返回 FALSE，
+// 要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpInitOnce 指向一次性初始化结构的指针。参数 dwFlags 可以是 0，或者以下一个或多
+// 个标志的组合。
+//  INIT_ONCE_ASYNC         0x00000002UL
+//      启用并行执行的多个初始化尝试。如果使用此标志，后续对该函数的调用也要指定此标志，
+//      否则调用将失败。
+//  INIT_ONCE_CHECK_ONLY    0x00000001UL
+//      此函数调用不开始初始化。返回值指示是否已经完成初始化。如果函数返回 TRUE，则
+//      lpContext 参数接收数据。
+//
+// 参数 fPending 如果函数成功，此参数指示当前初始化状态。
+//  1.  如果此参数为 TRUE 且 dwFlags 包含 INIT_ONCE_CHECK_ONLY，则初始化正在等待，且
+//      上下文数据无效。
+//  2.  如果此参数为 TRUE 且 dwFlags 不包含 INIT_ONCE_CHECK_ONLY，则初始化已经开始，
+//      调用方可以执行初始化任务。
+//  3.  如果此参数为 FALSE，则初始化已经完成，调用方可以从 lpContext 参数中检索上下文
+//      数据。
+//
+// 参数 lpContext 成功时接收与一次性初始化结构关联的数据。数据的低阶 INIT_ONCE_CTX_RESERVED_BITS
+// 位始终为零。
+//
+// 此函数可用于同步或异步的一次性初始化。对于异步一次性初始化，请使用 INIT_ONCE_ASYNC
+// 标志。若要在同步一次性初始化期间指定要执行的回调函数，见 InitOnceExecuteOnce 函数。
+// 如果函数成功，线程可以创建一个同步对象，并传递给 InitOnceComplete 函数的 lpContext
+// 参数。
+//
+// 一次性初始化对象不能被移动或复制。进程必须不得修改初始化对象，而应将其视为逻辑上不透
+// 明的。只能使用一次性初始化函数来管理一次性初始化对象。
+//
+// BOOL InitOnceComplete(
+//  [in, out]      LPINIT_ONCE lpInitOnce,
+//  [in]           DWORD       dwFlags,
+//  [in, optional] LPVOID      lpContext
+// );
+//
+// 完成由 InitOnceBeginInitialize 函数开始的一次性初始化。如果函数成功，返回值是非零
+// 值。如果失败返回零，调用 GetLastError 获取扩展错误信息。
+//
+// 参数 lpInitOnce 指向一次性初始化结构的指针。参数 dwFlags 可以是以下标志之一。
+//  INIT_ONCE_ASYNC         0x00000002UL
+//      以异步模式操作。这允许多个并行执行的完成尝试。此标志必须与调用 InitOnceBeginInitialize
+//      函数时传递的相应标志匹配。此标志不能与 INIT_ONCE_INIT_FAILED 结合使用。
+//  INIT_ONCE_INIT_FAILED   0x00000004UL
+//      初始化尝试失败。此标志不能与 INIT_ONCE_ASYNC 结合使用。若要使异步初始化失败，
+//      只需放弃它，即不调用 InitOnceComplete 函数。
+//
+// 参数 lpContext，此数据将在后续调用 InitOnceBeginInitialize 函数时通过 lpContext
+// 参数返回。如果 lpContext 指向一个值，则该值的低阶 INIT_ONCE_CTX_RESERVED_BITS 位
+// 必须为零。如果 lpContext 指向一个数据结构，则该数据结构必须 DWORD 对齐。
+//
+// 如果使用 InitOnceBeginInitialize 和 InitOnceComplete 异步初始化模型，多个初始化
+// 可以同时执行，但只有一个获胜，并且将它的值公布到 INIT_ONCE 数据结构。不同于同步模型，
+// 其他线程调用该函数不会被第一个正在进行初始化的线程阻塞。如果一个线程要负责初始化这个
+// 值，那么它将在这个 InitOnceBeginInitialize 返回后继续执行，在执行完初始化后，调用
+// InitOnceComplete 并在 lpContext 参数中指定初始化的值。如果初始化失败，那么使用标志
+// INIT_ONCE_INIT_FAILED 调用 InitOnceComplete。如果 InitOnceComplete 返回 FALSE，
+// 那么它意味着另一个线程与调用线程（带有同步的初始化）发生竞争并且获取，而这个调用者必
+// 须通过带有 INIT_ONCE_CHECK_ONLY 标志的 InitOnceBeginInitialize 函数来获取最终的
+// 初始化值。
 
 void prh_impl_thrd_cond_init(prh_thrd_cond *p) {
     prh_mutex_init((prh_mutex *)p);
