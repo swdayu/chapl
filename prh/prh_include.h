@@ -7043,6 +7043,67 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 技术上看，数组其实已经有了可用的空间。为了避免这种情况，我们在 resize 获取出队锁之后，
 // 需要再次检查完整的条件。但这只是一个很小的优化，它会增加代码的复杂度，因此是否采用这
 // 个优化值得商榷。
+//
+// 无锁队列的实现，它维持头节点和尾节点两个指针，在入队新节点时将插入到尾部，而出队操作
+// 将在头部进行。当 head 等于 tail 时，这意味着 head->next 为空，队列也被认为空。当入
+// 队一个新节点时，我们必须更新尾节点的 next 指针，将它指向这个新节点。在尾节点插入之后，
+// q->tail 实际处于不同步状态，因为其他线程随时又插入了新的尾节点。这就是为什么在插入时
+// 要先调用 catch_up_tail 的原因，每个插入线程都需要尽可能抓住最新的尾节点去插入。另外，
+// view_iterator() 提供了队列在特定时刻的快照（snapshot），对容器内容进行遍历的线程将
+// 不会观察到随后的更新，它是通过在调用开始记住尾节点来实现的，当遍历链表时，将在到达这
+// 个尾节点时停止遍历动作。
+//      struct lock_free_que { prh_data_snode *head, *tail; };
+//      void lock_free_que_init(struct lock_free_que *q) {
+//           q->head = q->tail = malloc(sizeof(prh_data_snode));
+//           _WriteBarrier();
+//      }
+//      prh_data_snode *catch_up_tail(struct lock_free_que *q) {
+//           prh_data_snode *tail = q->tail;
+//           prh_data_snode *tail_next = tail->next;
+//           while (tail_next != prh_null) {
+//               InterlockedCompareExchange(&q->tail, tail_next, tail);
+//               tail = q->tail;
+//               tail_next = tail->next;
+//           }
+//           return tail;
+//      }
+//      void enqueue(struct lock_free_que *q, void *data) {
+//          prh_data_snode *new_node = malloc(sizeof(prh_data_snode));
+//          new_node->data = data;
+//          new_node->next = prh_null;
+//          prh_data_snode *tail;
+//      lable_retry:
+//          _ReadBarrier();
+//          tail = catch_up_tail(q);
+//          if (InterlockedCompareExchange(&tail->next, new_node, prh_null) != prh_null) {
+//              goto label_retry;
+//          }
+//          // 这个操作失败不要紧，因为表示其他线程又插入了新的节点（以 catch_up_tail 看到的包含了不管是当前
+//          // 还是其他线程插入后的队列的尾节点为基准插入），尾节点已经指向了其他线程插入的新节点
+//          InterlockedCompareExchange(&q->tail, new_node, tail);
+//      }
+//      prh_data_snode *dequeue(struct lock_free_que *q) {
+//          prh_data_snode *head = (prh_data_snode *)q;
+//          prh_data_snode *head_next;
+//          for (; ;) {
+//              _ReadBarrier();
+//              head_next = head->next;
+//              if (head_next == prh_null) return prh_null;
+//              if (InterlockedCompareExchange(&head->next, head_next->next, head_next) == head_next) {
+//                  return head_next;
+//              }
+//          }
+//      }
+//      prh_data_snode *view_iterator(struct lock_free_que *q) {
+//          _ReadBarrier(); // 仅托管代码有效，因为托管代码只要有引用存在内存就不会释放
+//          prh_data_snode *curr = q->head->next; // 如果是 VC++，头部节点可能被其他线程释放掉，导致内存访问违规
+//          prh_data_snode *tail = catch_up_tail(q);
+//          while (curr != prh_null) {
+//              yield curr;
+//              if (curr == tail) break;
+//              curr = curr->next;
+//          }
+//      }
 
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
