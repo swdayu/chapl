@@ -7104,6 +7104,98 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 //              curr = curr->next;
 //          }
 //      }
+//
+// 工作密迁队列（Work Stealing Queue）。大多数调度器，例如 CLR 线程池，在运行时都是基
+// 于一个全局工作队列。这个队列由一个锁保护，所有的入队操作和出队操作都必须被串行化。池
+// 中的每个工作线程在完成当前任务之后，都要回到这个队列并取出一个新的工作项。这种方式虽
+// 然简单，但却会导致在队列种发生大量竞争。对于执行时间很短的细粒度任务来说，随着处理器
+// 数量的增加，线程在竞争种所耗费的时间也将增加。另一种数据结构称为工作密迁队列，这个队
+// 列可以极大地减少这种竞争并且提高可伸缩性。这个队列使得线程在自己的私有端（Private
+// End）执行压入和弹出操作非常简单，并且允许其他线程从另一端执行弹出（密迁）操作，但是
+// 从外部执行压入操作是不被允许的。每个处理器自己产生的任务都压入自己本地的私有端，当每
+// 个处理器查找需要执行的任务时，首先从自己的私有端弹出任务，如果私有端已经没有任务，将
+// 从其他处理器队列的外部端获取任务执行。这对于分而治之的算法，以及任务时从其他任务派生
+// 出来的情况，带来非常大的性能提升。而且，它还可以通过细粒度的分解来降低开销。以下实现
+// 的队列是基于数组的，并且是一个带有头索引和尾索引的循环队列。local_push 和 local_pop
+// 由拥有这个队列的线程调用，在线程的私有端进行压入和弹出。try_steal 是外部线程从队列的
+// 另外一段执行弹出操作，这个方法是线程安全的，因此多个外部线程可以同时执行这个操作。
+//      struct work_steal_que {
+//          void **array;
+//          int size_minus_one;
+//          int head;
+//          int tail;
+//          lock foreign_lock;
+//      };
+//      bool is_empty(struct work_steal_que *q) {
+//          _ReadBarrier();
+//          return q->head == q->tail;
+//      }
+//      int count(struct work_steal_que *q) {
+//          _ReadBarrier();
+//          return q->tail - q->head;
+//      }
+//      void local_push(struct work_steal_que *q, void *data) { // 压入到尾部，只有 local_push 才能扩展数组大小
+//          _ReadBarrier();
+//          int tail = q->tail;
+//          int size_minus_one = q->size_minus_one;
+//          void **array = q->array;
+//          if (tail - q->head < size_minus_one) { // 队列未满，队列满时只能保持 size - 1 个元素
+//              array[tail & size_minus_one] = data;
+//              q->tail = tail + 1;
+//              _WriteBarrier();
+//              return;
+//          }
+//          lock(q->foreign_lock);
+//          if (tail - q->head < size_minus_one) {
+//              array[tail & size_minus_one] = data;
+//              q->tail = tail + 1;
+//          } else { // 扩充数组容量
+//              int new_size_minus_one = (size_minus_one << 1) | 1;
+//              void **new_array = malloc(new_size_minus_one + 1);
+//              for (int i = 0; i <= new_size_minus_one; i += 1) {
+//                  new_array[i] = array[(i + q->head) & size_minus_one];
+//              }
+//              q->head = 0;
+//              new_array[size_minus_one] = data;
+//              q->tail = size_minus_one + 1;
+//              q->size_minus_one = new_size_minus_one;
+//          }
+//          unlock(q->foreign_lock);
+//      }
+//      void *local_pop(struct work_steal_que *q) { // 从尾部弹出
+//          void *data = prh_null;
+//          _ReadBarrier();
+//          int tail = q->tail - 1;
+//          q->tail = tail; // 占有一个元素
+//          _ReadWriteBarrier();
+//          if (q->head <= tail) { // 元素占有成功
+//              data = q->array[tail & q->size_minus_one];
+//          } else {
+//              lock(&q->foreign_lock);
+//              if (q->head <= tail) { // 占有失败的元素被 try_steal 回退了
+//                  data = q->array[tail & q->size_minus_one];
+//              } else {
+//                  q->tail = tail + 1; // 占有失败
+//              }
+//              unlock(&q->foreign_lock);
+//          }
+//          return data;
+//      }
+//      void *try_steal(struct work_steal_que *q) { // 从头部弹出
+//          void *data = prh_null;
+//          if (try_lock(&q->foreign_lock)) { // 只有当队列中元素很少时才会 lock 失败
+//              int head = q->head;
+//              q->head = head + 1; // 占有头部元素
+//              _ReadWriteBarrier();
+//              if (head < q->tail) {
+//                  data = q->array[head & q->size_minus_one];
+//              } else {
+//                  q->head = head; // 占有失败恢复头节点
+//              }
+//              unlock(&q->foreign_lock);
+//          }
+//          return data;
+//      }
 
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
