@@ -4,8 +4,8 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else then for break return   条件语句支持大括号和缩进对齐两种编写方式
-//  const void let struct embed
+//  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
+//  pub const void struct embed
 //  continue defer yield range
 //  static extern adr der not or
 //  sizeof typeof alignof alignas offsetof copyof moveof
@@ -102,9 +102,12 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  i08 i16 i32 i64 i128 i256 i512 int      sys_int
-//  u08 u16 u32 u64 u128 u256 u512 unsigned sys_ptr struct ptr
+//  没有 struct 开头的基本类型都是别名，例如 int 是 struct int、unsigned 是 struct ptr，f32 是 struct f32 的别名
+//  i08 i16 i32 i64 i128 i256 i512 int      struct sys_int
+//  u08 u16 u32 u64 u128 u256 u512 unsigned struct sys_ptr struct ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
+//  d08 d16 d32 d64 d128 d256 d512 decimal
+//  c08 c16 c32 c64 c128 c256 c512 complex
 //
 // 简洁尽量实现使用最少字符
 //  布尔类型    布尔常量    空值    字符类型    字符串类型
@@ -424,14 +427,14 @@ struct test $t $u {
 
 // 类型通过 struct 定义，变量通过 const 或 let 定义
 
-const float PI 3.1415926
+pub const float PI 3.1415926
 
-const point {
+pub const point {
     100,
     200,
 }
 
-struct color int {
+pub struct color int {
     red const + 1,
     blue,
     green,
@@ -705,7 +708,7 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-struct color u08 {
+pub struct color u08 {
     red,    // 0
     green,  // 1
     blue,   // 2
@@ -833,15 +836,15 @@ eat(struct *lexer lexer return struct token) {
     return lexer.pop()
 }
 
-peek(struct *lexer lexer struct token) {
+pub peek(struct *lexer lexer struct token) {
     return lexer.top()
 }
 
-parse_expression(struct *lexer int min_prior struct expr) {
-    let struct expr 'uninit'
+pub parse_expression(struct *lexer int min_prior struct expr) {
+    struct expr = ??
 }
 
-main(int argc **char argv return int) {
+pub main(int argc struct **char argv return int) {
 
 }
 
@@ -1272,7 +1275,7 @@ for i int 3 .. 10 { /* */ }
 
 for {
     capacity *= 2
-} .. (capacity < new_capacity)
+} .. if (capacity < new_capacity)
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
@@ -1634,10 +1637,20 @@ print(typestring, "\n")
 //      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##TX_END
 //      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##FINISH
 //
-//  3.  函数参数的传递
+//  3.  scoped 语句块
+//
+//      enter_read(struct *rwlock) scoped(leave_read) {
+//          ...
+//      }
+//
+//      scoped rwlock.enter_read() {
+//          ...
+//      }
+//
+//  4.  函数参数的传递
 //
 //      基本类型 int unsigned sys_int sys_ptr struct ptr float 和枚举类型，可以显式传值或指针
-//      结构体类型总是传指针，不允许 struct *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
+//      结构体类型总是传指针，函数参数只允许 struct *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
 //      如果结构体声明为 struct type_name #as int { }，将结构体当作基本类型使用，则可以显式传值或指针
 //
 //  10. 协程的实现
