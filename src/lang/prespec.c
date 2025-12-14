@@ -5,8 +5,8 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
-//  pub const void struct embed
-//  continue defer yield range
+//  pub const void struct embed let def undefined
+//  continue defer yield range lambda
 //  static extern adr der not or
 //  sizeof typeof alignof alignas offsetof copyof moveof
 //
@@ -37,9 +37,9 @@
 //  struct $t a $U b    // 但使用已定义类型定义常量参数是允许的
 //  $T a struct $u b
 //  ---
-//  $T $U        // 相当于定义了两个类型参数 struct t 和 struct u
+//  $T $U        // 相当于定义了两个类型参数 def t 和 def u
 //  $any T U   // 与上一行等价
-//  $int Int          // 相当于定义了一个类型参数 struct Int，该类型必须是一个整型
+//  $int Int          // 相当于定义了一个类型参数 def Int，该类型必须是一个整型
 //  $int Float
 //  $num Type
 //  const string a b
@@ -55,7 +55,7 @@
 //
 // 其他标识符符都是非类型标识符，包括函数名、变量名、标签、包名等等。另外包含在 @name{}
 // 之内的标识符也都是非类型标识符，例如把类型名和关键字当作变量标识符使用：@name{int}
-// @name{if} @name{Type}。      @{if}   struct @{if}
+// @name{if} @name{Type}。      @{if}   def @{if}
 //
 // 以 # 开头的标识符是编译器指令。以 @ 开头的标识符是属性名称，包括函数、类型、变量的
 // 属性名称等。以单下划线或双下划线开始的标识符，是保留关键字。
@@ -102,9 +102,9 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  没有 struct 开头的基本类型都是别名，例如 int 是 struct int、unsigned 是 struct ptr，f32 是 struct f32 的别名
-//  i08 i16 i32 i64 i128 i256 i512 int      struct sys_int
-//  u08 u16 u32 u64 u128 u256 u512 unsigned struct sys_ptr struct ptr
+//  bool null byte char errno string
+//  i08 i16 i32 i64 i128 i256 i512 int      arch_int
+//  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr def ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -165,15 +165,14 @@
 //  *[2]int *[2]u16 *[2]f64
 //  (int a b) (int a b int) (void) (void int) 参数必须带名称，返回值是一个类型列表不能带名称，函数如果没有参数必须带void
 //  (Point p float factor) (Point p) (Point(N, T, U) p)
-//  Function   (void)  (int) (struct point float factor return point)
+//  Function   (void)  (int) (def point float factor return point)
 //      (void) 没有参数，没有返回值，空括号 () 表示没有参数的函数调用
 //      (return int) 没有参数，单个返回值，参数不能省略，如果没有参数必须声明为void，而返回值可以没有
 //      (return int string) 没有参数，多个返回值
 //      (int a return int)
 //      (int a b)
-//      (struct point float factor)
-//      (struct point p float factor) 结构体默认传递地址，因此不需要显式指定指针类型，如果不希望对象被函数修改，需要在调用前先拷贝
-//      (int a b yield int i struct ptr return int) 带有协程中间结果的函数
+//      (def point float factor) 结构体默认传递地址，因此不需要显式指定指针类型，如果不希望对象被函数修改，需要在调用前先拷贝
+//      (int a b yield int i def ptr return int) 带有协程中间结果的函数
 //      (int a b return int) [capture d] 带有捕获参数的闭包函数，闭包函数是在定义时一次性生成的，闭包参数只要名字相同且能完成函数内部的操作就没有问题
 //      定义一个指针类型：Calc (int a b int)
 //      声明一函数字面量：extern calc(int a b int)
@@ -188,15 +187,15 @@
 //      (int int)            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int 0 int 1}
 //      (this int int int)   结构体不能内嵌一个指针类型，等价于结构体 {this 0 int 1 int 2 int 3}
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
-//      const i08 {RED {const * 2} YELLOW BLUE} // const 是枚举元素的索引值
-//      const int {RED YELLOW BLUE}
+//      const i08 {RED const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
+//      const int {RED, YELLOW, BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
-//      $T $(*T p int a b int) calc $(*T p int c) get {}
+//      $this { read(this int size return int) get(this) }
 //  Struct 表示定义一个类型
-//      Type {}
+//      def empty {}
 //      { int a b } {1, 2}
-//      { (this p int a b int) calc }
-//      $T $U $int size { T[size] a U b }
+//      { (this int a b int) calc }
+//      $T $U const (int size) { T[size] a U b }
 //  常量类型，可以表示任意常量，包括结构体常量，常量类型定义一个对应类型的常量值，是一个值不是类型
 //      PI const f16 3.14
 //      PI const 3.1415926
@@ -317,26 +316,26 @@
 //      如果前面的表达式是一个变量，则进行函数调用
 //      如果前面的表达式是一个常量，则报错
 
-struct point {
+def point {
     f32 x y
 }
 
-struct point {
+def point {
     f32 x y
 }
 
-struct data {
+def data {
     int a b
     (int a b return int) f g
 }
 
-struct get ($*T a return int) // 函数参数只能声明类型模板参数
-struct read ($*T a unsigned p int n return int) // 函数只有第一个参数才能是泛型类型
-struct reader $T $get(T) get $read(T) read {} // 在 ${} 表达式中需要省略 struct 关键字
+def get ($*T a return int) // 函数参数只能声明类型模板参数
+def read ($*T a unsigned p int n return int) // 函数只有第一个参数才能是泛型类型
+def reader $T $get(T) get $read(T) read {} // 在 ${} 表达式中需要省略 def 关键字
 
-struct @{get} ($*T a return int)
-struct @{read} ($*T a struct ptr p int n return int)
-struct @{reader} $T $<T>@{get} get $<T>@{read} read {}
+def @{get} ($*T a return int)
+def @{read} ($*T a def ptr p int n return int)
+def @{reader} $T $<T>@{get} get $<T>@{read} read {}
 
 Data { int a b (int a b int) f g }
 Get($*T a int) // 函数参数只能声明类型模板参数
@@ -374,118 +373,109 @@ extern ArrFit
 extern ArrDyn
 extern ArrLax
 
-extern struct l2cap_conn
-extern struct l2cap_callback
-extern struct tcp_socket
-extern struct bt_status
-extern struct hci_global
-extern struct hci_conn_type
-extern struct hci_conn_item
+extern def l2cap_conn
+extern def l2cap_callback
+extern def tcp_socket
+extern def bt_status
+extern def hci_global
+extern def hci_conn_type
+extern def hci_conn_item
 
-struct 点 { float x y }
-struct 数 { int a b }
-struct point { float x y }
-struct data { int a b (int a b return int) f g }
-struct reader $t $(struct *t int a b return int) calc $(struct *t  struct []byte a) get { }
-struct get ($*t p return int)
-struct read ($*t p struct *byte buf int n return int)
-struct reader $T $get(T) get $read(T) read { }
-struct color i08 { RED 1 BLUE 2 YELLOW 3 }
-struct bitvalue int { FLAT_BIT1 1 << const, FLAG_BIT2, FLAG_BIT3 }
-struct tcpaction int { TCPA_OPEN_ACCEPT, TCPA_TX_DATA, TCPA_RX_DONE }
-struct 协程 { u32 rspoffset loweraddr }
-struct coroguard { u32 lower_guard_word struct *coro coro (struct *coroguard g int a b int) f g }
-struct handle(struct *hcirxdesc rxdesc u32 ca struct hcidatatype type struct u line)
-struct main(int argc **byte argv int)
-struct scale(struct point point int a b)
-struct calc(int a b int)
+def 点 { float x y }
+def 数 { int a b }
+def point { float x y }
+def data { int a b (int a b return int) f g }
+def reader $t $(def *t int a b return int) calc $(def *t  def []byte a) get { }
+def get ($*t p return int)
+def read ($*t p def *byte buf int n return int)
+def reader $T $get(T) get $read(T) read { }
+def color i08 { RED 1 BLUE 2 YELLOW 3 }
+def bitvalue int { FLAT_BIT1 1 << const, FLAG_BIT2, FLAG_BIT3 }
+def tcpaction int { TCPA_OPEN_ACCEPT, TCPA_TX_DATA, TCPA_RX_DONE }
+def 协程 { u32 rspoffset loweraddr }
+def coroguard { u32 lower_guard_word def *coro coro (def *coroguard g int a b int) f g }
+def handle(def *hcirxdesc rxdesc u32 ca def hcidatatype type def u line)
+def main(int argc **byte argv int)
+def scale(def point point int a b)
+def calc(int a b int)
 
-struct array int size $t {
-    struct [size]t a
+def array $t const (int size) {
+    def [size]t a
 }
 
-struct array int size $a { // $ 定义一个类型参数 a
-    struct [size]a
+def array $a const (int size) { // $ 定义一个类型参数 a
+    def [size]a
 }
 
-struct test $a $b {
-    struct a
-    struct b
+def test $a $b {
+    def a
+    def b
 }
 
-struct int_N_array int size = struct "size int" array
-struct type_size_array int size $t = struct "size type" array
-struct int_array = struct "20 int" array
-struct some_array_type = struct "8 (10 (20 int_N_array))" array
-struct int_array_of_array = struct "8 int_array" array
-struct int_array_of_array = struct "8 (20 int)" array
+def int_N_array const (int size) = def "size int" array
+def type_size_array const (int size) $t = def "size type" array
+def int_array = def "20 int" array
+def some_array_type = def "8 (10 (20 int_N_array))" array
+def int_array_of_array = def "8 int_array" array
+def int_array_of_array = def "8 (20 int)" array
 
-struct test $t $u {
-    struct t
-    struct u
+def test $t $u {
+    def t
+    def u
 }
 
-// 类型通过 struct 定义，变量通过 const 或 let 定义
+const float PI 3.1415926
 
-pub const float PI 3.1415926
-
-pub const point {
+const point POINTS {
     100,
     200,
 }
 
-pub struct color int {
+def color const int {
     red const + 1,
     blue,
     green,
     yellow,
 }
 
-struct test int size $t $array(size, t) a $u point {
-    struct t t
-    struct u u
+def test $t $array(size, t) a $u const (int size, point) {
+    def t t
+    def u u
 }
 
-struct test t u int size
-{}
-
-struct test $t $u {
-    struct t t
-    struct u u
+def test $t $u {
+    def t t
+    def u u
 }
 
-struct test $any t u {
-    struct t t
-    struct u u
+def test $any t u {
+    def t t
+    def u u
 }
 
-extern struct l2capconn         struct *l2capconn        struct [2]l2capconn
-extern struct l2capcallback     struct *l2capcallback    struct [2]l2capcallback
-extern struct tcpsocket         struct *tcpsocket        struct [2]tcpsocket
-extern struct btstatus          struct *btstatus         struct [2]btstatus
-extern struct hciglobal         struct *hciglobal        struct [2]hciglobal
-extern struct hciconntype       struct *hciconntype      struct [2]hciconntype
-extern struct hciconnitem       struct *hciconnitem      struct [2]hciconnitem
-extern struct quefit
-extern struct quefix
-extern struct arrfix
-extern struct arrfit
-extern struct arrdyn
-extern struct arrlax
+extern def l2capconn         def *l2capconn        def [2]l2capconn
+extern def l2capcallback     def *l2capcallback    def [2]l2capcallback
+extern def tcpsocket         def *tcpsocket        def [2]tcpsocket
+extern def btstatus          def *btstatus         def [2]btstatus
+extern def hciglobal         def *hciglobal        def [2]hciglobal
+extern def hciconntype       def *hciconntype      def [2]hciconntype
+extern def hciconnitem       def *hciconnitem      def [2]hciconnitem
+extern def quefit
+extern def quefix
+extern def arrfix
+extern def arrfit
+extern def arrdyn
+extern def arrlax
 
-T1 int // 禁止，使用 using T1 = int
-T3 T2 // 禁止，使用 using T3 = T2
-T4 { (int a b int) f int a b }
-T5 $T $(*T p int a b int) calc {}
-T6 (int a b int)
-T7 (Point p float factor)
-
-T1 [3]int // 禁止，使用 using T1 = [3]int
-T3 [3]T2 // 禁止，使用 using T3 = [3]T2
-T4 { int a b }[3] // 禁止
-T5 (this p int a b int)[3] // 禁止
-T6 (int a b int)[3] // 禁止
-T7 (Point p float factor)[3] // 禁止
+def t1 typeof(int)
+def t2 typeof(def *int)
+def t2 typeof(def [3]int)
+def t3 typeof(def t0)
+def t3 typeof(def [3]t0)
+def t4 { (int a b return int) f int a b }
+def t5 $this { calc(this int a b return int) }
+def t6(int a b return int)
+def t7(def point float factor)
 
 T1 Triple#3(int[3], (int a b))
 T2 Triple#3(string[3], (int a b)*)
@@ -495,18 +485,18 @@ T5 Triple#3(((# int a b int)[3]) calc, (Point p float factor)[int])
 T6 Triple#3((int a b int)[3], int*)
 T7 Triple#3((Point p float factor)[3], string[int])
 
-struct node $t {
+def node $t {
     this next
-    struct t data
+    def t data
 }
 
-struct tripple $t $u int size {
-    struct [size]t a
-    struct u b
+def tripple $t $u const (int size) {
+    def [size]t a
+    def u b
 }
 
-struct main (int argc struct **char argv return int)
-struct scale (struct point p int a b)
+def main(int argc def **byte argv return int)
+def scale(def point int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b int errno) // errno is a type with i32
@@ -541,8 +531,8 @@ using StdArray = std::Array
     Calc
     Coroutine
     Arrfit
-    init(struct "fixed"*array ~)
-    free(struct "relaxed"*array ~)
+    init(def "fixed"*array ~)
+    free(def "relaxed"*array ~)
 }
 
 Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字段都是只读的，写操作必须通过公开函数
@@ -558,10 +548,10 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     unsigned loweraddr
     unsigned maxudsize 31 ptr_param 1
     int coro_id
-    struct ptr address
+    def ptr address
 }
 
-struct coro {
+def coro {
     u32 rspoffset
     u32 loweraddr
     i32 maxudsize 31 ptr_param 1
@@ -571,37 +561,37 @@ struct coro {
     int coro_id
 }
 
-struct coro_guard {
+def coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    struct coro embed
-    struct *coro coro_ptr
-    this _embed_
+    def coro embed
+    def *coro coro_ptr
+    this embed
     this coro_guard
-    (int a b int) calc
-    (struct *coro) func
+    (int a b return int) calc
+    (def *coro) func
 }
 
-struct 协程 {
+def 协程 {
     u32 rspoffset
     u32 loweraddr
 }
 
 :::std:::
 
-struct coro_guard {
+def coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    struct coro embed
-    struct *coro coro
+    def coro embed
+    def *coro coro
     this embed
     this coro_guard
-    (int a b int) calc
-    (struct *coro p) func
-    (struct *coro_guard int a b return int) f g
+    (int a b return int) calc
+    (def *coro p) func
+    (def *coro_guard int a b return int) f g
 }
 
-verify(struct *coro_guard)
+verify(def *coro_guard)
 
 Color const i08 {RED {const + 1} BLUE YELLOW}
 Color const int {red blue { blue_defined_value } yellow}
@@ -617,7 +607,7 @@ CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     this coroguard
     (int a b int) calc
     (int a) print
-    (this p int a b int) a
+    (this int a b int) a
     (CoroGuard g int a b int) f g
     (Coro p) h
     { int a b }
@@ -708,18 +698,18 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-pub struct color u08 {
+def color const u08 {
     red,    // 0
     green,  // 1
     blue,   // 2
 }
 
-struct ptr_type unsigned {
+def ptr unsigned {
     null 0, // 0
     ptr ... // 其余值
 }
 
-struct operator u32 -> {u08 lpri rpri} { // const sum type
+def oper const u32 {u08 lpri rpri} { // const sum type
     ass '=' {200, 201},
     add '+' {211, 210},
     sub '-' {211, 210},
@@ -730,77 +720,77 @@ struct operator u32 -> {u08 lpri rpri} { // const sum type
     end 0 // 默认值为零
 }
 
-struct token byte -> struct { // sum type
+def token byte struct { // sum type
     atom {byte id},
     oper {byte id},
     eof
 }
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
-struct expr byte -> struct { // 相当于是一种泛型类型
+def expr byte struct { // 相当于是一种泛型类型
     value {int n}, // 相当于存储 {byte 0 int n}
     ident {int id}, // 相当于存储 {byte 1 int n}
-    expr {int op struct *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
+    expr {int op def *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
-eat(*Lexer lexer Token) {
+eat(def *lexer def token) {
     return lexer.pop()
 }
 
-peek(*Lexer lexer Token) {
+peek(def *lexer def token) {
     return lexer.top()
 }
 
-eval(struct oper op struct expr lhs rhs return struct expr res) {
-    if [op] '=' {
-        res = .value(rhs.value.n)
+eval(def oper def expr lhs rhs return expr) {
+    if [oper] '=' {
+        expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
     } else if '+' {
-        res = .value(lhs.value.n + rhs.value.n)
+        expr = .value(lhs.value.n + rhs.value.n)
     } else if '-' {
-        res = .value(lhs.value.n - rhs.value.n)
+        expr = .value(lhs.value.n - rhs.value.n)
     } else if '*' {
-        res = .value(lhs.value.n * rhs.value.n)
+        expr = .value(lhs.value.n * rhs.value.n)
     } else if '/' {
-        res = .value(lhs.value.n / rhs.value.n)
+        expr = .value(lhs.value.n / rhs.value.n)
     } else if '^' {
-        res = .value(pow(lhs.value.n, rhs.value.n))
+        expr = .value(pow(lhs.value.n, rhs.value.n))
     } else {
-        panic("bad operator %c", op)
+        panic("bad operator %c", oper)
     }
-    return res
+    return expr
 }
 
-eval(struct oper struct expr lhs rhs return expr res) {
+eval(def oper def expr lhs rhs return expr) {
     if [oper] '='
-        res = .value(rhs.value.n)
+        expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
     else if '+'
-        res = .value(lhs.value.n + rhs.value.n)
+        expr = .value(lhs.value.n + rhs.value.n)
     else if '-'
-        res = .value(lhs.value.n - rhs.value.n)
+        expr = .value(lhs.value.n - rhs.value.n)
     else if '*'
-        res = .value(lhs.value.n * rhs.value.n)
+        expr = .value(lhs.value.n * rhs.value.n)
     else if '/'
-        res = .value(lhs.value.n / rhs.value.n)
+        expr = .value(lhs.value.n / rhs.value.n)
     else if '^'
-        res = .value(pow(lhs.value.n, rhs.value.n))
+        expr = .value(pow(lhs.value.n, rhs.value.n))
     else
         panic("bad operator %c", op)
-    return res
+    return expr
 }
 
-eat(struct *lexer return struct token) {
+eat(def *lexer return token) {
     return lexer.pop()
 }
 
-eval(struct oper op struct expr a b return struct expr c) {
+eval(def oper def expr a b return expr c) {
 }
 
-parse_expression(struct *lexer int min_prior return struct expr) {
+parse_expression(def *lexer int min_prior return expr) {
 }
 
-parse_expression(struct *lexer lexer int min_prior return struct expr lhs) {
+parse_expression(def *lexer int min_prior return expr lhs) {
     if [lexer.eat()] atom(it) {
         if it == '0'..'9' then
             lhs = .value(it - '0')
@@ -815,7 +805,7 @@ parse_expression(struct *lexer lexer int min_prior return struct expr lhs) {
         panic("bad token %d", it)
     }
     for {
-        op struct expr _uninit_
+        op def expr undefined
         if [lexer.peek()] eof oper(')')
             break
         else if oper(it) then
@@ -832,28 +822,28 @@ parse_expression(struct *lexer lexer int min_prior return struct expr lhs) {
     return lhs
 }
 
-eat(struct *lexer lexer return struct token) {
+eat(def *lexer return token) {
     return lexer.pop()
 }
 
-pub peek(struct *lexer lexer struct token) {
+peek(def *lexer def token) {
     return lexer.top()
 }
 
-pub parse_expression(struct *lexer int min_prior struct expr) {
-    struct expr = ??
+parse_expression(def *lexer int min_prior def expr) {
+    def expr = undefined
 }
 
-pub main(int argc struct **char argv return int) {
+main(return int) {
 
 }
 
 // 因为函数的第一个参数可以重载，因此 tcp_poll(file, sock, wait) 和 file.tcp_poll(sock, wait) 都同样有效
-tcp_poll(struct *file struct *socket struct *poll_table return poll) [m] 'fastcall alignas 16' {
-    let struct poll 'uninit'
-    let struct *socket sock 'alignas CACHE_LINE_SIZE' socket
-    let byte a 'uninit'
-    let int b 'uninit'
+tcp_poll(def *file def *socket def *poll_table return poll) [m] alignas(16) {
+    def poll = undefined
+    def *socket sk alignas(CACHE_LINE_SIZE) = socket
+    let a byte undefined
+    let b int undefined
 
     sock_poll_wait(file, sock, wait)
 
@@ -924,8 +914,8 @@ report_tcpe_opened(*TcpSocket tcp) {
 
 epoll_proc(*Cono cono) {
     epoll *Epoll cono_data(cono)
-    pdata *ConoPdata _uninit_
-    action byte _uninit_
+    pdata *ConoPdata undefined
+    action byte undefined
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -946,7 +936,7 @@ main(void) {
     print("hello")
 }
 
-main(int argc **byte argv return int) { // main 函数默认是 public
+main(int argc def **byte argv return int) { // main 函数默认是 public
     print("hello world\n")
     return 0
 }
@@ -956,9 +946,7 @@ main(return int) [m] {
     return 0
 }
 
-struct main(int argc **byte argv return int)
-
-Main(i32 argc **byte argv return i32)
+def main(int argc def **byte argv return int)
 scale(Point point int a b)
 calc(int a b return int)
 Array $T $int size { [size]T a }
@@ -980,14 +968,14 @@ TcpAccept {
     u32 txbuf_size
 }
 
-perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+__perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened(*TcpSocket tcp) {
+__report_tcpe_opened(*TcpSocket tcp) {
     pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     txbuf *ByteArrfit adr tcp.txbuf
     pdata.tcp = tcp
@@ -998,8 +986,8 @@ report_tcpe_opened(*TcpSocket tcp) {
 
 epoll_proc(*Cono cono) {
     epoll *Epoll cono_data(cono)
-    pdata *ConoPdata _uninit_
-    action byte _uninit_
+    pdata *ConoPdata undefined
+    action byte undefined
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -1039,13 +1027,8 @@ generic_write(*Writer writer) { // 实际上参数会传递 file 以及 File.Wri
 
 Calc(int a b int)
 
-Snode $T {
+def snode $T {
     this next
-    T data
-}
-
-_snode $T {
-    *this next
     T data
 }
 
@@ -1054,10 +1037,10 @@ for i I 0 .. 9 {
     pos + der adr *I (*byte p + size + f(g))
 }
 
-memcpy(struct ptr dst src int count)
-memcpy(struct ptr dst src int count) 'intrinsic'
-memcmp(struct ptr dst src int count int) 'intrinsic'
-memset(struct ptr dst byte value int count) 'intrinsic'
+memcpy(def ptr dst src int count)
+memcpy(def ptr dst src int count) 'intrinsic'
+memcmp(def ptr dst src int count int) 'intrinsic'
+memset(def ptr dst byte value int count) 'intrinsic'
 lock_cmpxchg(*T p T old new T) 'intrinsic'
 coroguard(*Coro coro CoroGuard) 'cdcel inline'
 
@@ -1072,7 +1055,7 @@ memcpy (Ptr dst src int count)
 memcmp (Ptr dst src int count int)
 lock (*T p T old new T)
 coro_guard (*Coro coro CoroGuard)
-get_coro_guard(struct *coro coro struct ptr)
+get_coro_guard(def *coro coro def ptr)
 
 // 类型并不需要提前声明，因为可以通过词法直接分辨，函数类型如果可以通过传递的参数匹配也无需提前声明
 extern T1
@@ -1096,7 +1079,7 @@ print("width % height %\n", width, height)
 calc $int a b (int c d int)
 calc"2,3"(c, d)
 
-main(int argc **char argv return int) {
+main(int argc def **char argv return int) {
     return 0
 }
 
@@ -1104,26 +1087,26 @@ calc(int a b return int) {
     return a + b
 }
 
-scale(Point p float factor) {
+scale(def point float factor) {
+    point.x *= factor
+    point.y *= factor
+}
+
+scale(Point p float factor) "cdecl" {
     p.x *= factor
     p.y *= factor
 }
 
-scale(Point p float factor) callconv(cdecl) {
+scale(Point p float factor) "fastcall" {
     p.x *= factor
     p.y *= factor
 }
 
-scale(Point p float factor) callconv(fastcall) {
-    p.x *= factor
-    p.y *= factor
-}
-
-next(struct *node($t) return *t) {
+next(def *node($t) return *t) {
     return node.next
 }
 
-size(struct *triple(int size, $t, $u) return int) {
+size(def *triple(int size, $t, $u) return int) {
     return triple.a + size + sizeof t
 }
 
@@ -1151,38 +1134,36 @@ cal2 Calc{return a + b}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 
-ppb *Ppb malloc(size)
+let a = undefined // 错误，undefined 必须明确指定类型
+let a = 42
+let a = +99
+let a = -1
+let a = 'a'
+let a = \t
+let a = \0
+let a = \9
+let a = \x00
+let a = \xff
+let a = \{0000}
+let a = \{ffff_ffff}
+let a = 3.14
+let a = "hello"
 
-// 变量定义必须指定类型部分
-let int a 'uninit'
-let a 42
-let a +99
-let a a==0 then b or c
-let b 0
-let b a // 一个变量赋值给另一个变量的形式必须在同一行，不能换行
-let c -17
-let d 'a'
-let e 's' 'r' \t 'c' '/' \n
-
-let int a 'uninit'
-let a 42
-let a +99
-let a -1
-let a 'a'
-let a \t
-let a \0
-let a \9
-let a \x00
-let a \xff
-let a 3.14
-let a "hello"
-
-let integers [1, 2, 3] // let 只能用于不能简单表达的类型上
-let colors ["红", "黄", "绿"]
-let nested_array_of_ints {[1,2], [3,4,5]}
-let nested_mixed_array {[1,2], ["a", "b", "c"]}
-let int_array nested_mixed_array.0
-let str_array nested_mixed_array.1
+// def_type symb "=" expr
+// "let" symb "=" expr
+// "let" symb pri_type expr
+// "let" symb lit_type expr
+def *ppb = malloc(size)
+def point = undefined
+def *int p = null, q = undefined
+def int a = 0
+let calc = (int a b return int) { return a + b }
+let integers = [1, 2, 3] // let 只能用于不能简单表达的类型上
+let colors = ["红", "黄", "绿"]
+let nested_array_of_ints = {[1,2], [3,4,5]}
+let nested_mixed_array = {[1,2], ["a", "b", "c"]}
+let int_array = nested_mixed_array.0
+let str_array = nested_mixed_array.1
 
 dat2 Data {3, 4}
 data (u32 bool) parse_hex_number(slice(hex, it*2, 2))
@@ -1300,14 +1281,14 @@ extern numb *int
 // https://github.com/cloudwu/datalist
 // https://toml.io/cn/v1.0.0
 
-[user User]
+[user]
 name "fido"
 member_since Date`{1999-08-04}
 age 23
 
 Fruit {
     string name
-    struct []int rates
+    def []int rates
     { string color shape { int hight width { string a b } desc string info } size } physical
     { string name int id }[#arrfit] varieties
     { bool sweet } taste #optional
@@ -1329,14 +1310,14 @@ Fruit {
     { bool smooth } texture
 }
 
-[apple Fruit] // 以另一个[var Type]结束，明确是字面常量赋值不需要使用=等号，否则需要使用调用语法进行初始化
+[fruit apple] // 以另一个[var Type]结束，明确是字面常量赋值不需要使用=等号，否则需要使用调用语法进行初始化
 physical color "红" size height 23 width 24 desc a "a" b "b" ||| size info "i"
 physical shape "round"
 taste sweet true
 texture smooth true
 rates [80, 75, 95]
 
-[apple Fruit] // 定义 apple
+[fruit apple] // 定义 apple
 physical color "红" size height 23 width 24 desc a "a" b "b"
 physical size info "i" desc "d"
 physical shape "round"
@@ -1350,7 +1331,7 @@ shape "round"
 sweet true
 smooth true
 
-[apple Fruit] // 使用顶格和 ||| 控制缩进，0~3个空格是顶格字段，>=4个空格或>=1个Tab才是子字段
+[fruit apple] // 使用顶格和 ||| 控制缩进，0~3个空格是顶格字段，>=4个空格或>=1个Tab才是子字段
 physical
     color "红"
     size
@@ -1369,7 +1350,7 @@ taste
 texture
     smooth true
 
-[apple Fruit]
+[fruit apple]
 physical color "红"
     size height 23 width 24 desc a "a" b "b" |||
     size info "i" desc "d"
@@ -1378,7 +1359,7 @@ physical
 taste sweet true
 texture smooth true
 
-[apple Fruit]
+[fruit apple]
 physical color "红"
     size
         height 23
@@ -1395,7 +1376,7 @@ texture
     smooth true
 void
 
-[apple Fruit]
+[fruit apple]
 physical
     color "红"
     size height 23 width 24
@@ -1409,7 +1390,7 @@ taste
 texture
     smooth true
 
-[apple Fruit]
+[fruit apple]
 physical
     shape "round"
     color "红"
@@ -1426,14 +1407,14 @@ a true
 b 1024
 s "hello"
 
-[animal Fruit]
+[fruit apple]
 fruit_type name "pug"
 
-[fruits Fruit[]]
+[[]fruit fruits]
 name "apple"
 physical color "red" shape "round"
 
-[fruits Fruit[]]
+[[]fruit fruits]
 varieties
     name "red delicious"
     id 1
@@ -1445,7 +1426,7 @@ varieties
     name "plantain"
     id 3
 
-[fruits Fruit[]]
+[[]fruit fruits]
 name "banana"
 void
 
@@ -1540,7 +1521,7 @@ defer_return #label
 for expr { stmt ... }
 for expr then stmt
 for { stmt ... }
-for { stmt ... } .. (expr)
+for { stmt ... } .. if (expr)
 
 // 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，#symmetric
 // 禁止函数链式调用 a.getb().bfun()
@@ -1639,7 +1620,7 @@ print(typestring, "\n")
 //
 //  3.  scoped 语句块
 //
-//      enter_read(struct *rwlock) scoped(leave_read) {
+//      enter_read(def *rwlock) scoped(leave_read) {
 //          ...
 //      }
 //
@@ -1649,9 +1630,9 @@ print(typestring, "\n")
 //
 //  4.  函数参数的传递
 //
-//      基本类型 int unsigned sys_int sys_ptr struct ptr float 和枚举类型，可以显式传值或指针
-//      结构体类型总是传指针，函数参数只允许 struct *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
-//      如果结构体声明为 struct type_name #as int { }，将结构体当作基本类型使用，则可以显式传值或指针
+//      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针
+//      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
+//      如果结构体声明为 def type_name #as int { }，将结构体当作基本类型使用，则可以显式传值或指针
 //
 //  10. 协程的实现
 //
