@@ -5,7 +5,7 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
-//  pub const void struct embed let def undefined
+//  const void embed var let pub def undefined
 //  continue defer yield range lambda
 //  static extern adr der not or
 //  sizeof typeof alignof alignas offsetof copyof moveof
@@ -102,8 +102,8 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  bool null byte char errno string
-//  i08 i16 i32 i64 i128 i256 i512 int      arch_int
+//  bool byte char string null true false
+//  i08 i16 i32 i64 i128 i256 i512 int      arch_int def error
 //  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr def ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
@@ -467,7 +467,7 @@ extern def arrfit
 extern def arrdyn
 extern def arrlax
 
-def t1 typeof(int)
+def t1 typeof(def int)
 def t2 typeof(def *int)
 def t2 typeof(def [3]int)
 def t3 typeof(def t0)
@@ -495,8 +495,8 @@ def tripple $t $u const (int size) {
     def u b
 }
 
-def main(int argc def **byte argv return int)
-def scale(def point int a b)
+def main(pub int argc def **byte argv return int)
+def scale(pub point int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b int errno) // errno is a type with i32
@@ -698,13 +698,24 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-def color const u08 {
+def color const u08 { // private type
     red,    // 0
     green,  // 1
     blue,   // 2
 }
 
-def ptr unsigned {
+pub color const u08 { // public type
+    red,    // 0
+    green,  // 1
+    blue,   // 2
+}
+
+def ptr unsigned { // private type
+    null 0, // 0
+    ptr ... // 其余值
+}
+
+pub ptr unsigned { // public type
     null 0, // 0
     ptr ... // 其余值
 }
@@ -733,15 +744,15 @@ def expr byte struct { // 相当于是一种泛型类型
     expr {int op def *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
-eat(def *lexer def token) {
+eat(pub *lexer def token) {
     return lexer.pop()
 }
 
-peek(def *lexer def token) {
+peek(pub *lexer def token) {
     return lexer.top()
 }
 
-eval(def oper def expr lhs rhs return expr) {
+eval(pub oper def expr lhs rhs return expr) {
     if [oper] '=' {
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
@@ -761,7 +772,7 @@ eval(def oper def expr lhs rhs return expr) {
     return expr
 }
 
-eval(def oper def expr lhs rhs return expr) {
+eval(pub oper def expr lhs rhs return expr) {
     if [oper] '='
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
@@ -780,17 +791,14 @@ eval(def oper def expr lhs rhs return expr) {
     return expr
 }
 
-eat(def *lexer return token) {
+eat(pub *lexer return token) {
     return lexer.pop()
 }
 
-eval(def oper def expr a b return expr c) {
+eval(pub oper def expr a b return expr c) {
 }
 
-parse_expression(def *lexer int min_prior return expr) {
-}
-
-parse_expression(def *lexer int min_prior return expr lhs) {
+parse_expression(pub *lexer int min_prior return expr lhs) {
     if [lexer.eat()] atom(it) {
         if it == '0'..'9' then
             lhs = .value(it - '0')
@@ -822,24 +830,24 @@ parse_expression(def *lexer int min_prior return expr lhs) {
     return lhs
 }
 
-eat(def *lexer return token) {
+eat(pub *lexer return token) {
     return lexer.pop()
 }
 
-peek(def *lexer def token) {
+peek(pub *lexer def token) {
     return lexer.top()
 }
 
-parse_expression(def *lexer int min_prior def expr) {
+parse_expression(pub *lexer int min_prior def expr) {
     def expr = undefined
 }
 
-main(return int) {
+main(pub return int) {
 
 }
 
 // 因为函数的第一个参数可以重载，因此 tcp_poll(file, sock, wait) 和 file.tcp_poll(sock, wait) 都同样有效
-tcp_poll(def *file def *socket def *poll_table return poll) [m] alignas(16) {
+tcp_poll(pub *file def *socket def *poll_table return poll) [m] alignas(16) {
     def poll = undefined
     def *socket sk alignas(CACHE_LINE_SIZE) = socket
     let a byte undefined
@@ -890,7 +898,7 @@ tcp_poll(def *file def *socket def *poll_table return poll) [m] alignas(16) {
 //          }
 //      }
 
-let ptr alloc(1024) or panic()
+let ptr = alloc(1024) or panic()
 
 token Token scan()
 if token case .eof {
@@ -968,14 +976,14 @@ TcpAccept {
     u32 txbuf_size
 }
 
-__perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-__report_tcpe_opened(*TcpSocket tcp) {
+report_tcpe_opened(*TcpSocket tcp) {
     pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     txbuf *ByteArrfit adr tcp.txbuf
     pdata.tcp = tcp
@@ -1087,7 +1095,7 @@ calc(int a b return int) {
     return a + b
 }
 
-scale(def point float factor) {
+scale(def point float factor) "fastcall" {
     point.x *= factor
     point.y *= factor
 }
@@ -1149,14 +1157,17 @@ let a = \{ffff_ffff}
 let a = 3.14
 let a = "hello"
 
-// def_type symb "=" expr
+// "var" type symb "=" expr {, symb "=" expr}
 // "let" symb "=" expr
 // "let" symb pri_type expr
 // "let" symb lit_type expr
-def *ppb = malloc(size)
-def point = undefined
-def *int p = null, q = undefined
-def int a = 0
+var *ppb = malloc(size)
+var *int p = null, q = undefined
+var point = undefined, o = point{1, 2}
+var int a = 0, b = 0
+let a = 0
+let b = 0
+let a = int 0
 let calc = (int a b return int) { return a + b }
 let integers = [1, 2, 3] // let 只能用于不能简单表达的类型上
 let colors = ["红", "黄", "绿"]
@@ -1256,7 +1267,7 @@ for i int 3 .. 10 { /* */ }
 
 for {
     capacity *= 2
-} .. if (capacity < new_capacity)
+} ~ if (capacity < new_capacity)
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
@@ -1521,7 +1532,7 @@ defer_return #label
 for expr { stmt ... }
 for expr then stmt
 for { stmt ... }
-for { stmt ... } .. if (expr)
+for { stmt ... } ~ if (expr)
 
 // 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，#symmetric
 // 禁止函数链式调用 a.getb().bfun()
@@ -1628,7 +1639,7 @@ print(typestring, "\n")
 //          ...
 //      }
 //
-//  4.  函数参数的传递
+//  4.  函数参数的传递，函数参数可以设置对齐限制，编译器可以检查类型的对齐属性看是否满足要求
 //
 //      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
