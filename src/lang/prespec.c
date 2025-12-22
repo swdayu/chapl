@@ -5,16 +5,24 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
-//  const void embed var let pub def undefined
-//  continue defer yield range lambda
-//  static extern adr der not or
-//  sizeof typeof alignof alignas offsetof copyof moveof
+//  const void embed let pub def undefined
+//  continue goto defer yield range lambda
+//  static not or this that import scoped
+//  addrof loadof
+//  alignof type
+//  sizeof type
+//  typeof type
+//  offsetof type.offset
+//  makeof type
+//
+// 符号属性：
+//  alignas(n) pragma attribute
+// 内置函数：
+//  abort() panic() real_assert(expr)
+//  assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
+//  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
 //
 // 语句不会返回值，可以通过语句表达式 ({}) 为语句块返回一个值
-//
-// 预定义函数：
-//  zeroes(a)
-//  memset(a, 1)
 //
 // 函数参数或者结构体成员声明
 //  Point point p2          struct point point p2
@@ -72,14 +80,10 @@
 //  @fastcall
 //
 // 下划线保留字：
-//  #un init
 //  __file__
 //  __func__
 //  __line__
 //  __retp__
-//
-// 编译时常量：
-//  #file #func #line #retp
 // 编译时函数：
 //  #equal #assert
 // 编译时关键字：
@@ -103,8 +107,8 @@
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
 //  bool byte char string null true false
-//  i08 i16 i32 i64 i128 i256 i512 int      arch_int def error
-//  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr def ptr
+//  i08 i16 i32 i64 i128 i256 i512 int      arch_int that error
+//  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr that ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -184,8 +188,8 @@
 //      给一函数指针赋值：calc_ptr = calc
 //      给一函数指针赋值：calc_ptr = (int a b int) { return a + b }
 //  Tuple 元组补充结构体表达不了的一些东西（一个类型列表）
-//      (int int)            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int 0 int 1}
-//      (this int int int)   结构体不能内嵌一个指针类型，等价于结构体 {this 0 int 1 int 2 int 3}
+//      (int int)            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int @{0} int @{1}}
+//      (this int int int)   结构体不能内嵌一个指针类型，等价于结构体 {this @{0} int @{1} int @{2} int @{3}}
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
 //      const i08 {RED const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
 //      const int {RED, YELLOW, BLUE}
@@ -197,11 +201,11 @@
 //      { (this int a b int) calc }
 //      $T $U const (int size) { T[size] a U b }
 //  常量类型，可以表示任意常量，包括结构体常量，常量类型定义一个对应类型的常量值，是一个值不是类型
-//      PI const f16 3.14
-//      PI const 3.1415926
-//      HI const { int a float b string c Point p } { a 1 b 3.14 p(10, 30) }
-//      HI const HiData { a(MAX_SIZE) b(3.14) c("hello") p{10, 30} } // 基本类型、结构体、复合类型的初始化怎么统一 ???
-//      fn const (int a b int) calc_func
+//      const f16 PI = 3.14
+//      const PI = 3.1415926
+//      const { int a float b string c Point p } HI = { a 1 b 3.14 p(10, 30) }
+//      const HiData HI = { a(MAX_SIZE) b(3.14) c("hello") p{10, 30} } // 基本类型、结构体、复合类型的初始化怎么统一 ???
+//      const (int a b return int) FN = calc_func
 // 定义一个类型参数列表
 //      Test $T $int a $string b {}
 //      Test(Type, 1, "hello")
@@ -400,57 +404,50 @@ def scale(def point point int a b)
 def calc(int a b int)
 
 def array $t const (int size) {
-    def [size]t a
+    [size]t a
 }
 
 def array $a const (int size) { // $ 定义一个类型参数 a
-    def [size]a
+    [size]a
 }
 
 def test $a $b {
-    def a
-    def b
+    that a // 指定 a 是一个类型
+    that b
 }
 
-def int_N_array const (int size) = def "size int" array
-def type_size_array const (int size) $t = def "size type" array
-def int_array = def "20 int" array
-def some_array_type = def "8 (10 (20 int_N_array))" array
-def int_array_of_array = def "8 int_array" array
-def int_array_of_array = def "8 (20 int)" array
+def int_N_array const (int size) = that(size, $t) array
+def type_size_array const (int size) $t = that(size, t) array
+def int_array = that(size, int) array
+def some_array_type = that(8, (10, (20, int_N_array))) array
+def int_array_of_array = that(8, int_array) array
+def int_array_of_array = that(8, (20, int)) array
 
 def test $t $u {
-    def t
-    def u
-}
-
-const float PI 3.1415926
-
-const point POINTS {
-    100,
-    200,
+    that t
+    that u
 }
 
 def color const int {
-    red const + 1,
-    blue,
-    green,
-    yellow,
+    red {const + 1}
+    blue
+    green
+    yellow
 }
 
-def test $t $array(size, t) a $u const (int size, point) {
-    def t t
-    def u u
+def test $t $array(size, t) a $u const (int size that point) {
+    that t
+    that u
 }
 
 def test $t $u {
-    def t t
-    def u u
+    that t
+    that u
 }
 
 def test $any t u {
-    def t t
-    def u u
+    that t
+    that u
 }
 
 extern def l2capconn         def *l2capconn        def [2]l2capconn
@@ -487,16 +484,16 @@ T7 Triple#3((Point p float factor)[3], string[int])
 
 def node $t {
     this next
-    def t data
+    that t data
 }
 
 def tripple $t $u const (int size) {
-    def [size]t a
-    def u b
+    [size]t a
+    that u b
 }
 
-def main(pub int argc def **byte argv return int)
-def scale(pub point int a b)
+def main(int argc **byte argv return int)
+def scale(that point int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b int errno) // errno is a type with i32
@@ -512,14 +509,14 @@ let size if a case 'a' { a } case 'b' { b } else { c } // let 可以让语句产
 let size a or b         // let or语句
 let size a > b then a or b // let then or 语句
 
-#import 3rd "lib/std/array.code" // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
+import 3rd "lib/std/array.code" // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
 array 3rd::Array 3rd::array_init()
 array 3rd::array_init()
 array.append(2)
 array += 3
 array += 4
 
-#import "lib/std/array.code" // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
+import "lib/std/array.code" // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
 using :::std::: // 导入所有符号
 using std::_array // 导出使用类型 _array，并可以使用类型关联的所有函数
 using std::Array // 导出使用类型 Array，并可以使用类型关联的所有函数
@@ -548,7 +545,7 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     unsigned loweraddr
     unsigned maxudsize 31 ptr_param 1
     int coro_id
-    def ptr address
+    that ptr address
 }
 
 def coro {
@@ -564,12 +561,12 @@ def coro {
 def coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    def coro embed
-    def *coro coro_ptr
+    that coro embed
+    *coro coro_ptr
     this embed
     this coro_guard
     (int a b return int) calc
-    (def *coro) func
+    (*coro) func
 }
 
 def 协程 {
@@ -582,16 +579,16 @@ def 协程 {
 def coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    def coro embed
-    def *coro coro
+    that coro embed
+    *coro coro
     this embed
     this coro_guard
     (int a b return int) calc
-    (def *coro p) func
-    (def *coro_guard int a b return int) f g
+    (*coro p) func
+    (*coro_guard int a b return int) f g
 }
 
-verify(def *coro_guard)
+def verify(*coro_guard)
 
 Color const i08 {RED {const + 1} BLUE YELLOW}
 Color const int {red blue { blue_defined_value } yellow}
@@ -698,29 +695,71 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
+def float const PI = 3.1415926 // 可以使用 def 关键字定义类型、变量、常量
+def point const POINT = {100, 200}
+pub float const PI = 3.1415926
+pub point const POINT = {100, 200}
+
+def const PI = 3.1415926
+def const POINT = {100, 200}
+pub const PI = 3.1415926
+pub const POINT = {100, 200}
+
 def color const u08 { // private type
-    red,    // 0
-    green,  // 1
-    blue,   // 2
+    RED GREEN BLUE
 }
 
 pub color const u08 { // public type
-    red,    // 0
-    green,  // 1
-    blue,   // 2
+    RED
+    GREEN { 1 << const }
+    BLUE
 }
 
-def ptr unsigned { // private type
-    null 0, // 0
-    ptr ... // 其余值
+def point {
+    float x
+    float y
 }
 
-pub ptr unsigned { // public type
-    null 0, // 0
-    ptr ... // 其余值
+pub point {
+    float x
+    float y
 }
 
-def oper const u32 {u08 lpri rpri} { // const sum type
+pub coro { // 包外访问，结构体成员只读，以下划线结束的成员不可访问
+    u32 rspoffset // 名为 rspoffset 的私有成员
+    u32 loweraddr // 名为 loweraddr 的私有成员
+    i32 maxudsize 31 ptrparam_ 1
+    i32 coro_id
+}
+
+def main(int argc **char argv return int)
+def eat(*lexer that expr return *oper)
+def int_ptr typeof *int
+def point_ptr typeof *point
+
+def main(int argc **char argv return int) {
+    return 0
+}
+
+pub eat(*lexer that expr return *oper) {
+    return lexer.op or expr.op
+}
+
+def main = (return int) { return 0 }
+def *int p = addrof **int base + sizeof int
+def *point p = loadof **point base + sizeof point
+def *point p = addrof point {}
+def point = loadof p
+
+def test const (int size that point) {
+    [size]int a
+}
+
+def array $T const (int size) static size > 0 {
+    [size]T a
+}
+
+def oper u32 -> {u08 lpri rpri} { // sum type
     ass '=' {200, 201},
     add '+' {211, 210},
     sub '-' {211, 210},
@@ -731,28 +770,33 @@ def oper const u32 {u08 lpri rpri} { // const sum type
     end 0 // 默认值为零
 }
 
-def token byte struct { // sum type
+def ptr unsigned -> unsigned { // private type
+    null 0, // 0
+    ptr ... // 其余值
+}
+
+def token byte -> struct { // sum type
     atom {byte id},
     oper {byte id},
     eof
 }
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
-def expr byte struct { // 相当于是一种泛型类型
+def expr byte -> struct { // 相当于是一种泛型类型
     value {int n}, // 相当于存储 {byte 0 int n}
     ident {int id}, // 相当于存储 {byte 1 int n}
     expr {int op def *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
-eat(pub *lexer def token) {
+def eat(*lexer that token) {
     return lexer.pop()
 }
 
-peek(pub *lexer def token) {
+def peek(*lexer that token) {
     return lexer.top()
 }
 
-eval(pub oper def expr lhs rhs return expr) {
+def eval(that oper that expr lhs rhs return expr) {
     if [oper] '=' {
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
@@ -773,32 +817,32 @@ eval(pub oper def expr lhs rhs return expr) {
 }
 
 eval(pub oper def expr lhs rhs return expr) {
-    if [oper] '='
+    if [oper] '=' then
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
-    else if '+'
+    else if '+' then
         expr = .value(lhs.value.n + rhs.value.n)
-    else if '-'
+    else if '-' then
         expr = .value(lhs.value.n - rhs.value.n)
-    else if '*'
+    else if '*' then
         expr = .value(lhs.value.n * rhs.value.n)
-    else if '/'
+    else if '/' then
         expr = .value(lhs.value.n / rhs.value.n)
-    else if '^'
+    else if '^' then
         expr = .value(pow(lhs.value.n, rhs.value.n))
-    else
+    else then
         panic("bad operator %c", op)
     return expr
 }
 
-eat(pub *lexer return token) {
+eat(*lexer return token) {
     return lexer.pop()
 }
 
-eval(pub oper def expr a b return expr c) {
+eval(that oper that expr a b return expr c) {
 }
 
-parse_expression(pub *lexer int min_prior return expr lhs) {
+parse_expression(*lexer int min_prior return expr lhs) {
     if [lexer.eat()] atom(it) {
         if it == '0'..'9' then
             lhs = .value(it - '0')
@@ -813,45 +857,45 @@ parse_expression(pub *lexer int min_prior return expr lhs) {
         panic("bad token %d", it)
     }
     for {
-        op def expr undefined
+        def expr = undefined
         if [lexer.peek()] eof oper(')')
             break
         else if oper(it) then
-            op = .expr(it)
+            expr = .expr(it)
         else then
             panic("bad token %d", it)
         lexer.skip()
-        let prior Oper(op.expr.op)
+        let prior Oper(expr.expr.op)
         if prior.lpri < min_prior
             break
         rhs parse_expression(lexer, prior.rpri)
-        lhs = eval(op.expr.op, lhs, rhs)
+        lhs = eval(expr.expr.op, lhs, rhs)
     }
     return lhs
 }
 
-eat(pub *lexer return token) {
+eat(*lexer return token) {
     return lexer.pop()
 }
 
-peek(pub *lexer def token) {
+peek(*lexer that token) {
     return lexer.top()
 }
 
-parse_expression(pub *lexer int min_prior def expr) {
+parse_expression(*lexer int min_prior that expr) {
     def expr = undefined
 }
 
-main(pub return int) {
+main(return int) {
 
 }
 
 // 因为函数的第一个参数可以重载，因此 tcp_poll(file, sock, wait) 和 file.tcp_poll(sock, wait) 都同样有效
-tcp_poll(pub *file def *socket def *poll_table return poll) [m] alignas(16) {
+tcp_poll(*file *socket *poll_table return poll) [m] alignas(16) {
     def poll = undefined
-    def *socket sk alignas(CACHE_LINE_SIZE) = socket
-    let a byte undefined
-    let b int undefined
+    def *socket alignas(CACHE_LINE_SIZE) = socket
+    let a = byte undefined
+    let b = int undefined
 
     sock_poll_wait(file, sock, wait)
 
@@ -898,34 +942,33 @@ tcp_poll(pub *file def *socket def *poll_table return poll) [m] alignas(16) {
 //          }
 //      }
 
-let ptr = alloc(1024) or panic()
-
 token Token scan()
 if token case .eof {
 }
 
 perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
-    pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
+    let pdata = *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
-report_tcpe_opened(*TcpSocket tcp) {
-    pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
-    txbuf *ByteArrfit addrof tcp.txbuf
+def report_tcpe_opened(*TcpSocket tcp) {
+    let pdata = *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
+    let txbuf = *ByteArrfit addrof tcp.txbuf
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
     cono_freely_post(tcp.upp_coro, addrof pdata->head)
 }
 
-epoll_proc(*Cono cono) {
-    epoll *Epoll cono_data(cono)
-    pdata *ConoPdata undefined
-    action byte undefined
+def epoll_proc(*coro) {
+    def *epoll = cono_data(coro)
+    def *coro_pdata = undefined
+    let action = byte undefined
+    def point = {100, 200}
     for {
-        pdata = cono_pwait(cono)
+        pdata = cono_pwait(coro)
         action = pdata.action
         if action == COAC_EXIT // 省略大括号，读取一条语句
             break
@@ -940,23 +983,23 @@ epoll_proc(*Cono cono) {
     }
 }
 
-main(void) {
+def main(void) {
     print("hello")
 }
 
-main(int argc def **byte argv return int) { // main 函数默认是 public
+def main(int argc **byte argv return int) { // main 函数默认是 public
     print("hello world\n")
     return 0
 }
 
-main(return int) [m] {
+def main(return int) [m] {
     print("hello world\n")
     return 0
 }
 
-def main(int argc def **byte argv return int)
-scale(Point point int a b)
-calc(int a b return int)
+def main(int argc **byte argv return int)
+def scale(that point int a b)
+def calc(int a b return int)
 Array $T $int size { [size]T a }
 Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
 BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
@@ -1045,12 +1088,12 @@ for i I 0 .. 9 {
     pos + der adr *I (*byte p + size + f(g))
 }
 
-memcpy(def ptr dst src int count)
-memcpy(def ptr dst src int count) 'intrinsic'
-memcmp(def ptr dst src int count int) 'intrinsic'
-memset(def ptr dst byte value int count) 'intrinsic'
-lock_cmpxchg(*T p T old new T) 'intrinsic'
-coroguard(*Coro coro CoroGuard) 'cdcel inline'
+def memcpy(that ptr dest src int count)
+def memcpy(that ptr dest src int count) 'intrinsic'
+def memcmp(that ptr dest src int count int) 'intrinsic'
+def memset(that ptr dest byte value int count) 'intrinsic'
+def lock_cmpxchg(*T p T old new T) 'intrinsic'
+def coroguard(*coro that coro_guard) 'cdcel inline'
 
 Calc (int a b int)
 Snode $T { this next T data }
@@ -1087,34 +1130,38 @@ print("width % height %\n", width, height)
 calc $int a b (int c d int)
 calc"2,3"(c, d)
 
-main(int argc def **char argv return int) {
+pub main(return int) {
     return 0
 }
 
-calc(int a b return int) {
+pub main(int argc **char argv return int) {
+    return 0
+}
+
+pub calc(int a b return int) {
     return a + b
 }
 
-scale(def point float factor) "fastcall" {
+def scale(that point float factor) {
     point.x *= factor
     point.y *= factor
 }
 
-scale(Point p float factor) "cdecl" {
+def scale(that point float factor) "cdecl" {
     p.x *= factor
     p.y *= factor
 }
 
-scale(Point p float factor) "fastcall" {
+def scale(that point float factor) "fastcall" {
     p.x *= factor
     p.y *= factor
 }
 
-next(def *node($t) return *t) {
+def next(*node($t) return *t) {
     return node.next
 }
 
-size(def *triple(int size, $t, $u) return int) {
+def size(*triple(int size, $t, $u) return int) {
     return triple.a + size + sizeof t
 }
 
@@ -1157,17 +1204,35 @@ let a = \{ffff_ffff}
 let a = 3.14
 let a = "hello"
 
-// "var" type symb "=" expr {, symb "=" expr}
-// "let" symb "=" expr
-// "let" symb pri_type expr
-// "let" symb lit_type expr
-var *ppb = malloc(size)
-var *int p = null, q = undefined
-var point = undefined, o = point{1, 2}
-var int a = 0, b = 0
-let a = 0
-let b = 0
-let a = int 0
+def *ppb = malloc(size) // 全局变量和常量只能使用 def 和 pub 关键字定义
+def *int p = null, q = undefined
+def point = undefined, o = {1, 2}, const POINT = {100, 200}
+def int a = 0, b = 0, const SIZE = 8, const LEN = 32
+def float const PI = 3.1415926, const 2PI = 2 * PI
+def const PI = 3.1415926, const 2PI = 2 * PI
+def const POINT = point {100, 200}, P2 = point {0}
+
+pub *ppb = malloc(size) // 全局变量和常量只能使用 def 和 pub 关键字定义
+pub *int p = null, q = undefined
+pub point = undefined, o = {1, 2}, const POINT = {100, 200}
+pub int a = 0, b = 0, const SIZE = 8, const LEN = 32
+pub float const PI = 3.1415926, const 2PI = 2 * PI
+pub const PI = 3.1415926, const 2PI = 2 * PI
+pub const POINT = point {100, 200}, P2 = point {0}
+
+// "def" type_symb|type_const_symb|const_symb "=" expr {, symb|const_symb "=" expr}
+// "let" symb|const_symb "=" expr {, symb|const_symb "=" expr}
+def *ppb = malloc(size) // 局部变量只能使用 def 和 let 关键字定义
+def *int p = null, q = undefined
+def point = undefined, o = point {1, 2}
+def int a = 0, b = 0
+let ppb = *ppb malloc(size)
+let p = *int null, q = *int undefined
+let point = point undefined, o = point {1, 2}, const POINT = point {100, 200}
+let a = int 0, b = int 0, const SIZE = int 8, const LEN = int 32
+let const PI = 3.1415926, const 2PI = 2 * PI
+let const POINT = point {100, 200}, P2 = point {0}
+let ptr = alloc(1024) or panic()
 let calc = (int a b return int) { return a + b }
 let integers = [1, 2, 3] // let 只能用于不能简单表达的类型上
 let colors = ["红", "黄", "绿"]
@@ -1255,12 +1320,13 @@ bytes {more}, same_as_prev {userdata_bytes != 0}
 aaa Data {3, 4} // 赋值语句因为目标变量只有一个，因此只要将类型不加修饰的放在右表达式开头，相对于对整个表达式类型的转换
 ppb *Ppb ppb_alloc(alloc)
 
-pos dist + int scale_x(facter)
-len int pos + adr *int *byte p + size + f(g)
-len int pos + der *int *byte (p + size + f(g))
+let pos = dist + int scale_x(facter)
+let len = int pos + addrof *byte p + size + f(g)
+let len = int pos + loadof *byte (p + size + f(g))
+let len = typeof(pos) 3
 
 pos int dist + int scale_x(facter)
-len int pos + der *int *byte (p + size + f(g))
+len int pos + loadof *int *byte (p + size + f(g))
 len typeof(pos) 3
 
 for i int 3 .. 10 { /* */ }
@@ -1282,11 +1348,15 @@ extern numb errno
 extern numb float
 extern numb *int
 
-#if DYN_LINK_PROC {
+static if DYN_LINK_PROC {
     calc Calc null
 } else {
     extern calc Calc
 }
+
+static assert(SIZE >= 1024)
+assert(sizeof int == sizeof ptr)
+real_assert(sizeof(*p) == sizeof point)
 
 // https://squidfunk.github.io/mkdocs-material/reference/admonitions/
 // https://github.com/cloudwu/datalist
@@ -1299,7 +1369,7 @@ age 23
 
 Fruit {
     string name
-    def []int rates
+    []int rates
     { string color shape { int hight width { string a b } desc string info } size } physical
     { string name int id }[#arrfit] varieties
     { bool sweet } taste #optional
@@ -1309,9 +1379,13 @@ Fruit {
 Fruit {
     string name
     []int rates
-    {...string color shape
-        {...int height width
-            { string a b } desc
+    that {
+        string color shape
+        that {
+            int height width
+            that {
+                string a b
+            } desc
             string info
             string desc
         } size
@@ -1350,7 +1424,7 @@ physical
         width 24
         desc
             a "a"
-            b "b" |||
+            b "b" void
     size
         info "i"
         desc "d"
@@ -1449,7 +1523,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    #-a #+a #^a !a (type)a (&)a (*)a (**)a (*&)a (**&)a ->> <<-  not neg int adr der *int [2]int
+    10 从右到左    -a +a ^a !a type a addrof a loadof a sizeof a typeof a ->> <<-  not neg int adr der *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -1460,6 +1534,10 @@ math:*
      2 从左到右    a?:b
      1 从右到左    a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a&=b a^=b a|=b
      0 从左到右    a,b
+
+    以下两种形式的变量初始化，symb 一定是一个类型名称：
+        symb { initializer }
+        symb undefined
 
      逻辑操作符 || && 混用时，强制要求添加括号；
      所有的赋值语句如果不是单独成一个语句，而是出现在语句中，强制要求添加括号；
@@ -1495,29 +1573,29 @@ else if expr
     bbb
     if ccc
         stmt
-        |||
-    |||
+        void
+    void
 else
     stmt
     if expr
         stmt
-        |||
+        void
     stmt
-    |||
+    void
 
 if [color] red
-    continue green
+    goto green
 else if blue
-    continue &
+    goto &
 else if green
-    |||
+    void
 else &
-    |||
+    void
 
 if [color] RED { // 使用break会跳出外层for循环
-    continue GREEN
+    goto GREEN
 } else if BLUE {
-    continue &
+    goto &
 } else if GREEN {
 
 } else & {
