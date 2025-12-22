@@ -7,7 +7,7 @@
 //  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined
 //  continue goto defer yield range lambda
-//  static not or this that import scoped
+//  static not or this that import using scoped
 //  addrof loadof
 //  alignof type
 //  sizeof type
@@ -509,28 +509,12 @@ let size if a case 'a' { a } case 'b' { b } else { c } // let 可以让语句产
 let size a or b         // let or语句
 let size a > b then a or b // let then or 语句
 
-import 3rd "lib/std/array.code" // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
-array 3rd::Array 3rd::array_init()
-array 3rd::array_init()
-array.append(2)
-array += 3
-array += 4
-
-import "lib/std/array.code" // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
-using :::std::: // 导入所有符号
-using std::_array // 导出使用类型 _array，并可以使用类型关联的所有函数
-using std::Array // 导出使用类型 Array，并可以使用类型关联的所有函数
-using Array // 导出使用类型 Array，或对类型 Array 进行提前声明
-using StdArray = std::_array // 定义类型别名
-using StdArray = std::Array
-
-:::std::: export { // 必须紧跟在 ::: 之后
-    Calc
-    Coroutine
-    Arrfit
-    init(def "fixed"*array ~)
-    free(def "relaxed"*array ~)
-}
+def "std/array" // 同一个包名下的源代码，可以分割为多个部分，成员函数例如 push(*std::array *type a) 只能编写在 std 包的 array 源代码部分
+import * "std/array" // 剥去包名，除了有冲突的名称仍然添加包名外，其他名称直接引入，std 包名只能存在于系统标准源代码中
+import 3rd "lib/array" // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
+import "std/array" // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
+using 3rd_array = 3rd::array
+using std_array = std::array
 
 Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字段都是只读的，写操作必须通过公开函数
     u32 rspoffset // 1st field dont move
