@@ -6,7 +6,7 @@
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined
-//  continue goto defer yield range lambda
+//  continue goto defer yield range lambda reflex trait
 //  static not or this type import using scoped
 //  addrof loadof
 //  alignof type
@@ -193,7 +193,7 @@
 //      const i08 {RED const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
 //      const int {RED, YELLOW, BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
-//      $this { read(this int size return int) get(this) }
+//      $p { (*p int size return int) read (*p return int) get } // 允许使用关键字 this 定义 $this，然后参数声明使用 (this int size return int)
 //  Struct 表示定义一个类型
 //      def empty {}
 //      { int a b } {1, 2}
@@ -469,7 +469,7 @@ def t2 typeof(def [3]int)
 def t3 typeof(def t0)
 def t3 typeof(def [3]t0)
 def t4 { (int a b return int) f int a b }
-def t5 $this { calc(this int a b return int) }
+def t5 $p { (*p int a b return int) calc }
 def t6(int a b return int)
 def t7(def point float factor)
 
@@ -557,7 +557,7 @@ def 协程 {
     u32 loweraddr
 }
 
-:::std:::
+def "std"
 
 def coro_guard {
     u32 lower_guard_word
@@ -1119,6 +1119,19 @@ print("width % height %\n", width, height)
 
 calc $int a b (int c d int)
 calc"2,3"(c, d)
+
+def print(reflex $a string fmt) {
+}
+
+def reader $p {
+    (*p int size return int) read
+    (*p return int) get
+}
+
+def push(trait reader) {
+}
+
+push(a.trait(reader))
 
 pub main(return int) {
     return 0
