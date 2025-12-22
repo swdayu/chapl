@@ -7,11 +7,10 @@
 //  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined
 //  continue goto defer yield range lambda
-//  static not or this that import using scoped
+//  static not or this type import using scoped
 //  addrof loadof
 //  alignof type
 //  sizeof type
-//  typeof type
 //  offsetof type.offset
 //  makeof type
 //
@@ -107,8 +106,8 @@
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
 //  bool byte char string null true false
-//  i08 i16 i32 i64 i128 i256 i512 int      arch_int that error
-//  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr that ptr
+//  i08 i16 i32 i64 i128 i256 i512 int      arch_int type error
+//  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr type ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -412,20 +411,20 @@ def array $a const (int size) { // $ 定义一个类型参数 a
 }
 
 def test $a $b {
-    that a // 指定 a 是一个类型
-    that b
+    type a // 指定 a 是一个类型
+    type b
 }
 
-def int_N_array const (int size) = that(size, $t) array
-def type_size_array const (int size) $t = that(size, t) array
-def int_array = that(size, int) array
-def some_array_type = that(8, (10, (20, int_N_array))) array
-def int_array_of_array = that(8, int_array) array
-def int_array_of_array = that(8, (20, int)) array
+def int_N_array const (int size) = type(size, $t) array
+def type_size_array const (int size) $t = type(size, t) array
+def int_array = type(size, int) array
+def some_array_type = type(8, (10, (20, int_N_array))) array
+def int_array_of_array = type(8, int_array) array
+def int_array_of_array = type(8, (20, int)) array
 
 def test $t $u {
-    that t
-    that u
+    type t
+    type u
 }
 
 def color const int {
@@ -435,19 +434,19 @@ def color const int {
     yellow
 }
 
-def test $t $array(size, t) a $u const (int size that point) {
-    that t
-    that u
+def test $t $array(size, t) a $u const (int size type point) {
+    type t
+    type u
 }
 
 def test $t $u {
-    that t
-    that u
+    type t
+    type u
 }
 
 def test $any t u {
-    that t
-    that u
+    type t
+    type u
 }
 
 extern def l2capconn         def *l2capconn        def [2]l2capconn
@@ -484,16 +483,16 @@ T7 Triple#3((Point p float factor)[3], string[int])
 
 def node $t {
     this next
-    that t data
+    type t data
 }
 
 def tripple $t $u const (int size) {
     [size]t a
-    that u b
+    type u b
 }
 
 def main(int argc **byte argv return int)
-def scale(that point int a b)
+def scale(type point int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b int errno) // errno is a type with i32
@@ -529,7 +528,7 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     unsigned loweraddr
     unsigned maxudsize 31 ptr_param 1
     int coro_id
-    that ptr address
+    type ptr address
 }
 
 def coro {
@@ -545,7 +544,7 @@ def coro {
 def coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    that coro embed
+    type coro embed
     *coro coro_ptr
     this embed
     this coro_guard
@@ -563,7 +562,7 @@ def 协程 {
 def coro_guard {
     u32 lower_guard_word
     u32 upper_guard_word
-    that coro embed
+    type coro embed
     *coro coro
     this embed
     this coro_guard
@@ -716,16 +715,23 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
     i32 coro_id
 }
 
-def main(int argc **char argv return int)
-def eat(*lexer that expr return *oper)
-def int_ptr typeof *int
-def point_ptr typeof *point
+def type main_proc = (int argc **char argv return int)
+def type eat_proc = (*lexer type expr return *oper)
+def type int_ptr = *int
+def type point_ptr = *point
+def type gfx_point = point
+
+pub type main_proc = (int argc **char argv return int)
+pub type eat_proc = (*lexer type expr return *oper)
+pub type int_ptr = *int
+pub type point_ptr = *point
+pub type gfx_point = point
 
 def main(int argc **char argv return int) {
     return 0
 }
 
-pub eat(*lexer that expr return *oper) {
+pub eat(*lexer type expr return *oper) {
     return lexer.op or expr.op
 }
 
@@ -735,7 +741,7 @@ def *point p = loadof **point base + sizeof point
 def *point p = addrof point {}
 def point = loadof p
 
-def test const (int size that point) {
+def test const (int size type point) {
     [size]int a
 }
 
@@ -772,15 +778,15 @@ def expr byte -> struct { // 相当于是一种泛型类型
     expr {int op def *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
-def eat(*lexer that token) {
+def eat(*lexer type token) {
     return lexer.pop()
 }
 
-def peek(*lexer that token) {
+def peek(*lexer type token) {
     return lexer.top()
 }
 
-def eval(that oper that expr lhs rhs return expr) {
+def eval(type oper type expr lhs rhs return expr) {
     if [oper] '=' {
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
@@ -823,7 +829,7 @@ eat(*lexer return token) {
     return lexer.pop()
 }
 
-eval(that oper that expr a b return expr c) {
+eval(type oper type expr a b return expr c) {
 }
 
 parse_expression(*lexer int min_prior return expr lhs) {
@@ -862,11 +868,11 @@ eat(*lexer return token) {
     return lexer.pop()
 }
 
-peek(*lexer that token) {
+peek(*lexer type token) {
     return lexer.top()
 }
 
-parse_expression(*lexer int min_prior that expr) {
+parse_expression(*lexer int min_prior type expr) {
     def expr = undefined
 }
 
@@ -982,7 +988,7 @@ def main(return int) [m] {
 }
 
 def main(int argc **byte argv return int)
-def scale(that point int a b)
+def scale(type point int a b)
 def calc(int a b return int)
 Array $T $int size { [size]T a }
 Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
@@ -1072,12 +1078,12 @@ for i I 0 .. 9 {
     pos + der adr *I (*byte p + size + f(g))
 }
 
-def memcpy(that ptr dest src int count)
-def memcpy(that ptr dest src int count) 'intrinsic'
-def memcmp(that ptr dest src int count int) 'intrinsic'
-def memset(that ptr dest byte value int count) 'intrinsic'
+def memcpy(type ptr dest src int count)
+def memcpy(type ptr dest src int count) 'intrinsic'
+def memcmp(type ptr dest src int count int) 'intrinsic'
+def memset(type ptr dest byte value int count) 'intrinsic'
 def lock_cmpxchg(*T p T old new T) 'intrinsic'
-def coroguard(*coro that coro_guard) 'cdcel inline'
+def coroguard(*coro type coro_guard) 'cdcel inline'
 
 Calc (int a b int)
 Snode $T { this next T data }
@@ -1126,17 +1132,17 @@ pub calc(int a b return int) {
     return a + b
 }
 
-def scale(that point float factor) {
+def scale(type point float factor) {
     point.x *= factor
     point.y *= factor
 }
 
-def scale(that point float factor) "cdecl" {
+def scale(type point float factor) "cdecl" {
     p.x *= factor
     p.y *= factor
 }
 
-def scale(that point float factor) "fastcall" {
+def scale(type point float factor) "fastcall" {
     p.x *= factor
     p.y *= factor
 }
@@ -1363,11 +1369,11 @@ Fruit {
 Fruit {
     string name
     []int rates
-    that {
+    type {
         string color shape
-        that {
+        type {
             int height width
-            that {
+            type {
                 string a b
             } desc
             string info
