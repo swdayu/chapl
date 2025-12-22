@@ -98,14 +98,14 @@
 // (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
 //
 // 基本类型，定义在 type 代码包中：
-//  bool null byte char rune string errno struct "32-byte" i32 u32 int unt sys_int sys_unt sys_ptr struct i struct u struct p
+//  bool null none byte char rune string errno struct "32-byte" i32 u32 int unt sys_int sys_unt sys_ptr struct i struct u struct p
 //  i08 i16 i32 i64 i128 int <32>int <64>int <128>int (b w d q x y z p r) byte word double-word quad-word xmm-word ymm-word zmm-word
 //  u08 u16 u32 u64 u128 unt <32>unt <64>unt <128>unt ...
 //  f08 f16 f32 f64 f128 float <32>float <64>float <128>float
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  bool byte char string null true false
+//  bool byte char string none null true false
 //  i08 i16 i32 i64 i128 i256 i512 int      arch_int type error
 //  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr type ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
@@ -187,8 +187,14 @@
 //      给一函数指针赋值：calc_ptr = calc
 //      给一函数指针赋值：calc_ptr = (int a b int) { return a + b }
 //  Tuple 元组补充结构体表达不了的一些东西（一个类型列表）
-//      (int int)            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int @{0} int @{1}}
-//      (this int int int)   结构体不能内嵌一个指针类型，等价于结构体 {this @{0} int @{1} int @{2} int @{3}}
+//      {int int}            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int @{0} int @{1}}
+//      {this int int int}   结构体不能内嵌一个指针类型，等价于结构体 {this @{0} int @{1} int @{2} int @{3}}
+//      def data {this int int int} 元组成员的命名，可以延迟到使用时
+//      let (ptr, a, b, c) = data {this, 1, 2, 3}   // 可以使用 ptr a b c
+//      let (_, a, _, b) = data {this, 1, 2, 3}     // 可以使用 a b，第一个成员只能使用 this 初始化，否则报错
+//      let data(_, a, _, b) = data {this, 1, 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
+//      let data = data {this, 1, 2, 3}             // 可以使用 data.0 data.1 data.2 data.3
+//      def data = {this, 1, 2, 3}                  // data.0 不能修改 data.1 = 10  data.2 = 20
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
 //      const i08 {RED const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
 //      const int {RED, YELLOW, BLUE}
@@ -689,13 +695,19 @@ pub const PI = 3.1415926
 pub const POINT = {100, 200}
 
 def color const u08 { // private type
-    RED GREEN BLUE
+    RED, GREEN, BLUE,
 }
 
 pub color const u08 { // public type
-    RED
-    GREEN { 1 << const }
-    BLUE
+    RED,
+    GREEN = 1 << const,
+    BLUE,
+}
+
+pub color const u08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
+    RED = 1,
+    BLUE = 2,
+    YELLOW = 3,
 }
 
 def point {
@@ -707,6 +719,8 @@ pub point {
     float x
     float y
 }
+
+pub data { int int float string }
 
 pub coro { // 包外访问，结构体成员只读，以下划线结束的成员不可访问
     u32 rspoffset // 名为 rspoffset 的私有成员
@@ -745,37 +759,96 @@ def test const (int size type point) {
     [size]int a
 }
 
-def array $T const (int size) static size > 0 {
-    [size]T a
+def array $t const (int size) static size > 0 {
+    [size]t a
 }
 
-def oper u32 -> {u08 lpri rpri} { // sum type
-    ass '=' {200, 201},
-    add '+' {211, 210},
-    sub '-' {211, 210},
-    mul '*' {221, 220},
-    div '/' {221, 220},
-    pow '^' {230, 231},
-    dot '.' {251, 250},
-    end 0 // 默认值为零
+def color const u08 { // private type
+    RED = 1,
+    GREEN,
+    BLUE
 }
 
-def ptr unsigned -> unsigned { // private type
-    null 0, // 0
-    ptr ... // 其余值
+pub color const u08 { // public type
+    RED = 1 << const,
+    GREEN,
+    BLUE,
 }
 
-def token byte -> struct { // sum type
-    atom {byte id},
-    oper {byte id},
-    eof
+def divide(float a b return float or none) { // 空值，有值，返回值的大小是 sizeof float，调用者必须检查 none 值
+    if b == 0 return none
+    return a / b
 }
+
+let a = divide(a, b) or abort(E_DIV_BY_ZERO)
+let a = divide(a, b) [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
+if a == none {
+    abort(E_DIV_BY_ZERO)
+}
+if [a] none {
+    prerr(E_DIV_BY_ZERO)
+} else {
+    print("a/b=%", a)
+}
+
+def sqrt(float x y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
+    let a = divide(x, y) or return none // 这里只能返回 none 其他返回值都导致编译错误
+    return sqrt(x * a)
+}
+
+def oper u32 ~ {u08 lpri rpri} { // sum type
+    ASS '=' {200, 201},
+    ADD '+' {211, 210},
+    SUB '-' {211, 210},
+    MUL '*' {221, 220},
+    DIV '/' {221, 220},
+    POW '^' {230, 231},
+    DOT '.' {251, 250},
+    END 0 // 默认值为零
+}
+
+def token byte ~ type { // sum type
+    ATOM {byte id},
+    OPER {byte id},
+    EOF
+}
+
+def token oper = OPER {'+'}
+def token eof = EOF
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
-def expr byte -> struct { // 相当于是一种泛型类型
-    value {int n}, // 相当于存储 {byte 0 int n}
-    ident {int id}, // 相当于存储 {byte 1 int n}
-    expr {int op def *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
+def expr byte ~ type { // 相当于是一种泛型类型
+    VALUE {int n}, // 相当于存储 {byte 0 int n}
+    IDENT {int id}, // 相当于存储 {byte 1 int n}
+    TEST {int int},
+    EXPR {int op *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
+}
+
+if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
+    ret = expr.n
+} else if IDENT {
+    ret = expr.id
+} else if TEST[a, b] { // 捕获元组的内容
+    ret = a + b
+} else if EXPR {
+    ret = expr.op
+}
+
+if expr == IDENT {
+    print("IDNET expr: %", expr.id)
+}
+
+if expr == TEST {
+    print("TEST expr: % %", expr.0, expr.1)
+}
+
+if expr == TEST[_, a] { // 捕获元组的内容
+    print("TEST expr: % %", expr.0, a)
+}
+
+if expr == TEST[a, b] {
+    expr.a = 1
+    print("TEST expr: % %", a, b)
 }
 
 def eat(*lexer type token) {
