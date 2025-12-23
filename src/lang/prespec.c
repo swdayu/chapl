@@ -8,11 +8,14 @@
 //  const void embed let pub def undefined
 //  continue goto defer yield range lambda reflex trait
 //  static not or this type import using scoped
-//  addrof loadof
+//  adr der
 //  alignof type
 //  sizeof type
 //  offsetof type.offset
 //  makeof type
+//
+// 特殊名称：
+//  E_ e_ 预留给错误码字符串
 //
 // 符号属性：
 //  alignas(n) pragma attribute
@@ -105,8 +108,8 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  bool byte char string none null true false
-//  i08 i16 i32 i64 i128 i256 i512 int      arch_int type error
+//  bool byte char string eron none null true false
+//  i08 i16 i32 i64 i128 i256 i512 int      arch_int
 //  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr type ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
@@ -750,10 +753,10 @@ pub eat(*lexer type expr return *oper) {
 }
 
 def main = (return int) { return 0 }
-def *int p = addrof **int base + sizeof int
-def *point p = loadof **point base + sizeof point
-def *point p = addrof point {}
-def point = loadof p
+def *int p = adr **int base + sizeof int
+def *point p = der **point base + sizeof point
+def *point p = adr point {}
+def point = der p
 
 def test const (int size type point) {
     [size]int a
@@ -775,28 +778,45 @@ pub color const u08 { // public type
     BLUE,
 }
 
-def divide(float a b return float or none) { // 空值，有值，返回值的大小是 sizeof float，调用者必须检查 none 值
+def read_username_result const byte {
+    OK {string},
+    ERR {unsigned},
+}
+
+def read_username(return string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
+    let f = open("username.txt") or error // 这里 or error 如果成立会直接返回 open 函数的错误码
+    ret s = string {}
+    f.read_to_string(adr s) or error
+    if s == "unknown" return e_notfound
+}
+
+let s = read_username() or abort(error)
+let s = read_username() [a] { a.trim() } or "unknown"
+if s.error abort(s.error)
+
+// Option<T> 仅表示 “有/没有”，不携带错误原因，Result<T, E> 表示 “成功/失败” 并附带错误信息
+// 相比传统的空值检查，none 和 error 的统一处理方式让 “忘记检查空值” 直接编译报错，编译器强制要求处理 “空” 情况
+// 指针/函数指针/字符串 none 的 niche 值为 null, bool 可以使用 0x02 表示 niche 值
+// char 字符 UNICODE 标量的上限 0x10FFFF，有大量高位值可用作 niche
+// float 可以使用 N/A 值，int/unsigned 则必须手动指定，或使用 nonzero int，nonfini int，nonnull<T>
+def divide(float a b return float or none) { // 空值，有值，返回值的大小为 sizeof float，调用者必须检查 none 值
     if b == 0 return none
     return a / b
 }
 
-let a = divide(a, b) or abort(E_DIV_BY_ZERO)
+let a = divide(a, b) or abort(e_divbyzero)
 let a = divide(a, b) [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
-if a == none {
-    abort(E_DIV_BY_ZERO)
-}
-if [a] none {
-    prerr(E_DIV_BY_ZERO)
-} else {
+if a.none
+    abort(e_divbyzero)
+else
     print("a/b=%", a)
-}
 
 def sqrt(float x y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
-    let a = divide(x, y) or return none // 这里只能返回 none 其他返回值都导致编译错误
+    let a = divide(x, y) or none + divide(3, x) or none // 这里 or none 如果成立会直接返回 none
     return sqrt(x * a)
 }
 
-def oper u32 ~ {u08 lpri rpri} { // sum type
+def oper const u32 (u08 lpri rpri) { // sum type
     ASS '=' {200, 201},
     ADD '+' {211, 210},
     SUB '-' {211, 210},
@@ -807,7 +827,7 @@ def oper u32 ~ {u08 lpri rpri} { // sum type
     END 0 // 默认值为零
 }
 
-def token byte ~ type { // sum type
+def token const byte { // sum type
     ATOM {byte id},
     OPER {byte id},
     EOF
@@ -817,7 +837,7 @@ def token oper = OPER {'+'}
 def token eof = EOF
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
-def expr byte ~ type { // 相当于是一种泛型类型
+def expr const byte { // 相当于是一种泛型类型
     VALUE {int n}, // 相当于存储 {byte 0 int n}
     IDENT {int id}, // 相当于存储 {byte 1 int n}
     TEST {int int},
@@ -1018,11 +1038,11 @@ perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
 
 def report_tcpe_opened(*TcpSocket tcp) {
     let pdata = *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
-    let txbuf = *ByteArrfit addrof tcp.txbuf
+    let txbuf = *ByteArrfit adr tcp.txbuf
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_freely_post(tcp.upp_coro, addrof pdata->head)
+    cono_freely_post(tcp.upp_coro, adr pdata->head)
 }
 
 def epoll_proc(*coro) {
@@ -1223,7 +1243,7 @@ def scale(type point float factor) {
     point.y *= factor
 }
 
-def scale(type point float factor) "cdecl" {
+def scale(type point float factor) "C" {
     p.x *= factor
     p.y *= factor
 }
@@ -1397,12 +1417,12 @@ aaa Data {3, 4} // 赋值语句因为目标变量只有一个，因此只要将�
 ppb *Ppb ppb_alloc(alloc)
 
 let pos = dist + int scale_x(facter)
-let len = int pos + addrof *byte p + size + f(g)
-let len = int pos + loadof *byte (p + size + f(g))
+let len = int pos + adr *byte p + size + f(g)
+let len = int pos + der *byte (p + size + f(g))
 let len = typeof(pos) 3
 
 pos int dist + int scale_x(facter)
-len int pos + loadof *int *byte (p + size + f(g))
+len int pos + der *int *byte (p + size + f(g))
 len typeof(pos) 3
 
 for i int 3 .. 10 { /* */ }
@@ -1599,7 +1619,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    -a +a ^a !a type a addrof a loadof a sizeof a typeof a ->> <<-  not neg int adr der *int [2]int
+    10 从右到左    -a +a ^a !a type a adr a der a sizeof a typeof a ->> <<-  not neg int adr der *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
