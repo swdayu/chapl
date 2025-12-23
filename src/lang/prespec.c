@@ -5,22 +5,20 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
-//  const void embed let pub def undefined
-//  continue goto defer yield range lambda reflex trait
+//  const void embed let pub def undefined strict
+//  continue defer yield range lambda reflex trait
 //  static not or this type import using scoped
-//  adr der
-//  alignof type
-//  sizeof type
-//  offsetof type.offset
-//  makeof type
+//  adr der todo debug
+//  alignof type  sizeof type  offsetof type.offset
 //
 // 特殊名称：
 //  E_ e_ 预留给错误码字符串
+//  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
-//  alignas(n) pragma attribute
+//  alignas(n) pragma "zeroinit" "fastcall" "cdecl"
 // 内置函数：
-//  abort() panic() real_assert(expr)
+//  abort() panic() debug assert(expr) debug { stmt ... }
 //  assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
 //  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
 //
@@ -174,7 +172,7 @@
 //  Function   (void)  (int) (def point float factor return point)
 //      (void) 没有参数，没有返回值，空括号 () 表示没有参数的函数调用
 //      (return int) 没有参数，单个返回值，参数不能省略，如果没有参数必须声明为void，而返回值可以没有
-//      (return int string) 没有参数，多个返回值
+//      (return int string) 没有参数，多个返回值，return 之后为了清晰只罗列类型名称
 //      (int a return int)
 //      (int a b)
 //      (def point float factor) 结构体默认传递地址，因此不需要显式指定指针类型，如果不希望对象被函数修改，需要在调用前先拷贝
@@ -193,10 +191,11 @@
 //      {int int}            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int @{0} int @{1}}
 //      {this int int int}   结构体不能内嵌一个指针类型，等价于结构体 {this @{0} int @{1} int @{2} int @{3}}
 //      def data {this int int int} 元组成员的命名，可以延迟到使用时
-//      let (ptr, a, b, c) = data {this, 1, 2, 3}   // 可以使用 ptr a b c
-//      let (_, a, _, b) = data {this, 1, 2, 3}     // 可以使用 a b，第一个成员只能使用 this 初始化，否则报错
-//      let data(_, a, _, b) = data {this, 1, 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
+//      let ptr, a, b, c = data {this, 1, 2, 3}     // 可以使用 ptr a b c
+//      let _, a, _, b = data {this, 1, 2, 3}       // 可以使用 a b，第一个成员只能使用 this 初始化，否则报错
+//      let data = data {this, a = 1, b = 2, 3}     // 可以实现对元组的修改 data.a = 10  data.b = 20
 //      let data = data {this, 1, 2, 3}             // 可以使用 data.0 data.1 data.2 data.3
+//      def data = {this, a = 1, b = 2, 3}          // 可以实现对元组的修改 data.a = 10  data.b = 20
 //      def data = {this, 1, 2, 3}                  // data.0 不能修改 data.1 = 10  data.2 = 20
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
 //      const i08 {RED const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
@@ -783,11 +782,25 @@ def read_username_result const byte {
     ERR {unsigned},
 }
 
+def calc(int a b return int int) {
+    reflex return x, y
+    x = a + b
+    y = a * b
+}
+
+def calc(int a b return int int or error) {
+    if a == 0 return e_invalid
+    reflex return x, y
+    x = a * b
+    y = e_notzero
+}
+
 def read_username(return string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
-    let f = open("username.txt") or error // 这里 or error 如果成立会直接返回 open 函数的错误码
-    ret s = string {}
-    f.read_to_string(adr s) or error
+    let f = open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
+    let s = string {}
+    f.read_to_string(adr s) or return
     if s == "unknown" return e_notfound
+    return s
 }
 
 let s = read_username() or abort(error)
@@ -806,13 +819,13 @@ def divide(float a b return float or none) { // 空值，有值，返回值的�
 
 let a = divide(a, b) or abort(e_divbyzero)
 let a = divide(a, b) [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
-if a.none
+if a == none
     abort(e_divbyzero)
 else
     print("a/b=%", a)
 
 def sqrt(float x y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
-    let a = divide(x, y) or none + divide(3, x) or none // 这里 or none 如果成立会直接返回 none
+    let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
     return sqrt(x * a)
 }
 
@@ -830,11 +843,20 @@ def oper const u32 (u08 lpri rpri) { // sum type
 def token const byte { // sum type
     ATOM {byte id},
     OPER {byte id},
+    TEST {int int},
     EOF
 }
 
-def token oper = OPER {'+'}
-def token eof = EOF
+let atom = token {ATOM, 1}
+let oper = token {OPER, '+'}
+let test = token {TEST, 1, 2}
+let test = token {TEST, a = 1, b = 2}
+let eof = token {EOF}
+def token atom = {ATOM, 1}
+def token oper = {OPER, '+'}
+def token test = {TEST, 1, 2}
+def token test = {TEST, a = 1, b = 2}
+def token eof = {EOF}
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
 def expr const byte { // 相当于是一种泛型类型
@@ -846,11 +868,11 @@ def expr const byte { // 相当于是一种泛型类型
 
 if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
-} else if IDENT {
+} else IDENT {
     ret = expr.id
-} else if TEST[a, b] { // 捕获元组的内容
+} else TEST[a, b] { // 捕获元组的内容
     ret = a + b
-} else if EXPR {
+} else EXPR {
     ret = expr.op
 }
 
@@ -1681,18 +1703,18 @@ else
 
 if [color] red
     goto green
-else if blue
+else blue
     goto &
-else if green
+else green
     void
 else &
     void
 
 if [color] RED { // 使用break会跳出外层for循环
     goto GREEN
-} else if BLUE {
+} else BLUE {
     goto &
-} else if GREEN {
+} else GREEN {
 
 } else & {
 
