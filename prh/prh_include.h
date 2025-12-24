@@ -76,175 +76,6 @@
 extern "C" {
 #endif
 
-// Linux 操作系统开发与调试命令
-//
-// 打印系统信息：
-//      getconf -a
-// 打印处理器信息：
-//      lscpu
-//      cat /proc/cpuinfo
-// 打印当前系统中的环境变量：
-//      printenv
-// 查看属于某一进程的环境变量：
-//      cat /proc/521/environ
-// 进程虚拟内存布局是否是旧布局：
-//      cat /proc/sys/vm/legacy_va_layout
-// 查看虚拟内存布局中分段的随机偏移配置：
-//      cat /proc/sys/kernel/randomize_va_space
-// 查看进程中映射内存的位置：
-//      cat /proc/521/maps
-//      73e4_604b_7000-73e4_604b_9000 /usr/lib/x86_64-linux-gnu/libc-2.31.so
-//      73e4_604c_2000-73e4_604c_3000 /usr/lib/x86_64-linux-gnu/libdl-2.31.so
-//      73e4_6053_1000-73e4_6053_2000 /usr/lib/x86_64-linux-gnu/ld-2.31.so
-// 查看进程中映射内存的空间消耗信息：
-//      cat /proc/521/smaps
-//      73e4_6053_1000-73e4_6053_2000 /usr/lib/x86_64-linux-gnu/ld-2.31.so
-//      Size:                  4 kB
-//      KernelPageSize:        4 kB
-//      MMUPageSize:           4 kB
-//      Rss:                   4 kB
-//      Pss:                   4 kB
-//      Pss_Dirty:             4 kB
-//      Shared_Clean:          0 kB
-//      Shared_Dirty:          0 kB
-//      Private_Clean:         0 kB
-//      Private_Dirty:         4 kB
-//      Referenced:            4 kB
-//      Anonymous:             4 kB
-//      KSM:                   0 kB
-//      LazyFree:              0 kB
-//      AnonHugePages:         0 kB
-//      ShmemPmdMapped:        0 kB
-//      FilePmdMapped:         0 kB
-//      Shared_Hugetlb:        0 kB
-//      Private_Hugetlb:       0 kB
-//      Swap:                  0 kB
-//      SwapPss:               0 kB
-//      Locked:                0 kB
-//      THPeligible:           0
-//      VmFlags: rd wr mr mw me ac sd
-// 查看最大进程号编号：
-//      cat /proc/sys/kernel/pid_max
-// 查看进程所有的文件描述符：
-//      ll /proc/520/fdinfo/
-//      0
-//      1
-//      2
-//      255
-// 查看进程其中一个文件描述符的相关信息：
-//      cat /proc/520/fdinfo/1
-// 查看创建新进程后是否子进程先调度：
-//      cat /proc/sys/kernel/sched_child_runs_first
-// 查看当前配置的资源限制：
-//      ulimit -a
-// 解除对核心文件大小的限制：
-//      ulimit -c unlimited
-// 产生核心调试文件：
-//      sudo gcore -o core.file 711
-// 核心文件配置相关：
-//      cat /proc/sys/fs/suid_dumpable    # 对应ID的进程是否能进行转储，参见 proc(5)
-//      cat /proc/711/coredump_filter     # 控制各种文件内存映射的转储，参见 core(5)
-//      cat /proc/sys/kernel/core_pattern # 文件命令规则，参见 core(5)
-// 查看进程的主线程信息，其中包括进程对信号的处理：
-//      cat /proc/521/status
-// 显示进程中的所有线程信息（-L），并显示完整格式（-f）：
-//      ps -Lf # 其中 LWP 表示的是线程 ID（Light Weight Process），NLWP 表示该进程线程总数
-//      UID          PID    PPID     LWP  C NLWP STIME TTY          TIME CMD
-//      localho+     521     520     521  0    1 Jul10 pts/0    00:00:04 -bash
-//      localho+   41590     521   41590  0    1 00:48 pts/0    00:00:00 ps -Lf
-// 显示所有进程：
-//      ps -e   # 显示所有进程
-//      ps -eLf # 显示所有进程和线程信息
-// 查看线程信息：
-//      cat /proc/338/task/380/status
-//      Name:   gmain
-//      Umask:  0022
-//      State:  S (sleeping)
-//      ...
-//      Threads:        2
-//      SigQ:   0/7579
-//      SigPnd: 0000000000000000    待处理的线程定向信号
-//      ShdPnd: 0000000000000000    待处理的进程定向信号
-//      SigBlk: fffffffe7ffbfeff    线程阻塞的信号掩码
-//      SigIgn: 0000000001001000    线程忽略的信号集合，一个进程中所有线程忽略的信号集合都相同，因为信号处置设置是属于进程的属性
-//      SigCgt: 0000000180004003    线程正在捕获的（设置处理函数的）信号集合，一个进程中所有线程捕获的信号集合都相同，因为信号处置设置是属于进程的属性
-//      CapInh: 0000000000000000
-//      CapPrm: 000001ffffffffff
-//      CapEff: 000001ffffffffff
-//      CapBnd: 000001ffffffffff
-//      CapAmb: 0000000000000000
-// 发送信号 SIGUSR1 给进程：
-//      kill -USR1 711
-// 列出系统中的网络接口，其中包括 MTU 信息：
-//      sudo apt install net-tools
-//      netstat -i
-// 临时端口的分配范围：
-//      cat /proc/sys/net/ipv4/ip_local_port_range
-// 本地记录的主机名或域名到IP地址之间的映射：
-//      cat /etc/hosts
-// 服务名称与端口号之间的映射：
-//      cat /etc/services
-// 网络协议（IP协议）分配的号码：
-//      cat /etc/protocols
-//      www.iana.org/assignments/protocol-numbers
-// 域名解析配置文件：
-//      cat /etc/resolv.conf
-// 每个 DNS 服务器都知道的一组根域名服务器：
-//      dig . ns
-//      https://root-servers.org/
-// 域名解析所花时间：
-//      time nslookup example.com
-// 目的套接字地址的排序配置（RFC 3484）：
-//      cat /etc/gai.conf
-// 向 inetd 守护进程发送 SIGHUP 信号：
-//      killall -HUP inetd
-// 列出当前运行的进行信息：
-//      ps
-//      ps -C program -o "pid ppid pgid sid tty command"
-// 查看套接字状态：
-//      ./program port=55555 &
-//      netstat -a | egrep '(Address|55555)'
-//          Proto   Recv-Q  Send-Q  Local Address   Foreign Address     State
-//          tcp     0       0       *:55555         *:*                 LISTEN
-//          tcp     0       0       localhost:32835 localhost:55555     ESTABLISHED
-//          tcp     0       0       localhost:55555 localhost:32835     ESTABLISHED
-// 套接字可以发送的附属数据（ancillary data）的最大大小：
-//      cat /proc/sys/net/core/optmem_max
-// 设置非零值开启显式拥塞通知（ECN, explicit congestion notification）功能：
-//      cat /proc/sys/net/ipv4/tcp_ecn
-// 显示所有套接字信息（-a），并显式扩展信息（-e）包括其用户ID：
-//      netstat -a -e
-// 只显示监听套接字信息（-l），并只显示 Internet 域套接字的信息（--inet -4 或 --inet6 -6）
-//      netstat --inet -l
-// 显示 Internet 域 TCP 套接字信息（--tcp），并显示地址和端口号、并以数字形式显示用户ID（-n）
-//      netstat --tcp -a -n
-// 显示 Internet 域 UDP 套接字信息（--udp），并显示进程ID以及套接字所归属程序名（-p）
-//      netstat --udp -a -p
-// 显示 UNIX 域套接字信息
-//      netstat --unix
-// 显示 TCP 套接字信息，并每秒重复刷新（-c）
-//      netstat --tcp -a -c
-// 显示所有ip4 ip6套接字信息：
-//      netstat -4 -6 -a -e
-//          Active Internet connections (servers and established)
-//          Proto Recv-Q Send-Q Local Address           Foreign Address         State       User            Inode
-//          tcp        0      0 127.0.0.53:domain       0.0.0.0:*               LISTEN      systemd-resolve 106370
-//          udp        0      0 127.0.0.53:domain       0.0.0.0:*                           systemd-resolve 106369
-//          udp        0      0 localhost:323           0.0.0.0:*                           root            1199
-//          udp6       0      0 ip6-localhost:323       [::]:*                              root            1200
-//      Proto 表示套接字使用的协议；
-//      Recv-Q 表示套接字接收缓冲区还未被本地应用读取的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
-//      Send-Q 表示套接字发送缓冲区中配对等待发送的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
-//      Local Address 表示套接字绑定到的本地地址
-//      Foreign Address 表示对端套接字的地址，字符串 *:* 表示没有对端地址；
-//      State 表示当前套接字所处的状态，对于TCP即TCP的各种状态；
-// 查看服务端套接字内核允许提前将请求的客户端连接建立起来的最大连接数量：
-//      cat /proc/sys/net/core/somaxconn
-//      4096
-// 查看一个用户最多可以注册让epoll监控的文件描述符个数：
-//      cat /proc/sys/fs/epoll/max_user_watches
-//      431949
-
 // architecture
 #ifndef prh_arch_bits
 #if defined(__LP64__) || defined(_WIN64) || (defined(__x86_64__) && !defined(__ILP32__)) || defined(_M_X64) || defined(__ia64) || defined (_M_IA64) || defined(__aarch64__) || defined(_M_ARM64) || defined(__powerpc64__)
@@ -930,6 +761,499 @@ extern "C" {
     prh_static_assert(sizeof(prh_f64) == 8);
     prh_static_assert(sizeof(prh_float) == 4);
 #endif
+
+typedef enum {
+    e_success = 0,
+    e_failure = 1,
+    e_aborted,
+    e_access,
+    e_access_denied,
+    e_again,
+    e_already,
+    e_already_assigned,
+    e_already_attached,
+    e_already_defined,
+    e_already_enabled,
+    e_already_exist,
+    e_already_listening,
+    e_already_locked,
+    e_already_owned,
+    e_already_registered,
+    e_already_running,
+    e_already_waiting,
+    e_already_set,
+    e_assert_failed,
+    e_auth_required,
+    e_auth_failed,
+    e_bad_address,
+    e_bad_argument,
+    e_bad_command,
+    e_bad_context,
+    e_bad_dest,
+    e_bad_dev_type,
+    e_bad_exchange,
+    e_bad_format,
+    e_bad_handle,
+    e_bad_key,
+    e_bad_length,
+    e_bad_message,
+    e_bad_name,
+    e_bad_request,
+    e_bad_req_code,
+    e_bad_response,
+    e_bad_source,
+    e_bad_state,
+    e_bad_style,
+    e_bad_object,
+    e_bad_opcode,
+    e_bad_path,
+    e_bad_pipe,
+    e_bad_slot,
+    e_bad_type,
+    e_bad_unit,
+    e_blocked,
+    e_broken,
+    e_buffer,
+    e_busy,
+    e_network_busy,
+    e_canceled,
+    e_cant_access,
+    e_cant_activate,
+    e_cant_create,
+    e_cant_complete,
+    e_cant_copy,
+    e_cant_execute,
+    e_cant_make,
+    e_cant_open,
+    e_cant_read,
+    e_cant_start,
+    e_cant_write,
+    e_changed,
+    e_addr_changed,
+    e_checksum,
+    e_closed,
+    e_local_closed,
+    e_local_error,
+    e_remote_closed,
+    e_remote_error,
+    e_closing,
+    e_conflict,
+    e_config_error,
+    e_connected,
+    e_conn_abort,
+    e_conn_reset,
+    e_conn_refused,
+    e_corrupt,
+    e_current_directory,
+    e_deadlock,
+    e_deleted,
+    e_key_deleted,
+    e_dir_not_root,
+    e_dir_not_empty,
+    e_disabled,
+    e_discarded,
+    e_disconnected,
+    e_divbyzero,
+    e_duplicated,
+    e_dup_name,
+    e_empty,
+    e_eof,
+    e_error,
+    e_exceed,
+    e_exhaust,
+    e_exist,
+    e_file_exist,
+    e_exited,
+    e_expired,
+    e_failed,
+    e_fatal_error,
+    e_fault, // 错误地址，无效指针地址，内存越界
+    e_segment_fault,
+    e_file,
+    e_file_type,
+    e_file_format,
+    e_format,
+    e_full,
+    e_disk_full,
+    e_queue_full,
+    e_halted,
+    e_hostdown,
+    e_hostunreach,
+    e_hw_error,
+    e_adap_hw_error,
+    e_ignored,
+    e_illegal,
+    e_incompatible,
+    e_incomplete,
+    e_inconsistent,
+    e_infected,
+    e_inuse,
+    e_addrinuse,
+    e_invalid,
+    e_invalid_access,
+    e_invalid_address,
+    e_invalid_category,
+    e_invalid_config,
+    e_invalid_data,
+    e_invalid_drive,
+    e_invalid_event,
+    e_invalid_flag,
+    e_invalid_format,
+    e_invalid_handle,
+    e_invalid_level,
+    e_invalid_message,
+    e_invalid_name,
+    e_invalid_object,
+    e_invalid_param,
+    e_invalid_password,
+    e_invalid_username,
+    e_invalid_protocol,
+    e_invalid_query,
+    e_invalid_range,
+    e_invalid_size,
+    e_invalid_state,
+    e_invalid_type,
+    e_inprogress,
+    e_insecure,
+    e_insufficient,
+    e_internal_error,
+    e_intruppted,
+    e_lock,
+    e_lock_failed,
+    e_locked,
+    e_lost,
+    e_io_error,
+    e_io_incomplete,
+    e_io_pending,
+    e_is_directory,
+    e_misalignment,
+    e_mismatch,
+    e_modify,
+    e_more_data,
+    e_netdown,
+    e_network,
+    e_network_error,
+    e_no_bufs,
+    e_no_data,
+    e_no_more,
+    e_no_more_files,
+    e_no_more_items,
+    e_no_space,
+    e_no_children,
+    e_no_parent,
+    e_no_resource,
+    e_not_accept,
+    e_not_active,
+    e_not_allowed,
+    e_not_avail,
+    e_not_attach,
+    e_not_canceled,
+    e_not_complete,
+    e_not_connected,
+    e_not_directory,
+    e_not_empty,
+    e_not_enable,
+    e_not_exist,
+    e_dev_not_exist,
+    e_dir_not_exist,
+    e_file_not_exist,
+    e_not_found,
+    e_file_not_found,
+    e_name_not_found,
+    e_path_not_found,
+    e_not_granted,
+    e_not_init,
+    e_not_install,
+    e_not_implemented,
+    e_not_loaded,
+    e_not_lock,
+    e_not_listening,
+    e_not_online,
+    e_not_open,
+    e_not_owned,
+    e_not_owner,
+    e_not_permitted,
+    e_not_present,
+    e_not_ready,
+    e_not_recoverable,
+    e_not_registered,
+    e_not_root,
+    e_not_same,
+    e_not_same_device,
+    e_not_safe,
+    e_not_set,
+    e_not_started,
+    e_not_support,
+    e_not_sync,
+    e_not_trust,
+    e_not_unique,
+    e_not_used,
+    e_none,
+    e_null,
+    e_null_pointer,
+    e_object,
+    e_offline,
+    e_oper_abort,
+    e_oper_exist,
+    e_oper_failed,
+    e_oper_incomplete,
+    e_oper_pending,
+    e_open,
+    e_open_failed,
+    e_outofbound,
+    e_outofdomain,
+    e_outofmemory,
+    e_outofrange,
+    e_overflow,
+    e_stack_overflow,
+    e_partial,
+    e_partial_copy,
+    e_partial_read,
+    e_partial_receive,
+    e_partial_write,
+    e_partial_send,
+    e_paused,
+    e_pending,
+    e_protocol,
+    e_prohibited,
+    e_reach_end,
+    e_reach_limit,
+    e_read,
+    e_read_failed,
+    e_read_only,
+    e_receive,
+    e_recv_failed,
+    e_recv_closed,
+    e_reseted,
+    e_refused,
+    e_rejected,
+    e_removed,
+    e_revoked,
+    e_same,
+    e_same_drive,
+    e_seek,
+    e_send,
+    e_send_failed,
+    e_send_closed,
+    e_service,
+    e_shutdown,
+    e_specific_error,
+    e_stopped,
+    e_system,
+    e_system_error,
+    e_suspended,
+    e_violate,
+    e_wouldblock,
+    e_write,
+    e_write_failed,
+    e_write_protect,
+    e_too_large,
+    e_file_too_large,
+    e_too_many,
+    e_too_many_cmds,
+    e_too_many_levels,
+    e_too_many_links,
+    e_too_many_moudles,
+    e_too_many_names,
+    e_too_many_items,
+    e_too_many_open_files,
+    e_too_many_posts,
+    e_too_many_refs,
+    e_too_many_requests,
+    e_too_many_sessions,
+    e_too_many_users,
+    e_too_new,
+    e_too_long,
+    e_message_too_long,
+    e_name_too_long,
+    e_path_too_long,
+    e_too_old,
+    e_too_short,
+    e_too_small,
+    e_timeout,
+    e_type,
+    e_wrong_type,
+    e_type_error,
+    e_type_mismatch,
+    e_unchangeable,
+    e_undefined,
+    e_underflow,
+    e_unlocked,
+    e_uninstalled,
+    e_unknown,
+    e_unknown_error,
+    e_unreachable,
+    e_unrecognized,
+    e_unused,
+} prh_error_code;
+
+// Linux 操作系统开发与调试命令
+// 打印系统信息：
+//      getconf -a
+// 打印处理器信息：
+//      lscpu
+//      cat /proc/cpuinfo
+// 打印当前系统中的环境变量：
+//      printenv
+// 查看属于某一进程的环境变量：
+//      cat /proc/521/environ
+// 进程虚拟内存布局是否是旧布局：
+//      cat /proc/sys/vm/legacy_va_layout
+// 查看虚拟内存布局中分段的随机偏移配置：
+//      cat /proc/sys/kernel/randomize_va_space
+// 查看进程中映射内存的位置：
+//      cat /proc/521/maps
+//      73e4_604b_7000-73e4_604b_9000 /usr/lib/x86_64-linux-gnu/libc-2.31.so
+//      73e4_604c_2000-73e4_604c_3000 /usr/lib/x86_64-linux-gnu/libdl-2.31.so
+//      73e4_6053_1000-73e4_6053_2000 /usr/lib/x86_64-linux-gnu/ld-2.31.so
+// 查看进程中映射内存的空间消耗信息：
+//      cat /proc/521/smaps
+//      73e4_6053_1000-73e4_6053_2000 /usr/lib/x86_64-linux-gnu/ld-2.31.so
+//      Size:                  4 kB
+//      KernelPageSize:        4 kB
+//      MMUPageSize:           4 kB
+//      Rss:                   4 kB
+//      Pss:                   4 kB
+//      Pss_Dirty:             4 kB
+//      Shared_Clean:          0 kB
+//      Shared_Dirty:          0 kB
+//      Private_Clean:         0 kB
+//      Private_Dirty:         4 kB
+//      Referenced:            4 kB
+//      Anonymous:             4 kB
+//      KSM:                   0 kB
+//      LazyFree:              0 kB
+//      AnonHugePages:         0 kB
+//      ShmemPmdMapped:        0 kB
+//      FilePmdMapped:         0 kB
+//      Shared_Hugetlb:        0 kB
+//      Private_Hugetlb:       0 kB
+//      Swap:                  0 kB
+//      SwapPss:               0 kB
+//      Locked:                0 kB
+//      THPeligible:           0
+//      VmFlags: rd wr mr mw me ac sd
+// 查看最大进程号编号：
+//      cat /proc/sys/kernel/pid_max
+// 查看进程所有的文件描述符：
+//      ll /proc/520/fdinfo/
+//      0
+//      1
+//      2
+//      255
+// 查看进程其中一个文件描述符的相关信息：
+//      cat /proc/520/fdinfo/1
+// 查看创建新进程后是否子进程先调度：
+//      cat /proc/sys/kernel/sched_child_runs_first
+// 查看当前配置的资源限制：
+//      ulimit -a
+// 解除对核心文件大小的限制：
+//      ulimit -c unlimited
+// 产生核心调试文件：
+//      sudo gcore -o core.file 711
+// 核心文件配置相关：
+//      cat /proc/sys/fs/suid_dumpable    # 对应ID的进程是否能进行转储，参见 proc(5)
+//      cat /proc/711/coredump_filter     # 控制各种文件内存映射的转储，参见 core(5)
+//      cat /proc/sys/kernel/core_pattern # 文件命令规则，参见 core(5)
+// 查看进程的主线程信息，其中包括进程对信号的处理：
+//      cat /proc/521/status
+// 显示进程中的所有线程信息（-L），并显示完整格式（-f）：
+//      ps -Lf # 其中 LWP 表示的是线程 ID（Light Weight Process），NLWP 表示该进程线程总数
+//      UID          PID    PPID     LWP  C NLWP STIME TTY          TIME CMD
+//      localho+     521     520     521  0    1 Jul10 pts/0    00:00:04 -bash
+//      localho+   41590     521   41590  0    1 00:48 pts/0    00:00:00 ps -Lf
+// 显示所有进程：
+//      ps -e   # 显示所有进程
+//      ps -eLf # 显示所有进程和线程信息
+// 查看线程信息：
+//      cat /proc/338/task/380/status
+//      Name:   gmain
+//      Umask:  0022
+//      State:  S (sleeping)
+//      ...
+//      Threads:        2
+//      SigQ:   0/7579
+//      SigPnd: 0000000000000000    待处理的线程定向信号
+//      ShdPnd: 0000000000000000    待处理的进程定向信号
+//      SigBlk: fffffffe7ffbfeff    线程阻塞的信号掩码
+//      SigIgn: 0000000001001000    线程忽略的信号集合，一个进程中所有线程忽略的信号集合都相同，因为信号处置设置是属于进程的属性
+//      SigCgt: 0000000180004003    线程正在捕获的（设置处理函数的）信号集合，一个进程中所有线程捕获的信号集合都相同，因为信号处置设置是属于进程的属性
+//      CapInh: 0000000000000000
+//      CapPrm: 000001ffffffffff
+//      CapEff: 000001ffffffffff
+//      CapBnd: 000001ffffffffff
+//      CapAmb: 0000000000000000
+// 发送信号 SIGUSR1 给进程：
+//      kill -USR1 711
+// 列出系统中的网络接口，其中包括 MTU 信息：
+//      sudo apt install net-tools
+//      netstat -i
+// 临时端口的分配范围：
+//      cat /proc/sys/net/ipv4/ip_local_port_range
+// 本地记录的主机名或域名到IP地址之间的映射：
+//      cat /etc/hosts
+// 服务名称与端口号之间的映射：
+//      cat /etc/services
+// 网络协议（IP协议）分配的号码：
+//      cat /etc/protocols
+//      www.iana.org/assignments/protocol-numbers
+// 域名解析配置文件：
+//      cat /etc/resolv.conf
+// 每个 DNS 服务器都知道的一组根域名服务器：
+//      dig . ns
+//      https://root-servers.org/
+// 域名解析所花时间：
+//      time nslookup example.com
+// 目的套接字地址的排序配置（RFC 3484）：
+//      cat /etc/gai.conf
+// 向 inetd 守护进程发送 SIGHUP 信号：
+//      killall -HUP inetd
+// 列出当前运行的进行信息：
+//      ps
+//      ps -C program -o "pid ppid pgid sid tty command"
+// 查看套接字状态：
+//      ./program port=55555 &
+//      netstat -a | egrep '(Address|55555)'
+//          Proto   Recv-Q  Send-Q  Local Address   Foreign Address     State
+//          tcp     0       0       *:55555         *:*                 LISTEN
+//          tcp     0       0       localhost:32835 localhost:55555     ESTABLISHED
+//          tcp     0       0       localhost:55555 localhost:32835     ESTABLISHED
+// 套接字可以发送的附属数据（ancillary data）的最大大小：
+//      cat /proc/sys/net/core/optmem_max
+// 设置非零值开启显式拥塞通知（ECN, explicit congestion notification）功能：
+//      cat /proc/sys/net/ipv4/tcp_ecn
+// 显示所有套接字信息（-a），并显式扩展信息（-e）包括其用户ID：
+//      netstat -a -e
+// 只显示监听套接字信息（-l），并只显示 Internet 域套接字的信息（--inet -4 或 --inet6 -6）
+//      netstat --inet -l
+// 显示 Internet 域 TCP 套接字信息（--tcp），并显示地址和端口号、并以数字形式显示用户ID（-n）
+//      netstat --tcp -a -n
+// 显示 Internet 域 UDP 套接字信息（--udp），并显示进程ID以及套接字所归属程序名（-p）
+//      netstat --udp -a -p
+// 显示 UNIX 域套接字信息
+//      netstat --unix
+// 显示 TCP 套接字信息，并每秒重复刷新（-c）
+//      netstat --tcp -a -c
+// 显示所有ip4 ip6套接字信息：
+//      netstat -4 -6 -a -e
+//          Active Internet connections (servers and established)
+//          Proto Recv-Q Send-Q Local Address           Foreign Address         State       User            Inode
+//          tcp        0      0 127.0.0.53:domain       0.0.0.0:*               LISTEN      systemd-resolve 106370
+//          udp        0      0 127.0.0.53:domain       0.0.0.0:*                           systemd-resolve 106369
+//          udp        0      0 localhost:323           0.0.0.0:*                           root            1199
+//          udp6       0      0 ip6-localhost:323       [::]:*                              root            1200
+//      Proto 表示套接字使用的协议；
+//      Recv-Q 表示套接字接收缓冲区还未被本地应用读取的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
+//      Send-Q 表示套接字发送缓冲区中配对等待发送的字节数，对于UDP该字段不仅包含数据还包含其首部和其他元数据所占的字节；
+//      Local Address 表示套接字绑定到的本地地址
+//      Foreign Address 表示对端套接字的地址，字符串 *:* 表示没有对端地址；
+//      State 表示当前套接字所处的状态，对于TCP即TCP的各种状态；
+// 查看服务端套接字内核允许提前将请求的客户端连接建立起来的最大连接数量：
+//      cat /proc/sys/net/core/somaxconn
+//      4096
+// 查看一个用户最多可以注册让epoll监控的文件描述符个数：
+//      cat /proc/sys/fs/epoll/max_user_watches
+//      431949
 
 #if defined(__FreeBSD__) || defined(__FreeBSD_kernel__) || defined(__DragonFly__)
 // The macro that is only defined if compiling for FreeBSD.
