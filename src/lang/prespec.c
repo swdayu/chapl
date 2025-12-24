@@ -12,7 +12,8 @@
 //  alignof type  sizeof type  offsetof type.offset
 //
 // 特殊名称：
-//  E_ e_ 预留给错误码字符串
+//  e_ 预留给错误码字符串，预定义的错误码，只保存错误数值
+//  E_ 预留给错误码字符串，动态分配的错误码，保存完整字符串
 //  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
@@ -106,9 +107,9 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  bool byte char string eron none null true false
-//  i08 i16 i32 i64 i128 i256 i512 int      arch_int
-//  u08 u16 u32 u64 u128 u256 u512 unsigned arch_ptr type ptr
+//  bool byte char string none null true false unsigned
+//  i08 i16 i32 i64 i128 i256 i512 int arch_int type error
+//  u08 u16 u32 u64 u128 u256 u512 unt arch_ptr type ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -532,9 +533,9 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     unsigned loweraddr
     unsigned maxudsize 31 ptr_param 1
     int coro_id
-    unsigned rspoffset
-    unsigned loweraddr
-    unsigned maxudsize 31 ptr_param 1
+    unt rspoffset
+    unt loweraddr
+    unt maxudsize 31 ptr_param 1
     int coro_id
     type ptr address
 }
@@ -765,13 +766,17 @@ def array $t const (int size) static size > 0 {
     [size]t a
 }
 
-def color const u08 { // private type
+def color const {
+    RED, GREEN, BLUE
+}
+
+def color const int { // private type
     RED = 1,
     GREEN,
     BLUE
 }
 
-pub color const u08 { // public type
+pub color const int { // public type
     RED = 1 << const,
     GREEN,
     BLUE,
@@ -922,6 +927,7 @@ def eval(type oper type expr lhs rhs return expr) {
 }
 
 eval(pub oper def expr lhs rhs return expr) {
+    reflex return expr
     if [oper] '=' then
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
@@ -937,17 +943,17 @@ eval(pub oper def expr lhs rhs return expr) {
         expr = .value(pow(lhs.value.n, rhs.value.n))
     else then
         panic("bad operator %c", op)
-    return expr
 }
 
 eat(*lexer return token) {
     return lexer.pop()
 }
 
-eval(type oper type expr a b return expr c) {
+eval(type oper type expr a b return expr) {
 }
 
-parse_expression(*lexer int min_prior return expr lhs) {
+parse_expression(*lexer int min_prior return expr) {
+    let expr lhs = undefined
     if [lexer.eat()] atom(it) {
         if it == '0'..'9' then
             lhs = .value(it - '0')
@@ -1084,7 +1090,7 @@ def epoll_proc(*coro) {
         else case EPAC_POLL_ALL
             for epac_wait(epoll) void
         else
-            debug(prerr(action))
+            debug prerr(action)
     }
 }
 
@@ -1125,15 +1131,15 @@ TcpAccept {
 }
 
 perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
-    pdata *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
+    let pdata = cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
 report_tcpe_opened(*TcpSocket tcp) {
-    pdata *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
-    txbuf *ByteArrfit adr tcp.txbuf
+    let txbuf = adr tcp.txbuf
+    let pdata = tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
@@ -1141,9 +1147,9 @@ report_tcpe_opened(*TcpSocket tcp) {
 }
 
 epoll_proc(*Cono cono) {
-    epoll *Epoll cono_data(cono)
-    pdata *ConoPdata undefined
-    action byte undefined
+    let epoll = cono_data(cono)
+    let pdata = *ConoPdata undefined
+    let action = byte undefined
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -1322,6 +1328,7 @@ let a = \{ffff_ffff}
 let a = 3.14
 let a = "hello"
 
+// "def" type_symb|type_const_symb|const_symb "=" expr {, symb|const_symb "=" expr}
 def *ppb = malloc(size) // 全局变量和常量只能使用 def 和 pub 关键字定义
 def *int p = null, q = undefined
 def point = undefined, o = {1, 2}, const POINT = {100, 200}
@@ -1338,12 +1345,14 @@ pub float const PI = 3.1415926, const 2PI = 2 * PI
 pub const PI = 3.1415926, const 2PI = 2 * PI
 pub const POINT = point {100, 200}, P2 = point {0}
 
-// "def" type_symb|type_const_symb|const_symb "=" expr {, symb|const_symb "=" expr}
 // "let" symb|const_symb "=" expr {, symb|const_symb "=" expr}
-def *ppb = malloc(size) // 局部变量只能使用 def 和 let 关键字定义
-def *int p = null, q = undefined
-def point = undefined, o = point {1, 2}
-def int a = 0, b = 0
+let *ppb = malloc(size) // 局部变量只能使用 let 关键字定义
+let *int p = null, q = undefined
+let int a = 0, b = 0
+let point = point undefined, o = point {1, 2}
+let point o = undefined, pos = {1, 2}
+let point point = undefined, o = {1, 2}
+let type point = undefined, o = {1, 2}
 let ppb = *ppb malloc(size)
 let p = *int null, q = *int undefined
 let point = point undefined, o = point {1, 2}, const POINT = point {100, 200}
@@ -1840,6 +1849,11 @@ print(typestring, "\n")
 //      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
 //      如果结构体声明为 def type_name #as int { }，将结构体当作基本类型使用，则可以显式传值或指针
+//
+//      支持函数重载。
+//      支持可选参数和命名参数，可以通过命名参数不按参数声明顺序传递参数。
+//      不使用成员函数调用语法，所有函数调用都使用 C 函数调用方法。
+//      vsym.field 语法仅用于结构体成员。
 //
 //  10. 协程的实现
 //
