@@ -4,7 +4,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else then for break return 条件语句支持大括号和缩进对齐两种编写方式
+//  if else elif for break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined strict
 //  continue defer yield range lambda reflex trait
 //  static not or this type import using scoped
@@ -1053,10 +1053,6 @@ tcp_poll(*file *socket *poll_table return poll) [m] alignas(16) {
 //          }
 //      }
 
-token Token scan()
-if token case .eof {
-}
-
 perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
     let pdata = *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
@@ -1083,11 +1079,11 @@ def epoll_proc(*coro) {
         action = pdata.action
         if action == COAC_EXIT // 省略大括号，读取一条语句
             break
-        if action case EPAC_DEL_CLOSE
+        if [action] EPAC_DEL_CLOSE
             epac_del_close(epoll, (int)pdata.u.value)
-        else case EPAC_POLL_ONCE
+        elif EPAC_POLL_ONCE
             epac_wait(epoll)
-        else case EPAC_POLL_ALL
+        elif EPAC_POLL_ALL
             for epac_wait(epoll) void
         else
             debug prerr(action)
@@ -1155,11 +1151,11 @@ epoll_proc(*Cono cono) {
         action = pdata.action
         if action == COAC_EXIT
             break
-        if action case EPAC_DEL_CLOSE
+        if [action] EPAC_DEL_CLOSE
             epac_del_close(epoll, (int)pdata.u.value)
-        case EPAC_POLL_ONCE
+        elif EPAC_POLL_ONCE
             epac_wait(epoll)
-        case EPAC_POLL_ALL
+        elif EPAC_POLL_ALL
             for epac_wait(epoll) void
         else
             debug(prerr(action))
@@ -1712,18 +1708,18 @@ else
 
 if [color] red
     goto green
-else blue
+elif blue
     goto &
-else green
+elif green
     void
 else &
     void
 
 if [color] RED { // 使用break会跳出外层for循环
     goto GREEN
-} else BLUE {
+} elif BLUE {
     goto &
-} else GREEN {
+} elif GREEN {
 
 } else & {
 
@@ -1926,13 +1922,12 @@ print(typestring, "\n")
 —— 数组下标：之|1|  之|2·3|
 —— 成员访问：之，其 用于，曰 用于变量定义
 —— 函数调用：施输出《你好，%，%，%》· 参数一 · 参数二 · 参数三，为了简洁，参数不能出现函数调用
-—— 算术操作：加  减  乘  除  模  负  正  位反 位与 位或 异或 左移 右移 循环左移 循环右移
+—— 算术操作：加上 减去 乘以 除以 求余 取负 取正 位反 位与 位或 异或 左移 右移 循环左移 循环右移
 —— 关系操作：大于 小于 等于 不等于 大于等于 小于等于
 —— 逻辑操作：并且 或者 为真 为假
 —— 赋值操作：昔{vsym} = expr，使用这个额外前缀，是为了明显查找到变量被赋值的地方
-—— 字符常量：&a &b #& #a #r #n #00 #1 #2 #3 #9 #a #b #f #10 #20 #{F001}
-—— 字串整数：立值 = &abcd   ‘八字节整数曰值 = &ab #r #n
-—— 裸串常量：施输出 &你好，%，%，% · 参数一 · 参数二 · 参数三
+—— 字符常量：&a &b &&c #哈希 #空格 #响铃 #退格 #退出 #垂制 #制表 #回车 #换行 #00 #01 #02 #03 #09 #10 #20 #{f001}
+—— 字串整数：立值 = &abcd   ‘长整数曰值 = &ab #换行
 ——
 —— 函数     演算 撰 术 法 施
 —— if       如若 若是 如果 若 当
@@ -1942,14 +1937,14 @@ print(typestring, "\n")
 —— range
 —— break    为止
 —— continue 继续
-—— const    常数
+—— const    常量
 —— void     空类
-—— embed    嵌入
+—— embed    内嵌
 —— let      立 令
 —— pub      附公开属性
 —— def      撰 函数，构 类型
 —— return   返回 乃还 终 结
-—— yield    让出
+—— yield    生成
 —— undefined ？？
 —— strict   附严格规则
 —— defer
@@ -2001,14 +1996,7 @@ print(typestring, "\n")
 —— d08 d16 d32 d64 d128 d256 d512 decimal
 —— c08 c16 c32 c64 c128 c256 c512 complex
 ——
-—— 单字节  双字节  四字节  八字节  指针或向量大小
-—— '1      '2      'i      '8      'j      sys_int      有符号整数
-—— 'b      'w      'u      'q      'p      sys_ptr    无符号整数
-—— f08     f16     'f      'g      'x 'y 'z            单精度/双精度/128-bit xmm/256-bit ymm/512-bit zmm
-—— i08     i16     int     i64     'j      sys_int
-—— u08     u16     u32     u64     'p      sys_ptr
-——
-—— 布尔 字节 字符 字串 非值 空值 布尔 真 假
+—— 布尔 字节 字符 字串 非值 空值 真 假
 —— 整数 单整数 短整数 老整数 长整数 超整数 机器整数
 —— 正数 单正数 短正数 老正数 长正数 超正数 机器正数
 —— 定点 单定点 短定点 老定点 长定点 超定点
@@ -2039,16 +2027,20 @@ print(typestring, "\n")
 ——
 —— 造点 { ’浮点 横坐标 竖坐标 }
 ——
-—— 撰传输协议轮询 *文件 *套接 *轮询表 返回 ’轮询 捕获|参数·其二·其三| 附对齐属性|十六| {
+—— 造数组 @元素类型 常量‘整数曰大小 {
+——    |大小|元素类型 元素
+—— }
+——
+—— 撰传输协议轮询 *文件 *套接字 *轮询表 返回 ’轮询 捕获|参数·其二·其三| 附对齐属性|十六| {
 ——     立’轮询 = ？？
-——     立*套接曰一 附对齐属性|缓存行其长| = 套接
+——     立*套接曰一 附对齐属性|缓存行其长| = 套接字
 ——     立’字节曰二 = ？？
 ——     立’整数曰状态 = ？？
 ——     立状态 = 0xffff
-——     施等待 文件 · 套接 · 时间
-——     昔状态 = 施加载套接状态 套接
+——     施等待 文件 · 套接字 · 时间
+——     昔状态 = 施加载套接状态 套接字
 ——     如若 状态 等于 传输协议其监听状态 {
-——          返回 施监听轮询 套接
+——          返回 施监听轮询 套接字
 ——     }
 —— }
 ——
@@ -2068,11 +2060,11 @@ print(typestring, "\n")
 ——             昔空闲队列之头元素 = **空类 空闲队列之头元素之|1|
 ——         } 不然 {
 ——             昔头内存块 = 取值 空闲队列之头元素
-——             昔空闲队列之头元素 = ~ 加 1
+——             昔空闲队列之头元素 = ~ 加上 1
 ——             施调试断言 空闲块 不等于 空值 并且 空闲块 不等于 队列内存块尾值
-——             立’整数 = 1 加（2 减 3）乘（4 除 5）
+——             立’整数 = 1 加上（2 减去 3）乘以（4 除以 5）
 ——         }
 ——     }
-——     昔空闲队列之空闲计数 = ~ 减 1
+——     昔空闲队列之空闲计数 = ~ 减去 1
 ——     返回 空闲块
 —— }
