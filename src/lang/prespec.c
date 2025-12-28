@@ -7,9 +7,18 @@
 //  if else elif for break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined strict
 //  continue defer yield range lambda reflex trait
-//  static not or this type import using scoped
-//  adr der todo debug
+//  static to or this type import using scoped
+//  adr der todo debug trap prfer
 //  alignof type  sizeof type  offsetof type.offset
+//
+//  defer_if_error deallocation(ptr)
+//
+// act all are ago alt any auf aut
+// can cat cor con cue des dhu din don dor
+// fac far fat fen fer fin fit fou fro fry fur
+// gen gre lot off per pat pal phr par
+// pre pro rem res rim ron rou rut
+// tie via was wow yet as of do use
 //
 // 特殊名称：
 //  e_ 预留给错误码字符串，预定义的错误码，只保存错误数值
@@ -17,10 +26,11 @@
 //  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
-//  alignas(n) pragma "zeroinit" "fastcall" "cdecl"
+//  alignas(n) "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
+//  @maybe(none) @nonzero @nonalls @zeroinit @packed
 // 内置函数：
-//  abort() panic() debug assert(expr) debug { stmt ... }
-//  assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
+//  abort() panic() assert(expr) debug { stmt ... }
+//  real_assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
 //  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
 //
 // 语句不会返回值，可以通过语句表达式 ({}) 为语句块返回一个值
@@ -86,17 +96,11 @@
 //  __line__
 //  __retp__
 // 编译时函数：
-//  #equal #assert
-// 编译时关键字：
-//  #import #dont_import    #im
+//  static_assert
 //  #if 条件编译
-// 编译和运行时
-//  #comptime #runtime      #ct #rt
-// 初始化属性
 // 预定义类型
 //  this 当前函数（当前函数的地址）或当前结构体，不提供任何面向对象的特殊含义，但匿名类型需要用
 // 操作符
-// #- #+ #^
 // (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
 //
 // 基本类型，定义在 type 代码包中：
@@ -116,7 +120,7 @@
 //
 // 简洁尽量实现使用最少字符
 //  布尔类型    布尔常量    空值    字符类型    字符串类型
-//  'B          #t  #f      #z      'c          's
+//  'B          @t  @f      @z      'c          's
 //  bool        true false  null    char        string
 //  单字节  双字节  四字节  八字节  指针或向量大小
 //  '1      '2      'i      '8      'j      sys_int      有符号整数
@@ -328,7 +332,7 @@
 //      如果前面的表达式是一个变量，则进行函数调用
 //      如果前面的表达式是一个常量，则报错
 
-def point {
+def point @zeroinit @packed {
     f32 x y
 }
 
@@ -481,14 +485,6 @@ def t4 { (int a b return int) f int a b }
 def t5 $p { (*p int a b return int) calc }
 def t6(int a b return int)
 def t7(def point float factor)
-
-T1 Triple#3(int[3], (int a b))
-T2 Triple#3(string[3], (int a b)*)
-T3 Triple#3(T2[3], ((# int a b int)[3]) calc))
-T4 Triple#3((int a b)[3], (int a b int)[])
-T5 Triple#3(((# int a b int)[3]) calc, (Point p float factor)[int])
-T6 Triple#3((int a b int)[3], int*)
-T7 Triple#3((Point p float factor)[3], string[int])
 
 def node $t {
     this next
@@ -661,7 +657,7 @@ Color $i08 {} // 因为i08是关键字，不能使用关键字定义新的类型
 
 TypePtr $sum { // enum 用来定义 sum type/tagged union type
     ptr (Ptr)
-    null #occupy Ptr 0 // @occupy 只能用于两个元素的enum
+    null @occupy Ptr 0 // @occupy 只能用于两个元素的enum
 }
 
 Token $sum { // enum 定义的是一个联合体类型
@@ -687,15 +683,16 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-def float const PI = 3.1415926 // 可以使用 def 关键字定义类型、变量、常量
-def point const POINT = {100, 200}
-pub float const PI = 3.1415926
-pub point const POINT = {100, 200}
+// 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
+const PI = 3.1415926
+const 2P = 2 * PI
+const point = point {100, 200}
+const POINT = point {100, 200}
 
-def const PI = 3.1415926
-def const POINT = {100, 200}
 pub const PI = 3.1415926
-pub const POINT = {100, 200}
+pub const 2P = 2 * PI
+pub const point = point {100, 200}
+pub const POINT = point {100, 200}
 
 def color const u08 { // private type
     RED, GREEN, BLUE,
@@ -809,7 +806,7 @@ def read_username(return string or error) { // 返回值的大小为 sizeof read
 }
 
 let s = read_username() or abort(error)
-let s = read_username() [a] { a.trim() } or "unknown"
+let s = read_username() to [a] { a.trim() } or "unknown"
 if s.error abort(s.error)
 
 // Option<T> 仅表示 “有/没有”，不携带错误原因，Result<T, E> 表示 “成功/失败” 并附带错误信息
@@ -823,11 +820,33 @@ def divide(float a b return float or none) { // 空值，有值，返回值的�
 }
 
 let a = divide(a, b) or abort(e_divbyzero)
-let a = divide(a, b) [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
+let a = divide(a, b) to [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
 if a == none
     abort(e_divbyzero)
 else
     print("a/b=%", a)
+
+def calc(*file @maybe(none) *expr return int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
+}
+
+// Optional Type 的两个好处：
+//  1.  编译器保证调用者必须检查可能为 none 的值
+//  2.  编译器保证条件分支中 none 值不会传递赋给不能为空的变量或参数，参数默认都是不能为 none 的，除非明确指定为 noneable
+// Optional Type 的一个坏处是：
+//  1.  让代码变量繁琐，但是这是一种可选择性的有目的性的繁琐
+//  2.  因为你可以有目的的选择在关注的代码上选用 or none
+// 关于空值：
+//  1.  默认不能将 null 传递给指针，除非它被显式声明为 @maybe(none)
+//  2.  默认不能将 0 传递给 @nonzero 整数型变量
+//  3.  默认不能将全一的值传递给 @nonalls 整数型变量
+//  4.  空值是一个特殊的值，不应该在整个程序中泛滥传播
+//  5.  or none 必须可以应用到任何类型，用来全面消除空值的泛滥传播
+//  6.  @maybe(none) @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
+//  7.  a to [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
+//      新的语句将非空焊死在局部变量 x 中，print 根本访问不到可能为空的 a，因为函数闭包只能访问显式写在捕获参数中的值
+//  8.  let x = a to [x] { x * 2 } or none // 变量 x 也将变成可空的值
+//  9.  let x = a to [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
+//  10. print(a to [x] { x * 2 } or -1)
 
 def sqrt(float x y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
     let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
@@ -1175,8 +1194,8 @@ Writer [[comptime]] $T // 可以有两种实现，一种时编译时实现速度
 //              read(File* self Ptr p int n int)
 File {
     Ptr fd
-    #impl Writer(File, file_put, file_write)
-    #impl Reader(File, file_get, file_read)
+    @impl Writer(File, file_put, file_write)
+    @impl Reader(File, file_get, file_read)
 }
 generic_write(*Writer writer) { // 实际上参数会传递 file 以及 File.Writer 静态数据的地址
     func writer.write
@@ -1267,7 +1286,7 @@ def scale(type point float factor) {
     point.y *= factor
 }
 
-def scale(type point float factor) "C" {
+def scale(type point float factor) "C" alignas(64) {
     p.x *= factor
     p.y *= factor
 }
@@ -1324,45 +1343,57 @@ let a = \{ffff_ffff}
 let a = 3.14
 let a = "hello"
 
-// "def" type_symb|type_const_symb|const_symb "=" expr {, symb|const_symb "=" expr}
-def *ppb = malloc(size) // 全局变量和常量只能使用 def 和 pub 关键字定义
+// "def" type_symb "=" expr {, symb "=" expr}
+def *ppb = malloc(size) // 全局类型和变量只能使用 def 和 pub 关键字定义
 def *int p = null, q = undefined
-def point = undefined, o = {1, 2}, const POINT = {100, 200}
-def int a = 0, b = 0, const SIZE = 8, const LEN = 32
-def float const PI = 3.1415926, const 2PI = 2 * PI
-def const PI = 3.1415926, const 2PI = 2 * PI
-def const POINT = point {100, 200}, P2 = point {0}
-
-pub *ppb = malloc(size) // 全局变量和常量只能使用 def 和 pub 关键字定义
+def point = undefined, o = {1, 2}
+def int a = 0, b = 0
+pub *ppb = malloc(size)
 pub *int p = null, q = undefined
-pub point = undefined, o = {1, 2}, const POINT = {100, 200}
-pub int a = 0, b = 0, const SIZE = 8, const LEN = 32
-pub float const PI = 3.1415926, const 2PI = 2 * PI
-pub const PI = 3.1415926, const 2PI = 2 * PI
-pub const POINT = point {100, 200}, P2 = point {0}
+pub point = undefined, o = {1, 2}
+pub int a = 0, b = 0
 
-// "let" symb|const_symb "=" expr {, symb|const_symb "=" expr}
-let *ppb = malloc(size) // 局部变量只能使用 let 关键字定义
+// 使用 const 和 prfer 定义全局常量
+const SIZE = 8
+const LEN = 32
+const PT = point {100, 200}
+const PI = 3.1415926
+const 2PI = 2 * PI
+const P2 = point {0}
+prfer SIZE = 8
+prfer LEN = 32
+prfer PT = point {100, 200}
+prfer PI = 3.1415926
+prfer 2PI = 2 * PI
+prfer P2 = point {0}
+
+// 使用 const 定义局部变量和类型成员
+const PI = 3.14159926
+const 2PI = 2 * PI
+const 3P2 = 3 * PI + 2
+const PT2 = point {100, 200}
+
+// "let" type_symb|symb "=" expr {, symb "=" expr}
+let *ppb = malloc(size) // 局部变量只能使用 let 关键字定义，等号左边只能定义一个变量
 let *int p = null, q = undefined
 let int a = 0, b = 0
-let point = point undefined, o = point {1, 2}
-let point o = undefined, pos = {1, 2}
-let point point = undefined, o = {1, 2}
-let type point = undefined, o = {1, 2}
+let point o = undefined, pos = {1, 2} // 自定义类型变量要么使用该形式，要么使用下一种形式，其他形式都禁止
+let'point = undefined, o = {1, 2} // 类型名与变量名同名的形式
+let point = point undefined, o = point {1, 2} // 冗余，不允许
+let point point = undefined, o = {1, 2} // 冗余，不允许
+let type point = undefined, o = {1, 2} // 冗余，不允许
 let ppb = *ppb malloc(size)
 let p = *int null, q = *int undefined
-let point = point undefined, o = point {1, 2}, const POINT = point {100, 200}
-let a = int 0, b = int 0, const SIZE = int 8, const LEN = int 32
-let const PI = 3.1415926, const 2PI = 2 * PI
-let const POINT = point {100, 200}, P2 = point {0}
+let a = 0, b = byte 0
 let ptr = alloc(1024) or panic()
-let calc = (int a b return int) { return a + b }
-let integers = [1, 2, 3] // let 只能用于不能简单表达的类型上
-let colors = ["红", "黄", "绿"]
-let nested_array_of_ints = {[1,2], [3,4,5]}
-let nested_mixed_array = {[1,2], ["a", "b", "c"]}
-let int_array = nested_mixed_array.0
-let str_array = nested_mixed_array.1
+let calc = type (int a b return int) { return a + b}
+let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data.$2
+let data = read_tuple(return _, a) // 元组类型值的返回 data.$1 data.a
+let integers = [1, 2, 3], colors = ["红", "黄", "绿"]
+let array_ints = {[1,2], [3,4,5]}
+let mixed_array = {[1,2], ["a", "b", "c"]}
+let int_array = mixed_array.$0 // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
+let str_array = mixed_array.$1 // 可以将元组成员的访问改成 $0 $1 等等
 
 dat2 Data {3, 4}
 data (u32 bool) parse_hex_number(slice(hex, it*2, 2))
@@ -1494,8 +1525,8 @@ Fruit {
     string name
     []int rates
     { string color shape { int hight width { string a b } desc string info } size } physical
-    { string name int id }[#arrfit] varieties
-    { bool sweet } taste #optional
+    { string name int id }[@arrfit] varieties
+    { bool sweet } taste @optional
     { bool smooth } texture
 }
 
@@ -1513,8 +1544,8 @@ Fruit {
             string desc
         } size
     } physical
-    { string name int id } [#arrlit] varieties
-    { bool sweet } taste #optional
+    { string name int id } [@arrlit] varieties
+    { bool sweet } taste @optional
     { bool smooth } texture
 }
 
@@ -1610,7 +1641,7 @@ taste
 texture
     smooth true
 
-[#global]
+[@global]
 a true
 b 1024
 s "hello"
@@ -1638,7 +1669,7 @@ varieties
 name "banana"
 void
 
-#import "src/lang/math" // 加载静态代码
+import "src/lang/math" // 加载静态代码
 time:Time
 math:*
 
@@ -1672,11 +1703,11 @@ math:*
     取地址 & 改为 (&) 地址标记 &1 &2 adr
     解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 der
 
-    #negt()     #-          #-3.14      #-c         (-3.14) (-c)
-    #posi()     #+          #+6.24      #+c         (+6.24) (+c)
-    #comp()     #^          #^1024      #^c         (^1024) (^c)
-    #addr()     (&)         #&data                  (&)data (*&)data    adr data    der adr data
-    #dref()     (*)         #*p         #**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（#）
+    @negt()     @-          @-3.14      @-c         (-3.14) (-c)
+    @posi()     @+          @+6.24      @+c         (+6.24) (+c)
+    @comp()     @^          @^1024      @^c         (^1024) (^c)
+    @addr()     (&)         @&data                  (&)data (*&)data    adr data    der adr data
+    @dref()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 条件语句包含传统C的if和switch：
 //  if cond { expr }
@@ -1725,7 +1756,7 @@ if [color] RED { // 使用break会跳出外层for循环
 
 }
 
-defer_return #label
+defer_return @label
     return
 
 // 循环语句
@@ -1844,12 +1875,12 @@ print(typestring, "\n")
 //
 //      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
-//      如果结构体声明为 def type_name #as int { }，将结构体当作基本类型使用，则可以显式传值或指针
+//      如果结构体声明为 def type_name @as int { }，将结构体当作基本类型使用，则可以显式传值或指针
 //
 //      支持函数重载。
 //      支持可选参数和命名参数，可以通过命名参数不按参数声明顺序传递参数。
 //      不使用成员函数调用语法，所有函数调用都使用 C 函数调用方法。
-//      vsym.field 语法仅用于结构体成员。
+//      vsym.field 语法仅用于结构体成员 -> 改成可以用于成员函数，但不能链式调用
 //
 //  10. 协程的实现
 //
