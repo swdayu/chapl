@@ -332,6 +332,49 @@
 //      如果前面的表达式是一个变量，则进行函数调用
 //      如果前面的表达式是一个常量，则报错
 
+// 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
+// 函数类型字面量，函数复合常量是函数类型字面量 + { stmt ... }
+(void)
+(return int) // return 和 yield 之后可以放心的都是类型名
+(return int string point)
+(int a return int)
+(type point int a return int) // 纯类型名称必须使用 type 前缀，但是 yield return 后不能使用 type 前缀
+(type point type camera) // 共两个参数
+(type point point)
+(type point type point) // 错误，两个同名参数
+(int a b)
+(type point float factor) [m]
+(int a b yield int point return int)
+(int a b return int)
+(int a) // 可能是将变量a进行类型转换
+(*file @maybe(none) = {stdin} type point string name = {"root"} string mode return int) // 默认值 {} 之后必须跟类型名称
+// 元组类型和结构体类型字面量
+{ }
+{int int type point string} // 纯类型名称必须使用 type 前缀
+{this type point int float}
+{type point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
+{type point point} // 第一个一定是类型名称，point 是 point 类型成员
+{int point} // point 是 int 型类型成员
+{int a b}
+{int a} // 可能是将变量a类型转换后给成员赋值
+const { red, green, blue }
+const int { red, green = 2, blue }
+$p { (*p int size return int) read }
+
+// 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
+pub const PI = 3.1415926
+pub const 2P = 2 * PI
+pub const point = point {100, 200}
+pub const POINT = point {100, 200}
+const PI = 3.1415926
+const 2P = 2 * PI
+const point = point {100, 200}
+const POINT = point {100, 200}
+
+act all are do use ago alt any auf aut can cat cor con cue des dhu din don dor
+fac far fat fen fer fin fit fou fro fry fur gen gre lot off per pat pal phr par
+pre pro rem res rim ron rou rut tie via was wow yet
+
 def point @zeroinit @packed {
     f32 x y
 }
