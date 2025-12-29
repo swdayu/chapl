@@ -360,16 +360,45 @@
 const { red, green, blue }
 const int { red, green = 2, blue }
 $p { (*p int size return int) read }
+// 大括号初始化列表
+{expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
+// 字面量数组及相关
+*[N]Type // [N] [] [_] * ** 的排列组合
+[*]Type // 指向的内容是一个 Type 类型的数组，长度不定，另外 *Type 表示指向单个 Type 值
+*[N]Type // 指向的内容是一个 [N]Type 类型
+[*][N]Type // 指向的内容是一个 [N]Type 类型的数组
+[N][N]Type
+[N]*Type
+[KeyTypeName]ValueType
+[|]int // 集合类型
+[string]int // 映射类型
+[string]*int
+*[string][N]int
+to [m &a &b] { stmt... } // 捕获参数
+FuncTypeLit [m &a &b] { stmt... } // 捕获参数
+vsym[expr] vsym[expr][expr] // 变量数组元素
+func()[expr] // 函数返回值数组元素
+func()[expr:expr] vsym[expr:expr] // 数组切片和字符串切片
+if [expr] // 条件匹配语句
+for [&it] // 迭代元素捕获
+= [expr, expr, expr] // 数组字面量，或嵌套在数组字面量或大括号初始化语言 {expr, expr, ...} 内部
+= [key: value, key: value] // 映射字面量
+= [key; key; key] // 集合字面量
+[#global] // 全局顶行出现的配置项
+[fruit apple]
+[fruit]
+[apple.physical]
+[[]fruit fruits]
 
 // 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
-pub const PI = 3.1415926
-pub const 2P = 2 * PI
-pub const point = point {100, 200}
-pub const POINT = point {100, 200}
 const PI = 3.1415926
 const 2P = 2 * PI
 const point = point {100, 200}
 const POINT = point {100, 200}
+prfer PI = 3.1415926
+prfer 2P = 2 * PI
+prfer point = point {100, 200}
+prfer POINT = point {100, 200}
 
 act all are do use ago alt any auf aut can cat cor con cue des dhu din don dor
 fac far fat fen fer fin fit fou fro fry fur gen gre lot off per pat pal phr par
@@ -937,7 +966,7 @@ if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
 } else IDENT {
     ret = expr.id
-} else TEST[a, b] { // 捕获元组的内容
+} else TEST to [a b] { // 捕获元组的内容
     ret = a + b
 } else EXPR {
     ret = expr.op
@@ -951,11 +980,11 @@ if expr == TEST {
     print("TEST expr: % %", expr.0, expr.1)
 }
 
-if expr == TEST[_, a] { // 捕获元组的内容
+if expr == TEST to [_ a] { // 捕获元组的内容
     print("TEST expr: % %", expr.0, a)
 }
 
-if expr == TEST[a, b] {
+if expr == TEST to [a b] {
     expr.a = 1
     print("TEST expr: % %", a, b)
 }
@@ -1429,7 +1458,6 @@ let ppb = *ppb malloc(size)
 let p = *int null, q = *int undefined
 let a = 0, b = byte 0
 let ptr = alloc(1024) or panic()
-let calc = type (int a b return int) { return a + b}
 let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data.$2
 let data = read_tuple(return _, a) // 元组类型值的返回 data.$1 data.a
 let integers = [1, 2, 3], colors = ["红", "黄", "绿"]
@@ -1437,6 +1465,14 @@ let array_ints = {[1,2], [3,4,5]}
 let mixed_array = {[1,2], ["a", "b", "c"]}
 let int_array = mixed_array.$0 // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
 let str_array = mixed_array.$1 // 可以将元组成员的访问改成 $0 $1 等等
+let a = 'int 0, b = 'float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
+let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+let a = point{100, 200}, b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+let a = int{0}, b = float{3.1415926}
+let a = 't' // 字符 t
+let a = 't {a + b} // 类型转换成类型 t
+let a = '' // 空字符，非法
+let a = ''abcd'' // 将多字符当作整数使用，合法
 
 dat2 Data {3, 4}
 data (u32 bool) parse_hex_number(slice(hex, it*2, 2))
@@ -1684,7 +1720,7 @@ taste
 texture
     smooth true
 
-[@global]
+[#global]
 a true
 b 1024
 s "hello"
