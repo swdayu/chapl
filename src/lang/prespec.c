@@ -4,11 +4,11 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else elif for break return 条件语句支持大括号和缩进对齐两种编写方式
+//  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined strict
 //  continue defer yield range lambda reflex trait
 //  static to or this type import using scoped
-//  adr der todo debug trap prfer
+//  adr der todo debug trap prfer local global
 //  alignof type  sizeof type  offsetof type.offset
 //
 //  defer_if_error deallocation(ptr)
@@ -360,7 +360,7 @@
 const { red, green, blue }
 const int { red, green = 2, blue }
 $p { (*p int size return int) read }
-// 大括号初始化列表
+// 大括号初始化列表，或者称为元组字面量表达式
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
 // 字面量数组及相关
 *[N]Type // [N] [] [_] * ** 的排列组合
@@ -371,7 +371,9 @@ $p { (*p int size return int) read }
 [N]*Type
 [KeyTypeName]ValueType
 [|]int // 集合类型
+[flat_set|]int // 自定义集合类型
 [string]int // 映射类型
+[flat_map|string]int // 自定义映射类型
 [string]*int
 *[string][N]int
 to [m &a &b] { stmt... } // 捕获参数
@@ -389,6 +391,14 @@ for [&it] // 迭代元素捕获
 [fruit]
 [apple.physical]
 [[]fruit fruits]
+// 数据生成表达式
+[yield a + b for a in array for b in 1 .. 100] // 生成一个整数数组，每个元素的值为 a+b
+[yield 'int a * 2 for a in array] // 带类型转换的生成数组
+[yield {to_string(a), a ^ b, a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
+[yield a + b | for a in array for b in 1 .. 100] // 生成一个集合
+[yield a + b flat_set | for a in array for b in array] // 生成一个 flat_set 集合
+[yield a + b : a * b for a in array for b in array] // 生成一个映射
+[yield a + b : a * b flat_map | for a in array for b in array] // 生成一个 flat_map 映射
 
 // 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
 const PI = 3.1415926
@@ -585,10 +595,10 @@ let size if a case 'a' { a } case 'b' { b } else { c } // let 可以让语句产
 let size a or b         // let or语句
 let size a > b then a or b // let then or 语句
 
-def "std/array" // 同一个包名下的源代码，可以分割为多个部分，成员函数例如 push(*std::array *type a) 只能编写在 std 包的 array 源代码部分
-import * "std/array" // 剥去包名，除了有冲突的名称仍然添加包名外，其他名称直接引入，std 包名只能存在于系统标准源代码中
-import 3rd "lib/array" // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
-import "std/array" // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
+def :: std/array // 同一个包名下的源代码，可以分割为多个部分，成员函数例如 push(*std::array *type a) 只能编写在 std 包的 array 源代码部分
+import * std/array // 剥去包名，除了有冲突的名称仍然添加包名外，其他名称直接引入，std 包名只能存在于系统标准源代码中
+import 3rd lib/array // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
+import std/array // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
 using 3rd_array = 3rd::array
 using std_array = std::array
 
@@ -1768,6 +1778,8 @@ math:*
      1 从右到左    a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a&=b a^=b a|=b
      0 从左到右    a,b
 
+    交换操作
+        a =><= b
     以下两种形式的变量初始化，symb 一定是一个类型名称：
         symb { initializer }
         symb undefined
