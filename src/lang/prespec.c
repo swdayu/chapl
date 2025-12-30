@@ -7,7 +7,7 @@
 //  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined strict
 //  continue defer yield range lambda reflex trait
-//  static to or this type import using scoped
+//  static where or this type import using scoped
 //  adr der todo debug trap prfer local global
 //  alignof type  sizeof type  offsetof type.offset
 //
@@ -376,7 +376,7 @@ $p { (*p int size return int) read }
 [flat_map|string]int // 自定义映射类型
 [string]*int
 *[string][N]int
-to [m &a &b] { stmt... } // 捕获参数
+where [m &a &b] { stmt... } // 捕获参数
 FuncTypeLit [m &a &b] { stmt... } // 捕获参数
 vsym[expr] vsym[expr][expr] // 变量数组元素
 func()[expr] // 函数返回值数组元素
@@ -395,6 +395,7 @@ for [&it] // 迭代元素捕获
 [yield a + b for a in array for b in 1 .. 100] // 生成一个整数数组，每个元素的值为 a+b
 [yield 'int a * 2 for a in array] // 带类型转换的生成数组
 [yield {to_string(a), a ^ b, a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
+[yield {name = to_string(a), xor = a ^ b, a + b} for a in array for b in array] // 生成一个元组数组，并为元组的成员命名
 [yield a + b | for a in array for b in 1 .. 100] // 生成一个集合
 [yield a + b flat_set | for a in array for b in array] // 生成一个 flat_set 集合
 [yield a + b : a * b for a in array for b in array] // 生成一个映射
@@ -888,7 +889,7 @@ def read_username(return string or error) { // 返回值的大小为 sizeof read
 }
 
 let s = read_username() or abort(error)
-let s = read_username() to [a] { a.trim() } or "unknown"
+let s = read_username() where [a] { a.trim() } or "unknown"
 if s.error abort(s.error)
 
 // Option<T> 仅表示 “有/没有”，不携带错误原因，Result<T, E> 表示 “成功/失败” 并附带错误信息
@@ -902,7 +903,7 @@ def divide(float a b return float or none) { // 空值，有值，返回值的�
 }
 
 let a = divide(a, b) or abort(e_divbyzero)
-let a = divide(a, b) to [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
+let a = divide(a, b) where [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
 if a == none
     abort(e_divbyzero)
 else
@@ -924,11 +925,11 @@ def calc(*file @maybe(none) *expr return int) { // 如果加上了 none 属性�
 //  4.  空值是一个特殊的值，不应该在整个程序中泛滥传播
 //  5.  or none 必须可以应用到任何类型，用来全面消除空值的泛滥传播
 //  6.  @maybe(none) @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
-//  7.  a to [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
+//  7.  a where [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
 //      新的语句将非空焊死在局部变量 x 中，print 根本访问不到可能为空的 a，因为函数闭包只能访问显式写在捕获参数中的值
-//  8.  let x = a to [x] { x * 2 } or none // 变量 x 也将变成可空的值
-//  9.  let x = a to [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
-//  10. print(a to [x] { x * 2 } or -1)
+//  8.  let x = a where [x] { x * 2 } or none // 变量 x 也将变成可空的值
+//  9.  let x = a where [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
+//  10. print(a where [x] { x * 2 } or -1)
 
 def sqrt(float x y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
     let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
@@ -976,7 +977,7 @@ if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
 } else IDENT {
     ret = expr.id
-} else TEST to [a b] { // 捕获元组的内容
+} else TEST where [a b] { // 捕获元组的内容
     ret = a + b
 } else EXPR {
     ret = expr.op
@@ -990,11 +991,11 @@ if expr == TEST {
     print("TEST expr: % %", expr.0, expr.1)
 }
 
-if expr == TEST to [_ a] { // 捕获元组的内容
+if expr == TEST where [_ a] { // 捕获元组的内容
     print("TEST expr: % %", expr.0, a)
 }
 
-if expr == TEST to [a b] {
+if expr == TEST where [a b] {
     expr.a = 1
     print("TEST expr: % %", a, b)
 }
@@ -1972,6 +1973,8 @@ print(typestring, "\n")
 //      支持可选参数和命名参数，可以通过命名参数不按参数声明顺序传递参数。
 //      不使用成员函数调用语法，所有函数调用都使用 C 函数调用方法。
 //      vsym.field 语法仅用于结构体成员 -> 改成可以用于成员函数，但不能链式调用
+//
+//  5.  函数内部，变量名不能覆盖
 //
 //  10. 协程的实现
 //
