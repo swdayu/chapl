@@ -7,14 +7,15 @@
 //  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
 //  const void embed let pub def undefined strict
 //  continue defer yield range lambda reflex trait
-//  static where or this type import using scoped
-//  adr der todo debug trap prfer local global
+//  static where it or this type import using scoped
+//  with adr der todo debug trap prfer local global
+//  mod mut ref gen priv do abstract final macro
 //  alignof type  sizeof type  offsetof type.offset
 //
 //  defer_if_error deallocation(ptr)
 //
 // act all are ago alt any auf aut
-// can cat cor con cue des dhu din don dor
+// can cat cor con cue des dhu din don dor dyn
 // fac far fat fen fer fin fit fou fro fry fur
 // gen gre lot off per pat pal phr par
 // pre pro rem res rim ron rou rut
@@ -890,6 +891,7 @@ def read_username(return string or error) { // 返回值的大小为 sizeof read
 
 let s = read_username() or abort(error)
 let s = read_username() where [a] { a.trim() } or "unknown"
+let s = read_username() where it.trim() or "unknown"
 if s.error abort(s.error)
 
 // Option<T> 仅表示 “有/没有”，不携带错误原因，Result<T, E> 表示 “成功/失败” 并附带错误信息
@@ -904,6 +906,7 @@ def divide(float a b return float or none) { // 空值，有值，返回值的�
 
 let a = divide(a, b) or abort(e_divbyzero)
 let a = divide(a, b) where [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
+let a = divide(a, b) where it * 10 or -1
 if a == none
     abort(e_divbyzero)
 else
@@ -930,6 +933,10 @@ def calc(*file @maybe(none) *expr return int) { // 如果加上了 none 属性�
 //  8.  let x = a where [x] { x * 2 } or none // 变量 x 也将变成可空的值
 //  9.  let x = a where [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
 //  10. print(a where [x] { x * 2 } or -1)
+//      print(a where it * 2 or -1)
+//      a where it.print() or print("none")
+//      a where it * 2 or none
+//      a where it * 2 or return + b or return
 
 def sqrt(float x y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
     let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
@@ -1801,6 +1808,15 @@ math:*
     @addr()     (&)         @&data                  (&)data (*&)data    adr data    der adr data
     @dref()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
+// 结构体中的各类成员
+
+def test {
+    int a b c d
+    int inplace {MASK_BITS} size {INT_BITS - MASK_BITS} // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
+    int inplace {MASK_BITS}
+        size {INT_BITS - MASK_BITS}
+}
+
 // 条件语句包含传统C的if和switch：
 //  if cond { expr }
 //  if cond return expr
@@ -1809,8 +1825,13 @@ math:*
 //  #if cond { expr } else if cond { expr }
 
 if expr { stmt ... } // 条件语句块有两种大括号，一种是左大括号在表达式 expr 结束的同一行，第二种是表达式结束后是一个换行，第二种语句块以 ||| 结束，并且必须有相同的对齐
-if expr then stmt
+if expr break
+if expr yield
+if expr continue
 if expr return stmt
+if expr // 条件表达式之后没有跟随跳转语句，或起始大括号，都将使用缩进对齐方式解析语句块，因此大括号如果存在，必须与表达式的结尾在同一行
+    stmt
+    stmt
 
 if expr
     return stmt
@@ -1965,7 +1986,10 @@ print(typestring, "\n")
 //
 //  4.  函数参数的传递，函数参数可以设置对齐限制，编译器可以检查类型的对齐属性看是否满足要求
 //
-//      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针
+//      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改
+//      结构体类型总是传指针表示修改，声明为 *point，test(adr point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
+//      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
+//      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
 //      如果结构体声明为 def type_name @as int { }，将结构体当作基本类型使用，则可以显式传值或指针
 //
@@ -1973,6 +1997,8 @@ print(typestring, "\n")
 //      支持可选参数和命名参数，可以通过命名参数不按参数声明顺序传递参数。
 //      不使用成员函数调用语法，所有函数调用都使用 C 函数调用方法。
 //      vsym.field 语法仅用于结构体成员 -> 改成可以用于成员函数，但不能链式调用
+//
+//      "hello".print()
 //
 //  5.  函数内部，变量名不能覆盖
 //
