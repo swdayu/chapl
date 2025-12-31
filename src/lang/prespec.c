@@ -34,7 +34,8 @@
 //  real_assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
 //  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
 //
-// 语句不会返回值，可以通过语句表达式 ({}) 为语句块返回一个值
+// 语句不会返回值，可以通过语句表达式 ({}) 为语句块返回一个值，或者换成使用 with 和
+// where 关键字一前一后让语句变成语句表达式，从而产生一个结果值。
 //
 // 函数参数或者结构体成员声明
 //  Point point p2          struct point point p2
@@ -401,6 +402,90 @@ for [&it] // 迭代元素捕获
 [yield a + b flat_set | for a in array for b in array] // 生成一个 flat_set 集合
 [yield a + b : a * b for a in array for b in array] // 生成一个映射
 [yield a + b : a * b flat_map | for a in array for b in array] // 生成一个 flat_map 映射
+
+// 字符串实现，字符串总是一个 string view，程序不能修改其指向的内容
+//
+//  1.  字符串字面量，位于只读分区，添加 local 关键字表示局部与函数作用域的字面量，只能传递给 view
+//      string ---->[byte ...] // 不保存大小，常量大小由编译器记录，参数传递时可传递给 string_view
+//      print(local "error code: %d", error)
+//      def test(const string fmt int a) // 带有 const 的 string 参数，必须传递字面量，const 参数在实际中是一个常量，不占用传参空间
+//
+//  2.  只读字符串，肯定是固定大小，只不过该固定大小是变量初始化时固定的，不拥有内存
+//      指向内容可能指向只读分区，因此 string_view 一定不能修改字符串的内容
+//      string_view 观察的内容只能在初始的视察范围内缩小，例如 data 向前移动或 count 减小
+//
+//      def string_view { // 只读分区和可写分区的字符串都可以传递给 string_view 只读访问
+//          *byte data
+//          int count
+//      }
+//
+//  3.  编译时大小固定的字符串，即栈上或全局分配的大小固定字符串，只读时传递给 view，修改时传递给 slice
+//      string ---->[byte ...] // 不保存大小，常量大小由编译器记录，参数传递时可传递给 string_view
+//
+//      let [_]byte s = "世界"
+//      let [1+"世界".size()]byte fixed_string = {}
+//      fixed_string.push('a') // 最多只能添加 5 个字节，能添加的字符小于等于 5
+//      fixed_string.push("世界")
+//
+//  4.  拥有内存的字符串空间，位于可写分区
+//                 [0|int size][byte ...] // size 是整个字节串的最大空间大小
+//      [allocator][1|int size][byte ...]
+//      alloc_buffer -------->'
+//
+//      仅有 alloc_buffer 才实际拥有内存，其他都只是存在于栈空间的状态维持对其的引用。
+//      alloc_buffer 保存在所在协程的 buffer_table 中维护，仅在字符串初始化时添加，
+//      并在容量扩充时更新地址。不能保存在协程中，如果一旦传递给其他协程，已修改就会导致
+//      协程间多线程访问导致高速缓存失效问题。
+//
+//  5.  可变大小字符串，这些栈状态结构体都在块作用域结束后自动释放
+//
+//      def string { // string 相当于动态容量字符串，string_slice 相当于固定容量字符串
+//          *alloc_buffer data
+//          int count
+//      }
+//
+//      def "de" string { // 双端字符串
+//          *alloc_buffer data
+//          int count
+//          int start
+//      }
+//
+//      def init_string(int size return string)
+//      def init_string(int size return "de" string)
+//
+//      let string s = init_string(672)
+//      let "de" string s = init_string(1024)
+//
+//      初始化一个 string 给定容量后，传递给 slice 处理，即得到一个以当前视角的固定容量的字符串
+//      在该 slice 的处理过程中，编译器需要监控程序禁止调用 string 的改变容量的函数。
+//      slice.access_begin() slice.access_end() slice.access_begin(string) slice.access_end()
+//      在 slice.access_begin() end() 之间不能有可能改变容量大小的函数，当 slice.access_begin()
+//      再次修改时，如果修改了容量，必须给 access_begin() 传入参数来更新指针指向值。
+//      string_slice 可同时实现动态字符串和双端字符串的固定容量操作功能，当进行更新时，
+//      只需要更新 data 指针和 capacity 值。
+//
+//      def string_slice { // string_slice 相当于 inplace_string，slice 只能在 [data, end) 范围内操作和移动
+//          *alloc_buffer data // 只有指向 string/string_double_ended 底层缓冲区时才需要更新
+//          int count
+//          int start
+//          int capacity
+//      }
+//
+//      函数只读取字符串内容，将参数声明为 string_view
+//      函数不修改字符串容量，将参数声明为 string_slice
+//      函数会修改字符串容量，将参数声明为 string 或 string_double_ended
+//
+//  10.  错误字符串
+//      e_code 是一个确定的 32 位无符号整数，通用错误码
+//      E_CODE 是一个与当前应用程序相关的字符串唯一的哈希值，且程序不会存储字符串
+//
+// 类型唯一识别号，只要保证在当前的程序中唯一。
+// 函数参数重载，函数参数类型必须使用命名类型
+// 命名空间或名称 N ... E
+// 模板实参列表 I ... E
+// array<float,4>           =>  ?N5arrayIfLi4EE
+// *Type                    =>  ?NP1*4TypeE
+// def point { f32 x y }    =>  ?N5pointE
 
 // 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
 const PI = 3.1415926
