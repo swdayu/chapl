@@ -1442,7 +1442,7 @@ def reader $p {
 def push(trait reader) {
 }
 
-push(a.trait(reader))
+push(trait a.reader)
 
 pub main(return int) {
     return 0
@@ -1872,7 +1872,13 @@ math:*
      0 从左到右    a,b
 
     交换操作
-        a =><= b
+        a <> b
+    取地址
+        &a
+    解引用
+        <<p     解一次引用
+        <<*p    解二次引用
+        <<**p   解三次引用 ...
     以下两种形式的变量初始化，symb 一定是一个类型名称：
         symb { initializer }
         symb undefined
@@ -2071,12 +2077,21 @@ print(typestring, "\n")
 //
 //  4.  函数参数的传递，函数参数可以设置对齐限制，编译器可以检查类型的对齐属性看是否满足要求
 //
-//      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改
+//      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
 //      结构体类型总是传指针表示修改，声明为 *point，test(adr point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
 //      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
 //      如果结构体声明为 def type_name @as int { }，将结构体当作基本类型使用，则可以显式传值或指针
+//
+//      def test(int a float b *int c **point p)
+//      def test(*int p) // 不能修改 <<p，整数不能修改
+//      def test(*point p) // 不能修改 <<p，结构体 point 不能修改
+//      def test(**point p) // 不能修改 <<p，也不能修改 <<*p，结构体 point 不能修改，指针 *point 也不能修改
+//      def test(*mut int p) // 可以修改 <<p
+//      def test(*mut point p) // 可以修改 <<p
+//      def test(*mut *point p) // 指针 *point 可以修改，结构体 point 不可修改
+//      def test(*mut *mut point p) // 指针 *point 和结构体 point 都可以修改
 //
 //      支持函数重载。
 //      支持可选参数和命名参数，可以通过命名参数不按参数声明顺序传递参数。
