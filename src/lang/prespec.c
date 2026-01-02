@@ -403,6 +403,16 @@ for [&it] // 迭代元素捕获
 [yield a + b : a * b for a in array for b in array] // 生成一个映射
 [yield a + b : a * b flat_map | for a in array for b in array] // 生成一个 flat_map 映射
 
+// 内存分配的类别
+//
+//  1.  固定大小栈分配
+//  2.  程序初始化时的全局分配
+//  3.  即用的生存期非常明确的分配，其生存期编译器可以静态推断
+//  4.  存在一个周期的可以重用的周期性释放和分配
+//  5.  不能通过静态分析推断生存期的分配
+//  6.  分配的释放必须早于内存池的释放
+//  7.  注意以上类型的相互赋值
+//
 // 字符串实现，字符串总是一个 string view，程序不能修改其指向的内容
 //
 //  1.  字符串字面量，位于只读分区，添加 local 关键字表示局部与函数作用域的字面量，只能传递给 view
@@ -415,6 +425,11 @@ for [&it] // 迭代元素捕获
 //      string_view 观察的内容只能在初始的视察范围内缩小，例如 data 向前移动或 count 减小
 //
 //      def string_view { // 只读分区和可写分区的字符串都可以传递给 string_view 只读访问
+//          *byte data
+//          int count
+//      }
+//
+//      def slice { // 可写的字符串切片
 //          *byte data
 //          int count
 //      }
@@ -442,19 +457,19 @@ for [&it] // 迭代元素捕获
 //      def string { // string 相当于动态容量字符串，string_slice 相当于固定容量字符串
 //          *alloc_buffer data
 //          int count
-//      }
+//      } // string 可以传值
 //
-//      def "de" string { // 双端字符串
+//      def 'de string { // 双端字符串
 //          *alloc_buffer data
 //          int count
 //          int start
 //      }
 //
 //      def init_string(int size return string)
-//      def init_string(int size return "de" string)
+//      def init_string(int size return 'de string)
 //
 //      let string s = init_string(672)
-//      let "de" string s = init_string(1024)
+//      let 'de string s = init_string(1024)
 //
 //      初始化一个 string 给定容量后，传递给 slice 处理，即得到一个以当前视角的固定容量的字符串
 //      在该 slice 的处理过程中，编译器需要监控程序禁止调用 string 的改变容量的函数。
@@ -489,7 +504,7 @@ for [&it] // 迭代元素捕获
 
 // 各种字面量的表示
 //
-//  1.  字符
+//  1.  字符，要么是字节 byte，要么四字节 char
 //      \e  退出
 //      \d  删除
 //      \b  退格
@@ -503,9 +518,22 @@ for [&it] // 迭代元素捕获
 //      \x00 ~ \xff     数值 0x00 ~ 0xff
 //      \{ABC}          32-bit Unicode
 //      \{ABCDEF12}
-//      'c'
-//      ' ' 空格
-//      ''abcd''  两个单引号括起的串将自动转换成整数，最大 u64 八个字符
+//      ' ' 空格        只能是 0x20 否则报错
+//      'c'             整个 'c' 必须在同一行，必须只有三个字符，因此不能写 '\n' 而是直接用 \n
+//      'de             de 必须是两个和两个以上的可打印字符，否则报错
+//      `'abcd'         多个字符拼接，其类型为整数常量，最大 u64 八个字符，必须在同一行
+//
+//  2.  字符串
+//      ""  空字符串
+//      "abcd\n"
+//      "abcd\0"
+//      `R"abcd\n"   原始字符串
+//      `8R"END
+//      原始多行字符串，END 不能非空，否则是单行字符串
+//      "END
+//      `8"END
+//      可包含转义字符的多行字符串，多行字符串的内容不包含 `8"end "end 这两行
+//      "END // 最大缩进为 8 个空格，最多去除行首的 8 个空格
 
 // 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
 const PI = 3.1415926
@@ -1988,7 +2016,7 @@ defer_return @label
 for expr { stmt ... }
 for expr then stmt
 for { stmt ... }
-for { stmt ... } ~ if (expr)
+for { stmt ... } ~ if expr
 
 // 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，#symmetric
 // 禁止函数链式调用 a.getb().bfun()
@@ -2097,6 +2125,9 @@ print(typestring, "\n")
 //
 //  4.  函数参数的传递，函数参数可以设置对齐限制，编译器可以检查类型的对齐属性看是否满足要求
 //
+//      只有小于等于两个字长的命名类型才可以传值，其他都只能传指针，传指针的变量如果不想
+//      修改其自身，可以使用语法 test(&copyof a)
+//
 //      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
 //      结构体类型总是传指针表示修改，声明为 *point，test(adr point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
@@ -2112,6 +2143,9 @@ print(typestring, "\n")
 //      def test(*mut point p) // 可以修改 <<p
 //      def test(*mut *point p) // 指针 *point 可以修改，结构体 point 不可修改
 //      def test(*mut *mut point p) // 指针 *point 和结构体 point 都可以修改
+//
+//      不可修改指针不可以传给可修改指针；
+//      复杂度很大，正确实现的难度很大，去掉不可修改和可修改指针的设计，只要传指针就认为会修改。
 //
 //      支持函数重载。
 //      支持可选参数和命名参数，可以通过命名参数不按参数声明顺序传递参数。
