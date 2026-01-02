@@ -5,7 +5,7 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
-//  const void embed let pub def undefined strict
+//  struct const void embed let def undefined strict
 //  continue defer yield range lambda reflex trait
 //  static where it or this type import using scoped
 //  with adr der todo debug trap prfer local global
@@ -27,7 +27,7 @@
 //  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
-//  alignas(n) "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
+//  alignas(n) "fastcall" "cdecl" "stdcall" "strict" "pub" // 函数属性名称为了美观不使用@前缀
 //  @maybe(none) @nonzero @nonalls @zeroinit @packed
 // 内置函数：
 //  abort() panic() assert(expr) debug { stmt ... }
@@ -336,48 +336,50 @@
 
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
 // 函数类型字面量，函数复合常量是函数类型字面量 + { stmt ... }
-(void)
-(return int) // return 和 yield 之后可以放心的都是类型名
+(return) // 返回值为空，函数类型字面量总是包含一个 return/yield 关键字，return 关键字总是出现在 yield 之前
+(return int)
 (return int string point)
-(int a return int)
-(type point int a return int) // 纯类型名称必须使用 type 前缀，但是 yield return 后不能使用 type 前缀
-(type point type camera) // 共两个参数
-(type point point)
-(type point type point) // 错误，两个同名参数
-(int a b)
-(type point float factor) [m]
-(int a b yield int point return int)
-(int a b return int)
-(int a) // 可能是将变量a进行类型转换
-(*file @maybe(none) = {stdin} type point string name = {"root"} string mode return int) // 默认值 {} 之后必须跟类型名称
-// 元组类型和结构体类型字面量
-{ }
-{int int type point string} // 纯类型名称必须使用 type 前缀
-{this type point int float}
-{type point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
-{type point point} // 第一个一定是类型名称，point 是 point 类型成员
-{int point} // point 是 int 型类型成员
+(yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
+(int a return int) // return 之前的逗号可以省略
+(int argc, **char argv return int or none)
+(point, int a return int)
+(camera, point return)
+(int a b return)
+(int a b return int yield int point)
+(int a b yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
+(int a return)
+(*file @maybe(none) = stdin, point, string name = "root", string mode return)
+// 元组类型和结构体类型字面量，其他大括号内部不会出现分号（;）
+[int]
+[int point int]
+[int int string]
+[point point]
+struct {} // 空结构体
+{int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
 {int a b}
-{int a} // 可能是将变量a类型转换后给成员赋值
-const { red, green, blue }
-const int { red, green = 2, blue }
+{int a b; point o; string s}
+{point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
+{int point;} // point 是 int 型类型成员
+const { red green blue }
+const int { red green {2} blue }
 $p { (*p int size return int) read }
-// 大括号初始化列表，或者称为元组字面量表达式
+// 大括号初始化列表，数组/元组/结构体都可以通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
-// 字面量数组及相关
-*[N]Type // [N] [] [_] * ** 的排列组合
+// 字面量数组及相关，使用前缀方括号操作符表示数组/集合/映射/元组等类型
+*[N]Type // [N] [] [_] * ** 的排列组合，N 是一个常量表达式，常量表达式会进行编译时即时计算
 [*]Type // 指向的内容是一个 Type 类型的数组，长度不定，另外 *Type 表示指向单个 Type 值
 *[N]Type // 指向的内容是一个 [N]Type 类型
 [*][N]Type // 指向的内容是一个 [N]Type 类型的数组
 [N][N]Type
 [N]*Type
-[KeyTypeName]ValueType
-[|]int // 集合类型
-[flat_set|]int // 自定义集合类型
-[string]int // 映射类型
-[flat_map|string]int // 自定义映射类型
-[string]*int
-*[string][N]int
+[Type] [Type Type] // 元组
+[int] [int int] [point point]
+[:]int // 集合类型
+[|flat_set|:]int // 自定义集合类型
+[string:]int // 映射类型
+[|flat_map|string:]int // 自定义映射类型
+[string:]*int
+*[string:][N]int
 where [m &a &b] { stmt... } // 捕获参数
 FuncTypeLit [m &a &b] { stmt... } // 捕获参数
 vsym[expr] vsym[expr][expr] // 变量数组元素
@@ -512,22 +514,26 @@ for [&it] // 迭代元素捕获
 //      \t  制表
 //      \r  回车
 //      \n  换行
+//      \(
+//      \)
 //      \'
 //      \"
 //      \0 ~ \9         数值 0 ~ 9
 //      \x00 ~ \xff     数值 0x00 ~ 0xff
 //      \{ABC}          32-bit Unicode
 //      \{ABCDEF12}
+//      '(    )         '( 有特殊含义，表示函数类型字面量的开始
 //      ' ' 空格        只能是 0x20 否则报错
 //      'c'             整个 'c' 必须在同一行，必须只有三个字符，因此不能写 '\n' 而是直接用 \n
 //      'de             de 必须是两个和两个以上的可打印字符，否则报错
-//      `'abcd'         多个字符拼接，其类型为整数常量，最大 u64 八个字符，必须在同一行
+//      ''              空字符，无效语法，报错
 //
 //  2.  字符串
 //      ""  空字符串
 //      "abcd\n"
 //      "abcd\0"
 //      `R"abcd\n"   原始字符串
+//      `I"abcd"         多个字符拼接，其类型为整数常量，最大 u64 八个字符，必须在同一行
 //      `8R"END
 //      原始多行字符串，END 不能非空，否则是单行字符串
 //      "END
@@ -704,17 +710,14 @@ def t6(int a b return int)
 def t7(def point float factor)
 
 def node $t {
-    this next
-    type t data
+    this next;
+    t data;
 }
 
 def tripple $t $u const (int size) {
-    [size]t a
-    type u b
+    [size]t a;
+    u b;
 }
-
-def main(int argc **byte argv return int)
-def scale(type point int a b)
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
 Calc (int a b int errno) // errno is a type with i32
@@ -754,13 +757,13 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
 }
 
 def coro {
-    u32 rspoffset
-    u32 loweraddr
-    i32 maxudsize 31 ptr_param 1
-    i32 coro_id
-    unsigned rspoffset
-    int maxudsize
-    int coro_id
+    u32 rspoffset;
+    u32 loweraddr;
+    i32 maxudsize 31 ptr_param 1;
+    i32 coro_id;
+    unsigned rspoffset;
+    int maxudsize;
+    int coro_id;
 }
 
 def coro_guard {
@@ -946,8 +949,10 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
     i32 coro_id
 }
 
-def type main_proc = (int argc **char argv return int)
-def type eat_proc = (*lexer type expr return *oper)
+def type type_a = [int point string]
+def type type_b = {point point point2;}
+def type main_proc = (int argc, **char argv return int)
+def type eat_proc = (*lexer, expr return *oper)
 def type int_ptr = *int
 def type point_ptr = *point
 def type gfx_point = point
@@ -958,17 +963,17 @@ pub type int_ptr = *int
 pub type point_ptr = *point
 pub type gfx_point = point
 
-def main(int argc **char argv return int) {
+def main(int argc, **char argv return int) "pub" {
     return 0
 }
 
-pub eat(*lexer type expr return *oper) {
+def eat(*lexer, expr, return *oper) {
     return lexer.op or expr.op
 }
 
 def main = (return int) { return 0 }
-def *int p = adr **int base + sizeof int
-def *point p = der **point base + sizeof point
+def *int p = adr **int base + sizeof(int)
+def *point p = der **point base + sizeof(point)
 def *point p = adr point {}
 def point = der p
 
@@ -984,16 +989,10 @@ def color const {
     RED, GREEN, BLUE
 }
 
-def color const int { // private type
+def color const int "pub" {
     RED = 1,
     GREEN,
     BLUE
-}
-
-pub color const int { // public type
-    RED = 1 << const,
-    GREEN,
-    BLUE,
 }
 
 def read_username_result const byte {
@@ -1077,20 +1076,20 @@ def sqrt(float x y return float or none) { // 调用者必须检查 none 值，�
 }
 
 def oper const u32 (u08 lpri rpri) { // sum type
-    ASS '=' {200, 201},
-    ADD '+' {211, 210},
-    SUB '-' {211, 210},
-    MUL '*' {221, 220},
-    DIV '/' {221, 220},
-    POW '^' {230, 231},
-    DOT '.' {251, 250},
-    END 0 // 默认值为零
+    ASS '=' {200, 201};
+    ADD '+' {211, 210};
+    SUB '-' {211, 210};
+    MUL '*' {221, 220};
+    DIV '/' {221, 220};
+    POW '^' {230, 231};
+    DOT '.' {251, 250};
+    END 0; // 默认值为零
 }
 
 def token const byte { // sum type
-    ATOM {byte id},
-    OPER {byte id},
-    TEST {int int},
+    ATOM {byte id};
+    OPER {byte id};
+    TEST {int int};
     EOF
 }
 
@@ -1611,9 +1610,9 @@ let a = 0, b = byte 0
 let ptr = alloc(1024) or panic()
 let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data.$2
 let data = read_tuple(return _, a) // 元组类型值的返回 data.$1 data.a
-let integers = [1, 2, 3], colors = ["红", "黄", "绿"]
-let array_ints = {[1,2], [3,4,5]}
-let mixed_array = {[1,2], ["a", "b", "c"]}
+let integers = {1, 2, 3}, colors = {"红", "黄", "绿"}
+let array_ints = {{1,2}, {3,4,5}}
+let mixed_array = {{1,2}, {"a", "b", "c"}}
 let int_array = mixed_array.$0 // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
 let str_array = mixed_array.$1 // 可以将元组成员的访问改成 $0 $1 等等
 let a = 'int 0, b = 'float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
