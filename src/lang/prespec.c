@@ -5,10 +5,10 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
-//  struct const void embed let def undefined strict
+//  struct const void embed let def pub undefined
 //  continue defer yield range lambda reflex trait
-//  static where it or this type import using scoped
-//  with adr der todo debug trap prfer local global
+//  static where it or this import scoped
+//  with retr dref todo debug trap local global
 //  mod mut ref gen priv do abstract final macro
 //  alignof type  sizeof type  offsetof type.offset
 //
@@ -27,7 +27,7 @@
 //  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
-//  alignas(n) "fastcall" "cdecl" "stdcall" "strict" "pub" // 函数属性名称为了美观不使用@前缀
+//  alignas(n) "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
 //  @maybe(none) @nonzero @nonalls @zeroinit @packed
 // 内置函数：
 //  abort() panic() assert(expr) debug { stmt ... }
@@ -114,8 +114,8 @@
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
 //  bool byte char string none null true false unsigned
-//  i08 i16 i32 i64 i128 i256 i512 int arch_int type error
-//  u08 u16 u32 u64 u128 u256 u512 unt arch_ptr type ptr
+//  i08 i16 i32 i64 i128 i256 i512 int arch_int def error
+//  u08 u16 u32 u64 u128 u256 u512 unt arch_ptr def ptr
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -350,15 +350,15 @@
 (int a return)
 (*file @maybe(none) = stdin, point, string name = "root", string mode return)
 // 元组类型和结构体类型字面量，其他大括号内部不会出现分号（;）
-[int]
-[int point int]
-[int int string]
-[point point]
-struct {} // 空结构体
-{int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
-{int a b}
-{int a b; point o; string s}
-{point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
+{int;}
+{int; point; int;}
+{int; int; string;}
+{point; point;}
+{;} // 空结构体
+{int a;} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
+{int a b;}
+{int a b; point o; string s;}
+{point point;} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point;} // point 是 int 型类型成员
 const { red green blue }
 const int { red green {2} blue }
@@ -400,10 +400,10 @@ for [&it] // 迭代元素捕获
 [yield 'int a * 2 for a in array] // 带类型转换的生成数组
 [yield {to_string(a), a ^ b, a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
 [yield {name = to_string(a), xor = a ^ b, a + b} for a in array for b in array] // 生成一个元组数组，并为元组的成员命名
-[yield a + b | for a in array for b in 1 .. 100] // 生成一个集合
-[yield a + b flat_set | for a in array for b in array] // 生成一个 flat_set 集合
-[yield a + b : a * b for a in array for b in array] // 生成一个映射
-[yield a + b : a * b flat_map | for a in array for b in array] // 生成一个 flat_map 映射
+[yield || a + b for a in array for b in 1 .. 100] // 生成一个集合
+[yield |flat_set| a + b for a in array for b in array] // 生成一个 flat_set 集合
+[yield || a + b : a * b for a in array for b in array] // 生成一个映射
+[yield |flat_map| a + b : a * b for a in array for b in array] // 生成一个 flat_map 映射
 
 // 内存分配的类别
 //
@@ -461,17 +461,17 @@ for [&it] // 迭代元素捕获
 //          int count
 //      } // string 可以传值
 //
-//      def 'de string { // 双端字符串
+//      def d_string { // 双端字符串
 //          *alloc_buffer data
 //          int count
 //          int start
 //      }
 //
 //      def init_string(int size return string)
-//      def init_string(int size return 'de string)
+//      def init_string(int size return d_string)
 //
 //      let string s = init_string(672)
-//      let 'de string s = init_string(1024)
+//      let d_string s = init_string(1024)
 //
 //      初始化一个 string 给定容量后，传递给 slice 处理，即得到一个以当前视角的固定容量的字符串
 //      在该 slice 的处理过程中，编译器需要监控程序禁止调用 string 的改变容量的函数。
@@ -525,7 +525,7 @@ for [&it] // 迭代元素捕获
 //      '(    )         '( 有特殊含义，表示函数类型字面量的开始
 //      ' ' 空格        只能是 0x20 否则报错
 //      'c'             整个 'c' 必须在同一行，必须只有三个字符，因此不能写 '\n' 而是直接用 \n
-//      'de             de 必须是两个和两个以上的可打印字符，否则报错
+//      'type           类型转换操作前缀
 //      ''              空字符，无效语法，报错
 //
 //  2.  字符串
@@ -540,6 +540,23 @@ for [&it] // 迭代元素捕获
 //      `8"END
 //      可包含转义字符的多行字符串，多行字符串的内容不包含 `8"end "end 这两行
 //      "END // 最大缩进为 8 个空格，最多去除行首的 8 个空格
+//
+//  3. 格式化打印
+//
+//      f-string 格式化字符串
+//      "string here {variable here} here {variable here}"
+//      variable = "awesome" // f-string 会立即产生字符串
+//      print `F"string here {variable} here {variable}"
+//
+//      t-string 是一个模板对象，会保存需要打印的变量的信息
+//      literal part: string here % here %
+//      dynamic part: variable variable
+//      在最终的字符串输出前，可以对动态部分的变量进行任何处理，例如 sanitize/escape validate transfor
+//
+//      let user_input = "<script>alert('yo')</script>"
+//      let msg = `F"<p>{user_input}</p>"
+//      let msg = 'T"<p>{user_input | escape}</p>" // 可以做特殊字符转义
+//
 
 // 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
 const PI = 3.1415926
@@ -639,16 +656,21 @@ def scale(def point point int a b)
 def calc(int a b int)
 
 def array $t const (int size) {
-    [size]t a
+    [size]t a;
 }
 
 def array $a const (int size) { // $ 定义一个类型参数 a
-    [size]a
+    [size]a a;
 }
 
 def test $a $b {
-    type a // 指定 a 是一个类型
-    type b
+    a a; // 指定 a 是一个类型
+    b b;
+}
+
+def test $any t u {
+    t t;
+    u u;
 }
 
 def int_N_array const (int size) = type(size, $t) array
@@ -658,11 +680,6 @@ def some_array_type = type(8, (10, (20, int_N_array))) array
 def int_array_of_array = type(8, int_array) array
 def int_array_of_array = type(8, (20, int)) array
 
-def test $t $u {
-    type t
-    type u
-}
-
 def color const int {
     red {const + 1}
     blue
@@ -670,19 +687,9 @@ def color const int {
     yellow
 }
 
-def test $t $array(size, t) a $u const (int size type point) {
-    type t
-    type u
-}
-
-def test $t $u {
-    type t
-    type u
-}
-
-def test $any t u {
-    type t
-    type u
+def test $t $array(size, t) a $u const (int size, point) {
+    t t;
+    u u;
 }
 
 extern def l2capconn         def *l2capconn        def [2]l2capconn
@@ -736,9 +743,9 @@ let size a > b then a or b // let then or 语句
 def :: std/array // 同一个包名下的源代码，可以分割为多个部分，成员函数例如 push(*std::array *type a) 只能编写在 std 包的 array 源代码部分
 import * std/array // 剥去包名，除了有冲突的名称仍然添加包名外，其他名称直接引入，std 包名只能存在于系统标准源代码中
 import 3rd lib/array // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
-import std/array // 如果提供了包名，可以使用 using 导入特定包名中的所有符号，或定义符号别名
-using 3rd_array = 3rd::array
-using std_array = std::array
+import std/array // 如果提供了包名，可以使用 def 定义符号别名
+def (3rd::array) 3rd_array
+def (std::array) std_array
 
 Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字段都是只读的，写操作必须通过公开函数
     u32 rspoffset // 1st field dont move
@@ -752,8 +759,8 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     unt rspoffset
     unt loweraddr
     unt maxudsize 31 ptr_param 1
-    int coro_id
-    type ptr address
+    int coro_id;
+    ptr address;
 }
 
 def coro {
@@ -768,8 +775,8 @@ def coro {
 
 def coro_guard {
     u32 lower_guard_word
-    u32 upper_guard_word
-    type coro embed
+    u32 upper_guard_word;
+    coro embed;
     *coro coro_ptr
     this embed
     this coro_guard
@@ -786,8 +793,8 @@ def "std"
 
 def coro_guard {
     u32 lower_guard_word
-    u32 upper_guard_word
-    type coro embed
+    u32 upper_guard_word;
+    coro embed;
     *coro coro
     this embed
     this coro_guard
@@ -903,17 +910,6 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end 0 // 默认值为零
 }
 
-// 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
-const PI = 3.1415926
-const 2P = 2 * PI
-const point = point {100, 200}
-const POINT = point {100, 200}
-
-pub const PI = 3.1415926
-pub const 2P = 2 * PI
-pub const point = point {100, 200}
-pub const POINT = point {100, 200}
-
 def color const u08 { // private type
     RED, GREEN, BLUE,
 }
@@ -936,48 +932,19 @@ def point {
 }
 
 pub point {
-    float x
-    float y
+    float x y
 }
 
-pub data { int int float string }
+pub data { int; int; float; string; }
 
 pub coro { // 包外访问，结构体成员只读，以下划线结束的成员不可访问
-    u32 rspoffset // 名为 rspoffset 的私有成员
-    u32 loweraddr // 名为 loweraddr 的私有成员
-    i32 maxudsize 31 ptrparam_ 1
-    i32 coro_id
+    u32 rspoffset; // 名为 rspoffset 的私有成员
+    u32 loweraddr; // 名为 loweraddr 的私有成员
+    i32 maxudsize 31 ptrparam_ 1;
+    i32 coro_id;
 }
 
-def type type_a = [int point string]
-def type type_b = {point point point2;}
-def type main_proc = (int argc, **char argv return int)
-def type eat_proc = (*lexer, expr return *oper)
-def type int_ptr = *int
-def type point_ptr = *point
-def type gfx_point = point
-
-pub type main_proc = (int argc **char argv return int)
-pub type eat_proc = (*lexer type expr return *oper)
-pub type int_ptr = *int
-pub type point_ptr = *point
-pub type gfx_point = point
-
-def main(int argc, **char argv return int) "pub" {
-    return 0
-}
-
-def eat(*lexer, expr, return *oper) {
-    return lexer.op or expr.op
-}
-
-def main = (return int) { return 0 }
-def *int p = adr **int base + sizeof(int)
-def *point p = der **point base + sizeof(point)
-def *point p = adr point {}
-def point = der p
-
-def test const (int size type point) {
+def test const (int size, point) {
     [size]int a
 }
 
@@ -989,7 +956,7 @@ def color const {
     RED, GREEN, BLUE
 }
 
-def color const int "pub" {
+def color const int {
     RED = 1,
     GREEN,
     BLUE
@@ -1139,15 +1106,15 @@ if expr == TEST where [a b] {
     print("TEST expr: % %", a, b)
 }
 
-def eat(*lexer type token) {
+def eat(*lexer, token) {
     return lexer.pop()
 }
 
-def peek(*lexer type token) {
+def peek(*lexer, token) {
     return lexer.top()
 }
 
-def eval(type oper type expr lhs rhs return expr) {
+def eval(oper, expr lhs rhs return expr) {
     if [oper] '=' {
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
@@ -1190,7 +1157,7 @@ eat(*lexer return token) {
     return lexer.pop()
 }
 
-eval(type oper type expr a b return expr) {
+eval(oper, expr a b return expr) {
 }
 
 parse_expression(*lexer int min_prior return expr) {
@@ -1230,11 +1197,11 @@ eat(*lexer return token) {
     return lexer.pop()
 }
 
-peek(*lexer type token) {
+peek(*lexer, token) {
     return lexer.top()
 }
 
-parse_expression(*lexer int min_prior type expr) {
+parse_expression(*lexer int min_prior, expr) {
     def expr = undefined
 }
 
@@ -1441,7 +1408,7 @@ def memcpy(type ptr dest src int count) 'intrinsic'
 def memcmp(type ptr dest src int count int) 'intrinsic'
 def memset(type ptr dest byte value int count) 'intrinsic'
 def lock_cmpxchg(*T p T old new T) 'intrinsic'
-def coroguard(*coro type coro_guard) 'cdcel inline'
+def coroguard(*coro, coro_guard) 'cdcel inline'
 
 Calc (int a b int)
 Snode $T { this next T data }
@@ -1608,13 +1575,13 @@ let ppb = *ppb malloc(size)
 let p = *int null, q = *int undefined
 let a = 0, b = byte 0
 let ptr = alloc(1024) or panic()
-let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data.$2
-let data = read_tuple(return _, a) // 元组类型值的返回 data.$1 data.a
+let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
+let data = read_tuple(return _, a) // 元组类型值的返回 data[1] data.a
 let integers = {1, 2, 3}, colors = {"红", "黄", "绿"}
 let array_ints = {{1,2}, {3,4,5}}
 let mixed_array = {{1,2}, {"a", "b", "c"}}
-let int_array = mixed_array.$0 // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
-let str_array = mixed_array.$1 // 可以将元组成员的访问改成 $0 $1 等等
+let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
+let str_array = mixed_array[1]
 let a = 'int 0, b = 'float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
 let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 let a = point{100, 200}, b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
@@ -1716,7 +1683,7 @@ for i int 3 .. 10 { /* */ }
 
 for {
     capacity *= 2
-} ~ if (capacity < new_capacity)
+} ~ if capacity < new_capacity
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
@@ -1762,18 +1729,18 @@ Fruit {
 Fruit {
     string name
     []int rates
-    type {
-        string color shape
-        type {
-            int height width
-            type {
-                string a b
-            } desc
-            string info
-            string desc
-        } size
-    } physical
-    { string name int id } [@arrlit] varieties
+    struct {
+        string color shape;
+        struct {
+            int height width;
+            struct {
+                string a b;
+            } desc;
+            string info;
+            string desc;
+        } size;
+    } physical;
+    { string name; int id } [@arrlit] varieties
     { bool sweet } taste @optional
     { bool smooth } texture
 }
@@ -1920,12 +1887,8 @@ math:*
 
     交换操作
         a <> b
-    取地址
-        &a
-    解引用
-        <<p     解一次引用
-        <<*p    解二次引用
-        <<**p   解三次引用 ...
+    一元操作符 ~ 后跟 if 有特殊含义
+        for { ... } ~ if expr
     以下两种形式的变量初始化，symb 一定是一个类型名称：
         symb { initializer }
         symb undefined
@@ -1949,10 +1912,9 @@ math:*
 // 结构体中的各类成员
 
 def test {
-    int a b c d
-    int inplace {MASK_BITS} size {INT_BITS - MASK_BITS} // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
-    int inplace {MASK_BITS}
-        size {INT_BITS - MASK_BITS}
+    int a b c d;
+    int {MASK_BITS} inplace {INT_BITS - MASK_BITS} size; // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
+    int {1} inplace {31} size;
 }
 
 // 条件语句包含传统C的if和switch：
@@ -1990,7 +1952,7 @@ else
 
 if [color] red
     goto green
-elif blue
+elif blue, yellow
     goto &
 elif green
     void
@@ -1999,7 +1961,7 @@ else &
 
 if [color] RED { // 使用break会跳出外层for循环
     goto GREEN
-} elif BLUE {
+} elif BLUE, YELLOW {
     goto &
 } elif GREEN {
 
@@ -2260,7 +2222,6 @@ print(typestring, "\n")
 —— this
 —— type
 —— import
-—— using
 —— scoped
 —— adr      取址
 —— der      取值 之指向内容
