@@ -944,6 +944,92 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
     i32 coro_id;
 }
 
+// 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
+def (int argc, **char argv return int) func_type
+def (*int) int_ptr
+def (*point) point_ptr
+def (point) type_point
+def ([|flat_map|string:]int) type_of_map
+
+pub (int argc, **char argv return int) func_type
+pub (*int) int_ptr
+pub (*point) point_ptr
+pub (point) type_point
+pub ([|flat_map|string:]int) type_of_map
+
+def main(int argc, **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
+    return 0
+}
+
+def eat(*lexer, expr return *oper) { // 编译器可以访问到完整代码的函数就是一个常量，而动态加载的函数相当于时一个函数变量（函数指针变量）
+    return lexer.op or expr.op
+}
+
+// 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
+def PI = 3.1415926, 2P = 2 * PI
+def PI = 'f64 3.1415926
+def PT = point {100, 200}
+def P2 = point {100, 200}
+
+pub PI = 3.1415926, 2P = 2 * PI
+pub PI = 'f64 3.1415926
+pub PT = point {100, 200}
+pub P2 = point {100, 200}
+
+// 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
+def int a = 10, b = 20
+def *int int_ptr = &a
+def *point point_ptr = &point
+def point point = {100, 200}
+def {int a b; point point;} data = {10, 20, {100, 200}}
+def {int; int; point;} data = {10, 20, {100, 200}}
+
+pub int a = 10, b = 20
+pub *int int_ptr = &a
+pub *point point_ptr = &point
+pub point point = {100, 200}
+pub {int a b; point point;} data = {10, 20, {100, 200}}
+pub {int; int; point;} data = {10, 20, {100, 200}}
+
+// 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
+//  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
+//  2.  named_type {initialize_list} 形式也不需要添加 'type 转换前缀
+//  3.  named_type undefined 形式也不需要添加 'type 转换前缀
+//  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
+//  5.  取地址操作符 retr
+//  6.  解引用操作符 dref
+let (int argc, **char argv return int) main = { return 0 } //（等号左边总是变量）
+let *int p = retr **int base + sizeof int
+let p = *int undefined
+let *point p = dref **point base + sizeof point
+let a = point {100, 200}, o = dref p, p = retr a
+let point point = {100, 200} // 第一个 point 是类型
+let point = point {100, 200}
+let *point = retr copyof point
+let *point = retr {0}
+let *ppb = malloc(size) // 局部变量只能使用 let 关键字定义，等号左边只能定义一个变量
+let *int p = null, q = undefined
+let int a = 0, b = 0
+let point o = undefined, pos = {1, 2}
+let point = point undefined, o = point {1, 2}
+let point point = undefined, o = {1, 2}
+let ppb = *ppb malloc(size)
+let p = *int null, q = *int undefined
+let a = 0, b = byte 0
+let ptr = alloc(1024) or panic()
+let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
+let data = read_tuple(return _, a) // 元组类型值的返回 data[1] data.a
+let integers = {1, 2, 3}, colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
+let array_ints = {{1,2}, {3,4}, {5,6}} // 数组
+let array_ints = {{1,2}, {3,4,5}} // 元组
+let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
+let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
+let str_array = mixed_array[1]
+let a = int 0, b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
+let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+let a = point{100, 200}, b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+let a = int{0}, b = float{3.1415926}
+
 def test const (int size, point) {
     [size]int a
 }
