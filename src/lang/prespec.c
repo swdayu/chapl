@@ -205,7 +205,7 @@
 //      def data = {this, a = 1, b = 2, 3}          // 可以实现对元组的修改 data.a = 10  data.b = 20
 //      def data = {this, 1, 2, 3}                  // data.0 不能修改 data.1 = 10  data.2 = 20
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
-//      const i08 {RED const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
+//      const i08 {RED = const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
 //      const int {RED, YELLOW, BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
 //      $p { (*p int size return int) read (*p return int) get } // 允许使用关键字 this 定义 $this，然后参数声明使用 (this int size return int)
@@ -350,21 +350,28 @@
 (int a return)
 (*file @maybe(none) = stdin, point, string name = "root", string mode return)
 // 元组类型和结构体类型字面量，其他大括号内部不会出现分号（;）
-{int;}
-{int; point; int;}
-{int; int; string;}
-{point; point;}
-{;} // 空结构体
+{int;} // 如果省略分号，无法与大括号初始化区别，例如 {test}
+{int; point; int;} // 一旦出现了一个分号，最后一个分号可以省略
+{int; point; int}
+{int; int; string}
+{point; point}
+struct {} // 空结构体
 {int a;} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
 {int a b;}
 {int a b; point o; string s;}
 {point point;} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point;} // point 是 int 型类型成员
-const { red green blue }
-const int { red green {2} blue }
+const { red, green, blue }
+const int { red, green = 2, blue }
 $p { (*p int size return int) read }
 // 大括号初始化列表，数组/元组/结构体都可以通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
+// 模板类型的实例化
+array(int, float)
+*array(int, 24)
+[3]array(int)
+*[5]array(int)
+[5]*array(int)
 // 字面量数组及相关，使用前缀方括号操作符表示数组/集合/映射/元组等类型
 *[N]Type // [N] [] [_] * ** 的排列组合，N 是一个常量表达式，常量表达式会进行编译时即时计算
 [*]Type // 指向的内容是一个 Type 类型的数组，长度不定，另外 *Type 表示指向单个 Type 值
@@ -397,9 +404,9 @@ for [&it] // 迭代元素捕获
 [[]fruit fruits]
 // 数据生成表达式
 [yield a + b for a in array for b in 1 .. 100] // 生成一个整数数组，每个元素的值为 a+b
-[yield 'int a * 2 for a in array] // 带类型转换的生成数组
-[yield {to_string(a), a ^ b, a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
-[yield {name = to_string(a), xor = a ^ b, a + b} for a in array for b in array] // 生成一个元组数组，并为元组的成员命名
+[yield int a * 2 for a in array] // 带类型转换的生成数组
+[yield {to_string(a); a ^ b; a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
+[yield {name = to_string(a); xor = a ^ b; a + b} for a in array for b in array] // 生成一个元组数组，并为元组的成员命名
 [yield || a + b for a in array for b in 1 .. 100] // 生成一个集合
 [yield |flat_set| a + b for a in array for b in array] // 生成一个 flat_set 集合
 [yield || a + b : a * b for a in array for b in array] // 生成一个映射
@@ -522,7 +529,7 @@ for [&it] // 迭代元素捕获
 //      \x00 ~ \xff     数值 0x00 ~ 0xff
 //      \{ABC}          32-bit Unicode
 //      \{ABCDEF12}
-//      '(    )         '( 有特殊含义，表示函数类型字面量的开始
+//      '(    )         '( 有特殊含义，用于提供模板类型的实参列表
 //      ' ' 空格        只能是 0x20 否则报错
 //      'c'             整个 'c' 必须在同一行，必须只有三个字符，因此不能写 '\n' 而是直接用 \n
 //      'type           类型转换操作前缀
@@ -646,7 +653,7 @@ def get ($*t p return int)
 def read ($*t p def *byte buf int n return int)
 def reader $T $get(T) get $read(T) read { }
 def color i08 { RED 1 BLUE 2 YELLOW 3 }
-def bitvalue int { FLAT_BIT1 1 << const, FLAG_BIT2, FLAG_BIT3 }
+def bitvalue int { FLAT_BIT1 = 1 << const, FLAG_BIT2, FLAG_BIT3 }
 def tcpaction int { TCPA_OPEN_ACCEPT, TCPA_TX_DATA, TCPA_RX_DONE }
 def 协程 { u32 rspoffset loweraddr }
 def coroguard { u32 lower_guard_word def *coro coro (def *coroguard g int a b int) f g }
@@ -681,9 +688,9 @@ def int_array_of_array = type(8, int_array) array
 def int_array_of_array = type(8, (20, int)) array
 
 def color const int {
-    red {const + 1}
-    blue
-    green
+    red = const + 1,
+    blue,
+    green,
     yellow
 }
 
@@ -805,10 +812,10 @@ def coro_guard {
 
 def verify(*coro_guard)
 
-Color const i08 {RED {const + 1} BLUE YELLOW}
-Color const int {red blue { blue_defined_value } yellow}
-Color const int [[strict]] {RED {1} BLUE {2} YELLOW {3}}
-Color const u08 { red blue { blue_defined_value } yellow }
+Color const i08 {RED = const + 1, BLUE, YELLOW}
+Color const int {red blue = blue_defined_value, yellow}
+Color const int "strict" {RED = 1, BLUE = 2, YELLOW = 3}
+Color const u08 { red, blue = blue_defined_value, yellow }
 
 CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     u32 lower_guard_word
@@ -829,28 +836,28 @@ CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
 }
 
 Color $i08 {
-    RED { const + 1 }
-    BLUE
+    RED = const + 1,
+    BLUE,
     YELLOW
 }
 
 Color $int {
-    red
-    blue {blue_defined_value}
+    red,
+    blue = blue_defined_value,
     yellow
 }
 
-Color $i08 [[strict]] { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    RED {1}
-    BLUE {2}
-    YELLOW {3}
+Color $i08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
+    RED = 1,
+    BLUE = 2,
+    YELLOW = 3
 }
 
 BitValue $int {
-    FLAG_BIT1 { 1 << const }
-    FLAG_BIT2
-    FLAG_BIT3
-    FLAG_BIT4
+    FLAG_BIT1 = 1 << const,
+    FLAG_BIT2,
+    FLAG_BIT3,
+    FLAG_BIT4,
 }
 
 Main(i32 argc **byte argv i32)
@@ -1030,29 +1037,6 @@ let calc = (int a b return int) { return a + b} // 类型字面量可以自动�
 let a = point{100, 200}, b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 let a = int{0}, b = float{3.1415926}
 
-def test const (int size, point) {
-    [size]int a
-}
-
-def array $t const (int size) static size > 0 {
-    [size]t a
-}
-
-def color const {
-    RED, GREEN, BLUE
-}
-
-def color const int {
-    RED = 1,
-    GREEN,
-    BLUE
-}
-
-def read_username_result const byte {
-    OK {string},
-    ERR {unsigned},
-}
-
 def calc(int a b return int int) {
     reflex return x, y
     x = a + b
@@ -1128,21 +1112,44 @@ def sqrt(float x y return float or none) { // 调用者必须检查 none 值，�
     return sqrt(x * a)
 }
 
-def oper const u32 (u08 lpri rpri) { // sum type
-    ASS '=' {200, 201};
-    ADD '+' {211, 210};
-    SUB '-' {211, 210};
-    MUL '*' {221, 220};
-    DIV '/' {221, 220};
-    POW '^' {230, 231};
-    DOT '.' {251, 250};
-    END 0; // 默认值为零
+def test const (int size, point) {
+    [size]int a
 }
 
-def token const byte { // sum type
-    ATOM {byte id};
-    OPER {byte id};
-    TEST {int int};
+def array $t const (int size) static size > 0 {
+    [size]t a
+}
+
+def color const { // 默认是 byte 或 u16 或 u32 或 u64，根据最大值的大小而定
+    RED, GREEN, BLUE
+}
+
+def color const int {
+    RED = 1,
+    GREEN,
+    BLUE
+}
+
+def read_username_result const {
+    OK {string},
+    ERR {unsigned},
+}
+
+def oper const u32 with {u08 lpri rpri} { // sum type
+    ASS = '=' {200, 201},
+    ADD = '+' {211, 210},
+    SUB = '-' {211, 210},
+    MUL = '*' {221, 220},
+    DIV = '/' {221, 220},
+    POW = '^' {230, 231},
+    DOT = '.' {251, 250},
+    END = 0 // 默认值为零
+}
+
+def token const { // sum type
+    ATOM {byte id},
+    OPER {byte id},
+    TEST {int; int},
     EOF
 }
 
@@ -1161,17 +1168,17 @@ def token eof = {EOF}
 def expr const byte { // 相当于是一种泛型类型
     VALUE {int n}, // 相当于存储 {byte 0 int n}
     IDENT {int id}, // 相当于存储 {byte 1 int n}
-    TEST {int int},
-    EXPR {int op *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
+    TEST {int; int},
+    EXPR {int op; *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
 if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
-} else IDENT {
+} elif IDENT {
     ret = expr.id
-} else TEST where [a b] { // 捕获元组的内容
+} elif TEST where [a b] { // 捕获元组的内容
     ret = a + b
-} else EXPR {
+} elif EXPR {
     ret = expr.op
 }
 
@@ -1996,11 +2003,17 @@ math:*
     @dref()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 结构体中的各类成员
+//  1. 成员 type field_name field_name ...;
+//  2. 位域 type {bits} name {bits} name ...;
+//  3. 成员别名 type (a | b | c | ...);
+//  4. 在大的成员类型内部定义小的联合类型 type name | type name name ... | type name name ... | ...;
 
 def test {
-    int a b c d;
+    int a b c;
     int {MASK_BITS} inplace {INT_BITS - MASK_BITS} size; // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
-    int {1} inplace {31} size;
+    int {1} inplace {31} size; // 位域
+    int (size | bytes | count); // 成员别名
+    double d | int i | float f g | char c; // 最大类型必须是第一个
 }
 
 // 条件语句包含传统C的if和switch：
