@@ -7,7 +7,7 @@
 //  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed let def pub undefined
 //  continue defer yield range lambda reflex trait
-//  static where it or this import scoped
+//  static where it or this import scoped as
 //  with retr dref todo debug trap local global
 //  mod mut ref gen priv do abstract final macro
 //  alignof type  sizeof type  offsetof type.offset
@@ -28,7 +28,7 @@
 //
 // 符号属性：
 //  alignas(n) "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
-//  @maybe(none) @nonzero @nonalls @zeroinit @packed
+//  maybe(none) @nonzero @nonalls @zeroinit @packed
 // 内置函数：
 //  abort() panic() assert(expr) debug { stmt ... }
 //  real_assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
@@ -348,13 +348,15 @@
 (int a b return int yield int point)
 (int a b yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
 (int a return)
-(*file @maybe(none) = stdin, point, string name = "root", string mode return)
-// 元组类型和结构体类型字面量，其他大括号内部不会出现分号（;）
-{int;} // 如果省略分号，无法与大括号初始化区别，例如 {test}
-{int; point; int;} // 一旦出现了一个分号，最后一个分号可以省略
-{int; point; int}
-{int; int; string}
-{point; point}
+(int a return int point float (count point scale))
+(*file maybe(none) = stdin, point, string name = "root", string mode return)
+// 元组类型
+(int) // 不是一个元组，元组必须至少包含两个元素
+(int point int)
+(int point int)
+(int int string)
+(point point)
+// 结构体类型字面量，其他大括号内部不会出现分号（;）
 struct {} // 空结构体
 {int a;} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
 {int a b;}
@@ -364,29 +366,29 @@ struct {} // 空结构体
 const { red, green, blue }
 const int { red, green = 2, blue }
 $p { (*p int size return int) read }
-// 大括号初始化列表，数组/元组/结构体都可以通过大括号进行初始化
+// 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
-// 模板类型的实例化
+{:1, 2, 3, 4}
+{"a":1, "b":2, "c":3}
+// 模板类型的实例化，不会与元组的 let 赋值冲突，因为元组的赋值必须包含两个元素且用空格分隔 let data(result error) = read_tuple()
 array(int, float)
 *array(int, 24)
 [3]array(int)
 *[5]array(int)
 [5]*array(int)
-// 字面量数组及相关，使用前缀方括号操作符表示数组/集合/映射/元组等类型
+// 字面量数组及相关，使用前缀方括号操作符表示数组/集合/映射等类型
 *[N]Type // [N] [] [_] * ** 的排列组合，N 是一个常量表达式，常量表达式会进行编译时即时计算
 [*]Type // 指向的内容是一个 Type 类型的数组，长度不定，另外 *Type 表示指向单个 Type 值
 *[N]Type // 指向的内容是一个 [N]Type 类型
 [*][N]Type // 指向的内容是一个 [N]Type 类型的数组
 [N][N]Type
 [N]*Type
-[Type] [Type Type] // 元组
-[int] [int int] [point point]
-[:]int // 集合类型
-[|flat_set|:]int // 自定义集合类型
-[string:]int // 映射类型
-[|flat_map|string:]int // 自定义映射类型
-[string:]*int
-*[string:][N]int
+[:int] // 集合类型
+[|flat_set|:int] // 自定义集合类型
+[string:int] // 映射类型
+[|flat_map|string:int] // 自定义映射类型
+[string:*int]
+*[string:[N]int]
 where [m &a &b] { stmt... } // 捕获参数
 FuncTypeLit [m &a &b] { stmt... } // 捕获参数
 vsym[expr] vsym[expr][expr] // 变量数组元素
@@ -394,10 +396,7 @@ func()[expr] // 函数返回值数组元素
 func()[expr:expr] vsym[expr:expr] // 数组切片和字符串切片
 if [expr] // 条件匹配语句
 for [&it] // 迭代元素捕获
-= [expr, expr, expr] // 数组字面量，或嵌套在数组字面量或大括号初始化语言 {expr, expr, ...} 内部
-= [key: value, key: value] // 映射字面量
-= [key; key; key] // 集合字面量
-[#global] // 全局顶行出现的配置项
+[global] // 全局顶行出现的配置项
 [fruit apple]
 [fruit]
 [apple.physical]
@@ -407,9 +406,9 @@ for [&it] // 迭代元素捕获
 [yield int a * 2 for a in array] // 带类型转换的生成数组
 [yield {to_string(a); a ^ b; a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
 [yield {name = to_string(a); xor = a ^ b; a + b} for a in array for b in array] // 生成一个元组数组，并为元组的成员命名
-[yield || a + b for a in array for b in 1 .. 100] // 生成一个集合
+[yield |set| a + b for a in array for b in 1 .. 100] // 生成一个集合
 [yield |flat_set| a + b for a in array for b in array] // 生成一个 flat_set 集合
-[yield || a + b : a * b for a in array for b in array] // 生成一个映射
+[yield |map| a + b : a * b for a in array for b in array] // 生成一个映射
 [yield |flat_map| a + b : a * b for a in array for b in array] // 生成一个 flat_map 映射
 
 // 内存分配的类别
@@ -421,6 +420,44 @@ for [&it] // 迭代元素捕获
 //  5.  不能通过静态分析推断生存期的分配
 //  6.  分配的释放必须早于内存池的释放
 //  7.  注意以上类型的相互赋值
+//
+// 数组实现
+//
+//  1. 数组字面量，位于只读分区，添加 local 关键字表示局部与函数作用域的字面量，只能传递给 view
+//      array ---->[item][...] // 不保存大小，大小和元素大小由编译器记录，参数传递时可传递给 array_view
+//
+//  2.  编译时大小固定的数组，即栈上或全局分配的大小固定数组，只读时传递给 view，修改时传递给 slice
+//      array ---->[item][...] // 不保存大小，大小和元素大小由编译器记录，参数传递时可传递给 array_view
+//
+//  3.  拥有内存的数组空间，位于可写分区
+//                 [0|int size][byte ...] // size 是整个字节串的最大空间大小
+//      [allocator][1|int size][byte ...]
+//      alloc_buffer -------->'
+//
+//  4.  可变大小字符串，这些栈状态结构体都在块作用域结束后自动释放
+//
+//      def array $type {
+//          *type data @from(alloc_buffer);
+//          int count;
+//      } // array 可以传值
+//
+//      def d_array { // 双端数组
+//          *type data @from(alloc_buffer);
+//          int count;
+//          int start;
+//      }
+//
+//  5. 视图和分片
+//
+//      def array_view $type {
+//          *type data;
+//          int count;
+//      }
+//
+//      def array_slice $type {
+//          *type data;
+//          int count;
+//      }
 //
 // 字符串实现，字符串总是一个 string view，程序不能修改其指向的内容
 //
@@ -539,9 +576,9 @@ for [&it] // 迭代元素捕获
 //      ""  空字符串
 //      "abcd\n"
 //      "abcd\0"
-//      `R"abcd\n"   原始字符串
-//      `I"abcd"         多个字符拼接，其类型为整数常量，最大 u64 八个字符，必须在同一行
-//      `8R"END
+//      `r"abcd\n"   原始字符串
+//      `i"abcd"         多个字符拼接，其类型为整数常量，最大 u64 八个字符，必须在同一行
+//      `8r"END
 //      原始多行字符串，END 不能非空，否则是单行字符串
 //      "END
 //      `8"END
@@ -553,7 +590,7 @@ for [&it] // 迭代元素捕获
 //      f-string 格式化字符串
 //      "string here {variable here} here {variable here}"
 //      variable = "awesome" // f-string 会立即产生字符串
-//      print `F"string here {variable} here {variable}"
+//      print `f"string here {variable} here {variable}"
 //
 //      t-string 是一个模板对象，会保存需要打印的变量的信息
 //      literal part: string here % here %
@@ -561,8 +598,8 @@ for [&it] // 迭代元素捕获
 //      在最终的字符串输出前，可以对动态部分的变量进行任何处理，例如 sanitize/escape validate transfor
 //
 //      let user_input = "<script>alert('yo')</script>"
-//      let msg = `F"<p>{user_input}</p>"
-//      let msg = 'T"<p>{user_input | escape}</p>" // 可以做特殊字符转义
+//      let msg = `f"<p>{user_input}</p>"
+//      let msg = 't"<p>{user_input | escape}</p>" // 可以做特殊字符转义
 //
 
 // 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
@@ -1025,8 +1062,21 @@ let p = *int null, q = *int undefined
 let a = 0, b = byte 0
 let ptr = alloc(1024) or panic()
 let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
-let data = read_tuple(return _, a) // 元组类型值的返回 data[1] data.a
+let data = data{this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
+let data(value error) = read_tuple() // 元组类型值的返回 data[1] data.a，(value error) 必须至少包含两个元素，否则一个元素将被认为是模板类型的实例化
+let a, _ = read_tuple() // 赋值右边必须是一个元组类型
+let _, a, _, b = data // 赋值右边必须是一个元组类型
+let (i32 f64 u08) tup = {500, 6.4, 1}
+let (i32 f64 u08) tup(a b c) = {500, 6.4, 1}
+let tup(a b c) = {500, 6.4, 1}
+let a, b, c = (i32 f64 u08){500, 6.4, 1}
+let tup = {500, 6.4, 1}
+let tup = (i32 f64 u08){500, 6.4, 1}
+let [_]int a = {20, 30, 50}
+let [8]int a = {1, 2, 3, 4}
 let integers = {1, 2, 3}, colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
+let set = {:1, 2, 3, 4, 5, 6}
+let map = {"a":1, "b":2, "c":3}
 let array_ints = {{1,2}, {3,4}, {5,6}} // 数组
 let array_ints = {{1,2}, {3,4,5}} // 元组
 let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
@@ -1176,7 +1226,7 @@ if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
 } elif IDENT {
     ret = expr.id
-} elif TEST where [a b] { // 捕获元组的内容
+} elif TEST(a b) { // 捕获元组的内容
     ret = a + b
 } elif EXPR {
     ret = expr.op
@@ -1190,11 +1240,11 @@ if expr == TEST {
     print("TEST expr: % %", expr.0, expr.1)
 }
 
-if expr == TEST where [_ a] { // 捕获元组的内容
+if expr == TEST(_ a) { // 捕获元组的内容
     print("TEST expr: % %", expr.0, a)
 }
 
-if expr == TEST where [a b] {
+if expr == TEST(a b) {
     expr.a = 1
     print("TEST expr: % %", a, b)
 }
@@ -1930,7 +1980,7 @@ taste
 texture
     smooth true
 
-[#global]
+[global]
 a true
 b 1024
 s "hello"
@@ -1979,7 +2029,7 @@ math:*
      0 从左到右    a,b
 
     交换操作
-        a <> b
+        a <=> b
     一元操作符 ~ 后跟 if 有特殊含义
         for { ... } ~ if expr
     以下两种形式的变量初始化，symb 一定是一个类型名称：
@@ -2013,7 +2063,7 @@ def test {
     int {MASK_BITS} inplace {INT_BITS - MASK_BITS} size; // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int {1} inplace {31} size; // 位域
     int (size | bytes | count); // 成员别名
-    double d | int i | float f g | char c; // 最大类型必须是第一个
+    double d { int i | float f g | {byte b; u32 u} s | byte b, u32 u | char c }; // 最大类型必须是第一个
 }
 
 // 条件语句包含传统C的if和switch：
