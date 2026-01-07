@@ -617,16 +617,16 @@ fac far fat fen fer fin fit fou fro fry fur gen gre lot off per pat pal phr par
 pre pro rem res rim ron rou rut tie via was wow yet
 
 def point @zeroinit @packed {
-    f32 x y
+    f32 x y;
 }
 
 def point {
-    f32 x y
+    f32 x y;
 }
 
 def data {
-    int a b
-    (int a b return int) f g
+    int a b;
+    (int a b return int) f g;
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
@@ -971,31 +971,31 @@ pub color const u08 "strict" { // strict 枚举类型必需为全部枚举手动
 }
 
 def point {
-    float x
-    float y
+    float x;
+    float y;
 }
 
 pub point {
-    float x y
+    float x y;
 }
-
-pub data { int; int; float; string; }
 
 pub coro { // 包外访问，结构体成员只读，以下划线结束的成员不可访问
     u32 rspoffset; // 名为 rspoffset 的私有成员
     u32 loweraddr; // 名为 loweraddr 的私有成员
-    i32 maxudsize 31 ptrparam_ 1;
+    i32 {31} maxudsize {1} ptrparam_;
     i32 coro_id;
 }
 
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
 def (int argc, **char argv return int) func_type
+def (int int float string) tuple_type
 def (*int) int_ptr
 def (*point) point_ptr
 def (point) type_point
 def ([|flat_map|string:]int) type_of_map
 
 pub (int argc, **char argv return int) func_type
+pub (int int float string) tuple_type
 pub (*int) int_ptr
 pub (*point) point_ptr
 pub (point) type_point
@@ -1014,26 +1014,36 @@ def PI = 3.1415926, 2P = 2 * PI
 def PI = 'f64 3.1415926
 def PT = point {100, 200}
 def P2 = point {100, 200}
+def P3 = [0]int {100, 200}
+def P4 = (int int) {100, 200}
+def P5 = {int a b;} {100, 200}
+def P6 = (int a b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
 pub PI = 3.1415926, 2P = 2 * PI
 pub PI = 'f64 3.1415926
 pub PT = point {100, 200}
 pub P2 = point {100, 200}
+pub P3 = [0]int {100, 200}
+pub P4 = (int int) {100, 200}
+pub P5 = {int a b;} {100, 200}
+pub P6 = (int a b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
 def int a = 10, b = 20
 def *int int_ptr = &a
 def *point point_ptr = &point
 def point point = {100, 200}
+def (int a b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+def (int int point) data = {10, 20, {100, 200}}
 def {int a b; point point;} data = {10, 20, {100, 200}}
-def {int; int; point;} data = {10, 20, {100, 200}}
 
 pub int a = 10, b = 20
 pub *int int_ptr = &a
 pub *point point_ptr = &point
 pub point point = {100, 200}
+pub (int a b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+pub (int int point) data = {10, 20, {100, 200}}
 pub {int a b; point point;} data = {10, 20, {100, 200}}
-pub {int; int; point;} data = {10, 20, {100, 200}}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
