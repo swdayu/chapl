@@ -351,7 +351,7 @@
 (int a return int point float (count point scale))
 (*file maybe(none) = stdin, point, string name = "root", string mode return)
 // 元组类型
-(int) // 不是一个元组，元组必须至少包含两个元素
+(int) // 特殊情况外都不是一个元组，元组必须至少包含两个元素，但仍然可以通过 (int $) 来表示
 (int point int)
 (int point int)
 (int int string)
@@ -1180,11 +1180,6 @@ def color const int {
     BLUE
 }
 
-def read_username_result const {
-    OK {string},
-    ERR {unsigned},
-}
-
 def oper const u32 with {u08 lpri rpri} { // sum type
     ASS = '=' {200, 201},
     ADD = '+' {211, 210},
@@ -1196,10 +1191,15 @@ def oper const u32 with {u08 lpri rpri} { // sum type
     END = 0 // 默认值为零
 }
 
+def read_username_result const {
+    OK (string),
+    ERR (unsigned),
+}
+
 def token const { // sum type
     ATOM {byte id},
     OPER {byte id},
-    TEST {int; int},
+    TEST (int int),
     EOF
 }
 
@@ -1218,7 +1218,7 @@ def token eof = {EOF}
 def expr const byte { // 相当于是一种泛型类型
     VALUE {int n}, // 相当于存储 {byte 0 int n}
     IDENT {int id}, // 相当于存储 {byte 1 int n}
-    TEST {int; int},
+    TEST (int int),
     EXPR {int op; *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
