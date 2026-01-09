@@ -27,8 +27,9 @@
 //  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
-//  alignas(n) "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
-//  maybe(none) @nonzero @nonalls @zeroinit @packed
+//  alignas(n) forced_alignas(n) maybe(none) // forced_alignas(n) 不会被 packed 属性抑制
+//  "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
+//  @nonzero @nonalls @zeroinit @packed
 // 内置函数：
 //  abort() panic() assert(expr) debug { stmt ... }
 //  real_assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
@@ -1097,15 +1098,13 @@ let calc = (int a b return int) { return a + b} // 类型字面量可以自动�
 let a = point{100, 200}, b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 let a = int{0}, b = float{3.1415926}
 
-def calc(int a b return int int) {
-    reflex return x, y
+def calc(int a b return int int (x y)) {
     x = a + b
     y = a * b
 }
 
-def calc(int a b return int int or error) {
+def calc(int a b return int int (x y) or error) {
     if a == 0 return e_invalid
-    reflex return x, y
     x = a * b
     y = e_notzero
 }
@@ -1288,7 +1287,6 @@ def eval(oper, expr lhs rhs return expr) {
 }
 
 eval(pub oper def expr lhs rhs return expr) {
-    reflex return expr
     if [oper] '=' then
         expr = .value(rhs.value.n)
         get_symbol(lhs.ident.id).value = rhs.value.n
