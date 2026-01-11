@@ -9870,6 +9870,77 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // WC 缓冲在以下情况也会写回主存：
 //  1.  后续非写合并操作的写地址与当前 WC 缓冲活跃区间匹配
 //  2.  一个 WC 写入操作落在当前活跃区间之外，此时先刷空旧区间，再为最新写建立新区间
+//
+// 内存映射 I/O。处理器实现可以独立地把读、写请求导向系统内存或内存映射 I/O，具体方法因
+// 实现而异。某些实现会在处理器接口中提供独立的系统内存总线与 MMIO 总线，另一些实现则让
+// 系统内存与 MMIO 共用同一组地址和数据总线，系统逻辑通过处理器的边带信号来路由不同访问。
+// 详见特定 AMD64 架构硬件实现的 AMD 数据手册（data sheets）与应用说明。
+//
+// 系统软件可通过 I/O 范围寄存器（IORRs）与 “内存顶端” 寄存器（TOP_MEM / TOP_MEM2）指
+// 定某段地址的访问去向。固定范围的 MTRR 支持对类型字段编码的扩展，使系统软件能够将存储
+// 器访问导向系统内存或内存映射 I/O。在支持这些特性的实现中，当这些特性被禁用时，默认把
+// 内存访问导向 MMIO。
+//
+// “内存顶端” 寄存器 TOP_MEM 与 TOP_MEM2 用于把一段物理地址划为 MMIO 区域。实现可以把
+// 对 MMIO 的访问与系统 I/O 区别对待，具体方法取决于硬件。软件向这两个 MSR 写入地址值即
+// 可定义区域，地址按 8 MB 边界对齐：
+//  1.  0 ～ TOP_MEM-1：导向系统内存
+//  2.  TOP_MEM ～ 0xFFFF_FFFF：导向 MMIO
+//  3.  0x1_0000_0000 ～ TOP_MEM2-1：导向系统内存
+//  4.  TOP_MEM2 ～ 最大物理地址：导向 MMIO
+//
+// 下图展示了 “内存顶端” 寄存器如何把内存划分为独立的系统内存区域与内存映射 I/O 区域。
+//
+//      使用内存顶端寄存器的内存组织方式
+//          物理内存
+//          [Memory-Mapped I/O] 系统内存最大物理地址
+//          [...              ]
+//          [Memory-Mapped I/O] TOP_MEM2
+//          -------------------
+//          [  System Memory  ] TOP_MEM2 - 1
+//          [...              ]
+//          [  System Memory  ] 4GB
+//          -------------------
+//          [Memory-Mapped I/O] 4GB - 1
+//          [...              ]
+//          [Memory-Mapped I/O] TOP_MEM
+//          -------------------
+//          [  System Memory  ] TOP_MEM - 1
+//          [...              ]
+//          [  System Memory  ] 0
+//
+// 内存顶端范围与等效的有效 MTRR 范围之间的交集，遵循与固定范围 MTRR 相同的类型编码表，
+// 其中 RdMem（为 1 导向系统内存）和 WrMem（为 1 导向系统内存）与内存类型被直接绑定
+// 在一起。
+//
+//      固定范围 MTRR 扩展的类型编码表
+//      RdMem   WrMem   Type    Implication or Potential Use
+//      0       0       0 (UC)      UC I/O
+//                      1 (WC)      WC I/O
+//                      4 (WT)      WT I/O
+//                      5 (WP)      WP I/O
+//                      6 (WB)      保留
+//      0       1       0 (UC)      用于创建影子 ROM（Shadowed ROM）
+//                      1 (WC)      用于创建影子 ROM（Shadowed ROM）
+//                      4 (WT)      保留
+//                      5 (WP)      保留
+//                      6 (WB)      保留
+//      1       0       0 (UC)      用于访问影子 ROM（Shadowed ROM）
+//                      1 (WC)      保留
+//                      4 (WT)      保留
+//                      5 (WP)      WP Memory (可用于访问影子 ROM)
+//                      6 (WB)      保留
+//      1       1       0 (UC)      UC Memory
+//                      1 (WC)      WC Memory
+//                      4 (WT)      WT Memory
+//                      5 (WP)      保留
+//                      6 (WB)      WB Memory
+//
+// TOP_MEM 和 TOP_MEM2 的寄存器格式：位 51:23 存放 8 MB 对齐的物理地址，其余位保留，
+// 软件应清零以保持未来兼容。TOP_MEM 系列寄存器为模型专用寄存器（MSR），地址与复位值见
+// “Memory-Typing MSRs” 部分。TOP_MEM 的使能位为 SYSCFG MSR 的 MtrrVarDramEn（位
+// 20），TOP_MEM2 的使能位为 MtrrTom2En（位 21）。对应位为 0 时寄存器被禁用，访问默认
+// 落入 MMIO 空间。注意，实际实现的物理地址位可能少于架构定义的最大宽度。
 
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
