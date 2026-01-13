@@ -9612,6 +9612,41 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 之一返回给请求的处理器：只读且干净、只读且已写、可写且干净、可写且已写。否则由主存提
 // 供最新副本。
 //
+//      缓存 MOESDIF 状态转换
+//
+//      1.0 Reset INVD WBINVD => Invalid
+//      1.1 Dirty (Probe-for-Write) => Invalid
+//      1.2 Modified (Probe-for-Read Probe-for-Write) => Invalid
+//      1.3 Exclusive (Probe-for-Write) => Invalid
+//      1.4 Shared (Probe-for-Write) => Invalid
+//      1.5 Forward (Probe-for-Write) => Invalid
+//      1.6 Owned (Probe-for-Write) => Invalid
+//
+//      2.1 Invalid (Read responding writable, written) => Dirty
+//      2.2 Dirty (Read) => Dirty
+//
+//      3.1 Invalid (Write) => Modified
+//      3.2 Dirty (Write) => Modified
+//      3.3 Modified (Read, Write) => Modified
+//      3.4 Exclusive (Write) => Modified
+//      3.5 Shared (Write) => Modified
+//      3.6 Forward (Write) => Modified
+//      3.7 Owned (Write) => Modified
+//
+//      4.1 Invalid (Read responding writable, clean) => Exclusive
+//      4.2 Exclusive (Read) => Exclusive
+//
+//      5.1 Dirty (Probe-for-Read) => Shared
+//      5.2 Exclusive (Probe Read) => Shared
+//      5.3 Shared (Read Probe-for-Read) => Shared
+//      5.4 Forward (Probe-for-Read) => Shared
+//
+//      6.1 Invalid (Read responding read-only, clean) => Forward
+//      6.2 Forward (Read) => Forward
+//
+//      7.1 Invalid (Read responding read-only, written) => Owned
+//      7.2 Owned (Read Probe-for-Read) => Owned
+//
 // 有两种一般类型的探查：probe-for-read，外部处理器以读取目的请求数据；probe-for-write，
 // 外部处理器以修改目的请求数据，或处理器执行了 CLFLUSH。
 //
