@@ -6671,6 +6671,85 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 // 实现协程栈自动增长的第二种方法，预先分配很大一块虚拟地址空间，但按需进行 commit 和
 // uncommit，初始时 commit 很小一块，但这应该只能按内存页大小进行 commit，而内存页大小
 // 一般为 4KB，对于一般的协程来信，可能还是浪费空间。
+//
+// https://www.chiark.greenend.org.uk/~sgtatham/coroutines.html
+// https://www.lysator.liu.se/c/duffs-device.html
+//
+// #define CO_INIT 0
+// #define CO_RUN 1
+// #define CO_YIELD 2
+// #define CO_DONE 3
+//
+// struct co;
+// typedef void (*co_proc)(struct co *);
+//
+// struct co {
+//      int state;
+//      int label;
+//      co_proc proc;
+//      void *data;
+// };
+//
+// void co_init(struct co *co, co_proc proc, void *data) {
+//      co->state = CO_INIT;
+//      co->label = 0;
+//      co->proc = proc;
+//      co->data = data;
+// }
+//
+// bool co_next(struct co *co) {
+//      if (co->state == CO_DONE) return false;
+//      co->proc(co);
+//      return true;
+// }
+//
+// #define CO_BEGIN(co) \
+//      switch ((co)->label) { \
+//          case 0:
+//
+// #define CO_END(co) \
+//          (co)->state = CO_DONE; \
+//      }
+//
+// #define CO_YIELD(co) \
+//      do {
+//          (co)->label = __LINE__; \
+//          (co)->state = CO_YIELD;
+//          return;
+//      case __LINE__:
+//      } while (0)
+//
+// void co_func(struct co *co) {
+//      Data *data = co->data;
+//      CO_BEGIN(co);
+//      data->current = 2;
+//      while (data->number > 1) {
+//          while (data->number % data->current == 0) {
+//              data->number /= data->current;
+//              data->value = data->current;
+//              CO_YIELD(co);
+//          }
+//          data->current += 1;
+//          data->value = 0;
+//          CO_YIELD(co);
+//      }
+//      CO_END(co);
+// }
+//
+// int main(void) {
+//      struct co co;
+//      Data data;
+//      co_init(&co, co_func, &data);
+//      while (co_next(&co)) {
+//          printf("%d\n", data.value);
+//      }
+//      return 0;
+// }
+//
+// 无栈协程（stackless coroutine）不能保存协程函数内的局部变量，可以不使用局部变量，将
+// 需要用到的内容都放到 data 中访问，或者通过编译器将局部变量都分配到堆中，并关联到 co
+// 的生命周期中。
+
 #ifdef PRH_CORO_INCLUDE
 typedef struct prh_impl_coro prh_coro;
 #define prh_coro_proc prh_fastcall(void)
@@ -9702,6 +9781,15 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 更小对齐边界（跨越比缓存行更小的边界）就执行总线锁。L1 数据缓存行大小与对齐边界由
 // CPUID Fn8000_0005_ECX[L1 Data Cache Identifiers]（位 7:0）给出。
 //
+// 锁缓存时，如果对应的地址未命中，发起 Read-For-Ownership 事务，把最新数据拉进缓存，
+// 并把缓存行的荒唐设置为独占（Exclusive），同一地址如果已经被其他处理器缓存，缓存协议
+// 会把这些行设置为无序（Invalid），保证全局只有一份可写副本。当多个处理器同时执行原子
+// 操作时，硬件通过缓存一致性协议把竞争化解成 “谁先拿到独占行，谁就拥有原子操作权”。缓
+// 存一致性只批准其中一个处理器进入独占状态，其他处理器的请求被阻塞或重试，拿到的缓存行
+// 状态为无效（Invalid）或共享（Shared）。获得独占的处理器继续执行读—改-写并把缓存行设
+// 置为已修改（Modified），在此期间，其他处理器一直被协议挡在门外，它的 LOCK 指令表现
+// 为流水线停顿（stall），知道前者完成并回写或降级状态。
+//
 // 加锁读-改-写操作涵盖下表所列的各类指令。处理器还提供多种机制向系统软件报告总线锁活动，
 // 并降低其发生频率与性能影响：总线锁陷阱见第 8.2.2 节与第 13.1 节（第 391 页），SVM
 // （Secure Virtual Machine）总线锁阈值见第 15.14.5 节。
@@ -10231,6 +10319,16 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 //      CPUID Fn8000_001D_EAX、EBX、ECX、EDX
 //      CPUID Fn8000_001E_EAX、EBX、ECX
 //      CPUID Fn8000_0026_EAX、EBX、ECX、EDX
+//
+// https://en.cppreference.com/w/c/atomic/memory_order.html
+// enum memory_order {
+//      memory_order_relaxed,
+//      memory_order_acquire,
+//      memory_order_release,
+//      memory_order_acq_rel,
+//      memory_order_seq_cst
+// };
+//
 
 #ifdef PRH_ATOMIC_INCLUDE
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
