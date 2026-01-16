@@ -6926,54 +6926,6 @@ bool prh_soro_start(prh_soro_struct *s);
 void prh_soro_reload(prh_soro_struct *s, prh_soroproc_t proc); // udata is not reset
 void prh_soro_finish(prh_soro_struct *s);
 
-// 无栈协程（stackless coroutine）使用注意事项：
-//  1.  协程函数中不能使用局部变量，因为无栈协程没有自己的栈，栈中的局部变量不会保存
-//  2.  将所有用到的变量都记录在无栈协程自己的结构体中，保证数据可以跨越多次挂起和恢复
-//  3.  无效协程自己的结构体使用 prh_co_struct 宏定义，保证 struct prh_co 为第一成员
-//      typedef prh_co_struct(type field; ...) your_co_struct;
-//  4.  协程函数的代码必须包含在 prh_co_begin(co) 和 prh_co_end(co) 之间
-//  5.  协程函数不能直接使用 return 返回，必须使用 prh_co_yield(co) 返回
-//  6.  不然，协程函数下一次执行，不会恢复到上一次挂起的地方继续执行
-
-struct prh_co;
-typedef void (*prh_co_proc)(struct prh_co *co);
-
-struct prh_co {
-    prh_co_proc proc;
-    prh_int prev_yield;
-};
-
-#define prh_co_struct(...) {    \
-     struct prh_co co;          \
-     __VA_ARGS__                \
-}
-
-#define prh_co_field(type) ((type*)co)
-
-prh_inline void prh_co_init(struct prh_co *co, prh_co_proc proc) {
-     co->proc = proc;
-     co->prev_yield = 0;
-}
-
-prh_inline bool prh_co_next(struct prh_co *co) {
-    return (co->prev_yield == -1) ? false : (co->proc(co), true);
-}
-
-#define prh_co_begin(co)                    \
-    switch ((co)->prev_yield) {             \
-    case 0:
-
-#define prh_co_end(co)                      \
-        (co)->prev_yield = -1;              \
-    }
-
-#define prh_co_yield(co)                    \
-        do {                                \
-            (co)->prev_yield = __LINE__;    \
-            return;                         \
-        case __LINE__:                      \
-        } while (0)
-
 #ifdef PRH_CORO_STRIP_PREFIX
 #define coro_t                  prh_coro
 #define soro_t                  prh_soro
@@ -7003,6 +6955,65 @@ prh_inline bool prh_co_next(struct prh_co *co) {
 #define soro_reload             prh_soro_reload
 #define soro_finish             prh_soro_finish
 #endif // PRH_CORO_STRIP_PREFIX
+
+// 无栈协程（stackless coroutine）使用注意事项：
+//  1.  协程函数中不能使用局部变量，因为无栈协程没有自己的栈，栈中的局部变量不会保存
+//  2.  将所有用到的变量都记录在无栈协程自己的结构体中，保证数据可以跨越多次挂起和恢复
+//  3.  无效协程自己的结构体使用 prh_co_struct 宏定义，保证 struct co 为第一成员
+//      typedef prh_co_struct(type field; ...) your_co_struct;
+//  4.  协程函数的代码必须包含在 prh_co_begin(co) 和 prh_co_end(co) 之间
+//  5.  协程函数不能直接使用 return 返回，必须使用 prh_co_yield(co) 返回
+//  6.  不然，协程函数下一次执行，不会恢复到上一次挂起的地方继续执行
+
+struct co;
+typedef void (*prh_co_proc)(struct co *co);
+
+struct co {
+    prh_co_proc proc;
+    prh_int prev_yield;
+};
+
+#define prh_co_struct(...) {    \
+     struct co co;              \
+     __VA_ARGS__                \
+}
+
+#define prh_co_field(type, field) (((type *)co)->field)
+
+prh_inline void prh_co_init(struct co *co, prh_co_proc proc) {
+     co->proc = proc;
+     co->prev_yield = 0;
+}
+
+prh_inline bool prh_co_next(struct co *co) {
+    return (co->prev_yield == -1) ? false : (co->proc(co), true);
+}
+
+#define prh_co_begin(co)                    \
+    switch ((co)->prev_yield) {             \
+    case 0:
+
+#define prh_co_end(co)                      \
+        (co)->prev_yield = -1;              \
+    }
+
+#define prh_co_yield(co)                    \
+        do {                                \
+            (co)->prev_yield = __LINE__;    \
+            return;                         \
+        case __LINE__:                      \
+        } while (0)
+
+#ifndef PRH_CORO_UNSTRIP_PREFIX
+#define co_proc     prh_co_proc
+#define co_struct   prh_co_struct
+#define co_field    prh_co_field
+#define co_init     prh_co_init
+#define co_next     prh_co_next
+#define co_begin    prh_co_begin
+#define co_end      prh_co_end
+#define co_yield    prh_co_yield
+#endif // PRH_CORO_UNSTRIP_PREFIX
 
 #ifdef PRH_CORO_IMPLEMENTATION
 #ifndef PRH_CORO_DEBUG
