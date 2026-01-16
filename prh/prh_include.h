@@ -711,8 +711,8 @@ extern "C" {
 #if prh_arch_bits == 32
     typedef prh_i32 prh_int;
     typedef prh_u32 prh_unt;
-    typedef prh_i32 prh_sys_int;
-    typedef prh_u32 prh_sys_unt;
+    typedef prh_i32 prh_arch_int;
+    typedef prh_u32 prh_arch_unt;
     #define prh_int_bits 32
     #define prh_int_32 1
     #define prh_int_64 0
@@ -730,13 +730,13 @@ extern "C" {
         #define prh_int_32 0
         #define prh_int_64 1
     #endif
-    typedef prh_i64 prh_sys_int;
-    typedef prh_u64 prh_sys_unt;
+    typedef prh_i64 prh_arch_int;
+    typedef prh_u64 prh_arch_unt;
 #else
     #error unsupported architecture
 #endif
     typedef prh_unt prh_ptr;
-    typedef prh_sys_unt prh_sys_ptr;
+    typedef prh_arch_unt prh_arch_ptr;
     typedef float prh_f32;
     typedef double prh_f64;
     typedef prh_f32 prh_float;
@@ -754,14 +754,16 @@ extern "C" {
     prh_static_assert(sizeof(prh_int) == sizeof(void *)); // signed pointer size type
     prh_static_assert(sizeof(prh_unt) == sizeof(void *)); // unsigned pointer size type
     prh_static_assert(sizeof(prh_ptr) == sizeof(prh_unt));
-    prh_static_assert(sizeof(prh_sys_int) == prh_arch_bits / 8); // signed machine generic purpose regiter size type
-    prh_static_assert(sizeof(prh_sys_unt) == prh_arch_bits / 8); // unsigned machine generic purpose register size type
-    prh_static_assert(sizeof(prh_sys_ptr) == sizeof(prh_sys_unt));
+    prh_static_assert(sizeof(prh_arch_int) == prh_arch_bits / 8); // architecture signed type with generic purpose regiter size
+    prh_static_assert(sizeof(prh_arch_unt) == prh_arch_bits / 8); // architecture unsigned type with generic purpose register size
+    prh_static_assert(sizeof(prh_arch_ptr) == sizeof(prh_arch_unt));
     prh_static_assert(sizeof(prh_f32) == 4);
     prh_static_assert(sizeof(prh_f64) == 8);
     prh_static_assert(sizeof(prh_float) == 4);
 #endif
 
+// https://en.cppreference.com/w/cpp/error/errno_macros.html
+// https://en.cppreference.com/w/cpp/error/errc.html
 typedef enum {
     e_success = 0,
     e_failure = 1,
@@ -772,6 +774,7 @@ typedef enum {
     e_already,
     e_already_assigned,
     e_already_attached,
+    e_already_connected,
     e_already_defined,
     e_already_enabled,
     e_already_exist,
@@ -782,6 +785,8 @@ typedef enum {
     e_already_running,
     e_already_waiting,
     e_already_set,
+    e_argument_list_too_long,
+    e_argument_out_of_domain,
     e_assert_failed,
     e_auth_required,
     e_auth_failed,
@@ -789,17 +794,17 @@ typedef enum {
     e_bad_argument,
     e_bad_command,
     e_bad_context,
-    e_bad_dest,
-    e_bad_dev_type,
+    e_bad_device_type,
     e_bad_exchange,
     e_bad_format,
+    e_bad_file_descriptor,
     e_bad_handle,
     e_bad_key,
     e_bad_length,
     e_bad_message,
     e_bad_name,
     e_bad_request,
-    e_bad_req_code,
+    e_bad_request_code,
     e_bad_response,
     e_bad_source,
     e_bad_state,
@@ -807,14 +812,15 @@ typedef enum {
     e_bad_object,
     e_bad_opcode,
     e_bad_path,
-    e_bad_pipe,
     e_bad_slot,
     e_bad_type,
     e_bad_unit,
     e_blocked,
     e_broken,
+    e_broken_pipe,
     e_buffer,
     e_busy,
+    e_device_or_resource_busy,
     e_network_busy,
     e_canceled,
     e_cant_access,
@@ -829,7 +835,7 @@ typedef enum {
     e_cant_start,
     e_cant_write,
     e_changed,
-    e_addr_changed,
+    e_address_changed,
     e_checksum,
     e_closed,
     e_local_closed,
@@ -838,28 +844,32 @@ typedef enum {
     e_remote_error,
     e_closing,
     e_conflict,
-    e_config_error,
+    e_conf_error,
     e_connected,
-    e_conn_abort,
-    e_conn_reset,
-    e_conn_refused,
-    e_corrupt,
+    e_connection_aborted,
+    e_connection_already_in_progress,
+    e_connection_refused,
+    e_connection_reset,
+    e_corrupted,
+    e_cross_device_link,
     e_current_directory,
     e_deadlock,
     e_deleted,
+    e_destination_address_required,
     e_key_deleted,
-    e_dir_not_root,
-    e_dir_not_empty,
+    e_directory_not_root,
+    e_directory_not_empty,
     e_disabled,
     e_discarded,
     e_disconnected,
-    e_divbyzero,
+    e_div_by_zero,
     e_duplicated,
     e_dup_name,
     e_empty,
     e_eof,
     e_error,
     e_exceed,
+    e_excutable_format_error,
     e_exhaust,
     e_exist,
     e_file_exist,
@@ -877,21 +887,25 @@ typedef enum {
     e_disk_full,
     e_queue_full,
     e_halted,
-    e_hostdown,
-    e_hostunreach,
-    e_hw_error,
-    e_adap_hw_error,
+    e_host_down,
+    e_hardware_error,
+    e_adapter_hardware_error,
     e_ignored,
     e_illegal,
     e_incompatible,
     e_incomplete,
     e_inconsistent,
     e_infected,
-    e_inuse,
-    e_addrinuse,
+    e_in_use,
+    e_address_in_use,
+    e_address_family_not_supported,
+    e_address_not_available,
+    e_identifier_removed,
+    e_illegal_byte_sequence,
     e_invalid,
     e_invalid_access,
     e_invalid_address,
+    e_invalid_argument,
     e_invalid_category,
     e_invalid_config,
     e_invalid_data,
@@ -904,12 +918,12 @@ typedef enum {
     e_invalid_message,
     e_invalid_name,
     e_invalid_object,
-    e_invalid_param,
     e_invalid_password,
     e_invalid_username,
     e_invalid_protocol,
     e_invalid_query,
     e_invalid_range,
+    e_invalid_seek,
     e_invalid_size,
     e_invalid_state,
     e_invalid_type,
@@ -917,6 +931,7 @@ typedef enum {
     e_insecure,
     e_insufficient,
     e_internal_error,
+    e_inappropriate_io_control_operation,
     e_intruppted,
     e_lock,
     e_lock_failed,
@@ -928,19 +943,31 @@ typedef enum {
     e_is_directory,
     e_misalignment,
     e_mismatch,
+    e_message_size,
     e_modify,
     e_more_data,
-    e_netdown,
     e_network,
+    e_network_down,
     e_network_error,
-    e_no_bufs,
+    e_network_reset,
+    e_no_buffer_space,
     e_no_data,
     e_no_more,
     e_no_more_files,
     e_no_more_items,
     e_no_space,
+    e_no_child_process,
     e_no_children,
     e_no_parent,
+    e_no_link,
+    e_no_lock_available,
+    e_no_message,
+    e_no_protocol_option,
+    e_no_space_on_device,
+    e_no_such_device_or_address,
+    e_no_such_device,
+    e_no_such_file_or_directory,
+    e_no_such_process,
     e_no_resource,
     e_not_accept,
     e_not_active,
@@ -953,9 +980,11 @@ typedef enum {
     e_not_directory,
     e_not_empty,
     e_not_enable,
+    e_not_enough_memory,
     e_not_exist,
-    e_dev_not_exist,
-    e_dir_not_exist,
+    e_not_socket,
+    e_device_not_exist,
+    e_directory_not_exist,
     e_file_not_exist,
     e_not_found,
     e_file_not_found,
@@ -983,7 +1012,7 @@ typedef enum {
     e_not_safe,
     e_not_set,
     e_not_started,
-    e_not_support,
+    e_not_supported,
     e_not_sync,
     e_not_trust,
     e_not_unique,
@@ -1000,11 +1029,17 @@ typedef enum {
     e_oper_pending,
     e_open,
     e_open_failed,
-    e_outofbound,
-    e_outofdomain,
-    e_outofmemory,
-    e_outofrange,
+    e_operation_canceled,
+    e_operation_in_progress,
+    e_operation_not_permitted,
+    e_operation_not_supported,
+    e_operation_would_block,
+    e_out_of_bound,
+    e_out_of_domain,
+    e_out_of_memory,
+    e_out_of_range,
     e_overflow,
+    e_owner_dead,
     e_stack_overflow,
     e_partial,
     e_partial_copy,
@@ -1014,13 +1049,18 @@ typedef enum {
     e_partial_send,
     e_paused,
     e_pending,
+    e_permission_denied,
     e_protocol,
+    e_protocol_error,
+    e_protocol_not_supported,
+    e_wrong_protocol_type,
     e_prohibited,
     e_reach_end,
     e_reach_limit,
     e_read,
     e_read_failed,
     e_read_only,
+    e_read_only_file_system,
     e_receive,
     e_recv_failed,
     e_recv_closed,
@@ -1049,6 +1089,7 @@ typedef enum {
     e_write_protect,
     e_too_large,
     e_file_too_large,
+    e_value_too_large,
     e_too_many,
     e_too_many_cmds,
     e_too_many_levels,
@@ -1083,6 +1124,8 @@ typedef enum {
     e_unknown,
     e_unknown_error,
     e_unreachable,
+    e_host_unreachable,
+    e_network_unreachable,
     e_unrecognized,
     e_unused,
 } prh_error_code;
@@ -6810,6 +6853,7 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 // 随后便没有什么用处。很多人说，C 最糟糕的特点是 switch 不会在每个 case 标签之前自动
 // break，但这段代码在个辩论中表达不一样的观点。
 //
+// https://gcc.gnu.org/onlinedocs/gcc/Labels-as-Values.html
 // https://eli.thegreenplace.net/2012/07/12/computed-goto-for-efficient-dispatch-tables
 //
 // 计算型跳转（computed goto）是 GCC 等编译器提供的一项非标准 C 语言扩展，它允许在运行
@@ -6959,10 +7003,10 @@ void prh_soro_finish(prh_soro_struct *s);
 // 无栈协程（stackless coroutine）使用注意事项：
 //  1.  协程函数中不能使用局部变量，因为无栈协程没有自己的栈，栈中的局部变量不会保存
 //  2.  将所有用到的变量都记录在无栈协程自己的结构体中，保证数据可以跨越多次挂起和恢复
-//  3.  无效协程自己的结构体使用 prh_co_struct 宏定义，保证 struct co 为第一成员
-//      typedef prh_co_struct(type field; ...) your_co_struct;
-//  4.  协程函数的代码必须包含在 prh_co_begin(co) 和 prh_co_end(co) 之间
-//  5.  协程函数不能直接使用 return 返回，必须使用 prh_co_yield(co) 返回
+//  3.  无效协程自己的结构体使用 co_struct 宏定义，保证 struct co 为第一成员
+//      typedef co_struct(type field; ...) your_co_struct;
+//  4.  协程函数的代码必须包含在 co_begin(co) 和 co_end(co) 之间
+//  5.  协程函数不能直接使用 return 返回，必须使用 co_yield(co) 返回
 //  6.  不然，协程函数下一次执行，不会恢复到上一次挂起的地方继续执行
 
 struct co;
