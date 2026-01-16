@@ -6672,16 +6672,16 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 // uncommit，初始时 commit 很小一块，但这应该只能按内存页大小进行 commit，而内存页大小
 // 一般为 4KB，对于一般的协程来信，可能还是浪费空间。
 //
+// https://www.gnu.org/software/c-intro-and-ref/manual/html_node/Duffs-Device.html
 // https://www.chiark.greenend.org.uk/~sgtatham/coroutines.html
 // https://www.lysator.liu.se/c/duffs-device.html
 //
 // #define CO_INIT 0
 // #define CO_RUN 1
-// #define CO_YIELD 2
-// #define CO_DONE 3
+// #define CO_DONE 2
 //
 // struct co;
-// typedef void (*co_proc)(struct co *);
+// typedef void (*co_proc)(struct co *co, void *data);
 //
 // struct co {
 //      int state;
@@ -6699,13 +6699,14 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 //
 // bool co_next(struct co *co) {
 //      if (co->state == CO_DONE) return false;
-//      co->proc(co);
+//      co->proc(co, co->data);
 //      return true;
 // }
 //
 // #define CO_BEGIN(co) \
 //      switch ((co)->label) { \
-//          case 0:
+//      case 0:
+//          (co)->state = CO_RUN;
 //
 // #define CO_END(co) \
 //          (co)->state = CO_DONE; \
@@ -6714,26 +6715,54 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 // #define CO_YIELD(co) \
 //      do {
 //          (co)->label = __LINE__; \
-//          (co)->state = CO_YIELD;
 //          return;
 //      case __LINE__:
 //      } while (0)
 //
-// void co_func(struct co *co) {
-//      Data *data = co->data;
+// void co_func(struct co *co, void *data) {
+//      // Data *data = co->data; // 不能使用局部变量
 //      CO_BEGIN(co);
-//      data->current = 2;
-//      while (data->number > 1) {
-//          while (data->number % data->current == 0) {
-//              data->number /= data->current;
-//              data->value = data->current;
+//      ((Data *)data)->current = 2;
+//      while (((Data *)data)->number > 1) {
+//          while (((Data *)data)->number % ((Data *)data)->current == 0) {
+//              ((Data *)data)->number /= ((Data *)data)->current;
+//              ((Data *)data)->value = ((Data *)data)->current;
 //              CO_YIELD(co);
 //          }
-//          data->current += 1;
-//          data->value = 0;
+//          ((Data *)data)->current += 1;
+//          ((Data *)data)->value = 0;
 //          CO_YIELD(co);
 //      }
 //      CO_END(co);
+// }
+//
+// void co_func_expanded(struct co *co, void *data) {
+//      switch (co->label) {
+//      case 0:
+//          co->state = CO_RUN;
+//          ((Data *)data)->current = 2;
+//          while (((Data *)data)->number > 1) {
+//              while (((Data *)data)->number % ((Data *)data)->current == 0) {
+//                  ((Data *)data)->number /= ((Data *)data)->current;
+//                  ((Data *)data)->value = ((Data *)data)->current;
+//                  do {
+//                      co->label = LINE_1;
+//                      co->state = CO_YIELD;
+//                      return;
+//      case LINE_1:
+//                  } while (0);
+//              }
+//              ((Data *)data)->current += 1;
+//              ((Data *)data)->value = 0;
+//              do {
+//                  co->label = LINE_2;
+//                  co->state = CO_YIELD;
+//                  return;
+//      case LINE_2:
+//              } while (0);
+//          }
+//          co->state = CO_DONE;
+//      }
 // }
 //
 // int main(void) {
@@ -6749,6 +6778,37 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 // 无栈协程（stackless coroutine）不能保存协程函数内的局部变量，可以不使用局部变量，将
 // 需要用到的内容都放到 data 中访问，或者通过编译器将局部变量都分配到堆中，并关联到 co
 // 的生命周期中。
+//
+// void send(char *to, char *from, int count) {
+//      int n = (count + 7) / 8;
+//      switch (count % 8) { // count 不需要是 8 的倍数，可以是任意值
+//          do {
+//          case 0:
+//              *to++ = *from++;
+//          case 7:
+//              *to++ = *from++;
+//          case 6:
+//              *to++ = *from++;
+//          case 5:
+//              *to++ = *from++;
+//          case 4:
+//              *to++ = *from++;
+//          case 3:
+//              *to++ = *from++;
+//          case 2:
+//              *to++ = *from++;
+//          case 1:
+//              *to++ = *from++;
+//          } while (--n > 0);
+//      }
+// }
+//
+// Tom Duff's Device。可以将任意的循环展开，例如上例 count 不一定需要是 8 的倍数。从
+// switch 的角度看，根据 count 可以跳转到对应的 case，然后执行 do-while 循环，然后退
+// 出循环，switch 语句随之结束。从 do-while 循环的角度看，每个 case 其实就相当于一个
+// 标签，对循环的执行可以忽略，case 的作用仅仅是为了进入 switch 语句后进行一次跳转而已，
+// 随后便没有什么用处。很多人说，C 最糟糕的特点是 switch 不会在每个 case 标签之前自动
+// break，但这段代码在个辩论中表达不一样的观点。
 
 #ifdef PRH_CORO_INCLUDE
 typedef struct prh_impl_coro prh_coro;
