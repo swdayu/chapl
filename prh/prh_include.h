@@ -6809,6 +6809,60 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 // 标签，对循环的执行可以忽略，case 的作用仅仅是为了进入 switch 语句后进行一次跳转而已，
 // 随后便没有什么用处。很多人说，C 最糟糕的特点是 switch 不会在每个 case 标签之前自动
 // break，但这段代码在个辩论中表达不一样的观点。
+//
+// https://eli.thegreenplace.net/2012/07/12/computed-goto-for-efficient-dispatch-tables
+//
+// 计算型跳转（computed goto）是 GCC 等编译器提供的一项非标准 C 语言扩展，它允许在运行
+// 时通过指针变量来决定 goto 的目标标签，而不是像普通 goto 那样在源码里写死标签名。核心
+// 机制如下。典型用途是字节码或虚拟机解释器，用跳转表代替巨大的 switch(opcode)，省掉一
+// 次边界检查与分支预测失误，解释循环可提速 10–30%；手写状态机、协议解析器等对分支性能
+// 极度敏感的场景。
+//  1.  用运算符 && 取标签的地址，得到 void* 类型的指针
+//  2.  把该指针存起来，单个指针或数组，俗称 “跳转表”
+//  3.  用 goto *ptr; 完成真正的跳转，CPU 直接跳到指针里保存的地址继续执行
+//
+// #define opcode(i) bytecode[i]
+//
+// void interpret(int *stack, int *bytecode) {
+//      static void *jump_table[] = {&&op_add, &&op_sub, &&op_mul, &&op_div};
+//      int i = 0;
+//      goto *jump_table[opcode(i++)];
+// op_add:
+//      stack[0] = stack[0] + stack[1];
+//      goto *jump_table[opcode(i++)];
+// op_sub:
+//      stack[0] = stack[0] - stack[1];
+//      goto *jump_table[opcode(i++)];
+// op_mul:
+//      stack[0] = stack[0] * stack[1];
+//      goto *jump_table[opcode(i++)];
+// op_div:
+//      stack[0] = stack[0] / stack[1];
+//      goto *jump_table[opcode(i++)];
+// }
+//
+// 计算型跳转比 switch 快的原因有两点：一是 switch 每次都要进行边界检查看是否跳到默认
+// default 分支，而计算型跳转直接跳转；二是计算型跳转更容易被分支预测器预测。为什么需要
+// 边界检查呢，你可能认为是因为 default 分支，其实即使没有 default 分支，编译器还是会
+// 为 switch 生成边界检查代码以满足 C 语言标准，因为 C99 标准说：如果没有匹配的 case
+// 也没有提供 default 分支，那么不执行 switch 语句的任何代码。因此 switch 语句总存在
+// 一个这样的特别边界条件需要额外检查。
+//
+// 现代 CPU 拥有很深的指令流水线，并会不遗余力地让流水线尽可能保持满载。而 “分支” 是破
+// 坏流水线节奏的头号元凶，因此才有了分支预测器的存在。简单而言，它是 CPU 内部的一种算
+// 法，用来提前猜测某个分支是否会被实际执行。一旦猜中，CPU 早已把目标地址的指令预取进来，
+// 流水线无需被完全清空，性能自然不受拖累。
+//
+// 分支预测器的工作方式是将 “指令地址” 映射到跳转分支，它会根据这个地址跳转历史进行预测。
+// 由于 switch 语句在机器码里只产生一次 “主跳转”，所有操作码都挤在这一处分发，预测器很
+// 难摸清它下一步到底跳向何方。反观计算型跳转，编译器会为每个操作码生成独立的跳转指令，
+// 只要指令常常成对出现，预测器就更容易把各个跳转地址逐个 “锁定”。换个角度想：预测器会为
+// 每一处跳转单独记录 “下一次会跳到哪”。如果每个操作码都有自己的跳转，那就相当于在猜测
+// “某条指令后面最常跟的是哪条指令”，这种猜测偶尔还能蒙对；而若全部操作码共用一条跳转，
+// 它们彼此干扰、互相踩脚，预测历史被不断冲刷，命中率自然惨不忍睹。
+//
+// 我不敢断言在上述两种因素中，究竟是哪一个对性能的贡献更大，但如果非要押注，我会把筹码
+// 放在 “分支预测” 上。
 
 #ifdef PRH_CORO_INCLUDE
 typedef struct prh_impl_coro prh_coro;
