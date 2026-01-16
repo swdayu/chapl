@@ -6672,9 +6672,9 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 // uncommit，初始时 commit 很小一块，但这应该只能按内存页大小进行 commit，而内存页大小
 // 一般为 4KB，对于一般的协程来信，可能还是浪费空间。
 //
-// https://www.gnu.org/software/c-intro-and-ref/manual/html_node/Duffs-Device.html
 // https://www.chiark.greenend.org.uk/~sgtatham/coroutines.html
 // https://www.lysator.liu.se/c/duffs-device.html
+// https://www.gnu.org/software/c-intro-and-ref/manual/html_node/Duffs-Device.html
 //
 // #define CO_INIT 0
 // #define CO_RUN 1
@@ -6777,7 +6777,7 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 //
 // 无栈协程（stackless coroutine）不能保存协程函数内的局部变量，可以不使用局部变量，将
 // 需要用到的内容都放到 data 中访问，或者通过编译器将局部变量都分配到堆中，并关联到 co
-// 的生命周期中。
+// 的生命周期中。当然，还可以将函数内部的变量声明为静态变量。
 //
 // void send(char *to, char *from, int count) {
 //      int n = (count + 7) / 8;
@@ -6925,6 +6925,54 @@ void *prh_soro_creatx(prh_soro_struct *s, prh_soroproc_t proc, int stack_size, i
 bool prh_soro_start(prh_soro_struct *s);
 void prh_soro_reload(prh_soro_struct *s, prh_soroproc_t proc); // udata is not reset
 void prh_soro_finish(prh_soro_struct *s);
+
+// 无栈协程（stackless coroutine）使用注意事项：
+//  1.  协程函数中不能使用局部变量，因为无栈协程没有自己的栈，栈中的局部变量不会保存
+//  2.  将所有用到的变量都记录在无栈协程自己的结构体中，保证数据可以跨越多次挂起和恢复
+//  3.  无效协程自己的结构体使用 prh_co_struct 宏定义，保证 struct prh_co 为第一成员
+//      typedef prh_co_struct(type field; ...) your_co_struct;
+//  4.  协程函数的代码必须包含在 prh_co_begin(co) 和 prh_co_end(co) 之间
+//  5.  协程函数不能直接使用 return 返回，必须使用 prh_co_yield(co) 返回
+//  6.  不然，协程函数下一次执行，不会恢复到上一次挂起的地方继续执行
+
+struct prh_co;
+typedef void (*prh_co_proc)(struct prh_co *co);
+
+struct prh_co {
+    prh_co_proc proc;
+    prh_int prev_yield;
+};
+
+#define prh_co_struct(...) {    \
+     struct prh_co co;          \
+     __VA_ARGS__                \
+}
+
+#define prh_co_field(type) ((type*)co)
+
+prh_inline void prh_co_init(struct prh_co *co, prh_co_proc proc) {
+     co->proc = proc;
+     co->prev_yield = 0;
+}
+
+prh_inline bool prh_co_next(struct prh_co *co) {
+    return (co->prev_yield == -1) ? false : (co->proc(co), true);
+}
+
+#define prh_co_begin(co)                    \
+    switch ((co)->prev_yield) {             \
+    case 0:
+
+#define prh_co_end(co)                      \
+        (co)->prev_yield = -1;              \
+    }
+
+#define prh_co_yield(co)                    \
+        do {                                \
+            (co)->prev_yield = __LINE__;    \
+            return;                         \
+        case __LINE__:                      \
+        } while (0)
 
 #ifdef PRH_CORO_STRIP_PREFIX
 #define coro_t                  prh_coro
