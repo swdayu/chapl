@@ -896,7 +896,9 @@ typedef enum {
     e_corrupted,
     e_cross_device_link,
     e_current_directory,
+    e_device_error,
     e_deadlock,
+    e_resource_deadlock,
     e_deleted,
     e_destination_address_required,
     e_directory_not_root,
@@ -925,6 +927,7 @@ typedef enum {
     e_fatal_error,
     e_fault,
     e_segment_fault,
+    e_file_busy,
     e_file_error,
     e_file_type,
     e_file_format,
@@ -1002,6 +1005,7 @@ typedef enum {
     e_invalid_destination,
     e_invalid_device_type,
     e_invalid_type,
+    e_invalid_time,
     e_invalid_value,
     e_invalid_version,
     e_invalid_unit,
@@ -1032,7 +1036,6 @@ typedef enum {
     e_no_more,
     e_no_more_files,
     e_no_more_items,
-    e_no_space,
     e_no_child_process,
     e_no_children,
     e_no_parent,
@@ -1040,6 +1043,7 @@ typedef enum {
     e_no_lock_available,
     e_no_message,
     e_no_protocol_option,
+    e_no_space,
     e_no_space_on_device,
     e_no_such_device_or_address,
     e_no_such_device,
@@ -1083,6 +1087,7 @@ typedef enum {
     e_not_present,
     e_not_ready,
     e_not_recoverable,
+    e_state_not_recoverable,
     e_not_registered,
     e_not_root,
     e_not_same,
@@ -1091,6 +1096,7 @@ typedef enum {
     e_not_set,
     e_not_started,
     e_not_supported,
+    e_function_not_supported,
     e_not_sync,
     e_not_trust,
     e_not_unique,
@@ -6833,6 +6839,7 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 //
 // struct co;
 // typedef void (*co_proc)(struct co *co, void *data);
+// typedef void (*async_co_proc)(struct async_co *co);
 //
 // struct co {
 //      int state;
@@ -6852,6 +6859,15 @@ void prh_virtual_decommit(void *page, prh_unt size) {
 //      if (co->state == CO_DONE) return false;
 //      co->proc(co, co->data);
 //      return true;
+// }
+//
+// void co_async_echo_server(struct async_co *co) {
+//      async_co_init(co, my_async_co(async_read));
+//      async_co_init(co, my_async_co(async_write));
+//      for (; ;) {
+//          co_await(my_co_field(async_co_read));
+//          co_await(my_co_field(async_co_write));
+//      }
 // }
 //
 // #define CO_BEGIN(co) \
@@ -7116,18 +7132,36 @@ void prh_soro_finish(prh_soro_struct *s);
 //  4.  协程函数的代码必须包含在 co_begin(co) 和 co_end(co) 之间
 //  5.  协程函数不能直接使用 return 返回，必须使用 co_yield(co) 返回
 //  6.  不然，协程函数下一次执行，不会恢复到上一次挂起的地方继续执行
+//  7.  co_yield(co) 挂起协程的执行，返回当前的执行结果，之后可在挂起的地方继续执行
+//  8.  对于一般的不会阻塞的协程，只要反复调用 co_next(co) 获取结果直到执行完毕即可
+//  9.  co_await(callee) 挂起当前执行协程，执行子协程，并异步地等待子协程返回结果
+//  10. 对于异步协程，存在一个只调用 co_await() 的顶层协程并通过 async_co_start 启动
+//  11. 顶层协程如果调用 co_yield()，将没有更上一层的调用者恢复它的执行，导致永远挂起
 
 struct co;
+struct async_co;
 typedef void (*prh_co_proc)(struct co *co);
+typedef void (*prh_async_co_proc)(struct async_co *co);
 
 struct co {
     prh_co_proc proc;
     prh_int prev_yield;
 };
 
-#define prh_co_struct(...) {    \
-     struct co co;              \
-     __VA_ARGS__                \
+struct async_co {
+    prh_async_co_proc proc;
+    prh_int prev_yield;
+    struct async_co *caller;
+};
+
+#define prh_co_struct(...) {            \
+     struct co co;                      \
+     __VA_ARGS__                        \
+}
+
+#define prh_async_co_struct(...) {      \
+     struct async_co co;                \
+     __VA_ARGS__                        \
 }
 
 #define prh_co_field(type, field) (((type *)co)->field)
@@ -7139,6 +7173,19 @@ prh_inline void prh_co_init(struct co *co, prh_co_proc proc) {
 
 prh_inline bool prh_co_next(struct co *co) {
     return (co->prev_yield == -1) ? false : (co->proc(co), true);
+}
+
+prh_inline void prh_async_co_init(struct async_co *caller, struct async_co *co, prh_async_co_proc proc) {
+    co->proc = proc;
+    co->prev_yield = 0;
+    co->caller = caller;
+}
+
+prh_inline void prh_async_co_start(struct async_co *co, prh_async_co_proc proc) {
+    co->proc = proc;
+    co->prev_yield = 0;
+    co->caller = prh_null;
+    proc(co);
 }
 
 #define prh_co_begin(co)                    \
@@ -7156,15 +7203,28 @@ prh_inline bool prh_co_next(struct co *co) {
         case __LINE__:                      \
         } while (0)
 
+#define prh_co_await(co)                    \
+        do {                                \
+            (co)->prev_yield = __LINE__;    \
+            (co)->proc(co);                 \
+            return;                         \
+        case __LINE__:                      \
+        } while (0)
+
 #ifndef PRH_CORO_UNSTRIP_PREFIX
-#define co_proc     prh_co_proc
-#define co_struct   prh_co_struct
-#define co_field    prh_co_field
-#define co_init     prh_co_init
-#define co_next     prh_co_next
-#define co_begin    prh_co_begin
-#define co_end      prh_co_end
-#define co_yield    prh_co_yield
+#define co_proc         prh_co_proc
+#define co_struct       prh_co_struct
+#define co_field        prh_co_field
+#define co_init         prh_co_init
+#define co_next         prh_co_next
+#define co_begin        prh_co_begin
+#define co_end          prh_co_end
+#define co_yield        prh_co_yield
+#define co_await        prh_co_await
+#define async_co_proc   prh_async_co_proc
+#define async_co_struct prh_async_co_struct
+#define async_co_init   prh_async_co_init
+#define async_co_start  prh_async_co_start
 #endif // PRH_CORO_UNSTRIP_PREFIX
 
 #ifdef PRH_CORO_IMPLEMENTATION
@@ -7189,7 +7249,7 @@ void prh_impl_coro_stack_segmentation_fault(prh_coro *coro) {
     abort();
 }
 
-// coroutine stack layout:
+// stackful coroutine stack layout:
 //  lower memery address
 //  [prh_impl_coro_guard    ]
 //  [       ...             ]
