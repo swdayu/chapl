@@ -767,6 +767,41 @@ extern "C" {
 typedef enum {
     e_success = 0,
     e_failure = 1,
+    e_error_code_1 = 1,
+    e_error_code_2,
+    e_error_code_3,
+    e_error_code_4,
+    e_error_code_5,
+    e_error_code_6,
+    e_error_code_7,
+    e_error_code_8,
+    e_error_code_9,
+    e_error_code_a,
+    e_error_code_b,
+    e_error_code_c,
+    e_error_code_d,
+    e_error_code_e,
+    e_error_code_f,
+    e_error_code_g,
+    e_error_code_h,
+    e_error_code_i,
+    e_error_code_j,
+    e_error_code_k,
+    e_error_code_l,
+    e_error_code_m,
+    e_error_code_n,
+    e_error_code_o,
+    e_error_code_p,
+    e_error_code_q,
+    e_error_code_r,
+    e_error_code_s,
+    e_error_code_t,
+    e_error_code_u,
+    e_error_code_v,
+    e_error_code_w,
+    e_error_code_x,
+    e_error_code_y,
+    e_error_code_z,
     e_aborted,
     e_access_error,
     e_access_denied,
@@ -21266,21 +21301,31 @@ prh_static_assert(PRH_THRD_TX_QUE_BLOCK_SIZE == PRH_IMPL_THRD_QUE_BLOCK_SIZE_L1 
 
 typedef struct prh_atom_queue_block prh_atom_queue_block;
 
+// 线程发送队列
+//  1.  生产者是当前线程
+//  2.  消费者是调度线程
+//  3.  发给调度线程的消息调度线程自己消费
+//  4.  发给其他线程的消息调度线程负责转发
+//  5.  释放的内存块由调度线程通过释放队列还给生产者线程
 typedef struct { // 仅由生产者线程访问
     void **tail_block_tail_item; // 必须是第一个成员
     void **free_block_head_item;
-} prh_atom_thrd_que_producer;
+} prh_atom_thrd_tx_producer;
 
 typedef struct { // 仅由消费者线程访问
     void **head_block_head_item; // 必须是第一个成员
     void **free_block_tail_item;
-} prh_atom_thrd_que_consumer;
+} prh_atom_thrd_tx_consumer;
 
 typedef struct { // 生产者和消费者线程共同访问
     prh_atom_int queue_length; // 必须是第一个成员
     prh_atom_int free_block_count;
-} prh_atom_thrd_que_length;
+} prh_atom_thrd_tx_length;
 
+// 线程或协程接收队列
+//  1.  生产者为调度线程
+//  2.  消费者为对应线程或协程
+//  3.  消费完之后，通过线程的发送队列还给调度线程
 typedef struct { // 仅由生产者线程访问
     void **tail_block_tail_item;
 } prh_atom_thrd_rx_producer;
@@ -21299,10 +21344,10 @@ typedef struct { // 仅由生产者线程访问
     prh_int free_block_count;
 } prh_atom_thrd_rx_freed_queue;
 
-prh_static_assert(prh_offsetof(prh_atom_thrd_rx_producer, tail_block_tail_item) == prh_offsetof(prh_atom_thrd_que_producer, tail_block_tail_item));
-prh_static_assert(prh_offsetof(prh_atom_thrd_rx_consumer, head_block_head_item) == prh_offsetof(prh_atom_thrd_que_consumer, head_block_head_item));
-prh_static_assert(prh_offsetof(prh_atom_thrd_rx_length, queue_length) == prh_offsetof(prh_atom_thrd_que_length, queue_length));
-prh_static_assert(sizeof(prh_atom_thrd_rx_length) == sizeof(prh_atom_thrd_que_length) / 2);
+prh_static_assert(prh_offsetof(prh_atom_thrd_rx_producer, tail_block_tail_item) == prh_offsetof(prh_atom_thrd_tx_producer, tail_block_tail_item));
+prh_static_assert(prh_offsetof(prh_atom_thrd_rx_consumer, head_block_head_item) == prh_offsetof(prh_atom_thrd_tx_consumer, head_block_head_item));
+prh_static_assert(prh_offsetof(prh_atom_thrd_rx_length, queue_length) == prh_offsetof(prh_atom_thrd_tx_length, queue_length));
+prh_static_assert(sizeof(prh_atom_thrd_rx_length) == sizeof(prh_atom_thrd_tx_length) / 2);
 
 typedef struct {
     void *post_req; // 必须是第一个成员
@@ -21368,7 +21413,7 @@ prh_static_assert(sizeof(prh_iocp_thrd_req) == 3 * sizeof(void *));
 prh_static_assert(sizeof(prh_coro_thrd_req) == 3 * sizeof(void *));
 
 typedef struct { // 被工作线程和调度线程共享的线程数据
-    prh_atom_thrd_que_length thrd_tx_que_length;                //  8   16
+    prh_atom_thrd_tx_length thrd_tx_que_length;                 //  8   16
     prh_atom_thrd_rx_length thrd_rx_que_length;                 //  12  24
     bool thrd_wakeup_cond;                                      //  16  32
     prh_thrd_cond thrd_sleep_cond;                              //
@@ -21380,7 +21425,7 @@ typedef struct { // 被工作线程和调度线程共享的线程数据
 //  prh_u32 thrd_id: 31, created: 1;                            //  12  20  只读
 typedef struct prh_thrd_struct(                                 //
     prh_atom_bool atom_thrd_exit;                               //  16  24  仅在程序退出时被调度线程写入一次，其他时间仅由工作线程访问
-    prh_atom_thrd_que_producer thrd_tx_que_producer;            //  24  40  仅由工作线程访问
+    prh_atom_thrd_tx_producer thrd_tx_que_producer;             //  24  40  仅由工作线程访问
     prh_atom_thrd_rx_consumer thrd_rx_consumer;                 //  28  48  仅由工作线程访问
     prh_byte *linear_memory_buffer_top;                         //  32  56  只能释放最后分配的内存，只能线性地在一条绳索上滑动
     prh_byte *braver_memory_cache_line;                         //  36  64  分配了就分配了释放不了的内存，永远向前不能后退的内存，每次分配缓存行的整数倍
@@ -21468,10 +21513,10 @@ prh_atom_queue_block *prh_impl_atom_queue_get_block(prh_atom_queue_block *free_b
     return free_block;
 }
 
-typedef prh_atom_queue_block *(*prh_atom_thrd_que_block_alloc_routine)(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l);
-typedef void (*prh_atom_thrd_que_block_free_routine)(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l, void **block_end);
+typedef prh_atom_queue_block *(*prh_atom_thrd_que_block_alloc_routine)(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_length *l);
+typedef void (*prh_atom_thrd_que_block_free_routine)(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_length *l, void **block_end);
 
-void prh_impl_atom_thrd_tx_que_push_free_block(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_length *l, void **block_end) {
+void prh_impl_atom_thrd_tx_que_push_free_block(prh_atom_thrd_tx_consumer *c, prh_atom_thrd_tx_length *l, void **block_end) {
     prh_atom_queue_block *free_block = prh_impl_atom_queue_block_from_end(block_end, PRH_IMPL_THRD_TX_QUE_BLOCK_END_OFFSET);
     assert(free_block != prh_null && free_block != PRH_ATOM_DYNQUE_BLOCK_END);
     if (c->free_block_tail_item[0] == PRH_ATOM_DYNQUE_BLOCK_END) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
@@ -21485,7 +21530,7 @@ void prh_impl_atom_thrd_tx_que_push_free_block(prh_atom_thrd_que_consumer *c, pr
     prh_atom_int_inc(&l->free_block_count); // 可用空闲块加一
 }
 
-prh_atom_queue_block *prh_impl_atom_thrd_tx_que_pop_free_block(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l) {
+prh_atom_queue_block *prh_impl_atom_thrd_tx_que_pop_free_block(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_length *l) {
     prh_atom_int *free_block_count = &l->free_block_count;
     if (!prh_atom_int_read(free_block_count)) return prh_null;
     prh_atom_queue_block *free_block;
@@ -21501,11 +21546,11 @@ prh_atom_queue_block *prh_impl_atom_thrd_tx_que_pop_free_block(prh_atom_thrd_que
     return free_block;
 }
 
-prh_atom_queue_block *prh_impl_atom_thrd_tx_que_alloc_block(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l) {
+prh_atom_queue_block *prh_impl_atom_thrd_tx_que_alloc_block(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_length *l) {
     return prh_impl_atom_queue_get_block(prh_impl_atom_thrd_tx_que_pop_free_block(p, l), PRH_THRD_TX_QUE_BLOCK_SIZE);
 }
 
-void prh_atom_thrd_tx_que_init(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_length *l) {
+void prh_atom_thrd_tx_que_init(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_consumer *c, prh_atom_thrd_tx_length *l) {
     // 空闲块队列必须有一个隐藏的头节点，因为在仅剩一个空闲块的时候移除该空闲块时：
     //  1.  空闲队列消费者线程需要违法只修改头指针的规则，因为已经没有空闲块存在，尾指针也要改为空
     //  2.  这种修改无法做到不说，空闲队列消费者线程无法阻止空闲队列生产者线程继续在原有的空闲块上添加空闲块
@@ -21516,11 +21561,11 @@ void prh_atom_thrd_tx_que_init(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_
     prh_atom_int_init(&l->queue_length, 0);
 }
 
-void *prh_atom_thrd_que_push_begin(prh_atom_thrd_que_producer *p) {
+void *prh_atom_thrd_que_push_begin(prh_atom_thrd_tx_producer *p) {
     return (void *)p->tail_block_tail_item;
 }
 
-void prh_atom_thrd_que_push_end(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l, int n, prh_atom_thrd_que_block_alloc_routine alloc) {
+void prh_atom_thrd_que_push_end(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_length *l, int n, prh_atom_thrd_que_block_alloc_routine alloc) {
     prh_debug(void **tail_item = p->tail_block_tail_item);
     assert(*tail_item != prh_null && *tail_item != PRH_ATOM_DYNQUE_BLOCK_END);
     p->tail_block_tail_item += n;
@@ -21531,13 +21576,13 @@ void prh_atom_thrd_que_push_end(prh_atom_thrd_que_producer *p, prh_atom_thrd_que
     prh_atom_int_inc(&l->queue_length); // 此步骤执行完毕以上更新必须对所有cpu生效
 }
 
-void *prh_atom_thrd_que_pop_begin(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_length *l) {
+void *prh_atom_thrd_que_pop_begin(prh_atom_thrd_tx_consumer *c, prh_atom_thrd_tx_length *l) {
     if (!prh_atom_int_read(&l->queue_length)) return prh_null;
     assert(*c->head_block_head_item != prh_null && *c->head_block_head_item != PRH_ATOM_DYNQUE_BLOCK_END);
     return (void *)c->head_block_head_item;
 }
 
-void prh_atom_thrd_que_pop_end(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_length *l, int n, prh_atom_thrd_que_block_free_routine block_free) {
+void prh_atom_thrd_que_pop_end(prh_atom_thrd_tx_consumer *c, prh_atom_thrd_tx_length *l, int n, prh_atom_thrd_que_block_free_routine block_free) {
     prh_debug(void **head_item = c->head_block_head_item);
     c->head_block_head_item += n;
     assert(*(c->head_block_head_item - n) == *head_item); // 仅允许单生产者和单消费者
@@ -21549,7 +21594,7 @@ void prh_atom_thrd_que_pop_end(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_
     if (l) prh_atom_int_dec(&l->queue_length); // 此步骤执行完毕以上更新必须对生产者cpu生效
 }
 
-bool prh_atom_thrd_tx_que_pops(prh_atom_thrd_que_consumer *c, prh_atom_thrd_que_length *l, bool (*cb)(void *priv, void *data), void *priv) {
+bool prh_atom_thrd_tx_que_pops(prh_atom_thrd_tx_consumer *c, prh_atom_thrd_tx_length *l, bool (*cb)(void *priv, void *data), void *priv) {
     prh_atom_int *queue_length = &l->queue_length;
     prh_int len = prh_atom_int_read(queue_length), i;
     if (!len) return false;
@@ -21620,7 +21665,7 @@ void prh_impl_iocp_shared_global_free(void) {
     prh_mutex_free(&PRH_IOCP_SHARED_GLOBAL.thrd_wait_que_mutex);
 }
 
-void prh_impl_iocp_thrd_init(prh_iocp_thrd *thrd, prh_atom_thrd_que_consumer *thrd_tx_que_consumer) {
+void prh_impl_iocp_thrd_init(prh_iocp_thrd *thrd, prh_atom_thrd_tx_consumer *thrd_tx_que_consumer) {
     prh_atom_bool_init(&thrd->atom_thrd_exit, false);
     prh_atom_thrd_tx_que_init(&thrd->thrd_tx_que_producer, thrd_tx_que_consumer, &thrd->shard_thrd_data.thrd_tx_que_length);
     thrd->shard_thrd_data.thrd_wakeup_cond = false;
@@ -21737,8 +21782,8 @@ typedef struct {
 } prh_iocp_config;
 
 typedef struct {
-    prh_atom_thrd_que_consumer thrd_tx_que_consumer;
-    prh_atom_thrd_que_length *thrd_tx_que_length;
+    prh_atom_thrd_tx_consumer thrd_tx_que_consumer;
+    prh_atom_thrd_tx_length *thrd_tx_que_length;
 } prh_sched_thrd_tx_que_consumer;
 
 typedef prh_fixed_arrque_ptr(prh_iocp_thrd_req) prh_iocp_continue_que_ptr;
@@ -21926,21 +21971,23 @@ prh_static_assert((PRH_SCHED_CORO_RX_BLOCK_SIZE) > 0 && ((PRH_SCHED_CORO_RX_BLOC
 #define PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET ((PRH_SCHED_CORO_RX_BLOCK_SIZE) - 2 * (int)sizeof(void *))
 bool prh_impl_sched_thrd_dispatch_coro_post(prh_iocp_thrd_req *thrd_req);
 
-prh_atom_queue_block *prh_impl_atom_sched_coro_que_alloc_block(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l) {
+prh_atom_queue_block *prh_impl_atom_sched_coro_que_alloc_block(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_length *l) {
     return prh_impl_atom_queue_get_block(prh_impl_atom_rx_freed_queue_pop(&PRH_IOCP_GLOBAL.coro_freed_block_que), PRH_SCHED_CORO_RX_BLOCK_SIZE);
 }
 
 void prh_impl_atom_sched_coro_que_push_end(prh_atom_thrd_rx_producer *p, prh_atom_thrd_rx_length *l, int n) {
-    prh_atom_thrd_que_push_end((prh_atom_thrd_que_producer *)p, (prh_atom_thrd_que_length *)l, n, prh_impl_atom_sched_coro_que_alloc_block);
+    prh_atom_thrd_que_push_end((prh_atom_thrd_tx_producer *)p, (prh_atom_thrd_tx_length *)l, n, prh_impl_atom_sched_coro_que_alloc_block);
+}
+
+prh_atom_queue_block *prh_impl_sched_thrd_synced_free_single_block(prh_atom_queue_block *free_block) {
+    prh_atom_queue_block *next_block = *prh_impl_atom_queue_block_next(free_block, PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET);
+    prh_atom_rx_freed_queue_push(&PRH_IOCP_GLOBAL.coro_freed_block_que, free_block);
+    return next_block;
 }
 
 bool prh_impl_sched_thrd_synced_free_block(prh_iocp_thrd_req *thrd_req) {
-    prh_atom_queue_block *free_block = (prh_atom_queue_block *)thrd_req->post_req;
-    while (free_block) {
-        prh_atom_queue_block *next_block = *prh_impl_atom_queue_block_next(free_block, PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET);
-        prh_atom_rx_freed_queue_push(&PRH_IOCP_GLOBAL.coro_freed_block_que, free_block);
-        free_block = next_block;
-    }
+    prh_atom_queue_block *free_block = prh_impl_sched_thrd_synced_free_single_block((prh_atom_queue_block *)thrd_req->post_req);
+    while ((free_block = prh_impl_sched_thrd_synced_free_single_block(free_block))) ;
     return false;
 }
 
@@ -21948,7 +21995,7 @@ void prh_impl_coro_begin_free_block_chain(prh_atom_queue_block *block_chain) {
     prh_sched_thrd_synced_post(block_chain, prh_impl_sched_thrd_synced_free_block);
 }
 
-void prh_impl_atom_sched_coro_que_free_block(prh_atom_thrd_que_producer *p, prh_atom_thrd_que_length *l, void **block_end) {
+void prh_impl_atom_sched_coro_que_free_block(prh_atom_thrd_tx_producer *p, prh_atom_thrd_tx_length *l, void **block_end) {
     prh_atom_queue_block *free_block = prh_impl_atom_queue_block_from_end(block_end, PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET);
     *prh_impl_atom_queue_block_next(free_block, PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET) = prh_null; // 仅释放当前内存块
     prh_impl_coro_begin_free_block_chain(free_block); // 需要将释放的空闲块还给生产者线程
@@ -24295,8 +24342,10 @@ void prh_atom_sched_coro_que_push_callee(prh_sched_only_data *sched_only_data, v
     prh_impl_atom_sched_coro_que_push_end(p, sched_only_data->callee_rx_que_length, 1);
 }
 
-// 不好为每个子队列都维护一个链表，因为必须为每个子队列预先都分配一个头节点，且每个子队列都必须保存一个头节点和尾节点成员以及长度
-// 浪费空间，而且可能用处不大，因为只在一些特殊的情况下才专门去等待特定的子队列，这些情况对应子队列都会很快投递消息，即使线性查找也不会花太多时间
+// 不好为每个子队列都维护一个链表，因为必须为每个子队列预先都分配一个头节点，且每个子队
+// 列都必须保存一个头节点和尾节点成员以及长度，浪费空间，而且可能用处不大，因为只在一些
+// 特殊的情况下才专门去等待特定的子队列，这些情况对应子队列都会很快投递消息，即使线性查
+// 找也不会花太多时间。
 void prh_atom_sched_coro_que_push_post(prh_coro_subq *coro_subq, prh_ptr post_data) {
     prh_sched_only_data *sched_only_data = prh_impl_sched_only_data_from_subq(coro_subq);
     prh_atom_thrd_rx_producer *p = &sched_only_data->coro_post_que_producer;
@@ -24311,25 +24360,25 @@ void prh_atom_sched_coro_que_push_post(prh_coro_subq *coro_subq, prh_ptr post_da
 prh_real_cono *prh_atom_sched_coro_que_pop_callee(prh_real_cono *cono) {
     prh_atom_thrd_rx_consumer *c = &cono->callee_rx_que_consumer;
     prh_atom_thrd_rx_length *l = &cono->share_coro_data.callee_rx_que_length;
-    prh_real_cono **callee = (void **)prh_atom_thrd_que_pop_begin((prh_atom_thrd_que_consumer *)c, (prh_atom_thrd_que_length *)l);
+    prh_real_cono **callee = (void **)prh_atom_thrd_que_pop_begin((prh_atom_thrd_tx_consumer *)c, (prh_atom_thrd_tx_length *)l);
     if (*callee == prh_null) return prh_null;
-    prh_atom_thrd_que_pop_end((prh_atom_thrd_que_consumer *)c, (prh_atom_thrd_que_length *)l, 1, prh_impl_atom_sched_coro_que_free_block);
+    prh_atom_thrd_que_pop_end((prh_atom_thrd_tx_consumer *)c, (prh_atom_thrd_tx_length *)l, 1, prh_impl_atom_sched_coro_que_free_block);
     return *callee;
 }
 
 void prh_impl_atom_sched_coro_que_pop_head_items(prh_real_cono *cono, prh_atom_thrd_rx_length *l) {
     prh_atom_sched_coro_que_consumer *c = &cono->coro_post_que_consumer;
-    prh_atom_thrd_que_pop_end((prh_atom_thrd_que_consumer *)c, (prh_atom_thrd_que_length *)l, 2, prh_impl_atom_sched_coro_que_free_block);
+    prh_atom_thrd_que_pop_end((prh_atom_thrd_tx_consumer *)c, (prh_atom_thrd_tx_length *)l, 2, prh_impl_atom_sched_coro_que_free_block);
     while (cono->freed_item_count && c->head_block_head_item[0] == PRH_ATOM_DYNQUE_ITEM_FREE) {
         cono->freed_item_count -= 1;
-        prh_atom_thrd_que_pop_end((prh_atom_thrd_que_consumer *)c, prh_null, 2, prh_impl_atom_sched_coro_que_free_block);
+        prh_atom_thrd_que_pop_end((prh_atom_thrd_tx_consumer *)c, prh_null, 2, prh_impl_atom_sched_coro_que_free_block);
     }
 }
 
 bool prh_atom_sched_coro_que_pop_post(prh_real_cono *cono, prh_pwait_data *data) {
     prh_atom_thrd_rx_consumer *c = &cono->coro_post_que_consumer;
     prh_atom_thrd_rx_length *l = &cono->share_coro_data.coro_post_que_length;
-    prh_coro_post_item *coro_post = prh_atom_thrd_que_pop_begin((prh_atom_thrd_que_consumer *)c, (prh_atom_thrd_que_length *)l);
+    prh_coro_post_item *coro_post = prh_atom_thrd_que_pop_begin((prh_atom_thrd_tx_consumer *)c, (prh_atom_thrd_tx_length *)l);
     if (coro_post == prh_null) return false;
     prh_byte subq_i = coro_post->bytes[prh_impl_sched_coro_post_subq_i_field];
     data->subq_i = subq_i; data->post_data = coro_post->post_data;
@@ -24616,9 +24665,7 @@ void prh_impl_cono_pwait_data(prh_real_cono *caller, prh_pwait_data *data) {
         cono->routine_after_yield = prh_impl_cono_begin_pwait_req;
         prh_soro_yield((prh_soro *)caller);
     }
-    if (!prh_atom_sched_coro_que_pop_post(caller, data)) {
-        prh_impl_abort(__LINE__);
-    }
+    prh_boolret(prh_atom_sched_coro_que_pop_post(caller, data));
 }
 
 bool prh_impl_cono_sched_thrd_synced_subq_pwait_req(prh_iocp_thrd_req *thrd_req) {
@@ -24652,17 +24699,16 @@ void prh_impl_cono_ext_pwait_data(prh_real_cono *caller, prh_byte subq_i, prh_pw
 prh_pwait_data prh_cono_ext_pwait(int subq_i) {
     prh_real_cono *caller = PRH_IMPL_CONO_SELF;
     prh_pwait_data data;
-    if (subq_i == -1) {
-        prh_impl_cono_pwait_data(caller, &data);
-    } else {
-        assert(subq_i >= 0 && subq_i < caller->subq_num);
-        prh_impl_cono_ext_pwait_data(caller, (prh_byte)subq_i, &data);
-    }
+    assert(subq_i >= 0 && subq_i < caller->subq_num);
+    prh_impl_cono_ext_pwait_data(caller, (prh_byte)subq_i, &data);
     return data;
 }
 
 prh_pwait_data prh_cono_pwait(void) {
-    return prh_cono_ext_pwait(-1);
+    prh_real_cono *caller = PRH_IMPL_CONO_SELF;
+    prh_pwait_data data;
+    prh_impl_cono_pwait_data(caller, &data);
+    return data;
 }
 
 #endif // PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
