@@ -8721,7 +8721,7 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 集合、散列表等，这在后面将介绍。但就目前而言，我们将分析如何实现一个无阻塞栈（Nonblocking
 // Stack），尽管这听起来复杂，但其实很简单，除了一个叫做 ABA 的问题。在托管代码中更可以
 // 很容易避免 ABA 问题，但在 VC++ 中不行。Windows 提供了 SList 数据结构，这是一个无阻
-// 塞数据结构并且可以避免 ABA 问题，在非投管代码中很容易使用它。
+// 塞数据结构并且可以避免 ABA 问题，在非托管代码中很容易使用它。
 //
 // 我们构建一个新的节点对象 new_node 来存放被压入的值，并且在循环中将新节点的 next 指向
 // 头节点，尽管头节点这个值可能立即失效，但设置操作时安全的，因为我们还没有公开新节点，
@@ -8778,6 +8778,17 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 当第一个线程恢复执行并且执行 CAS 时，发现头节点没变，CAS 操作将成功：它把 Y 作为栈
 // 新的头节点，即使 Y 已经消失了，然后 Z 将完全被丢弃。这种情况的复杂性将令人感到非常沮
 // 丧。
+//
+//      [栈头节点] --> [节点 X] --> [节点 Y] --> 空                                 *** 比较交换原子操作可以出现的 ABA 问题
+//      1.  线程 A 弹出节点 X 时需要执行：当头节点的 next 指针仍然指向节点 X 时将其修
+//          改成指向 Y
+//      2.  但是另一个线程可能抢先弹出 X 和 Y 再压入 Z 和 X
+//      3.  此时线程 A 的判断 “头节点的 next 指针仍然指向节点 X” 依然成立，因此将头节
+//          点的 next 指针修改为指向 Y
+//      4.  然而不幸的是，此时 Y 可以已经释放掉了，导致指向非法内存
+//      5.  另外，节点 Z 将被泄漏，永远也找不回来
+//      6.  注意，如果线程 A 进行的是压入操作则没有问题，因为头节点会指向新节点，而新
+//          节点在压入之前已经初始化指向节点 X
 //
 // 要避免这个问题，通常需要在 CAS 操作中使用额外的状态，例如一个版本号，在每次压入或者
 // 弹出节点时都递增这个版本号。换句话说，现在不是更新一个值，而是同时更新两个：指针以及
@@ -9023,7 +9034,7 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // End）执行压入和弹出操作非常简单，并且允许其他线程从另一端执行弹出（密迁）操作，但是
 // 从外部执行压入操作是不被允许的。每个处理器自己产生的任务都压入自己本地的私有端，当每
 // 个处理器查找需要执行的任务时，首先从自己的私有端弹出任务，如果私有端已经没有任务，将
-// 从其他处理器队列的外部端获取任务执行。这对于分而治之的算法，以及任务时从其他任务派生
+// 从其他处理器队列的外部端获取任务执行。这对于分而治之的算法，以及任务是从其他任务派生
 // 出来的情况，带来非常大的性能提升。而且，它还可以通过细粒度的分解来降低开销。以下实现
 // 的队列是基于数组的，并且是一个带有头索引和尾索引的循环队列。local_push 和 local_pop
 // 由拥有这个队列的线程调用，在线程的私有端进行压入和弹出。try_steal 是外部线程从队列的
@@ -9123,13 +9134,13 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 // 界缓冲区（Bounded Buffer）。我们现在来看一些构建这两种容器的方法，通常，在单个类型
 // 中实现阻塞和有界等功能是非常有用的，在实现时必须要考虑三个基本的因素：
 //  1.  容器必须支持安全的并发访问
-//  2.  当消费者试图从空队列中取走一个元素时，它必须被阻塞（Blocking）值得生产一个元素
+//  2.  当消费者试图从空队列中取走一个元素时，它必须被阻塞（Blocking）直到生产一个元素
 //  3.  当生产者试图将一个元素放入已满的队列时，它必须阻塞，直到消费者取走一个元素为新
 //      元素腾出空间，这也称为有界（Bounding）
 //
 // 还有一种常见的协作方式，从严格意义上来看它并不是一个容器，这种协作方式称为栅栏（Barrier）。
 // 使用栅栏的计算通常被称为分阶段计算（Phased Computation）。使用栅栏的算法被拆分为多个   *** 通过线程栅栏协作方式来实现分阶段计算
-// 独立的阶段并且有时候时循环的，所有线程都将等待每个参与者到达当前阶段的末尾后，再一起
+// 独立的阶段并且有时候是循环的，所有线程都将等待每个参与者到达当前阶段的末尾后，再一起
 // 进入下一阶段进行处理。例如，CLR 中的 GC 就是hi用了这种方法来对线程进行同步：执行标记
 // （Marking）、重定位（Relocating）、以及紧缩（Compacting）等操作。在某个阶段中，各个
 // 参与线程通常会产生一些数据并将它们存储在某个共享位置，例如线程 n 将数据存在在数组 a[n]
@@ -14340,7 +14351,7 @@ prh_static_assert(sizeof(prh_simple_thrds) == 8 + sizeof(prh_int));
 
 typedef int (*prh_thrdproc_t)(prh_thrd *thrd);
 typedef void (*prh_thrdfree_t)(prh_thrd *thrd, int thrd_index); // thrd_index 0 for main thrd
-extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
+extern prh_thread_local prh_thrd *PRH_THRD;
 
 #define prh_thrd_for_begin(THRD_TYPE, begin, end) {                             \
         prh_thrd **prh_impl_p = (begin);                                        \
@@ -14355,7 +14366,7 @@ extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
 #define PRH_THRD_INDEX_MASK 0xffff
 #define prh_thrd_id(thrd) ((int)((thrd)->thrd_id))
 #define prh_thrd_index(thrd) (prh_thrd_id(thrd) & PRH_THRD_INDEX_MASK)
-prh_inline prh_thrd *prh_thrd_self(void) { return PRH_IMPL_THRD; }
+prh_inline prh_thrd *prh_thrd_self(void) { return PRH_THRD; }
 prh_inline void *prh_thrd_self_data(void) { return ((prh_user_thrd *)prh_thrd_self())->userdata; }
 prh_inline int prh_thrd_self_id(void) { return prh_thrd_id(prh_thrd_self()); }
 prh_inline int prh_thrd_self_index(void) { return prh_thrd_index(prh_thrd_self()); }
@@ -14543,11 +14554,11 @@ prh_ptr prh_impl_plat_thrd_self(void);
 #define PRH_THRD_DEBUG PRH_DEBUG
 #endif
 
-prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
+prh_thread_local prh_thrd *PRH_THRD = prh_null;
 
 int prh_impl_thrd_start_proc(prh_thrd *thrd) {
     prh_thrdproc_t proc = (prh_thrdproc_t)thrd->extra_ptr;
-    PRH_IMPL_THRD = thrd;
+    PRH_THRD = thrd;
 #if PRH_THRD_DEBUG
     prh_impl_plat_print_thrd_info(thrd);
 #endif
@@ -14581,7 +14592,7 @@ prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size) {
 
 void prh_impl_launch_main_thrd(prh_thrd *main) {
     main->impl_hdl_ = prh_impl_plat_thrd_self();
-    PRH_IMPL_THRD = main;
+    PRH_THRD = main;
 #if PRH_THRD_DEBUG
     prh_impl_plat_print_thrd_info(main);
 #endif
@@ -21301,6 +21312,16 @@ prh_static_assert(PRH_THRD_TX_QUE_BLOCK_SIZE == PRH_IMPL_THRD_QUE_BLOCK_SIZE_L1 
 
 typedef struct prh_atom_queue_block prh_atom_queue_block;
 
+// 使用原子 queue_length 的方式一对一原子队列：
+//  1.  入队时直接入队，然后 queue_length 原子地递增
+//  2.  出队时需要原子的检查 queue_length 是否为零，然后出队，再对 queue_length 递减
+//  3.  入队需要一次原子写，出队需要一次原子读和一次原子写
+//
+// 如果使用原子 tail 指针的方式实现：
+//  1.  入队时直接入队，然后原子的修改 tail 指针
+//  2.  出队时原子的读取 tail 指针，如果与头指针不相等则有元素，直接获取该元素即可
+//  3.  入队需要一次原子写，出队只需要一次原子读，而且还省了保存 queue_length 的空间
+//
 // 线程发送队列
 //  1.  生产者是当前线程
 //  2.  消费者是调度线程
@@ -21929,6 +21950,16 @@ void prh_impl_iocp_thrd_post(void *post_req, prh_continue_routine continue_routi
     thrd_req->continue_routine = continue_routine;
     thrd_req->post_seqn = prh_atom_u32_fetch_inc(&PRH_IOCP_SHARED_GLOBAL.post_seqn_seed);
     thrd_req->opcode = opcode;
+    prh_atom_thrd_que_push_end(&thrd->thrd_tx_que_producer, &thrd->share_thrd_data.thrd_tx_que_length, 3, prh_impl_atom_thrd_tx_que_alloc_block);
+    prh_impl_iocp_keep_sched_alive_to_collect_tx_post();
+}
+
+void prh_thrd_unordered_post(void *post_req, prh_continue_routine continue_routine) {
+    assert(post_req != prh_null);
+    prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
+    prh_thrd_unordered_post_req *thrd_req = prh_atom_thrd_que_push_begin(&PRH_THRD->thrd_tx_que_producer);
+    thrd_req->post_req = post_req;
+    thrd_req->continue_routine = continue_routine;
     prh_atom_thrd_que_push_end(&thrd->thrd_tx_que_producer, &thrd->share_thrd_data.thrd_tx_que_length, 3, prh_impl_atom_thrd_tx_que_alloc_block);
     prh_impl_iocp_keep_sched_alive_to_collect_tx_post();
 }
