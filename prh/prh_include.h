@@ -2171,10 +2171,11 @@ typedef enum {
 #include <stdio.h> // printf fprintf
 #include <errno.h> // errno POSIX-compatible error code
 
-#ifndef prh_malloc
-#define prh_malloc(size) prh_impl_malloc((size), __LINE__)
-#define prh_calloc(size) prh_impl_calloc((size), __LINE__)
-#define prh_realloc(ptr, size) prh_impl_realloc((ptr), (size), __LINE__)
+#ifndef prh_raw_malloc
+#define prh_raw_malloc(size) prh_impl_malloc((size), __LINE__)
+#define prh_raw_calloc(size) prh_impl_calloc((size), __LINE__)
+#define prh_raw_realloc(ptr, size) prh_impl_realloc((ptr), (size), __LINE__)
+#define prh_raw_free free // void free(void *ptr) if ptr is null do nothing
 
 // void *malloc(size_t size);
 // the newly allocated block of memory is not initialized, remaining with indeterminate values.
@@ -2215,10 +2216,24 @@ prh_inline void *prh_impl_calloc(prh_unt size, int line) {
 //      else
 //          return NULL
 void *prh_impl_realloc(void *ptr, prh_unt size, int line);
+typedef void *(*prh_realloc_func)(void *ptr, prh_unt size);
 
-// void free(void *ptr);
-// if ptr == prh_null { the function does nothing }
-#define prh_free free
+// void *alloc_free(prh_unt size, void *ptr); 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
+// if (prh_int)ptr == -1
+//      prh_raw_free((void *)size) return null
+// else
+//      return prh_impl_malloc(size, (int)ptr);
+typedef void *(*prh_alloc_free)(prh_unt size, void *ptr);
+void *prh_default_alloc_free(prh_unt size, void *ptr);
+
+typedef struct {
+    prh_alloc_free alloc;
+} prh_thrd_context;
+
+extern prh_thread_local prh_thrd_context PRH_TCTX;
+
+#define prh_memory_alloc(size) PRH_TCTX.alloc((size), (void *)(prh_int)__LINE__)
+#define prh_memory_free(ptr) PRH_TCTX.alloc((prh_unt)ptr, (void *)(prh_int)-1)
 #endif // prh_malloc
 
 // https://en.cppreference.com/w/c/memory/aligned_alloc
@@ -3315,43 +3330,6 @@ prh_inline prh_unt prh_to_power_of_2(prh_unt n) {
 #define prh_round_16_byte(n) (((prh_unt)(n)+15) & (~(prh_unt)15))
 #endif // prh_round_ptrsize
 
-#ifndef prh_memory_alloc
-// void *realloc(void *ptr, prh_unt size);
-// if ptr != NULL
-//      if size != 0
-//          return realloc(ptr, size)
-//      else
-//          **MAYBE** free(ptr) return NULL
-// else
-//      if size != 0
-//          return malloc(size)
-//      else
-//          return NULL
-typedef void *(*prh_realloc_func)(void *ptr, prh_unt size);
-
-// void *alloc_free(prh_ptr size); 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
-// if size & 0x02
-//      return malloc(size)
-// else
-//      free((void *)size) return NULL
-typedef void *(*prh_alloc_free)(prh_ptr size);
-prh_alloc_free prh_default_alloc_free(void);
-
-prh_inline void *prh_impl_memory_alloc(prh_alloc_free alloc, prh_unt size, int line) {
-    void *p = alloc(size | 0x02);
-    prh_assert_line(p != prh_null && (((prh_ptr)p) & 0x02) == 0, line);
-    return p;
-}
-
-prh_inline void *prh_impl_memory_free(prh_alloc_free alloc, void *ptr, int line) {
-    prh_assert_line((((prh_ptr)ptr) & 0x02) == 0, line); // 分配的内存至少对齐到指针大小
-    return alloc((prh_ptr)ptr);
-}
-
-#define prh_memory_alloc(alloc, size) prh_impl_memory_alloc(alloc, size, __LINE__)
-#define prh_memory_free(alloc, ptr) ((void)prh_impl_memory_free(alloc, ptr, __LINE__))
-#endif // prh_memory_alloc
-
 #ifdef PRH_BASE_IMPLEMENTATION
 void prh_impl_assert(int line) {
     fprintf(stderr, "assert line %d\n", line);
@@ -3388,17 +3366,13 @@ void *prh_impl_realloc(void *ptr, prh_unt size, int line) {
     return ptr;
 }
 
-void *prh_impl_default_alloc_free(prh_ptr size) {
-    if (size & 0x02) {
-        return prh_plat_aligned_malloc(size & (~(prh_ptr)0x02), sizeof(void *));
-    } else {
-        prh_aligned_free((void *)size);
+void *prh_default_alloc_free(prh_unt size, void *ptr) {
+    if ((prh_int)ptr == -1) {
+        prh_raw_free((void *)size);
         return prh_null;
+    } else {
+        return prh_impl_malloc(size, (int)(prh_int)ptr);
     }
-}
-
-prh_alloc_free prh_default_alloc_free(void) {
-    return prh_impl_default_alloc_free;
 }
 
 #if defined(prh_plat_windows)
@@ -3426,7 +3400,6 @@ void prh_impl_test_code(void);
 #endif
 
 void prh_main_init(void) {
-    prh_memory_alloc_init(prh_impl_default_memory_alloc, prh_impl_default_memory_free);
 #if defined(prh_plat_windows)
 #if PRH_DEBUG
     prh_zeroret(atexit(prh_impl_dump_memory_leaks));
@@ -14555,14 +14528,21 @@ prh_ptr prh_impl_plat_thrd_self(void);
 #endif
 
 prh_thread_local prh_thrd *PRH_THRD = prh_null;
+prh_thread_local prh_thrd_context PRH_TCTX;
 
-int prh_impl_thrd_start_proc(prh_thrd *thrd) {
-    prh_thrdproc_t proc = (prh_thrdproc_t)thrd->extra_ptr;
+
+void prh_impl_thrd_prestart_init(prh_thrd *thrd) {
     PRH_THRD = thrd;
 #if PRH_THRD_DEBUG
     prh_impl_plat_print_thrd_info(thrd);
 #endif
     thrd->extra_ptr = 0; // 可以在用户线程函数中重用 extra_ptr
+    PRH_TCTX.alloc = prh_default_alloc_free;
+}
+
+int prh_impl_thrd_start_proc(prh_thrd *thrd) {
+    prh_thrdproc_t proc = (prh_thrdproc_t)thrd->extra_ptr;
+    prh_impl_thrd_prestart_init(thrd);
     return proc(thrd);
 }
 
@@ -14592,10 +14572,7 @@ prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size) {
 
 void prh_impl_launch_main_thrd(prh_thrd *main) {
     main->impl_hdl_ = prh_impl_plat_thrd_self();
-    PRH_THRD = main;
-#if PRH_THRD_DEBUG
-    prh_impl_plat_print_thrd_info(main);
-#endif
+    prh_impl_thrd_prestart_init(main);
 }
 
 prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size) {
@@ -21957,7 +21934,7 @@ void prh_impl_iocp_thrd_post(void *post_req, prh_continue_routine continue_routi
 void prh_thrd_unordered_post(void *post_req, prh_continue_routine continue_routine) {
     assert(post_req != prh_null);
     prh_iocp_thrd *thrd = (prh_iocp_thrd *)prh_thrd_self();
-    prh_thrd_unordered_post_req *thrd_req = prh_atom_thrd_que_push_begin(&PRH_THRD->thrd_tx_que_producer);
+    prh_thrd_unordered_post_req *thrd_req = prh_atom_thrd_que_push_begin(&thrd->thrd_tx_que_producer);
     thrd_req->post_req = post_req;
     thrd_req->continue_routine = continue_routine;
     prh_atom_thrd_que_push_end(&thrd->thrd_tx_que_producer, &thrd->share_thrd_data.thrd_tx_que_length, 3, prh_impl_atom_thrd_tx_que_alloc_block);
@@ -22141,6 +22118,11 @@ void prh_impl_sched_thrd_dispatch_post(void) {
         prh_atom_ext_mult_rd_arrque_push_end(post_dispatch_que, &view);
     }
 }
+
+// 服务协程监听连接成功后，先处理一个连接，即创建一个新的协程来处理给新连接，将剩余连接
+// 和监听部分的后续任务压入队列等待继续处理，如果当前执行线程处理完连接后，剩余任务还在，
+// 则继续处理剩余任务，否则随机从其他一个有任务的线程争抢需继续执行的任务执行。如果没有
+// 争抢到任务，则当前线程挂起。
 
 static void prh_impl_sched_thrd_routine(prh_thrd *thrd_ptr) {
     OVERLAPPED_ENTRY *overlapped_entry = PRH_IOCP_GLOBAL.overlapped_entry_array;
