@@ -2226,14 +2226,11 @@ typedef void *(*prh_realloc_func)(void *ptr, prh_unt size);
 typedef void *(*prh_alloc_free)(prh_unt size, void *ptr);
 void *prh_default_alloc_free(prh_unt size, void *ptr);
 
-typedef struct {
-    prh_alloc_free alloc;
-} prh_thrd_context;
-
-extern prh_thread_local prh_thrd_context PRH_TCTX;
-
-#define prh_memory_alloc(size) PRH_TCTX.alloc((size), (void *)(prh_int)__LINE__)
-#define prh_memory_free(ptr) PRH_TCTX.alloc((prh_unt)ptr, (void *)(prh_int)-1)
+#define PRH_ALLOCATOR PRH_IMPL_TCTX.alloc
+#define prh_allocator_set(alloc) PRH_IMPL_TCTX.alloc = (alloc)
+#define prh_allocator_set_default() prh_allocator_set(prh_default_alloc_free)
+#define prh_memory_alloc(size) PRH_ALLOCATOR((size), (void *)(prh_int)__LINE__)
+#define prh_memory_free(alloc, ptr) alloc((prh_unt)ptr, (void *)(prh_int)-1)
 #endif // prh_malloc
 
 // https://en.cppreference.com/w/c/memory/aligned_alloc
@@ -14302,6 +14299,10 @@ void prh_impl_time_test(void) {
     __VA_ARGS__                             \
 }
 
+typedef struct {
+    prh_alloc_free alloc;
+} prh_tctx;
+
 typedef struct prh_thrd_struct(void *userdata;) prh_user_thrd;
 typedef struct prh_thrd_struct() prh_thrd;
 typedef struct {
@@ -14324,7 +14325,8 @@ prh_static_assert(sizeof(prh_simple_thrds) == 8 + sizeof(prh_int));
 
 typedef int (*prh_thrdproc_t)(prh_thrd *thrd);
 typedef void (*prh_thrdfree_t)(prh_thrd *thrd, int thrd_index); // thrd_index 0 for main thrd
-extern prh_thread_local prh_thrd *PRH_THRD;
+extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
+extern prh_thread_local prh_tctx PRH_IMPL_TCTX;
 
 #define prh_thrd_for_begin(THRD_TYPE, begin, end) {                             \
         prh_thrd **prh_impl_p = (begin);                                        \
@@ -14339,7 +14341,7 @@ extern prh_thread_local prh_thrd *PRH_THRD;
 #define PRH_THRD_INDEX_MASK 0xffff
 #define prh_thrd_id(thrd) ((int)((thrd)->thrd_id))
 #define prh_thrd_index(thrd) (prh_thrd_id(thrd) & PRH_THRD_INDEX_MASK)
-prh_inline prh_thrd *prh_thrd_self(void) { return PRH_THRD; }
+prh_inline prh_thrd *prh_thrd_self(void) { return PRH_IMPL_THRD; }
 prh_inline void *prh_thrd_self_data(void) { return ((prh_user_thrd *)prh_thrd_self())->userdata; }
 prh_inline int prh_thrd_self_id(void) { return prh_thrd_id(prh_thrd_self()); }
 prh_inline int prh_thrd_self_index(void) { return prh_thrd_index(prh_thrd_self()); }
@@ -14527,17 +14529,16 @@ prh_ptr prh_impl_plat_thrd_self(void);
 #define PRH_THRD_DEBUG PRH_DEBUG
 #endif
 
-prh_thread_local prh_thrd *PRH_THRD = prh_null;
-prh_thread_local prh_thrd_context PRH_TCTX;
-
+prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
+prh_thread_local prh_thrd_context PRH_IMPL_TCTX;
 
 void prh_impl_thrd_prestart_init(prh_thrd *thrd) {
-    PRH_THRD = thrd;
+    PRH_IMPL_THRD = thrd;
 #if PRH_THRD_DEBUG
     prh_impl_plat_print_thrd_info(thrd);
 #endif
     thrd->extra_ptr = 0; // 可以在用户线程函数中重用 extra_ptr
-    PRH_TCTX.alloc = prh_default_alloc_free;
+    prh_allocator_set_default();
 }
 
 int prh_impl_thrd_start_proc(prh_thrd *thrd) {
