@@ -2218,49 +2218,49 @@ prh_inline void *prh_impl_calloc(prh_unt size, int line) {
 void *prh_impl_realloc(void *ptr, prh_unt size, int line);
 typedef void *(*prh_realloc_func)(void *ptr, prh_unt size);
 
-// void *alloc_free(prh_unt size, void *ptr); 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
-// if (prh_int)ptr == -1
-//      prh_raw_free((void *)size) return null
+// void *alloc_free(prh_unt size_or_ptr, int line); 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
+// if line == -1
+//      prh_raw_free((void *)size_or_ptr) return null
 // else
-//      return prh_impl_malloc(size, (int)ptr);
-typedef void *(*prh_alloc_free)(prh_unt size, void *ptr);
-void *prh_default_alloc_free(prh_unt size, void *ptr);
+//      return prh_impl_malloc(size, line);
+typedef void *(*prh_alloc_free)(prh_unt size, int line);
+void *prh_default_alloc_free(prh_unt size, int line);
 
 #define prh_current_allocator() PRH_IMPL_TCTX.alloc
 #define prh_set_allocator(alloc) PRH_IMPL_TCTX.alloc = (alloc)
 #define prh_set_default_allocator() prh_set_allocator(prh_default_alloc_free)
-#define prh_memory_alloc(size) PRH_IMPL_TCTX.alloc((size), (void *)(prh_int)__LINE__)
-#define prh_memory_free(alloc, ptr) alloc((prh_unt)ptr, (void *)(prh_int)-1)
+#define prh_memory_alloc(size) PRH_IMPL_TCTX.alloc((size), __LINE__)
+#define prh_memory_free(alloc, ptr) alloc((prh_unt)(ptr), -1)
 #endif // prh_malloc
 
 // https://en.cppreference.com/w/c/memory/aligned_alloc
 // https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-malloc
 // https://jemalloc.net/
-#ifndef prh_aligned_malloc
+#ifndef prh_aligned_alloc
 #if defined(prh_cl_msc)
     #include <malloc.h>
     // _aligned_malloc is based on malloc. required C header malloc.h.
     // if alignment isn't a power of 2 or size is zero, this function invokes
     // the invalid parameter handler. if execution is allowed to continue, this
     // function returns NULL and sets errno to EINVAL.
-    #define prh_plat_aligned_malloc(size, alignment) _aligned_malloc((size), (alignment))
+    #define prh_plat_aligned_alloc(size, alignment) _aligned_malloc((size), (alignment))
     #define prh_aligned_free(p) _aligned_free(p)
 #else
     #include <stdlib.h>
     // behavior is undefined if size is not an integral multiple of alignment
     void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
-    #define prh_plat_aligned_malloc(size, alignment) aligned_alloc((alignment), (size))
+    #define prh_plat_aligned_alloc(size, alignment) aligned_alloc((alignment), (size))
     #define prh_aligned_free(p) free(p)
 #endif
-prh_inline void *prh_impl_aligned_malloc(prh_unt size, prh_unt alignment, int line) {
-    void *p = prh_plat_aligned_malloc(size, alignment);
+prh_inline void *prh_impl_aligned_alloc(prh_unt size, int alignment, int line) {
+    void *p = prh_plat_aligned_alloc(size, alignment);
     prh_assert_line(p != prh_null, line);
     return p;
 }
-#define prh_aligned_malloc(size, alignment) prh_impl_aligned_malloc((size), (alignment), __LINE__)
-#define prh_cache_line_aligned_malloc(size) prh_aligned_malloc((size), PRH_CACHE_LINE_SIZE)
-#define prh_16_byte_aligned_malloc(size) prh_aligned_malloc((size), 16)
+#define prh_aligned_alloc(size, alignment) prh_impl_aligned_alloc((size), (alignment), __LINE__)
+#define prh_cache_line_aligned_alloc(size) prh_aligned_alloc((size), PRH_CACHE_LINE_SIZE)
+#define prh_16_byte_aligned_alloc(size) prh_aligned_alloc((size), 16)
 #endif
 
 #ifndef PRH_GLIBC_VERSION
@@ -3363,13 +3363,10 @@ void *prh_impl_realloc(void *ptr, prh_unt size, int line) {
     return ptr;
 }
 
-void *prh_default_alloc_free(prh_unt size, void *ptr) {
-    if ((prh_int)ptr == -1) {
-        prh_raw_free((void *)size);
-        return prh_null;
-    } else {
-        return prh_impl_malloc(size, (int)(prh_int)ptr);
-    }
+void *prh_default_alloc_free(prh_unt size, int line) {
+    if (line != -1) return prh_impl_malloc(size, line);
+    prh_raw_free((void *)size);
+    return prh_null;
 }
 
 #if defined(prh_plat_windows)
@@ -7281,9 +7278,15 @@ struct async_co;
 typedef void (*prh_co_proc)(struct co *co);
 typedef void (*prh_async_co_proc)(struct async_co *co);
 
+extern prh_alloc_free PRH_IMPL_CO_ALLOC; // 只能全局设置一次
+#define prh_co_alloc(size) PRH_IMPL_CO_ALLOC((size), __LINE__)
+#define prh_co_free(ptr) PRH_IMPL_CO_ALLOC((prh_unt)(ptr), -1)
+#define prh_set_co_allocator(alloc) PRH_IMPL_CO_ALLOC = (alloc)
+
 struct co {
     prh_co_proc proc;
-    prh_int prev_yield;
+    int prev_yield;
+    int retp_offset;
 };
 
 struct async_co {
@@ -7369,6 +7372,14 @@ prh_inline void prh_async_co_start(struct async_co *co, prh_async_co_proc proc) 
 #ifndef PRH_CORO_DEBUG
 #define PRH_CORO_DEBUG PRH_DEBUG
 #endif
+
+static void *prh_impl_default_co_alloc(prh_unt size, int line) {
+    if (line != -1) return prh_impl_aligned_alloc(size, PRH_CACHE_LINE_SIZE, line);
+    prh_aligned_free((void *)size);
+    return prh_null;
+}
+
+prh_alloc_free PRH_IMPL_CO_ALLOC = prh_impl_default_co_alloc;
 
 #define prh_lower_guard_word 0x5a5a5a5a
 #define prh_upper_guard_word 0xa5a5a5a5
@@ -7498,7 +7509,7 @@ prh_coro *prh_impl_coro_alloc(int stack_size, int coro_extend_size, int maxudsiz
     prh_real_assert(stack_size > coro_size + data_size + (int)sizeof(struct prh_impl_coro_guard) + prh_impl_asm_stack_init_depth());
 
     int stackallocsize = (int)prh_round_16_byte(stack_size);
-    char *p = (char *)prh_16_byte_aligned_malloc(stackallocsize);
+    char *p = (char *)prh_16_byte_aligned_alloc(stackallocsize);
     prh_coro *coro = (prh_coro *)(p + stackallocsize - coro_size - data_size);
     memset(coro, 0, coro_size + data_size);
     coro->loweraddr = (prh_i32)((char *)coro - p);
@@ -11193,7 +11204,7 @@ prh_data_snode *prh_impl_atom_data_quefix_aligned_alloc(prh_atom_data_quefix *q)
     prh_data_snode *node;
     if (q->free.next == prh_null) {
         assert(prh_is_power_of_2(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
-        prh_impl_atom_data_quefix_more_free(q, prh_cache_line_aligned_malloc(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
+        prh_impl_atom_data_quefix_more_free(q, prh_cache_line_aligned_alloc(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE));
     }
     node = q->free.next; // remove first free node
     q->free.next = node->next;
@@ -11453,7 +11464,7 @@ prh_inline prh_hive_quefix_block *prh_impl_ahqf_init_block(prh_hive_quefix_block
 prh_hive_quefix_block *prh_impl_ahqf_alloc_block(prh_atom_hive_fbqfix *q) {
     prh_hive_quefix_block *free_block = prh_impl_ahqf_free_block_pop(q);
     if (free_block == prh_null) {
-        free_block = prh_cache_line_aligned_malloc(PRH_AHQF_BLOCK_SIZE);
+        free_block = prh_cache_line_aligned_alloc(PRH_AHQF_BLOCK_SIZE);
     }
     return prh_impl_ahqf_init_block(free_block);
 }
@@ -11461,7 +11472,7 @@ prh_hive_quefix_block *prh_impl_ahqf_alloc_block(prh_atom_hive_fbqfix *q) {
 prh_hive_quefix_block *prh_impl_atom_ext_hive_alloc_block(prh_atom_ext_hive_quefix_producer *p, prh_atom_ext_hive_quefix_length *l) {
     prh_hive_quefix_block *free_block = prh_impl_atom_ext_hive_free_block_pop(p, l);
     if (free_block == prh_null) {
-        free_block = prh_cache_line_aligned_malloc(PRH_AHQF_BLOCK_SIZE);
+        free_block = prh_cache_line_aligned_alloc(PRH_AHQF_BLOCK_SIZE);
     }
     return prh_impl_ahqf_init_block(free_block);
 }
@@ -11479,7 +11490,7 @@ void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q, prh_atom_hive_fbqfix *fr
 }
 
 void prh_atom_ext_hive_quefix_init(prh_atom_ext_hive_quefix_producer *p, prh_atom_ext_hive_quefix_consumer *c, prh_atom_ext_hive_quefix_length *l) {
-    prh_hive_quefix_block *free_block_head = prh_cache_line_aligned_malloc(PRH_AHQF_BLOCK_SIZE);
+    prh_hive_quefix_block *free_block_head = prh_cache_line_aligned_alloc(PRH_AHQF_BLOCK_SIZE);
     prh_impl_ahqf_init_block(free_block_head);
     p->free_block_ptr = free_block_head->tail;
     p->free_block_head = c->free_block_tail = free_block_head;
@@ -11783,7 +11794,7 @@ prh_atom_dynque_block *prh_impl_atom_dynque_aligned_alloc(prh_int block_end_offs
     if (free_block == prh_null) {
         prh_int queue_block_bytes = block_end_offset + 2 * sizeof(void *);
         assert(block_end_offset > 0 && (queue_block_bytes % PRH_CACHE_LINE_SIZE) == 0);
-        free_block = prh_cache_line_aligned_malloc(queue_block_bytes);
+        free_block = prh_cache_line_aligned_alloc(queue_block_bytes);
         memset(free_block, 0, queue_block_bytes);
         prh_impl_atom_dynque_block_end(free_block, block_end_offset)->block_end_data = PRH_ATOM_DYNQUE_BLOCK_END;
     }
@@ -14564,7 +14575,7 @@ prh_unt prh_impl_simp_thrds_size(int thrd_num, prh_int thrd_size) {
 
 prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size) {
     thrd_size = prh_impl_thrd_size(thrd_size);
-    prh_thrd *thrd = prh_cache_line_aligned_malloc(thrd_size);
+    prh_thrd *thrd = prh_cache_line_aligned_alloc(thrd_size);
     assert(thrd != prh_null);
     memset(thrd, 0, thrd_size);
     thrd->thrd_id = thrd_id;
@@ -14596,7 +14607,7 @@ prh_thrds *prh_thrd_init(int thrd_group, int thrd_num, void *main_userdata) {
 prh_simple_thrds *prh_simp_thrd_init(int thrd_group, int thrd_num, prh_int each_thrd_size) {
     prh_int thrd_size = prh_impl_thrd_size(each_thrd_size);
     prh_unt simp_thrds_size = prh_impl_simp_thrds_size(thrd_num, thrd_size);
-    prh_simple_thrds *s = prh_cache_line_aligned_malloc(simp_thrds_size);
+    prh_simple_thrds *s = prh_cache_line_aligned_alloc(simp_thrds_size);
     assert(s != prh_null);
     assert(thrd_group >= 0 && thrd_group < 0x3fff);
     memset(s, 0, simp_thrds_size);
@@ -23052,7 +23063,7 @@ void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     prh_data_epac_add *from = (prh_data_epac_add *)pdata;
     int fd = (int)from->head.u.value;
     int alloc_size = prh_round_cache_line_size(sizeof(prh_epoll_port));
-    prh_epoll_port *port = prh_cache_line_aligned_malloc(alloc_size);
+    prh_epoll_port *port = prh_cache_line_aligned_alloc(alloc_size);
     assert(port != prh_null);
     memset(port, 0, sizeof(prh_epoll_port));
     port->action.subq = prh_impl_epoll_recv_subq();
@@ -24454,7 +24465,7 @@ bool prh_atom_sched_coro_que_ext_pop_post(prh_real_cono *cono, prh_byte subq_i, 
 
 prh_coro *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, int maxudsize, int subq_num) {
     int cono_extend_size = prh_impl_cono_extend_size(subq_num);
-    void *coro_stack = prh_cache_line_aligned_malloc(prh_impl_coro_cache_line_aligned_alloc_size(stack_size, cono_extend_size, maxudsize));
+    void *coro_stack = prh_cache_line_aligned_alloc(prh_impl_coro_cache_line_aligned_alloc_size(stack_size, cono_extend_size, maxudsize));
     prh_coro *coro = prh_impl_coro_cache_line_aligned_init(coro_stack, stack_size, cono_extend_size, maxudsize);
     prh_impl_coro_load_stack(coro, (prh_ptr)proc, (prh_ptr)prh_impl_asm_cono_call);
     void *userdata = coro->userdata;
