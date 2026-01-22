@@ -7295,7 +7295,7 @@ void prh_soro_finish(prh_soro_struct *s);
 // 无栈协程（stackless coroutine）使用注意事项：
 //  1.  协程函数中不能使用局部变量，因为无栈协程没有自己的栈，栈中的局部变量不会保存
 //  2.  将所有用到的变量都记录在无栈协程自己的结构体中，保证数据可以跨越多次挂起和恢复
-//  3.  无效协程自己的结构体使用 co_struct 宏定义，保证 struct co 为第一成员
+//  3.  无效协程自己的结构体使用 co_struct 宏定义，保证 prh_co_struct 为第一成员
 //      typedef co_struct(type field; ...) your_co_struct;
 //  4.  协程函数的代码必须包含在 co_begin(co) 和 co_end(co) 之间
 //  5.  协程函数不能直接使用 return 返回，必须使用 co_yield(co) 返回
@@ -7307,7 +7307,7 @@ void prh_soro_finish(prh_soro_struct *s);
 //  11. 对于异步协程，存在一个只调用 co_await() 的顶层协程并通过 async_co_start 启动
 //  12. 顶层协程如果调用 co_yield()，将没有更上一层的调用者恢复它的执行，导致永远挂起
 
-struct co;
+typedef struct prh_co_struct prh_co_struct;
 struct async_co;
 typedef void (*prh_co_proc)(void *co_struct);
 typedef void (*prh_async_co_proc)(struct async_co *co);
@@ -7317,7 +7317,7 @@ extern prh_alloc_free PRH_IMPL_CO_ALLOC; // 只能全局设置一次
 #define prh_co_free(ptr) PRH_IMPL_CO_ALLOC((prh_unt)(ptr), -1)
 #define prh_set_co_allocator(alloc) PRH_IMPL_CO_ALLOC = (alloc)
 
-struct co {
+struct prh_co_struct {
     prh_co_proc proc;
     int prev_yield;
     int retp_offset;
@@ -7329,16 +7329,16 @@ struct async_co {
     struct async_co *caller;
 };
 
-prh_inline void prh_co_init(struct co *co, prh_co_proc proc) {
+prh_inline void prh_co_init(prh_co_struct *co, prh_co_proc proc) {
      co->proc = proc;
      co->prev_yield = 0;
 }
 
-prh_inline void prh_co_start(struct co *co) {
+prh_inline void prh_co_start(prh_co_struct *co) {
     co->proc(co);
 }
 
-prh_inline bool prh_co_next(struct co *co) {
+prh_inline bool prh_co_next(prh_co_struct *co) {
     return (co->prev_yield == -1) ? false : (co->proc(co), true);
 }
 
@@ -7381,7 +7381,6 @@ prh_inline void prh_async_co_start(struct async_co *co, prh_async_co_proc proc) 
 #ifndef PRH_CORO_UNSTRIP_PREFIX
 #define co_proc         prh_co_proc
 #define co_struct       prh_co_struct
-#define co_field        prh_co_field
 #define co_init         prh_co_init
 #define co_next         prh_co_next
 #define co_begin        prh_co_begin
@@ -22010,7 +22009,7 @@ int prh_impl_iocp_continue_que_empty_items(void) {
     return (int)prh_fixed_arrque_empty_items(PRH_IOCP_GLOBAL.iocp_continue_que);
 }
 
-void prh_impl_iocp_sched_post(void *post_req, prh_continue_routine continue_routine) { // 在 prh_impl_sched_thrd_iocp_entry_completed 函数中被调用
+void prh_impl_sched_thrd_post(void *post_req, prh_continue_routine continue_routine) {
     assert(prh_impl_iocp_continue_que_empty_items() > 0);
     prh_thrd_post_req *continue_item = prh_fixed_arrque_unchecked_push(PRH_IOCP_GLOBAL.iocp_continue_que);
     continue_item->post_req = post_req;
@@ -24933,23 +24932,20 @@ typedef struct {
 
 struct tcp_callback;
 struct tcp_socket {
+    /* +3p +3p */ prh_co_struct co_struct;
     /* +5p +4p */ OVERLAPPED open_close_tx_node; // 只有 opened 之后才能 close/tx，只有 tx 完才能 close
     /* +5p +4p */ OVERLAPPED rx_node;
     /* +1p +1p */ prh_handle socket;
+    /* +1p +1p */ void *context;
     /* +1p +1p */ prh_impl_tcp_flags flags;
     /* +0p +0p */ prh_u16 r_port;
     /* +4p +2p */ prh_u32 r_addr, r_addr_tail[3];
-};  /* (32-bit) 17+3p=20p (64-bit) 12+2p=14p */
+};  /* (32-bit) 20p (64-bit) 16p */
 
 static_assert(sizeof(OVERLAPPED) <= 4 * 8);
 
-struct co_tcp_socket {
-    struct co co;
-    struct tcp_socket tcp_socket;
-};
-
-prh_inline struct co_tcp_socket *prh_co_from_tcp_socket(struct tcp_socket *tcp) {
-    return (struct co_tcp_socket *)((prh_byte *)tcp - sizeof(struct co));
+prh_inline struct tcp_socket *prh_impl_tcp_socket_from_tx_node(OVERLAPPED *overlapped) {
+    return (void *)((prh_byte *)overlapped - prh_offsetof(struct tcp_socket, open_close_tx_node));
 }
 
 prh_inline struct tcp_socket *prh_impl_tcp_socket_from_rx_node(OVERLAPPED *overlapped) {
@@ -24972,8 +24968,8 @@ struct tcp_listen {
     /* +1p +1p */ prh_handle socket;
     /* +1p +1p */ prh_co_proc socket_routine;
     /* +1p +1p */ prh_alloc_free alloc;
-    /* +1p +1p */ prh_snode idle_accept_req;
-    /* +1p +1p */ prh_snode idle_tcp_socket;
+    /* +1p +1p */ prh_singly_node idle_accept_req;
+    /* +1p +1p */ prh_singly_node idle_tcp_socket;
     /* +1p +0p */ int max_kernel_pre_accepts; // 内核可缓存多少预先接收的连接（backlog）
     /* +1p +1p */ int max_client_connections; // 最大可同时服务多少客户连接
     /* +1p +0p */ int max_outstanding_accepts; // 每次可同时接收多少客户连接
@@ -27874,11 +27870,26 @@ void prh_impl_create_tcp_socket(struct tcp_socket *tcp_socket) {
 void prh_impl_sched_accept_req(struct prh_accept_req *req);
 prh_static_assert(WSA_IO_PENDING == ERROR_IO_PENDING);
 
+void prh_impl_thrd_handle_tcp_socket(void *post_req) {
+    struct tcp_socket *tcp = post_req;
+    tcp->flags.opened = true;
+    prh_co_start(&tcp->co_struct);
+}
+
 struct tcp_socket *prh_impl_alloc_tcp_socket(int txbuf_size, int rxbuf_size) {
-    prh_unt alloc_size = sizeof(struct co_tcp_socket);
-    struct co_tcp_socket *tcp = prh_co_alloc(alloc_size);
-    memset(tcp, 0, alloc_size);
-    return &tcp->tcp_socket;
+    struct tcp_socket *tcp = prh_co_alloc(sizeof(struct tcp_socket));
+    memset(tcp, 0, sizeof(struct tcp_socket));
+    return tcp;
+}
+
+void prh_impl_sched_alloc_accept_socket(struct tcp_listen *listen, struct prh_accept_req *accept_req) {
+    struct tcp_socket *tcp = prh_impl_alloc_tcp_socket(listen->txbuf_size, listen->rxbuf_size);
+    prh_co_init(&tcp->co_struct, listen->socket_routine);
+    accept_req->accept_socket = tcp;
+    tcp->flags.af_ipv6 = listen->af_ipv6;
+    tcp->context = listen;
+    tcp->flags.server_accept = true;
+    prh_impl_create_tcp_socket(tcp);
 }
 
 void prh_impl_listen_resue_socket(struct tcp_listen *listen, struct tcp_socket *socket) {
@@ -27893,7 +27904,7 @@ void prh_impl_listen_resue_socket(struct tcp_listen *listen, struct tcp_socket *
 
     for (; idle_node->next; idle_node = idle_node->next) {
         idle_accept = (struct prh_accept_req *)idle_node->next;
-        if (idle_accept->accept == prh_null) {
+        if (idle_accept->accept_socket == prh_null) {
             prh_impl_prepare_accept_socket(listen, idle_accept, socket);
             empty_idle_accept_found = true;
             break;
@@ -27907,7 +27918,7 @@ void prh_impl_listen_resue_socket(struct tcp_listen *listen, struct tcp_socket *
     if (idle_accept && listen->curr_outstanding_accepts < num_accept_can_request) {
         listen->curr_outstanding_accepts += 1;
         idle_node->next = ((prh_snode *)idle_accept)->next; // 移除该空闲节点
-        prh_impl_sched_accept_req(idle_accept); // 此时 idle_accept->accept 一定不为空
+        prh_impl_sched_accept_req(idle_accept); // 此时 idle_accept->accept_socket 一定不为空
     }
 }
 
@@ -27923,27 +27934,20 @@ void prh_iocp_listen_reuse_socket(struct tcp_listen *listen, struct tcp_socket *
     prh_sched_thrd_synced_post(socket, prh_impl_synced_listen_reuse_socket);
 }
 
-bool prh_impl_synced_idle_accept_req(prh_thrd_post_req *thrd_req) {
-    struct prh_accept_req *accept_req = (void *)thrd_req->post_req;
-    struct tcp_listen *listen = (void *)accept_req->overlapped.hEvent;
+void prh_impl_sched_resue_accept(struct tcp_listen *listen, struct prh_accept_req *accept_req) {
     int num_accept_can_request = listen->max_client_connections - listen->connection_count;
-    if (listen->curr_outstanding_accepts < num_accept_can_request) {
-        listen->curr_outstanding_accepts += 1;
-        if (accept_req->accept == prh_null) {
-            prh_impl_prepare_accept_socket(listen, accept_req, prh_impl_alloc_tcp_socket(listen->alloc));
+    if (listen->curr_outstanding_accepts <= num_accept_can_request) {
+        if (accept_req->accept_socket == prh_null) {
+            prh_impl_sched_alloc_accept_socket(listen, accept_req);
         }
-        prh_impl_sched_accept_req(accept_req);
+        prh_impl_sched_accept_req(listen, accept_req);
     } else { // 将 accept_req 插入空闲列表
-        prh_snode *idle_node = (prh_snode *)accept_req;
-        idle_node->next = listen->accept_idle_chain.next;
-        listen->accept_idle_chain.next = idle_node;
+        listen->curr_outstanding_accepts -= 1;
+        prh_singly_node_insert_after(&listen->idle_accept_req, (prh_singly_node *)accept_req); // 将 overlapped 当作节点头部
     }
-    return false;
 }
 
-void prh_impl_sched_accept_error_complete(struct prh_accept_req *req, prh_u32 error_code) {
-    struct tcp_listen *listen = req->accept_socket->context;
-    listen->curr_outstanding_accepts -= 1;
+void prh_impl_sched_accept_error_complete(struct tcp_listen *listen, struct prh_accept_req *req, prh_u32 error_code) {
     // PRH_ECONN_FAILURE 操作无法执行，套接字模块没有启动，内存不足，网卡崩溃，指定的套接字操作正在执行或者已经连接
     //      WSAEINTR            通过 WSACancelBlockingCall 取消了一个阻塞的 Windows Sockets 1.1 调用。
     //      WSAEINPROGRESS      一个阻塞的 Windows Sockets 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
@@ -27965,17 +27969,16 @@ void prh_impl_sched_accept_error_complete(struct prh_accept_req *req, prh_u32 er
         prh_abort_error(error_code);
     }
     req->overlapped.Internal = 0;
-    req->overlapped.hEvent = (HANDLE)listen;
-    prh_sched_thrd_synced_post(req, prh_impl_synced_idle_accept_req);
+    prh_impl_sched_resue_accept(listen, req);
 }
 
 void prh_impl_sched_accept_completed_from_port(void *overlapped) {
     struct prh_accept_req *req = (struct prh_accept_req *)overlapped;
+    struct tcp_socket *tcp = req->accept_socket;
+    struct tcp_listen *listen = tcp->context;
     if (req->overlapped.Internal) {
-        prh_impl_sched_accept_error_complete(req, (prh_u32)req->overlapped.Internal);
+        prh_impl_sched_accept_error_complete(listen, req, (prh_u32)req->overlapped.Internal);
     } else {
-        struct tcp_listen *listen = req->accept_socket->context;
-        listen->connection_count += 1;
         struct sockaddr_in6 l_addr, p_addr;
         INT l_addrlen = 0, p_addrlen = 0;
         DWORD addrbuf_length;
@@ -28003,35 +28006,24 @@ void prh_impl_sched_accept_completed_from_port(void *overlapped) {
         assert(p_addr.sin6_family == family);
         prh_impl_recv_sockaddr(&l_addr, &tcp->l_port, &tcp->l_addr);
         prh_impl_recv_sockaddr(&p_addr, &tcp->p_port, &tcp->p_addr);
-        req->accept = prh_null;
-        req->overlapped.hEvent = (HANDLE)listen;
-        prh_sched_thrd_synced_post(req, prh_impl_synced_idle_accept_req);
-        tcp->context = listen->context;
-        tcp->flags.opened = true;
-        tcp->callback->conn_rsp(tcp->context, 0, tcp);
+        listen->connection_count += 1;
+        prh_impl_sched_thrd_post(tcp, prh_impl_thrd_handle_tcp_socket);
+        req->accept_socket = prh_null;
+        prh_impl_sched_resue_accept(listen, req);
     }
-    if (req->overlapped.Internal == 0 && listen->connection_count < listen->max_client_connections) {
-        listen->connection_count += 1; // 成功接收连接
-    }
-    listen->curr_outstanding_accepts -= 1;
-    prh_impl_iocp_sched_post(overlapped, prh_impl_iocp_accept_continue);
 }
 
-void prh_impl_sched_accept_req(struct prh_accept_req *req) {
-    struct tcp_socket *tcp = req->accept; assert(tcp != prh_null);
-    struct tcp_listen *listen = tcp->context; assert(listen != prh_null);
-    int family; DWORD addrbuf_length;
-    if (listen->family == PRH_AF_IPV6) {
-        family = AF_INET6;
+void prh_impl_sched_accept_req(struct tcp_listen *listen, struct prh_accept_req *req) {
+    struct tcp_socket *tcp = req->accept_socket; assert(tcp != prh_null);
+    DWORD addrbuf_length;
+    if (listen->af_ipv6) {
         addrbuf_length = PRH_IMPL_ACCEPT_V6_ADDRSIZE;
     } else {
-        family = AF_INET;
         addrbuf_length = PRH_IMPL_ACCEPT_V4_ADDRSIZE;
     }
     if (tcp->socket == PRH_INVASOCK) {
         prh_impl_create_tcp_socket(tcp);
     }
-    assert(listen->socket != PRH_INVASOCK);
     req->overlapped.hEvent = prh_null; // 确保完成操作被投递到完成端口
     BOOL b = PRH_IMPL_ACCEPTEX(
         /* [in]  SOCKET       sListenSocket         */  (SOCKET)listen->socket,
@@ -28051,7 +28043,7 @@ void prh_impl_sched_accept_req(struct prh_accept_req *req) {
     } else {
         prh_prerr(error_code);
         if (error_code == 0) error_code = WSAEINVAL;
-        prh_impl_sched_accept_error_complete(req, error_code);
+        prh_impl_sched_accept_error_complete(listen, req, error_code);
     }
 }
 
@@ -28118,14 +28110,8 @@ bool prh_impl_sched_listen_start_accept(prh_thrd_post_req *thrd_req) { // 在调
     listen->curr_outstanding_accepts = listen->max_outstanding_accepts;
 
     for (; accept_req < accept_end; accept_req = (struct prh_accept_req *)((prh_byte *)accept_req + PRH_TCP_ACCEPT_STRUCT_SIZE)) {
-        struct tcp_socket *tcp = prh_impl_alloc_tcp_socket(listen->txbuf_size, listen->rxbuf_size);
-        prh_co_init(prh_co_from_tcp_socket(tcp), listen->socket_routine);
-        accept_req->accept_socket = tcp;
-        tcp->flags.af_ipv6 = listen->af_ipv6;
-        tcp->context = listen;
-        tcp->flags.server_accept = true;
-        prh_impl_create_tcp_socket(tcp);
-        prh_impl_sched_accept_req(accept_req);
+        prh_impl_sched_alloc_accept_socket(listen, accept_req);
+        prh_impl_sched_accept_req(listen, accept_req);
     }
 
     return false;
@@ -28784,7 +28770,7 @@ void prh_impl_iocp_connect_immediately_complete(struct tcp_socket *tcp, prh_u32 
 }
 
 void prh_impl_iocp_connect_completed_from_port(void *overlapped) {
-    prh_impl_iocp_sched_post(overlapped, prh_impl_iocp_connect_continue);
+    prh_impl_sched_thrd_post(overlapped, prh_impl_iocp_connect_continue);
 }
 
 void prh_impl_iocp_connect_req(struct tcp_socket *tcp) {
@@ -29289,7 +29275,7 @@ void prh_impl_iocp_wsasend_immediately_complete(struct tcp_socket *tcp, prh_u32 
 }
 
 void prh_impl_iocp_wsasend_completed_from_port(void *overlapped) {
-    prh_impl_iocp_sched_post(overlapped, prh_impl_iocp_wsasend_continue);
+    prh_impl_sched_thrd_post(overlapped, prh_impl_iocp_wsasend_continue);
 }
 
 void prh_impl_iocp_wsasend_req(struct tcp_socket *tcp, const prh_byte *buffer, int length) {
@@ -29681,7 +29667,7 @@ void prh_impl_iocp_wsarecv_immediately_complete(struct tcp_socket *tcp, prh_u32 
 }
 
 void prh_impl_iocp_wsarecv_completed_from_port(void *overlapped) {
-    prh_impl_iocp_sched_post(overlapped, prh_impl_iocp_wsarecv_continue);
+    prh_impl_sched_thrd_post(overlapped, prh_impl_iocp_wsarecv_continue);
 }
 
 void prh_impl_iocp_wsarecv_req(struct tcp_socket *tcp, prh_byte *buffer, int length) {
