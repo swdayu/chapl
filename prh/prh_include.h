@@ -28197,6 +28197,75 @@ label_error_handle:
     return prh_null;
 }
 
+void prh_tcp_server_exit(struct tcp_listen *listen) {
+    assert(listen != prh_null);
+    listen->quit = true;
+    prh_sched_thrd_synced_unordered_post(listen, prh_impl_sched_atexit_free_tcp_listen);
+}
+
+void prh_tcp_server_routine(struct tcp_listen *listen, prh_co_proc server_routine, int server_size) {
+    assert(listen != prh_null);
+    assert(server_routine != prh_null);
+    assert(server_size >= sizeof(struct tcp_server));
+    listen->server_routine = server_routine;
+    listen->server_size = server_size;
+}
+
+struct tcp_server *prh_impl_alloc_tcp_server(int server_size, int txbuf_size, int rxbuf_size) {
+    assert(server_size >= sizeof(struct tcp_server));
+    struct tcp_server *server = prh_co_alloc(server_size);
+    memset(tcp, 0, server_size);
+    return tcp;
+}
+
+bool prh_impl_sched_start_tcp_accept(prh_thrd_unordered_post_req *thrd_req) { // 在调度线程执行
+    struct tcp_server *server = (struct tcp_server *)thrd_req->post_req;
+
+    return false;
+}
+
+#define prh_tcp_await_accept(server)                    \
+        do {                                            \
+            (server)->co_struct.prev_yield = __LINE__;  \
+            prh_impl_tcp_await_accept(server);          \
+            return;                                     \
+        case __LINE__:                                  \
+        } while (0)
+
+void prh_impl_tcp_await_accept(struct tcp_server *server) {
+    prh_sched_thrd_synced_unordered_post(server, prh_impl_sched_start_tcp_accept);
+}
+
+void prh_impl_thrd_start_tcp_server_routine(void *post_req) {
+    struct tcp_listen *listen = (struct tcp_listen *)post_req;
+    struct tcp_server *server = prh_impl_alloc_tcp_server(listen->server_size, listen->txbuf_size, listen->rxbuf_size);
+    struct tcp_socket *tcp = &server->socket;
+    prh_co_init(&server->co_struct, listen->server_routine);
+    server->co_struct.thrd = prh_thrd_self();
+    server->listen = listen;
+    tcp->flags.af_ipv6 = listen->af_ipv6;
+    tcp->flags.server_accept = true;
+    prh_impl_create_tcp_socket(tcp);
+    prh_co_start(&server->co_struct);
+}
+
+bool prh_impl_sched_dispatch_tcp_accept(prh_thrd_unordered_post_req *thrd_req) { // 在调度线程执行
+    struct tcp_listen *listen = (struct tcp_listen *)thrd_req->post_req;
+    prh_co_thrd *thrd = (prh_co_thrd *)thrd_req->context;
+    prh_atom_thrd_rx_producer *p = thrd->share_thrd_data.thrd_rx_producer;
+    prh_iocp_post_req *tail = (prh_iocp_post_req *)p->tail_block_tail_item;
+    tail->post_req = listen;
+    tail->continue_routine = prh_impl_thrd_start_tcp_server_routine;
+    prh_impl_atom_sched_coro_que_push_end(p, sched_only_data->coro_post_que_length, 2);
+    if (thrd->sleeping) prh_thrd_wakeup(thrd);
+    return false;
+}
+
+void prh_tcp_accept_dispatch(struct tcp_listen *listen, int co_thrd_id) {
+    prh_co_thrd *thrd = prh_simp_thrd_get(PRH_IOCP_GLOBAL.iocp_thrds, co_thrd_id + 1);
+    prh_sched_thrd_synced_unordered_ext_post(listen, prh_impl_sched_dispatch_tcp_accept, thrd);
+}
+
 // int connect(SOCKET s, const struct sockaddr *name, int namelen);
 // int WSAAPI WSAConnect(
 //      [in]  SOCKET         s,
