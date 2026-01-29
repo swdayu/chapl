@@ -359,11 +359,11 @@
 (point point)
 // 结构体类型字面量，其他大括号内部不会出现分号（;）
 struct {} // 空结构体
-{int a;} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
-{int a b;}
-{int a b; point o; string s;}
-{point point;} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
-{int point;} // point 是 int 型类型成员
+{int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
+{int a, b}
+{int a, b  point o  string s}
+{point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
+{int point} // point 是 int 型类型成员
 const { red, green, blue }
 const int { red, green = 2, blue }
 $p { (*p int size return int) read }
@@ -406,8 +406,8 @@ for [&it] // 迭代元素捕获
 // 数据生成表达式
 [yield a + b for a in array for b in 1 .. 100] // 生成一个整数数组，每个元素的值为 a+b
 [yield int a * 2 for a in array] // 带类型转换的生成数组
-[yield {to_string(a); a ^ b; a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
-[yield {name = to_string(a); xor = a ^ b; a + b} for a in array for b in array] // 生成一个元组数组，并为元组的成员命名
+[yield {to_string(a), a ^ b, a + b == b} for a in array for b in 1 .. 100] // 生成一个元组数组
+[yield {name = to_string(a), xor = a ^ b, a + b} for a in array for b in array] // 生成一个元组数组，并为元组的成员命名
 [yield |set| a + b for a in array for b in 1 .. 100] // 生成一个集合
 [yield |flat_set| a + b for a in array for b in array] // 生成一个 flat_set 集合
 [yield |map| a + b : a * b for a in array for b in array] // 生成一个映射
@@ -619,16 +619,16 @@ fac far fat fen fer fin fit fou fro fry fur gen gre lot off per pat pal phr par
 pre pro rem res rim ron rou rut tie via was wow yet
 
 def point @zeroinit @packed {
-    f32 x y;
+    f32 x, y
 }
 
 def point {
-    f32 x y;
+    f32 x, y
 }
 
 def data {
-    int a b;
-    (int a b return int) f g;
+    int a, b
+    (int a b return int) f, g
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
@@ -805,24 +805,24 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     unt rspoffset
     unt loweraddr
     unt maxudsize 31 ptr_param 1
-    int coro_id;
-    ptr address;
+    int coro_id
+    ptr address
 }
 
 def coro {
-    u32 rspoffset;
-    u32 loweraddr;
-    i32 maxudsize 31 ptr_param 1;
-    i32 coro_id;
-    unsigned rspoffset;
-    int maxudsize;
-    int coro_id;
+    u32 rspoffset
+    u32 loweraddr
+    i32 {31} maxudsize {1} ptr_param
+    i32 coro_id
+    u32 rspoffset
+    int maxudsize
+    int coro_id
 }
 
 def coro_guard {
     u32 lower_guard_word
-    u32 upper_guard_word;
-    coro embed;
+    u32 upper_guard_word
+    coro embed
     *coro coro_ptr
     this embed
     this coro_guard
@@ -839,14 +839,14 @@ def "std"
 
 def coro_guard {
     u32 lower_guard_word
-    u32 upper_guard_word;
-    coro embed;
+    u32 upper_guard_word
+    coro embed
     *coro coro
     this embed
     this coro_guard
     (int a b return int) calc
     (*coro p) func
-    (*coro_guard int a b return int) f g
+    (*coro_guard int a b return int) f, g
 }
 
 def verify(*coro_guard)
@@ -866,7 +866,7 @@ CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     (int a b int) calc
     (int a) print
     (this int a b int) a
-    (CoroGuard g int a b int) f g
+    (CoroGuard g int a b int) f, g
     (Coro p) h
     { int a b }
     { int a b } tuple
@@ -973,19 +973,19 @@ pub color const u08 "strict" { // strict 枚举类型必需为全部枚举手动
 }
 
 def point {
-    float x;
-    float y;
+    float x
+    float y
 }
 
 pub point {
-    float x y;
+    float x, y
 }
 
 pub coro { // 包外访问，结构体成员只读，以下划线结束的成员不可访问
-    u32 rspoffset; // 名为 rspoffset 的私有成员
-    u32 loweraddr; // 名为 loweraddr 的私有成员
-    i32 {31} maxudsize {1} ptrparam_;
-    i32 coro_id;
+    u32 rspoffset // 名为 rspoffset 的私有成员
+    u32 loweraddr // 名为 loweraddr 的私有成员
+    i32 {31} maxudsize {1} ptrparam_
+    i32 coro_id
 }
 
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
@@ -994,14 +994,14 @@ def (int int float string) tuple_type
 def (*int) int_ptr
 def (*point) point_ptr
 def (point) type_point
-def ([|flat_map|string:]int) type_of_map
+def ([|flat_map|string:int]) type_of_map
 
 pub (int argc, **char argv return int) func_type
 pub (int int float string) tuple_type
 pub (*int) int_ptr
 pub (*point) point_ptr
 pub (point) type_point
-pub ([|flat_map|string:]int) type_of_map
+pub ([|flat_map|string:int]) type_of_map
 
 def main(int argc, **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
     return 0
@@ -1018,7 +1018,7 @@ def PT = point {100, 200}
 def P2 = point {100, 200}
 def P3 = [_]int {100, 200}
 def P4 = (int int) {100, 200}
-def P5 = {int a b;} {100, 200}
+def P5 = {int a b} {100, 200}
 def P6 = (int a b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
 pub PI = 3.1415926, 2P = 2 * PI
@@ -1027,7 +1027,7 @@ pub PT = point {100, 200}
 pub P2 = point {100, 200}
 pub P3 = [_]int {100, 200}
 pub P4 = (int int) {100, 200}
-pub P5 = {int a b;} {100, 200}
+pub P5 = {int a b} {100, 200}
 pub P6 = (int a b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
@@ -1037,7 +1037,7 @@ def *point point_ptr = &point
 def point point = {100, 200}
 def (int a b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 def (int int point) data = {10, 20, {100, 200}}
-def {int a b; point point;} data = {10, 20, {100, 200}}
+def {int a, b  point point} data = {10, 20, {100, 200}}
 
 pub int a = 10, b = 20
 pub *int int_ptr = &a
@@ -1045,7 +1045,7 @@ pub *point point_ptr = &point
 pub point point = {100, 200}
 pub (int a b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 pub (int int point) data = {10, 20, {100, 200}}
-pub {int a b; point point;} data = {10, 20, {100, 200}}
+pub {int a, b  point point} data = {10, 20, {100, 200}}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
