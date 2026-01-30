@@ -32800,18 +32800,39 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_SOCK_INCLUDE
 
-#ifdef PRH_LEXER_INCLUDE
+#ifdef PRH_SCAN_INCLUDE
 // 统一字符编码（unicode）
 // 编码转换格式（utf）unicode transformation formats
-// 码点（code point）
-// 码元（code unit）
-// 代理码点（surrogate code point）
-// 统一编码标量值（unicode scalar value）
 // 基本多语言页（BMP）basic multilingual plane
+// 码点（code point）
+// 代理码点（surrogate code point）
 //
 // 统一字符编码标准支持三种字符编码形式：UTF-32、UTF-16和UTF-8。每种编码形式都将码点
 // U+0000 ~ U+D7FF、U+E000 ~ U+10FFFF 映射为唯一的码元序列。每种编码形式都规定了码元
 // 的大小。
+//
+// 统一编码标量值（unicode scalar value），除高代理码点和低代理码点之外的任何码点，根
+// 据此定义，编码标量值集合的范围为 U+0000 ~ U+D7FF、U+E000 ~ U+10FFFF。
+//
+// 码元（code unit），能够表示用于处理或交换的编码文本单元的最小位组合。码元是计算机存
+// 储的特定单元，其他字符编码标准通常使用定义为8位单元的码元，即八位字节（octets）。统
+// 一编码标准在 UTF-8 编码形式中使用 8 位码元，在 UTF-16 编码形式中使用 16 位码元，在
+// UTF-32 编码形式中使用 32 位码元。当码元为 8 位单元时，码元序列也可称为字节序列，码元
+// 序列可以由单个码元组成。根据字符编码标准的结构，可能需要使用码元序列（多于一个单元）
+// 来表示单个编码字符。
+//
+// 在统一编码标准中，某些码元的特定值不能单独用于表示编码字符。此限制适用于 UTF-16 中孤
+// 立的代理码元和 UTF-8 中的字节 80~FF。其他字符编码标准的实现也有类似的限制；例如 SJIS
+// （Shift-JIS）中的字节 81~9F、E0~FC 不能单独表示编码字符。
+//
+// 统一字符编码形式（Unicode Encoding Form），从每个编码标量值到唯一码元序列的映射。本
+// 标准定义了三种编码形式，除非另有说明，术语 "统一字符编码形式" 指的是这三种形式之一。
+// 由于历史原因，统一字符编码形式也被称为统一编码转换格式（UTF）或通用字符集（Universal
+// Character Set，UCS）转换格式（UTF）。
+//
+// 为确保统一编码形式的映射是一对一的，所有统一编码标量值，包括那些对应于非字符码点和未
+// 分配码点的标量值，必须映射到唯一的码元序列。注意，此要求不适用于高代理码点和低代理码
+// 点，它们根据定义被排除在统一编码标量值集合之外。
 //
 // UTF-8 编码中，码点序列 <004D, 0430, 4E8C, 10302> 表示为 <4D D0 B0 E4 BA 8C F0
 // 90 8C 82>，其中 <4D> 对应 U+004D，<D0 B0> 对应 U+0430，<E4 BA 8C> 对应 U+4E8C，
@@ -32862,6 +32883,47 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //          5.  四字节序列中以 <F4 90~BF> 开始的序列，码点必须 <= U+10FFFF
 //              (1111_0)100 (10)01_0000 <F4 90> => 100_01_0000_yyyyyy_xxxxxx
 //                                              => 1_0001_0000_yyyy_yyxx_xxxx => U+110000
+//
+// 处理原则：如果转换器遇到格式错误的 UTF-8 码元序列，该序列以有效的首字节开始，但后续
+// 没有有效的后继字节，则当这些后继字节本身构成格式正确的 UTF-8 码元子序列的一部分时，
+// 转换器不得将这些后继字节作为格式错误子序列的一部分消耗掉。对于UTF-8转换过程来说，消
+// 耗有效的后继字节不仅不符合规范，还会使转换器面临安全漏洞的风险。参见Unicode技术报告
+// #36《Unicode安全考虑》。
+//
+// 例如，在处理UTF-8码元序列 <F0 80 80 41> 时，Unicode一致性对转换器的唯一正式要求是
+// <41> 必须被处理并正确解释为 <U+0041>。转换器可以返回 <U+FFFD, U+0041>，将 <F0 80
+// 80>作为单个错误处理；或返回 <U+FFFD, U+FFFD, U+FFFD, U+0041>，将 <F0 80 80> 的每
+// 个字节作为单独的错误处理；或者采用其他方式来标记 <F0 80 80> 为格式错误的码元子序列。
+//
+// 最大子部分（Maximal Subparts）的 U+FFFD 替换。越来越多的实现正在采用W3C编码标准中
+// 规定的格式错误子序列处理方式，以实现一致的U+FFFD替换（http://www.w3.org/TR/encoding/）。
+// 尽管Unicode标准并不要求采用这种做法以符合一致性，但以下文本描述了这种做法并提供了详
+// 细的示例。不可转换偏移量（Unconvertible offset）：码元序列中的一个偏移位置，从该位
+// 置开始的任何码元子序列格式都不正确。格式错误子序列的最大子部分（Maximal subpart of
+// an ill-formed subsequence）：从不可转换偏移量（UTF-8的起始码元）开始的最长码元子序
+// 列，且满足以下任一条件：匹配一个合法码元序列的起始序列，或长度为1的子序列。
+//
+// 这个最大子部分的定义用于描述在进行替换时应前进多远：始终至少处理一个码元，或者尽可能
+// 多地处理合法码元，直到下一个码元会使其变为格式错误为止。即将合法码元序列前缀替换成
+// U+FFFD，或不能组成合法码元前缀则将 UTF-8 预期长度范围内的不能作为起始码元的字节都转
+// 换成 U+FFFD。更正式地表述为，在码元序列转换过程中，当遇到不可转换偏移量（该偏移量从
+// UTF-8 的起始码元开始）时：
+//  1.  该偏移量处的最大子部分被单个 U+FFFD 替换
+//  2.  转换在最大子部分偏移之后继续处理
+//
+// 这种替换最大子部分的做法可以简单地应用于 UTF-32 或 UTF-16 编码形式，但主要适用于转
+// 换 UTF-8 字符串的情况。除非格式错误子序列的开头与某些格式正确序列的开头相匹配，否则
+// 这种做法几乎会将格式错误的 UTF-8 序列中的每个字节都替换为一个 U+FFFD。例如，"非最短
+// 形式" 序列或其截断版本的每个字节都会被替换。对于代理码点或其截断版本的序列中的每个字
+// 节也会被替换为一个U+FFFD，对于超出U+10FFFF的码点的序列中的每个字节，以及任何其他不构
+// 成有效序列的字节，也会被替换为一个U+FFFD。只有当两字节或三字节的序列是原本至此为止格
+// 式正确的序列的截断版本时，才会有多个字节被替换为单个U+FFFD，如下表。关于这种方法在将
+// 其他字符集转换为Unicode时的推广讨论，参见第5.22节《转换中的U+FFFD替换》。
+//           E1 80      E2         F0 91 92      F1 BF         41
+//      =>  <E1 80 ??> <E2 ?? ??> <F0 91 92 ??> <F1 BF ?? ??> <41>
+//      =>   U+FFFD     U+FFFD     U+FFFD        U+FFFD        U+41
+
+#define PRH_INVALID_UNICODE 0x110000
 
 typedef struct {
     prh_u32 data;
@@ -32881,61 +32943,73 @@ typedef struct {
     };
 } prh__utf8_b2b3;
 
-void int prh__multi_byte_utf8_to_unicode(prh_byte *p) {
+void prh_byte *prh__multi_byte_utf8_to_unicode(prh_byte *p, int *unicode) {
     prh__utf8_data b; b.b1 = *p;
     if (b.b1 <= 0xDF) goto label_2_byte;
     if (b.b1 <= 0xEF) goto label_3_byte;
     if (b.b1 <= 0xF4) goto label_4_byte;
-    return -1; // 第一字节不能出现 F5~FF
+    goto label_invalid; // 第一字节不能出现 F5~FF
 label_2_byte:
     b.b2 = p[1]; // 第一字节范围 C2~DF
-    if (b.b1 < 0xC2 || (b.b2 & 0xC0) != 0x80) return -1; // 第二字节必须是 80~BF
-    return (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    if (b.b1 < 0xC2 || (b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
+    *unicode = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    return p + 2;
 label_3_byte:
     prh__utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
-    if ((u.data & 0xC0C0) != 0x8080) return -1;
-    if (b.b1 == 0xE0 && u.b2 < 0xA0) return -1;
-    if (b.b1 == 0xED && u.b2 > 0x9F) return -1;
-    return (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
+    if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
+    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid;
+    *unicode = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    return p + 3;
 label_4_byte:
     b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
 #if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) return -1;
+    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
 #else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) return -1;
+    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
 #endif
-    if (b.b1 == 0xF0 && b.b2 < 0x90) return -1;
-    if (b.b1 == 0xF4 && b.b2 > 0x8F) return -1;
-    return (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
+    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid;
+    *unicode = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    return p + 4;
+label_invalid:
+    *unicode = PRH_INVALID_UNICODE;
+    return p;
 }
 
-void int prh__multi_byte_utf8_to_unicode_allow_non_shortest_form(prh_byte *p) {
+void prh_byte *prh__multi_byte_utf8_to_unicode_allow_non_shortest_form(prh_byte *p, int *unicode) {
     prh__utf8_data b; b.b1 = *p;
     if (b.b1 <= 0xDF) goto label_2_byte;
     if (b.b1 <= 0xEF) goto label_3_byte;
     if (b.b1 <= 0xF4) goto label_4_byte;
-    return -1; // 第一字节不能出现 F5~FF
+    goto label_invalid; // 第一字节不能出现 F5~FF
 label_2_byte:
     b.b2 = p[1]; // 第一字节范围 C0~DF
-    if (b.b1 < 0xC0 || (b.b2 & 0xC0) != 0x80) return -1; // 第二字节必须是 80~BF
-    return (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    if (b.b1 < 0xC0 || (b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
+    *unicode = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    return p + 2;
 label_3_byte:
     prh__utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
-    if ((u.data & 0xC0C0) != 0x8080) return -1;
-    if (b.b1 == 0xED && u.b2 > 0x9F) return -1; // 代理码点范围 U+D800~U+DFFF
-    return (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
+    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
+    *unicode = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    return p + 3;
 label_4_byte:
     b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
 #if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) return -1;
+    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
 #else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) return -1;
+    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
 #endif
-    if (b.b1 == 0xF4 && b.b2 > 0x8F) return -1; // 不能超过码点最大值 U+10FFFF
-    return (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
+    *unicode = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    return p + 4;
+label_invalid:
+    *unicode = PRH_INVALID_UNICODE;
+    return p;
 }
 
-#endif // PRH_LEXER_INCLUDE
+#endif // PRH_SCAN_INCLUDE
 
 #ifdef __cplusplus
 }
