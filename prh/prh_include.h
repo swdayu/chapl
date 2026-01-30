@@ -7295,8 +7295,7 @@ void prh_soro_finish(prh_soro_struct *s);
 // 无栈协程（stackless coroutine）使用注意事项：
 //  1.  协程函数中不能使用局部变量，因为无栈协程没有自己的栈，栈中的局部变量不会保存
 //  2.  将所有用到的变量都记录在无栈协程自己的结构体中，保证数据可以跨越多次挂起和恢复
-//  3.  无效协程自己的结构体使用 co_struct 宏定义，保证 prh_co_struct 为第一成员
-//      typedef co_struct(type field; ...) your_co_struct;
+//  3.  无栈协程定义自己的协程结构，要保证 prh_co_struct 为第一成员
 //  4.  协程函数的代码必须包含在 co_begin(co) 和 co_end(co) 之间
 //  5.  协程函数不能直接使用 return 返回，必须使用 co_yield(co) 返回
 //  6.  不然，协程函数下一次执行，不会恢复到上一次挂起的地方继续执行
@@ -7306,6 +7305,7 @@ void prh_soro_finish(prh_soro_struct *s);
 //  10. co_await(callee) 挂起当前执行协程，执行子协程，并异步地等待子协程返回结果
 //  11. 对于异步协程，存在一个只调用 co_await() 的顶层协程并通过 async_co_start 启动
 //  12. 顶层协程如果调用 co_yield()，将没有更上一层的调用者恢复它的执行，导致永远挂起
+//  13. 无栈协程的一个限制是，协程的每一次挂起，都必须返回到顶层协程之外的非协程代码环境
 
 typedef struct prh_co_struct prh_co_struct;
 struct async_co;
@@ -32799,6 +32799,143 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 }
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_SOCK_INCLUDE
+
+#ifdef PRH_LEXER_INCLUDE
+// 统一字符编码（unicode）
+// 编码转换格式（utf）unicode transformation formats
+// 码点（code point）
+// 码元（code unit）
+// 代理码点（surrogate code point）
+// 统一编码标量值（unicode scalar value）
+// 基本多语言页（BMP）basic multilingual plane
+//
+// 统一字符编码标准支持三种字符编码形式：UTF-32、UTF-16和UTF-8。每种编码形式都将码点
+// U+0000 ~ U+D7FF、U+E000 ~ U+10FFFF 映射为唯一的码元序列。每种编码形式都规定了码元
+// 的大小。
+//
+// UTF-8 编码中，码点序列 <004D, 0430, 4E8C, 10302> 表示为 <4D D0 B0 E4 BA 8C F0
+// 90 8C 82>，其中 <4D> 对应 U+004D，<D0 B0> 对应 U+0430，<E4 BA 8C> 对应 U+4E8C，
+// <F0 90 8C 82> 对应 U+10302。任何不符合下表所列模式的 UTF-8 字节序列形式的格式都是
+// 错误的（ill-formed）。在统一编码标准 3.1 版之前，UTF-8 中存在问题的 "非最短形式"
+// 字节序列是指那些可以用多种方式表示的基本多语言页（BMP）字符的序列。这些序列格式非法，
+// 因为它们不被下表所允许。由于代理码点（surrogate code points）不是统一编码标量值，
+// 任何原本会映射到 U+D800 ~ U+DFFF 码点的 UTF-8 字节序列都是格式错误的。关于ISO/IEC
+// 10646 中 UTF-8 表述差异的讨论，参见附录C.3《UTF-8与UTF-16》。
+//
+//  UTF-8 编码形式的位分布（显示对应一二三四字节序列的统一编码标量值范围）
+//           标量值             标量范围         第一字节  第二字节  第三字节  第四字节  编码范围
+//           00000000 0xxxxxxx  U+0000~U+007F   0xxxxxxx                            00~7F
+//           00000yyy yyxxxxxx  U+0080~U+07FF   110yyyyy 10xxxxxx                   C0~DF 80~BF
+//           zzzzyyyy yyxxxxxx  U+0800~U+FFFF   1110zzzz 10yyyyyy 10xxxxxx          E0~EF 80~BF 80~BF
+//  000uuuuu zzzzyyyy yyxxxxxx  010000~1FFFFF   11110uuu 10uuzzzz 10yyyyyy 10xxxxxx F0~F7 80~BF 80~BF 80~BF
+//
+//  合法 UTF-8 字节序列
+//          码点范围       第一字节
+//          U+0000~U+007F  00~7F
+//          ------------- 第一字节 第二字节
+//          U+0080~U+07FF  C2~DF   80~BF
+//          ------------- 第一字节 第二字节  第三字节
+//          U+0800~U+0FFF  E0      (A0)~BF  80~BF
+//          U+1000~U+CFFF  E1~EC   80~BF    80~BF
+//          U+D000~U+D7FF  ED      80~(9F)  80~BF
+//          U+E000~U+FFFF  EE~EF   80~BF    80~BF
+//          ------------- 第一字节 第二字节  第三字节  第四字节
+//          010000~03FFFF  F0      (90)~BF  80~BF    80~BF
+//          040000~0FFFFF  F1~F3   80~BF    80~BF    80~BF
+//          100000~10FFFF  F4      80~(8F)  80~BF    80~BF
+//
+// 上表列出了 UTF-8 中所有格式正确（well-formed）的字节序列。任何超出所列范围的字节值
+// 都是格式错误（ill-formed）的。例如，第一字节不能出现 80~C1 F5~FF，第二字节不能出现
+// 00~7F C0~FF 并且还有额外情况，第三第四字节必须是 80~BF。空缺的码点：
+//          1.  两字节序列中以 C0 和 C1 字节开始的序列，该范围与单字节 UTF-8 重复
+//              (110)0_0000 C0 => 0_0000_xxxxxx => 00xx_xxxx => U+00~U+3F
+//              (110)0_0001 C1 => 0_0001_xxxxxx => 01xx_xxxx => U+40~U+7F
+//          2.  三字节序列中以 <E0 80~9F> 开始的序列，该范围与单字节和双字节 UTF-8 重复
+//              (1110)_0000 (10)00_0000 <E0 80> => 0y_yyyy_xxxxxx
+//              (1110)_0000 (10)01_1111 <E0 9F> => 0yyy_yyxx_xxxx => U+0000~U+07FF
+//          3.  三字节序列中以 <ED A0~BF> 开始的序列，该范围是代理码点（surrogate code points）的范围
+//              (1110)_1101 (10)10_0000 <ED A0> => 1101_1y_yyyy_xxxxxx
+//              (1110)_1101 (10)11_1111 <ED BF> => 1101_1yyy_yyxx_xxxx => U+D800~U+DFFF
+//          4.  四字节序列中以 <F0 80~8F> 开始的序列，该范围与单字节和双字节和三字节 UTF-8 重复
+//              (1111_0)000 (10)00_0000 <F0 80> => zzzz_yyyyyy_xxxxxx
+//              (1111_0)000 (10)00_1111 <F0 8F> => zzzz_yyyy_yyxx_xxxx => U+0000~U+FFFF
+//          5.  四字节序列中以 <F4 90~BF> 开始的序列，码点必须 <= U+10FFFF
+//              (1111_0)100 (10)01_0000 <F4 90> => 100_01_0000_yyyyyy_xxxxxx
+//                                              => 1_0001_0000_yyyy_yyxx_xxxx => U+110000
+
+typedef struct {
+    prh_u32 data;
+    struct {
+        prh_byte b1;
+        prh_byte b2;
+        prh_byte b3;
+        prh_byte b4;
+    };
+} prh__utf8_data;
+
+typedef struct {
+    prh_u16 data;
+    struct {
+        prh_byte b2;
+        prh_byte b3;
+    };
+} prh__utf8_b2b3;
+
+void int prh__multi_byte_utf8_to_unicode(prh_byte *p) {
+    prh__utf8_data b; b.b1 = *p;
+    if (b.b1 <= 0xDF) goto label_2_byte;
+    if (b.b1 <= 0xEF) goto label_3_byte;
+    if (b.b1 <= 0xF4) goto label_4_byte;
+    return -1; // 第一字节不能出现 F5~FF
+label_2_byte:
+    b.b2 = p[1]; // 第一字节范围 C2~DF
+    if (b.b1 < 0xC2 || (b.b2 & 0xC0) != 0x80) return -1; // 第二字节必须是 80~BF
+    return (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+label_3_byte:
+    prh__utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
+    if ((u.data & 0xC0C0) != 0x8080) return -1;
+    if (b.b1 == 0xE0 && u.b2 < 0xA0) return -1;
+    if (b.b1 == 0xED && u.b2 > 0x9F) return -1;
+    return (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+label_4_byte:
+    b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
+#if prh_lit_endian
+    if ((b.data & 0xC0C0C000) != 0x80808000) return -1;
+#else
+    if ((b.data & 0x00C0C0C0) != 0x00808080) return -1;
+#endif
+    if (b.b1 == 0xF0 && b.b2 < 0x90) return -1;
+    if (b.b1 == 0xF4 && b.b2 > 0x8F) return -1;
+    return (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+}
+
+void int prh__multi_byte_utf8_to_unicode_allow_non_shortest_form(prh_byte *p) {
+    prh__utf8_data b; b.b1 = *p;
+    if (b.b1 <= 0xDF) goto label_2_byte;
+    if (b.b1 <= 0xEF) goto label_3_byte;
+    if (b.b1 <= 0xF4) goto label_4_byte;
+    return -1; // 第一字节不能出现 F5~FF
+label_2_byte:
+    b.b2 = p[1]; // 第一字节范围 C0~DF
+    if (b.b1 < 0xC0 || (b.b2 & 0xC0) != 0x80) return -1; // 第二字节必须是 80~BF
+    return (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+label_3_byte:
+    prh__utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
+    if ((u.data & 0xC0C0) != 0x8080) return -1;
+    if (b.b1 == 0xED && u.b2 > 0x9F) return -1; // 代理码点范围 U+D800~U+DFFF
+    return (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+label_4_byte:
+    b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
+#if prh_lit_endian
+    if ((b.data & 0xC0C0C000) != 0x80808000) return -1;
+#else
+    if ((b.data & 0x00C0C0C0) != 0x00808080) return -1;
+#endif
+    if (b.b1 == 0xF4 && b.b2 > 0x8F) return -1; // 不能超过码点最大值 U+10FFFF
+    return (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+}
+
+#endif // PRH_LEXER_INCLUDE
 
 #ifdef __cplusplus
 }
