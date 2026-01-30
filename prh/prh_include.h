@@ -32801,11 +32801,10 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 #endif // PRH_SOCK_INCLUDE
 
 #ifdef PRH_SCAN_INCLUDE
-// 统一字符编码（unicode）
+// 统一字符编码（unicode，https://www.unicode.org/versions/latest/）
 // 编码转换格式（utf）unicode transformation formats
 // 基本多语言页（BMP）basic multilingual plane
 // 码点（code point）
-// 代理码点（surrogate code point）
 //
 // 统一字符编码标准支持三种字符编码形式：UTF-32、UTF-16和UTF-8。每种编码形式都将码点
 // U+0000 ~ U+D7FF、U+E000 ~ U+10FFFF 映射为唯一的码元序列。每种编码形式都规定了码元
@@ -32813,6 +32812,24 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //
 // 统一编码标量值（unicode scalar value），除高代理码点和低代理码点之外的任何码点，根
 // 据此定义，编码标量值集合的范围为 U+0000 ~ U+D7FF、U+E000 ~ U+10FFFF。
+//
+// 代理码点（surrogate code point），2048个码点被分配为代理码点，用于UTF-16编码形式。
+// 高代理码点（High-surrogate code point）范围为 U+D800 ~ U+DBFF，低代理码点（Low
+// surrogate code point）范围 U+DC00 ~ U+DFFF。代理对（Surrogate pair），单个抽象字
+// 符的表示，由两个16位码元组成的序列，第一个值是高代理码元，第二个值是低代理码元。高代
+// 理码元和低代理码元仅在UTF-16字符编码形式的上下文中使用，代理对仅在UTF-16中使用。孤立
+// 的代理码元自身没有解释，其他编码形式中的某些其他孤立码元也没有自身解释。例如，孤立字
+// 节 0x80 在 UTF-8 中没有解释；它只能用作多字节序列的一部分。有时高代理码元被称为引导
+// 代理（leading surrogates），低代理码元则被称为尾随代理（trailing surrogates）。这
+// 类似于 UTF-8 中的用法，UTF-8有引导字节（leading bytes）和尾随字节（trailing
+// bytes）。更多信息，参见第 5.4 节《UTF-16中代理对的处理》。
+//
+// 当使用UTF-16表示增补字符时，每个字符使用一对16位码元，这些码元称为代理。为了将它们与
+// 普通字符区分开来，它们被分配在一个单独的区域。代理区域由1024个低半代理码点和 1024 个
+// 高半代理码点组成。高代理码点始终是代理对的第一个元素，低代理码点始终是代理对的第二个
+// 元素。范围 U+DB80 ~ U+DBFF 的高代理码点是私用高代理码点（共128个码点）。通过代理对
+// 表示的字符，若其高代理码点为私用高代理，则这些字符来自增补私用区。关于私用字符的更多
+// 信息，参见第23.5节《私用字符》。
 //
 // 码元（code unit），能够表示用于处理或交换的编码文本单元的最小位组合。码元是计算机存
 // 储的特定单元，其他字符编码标准通常使用定义为8位单元的码元，即八位字节（octets）。统
