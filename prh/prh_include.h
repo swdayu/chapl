@@ -737,6 +737,7 @@ extern "C" {
 #else
     #error unsupported architecture
 #endif
+    typedef prh_u32 prh_char;
     typedef prh_unt prh_ptr;
     typedef prh_arch_unt prh_arch_ptr;
     typedef float prh_f32;
@@ -756,6 +757,7 @@ extern "C" {
     prh_static_assert(sizeof(prh_int) == sizeof(void *)); // signed pointer size type
     prh_static_assert(sizeof(prh_unt) == sizeof(void *)); // unsigned pointer size type
     prh_static_assert(sizeof(prh_ptr) == sizeof(prh_unt));
+    prh_static_assert(sizeof(prh_char) == sizeof(prh_u32));
     prh_static_assert(sizeof(prh_arch_int) == prh_arch_bits / 8); // architecture signed type with generic purpose regiter size
     prh_static_assert(sizeof(prh_arch_unt) == prh_arch_bits / 8); // architecture unsigned type with generic purpose register size
     prh_static_assert(sizeof(prh_arch_ptr) == sizeof(prh_arch_unt));
@@ -32960,7 +32962,7 @@ typedef struct {
     };
 } prh__utf8_b2b3;
 
-void prh_byte *prh__multi_byte_utf8_to_unicode(prh_byte *p, int *unicode) {
+prh_byte *prh__multi_byte_utf8_to_unicode(prh_byte *p, prh_char *unicode) {
     prh__utf8_data b; b.b1 = *p;
     if (b.b1 <= 0xDF) goto label_2_byte;
     if (b.b1 <= 0xEF) goto label_3_byte;
@@ -32994,7 +32996,7 @@ label_invalid:
     return p;
 }
 
-void prh_byte *prh__multi_byte_utf8_to_unicode_allow_non_shortest_form(prh_byte *p, int *unicode) {
+prh_byte *prh__multi_byte_utf8_to_unicode_allow_non_shortest_form(prh_byte *p, prh_char *unicode) {
     prh__utf8_data b; b.b1 = *p;
     if (b.b1 <= 0xDF) goto label_2_byte;
     if (b.b1 <= 0xEF) goto label_3_byte;
@@ -33024,6 +33026,38 @@ label_4_byte:
 label_invalid:
     *unicode = PRH_INVALID_UNICODE;
     return p;
+}
+
+int prh_unicode_to_utf8(prh_char unicode, prh_byte *p) {
+    if (unicode <= 0x7F) {
+        *p = (prh_byte)unicode;
+        return 1;
+    }
+    if (unicode <= 0x07FF) { // 110yyyyy 10xxxxxx
+        p[0] = 0xC0 | (prh_byte)(unicode >> 6);
+        p[1] = 0x80 | (prh_byte)(unicode & 0x3f);
+        return 2;
+    }
+    if (unicode <= 0xFFFF) { // 1110zzzz 10yyyyyy 10xxxxxx
+        if (unicode <= 0xD7FF || unicode >= 0xE000) {
+            p[0] = 0xE0 | (prh_byte)(unicode >> 12);
+            p[1] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
+            p[2] = 0x80 | (prh_byte)(unicode & 0x3f);
+            return 3;
+        } else {
+            goto label_invalid;
+        }
+    }
+    if (unicode <= 0x10FFFF) { // 11110uuu 10uuzzzz 10yyyyyy 10xxxxxx
+        p[0] = 0xF0 | (prh_byte)(unicode >> 18);
+        p[1] = 0x80 | (prh_byte)((unicode >> 12) & 0x3f);
+        p[2] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
+        p[3] = 0x80 | (prh_byte)(unicode & 0x3f);
+        return 4;
+    }
+label_invalid: // 代理码点不是合法的统一编码标量值，或不能超过码点最大值 U+10FFFF
+    prh_debug_prerr(unicode);
+    return 0;
 }
 
 #endif // PRH_SCAN_INCLUDE
