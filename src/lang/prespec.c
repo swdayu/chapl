@@ -24,7 +24,9 @@
 // 特殊名称：
 //  e_ 预留给错误码字符串，预定义的错误码，只保存错误数值
 //  E_ 预留给错误码字符串，动态分配的错误码，保存完整字符串
-//  __name__ 以双下划线开始和结尾的名称都是保留关键字
+//  __func() __name__ 以双下划线开始的名称都是保留关键字
+//  标识符可以使用数字开头，此时不能以数字结尾，如果不以数字开头则可以使用数字结尾
+//  3rd2.0 3rd2.2p 以数字开头的标识符，访问元组成员可能与浮点冲突
 //
 // 符号属性：
 //  alignas(n) forced_alignas(n) // forced_alignas(n) 不会被 packed 属性抑制
@@ -784,12 +786,12 @@ let size if a case 'a' { a } case 'b' { b } else { c } // let 可以让语句产
 let size a or b         // let or语句
 let size a > b then a or b // let then or 语句
 
-def :: std/array // 同一个包名下的源代码，可以分割为多个部分，成员函数例如 push(*std::array *type a) 只能编写在 std 包的 array 源代码部分
+def ::std/array // 同一个包名下的源代码，可以分割为多个部分，成员函数例如 push(*std::array *type a) 只能编写在 std 包的 array 源代码部分
 import * std/array // 剥去包名，除了有冲突的名称仍然添加包名外，其他名称直接引入，std 包名只能存在于系统标准源代码中
 import 3rd lib/array // 文件可提供一个包名，也可以不提供，如果没有提供包名，import 时可以定义一个包名
 import std/array // 如果提供了包名，可以使用 def 定义符号别名
-def (3rd::array) 3rd_array
-def (std::array) std_array
+def <3rd::array> 3rd_array
+def <std::array> std_array
 
 Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字段都是只读的，写操作必须通过公开函数
     u32 rspoffset // 1st field dont move
@@ -1117,10 +1119,10 @@ let *int p = undefined
 let point a = {100, 200}
 let [_]int a = {20, 30, 50}
 let [8]int a = {1, 2, 3, 4}
-let <i32 f64 u08> tup = {500, 6.4, 1}
-let <i32 f64 u08> tup (a b c) = {500, 6.4, 1}
-var tup (a b c) = {500, 6.4, 1}
-var data (value error) = read_tuple() // 元组类型值的返回 data[1] data.a，(value error) 必须至少包含两个元素，否则一个元素将被认为是模板类型的实例化
+let <i32 f64 u08> tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
+let <i32 f64 u08> tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+var tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+var data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
 var (a _) = read_tuple() // 赋值右边必须是一个元组类型
 var (_ a _ b) = data // 赋值右边必须是一个元组类型
 var (a b c) = <i32 f64 u08> {500, 6.4, 1}
