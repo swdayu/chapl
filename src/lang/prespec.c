@@ -8,7 +8,7 @@
 //  struct const void embed let def pub undefined
 //  continue defer yield range lambda reflex trait
 //  static where it or this import scoped as
-//  with retr dref todo debug trap local global
+//  with adr der todo debug trap local global
 //  mod mut ref gen priv do abstract final macro
 //  alignof type  sizeof type  offsetof type.offset
 //
@@ -27,7 +27,7 @@
 //  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
-//  alignas(n) forced_alignas(n) maybenone // forced_alignas(n) 不会被 packed 属性抑制
+//  alignas(n) forced_alignas(n) // forced_alignas(n) 不会被 packed 属性抑制
 //  "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
 //  @nonzero @nonalls @zeroinit @packed
 // 内置函数：
@@ -353,7 +353,7 @@
 (int a int b yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
 (int a return)
 (int a return int point float (count point scale))
-(*file maybenone file{stdin} point point string name{"root"} string mode return)
+(*file? file{stdin} point point string name{"root"} string mode return)
 (int)
 (int string point)
 (int float yield int)
@@ -374,7 +374,7 @@ struct {} // 空结构体
 {int point} // point 是 int 型类型成员
 const { red green blue }
 const int { red green {2} blue }
-$p { (*p p int size return int) read }
+$this { (*this p int size return int) read }
 // 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
 {:1 :2 :3 :4}
@@ -1015,8 +1015,9 @@ def eat(*lexer l expr e return *oper) { // 编译器可以访问到完整代码�
     return l.op or e.op
 }
 
-// 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
-def PI = 3.1415926, 2P = 2 * PI
+// 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）, *** 逗号只能包含在大括号内，或 let 与 = 之间 ***
+def PI = 3.1415926
+def 2P = 2 * PI
 def PI = 'f64 3.1415926
 def PT = point {100, 200}
 def P2 = point {100, 200}
@@ -1025,7 +1026,8 @@ def P4 = (int int) {100, 200}
 def P5 = {int a int b} {100, 200}
 def P6 = (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
-pub PI = 3.1415926, 2P = 2 * PI
+pub PI = 3.1415926
+pub 2P = 2 * PI
 pub PI = 'f64 3.1415926
 pub PT = point {100, 200}
 pub P2 = point {100, 200}
@@ -1035,7 +1037,8 @@ pub P5 = {int a int b} {100, 200}
 pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
-def int a = 10, b = 20
+def int a = 10
+def int b = 20
 def *int int_ptr = &a
 def *point point_ptr = &point
 def point point = {100, 200}
@@ -1043,7 +1046,8 @@ def (int a int b return int) calc = { return a + b } // 定义一个函数指针
 def (int int point) data = {10, 20, {100, 200}}
 def {int a int b point point} data = {10, 20, {100, 200}}
 
-pub int a = 10, b = 20
+pub int a = 10
+pub int b = 20
 pub *int int_ptr = &a
 pub *point point_ptr = &point
 pub point point = {100, 200}
@@ -1056,26 +1060,35 @@ pub {int a int b point point} data = {10, 20, {100, 200}}
 //  2.  named_type {initialize_list} 形式也不需要添加 'type 转换前缀
 //  3.  named_type undefined 形式也不需要添加 'type 转换前缀
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
-//  5.  取地址操作符 retr
-//  6.  解引用操作符 dref
+//  5.  取地址操作符 adr
+//  6.  解引用操作符 der
 let (int argc **char argv return int) main = { return 0 } //（等号左边总是变量）
-let *int p = retr **int base + sizeof int
+let *int p = adr **int base + sizeof int
 let p = *int undefined
-let *point p = dref **point base + sizeof point
-let a = point {100, 200}, o = dref p, p = retr a
+let *point p = der **point base + sizeof point
+let a = point {100, 200}
+let o = der p
+let p = adr a
 let point point = {100, 200} // 第一个 point 是类型
 let point = point {100, 200}
-let *point = retr copyof point
-let *point = retr {0}
+let *point = adr copyof point
+let *point = adr {0}
 let *ppb = malloc(size) // 局部变量只能使用 let 关键字定义，等号左边只能定义一个变量
-let *int p = null, q = undefined
-let int a = 0, b = 0
-let point o = undefined, pos = {1, 2}
-let point = point undefined, o = point {1, 2}
-let point point = undefined, o = {1, 2}
+let *int p = null
+let *int q = undefined
+let int a = 0
+let int b = 0
+let point o = undefined
+let point pos = {1, 2}
+let point = point undefined
+let o = point {1, 2}
+let point point = undefined
+let point o = {1, 2}
 let ppb = *ppb malloc(size)
-let p = *int null, q = *int undefined
-let a = 0, b = byte 0
+let p = *int null
+let q = *int undefined
+let a = 0
+let b = byte 0
 let ptr = alloc(1024) or panic()
 let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
 let data = data{this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
@@ -1090,7 +1103,8 @@ let tup = {500, 6.4, 1}
 let tup = (i32 f64 u08){500, 6.4, 1}
 let [_]int a = {20, 30, 50}
 let [8]int a = {1, 2, 3, 4}
-let integers = {1, 2, 3}, colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
+let integers = {1, 2, 3}
+let colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
 let set = {:1 :2 :3 :4 :5 :6}
 let map = {"a":1, "b":2, "c":3}
 let array_ints = {{1,2}, {3,4}, {5,6}} // 数组
@@ -1098,10 +1112,13 @@ let array_ints = {{1,2}, {3,4,5}} // 元组
 let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
 let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
 let str_array = mixed_array[1]
-let a = int 0, b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
+let a = int 0
+let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
 let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
-let a = point{100, 200}, b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
-let a = int{0}, b = float{3.1415926}
+let a = point{100, 200}
+let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+let a = int{0}
+let b = float{3.1415926}
 
 def calc(int a int b return int int (x y)) {
     x = a + b
@@ -1145,7 +1162,7 @@ if a == none
 else
     print("a/b=%", a)
 
-def calc(*file maybenone f *expr e return int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
+def calc(*file? file *expr expr return int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
 }
 
 // Optional Type 的两个好处：
@@ -1155,12 +1172,12 @@ def calc(*file maybenone f *expr e return int) { // 如果加上了 none 属性�
 //  1.  让代码变量繁琐，但是这是一种可选择性的有目的性的繁琐
 //  2.  因为你可以有目的的选择在关注的代码上选用 or none
 // 关于空值：
-//  1.  默认不能将 null 传递给指针，除非它被显式声明为 maybenone
+//  1.  默认不能将 null 传递给指针，除非它被显式声明为 *type?
 //  2.  默认不能将 0 传递给 @nonzero 整数型变量
 //  3.  默认不能将全一的值传递给 @nonalls 整数型变量
 //  4.  空值是一个特殊的值，不应该在整个程序中泛滥传播
 //  5.  or none 必须可以应用到任何类型，用来全面消除空值的泛滥传播
-//  6.  @maybenone @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
+//  6.  @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
 //  7.  a where [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
 //      新的语句将非空焊死在局部变量 x 中，print 根本访问不到可能为空的 a，因为函数闭包只能访问显式写在捕获参数中的值
 //  8.  let x = a where [x] { x * 2 } or none // 变量 x 也将变成可空的值
@@ -1272,7 +1289,7 @@ def peek(*lexer, token) {
 }
 
 def eval(oper o expr l expr r return expr) {
-    let :expr = undefined
+    let expr = undefined
     if [o] '=' {
         expr = .value(r.value.n)
         get_symbol(l.ident.id).value = r.value.n
@@ -2035,7 +2052,7 @@ math:*
     @posi()     @+          @+6.24      @+c         (+6.24) (+c)
     @comp()     @^          @^1024      @^c         (^1024) (^c)
     @addr()     (&)         @&data                  (&)data (*&)data    adr data    der adr data
-    @dref()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
+    @der()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 结构体中的各类成员
 //  1. 成员 type field_name field_name ...;
