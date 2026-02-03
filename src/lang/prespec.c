@@ -5,7 +5,7 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
-//  struct const void embed let def pub undefined
+//  struct const void embed def pub let var undefined
 //  continue defer yield range lambda reflex trait
 //  static where it or this import scoped as
 //  with adr der todo debug trap local global
@@ -114,9 +114,9 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  bool byte char string none null true false unsigned
-//  i08 i16 i32 i64 i128 i256 i512 int arch_int def error
-//  u08 u16 u32 u64 u128 u256 u512 unt arch_ptr def ptr
+//  bool byte char string none null true false def error
+//  i08 i16 i32 i64 i128 i256 i512 int arch_int
+//  u08 u16 u32 u64 u128 u256 u512 unt arch_unt
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -335,37 +335,38 @@
 //      如果前面的表达式是一个变量，则进行函数调用
 //      如果前面的表达式是一个常量，则报错
 
+// 类型转换，当表达式中的类型转换需要添加括号时，需要使用 ('type expr) 的形式，避免与函数类型冲突
+a + int b + c * d
+a + ('int b) + c * d
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
-// 函数类型字面量，函数复合常量是函数类型字面量 + { stmt ... }
-(return) // 返回值为空，函数类型字面量总是包含一个 return/yield 关键字，return 关键字总是出现在 yield 之前
-(return int)
-(return int string point)
+// 函数类型字面量，“开始小括号 + 结果为类型的表达式” 表示函数类型的开始，函数复合常量是函数类型字面量 + { stmt ... }
+(void) // void 表示没有参数，也没有返回值
+(return int) // 返回 int，当有返回值时才需要 return 关键字
+(return int string point) // 返回 int string point
 (return int float yield int)
 (yield int point return int)
-(yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
-(int a return int) // return 之前的逗号可以省略
-(int a return) // 无返回值
-(int argc **char argv return int or none)
-(point point int a return int)
-(camera camera point point return)
-(int a int b return)
-(int a int b return int yield int point)
-(int a int b yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
-(int a return)
-(int a return int point float (count point scale))
-(*file? file{stdin} point point string name{"root"} string mode return)
-(int)
-(int string point)
-(int float yield int)
 (yield int point)
-(int a)
-// 元组类型，元组类型相当于没有参数仅由返回值的函数类型
-(int) // 特殊情况外都不是一个元组，元组必须至少包含两个元素，但仍然可以通过 (int $) 来表示
-(int point int)
-(int point int)
-(int int string)
+(int a return int) // 返回 int
+(int a) // 没有返回值，不需要 return 关键字
+(int argc **char argv return int or none)
+(point p int a return int) // 返回 int
+(point point int a return int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
+(camera camera point point)
 (point point)
-// 结构体类型字面量，其他大括号内部不会出现分号（;）
+(int a)
+(int a int b)
+(int a int b return int yield int point)
+(int a int b yield int point return int)
+(int a int b yield int point)
+(int a return int point float (count point scale))
+(*file? file{stdin} point point string name{"root"} string mode)
+// 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
+<int> // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 <int $> 来表示
+<int point int>
+<int point int>
+<int int string>
+<point point>
+// 结构体类型字面量，“起始大括号 + 结果为类型的表达式” 称表示结构体的开始
 struct {} // 空结构体
 {int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
 {int a int b}
@@ -394,9 +395,9 @@ array(int, float)
 [N][N]Type
 [N]*Type
 [:int] // 集合类型
-[|flat_set|:int] // 自定义集合类型
+|flat_set|[:int] // 自定义集合类型
 [string:int] // 映射类型
-[|flat_map|string:int] // 自定义映射类型
+|flat_map|[string:int] // 自定义映射类型
 [string:*int]
 *[string:[N]int]
 where [m &a &b] { stmt... } // 捕获参数
@@ -639,7 +640,7 @@ def data {
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
-def read ($*T a unsigned p int n return int) // 函数只有第一个参数才能是泛型类型
+def read ($*T a unt p int n return int) // 函数只有第一个参数才能是泛型类型
 def reader $T $get(T) get $read(T) read {} // 在 ${} 表达式中需要省略 def 关键字
 
 def @{get} ($*T a return int)
@@ -805,15 +806,15 @@ Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字�
     u32 loweraddr
     u32 maxudsize 31 ptr_param 1
     i32 coro_id
-    unsigned rspoffset
-    unsigned loweraddr
-    unsigned maxudsize 31 ptr_param 1
+    unt rspoffset
+    unt loweraddr
+    unt maxudsize 31 ptr_param 1
     int coro_id
     unt rspoffset
     unt loweraddr
     unt maxudsize 31 ptr_param 1
     int coro_id
-    ptr address
+    unt address
 }
 
 def coro {
@@ -994,18 +995,18 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
 
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
 def (int argc **char argv return int) func_type
-def (int int float string) tuple_type
-def (*int) int_ptr
-def (*point) point_ptr
-def (point) type_point
-def [|flat_map|string:int] type_of_map
+def |flat_map|[string:int] type_of_map
+def <int int float string> tuple_type
+def <*int> int_ptr
+def <*point> point_ptr
+def <point> type_point
 
 pub (int argc **char argv return int) func_type
-pub (int int float string) tuple_type
-pub (*int) int_ptr
-pub (*point) point_ptr
-pub (point) type_point
-pub [|flat_map|string:int] type_of_map
+pub |flat_map|[string:int] type_of_map
+pub <int int float string> tuple_type
+pub <*int> int_ptr
+pub <*point> point_ptr
+pub <point> type_point
 
 def main(int argc **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
     return 0
@@ -1015,36 +1016,39 @@ def eat(*lexer l expr e return *oper) { // 编译器可以访问到完整代码�
     return l.op or e.op
 }
 
-// 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）, *** 逗号只能包含在大括号内，或 let 与 = 之间 ***
-def PI = 3.1415926
-def 2P = 2 * PI
-def PI = 'f64 3.1415926
-def PT = point {100, 200}
-def P2 = point {100, 200}
-def P3 = [_]int {100, 200}
-def P4 = (int int) {100, 200}
-def P5 = {int a int b} {100, 200}
-def P6 = (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
+// 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）, *** 逗号只能包含在括号内，或 let 与 = 之间 ***
+// def name = expr
+def PI const 3.1415926
+def 2P const 2 * PI
+def PI const f64 3.1415926
+def PT const point {100, 200}
+def P2 const point {100, 200}
+def P3 const [_]int {100, 200}
+def P4 const <int int> {100, 200}
+def P5 const {int a int b} {100, 200}
+def P6 const (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
-pub PI = 3.1415926
-pub 2P = 2 * PI
-pub PI = 'f64 3.1415926
-pub PT = point {100, 200}
-pub P2 = point {100, 200}
-pub P3 = [_]int {100, 200}
-pub P4 = (int int) {100, 200}
-pub P5 = {int a int b} {100, 200}
-pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
+pub PI const 3.1415926
+pub 2P const 2 * PI
+pub PI const f64 3.1415926
+pub PT const point {100, 200}
+pub P2 const point {100, 200}
+pub P3 const [_]int {100, 200}
+pub P4 const <int int> {100, 200}
+pub P5 const {int a int b} {100, 200}
+pub P6 const (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
+// def type name = expr
+// def type = expr
 def int a = 10
 def int b = 20
 def *int int_ptr = &a
 def *point point_ptr = &point
 def point point = {100, 200}
 def (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
-def (int int point) data = {10, 20, {100, 200}}
 def {int a int b point point} data = {10, 20, {100, 200}}
+def <int int point> data = {10, 20, {100, 200}}
 
 pub int a = 10
 pub int b = 20
@@ -1052,8 +1056,8 @@ pub *int int_ptr = &a
 pub *point point_ptr = &point
 pub point point = {100, 200}
 pub (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
-pub (int int point) data = {10, 20, {100, 200}}
 pub {int a int b point point} data = {10, 20, {100, 200}}
+pub <int int point> data = {10, 20, {100, 200}}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
@@ -1062,63 +1066,64 @@ pub {int a int b point point} data = {10, 20, {100, 200}}
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
 //  5.  取地址操作符 adr
 //  6.  解引用操作符 der
+//  let type name = expr
+//  let type = expr // 定义与类型名同名的变量
 let (int argc **char argv return int) main = { return 0 } //（等号左边总是变量）
 let *int p = adr **int base + sizeof int
-let p = *int undefined
 let *point p = der **point base + sizeof point
-let a = point {100, 200}
-let o = der p
-let p = adr a
 let point point = {100, 200} // 第一个 point 是类型
-let point = point {100, 200}
+let point = {100, 200}
 let *point = adr copyof point
 let *point = adr {0}
-let *ppb = malloc(size) // 局部变量只能使用 let 关键字定义，等号左边只能定义一个变量
 let *int p = null
 let *int q = undefined
 let int a = 0
 let int b = 0
 let point o = undefined
 let point pos = {1, 2}
-let point = point undefined
-let o = point {1, 2}
+let point = undefined
 let point point = undefined
 let point o = {1, 2}
-let ppb = *ppb malloc(size)
-let p = *int null
-let q = *int undefined
-let a = 0
-let b = byte 0
-let ptr = alloc(1024) or panic()
-let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
-let data = data{this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
-let data(value error) = read_tuple() // 元组类型值的返回 data[1] data.a，(value error) 必须至少包含两个元素，否则一个元素将被认为是模板类型的实例化
-let a, _ = read_tuple() // 赋值右边必须是一个元组类型
-let _, a, _, b = data // 赋值右边必须是一个元组类型
-let (i32 f64 u08) tup = {500, 6.4, 1}
-let (i32 f64 u08) tup(a b c) = {500, 6.4, 1}
-let tup(a b c) = {500, 6.4, 1}
-let a, b, c = (i32 f64 u08){500, 6.4, 1}
-let tup = {500, 6.4, 1}
-let tup = (i32 f64 u08){500, 6.4, 1}
+let *ppb = malloc(size)
+let *int p = undefined
+let point a = {100, 200}
 let [_]int a = {20, 30, 50}
 let [8]int a = {1, 2, 3, 4}
-let integers = {1, 2, 3}
-let colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
-let set = {:1 :2 :3 :4 :5 :6}
-let map = {"a":1, "b":2, "c":3}
-let array_ints = {{1,2}, {3,4}, {5,6}} // 数组
-let array_ints = {{1,2}, {3,4,5}} // 元组
-let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
-let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
-let str_array = mixed_array[1]
-let a = int 0
-let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
-let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
-let a = point{100, 200}
-let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
-let a = int{0}
-let b = float{3.1415926}
+let <i32 f64 u08> tup = {500, 6.4, 1}
+let <i32 f64 u08> tup(a b c) = {500, 6.4, 1}
+// var name = expr
+var tup (a b c) = {500, 6.4, 1}
+var data (value error) = read_tuple() // 元组类型值的返回 data[1] data.a，(value error) 必须至少包含两个元素，否则一个元素将被认为是模板类型的实例化
+var (a _) = read_tuple() // 赋值右边必须是一个元组类型
+var (_ a _ b) = data // 赋值右边必须是一个元组类型
+var (a b c) = <i32 f64 u08> {500, 6.4, 1}
+var tup = {500, 6.4, 1}
+var tup = <i32 f64 u08> {500, 6.4, 1}
+var integers = {1, 2, 3}
+var colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
+var set = {:1 :2 :3 :4 :5 :6}
+var map = {"a":1, "b":2, "c":3}
+var array_ints = {{1,2}, {3,4}, {5,6}} // 数组
+var array_ints = {{1,2}, {3,4,5}} // 元组
+var mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
+var int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
+var str_array = mixed_array[1]
+var o = der p
+var p = adr a
+var o = point {1, 2}
+var ppb = *ppb malloc(size)
+var p = *int null
+var q = *int undefined
+var a = 0
+var b = byte 0
+var ptr = alloc(1024) or panic()
+var data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
+var data = data {this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
+var a = int 0
+var b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
+var calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+var a = point{100, 200}
+var b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 
 def calc(int a int b return int int (x y)) {
     x = a + b
@@ -1148,7 +1153,7 @@ if s.error abort(s.error)
 // 相比传统的空值检查，none 和 error 的统一处理方式让 “忘记检查空值” 直接编译报错，编译器强制要求处理 “空” 情况
 // 指针/函数指针/字符串 none 的 niche 值为 null, bool 可以使用 0x02 表示 niche 值
 // char 字符 UNICODE 标量的上限 0x10FFFF，有大量高位值可用作 niche
-// float 可以使用 N/A 值，int/unsigned 则必须手动指定，或使用 nonzero int，nonfini int，nonnull<T>
+// float 可以使用 N/A 值，int/unt 则必须手动指定，或使用 nonzero int，nonfini int，nonnull<T>
 def divide(float a float b return float or none) { // 空值，有值，返回值的大小为 sizeof float，调用者必须检查 none 值
     if b == 0 return none
     return a / b
@@ -1224,7 +1229,7 @@ def oper const u32 with {u08 lpri rpri} { // sum type
 
 def read_username_result const {
     OK (string)
-    ERR (unsigned)
+    ERR (unt)
 }
 
 def token const { // sum type
@@ -1250,7 +1255,7 @@ def expr const byte { // 相当于是一种泛型类型
     VALUE {int n} // 相当于存储 {byte 0 int n}
     IDENT {int id} // 相当于存储 {byte 1 int n}
     TEST (int int)
-    EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op unsigned lhs rhs}
+    EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op unt lhs rhs}
 }
 
 if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
@@ -1548,12 +1553,12 @@ for i I 0 .. 9 {
     pos + der adr *I (*byte p + size + f(g))
 }
 
-def memcpy(type ptr dest src int count)
-def memcpy(type ptr dest src int count) 'intrinsic'
-def memcmp(type ptr dest src int count int) 'intrinsic'
-def memset(type ptr dest byte value int count) 'intrinsic'
-def lock_cmpxchg(*T p T old new T) 'intrinsic'
-def coroguard(*coro, coro_guard) 'cdcel inline'
+def memcpy(unt dest unt src int count)
+def memcpy(unt dest unt src int count) 'intrinsic'
+def memcmp(unt dest unt src int count return int) 'intrinsic'
+def memset(unt dest byte value int count return) 'intrinsic'
+def lock_cmpxchg(*T p T old T new return T) 'intrinsic'
+def coroguard(*coro p return coro_guard) 'cdcel inline'
 
 Calc (int a b int)
 Snode $T { this next T data }
@@ -1850,7 +1855,7 @@ static if DYN_LINK_PROC {
 }
 
 static assert(SIZE >= 1024)
-assert(sizeof int == sizeof ptr)
+assert(sizeof int == sizeof unt)
 real_assert(sizeof(*p) == sizeof point)
 
 // https://squidfunk.github.io/mkdocs-material/reference/admonitions/
@@ -2020,14 +2025,14 @@ math:*
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
     10 从右到左    -a +a ^a !a type a adr a der a sizeof a typeof a ->> <<-  not neg int adr der *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
-     8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
+     8 从左到右    a*b a/b a%b a&b a<<b a>>b a<<<b a>>>b  mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
      6 从左到右    a<b a>b a<=b a>=b           rel_op
      5 从左到右    a==b a!=b
      4 从左到右    a&&b
      3 从左到右    a||b
      2 从左到右    a?:b
-     1 从右到左    a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a&=b a^=b a|=b
+     1 从右到左    a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a<<<=b a>>>=b a&=b a^=b a|=b
      0 从左到右    a,b
 
     交换操作
@@ -2240,7 +2245,7 @@ print(typestring, "\n")
 //      只有小于等于两个字长的命名类型才可以传值，其他都只能传指针，传指针的变量如果不想
 //      修改其自身，可以使用语法 test(&copyof a)
 //
-//      基本类型 int unsigned sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
+//      基本类型 int unt sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
 //      结构体类型总是传指针表示修改，声明为 *point，test(adr point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
 //      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
