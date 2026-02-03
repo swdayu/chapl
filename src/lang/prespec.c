@@ -27,7 +27,7 @@
 //  __name__ 以双下划线开始和结尾的名称都是保留关键字
 //
 // 符号属性：
-//  alignas(n) forced_alignas(n) maybe(none) // forced_alignas(n) 不会被 packed 属性抑制
+//  alignas(n) forced_alignas(n) maybenone // forced_alignas(n) 不会被 packed 属性抑制
 //  "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
 //  @nonzero @nonalls @zeroinit @packed
 // 内置函数：
@@ -340,18 +340,26 @@
 (return) // 返回值为空，函数类型字面量总是包含一个 return/yield 关键字，return 关键字总是出现在 yield 之前
 (return int)
 (return int string point)
+(return int float yield int)
+(yield int point return int)
 (yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
 (int a return int) // return 之前的逗号可以省略
-(int argc, **char argv return int or none)
-(point, int a return int)
-(camera, point return)
-(int a b return)
-(int a b return int yield int point)
-(int a b yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
+(int a return) // 无返回值
+(int argc **char argv return int or none)
+(point point int a return int)
+(camera camera point point return)
+(int a int b return)
+(int a int b return int yield int point)
+(int a int b yield int point) // 存在 yield 的情况下，如果函数不返回值，可以将 return 省略
 (int a return)
 (int a return int point float (count point scale))
-(*file maybe(none) = stdin, point, string name = "root", string mode return)
-// 元组类型
+(*file maybenone file{stdin} point point string name{"root"} string mode return)
+(int)
+(int string point)
+(int float yield int)
+(yield int point)
+(int a)
+// 元组类型，元组类型相当于没有参数仅由返回值的函数类型
 (int) // 特殊情况外都不是一个元组，元组必须至少包含两个元素，但仍然可以通过 (int $) 来表示
 (int point int)
 (int point int)
@@ -360,17 +368,17 @@
 // 结构体类型字面量，其他大括号内部不会出现分号（;）
 struct {} // 空结构体
 {int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
-{int a, b}
-{int a, b  point o  string s}
+{int a int b}
+{int a int b point o string s}
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point} // point 是 int 型类型成员
-const { red, green, blue }
-const int { red, green = 2, blue }
-$p { (*p int size return int) read }
+const { red green blue }
+const int { red green {2} blue }
+$p { (*p p int size return int) read }
 // 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
-{: 1 : 2 : 3 : 4}
-{|flat_set| : 1 : 2 : 3}
+{:1 :2 :3 :4}
+{|flat_set| :1 :2 :3}
 {"a":1, "b":2, "c":3}
 // 模板类型的实例化，不会与元组的 let 赋值冲突，因为元组的赋值必须包含两个元素且用空格分隔 let data(result error) = read_tuple()
 array(int, float)
@@ -619,16 +627,15 @@ fac far fat fen fer fin fit fou fro fry fur gen gre lot off per pat pal phr par
 pre pro rem res rim ron rou rut tie via was wow yet
 
 def point @zeroinit @packed {
-    f32 x, y
-}
-
-def point {
-    f32 x, y
+    float x
+    float y
 }
 
 def data {
-    int a, b
-    (int a b return int) f, g
+    int a
+    int b
+    (int a int b return int) f
+    (int a int b return int) g
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
@@ -702,21 +709,21 @@ def scale(def point point int a b)
 def calc(int a b int)
 
 def array $t const (int size) {
-    [size]t a;
+    [size]t a
 }
 
 def array $a const (int size) { // $ 定义一个类型参数 a
-    [size]a a;
+    [size]a a
 }
 
 def test $a $b {
-    a a; // 指定 a 是一个类型
-    b b;
+    a a // 指定 a 是一个类型
+    b b
 }
 
 def test $any t u {
-    t t;
-    u u;
+    t t
+    u u
 }
 
 def int_N_array const (int size) = type(size, $t) array
@@ -727,15 +734,15 @@ def int_array_of_array = type(8, int_array) array
 def int_array_of_array = type(8, (20, int)) array
 
 def color const int {
-    red = const + 1,
-    blue,
-    green,
+    red {const + 1}
+    blue
+    green
     yellow
 }
 
 def test $t $array(size, t) a $u const (int size, point) {
-    t t;
-    u u;
+    t t
+    u u
 }
 
 extern def l2capconn         def *l2capconn        def [2]l2capconn
@@ -763,13 +770,13 @@ def t6(int a b return int)
 def t7(def point float factor)
 
 def node $t {
-    this next;
-    t data;
+    this next
+    t data
 }
 
 def tripple $t $u const (int size) {
-    [size]t a;
-    u b;
+    [size]t a
+    u b
 }
 
 // 分两种错误，错误码非零（errno），返回不能为空值（?*int）
@@ -826,7 +833,7 @@ def coro_guard {
     *coro coro_ptr
     this embed
     this coro_guard
-    (int a b return int) calc
+    (int a int b return int) calc
     (*coro) func
 }
 
@@ -844,9 +851,10 @@ def coro_guard {
     *coro coro
     this embed
     this coro_guard
-    (int a b return int) calc
+    (int a int b return int) calc
     (*coro p) func
-    (*coro_guard int a b return int) f, g
+    (*coro_guard int a b return int) f
+    (*coro_guard int a b return int) g
 }
 
 def verify(*coro_guard)
@@ -875,28 +883,28 @@ CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
 }
 
 Color $i08 {
-    RED = const + 1,
-    BLUE,
+    RED {const + 1}
+    BLUE
     YELLOW
 }
 
 Color $int {
-    red,
-    blue = blue_defined_value,
+    red
+    blue {blue_defined_value}
     yellow
 }
 
 Color $i08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    RED = 1,
-    BLUE = 2,
-    YELLOW = 3
+    RED {1}
+    BLUE {2}
+    YELLOW {3}
 }
 
 BitValue $int {
-    FLAG_BIT1 = 1 << const,
-    FLAG_BIT2,
-    FLAG_BIT3,
-    FLAG_BIT4,
+    FLAG_BIT1 {1 << const}
+    FLAG_BIT2
+    FLAG_BIT3
+    FLAG_BIT4
 }
 
 Main(i32 argc **byte argv i32)
@@ -946,39 +954,35 @@ Expr $sum { // enum 定义的是一个联合体类型
 }
 
 Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
-    ass '=' {200, 201} // a = 2 + b = 3
-    add '+' {211, 210}
-    sub '-' {211, 210}
-    mul '*' {221, 220}
-    div '/' {221, 220}
-    pow '^' {230, 231}
-    dot '.' {251, 250}
-    end 0 // 默认值为零
+    ass {'=', 200, 201} // a = 2 + b = 3
+    add {'+', 211, 210}
+    sub {'-', 211, 210}
+    mul {'*', 221, 220}
+    div {'/', 221, 220}
+    pow {'^', 230, 231}
+    dot {'.', 251, 250}
+    end {0} // 默认值为零
 }
 
 def color const u08 { // private type
-    RED, GREEN, BLUE,
+    RED GREEN BLUE
 }
 
 pub color const u08 { // public type
-    RED,
-    GREEN = 1 << const,
-    BLUE,
+    RED
+    GREEN {1 << const}
+    BLUE
 }
 
 pub color const u08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    RED = 1,
-    BLUE = 2,
-    YELLOW = 3,
+    RED     {1}
+    BLUE    {2}
+    YELLOW  {3}
 }
 
 def point {
     float x
     float y
-}
-
-pub point {
-    float x, y
 }
 
 pub coro { // 包外访问，结构体成员只读，以下划线结束的成员不可访问
@@ -989,26 +993,26 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
 }
 
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
-def (int argc, **char argv return int) func_type
+def (int argc **char argv return int) func_type
 def (int int float string) tuple_type
 def (*int) int_ptr
 def (*point) point_ptr
 def (point) type_point
-def ([|flat_map|string:int]) type_of_map
+def [|flat_map|string:int] type_of_map
 
-pub (int argc, **char argv return int) func_type
+pub (int argc **char argv return int) func_type
 pub (int int float string) tuple_type
 pub (*int) int_ptr
 pub (*point) point_ptr
 pub (point) type_point
-pub ([|flat_map|string:int]) type_of_map
+pub [|flat_map|string:int] type_of_map
 
-def main(int argc, **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
+def main(int argc **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
     return 0
 }
 
-def eat(*lexer, expr return *oper) { // 编译器可以访问到完整代码的函数就是一个常量，而动态加载的函数相当于时一个函数变量（函数指针变量）
-    return lexer.op or expr.op
+def eat(*lexer l expr e return *oper) { // 编译器可以访问到完整代码的函数就是一个常量，而动态加载的函数相当于时一个函数变量（函数指针变量）
+    return l.op or e.op
 }
 
 // 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
@@ -1018,8 +1022,8 @@ def PT = point {100, 200}
 def P2 = point {100, 200}
 def P3 = [_]int {100, 200}
 def P4 = (int int) {100, 200}
-def P5 = {int a b} {100, 200}
-def P6 = (int a b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
+def P5 = {int a int b} {100, 200}
+def P6 = (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
 pub PI = 3.1415926, 2P = 2 * PI
 pub PI = 'f64 3.1415926
@@ -1027,25 +1031,25 @@ pub PT = point {100, 200}
 pub P2 = point {100, 200}
 pub P3 = [_]int {100, 200}
 pub P4 = (int int) {100, 200}
-pub P5 = {int a b} {100, 200}
-pub P6 = (int a b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
+pub P5 = {int a int b} {100, 200}
+pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
 def int a = 10, b = 20
 def *int int_ptr = &a
 def *point point_ptr = &point
 def point point = {100, 200}
-def (int a b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+def (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 def (int int point) data = {10, 20, {100, 200}}
-def {int a, b  point point} data = {10, 20, {100, 200}}
+def {int a int b point point} data = {10, 20, {100, 200}}
 
 pub int a = 10, b = 20
 pub *int int_ptr = &a
 pub *point point_ptr = &point
 pub point point = {100, 200}
-pub (int a b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+pub (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 pub (int int point) data = {10, 20, {100, 200}}
-pub {int a, b  point point} data = {10, 20, {100, 200}}
+pub {int a int b point point} data = {10, 20, {100, 200}}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
@@ -1054,7 +1058,7 @@ pub {int a, b  point point} data = {10, 20, {100, 200}}
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
 //  5.  取地址操作符 retr
 //  6.  解引用操作符 dref
-let (int argc, **char argv return int) main = { return 0 } //（等号左边总是变量）
+let (int argc **char argv return int) main = { return 0 } //（等号左边总是变量）
 let *int p = retr **int base + sizeof int
 let p = *int undefined
 let *point p = dref **point base + sizeof point
@@ -1099,12 +1103,12 @@ let calc = (int a b return int) { return a + b} // 类型字面量可以自动�
 let a = point{100, 200}, b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 let a = int{0}, b = float{3.1415926}
 
-def calc(int a b return int int (x y)) {
+def calc(int a int b return int int (x y)) {
     x = a + b
     y = a * b
 }
 
-def calc(int a b return int int (x y) or error) {
+def calc(int a int b return int int (x y) or error) {
     if a == 0 return e_invalid
     x = a * b
     y = e_notzero
@@ -1128,7 +1132,7 @@ if s.error abort(s.error)
 // 指针/函数指针/字符串 none 的 niche 值为 null, bool 可以使用 0x02 表示 niche 值
 // char 字符 UNICODE 标量的上限 0x10FFFF，有大量高位值可用作 niche
 // float 可以使用 N/A 值，int/unsigned 则必须手动指定，或使用 nonzero int，nonfini int，nonnull<T>
-def divide(float a b return float or none) { // 空值，有值，返回值的大小为 sizeof float，调用者必须检查 none 值
+def divide(float a float b return float or none) { // 空值，有值，返回值的大小为 sizeof float，调用者必须检查 none 值
     if b == 0 return none
     return a / b
 }
@@ -1141,7 +1145,7 @@ if a == none
 else
     print("a/b=%", a)
 
-def calc(*file maybe(none) *expr return int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
+def calc(*file maybenone f *expr e return int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
 }
 
 // Optional Type 的两个好处：
@@ -1151,12 +1155,12 @@ def calc(*file maybe(none) *expr return int) { // 如果加上了 none 属性表
 //  1.  让代码变量繁琐，但是这是一种可选择性的有目的性的繁琐
 //  2.  因为你可以有目的的选择在关注的代码上选用 or none
 // 关于空值：
-//  1.  默认不能将 null 传递给指针，除非它被显式声明为 maybe(none)
+//  1.  默认不能将 null 传递给指针，除非它被显式声明为 maybenone
 //  2.  默认不能将 0 传递给 @nonzero 整数型变量
 //  3.  默认不能将全一的值传递给 @nonalls 整数型变量
 //  4.  空值是一个特殊的值，不应该在整个程序中泛滥传播
 //  5.  or none 必须可以应用到任何类型，用来全面消除空值的泛滥传播
-//  6.  @maybe(none) @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
+//  6.  @maybenone @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
 //  7.  a where [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
 //      新的语句将非空焊死在局部变量 x 中，print 根本访问不到可能为空的 a，因为函数闭包只能访问显式写在捕获参数中的值
 //  8.  let x = a where [x] { x * 2 } or none // 变量 x 也将变成可空的值
@@ -1167,12 +1171,12 @@ def calc(*file maybe(none) *expr return int) { // 如果加上了 none 属性表
 //      a where it * 2 or none
 //      a where it * 2 or return + b or return
 
-def sqrt(float x y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
+def sqrt(float x float y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
     let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
     return sqrt(x * a)
 }
 
-def test const (int size, point) {
+def test const (int size point point) {
     [size]int a
 }
 
@@ -1181,35 +1185,35 @@ def array $t const (int size) static size > 0 {
 }
 
 def color const { // 默认是 byte 或 u16 或 u32 或 u64，根据最大值的大小而定
-    RED, GREEN, BLUE
+    RED GREEN BLUE
 }
 
 def color const int {
-    RED = 1,
-    GREEN,
+    RED {1}
+    GREEN
     BLUE
 }
 
 def oper const u32 with {u08 lpri rpri} { // sum type
-    ASS = '=' {200, 201},
-    ADD = '+' {211, 210},
-    SUB = '-' {211, 210},
-    MUL = '*' {221, 220},
-    DIV = '/' {221, 220},
-    POW = '^' {230, 231},
-    DOT = '.' {251, 250},
-    END = 0 // 默认值为零
+    ASS {'=', 200, 201}
+    ADD {'+', 211, 210}
+    SUB {'-', 211, 210}
+    MUL {'*', 221, 220}
+    DIV {'/', 221, 220}
+    POW {'^', 230, 231}
+    DOT {'.', 251, 250}
+    END {0} // 默认值为零
 }
 
 def read_username_result const {
-    OK (string),
-    ERR (unsigned),
+    OK (string)
+    ERR (unsigned)
 }
 
 def token const { // sum type
-    ATOM {byte id},
-    OPER {byte id},
-    TEST (int int),
+    ATOM {byte id}
+    OPER {byte id}
+    TEST (int int)
     EOF
 }
 
@@ -1226,10 +1230,10 @@ def token eof = {EOF}
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
 def expr const byte { // 相当于是一种泛型类型
-    VALUE {int n}, // 相当于存储 {byte 0 int n}
-    IDENT {int id}, // 相当于存储 {byte 1 int n}
-    TEST (int int),
-    EXPR {int op; *expr lhs rhs}, // 相当于存储 {byte 2 int op unsigned lhs rhs}
+    VALUE {int n} // 相当于存储 {byte 0 int n}
+    IDENT {int id} // 相当于存储 {byte 1 int n}
+    TEST (int int)
+    EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op unsigned lhs rhs}
 }
 
 if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
@@ -1267,52 +1271,32 @@ def peek(*lexer, token) {
     return lexer.top()
 }
 
-def eval(oper, expr lhs rhs return expr) {
-    if [oper] '=' {
-        expr = .value(rhs.value.n)
-        get_symbol(lhs.ident.id).value = rhs.value.n
+def eval(oper o expr l expr r return expr) {
+    let :expr = undefined
+    if [o] '=' {
+        expr = .value(r.value.n)
+        get_symbol(l.ident.id).value = r.value.n
     } else if '+' {
-        expr = .value(lhs.value.n + rhs.value.n)
+        expr = .value(l.value.n + r.value.n)
     } else if '-' {
-        expr = .value(lhs.value.n - rhs.value.n)
+        expr = .value(l.value.n - r.value.n)
     } else if '*' {
-        expr = .value(lhs.value.n * rhs.value.n)
+        expr = .value(l.value.n * r.value.n)
     } else if '/' {
-        expr = .value(lhs.value.n / rhs.value.n)
+        expr = .value(l.value.n / r.value.n)
     } else if '^' {
-        expr = .value(pow(lhs.value.n, rhs.value.n))
+        expr = .value(pow(l.value.n, r.value.n))
     } else {
-        panic("bad operator %c", oper)
+        panic("bad operator %c", o)
     }
     return expr
 }
 
-eval(pub oper def expr lhs rhs return expr) {
-    if [oper] '=' then
-        expr = .value(rhs.value.n)
-        get_symbol(lhs.ident.id).value = rhs.value.n
-    else if '+' then
-        expr = .value(lhs.value.n + rhs.value.n)
-    else if '-' then
-        expr = .value(lhs.value.n - rhs.value.n)
-    else if '*' then
-        expr = .value(lhs.value.n * rhs.value.n)
-    else if '/' then
-        expr = .value(lhs.value.n / rhs.value.n)
-    else if '^' then
-        expr = .value(pow(lhs.value.n, rhs.value.n))
-    else then
-        panic("bad operator %c", op)
-}
-
-eat(*lexer return token) {
+eat(*lexer lexer return token) {
     return lexer.pop()
 }
 
-eval(oper, expr a b return expr) {
-}
-
-parse_expression(*lexer int min_prior return expr) {
+parse_expression(*lexer lexer int min_prior return expr) {
     let expr lhs = undefined
     if [lexer.eat()] atom(it) {
         if it == '0'..'9' then
@@ -1345,24 +1329,16 @@ parse_expression(*lexer int min_prior return expr) {
     return lhs
 }
 
-eat(*lexer return token) {
+eat(*lexer lexer return token) {
     return lexer.pop()
 }
 
-peek(*lexer, token) {
-    return lexer.top()
-}
-
-parse_expression(*lexer int min_prior, expr) {
+parse_expression(*lexer lexer int min_prior return expr) {
     def expr = undefined
 }
 
-main(return int) {
-
-}
-
 // 因为函数的第一个参数可以重载，因此 tcp_poll(file, sock, wait) 和 file.tcp_poll(sock, wait) 都同样有效
-tcp_poll(*file *socket *poll_table return poll) [m] alignas(16) {
+tcp_poll(*file file *socket socket *poll_table poll_table return poll) [m] alignas(16) {
     def poll = undefined
     def *socket alignas(CACHE_LINE_SIZE) = socket
     let a = byte undefined
