@@ -8,7 +8,7 @@
 //  struct const void embed def pub let var undefined
 //  continue defer yield range lambda reflex trait
 //  static where it or this import scoped as
-//  with adr der todo debug trap local global
+//  with adr der todo debug trap local global // 全局变量必须使用 global 引用
 //  mod mut ref gen priv do abstract final macro
 //  alignof type  sizeof type  offsetof type.offset
 //
@@ -374,12 +374,12 @@ struct {} // 空结构体
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point} // point 是 int 型类型成员
 const { red green blue }
-const int { red green {2} blue }
+const int { red green = 2 blue }
 $this { (*this p int size return int) read }
 // 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
 {:1 :2 :3 :4}
-{|flat_set| :1 :2 :3}
+|flat_set|{:1 :2 :3}
 {"a":1, "b":2, "c":3}
 // 模板类型的实例化，不会与元组的 let 赋值冲突，因为元组的赋值必须包含两个元素且用空格分隔 let data(result error) = read_tuple()
 array(int, float)
@@ -613,16 +613,6 @@ for [&it] // 迭代元素捕获
 //      let msg = 't"<p>{user_input | escape}</p>" // 可以做特殊字符转义
 //
 
-// 常量没有地址，只有当赋值给变量时才真正保存到只读数据段
-const PI = 3.1415926
-const 2P = 2 * PI
-const point = point {100, 200}
-const POINT = point {100, 200}
-prfer PI = 3.1415926
-prfer 2P = 2 * PI
-prfer point = point {100, 200}
-prfer POINT = point {100, 200}
-
 act all are do use ago alt any auf aut can cat cor con cue des dhu din don dor
 fac far fat fen fer fin fit fou fro fry fur gen gre lot off per pat pal phr par
 pre pro rem res rim ron rou rut tie via was wow yet
@@ -699,9 +689,9 @@ def reader $t $(def *t int a b return int) calc $(def *t  def []byte a) get { }
 def get ($*t p return int)
 def read ($*t p def *byte buf int n return int)
 def reader $T $get(T) get $read(T) read { }
-def color i08 { RED 1 BLUE 2 YELLOW 3 }
-def bitvalue int { FLAT_BIT1 = 1 << const, FLAG_BIT2, FLAG_BIT3 }
-def tcpaction int { TCPA_OPEN_ACCEPT, TCPA_TX_DATA, TCPA_RX_DONE }
+def color const i08 { RED = 1 BLUE = 2 YELLOW = 3 }
+def bitvalue const int { FLAT_BIT1 = 1 << const FLAG_BIT2 FLAG_BIT3 }
+def tcpaction const int { TCPA_OPEN_ACCEPT TCPA_TX_DATA TCPA_RX_DONE }
 def 协程 { u32 rspoffset loweraddr }
 def coroguard { u32 lower_guard_word def *coro coro (def *coroguard g int a b int) f g }
 def handle(def *hcirxdesc rxdesc u32 ca def hcidatatype type def u line)
@@ -735,7 +725,7 @@ def int_array_of_array = type(8, int_array) array
 def int_array_of_array = type(8, (20, int)) array
 
 def color const int {
-    red {const + 1}
+    red = const + 1
     blue
     green
     yellow
@@ -860,10 +850,10 @@ def coro_guard {
 
 def verify(*coro_guard)
 
-Color const i08 {RED = const + 1, BLUE, YELLOW}
-Color const int {red blue = blue_defined_value, yellow}
-Color const int "strict" {RED = 1, BLUE = 2, YELLOW = 3}
-Color const u08 { red, blue = blue_defined_value, yellow }
+Color const i08 {RED = const + 1 BLUE YELLOW}
+Color const int {red blue = global.blue_defined_value yellow}
+Color const int "strict" {RED = 1 BLUE = 2 YELLOW = 3}
+Color const u08 { red blue = global.blue_defined_value yellow }
 
 CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     u32 lower_guard_word
@@ -971,14 +961,14 @@ def color const u08 { // private type
 
 pub color const u08 { // public type
     RED
-    GREEN {1 << const}
+    GREEN = 1 << const
     BLUE
 }
 
 pub color const u08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    RED     {1}
-    BLUE    {2}
-    YELLOW  {3}
+    RED = 1
+    BLUE = 2
+    YELLOW = 3
 }
 
 def point {
@@ -1016,48 +1006,85 @@ def eat(*lexer l expr e return *oper) { // 编译器可以访问到完整代码�
     return l.op or e.op
 }
 
+def color const u08 { // private type
+    red green blue
+}
+
+pub color const u08 { // public type
+    red
+    green = 1 << const
+    blue
+}
+
+def color const u08 {
+    red = 1 green = 2 blue
+}
+
+def color const u08 {
+    red = global.blue_defined_value green blue
+}
+
 // 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）, *** 逗号只能包含在括号内，或 let 与 = 之间 ***
 // def name = expr
-def PI const 3.1415926
-def 2P const 2 * PI
-def PI const f64 3.1415926
-def PT const point {100, 200}
-def P2 const point {100, 200}
-def P3 const [_]int {100, 200}
-def P4 const <int int> {100, 200}
-def P5 const {int a int b} {100, 200}
-def P6 const (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
+def SZ = 1024 // 类型为 const int
+def PI = 3.1415926 // 类型为 const float
+def 2P = 2 * PI // 类型为 const float
+def PI = f64 3.1415926 // 类型为 const f64
+def PT = point {100, 200} // 类型为 const point
+def P3 = [_]int {100, 200} // 类型为 const [2]int
+def P4 = <int int> {100, 200} // 类型为 const <int int>
+def P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
+def P6 = (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
-pub PI const 3.1415926
-pub 2P const 2 * PI
-pub PI const f64 3.1415926
-pub PT const point {100, 200}
-pub P2 const point {100, 200}
-pub P3 const [_]int {100, 200}
-pub P4 const <int int> {100, 200}
-pub P5 const {int a int b} {100, 200}
-pub P6 const (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
+pub PI = 3.1415926
+pub 2P = 2 * PI
+pub PI = f64 3.1415926
+pub PT = point {100, 200}
+pub P2 = point {100, 200}
+pub P3 = [_]int {100, 200}
+pub P4 = <int int> {100, 200}
+pub P5 = {int a int b} {100, 200}
+pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
-// def type name = expr
-// def type = expr
-def int a = 10
-def int b = 20
-def *int int_ptr = &a
-def *point point_ptr = &point
-def point point = {100, 200}
-def (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
-def {int a int b point point} data = {10, 20, {100, 200}}
-def <int int point> data = {10, 20, {100, 200}}
+// def let type name = expr
+// def let type = expr
+// def var name = expr
+def let int a = 10
+def let int b = 20
+def let *int int_ptr = &a
+def let *point point_ptr = &point
+def let point point = {100, 200}
+def let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+def let {int a int b point point} data = {10, 20, {100, 200}}
+def let <int int point> data = {10, 20, {100, 200}}
+def var tuple = {500, 6.4, 1}
+def var integers = {1, 2, 3}
+def var colors = {"红", "黄", "绿"}
+def var set = {:1 :2 :3 :4 :5 :6}
+def var map = {"a":1, "b":2, "c":3}
+def var tup (a b c) = {500, 6.4, 1}
+def var (a _) = read_tuple() // 赋值右边必须是一个元组类型
+def var (_ a _ b) = data // 赋值右边必须是一个元组类型
+def var (a b c) = <i32 f64 u08> {500, 6.4, 1}
 
-pub int a = 10
-pub int b = 20
-pub *int int_ptr = &a
-pub *point point_ptr = &point
-pub point point = {100, 200}
-pub (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
-pub {int a int b point point} data = {10, 20, {100, 200}}
-pub <int int point> data = {10, 20, {100, 200}}
+pub let int a = 10
+pub let int b = 20
+pub let *int int_ptr = &a
+pub let *point point_ptr = &point
+pub let point point = {100, 200}
+pub let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+pub let {int a int b point point} data = {10, 20, {100, 200}}
+pub let <int int point> data = {10, 20, {100, 200}}
+pub var tuple = {500, 6.4, 1}
+pub var integers = {1, 2, 3}
+pub var colors = {"红", "黄", "绿"}
+pub var set = {:1 :2 :3 :4 :5 :6}
+pub var map = {"a":1, "b":2, "c":3}
+pub var tup (a b c) = {500, 6.4, 1}
+pub var (a _) = read_tuple() // 赋值右边必须是一个元组类型
+pub var (_ a _ b) = data // 赋值右边必须是一个元组类型
+pub var (a b c) = <i32 f64 u08> {500, 6.4, 1}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
@@ -1068,6 +1095,7 @@ pub <int int point> data = {10, 20, {100, 200}}
 //  6.  解引用操作符 der
 //  let type name = expr
 //  let type = expr // 定义与类型名同名的变量
+//  var name = expr
 let (int argc **char argv return int) main = { return 0 } //（等号左边总是变量）
 let *int p = adr **int base + sizeof int
 let *point p = der **point base + sizeof point
@@ -1090,8 +1118,7 @@ let point a = {100, 200}
 let [_]int a = {20, 30, 50}
 let [8]int a = {1, 2, 3, 4}
 let <i32 f64 u08> tup = {500, 6.4, 1}
-let <i32 f64 u08> tup(a b c) = {500, 6.4, 1}
-// var name = expr
+let <i32 f64 u08> tup (a b c) = {500, 6.4, 1}
 var tup (a b c) = {500, 6.4, 1}
 var data (value error) = read_tuple() // 元组类型值的返回 data[1] data.a，(value error) 必须至少包含两个元素，否则一个元素将被认为是模板类型的实例化
 var (a _) = read_tuple() // 赋值右边必须是一个元组类型
@@ -1239,16 +1266,16 @@ def token const { // sum type
     EOF
 }
 
-let atom = token {ATOM, 1}
-let oper = token {OPER, '+'}
-let test = token {TEST, 1, 2}
-let test = token {TEST, a = 1, b = 2}
-let eof = token {EOF}
-def token atom = {ATOM, 1}
-def token oper = {OPER, '+'}
-def token test = {TEST, 1, 2}
-def token test = {TEST, a = 1, b = 2}
-def token eof = {EOF}
+let atom = token {.ATOM, 1}
+let oper = token {.OPER, '+'}
+let test = token {.TEST, 1, 2}
+let test = token {.TEST, a = 1, b = 2}
+let eof = token {.EOF}
+def token atom = {.ATOM, 1}
+def token oper = {.OPER, '+'}
+def token test = {.TEST, 1, 2}
+def token test = {.TEST, a = 1, b = 2}
+def token eof = {.EOF}
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
 def expr const byte { // 相当于是一种泛型类型
@@ -1258,29 +1285,29 @@ def expr const byte { // 相当于是一种泛型类型
     EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op unt lhs rhs}
 }
 
-if [expr] VALUE { // 必须穷尽所有情况，否则编译报错
+if [expr] .VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
-} elif IDENT {
+} elif .IDENT {
     ret = expr.id
-} elif TEST(a b) { // 捕获元组的内容
+} elif .TEST(a b) { // 捕获元组的内容
     ret = a + b
-} elif EXPR {
+} elif .EXPR {
     ret = expr.op
 }
 
-if expr == IDENT {
+if expr == .IDENT {
     print("IDNET expr: %", expr.id)
 }
 
-if expr == TEST {
+if expr == .TEST {
     print("TEST expr: % %", expr.0, expr.1)
 }
 
-if expr == TEST(_ a) { // 捕获元组的内容
+if expr == .TEST(_ a) { // 捕获元组的内容
     print("TEST expr: % %", expr.0, a)
 }
 
-if expr == TEST(a b) {
+if expr == .TEST(a b) {
     expr.a = 1
     print("TEST expr: % %", a, b)
 }
