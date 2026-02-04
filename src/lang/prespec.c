@@ -12,7 +12,7 @@
 //  mod mut ref gen priv do abstract final macro
 //  alignof type  sizeof type  offsetof type.offset
 //
-//  defer_if_error deallocation(ptr)
+//  defer if error deallocation(ptr)
 //
 // act all are ago alt any auf aut
 // can cat cor con cue des dhu din don dor dyn
@@ -21,92 +21,54 @@
 // pre pro rem res rim ron rou rut
 // tie via was wow yet as of do use
 //
-// 特殊名称：
+// 语句不会返回值，可以通过使用 with 和 where 关键字一前一后让语句变成语句表达式，从而
+// 产生一个结果值。
+//
+// 定义类型参数（generic type parameter）和常量参数（compile time const parameter）
+//  $T $U           // 相当于定义了两个类型参数 T 和 U，等价于
+//  $(any T any U)  // 类型参数 T 和 U 可以是任意类型
+//  $(int I)        // 类型参数 I 必须是一个整型
+//  $(float F)      // 类型参数 F 必须是一个浮点
+//  $(nermic N)     // 类型参数 N 必须是一个数值类型
+//  const C         // 常量参数 C，不限类型
+//  const (int C)   // 常量参数 C，必须是 int 类型
+//  const int C const int N
+//  const (int a int b)
+//  const (string a string b) // 常量参数 a 和 b
+//  const (point a point b)
+//
+// 名称标识符：
 //  e_ 预留给错误码字符串，预定义的错误码，只保存错误数值
 //  E_ 预留给错误码字符串，动态分配的错误码，保存完整字符串
 //  __func() __name__ 以双下划线开始的名称都是保留关键字
 //  标识符可以使用数字开头，此时不能以数字结尾，如果不以数字开头则可以使用数字结尾
+//  单下划线有特殊含义，不能作为一般标识符使用，使用单下划线结束的结构体成员是私有成员
+//  可以使用 @{name} 定义任意的标识符，例如 @{if} @{int}
 //  3rd2.0 3rd2.2p 以数字开头的标识符，访问元组成员可能与浮点冲突
-//
-// 符号属性：
-//  alignas(n) forced_alignas(n) // forced_alignas(n) 不会被 packed 属性抑制
-//  "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
-//  @nonzero @nonalls @zeroinit @packed
-// 内置函数：
-//  abort() panic() assert(expr) debug { stmt ... }
-//  real_assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
-//  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
-//
-// 语句不会返回值，可以通过语句表达式 ({}) 为语句块返回一个值，或者换成使用 with 和
-// where 关键字一前一后让语句变成语句表达式，从而产生一个结果值。
-//
-// 函数参数或者结构体成员声明
-//  Point point p2          struct point point p2
-//  *Point point p2         struct *point point p2
-//  **Point point p2        struct **point point p2
-//  [2]Point point p2       struct [2]point point p2
-//  *[2]Point point p2      struct *[2]point point p2
-//  [2]*Point point p2      struct [2]*point point p2
-//
-// 定义泛型类型参数（generic type parameter）compile time const 类型参数
-//  $T $U            定义两个类型参数 T 和 U，相当于：
-//  ${any} T U       上面简写形式例如 $T 之后词法元素，必须以$或其他标点开头，或是关键字、类型名
-//  ${int} Int   整数类型
-//  ${flo} Float   浮点类型
-//  ${num} Type  数值类型
-//  $struct t $U        // 为了清晰，$T ${any} T 定义类型参数只能使用首字母大写形式
-//  $T $struct u        // 禁止
-//  ${any} struct t U   // 禁止
-//  ${any} T struct u   // 禁止
-//  struct $t a $U b    // 但使用已定义类型定义常量参数是允许的
-//  $T a struct $u b
-//  ---
-//  $T $U        // 相当于定义了两个类型参数 def t 和 def u
-//  $any T U   // 与上一行等价
-//  $int Int          // 相当于定义了一个类型参数 def Int，该类型必须是一个整型
-//  $int Float
-//  $num Type
-//  const string a b
-//  const int a b
-//  const point a b
-//
-// 定义泛型常量参数（generic value parameter）compile time const 常量参数
-//  $T a $U b $int c  定义三个常量参数 a 和 b 和 c，a 的类型是 T，b 的类型是 U，c 的类型是 int
-//  $string a $int b  定义两个产量参数 a 和 b，a 的类型是字符串，b 的类型是整数
-//
-// 首字母大写，包括单个大写字母，并排除包含两个和两个以上字母但都是大写的标识符之后的所
-// 有标识符都识别为类型名。包含在 @type{} 之内的标识符，也是类型名。
-//
-// 其他标识符符都是非类型标识符，包括函数名、变量名、标签、包名等等。另外包含在 @name{}
-// 之内的标识符也都是非类型标识符，例如把类型名和关键字当作变量标识符使用：@name{int}
-// @name{if} @name{Type}。      @{if}   def @{if}
-//
-// 以 # 开头的标识符是编译器指令。以 @ 开头的标识符是属性名称，包括函数、类型、变量的
-// 属性名称等。以单下划线或双下划线开始的标识符，是保留关键字。
-//
-// 编译属性：
-//  @type{}
-//  @name{}
-//  @zeroinit
-//  @useas
-//  @align()
-//  @packed
-//  @cdecl
-//  @stdcall
-//  @fastcall
+//  同名的类型名和变量名，优先识别为变量，但其后不是操作符（包括分隔符）则识别为类型名
+//  函数内部，变量名不能覆盖，函数内部的变量名可以覆盖外部的变量名，保持内部变量的局部性
+//  宏定义的内部变量也具有局部性，所有外部引入的参数都需要明确声明
 //
 // 下划线保留字：
 //  __file__
 //  __func__
 //  __line__
 //  __retp__
-// 编译时函数：
+// 编译时函数，以 # 开头的标识符是编译器指令
 //  static_assert
 //  #if 条件编译
+// 符号属性，以 @ 开头的标识符是属性名称，包括函数、类型、变量的属性名称等
+//  alignas(n) forced_alignas(n) // forced_alignas(n) 不会被 packed 属性抑制
+//  "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
+//  @nonzero @nonalls @zeroinit @packed
+// 内置函数：
+//  abort() panic() assert(expr) debug { stmt ... } dbg_prerr
+//  real_assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
+//  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
 // 预定义类型
 //  this 当前函数（当前函数的地址）或当前结构体，不提供任何面向对象的特殊含义，但匿名类型需要用
-// 操作符
-// (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
+// 特殊操作符
+//  (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
 //
 // 基本类型，定义在 type 代码包中：
 //  bool null none byte char rune string errno struct "32-byte" i32 u32 int unt sys_int sys_unt sys_ptr struct i struct u struct p
@@ -151,6 +113,7 @@
 //
 // rax rbx rcx rdx rbp rsp rsi rdi rlr rip rpc
 // bax bbx bcx bdx bbp bsp bsi bdi blr bip bpc
+//
 //                                          arch-32     arch-64 small memory range app  arch-64 large memory range app
 //  int - pointer size signed type          32-bit      32-bit                          64-bit
 //  unt - pointer size unsigned type        32-bit      32-bit                          64-bit
@@ -160,15 +123,7 @@
 //  sys_ptr - system register width pointer 32-bit      64-bit                          64-bit
 //
 // 类型约束：
-// Any Integer Float Unsigned Decimal Complex BasicType AnonyType NamedType GimplType
-//
-// 类型字面量（TypeLit）包括基本类型（BasicType）、匿名类型（AnonyType)、命名类型（NamedType）、实列化类型（ImpledType）。
-// any          // basic_type + anony_type + named_type + gimpl_type
-// basic_type   // numeric + string
-// numeric      // integer + float + decimal + complex
-// integer      // 枚举类型 bool null byte rune errno strt i08~i512 u08~u512 int unt
-// instant_type
-// generic_type
+//  Any Integer Float Unsigned Decimal Complex BasicType AnonyType NamedType GimplType
 //
 // 复合类型和匿名类型：
 //  int  u16  f64  Point  MyInt
@@ -363,11 +318,11 @@ a + ('int b) + c * d
 (int a return int point float (count point scale))
 (*file? file{stdin} point point string name{"root"} string mode)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
-<int> // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 <int $> 来表示
-<int point int>
-<int point int>
-<int int string>
-<point point>
+|int| // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 |int $| 来表示
+|int point int|
+|int point int|
+|int int string|
+|point point|
 // 结构体类型字面量，“起始大括号 + 结果为类型的表达式” 称表示结构体的开始
 struct {} // 空结构体
 {int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
@@ -988,17 +943,17 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
 def (int argc **char argv return int) func_type
 def |flat_map|[string:int] type_of_map
-def <int int float string> tuple_type
-def <*int> int_ptr
-def <*point> point_ptr
-def <point> type_point
+def |int int float string| tuple_type
+def |*int| int_ptr
+def |*point| point_ptr
+def |point| type_point
 
 pub (int argc **char argv return int) func_type
 pub |flat_map|[string:int] type_of_map
-pub <int int float string> tuple_type
-pub <*int> int_ptr
-pub <*point> point_ptr
-pub <point> type_point
+pub |int int float string| tuple_type
+pub |*int| int_ptr
+pub |*point| point_ptr
+pub |point| type_point
 
 def main(int argc **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
     return 0
@@ -1026,6 +981,27 @@ def color const u08 {
     red = global.blue_defined_value green blue
 }
 
+def color const {
+    red green blue
+}
+
+def color const int {
+    red green blue
+}
+
+def type $T.any const C {
+    int data
+    T t
+}
+
+def test const (int SIZE point POINT) {
+    [SIZE]int a
+}
+
+def array $T const int SIZE static SIZE > 0 {
+    [SIZE]T a
+}
+
 // 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）, *** 逗号只能包含在括号内，或 let 与 = 之间 ***
 // def name = expr
 def SZ = 1024 // 类型为 const int
@@ -1034,7 +1010,7 @@ def 2P = 2 * PI // 类型为 const float
 def PI = f64 3.1415926 // 类型为 const f64
 def PT = point {100, 200} // 类型为 const point
 def P3 = [_]int {100, 200} // 类型为 const [2]int
-def P4 = <int int> {100, 200} // 类型为 const <int int>
+def P4 = |int int| {100, 200} // 类型为 const <int int>
 def P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
 def P6 = (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
@@ -1044,7 +1020,7 @@ pub PI = f64 3.1415926
 pub PT = point {100, 200}
 pub P2 = point {100, 200}
 pub P3 = [_]int {100, 200}
-pub P4 = <int int> {100, 200}
+pub P4 = |int int| {100, 200}
 pub P5 = {int a int b} {100, 200}
 pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
@@ -1059,7 +1035,7 @@ def let *point point_ptr = &point
 def let point point = {100, 200}
 def let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 def let {int a int b point point} data = {10, 20, {100, 200}}
-def let <int int point> data = {10, 20, {100, 200}}
+def let |int int point| data = {10, 20, {100, 200}}
 def var tuple = {500, 6.4, 1}
 def var integers = {1, 2, 3}
 def var colors = {"红", "黄", "绿"}
@@ -1068,7 +1044,7 @@ def var map = {"a":1, "b":2, "c":3}
 def var tup (a b c) = {500, 6.4, 1}
 def var (a _) = read_tuple() // 赋值右边必须是一个元组类型
 def var (_ a _ b) = data // 赋值右边必须是一个元组类型
-def var (a b c) = <i32 f64 u08> {500, 6.4, 1}
+def var (a b c) = |i32 f64 u08| {500, 6.4, 1}
 
 pub let int a = 10
 pub let int b = 20
@@ -1077,7 +1053,7 @@ pub let *point point_ptr = &point
 pub let point point = {100, 200}
 pub let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 pub let {int a int b point point} data = {10, 20, {100, 200}}
-pub let <int int point> data = {10, 20, {100, 200}}
+pub let |int int point| data = {10, 20, {100, 200}}
 pub var tuple = {500, 6.4, 1}
 pub var integers = {1, 2, 3}
 pub var colors = {"红", "黄", "绿"}
@@ -1086,7 +1062,7 @@ pub var map = {"a":1, "b":2, "c":3}
 pub var tup (a b c) = {500, 6.4, 1}
 pub var (a _) = read_tuple() // 赋值右边必须是一个元组类型
 pub var (_ a _ b) = data // 赋值右边必须是一个元组类型
-pub var (a b c) = <i32 f64 u08> {500, 6.4, 1}
+pub var (a b c) = |i32 f64 u08| {500, 6.4, 1}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
@@ -1119,15 +1095,16 @@ let *int p = undefined
 let point a = {100, 200}
 let [_]int a = {20, 30, 50}
 let [8]int a = {1, 2, 3, 4}
-let <i32 f64 u08> tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
-let <i32 f64 u08> tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+let |i32 f64 u08| tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
+let |i32 f64 u08| tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+let |i32 f64 u08| (a b c) = {500, 6.4, 1} // a b c
 var tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 var data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
 var (a _) = read_tuple() // 赋值右边必须是一个元组类型
 var (_ a _ b) = data // 赋值右边必须是一个元组类型
-var (a b c) = <i32 f64 u08> {500, 6.4, 1}
+var (a b c) = |i32 f64 u08| {500, 6.4, 1}
 var tup = {500, 6.4, 1}
-var tup = <i32 f64 u08> {500, 6.4, 1}
+var tup = |i32 f64 u08| {500, 6.4, 1}
 var integers = {1, 2, 3}
 var colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
 var set = {:1 :2 :3 :4 :5 :6}
@@ -2085,21 +2062,27 @@ math:*
     @negt()     @-          @-3.14      @-c         (-3.14) (-c)
     @posi()     @+          @+6.24      @+c         (+6.24) (+c)
     @comp()     @^          @^1024      @^c         (^1024) (^c)
-    @addr()     (&)         @&data                  (&)data (*&)data    adr data    der adr data
+    @adr()     (&)         @&data                  (&)data (*&)data    adr data    der adr data
     @der()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 结构体中的各类成员
-//  1. 成员 type field_name field_name ...;
-//  2. 位域 type {bits} name {bits} name ...;
-//  3. 成员别名 type (a | b | c | ...);
-//  4. 在大的成员类型内部定义小的联合类型 type name | type name name ... | type name name ... | ...;
+//  1. 成员 type field_name field_name
+//  2. 位域 type {bits} name {bits} name ...
+//  3. 成员别名 type (a | b | c | ...)
+//  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ...}
 
 def test {
-    int a b c;
-    int {MASK_BITS} inplace {INT_BITS - MASK_BITS} size; // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
-    int {1} inplace {31} size; // 位域
-    int (size | bytes | count); // 成员别名
-    double d { int i | float f g | {byte b; u32 u} s | byte b, u32 u | char c }; // 最大类型必须是第一个
+    int a int b int c
+    int {MASK_BITS} inplace {INT_BITS - MASK_BITS} size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
+    int {1} inplace {31} size // 位域
+    int (size | bytes | count) // 成员别名
+    double d { // 最大类型必须是第一个
+        | int i
+        | float f float g
+        | byte b u32 u
+        | byte b u32 u
+        | char c
+    }
 }
 
 // 条件语句包含传统C的if和switch：
@@ -2144,11 +2127,11 @@ elif green
 else &
     void
 
-if [color] RED { // 使用break会跳出外层for循环
-    goto GREEN
-} elif BLUE, YELLOW {
+if [color] .RED { // 使用break会跳出外层for循环
+    goto .GREEN
+} elif .BLUE .YELLOW {
     goto &
-} elif GREEN {
+} elif .GREEN {
 
 } else & {
 
@@ -2254,10 +2237,10 @@ print(typestring, "\n")
 //      port->action.head.opcode[PRH_TCPA_INDEX_TX_END] = PRH_TCPA_TX_END
 //      port->action.head.opcode[PRH_TCPA_INDEX_FINISH] = PRH_TCPA_FINISH
 //
-//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##OPEN_ACCEPT
-//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##OPEN_REQ
-//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##TX_END
-//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_##FINISH
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_#(OPEN_ACCEPT)
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_#(OPEN_REQ)
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_#(TX_END)
+//      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_#(FINISH)
 //
 //  3.  scoped 语句块
 //
