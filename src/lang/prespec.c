@@ -125,6 +125,56 @@
 // 类型约束：
 //  Any Integer Float Unsigned Decimal Complex BasicType AnonyType NamedType GimplType
 //
+// 类型字面量（TypeLit）包括基本类型（BasicType）、匿名类型（AnonyType)、命名类型（NamedType）、实列化类型（ImpledType）。
+//  any          // basic_type + anony_type + named_type + gimpl_type
+//  basic_type   // numeric + string
+//  numeric      // integer + float + decimal + complex
+//  integer      // 枚举类型 bool null byte rune errno strt i08~i512 u08~u512 int unt
+//  instant_type
+//  generic_type
+//
+// 函数参数中的类型参数，重载操作符 == 可以用来比较类型：
+//  def GetType(#type t #type u return #type) {
+//      #type a = t
+//      if typeof u == i64 { a = u }
+//      return a
+//  }
+//  def calc($T a $(float U) b T c U d return T)
+//  def calc($T a $(float U) b GetType(T, U) c return GetType(T, U))
+//  def calc([const N]$T a) { prine("size % % type %", typeof N, N, T) }
+//  var a = {1, 2, 3, 4}
+//  calc(a)
+//  def calc($T a T.K key T.V value) // 类型 T 必须包含 K 和 V 类型
+//  def calc($T/has_vector_fields a)
+//  def has_vector_fields(#type t return bool) {
+//      return t.hasfield(float x) && t.hasfield(float y) && t.hasfield(float z)
+//  }
+//
+// 结构体中的类型参数，类型参数和常量参数仅存在于编译时，不占用结构体变量的运行时内存：
+//  def type const C { int a }
+//  let type(42) a = undefined
+//  var x = 2
+//  let type(x) b = undefined // 错误，x 不是常量
+//  def y = 3
+//  let type(y) c = undefined // 正确，y 是常量
+//  def type $T { T data }
+//  let type(int) a = undefined
+//  def type $T const (T C) { T data } // 成员名称 data 不能与 T 或 C 重名
+//  let type(int, 3) a = undefined
+//  prine("type % C %", a.T, a.C)
+//
+// 递归类型：
+//  def FooType $T const (T a return int) F {}
+//  def BarType $T { def |FooType(BarType(T), BarFunc)| type }
+//  def BarFunc(BarType($T) a return int) { return 42 }
+//
+// 类型实例化，已经访问类型的成员
+//  array(3, int)
+//  array(3, array(8, float))
+//  def <array(3, int)> int_array
+//  def <int_array.T> elem_type
+//  offsetof int_array.capacity
+//
 // 复合类型和匿名类型：
 //  int  u16  f64  Point  MyInt
 //  *int *u16 *f64 *Point *MyInt
