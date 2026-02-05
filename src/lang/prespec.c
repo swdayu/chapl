@@ -26,16 +26,15 @@
 //
 // 定义类型参数（generic type parameter）和常量参数（compile time const parameter）
 //  $T $U           // 相当于定义了两个类型参数 T 和 U，等价于
-//  $(any T any U)  // 类型参数 T 和 U 可以是任意类型
-//  $(int I)        // 类型参数 I 必须是一个整型
-//  $(float F)      // 类型参数 F 必须是一个浮点
-//  $(nermic N)     // 类型参数 N 必须是一个数值类型
+//  $T/any $U/any   // 类型参数 T 和 U 可以是任意类型
+//  $I/int          // 类型参数 I 必须是一个整型
+//  $F/float        // 类型参数 F 必须是一个浮点
+//  $N/numeric      // 类型参数 N 必须是一个数值类型
 //  const C         // 常量参数 C，不限类型
-//  const (int C)   // 常量参数 C，必须是 int 类型
-//  const int C const int N
-//  const (int a int b)
-//  const (string a string b) // 常量参数 a 和 b
-//  const (point a point b)
+//  const C/int     // 常量参数 C，必须是 int 类型
+//  const C/int N/int
+//  const S/string B/string
+//  const POINT/point
 //
 // 名称标识符：
 //  e_ 预留给错误码字符串，预定义的错误码，只保存错误数值
@@ -142,6 +141,7 @@
 //  def calc($T a $(float U) b T c U d return T)
 //  def calc($T a $(float U) b GetType(T, U) c return GetType(T, U))
 //  def calc([const N]$T a) { prine("size % % type %", typeof N, N, T) }
+//  def calc([const N/int]$T a) { ... }
 //  var a = {1, 2, 3, 4}
 //  calc(a)
 //  def calc($T a T.K key T.V value) // 类型 T 必须包含 K 和 V 类型
@@ -157,22 +157,22 @@
 //  let type(x) b = undefined // 错误，x 不是常量
 //  def y = 3
 //  let type(y) c = undefined // 正确，y 是常量
-//  def type $T { T data }
+//  def type $T/any { T data }
 //  let type(int) a = undefined
-//  def type $T const (T C) { T data } // 成员名称 data 不能与 T 或 C 重名
+//  def type $T const C/T { T data } // 成员名称 data 不能与 T 或 C 重名
 //  let type(int, 3) a = undefined
 //  prine("type % C %", a.T, a.C)
 //
 // 递归类型：
-//  def FooType $T const (T a return int) F {}
+//  def FooType $T const F/(T a return int) {}
 //  def BarType $T { def |FooType(BarType(T), BarFunc)| type }
 //  def BarFunc(BarType($T) a return int) { return 42 }
 //
 // 类型实例化，已经访问类型的成员
 //  array(3, int)
 //  array(3, array(8, float))
-//  def <array(3, int)> int_array
-//  def <int_array.T> elem_type
+//  def |array(3, int)| int_array
+//  def |int_array.T| elem_type
 //  offsetof int_array.capacity
 //
 // 复合类型和匿名类型：
@@ -213,15 +213,15 @@
 //      def data = {this, a = 1, b = 2, 3}          // 可以实现对元组的修改 data.a = 10  data.b = 20
 //      def data = {this, 1, 2, 3}                  // data.0 不能修改 data.1 = 10  data.2 = 20
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
-//      const i08 {RED = const * 2, YELLOW, BLUE} // const 是枚举元素的索引值
-//      const int {RED, YELLOW, BLUE}
+//      const i08 {RED = const * 2 YELLOW BLUE} // const 是枚举元素的索引值
+//      const int {RED YELLOW BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
 //      $p { (*p int size return int) read (*p return int) get } // 允许使用关键字 this 定义 $this，然后参数声明使用 (this int size return int)
 //  Struct 表示定义一个类型
 //      def empty {}
 //      { int a b } {1, 2}
 //      { (this int a b int) calc }
-//      $T $U const (int size) { T[size] a U b }
+//      $t $u const size/int { [size]t a u b }
 //  常量类型，可以表示任意常量，包括结构体常量，常量类型定义一个对应类型的常量值，是一个值不是类型
 //      const f16 PI = 3.14
 //      const PI = 3.1415926
@@ -706,11 +706,11 @@ def main(int argc **byte argv int)
 def scale(def point point int a b)
 def calc(int a b int)
 
-def array $t const (int size) {
+def array $t const size/int {
     [size]t a
 }
 
-def array $a const (int size) { // $ 定义一个类型参数 a
+def array $a const size/int { // $ 定义一个类型参数 a
     [size]a a
 }
 
@@ -719,17 +719,10 @@ def test $a $b {
     b b
 }
 
-def test $any t u {
+def test $t/any $u/any {
     t t
     u u
 }
-
-def int_N_array const (int size) = type(size, $t) array
-def type_size_array const (int size) $t = type(size, t) array
-def int_array = type(size, int) array
-def some_array_type = type(8, (10, (20, int_N_array))) array
-def int_array_of_array = type(8, int_array) array
-def int_array_of_array = type(8, (20, int)) array
 
 def color const int {
     red = const + 1
@@ -772,7 +765,7 @@ def node $t {
     t data
 }
 
-def tripple $t $u const (int size) {
+def tripple $t $u const size/int {
     [size]t a
     u b
 }
@@ -856,11 +849,6 @@ def coro_guard {
 }
 
 def verify(*coro_guard)
-
-Color const i08 {RED = const + 1 BLUE YELLOW}
-Color const int {red blue = global.blue_defined_value yellow}
-Color const int "strict" {RED = 1 BLUE = 2 YELLOW = 3}
-Color const u08 { red blue = global.blue_defined_value yellow }
 
 CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
     u32 lower_guard_word
@@ -1039,16 +1027,40 @@ def color const int {
     red green blue
 }
 
-def type $T.any const C {
+def test const C {
+    int data
+}
+
+def name (int a return int) { ... }
+def (int a return int) func_type
+def |int float| tuple_type
+def name = 3.1415926
+def name const { red blue green }
+def name const int { red bule green }
+def name const int with {u08 lpri u08 rpri} { ... }
+def name const with {u08 lpri u08 rpri} { ... }
+def name { int a int b }
+def name $T $U const SIZE C N/int VALUE/T { ... }
+def name $T { ... }
+def name $T $U { ... }
+def name $T/any $U/any { ... }
+def name const SIZE/int { ... }
+def name const SIZE/int $T $U/any { ... }
+
+def test $T $U/any const C SIZE/int {
     int data
     T t
 }
 
-def test const (int SIZE point POINT) {
+def test const SIZE/int POINT/point {
     [SIZE]int a
 }
 
-def array $T const int SIZE static SIZE > 0 {
+def array $T const SIZE/int static SIZE > 0 {
+    [SIZE]T a
+}
+
+def array $T const SIZE static typeof SIZE == Integer && SIZE > 0 {
     [SIZE]T a
 }
 
@@ -1254,11 +1266,11 @@ def sqrt(float x float y return float or none) { // 调用者必须检查 none �
     return sqrt(x * a)
 }
 
-def test const (int size point point) {
+def test const size/int p/point) {
     [size]int a
 }
 
-def array $t const (int size) static size > 0 {
+def array $t const size/int static size > 0 {
     [size]t a
 }
 
@@ -1267,12 +1279,12 @@ def color const { // 默认是 byte 或 u16 或 u32 或 u64，根据最大值的
 }
 
 def color const int {
-    RED {1}
+    RED = 1
     GREEN
     BLUE
 }
 
-def oper const u32 with {u08 lpri rpri} { // sum type
+def oper const u32 with {u08 lpri u08 rpri} { // sum type
     ASS {'=', 200, 201}
     ADD {'+', 211, 210}
     SUB {'-', 211, 210}
@@ -1284,14 +1296,14 @@ def oper const u32 with {u08 lpri rpri} { // sum type
 }
 
 def read_username_result const {
-    OK (string)
-    ERR (unt)
+    OK |string|
+    ERR |unsigned|
 }
 
 def token const { // sum type
     ATOM {byte id}
     OPER {byte id}
-    TEST (int int)
+    TEST |int int|
     EOF
 }
 
@@ -1310,7 +1322,7 @@ def token eof = {.EOF}
 def expr const byte { // 相当于是一种泛型类型
     VALUE {int n} // 相当于存储 {byte 0 int n}
     IDENT {int id} // 相当于存储 {byte 1 int n}
-    TEST (int int)
+    TEST |int int|
     EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op unt lhs rhs}
 }
 
@@ -1332,11 +1344,11 @@ if expr == .TEST {
     print("TEST expr: % %", expr.0, expr.1)
 }
 
-if expr == .TEST(_ a) { // 捕获元组的内容
+if expr == .TEST (_ a) { // 捕获元组的内容
     print("TEST expr: % %", expr.0, a)
 }
 
-if expr == .TEST(a b) {
+if expr == .TEST (a b) {
     expr.a = 1
     print("TEST expr: % %", a, b)
 }
@@ -1609,9 +1621,9 @@ for i I 0 .. 9 {
     pos + der adr *I (*byte p + size + f(g))
 }
 
-def memcpy(unt dest unt src int count)
-def memcpy(unt dest unt src int count) 'intrinsic'
-def memcmp(unt dest unt src int count return int) 'intrinsic'
+def memcpy(unt dest unsigned src int count)
+def memcpy(unt dest unsigned src int count) 'intrinsic'
+def memcmp(unt dest unsigned src int count return int) 'intrinsic'
 def memset(unt dest byte value int count return) 'intrinsic'
 def lock_cmpxchg(*T p T old T new return T) 'intrinsic'
 def coroguard(*coro p return coro_guard) 'cdcel inline'
@@ -1747,26 +1759,6 @@ pub *ppb = malloc(size)
 pub *int p = null, q = undefined
 pub point = undefined, o = {1, 2}
 pub int a = 0, b = 0
-
-// 使用 const 和 prfer 定义全局常量
-const SIZE = 8
-const LEN = 32
-const PT = point {100, 200}
-const PI = 3.1415926
-const 2PI = 2 * PI
-const P2 = point {0}
-prfer SIZE = 8
-prfer LEN = 32
-prfer PT = point {100, 200}
-prfer PI = 3.1415926
-prfer 2PI = 2 * PI
-prfer P2 = point {0}
-
-// 使用 const 定义局部变量和类型成员
-const PI = 3.14159926
-const 2PI = 2 * PI
-const 3P2 = 3 * PI + 2
-const PT2 = point {100, 200}
 
 // "let" type_symb|symb "=" expr {, symb "=" expr}
 let *ppb = malloc(size) // 局部变量只能使用 let 关键字定义，等号左边只能定义一个变量
