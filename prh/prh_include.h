@@ -32944,7 +32944,7 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //  Cs  Surrogate           代理码点
 //  Co  Private_Use         私用字符
 //  Cn  Unassigned          保留的未分配码点或非字符
-//  C   Other               Cc | Cf | Cs | Co | Cn
+//  C   Other Code Point    Cc | Cf | Cs | Co | Cn
 //
 // 为统一编码字符分配General_Category值还有其他几个约定。许多字符有多种用途，并非所有
 // 此类用途都能通过像General_Category这样的单一简单分区属性来捕捉。因此，许多字母在传
@@ -33977,6 +33977,122 @@ label_invalid: // 代理码点不是合法的统一编码标量值，或不能�
 // 码字符数据库仅为兼容性可分解字符提供标识和映射信息，而兼容性变体没有正式标识或记录。
 // 由于两组大量重叠，许多规范首先以兼容性可分解字符来编写；如有必要，此类规范可扩展以根
 // 据需要处理其他不可分解的兼容性变体。另见第5.19节《映射兼容性变体》中的讨论。
+//
+// 不应产生的字符和序列（Characters and Sequences That Should Not Be Emitted）。存
+// 在某些文本元素，参见第2.1.2节《文本元素、字符和文本处理过程》，其中用字符或字符序列
+// 表示的多种选择会产生相同的外观。许多此类情况由统一编码规范化算法处理，该算法严格定义
+// 了规范等价和兼容性等价，并且不指定对一种规范化形式的偏好，参见第2.12节《等价序列》。
+// 然而，有少数情况（其中一些对用户来说是显著的），编码中可能存在歧义表示，且统一编码规
+// 范化算法未指定等价关系。在这种情况下，统一编码标准通常会指定推荐表示或拼写，以帮助文
+// 本交换。统一编码字符数据库中的数据文件DoNotEmit.txt以机器可读形式列出了此类歧义字符
+// 或序列及其推荐的替代表示。在新编写的文本中，应使用这些推荐序列，实现不应生成或发出非
+// 推荐序列。非推荐替代方案并非无效，如果在现有数据中遇到，也不应将其标记为错误。实现应
+// 继续解释和显示任何此类非推荐替代方案，输入法或自动更正等应用程序可用于引导用户使用推
+// 荐替代方案。其他实现可以使用DoNotEmit.txt文件中的信息，将列出的字符或序列视为与其推
+// 荐替代方案相似或相同，用于显示、排序或搜索目的，或用于在标识符中抑制非推荐替代方案。
+// DoNotEmit.txt数据文件不定义任何正式字符属性，该信息旨在帮助解决无法通过应用统一编码
+// 规范化算法解决的编码表示歧义。因此，DoNotEmit.txt省略了规范等价关系的列表。文件中的
+// 列表既不全面，也不受稳定性政策约束。条目可能会在统一编码标准的后续版本中添加或删除，
+// 以反映使用方面的新信息。
+
+//  1.  空白字符（除了换行）不是词法元素，仅用于分隔词法
+typedef enum {
+    PRH_NAME, // 标识符名称，包含关键字和保留名称
+    PRH_OPER, // 操作符，包含分隔符或标点
+    PRH_INT,  // 整数字面量
+    PRH_FLOAT, // 浮点字面量
+    PRH_CHAR, // 字符字面量
+    PRH_STRING, // 字符串字面量
+    PRH_COMMENT, // 注释
+    PRH_NEWLINE, // 换行
+    PRH_INDENT, // 增加缩进
+    PRH_DEDENT, // 取消缩进
+} prh_tokno_t;
+
+// 字符通用类别属性（General_Category）- 分隔符（Zs | Zl | Zp）
+//  Zs  Space_Separator     空格字符（各种非零宽度）
+//  Zl  Line_Separator      仅U+2028行分隔符
+//  Zp  Paragraph_Separator 仅U+2029段落分隔符
+//  Z   Separator           Zs | Zl | Zp
+//
+//  0020          ; White_Space # Zs       SPACE (SP)
+//  00A0          ; White_Space # Zs       NO-BREAK SPACE (NBSP)
+//  1680          ; White_Space # Zs       OGHAM SPACE MARK
+//  2000..200A    ; White_Space # Zs  [11] EN QUAD..HAIR SPACE
+//  202F          ; White_Space # Zs       NARROW NO-BREAK SPACE (NNBSP)
+//  205F          ; White_Space # Zs       MEDIUM MATHEMATICAL SPACE
+//  3000          ; White_Space # Zs       IDEOGRAPHIC SPACE
+//  2028          ; White_Space # Zl       LINE SEPARATOR (LS)
+//  2029          ; White_Space # Zp       PARAGRAPH SEPARATOR (PS)
+//
+// https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-6/#G1834
+// 6.2.3 Space Characters（General Category, gc = Zs）
+//
+// 空格字符分布在统一编码标准的多个区块中。空格字符列表见下表，Windows 操作系统上可使用
+// 字符映射表（按 Win + R，输入 charmap），选择合适的字体，勾选高级查看，可以查找到对应
+// 的统一编码字符。
+//
+//  0020          ; White_Space # Zs       SPACE ' '（空格）
+//  00A0          ; White_Space # Zs       NO-BREAK SPACE（不换行空格，硬空格）
+//  1680          ; White_Space # Zs       OGHAM SPACE MARK（欧甘空格标记，欧甘文字，古爱尔兰人使用的一种文字）
+//  2000          ; White_Space # Zs       EN QUAD（半方空格，EN 表示半角，宽度等于当前字号的一半，EN = 1/2 EM）
+//  2001          ; White_Space # Zs       EM QUAD（全方空格，EM 表示全角，宽度等于当前字号，QUAD 表示方块，印刷中指固定宽度的空白铅块）
+//  2002          ; White_Space # Zs       EN SPACE（半角空格）
+//  2003          ; White_Space # Zs       EM SPACE（全角空格）
+//  2004          ; White_Space # Zs       THREE-PER-EM SPACE（三分之一全角空格）
+//  2005          ; White_Space # Zs       FOUR-PER-EM SPACE（四分之一全角空格）
+//  2006          ; White_Space # Zs       SIX-PER-EM SPACE（六分之一全角空格）
+//  2007          ; White_Space # Zs       FIGURE SPACE（数字空格）
+//  2008          ; White_Space # Zs       PUNCTUATION SPACE（标点空格）
+//  2009          ; White_Space # Zs       THIN SPACE（窄空格）
+//  200A          ; White_Space # Zs       HAIR SPACE（极窄空格）
+//  202F          ; White_Space # Zs       NARROW NO-BREAK SPACE（窄不换行空格）
+//  205F          ; White_Space # Zs       MEDIUM MATHEMATICAL SPACE（中等数学空格）
+//  3000          ; White_Space # Zs       IDEOGRAPHIC SPACE '　'（表意空格/全角空格）
+//
+// 统一编码标准中的空格字符可以通过其通用类别（General Category, gc = Zs）在统一编码
+// 字符数据库中识别。有一个例外的 "空格" 字符是 U+200B ZERO WIDTH SPACE（零宽空格）。   *** 特殊的零宽度空格（U+200B）用于布局控制，属于格式控制字符（Cf）
+// 这个字符虽然名称中包含 "空格"，但实际上在显示时没有任何宽度或可见字形。它的主要功能
+// 是在那些不使用正字法空格来分隔文本中单词的书写系统中指示词边界。它被赋予通用类别格式
+// 控制字符（gc = Cf），在实现中被视为格式控制字符而非空格字符。关于 U+200B 零宽空格以
+// 及其他具有特殊属性的零宽字符的进一步讨论，见第 23.2 节 "布局控制"。
+//
+// 最常用的空格字符是 U+0020 SPACE。在表意文字中，U+3000 IDEOGRAPHIC SPACE 常被使用，
+// 因为它的宽度与表意文字相匹配。其他空格字符的主要区别在于它们的宽度：
+//  1.  U+2000..U+2006 是排版中使用的标准方框宽度（standard quad width）
+//  2.  U+2007 FIGURE SPACE 具有固定宽度，称为表格宽度（tabular width），与表格中使用的数字宽度相同
+//  3.  U+2008 PUNCTUATION SPACE 被定义为与句号（a period）宽度相同的空格
+//  4.  U+2009 THIN SPACE 和 U+200A HAIR SPACE 是宽度依次递减的空格，用于窄词间隙和排版对齐
+//
+// 固定宽度的空格字符（U+2000..U+200A）源自传统（热铅）排版。计算机排版中的算法字距调整
+// 和文本对齐不使用这些字符。然而，在使用它们的地方（例如，排版数学公式时），它们的宽度
+// 通常由字体指定（不同字体宽度可能不同），在对齐过程中通常不会扩展。例外是 U+2009 THIN
+// SPACE，它有时会被调整。
+//
+// 除各种固定宽度的空格外，统一编码标准中还有一些特定于文字的空格字符。U+1680 OGHAM
+// SPACE MARK 很不寻常，因为它通常显示为可见的水平线（ ），而不是空白。
+//
+// U+00A0 NO-BREAK SPACE（NBSP，不换行空格） 是 U+0020 SPACE 的不换行对应字符。它具
+// 有相同的宽度，但在换行时表现不同。更多信息见统一编码标准附件 #14《统一编码换行算法》。
+// 与 U+0020 不同，U+00A0 在双向布局中充当数值分隔符（numeric separator）。关于统一
+// 编码双向算法的详细讨论，见统一编码标准附件 #9《统一编码双向算法》。U+00A0 在统一编码
+// 标准中还有另一个重要功能。它可以用作基字符，用于显示孤立的非间距组合标记（Mn）。4.1
+// 版之前的标准曾指出 U+0020 SPACE 也可用于此功能，但由于 SPACE 在 XML 和其他标记语言
+// 处理中的潜在交互问题，不再推荐使用 SPACE。进一步讨论见第 2.11 节"组合字符"。
+//
+// U+202F NARROW NO-BREAK SPACE（NNBSP，窄不换行空格） 是 U+00A0 NO-BREAK SPACE 的
+// 窄版本。NNBSP 可用于表示法语排版中标点字符周围出现的窄空格，称为 "espace fine
+// insécable"（细不间断空格）。在统一编码 16.0 版之前，NNBSP 被推荐作为蒙古语文本中的
+// 特殊格式字符。这个角色现在由 U+180E MONGOLIAN VOWEL SEPARATOR（蒙古语元音分隔符）
+// 承担，更多信息见第 13.5 节 "蒙古语"。
+//
+// 空格（SP）与不换行空格（NBSP）的区别：
+//  1.  空格是普通空格，允许在空格处换行，而不换行空格是硬空格，禁止在空格处换行
+//  2.  不换行空格有 HTML 实体表示（&nbsp;），不换行空格可以防止数字/单位/人名被拆开
+//  3.  例如 100&nbsp;km 防止 100 和 km 被拆到两行；SPACE 是普通空格，换行时可以被拆
+//      开；NO-BREAK SPACE 是胶水空格，强制把两边内容粘在同一行，排版时防止尴尬断行
+//  4.  NO-BREAK SPACE 在双向布局中充当数值分隔符
+//  5.  NO-BREAK SPACE 可用作基字符，用于显示孤立的非间距组合标记（Mn）
 
 #endif // PRH_SCAN_INCLUDE
 
