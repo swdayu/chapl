@@ -765,6 +765,117 @@ for [&it] // 迭代元素捕获
 //      ``` bnf {
 //      }
 //
+//  0.  标识符
+//
+//      源代码使用 UTF-8 编码，编码文本是没有规范化的，单个变音字符与对应的音调和字母是
+//      不同的，后者被当作两个字符对待。为了与其他工具兼容，编译器不允许源代码中包含NUL
+//      字符（U+0000），会忽略 UTF-8 的编码记号字节（U+FEFF），但它必须是源文件的第一
+//      个字符，记号字节不允许在源文件的其他地方出现。
+//
+//      词法元素（token）组成语言的词汇表，分成四种类别：标识符、关键字、操作符和标点、
+//      字面量。空白字符（whitespace），空格（U+0020，' '）、垂直制表（U+0009，'\t'）、
+//      回车（U+000D，'\r'）、换行（U+000A，'\n'），除非它分隔了词法元素否则会被忽略。
+//      另外，行注释和块注释会被解析成一个空格，一个换行符或者文件结束符或者输入流结束
+//      都会被解析成代码换行。当将输入流拆解为词法元素时，会找下一个最长的合法字符序列。
+//
+//      程序由解析器（parser）读取，解析器的输入是一串词法元素（a stream of tokens），
+//      词法元素由词法分析器（lexical analyzer）产生，本章将描述词法分析器是如何将文件
+//      拆解为词法元素的。
+//          1.  一个程序被分成多个逻辑行（logical line）
+//          2.  一个逻辑行的结束通过词法元素 NEWLINE 表示
+//          3.  一个逻辑行由一个或多个物理行组成（physical line），使用显式或隐式的行
+//              合并规则（line joining rules），显式行合并即使用反斜杠分行
+//          4.  一个物理行通过行结束符（end-of-line）结束，可以是 UNIX 形式的 \n 字
+//              符，Windows 形式的 \r\n 双字符，或老式 Macintosh 形式的 \r 字符，另
+//              外最后一个为物理行可以随输入流的结束而结束
+//          5.  但是在程序的字符串类型中，仅使用 \n 表示换行
+//          6.  逻辑行开头的前导空白字符（空格和制表符）用于计算该行的缩进级别，进而用
+//              于确定语句的分组。在一个需要计算缩进的上下文中，逻辑行开头的前导空白要
+//              么都是空格字符、要么都是制表符，不能混用，否则会引发 e_indent_error，
+//              也不能包含其他空白字符，否则会引发 e_indent_invalid_char 错误。第一个
+//              非空白字符前的空格总数或制表符总数决定了该行的缩进，当使用制表符时一个
+//              制表符表示一个缩进，当使用空格时四个空格表示一个缩进，如果空格不足四的
+//              倍数，会引发 e_indent_space_error 错误。
+//          7.  连续行的缩进级别使用栈来生成 INDENT 和 DEDENT 标记，具体规则如下：
+//              在读取文件第一行之前，单个零被压入栈中，这个零永远不会被弹出。压入栈中
+//              的数字将始终从底到顶严格递增。在每个逻辑行开始时，该行的缩进级别与栈顶
+//              进行比较。如果相等则不发生任何操作，如果更大则将其压入栈，并生成一个
+//              INDENT 标记。如果更小则它必须是栈中出现的数字之一，栈中所有更大的数字
+//              都被弹出，每弹出一个数字就生成一个 DEDENT 标记。在文件末尾，为栈中每个
+//              大于零的剩余数字生成一个 DEDENT 标记。
+//                  if expr     // 如果 if 开头的起始空格不是四的倍数，也会报错
+//                  stmt_1      // 错误，没有缩进
+//                   stmt_2     // 错误，缩进空格数量不够
+//                      stmt_3  // 正确，第一级缩进
+//                      s = l[:i] + l[i+1]
+//                          p = perm(l[:i] + l[i+1:]) // 错误，不需要的缩进
+//                      for x in p
+//                              r.append(l[i:i+1] + x) // 错误，跳过了一个缩进级别（e_indent_level_skipped）
+//                          r.append(l[i:i+1] + x)
+//                  return r // 错误，没有对应的缩进级别可弹出
+//          8.  缩进语句块可以写在同一行，允许 \t 前后出现任意空格，但整个语句块必须在同一物理行中
+//                  if expr \n\t p = perm(l[:i] + l[i+1:]) \t for x in p \t\t r.append(l[i:i+1] + x) \t\t return r
+//
+//      标识符（也称为名称）由以下词法定义描述。标识符的语法基于统一编码标准附件UAX-31，   *** https://www.unicode.org/reports/tr31/ Unicode Identifiers and Syntax
+//      并进行以下说明和修改，更多细节参见 PEP 3131。在ASCII范围（U+0001 ~ U+007F）
+//      内，标识符的有效字符包括大写和小写字母A到Z、下划线_，以及除首字符外的数字0到9。
+//      对于引入的ASCII范围之外的额外字符，有效名称只能包含 “类字母（letter-like）”
+//      和 “类数字（digit-like）” 字符。标识符长度无限制，大小写敏感。
+//          name = name_start { name_continue } .
+//          name_start = a … z | A … Z | _ | <non-ascii character> .
+//          name_continue = name_start | 0 … 9 .
+//          identifier = <name, except keywords>
+//
+//      包含非 ASCII 字符的名称需要额外的规范化和验证，超出上述规则和语法所解释的范围。
+//      例如，ř_1、蛇 或 साँप 是有效的名称，但 r〰2、€ 或 🐍 则不是。本节解释确切的规
+//      则。所有名称在解析时都会被转换为 NFKC 规范化形式。这意味着，如某些字符的排版变
+//      体会被转换为它们的"基本"形式。例如，ﬁⁿₐˡᵢᶻₐᵗᵢᵒₙ 规范化为 finalization，因此将
+//      它们视为相同的名称：
+//          > ﬁⁿₐˡᵢᶻₐᵗᵢᵒₙ = 3
+//          > finalization
+//          3
+//
+//      注意，规范化仅在词法层面进行，运行时接受名称字符串作为参数的函数通常不会规范化
+//      其参数。例如，上面定义的变量在运行时的 globals() 字典中可以通过 globals()["finalization"]
+//      访问，但不能通过 globals()["ﬁⁿₐˡᵢᶻₐᵗᵢᵒₙ"] 访问。
+//
+//      类似于纯 ASCII 名称只能包含字母、数字和下划线，且不能以数字开头，有效的名称必须
+//      以 "类字母" 集合 xid_start 中的字符开头，其余字符必须属于 "类字母和数字" 集合
+//      xid_continue。这些集合基于统一标准附件 UAX-31 中定义的 XID_Start 和 XID_Continue
+//      集合。Python 的 xid_start 额外包含下划线（_），请注意 Python 不一定完全符合
+//      UAX-31。
+//
+//      统一编码字符数据库中的 DerivedCoreProperties.txt 文件提供了统一编码定义的 XID_Start
+//      和 XID_Continue 集合中字符的非规范性列表。作为参考，下面给出了 xid_* 集合的构   *** https://www.unicode.org/Public/15.1.0/ucd/DerivedCoreProperties.txt
+//      造规则。
+//
+//      id_start:
+//          | <Lu>  // 大写字母，包括 A 到 Z（uppercase letters）
+//          | <Ll>  // 小写字母，包括 a 到 z（lowercase letters）
+//          | <Lt>  // 首字母大写（titlecase letters）
+//          | <Lm>  // 修饰符字母（modifier letters）
+//          | <Lo>  // 其他字母（other letters）
+//          | <Nl>  // 字母数字（letter numbers）
+//          | "_"                                                                  *** https://www.unicode.org/Public/16.0.0/ucd/PropList.txt
+//          | <Other_ID_Start>  // 具有Other_ID_Start属性的字符，PropList.txt中支持向后兼容性的显式字符列表
+//      xid_start:
+//          <id_start中的所有字符，但移除所有 NFKC 规范化后不符合 "id_start xid_continue*" 形式的字符>
+//      id_continue:
+//          | id_start
+//          | <Nd>  // 十进制数字，包括 0 到 9（decimal numbers）
+//          | <Pc>  //  连接标点（connector punctuations）
+//          | <Mn>  //  非间距标记（nonspacing marks）
+//          | <Mc>  //  间距组合标记（spacing combining marks）
+//          | <Other_ID_Continue> // 具有Other_ID_Continue属性的字符，PropList.txt中支持向后兼容性的显式字符列表
+//      xid_continue:
+//          <id_continue中的所有字符，但移除所有 NFKC 规范化后不符合 "id_continue*" 形式的字符>
+//      identifier:
+//          xid_start xid_continue*
+//
+//      所有标识符在解析时转换为NFKC规范化形式，标识符的比较基于NFKC。统一编码字符类别   *** https://docs.python.org/3/library/unicodedata.html#module-unicodedata
+//      使用 unicodedata 模块中包含的统一编码字符数据库版本。另请参考 PEP 3131 支持非   *** https://peps.python.org/pep-3131/
+//      ASCII 标识符，PEP 672 统一编码相关安全注意事项。                              *** https://peps.python.org/pep-0672/
+//
 //  1.  字符，要么是字节 byte，要么四字节 char
 //      \e  退出
 //      \d  删除
