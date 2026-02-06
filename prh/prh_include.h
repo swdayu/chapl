@@ -34093,6 +34093,65 @@ typedef enum {
 //      开；NO-BREAK SPACE 是胶水空格，强制把两边内容粘在同一行，排版时防止尴尬断行
 //  4.  NO-BREAK SPACE 在双向布局中充当数值分隔符
 //  5.  NO-BREAK SPACE 可用作基字符，用于显示孤立的非间距组合标记（Mn）
+//
+// https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-5/#G10213
+// 5.8 Newline Guidelines
+//
+//  0009          ; White_Space # Cc       <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//  000A          ; White_Space # Cc       <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//  000B          ; White_Space # Cc       <control-000B> LINE TABULATION, vertical tab (VT), \v
+//  000C          ; White_Space # Cc       <control-000C> FORM FEED (FF), \f
+//  000D          ; White_Space # Cc       <control-000D> CARRIAGE RETURN (CR), \r
+//  0085          ; White_Space # Cc       <control-0085> NEXT LINE (NEL)
+//  2028          ; White_Space # Zl       LINE SEPARATOR (LS)
+//  2029          ; White_Space # Zp       PARAGRAPH SEPARATOR (PS)
+//
+// 不同平台使用回车（CR）、换行（LF）、CRLF 或 下一行（NEL） 来表示换行。不仅不同平台
+// 上换行由不同字符表示，即使在同一平台上它们的行为也具有歧义。这些字符在字符集转码时通
+// 常直接转码为相应的统一编码码点，这意味着即使是处理纯统一编码的程序也必须处理这些问题。
+// 特别是随着 Web 的出现，单台机器上的文本可能来自许多来源，这造成了一个重大问题。换行
+// 字符用于显式行边界，更多信息见统一编码标准附件 #14《统一编码换行算法》。换行符在正则
+// 表达式上下文中也有特殊处理。信息见统一编码技术标准 #18《统一编码正则表达式》。关于这
+// 些字符在标记语言中的使用，见 W3C 规范《XML 和其他标记语言中的统一编码》。
+//
+// 下表提供了本章使用的缩略词的十六进制值，并对应的字符或字符序列。名称列显示通常用于指
+// 代相关字符的名称，其他列显示这些字符的 Unicode、ASCII 和 EBCDIC 编码值。扩展的二进
+// 制编码的十进制交换码（Extended Binary Coded Decimal Interchange Code）。
+//
+//  缩略词  名称        Unicode     ASCII   EBCDIC 默认 EBCDIC z/OS
+//  CR      回车        000D        0D      0D          0D
+//  LF      换行        000A        0A      25          15
+//  CRLF    回车和换行  <000D 000A> <0D 0A> <0D 25>     <0D 15>
+//  NEL     下一行      0085        85      15          25
+//  VT      垂直制表符  000B        0B      0B          0B
+//  FF      换页符      000C        0C      0C          0C
+//  LS      行分隔符    2028        n/a     n/a         n/a
+//  PS      段落分隔符  2029        n/a     n/a         n/a
+//
+// 除 LS 和 PS 外，这里讨论的换行字符被编码为控制码。许多控制码最初设计用于设备控制，但
+// 与 TAB 一起，换行字符通常用作纯文本的一部分。关于统一编码如何编码控制码的更多信息，
+// 见第 23.1 节 "控制码"。
+//
+// 标识符（Notation）。本换行指南的讨论在指代与行确定相关的功能时使用小写，但在指代实际
+// 涉及的字符时使用缩略词。键盘上的键使用全大写表示。例如：行分隔符在统一编码文本中可以
+// 用 LS 表示，在某些平台上可以用 CR 表示，它可以通过 SHIFT-RETURN 键输入到文本中。
+//
+// 上表显示了 EBCDIC 系统使用的 LF 和 NEL 的两种映射。第一个 EBCDIC 列显示这些字符的
+// 默认控制码映射，用于大多数 EBCDIC 环境。第二列显示 z/OS Unix 系统服务对 LF 和 NEL
+// 的映射。该映射源于 LF 字符在 C 程序和 Unix 环境中用于换行功能，而 z/OS 上的传统文本
+// 文件使用 NEL 作为换行功能。NEL（下一行） 实际上并未在 7 位 ASCII 中定义，它在 ISO
+// 控制功能标准 ISO 6429 中定义为 C1 控制功能。然而，上表 ASCII 列中显示的 0x85 映射
+// 是此 C1 控制功能在基于 ASCII 的字符编码中映射的通常方式。
+//
+// 缩略词 NLF（newline function，换行功能）代表指示新行（a new line break）的通用控
+// 制功能。它可能由不同字符表示，取决于平台：
+//      NLF 平台对应关系
+//      平台                    NLF 值
+//      MacOS 9.x 及更早版本     CR
+//      MacOS X                 LF
+//      Unix                    LF
+//      Windows                 CRLF
+//      基于 EBCDIC 的操作系统   NEL
 
 #endif // PRH_SCAN_INCLUDE
 
