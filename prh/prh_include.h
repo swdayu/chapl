@@ -32894,6 +32894,114 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 // 个人可以编辑文档，不更改保留码点，然后发送出去。在这种情况下，第二个人交换的是据其所
 // 知为保留码点的内容。
 //
+// 统一编码字符数据库为所有统一编码码点定义了General_Category（通用类别）属性。字符的
+// General_Category值作为该字符的基本分类，基于其主要用途。该属性扩展了广泛使用的ASCII
+// 字符细分为字母、数字、标点和符号的分类，这是一种有用的分类，需要详细阐述和进一步细分，
+// 以适用于统一编码标准更大、更全面的范围。每个统一编码码点被分配一个规范性的General_Category
+// 值。每个General_Category值都有一个两字母的属性值别名，其中第一个字母提供关于主要类
+// 的信息，第二个字母指定该主要类的子类。在每个类中，子类"other"仅收集主要类的剩余字符。
+// 例如，子类"No"（Number, other）包括数字类中不是十进制数字或字母的所有字符。这些字符
+// 除了同属一个主要类外，可能几乎没有共同之处。下表列举了General_Category值，给出每个值
+// 的简短描述。特殊值LC、L、M、N、P、S、Z和C本身不是枚举的一部分，而是构成密切相关值集
+// 的别名，这些分组General_Category值的别名在正则表达式中通常很有用。
+//
+//  General_Category属性值（字母 L、标记 M、数字 N、标点 P、符号 S、分隔 Z、控制 C）
+//  缩写    完整名称            描述
+//  Lu  Uppercase_Letter    大写字母
+//  Ll  Lowercase_Letter    小写字母
+//  Lt  Titlecase_Letter    作为单个字符编码的双字母，第一部分大写，例如 ǲ（Dz）
+//  LC  Cased_Letter        Lu | Ll | Lt
+//  Lm  Modifier_Letter     修饰字母，本身不单独构成字母，而是用来修饰或影响相邻字母的独立字符（ʰ ˡ ˚）
+//  Lo  Other_Letter        其他字母，包括音节文字和表意文字
+//  L   Letter              Lu | Ll | Lt | Lm | Lo
+//  Mn  Nonspacing_Mark     非间距组合标记，零进宽（nonspacing combining mark, zero advance width）
+//  Mc  Spacing_Mark        间距组合标记，正进宽（spacing combining makr, positive advance width）
+//  Me  Enclosing_Mark      封闭组合标记（enclosing combining mark）
+//  M   Mark                Mn | Mc | Me
+//  Nd  Decimal_Number      十进制数字
+//  Nl  Letter_Number       字母样式数字字符（letterlike）
+//  No  Other_Number        其他类型的数字字符
+//  N   Number              Nd | Nl | No
+//  Pc  Connector_Punctuation 连接标点符号，如连接号
+//  Pd  Dash_Punctuation    破折号或连字符标点
+//  Ps  Open_Punctuation    开标点符号（成对）
+//  Pe  Close_Punctuation   闭标点符号（成对）
+//  Pi  Initial_Punctuation 初始引号
+//  Pf  Final_Punctuation   结束引号
+//  Po  Other_Punctuation   其他类型的标点符号
+//  P   Punctuation         Pc | Pd | Ps | Pe | Pi | Pf | Po
+//  Sm  Math_Symbol         数学用符号
+//  Sc  Currency_Symbol     货币符号
+//  Sk  Modifier_Symbol     非字母样式修饰符号（non-letterlike modifier symbol）
+//  So  Other_Symbol        其他类型的符号
+//  S   Symbol              Sm | Sc | Sk | So
+//  Zs  Space_Separator     空格字符（各种非零宽度）
+//  Zl  Line_Separator      仅U+2028行分隔符
+//  Zp  Paragraph_Separator 仅U+2029段落分隔符
+//  Z   Separator           Zs | Zl | Zp
+//  Cc  Control             C0或C1控制码
+//  Cf  Format              格式控制字符
+//  Cs  Surrogate           代理码点
+//  Co  Private_Use         私用字符
+//  Cn  Unassigned          保留的未分配码点或非字符
+//  C   Other               Cc | Cf | Cs | Co | Cn
+//
+// 为统一编码字符分配General_Category值还有其他几个约定。许多字符有多种用途，并非所有
+// 此类用途都能通过像General_Category这样的单一简单分区属性来捕捉。因此，许多字母在传
+// 统数字系统中通常兼作数字。例子可以在罗马数字系统、希腊字母用作数字、希伯来文以及许多
+// 类似文字中找到。在这种情况下，General_Category基于字符的主要字母用途分配，即使它也
+// 可能具有数字值、出现在数字表达式中或在数学表达式中符号化使用等。
+//
+// General_Category (gc=Nl）主要保留给技术上不是数字的字母样数字形式。例如，兼容性罗马
+// 数字字符U+2160~U+217F都具有gc=Nl。由于这些字符的兼容性状态，表示罗马数字的推荐方式
+// 是使用常规拉丁字母（gc=Ll或gc=Lu）。这些字母从其用于表示罗马数字的惯例用法中获得数字
+// 状态，而不是从其General_Category值获得。
+//
+// 相比之下，货币符号（gc=Sc）完全基于其作为货币符号的功能获得其General_Category值，即
+// 使它们通常派生自字母，并且可能看起来类似于被分配字母相关General_Category值的其他带
+// 附加符号的字母。
+//
+// 开闭标点成对字符基于成对字符最典型用法和成对方向分配General_Category值（gc=Ps表示开，
+// gc=Pe表示闭）。然而，此类标点符号偶尔不成对使用或方向相反的情况确实发生，这并不被其
+// General_Category值阻止。类似地，General_Category将其主要标识为符号或数学符号的字符
+// 在其他上下文中可能充当标点符号，甚至成对标点符号。最明显的情况是 U+003C "<" 小于号和
+// U+003E ">" 大于号。这些被赋予 General_Category （gc=Sm），因为它们的主要身份是数学
+// 关系符号。然而，正如 HTML 和 XML 所显而易见的，它们在许多形式语法中也普遍用作成对括
+// 号标点字符。
+//
+// 统一编码字符General_Category的常见用途之一是用于派生确定文本边界的属性，如统一编码
+// 标准附件#29《统一编码文本分割》。其他常见用途包括确定编程、脚本和标记的语言标识符，如
+// 统一编码标准附件#31《统一编码标识符和模式语法》，以及Perl等正则表达式语言。更多信息
+// 参见统一编码技术标准#18《统一编码正则表达式》。
+//
+// 该属性还用于支持常见API，如isDigit()。常见函数如isLetter()和isUppercase()不能很好
+// 地扩展到更大、更复杂的统一编码字符集。虽然可以使用General_Category和其他属性将这些
+// 函数简单地扩展到统一编码，但它们无法适用于整个统一编码字符范围以及人们打算用于的各种
+// 任务。关于更合适的方法，参见统一编码标准附件#31《统一编码标识符和模式语法》、统一编码
+// 标准附件#29《统一编码文本分割》、第5.18节《大小写映射》和第4.10节《字母、字母表和表
+// 意文字》。
+//
+// 虽然General_Category属性是规范性的，其值用于派生统一编码算法引用的许多其他属性，但
+// 这并不意味着General_Category总是为任何给定目的提供最适当的字符分类。实现不需要在各
+// 种上下文中对字符进行分类时仅根据其General_Category值处理字符。以下示例说明了一些典
+// 型情况，其中实现可能在将字符分组为 "标点"、"符号" 等时合理地偏离字符的 General_Category
+// 值。
+//  1.  字符选择器应用程序可能将 U+0023（#）数字符号归类为符号或同时在符号和标点下归类。
+//  2.  搜索的 "忽略标点" 选项可能选择不忽略 U+0040 商业 at 符号。
+//  3.  布局引擎可能在数学方程的上下文中将 U+0021 感叹号视为数学运算符，并以不同于该字
+//      符在文本中用作句末标点时的方式进行布局。
+//  4.  日语脇点（wakiten）是一种文本强调样式，使用一系列"点"（不同类型和形状）在垂直布
+//      局中（或水平布局中文本上方）高亮日语文本。脇点的实现遵循一般规则，在强调文本跨度
+//      中，点应用于"字母"和"符号"，但不应用于"标点"。在大多数情况下，脇点中使用的标点
+//      定义与统一编码 General_Category匹配，但以下常见字符[# % & @ § ¶]被视为符号，
+//      而非标点。
+//  5.  正则表达式语法可以提供一个运算符来匹配所有标点，但包括不限于 gc=P 的字符（例如，
+//      U+00A7章节号）。
+//
+// 一般规则是，如果实现声称使用统一编码 General_Category 属性，那么它必须使用统一编码
+// 字符数据库中指定的精确值，该声明才符合规范。因此，如果正则表达式语法明确支持统一编码
+// General_Category 属性并匹配 gc=P，那么该匹配必须基于精确的 UCD 值。
+//
 // 码点语义（Code Point Semantics），大多数码点的语义由本标准建立，例外是控制字符、私
 // 用字符和非字符。控制码的语义通常由其他标准或协议（如ISO/IEC 6429）确定，但有少数控制
 // 码由统一编码标准指定特定语义。参见第23.1节《控制码》了解这些控制码的确切列表。私用字
