@@ -34010,6 +34010,7 @@ typedef enum {
 } prh_tokno_t;
 
 // 字符通用类别属性（General_Category）- 分隔符（Zs | Zl | Zp）
+//
 //  Zs  Space_Separator     空格字符（各种非零宽度）
 //  Zl  Line_Separator      仅U+2028行分隔符
 //  Zp  Paragraph_Separator 仅U+2029段落分隔符
@@ -34099,8 +34100,8 @@ typedef enum {
 //
 //  0009          ; White_Space # Cc       <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
 //  000A          ; White_Space # Cc       <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
-//  000B          ; White_Space # Cc       <control-000B> LINE TABULATION, vertical tab (VT), \v
-//  000C          ; White_Space # Cc       <control-000C> FORM FEED (FF), \f
+//  000B          ; White_Space # Cc       <control-000B> LINE TABULATION, vertical tab (VT), \v（某些情况下的分行符）
+//  000C          ; White_Space # Cc       <control-000C> FORM FEED (FF), \f（分页符，相当于一个特殊的分行符）
 //  000D          ; White_Space # Cc       <control-000D> CARRIAGE RETURN (CR), \r
 //  0085          ; White_Space # Cc       <control-0085> NEXT LINE (NEL)
 //  2028          ; White_Space # Zl       LINE SEPARATOR (LS)
@@ -34124,9 +34125,9 @@ typedef enum {
 //  CRLF    回车和换行  <000D 000A> <0D 0A> <0D 25>     <0D 15>
 //  NEL     下一行      0085        85      15          25
 //  VT      垂直制表符  000B        0B      0B          0B
-//  FF      换页符      000C        0C      0C          0C
+//  FF      分页符      000C        0C      0C          0C
 //  LS      行分隔符    2028        n/a     n/a         n/a
-//  PS      段落分隔符  2029        n/a     n/a         n/a
+//  PS      段分隔符    2029        n/a     n/a         n/a
 //
 // 除 LS 和 PS 外，这里讨论的换行字符被编码为控制码。许多控制码最初设计用于设备控制，但
 // 与 TAB 一起，换行字符通常用作纯文本的一部分。关于统一编码如何编码控制码的更多信息，
@@ -34143,6 +34144,10 @@ typedef enum {
 // 控制功能标准 ISO 6429 中定义为 C1 控制功能。然而，上表 ASCII 列中显示的 0x85 映射
 // 是此 C1 控制功能在基于 ASCII 的字符编码中映射的通常方式。
 //
+// 分页符。FF 通常用作分页符，在文本中应按此方式解释。在屏幕上显示时，它导致分隔符后的
+// 文本被强制显示到下一页。在换行、解析或输入分段（如 readline）中，它的解释方式与 LS
+// 相同。FF 不会中断段落，因为段落可以且确实跨越页面边界。
+//
 // 缩略词 NLF（newline function，换行功能）代表指示新行（a new line break）的通用控
 // 制功能。它可能由不同字符表示，取决于平台：
 //      NLF 平台对应关系
@@ -34152,6 +34157,86 @@ typedef enum {
 //      Unix                    LF
 //      Windows                 CRLF
 //      基于 EBCDIC 的操作系统   NEL
+//
+// 行分隔符和段落分隔符。段落分隔符，无论其编码方式如何，用于指示段落之间的分隔。行分隔
+// 符指示仅应发生换行的位置，通常在段落内。例如：
+//      这是一个段落，在此处有一个行分隔符，
+//      导致单词 "导致" 出现在不同的行上，但不会导致典型的段落缩进、句子断开、行间距或
+//      对齐方式（右对齐、居中或左对齐段落）的改变。
+//
+// 作为比较，行分隔符基本上对应于 HTML 的 <br>，段落分隔符对应于 HTML <p> 的旧用法（现
+// 代 HTML 通过将段落括在 <p>...</p> 中来分隔段落）。在文字处理器中，段落分隔符通常使用
+// 键盘 RETURN 或 ENTER 输入；行分隔符通常使用修改后的 RETURN 或 ENTER 输入，例如
+// SHIFT-ENTER。
+//
+// 记录分隔符用于分隔记录。例如，在交换表格数据时，常见格式是使用制表符分隔单元格，并在
+// 单元格行末尾使用 CRLF。此功能与行分隔不完全相同，但通常使用相同的字符。传统上，NLF
+// 最初是作为行分隔符（有时是记录分隔符）出现的。它在简单的文本编辑器（如程序编辑器）中
+// 仍被用作行分隔符。随着平台和程序开始使用自动换行处理文字，这些字符被重新解释为代表段
+// 落分隔符。例如，即使是 Windows 记事本程序和 Mac SimpleText 程序等简单程序也将其平
+// 台的 NLF 解释为段落分隔符，而不是行分隔符。
+//
+// 一旦 NLF 被重新解释为代表段落分隔符，在某些情况下另一个控制字符被征用为行分隔符。例
+// 如，垂直制表符 VT 在 Microsoft Word 中使用。然而，选择行分隔符字符甚至比选择 NLF
+// 字符更缺乏标准化。许多互联网协议和大量现有文本将 NLF 视为行分隔符，因此实现者不能简
+// 单地在所有情况下将 NLF 视为段落分隔符。
+//
+// 建议。统一编码标准定义了两个明确的分隔符字符：U+2029 PARAGRAPH SEPARATOR（PS，段落
+// 分隔符）和 U+2028 LINE SEPARATOR（LS，行分隔符）。在统一编码文本中，当所需功能明确
+// 时，应使用 PS 和 LS 字符。否则，以下建议规定了在从其他字符集转换为统一编码时、在解释
+// 文本中的字符时以及在从统一编码转换为其他字符集时如何处理 NLF。注意，即使实现者知道特
+// 定平台上哪些字符代表 NLF，在输入和解释时也应将 CR、LF、CRLF 和 NEL 视为相同，只有在
+// 输出时才需要区分它们。
+//
+//  1.  从其他字符代码集转换
+//      R1 如果知道任何 NLF 的确切用法，将其转换为 LS 或 PS。
+//      R1a 如果任何 NLF 的确切用法未知，将其重新映射为平台 NLF。
+//      R1a 在解释统一编码文本时并没有真正帮助，除非实现者是该文本的唯一来源，因为另一
+//      个实现者可能保留了 LF、CR、CRLF 或 NEL。
+//
+//  2.  解释文本中的字符
+//      R2 始终将 PS 解释为段落分隔符，将 LS 解释为行分隔符。
+//      R2a 在文字软件处理中，将任何 NLF 解释为与 PS 相同。
+//      R2b 在简单文本编辑器中，将任何 NLF 解释为与 LS 相同。
+//          在换行中，PS 和 LS 都终止一行；因此，统一编码标准附件 #14《统一编码换行算
+//          法》中定义的统一编码换行算法规定任何 NLF 都会导致换行。
+//      R2c 在解析中，选择最安全的解释。
+//          例如，在建议 R2c 中，处理句子断开启发式方法的实现者会以以下方式推理，将任
+//          何 NLF 解释为 LS 更安全。假设 NLF 被解释为 LS，而它本应是 PS。由于大多数
+//          段落无论如何都以标点符号终止，这只会导致少数情况下句子边界的错误识别。假设
+//          NLF 被解释为 PS，而它本应是 LS。在这种情况下，换行会导致句子断开，这将导致
+//          句子断开启发式方法的重大问题。
+//
+//  3.  转换为其他字符代码集
+//      R3 如果知道预期目标，根据目标约定映射 NLF、LS 和 PS。
+//          例如，当映射到 Microsoft Word 文档的内部约定时，LS 将映射为 VT，PS 和任何
+//          NLF 将映射为 CRLF。
+//      R3a 如果预期目标未知，将 NLF、LS 和 PS 映射为平台换行约定（CR LF CRLF NEL）。
+//          例如，在 Java 中，这是通过映射到字符串 nlf 完成的，定义如下：
+//          String nlf = System.getProperty("line.separator");
+//
+//  4.  输入和输出
+//      R4 readline 函数应在 NLF LS FF PS 处停止。在典型实现中，它不包括导致其停止的
+//          NLF LS FF PS。由于分隔符丢失，此类 readline 函数的使用仅限于文本处理，分
+//          隔符类型之间没有区别。
+//      R4a writeline（或 newline）函数应根据建议 R3 和 R3a 转换 NLF、LS 和 PS。
+//
+// 在 C 中，gets 被定义为在换行符处终止并用 '\0' 替换换行符，而 fgets 被定义为在换行符
+// 处终止并将换行符包含在其复制数据的数组中。C 实现将 '\n' 解释为 LF 或底层平台换行符
+// NLF，取决于其出现位置。EBCDIC C 编译器根据 EBCDIC 执行集替换相关代码。
+//
+//  whitespace:
+//      | U+0020            // 0020 White_Space # Zs SPACE ' '（空格）
+//      | U+0009            // 0009 White_Space # Cc <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//      | U+3000            // 3000 White_Space # Zs IDEOGRAPHIC SPACE '　'（表意空格/全角空格）
+//      | comment
+//
+//  newline:
+//      | U+000A            // 000A White_Space # Cc <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//      | U+000D            // 000D White_Space # Cc <control-000D> CARRIAGE RETURN (CR), \r
+//      | U+000D U+000A     // CRLF \r\n
+//      | U+000A U+000D     // \n\r
+//      | <endmark>
 
 #endif // PRH_SCAN_INCLUDE
 
