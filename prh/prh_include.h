@@ -34344,6 +34344,186 @@ typedef enum {
 // 在日本，U+67D2 也发音为 urusi，意为"漆"，被视为"漆"的标准字符 U+6F06 的变体。Unihan
 // 数据库提供了主要数字表意文字和用作会计数字的表意文字的最新最完整列表，包括统一字库和
 // 排序之外的 CJK 字库扩展。更多细节见统一编码标准附件 #38《统一编码汉字数据库》。
+//
+//  Unihan_NumericValues.txt
+//      U+3405  kOtherNumeric       㐅  5
+//      U+3431  kVietnameseNumeric  㐱  9
+//      U+3483  kOtherNumeric       㒃  2
+//      U+3576  kZhuangNumeric      㕶  5
+//      U+382A  kOtherNumeric       㠪  5
+//      U+3B4D  kOtherNumeric       㭍  7
+//      U+4E00  kPrimaryNumeric     一  1
+//      U+4E03  kPrimaryNumeric     七  7
+//      U+4E07  kPrimaryNumeric     万  1,0000
+//      U+4E09  kPrimaryNumeric     三  3
+//      U+4E24  kOtherNumeric       两  2
+//      U+4E59  kZhuangNumeric      乙  1
+//      U+4E5D  kPrimaryNumeric     九  9
+//      U+4E86  kZhuangNumeric      了  1
+//      U+4E8C  kPrimaryNumeric     二  2
+//      U+4E94  kPrimaryNumeric     五  5
+//      U+4E96  kOtherNumeric       亖  4
+//      U+4EAC  kPrimaryNumeric     京  1,0000,0000,0000,0000
+//      U+4EBF  kPrimaryNumeric     亿  1,0000,0000
+//      U+4EC0  kOtherNumeric       什  10
+//      U+4EDF  kAccountingNumeric  仟  1000
+//      U+4EE8  kOtherNumeric       仨  3
+//      U+4F0D  kAccountingNumeric  伍  5
+//      U+4F70  kAccountingNumeric  佰  100
+//      U+4FC9  kZhuangNumeric      俉  5
+//      U+4FE9  kOtherNumeric       俩  2
+//      U+5006  kOtherNumeric       倆  2
+//      U+5104  kPrimaryNumeric     億  1,0000,0000
+//      U+5146  kPrimaryNumeric     兆  1,0000,0000,0000 100,0000
+//      U+5169  kOtherNumeric       兩  2
+//      U+516B  kPrimaryNumeric     八  8
+//      U+516D  kPrimaryNumeric     六  6
+//      U+5200  kTayNumeric         刀  1
+//      U+5341  kPrimaryNumeric     十  10
+//      U+5343  kPrimaryNumeric     千  1000
+//      U+5344  kOtherNumeric       卄  20
+//      U+5345  kOtherNumeric       卅  30
+//      U+534C  kOtherNumeric       卌  40
+//      U+53C1  kAccountingNumeric  叁  3
+//      U+53C2  kAccountingNumeric  参  3
+//      U+53C3  kAccountingNumeric  參  3
+//      U+53C4  kOtherNumeric       叄  3
+//      U+53CC  kZhuangNumeric      双  2
+//      U+53F0  kVietnameseNumeric  台  2
+//      U+540A  kZhuangNumeric      吊  1
+//      U+5549  kVietnameseNumeric  啉  100
+//      U+56DB  kPrimaryNumeric     四  4
+//      U+58F1  kAccountingNumeric  壱  1
+//      U+58F9  kAccountingNumeric  壹  1
+//      U+5954  kVietnameseNumeric  奔  4
+//      U+5C1E  kZhuangNumeric      尞  1
+//      U+5E7A  kOtherNumeric       幺  1
+//      U+5EFE  kOtherNumeric       廾  9
+//      U+5EFF  kOtherNumeric       廿  20
+//      U+5F0C  kAccountingNumeric  弌  1
+//      U+5F0D  kAccountingNumeric  弍  2
+//      U+5F0E  kAccountingNumeric  弎  3
+//      U+5F10  kAccountingNumeric  弐  2
+//      U+5F66  kVietnameseNumeric  彦  1000
+//      U+62D0  kOtherNumeric       拐  7
+//      U+62FE  kAccountingNumeric  拾  10
+//      U+634C  kAccountingNumeric  捌  8
+//      U+672C  kVietnameseNumeric  本  4
+//      U+6761  kTayNumeric         条  1
+//      U+677E  kZhuangNumeric      松  2
+//      U+6797  kVietnameseNumeric  林  100
+//      U+67D2  kAccountingNumeric  柒  7
+//      U+6C92  kVietnameseNumeric  沒  1
+//      U+6CA1  kVietnameseNumeric  没  1
+//      U+6D1E  kOtherNumeric       洞  0
+//      U+6F06  kAccountingNumeric  漆  7
+//      U+7396  kAccountingNumeric  玖  9
+//      U+767E  kPrimaryNumeric     百  100
+//      U+7695  kOtherNumeric       皕  200
+//      U+79ED  kPrimaryNumeric     秭  10,0000,0000 1,0000,0000,0000
+//      U+7A7A  kVietnameseNumeric  空  0
+//      U+7F62  kVietnameseNumeric  罢  7
+//      U+7F77  kVietnameseNumeric  罷  7
+//      U+8086  kAccountingNumeric  肆  4
+//      U+80FD  kTayNumeric         能  1
+//      U+80FD  kZhuangNumeric      能  1
+//      U+842C  kPrimaryNumeric     萬  1,0000
+//      U+8511  kVietnameseNumeric  蔑  1
+//      U+8CAE  kAccountingNumeric  貮  2
+//      U+8CB3  kAccountingNumeric  貳  2
+//      U+8D30  kAccountingNumeric  贰  2
+//      U+8FC8  kVietnameseNumeric  迈  10
+//      U+9081  kVietnameseNumeric  邁  10
+//      U+920E  kOtherNumeric       鈎  9
+//      U+94A9  kOtherNumeric       钩  9
+//      U+9621  kAccountingNumeric  阡  1000
+//      U+9646  kAccountingNumeric  陆  6
+//      U+964C  kAccountingNumeric  陌  100
+//      U+9678  kAccountingNumeric  陸  6
+//      U+96F6  kPrimaryNumeric     零  0
+//      U+20001 kOtherNumeric           7
+//      U+20027 kVietnameseNumeric      3
+//      U+20064 kOtherNumeric           4
+//      U+200E2 kOtherNumeric           4
+//      U+200E9 kVietnameseNumeric      9
+//      U+20121 kOtherNumeric           5
+//      U+20129 kVietnameseNumeric      2
+//      U+20136 kVietnameseNumeric      5
+//      U+2013B kVietnameseNumeric      5
+//      U+2013C kVietnameseNumeric      5
+//      U+2052D kVietnameseNumeric      8
+//      U+20929 kVietnameseNumeric      7
+//      U+2092A kOtherNumeric           1
+//      U+20983 kOtherNumeric           30
+//      U+2098C kOtherNumeric           40
+//      U+2099C kOtherNumeric           40
+//      U+209A9 kVietnameseNumeric      10
+//      U+209B3 kVietnameseNumeric      1000
+//      U+20AEA kOtherNumeric           6
+//      U+20AFD kOtherNumeric           3
+//      U+20B19 kOtherNumeric           3
+//      U+20B20 kVietnameseNumeric      1
+//      U+20BA9 kZhuangNumeric          1
+//      U+20CA2 kZhuangNumeric          1
+//      U+22390 kOtherNumeric           2
+//      U+22482 kVietnameseNumeric      9
+//      U+22998 kOtherNumeric           3
+//      U+23B1B kOtherNumeric           3
+//      U+24F93 kVietnameseNumeric      100
+//      U+2626D kOtherNumeric           4
+//      U+26271 kVietnameseNumeric      7
+//      U+2629A kVietnameseNumeric      4
+//      U+264B9 kVietnameseNumeric      6
+//      U+2846E kVietnameseNumeric      10
+//      U+28492 kVietnameseNumeric      10
+//      U+28DC8 kVietnameseNumeric      10000
+//      U+2B52C kVietnameseNumeric      10000
+//      U+2B866 kVietnameseNumeric      9
+//      U+2B871 kTayNumeric             2
+//      U+2B872 kTayNumeric             5
+//      U+2B875 kVietnameseNumeric      5
+//      U+2B92F kVietnameseNumeric      8
+//      U+2B9C7 kZhuangNumeric          1
+//      U+2C0BD kVietnameseNumeric      5
+//      U+2C0F4 kVietnameseNumeric      100
+//      U+2C65E kVietnameseNumeric      7
+//      U+2C954 kTayNumeric             7
+//      U+2CB99 kVietnameseNumeric      10000
+//      U+2CEB4 kZhuangNumeric          1
+//      U+3000C kZhuangNumeric          1
+//      U+30FD8 kVietnameseNumeric      10000
+//      U+31357 kVietnameseNumeric      1
+//      U+31394 kVietnameseNumeric      2
+//      U+31396 kVietnameseNumeric      5
+//      U+31455 kVietnameseNumeric      10
+//      U+3197A kVietnameseNumeric      1
+//      U+31EC7 kTayNumeric             4
+//      U+31FA3 kVietnameseNumeric      10000
+//      U+32226 kVietnameseNumeric      10000
+//
+// https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-5/#G34360
+// 5.5 Handling Numbers
+//
+// 有许多字符集代表不同文字中的十进制数字。以数值方式解释这些字符的系统应提供正确的数值。
+// 例如，序列 <U+0968 天城文数字二, U+0966 天城文数字零> 在数值解释时具有值二十。将二
+// 进制数值转换为视觉形式时，可以从不同文字中选择数字。例如，值二十可以表示为：
+//      <U+0032 数字二, U+0030 数字零>（ASCII 数字）
+//      <U+0968 天城文数字二, U+0966 天城文数字零>（天城文数字）
+//      <U+0662 阿拉伯-印度数字二, U+0660 阿拉伯-印度数字零>（阿拉伯-印度数字）
+//
+// 建议系统允许用户通过将 U+0030 数字零的相应出现替换为 U+0660 阿拉伯-印度数字零等方式
+// 来选择结果数字的格式。有关实现数值格式化和扫描所需的信息，见第 4 章"字符属性"。
+//
+// ASCII 数字的全角变体只是常规数字的兼容性变体，应被视为常规的西方数字。罗马数字、希腊
+// 顶线数字和东亚表意数字是十进制数字书写系统，但它们不是正式的十进制基数数字系统。也就
+// 是说，无法执行一对一的转码到诸如 123456.789 的形式。此类系统仅适用于正整数书写。使用
+// CJK 表意数字也可以用两种方式书写数字。例如数字 1234 的书写，一千二百三十四，一二三四。
+// 支持这些表意数字进行数值解析意味着实现必须智能地区分两种情况。
+//
+// 数字通常出现在需要解析但不属于数字的情况中。一个这样的例子是字母数字标识符，见统一编
+// 码标准附件 #31《统一编码 标识符和模式语法》）。只有在更高级别的协议中，例如在实现完
+// 整的数学公式解析器时，数字上标和下标等考虑因素对于数值解释才变得至关重要。见第 22.3
+// 节 "数字"，对统一编码标准中编码的各种类型的数字及其实现含义进行更详细的讨论。
 
 #endif // PRH_SCAN_INCLUDE
 
