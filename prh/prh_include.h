@@ -34007,7 +34007,7 @@ typedef enum {
     PRH_NEWLINE, // 换行
     PRH_INDENT, // 增加缩进
     PRH_DEDENT, // 取消缩进
-} prh_tokno_t;
+} prh_tokid_t;
 
 // 字符通用类别属性（General_Category）- 分隔符（Zs | Zl | Zp）
 //
@@ -34237,6 +34237,113 @@ typedef enum {
 //      | U+000D U+000A     // CRLF \r\n
 //      | U+000A U+000D     // \n\r
 //      | <endmark>
+//
+// 字符通用类别属性（General_Category）- 数字（Nd | Nl | No）
+//
+//  Nd  Decimal_Number      十进制数字
+//  Nl  Letter_Number       字母样式数字字符（letterlike）
+//  No  Other_Number        其他类型的数字字符
+//  N   Number              Nd | Nl | No
+//
+// 0030..0039    ; Hex_Digit # Nd  [10] DIGIT ZERO..DIGIT NINE（0 1 2 3 4 5 6 7 8 9）
+// FF10..FF19    ; Hex_Digit # Nd  [10] FULLWIDTH DIGIT ZERO..FULLWIDTH DIGIT NINE（０ １ ２ ３ ４ ５ ６ ７ ８ ９）
+// 2160..216F    ; Other_Uppercase # Nl  [16] ROMAN NUMERAL ONE..ROMAN NUMERAL ONE THOUSAND（Ⅰ Ⅱ Ⅲ Ⅳ Ⅴ Ⅵ Ⅶ Ⅷ Ⅸ Ⅹ Ⅺ Ⅻ Ⅼ Ⅽ Ⅾ Ⅿ）
+// 2170..217F    ; Other_Lowercase # Nl  [16] SMALL ROMAN NUMERAL ONE..SMALL ROMAN NUMERAL ONE THOUSAND（ⅰ ⅱ ⅲ ⅳ ⅴ ⅵ ⅶ ⅷ ⅸ ⅹ ⅺ ⅻ ⅼ ⅽ ⅾ ⅿ）
+// 3007          ; Ideographic # Nl       IDEOGRAPHIC NUMBER ZERO（〇）
+// 3021..3029    ; Ideographic # Nl   [9] HANGZHOU NUMERAL ONE..HANGZHOU NUMERAL NINE（〡 〢 〣 〤 〥 〦 〧 〨 〩）
+// 3038..303A    ; Ideographic # Nl   [3] HANGZHOU NUMERAL TEN..HANGZHOU NUMERAL THIRTY（〸 〹 〺）
+// 1369..1371    ; Other_ID_Continue # No   [9] ETHIOPIC DIGIT ONE..ETHIOPIC DIGIT NINE
+// 19DA          ; Other_ID_Continue # No       NEW TAI LUE THAM DIGIT ONE
+//
+// https://www.unicode.org/versions/Unicode17.0.0/core-spec/chapter-4/#G124206
+// 4.6 Numeric Value
+//
+// Numeric_Value 和 Numeric_Type 是代表数字字符的规范性属性。具有非默认 Numeric_Type
+// 的字符包括数字，和数字形式的如分数、下标、上标、罗马数字、带圈数字以及许多特定于文字
+// 的数字和数值。
+//
+// 在某些传统数字系统中，普通字母也可能具有数值。例子包括用作数字的希腊字母、希伯来字母，
+// 甚至用于大纲中的拉丁字母（II.A.1.b）。以这种方式使用的字母字符不会被赋予 Numeric_Type
+// 或 Numeric_Value 属性值，以防止简单的解析器错误地将它们视为数字。统一编码字符数据库
+// 仅为通常代表数字的统一编码字符提供 Numeric_Type 和 Numeric_Value 属性值。
+//
+// 十进制数字，通常理解为用于形成十进制基数数字的数字。它们包括特定于文字的数字，但排除
+// 诸如罗马数字和希腊顶线数字等字符，这些字符不形成十进制基数表达式，注意 <1, 5> = 15
+// = 十五，但 <I, V> = IV = 四。
+//
+// Numeric_Type = Decimal 属性值（与 General_Category = Nd 属性值相关联）仅限于那些
+// 在十进制基数数字中使用的数字字符，并且满足以下条件：完整的数字集编码在连续的范围内，
+// 按 Numeric_Value 升序排列，数字零作为范围中的第一个码点。
+//
+// 统一编码标准通过这些属性赋值定义的十进制数字排除了某些字符，例如 CJK 表意数字（下表
+// 前十个条目），它们未编码在连续序列中。十进制数字还排除兼容性下标和上标数字，以防止简
+// 单的解析器在上下文中错误解释它们的值。有关上标和下标的更多信息，见第 22.4 节"上标和
+// 下标符号"。
+//
+// 传统上，统一编码字符数据库为这些非连续或兼容性数字集赋予值 Numeric_Type = Digit，以
+// 承认它们由数字值组成但不一定满足 Numeric_Type = Decimal 的所有标准。然而，
+// Numeric_Type = Digit 与更通用的 Numeric_Type = Numeric 之间的区别在实施中证明并
+// 不有用。因此，未来可能添加到标准中且不满足 Numeric_Type = Decimal 标准的数字集将简
+// 单地被赋值为 Numeric_Type = Numeric。
+//
+// 除十进制数字外的数字可用于数值表达式，并可由数字解析器解释，但确定此类专门用途取决于
+// 实现。特定于文字的数字，统一编码标准为特定于给定文字的数字编码单独的字符。例子包括与
+// 阿拉伯文字一起使用的数字或各种印度文字的数字。关于阿拉伯数字相关命名约定的信息，见第
+// 9.2 节 "阿拉伯文" 的引言。
+//
+// 表意数字值。CJK 表意文字也可能具有数值，主要数字表意文字显示在下表中。每个字符的
+// Numeric_Value 属性显示在表的第二列。在少数情况下，数值存在地区差异，中国目前使用一
+// 个值，日本使用另一个值。在这种情况下，如兆，在中国用于百万（zhào），但在日本用于万亿
+// （chō），两个值都在 Unihan 数据库中列为 kPrimaryNumeric，但第一个值用于在统一编码
+// 字符数据库中计算 Numeric_Value。在十进制记数法中表示数字时，零由 U+3007（〇） 表示，
+// 否则零由 U+96F6（零）表示。
+//
+//      主要数字表意文字
+//      码点        Numeric_Value   次要值
+//      U+96F6 零   0
+//      U+4E00 一   1
+//      U+4E8C 二   2
+//      U+4E09 三   3
+//      U+56DB 四   4
+//      U+4E94 五   5
+//      U+516D 六   6
+//      U+4E03 七   7
+//      U+516B 八   8
+//      U+4E5D 九   9
+//      U+5341 十   10
+//      U+767E 百   100
+//      U+5343 千   1000
+//      U+4E07 万   1,0000
+//      U+842C 萬   1,0000
+//      U+5146 兆   100,0000    1,0000,0000,0000（10000 × 10000 × 10000）
+//      U+79ED 秭   100,0000    1,0000,0000,0000（10000 × 10000 × 10000）
+//      U+5104 億   1,0000,0000（10000 × 10000）
+//      U+4EBF 亿   1,0000,0000（10000 × 10000）
+//      U+4EAC 京   1,0000,0000,0000,0000
+//
+// 表意会计数字通常用于支票和其他金融票据上，以尽量减少数值表示中误解或欺诈的可能性。会
+// 计数字集在日本、中文和韩文用法之间略有不同。下表给出了已知会计字符的相当完整的列表。
+// 其中一些字符是具有其他含义的表意文字，被用作会计数字，其他字符仅用作会计数字。
+//
+//      用作会计数字的表意文字
+//      数字    多种用途                 仅会计用途
+//      1       U+58F9 壹 U+58F1 壱     U+5F0C 弌
+//      2                               U+8CAE 貮 U+8CB3 貳 U+8D30 贰 U+5F10 弐 U+5F0D 弍
+//      3       U+53C3 參 U+53C2 参     U+53C1 叁 U+5F0E 弎
+//      4       U+8086 肆
+//      5       U+4F0D 伍
+//      6       U+9678 陸 U+9646 陆
+//      7       U+67D2 柒
+//      8       U+634C 捌
+//      9       U+7396 玖
+//      10      U+62FE 拾
+//      100     U+964C 陌 U+4F70 佰
+//      1,000   U+4EDF 仟
+//      10,000  U+842C 萬
+//
+// 在日本，U+67D2 也发音为 urusi，意为"漆"，被视为"漆"的标准字符 U+6F06 的变体。Unihan
+// 数据库提供了主要数字表意文字和用作会计数字的表意文字的最新最完整列表，包括统一字库和
+// 排序之外的 CJK 字库扩展。更多细节见统一编码标准附件 #38《统一编码汉字数据库》。
 
 #endif // PRH_SCAN_INCLUDE
 
