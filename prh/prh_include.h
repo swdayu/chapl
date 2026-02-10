@@ -32905,12 +32905,46 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 // 的简短描述。特殊值LC、L、M、N、P、S、Z和C本身不是枚举的一部分，而是构成密切相关值集
 // 的别名，这些分组General_Category值的别名在正则表达式中通常很有用。
 //
+// 码点的 General_Category 属性提供了该码点的最通用分类，它通常通过分配给该码点字符的
+// 主要特征确定。例如，该字符是字母、标记、数字、标点还是符号，如果是，是什么类型？其他
+// General_Category 值定义了未分配给常规图形字符的码点的分类，包括私有使用、控制字符、
+// 代理码点和保留未分配等状态。许多字符有多种用途，并非所有此类情况都能完全由 General_Category
+// 值确定。例如，拉丁、希腊或希伯来字母的 General_Category 值并不试图涵盖（或排除）这
+// 些字母作为罗马数字或在其他数字系统中的数值使用。相反，ASCII 数字 0..9 的 General_Category
+// 为 Nd（十进制数字），也不试图涵盖（或排除）这些数字在各种正字法中偶尔作为字母的使用。
+// General_Category 只是字符的一阶、最常用分类。
+//
+// UnicodeData.txt 中 General_Category 字段的值使用 General_Category 的简短缩写属性
+// 值别名，属性值别名可参考 PropertyValueAliases.txt。注意，值 gc=Cn 实际上不会出现在
+// UnicodeData.txt 中，因为该数据文件不列出未分配的码点。某些 General_Category 值之间
+// 的区别对于边缘情况有些任意，特别是涉及符号和标点的情况。例如，许多多功能 ASCII 字符，
+// 包括 "@"、"#"、"%" 和 "&"，长期以来被分类为 Other_Punctuation（gc=Po），尽管它们
+// 不是传统西方排版中用作标点符号的字符。其他字符在组织分隔文本单位（类似标点）或表示概
+// 念（类似符号）的功能之间也可能含糊不清。同样，某些符号主要用于数学，还是偶尔或甚至常
+// 用于数学的通用符号，可能并不总是清楚。例如，许多箭头符号被归类为 Other_Symbol，尽管
+// 它们在数学中广泛使用。General_Category 值构成了字符的粗略划分，以区分算法处理，但不
+// 为字符的这种重叠或模糊使用提供明确的分类。
+//
+// 具有与引号相关的 General_Category 值 Pi 或 Pf 的字符可能根据用法和引号约定表现为开
+// 始标点（gc=Ps）或结束标点（gc=Pe）。LC、L、M、N、P、S、Z、C 等 General_Category 值
+// 代表相关 General_Category 值的分组，它们代表的类可以通过相关简单值的并集派生。这些
+// 分组的缩写和长值别名作为实现的便利提供，例如正则表达式，可能希望匹配更通用的类别，如
+// "字母"或"数字"，而不是 General_Category 的详细子类型。这些 General_Category 值分
+// 组的别名不会出现在 UnicodeData.txt 中，该文件总是为字符的 General_Category 指定枚
+// 举的子类型。
+//
+// 符号 "L&" 是一个标签，用于代表大写、小写或标题字母（Lu、Ll 或 Lt）的任何组合，在 UCD
+// 数据文件注释的第一部分中。它等同于 gc=LC，但只是注释中的标签，不期望用作正则表达式匹
+// 配的标识符。统一编码标准不为控制字符（gc=Cc）分配非默认属性值，除了涉及统一编码双向
+// 算法、统一编码换行算法和统一编码文本分割的某些明确定义的例外。此外，实现通常会根据平
+// 台约定为某些换行控制字符分配行为，最显著的是 U+000D 和 U+000A（CR 和 LF）。
+//
 //  General_Category属性值（字母 L、标记 M、数字 N、标点 P、符号 S、分隔 Z、控制 C）
 //  缩写    完整名称            描述
 //  Lu  Uppercase_Letter    大写字母
 //  Ll  Lowercase_Letter    小写字母
 //  Lt  Titlecase_Letter    作为单个字符编码的双字母，第一部分大写，例如 ǲ（Dz）
-//  LC  Cased_Letter        Lu | Ll | Lt
+//  LC  Cased_Letter        Lu | Ll | Lt，另外 L& 只是一个标签，其内容等同于 LC
 //  Lm  Modifier_Letter     修饰字母，本身不单独构成字母，而是用来修饰或影响相邻字母的独立字符（ʰ ˡ ˚）
 //  Lo  Other_Letter        其他字母，包括音节文字和表意文字
 //  L   Letter              Lu | Ll | Lt | Lm | Lo
