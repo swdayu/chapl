@@ -33367,6 +33367,319 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 // 或关于属性的额外信息的相应部分的指针。属性状态列和派生属性的任何正式派生陈述是权威性
 // 的；然而，下表不提供其他属性的正式定义，不应被解释为正式定义。
 //
+// https://www.unicode.org/reports/tr44/#Property_Index_Table
+// https://www.unicode.org/reports/tr44/#Property_List_Table
+//
+//  根据使用范围划分的属性索引表
+//  General                             Numeric                     Segmentation
+//      Name                                Numeric_Value               Line_Break
+//      Name_Alias                          Numeric_Type                Grapheme_Cluster_Break
+//      Block                               Hex_Digit                   Sentence_Break
+//      Age                                 ASCII_Hex_Digit             Word_Break
+//      General_Category                Identifiers                 CJK
+//      Script                              ID_Continue                 Ideographic
+//      Script_Extensions                   ID_Start                    Unified_Ideograph
+//      White_Space                         XID_Continue                Radical
+//      Alphabetic                          XID_Start                   IDS_Unary_Operator
+//      Hangul_Syllable_Type                ID_Compat_Math_Continue     IDS_Binary_Operator
+//      Noncharacter_Code_Point             ID_Compat_Math_Start        IDS_Trinary_Operator
+//      Default_Ignorable_Code_Point        Pattern_Syntax              Unicode_Radical_Stroke
+//      Deprecated                          Pattern_White_Space         Equivalent_Unified_Ideograph
+//      Logical_Order_Exception
+//      Variation_Selector
+//  Normalization                                       Contributory Properties
+//      Canonical_Combining_Class                           Other_Alphabetic (contributory property)
+//      Decomposition_Mapping (contributory property)       Other_Default_Ignorable_Code_Point (contributory property)
+//      Composition_Exclusion (contributory property)       Other_Grapheme_Extend (contributory property)
+//      Full_Composition_Exclusion (contributory property)  Other_ID_Start (contributory property)
+//      Decomposition_Type                                  Other_ID_Continue (contributory property)
+//      FC_NFKC_Closure (deprecated)                        Other_Lowercase (contributory property)
+//      NFC_Quick_Check                                     Other_Math (contributory property)
+//      NFKC_Quick_Check                                    Other_Uppercase (contributory property)
+//      NFD_Quick_Check                                     Jamo_Short_Name (contributory property)
+//      NFKD_Quick_Check
+//      Expands_On_NFC (deprecated)
+//      Expands_On_NFD (deprecated)
+//      Expands_On_NFKC (deprecated)
+//      Expands_On_NFKD (deprecated)
+//      NFKC_Casefold
+//      Changes_When_NFKC_Casefolded
+//      NFKC_Simple_Casefold
+//
+//  属性表（DerivedCoreProperties.txt）
+//      属性                        类型    状态
+//      Lowercase                   B       I
+//          具有 Lowercase 属性的字符。更多信息见 [Unicode] 第 4 章"字符属性"。
+//          生成自：Ll + Other_Lowercase
+//      Uppercase                   B       I
+//          具有 Uppercase 属性的字符。更多信息见 [Unicode] 第 4 章"字符属性"。
+//          生成自：Lu + Other_Uppercase
+//      Cased                       B       I
+//          被认为是大写、小写或标题字符的字符。此属性与 Changes_When_Casemapped 属
+//          性不同。更多信息见 [Unicode] 第 3.13 节"默认大小写算法"中的 D135。
+//          生成自：Lowercase + Uppercase + Lt
+//      Case_Ignorable              B       I
+//          出于大小写目的被忽略的字符。更多信息见 [Unicode] 第 3.13 节"默认大小写算
+//          法"中的 D136。
+//          生成自：Mn + Me + Cf + Lm + Sk + Word_Break=MidLetter + Word_Break=MidNumLet + Word_Break=Single_Quote
+//      Changes_When_Lowercased     B       I
+//          其规范化形式在 toLowercase 映射下不稳定的字符。更多信息见 [Unicode] 第
+//          3.13 节"默认大小写算法"中的 D139。
+//          生成自：toLowercase(toNFD(X)) != toNFD(X)
+//      Changes_When_Uppercased     B       I
+//          其规范化形式在 toUppercase 映射下不稳定的字符。更多信息见 [Unicode] 第
+//          3.13 节"默认大小写算法"中的 D140。
+//          生成自：toUppercase(toNFD(X)) != toNFD(X)
+//      Changes_When_Titlecased     B       I
+//          其规范化形式在 toTitlecase 映射下不稳定的字符。更多信息见 [Unicode] 第
+//          3.13 节"默认大小写算法"中的 D141。
+//          生成自：toTitlecase(toNFD(X)) != toNFD(X)
+//      Changes_When_Casefolded     B       I
+//          其规范化形式在大小写折叠下不稳定的字符。更多信息见 [Unicode] 第 3.13 节
+//          "默认大小写算法"中的 D142。
+//          生成自：toCasefold(toNFD(X)) != toNFD(X)
+//      Changes_When_Casemapped     B       I
+//          在进行大小写映射时可能更改的字符。更多信息见 [Unicode] 第 3.13 节"默认大
+//          小写算法"中的 D143。
+//          生成自：Changes_When_Lowercased(X) 或 Changes_When_Uppercased(X) 或 Changes_When_Titlecased(X)
+//      Alphabetic                  B       I
+//          具有 Alphabetic 属性的字符。在 Alphabetic 属性的派生中使用贡献性 Other_Alphabetic
+//          属性，可以包含各种组合标记，如许多印度文字中的依赖元音，这些标记作为拼写这
+//          些书写系统单词的基本元素。Alphabetic 属性用于为字符分配默认主权重的工具，
+//          用于生成 Unicode 排序算法（UCA）使用的 DUCET 表。更多信息见 [Unicode] 第
+//          4 章"字符属性"。
+//          生成自：Lowercase + Uppercase + Lt + Lm + Lo + Nl + Other_Alphabetic
+//      Default_Ignorable_Code_Point    B   N
+//          用于以编程方式确定默认可忽略码点。应在渲染中忽略的新字符（除非显式支持）将
+//          分配在这些范围内，允许程序在未以其他方式支持时正确处理此类字符的默认渲染。
+//          更多信息见"不支持字符的显示"FAQ 和 [Unicode] 第 5.21 节"处理中忽略字符"。
+//          生成自：Other_Default_Ignorable_Code_Point + Cf（格式字符）+ Variation_Selector - White_Space -
+//          FFF9..FFFB（行间注释格式字符）- 13430..1343F（埃及象形文字格式字符）- Prepended_Concatenation_Mark（应可见的异常格式字符）
+//      Grapheme_Base               B       N
+//          与标准韩语音节块定义一起用于定义"字素基"的属性。见 [Unicode] 第 3 章"一致
+//          性"中的 D58。
+//          生成自：[0..10FFFF] - Cc - Cf - Cs - Co - Cn - Zl - Zp - Grapheme_Extend
+//          注意：Grapheme_Base 是单个字符的属性。这与"字素基"形成对比，后者是统一编码
+//          字符串的属性；字素基可能由韩语音节组成，而韩语音节本身由组合 jamo 序列表示。
+//      Grapheme_Extend             B       N
+//          用于定义"字素扩展符"的属性。见 [Unicode] 第 3 章"一致性"中的 D59。
+//          生成自：Me + Mn + Other_Grapheme_Extend
+//          注意：Grapheme_Extend=Yes 的字符集用于派生属性值 Grapheme_Cluster_Break=Extend。
+//          Grapheme_Cluster_Break=Extend 由 Grapheme_Extend=Yes 或 Emoji_Modifier=Yes
+//          的字符集组成。见 [UAX29] 和 [UTS51]。
+//      Grapheme_Link（5.0.0 起弃用）   B   I
+//          以前提议用于以编程方式确定字素簇边界。
+//          生成自：Canonical_Combining_Class=Virama
+//      Indic_Conjunct_Break        E       I
+//          此属性定义 [UAX29] 中字素簇断开算法使用的值。见其派生解释。
+//      Math                        B       I
+//          具有 Math 属性的字符。更多信息见 [Unicode] 第 4 章"字符属性"。
+//          生成自：Sm + Other_Math
+//      ID_Start                    B       I
+//      ID_Continue                 B       I
+//      XID_Start                   B       I
+//      XID_Continue                B       I
+//          用于确定编程标识符，如统一编码标准附件 #31《统一编码标识符和模式语法》所述。
+//
+//  属性表（DerivedNormalizationProps.txt）
+//      属性                        类型    状态
+//      Full_Composition_Exclusion  B       N
+//          排除在组合之外的字符：CompositionExclusions.txt 中显式列出的字符，加上
+//          Singleton Decompositions 和 Non-Starter Decompositions 的可派生集，如
+//          该数据文件所述。
+//          注意：根据定义，Full_Composition_Exclusion=Yes 的字符集与 NFC_Quick_Check=No
+//          的字符集相同。这对某些实现中减少数据大小很有用。
+//      Expands_On_NFC
+//      Expands_On_NFD
+//      Expands_On_NFKC
+//      Expands_On_NFKD
+//      （6.0.0 起弃用）             B      N
+//          在指定规范化形式中扩展为多个字符的字符。
+//      FC_NFKC_Closure
+//      （6.0.0 起弃用）             S      N
+//          在大小写折叠加规范化形式 KC 下需要额外映射以闭合的字符。映射列在字段 2 中。
+//      NFD_Quick_Check
+//      NFKD_Quick_Check
+//      NFC_Quick_Check
+//      NFKC_Quick_Check            E       N
+//          属性值见"分解和规范化"（缩写名：NFD_QC, NFKD_QC, NFC_QC, NFKC_QC）
+//      NFKC_Casefold               S       I
+//          为将字符串解释为标识符进行不区分大小写匹配时的最佳行为而设计的映射（缩写名
+//          NFKC_CF）。有关基于此映射的相关字符串转换 toNFKC_Casefold() 的定义，见
+//          [Unicode] 第 3.13 节"默认大小写算法"。映射列在字段 2 中。
+//      Changes_When_NFKC_Casefolded    B   I
+//          与其 NFKC_Casefold 映射不相同的字符。
+//          生成自：(cp != NFKC_CaseFold(cp))
+//      NFKC_Simple_Casefold        S       I
+//          为将字符串解释为标识符进行简单不区分大小写匹配时的最佳行为而设计的映射（缩
+//          写名 NFKC_SCF），映射列在字段 2 中。
+//
+//  属性表（PropList.txt）
+//      属性                        类型    状态
+//      ASCII_Hex_Digit             B       N
+//          通常用于表示十六进制数的 ASCII 字符。
+//      Bidi_Control                B       N
+//          在 Unicode 双向算法 [UAX9] 中具有特定功能的格式控制字符。
+//      Dash                        B       I
+//          Unicode 标准中明确称为破折号的标点字符，加上它们的兼容性等效字符。其中大多
+//          数具有 General_Category 值 Pd，但有些具有 General_Category 值 Sm，因为
+//          它们在数学中使用。
+//      Deprecated                  B       N
+//          弃用字符的机器可读列表。不会从标准中删除任何字符，但强烈建议不要使用弃用字符。
+//      Diacritic                   B       I
+//          在语言学上修改其应用的另一个字符含义的字符。某些变音符号不是组合字符，某些
+//          组合字符也不是变音符号。典型示例包括重音符号、声调标记或字母以及语音修饰字
+//          母。Diacritic 属性用于为字符分配默认主权重以生成 Unicode 排序算法（UCA）
+//          使用的 DUCET 表的工具。
+//      Extender                    B       I
+//          主要功能是扩展前面字母字符值或扩展相邻字符形状的字符。典型的包括长音标记、
+//          双写标记、重复标记、叠字符号和阿拉伯语 tatweel。Extender 属性用于为字符分
+//          配默认主权重以生成 Unicode 排序算法（UCA）使用的 DUCET 表的工具。
+//      Hex_Digit                   B       I
+//          通常用于表示十六进制数的字符，加上 Decomposition_Type=Wide 的兼容性等效
+//          字符。
+//      Hyphen
+//      （4.0.0 起稳定；6.0.0 起弃用）  B     I
+//          用于标记单词片段之间连接的破折号，加上片假名中点。片假名中点功能类似连字符，
+//          但形状像点而不是破折号。
+//      Ideographic                 B       I
+//          被认为是 CJKV（中日韩越）或其他 siniform（与中文书写相关）表意文字的字符。
+//          此属性大致定义了"汉字"类，不包括其他 logographic 文字的字符，如楔形文字或
+//          埃及象形文字。Ideographic 属性用于表意文字描述序列的定义。
+//      ID_Compat_Math_Start        B       I
+//          用于 UAX #31 中的数学标识符配置文件。
+//      ID_Compat_Math_Continue     B       I
+//          用于 UAX #31 中的数学标识符配置文件。
+//      IDS_Unary_Operator          B       N
+//          用于表意文字描述序列。
+//      IDS_Binary_Operator         B       N
+//          用于表意文字描述序列。
+//      IDS_Trinary_Operator        B       N
+//          用于表意文字描述序列。
+//      Join_Control                B       N
+//          对草书连接和连字控制具有特定功能的格式控制字符。
+//      Logical_Order_Exception     B       N
+//          少量出现在某些东南亚文字（如泰文和老挝文）中的间距元音字母，这些文字使用视
+//          觉顺序显示模型。这些字母在文本中存储在音节首辅音之前，需要对搜索和排序等过
+//          程进行特殊处理。
+//      Modifier_Combining_Mark     B       N
+//          UAX #53 中指定的 AMTRA 算法可能重新排序的阿拉伯语组合标记。
+//      Noncharacter_Code_Point     B       N
+//          永久保留供内部使用的码点。
+//      Other_Alphabetic            B       C
+//          用于派生 Alphabetic 属性。
+//      Other_Default_Ignorable_Code_Point  B   C
+//          用于派生 Default_Ignorable_Code_Point 属性。
+//      Other_Grapheme_Extend       B       C
+//          用于派生 Grapheme_Extend 属性。
+//      Other_ID_Continue           B       C
+//          用于维护 ID_Continue 的向后兼容性。
+//      Other_ID_Start              B       C
+//          用于维护 ID_Start 的向后兼容性。
+//      Other_Lowercase             B       C
+//          用于派生 Lowercase 属性。
+//      Other_Math                  B       C
+//          用于派生 Math 属性。
+//      Other_Uppercase             B       C
+//          用于派生 Uppercase 属性。
+//      Pattern_Syntax              B       N
+//      Pattern_White_Space         B       N
+//          用于 Unicode 标准附件 #31《Unicode 标识符和模式语法》[UAX31] 中描述的模
+//          式语法。
+//      Prepended_Concatenation_Mark    B   I
+//          一小类可见格式控制符，它们位于前面然后跨越其他字符序列，通常是数字。这些也
+//          被称为"下延标记"，因为它们中的大多数采用的形式在视觉上延伸到后续数字序列下
+//          方。
+//      Quotation_Mark              B       I
+//          用作引号的标点字符。
+//      Radical                     B       N
+//          用于表意文字描述序列的定义。
+//      Regional_Indicator          B       N
+//          区域指示符字符 U+1F1E6..U+1F1FF 的属性。此属性在各种分段算法中引用，以协
+//          助在 emoji 旗帜序列周围正确断开。
+//      Sentence_Terminal           B       I
+//          通常标记句子结尾的标点字符。用于 Unicode 标准附件 #29《Unicode 文本分割》。
+//      Soft_Dotted                 B       N
+//          具有"软点"的字符，如 i 或 j。放置在这些字符上的重音会导致点消失。可以在需
+//          要时添加显式上点，如在立陶宛语中。见 [Unicode] 第 7.1 节"拉丁文"。
+//      Terminal_Punctuation        B       I
+//          通常标记文本单元结尾的标点字符。这些标记不是前面单词的一部分。一个显著的例
+//          外是 U+002E FULL STOP。Terminal_Punctuation 字符可能是它们终止的某些更
+//          大文本单元的一部分。
+//      Unified_Ideograph           B       N
+//          指定标准中统一 CJK 表意文字确切集的属性。此集排除 CJK 兼容性表意文字（具有
+//          到统一 CJK 表意文字的规范分解）以及 CJK 符号和标点区块的字符。Unified_Ideograph=Y
+//          字符类是 Ideographic=Y 字符类的真子集。
+//      Variation_Selector          B       N
+//          指示变体选择符字符。有关这些字符行为的详细信息，见 [Unicode] 第 23.4 节
+//          "变体选择符"和 Unicode 技术标准 #37《Unicode 表意文字变体数据库》。
+//      White_Space                 B       N
+//          空格、分隔符字符和其他控制字符，编程语言应将其视为"空白"以用于解析元素。另
+//          见 Line_Break、Grapheme_Cluster_Break、Sentence_Break 和 Word_Break，
+//          它们为特定文本分段上下文对空格字符和相关控制进行分类的方式略有不同。
+//
+//  属性表（UnicodeData.txt）
+//      属性                        类型    状态
+//      Name                        M       N
+//          (1) 当此字段中出现未用尖括号括起的字符串值时，它指定字符的 Name 属性值，与
+//          代码表中发布的名称完全匹配。大多数表意字符和韩语音节的 Name 属性值而是通过
+//          各种规则派生。见 [Unicode] 第 4.8 节"名称"了解这些规则的完整规范。此字段
+//          中用尖括号括起的字符串要么提供名称派生规则中使用的标签信息，要么——对于 Name
+//          属性值为空字符串的字符（如控制字符）——提供有关其码点类型的其他信息。
+//      General_Category            E       N
+//          (2) 这是对各种字符类型的有用分解，可用作实现中的默认分类。属性值见"通用类
+//          别值"。
+//      Canonical_Combining_Class   N       N
+//          (3) Unicode 标准中规范排序算法使用的类。此属性可被视为枚举属性或数值属性：
+//          属性的主要用途与数值有关。不同数值关联的属性值名称见 DerivedCombiningClass.txt
+//          和"规范组合类别值"。
+//      Bidi_Class                  E       N
+//          (4) Unicode 双向算法所需的类别。属性值见"双向类别值"。更多信息见 Unicode
+//          标准附件 #9《Unicode 双向算法》[UAX9]。
+//          默认属性值取决于码点，在 DerivedBidiClass.txt 中解释。
+//      Decomposition_Type
+//      Decomposition_Mapping       E, S    N
+//          (5) 此字段包含两个值，类型在尖括号中。分解映射与 Unicode 标准中与字符名称
+//          一起发布的分解映射完全匹配。更多信息见"字符分解映射"。
+//      Numeric_Type
+//      Numeric_Value               E, N    N
+//          (6) 如果字符具有属性值 Numeric_Type=Decimal，则该数字的 Numeric_Value
+//          在字段 6、7 和 8 中用整数值表示（限制在 0..9 范围内）。Numeric_Type=Decimal
+//          的字符仅限于可用于十进制基数位置数字系统且标准中以连续升序范围 0..9 编码的
+//          数字。见 [Unicode] 第 4 章"字符属性"中十进制数字的讨论。
+//          (7) 如果字符具有属性值 Numeric_Type=Digit，则该数字的 Numeric_Value 在
+//          字段 7 和 8 中用整数值表示（限制在 0..9 范围内），字段 6 为空。这涵盖需要
+//          特殊处理的数字，如兼容性上标数字。
+//          从 Unicode 6.3.0 开始，新编码的数字字符不会被赋予 Numeric_Type=Digit，
+//          具有 Numeric_Type=Numeric 的现有字符也不会更改为 Numeric_Type=Digit。
+//          这两种类型之间的区别被认为没有用。
+//          (8) 如果字符具有属性值 Numeric_Type=Numeric，则该字符的 Numeric_Value
+//          在此字段中用正或负整数或有理数表示，字段 6 和 7 为空。这包括分数，例如
+//          U+2155 普通分数五分之一的 "1/5"。
+//          某些字符基于 Unihan 数据文件的值具有这些属性。见 Numeric_Type, Han。
+//      Bidi_Mirrored               B       N
+//          (9) 如果字符是双向文本中的"镜像"字符，此字段值为 "Y"；否则为 "N"。见 [Unicode]
+//          第 4.7 节"双向镜像"。不要将其与 Bidi_Mirroring_Glyph 属性混淆。
+//      Unicode_1_Name
+//      （6.2.0 起废弃）             M       I
+//          (10) Unicode 1.0 中发布的旧名称或控制功能的 ISO 6429 名称。除非与字符的
+//          当前名称显著不同，否则此字段为空。不再用于代码表生成。见 Name_Alias。
+//      ISO_Comment
+//      （5.2.0 起废弃；6.0.0 起弃用和稳定）    M   I
+//          (11) ISO 10646 注释字段。曾用于 10646 名称列表中括号内出现的注释，或包含
+//          星号以标记附件 P 注释。
+//          从 Unicode 5.2.0 开始，此字段不再包含任何非空值。
+//      Simple_Uppercase_Mapping    S       N
+//          (12) 简单大写映射（单字符结果）。如果字符是具有大小写区别的字母表的一部分，
+//          且具有简单大写等效字符，则大写等效字符在此字段中。简单映射有单字符结果，而
+//          完整映射可能有多字符结果。更多信息见"大小写和大小写映射"。
+//      Simple_Lowercase_Mapping    S       N
+//          (13) 简单小写映射（单字符结果）。
+//      Simple_Titlecase_Mapping    S       N
+//          (14) 简单标题映射（单字符结果）。
+//          注意：如果此字段为空，则此字符的 Simple_Titlecase_Mapping 与
+//          Simple_Uppercase_Mapping 相同。
+//
 // 各种文字和其他字符组的分配顺序反映了统一编码标准的历史演变。虽然文字分配区域的排序有
 // 一定的地理意义，但这只是一种非常松散的相关性。统一编码编码空间中的未分配范围将在有空
 // 位的基础上填充未来的文字或符号编码。相关字符编码委员会遵循有组织的路线图，以帮助决定
