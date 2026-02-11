@@ -24,18 +24,6 @@
 // 语句不会返回值，可以通过使用 with 和 where 关键字一前一后让语句变成语句表达式，从而
 // 产生一个结果值。
 //
-// 定义类型参数（generic type parameter）和常量参数（compile time const parameter）
-//  $T $U           // 相当于定义了两个类型参数 T 和 U，等价于
-//  $T/any $U/any   // 类型参数 T 和 U 可以是任意类型
-//  $I/int          // 类型参数 I 必须是一个整型
-//  $F/float        // 类型参数 F 必须是一个浮点
-//  $N/numeric      // 类型参数 N 必须是一个数值类型
-//  const C         // 常量参数 C，不限类型
-//  const C/int     // 常量参数 C，必须是 int 类型
-//  const C/int N/int
-//  const S/string B/string
-//  const POINT/point
-//
 // 名称标识符：
 //  e_ 预留给错误码字符串，预定义的错误码，只保存错误数值
 //  E_ 预留给错误码字符串，动态分配的错误码，保存完整字符串
@@ -53,19 +41,32 @@
 //
 // 程序最基本的元素只有：
 //  变量，其中编译时已知的变量称为常量
-//  类型，类型是一种特殊的变量，该变量的类型为 type::type，类型可以是编译时已知的，也可以处理一个运行时才已知的类型
-//      type::type
-//      type::int
-//      type::unt
-//      type::float
-//      type::numeric
-//      type::string
-//      type::array
-//      type::set
-//      type::map
+//  类型，类型是一种特殊的变量，该变量的类型为 anytype，类型可以是编译时已知的，也可以处理一个运行时才已知的类型
+//      anytype // 一个具体类型
+//      inttype // 一个有符号整数类型
+//      unttype // 一个无符号整数类型
+//      flotype // 一个浮点类型
+//      dectype // 一个定点类型
+//      comtype // 一个复数类型
+//      integer // 一个整数类型，包括有符号和无符号
+//      numeric // 一个数值类型，包括整数类型、浮点类型、定点类型、复数类型
+//      settype // 一个集合类型
+//      maptype // 一个映射类型
+//
 //  参数化类型，一个返回类型或参数化类型的函数
 //  def func(type a type b return type) { ... }
-//  def type $(meta T meta U int SIZE const C) { ... } // C 可以时常量，也可以是编译时已知类型
+//  def type $(anytype T anytype U int SIZE const C) { ... } // C 可以时常量，也可以是编译时已知类型
+//
+// 定义类型参数（generic type parameter）和常量参数（compile time const parameter）
+//  $T $U
+//  $(anytype T) $(anytype U)
+//  $(inttype I)
+//  $(flotype F)
+//  $(numeric N)
+//  const C
+//  const int C
+//  const string S
+//  const point POINT
 //
 // 下划线保留字：
 //  __file__
@@ -159,39 +160,39 @@
 //  generic_type
 //
 // 函数参数中的类型参数，重载操作符 == 可以用来比较类型：
-//  def GetType(#type t #type u return #type) {
-//      #type a = t
-//      if typeof u == i64 { a = u }
+//  def GetType(anytype T anytype U return anytype) {
+//      anytype a = T
+//      if typeof U == i64 { a = U }
 //      return a
 //  }
 //  def calc($T a $(float U) b T c U d return T)
 //  def calc($T a $(float U) b GetType(T, U) c return GetType(T, U))
 //  def calc([const N]$T a) { prine("size % % type %", typeof N, N, T) }
-//  def calc([const N/int]$T a) { ... }
+//  def calc([const int N]$T a) { ... }
 //  var a = {1, 2, 3, 4}
 //  calc(a)
 //  def calc($T a T.K key T.V value) // 类型 T 必须包含 K 和 V 类型
-//  def calc($T/has_vector_fields a)
-//  def has_vector_fields(#type t return bool) {
+//  def calc($T a) static has_vector_fields(T)
+//  def has_vector_fields(anytype t return bool) {
 //      return t.hasfield(float x) && t.hasfield(float y) && t.hasfield(float z)
 //  }
 //
 // 结构体中的类型参数，类型参数和常量参数仅存在于编译时，不占用结构体变量的运行时内存：
-//  def type const C { int a }
+//  def type $(const C) { int a }
 //  let type(42) a = undefined
 //  var x = 2
 //  let type(x) b = undefined // 错误，x 不是常量
 //  def y = 3
 //  let type(y) c = undefined // 正确，y 是常量
-//  def type $T/any { T data }
+//  def type $(anytype T) { T data }
 //  let type(int) a = undefined
-//  def type $T const C/T { T data } // 成员名称 data 不能与 T 或 C 重名
+//  def type $(anytype T T C) { T data } // 成员名称 data 不能与 T 或 C 重名
 //  let type(int, 3) a = undefined
 //  prine("type % C %", a.T, a.C)
 //
 // 递归类型：
-//  def FooType $T const F/(T a return int) {}
-//  def BarType $T { def |FooType(BarType(T), BarFunc)| type }
+//  def FooType $(anytype T (T a return int) F) {}
+//  def BarType $(anytype T) { def |FooType(BarType(T), BarFunc)| type }
 //  def BarFunc(BarType($T) a return int) { return 42 }
 //
 // 类型实例化，已经访问类型的成员
@@ -1037,20 +1038,20 @@ def main(int argc **byte argv int)
 def scale(def point point int a b)
 def calc(int a b int)
 
-def array $t const size/int {
+def array $(anytype t int size) {
     [size]t a
 }
 
-def array $a const size/int { // $ 定义一个类型参数 a
+def array $(anytype a int size) { // $ 定义一个类型参数 a
     [size]a a
 }
 
-def test $a $b {
+def test $(anytype a anytype b) {
     a a // 指定 a 是一个类型
     b b
 }
 
-def test $t/any $u/any {
+def test $(anytype t anytype u) {
     t t
     u u
 }
@@ -1062,9 +1063,9 @@ def color const int {
     yellow
 }
 
-def test $t $array(size, t) a $u const (int size, point) {
-    t t
-    u u
+def test $(anytype T anytype U int SIZE array(SIZE, T) A point POINT) {
+    T t
+    U u
 }
 
 extern def l2capconn         def *l2capconn        def [2]l2capconn
@@ -1091,12 +1092,12 @@ def t5 $p { (*p int a b return int) calc }
 def t6(int a b return int)
 def t7(def point float factor)
 
-def node $t {
+def node $(anytype t) {
     this next
     t data
 }
 
-def tripple $t $u const size/int {
+def tripple $(anytype t anytype u int size) {
     [size]t a
     u b
 }
@@ -1358,7 +1359,7 @@ def color const int {
     red green blue
 }
 
-def test const C {
+def test $(const C) {
     int data
 }
 
@@ -1371,27 +1372,26 @@ def name const int { red bule green }
 def name const int with {u08 lpri u08 rpri} { ... }
 def name const with {u08 lpri u08 rpri} { ... }
 def name { int a int b }
-def name $T $U const SIZE C N/int VALUE/T { ... }
-def name $T { ... }
-def name $T $U { ... }
-def name $T/any $U/any { ... }
-def name const SIZE/int { ... }
-def name const SIZE/int $T $U/any { ... }
+def name $(anytype T anytype U const SIZE int N T VALUE) { ... }
+def name $(anytype T) { ... }
+def name $(anytype T anytype U) { ... }
+def name $(int SIZE) { ... }
+def name $(int SIZE anytype T anytype U) { ... }
 
-def test $T $U/any const C SIZE/int {
+def test $(anytype T anytype U const C int SIZE) {
     int data
     T t
 }
 
-def test const SIZE/int POINT/point {
+def test $(int SIZE point POINT) {
     [SIZE]int a
 }
 
-def array $T const SIZE/int static SIZE > 0 {
+def array $(anytype T int SIZE) static (SIZE > 0) {
     [SIZE]T a
 }
 
-def array $T const SIZE static typeof SIZE == Integer && SIZE > 0 {
+def array $(anytype T const SIZE) static (typeof SIZE == Integer && SIZE > 0) {
     [SIZE]T a
 }
 
