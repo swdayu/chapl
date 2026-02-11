@@ -34,10 +34,43 @@
 //  3rd2.0 3rd2.2p 以数字开头的标识符，访问元组成员可能与浮点冲突
 //
 // 命名空间：
-//  函数内部，变量名不能覆盖，函数内部的变量名可以覆盖外部的变量名，保持内部变量的局部性
-//  宏定义的内部变量也具有局部性，所有外部引入的参数都需要明确声明
-//  (X) 同名的类型名和变量名，优先识别为变量，但其后不是操作符（包括分隔符）则识别为类型名
-//  (Y) 不允许同名的类型名和变量名
+//  1.  函数和闭包内部，会定义一个完全隔离的独立的局部作用域空间，在进入函数和闭包后，
+//      除了捕获参数和函数实参名称外，不定义任何其他局部名称。对于全局名称，函数和闭包
+//      只能访问当前文件种引入的全局名称。
+//  2.  当前文件作用域，相当于一个除去函数定义的文件作用域函数。
+//  3.  闭包和宏定义的内部变量也具有局部性，所有外部引入的参数都需要明确声明。
+//  4.  函数内部定义的变量名，可以覆盖全局名称，但不能覆盖局部作用域中的名称。
+//  5.  因此函数局部作用域中的变量名，可以与全局类型名或全局变量名同名，同名的类型名和
+//      变量名，优先识别为变量，但其后不是操作符（包括分隔符）则识别为类型名。如果覆盖
+//      的全局类型与变量的类型是同一个类型，仍然可以通过 typeof(name) 访问到全局类型。
+//      如果覆盖的全局类型与变量的类型不是同一个类型，仍然可以通过 global.name 访问到
+//      全局的类型名称。如果局部变量覆盖的是全局变量，也仍然可以通过 global.name 访问
+//      这个全局变量。当前文件作用域中的不冲突的名称，也仍然可以通过 name 直接访问。而
+//      全局作用域中引入的与当前文件全局作用域完全隔离的名称，一定不会与当前函数局部作
+//      用域内的名称冲突，也仍然可以通过 #std.io.print 访问。
+//  6.  函数内部定义的类型名，也可以覆盖全局名称，但不可以覆盖局部作用域中的变量名，也
+//      不可以覆盖局部作用域中定义的类型名，以及其他局部名称。但是使用该类型可以定义一
+//      个同名的变量名，该类型可以通过 typeof(name) 访问到。
+//
+// 函数的实现：
+//  1.  函数参数可以设置对齐限制，编译器会强制检查类型的对齐属性是否满足要求
+//  2.  函数本身也可以设置对齐属性，编译器会将函数生成对对应对齐的地址处
+//  3.  不使用成员函数调用语法，所有函数调用都使用 C 函数调用方法
+//  4.  a.field 语法仅表示变量 a 访问其类型的内部成员，或类型 a 访问类型的内部成员
+//  5.  支持函数重载，支持可选参数和命名参数，可以通过命名参数不按声明顺序传递参数
+//  6.  指针可修改和不可修改性复杂度很大，正确实现的难度很大，只要传指针就认为会修改
+//  7.  函数参数的传值和传指针与 C 函数相同，而调用约定可能不同，但仍然兼容 C 调用约定
+//  8.  当传值时，表示不修改传入的参数对应的变量，如果传入大于指针大小的类型例如 vec3，
+//      如果函数内部确实不会修改参数的内容，可以直接传传入变量的地址，否则需要进行拷贝。
+//      默认对于大小不大于指针的参数，其副本是可以修改的，声明为 mut 没有任何效果。对
+//      于大小大于指针的参数，其副本默认是不可修改的，如果要修改参数副本，需要声明 mut
+//      从而传递实参的一份拷贝，实现对副本的修改不会影响传入的实参。
+//
+//      只有小于等于两个字长的命名类型才可以传值，其他都只能传地址，传地址的变量如果不想
+//      修改其自身，可以使用语法 test(&copyof a)，即使是双字长的结构体也只传一个指针，
+//      因为需要修改成员，传递一个成员指针和两个成员指针区别不大。在函数中对传入的参数
+//      取地址，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到
+//      栈中。
 //
 // 程序最基本的元素只有：
 //  变量，其中编译时已知的变量称为常量
@@ -73,13 +106,17 @@
 //  __func__
 //  __line__
 //  __retp__
-// 编译时函数，以 # 开头的标识符是编译器指令
-//  PRH_TCPA_#(OPEN_REQ) #{int} #{if} ${int} ${if} #type #'operation
+// 编译时指令：
+//  PRH_TCPA_#(OPEN_REQ) #{int} #{if} ${int} ${if} #'operation
+//  #global_override_name 在局部作用域中访问局部作用域中被局部作用域覆盖的名称
+//  #global_namespace.subspace.name 访问全局作用域中定义的名字空间中的名称
+//  #std 访问当前文件全局作用域中的名称 std
+//  #std.print 访问全局作用域中名字空间 std 中的名称 print
 //  static expr
 //  static if
 // 符号属性，包括函数、类型、变量的属性名称等
-//  alignas(n) forced_alignas(n) // forced_alignas(n) 不会被 packed 属性抑制
-//  "fastcall" "cdecl" "stdcall" "strict"
+//  alignas(n) forcedalignas(n) // forcedalignas(n) 不会被 packed 属性抑制
+//  "fastcall" "cdecl" "stdcall" "strict" "nacked"
 //  "nonzero" "nonalls" "zeroinit" "packed"
 // 内置函数：
 //  abort() panic()
@@ -192,14 +229,14 @@
 //
 // 递归类型：
 //  def FooType $(anytype T (T a return int) F) {}
-//  def BarType $(anytype T) { def |FooType(BarType(T), BarFunc)| type }
+//  def BarType $(anytype T) { def [FooType(BarType(T), BarFunc)] type }
 //  def BarFunc(BarType($T) a return int) { return 42 }
 //
 // 类型实例化，已经访问类型的成员
 //  array(3, int)
 //  array(3, array(8, float))
-//  def |array(3, int)| int_array
-//  def |int_array.T| elem_type
+//  def [array(3, int)] int_array
+//  def [int_array.T] elem_type
 //  offsetof int_array.capacity
 //
 // 复合类型和匿名类型：
@@ -377,7 +414,7 @@ struct {} // 空结构体
 {int point} // point 是 int 型类型成员
 const { red green blue }
 const int { red green = 2 blue }
-$this { (*this p int size return int) read }
+$(anytype T) { (*T p int size return int) read }
 // 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
 {:1 :2 :3 :4}
@@ -2588,12 +2625,12 @@ print(typestring, "\n")
 //
 //  3.  scoped 语句块
 //
-//      enter_read(def *rwlock) scoped(leave_read) {
+//      def enter_read(*rwlock lock) scoped leave_read(lock) {
 //          ...
 //      }
 //
-//      scoped rwlock.enter_read() {
-//          ...
+//      scoped enter_read(rwlock) {
+//          ... // 退出当前作用域后，会自动调用 leave_read(lock)
 //      }
 //
 //  4.  函数参数的传递，函数参数可以设置对齐限制，编译器可以检查类型的对齐属性看是否满足要求
