@@ -395,11 +395,11 @@ a + ('int b) + c * d
 (int a return int point float (count point scale))
 (*file? file{stdin} point point string name{"root"} string mode)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
-|int| // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 |int $| 来表示
-|int point int|
-|int point int|
-|int int string|
-|point point|
+[int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
+[int point int]
+[int point int]
+[int int string]
+[point point]
 // 结构体类型字面量，“起始大括号 + 结果为类型的表达式” 称表示结构体的开始
 struct {} // 空结构体
 {int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
@@ -1312,17 +1312,17 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
 def (int argc **char argv return int) func_type
 def |flat_map|[string:int] type_of_map
-def |int int float string| tuple_type
-def |*int| int_ptr
-def |*point| point_ptr
-def |point| type_point
+def [int int float string] tuple_type
+def [*int] int_ptr
+def [*point] point_ptr
+def [point] type_point
 
 pub (int argc **char argv return int) func_type
 pub |flat_map|[string:int] type_of_map
-pub |int int float string| tuple_type
-pub |*int| int_ptr
-pub |*point| point_ptr
-pub |point| type_point
+pub [int int float string] tuple_type
+pub [*int] int_ptr
+pub [*point] point_ptr
+pub [point] type_point
 
 def main(int argc **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
     return 0
@@ -1364,7 +1364,7 @@ def test $(const C) {
 
 def name (int a return int) { ... }
 def (int a return int) func_type
-def |int float| tuple_type
+def [int float] tuple_type
 def name = 3.1415926
 def name const { red blue green }
 def name const int { red bule green }
@@ -1412,7 +1412,7 @@ pub PI = f64 3.1415926
 pub PT = point {100, 200}
 pub P2 = point {100, 200}
 pub P3 = [_]int {100, 200}
-pub P4 = |int int| {100, 200}
+pub P4 = [int int] {100, 200}
 pub P5 = {int a int b} {100, 200}
 pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
@@ -1427,7 +1427,7 @@ def let *point point_ptr = &point
 def let point point = {100, 200}
 def let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 def let {int a int b point point} data = {10, 20, {100, 200}}
-def let |int int point| data = {10, 20, {100, 200}}
+def let [int int point] data = {10, 20, {100, 200}}
 def var tuple = {500, 6.4, 1}
 def var integers = {1, 2, 3}
 def var colors = {"红", "黄", "绿"}
@@ -1436,7 +1436,7 @@ def var map = {"a":1, "b":2, "c":3}
 def var tup (a b c) = {500, 6.4, 1}
 def var (a _) = read_tuple() // 赋值右边必须是一个元组类型
 def var (_ a _ b) = data // 赋值右边必须是一个元组类型
-def var (a b c) = |i32 f64 u08| {500, 6.4, 1}
+def var (a b c) = [i32 f64 u08] {500, 6.4, 1}
 
 pub let int a = 10
 pub let int b = 20
@@ -1445,7 +1445,7 @@ pub let *point point_ptr = &point
 pub let point point = {100, 200}
 pub let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 pub let {int a int b point point} data = {10, 20, {100, 200}}
-pub let |int int point| data = {10, 20, {100, 200}}
+pub let [int int point] data = {10, 20, {100, 200}}
 pub var tuple = {500, 6.4, 1}
 pub var integers = {1, 2, 3}
 pub var colors = {"红", "黄", "绿"}
@@ -1454,7 +1454,7 @@ pub var map = {"a":1, "b":2, "c":3}
 pub var tup (a b c) = {500, 6.4, 1}
 pub var (a _) = read_tuple() // 赋值右边必须是一个元组类型
 pub var (_ a _ b) = data // 赋值右边必须是一个元组类型
-pub var (a b c) = |i32 f64 u08| {500, 6.4, 1}
+pub var (a b c) = [i32 f64 u08] {500, 6.4, 1}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
@@ -1487,16 +1487,16 @@ let *int p = undefined
 let point a = {100, 200}
 let [_]int a = {20, 30, 50}
 let [8]int a = {1, 2, 3, 4}
-let |i32 f64 u08| tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
-let |i32 f64 u08| tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
-let |i32 f64 u08| (a b c) = {500, 6.4, 1} // a b c
+let [i32 f64 u08] tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
+let [i32 f64 u08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+let [i32 f64 u08] (a b c) = {500, 6.4, 1} // a b c
 var tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 var data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
 var (a _) = read_tuple() // 赋值右边必须是一个元组类型
 var (_ a _ b) = data // 赋值右边必须是一个元组类型
-var (a b c) = |i32 f64 u08| {500, 6.4, 1}
+var (a b c) = [i32 f64 u08] {500, 6.4, 1}
 var tup = {500, 6.4, 1}
-var tup = |i32 f64 u08| {500, 6.4, 1}
+var tup = [i32 f64 u08] {500, 6.4, 1}
 var integers = {1, 2, 3}
 var colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
 var set = {:1 :2 :3 :4 :5 :6}
@@ -1626,14 +1626,14 @@ def oper const u32 with {u08 lpri u08 rpri} { // sum type
 }
 
 def read_username_result const {
-    OK |string|
-    ERR |unsigned|
+    OK [string]
+    ERR [unsigned]
 }
 
 def token const { // sum type
     ATOM {byte id}
     OPER {byte id}
-    TEST |int int|
+    TEST [int int]
     EOF
 }
 
@@ -1652,7 +1652,7 @@ def token eof = {.EOF}
 def expr const byte { // 相当于是一种泛型类型
     VALUE {int n} // 相当于存储 {byte 0 int n}
     IDENT {int id} // 相当于存储 {byte 1 int n}
-    TEST |int int|
+    TEST [int int]
     EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op unt lhs rhs}
 }
 
@@ -1674,11 +1674,11 @@ if expr == .TEST {
     print("TEST expr: % %", expr.0, expr.1)
 }
 
-if expr == .TEST (_ a) { // 捕获元组的内容
+if expr == .TEST(_ a) { // 捕获元组的内容
     print("TEST expr: % %", expr.0, a)
 }
 
-if expr == .TEST (a b) {
+if expr == .TEST(a b) {
     expr.a = 1
     print("TEST expr: % %", a, b)
 }
