@@ -8,8 +8,8 @@
 //  struct const void embed def pub let var undefined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static where it or this import scoped as inf (inferred type 推导的类型)
-//  with adr der todo debug trap local global // 全局变量必须使用 global 引用
-//  mod mut ref gen priv do abstract final macro
+//  with fer der todo debug trap local global // 全局变量必须使用 global 引用
+//  mod mut ref gen priv do abstract final macro tane (typename)
 //  alignof type  sizeof type  offsetof type.offset
 //
 //  defer if error deallocation(ptr)
@@ -30,7 +30,7 @@
 //  __func() __name__ 以双下划线开始的名称都是保留关键字
 //  标识符可以使用数字开头，此时不能以数字结尾，如果不以数字开头则可以使用数字结尾
 //  单下划线有特殊含义，不能作为一般标识符使用，使用单下划线结束的结构体成员是私有成员
-//  可以使用 @{name} 定义任意的标识符，例如 @{if} @{int}
+//  可以使用 #{name} 定义任意的标识符，例如 #{if} #{int}
 //  3rd2.0 3rd2.2p 以数字开头的标识符，访问元组成员可能与浮点冲突
 //
 // 命名空间：
@@ -74,21 +74,21 @@
 //  __line__
 //  __retp__
 // 编译时函数，以 # 开头的标识符是编译器指令
-//  PRH_TCPA_#(OPEN_REQ)
-//  #'type #dividebyzero #outofrange #success #failure #error1 #error2 #errora
-//  static assert
+//  PRH_TCPA_#(OPEN_REQ) #{int} #{if} ${int} ${if} #type #'operation
+//  static expr
 //  static if
-// 符号属性，以 @ 开头的标识符是属性名称，包括函数、类型、变量的属性名称等
+// 符号属性，包括函数、类型、变量的属性名称等
 //  alignas(n) forced_alignas(n) // forced_alignas(n) 不会被 packed 属性抑制
-//  "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
-//  @nonzero @nonalls @zeroinit @packed
+//  "fastcall" "cdecl" "stdcall" "strict"
+//  "nonzero" "nonalls" "zeroinit" "packed"
 // 内置函数：
-//  abort() panic() assert(expr)
+//  abort() panic()
+//  assert(expr)
+//  resert(expr)
 //  devel { stmt ... }
 //  devel print
 //  devel prine
 //  devel prerr
-//  revel assert(expr)
 //  alignof(vsym) sizeof(expr) typeof(expr)
 //  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
 // 预定义类型
@@ -230,8 +230,8 @@
 //      给一函数指针赋值：calc_ptr = calc
 //      给一函数指针赋值：calc_ptr = (int a b int) { return a + b }
 //  Tuple 元组补充结构体表达不了的一些东西（一个类型列表）
-//      {int int}            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int @{0} int @{1}}
-//      {this int int int}   结构体不能内嵌一个指针类型，等价于结构体 {this @{0} int @{1} int @{2} int @{3}}
+//      {int int}            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int ${0} int ${1}}
+//      {this int int int}   结构体不能内嵌一个指针类型，等价于结构体 {this ${0} int ${1} int ${2} int ${3}}
 //      def data {this int int int} 元组成员的命名，可以延迟到使用时
 //      let ptr, a, b, c = data {this, 1, 2, 3}     // 可以使用 ptr a b c
 //      let _, a, _, b = data {this, 1, 2, 3}       // 可以使用 a b，第一个成员只能使用 this 初始化，否则报错
@@ -291,16 +291,12 @@
 //  array(int, 3)                                                       int[3]                  int.type::array(3)
 //  slice(int)                                                          int.slice               int.type::slice
 //  map(string, int)                                                    string.map(int)         string.type::map(type::int)
-//  Triple(3, int, string)                                              Triple#3(int, string)
 // 指针的指针，指针的数组：
 //  ptr(ptr(int))                                                       int** int**
 //  array(ptr(int), 3)                                                  int*[3]
 //  slice(ptr(int))                                                     int*.slice
 //  map(ptr(string), int)                                               string*.map(int)
 //  map(string, ptr(int))                                               string.map(int*)
-//  Triple(3, ptr(int), string)                                         Triple#3(int*, string)
-//  Triple(3, int, ptr(string))                                         Triple#3(int, string*)
-//  Triple(3, ptr(int), ptr(string))                                    Triple#3(int*, string*)
 // 数组的指针：
 //  ptr(array(int, 3))                                                  int[3]*
 //  ptr(slice(int))                                                     int.slice*
@@ -309,9 +305,6 @@
 //  ptr(slice(ptr(int)))                                                int*.slice*
 //  ptr(map(ptr(string), int))                                          string*.map(int)*
 //  ptr(map(string, ptr(int)))                                          string.map(int*)*
-//  ptr(Triple(3, ptr(int), string))                                    Triple#3(int*, string)*
-//  ptr(Triple(3, int, ptr(string)))                                    Triple#3(int, string*)*
-//  ptr(Triple(3, ptr(int), ptr(string)))                               Triple#3(int*, string*)*
 // 数组的映射：
 //  map(array(int, 3), int)                                             int[3].map(int)
 //  map(slice(int), int)                                                int.slice.map(int)
@@ -320,9 +313,6 @@
 //  map(slice(ptr(int)), int)                                           int*.slice.map(int)
 //  map(map(ptr(string), int), int)                                     string*.map(int).map(int)
 //  map(map(string, ptr(int)), int)                                     string.map(int*).map(int)
-//  map(Triple(3, ptr(int), string), int)                               Triple#3(int*, string).map(int)
-//  map(Triple(3, int, ptr(string)), int)                               Triple#3(int, string*).map(int)
-//  map(Triple(3, ptr(int), ptr(string)), int)                          Triple#3(int*, string*).map(int)
 //  map(string, array(int, 3))                                          string.map(int[3])
 //  map(string, map(string, int))                                       string.map(string.map(int))
 //  map(string, slice(int))                                             string.map(string.map(int))
@@ -330,30 +320,6 @@
 //  map(string, slice(ptr(int)))                                        string.map(int*.slice)
 //  map(string, map(ptr(string), int))                                  string.map(string*.map(int))
 //  map(string, map(string, ptr(int)))                                  string.map(string.map(int*))
-//  map(string, Triple(3, ptr(int), string))                            string.map(Triple#3(int*, string).map(int))
-//  map(string, Triple(3, int, ptr(string)))                            string.map(Triple#3(int, string*).map(int))
-//  map(string, Triple(3, ptr(int), ptr(string)))                       string.map(Triple#3(int*, string*).map(int))
-// 复杂实例化：
-//  Triple(3, map(array(int, 3), int), string)                          Triple#3(int[3].map(int), string)
-//  Triple(3, map(slice(int), int), string)                             Triple#3(int.slice.map(int), string)
-//  Triple(3, map(map(string, int), int), string)                       Triple#3(string.map(int).map(int), string)
-//  Triple(3, map(array(ptr(int), 3), int), string)                     Triple#3(int*[3].map(int), string)
-//  Triple(3, map(slice(ptr(int)), int), string)                        Triple#3(int*.slice.map(int), string)
-//  Triple(3, map(map(ptr(string), int), int), string)                  Triple#3(string*.map(int).map(int), string)
-//  Triple(3, map(map(string, ptr(int)), int), string)                  Triple#3(string.map(int*).map(int), string)
-//  Triple(3, map(Triple(3, ptr(int), string), int), string)            Triple#3(Triple#3(int*, string).map(int), string)
-//  Triple(3, map(Triple(3, int, ptr(string)), int), string)            Triple#3(Triple#3(int, string*).map(int), string)
-//  Triple(3, map(Triple(3, ptr(int), ptr(string)), int), string)       Triple#3(Triple#3(int*, string*).map(int), string)
-//  Triple(3, map(string, array(int, 3)), string)                       Triple#3(string.map(int[3]), string)
-//  Triple(3, map(string, map(string, int)), string)                    Triple#3(string.map(string.map(int)), string)
-//  Triple(3, map(string, slice(int)), string)                          Triple#3(string.map(string.map(int)), string), string)
-//  Triple(3, map(string, array(ptr(int), 3)), string)                  Triple#3(string.map(int*[3]), string)
-//  Triple(3, map(string, slice(ptr(int))), string)                     Triple#3(string.map(int*.slice), string)
-//  Triple(3, map(string, map(ptr(string), int)), string)               Triple#3(string.map(string*.map(int)), string)
-//  Triple(3, map(string, map(string, ptr(int))), string)               Triple#3(string.map(string.map(int*)), string)
-//  Triple(3, map(string, Triple(3, ptr(int), string)), string)         Triple#3(string.map(Triple#3(int*, string).map(int)), string)
-//  Triple(3, map(string, Triple(3, int, ptr(string))), string)         Triple#3(string.map(Triple#3(int, string*).map(int)), string)
-//  Triple(3, map(string, Triple(3, ptr(int), ptr(string))), string)    Triple#3(string.map(Triple#3(int*, string*).map(int)), string)
 
 // 定义命名类型
 //
@@ -387,13 +353,15 @@ a + ('int b + c) * d
 (point point int a return int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
 (camera camera point point)
 (point point)
+(*camera camera *point point)
+(*point point)
 (int a)
 (int a int b)
 (int a int b return int yield int point)
 (int a int b yield int point return int)
 (int a int b yield int point)
 (int a return int point float (count point scale))
-(*file? file{stdin} point point string name{"root"} string mode)
+(*file? file = {stdin} point point string name = {"root"} string mode)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
 [int point int]
@@ -959,7 +927,7 @@ act all are do use ago alt any auf aut can cat cor con cue des dhu din don dor
 fac far fat fen fer fin fit fou fro fry fur gen gre lot off per pat pal phr par
 pre pro rem res rim ron rou rut tie via was wow yet
 
-def point @zeroinit @packed {
+def point "zeroinit packed" {
     float x
     float y
 }
@@ -975,9 +943,9 @@ def get ($*T a return int) // 函数参数只能声明类型模板参数
 def read ($*T a unt p int n return int) // 函数只有第一个参数才能是泛型类型
 def reader $T $get(T) get $read(T) read {} // 在 ${} 表达式中需要省略 def 关键字
 
-def @{get} ($*T a return int)
-def @{read} ($*T a def ptr p int n return int)
-def @{reader} $T $<T>@{get} get $<T>@{read} read {}
+def (*$T a return int) get
+def (*$T a unt p int n return int) read
+def reader $(anytype T get(T) get read(T) read) {}
 
 Data { int a b (int a b int) f g }
 Get($*T a int) // 函数参数只能声明类型模板参数
@@ -1421,111 +1389,111 @@ pub P5 = {int a int b} {100, 200}
 pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
-// def let type name = expr
-// def let type = expr
-// def var name = expr
-def let int a = 10
-def let int b = 20
-def let *int int_ptr = &a
-def let *point point_ptr = &point
-def let point point = {100, 200}
-def let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
-def let {int a int b point point} data = {10, 20, {100, 200}}
-def let [int int point] data = {10, 20, {100, 200}}
-def var tuple = {500, 6.4, 1}
-def var integers = {1, 2, 3}
-def var colors = {"红", "黄", "绿"}
-def var set = {:1 :2 :3 :4 :5 :6}
-def var map = {"a":1, "b":2, "c":3}
-def var tup (a b c) = {500, 6.4, 1}
-def var (a _) = read_tuple() // 赋值右边必须是一个元组类型
-def var (_ a _ b) = data // 赋值右边必须是一个元组类型
-def var (a b c) = [i32 f64 u08] {500, 6.4, 1}
+// def var type name = expr
+// def var type = expr
+// def let name = expr
+def var int a = 10
+def var int b = 20
+def var *int int_ptr = &a
+def var *point point_ptr = &point
+def var point point = {100, 200}
+def var (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+def var {int a int b point point} data = {10, 20, {100, 200}}
+def var [int int point] data = {10, 20, {100, 200}}
+def let tuple = {500, 6.4, 1}
+def let integers = {1, 2, 3}
+def let colors = {"红", "黄", "绿"}
+def let set = {:1 :2 :3 :4 :5 :6}
+def let map = {"a":1, "b":2, "c":3}
+def let tup (a b c) = {500, 6.4, 1}
+def let (a _) = read_tuple() // 赋值右边必须是一个元组类型
+def let (_ a _ b) = data // 赋值右边必须是一个元组类型
+def let (a b c) = [i32 f64 u08] {500, 6.4, 1}
 
-pub let int a = 10
-pub let int b = 20
-pub let *int int_ptr = &a
-pub let *point point_ptr = &point
-pub let point point = {100, 200}
-pub let (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
-pub let {int a int b point point} data = {10, 20, {100, 200}}
-pub let [int int point] data = {10, 20, {100, 200}}
-pub var tuple = {500, 6.4, 1}
-pub var integers = {1, 2, 3}
-pub var colors = {"红", "黄", "绿"}
-pub var set = {:1 :2 :3 :4 :5 :6}
-pub var map = {"a":1, "b":2, "c":3}
-pub var tup (a b c) = {500, 6.4, 1}
-pub var (a _) = read_tuple() // 赋值右边必须是一个元组类型
-pub var (_ a _ b) = data // 赋值右边必须是一个元组类型
-pub var (a b c) = [i32 f64 u08] {500, 6.4, 1}
+pub var int a = 10
+pub var int b = 20
+pub var *int int_ptr = &a
+pub var *point point_ptr = &point
+pub var point point = {100, 200}
+pub var (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+pub var {int a int b point point} data = {10, 20, {100, 200}}
+pub var [int int point] data = {10, 20, {100, 200}}
+pub let tuple = {500, 6.4, 1}
+pub let integers = {1, 2, 3}
+pub let colors = {"红", "黄", "绿"}
+pub let set = {:1 :2 :3 :4 :5 :6}
+pub let map = {"a":1, "b":2, "c":3}
+pub let tup (a b c) = {500, 6.4, 1}
+pub let (a _) = read_tuple() // 赋值右边必须是一个元组类型
+pub let (_ a _ b) = data // 赋值右边必须是一个元组类型
+pub let (a b c) = [i32 f64 u08] {500, 6.4, 1}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
 //  2.  named_type {initialize_list} 形式也不需要添加 'type 转换前缀
 //  3.  named_type undefined 形式也不需要添加 'type 转换前缀
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
-//  5.  取地址操作符 adr
-//  6.  解引用操作符 der
-//  let type name = expr
-//  let type = expr // 定义与类型名同名的变量
-//  var name = expr
-let (int argc **char argv return int) main = { return 0 } //（等号左边总是变量）
-let *int p = adr **int base + sizeof int
-let *point p = der **point base + sizeof point
-let point point = {100, 200} // 第一个 point 是类型
-let point = {100, 200}
-let *point = adr copyof point
-let *point = adr {0}
-let *int p = null
-let *int q = undefined
-let int a = 0
-let int b = 0
-let point o = undefined
-let point pos = {1, 2}
-let point = undefined
-let point point = undefined
-let point o = {1, 2}
-let *ppb = malloc(size)
-let *int p = undefined
-let point a = {100, 200}
-let [_]int a = {20, 30, 50}
-let [8]int a = {1, 2, 3, 4}
-let [i32 f64 u08] tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
-let [i32 f64 u08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
-let [i32 f64 u08] (a b c) = {500, 6.4, 1} // a b c
-var tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
-var data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
-var (a _) = read_tuple() // 赋值右边必须是一个元组类型
-var (_ a _ b) = data // 赋值右边必须是一个元组类型
-var (a b c) = [i32 f64 u08] {500, 6.4, 1}
-var tup = {500, 6.4, 1}
-var tup = [i32 f64 u08] {500, 6.4, 1}
-var integers = {1, 2, 3}
-var colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
-var set = {:1 :2 :3 :4 :5 :6}
-var map = {"a":1, "b":2, "c":3}
-var array_ints = {{1,2}, {3,4}, {5,6}} // 数组
-var array_ints = {{1,2}, {3,4,5}} // 元组
-var mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
-var int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
-var str_array = mixed_array[1]
-var o = der p
-var p = adr a
-var o = point {1, 2}
-var ppb = *ppb malloc(size)
-var p = *int null
-var q = *int undefined
-var a = 0
-var b = byte 0
-var ptr = alloc(1024) or panic()
-var data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
-var data = data {this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
-var a = int 0
-var b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
-var calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
-var a = point{100, 200}
-var b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+//  5.  取地址操作符 fer（fetch reference）
+//  6.  解引用操作符 der（dereference）
+//  var type name = expr
+//  var type = expr // 定义与类型名同名的变量
+//  let name = expr
+var (int argc **char argv return int) main = { return 0 } //（等号左边总是变量）
+var *int p = fer **int base + sizeof int
+var *point p = der **point base + sizeof point
+var point point = {100, 200} // 第一个 point 是类型
+var point = {100, 200}
+var *point = fer copyof point
+var *point = fer {0}
+var *int p = null
+var *int q = undefined
+var int a = 0
+var int b = 0
+var point o = undefined
+var point pos = {1, 2}
+var point = undefined
+var point point = undefined
+var point o = {1, 2}
+var *ppb = malloc(size)
+var *int p = undefined
+var point a = {100, 200}
+var [_]int a = {20, 30, 50}
+var [8]int a = {1, 2, 3, 4}
+var [i32 f64 u08] tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
+var [i32 f64 u08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+var [i32 f64 u08] (a b c) = {500, 6.4, 1} // a b c
+let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+let data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
+let (a _) = read_tuple() // 赋值右边必须是一个元组类型
+let (_ a _ b) = data // 赋值右边必须是一个元组类型
+let (a b c) = [i32 f64 u08] {500, 6.4, 1}
+let tup = {500, 6.4, 1}
+let tup = [i32 f64 u08] {500, 6.4, 1}
+let integers = {1, 2, 3}
+let colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
+let set = {:1 :2 :3 :4 :5 :6}
+let map = {"a":1, "b":2, "c":3}
+let array_ints = {{1,2}, {3,4}, {5,6}} // 数组
+let array_ints = {{1,2}, {3,4,5}} // 元组
+let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
+let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
+let str_array = mixed_array[1]
+let o = der p
+let p = fer a
+let o = point {1, 2}
+let ppb = *ppb malloc(size)
+let p = *int null
+let q = *int undefined
+let a = 0
+let b = byte 0
+let ptr = alloc(1024) or panic()
+let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
+let data = data {this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
+let a = int 0
+let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
+let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+let a = point{100, 200}
+let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 
 def calc(int a int b return int int (x y)) {
     x = a + b
@@ -1541,7 +1509,7 @@ def calc(int a int b return int int (x y) or error) {
 def read_username(return string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
     let f = open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
     let s = string {}
-    f.read_to_string(adr s) or return
+    f.read_to_string(fer s) or return
     if s == "unknown" return e_notfound
     return s
 }
@@ -1822,11 +1790,11 @@ perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
 
 def report_tcpe_opened(*TcpSocket tcp) {
     let pdata = *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
-    let txbuf = *ByteArrfit adr tcp.txbuf
+    let txbuf = *ByteArrfit fer tcp.txbuf
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_freely_post(tcp.upp_coro, adr pdata->head)
+    cono_freely_post(tcp.upp_coro, fer pdata->head)
 }
 
 def epoll_proc(*coro) {
@@ -1894,12 +1862,12 @@ perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
 }
 
 report_tcpe_opened(*TcpSocket tcp) {
-    let txbuf = adr tcp.txbuf
+    let txbuf = fer tcp.txbuf
     let pdata = tcpa_post_pdata(tcp, TCPE_OPNED, sizeof TcpOpened)
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_post(adr pdata->head)
+    cono_post(fer pdata->head)
 }
 
 epoll_proc(*Cono cono) {
@@ -1952,7 +1920,7 @@ def snode $T {
 
 for i I 0 .. 9 {
     i int der *I addr
-    pos + der adr *I (*byte p + size + f(g))
+    pos + der fer *I (*byte p + size + f(g))
 }
 
 def memcpy(unt dest unsigned src int count)
@@ -1967,7 +1935,7 @@ Snode $T { this next T data }
 for [&] i I 0 .. 9 {
     i int der *I addr
     if i%2 continue &
-    pos + der adr I (*byte p + size + f(g))
+    pos + der fer I (*byte p + size + f(g))
 }
 memcpy (Ptr dst src int count)
 memcmp (Ptr dst src int count int)
@@ -2046,10 +2014,10 @@ def size(*triple(int size, $t, $u) return int) {
 }
 
 data { int a b } {1, 2}
-data *{ int a b } adr {1, 2}
+data *{ int a b } fer {1, 2}
 data [2]{ int a b } {{1, 2}, {3, 4}}
 data Data {1, 2}
-data *Data adr data
+data *Data fer data
 data Data[2] {data1, data2}
 
 found .. index array_find(<<array, item)
@@ -2061,10 +2029,10 @@ cal2 *(int a b int) (int a b int) {return a + b } // 函数不需要声明成指
 cal2 *(int a b int) Calc {return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc { return a + b }
-cal2 *(int a b int) adr {return a + b }
+cal2 *(int a b int) fer {return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
-cal2 *Calc adr (int a b int) {return a + b }
-cal2 *Calc adr {return a + b }
+cal2 *Calc fer (int a b int) {return a + b }
+cal2 *Calc fer {return a + b }
 cal2 Calc{return a + b}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
@@ -2140,14 +2108,14 @@ let Calc cal2 { return a + b }
 let Calc cal2 calc
 let cal2 calc
 
-dat3 *{ int a b } adr {3, 4}
+dat3 *{ int a b } fer {3, 4}
 dat3 [2]{ int a b } {{3, 4}, data}
-dat3 *{ int a b } adr {3, 4}
-dat3 *Data adr data
+dat3 *{ int a b } fer {3, 4}
+dat3 *Data fer data
 dat3 [2]Data {{3, 4}, data}
 
-cal3 *(int a b int) adr { return a + b }
-cal3 *(int a b int) adr calc
+cal3 *(int a b int) fer { return a + b }
+cal3 *(int a b int) fer calc
 cal3 (int a b int) { return a + b }
 cal3 Calc { return a + b }
 let cal3 calc
@@ -2158,13 +2126,13 @@ let cal3 calc
 // 一个非类型标识符后跟一个字面常量，表示用字面常量定义一个变量
 
 cal3 *(int a b int) null
-cal3 *(int a b int) adr { a + b }
+cal3 *(int a b int) fer { a + b }
 cal3 *(int a b int) calc
 
 numb errno null
 numb float 3.14
 numb *int null
-numb *int adr data
+numb *int fer data
 numb bool false
 
 let data false
@@ -2178,13 +2146,13 @@ data Data {1, 2}
 data int 1024
 numb errno null
 numb float 3.14
-numb *int adr data
+numb *int fer data
 calc Calc { a + b }
 data Data {1, 2}
 data int 1024
 numb errno null
 numb float 3.14
-numb *int adr data
+numb *int fer data
 temp int 1024
 temp float 3.14
 
@@ -2203,7 +2171,7 @@ aaa Data {3, 4} // 赋值语句因为目标变量只有一个，因此只要将�
 ppb *Ppb ppb_alloc(alloc)
 
 let pos = dist + int scale_x(facter)
-let len = int pos + adr *byte p + size + f(g)
+let len = int pos + fer *byte p + size + f(g)
 let len = int pos + der *byte (p + size + f(g))
 let len = typeof(pos) 3
 
@@ -2405,7 +2373,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    -a +a ^a !a type a adr a der a sizeof a typeof a ->> <<-  not neg int adr der *int [2]int
+    10 从右到左    -a +a ^a !a type a fer a der a sizeof a typeof a ->> <<-  not neg int fer der *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b a<<<b a>>>b  mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -2432,13 +2400,13 @@ math:*
 
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
-    取地址 & 改为 (&) 地址标记 &1 &2 adr
+    取地址 & 改为 (&) 地址标记 &1 &2 fer
     解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 der
 
     @negt()     @-          @-3.14      @-c         (-3.14) (-c)
     @posi()     @+          @+6.24      @+c         (+6.24) (+c)
     @comp()     @^          @^1024      @^c         (^1024) (^c)
-    @adr()     (&)         @&data                  (&)data (*&)data    adr data    der adr data
+    @fer()     (&)         @&data                  (&)data (*&)data    fer data    der fer data
     @der()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 结构体中的各类成员
@@ -2523,7 +2491,7 @@ for expr then stmt
 for { stmt ... }
 for { stmt ... } ~ if expr
 
-// 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，#symmetric
+// 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，symmetric
 // 禁止函数链式调用 a.getb().bfun()
 // 定义展开函数：
 // `macro (retrun int) {
@@ -2634,7 +2602,7 @@ print(typestring, "\n")
 //      修改其自身，可以使用语法 test(&copyof a)
 //
 //      基本类型 int unt sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
-//      结构体类型总是传指针表示修改，声明为 *point，test(adr point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
+//      结构体类型总是传指针表示修改，声明为 *point，test(fer point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
 //      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
@@ -2720,7 +2688,7 @@ print(typestring, "\n")
 ——
 —— 12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
 ——     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-——     10 从右到左    -a +a ^a !a type a adr a der a sizeof a typeof a ->> <<-  not neg int adr der *int [2]int
+——     10 从右到左    -a +a ^a !a type a fer a der a sizeof a typeof a ->> <<-  not neg int fer der *int [2]int
 ——      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
 ——      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
 ——      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -2772,7 +2740,7 @@ print(typestring, "\n")
 —— type
 —— import
 —— scoped
-—— adr      取址
+—— fer      取址
 —— der      取值 之指向内容
 —— todo
 —— debug
