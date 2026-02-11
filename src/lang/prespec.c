@@ -442,10 +442,9 @@ func()[expr:expr] vsym[expr:expr] // 数组切片和字符串切片
 if [expr] // 条件匹配语句
 for [&it] // 迭代元素捕获
 [global] // 全局顶行出现的配置项
-[fruit apple]
-[fruit]
+[apple]fruit
 [apple.physical]
-[[]fruit fruits]
+[fruits][]fruit
 // 数据生成表达式
 [yield a + b for a in array for b in 1 .. 100] // 生成一个整数数组，每个元素的值为 a+b
 [yield int a * 2 for a in array] // 带类型转换的生成数组
@@ -2274,14 +2273,14 @@ Fruit {
     { bool smooth } texture
 }
 
-[fruit apple] // 以另一个[var Type]结束，明确是字面常量赋值不需要使用=等号，否则需要使用调用语法进行初始化
+[apple] fruit // 以另一个[var Type]结束，明确是字面常量赋值不需要使用=等号，否则需要使用调用语法进行初始化
 physical color "红" size height 23 width 24 desc a "a" b "b" ||| size info "i"
 physical shape "round"
 taste sweet true
 texture smooth true
 rates [80, 75, 95]
 
-[fruit apple] // 定义 apple
+[apple] fruit // 定义 apple
 physical color "红" size height 23 width 24 desc a "a" b "b"
 physical size info "i" desc "d"
 physical shape "round"
@@ -2295,7 +2294,7 @@ shape "round"
 sweet true
 smooth true
 
-[fruit apple] // 使用顶格和 ||| 控制缩进，0~3个空格是顶格字段，>=4个空格或>=1个Tab才是子字段
+[apple] fruit // 使用顶格和 ||| 控制缩进，0~3个空格是顶格字段，>=4个空格或>=1个Tab才是子字段
 physical
     color "红"
     size
@@ -2314,7 +2313,7 @@ taste
 texture
     smooth true
 
-[fruit apple]
+[apple] fruit
 physical color "红"
     size height 23 width 24 desc a "a" b "b" |||
     size info "i" desc "d"
@@ -2323,7 +2322,7 @@ physical
 taste sweet true
 texture smooth true
 
-[fruit apple]
+[apple] fruit
 physical color "红"
     size
         height 23
@@ -2340,7 +2339,7 @@ texture
     smooth true
 void
 
-[fruit apple]
+[apple] fruit
 physical
     color "红"
     size height 23 width 24
@@ -2354,7 +2353,7 @@ taste
 texture
     smooth true
 
-[fruit apple]
+[apple] fruit
 physical
     shape "round"
     color "红"
@@ -2371,14 +2370,14 @@ a true
 b 1024
 s "hello"
 
-[fruit apple]
+[apple] fruit
 fruit_type name "pug"
 
-[[]fruit fruits]
+[fruits] []fruit
 name "apple"
 physical color "red" shape "round"
 
-[[]fruit fruits]
+[fruits] []fruit
 varieties
     name "red delicious"
     id 1
@@ -2390,7 +2389,7 @@ varieties
     name "plantain"
     id 3
 
-[[]fruit fruits]
+[fruits] []fruit
 name "banana"
 void
 
