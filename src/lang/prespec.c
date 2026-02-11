@@ -5,9 +5,9 @@
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
 //  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
-//  struct const void embed def pub let var undefined
-//  continue defer yield range lambda reflex trait
-//  static where it or this import scoped as
+//  struct const void embed def pub let var undefined devel revel
+//  continue defer yield range lambda reflex trait cold naked
+//  static where it or this import scoped as inf (inferred type 推导的类型)
 //  with adr der todo debug trap local global // 全局变量必须使用 global 引用
 //  mod mut ref gen priv do abstract final macro
 //  alignof type  sizeof type  offsetof type.offset
@@ -51,21 +51,44 @@
 //  (X) 同名的类型名和变量名，优先识别为变量，但其后不是操作符（包括分隔符）则识别为类型名
 //  (Y) 不允许同名的类型名和变量名
 //
+// 程序最基本的元素只有：
+//  变量，其中编译时已知的变量称为常量
+//  类型，类型是一种特殊的变量，该变量的类型为 type::type，类型可以是编译时已知的，也可以处理一个运行时才已知的类型
+//      type::type
+//      type::int
+//      type::unt
+//      type::float
+//      type::numeric
+//      type::string
+//      type::array
+//      type::set
+//      type::map
+//  参数化类型，一个返回类型或参数化类型的函数
+//  def func(type a type b return type) { ... }
+//  def type $(meta T meta U int SIZE const C) { ... } // C 可以时常量，也可以是编译时已知类型
+//
 // 下划线保留字：
 //  __file__
 //  __func__
 //  __line__
 //  __retp__
 // 编译时函数，以 # 开头的标识符是编译器指令
-//  static_assert
-//  #if 条件编译
+//  PRH_TCPA_#(OPEN_REQ)
+//  #'type #dividebyzero #outofrange #success #failure #error1 #error2 #errora
+//  static assert
+//  static if
 // 符号属性，以 @ 开头的标识符是属性名称，包括函数、类型、变量的属性名称等
 //  alignas(n) forced_alignas(n) // forced_alignas(n) 不会被 packed 属性抑制
 //  "fastcall" "cdecl" "stdcall" "strict" // 函数属性名称为了美观不使用@前缀
 //  @nonzero @nonalls @zeroinit @packed
 // 内置函数：
-//  abort() panic() assert(expr) debug { stmt ... } dbg_prerr
-//  real_assert(expr) alignof(vsym) sizeof(expr) typeof(expr)
+//  abort() panic() assert(expr)
+//  devel { stmt ... }
+//  devel print
+//  devel prine
+//  devel prerr
+//  revel assert(expr)
+//  alignof(vsym) sizeof(expr) typeof(expr)
 //  copyof(vsym) moveof(vsym) zeroof(vsym) fillof(vsym)
 // 预定义类型
 //  this 当前函数（当前函数的地址）或当前结构体，不提供任何面向对象的特殊含义，但匿名类型需要用
@@ -1574,11 +1597,11 @@ def sqrt(float x float y return float or none) { // 调用者必须检查 none �
     return sqrt(x * a)
 }
 
-def test const size/int p/point) {
+def test const size(int) p(point) {
     [size]int a
 }
 
-def array $t const size/int static size > 0 {
+def array $t const size(int) static size > 0 {
     [size]t a
 }
 
@@ -2439,8 +2462,8 @@ def test {
 //  if cond { expr }
 //  if cond return expr
 //  if cond { expr } else if_stm
-//  #if cond { expr } else { expr }
-//  #if cond { expr } else if cond { expr }
+//  static if cond { expr } else { expr }
+//  static if cond { expr } else if cond { expr }
 
 if expr { stmt ... } // 条件语句块有两种大括号，一种是左大括号在表达式 expr 结束的同一行，第二种是表达式结束后是一个换行，第二种语句块以 ||| 结束，并且必须有相同的对齐
 if expr break
