@@ -35646,6 +35646,59 @@ typedef enum {
 //      器进行一些更改：当它们遇到开始 emoji 序列的字符时，它们将（逻辑上）切换到不同的
 //      解析机制。
 //
+// Emoji 集合。以下集合基于附件 A《Emoji 属性和数据文件》中描述的数据文件和属性定义。
+// 这些集合的组成可能从一个版本到下一个版本发生变化。这些集合中的每一个都可以被视为一个
+// 二进制属性；它们是字符串的属性。更多讨论见 UTS #18《统一编码正则表达式》[UTS18] 和
+// UTR #23《统一编码字符属性模型》[UTR23]。
+//
+// ED-20. 基本 emoji 集合（basic emoji set）。在 emoji-sequences.txt 文件 [emoji-data]
+//      中 type_field 为 Basic_Emoji 下列出的 emoji 字符和 emoji 呈现序列的集合。
+//      1.  这是用于通用输入的 emoji 集合。
+//      2.  此集合排除了所有不用于独立、直接输入的 emoji 组件实例。实现应支持此集合中
+//          emoji 组件的独立显示，即使它们不用于直接输入。
+//          -   肤色修饰符和发型组件应即使单独显示也应显示，但它们（通常）不应在键盘调
+//              色板上。这些包含在 Basic_Emoji 中。
+//          -   其他组件（U+20E3 组合封闭键帽、区域指示符、标签字符、ZWJ 和 VS16）在
+//              单独显示时不应有 emoji 呈现，但确实作为 emoji 序列的一部分出现。这些
+//              不包含在 Basic_Emoji 中。
+//      3.  此集合否则包括所有具有属性值 Emoji_Presentation = Yes 的 emoji 字符实例，
+//          以及所有其基字符具有属性值 Emoji_Presentation = No 的有效 emoji 呈现序列
+//          实例。
+// ED-21. emoji 键帽序列集合（emoji keycap sequence set）。在 emoji-sequences.txt
+//      文件 [emoji-data] 中 type_field 为 Emoji_Keycap_Sequence 下列出的特定 emoji
+//      序列集合。这是所有有效 emoji 键帽序列的集合。
+// ED-22. RGI emoji 修饰符序列集合（RGI emoji modifier sequence set）。在 emoji-sequences.txt
+//      文件 [emoji-data] 中 type_field 为 RGI_Emoji_Modifier_Sequence 下列出的特
+//      定 emoji 序列集合。这是所有有效 emoji 修饰符序列的子集，推荐用于通用交换（RGI）。
+//      注意：以下定义使用缩写 "RGI" 表示 "recommended for general interchange"（推
+//      荐用于通用交换），指某个更大集合的子集，旨在跨多个平台广泛支持。
+// ED-23. RGI emoji 旗帜序列集合（RGI emoji flag sequence set）。在 emoji-sequences.txt
+//      文件 [emoji-data] 中 type_field 为 RGI_Emoji_Flag_Sequence 下列出的特定
+//      emoji 序列集合。这是所有有效 emoji 旗帜序列的子集，推荐用于通用交换。见附件 B
+//      《有效的 Emoji 旗帜序列》。
+// ED-24. RGI emoji 标签序列集合（RGI emoji tag sequence set）。在 emoji-sequences.txt
+//      文件 [emoji-data] 中 type_field 为 RGI_Emoji_Tag_Sequence 下列出的特定 emoji
+//      序列集合。这是所有有效 emoji 标签序列的子集，推荐用于通用交换。见附件 C《有效的
+//      Emoji 标签序列》。
+// ED-25. RGI emoji ZWJ 序列集合（RGI emoji ZWJ sequence set）。在 emoji-zwj-sequences.txt
+//      文件 [emoji-data] 中 type_field 为 RGI_Emoji_ZWJ_Sequence 下列出的特定 emoji
+//      序列集合。这是所有有效 emoji ZWJ（零宽连接符）序列的子集，推荐用于通用交换。
+// ED-26. （此定义已被删除）
+// ED-27. RGI emoji 集合（RGI emoji set）。由 ED-20、ED-21、ED-22、ED-23、ED-24 和
+//      ED-25 涵盖的所有 emoji（字符和序列）的集合。这是所有有效 emoji（字符和序列）
+//      的子集，推荐用于通用交换。这对应于 RGI_Emoji 属性。此属性目前不受任何稳定性政
+//      策的约束。
+// ED-28. RGI_Emoji_Qualification — emoji 序列的状态。这是字符串的枚举属性，由 emoji-test.txt
+//      文件 [emoji-data] 定义。它为 ED-27 RGI emoji 集合中的每个 emoji 和缺少变体
+//      选择符的相关序列分配四个值之一。属性值名称和短别名如下，属性值由 [emoji-data]
+//      中对应的 status 值定义：component、fully-qualified、minimally-qualified 和
+//      unqualified。
+//          值名称                  别名        描述
+//          Standalone_Component    component   emoji 组件
+//          Fully_Qualified         FQE         ED-18，排除 emoji 组件
+//          Minimally_Qualified     MQE         ED-18a
+//          Unqualified             UQE         ED-19
+//
 // Emoji 配置文件包含 Pattern_Syntax 中的字符；因此它与 UAX31-R3b 的配置文件相关联，
 // 该配置文件包括用其文本呈现序列（ED-8a）替换 [:Pattern_Syntax:] 的某个子集中的每个
 // emoji 字符：
