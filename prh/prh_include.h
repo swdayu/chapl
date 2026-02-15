@@ -34396,6 +34396,13 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 #define prh_char_del        0x7F // DEL
 #define prh_char_endmark    0xffffffff
 #define prh_char_maxcode    0x0010ffff
+#define prh_char_invalid    0x007fffff
+
+#ifndef PRH_LEXER_B256
+static const prh_byte prh__lexer_b256[256] = {
+};
+#define PRH_LEXER_B256 prh__lexer_b256
+#endif
 
 // 统一编码标准是所有当今广泛使用的字符的超集。它包含主要国际和国家标准以及著名行业字符
 // 集中的字符。例如，统一编码纳入了 ISO/IEC 6937 和 ISO/IEC 8859 标准族、SGML 标准
@@ -34454,6 +34461,210 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 // 为确保统一编码形式的映射是一对一的，所有统一编码标量值，包括那些对应于非字符码点和未
 // 分配码点的标量值，必须映射到唯一的码元序列。注意，此要求不适用于高代理码点和低代理码
 // 点，它们根据定义被排除在统一编码标量值集合之外。
+//
+// UTF-8 编码中，码点序列 <004D, 0430, 4E8C, 10302> 表示为 <4D D0 B0 E4 BA 8C F0
+// 90 8C 82>，其中 <4D> 对应 U+004D，<D0 B0> 对应 U+0430，<E4 BA 8C> 对应 U+4E8C，
+// <F0 90 8C 82> 对应 U+10302。任何不符合下表所列模式的 UTF-8 字节序列形式的格式都是
+// 错误的（ill-formed）。在统一编码标准 3.1 版之前，UTF-8 中存在问题的 "非最短形式"
+// 字节序列是指那些可以用多种方式表示的基本多语言页（BMP）字符的序列。这些序列格式非法，
+// 因为它们不被下表所允许。由于代理码点（surrogate code points）不是统一编码标量值，
+// 任何原本会映射到 U+D800 ~ U+DFFF 码点的 UTF-8 字节序列都是格式错误的。关于ISO/IEC
+// 10646 中 UTF-8 表述差异的讨论，参见附录C.3《UTF-8与UTF-16》。
+//
+//  UTF-8 编码形式的位分布（显示对应一二三四字节序列的统一编码标量值范围）
+//           标量值             标量范围         第一字节  第二字节  第三字节  第四字节  编码范围
+//           00000000 0xxxxxxx  U+0000~U+007F   0xxxxxxx                            00~7F
+//           00000yyy yyxxxxxx  U+0080~U+07FF   110yyyyy 10xxxxxx                   C0~DF 80~BF
+//           zzzzyyyy yyxxxxxx  U+0800~U+FFFF   1110zzzz 10yyyyyy 10xxxxxx          E0~EF 80~BF 80~BF
+//  000uuuuu zzzzyyyy yyxxxxxx  010000~1FFFFF   11110uuu 10uuzzzz 10yyyyyy 10xxxxxx F0~F7 80~BF 80~BF 80~BF
+//
+//  合法 UTF-8 字节序列
+//          码点范围       第一字节
+//          U+0000~U+007F  00~7F
+//          ------------- 第一字节 第二字节
+//          U+0080~U+07FF  C2~DF   80~BF
+//          ------------- 第一字节 第二字节  第三字节
+//          U+0800~U+0FFF  E0      (A0)~BF  80~BF
+//          U+1000~U+CFFF  E1~EC   80~BF    80~BF
+//          U+D000~U+D7FF  ED      80~(9F)  80~BF
+//          U+E000~U+FFFF  EE~EF   80~BF    80~BF
+//          ------------- 第一字节 第二字节  第三字节  第四字节
+//          010000~03FFFF  F0      (90)~BF  80~BF    80~BF
+//          040000~0FFFFF  F1~F3   80~BF    80~BF    80~BF
+//          100000~10FFFF  F4      80~(8F)  80~BF    80~BF
+//
+// 上表列出了 UTF-8 中所有格式正确（well-formed）的字节序列。任何超出所列范围的字节值
+// 都是格式错误（ill-formed）的。例如，第一字节不能出现 80~C1 F5~FF，第二字节不能出现
+// 00~7F C0~FF 并且还有额外情况，第三第四字节必须是 80~BF。空缺的码点：
+//          1.  两字节序列中以 C0 和 C1 字节开始的序列，该范围与单字节 UTF-8 重复
+//              (110)0_0000 C0 => 0_0000_xxxxxx => 00xx_xxxx => U+00~U+3F
+//              (110)0_0001 C1 => 0_0001_xxxxxx => 01xx_xxxx => U+40~U+7F
+//          2.  三字节序列中以 <E0 80~9F> 开始的序列，该范围与单字节和双字节 UTF-8 重复
+//              (1110)_0000 (10)00_0000 <E0 80> => 0y_yyyy_xxxxxx
+//              (1110)_0000 (10)01_1111 <E0 9F> => 0yyy_yyxx_xxxx => U+0000~U+07FF
+//          3.  三字节序列中以 <ED A0~BF> 开始的序列，该范围是代理码点（surrogate code points）的范围
+//              (1110)_1101 (10)10_0000 <ED A0> => 1101_1y_yyyy_xxxxxx
+//              (1110)_1101 (10)11_1111 <ED BF> => 1101_1yyy_yyxx_xxxx => U+D800~U+DFFF
+//          4.  四字节序列中以 <F0 80~8F> 开始的序列，该范围与单字节和双字节和三字节 UTF-8 重复
+//              (1111_0)000 (10)00_0000 <F0 80> => zzzz_yyyyyy_xxxxxx
+//              (1111_0)000 (10)00_1111 <F0 8F> => zzzz_yyyy_yyxx_xxxx => U+0000~U+FFFF
+//          5.  四字节序列中以 <F4 90~BF> 开始的序列，码点必须 <= U+10FFFF
+//              (1111_0)100 (10)01_0000 <F4 90> => 100_01_0000_yyyyyy_xxxxxx
+//                                              => 1_0001_0000_yyyy_yyxx_xxxx => U+110000
+//
+// 处理原则：如果转换器遇到格式错误的 UTF-8 码元序列，该序列以有效的首字节开始，但后续
+// 没有有效的后继字节，则当这些后继字节本身构成格式正确的 UTF-8 码元子序列的一部分时，
+// 转换器不得将这些后继字节作为格式错误子序列的一部分消耗掉。对于UTF-8转换过程来说，消
+// 耗有效的后继字节不仅不符合规范，还会使转换器面临安全漏洞的风险。参见Unicode技术报告
+// #36《Unicode安全考虑》。
+//
+// 例如，在处理UTF-8码元序列 <F0 80 80 41> 时，Unicode一致性对转换器的唯一正式要求是
+// <41> 必须被处理并正确解释为 <U+0041>。转换器可以返回 <U+FFFD, U+0041>，将 <F0 80
+// 80>作为单个错误处理；或返回 <U+FFFD, U+FFFD, U+FFFD, U+0041>，将 <F0 80 80> 的每
+// 个字节作为单独的错误处理；或者采用其他方式来标记 <F0 80 80> 为格式错误的码元子序列。
+//
+// 最大子部分（Maximal Subparts）的 U+FFFD 替换。越来越多的实现正在采用W3C编码标准中
+// 规定的格式错误子序列处理方式，以实现一致的U+FFFD替换（http://www.w3.org/TR/encoding/）。
+// 尽管Unicode标准并不要求采用这种做法以符合一致性，但以下文本描述了这种做法并提供了详
+// 细的示例。不可转换偏移量（Unconvertible offset）：码元序列中的一个偏移位置，从该位
+// 置开始的任何码元子序列格式都不正确。格式错误子序列的最大子部分（Maximal subpart of
+// an ill-formed subsequence）：从不可转换偏移量（UTF-8的起始码元）开始的最长码元子序
+// 列，且满足以下任一条件：匹配一个合法码元序列的起始序列，或长度为1的子序列。
+//
+// 这个最大子部分的定义用于描述在进行替换时应前进多远：始终至少处理一个码元，或者尽可能
+// 多地处理合法码元，直到下一个码元会使其变为格式错误为止。即将合法码元序列前缀替换成
+// U+FFFD，或不能组成合法码元前缀则将 UTF-8 预期长度范围内的不能作为起始码元的字节都转
+// 换成 U+FFFD。更正式地表述为，在码元序列转换过程中，当遇到不可转换偏移量（该偏移量从
+// UTF-8 的起始码元开始）时：
+//  1.  该偏移量处的最大子部分被单个 U+FFFD 替换
+//  2.  转换在最大子部分偏移之后继续处理
+//
+// 这种替换最大子部分的做法可以简单地应用于 UTF-32 或 UTF-16 编码形式，但主要适用于转
+// 换 UTF-8 字符串的情况。除非格式错误子序列的开头与某些格式正确序列的开头相匹配，否则
+// 这种做法几乎会将格式错误的 UTF-8 序列中的每个字节都替换为一个 U+FFFD。例如，"非最短
+// 形式" 序列或其截断版本的每个字节都会被替换。对于代理码点或其截断版本的序列中的每个字
+// 节也会被替换为一个U+FFFD，对于超出U+10FFFF的码点的序列中的每个字节，以及任何其他不构
+// 成有效序列的字节，也会被替换为一个U+FFFD。只有当两字节或三字节的序列是原本至此为止格
+// 式正确的序列的截断版本时，才会有多个字节被替换为单个U+FFFD，如下表。关于这种方法在将
+// 其他字符集转换为Unicode时的推广讨论，参见第5.22节《转换中的U+FFFD替换》。
+//           E1 80      E2         F0 91 92      F1 BF         41
+//      =>  <E1 80 ??> <E2 ?? ??> <F0 91 92 ??> <F1 BF ?? ??> <41>
+//      =>   U+FFFD     U+FFFD     U+FFFD        U+FFFD        U+41
+
+typedef struct {
+    prh_u32 data;
+    struct {
+        prh_byte b1;
+        prh_byte b2;
+        prh_byte b3;
+        prh_byte b4;
+    };
+} prh_impl_utf8_data;
+
+typedef struct {
+    prh_u16 data;
+    struct {
+        prh_byte b2;
+        prh_byte b3;
+    };
+} prh_impl_utf8_b2b3;
+
+// 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4，第一字节是 C2 ~ F4 时才会调用以下函数
+prh_byte *prh_impl_read_curr_utf8_to_unicode(prh_byte *p, prh_char *c) {
+    prh_impl_utf8_data b; b.b1 = (prh_byte)*c;
+    if (b.b1 <= 0xDF) goto label_2_byte;
+    if (b.b1 <= 0xEF) goto label_3_byte;
+    goto label_4_byte; // 第一字节不能出现 F5~FF
+label_2_byte:
+    b.b2 = p[0]; // 第一字节范围 C2~DF
+    if ((b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
+    *c = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    return p + 1;
+label_3_byte:
+    prh_impl_utf8_b2b3 u = {.b2 = p[0], .b3 = p[1]};
+    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
+    if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
+    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
+    *c = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    return p + 2;
+label_4_byte:
+    b.b2 = p[0]; b.b3 = p[1]; b.b4 = p[2];
+#if prh_lit_endian
+    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
+#else
+    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
+#endif
+    if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
+    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
+    *c = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    return p + 3;
+label_invalid:
+    *c = prh_char_invalid;
+    return p;
+}
+
+prh_byte *prh_impl_read_curr_utf8_to_unicode_allow_non_shortest_form(prh_byte *p, prh_char *c) {
+    prh_impl_utf8_data b; b.b1 = (prh_byte)*c;
+    if (b.b1 <= 0xDF) goto label_2_byte;
+    if (b.b1 <= 0xEF) goto label_3_byte;
+    goto label_4_byte; // 第一字节不能出现 F5~FF
+label_2_byte:
+    b.b2 = p[0]; // 第一字节范围 C0~DF
+    if ((b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
+    *c = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    return p + 1;
+label_3_byte:
+    prh_impl_utf8_b2b3 u = {.b2 = p[0], .b3 = p[1]};
+    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
+    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
+    *c = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    return p + 2;
+label_4_byte:
+    b.b2 = p[0]; b.b3 = p[1]; b.b4 = p[2];
+#if prh_lit_endian
+    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
+#else
+    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
+#endif
+    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
+    *c = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    return p + 3;
+label_invalid:
+    *c = prh_char_invalid;
+    return p;
+}
+
+int prh_unicode_to_utf8(prh_char unicode, prh_byte *p) {
+    if (unicode <= 0x7F) {
+        *p = (prh_byte)unicode;
+        return 1;
+    }
+    if (unicode <= 0x07FF) { // 110yyyyy 10xxxxxx
+        p[0] = 0xC0 | (prh_byte)(unicode >> 6);
+        p[1] = 0x80 | (prh_byte)(unicode & 0x3f);
+        return 2;
+    }
+    if (unicode <= 0xFFFF) { // 1110zzzz 10yyyyyy 10xxxxxx
+        if (unicode <= 0xD7FF || unicode >= 0xE000) {
+            p[0] = 0xE0 | (prh_byte)(unicode >> 12);
+            p[1] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
+            p[2] = 0x80 | (prh_byte)(unicode & 0x3f);
+            return 3;
+        } else {
+            goto label_invalid;
+        }
+    }
+    if (unicode <= 0x10FFFF) { // 11110uuu 10uuzzzz 10yyyyyy 10xxxxxx
+        p[0] = 0xF0 | (prh_byte)(unicode >> 18);
+        p[1] = 0x80 | (prh_byte)((unicode >> 12) & 0x3f);
+        p[2] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
+        p[3] = 0x80 | (prh_byte)(unicode & 0x3f);
+        return 4;
+    }
+label_invalid: // 代理码点不是合法的统一编码标量值，或不能超过码点最大值 U+10FFFF
+    prh_debug_prerr(unicode);
+    return 0;
+}
 
 // 统一编码总体结构（General Structure）
 //
@@ -36170,6 +36381,40 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 // 一编码安全机制》[UTS39] 中描述了更全面的机制；特别是，排除默认可忽略码点是标识符通用
 // 配置文件的一部分。在有更高级别诊断可用的地方，例如在编程环境中，可以采取更有针对性的
 // 措施，以仍然允许这些字符的合法使用。见统一编码技术标准 #55《统一编码源代码处理》。
+
+prh_inline void prh_lexer_next_char(prh_lexer *l) {
+    l->c = *l->input_stream++; // 消耗一个字节
+}
+
+prh_inline void prh_lexer_read_utf8(prh_lexer *l) { // 当前是一个多字节utf8字符，消耗当前utf8字符的剩余部分
+    l->input_stream = prh_impl_read_curr_utf8_to_unicode(l->input_stream, &l->c);
+}
+
+int prh_lexer_read_token(prh_lexer *l) {
+    prh_char b, c;
+label_skipped:
+    c = l->c; assert(c <= 0xFF);
+    b = PRH_LEXER_B256[c];
+    switch (b) {
+    case prh_b256_newline:
+        prh_lexer_newline(l);
+#ifdef prh_impl_token_newline
+        return PRH_NEWLINE;
+#else
+        goto label_skipped;
+#endif
+    case prh_b256_utf8_start_byte:
+        prh_lexer_read_utf8(l);
+        break;
+    case prh_b256_utf8_inval_byte:
+        l->c = prh_char_invalid;
+        break;
+    default:
+    }
+    // 处理大于 0x7F 的utf8字符
+    switch (l->c) {
+    }
+}
 
 #endif // PRH_LEXER_INCLUDE
 
