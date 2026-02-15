@@ -34314,6 +34314,88 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //      1F130..1F149  ; Cased # So  [26] SQUARED LATIN CAPITAL LETTER A..SQUARED LATIN CAPITAL LETTER Z
 //      1F150..1F169  ; Cased # So  [26] NEGATIVE CIRCLED LATIN CAPITAL LETTER A..NEGATIVE CIRCLED LATIN CAPITAL LETTER Z
 //      1F170..1F189  ; Cased # So  [26] NEGATIVE SQUARED LATIN CAPITAL LETTER A..NEGATIVE SQUARED LATIN CAPITAL LETTER Z
+//
+//  WHITESPACE: // 空白字符（除了换行）不是词法元素，仅用于分隔词法
+//      | U+0020            // 0020 White_Space # Zs SPACE ' '（空格）
+//      | U+0009            // 0009 White_Space # Cc <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//      | U+3000            // 3000 White_Space # Zs IDEOGRAPHIC SPACE '　'（表意空格/全角空格）
+//      | comment
+//
+//  NEWLINE:
+//      | U+000A            // 000A White_Space # Cc <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//      | U+000D            // 000D White_Space # Cc <control-000D> CARRIAGE RETURN (CR), \r
+//      | U+000D U+000A     // CRLF \r\n
+//      | U+000A U+000D     // \n\r
+//      | <endmark>
+//
+//  Pattern_White_Space 中除识别为换行符的字符外，所有其他字符应解释为水平空白
+//      0009          ; Pattern_White_Space # Cc       <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//      000A          ; Pattern_White_Space # Cc       <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//      000B          ; Pattern_White_Space # Cc       <control-000B> LINE TABULATION, vertical tab (VT), \v（某些情况下的分行符）
+//      000C          ; Pattern_White_Space # Cc       <control-000C> FORM FEED (FF), \f（分页符，相当于一个特殊的分行符）
+//      000D          ; Pattern_White_Space # Cc       <control-000D> CARRIAGE RETURN (CR), \r
+//      0020          ; Pattern_White_Space # Zs       SPACE ' '（空格）
+//      0085          ; Pattern_White_Space # Cc       <control-0085> NEXT LINE (NEL)
+//      200E..200F    ; Pattern_White_Space # Cf   [2] LEFT-TO-RIGHT MARK..RIGHT-TO-LEFT MARK (Default_Ignorable_Code_Point)
+//      2028          ; Pattern_White_Space # Zl       LINE SEPARATOR (LS)
+//      2029          ; Pattern_White_Space # Zp       PARAGRAPH SEPARATOR (PS)
+//
+//  OPERATORS:
+//      | 0021 002F   标点（! " # $ % & ' ( ) * + , - . /）
+//      | 003A 0040   标点（: ; < = > ? @）
+//      | 005B 0060   标点（[ \ ] ^ _ `）
+//      | 007B 007E   标点（{ | } ~）
+//      | 00AB        标点（«）
+//      | 00BB        标点（»）
+//      | 00D7        标点（×）
+//      | 00F7        标点（÷）
+
+#define prh_char_null       0x00 // NUL
+#define prh_char_bell       0x07 // BEL
+#define prh_char_baskspace  0x08 // BS
+#define prh_char_tab        0x09 // HT
+#define prh_char_newline    0x0A // LF NL EOL
+#define prh_char_linetab    0x0B // VT
+#define prh_char_newpage    0x0C // FF
+#define prh_char_return     0x0D // CR
+#define prh_char_cancel     0x18 // CAN
+#define prh_char_escape     0x1B // ESC
+#define prh_char_space      0x20 // SP
+#define prh_char_emark      0x21 // !
+#define prh_char_dquote     0x22 // "
+#define prh_char_hash       0x23 // #
+#define prh_char_dollar     0x24 // $
+#define prh_char_percent    0x25 // %
+#define prh_char_and        0x26 // &
+#define prh_char_squote     0x27 // '
+#define prh_char_lparen     0x28 // (
+#define prh_char_rparen     0x29 // )
+#define prh_char_aster      0x2A // *
+#define prh_char_plus       0x2B // +
+#define prh_char_comma      0x2C // ,
+#define prh_char_minus      0x2D // -
+#define prh_char_dot        0x2E // .
+#define prh_char_slash      0x2F // /
+#define prh_char_colon      0x3A // :
+#define prh_char_semic      0x3B // ;
+#define prh_char_less       0x3C // <
+#define prh_char_assign     0x3D // =
+#define prh_char_great      0x3E // >
+#define prh_char_qmark      0x3F // ?
+#define prh_char_at         0x40 // @
+#define prh_char_lsquare    0x5B // [
+#define prh_char_bslash     0x5C // '\\'
+#define prh_char_rsquare    0x5D // ]
+#define prh_char_caret      0x5E // ^
+#define prh_char_underscore 0x5F // _
+#define prh_char_bquote     0x60 // `
+#define prh_char_lcurly     0x7B // {
+#define prh_char_vertbar    0x7C // |
+#define prh_char_rcurly     0x7D // }
+#define prh_char_tilde      0x7E // ~
+#define prh_char_del        0x7F // DEL
+#define prh_char_endmark    0xffffffff
+#define prh_char_maxcode    0x0010ffff
 
 // 统一编码标准是所有当今广泛使用的字符的超集。它包含主要国际和国家标准以及著名行业字符
 // 集中的字符。例如，统一编码纳入了 ISO/IEC 6937 和 ISO/IEC 8859 标准族、SGML 标准
@@ -36088,86 +36170,6 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 // 一编码安全机制》[UTS39] 中描述了更全面的机制；特别是，排除默认可忽略码点是标识符通用
 // 配置文件的一部分。在有更高级别诊断可用的地方，例如在编程环境中，可以采取更有针对性的
 // 措施，以仍然允许这些字符的合法使用。见统一编码技术标准 #55《统一编码源代码处理》。
-//
-//  whitespace:
-//      | U+0020            // 0020 White_Space # Zs SPACE ' '（空格）
-//      | U+0009            // 0009 White_Space # Cc <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
-//      | U+3000            // 3000 White_Space # Zs IDEOGRAPHIC SPACE '　'（表意空格/全角空格）
-//      | comment
-//
-//  newline:
-//      | U+000A            // 000A White_Space # Cc <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
-//      | U+000D            // 000D White_Space # Cc <control-000D> CARRIAGE RETURN (CR), \r
-//      | U+000D U+000A     // CRLF \r\n
-//      | U+000A U+000D     // \n\r
-//      | <endmark>
-//
-//  Pattern_White_Space 中除识别为换行符的字符外，所有其他字符应解释为水平空白
-//      0009          ; Pattern_White_Space # Cc       <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
-//      000A          ; Pattern_White_Space # Cc       <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
-//      000B          ; Pattern_White_Space # Cc       <control-000B> LINE TABULATION, vertical tab (VT), \v（某些情况下的分行符）
-//      000C          ; Pattern_White_Space # Cc       <control-000C> FORM FEED (FF), \f（分页符，相当于一个特殊的分行符）
-//      000D          ; Pattern_White_Space # Cc       <control-000D> CARRIAGE RETURN (CR), \r
-//      0020          ; Pattern_White_Space # Zs       SPACE ' '（空格）
-//      0085          ; Pattern_White_Space # Cc       <control-0085> NEXT LINE (NEL)
-//      200E..200F    ; Pattern_White_Space # Cf   [2] LEFT-TO-RIGHT MARK..RIGHT-TO-LEFT MARK (Default_Ignorable_Code_Point)
-//      2028          ; Pattern_White_Space # Zl       LINE SEPARATOR (LS)
-//      2029          ; Pattern_White_Space # Zp       PARAGRAPH SEPARATOR (PS)
-//
-// Operator:
-//      | 0021 002F   标点（! " # $ % & ' ( ) * + , - . /）
-//      | 003A 0040   标点（: ; < = > ? @）
-//      | 005B 0060   标点（[ \ ] ^ _ `）
-//      | 007B 007E   标点（{ | } ~）
-//      | 00AB        标点（«）
-//      | 00BB        标点（»）
-//      | 00D7        标点（×）
-//      | 00F7        标点（÷）
-
-#define prh_char_null       0x00 // NUL
-#define prh_char_bell       0x07 // BEL
-#define prh_char_baskspace  0x08 // BS
-#define prh_char_tab        0x09 // HT
-#define prh_char_newline    0x0A // LF NL EOL
-#define prh_char_linetab    0x0B // VT
-#define prh_char_newpage    0x0C // FF
-#define prh_char_return     0x0D // CR
-#define prh_char_cancel     0x18 // CAN
-#define prh_char_escape     0x1B // ESC
-#define prh_char_space      0x20 // SP
-#define prh_char_emark      0x21 // !
-#define prh_char_dquote     0x22 // "
-#define prh_char_hash       0x23 // #
-#define prh_char_dollar     0x24 // $
-#define prh_char_percent    0x25 // %
-#define prh_char_and        0x26 // &
-#define prh_char_squote     0x27 // '
-#define prh_char_lparen     0x28 // (
-#define prh_char_rparen     0x29 // )
-#define prh_char_aster      0x2A // *
-#define prh_char_plus       0x2B // +
-#define prh_char_comma      0x2C // ,
-#define prh_char_minus      0x2D // -
-#define prh_char_dot        0x2E // .
-#define prh_char_slash      0x2F // /
-#define prh_char_colon      0x3A // :
-#define prh_char_semic      0x3B // ;
-#define prh_char_less       0x3C // <
-#define prh_char_assign     0x3D // =
-#define prh_char_great      0x3E // >
-#define prh_char_qmark      0x3F // ?
-#define prh_char_at         0x40 // @
-#define prh_char_lsquare    0x5B // [
-#define prh_char_bslash     0x5C // '\\'
-#define prh_char_rsquare    0x5D // ]
-#define prh_char_caret      0x5E // ^
-#define prh_char_underscore 0x5F // _
-#define prh_char_bquote     0x60 // `
-#define prh_char_lcurly     0x7B // {
-#define prh_char_vertbar    0x7C // |
-#define prh_char_rcurly     0x7D // }
-#define prh_char_tilde      0x7E // ~
-#define prh_char_del        0x7F // DEL
 
 #endif // PRH_LEXER_INCLUDE
 
