@@ -32802,7 +32802,7 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_SOCK_INCLUDE
 
-#ifdef PRH_SCAN_INCLUDE
+#ifdef PRH_LEXER_INCLUDE
 // https://www.unicode.org/versions/latest/
 // https://www.unicode.org/reports/index.html
 //
@@ -33073,7 +33073,26 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //      以补充位于BMP中的6400个私用字符。
 //
 //     0000  FFFF   第0平面，基本多语言平面
-//                  0000 00FF   ASCII和Latin-1兼容区
+//                  0000 007F   控制字符C0和基本拉丁字母1（Latin-1）
+//                              0020        空格（Zs）
+//                              0021 002F   标点（! " # $ % & ' ( ) * + , - . /）
+//                              0030 0039   数字（0 1 2 3 4 5 6 7 8 9）
+//                              003A 0040   标点（: ; < = > ? @）
+//                              0041 005A   字母（A-Z）
+//                              005B 0060   标点（[ \ ] ^ _ `）
+//                              0061 007A   字母（a-z）
+//                              007B 007E   标点（{ | } ~）
+//                              007F        控制字符（DEL）
+//                  0080 00FF   控制字符C1和拉丁字母1（Latin-1）扩展
+//                              00A0        不换行空格（Zs）
+//                              00A1 00AC   标点（¡ ¢ £ ¤ ¥ ¦ § ¨ © ª « ¬ ）
+//                              00AD        控制字符（SHY）
+//                              00AE 00BF   标点（® ¯ ° ± ² ³ ´ μ ¶ · ¸ ¹ º » ¼ ½ ¾ ¿）
+//                              00C0 00D6   字母（Ä ~ Ö）
+//                              00D7        标点（×）
+//                              00D8 00F6   字母（Ø ~ ö）
+//                              00F7        标点（÷）
+//                              00F8 00FF   字母（ø ~ ÿ）
 //                  0100 1FFF   通用文字区
 //                              0100 058F   通用文字区
 //                              0590 08FF   通用文字区，从右到左文字（RTL）
@@ -33083,13 +33102,39 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //                  2E00 2E7F   扩展标点区
 //                  2E80 9FFF   表意文字区
 //                              2E80 33FF   CJK部首符号区
+//                                          2E80 2EFF   表意部首扩展区（⺁ ~ ⻳）
+//                                          2F00 2FEF   表意部首（⼀ ~ ⿕）
+//                                          2FF0 2FFF   表意字符结构描述（⿰ ~ ⿿）+ 31EF（㇯）
+//                                          3000 303F   表意空格、符号、标点、记号
+//                                                      3000        表意空格（IDSP）
+//                                                      3001 3006   标记（、。〃 〄 々 〆）
+//                                                      3007        表意零（〇）
+//                                                      3008 3020   标记（〈〉《》「」『』【】 〒 〓〔〕〖〗〘〙〚〛〜〝〞〟〠）
+//                                                      3021 3029   杭州算筹（〡 ~ 〩）
+//                                                      302A 302F   组合标记
+//                                                      3030 3037   标记（〰 〱 〲 〳 〴 〵 〶 〷）
+//                                                      3038 303A   杭州算筹（〸 ~ 〺）
+//                                                      303B 303F   标记（〻 〼 〽 〾 〿）
+//                                          3040 309F   平假名（包括几个标记゛゜）
+//                                          30A0 30FF   片假名
+//                                          3100 312F   表意注音符号（Bopomofo，ㄅ ~ ㄯ）
+//                                          3130 318F   韩文兼容字母
+//                                          3190 319F   表意注记符号（㆐㆑㆒㆓㆔㆕㆖㆝㆞㆟）
+//                                          31A0 31BF   表意注音扩展（ㆠ ~ ㆹ）
+//                                          31C0 31EF   表意字符笔划
+//                                          31F0 31FF   片假名注音扩展
+//                                          3200 32FF   括起的表意字母和月份（Enclosed）
+//                                          3300 33FF   表意兼容标记和符号
 //                              3400 9FFF   CJKV表意文字区
+//                                          3400 4DBF   表意字符扩展A区（㐀 ~ 䶿，6592个汉字）
+//                                          4DC0 4DFF   易经卦符号
+//                                          4E00 9FFF   表意字符区（一 ~ 鿿，20992个汉字）
 //                  A000 ABFF   通用文字区（亚洲和非洲）
 //                  AC00 D7FF   韩文音节区
 //                  D800 DFFF   代理码点区
 //                  E000 F8FF   私有用途区（6400个码点）
 //                  F900 FFFF   兼容特殊区
-//                              F900 FAFF   CJK兼容表意文字
+//                              F900 FAFF   表意兼容字符（豈 ~ 龎，512个汉字）
 //                              FB00 FE2F   其他兼容文字
 //                              FE30 FE4F   CJK兼容符号
 //                              FE50 FE6F   小字变体符号
@@ -33102,14 +33147,39 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //                            1_0800 1_0FFF 通用文字区，从右到左文字（RTL）
 //                            1_1000 1_1FFF 通用文字区
 //                1_2000 1_5FFF 楔形象形文字区
-//                1_6000 1_6FFF 通用文字区
-//                1_7000 1_BBFF 表意文字区，大型历史类汉字语素文字（但非汉字），如西夏文、女真文和契丹文，以及其他东亚语素文字，如纳西文
+//                1_6000 1_6FDF 通用文字区
+//                1_6FE0 1_6FFF 表意符号和标点
+//                              1_6FE0 1_6FEF 标记（1_6FE4 Mn 契丹文过滤）
+//                              1_6FF0 1_6FF1 组合标记（西夏和女书标记）
+//                              1_6FF2 1_6FF3 记号字母（Lm，儿，兒）
+//                              1_6FF4 1_6FF6 字母数字（Nl，两竖一横，三竖一横，一叉一横）
+//                1_7000 1_BBFF 表意古文字区，大型历史类汉字语素文字（但非汉字），如西夏文、女真文和契丹文，以及其他东亚语素文字，如纳西文
+//                              1_7000 1_8AFF 西夏文字区（Tangut）
+//                              1_8B00 1_8CFF 契丹文字（Khitan）
+//                              1_8D00 1_8DFF 西夏文字扩展区
+//                              1_8E00 1_AFEF 未分配
+//                              1_AFF0 1_B16F 假名扩展区
+//                              1_B170 1_B2FF 女书字符
+//                              1_B300 1_BBFF 未分配
 //                1_BC00 1_CFFF 通用文字区
 //                1_D000 1_E7FF 符号区，音乐符号、速记符号和数学字母数字符号
 //                1_E800 1_EFFF 通用文字区，从右到左文字（RTL）
 //                1_F000 1_FFFF 符号区，各种游戏符号，以及大量杂项符号和象形符号，主要用于东亚字符集的兼容性映射，包括表情符号
 //  2_0000 2_FFFF   第2平面，扩展表意文字平面，额外的统一表意文字，还包括一些兼容性表意文字
+//                2_0000 2_A6FF 表意字符扩展B区（42752个汉字）
+//                2_A700 2_B73F 表意字符扩展C区（4160个汉字）
+//                2_B740 2_B81F 表意字符扩展D区（224个汉字）
+//                2_B820 2_CEAF 表意字符扩展E区（5776个汉字）
+//                2_CEB0 2_EBEF 表意字符扩展F区（7488个汉字）
+//                2_EBF0 2_EE5D 表意字符扩展I区（622个汉字）
+//                2_EE70 2_F7FF 未分配
+//                2_F800 2_FA1D 表意兼容扩展区（542个汉字）
+//                2_FF80 2_FFFF 未分配
 //  3_0000 3_FFFF   第3平面，扩展表意文字平面，额外的统一表意文字，还包括一些汉字历史前身分配区块，如最著名的篆书（Seal Script）
+//                3_0000 3_134F 表意字符扩展G区（4944个汉字）
+//                3_1350 3_23AF 表意字符扩展H区（4192个汉字）
+//                3_23B0 3_3479 表意字符扩展J区（4298个汉字）
+//                3_FF80 3_FFFF 未分配
 //  4_0000 D_FFFF   保留区域，所有平面的最后两个码位永久保留作为非字符（XXFFFE XXFFFF）
 //  E_0000 E_FFFF   第14平面，扩展特殊用途平面
 //                E_0000 E_0FFF 预留用于具有Default_Ignorable_Code_Point属性的特殊字符，已分配少量标签字符及一些补充变体选择字符
@@ -33584,8 +33654,7 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 //          用于派生 Uppercase 属性。
 //      Pattern_Syntax              B       N
 //      Pattern_White_Space         B       N
-//          用于 Unicode 标准附件 #31《Unicode 标识符和模式语法》[UAX31] 中描述的模
-//          式语法。
+//          用于统一编码标准附件 #31《统一编码标识符和语法》[UAX31] 中描述的模式语法。
 //      Prepended_Concatenation_Mark    B   I
 //          一小类可见格式控制符，它们位于前面然后跨越其他字符序列，通常是数字。这些也
 //          被称为"下延标记"，因为它们中的大多数采用的形式在视觉上延伸到后续数字序列下
@@ -33817,268 +33886,6 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 // 分配码点的标量值，必须映射到唯一的码元序列。注意，此要求不适用于高代理码点和低代理码
 // 点，它们根据定义被排除在统一编码标量值集合之外。
 //
-// UTF-8 编码中，码点序列 <004D, 0430, 4E8C, 10302> 表示为 <4D D0 B0 E4 BA 8C F0
-// 90 8C 82>，其中 <4D> 对应 U+004D，<D0 B0> 对应 U+0430，<E4 BA 8C> 对应 U+4E8C，
-// <F0 90 8C 82> 对应 U+10302。任何不符合下表所列模式的 UTF-8 字节序列形式的格式都是
-// 错误的（ill-formed）。在统一编码标准 3.1 版之前，UTF-8 中存在问题的 "非最短形式"
-// 字节序列是指那些可以用多种方式表示的基本多语言页（BMP）字符的序列。这些序列格式非法，
-// 因为它们不被下表所允许。由于代理码点（surrogate code points）不是统一编码标量值，
-// 任何原本会映射到 U+D800 ~ U+DFFF 码点的 UTF-8 字节序列都是格式错误的。关于ISO/IEC
-// 10646 中 UTF-8 表述差异的讨论，参见附录C.3《UTF-8与UTF-16》。
-//
-//  UTF-8 编码形式的位分布（显示对应一二三四字节序列的统一编码标量值范围）
-//           标量值             标量范围         第一字节  第二字节  第三字节  第四字节  编码范围
-//           00000000 0xxxxxxx  U+0000~U+007F   0xxxxxxx                            00~7F
-//           00000yyy yyxxxxxx  U+0080~U+07FF   110yyyyy 10xxxxxx                   C0~DF 80~BF
-//           zzzzyyyy yyxxxxxx  U+0800~U+FFFF   1110zzzz 10yyyyyy 10xxxxxx          E0~EF 80~BF 80~BF
-//  000uuuuu zzzzyyyy yyxxxxxx  010000~1FFFFF   11110uuu 10uuzzzz 10yyyyyy 10xxxxxx F0~F7 80~BF 80~BF 80~BF
-//
-//  合法 UTF-8 字节序列
-//          码点范围       第一字节
-//          U+0000~U+007F  00~7F
-//          ------------- 第一字节 第二字节
-//          U+0080~U+07FF  C2~DF   80~BF
-//          ------------- 第一字节 第二字节  第三字节
-//          U+0800~U+0FFF  E0      (A0)~BF  80~BF
-//          U+1000~U+CFFF  E1~EC   80~BF    80~BF
-//          U+D000~U+D7FF  ED      80~(9F)  80~BF
-//          U+E000~U+FFFF  EE~EF   80~BF    80~BF
-//          ------------- 第一字节 第二字节  第三字节  第四字节
-//          010000~03FFFF  F0      (90)~BF  80~BF    80~BF
-//          040000~0FFFFF  F1~F3   80~BF    80~BF    80~BF
-//          100000~10FFFF  F4      80~(8F)  80~BF    80~BF
-//
-// 上表列出了 UTF-8 中所有格式正确（well-formed）的字节序列。任何超出所列范围的字节值
-// 都是格式错误（ill-formed）的。例如，第一字节不能出现 80~C1 F5~FF，第二字节不能出现
-// 00~7F C0~FF 并且还有额外情况，第三第四字节必须是 80~BF。空缺的码点：
-//          1.  两字节序列中以 C0 和 C1 字节开始的序列，该范围与单字节 UTF-8 重复
-//              (110)0_0000 C0 => 0_0000_xxxxxx => 00xx_xxxx => U+00~U+3F
-//              (110)0_0001 C1 => 0_0001_xxxxxx => 01xx_xxxx => U+40~U+7F
-//          2.  三字节序列中以 <E0 80~9F> 开始的序列，该范围与单字节和双字节 UTF-8 重复
-//              (1110)_0000 (10)00_0000 <E0 80> => 0y_yyyy_xxxxxx
-//              (1110)_0000 (10)01_1111 <E0 9F> => 0yyy_yyxx_xxxx => U+0000~U+07FF
-//          3.  三字节序列中以 <ED A0~BF> 开始的序列，该范围是代理码点（surrogate code points）的范围
-//              (1110)_1101 (10)10_0000 <ED A0> => 1101_1y_yyyy_xxxxxx
-//              (1110)_1101 (10)11_1111 <ED BF> => 1101_1yyy_yyxx_xxxx => U+D800~U+DFFF
-//          4.  四字节序列中以 <F0 80~8F> 开始的序列，该范围与单字节和双字节和三字节 UTF-8 重复
-//              (1111_0)000 (10)00_0000 <F0 80> => zzzz_yyyyyy_xxxxxx
-//              (1111_0)000 (10)00_1111 <F0 8F> => zzzz_yyyy_yyxx_xxxx => U+0000~U+FFFF
-//          5.  四字节序列中以 <F4 90~BF> 开始的序列，码点必须 <= U+10FFFF
-//              (1111_0)100 (10)01_0000 <F4 90> => 100_01_0000_yyyyyy_xxxxxx
-//                                              => 1_0001_0000_yyyy_yyxx_xxxx => U+110000
-//
-// 处理原则：如果转换器遇到格式错误的 UTF-8 码元序列，该序列以有效的首字节开始，但后续
-// 没有有效的后继字节，则当这些后继字节本身构成格式正确的 UTF-8 码元子序列的一部分时，
-// 转换器不得将这些后继字节作为格式错误子序列的一部分消耗掉。对于UTF-8转换过程来说，消
-// 耗有效的后继字节不仅不符合规范，还会使转换器面临安全漏洞的风险。参见Unicode技术报告
-// #36《Unicode安全考虑》。
-//
-// 例如，在处理UTF-8码元序列 <F0 80 80 41> 时，Unicode一致性对转换器的唯一正式要求是
-// <41> 必须被处理并正确解释为 <U+0041>。转换器可以返回 <U+FFFD, U+0041>，将 <F0 80
-// 80>作为单个错误处理；或返回 <U+FFFD, U+FFFD, U+FFFD, U+0041>，将 <F0 80 80> 的每
-// 个字节作为单独的错误处理；或者采用其他方式来标记 <F0 80 80> 为格式错误的码元子序列。
-//
-// 最大子部分（Maximal Subparts）的 U+FFFD 替换。越来越多的实现正在采用W3C编码标准中
-// 规定的格式错误子序列处理方式，以实现一致的U+FFFD替换（http://www.w3.org/TR/encoding/）。
-// 尽管Unicode标准并不要求采用这种做法以符合一致性，但以下文本描述了这种做法并提供了详
-// 细的示例。不可转换偏移量（Unconvertible offset）：码元序列中的一个偏移位置，从该位
-// 置开始的任何码元子序列格式都不正确。格式错误子序列的最大子部分（Maximal subpart of
-// an ill-formed subsequence）：从不可转换偏移量（UTF-8的起始码元）开始的最长码元子序
-// 列，且满足以下任一条件：匹配一个合法码元序列的起始序列，或长度为1的子序列。
-//
-// 这个最大子部分的定义用于描述在进行替换时应前进多远：始终至少处理一个码元，或者尽可能
-// 多地处理合法码元，直到下一个码元会使其变为格式错误为止。即将合法码元序列前缀替换成
-// U+FFFD，或不能组成合法码元前缀则将 UTF-8 预期长度范围内的不能作为起始码元的字节都转
-// 换成 U+FFFD。更正式地表述为，在码元序列转换过程中，当遇到不可转换偏移量（该偏移量从
-// UTF-8 的起始码元开始）时：
-//  1.  该偏移量处的最大子部分被单个 U+FFFD 替换
-//  2.  转换在最大子部分偏移之后继续处理
-//
-// 这种替换最大子部分的做法可以简单地应用于 UTF-32 或 UTF-16 编码形式，但主要适用于转
-// 换 UTF-8 字符串的情况。除非格式错误子序列的开头与某些格式正确序列的开头相匹配，否则
-// 这种做法几乎会将格式错误的 UTF-8 序列中的每个字节都替换为一个 U+FFFD。例如，"非最短
-// 形式" 序列或其截断版本的每个字节都会被替换。对于代理码点或其截断版本的序列中的每个字
-// 节也会被替换为一个U+FFFD，对于超出U+10FFFF的码点的序列中的每个字节，以及任何其他不构
-// 成有效序列的字节，也会被替换为一个U+FFFD。只有当两字节或三字节的序列是原本至此为止格
-// 式正确的序列的截断版本时，才会有多个字节被替换为单个U+FFFD，如下表。关于这种方法在将
-// 其他字符集转换为Unicode时的推广讨论，参见第5.22节《转换中的U+FFFD替换》。
-//           E1 80      E2         F0 91 92      F1 BF         41
-//      =>  <E1 80 ??> <E2 ?? ??> <F0 91 92 ??> <F1 BF ?? ??> <41>
-//      =>   U+FFFD     U+FFFD     U+FFFD        U+FFFD        U+41
-
-#define PRH_UNICODE_POINT_LOWER_LIMIT 0x000000
-#define PRH_UNICODE_POINT_UPPER_LIMIT 0x10FFFF
-#define PRH_INVALID_UNICODE 0x110000
-
-typedef struct {
-    prh_u32 data;
-    struct {
-        prh_byte b1;
-        prh_byte b2;
-        prh_byte b3;
-        prh_byte b4;
-    };
-} prh__utf8_data;
-
-typedef struct {
-    prh_u16 data;
-    struct {
-        prh_byte b2;
-        prh_byte b3;
-    };
-} prh__utf8_b2b3;
-
-prh_byte *prh__multi_byte_utf8_to_unicode(prh_byte *p, prh_char *unicode) {
-    prh__utf8_data b; b.b1 = *p;
-    if (b.b1 <= 0xDF) goto label_2_byte;
-    if (b.b1 <= 0xEF) goto label_3_byte;
-    if (b.b1 <= 0xF4) goto label_4_byte;
-    goto label_invalid; // 第一字节不能出现 F5~FF
-label_2_byte:
-    b.b2 = p[1]; // 第一字节范围 C2~DF
-    if (b.b1 < 0xC2 || (b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    *unicode = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
-    return p + 2;
-label_3_byte:
-    prh__utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
-    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
-    if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
-    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid;
-    *unicode = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
-    return p + 3;
-label_4_byte:
-    b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
-#if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
-#else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
-#endif
-    if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
-    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid;
-    *unicode = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
-    return p + 4;
-label_invalid:
-    *unicode = PRH_INVALID_UNICODE;
-    return p;
-}
-
-prh_byte *prh__multi_byte_utf8_to_unicode_allow_non_shortest_form(prh_byte *p, prh_char *unicode) {
-    prh__utf8_data b; b.b1 = *p;
-    if (b.b1 <= 0xDF) goto label_2_byte;
-    if (b.b1 <= 0xEF) goto label_3_byte;
-    if (b.b1 <= 0xF4) goto label_4_byte;
-    goto label_invalid; // 第一字节不能出现 F5~FF
-label_2_byte:
-    b.b2 = p[1]; // 第一字节范围 C0~DF
-    if (b.b1 < 0xC0 || (b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    *unicode = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
-    return p + 2;
-label_3_byte:
-    prh__utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
-    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
-    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
-    *unicode = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
-    return p + 3;
-label_4_byte:
-    b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
-#if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
-#else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
-#endif
-    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
-    *unicode = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
-    return p + 4;
-label_invalid:
-    *unicode = PRH_INVALID_UNICODE;
-    return p;
-}
-
-int prh_unicode_to_utf8(prh_char unicode, prh_byte *p) {
-    if (unicode <= 0x7F) {
-        *p = (prh_byte)unicode;
-        return 1;
-    }
-    if (unicode <= 0x07FF) { // 110yyyyy 10xxxxxx
-        p[0] = 0xC0 | (prh_byte)(unicode >> 6);
-        p[1] = 0x80 | (prh_byte)(unicode & 0x3f);
-        return 2;
-    }
-    if (unicode <= 0xFFFF) { // 1110zzzz 10yyyyyy 10xxxxxx
-        if (unicode <= 0xD7FF || unicode >= 0xE000) {
-            p[0] = 0xE0 | (prh_byte)(unicode >> 12);
-            p[1] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
-            p[2] = 0x80 | (prh_byte)(unicode & 0x3f);
-            return 3;
-        } else {
-            goto label_invalid;
-        }
-    }
-    if (unicode <= 0x10FFFF) { // 11110uuu 10uuzzzz 10yyyyyy 10xxxxxx
-        p[0] = 0xF0 | (prh_byte)(unicode >> 18);
-        p[1] = 0x80 | (prh_byte)((unicode >> 12) & 0x3f);
-        p[2] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
-        p[3] = 0x80 | (prh_byte)(unicode & 0x3f);
-        return 4;
-    }
-label_invalid: // 代理码点不是合法的统一编码标量值，或不能超过码点最大值 U+10FFFF
-    prh_debug_prerr(unicode);
-    return 0;
-}
-
-// 统一编码标准包含少量具有特殊行为的重要字符，其中一些在本节中介绍。实现必须正确处理这
-// 些字符，有关这些及类似字符的列表，请参见第4.12节"具有不寻常属性的字符"，有关此类字符
-// 的更多信息，请参见第23.1节"控制代码"、第23.2节"布局控制"、第23.7节"非字符"和第23.8
-// 节"特殊字符"。
-//
-// 统一编码标准包含许多有意不用于表示已分配字符的码点。这些码点被称为非字符（noncharacters）。
-// 它们被永久保留供内部使用，不用于统一编码文本的开放交换。有关非字符的更多信息，请参见
-// 第23.7节"非字符"。
-//
-// 统一编码纯文本的UTF-16和UTF-32编码形式对序列化文本为字节序列时使用的字节顺序敏感，例
-// 如在将数据写入文件或通过网络传输数据时。某些处理器将最低有效字节放在初始位置；其他处
-// 理器将最高有效字节放在初始位置。理想情况下，统一编码标准的所有实现都只遵循一组字节顺
-// 序规则，但这种方案会迫使一类处理器在读写纯文本文件时交换字节顺序，即使该文件从未离开
-// 创建它的系统。为了有一种有效的方式来指示文本中使用哪种字节顺序，统一编码标准包含两个
-// 码点：U+FEFF 零宽度不间断空格（在此上下文中更好地称为字节顺序标记或BOM）和U+FFFE（一
-// 个非字符），它们是彼此的字节顺序镜像。当接收到字节顺序相反的BOM时，它将被识别为非字符，
-// 因此可用于检测文本的预期字节顺序。BOM不是选择文本字节顺序的控制字符；相反，其功能是允
-// 许接收者确定文件中使用的字节顺序。
-//
-// 初始BOM也可以作为隐式标记，用于识别文件包含统一编码文本。对于UTF-16，字节序列FE FF
-// （或其字节反转的对应序列FF FE）在使用其他字符编码的文本文件开头极为罕见。BOM对应的
-// UTF-8字节序列EF BB BF也极为罕见。无论哪种情况，因此都不太可能与真实文本数据混淆。单
-// 字节编码和多字节编码都是如此。以给定编码形式的U+FEFF字节顺序标记的字节序列开头的数据
-// 流（或文件），很可能包含该编码形式的统一编码字符。符合统一编码标准并不要求必须使用BOM
-// 作为此类签名。有关字节顺序标记及其用作编码签名的更多信息，请参见第23.8节"特殊字符"。
-//
-// 统一编码标准定义了几个用于控制连接行为、双向排序控制和替代显示格式的字符。它们在布局
-// 和格式中的具体使用在第23.2节"布局控制"中描述。U+FFFD 替换字符是统一编码标准中的通用
-// 替代字符。它可以替代另一个编码中无法映射为已知统一编码字符的任何"未知"字符，参见第
-// 5.3节"未知和缺失字符"和第23.8节"特殊字符"。
-//
-// 除了统一编码标准为多种目的定义的特殊字符外，该标准还纳入了传统控制代码，以兼容ISO/IEC
-// 2022框架、ASCII以及各种使用控制代码的协议。然而，传统控制代码不仅仅是被定义为字节值，
-// 而是被分配给统一编码码点：U+0000~U+001F、U+007F~U+009F。当这些控制代码码点与其他统
-// 一编码字符一起使用时，必须与各种统一编码编码形式保持一致表示。有关控制代码的更多信息，
-// 请参见第23.1节"控制代码"。
-//
-// 在本标准中，大多数字符的行为不需要特别注意。然而，下表中的字符表现出特殊的行为。许多
-// 其他字符以特殊的方式行事，但这里没有提到，因为它们不会以相同的方式影响周围的文本，或
-// 者因为它们的使用是为了良好定义的上下文。例如包括块绘制的兼容字符，用于大型数学运算符
-// 的符号块，以及许多在某些情况下需要特殊处理的标点符号。这样的字符更加完整在后续章节中
-// 描述。
-//
-//      具有不寻常属性的字符
-//      换行控制（Line Break Controls） 23.2
-//          U+00AD soft hyphen 软连字符
-//          U+200B zero width space 零宽空格
-//          U+2060 word joiner 词连接器
-//      独立非间隔标记（isolated nonspacing marks） 2.11 6.2 23.2
-//          U+0020 空格（space）
-//          U+00A0 不换行空格（no-break space）
-//      双非间隔标记（double nonspacing marks） 7.9
-
 // 统一编码总体结构（General Structure）
 //
 // 本章描述了管理统一编码标准设计的基本原则，并概述其主要特性。本章首先通过讨论文本表示
@@ -34477,20 +34284,59 @@ label_invalid: // 代理码点不是合法的统一编码标量值，或不能�
 // 规范化算法解决的编码表示歧义。因此，DoNotEmit.txt省略了规范等价关系的列表。文件中的
 // 列表既不全面，也不受稳定性政策约束。条目可能会在统一编码标准的后续版本中添加或删除，
 // 以反映使用方面的新信息。
-
-//  1.  空白字符（除了换行）不是词法元素，仅用于分隔词法
-typedef enum {
-    PRH_NAME, // 标识符名称，包含关键字和保留名称
-    PRH_OPER, // 操作符，包含分隔符或标点
-    PRH_INT,  // 整数字面量
-    PRH_FLOAT, // 浮点字面量
-    PRH_CHAR, // 字符字面量
-    PRH_STRING, // 字符串字面量
-    PRH_COMMENT, // 注释
-    PRH_NEWLINE, // 换行
-    PRH_INDENT, // 增加缩进
-    PRH_DEDENT, // 取消缩进
-} prh_tokid_t;
+//
+// 统一编码标准包含少量具有特殊行为的重要字符，其中一些在本节中介绍。实现必须正确处理这
+// 些字符，有关这些及类似字符的列表，请参见第4.12节"具有不寻常属性的字符"，有关此类字符
+// 的更多信息，请参见第23.1节"控制代码"、第23.2节"布局控制"、第23.7节"非字符"和第23.8
+// 节"特殊字符"。
+//
+// 统一编码标准包含许多有意不用于表示已分配字符的码点。这些码点被称为非字符（noncharacters）。
+// 它们被永久保留供内部使用，不用于统一编码文本的开放交换。有关非字符的更多信息，请参见
+// 第23.7节"非字符"。
+//
+// 统一编码纯文本的UTF-16和UTF-32编码形式对序列化文本为字节序列时使用的字节顺序敏感，例
+// 如在将数据写入文件或通过网络传输数据时。某些处理器将最低有效字节放在初始位置；其他处
+// 理器将最高有效字节放在初始位置。理想情况下，统一编码标准的所有实现都只遵循一组字节顺
+// 序规则，但这种方案会迫使一类处理器在读写纯文本文件时交换字节顺序，即使该文件从未离开
+// 创建它的系统。为了有一种有效的方式来指示文本中使用哪种字节顺序，统一编码标准包含两个
+// 码点：U+FEFF 零宽度不间断空格（在此上下文中更好地称为字节顺序标记或BOM）和U+FFFE（一
+// 个非字符），它们是彼此的字节顺序镜像。当接收到字节顺序相反的BOM时，它将被识别为非字符，
+// 因此可用于检测文本的预期字节顺序。BOM不是选择文本字节顺序的控制字符；相反，其功能是允
+// 许接收者确定文件中使用的字节顺序。
+//
+// 初始BOM也可以作为隐式标记，用于识别文件包含统一编码文本。对于UTF-16，字节序列FE FF
+// （或其字节反转的对应序列FF FE）在使用其他字符编码的文本文件开头极为罕见。BOM对应的
+// UTF-8字节序列EF BB BF也极为罕见。无论哪种情况，因此都不太可能与真实文本数据混淆。单
+// 字节编码和多字节编码都是如此。以给定编码形式的U+FEFF字节顺序标记的字节序列开头的数据
+// 流（或文件），很可能包含该编码形式的统一编码字符。符合统一编码标准并不要求必须使用BOM
+// 作为此类签名。有关字节顺序标记及其用作编码签名的更多信息，请参见第23.8节"特殊字符"。
+//
+// 统一编码标准定义了几个用于控制连接行为、双向排序控制和替代显示格式的字符。它们在布局
+// 和格式中的具体使用在第23.2节"布局控制"中描述。U+FFFD 替换字符是统一编码标准中的通用
+// 替代字符。它可以替代另一个编码中无法映射为已知统一编码字符的任何"未知"字符，参见第
+// 5.3节"未知和缺失字符"和第23.8节"特殊字符"。
+//
+// 除了统一编码标准为多种目的定义的特殊字符外，该标准还纳入了传统控制代码，以兼容ISO/IEC
+// 2022框架、ASCII以及各种使用控制代码的协议。然而，传统控制代码不仅仅是被定义为字节值，
+// 而是被分配给统一编码码点：U+0000~U+001F、U+007F~U+009F。当这些控制代码码点与其他统
+// 一编码字符一起使用时，必须与各种统一编码编码形式保持一致表示。有关控制代码的更多信息，
+// 请参见第23.1节"控制代码"。
+//
+// 在本标准中，大多数字符的行为不需要特别注意。然而，下表中的字符表现出特殊的行为。许多
+// 其他字符以特殊的方式行事，但这里没有提到，因为它们不会以相同的方式影响周围的文本，或
+// 者因为它们的使用是为了良好定义的上下文。例如包括块绘制的兼容字符，用于大型数学运算符
+// 的符号块，以及许多在某些情况下需要特殊处理的标点符号。这样的字符更加完整在后续章节中
+// 描述。
+//
+//      具有不寻常属性的字符
+//      换行控制（Line Break Controls） 23.2
+//          U+00AD soft hyphen 软连字符
+//          U+200B zero width space 零宽空格
+//          U+2060 word joiner 词连接器
+//      独立非间隔标记（isolated nonspacing marks） 2.11 6.2 23.2
+//          U+0020 空格（space）
+//          U+00A0 不换行空格（no-break space）
+//      双非间隔标记（double nonspacing marks） 7.9
 
 // 字符通用类别属性（General_Category）- 分隔符（Zs | Zl | Zp）
 //
@@ -34707,19 +34553,6 @@ typedef enum {
 // 在 C 中，gets 被定义为在换行符处终止并用 '\0' 替换换行符，而 fgets 被定义为在换行符
 // 处终止并将换行符包含在其复制数据的数组中。C 实现将 '\n' 解释为 LF 或底层平台换行符
 // NLF，取决于其出现位置。EBCDIC C 编译器根据 EBCDIC 执行集替换相关代码。
-//
-//  whitespace:
-//      | U+0020            // 0020 White_Space # Zs SPACE ' '（空格）
-//      | U+0009            // 0009 White_Space # Cc <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
-//      | U+3000            // 3000 White_Space # Zs IDEOGRAPHIC SPACE '　'（表意空格/全角空格）
-//      | comment
-//
-//  newline:
-//      | U+000A            // 000A White_Space # Cc <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
-//      | U+000D            // 000D White_Space # Cc <control-000D> CARRIAGE RETURN (CR), \r
-//      | U+000D U+000A     // CRLF \r\n
-//      | U+000A U+000D     // \n\r
-//      | <endmark>
 //
 // 字符通用类别属性（General_Category）- 数字（Nd | Nl | No）
 //
@@ -35143,7 +34976,7 @@ typedef enum {
 //  Lu  Uppercase_Letter    大写字母
 //  Ll  Lowercase_Letter    小写字母
 //  Lt  Titlecase_Letter    作为单个字符编码的双字母，第一部分大写，例如 ǲ（Dz）
-//  LC  Cased_Letter        Lu | Ll | Lt
+//  LC  Cased_Letter        Lu | Ll | Lt，另外 L& 只是一个标签，其内容等同于 LC
 //  Lm  Modifier_Letter     修饰字母，本身不单独构成字母，而是用来修饰或影响相邻字母的独立字符（ʰ ˡ ˚）
 //  Lo  Other_Letter        其他字母，包括音节文字和表意文字
 //  L   Letter              Lu | Ll | Lt | Lm | Lo
@@ -35503,7 +35336,7 @@ typedef enum {
 //      被解释为行尾、可忽略格式控制符或水平空白的标准的任何更改。
 //      1.  根据 UAX31-R3a-1 的第 2 项，应视为可忽略格式控制符的字符是 U+200E 从左到
 //          右标记 和 U+200F 从右到左标记。根据 UAX31-R3a-1 的第 3 项，应视为水平空
-//          白的字符是 U+0020 空格 和 U+0009（水平制表符，TAB）。
+//          白的字符是 U+0020 空格和 U+0009（水平制表符，TAB）。
 //      2.  从左到右标记和从右到左标记是统一编码标准附件 #9《统一编码双向算法》[UAX9]
 //          第 2.6 节 "隐式方向标记" 定义的三个隐式方向标记中的两个。第三个，阿拉伯语
 //          字母标记，即使在阿拉伯语文本中也远不如其他两个常用；其行为与从右到左标记有
@@ -35741,8 +35574,88 @@ typedef enum {
 // 一编码安全机制》[UTS39] 中描述了更全面的机制；特别是，排除默认可忽略码点是标识符通用
 // 配置文件的一部分。在有更高级别诊断可用的地方，例如在编程环境中，可以采取更有针对性的
 // 措施，以仍然允许这些字符的合法使用。见统一编码技术标准 #55《统一编码源代码处理》。
+//
+//  whitespace:
+//      | U+0020            // 0020 White_Space # Zs SPACE ' '（空格）
+//      | U+0009            // 0009 White_Space # Cc <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//      | U+3000            // 3000 White_Space # Zs IDEOGRAPHIC SPACE '　'（表意空格/全角空格）
+//      | comment
+//
+//  newline:
+//      | U+000A            // 000A White_Space # Cc <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//      | U+000D            // 000D White_Space # Cc <control-000D> CARRIAGE RETURN (CR), \r
+//      | U+000D U+000A     // CRLF \r\n
+//      | U+000A U+000D     // \n\r
+//      | <endmark>
+//
+//  Pattern_White_Space 中除识别为换行符的字符外，所有其他字符应解释为水平空白
+//      0009          ; Pattern_White_Space # Cc       <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//      000A          ; Pattern_White_Space # Cc       <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//      000B          ; Pattern_White_Space # Cc       <control-000B> LINE TABULATION, vertical tab (VT), \v（某些情况下的分行符）
+//      000C          ; Pattern_White_Space # Cc       <control-000C> FORM FEED (FF), \f（分页符，相当于一个特殊的分行符）
+//      000D          ; Pattern_White_Space # Cc       <control-000D> CARRIAGE RETURN (CR), \r
+//      0020          ; Pattern_White_Space # Zs       SPACE ' '（空格）
+//      0085          ; Pattern_White_Space # Cc       <control-0085> NEXT LINE (NEL)
+//      200E..200F    ; Pattern_White_Space # Cf   [2] LEFT-TO-RIGHT MARK..RIGHT-TO-LEFT MARK (Default_Ignorable_Code_Point)
+//      2028          ; Pattern_White_Space # Zl       LINE SEPARATOR (LS)
+//      2029          ; Pattern_White_Space # Zp       PARAGRAPH SEPARATOR (PS)
+//
+// Operator:
+//      | 0021 002F   标点（! " # $ % & ' ( ) * + , - . /）
+//      | 003A 0040   标点（: ; < = > ? @）
+//      | 005B 0060   标点（[ \ ] ^ _ `）
+//      | 007B 007E   标点（{ | } ~）
+//      | 00AB        标点（«）
+//      | 00BB        标点（»）
+//      | 00D7        标点（×）
+//      | 00F7        标点（÷）
 
-#endif // PRH_SCAN_INCLUDE
+#define prh_char_null       0x00 // NUL
+#define prh_char_bell       0x07 // BEL
+#define prh_char_baskspace  0x08 // BS
+#define prh_char_tab        0x09 // HT
+#define prh_char_newline    0x0A // LF NL EOL
+#define prh_char_linetab    0x0B // VT
+#define prh_char_newpage    0x0C // FF
+#define prh_char_return     0x0D // CR
+#define prh_char_cancel     0x18 // CAN
+#define prh_char_escape     0x1B // ESC
+#define prh_char_space      0x20 // SP
+#define prh_char_emark      0x21 // !
+#define prh_char_dquote     0x22 // "
+#define prh_char_hash       0x23 // #
+#define prh_char_dollar     0x24 // $
+#define prh_char_percent    0x25 // %
+#define prh_char_and        0x26 // &
+#define prh_char_squote     0x27 // '
+#define prh_char_lparen     0x28 // (
+#define prh_char_rparen     0x29 // )
+#define prh_char_aster      0x2A // *
+#define prh_char_plus       0x2B // +
+#define prh_char_comma      0x2C // ,
+#define prh_char_minus      0x2D // -
+#define prh_char_dot        0x2E // .
+#define prh_char_slash      0x2F // /
+#define prh_char_colon      0x3A // :
+#define prh_char_semic      0x3B // ;
+#define prh_char_less       0x3C // <
+#define prh_char_assign     0x3D // =
+#define prh_char_great      0x3E // >
+#define prh_char_qmark      0x3F // ?
+#define prh_char_at         0x40 // @
+#define prh_char_lsquare    0x5B // [
+#define prh_char_bslash     0x5C // '\\'
+#define prh_char_rsquare    0x5D // ]
+#define prh_char_caret      0x5E // ^
+#define prh_char_underscore 0x5F // _
+#define prh_char_bquote     0x60 // `
+#define prh_char_lcurly     0x7B // {
+#define prh_char_vertbar    0x7C // |
+#define prh_char_rcurly     0x7D // }
+#define prh_char_tilde      0x7E // ~
+#define prh_char_del        0x7F // DEL
+
+#endif // PRH_LEXER_INCLUDE
 
 #ifdef __cplusplus
 }
