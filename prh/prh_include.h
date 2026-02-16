@@ -33013,6 +33013,42 @@ typedef struct {
     };
 } prh_impl_utf8_b2b3;
 
+// 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4
+prh_byte *prh_utf8_to_unicode(prh_byte *p, prh_char *c) {
+    prh_impl_utf8_data b; b.b1 = *p;
+    if (b.b1 <= 0x7F) { *c = b.b1; return p + 1; }
+    if (b.b1 <= 0xDF) goto label_2_byte;
+    if (b.b1 <= 0xEF) goto label_3_byte;
+    if (b.b1 <= 0xF4) goto label_4_byte;
+    goto label_invalid; // 第一字节不能出现 F5~FF
+label_2_byte:
+    b.b2 = p[1]; // 第一字节范围 C2~DF
+    if (b.b1 < 0xC2 || (b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
+    *c = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    return p + 2;
+label_3_byte:
+    prh_impl_utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
+    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
+    if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
+    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
+    *c = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    return p + 3;
+label_4_byte:
+    b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
+#if prh_lit_endian
+    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
+#else
+    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
+#endif
+    if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
+    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
+    *c = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    return p + 4;
+label_invalid:
+    *c = prh_char_invalid;
+    return p;
+}
+
 // 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4，第一字节是 C2 ~ F4 时才会调用以下函数
 prh_byte *prh_impl_read_curr_utf8_to_unicode(prh_byte *p, prh_char *c) {
     prh_impl_utf8_data b; b.b1 = (prh_byte)*c;
@@ -35073,6 +35109,24 @@ label_return:
     return PRH_CHAR;
 }
 
+int prh_lexer_squote(prh_lexer *l) {
+    // ' ' 'c' 只能包含一个字符，可以赋值给 byte 或 char
+    // '中' 因为是统一编码字符，因此可能不止一个字节，只能赋给 char
+    // '' 空字符，无效语法，报错
+    prh_char u = prh_lexer_next_utf8(l);
+    if (u == '\'' || u == prh_char_invalid)
+        return PRH_TOKERR;
+
+    prh_byte c = prh_lexer_next_char(l);
+    if (c == '\'') {
+        l->c = prh_lexer_next_char(l);
+        l->u.cvalue = u;
+        return PRH_CHAR;
+    }
+
+    return PRH_TOKERR;
+}
+
 // 统一编码总体结构（General Structure）
 //
 // 本章描述了管理统一编码标准设计的基本原则，并概述其主要特性。本章首先通过讨论文本表示
@@ -36798,8 +36852,14 @@ typedef struct {
     } u;
 } prh_lexer;
 
-prh_inline void prh_lexer_next_char(prh_lexer *l) {
-    l->c = *l->parse++; // 消耗一个字节
+prh_inline prh_byte prh_lexer_next_char(prh_lexer *l) {
+    return *l->parse++; // 消耗一个字节
+}
+
+prh_inline prh_char prh_lexer_next_utf8(prh_lexer *l) {
+    prh_char unicode;
+    l->parse = prh_utf8_to_unicode(l->parse, &unicode);
+    return unicode;
 }
 
 prh_inline bool prh_lexer_skip_char(prh_lexer *l, prh_byte skip) {
@@ -36809,7 +36869,7 @@ prh_inline bool prh_lexer_skip_char(prh_lexer *l, prh_byte skip) {
     return true;
 }
 
-prh_inline void prh_lexer_read_utf8(prh_lexer *l) { // 当前是一个多字节utf8字符，消耗当前utf8字符的剩余部分
+prh_inline prh_char prh_lexer_read_utf8(prh_lexer *l, prh_byte c) { // 当前是一个多字节utf8字符，消耗当前utf8字符的剩余部分
     l->parse = prh_impl_read_curr_utf8_to_unicode(l->parse, &l->c);
 }
 
@@ -36826,10 +36886,9 @@ void prh_lexer_panic(prh_lexer *l) {
     prh_unt char_offset; // 从 0 开始
 }
 
-int prh_lexer_read_token(prh_lexer *l) {
-    prh_char b, c;
+int prh_lexer_read_token(prh_lexer *l, prh_byte c) {
+    prh_char uch; prh_byte b;
 label_skipped:
-    c = l->c; assert(c <= 0xFF);
     b = prh_impl_b256[c];
     switch (b) {
     case prh_b256_newline:
@@ -36844,15 +36903,15 @@ label_skipped:
     case prh_b256_bslash:
         return prh_lexer_escape(l);
     case prh_b256_utf8_start:
-        prh_lexer_read_utf8(l);
+        uch = prh_lexer_read_utf8(l);
         break;
     case prh_b256_utf8_inval:
-        l->c = prh_char_invalid;
+        uch = prh_char_invalid;
         break;
     default:
     }
     // 处理大于 0x7F 的utf8字符
-    switch (l->c) {
+    switch (uch) {
     }
 }
 
