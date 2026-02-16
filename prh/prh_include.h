@@ -33014,7 +33014,7 @@ typedef struct {
 } prh_impl_utf8_b2b3;
 
 // 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4
-prh_byte *prh_utf8_to_unicode(prh_byte *p, prh_char *c) {
+prh_byte *prh_utf8_to_unicode(prh_byte *p, prh_char *u) {
     prh_impl_utf8_data b; b.b1 = *p;
     if (b.b1 <= 0x7F) { *c = b.b1; return p + 1; }
     if (b.b1 <= 0xDF) goto label_2_byte;
@@ -33024,14 +33024,14 @@ prh_byte *prh_utf8_to_unicode(prh_byte *p, prh_char *c) {
 label_2_byte:
     b.b2 = p[1]; // 第一字节范围 C2~DF
     if (b.b1 < 0xC2 || (b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    *c = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    *u = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
     return p + 2;
 label_3_byte:
     prh_impl_utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
     if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
     if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
     if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
-    *c = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    *u = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
     return p + 3;
 label_4_byte:
     b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
@@ -33042,30 +33042,30 @@ label_4_byte:
 #endif
     if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
     if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
-    *c = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    *u = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
     return p + 4;
 label_invalid:
-    *c = prh_char_invalid;
+    *u = prh_char_invalid;
     return p;
 }
 
 // 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4，第一字节是 C2 ~ F4 时才会调用以下函数
-prh_byte *prh_impl_read_curr_utf8_to_unicode(prh_byte *p, prh_char *c) {
-    prh_impl_utf8_data b; b.b1 = (prh_byte)*c;
+prh_byte *prh_impl_curr_utf8_to_unicode(prh_byte *p, prh_char c, prh_char *u) {
+    prh_impl_utf8_data b; b.b1 = c;
     if (b.b1 <= 0xDF) goto label_2_byte;
     if (b.b1 <= 0xEF) goto label_3_byte;
     goto label_4_byte; // 第一字节不能出现 F5~FF
 label_2_byte:
     b.b2 = p[0]; // 第一字节范围 C2~DF
     if ((b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    *c = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
+    *u = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
     return p + 1;
 label_3_byte:
     prh_impl_utf8_b2b3 u = {.b2 = p[0], .b3 = p[1]};
     if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
     if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
     if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
-    *c = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
+    *u = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
     return p + 2;
 label_4_byte:
     b.b2 = p[0]; b.b3 = p[1]; b.b4 = p[2];
@@ -33076,10 +33076,10 @@ label_4_byte:
 #endif
     if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
     if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
-    *c = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
+    *u = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
     return p + 3;
 label_invalid:
-    *c = prh_char_invalid;
+    *u = prh_char_invalid;
     return p;
 }
 
@@ -35037,7 +35037,7 @@ static const prh_byte prh_impl_bhex[prh_b256_max_count] = {
     0,              // prh_b256_lowerleft  0x0A
 };
 
-prh_inline prh_byte prh_lexer_hexdigit(prh_byte c, prh_byte *out) {
+prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *out) {
     prh_byte b = prh_impl_b256[c];
     prh_byte h = prh_impl_bhex[b];
     *out = c - h;
@@ -35055,8 +35055,7 @@ int prh_lexer_escape(prh_lexer *l) {
     // \t          // 74 t
     // \xNN (2 digits)
     // \u{NNNN} (1 ~ 8 digits)
-    prh_lexer_next_char();
-    prh_byte c = l->c;
+    prh_byte c = prh_lexer_next_char(l);
     if (c >= '0' && c <= '9') {
         l->u.cvalue = c - '0';
         goto label_return;
@@ -35078,34 +35077,34 @@ int prh_lexer_escape(prh_lexer *l) {
         l->u.cvalue = prh_char_newline;
         break;
     case 'x': {
-        prh_lexer_next_char(); prh_byte a;
-        if (!prh_lexer_hexdigit(l->c, &a)) goto label_error;
-        prh_lexer_next_char(); prh_byte b;
-        if (!prh_lexer_hexdigit(l->c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); prh_byte a;
+        if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); prh_byte b;
+        if (!prh_lexer_hex_digit(c, &a)) goto label_error;
         l->u.cvalue = (a << 4) | b;
     } break;
     case 'u': {
         prh_byte a, i = 1;
         if (!prh_lexer_skip_char(l, '{')) goto label_error;
-        if (!prh_lexer_hexdigit(l->c, &a)) goto label_error; // 即使 \u{} 也需要报错
-        prh_char uch = a;
-label_hexdigit:
-        prh_lexer_next_char();
-        if (!prh_lexer_hexdigit(l->c, &a)) {
-            if (l->c != '}') goto label_error; // 遇到}解析完成
+        if (!prh_lexer_hex_digit(prh_lexer_next_char(l), &a)) goto label_error; // 即使 \u{} 也需要报错
+        prh_char u = a;
+label_hex_digit:
+        c = prh_lexer_next_char(l);
+        if (!prh_lexer_hex_digit(c, &a)) {
+            if (c != '}') goto label_error; // 遇到}解析完成
         } else {
-            uch = (uch << 4) | a;
-            if (++i < 8) goto label_hexdigit; // 最多读取8个数位
-            if (!prh_lexer_skip_char(l, '}') goto label_error;
+            u = (u << 4) | a;
+            if (++i < 8) goto label_hex_digit; // 最多读取8个数位
+            if (!prh_lexer_skip_char(l, '}')) goto label_error;
         }
-        l->u.cvalue = uch;
+        l->u.cvalue = u;
     } break;
     default:
 label_error:
         return PRH_TOKERR;
     }
 label_return:
-    prh_lexer_next_char();
+    l->c = prh_lexer_next_char(l);
     return PRH_CHAR;
 }
 
@@ -36864,20 +36863,20 @@ prh_inline prh_char prh_lexer_next_utf8(prh_lexer *l) {
 
 prh_inline bool prh_lexer_skip_char(prh_lexer *l, prh_byte skip) {
     prh_byte c = *l->parse++; // 消耗一个字节，并跳过该字节的处理
-    if (c != skip) return false;
-    prh_lexer_next_char(l);
-    return true;
+    return c == skip;
 }
 
-prh_inline prh_char prh_lexer_read_utf8(prh_lexer *l, prh_byte c) { // 当前是一个多字节utf8字符，消耗当前utf8字符的剩余部分
-    l->parse = prh_impl_read_curr_utf8_to_unicode(l->parse, &l->c);
+prh_inline prh_char prh_lexer_curr_utf8(prh_lexer *l, prh_byte c) { // 当前是一个多字节utf8字符，消耗当前utf8字符的剩余部分
+    prh_char unicode;
+    l->parse = prh_impl_curr_utf8_to_unicode(l->parse, c, &unicode);
+    return unicode;
 }
 
-void prh_lexer_newline(prh_lexer *l) {
-    prh_char next = '\r' ^ '\n' ^ l->c;
-    prh_lexer_next_char();
-    if (l->c == next) {
-        prh_lexer_next_char();
+void prh_lexer_newline(prh_lexer *l, prh_byte c) {
+    prh_char next = '\r' ^ '\n' ^ c;
+    c = prh_lexer_next_char(l);
+    if (c == next) {
+        l->c = prh_lexer_next_char(l);
     }
 }
 
@@ -36887,12 +36886,12 @@ void prh_lexer_panic(prh_lexer *l) {
 }
 
 int prh_lexer_read_token(prh_lexer *l, prh_byte c) {
-    prh_char uch; prh_byte b;
+    prh_char u; prh_byte b;
 label_skipped:
     b = prh_impl_b256[c];
     switch (b) {
     case prh_b256_newline:
-        prh_lexer_newline(l);
+        prh_lexer_newline(l, c);
 #ifdef prh_impl_token_newline
         return PRH_NEWLINE;
 #else
@@ -36903,15 +36902,14 @@ label_skipped:
     case prh_b256_bslash:
         return prh_lexer_escape(l);
     case prh_b256_utf8_start:
-        uch = prh_lexer_read_utf8(l);
+        u = prh_lexer_curr_utf8(l, c);
         break;
     case prh_b256_utf8_inval:
-        uch = prh_char_invalid;
+        u = prh_char_invalid;
         break;
     default:
     }
-    // 处理大于 0x7F 的utf8字符
-    switch (uch) {
+    switch (u) { // 处理大于 0x7F 的utf8字符
     }
 }
 
