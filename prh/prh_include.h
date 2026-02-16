@@ -34398,8 +34398,277 @@ void prh_ipv6_tcp_listen(prh_cono_subq *cono_subq, const char *host, prh_u16 por
 #define prh_char_maxcode    0x0010ffff
 #define prh_char_invalid    0x007fffff
 
+#define prh_b256_null       0x00
+#define prh_b256_control    0x01
+#define prh_b256_newline    0x02
+#define prh_b256_whitespace 0x03
+#define prh_b256_digit0     0x04
+#define prh_b256_digits     0x05
+#define prh_b256_underscore 0x06
+#define prh_b256_upper      0x07
+#define prh_b256_lower      0x08
+#define prh_b256_utf8_start 0x09
+#define prh_b256_utf8_inval 0x0A
+#define prh_b256_bracket    0x0B
+
 #ifndef PRH_LEXER_B256
 static const prh_byte prh__lexer_b256[256] = {
+    prh_b256_null,      // 00 NUL (null)
+    prh_b256_control,   // 01 SOH (start of header)
+    prh_b256_control,   // 02 STX (start of text)
+    prh_b256_control,   // 03 ETX (end of text)
+    prh_b256_control,   // 04 EOT (end of transmission)
+    prh_b256_control,   // 05 ENQ (enquiry)
+    prh_b256_control,   // 06 ACK (acknowledge)
+    prh_b256_control,   // 07 BEL (bell)
+    prh_b256_control,   // 08 BS (backspace)
+    prh_b256_whitespace,// 09 HT (horizontal tab)
+    prh_b256_newline,   // 0A LF (line feed - new line)
+    prh_b256_control,   // 0B VT (vertical tab - line tab)
+    prh_b256_control,   // 0C FF (form feed - new page)
+    prh_b256_newline,   // 0D CR (carriage return)
+    prh_b256_control,   // 0E SO (shift out)
+    prh_b256_control,   // 0F SI (shift in)
+    prh_b256_control,   // 10 DLE (data link escape)
+    prh_b256_control,   // 11 DC1 (device control 1)
+    prh_b256_control,   // 12 DC2 (device control 2)
+    prh_b256_control,   // 13 DC3 (device control 3)
+    prh_b256_control,   // 14 DC4 (device control 4)
+    prh_b256_control,   // 15 NAK (negative acknowledge)
+    prh_b256_control,   // 16 SYN (synchronous idle)
+    prh_b256_control,   // 17 ETB (end of transmission block)
+    prh_b256_control,   // 18 CAN (cancel)
+    prh_b256_control,   // 19 EM (end of medium)
+    prh_b256_control,   // 1A SUB (substitute)
+    prh_b256_control,   // 1B ESC (escape)
+    prh_b256_control,   // 1C FS (file separator)
+    prh_b256_control,   // 1D GS (group separator)
+    prh_b256_control,   // 1E RS (record separator)
+    prh_b256_control,   // 1F US (unit separator)
+    prh_b256_whitespace,// 20 SP (space)
+                        // 21 !
+                        // 22 "
+                        // 23 #
+                        // 24 $
+                        // 25 %
+                        // 26 &
+                        // 27 '
+                        // 28 (
+                        // 29 )
+                        // 2A *
+                        // 2B +
+                        // 2C ,
+                        // 2D -
+                        // 2E .
+                        // 2F /
+    prh_b256_digit0,    // 30 0
+    prh_b256_digits,    // 31 1
+    prh_b256_digits,    // 32 2
+    prh_b256_digits,    // 33 3
+    prh_b256_digits,    // 34 4
+    prh_b256_digits,    // 35 5
+    prh_b256_digits,    // 36 6
+    prh_b256_digits,    // 37 7
+    prh_b256_digits,    // 38 8
+    prh_b256_digits,    // 39 9
+                        // 3A :
+                        // 3B ;
+                        // 3C <
+                        // 3D =
+                        // 3E >
+                        // 3F ?
+                        // 40 @
+    prh_b256_upper,     // 41 A
+    prh_b256_upper,     // 42 B
+    prh_b256_upper,     // 43 C
+    prh_b256_upper,     // 44 D
+    prh_b256_upper,     // 45 E
+    prh_b256_upper,     // 46 F
+    prh_b256_upper,     // 47 G
+    prh_b256_upper,     // 48 H
+    prh_b256_upper,     // 49 I
+    prh_b256_upper,     // 4A J
+    prh_b256_upper,     // 4B K
+    prh_b256_upper,     // 4C L
+    prh_b256_upper,     // 4D M
+    prh_b256_upper,     // 4E N
+    prh_b256_upper,     // 4F O
+    prh_b256_upper,     // 50 P
+    prh_b256_upper,     // 51 Q
+    prh_b256_upper,     // 52 R
+    prh_b256_upper,     // 53 S
+    prh_b256_upper,     // 54 T
+    prh_b256_upper,     // 55 U
+    prh_b256_upper,     // 56 V
+    prh_b256_upper,     // 57 W
+    prh_b256_upper,     // 58 X
+    prh_b256_upper,     // 59 Y
+    prh_b256_upper,     // 5A Z
+                        // 5B [
+                        // 5C '\\'
+                        // 5D ]
+                        // 5E ^
+                        // 5F _
+                        // 60 `
+    prh_b256_lower,     // 61 a
+    prh_b256_lower,     // 62 b
+    prh_b256_lower,     // 63 c
+    prh_b256_lower,     // 64 d
+    prh_b256_lower,     // 65 e
+    prh_b256_lower,     // 66 f
+    prh_b256_lower,     // 67 g
+    prh_b256_lower,     // 68 h
+    prh_b256_lower,     // 69 i
+    prh_b256_lower,     // 6A j
+    prh_b256_lower,     // 6B k
+    prh_b256_lower,     // 6C l
+    prh_b256_lower,     // 6D m
+    prh_b256_lower,     // 6E n
+    prh_b256_lower,     // 6F o
+    prh_b256_lower,     // 70 p
+    prh_b256_lower,     // 71 q
+    prh_b256_lower,     // 72 r
+    prh_b256_lower,     // 73 s
+    prh_b256_lower,     // 74 t
+    prh_b256_lower,     // 75 u
+    prh_b256_lower,     // 76 v
+    prh_b256_lower,     // 77 w
+    prh_b256_lower,     // 78 x
+    prh_b256_lower,     // 79 y
+    prh_b256_lower,     // 7A z
+                        // 7B {
+                        // 7C |
+                        // 7D }
+                        // 7E ~
+    prh_b256_control,   // 7F DEL (delete)
+                        // 80
+                        // 81
+                        // 82
+                        // 83
+                        // 84
+                        // 85
+                        // 86
+                        // 87
+                        // 88
+                        // 89
+                        // 8A
+                        // 8B
+                        // 8C
+                        // 8D
+                        // 8E
+                        // 8F
+                        // 90
+                        // 91
+                        // 92
+                        // 93
+                        // 94
+                        // 95
+                        // 96
+                        // 97
+                        // 98
+                        // 99
+                        // 9A
+                        // 9B
+                        // 9C
+                        // 9D
+                        // 9E
+                        // 9F
+                        // A0
+                        // A1
+                        // A2
+                        // A3
+                        // A4
+                        // A5
+                        // A6
+                        // A7
+                        // A8
+                        // A9
+                        // AA
+                        // AB
+                        // AC
+                        // AD
+                        // AE
+                        // AF
+                        // B0
+                        // B1
+                        // B2
+                        // B3
+                        // B4
+                        // B5
+                        // B6
+                        // B7
+                        // B8
+                        // B9
+                        // BA
+                        // BB
+                        // BC
+                        // BD
+                        // BE
+                        // BF
+                        // C0
+                        // C1
+    prh_b256_utf8_start,// C2
+    prh_b256_utf8_start,// C3
+    prh_b256_utf8_start,// C4
+    prh_b256_utf8_start,// C5
+    prh_b256_utf8_start,// C6
+    prh_b256_utf8_start,// C7
+    prh_b256_utf8_start,// C8
+    prh_b256_utf8_start,// C9
+    prh_b256_utf8_start,// CA
+    prh_b256_utf8_start,// CB
+    prh_b256_utf8_start,// CC
+    prh_b256_utf8_start,// CD
+    prh_b256_utf8_start,// CE
+    prh_b256_utf8_start,// CF
+    prh_b256_utf8_start,// D0
+    prh_b256_utf8_start,// D1
+    prh_b256_utf8_start,// D2
+    prh_b256_utf8_start,// D3
+    prh_b256_utf8_start,// D4
+    prh_b256_utf8_start,// D5
+    prh_b256_utf8_start,// D6
+    prh_b256_utf8_start,// D7
+    prh_b256_utf8_start,// D8
+    prh_b256_utf8_start,// D9
+    prh_b256_utf8_start,// DA
+    prh_b256_utf8_start,// DB
+    prh_b256_utf8_start,// DC
+    prh_b256_utf8_start,// DD
+    prh_b256_utf8_start,// DE
+    prh_b256_utf8_start,// DF
+    prh_b256_utf8_start,// E0
+    prh_b256_utf8_start,// E1
+    prh_b256_utf8_start,// E2
+    prh_b256_utf8_start,// E3
+    prh_b256_utf8_start,// E4
+    prh_b256_utf8_start,// E5
+    prh_b256_utf8_start,// E6
+    prh_b256_utf8_start,// E7
+    prh_b256_utf8_start,// E8
+    prh_b256_utf8_start,// E9
+    prh_b256_utf8_start,// EA
+    prh_b256_utf8_start,// EB
+    prh_b256_utf8_start,// EC
+    prh_b256_utf8_start,// ED
+    prh_b256_utf8_start,// EE
+    prh_b256_utf8_start,// EF
+    prh_b256_utf8_start,// F0
+    prh_b256_utf8_start,// F1
+    prh_b256_utf8_start,// F2
+    prh_b256_utf8_start,// F3
+    prh_b256_utf8_start,// F4
+    prh_b256_utf8_inval,// F5
+    prh_b256_utf8_inval,// F6
+    prh_b256_utf8_inval,// F7
+    prh_b256_utf8_inval,// F8
+    prh_b256_utf8_inval,// F9
+    prh_b256_utf8_inval,// FA
+    prh_b256_utf8_inval,// FB
+    prh_b256_utf8_inval,// FC
+    prh_b256_utf8_inval,// FD
+    prh_b256_utf8_inval,// FE
+    prh_b256_utf8_inval,// FF
 };
 #define PRH_LEXER_B256 prh__lexer_b256
 #endif
@@ -36382,12 +36651,44 @@ label_invalid: // 代理码点不是合法的统一编码标量值，或不能�
 // 配置文件的一部分。在有更高级别诊断可用的地方，例如在编程环境中，可以采取更有针对性的
 // 措施，以仍然允许这些字符的合法使用。见统一编码技术标准 #55《统一编码源代码处理》。
 
+typedef enum {
+    PRH_NAME, // 标识符名称，包含关键字和保留名称
+    PRH_OPER, // 操作符，包含分隔符或标点
+    PRH_INT,  // 整数字面量
+    PRH_FLOAT, // 浮点字面量
+    PRH_CHAR, // 字符字面量
+    PRH_STRING, // 字符串字面量
+    PRH_COMMENT, // 注释
+    PRH_NEWLINE, // 换行
+    PRH_INDENT, // 增加缩进
+    PRH_DEDENT, // 取消缩进
+} prh_tokid;
+
+typedef struct {
+    prh_byte *start;
+    prh_byte *parse;
+    prh_char c;
+} prh_lexer;
+
 prh_inline void prh_lexer_next_char(prh_lexer *l) {
-    l->c = *l->input_stream++; // 消耗一个字节
+    l->c = *l->parse++; // 消耗一个字节
 }
 
 prh_inline void prh_lexer_read_utf8(prh_lexer *l) { // 当前是一个多字节utf8字符，消耗当前utf8字符的剩余部分
-    l->input_stream = prh_impl_read_curr_utf8_to_unicode(l->input_stream, &l->c);
+    l->parse = prh_impl_read_curr_utf8_to_unicode(l->parse, &l->c);
+}
+
+void prh_lexer_newline(prh_lexer *l) {
+    prh_char next = '\r' ^ '\n' ^ l->c;
+    prh_lexer_next_char();
+    if (l->c == next) {
+        prh_lexer_next_char();
+    }
+}
+
+void prh_lexer_panic(prh_lexer *l) {
+    prh_unt line_number; // 从 1 开始
+    prh_unt char_offset; // 从 0 开始
 }
 
 int prh_lexer_read_token(prh_lexer *l) {
@@ -36403,10 +36704,10 @@ label_skipped:
 #else
         goto label_skipped;
 #endif
-    case prh_b256_utf8_start_byte:
+    case prh_b256_utf8_start:
         prh_lexer_read_utf8(l);
         break;
-    case prh_b256_utf8_inval_byte:
+    case prh_b256_utf8_inval:
         l->c = prh_char_invalid;
         break;
     default:
