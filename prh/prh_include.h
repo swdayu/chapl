@@ -34980,48 +34980,13 @@ typedef enum {
     PRH_INT,  // 整数字面量
     PRH_FLOAT, // 浮点字面量
     PRH_CHAR, // 字符字面量
+    PRH_USERLIT, // 自定义字面量
     PRH_STRING, // 字符串字面量
     PRH_COMMENT, // 注释
     PRH_NEWLINE, // 换行
     PRH_INDENT, // 增加缩进
     PRH_DEDENT, // 取消缩进
 } prh_tokid;
-
-// 字符，要么是字节 byte，要么四字节 char
-//  1. 兼容 C 转义字符
-//      \"          // 22 "
-//      \'          // 27 '
-//      \0 ~ \9     // 30 ~ 39
-//      \\          // 5C '\\'
-//      \n          // 6E n
-//      \r          // 72 r
-//      \t          // 74 t
-//      \xNN (2 digits)         // 78 x
-//      \u{NNNN} (1 ~ 8 digits) // 75 u
-//  2.  扩展转义字符
-//      \s  空格    // 73 s
-//  3. 不支持
-//      \?
-//      \a
-//      \b
-//      \f
-//      \v
-//      \ooo (3 digits)
-//      \uNNNN (4 digits)
-//      \UAABBCCDD (8 digits)
-//  4.  其他
-//      \e  退出
-//      \d  删除
-//  5.  字面量，只能包含单个unicode字符
-//      ' ' 'c' 只能包含一个字符，可以赋值给 byte 或 char
-//      \s \n   转义字符可以直接写，禁止写成 '\n' 形式
-//      '中'    因为是统一编码字符，因此可能不止一个字节，只能赋给 char
-//      \u{FE0F} 单个unicode字符，只能赋给 char
-//      '\{263A}\{FE0F}' 也不仅一个码点，禁止此种形式
-//      ''              空字符，无效语法，报错
-//  6.  其他用途
-//      'type   类型转换操作前缀 '<type>
-//      23'kg   <literal>'tag
 
 static const prh_byte prh_impl_bhex[prh_b256_max_count] = {
     0,              // prh_b256_null       0x00
@@ -35037,15 +35002,51 @@ static const prh_byte prh_impl_bhex[prh_b256_max_count] = {
     0,              // prh_b256_lowerleft  0x0A
 };
 
-prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *out) {
+prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *n) {
     prh_byte b = prh_impl_b256[c];
     prh_byte h = prh_impl_bhex[b];
-    *out = c - h;
+    *n = c - h;
     return h;
 }
 
+// 字符，要么是字节 byte，要么四字节 char
+//  1. 兼容 C 转义字符
+//      \"          // 22 "
+//      \'          // 27 '
+//      \0 ~ \9     // 30 ~ 39
+//      \\          // 5C '\\'
+//      \n          // 6E n
+//      \r          // 72 r
+//      \t          // 74 t
+//      \xNN (2 digits)     // 78 x
+//      \uNNNN (4 digits)   // 75 u
+//  2.  扩展转义字符
+//      \s  空格    // 73 s
+//      \U{NNNN} (1 ~ 8 digits)
+//  3. 不支持
+//      \?
+//      \a
+//      \b
+//      \f
+//      \v
+//      \ooo (3 digits)
+//      \UAABBCCDD (8 digits)
+//  4.  其他
+//      \e  退出
+//      \d  删除
+//  5.  字面量，只能包含单个unicode字符
+//      ' ' 'c' 只能包含一个字符，可以赋值给 byte 或 char，整个单引号字符字面量精确只包含三个字符
+//      '中'    因为是统一编码字符，因此可能不止一个字节，只能赋给 char
+//      \s \n   转义字符可以直接写，禁止写成 '\n' 形式
+//      \u{FE0F} 单个unicode字符，只能赋给 char
+//      '\{263A}\{FE0F}' 也不仅一个码点，禁止此种形式
+//      ''              空字符，无效语法，报错
+//  6.  类型转换和用户自定义字面量，因为单引号字符字面量精确只包含三个字符，因此可以区分
+//      'type   类型转换操作前缀 '<type><space>
+//      23'kg   <literal>'tag<space>
+
 int prh_lexer_escape(prh_lexer *l) {
-    // \"          // 22 "
+    // \"          // 22 " 不是字符字面量，是多行原始字符串的一行开始，孤立单独成行的 \" 表示一个空字符串
     // \'          // 27 '
     // \\          // 5C
     // \0 ~ \9     // 30 ~ 39
@@ -35061,8 +35062,10 @@ int prh_lexer_escape(prh_lexer *l) {
         goto label_return;
     }
     switch (c) {
-    case '\'': case '\"': case '\\':
+    case '\'': case '\\':
         l->u.cvalue = c;
+        break;
+    case '\"': // 表示多行原始字符串的一行开始，要表示双引号字符字面量，必须使用 '"'
         break;
     case 's':
         l->u.cvalue = prh_char_space;
@@ -35084,6 +35087,17 @@ int prh_lexer_escape(prh_lexer *l) {
         l->u.cvalue = (a << 4) | b;
     } break;
     case 'u': {
+        c = prh_lexer_next_char(l); prh_byte a;
+        if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); prh_char u = a;
+        if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); u = (u << 4) | a;
+        if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); u = (u << 4) | a;
+        if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+        l->u.cvalue = (u << 4) | a;
+    } break;
+    case 'U': {
         prh_byte a, i = 1;
         if (!prh_lexer_skip_char(l, '{')) goto label_error;
         if (!prh_lexer_hex_digit(prh_lexer_next_char(l), &a)) goto label_error; // 即使 \u{} 也需要报错
@@ -35109,7 +35123,7 @@ label_return:
 }
 
 int prh_lexer_squote(prh_lexer *l) {
-    // ' ' 'c' 只能包含一个字符，可以赋值给 byte 或 char
+    // ' ' 'c' 只能包含一个字符，可以赋值给 byte 或 char，整个单引号字符字面量精确只包含三个字符
     // '中' 因为是统一编码字符，因此可能不止一个字节，只能赋给 char
     // '' 空字符，无效语法，报错
     prh_char u = prh_lexer_next_utf8(l);
@@ -35123,7 +35137,9 @@ int prh_lexer_squote(prh_lexer *l) {
         return PRH_CHAR;
     }
 
-    return PRH_TOKERR;
+    if (!prh_lexer_identifier(l, c)) return PRH_TOKERR;
+    l->c = prh_lexer_next_char(l);
+    return PRH_USERLIT;
 }
 
 // 统一编码总体结构（General Structure）
