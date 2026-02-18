@@ -35230,6 +35230,92 @@ int prh_lexer_squote(prh_lexer *l) {
     return PRH_USERLIT;
 }
 
+// 字符串字面量，相邻的多个字符串字面量会自动合并成一个长字符串
+//  1.  普通空字符串，结束双引号必须在同一行，不能出现换行符
+//      "abcd\n"
+//      "abcd\0"
+//      "" 空字符串
+//  2.  多个字符拼接，其类型为整数常量，最大 u64 八个字节，必须在同一行
+//      I"A"           相当于u08类型
+//      I"Cc"          是一个u16类型
+//      I"test"        是一个u32类型
+//      I"AABBCC\tD"   是一个u64类型
+//      I""            值为零
+//  3.  原始清晰缩进的多行字符串，字符串从每行的前导\"之后开始，不包含最后一行的换行
+//      // 段落字符串，等价于 "abc\ndefghijk"
+//      P"abc
+//      P"defghijk
+//      let main_func_of_c =
+//      P"int main(int argc, char **argv) {
+//      P"    printf("hello world\n");
+//      P"    return 0;
+//      P"}
+//      // 孤立的 P"<newline> 表示一个空字符串
+//      P"
+//  4.  原始字符串，不对包含的字符进行转义，可以自定义TAG
+//      R"()" 空字符串
+//      R"TAG()TAG" 空字符串
+//      R"(")" 包含单个双引号
+//      R"(ab\tcd)" 原样包含六个字符
+//      R"```(")```" R"""(")"""
+//      R"```(ab\tcd)```"
+//  5.  原始字符串跨越多个物理行，TAG 最长只能是16个字符，TAG 中不能包含反斜杠和空白（包括换行符）
+//      R"""(abc
+//defghijk)"""
+//  6.  简化的转义十六进制字符串，不需要包含前缀 \x，整个字符串只能包含偶数个十六进制字符，可以包含空格和换行但会被忽略
+//      X"30 31 3233 34 35" 等价于 "012345"
+//  7.  Base64/96 编码的二进制数据，可以包含空白和换行
+//      Z"Rk9PQkFSMTE=" 等价于 "FOOBAR11"
+
+typedef enum: prh_byte {
+    prh_bsch_default = 0,
+    prh_bsch_invalid, // 遇到结束引号之前，不能出现换行和EOF
+    prh_bsch_bslash,
+    prh_bsch_dquote,
+} prh_impl_bsch_enum;
+
+static const prh_impl_bsch_enum prh_impl_bsch[prh_b256_enum_max] = {
+    prh_bsch_invalid,  // prh_b256_endfile,
+    prh_bsch_invalid,  // prh_b256_newline,
+    prh_bsch_default,  // prh_b256_whitespace,
+    prh_bsch_default,  // prh_b256_control,
+    prh_bsch_default,  // prh_b256_digitzero,
+    prh_bsch_default,  // prh_b256_digitleft,
+    prh_bsch_default,  // prh_b256_underscore,
+    prh_bsch_default,  // prh_b256_hex_upper,
+    prh_bsch_default,  // prh_b256_upperleft,
+    prh_bsch_default,  // prh_b256_hex_lower,
+    prh_bsch_default,  // prh_b256_lowerleft,
+    prh_bsch_bslash,   // prh_b256_bslash,
+    prh_bsch_default,  // prh_b256_squote,
+    prh_bsch_dquote,   // prh_b256_dquote,
+};
+
+int prh_lexer_dquote(prh_lexer *l) {
+    prh_string *s = l->u.svalue;
+    prh_string_clear(s);
+    for (; ;) {
+        prh_char c = prh_lexer_next_char(l);
+        switch (prh_impl_bsch[prh_impl_b256[c]]) {
+        case prh_bsch_dquote:
+            goto label_finish;
+        case prh_bsch_bslash:
+            if (!prh_lexer_eschar(l)) {
+        case prh_bsch_invalid:
+                return PRH_TOKERR;
+            }
+            c = l->u.cvalue;
+        default:
+            prh_string_push(s, c);
+            break;
+        }
+    }
+label_finish:
+    l->c = prh_lexer_next_char(l);
+    l->u.svalue.size = s - l->u.svalue.data;
+    return PRH_STRING;
+}
+
 // 统一编码总体结构（General Structure）
 //
 // 本章描述了管理统一编码标准设计的基本原则，并概述其主要特性。本章首先通过讨论文本表示
