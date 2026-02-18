@@ -35009,6 +35009,43 @@ prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *n) {
     return h;
 }
 
+// 字符串字面量，相邻的多个字符串字面量会自动合并成一个长字符串
+//  1.  普通空字符串，结束双引号必须在同一行
+//      "abcd\n"
+//      "abcd\0"
+//      "" 空字符串
+//  2.  多个字符拼接，其类型为整数常量，最大 u64 八个字节，必须在同一行
+//      I"A"           相当于u08类型
+//      I"Cc"          是一个u16类型
+//      I"test"        是一个u32类型
+//      I"AABBCC\tD"   是一个u64类型
+//      I""            值为零
+//  3.  原始清晰缩进的多行字符串，字符串从每行的前导\"之后开始，不包含最后一行的换行
+//      // 等价于 "abc\ndefghijk"
+//      \"abc
+//      \"defghijk
+//      let main_func_of_c =
+//      \"int main(int argc, char **argv) {
+//      \"    printf("hello world\n");
+//      \"    return 0;
+//      \"}
+//      // 孤立的 \" 表示一个空字符串
+//      \"
+//  4.  原始字符串，不对包含的字符进行转义，可以自定义TAG
+//      R"()" 空字符串
+//      R"TAG()TAG" 空字符串
+//      R"(")" 包含单个双引号
+//      R"(ab\tcd)" 原样包含六个字符
+//      R"```(")```"
+//      R"```(ab\tcd)```"
+//  5.  原始字符串跨越多个物理行，TAG 最长只能是16个字符，TAG 中不能包含反斜杠和空白（包括换行符）
+//      R"""(abc
+//defghijk)"""
+//  6.  简化的转义十六进制字符串，不需要包含前缀 \x，整个字符串只能包含偶数个十六进制字符，可以包含空格和换行但会被忽略
+//      X"30 31 3233 34 35" 等价于 "012345"
+//  7.  Base64/96 编码的二进制数据，可以包含空白和换行
+//      B"Rk9PQkFSMTE=" 等价于 "FOOBAR11"
+
 // 字符，要么是字节 byte，要么四字节 char
 //  1. 兼容 C 转义字符
 //      \"          // 22 "
@@ -35123,9 +35160,11 @@ label_return:
 }
 
 int prh_lexer_squote(prh_lexer *l) {
-    // ' ' 'c' 只能包含一个字符，可以赋值给 byte 或 char，整个单引号字符字面量精确只包含三个字符
-    // '中' 因为是统一编码字符，因此可能不止一个字节，只能赋给 char
-    // '' 空字符，无效语法，报错
+    // 单引号字符字面量
+    //  1.  ' ' 'c' 只能包含一个字符，可以赋值给 byte 或 char，整个单引号字符字面量精确只包含三个字符
+    //  2.  '中' 因为是统一编码字符，因此可能不止一个字节，只能赋给 char
+    //  3.  '' 空字符，无效语法，报错
+
     prh_char u = prh_lexer_next_utf8(l);
     if (u == '\'' || u == prh_char_invalid)
         return PRH_TOKERR;
@@ -35136,6 +35175,10 @@ int prh_lexer_squote(prh_lexer *l) {
         l->u.cvalue = u;
         return PRH_CHAR;
     }
+
+    // 类型转换和用户自定义字面量，因为单引号字符字面量精确只包含三个字符，因此可以区分
+    //  1.  'type   类型转换操作前缀 '<type><space>
+    //  2.  23'kg   <literal>'tag<space>
 
     if (!prh_lexer_identifier(l, c)) return PRH_TOKERR;
     l->c = prh_lexer_next_char(l);
