@@ -35008,24 +35008,22 @@ typedef enum: prh_byte {
 } prh_tokid;
 
 static const prh_byte prh_impl_bhex[prh_b256_enum_max] = {
-    0,              // prh_b256_null       0x00
-    0,              // prh_b256_control    0x01
-    0,              // prh_b256_newline    0x02
-    0,              // prh_b256_whitespace 0x03
-    0x30,           // prh_b256_digitzero  0x04 // 30 0
-    0x30,           // prh_b256_digitleft  0x05
-    0,              // prh_b256_underscore 0x06
-    (0x41 - 10),    // prh_b256_uhexdigit  0x07 // 41 A
-    0,              // prh_b256_upperleft  0x08
-    (0x61 - 10),    // prh_b256_lhexdigit  0x09 // 61 a
-    0,              // prh_b256_lowerleft  0x0A
+    0,          // prh_b256_endfile
+    0,          // prh_b256_newline
+    0,          // prh_b256_whitespace
+    0,          // prh_b256_control
+    0x30,       // prh_b256_digitzero // 30 0
+    0x30,       // prh_b256_digitleft
+    0x41-10,    // prh_b256_hex_upper // 41 A
+    0,          // prh_b256_upperleft
+    0x61-10,    // prh_b256_hex_lower // 61 a
+    0,          // prh_b256_lowerleft
 };
 
 prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *n) {
-    prh_byte b = prh_impl_b256[c];
-    prh_byte h = prh_impl_bhex[b];
-    *n = c - h;
-    return h;
+    prh_byte valid = prh_impl_bhex[prh_impl_b256[c]];
+    *n = c - valid;
+    return valid;
 }
 
 // 字符，要么是字节 byte，要么四字节 char
@@ -35275,20 +35273,20 @@ typedef enum: prh_byte {
 } prh_impl_bsch_enum;
 
 static const prh_impl_bsch_enum prh_impl_bsch[prh_b256_enum_max] = {
-    prh_bsch_invalid,  // prh_b256_endfile,
-    prh_bsch_invalid,  // prh_b256_newline,
-    prh_bsch_default,  // prh_b256_whitespace,
-    prh_bsch_default,  // prh_b256_control,
-    prh_bsch_default,  // prh_b256_digitzero,
-    prh_bsch_default,  // prh_b256_digitleft,
-    prh_bsch_default,  // prh_b256_underscore,
-    prh_bsch_default,  // prh_b256_hex_upper,
-    prh_bsch_default,  // prh_b256_upperleft,
-    prh_bsch_default,  // prh_b256_hex_lower,
-    prh_bsch_default,  // prh_b256_lowerleft,
-    prh_bsch_bslash,   // prh_b256_bslash,
-    prh_bsch_default,  // prh_b256_squote,
-    prh_bsch_dquote,   // prh_b256_dquote,
+    prh_bsch_invalid,   // prh_b256_endfile
+    prh_bsch_invalid,   // prh_b256_newline
+    prh_bsch_default,   // prh_b256_whitespace
+    prh_bsch_default,   // prh_b256_control
+    prh_bsch_default,   // prh_b256_digitzero
+    prh_bsch_default,   // prh_b256_digitleft
+    prh_bsch_default,   // prh_b256_hex_upper
+    prh_bsch_default,   // prh_b256_upperleft
+    prh_bsch_default,   // prh_b256_hex_lower
+    prh_bsch_default,   // prh_b256_lowerleft
+    prh_bsch_default,   // prh_b256_operator
+    prh_bsch_bslash,    // prh_b256_bslash
+    prh_bsch_default,   // prh_b256_squote
+    prh_bsch_dquote,    // prh_b256_dquote
 };
 
 int prh_lexer_dquote(prh_lexer *l) {
