@@ -35418,6 +35418,240 @@ label_32_lit_end:
     return PRH_INT32;
 }
 
+typedef enum: prh_byte {
+    prh_ihex_default_invalid = 0,
+    prh_ihex_lit_end,
+    prh_ihex_digit,
+    prh_ihex_upper,
+    prh_ihex_lower,
+    prh_ihex_underscore,
+    prh_ihex_userlit,
+} prh_impl_ihex_enum;
+
+static const prh_impl_ihex_enum prh_impl_ihex[prh_b256_enum_max] = {
+    prh_ihex_lit_end,           // prh_b256_endfile
+    prh_ihex_lit_end,           // prh_b256_newline
+    prh_ihex_lit_end,           // prh_b256_whitespace
+    prh_ihex_default_invalid,   // prh_b256_control
+    prh_ihex_digit,             // prh_b256_digitzero // 30 0
+    prh_ihex_digit,             // prh_b256_digitleft
+    prh_ihex_upper,             // prh_b256_hex_upper // 41 A
+    prh_ihex_default_invalid,   // prh_b256_upperleft
+    prh_ihex_lower,             // prh_b256_hex_lower // 61 a
+    prh_ihex_default_invalid,   // prh_b256_lowerleft
+    prh_ihex_underscore,        // prh_b256_underscore
+    prh_ihex_default_invalid,   // prh_b256_operator
+    prh_ihex_default_invalid,   // prh_b256_bslash
+    prh_ihex_userlit,           // prh_b256_squote
+};
+
+#define prh_impl_hex_int_digit(label_digit, label_lit_end)                                          \
+label_digit:                                                                                        \
+    c = prh_lexer_next_char(l);                                                                     \
+    switch (prh_impl_ihex[prh_impl_b256[c]]) {                                                      \
+    case prh_ihex_userlit: if (prh_lexer_userlit(l)) goto label_lit_end; return PRH_TOKERR;         \
+    case prh_ihex_lit_end: l->c = c; goto label_lit_end;                                            \
+    case prh_ihex_digit: digit = c - '0'; break;                                                    \
+    case prh_ihex_upper: digit = c - 'A' + 10; break;                                               \
+    case prh_ihex_lower: digit = c - 'a' + 10; break;                                               \
+    case prh_ihex_underscore: goto label_digit;                                                     \
+    default: return PRH_TOKERR;                                                                     \
+    }
+
+int prh_lexer_hex_int(prh_lexer *l) {
+    // hex_lit = "0x" { hex_digit } . // 仅包含 0 … 9 A … F a … f 和 _ x
+    prh_u64 val64; prh_byte digit; l->userlit = false;
+    prh_u32 val32 = 0; // 0xFFFF_FFFF 无符号32位至少可以保存8位十六进制数位，如果有前导零则能保存更多
+    prh_impl_hex_int_digit(label_digit_01, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_02, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_03, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_04, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_05, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_06, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_07, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_08, label_32_lit_end); val32 = (val32 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_09, label_32_lit_end); // 这里可能字面量结束
+    val64 = (val32 << 4) | digit; // 0xFFFF_FFFF_FFFF_FFFF 无符号64位至少可以保存16位十六进制数位
+    prh_impl_hex_int_digit(label_digit_10, label_64_lit_end); val64 = (val64 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_11, label_64_lit_end); val64 = (val64 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_12, label_64_lit_end); val64 = (val64 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_13, label_64_lit_end); val64 = (val64 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_14, label_64_lit_end); val64 = (val64 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_15, label_64_lit_end); val64 = (val64 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_16, label_64_lit_end); val64 = (val64 << 4) | digit;
+    prh_impl_hex_int_digit(label_digit_17, label_64_lit_end);
+    while (val64 <= 0xFFFFFFFFFFFFFFFULL) {
+        val64 = (val64 << 4) | digit;
+        prh_impl_hex_int_digit(label_tail_digit, label_64_lit_end);
+    }
+    return PRH_TOKERR;
+label_64_lit_end:
+    l->u.ival64 = val64;
+    return PRH_INT64;
+label_32_lit_end:
+    l->u.ival32 = val32;
+    return PRH_INT32;
+}
+
+typedef enum: prh_byte {
+    prh_bonn_default_invalid = 0,
+    prh_bonn_lit_end,
+    prh_bonn_digit,
+    prh_bonn_underscore,
+    prh_bonn_userlit,
+} prh_impl_bonn_enum;
+
+static const prh_impl_bonn_enum prh_impl_bonn[prh_b256_enum_max] = {
+    prh_bonn_lit_end,           // prh_b256_endfile
+    prh_bonn_lit_end,           // prh_b256_newline
+    prh_bonn_lit_end,           // prh_b256_whitespace
+    prh_bonn_default_invalid,   // prh_b256_control
+    prh_bonn_digit,             // prh_b256_digitzero
+    prh_bonn_digit,             // prh_b256_digitleft
+    prh_bonn_hex_upper,         // prh_b256_hex_upper
+    prh_bonn_default_invalid,   // prh_b256_upperleft
+    prh_bonn_default_invalid,   // prh_b256_hex_lower
+    prh_bonn_default_invalid,   // prh_b256_lowerleft
+    prh_bonn_underscore,        // prh_b256_underscore
+    prh_bonn_default_invalid,   // prh_b256_operator
+    prh_bonn_default_invalid,   // prh_b256_bslash
+    prh_bonn_userlit,           // prh_b256_squote
+};
+
+#define prh_impl_bol_int_digit(digit_char, label_digit, label_lit_end)                              \
+label_digit:                                                                                        \
+    c = prh_lexer_next_char(l);                                                                     \
+    switch (prh_impl_bonn[prh_impl_b256[c]]) {                                                      \
+    case prh_bonn_userlit: if (prh_lexer_userlit(l)) goto label_lit_end; return PRH_TOKERR;         \
+    case prh_bonn_lit_end: l->c = c; goto label_lit_end;                                            \
+    case prh_bonn_digit: if (c < digit_char) { digit = c - '0'; break; } return PRH_TOKERR;         \
+    case prh_bonn_underscore: goto label_digit;                                                     \
+    default: return PRH_TOKERR;                                                                     \
+    }
+
+int prh_lexer_bin_int(prh_lexer *l) {
+    // bin_lit = "0b" { bin_digit } . // 仅包含 0 … 1 和 _ b
+    prh_u64 val64; prh_byte digit, i = 0; l->userlit = false;
+    prh_u32 val32 = 0; // 无符号32位至少可以保存32位二进制数位，如果有前导零则能保存更多
+    for (; i < 32; i += 1) {
+        prh_impl_bol_int_digit('2', label_digit_32, label_32_lit_end); val32 = (val32 << 1) | digit;
+    }
+        prh_impl_bol_int_digit('2', label_digit_33, label_32_lit_end); i += 1; // 这里可能字面量结束
+    val64 = (val32 << 1) | digit; // 无符号64位至少可以保存16位二进制数位
+    for (; i < 64; i += 1) {
+        prh_impl_bol_int_digit('2', label_digit_64, label_64_lit_end); val64 = (val64 << 1) | digit;
+    }
+        prh_impl_bol_int_digit('2', label_digit_65, label_64_lit_end);
+    while (val64 <= 0xFFFFFFFFFFFFFFFEULL) {
+        val64 = (val64 << 1) | digit;
+        prh_impl_bol_int_digit('2', label_tail_digit, label_64_lit_end);
+    }
+    return PRH_TOKERR;
+label_64_lit_end:
+    l->u.ival64 = val64;
+    return PRH_INT64;
+label_32_lit_end:
+    l->u.ival32 = val32;
+    return PRH_INT32;
+}
+
+int prh_lexer_oct_int(prh_lexer *l) {
+    // oct_lit = "0o" { oct_digit } . // 仅包含 0 … 7 和 _ o
+    prh_u64 val64; prh_byte digit; l->userlit = false;
+    prh_u32 val32 = 0; // 0o37_777_777_777 无符号32位至少可以保存11位八进制数位，如果有前导零则能保存更多
+    prh_impl_bol_int_digit('8', label_digit_01, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_02, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_03, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_04, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_05, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_06, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_07, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_08, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_09, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_10, label_32_lit_end); val32 = (val32 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_11, label_32_lit_end); // 这里可能字面量结束
+    val64 = (val32 << 3) | digit; // Oo1_777_777_777_777_777_777_777 无符号64位至少可以保存22位八进制数位
+    prh_impl_bol_int_digit('8', label_digit_12, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_13, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_14, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_15, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_16, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_17, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_18, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_19, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_20, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_21, label_64_lit_end); val64 = (val64 << 3) | digit;
+    prh_impl_bol_int_digit('8', label_digit_22, label_64_lit_end);
+    while (val64 <= 0177777777777777777777ULL) {
+        val64 = (val64 << 3) | digit;
+        prh_impl_bol_int_digit('8', label_tail_digit, label_64_lit_end);
+    }
+    return PRH_TOKERR;
+label_64_lit_end:
+    l->u.ival64 = val64;
+    return PRH_INT64;
+label_32_lit_end:
+    l->u.ival32 = val32;
+    return PRH_INT32;
+}
+
+typedef enum: prh_byte {
+    prh_bzel_default_invalid = 0,
+    prh_bzel_lit_end,
+    prh_bzel_underscore,
+    prh_bzel_userlit,
+    prh_bzel_letter,
+} prh_impl_bzel_enum;
+
+static const prh_impl_bzel_enum prh_impl_bzel[prh_b256_enum_max] = {
+    prh_bzel_lit_end,           // prh_b256_endfile,
+    prh_bzel_lit_end,           // prh_b256_newline,
+    prh_bzel_lit_end,           // prh_b256_whitespace,
+    prh_bzel_default_invalid,   // prh_b256_control,
+    prh_bzel_default_invalid,   // prh_b256_digitzero,
+    prh_bzel_default_invalid,   // prh_b256_digitleft,
+    prh_bzel_default_invalid,   // prh_b256_hex_upper,
+    prh_bzel_default_invalid,   // prh_b256_upperleft,
+    prh_bzel_letter,            // prh_b256_hex_lower,
+    prh_bzel_letter,            // prh_b256_lowerleft,
+    prh_bzel_underscore,        // prh_b256_underscore,
+    prh_bzel_default_invalid,   // prh_b256_operator,
+    prh_bzel_default_invalid,   // prh_b256_bslash,
+    prh_bzel_userlit,           // prh_b256_squote,
+};
+
+#define prh_impl_zero_lit_ignore_last_underscore(label_digit)                   \
+label_digit:                                                                    \
+    c = prh_lexer_next_char(l);                                                 \
+    switch (prh_impl_bzel[prh_impl_b256[c]]) {                                  \
+    case prh_bzel_userlit: if (prh_lexer_userlit(l)) break; return PRH_TOKERR;  \
+    case prh_bzel_lit_end: l->c = c; break;                                     \
+    case prh_bzel_underscore: goto label_digit;                                 \
+    case prh_bzel_letter: default: return PRH_TOKERR;                           \
+    }
+
+int prh_lexer_box_int(prh_lexer *l) {
+    // zerolit = "0" .
+    // bin_lit = "0b" { bin_digit } . // 仅包含 0 … 1 和 _ b
+    // oct_lit = "0o" { oct_digit } . // 仅包含 0 … 7 和 _ o
+    // hex_lit = "0x" { hex_digit } . // 仅包含 0 … 9 A … F a … f 和 _ x
+    c = prh_lexer_next_char(l);
+    switch (prh_impl_bzel[prh_impl_b256[c]]) {
+    case prh_bzel_userlit: if (prh_lexer_userlit(l)) goto label_zero_lit_end; return PRH_TOKERR;
+    case prh_bzel_lit_end: l->c = c; goto label_zero_lit_end; 
+    case prh_bzel_underscore: prh_impl_zero_lit_ignore_last_underscore(label_underscore); goto label_zero_lit_end;
+    case prh_bzel_letter:
+        if (c == 'x') return prh_lexer_hex_int(l);
+        if (c == 'b') return prh_lexer_bin_int(l);
+        if (c == 'o') return prh_lexer_oct_int(l);
+    default:
+        return PRH_TOKERR;
+    }
+label_zero_lit_end:
+    l->u.ival32 = 0;
+    return PRH_INT32;
+}
+
 // 统一编码总体结构（General Structure）
 //
 // 本章描述了管理统一编码标准设计的基本原则，并概述其主要特性。本章首先通过讨论文本表示
