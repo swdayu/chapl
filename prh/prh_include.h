@@ -35005,9 +35005,9 @@ typedef enum: prh_byte {
     PRH_TOKERR,
     PRH_NAME, // 标识符名称，包含关键字和保留名称
     PRH_OPER, // 操作符，包含分隔符或标点
-    PRH_INT,  // 整数字面量
+    PRH_INT, // 整数字面量
     PRH_FLOAT, // 浮点字面量
-    PRH_CHAR, // 字符字面量
+    PRH_CHAR, // 字节字符字面量
     PRH_USERLIT, // 自定义字面量
     PRH_STRING, // 字符串字面量
     PRH_COMMENT, // 注释
@@ -35029,7 +35029,7 @@ static const prh_byte prh_impl_ehex[prh_b256_enum_max] = {
     0,          // prh_b256_lowerleft
 };
 
-prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *n) {
+prh_inline prh_byte prh_lexer_esc_digit(prh_byte c, prh_byte *n) {
     prh_byte valid = prh_impl_ehex[prh_impl_b256[c]];
     *n = c - valid;
     return valid;
@@ -35039,16 +35039,17 @@ prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *n) {
 //  1. 兼容 C 转义字符
 //      \"          // 22 "
 //      \'          // 27 '
-//      \0 ~ \9     // 30 ~ 39
+//      \0          // 30
 //      \\          // 5C '\\'
 //      \n          // 6E n
 //      \r          // 72 r
 //      \t          // 74 t
-//      \xNN (2 digits)     // 78 x
-//      \uNNNN (4 digits)   // 75 u
+//      \xNN (2 digits)
+//      \uNNNN (4 digits)
 //  2.  扩展转义字符
 //      \s  空格    // 73 s
-//      \U{NNNN} (1 ~ 8 digits)
+//      \oNNN (3 digits)
+//      \{NNNN} (1 ~ 8 digits)
 //  3. 不支持
 //      \?
 //      \a
@@ -35073,7 +35074,7 @@ prh_inline prh_byte prh_lexer_hex_digit(prh_byte c, prh_byte *n) {
 
 typedef enum: prh_byte {
     prh_besc_default_invalid = 0,
-    prh_besc_digit,
+    prh_besc_digitzero,
     prh_besc_lowerleft,
     prh_besc_curr_char,
     prh_besc_curly,
@@ -35084,8 +35085,8 @@ static const prh_impl_besc_enum prh_impl_besc[prh_b256_enum_max] = {
     prh_besc_default_invalid,   // prh_b256_newline
     prh_besc_default_invalid,   // prh_b256_whitespace
     prh_besc_default_invalid,   // prh_b256_control
-    prh_besc_digit,             // prh_b256_digitzero
-    prh_besc_digit,             // prh_b256_digitleft
+    prh_besc_digitzero,         // prh_b256_digitzero
+    prh_besc_default_invalid,   // prh_b256_digitleft
     prh_besc_default_invalid,   // prh_b256_hex_upper
     prh_besc_default_invalid,   // prh_b256_upperleft
     prh_besc_default_invalid,   // prh_b256_hex_lower
@@ -35104,6 +35105,7 @@ static const prh_impl_besc_enum prh_impl_besc[prh_b256_enum_max] = {
 typedef enum: prh_byte {
     prh_esca_default_invalid = 0,
     prh_esca_value,
+    prh_esca_o_nnn,
     prh_esca_x_hex,
     prh_esca_u_hex,
 } prh_impl_esca_enum;
@@ -35122,7 +35124,7 @@ static const prh_impl_esca_value prh_impl_esca['z' - 'f'] = {
     {prh_esca_default_invalid}, // l
     {prh_esca_default_invalid}, // m
     {prh_esca_value, '\n'},     // n
-    {prh_esca_default_invalid}, // o
+    {prh_esca_o_nnn},           // o
     {prh_esca_default_invalid}, // p
     {prh_esca_default_invalid}, // q
     {prh_esca_value, '\r'},     // r
@@ -35140,20 +35142,21 @@ bool prh_lexer_escape(prh_lexer *l) {
     // \"          // 22 "
     // \'          // 27 '
     // \\          // 5C
-    // \0 ~ \9     // 30 ~ 39
+    // \0          // 30
     // \n          // 6E n      z y x w v u t s r q p o n m l k j i h g
     // \r          // 72 r      0 0 1 0 0 1 1 1 1 0 0 0 1 0 0 0 0 0 0 0 = 0x00027880 & (1 << (c - 'g'))
     // \s          // 73 s
     // \t          // 74 t
-    // \xNN (2 digits) // 78 x
-    // \uNNNN (4 digits) // 75 u
+    // \xNN (2 digits)
+    // \oNNN (3 digits)
+    // \uNNNN (4 digits)
     // \{NNNN} (1 ~ 8 digits)
     prh_byte b, c;
     c = prh_lexer_next_char(l);
     b = prh_impl_b256[c];
     switch (prh_impl_besc[b]) {
-    case prh_besc_digit:
-        l->u.cvalue = c - '0';
+    case prh_besc_digitzero:
+        l->u.cvalue = 0;
         break;
     case prh_besc_curr_char:
         l->u.cvalue = c;
@@ -35164,23 +35167,32 @@ bool prh_lexer_escape(prh_lexer *l) {
         case prh_esca_value:
             l->u.cvalue = v.value;
             break;
+        case prh_esca_o_nnn: { // \o377 三个八进制数位表示的单字节字符最大值是 377
+            c = prh_lexer_next_char(l) - '0'; prh_byte o = 0;
+            if (c <= 7) o = (o << 3) | c; else goto label_error;
+            c = prh_lexer_next_char(l) - '0';
+            if (c <= 7) o = (o << 3) | c; else goto label_error;
+            c = prh_lexer_next_char(l) - '0';
+            if (c <= 7 && o <= 037) o = (o << 3) | c; else goto label_error;
+        } break;
         case prh_esca_x_hex: {
             c = prh_lexer_next_char(l); prh_byte a;
-            if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
             c = prh_lexer_next_char(l); prh_byte b;
-            if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
             l->u.cvalue = (a << 4) | b;
         } break;
         case prh_esca_u_hex: {
             c = prh_lexer_next_char(l); prh_byte a;
-            if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
             c = prh_lexer_next_char(l); prh_char u = a;
-            if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
             c = prh_lexer_next_char(l); u = (u << 4) | a;
-            if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
             c = prh_lexer_next_char(l); u = (u << 4) | a;
-            if (!prh_lexer_hex_digit(c, &a)) goto label_error;
+            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
             l->u.cvalue = (u << 4) | a;
+            l->escape_code = true;
         } break;
         default:
             goto label_error;
@@ -35188,11 +35200,11 @@ bool prh_lexer_escape(prh_lexer *l) {
     } break;
     case prh_besc_curly:
         prh_byte a, i = 1; // 即使 \{} 也需要报错
-        if (!prh_lexer_hex_digit(prh_lexer_next_char(l), &a)) goto label_error;
+        if (!prh_lexer_esc_digit(prh_lexer_next_char(l), &a)) goto label_error;
         prh_char u = a;
 label_hex_digit:
         c = prh_lexer_next_char(l);
-        if (!prh_lexer_hex_digit(c, &a)) {
+        if (!prh_lexer_esc_digit(c, &a)) {
             if (c != '}') goto label_error; // 遇到}解析完成
         } else {
             u = (u << 4) | a;
@@ -35200,6 +35212,7 @@ label_hex_digit:
             if (!prh_lexer_skip_char(l, '}')) goto label_error;
         }
         l->u.cvalue = u;
+        l->escape_code = true;
         break;
     default:
 label_error:
@@ -35307,13 +35320,21 @@ int prh_lexer_dquote(prh_lexer *l) {
         case prh_bstr_dquote:
             goto label_finish;
         case prh_bstr_bslash:
-            if (!prh_lexer_eschar(l)) {
+            l->escape_code = false;
+            if (!prh_lexer_escape(l)) {
         case prh_bstr_invalid:
                 return PRH_TOKERR;
             }
             c = l->u.cvalue;
+            if (l->escape_code == false) {
         default:
-            prh_string_push(s, c);
+                prh_string_push(s, c);
+                break;
+            }
+            // TODO：确保字符串可用空间大小足够
+            int n = prh_unicode_to_utf8(c, prh_string_end(s));
+            if (n == 0) return PRH_TOKERR;
+            prh_string_increase_size(n);
             break;
         }
     }
@@ -35327,10 +35348,15 @@ label_finish:
 //
 // sign = "+" | "-" .
 // digit = 0 … 9 .
-// dec_digit = "_" | 0 … 9 .
-// bin_digit = "_" | 0 … 1 .
-// oct_digit = "_" | 0 … 7 .
-// hex_digit = "_" | 0 … 9 | A … Z | a … z .
+// digit_1_9 = 1 … 9 .
+// digit_0_1 = 0 … 1 .
+// digit_0_7 = 0 … 7 .
+// digit_0_15 = digit | A … Z | a … z .
+//
+// dec_digit = "_" | digit .
+// bin_digit = "_" | digit_0_1 .
+// oct_digit = "_" | digit_0_7 .
+// hex_digit = "_" | digit_0_15 .
 //
 // int_lit = [sign] (dec_lit | bin_lit | oct_lit | hex_lit) .
 // dec_lit = digit { dec_digit } . // 仅包含 0 … 9 和 _
@@ -35338,7 +35364,7 @@ label_finish:
 // oct_lit = "0o" { oct_digit } . // 仅包含 0 … 7 和 _ o
 // hex_lit = "0x" { hex_digit } . // 仅包含 0 … 9 A … F a … f 和 _ x
 //
-// digit_ident = (1 … 9) {digit | "_" | unicode_letter} <不能以数字和下划线结尾>
+// digit_ident = digit_1_9 {digit | "_" | unicode_letter} <不能以数字和下划线结尾>
 // 三二进制 0 9 A V a v 六四进制 0 9 A Z a z _ ~
 
 typedef enum: prh_byte {
@@ -37359,6 +37385,7 @@ typedef struct {
     prh_byte *start;
     prh_byte *parse;
     prh_char c;
+    bool escape_code;
     bool userlit;
     union {
         prh_char cvalue;
