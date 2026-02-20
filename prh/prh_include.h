@@ -34742,6 +34742,130 @@ typedef enum: prh_byte {
     prh_b256_enum_max,
 } prh_impl_b256_enum;
 
+// 单字节字符分类
+// 0x00      0x10      0x20      0x30  0   0x40  @   0x50  P   0x60  `   0x70  p   0x80      0x90      0xa0      0xb0      0xc0      0xd0      0xe0      0xf0
+// 0x01      0x11      0x21  !   0x31  1   0x41  A   0x51  Q   0x61  a   0x71  q   0x81      0x91      0xa1      0xb1      0xc1      0xd1      0xe1      0xf1
+// 0x02      0x12      0x22  "   0x32  2   0x42  B   0x52  R   0x62  b   0x72  r   0x82      0x92      0xa2      0xb2      0xc2      0xd2      0xe2      0xf2
+// 0x03      0x13      0x23  #   0x33  3   0x43  C   0x53  S   0x63  c   0x73  s   0x83      0x93      0xa3      0xb3      0xc3      0xd3      0xe3      0xf3
+// 0x04      0x14      0x24  $   0x34  4   0x44  D   0x54  T   0x64  d   0x74  t   0x84      0x94      0xa4      0xb4      0xc4      0xd4      0xe4      0xf4
+// 0x05      0x15      0x25  %   0x35  5   0x45  E   0x55  U   0x65  e   0x75  u   0x85      0x95      0xa5      0xb5      0xc5      0xd5      0xe5      0xf5
+// 0x06      0x16      0x26  &   0x36  6   0x46  F   0x56  V   0x66  f   0x76  v   0x86      0x96      0xa6      0xb6      0xc6      0xd6      0xe6      0xf6
+// 0x07      0x17      0x27  '   0x37  7   0x47  G   0x57  W   0x67  g   0x77  w   0x87      0x97      0xa7      0xb7      0xc7      0xd7      0xe7      0xf7
+// 0x08      0x18      0x28  (   0x38  8   0x48  H   0x58  X   0x68  h   0x78  x   0x88      0x98      0xa8      0xb8      0xc8      0xd8      0xe8      0xf8
+// 0x09      0x19      0x29  )   0x39  9   0x49  I   0x59  Y   0x69  i   0x79  y   0x89      0x99      0xa9      0xb9      0xc9      0xd9      0xe9      0xf9
+// 0x0a      0x1a      0x2a  *   0x3a  :   0x4a  J   0x5a  Z   0x6a  j   0x7a  z   0x8a      0x9a      0xaa      0xba      0xca      0xda      0xea      0xfa
+// 0x0b      0x1b      0x2b  +   0x3b  ;   0x4b  K   0x5b  [   0x6b  k   0x7b  {   0x8b      0x9b      0xab      0xbb      0xcb      0xdb      0xeb      0xfb
+// 0x0c      0x1c      0x2c  ,   0x3c  <   0x4c  L   0x5c  \   0x6c  l   0x7c  |   0x8c      0x9c      0xac      0xbc      0xcc      0xdc      0xec      0xfc
+// 0x0d      0x1d      0x2d  -   0x3d  =   0x4d  M   0x5d  ]   0x6d  m   0x7d  }   0x8d      0x9d      0xad      0xbd      0xcd      0xdd      0xed      0xfd
+// 0x0e      0x1e      0x2e  .   0x3e  >   0x4e  N   0x5e  ^   0x6e  n   0x7e  ~   0x8e      0x9e      0xae      0xbe      0xce      0xde      0xee      0xfe
+// 0x0f      0x1f      0x2f  /   0x3f  ?   0x4f  O   0x5f  _   0x6f  o   0x7f  DEL 0x8f      0x9f      0xaf      0xbf      0xcf      0xdf      0xef      0xff
+// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000 1000_0000 1001_0000 1010_0000 1011_0000 1100_0000 1101_0000 1110_0000 1111_0000
+// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111 1000_1111 1001_1111 1010_1111 1011_1111 1100_1111 1101_1111 1110_1111 1111_1111
+
+//  字符分类 - 十六进制数位（0 ~ 9 A ~ F a ~ f），字符 c 分为 0 ~ 9、A ~ Z、a ~ z、和其他四类 ((c & 0x60) >> 5)
+//  00        00        01        01        10        10        11        11        00        00        01        01        10        10        11        11
+//  ...       ...       ...       0 ~ 9     A    ~    Z         a    ~    z         ...       ...       ...       ...       ...       ...       ...       ...
+//  c-0x30    c-0x30    c-0x30    c-0x30    c-0x41    c-0x41    c-0x61    c-0x61    c-0x30    c-0x30    c-0x30    c-0x30    c-0x41    c-0x41    c-0x61    c-0x61
+//  D0~DF     E0~EF     F0~FF     00~0F     FF~00~0E  0F~1E     FF~00~0E  0F~1E     50~5F     60~6F     70~7F     80~8F     7F~8E     8F~9E     7F~8E     8F~9E
+
+typedef struct {
+    prh_byte subval;
+    prh_byte arange;
+} prh_impl_ehex_type;
+
+static const prh_impl_ehex_type prh_impl_ehex[4] = {
+    {'0', 0x00},
+    {'0', 0x0a}, // '0' ~ '9'
+    {'A', 0xa6}, // 'A' ~ 'Z'
+    {'a', 0xa6}, // 'a' ~ 'z'
+}
+
+prh_inline bool prh_lexer_esc_digit(prh_byte c, prh_byte *n) {
+    prh_impl_ehex_type *p = prh_impl_ehex + ((c & 0x60) >> 5);
+    *n = (c -= p->subval) + (p->arange >> 4);
+    return c < (p->arange & 0x0F);
+}
+
+// 字符分类 - 转义字符 \" \' \0 \\ \n \o \r \s \t \u \x \{
+// 0x00      0x10      0x20      0x30  0   0x40      0x50      0x60      0x70      0x80      0x90      0xa0      0xb0      0xc0      0xd0      0xe0      0xf0
+//                     0x22  "                                           0x72  r
+//                     0x27  '                                           0x73  s
+//                                                                       0x74  t
+//                                                                       0x75  u
+//                                                                       0x78  x
+//                                                   0x5c  \   0x6e  n   0x7b  {
+// 0x0f      0x1f      0x2f      0x3f      0x4f      0x5f      0x6f  o   0x7f      0x8f      0x9f      0xaf      0xbf      0xcf      0xdf      0xef      0xff
+// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000 1000_0000 1001_0000 1010_0000 1011_0000 1100_0000 1101_0000 1110_0000 1111_0000
+// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111 1000_1111 1001_1111 1010_1111 1011_1111 1100_1111 1101_1111 1110_1111 1111_1111
+
+typedef struct {
+    prh_byte subval;
+    prh_byte irange;
+    prh_u16 valid;
+} prh_impl_vesc_type;
+
+static const prh_impl_vesc_type prh_impl_tesc[8] = {
+    {0x22, 0x00, 0x0000},
+    {0x22, 0x00, 0x0000},
+    {0x22, 0x05, 0x0021}, // "    0010_0001     0x22 0 " 0x23 0x24 0x25 0x26 0x27 5 '
+    {0x30, 0x60, 0x0001}, // 0
+    {0x5c, 0x00, 0x0000},
+    {0x5c, 0x70, 0x0001}, // '\\'
+    {0x6e, 0x81, 0x0003}, // n    0000_0011     0x6e 0 n 0x6f 1 o
+    {0x72, 0xA9, 0x024F}, // r 10_0100_1111     0x72 0 r 0x73 1 s 0x74 2 t 0x75 3 u 0x76 0x77 0x78 6 x 0x79 0x7a 0x7b 9 {
+};
+
+typedef enum: prh_byte {
+    prh_esch_invalid = 0,
+    prh_esch_value,
+    prh_esch_o_nnn,
+    prh_esch_x_hex,
+    prh_esch_u_hex,
+    prh_esch_curly,
+} prh_impl_esch_enum;
+
+typedef struct {
+    prh_impl_esch_enum type;
+    prh_byte value;
+} prh_impl_vesc_data;
+
+static const prh_impl_vesc_data prh_impl_vesc[20] = {
+    {prh_esch_value,    '\"'},  // 0x22  0 "
+    {prh_esch_invalid,  0},     // 0x23  1
+    {prh_esch_invalid,  0},     // 0x24  2
+    {prh_esch_invalid,  0},     // 0x25  3
+    {prh_esch_invalid,  0},     // 0x26  4
+    {prh_esch_value,    '\''},  // 0x27  5 '
+    {prh_esch_invalid,  0},     // 0x30  6 0
+    {prh_esch_value,    '\\'},  // 0x5c  7 '\\'
+    {prh_esch_value,    '\n'},  // 0x6e  8 n
+    {prh_esch_o_nnn,    'o'},   // 0x6f  9 o
+    {prh_esch_value,    '\r'},  // 0x72 10 r
+    {prh_esch_value,    0x20},  // 0x73 11 s
+    {prh_esch_value,    '\t'},  // 0x74 12 t
+    {prh_esch_u_hex,    'u'},   // 0x75 13 u
+    {prh_esch_invalid,  0},     // 0x76 14
+    {prh_esch_invalid,  0},     // 0x77 15
+    {prh_esch_x_hex,    'x'},   // 0x78 16 x
+    {prh_esch_invalid,  0},     // 0x79 17
+    {prh_esch_invalid,  0},     // 0x7a 18
+    {prh_esch_curly,    '{'},   // 0x7b 19 {
+};
+
+prh_impl_esch_enum prh_lexer_esc_char(prh_lexer *l) {
+    prh_byte c = prh_lexer_next_char(l);
+    const prh_impl_vesc_type *p = prh_impl_tesc + ((c & 0x70) >> 4);
+    const prh_impl_vesc_data *d;
+    switch ((c -= p->subval) <= (p->irange & 0x0F) && (c & p->valid)) {
+    case true:
+        d = prh_impl_vesc + c + (p->irange >> 4);
+        l->u.cvalue = d->value;
+        return d->type;
+    default:
+        return prh_esch_invalid;
+    }
+}
+
 static const prh_byte prh_impl_b256[256] = {
     prh_b256_endfile,   // 00 NUL (null)
     prh_b256_control,   // 01 SOH (start of header)
@@ -35016,25 +35140,6 @@ typedef enum: prh_byte {
     PRH_DEDENT, // 取消缩进
 } prh_tokid;
 
-static const prh_byte prh_impl_ehex[prh_b256_enum_max] = {
-    0,          // prh_b256_endfile
-    0,          // prh_b256_newline
-    0,          // prh_b256_whitespace
-    0,          // prh_b256_control
-    0x30,       // prh_b256_digitzero // 30 0
-    0x30,       // prh_b256_digitleft
-    0x41-10,    // prh_b256_hex_upper // 41 A
-    0,          // prh_b256_upperleft
-    0x61-10,    // prh_b256_hex_lower // 61 a
-    0,          // prh_b256_lowerleft
-};
-
-prh_inline prh_byte prh_lexer_esc_digit(prh_byte c, prh_byte *n) {
-    prh_byte valid = prh_impl_ehex[prh_impl_b256[c]];
-    *n = c - valid;
-    return valid;
-}
-
 // 字符，要么是字节 byte，要么四字节 char
 //  1. 兼容 C 转义字符
 //      \"          // 22 "
@@ -35072,133 +35177,50 @@ prh_inline prh_byte prh_lexer_esc_digit(prh_byte c, prh_byte *n) {
 //      'type   类型转换操作前缀 '<type><space>
 //      23'kg   <literal>'tag<space>
 
-typedef enum: prh_byte {
-    prh_besc_default_invalid = 0,
-    prh_besc_digitzero,
-    prh_besc_lowerleft,
-    prh_besc_curr_char,
-    prh_besc_curly,
-} prh_impl_besc_enum;
-
-static const prh_impl_besc_enum prh_impl_besc[prh_b256_enum_max] = {
-    prh_besc_default_invalid,   // prh_b256_endfile
-    prh_besc_default_invalid,   // prh_b256_newline
-    prh_besc_default_invalid,   // prh_b256_whitespace
-    prh_besc_default_invalid,   // prh_b256_control
-    prh_besc_digitzero,         // prh_b256_digitzero
-    prh_besc_default_invalid,   // prh_b256_digitleft
-    prh_besc_default_invalid,   // prh_b256_hex_upper
-    prh_besc_default_invalid,   // prh_b256_upperleft
-    prh_besc_default_invalid,   // prh_b256_hex_lower
-    prh_besc_lowerleft,         // prh_b256_lowerleft
-    prh_besc_default_invalid,   // prh_b256_operator
-    prh_besc_curr_char,         // prh_b256_bslash
-    prh_besc_curr_char,         // prh_b256_squote
-    prh_besc_curr_char,         // prh_b256_dquote
-    prh_besc_default_invalid,   // prh_b256_lparen
-    prh_besc_default_invalid,   // prh_b256_rparen
-    prh_besc_default_invalid,   // prh_b256_lsquare
-    prh_besc_default_invalid,   // prh_b256_rsquare
-    prh_besc_curly,             // prh_b256_lcurly
-};
-
-typedef enum: prh_byte {
-    prh_esca_default_invalid = 0,
-    prh_esca_value,
-    prh_esca_o_nnn,
-    prh_esca_x_hex,
-    prh_esca_u_hex,
-} prh_impl_esca_enum;
-
-typedef struct {
-    prh_impl_esca_enum type;
-    prh_byte value;
-} prh_impl_esca_value;
-
-static const prh_impl_esca_value prh_impl_esca['z' - 'f'] = {
-    {prh_esca_default_invalid}, // g
-    {prh_esca_default_invalid}, // h
-    {prh_esca_default_invalid}, // i
-    {prh_esca_default_invalid}, // j
-    {prh_esca_default_invalid}, // k
-    {prh_esca_default_invalid}, // l
-    {prh_esca_default_invalid}, // m
-    {prh_esca_value, '\n'},     // n
-    {prh_esca_o_nnn},           // o
-    {prh_esca_default_invalid}, // p
-    {prh_esca_default_invalid}, // q
-    {prh_esca_value, '\r'},     // r
-    {prh_esca_value, 0x20},     // s
-    {prh_esca_value, '\t'},     // t
-    {prh_esca_u_hex},           // u
-    {prh_esca_default_invalid}, // v
-    {prh_esca_default_invalid}, // w
-    {prh_esca_x_hex},           // x
-    {prh_esca_default_invalid}, // y
-    {prh_esca_default_invalid}, // z
-};
-
 bool prh_lexer_escape(prh_lexer *l) {
     // \"          // 22 "
     // \'          // 27 '
     // \\          // 5C
     // \0          // 30
-    // \n          // 6E n      z y x w v u t s r q p o n m l k j i h g
-    // \r          // 72 r      0 0 1 0 0 1 1 1 1 0 0 0 1 0 0 0 0 0 0 0 = 0x00027880 & (1 << (c - 'g'))
+    // \n          // 6E n
+    // \r          // 72 r
     // \s          // 73 s
     // \t          // 74 t
     // \xNN (2 digits)
     // \oNNN (3 digits)
     // \uNNNN (4 digits)
     // \{NNNN} (1 ~ 8 digits)
-    prh_byte b, c;
-    c = prh_lexer_next_char(l);
-    b = prh_impl_b256[c];
-    switch (prh_impl_besc[b]) {
-    case prh_besc_digitzero:
-        l->u.cvalue = 0;
-        break;
-    case prh_besc_curr_char:
-        l->u.cvalue = c;
-        break;
-    case prh_besc_lowerleft: {
-        prh_impl_esca_value v = prh_impl_esca[b];
-        switch (v.type) {
-        case prh_esca_value:
-            l->u.cvalue = v.value;
-            break;
-        case prh_esca_o_nnn: { // \o377 三个八进制数位表示的单字节字符最大值是 377
-            c = prh_lexer_next_char(l) - '0'; prh_byte o = 0;
-            if (c <= 7) o = (o << 3) | c; else goto label_error;
-            c = prh_lexer_next_char(l) - '0';
-            if (c <= 7) o = (o << 3) | c; else goto label_error;
-            c = prh_lexer_next_char(l) - '0';
-            if (c <= 7 && o <= 037) o = (o << 3) | c; else goto label_error;
-        } break;
-        case prh_esca_x_hex: {
-            c = prh_lexer_next_char(l); prh_byte a;
-            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
-            c = prh_lexer_next_char(l); prh_byte b;
-            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
-            l->u.cvalue = (a << 4) | b;
-        } break;
-        case prh_esca_u_hex: {
-            c = prh_lexer_next_char(l); prh_byte a;
-            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
-            c = prh_lexer_next_char(l); prh_char u = a;
-            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
-            c = prh_lexer_next_char(l); u = (u << 4) | a;
-            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
-            c = prh_lexer_next_char(l); u = (u << 4) | a;
-            if (!prh_lexer_esc_digit(c, &a)) goto label_error;
-            l->u.cvalue = (u << 4) | a;
-            l->escape_code = true;
-        } break;
-        default:
-            goto label_error;
-        }
+    switch (prh_lexer_esc_char(l)) {
+    case prh_esch_value: break;
+    case prh_esch_o_nnn: { // \o377 三个八进制数位表示的单字节字符最大值是 377
+        c = prh_lexer_next_char(l) - '0'; prh_byte a = 0;
+        if (c <= 7) a = (a << 3) | c; else goto label_error;
+        c = prh_lexer_next_char(l) - '0';
+        if (c <= 7) a = (a << 3) | c; else goto label_error;
+        c = prh_lexer_next_char(l) - '0';
+        if (c <= 7 && a <= 037) ; else goto label_error;
+        l->u.cvalue = (a << 3) | c;
     } break;
-    case prh_besc_curly:
+    case prh_esch_x_hex: {
+        c = prh_lexer_next_char(l); prh_byte a;
+        if (!prh_lexer_esc_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); prh_byte b;
+        if (!prh_lexer_esc_digit(c, &a)) goto label_error;
+        l->u.cvalue = (a << 4) | b;
+    } break;
+    case prh_esch_u_hex: {
+        c = prh_lexer_next_char(l); prh_byte a;
+        if (!prh_lexer_esc_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); prh_char u = a;
+        if (!prh_lexer_esc_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); u = (u << 4) | a;
+        if (!prh_lexer_esc_digit(c, &a)) goto label_error;
+        c = prh_lexer_next_char(l); u = (u << 4) | a;
+        if (!prh_lexer_esc_digit(c, &a)) goto label_error;
+        l->u.cvalue = (u << 4) | a;
+        l->escape_code = true;
+    } break;
+    case prh_esch_curly: {
         prh_byte a, i = 1; // 即使 \{} 也需要报错
         if (!prh_lexer_esc_digit(prh_lexer_next_char(l), &a)) goto label_error;
         prh_char u = a;
@@ -35213,9 +35235,8 @@ label_hex_digit:
         }
         l->u.cvalue = u;
         l->escape_code = true;
-        break;
-    default:
-label_error:
+    } break;
+    default: label_error:
         return false;
     }
     l->c = prh_lexer_next_char(l);
@@ -35364,7 +35385,7 @@ label_finish:
 // oct_lit = "0o" { oct_digit } . // 仅包含 0 … 7 和 _ o
 // hex_lit = "0x" { hex_digit } . // 仅包含 0 … 9 A … F a … f 和 _ x
 //
-// digit_ident = digit_1_9 {digit | "_" | unicode_letter} <不能以数字和下划线结尾>
+// dec_ident = dec_lit {digit | "_" | unicode_letter} <不能以数字和下划线结尾>
 // 三二进制 0 9 A V a v 六四进制 0 9 A Z a z _ ~
 
 typedef enum: prh_byte {
@@ -35672,7 +35693,7 @@ label_zero_lit_end:
 // dec_exp_mark = 'e' | 'E' . // 10 ^ exp
 // bin_exp_mark = 'p' | 'P' . // 2 ^ exp
 // dec_exp = dec_exp_mark [ sign ] dec_lit .
-// bin_exp = bin_exp_mark [sign] dec_lit .
+// bin_exp = bin_exp_mark [ sign ] dec_lit .
 //
 // float_lit = [ sign ] (dec_float | bin_float | oct_float | hex_float) .
 //
