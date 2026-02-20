@@ -35665,6 +35665,71 @@ label_zero_lit_end:
     return PRH_INT32;
 }
 
+// TODO: 处理字面量的结束，更新 prh_b256_enum_max 对应的数组
+//
+// 浮点字面量
+//
+// dec_exp_mark = 'e' | 'E' . // 10 ^ exp
+// bin_exp_mark = 'p' | 'P' . // 2 ^ exp
+// dec_exp = dec_exp_mark [ sign ] dec_lit .
+// bin_exp = bin_exp_mark [sign] dec_lit .
+//
+// float_lit = [ sign ] (dec_float | bin_float | oct_float | hex_float) .
+//
+// dec_float // 注意 dec_lit 总是以数字开头
+//      = '.' dec_frag
+//      | dec_lit '.' [ dec_frag ]
+//      | dec_lit '.' dec_exp
+//      | dec_lit dec_exp .
+// dec_frag = dec_lit [ dec_exp ] .
+//
+// bin_float
+//      = bin_lit '.' [ bin_frag ]
+//      | bin_lit '.' bin_exp
+//      | bin_lit bin_exp .
+// bin_frag = digit_0_1 { bin_digit } [ bin_exp ].
+//
+// oct_float
+//      = oct_lit '.' [ oct_frag ]
+//      | oct_lit '.' bin_exp
+//      | oct_lit bin_exp .
+// oct_frag = digit_0_7 { oct_digit } [ bin_exp ].
+//
+// hex_float // 十六进制浮点的 bin_exp 不可选的原因是十六进制可以是字母，例如 0xff.abp1 0xff.a_p+1，加强的规则减少与标识符混淆的概率
+//      = hex_lit '.' [ hex_frag ]
+//      | hex_lit '.' bin_exp
+//      | hex_lit bin_exp .
+// hex_frag = digit_0_15 { hex_digit } bin_exp .
+//
+//  0.      0_.
+//  .0      .0_      .0e0     .0_e0    .0e0_    .0_e0_    .0e+0    .0_e+0    .0e+0_    .0_e+0_
+//  0.0     0.0_    0.0e0    0.0_e0   0.0e0_   0.0_e0_   0.0e+0   0.0_e+0   0.0e+0_   0.0_e+0_
+//                   0.e0              0.e0_              0.e+0              0.e+0_
+//  0_.0    0_.0_  0_.0e0   0_.0_e0  0_.0e0_  0_.0_e0_  0_.0e+0  0_.0_e+0  0_.0e+0_  0_.0_e+0_
+//                  0_.e0             0_.e0_             0_.e+0             0_.e+0_
+//                    0e0      0_e0     0e0_     0_e0_     0e+0     0_e+0     0e+0_     0_e+0_
+//
+//  0b.    0b_.    0b00.    0b01.
+//  0b.0   0b.0_   0b.0p0   0b.0_p0  0b.0p0_  0b.0_p0_  0b.0p+0  0b.0_p+0  0b.0p+0_  0b.0_p+0_      // 点之后总是以数字或p开头
+// 0b0.0  0b0.0_  0b0.0p0  0b0.0_p0 0b0.0p0_ 0b0.0_p0_ 0b0.0p+0 0b0.0_p+0 0b0.0p+0_ 0b0.0_p+0_
+//                 0b0.p0            0b0.p0_            0b0.p+0            0b0.p+0_
+// 0b_.0   0b_.0_ 0b_.0p0  0b_.0_p0 0b_.0p0_ 0b_.0_p0_ 0b_.0p+0 0b_.0_p+0 0b_.0p+0_ 0b_.0_p+0_
+//                 0b_.p0            0b_.p0_            0b_.p+0            0b_.p+0_
+//                   0bp0     0b_p0    0bp0_    0b_p0_    0bp+0    0b_p+0    0bp+0_    0b_p+0_
+//                  0b0p0    0b0_p0   0b0p0_   0b0_p0_   0b0p+0   0b0_p+0   0b0p+0_   0b0_p+0_
+//
+//  0x.    0x_.    0x00.    0xff.
+//                 0x.0p0   0x.0_p0  0x.0p0_  0x.0_p0_  0x.0p+0  0x.0_p+0  0x.0p+0_  0x.0_p+0_      // 点之后总是以数字或 A F a f p开头
+//                 0x.ap0   0x.a_p0  0x.ap0_  0x.a_p0_  0x.ap+0  0x.a_p+0  0x.ap+0_  0x.a_p+0_
+//                 0x0.0p0  0x0.0_p0 0x0.0p0_ 0x0.0_p0_ 0x0.0p+0 0x0.0_p+0 0x0.0p+0_ 0x0.0_p+0_
+//                 0x0.ap0  0x0.a_p0 0x0.ap0_ 0x0.a_p0_ 0x0.ap+0 0x0.a_p+0 0x0.ap+0_ 0x0.a_p+0_
+//                 0x0.p0            0x0.p0_            0x0.p+0            0x0.p+0_
+//                 0x_.0p0  0x_.0_p0 0x_.0p0_ 0x_.0_p0_ 0x_.0p+0 0x_.0_p+0 0x_.0p+0_ 0x_.0_p+0_
+//                 0x_.ap0  0x_.a_p0 0x_.ap0_ 0x_.a_p0_ 0x_.ap+0 0x_.a_p+0 0x_.ap+0_ 0x_.a_p+0_
+//                 0x_.p0            0x_.p0_            0x_.p+0            0x_.p+0_
+//                   0xp0     0x_p0    0xp0_    0x_p0_    0xp+0    0x_p+0    0xp+0_    0x_p+0_
+//                  0xap0    0xa_p0   0xap0_   0xa_p0_   0xap+0   0xa_p+0   0xap+0_   0xa_p+0_
+
 // 统一编码总体结构（General Structure）
 //
 // 本章描述了管理统一编码标准设计的基本原则，并概述其主要特性。本章首先通过讨论文本表示
