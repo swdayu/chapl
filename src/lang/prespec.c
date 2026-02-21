@@ -4,7 +4,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else elif for in break return 条件语句支持大括号和缩进对齐两种编写方式
+//  if else elif for in break briff return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed def pub let var undefined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static where it or this import scoped as inf (inferred type 推导的类型)
@@ -193,6 +193,41 @@
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
+//
+//  int // signed pointer size integer
+//  reg // unsigned pointer size integer // 使用 ~ 开始的标识符可以转义关键字 ~int ~reg
+//  arch_int // real architecture register size signed integer
+//  arch_reg // real architecture register size unsigned integer
+//  bool byte char error float decimal complex
+//  array string slice
+//
+//  08`     // r08 unsigned integer 单字节
+//  16`     // r16 unsigned integer 两字节
+//  32`     // r32 unsigned integer 四字节
+//  64`     // r64 unsigned integer 八字节
+//
+//  08`int  // i08 signed integer
+//  16`int  // i16 signed integer
+//  32`int  // i32 signed integer
+//  64`int  // i64 signed integer
+//
+//  rx`     // rrx signed integer 16字节  128位
+//  ry`     // rry signed integer 32字节  256位
+//  rz`     // rrz signed integer 64字节  512位
+//
+//  08`float f08    08`decimal d08      08`complex c08
+//  16`float f16    16`decimal d16      16`complex c16
+//  32`float f32    32`decimal d32      32`complex c32
+//  64`float f64    64`decimal d64      64`complex c64
+//  rx`float ffx    rx`decimal ddx      rx`complex ccx
+//  ry`float ffy    ry`decimal ddy      ry`complex ccy
+//  rz`float ffz    rz`decimal ddz      rz`complex ccz
+//
+//  .digit 表示一个十进制数
+//  ident` 表示是类型名称
+//  .ident = expr 表示成员赋值
+//  a.ident (expr).ident() 表示成员访问，点号与之前的a之间不能有空格，但点号之后可以有空格
+//  ::ident 访问类型成员
 //
 // 简洁尽量实现使用最少字符
 //  布尔类型    布尔常量    空值    字符类型    字符串类型
@@ -421,6 +456,8 @@
 // 类型转换，当表达式中的类型转换需要添加括号时，需要使用 ('type expr) 的形式，避免与函数类型冲突
 a + int b + c * d
 a + ('int b + c) * d
+// 逗号只能出现在 {} 或 [] 或 let 表达式中，不能出现在 () 中，避免与函数类型冲突
+(point, camera) // 括号 () 中出现逗号必然是函数声明
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
 // 函数类型字面量，“开始小括号 + 结果为类型的表达式” 表示函数类型的开始，函数复合常量是函数类型字面量 + { stmt ... }
 (void) // void 表示没有参数，也没有返回值
@@ -434,28 +471,43 @@ a + ('int b + c) * d
 (int argc **char argv return int or none)
 (point p int a return int) // 返回 int
 (point point int a return int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
+(point, int a return int) // 简写形式
 (camera camera point point)
 (point point)
+(camera, point) (camera = expr, point) // 简写形式
+(point) (point`) (point .= expr) // 简写形式，使用 point` 和 .= 避免与表达式语法冲突
 (*camera camera *point point)
 (*point point)
+(*camera, *point) // 简写形式
+(*point) // 简写形式
 (int a)
-(int a int b)
+(int a int b int c)
+(int a..b..c) // 简写形式
 (int a int b return int yield int point)
 (int a int b yield int point return int)
 (int a int b yield int point)
+(int a..b yield int point)
 (int a return int point float (count point scale))
-(*file? file = {stdin} point point string name = {"root"} string mode)
+(*file? file = stdin, point point string name = "root", string mode)
+(*file? = stdin, point, string name = "root", string mode) // 简写形式
+(*file? = stdin, point point point origin string name string mode int a int b int c)
+(*file? = stdin, point, point origin string name..mode int a..b..c)
+(*file? = stdin, point point..origin string name..mode int a..b..c)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
+[int] (x $) // int 成员命名为 x
 [int point int]
-[int point int]
+[int point int] (a b c)
+[int point int] (_ b _)
 [int int string]
 [point point]
 // 结构体类型字面量，“起始大括号 + 结果为类型的表达式” 称表示结构体的开始
 struct {} // 空结构体
 {int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
 {int a int b}
+{int a..b}
 {int a int b point o string s}
+{int a..b point o string s}
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point} // point 是 int 型类型成员
 const { red green blue }
@@ -981,8 +1033,7 @@ for [&it] // 迭代元素捕获
 //      "abcd\n"
 //      "abcd\0"
 //      `r"abcd\n"   原始字符串
-//      `i"abcd"         多个字符拼接，其类型为整数常量，最大 u64 八个字符，必须在同一行
-//      `8r"END
+//      `r8"END
 //      原始多行字符串，END 不能非空，否则是单行字符串
 //      "END
 //      `8"END
@@ -1004,6 +1055,21 @@ for [&it] // 迭代元素捕获
 //      let user_input = "<script>alert('yo')</script>"
 //      let msg = `f"<p>{user_input}</p>"
 //      let msg = 't"<p>{user_input | escape}</p>" // 可以做特殊字符转义
+//
+//  4. 不可恢复错误，无条件语句高效处理
+//
+//      错误发生时，通过栈展开传递错误，依次检查返回地址将错误传递给第一个感兴趣的主调
+//      函数，stack_track_func[retp & 0x02](frame, error);
+//      void stack_track_continue(frame *f, prh_error error);
+//      void stack_track_error(frame *f, prh_error error);
+//
+//      主调函处理错误，然后继续传递旧错误或一个新错误
+//      call_func() or { /* 处理错误 */ panic(error) }
+//
+//      错误分为两种，一种普通错误通过函数返回值传递，另一种是不可恢复错误，通过调用链
+//      向上退出程序。
+//
+//  5.  实现标签数组跳转，实现标签传递给函数，让函数返回时跳转
 //
 
 act all are do use ago alt any auf aut can cat cor con cue des dhu din don dor
@@ -1441,11 +1507,11 @@ def test $(int SIZE point POINT) {
     [SIZE]int a
 }
 
-def array $(anytype T int SIZE) static SIZE > 0 {
+def array $(anytype T int SIZE) SIZE > 0 {
     [SIZE]T a
 }
 
-def array $(anytype T const SIZE) static (typeof SIZE == Integer && SIZE > 0) {
+def array $(anytype T const SIZE) (typeof SIZE == Integer && SIZE > 0) {
     [SIZE]T a
 }
 
@@ -1577,6 +1643,17 @@ let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类�
 let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 let a = point{100, 200}
 let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+
+// 局部变量的简化定义语法
+if $u prh_lexer_next_utf8(l) (u == '\'' || u == prh_char_invalid)
+    return TOKERR
+if $c prh_lexer_next_char(l) (c != '\'')
+    return TOKERR
+l->c = prh_lexer_next_char(l)
+l->u.cvalue = u
+return CHARLIT
+l->parse = prh_utf8_to_unicode(l->parse, fer $unicode);
+return unicode;
 
 def calc(int a int b return int int (x y)) {
     x = a + b
@@ -1713,13 +1790,22 @@ def expr const byte { // 相当于是一种泛型类型
 
 if [expr] .VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
-} elif .IDENT {
+} if == .IDENT {
     ret = expr.id
-} elif .TEST(a b) { // 捕获元组的内容
+} if == .TEST(a b) { // 捕获元组的内容
     ret = a + b
-} elif .EXPR {
+} if == .EXPR {
     ret = expr.op
 }
+
+if [expr] .value
+    ret = expr.n
+if == .ident
+    ret = expr.id
+if == .expr
+    ret = expr.op
+else
+    return error
 
 if expr == .IDENT {
     print("IDNET expr: %", expr.id)
@@ -2464,9 +2550,12 @@ math:*
      5 从左到右    a==b a!=b
      4 从左到右    a&&b
      3 从左到右    a||b
-     2 从左到右    a?:b
+     2 从左到右    a?:b  ?<  ?=  ?>
      1 从右到左    a=b a+=b a-=b a*=b a/=b a%=b a<<=b a>>=b a<<<=b a>>>=b a&=b a^=b a|=b
      0 从左到右    a,b
+
+    -- ++ .. ** %% ?? :: ==
+    ... --*-- --.-- ## @@ $$
 
     交换操作
         a <=> b
