@@ -4,7 +4,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else elif for in break briff return 条件语句支持大括号和缩进对齐两种编写方式
+//  if else elif for in break final return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed def pub let var undefined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static where it or this import scoped as inf (inferred type 推导的类型)
@@ -152,12 +152,12 @@
 //  __func__
 //  __line__
 //  __retp__
-// 编译时指令：
+// 编译时指令： #label_name 定义标签名称
 //  PRH_TCPA_#(OPEN_REQ) #{int} #{if} ${int} ${if} #'operation
-//  #global_override_name 在局部作用域中访问局部作用域中被局部作用域覆盖的名称
-//  #global_namespace.subspace.name 访问全局作用域中定义的名字空间中的名称
-//  #std 访问当前文件全局作用域中的名称 std
-//  #std.print 访问全局作用域中名字空间 std 中的名称 print
+//  global.override_name 在局部作用域中访问局部作用域中被局部作用域覆盖的名称
+//  global.std 访问当前文件全局作用域中的名称 std，一般名称与名字空间名称是隔离的
+//  ::namespace::subspace::name 访问全局作用域中定义的名字空间中的名称
+//  std::print 访问全局作用域中名字空间 std 中的名称 print
 //  static expr
 //  static if
 // 符号属性，包括函数、类型、变量的属性名称等
@@ -457,7 +457,7 @@
 a + int b + c * d
 a + ('int b + c) * d
 // 逗号只能出现在 {} 或 [] 或 let 表达式中，不能出现在 () 中，避免与函数类型冲突
-(point, camera) // 括号 () 中出现逗号必然是函数声明
+(point, camera) // 括号 () 中出现逗号必然是函数声明，只有函数类型声明中才能包含逗号
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
 // 函数类型字面量，“开始小括号 + 结果为类型的表达式” 表示函数类型的开始，函数复合常量是函数类型字面量 + { stmt ... }
 (void) // void 表示没有参数，也没有返回值
@@ -2624,10 +2624,16 @@ def test {
 //  0. 以下then是以下关键字之一：
 //      goto
 //      break
-//      briff
+//      final
 //      continue
 //      return
 //      yield
+//
+//  在 then 所代表的语法位置，只能出现上面的关键字，或者
+//      在同一行的单条语句
+//      开始大括号 {
+//      一个物理换行 <\n>
+//      任意个数标签标识符的定义
 //
 //  1.  一般条件语句
 //  if expr { stmt }
@@ -2667,23 +2673,23 @@ def test {
 //      stmt
 //      ...
 //
-//  4.  条目条件语句
-//  if [expr] item { statement }
+//  4.  标签条件语句，if == item 相当于定义了一个标签，可以用在任何标签可以使用的地方
+//  if [expr] == item { statement }
 //  if == item { statement }
 //  if == item { statement }
-//  else { statement }
+//  if == else { statement }
 //
-//  if [expr] item then statement
+//  if [expr] == item then statement
 //  if == item then statement
 //  if == item then statement
-//  else then statement
+//  if == else then statement
 //
-//  if [expr] item statement
+//  if [expr] == item statement
 //  if == item statement
 //  if == item statement
-//  else statement
+//  if == else statement
 //
-//  if [expr] item <\n>
+//  if [expr] == item <\n>
 //      statement
 //      ...
 //  if == item <\n>
@@ -2692,9 +2698,32 @@ def test {
 //  if == item <\n>
 //      statement
 //      ...
-//  else <\n>
+//  if == else <\n>
 //      statement
 //      ...
+//  void // 可选，仅标记语句块结束
+//
+//  if [expr] == item {
+//      ...
+//  } if == item {
+//      ...
+//  } if == else { // 不简单使用 else 的原因是，当作为标签用作其他条件语句块中时，可能意外终止最近的一个if
+//      ...
+//  }
+//
+//  if == .value
+//      if l.escape_code == false
+//          statement
+//  if == else
+//          string_push(s, c)
+//          final
+//
+//  if == .value
+//      if l.escape_code == false
+//          statement
+//  else // 导致语法错误
+//          string_push(s, c)
+//          final
 //
 //  5.  静态条件编译
 //  static if expr { stmt }
@@ -2749,19 +2778,24 @@ def test {
 //      ...
 //
 //  7. 两值逻辑（true 和 false，或任意两个值，包括两个值的枚举值）
-//  if [boolexpr] true then statement
-//  else then statement
+//  if [boolexpr] == true then statement
+//  if == else then statement
 //
-//  if [boolexpr] true { statement } else { statement }
-//  if [boolexpr] true then statement else then statement
-//  if [boolexpr] true statement else statement
+//  if [boolexpr] == true then statement
+//  if == false then statement
+//  if == else then statement // 报错
 //
-//  if [boolexpr] true <\n>
+//  if [boolexpr] == true { statement } if == else { statement }
+//  if [boolexpr] == true then statement if == else then statement
+//  if [boolexpr] == true statement if == else statement
+//
+//  if [boolexpr] == true <\n>
 //      statement
 //      ...
-//  else <\n>
+//  if == else <\n>
 //      statement
 //      ...
+//  void
 //
 //  let [boolexpr] statement else statement
 //
@@ -2770,7 +2804,11 @@ def test {
 //  if ?= statement // 该分支 this 值为零
 //  if ?> return value + this // 该分支 this 值大于零
 //
+//  if [a <> b] ?> statement
+//  if == else statement
+//
 //  let [a <> b] ?< statement ?= statement ?> statement
+//  let [a <> b] ?= statement else statement
 //
 //  ?< ?= ?> 可以看作是预定义的三个枚举常量值：
 //  const i08 {
@@ -2779,6 +2817,93 @@ def test {
 //      ?>  =   1
 //  }
 //
+
+if [impl_bstr[impl_b256[c]]] == .dquote
+    goto finish
+if == .bslash
+    l.escape_code = false
+    if !lexer_escape(l) {
+if == .invalid { return TOK_ERROR }
+    }
+    c = l.cvalue
+    if l.escape_code == false
+if == else {
+        string_push(s, c)
+        final
+    }
+    let n = unicode_to_utf8(c, string_end(s))
+    if n == 0 return TOK_ERROR
+    string_increase_size(s, n)
+    final
+void
+
+if [impl_bstr[impl_b256[c]]] == .dquote
+    goto finish
+if == .bslash
+    l.escape_code = false
+    if !lexer_escape(l) {
+if == .invalid return TOK_ERROR
+    }
+    c = l.cvalue
+    if l.escape_code == false {
+if == else {
+        string_push(s, c)
+        final
+    }} // 这里任何一个结束大括号都不能往后移，因为单条件块 final break continue return 之后不能再有语句
+    let n = unicode_to_utf8(c, string_end(s))
+    if n == 0 return TOK_ERROR
+    string_increase_size(s, n)
+    final
+void
+
+if [impl_bstr[impl_b256[c]]] == .dquote {
+    goto finish
+} if == .bslash {
+    l.escape_code = false
+    if !lexer_escape(l) {
+if == .invalid
+        return TOK_ERROR
+    }
+    c = l.cvalue
+    if l.escape_code == false {
+if == else {
+        string_push(s, c)
+        final
+    }}
+    let n = unicode_to_utf8(c, string_end(s))
+    if n == 0 return TOK_ERROR
+    string_increase_size(s, n)
+    final
+}
+
+def lexer_dquote(prh_lexer *l) {
+    let s = l.svalue
+    string_clear(s)
+    for {
+        let c = lexer_next_char(l)
+        if [impl_bstr[impl_b256[c]]] == .dquote
+            goto label_finish
+        if == .bslash
+            l.escape_code = false
+            if !lexer_escape(l)
+        if == .invalid #label_failed #something_wrong
+                return TOK_ERROR
+            c = l.cvalue
+            if l.escape_code == false
+        if == else
+                string_push(s, c) // 因为有没有结束的if分支，且 if == 仅仅是一个标签，缩进以未结束的if为准
+                final
+            let n = unicode_to_utf8(c, string_end(s))
+            if n == 0 return TOK_ERROR
+            string_increase_size(s, n)
+            final
+        void
+    }
+#label_finish
+    l.c = lexer_next_char(l)
+    l.svalue.size = s.data - l.svalue.data
+    return TOK_STRING
+}
 
 if expr { stmt ... } // 条件语句块有两种大括号，一种是左大括号在表达式 expr 结束的同一行，第二种是表达式结束后是一个换行，第二种语句块以 ||| 结束，并且必须有相同的对齐
 if expr break
