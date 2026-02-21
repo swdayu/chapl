@@ -2607,6 +2607,178 @@ def test {
 //  if cond { expr } else if_stm
 //  static if cond { expr } else { expr }
 //  static if cond { expr } else if cond { expr }
+//
+// 逗号操作符，一路否定、两路、三路操作符
+//  let {expr, expr, epxr}
+//  expr or expr
+//
+//  let [boolexpr] statement else statement
+//  let [a] let [b] stmt else stmt else stmt
+//  let [a] stmt else let [b] stmt else stmt
+//
+//  let [a <> b] ?< statement ?= statement ?> statement
+//  let [a] ?< stmt ?= stmt ?> stmt
+//  let [a] ?< let [b] ?< stmt ?= stmt ?> stmt ?= stmt ?> stmt
+//  let [a] ?< stmt ?= let [b] ?< stmt ?= stmt ?> stmt ?> stmt
+//
+//  0. 以下then是以下关键字之一：
+//      goto
+//      break
+//      briff
+//      continue
+//      return
+//      yield
+//
+//  1.  一般条件语句
+//  if expr { stmt }
+//  if expr { stmt } else { stmt }
+//  if expr { stmt } else if expr { stmt } else { stmt }
+//
+//  2.  简单条件语句
+//  if expr then statement
+//  if expr then statement else then statement
+//  if expr then statement
+//  else if expr then statement
+//  else then statement
+//
+//  if expr statement
+//  if expr statement else statement
+//  if expr statement
+//  else if expr statement
+//  else statement
+//
+//  3.  缩进条件语句
+//  if expr <\n> // 如果 expr 要换行，请用操作符作为行的结束
+//      stmt
+//      ...
+//  if expr <\n>
+//      stmt
+//      ...
+//  else <\n>
+//      stmt
+//      ...
+//  if expr <\n>
+//      stmt
+//      ...
+//  else if expr <\n>
+//      stmt
+//      ...
+//  else <\n>
+//      stmt
+//      ...
+//
+//  4.  条目条件语句
+//  if [expr] item { statement }
+//  if == item { statement }
+//  if == item { statement }
+//  else { statement }
+//
+//  if [expr] item then statement
+//  if == item then statement
+//  if == item then statement
+//  else then statement
+//
+//  if [expr] item statement
+//  if == item statement
+//  if == item statement
+//  else statement
+//
+//  if [expr] item <\n>
+//      statement
+//      ...
+//  if == item <\n>
+//      statement
+//      ...
+//  if == item <\n>
+//      statement
+//      ...
+//  else <\n>
+//      statement
+//      ...
+//
+//  5.  静态条件编译
+//  static if expr { stmt }
+//  static if expr { stmt } static else { stmt }
+//  static if expr { stmt } static elif expr { stmt } static else { stmt }
+//
+//  static if expr statement
+//  static if expr statement static else statement
+//  static if expr statement
+//  static elif expr statement
+//  static else statement
+//
+//  static if expr <\n>
+//      statement
+//      ...
+//  static elif expr <\n>
+//      statement
+//      ...
+//  static else <\n>
+//      statement
+//      ...
+//
+//  static if [expr] item <\n>
+//      statement
+//      ...
+//  static if == item <\n>
+//      statement
+//      ...
+//  static else <\n>
+//      statement
+//      ...
+//
+//  6. 条件表达式
+//  let a = let if expr { stmt }
+//  let a = let if expr { stmt } else { stmt }
+//  let a = let if expr { stmt } else if expr { stmt } else { stmt }
+//
+//  let a = let if expr statement // let 条件表达式不能使用 then 系列关键字，包括在语句内部
+//  let a = let if expr statement else statement
+//  let a = let if expr statement
+//      else if expr statement
+//      else statement
+//
+//  let a = let if expr <\n>
+//      statement
+//      ...
+//  else if expr <\n>
+//      statement
+//      ...
+//  else <\n>
+//      statement
+//      ...
+//
+//  7. 两值逻辑（true 和 false，或任意两个值，包括两个值的枚举值）
+//  if [boolexpr] true then statement
+//  else then statement
+//
+//  if [boolexpr] true { statement } else { statement }
+//  if [boolexpr] true then statement else then statement
+//  if [boolexpr] true statement else statement
+//
+//  if [boolexpr] true <\n>
+//      statement
+//      ...
+//  else <\n>
+//      statement
+//      ...
+//
+//  let [boolexpr] statement else statement
+//
+//  8. 三值逻辑（小于、等于、大于，或任意三个值，包括三个值的枚举值）
+//  if [a <> b] ?< statement // 该分支 this 值小于零
+//  if ?= statement // 该分支 this 值为零
+//  if ?> return value + this // 该分支 this 值大于零
+//
+//  let [a <> b] ?< statement ?= statement ?> statement
+//
+//  ?< ?= ?> 可以看作是预定义的三个枚举常量值：
+//  const i08 {
+//      ?<  =   -1
+//      ?=  =   0
+//      ?>  =   1
+//  }
+//
 
 if expr { stmt ... } // 条件语句块有两种大括号，一种是左大括号在表达式 expr 结束的同一行，第二种是表达式结束后是一个换行，第二种语句块以 ||| 结束，并且必须有相同的对齐
 if expr break
