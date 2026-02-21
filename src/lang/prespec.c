@@ -180,16 +180,16 @@
 //  (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
 //
 // 基本类型，定义在 type 代码包中：
-//  bool null none byte char rune string errno struct "32-byte" i32 u32 int unt sys_int sys_unt sys_ptr struct i struct u struct p
+//  bool null none byte char rune string errno struct "32-byte" i32 r32 int reg arch_int arch_reg arch_reg struct i struct u struct p
 //  i08 i16 i32 i64 i128 int <32>int <64>int <128>int (b w d q x y z p r) byte word double-word quad-word xmm-word ymm-word zmm-word
-//  u08 u16 u32 u64 u128 unt <32>unt <64>unt <128>unt ...
+//  r08 r16 r32 r64 r128 reg <32>reg <64>reg <128>reg ...
 //  f08 f16 f32 f64 f128 float <32>float <64>float <128>float
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
 //  bool byte char string none null true false def error
 //  i08 i16 i32 i64 i128 i256 i512 int arch_int
-//  u08 u16 u32 u64 u128 u256 u512 unt arch_unt
+//  r08 r16 r32 r64 r128 r256 r512 reg arch_reg
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -211,17 +211,17 @@
 //  32`int  // i32 signed integer
 //  64`int  // i64 signed integer
 //
-//  rx`     // rrx signed integer 16字节  128位
-//  ry`     // rry signed integer 32字节  256位
-//  rz`     // rrz signed integer 64字节  512位
+//  rx`     // rrx r128 signed integer 16字节  128位
+//  ry`     // rry r256 signed integer 32字节  256位
+//  rz`     // rrz r512 signed integer 64字节  512位
 //
-//  08`float f08    08`decimal d08      08`complex c08
-//  16`float f16    16`decimal d16      16`complex c16
-//  32`float f32    32`decimal d32      32`complex c32
-//  64`float f64    64`decimal d64      64`complex c64
-//  rx`float ffx    rx`decimal ddx      rx`complex ccx
-//  ry`float ffy    ry`decimal ddy      ry`complex ccy
-//  rz`float ffz    rz`decimal ddz      rz`complex ccz
+//  08`float f08            08`decimal d08              08`complex c08
+//  16`float f16            16`decimal d16              16`complex c16
+//  32`float f32            32`decimal d32              32`complex c32
+//  64`float f64            64`decimal d64              64`complex c64
+//  rx`float ffx f128       rx`decimal ddx d128         rx`complex ccx c128
+//  ry`float ffy f256       ry`decimal ddy d256         ry`complex ccy c256
+//  rz`float ffz f512       rz`decimal ddz d512         rz`complex ccz c512
 //
 //  .digit 表示一个十进制数
 //  ident` 表示是类型名称
@@ -234,11 +234,11 @@
 //  'B          @t  @f      @z      'c          's
 //  bool        true false  null    char        string
 //  单字节  双字节  四字节  八字节  指针或向量大小
-//  '1      '2      'i      '8      'j      sys_int      有符号整数
-//  'b      'w      'u      'q      'p      sys_ptr    无符号整数
+//  '1      '2      'i      '8      'j      arch_int      有符号整数
+//  'b      'w      'u      'q      'p      arch_reg    无符号整数
 //  f08     f16     'f      'g      'x 'y 'z            单精度/双精度/128-bit xmm/256-bit ymm/512-bit zmm
-//  i08     i16     int     i64     'j      sys_int
-//  u08     u16     u32     u64     'p      sys_ptr
+//  i08     i16     int     i64     'j      arch_int
+//  r08     r16     r32     r64     'p      arch_reg
 //
 // 类型信息：type|flag
 //  i08 ~ <128>int      0   ~   15
@@ -246,12 +246,12 @@
 //  d08 ~ <128>decimal  32  ~   47
 //  c08 ~ <128>complex  48  ~   63
 //  string 64 array 65 slice 66 view 67 struct 68 sumt 69 func 70
-//  int/sys_int: ixx|int: 1
-//  unt/sys_unt: ixx|unt: 1
-//  ptr/sys_ptr: uxx|ptr: 1
-//  bool: u08|bool:1
-//  null: u08|null:1
-//  char: u32|char:1
+//  int/arch_int: ixx|int: 1
+//  reg/arch_reg: ixx|reg: 1
+//  ptr/arch_reg: uxx|ptr: 1
+//  bool: r08|bool:1
+//  null: r08|null:1
+//  char: r32|char:1
 //  errno: int|errno: 1
 //  enum: ixx|enum: 1
 //
@@ -260,11 +260,11 @@
 //
 //                                          arch-32     arch-64 small memory range app  arch-64 large memory range app
 //  int - pointer size signed type          32-bit      32-bit                          64-bit
-//  unt - pointer size unsigned type        32-bit      32-bit                          64-bit
+//  reg - pointer size unsigned type        32-bit      32-bit                          64-bit
 //  ptr - pointer type                      32-bit      32-bit                          64-bit
-//  sys_int - system register size type     32-bit      64-bit                          64-bit
-//  sys_unt - system register size type     32-bit      64-bit                          64-bit
-//  sys_ptr - system register width pointer 32-bit      64-bit                          64-bit
+//  arch_int - system register size type     32-bit      64-bit                          64-bit
+//  arch_reg - system register size type     32-bit      64-bit                          64-bit
+//  arch_reg - system register width pointer 32-bit      64-bit                          64-bit
 //
 // 类型约束：
 //  Any Integer Float Unsigned Decimal Complex BasicType AnonyType NamedType GimplType
@@ -273,7 +273,7 @@
 //  any          // basic_type + anony_type + named_type + gimpl_type
 //  basic_type   // numeric + string
 //  numeric      // integer + float + decimal + complex
-//  integer      // 枚举类型 bool null byte rune errno strt i08~i512 u08~u512 int unt
+//  integer      // 枚举类型 bool null byte rune errno strt i08~i512 r08~r512 int reg
 //  instant_type
 //  generic_type
 //
@@ -321,12 +321,12 @@
 //  offsetof int_array.capacity
 //
 // 复合类型和匿名类型：
-//  int  u16  f64  Point  MyInt
-//  *int *u16 *f64 *Point *MyInt
-//  [2]int [2]u16 [2]f64
-//  *[2]int *[2]u16 *[2]f64
-//  *int *u16 *f64 *Point
-//  *[2]int *[2]u16 *[2]f64
+//  int  r16  f64  Point  MyInt
+//  *int *r16 *f64 *Point *MyInt
+//  [2]int [2]r16 [2]f64
+//  *[2]int *[2]r16 *[2]f64
+//  *int *r16 *f64 *Point
+//  *[2]int *[2]r16 *[2]f64
 //  (int a b) (int a b int) (void) (void int) 参数必须带名称，返回值是一个类型列表不能带名称，函数如果没有参数必须带void
 //  (Point p float factor) (Point p) (Point(N, T, U) p)
 //  Function   (void)  (int) (def point float factor return point)
@@ -386,7 +386,7 @@
 //  MyInt int
 //  Func (int a b int)
 //  Func (void) 参数为空，返回为空
-//  Func (return u32 bool) 参数为空，返回u32和bool
+//  Func (return r32 bool) 参数为空，返回u32和bool
 //  Method (Point p float factor)
 //  Data { int a b }
 //  Oper $T $(*T p int a b int) calc {}
@@ -401,7 +401,7 @@
 //  Slice $T { *T a int len }
 //  Map $K $V { []{K key V value} slice }
 //  Point ${num} T { T x y } // 只能给结构体定义模板，接口和函数都不能定义模板，但是模板类型可以作为函数的接收类型
-//  Triple $T $unt size { [size]T a U b }
+//  Triple $T $reg size { [size]T a U b }
 //  length (Point($T) p T) { return p.x * p.x + p.y * p.y }
 //  size (Triple($int N, $T, $U) p int) { return N + sizeof T + sizeof U }
 // 模板类型实例化：                                                      代码中仅允许使用这种简化的形式
@@ -1089,11 +1089,11 @@ def data {
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
-def read ($*T a unt p int n return int) // 函数只有第一个参数才能是泛型类型
+def read ($*T a reg p int n return int) // 函数只有第一个参数才能是泛型类型
 def reader $T $get(T) get $read(T) read {} // 在 ${} 表达式中需要省略 def 关键字
 
 def (*$T a return int) get
-def (*$T a unt p int n return int) read
+def (*$T a reg p int n return int) read
 def reader $(anytype T get(T) get read(T) read) {}
 
 Data { int a b (int a b int) f g }
@@ -1116,8 +1116,8 @@ Get ($*T p int)
 Read ($*T p *byte buf int n int)
 Reader $T $Get(T) get $Read(T) read {}
 Reader $T <T>Get get <T>Read read {}
-Handle (*HciRxDesc rx_desc u32 ca HciDataType type U line)
-hci_rx_buffer_handled_and_free(HciRxDesc rxdesc u32 ca HciDataType datatype U line)
+Handle (*HciRxDesc rx_desc r32 ca HciDataType type U line)
+hci_rx_buffer_handled_and_free(HciRxDesc rxdesc r32 ca HciDataType datatype U line)
 extern L2capConn         *L2capConn
 extern L2capCallback     *L2capCallback
 extern TcpSocket         *TcpSocket
@@ -1151,9 +1151,9 @@ def reader $T $get(T) get $read(T) read { }
 def color const i08 { RED = 1 BLUE = 2 YELLOW = 3 }
 def bitvalue const int { FLAT_BIT1 = 1 << const FLAG_BIT2 FLAG_BIT3 }
 def tcpaction const int { TCPA_OPEN_ACCEPT TCPA_TX_DATA TCPA_RX_DONE }
-def 协程 { u32 rspoffset loweraddr }
-def coroguard { u32 lower_guard_word def *coro coro (def *coroguard g int a b int) f g }
-def handle(def *hcirxdesc rxdesc u32 ca def hcidatatype type def u line)
+def 协程 { r32 rspoffset loweraddr }
+def coroguard { r32 lower_guard_word def *coro coro (def *coroguard g int a b int) f g }
+def handle(def *hcirxdesc rxdesc r32 ca def hcidatatype type def u line)
 def main(int argc **byte argv int)
 def scale(def point point int a b)
 def calc(int a b int)
@@ -1244,34 +1244,34 @@ def <3rd::array> 3rd_array
 def <std::array> std_array
 
 Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字段都是只读的，写操作必须通过公开函数
-    u32 rspoffset // 1st field dont move
-    u32 loweraddr
-    u32 maxudsize 31 ptr_param 1
+    r32 rspoffset // 1st field dont move
+    r32 loweraddr
+    r32 maxudsize 31 ptr_param 1
     i32 coro_id
-    unt rspoffset
-    unt loweraddr
-    unt maxudsize 31 ptr_param 1
+    reg rspoffset
+    reg loweraddr
+    reg maxudsize 31 ptr_param 1
     int coro_id
-    unt rspoffset
-    unt loweraddr
-    unt maxudsize 31 ptr_param 1
+    reg rspoffset
+    reg loweraddr
+    reg maxudsize 31 ptr_param 1
     int coro_id
-    unt address
+    reg address
 }
 
 def coro {
-    u32 rspoffset
-    u32 loweraddr
+    r32 rspoffset
+    r32 loweraddr
     i32 {31} maxudsize {1} ptr_param
     i32 coro_id
-    u32 rspoffset
+    r32 rspoffset
     int maxudsize
     int coro_id
 }
 
 def coro_guard {
-    u32 lower_guard_word
-    u32 upper_guard_word
+    r32 lower_guard_word
+    r32 upper_guard_word
     coro embed
     *coro coro_ptr
     this embed
@@ -1281,15 +1281,15 @@ def coro_guard {
 }
 
 def 协程 {
-    u32 rspoffset
-    u32 loweraddr
+    r32 rspoffset
+    r32 loweraddr
 }
 
 def "std"
 
 def coro_guard {
-    u32 lower_guard_word
-    u32 upper_guard_word
+    r32 lower_guard_word
+    r32 upper_guard_word
     coro embed
     *coro coro
     this embed
@@ -1303,8 +1303,8 @@ def coro_guard {
 def verify(*coro_guard)
 
 CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
-    u32 lower_guard_word
-    u32 upper_guard_word
+    r32 lower_guard_word
+    r32 upper_guard_word
     Coro _embed_ // 不能内嵌两个相同类型
     *Coro coro_ptr
     this _embed_ // 错误，指针不能内嵌
@@ -1363,8 +1363,8 @@ TcpAction $int {
 
 TcpAccept {
     ConoPdata head
-    u32 rxbuf_size
-    u32 txbuf_size
+    r32 rxbuf_size
+    r32 txbuf_size
 }
 
 Writer $T
@@ -1402,17 +1402,17 @@ Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
     end {0} // 默认值为零
 }
 
-def color const u08 { // private type
+def color const r08 { // private type
     RED GREEN BLUE
 }
 
-pub color const u08 { // public type
+pub color const r08 { // public type
     RED
     GREEN = 1 << const
     BLUE
 }
 
-pub color const u08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
+pub color const r08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
     RED = 1
     BLUE = 2
     YELLOW = 3
@@ -1424,8 +1424,8 @@ def point {
 }
 
 pub coro { // 包外访问，结构体成员只读，以下划线结束的成员不可访问
-    u32 rspoffset // 名为 rspoffset 的私有成员
-    u32 loweraddr // 名为 loweraddr 的私有成员
+    r32 rspoffset // 名为 rspoffset 的私有成员
+    r32 loweraddr // 名为 loweraddr 的私有成员
     i32 {31} maxudsize {1} ptrparam_
     i32 coro_id
 }
@@ -1453,21 +1453,21 @@ def eat(*lexer l expr e return *oper) { // 编译器可以访问到完整代码�
     return l.op or e.op
 }
 
-def color const u08 { // private type
+def color const r08 { // private type
     red green blue
 }
 
-pub color const u08 { // public type
+pub color const r08 { // public type
     red
     green = 1 << const
     blue
 }
 
-def color const u08 {
+def color const r08 {
     red = 1 green = 2 blue
 }
 
-def color const u08 {
+def color const r08 {
     red = global.blue_defined_value green blue
 }
 
@@ -1489,8 +1489,8 @@ def [int float] tuple_type
 def name = 3.1415926
 def name const { red blue green }
 def name const int { red bule green }
-def name const int with {u08 lpri u08 rpri} { ... }
-def name const with {u08 lpri u08 rpri} { ... }
+def name const int with {r08 lpri r08 rpri} { ... }
+def name const with {r08 lpri r08 rpri} { ... }
 def name { int a int b }
 def name $(anytype T anytype U const SIZE int N T VALUE) { ... }
 def name $(anytype T) { ... }
@@ -1557,7 +1557,7 @@ def let map = {"a":1, "b":2, "c":3}
 def let tup (a b c) = {500, 6.4, 1}
 def let (a _) = read_tuple() // 赋值右边必须是一个元组类型
 def let (_ a _ b) = data // 赋值右边必须是一个元组类型
-def let (a b c) = [i32 f64 u08] {500, 6.4, 1}
+def let (a b c) = [i32 f64 r08] {500, 6.4, 1}
 
 pub var int a = 10
 pub var int b = 20
@@ -1575,7 +1575,7 @@ pub let map = {"a":1, "b":2, "c":3}
 pub let tup (a b c) = {500, 6.4, 1}
 pub let (a _) = read_tuple() // 赋值右边必须是一个元组类型
 pub let (_ a _ b) = data // 赋值右边必须是一个元组类型
-pub let (a b c) = [i32 f64 u08] {500, 6.4, 1}
+pub let (a b c) = [i32 f64 r08] {500, 6.4, 1}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
@@ -1608,16 +1608,16 @@ var *int p = undefined
 var point a = {100, 200}
 var [_]int a = {20, 30, 50}
 var [8]int a = {1, 2, 3, 4}
-var [i32 f64 u08] tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
-var [i32 f64 u08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
-var [i32 f64 u08] (a b c) = {500, 6.4, 1} // a b c
+var [i32 f64 r08] tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
+var [i32 f64 r08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+var [i32 f64 r08] (a b c) = {500, 6.4, 1} // a b c
 let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 let data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
 let (a _) = read_tuple() // 赋值右边必须是一个元组类型
 let (_ a _ b) = data // 赋值右边必须是一个元组类型
-let (a b c) = [i32 f64 u08] {500, 6.4, 1}
+let (a b c) = [i32 f64 r08] {500, 6.4, 1}
 let tup = {500, 6.4, 1}
-let tup = [i32 f64 u08] {500, 6.4, 1}
+let tup = [i32 f64 r08] {500, 6.4, 1}
 let integers = {1, 2, 3}
 let colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
 let set = {:1 :2 :3 :4 :5 :6}
@@ -1683,7 +1683,7 @@ if s.error abort(s.error)
 // 相比传统的空值检查，none 和 error 的统一处理方式让 “忘记检查空值” 直接编译报错，编译器强制要求处理 “空” 情况
 // 指针/函数指针/字符串 none 的 niche 值为 null, bool 可以使用 0x02 表示 niche 值
 // char 字符 UNICODE 标量的上限 0x10FFFF，有大量高位值可用作 niche
-// float 可以使用 N/A 值，int/unt 则必须手动指定，或使用 nonzero int，nonfini int，nonnull<T>
+// float 可以使用 N/A 值，int/reg 则必须手动指定，或使用 nonzero int，nonfini int，nonnull<T>
 def divide(float a float b return float or none) { // 空值，有值，返回值的大小为 sizeof float，调用者必须检查 none 值
     if b == 0 return none
     return a / b
@@ -1736,7 +1736,7 @@ def array $t const size(int) static size > 0 {
     [size]t a
 }
 
-def color const { // 默认是 byte 或 u16 或 u32 或 u64，根据最大值的大小而定
+def color const { // 默认是 byte 或 r16 或 r32 或 u64，根据最大值的大小而定
     RED GREEN BLUE
 }
 
@@ -1746,7 +1746,7 @@ def color const int {
     BLUE
 }
 
-def oper const u32 with {u08 lpri u08 rpri} { // sum type
+def oper const r32 with {r08 lpri r08 rpri} { // sum type
     ASS {'=', 200, 201}
     ADD {'+', 211, 210}
     SUB {'-', 211, 210}
@@ -1785,7 +1785,7 @@ def expr const byte { // 相当于是一种泛型类型
     VALUE {int n} // 相当于存储 {byte 0 int n}
     IDENT {int id} // 相当于存储 {byte 1 int n}
     TEST [int int]
-    EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op unt lhs rhs}
+    EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op reg lhs rhs}
 }
 
 if [expr] .VALUE { // 必须穷尽所有情况，否则编译报错
@@ -1920,7 +1920,7 @@ tcp_poll(*file file *socket socket *poll_table poll_table return poll) [m] align
 
     if state != TCP_SYN_SENT && (state != TCP_SYN_RECV || rcu_access_pointer(tp.fastopen_rsk)) {
         target int sock_rcvlowat(sk, 0, INT_MAX)
-        urg_data u16 READ_ONCE(tp.urg_data)
+        urg_data r16 READ_ONCE(tp.urg_data)
     }
 
     smp_rmb()
@@ -1950,7 +1950,7 @@ tcp_poll(*file file *socket socket *poll_table poll_table return poll) [m] align
 //          }
 //      }
 
-perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept(*TcpSocket tcp r32 txbuf_size r32 rxbuf_size) {
     let pdata = *TcpAccept cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
@@ -2019,11 +2019,11 @@ TcpAction $i08 {
 
 TcpAccept {
     ConoPdata head
-    u32 rxbuf_size
-    u32 txbuf_size
+    r32 rxbuf_size
+    r32 txbuf_size
 }
 
-perform_tcpa_open_accept(*TcpSocket tcp u32 txbuf_size u32 rxbuf_size) {
+perform_tcpa_open_accept(*TcpSocket tcp r32 txbuf_size r32 rxbuf_size) {
     let pdata = cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof TcpAccept)
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
@@ -2092,10 +2092,10 @@ for i I 0 .. 9 {
     pos + der fer *I (*byte p + size + f(g))
 }
 
-def memcpy(unt dest unsigned src int count)
-def memcpy(unt dest unsigned src int count) 'intrinsic'
-def memcmp(unt dest unsigned src int count return int) 'intrinsic'
-def memset(unt dest byte value int count return) 'intrinsic'
+def memcpy(reg dest unsigned src int count)
+def memcpy(reg dest unsigned src int count) 'intrinsic'
+def memcmp(reg dest unsigned src int count return int) 'intrinsic'
+def memset(reg dest byte value int count return) 'intrinsic'
 def lock_cmpxchg(*T p T old T new return T) 'intrinsic'
 def coroguard(*coro p return coro_guard) 'cdcel inline'
 
@@ -2261,10 +2261,10 @@ let a = '' // 空字符，非法
 let a = ''abcd'' // 将多字符当作整数使用，合法
 
 dat2 Data {3, 4}
-data (u32 bool) parse_hex_number(slice(hex, it*2, 2))
-data.u32
+data (r32 bool) parse_hex_number(slice(hex, it*2, 2))
+data.r32
 data.bool
-data {u32 a bool b} parse_hex_number(slice(hex, it*2, 2))
+data {r32 a bool b} parse_hex_number(slice(hex, it*2, 2))
 data.a
 data.b
 data parse_hex_number(slice(hex, it*2, 2))
@@ -2374,7 +2374,7 @@ static if DYN_LINK_PROC {
 }
 
 static assert(SIZE >= 1024)
-assert(sizeof int == sizeof unt)
+assert(sizeof int == sizeof reg)
 real_assert(sizeof(*p) == sizeof point)
 
 // https://squidfunk.github.io/mkdocs-material/reference/admonitions/
@@ -2595,8 +2595,8 @@ def test {
     double d { // 最大类型必须是第一个
         | int i
         | float f float g
-        | byte b u32 u
-        | byte b u32 u
+        | byte b r32 u
+        | byte b r32 u
         | char c
     }
 }
@@ -2945,7 +2945,7 @@ print(typestring, "\n")
 //      只有小于等于两个字长的命名类型才可以传值，其他都只能传指针，传指针的变量如果不想
 //      修改其自身，可以使用语法 test(&copyof a)
 //
-//      基本类型 int unt sys_int sys_ptr def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
+//      基本类型 int reg arch_int arch_reg def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
 //      结构体类型总是传指针表示修改，声明为 *point，test(fer point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
 //      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
@@ -3117,7 +3117,7 @@ print(typestring, "\n")
 ——
 —— bool byte char string none null true false unsigned
 —— i08 i16 i32 i64 i128 i256 i512 int arch_int type error
-—— u08 u16 u32 u64 u128 u256 u512 unt arch_ptr type ptr
+—— r08 r16 r32 r64 r128 r256 r512 reg arch_reg
 —— f08 f16 f32 f64 f128 f256 f512 float
 —— d08 d16 d32 d64 d128 d256 d512 decimal
 —— c08 c16 c32 c64 c128 c256 c512 complex
