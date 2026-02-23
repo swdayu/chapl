@@ -35254,8 +35254,12 @@ typedef enum: prh_byte {
     PRH_TOKERR,
     PRH_NAME, // 标识符名称，包含关键字和保留名称
     PRH_OPER, // 操作符，包含分隔符或标点
-    PRH_INT, // 整数字面量
-    PRH_FLOAT, // 浮点字面量
+    PRH_INT32, // 整数字面量，保存在ival32中
+    PRH_INT64, // 整数字面量，保存在ival64中
+    PRH_FLOAT32, // 浮点字面量，小数部分保存在fval32中
+    PRH_FLOAT64, // 浮点字面量，小数部分保存在fval64中
+    PRH_IMAG32, // 虚数字面量，小数部分保存在fval32中
+    PRH_IMAG64, // 虚数字面量，小数部分保存在fval64中
     PRH_CHAR, // 字节字符字面量
     PRH_USERLIT, // 自定义字面量
     PRH_STRING, // 字符串字面量
@@ -35486,7 +35490,7 @@ label_finish:
     return PRH_STRING;
 }
 
-// 整数字面量
+// 数值字面量
 //
 // sign = "+" | "-" .
 // digit = 0 … 9 .
@@ -35566,12 +35570,14 @@ label_digit:                                                                    
     case prh_dint_lit_end: l->c = c; goto label_lit_end;                                            \
     case prh_dint_digit: c = c - '0'; break;                                                        \
     case prh_dint_underscore: goto label_digit;                                                     \
-    case prh_dint_point: l->u.ival32 = val32; l->ipart = PRH_INT32; return prh_impl_dec_frac(l);    \
+    case prh_dint_point: l->ival32 = val32; l->ipart = PRH_INT32; return prh_impl_dec_frac(l);      \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
     default: return PRH_TOKERR; }                                                                   \
-        l->u.ival32 = val32; l->ipart = PRH_INT32; return prh_impl_exp_start(l, false);             \
+        l->ival32 = val32; l->ipart = PRH_INT32; l->fval32 = 0; l->fpart = PRH_FLOAT32;             \
+        return prh_impl_exp_start(l, false);                                                        \
     case prh_dint_may_imag: if (c != 'i') return PRH_TOKERR;                                        \
-        l->u.ival32 = val32; l->ipart = PRH_INT32; return prh_impl_dec_imag(l);                     \
+        l->ival32 = val32; l->ipart = PRH_INT32; l->evalue = 0; l->fval32 = 0;                      \
+        return prh_impl_imag_lit(l, PRH_IMAG32);                                                    \
     }
 
 #define prh_impl_dec_i64_digit(label_digit, label_lit_end)                                          \
@@ -35582,12 +35588,14 @@ label_digit:                                                                    
     case prh_dint_lit_end: l->c = c; goto label_lit_end;                                            \
     case prh_dint_digit: c = c - '0'; break;                                                        \
     case prh_dint_underscore: goto label_digit;                                                     \
-    case prh_dint_point: l->u.ival64 = val64; l->ipart = PRH_INT64; return prh_impl_dec_frac(l);    \
+    case prh_dint_point: l->ival64 = val64; l->ipart = PRH_INT64; return prh_impl_dec_frac(l);      \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
     default: return PRH_TOKERR; }                                                                   \
-        l->u.ival64 = val64; l->ipart = PRH_INT64; return prh_impl_exp_start(l, false);             \
+        l->ival64 = val64; l->ipart = PRH_INT64; l->fval32 = 0; l->fpart = PRH_FLOAT32;             \
+        return prh_impl_exp_start(l, false);                                                        \
     case prh_dint_may_imag: if (c != 'i') return PRH_TOKERR;                                        \
-        l->u.ival64 = val64; l->ipart = PRH_INT64; return prh_impl_dec_imag(l);                     \
+        l->ival64 = val64; l->ipart = PRH_INT64; l->evalue = 0; l->fval32 = 0;                      \
+        return prh_impl_imag_lit(l, PRH_IMAG32);                                                    \
     }
 
 #define prh_impl_dec_f32_digit(label_digit, label_lit_end)                                          \
@@ -35597,12 +35605,12 @@ label_digit:                                                                    
     case prh_dint_userlit: if (prh_lexer_userlit(l)) goto label_lit_end; return PRH_TOKERR;         \
     case prh_dint_lit_end: case prh_dint_digit: l->c = c; goto label_lit_end;                       \
     case prh_dint_underscore: goto label_digit;                                                     \
-    case prh_dint_point: l->u.fval32 = val32; l->fpart = PRH_FLOAT32; return prh_impl_dec_frac(l);  \
+    case prh_dint_point: l->fval32 = val32; l->fpart = PRH_FLOAT32; return prh_impl_dec_frac(l);    \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
     default: return PRH_TOKERR; }                                                                   \
-        l->u.fval32 = val32; l->fpart = PRH_FLOAT32; return prh_impl_exp_start(l, false);           \
+        l->fval32 = val32; l->fpart = PRH_FLOAT32; return prh_impl_exp_start(l, false);             \
     case prh_dint_may_imag: if (c != 'i') return PRH_TOKERR;                                        \
-        l->u.fval32 = val32; l->fpart = PRH_FLOAT32; return prh_impl_dec_imag(l);                   \
+        l->evalue = 0; l->fval32 = val32; return prh_impl_imag_lit(l, PRH_IMAG32);                  \
     }
 
 #define prh_impl_dec_f64_digit(label_digit, label_lit_end)                                          \
@@ -35612,12 +35620,12 @@ label_digit:                                                                    
     case prh_dint_userlit: if (prh_lexer_userlit(l)) goto label_lit_end; return PRH_TOKERR;         \
     case prh_dint_lit_end: case prh_dint_digit: l->c = c; goto label_lit_end;                       \
     case prh_dint_underscore: goto label_digit;                                                     \
-    case prh_dint_point: l->u.fval64 = val64; l->fpart = PRH_FLOAT64; return prh_impl_dec_frac(l);  \
+    case prh_dint_point: l->fval64 = val64; l->fpart = PRH_FLOAT64; return prh_impl_dec_frac(l);    \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
     default: return PRH_TOKERR; }                                                                   \
-        l->u.fval64 = val64; l->fpart = PRH_FLOAT64; return prh_impl_exp_start(l, false);           \
+        l->fval64 = val64; l->fpart = PRH_FLOAT64; return prh_impl_exp_start(l, false);             \
     case prh_dint_may_imag: if (c != 'i') return PRH_TOKERR;                                        \
-        l->u.fval64 = val64; l->fpart = PRH_FLOAT64; return prh_impl_dec_imag(l);                   \
+        l->evalue = 0; l->fval64 = val64; return prh_impl_imag_lit(l, PRH_IMAG64);                  \
     }
 
 int prh_lexer_dec_lit(prh_lexer *l, prh_byte c) {
@@ -35703,8 +35711,8 @@ int prh_lexer_dec_frac(prh_lexer *l) { // 当前字符是小数点（.）
     case prh_dfrb_lit_end: l->c = c; return PRH_FLOAT32; // lit_end 表示该浮点数已经在小数点结束
     case prh_dfrb_userlit: return prh_lexer_userlit(l) ? PRH_FLOAT32 : PRH_TOKERR; // 浮点字面量结束
     case prh_dfrb_point: l->parse -= 1; l->c = '.'; return l->ipart; // 解析为整数，点系列操作符
-    case prh_dfrb_exp: if ((c & 0x5F) == 'E') return prh_impl_dec_exp(l); goto label_error; // 'E' 0x45 0100_1001 'e' 0x65 0110_1001
-    case prh_dfrb_imag: if (c == 'i') return prh_impl_dec_imag(l); prh_fallthrough;
+    case prh_dfrb_exp: if ((c & 0x5F) == 'E') return prh_impl_exp_start(l, false); goto label_error; // 'E' 0x45 0100_1001 'e' 0x65 0110_1001
+    case prh_dfrb_imag: if (c == 'i') return prh_impl_imag_lit(l, PRH_IMAG32); prh_fallthrough;
     default: label_error: return PRH_TOKERR;
     }
     prh_r64 val64; prh_r32 val32 = c - '0';
@@ -35805,11 +35813,11 @@ int prh_impl_exp_start(prh_lexer *l, bool bin_exp) { // 当前字符是 e E 或�
     switch (prh_impl_exbd[(c += (p->irange >> 4))]) { // 0 ~ 9 [10 +] 11 [12 -]
     case prh_expb_plus: break;
     case prh_expb_minus: negative = true; break;
-    default: return prh_impl_dec_exp(l, c, false);
+    default: return prh_impl_exp_tail(l, c, false);
     }
     c = prh_lexer_next_char(l); // 符号+和-之后的字符必须是 0 ~ 9，其他都是非法字符
     switch (c >= '0' && c <= '9') {
-    case true: return prh_impl_dec_exp(l, c - '0', negative);
+    case true: return prh_impl_exp_tail(l, c - '0', negative);
     default: return PRH_TOKERR;
     }
 }
@@ -35849,7 +35857,7 @@ static const prh_impl_dexp_enum prh_impl_dexp[prh_b256_enum_max] = {
     /* prh_b256_utf8_inval  */ prh_dexp_invalid,
 };
 
-#define prh_impl_dec_exp_digit(label_digit, label_lit_end)                                          \
+#define prh_impl_exp_digit(label_digit, label_lit_end)                                              \
 label_digit:                                                                                        \
     c = prh_lexer_next_char(l);                                                                     \
     switch (prh_impl_dexp[prh_impl_b256[c]]) {                                                      \
@@ -35857,29 +35865,73 @@ label_digit:                                                                    
     case prh_dexp_userlit: if (prh_lexer_userlit(l)) goto label_lit_end; return PRH_TOKERR;         \
     case prh_dexp_lit_end: l->c = c; goto label_lit_end;                                            \
     case prh_dexp_underscore: goto label_digit;                                                     \
-    case prh_dexp_lower: if (c == 'i') { l->evalue = val32; return prh_impl_imag_lit(l); }          \
+    case prh_dexp_lower: if (c == 'i') { l->evalue = val32; return prh_impl_imag_lit(l, l->fpart + 2); } \
     default: return PRH_TOKERR;                                                                     \
     }
 
-int prh_impl_dec_exp(prh_lexer *l, prh_byte c, bool negative) {
+static_assert(PRH_IMAG32 == PRH_FLOAT32 + 2);
+static_assert(PRH_IMAG64 == PRH_FLOAT64 + 2);
+
+int prh_impl_exp_tail(prh_lexer *l, prh_byte c, bool negative) {
     prh_r32 val32 = c; l->neg_exp = negative; // 4,294,967,295 最多10位，指数是一个很小的数
-    prh_impl_dec_exp_digit(label_digit_02, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_03, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_04, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_05, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_06, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_07, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_08, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_09, label_lit_end); val32 = val32 * 10 + c;
-    prh_impl_dec_exp_digit(label_digit_10, label_lit_end);
+    prh_impl_exp_digit(label_digit_02, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_03, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_04, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_05, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_06, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_07, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_08, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_09, label_lit_end); val32 = val32 * 10 + c;
+    prh_impl_exp_digit(label_digit_10, label_lit_end);
     while (val32 <= 429496729U && c <= 5) {
         val32 = val32 * 10 + c;
-        prh_impl_dec_exp_digit(label_tail_digit, label_lit_end);
+        prh_impl_exp_digit(label_tail_digit, label_lit_end);
     }
     return PRH_TOKERR;
 label_lit_end:
     l->evalue = val32;
     return l->fpart;
+}
+
+typedef enum: prh_byte {// 包含 0 9 _ 然后遇到 ' i 继续解析
+    prh_imgl_invalid,   // 除了以下合法字符和lit_end，其他字符都非法（字符 . 和 ~ 也非法）
+    prh_imgl_lit_end,   // whitespace newline endfile operator separator \ " # $ @
+    prh_imgl_userlit,   // '
+} prh_impl_imgl_enum;
+
+static const prh_impl_imgl_enum prh_impl_imgl[prh_b256_enum_max] = {
+    /* prh_b256_endfile     */ prh_imgl_lit_end,
+    /* prh_b256_newline     */ prh_imgl_lit_end,
+    /* prh_b256_whitespace  */ prh_imgl_lit_end,
+    /* prh_b256_control     */ prh_imgl_invalid,
+    /* prh_b256_digitzero   */ prh_imgl_invalid,
+    /* prh_b256_digitleft   */ prh_imgl_invalid,
+    /* prh_b256_hex_upper   */ prh_imgl_invalid,
+    /* prh_b256_upperleft   */ prh_imgl_invalid,
+    /* prh_b256_hex_lower   */ prh_imgl_invalid,
+    /* prh_b256_lowerleft   */ prh_imgl_invalid,
+    /* prh_b256_underscore  */ prh_imgl_invalid,
+    /* prh_b256_tilde       */ prh_imgl_invalid,
+    /* prh_b256_point       */ prh_imgl_invalid,
+    /* prh_b256_bslash      */ prh_imgl_lit_end,
+    /* prh_b256_squote      */ prh_imgl_userlit,
+    /* prh_b256_dquote      */ prh_imgl_lit_end,
+    /* prh_b256_hash        */ prh_imgl_lit_end,
+    /* prh_b256_dollar      */ prh_imgl_lit_end,
+    /* prh_b256_at_sign     */ prh_imgl_lit_end,
+    /* prh_b256_operator    */ prh_imgl_lit_end,
+    /* prh_b256_separator   */ prh_imgl_lit_end,
+    /* prh_b256_utf8_start  */ prh_imgl_invalid,
+    /* prh_b256_utf8_inval  */ prh_imgl_invalid,
+};
+
+int prh_impl_imag_lit(prh_lexer *l, prh_tokid imag_type) {
+    prh_byte c = prh_lexer_next_char(l);
+    switch (prh_impl_imgl[prh_impl_b256[c]]) { // i 之后只能是 ' 和 <lit_end>
+    case prh_imgl_lit_end: l->c = c; return imag_type;
+    case prh_imgl_userlit: if (prh_lexer_userlit(l)) return imag_type; prh_faullthrough;
+    default: return PRH_TOKERR;
+    }
 }
 
 //  字符分类 - 十六进制数位（0 ~ 9 A ~ F a ~ f），字符 c 分为 0 ~ 9、A ~ Z、a ~ z、和其他四类 ((c & 0x60) >> 5)
