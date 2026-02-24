@@ -33059,6 +33059,36 @@ label_invalid:
 }
 
 // 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4，第一字节是 C2 ~ F4 时才会调用以下函数
+prh_byte *prh_impl_check_curr_utf8_valid(prh_byte *p, prh_char b1) {
+    prh_impl_utf8_data b;
+    if (b1 <= 0xDF) goto label_2_byte;
+    if (b1 <= 0xEF) goto label_3_byte;
+    goto label_4_byte; // 第一字节不能出现 F5~FF
+label_2_byte:
+    b.b2 = p[0]; // 第一字节范围 C2~DF
+    if ((b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
+    return p + 1;
+label_3_byte:
+    prh_impl_utf8_b2b3 u = {.b2 = p[0], .b3 = p[1]};
+    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
+    if (b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
+    if (b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
+    return p + 2;
+label_4_byte:
+    b.b2 = p[0]; b.b3 = p[1]; b.b4 = p[2];
+#if prh_lit_endian
+    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
+#else
+    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
+#endif
+    if (b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
+    if (b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
+    return p + 3;
+label_invalid:
+    return p;
+}
+
+// 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4，第一字节是 C2 ~ F4 时才会调用以下函数
 prh_byte *prh_impl_curr_utf8_to_unicode(prh_byte *p, prh_char c, prh_char *u) {
     prh_impl_utf8_data b; b.b1 = c;
     if (b.b1 <= 0xDF) goto label_2_byte;
@@ -35271,6 +35301,46 @@ typedef enum: prh_byte {
     PRH_OP_DDD,
 } prh_tokid;
 
+bool prh_impl_curr_uchar(prh_lexer *l, prh_byte c) {
+    prh_byte *parse = l->parse;
+    l->parse = prh_impl_curr_utf8_to_unicode(parse, c);
+    return l->parse != parse;
+}
+
+bool prh_impl_ident_cont(prh_lexer *l) {
+
+}
+
+int prh_lexer_ident_start(prh_lexer *l) {
+    l->ident = l->parse - 1;
+    return prh_impl_ident_cont(l) ? PRH_NAME : PRH_TOKERR;
+}
+
+int prh_lexer_ident_utf8s(prh_lexer *l, prh_byte c) {
+    l->ident = l->parse - 1;
+    return (prh_impl_curr_uchar(l, c) && prh_impl_ident_cont(l)) ? PRH_NAME : PRH_TOKERR;
+}
+
+int prh_impl_ident_start(prh_lexer *l, prh_tokid type) { // 继续检查标识符的下一个字节字符
+    return prh_impl_ident_cont(l) ? type : PRH_TOKERR;
+}
+
+int prh_impl_ident_utf8s(prh_lexer *l, prh_byte c, prh_tokid type) { // 需要检查第二个utf8字节是否合法
+    return (prh_impl_curr_uchar(l, c) && prh_impl_ident_cont(l)) ? type : PRH_TOKERR;
+}
+
+int prh_lexer_tie_lit(prh_lexer *l) {
+
+}
+
+int prh_lexer_operator(prh_lexer *l, prh_byte c) {
+
+}
+
+int prh_lexer_separator(prh_lexer *l, prh_byte c) {
+
+}
+
 typedef enum: prh_byte {
     prh_dden_invalid,
     prh_dden_start,
@@ -35304,12 +35374,12 @@ static const prh_impl_dden_enum prh_impl_dden[prh_b256_enum_max] = {
 };
 
 // 前导序列 digit { digit | '_' } <不是 whitespace newline endfile operator separator \ " # $ @ digit _ ' . e E i>
-int prh_impl_dec_ident(prh_lexer *l, prh_byte b) {
+int prh_impl_dec_ident(prh_lexer *l, prh_byte c, prh_byte b) {
     // 当前 c 不是 <whitespace newline endfile operator separator \ " # $ @ digit _ ' . e E i>
     // 可能是 prh_b256_control，除了 e E i 的字母，prh_b256_tilde，prh_b256_utf8_start，prh_b256_utf8_inval
     switch (prh_impl_dden[b]) {
     case prh_dden_start: return prh_impl_ident_start(l, PRH_NAME); // 继续检查标识符的下一个字节字符
-    case prh_dden_utf8s: return prh_impl_ident_utf8s(l, PRH_NAME); // 需要检查第二个utf8字节是否合法
+    case prh_dden_utf8s: return prh_impl_ident_utf8s(l, c, PRH_NAME); // 需要检查第二个utf8字节是否合法
     default: return PRH_TOKERR;
     }
 }
@@ -35617,7 +35687,7 @@ label_digit:                                                                    
     case prh_dint_underscore: goto label_digit;                                                     \
     case prh_dint_point: l->ival32 = val32; l->ipart = PRH_INT32; return prh_impl_dec_frac(l);      \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
-    default: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, b); }  \
+    default: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, c, b);}\
         l->ival32 = val32; l->ipart = PRH_INT32; l->fval32 = 0; l->fpart = PRH_FLOAT32;             \
         return prh_impl_exp_start(l, false);                                                        \
     case prh_dint_may_imag: if (c != 'i') goto prh_macro_make_name(label_digit, maybe_dec_ident);   \
@@ -35635,7 +35705,7 @@ label_digit:                                                                    
     case prh_dint_underscore: goto label_digit;                                                     \
     case prh_dint_point: l->ival64 = val64; l->ipart = PRH_INT64; return prh_impl_dec_frac(l);      \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
-    default: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, b); }  \
+    default: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, c, b);}\
         l->ival64 = val64; l->ipart = PRH_INT64; l->fval32 = 0; l->fpart = PRH_FLOAT32;             \
         return prh_impl_exp_start(l, false);                                                        \
     case prh_dint_may_imag: if (c != 'i') goto prh_macro_make_name(label_digit, maybe_dec_ident);   \
@@ -35878,7 +35948,7 @@ label_digit:                                                                    
         l->fval32 = val32; l->fpart = PRH_FLOAT32; return prh_impl_exp_start(l, false);             \
     case prh_dotc_may_imag: if (c != 'i') goto label_identstart;                                    \
         l->evalue = 0; l->fval32 = val32; return prh_impl_imag_lit(l, PRH_IMAG32);                  \
-    case prh_dotc_identutf8s: return prh_impl_ident_utf8s(l. PRH_FIELD);                            \
+    case prh_dotc_identutf8s: return prh_impl_ident_utf8s(l. c, PRH_FIELD);                         \
     default: return PRH_TOKERR;
     }
 
@@ -38303,10 +38373,10 @@ typedef struct {
     prh_byte *start;
     prh_byte *parse;
     prh_byte *ident;
-    prh_char c;
     prh_tokid token;
     prh_tokid ipart;
     prh_tokid fpart;
+    prh_byte c;
     bool escape_code;
     bool userlit;
     bool neg_exp;
@@ -38317,7 +38387,6 @@ typedef struct {
     prh_r64 ival64;
     prh_r64 fval64;
     union {
-        prh_byte bvalue;
         prh_char cvalue;
         prh_string svalue;
         prh_string ident;
@@ -38391,12 +38460,9 @@ label_skipped:
     case prh_b256_utf8_inval:
         return PRH_TOKERR;
     case prh_b256_utf8_start:
-        return prh_lexer_utf8_ident(l, c);
-    case prh_b256_hex_upper:
-    case prh_b256_upperleft:
-        return prh_lexer_upper_ident(l, c);
+        return prh_lexer_ident_utf8s(l, c);
     default:
-        return prh_lexer_lower_ident(l, c);
+        return prh_lexer_ident_start(l);
     }
 }
 
