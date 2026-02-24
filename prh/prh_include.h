@@ -35374,12 +35374,12 @@ static const prh_impl_dden_enum prh_impl_dden[prh_b256_enum_max] = {
 };
 
 // 前导序列 digit { digit | '_' } <不是 whitespace newline endfile operator separator \ " # $ @ digit _ ' . e E i>
-int prh_impl_dec_ident(prh_lexer *l, prh_byte c, prh_byte b) {
+int prh_impl_dec_ident(prh_lexer *l, prh_byte b) {
     // 当前 c 不是 <whitespace newline endfile operator separator \ " # $ @ digit _ ' . e E i>
     // 可能是 prh_b256_control，除了 e E i 的字母，prh_b256_tilde，prh_b256_utf8_start，prh_b256_utf8_inval
     switch (prh_impl_dden[b]) {
     case prh_dden_start: return prh_impl_ident_start(l, PRH_NAME); // 继续检查标识符的下一个字节字符
-    case prh_dden_utf8s: return prh_impl_ident_utf8s(l, c, PRH_NAME); // 需要检查第二个utf8字节是否合法
+    case prh_dden_utf8s: return prh_impl_ident_utf8s(l, l->c, PRH_NAME); // 需要检查第二个utf8字节是否合法
     default: return PRH_TOKERR;
     }
 }
@@ -35642,6 +35642,8 @@ label_finish:
 
 typedef enum: prh_byte {// 包含 0 9 _ 然后遇到 ' . e E i 继续解析
     prh_dint_invalid,   // 除了以下合法字符和lit_end，其他字符都非法（字符 ~ 是标识符的开始也非法）
+    prh_dint_identstart,// 第一个标识符字符
+    prh_dint_identutf8s,// 第一个标识符字符以utf8编码开始
     prh_dint_lit_end,   // whitespace newline endfile operator separator \ " # $ @
     prh_dint_digit,     // 0 ~ 9
     prh_dint_underscore,// _
@@ -35687,12 +35689,14 @@ label_digit:                                                                    
     case prh_dint_underscore: goto label_digit;                                                     \
     case prh_dint_point: l->ival32 = val32; l->ipart = PRH_INT32; return prh_impl_dec_frac(l);      \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
-    default: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, c, b);}\
+    case prh_dint_identstart: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, b); } \
         l->ival32 = val32; l->ipart = PRH_INT32; l->fval32 = 0; l->fpart = PRH_FLOAT32;             \
         return prh_impl_exp_start(l, false);                                                        \
     case prh_dint_may_imag: if (c != 'i') goto prh_macro_make_name(label_digit, maybe_dec_ident);   \
         l->ival32 = val32; l->ipart = PRH_INT32; l->evalue = 0; l->fval32 = 0;                      \
         return prh_impl_imag_lit(l, PRH_IMAG32);                                                    \
+    case prh_dint_identutf8s: return prh_impl_ident_utf8s(l, c, PRH_NAME);                          \
+    default: return PRH_TOKERR;
     }
 
 #define prh_impl_dec_i64_digit(label_digit, label_lit_end)                                          \
@@ -35705,7 +35709,7 @@ label_digit:                                                                    
     case prh_dint_underscore: goto label_digit;                                                     \
     case prh_dint_point: l->ival64 = val64; l->ipart = PRH_INT64; return prh_impl_dec_frac(l);      \
     case prh_dint_may_exp: if ((c & 0x5F) != 'E') { /* 'E' 0x45 0100_1001 'e' 0x65 0110_1001 */     \
-    default: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, c, b);}\
+    default: prh_macro_make_name(label_digit, maybe_dec_ident): return prh_impl_dec_ident(l, b); }  \
         l->ival64 = val64; l->ipart = PRH_INT64; l->fval32 = 0; l->fpart = PRH_FLOAT32;             \
         return prh_impl_exp_start(l, false);                                                        \
     case prh_dint_may_imag: if (c != 'i') goto prh_macro_make_name(label_digit, maybe_dec_ident);   \
@@ -35965,7 +35969,7 @@ label_digit:                                                                    
         l->fval64 = val64; l->fpart = PRH_FLOAT64; return prh_impl_exp_start(l, false);             \
     case prh_dotc_may_imag: if (c != 'i') goto label_identstart;                                    \
         l->evalue = 0; l->fval64 = val64; return prh_impl_imag_lit(l, PRH_IMAG64);                  \
-    case prh_dotc_identutf8s: return prh_impl_ident_utf8s(l. PRH_FIELD);                            \
+    case prh_dotc_identutf8s: return prh_impl_ident_utf8s(l. c, PRH_FIELD);                         \
     default: return PRH_TOKERR;
     }
 
