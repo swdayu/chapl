@@ -3,8 +3,8 @@
 // 都可以进行调用，变量的调用其实就是函数，类型的调用相当于模板类型实例化变成具体类型。其
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
-// 关键字，去掉 default 因为可以用 else 实现，而 fallthrough 可以用 continue 代替。
-//  if else elif for in break final return 条件语句支持大括号和缩进对齐两种编写方式
+// 关键字，统一各种分支语句和各种循环语句
+//  if else elif for in break final fallt return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed def pub let var undefined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static where it or this import scoped as inf (inferred type 推导的类型)
@@ -493,7 +493,8 @@ a + ('int b + c) * d
 (int a int b yield int point >> int)
 (int a int b yield int point)
 (int a..b yield int point)
-(int a >> int point float .. count point scale)
+(int a >> int point float (count point scale))
+(int a >> int point (count point) or error)
 (*file? file = stdin, point point string name = "root", string mode)
 (*file? = stdin, point, string name = "root", string mode) // 简写形式
 (*file? = stdin, point point point origin string name string mode int a int b int c)
@@ -1649,12 +1650,12 @@ let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类�
 let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 let a = point{100, 200}
 let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
-if $a point{100, 200} + b that (expr) { stmt ... }
 
 // 局部变量的简化定义语法
-if $u prh_lexer_next_utf8(l) (u == '\'' || u == prh_char_invalid)
+if $a point{100, 200} + b that (expr) { stmt ... }
+if $u prh_lexer_next_utf8(l) that u == '\'' || u == prh_char_invalid
     return TOKERR
-if $c prh_lexer_next_char(l) (c != '\'')
+if $c prh_lexer_next_char(l) that c != '\''
     return TOKERR
 l->c = prh_lexer_next_char(l)
 l->u.cvalue = u
@@ -1720,26 +1721,26 @@ def calc(*file? file *expr expr >> int) { // 如果加上了 none 属性表示�
 //  4.  空值是一个特殊的值，不应该在整个程序中泛滥传播
 //  5.  or none 必须可以应用到任何类型，用来全面消除空值的泛滥传播
 //  6.  @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
-//  7.  a where [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
+//  7.  a the [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
 //      新的语句将非空焊死在局部变量 x 中，print 根本访问不到可能为空的 a，因为函数闭包只能访问显式写在捕获参数中的值
-//  8.  let x = a where [x] { x * 2 } or none // 变量 x 也将变成可空的值
-//  9.  let x = a where [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
-//  10. print(a where [x] { x * 2 } or -1)
-//      print(a where it * 2 or -1)
-//      a where it.print() or print("none")
-//      a where it * 2 or none
-//      a where it * 2 or return + b or return
+//  8.  let x = a the [x] { x * 2 } or none // 变量 x 也将变成可空的值
+//  9.  let x = a the [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
+//  10. print(a the [x] { x * 2 } or -1)
+//      print(a the 2 * _ + 1 or -1)
+//      a the print(_) or print("none")
+//      a the _ * 2 or none
+//      a the _ * 2 or return + b or return
 
-def sqrt(float x float y return float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
+def sqrt(float x float y >> float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
     let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
     return sqrt(x * a)
 }
 
-def test const size(int) p(point) {
+def test $(int size point p) {
     [size]int a
 }
 
-def array $t const size(int) static size > 0 {
+def array $(anytype t int size) size > 0 {
     [size]t a
 }
 
