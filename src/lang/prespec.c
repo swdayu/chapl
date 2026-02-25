@@ -121,12 +121,12 @@
 // 程序最基本的元素只有：
 //  变量，其中编译时已知的变量称为常量
 //  类型，类型是一种特殊的变量，该变量的类型为 anytype，类型可以是编译时已知的，也可以处理一个运行时才已知的类型
-//      anytype // 一个具体类型
 //      inttype // 一个有符号整数类型
-//      unttype // 一个无符号整数类型
+//      regtype // 一个无符号整数类型
 //      flotype // 一个浮点类型
 //      dectype // 一个定点类型
 //      comtype // 一个复数类型
+//      anytype // 一个具体类型
 //      integer // 一个整数类型，包括有符号和无符号
 //      numeric // 一个数值类型，包括整数类型、浮点类型、定点类型、复数类型
 //      settype // 一个集合类型
@@ -211,17 +211,17 @@
 //  32`int  // i32 signed integer
 //  64`int  // i64 signed integer
 //
-//  rx`     // rrx r128 signed integer 16字节  128位
-//  ry`     // rry r256 signed integer 32字节  256位
-//  rz`     // rrz r512 signed integer 64字节  512位
+//  mx`     // inx i128 signed integer 16字节  128位
+//  my`     // iny i256 signed integer 32字节  256位
+//  mz`     // inz i512 signed integer 64字节  512位
 //
 //  08`float f08            08`decimal d08              08`complex c08
 //  16`float f16            16`decimal d16              16`complex c16
 //  32`float f32            32`decimal d32              32`complex c32
 //  64`float f64            64`decimal d64              64`complex c64
-//  rx`float ffx f128       rx`decimal ddx d128         rx`complex ccx c128
-//  ry`float ffy f256       ry`decimal ddy d256         ry`complex ccy c256
-//  rz`float ffz f512       rz`decimal ddz d512         rz`complex ccz c512
+//  mx`float ffx f128       mx`decimal ddx d128         mx`complex ccx c128
+//  my`float ffy f256       my`decimal ddy d256         my`complex ccy c256
+//  mz`float ffz f512       mz`decimal ddz d512         rz`complex ccz c512
 //
 //  .digit 表示一个十进制数
 //  ident` 表示是类型名称
@@ -1090,8 +1090,8 @@ def point "zeroinit packed" {
 def data {
     int a
     int b
-    (int a int b return int) f
-    (int a int b return int) g
+    (int a int b >> int) f
+    (int a int b >> int) g
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
@@ -1437,25 +1437,25 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
 }
 
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
-def (int argc **char argv return int) func_type
+def (int argc **char argv >> int) func_type
 def |flat_map|[string:int] type_of_map
 def [int int float string] tuple_type
 def [*int] int_ptr
 def [*point] point_ptr
 def [point] type_point
 
-pub (int argc **char argv return int) func_type
+pub (int argc **char argv >> int) func_type
 pub |flat_map|[string:int] type_of_map
 pub [int int float string] tuple_type
 pub [*int] int_ptr
 pub [*point] point_ptr
 pub [point] type_point
 
-def main(int argc **char argv return int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
+def main(int argc **char argv >> int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
     return 0
 }
 
-def eat(*lexer l expr e return *oper) { // 编译器可以访问到完整代码的函数就是一个常量，而动态加载的函数相当于时一个函数变量（函数指针变量）
+def eat(*lexer l expr e >> *oper) { // 编译器可以访问到完整代码的函数就是一个常量，而动态加载的函数相当于时一个函数变量（函数指针变量）
     return l.op or e.op
 }
 
@@ -1489,22 +1489,22 @@ def test $(const C) {
     int data
 }
 
-def name (int a return int) { ... }
+def name (int a >> int) { ... }
 def (int a return int) func_type
 def [int float] tuple_type
 def name = 3.1415926
 def name const { red blue green }
 def name const int { red bule green }
-def name const int with {r08 lpri r08 rpri} { ... }
-def name const with {r08 lpri r08 rpri} { ... }
+def name const int with {r08 lpri..rpri} { ... }
+def name const with {r08 lpri..rpri} { ... }
 def name { int a int b }
-def name $(anytype T anytype U const SIZE int N T VALUE) { ... }
+def name $(anytype T..U const SIZE int N T VALUE) { ... }
 def name $(anytype T) { ... }
-def name $(anytype T anytype U) { ... }
+def name $(anytype T..U) { ... }
 def name $(int SIZE) { ... }
-def name $(int SIZE anytype T anytype U) { ... }
+def name $(int SIZE anytype T..U) { ... }
 
-def test $(anytype T anytype U const C int SIZE) {
+def test $(anytype T..U const C int SIZE) {
     int data
     T t
 }
@@ -1529,9 +1529,9 @@ def 2P = 2 * PI // 类型为 const float
 def PI = f64 3.1415926 // 类型为 const f64
 def PT = point {100, 200} // 类型为 const point
 def P3 = [_]int {100, 200} // 类型为 const [2]int
-def P4 = |int int| {100, 200} // 类型为 const <int int>
+def P4 = [int int] {100, 200} // 类型为 const [int int]
 def P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
-def P6 = (int a int b return int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
+def P6 = (int a int b >> int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
 
 pub PI = 3.1415926
 pub 2P = 2 * PI
@@ -1541,7 +1541,7 @@ pub P2 = point {100, 200}
 pub P3 = [_]int {100, 200}
 pub P4 = [int int] {100, 200}
 pub P5 = {int a int b} {100, 200}
-pub P6 = (int a int b return int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
+pub P6 = (int a int b >> int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
 // def var type name = expr
@@ -1570,7 +1570,7 @@ pub var int b = 20
 pub var *int int_ptr = &a
 pub var *point point_ptr = &point
 pub var point point = {100, 200}
-pub var (int a int b return int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
+pub var (int a int b >> int) calc = { return a + b } // 定义一个函数指针变量，可以随时修改 calc
 pub var {int a int b point point} data = {10, 20, {100, 200}}
 pub var [int int point] data = {10, 20, {100, 200}}
 pub let tuple = {500, 6.4, 1}
@@ -1619,9 +1619,9 @@ var [i32 f64 r08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 var [i32 f64 r08] (a b c) = {500, 6.4, 1} // a b c
 let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 let data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
-let (a _) = read_tuple() // 赋值右边必须是一个元组类型
-let (_ a _ b) = data // 赋值右边必须是一个元组类型
-let (a b c) = [i32 f64 r08] {500, 6.4, 1}
+let a _ = read_tuple() // 赋值右边必须是一个元组类型
+let _ a _ b = data // 赋值右边必须是一个元组类型
+let a b c = [i32 f64 r08] {500, 6.4, 1}
 let tup = {500, 6.4, 1}
 let tup = [i32 f64 r08] {500, 6.4, 1}
 let integers = {1, 2, 3}
@@ -1649,6 +1649,7 @@ let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类�
 let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 let a = point{100, 200}
 let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+if $a point{100, 200} + b that (expr) { stmt ... }
 
 // 局部变量的简化定义语法
 if $u prh_lexer_next_utf8(l) (u == '\'' || u == prh_char_invalid)
@@ -1661,18 +1662,18 @@ return CHARLIT
 l->parse = prh_utf8_to_unicode(l->parse, fer $unicode);
 return unicode;
 
-def calc(int a int b return int int (x y)) {
+def calc(int a int b >> int int (x y)) {
     x = a + b
     y = a * b
 }
 
-def calc(int a int b return int int (x y) or error) {
+def calc(int a int b >> int int (x y) or error) {
     if a == 0 return e_invalid
     x = a * b
     y = e_notzero
 }
 
-def read_username(return string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
+def read_username(>> string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
     let f = open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
     let s = string {}
     f.read_to_string(fer s) or return
@@ -1690,7 +1691,7 @@ if s.error abort(s.error)
 // 指针/函数指针/字符串 none 的 niche 值为 null, bool 可以使用 0x02 表示 niche 值
 // char 字符 UNICODE 标量的上限 0x10FFFF，有大量高位值可用作 niche
 // float 可以使用 N/A 值，int/reg 则必须手动指定，或使用 nonzero int，nonfini int，nonnull<T>
-def divide(float a float b return float or none) { // 空值，有值，返回值的大小为 sizeof float，调用者必须检查 none 值
+def divide(float a float b >> float or none) { // 空值，有值，返回值的大小为 sizeof float，调用者必须检查 none 值
     if b == 0 return none
     return a / b
 }
@@ -1703,7 +1704,7 @@ if a == none
 else
     print("a/b=%", a)
 
-def calc(*file? file *expr expr return int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
+def calc(*file? file *expr expr >> int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
 }
 
 // Optional Type 的两个好处：
