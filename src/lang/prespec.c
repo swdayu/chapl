@@ -461,33 +461,39 @@ a + ('int b + c) * d
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
 // 函数类型字面量，“开始小括号 + 结果为类型的表达式” 表示函数类型的开始，函数复合常量是函数类型字面量 + { stmt ... }
 (void) // void 表示没有参数，也没有返回值
-(return int) // 返回 int，当有返回值时才需要 return 关键字
-(return int string point) // 返回 int string point
-(return int float yield int)
-(yield int point return int)
+(>> int) // 返回 int，当有返回值时才需要 return 关键字
+(>> int string point) // 返回 int string point
+(yield int >> int float)
+(yield int point >> int)
 (yield int point)
-(int a return int) // 返回 int
+(int a >> int) // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
-(int argc **char argv return int or none)
-(point p int a return int) // 返回 int
-(point point int a return int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
-(point, int a return int) // 简写形式
+(int _) // 匿名参数
+(int) // 报错，参数名不能是关键字
+(int argc **char argv >> int or none)
+(point p int a >> int) // 返回 int
+(point point int a >> int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
+(point, int a >> int) // 简写形式
 (camera camera point point)
 (point point)
-(camera, point) (camera = expr, point) // 简写形式
-(point) (point`) (point .= expr) // 简写形式，使用 point` 和 .= 避免与表达式语法冲突
+(camera, point) (camera = expr, point) // 简写形式，函数声明优先识别为类型，函数体内优先识别为变量名
+(point) (point`) (point` = expr) // 简写形式，使用 point` 避免与表达式语法冲突
 (*camera camera *point point)
 (*point point)
-(*camera, *point) // 简写形式
+(*camera camera point point)
+(*camera, point)
+(*point, point a)
+(*camera *point) // 简写形式
+(&camera *point) // 使用&标记的类型，也传递指针但指向的内容不可修改
 (*point) // 简写形式
 (int a)
 (int a int b int c)
 (int a..b..c) // 简写形式
-(int a int b return int yield int point)
-(int a int b yield int point return int)
+(int a int b yield int point >> int point)
+(int a int b yield int point >> int)
 (int a int b yield int point)
 (int a..b yield int point)
-(int a return int point float (count point scale))
+(int a >> int point float .. count point scale)
 (*file? file = stdin, point point string name = "root", string mode)
 (*file? = stdin, point, string name = "root", string mode) // 简写形式
 (*file? = stdin, point point point origin string name string mode int a int b int c)
@@ -512,7 +518,7 @@ struct {} // 空结构体
 {int point} // point 是 int 型类型成员
 const { red green blue }
 const int { red green = 2 blue }
-$(anytype T) { (*T p int size return int) read }
+$(anytype T) { (*T p int size >> int) read }
 // 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
 {expr, expr, expr} // expr 绝对不会以类型名称或类型字面量开头
 {:1 :2 :3 :4}
