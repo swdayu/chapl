@@ -1253,15 +1253,11 @@ def <std::array> std_array
 Coro { // 公开函数会公开所有参数涉及的类型，公开类型的字段都是只读的，写操作必须通过公开函数
     r32 rspoffset // 1st field dont move
     r32 loweraddr
-    r32 maxudsize 31 ptr_param 1
+    r32 {max_int-1} maxudsize {1} ptr_param
     i32 coro_id
     reg rspoffset
     reg loweraddr
-    reg maxudsize 31 ptr_param 1
-    int coro_id
-    reg rspoffset
-    reg loweraddr
-    reg maxudsize 31 ptr_param 1
+    reg {max_int_bits_minus_1} maxudsize {1} ptr_param
     int coro_id
     reg address
 }
@@ -1475,7 +1471,7 @@ def color const r08 {
 }
 
 def color const r08 {
-    red = global.blue_defined_value green blue
+    red = blue_defined_value green blue
 }
 
 def color const {
@@ -1562,9 +1558,9 @@ def let colors = {"红", "黄", "绿"}
 def let set = {:1 :2 :3 :4 :5 :6}
 def let map = {"a":1, "b":2, "c":3}
 def let tup (a b c) = {500, 6.4, 1}
-def let (a _) = read_tuple() // 赋值右边必须是一个元组类型
-def let (_ a _ b) = data // 赋值右边必须是一个元组类型
-def let (a b c) = [i32 f64 r08] {500, 6.4, 1}
+def let a _ = read_tuple() // 赋值右边必须是一个元组类型
+def let _ a _ b = data // 赋值右边必须是一个元组类型
+def let a b c = [i32 f64 r08] {500, 6.4, 1}
 
 pub var int a = 10
 pub var int b = 20
@@ -1580,9 +1576,9 @@ pub let colors = {"红", "黄", "绿"}
 pub let set = {:1 :2 :3 :4 :5 :6}
 pub let map = {"a":1, "b":2, "c":3}
 pub let tup (a b c) = {500, 6.4, 1}
-pub let (a _) = read_tuple() // 赋值右边必须是一个元组类型
-pub let (_ a _ b) = data // 赋值右边必须是一个元组类型
-pub let (a b c) = [i32 f64 r08] {500, 6.4, 1}
+pub let a _ = read_tuple() // 赋值右边必须是一个元组类型
+pub let _ a _ b = data // 赋值右边必须是一个元组类型
+pub let a b c = [i32 f64 r08] {500, 6.4, 1}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &）
 //  1.  类型转换时，类型字面量不需要添加 'type 转换前缀
@@ -1651,16 +1647,17 @@ let calc = (int a b return int) { return a + b} // 类型字面量可以自动�
 let a = point{100, 200}
 let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 
-// 局部变量的简化定义语法
-if $a point{100, 200} + b that (expr) { stmt ... }
-if $u prh_lexer_next_utf8(l) that u == '\'' || u == prh_char_invalid
+// 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
+// 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
+if $a point{100, 200} + b [expr] { stmt ... }
+if $u lexer_next_utf8(l) [u == '\'' || u == prh_char_invalid]
     return TOKERR
-if $c prh_lexer_next_char(l) that c != '\''
+if $c getarray(l)(0,1)(a) [c != '\'']
     return TOKERR
-l->c = prh_lexer_next_char(l)
+l->c = lexer_next_char(l)
 l->u.cvalue = u
 return CHARLIT
-l->parse = prh_utf8_to_unicode(l->parse, fer $unicode);
+l->parse = utf8_to_unicode(l->parse, fer $unicode);
 return unicode;
 
 def calc(int a int b >> int int (x y)) {
@@ -1683,8 +1680,8 @@ def read_username(>> string or error) { // 返回值的大小为 sizeof read_use
 }
 
 let s = read_username() or abort(error)
-let s = read_username() where [a] { a.trim() } or "unknown"
-let s = read_username() where it.trim() or "unknown"
+let s = read_username() where [a] { trim(a) } or "unknown"
+let s = read_username() where trim(_) or "unknown"
 if s.error abort(s.error)
 
 // Option<T> 仅表示 “有/没有”，不携带错误原因，Result<T, E> 表示 “成功/失败” 并附带错误信息
@@ -1699,7 +1696,7 @@ def divide(float a float b >> float or none) { // 空值，有值，返回值的
 
 let a = divide(a, b) or abort(e_divbyzero)
 let a = divide(a, b) where [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
-let a = divide(a, b) where it * 10 or -1
+let a = divide(a, b) where _ * 10 or -1
 if a == none
     abort(e_divbyzero)
 else
@@ -1721,15 +1718,15 @@ def calc(*file? file *expr expr >> int) { // 如果加上了 none 属性表示�
 //  4.  空值是一个特殊的值，不应该在整个程序中泛滥传播
 //  5.  or none 必须可以应用到任何类型，用来全面消除空值的泛滥传播
 //  6.  @nonzero @nonalls 可以修饰结构体成员，使用这些成员必须经过 none 检查和传递性验证
-//  7.  a the [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
+//  7.  a where [x] { print(x) } or print("none") 增加新的语法保证简洁性和提供更高的安全性，原来的非空值只能通过if语句保证
 //      新的语句将非空焊死在局部变量 x 中，print 根本访问不到可能为空的 a，因为函数闭包只能访问显式写在捕获参数中的值
-//  8.  let x = a the [x] { x * 2 } or none // 变量 x 也将变成可空的值
-//  9.  let x = a the [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
-//  10. print(a the [x] { x * 2 } or -1)
-//      print(a the 2 * _ + 1 or -1)
-//      a the print(_) or print("none")
-//      a the _ * 2 or none
-//      a the _ * 2 or return + b or return
+//  8.  let x = a where [x] { x * 2 } or none // 变量 x 也将变成可空的值
+//  9.  let x = a where [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
+//  10. print(a where [x] { x * 2 } or -1)
+//      print(a where 2 * _ + 1 or -1)
+//      a where print(_) or print("none")
+//      a where _ * 2 or none
+//      a where _ * 2 or return + b or return
 
 def sqrt(float x float y >> float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
     let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
@@ -1840,53 +1837,53 @@ def peek(*lexer, token) {
     return lexer.top()
 }
 
-def eval(oper o expr l expr r return expr) {
-    let expr = undefined
-    if [o] '=' {
+def eval(oper o expr l expr r >> expr) {
+    var expr ? // var expr expr ? // let expr ? expr
+    if [o] == '=' == '?' {
         expr = .value(r.value.n)
         get_symbol(l.ident.id).value = r.value.n
-    } else if '+' {
+    } if == '+' == '加' {
         expr = .value(l.value.n + r.value.n)
-    } else if '-' {
+    } if == '-' == '减' {
         expr = .value(l.value.n - r.value.n)
-    } else if '*' {
+    } if == '*' {
         expr = .value(l.value.n * r.value.n)
-    } else if '/' {
+    } if == '/' {
         expr = .value(l.value.n / r.value.n)
-    } else if '^' {
+    } if == '^' {
         expr = .value(pow(l.value.n, r.value.n))
-    } else {
+    } if == else {
         panic("bad operator %c", o)
     }
     return expr
 }
 
-eat(*lexer lexer return token) {
+eat(*lexer lexer >> token) {
     return lexer.pop()
 }
 
-parse_expression(*lexer lexer int min_prior return expr) {
-    let expr lhs = undefined
-    if [lexer.eat()] atom(it) {
+parse_expression(*lexer lexer int min_prior >> expr) {
+    var expr lhs ? // let lhs ? expr
+    if [lexer.eat()] == atom(it) {
         if it == '0'..'9' then
             lhs = .value(it - '0')
         else if it == 'a'..'z' || it == 'A'..'Z' then
             lhs = .value(get_symbol(it).value)
         else then
             panic("bad token %d", it)
-    } else if oper('(') {
+    } if == oper('(') {
         lhs = eval(parse_expression(lexer, 0)
         assert_eq(lexer.skip(), Token.oper(')'))
-    } else {
+    } if == else {
         panic("bad token %d", it)
     }
     for {
         def expr = undefined
-        if [lexer.peek()] eof oper(')')
+        if [lexer.peek()] == eof == oper(')')
             break
-        else if oper(it) then
+        if == oper(it) then
             expr = .expr(it)
-        else then
+        if == else then
             panic("bad token %d", it)
         lexer.skip()
         let prior Oper(expr.expr.op)
@@ -1898,16 +1895,16 @@ parse_expression(*lexer lexer int min_prior return expr) {
     return lhs
 }
 
-eat(*lexer lexer return token) {
+eat(*lexer lexer >> token) {
     return lexer.pop()
 }
 
-parse_expression(*lexer lexer int min_prior return expr) {
+parse_expression(*lexer lexer int min_prior >> expr) {
     def expr = undefined
 }
 
 // 因为函数的第一个参数可以重载，因此 tcp_poll(file, sock, wait) 和 file.tcp_poll(sock, wait) 都同样有效
-tcp_poll(*file file *socket socket *poll_table poll_table return poll) [m] alignas(16) {
+tcp_poll(*file file *socket socket *poll_table poll_table >> poll) [m] alignas(16) {
     def poll = undefined
     def *socket alignas(CACHE_LINE_SIZE) = socket
     let a = byte undefined
