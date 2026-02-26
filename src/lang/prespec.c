@@ -4,7 +4,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，统一各种分支语句和各种循环语句
-//  if else elif for in break final fallt return 条件语句支持大括号和缩进对齐两种编写方式
+//  if else elif for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed def pub let var undefined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static where it or this import scoped as inf (inferred type 推导的类型)
@@ -201,27 +201,27 @@
 //  bool byte char error float decimal complex
 //  array string slice
 //
-//  08`     // r08 unsigned integer 单字节
-//  16`     // r16 unsigned integer 两字节
-//  32`     // r32 unsigned integer 四字节
-//  64`     // r64 unsigned integer 八字节
+//  08'     // r08 unsigned integer 单字节
+//  16'     // r16 unsigned integer 两字节
+//  32'     // r32 unsigned integer 四字节
+//  64'     // r64 unsigned integer 八字节
 //
-//  08`int  // i08 signed integer
-//  16`int  // i16 signed integer
-//  32`int  // i32 signed integer
-//  64`int  // i64 signed integer
+//  08'int  // i08 signed integer
+//  16'int  // i16 signed integer
+//  32'int  // i32 signed integer
+//  64'int  // i64 signed integer
 //
-//  mx`     // inx i128 signed integer 16字节  128位
-//  my`     // iny i256 signed integer 32字节  256位
-//  mz`     // inz i512 signed integer 64字节  512位
+//  mx'     // inx i128 signed integer 16字节  128位
+//  my'     // iny i256 signed integer 32字节  256位
+//  mz'     // inz i512 signed integer 64字节  512位
 //
-//  08`float f08            08`decimal d08              08`complex c08
-//  16`float f16            16`decimal d16              16`complex c16
-//  32`float f32            32`decimal d32              32`complex c32
-//  64`float f64            64`decimal d64              64`complex c64
-//  mx`float ffx f128       mx`decimal ddx d128         mx`complex ccx c128
-//  my`float ffy f256       my`decimal ddy d256         my`complex ccy c256
-//  mz`float ffz f512       mz`decimal ddz d512         rz`complex ccz c512
+//  08'float f08            08'decimal d08              08'complex c08
+//  16'float f16            16'decimal d16              16'complex c16
+//  32'float f32            32'decimal d32              32'complex c32
+//  64'float f64            64'decimal d64              64'complex c64
+//  mx'float ffx f128       mx'decimal ddx d128         mx'complex ccx c128
+//  my'float ffy f256       my'decimal ddy d256         my'complex ccy c256
+//  mz'float ffz f512       mz'decimal ddz d512         rz'complex ccz c512
 //
 //  .digit 表示一个十进制数
 //  ident` 表示是类型名称
@@ -477,7 +477,7 @@ a + ('int b + c) * d
 (camera camera point point)
 (point point)
 (camera, point) (camera = expr, point) // 简写形式，函数声明优先识别为类型，函数体内优先识别为变量名
-(point) (point`) (point` = expr) // 简写形式，使用 point` 避免与表达式语法冲突
+(point) (point') (point '= expr) // 简写形式，使用 point` 避免与表达式语法冲突
 (*camera camera *point point)
 (*point point)
 (*camera camera point point)
