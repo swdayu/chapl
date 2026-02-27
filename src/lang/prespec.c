@@ -19,7 +19,7 @@
 // fac far fat fen fer fin fit fou fro fry fur
 // gen gre lot off per pat pal phr par
 // pre pro rem res rim ron rou rut
-// tie via was wow yet as of do use
+// tie via was wow yet as is to of do use
 //
 // 语句不会返回值，可以通过使用 with 和 where 关键字一前一后让语句变成语句表达式，从而
 // 产生一个结果值。
@@ -201,27 +201,27 @@
 //  bool byte char error float decimal complex
 //  array string slice
 //
-//  08'     // r08 unsigned integer 单字节
-//  16'     // r16 unsigned integer 两字节
-//  32'     // r32 unsigned integer 四字节
-//  64'     // r64 unsigned integer 八字节
+//  08`     // r08 unsigned integer 单字节
+//  16`     // r16 unsigned integer 两字节
+//  32`     // r32 unsigned integer 四字节
+//  64`     // r64 unsigned integer 八字节
 //
-//  08'int  // i08 signed integer
-//  16'int  // i16 signed integer
-//  32'int  // i32 signed integer
-//  64'int  // i64 signed integer
+//  08`int  // i08 signed integer
+//  16`int  // i16 signed integer
+//  32`int  // i32 signed integer
+//  64`int  // i64 signed integer
 //
-//  mx'     // inx i128 signed integer 16字节  128位
-//  my'     // iny i256 signed integer 32字节  256位
-//  mz'     // inz i512 signed integer 64字节  512位
+//  mx`     // inx i128 signed integer 16字节  128位
+//  my`     // iny i256 signed integer 32字节  256位
+//  mz`     // inz i512 signed integer 64字节  512位
 //
-//  08'float f08            08'decimal d08              08'complex c08
-//  16'float f16            16'decimal d16              16'complex c16
-//  32'float f32            32'decimal d32              32'complex c32
-//  64'float f64            64'decimal d64              64'complex c64
-//  mx'float ffx f128       mx'decimal ddx d128         mx'complex ccx c128
-//  my'float ffy f256       my'decimal ddy d256         my'complex ccy c256
-//  mz'float ffz f512       mz'decimal ddz d512         rz'complex ccz c512
+//  08`float f08            08`decimal d08              08`complex c08
+//  16`float f16            16`decimal d16              16`complex c16
+//  32`float f32            32`decimal d32              32`complex c32
+//  64`float f64            64`decimal d64              64`complex c64
+//  mx`float ffx f128       mx`decimal ddx d128         mx`complex ccx c128
+//  my`float ffy f256       my`decimal ddy d256         my`complex ccy c256
+//  mz`float ffz f512       mz`decimal ddz d512         rz`complex ccz c512
 //
 //  .digit 表示一个十进制数
 //  ident` 表示是类型名称
@@ -477,7 +477,7 @@ a + ('int b + c) * d
 (camera camera point point)
 (point point)
 (camera, point) (camera = expr, point) // 简写形式，函数声明优先识别为类型，函数体内优先识别为变量名
-(point) (point') (point '= expr) // 简写形式，使用 point` 避免与表达式语法冲突
+(point) (point`) (point` = expr) // 简写形式，使用 point` 避免与表达式语法冲突
 (*camera camera *point point)
 (*point point)
 (*camera camera point point)
@@ -546,9 +546,9 @@ array(int, float)
 *[string:[N]int]
 where [m &a &b] { stmt... } // 捕获参数
 FuncTypeLit [m &a &b] { stmt... } // 捕获参数
-vsym[expr] vsym[expr][expr] // 变量数组元素
-func()[expr] // 函数返回值数组元素
-func()[expr:expr] vsym[expr:expr] // 数组切片和字符串切片
+vsym(i) vsym(i, j) // 变量数组元素
+func()(i, j) // 函数返回值数组元素
+func()(a..b) vsym(a..b) // 数组切片和字符串切片
 if [expr] // 条件匹配语句
 for [&it] // 迭代元素捕获
 [global] // 全局顶行出现的配置项
@@ -1611,11 +1611,11 @@ var *int p = undefined
 var point a = {100, 200}
 var [_]int a = {20, 30, 50}
 var [8]int a = {1, 2, 3, 4}
-var [i32 f64 r08] tup = {500, 6.4, 1} // tup[0] tup[1] tup[2]
+var [i32 f64 r08] tup = {500, 6.4, 1} // tup(0) tup(1) tup(2)
 var [i32 f64 r08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 var [i32 f64 r08] (a b c) = {500, 6.4, 1} // a b c
 let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
-let data (value error) = read_tuple() // 元组类型值的返回 data[0] data[1] data.value data.error
+let data (value error) = read_tuple() // 元组类型值的返回 data(0) data(1) data.value data.error
 let a _ = read_tuple() // 赋值右边必须是一个元组类型
 let _ a _ b = data // 赋值右边必须是一个元组类型
 let a b c = [i32 f64 r08] {500, 6.4, 1}
@@ -1639,20 +1639,21 @@ let q = *int undefined
 let a = 0
 let b = byte 0
 let ptr = alloc(1024) or panic()
-let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data[2]
+let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data(2)
 let data = data {this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
 let a = int 0
 let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
-let calc = (int a b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+let calc = (int a..b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 let a = point{100, 200}
 let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+let b ? *int
 
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
-if $a point{100, 200} + b [expr] { stmt ... }
-if $u lexer_next_utf8(l) [u == '\'' || u == prh_char_invalid]
+if $a point{100, 200} + b: (expr) { stmt ... }
+if $u lexer_next_utf8(l): u == '\'' || u == prh_char_invalid
     return TOKERR
-if $c getarray(l)(0,1)(a) [c != '\'']
+if $c getarray(l)(0,1)(a): c != '\''
     return TOKERR
 l->c = lexer_next_char(l)
 l->u.cvalue = u
@@ -1793,7 +1794,7 @@ def expr const byte { // 相当于是一种泛型类型
     EXPR {int op *expr lhs *expr rhs} // 相当于存储 {byte 2 int op reg lhs rhs}
 }
 
-if [expr] .VALUE { // 必须穷尽所有情况，否则编译报错
+if [expr] == .VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
 } if == .IDENT {
     ret = expr.id
@@ -1803,7 +1804,7 @@ if [expr] .VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.op
 }
 
-if [expr] .value
+if [expr] == .value
     ret = expr.n
 if == .ident
     ret = expr.id
@@ -1839,22 +1840,21 @@ def peek(*lexer, token) {
 
 def eval(oper o expr l expr r >> expr) {
     var expr ? // var expr expr ? // let expr ? expr
-    if [o] == '=' == '?' {
+    if [o] == '=' == '?'
         expr = .value(r.value.n)
         get_symbol(l.ident.id).value = r.value.n
-    } if == '+' == '加' {
+    if == '+' == '加'
         expr = .value(l.value.n + r.value.n)
-    } if == '-' == '减' {
+    if == '-' == '减'
         expr = .value(l.value.n - r.value.n)
-    } if == '*' {
+    if == '*'
         expr = .value(l.value.n * r.value.n)
-    } if == '/' {
+    if == '/'
         expr = .value(l.value.n / r.value.n)
-    } if == '^' {
+    if == '^'
         expr = .value(pow(l.value.n, r.value.n))
-    } if == else {
+    if == else
         panic("bad operator %c", o)
-    }
     return expr
 }
 
@@ -2357,7 +2357,7 @@ for i int 3 .. 10 { /* */ }
 
 for {
     capacity *= 2
-} ~ if capacity < new_capacity
+} .. if capacity < new_capacity
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
