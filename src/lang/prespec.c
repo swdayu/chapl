@@ -1647,17 +1647,18 @@ let calc = (int a..b return int) { return a + b} // 类型字面量可以自动�
 let a = point{100, 200}
 let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 let b ? *int
+var *int b ?
 $b *int ?
 $a point{1， 2}
 $b float 3.1415929
-$a $_ $b read_tuple()
+$a $_ $c read_tuple()
 
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
-if $a point{100, 200} + b: (expr) { stmt ... }
-if $u lexer_next_utf8(l): u == '\'' || u == prh_char_invalid
+if $a point{100, 200} + b and (expr) { stmt ... }
+if $u lexer_next_utf8(l) and u == '\'' || u == prh_char_invalid
     return TOKERR
-if $c getarray(l)(0,1)(a): c != '\''
+if $c getarray(l)(0,1)(a) and c != '\''
     return TOKERR
 l->c = lexer_next_char(l)
 l->u.cvalue = u
@@ -1701,7 +1702,7 @@ def divide(float a float b >> float or none) { // 空值，有值，返回值的
 
 let a = divide(a, b) or abort(e_divbyzero)
 let a = divide(a, b) where [x] { x * 10 } or -1 // 如果有值则捕获其值并乘以10，否则得到-1
-let a = divide(a, b) where _ * 10 or -1
+let a = divide(a, b) where it * 10 or -1
 if a == none
     abort(e_divbyzero)
 else
@@ -1728,10 +1729,10 @@ def calc(*file? file *expr expr >> int) { // 如果加上了 none 属性表示�
 //  8.  let x = a where [x] { x * 2 } or none // 变量 x 也将变成可空的值
 //  9.  let x = a where [x] { x * 2 } or return + b or return // 表达式中可以在遇到 none 的地方直接返回空值
 //  10. print(a where [x] { x * 2 } or -1)
-//      print(a where 2 * _ + 1 or -1)
-//      a where print(_) or print("none")
-//      a where _ * 2 or none
-//      a where _ * 2 or return + b or return
+//      print(a where 2 * it + 1 or -1)
+//      a where print(it) or print("none")
+//      a where it * 2 or none
+//      a where it * 2 or return + b or return
 
 def sqrt(float x float y >> float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
     let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
@@ -3164,7 +3165,7 @@ print(typestring, "\n")
 —— +-*=~&|%#@{}
 —— 1234567890 3f14159p10 +3f14p-10 -0f1 数曰三点一四一五九幂十二 数曰一〇〇〇万八零零零 数曰负零点一
 ——
-—— 12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
+——     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
 ——     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
 ——     10 从右到左    -a +a ^a !a type a fer a der a sizeof a typeof a ->> <<-  not neg int fer der *int [2]int
 ——      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
@@ -3190,25 +3191,26 @@ print(typestring, "\n")
 —— 字符常量：&a &b &&c #哈希 #空格 #响铃 #退格 #退出 #垂制 #制表 #回车 #换行 #00 #01 #02 #03 #09 #10 #20 #{f001}
 —— 字串整数：立值 = &abcd   ‘长整数曰值 = &ab #换行
 ——
-—— 函数     演算 撰 术 法 施
-—— if       如若 若是 如果 若 当
-—— else     不然
-—— else if  然若
-—— for      就此
-—— range
-—— break    为止
-—— continue 继续
-—— const    常量
-—— void     空类
-—— embed    内嵌
-—— let      立 令
-—— pub      附公开属性
-—— def      撰 函数，构 类型
-—— return   返回 乃还 终 结
-—— yield    生成
+—— 函数      演算 撰 术 法 施
+—— if       若 若是 如果 若 当
+—— else if  然
+—— else     则
+—— for      此
+—— break    终
+—— continue 续
+—— final    断
+—— fallthrough 落
+—— const    常
+—— void     空
+—— embed    嵌
+—— let      立
+—— pub      发 附公开属性
+—— def      定 撰 函数，构 类型
+—— return   返 回 乃还 终 结
+—— yield    生
 —— undefined ？？
-—— strict   附严格规则
-—— defer
+—— strict   严 附严格规则
+—— defer    延   
 —— lambda
 —— reflex
 —— trait
@@ -3218,8 +3220,8 @@ print(typestring, "\n")
 —— type
 —— import
 —— scoped
-—— fer      取址
-—— der      取值 之指向内容
+—— fer      址
+—— der      值 之指向内容
 —— todo
 —— debug
 —— alignof type         取对齐属性 类型
@@ -3257,15 +3259,15 @@ print(typestring, "\n")
 —— c08 c16 c32 c64 c128 c256 c512 complex
 ——
 —— 布尔 字节 字符 字串 非值 空值 真 假
-—— 整数 单整数 短整数 老整数 长整数 超整数 机器整数
-—— 正数 单正数 短正数 老正数 长正数 超正数 机器正数
-—— 定点 单定点 短定点 老定点 长定点 超定点
-—— 浮点 单浮点 短浮点 老浮点 长浮点 超浮点
-—— 复数 单复数 短复数 老复数 长复数 超复数
+—— 整数 窄整 短整 宽整 长整 大整 巨整 超整 机整
+—— 正数 窄正 短正 宽整 长正 大正 巨正 超整 机正
+—— 定点 窄定 短定 宽定 长定 大定 巨定 超定
+—— 浮点 窄浮 短浮 宽浮 长浮 大浮 巨浮 超浮
+—— 复数 窄复 短复 宽复 长复 大复 巨复 超复
 ——
-—— 如若 条件 { 返回 表达式 }
-—— 如若 条件 { 表达式 } 然若 ……
-—— 如若 条件 { 表达式 } 不然 { 表达式 }
+—— 若 条件 { 返回 表达式 }
+—— 若 条件 { 表达式 } 然若 ……
+—— 若 条件 { 表达式 } 不然 { 表达式 }
 ——
 —— 如若 条件 { 返回 表达式 }
 —— 如若 条件 { 表达式 } 然若 ……
