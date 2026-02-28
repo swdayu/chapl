@@ -1456,6 +1456,10 @@ def eat(*lexer l expr e >> *oper) { // 编译器可以访问到完整代码的�
     return l.op or e.op
 }
 
+def operator==(&string (a b) >> bool) {
+    return a.size == b.size && equal(a.data, b.data, a.size)
+}
+
 def color const r08 { // private type
     red green blue
 }
@@ -2598,12 +2602,12 @@ math:*
 //  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ...}
 
 def test {
-    int a int b int c
+    int a int b int c int d..e..f
     int {MASK_BITS} inplace {INT_BITS - MASK_BITS} size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int {1} inplace {31} size // 位域
     int (size | bytes | count) // 成员别名
     double d { // 最大类型必须是第一个
-        | int i
+        | int (i | j | k)
         | float f float g
         | byte b r32 u
         | byte b r32 u
