@@ -34869,19 +34869,18 @@ prh_inline prh_byte prh_impl_hex_digit(prh_byte c) { // 已经确定c是十六�
 
 typedef struct {
     prh_byte subval;
-    prh_byte irange;
-    prh_r16 valid;
-} prh_impl_vesc_type;
+    prh_byte irange; // range 用来确定每一行的前几个是有效的
+} prh_impl_esch_type;
 
-static const prh_impl_vesc_type prh_impl_tesc[8] = {
-    {0x22, 0x00, 0x0000},
-    {0x22, 0x00, 0x0000},
-    {0x22, 0x05, 0x0021}, // "    0010_0001     0x22 0 " 0x23 0x24 0x25 0x26 0x27 5 '
-    {0x30, 0x60, 0x0001}, // 0
-    {0x5c, 0x00, 0x0000},
-    {0x5c, 0x70, 0x0001}, // '\\'
-    {0x6e, 0x81, 0x0003}, // n    0000_0011     0x6e 0 n 0x6f 1 o
-    {0x72, 0xA9, 0x024F}, // r 10_0100_1111     0x72 0 r 0x73 1 s 0x74 2 t 0x75 3 u 0x76 0x77 0x78 6 x 0x79 0x7a 0x7b 9 {
+static const prh_impl_esch_type prh_impl_tesc[8] = {
+    {0x22, 0x00},
+    {0x22, 0x00},
+    {0x22, 0x05}, // "    0010_0001     0x22 0 " 0x23 0x24 0x25 0x26 0x27 5 '
+    {0x30, 0x60}, // 0
+    {0x5c, 0x00},
+    {0x5c, 0x70}, // '\\'
+    {0x6e, 0x81}, // n    0000_0011     0x6e 0 n 0x6f 1 o
+    {0x72, 0xA9}, // r 10_0100_1111     0x72 0 r 0x73 1 s 0x74 2 t 0x75 3 u 0x76 0x77 0x78 6 x 0x79 0x7a 0x7b 9 {
 };
 
 typedef enum: prh_byte {
@@ -34896,9 +34895,9 @@ typedef enum: prh_byte {
 typedef struct {
     prh_impl_esch_enum type;
     prh_byte value;
-} prh_impl_vesc_data;
+} prh_impl_esch_data;
 
-static const prh_impl_vesc_data prh_impl_vesc[20] = {
+static const prh_impl_esch_data prh_impl_vesc[20] = {
     {prh_esch_value,    '\"'},  // 0x22  0 "
     {prh_esch_invalid,  0},     // 0x23  1
     {prh_esch_invalid,  0},     // 0x24  2
@@ -34923,9 +34922,9 @@ static const prh_impl_vesc_data prh_impl_vesc[20] = {
 
 prh_impl_esch_enum prh_lexer_esc_char(prh_lexer *l) {
     prh_byte c = prh_lexer_next_char(l);
-    const prh_impl_vesc_type *p = prh_impl_tesc + ((c & 0x70) >> 4);
-    const prh_impl_vesc_data *d;
-    switch ((c -= p->subval) <= (p->irange & 0x0F) && ((1 << c) & p->valid)) {
+    const prh_impl_esch_type *p = prh_impl_tesc + ((c & 0x70) >> 4);
+    const prh_impl_esch_data *d;
+    switch ((c -= p->subval) <= (p->irange & 0x0F)) {
     default: return prh_esch_invalid;
     case true:
         d = prh_impl_vesc + c + (p->irange >> 4);
@@ -35241,9 +35240,9 @@ int prh_lexer_ident_utf8s(prh_lexer *l, prh_byte c) {
 //  1.  以 '0' digit 开始，或者以 digit_1_9 开始，并且
 //  2.  dec_lit ('e' | 'E') ('+' | '-') 必须识别为数值字面量前缀
 //  3.  dec_lit ('e' | 'E') digit 必须识别为数值字面量前缀
-//  4.  dec_lit ('e' | 'E') ('_' | letter) 才识别为十进制标识符前缀，其他形式都非法
-//  5.  dec_lit 'i' ('_' | digit | letter) 也识别为十进制标识符前缀
-//  6.  dec_lit <非 e E i 字符的其他字母> 也识别为十进制标识符前缀
+//  4.  dec_lit ('e' | 'E' | 'p' | 'P') letter 才识别为十进制标识符前缀，其他形式都非法
+//  5.  dec_lit 'i' letter 也识别为十进制标识符前缀
+//  6.  dec_lit <非 e E p P i 字符的其他字母> 也识别为十进制标识符前缀
 //  7.  而带小数点的十进制数值，除非整数前缀已经识别为十进制开始的标识符，否则当作浮点
 //  8.  另外，以点号开始的十进制浮点的解析，可能解析为成员标识符（PRH_FIELD）
 
@@ -36012,10 +36011,10 @@ prh_inline prh_impl_eEpPi_enum prh_impl_char_eEpPi(prh_byte c) {
 // ['.'] dec_lit ('e' | 'E' | 'p' | 'P') letter 才识别为十进制标识符的前缀
 typedef enum: prh_byte {
     prh_dieE_invalid,   // 除了以下合法字符，其他字符都非法
-    prh_dieE_identstart,// 十进制数开头的第一个标识符字符
-    prh_dieE_identutf8s,// 十进制数开头的第一个标识符字符以utf8编码开始
     prh_dieE_digit,     // 0 ~ 9
     prh_dieE_operator,  // + -
+    prh_dieE_letter,    // 十进制数开头的第一个标识符字符
+    prh_dieE_utf8_start,// 十进制数开头的第一个标识符字符以utf8编码开始
 } prh_impl_dieE_enum;
 
 static const prh_impl_dieE_enum prh_impl_dieE[prh_b256_enum_max] = {
@@ -36025,10 +36024,10 @@ static const prh_impl_dieE_enum prh_impl_dieE[prh_b256_enum_max] = {
     /* prh_b256_control     */ prh_dieE_invalid,
     /* prh_b256_digitzero   */ prh_dieE_digit,
     /* prh_b256_digitleft   */ prh_dieE_digit,
-    /* prh_b256_hex_upper   */ prh_dieE_identstart,
-    /* prh_b256_upperleft   */ prh_dieE_identstart,
-    /* prh_b256_hex_lower   */ prh_dieE_identstart,
-    /* prh_b256_lowerleft   */ prh_dieE_identstart,
+    /* prh_b256_hex_upper   */ prh_dieE_letter,
+    /* prh_b256_upperleft   */ prh_dieE_letter,
+    /* prh_b256_hex_lower   */ prh_dieE_letter,
+    /* prh_b256_lowerleft   */ prh_dieE_letter,
     /* prh_b256_underscore  */ prh_dieE_invalid,
     /* prh_b256_tilde       */ prh_dieE_invalid,
     /* prh_b256_point       */ prh_dieE_invalid,
@@ -36037,7 +36036,7 @@ static const prh_impl_dieE_enum prh_impl_dieE[prh_b256_enum_max] = {
     /* prh_b256_dquote      */ prh_dieE_invalid,
     /* prh_b256_operator    */ prh_dieE_operator,
     /* prh_b256_separator   */ prh_dieE_invalid,
-    /* prh_b256_utf8_start  */ prh_dieE_identutf8s,
+    /* prh_b256_utf8_start  */ prh_dieE_utf8_start,
     /* prh_b256_utf8_inval  */ prh_dieE_invalid,
 };
 
@@ -36046,8 +36045,8 @@ int prh_impl_dec_int_e_or_E(prh_lexer *l, prh_tokid name_type) {
     prh_byte c = prh_lexer_next_char(l);
     switch (prh_impl_dieE[prh_impl_b256[c]]) {
     case prh_dieE_digit: return prh_impl_exp_tail(l, c - '0', false); // 31e0 3_e1
-    case prh_dieE_identstart: return prh_impl_dec_ident_start(l, name_type);
-    case prh_dieE_identutf8s: return prh_impl_dec_ident_utf8s(l, c, name_type);
+    case prh_dieE_letter: return prh_impl_dec_ident_start(l, name_type);
+    case prh_dieE_utf8_start: return prh_impl_dec_ident_utf8s(l, c, name_type);
     case prh_dieE_operator: switch ((sign = c - 0x2b) <= 2 && ((1 << sign) & 0x05)) { // 0000_0101 [0x2b +] 0x2c [0x2d -]
         default: break; case true: c = prh_lexer_next_char(l); switch (c >= '0' && c <= '9') {
         default: break; case true: return prh_impl_exp_tail(l, c - '0', sign != 0); } break;
@@ -36060,8 +36059,8 @@ int prh_impl_dec_int_e_or_E(prh_lexer *l, prh_tokid name_type) {
 int prh_impl_dec_int_p_or_P(prh_lexer *l, prh_tokid name_type) {
     prh_byte c = prh_lexer_next_char(l);
     switch (prh_impl_dieE[prh_impl_b256[c]]) {
-    case prh_dieE_identstart: return prh_impl_dec_ident_start(l, name_type);
-    case prh_dieE_identutf8s: return prh_impl_dec_ident_utf8s(l, c, name_type);
+    case prh_dieE_letter: return prh_impl_dec_ident_start(l, name_type);
+    case prh_dieE_utf8_start: return prh_impl_dec_ident_utf8s(l, c, name_type);
     default: return PRH_TOKERR;
     }
 }
@@ -36137,10 +36136,10 @@ label_lit_end:
 
 typedef enum: prh_byte {// 包含 0 9 _ 然后遇到 ' i 继续解析
     prh_imgl_invalid,   // 除了以下合法字符和lit_end，其他字符都非法（字符 . 和 ~ 也非法）
-    prh_imgl_identstart,// 十进制数开头的第一个标识符字符
-    prh_imgl_identutf8s,// 十进制数开头的第一个标识符字符以utf8编码开始
     prh_imgl_lit_end,   // whitespace newline endfile operator separator \ " # $ @
     prh_imgl_userlit,   // '
+    prh_imgl_letter,    // 十进制数开头的第一个标识符字符
+    prh_imgl_utf8_start,// 十进制数开头的第一个标识符字符以utf8编码开始
 } prh_impl_imgl_enum;
 
 static const prh_impl_imgl_enum prh_impl_imgl[prh_b256_enum_max] = {
@@ -36150,10 +36149,10 @@ static const prh_impl_imgl_enum prh_impl_imgl[prh_b256_enum_max] = {
     /* prh_b256_control     */ prh_imgl_invalid,
     /* prh_b256_digitzero   */ prh_imgl_invalid,
     /* prh_b256_digitleft   */ prh_imgl_invalid,
-    /* prh_b256_hex_upper   */ prh_imgl_identstart,
-    /* prh_b256_upperleft   */ prh_imgl_identstart,
-    /* prh_b256_hex_lower   */ prh_imgl_identstart,
-    /* prh_b256_lowerleft   */ prh_imgl_identstart,
+    /* prh_b256_hex_upper   */ prh_imgl_letter,
+    /* prh_b256_upperleft   */ prh_imgl_letter,
+    /* prh_b256_hex_lower   */ prh_imgl_letter,
+    /* prh_b256_lowerleft   */ prh_imgl_letter,
     /* prh_b256_underscore  */ prh_imgl_invalid,
     /* prh_b256_tilde       */ prh_imgl_invalid,
     /* prh_b256_point       */ prh_imgl_invalid,
@@ -36162,7 +36161,7 @@ static const prh_impl_imgl_enum prh_impl_imgl[prh_b256_enum_max] = {
     /* prh_b256_dquote      */ prh_imgl_lit_end,
     /* prh_b256_operator    */ prh_imgl_lit_end,
     /* prh_b256_separator   */ prh_imgl_lit_end,
-    /* prh_b256_utf8_start  */ prh_imgl_identutf8s,
+    /* prh_b256_utf8_start  */ prh_imgl_utf8_start,
     /* prh_b256_utf8_inval  */ prh_imgl_invalid,
 };
 
@@ -36171,7 +36170,7 @@ int prh_impl_imag_lit(prh_lexer *l, prh_tokid imag_type) {
     switch (prh_impl_imgl[prh_impl_b256[c]]) { // i 之后只能是 ' 和 <lit_end>
     case prh_imgl_lit_end: l->c = c; return imag_type;
     case prh_imgl_userlit: if (prh_lexer_userlit(l)) return imag_type; prh_faullthrough;
-    default: case prh_imgl_identstart: case prh_imgl_identutf8s: return PRH_TOKERR;
+    default: case prh_imgl_letter: case prh_imgl_utf8_start: return PRH_TOKERR;
     }
 }
 
@@ -36183,8 +36182,8 @@ int prh_impl_dec_int_i_mark(prh_lexer *l, prh_tokid imag_type, prh_tokid name_ty
     prh_byte c = prh_lexer_next_char(l);
     switch (prh_impl_imgl[prh_impl_b256[c]]) { // i 之后只能是 ' 和 <lit_end>
     case prh_imgl_lit_end: l->c = c; return imag_type;
-    case prh_imgl_identstart: return prh_impl_dec_ident_start(l, name_type);
-    case prh_imgl_identutf8s: return prh_impl_dec_ident_utf8s(l, c, name_type);
+    case prh_imgl_letter: return prh_impl_dec_ident_start(l, name_type);
+    case prh_imgl_utf8_start: return prh_impl_dec_ident_utf8s(l, c, name_type);
     case prh_imgl_userlit: if (prh_lexer_userlit(l)) return imag_type; prh_faullthrough;
     default: return PRH_TOKERR;
     }
