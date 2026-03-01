@@ -2688,10 +2688,10 @@ def test {
 //      ...
 //
 //  4.  标签条件语句，if == item 相当于定义了一个标签，可以用在任何标签可以使用的地方
-//  if [expr] #lable_name {
-//      lable_name == item == item statement
-//      lable_name == item statement
-//      lable_name == else statement
+//  if [expr] #name {
+//      case name == item == item statement
+//      case name == item statement
+//      case name == else statement
 //  }
 //
 //  if [expr] == item // 该形式不允许 if [expr] 语句嵌套，否则报错，该形式禁止书写大括号，因为仅仅是一个标签
@@ -2829,28 +2829,28 @@ if == else
 
 // 多个 if [expr] 分支语句的交叉
 let c = lexer_next_char(l)
-if [impl_nbox[impl_b256[c]]] #label_a {
-    label_a == .userlit
+if [impl_nbox[impl_b256[c]]] #a {
+    case a == .userlit
     if lexer_userlit(l) final // final 表示当前 if [expr] 语句的结束
     return TOK_ERROR
-    label_a == .lit_end
+    case a == .lit_end
     l->c = c and final
-    label_a == .letter
+    case a == .letter
     let p = impl_boxt + ((c & 0x30) >> 4)
-    if [(c -= p->subval) <= (p->irange & 0x0F)] #label_b {
-    label_b == true
+    if [(c -= p->subval) <= (p->irange & 0x0F)] #b {
+        case b == true
         if [impl_boxe[c + (p->irange >> 4)]] == else
-    label_a == else label_b == else return TOK_ERROR
+    case a == else case b == else return TOK_ERROR
         if == .bin_lit return lexer_bin_int(l)
         if == .oct_lit return lexer_oct_int(l)
         if == .hex_lit return lexer_hex_int(l)
         if == .exponet == .imagine void
     }
-    label_a == .point
+    case a == .point
     l.parse -= 1
-    label_a == .underscore
+    case a == .underscore
     c = '0'
-    label_a == .digit
+    case a == .digit
     return prh_lexer_dec_lit(l, c)
 }
 l.ival32 = 0
