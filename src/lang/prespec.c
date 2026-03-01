@@ -1456,7 +1456,7 @@ def eat(*lexer l expr e >> *oper) { // 编译器可以访问到完整代码的�
     return l.op or e.op
 }
 
-def operator==(&string (a b) >> bool) {
+def operator==(&string a .. b >> bool) {
     return a.size == b.size && equal(a.data, b.data, a.size)
 }
 
@@ -2688,44 +2688,20 @@ def test {
 //      ...
 //
 //  4.  标签条件语句，if == item 相当于定义了一个标签，可以用在任何标签可以使用的地方
-//  if [expr] == item { statement }
-//  if == item { statement }
-//  if == item { statement }
-//  if == else { statement }
-//
-//  if [expr] == item then statement
-//  if == item then statement
-//  if == item then statement
-//  if == else then statement
-//
-//  if [expr] == item statement
-//  if == item statement
-//  if == item statement
-//  if == else statement
-//
-//  if [expr] == item <\n>
-//      statement
-//      ...
-//  if == item <\n>
-//      statement
-//      ...
-//  if == item <\n>
-//      statement
-//      ...
-//  if == else <\n>
-//      statement
-//      ...
-//  void // 可选，仅标记语句块结束
-//
-//  if [expr] == item {
-//      ...
-//  } if == item {
-//      ...
-//  } if == else { // 不简单使用 else 的原因是，当作为标签用作其他条件语句块中时，可能意外终止最近的一个if
-//      ...
+//  if [expr] #lable_name {
+//      lable_name == item == item statement
+//      lable_name == item statement
+//      lable_name == else statement
 //  }
 //
-//  if == .value
+//  if [expr] == item // 该形式不允许 if [expr] 语句嵌套，否则报错，该形式禁止书写大括号，因为仅仅是一个标签
+//      ...
+//  if == item
+//      ...
+//  if == else // 不简单使用 else 的原因是，当作为标签用作其他条件语句块中时，可能意外终止最近的一个if
+//      ...
+//
+//  if == .value // 该形式仅仅是一个标签，不应用任何 if 语句的缩进规则
 //      if l.escape_code == false
 //          statement
 //  if == else
@@ -2760,13 +2736,13 @@ def test {
 //      statement
 //      ...
 //
-//  static if [expr] item <\n>
+//  static if [expr] == item <\n>
 //      statement
 //      ...
 //  static if == item <\n>
 //      statement
 //      ...
-//  static else <\n>
+//  static if == else <\n>
 //      statement
 //      ...
 //
@@ -2799,7 +2775,7 @@ def test {
 //  if == false then statement
 //  if == else then statement // 报错
 //
-//  if [boolexpr] == true { statement } if == else { statement }
+//  if [boolexpr] == true statement if == else statement
 //  if [boolexpr] == true then statement if == else then statement
 //  if [boolexpr] == true statement if == else statement
 //
@@ -2837,60 +2813,50 @@ if [impl_bstr[impl_b256[c]]] == .dquote
 if == .bslash
     l.escape_code = false
     if !lexer_escape(l) {
-if == .invalid { return TOK_ERROR }
-    }
-    c = l.cvalue
-    if l.escape_code == false
-if == else {
-        string_push(s, c)
-        final
-    }
-    let n = unicode_to_utf8(c, string_end(s))
-    if n == 0 return TOK_ERROR
-    string_increase_size(s, n)
-    final
-void
-
-if [impl_bstr[impl_b256[c]]] == .dquote
-    goto finish
-if == .bslash
-    l.escape_code = false
-    if !lexer_escape(l) {
-if == .invalid return TOK_ERROR
-    }
-    c = l.cvalue
-    if l.escape_code == false {
-if == else {
-        string_push(s, c)
-        final
-    }} // 这里任何一个结束大括号都不能往后移，因为单条件块 final break continue return 之后不能再有语句
-    let n = unicode_to_utf8(c, string_end(s))
-    if n == 0 return TOK_ERROR
-    string_increase_size(s, n)
-    final
-void
-
-if [impl_bstr[impl_b256[c]]] == .dquote {
-    goto finish
-} if == .bslash {
-    l.escape_code = false
-    if !lexer_escape(l) {
 if == .invalid
         return TOK_ERROR
     }
     c = l.cvalue
     if l.escape_code == false {
-if == else {
+if == else
         string_push(s, c)
         final
-    }}
+    }
     let n = unicode_to_utf8(c, string_end(s))
     if n == 0 return TOK_ERROR
     string_increase_size(s, n)
     final
-}
 
-def lexer_dquote(prh_lexer *l) {
+// 多个 if [expr] 分支语句的交叉
+let c = lexer_next_char(l)
+if [impl_nbox[impl_b256[c]]] #label_a {
+    label_a == .userlit
+    if lexer_userlit(l) final // final 表示当前 if [expr] 语句的结束
+    return TOK_ERROR
+    label_a == .lit_end
+    l->c = c and final
+    label_a == .letter
+    let p = impl_boxt + ((c & 0x30) >> 4)
+    if [(c -= p->subval) <= (p->irange & 0x0F)] #label_b {
+    label_b == true
+        if [impl_boxe[c + (p->irange >> 4)]] == else
+    label_a == else label_b == else return TOK_ERROR
+        if == .bin_lit return lexer_bin_int(l)
+        if == .oct_lit return lexer_oct_int(l)
+        if == .hex_lit return lexer_hex_int(l)
+        if == .exponet == .imagine void
+    }
+    label_a == .point
+    l.parse -= 1
+    label_a == .underscore
+    c = '0'
+    label_a == .digit
+    return prh_lexer_dec_lit(l, c)
+}
+l.ival32 = 0
+return TOK_INT32
+
+def lexer_dquote(*lexer l return int) {
     let s = l.svalue
     string_clear(s)
     for {
