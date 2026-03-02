@@ -34174,6 +34174,9 @@ label_invalid: // 代理码点不是合法的统一编码标量值，或不能�
 //      Unicode_Radical_Stroke
 //      Equivalent_Unified_Ideograph
 //
+// 六十四进制，四个字符表示三字节数据。九十六进制，十二个字符表示七十九个比特位。
+// 1677_7216 6127_0975_7329_7673_6377_2416 6044_6290_9807_3145_8735_3088
+
 // 字符通用类别属性（General_Category）- 分隔符（Zs | Zl | Zp）
 //
 //  Zs  Space_Separator     空格字符（各种非零宽度）
@@ -34735,42 +34738,6 @@ label_invalid: // 代理码点不是合法的统一编码标量值，或不能�
 #define prh_char_invalid    0xff7fffff
 #define prh_text_endfile prh_char_null
 
-typedef enum {
-    // 指定成员变量的地址偏移：field_type T::* a = &T::field;
-    // 指定成员函数的地址偏移：return_type (T::* a)(int) = &T::f;
-    // 0021 !   !=
-    // 0022 "
-    // 0023 #   ##
-    // 0024 $
-    // 0025 %   %= %>替代} %:替代# %:%:替代##
-    // 0026 &   &&  &= &^
-    // 0027 '
-    // 0028 (
-    // 0029 )
-    // 002A *   *= *& */
-    // 002B +   += ++
-    // 002C ,
-    // 002D -   -= -- -> ->&取成员地址 ->*访问指定偏移处的成员
-    // 002E .   .= .. ... .0 .&取成员地址 .*访问指定偏移处的成员（单独成行的 ... 表示一个空语句）
-    // 002F /   /= // /*
-    // 003A :   :: := :>替代]
-    // 003B ;
-    // 003C <   <= << <<= <- <> <<< <<<= <%替代{ <:替代[ <=>返回0相等返回正大于返回负小于
-    // 003D =   == =>
-    // 003E >   >= >> >>= >>> >>>=
-    // 003F ?   ?: ?< ?= ?>
-    // 0040 @
-    // 005B [
-    // 005C \
-    // 005D ]
-    // 005E ^   ^=
-    // 0060 `   ```
-    // 007B {
-    // 007C |   || |= |^
-    // 007D }
-    // 007E ~
-} prh_oper;
-
 // 下面划分的操作符和分隔符，一定是字面量和标识符的合法结束符
 // 操作符： ! % & * + - / : < = > ? ^ ` | # $ @（包括所有可能的组合标点）
 // 分隔符： ( ) [ ] { } , ;
@@ -34856,16 +34823,16 @@ prh_inline prh_byte prh_impl_hex_digit(prh_byte c) { // 已经确定c是十六�
 }
 
 // 字符分类 - 转义字符 \" \' \0 \\ \n \o \r \s \t \u \x \{
-// 0x00      0x10      0x20      0x30 [0]  0x40      0x50      0x60      0x70      0x80      0x90      0xa0      0xb0      0xc0      0xd0      0xe0      0xf0
+// 0x00      0x10      0x20      0x30 [0]  0x40      0x50      0x60      0x70
 //                     0x22 ["]                                          0x72 [r]
 //                     0x27 [']                                          0x73 [s]
 //                                                                       0x74 [t]
 //                                                                       0x75 [u]
 //                                                                       0x78 [x]
 //                                                   0x5c [\]  0x6e [n]  0x7b [{]
-// 0x0f      0x1f      0x2f      0x3f      0x4f      0x5f      0x6f [o]  0x7f      0x8f      0x9f      0xaf      0xbf      0xcf      0xdf      0xef      0xff
-// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000 1000_0000 1001_0000 1010_0000 1011_0000 1100_0000 1101_0000 1110_0000 1111_0000
-// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111 1000_1111 1001_1111 1010_1111 1011_1111 1100_1111 1101_1111 1110_1111 1111_1111
+// 0x0f      0x1f      0x2f      0x3f      0x4f      0x5f      0x6f [o]  0x7f
+// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000
+// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111
 
 typedef struct {
     prh_byte subval;
@@ -35197,7 +35164,6 @@ typedef enum: prh_byte {
     PRH_ENDMARK,
     PRH_NAME, // 标识符名称，包含关键字和保留名称（ident, dec_ident）
     PRH_FIELD, // 点操作符访问的成员名称（.dec_ident）
-    PRH_OPER, // 操作符，包含分隔符或标点
     PRH_INT32, // 整数字面量，保存在ival32中
     PRH_INT64, // 整数字面量，保存在ival64中
     PRH_FLOAT32, // 浮点字面量，小数部分保存在fval32中
@@ -35207,14 +35173,131 @@ typedef enum: prh_byte {
     PRH_CHAR, // 字节字符字面量
     PRH_USERLIT, // 自定义字面量
     PRH_STRING, // 字符串字面量
-    PRH_COMMENT, // 注释
     PRH_NEWLINE, // 换行
     PRH_INDENT, // 增加缩进
     PRH_DEDENT, // 取消缩进
+    PRH_LPAREN,
+    PRH_RPAREN,
+    PRH_COMMA,
+    PRH_SEMIC,
+    PRH_LSQUARE,
+    PRH_RSQUARE,
+    PRH_LCURLY,
+    PRH_RCURLY,
+    PRH_LINE_COMMENT,
+    PRH_COMMENT_BEGIN,
+    PRH_COMMENT_END,
     PRH_OP_DOT,
     PRH_OP_DDT,
     PRH_OP_DDD,
+    PRH_OP_TILDE,
+    PRH_OP_COLON,
+    PRH_OP_NAMESPACE,
+    PRH_OP_ADD,
+    PRH_OP_SUB,
+    PRH_OP_MUL,
+    PRH_OP_DIV,
+    PRH_OP_MOD,
+    PRH_OP_BIT_INVERSE,
+    PRH_OP_BIT_AND
+    PRH_OP_BIT_NAND,
+    PRH_OP_BIT_OR
+    PRH_OP_BIT_NOR,
+    PRH_OP_BIT_XOR,
+    PRH_OP_BIT_XNOR,
+    PRH_OP_BIT_SHL,
+    PRH_OP_BIT_SHR,
+    PRH_OP_BIT_CSHL,
+    PRH_OP_BIT_CSHR,
+    PRH_OP_ASSIGN,
+    PRH_OP_ADD_ASSIGN,
+    PRH_OP_SUB_ASSIGN,
+    PRH_OP_MUL_ASSIGN,
+    PRH_OP_DIV_ASSIGN,
+    PRH_OP_MOD_ASSIGN,
+    PRH_OP_BIT_AND_ASSIGN,
+    PRH_OP_BIT_NAND_ASSIGN,
+    PRH_OP_BIT_OR_ASSIGN,
+    PRH_OP_BIT_NOR_ASSIGN,
+    PRH_OP_BIT_XOR_ASSIGN,
+    PRH_OP_BIT_XNOR_ASSIGN,
+    PRH_OP_BIT_SHL_ASSIGN,
+    PRH_OP_BIT_SHR_ASSIGN,
+    PRH_OP_BIT_CSHL_ASSIGN,
+    PRH_OP_BIT_CSHR_ASSIGN,
+    PRH_OP_LT,
+    PRH_OP_LE,
+    PRH_OP_GT,
+    PRH_OP_GE,
+    PRH_OP_EQ,
+    PRH_OP_NE,
+    PRH_OP_REL_VALUE,
+    PRH_OP_LOGIC_NOT,
+    PRH_OP_LOGIC_AND,
+    PRH_OP_LOGIC_OR,
 } prh_tokid;
+
+// 标识符除结束符外不包含以下字符：
+//
+//  Pattern_White_Space
+//  Pattern_Syntax
+//  General_Category=Private_Use, Surrogate, Control
+//  Noncharacter_Code_Point
+//
+//  WHITESPACE: // 空白字符（除了换行）不是词法元素，仅用于分隔词法
+//      | U+0020            // 0020 White_Space # Zs SPACE ' '（空格）
+//      | U+0009            // 0009 White_Space # Cc <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//      | U+3000            // 3000 White_Space # Zs IDEOGRAPHIC SPACE '　'（表意空格/全角空格）
+//      | comment
+//
+//  NEWLINE:
+//      | U+000A            // 000A White_Space # Cc <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//      | U+000D            // 000D White_Space # Cc <control-000D> CARRIAGE RETURN (CR), \r
+//      | U+000D U+000A     // CRLF \r\n
+//      | U+000A U+000D     // \n\r
+//      | <endmark>
+//
+//  Pattern_White_Space 中除识别为换行符的字符外，所有其他字符应解释为水平空白
+//      0009          ; Pattern_White_Space # Cc       <control-0009> CHARACTER TABULATION, horizontal tab (HT), \t
+//      000A          ; Pattern_White_Space # Cc       <control-000A> LINE FEED (LF), end of line (EOL), newline (NL), \n
+//      000B          ; Pattern_White_Space # Cc       <control-000B> LINE TABULATION, vertical tab (VT), \v（某些情况下的分行符）
+//      000C          ; Pattern_White_Space # Cc       <control-000C> FORM FEED (FF), \f（分页符，相当于一个特殊的分行符）
+//      000D          ; Pattern_White_Space # Cc       <control-000D> CARRIAGE RETURN (CR), \r
+//      0020          ; Pattern_White_Space # Zs       SPACE ' '（空格）
+//      0085          ; Pattern_White_Space # Cc       <control-0085> NEXT LINE (NEL)
+//      200E..200F    ; Pattern_White_Space # Cf   [2] LEFT-TO-RIGHT MARK..RIGHT-TO-LEFT MARK (Default_Ignorable_Code_Point)
+//      2028          ; Pattern_White_Space # Zl       LINE SEPARATOR (LS)
+//      2029          ; Pattern_White_Space # Zp       PARAGRAPH SEPARATOR (PS)
+
+typedef enum: prh_byte {
+    prh_iden_invalid = 0,
+    prh_iden_lit_end,
+    prh_iden_cont_char,
+    prh_iden_utf8_start,
+} prh_impl_iden_enum;
+
+static const prh_impl_iden_enum prh_impl_iden[prh_b256_enum_max] = {
+    /* prh_b256_endfile     */ prh_iden_lit_end,
+    /* prh_b256_newline     */ prh_iden_lit_end,
+    /* prh_b256_whitespace  */ prh_iden_lit_end,
+    /* prh_b256_control     */ prh_iden_invalid,
+    /* prh_b256_digitzero   */ prh_iden_cont_char,
+    /* prh_b256_digitleft   */ prh_iden_cont_char,
+    /* prh_b256_hex_upper   */ prh_iden_cont_char,
+    /* prh_b256_upperleft   */ prh_iden_cont_char,
+    /* prh_b256_hex_lower   */ prh_iden_cont_char,
+    /* prh_b256_lowerleft   */ prh_iden_cont_char,
+    /* prh_b256_underscore  */ prh_iden_cont_char,
+    /* prh_b256_tilde       */ prh_iden_invalid,
+    /* prh_b256_point       */ prh_iden_lit_end,
+    /* prh_b256_bslash      */ prh_iden_lit_end,
+    /* prh_b256_squote      */ prh_iden_lit_end,
+    /* prh_b256_dquote      */ prh_iden_lit_end,
+    /* prh_b256_operator    */ prh_iden_lit_end,
+    /* prh_b256_separator   */ prh_iden_lit_end,
+    /* prh_b256_utf8_start  */ prh_iden_utf8_start,
+    /* prh_b256_utf8_inval  */ prh_iden_invalid,
+};
 
 bool prh_impl_curr_utf8_char(prh_lexer *l, prh_byte c) {
     prh_byte *parse = l->parse;
@@ -35223,16 +35306,26 @@ bool prh_impl_curr_utf8_char(prh_lexer *l, prh_byte c) {
 }
 
 bool prh_impl_ident_cont(prh_lexer *l) {
-
+    prh_byte c;
+label_name_cont:
+    c = prh_lexer_next_char(l);
+    switch (prh_impl_iden[prh_impl_b256[c]]) {
+    case prh_iden_lit_end: l->c = c; l->namelen = p->parse - 1 - p->ident; return true;
+    case prh_iden_cont_char: goto label_name_cont;
+    case prh_iden_utf8_start: switch (prh_impl_curr_utf8_char(l, c)) {
+        case true: goto label_name_cont;
+        default: break; } prh_fallthrough;
+    default: return false;
+    }
 }
 
 int prh_lexer_ident_start(prh_lexer *l) {
-    l->ident = l->parse - 1;
+    l->ident = l->parse - 1; // 以当前字符（letter underscore） 开始
     return prh_impl_ident_cont(l) ? PRH_NAME : PRH_TOKERR;
 }
 
 int prh_lexer_ident_utf8s(prh_lexer *l, prh_byte c) {
-    l->ident = l->parse - 1;
+    l->ident = l->parse - 1; // 以当前字符（utf8 start char） 开始
     return (prh_impl_curr_utf8_char(l, c) && prh_impl_ident_cont(l)) ? PRH_NAME : PRH_TOKERR;
 }
 
@@ -35254,16 +35347,19 @@ int prh_impl_dec_ident_start(prh_lexer *l, prh_tokid type) { // 继续检查标�
     return prh_impl_ident_cont(l) ? type : PRH_TOKERR;
 }
 
+// 使用 ~ 开始的标识符可以转义关键字 ~int ~reg
 int prh_lexer_tilde(prh_lexer *l) {
-
+    l->ident = l->parse - 1; // 以当前字符（~） 开始
+    switch (l->tilde_as_oper) {
+    case true: l->c = prh_lexer_next_char(l); return PRH_OP_TILDE;
+    default: switch (prh_impl_ident_cont(l)) {
+        case true: return (l->namelen == 1) ? PRH_OP_TILDE : PRH_NAME;
+        default: return PRH_TOKERR; }
+    }
 }
 
 int prh_lexer_operator(prh_lexer *l, prh_byte c) {
-
-}
-
-int prh_lexer_separator(prh_lexer *l, prh_byte c) {
-
+    // 操作符 ! % & * + - / : < = > ? ^ ` | # $ @（包括所有可能的组合标点）
 }
 
 // 字符，要么是字节 byte，要么四字节 char
@@ -35845,6 +35941,7 @@ int prh_lexer_dot_lit(prh_lexer *l) { // 以小数点开头的十进制浮点数
         if ((c = prh_lexer_next_char(l)) != '.') { l->c = c; return PRH_OP_DDT; } // 两个点字符操作符
         if ((c = prh_lexer_next_char(l)) != '.') { l->c = c; return PRH_OP_DDD; } // 三个点字符操作符
         return PRH_TOKERR; // 不能连续四个点字符
+    // 002E . .= .. ... .0 .&取成员地址 .*访问指定偏移处的成员（单独成行的 ... 表示一个空语句）
     default: l->c = c; return PRH_OP_DOT; // 单个点字符操作符
     }
     l->ident = l->parse - 1; // 可能是 .dec_ident
@@ -38733,6 +38830,7 @@ typedef struct {
     prh_reg namelen;
     prh_byte c;
     bool escape_code;
+    bool tilde_as_oper;
     bool userlit;
     bool neg_exp;
     bool bin_exp; // 2^exp or 10^exp
@@ -38816,7 +38914,7 @@ label_skipped:
         return PRH_TOKERR;
     case prh_b256_utf8_start:
         return prh_lexer_ident_utf8s(l, c);
-    default:
+    default: // letter underscore
         return prh_lexer_ident_start(l);
     }
 }
