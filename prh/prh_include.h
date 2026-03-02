@@ -35358,8 +35358,141 @@ int prh_lexer_tilde(prh_lexer *l) {
     }
 }
 
+// 0x00      0x10      0x20      0x30      0x40      0x50      0x60      0x70
+// 0x01      0x11      0x21      0x31      0x41      0x51      0x61      0x71
+// 0x02      0x12      0x22      0x32      0x42      0x52      0x62      0x72
+// 0x03      0x13      0x23      0x33      0x43      0x53      0x63      0x73
+// 0x04      0x14      0x24      0x34      0x44      0x54      0x64      0x74
+// 0x05      0x15      0x25      0x35      0x45      0x55      0x65      0x75
+// 0x06      0x16      0x26      0x36      0x46      0x56      0x66      0x76
+// 0x07      0x17      0x27      0x37      0x47      0x57      0x67      0x77
+// 0x08      0x18      0x28  (   0x38      0x48      0x58      0x68      0x78
+// 0x09      0x19      0x29  )   0x39      0x49      0x59      0x69      0x79
+// 0x0a      0x1a      0x2a      0x3a      0x4a      0x5a      0x6a      0x7a
+// 0x0b      0x1b      0x2b      0x3b  ;   0x4b      0x5b  [   0x6b      0x7b  {
+// 0x0c      0x1c      0x2c  ,   0x3c      0x4c      0x5c      0x6c      0x7c
+// 0x0d      0x1d      0x2d      0x3d      0x4d      0x5d  ]   0x6d      0x7d  }
+// 0x0e      0x1e      0x2e      0x3e      0x4e      0x5e      0x6e      0x7e
+// 0x0f      0x1f      0x2f      0x3f      0x4f      0x5f      0x6f      0x7f
+// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000
+// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111
+
+typedef struct {
+    prh_byte subval;
+    prh_byte irange; // range 用来确定每一行的前几个是有效的
+} prh_impl_sepa_type;
+
+static const prh_impl_sepa_type prh_impl_sept[8] = { // 分隔符： ( ) [ ] { } , ;
+    {0x28, 0x00},
+    {0x28, 0x00}, //      0      1   2    3       4
+    {0x28, 0x04}, // 0x28 ( 0x29 ) 0x2a 0x2b 0x2c ,
+    {0x3b, 0x50}, // 0x3b ; 5
+    {0x5b, 0x00}, //      6   7       8
+    {0x5b, 0x62}, // 0x5b [ 0x5c 0x5d ]
+    {0x7b, 0x00}, //      9   a       b
+    {0x7b, 0x92}, // 0x7b { 0x7c 0x7d }
+};
+
+static const prh_tokid prh_impl_sepv[12] = {
+    /* 0x28 ( 0 */  PRH_LPAREN,
+    /* 0x29 ) 1 */  PRH_RPAREN,
+    /* 0x2a   2 */  PRH_TOKERR,
+    /* 0x2b   3 */  PRH_TOKERR,
+    /* 0x2c , 4 */  PRH_COMMA,
+    /* 0x3b ; 5 */  PRH_SEMIC,
+    /* 0x5b [ 6 */  PRH_LSQUARE,
+    /* 0x5c   7 */  PRH_TOKERR,
+    /* 0x5d ] 8 */  PRH_RSQUARE,
+    /* 0x7b { 9 */  PRH_LCURLY,
+    /* 0x7c   a */  PRH_TOKERR,
+    /* 0x7d } b */  PRH_RCURLY,
+};
+
+int prh_lexer_separator(prh_lexer *l, prh_byte c) {
+    const prh_impl_sepa_type *p = prh_impl_sept + ((c & 0x70) >> 4);
+    return (c -= p->subval) <= (p->irange & 0x0F) ?
+        prh_impl_sepv[c + (p->irange >> 4)] : PRH_TOKERR;
+}
+
+// https://docs.python.org/3/reference/expressions.html#operator-precedence
+// https://cppreference.com/w/cpp/language/operator_precedence.html
+// https://go.dev/ref/spec#Operator_precedence
+// https://ziglang.org/documentation/master/#Precedence
+//
+// 12 名字空间，从左到右结合（--->）： a::b
+// 11 成员访问，从左到右结合（--->）： 成员变量 a.b a->b 函数调用 a() 数组访问也通过函数调用方式
+// 10 一元操作，从右到左结合（<---）： + - ! ^ fer der sizeof typeof 类型转换 type expr 指针引用数组元组等类型声明
+// 09 乘法系列，从左到右结合（--->）： * / % & &^ ^ ^^ | |^ << <<< >> >>>
+// 08 加法系列，从左到右结合（--->）： + -
+// 07 关系操作，从左到右结合（--->）： < <= > >= == != <>
+// 06 逻辑与符，从左到右结合（--->）： &&
+// 05 逻辑或符，从左到右结合（--->）： ||
+// 04 条件语句，从右到左结合（<---）： a ? b : c
+// 03 赋值操作，从右到左结合（<---）： = += -= *= /= %= &= &^= ^= ^^= |= |^= <<= <<<= >>= >>>=
+// 02 连接操作，从左到右结合（--->）： a,b expr and expr expr or expr
+// 01 跳转语句，从右到左结合（<---）： return break continue fallthrough goto yield throw
+//
+// 一元操作： 逻辑非（!）位反（^）正（+）负（-）取址（fer）取值（der）取零食变量或常量的地址（&&）
+// 位操作符： 与非（&^）或非（|^）异或（^）同或（^^）
+// 矩阵操作： 矩阵加法（++）矩阵减法（--）矩阵乘法（**）
+// 替代字符： <% %> <: :> %: 替代 { } [ ] #
+// 单独成行的 ... 表示一个空语句，注释 // /* */
+// 歧义操作：sizeof(int)*p
+//
+// 表达式明确定义的求值顺序：
+//  1.  二元表达式从左到右求值
+//  2.  赋值从右到左进行，因此 a = a++ 中 a 将保持不变
+//  3.  函数参数按参数顺序求值
+//
+// 其他语法符号：
+//  a:b :::time::: # ## $a $()
+//  a[] a->b 取成员地址 a.&b a->&b 成员指针解引用 a.*b a->*b 等价于 &a.b &a->b *a.b *a->b
+//  ++ -- ?a ~a *a &a ->> <<- *int [2]int
+//  ** --> <-- a?:b ?< ?= ?> <=> 返回0相等返回正大于返回负小于
+//  指定成员变量的地址偏移：field_type T::* a = &T::field;
+//  指定成员函数的地址偏移：return_type (T::* a)(int) = &T::f;
+//
+// 0021 !   !=
+// 0023 #   #a #() ##
+// 0024 $   $a $()
+// 0025 %   %= %> %:
+// 0026 &   && &= &^ &^=
+// 002A *   *= ** **= *& */
+// 002B +   += ++ ++=
+// 002D -   -= -- --= -> ->& ->*
+// 002E .   .= .. ... .0 .& .*
+// 002F /   /= // /*
+// 003A :   :: := :>
+// 003C <   <= << <<= <- <> <<< <<<= <% <: <=>
+// 003D =   == =>
+// 003E >   >= >> >>= >>> >>>=
+// 003F ?   ?: ?< ?= ?>
+// 0040 @
+// 005E ^   ^= ^^ ^^=
+// 0060 `   ```
+// 007C |   || |= |^ |^=
+
+// 0x00      0x10      0x20      0x30      0x40  @   0x50      0x60  `   0x70
+// 0x01      0x11      0x21  !   0x31      0x41      0x51      0x61      0x71
+// 0x02      0x12      0x22  "   0x32      0x42      0x52      0x62      0x72
+// 0x03      0x13      0x23  #   0x33      0x43      0x53      0x63      0x73
+// 0x04      0x14      0x24  $   0x34      0x44      0x54      0x64      0x74
+// 0x05      0x15      0x25  %   0x35      0x45      0x55      0x65      0x75
+// 0x06      0x16      0x26  &   0x36      0x46      0x56      0x66      0x76
+// 0x07      0x17      0x27  '   0x37      0x47      0x57      0x67      0x77
+// 0x08      0x18      0x28  (   0x38      0x48      0x58      0x68      0x78
+// 0x09      0x19      0x29  )   0x39      0x49      0x59      0x69      0x79
+// 0x0a      0x1a      0x2a  *   0x3a  :   0x4a      0x5a      0x6a      0x7a
+// 0x0b      0x1b      0x2b  +   0x3b  ;   0x4b      0x5b  [   0x6b      0x7b  {
+// 0x0c      0x1c      0x2c  ,   0x3c  <   0x4c      0x5c  \   0x6c      0x7c  |
+// 0x0d      0x1d      0x2d  -   0x3d  =   0x4d      0x5d  ]   0x6d      0x7d  }
+// 0x0e      0x1e      0x2e  .   0x3e  >   0x4e      0x5e  ^   0x6e      0x7e  ~
+// 0x0f      0x1f      0x2f  /   0x3f  ?   0x4f      0x5f      0x6f      0x7f
+// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000
+// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111
+
 int prh_lexer_operator(prh_lexer *l, prh_byte c) {
-    // 操作符 ! % & * + - / : < = > ? ^ ` | # $ @（包括所有可能的组合标点）
+
 }
 
 // 字符，要么是字节 byte，要么四字节 char
