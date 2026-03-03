@@ -35522,6 +35522,92 @@ int prh_lexer_separator(prh_lexer *l, prh_byte c) {
 // 0060 ` ```
 // 007C | || |= |^ |^=
 
+typedef int (*prh_impl_oper_func)(prh_lexer *l);
+
+typedef enum: prh_byte {
+    prh_opch_invalid = 0,
+    prh_opch_lit_end,
+    prh_opch_operator,
+} prh_impl_opch_enum; // bin oct hex literal begin char
+
+static const prh_impl_opch_enum prh_impl_opch[prh_b256_enum_max] = {
+    /* prh_b256_endfile     */ prh_opch_lit_end,
+    /* prh_b256_newline     */ prh_opch_lit_end,
+    /* prh_b256_whitespace  */ prh_opch_lit_end,
+    /* prh_b256_control     */ prh_opch_invalid,
+    /* prh_b256_digitzero   */ prh_opch_lit_end,
+    /* prh_b256_digitleft   */ prh_opch_lit_end,
+    /* prh_b256_hex_upper   */ prh_opch_lit_end,
+    /* prh_b256_upperleft   */ prh_opch_lit_end,
+    /* prh_b256_hex_lower   */ prh_opch_lit_end,
+    /* prh_b256_lowerleft   */ prh_opch_lit_end,
+    /* prh_b256_underscore  */ prh_opch_lit_end,
+    /* prh_b256_tilde       */ prh_opch_lit_end,
+    /* prh_b256_point       */ prh_opch_lit_end,
+    /* prh_b256_bslash      */ prh_opch_lit_end,
+    /* prh_b256_squote      */ prh_opch_lit_end,
+    /* prh_b256_dquote      */ prh_opch_lit_end,
+    /* prh_b256_operator    */ prh_opch_operator,
+    /* prh_b256_separator   */ prh_opch_lit_end,
+    /* prh_b256_utf8_start  */ prh_opch_lit_end,
+    /* prh_b256_utf8_inval  */ prh_opch_invalid,
+};
+
+// 0x20      0x30  0
+// 0x21 [!]  0x31  1
+// 0x22  "   0x32  2
+// 0x23  #   0x33  3
+// 0x24  $   0x34  4
+// 0x25  %   0x35  5
+// 0x26  &   0x36  6
+// 0x27  '   0x37  7
+// 0x28  (   0x38  8
+// 0x29  )   0x39  9
+// 0x2a  *   0x3a  :
+// 0x2b  +   0x3b  ;
+// 0x2c  ,   0x3c  <
+// 0x2d  -   0x3d [=]
+// 0x2e  .   0x3e  >
+// 0x2f  /   0x3f  ?
+// 0010_0000 0011_0000
+// 0010_1111 0011_1111
+
+typedef struct {
+    prh_byte subval;
+    prh_tokid oper;
+} prh_impl_char_type;
+
+static const prh_impl_char_type prh_impl_emark[2] = {
+    {0x21, PRH_OP_BOOL},// 0x21 !
+    {0x3d, PRH_OP_NE},  // 0x3d =
+};
+
+int prh_impl_emark_oper(prh_byte c) {
+    prh_impl_char_type *p = prh_impl_emark + ((c & 0x10) >> 4);
+    return (c - p->subval == 0) ? p->oper : PRH_TOKERR;
+}
+
+int prh_impl_oper_emark(prh_lexer *l) { // 0021 ! !! !=
+    prh_byte c = prh_lexer_next_char(l);
+    int o = PRH_OP_LNOT;
+    switch (prh_impl_opch[prh_impl_b256[c]]) {
+    case prh_opch_operator:
+        o = prh_impl_emark_oper(c);
+        c = prh_lexer_next_char(l);
+        switch (prh_impl_opch[prh_impl_b256[c]]) {
+        default: case prh_opch_operator: return PRH_TOKERR;
+        case prh_opch_lit_end: break; } prh_fallthrough;
+    case prh_opch_lit_end: l->c = c; return o;
+    default: return PRH_TOKERR;
+    }
+}
+
+int prh_impl_oper_hash(prh_lexer *l) {
+}
+
+int prh_impl_oper_dollar(prh_lexer *l) {
+}
+
 // 0x00      0x10      0x20      0x30      0x40  @   0x50      0x60  `   0x70
 // 0x01      0x11      0x21  !   0x31      0x41      0x51      0x61      0x71
 // 0x02      0x12      0x22  "   0x32      0x42      0x52      0x62      0x72
@@ -35878,6 +35964,75 @@ label_finish:
     return PRH_STRING;
 }
 
+// 0x40  @   0x50  P
+// 0x41  A   0x51  Q
+// 0x42 [B]  0x52 [R]
+// 0x43  C   0x53  S
+// 0x44  D   0x54  T
+// 0x45  E   0x55  U
+// 0x46  F   0x56  V
+// 0x47  G   0x57  W
+// 0x48  H   0x58 [X]
+// 0x49 [I]  0x59 [Y]
+// 0x4a  J   0x5a [Z]
+// 0x4b  K   0x5b  [
+// 0x4c  L   0x5c  \
+// 0x4d  M   0x5d  ]
+// 0x4e  N   0x5e  ^
+// 0x4f  O   0x5f  _
+// 0100_0000 0101_0000
+// 0100_1111 0101_1111
+
+static const prh_impl_char_range prh_impl_rstr[2] = {
+    {0x42, 0x07}, // 0x42 [B] C D E F G H [I]
+    {0x52, 0x88}, // 0x52 [R] S T U V W [X] [Y] [Z]
+};                //       8  9 a b c d  e   f  10
+
+typedef enum: prh_byte {
+    prh_rstr_invalid = 0,
+    prh_rstr_b_prefix,
+    prh_rstr_i_prefix,
+    prh_rstr_r_prefix,
+    prh_rstr_x_prefix,
+    prh_rstr_y_prefix,
+    prh_rstr_z_prefix,
+} prh_impl_rstr_enum;
+
+static const prh_impl_rstr_enum prh_impl_strv[17] = {
+    /* 0x42 B */ prh_rstr_b_prefix,
+    /* 0x43   */ prh_rstr_invalid,
+    /* 0x44   */ prh_rstr_invalid,
+    /* 0x45   */ prh_rstr_invalid,
+    /* 0x46   */ prh_rstr_invalid,
+    /* 0x47   */ prh_rstr_invalid,
+    /* 0x48   */ prh_rstr_invalid,
+    /* 0x49 I */ prh_rstr_i_prefix,
+    /* 0x52 R */ prh_rstr_r_prefix,
+    /* 0x53   */ prh_rstr_invalid,
+    /* 0x54   */ prh_rstr_invalid,
+    /* 0x55   */ prh_rstr_invalid,
+    /* 0x56   */ prh_rstr_invalid,
+    /* 0x57   */ prh_rstr_invalid,
+    /* 0x58 X */ prh_rstr_x_prefix,
+    /* 0x59 Y */ prh_rstr_y_prefix,
+    /* 0x5A Z */ prh_rstr_z_prefix,
+};
+
+int prh_impl_raw_string(prh_lexer *l, prh_byte c) {
+    const prh_impl_char_range *p = prh_impl_rstr + ((c & 0x10) >> 4);
+    switch ((c -= p->subval) <= (p->irange & 0x0F)) {
+    case true: switch (prh_impl_strv[c + (p->irange >> 4)]) {
+        case prh_rstr_b_prefix: return prh_impl_b_string(l);
+        case prh_rstr_i_prefix: return prh_impl_i_string(l);
+        case prh_rstr_r_prefix: return prh_impl_r_string(l);
+        case prh_rstr_x_prefix: return prh_impl_x_string(l);
+        case prh_rstr_y_prefix: return prh_impl_y_string(l);
+        case prh_rstr_z_prefix: return prh_impl_z_string(l);
+        default: break; } break; prh_fallthrough;
+    default: return PRH_NAME;
+    }
+}
+
 // 数值字面量
 //
 // sign = "+" | "-" .
@@ -36044,7 +36199,7 @@ int prh_lexer_dec_lit(prh_lexer *l, prh_byte c) { // 开始解析 dec_digit
     return PRH_TOKERR;
 label_32_lit_end:
     l->ival32 = val32;
-    return (l->c == '`') ? prh_impl_oper_tbits(l) : PRH_INT32; 
+    return (l->c == '`') ? prh_impl_oper_tbits(l) : PRH_INT32;
 label_64_lit_end:
     l->ival64 = val64;
     return PRH_INT64;
