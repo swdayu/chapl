@@ -35218,6 +35218,7 @@ typedef enum: prh_byte {
     PRH_OP_BIT_CSHL,
     PRH_OP_BIT_CSHR,
     PRH_OP_ASSIGN,
+    PRH_OP_EXP_ASSIGN,
     PRH_OP_ADD_ASSIGN,
     PRH_OP_SUB_ASSIGN,
     PRH_OP_MUL_ASSIGN,
@@ -35342,8 +35343,13 @@ int prh_lexer_ident_start(prh_lexer *l) {
     if (!valid) return PRH_TOKERR;
     if (l->namelen == 1 && l->c == '"')
         return prh_impl_raw_string(l, *l->ident);
-    if (l->c == '`')
-        return prh_impl_oper_tname(l);
+    if (l->c == '`') {
+        if (l->namelen == 1 && *l->ident == 'R') {
+            return prh_impl_tick_string(l);
+        } else {
+            return prh_impl_oper_tname(l);
+        }
+    }
     return PRH_NAME;
 }
 
@@ -35508,10 +35514,10 @@ int prh_lexer_separator(prh_lexer *l, prh_byte c) {
 // 0026 & && &= &^ &^=
 // 002A * *= */ ** **= *&
 // 002B + += ++ ++=
-// 002D - -= -- --= -> ->& ->*
+// 002D - -= -- --= -> ->& ->* ->>
 // 002F / // /= /*
 // 003A : :: := :>
-// 003C < << <= <> <<= <<< <<<= <- <% <: <=>
+// 003C < << <= <> <<= <<< <<<= <- <% <: <=> <<-
 // 003D = == =>
 // 003E > >> >= >>= >>> >>>=
 // 003F ? ?: ?< ?= ?>
@@ -35656,7 +35662,10 @@ int prh_impl_oper_bitand(prh_lexer *l) { // 0026 & && &= &^ &^=
     prh_byte c; prh_tokid o = PRH_OP_BIT_AND;
     switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
         case true: /* &&  &=  &^  */ o = prh_impl_band_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
-        case true: /* &&? &=? &^? */ switch (o == PRH_OP_BIT_NAND && c == '=') { default: return PRH_TOKERR; case true: o = PRH_OP_NAND_ASSIGN; } prh_fallthrough;
+        case true: /* &&? &=? &^? */ switch (o == PRH_OP_BIT_NAND && c == '=') { default: return PRH_TOKERR;
+        case true: /*         &^= */ o = PRH_OP_NAND_ASSIGN; switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
+        case true: /*         &^=?*/ return PRH_TOKERR;
+        default:   /*         &^= */ break; } prh_fallthrough; break; } prh_fallthrough;
         default:   /* &&  &=  &^  */ break; } prh_fallthrough;
         default:   /* &           */ l->c = c; return o;
     }
@@ -35805,14 +35814,21 @@ static const prh_impl_cmmt_enum prh_impl_cmmt[prh_b256_enum_max] = {
 
 // 块注释使用 C 语言规则不嵌套，嵌套块注释的一个限制是不可注释块注释的开始会报错，如果要注释任意一大块代码可以使用条件编译语句
 // 不嵌套的块注释，可以注释块注释的开始 /* /* */
-// 不嵌套的块注释，不可注释块注释的结束 /* */ */，可以使用条件编译注释 static if 0 */ endif
+// 不嵌套的块注释，不可注释块注释的结束 /* */ */，可以使用条件编译注释 static if 0 $ { */ } $
 // 可嵌套的块注释，不可注释块注释的开始 /* /* */
 // 可嵌套的块注释，不可注释块注释的结束 /* */ */
-int prh_impl_comment(prh_lexer *l, bool block_comment) {
+int prh_impl_comment(prh_lexer *l, bool line_comment) {
     prh_impl_b256_enum b; l->str_p = l->parse;
     prh_byte c = prh_lexer_next_char(l);
-    switch (block_comment) {
-    case true: label_block_char: // 块注释，解析直到遇到 */ 块结束符
+    switch (line_comment) {
+    case true: label_line_char: // 行注释，解析直到行尾或文件结束
+        switch (prh_impl_cmmt_char(c)) {
+            case prh_cmmt_endfile: l->str_len = l->parse - 1 - l->str_p; break;
+            case prh_cmmt_newline: l->str_len = l->parse - 1 - l->str_p; c = prh_lexer_newline(l, c); break;
+            default: case prh_cmmt_may_end: c = prh_lexer_next_char(l); goto label_line_char;
+        }
+        break;
+    default: label_block_char: // 块注释，解析直到遇到 */ 块结束符
         switch (prh_impl_cmmt_char(c)) {
             case prh_cmmt_endfile: return PRH_TOKERR;
             case prh_cmmt_newline: c = prh_lexer_newline(l, c); goto label_block_char;
@@ -35822,16 +35838,9 @@ int prh_impl_comment(prh_lexer *l, bool block_comment) {
         l->str_len = l->parse - 2 - l->str_p;
         c = prh_lexer_next_char(l);
         break;
-    default: label_line_char: // 行注释，解析直到行尾或文件结束
-        switch (prh_impl_cmmt_char(c)) {
-            case prh_cmmt_endfile: l->str_len = l->parse - 1 - l->str_p; break;
-            case prh_cmmt_newline: l->str_len = l->parse - 1 - l->str_p; c = prh_lexer_newline(l, c); break;
-            default: case prh_cmmt_may_end: c = prh_lexer_next_char(l); goto label_line_char;
-        }
-        break;
     }
     l->c = c;
-    l->line_comment = block_comment == false;
+    l->line_comment = line_comment;
     return PRH_COMMENT;
 }
 
@@ -35860,12 +35869,12 @@ static const prh_impl_char_range prh_impl_slat[2] = {
 };
 
 static const prh_tokid prh_impl_slav[7] = {
-    /* 0x2a * 0 */ PRH_COMMENT,
+    /* 0x2a * 0 */ PRH_COMMENT + 1,
     /* 0x2b   1 */ PRH_TOKERR,
     /* 0x2c   2 */ PRH_TOKERR,
     /* 0x2d   3 */ PRH_TOKERR,
     /* 0x2e   4 */ PRH_TOKERR,
-    /* 0x2f / 5 */ PRH_COMMENT + 1,
+    /* 0x2f / 5 */ PRH_COMMENT,
     /* 0x3d = 6 */ PRH_OP_DIV_ASSIGN,
 };
 
@@ -35948,20 +35957,54 @@ int prh_impl_oper_less(prh_lexer *l) { // 003C < << <= <> <<= <<< <<<=
         case true: /* <<   <=   <>  */ o = prh_impl_less_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
         case true: /* <<?  <=?  <>? */ if (o != PRH_OP_BIT_SHL) /* <=? <>? */ return PRH_TOKERR; /* <<? */ prh_fallthrough;
                    /* <<<  <<=      */ o = prh_impl_bshl_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
-        case true: /* <<<? <<=?     */ switch (o == PRH_OP_BIT_CSHL && c == '=') { default: return PRH_TOKERR; case true: o = PRH_OP_CSHL_ASSIGN; break; } prh_fallthrough;
+        case true: /* <<<? <<=?     */ switch (o == PRH_OP_BIT_CSHL && c == '=') { default: return PRH_TOKERR;
+        case true: /* <<<=          */ o = PRH_OP_CSHL_ASSIGN; switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
+        case true: /* <<<=?         */ return PRH_TOKERR;
+        default:   /* <<<=          */ break; } prh_fallthrough; break; } prh_fallthrough;
         default:   /* <<<  <<=      */ break; } prh_fallthrough;
         default:   /* <<   <=   <>  */ break; } prh_fallthrough;
         default:   /* <             */ l->c = c; return o;
     }
 }
 
-int prh_impl_oper_equal(prh_lexer *l) { // 003D = ==
+// 0x30  0
+// 0x31  1
+// 0x32  2
+// 0x33  3
+// 0x34  4
+// 0x35  5
+// 0x36  6
+// 0x37  7
+// 0x38  8
+// 0x39  9
+// 0x3a  :
+// 0x3b  ;
+// 0x3c  <
+// 0x3d [=]
+// 0x3e [>]
+// 0x3f  ?
+// 0011_0000
+// 0011_1111
+
+static const prh_tokid prh_impl_equa[2] = {
+    /* 0x3d = */ PRH_OP_EQ,         // ==
+    /* 0x3e > */ PRH_OP_EXP_ASSIGN, // =>
+};
+
+prh_inline int prh_impl_equa_oper(prh_byte c) {
+    switch ((c -= 0x3d) <= 1) {
+    default: return PRH_TOKERR;
+    case true: return prh_impl_equa[c];
+    }
+}
+
+int prh_impl_oper_equal(prh_lexer *l) { // 003D = == =>
     prh_byte c; prh_tokid o = PRH_OP_ASSIGN;
     switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
-        case true: /* ==  */ o = (c == '=') ? PRH_OP_EQ : PRH_TOKERR; switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
-        case true: /* ==? */ return PRH_TOKERR;
-        default:   /* ==  */ break; } prh_fallthrough;
-        default:   /* =   */ l->c = c; return o;
+        case true: /* ==  =>  */ o = prh_impl_equa_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
+        case true: /* ==? =>? */ return PRH_TOKERR;
+        default:   /* ==  =>  */ break; } prh_fallthrough;
+        default:   /* =       */ l->c = c; return o;
     }
 }
 
@@ -36014,7 +36057,10 @@ int prh_impl_oper_great(prh_lexer *l) { // 003E > >> >= >>= >>> >>>=
         case true: /* >>   >=   */ o = prh_impl_gret_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
         case true: /* >>?  >=?  */ if (o != PRH_OP_BIT_SHR) /* >=? */ return PRH_TOKERR; /* >>? */ prh_fallthrough;
                    /* >>>  >>=  */ o = prh_impl_bshr_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
-        case true: /* >>>? >>=? */ switch (o == PRH_OP_BIT_CSHR && c == '=') { default: return PRH_TOKERR; case true: o = PRH_OP_CSHR_ASSIGN; break; } prh_fallthrough;
+        case true: /* >>>? >>=? */ switch (o == PRH_OP_BIT_CSHR && c == '=') { default: return PRH_TOKERR;
+        case true: /* >>>=      */ o = PRH_OP_CSHR_ASSIGN; switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
+        case true: /* >>>=?     */ return PRH_TOKERR;
+        default:   /* >>>=      */ break; } prh_fallthrough; break; } prh_fallthrough;
         default:   /* >>>  >>=  */ break; } prh_fallthrough;
         default:   /* >>   >=   */ break; } prh_fallthrough;
         default:   /* >         */ l->c = c; return o;
@@ -36062,7 +36108,10 @@ int prh_impl_oper_caret(prh_lexer *l) { // 005E ^ ^^ ^= ^^=
     prh_byte c; prh_tokid o = PRH_OP_BIT_XOR;
     switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
         case true: /* ^^  ^=  */ o = prh_impl_bxor_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
-        case true: /* ^^? ^=? */ switch (o == PRH_OP_BIT_XNOR && c == '=') { default: return PRH_TOKERR; case true: o = PRH_OP_XNOR_ASSIGN; } prh_fallthrough;
+        case true: /* ^^? ^=? */ switch (o == PRH_OP_BIT_XNOR && c == '=') { default: return PRH_TOKERR;
+        case true: /* ^^=     */ o = PRH_OP_XNOR_ASSIGN; switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
+        case true: /* ^^=?    */ return PRH_TOKERR;
+        default:   /* ^^=     */ break; } prh_fallthrough; break; } prh_fallthrough;
         default:   /* ^^  ^=  */ break; } prh_fallthrough;
         default:   /* ^       */ l->c = c; return o;
     }
@@ -36151,7 +36200,10 @@ int prh_impl_oper_vertbar(prh_lexer *l) { // 007C | || |= |^ |^=
     prh_byte c; prh_tokid o = PRH_OP_BIT_OR;
     switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
         case true: /* ||  |=  |^  */ o = prh_impl_btor_oper(c); switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
-        case true: /* ||? |=? |^? */ switch (o == PRH_OP_BIT_NOR && c == '=') { default: return PRH_TOKERR; case true: o = PRH_OP_NOR_ASSIGN; } prh_fallthrough;
+        case true: /* ||? |=? |^? */ switch (o == PRH_OP_BIT_NOR && c == '=') { default: return PRH_TOKERR;
+        case true: /*         |^= */ o = PRH_OP_NOR_ASSIGN; switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
+        case true: /*         |^=?*/ return PRH_TOKERR;
+        default:   /*         |^= */ break; } prh_fallthrough; break; } prh_fallthrough;
         default:   /* ||  |=  |^  */ break; } prh_fallthrough;
         default:   /* |           */ l->c = c; return o;
     }
@@ -36585,6 +36637,9 @@ int prh_impl_raw_string(prh_lexer *l, prh_byte c) {
         default: break; } break; prh_fallthrough;
     default: return PRH_NAME;
     }
+}
+
+int prh_impl_tick_string(prh_lexer *l) {
 }
 
 // 数值字面量
