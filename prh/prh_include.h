@@ -36911,6 +36911,215 @@ label_finish:
     return PRH_STRING;
 }
 
+// 0x00      0x10      0x20 [SP] 0x30 [0]  0x40  @   0x50 [P]  0x60  `   0x70 [p]
+// 0x01      0x11      0x21  !   0x31 [1]  0x41 [A]  0x51 [Q]  0x61 [a]  0x71 [q]
+// 0x02      0x12      0x22 ["]  0x32 [2]  0x42 [B]  0x52 [R]  0x62 [b]  0x72 [r]
+// 0x03      0x13      0x23  #   0x33 [3]  0x43 [C]  0x53 [S]  0x63 [c]  0x73 [s]
+// 0x04      0x14      0x24  $   0x34 [4]  0x44 [D]  0x54 [T]  0x64 [d]  0x74 [t]
+// 0x05      0x15      0x25  %   0x35 [5]  0x45 [E]  0x55 [U]  0x65 [e]  0x75 [u]
+// 0x06      0x16      0x26  &   0x36 [6]  0x46 [F]  0x56 [V]  0x66 [f]  0x76 [v]
+// 0x07      0x17      0x27  '   0x37 [7]  0x47 [G]  0x57 [W]  0x67 [g]  0x77 [w]
+// 0x08      0x18      0x28  (   0x38 [8]  0x48 [H]  0x58 [X]  0x68 [h]  0x78 [x]
+// 0x09 [\t] 0x19      0x29  )   0x39 [9]  0x49 [I]  0x59 [Y]  0x69 [i]  0x79 [y]
+// 0x0a [\n] 0x1a      0x2a  *   0x3a  :   0x4a [J]  0x5a [Z]  0x6a [j]  0x7a [z]
+// 0x0b      0x1b      0x2b [+]  0x3b  ;   0x4b [K]  0x5b  [   0x6b [k]  0x7b  {
+// 0x0c      0x1c      0x2c  ,   0x3c  <   0x4c [L]  0x5c  \   0x6c [l]  0x7c  |
+// 0x0d [\r] 0x1d      0x2d [-]  0x3d [=]  0x4d [M]  0x5d  ]   0x6d [m]  0x7d  }
+// 0x0e      0x1e      0x2e  .   0x3e  >   0x4e [N]  0x5e  ^   0x6e [n]  0x7e  ~
+// 0x0f      0x1f      0x2f [/]  0x3f  ?   0x4f [O]  0x5f [_]  0x6f [o]  0x7f  DEL
+// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000
+// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111
+
+typedef enum: prh_byte {
+    prh_b64c_space,
+    prh_b64c_index,
+    prh_b64c_mixed,
+    prh_b64c_value,
+} prh_impl_b64c_type;
+
+typedef struct {
+    prh_byte subval;
+    prh_byte range;
+    prh_r16 valid;
+    prh_impl_b64c_type type;
+    prh_byte value;
+} prh_impl_b64c_data;
+
+typedef enum: prh_byte {
+    prh_ba64_invalid = 0,
+    prh_ba64_whitespace,
+    prh_ba64_dquote,
+    prh_ba64_d62,
+    prh_ba64_d63,
+    prh_ba64_equal,
+    prh_ba64_value,
+} prh_impl_ba64_enum;
+
+static const prh_impl_ba64_enum prh_impl_b64v[19] = {
+    /* 0x20 [SP] 00 */ prh_ba64_whitespace,
+    /* 0x21  !   01 */ prh_ba64_invalid,
+    /* 0x22 ["]  02 */ prh_ba64_dquote,
+    /* 0x23  #   03 */ prh_ba64_invalid,
+    /* 0x24  $   04 */ prh_ba64_invalid,
+    /* 0x25  %   05 */ prh_ba64_invalid,
+    /* 0x26  &   06 */ prh_ba64_invalid,
+    /* 0x27  '   07 */ prh_ba64_invalid,
+    /* 0x28  (   08 */ prh_ba64_invalid,
+    /* 0x29  )   09 */ prh_ba64_invalid,
+    /* 0x2a  *   0a */ prh_ba64_invalid,
+    /* 0x2b [+]  0b */ prh_ba64_d62,
+    /* 0x2c  ,   0c */ prh_ba64_invalid,
+    /* 0x2d [-]  0d */ prh_ba64_d62,
+    /* 0x2e  .   0e */ prh_ba64_invalid,
+    /* 0x2f [/]  0f */ prh_ba64_d63,
+    /* 0x3d [=]  10 */ prh_ba64_equal,
+    /* 0x5e      11 */ prh_ba64_invalid,
+    /* 0x5f [_]  12 */ prh_ba64_d63,
+}
+
+static const prh_impl_b64c_data prh_impl_b64d[8] = {
+    {0x09, 0x04, 0x0013, prh_b64c_space, 0x00}, // \t [09] [0a] 0b 0c [0d] 1_0011
+    {0x20, 0x00, 0x0000, prh_b64c_space, 0x00},
+    {0x20, 0x0f, 0xa805, prh_b64c_index, 0x00}, // SP [20] 21 [22] 23 24 25 26 27 28 29 2a [2b] 2c [2d] 2e [2f] 1010_1000_0000_0101
+    {0x30, 0x0d, 0x23ff, prh_b64c_mixed, 0x34}, // 0  [30 31 32 33 34 35 36 37 38 39] 3a 3b 3c [3d =] 10_0011_1111_1111
+    {0x41, 0x0e, 0xfffe, prh_b64c_value, 0x00}, // A  [41 4f]
+    {0x50, 0x0f, 0x87ff, prh_b64c_mixed, 0x0F}, // P  [50 5a] 5b 5c 5d 5e [5f _] 1000_0111_1111_1111
+    {0x61, 0x0e, 0xfffe, prh_b64c_value, 0x1A}, // a  [61 6f]
+    {0x70, 0x0a, 0x07ff, prh_b64c_value, 0x29}, // p  [70 7a]
+};
+
+prh_impl_ba64_enum prh_impl_ba64_type(prh_byte c, prh_byte *value) {
+    prh_impl_b64c_data *p = prh_impl_b64d + ((c & 0x70) >> 4);
+    switch ((c -= p->subval) <= p->range && ((1 << c) & p->valid)) {
+        default: return prh_ba64_invalid;
+        case true: switch (p->type) {
+            case prh_b64c_mixed: *value = c + p->value; if (c < 0x0d) return prh_ba64_value;
+                c = 0x10 + (c - 0x0d); prh_fallthrough;
+            case prh_b64c_index: return prh_impl_b64v[c];
+            case prh_b64c_value: *value = c + p->value; return prh_ba64_value;
+            default: return prh_ba64_whitespace;
+        }
+    }
+}
+
+#define prh_impl_ba64_char(label_digit)                                         \
+label_digit:                                                                    \
+    switch (prh_impl_ba64_type((c = prh_lexer_next_char(l)), &value)) {         \
+        case prh_ba64_whitespace: goto label_digit;                             \
+        case prh_ba64_dquote: goto label_lit_end;                               \
+        case prh_ba64_equal: goto label_equal_end;                              \
+        case prh_ba64_value: break;                                             \
+        case prh_ba64_d62:                                                      \
+            if (meet_d62) { if (d62 != c) {                                     \
+        default: return PRH_TOKERR; }                                           \
+            } else {                                                            \
+                meet_d62 = true; d62 = c;                                       \
+            }                                                                   \
+            value = 62;                                                         \
+            break;                                                              \
+        case prh_ba64_d63:                                                      \
+            if (meet_d63) {                                                     \
+                if (d63 != c) return PRH_TOKERR;                                \
+            } else {                                                            \
+                meet_d63 = true; d63 = c;                                       \
+            }                                                                   \
+            value = 63;                                                         \
+            break;                                                              \
+    } assert(value <= 63);
+
+// 不足3字节倍数末尾补零，每3字节编码4字符，补零形成的尾部全补零字符用等号（=）填补到4个字符，MIME 标准每行76个字符，忽略空白和换行
+// 标准 Base64 最后两个字符使用 + 和 / 字符
+// Base64URL 则使用 - 和 _ 字符，避免与 URL、文件名冲突，URL中等号（=）也有特殊含义，字符 ? & = 用于定义参数
+// Base64 用于文件名，使用 - 和 _ 字符，并且不使用 = 填补字符，保证文件系统安全
+static const prh_byte prh_impl_base[64] = {
+//  00  01  02  03  04  05  06  07  08  09  0a  0b  0c  0d  0e  0f  10  11  12  13  14  15  16  17  18  19
+    'A','B','C','D','E','F','G','H','I','J','K','L','M','N','O','P','Q','R','S','T','U','V','W','X','Y','Z',
+//  1a  1b  1c  1d  1e  1f  20  21  22  23  24  25  26  27  28  29  2a  2b  2c  2d  2e  2f  30  31  32  33
+    'a','b','c','d','e','f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x','y','z',
+//  34  35  36  37  38  39  3a  3b  3c  3d  3e  3f
+    '0','1','2','3','4','5','6','7','8','9','+','/',
+};
+
+// M 0x4d => TQ==
+// 0100_1101 0000_0000 0000_0000  ← 补零到三字节
+// 010011 01_0000 000000 00_0000
+// 高字节字符             低字节字符
+//  0x13   0x10    0x00   0x00
+//    ↓      ↓      =      =
+//    T      Q      =      =
+// 最后的四个字符中：
+//  1.  至少需要有两个有效字符，解码成一个字节
+//  2.  三个字符解码成两个字节
+//  3.  四个字符解码成三个字节
+
+int prh_impl_b_string(prh_lexer *l) {
+    prh_char c; prh_r32 val32;
+    prh_byte i, value, d62, d63;
+    bool meet_d62 = false;
+    bool meet_d63 = false;
+    int size = 0;
+    prh_string_clear(s);
+    for (; ;) {
+        prh_string_reserve(s, 12); // 每一轮4个字符解析为3个字节，12字节可以解析四轮
+        i = 0; val32 = 0;
+        prh_impl_ba64_char(label_char_01); val32 = (val32 << 6) | value; i = 1;
+        prh_impl_ba64_char(label_char_02); val32 = (val32 << 6) | value; i = 2;
+        prh_impl_ba64_char(label_char_03); val32 = (val32 << 6) | value; i = 3;
+        prh_impl_ba64_char(label_char_04); val32 = (val32 << 6) | value; i = 4;
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >> 16) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >>  8) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)(val32 & 0xFF)); size += 3;
+        i = 0; val32 = 0;
+        prh_impl_ba64_char(label_char_05); val32 = (val32 << 6) | value; i = 1;
+        prh_impl_ba64_char(label_char_06); val32 = (val32 << 6) | value; i = 2;
+        prh_impl_ba64_char(label_char_07); val32 = (val32 << 6) | value; i = 3;
+        prh_impl_ba64_char(label_char_08); val32 = (val32 << 6) | value; i = 4;
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >> 16) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >>  8) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)(val32 & 0xFF)); size += 3;
+        i = 0; val32 = 0;
+        prh_impl_ba64_char(label_char_09); val32 = (val32 << 6) | value; i = 1;
+        prh_impl_ba64_char(label_char_10); val32 = (val32 << 6) | value; i = 2;
+        prh_impl_ba64_char(label_char_11); val32 = (val32 << 6) | value; i = 3;
+        prh_impl_ba64_char(label_char_12); val32 = (val32 << 6) | value; i = 4;
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >> 16) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >>  8) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)(val32 & 0xFF)); size += 3;
+        i = 0; val32 = 0;
+        prh_impl_ba64_char(label_char_13); val32 = (val32 << 6) | value; i = 1;
+        prh_impl_ba64_char(label_char_14); val32 = (val32 << 6) | value; i = 2;
+        prh_impl_ba64_char(label_char_15); val32 = (val32 << 6) | value; i = 3;
+        prh_impl_ba64_char(label_char_16); val32 = (val32 << 6) | value; i = 4;
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >> 16) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >>  8) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)(val32 & 0xFF)); size += 3;
+    }
+label_equal_end:
+    while ((c = prh_lexer_next_char(l)) != '"') {
+        if (c != '\r' && c != '\n' && c != 0x20 && c != '\t' && c != '=')
+            return PRH_TOKERR;
+    }
+label_lit_end:
+    assert(i != 4); // i 不可能是 4
+    switch (i) {
+    default: break; // 0 不需要处理，4 不可能
+    case 1: return PRH_TOKERR; // 至少需要两个字符
+    case 2: // [1111_11  11]_0000
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >> 4) & 0xFF));
+        size += 1;
+        break;// 字符一  字符二      字符三
+    case 3: // [1111_11  11]_[1111  11_11]00
+        val32 >>= 2;
+        prh_string_unchecked_raw_append(s, (prh_byte)((val32 >> 8) & 0xFF));
+        prh_string_unchecked_raw_append(s, (prh_byte)(val32 & 0xFF));
+        size += 2;
+        break;
+    }
+    prh_string_reset_size(s, size);
+    l->c.c = prh_lexer_next_char(l);
+    return PRH_STRING;
+}
+
 // 0x40  @   0x50  P
 // 0x41  A   0x51  Q
 // 0x42 [B]  0x52 [R]
