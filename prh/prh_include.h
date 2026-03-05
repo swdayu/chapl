@@ -12501,7 +12501,7 @@ label_continue:
         goto label_continue; // 被其他线程抢先更新，争夺下一个
     }
 label_return:
-    prh_debug(if (race_times) printf("atom_mult_rd_arrque reg race times %d\n", race_times));
+    prh_debug(if (race_times) printf("atom_mult_rd_arrque race times %d\n", race_times));
     return a;
 }
 
@@ -36368,7 +36368,7 @@ bool prh_lexer_escape(prh_lexer *l) {
         c = prh_lexer_next_char(l); u = (u << 4) | a;
         if (!prh_impl_digit_0_f(c, &a)) goto label_error;
         l->u.cvalue = (u << 4) | a;
-        l->escape_code = true;
+        l->unicode_point = true;
     } break;
     case prh_esch_curly: {
         prh_byte a; bool valid; // 即使 \{} 也需要报错
@@ -36385,7 +36385,7 @@ bool prh_lexer_escape(prh_lexer *l) {
     label_finish:
         if (c != '}') goto label_error; // 遇到}解析完成
         l->u.cvalue = u;
-        l->escape_code = true;
+        l->unicode_point = true;
     } break;
     default: label_error:
         return false;
@@ -36516,57 +36516,189 @@ prh_inline bool prh_impl_userlit(prh_lexer *l) {
 //      反斜杠加空格表示空格（95），反斜杠加回车表示回车（96）
 //  7.  Base64 编码的二进制数据，可以包含空白和换行，可以跨多行
 //      B"Rk9PQkFSMTE=" 等价于 "FOOBAR11"
+//  8.  根据调用函数集合，编译器决定使用某一版本的字符串实现，例如中文字符串长度的区别
+//      函数即使编译成了目标代码，不知道对应集合类型调用的函数集合，但是编译器会在函数
+//      元数据中记录这些信息。
 
 typedef enum: prh_byte {
-    prh_bstr_default = 0,
     prh_bstr_invalid, // 遇到结束引号之前，不能出现换行和EOF
+    prh_bstr_continue,
     prh_bstr_bslash,
     prh_bstr_dquote,
 } prh_impl_bstr_enum;
 
 static const prh_impl_bstr_enum prh_impl_bstr[prh_b256_enum_max] = {
-    prh_bstr_invalid,   // prh_b256_endfile
-    prh_bstr_invalid,   // prh_b256_newline
-    prh_bstr_default,   // prh_b256_whitespace
-    prh_bstr_default,   // prh_b256_control
-    prh_bstr_default,   // prh_b256_digitzero
-    prh_bstr_default,   // prh_b256_digitleft
-    prh_bstr_default,   // prh_b256_hex_upper
-    prh_bstr_default,   // prh_b256_upperleft
-    prh_bstr_default,   // prh_b256_hex_lower
-    prh_bstr_default,   // prh_b256_lowerleft
-    prh_bstr_default,   // prh_b256_operator
-    prh_bstr_bslash,    // prh_b256_bslash
-    prh_bstr_default,   // prh_b256_squote
-    prh_bstr_dquote,    // prh_b256_dquote
+    /* prh_b256_endfile     */ prh_bstr_invalid,
+    /* prh_b256_newline     */ prh_bstr_invalid,
+    /* prh_b256_whitespace  */ prh_bstr_continue,
+    /* prh_b256_control     */ prh_bstr_continue,
+    /* prh_b256_digitzero   */ prh_bstr_continue,
+    /* prh_b256_digitleft   */ prh_bstr_continue,
+    /* prh_b256_hex_upper   */ prh_bstr_continue,
+    /* prh_b256_upperleft   */ prh_bstr_continue,
+    /* prh_b256_hex_lower   */ prh_bstr_continue,
+    /* prh_b256_lowerleft   */ prh_bstr_continue,
+    /* prh_b256_underscore  */ prh_bstr_continue,
+    /* prh_b256_tilde       */ prh_bstr_continue,
+    /* prh_b256_point       */ prh_bstr_continue,
+    /* prh_b256_bslash      */ prh_bstr_bslash,
+    /* prh_b256_squote      */ prh_bstr_continue,
+    /* prh_b256_dquote      */ prh_bstr_dquote,
+    /* prh_b256_operator    */ prh_bstr_continue,
+    /* prh_b256_separator   */ prh_bstr_continue,
+    /* prh_b256_utf8_start  */ prh_bstr_continue,
+    /* prh_b256_utf8_inval  */ prh_bstr_continue,
 };
+
+#define prh_impl_str_char(label)                                                \
+    switch (prh_impl_bstr[prh_impl_b256[(c = prh_lexer_next_char(l))]]) {       \
+    case prh_bstr_dquote: goto label_finish;                                    \
+    case prh_bstr_bslash: l->unicode_point = false;                             \
+        if (!prh_lexer_escape(l)) {                                             \
+    case prh_bstr_invalid: return PRH_TOKERR; }                                 \
+        c = l->u.cvalue;                                                        \
+        if (!l->unicode_point) {                                                \
+    default:prh_string_unchecked_push(s, (prh_byte)c);                          \
+            size += 1; break; }                                                 \
+        if (!(n = prh_unicode_to_utf8(c, prh_string_end(s)))) return PRH_TOKERR;\
+        size += n; break;                                                       \
+    }
 
 int prh_lexer_dquote(prh_lexer *l) {
     prh_string *s = l->u.svalue;
+    prh_char c; int n, size;
     prh_string_clear(s);
     for (; ;) {
-        prh_char c = prh_lexer_next_char(l);
-        switch (prh_impl_bstr[prh_impl_b256[c]]) {
-        case prh_bstr_dquote: goto label_finish;
-        case prh_bstr_bslash:
-            l->escape_code = false;
-            if (!prh_lexer_escape(l)) {
-        case prh_bstr_invalid: return PRH_TOKERR;
-            }
-            c = l->u.cvalue;
-            if (l->escape_code == false) {
-        default:prh_string_push(s, c); break;
-            }
-            // TODO：确保字符串可用空间大小足够
-            int n = prh_unicode_to_utf8(c, prh_string_end(s));
-            if (n == 0) return PRH_TOKERR;
-            prh_string_increase_size(n);
-            break;
-        }
+        size = 0; prh_string_reserve(s, 64); // 最多16个统一编码字符（64=4*16）
+        prh_impl_str_char(label_str_01);
+        prh_impl_str_char(label_str_02);
+        prh_impl_str_char(label_str_03);
+        prh_impl_str_char(label_str_04);
+        prh_impl_str_char(label_str_05);
+        prh_impl_str_char(label_str_06);
+        prh_impl_str_char(label_str_07);
+        prh_impl_str_char(label_str_08);
+        prh_impl_str_char(label_str_09);
+        prh_impl_str_char(label_str_10);
+        prh_impl_str_char(label_str_11);
+        prh_impl_str_char(label_str_12);
+        prh_impl_str_char(label_str_13);
+        prh_impl_str_char(label_str_14);
+        prh_impl_str_char(label_str_15);
+        prh_impl_str_char(label_str_16);
+        prh_string_increase_size(size); // 最后一次不会执行到这里
     }
 label_finish:
     l->c = prh_lexer_next_char(l);
     l->u.svalue.size = s - l->u.svalue.data;
+    prh_string_increase_size(size);
+    return PRH_STRING;
+}
+
+// 0x00 [NUL]0x10      0x20      0x30  0   0x40  @   0x50  P   0x60 [`]  0x70  p
+// 0x01      0x11      0x21  !   0x31  1   0x41  A   0x51  Q   0x61  a   0x71  q
+// 0x02      0x12      0x22  "   0x32  2   0x42  B   0x52  R   0x62  b   0x72  r
+// 0x03      0x13      0x23  #   0x33  3   0x43  C   0x53  S   0x63  c   0x73  s
+// 0x04      0x14      0x24  $   0x34  4   0x44  D   0x54  T   0x64  d   0x74  t
+// 0x05      0x15      0x25  %   0x35  5   0x45  E   0x55  U   0x65  e   0x75  u
+// 0x06      0x16      0x26  &   0x36  6   0x46  F   0x56  V   0x66  f   0x76  v
+// 0x07      0x17      0x27  '   0x37  7   0x47  G   0x57  W   0x67  g   0x77  w
+// 0x08      0x18      0x28  (   0x38  8   0x48  H   0x58  X   0x68  h   0x78  x
+// 0x09      0x19      0x29  )   0x39  9   0x49  I   0x59  Y   0x69  i   0x79  y
+// 0x0a [\n] 0x1a      0x2a  *   0x3a  :   0x4a  J   0x5a  Z   0x6a  j   0x7a  z
+// 0x0b      0x1b      0x2b  +   0x3b  ;   0x4b  K   0x5b  [   0x6b  k   0x7b  {
+// 0x0c      0x1c      0x2c  ,   0x3c  <   0x4c  L   0x5c  \   0x6c  l   0x7c  |
+// 0x0d [\r] 0x1d      0x2d  -   0x3d  =   0x4d  M   0x5d  ]   0x6d  m   0x7d  }
+// 0x0e      0x1e      0x2e  .   0x3e  >   0x4e  N   0x5e  ^   0x6e  n   0x7e  ~
+// 0x0f      0x1f      0x2f  /   0x3f  ?   0x4f  O   0x5f  _   0x6f  o   0x7f  DEL
+// 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000
+// 0000_1111 0001_1111 0010_1111 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111
+
+typedef enum: prh_byte {
+    prh_tick_endfile = 0,
+    prh_tick_newline,
+    prh_tick_backtick,
+    prh_tick_continue,
+} prh_impl_tick_enum;
+
+static const prh_impl_char_range prh_impl_tick[4] = {
+    {0x00, 0x0d}, // [00] 01 02 03 04 05 06 07 08 09 [0a] 0b 0c [0d]
+    {0x60, 0x00},
+    {0x60, 0xe0}, // [60] `
+    {0x60, 0x00},
+};
+
+static const prh_impl_tick_enum prh_impl_ticv[15] = {
+    /* 0x00 NUL */ prh_tick_endfile,
+    /* 0x01     */ prh_tick_continue,
+    /* 0x02     */ prh_tick_continue,
+    /* 0x03     */ prh_tick_continue,
+    /* 0x04     */ prh_tick_continue,
+    /* 0x05     */ prh_tick_continue,
+    /* 0x06     */ prh_tick_continue,
+    /* 0x07     */ prh_tick_continue,
+    /* 0x08     */ prh_tick_continue,
+    /* 0x09     */ prh_tick_continue,
+    /* 0x0a /n  */ prh_tick_newline,
+    /* 0x0b     */ prh_tick_continue,
+    /* 0x0c     */ prh_tick_continue,
+    /* 0x0d \r  */ prh_tick_newline,
+    /* 0x60 `   */ prh_tick_backtick,
+};
+
+prh_impl_tick_enum prh_impl_tick_type(prh_byte c) {
+    prh_impl_char_range *p = prh_impl_tick + ((c & 0x30) >> 4);
+    return (c -= p->subval) <= (p->irange & 0x0F) ?
+        prh_impl_ticv[c + (p->irange >> 4)] : prh_tick_continue;
+}
+
+#define prh_impl_tick_char(label)                                               \
+    switch (prh_impl_tick_type(c)) {                                            \
+    case prh_tick_endfile: return PRH_TOKERR;                                   \
+    case prh_tick_newline:                                                      \
+        prh_string_unchecked_push(s, '\n');                                     \
+        c = prh_lexer_newline(l, c);                                            \
+        break;                                                                  \
+    case prh_tick_backtick:                                                     \
+        if ((c = prh_lexer_next_char(l)) != '`') {                              \
+            l->c = c;                                                           \
+            goto label_finish;                                                  \
+        }                                                                       \
+        prh_fallthrough;                                                        \
+    default:                                                                    \
+        prh_string_unchecked_push(s, (prh_byte)c);                              \
+        c = prh_lexer_next_char(l);                                             \
+        break;                                                                  \
+    }                                                                           \
+    size += 1;
+
+int prh_impl_tick_string(prh_lexer *l) { // 遇到结束`字符前，允许跨越多个物理行
+    prh_string *s = l->u.svalue;
+    int n, size; prh_char c = prh_lexer_next_char(l);
+    prh_string_clear(s);
+    for (; ;) {
+        size = 0; prh_string_reserve(s, 16); // 原始字符串仅解析单个单个字节，预留16字节可以解析16次
+        prh_impl_tick_char(label_str_01);
+        prh_impl_tick_char(label_str_02);
+        prh_impl_tick_char(label_str_03);
+        prh_impl_tick_char(label_str_04);
+        prh_impl_tick_char(label_str_05);
+        prh_impl_tick_char(label_str_06);
+        prh_impl_tick_char(label_str_07);
+        prh_impl_tick_char(label_str_08);
+        prh_impl_tick_char(label_str_09);
+        prh_impl_tick_char(label_str_10);
+        prh_impl_tick_char(label_str_11);
+        prh_impl_tick_char(label_str_12);
+        prh_impl_tick_char(label_str_13);
+        prh_impl_tick_char(label_str_14);
+        prh_impl_tick_char(label_str_15);
+        prh_impl_tick_char(label_str_16);
+        prh_string_increase_size(size); // 最后一次不会执行到这里
+    }
+label_finish:
+    l->u.svalue.size = s - l->u.svalue.data;
+    prh_string_increase_size(size);
     return PRH_STRING;
 }
 
@@ -36637,9 +36769,6 @@ int prh_impl_raw_string(prh_lexer *l, prh_byte c) {
         default: break; } break; prh_fallthrough;
     default: return PRH_NAME;
     }
-}
-
-int prh_impl_tick_string(prh_lexer *l) {
 }
 
 // 数值字面量
@@ -39872,7 +40001,7 @@ typedef struct {
     prh_reg str_len;
     prh_byte idend;
     prh_byte c;
-    bool escape_code;
+    bool unicode_point;
     bool tilde_as_oper;
     bool userlit;
     bool neg_exp;
