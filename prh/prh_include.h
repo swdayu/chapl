@@ -34751,8 +34751,8 @@ typedef enum: prh_byte {
     prh_b256_digitzero,
     prh_b256_digitleft,
     prh_b256_hex_upper,
-    prh_b256_upperleft,
     prh_b256_hex_lower,
+    prh_b256_upperleft,
     prh_b256_lowerleft,
     prh_b256_underscore,
     prh_b256_tilde, // 以上可视为字母和数字
@@ -34768,7 +34768,7 @@ typedef enum: prh_byte {
 } prh_impl_b256_enum;
 
 // 单字节字符分类
-// 0x00      0x10      0x20      0x30  0   0x40  @   0x50  P   0x60  `   0x70  p   0x80      0x90      0xa0      0xb0      0xc0      0xd0      0xe0      0xf0
+// 0x00      0x10      0x20  SP  0x30  0   0x40  @   0x50  P   0x60  `   0x70  p   0x80      0x90      0xa0      0xb0      0xc0      0xd0      0xe0      0xf0
 // 0x01      0x11      0x21  !   0x31  1   0x41  A   0x51  Q   0x61  a   0x71  q   0x81      0x91      0xa1      0xb1      0xc1      0xd1      0xe1      0xf1
 // 0x02      0x12      0x22  "   0x32  2   0x42  B   0x52  R   0x62  b   0x72  r   0x82      0x92      0xa2      0xb2      0xc2      0xd2      0xe2      0xf2
 // 0x03      0x13      0x23  #   0x33  3   0x43  C   0x53  S   0x63  c   0x73  s   0x83      0x93      0xa3      0xb3      0xc3      0xd3      0xe3      0xf3
@@ -34777,11 +34777,11 @@ typedef enum: prh_byte {
 // 0x06      0x16      0x26  &   0x36  6   0x46  F   0x56  V   0x66  f   0x76  v   0x86      0x96      0xa6      0xb6      0xc6      0xd6      0xe6      0xf6
 // 0x07      0x17      0x27  '   0x37  7   0x47  G   0x57  W   0x67  g   0x77  w   0x87      0x97      0xa7      0xb7      0xc7      0xd7      0xe7      0xf7
 // 0x08      0x18      0x28  (   0x38  8   0x48  H   0x58  X   0x68  h   0x78  x   0x88      0x98      0xa8      0xb8      0xc8      0xd8      0xe8      0xf8
-// 0x09      0x19      0x29  )   0x39  9   0x49  I   0x59  Y   0x69  i   0x79  y   0x89      0x99      0xa9      0xb9      0xc9      0xd9      0xe9      0xf9
-// 0x0a      0x1a      0x2a  *   0x3a  :   0x4a  J   0x5a  Z   0x6a  j   0x7a  z   0x8a      0x9a      0xaa      0xba      0xca      0xda      0xea      0xfa
-// 0x0b      0x1b      0x2b  +   0x3b  ;   0x4b  K   0x5b  [   0x6b  k   0x7b  {   0x8b      0x9b      0xab      0xbb      0xcb      0xdb      0xeb      0xfb
-// 0x0c      0x1c      0x2c  ,   0x3c  <   0x4c  L   0x5c  \   0x6c  l   0x7c  |   0x8c      0x9c      0xac      0xbc      0xcc      0xdc      0xec      0xfc
-// 0x0d      0x1d      0x2d  -   0x3d  =   0x4d  M   0x5d  ]   0x6d  m   0x7d  }   0x8d      0x9d      0xad      0xbd      0xcd      0xdd      0xed      0xfd
+// 0x09  \t  0x19      0x29  )   0x39  9   0x49  I   0x59  Y   0x69  i   0x79  y   0x89      0x99      0xa9      0xb9      0xc9      0xd9      0xe9      0xf9
+// 0x0a  \n  0x1a      0x2a  *   0x3a  :   0x4a  J   0x5a  Z   0x6a  j   0x7a  z   0x8a      0x9a      0xaa      0xba      0xca      0xda      0xea      0xfa
+// 0x0b  \v  0x1b      0x2b  +   0x3b  ;   0x4b  K   0x5b  [   0x6b  k   0x7b  {   0x8b      0x9b      0xab      0xbb      0xcb      0xdb      0xeb      0xfb
+// 0x0c  \f  0x1c      0x2c  ,   0x3c  <   0x4c  L   0x5c  \   0x6c  l   0x7c  |   0x8c      0x9c      0xac      0xbc      0xcc      0xdc      0xec      0xfc
+// 0x0d  \r  0x1d      0x2d  -   0x3d  =   0x4d  M   0x5d  ]   0x6d  m   0x7d  }   0x8d      0x9d      0xad      0xbd      0xcd      0xdd      0xed      0xfd
 // 0x0e      0x1e      0x2e  .   0x3e  >   0x4e  N   0x5e  ^   0x6e  n   0x7e  ~   0x8e      0x9e      0xae      0xbe      0xce      0xde      0xee      0xfe
 // 0x0f      0x1f      0x2f  /   0x3f  ?   0x4f  O   0x5f  _   0x6f  o   0x7f  DEL 0x8f      0x9f      0xaf      0xbf      0xcf      0xdf      0xef      0xff
 // 0000_0000 0001_0000 0010_0000 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000 1000_0000 1001_0000 1010_0000 1011_0000 1100_0000 1101_0000 1110_0000 1111_0000
@@ -35287,8 +35287,8 @@ static const prh_impl_iden_enum prh_impl_iden[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_iden_cont_char,
     /* prh_b256_digitleft   */ prh_iden_cont_char,
     /* prh_b256_hex_upper   */ prh_iden_cont_char,
-    /* prh_b256_upperleft   */ prh_iden_cont_char,
     /* prh_b256_hex_lower   */ prh_iden_cont_char,
+    /* prh_b256_upperleft   */ prh_iden_cont_char,
     /* prh_b256_lowerleft   */ prh_iden_cont_char,
     /* prh_b256_underscore  */ prh_iden_cont_char,
     /* prh_b256_tilde       */ prh_iden_invalid,
@@ -35535,8 +35535,8 @@ static const prh_impl_opch_enum prh_impl_opch[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_opch_lit_end,
     /* prh_b256_digitleft   */ prh_opch_lit_end,
     /* prh_b256_hex_upper   */ prh_opch_lit_end,
-    /* prh_b256_upperleft   */ prh_opch_lit_end,
     /* prh_b256_hex_lower   */ prh_opch_lit_end,
+    /* prh_b256_upperleft   */ prh_opch_lit_end,
     /* prh_b256_lowerleft   */ prh_opch_lit_end,
     /* prh_b256_underscore  */ prh_opch_lit_end,
     /* prh_b256_tilde       */ prh_opch_lit_end,
@@ -35572,15 +35572,15 @@ static const prh_impl_opch_enum prh_impl_opch[prh_b256_enum_max] = {
 typedef struct {
     prh_byte subval;
     prh_tokid oper;
-} prh_impl_char_type;
+} prh_impl_oper_type;
 
-static const prh_impl_char_type prh_impl_emark[2] = {
+static const prh_impl_oper_type prh_impl_emark[2] = {
     {0x21, PRH_OP_BOOL},// 0x21 !
     {0x3d, PRH_OP_NE},  // 0x3d =
 };
 
 int prh_impl_emark_oper(prh_byte c) {
-    prh_impl_char_type *p = prh_impl_emark + ((c & 0x10) >> 4);
+    prh_impl_oper_type *p = prh_impl_emark + ((c & 0x10) >> 4);
     return (c - p->subval == 0) ? p->oper : PRH_TOKERR;
 }
 
@@ -35612,8 +35612,8 @@ static const prh_impl_haop_enum prh_impl_haop[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_haop_digitzero,
     /* prh_b256_digitleft   */ prh_haop_digitleft,
     /* prh_b256_hex_upper   */ prh_haop_letter,
-    /* prh_b256_upperleft   */ prh_haop_letter,
     /* prh_b256_hex_lower   */ prh_haop_letter,
+    /* prh_b256_upperleft   */ prh_haop_letter,
     /* prh_b256_lowerleft   */ prh_haop_letter,
     /* prh_b256_underscore  */ prh_haop_letter,
     /* prh_b256_tilde       */ prh_haop_tilde,
@@ -35656,8 +35656,8 @@ static const prh_impl_doop_enum prh_impl_doop[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_doop_digitzero,
     /* prh_b256_digitleft   */ prh_doop_digitleft,
     /* prh_b256_hex_upper   */ prh_doop_letter,
-    /* prh_b256_upperleft   */ prh_doop_letter,
     /* prh_b256_hex_lower   */ prh_doop_letter,
+    /* prh_b256_upperleft   */ prh_doop_letter,
     /* prh_b256_lowerleft   */ prh_doop_letter,
     /* prh_b256_underscore  */ prh_doop_letter,
     /* prh_b256_tilde       */ prh_doop_tilde,
@@ -35688,7 +35688,7 @@ static const prh_impl_perc_type prh_impl_perc[2] = {
 };
 
 int prh_impl_perc_oper(prh_byte c) {
-    prh_impl_char_type *p = prh_impl_perc + ((c & 0x10) >> 4);
+    prh_impl_oper_type *p = prh_impl_perc + ((c & 0x10) >> 4);
     return (c - p->subval == 0) ? p->oper : PRH_TOKERR;
 }
 
@@ -35721,7 +35721,7 @@ int prh_impl_oper_percent(prh_lexer *l) { // 0025 % %% %=
 // 0010_0000 0011_0000 0100_0000 0101_0000
 // 0010_1111 0011_1111 0100_1111 0101_1111
 
-static const prh_impl_char_type prh_impl_band[4] = {
+static const prh_impl_oper_type prh_impl_band[4] = {
     {0x5e, PRH_TOKERR},
     {0x5e, PRH_OP_BIT_NAND},    // 0x5e ^ 01[01]_1110
     {0x26, PRH_OP_LAND},        // 0x26 & 00[10]_0110
@@ -35729,7 +35729,7 @@ static const prh_impl_char_type prh_impl_band[4] = {
 };
 
 int prh_impl_band_oper(prh_byte c) {
-    prh_impl_char_type *p = prh_impl_band + ((c & 0x30) >> 4);
+    prh_impl_oper_type *p = prh_impl_band + ((c & 0x30) >> 4);
     return (c - p->subval == 0) ? p->oper : PRH_TOKERR;
 }
 
@@ -35765,13 +35765,13 @@ int prh_impl_oper_bitand(prh_lexer *l) { // 0026 & && &= &^ &^=
 // 0010_0000 0011_0000
 // 0010_1111 0011_1111
 
-static const prh_impl_char_type prh_impl_star[4] = {
+static const prh_impl_oper_type prh_impl_star[4] = {
     {0x2f, PRH_COMMENT},
     {0x3d, PRH_OP_MUL_ASSIGN},
 };
 
 int prh_impl_star_oper(prh_byte c) {
-    prh_impl_char_type *p = prh_impl_star + ((c & 0x10) >> 4);
+    prh_impl_oper_type *p = prh_impl_star + ((c & 0x10) >> 4);
     return (c - p->subval == 0) ? p->oper : PRH_TOKERR;
 }
 
@@ -35872,8 +35872,8 @@ static const prh_impl_cmmt_enum prh_impl_cmmt[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_cmmt_continue,
     /* prh_b256_digitleft   */ prh_cmmt_continue,
     /* prh_b256_hex_upper   */ prh_cmmt_continue,
-    /* prh_b256_upperleft   */ prh_cmmt_continue,
     /* prh_b256_hex_lower   */ prh_cmmt_continue,
+    /* prh_b256_upperleft   */ prh_cmmt_continue,
     /* prh_b256_lowerleft   */ prh_cmmt_continue,
     /* prh_b256_underscore  */ prh_cmmt_continue,
     /* prh_b256_tilde       */ prh_cmmt_continue,
@@ -36173,7 +36173,7 @@ int prh_impl_oper_atsign(prh_lexer *l) {
 // 0010_0000 0011_0000 0100_0000 0101_0000
 // 0010_1111 0011_1111 0100_1111 0101_1111
 
-static const prh_impl_char_type prh_impl_bxor[4] = {
+static const prh_impl_oper_type prh_impl_bxor[4] = {
     {0x5e, PRH_TOKERR},
     {0x5e, PRH_OP_BIT_XNOR},    // 0x5e ^ 01[01]_1110
     {0x3d, PRH_TOKERR},
@@ -36181,7 +36181,7 @@ static const prh_impl_char_type prh_impl_bxor[4] = {
 };
 
 int prh_impl_bxor_oper(prh_byte c) {
-    prh_impl_char_type *p = prh_impl_bxor + ((c & 0x30) >> 4);
+    prh_impl_oper_type *p = prh_impl_bxor + ((c & 0x30) >> 4);
     return (c - p->subval == 0) ? p->oper : PRH_TOKERR;
 }
 
@@ -36261,7 +36261,7 @@ int prh_impl_oper_tbits(prh_lexer *l) { // 32位十进制整数打上了类型�
 // 0011_0000 0100_0000 0101_0000 0110_0000 0111_0000
 // 0011_1111 0100_1111 0101_1111 0110_1111 0111_1111
 
-static const prh_impl_char_type prh_impl_btor[8] = {
+static const prh_impl_oper_type prh_impl_btor[8] = {
     {0x3d, PRH_TOKERR},         // 0000
     {0x3d, PRH_TOKERR},         // 0001
     {0x3d, PRH_TOKERR},         // 0010
@@ -36273,7 +36273,7 @@ static const prh_impl_char_type prh_impl_btor[8] = {
 };
 
 int prh_impl_btor_oper(prh_byte c) {
-    prh_impl_char_type *p = prh_impl_btor + ((c & 0x70) >> 4);
+    prh_impl_oper_type *p = prh_impl_btor + ((c & 0x70) >> 4);
     return (c - p->subval == 0) ? p->oper : PRH_TOKERR;
 }
 
@@ -36358,6 +36358,124 @@ static const prh_impl_oper_func prh_impl_opev[31] = {
 int prh_lexer_operator(prh_lexer *l, prh_byte c) {
     prh_r16 r4i5s7 = prh_impl_opet[(c & 0x70) >> 4];
     return prh_impl_opev[(c -= (r4i5s7 & 0x7F)) + ((r4i5s7 >> 7) & 0x1F)](l);
+}
+
+bool prh_is_digit(int c) {
+    return c >= '0' && c <= '9';
+}
+
+bool prh_is_hex_digit(int c) { // 0 ~ 9 A ~ F a ~ f
+    return (prh_impl_b256[c] - prh_b256_digitzero) <= 3;
+}
+
+bool prh_is_upper(int c) {
+    return c >= 'A' && c <= 'Z';
+}
+
+bool prh_is_lower(int c) {
+    return c >= 'a' && c <= 'z';
+}
+
+bool prh_is_letter(int c) {
+    return (prh_impl_b256[c] - prh_b256_hex_upper) <= 3;
+}
+
+int prh_to_lower(int c) {
+    return prh_is_upper(c) ? c + ('a' - 'A') : c;
+}
+
+int prh_to_upper(int c) {
+    return prh_is_lower(c) ? c - ('a' - 'A') : c;
+}
+
+int prh_flip_case(int c) {
+    return prh_is_upper(c) ? c + ('a' - 'A') :
+        prh_is_lower(c) ? c - ('a' - 'A') : c;
+}
+
+bool prh_is_letter_digit(int c) { // letter + digit
+    return (prh_impl_b256[c] - prh_b256_digitzero) <= 5;
+}
+
+bool prh_is_ident_start(int c) { // letter + underscore
+    return (prh_impl_b256[c] - prh_b256_hex_upper) <= 4;
+}
+
+bool prh_is_ident_continue(int c) { // letter + underscore + digit
+    return (prh_impl_b256[c] - prh_b256_digitzero) <= 6;
+}
+
+bool prh_is_control(int c) {
+    return (c >= 0x00 && c <= 0x1f) || c == 0x7f;
+}
+
+bool prh_is_print(int c) {
+    return c >= 0x20 && c <= 0x7e;
+}
+
+bool prh_is_graph(int c) { // 不包含空格的可打印字符
+    return c >= 0x21 && c <= 0x7e;
+}
+
+bool prh_is_punct(int c) { // 标准标点 ispunct 包含下划线，但这里定义不包含下划线
+    return (prh_impl_b256[c] - prh_b256_tilde) <= 6;
+}
+
+bool prh_is_space(int c) {
+    return c == 0x20 || c == '\t';
+}
+
+bool prh_is_newline(int c) {
+    return c == '\r' || c == '\n';
+}
+
+typedef struct {
+    prh_byte subval;
+    prh_byte range;
+    prh_byte valid;
+} prh_impl_bnch_type;
+
+static const prh_impl_bnch_type prh_impl_bnch[4] = {
+    {0x09, 0x04, 0x13}, // [09 \t] [0a \n] 0b 0c [0d \r] 1_0011
+    {0x20, 0x00, 0x00},
+    {0x20, 0x00, 0x01}, // [20 SP] 1_000
+    {0x20, 0x00, 0x00}
+};
+
+bool prh_is_blank(int c) { // space and newline SP \t \r \n
+    prh_impl_bnch_type t = prh_impl_bnch[(c & 0x30) >> 4];
+    return (c -= t.subval) <= t.range && ((1 << c) & t.valid);
+}
+
+// 0x00      0x10      0x20  SP
+// 0x01      0x11      0x21  !
+// 0x02      0x12      0x22  "
+// 0x03      0x13      0x23  #
+// 0x04      0x14      0x24  $
+// 0x05      0x15      0x25  %
+// 0x06      0x16      0x26  &
+// 0x07      0x17      0x27  '
+// 0x08      0x18      0x28  (
+// 0x09  \t  0x19      0x29  )
+// 0x0a  \n  0x1a      0x2a  *
+// 0x0b  \v  0x1b      0x2b  +
+// 0x0c  \f  0x1c      0x2c  ,
+// 0x0d  \r  0x1d      0x2d  -
+// 0x0e      0x1e      0x2e  .
+// 0x0f      0x1f      0x2f  /
+// 0000_0000 0001_0000 0010_0000
+// 0000_1111 0001_1111 0010_1111
+
+static const prh_impl_char_range prh_impl_wsch[4] = {
+    {0x09, 0x04}, // [09 \t] [0a \n] [0b \v] [0c \f] [0d \r]
+    {0x20, 0x00},
+    {0x20, 0x00}, // [20 SP]
+    {0x20, 0x00}
+};
+
+bool prh_is_extend_blank(int c) { // blank + linetab \v + newpage \f
+    prh_impl_char_range t = prh_impl_wsch[(c & 0x3F) >> 4];
+    return (c - t.subval) <= t.irange;
 }
 
 // 字符，要么是字节 byte，要么四字节 char
@@ -36500,8 +36618,8 @@ static const prh_impl_ulit_enum prh_impl_ulit[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_ulit_digitzero,
     /* prh_b256_digitleft   */ prh_ulit_digitleft,
     /* prh_b256_hex_upper   */ prh_ulit_letter,
-    /* prh_b256_upperleft   */ prh_ulit_letter,
     /* prh_b256_hex_lower   */ prh_ulit_letter,
+    /* prh_b256_upperleft   */ prh_ulit_letter,
     /* prh_b256_lowerleft   */ prh_ulit_letter,
     /* prh_b256_underscore  */ prh_ulit_letter,
     /* prh_b256_tilde       */ prh_ulit_tilde,
@@ -36616,8 +36734,8 @@ static const prh_impl_bstr_enum prh_impl_bstr[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_bstr_continue,
     /* prh_b256_digitleft   */ prh_bstr_continue,
     /* prh_b256_hex_upper   */ prh_bstr_continue,
-    /* prh_b256_upperleft   */ prh_bstr_continue,
     /* prh_b256_hex_lower   */ prh_bstr_continue,
+    /* prh_b256_upperleft   */ prh_bstr_continue,
     /* prh_b256_lowerleft   */ prh_bstr_continue,
     /* prh_b256_underscore  */ prh_bstr_continue,
     /* prh_b256_tilde       */ prh_bstr_continue,
@@ -37179,8 +37297,8 @@ static const prh_impl_xstr_enum prh_impl_xstr[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_xstr_digitzero,
     /* prh_b256_digitleft   */ prh_xstr_digitleft,
     /* prh_b256_hex_upper   */ prh_xstr_digitleft,
-    /* prh_b256_upperleft   */ prh_xstr_invalid,
     /* prh_b256_hex_lower   */ prh_xstr_digitleft,
+    /* prh_b256_upperleft   */ prh_xstr_invalid,
     /* prh_b256_lowerleft   */ prh_xstr_invalid,
     /* prh_b256_underscore  */ prh_xstr_skipped,
     /* prh_b256_tilde       */ prh_xstr_invalid,
@@ -37368,8 +37486,8 @@ static const prh_impl_dint_enum prh_impl_dint[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_dint_digit,
     /* prh_b256_digitleft   */ prh_dint_digit,
     /* prh_b256_hex_upper   */ prh_dint_letter,
-    /* prh_b256_upperleft   */ prh_dint_letter,
     /* prh_b256_hex_lower   */ prh_dint_letter,
+    /* prh_b256_upperleft   */ prh_dint_letter,
     /* prh_b256_lowerleft   */ prh_dint_letter,
     /* prh_b256_underscore  */ prh_dint_underscore,
     /* prh_b256_tilde       */ prh_dint_invalid,
@@ -37505,8 +37623,8 @@ static const prh_impl_dfrb_enum prh_impl_dfrb[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_dfrb_digit,
     /* prh_b256_digitleft   */ prh_dfrb_digit,
     /* prh_b256_hex_upper   */ prh_dfrb_letter,
-    /* prh_b256_upperleft   */ prh_dfrb_letter,
     /* prh_b256_hex_lower   */ prh_dfrb_letter,
+    /* prh_b256_upperleft   */ prh_dfrb_letter,
     /* prh_b256_lowerleft   */ prh_dfrb_letter,
     /* prh_b256_underscore  */ prh_dfrb_invalid,
     /* prh_b256_tilde       */ prh_dfrb_invalid,
@@ -37582,8 +37700,8 @@ static const prh_impl_dotb_enum prh_impl_dotb[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_dotb_digit,
     /* prh_b256_digitleft   */ prh_dotb_digit,
     /* prh_b256_hex_upper   */ prh_dotb_op_dot,
-    /* prh_b256_upperleft   */ prh_dotb_op_dot,
     /* prh_b256_hex_lower   */ prh_dotb_op_dot,
+    /* prh_b256_upperleft   */ prh_dotb_op_dot,
     /* prh_b256_lowerleft   */ prh_dotb_op_dot,
     /* prh_b256_underscore  */ prh_dotb_op_dot,
     /* prh_b256_tilde       */ prh_dotb_op_dot,
@@ -37616,8 +37734,8 @@ static const prh_impl_dotc_enum prh_impl_dotc[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_dotc_digit,
     /* prh_b256_digitleft   */ prh_dotc_digit,
     /* prh_b256_hex_upper   */ prh_dotc_letter,
-    /* prh_b256_upperleft   */ prh_dotc_letter,
     /* prh_b256_hex_lower   */ prh_dotc_letter,
+    /* prh_b256_upperleft   */ prh_dotc_letter,
     /* prh_b256_lowerleft   */ prh_dotc_letter,
     /* prh_b256_underscore  */ prh_dotc_underscore,
     /* prh_b256_tilde       */ prh_dotc_invalid,
@@ -37839,8 +37957,8 @@ static const prh_impl_dieE_enum prh_impl_dieE[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_dieE_digit,
     /* prh_b256_digitleft   */ prh_dieE_digit,
     /* prh_b256_hex_upper   */ prh_dieE_letter,
-    /* prh_b256_upperleft   */ prh_dieE_letter,
     /* prh_b256_hex_lower   */ prh_dieE_letter,
+    /* prh_b256_upperleft   */ prh_dieE_letter,
     /* prh_b256_lowerleft   */ prh_dieE_letter,
     /* prh_b256_underscore  */ prh_dieE_invalid,
     /* prh_b256_tilde       */ prh_dieE_invalid,
@@ -37896,8 +38014,8 @@ static const prh_impl_dexp_enum prh_impl_dexp[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_dexp_digit,
     /* prh_b256_digitleft   */ prh_dexp_digit,
     /* prh_b256_hex_upper   */ prh_dexp_invalid,
-    /* prh_b256_upperleft   */ prh_dexp_invalid,
     /* prh_b256_hex_lower   */ prh_dexp_invalid,
+    /* prh_b256_upperleft   */ prh_dexp_invalid,
     /* prh_b256_lowerleft   */ prh_dexp_lower,
     /* prh_b256_underscore  */ prh_dexp_underscore,
     /* prh_b256_tilde       */ prh_dexp_invalid,
@@ -37964,8 +38082,8 @@ static const prh_impl_imgl_enum prh_impl_imgl[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_imgl_invalid,
     /* prh_b256_digitleft   */ prh_imgl_invalid,
     /* prh_b256_hex_upper   */ prh_imgl_letter,
-    /* prh_b256_upperleft   */ prh_imgl_letter,
     /* prh_b256_hex_lower   */ prh_imgl_letter,
+    /* prh_b256_upperleft   */ prh_imgl_letter,
     /* prh_b256_lowerleft   */ prh_imgl_letter,
     /* prh_b256_underscore  */ prh_imgl_invalid,
     /* prh_b256_tilde       */ prh_imgl_invalid,
@@ -38045,8 +38163,8 @@ static const prh_impl_hint_enum prh_impl_hint[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_hint_digit,
     /* prh_b256_digitleft   */ prh_hint_digit,
     /* prh_b256_hex_upper   */ prh_hint_digit,
-    /* prh_b256_upperleft   */ prh_hint_exp_imag,
     /* prh_b256_hex_lower   */ prh_hint_digit,
+    /* prh_b256_upperleft   */ prh_hint_exp_imag,
     /* prh_b256_lowerleft   */ prh_hint_exp_imag,
     /* prh_b256_underscore  */ prh_hint_underscore,
     /* prh_b256_tilde       */ prh_hint_invalid,
@@ -38214,8 +38332,8 @@ static const prh_impl_hfrb_enum prh_impl_hfrb[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_hfrb_digit,
     /* prh_b256_digitleft   */ prh_hfrb_digit,
     /* prh_b256_hex_upper   */ prh_hfrb_digit,
-    /* prh_b256_upperleft   */ prh_hfrb_exp_imag,
     /* prh_b256_hex_lower   */ prh_hfrb_digit,
+    /* prh_b256_upperleft   */ prh_hfrb_exp_imag,
     /* prh_b256_lowerleft   */ prh_hfrb_exp_imag,
     /* prh_b256_underscore  */ prh_hfrb_invalid,
     /* prh_b256_tilde       */ prh_hfrb_invalid,
@@ -38328,8 +38446,8 @@ static const prh_impl_bint_enum prh_impl_bint[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_bint_digit,
     /* prh_b256_digitleft   */ prh_bint_digit,
     /* prh_b256_hex_upper   */ prh_bint_invalid,
-    /* prh_b256_upperleft   */ prh_bint_exp_imag,
     /* prh_b256_hex_lower   */ prh_bint_invalid,
+    /* prh_b256_upperleft   */ prh_bint_exp_imag,
     /* prh_b256_lowerleft   */ prh_bint_exp_imag,
     /* prh_b256_underscore  */ prh_bint_underscore,
     /* prh_b256_tilde       */ prh_bint_invalid,
@@ -38512,8 +38630,8 @@ static const prh_impl_bfrb_enum prh_impl_bfrb[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_bfrb_digit,
     /* prh_b256_digitleft   */ prh_bfrb_digit,
     /* prh_b256_hex_upper   */ prh_bfrb_invalid,
-    /* prh_b256_upperleft   */ prh_bfrb_exp_imag,
     /* prh_b256_hex_lower   */ prh_bfrb_invalid,
+    /* prh_b256_upperleft   */ prh_bfrb_exp_imag,
     /* prh_b256_lowerleft   */ prh_bfrb_exp_imag,
     /* prh_b256_underscore  */ prh_bfrb_invalid,
     /* prh_b256_tilde       */ prh_bfrb_invalid,
@@ -38655,8 +38773,8 @@ static const prh_impl_bbox_enum prh_impl_bbox[prh_b256_enum_max] = {
     /* prh_b256_digitzero   */ prh_bbox_digit,
     /* prh_b256_digitleft   */ prh_bbox_digit,
     /* prh_b256_hex_upper   */ prh_bbox_letter,
-    /* prh_b256_upperleft   */ prh_bbox_invalid,
     /* prh_b256_hex_lower   */ prh_bbox_letter,
+    /* prh_b256_upperleft   */ prh_bbox_invalid,
     /* prh_b256_lowerleft   */ prh_bbox_letter,
     /* prh_b256_underscore  */ prh_bbox_underscore,
     /* prh_b256_tilde       */ prh_bbox_invalid,
