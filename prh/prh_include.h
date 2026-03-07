@@ -707,6 +707,18 @@ extern "C" {
 
 #ifndef prh_impl_basic_types
     #define prh_impl_basic_types
+    #define PRH_I08_MIN ((prh_i08)-127-1)   // 0x80 128
+    #define PRH_I08_MAX ((prh_i08)127)      // 0x7f 127
+    #define PRH_I08_UMX ((prh_r08)255)      // 0xff 255
+    #define PRH_I16_MIN ((prh_i16)-32767-1) // 0x8000 32768
+    #define PRH_I16_MAX ((prh_i16)32767)    // 0x7fff 32767
+    #define PRH_I16_UMX ((prh_r16)65535)    // 0xffff 65535
+    #define PRH_I32_MIN ((prh_i32)-2147483647-1) // 0x8000_0000 2147483648
+    #define PRH_I32_MAX ((prh_i32)2147483647)    // 0x7fff_ffff 2147483647
+    #define PRH_I32_UMX ((prh_r32)4294967295)    // 0xffff_ffff 4294967295
+    #define PRH_I64_MIN ((prh_i64)-9223372036854775807LL-1) // 0x8000_0000_0000_0000  9223372036854775808
+    #define PRH_I64_MAX ((prh_i64)9223372036854775807)      // 0x7fff_ffff_ffff_ffff  9223372036854775807
+    #define PRH_I64_UMX ((prh_r64)18446744073709551615)     // 0xffff_ffff_ffff_ffff 18446744073709551615
     typedef unsigned char prh_byte;
     typedef unsigned char prh_r08;
     typedef signed char prh_i08;
@@ -717,14 +729,22 @@ extern "C" {
     typedef unsigned long long prh_r64;
     typedef long long prh_i64;
 #if prh_arch_bits == 32
-    typedef prh_i32 prh_int;
-    typedef prh_r32 prh_reg;
+    #define PRH_ARCH_INT_MIN PRH_I32_MIN
+    #define PRH_ARCH_INT_MAX PRH_I32_MAX
+    #define PRH_ARCH_INT_UMX PRH_I32_UMX
     typedef prh_i32 prh_arch_int;
     typedef prh_r32 prh_arch_reg;
+    typedef prh_i32 prh_int;
+    typedef prh_r32 prh_reg;
     #define prh_int_bits 32
     #define prh_int_32 1
     #define prh_int_64 0
 #elif prh_arch_bits == 64
+    #define PRH_ARCH_INT_MIN PRH_I64_MIN
+    #define PRH_ARCH_INT_MAX PRH_I64_MAX
+    #define PRH_ARCH_INT_UMX PRH_I64_UMX
+    typedef prh_i64 prh_arch_int;
+    typedef prh_r64 prh_arch_reg;
     #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
         typedef prh_r32 prh_reg;
@@ -738,10 +758,17 @@ extern "C" {
         #define prh_int_32 0
         #define prh_int_64 1
     #endif
-    typedef prh_i64 prh_arch_int;
-    typedef prh_r64 prh_arch_reg;
 #else
     #error unsupported architecture
+#endif
+#if prh_int_bits == 32
+    #define PRH_INT_MIN PRH_I32_MIN
+    #define PRH_INT_MAX PRH_I32_MAX
+    #define PRH_INT_UMX PRH_I32_UMX
+#else
+    #define PRH_INT_MIN PRH_I64_MIN
+    #define PRH_INT_MAX PRH_I64_MAX
+    #define PRH_INT_UMX PRH_I64_UMX
 #endif
     typedef prh_r32 prh_char;
     typedef prh_reg prh_ptr;
@@ -778,41 +805,170 @@ extern "C" {
 typedef enum {
     e_success = 0,
     e_failure = 1,
-    e_error_code_1 = 1,
-    e_error_code_2,
-    e_error_code_3,
-    e_error_code_4,
-    e_error_code_5,
-    e_error_code_6,
-    e_error_code_7,
-    e_error_code_8,
-    e_error_code_9,
-    e_error_code_a,
-    e_error_code_b,
-    e_error_code_c,
-    e_error_code_d,
-    e_error_code_e,
-    e_error_code_f,
-    e_error_code_g,
-    e_error_code_h,
-    e_error_code_i,
-    e_error_code_j,
-    e_error_code_k,
-    e_error_code_l,
-    e_error_code_m,
-    e_error_code_n,
-    e_error_code_o,
-    e_error_code_p,
-    e_error_code_q,
-    e_error_code_r,
-    e_error_code_s,
-    e_error_code_t,
-    e_error_code_u,
-    e_error_code_v,
-    e_error_code_w,
-    e_error_code_x,
-    e_error_code_y,
-    e_error_code_z,
+    e_error_code_0 = 0x00,
+    e_error_code_1 = 0x01,
+    e_error_code_2 = 0x02,
+    e_error_code_3 = 0x03,
+    e_error_code_4 = 0x04,
+    e_error_code_5 = 0x05,
+    e_error_code_6 = 0x06,
+    e_error_code_7 = 0x07,
+    e_error_code_8 = 0x08,
+    e_error_code_9 = 0x09,
+    e_error_code_a = 0x0a,
+    e_error_code_b = 0x0b,
+    e_error_code_c = 0x0c,
+    e_error_code_d = 0x0d,
+    e_error_code_e = 0x0e,
+    e_error_code_f = 0x0f,
+    e_error_code_g = 0x10,
+    e_error_code_h = 0x11,
+    e_error_code_i = 0x12,
+    e_error_code_j = 0x13,
+    e_error_code_k = 0x14,
+    e_error_code_l = 0x15,
+    e_error_code_m = 0x16,
+    e_error_code_n = 0x17,
+    e_error_code_o = 0x18,
+    e_error_code_p = 0x19,
+    e_error_code_q = 0x1a,
+    e_error_code_r = 0x1b,
+    e_error_code_s = 0x1c,
+    e_error_code_t = 0x1d,
+    e_error_code_u = 0x1e,
+    e_error_code_v = 0x1f,
+    e_error_code_w = 0x20,
+    e_error_code_x = 0x21,
+    e_error_code_y = 0x22,
+    e_error_code_z = 0x23,
+    e_error_0x00 = 0x00,
+    e_error_0x01 = 0x01,
+    e_error_0x02 = 0x02,
+    e_error_0x03 = 0x03,
+    e_error_0x04 = 0x04,
+    e_error_0x05 = 0x05,
+    e_error_0x06 = 0x06,
+    e_error_0x07 = 0x07,
+    e_error_0x08 = 0x08,
+    e_error_0x09 = 0x09,
+    e_error_0x0a = 0x0a,
+    e_error_0x0b = 0x0b,
+    e_error_0x0c = 0x0c,
+    e_error_0x0d = 0x0d,
+    e_error_0x0e = 0x0e,
+    e_error_0x0f = 0x0f,
+    e_error_0x10 = 0x10,
+    e_error_0x11 = 0x11,
+    e_error_0x12 = 0x12,
+    e_error_0x13 = 0x13,
+    e_error_0x14 = 0x14,
+    e_error_0x15 = 0x15,
+    e_error_0x16 = 0x16,
+    e_error_0x17 = 0x17,
+    e_error_0x18 = 0x18,
+    e_error_0x19 = 0x19,
+    e_error_0x1a = 0x1a,
+    e_error_0x1b = 0x1b,
+    e_error_0x1c = 0x1c,
+    e_error_0x1d = 0x1d,
+    e_error_0x1e = 0x1e,
+    e_error_0x1f = 0x1f,
+    e_error_0x20 = 0x20,
+    e_error_0x21 = 0x21,
+    e_error_0x22 = 0x22,
+    e_error_0x23 = 0x23,
+    e_error_0x24 = 0x24,
+    e_error_0x25 = 0x25,
+    e_error_0x26 = 0x26,
+    e_error_0x27 = 0x27,
+    e_error_0x28 = 0x28,
+    e_error_0x29 = 0x29,
+    e_error_0x2a = 0x2a,
+    e_error_0x2b = 0x2b,
+    e_error_0x2c = 0x2c,
+    e_error_0x2d = 0x2d,
+    e_error_0x2e = 0x2e,
+    e_error_0x2f = 0x2f,
+    e_error_0x30 = 0x30,
+    e_error_0x31 = 0x31,
+    e_error_0x32 = 0x32,
+    e_error_0x33 = 0x33,
+    e_error_0x34 = 0x34,
+    e_error_0x35 = 0x35,
+    e_error_0x36 = 0x36,
+    e_error_0x37 = 0x37,
+    e_error_0x38 = 0x38,
+    e_error_0x39 = 0x39,
+    e_error_0x3a = 0x3a,
+    e_error_0x3b = 0x3b,
+    e_error_0x3c = 0x3c,
+    e_error_0x3d = 0x3d,
+    e_error_0x3e = 0x3e,
+    e_error_0x3f = 0x3f,
+    e_error_0x40 = 0x40,
+    e_error_0x41 = 0x41,
+    e_error_0x42 = 0x42,
+    e_error_0x43 = 0x43,
+    e_error_0x44 = 0x44,
+    e_error_0x45 = 0x45,
+    e_error_0x46 = 0x46,
+    e_error_0x47 = 0x47,
+    e_error_0x48 = 0x48,
+    e_error_0x49 = 0x49,
+    e_error_0x4a = 0x4a,
+    e_error_0x4b = 0x4b,
+    e_error_0x4c = 0x4c,
+    e_error_0x4d = 0x4d,
+    e_error_0x4e = 0x4e,
+    e_error_0x4f = 0x4f,
+    e_error_0x50 = 0x50,
+    e_error_0x51 = 0x51,
+    e_error_0x52 = 0x52,
+    e_error_0x53 = 0x53,
+    e_error_0x54 = 0x54,
+    e_error_0x55 = 0x55,
+    e_error_0x56 = 0x56,
+    e_error_0x57 = 0x57,
+    e_error_0x58 = 0x58,
+    e_error_0x59 = 0x59,
+    e_error_0x5a = 0x5a,
+    e_error_0x5b = 0x5b,
+    e_error_0x5c = 0x5c,
+    e_error_0x5d = 0x5d,
+    e_error_0x5e = 0x5e,
+    e_error_0x5f = 0x5f,
+    e_error_0x60 = 0x60,
+    e_error_0x61 = 0x61,
+    e_error_0x62 = 0x62,
+    e_error_0x63 = 0x63,
+    e_error_0x64 = 0x64,
+    e_error_0x65 = 0x65,
+    e_error_0x66 = 0x66,
+    e_error_0x67 = 0x67,
+    e_error_0x68 = 0x68,
+    e_error_0x69 = 0x69,
+    e_error_0x6a = 0x6a,
+    e_error_0x6b = 0x6b,
+    e_error_0x6c = 0x6c,
+    e_error_0x6d = 0x6d,
+    e_error_0x6e = 0x6e,
+    e_error_0x6f = 0x6f,
+    e_error_0x70 = 0x70,
+    e_error_0x71 = 0x71,
+    e_error_0x72 = 0x72,
+    e_error_0x73 = 0x73,
+    e_error_0x74 = 0x74,
+    e_error_0x75 = 0x75,
+    e_error_0x76 = 0x76,
+    e_error_0x77 = 0x77,
+    e_error_0x78 = 0x78,
+    e_error_0x79 = 0x79,
+    e_error_0x7a = 0x7a,
+    e_error_0x7b = 0x7b,
+    e_error_0x7c = 0x7c,
+    e_error_0x7d = 0x7d,
+    e_error_0x7e = 0x7e,
+    e_error_0x7f = 0x7f,
     e_aborted,
     e_access_error,
     e_access_denied,
@@ -956,8 +1112,7 @@ typedef enum {
     e_duplicated,
     e_duplicated_name,
     e_empty,
-    e_eof,
-    e_error,
+    e_file_end,
     e_common_error,
     e_application_error,
     e_service_error,
@@ -969,7 +1124,6 @@ typedef enum {
     e_file_exist,
     e_exited,
     e_expired,
-    e_failed,
     e_fatal_error,
     e_fault,
     e_memory_fault,
@@ -1289,6 +1443,7 @@ typedef enum {
     e_network_unreachable,
     e_unrecognized,
     e_unused,
+    e_error_last = 1023, // 0x03ff
 } prh_error_code;
 
 // Linux 操作系统开发与调试命令
@@ -36393,7 +36548,7 @@ int prh_flip_case(int c) {
         prh_is_lower(c) ? c - ('a' - 'A') : c;
 }
 
-bool prh_is_letter_digit(int c) { // letter + digit
+bool prh_is_letter_or_digit(int c) { // letter + digit
     return (prh_impl_b256[c] - prh_b256_digitzero) <= 5;
 }
 
