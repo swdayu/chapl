@@ -2338,11 +2338,11 @@ typedef enum {
 #include <stdio.h> // printf fprintf
 #include <errno.h> // errno POSIX-compatible error code
 
-#ifndef prh_raw_malloc
-#define prh_raw_malloc(size) prh_impl_malloc((size), __LINE__)
-#define prh_raw_calloc(size) prh_impl_calloc((size), __LINE__)
-#define prh_raw_realloc(ptr, size) prh_impl_realloc((ptr), (size), __LINE__)
-#define prh_raw_free free // void free(void *ptr) if ptr is null do nothing
+#ifndef prh_malloc
+#define prh_malloc(size) prh_impl_malloc((size), __LINE__)
+#define prh_calloc(size) prh_impl_calloc((size), __LINE__)
+#define prh_relloc(ptr, size) prh_impl_relloc((ptr), (size), __LINE__)
+#define prh_mafree free // void free(void *ptr) if ptr is null do nothing
 
 // void *malloc(size_t size);
 // the newly allocated block of memory is not initialized, remaining with indeterminate values.
@@ -2382,22 +2382,27 @@ prh_inline void *prh_impl_calloc(prh_reg size, int line) {
 //          return malloc(size)
 //      else
 //          return NULL
-void *prh_impl_realloc(void *ptr, prh_reg size, int line);
-typedef void *(*prh_realloc_func)(void *ptr, prh_reg size);
+void *prh_impl_relloc(void *ptr, prh_reg size, int line);
+typedef void *(*prh_relloc_func)(void *ptr, prh_reg size);
 
 // void *alloc_free(prh_reg size_or_ptr, int line); 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
 // if line == -1
-//      prh_raw_free((void *)size_or_ptr) return null
+//      prh_mafree((void *)size_or_ptr) return null
 // else
 //      return prh_impl_malloc(size, line);
 typedef void *(*prh_alloc_free)(prh_reg size, int line);
-void *prh_default_alloc_free(prh_reg size, int line);
+void *prh_impl_thrd_alloc_free(prh_reg size, int line);
 
-#define prh_current_allocator() PRH_IMPL_TCTX.alloc
-#define prh_set_allocator(alloc) PRH_IMPL_TCTX.alloc = (alloc)
-#define prh_set_default_allocator() prh_set_allocator(prh_default_alloc_free)
-#define prh_memory_alloc(size) PRH_IMPL_TCTX.alloc((size), __LINE__)
-#define prh_memory_free(alloc, ptr) alloc((prh_reg)(ptr), -1)
+prh_inline void prh_impl_tafree(void *p) {
+    p = (void *)((void **)p - 1);
+    (*(prh_alloc_free *)p)((prh_reg)p, -1);
+}
+
+#define prh_talloc_get() PRH_IMPL_TCTX.alloc
+#define prh_talloc_set(alloc) PRH_IMPL_TCTX.alloc = (alloc)
+#define prh_talloc_reset() prh_talloc_set(prh_impl_thrd_alloc_free)
+#define prh_talloc(size) PRH_IMPL_TCTX.alloc((size), __LINE__)
+#define prh_tafree(p) prh_impl_tafree(p)
 #endif // prh_malloc
 
 // https://en.cppreference.com/w/c/memory/aligned_alloc
@@ -2693,6 +2698,42 @@ prh_inline void *prh_impl_aligned_alloc(prh_reg size, int alignment, int line) {
 // 性的山，这座山的上升高度可以超过一个数量级。有良好局部性的程序会从快速的高速缓存中访
 // 问它的大部分数据，明智的程序员应使程序运行在山峰而不是低谷。目标就是利用时间局部性，
 // 使得频繁使用的数据从 L1 中取出；还要利用空间局部性，使得尽可能多的数据命中 L1 缓存。
+//
+// 超线程技术（Hyper-Threading）的核心作用是提高资源利用率，而非提高并发性能。一个物理
+// 核中的两个逻辑核有独立的指令流核寄存器，但共享执行单元、缓存和TLB，其并行度受限于资源
+// 竞争，极端情况反而降速，它是为了效率优化而非真正双核，它相比真正物理双核，只需额外5%
+// 晶体管面积成本，并且功耗低。超线程挖掘指令级并行（ILP），而非真正物理双核的线程级并行
+// （TLP）。Linux 物理核线程的调度，优先填满不同的物理核，避免将关键任务绑定到同一物理
+// 核中的兄弟线程，实时性要求高的任务需绑核隔离。
+//
+//      成本优势（Intel 的设计初衷）
+//      方案        面积开销    功耗增加    性能提升
+//      增加物理核   +100%       +80-100%    +80-100%
+//      超线程      +5%         +10-15%     +20-30%
+//      更大缓存    +20%        +15%        +10-20%（特定负载）
+//      性价比极高：5% 面积换 25% 性能，是 CPU 设计中的"免费午餐"
+//
+// 超线程可以填补物理核中的执行气泡，一个物理核单线程执行时，CPU 大量时间处于等待，例如
+// ALU 忙碌、缓存等待、失速、分支预测、数据依赖等待，导致这个物理核资源的浪费，导致一个
+// 物理核资源的利用率只有 30~50%。而使用超线程，可以利用线程A的等待周期执行线程B，资源
+// 利用率可达到 60~80%。
+//
+//      关键认知纠正
+//      误解                    真相
+//      "超线程 = 双倍性能"      ❌ 仅 +20-30%，且依赖负载
+//      "超线程没用，关掉更好"   ❌ 现代调度器已优化，关闭反而降效
+//      "超线程导致安全问题"     ⚠️ 侧信道存在（如 L1TF），但补丁已缓解
+//      "所有程序都该用超线程"   ❌ 实时性要求高的任务需绑核隔离
+//
+//      何时关闭超线程？
+//      场景                    原因
+//      实时系统（硬 RT）       避免资源竞争导致抖动
+//      密码学/安全关键         防范侧信道攻击
+//      特定 HPC 负载           同构计算争抢资源
+//      基准测试                获得可重复结果
+//
+//      超线程的优势 = 用 5% 面积成本，填补单线程的执行"气泡"，在内存密集型、高并发、
+//      混合负载场景获得 20-30% 吞吐量提升，是数据中心性价比最高的并行技术之一。
 //
 // 一个现代处理器的高速缓存结构：
 //
@@ -3518,10 +3559,10 @@ void prh_print_exit_code(int thrd_id, int exit_code) {
     fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
 }
 
-void *prh_impl_realloc(void *ptr, prh_reg size, int line) {
+void *prh_impl_relloc(void *ptr, prh_reg size, int line) {
     if (ptr != prh_null) {
         if (size == 0) { free(ptr); return prh_null; }
-        ptr = ralloc(ptr, size);
+        ptr = realloc(ptr, size);
     } else {
         if (size == 0) return prh_null; // 相当于 free(prh_null)
         ptr = malloc(size);
@@ -3530,10 +3571,14 @@ void *prh_impl_realloc(void *ptr, prh_reg size, int line) {
     return ptr;
 }
 
-void *prh_default_alloc_free(prh_reg size, int line) {
-    if (line != -1) return prh_impl_malloc(size, line);
-    prh_raw_free((void *)size);
-    return prh_null;
+void *prh_impl_thrd_alloc_free(prh_reg size, int line) {
+    if (line == -1) {
+        prh_mafree((void *)size);
+        return prh_null;
+    }
+    void *p = prh_impl_malloc(sizeof(void *) + size, line);
+    *(void **)p = prh_impl_thrd_alloc_free;
+    return (void *)((void **)p + 1);
 }
 
 #if defined(prh_plat_windows)
@@ -9209,11 +9254,11 @@ prh_inline void prh_impl_critical_section_init(void *critical_section) {
 //          }
 //      }
 //
-// 工作密迁队列（Work Stealing Queue）。大多数调度器，例如 CLR 线程池，在运行时都是基
+// 工作密迁队列（Work Stealing Queue）。大多数调度器，例如 CLR 线程池，在运行时都是基   *** 工作密迁队列
 // 于一个全局工作队列。这个队列由一个锁保护，所有的入队操作和出队操作都必须被串行化。池
 // 中的每个工作线程在完成当前任务之后，都要回到这个队列并取出一个新的工作项。这种方式虽
-// 然简单，但却会导致在队列种发生大量竞争。对于执行时间很短的细粒度任务来说，随着处理器
-// 数量的增加，线程在竞争种所耗费的时间也将增加。另一种数据结构称为工作密迁队列，这个队
+// 然简单，但却会导致在队列中发生大量竞争。对于执行时间很短的细粒度任务来说，随着处理器
+// 数量的增加，线程在竞争中所耗费的时间也将增加。另一种数据结构称为工作密迁队列，这个队
 // 列可以极大地减少这种竞争并且提高可伸缩性。这个队列使得线程在自己的私有端（Private
 // End）执行压入和弹出操作非常简单，并且允许其他线程从另一端执行弹出（密迁）操作，但是
 // 从外部执行压入操作是不被允许的。每个处理器自己产生的任务都压入自己本地的私有端，当每
@@ -14752,7 +14797,7 @@ void prh_impl_thrd_prestart_init(prh_thrd *thrd) {
     prh_impl_plat_print_thrd_info(thrd);
 #endif
     thrd->extra_ptr = 0; // 可以在用户线程函数中重用 extra_ptr
-    prh_set_default_allocator();
+    prh_talloc_reset();
 }
 
 int prh_impl_thrd_start_proc(prh_thrd *thrd) {
@@ -25152,7 +25197,7 @@ struct tcp_callback {
 //  1.  可同时接收 max_outstanding_accepts 个客户连接，该值必须小于等于 max_client_connections
 //  2.  可同时服务 max_client_connections 个客户连接
 //  3.  当达到最大客户连接后，必须释放原来的客户连接，才能接收新的连接
-//  4.  struct tcp_listen 和所有的 prh_accept_req 通过 prh_memory_alloc 进行分配
+//  4.  struct tcp_listen 和所有的 prh_accept_req 通过 prh_talloc 进行分配
 //  5.  struct tcp_server 由所在线程通过 prh_co_alloc 进行分配
 
 struct tcp_listen {
@@ -28103,7 +28148,7 @@ void prh_impl_listen_resue_socket(struct tcp_listen *listen, struct tcp_socket *
         }
     }
     if (!empty_idle_accept_found) {
-        prh_memory_free(listen->alloc, socket);
+        prh_tafree(socket);
     }
 
     int num_accept_can_request = listen->max_client_connections - listen->connection_count;
@@ -28283,10 +28328,10 @@ struct tcp_listen *prh_impl_alloc_tcp_listen(struct tcp_listen_params *params) {
 
     // [struct tcp_listen] [struct prh_accept_req] ... [struct prh_accept_req]
     prh_reg alloc_size = PRH_TCP_LISTEN_STRUCT_SIZE + listen_params.max_outstanding_accepts * PRH_TCP_ACCEPT_STRUCT_SIZE;
-    struct tcp_listen *tcp_listen = prh_memory_alloc(alloc_size);
+    struct tcp_listen *tcp_listen = prh_talloc(alloc_size);
     memset(tcp_listen, 0, alloc_size);
     tcp_listen->socket = PRH_INVASOCK;
-    tcp_listen->alloc = prh_current_allocator();
+    tcp_listen->alloc = prh_talloc_get();
     tcp_listen->max_kernel_pre_accepts = listen_params.max_kernel_pre_accepts;
     tcp_listen->max_client_connections = listen_params.max_client_connections;
     tcp_listen->max_outstanding_accepts = listen_params.max_outstanding_accepts;
@@ -28359,7 +28404,7 @@ struct tcp_listen *prh_tcp_listen(const void *host, int flags_port, struct tcp_l
 label_error_handle:
     prh_prerr(error_code);
     prh_impl_close_socket(listen_socket);
-    prh_memory_free(listen->alloc, listen);
+    prh_tafree(listen);
     return prh_null;
 }
 
