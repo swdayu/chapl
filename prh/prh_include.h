@@ -57,7 +57,7 @@
 // from `prh_array_*` interfaces.
 //
 // Not all the names have strippable prefixes. All the redefinable names like
-// `prh_realloc` and `PRH_ARRAY_INIT_ELEMS` for instance will retain their
+// `prh_relloc` and `PRH_ARRAY_INIT_ELEMS` for instance will retain their
 // prefix. All basic names like `prh_i64` and `prh_inline` can not strip off
 // the prefix due to they are short names anyway. But you can still #define
 // your own names as you need before or after include prh_include.h. All
@@ -773,6 +773,7 @@ extern "C" {
     typedef prh_r32 prh_char;
     typedef prh_reg prh_ptr;
     typedef prh_arch_reg prh_arch_ptr;
+    typedef prh_arch_reg prh_handle;
     typedef float prh_f32;
     typedef double prh_f64;
     typedef prh_f32 prh_float;
@@ -1729,18 +1730,11 @@ typedef enum {
 #endif
 
 #ifdef PRH_CONO_INCLUDE
-#define PRH_IOCP_INCLUDE
+#define PRH_THRD_INCLUDE
 #define PRH_CORO_INCLUDE
 #ifdef PRH_CONO_IMPLEMENTATION
-#define PRH_IOCP_IMPLEMENTATION
-#define PRH_CORO_IMPLEMENTATION
-#endif
-#endif
-
-#ifdef PRH_IOCP_INCLUDE
-#define PRH_THRD_INCLUDE
-#ifdef PRH_IOCP_IMPLEMENTATION
 #define PRH_THRD_IMPLEMENTATION
+#define PRH_CORO_IMPLEMENTATION
 #endif
 #endif
 
@@ -2030,8 +2024,21 @@ typedef enum {
     //  ULONG_PTR
     //  UINT_PTR
     #include <windows.h>
-    #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_abort_error(GetLastError()); }
-    #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_prerr(GetLastError()); }
+    #include <winternl.h> // ULONG RtlNtStatusToDosError([in] NTSTATUS Status);
+    #ifdef PRH_SOCK_INCLUDE
+    #include <winsock2.h> // ws2def.h (include Winsock2.h)
+    #include <mswsock.h> // WSAID_ACCEPTEX RIO_EXTENSION_FUNCTION_TABLE
+    #define PRH_IMPL_WINDOWS_SOCKET
+    #define PRH_IMPL_WINDOWS_IOCP
+    #define PRH_IMPL_WINDOWS_RIO
+    #define PRH_INVASOCK INVALID_SOCKET
+    #define prh_wsa_prerr() prh_impl_prerr(__LINE__, WSAGetLastError())
+    #define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
+    #define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
+    #define prh_wsa_abort_error() prh_impl_abort_error(__LINE__, WSAGetLastError())
+    #endif
+    #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(__LINE__, GetLastError()); }
+    #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(__LINE__, GetLastError()); }
     // https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
     // 检测内存泄漏的主要工具是 C/C++ 调试器和 CRT 调试堆函数。要启用所有调试堆函数，
     // 需要在你的 C++ 程序中按以下顺序包含下面的语句。其中 #define _CRTDBG_MAP_ALLOC
@@ -2321,7 +2328,20 @@ typedef enum {
     #endif
     #include <pthread.h> // pthread_create POSIX.1-2008
     #include <unistd.h> // sysconf confstr POSIX.1-2008
-    #define PRH_POSIX_ZERORET(a) if (a) { prh_abort_error(errno); }
+    #include <sys/types.h>
+    #ifdef PRH_SOCK_INCLUDE
+    #include <sys/socket.h>
+    #include <netinet/in.h>
+    #include <arpa/inet.h>
+    #include <netdb.h>
+    #define PRH_IMPL_POSIX_SOCKET
+    #define PRH_INVASOCK (-1)
+    #if defined(prh_plat_linux)
+    #define PRH_IMPL_LINUX_EPOLL
+    #define PRH_IMPL_LINUX_IOUR
+    #endif // prh_plat_linux
+    #endif // PRH_SOCK_INCLUDE
+    #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(__LINE__, errno); }
 #endif // prh_plat_posix
 #endif // ATOMIC THRD TIME CONO_IMPLEMENTATION
 
@@ -2399,7 +2419,7 @@ prh_inline void prh_impl_tafree(void *p) {
 }
 
 #define prh_talloc_get() PRH_IMPL_TCTX.alloc
-#define prh_talloc_set(alloc) PRH_IMPL_TCTX.alloc = (alloc)
+#define prh_talloc_set(a) PRH_IMPL_TCTX.alloc = (a)
 #define prh_talloc_reset() prh_talloc_set(prh_impl_thrd_alloc_free)
 #define prh_talloc(size) PRH_IMPL_TCTX.alloc((size), __LINE__)
 #define prh_tafree(p) prh_impl_tafree(p)
@@ -3577,7 +3597,7 @@ void *prh_impl_thrd_alloc_free(prh_reg size, int line) {
         return prh_null;
     }
     void *p = prh_impl_malloc(sizeof(void *) + size, line);
-    *(void **)p = prh_impl_thrd_alloc_free;
+    *(void **)p = (void *)prh_impl_thrd_alloc_free;
     return (void *)((void **)p + 1);
 }
 
@@ -4002,10 +4022,10 @@ prh_inline void prh_impl_arrfit_init_inplace(prh_impl_arrfit *arrfit, void *buff
 #define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrdyn_elem_size(p)) // 生成的数组 capacity 总是 2 的幂
 #define prh_arrlax_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrlax_elem_size(p)); (p)->start = 0; } // 生成的数组 capacity 总是 2 的幂
 
-#define prh_arrfix_free(p) { prh_free((p)->arrfix); prh_debug((p)->arrfix = prh_null); }
-#define prh_arrfit_free(p) { prh_free((p)->arrfit); prh_debug((p)->arrfit = prh_null); }
-#define prh_arrdyn_free(p) { prh_free((p)->arrdyn); prh_debug((p)->arrdyn = prh_null); }
-#define prh_arrlax_free(p) { prh_free((p)->arrlax); prh_debug((p)->arrlax = prh_null); }
+#define prh_arrfix_free(p) { prh_mafree((p)->arrfix); prh_debug((p)->arrfix = prh_null); }
+#define prh_arrfit_free(p) { prh_mafree((p)->arrfit); prh_debug((p)->arrfit = prh_null); }
+#define prh_arrdyn_free(p) { prh_mafree((p)->arrdyn); prh_debug((p)->arrdyn = prh_null); }
+#define prh_arrlax_free(p) { prh_mafree((p)->arrlax); prh_debug((p)->arrlax = prh_null); }
 
 prh_inline void prh_impl_arrdyn_clear(prh_impl_arrdyn *p) { p->size = 0; }
 #define prh_arrfit_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrfit_addr(p))
@@ -4064,10 +4084,10 @@ prh_inline void prh_strfit_init(prh_strfit *p, prh_int capacity) { prh_impl_stri
 prh_inline void prh_string_init(prh_string *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
 prh_inline void prh_strlax_init(prh_strlax *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); p->start = 0; }
 
-prh_inline void prh_strfix_free(prh_strfix *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_strfit_free(prh_strfit *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_string_free(prh_string *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_strlax_free(prh_strlax *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strfix_free(prh_strfix *p) { prh_mafree(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strfit_free(prh_strfit *p) { prh_mafree(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_string_free(prh_string *p) { prh_mafree(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strlax_free(prh_strlax *p) { prh_mafree(p->s); prh_debug(p->s = prh_null); }
 
 prh_inline void prh_strfit_clear(prh_strfit *p) { p->size = 0; }
 prh_inline void prh_string_clear(prh_string *p) { p->size = 0; }
@@ -4457,7 +4477,7 @@ void prh_impl_arrdyn_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity, p
     if (new_capacity > capacity) {
         do capacity *= 2; while (new_capacity > capacity);
         p->capacity = capacity;
-        p->arrdyn = prh_realloc(p->arrdyn, capacity * elem_size);
+        p->arrdyn = prh_relloc(p->arrdyn, capacity * elem_size);
     }
 }
 
@@ -4466,7 +4486,7 @@ void prh_impl_string_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
     if (new_capacity > capacity) {
         do capacity *= 2; while (new_capacity > capacity);
         p->capacity = capacity;
-        p->arrdyn = prh_realloc(p->arrdyn, capacity);
+        p->arrdyn = prh_relloc(p->arrdyn, capacity);
     }
 }
 
@@ -4475,7 +4495,7 @@ void prh_impl_arrdyn_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity, p
     if (new_capacity <= capacity / 2) { // 只要新容量大于旧容量的一半就不需要缩减，因为容量总是2的幂
         do capacity /= 2; while (new_capacity <= capacity / 2);
         p->capacity = capacity;
-        p->arrdyn = prh_realloc(p->arrdyn, capacity * elem_size);
+        p->arrdyn = prh_relloc(p->arrdyn, capacity * elem_size);
     }
 }
 
@@ -4484,7 +4504,7 @@ void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
     if (new_capacity <= capacity / 2) {
         do capacity /= 2; while (new_capacity <= capacity / 2);
         p->capacity = capacity;
-        p->arrdyn = prh_realloc(p->arrdyn, capacity);
+        p->arrdyn = prh_relloc(p->arrdyn, capacity);
     }
 }
 
@@ -5227,7 +5247,7 @@ typedef struct { void *arrque; prh_int capacity; prh_int size; prh_int tail; } p
 #define prh_impl_arrque_eptr_type(p) prh_typeof((p)->arrque)
 
 #define prh_arrque_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrque_elem_size(p)); (p)->tail = 0; }
-#define prh_arrque_free(p) { prh_free((p)->arrque); prh_debug((p)->arrque = prh_null); }
+#define prh_arrque_free(p) { prh_mafree((p)->arrque); prh_debug((p)->arrque = prh_null); }
 
 void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size);
 void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size);
@@ -5266,8 +5286,8 @@ prh_int prh_fixed_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
 void prh_impl_fixed_arrque_init(void *arrque, prh_int size) {
     assert(size > 0 && prh_is_power_of_2(size));
     prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
-    arrque->head = arrque->len = 0;
-    arrque->size_minus_one = size - 1;
+    q->head = q->len = 0;
+    q->size_minus_one = size - 1;
 }
 
 prh_int prh_impl_fixed_arrque_empty_items(void *arrque) {
@@ -5317,7 +5337,7 @@ void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size) {
     prh_int tail_offset = p->tail * elem_size;
     if (new_capacity > capacity) {
         middle_offset = capacity * elem_size;
-        p->arrque = prh_realloc(p->arrque, middle_offset * 2);
+        p->arrque = prh_relloc(p->arrque, middle_offset * 2);
         memcpy((prh_byte *)p->arrque + middle_offset, p->arrque, tail_offset);
         tail_offset += middle_offset; // 当tail_offset恰好为0时最后一个元素恰好在数组尾部不需要拷贝，参数 tail_offset 为零 memcpy 实际也不会拷贝
         p->tail += capacity + 1;
@@ -5598,7 +5618,7 @@ prh_inline bool prh_quedyn_empty(prh_quedyn *q) {
 }
 
 prh_inline void prh_quedyn_free_node(void *ptr_node_object) {
-    if (ptr_node_object) prh_free((prh_snode *)ptr_node_object - 1);
+    if (ptr_node_object) prh_mafree((prh_snode *)ptr_node_object - 1);
 }
 
 void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *));
@@ -5627,7 +5647,7 @@ void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *)) {
         if (object_deinit_func) {
             object_deinit_func(curr + 1);
         }
-        prh_free(curr);
+        prh_mafree(curr);
     }
     prh_quedyn_init(q);
 }
@@ -7727,7 +7747,7 @@ int prh_impl_coro_cache_line_aligned_alloc_size(int stack_size, int coro_extend_
     assert(coro_extend_size >= 0 && maxudsize >= 0);
     int coro_size = (int)prh_round_cache_line_size(prh_impl_coro_size + coro_extend_size);
     int data_size = (int)prh_round_cache_line_size(maxudsize);
-    int stack_size = (int)prh_round_cache_line_size(stack_size);
+    stack_size = (int)prh_round_cache_line_size(stack_size);
     prh_real_assert(stack_size > coro_size + data_size + (int)sizeof(struct prh_impl_coro_guard) + prh_impl_asm_stack_init_depth());
     return stack_size;
 }
@@ -7736,13 +7756,13 @@ prh_coro *prh_impl_coro_cache_line_aligned_init(void *stack, int stack_size, int
     assert(coro_extend_size >= 0 && maxudsize >= 0);
     int coro_size = (int)prh_round_cache_line_size(prh_impl_coro_size + coro_extend_size);
     int data_size = (int)prh_round_cache_line_size(maxudsize);
-    int stack_size = (int)prh_round_cache_line_size(stack_size);
+    stack_size = (int)prh_round_cache_line_size(stack_size);
     prh_real_assert(stack_size > coro_size + data_size + (int)sizeof(struct prh_impl_coro_guard) + prh_impl_asm_stack_init_depth());
 
     prh_coro *coro = (prh_coro *)((prh_byte *)stack + stack_size - coro_size - data_size);
     memset(coro, 0, coro_size + data_size);
-    coro->loweraddr = (prh_i32)((char *)coro - (prh_byte *)stack);
-    coro->userdata = (char *)coro + coro_size;
+    coro->loweraddr = (prh_i32)((prh_byte *)coro - (prh_byte *)stack);
+    coro->userdata = (prh_byte *)coro + coro_size;
 
     struct prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     guard->lower_guard_word = prh_lower_guard_word;
@@ -7987,7 +8007,7 @@ void prh_coro_finish(prh_coro_struct **main) {
         }
     }
     *main = prh_null;
-    prh_free(s);
+    prh_mafree(s);
 }
 
 void prh_soro_init(prh_soro_struct *s, int start_id) {
@@ -11287,10 +11307,10 @@ prh_inline prh_r32 prh_atom_r32_fetch_add(prh_atom_r32 *a, prh_r32 b) { return a
 prh_inline prh_int prh_atom_int_fetch_add(prh_atom_int *a, prh_int b) { return atomic_fetch_add((atomic_intptr_t *)a, b); }
 prh_inline prh_reg prh_atom_reg_fetch_add(prh_atom_reg *a, prh_reg b) { return atomic_fetch_add((atomic_uintptr_t *)a, b); }
 
-prh_inline prh_i08 prh_atom_i32_fetch_sub(prh_atom_i08 *a, prh_i08 b) { return atomic_fetch_sub((atomic_schar *)a, b); }
-prh_inline prh_r08 prh_atom_r32_fetch_sub(prh_atom_r08 *a, prh_r08 b) { return atomic_fetch_sub((atomic_uchar *)a, b); }
-prh_inline prh_i16 prh_atom_i32_fetch_sub(prh_atom_i16 *a, prh_i16 b) { return atomic_fetch_sub((atomic_short *)a, b); }
-prh_inline prh_r16 prh_atom_r32_fetch_sub(prh_atom_r16 *a, prh_r16 b) { return atomic_fetch_sub((atomic_ushort *)a, b); }
+prh_inline prh_i08 prh_atom_i08_fetch_sub(prh_atom_i08 *a, prh_i08 b) { return atomic_fetch_sub((atomic_schar *)a, b); }
+prh_inline prh_r08 prh_atom_r08_fetch_sub(prh_atom_r08 *a, prh_r08 b) { return atomic_fetch_sub((atomic_uchar *)a, b); }
+prh_inline prh_i16 prh_atom_i16_fetch_sub(prh_atom_i16 *a, prh_i16 b) { return atomic_fetch_sub((atomic_short *)a, b); }
+prh_inline prh_r16 prh_atom_r16_fetch_sub(prh_atom_r16 *a, prh_r16 b) { return atomic_fetch_sub((atomic_ushort *)a, b); }
 prh_inline prh_i32 prh_atom_i32_fetch_sub(prh_atom_i32 *a, prh_i32 b) { return atomic_fetch_sub((atomic_int *)a, b); }
 prh_inline prh_r32 prh_atom_r32_fetch_sub(prh_atom_r32 *a, prh_r32 b) { return atomic_fetch_sub((atomic_uint *)a, b); }
 prh_inline prh_int prh_atom_int_fetch_sub(prh_atom_int *a, prh_int b) { return atomic_fetch_sub((atomic_intptr_t *)a, b); }
@@ -11391,20 +11411,20 @@ prh_inline bool prh_atom_bool_weak_set(prh_atom_bool *a) { bool expect = false; 
 prh_inline bool prh_atom_bool_strong_clear(prh_atom_bool *a) { bool expect = true; return atomic_compare_exchange_strong((atomic_bool *)a, &expect, false); }
 prh_inline bool prh_atom_bool_strong_set(prh_atom_bool *a) { bool expect = false; return atomic_compare_exchange_strong((atomic_bool *)a, &expect, true); }
 
-prh_inline bool prh_atom_i08_weak_write_non_zero(prh_atom_i08 *a, prh_i32 b) { prh_i08 expect = 0; return atomic_compare_exchange_weak((atomic_schar *)a, &expect, b); }
-prh_inline bool prh_atom_r08_weak_write_non_zero(prh_atom_r08 *a, prh_r32 b) { prh_r08 expect = 0; return atomic_compare_exchange_weak((atomic_uchar *)a, &expect, b); }
-prh_inline bool prh_atom_i16_weak_write_non_zero(prh_atom_i16 *a, prh_i32 b) { prh_i16 expect = 0; return atomic_compare_exchange_weak((atomic_short *)a, &expect, b); }
-prh_inline bool prh_atom_r16_weak_write_non_zero(prh_atom_r16 *a, prh_r32 b) { prh_r16 expect = 0; return atomic_compare_exchange_weak((atomic_ushort *)a, &expect, b); }
+prh_inline bool prh_atom_i08_weak_write_non_zero(prh_atom_i08 *a, prh_i08 b) { prh_i08 expect = 0; return atomic_compare_exchange_weak((atomic_schar *)a, &expect, b); }
+prh_inline bool prh_atom_r08_weak_write_non_zero(prh_atom_r08 *a, prh_r08 b) { prh_r08 expect = 0; return atomic_compare_exchange_weak((atomic_uchar *)a, &expect, b); }
+prh_inline bool prh_atom_i16_weak_write_non_zero(prh_atom_i16 *a, prh_i16 b) { prh_i16 expect = 0; return atomic_compare_exchange_weak((atomic_short *)a, &expect, b); }
+prh_inline bool prh_atom_r16_weak_write_non_zero(prh_atom_r16 *a, prh_r16 b) { prh_r16 expect = 0; return atomic_compare_exchange_weak((atomic_ushort *)a, &expect, b); }
 prh_inline bool prh_atom_i32_weak_write_non_zero(prh_atom_i32 *a, prh_i32 b) { prh_i32 expect = 0; return atomic_compare_exchange_weak((atomic_int *)a, &expect, b); }
 prh_inline bool prh_atom_r32_weak_write_non_zero(prh_atom_r32 *a, prh_r32 b) { prh_r32 expect = 0; return atomic_compare_exchange_weak((atomic_uint *)a, &expect, b); }
 prh_inline bool prh_atom_int_weak_write_non_zero(prh_atom_int *a, prh_int b) { prh_int expect = 0; return atomic_compare_exchange_weak((atomic_intptr_t *)a, &expect, b); }
 prh_inline bool prh_atom_reg_weak_write_non_zero(prh_atom_reg *a, prh_reg b) { prh_reg expect = 0; return atomic_compare_exchange_weak((atomic_uintptr_t *)a, &expect, b); }
 prh_inline bool prh_atom_ptr_weak_write_non_null(prh_atom_ptr *a, void *b) { prh_reg expect = 0; return atomic_compare_exchange_weak((atomic_uintptr_t *)a, &expect, (prh_reg)b); }
 
-prh_inline bool prh_atom_i08_strong_write_non_zero(prh_atom_i08 *a, prh_i32 b) { prh_i08 expect = 0; return atomic_compare_exchange_strong((atomic_schar *)a, &expect, b); }
-prh_inline bool prh_atom_r08_strong_write_non_zero(prh_atom_r08 *a, prh_r32 b) { prh_r08 expect = 0; return atomic_compare_exchange_strong((atomic_uchar *)a, &expect, b); }
-prh_inline bool prh_atom_i16_strong_write_non_zero(prh_atom_i16 *a, prh_i32 b) { prh_i16 expect = 0; return atomic_compare_exchange_strong((atomic_short *)a, &expect, b); }
-prh_inline bool prh_atom_r16_strong_write_non_zero(prh_atom_r16 *a, prh_r32 b) { prh_r16 expect = 0; return atomic_compare_exchange_strong((atomic_ushort *)a, &expect, b); }
+prh_inline bool prh_atom_i08_strong_write_non_zero(prh_atom_i08 *a, prh_i08 b) { prh_i08 expect = 0; return atomic_compare_exchange_strong((atomic_schar *)a, &expect, b); }
+prh_inline bool prh_atom_r08_strong_write_non_zero(prh_atom_r08 *a, prh_r08 b) { prh_r08 expect = 0; return atomic_compare_exchange_strong((atomic_uchar *)a, &expect, b); }
+prh_inline bool prh_atom_i16_strong_write_non_zero(prh_atom_i16 *a, prh_i16 b) { prh_i16 expect = 0; return atomic_compare_exchange_strong((atomic_short *)a, &expect, b); }
+prh_inline bool prh_atom_r16_strong_write_non_zero(prh_atom_r16 *a, prh_r16 b) { prh_r16 expect = 0; return atomic_compare_exchange_strong((atomic_ushort *)a, &expect, b); }
 prh_inline bool prh_atom_i32_strong_write_non_zero(prh_atom_i32 *a, prh_i32 b) { prh_i32 expect = 0; return atomic_compare_exchange_strong((atomic_int *)a, &expect, b); }
 prh_inline bool prh_atom_r32_strong_write_non_zero(prh_atom_r32 *a, prh_r32 b) { prh_r32 expect = 0; return atomic_compare_exchange_strong((atomic_uint *)a, &expect, b); }
 prh_inline bool prh_atom_int_strong_write_non_zero(prh_atom_int *a, prh_int b) { prh_int expect = 0; return atomic_compare_exchange_strong((atomic_intptr_t *)a, &expect, b); }
@@ -11665,7 +11685,7 @@ typedef struct {
 
 typedef void (*prh_atom_dynque_free_block)(prh_atom_dynque_block *free_block);
 
-void prh_atom_dynque_freed_blocks_init(prh_atom_dynque_freed_blocks *q);
+void prh_atom_dynque_freed_blocks_init(prh_atom_dynque_freed_blocks *q, prh_int block_end_offset);
 void prh_atom_dynque_freed_blocks_free(prh_atom_dynque_freed_blocks *q);
 void prh_atom_dynque_freed_blocks_push(prh_atom_dynque_freed_blocks *q, prh_atom_dynque_block *free_block);
 
@@ -11740,7 +11760,7 @@ void prh_atom_hive_quefix_init(prh_atom_hive_quefix *q, prh_atom_hive_fbqfix *fr
 void prh_atom_ext_hive_quefix_init(prh_atom_ext_hive_quefix_producer *p, prh_atom_ext_hive_quefix_consumer *c, prh_atom_ext_hive_quefix_length *l) {
     prh_hive_quefix_block *free_block_head = prh_cache_line_aligned_alloc(PRH_AHQF_BLOCK_SIZE);
     prh_impl_ahqf_init_block(free_block_head);
-    p->free_block_ptr = free_block_head->tail;
+    p->free_block_ptr = (prh_hive_quefix_block **)free_block_head->tail;
     p->free_block_head = c->free_block_tail = free_block_head;
     prh_atom_int_init(&l->free_block_count, 0); // 必须先对 free blcok 进行初始化
     prh_hive_quefix_block *head_block = prh_impl_atom_ext_hive_alloc_block(p, l);
@@ -11782,7 +11802,7 @@ void prh_impl_atom_hive_fbqfix_free_head_block(prh_hive_quefix_block *head_block
 }
 
 void prh_atom_hive_fbqfix_free(prh_atom_hive_fbqfix *freeq) {
-    prh_impl_atom_hive_fbqfix_free_head_block(freeq->fbqh, (void **)freeq->fbqh + freeq->fbqh_index);
+    prh_impl_atom_hive_fbqfix_free_head_block(freeq->fbqh, (prh_hive_quefix_block **)freeq->fbqh + freeq->fbqh_index);
 }
 
 void prh_atom_ext_hive_quefix_free(prh_atom_ext_hive_quefix_producer *p, prh_atom_ext_hive_quefix_consumer *c) {
@@ -11902,9 +11922,9 @@ prh_hive_quefix_block *prh_impl_atom_ext_hive_free_block_pop(prh_atom_ext_hive_q
     if (!prh_atom_int_read(&l->free_block_count)) return prh_null;
     prh_hive_quefix_block *head = p->free_block_head;
     prh_hive_quefix_block *free_block, *next_block;
-    if (p->free_block_ptr >= prh_impl_ahqf_block_end(head)) {
+    if (p->free_block_ptr >= (prh_hive_quefix_block **)prh_impl_ahqf_block_end(head)) {
         p->free_block_head = next_block = head->next; // 如果已到达当前内存块末尾，移动到下一个内存块
-        p->free_block_ptr = (void **)(next_block + 1);
+        p->free_block_ptr = (prh_hive_quefix_block **)(next_block + 1);
         free_block = head; // 需要释放的当前内存块，就是一个可用的空闲块
     } else {
         free_block = *p->free_block_ptr++;
@@ -11975,7 +11995,7 @@ prh_inline prh_atom_dynque_block_end *prh_impl_atom_dynque_block_end(prh_atom_dy
 prh_atom_dynque_block *prh_impl_atom_dynque_free_items_on_block(prh_atom_dynque_freed_blocks *q, prh_atom_dynque_block *block, prh_atom_dynque_block **start) {
     prh_atom_dynque_block_end *block_end = prh_impl_atom_dynque_block_end(block, q->block_end_offset);
     q->free_block_count -= 1; // 减去 block 本身的计数
-    while (q->free_block_count && start < (void **)block_end) {
+    while (q->free_block_count && start < (prh_atom_dynque_block **)block_end) {
         prh_atom_dynque_block *free_block = *start++;
         assert(free_block != prh_null);
         assert(free_block != PRH_ATOM_DYNQUE_BLOCK_END);
@@ -11990,9 +12010,9 @@ prh_atom_dynque_block *prh_impl_atom_dynque_free_items_on_block(prh_atom_dynque_
 void prh_atom_dynque_freed_blocks_free(prh_atom_dynque_freed_blocks *q) {
     if (q->free_block_count == 0) return;
     prh_atom_dynque_block *block = q->head_block;
-    block = prh_impl_atom_dynque_free_items_on_block(q, block, q->head_block_head_item);
+    block = prh_impl_atom_dynque_free_items_on_block(q, block, (prh_atom_dynque_block **)q->head_block_head_item);
     while (block) {
-        block = prh_impl_atom_dynque_free_items_on_block(q, block, (void **)block);
+        block = prh_impl_atom_dynque_free_items_on_block(q, block, (prh_atom_dynque_block **)block);
     }
     q->free_block_count = 0;
 }
@@ -12000,13 +12020,13 @@ void prh_atom_dynque_freed_blocks_free(prh_atom_dynque_freed_blocks *q) {
 void prh_atom_dynque_freed_blocks_push(prh_atom_dynque_freed_blocks *q, prh_atom_dynque_block *free_block) {
     assert(free_block != prh_null);
     if (q->free_block_count == 0) {
-        q->head_block_head_item = (void **)q->head_block = free_block;
+        q->head_block_head_item = (void **)(q->head_block = free_block);
 label_assign_tail_block:
-        q->tail_block_tail_item = (void **)q->tail_block = free_block;
+        q->tail_block_tail_item = (void **)(q->tail_block = free_block);
         prh_impl_atom_dynque_block_end(free_block, q->block_end_offset)->next = prh_null;
     } else {
         prh_atom_dynque_block_end *block_end = prh_impl_atom_dynque_block_end(q->tail_block, q->block_end_offset);
-        if (q->tail_block_tail_item >= block_end) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
+        if (q->tail_block_tail_item >= (void **)block_end) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
             block_end->next = free_block;
             goto label_assign_tail_block;
         } else { // 否则当前内存块还有位置，将空闲块插入空闲队列
@@ -12025,8 +12045,8 @@ prh_atom_dynque_block *prh_impl_atom_dynque_freed_blocks_pop(prh_atom_dynque_fre
         prh_atom_dynque_freed_blocks_init(q, block_end_offset);
     } else {
         prh_atom_dynque_block_end *head_block_end = prh_impl_atom_dynque_block_end(head_block, block_end_offset);
-        if (q->head_block_head_item >= head_block_end) {
-            q->head_block_head_item = (void **)q->head_block = head_block_end->next; // 如果已到达当前内存块末尾，移动到下一个内存块
+        if (q->head_block_head_item >= (void **)head_block_end) {
+            q->head_block_head_item = (void **)(q->head_block = head_block_end->next); // 如果已到达当前内存块末尾，移动到下一个内存块
             head_block_end->next = prh_null;
         } else {
             head_block = *q->head_block_head_item++;
@@ -12044,7 +12064,7 @@ prh_atom_dynque_block *prh_impl_atom_dynque_aligned_alloc(prh_int block_end_offs
         assert(block_end_offset > 0 && (queue_block_bytes % PRH_CACHE_LINE_SIZE) == 0);
         free_block = prh_cache_line_aligned_alloc(queue_block_bytes);
         memset(free_block, 0, queue_block_bytes);
-        prh_impl_atom_dynque_block_end(free_block, block_end_offset)->block_end_data = PRH_ATOM_DYNQUE_BLOCK_END;
+        prh_impl_atom_dynque_block_end(free_block, block_end_offset)->block_end_data = (prh_ptr)PRH_ATOM_DYNQUE_BLOCK_END;
     }
     return free_block;
 }
@@ -12058,8 +12078,8 @@ void prh_atom_dynque_init(prh_atom_dynque_producer *p, prh_atom_dynque_consumer 
     assert(queue_block_bytes > 0);
     prh_int block_end_offset = prh_round_cache_line_size(queue_block_bytes) - 2 * sizeof(void *);
     prh_atom_dynque_block *block = prh_impl_atom_dynque_aligned_alloc(block_end_offset, prh_null);
-    c->head_block_head_item = (void **)c->head_block = block;
-    p->tail_block_tail_item = (void **)p->tail_block = block;
+    c->head_block_head_item = (void **)(c->head_block = block);
+    p->tail_block_tail_item = (void **)(p->tail_block = block);
     p->block_end_offset = block_end_offset;
     prh_atom_int_init(&l->queue_length, 0);
 }
@@ -12081,7 +12101,7 @@ void prh_atom_dynque_push(prh_atom_dynque_producer *p, prh_atom_dynque_length *l
     if (*p->tail_block_tail_item == PRH_ATOM_DYNQUE_BLOCK_END) {
         prh_atom_dynque_block *next = prh_impl_atom_dynque_alloc_block(p->block_end_offset, freeq);
         prh_impl_atom_dynque_block_end(p->tail_block, p->block_end_offset)->next = next;
-        p->tail_block_tail_item = (void **)p->tail_block = next;
+        p->tail_block_tail_item = (void **)(p->tail_block = next);
     }
     prh_atom_int_inc(&l->queue_length); // 此步骤执行完毕以上更新必须对所有cpu生效
 }
@@ -12094,7 +12114,7 @@ void prh_atom_dynque_ext_push(prh_atom_dynque_producer *p, prh_atom_dynque_lengt
     if (*p->tail_block_tail_item == PRH_ATOM_DYNQUE_BLOCK_END) {
         prh_atom_dynque_block *next = prh_impl_atom_dynque_alloc_block(p->block_end_offset, freeq);
         prh_impl_atom_dynque_block_end(p->tail_block, p->block_end_offset)->next = next;
-        p->tail_block_tail_item = (void **)p->tail_block = next;
+        p->tail_block_tail_item = (void **)(p->tail_block = next);
     }
     prh_atom_int_add(&l->queue_length, 2); // 此步骤执行完毕以上更新必须对所有cpu生效
 }
@@ -12111,7 +12131,7 @@ void *prh_atom_dynque_pop(prh_atom_dynque_consumer *c, prh_atom_dynque_length *l
     assert(*(c->head_block_head_item - 1) == data); // 仅允许单生产者和单消费者
     if (data == PRH_ATOM_DYNQUE_BLOCK_END) {
         prh_atom_dynque_block *head = c->head_block;
-        c->head_block_head_item = (void **)c->head_block = head_item[1];
+        c->head_block_head_item = (void **)(c->head_block = head_item[1]);
         deliver_free_block_to_producer(head); // 需要将释放的空闲块还给生产者线程
     }
     prh_atom_int_dec(&l->queue_length); // 此步骤执行完毕以上更新必须对所有cpu生效
@@ -12125,7 +12145,7 @@ void *prh_atom_dynque_ext_pop(prh_atom_dynque_consumer *c, prh_atom_dynque_lengt
     assert(*(c->head_block_head_item - 2) == data); // 仅允许单生产者和单消费者
     if (data == PRH_ATOM_DYNQUE_BLOCK_END) {
         prh_atom_dynque_block *head = c->head_block;
-        c->head_block_head_item = (void **)c->head_block = next;
+        c->head_block_head_item = (void **)(c->head_block = next);
         deliver_free_block_to_producer(head); // 需要将释放的空闲块还给生产者线程
     }
     prh_atom_int_sub(&l->queue_length, 2); // 此步骤执行完毕以上更新必须对所有cpu生效
@@ -12141,11 +12161,10 @@ void prh_atom_dynque_pop_stamp(prh_atom_dynque_consumer *c, prh_atom_dynque_leng
 
 bool prh_atom_dynque_check_next(prh_atom_dynque_stamp *stamp, prh_ptr *data_address) {
     if (stamp->queue_length <= 0) return false;
-    prh_atom_dynque_block *b = stamp->curr_block;
     *data_address = (prh_ptr)stamp->curr_block_head_item++;
     if (*stamp->curr_block_head_item == PRH_ATOM_DYNQUE_BLOCK_END) {
         prh_atom_dynque_block *next = *(stamp->curr_block_head_item + 1);
-        stamp->curr_block_head_item = (void **)stamp->curr_block = next;
+        stamp->curr_block_head_item = (void **)(stamp->curr_block = next);
     }
     stamp->queue_length -= 1;
     return true;
@@ -12153,12 +12172,11 @@ bool prh_atom_dynque_check_next(prh_atom_dynque_stamp *stamp, prh_ptr *data_addr
 
 bool prh_atom_dynque_ext_check_next(prh_atom_dynque_stamp *stamp, prh_ptr *data_address, prh_ptr *extra) {
     if (stamp->queue_length <= 0) return false;
-    prh_atom_dynque_block *b = stamp->curr_block;
     *data_address = (prh_ptr)stamp->curr_block_head_item++;
     *extra = (prh_ptr)*stamp->curr_block_head_item++;
     if (*stamp->curr_block_head_item == PRH_ATOM_DYNQUE_BLOCK_END) {
         prh_atom_dynque_block *next = *(stamp->curr_block_head_item + 1);
-        stamp->curr_block_head_item = (void **)stamp->curr_block = next;
+        stamp->curr_block_head_item = (void **)(stamp->curr_block = next);
     }
     stamp->queue_length -= 2;
     return true;
@@ -12170,7 +12188,7 @@ void prh_atom_dynque_pop_items(prh_atom_dynque_stamp *stamp, prh_atom_dynque_fre
     prh_atom_dynque_block *begin = stamp->head_block;
     prh_atom_dynque_block *curr = stamp->curr_block;
     while (begin != curr) {
-        deliver_free_block_to_ producer(begin); // 需要将释放的空闲块还给生产者线程
+        deliver_free_block_to_producer(begin); // 需要将释放的空闲块还给生产者线程
     }
     prh_atom_dynque_consumer *c = stamp->c;
     prh_atom_dynque_length *l = stamp->l;
@@ -12192,7 +12210,7 @@ bool prh_atom_dynque_pops(prh_atom_dynque_consumer *c, prh_atom_dynque_length *l
         if (*head_item == PRH_ATOM_DYNQUE_BLOCK_END) {
             prh_atom_dynque_block *next = *(head_item + 1);
             deliver_free_block_to_producer(head); // 需要将释放的空闲块还给生产者线程
-            head_item = (void **)head = next;
+            head_item = (void **)(head = next);
         }
     }
     c->head_block = head;
@@ -12215,7 +12233,7 @@ bool prh_atom_dynque_ext_pops(prh_atom_dynque_consumer *c, prh_atom_dynque_lengt
         if (*head_item == PRH_ATOM_DYNQUE_BLOCK_END) {
             prh_atom_dynque_block *next = *(head_item + 1);
             deliver_free_block_to_producer(head); // 需要将释放的空闲块还给生产者线程
-            head_item = (void **)head = next;
+            head_item = (void **)(head = next);
         }
     }
     c->head_block = head;
@@ -12323,6 +12341,8 @@ typedef struct prh_atom_ext_mult_rd_arrque prh_atom_ext_mult_rd_arrque;
 // fixed size array atomic queue for only 1 producer and n consumer, the size must be power of 2
 prh_int prh_atom_mult_rd_arrque_alloc_size(prh_int size, prh_int elem_bytes);
 void prh_impl_atom_mult_rd_arrque_init(void *arrque, prh_int size);
+prh_int prh_impl_atom_mult_rd_arrque_len(void *arrque);
+prh_int prh_impl_atom_mult_rd_arrque_empty_items(void *arrque);
 bool prh_impl_atom_mult_rd_arrque_push_r32(void *arrque, prh_r32 a);
 bool prh_impl_atom_mult_rd_arrque_push_reg(void *arrque, prh_reg a);
 bool prh_impl_atom_mult_rd_arrque_push_ext(void *arrque, prh_ptr a, prh_ptr b);
@@ -12332,12 +12352,12 @@ bool prh_impl_atom_mult_rd_arrque_pop_ext(void *arrque, void **out);
 prh_r32 prh_impl_atom_mult_rd_arrque_weak_pop_r32(void *arrque, bool *race_condition);
 prh_reg prh_impl_atom_mult_rd_arrque_weak_pop_reg(void *arrque, bool *race_condition);
 
-prh_inline void prh_atom_i32_mult_rd_arrque_init(prh_atom_i32_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
-prh_inline void prh_atom_r32_mult_rd_arrque_init(prh_atom_r32_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
-prh_inline void prh_atom_int_mult_rd_arrque_init(prh_atom_int_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
-prh_inline void prh_atom_reg_mult_rd_arrque_init(prh_atom_reg_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
-prh_inline void prh_atom_ptr_mult_rd_arrque_init(prh_atom_ptr_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
-prh_inline void prh_atom_ext_mult_rd_arrque_init(prh_atom_ext_mult_rd_arrque *q, prh_int size) { return prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_i32_mult_rd_arrque_init(prh_atom_i32_mult_rd_arrque *q, prh_int size) { prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_r32_mult_rd_arrque_init(prh_atom_r32_mult_rd_arrque *q, prh_int size) { prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_int_mult_rd_arrque_init(prh_atom_int_mult_rd_arrque *q, prh_int size) { prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_reg_mult_rd_arrque_init(prh_atom_reg_mult_rd_arrque *q, prh_int size) { prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_ptr_mult_rd_arrque_init(prh_atom_ptr_mult_rd_arrque *q, prh_int size) { prh_impl_atom_mult_rd_arrque_init(q, size); }
+prh_inline void prh_atom_ext_mult_rd_arrque_init(prh_atom_ext_mult_rd_arrque *q, prh_int size) { prh_impl_atom_mult_rd_arrque_init(q, size); }
 
 prh_inline prh_int prh_atom_i32_mult_rd_arrque_len(prh_atom_i32_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
 prh_inline prh_int prh_atom_r32_mult_rd_arrque_len(prh_atom_r32_mult_rd_arrque *q) { return prh_impl_atom_mult_rd_arrque_len(q); }
@@ -12430,7 +12450,7 @@ void *prh_impl_atom_arrque_alloc(prh_int size, prh_int alloc) {
 }
 
 void prh_impl_atom_arrque_free(void *q) {
-    prh_free(q);
+    prh_mafree(q);
 }
 
 prh_int prh_impl_atom_arrque_len(void *q) {
@@ -12725,21 +12745,23 @@ bool prh_impl_atom_mult_rd_arrque_pop_ext(void *arrque, void **out) {
     prh_ptr *elem_ptr = (prh_ptr *)prh_impl_atom_mult_rd_arrque_elem(q);
     prh_int size_minus_one = q->size_minus_one;
     prh_int tail, head, next;
+    bool result = false;
     prh_debug(prh_int race_times = 0);
 label_continue:
     tail = prh_atom_int_read(&q->tail); // 以此为基点读取，head 不能超过 tail
     head = prh_atom_int_read(&q->head); // 多个线程可能竞争更新 head
     if (head == tail) goto label_return; // 队列空
     next = prh_impl_atom_mult_rd_arrque_pos(head + 2, size_minus_one);
-    out[0] = elem_ptr[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
-    out[1] = elem_ptr[head + 1];
+    out[0] = (void *)elem_ptr[head]; // 必须在更新 q->head 之前先读取元素数据，因为一旦更新 q->head 之后，元素可能立马被生产者线程更新
+    out[1] = (void *)elem_ptr[head + 1];
     if (!prh_atom_int_strong_write(&q->head, &head, next)) {
         prh_debug(race_times += 1);
         goto label_continue; // 被其他线程抢先更新，争夺下一个
     }
+    result = true;
 label_return:
     prh_debug(if (race_times) printf("atom_mult_rd_arrque ext race times %d\n", race_times));
-    return a;
+    return result;
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -15001,7 +15023,7 @@ void prh_thrd_free(prh_thrds **main, prh_thrdfree_t thrd_free) {
         prh_aligned_free(main_thrd);
         s->main = prh_null;
     }
-    prh_free(s);
+    prh_mafree(s);
     *main = prh_null;
 }
 
@@ -15723,7 +15745,7 @@ void prh_once_init(prh_once *p) {
 
 bool prh_once_execute(prh_once *p, prh_once_init_routine init, void *param, void **value) {
     assert(((prh_ptr)value & 0x03) == 0); // 地址必须 DWORD 四字节对齐，INIT_ONCE_CTX_RESERVED_BITS 的值为 2
-    return InitOnceExecuteOnce(&p->once, init, param, value) != 0;
+    return InitOnceExecuteOnce(&p->once, (PINIT_ONCE_FN)init, param, value) != 0;
 }
 
 // https://learn.microsoft.com/en-us/windows/win32/sync/using-one-time-initialization
@@ -15822,7 +15844,7 @@ prh_thrd_cond *prh_thrd_cond_init(void) {
 void prh_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的。
     prh_impl_thrd_cond_free(p);
-    prh_free(p);
+    prh_mafree(p);
 }
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
@@ -15875,7 +15897,7 @@ prh_thrd_sem *prh_thrd_sem_init(void) {
 
 void prh_thrd_sem_free(prh_thrd_sem *p) {
     prh_impl_thrd_sem_free(p);
-    prh_free(p);
+    prh_mafree(p);
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
@@ -15919,7 +15941,7 @@ prh_cond_sleep *prh_init_cond_sleep(void) {
 
 void prh_free_cond_sleep(prh_cond_sleep *p) {
     prh_impl_free_cond_sleep(p);
-    prh_free(p);
+    prh_mafree(p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -16578,7 +16600,7 @@ void prh_system_info(prh_sys_info *info) {
     processor_info = prh_malloc(count * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
     if (!GetLogicalProcessorInformationEx(RelationCache, processor_info, &count)) {
         prh_prerr(GetLastError());
-        prh_free(processor_info);
+        prh_mafree(processor_info);
         return;
     }
     int cache_line_size = 0;
@@ -16589,7 +16611,7 @@ void prh_system_info(prh_sys_info *info) {
         }
     }
     info->cache_line_size = cache_line_size;
-    prh_free(processor_info);
+    prh_mafree(processor_info);
 }
 
 void prh_impl_plat_set_fault_handler(void) {
@@ -19266,7 +19288,7 @@ prh_mutex *prh_recursive_mutex_init(void) {
 
 void prh_mutex_free(prh_mutex *p) {
     prh_mutex_free(p);
-    prh_free(p);
+    prh_mafree(p);
 }
 
 void prh_mutex_enter(prh_mutex *p) {
@@ -19312,7 +19334,7 @@ void prh_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
     prh_impl_thrd_cond_free(p);
-    prh_free(p);
+    prh_mafree(p);
 }
 
 // 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
@@ -19428,7 +19450,7 @@ prh_thrd_sem *prh_thrd_sem_init(void) {
 
 void prh_thrd_sem_free(prh_thrd_sem *p) {
     prh_impl_thrd_sem_free(p);
-    prh_free(p);
+    prh_mafree(p);
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
@@ -19471,7 +19493,7 @@ void prh_free_cond_sleep(prh_cond_sleep *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
     prh_impl_free_cond_sleep(p);
-    prh_free(p);
+    prh_mafree(p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -19947,9 +19969,7 @@ void prh_impl_thrd_test(void) {
 //
 // https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
 
-#ifdef PRH_IOCP_INCLUDE
-#ifdef PRH_IOCP_IMPLEMENTATION
-#if defined(prh_plat_windows)
+#if defined(PRH_IMPL_WINDOWS_IOCP)
 // 当线程发出一个异步设备 I/O 请求的时候，它会被临时挂起，直到设备完成 I/O 请求为止。
 // 此类挂起会损害性能，这是因为线程无法进行有用的工作，比如开始对另一个客户请求进行处
 // 理。因此简而言之，我们希望线程不会被阻塞，这样它们就能始终进行有用的工作。Microsoft
@@ -20942,17 +20962,17 @@ void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *ent
 //
 // 注意，当线程退出时，所有 I/O 都将被取消。对于重叠套接字，如果在线程关闭之前操作未完
 // 成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
-#include <winternl.h> // ULONG RtlNtStatusToDosError([in] NTSTATUS Status);
 
 static HANDLE PRH_IMPL_IOCP;
 typedef bool (*prh_iocp_complete_routine)(OVERLAPPED_ENTRY *entry);
 typedef void (*prh_iocp_continue_routine)(void *overlapped);
 typedef void (*prh_continue_routine)(void *post_req);
+bool prh_impl_iocp_continue_que_full(void);
 
 prh_static_assert(sizeof(ULONG_PTR) == sizeof(void *));
 prh_static_assert(sizeof(HANDLE) == sizeof(void *));
 
-prh_inline void prh_impl_iocp_set_continue_routine(OVERLAPPED *overlappped, prh_iocp_continue_routine iocp_continue) {
+prh_inline void prh_impl_iocp_set_continue_routine(OVERLAPPED *overlapped, prh_iocp_continue_routine iocp_continue) {
     // typedef struct _OVERLAPPED {     // minwinbase.h (included in WinBase.h)
     //     ULONG_PTR Internal;          // [out] Error Code
     //     ULONG_PTR InternalHigh;      // [out] Number of bytes transferred
@@ -20970,7 +20990,7 @@ prh_inline void prh_impl_iocp_set_continue_routine(OVERLAPPED *overlappped, prh_
 }
 
 static bool prh_impl_iocp_entry_completed_from_port(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
-    if (prh_impl_iocp_continue_que_len() >= PRH_IOCP_GLOBAL.iocp_query_max_entries) return false;
+    if (prh_impl_iocp_continue_que_full()) return false;
     OVERLAPPED *overlapped = entry->lpOverlapped;
     assert(entry->Internal == overlapped->Internal);
     assert(entry->dwNumberOfBytesTransferred == overlapped->InternalHigh);
@@ -20984,7 +21004,7 @@ static bool prh_impl_iocp_entry_completed_from_port(OVERLAPPED_ENTRY *entry) { /
 }
 
 void prh_impl_iocp_attach_handle(prh_handle handle) {
-    prh_impl_completion_port_attach(PRH_IMPL_IOCP, handle, (void *)prh_impl_iocp_entry_completed_from_port);
+    prh_impl_completion_port_attach(PRH_IMPL_IOCP, (HANDLE)handle, (void *)prh_impl_iocp_entry_completed_from_port);
 }
 
 void prh_impl_iocp_enqueue_completion_item(prh_iocp_complete_routine completion_key, void *overlapped) {
@@ -21242,7 +21262,6 @@ void prh_impl_iocp_enqueue_completion_item(prh_iocp_complete_routine completion_
 //
 // 如果在 CQ 参数中传递了一个无效的完成队列（例如 RIO_INVALID_CQ），RIOCloseCompletionQueue
 // 函数将忽略它。
-#include <mswsock.h>
 
 static RIO_EXTENSION_FUNCTION_TABLE PRH_IMPL_RIO;
 typedef struct prh_rio_cqueue prh_rio_cqueue;
@@ -21983,15 +22002,17 @@ bool prh_impl_sched_thrd_do_nothing_entry_complete(OVERLAPPED_ENTRY *entry) { //
     return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
 }
 
+void prh_impl_sched_thrd_set_keep_collect_tx_post(bool keep);
+
 void prh_impl_sched_thrd_complete_keep_collect_tx_post(void) {
-    PRH_IOCP_GLOBAL.recv_keep_collect_tx_post_entry = false;
+    prh_impl_sched_thrd_set_keep_collect_tx_post(false);
     prh_atom_bool *keep_collect_tx_post = &PRH_IOCP_SHARED_GLOBAL.keep_collect_tx_post;
     prh_atom_bool_write(keep_collect_tx_post, false);
     prh_impl_iocp_enqueue_completion_item(prh_impl_sched_thrd_do_nothing_entry_complete, keep_collect_tx_post);
 }
 
 bool prh_impl_sched_thrd_handle_keep_collect_tx_post(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
-    PRH_IOCP_GLOBAL.recv_keep_collect_tx_post_entry = true;
+    prh_impl_sched_thrd_set_keep_collect_tx_post(true);
     return true; // 该完成条目不需要消耗调度线程的完成队列，直接可以释放
 }
 
@@ -22089,6 +22110,10 @@ typedef struct { // 仅由调度线程访问的数据
 } prh_iocp_global;
 
 static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
+
+void prh_impl_sched_thrd_set_keep_collect_tx_post(bool keep) {
+    PRH_IOCP_GLOBAL.recv_keep_collect_tx_post_entry = keep;
+}
 
 static bool prh_impl_iocp_rio_socket_completion(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_sched_thrd_iocp_entry_completed 函数调用
     RIORESULT *rio_result_entry_array = PRH_IOCP_GLOBAL.rio_result_entry_array;
@@ -22237,6 +22262,10 @@ void prh_sched_thrd_synced_unordered_ext_post(void *post_req, prh_sched_thrd_syn
 
 int prh_impl_iocp_continue_que_len(void) {
     return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.iocp_continue_que);
+}
+
+bool prh_impl_iocp_continue_que_full(void) {
+    return prh_impl_iocp_continue_que_len() >= PRH_IOCP_GLOBAL.iocp_query_max_entries;
 }
 
 int prh_impl_iocp_continue_que_empty_items(void) {
@@ -22603,8 +22632,9 @@ void prh_iocp_startup(prh_iocp_config *config) {
 
     prh_impl_iocp_global_free();
 }
+#endif // PRH_IMPL_WINDOWS_IOCP
 
-#elif defined(prh_plat_linux)
+#if defined(PRH_IMPL_LINUX_EPOLL)
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
@@ -23516,11 +23546,7 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
     prh_arrdyn_init(&epoll->wait, initial_wait_array_size);
     prh_cono_start((prh_spawn_data *)epoll, false);
 }
-#else
-
-#endif
-#endif // PRH_IOCP_IMPLEMENTATION
-#endif // PRH_IOCP_INCLUDE
+#endif // PRH_IMPL_LINUX_EPOLL
 
 #ifdef PRH_CONO_INCLUDE
 #define PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3 1
@@ -25117,8 +25143,6 @@ void prh_impl_cono_test(void) {
 #define PRH_TCP 0
 #define PRH_UDP 1
 
-typedef prh_ptr prh_handle;
-
 typedef enum {
     PRH_SUCCESS = 0x00,
     PRH_FAILURE,
@@ -25274,22 +25298,6 @@ bool prh_sock_tcp_send(prh_tcpsocket *tcp);
 bool prh_sock_tcp_recv(prh_tcpsocket *tcp);
 
 #ifdef PRH_SOCK_IMPLEMENTATION
-#if defined(prh_plat_windows)
-#include <winsock2.h>
-#define PRH_INVASOCK INVALID_SOCKET
-#define prh_wsa_prerr() prh_impl_prerr(__LINE__, WSAGetLastError())
-#define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
-#define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
-#define prh_wsa_abort_error() prh_impl_abort_error(__LINE__, WSAGetLastError())
-#else
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#define PRH_INVASOCK (-1)
-#endif
-
 void prh_impl_tcp_bind(prh_handle sock, struct sockaddr_in *addr, int addrlen);
 void prh_impl_tcp_listen(prh_handle sock, int backlog);
 void prh_sock_ipv6_address(const char *ip_string, prh_byte *ipv6_16_byte);
@@ -25346,8 +25354,10 @@ void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_r16 port
     }
     prh_impl_sock_tcp_listen(tcp, (struct sockaddr_in *)&in6, backlog);
 }
+#endif // PRH_SOCK_IMPLEMENTATION
+#endif // PRH_SOCK_INCLUDE
 
-#if defined(prh_plat_windows)
+#if defined(PRH_IMPL_WINDOWS_SOCKET)
 // https://learn.microsoft.com/en-us/windows/win32/debug/system-error-code-lookup-tool
 // https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-erref/596a1078-e883-4972-9bbc-49e60bebca55
 // https://learn.microsoft.com/en-us/windows/win32/api/errhandlingapi/nf-errhandlingapi-getlasterror
@@ -25926,7 +25936,6 @@ void prh_impl_wsasocket_startup(void) {
 //
 // 一旦获取了扩展函数（如 TransmitFile）的函数指针，就可以直接调用它，而无需将应用程序
 // 链接到 Mswsock.lib 库。这实际上减少了对 Mswsock.lib 的一个中间函数调用。
-#include <mswsock.h>
 
 static LPFN_ACCEPTEX PRH_IMPL_ACCEPTEX;
 static LPFN_GETACCEPTEXSOCKADDRS PRH_IMPL_GETACCEPTEXSOCKADDRS;
@@ -27517,7 +27526,6 @@ void *prh_impl_wsaioctl_extension_func(prh_handle s, GUID guid) {
 //      LPFN_RIORESIZECOMPLETIONQUEUE RIOResizeCompletionQueue;
 //      LPFN_RIORESIZEREQUESTQUEUE    RIOResizeRequestQueue;
 // } RIO_EXTENSION_FUNCTION_TABLE, *PRIO_EXTENSION_FUNCTION_TABLE;
-#include <ws2def.h>
 
 void prh_impl_wsaioctl_rio_extensions(prh_handle sock, void *table) {
     DWORD ioctl = SIO_GET_MULTIPLE_EXTENSION_FUNCTION_POINTER;
@@ -30528,7 +30536,9 @@ void prh_impl_sock_test(void) {
     printf("RIO_MAX_CQ_SIZE %d (%08x)\n", RIO_MAX_CQ_SIZE, RIO_MAX_CQ_SIZE);
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#else // POSIX begin
+#endif // PRH_IMPL_WINDOWS_SOCKET
+
+#if defined(PRH_IMPL_POSIX_SOCKET)
 // RFC 791 - Internet Protocol, J. Postel (ed.), 1981
 // RFC 950 - Internet Standard Subnetting Procedure, J. Mogul J. Postel, 1985
 // RFC 793 - Transmission Control Protocol, J. Postel (ed.), 1981
@@ -32483,11 +32493,12 @@ void prh_impl_sock_test(void) {
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
+#endif // PRH_IMPL_POSIX_SOCKET
 
+#ifdef PRH_SOCK_INCLUDE
 // 处理同一个客户同时建立多个TCP连接的情况，TCP运行两个端口之间能建立多条连接吗？但是
 // 一个客户账号可以用两台不同的机器来连接，这时就需要对客户账号进行唯一性验证。或者它在
 // 同一个主机上使用不同的端口号进行连接呢，也是需要进行客户账号进行唯一性验证。
-#endif // POSIX END
 
 // https://www.man7.org/linux/man-pages/man7/packet.7.html
 //
@@ -32506,10 +32517,6 @@ void prh_impl_sock_test(void) {
 // 匹配成功的数据包被拷贝到内核缓冲区（第二次拷贝）；
 // 用户空间通过 recvfrom() 系统调用将数据包从内核缓冲区拷贝到用户缓冲区（第三次拷贝）。
 
-#endif // PRH_SOCK_IMPLEMENTATION
-#endif // PRH_SOCK_INCLUDE
-
-#ifdef PRH_SOCK_INCLUDE
 #define PRH_MAX_SAME_TIME_POSTS_TCP_TO_UPPER 4 // 最多只能同时存在 RX_DATA RX_END TX_DONE CLOSED
 typedef enum { // tcp layer => upper layer
     PRH_TCPE_OPEN_IND, // 连接请求到来
@@ -32540,7 +32547,6 @@ void prh_tcp_tx_data(prh_tcpsocket *tcp, prh_r32 size);
 void prh_tcp_tx_end(prh_tcpsocket *tcp); // 上层需要在传输完所有数据之后，才能执行TX_END
 void prh_tcp_finish(prh_tcpsocket *tcp); // finish之后不能再使用tcp，opened fail 和 closed 之后需要调用 finish
 
-#ifdef PRH_SOCK_INCLUDE
 #ifdef PRH_SOCK_IMPLEMENTATION
 // 如果有人使用通配地址注册一个端口，那么该端口就不能再被其他人注册，之前有人注册过的
 // 也会被强制断开。
