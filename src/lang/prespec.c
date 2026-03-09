@@ -195,7 +195,7 @@
 //      ''' c // 将代码 c 插入到宏中三次
 //  }
 //
-//  def func(int a and b >> int) #macro {
+//  def func(int a int b >> int) #macro {
 //      return a > b ? a : b
 //  }
 //
@@ -618,12 +618,14 @@ a + ('int b + c) * d
 (int a int b yield int point >> int point)
 (int a int b yield int point >> int)
 (int a int b yield int point)
-(int a >> int point float (count point scale))
-(int a >> int point (count point) or error)
-(*file? file {stdin} point point string name{"root"} string mode)
-(*file? file {stdin} point point point origin string name string mode int a int b int c)
-// 函数和数组访问的链式调用，必须使用点号连接
+(int a >> int point float let count point scale)
+(int a >> int point let count point or error)
+(*file? file {stdin} point point string name {"root"} string mode)
+(*file? file {stdin} point point point origin string name string mode int a int b int c >> int string float)
+(*file? _ point _ point _ string _ string _ int _ int _ int _ >> int string float)
+// 函数和数组访问的链式调用，必须使用点号连接，也可以不使用点号
 func().().().[].[]
+func()()()[][]
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
 [int] (x $) // int 成员命名为 x
@@ -633,12 +635,12 @@ func().().().[].[]
 [int int string]
 [point point]
 // 结构体类型字面量，“起始大括号 + 结果为类型的表达式” 称表示结构体的开始
-def {} // 空结构体
+struct {} // 空结构体
 {int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
 {int a int b}
-{int a, b}
+{int a int b}
 {int a int b point o string s}
-{int a, b point o string s}
+{int a int b point o string s}
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point} // point 是 int 型类型成员
 const { red green blue }
@@ -648,14 +650,14 @@ $(anytype T) { (*T p int size >> int) read }
 //  1. 成员 type field_name field_name
 //  2. 位域 type [bits] name [bits] name ...
 //  3. 成员别名 type {a | b | c | ...}
-//  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ...}
+//  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ... }
 def test {
-    int a int b int c int a, b, c
+    int a int b int c int d int e int f
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int [1] inplace [31] size // 位域
-    int {size | bytes | count} // 成员别名
+    int size | bytes | count // 成员别名
     double d { // 最大类型必须是第一个
-        | int {i | j | k}
+        | int i | j | k
         | float f float g
         | byte b r32 u
         | byte b r32 u
@@ -1532,7 +1534,7 @@ Expr $sum { // enum 定义的是一个联合体类型
     expr {char op Expr lhs rhs}
 }
 
-Oper $int -> {int lpri rpri} { // $int 定义的是一个常量
+Oper $int -> {int lpri int rpri} { // $int 定义的是一个常量
     ass {'=', 200, 201} // a = 2 + b = 3
     add {'+', 211, 210}
     sub {'-', 211, 210}
@@ -1634,16 +1636,16 @@ def [int float] tuple_type
 def name = 3.1415926
 def name const { red blue green }
 def name const int { red bule green }
-def name const int with {r08 lpri and rpri} { ... }
-def name const with {r08 lpri and rpri} { ... }
+def name const int with {r08 lpri r08 rpri} { ... }
+def name const with {r08 lpri r08 rpri} { ... }
 def name { int a int b }
-def name $(anytype T and U const SIZE int N T VALUE) { ... }
+def name $(anytype T anytype U const SIZE int N T VALUE) { ... }
 def name $(anytype T) { ... }
-def name $(anytype T and U) { ... }
+def name $(anytype T anytype U) { ... }
 def name $(int SIZE) { ... }
-def name $(int SIZE anytype T and U) { ... }
+def name $(int SIZE anytype T anytype U) { ... }
 
-def test $(anytype T and U const C int SIZE) {
+def test $(anytype T anytype U const C int SIZE) {
     int data
     T t
 }
@@ -1788,7 +1790,7 @@ let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.
 let data = data {this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
 let a = int 0
 let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
-let calc = (int a and b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+let calc = (int a int b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 let a = point{100, 200}
 let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 let b = *int ?
@@ -1824,7 +1826,7 @@ data data {this, .a = 1, 2, .b = 3} // 元组类型变量定义 data.a data.b da
 data data {this, .a = 1, .b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
 a int 0
 b float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
-calc (int a and b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+calc (int a int b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
