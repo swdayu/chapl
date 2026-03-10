@@ -57,7 +57,7 @@
 // from `prh_array_*` interfaces.
 //
 // Not all the names have strippable prefixes. All the redefinable names like
-// `prh_relloc` and `PRH_ARRAY_INIT_ELEMS` for instance will retain their
+// `prh_std_ralloc` and `PRH_ARRAY_INIT_ELEMS` for instance will retain their
 // prefix. All basic names like `prh_i64` and `prh_inline` can not strip off
 // the prefix due to they are short names anyway. But you can still #define
 // your own names as you need before or after include prh_include.h. All
@@ -2372,7 +2372,7 @@ typedef enum {
 #include <stdio.h> // printf fprintf
 #include <errno.h> // errno POSIX-compatible error code
 
-#ifndef prh_malloc
+#ifndef prh_std_malloc
 // 内存分配的几种类别
 //  1.  固定大小栈分配
 //  2.  程序初始化时的全局分配
@@ -2381,16 +2381,16 @@ typedef enum {
 //  5.  不能通过静态分析推断生存期的分配
 //  6.  分配的释放必须早于内存池的释放
 //  7.  注意以上类型的相互赋值，以及分配释放跨不同线程的处理
-#define prh_malloc(size) prh_impl_malloc((size), __LINE__)
-#define prh_calloc(size) prh_impl_calloc((size), __LINE__)
-#define prh_relloc(ptr, size) prh_impl_relloc((ptr), (size), __LINE__)
-#define prh_free free // void free(void *ptr) if ptr is null do nothing
+#define prh_std_malloc(size) prh_impl_malloc((size), __LINE__)
+#define prh_std_calloc(size) prh_impl_calloc((size), __LINE__)
+#define prh_std_ralloc(ptr, size) prh_impl_ralloc((ptr), (size), __LINE__)
+#define prh_std_free free // void free(void *ptr) if ptr is null do nothing
 
 // void *malloc(size_t size);
 // the newly allocated block of memory is not initialized, remaining with indeterminate values.
 // if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
 // if fails to allocate the requested block of memory, a null pointer is returned.
-prh_inline void *prh_impl_malloc(prh_reg size, int line) {
+prh_inline void *prh_impl_malloc(prh_reg size, prh_int line) {
     void *p = malloc(size);
     prh_assert_line(p != prh_null, line);
     return p;
@@ -2402,7 +2402,7 @@ prh_inline void *prh_impl_malloc(prh_reg size, int line) {
 // memory block of (num*size) bytes.
 // if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
 // if fails to allocate the requested block of memory, a null pointer is returned.
-prh_inline void *prh_impl_calloc(prh_reg size, int line) {
+prh_inline void *prh_impl_calloc(prh_reg size, prh_int line) {
     void *p = calloc(1, size);
     prh_assert_line(p != prh_null, line);
     return p;
@@ -2424,28 +2424,31 @@ prh_inline void *prh_impl_calloc(prh_reg size, int line) {
 //          return malloc(size)
 //      else
 //          return NULL
-void *prh_impl_relloc(void *ptr, prh_reg size, int line);
-typedef void *(*prh_relloc_func)(void *ptr, prh_reg size);
+void *prh_impl_ralloc(void *ptr, prh_reg size, prh_int line);
 
-// void *alloc_free(prh_reg size_or_ptr, int line); 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
-// if line == -1
-//      prh_free((void *)size_or_ptr) return null
-// else
-//      return prh_impl_malloc(size, line);
-typedef void *(*prh_alloc_free)(prh_reg size, int line);
-void *prh_impl_thrd_alloc_free(prh_reg size, int line);
+// 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
+typedef void *(*prh_alloc_func)(void *ptr, prh_reg size, prh_int line);
+void *prh_impl_alloc_func(void *ptr, prh_reg size, prh_int line);
+extern prh_thread_local prh_alloc_func PRH_IMPL_ALLOC;
 
-prh_inline void prh_impl_memroy_free(void *p) {
-    p = (void *)((void **)p - 1);
-    (*(prh_alloc_free *)p)((prh_reg)p, -1);
+prh_inline void *prh_impl_context_ralloc(void *ptr, prh_reg size, prh_int line) {
+    if (ptr == prh_null) return PRH_IMPL_ALLOC(0, size, line);
+    ptr = (void *)((void **)ptr - 1);
+    (*(prh_alloc_func *)ptr)(ptr, size, line);
 }
 
-#define prh_alloc_get() PRH_IMPL_TCTX.alloc
-#define prh_alloc_set(a) PRH_IMPL_TCTX.alloc = (a)
-#define prh_alloc_reset() prh_alloc_set(prh_impl_thrd_alloc_free)
-#define prh_memory_alloc(size) PRH_IMPL_TCTX.alloc((size), __LINE__)
-#define prh_memory_free(p) prh_impl_memroy_free(p)
-#endif // prh_malloc
+prh_inline void prh_impl_context_dalloc(void *ptr, prh_int line) {
+    if (ptr == prh_null) return;
+    ptr = (void *)((void **)ptr - 1);
+    (*(prh_alloc_func *)ptr)(ptr, 0, line);
+}
+
+#define prh_set_malloc(a) PRH_IMPL_ALLOC = (a)
+#define prh_rst_malloc() prh_set_malloc(prh_impl_alloc_func)
+#define prh_malloc(size) PRH_IMPL_ALLOC(0, (size), __LINE__)
+#define prh_ralloc(p, size) prh_impl_context_ralloc((p), (size), __LINE__)
+#define prh_dalloc(p) prh_impl_context_dalloc((p), __LINE__)
+#endif // prh_std_malloc
 
 // https://en.cppreference.com/w/c/memory/aligned_alloc
 // https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
@@ -3601,7 +3604,7 @@ void prh_print_exit_code(int thrd_id, int exit_code) {
     fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
 }
 
-void *prh_impl_relloc(void *ptr, prh_reg size, int line) {
+void *prh_impl_ralloc(void *ptr, prh_reg size, prh_int line) {
     if (ptr != prh_null) {
         if (size == 0) { free(ptr); return prh_null; }
         ptr = realloc(ptr, size);
@@ -3613,14 +3616,20 @@ void *prh_impl_relloc(void *ptr, prh_reg size, int line) {
     return ptr;
 }
 
-void *prh_impl_thrd_alloc_free(prh_reg size, int line) {
-    if (line == -1) {
-        prh_free((void *)size);
-        return prh_null;
+void *prh_impl_alloc_func(void *ptr, prh_reg size, prh_int line) {
+    if (ptr == prh_null) {
+        ptr = malloc(sizeof(void*) + size);
+label_after_alloc:
+        prh_assert_line(ptr != prh_null, line);
+        *(void **)ptr = (void *)prh_impl_alloc_func;
+        return (void *)((void **)p + 1);
     }
-    void *p = prh_impl_malloc(sizeof(void *) + size, line);
-    *(void **)p = (void *)prh_impl_thrd_alloc_free;
-    return (void *)((void **)p + 1);
+    if (size != 0) {
+        ptr = realloc(ptr, sizeof(void*) + size);
+        goto label_after_alloc;
+    }
+    free(ptr);
+    return prh_null;
 }
 
 #if defined(prh_plat_windows)
@@ -3972,6 +3981,45 @@ void prh_impl_test_code(void) {
 //  void append_range(range_type&& range); 在容器尾部压入多个元素
 //  void prepend_range(range_type&& range); 将多个元素压入到容器头部
 
+#if 1
+typedef struct {
+    prh_reg capacity;
+    prh_reg size;
+} prh_impl_arrdyn_head;
+
+typedef struct {
+    prh_reg start;
+    prh_reg capacity;
+    prh_reg size;
+} prh_impl_arrlax_head;
+
+#define prh_impl_arrvew_eptr_type(p) prh_typeof((p)->arrvew)
+#define prh_impl_arrfix_eptr_type(p) prh_typeof((p)->arrfix)
+#define prh_impl_arrfit_eptr_type(p) prh_typeof((p)->arrfit)
+#define prh_impl_arrdyn_eptr_type(p) prh_typeof((p)->arrdyn)
+#define prh_impl_arrlax_eptr_type(p) prh_typeof((p)->arrlax)
+
+#define prh_impl_arrvew_elem_type(p) prh_typeof(*((p)->arrvew))
+#define prh_impl_arrfix_elem_type(p) prh_typeof(*((p)->arrfix))
+#define prh_impl_arrfit_elem_type(p) prh_typeof(*((p)->arrfit))
+#define prh_impl_arrdyn_elem_type(p) prh_typeof(*((p)->arrdyn))
+#define prh_impl_arrlax_elem_type(p) prh_typeof(*((p)->arrlax))
+
+#define prh_impl_arrvew_elem_size(p) sizeof(*((p)->arrvew))
+#define prh_impl_arrfix_elem_size(p) sizeof(*((p)->arrfix))
+#define prh_impl_arrfit_elem_size(p) sizeof(*((p)->arrfit))
+#define prh_impl_arrdyn_elem_size(p) sizeof(*((p)->arrdyn))
+#define prh_impl_arrlax_elem_size(p) sizeof(*((p)->arrlax))
+
+#define prh_impl_arrvew_addr(p) (prh_impl_arrvew *)(&((p)->arrvew))
+#define prh_impl_arrfix_addr(p) (prh_impl_arrfix *)(&((p)->arrfix))
+#define prh_impl_arrfit_addr(p) (prh_impl_arrfit *)(&((p)->arrfit))
+#define prh_impl_arrdyn_addr(p) (prh_impl_arrdyn *)(&((p)->arrdyn))
+#define prh_impl_arrlax_addr(p) (prh_impl_arrlax *)(&((p)->arrlax))
+
+#define prh_arrdyn_reserve(a, new_capacity)
+
+#else
 typedef struct { void *arrvew; prh_int size; } prh_impl_arrvew;
 typedef struct { void *arrfix; prh_int size; } prh_impl_arrfix;
 typedef struct { void *arrfit; prh_int capacity; prh_int size; } prh_impl_arrfit;
@@ -4038,16 +4086,16 @@ prh_inline void prh_impl_arrfit_init_inplace(prh_impl_arrfit *arrfit, void *buff
     arrfit->size = 0;
 }
 
-#define prh_arrfix_init(p, size) prh_impl_arrfix_init_inplace(prh_impl_arrfix_addr(p), prh_malloc((size) * prh_impl_arrfix_elem_size(p)), (size))
-#define prh_arrfit_init(p, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), prh_malloc((capacity) * prh_impl_arrfix_elem_size(p)), (capacity))
+#define prh_arrfix_init(p, size) prh_impl_arrfix_init_inplace(prh_impl_arrfix_addr(p), prh_std_malloc((size) * prh_impl_arrfix_elem_size(p)), (size))
+#define prh_arrfit_init(p, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), prh_std_malloc((capacity) * prh_impl_arrfix_elem_size(p)), (capacity))
 #define prh_arrfit_init_inplace(p, buffer, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), (buffer), (capacity))
 #define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrdyn_elem_size(p)) // 生成的数组 capacity 总是 2 的幂
 #define prh_arrlax_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrlax_elem_size(p)); (p)->start = 0; } // 生成的数组 capacity 总是 2 的幂
 
-#define prh_arrfix_free(p) { prh_free((p)->arrfix); prh_debug((p)->arrfix = prh_null); }
-#define prh_arrfit_free(p) { prh_free((p)->arrfit); prh_debug((p)->arrfit = prh_null); }
-#define prh_arrdyn_free(p) { prh_free((p)->arrdyn); prh_debug((p)->arrdyn = prh_null); }
-#define prh_arrlax_free(p) { prh_free((p)->arrlax); prh_debug((p)->arrlax = prh_null); }
+#define prh_arrfix_free(p) { prh_std_free((p)->arrfix); prh_debug((p)->arrfix = prh_null); }
+#define prh_arrfit_free(p) { prh_std_free((p)->arrfit); prh_debug((p)->arrfit = prh_null); }
+#define prh_arrdyn_free(p) { prh_std_free((p)->arrdyn); prh_debug((p)->arrdyn = prh_null); }
+#define prh_arrlax_free(p) { prh_std_free((p)->arrlax); prh_debug((p)->arrlax = prh_null); }
 
 prh_inline void prh_impl_arrdyn_clear(prh_impl_arrdyn *p) { p->size = 0; }
 #define prh_arrfit_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrfit_addr(p))
@@ -4101,15 +4149,15 @@ void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity); 
 prh_int prh_impl_string_expand_size(prh_impl_arrdyn *p, prh_int expand_size); // 增加元素个数时容量可能增大
 prh_int prh_impl_strlax_expand_size(prh_impl_arrlax *p, prh_int expand_size); // 增加元素个数时容量可能增大
 
-prh_inline void prh_strfix_init(prh_strfix *p, prh_int size) { (p)->s = prh_malloc(size); (p)->size = size; }
+prh_inline void prh_strfix_init(prh_strfix *p, prh_int size) { (p)->s = prh_std_malloc(size); (p)->size = size; }
 prh_inline void prh_strfit_init(prh_strfit *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
 prh_inline void prh_string_init(prh_string *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
 prh_inline void prh_strlax_init(prh_strlax *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); p->start = 0; }
 
-prh_inline void prh_strfix_free(prh_strfix *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_strfit_free(prh_strfit *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_string_free(prh_string *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_strlax_free(prh_strlax *p) { prh_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strfix_free(prh_strfix *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strfit_free(prh_strfit *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_string_free(prh_string *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strlax_free(prh_strlax *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
 
 prh_inline void prh_strfit_clear(prh_strfit *p) { p->size = 0; }
 prh_inline void prh_string_clear(prh_string *p) { p->size = 0; }
@@ -4476,12 +4524,23 @@ void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
     (p)->capacity = prh_arrlax_cap_end(a) - (p)->slice;                         \
     (p)->size = (j) - (i);                                                      \
 }
+#endif
 
 #ifdef PRH_ARRAY_IMPLEMENTATION
+#if 1
+void prh_impl_arrdyn_expand_capacity(void *a, prh_reg new_capacity, prh_reg elem_size) {
+    prh_int capacity = p->capacity;
+    if (new_capacity > capacity) {
+        do capacity *= 2; while (new_capacity > capacity);
+        p->capacity = capacity;
+        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity * elem_size);
+    }
+}
+#else
 void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) {
     prh_int capacity = 1;
     while (new_capacity > capacity) capacity *= 2;
-    p->arrdyn = prh_malloc(capacity * elem_size);
+    p->arrdyn = prh_std_malloc(capacity * elem_size);
     p->capacity = capacity;
     p->size = 0;
 }
@@ -4489,7 +4548,7 @@ void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_in
 void prh_impl_string_initialize(prh_impl_arrdyn *p, prh_int new_capacity) {
     prh_int capacity = 1;
     while (new_capacity > capacity) capacity *= 2;
-    p->arrdyn = prh_malloc(capacity);
+    p->arrdyn = prh_std_malloc(capacity);
     p->capacity = capacity;
     p->size = 0;
 }
@@ -4499,7 +4558,7 @@ void prh_impl_arrdyn_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity, p
     if (new_capacity > capacity) {
         do capacity *= 2; while (new_capacity > capacity);
         p->capacity = capacity;
-        p->arrdyn = prh_relloc(p->arrdyn, capacity * elem_size);
+        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity * elem_size);
     }
 }
 
@@ -4508,7 +4567,7 @@ void prh_impl_string_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
     if (new_capacity > capacity) {
         do capacity *= 2; while (new_capacity > capacity);
         p->capacity = capacity;
-        p->arrdyn = prh_relloc(p->arrdyn, capacity);
+        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity);
     }
 }
 
@@ -4517,7 +4576,7 @@ void prh_impl_arrdyn_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity, p
     if (new_capacity <= capacity / 2) { // 只要新容量大于旧容量的一半就不需要缩减，因为容量总是2的幂
         do capacity /= 2; while (new_capacity <= capacity / 2);
         p->capacity = capacity;
-        p->arrdyn = prh_relloc(p->arrdyn, capacity * elem_size);
+        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity * elem_size);
     }
 }
 
@@ -4526,7 +4585,7 @@ void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
     if (new_capacity <= capacity / 2) {
         do capacity /= 2; while (new_capacity <= capacity / 2);
         p->capacity = capacity;
-        p->arrdyn = prh_relloc(p->arrdyn, capacity);
+        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity);
     }
 }
 
@@ -4611,6 +4670,7 @@ void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j) 
     p->capacity = prh_strlax_cap_end((prh_strlax *)s) - p->slice;
     p->size = j - i;
 }
+#endif
 #endif // PRH_ARRAY_IMPLEMENTAION
 #endif // PRH_ARRAY_INCLUDE
 
@@ -5269,7 +5329,7 @@ typedef struct { void *arrque; prh_int capacity; prh_int size; prh_int tail; } p
 #define prh_impl_arrque_eptr_type(p) prh_typeof((p)->arrque)
 
 #define prh_arrque_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrque_elem_size(p)); (p)->tail = 0; }
-#define prh_arrque_free(p) { prh_free((p)->arrque); prh_debug((p)->arrque = prh_null); }
+#define prh_arrque_free(p) { prh_std_free((p)->arrque); prh_debug((p)->arrque = prh_null); }
 
 void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size);
 void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size);
@@ -5359,7 +5419,7 @@ void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size) {
     prh_int tail_offset = p->tail * elem_size;
     if (new_capacity > capacity) {
         middle_offset = capacity * elem_size;
-        p->arrque = prh_relloc(p->arrque, middle_offset * 2);
+        p->arrque = prh_std_ralloc(p->arrque, middle_offset * 2);
         memcpy((prh_byte *)p->arrque + middle_offset, p->arrque, tail_offset);
         tail_offset += middle_offset; // 当tail_offset恰好为0时最后一个元素恰好在数组尾部不需要拷贝，参数 tail_offset 为零 memcpy 实际也不会拷贝
         p->tail += capacity + 1;
@@ -5640,7 +5700,7 @@ prh_inline bool prh_quedyn_empty(prh_quedyn *q) {
 }
 
 prh_inline void prh_quedyn_free_node(void *ptr_node_object) {
-    if (ptr_node_object) prh_free((prh_snode *)ptr_node_object - 1);
+    if (ptr_node_object) prh_std_free((prh_snode *)ptr_node_object - 1);
 }
 
 void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *));
@@ -5669,7 +5729,7 @@ void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *)) {
         if (object_deinit_func) {
             object_deinit_func(curr + 1);
         }
-        prh_free(curr);
+        prh_std_free(curr);
     }
     prh_quedyn_init(q);
 }
@@ -5682,7 +5742,7 @@ prh_quedyn prh_quedyn_move(prh_quedyn *q) {
 
 void *prh_quedyn_push(prh_quedyn *q, int object_size) {
     if (object_size < sizeof(void *)) object_size = sizeof(void *);
-    prh_snode *new_node = prh_calloc(sizeof(prh_snode) + prh_round_ptrsize(object_size));
+    prh_snode *new_node = prh_std_calloc(sizeof(prh_snode) + prh_round_ptrsize(object_size));
     prh_quefit_push((prh_quefit *)q, new_node);
     return (new_node + 1);
 }
@@ -7563,7 +7623,7 @@ struct async_co;
 typedef void (*prh_co_proc)(void *co_struct);
 typedef void (*prh_async_co_proc)(struct async_co *co);
 
-extern prh_alloc_free PRH_IMPL_CO_ALLOC; // 只能全局设置一次
+extern prh_alloc_func PRH_IMPL_CO_ALLOC; // 只能全局设置一次
 #define prh_co_alloc(size) PRH_IMPL_CO_ALLOC((size), __LINE__)
 #define prh_co_free(ptr) PRH_IMPL_CO_ALLOC((prh_reg)(ptr), -1)
 #define prh_set_co_allocator(alloc) PRH_IMPL_CO_ALLOC = (alloc)
@@ -7668,7 +7728,7 @@ static void *prh_impl_default_co_alloc(prh_reg size, int line) {
     return prh_null;
 }
 
-prh_alloc_free PRH_IMPL_CO_ALLOC = prh_impl_default_co_alloc;
+prh_alloc_func PRH_IMPL_CO_ALLOC = prh_impl_default_co_alloc;
 
 #define prh_lower_guard_word 0x5a5a5a5a
 #define prh_upper_guard_word 0xa5a5a5a5
@@ -7740,7 +7800,7 @@ prh_inline int prh_impl_coro_struct_alloc_size(int maxcoros) {
 
 prh_coro_struct *prh_coro_init(int start_id, int maxcoros) {
     int alloc_size = prh_impl_coro_struct_alloc_size(maxcoros);
-    prh_coro_struct *s = (prh_coro_struct *)prh_calloc(alloc_size);
+    prh_coro_struct *s = (prh_coro_struct *)prh_std_calloc(alloc_size);
     s->start_id = start_id;
     s->maxcoros = maxcoros;
     return s;
@@ -8028,7 +8088,7 @@ void prh_coro_finish(prh_coro_struct **main) {
         }
     }
     *main = prh_null;
-    prh_free(s);
+    prh_std_free(s);
 }
 
 void prh_soro_init(prh_soro_struct *s, int start_id) {
@@ -12463,7 +12523,7 @@ typedef struct {
 
 void *prh_impl_atom_arrque_alloc(prh_int size, prh_int alloc) {
     assert(size > 0 && prh_is_power_of_2(size));
-    prh_impl_atom_arrque *q = prh_malloc(sizeof(prh_impl_atom_arrque) + alloc);
+    prh_impl_atom_arrque *q = prh_std_malloc(sizeof(prh_impl_atom_arrque) + alloc);
     q->head = q->tail = 0;
     q->size_minus_one = size - 1;
     prh_atom_int_init(&q->len, 0);
@@ -12471,7 +12531,7 @@ void *prh_impl_atom_arrque_alloc(prh_int size, prh_int alloc) {
 }
 
 void prh_impl_atom_arrque_free(void *q) {
-    prh_free(q);
+    prh_std_free(q);
 }
 
 prh_int prh_impl_atom_arrque_len(void *q) {
@@ -14602,7 +14662,7 @@ void prh_impl_time_test(void) {
 }
 
 typedef struct {
-    prh_alloc_free alloc;
+    prh_alloc_func alloc;
 } prh_tctx;
 
 typedef struct prh_thrd_struct(void *userdata;) prh_user_thrd;
@@ -14833,6 +14893,7 @@ prh_ptr prh_impl_plat_thrd_self(void);
 
 prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
 prh_thread_local prh_tctx PRH_IMPL_TCTX;
+prh_thread_local prh_alloc_func PRH_IMPL_ALLOC;
 
 void prh_impl_thrd_prestart_init(prh_thrd *thrd) {
     PRH_IMPL_THRD = thrd;
@@ -14840,7 +14901,7 @@ void prh_impl_thrd_prestart_init(prh_thrd *thrd) {
     prh_impl_plat_print_thrd_info(thrd);
 #endif
     thrd->extra_ptr = 0; // 可以在用户线程函数中重用 extra_ptr
-    prh_alloc_reset();
+    prh_rst_malloc();
 }
 
 int prh_impl_thrd_start_proc(prh_thrd *thrd) {
@@ -14879,7 +14940,7 @@ void prh_impl_launch_main_thrd(prh_thrd *main) {
 }
 
 prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size) {
-    prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_num));
+    prh_thrds *s = prh_std_calloc(prh_impl_thrds_size(thrd_num));
     assert(thrd_group >= 0 && thrd_group < 0x3fff);
     prh_thrd *main = prh_impl_thrd_create(thrd_group << 16, main_thrd_size ? main_thrd_size : sizeof(prh_thrd));
     s->thrd_max = thrd_num;
@@ -15044,7 +15105,7 @@ void prh_thrd_free(prh_thrds **main, prh_thrdfree_t thrd_free) {
         prh_aligned_free(main_thrd);
         s->main = prh_null;
     }
-    prh_free(s);
+    prh_std_free(s);
     *main = prh_null;
 }
 
@@ -15857,7 +15918,7 @@ void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
 }
 
 prh_thrd_cond *prh_thrd_cond_init(void) {
-    prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
+    prh_thrd_cond *p = prh_std_malloc(sizeof(prh_thrd_cond));
     prh_impl_thrd_cond_init(p);
     return p;
 }
@@ -15865,7 +15926,7 @@ prh_thrd_cond *prh_thrd_cond_init(void) {
 void prh_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的。
     prh_impl_thrd_cond_free(p);
-    prh_free(p);
+    prh_std_free(p);
 }
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
@@ -15911,14 +15972,14 @@ void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
 }
 
 prh_thrd_sem *prh_thrd_sem_init(void) {
-    prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
+    prh_thrd_sem *p = prh_std_malloc(sizeof(prh_thrd_sem));
     prh_impl_thrd_sem_init(p);
     return p;
 }
 
 void prh_thrd_sem_free(prh_thrd_sem *p) {
     prh_impl_thrd_sem_free(p);
-    prh_free(p);
+    prh_std_free(p);
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
@@ -15955,14 +16016,14 @@ void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
 }
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
-    prh_cond_sleep *p = prh_malloc(sizeof(prh_cond_sleep));
+    prh_cond_sleep *p = prh_std_malloc(sizeof(prh_cond_sleep));
     prh_impl_init_cond_sleep(p);
     return p;
 }
 
 void prh_free_cond_sleep(prh_cond_sleep *p) {
     prh_impl_free_cond_sleep(p);
-    prh_free(p);
+    prh_std_free(p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -16618,10 +16679,10 @@ void prh_system_info(prh_sysinfo *info) {
         prh_prerr(GetLastError());
         return;
     }
-    processor_info = prh_malloc(count * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
+    processor_info = prh_std_malloc(count * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
     if (!GetLogicalProcessorInformationEx(RelationCache, processor_info, &count)) {
         prh_prerr(GetLastError());
-        prh_free(processor_info);
+        prh_std_free(processor_info);
         return;
     }
     int cache_line_size = 0;
@@ -16632,7 +16693,7 @@ void prh_system_info(prh_sysinfo *info) {
         }
     }
     info->cache_line_size = cache_line_size;
-    prh_free(processor_info);
+    prh_std_free(processor_info);
 }
 
 void prh_impl_plat_set_fault_handler(void) {
@@ -17872,7 +17933,7 @@ prh_ptr prh_impl_plat_thrd_self(void) {
 //     // SIGSEGV 可能因为进程栈耗尽产生，此时该信号设置的处理函数将无法执行，因为已经没
 //     // 有栈空间了，因此需要额外分配一个信号栈，让处理函数在这个新栈上执行。
 //     stack_t altstk;
-//     altstk.ss_sp = prh_malloc(SIGSTKSZ);
+//     altstk.ss_sp = prh_std_malloc(SIGSTKSZ);
 //     altstk.ss_size = SIGSTKSZ;
 //     altstk.ss_flags = 0;
 //     prh_abort_nz(sigaltstack(&altstk, prh_null)); // 不好的地方，需要为每个线程都创建一个 altstk
@@ -19296,20 +19357,20 @@ void prh_mutex_free(prh_mutex *p) {
 }
 
 prh_mutex *prh_mutex_init(void) {
-    prh_mutex *p = prh_malloc(sizeof(prh_mutex));
+    prh_mutex *p = prh_std_malloc(sizeof(prh_mutex));
     prh_mutex_init(p);
     return p;
 }
 
 prh_mutex *prh_recursive_mutex_init(void) {
-    prh_mutex *p = prh_malloc(sizeof(prh_mutex));
+    prh_mutex *p = prh_std_malloc(sizeof(prh_mutex));
     prh_recursive_mutex_init(p);
     return p;
 }
 
 void prh_mutex_free(prh_mutex *p) {
     prh_mutex_free(p);
-    prh_free(p);
+    prh_std_free(p);
 }
 
 void prh_mutex_enter(prh_mutex *p) {
@@ -19346,7 +19407,7 @@ void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
 }
 
 prh_thrd_cond *prh_thrd_cond_init(void) {
-    prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
+    prh_thrd_cond *p = prh_std_malloc(sizeof(prh_thrd_cond));
     prh_impl_thrd_cond_init(p);
     return p;
 }
@@ -19355,7 +19416,7 @@ void prh_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
     prh_impl_thrd_cond_free(p);
-    prh_free(p);
+    prh_std_free(p);
 }
 
 // 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
@@ -19464,14 +19525,14 @@ void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
 }
 
 prh_thrd_sem *prh_thrd_sem_init(void) {
-    prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
+    prh_thrd_sem *p = prh_std_malloc(sizeof(prh_thrd_sem));
     prh_impl_thrd_sem_init(p);
     return p;
 }
 
 void prh_thrd_sem_free(prh_thrd_sem *p) {
     prh_impl_thrd_sem_free(p);
-    prh_free(p);
+    prh_std_free(p);
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
@@ -19505,7 +19566,7 @@ void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
 }
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
-    prh_cond_sleep *p = prh_malloc(sizeof(prh_thrd_cond));
+    prh_cond_sleep *p = prh_std_malloc(sizeof(prh_thrd_cond));
     prh_impl_init_cond_sleep(p);
     return p;
 }
@@ -19514,7 +19575,7 @@ void prh_free_cond_sleep(prh_cond_sleep *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
     prh_impl_free_cond_sleep(p);
-    prh_free(p);
+    prh_std_free(p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -28237,20 +28298,20 @@ struct tcp_callback {
 };
 
 struct tcp_socket *prh_impl_alloc_tcp_socket(int txbuf_size, int rxbuf_size) {
-    return prh_memory_alloc(sizeof(struct tcp_socket) + txbuf_size + rxbuf_size);
+    return prh_malloc(sizeof(struct tcp_socket) + txbuf_size + rxbuf_size);
 }
 
 // 每个监听套接字：
 //  1.  可同时接收 max_outstanding_accepts 个客户连接，该值必须小于等于 max_client_connections
 //  2.  可同时服务 max_client_connections 个客户连接
 //  3.  当达到最大客户连接后，必须释放原来的客户连接，才能接收新的连接
-//  4.  struct tcp_listen 和所有的 prh_accept_req 通过 prh_memory_alloc 进行分配
+//  4.  struct tcp_listen 和所有的 prh_accept_req 通过 prh_malloc 进行分配
 //  5.  struct tcp_server 由所在线程通过 prh_co_alloc 进行分配
 
 struct tcp_listen {
     /* +1p +1p */ prh_handle socket;
     /* +1p +1p */ prh_co_proc server_routine;
-    /* +1p +1p */ prh_alloc_free alloc;
+    /* +1p +1p */ prh_alloc_func alloc;
     /* +1p +1p */ prh_singly_node idle_accept_req;
     /* +1p +1p */ prh_singly_node idle_tcp_socket;
     /* +1p +0p */ int max_kernel_pre_accepts; // 内核可缓存多少预先接收的连接（backlog）
@@ -28634,7 +28695,7 @@ void prh_impl_listen_resue_socket(struct tcp_listen *listen, struct tcp_socket *
         }
     }
     if (!empty_idle_accept_found) {
-        prh_memory_free(socket);
+        prh_dalloc(socket);
     }
 
     int num_accept_can_request = listen->max_client_connections - listen->connection_count;
@@ -28814,10 +28875,10 @@ struct tcp_listen *prh_impl_alloc_tcp_listen(struct tcp_listen_params *params) {
 
     // [struct tcp_listen] [struct prh_accept_req] ... [struct prh_accept_req]
     prh_reg alloc_size = PRH_TCP_LISTEN_STRUCT_SIZE + listen_params.max_outstanding_accepts * PRH_TCP_ACCEPT_STRUCT_SIZE;
-    struct tcp_listen *tcp_listen = prh_memory_alloc(alloc_size);
+    struct tcp_listen *tcp_listen = prh_malloc(alloc_size);
     memset(tcp_listen, 0, alloc_size);
     tcp_listen->socket = PRH_INVASOCK;
-    tcp_listen->alloc = prh_alloc_get();
+    tcp_listen->alloc = prh_get_malloc();
     tcp_listen->max_kernel_pre_accepts = listen_params.max_kernel_pre_accepts;
     tcp_listen->max_client_connections = listen_params.max_client_connections;
     tcp_listen->max_outstanding_accepts = listen_params.max_outstanding_accepts;
@@ -28890,7 +28951,7 @@ struct tcp_listen *prh_tcp_listen(const void *host, int flags_port, struct tcp_l
 label_error_handle:
     prh_prerr(error_code);
     prh_impl_close_socket(listen_socket);
-    prh_memory_free(listen);
+    prh_dalloc(listen);
     return prh_null;
 }
 
