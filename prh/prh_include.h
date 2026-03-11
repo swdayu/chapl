@@ -4002,7 +4002,84 @@ prh_inline void prh_impl_local_dealloc(void *ptr, prh_reg line) {
 #define prh_local_aligned_alloc(size, alignment, line) prh_impl_local_alloc((size), ((prh_reg)(line) << 4) | (alignment))
 #define prh_local_aligned_realloc(ptr, size, alignment, line) prh_impl_local_realloc((ptr), (size), ((prh_reg)(line) << 4) | (alignment))
 
+typedef struct { // 一次性分配足够大的空间，保证后续分配不会失败
+    prh_byte *base_address;
+    prh_byte *buffer_end;
+    prh_byte *last_pointer;
+    prh_byte *walk_pointer;
+} prh_linear;
+
+void prh_linear_init(prh_linear *l, prh_byte *base_address, prh_reg size);
+void prh_linear_allocator_init(prh_linear *l, prh_allocator *a);
+void *prh_linear_forward(prh_linear *l, prh_reg size, prh_reg alignment);
+void *prh_linear_realloc(prh_linear *l, void *ptr, prh_reg size, prh_reg alignment);
+void prh_linear_rollback(prh_linear *l, void *p);
+void prh_linear_reset(prh_linear *l);
+
+typedef struct { // 勇往直前，永不后退
+    prh_byte *base_address;
+    prh_byte *buffer_end;
+    prh_byte *walk_pointer;
+} prh_braver;
+
 #ifdef PRH_ALLOC_IMPLEMENTATION
+void prh_linear_init(prh_linear *l, prh_byte *base_address, prh_reg size) {
+    assert(base_address != prh_null && size != 0);
+    assert(prh_is_times_of_ptrsize((prh_reg)base_address));
+    assert(prh_is_times_of_ptrsize(size));
+    l->base_address = base_address;
+    l->buffer_end = base_address + size;
+    l->walk_pointer = base_address;
+    l->last_pointer = prh_null;
+}
+
+void prh_linear_rollback(prh_linear *l, void *p) {
+    assert(p >= l->base_address && l < l->buffer_end && prh_is_times_of_ptrsize((prh_reg)p));
+    l->walk_pointer = (prh_byte *)p;
+    l->last_pointer = prh_null;
+}
+
+void prh_linear_reset(prh_linear *l) {
+    l->walk_pointer = l->base_address;
+    l->last_pointer = prh_null;
+}
+
+void *prh_linear_forward(prh_linear *l, prh_reg size, prh_reg alignment) {
+    size = prh_round_power_of_2(size, alignment);
+    assert(l->walk_pointer + size <= l->buffer_end);
+    prh_byte *p = (prh_byte *)prh_round_power_of_2((prh_reg)l->walk_pointer, alignment);
+    l->walk_pointer = p + size; // 如果size为零，成功返回，但对应的地址不能写入
+    l->last_pointer = p;
+    return p;
+}
+
+void *prh_linear_realloc(prh_linear *l, void *ptr, prh_reg size, prh_reg alignment) {
+    if (ptr == prh_null) {
+        return prh_linear_forward(l, size, alignment);
+    } else if (l->last_pointer == (prh_byte *)ptr) {
+        size = prh_round_power_of_2(size, alignment);
+        assert((prh_byte *)ptr + size <= l->buffer_end);
+        assert(prh_is_times_power_of_2((prh_reg)ptr, alignment));
+        l->walk_pointer = (prh_byte *)ptr + size;
+        return ptr;
+    } else {
+        void *dest = prh_linear_forward(l, size, alignment);
+        memcpy(dest, ptr, size); // 这里size为零是安全的
+        return dest;
+    }
+}
+
+void prh_impl_empty_dealloc(void *context, void *ptr) {
+    // used for the allocator that no need a deallocator
+}
+
+void prh_linear_allocator_init(prh_linear *l, prh_allocator *a) {
+    a->context = l;
+    a->alloc = (prh_alloc_func)prh_linear_forward;
+    a->realloc = (prh_realloc_func)prh_linear_realloc;
+    a->dealloc = (prh_dealloc_func)prh_impl_empty_dealloc;
+}
+
 #if defined(prh_plat_windows)
 // LPVOID VirtualAlloc(
 //  [in, optional] LPVOID lpAddress,
