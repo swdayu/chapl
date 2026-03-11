@@ -3934,6 +3934,74 @@ void prh_impl_test_code(void) {
 #endif // PRH_TEST_IMPLEMENTATION
 
 #ifdef PRH_ALLOC_INCLUDE
+#define prh_alignment_pointer prh_arch_int_shl_size
+#define prh_alignment_08_byte 3
+#define prh_alignment_16_byte 4
+#define prh_alignment_32_byte 5
+#define prh_alignment_64_byte 6
+#define prh_alignment_128_byte 7
+#define prh_alignment_256_byte 8
+#define prh_alignment_512_byte 9
+#define prh_alignment_1024_byte 10
+#define prh_alignment_2x_1024_byte 11
+#define prh_alignment_4x_1024_byte 12
+#define prh_alignment_8x_1024_byte 13
+#define prh_alignment_16_1024_byte 14
+#define prh_alignment_32_1024_byte 15
+#define prh_alignment_64_1024_byte 16
+#define prh_alignment_cache_line 6
+#define prh_alignment_page_size 12
+
+#ifndef prh_alignment_default
+#define prh_alignment_default prh_alignment_08_byte
+#endif
+
+prh_static_assert(prh_alignment_default <= prh_alignment_64_1024_byte);
+prh_static_assert((1 << prh_alignment_cache_line) == prh_cache_line_size);
+prh_static_assert((1 << prh_alignment_page_size) == prh_memory_page_size);
+
+typedef void *(prh_alloc_func)(void *context, prh_reg size, prh_reg alignment);
+typedef void *(prh_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
+typedef void (*prh_dealloc_func)(void *context, void *ptr);
+
+typedef struct {
+    void *context;
+    prh_alloc_func alloc; // 分配零字节长度正常返回，但返回的地址位置不能访问
+    prh_realloc_func realloc; // 重新分配，仅分配内存，不会执行释放操作
+    prh_dealloc_func dealloc; // 释放内存，要释放内存，必须调用该接口
+} prh_allocator;
+
+extern prh_thread_local prh_allocator *PRH_IMPL_ALLOC;
+extern prh_allocator *prh_impl_default_allocator;
+void prh_impl_empty_dealloc(void *context, void *ptr);
+
+prh_inline void *prh_impl_local_alloc(prh_reg size, prh_reg line_alignment) {
+    void *ptr = PRH_IMPL_ALLOC->alloc(PRH_IMPL_ALLOC->context, size, (1 << (line_alignment & 0x0F)));
+    prh_assert_line(ptr != prh_null, line_alignment >> 4);
+    return ptr;
+}
+
+prh_inline void *prh_impl_local_realloc(void *ptr, prh_reg size, prh_reg line_alignment) {
+    void *ptr = PRH_IMPL_ALLOC->realloc(PRH_IMPL_ALLOC->context, ptr, size, (1 << (line_alignment & 0x0F)));
+    prh_assert_line(ptr != prh_null, line_alignment >> 4);
+    return ptr;
+}
+
+prh_inline void prh_impl_local_dealloc(void *ptr, prh_reg line) {
+    PRH_IMPL_ALLOC->dealloc(PRH_IMPL_ALLOC->context, ptr);
+}
+
+// 使用当前局部环境中的分配器进行分配，该动态分配器总是多分配一个指针大小的空间，用来保
+// 存当前分配器函数的指针，当重新分配或释放内存时，需要调用最初的分配器函数
+#define prh_get_allocator() PRH_IMPL_ALLOC
+#define prh_set_allocator(a) PRH_IMPL_ALLOC = (a)
+#define prh_reset_allocator() prh_set_allocator(prh_impl_default_allocator)
+#define prh_local_alloc(size, line) prh_local_aligned_alloc((size), prh_alignment_default, (line))
+#define prh_local_realloc(ptr, size, line) prh_local_aligned_realloc((ptr), (size), prh_alignment_default, (line))
+#define prh_local_dealloc(ptr, line) prh_impl_local_dealloc((ptr), (line))
+#define prh_local_aligned_alloc(size, alignment, line) prh_impl_local_alloc((size), ((prh_reg)(line) << 4) | (alignment))
+#define prh_local_aligned_realloc(ptr, size, alignment, line) prh_impl_local_realloc((ptr), (size), ((prh_reg)(line) << 4) | (alignment))
+
 #ifdef PRH_ALLOC_IMPLEMENTATION
 #if defined(prh_plat_windows)
 // LPVOID VirtualAlloc(
