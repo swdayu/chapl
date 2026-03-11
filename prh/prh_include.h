@@ -57,7 +57,7 @@
 // from `prh_array_*` interfaces.
 //
 // Not all the names have strippable prefixes. All the redefinable names like
-// `prh_std_ralloc` and `PRH_ARRAY_INIT_ELEMS` for instance will retain their
+// `prh_realloc` and `PRH_ARRAY_INIT_ELEMS` for instance will retain their
 // prefix. All basic names like `prh_i64` and `prh_inline` can not strip off
 // the prefix due to they are short names anyway. But you can still #define
 // your own names as you need before or after include prh_include.h. All
@@ -732,6 +732,7 @@ extern "C" {
     #define PRH_ARCH_INT_MIN PRH_I32_MIN
     #define PRH_ARCH_INT_MAX PRH_I32_MAX
     #define PRH_ARCH_INT_UMX PRH_I32_UMX
+    #define prh_arch_int_shl_size 2
     typedef prh_i32 prh_arch_int;
     typedef prh_r32 prh_arch_reg;
     typedef prh_i32 prh_int;
@@ -743,6 +744,7 @@ extern "C" {
     #define PRH_ARCH_INT_MIN PRH_I64_MIN
     #define PRH_ARCH_INT_MAX PRH_I64_MAX
     #define PRH_ARCH_INT_UMX PRH_I64_UMX
+    #define prh_arch_int_shl_size 3
     typedef prh_i64 prh_arch_int;
     typedef prh_r64 prh_arch_reg;
     #ifdef prh_32_bit_memory_range
@@ -765,10 +767,12 @@ extern "C" {
     #define PRH_INT_MIN PRH_I32_MIN
     #define PRH_INT_MAX PRH_I32_MAX
     #define PRH_INT_UMX PRH_I32_UMX
+    #define prh_int_shl_size 2
 #else
     #define PRH_INT_MIN PRH_I64_MIN
     #define PRH_INT_MAX PRH_I64_MAX
     #define PRH_INT_UMX PRH_I64_UMX
+    #define prh_int_shl_size 3
 #endif
     typedef prh_r32 prh_char;
     typedef prh_reg prh_ptr;
@@ -1780,6 +1784,13 @@ typedef enum {
 #endif
 #endif
 
+#ifdef PRH_ARRAY_INCLUDE
+#define PRH_ALLOC_INCLUDE
+#ifdef PRH_ARRAY_IMPLEMENTATION
+#define PRH_ALLOC_IMPLEMENTATION
+#endif
+#endif
+
 #if defined(PRH_ARRAY_IMPLEMENTATION) || defined(PRH_LIST_IMPLEMENTATION)
 #define PRH_BASE_IMPLEMENTATION
 #endif
@@ -2358,127 +2369,6 @@ typedef enum {
     #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(__LINE__, errno); }
 #endif // prh_plat_posix
 #endif // ATOMIC THRD TIME CONO_IMPLEMENTATION
-
-// include basic common use C headers
-#include <assert.h> // assert 如果在这之前定义了 NDEBUG 断言将失效
-#include <stdlib.h> // malloc calloc realloc free abort exit
-#include <string.h> // memcpy memmove memset
-// void *memcpy(void *dest, const void *src, size_t count);
-// void *memmove(void *dest, const void *src, size_t count);
-// void *memset(void *ptr, int value, size_t count);
-// if either dest or src is an invalid or null pointer { undefined behavior }
-// if dest and src memory overlap for memcpy { undefined behavior }
-// the count parameter can be set to zero value.
-#include <stdio.h> // printf fprintf
-#include <errno.h> // errno POSIX-compatible error code
-
-#ifndef prh_std_malloc
-// 内存分配的几种类别
-//  1.  固定大小栈分配
-//  2.  程序初始化时的全局分配
-//  3.  即用的生存期非常明确的分配，其生存期编译器可以静态推断
-//  4.  存在一个周期的可以重用的周期性释放和分配
-//  5.  不能通过静态分析推断生存期的分配
-//  6.  分配的释放必须早于内存池的释放
-//  7.  注意以上类型的相互赋值，以及分配释放跨不同线程的处理
-#define prh_std_malloc(size) prh_impl_malloc((size), __LINE__)
-#define prh_std_calloc(size) prh_impl_calloc((size), __LINE__)
-#define prh_std_ralloc(ptr, size) prh_impl_ralloc((ptr), (size), __LINE__)
-#define prh_std_free free // void free(void *ptr) if ptr is null do nothing
-
-// void *malloc(size_t size);
-// the newly allocated block of memory is not initialized, remaining with indeterminate values.
-// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
-// if fails to allocate the requested block of memory, a null pointer is returned.
-prh_inline void *prh_impl_malloc(prh_reg size, prh_int line) {
-    void *p = malloc(size);
-    prh_assert_line(p != prh_null, line);
-    return p;
-}
-
-// void *calloc(size_t num, size_t size);
-// allocates a block of memory for an array of num elements, each of them size bytes long, and
-// initializes all its bits to zero. the effective result is the allocation of a zero-initialized
-// memory block of (num*size) bytes.
-// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
-// if fails to allocate the requested block of memory, a null pointer is returned.
-prh_inline void *prh_impl_calloc(prh_reg size, prh_int line) {
-    void *p = calloc(1, size);
-    prh_assert_line(p != prh_null, line);
-    return p;
-}
-
-// void *realloc(void *ptr, size_t size);
-// if ptr == prh_null { return malloc(size) }
-// if size == 0 { may be free(ptr) or depends on library implementation }
-// if size > ptr old size { may return the new location and the newer portion is indeterminate }
-// the content is preserved up to min(old and new size), even if moved to a new location.
-// if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
-// if ptr != NULL
-//      if size != 0
-//          return realloc(ptr, size)
-//      else
-//          **MAYBE** free(ptr) return NULL
-// else
-//      if size != 0
-//          return malloc(size)
-//      else
-//          return NULL
-void *prh_impl_ralloc(void *ptr, prh_reg size, prh_int line);
-
-// 至少分配指针大小的倍数，返回的地址至少对齐到指针大小
-typedef void *(*prh_alloc_func)(void *ptr, prh_reg size, prh_int line);
-void *prh_impl_alloc_func(void *ptr, prh_reg size, prh_int line);
-extern prh_thread_local prh_alloc_func PRH_IMPL_ALLOC;
-
-prh_inline void *prh_impl_context_ralloc(void *ptr, prh_reg size, prh_int line) {
-    if (ptr == prh_null) return PRH_IMPL_ALLOC(0, size, line);
-    ptr = (void *)((void **)ptr - 1);
-    (*(prh_alloc_func *)ptr)(ptr, size, line);
-}
-
-prh_inline void prh_impl_context_dalloc(void *ptr, prh_int line) {
-    if (ptr == prh_null) return;
-    ptr = (void *)((void **)ptr - 1);
-    (*(prh_alloc_func *)ptr)(ptr, 0, line);
-}
-
-#define prh_set_malloc(a) PRH_IMPL_ALLOC = (a)
-#define prh_rst_malloc() prh_set_malloc(prh_impl_alloc_func)
-#define prh_malloc(size) PRH_IMPL_ALLOC(0, (size), __LINE__)
-#define prh_ralloc(p, size) prh_impl_context_ralloc((p), (size), __LINE__)
-#define prh_dalloc(p) prh_impl_context_dalloc((p), __LINE__)
-#endif // prh_std_malloc
-
-// https://en.cppreference.com/w/c/memory/aligned_alloc
-// https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-malloc
-// https://jemalloc.net/
-#ifndef prh_aligned_alloc
-#if defined(prh_cl_msc)
-    #include <malloc.h>
-    // _aligned_malloc is based on malloc. required C header malloc.h.
-    // if alignment isn't a power of 2 or size is zero, this function invokes
-    // the invalid parameter handler. if execution is allowed to continue, this
-    // function returns NULL and sets errno to EINVAL.
-    #define prh_plat_aligned_alloc(size, alignment) _aligned_malloc((size), (alignment))
-    #define prh_aligned_free(p) _aligned_free(p)
-#else
-    #include <stdlib.h>
-    // behavior is undefined if size is not an integral multiple of alignment
-    void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
-    #define prh_plat_aligned_alloc(size, alignment) aligned_alloc((alignment), (size))
-    #define prh_aligned_free(p) free(p)
-#endif
-prh_inline void *prh_impl_aligned_alloc(prh_reg size, int alignment, int line) {
-    void *p = prh_plat_aligned_alloc(size, alignment);
-    prh_assert_line(p != prh_null, line);
-    return p;
-}
-#define prh_aligned_alloc(size, alignment) prh_impl_aligned_alloc((size), (alignment), __LINE__)
-#define prh_cache_line_aligned_alloc(size) prh_aligned_alloc((size), PRH_CACHE_LINE_SIZE)
-#define prh_16_byte_aligned_alloc(size) prh_aligned_alloc((size), 16)
-#endif
 
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
@@ -3545,12 +3435,12 @@ prh_inline void *prh_impl_aligned_alloc(prh_reg size, int alignment, int line) {
 // 用程序的性能。此外，这些指令仅应用于从内存预取数据；不应用于预取指令。有关正确使用预
 // 取指令的详细信息，请参阅架构优化参考手册第 9 章 “优化缓存使用”。
 
-#ifndef PRH_CACHE_LINE_SIZE
-#define PRH_CACHE_LINE_SIZE 64
+#ifndef prh_cache_line_size
+#define prh_cache_line_size 64
 #endif
 
-#ifndef PRH_MEMORY_PAGE_SIZE
-#define PRH_MEMORY_PAGE_SIZE 4096
+#ifndef prh_memory_page_size
+#define prh_memory_page_size 4096
 #endif
 
 #ifndef prh_round_ptrsize
@@ -3566,6 +3456,30 @@ prh_inline bool prh_is_power_of_2(prh_reg n) {
     return prh_remove_lower_most_bit(n) == 0; // power of 2 or zero
 }
 
+prh_inline bool prh_is_times_of_ptrsize(prh_reg n) {
+    return (n & (sizeof(void *) - 1)) == 0;
+}
+
+prh_inline bool prh_is_times_of_08_byte(prh_reg n) {
+    return (n & 0x07) == 0;
+}
+
+prh_inline bool prh_is_times_of_16_byte(prh_reg n) {
+    return (n & 0xF) == 0;
+}
+
+prh_inline bool prh_is_times_of_cache_line_size(prh_reg n) {
+    return (n & (prh_cache_line_size - 1)) == 0;
+}
+
+prh_inline bool prh_is_times_of_page_size(prh_reg n) {
+    return (n & (prh_memory_page_size - 1)) == 0;
+}
+
+prh_inline bool prh_is_times_power_of_2(prh_reg n, prh_reg power_of_2) {
+    return (n & (power_of_2 - 1)) == 0;
+}
+
 prh_inline prh_reg prh_to_power_of_2(prh_reg n) {
     if (prh_is_power_of_2(n)) return n;
     // TODO: 字节序交换然后计算lower most bit
@@ -3574,11 +3488,118 @@ prh_inline prh_reg prh_to_power_of_2(prh_reg n) {
     return m;
 }
 
+prh_inline prh_reg prh_round_power_of_2(prh_reg n, prh_reg power_of_2) {
+    assert(prh_is_power_of_2(power_of_2));
+    return (n + power_of_2 - 1) & (~(power_of_2 - 1));
+}
+
 #define prh_round_ptrsize(n) (((prh_reg)(n)+(prh_reg)(sizeof(void*)-1)) & (~(prh_reg)(sizeof(void*)-1)))
-#define prh_round_cache_line_size(n) (((prh_reg)(n)+PRH_CACHE_LINE_SIZE-1) & (~(prh_reg)(PRH_CACHE_LINE_SIZE-1)))
+#define prh_round_cache_line_size(n) (((prh_reg)(n)+prh_cache_line_size-1) & (~(prh_reg)(prh_cache_line_size-1)))
 #define prh_round_08_byte(n) (((prh_reg)(n)+7) & (~(prh_reg)7))
 #define prh_round_16_byte(n) (((prh_reg)(n)+15) & (~(prh_reg)15))
 #endif // prh_round_ptrsize
+
+// include basic common use C headers
+#include <assert.h> // assert 如果在这之前定义了 NDEBUG 断言将失效
+#include <stdlib.h> // malloc calloc realloc free abort exit
+#include <string.h> // memcpy memmove memset
+// void *memcpy(void *dest, const void *src, size_t count);
+// void *memmove(void *dest, const void *src, size_t count);
+// void *memset(void *ptr, int value, size_t count);
+// if either dest or src is an invalid or null pointer { undefined behavior }
+// if dest and src memory overlap for memcpy { undefined behavior }
+// the count parameter can be set to zero value.
+#include <stdio.h> // printf fprintf
+#include <errno.h> // errno POSIX-compatible error code
+
+#ifndef prh_malloc
+// 内存分配的几种类别
+//  1.  固定大小栈分配
+//  2.  程序初始化时的全局分配
+//  3.  即用的生存期非常明确的分配，其生存期编译器可以静态推断
+//  4.  存在一个周期的可以重用的周期性释放和分配
+//  5.  不能通过静态分析推断生存期的分配
+//  6.  分配的释放必须早于内存池的释放
+//  7.  注意以上类型的相互赋值，以及分配释放跨不同线程的处理
+#define prh_malloc(size) prh_impl_malloc((size), __LINE__)
+#define prh_calloc(size) prh_impl_calloc((size), __LINE__)
+#define prh_realloc(ptr, size) prh_impl_realloc((ptr), (size), __LINE__)
+#define prh_dealloc(ptr) prh_impl_dealloc((ptr), __LINE__) // 规范 prh_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_dealloc
+
+// void *malloc(size_t size);
+// the newly allocated block of memory is not initialized, remaining with indeterminate values.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+prh_inline void *prh_impl_malloc(prh_reg size, prh_int line) {
+    void *p = malloc(size);
+    prh_assert_line(p != prh_null, line);
+    return p;
+}
+
+// void free(void *ptr) if ptr is null do nothing
+prh_inline void prh_impl_dealloc(void *ptr, prh_int line) {
+    free(ptr);
+}
+
+// void *calloc(size_t num, size_t size);
+// allocates a block of memory for an array of num elements, each of them size bytes long, and
+// initializes all its bits to zero. the effective result is the allocation of a zero-initialized
+// memory block of (num*size) bytes.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+prh_inline void *prh_impl_calloc(prh_reg size, prh_int line) {
+    void *p = calloc(1, size);
+    prh_assert_line(p != prh_null, line);
+    return p;
+}
+
+// void *realloc(void *ptr, size_t size);
+// if ptr == prh_null { return malloc(size) }
+// if size == 0 { may be free(ptr) or depends on library implementation }
+// if size > ptr old size { may return the new location and the newer portion is indeterminate }
+// the content is preserved up to min(old and new size), even if moved to a new location.
+// if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
+// if ptr != NULL
+//      if size != 0
+//          return realloc(ptr, size)
+//      else
+//          **MAYBE** free(ptr) return NULL *** 规范 prh_realloc 只做分配操作，不释放内存
+// else
+//      // if size = 0 may or may not return null, but the returned pointer shall not be dereferenced
+//      return malloc(size)
+void *prh_impl_realloc(void *ptr, prh_reg size, prh_int line);
+
+// https://en.cppreference.com/w/c/memory/aligned_alloc
+// https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-malloc
+// https://jemalloc.net/
+
+#define prh_aligned_alloc(size, alignment) prh_impl_aligned_alloc((size), (alignment), __LINE__)
+#define prh_cache_line_aligned_alloc(size) prh_aligned_alloc((size), prh_cache_line_size)
+#define prh_16_byte_aligned_alloc(size) prh_aligned_alloc((size), 16)
+
+#if defined(prh_cl_msc)
+    #include <malloc.h>
+    // _aligned_malloc is based on malloc. required C header malloc.h.
+    // if alignment isn't a power of 2 or size is zero, this function invokes
+    // the invalid parameter handler. if execution is allowed to continue, this
+    // function returns NULL and sets errno to EINVAL.
+    #define prh_plat_aligned_alloc(size, alignment) _aligned_malloc((size), (alignment))
+    #define prh_aligned_dealloc(p) _aligned_free(p)
+#else
+    #include <stdlib.h>
+    // behavior is undefined if size is not an integral multiple of alignment
+    void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
+    #define prh_plat_aligned_alloc(size, alignment) aligned_alloc((alignment), (size))
+    #define prh_aligned_dealloc(p) free(p)
+#endif
+
+prh_inline void *prh_impl_aligned_alloc(prh_reg size, int alignment, int line) {
+    void *p = prh_plat_aligned_alloc(size, alignment);
+    prh_assert_line(p != prh_null, line);
+    return p;
+}
+#endif // prh_malloc
 
 #ifdef PRH_BASE_IMPLEMENTATION
 void prh_impl_assert(int line) {
@@ -3604,32 +3625,15 @@ void prh_print_exit_code(int thrd_id, int exit_code) {
     fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
 }
 
-void *prh_impl_ralloc(void *ptr, prh_reg size, prh_int line) {
-    if (ptr != prh_null) {
-        if (size == 0) { free(ptr); return prh_null; }
+void *prh_impl_realloc(void *ptr, prh_reg size, prh_int line) {
+    if (ptr == prh_null) {
+        ptr = malloc(size); // 需要处理size为零的情况
+    } else { // 规范 prh_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_dealloc
+        size = (size == 0) ? sizeof(void *) : size;
         ptr = realloc(ptr, size);
-    } else {
-        if (size == 0) return prh_null; // 相当于 free(prh_null)
-        ptr = malloc(size);
     }
     prh_assert_line(ptr != prh_null, line);
     return ptr;
-}
-
-void *prh_impl_alloc_func(void *ptr, prh_reg size, prh_int line) {
-    if (ptr == prh_null) {
-        ptr = malloc(sizeof(void*) + size);
-label_after_alloc:
-        prh_assert_line(ptr != prh_null, line);
-        *(void **)ptr = (void *)prh_impl_alloc_func;
-        return (void *)((void **)p + 1);
-    }
-    if (size != 0) {
-        ptr = realloc(ptr, sizeof(void*) + size);
-        goto label_after_alloc;
-    }
-    free(ptr);
-    return prh_null;
 }
 
 #if defined(prh_plat_windows)
@@ -3928,1836 +3932,6 @@ void prh_impl_test_code(void) {
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
-
-// ARRAYS, SLICES, STRINGS
-#ifdef PRH_ARRAY_INCLUDE
-// 标准容器相关操作参考
-// https://en.cppreference.com/w/cpp/container.html
-// 调整容器大小，当增大时需要初始化新增元素
-//  void resize(size_type count); 调整容器大小，尾部多余的元素会被移除，不够的元素会追加默认元素值，相当于移除多个元素或添加多个元素
-//  void resize(size_type count, const value_type& value); 或追加提供的元素值 value
-//  void resize_and_overwrite(size_type count, void (*method_op)(value_type *p, size_type count)); 在增加元素时避免初始化两次
-//  void clear(); 清除容器所有元素，清除之后容器大小为零
-// 调整容器容量
-//  void reserve(size_type new_capacity); 增大容器容量，如果 new_capacity 大于当前容量将扩容
-//  void shrink_to_fit(); 缩减容器容量，将没用的过多的容量释放掉
-// 移除容器元素，以整个容器为范围（erase），或指定范围内移除元素（remove）
-//  iterator erase(const_iterator pos); 移除所在位置处的元素，返回执行移除操作后其后第一个元素的位置
-//  iterator erase(const_iterator first, const_iterator last); 移除所在范围内的元素
-//  iterator erase_after(const_iterator pos); 移除位置pos后面的那个元素，返回执行移除操作后其后第一个元素的位置
-//  iterator erase_after(const iterator first, const_iterator last); 移除范围内除了first之外的所有元素，即返回end()或last
-//  size_type erase(const T& vlaue); 移除所有与值value相等的元素，返回移除的元素个数
-//  size_type erase_if(Pred pred); 移除所有满足条件的元素，返回移除的元素个数
-//  iterator remove(iterator first, iterator last, const T& value); 将范围内与值value相等的元素移除
-//  iterator remove_if(iterator first, iterator last, Pred pred); 将范围内满足要求的元素移除，返回新容器范围[first, end)中的end位置
-// 插入元素，在指定位置之前插入或之后插入一个或多个元素
-//  iterator insert(const_iterator pos, const value_type& value); 将value插入到pos位置，插入后该值的位置是pos，返回插入元素的迭代器
-//  iterator insert(const_iterator pos, value_type&& value); 将value插入到pos位置，使用移动语义，返回插入元素的迭代器
-//  iterator insert(const_iterator pos, size_type count, const value_type& value); 将多个元素插入到pos位置，返回第一个插入元素的迭代器
-//  iterator insert(const_iterator pos, iterator first, iterator last); 将范围内的元素插入到pos位置
-//  iterator insert(const_iterator pos, initializer_list<value_type> list); 将初始化列表中的元素插入到pos位置
-//  iterator insert_range(const_iterator pos, range_type&& range); 将范围内的元素插入到pos位置之前
-//  iterator insert_after(const_iterator pos, const value_type& value); 将值value插入到pos位置之后，返回插入元素的迭代器
-//  iterator insert_after(const_iterator pos, iterator first, iterator last); 将范围内的元素插入到pos位置之后，返回最后一个插入元素的迭代器
-//  pair<iterator, bool> insert_or_assign(const key_type& key, mapped_type&& value); 映射中已经存在key赋值，否则插入
-//  pair<iterator, bool> insert_or_assign(const_iterator hint, const key_type& key, mapped_type&& value); 插入位置在hint位置
-//  iterator before_begin(); 容器第一个元素的之前的元素位置，用于 insert_after() erase_after() 等函数
-// 插入一个原地构造的元素，新元素使用提供的参数列表直接原地构造（use placement new to construct the element in-place at the location）
-//  iterator emplace(const_iterator pos, Args&&... args); 将新元素插入到pos位置
-//  iterator emplace_after(const_iterator pos, Args&&... args); 将新元素插入到pos位置之后
-//  reference_type emplace_back(Args&&... args); 在容器尾部插入一个元素，该元素使用提供的参数列表直接原地构造，而 push_back() 需要先构造一个对象再将对象拷贝或移动到容器
-//  reference_type emplace_front(Args&&... args); 在容器头部插入一个元素，emplace_back() emplace_front() 可以直接在容器内部构造对象，少了拷贝或移动的操作
-//  pair<iterator, bool> map::emplace(Args&&... args); 使用参数列表构造 pair<key_type, value_type>，并将键值对插入到映射对象，如果键值已经存在返回false此时需要析构新建元素
-//  pair<iterator, bool> map::try_emplace(const key_type& key, Args&&... args); 如果键值已经存在，不会构造新元素，直接返回false
-//  iterator map::emplace_hint(const_iterator hint, Args&&... args); 插入位置在hint位置，参考hint位置插入一个不存在的键值对，如果键已经存在返回false
-//  iterator map::try_emplace(const_iterator hint, const key_type& key, Args&&... args); 参考hint位置插入一个不存在的键值对，如果键已经存在直接返回false
-// 弹压元素
-//  void push_back(const value_type& value); 在容器尾拷贝构造一个新元素
-//  void push_back(value_type&& value); 在容器尾移动构造一个新元素
-//  void push_front(const value_type& value); 在容器头部压入新元素
-//  void push_front(value_type&& value); 在容器头部压入新元素
-//  void pop_back(); 弹出容器尾部元素
-//  void pop_front(); 弹出容器头部元素
-//  void append_range(range_type&& range); 在容器尾部压入多个元素
-//  void prepend_range(range_type&& range); 将多个元素压入到容器头部
-
-#if 1
-typedef struct {
-    prh_reg capacity;
-    prh_reg size;
-} prh_impl_arrdyn_head;
-
-typedef struct {
-    prh_reg start;
-    prh_reg capacity;
-    prh_reg size;
-} prh_impl_arrlax_head;
-
-#define prh_impl_arrvew_eptr_type(p) prh_typeof((p)->arrvew)
-#define prh_impl_arrfix_eptr_type(p) prh_typeof((p)->arrfix)
-#define prh_impl_arrfit_eptr_type(p) prh_typeof((p)->arrfit)
-#define prh_impl_arrdyn_eptr_type(p) prh_typeof((p)->arrdyn)
-#define prh_impl_arrlax_eptr_type(p) prh_typeof((p)->arrlax)
-
-#define prh_impl_arrvew_elem_type(p) prh_typeof(*((p)->arrvew))
-#define prh_impl_arrfix_elem_type(p) prh_typeof(*((p)->arrfix))
-#define prh_impl_arrfit_elem_type(p) prh_typeof(*((p)->arrfit))
-#define prh_impl_arrdyn_elem_type(p) prh_typeof(*((p)->arrdyn))
-#define prh_impl_arrlax_elem_type(p) prh_typeof(*((p)->arrlax))
-
-#define prh_impl_arrvew_elem_size(p) sizeof(*((p)->arrvew))
-#define prh_impl_arrfix_elem_size(p) sizeof(*((p)->arrfix))
-#define prh_impl_arrfit_elem_size(p) sizeof(*((p)->arrfit))
-#define prh_impl_arrdyn_elem_size(p) sizeof(*((p)->arrdyn))
-#define prh_impl_arrlax_elem_size(p) sizeof(*((p)->arrlax))
-
-#define prh_impl_arrvew_addr(p) (prh_impl_arrvew *)(&((p)->arrvew))
-#define prh_impl_arrfix_addr(p) (prh_impl_arrfix *)(&((p)->arrfix))
-#define prh_impl_arrfit_addr(p) (prh_impl_arrfit *)(&((p)->arrfit))
-#define prh_impl_arrdyn_addr(p) (prh_impl_arrdyn *)(&((p)->arrdyn))
-#define prh_impl_arrlax_addr(p) (prh_impl_arrlax *)(&((p)->arrlax))
-
-#define prh_arrdyn_reserve(a, new_capacity)
-
-#else
-typedef struct { void *arrvew; prh_int size; } prh_impl_arrvew;
-typedef struct { void *arrfix; prh_int size; } prh_impl_arrfix;
-typedef struct { void *arrfit; prh_int capacity; prh_int size; } prh_impl_arrfit;
-typedef struct { void *arrdyn; prh_int capacity; prh_int size; } prh_impl_arrdyn;
-typedef struct { void *arrlax; prh_int capacity; prh_int size; prh_int start; } prh_impl_arrlax;
-
-#define prh_arrvew(elem_type) struct { elem_type *arrvew; prh_int size; } // 只读，不拥有内存
-#define prh_arrfix(elem_type) struct { elem_type *arrfix; prh_int size; } // 读写，大小固定的定长数组，负责内存分配和释放（array with fixed size）
-#define prh_arrfit(elem_type) struct { elem_type *arrfit; prh_int capacity; prh_int size; } // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存（the allocated array is fixed in the place, never realloc）
-#define prh_arrdyn(elem_type) struct { elem_type *arrdyn; prh_int capacity; prh_int size; } // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效（array can dynamic re-allocated and re-sized）
-#define prh_arrlax(elem_type) struct { elem_type *arrlax; prh_int capacity; prh_int size; prh_int start; } // 读写，容量和大小都动态可变，数组头部空间可伸展（relaxed array - header space can stretch around）
-#define prh_slice(elem_type)  struct { elem_type *slice; prh_int capacity; prh_int size; } // 读写，不拥有内存，操作相当于是一个 arrfit
-
-typedef struct { prh_byte *s; prh_int size; } prh_strvew; // 只读，不拥有内存
-typedef struct { prh_byte *s; prh_int size; } prh_strfix; // 读写，大小固定的定长字符串，负责内存分配和释放
-typedef struct { prh_byte *s; prh_int capacity; prh_int size; } prh_strfit; // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存
-typedef struct { prh_byte *s; prh_int capacity; prh_int size; } prh_string; // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效
-typedef struct { prh_byte *s; prh_int capacity; prh_int size; prh_int start; } prh_strlax; // 读写，容量和大小都动态可变，字符串头部空间可伸展
-typedef struct { prh_byte *slice; prh_int capacity; prh_int size; } prh_sslice; // 读写，不拥有内存
-
-#define prh_impl_arrvew_eptr_type(p) prh_typeof((p)->arrvew)
-#define prh_impl_arrfix_eptr_type(p) prh_typeof((p)->arrfix)
-#define prh_impl_arrfit_eptr_type(p) prh_typeof((p)->arrfit)
-#define prh_impl_arrdyn_eptr_type(p) prh_typeof((p)->arrdyn)
-#define prh_impl_arrlax_eptr_type(p) prh_typeof((p)->arrlax)
-
-#define prh_impl_arrvew_elem_type(p) prh_typeof(*((p)->arrvew))
-#define prh_impl_arrfix_elem_type(p) prh_typeof(*((p)->arrfix))
-#define prh_impl_arrfit_elem_type(p) prh_typeof(*((p)->arrfit))
-#define prh_impl_arrdyn_elem_type(p) prh_typeof(*((p)->arrdyn))
-#define prh_impl_arrlax_elem_type(p) prh_typeof(*((p)->arrlax))
-
-#define prh_impl_arrvew_elem_size(p) sizeof(*((p)->arrvew))
-#define prh_impl_arrfix_elem_size(p) sizeof(*((p)->arrfix))
-#define prh_impl_arrfit_elem_size(p) sizeof(*((p)->arrfit))
-#define prh_impl_arrdyn_elem_size(p) sizeof(*((p)->arrdyn))
-#define prh_impl_arrlax_elem_size(p) sizeof(*((p)->arrlax))
-
-#define prh_impl_arrvew_addr(p) (prh_impl_arrvew *)(&((p)->arrvew))
-#define prh_impl_arrfix_addr(p) (prh_impl_arrfix *)(&((p)->arrfix))
-#define prh_impl_arrfit_addr(p) (prh_impl_arrfit *)(&((p)->arrfit))
-#define prh_impl_arrdyn_addr(p) (prh_impl_arrdyn *)(&((p)->arrdyn))
-#define prh_impl_arrlax_addr(p) (prh_impl_arrlax *)(&((p)->arrlax))
-
-#define prh_arrvew_type(S, a) prh_typeof(((S){0})->a)
-#define prh_arrfix_type(S, a) prh_typeof(((S){0})->a)
-#define prh_arrfit_type(S, a) prh_typeof(((S){0})->a)
-#define prh_arrdyn_type(S, a) prh_typeof(((S){0})->a)
-#define prh_arrlax_type(S, a) prh_typeof(((S){0})->a)
-#define prh_slice_type(S, a)  prh_typeof(((S){0})->a)
-
-prh_inline void prh_impl_arrfix_init_inplace(prh_impl_arrfix *arrfix, void *buffer, prh_int size) {
-    assert(buffer != prh_null);
-    assert(size > 0);
-    arrfix->arrfix = buffer;
-    arrfix->size = size;
-}
-
-prh_inline void prh_impl_arrfit_init_inplace(prh_impl_arrfit *arrfit, void *buffer, prh_int capacity) {
-    assert(buffer != prh_null);
-    assert(capacity > 0);
-    arrfit->arrfit = buffer;
-    arrfit->capacity = capacity;
-    arrfit->size = 0;
-}
-
-#define prh_arrfix_init(p, size) prh_impl_arrfix_init_inplace(prh_impl_arrfix_addr(p), prh_std_malloc((size) * prh_impl_arrfix_elem_size(p)), (size))
-#define prh_arrfit_init(p, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), prh_std_malloc((capacity) * prh_impl_arrfix_elem_size(p)), (capacity))
-#define prh_arrfit_init_inplace(p, buffer, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), (buffer), (capacity))
-#define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrdyn_elem_size(p)) // 生成的数组 capacity 总是 2 的幂
-#define prh_arrlax_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrlax_elem_size(p)); (p)->start = 0; } // 生成的数组 capacity 总是 2 的幂
-
-#define prh_arrfix_free(p) { prh_std_free((p)->arrfix); prh_debug((p)->arrfix = prh_null); }
-#define prh_arrfit_free(p) { prh_std_free((p)->arrfit); prh_debug((p)->arrfit = prh_null); }
-#define prh_arrdyn_free(p) { prh_std_free((p)->arrdyn); prh_debug((p)->arrdyn = prh_null); }
-#define prh_arrlax_free(p) { prh_std_free((p)->arrlax); prh_debug((p)->arrlax = prh_null); }
-
-prh_inline void prh_impl_arrdyn_clear(prh_impl_arrdyn *p) { p->size = 0; }
-#define prh_arrfit_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrfit_addr(p))
-#define prh_arrdyn_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrdyn_addr(p))
-#define prh_arrlax_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrlax_addr(p))
-
-void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size);
-void prh_impl_arrdyn_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size);
-void prh_impl_arrdyn_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size); // 缩减不能缩减至小于元素个数
-prh_int prh_impl_arrdyn_expand_size(prh_impl_arrdyn *p, prh_int expand_size, prh_int elem_size); // 增加元素个数时容量可能增大
-prh_int prh_impl_arrlax_expand_size(prh_impl_arrlax *p, prh_int expand_size, prh_int elem_size); // 增加元素个数时容量可能增大
-prh_int prh_impl_arrdyn_shrink_size(prh_impl_arrdyn *p, prh_int shrink_size); // 缩减元素个数时保持容量不变
-prh_int prh_impl_arrlax_shrink_size(prh_impl_arrlax *p, prh_int shrink_size); // 缩减元素个数时保持容量不变
-prh_int prh_impl_arrdyn_unchecked_push(prh_impl_arrdyn *p, prh_int expand_size);
-prh_int prh_impl_arrlax_unchecked_push(prh_impl_arrlax *p, prh_int expand_size);
-
-#define prh_arrdyn_reserve(p, new_capacity) prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)(p), (new_capacity), prh_impl_arrdyn_elem_size(p))
-#define prh_arrlax_reserve(p, new_capacity) prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)(p), (new_capacity), prh_impl_arrlax_elem_size(p))
-#define prh_arrdyn_shrink_to_fit(p) prh_impl_arrdyn_shrink_capacity((prh_impl_arrdyn *)(p), (p)->size, prh_impl_arrdyn_elem_size(p))
-#define prh_arrlax_shrink_to_fit(p) prh_impl_arrdyn_shrink_capacity((prh_impl_arrdyn *)(p), (p)->size + (p)->start, prh_impl_arrlax_elem_size(p))
-
-#define prh_arrdyn_push_back(p) ((p)->arrdyn + prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p)))
-#define prh_arrlax_push_back(p) ((p)->arrlax + prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p)))
-#define prh_arrdyn_multi_push_back(p, n) ((p)->arrdyn + prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), (n), prh_impl_arrdyn_elem_size(p)))
-#define prh_arrlax_multi_push_back(p, n) ((p)->arrlax + prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), (n), prh_impl_arrlax_elem_size(p)))
-
-#define prh_arrfit_push_back(p) // 返回空表示失败
-#define prh_arrfit_multi_push_back(p, n) // 要么失败要么添加n个元素
-#define prh_arrfit_multi_push_back_best_effort(p, n, out) // 要么失败要么添加out个元素
-
-#define prh_arrfit_unchecked_push_back(p) ((p)->arrfit + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), 1))
-#define prh_arrdyn_unchecked_push_back(p) ((p)->arrdyn + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), 1))
-#define prh_arrlax_unchecked_push_back(p) ((p)->arrlax + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)(p), 1))
-#define prh_arrfit_unchecked_multi_push_back(p, n) ((p)->arrfit + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), (n)))
-#define prh_arrdyn_unchecked_multi_push_back(p, n) ((p)->arrdyn + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), (n)))
-#define prh_arrlax_unchecked_multi_push_back(p, n) ((p)->arrlax + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)(p), (n)))
-
-#define prh_arrdyn_unchecked_pop_back(p) ((p)->arrdyn + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)(p), 1)) // 必须有足够的元素
-#define prh_arrlax_unchecked_pop_back(p) ((p)->arrlax + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)(p), 1))
-#define prh_arrdyn_unchecked_multi_pop_back(p, n) ((p)->arrdyn + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)(p), (n)))
-#define prh_arrlax_unchecked_multi_pop_back(p, n) ((p)->arrlax + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)(p), (n)))
-
-#define prh_arrdyn_pop_back(p) (((p)->size > 0) ? prh_arrdyn_unchecked_pop_back(p) : prh_null)
-#define prh_arrlax_pop_back(p) (((p)->size > 0) ? prh_arrlax_unchecked_pop_back(p) : prh_null)
-#define prh_arrdyn_multi_pop_back(p, n) (((p)->size >= (n)) ? prh_arrdyn_unchecked_multi_pop_back((p), (n)) : prh_null)
-#define prh_arrlax_multi_pop_back(p, n) (((p)->size >= (n)) ? prh_arrlax_unchecked_multi_pop_back((p), (n)) : prh_null)
-
-void prh_impl_string_initialize(prh_impl_arrdyn *p, prh_int new_capacity);
-void prh_impl_string_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity);
-void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity); // 缩减不能缩减至小于元素个数
-prh_int prh_impl_string_expand_size(prh_impl_arrdyn *p, prh_int expand_size); // 增加元素个数时容量可能增大
-prh_int prh_impl_strlax_expand_size(prh_impl_arrlax *p, prh_int expand_size); // 增加元素个数时容量可能增大
-
-prh_inline void prh_strfix_init(prh_strfix *p, prh_int size) { (p)->s = prh_std_malloc(size); (p)->size = size; }
-prh_inline void prh_strfit_init(prh_strfit *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
-prh_inline void prh_string_init(prh_string *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
-prh_inline void prh_strlax_init(prh_strlax *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); p->start = 0; }
-
-prh_inline void prh_strfix_free(prh_strfix *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_strfit_free(prh_strfit *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_string_free(prh_string *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
-prh_inline void prh_strlax_free(prh_strlax *p) { prh_std_free(p->s); prh_debug(p->s = prh_null); }
-
-prh_inline void prh_strfit_clear(prh_strfit *p) { p->size = 0; }
-prh_inline void prh_string_clear(prh_string *p) { p->size = 0; }
-prh_inline void prh_strlax_clear(prh_strlax *p) { p->size = 0; }
-
-prh_inline void prh_string_reserve(prh_string *p, prh_int new_capacity) { prh_impl_string_expand_capacity((prh_impl_arrdyn *)p, new_capacity); }
-prh_inline void prh_strlax_reserve(prh_strlax *p, prh_int new_capacity) { prh_impl_string_expand_capacity((prh_impl_arrdyn *)p, new_capacity); }
-prh_inline void prh_string_shrink_to_fit(prh_string *p) { prh_impl_string_shrink_capacity((prh_impl_arrdyn *)p, p->size); }
-prh_inline void prh_strlax_shrink_to_fit(prh_strlax *p) { prh_impl_string_shrink_capacity((prh_impl_arrdyn *)p, p->size + p->start); }
-
-prh_inline prh_byte *prh_string_push_back(prh_string *p) { return p->s + prh_impl_string_expand_size((prh_impl_arrdyn *)p, 1); }
-prh_inline prh_byte *prh_strlax_push_back(prh_strlax *p) { return p->s + prh_impl_strlax_expand_size((prh_impl_arrlax *)p, 1); }
-prh_inline prh_byte *prh_string_multi_push_back(prh_string *p, prh_int n) { return p->s + prh_impl_string_expand_size((prh_impl_arrdyn *)p, n); }
-prh_inline prh_byte *prh_strlax_multi_push_back(prh_strlax *p, prh_int n) { return p->s + prh_impl_strlax_expand_size((prh_impl_arrlax *)p, n); }
-
-prh_byte *prh_strfit_push_back(prh_strfit *p); // 返回空表示失败
-prh_byte *prh_strfit_multi_push_back(prh_strfit *p, prh_int n); // 要么失败要么添加n个元素
-prh_byte *prh_strfit_multi_push_back_best_effort(prh_strfit *p, prh_int n, prh_int *out); // 要么失败要么添加out个元素
-
-prh_inline prh_byte *prh_strfit_unchecked_push_back(prh_strfit *p) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, 1); }
-prh_inline prh_byte *prh_string_unchecked_push_back(prh_string *p) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, 1); }
-prh_inline prh_byte *prh_strlax_unchecked_push_back(prh_strlax *p) { return p->s + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)p, 1); }
-prh_inline prh_byte *prh_strfit_unchecked_multi_push_back(prh_strfit *p, prh_int n) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, n); }
-prh_inline prh_byte *prh_string_unchecked_multi_push_back(prh_string *p, prh_int n) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, n); }
-prh_inline prh_byte *prh_strlax_unchecked_multi_push_back(prh_strlax *p, prh_int n) { return p->s + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)p, n); }
-
-prh_inline prh_byte *prh_string_unchecked_pop_back(prh_string *p) { return p->s + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)p, 1); } // 必须有足够的元素
-prh_inline prh_byte *prh_strlax_unchecked_pop_back(prh_strlax *p) { return p->s + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)p, 1); }
-prh_inline prh_byte *prh_string_unchecked_multi_pop_back(prh_string *p, prh_int n) { return p->s + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)p, n); }
-prh_inline prh_byte *prh_strlax_unchecked_multi_pop_back(prh_strlax *p, prh_int n) { return p->s + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)p, n); }
-
-prh_inline prh_byte *prh_string_pop_back(prh_string *p) { return (p->size > 0) ? prh_string_unchecked_pop_back(p) : prh_null; }
-prh_inline prh_byte *prh_strlax_pop_back(prh_strlax *p) { return (p->size > 0) ? prh_strlax_unchecked_pop_back(p) : prh_null; }
-prh_inline prh_byte *prh_string_multi_pop_back(prh_string *p, prh_int n) { return (p->size >= n) ? prh_string_unchecked_multi_pop_back(p, n) : prh_null; }
-prh_inline prh_byte *prh_strlax_multi_pop_back(prh_strlax *p, prh_int n) { return (p->size >= n) ? prh_strlax_unchecked_multi_pop_back(p, n) : prh_null; }
-
-#define prh_arrfix_begin(p) ((p)->arrfix)
-#define prh_arrfit_begin(p) ((p)->arrfit)
-#define prh_arrdyn_begin(p) ((p)->arrdyn)
-#define prh_arrlax_begin(p) ((p)->arrlax + (p)->start)
-
-#define prh_arrfix_end(p) (prh_arrfix_begin(p) + (p)->size)
-#define prh_arrfit_end(p) (prh_arrfit_begin(p) + (p)->size)
-#define prh_arrdyn_end(p) (prh_arrdyn_begin(p) + (p)->size)
-#define prh_arrlax_end(p) (prh_arrlax_begin(p) + (p)->size)
-
-#define prh_arrfit_cap_end(p) ((p)->arrfit + (p)->capacity)
-#define prh_arrdyn_cap_end(p) ((p)->arrdyn + (p)->capacity)
-#define prh_arrlax_cap_end(p) ((p)->arrlax + (p)->capacity)
-
-prh_inline prh_int prh_impl_arrfix_at(prh_impl_arrfix *p, prh_int i) {
-    assert(i >= 0 && i < p->size);
-    return i;
-}
-
-prh_inline prh_int prh_impl_arrdyn_at(prh_impl_arrdyn *p, prh_int i) {
-    assert(i >= 0 && i < p->size);
-    return i;
-}
-
-prh_inline prh_int prh_impl_arrlax_at(prh_impl_arrlax *p, prh_int i) {
-    assert(i >= 0 && i < p->size);
-    return p->start + i;
-}
-
-prh_inline prh_int prh_impl_arrfix_insert_at(prh_impl_arrfix *p, prh_int i) {
-    assert(i >= 0 && i <= p->size);
-    return i;
-}
-
-prh_inline prh_int prh_impl_arrdyn_insert_at(prh_impl_arrdyn *p, prh_int i) {
-    assert(i >= 0 && i <= p->size);
-    return i;
-}
-
-prh_inline prh_int prh_impl_arrlax_insert_at(prh_impl_arrlax *p, prh_int i) {
-    assert(i >= 0 && i <= p->size);
-    return p->start + i;
-}
-
-#define prh_arrfix_at(p, i) ((p)->arrfix + prh_impl_arrfix_at((prh_impl_arrfix *)(p), (i)))
-#define prh_arrfit_at(p, i) ((p)->arrfit + prh_impl_arrdyn_at((prh_impl_arrdyn *)(p), (i)))
-#define prh_arrdyn_at(p, i) ((p)->arrdyn + prh_impl_arrdyn_at((prh_impl_arrdyn *)(p), (i)))
-#define prh_arrlax_at(p, i) ((p)->arrlax + prh_impl_arrlax_at((prh_impl_arrlax *)(p), (i)))
-
-#define prh_priv_arrfix_insert_at(p, i) ((p)->arrfix + prh_impl_arrfix_insert_at((prh_impl_arrfix *)(p), (i)))
-#define prh_priv_arrfit_insert_at(p, i) ((p)->arrfit + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)(p), (i)))
-#define prh_priv_arrdyn_insert_at(p, i) ((p)->arrdyn + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)(p), (i)))
-#define prh_priv_arrlax_insert_at(p, i) ((p)->arrlax + prh_impl_arrlax_insert_at((prh_impl_arrlax *)(p), (i)))
-
-prh_inline prh_byte *prh_strfix_begin(prh_strfix *p) { return p->s; }
-prh_inline prh_byte *prh_strfit_begin(prh_strfit *p) { return p->s; }
-prh_inline prh_byte *prh_string_begin(prh_string *p) { return p->s; }
-prh_inline prh_byte *prh_strlax_begin(prh_strlax *p) { return p->s + p->start; }
-
-prh_inline prh_byte *prh_strfix_end(prh_strfix *p) { return prh_strfix_begin(p) + p->size; }
-prh_inline prh_byte *prh_strfit_end(prh_strfit *p) { return prh_strfit_begin(p) + p->size; }
-prh_inline prh_byte *prh_string_end(prh_string *p) { return prh_string_begin(p) + p->size; }
-prh_inline prh_byte *prh_strlax_end(prh_strlax *p) { return prh_strlax_begin(p) + p->size; }
-
-prh_inline prh_byte *prh_strfit_cap_end(prh_strfit *p) { return p->s + p->capacity; }
-prh_inline prh_byte *prh_string_cap_end(prh_string *p) { return p->s + p->capacity; }
-prh_inline prh_byte *prh_strlax_cap_end(prh_strlax *p) { return p->s + p->capacity; }
-
-prh_inline prh_byte *prh_strfix_at(prh_strfix *p, prh_int i) { return p->s + prh_impl_arrfix_at((prh_impl_arrfix *)p, i); }
-prh_inline prh_byte *prh_strfit_at(prh_strfit *p, prh_int i) { return p->s + prh_impl_arrdyn_at((prh_impl_arrdyn *)p, i); }
-prh_inline prh_byte *prh_string_at(prh_string *p, prh_int i) { return p->s + prh_impl_arrdyn_at((prh_impl_arrdyn *)p, i); }
-prh_inline prh_byte *prh_strlax_at(prh_strlax *p, prh_int i) { return p->s + prh_impl_arrlax_at((prh_impl_arrlax *)p, i); }
-
-#define prh_arrfit_unordered_remove(p, i) *prh_arrfit_at((p), (i)) = (p)->arrfit[(--((p)->size))]
-#define prh_arrdyn_unordered_remove(p, i) *prh_arrdyn_at((p), (i)) = (p)->arrdyn[(--((p)->size))]
-#define prh_arrlax_unordered_remove(p, i) *prh_arrlax_at((p), (i)) = (p)->arrlax[(p)->start + (--((p)->size))]
-
-#define prh_arrfit_remove(p, i) { /* [0,1,(2),3,4,5,6,7] size 8 => copy len = (size - 1 - 2) = 5 */                     \
-    prh_impl_arrfit_eptr_type(p) prh_impl_dest = prh_arrfit_at((p), (i));                                               \
-    memmove(prh_impl_dest, prh_impl_dest + 1, ((--((p)->size)) - (i)) * prh_impl_arrfit_elem_size(p)); /* 长度参数可为零 */\
-}
-
-#define prh_arrdyn_remove(p, i) { /* [0,1,(2),3,4,5,6,7] size 8 => copy len = (size - 1 - 2) = 5 */                     \
-    prh_impl_arrdyn_eptr_type(p) prh_impl_dest = prh_arrdyn_at((p), (i));                                               \
-    memmove(prh_impl_dest, prh_impl_dest + 1, ((--((p)->size)) - (i)) * prh_impl_arrdyn_elem_size(p)); /* 长度参数可为零 */\
-}
-
-#define prh_arrlax_remove(p, i) { /* [0,1,(2),3,4,5,6,7] size 8 => copy len = (size - 1 - 2) = 5 */                     \
-    prh_impl_arrlax_eptr_type(p) prh_impl_dest = prh_arrlax_at((p), (i));                                               \
-    memmove(prh_impl_dest, prh_impl_dest + 1, ((--((p)->size)) - (i)) * prh_impl_arrlax_elem_size(p)); /* 长度参数可为零 */\
-}
-
-#define prh_arrfit_multi_remove(p, i, n) {                                                                              \
-    assert((n) > 0 && (i) + (n) <= (p)->size);                                                                          \
-    prh_impl_arrfit_eptr_type(p) prh_impl_dest = prh_arrfit_at((p), (i));                                               \
-    memmove(prh_impl_dest, prh_impl_dest + (n), ((p)->size - 1 - (i)) * prh_impl_arrfit_elem_size(p)); /* 长度参数可为零 */\
-    (p)->size -= (n);                                                                                                   \
-}
-
-#define prh_arrdyn_multi_remove(p, i, n) {                                                                              \
-    assert((n) > 0 && (i) + (n) <= (p)->size);                                                                          \
-    prh_impl_arrdyn_eptr_type(p) prh_impl_dest = prh_arrdyn_at((p), (i));                                               \
-    memmove(prh_impl_dest, prh_impl_dest + (n), ((p)->size - 1 - (i)) * prh_impl_arrdyn_elem_size(p)); /* 长度参数可为零 */\
-    (p)->size -= (n);                                                                                                   \
-}
-
-#define prh_arrlax_multi_remove(p, i, n) {                                                                              \
-    assert((n) > 0 && (i) + (n) <= (p)->size);                                                                          \
-    prh_impl_arrlax_eptr_type(p) prh_impl_dest = prh_arrlax_at((p), (i));                                               \
-    memmove(prh_impl_dest, prh_impl_dest + (n), ((p)->size - 1 - (i)) * prh_impl_arrlax_elem_size(p)); /* 长度参数可为零 */\
-    (p)->size -= (n);                                                                                                   \
-}
-
-prh_inline void prh_strfit_unordered_remove(prh_strfit *p, prh_int i) { *prh_strfit_at(p, i) = p->s[--(p->size)]; }
-prh_inline void prh_string_unordered_remove(prh_string *p, prh_int i) { *prh_string_at(p, i) = p->s[--(p->size)]; }
-prh_inline void prh_strlax_unordered_remove(prh_strlax *p, prh_int i) { *prh_strlax_at(p, i) = p->s[p->start + (--(p->size))]; }
-
-prh_inline void prh_strfit_remove(prh_strfit *p, prh_int i) {
-    prh_byte *dest = prh_strfit_at(p, i);
-    memmove(dest, dest + 1, (--(p->size)) - i); // 长度参数可为零
-}
-
-prh_inline void prh_string_remove(prh_string *p, prh_int i) {
-    prh_byte *dest = prh_string_at(p, i);
-    memmove(dest, dest + 1, (--(p->size)) - i); // 长度参数可为零
-}
-
-prh_inline void prh_strlax_remove(prh_strlax *p, prh_int i) {
-    prh_byte *dest = prh_strlax_at(p, i);
-    memmove(dest, dest + 1, (--(p->size)) - i); // 长度参数可为零
-}
-
-prh_inline void prh_strfit_multi_remove(prh_strfit *p, prh_int i, prh_int n) {
-    assert(n > 0 && i + n <= p->size);
-    prh_byte *dest = prh_strfit_at(p, i);
-    memmove(dest, dest + n, p->size - 1 - i); // 长度参数可为零
-    p->size -= n;
-}
-
-prh_inline void prh_string_multi_remove(prh_string *p, prh_int i, prh_int n) {
-    assert(n > 0 && i + n <= p->size);
-    prh_byte *dest = prh_string_at(p, i);
-    memmove(dest, dest + n, p->size - 1 - i); // 长度参数可为零
-    p->size -= n;
-}
-
-prh_inline void prh_strlax_multi_remove(prh_strlax *p, prh_int i, prh_int n) {
-    assert(n > 0 && i + n <= p->size);
-    prh_byte *dest = prh_strlax_at(p, i);
-    memmove(dest, dest + n, p->size - 1 - i); // 长度参数可为零
-    p->size -= n;
-}
-
-#define prh_arrdyn_unordered_insert(p, i, elem_ptr) (                                               \
-    prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p)),           \
-    ((elem_ptr) = prh_priv_arrdyn_insert_at((p), (i))), ((p)->arrdyn[(p)->size - 1] = *(elem_ptr)), (elem_ptr))
-
-#define prh_arrlax_unordered_insert(p, i, elem_ptr) (                                               \
-    prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p)),           \
-    ((elem_ptr) = prh_priv_arrlax_insert_at((p), (i))), ((p)->arrlax[(p)->start + (p)->size - 1] = *(elem_ptr)), (elem_ptr))
-
-prh_inline void *prh_impl_arrdyn_insert(void *pos, prh_int len, prh_int elem_size) {
-    memmove((prh_byte *)pos + elem_size, pos, (len - 1) * elem_size); // [0,1,(2),3,4,5,6,7] size 8 => copy len (origin_size - 2) = 6
-    return pos;
-}
-
-prh_inline void *prh_impl_arrdyn_multi_insert(void *pos, prh_int len, prh_int insert_elems, prh_int elem_size) {
-    assert(insert_elems > 0);
-    memmove((prh_byte *)pos + insert_elems * elem_size, pos, (len - insert_elems) * elem_size);
-    return pos;
-}
-
-#if defined(prh_cl_msc)
-#define prh_arrfit_unchecked_insert(p, i) ((prh_impl_arrfit_eptr_type(p))prh_impl_arrdyn_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrfit_elem_size(p)))
-#define prh_arrdyn_unchecked_insert(p, i) ((prh_impl_arrdyn_eptr_type(p))prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrdyn_elem_size(p)))
-#define prh_arrlax_unchecked_insert(p, i) ((prh_impl_arrlax_eptr_type(p))prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrlax_elem_size(p)))
-#define prh_arrfit_unchecked_multi_insert(p, i, n) ((prh_impl_arrfit_eptr_type(p))prh_impl_arrdyn_multi_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrfit_elem_size(p)))
-#define prh_arrdyn_unchecked_multi_insert(p, i, n) ((prh_impl_arrdyn_eptr_type(p))prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrdyn_elem_size(p)))
-#define prh_arrlax_unchecked_multi_insert(p, i, n) ((prh_impl_arrlax_eptr_type(p))prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrlax_elem_size(p)))
-#define prh_arrdyn_insert(p, i) (prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p)), prh_impl_arrdyn_eptr_type(p)prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), prh_impl_arrdyn_elem_size(p)))
-#define prh_arrlax_insert(p, i) (prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p)), prh_impl_arrlax_eptr_type(p)prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), prh_impl_arrlax_elem_size(p)))
-#define prh_arrdyn_multi_insert(p, i, n) (prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), (n), prh_impl_arrdyn_elem_size(p)), prh_impl_arrdyn_eptr_type(p)prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrdyn_elem_size(p)))
-#define prh_arrlax_multi_insert(p, i, n) (prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), (n), prh_impl_arrlax_elem_size(p)), prh_impl_arrlax_eptr_type(p)prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrlax_elem_size(p)))
-#else
-#define prh_arrfit_unchecked_insert(p, i) ({prh_impl_arrfit_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrfit_elem_size(p)); prh_impl_ptr; })
-#define prh_arrdyn_unchecked_insert(p, i) ({prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrdyn_elem_size(p)); prh_impl_ptr; })
-#define prh_arrlax_unchecked_insert(p, i) ({prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrlax_elem_size(p)); prh_impl_ptr; })
-#define prh_arrfit_unchecked_multi_insert(p, i, n) ({prh_impl_arrfit_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrfit_elem_size(p)); prh_impl_ptr; })
-#define prh_arrdyn_unchecked_multi_insert(p, i, n) ({prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrdyn_elem_size(p)); prh_impl_ptr; })
-#define prh_arrlax_unchecked_multi_insert(p, i, n) ({prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrlax_elem_size(p)); prh_impl_ptr; })
-#define prh_arrdyn_insert(p, i) ({                                                                  \
-    prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p));           \
-    prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), prh_impl_arrdyn_elem_size(p)); prh_impl_ptr; })
-#define prh_arrlax_insert(p, i) ({                                                                  \
-    prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p));           \
-    prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), prh_impl_arrlax_elem_size(p)); prh_impl_ptr; })
-#define prh_arrdyn_multi_insert(p, i, n) ({                                                         \
-    prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), (n), prh_impl_arrdyn_elem_size(p));         \
-    prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrdyn_elem_size(p)); \
-    prh_impl_ptr; })
-#define prh_arrlax_multi_insert(p, i, n) ({                                                         \
-    prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), (n), prh_impl_arrlax_elem_size(p));         \
-    prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrlax_elem_size(p)); \
-    prh_impl_ptr; })
-#endif
-
-prh_inline prh_byte *prh_string_unordered_insert(prh_string *p, prh_int i) {
-    prh_impl_string_expand_size((prh_impl_arrdyn *)p, 1);
-    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
-    p->s[p->size - 1] = *pos;
-    return pos;
-}
-
-prh_inline prh_byte *prh_strlax_unordered_insert(prh_strlax *p, prh_int i) {
-    prh_impl_strlax_expand_size((prh_impl_arrlax *)p, 1);
-    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
-    p->s[p->start + p->size - 1] = *pos;
-    return pos;
-}
-
-prh_inline prh_byte *prh_strfit_unchecked_insert(prh_strfit *p, prh_int i) {
-    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
-    memmove(pos + 1, pos, p->size - i);
-    p->size += 1;
-    return pos;
-}
-
-prh_inline prh_byte *prh_string_unchecked_insert(prh_string *p, prh_int i) {
-    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
-    memmove(pos + 1, pos, p->size - i);
-    p->size += 1;
-    return pos;
-}
-
-prh_inline prh_byte *prh_strlax_unchecked_insert(prh_strlax *p, prh_int i) {
-    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
-    memmove(pos + 1, pos, p->size - i);
-    p->size += 1;
-    return pos;
-}
-
-prh_inline prh_byte *prh_string_insert(prh_string *p, prh_int i) {
-    prh_impl_string_expand_size((prh_impl_arrdyn *)p, 1);
-    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
-    memmove(pos + 1, pos, p->size - 1 - i);
-    return pos;
-}
-
-prh_inline prh_byte *prh_strlax_insert(prh_strlax *p, prh_int i) {
-    prh_impl_strlax_expand_size((prh_impl_arrlax *)p, 1);
-    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
-    memmove(pos + 1, pos, p->size - 1 - i);
-    return pos;
-}
-
-prh_inline prh_byte *prh_strfit_unchecked_multi_insert(prh_strfit *p, prh_int i, prh_int n) {
-    assert(n > 0);
-    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
-    memmove(pos + n, pos, p->size - i);
-    p->size += n;
-    return pos;
-}
-
-prh_inline prh_byte *prh_string_unchecked_multi_insert(prh_string *p, prh_int i, prh_int n) {
-    assert(n > 0);
-    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
-    memmove(pos + n, pos, p->size - i);
-    p->size += n;
-    return pos;
-}
-
-prh_inline prh_byte *prh_strlax_unchecked_multi_insert(prh_strlax *p, prh_int i, prh_int n) {
-    assert(n > 0);
-    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
-    memmove(pos + n, pos, p->size - i);
-    p->size += n;
-    return pos;
-}
-
-prh_inline prh_byte *prh_string_multi_insert(prh_string *p, prh_int i, prh_int n) {
-    prh_impl_string_expand_size((prh_impl_arrdyn *)p, n);
-    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
-    memmove(pos + n, pos, p->size - n - i);
-    return pos;
-}
-
-prh_inline prh_byte *prh_strlax_multi_insert(prh_strlax *p, prh_int i, prh_int n) {
-    prh_impl_strlax_expand_size((prh_impl_arrlax *)p, n);
-    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
-    memmove(pos + n, pos, p->size - n - i);
-    return pos;
-}
-
-#define prh_arrvew_init(p, addr, size) /* 不需要释放内存，只读 */ {               \
-    (p)->arrvew = (addr);                                                       \
-    (p)->size = (size);                                                         \
-}
-
-prh_inline void prh_strvew_init(prh_strvew *p, const prh_byte *addr, prh_int size) {
-    p->s = (prh_byte *)addr; // 不需要释放内存，只读
-    p->size = size;
-}
-
-void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j);
-void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j);
-void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
-
-#define prh_arrfit_slice(p, a, i, j) /* [i, j) 不需要释放内存，可读可写 */ {       \
-    assert((i) >= (0) && (i) < (a)->size);                                      \
-    assert((j) >= (i) && (j)<= (a)->size);                                      \
-    (p)->slice = prh_arrfit_begin(a) + (i);                                     \
-    (p)->capacity = prh_arrfit_cap_end(a) - (p)->slice;                         \
-    (p)->size = (j) - (i);                                                      \
-}
-
-#define prh_arrdyn_slice(p, a, i, j) /* [i, j) */ {                             \
-    assert((i) >= (0) && (i) < (a)->size);                                      \
-    assert((j) >= (i) && (j)<= (a)->size);                                      \
-    (p)->slice = prh_arrdyn_begin(a) + (i);                                     \
-    (p)->capacity = prh_arrdyn_cap_end(a) - (p)->slice;                         \
-    (p)->size = (j) - (i);                                                      \
-}
-
-#define prh_arrlax_slice(p, a, i, j) /* [i, j) */ {                             \
-    assert((i) >= (0) && (i) < (a)->size);                                      \
-    assert((j) >= (i) && (j)<= (a)->size);                                      \
-    (p)->slice = prh_arrlax_begin(a) + (i);                                     \
-    (p)->capacity = prh_arrlax_cap_end(a) - (p)->slice;                         \
-    (p)->size = (j) - (i);                                                      \
-}
-#endif
-
-#ifdef PRH_ARRAY_IMPLEMENTATION
-#if 1
-void prh_impl_arrdyn_expand_capacity(void *a, prh_reg new_capacity, prh_reg elem_size) {
-    prh_int capacity = p->capacity;
-    if (new_capacity > capacity) {
-        do capacity *= 2; while (new_capacity > capacity);
-        p->capacity = capacity;
-        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity * elem_size);
-    }
-}
-#else
-void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) {
-    prh_int capacity = 1;
-    while (new_capacity > capacity) capacity *= 2;
-    p->arrdyn = prh_std_malloc(capacity * elem_size);
-    p->capacity = capacity;
-    p->size = 0;
-}
-
-void prh_impl_string_initialize(prh_impl_arrdyn *p, prh_int new_capacity) {
-    prh_int capacity = 1;
-    while (new_capacity > capacity) capacity *= 2;
-    p->arrdyn = prh_std_malloc(capacity);
-    p->capacity = capacity;
-    p->size = 0;
-}
-
-void prh_impl_arrdyn_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) {
-    prh_int capacity = p->capacity;
-    if (new_capacity > capacity) {
-        do capacity *= 2; while (new_capacity > capacity);
-        p->capacity = capacity;
-        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity * elem_size);
-    }
-}
-
-void prh_impl_string_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
-    prh_int capacity = p->capacity;
-    if (new_capacity > capacity) {
-        do capacity *= 2; while (new_capacity > capacity);
-        p->capacity = capacity;
-        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity);
-    }
-}
-
-void prh_impl_arrdyn_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) { // 缩减不能缩减至小于元素个数
-    prh_int capacity = p->capacity;
-    if (new_capacity <= capacity / 2) { // 只要新容量大于旧容量的一半就不需要缩减，因为容量总是2的幂
-        do capacity /= 2; while (new_capacity <= capacity / 2);
-        p->capacity = capacity;
-        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity * elem_size);
-    }
-}
-
-void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
-    prh_int capacity = p->capacity;
-    if (new_capacity <= capacity / 2) {
-        do capacity /= 2; while (new_capacity <= capacity / 2);
-        p->capacity = capacity;
-        p->arrdyn = prh_std_ralloc(p->arrdyn, capacity);
-    }
-}
-
-prh_int prh_impl_arrdyn_expand_size(prh_impl_arrdyn *p, prh_int expand_size, prh_int elem_size) { // 增加元素个数时容量可能增大
-    assert(expand_size > 0);
-    prh_int size = p->size;
-    prh_impl_arrdyn_expand_capacity(p, size + expand_size, elem_size);
-    p->size += expand_size;
-    return size;
-}
-
-prh_int prh_impl_string_expand_size(prh_impl_arrdyn *p, prh_int expand_size) {
-    assert(expand_size > 0);
-    prh_int size = p->size;
-    prh_impl_string_expand_capacity(p, size + expand_size);
-    p->size += expand_size;
-    return size;
-}
-
-prh_int prh_impl_arrlax_expand_size(prh_impl_arrlax *p, prh_int expand_size, prh_int elem_size) {
-    assert(expand_size > 0);
-    prh_int size = p->start + p->size;
-    prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)p, size + expand_size, elem_size);
-    p->size += expand_size;
-    return size;
-}
-
-prh_int prh_impl_strlax_expand_size(prh_impl_arrlax *p, prh_int expand_size) {
-    assert(expand_size > 0);
-    prh_int size = p->start + p->size;
-    prh_impl_string_expand_capacity((prh_impl_arrdyn *)p, size + expand_size);
-    p->size += expand_size;
-    return size;
-}
-
-prh_int prh_impl_arrdyn_shrink_size(prh_impl_arrdyn *p, prh_int shrink_size) { // 缩减元素个数时保持容量不变
-    assert(shrink_size > 0 && shrink_size <= p->size);
-    p->size -= shrink_size;
-    return p->size;
-}
-
-prh_int prh_impl_arrlax_shrink_size(prh_impl_arrlax *p, prh_int shrink_size) {
-    assert(shrink_size > 0 && shrink_size <= p->size);
-    p->size -= shrink_size;
-    return p->start + p->size;
-}
-
-prh_int prh_impl_arrdyn_unchecked_push(prh_impl_arrdyn *p, prh_int expand_size) {
-    assert(expand_size > 0 && p->size + expand_size <= p->capacity);
-    prh_int size = p->size;
-    p->size += expand_size;
-    return size;
-}
-
-prh_int prh_impl_arrlax_unchecked_push(prh_impl_arrlax *p, prh_int expand_size) {
-    assert(expand_size > 0 && p->start + p->size + expand_size <= p->capacity);
-    prh_int size = p->start + p->size;
-    p->size += expand_size;
-    return size;
-}
-
-void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j) {
-    assert(i >= 0 && i < s->size); // [i, j) 不需要释放内存，可读可写
-    assert(j >= i && j<= s->size);
-    p->slice = prh_strfit_begin((prh_strfit *)s) + i;
-    p->capacity = prh_strfit_cap_end((prh_strfit *)s) - p->slice;
-    p->size = j - i;
-}
-
-void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j) {
-    assert(i >= 0 && i < s->size); // [i, j)
-    assert(j >= i && j<= s->size);
-    p->slice = prh_string_begin((prh_string *)s) + i;
-    p->capacity = prh_string_cap_end((prh_string *)s) - p->slice;
-    p->size = j - i;
-}
-
-void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j) {
-    assert(i >= 0 && i < s->size); // [i, j)
-    assert(j >= i && j<= s->size);
-    p->slice = prh_strlax_begin((prh_strlax *)s) + i;
-    p->capacity = prh_strlax_cap_end((prh_strlax *)s) - p->slice;
-    p->size = j - i;
-}
-#endif
-#endif // PRH_ARRAY_IMPLEMENTAION
-#endif // PRH_ARRAY_INCLUDE
-
-#ifdef PRH_STRING_INCLUDE
-#define prh_impl_strfix_data(s, a) (s->prh_macro_make_name(a, _strfix_type))
-#define prh_impl_strfit_data(s, a) (s->prh_macro_make_name(a, _strfit_type))
-#define prh_impl_strdyn_data(s, a) (s->prh_macro_make_name(a, _string_type))
-#define prh_impl_strlax_data(s, a) (s->prh_macro_make_name(a, _strlax_type))
-
-#define prh_impl_strfix_addr(s, a) (prh_impl_array *)&prh_impl_strfix_data(s, a)
-#define prh_impl_strfit_addr(s, a) (prh_impl_array *)&prh_impl_strfit_data(s, a)
-#define prh_impl_strdyn_addr(s, a) (prh_impl_array *)&prh_impl_strdyn_data(s, a)
-#define prh_impl_strlax_addr(s, a) (prh_impl_array *)&prh_impl_strlax_data(s, a)
-
-#define prh_impl_strfix_dvar(a) prh_macro_make_name(a, _strfix_type)
-#define prh_impl_strfit_dvar(a) prh_macro_make_name(a, _strfit_type)
-#define prh_impl_strdyn_dvar(a) prh_macro_make_name(a, _string_type)
-#define prh_impl_strlax_dvar(a) prh_macro_make_name(a, _strlax_type)
-
-#define prh_impl_strfix_avar(a) (*prh_macro_make_name(a, _strfix_addr_type))
-#define prh_impl_strfit_avar(a) (*prh_macro_make_name(a, _strfit_addr_type))
-#define prh_impl_strdyn_avar(a) (*prh_macro_make_name(a, _string_addr_type))
-#define prh_impl_strlax_avar(a) (*prh_macro_make_name(a, _strlax_addr_type))
-
-#define prh_impl_strfix_avar_addr(a) (prh_impl_array *)prh_impl_strfix_avar(a)
-#define prh_impl_strfit_avar_addr(a) (prh_impl_array *)prh_impl_strfit_avar(a)
-#define prh_impl_strdyn_avar_addr(a) (prh_impl_array *)prh_impl_strdyn_avar(a)
-#define prh_impl_strlax_avar_addr(a) (prh_impl_array *)prh_impl_strlax_avar(a)
-
-typedef struct {
-    prh_int count; // count bytes of string
-    prh_byte *data;
-} prh_strvew; // read-only string view
-
-prh_inline void prh_impl_string_view(prh_byte *elem_ptr, prh_strvew *view) {
-    prh_assert(prh_impl_p != prh_null);
-    view->count = *prh_impl_arr_len(prh_impl_p);
-    view->data = prh_impl_p;
-}
-
-prh_inline void prh_impl_strlax_view(prh_byte *elem_ptr, prh_strvew *view) {
-    prh_assert(prh_impl_p != prh_null);
-    view->count = *prh_impl_arr_len(prh_impl_p);
-    view->data = prh_impl_p + *prh_impl_arr_start(prh_impl_p);
-}
-
-#define prh_strfit_view(s, a, view) prh_impl_string_view(prh_impl_strfit_data((s), a), view)
-#define prh_string_view(s, a, view) prh_impl_string_view(prh_impl_strdyn_data((s), a), view)
-#define prh_strlax_view(s, a, view) prh_impl_strlax_view(prh_impl_strlax_data((s), a), view)
-
-#define prh_strfit_v_view(a, view) prh_impl_string_view(prh_impl_strfit_dvar(a), view)
-#define prh_string_v_view(a, view) prh_impl_string_view(prh_impl_strdyn_dvar(a), view)
-#define prh_strlax_v_view(a, view) prh_impl_strlax_view(prh_impl_strlax_dvar(a), view)
-
-#define prh_strfit_a_view(a, view) prh_impl_string_view(prh_impl_strfit_avar(a), view)
-#define prh_string_a_view(a, view) prh_impl_string_view(prh_impl_strdyn_avar(a), view)
-#define prh_strlax_a_view(a, view) prh_impl_strlax_view(prh_impl_strlax_avar(a), view)
-
-#define prh_string_addr(s, a) &prh_impl_string_data((s), a)
-#define prh_strlax_addr(s, a) &prh_impl_strlax_data((s), a)
-
-#define prh_strfit_clear(s, a) prh_impl_array_clear(prh_impl_strfit_data((s), a))
-#define prh_string_clear(s, a) prh_impl_array_clear(prh_impl_string_data((s), a))
-#define prh_strlax_clear(s, a) prh_impl_array_clear(prh_impl_strlax_data((s), a))
-
-#define prh_strfit_v_clear(a) prh_impl_array_clear(prh_impl_strfit_dvar_data(a))
-#define prh_string_v_clear(a) prh_impl_array_clear(prh_impl_string_dvar_data(a))
-#define prh_strlax_v_clear(a) prh_impl_array_clear(prh_impl_strlax_dvar_data(a))
-
-#define prh_strfit_free(s, a) prh_impl_array_free(prh_impl_strfit_addr((s), a), sizeof(prh_impl_arrfit_hdr))
-#define prh_string_free(s, a) prh_impl_array_free(prh_impl_string_addr((s), a), sizeof(prh_impl_arrdyn_hdr))
-#define prh_strlax_free(s, a) prh_impl_array_free(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr))
-
-#define prh_strfit_a_free(a) prh_impl_array_free(prh_impl_strfit_avar_addr(a), sizeof(prh_impl_arrfit_hdr))
-#define prh_string_a_free(a) prh_impl_array_free(prh_impl_string_avar_addr(a), sizeof(prh_impl_arrdyn_hdr))
-#define prh_strlax_a_free(a) prh_impl_array_free(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr))
-
-#define prh_strfit_init(s, a, cap) prh_impl_strfit_data((s), a) = prh_impl_arrdyn_init((cap), 1)
-#define prh_string_init(s, a, cap) prh_impl_string_data((s), a) = prh_impl_arrdyn_init((cap), 1)
-#define prh_strlax_init(s, a, cap) prh_impl_strlax_data((s), a) = prh_impl_arrlax_init((cap), 1)
-
-#define prh_string_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), 1)
-#define prh_strlax_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), 1)
-#define prh_string_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_cap), 1)
-#define prh_strlax_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_cap), 1)
-
-#define prh_string_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), 1)
-#define prh_strlax_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), 1)
-#define prh_string_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_cap), 1)
-#define prh_strlax_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_cap), 1)
-
-#define prh_strfit_resize(s, a, new_len) prh_impl_arrfit_resize(prh_impl_strfit_data((s), a), (new_len))
-#define prh_string_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_len), 1)
-#define prh_strlax_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_len), 1)
-
-#define prh_strfit_v_resize(a, new_len) prh_impl_arrfit_resize(prh_impl_strfit_dvar(a), (new_len))
-#define prh_string_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_len), 1)
-#define prh_strlax_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_len), 1)
-
-prh_byte *prh_impl_strfit_push(prh_byte *elem_ptr, prh_int num_elts);
-prh_byte *prh_impl_strfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr);
-prh_byte *prh_impl_strdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts);
-prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts);
-
-#define prh_strfit_push(s, a, elt_value) {                                      \
-    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_data((s), a), 1); \
-    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
-}
-#define prh_string_push(s, a, elt_value) {                                      \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_push(s, a, elt_value) {                                      \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strfit_v_push(a, elt_value) {                                       \
-    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_dvar(a), 1);    \
-    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
-}
-#define prh_string_a_push(a, elt_value) {                                       \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_a_push(a, elt_value) {                                       \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strfit_push_many(s, a, elt_ptr, num_elts) {                         \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_data((s), a), prh_impl_n); \
-    if (prh_impl_p) memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                  \
-}
-#define prh_string_push_many(s, a, elt_ptr, num_elts) {                         \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_strlax_push_many(s, a, elt_ptr, num_elts) {                         \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_strfit_v_push_many(a, elt_ptr, num_elts) {                          \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_dvar_data(a), prh_impl_n); \
-    if (prh_impl_p) memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                  \
-}
-#define prh_string_a_push_many(a, elt_ptr, num_elts) {                          \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_strlax_a_push_many(a, elt_ptr, num_elts) {                          \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-
-#define prh_strfit_unchecked_push(s, a, elt_value) {                            \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_data((s), a), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_string_unchecked_push(s, a, elt_value) {                            \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_data((s), a), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_unchecked_push(s, a, elt_value) {                            \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_data((s), a), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strfit_v_unchecked_push(a, elt_value) {                             \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_dvar(a), 1);    \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_string_v_unchecked_push(a, elt_value) {                             \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_dvar(a), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_v_unchecked_push(a, elt_value) {                             \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_dvar(a), 1); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strfit_unchecked_push_many(s, a, elt_ptr, num_elts) {               \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_data((s), a), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_string_unchecked_push_many(s, a, elt_ptr, num_elts) {               \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_addr((s), a), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_strlax_unchecked_push_many(s, a, elt_ptr, num_elts) {               \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_addr((s), a), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_strfit_v_unchecked_push_many(a, elt_ptr, num_elts) {                \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_dvar(a), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_string_v_unchecked_push_many(a, elt_ptr, num_elts) {                \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_dvar(a), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-#define prh_strlax_v_unchecked_push_many(a, elt_ptr, num_elts) {                \
-    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
-    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_dvar(a), prh_impl_n); \
-    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
-}
-
-void prh_impl_strdyn_erase(prh_byte *elem_ptr, prh_int start, prh_int i);
-
-#define prh_strfit_erase(s, a, i) prh_impl_strdyn_erase(prh_impl_strfit_data((s), a), 0, (i))
-#define prh_string_erase(s, a, i) prh_impl_strdyn_erase(prh_impl_strdyn_data((s), a), 0, (i))
-#define prh_strlax_erase(s, a, i) {                                             \
-    prh_byte *elem_ptr = prh_impl_strlax_data((s), a);                          \
-    prh_impl_strdyn_erase(elem_ptr, *prh_impl_arr_start(elem_ptr), (i));        \
-}
-#define prh_strfit_v_erase(a, i) prh_impl_strdyn_erase(prh_impl_strfit_dvar(a), 0, (i))
-#define prh_string_v_erase(a, i) prh_impl_strdyn_erase(prh_impl_strdyn_dvar(a), 0, (i))
-#define prh_strlax_v_erase(a, i) {                                              \
-    prh_byte *elem_ptr = prh_impl_strlax_dvar(a);                               \
-    prh_impl_strdyn_erase(elem_ptr, *prh_impl_arr_start(elem_ptr), (i));        \
-}
-
-prh_byte *prh_impl_strfit_insert(prh_byte *elem_ptr, prh_int i);
-prh_byte *prh_impl_strfit_unchecked_insert(prh_byte *elem_ptr, prh_int i);
-prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i);
-
-#define prh_strfit_insert(s, a, i, elt_value) {                                 \
-    prh_byte *prh_impl_p = prh_impl_strfit_insert(prh_impl_strfit_data((s), a), (i)); \
-    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
-}
-#define prh_string_insert(s, a, i, elt_value) {                                 \
-    prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1, 1); \
-    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_data((s), a), 0, (i)); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_insert(s, a, i, elt_value) {                                 \
-    prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1, 1); \
-    prh_byte *prh_impl_p = prh_impl_strlax_data((s), a);                        \
-    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
-    *prh_impl_elt = (elt_value);                                                \
-}
-#define prh_strfit_v_insert(a, i, elt_value) {                                  \
-    prh_byte *prh_impl_p = prh_impl_strfit_insert(prh_impl_strfit_dvar(a), (i)); \
-    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
-}
-#define prh_string_a_insert(a, i, elt_value) {                                  \
-    prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1, 1); \
-    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_avar(a), 0, (i)); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_a_insert(a, i, elt_value) {                                  \
-    prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1, 1); \
-    prh_byte *prh_impl_p = prh_impl_strlax_avar(a);                             \
-    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
-    *prh_impl_elt = (elt_value);                                                \
-}
-
-#define prh_strfit_unchecked_insert(s, a, i, elt_value) {                       \
-    prh_byte *prh_impl_p = prh_impl_strfit_unchecked_insert(prh_impl_strfit_data((s), a), (i)); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_string_unchecked_insert(s, a, i, elt_value) {                       \
-    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_data((s), a), 0, (i)); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_unchecked_insert(s, a, i, elt_value) {                       \
-    prh_byte *prh_impl_p = prh_impl_strlax_data((s), a);                        \
-    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
-    *prh_impl_elt = (elt_value);                                                \
-}
-#define prh_strfit_v_unchecked_insert(a, i, elt_value) {                        \
-    prh_byte *prh_impl_p = prh_impl_strfit_unchecked_insert(prh_impl_strfit_dvar(a), (i)); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_string_v_unchecked_insert(a, i, elt_value) {                        \
-    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_avar(a), 0, (i)); \
-    *prh_impl_p = (elt_value);                                                  \
-}
-#define prh_strlax_v_unchecked_insert(a, i, elt_value) {                        \
-    prh_byte *prh_impl_p = prh_impl_strlax_avar(a);                             \
-    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
-    *prh_impl_elt = (elt_value);                                                \
-}
-
-#define prh_strfix_len(s, a) *prh_impl_arr_len(prh_impl_strfix_data((s), a))
-#define prh_strfix_data(s, a) prh_impl_strfix_data((s), a)
-#define prh_strfix_end(s, a) prh_impl_strfix_data((s), a) + *prh_impl_arr_len(prh_impl_strfix_data((s), a))
-#define prh_strfix_get(s, a, i) prh_impl_strfix_data((s), a) + (i)
-#define prh_strfix_v_len(a) *prh_impl_arr_len(prh_impl_strfix_dvar(a))
-#define prh_strfix_v_data(a) prh_impl_strfix_dvar(a)
-#define prh_strfix_v_end(a) prh_impl_strfix_dvar(a) + *prh_impl_arr_len(prh_impl_strfix_dvar(a))
-#define prh_strfix_v_get(a, i) prh_impl_strfix_dvar(a) + (i)
-
-#define prh_strfit_cap(s, a) *prh_impl_arr_cap(prh_impl_strfit_data((s), a))
-#define prh_strfit_len(s, a) *prh_impl_arr_len(prh_impl_strfit_data((s), a))
-#define prh_strfit_data(s, a) prh_impl_strfit_data((s), a)
-#define prh_strfit_end(s, a) prh_impl_strfit_data((s), a) + *prh_impl_arr_len(prh_impl_strfit_data((s), a))
-#define prh_strfit_get(s, a, i) prh_impl_strfit_data((s), a) + (i)
-#define prh_strfit_v_cap(a) *prh_impl_arr_cap(prh_impl_strfit_dvar(a))
-#define prh_strfit_v_len(a) *prh_impl_arr_len(prh_impl_strfit_dvar(a))
-#define prh_strfit_v_data(a) prh_impl_strfit_dvar(a)
-#define prh_strfit_v_end(a) prh_impl_strfit_dvar(a) + *prh_impl_arr_len(prh_impl_strfit_dvar(a))
-#define prh_strfit_v_get(a, i) prh_impl_strfit_dvar(a) + (i)
-
-#define prh_string_cap(s, a) *prh_impl_arr_cap(prh_impl_strdyn_data((s), a))
-#define prh_string_len(s, a) *prh_impl_arr_len(prh_impl_strdyn_data((s), a))
-#define prh_string_data(s, a) prh_impl_strdyn_data((s), a)
-#define prh_string_end(s, a) prh_impl_strdyn_data((s), a) + *prh_impl_arr_len(prh_impl_strdyn_data((s), a))
-#define prh_string_get(s, a, i) prh_impl_strdyn_data((s), a) + (i)
-#define prh_string_v_cap(a) *prh_impl_arr_cap(prh_impl_strdyn_dvar(a))
-#define prh_string_v_len(a) *prh_impl_arr_len(prh_impl_strdyn_dvar(a))
-#define prh_string_v_data(a) prh_impl_strdyn_dvar(a)
-#define prh_string_v_end(a) prh_impl_strfdyn_dvar(a) + *prh_impl_arr_len(prh_impl_strdyn_dvar(a))
-#define prh_string_v_get(a, i) prh_impl_strdyn_dvar(a) + (i)
-
-#define prh_strlax_cap(s, a) *prh_impl_arr_cap(prh_impl_strlax_data((s), a))
-#define prh_strlax_len(s, a) *prh_impl_arr_len(prh_impl_strlax_data((s), a))
-#define prh_strlax_data(s, a) prh_impl_strlax_data((s), a) + *prh_impl_arr_start(prh_impl_strlax_data((s), a))
-#define prh_strlax_end(s, a) prh_strlax_data((s), a) + *prh_impl_arr_len(prh_impl_strlax_data((s), a))
-#define prh_strlax_get(s, a, i) prh_strlax_data((s), a) + (i)
-#define prh_strlax_v_cap(a) *prh_impl_arr_cap(prh_impl_strlax_dvar(a))
-#define prh_strlax_v_len(a) *prh_impl_arr_len(prh_impl_strlax_dvar(a))
-#define prh_strlax_v_data(a) prh_impl_strlax_dvar(a) + *prh_impl_arr_start(prh_impl_strlax_dvar(a))
-#define prh_strlax_v_end(a) prh_strlax_v_data(a) + *prh_impl_arr_len(prh_impl_strlax_dvar(a))
-#define prh_strlax_v_get(a, i) prh_strlax_v_data(a) + (i)
-
-#ifdef PRH_STRING_STRIP_PREFIX
-#endif // PRH_STRING_STRIP_PREFIX
-
-#ifdef PRH_STRING_IMPLEMENTATION
-prh_byte *prh_impl_strfit_push(prh_byte *elem_ptr, prh_int num_elts) {
-    prh_impl_arrfit_hdr *p = (prh_impl_arrfit_hdr)elem_ptr - 1;
-    prh_assert(elem_ptr != prh_null);
-    prh_assert(num_elts >= 0); // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
-    prh_int count = p->count;
-    if (count + num_elts > p->capacity) {
-        return prh_null;
-    }
-    p->count += num_elts;
-    return elem_ptr + count;
-}
-
-prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts) {
-    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
-    prh_assert(elem_ptr != prh_null);
-    prh_assert(num_elts >= 0); // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
-    prh_int count = *count_ptr;
-    *count_ptr += num_elts;
-    return elem_ptr + count;
-}
-
-prh_byte *prh_impl_strfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr) { // push many as possible
-    prh_assert(elem_ptr != prh_null);
-    prh_assert(*num_elts_ptr >= 0);
-    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
-    prh_int capacity = *prh_impl_arr_cap(elem_ptr);
-    prh_int count = *count_ptr, num_elts = *num_elts_ptr;
-    if (count + num_elts > capacity) {
-        num_elts = capacity - count;
-        *num_elts_ptr = num_elts;
-    }
-    *count_ptr += num_elts; // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
-    return elem_ptr + count;
-}
-
-prh_byte *prh_impl_strdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts) {
-    prh_impl_array_expand(array, hdr_size, num_elts, 1);
-    prh_byte *elem_ptr = s->data;
-    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
-    prh_int count = *count_ptr;
-    *count_ptr += num_elts; // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
-    return elem_ptr + count;
-}
-
-void prh_impl_strdyn_erase(prh_byte *elem_ptr, prh_int start, prh_int i) {
-    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
-    prh_assert(elem_ptr != prh_null);
-    prh_assert(i >= 0 && i < *count_ptr); // 数组为空不能移除元素
-    prh_int new_count = --(*count_ptr);
-    prh_byte *dest = elem_ptr + start + i;
-    memmove(dest, dest + 1, new_count - i); // 长度参数可为零
-}
-
-prh_byte *prh_impl_strfit_insert(prh_byte *elem_ptr, prh_int i) {
-    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
-    prh_assert(elem_ptr != prh_null);
-    prh_assert(i >= 0 && i <= *count_ptr);
-    prh_int count = *count_ptr;
-    if (count >= *prh_impl_arr_cap(elem_ptr)) {
-        return prh_null;
-    }
-    *count_ptr += 1;
-    prh_byte *source = elem_ptr + i;
-    memmove(source + 1, source, count - i); // 长度参数可为零
-    return source;
-}
-
-prh_byte *prh_impl_strfit_unchecked_insert(prh_byte *elem_ptr, prh_int i) {
-    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
-    prh_assert(elem_ptr != prh_null);
-    prh_assert(i >= 0 && i <= *count_ptr);
-    prh_int count = (*count_ptr)++;
-    prh_byte *source = elem_ptr + i;
-    memmove(source + 1, source, count - i); // 长度参数可为零
-    return source;
-}
-
-prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i) {
-    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
-    prh_assert(elem_ptr != prh_null);
-    prh_assert(i >= 0 && i <= *count_ptr);
-    prh_int count = (*count_ptr)++;
-    prh_byte *source = elem_ptr + start + i;
-    memmove(source + 1, source, count - i); // 长度参数可为零
-    return source;
-}
-#endif // PRH_STRING_IMPLEMENTATION
-#endif // PRH_STRING_INCLUDE
-
-#ifdef PRH_LIST_INCLUDE
-typedef struct prh_snode { // node single linked
-    struct prh_snode *next;
-} prh_snode;
-
-typedef struct prh_singly_node { // singly linked node
-    struct prh_singly_node *next;
-} prh_singly_node;
-
-typedef struct prh_singly_data_node { // singly linked data node
-    struct prh_singly_data_node *next;
-    void *data; // 仅包含一个指针的链表节点
-} prh_singly_data_node;
-
-prh_inline void prh_singly_node_init(prh_singly_node *node) {
-    node->next = prh_null;
-}
-
-prh_inline void prh_singly_node_insert_after(prh_singly_node *node, prh_singly_node *new_node) {
-    new_node->next = node->next;
-    node->next = new_node;
-}
-
-prh_inline prh_singly_node *prh_singly_node_remove_next(prh_singly_node *node) {
-    prh_singly_node *removed = node->next;
-    if (removed) node->next = removed->next;
-    return removed;
-}
-
-prh_inline prh_singly_node *prh_singly_node_unchecked_remove_next(prh_singly_node *node) {
-    prh_singly_node *removed = node->next;
-    assert(removed != prh_null);
-    node->next = removed->next;
-    return removed;
-}
-
-typedef bool (*prh_less_than)(prh_snode *a, prh_snode *b);
-void prh_snode_priority_push(prh_snode *head, prh_snode *node, prh_less_than less); // 节点从小到大串连
-
-typedef struct prh_data_snode {
-    struct prh_data_snode *next;
-    void *data; // node only contain a data pointer
-} prh_data_snode;
-
-typedef struct {
-    prh_data_snode *next;
-} prh_data_snode_head;
-
-typedef struct { // zero initialized
-    prh_snode *head;
-    prh_snode *tail;
-} prh_slist;
-
-typedef struct prh_xnode { // node xored double linked (both = prev XOR next)
-    struct prh_xnode *both;
-} prh_xnode;
-
-typedef struct prh_data_xnode {
-    struct prh_data_xnode *both;
-    void *data; // node only contain a data pointer
-} prh_data_xnode;
-
-typedef struct { // zero initialized
-    prh_xnode *head;
-    prh_xnode *tail;
-} prh_xlist;
-
-typedef struct prh_node { // node double linked
-    struct prh_node *next;
-    struct prh_node *prev;
-} prh_node;
-
-typedef struct prh_data_node {
-    struct prh_data_node *next;
-    struct prh_data_node *prev;
-    void *data; // node only contain a data pointer
-} prh_data_node;
-
-typedef struct { // zero initialized
-    prh_node *head;
-    prh_node *tail;
-} prh_list;
-
-typedef struct prh_tnode { // node tripple linked
-    struct prh_tnode *next;
-    struct prh_tnode *prev;
-    struct prh_tnode *parent;
-} prh_tnode;
-
-typedef struct prh_data_tnode {
-    struct prh_data_tnode *next;
-    struct prh_data_tnode *prev;
-    struct prh_data_tnode *parent;
-    void *data; // node only contain a data pointer
-} prh_data_tnode;
-
-typedef struct { // zero initialized
-    prh_tnode *root;
-} prh_tree;
-
-void prh_impl_list_free_each_node(prh_snode *head, void (*node_free)(void *));
-void prh_impl_list_free_each_node_and_clear(prh_slist *list, void (*node_free)(void *));
-
-#ifdef PRH_LIST_IMPLEMENTATION
-void prh_impl_list_free_each_node(prh_snode *head, void (*node_free)(void *)) {
-    while (head) {
-        prh_snode *curr = head;
-        head = head->next; // get next before free
-        node_free(curr);
-    }
-}
-
-void prh_impl_list_free_each_node_and_clear(prh_slist *list, void (*node_free)(void *)) {
-    if (node_free) prh_impl_list_free_each_node(list->head, node_free);
-    list->head = prh_null;
-}
-
-void prh_snode_priority_push(prh_snode *head, prh_snode *node, prh_less_than less) { // 节点从小到大串连
-    prh_snode *curr;
-    assert(head != prh_null);
-    assert(node != prh_null);
-    while ((curr = head->next) && less(curr, node)) {
-        head = curr;
-    }
-    head->next = node;
-    node->next = curr;
-}
-#endif // PRH_LIST_IMPLEMENTATION
-#endif // PRH_LIST_INCLUDE
-
-#ifdef PRH_STACK_INCLUDE
-// Just link the node into the stack, dont allocate any memory. Each node can
-// have different size, but must cotain prh_snode as the header.
-//  struct stack_custom_node {
-//      prh_snode head; // must be 1st field
-//      ... other custom node data ...
-//  };
-typedef struct { // zero initialize
-    prh_snode *head;
-} prh_nstack;
-
-prh_inline void prh_nstack_init(prh_nstack *s) {
-    s->head = prh_null;
-}
-
-prh_inline void prh_nstack_clear(prh_nstack *s, void (*node_free_func)(void *)) {
-    prh_impl_list_free_each_node_and_clear((prh_slist *)s, node_free_func);
-}
-
-prh_inline prh_snode *prh_nstack_top(prh_nstack *s) {
-    return s->head;
-}
-
-prh_inline bool prh_nstack_empty(prh_nstack *s) {
-    return s->head == prh_null;
-}
-
-void prh_nstack_push(prh_nstack *s, prh_snode *node);
-prh_snode *prh_nstack_pop(prh_nstack *s);
-
-#ifdef PRH_STACK_STRIP_PREFIX
-#define nstack_t         prh_nstack
-#define nstack_init      prh_nstack_init
-#define nstack_clear     prh_nstack_clear
-#define nstack_empty     prh_nstack_empty
-#define nstack_push      prh_nstack_push
-#define nstack_pop       prh_nstack_pop
-#define nstack_top       prh_nstack_top
-#endif
-
-#ifdef PRH_STACK_IMPLEMENTATION
-void prh_nstack_push(prh_nstack *s, prh_snode *node) {
-    node->next = s->head;
-    s->head = node;
-}
-
-prh_snode *prh_nstack_pop(prh_nstack *s) {
-    prh_snode *head = s->head;
-    if (head == prh_null) return prh_null;
-    s->head = head->next;
-    return head;
-}
-#endif // PRH_STACK_IMPLEMENTATION
-#endif // PRH_STACK_INCLUDE
-
-#ifdef PRH_QUEUE_INCLUDE
-#define prh_fixed_arrque_ptr(elem_type) struct {                                \
-    prh_int fixed_arrque_head;                                                  \
-    prh_int fixed_arrque_len;                                                   \
-    prh_int fixed_arrque_size_minus_one;                                        \
-    elem_type fixed_arrque;                                                     \
-} *
-
-prh_int prh_fixed_arrque_alloc_size(prh_int size, prh_int elem_bytes);
-void prh_impl_fixed_arrque_init(void *arrque, prh_int size);
-prh_int prh_impl_fixed_arrque_empty_items(void *arrque);
-prh_int prh_impl_fixed_arrque_push(void *arrque);
-prh_int prh_impl_fixed_arrque_push_at(void *arrque, prh_int index);
-prh_int prh_impl_fixed_arrque_pop(void *arrque);
-
-#define prh_fixed_arrque_init(p, size) prh_impl_fixed_arrque_init(&(p)->fixed_arrque_head, (size))
-#define prh_fixed_arrque_elem_size(p) ((int)sizeof((p)->fixed_arrque))
-#define prh_fixed_arrque_eptr_type(p) prh_typeof(&(p)->fixed_arrque)
-#define prh_fixed_arrque_elem_addr(p) (&(p)->fixed_arrque)
-#define prh_fixed_arrque_len(p) ((p)->fixed_arrque_len)
-#define prh_fixed_arrque_cap(p) ((p)->fixed_arrque_size_minus_one + 1)
-#define prh_fixed_arrque_empty_items(p) prh_impl_fixed_arrque_empty_items(&(p)->fixed_arrque_head)
-#define prh_fixed_arrque_unchecked_push(p) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_push(&(p)->fixed_arrque_head))
-#define prh_fixed_arrque_unchecked_push_at(p, index) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_push_at(&(p)->fixed_arrque_head, (index)))
-#define prh_fixed_arrque_unchecked_pop(p) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_pop(&(p)->fixed_arrque_head))
-#define prh_impl_fixed_arrque_top(p) (prh_fixed_arrque_elem_addr(p) + (p)->fixed_arrque_head)
-
-#if defined(prh_cl_msc)
-#define prh_fixed_arrque_push(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push(p) : prh_null))
-#define prh_fixed_arrque_push_at(p, index) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push_at((p), (index)) : prh_null))
-#define prh_fixed_arrque_top(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_len(p) ? prh_impl_fixed_arrque_top(p) : prh_null))
-#define prh_fixed_arrque_pop(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_len(p) ? prh_fixed_arrque_unchecked_pop(p) : prh_null))
-#else
-#define prh_fixed_arrque_push(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push(p) : prh_null); prh_impl_ptr;})
-#define prh_fixed_arrque_push_at(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push_at((p), (index)) : prh_null); prh_impl_ptr;})
-#define prh_fixed_arrque_top(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_len(p) ? prh_impl_fixed_arrque_top(p) : prh_null); prh_impl_ptr;})
-#define prh_fixed_arrque_pop(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_len(p) ? prh_fixed_arrque_unchecked_pop(p) : prh_null); prh_impl_ptr;})
-#endif
-
-typedef struct { void *arrque; prh_int capacity; prh_int size; prh_int tail; } prh_impl_arrque; // arrque 动态分配，可以自动增长
-#define prh_arrque(elem_type) struct { elem_type *arrque; prh_int capacity; prh_int size; prh_int tail; }
-#define prh_impl_arrque_npos(p, pos) ((pos) & ((p)->capacity - 1)) // 队列数据容量总是 2 的幂
-#define prh_impl_arrque_head_index(p) prh_impl_arrque_npos((p), (p)->tail - (p)->size)
-#define prh_impl_arrque_elem_size(p) sizeof(*((p)->arrque))
-#define prh_impl_arrque_eptr_type(p) prh_typeof((p)->arrque)
-
-#define prh_arrque_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrque_elem_size(p)); (p)->tail = 0; }
-#define prh_arrque_free(p) { prh_std_free((p)->arrque); prh_debug((p)->arrque = prh_null); }
-
-void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size);
-void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size);
-void *prh_impl_arrque_top(prh_impl_arrque *p, prh_int elem_size);
-void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int elem_size);
-
-#if defined(prh_cl_msc)
-#define prh_arrque_push(p) ((prh_impl_arrque_eptr_type(p))(((p)->size < (p)->capacity) ? prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null))
-#define prh_arrque_unchecked_push(p) ((prh_impl_arrque_eptr_type(p))prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)))
-#define prh_arrque_auto_grow_push(p) ((prh_impl_arrque_eptr_type(p))prh_impl_arrque_auto_grow_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)))
-#define prh_arrque_top(p) ((prh_impl_arrque_eptr_type(p))((p)->size > 0 ? prh_impl_arrque_top((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null))
-#define prh_arrque_pop(p) ((prh_impl_arrque_eptr_type(p))((p)->size > 0 ? prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null))
-#define prh_arrque_unchecked_pop(p) ((prh_impl_arrque_eptr_type(p))prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)))
-#else
-#define prh_arrque_push(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = (((p)->size < (p)->capacity) ? prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null); prh_impl_ptr;})
-#define prh_arrque_unchecked_push(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)); prh_impl_ptr;})
-#define prh_arrque_auto_grow_push(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = prh_impl_arrque_auto_grow_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)); prh_impl_ptr;})
-#define prh_arrque_top(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = ((p)->size > 0 ? prh_impl_arrque_top((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null); prh_impl_ptr;})
-#define prh_arrque_pop(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = ((p)->size > 0 ? prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null); prh_impl_ptr;})
-#define prh_arrque_unchecked_pop(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)); prh_impl_ptr;})
-#endif
-
-#ifdef PRH_QUEUE_IMPLEMENTATION
-typedef struct {
-    prh_int head;
-    prh_int len;
-    prh_int size_minus_one; // size 必须是 2 的幂
-} prh_impl_fixed_arrque;
-
-prh_int prh_fixed_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
-    assert(size > 0 && prh_is_power_of_2(size));
-    assert(elem_bytes > 0);
-    return prh_round_16_byte(sizeof(prh_impl_fixed_arrque)) + prh_round_ptrsize(size * elem_bytes);
-}
-
-void prh_impl_fixed_arrque_init(void *arrque, prh_int size) {
-    assert(size > 0 && prh_is_power_of_2(size));
-    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
-    q->head = q->len = 0;
-    q->size_minus_one = size - 1;
-}
-
-prh_int prh_impl_fixed_arrque_empty_items(void *arrque) {
-    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
-    return q->size_minus_one + 1 - q->len;
-}
-
-prh_int prh_impl_fixed_arrque_push(void *arrque) {
-    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
-    return (q->head + q->len++) & q->size_minus_one;
-}
-
-prh_int prh_impl_fixed_arrque_push_at(void *arrque, prh_int index) {
-    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
-    return (q->head + q->len++ + index) & q->size_minus_one;
-}
-
-prh_int prh_impl_fixed_arrque_pop(void *arrque) {
-    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
-    prh_int head = q->head;
-    q->len -= 1;
-    q->head = (head + 1) & q->size_minus_one;
-    return head;
-}
-
-void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size) {
-    prh_int tail_offset = p->tail * elem_size;
-    p->tail = prh_impl_arrque_npos(p, p->tail + 1);
-    p->size += 1;
-    return (prh_byte *)p->arrque + tail_offset;
-}
-
-void *prh_impl_arrque_top(prh_impl_arrque *p, prh_int elem_size) {
-    prh_int head_offset = prh_impl_arrque_npos(p, p->tail - p->size) * elem_size;
-    return (prh_byte *)p->arrque + head_offset;
-}
-
-void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int elem_size) {
-    void *top = prh_impl_arrque_top(p, elem_size);
-    p->size -= 1;
-    return top;
-}
-
-void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size) {
-    prh_int capacity = p->capacity;
-    prh_int middle_offset, new_capacity = (p->size += 1);
-    prh_int tail_offset = p->tail * elem_size;
-    if (new_capacity > capacity) {
-        middle_offset = capacity * elem_size;
-        p->arrque = prh_std_ralloc(p->arrque, middle_offset * 2);
-        memcpy((prh_byte *)p->arrque + middle_offset, p->arrque, tail_offset);
-        tail_offset += middle_offset; // 当tail_offset恰好为0时最后一个元素恰好在数组尾部不需要拷贝，参数 tail_offset 为零 memcpy 实际也不会拷贝
-        p->tail += capacity + 1;
-        p->capacity *= 2;
-    } else {
-        p->tail = prh_impl_arrque_npos(p, p->tail + 1);
-    }
-    return (prh_byte *)p->arrque + tail_offset;
-}
-#endif // PRH_QUEUE_IMPLEMENTATION
-
-// Just link the node into the queue, dont allocate any memory. Each node can
-// have different size, but must cotain prh_snode as the header.
-typedef struct { // zero initialize
-    prh_snode *head;
-    prh_snode *tail;
-} prh_quefit;
-
-typedef struct { // zero initialize
-    prh_data_snode *head;
-    prh_data_snode *tail;
-} prh_data_quefit;
-
-prh_inline void prh_quefit_init(prh_quefit *q) {
-    q->head = q->tail = prh_null;
-}
-
-prh_inline bool prh_quefit_empty(prh_quefit *q) {
-    return q->head == prh_null;
-}
-
-prh_inline prh_snode *prh_quefit_top(prh_quefit *q) {
-    return q->head;
-}
-
-void prh_quefit_push(prh_quefit *q, prh_snode *new_node);
-prh_snode *prh_quefit_pop(prh_quefit *q);
-prh_quefit prh_quefit_move(prh_quefit *q);
-
-#define prh_quefit_for_begin(quefit) {                                          \
-        prh_snode *it = (quefit)->head;                                         \
-        prh_snode *prh_impl_next;                                               \
-        for (; it; it = prh_impl_next) {                                        \
-            prh_impl_next = it->next;
-
-#define prh_quefit_for_end()                                                    \
-        }                                                                       \
-    }
-
-#define prh_data_quefit_for_begin(data_quefit) {                                \
-        prh_data_snode *it = (data_quefit)->head;                               \
-        prh_data_snode *prh_impl_next;                                          \
-        for (; it; it = prh_impl_next) {                                        \
-            prh_impl_next = it->next;
-
-#define prh_data_quefit_for_end()                                               \
-        }                                                                       \
-    }
-
-prh_inline void prh_data_quefit_init(prh_data_quefit *q) {
-    prh_quefit_init((prh_quefit *)q);
-}
-
-prh_inline bool prh_data_quefit_empty(prh_data_quefit *q) {
-    return prh_quefit_empty((prh_quefit *)q);
-}
-
-prh_data_snode *prh_data_quefit_top(prh_data_quefit *q) {
-    return (prh_data_snode *)prh_quefit_top((prh_quefit *)q);
-}
-
-prh_data_snode *prh_data_quefit_pop(prh_data_quefit *q) {
-    return (prh_data_snode *)prh_quefit_pop((prh_quefit *)q);
-}
-
-prh_inline void prh_data_quefit_push(prh_data_quefit *q, prh_data_snode *node) {
-    prh_quefit_push((prh_quefit *)q, (prh_snode *)node);
-}
-
-#ifdef PRH_QUEUE_IMPLEMENTATION
-prh_quefit prh_quefit_move(prh_quefit *q) {
-    prh_quefit que = *q;
-    prh_quefit_init(q);
-    return que;
-}
-
-void prh_quefit_push(prh_quefit *q, prh_snode *new_node) {
-    prh_snode *tail = q->tail;
-    if (tail == prh_null) tail = (prh_snode *)q;
-    q->tail = tail->next = new_node;
-    new_node->next = prh_null;
-}
-
-void prh_quefit_push_front(prh_quefit *q, prh_snode *new_node) {
-    prh_snode *head = q->head;
-    new_node->next = head;
-    q->head = new_node;
-    if (q->tail == prh_null) q->tail = new_node;
-}
-
-prh_snode *prh_quefit_pop(prh_quefit *q) {
-    prh_snode *top = q->head;
-    if (top == prh_null) return prh_null;
-    q->head = top->next;
-    if (top == q->tail) {
-        q->tail = prh_null;
-    }
-    return top;
-}
-
-prh_snode *prh_quefit_remove_after(prh_quefit *q, prh_snode *node) {
-    prh_snode *next = node->next;
-    node->next = next->next;
-    if (next == q->tail) q->tail = node;
-    return next;
-}
-#endif // PRH_QUEUE_IMPLEMENTATION
-
-// 队列不负责分配实际的节点，整个节点都由使用者提供，节点可以是任意长度，其内容由使用者
-// 决定没有限制。队列仅将用户提供的节点链接到队列中，节点的类型由用户自定义，只要其中包
-// 含一个自身类型的 next 指针即可，这个 next 指针的名字可以自定义，且这个 next 指针可
-// 以定义在任何位置，不需要像 prh_quefit 和 prh_data_quefit 一样，next 指针必须是结
-// 构体头部的第一个成员。
-//
-// 队列也由用户自定义，但必须按顺序包含 head 和 tail 两个成员。用户自定义节点类型、队列
-// 类型示例如下：
-//
-// struct user_node {
-//      int a, b, c;
-//      struct user_node *chain;
-//      void *d, *e;
-// };
-//
-// struct user_relaxed_quefit { // 零初始化
-//      struct user_node *head; // 第一个成员
-//      struct user_node *tail; // 第二个成员
-// };
-//
-// struct user_relaxed_quefit q = {0};
-// prh_relaxed_quefit_push(&q, user_node, chain);
-#define prh_relaxed_quefit(type) struct { type *head; type *tail; }
-
-void prh_impl_relaxed_quefit_push(void **quefit, void *node, prh_i32 next_offset);
-void prh_impl_relaxed_quefit_push_front(void **quefit, void *node, prh_i32 next_offset);
-void prh_impl_relaxed_quefit_push_queue(void **quefit, void **from_que, prh_i32 next_offset); // from_que is not cleared
-void prh_impl_relaxed_quefit_push_queue_front(void **quefit, void **from_que, prh_i32 next_offset); // form_que is not cleared
-void *prh_impl_relaxed_quefit_pop(void **quefit, prh_i32 next_offset);
-
-#define prh_relaxed_quefit_init(relaxed_quefit_ptr) { /* zero initialization */ \
-    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
-    relaxed_quefit_ptr->head = relaxed_quefit_ptr->tail = prh_null;             \
-}
-
-#define prh_relaxed_quefit_push(relaxed_quefit_ptr, node_type_ptr, next_field_name) { \
-    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
-    typedef prh_typeof(*(prh_impl_que_ptr->tail)) prh_impl_node_type;           \
-    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
-    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
-    prh_impl_node_type *prh_impl_node_ptr = (node_type_ptr);                    \
-    prh_impl_relaxed_quefit_push((void **)prh_impl_que_ptr, prh_impl_node_ptr, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
-}
-
-#define prh_relaxed_quefit_push_queue(relaxed_quefit_ptr, from_quefit_ptr, next_field_name) { \
-    typedef prh_typeof(relaxed_quefit_ptr) prh_impl_quefit_ptr_type;            \
-    prh_impl_quefit_ptr_type prh_impl_que_ptr = (relaxed_quefit_ptr);           \
-    prh_impl_quefit_ptr_type prh_impl_from_que = (from_quefit_ptr);             \
-    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
-    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
-    typedef prh_typeof(*(prh_impl_que_ptr->tail)) prh_impl_node_type;           \
-    prh_impl_relaxed_quefit_push_queue((void **)prh_impl_que_ptr, (void **)prh_impl_from_que, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
-}
-
-#define prh_relaxed_quefit_push_front(relaxed_quefit_ptr, node_type_ptr, next_field_name) { \
-    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
-    typedef prh_typeof(*(prh_impl_que_ptr->head)) prh_impl_node_type;           \
-    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
-    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
-    prh_impl_node_type *prh_impl_node_ptr = (node_type_ptr);                    \
-    prh_impl_relaxed_quefit_push_front((void **)prh_impl_que_ptr, prh_impl_node_ptr, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
-}
-
-#define prh_relaxed_quefit_push_queue_front(relaxed_quefit_ptr, from_quefit_ptr, next_field_name) { \
-    typedef prh_typeof(relaxed_quefit_ptr) prh_impl_quefit_ptr_type;            \
-    prh_impl_quefit_ptr_type prh_impl_que_ptr = (relaxed_quefit_ptr);           \
-    prh_impl_quefit_ptr_type prh_impl_from_que = (from_quefit_ptr);             \
-    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
-    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
-    typedef prh_typeof(*(prh_impl_que_ptr->head)) prh_impl_node_type;           \
-    prh_impl_relaxed_quefit_push_queue_front((void **)prh_impl_que_ptr, (void **)prh_impl_from_que, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
-}
-
-#define prh_relaxed_quefit_empty(relaxed_quefit_ptr) ((relaxed_quefit_ptr)->head == prh_null)
-#define prh_relaxed_quefit_not_empty(relaxed_quefit_ptr) ((relaxed_quefit_ptr)->head != prh_null)
-
-#define prh_relaxed_quefit_top(relaxed_quefit_ptr, node_out) {                  \
-    node_out = (relaxed_quefit_ptr)->head;                                      \
-}
-
-#define prh_relaxed_quefit_pop(relaxed_quefit_ptr, node_out, next_field_name) { \
-    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
-    typedef prh_typeof(*(prh_impl_que_ptr->head)) prh_impl_node_type;           \
-    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
-    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
-    node_out = (prh_impl_node_type *)prh_impl_relaxed_quefit_pop((void **)prh_impl_que_ptr, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
-}
-
-#if defined(PRH_QUEUE_IMPLEMENTATION)
-void prh_impl_relaxed_quefit_push(void **quefit, void *node, prh_i32 next_offset) {
-    prh_byte *tail = quefit[1]; // 由于next可能不是第一个成员，因此不能定义成循环列表，因为无法定义一个固定的包含next的头节点
-    if (tail == prh_null) {
-        quefit[0] = node;
-    } else {
-        *(void **)(tail + next_offset) = node;
-    }
-    *(void **)((prh_byte *)node + next_offset) = prh_null;
-    quefit[1] = node;
-}
-
-void prh_impl_relaxed_quefit_push_queue(void **quefit, void **from_que, prh_i32 next_offset) {
-    prh_byte *from_tail = from_que[1];
-    if (from_tail == prh_null) return;
-    prh_byte *tail = quefit[1];
-    if (tail == prh_null) {
-        quefit[0] = from_que[0];
-    } else {
-        *(void **)(tail + next_offset) = from_que[0];
-    }
-    quefit[1] = from_tail;
-}
-
-void prh_impl_relaxed_quefit_push_front(void **quefit, void *node, prh_i32 next_offset) {
-    prh_byte *head = quefit[0];
-    quefit[0] = node;
-    *(void **)((prh_byte *)node + next_offset) = head;
-    if (head == prh_null) {
-        quefit[1] = node;
-    }
-}
-
-void prh_impl_relaxed_quefit_push_queue_front(void **quefit, void **from_que, prh_i32 next_offset) {
-    prh_byte *from_head = from_que[0];
-    if (from_head == prh_null) return;
-    prh_byte *head = quefit[0];
-    quefit[0] = from_head;
-    prh_byte *from_tail = from_que[1];
-    *(void **)((prh_byte *)from_tail + next_offset) = head;
-    if (head == prh_null) {
-        quefit[1] = from_tail;
-    }
-}
-
-void *prh_impl_relaxed_quefit_pop(void **quefit, prh_i32 next_offset) {
-    prh_byte *head = quefit[0];
-    if (head) {
-        quefit[0] = *(void **)(head + next_offset);
-        if (head == quefit[1]) {
-            quefit[1] = prh_null;
-        }
-    }
-    return head;
-}
-#endif /* PRH_QUEUE_IMPLEMENTATION */
-
-// Dynamic allocated variable size queue. The node can contain any object and
-// with any different size. If the size < sizeof(void *), the size is rounded
-// up to sizeof(void *).
-typedef struct { // zero initialize
-    prh_snode *head;
-    prh_snode *tail;
-} prh_quedyn;
-
-prh_inline void prh_quedyn_init(prh_quedyn *q) {
-    prh_quefit_init((prh_quefit *)q);
-}
-
-prh_inline bool prh_quedyn_empty(prh_quedyn *q) {
-    return prh_quefit_empty((prh_quefit *)q);
-}
-
-prh_inline void prh_quedyn_free_node(void *ptr_node_object) {
-    if (ptr_node_object) prh_std_free((prh_snode *)ptr_node_object - 1);
-}
-
-void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *));
-void *prh_quedyn_push(prh_quedyn *q, int object_size); // return allocated zero initialized object address
-void *prh_quedyn_top(prh_quedyn *q); // return null or object address inside the top node
-void *prh_quedyn_pop(prh_quedyn *q); // pop top node but dont free it, return object address inside the node
-
-#ifdef PRH_QUEUE_STRIP_PREFIX
-#define quedyn_t         prh_quedyn
-#define quedyn_init      prh_quedyn_init
-#define quedyn_empty     prh_quedyn_empty
-#define quedyn_free_node prh_quedyn_free_node
-#define quedyn_clear     prh_quedyn_clear
-#define quedyn_move      prh_quedyn_move
-#define quedyn_push      prh_quedyn_push
-#define quedyn_top       prh_quedyn_top
-#define quedyn_pop       prh_quedyn_pop
-#endif
-
-#ifdef PRH_QUEUE_IMPLEMENTATION
-void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *)) {
-    prh_snode *next = q->head;
-    while (next) {
-        prh_snode *curr = next;
-        next = next->next; // get next before free the node
-        if (object_deinit_func) {
-            object_deinit_func(curr + 1);
-        }
-        prh_std_free(curr);
-    }
-    prh_quedyn_init(q);
-}
-
-prh_quedyn prh_quedyn_move(prh_quedyn *q) {
-    prh_quedyn que = *q;
-    prh_quedyn_init(q);
-    return que;
-}
-
-void *prh_quedyn_push(prh_quedyn *q, int object_size) {
-    if (object_size < sizeof(void *)) object_size = sizeof(void *);
-    prh_snode *new_node = prh_std_calloc(sizeof(prh_snode) + prh_round_ptrsize(object_size));
-    prh_quefit_push((prh_quefit *)q, new_node);
-    return (new_node + 1);
-}
-
-void *prh_quedyn_top(prh_quedyn *q) {
-    prh_snode *top = q->head;
-    return (top == prh_null) ? prh_null : (top + 1);
-}
-
-void *prh_quedyn_pop(prh_quedyn *q) {
-    prh_snode *top = prh_quefit_pop((prh_quefit *)q);
-    return (top == prh_null) ? prh_null : (top + 1);
-}
-#endif // PRH_QUEUE_IMPLEMENTATION
-#endif // PRH_QUEUE_INCLUDE
 
 #ifdef PRH_ALLOC_INCLUDE
 #ifdef PRH_ALLOC_IMPLEMENTATION
@@ -7052,6 +5226,1945 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 #endif // PRH_ALLOC_IMPLEMENTATION
 #endif // PRH_ALLOC_INCLUDE
 
+// ARRAYS, SLICES, STRINGS
+#ifdef PRH_ARRAY_INCLUDE
+// 标准容器相关操作参考
+// https://en.cppreference.com/w/cpp/container.html
+// 调整容器大小，当增大时需要初始化新增元素
+//  void resize(size_type count); 调整容器大小，尾部多余的元素会被移除，不够的元素会追加默认元素值，相当于移除多个元素或添加多个元素
+//  void resize(size_type count, const value_type& value); 或追加提供的元素值 value
+//  void resize_and_overwrite(size_type count, void (*method_op)(value_type *p, size_type count)); 在增加元素时避免初始化两次
+//  void clear(); 清除容器所有元素，清除之后容器大小为零
+// 调整容器容量
+//  void reserve(size_type new_capacity); 增大容器容量，如果 new_capacity 大于当前容量将扩容
+//  void shrink_to_fit(); 缩减容器容量，将没用的过多的容量释放掉
+// 移除容器元素，以整个容器为范围（erase），或指定范围内移除元素（remove）
+//  iterator erase(const_iterator pos); 移除所在位置处的元素，返回执行移除操作后其后第一个元素的位置
+//  iterator erase(const_iterator first, const_iterator last); 移除所在范围内的元素
+//  iterator erase_after(const_iterator pos); 移除位置pos后面的那个元素，返回执行移除操作后其后第一个元素的位置
+//  iterator erase_after(const iterator first, const_iterator last); 移除范围内除了first之外的所有元素，即返回end()或last
+//  size_type erase(const T& vlaue); 移除所有与值value相等的元素，返回移除的元素个数
+//  size_type erase_if(Pred pred); 移除所有满足条件的元素，返回移除的元素个数
+//  iterator remove(iterator first, iterator last, const T& value); 将范围内与值value相等的元素移除
+//  iterator remove_if(iterator first, iterator last, Pred pred); 将范围内满足要求的元素移除，返回新容器范围[first, end)中的end位置
+// 插入元素，在指定位置之前插入或之后插入一个或多个元素
+//  iterator insert(const_iterator pos, const value_type& value); 将value插入到pos位置，插入后该值的位置是pos，返回插入元素的迭代器
+//  iterator insert(const_iterator pos, value_type&& value); 将value插入到pos位置，使用移动语义，返回插入元素的迭代器
+//  iterator insert(const_iterator pos, size_type count, const value_type& value); 将多个元素插入到pos位置，返回第一个插入元素的迭代器
+//  iterator insert(const_iterator pos, iterator first, iterator last); 将范围内的元素插入到pos位置
+//  iterator insert(const_iterator pos, initializer_list<value_type> list); 将初始化列表中的元素插入到pos位置
+//  iterator insert_range(const_iterator pos, range_type&& range); 将范围内的元素插入到pos位置之前
+//  iterator insert_after(const_iterator pos, const value_type& value); 将值value插入到pos位置之后，返回插入元素的迭代器
+//  iterator insert_after(const_iterator pos, iterator first, iterator last); 将范围内的元素插入到pos位置之后，返回最后一个插入元素的迭代器
+//  pair<iterator, bool> insert_or_assign(const key_type& key, mapped_type&& value); 映射中已经存在key赋值，否则插入
+//  pair<iterator, bool> insert_or_assign(const_iterator hint, const key_type& key, mapped_type&& value); 插入位置在hint位置
+//  iterator before_begin(); 容器第一个元素的之前的元素位置，用于 insert_after() erase_after() 等函数
+// 插入一个原地构造的元素，新元素使用提供的参数列表直接原地构造（use placement new to construct the element in-place at the location）
+//  iterator emplace(const_iterator pos, Args&&... args); 将新元素插入到pos位置
+//  iterator emplace_after(const_iterator pos, Args&&... args); 将新元素插入到pos位置之后
+//  reference_type emplace_back(Args&&... args); 在容器尾部插入一个元素，该元素使用提供的参数列表直接原地构造，而 push_back() 需要先构造一个对象再将对象拷贝或移动到容器
+//  reference_type emplace_front(Args&&... args); 在容器头部插入一个元素，emplace_back() emplace_front() 可以直接在容器内部构造对象，少了拷贝或移动的操作
+//  pair<iterator, bool> map::emplace(Args&&... args); 使用参数列表构造 pair<key_type, value_type>，并将键值对插入到映射对象，如果键值已经存在返回false此时需要析构新建元素
+//  pair<iterator, bool> map::try_emplace(const key_type& key, Args&&... args); 如果键值已经存在，不会构造新元素，直接返回false
+//  iterator map::emplace_hint(const_iterator hint, Args&&... args); 插入位置在hint位置，参考hint位置插入一个不存在的键值对，如果键已经存在返回false
+//  iterator map::try_emplace(const_iterator hint, const key_type& key, Args&&... args); 参考hint位置插入一个不存在的键值对，如果键已经存在直接返回false
+// 弹压元素
+//  void push_back(const value_type& value); 在容器尾拷贝构造一个新元素
+//  void push_back(value_type&& value); 在容器尾移动构造一个新元素
+//  void push_front(const value_type& value); 在容器头部压入新元素
+//  void push_front(value_type&& value); 在容器头部压入新元素
+//  void pop_back(); 弹出容器尾部元素
+//  void pop_front(); 弹出容器头部元素
+//  void append_range(range_type&& range); 在容器尾部压入多个元素
+//  void prepend_range(range_type&& range); 将多个元素压入到容器头部
+//
+// push_back    append  在容器尾部添加一个和多个元素
+// push_front   preend  在容器头部添加一个和多个元素
+// pop_back     erase_back      从容器尾部移除一个和多个元素
+// pop_front    erase_front     从容易头部移除一个和多个元素
+// erase        移除所在位置或范围内的所有元素，或移除所有与指定值相等的元素，或移除指定范围内与指定值相等的元素
+// erase_after  移除所在位置之后或范围内除第一个元素外的所有元素
+// erase_if     移除所有满足条件的元素，或移除指定范围内满足条件的元素
+
+#if 1
+typedef struct {
+    prh_reg capacity;
+    prh_reg size;
+} prh_impl_arrdyn_head;
+
+typedef struct {
+    prh_reg capacity;
+    prh_reg size;
+    prh_reg start;
+} prh_impl_arrbdi_head;
+
+#define prh_impl_arrfit_address(a) prh_macro_make_name(array_fit_address, a)
+#define prh_impl_arrfit_elemptr(a) prh_macro_make_name(array_fit_elemptr, a)
+#define prh_impl_arrdyn_address(a) prh_macro_make_name(array_dyn_address, a)
+#define prh_impl_arrdyn_elemptr(a) prh_macro_make_name(array_dyn_elemptr, a)
+#define prh_impl_arrbdi_address(a) prh_macro_make_name(array_bdi_address, a)
+#define prh_impl_arrbdi_elemptr(a) prh_macro_make_name(array_bdi_elemptr, a)
+
+#define prh_impl_arrfit_address_elem_size(a) sizeof(**prh_impl_arrfit_address(a))
+#define prh_impl_arrfit_elemptr_elem_size(a) sizeof(*prh_impl_arrfit_elemptr(a))
+#define prh_impl_arrdyn_address_elem_size(a) sizeof(**prh_impl_arrdyn_address(a))
+#define prh_impl_arrdyn_elemptr_elem_size(a) sizeof(*prh_impl_arrdyn_elemptr(a))
+#define prh_impl_arrbdi_address_elem_size(a) sizeof(**prh_impl_arrbdi_address(a))
+#define prh_impl_arrbdi_elemptr_elem_size(a) sizeof(*prh_impl_arrbdi_elemptr(a))
+
+prh_inline prh_reg *prh_impl_arrdyn_capacity_ptr(void *a) {
+    return (prh_reg *)a - 2;
+}
+
+prh_inline prh_reg *prh_impl_arrbdi_capacity_ptr(void *a) {
+    return (prh_reg *)a - 3;
+}
+
+prh_inline prh_reg *prh_impl_arrdyn_size_ptr(void *a) {
+    return (prh_reg *)a - 1;
+}
+
+prh_inline prh_reg *prh_impl_arrbdi_size_ptr(void *a) {
+    return (prh_reg *)a - 2;
+}
+
+prh_inline prh_reg *prh_impl_arrbdi_start_ptr(void *a) {
+    return (prh_reg *)a - 1;
+}
+
+prh_inline void *prh_impl_arrdyn_buffer_begin(void *a, prh_reg elem_size) {
+    return a;
+}
+
+prh_inline void *prh_impl_arrdyn_buffer_end(void *a, prh_reg elem_size) {
+    return (prh_byte *)a + elem_size * *prh_impl_arrdyn_capacity_ptr(a);
+}
+
+prh_inline void *prh_impl_arrdyn_begin(void *a, prh_reg elem_size) {
+    return a;
+}
+
+prh_inline void *prh_impl_arrdyn_end(void *a, prh_reg elem_size) {
+    return (prh_byte *)a + elem_size * *prh_impl_arrdyn_size_ptr(a);
+}
+
+prh_inline void *prh_impl_arrbdi_begin(void *a, prh_reg elem_size) {
+    return (prh_byte *)a + elem_size * *prh_impl_arrbdi_start_ptr(a);
+}
+
+prh_inline void *prh_impl_arrbdi_end(void *a, prh_reg elem_size) {
+    return (prh_byte *)a + elem_size * (*prh_impl_arrbdi_start_ptr(a) + *prh_impl_arrbdi_size_ptr(a));
+}
+
+prh_inline void *prh_impl_arrdyn_at(void *a, prh_reg i, prh_reg elem_size) {
+    return (prh_byte *)a + elem_size * i;
+}
+
+prh_inline void *prh_impl_arrbdi_at(void *a, prh_reg i, prh_reg elem_size) {
+    return (prh_byte *)a + elem_size * (prh_impl_arrbdi_start(a) + i);
+}
+
+prh_inline void prh_impl_arrdyn_expand_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
+    prh_reg *elem_ptr = (prh_reg *)*p; prh_reg capacity = 1; // 容量总是2的幂
+    if (elem_ptr == prh_null || (capacity = *(elem_ptr -= 2)) < new_capacity) {
+        do capacity *= 2; while (capacity < new_capacity);
+        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
+        *elem_ptr = capacity;
+        *p = (void *)(elem_ptr + 2);
+    }
+}
+
+prh_inline void prh_impl_arrbdi_expand_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
+    prh_reg *elem_ptr = (prh_reg *)*p; prh_reg capacity = 1; // 容量总是2的幂
+    if (elem_ptr == prh_null || (capacity = *(elem_ptr -= 3)) < new_capacity) {
+        do capacity *= 2; while (capacity < new_capacity);
+        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
+        *elem_ptr = capacity;
+        *p = (void *)(elem_ptr + 3);
+    }
+}
+
+prh_inline void prh_impl_arrdyn_shrink_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
+    prh_reg *elem_ptr = (prh_reg *)*p; // 缩减不能缩减至小于元素个数，记得处理 new_capacity 和 capacity 都是 0 的情况
+    prh_reg capacity = (elem_ptr == prh_null) ? 0 : *(elem_ptr -= 2);
+    if (new_capacity < capacity) { // 容量总是2的幂
+        do capacity /= 2; while (new_capacity < capacity);
+        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
+        *elem_ptr = capacity;
+        *p = (void *)(elem_ptr + 2);
+    }
+}
+
+prh_inline void prh_impl_arrbdi_shrink_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
+    prh_reg *elem_ptr = (prh_reg *)*p; // 缩减不能缩减至小于元素个数，记得处理 new_capacity 和 capacity 都是 0 的情况
+    prh_reg capacity = (elem_ptr == prh_null) ? 0 : *(elem_ptr -= 3);
+    if (new_capacity < capacity) { // 容量总是2的幂
+        do capacity /= 2; while (new_capacity < capacity);
+        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
+        *elem_ptr = capacity;
+        *p = (void *)(elem_ptr + 3);
+    }
+}
+
+
+#define prh_impl_arrvew_eptr_type(p) prh_typeof((p)->arrvew)
+#define prh_impl_arrfix_eptr_type(p) prh_typeof((p)->arrfix)
+#define prh_impl_arrfit_eptr_type(p) prh_typeof((p)->arrfit)
+#define prh_impl_arrdyn_eptr_type(p) prh_typeof((p)->arrdyn)
+#define prh_impl_arrlax_eptr_type(p) prh_typeof((p)->arrlax)
+
+#define prh_impl_arrvew_elem_type(p) prh_typeof(*((p)->arrvew))
+#define prh_impl_arrfix_elem_type(p) prh_typeof(*((p)->arrfix))
+#define prh_impl_arrfit_elem_type(p) prh_typeof(*((p)->arrfit))
+#define prh_impl_arrdyn_elem_type(p) prh_typeof(*((p)->arrdyn))
+#define prh_impl_arrlax_elem_type(p) prh_typeof(*((p)->arrlax))
+
+#define prh_impl_arrvew_elem_size(p) sizeof(*((p)->arrvew))
+#define prh_impl_arrfix_elem_size(p) sizeof(*((p)->arrfix))
+#define prh_impl_arrfit_elem_size(p) sizeof(*((p)->arrfit))
+#define prh_impl_arrdyn_elem_size(p) sizeof(*((p)->arrdyn))
+#define prh_impl_arrlax_elem_size(p) sizeof(*((p)->arrlax))
+
+#define prh_impl_arrvew_addr(p) (prh_impl_arrvew *)(&((p)->arrvew))
+#define prh_impl_arrfix_addr(p) (prh_impl_arrfix *)(&((p)->arrfix))
+#define prh_impl_arrfit_addr(p) (prh_impl_arrfit *)(&((p)->arrfit))
+#define prh_impl_arrdyn_addr(p) (prh_impl_arrdyn *)(&((p)->arrdyn))
+#define prh_impl_arrlax_addr(p) (prh_impl_arrlax *)(&((p)->arrlax))
+
+#define prh_arrdyn_reserve(a, new_capacity)
+
+#else
+typedef struct { void *arrvew; prh_int size; } prh_impl_arrvew;
+typedef struct { void *arrfix; prh_int size; } prh_impl_arrfix;
+typedef struct { void *arrfit; prh_int capacity; prh_int size; } prh_impl_arrfit;
+typedef struct { void *arrdyn; prh_int capacity; prh_int size; } prh_impl_arrdyn;
+typedef struct { void *arrlax; prh_int capacity; prh_int size; prh_int start; } prh_impl_arrlax;
+
+#define prh_arrvew(elem_type) struct { elem_type *arrvew; prh_int size; } // 只读，不拥有内存
+#define prh_arrfix(elem_type) struct { elem_type *arrfix; prh_int size; } // 读写，大小固定的定长数组，负责内存分配和释放（array with fixed size）
+#define prh_arrfit(elem_type) struct { elem_type *arrfit; prh_int capacity; prh_int size; } // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存（the allocated array is fixed in the place, never realloc）
+#define prh_arrdyn(elem_type) struct { elem_type *arrdyn; prh_int capacity; prh_int size; } // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效（array can dynamic re-allocated and re-sized）
+#define prh_arrlax(elem_type) struct { elem_type *arrlax; prh_int capacity; prh_int size; prh_int start; } // 读写，容量和大小都动态可变，数组头部空间可伸展（relaxed array - header space can stretch around）
+#define prh_slice(elem_type)  struct { elem_type *slice; prh_int capacity; prh_int size; } // 读写，不拥有内存，操作相当于是一个 arrfit
+
+typedef struct { prh_byte *s; prh_int size; } prh_strvew; // 只读，不拥有内存
+typedef struct { prh_byte *s; prh_int size; } prh_strfix; // 读写，大小固定的定长字符串，负责内存分配和释放
+typedef struct { prh_byte *s; prh_int capacity; prh_int size; } prh_strfit; // 读写，容量固定大小有限可调，一旦初始化后不再重新分配内存
+typedef struct { prh_byte *s; prh_int capacity; prh_int size; } prh_string; // 读写，容量和大小都动态可变，初始化后一旦调整容量迭代器将失效
+typedef struct { prh_byte *s; prh_int capacity; prh_int size; prh_int start; } prh_strlax; // 读写，容量和大小都动态可变，字符串头部空间可伸展
+typedef struct { prh_byte *slice; prh_int capacity; prh_int size; } prh_sslice; // 读写，不拥有内存
+
+#define prh_impl_arrvew_eptr_type(p) prh_typeof((p)->arrvew)
+#define prh_impl_arrfix_eptr_type(p) prh_typeof((p)->arrfix)
+#define prh_impl_arrfit_eptr_type(p) prh_typeof((p)->arrfit)
+#define prh_impl_arrdyn_eptr_type(p) prh_typeof((p)->arrdyn)
+#define prh_impl_arrlax_eptr_type(p) prh_typeof((p)->arrlax)
+
+#define prh_impl_arrvew_elem_type(p) prh_typeof(*((p)->arrvew))
+#define prh_impl_arrfix_elem_type(p) prh_typeof(*((p)->arrfix))
+#define prh_impl_arrfit_elem_type(p) prh_typeof(*((p)->arrfit))
+#define prh_impl_arrdyn_elem_type(p) prh_typeof(*((p)->arrdyn))
+#define prh_impl_arrlax_elem_type(p) prh_typeof(*((p)->arrlax))
+
+#define prh_impl_arrvew_elem_size(p) sizeof(*((p)->arrvew))
+#define prh_impl_arrfix_elem_size(p) sizeof(*((p)->arrfix))
+#define prh_impl_arrfit_elem_size(p) sizeof(*((p)->arrfit))
+#define prh_impl_arrdyn_elem_size(p) sizeof(*((p)->arrdyn))
+#define prh_impl_arrlax_elem_size(p) sizeof(*((p)->arrlax))
+
+#define prh_impl_arrvew_addr(p) (prh_impl_arrvew *)(&((p)->arrvew))
+#define prh_impl_arrfix_addr(p) (prh_impl_arrfix *)(&((p)->arrfix))
+#define prh_impl_arrfit_addr(p) (prh_impl_arrfit *)(&((p)->arrfit))
+#define prh_impl_arrdyn_addr(p) (prh_impl_arrdyn *)(&((p)->arrdyn))
+#define prh_impl_arrlax_addr(p) (prh_impl_arrlax *)(&((p)->arrlax))
+
+#define prh_arrvew_type(S, a) prh_typeof(((S){0})->a)
+#define prh_arrfix_type(S, a) prh_typeof(((S){0})->a)
+#define prh_arrfit_type(S, a) prh_typeof(((S){0})->a)
+#define prh_arrdyn_type(S, a) prh_typeof(((S){0})->a)
+#define prh_arrlax_type(S, a) prh_typeof(((S){0})->a)
+#define prh_slice_type(S, a)  prh_typeof(((S){0})->a)
+
+prh_inline void prh_impl_arrfix_init_inplace(prh_impl_arrfix *arrfix, void *buffer, prh_int size) {
+    assert(buffer != prh_null);
+    assert(size > 0);
+    arrfix->arrfix = buffer;
+    arrfix->size = size;
+}
+
+prh_inline void prh_impl_arrfit_init_inplace(prh_impl_arrfit *arrfit, void *buffer, prh_int capacity) {
+    assert(buffer != prh_null);
+    assert(capacity > 0);
+    arrfit->arrfit = buffer;
+    arrfit->capacity = capacity;
+    arrfit->size = 0;
+}
+
+#define prh_arrfix_init(p, size) prh_impl_arrfix_init_inplace(prh_impl_arrfix_addr(p), prh_malloc((size) * prh_impl_arrfix_elem_size(p)), (size))
+#define prh_arrfit_init(p, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), prh_malloc((capacity) * prh_impl_arrfix_elem_size(p)), (capacity))
+#define prh_arrfit_init_inplace(p, buffer, capacity) prh_impl_arrfit_init_inplace(prh_impl_arrfit_addr(p), (buffer), (capacity))
+#define prh_arrdyn_init(p, capacity) prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrdyn_elem_size(p)) // 生成的数组 capacity 总是 2 的幂
+#define prh_arrlax_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrlax_elem_size(p)); (p)->start = 0; } // 生成的数组 capacity 总是 2 的幂
+
+#define prh_arrfix_free(p) { prh_dealloc((p)->arrfix); prh_debug((p)->arrfix = prh_null); }
+#define prh_arrfit_free(p) { prh_dealloc((p)->arrfit); prh_debug((p)->arrfit = prh_null); }
+#define prh_arrdyn_free(p) { prh_dealloc((p)->arrdyn); prh_debug((p)->arrdyn = prh_null); }
+#define prh_arrlax_free(p) { prh_dealloc((p)->arrlax); prh_debug((p)->arrlax = prh_null); }
+
+prh_inline void prh_impl_arrdyn_clear(prh_impl_arrdyn *p) { p->size = 0; }
+#define prh_arrfit_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrfit_addr(p))
+#define prh_arrdyn_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrdyn_addr(p))
+#define prh_arrlax_clear(p) prh_impl_arrdyn_clear((prh_impl_arrdyn *)prh_impl_arrlax_addr(p))
+
+void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size);
+void prh_impl_arrdyn_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size);
+void prh_impl_arrdyn_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size); // 缩减不能缩减至小于元素个数
+prh_int prh_impl_arrdyn_expand_size(prh_impl_arrdyn *p, prh_int expand_size, prh_int elem_size); // 增加元素个数时容量可能增大
+prh_int prh_impl_arrlax_expand_size(prh_impl_arrlax *p, prh_int expand_size, prh_int elem_size); // 增加元素个数时容量可能增大
+prh_int prh_impl_arrdyn_shrink_size(prh_impl_arrdyn *p, prh_int shrink_size); // 缩减元素个数时保持容量不变
+prh_int prh_impl_arrlax_shrink_size(prh_impl_arrlax *p, prh_int shrink_size); // 缩减元素个数时保持容量不变
+prh_int prh_impl_arrdyn_unchecked_push(prh_impl_arrdyn *p, prh_int expand_size);
+prh_int prh_impl_arrlax_unchecked_push(prh_impl_arrlax *p, prh_int expand_size);
+
+#define prh_arrdyn_reserve(p, new_capacity) prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)(p), (new_capacity), prh_impl_arrdyn_elem_size(p))
+#define prh_arrlax_reserve(p, new_capacity) prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)(p), (new_capacity), prh_impl_arrlax_elem_size(p))
+#define prh_arrdyn_shrink_to_fit(p) prh_impl_arrdyn_shrink_capacity((prh_impl_arrdyn *)(p), (p)->size, prh_impl_arrdyn_elem_size(p))
+#define prh_arrlax_shrink_to_fit(p) prh_impl_arrdyn_shrink_capacity((prh_impl_arrdyn *)(p), (p)->size + (p)->start, prh_impl_arrlax_elem_size(p))
+
+#define prh_arrdyn_push_back(p) ((p)->arrdyn + prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p)))
+#define prh_arrlax_push_back(p) ((p)->arrlax + prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p)))
+#define prh_arrdyn_multi_push_back(p, n) ((p)->arrdyn + prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), (n), prh_impl_arrdyn_elem_size(p)))
+#define prh_arrlax_multi_push_back(p, n) ((p)->arrlax + prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), (n), prh_impl_arrlax_elem_size(p)))
+
+#define prh_arrfit_push_back(p) // 返回空表示失败
+#define prh_arrfit_multi_push_back(p, n) // 要么失败要么添加n个元素
+#define prh_arrfit_multi_push_back_best_effort(p, n, out) // 要么失败要么添加out个元素
+
+#define prh_arrfit_unchecked_push_back(p) ((p)->arrfit + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), 1))
+#define prh_arrdyn_unchecked_push_back(p) ((p)->arrdyn + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), 1))
+#define prh_arrlax_unchecked_push_back(p) ((p)->arrlax + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)(p), 1))
+#define prh_arrfit_unchecked_multi_push_back(p, n) ((p)->arrfit + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), (n)))
+#define prh_arrdyn_unchecked_multi_push_back(p, n) ((p)->arrdyn + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)(p), (n)))
+#define prh_arrlax_unchecked_multi_push_back(p, n) ((p)->arrlax + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)(p), (n)))
+
+#define prh_arrdyn_unchecked_pop_back(p) ((p)->arrdyn + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)(p), 1)) // 必须有足够的元素
+#define prh_arrlax_unchecked_pop_back(p) ((p)->arrlax + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)(p), 1))
+#define prh_arrdyn_unchecked_multi_pop_back(p, n) ((p)->arrdyn + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)(p), (n)))
+#define prh_arrlax_unchecked_multi_pop_back(p, n) ((p)->arrlax + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)(p), (n)))
+
+#define prh_arrdyn_pop_back(p) (((p)->size > 0) ? prh_arrdyn_unchecked_pop_back(p) : prh_null)
+#define prh_arrlax_pop_back(p) (((p)->size > 0) ? prh_arrlax_unchecked_pop_back(p) : prh_null)
+#define prh_arrdyn_multi_pop_back(p, n) (((p)->size >= (n)) ? prh_arrdyn_unchecked_multi_pop_back((p), (n)) : prh_null)
+#define prh_arrlax_multi_pop_back(p, n) (((p)->size >= (n)) ? prh_arrlax_unchecked_multi_pop_back((p), (n)) : prh_null)
+
+void prh_impl_string_initialize(prh_impl_arrdyn *p, prh_int new_capacity);
+void prh_impl_string_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity);
+void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity); // 缩减不能缩减至小于元素个数
+prh_int prh_impl_string_expand_size(prh_impl_arrdyn *p, prh_int expand_size); // 增加元素个数时容量可能增大
+prh_int prh_impl_strlax_expand_size(prh_impl_arrlax *p, prh_int expand_size); // 增加元素个数时容量可能增大
+
+prh_inline void prh_strfix_init(prh_strfix *p, prh_int size) { (p)->s = prh_malloc(size); (p)->size = size; }
+prh_inline void prh_strfit_init(prh_strfit *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
+prh_inline void prh_string_init(prh_string *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); }
+prh_inline void prh_strlax_init(prh_strlax *p, prh_int capacity) { prh_impl_string_initialize((prh_impl_arrdyn *)p, capacity); p->start = 0; }
+
+prh_inline void prh_strfix_free(prh_strfix *p) { prh_dealloc(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strfit_free(prh_strfit *p) { prh_dealloc(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_string_free(prh_string *p) { prh_dealloc(p->s); prh_debug(p->s = prh_null); }
+prh_inline void prh_strlax_free(prh_strlax *p) { prh_dealloc(p->s); prh_debug(p->s = prh_null); }
+
+prh_inline void prh_strfit_clear(prh_strfit *p) { p->size = 0; }
+prh_inline void prh_string_clear(prh_string *p) { p->size = 0; }
+prh_inline void prh_strlax_clear(prh_strlax *p) { p->size = 0; }
+
+prh_inline void prh_string_reserve(prh_string *p, prh_int new_capacity) { prh_impl_string_expand_capacity((prh_impl_arrdyn *)p, new_capacity); }
+prh_inline void prh_strlax_reserve(prh_strlax *p, prh_int new_capacity) { prh_impl_string_expand_capacity((prh_impl_arrdyn *)p, new_capacity); }
+prh_inline void prh_string_shrink_to_fit(prh_string *p) { prh_impl_string_shrink_capacity((prh_impl_arrdyn *)p, p->size); }
+prh_inline void prh_strlax_shrink_to_fit(prh_strlax *p) { prh_impl_string_shrink_capacity((prh_impl_arrdyn *)p, p->size + p->start); }
+
+prh_inline prh_byte *prh_string_push_back(prh_string *p) { return p->s + prh_impl_string_expand_size((prh_impl_arrdyn *)p, 1); }
+prh_inline prh_byte *prh_strlax_push_back(prh_strlax *p) { return p->s + prh_impl_strlax_expand_size((prh_impl_arrlax *)p, 1); }
+prh_inline prh_byte *prh_string_multi_push_back(prh_string *p, prh_int n) { return p->s + prh_impl_string_expand_size((prh_impl_arrdyn *)p, n); }
+prh_inline prh_byte *prh_strlax_multi_push_back(prh_strlax *p, prh_int n) { return p->s + prh_impl_strlax_expand_size((prh_impl_arrlax *)p, n); }
+
+prh_byte *prh_strfit_push_back(prh_strfit *p); // 返回空表示失败
+prh_byte *prh_strfit_multi_push_back(prh_strfit *p, prh_int n); // 要么失败要么添加n个元素
+prh_byte *prh_strfit_multi_push_back_best_effort(prh_strfit *p, prh_int n, prh_int *out); // 要么失败要么添加out个元素
+
+prh_inline prh_byte *prh_strfit_unchecked_push_back(prh_strfit *p) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, 1); }
+prh_inline prh_byte *prh_string_unchecked_push_back(prh_string *p) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, 1); }
+prh_inline prh_byte *prh_strlax_unchecked_push_back(prh_strlax *p) { return p->s + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)p, 1); }
+prh_inline prh_byte *prh_strfit_unchecked_multi_push_back(prh_strfit *p, prh_int n) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, n); }
+prh_inline prh_byte *prh_string_unchecked_multi_push_back(prh_string *p, prh_int n) { return p->s + prh_impl_arrdyn_unchecked_push((prh_impl_arrdyn *)p, n); }
+prh_inline prh_byte *prh_strlax_unchecked_multi_push_back(prh_strlax *p, prh_int n) { return p->s + prh_impl_arrlax_unchecked_push((prh_impl_arrlax *)p, n); }
+
+prh_inline prh_byte *prh_string_unchecked_pop_back(prh_string *p) { return p->s + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)p, 1); } // 必须有足够的元素
+prh_inline prh_byte *prh_strlax_unchecked_pop_back(prh_strlax *p) { return p->s + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)p, 1); }
+prh_inline prh_byte *prh_string_unchecked_multi_pop_back(prh_string *p, prh_int n) { return p->s + prh_impl_arrdyn_shrink_size((prh_impl_arrdyn *)p, n); }
+prh_inline prh_byte *prh_strlax_unchecked_multi_pop_back(prh_strlax *p, prh_int n) { return p->s + prh_impl_arrlax_shrink_size((prh_impl_arrlax *)p, n); }
+
+prh_inline prh_byte *prh_string_pop_back(prh_string *p) { return (p->size > 0) ? prh_string_unchecked_pop_back(p) : prh_null; }
+prh_inline prh_byte *prh_strlax_pop_back(prh_strlax *p) { return (p->size > 0) ? prh_strlax_unchecked_pop_back(p) : prh_null; }
+prh_inline prh_byte *prh_string_multi_pop_back(prh_string *p, prh_int n) { return (p->size >= n) ? prh_string_unchecked_multi_pop_back(p, n) : prh_null; }
+prh_inline prh_byte *prh_strlax_multi_pop_back(prh_strlax *p, prh_int n) { return (p->size >= n) ? prh_strlax_unchecked_multi_pop_back(p, n) : prh_null; }
+
+#define prh_arrfix_begin(p) ((p)->arrfix)
+#define prh_arrfit_begin(p) ((p)->arrfit)
+#define prh_arrdyn_begin(p) ((p)->arrdyn)
+#define prh_arrlax_begin(p) ((p)->arrlax + (p)->start)
+
+#define prh_arrfix_end(p) (prh_arrfix_begin(p) + (p)->size)
+#define prh_arrfit_end(p) (prh_arrfit_begin(p) + (p)->size)
+#define prh_arrdyn_end(p) (prh_arrdyn_begin(p) + (p)->size)
+#define prh_arrlax_end(p) (prh_arrlax_begin(p) + (p)->size)
+
+#define prh_arrfit_cap_end(p) ((p)->arrfit + (p)->capacity)
+#define prh_arrdyn_cap_end(p) ((p)->arrdyn + (p)->capacity)
+#define prh_arrlax_cap_end(p) ((p)->arrlax + (p)->capacity)
+
+prh_inline prh_int prh_impl_arrfix_at(prh_impl_arrfix *p, prh_int i) {
+    assert(i >= 0 && i < p->size);
+    return i;
+}
+
+prh_inline prh_int prh_impl_arrdyn_at(prh_impl_arrdyn *p, prh_int i) {
+    assert(i >= 0 && i < p->size);
+    return i;
+}
+
+prh_inline prh_int prh_impl_arrlax_at(prh_impl_arrlax *p, prh_int i) {
+    assert(i >= 0 && i < p->size);
+    return p->start + i;
+}
+
+prh_inline prh_int prh_impl_arrfix_insert_at(prh_impl_arrfix *p, prh_int i) {
+    assert(i >= 0 && i <= p->size);
+    return i;
+}
+
+prh_inline prh_int prh_impl_arrdyn_insert_at(prh_impl_arrdyn *p, prh_int i) {
+    assert(i >= 0 && i <= p->size);
+    return i;
+}
+
+prh_inline prh_int prh_impl_arrlax_insert_at(prh_impl_arrlax *p, prh_int i) {
+    assert(i >= 0 && i <= p->size);
+    return p->start + i;
+}
+
+#define prh_arrfix_at(p, i) ((p)->arrfix + prh_impl_arrfix_at((prh_impl_arrfix *)(p), (i)))
+#define prh_arrfit_at(p, i) ((p)->arrfit + prh_impl_arrdyn_at((prh_impl_arrdyn *)(p), (i)))
+#define prh_arrdyn_at(p, i) ((p)->arrdyn + prh_impl_arrdyn_at((prh_impl_arrdyn *)(p), (i)))
+#define prh_arrlax_at(p, i) ((p)->arrlax + prh_impl_arrlax_at((prh_impl_arrlax *)(p), (i)))
+
+#define prh_priv_arrfix_insert_at(p, i) ((p)->arrfix + prh_impl_arrfix_insert_at((prh_impl_arrfix *)(p), (i)))
+#define prh_priv_arrfit_insert_at(p, i) ((p)->arrfit + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)(p), (i)))
+#define prh_priv_arrdyn_insert_at(p, i) ((p)->arrdyn + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)(p), (i)))
+#define prh_priv_arrlax_insert_at(p, i) ((p)->arrlax + prh_impl_arrlax_insert_at((prh_impl_arrlax *)(p), (i)))
+
+prh_inline prh_byte *prh_strfix_begin(prh_strfix *p) { return p->s; }
+prh_inline prh_byte *prh_strfit_begin(prh_strfit *p) { return p->s; }
+prh_inline prh_byte *prh_string_begin(prh_string *p) { return p->s; }
+prh_inline prh_byte *prh_strlax_begin(prh_strlax *p) { return p->s + p->start; }
+
+prh_inline prh_byte *prh_strfix_end(prh_strfix *p) { return prh_strfix_begin(p) + p->size; }
+prh_inline prh_byte *prh_strfit_end(prh_strfit *p) { return prh_strfit_begin(p) + p->size; }
+prh_inline prh_byte *prh_string_end(prh_string *p) { return prh_string_begin(p) + p->size; }
+prh_inline prh_byte *prh_strlax_end(prh_strlax *p) { return prh_strlax_begin(p) + p->size; }
+
+prh_inline prh_byte *prh_strfit_cap_end(prh_strfit *p) { return p->s + p->capacity; }
+prh_inline prh_byte *prh_string_cap_end(prh_string *p) { return p->s + p->capacity; }
+prh_inline prh_byte *prh_strlax_cap_end(prh_strlax *p) { return p->s + p->capacity; }
+
+prh_inline prh_byte *prh_strfix_at(prh_strfix *p, prh_int i) { return p->s + prh_impl_arrfix_at((prh_impl_arrfix *)p, i); }
+prh_inline prh_byte *prh_strfit_at(prh_strfit *p, prh_int i) { return p->s + prh_impl_arrdyn_at((prh_impl_arrdyn *)p, i); }
+prh_inline prh_byte *prh_string_at(prh_string *p, prh_int i) { return p->s + prh_impl_arrdyn_at((prh_impl_arrdyn *)p, i); }
+prh_inline prh_byte *prh_strlax_at(prh_strlax *p, prh_int i) { return p->s + prh_impl_arrlax_at((prh_impl_arrlax *)p, i); }
+
+#define prh_arrfit_unordered_remove(p, i) *prh_arrfit_at((p), (i)) = (p)->arrfit[(--((p)->size))]
+#define prh_arrdyn_unordered_remove(p, i) *prh_arrdyn_at((p), (i)) = (p)->arrdyn[(--((p)->size))]
+#define prh_arrlax_unordered_remove(p, i) *prh_arrlax_at((p), (i)) = (p)->arrlax[(p)->start + (--((p)->size))]
+
+#define prh_arrfit_remove(p, i) { /* [0,1,(2),3,4,5,6,7] size 8 => copy len = (size - 1 - 2) = 5 */                     \
+    prh_impl_arrfit_eptr_type(p) prh_impl_dest = prh_arrfit_at((p), (i));                                               \
+    memmove(prh_impl_dest, prh_impl_dest + 1, ((--((p)->size)) - (i)) * prh_impl_arrfit_elem_size(p)); /* 长度参数可为零 */\
+}
+
+#define prh_arrdyn_remove(p, i) { /* [0,1,(2),3,4,5,6,7] size 8 => copy len = (size - 1 - 2) = 5 */                     \
+    prh_impl_arrdyn_eptr_type(p) prh_impl_dest = prh_arrdyn_at((p), (i));                                               \
+    memmove(prh_impl_dest, prh_impl_dest + 1, ((--((p)->size)) - (i)) * prh_impl_arrdyn_elem_size(p)); /* 长度参数可为零 */\
+}
+
+#define prh_arrlax_remove(p, i) { /* [0,1,(2),3,4,5,6,7] size 8 => copy len = (size - 1 - 2) = 5 */                     \
+    prh_impl_arrlax_eptr_type(p) prh_impl_dest = prh_arrlax_at((p), (i));                                               \
+    memmove(prh_impl_dest, prh_impl_dest + 1, ((--((p)->size)) - (i)) * prh_impl_arrlax_elem_size(p)); /* 长度参数可为零 */\
+}
+
+#define prh_arrfit_multi_remove(p, i, n) {                                                                              \
+    assert((n) > 0 && (i) + (n) <= (p)->size);                                                                          \
+    prh_impl_arrfit_eptr_type(p) prh_impl_dest = prh_arrfit_at((p), (i));                                               \
+    memmove(prh_impl_dest, prh_impl_dest + (n), ((p)->size - 1 - (i)) * prh_impl_arrfit_elem_size(p)); /* 长度参数可为零 */\
+    (p)->size -= (n);                                                                                                   \
+}
+
+#define prh_arrdyn_multi_remove(p, i, n) {                                                                              \
+    assert((n) > 0 && (i) + (n) <= (p)->size);                                                                          \
+    prh_impl_arrdyn_eptr_type(p) prh_impl_dest = prh_arrdyn_at((p), (i));                                               \
+    memmove(prh_impl_dest, prh_impl_dest + (n), ((p)->size - 1 - (i)) * prh_impl_arrdyn_elem_size(p)); /* 长度参数可为零 */\
+    (p)->size -= (n);                                                                                                   \
+}
+
+#define prh_arrlax_multi_remove(p, i, n) {                                                                              \
+    assert((n) > 0 && (i) + (n) <= (p)->size);                                                                          \
+    prh_impl_arrlax_eptr_type(p) prh_impl_dest = prh_arrlax_at((p), (i));                                               \
+    memmove(prh_impl_dest, prh_impl_dest + (n), ((p)->size - 1 - (i)) * prh_impl_arrlax_elem_size(p)); /* 长度参数可为零 */\
+    (p)->size -= (n);                                                                                                   \
+}
+
+prh_inline void prh_strfit_unordered_remove(prh_strfit *p, prh_int i) { *prh_strfit_at(p, i) = p->s[--(p->size)]; }
+prh_inline void prh_string_unordered_remove(prh_string *p, prh_int i) { *prh_string_at(p, i) = p->s[--(p->size)]; }
+prh_inline void prh_strlax_unordered_remove(prh_strlax *p, prh_int i) { *prh_strlax_at(p, i) = p->s[p->start + (--(p->size))]; }
+
+prh_inline void prh_strfit_remove(prh_strfit *p, prh_int i) {
+    prh_byte *dest = prh_strfit_at(p, i);
+    memmove(dest, dest + 1, (--(p->size)) - i); // 长度参数可为零
+}
+
+prh_inline void prh_string_remove(prh_string *p, prh_int i) {
+    prh_byte *dest = prh_string_at(p, i);
+    memmove(dest, dest + 1, (--(p->size)) - i); // 长度参数可为零
+}
+
+prh_inline void prh_strlax_remove(prh_strlax *p, prh_int i) {
+    prh_byte *dest = prh_strlax_at(p, i);
+    memmove(dest, dest + 1, (--(p->size)) - i); // 长度参数可为零
+}
+
+prh_inline void prh_strfit_multi_remove(prh_strfit *p, prh_int i, prh_int n) {
+    assert(n > 0 && i + n <= p->size);
+    prh_byte *dest = prh_strfit_at(p, i);
+    memmove(dest, dest + n, p->size - 1 - i); // 长度参数可为零
+    p->size -= n;
+}
+
+prh_inline void prh_string_multi_remove(prh_string *p, prh_int i, prh_int n) {
+    assert(n > 0 && i + n <= p->size);
+    prh_byte *dest = prh_string_at(p, i);
+    memmove(dest, dest + n, p->size - 1 - i); // 长度参数可为零
+    p->size -= n;
+}
+
+prh_inline void prh_strlax_multi_remove(prh_strlax *p, prh_int i, prh_int n) {
+    assert(n > 0 && i + n <= p->size);
+    prh_byte *dest = prh_strlax_at(p, i);
+    memmove(dest, dest + n, p->size - 1 - i); // 长度参数可为零
+    p->size -= n;
+}
+
+#define prh_arrdyn_unordered_insert(p, i, elem_ptr) (                                               \
+    prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p)),           \
+    ((elem_ptr) = prh_priv_arrdyn_insert_at((p), (i))), ((p)->arrdyn[(p)->size - 1] = *(elem_ptr)), (elem_ptr))
+
+#define prh_arrlax_unordered_insert(p, i, elem_ptr) (                                               \
+    prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p)),           \
+    ((elem_ptr) = prh_priv_arrlax_insert_at((p), (i))), ((p)->arrlax[(p)->start + (p)->size - 1] = *(elem_ptr)), (elem_ptr))
+
+prh_inline void *prh_impl_arrdyn_insert(void *pos, prh_int len, prh_int elem_size) {
+    memmove((prh_byte *)pos + elem_size, pos, (len - 1) * elem_size); // [0,1,(2),3,4,5,6,7] size 8 => copy len (origin_size - 2) = 6
+    return pos;
+}
+
+prh_inline void *prh_impl_arrdyn_multi_insert(void *pos, prh_int len, prh_int insert_elems, prh_int elem_size) {
+    assert(insert_elems > 0);
+    memmove((prh_byte *)pos + insert_elems * elem_size, pos, (len - insert_elems) * elem_size);
+    return pos;
+}
+
+#if defined(prh_cl_msc)
+#define prh_arrfit_unchecked_insert(p, i) ((prh_impl_arrfit_eptr_type(p))prh_impl_arrdyn_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrfit_elem_size(p)))
+#define prh_arrdyn_unchecked_insert(p, i) ((prh_impl_arrdyn_eptr_type(p))prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrdyn_elem_size(p)))
+#define prh_arrlax_unchecked_insert(p, i) ((prh_impl_arrlax_eptr_type(p))prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrlax_elem_size(p)))
+#define prh_arrfit_unchecked_multi_insert(p, i, n) ((prh_impl_arrfit_eptr_type(p))prh_impl_arrdyn_multi_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrfit_elem_size(p)))
+#define prh_arrdyn_unchecked_multi_insert(p, i, n) ((prh_impl_arrdyn_eptr_type(p))prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrdyn_elem_size(p)))
+#define prh_arrlax_unchecked_multi_insert(p, i, n) ((prh_impl_arrlax_eptr_type(p))prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrlax_elem_size(p)))
+#define prh_arrdyn_insert(p, i) (prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p)), prh_impl_arrdyn_eptr_type(p)prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), prh_impl_arrdyn_elem_size(p)))
+#define prh_arrlax_insert(p, i) (prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p)), prh_impl_arrlax_eptr_type(p)prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), prh_impl_arrlax_elem_size(p)))
+#define prh_arrdyn_multi_insert(p, i, n) (prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), (n), prh_impl_arrdyn_elem_size(p)), prh_impl_arrdyn_eptr_type(p)prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrdyn_elem_size(p)))
+#define prh_arrlax_multi_insert(p, i, n) (prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), (n), prh_impl_arrlax_elem_size(p)), prh_impl_arrlax_eptr_type(p)prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrlax_elem_size(p)))
+#else
+#define prh_arrfit_unchecked_insert(p, i) ({prh_impl_arrfit_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrfit_elem_size(p)); prh_impl_ptr; })
+#define prh_arrdyn_unchecked_insert(p, i) ({prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrdyn_elem_size(p)); prh_impl_ptr; })
+#define prh_arrlax_unchecked_insert(p, i) ({prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size++) - (i), prh_impl_arrlax_elem_size(p)); prh_impl_ptr; })
+#define prh_arrfit_unchecked_multi_insert(p, i, n) ({prh_impl_arrfit_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrfit_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrfit_elem_size(p)); prh_impl_ptr; })
+#define prh_arrdyn_unchecked_multi_insert(p, i, n) ({prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrdyn_elem_size(p)); prh_impl_ptr; })
+#define prh_arrlax_unchecked_multi_insert(p, i, n) ({prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), ((p)->size += (n)) - (i), (n), prh_impl_arrlax_elem_size(p)); prh_impl_ptr; })
+#define prh_arrdyn_insert(p, i) ({                                                                  \
+    prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), 1, prh_impl_arrdyn_elem_size(p));           \
+    prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), prh_impl_arrdyn_elem_size(p)); prh_impl_ptr; })
+#define prh_arrlax_insert(p, i) ({                                                                  \
+    prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), 1, prh_impl_arrlax_elem_size(p));           \
+    prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), prh_impl_arrlax_elem_size(p)); prh_impl_ptr; })
+#define prh_arrdyn_multi_insert(p, i, n) ({                                                         \
+    prh_impl_arrdyn_expand_size((prh_impl_arrdyn *)(p), (n), prh_impl_arrdyn_elem_size(p));         \
+    prh_impl_arrdyn_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrdyn_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrdyn_elem_size(p)); \
+    prh_impl_ptr; })
+#define prh_arrlax_multi_insert(p, i, n) ({                                                         \
+    prh_impl_arrlax_expand_size((prh_impl_arrlax *)(p), (n), prh_impl_arrlax_elem_size(p));         \
+    prh_impl_arrlax_eptr_type(p) prh_impl_ptr = prh_impl_arrdyn_multi_insert(prh_priv_arrlax_insert_at((p), (i)), (p)->size - (i), (n), prh_impl_arrlax_elem_size(p)); \
+    prh_impl_ptr; })
+#endif
+
+prh_inline prh_byte *prh_string_unordered_insert(prh_string *p, prh_int i) {
+    prh_impl_string_expand_size((prh_impl_arrdyn *)p, 1);
+    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
+    p->s[p->size - 1] = *pos;
+    return pos;
+}
+
+prh_inline prh_byte *prh_strlax_unordered_insert(prh_strlax *p, prh_int i) {
+    prh_impl_strlax_expand_size((prh_impl_arrlax *)p, 1);
+    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
+    p->s[p->start + p->size - 1] = *pos;
+    return pos;
+}
+
+prh_inline prh_byte *prh_strfit_unchecked_insert(prh_strfit *p, prh_int i) {
+    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
+    memmove(pos + 1, pos, p->size - i);
+    p->size += 1;
+    return pos;
+}
+
+prh_inline prh_byte *prh_string_unchecked_insert(prh_string *p, prh_int i) {
+    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
+    memmove(pos + 1, pos, p->size - i);
+    p->size += 1;
+    return pos;
+}
+
+prh_inline prh_byte *prh_strlax_unchecked_insert(prh_strlax *p, prh_int i) {
+    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
+    memmove(pos + 1, pos, p->size - i);
+    p->size += 1;
+    return pos;
+}
+
+prh_inline prh_byte *prh_string_insert(prh_string *p, prh_int i) {
+    prh_impl_string_expand_size((prh_impl_arrdyn *)p, 1);
+    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
+    memmove(pos + 1, pos, p->size - 1 - i);
+    return pos;
+}
+
+prh_inline prh_byte *prh_strlax_insert(prh_strlax *p, prh_int i) {
+    prh_impl_strlax_expand_size((prh_impl_arrlax *)p, 1);
+    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
+    memmove(pos + 1, pos, p->size - 1 - i);
+    return pos;
+}
+
+prh_inline prh_byte *prh_strfit_unchecked_multi_insert(prh_strfit *p, prh_int i, prh_int n) {
+    assert(n > 0);
+    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
+    memmove(pos + n, pos, p->size - i);
+    p->size += n;
+    return pos;
+}
+
+prh_inline prh_byte *prh_string_unchecked_multi_insert(prh_string *p, prh_int i, prh_int n) {
+    assert(n > 0);
+    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
+    memmove(pos + n, pos, p->size - i);
+    p->size += n;
+    return pos;
+}
+
+prh_inline prh_byte *prh_strlax_unchecked_multi_insert(prh_strlax *p, prh_int i, prh_int n) {
+    assert(n > 0);
+    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
+    memmove(pos + n, pos, p->size - i);
+    p->size += n;
+    return pos;
+}
+
+prh_inline prh_byte *prh_string_multi_insert(prh_string *p, prh_int i, prh_int n) {
+    prh_impl_string_expand_size((prh_impl_arrdyn *)p, n);
+    prh_byte *pos = p->s + prh_impl_arrdyn_insert_at((prh_impl_arrdyn *)p, i);
+    memmove(pos + n, pos, p->size - n - i);
+    return pos;
+}
+
+prh_inline prh_byte *prh_strlax_multi_insert(prh_strlax *p, prh_int i, prh_int n) {
+    prh_impl_strlax_expand_size((prh_impl_arrlax *)p, n);
+    prh_byte *pos = p->s + prh_impl_arrlax_insert_at((prh_impl_arrlax *)p, i);
+    memmove(pos + n, pos, p->size - n - i);
+    return pos;
+}
+
+#define prh_arrvew_init(p, addr, size) /* 不需要释放内存，只读 */ {               \
+    (p)->arrvew = (addr);                                                       \
+    (p)->size = (size);                                                         \
+}
+
+prh_inline void prh_strvew_init(prh_strvew *p, const prh_byte *addr, prh_int size) {
+    p->s = (prh_byte *)addr; // 不需要释放内存，只读
+    p->size = size;
+}
+
+void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j);
+void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j);
+void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
+
+#define prh_arrfit_slice(p, a, i, j) /* [i, j) 不需要释放内存，可读可写 */ {       \
+    assert((i) >= (0) && (i) < (a)->size);                                      \
+    assert((j) >= (i) && (j)<= (a)->size);                                      \
+    (p)->slice = prh_arrfit_begin(a) + (i);                                     \
+    (p)->capacity = prh_arrfit_cap_end(a) - (p)->slice;                         \
+    (p)->size = (j) - (i);                                                      \
+}
+
+#define prh_arrdyn_slice(p, a, i, j) /* [i, j) */ {                             \
+    assert((i) >= (0) && (i) < (a)->size);                                      \
+    assert((j) >= (i) && (j)<= (a)->size);                                      \
+    (p)->slice = prh_arrdyn_begin(a) + (i);                                     \
+    (p)->capacity = prh_arrdyn_cap_end(a) - (p)->slice;                         \
+    (p)->size = (j) - (i);                                                      \
+}
+
+#define prh_arrlax_slice(p, a, i, j) /* [i, j) */ {                             \
+    assert((i) >= (0) && (i) < (a)->size);                                      \
+    assert((j) >= (i) && (j)<= (a)->size);                                      \
+    (p)->slice = prh_arrlax_begin(a) + (i);                                     \
+    (p)->capacity = prh_arrlax_cap_end(a) - (p)->slice;                         \
+    (p)->size = (j) - (i);                                                      \
+}
+#endif
+
+#ifdef PRH_ARRAY_IMPLEMENTATION
+#if 1
+#else
+void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) {
+    prh_int capacity = 1;
+    while (new_capacity > capacity) capacity *= 2;
+    p->arrdyn = prh_malloc(capacity * elem_size);
+    p->capacity = capacity;
+    p->size = 0;
+}
+
+void prh_impl_string_initialize(prh_impl_arrdyn *p, prh_int new_capacity) {
+    prh_int capacity = 1;
+    while (new_capacity > capacity) capacity *= 2;
+    p->arrdyn = prh_malloc(capacity);
+    p->capacity = capacity;
+    p->size = 0;
+}
+
+void prh_impl_arrdyn_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) {
+    prh_int capacity = p->capacity;
+    if (new_capacity > capacity) {
+        do capacity *= 2; while (new_capacity > capacity);
+        p->capacity = capacity;
+        p->arrdyn = prh_realloc(p->arrdyn, capacity * elem_size);
+    }
+}
+
+void prh_impl_string_expand_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
+    prh_int capacity = p->capacity;
+    if (new_capacity > capacity) {
+        do capacity *= 2; while (new_capacity > capacity);
+        p->capacity = capacity;
+        p->arrdyn = prh_realloc(p->arrdyn, capacity);
+    }
+}
+
+void prh_impl_arrdyn_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) { // 缩减不能缩减至小于元素个数
+    prh_int capacity = p->capacity;
+    if (new_capacity <= capacity / 2) { // 只要新容量大于旧容量的一半就不需要缩减，因为容量总是2的幂
+        do capacity /= 2; while (new_capacity <= capacity / 2);
+        p->capacity = capacity;
+        p->arrdyn = prh_realloc(p->arrdyn, capacity * elem_size);
+    }
+}
+
+void prh_impl_string_shrink_capacity(prh_impl_arrdyn *p, prh_int new_capacity) {
+    prh_int capacity = p->capacity;
+    if (new_capacity <= capacity / 2) {
+        do capacity /= 2; while (new_capacity <= capacity / 2);
+        p->capacity = capacity;
+        p->arrdyn = prh_realloc(p->arrdyn, capacity);
+    }
+}
+
+prh_int prh_impl_arrdyn_expand_size(prh_impl_arrdyn *p, prh_int expand_size, prh_int elem_size) { // 增加元素个数时容量可能增大
+    assert(expand_size > 0);
+    prh_int size = p->size;
+    prh_impl_arrdyn_expand_capacity(p, size + expand_size, elem_size);
+    p->size += expand_size;
+    return size;
+}
+
+prh_int prh_impl_string_expand_size(prh_impl_arrdyn *p, prh_int expand_size) {
+    assert(expand_size > 0);
+    prh_int size = p->size;
+    prh_impl_string_expand_capacity(p, size + expand_size);
+    p->size += expand_size;
+    return size;
+}
+
+prh_int prh_impl_arrlax_expand_size(prh_impl_arrlax *p, prh_int expand_size, prh_int elem_size) {
+    assert(expand_size > 0);
+    prh_int size = p->start + p->size;
+    prh_impl_arrdyn_expand_capacity((prh_impl_arrdyn *)p, size + expand_size, elem_size);
+    p->size += expand_size;
+    return size;
+}
+
+prh_int prh_impl_strlax_expand_size(prh_impl_arrlax *p, prh_int expand_size) {
+    assert(expand_size > 0);
+    prh_int size = p->start + p->size;
+    prh_impl_string_expand_capacity((prh_impl_arrdyn *)p, size + expand_size);
+    p->size += expand_size;
+    return size;
+}
+
+prh_int prh_impl_arrdyn_shrink_size(prh_impl_arrdyn *p, prh_int shrink_size) { // 缩减元素个数时保持容量不变
+    assert(shrink_size > 0 && shrink_size <= p->size);
+    p->size -= shrink_size;
+    return p->size;
+}
+
+prh_int prh_impl_arrlax_shrink_size(prh_impl_arrlax *p, prh_int shrink_size) {
+    assert(shrink_size > 0 && shrink_size <= p->size);
+    p->size -= shrink_size;
+    return p->start + p->size;
+}
+
+prh_int prh_impl_arrdyn_unchecked_push(prh_impl_arrdyn *p, prh_int expand_size) {
+    assert(expand_size > 0 && p->size + expand_size <= p->capacity);
+    prh_int size = p->size;
+    p->size += expand_size;
+    return size;
+}
+
+prh_int prh_impl_arrlax_unchecked_push(prh_impl_arrlax *p, prh_int expand_size) {
+    assert(expand_size > 0 && p->start + p->size + expand_size <= p->capacity);
+    prh_int size = p->start + p->size;
+    p->size += expand_size;
+    return size;
+}
+
+void prh_strfit_slice(prh_sslice *p, const prh_strfit *s, prh_int i, prh_int j) {
+    assert(i >= 0 && i < s->size); // [i, j) 不需要释放内存，可读可写
+    assert(j >= i && j<= s->size);
+    p->slice = prh_strfit_begin((prh_strfit *)s) + i;
+    p->capacity = prh_strfit_cap_end((prh_strfit *)s) - p->slice;
+    p->size = j - i;
+}
+
+void prh_string_slice(prh_sslice *p, const prh_string *s, prh_int i, prh_int j) {
+    assert(i >= 0 && i < s->size); // [i, j)
+    assert(j >= i && j<= s->size);
+    p->slice = prh_string_begin((prh_string *)s) + i;
+    p->capacity = prh_string_cap_end((prh_string *)s) - p->slice;
+    p->size = j - i;
+}
+
+void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j) {
+    assert(i >= 0 && i < s->size); // [i, j)
+    assert(j >= i && j<= s->size);
+    p->slice = prh_strlax_begin((prh_strlax *)s) + i;
+    p->capacity = prh_strlax_cap_end((prh_strlax *)s) - p->slice;
+    p->size = j - i;
+}
+#endif
+#endif // PRH_ARRAY_IMPLEMENTAION
+#endif // PRH_ARRAY_INCLUDE
+
+#ifdef PRH_STRING_INCLUDE
+#define prh_impl_strfix_data(s, a) (s->prh_macro_make_name(a, _strfix_type))
+#define prh_impl_strfit_data(s, a) (s->prh_macro_make_name(a, _strfit_type))
+#define prh_impl_strdyn_data(s, a) (s->prh_macro_make_name(a, _string_type))
+#define prh_impl_strlax_data(s, a) (s->prh_macro_make_name(a, _strlax_type))
+
+#define prh_impl_strfix_addr(s, a) (prh_impl_array *)&prh_impl_strfix_data(s, a)
+#define prh_impl_strfit_addr(s, a) (prh_impl_array *)&prh_impl_strfit_data(s, a)
+#define prh_impl_strdyn_addr(s, a) (prh_impl_array *)&prh_impl_strdyn_data(s, a)
+#define prh_impl_strlax_addr(s, a) (prh_impl_array *)&prh_impl_strlax_data(s, a)
+
+#define prh_impl_strfix_dvar(a) prh_macro_make_name(a, _strfix_type)
+#define prh_impl_strfit_dvar(a) prh_macro_make_name(a, _strfit_type)
+#define prh_impl_strdyn_dvar(a) prh_macro_make_name(a, _string_type)
+#define prh_impl_strlax_dvar(a) prh_macro_make_name(a, _strlax_type)
+
+#define prh_impl_strfix_avar(a) (*prh_macro_make_name(a, _strfix_addr_type))
+#define prh_impl_strfit_avar(a) (*prh_macro_make_name(a, _strfit_addr_type))
+#define prh_impl_strdyn_avar(a) (*prh_macro_make_name(a, _string_addr_type))
+#define prh_impl_strlax_avar(a) (*prh_macro_make_name(a, _strlax_addr_type))
+
+#define prh_impl_strfix_avar_addr(a) (prh_impl_array *)prh_impl_strfix_avar(a)
+#define prh_impl_strfit_avar_addr(a) (prh_impl_array *)prh_impl_strfit_avar(a)
+#define prh_impl_strdyn_avar_addr(a) (prh_impl_array *)prh_impl_strdyn_avar(a)
+#define prh_impl_strlax_avar_addr(a) (prh_impl_array *)prh_impl_strlax_avar(a)
+
+typedef struct {
+    prh_int count; // count bytes of string
+    prh_byte *data;
+} prh_strvew; // read-only string view
+
+prh_inline void prh_impl_string_view(prh_byte *elem_ptr, prh_strvew *view) {
+    prh_assert(prh_impl_p != prh_null);
+    view->count = *prh_impl_arr_len(prh_impl_p);
+    view->data = prh_impl_p;
+}
+
+prh_inline void prh_impl_strlax_view(prh_byte *elem_ptr, prh_strvew *view) {
+    prh_assert(prh_impl_p != prh_null);
+    view->count = *prh_impl_arr_len(prh_impl_p);
+    view->data = prh_impl_p + *prh_impl_arr_start(prh_impl_p);
+}
+
+#define prh_strfit_view(s, a, view) prh_impl_string_view(prh_impl_strfit_data((s), a), view)
+#define prh_string_view(s, a, view) prh_impl_string_view(prh_impl_strdyn_data((s), a), view)
+#define prh_strlax_view(s, a, view) prh_impl_strlax_view(prh_impl_strlax_data((s), a), view)
+
+#define prh_strfit_v_view(a, view) prh_impl_string_view(prh_impl_strfit_dvar(a), view)
+#define prh_string_v_view(a, view) prh_impl_string_view(prh_impl_strdyn_dvar(a), view)
+#define prh_strlax_v_view(a, view) prh_impl_strlax_view(prh_impl_strlax_dvar(a), view)
+
+#define prh_strfit_a_view(a, view) prh_impl_string_view(prh_impl_strfit_avar(a), view)
+#define prh_string_a_view(a, view) prh_impl_string_view(prh_impl_strdyn_avar(a), view)
+#define prh_strlax_a_view(a, view) prh_impl_strlax_view(prh_impl_strlax_avar(a), view)
+
+#define prh_string_addr(s, a) &prh_impl_string_data((s), a)
+#define prh_strlax_addr(s, a) &prh_impl_strlax_data((s), a)
+
+#define prh_strfit_clear(s, a) prh_impl_array_clear(prh_impl_strfit_data((s), a))
+#define prh_string_clear(s, a) prh_impl_array_clear(prh_impl_string_data((s), a))
+#define prh_strlax_clear(s, a) prh_impl_array_clear(prh_impl_strlax_data((s), a))
+
+#define prh_strfit_v_clear(a) prh_impl_array_clear(prh_impl_strfit_dvar_data(a))
+#define prh_string_v_clear(a) prh_impl_array_clear(prh_impl_string_dvar_data(a))
+#define prh_strlax_v_clear(a) prh_impl_array_clear(prh_impl_strlax_dvar_data(a))
+
+#define prh_strfit_free(s, a) prh_impl_array_free(prh_impl_strfit_addr((s), a), sizeof(prh_impl_arrfit_hdr))
+#define prh_string_free(s, a) prh_impl_array_free(prh_impl_string_addr((s), a), sizeof(prh_impl_arrdyn_hdr))
+#define prh_strlax_free(s, a) prh_impl_array_free(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr))
+
+#define prh_strfit_a_free(a) prh_impl_array_free(prh_impl_strfit_avar_addr(a), sizeof(prh_impl_arrfit_hdr))
+#define prh_string_a_free(a) prh_impl_array_free(prh_impl_string_avar_addr(a), sizeof(prh_impl_arrdyn_hdr))
+#define prh_strlax_a_free(a) prh_impl_array_free(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr))
+
+#define prh_strfit_init(s, a, cap) prh_impl_strfit_data((s), a) = prh_impl_arrdyn_init((cap), 1)
+#define prh_string_init(s, a, cap) prh_impl_string_data((s), a) = prh_impl_arrdyn_init((cap), 1)
+#define prh_strlax_init(s, a, cap) prh_impl_strlax_data((s), a) = prh_impl_arrlax_init((cap), 1)
+
+#define prh_string_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), 1)
+#define prh_strlax_expand(s, a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), 1)
+#define prh_string_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_cap), 1)
+#define prh_strlax_shrink(s, a, new_cap) prh_impl_array_shrink(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_cap), 1)
+
+#define prh_string_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (num_grow_elts), 1)
+#define prh_strlax_a_expand(a, num_grow_elts) prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (num_grow_elts), 1)
+#define prh_string_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_cap), 1)
+#define prh_strlax_a_shrink(a, new_cap) prh_impl_array_shrink(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_cap), 1)
+
+#define prh_strfit_resize(s, a, new_len) prh_impl_arrfit_resize(prh_impl_strfit_data((s), a), (new_len))
+#define prh_string_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), (new_len), 1)
+#define prh_strlax_resize(s, a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), (new_len), 1)
+
+#define prh_strfit_v_resize(a, new_len) prh_impl_arrfit_resize(prh_impl_strfit_dvar(a), (new_len))
+#define prh_string_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), (new_len), 1)
+#define prh_strlax_a_resize(a, new_len) prh_impl_arrdyn_resize(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), (new_len), 1)
+
+prh_byte *prh_impl_strfit_push(prh_byte *elem_ptr, prh_int num_elts);
+prh_byte *prh_impl_strfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr);
+prh_byte *prh_impl_strdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts);
+prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts);
+
+#define prh_strfit_push(s, a, elt_value) {                                      \
+    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_data((s), a), 1); \
+    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
+}
+#define prh_string_push(s, a, elt_value) {                                      \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_push(s, a, elt_value) {                                      \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strfit_v_push(a, elt_value) {                                       \
+    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_dvar(a), 1);    \
+    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
+}
+#define prh_string_a_push(a, elt_value) {                                       \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_a_push(a, elt_value) {                                       \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strfit_push_many(s, a, elt_ptr, num_elts) {                         \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_data((s), a), prh_impl_n); \
+    if (prh_impl_p) memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                  \
+}
+#define prh_string_push_many(s, a, elt_ptr, num_elts) {                         \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_strlax_push_many(s, a, elt_ptr, num_elts) {                         \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_strfit_v_push_many(a, elt_ptr, num_elts) {                          \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_strfit_push(prh_impl_strfit_dvar_data(a), prh_impl_n); \
+    if (prh_impl_p) memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                  \
+}
+#define prh_string_a_push_many(a, elt_ptr, num_elts) {                          \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_strlax_a_push_many(a, elt_ptr, num_elts) {                          \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_strdyn_push(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+
+#define prh_strfit_unchecked_push(s, a, elt_value) {                            \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_data((s), a), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_string_unchecked_push(s, a, elt_value) {                            \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_data((s), a), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_unchecked_push(s, a, elt_value) {                            \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_data((s), a), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strfit_v_unchecked_push(a, elt_value) {                             \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_dvar(a), 1);    \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_string_v_unchecked_push(a, elt_value) {                             \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_dvar(a), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_v_unchecked_push(a, elt_value) {                             \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_dvar(a), 1); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strfit_unchecked_push_many(s, a, elt_ptr, num_elts) {               \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_data((s), a), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_string_unchecked_push_many(s, a, elt_ptr, num_elts) {               \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_addr((s), a), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_strlax_unchecked_push_many(s, a, elt_ptr, num_elts) {               \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_addr((s), a), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_strfit_v_unchecked_push_many(a, elt_ptr, num_elts) {                \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strfit_dvar(a), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_string_v_unchecked_push_many(a, elt_ptr, num_elts) {                \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strdyn_dvar(a), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+#define prh_strlax_v_unchecked_push_many(a, elt_ptr, num_elts) {                \
+    prh_int prh_impl_n = (prh_int)(num_elts);                                   \
+    prh_byte *prh_impl_p = prh_impl_string_unchecked_push(prh_impl_strlax_dvar(a), prh_impl_n); \
+    memcpy(prh_impl_p, (elt_ptr), prh_impl_n);                                  \
+}
+
+void prh_impl_strdyn_erase(prh_byte *elem_ptr, prh_int start, prh_int i);
+
+#define prh_strfit_erase(s, a, i) prh_impl_strdyn_erase(prh_impl_strfit_data((s), a), 0, (i))
+#define prh_string_erase(s, a, i) prh_impl_strdyn_erase(prh_impl_strdyn_data((s), a), 0, (i))
+#define prh_strlax_erase(s, a, i) {                                             \
+    prh_byte *elem_ptr = prh_impl_strlax_data((s), a);                          \
+    prh_impl_strdyn_erase(elem_ptr, *prh_impl_arr_start(elem_ptr), (i));        \
+}
+#define prh_strfit_v_erase(a, i) prh_impl_strdyn_erase(prh_impl_strfit_dvar(a), 0, (i))
+#define prh_string_v_erase(a, i) prh_impl_strdyn_erase(prh_impl_strdyn_dvar(a), 0, (i))
+#define prh_strlax_v_erase(a, i) {                                              \
+    prh_byte *elem_ptr = prh_impl_strlax_dvar(a);                               \
+    prh_impl_strdyn_erase(elem_ptr, *prh_impl_arr_start(elem_ptr), (i));        \
+}
+
+prh_byte *prh_impl_strfit_insert(prh_byte *elem_ptr, prh_int i);
+prh_byte *prh_impl_strfit_unchecked_insert(prh_byte *elem_ptr, prh_int i);
+prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i);
+
+#define prh_strfit_insert(s, a, i, elt_value) {                                 \
+    prh_byte *prh_impl_p = prh_impl_strfit_insert(prh_impl_strfit_data((s), a), (i)); \
+    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
+}
+#define prh_string_insert(s, a, i, elt_value) {                                 \
+    prh_impl_array_expand(prh_impl_strdyn_addr((s), a), sizeof(prh_impl_arrdyn_hdr), 1, 1); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_data((s), a), 0, (i)); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_insert(s, a, i, elt_value) {                                 \
+    prh_impl_array_expand(prh_impl_strlax_addr((s), a), sizeof(prh_impl_arrlax_hdr), 1, 1); \
+    prh_byte *prh_impl_p = prh_impl_strlax_data((s), a);                        \
+    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
+    *prh_impl_elt = (elt_value);                                                \
+}
+#define prh_strfit_v_insert(a, i, elt_value) {                                  \
+    prh_byte *prh_impl_p = prh_impl_strfit_insert(prh_impl_strfit_dvar(a), (i)); \
+    if (prh_impl_p) *prh_impl_p = (elt_value);                                  \
+}
+#define prh_string_a_insert(a, i, elt_value) {                                  \
+    prh_impl_array_expand(prh_impl_strdyn_avar_addr(a), sizeof(prh_impl_arrdyn_hdr), 1, 1); \
+    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_avar(a), 0, (i)); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_a_insert(a, i, elt_value) {                                  \
+    prh_impl_array_expand(prh_impl_strlax_avar_addr(a), sizeof(prh_impl_arrlax_hdr), 1, 1); \
+    prh_byte *prh_impl_p = prh_impl_strlax_avar(a);                             \
+    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
+    *prh_impl_elt = (elt_value);                                                \
+}
+
+#define prh_strfit_unchecked_insert(s, a, i, elt_value) {                       \
+    prh_byte *prh_impl_p = prh_impl_strfit_unchecked_insert(prh_impl_strfit_data((s), a), (i)); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_string_unchecked_insert(s, a, i, elt_value) {                       \
+    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_data((s), a), 0, (i)); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_unchecked_insert(s, a, i, elt_value) {                       \
+    prh_byte *prh_impl_p = prh_impl_strlax_data((s), a);                        \
+    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
+    *prh_impl_elt = (elt_value);                                                \
+}
+#define prh_strfit_v_unchecked_insert(a, i, elt_value) {                        \
+    prh_byte *prh_impl_p = prh_impl_strfit_unchecked_insert(prh_impl_strfit_dvar(a), (i)); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_string_v_unchecked_insert(a, i, elt_value) {                        \
+    prh_byte *prh_impl_p = prh_impl_strdyn_insert(prh_impl_strdyn_avar(a), 0, (i)); \
+    *prh_impl_p = (elt_value);                                                  \
+}
+#define prh_strlax_v_unchecked_insert(a, i, elt_value) {                        \
+    prh_byte *prh_impl_p = prh_impl_strlax_avar(a);                             \
+    prh_byte *prh_impl_elt = prh_impl_strdyn_insert(prh_impl_p, *prh_impl_arr_start(prh_impl_p), (i)); \
+    *prh_impl_elt = (elt_value);                                                \
+}
+
+#define prh_strfix_len(s, a) *prh_impl_arr_len(prh_impl_strfix_data((s), a))
+#define prh_strfix_data(s, a) prh_impl_strfix_data((s), a)
+#define prh_strfix_end(s, a) prh_impl_strfix_data((s), a) + *prh_impl_arr_len(prh_impl_strfix_data((s), a))
+#define prh_strfix_get(s, a, i) prh_impl_strfix_data((s), a) + (i)
+#define prh_strfix_v_len(a) *prh_impl_arr_len(prh_impl_strfix_dvar(a))
+#define prh_strfix_v_data(a) prh_impl_strfix_dvar(a)
+#define prh_strfix_v_end(a) prh_impl_strfix_dvar(a) + *prh_impl_arr_len(prh_impl_strfix_dvar(a))
+#define prh_strfix_v_get(a, i) prh_impl_strfix_dvar(a) + (i)
+
+#define prh_strfit_cap(s, a) *prh_impl_arr_cap(prh_impl_strfit_data((s), a))
+#define prh_strfit_len(s, a) *prh_impl_arr_len(prh_impl_strfit_data((s), a))
+#define prh_strfit_data(s, a) prh_impl_strfit_data((s), a)
+#define prh_strfit_end(s, a) prh_impl_strfit_data((s), a) + *prh_impl_arr_len(prh_impl_strfit_data((s), a))
+#define prh_strfit_get(s, a, i) prh_impl_strfit_data((s), a) + (i)
+#define prh_strfit_v_cap(a) *prh_impl_arr_cap(prh_impl_strfit_dvar(a))
+#define prh_strfit_v_len(a) *prh_impl_arr_len(prh_impl_strfit_dvar(a))
+#define prh_strfit_v_data(a) prh_impl_strfit_dvar(a)
+#define prh_strfit_v_end(a) prh_impl_strfit_dvar(a) + *prh_impl_arr_len(prh_impl_strfit_dvar(a))
+#define prh_strfit_v_get(a, i) prh_impl_strfit_dvar(a) + (i)
+
+#define prh_string_cap(s, a) *prh_impl_arr_cap(prh_impl_strdyn_data((s), a))
+#define prh_string_len(s, a) *prh_impl_arr_len(prh_impl_strdyn_data((s), a))
+#define prh_string_data(s, a) prh_impl_strdyn_data((s), a)
+#define prh_string_end(s, a) prh_impl_strdyn_data((s), a) + *prh_impl_arr_len(prh_impl_strdyn_data((s), a))
+#define prh_string_get(s, a, i) prh_impl_strdyn_data((s), a) + (i)
+#define prh_string_v_cap(a) *prh_impl_arr_cap(prh_impl_strdyn_dvar(a))
+#define prh_string_v_len(a) *prh_impl_arr_len(prh_impl_strdyn_dvar(a))
+#define prh_string_v_data(a) prh_impl_strdyn_dvar(a)
+#define prh_string_v_end(a) prh_impl_strfdyn_dvar(a) + *prh_impl_arr_len(prh_impl_strdyn_dvar(a))
+#define prh_string_v_get(a, i) prh_impl_strdyn_dvar(a) + (i)
+
+#define prh_strlax_cap(s, a) *prh_impl_arr_cap(prh_impl_strlax_data((s), a))
+#define prh_strlax_len(s, a) *prh_impl_arr_len(prh_impl_strlax_data((s), a))
+#define prh_strlax_data(s, a) prh_impl_strlax_data((s), a) + *prh_impl_arr_start(prh_impl_strlax_data((s), a))
+#define prh_strlax_end(s, a) prh_strlax_data((s), a) + *prh_impl_arr_len(prh_impl_strlax_data((s), a))
+#define prh_strlax_get(s, a, i) prh_strlax_data((s), a) + (i)
+#define prh_strlax_v_cap(a) *prh_impl_arr_cap(prh_impl_strlax_dvar(a))
+#define prh_strlax_v_len(a) *prh_impl_arr_len(prh_impl_strlax_dvar(a))
+#define prh_strlax_v_data(a) prh_impl_strlax_dvar(a) + *prh_impl_arr_start(prh_impl_strlax_dvar(a))
+#define prh_strlax_v_end(a) prh_strlax_v_data(a) + *prh_impl_arr_len(prh_impl_strlax_dvar(a))
+#define prh_strlax_v_get(a, i) prh_strlax_v_data(a) + (i)
+
+#ifdef PRH_STRING_STRIP_PREFIX
+#endif // PRH_STRING_STRIP_PREFIX
+
+#ifdef PRH_STRING_IMPLEMENTATION
+prh_byte *prh_impl_strfit_push(prh_byte *elem_ptr, prh_int num_elts) {
+    prh_impl_arrfit_hdr *p = (prh_impl_arrfit_hdr)elem_ptr - 1;
+    prh_assert(elem_ptr != prh_null);
+    prh_assert(num_elts >= 0); // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
+    prh_int count = p->count;
+    if (count + num_elts > p->capacity) {
+        return prh_null;
+    }
+    p->count += num_elts;
+    return elem_ptr + count;
+}
+
+prh_byte *prh_impl_string_unchecked_push(prh_byte *elem_ptr, prh_int num_elts) {
+    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
+    prh_assert(elem_ptr != prh_null);
+    prh_assert(num_elts >= 0); // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
+    prh_int count = *count_ptr;
+    *count_ptr += num_elts;
+    return elem_ptr + count;
+}
+
+prh_byte *prh_impl_strfit_try_push(prh_byte *elem_ptr, prh_int *num_elts_ptr) { // push many as possible
+    prh_assert(elem_ptr != prh_null);
+    prh_assert(*num_elts_ptr >= 0);
+    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
+    prh_int capacity = *prh_impl_arr_cap(elem_ptr);
+    prh_int count = *count_ptr, num_elts = *num_elts_ptr;
+    if (count + num_elts > capacity) {
+        num_elts = capacity - count;
+        *num_elts_ptr = num_elts;
+    }
+    *count_ptr += num_elts; // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
+    return elem_ptr + count;
+}
+
+prh_byte *prh_impl_strdyn_push(prh_impl_array *array, prh_int hdr_size, prh_int num_elts) {
+    prh_impl_array_expand(array, hdr_size, num_elts, 1);
+    prh_byte *elem_ptr = s->data;
+    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
+    prh_int count = *count_ptr;
+    *count_ptr += num_elts; // num_elts 可以为零，虽然返回了有效指针但外面的拷贝会不生效
+    return elem_ptr + count;
+}
+
+void prh_impl_strdyn_erase(prh_byte *elem_ptr, prh_int start, prh_int i) {
+    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
+    prh_assert(elem_ptr != prh_null);
+    prh_assert(i >= 0 && i < *count_ptr); // 数组为空不能移除元素
+    prh_int new_count = --(*count_ptr);
+    prh_byte *dest = elem_ptr + start + i;
+    memmove(dest, dest + 1, new_count - i); // 长度参数可为零
+}
+
+prh_byte *prh_impl_strfit_insert(prh_byte *elem_ptr, prh_int i) {
+    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
+    prh_assert(elem_ptr != prh_null);
+    prh_assert(i >= 0 && i <= *count_ptr);
+    prh_int count = *count_ptr;
+    if (count >= *prh_impl_arr_cap(elem_ptr)) {
+        return prh_null;
+    }
+    *count_ptr += 1;
+    prh_byte *source = elem_ptr + i;
+    memmove(source + 1, source, count - i); // 长度参数可为零
+    return source;
+}
+
+prh_byte *prh_impl_strfit_unchecked_insert(prh_byte *elem_ptr, prh_int i) {
+    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
+    prh_assert(elem_ptr != prh_null);
+    prh_assert(i >= 0 && i <= *count_ptr);
+    prh_int count = (*count_ptr)++;
+    prh_byte *source = elem_ptr + i;
+    memmove(source + 1, source, count - i); // 长度参数可为零
+    return source;
+}
+
+prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i) {
+    prh_int *count_ptr = prh_impl_arr_len(elem_ptr);
+    prh_assert(elem_ptr != prh_null);
+    prh_assert(i >= 0 && i <= *count_ptr);
+    prh_int count = (*count_ptr)++;
+    prh_byte *source = elem_ptr + start + i;
+    memmove(source + 1, source, count - i); // 长度参数可为零
+    return source;
+}
+#endif // PRH_STRING_IMPLEMENTATION
+#endif // PRH_STRING_INCLUDE
+
+#ifdef PRH_LIST_INCLUDE
+typedef struct prh_snode { // node single linked
+    struct prh_snode *next;
+} prh_snode;
+
+typedef struct prh_singly_node { // singly linked node
+    struct prh_singly_node *next;
+} prh_singly_node;
+
+typedef struct prh_singly_data_node { // singly linked data node
+    struct prh_singly_data_node *next;
+    void *data; // 仅包含一个指针的链表节点
+} prh_singly_data_node;
+
+prh_inline void prh_singly_node_init(prh_singly_node *node) {
+    node->next = prh_null;
+}
+
+prh_inline void prh_singly_node_insert_after(prh_singly_node *node, prh_singly_node *new_node) {
+    new_node->next = node->next;
+    node->next = new_node;
+}
+
+prh_inline prh_singly_node *prh_singly_node_remove_next(prh_singly_node *node) {
+    prh_singly_node *removed = node->next;
+    if (removed) node->next = removed->next;
+    return removed;
+}
+
+prh_inline prh_singly_node *prh_singly_node_unchecked_remove_next(prh_singly_node *node) {
+    prh_singly_node *removed = node->next;
+    assert(removed != prh_null);
+    node->next = removed->next;
+    return removed;
+}
+
+typedef bool (*prh_less_than)(prh_snode *a, prh_snode *b);
+void prh_snode_priority_push(prh_snode *head, prh_snode *node, prh_less_than less); // 节点从小到大串连
+
+typedef struct prh_data_snode {
+    struct prh_data_snode *next;
+    void *data; // node only contain a data pointer
+} prh_data_snode;
+
+typedef struct {
+    prh_data_snode *next;
+} prh_data_snode_head;
+
+typedef struct { // zero initialized
+    prh_snode *head;
+    prh_snode *tail;
+} prh_slist;
+
+typedef struct prh_xnode { // node xored double linked (both = prev XOR next)
+    struct prh_xnode *both;
+} prh_xnode;
+
+typedef struct prh_data_xnode {
+    struct prh_data_xnode *both;
+    void *data; // node only contain a data pointer
+} prh_data_xnode;
+
+typedef struct { // zero initialized
+    prh_xnode *head;
+    prh_xnode *tail;
+} prh_xlist;
+
+typedef struct prh_node { // node double linked
+    struct prh_node *next;
+    struct prh_node *prev;
+} prh_node;
+
+typedef struct prh_data_node {
+    struct prh_data_node *next;
+    struct prh_data_node *prev;
+    void *data; // node only contain a data pointer
+} prh_data_node;
+
+typedef struct { // zero initialized
+    prh_node *head;
+    prh_node *tail;
+} prh_list;
+
+typedef struct prh_tnode { // node tripple linked
+    struct prh_tnode *next;
+    struct prh_tnode *prev;
+    struct prh_tnode *parent;
+} prh_tnode;
+
+typedef struct prh_data_tnode {
+    struct prh_data_tnode *next;
+    struct prh_data_tnode *prev;
+    struct prh_data_tnode *parent;
+    void *data; // node only contain a data pointer
+} prh_data_tnode;
+
+typedef struct { // zero initialized
+    prh_tnode *root;
+} prh_tree;
+
+void prh_impl_list_free_each_node(prh_snode *head, void (*node_free)(void *));
+void prh_impl_list_free_each_node_and_clear(prh_slist *list, void (*node_free)(void *));
+
+#ifdef PRH_LIST_IMPLEMENTATION
+void prh_impl_list_free_each_node(prh_snode *head, void (*node_free)(void *)) {
+    while (head) {
+        prh_snode *curr = head;
+        head = head->next; // get next before free
+        node_free(curr);
+    }
+}
+
+void prh_impl_list_free_each_node_and_clear(prh_slist *list, void (*node_free)(void *)) {
+    if (node_free) prh_impl_list_free_each_node(list->head, node_free);
+    list->head = prh_null;
+}
+
+void prh_snode_priority_push(prh_snode *head, prh_snode *node, prh_less_than less) { // 节点从小到大串连
+    prh_snode *curr;
+    assert(head != prh_null);
+    assert(node != prh_null);
+    while ((curr = head->next) && less(curr, node)) {
+        head = curr;
+    }
+    head->next = node;
+    node->next = curr;
+}
+#endif // PRH_LIST_IMPLEMENTATION
+#endif // PRH_LIST_INCLUDE
+
+#ifdef PRH_STACK_INCLUDE
+// Just link the node into the stack, dont allocate any memory. Each node can
+// have different size, but must cotain prh_snode as the header.
+//  struct stack_custom_node {
+//      prh_snode head; // must be 1st field
+//      ... other custom node data ...
+//  };
+typedef struct { // zero initialize
+    prh_snode *head;
+} prh_nstack;
+
+prh_inline void prh_nstack_init(prh_nstack *s) {
+    s->head = prh_null;
+}
+
+prh_inline void prh_nstack_clear(prh_nstack *s, void (*node_free_func)(void *)) {
+    prh_impl_list_free_each_node_and_clear((prh_slist *)s, node_free_func);
+}
+
+prh_inline prh_snode *prh_nstack_top(prh_nstack *s) {
+    return s->head;
+}
+
+prh_inline bool prh_nstack_empty(prh_nstack *s) {
+    return s->head == prh_null;
+}
+
+void prh_nstack_push(prh_nstack *s, prh_snode *node);
+prh_snode *prh_nstack_pop(prh_nstack *s);
+
+#ifdef PRH_STACK_STRIP_PREFIX
+#define nstack_t         prh_nstack
+#define nstack_init      prh_nstack_init
+#define nstack_clear     prh_nstack_clear
+#define nstack_empty     prh_nstack_empty
+#define nstack_push      prh_nstack_push
+#define nstack_pop       prh_nstack_pop
+#define nstack_top       prh_nstack_top
+#endif
+
+#ifdef PRH_STACK_IMPLEMENTATION
+void prh_nstack_push(prh_nstack *s, prh_snode *node) {
+    node->next = s->head;
+    s->head = node;
+}
+
+prh_snode *prh_nstack_pop(prh_nstack *s) {
+    prh_snode *head = s->head;
+    if (head == prh_null) return prh_null;
+    s->head = head->next;
+    return head;
+}
+#endif // PRH_STACK_IMPLEMENTATION
+#endif // PRH_STACK_INCLUDE
+
+#ifdef PRH_QUEUE_INCLUDE
+#define prh_fixed_arrque_ptr(elem_type) struct {                                \
+    prh_int fixed_arrque_head;                                                  \
+    prh_int fixed_arrque_len;                                                   \
+    prh_int fixed_arrque_size_minus_one;                                        \
+    elem_type fixed_arrque;                                                     \
+} *
+
+prh_int prh_fixed_arrque_alloc_size(prh_int size, prh_int elem_bytes);
+void prh_impl_fixed_arrque_init(void *arrque, prh_int size);
+prh_int prh_impl_fixed_arrque_empty_items(void *arrque);
+prh_int prh_impl_fixed_arrque_push(void *arrque);
+prh_int prh_impl_fixed_arrque_push_at(void *arrque, prh_int index);
+prh_int prh_impl_fixed_arrque_pop(void *arrque);
+
+#define prh_fixed_arrque_init(p, size) prh_impl_fixed_arrque_init(&(p)->fixed_arrque_head, (size))
+#define prh_fixed_arrque_elem_size(p) ((int)sizeof((p)->fixed_arrque))
+#define prh_fixed_arrque_eptr_type(p) prh_typeof(&(p)->fixed_arrque)
+#define prh_fixed_arrque_elem_addr(p) (&(p)->fixed_arrque)
+#define prh_fixed_arrque_len(p) ((p)->fixed_arrque_len)
+#define prh_fixed_arrque_cap(p) ((p)->fixed_arrque_size_minus_one + 1)
+#define prh_fixed_arrque_empty_items(p) prh_impl_fixed_arrque_empty_items(&(p)->fixed_arrque_head)
+#define prh_fixed_arrque_unchecked_push(p) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_push(&(p)->fixed_arrque_head))
+#define prh_fixed_arrque_unchecked_push_at(p, index) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_push_at(&(p)->fixed_arrque_head, (index)))
+#define prh_fixed_arrque_unchecked_pop(p) (prh_fixed_arrque_elem_addr(p) + prh_impl_fixed_arrque_pop(&(p)->fixed_arrque_head))
+#define prh_impl_fixed_arrque_top(p) (prh_fixed_arrque_elem_addr(p) + (p)->fixed_arrque_head)
+
+#if defined(prh_cl_msc)
+#define prh_fixed_arrque_push(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push(p) : prh_null))
+#define prh_fixed_arrque_push_at(p, index) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push_at((p), (index)) : prh_null))
+#define prh_fixed_arrque_top(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_len(p) ? prh_impl_fixed_arrque_top(p) : prh_null))
+#define prh_fixed_arrque_pop(p) ((prh_fixed_arrque_eptr_type(p))(prh_fixed_arrque_len(p) ? prh_fixed_arrque_unchecked_pop(p) : prh_null))
+#else
+#define prh_fixed_arrque_push(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push(p) : prh_null); prh_impl_ptr;})
+#define prh_fixed_arrque_push_at(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_empty_items(p) ? prh_fixed_arrque_unchecked_push_at((p), (index)) : prh_null); prh_impl_ptr;})
+#define prh_fixed_arrque_top(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_len(p) ? prh_impl_fixed_arrque_top(p) : prh_null); prh_impl_ptr;})
+#define prh_fixed_arrque_pop(p) ({prh_fixed_arrque_eptr_type(p) prh_impl_ptr = (prh_fixed_arrque_len(p) ? prh_fixed_arrque_unchecked_pop(p) : prh_null); prh_impl_ptr;})
+#endif
+
+typedef struct { void *arrque; prh_int capacity; prh_int size; prh_int tail; } prh_impl_arrque; // arrque 动态分配，可以自动增长
+#define prh_arrque(elem_type) struct { elem_type *arrque; prh_int capacity; prh_int size; prh_int tail; }
+#define prh_impl_arrque_npos(p, pos) ((pos) & ((p)->capacity - 1)) // 队列数据容量总是 2 的幂
+#define prh_impl_arrque_head_index(p) prh_impl_arrque_npos((p), (p)->tail - (p)->size)
+#define prh_impl_arrque_elem_size(p) sizeof(*((p)->arrque))
+#define prh_impl_arrque_eptr_type(p) prh_typeof((p)->arrque)
+
+#define prh_arrque_init(p, capacity) { prh_impl_arrdyn_initialize((prh_impl_arrdyn *)(p), (capacity), prh_impl_arrque_elem_size(p)); (p)->tail = 0; }
+#define prh_arrque_free(p) { prh_dealloc((p)->arrque); prh_debug((p)->arrque = prh_null); }
+
+void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size);
+void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size);
+void *prh_impl_arrque_top(prh_impl_arrque *p, prh_int elem_size);
+void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int elem_size);
+
+#if defined(prh_cl_msc)
+#define prh_arrque_push(p) ((prh_impl_arrque_eptr_type(p))(((p)->size < (p)->capacity) ? prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null))
+#define prh_arrque_unchecked_push(p) ((prh_impl_arrque_eptr_type(p))prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)))
+#define prh_arrque_auto_grow_push(p) ((prh_impl_arrque_eptr_type(p))prh_impl_arrque_auto_grow_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)))
+#define prh_arrque_top(p) ((prh_impl_arrque_eptr_type(p))((p)->size > 0 ? prh_impl_arrque_top((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null))
+#define prh_arrque_pop(p) ((prh_impl_arrque_eptr_type(p))((p)->size > 0 ? prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null))
+#define prh_arrque_unchecked_pop(p) ((prh_impl_arrque_eptr_type(p))prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)))
+#else
+#define prh_arrque_push(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = (((p)->size < (p)->capacity) ? prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null); prh_impl_ptr;})
+#define prh_arrque_unchecked_push(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = prh_impl_arrque_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)); prh_impl_ptr;})
+#define prh_arrque_auto_grow_push(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = prh_impl_arrque_auto_grow_push((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)); prh_impl_ptr;})
+#define prh_arrque_top(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = ((p)->size > 0 ? prh_impl_arrque_top((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null); prh_impl_ptr;})
+#define prh_arrque_pop(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = ((p)->size > 0 ? prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)) : prh_null); prh_impl_ptr;})
+#define prh_arrque_unchecked_pop(p) ({prh_impl_arrque_eptr_type(p) prh_impl_ptr = prh_impl_arrque_pop((prh_impl_arrque *)(p), prh_impl_arrque_elem_size(p)); prh_impl_ptr;})
+#endif
+
+#ifdef PRH_QUEUE_IMPLEMENTATION
+typedef struct {
+    prh_int head;
+    prh_int len;
+    prh_int size_minus_one; // size 必须是 2 的幂
+} prh_impl_fixed_arrque;
+
+prh_int prh_fixed_arrque_alloc_size(prh_int size, prh_int elem_bytes) {
+    assert(size > 0 && prh_is_power_of_2(size));
+    assert(elem_bytes > 0);
+    return prh_round_16_byte(sizeof(prh_impl_fixed_arrque)) + prh_round_ptrsize(size * elem_bytes);
+}
+
+void prh_impl_fixed_arrque_init(void *arrque, prh_int size) {
+    assert(size > 0 && prh_is_power_of_2(size));
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    q->head = q->len = 0;
+    q->size_minus_one = size - 1;
+}
+
+prh_int prh_impl_fixed_arrque_empty_items(void *arrque) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    return q->size_minus_one + 1 - q->len;
+}
+
+prh_int prh_impl_fixed_arrque_push(void *arrque) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    return (q->head + q->len++) & q->size_minus_one;
+}
+
+prh_int prh_impl_fixed_arrque_push_at(void *arrque, prh_int index) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    return (q->head + q->len++ + index) & q->size_minus_one;
+}
+
+prh_int prh_impl_fixed_arrque_pop(void *arrque) {
+    prh_impl_fixed_arrque *q = (prh_impl_fixed_arrque *)arrque;
+    prh_int head = q->head;
+    q->len -= 1;
+    q->head = (head + 1) & q->size_minus_one;
+    return head;
+}
+
+void *prh_impl_arrque_push(prh_impl_arrque *p, prh_int elem_size) {
+    prh_int tail_offset = p->tail * elem_size;
+    p->tail = prh_impl_arrque_npos(p, p->tail + 1);
+    p->size += 1;
+    return (prh_byte *)p->arrque + tail_offset;
+}
+
+void *prh_impl_arrque_top(prh_impl_arrque *p, prh_int elem_size) {
+    prh_int head_offset = prh_impl_arrque_npos(p, p->tail - p->size) * elem_size;
+    return (prh_byte *)p->arrque + head_offset;
+}
+
+void *prh_impl_arrque_pop(prh_impl_arrque *p, prh_int elem_size) {
+    void *top = prh_impl_arrque_top(p, elem_size);
+    p->size -= 1;
+    return top;
+}
+
+void *prh_impl_arrque_auto_grow_push(prh_impl_arrque *p, prh_int elem_size) {
+    prh_int capacity = p->capacity;
+    prh_int middle_offset, new_capacity = (p->size += 1);
+    prh_int tail_offset = p->tail * elem_size;
+    if (new_capacity > capacity) {
+        middle_offset = capacity * elem_size;
+        p->arrque = prh_realloc(p->arrque, middle_offset * 2);
+        memcpy((prh_byte *)p->arrque + middle_offset, p->arrque, tail_offset);
+        tail_offset += middle_offset; // 当tail_offset恰好为0时最后一个元素恰好在数组尾部不需要拷贝，参数 tail_offset 为零 memcpy 实际也不会拷贝
+        p->tail += capacity + 1;
+        p->capacity *= 2;
+    } else {
+        p->tail = prh_impl_arrque_npos(p, p->tail + 1);
+    }
+    return (prh_byte *)p->arrque + tail_offset;
+}
+#endif // PRH_QUEUE_IMPLEMENTATION
+
+// Just link the node into the queue, dont allocate any memory. Each node can
+// have different size, but must cotain prh_snode as the header.
+typedef struct { // zero initialize
+    prh_snode *head;
+    prh_snode *tail;
+} prh_quefit;
+
+typedef struct { // zero initialize
+    prh_data_snode *head;
+    prh_data_snode *tail;
+} prh_data_quefit;
+
+prh_inline void prh_quefit_init(prh_quefit *q) {
+    q->head = q->tail = prh_null;
+}
+
+prh_inline bool prh_quefit_empty(prh_quefit *q) {
+    return q->head == prh_null;
+}
+
+prh_inline prh_snode *prh_quefit_top(prh_quefit *q) {
+    return q->head;
+}
+
+void prh_quefit_push(prh_quefit *q, prh_snode *new_node);
+prh_snode *prh_quefit_pop(prh_quefit *q);
+prh_quefit prh_quefit_move(prh_quefit *q);
+
+#define prh_quefit_for_begin(quefit) {                                          \
+        prh_snode *it = (quefit)->head;                                         \
+        prh_snode *prh_impl_next;                                               \
+        for (; it; it = prh_impl_next) {                                        \
+            prh_impl_next = it->next;
+
+#define prh_quefit_for_end()                                                    \
+        }                                                                       \
+    }
+
+#define prh_data_quefit_for_begin(data_quefit) {                                \
+        prh_data_snode *it = (data_quefit)->head;                               \
+        prh_data_snode *prh_impl_next;                                          \
+        for (; it; it = prh_impl_next) {                                        \
+            prh_impl_next = it->next;
+
+#define prh_data_quefit_for_end()                                               \
+        }                                                                       \
+    }
+
+prh_inline void prh_data_quefit_init(prh_data_quefit *q) {
+    prh_quefit_init((prh_quefit *)q);
+}
+
+prh_inline bool prh_data_quefit_empty(prh_data_quefit *q) {
+    return prh_quefit_empty((prh_quefit *)q);
+}
+
+prh_data_snode *prh_data_quefit_top(prh_data_quefit *q) {
+    return (prh_data_snode *)prh_quefit_top((prh_quefit *)q);
+}
+
+prh_data_snode *prh_data_quefit_pop(prh_data_quefit *q) {
+    return (prh_data_snode *)prh_quefit_pop((prh_quefit *)q);
+}
+
+prh_inline void prh_data_quefit_push(prh_data_quefit *q, prh_data_snode *node) {
+    prh_quefit_push((prh_quefit *)q, (prh_snode *)node);
+}
+
+#ifdef PRH_QUEUE_IMPLEMENTATION
+prh_quefit prh_quefit_move(prh_quefit *q) {
+    prh_quefit que = *q;
+    prh_quefit_init(q);
+    return que;
+}
+
+void prh_quefit_push(prh_quefit *q, prh_snode *new_node) {
+    prh_snode *tail = q->tail;
+    if (tail == prh_null) tail = (prh_snode *)q;
+    q->tail = tail->next = new_node;
+    new_node->next = prh_null;
+}
+
+void prh_quefit_push_front(prh_quefit *q, prh_snode *new_node) {
+    prh_snode *head = q->head;
+    new_node->next = head;
+    q->head = new_node;
+    if (q->tail == prh_null) q->tail = new_node;
+}
+
+prh_snode *prh_quefit_pop(prh_quefit *q) {
+    prh_snode *top = q->head;
+    if (top == prh_null) return prh_null;
+    q->head = top->next;
+    if (top == q->tail) {
+        q->tail = prh_null;
+    }
+    return top;
+}
+
+prh_snode *prh_quefit_remove_after(prh_quefit *q, prh_snode *node) {
+    prh_snode *next = node->next;
+    node->next = next->next;
+    if (next == q->tail) q->tail = node;
+    return next;
+}
+#endif // PRH_QUEUE_IMPLEMENTATION
+
+// 队列不负责分配实际的节点，整个节点都由使用者提供，节点可以是任意长度，其内容由使用者
+// 决定没有限制。队列仅将用户提供的节点链接到队列中，节点的类型由用户自定义，只要其中包
+// 含一个自身类型的 next 指针即可，这个 next 指针的名字可以自定义，且这个 next 指针可
+// 以定义在任何位置，不需要像 prh_quefit 和 prh_data_quefit 一样，next 指针必须是结
+// 构体头部的第一个成员。
+//
+// 队列也由用户自定义，但必须按顺序包含 head 和 tail 两个成员。用户自定义节点类型、队列
+// 类型示例如下：
+//
+// struct user_node {
+//      int a, b, c;
+//      struct user_node *chain;
+//      void *d, *e;
+// };
+//
+// struct user_relaxed_quefit { // 零初始化
+//      struct user_node *head; // 第一个成员
+//      struct user_node *tail; // 第二个成员
+// };
+//
+// struct user_relaxed_quefit q = {0};
+// prh_relaxed_quefit_push(&q, user_node, chain);
+#define prh_relaxed_quefit(type) struct { type *head; type *tail; }
+
+void prh_impl_relaxed_quefit_push(void **quefit, void *node, prh_i32 next_offset);
+void prh_impl_relaxed_quefit_push_front(void **quefit, void *node, prh_i32 next_offset);
+void prh_impl_relaxed_quefit_push_queue(void **quefit, void **from_que, prh_i32 next_offset); // from_que is not cleared
+void prh_impl_relaxed_quefit_push_queue_front(void **quefit, void **from_que, prh_i32 next_offset); // form_que is not cleared
+void *prh_impl_relaxed_quefit_pop(void **quefit, prh_i32 next_offset);
+
+#define prh_relaxed_quefit_init(relaxed_quefit_ptr) { /* zero initialization */ \
+    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
+    relaxed_quefit_ptr->head = relaxed_quefit_ptr->tail = prh_null;             \
+}
+
+#define prh_relaxed_quefit_push(relaxed_quefit_ptr, node_type_ptr, next_field_name) { \
+    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
+    typedef prh_typeof(*(prh_impl_que_ptr->tail)) prh_impl_node_type;           \
+    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
+    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
+    prh_impl_node_type *prh_impl_node_ptr = (node_type_ptr);                    \
+    prh_impl_relaxed_quefit_push((void **)prh_impl_que_ptr, prh_impl_node_ptr, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
+}
+
+#define prh_relaxed_quefit_push_queue(relaxed_quefit_ptr, from_quefit_ptr, next_field_name) { \
+    typedef prh_typeof(relaxed_quefit_ptr) prh_impl_quefit_ptr_type;            \
+    prh_impl_quefit_ptr_type prh_impl_que_ptr = (relaxed_quefit_ptr);           \
+    prh_impl_quefit_ptr_type prh_impl_from_que = (from_quefit_ptr);             \
+    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
+    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
+    typedef prh_typeof(*(prh_impl_que_ptr->tail)) prh_impl_node_type;           \
+    prh_impl_relaxed_quefit_push_queue((void **)prh_impl_que_ptr, (void **)prh_impl_from_que, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
+}
+
+#define prh_relaxed_quefit_push_front(relaxed_quefit_ptr, node_type_ptr, next_field_name) { \
+    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
+    typedef prh_typeof(*(prh_impl_que_ptr->head)) prh_impl_node_type;           \
+    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
+    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
+    prh_impl_node_type *prh_impl_node_ptr = (node_type_ptr);                    \
+    prh_impl_relaxed_quefit_push_front((void **)prh_impl_que_ptr, prh_impl_node_ptr, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
+}
+
+#define prh_relaxed_quefit_push_queue_front(relaxed_quefit_ptr, from_quefit_ptr, next_field_name) { \
+    typedef prh_typeof(relaxed_quefit_ptr) prh_impl_quefit_ptr_type;            \
+    prh_impl_quefit_ptr_type prh_impl_que_ptr = (relaxed_quefit_ptr);           \
+    prh_impl_quefit_ptr_type prh_impl_from_que = (from_quefit_ptr);             \
+    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
+    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
+    typedef prh_typeof(*(prh_impl_que_ptr->head)) prh_impl_node_type;           \
+    prh_impl_relaxed_quefit_push_queue_front((void **)prh_impl_que_ptr, (void **)prh_impl_from_que, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
+}
+
+#define prh_relaxed_quefit_empty(relaxed_quefit_ptr) ((relaxed_quefit_ptr)->head == prh_null)
+#define prh_relaxed_quefit_not_empty(relaxed_quefit_ptr) ((relaxed_quefit_ptr)->head != prh_null)
+
+#define prh_relaxed_quefit_top(relaxed_quefit_ptr, node_out) {                  \
+    node_out = (relaxed_quefit_ptr)->head;                                      \
+}
+
+#define prh_relaxed_quefit_pop(relaxed_quefit_ptr, node_out, next_field_name) { \
+    prh_typeof(relaxed_quefit_ptr) prh_impl_que_ptr = (relaxed_quefit_ptr);     \
+    typedef prh_typeof(*(prh_impl_que_ptr->head)) prh_impl_node_type;           \
+    assert((void **)prh_impl_que_ptr == (void **)&prh_impl_que_ptr->head);      \
+    assert((void **)prh_impl_que_ptr + 1 == (void **)&prh_impl_que_ptr->tail);  \
+    node_out = (prh_impl_node_type *)prh_impl_relaxed_quefit_pop((void **)prh_impl_que_ptr, (prh_i32)prh_offsetof(prh_impl_node_type, next_field_name)); \
+}
+
+#if defined(PRH_QUEUE_IMPLEMENTATION)
+void prh_impl_relaxed_quefit_push(void **quefit, void *node, prh_i32 next_offset) {
+    prh_byte *tail = quefit[1]; // 由于next可能不是第一个成员，因此不能定义成循环列表，因为无法定义一个固定的包含next的头节点
+    if (tail == prh_null) {
+        quefit[0] = node;
+    } else {
+        *(void **)(tail + next_offset) = node;
+    }
+    *(void **)((prh_byte *)node + next_offset) = prh_null;
+    quefit[1] = node;
+}
+
+void prh_impl_relaxed_quefit_push_queue(void **quefit, void **from_que, prh_i32 next_offset) {
+    prh_byte *from_tail = from_que[1];
+    if (from_tail == prh_null) return;
+    prh_byte *tail = quefit[1];
+    if (tail == prh_null) {
+        quefit[0] = from_que[0];
+    } else {
+        *(void **)(tail + next_offset) = from_que[0];
+    }
+    quefit[1] = from_tail;
+}
+
+void prh_impl_relaxed_quefit_push_front(void **quefit, void *node, prh_i32 next_offset) {
+    prh_byte *head = quefit[0];
+    quefit[0] = node;
+    *(void **)((prh_byte *)node + next_offset) = head;
+    if (head == prh_null) {
+        quefit[1] = node;
+    }
+}
+
+void prh_impl_relaxed_quefit_push_queue_front(void **quefit, void **from_que, prh_i32 next_offset) {
+    prh_byte *from_head = from_que[0];
+    if (from_head == prh_null) return;
+    prh_byte *head = quefit[0];
+    quefit[0] = from_head;
+    prh_byte *from_tail = from_que[1];
+    *(void **)((prh_byte *)from_tail + next_offset) = head;
+    if (head == prh_null) {
+        quefit[1] = from_tail;
+    }
+}
+
+void *prh_impl_relaxed_quefit_pop(void **quefit, prh_i32 next_offset) {
+    prh_byte *head = quefit[0];
+    if (head) {
+        quefit[0] = *(void **)(head + next_offset);
+        if (head == quefit[1]) {
+            quefit[1] = prh_null;
+        }
+    }
+    return head;
+}
+#endif /* PRH_QUEUE_IMPLEMENTATION */
+
+// Dynamic allocated variable size queue. The node can contain any object and
+// with any different size. If the size < sizeof(void *), the size is rounded
+// up to sizeof(void *).
+typedef struct { // zero initialize
+    prh_snode *head;
+    prh_snode *tail;
+} prh_quedyn;
+
+prh_inline void prh_quedyn_init(prh_quedyn *q) {
+    prh_quefit_init((prh_quefit *)q);
+}
+
+prh_inline bool prh_quedyn_empty(prh_quedyn *q) {
+    return prh_quefit_empty((prh_quefit *)q);
+}
+
+prh_inline void prh_quedyn_free_node(void *ptr_node_object) {
+    if (ptr_node_object) prh_dealloc((prh_snode *)ptr_node_object - 1);
+}
+
+void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *));
+void *prh_quedyn_push(prh_quedyn *q, int object_size); // return allocated zero initialized object address
+void *prh_quedyn_top(prh_quedyn *q); // return null or object address inside the top node
+void *prh_quedyn_pop(prh_quedyn *q); // pop top node but dont free it, return object address inside the node
+
+#ifdef PRH_QUEUE_STRIP_PREFIX
+#define quedyn_t         prh_quedyn
+#define quedyn_init      prh_quedyn_init
+#define quedyn_empty     prh_quedyn_empty
+#define quedyn_free_node prh_quedyn_free_node
+#define quedyn_clear     prh_quedyn_clear
+#define quedyn_move      prh_quedyn_move
+#define quedyn_push      prh_quedyn_push
+#define quedyn_top       prh_quedyn_top
+#define quedyn_pop       prh_quedyn_pop
+#endif
+
+#ifdef PRH_QUEUE_IMPLEMENTATION
+void prh_quedyn_clear(prh_quedyn *q, void (*object_deinit_func)(void *)) {
+    prh_snode *next = q->head;
+    while (next) {
+        prh_snode *curr = next;
+        next = next->next; // get next before free the node
+        if (object_deinit_func) {
+            object_deinit_func(curr + 1);
+        }
+        prh_dealloc(curr);
+    }
+    prh_quedyn_init(q);
+}
+
+prh_quedyn prh_quedyn_move(prh_quedyn *q) {
+    prh_quedyn que = *q;
+    prh_quedyn_init(q);
+    return que;
+}
+
+void *prh_quedyn_push(prh_quedyn *q, int object_size) {
+    if (object_size < sizeof(void *)) object_size = sizeof(void *);
+    prh_snode *new_node = prh_calloc(sizeof(prh_snode) + prh_round_ptrsize(object_size));
+    prh_quefit_push((prh_quefit *)q, new_node);
+    return (new_node + 1);
+}
+
+void *prh_quedyn_top(prh_quedyn *q) {
+    prh_snode *top = q->head;
+    return (top == prh_null) ? prh_null : (top + 1);
+}
+
+void *prh_quedyn_pop(prh_quedyn *q) {
+    prh_snode *top = prh_quefit_pop((prh_quefit *)q);
+    return (top == prh_null) ? prh_null : (top + 1);
+}
+#endif // PRH_QUEUE_IMPLEMENTATION
+#endif // PRH_QUEUE_INCLUDE
+
 // https://gcc.gnu.org/wiki/SplitStacks
 //
 // 分段栈（Split Stacks），分段栈的目标是允许一个不连续的栈，该栈会根据需要自动增长。这
@@ -7723,8 +7836,8 @@ label_co_for_loop:
 static void *prh_impl_default_co_alloc(prh_reg size, int line) {
     // 同一系列的协程集合同一时间只在一个线程中执行，内部的协程结构体不需要对齐到缓存行
     // 边界，但是不同系列的协程可以同时在不同线程执行，需要分配到不同的缓存行。
-    if (line != -1) return prh_impl_aligned_alloc(prh_round_cache_line_size(size), PRH_CACHE_LINE_SIZE, line);
-    prh_aligned_free((void *)size);
+    if (line != -1) return prh_impl_aligned_alloc(prh_round_cache_line_size(size), prh_cache_line_size, line);
+    prh_aligned_dealloc((void *)size);
     return prh_null;
 }
 
@@ -7800,7 +7913,7 @@ prh_inline int prh_impl_coro_struct_alloc_size(int maxcoros) {
 
 prh_coro_struct *prh_coro_init(int start_id, int maxcoros) {
     int alloc_size = prh_impl_coro_struct_alloc_size(maxcoros);
-    prh_coro_struct *s = (prh_coro_struct *)prh_std_calloc(alloc_size);
+    prh_coro_struct *s = (prh_coro_struct *)prh_calloc(alloc_size);
     s->start_id = start_id;
     s->maxcoros = maxcoros;
     return s;
@@ -8073,7 +8186,7 @@ bool prh_coro_start(prh_coro_struct *s, int index) {
 }
 
 prh_inline void prh_impl_coro_free(prh_coro *coro) {
-    prh_aligned_free(prh_impl_coro_guard(coro));
+    prh_aligned_dealloc(prh_impl_coro_guard(coro));
 }
 
 void prh_coro_finish(prh_coro_struct **main) {
@@ -8088,7 +8201,7 @@ void prh_coro_finish(prh_coro_struct **main) {
         }
     }
     *main = prh_null;
-    prh_std_free(s);
+    prh_dealloc(s);
 }
 
 void prh_soro_init(prh_soro_struct *s, int start_id) {
@@ -11530,7 +11643,7 @@ bool prh_atom_data_quefix_pop_all(prh_atom_data_quefix *q, prh_data_quefit *out)
 void prh_atom_data_quefix_free_node(prh_data_quefit *q);
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
-#define PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
+#define PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE prh_cache_line_size // block size shall be power of 2
 #define PRH_IMPL_ATOM_DYNQUE_NODE_COUNT (PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE / sizeof(prh_data_snode))
 prh_static_assert(PRH_IMPL_ATOM_DYNQUE_NODE_COUNT >= 2); // 如果不能分配2个或2个以上，间接块分配没有意义
 prh_static_assert(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE % sizeof(prh_data_snode) == 0);
@@ -11563,7 +11676,7 @@ prh_data_snode *prh_impl_atom_data_quefix_aligned_alloc(prh_atom_data_quefix *q)
 
 void prh_impl_atom_data_quefix_aligned_free(prh_data_snode *node) { // called by pop thread
     if (((prh_reg)(node + 1) & (prh_reg)(PRH_IMPL_ATOM_DYNQUE_BLOCK_SIZE - 1)) == 0) {
-        prh_aligned_free(node + 1 - PRH_IMPL_ATOM_DYNQUE_NODE_COUNT);
+        prh_aligned_dealloc(node + 1 - PRH_IMPL_ATOM_DYNQUE_NODE_COUNT);
     }
 }
 
@@ -11790,11 +11903,11 @@ bool prh_atom_dynque_ext_check_next(prh_atom_dynque_stamp *stamp, prh_ptr *data_
 void prh_atom_dynque_pop_items(prh_atom_dynque_stamp *stamp, prh_atom_dynque_free_block deliver_free_block_to_producer);
 
 #ifdef PRH_ATOMIC_IMPLEMENTATION
-#define PRH_AHQF_BLOCK_SIZE PRH_CACHE_LINE_SIZE // block size shall be power of 2
+#define PRH_AHQF_BLOCK_SIZE prh_cache_line_size // block size shall be power of 2
 #define PRH_AHQF_BLOCK_PTRS (PRH_AHQF_BLOCK_SIZE / sizeof(void *))
 #define PRH_AHQF_BHEAD_PTRS (prh_int)(sizeof(prh_hive_quefix_block) / sizeof(void *))
 prh_static_assert(PRH_AHQF_BLOCK_PTRS >= 2); // 如果不能分配2个或2个以上，间接块分配没有意义
-prh_static_assert(PRH_AHQF_BLOCK_SIZE % PRH_CACHE_LINE_SIZE == 0); // 内存块必须是缓存行大小的倍数
+prh_static_assert(PRH_AHQF_BLOCK_SIZE % prh_cache_line_size == 0); // 内存块必须是缓存行大小的倍数
 prh_static_assert(PRH_AHQF_BLOCK_PTRS % PRH_AHQF_BHEAD_PTRS == 0); // 内存块可以保存的指针数量必须是 2 的倍数
 prh_static_assert(PRH_AHQF_BHEAD_PTRS == 2);
 prh_hive_quefix_block *prh_impl_ahqf_free_block_pop(prh_atom_hive_fbqfix *q);
@@ -11854,7 +11967,7 @@ void prh_impl_atom_hive_quefix_free_head_block(prh_hive_quefix_block *head_block
     prh_hive_quefix_block *next;
     while (head_block) {
         next = head_block->next;
-        prh_aligned_free(head_block);
+        prh_aligned_dealloc(head_block);
         head_block = next;
     }
 }
@@ -11868,10 +11981,10 @@ prh_hive_quefix_block *prh_impl_atom_hive_fbqfix_free_items_on_block(prh_hive_qu
     for (; (void **)item < block->tail; item += 1) {
         prh_hive_quefix_block *free_block = *item; // 释放内存块内保存的空闲块
         assert(free_block != prh_null);
-        prh_aligned_free(free_block);
+        prh_aligned_dealloc(free_block);
     }
     prh_hive_quefix_block *next = block->next;
-    prh_aligned_free(block);
+    prh_aligned_dealloc(block);
     return next;
 }
 
@@ -12080,11 +12193,11 @@ prh_atom_dynque_block *prh_impl_atom_dynque_free_items_on_block(prh_atom_dynque_
         prh_atom_dynque_block *free_block = *start++;
         assert(free_block != prh_null);
         assert(free_block != PRH_ATOM_DYNQUE_BLOCK_END);
-        prh_aligned_free(free_block); // 释放内存块内保存的空闲块
+        prh_aligned_dealloc(free_block); // 释放内存块内保存的空闲块
         q->free_block_count -= 1;
     }
     prh_atom_dynque_block *next = block_end->next;
-    prh_aligned_free(block);
+    prh_aligned_dealloc(block);
     return next;
 }
 
@@ -12142,7 +12255,7 @@ prh_atom_dynque_block *prh_impl_atom_dynque_freed_blocks_pop(prh_atom_dynque_fre
 prh_atom_dynque_block *prh_impl_atom_dynque_aligned_alloc(prh_int block_end_offset, prh_atom_dynque_block *free_block) {
     if (free_block == prh_null) {
         prh_int queue_block_bytes = block_end_offset + 2 * sizeof(void *);
-        assert(block_end_offset > 0 && (queue_block_bytes % PRH_CACHE_LINE_SIZE) == 0);
+        assert(block_end_offset > 0 && (queue_block_bytes % prh_cache_line_size) == 0);
         free_block = prh_cache_line_aligned_alloc(queue_block_bytes);
         memset(free_block, 0, queue_block_bytes);
         prh_impl_atom_dynque_block_end(free_block, block_end_offset)->block_end_data = (prh_ptr)PRH_ATOM_DYNQUE_BLOCK_END;
@@ -12170,7 +12283,7 @@ void prh_atom_dynque_free(prh_atom_dynque_producer *p, prh_atom_dynque_consumer 
     prh_atom_dynque_block *next;
     while (head_block) {
         next = prh_impl_atom_dynque_block_end(head_block, p->block_end_offset)->next;
-        prh_aligned_free(head_block);
+        prh_aligned_dealloc(head_block);
         head_block = next;
     }
 }
@@ -12190,7 +12303,7 @@ void prh_atom_dynque_push(prh_atom_dynque_producer *p, prh_atom_dynque_length *l
 void prh_atom_dynque_ext_push(prh_atom_dynque_producer *p, prh_atom_dynque_length *l, void *data, prh_ptr extra, prh_atom_dynque_freed_blocks *freeq) {
     assert(data != prh_null && data != PRH_ATOM_DYNQUE_BLOCK_END);
     *p->tail_block_tail_item++ = data;
-    *p->tail_block_tail_item++ = (void *)extra; // 内存块大小是 PRH_CACHE_LINE_SIZE 的倍数，保证可以插入双数个元素
+    *p->tail_block_tail_item++ = (void *)extra; // 内存块大小是 prh_cache_line_size 的倍数，保证可以插入双数个元素
     assert(*(p->tail_block_tail_item - 2) == data); // 仅允许单生产者和单消费者
     if (*p->tail_block_tail_item == PRH_ATOM_DYNQUE_BLOCK_END) {
         prh_atom_dynque_block *next = prh_impl_atom_dynque_alloc_block(p->block_end_offset, freeq);
@@ -12523,7 +12636,7 @@ typedef struct {
 
 void *prh_impl_atom_arrque_alloc(prh_int size, prh_int alloc) {
     assert(size > 0 && prh_is_power_of_2(size));
-    prh_impl_atom_arrque *q = prh_std_malloc(sizeof(prh_impl_atom_arrque) + alloc);
+    prh_impl_atom_arrque *q = prh_malloc(sizeof(prh_impl_atom_arrque) + alloc);
     q->head = q->tail = 0;
     q->size_minus_one = size - 1;
     prh_atom_int_init(&q->len, 0);
@@ -12531,7 +12644,7 @@ void *prh_impl_atom_arrque_alloc(prh_int size, prh_int alloc) {
 }
 
 void prh_impl_atom_arrque_free(void *q) {
-    prh_std_free(q);
+    prh_dealloc(q);
 }
 
 prh_int prh_impl_atom_arrque_len(void *q) {
@@ -14681,7 +14794,7 @@ typedef struct {
     prh_int thrd_size;
 } prh_simple_thrds;
 
-#define PRH_SIMPLE_THRD_ALIGNOF PRH_CACHE_LINE_SIZE
+#define PRH_SIMPLE_THRD_ALIGNOF prh_cache_line_size
 prh_static_assert(sizeof(prh_simple_thrds) <= PRH_SIMPLE_THRD_ALIGNOF);
 prh_static_assert(sizeof(prh_simple_thrds) == 8 + sizeof(prh_int));
 
@@ -14940,7 +15053,7 @@ void prh_impl_launch_main_thrd(prh_thrd *main) {
 }
 
 prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size) {
-    prh_thrds *s = prh_std_calloc(prh_impl_thrds_size(thrd_num));
+    prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_num));
     assert(thrd_group >= 0 && thrd_group < 0x3fff);
     prh_thrd *main = prh_impl_thrd_create(thrd_group << 16, main_thrd_size ? main_thrd_size : sizeof(prh_thrd));
     s->thrd_max = thrd_num;
@@ -15057,7 +15170,7 @@ void prh_impl_thrd_join(prh_thrd *thrd, prh_thrdfree_t thrd_free) {
     if (thrd_free) {
         thrd_free(thrd, thrd->thrd_id);
     }
-    prh_aligned_free(thrd);
+    prh_aligned_dealloc(thrd);
 }
 
 void prh_impl_thrd_single_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t thrd_free) {
@@ -15067,7 +15180,7 @@ void prh_impl_thrd_single_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfre
     if (thrd_free) {
         thrd_free(thrd, thrd_index);
     }
-    prh_aligned_free(thrd);
+    prh_aligned_dealloc(thrd);
     thrd_list[thrd_index] = prh_null;
 }
 
@@ -15102,10 +15215,10 @@ void prh_thrd_free(prh_thrds **main, prh_thrdfree_t thrd_free) {
         if (thrd_free) {
             thrd_free(main_thrd, 0);
         }
-        prh_aligned_free(main_thrd);
+        prh_aligned_dealloc(main_thrd);
         s->main = prh_null;
     }
-    prh_std_free(s);
+    prh_dealloc(s);
     *main = prh_null;
 }
 
@@ -15150,7 +15263,7 @@ void prh_simp_thrd_free(prh_simple_thrds **main, prh_thrdfree_t thrd_free) {
         }
         main_thrd->created = 0;
     }
-    prh_aligned_free(s);
+    prh_aligned_dealloc(s);
     *main = prh_null;
 }
 
@@ -15918,7 +16031,7 @@ void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
 }
 
 prh_thrd_cond *prh_thrd_cond_init(void) {
-    prh_thrd_cond *p = prh_std_malloc(sizeof(prh_thrd_cond));
+    prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
     prh_impl_thrd_cond_init(p);
     return p;
 }
@@ -15926,7 +16039,7 @@ prh_thrd_cond *prh_thrd_cond_init(void) {
 void prh_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的。
     prh_impl_thrd_cond_free(p);
-    prh_std_free(p);
+    prh_dealloc(p);
 }
 
 void prh_thrd_cond_lock(prh_thrd_cond *p) {
@@ -15972,14 +16085,14 @@ void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
 }
 
 prh_thrd_sem *prh_thrd_sem_init(void) {
-    prh_thrd_sem *p = prh_std_malloc(sizeof(prh_thrd_sem));
+    prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
     prh_impl_thrd_sem_init(p);
     return p;
 }
 
 void prh_thrd_sem_free(prh_thrd_sem *p) {
     prh_impl_thrd_sem_free(p);
-    prh_std_free(p);
+    prh_dealloc(p);
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
@@ -16016,14 +16129,14 @@ void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
 }
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
-    prh_cond_sleep *p = prh_std_malloc(sizeof(prh_cond_sleep));
+    prh_cond_sleep *p = prh_malloc(sizeof(prh_cond_sleep));
     prh_impl_init_cond_sleep(p);
     return p;
 }
 
 void prh_free_cond_sleep(prh_cond_sleep *p) {
     prh_impl_free_cond_sleep(p);
-    prh_std_free(p);
+    prh_dealloc(p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -16679,10 +16792,10 @@ void prh_system_info(prh_sysinfo *info) {
         prh_prerr(GetLastError());
         return;
     }
-    processor_info = prh_std_malloc(count * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
+    processor_info = prh_malloc(count * sizeof(SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX));
     if (!GetLogicalProcessorInformationEx(RelationCache, processor_info, &count)) {
         prh_prerr(GetLastError());
-        prh_std_free(processor_info);
+        prh_dealloc(processor_info);
         return;
     }
     int cache_line_size = 0;
@@ -16693,7 +16806,7 @@ void prh_system_info(prh_sysinfo *info) {
         }
     }
     info->cache_line_size = cache_line_size;
-    prh_std_free(processor_info);
+    prh_dealloc(processor_info);
 }
 
 void prh_impl_plat_set_fault_handler(void) {
@@ -17933,7 +18046,7 @@ prh_ptr prh_impl_plat_thrd_self(void) {
 //     // SIGSEGV 可能因为进程栈耗尽产生，此时该信号设置的处理函数将无法执行，因为已经没
 //     // 有栈空间了，因此需要额外分配一个信号栈，让处理函数在这个新栈上执行。
 //     stack_t altstk;
-//     altstk.ss_sp = prh_std_malloc(SIGSTKSZ);
+//     altstk.ss_sp = prh_malloc(SIGSTKSZ);
 //     altstk.ss_size = SIGSTKSZ;
 //     altstk.ss_flags = 0;
 //     prh_abort_nz(sigaltstack(&altstk, prh_null)); // 不好的地方，需要为每个线程都创建一个 altstk
@@ -19357,20 +19470,20 @@ void prh_mutex_free(prh_mutex *p) {
 }
 
 prh_mutex *prh_mutex_init(void) {
-    prh_mutex *p = prh_std_malloc(sizeof(prh_mutex));
+    prh_mutex *p = prh_malloc(sizeof(prh_mutex));
     prh_mutex_init(p);
     return p;
 }
 
 prh_mutex *prh_recursive_mutex_init(void) {
-    prh_mutex *p = prh_std_malloc(sizeof(prh_mutex));
+    prh_mutex *p = prh_malloc(sizeof(prh_mutex));
     prh_recursive_mutex_init(p);
     return p;
 }
 
 void prh_mutex_free(prh_mutex *p) {
     prh_mutex_free(p);
-    prh_std_free(p);
+    prh_dealloc(p);
 }
 
 void prh_mutex_enter(prh_mutex *p) {
@@ -19407,7 +19520,7 @@ void prh_impl_thrd_cond_free(prh_thrd_cond *p) {
 }
 
 prh_thrd_cond *prh_thrd_cond_init(void) {
-    prh_thrd_cond *p = prh_std_malloc(sizeof(prh_thrd_cond));
+    prh_thrd_cond *p = prh_malloc(sizeof(prh_thrd_cond));
     prh_impl_thrd_cond_init(p);
     return p;
 }
@@ -19416,7 +19529,7 @@ void prh_thrd_cond_free(prh_thrd_cond *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
     prh_impl_thrd_cond_free(p);
-    prh_std_free(p);
+    prh_dealloc(p);
 }
 
 // 互斥量必须在当前线程锁定的情况下调用该函数，该函数在进入休眠前会自动解锁互斥
@@ -19525,14 +19638,14 @@ void prh_impl_thrd_sem_free(prh_thrd_sem *p) {
 }
 
 prh_thrd_sem *prh_thrd_sem_init(void) {
-    prh_thrd_sem *p = prh_std_malloc(sizeof(prh_thrd_sem));
+    prh_thrd_sem *p = prh_malloc(sizeof(prh_thrd_sem));
     prh_impl_thrd_sem_init(p);
     return p;
 }
 
 void prh_thrd_sem_free(prh_thrd_sem *p) {
     prh_impl_thrd_sem_free(p);
-    prh_std_free(p);
+    prh_dealloc(p);
 }
 
 void prh_thrd_sem_wait(prh_thrd_sem *p) {
@@ -19566,7 +19679,7 @@ void prh_impl_free_cond_sleep(prh_cond_sleep *p) {
 }
 
 prh_cond_sleep *prh_init_cond_sleep(void) {
-    prh_cond_sleep *p = prh_std_malloc(sizeof(prh_thrd_cond));
+    prh_cond_sleep *p = prh_malloc(sizeof(prh_thrd_cond));
     prh_impl_init_cond_sleep(p);
     return p;
 }
@@ -19575,7 +19688,7 @@ void prh_free_cond_sleep(prh_cond_sleep *p) {
     // 仅当没有任何线程等待条件变量，将其销毁才是安全的，经销毁的条件变量之后可以调用
     // pthread_cond_init() 对其进行重新初始化。
     prh_impl_free_cond_sleep(p);
-    prh_std_free(p);
+    prh_dealloc(p);
 }
 
 bool prh_thrd_try_sleep(prh_cond_sleep *p) {
@@ -19827,7 +19940,7 @@ void prh_system_info(prh_sysinfo *info) {
         prh_prerr(__LINE__);
     }
 #else
-    info->cache_line_size = PRH_CACHE_LINE_SIZE; // 使用默认大小
+    info->cache_line_size = prh_cache_line_size; // 使用默认大小
 #endif
 #endif
     prh_preno_if(errno != 0);
@@ -20790,7 +20903,7 @@ void prh_iocp_riosend_init(prh_iocp_riosend *req, prh_rio_socket rio_socket, prh
 }
 
 void prh_impl_iocp_riosend_req(prh_iocp_riosend *req, const prh_byte *buffer, int length, prh_r32 flags) {
-    assert(buffer >= PRH_IMPL_RIO_BUFBEG && buffer < PRH_IMPL_RIO_BUFEND && (buffer % PRH_CACHE_LINE_SIZE) == 0);
+    assert(buffer >= PRH_IMPL_RIO_BUFBEG && buffer < PRH_IMPL_RIO_BUFEND && (buffer % prh_cache_line_size) == 0);
     assert(length > 0 && length < PRH_IMPL_TXRX_BYTES && buffer + length < PRH_IMPL_RIO_BUFEND);
     RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
     DWORD error_code = prh_impl_rio_send((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
@@ -21013,7 +21126,7 @@ void prh_iocp_riorecv_init(prh_iocp_riorecv *req, prh_rio_socket rio_socket, prh
 }
 
 void prh_impl_iocp_riorecv_req(prh_iocp_riorecv *req, prh_byte *buffer, int length, prh_r32 flags) {
-    assert(buffer >= PRH_IMPL_RIO_BUFBEG && buffer < PRH_IMPL_RIO_BUFEND && (buffer % PRH_CACHE_LINE_SIZE) == 0);
+    assert(buffer >= PRH_IMPL_RIO_BUFBEG && buffer < PRH_IMPL_RIO_BUFEND && (buffer % prh_cache_line_size) == 0);
     assert(length > 0 && length < PRH_IMPL_TXRX_BYTES && buffer + length < PRH_IMPL_RIO_BUFEND);
     RIO_BUF rio_buf = {.BufferId = (RIO_BUFFERID)PRH_IMPL_RIO_BUFFER, .Offset = (ULONG)(buffer - PRH_IMPL_RIO_BUFBEG), .Length = (ULONG)length};
     DWORD error_code = prh_impl_rio_recv((prh_rio_socket)req->socket, &rio_buf, flags, &req->overlapped);
@@ -22248,10 +22361,10 @@ typedef struct prh_co_thrd prh_thrd_struct(                     //
     prh_atom_thrd_rx_consumer thrd_rx_consumer;                 //  28  48  仅由工作线程访问
     prh_byte *linear_memory_buffer_top;                         //  32  56  只能释放最后分配的内存，只能线性地在一条绳索上滑动
     prh_byte *braver_memory_cache_line;                         //  36  64  分配了就分配了释放不了的内存，永远向前不能后退的内存，每次分配缓存行的整数倍
-    prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_share_thrd_data share_thrd_data;
+    prh_alignas(prh_cache_line_size) prh_iocp_share_thrd_data share_thrd_data;
 ) prh_co_thrd;
 
-prh_static_assert(prh_offsetof(prh_co_thrd, share_thrd_data) == PRH_CACHE_LINE_SIZE);
+prh_static_assert(prh_offsetof(prh_co_thrd, share_thrd_data) == prh_cache_line_size);
 
 typedef struct { // 被工作线程和调度线程共享的全局数据
     prh_atom_r32 post_seqn_seed;
@@ -22263,7 +22376,7 @@ typedef struct { // 被工作线程和调度线程共享的全局数据
     prh_mutex thrd_wait_que_mutex;
 } prh_iocp_shared_global;
 
-static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_shared_global PRH_IOCP_SHARED_GLOBAL;
+static prh_alignas(prh_cache_line_size) prh_iocp_shared_global PRH_IOCP_SHARED_GLOBAL;
 
 // 线程中的协程分为两类：
 //  1.  一类为活跃协程，活跃协程已满足运行条件，可以被当前线程或被其他线程抢夺执行
@@ -22273,7 +22386,7 @@ static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_shared_global PRH_IOCP_SHARED_G
 //  5.  线程以尽量公平的方式对专属协程和其他协程轮转执行
 
 void *prh_impl_thrd_braver_memory_alloc(prh_reg size, prh_co_thrd *thrd) {
-    assert(size > 0 && (size % PRH_CACHE_LINE_SIZE) == 0);
+    assert(size > 0 && (size % prh_cache_line_size) == 0);
     void *alloc = thrd->braver_memory_cache_line;
     thrd->braver_memory_cache_line += size;
     return alloc;
@@ -22640,7 +22753,7 @@ typedef struct { // 仅由调度线程访问的数据
     prh_atom_thrd_rx_freed_queue coro_freed_block_que;  // 可写，仅由调度线程访问
 } prh_iocp_global;
 
-static prh_alignas(PRH_CACHE_LINE_SIZE) prh_iocp_global PRH_IOCP_GLOBAL;
+static prh_alignas(prh_cache_line_size) prh_iocp_global PRH_IOCP_GLOBAL;
 
 int prh_impl_iocp_continue_que_len(void) {
     return (int)prh_fixed_arrque_len(PRH_IOCP_GLOBAL.iocp_continue_que);
@@ -22698,8 +22811,8 @@ static bool prh_impl_iocp_rio_socket_completion(OVERLAPPED_ENTRY *entry) { // �
 }
 
 void prh_iocp_rio_init(int cqueue_size, prh_byte *register_trx_buffer, int buffer_length) {
-    assert(register_trx_buffer != prh_null && ((prh_ptr)register_trx_buffer % PRH_CACHE_LINE_SIZE) == 0);
-    assert(buffer_length > 0 && (buffer_length % PRH_CACHE_LINE_SIZE) == 0);
+    assert(register_trx_buffer != prh_null && ((prh_ptr)register_trx_buffer % prh_cache_line_size) == 0);
+    assert(buffer_length > 0 && (buffer_length % prh_cache_line_size) == 0);
     PRH_IMPL_RIO_CQUEUE = prh_impl_rio_cqueue_create(cqueue_size, PRH_IMPL_IOCP, (prh_ptr)prh_impl_iocp_rio_socket_completion, (void *)&PRH_IMPL_RIO_CQUEUE);
     PRH_IMPL_RIO_BUFFER = prh_impl_rio_buffer_register(register_trx_buffer, buffer_length);
     PRH_IMPL_RIO_BUFBEG = register_trx_buffer;
@@ -22834,7 +22947,7 @@ void prh_impl_sched_thrd_post(void *post_req, prh_continue_routine continue_rout
 #define PRH_SCHED_CORO_RX_BLOCK_SIZE PRH_IMPL_THRD_QUE_BLOCK_SIZE_L0
 #endif
 
-prh_static_assert((PRH_IMPL_THRD_QUE_BLOCK_SIZE_L0 % PRH_CACHE_LINE_SIZE) == 0);
+prh_static_assert((PRH_IMPL_THRD_QUE_BLOCK_SIZE_L0 % prh_cache_line_size) == 0);
 prh_static_assert((PRH_SCHED_CORO_RX_BLOCK_SIZE) > 0 && ((PRH_SCHED_CORO_RX_BLOCK_SIZE) % PRH_IMPL_THRD_QUE_BLOCK_SIZE_L0) == 0);
 
 #define PRH_IMPL_SCHED_CORO_RX_BLOCK_END_OFFSET ((PRH_SCHED_CORO_RX_BLOCK_SIZE) - 2 * (int)sizeof(void *))
@@ -23950,7 +24063,7 @@ void prh_impl_process_epac_del(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
         port->wait_i = -1;
         array->size -= 1;
     }
-    prh_aligned_free(port);
+    prh_aligned_dealloc(port);
     epoll->fds_count -= 1;
 }
 
@@ -25115,11 +25228,11 @@ struct prh_real_cono {
     prh_continue_routine routine_after_yield;                           // +1p  28  40
     prh_r32 wait_callee_count, freed_item_count;                        // +8   36  48
     prh_byte data_offset, subq_num, wait_que, uncond_run, has_caller;   // +*p  44  56
-    prh_alignas(PRH_CACHE_LINE_SIZE) prh_sched_only_data sched_only_data;
-    prh_alignas(PRH_CACHE_LINE_SIZE) prh_share_coro_data share_coro_data;
+    prh_alignas(prh_cache_line_size) prh_sched_only_data sched_only_data;
+    prh_alignas(prh_cache_line_size) prh_share_coro_data share_coro_data;
 };
 
-#define prh_impl_cono_fixed_size (PRH_CACHE_LINE_SIZE * 3)
+#define prh_impl_cono_fixed_size (prh_cache_line_size * 3)
 #define prh_impl_cono_fixed_extend_size (prh_impl_cono_fixed_size - prh_impl_coro_size)
 #define prh_impl_cono_waited_callee(cono) (cono)->base.coro.userdata
 prh_static_assert(prh_offsetof(prh_real_cono, callee_rx_que_consumer) == prh_impl_coro_size);
@@ -25132,7 +25245,7 @@ prh_inline prh_real_cono *prh_impl_cono_from_spawn_data(void *spawn_data) {
 }
 
 prh_inline void *prh_impl_spawn_data_from_cono(prh_real_cono *cono) {
-    return (prh_byte *)cono + cono->data_offset * PRH_CACHE_LINE_SIZE;
+    return (prh_byte *)cono + cono->data_offset * prh_cache_line_size;
 }
 
 prh_inline prh_real_cono *prh_impl_cono_from_sched_only_data(prh_sched_only_data *sched_only_data) {
@@ -25140,20 +25253,20 @@ prh_inline prh_real_cono *prh_impl_cono_from_sched_only_data(prh_sched_only_data
 }
 
 prh_inline prh_sched_only_data *prh_impl_sched_only_data_from_subq(prh_coro_subq *coro_subq) {
-    return (prh_sched_only_data *)((prh_byte *)(coro_subq - coro_subq->subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - PRH_CACHE_LINE_SIZE);
+    return (prh_sched_only_data *)((prh_byte *)(coro_subq - coro_subq->subq_i) - prh_offsetof(prh_share_coro_data, share_coro_data.coro_subq) - prh_cache_line_size);
 }
 
 int prh_impl_cono_extend_size(prh_byte subq_num) {
     int share_coro_data_size = (int)(sizeof(prh_share_coro_data) + subq_num * sizeof(prh_coro_subq));
-    if (share_coro_data_size <= PRH_CACHE_LINE_SIZE) return prh_impl_cono_fixed_extend_size;
-    int exceeded_size = share_coro_data_size - PRH_CACHE_LINE_SIZE;
+    if (share_coro_data_size <= prh_cache_line_size) return prh_impl_cono_fixed_extend_size;
+    int exceeded_size = share_coro_data_size - prh_cache_line_size;
     return prh_impl_cono_fixed_extend_size + (int)prh_round_cache_line_size(exceeded_size);
 }
 
 int prh_impl_cono_struct_size(prh_byte subq_num) {
     int share_coro_data_size = (int)(sizeof(prh_share_coro_data) + subq_num * sizeof(prh_coro_subq));
-    if (share_coro_data_size <= PRH_CACHE_LINE_SIZE) return prh_impl_cono_fixed_size;
-    int exceeded_size = share_coro_data_size - PRH_CACHE_LINE_SIZE;
+    if (share_coro_data_size <= prh_cache_line_size) return prh_impl_cono_fixed_size;
+    int exceeded_size = share_coro_data_size - prh_cache_line_size;
     return prh_impl_cono_fixed_size + (int)prh_round_cache_line_size(exceeded_size);
 }
 
@@ -25312,7 +25425,7 @@ prh_coro *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, int maxudsiz
         (void *)coro, (prh_impl_coro_size + cono_extend_size), userdata, (int)prh_round_cache_line_size(maxudsize), stack_size);
 #endif
     *((void **)((void **)userdata - 1)) = coro;
-    int times_of_cache_line_size = prh_impl_cono_struct_size(subq_num) / PRH_CACHE_LINE_SIZE;
+    int times_of_cache_line_size = prh_impl_cono_struct_size(subq_num) / prh_cache_line_size;
     ((prh_real_cono *)coro)->data_offset = (prh_byte)times_of_cache_line_size; assert(times_of_cache_line_size <= 255);
     return coro;
 }
@@ -28298,14 +28411,14 @@ struct tcp_callback {
 };
 
 struct tcp_socket *prh_impl_alloc_tcp_socket(int txbuf_size, int rxbuf_size) {
-    return prh_malloc(sizeof(struct tcp_socket) + txbuf_size + rxbuf_size);
+    return prh_local_alloc(sizeof(struct tcp_socket) + txbuf_size + rxbuf_size);
 }
 
 // 每个监听套接字：
 //  1.  可同时接收 max_outstanding_accepts 个客户连接，该值必须小于等于 max_client_connections
 //  2.  可同时服务 max_client_connections 个客户连接
 //  3.  当达到最大客户连接后，必须释放原来的客户连接，才能接收新的连接
-//  4.  struct tcp_listen 和所有的 prh_accept_req 通过 prh_malloc 进行分配
+//  4.  struct tcp_listen 和所有的 prh_accept_req 通过 prh_local_alloc 进行分配
 //  5.  struct tcp_server 由所在线程通过 prh_co_alloc 进行分配
 
 struct tcp_listen {
@@ -28652,7 +28765,7 @@ struct prh_accept_req {
     /* +8p +4p */ prh_byte padding[32]; // AcceptEx本地和远程地址缓冲区必须比对应的协议地址多16字节
 };  /* 28p 16p (32-bit) 112-byte (64-bit) 128-byte */
 
-#define PRH_TCP_ACCEPT_STRUCT_SIZE (2 * PRH_CACHE_LINE_SIZE)
+#define PRH_TCP_ACCEPT_STRUCT_SIZE (2 * prh_cache_line_size)
 prh_static_assert(sizeof(struct prh_accept_req) <= PRH_TCP_ACCEPT_STRUCT_SIZE);
 
 #define PRH_IMPL_ACCEPT_V4_ADDRSIZE (int)(sizeof(struct sockaddr_in) + 16)
@@ -28695,7 +28808,7 @@ void prh_impl_listen_resue_socket(struct tcp_listen *listen, struct tcp_socket *
         }
     }
     if (!empty_idle_accept_found) {
-        prh_dalloc(socket);
+        prh_local_dealloc(socket);
     }
 
     int num_accept_can_request = listen->max_client_connections - listen->connection_count;
@@ -28875,7 +28988,7 @@ struct tcp_listen *prh_impl_alloc_tcp_listen(struct tcp_listen_params *params) {
 
     // [struct tcp_listen] [struct prh_accept_req] ... [struct prh_accept_req]
     prh_reg alloc_size = PRH_TCP_LISTEN_STRUCT_SIZE + listen_params.max_outstanding_accepts * PRH_TCP_ACCEPT_STRUCT_SIZE;
-    struct tcp_listen *tcp_listen = prh_malloc(alloc_size);
+    struct tcp_listen *tcp_listen = prh_local_alloc(alloc_size);
     memset(tcp_listen, 0, alloc_size);
     tcp_listen->socket = PRH_INVASOCK;
     tcp_listen->alloc = prh_get_malloc();
@@ -28951,7 +29064,7 @@ struct tcp_listen *prh_tcp_listen(const void *host, int flags_port, struct tcp_l
 label_error_handle:
     prh_prerr(error_code);
     prh_impl_close_socket(listen_socket);
-    prh_dalloc(listen);
+    prh_local_dealloc(listen);
     return prh_null;
 }
 
