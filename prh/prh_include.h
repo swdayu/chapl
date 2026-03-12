@@ -5543,6 +5543,132 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 //  erase_if     移除所有满足条件的元素，或移除指定范围内满足条件的元素
 
 #if 1
+typedef struct {
+    prh_byte *data;
+    prh_reg capacity;
+    prh_reg size;
+} prh_impl_arrdyn;
+
+#define prh_arriew(elem_type) struct { elem_type *data; prh_reg size; }
+#define prh_arrfit(elem_type) struct { elem_type *data; prh_reg capacity; prh_reg size; }
+#define prh_arrdyn(elem_type) struct { elem_type *data; prh_reg capacity; prh_reg size; }
+
+#define prh_impl_array_init(a, init_capacity) do {                              \
+    (a)->data = prh_null;                                                       \
+    (a)->capacity = 0;                                                          \
+    (a)->size = 0;                                                              \
+    prh_arrdyn_reserve((a), (init_capacity));                                   \
+} while (0)
+
+#define prh_impl_array_free(a) do {                                             \
+    prh_local_dealloc((a)->data);                                               \
+    (a)->data = prh_null;                                                       \
+    (a)->capacity = 0;                                                          \
+    (a)->size = 0;                                                              \
+} while (0)
+
+#define prh_arriew_from(a, elem_ptr, size) do {                                 \
+    (a)->data = (elem_ptr);                                                     \
+    (a)->size = (size);                                                         \
+} while (0)
+
+#define prh_arriew_from_range(a, elem_start_ptr, elem_end_ptr) do {             \
+    (a)->data = (elem_start_ptr);                                               \
+    (a)->size = (elem_end_ptr) - (a)->data;                                     \
+} while (0)
+
+#define prh_arrdyn_append(a, elem) do {                                         \
+    prh_arrdyn_reserve((a), (a)->size + 1);                                     \
+    *((a)->data + (a)->size++) = (elem);                                        \
+} while (0)
+
+#define prh_arrdyn_unchecked_append(a, elem) do {                               \
+    assert((a)->size < (a)->capacity);                                          \
+    *((a)->data + (a)->size++) = (elem);                                        \
+} while (0)
+
+#define prh_impl_array_unordered_remove(a, i) do {                              \
+    prh_reg j = (i);                                                            \
+    assert(j < (a)->size);                                                      \
+    (a)->data[j] = (a)->data[--(a)->size];                                      \
+} while (0)
+
+#define prh_arrfit_init(a, init_capacity) prh_impl_array_init((a), (init_capacity))
+#define prh_arrdyn_init(a, init_capacity) prh_impl_array_init((a), (init_capacity))
+
+#define prh_arrfit_free(a) prh_impl_array_free(a)
+#define prh_arrdyn_free(a) prh_impl_array_free(a)
+
+#define prh_arrfit_clear(a) do { (a)->size = 0; } while (0)
+#define prh_arrdyn_clear(a) do { (a)->size = 0; } while (0)
+#define prh_arrdyn_clear_and_reserve(a, new_capacity) do { (a)->size = 0; prh_arrdyn_reserve((a), (new_capacity)); } while (0)
+
+#define prh_array_data(a) ((a)->data)
+#define prh_array_capacity(a) ((a)->capacity)
+#define prh_array_size(a) ((a)->size)
+#define prh_array_elem_size(a) sizeof(*(a)->data)
+#define prh_array_elem_type(a) prh_typeof(*(a)->data)
+
+#define prh_array_begin(a) ((a)->data)
+#define prh_array_end(a) ((a)->data + (a)->size)
+#define prh_array_buffer_begin(a) ((a)->data)
+#define prh_array_buffer_end(a) ((a)->data + (a)->capacity)
+
+#define prh_array_front(a, i) ((a)->data + prh_impl_array_front((prh_impl_arrdyn *)(a), (i)))
+#define prh_array_back(a, i) ((a)->data + prh_impl_array_back((prh_impl_arrdyn *)(a), (i)))
+
+#define prh_array_at(a, i) (*prh_array_front((a), (i)))
+#define prh_array_last(a, i) (*prh_array_back((a), (i)))
+
+#define prh_arrfit_append(a, elem) prh_arrdyn_unchecked_append((a), (elem))
+#define prh_arrfit_append_items(a, p, n) prh_impl_array_unchecked_append_items((a), (p), (n), prh_array_elem_size(a))
+#define prh_arrdyn_append_items(a, p, n) prh_impl_array_append_items((prh_impl_arrdyn *)(a), (p), (n), 0, prh_array_elem_size(a), __LINE__)
+#define prh_arrdyn_unchecked_append_items(a, p, n) prh_impl_array_unchecked_append_items((a), (p), (n), prh_array_elem_size(a))
+
+#define prh_arrdyn_reserve(a, new_capacity) prh_impl_array_expand((prh_impl_arrdyn *)(a), (new_capacity), prh_array_elem_size(a), __LINE__)
+#define prh_arrdyn_shrink_to_fit(a) prh_impl_array_shrink((prh_impl_arrdyn *)(a), (a)->size, prh_array_elem_size(a), __LINE__)
+
+#define prh_arrfit_unordered_remove(a, i) prh_impl_array_unordered_remove((a), (i))
+#define prh_arrdyn_unordered_remove(a, i) prh_impl_array_unordered_remove((a), (i))
+
+#define prh_array_foreach(a) for (prh_array_elem_type(a) *it = prh_array_begin(a), *prh_impl_end = prh_array_end(a); it < prh_impl_end; it += 1)
+
+prh_inline prh_reg prh_impl_array_front(prh_impl_arrdyn *a, prh_reg i) {
+    assert(i < a->size);
+    return i;
+}
+
+prh_inline prh_reg prh_impl_array_back(prh_impl_arrdyn *a, prh_reg i) {
+    assert(i <= a->size); // 0 表示 end 位置，1 表示最后一个元素位置
+    return a->size - i;
+}
+
+prh_inline void prh_impl_array_expand(prh_impl_arrdyn *a, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
+    if (a->capacity < new_capacity) {
+        if (a->capacity == 0) a->capacity = 1; // 容量总是2的幂
+        do a->capacity *= 2; while (a->capacity < new_capacity);
+        a->data = prh_local_realloc(a->data, a->capacity * elem_size, line);
+    }
+}
+
+prh_inline void prh_impl_array_shrink(prh_impl_arrdyn *a, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
+    if (new_capacity < a->capacity / 2) { // 容量总是2的幂，当 new_capacity 为零时，a->capacity 将变成零
+        do a->capacity /= 2; while (new_capacity < a->capacity / 2);
+        a->data = prh_local_realloc(a->data, a->capacity * elem_size, line);
+    }
+}
+
+prh_inline void prh_impl_array_append_items(prh_impl_arrdyn *a, void *p, prh_reg n, prh_reg elem_size, prh_reg line) {
+    prh_impl_array_expand(a, a->size + n, elem_size, line);
+    memcpy(a->data + a->size, p, n * elem_size);
+    a->size += n;
+}
+
+prh_inline void prh_impl_array_unchecked_append_items(prh_impl_arrdyn *a, void *p, prh_reg n, prh_reg elem_size) {
+    assert(a->size + n <= a->capacity);
+    memcpy(a->data + a->size, p, n * elem_size);
+    a->size += n;
+}
 
 #else
 typedef struct { void *arrvew; prh_int size; } prh_impl_arrvew;
