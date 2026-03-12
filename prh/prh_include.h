@@ -3963,19 +3963,19 @@ prh_static_assert(prh_alignment_default >= prh_alignment_2p_size && prh_alignmen
 prh_static_assert((1 << prh_alignment_cache_line) == prh_cache_line_size);
 prh_static_assert((1 << prh_alignment_page_size) == prh_memory_page_size);
 
-typedef void *(prh_local_alloc_func)(void *context, prh_reg size, prh_reg alignment);
-typedef void *(prh_local_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
-typedef void (*prh_local_dealloc_func)(void *context, void *ptr);
+typedef void *(prh_allocator_alloc_func)(void *context, prh_reg size, prh_reg alignment);
+typedef void *(prh_allocator_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
+typedef void (*prh_allocator_dealloc_func)(void *context, void *ptr);
+
+typedef struct {
+    void *context; // 对于 aligned_alloc，如果 size 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
+    prh_allocator_alloc_func alloc; // 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问
+    prh_allocator_realloc_func realloc; // 重新分配，仅分配内存，不会执行释放操作
+    prh_allocator_dealloc_func dealloc; // 释放内存，要释放内存，必须调用该接口
+} prh_allocator;
 
 // 使用当前局部环境中的分配器进行分配，该动态分配器总是多分配一个两指针大小的头部空间，
 // 用来保存当前分配器指针和对齐字节，当重新分配或释放内存时，需要调用最初的分配器函数。
-typedef struct {
-    void *context; // 对于 aligned_alloc，如果 size 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
-    prh_local_alloc_func alloc; // 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问
-    prh_local_realloc_func realloc; // 重新分配，仅分配内存，不会执行释放操作
-    prh_local_dealloc_func dealloc; // 释放内存，要释放内存，必须调用该接口
-} prh_allocator;
-
 extern prh_thread_local prh_allocator *PRH_IMPL_ALLOC;
 extern prh_allocator *prh_impl_default_allocator;
 void prh_impl_empty_dealloc(void *context, void *ptr);
@@ -4124,9 +4124,9 @@ void *prh_linear_realloc(prh_linear *l, void *ptr, prh_reg size, prh_reg alignme
 
 void prh_linear_allocator_init(prh_linear *l, prh_allocator *a) {
     a->context = l;
-    a->alloc = (prh_local_alloc_func)prh_linear_forward;
-    a->realloc = (prh_local_realloc_func)prh_linear_realloc;
-    a->dealloc = (prh_local_dealloc_func)prh_impl_empty_dealloc;
+    a->alloc = (prh_allocator_alloc_func)prh_linear_forward;
+    a->realloc = (prh_allocator_realloc_func)prh_linear_realloc;
+    a->dealloc = (prh_allocator_dealloc_func)prh_impl_empty_dealloc;
 }
 
 #if defined(prh_plat_windows)
@@ -7930,7 +7930,7 @@ struct async_co;
 typedef void (*prh_co_proc)(void *co_struct);
 typedef void (*prh_async_co_proc)(struct async_co *co);
 
-extern prh_local_alloc_func PRH_IMPL_CO_ALLOC; // 只能全局设置一次
+extern prh_allocator_alloc_func PRH_IMPL_CO_ALLOC; // 只能全局设置一次
 #define prh_co_alloc(size) PRH_IMPL_CO_ALLOC((size), __LINE__)
 #define prh_co_free(ptr) PRH_IMPL_CO_ALLOC((prh_reg)(ptr), -1)
 #define prh_set_co_allocator(alloc) PRH_IMPL_CO_ALLOC = (alloc)
@@ -8035,7 +8035,7 @@ static void *prh_impl_default_co_alloc(prh_reg size, int line) {
     return prh_null;
 }
 
-prh_local_alloc_func PRH_IMPL_CO_ALLOC = prh_impl_default_co_alloc;
+prh_allocator_alloc_func PRH_IMPL_CO_ALLOC = prh_impl_default_co_alloc;
 
 #define prh_lower_guard_word 0x5a5a5a5a
 #define prh_upper_guard_word 0xa5a5a5a5
@@ -14969,7 +14969,7 @@ void prh_impl_time_test(void) {
 }
 
 typedef struct {
-    prh_local_alloc_func alloc;
+    prh_allocator_alloc_func alloc;
 } prh_tctx;
 
 typedef struct prh_thrd_struct(void *userdata;) prh_user_thrd;
@@ -28616,7 +28616,7 @@ struct tcp_socket *prh_impl_alloc_tcp_socket(int txbuf_size, int rxbuf_size) {
 struct tcp_listen {
     /* +1p +1p */ prh_handle socket;
     /* +1p +1p */ prh_co_proc server_routine;
-    /* +1p +1p */ prh_local_alloc_func alloc;
+    /* +1p +1p */ prh_allocator_alloc_func alloc;
     /* +1p +1p */ prh_singly_node idle_accept_req;
     /* +1p +1p */ prh_singly_node idle_tcp_socket;
     /* +1p +0p */ int max_kernel_pre_accepts; // 内核可缓存多少预先接收的连接（backlog）
