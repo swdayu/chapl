@@ -3955,29 +3955,33 @@ void prh_impl_test_code(void) {
 #define prh_alignment_cache_line 6
 #define prh_alignment_page_size 12
 
-#ifndef prh_alignment_default
-#define prh_alignment_default prh_alignment_2p_size
+#ifndef prh_default_local_alloc_alignment
+#define prh_default_local_alloc_alignment prh_alignment_2p_size
 #endif
 
-prh_static_assert(prh_alignment_default >= prh_alignment_2p_size && prh_alignment_default <= prh_alignment_64_1024_byte);
+#ifndef prh_default_quick_alloc_alignment
+#define prh_default_quick_alloc_alignment prh_alignment_pointer
+#endif
+
+prh_static_assert(prh_default_local_alloc_alignment >= prh_alignment_2p_size && prh_default_local_alloc_alignment <= prh_alignment_64_1024_byte);
+prh_static_assert(prh_default_quick_alloc_alignment >= prh_alignment_pointer && prh_default_quick_alloc_alignment <= prh_alignment_64_1024_byte);
+
 prh_static_assert((1 << prh_alignment_cache_line) == prh_cache_line_size);
 prh_static_assert((1 << prh_alignment_page_size) == prh_memory_page_size);
 
-typedef void *(prh_allocator_alloc_func)(void *context, prh_reg size, prh_reg alignment);
-typedef void *(prh_allocator_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
+typedef void *(*prh_allocator_alloc_func)(void *context, prh_reg size, prh_reg alignment);
+typedef void *(*prh_allocator_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
 typedef void (*prh_allocator_dealloc_func)(void *context, void *ptr);
 
 typedef struct {
     void *context; // 对于 aligned_alloc，如果 size 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
-    prh_allocator_alloc_func alloc; // 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问
-    prh_allocator_realloc_func realloc; // 重新分配，仅分配内存，不会执行释放操作
-    prh_allocator_dealloc_func dealloc; // 释放内存，要释放内存，必须调用该接口
+    prh_allocator_alloc_func alloc_func; // 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问
+    prh_allocator_realloc_func realloc_func; // 重新分配，仅分配内存，不会执行释放操作
+    prh_allocator_dealloc_func dealloc_func; // 释放内存，要释放内存，必须调用该接口
 } prh_allocator;
 
-// 使用当前局部环境中的分配器进行分配，该动态分配器总是多分配一个两指针大小的头部空间，
-// 用来保存当前分配器指针和对齐字节，当重新分配或释放内存时，需要调用最初的分配器函数。
-extern prh_thread_local prh_allocator *PRH_IMPL_ALLOC;
-extern prh_allocator *prh_impl_default_allocator;
+extern prh_thread_local prh_allocator *PRH_IMPL_LOCAL_ALLOC;
+extern const prh_allocator *prh_impl_default_allocator;
 void prh_impl_empty_dealloc(void *context, void *ptr);
 
 typedef struct {
@@ -3989,10 +3993,10 @@ prh_static_assert(sizeof(prh_impl_alloc_header) == 2 * sizeof(void *));
 
 prh_inline void *prh_impl_local_alloc(prh_reg size, prh_reg line_alignment) {
     prh_reg alignment = (1 << (line_alignment & 0x0F)); assert(alignment >= 2 * sizeof(void *));
-    prh_byte *p = (prh_byte *)PRH_IMPL_ALLOC->alloc(PRH_IMPL_ALLOC->context, size + alignment, alignment);
-    prh_impl_alloc_header *header = (prh_impl_alloc_header *)(p + alignment - sizeof(prh_impl_alloc_header));
-    prh_assert_line(p != prh_null, line_alignment >> 4);
-    header->alloc = PRH_IMPL_ALLOC;
+    prh_byte *ptr = (prh_byte *)PRH_IMPL_LOCAL_ALLOC->alloc_func(PRH_IMPL_LOCAL_ALLOC->context, size + alignment, alignment);
+    prh_impl_alloc_header *header = (prh_impl_alloc_header *)(ptr + alignment - sizeof(prh_impl_alloc_header));
+    prh_assert_line(ptr != prh_null, line_alignment >> 4);
+    header->alloc = PRH_IMPL_LOCAL_ALLOC;
     header->alignment = (line_alignment & 0x0F);
     return (header + 1);
 }
@@ -4001,8 +4005,8 @@ prh_inline void *prh_impl_local_realloc(void *ptr, prh_reg size, prh_reg line_al
     if (ptr == prh_null) return prh_impl_local_alloc(size, line_alignment);
     prh_impl_alloc_header *header = (prh_impl_alloc_header *)ptr - 1;
     prh_allocator *alloc = header->alloc; prh_reg alignment = (1 << header->alignment);
-    assert(alignment == (1 << (line_alignment & 0x0F)); // 重新分配时的对齐字节必须一致
-    ptr = alloc->realloc(alloc->context, (prh_byte *)ptr - alignment, size + alignment, alignment);
+    assert(alignment == (1 << (line_alignment & 0x0F))); // 重新分配时的对齐字节必须一致
+    ptr = alloc->realloc_func(alloc->context, (prh_byte *)ptr - alignment, size + alignment, alignment);
     prh_assert_line(ptr != prh_null, line_alignment >> 4);
     return (prh_byte *)ptr + alignment;
 }
@@ -4011,17 +4015,54 @@ prh_inline void prh_impl_local_dealloc(void *ptr, prh_reg line) {
     if (ptr == prh_null) return;
     prh_impl_alloc_header *header = (prh_impl_alloc_header *)ptr - 1;
     prh_allocator *alloc = header->alloc;
-    alloc->dealloc(alloc->context, (prh_byte *)ptr - (1 << header->alignment));
+    alloc->dealloc_func(alloc->context, (prh_byte *)ptr - (1 << header->alignment));
 }
 
-#define prh_get_allocator() PRH_IMPL_ALLOC
-#define prh_set_allocator(a) PRH_IMPL_ALLOC = (a)
-#define prh_reset_allocator() prh_set_allocator(prh_impl_default_allocator)
-#define prh_local_alloc(size, line) prh_local_aligned_alloc((size), prh_alignment_default, (line))
-#define prh_local_realloc(ptr, size, line) prh_local_aligned_realloc((ptr), (size), prh_alignment_default, (line))
+// 使用当前局部环境中的分配器进行分配，该动态分配器总是多分配一个两指针大小的头部空间，
+// 用来保存当前分配器指针和对齐字节，当重新分配或释放内存时，需要调用最初的分配器函数。
+#define prh_set_local_allocator(a) PRH_IMPL_LOCAL_ALLOC = (a)
+#define prh_reset_local_allocator() prh_set_local_allocator(prh_impl_default_allocator)
+#define prh_local_alloc(size, line) prh_local_aligned_alloc((size), prh_default_local_alloc_alignment, (line))
+#define prh_local_realloc(ptr, size, line) prh_local_aligned_realloc((ptr), (size), prh_default_local_alloc_alignment, (line))
 #define prh_local_dealloc(ptr, line) prh_impl_local_dealloc((ptr), (line))
 #define prh_local_aligned_alloc(size, alignment, line) prh_impl_local_alloc((size), ((prh_reg)(line) << 4) | (alignment))
 #define prh_local_aligned_realloc(ptr, size, alignment, line) prh_impl_local_realloc((ptr), (size), ((prh_reg)(line) << 4) | (alignment))
+
+typedef struct {
+    void *context; // 对于 aligned_alloc，如果 size 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
+    prh_allocator_alloc_func alloc_func; // 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问
+    prh_allocator_dealloc_func dealloc_func;
+} prh_temp_allocator;
+
+extern prh_thread_local prh_temp_allocator *PRH_IMPL_TEMP_ALLOC;
+extern const prh_temp_allocator *prh_impl_default_temp_allocator;
+
+#ifndef PRH_QUICK_TEMP_ALLOC
+#define PRH_QUICK_TEMP_ALLOC 1
+#endif
+
+prh_inline void *prh_impl_temp_alloc(prh_reg size, prh_reg line_alignment) {
+    void *ptr = PRH_IMPL_TEMP_ALLOC->alloc_func(PRH_IMPL_TEMP_ALLOC->context, size, (1 << (line_alignment & 0x0F)));
+    prh_assert_line(ptr != prh_null, line_alignment >> 4);
+    return ptr;
+}
+
+prh_inline void prh_impl_temp_dealloc(void *ptr, prh_reg line) {
+#if PRH_QUICK_TEMP_ALLOC
+    // 快速分配器无需单独释放，最后会在外部统一释放，不需要做任何事情
+#else
+    // 因为用完即丢临时分配，在内存分配和释放期间，对应临时分配器设置应该保持不变
+    PRH_IMPL_TEMP_ALLOC->dealloc_func(PRH_IMPL_TEMP_ALLOC->context, ptr);
+#endif
+}
+
+// 临时用完即丢的内存分配器，通常会设置为线性分配无需释放的分配器，一段时间内的全部分配
+// 会在外部接口统一释放，当然也可以设置成为一般的分配器当作临时分配用。
+#define prh_set_temp_allocator(a) PRH_IMPL_TEMP_ALLOC = (a)
+#define prh_reset_temp_allocator() prh_set_temp_allocator(prh_impl_default_temp_allocator)
+#define prh_temp_alloc(size, line) prh_temp_aligned_alloc((size), prh_default_quick_alloc_alignment, (line))
+#define prh_temp_aligned_alloc(size, alignment, line) prh_impl_temp_alloc((size), ((prh_reg)(line) << 4) | (alignment))
+#define prh_temp_dealloc(ptr, line) prh_impl_temp_dealloc((ptr), (line))
 
 typedef struct { // 一次性分配足够大的空间，保证后续分配不会失败
     prh_byte *base_address;
@@ -4044,7 +4085,8 @@ typedef struct { // 勇往直前，永不后退
 } prh_braver;
 
 #ifdef PRH_ALLOC_IMPLEMENTATION
-prh_thread_local prh_allocator *PRH_IMPL_ALLOC;
+prh_thread_local prh_allocator *PRH_IMPL_LOCAL_ALLOC;
+prh_thread_local prh_temp_allocator *PRH_IMPL_TEMP_ALLOC;
 
 static void prh_impl_empty_dealloc(void *context, void *ptr) {
     // used for the allocator that no need a deallocator
@@ -4056,7 +4098,7 @@ static void *prh_impl_default_alloc(void *context, prh_reg size, prh_reg alignme
 }
 
 static void *prh_impl_default_realloc(void *context, void *ptr, prh_reg size, prh_reg alignment) {
-    if (ptr == prh_null) return prh_impl_default_alloc(context, size, line_alignment);
+    if (ptr == prh_null) return prh_impl_default_alloc(context, size, alignment);
     void *dest = prh_plat_aligned_alloc(prh_round_power_of_2(size, alignment), alignment);
     if (dest != prh_null) memmove(dest, ptr, size); // size 可能扩大或缩小
     prh_aligned_dealloc(ptr);
@@ -4069,9 +4111,9 @@ static void prh_impl_default_dealloc(void *context, void *ptr) {
 
 const static prh_allocator prh_impl_allocator_default_interface = {
     .context = prh_null,
-    .alloc = prh_impl_default_alloc,
-    .realloc = prh_impl_default_realloc,
-    .dealloc = prh_impl_default_dealloc,
+    .alloc_func = prh_impl_default_alloc,
+    .realloc_func = prh_impl_default_realloc,
+    .dealloc_func = prh_impl_default_dealloc,
 };
 
 const prh_allocator *prh_impl_default_allocator = &prh_impl_allocator_default_interface;
@@ -4124,10 +4166,30 @@ void *prh_linear_realloc(prh_linear *l, void *ptr, prh_reg size, prh_reg alignme
 
 void prh_linear_allocator_init(prh_linear *l, prh_allocator *a) {
     a->context = l;
-    a->alloc = (prh_allocator_alloc_func)prh_linear_forward;
-    a->realloc = (prh_allocator_realloc_func)prh_linear_realloc;
-    a->dealloc = (prh_allocator_dealloc_func)prh_impl_empty_dealloc;
+    a->alloc_func = (prh_allocator_alloc_func)prh_linear_forward;
+    a->realloc_func = (prh_allocator_realloc_func)prh_linear_realloc;
+    a->dealloc_func = (prh_allocator_dealloc_func)prh_impl_empty_dealloc;
 }
+
+// 竞技场分配器（Arena Allocator）是一种内存管理技术，简而言之，先借一大块，随用随取，
+// 最后一次性还清，牺牲灵活性换取极致性能和简单性。
+//  1.  批量分配    一次性申请大块内存，从中划分小块给程序使用
+//  2.  统一释放    整个 Arena 生命周期结束时一次性释放所有内存，无需逐个单独释放
+//  3.  高速分配    仅需常量查找和指针偏移，O(1) 时间复杂度
+//
+// 竞技场（Arena）这个名字的来源于古罗马竞技场，古罗马的圆形剧场，如罗马斗兽场，拉丁语
+// 意为"沙"，竞技场地面铺沙以吸收血液。空间概念，一个封闭的、有限的、专门用途的大型场地。
+// 古罗马竞技场，角斗士都在同一个场地内战斗，结束后统一清理场地。
+//
+// 预先分配的大块内存（Arena），分配指针只需向后移动即可分配新对象。常用场景有：编译器，
+// 语法树节点、符号表（编译完成后统一释放）；游戏开发，每帧临时对象（帧结束时清空 Arena）；
+// Web 服务器，请求生命周期内的临时数据（请求结束释放）；解析器，解析过程中的临时数据结
+// 构。
+//
+// 该分配技术的限制是，内存可能浪费（未用完的 Arena），不适合长期存活的对象，需要预估内
+// 存用量，或需要增量性的管理多个内存块链。该分配技术特别适合于，生命周期非常明确的批量
+// 数据。另外对象池分配技术，可以单独归还，特别适合于固定大小的对象复用，避免产生内存碎
+// 片。
 
 #if defined(prh_plat_windows)
 // LPVOID VirtualAlloc(
@@ -5472,160 +5534,15 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 //  void append_range(range_type&& range); 在容器尾部压入多个元素
 //  void prepend_range(range_type&& range); 将多个元素压入到容器头部
 //
-// push_back    append  在容器尾部添加一个和多个元素
-// push_front   preend  在容器头部添加一个和多个元素
-// pop_back     erase_back      从容器尾部移除一个和多个元素
-// pop_front    erase_front     从容易头部移除一个和多个元素
-// erase        移除所在位置或范围内的所有元素，或移除所有与指定值相等的元素，或移除指定范围内与指定值相等的元素
-// erase_after  移除所在位置之后或范围内除第一个元素外的所有元素
-// erase_if     移除所有满足条件的元素，或移除指定范围内满足条件的元素
+//  push_back    append  在容器尾部添加一个和多个元素
+//  push_front   prepend  在容器头部添加一个和多个元素
+//  pop_back     erase_back      从容器尾部移除一个和多个元素
+//  pop_front    erase_front     从容易头部移除一个和多个元素
+//  erase        移除所在位置或范围内的所有元素，或移除所有与指定值相等的元素，或移除指定范围内与指定值相等的元素
+//  erase_after  移除所在位置之后或范围内除第一个元素外的所有元素
+//  erase_if     移除所有满足条件的元素，或移除指定范围内满足条件的元素
 
 #if 1
-typedef struct {
-    prh_reg capacity;
-    prh_reg size;
-} prh_impl_arrdyn_head;
-
-typedef struct {
-    prh_reg capacity;
-    prh_reg size;
-    prh_reg start;
-} prh_impl_arrbdi_head;
-
-#define prh_impl_arrfit_address(a) prh_macro_make_name(array_fit_address, a)
-#define prh_impl_arrfit_elemptr(a) prh_macro_make_name(array_fit_elemptr, a)
-#define prh_impl_arrdyn_address(a) prh_macro_make_name(array_dyn_address, a)
-#define prh_impl_arrdyn_elemptr(a) prh_macro_make_name(array_dyn_elemptr, a)
-#define prh_impl_arrbdi_address(a) prh_macro_make_name(array_bdi_address, a)
-#define prh_impl_arrbdi_elemptr(a) prh_macro_make_name(array_bdi_elemptr, a)
-
-#define prh_impl_arrfit_address_elem_size(a) sizeof(**prh_impl_arrfit_address(a))
-#define prh_impl_arrfit_elemptr_elem_size(a) sizeof(*prh_impl_arrfit_elemptr(a))
-#define prh_impl_arrdyn_address_elem_size(a) sizeof(**prh_impl_arrdyn_address(a))
-#define prh_impl_arrdyn_elemptr_elem_size(a) sizeof(*prh_impl_arrdyn_elemptr(a))
-#define prh_impl_arrbdi_address_elem_size(a) sizeof(**prh_impl_arrbdi_address(a))
-#define prh_impl_arrbdi_elemptr_elem_size(a) sizeof(*prh_impl_arrbdi_elemptr(a))
-
-prh_inline prh_reg *prh_impl_arrdyn_capacity_ptr(void *a) {
-    return (prh_reg *)a - 2;
-}
-
-prh_inline prh_reg *prh_impl_arrbdi_capacity_ptr(void *a) {
-    return (prh_reg *)a - 3;
-}
-
-prh_inline prh_reg *prh_impl_arrdyn_size_ptr(void *a) {
-    return (prh_reg *)a - 1;
-}
-
-prh_inline prh_reg *prh_impl_arrbdi_size_ptr(void *a) {
-    return (prh_reg *)a - 2;
-}
-
-prh_inline prh_reg *prh_impl_arrbdi_start_ptr(void *a) {
-    return (prh_reg *)a - 1;
-}
-
-prh_inline void *prh_impl_arrdyn_buffer_begin(void *a, prh_reg elem_size) {
-    return a;
-}
-
-prh_inline void *prh_impl_arrdyn_buffer_end(void *a, prh_reg elem_size) {
-    return (prh_byte *)a + elem_size * *prh_impl_arrdyn_capacity_ptr(a);
-}
-
-prh_inline void *prh_impl_arrdyn_begin(void *a, prh_reg elem_size) {
-    return a;
-}
-
-prh_inline void *prh_impl_arrdyn_end(void *a, prh_reg elem_size) {
-    return (prh_byte *)a + elem_size * *prh_impl_arrdyn_size_ptr(a);
-}
-
-prh_inline void *prh_impl_arrbdi_begin(void *a, prh_reg elem_size) {
-    return (prh_byte *)a + elem_size * *prh_impl_arrbdi_start_ptr(a);
-}
-
-prh_inline void *prh_impl_arrbdi_end(void *a, prh_reg elem_size) {
-    return (prh_byte *)a + elem_size * (*prh_impl_arrbdi_start_ptr(a) + *prh_impl_arrbdi_size_ptr(a));
-}
-
-prh_inline void *prh_impl_arrdyn_at(void *a, prh_reg i, prh_reg elem_size) {
-    return (prh_byte *)a + elem_size * i;
-}
-
-prh_inline void *prh_impl_arrbdi_at(void *a, prh_reg i, prh_reg elem_size) {
-    return (prh_byte *)a + elem_size * (prh_impl_arrbdi_start(a) + i);
-}
-
-prh_inline void prh_impl_arrdyn_expand_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
-    prh_reg *elem_ptr = (prh_reg *)*p; prh_reg capacity = 1; // 容量总是2的幂
-    if (elem_ptr == prh_null || (capacity = *(elem_ptr -= 2)) < new_capacity) {
-        do capacity *= 2; while (capacity < new_capacity);
-        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
-        *elem_ptr = capacity;
-        *p = (void *)(elem_ptr + 2);
-    }
-}
-
-prh_inline void prh_impl_arrbdi_expand_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
-    prh_reg *elem_ptr = (prh_reg *)*p; prh_reg capacity = 1; // 容量总是2的幂
-    if (elem_ptr == prh_null || (capacity = *(elem_ptr -= 3)) < new_capacity) {
-        do capacity *= 2; while (capacity < new_capacity);
-        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
-        *elem_ptr = capacity;
-        *p = (void *)(elem_ptr + 3);
-    }
-}
-
-prh_inline void prh_impl_arrdyn_shrink_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
-    prh_reg *elem_ptr = (prh_reg *)*p; // 缩减不能缩减至小于元素个数，记得处理 new_capacity 和 capacity 都是 0 的情况
-    prh_reg capacity = (elem_ptr == prh_null) ? 0 : *(elem_ptr -= 2);
-    if (new_capacity < capacity) { // 容量总是2的幂
-        do capacity /= 2; while (new_capacity < capacity);
-        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
-        *elem_ptr = capacity;
-        *p = (void *)(elem_ptr + 2);
-    }
-}
-
-prh_inline void prh_impl_arrbdi_shrink_capacity(void **p, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
-    prh_reg *elem_ptr = (prh_reg *)*p; // 缩减不能缩减至小于元素个数，记得处理 new_capacity 和 capacity 都是 0 的情况
-    prh_reg capacity = (elem_ptr == prh_null) ? 0 : *(elem_ptr -= 3);
-    if (new_capacity < capacity) { // 容量总是2的幂
-        do capacity /= 2; while (new_capacity < capacity);
-        elem_ptr = prh_local_realloc(elem_ptr, capacity * elem_size, line);
-        *elem_ptr = capacity;
-        *p = (void *)(elem_ptr + 3);
-    }
-}
-
-
-#define prh_impl_arrvew_eptr_type(p) prh_typeof((p)->arrvew)
-#define prh_impl_arrfix_eptr_type(p) prh_typeof((p)->arrfix)
-#define prh_impl_arrfit_eptr_type(p) prh_typeof((p)->arrfit)
-#define prh_impl_arrdyn_eptr_type(p) prh_typeof((p)->arrdyn)
-#define prh_impl_arrlax_eptr_type(p) prh_typeof((p)->arrlax)
-
-#define prh_impl_arrvew_elem_type(p) prh_typeof(*((p)->arrvew))
-#define prh_impl_arrfix_elem_type(p) prh_typeof(*((p)->arrfix))
-#define prh_impl_arrfit_elem_type(p) prh_typeof(*((p)->arrfit))
-#define prh_impl_arrdyn_elem_type(p) prh_typeof(*((p)->arrdyn))
-#define prh_impl_arrlax_elem_type(p) prh_typeof(*((p)->arrlax))
-
-#define prh_impl_arrvew_elem_size(p) sizeof(*((p)->arrvew))
-#define prh_impl_arrfix_elem_size(p) sizeof(*((p)->arrfix))
-#define prh_impl_arrfit_elem_size(p) sizeof(*((p)->arrfit))
-#define prh_impl_arrdyn_elem_size(p) sizeof(*((p)->arrdyn))
-#define prh_impl_arrlax_elem_size(p) sizeof(*((p)->arrlax))
-
-#define prh_impl_arrvew_addr(p) (prh_impl_arrvew *)(&((p)->arrvew))
-#define prh_impl_arrfix_addr(p) (prh_impl_arrfix *)(&((p)->arrfix))
-#define prh_impl_arrfit_addr(p) (prh_impl_arrfit *)(&((p)->arrfit))
-#define prh_impl_arrdyn_addr(p) (prh_impl_arrdyn *)(&((p)->arrdyn))
-#define prh_impl_arrlax_addr(p) (prh_impl_arrlax *)(&((p)->arrlax))
-
-#define prh_arrdyn_reserve(a, new_capacity)
 
 #else
 typedef struct { void *arrvew; prh_int size; } prh_impl_arrvew;
@@ -15206,7 +15123,7 @@ void prh_impl_thrd_prestart_init(prh_thrd *thrd) {
     prh_impl_plat_print_thrd_info(thrd);
 #endif
     thrd->extra_ptr = 0; // 可以在用户线程函数中重用 extra_ptr
-    prh_reset_allocator();
+    prh_reset_local_allocator();
 }
 
 int prh_impl_thrd_start_proc(prh_thrd *thrd) {
