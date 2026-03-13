@@ -5754,6 +5754,97 @@ prh_inline void prh_impl_string_unchecked_push_items(prh_string *a, void *p, prh
     a->size += n;
 }
 
+#define prh_string_init(a, init_capacity) do {                                  \
+    (a)->data = prh_null;                                                       \
+    (a)->capacity = 0;                                                          \
+    (a)->size = 0;                                                              \
+    prh_string_reserve((a), (init_capacity));                                   \
+} while (0)
+
+#define prh_strfit_init(a, init_capacity) do {                                  \
+    (a)->data = prh_null;                                                       \
+    (a)->capacity = 0;                                                          \
+    (a)->size = 0;                                                              \
+    prh_string_reserve((a), (init_capacity));                                   \
+} while (0)
+
+#define prh_string_push(a, elem) do {                                           \
+    prh_string_reserve((a), (a)->size + 1);                                     \
+    *((a)->data + (a)->size++) = (elem);                                        \
+} while (0)
+
+#define prh_string_resize(a, new_size) do {                                     \
+    prh_reg n = (new_size);                                                     \
+    prh_string_reserve((a), n);                                                 \
+    (a)->size = n;                                                              \
+} while (0)
+
+#define prh_string_free(a) prh_impl_array_free((a), __LINE__)
+#define prh_string_clear(a) do { (a)->size = 0; } while (0)
+#define prh_string_clear_and_reserve(a, new_capacity) do { (a)->size = 0; prh_arrdyn_reserve((a), (new_capacity)); } while (0)
+
+#define prh_string_data(a) ((a)->data)
+#define prh_string_capacity(a) ((a)->capacity)
+#define prh_string_size(a) ((a)->size)
+#define prh_string_increase_size(a, grow_size) prh_impl_array_increase_size((a), (grow_size))
+
+#define prh_string_begin(a) ((a)->data)
+#define prh_string_end(a) ((a)->data + (a)->size)
+#define prh_string_buffer_begin(a) ((a)->data)
+#define prh_string_buffer_end(a) ((a)->data + (a)->capacity)
+
+#define prh_string_front(a, i) ((a)->data + prh_impl_array_front((a), (i)))
+#define prh_string_back(a, i) ((a)->data + prh_impl_array_back((a), (i)))
+
+#define prh_string_at(a, i) (*prh_string_front((a), (i)))
+#define prh_string_last(a, i) (*prh_string_back((a), (i)))
+
+#define prh_string_push_items(a, p, n) prh_impl_string_push_items((a), (p), (n), __LINE__)
+#define prh_string_unchecked_push_items(a, p, n) prh_impl_string_unchecked_push_items((a), (p), (n))
+#define prh_string_unchecked_push(a, elem) prh_arrdyn_unchecked_push((a), (elem))
+
+#define prh_string_reserve(a, new_capacity) prh_impl_string_reserve((a), (new_capacity), __LINE__)
+#define prh_string_expand(a, grow_capacity) prh_impl_string_expand((a), (grow_capacity), __LINE__)
+
+#define prh_string_guarantee(a, unused_capacity) prh_string_reserve((a), (a)->size + (unused_capacity))
+#define prh_string_end_guarantee(a, unused_capacity) (prh_string_guarantee((a), (unused_capacity)), prh_string_end(a))
+#define prh_string_shrink_to_fit(a) prh_impl_string_shrink((a), (a)->size, __LINE__)
+
+prh_inline prh_striew prh_striew_from(prh_byte *data, prh_reg size) {
+    return (prh_striew){data, size};
+}
+
+prh_inline prh_striew prh_striew_from_cstr(const char *s) {
+    return (prh_striew){s, (s == prh_null) ? 0 : strlen(s)};
+}
+
+prh_inline prh_striew prh_striew_from_range(prh_byte *data_ptr, prh_byte *end_ptr) {
+    return (prh_striew){data_ptr, end_ptr - data_ptr};
+}
+
+prh_inline void prh_strfit_init_from(prh_strfit *s, prh_byte *buffer, prh_reg capacity) {
+    s->data = buffer;
+    s->capacity = capacity;
+    s->size = 0;
+}
+
+typedef struct {
+    void *context;
+    prh_r16 buffer_size;
+    prh_r16 size;
+    prh_r16 start;
+    prh_r16 flags;
+} prh_puffer;
+
+typedef struct {
+    prh_reg size;
+} prh_buffix;
+
+typedef struct {
+    prh_reg capacity;
+    prh_reg size;
+} prh_buffer;
+
 #else
 typedef struct { void *arrvew; prh_int size; } prh_impl_arrvew;
 typedef struct { void *arrfix; prh_int size; } prh_impl_arrfix;
