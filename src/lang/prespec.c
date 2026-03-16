@@ -1391,12 +1391,12 @@ def array $(anytype a int size) { // $ 定义一个类型参数 a
     [size]a a
 }
 
-def test $(anytype a anytype b) {
+def test $(anytype a ~ b) {
     a a // 指定 a 是一个类型
     b b
 }
 
-def test $(anytype t anytype u) {
+def test $(anytype t ~ u) {
     t t
     u u
 }
@@ -1408,7 +1408,7 @@ def color const int {
     yellow
 }
 
-def test $(anytype T anytype U int SIZE array(SIZE, T) A point POINT) {
+def test $(anytype T ~ U int SIZE array(SIZE, T) A point POINT) {
     T t
     U u
 }
@@ -1442,7 +1442,7 @@ def node $(anytype t) {
     t data
 }
 
-def tripple $(anytype t anytype u int size) {
+def tripple $(anytype t ~ u int size) {
     [size]t a
     u b
 }
@@ -1718,13 +1718,13 @@ def name const int { red bule green }
 def name const int with {r08 lpri r08 rpri} { ... }
 def name const with {r08 lpri r08 rpri} { ... }
 def name { int a int b }
-def name $(anytype T anytype U const SIZE int N T VALUE) { ... }
+def name $(anytype T ~ U const SIZE int N T VALUE) { ... }
 def name $(anytype T) { ... }
-def name $(anytype T anytype U) { ... }
+def name $(anytype T ~ U) { ... }
 def name $(int SIZE) { ... }
-def name $(int SIZE anytype T anytype U) { ... }
+def name $(int SIZE anytype T ~ U) { ... }
 
-def test $(anytype T anytype U const C int SIZE) {
+def test $(anytype T ~ U const C int SIZE) {
     int data
     T t
 }
