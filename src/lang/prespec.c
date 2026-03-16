@@ -1793,40 +1793,40 @@ pub data [int int point] = {10, 20, {100, 200}}
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
 //  5.  取地址操作符 fer（fetch reference）
 //  6.  解引用操作符 der（dereference）
-//  let name = expr
+//  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
-//  let type name = a[, name = b, name = c, ...]
-let *int p = der **int base + sizeof(int)
+//  let a type = expr, b = expr, c = expr, ...
+let p *int = der **int base + sizeof(int)
 let point point = {100, 200} // 第一个 point 是类型
-let *point p = fer copyof(point)
-let *point p = fer {0}
-let *int p = null
-let *int q = undefined
-let *int p = null, q = undefined
-let int a = 0
-let int b = 0
-let int a = 0, b = 0
-let point o = undefined
-let point pos = {1, 2}
+let p *point = fer copyof(point)
+let p *point = fer {0}
+let p *int = null
+let q *int = undefined
+let p *int = null, q = undefined
+let a int = 0
+let b int = 0
+let a int = 0, b = 0
+let o point = undefined
+let pos point = {1, 2}
 let point point = undefined
-let point o = {1, 2}
-let *ppb p = malloc(size)
-let *int p = undefined
-let *int p = ?, q = ptr_int
-let point a = {100, 200}
-let [_]int a = {20, 30, 50}
-let [8]int a = {1, 2, 3, 4}
-let [i32 f64 r08] tup = {500, 6.4, 1} // tup(0) tup(1) tup(2)
-let [i32 f64 r08] tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
-let [i32 f64 r08] (a b c) = {500, 6.4, 1} // a b c
-let (int a ~ b >> int) fp = fer calc
+let o point = {1, 2}
+let p *ppb = malloc(size)
+let p *int = undefined
+let p *int = ?, q = ptr_int
+let a point = {100, 200}
+let a [_]int = {20, 30, 50}
+let a [8]int = {1, 2, 3, 4}
+let tup [i32 f64 r08] = {500, 6.4, 1} // tup(0) tup(1) tup(2)
+let tup (a b c) [i32 f64 r08] = {500, 6.4, 1} // tup.a tup.b tup.c
+let a, b, c [i32 f64 r08] = {500, 6.4, 1} // a b c
+let fp (int a ~ b >> int) = fer calc
 let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 let data (value error) = read_tuple() // 元组类型值的返回 data(0) data(1) data.value data.error
 let a, _ = read_tuple() // 赋值右边必须是一个元组类型
 let _, a, _, b = data // 赋值右边必须是一个元组类型
 a, _, b = {500, 6.4, 1} // 使用已经定义的 a 和 b
 a, _, b = get_tuple() // 使用已经定义的 a 和 b
-let a b c = [i32 f64 r08] {500, 6.4, 1}
+let a, b, c = [i32 f64 r08] {500, 6.4, 1}
 let tup = {500, 6.4, 1}
 let tup = [i32 f64 r08] {500, 6.4, 1}
 let integers = {1, 2, 3}
@@ -1853,8 +1853,8 @@ let a = int 0
 let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
 let calc = (int a int b return int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
 let a = point{100, 200}
-let *int a = ? // 行以变量名称 + 类型，或变量名称 + 表达式，表示一个局部变量的定义
-let *int b = undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+let a *int = ? // 行以变量名称 + 类型，或变量名称 + 表达式，表示一个局部变量的定义
+let b *int = undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
 let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
