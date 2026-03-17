@@ -1,3 +1,11 @@
+; flat assembler version 1.73.34
+; usage: fasm.exe <source file> [output file]
+; optional settings:
+;  -m <limit>         set the limit in kilobytes for the available memory
+;  -p <limit>         set the maximum allowed number of passes
+;  -d <name>=<value>  define symbolic variable
+;  -s <file>          dump symbolic information for debugging
+;
 ; 可执行文件格式
 ;
 ; 默认情况下，当源文件中没有 format 指令时，flat assembler 只是将生成的指令代码放入输   *** 扁平二进制格式（format binary）
@@ -438,3 +446,150 @@
 ;
 ; 为 include 指令定义了一个短名称，而用 equ 指令完成的类似定义不会产生这样的结果，因为
 ; 标准符号常量在搜索行中的预处理器指令之后才被替换为它们的值。
+;
+;
+; 结构体定义（struc宏和struct宏指令）
+;
+; struc 指令是 macro 指令的特殊变体，用于定义数据结构。使用 struc 指令定义的宏指令在    *** struc 宏指令
+; 使用时必须前面带有标签（类似于数据定义指令）。该标签也会附加到宏指令内容中以点号开头
+; 的每个名称前面。使用 struc 指令定义的宏指令可以与使用 macro 指令定义的其他宏指令具有
+; 相同的名称。当结构宏指令前面没有标签时，它不会阻止标准宏指令被处理，反之亦然。所有关于
+; 标准宏指令的规则和特性都适用于结构宏指令。
+;
+; 下面是结构宏指令的示例。例如，my point 7,11 将定义标记为 my 的结构，由两个变量组成：
+; my.x 值为 7，my.y 值为 11。相当于 my.x dw 7   my.y dw 11。
+;       struc point x,y
+;       {
+;           .x dw x
+;           .y dw y
+;       }
+;
+; 如果在结构定义内部找到由单个点字符（.）组成的名称，它将被替换为该结构实例的标签名称，
+; 并且在这种情况下该标签不会自动定义，从而允许完全定制化的定义。以下示例利用此特性来扩
+; 展数据定义指令 db，使其能够计算定义数据的大小：
+;       struc db [data]
+;       {
+;           common
+;           . db data
+;           .size = $ - .
+;       }
+;
+; 使用此定义，msg db 'Hello!',13,10 还将定义 msg.size 常量，等于定义数据的字节大小。
+;       common msg db 'Hello!', 13, 10
+;       msg.size = $ - msg
+;
+; 通过寄存器或绝对值寻址的数据结构定义应使用 virtual 指令与结构宏指令一起完成。restruc
+; 指令删除结构的最后一个定义，就像 purge 对宏指令和 restore 对符号常量所做的那样。它还
+; 具有相同语法，后面应跟一个或多个结构宏指令的名称，用逗号分隔。
+;
+; Windows 所有头文件都启用了 struct 宏指令，它允许以与其他汇编器更相似的方式定义结构体，  *** struct 宏指令
+; 而不是使用 struc 指令。结构体的定义应以 struct 宏指令开始，后跟名称，以 ends 宏指令
+; 结束。中间行只允许数据定义指令，标签作为结构体字段的纯名称：
+;
+;       struct POINT
+;           x dd ?
+;           y dd ?
+;       ends
+;
+;       point1 POINT
+;       point2 POINT 10,20
+;
+; 声明 point1 结构体，带有 point1.x 和 point1.y 字段，赋予它们默认值，即与结构体定义
+; 中提供的相同（在本例中默认值都是未初始化的值）。但结构体声明也接受参数，数量与结构体中
+; 的字段数相同，当指定这些参数时，它们会覆盖字段的默认值。如将 point2.x 字段初始化为值
+; 10，point2.y 初始化为值 20。
+;
+; struct 宏不仅允许声明给定类型的结构体，还定义了结构体内部字段偏移量的标签以及每个字段
+; 和整个结构体大小的常量。例如，上述 POINT 结构体的定义定义了 POINT.x 和 POINT.y 标签
+; 作为结构体内部字段的偏移量，以及 sizeof.POINT.x、sizeof.POINT.y 和 sizeof.POINT 作
+; 为相应字段和整个结构体的大小。偏移量标签可用于访问间接寻址的结构体，如当 ebx 寄存器包
+; 含指向 POINT 结构体的指针时。注意，通过这种访问也会执行字段大小检查。
+;
+;       mov eax,[ebx+POINT.x]
+;
+; 结构体本身也允许在结构体定义内部，因此结构体可以有其他结构体作为字段：
+;
+;       struct LINE
+;           start POINT
+;           end POINT
+;       ends
+;
+;       line1 LINE <0,0>,<100,100>
+;
+; 当没有为子结构体字段指定默认值时，如本例所示，应用子结构体类型定义中的默认值。由于结构
+; 体声明中每个字段的值都是单个参数，要用自定义值初始化子结构体，每个子结构体的参数必须分
+; 组为结构体的单个参数。此声明将 line1.start.x 和 line1.start.y 字段初始化为 0，
+; line1.end.x 和 line1.end.y 初始化为 100。
+;
+; 当传递给结构体声明的某个值所定义的数据大小小于相应字段的大小时，它会用未定义的字节填充
+; 到该大小（当它更大时，会发生错误）。例如用定义的值填充 some.data 的前四个字节，并保留
+; 其余部分。
+;
+;       struct FOO
+;           data db 256 dup (?)
+;       ends
+;
+;       some FOO <"ABC",0>
+;
+; 在结构体内部还可以定义 union（联合）和匿名子结构体。联合的定义应以 union 开始，以
+; ends 结束，如本例所示：
+;
+;       struct BAR
+;           field_1 dd ?
+;           union
+;               field_2 dd ?
+;               field_2b db ?
+;           ends
+;       ends
+;
+; 联合内部定义的每个字段具有相同的偏移量，它们共享相同的内存。只有联合的第一个字段用给定
+; 值初始化，其余字段的值被忽略（然而，如果其他字段之一需要比第一个字段更多的内存，联合会
+; 用未定义的字节填充到所需大小）。整个联合由结构体声明中给出的单个参数初始化，该参数赋予
+; 联合第一个字段的值。匿名子结构体的定义方式与联合类似，只是以 struct 行开始而不是
+; union，如：
+;
+;       struct WBB
+;           word dw ?
+;           struct
+;               byte1 db ?
+;               byte2 db ?
+;           ends
+;       ends
+;
+;       my WBB 1,<2,3>
+;
+; 这样的子结构体在声明整个结构体时只接受一个参数来定义其值，这个参数本身可以是定义子结构
+; 体每个字段的参数组。联合和匿名子结构体内部的字段访问方式就像它们是父结构的直接字段一样。
+; 例如，使用上述声明，my.byte1 和 my.byte2 是子结构体字段的正确标签。子结构体和联合可
+; 以嵌套，嵌套深度没有限制：
+;
+;       struct LINE
+;           union
+;               start POINT
+;               struct
+;                   x1 dd ?
+;                   y1 dd ?
+;               ends
+;           ends
+;           union
+;               end POINT
+;               struct
+;                   x2 dd ?
+;                   y2 dd ?
+;               ends
+;           ends
+;       ends
+;
+; 结构体的定义也可以基于某些已定义的结构体类型，它继承该结构体的所有字段，例如：
+;
+;       struct CPOINT POINT
+;           color dd ?
+;       ends
+;
+; 定义的结构与以下相同：
+;
+;       struct CPOINT
+;           x dd ?
+;           y dd ?
+;           color dd ?
+;       ends
