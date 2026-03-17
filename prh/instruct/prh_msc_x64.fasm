@@ -1,3 +1,195 @@
+; 可执行文件格式
+;
+; 默认情况下，当源文件中没有 format 指令时，flat assembler 只是将生成的指令代码放入输   *** 扁平二进制格式（format binary）
+; 出中，以此方式创建扁平二进制文件（flat binary file）。默认情况下它生成 16 位代码，可
+; 以使用 use16 或 use32 指令将其切换到 16 位或 32 位模式。某些输出格式在选择时会切换到
+; 32 位模式。目标文件的扩展名由编译器根据所选的输出格式自动选择。所有输出代码始终按照其
+; 输入源文件的顺序排列。
+;
+; format 指令后跟格式标识符，用于选择输出格式。该指令应放在源文件的开头。在同一行中，它
+; 后面可以始终跟随 as 关键字和一个带引号的字符串，指定输出文件的默认文件扩展名。除非从命
+; 令行指定了输出文件名，否则汇编器在生成输出文件时将使用此扩展名。
+;
+;       format [as "exe"] ; 指定输出文件的默认文件扩展名，但会被命令行的输出文件名覆盖
+;
+; use16 和 use32 指令强制汇编器生成 16 位或 32 位代码，覆盖所选输出格式的默认设置。
+; use64 启用为 x86-64 处理器的长模式生成代码。
+;
+;       format [use16 | use32 | use64]
+;
+; 默认输出格式是扁平二进制文件，也可以使用 format binary 指令选择它。选择此格式时，可
+; 以使用特殊符号 $% 获取输出中的偏移量，使用 $%% 获取输出文件中的实际偏移量，省略任何未
+; 定义的数据（如果输出在此点结束，这些数据将被丢弃）。此外，对于此格式，load 和 store
+; 指令允许通过 from 或 at 关键字后跟 : 字符，然后是指定一个输出偏移量的表达式，来访问
+; 已生成输出中的任何数据。下面描述了不同的输出格式及其特定于这些格式的指令。
+;
+;       format binary   ; 选择扁平二进制格式
+;
+; 要选择 MZ 输出格式，使用 format MZ 指令。此格式的默认代码设置为 16 位。               *** DOS 兼容格式（format MZ）
+;   1.  segment 指令定义一个新段，它后面应跟标签，其值将是定义的段号，后面可选地可以跟
+;       use16 或 use32 字，以指定此段中的代码应为 16 位还是 32 位。段的起始地址按段
+;       （16 字节）对齐。此后定义的所有标签将具有相对于该段开头的值。
+;   2.  entry 指令设置 MZ 可执行文件的入口点，它后面应跟所需入口点的远地址（段名称、冒
+;       号和段内偏移量）。
+;   3.  stack 指令为 MZ 可执行文件设置堆栈。它可以后跟指定要自动创建的堆栈大小的数值表
+;       达式，或者当你想手动设置堆栈时，后跟初始堆栈帧的远地址。当未定义堆栈时，将创建默
+;       认大小为 4096 字节的堆栈。
+;   4.  heap 指令后面应跟一个 16 位值，定义以 16 字节为单位的附加堆的最大大小（这是除
+;       堆栈和未定义数据之外的堆）。使用 heap 0 始终只分配程序真正需要的内存。堆的默认
+;       大小为 65535。
+;
+;       format MZ                                   ; 此格式的默认代码设置为 16 位
+;       segment label_segment_name [use16 | use32]  ; 定义名为 label_segment_name 的新段，新段起始地址对齐到16字节，之后定义的所有标签都相对于该起始字段
+;       entry entry_point_name                      ; 应指定远地址，段名:段内偏移量
+;       stack stack_size_expr                       ; 指定栈大小，未定义时创建默认大小为 4096 个字节的栈
+;       stack far_address                           ; 手动指定栈的地址
+;       heap word_value_additional_heap_max_size    ; 这是一个除栈和未定义数据之外额外堆，堆大小以16字节为单位
+;       heap 0                                      ; 不分配额外堆，始终只分配程序真正需要的内存，堆默认大小 65535
+;
+; 可移植可执行文件（Portable Executable），要选择可移植可执行文件输出格式，使用 format
+; PE 指令，它可以后跟其他格式设置：首先是目标子系统设置，可以是 console 或 GUI（用于    *** PE 格式文件（format PE/PE64）
+; Windows 应用程序）、native（用于 Windows 驱动程序）、EFI、EFIboot 或 EFIruntime
+; （用于 UEFI），后面可以跟可执行文件所针对的系统的最低版本（以浮点值形式指定）。可选的
+; DLL 和 WDM 关键字分别将输出文件标记为动态链接库和 WDM 驱动程序，large 关键字将可执行
+; 文件标记为能够处理大于 2GB 的地址，NX 关键字表示可执行文件符合不在非可执行段中执行代
+; 码的限制。在这些设置之后，可以跟 at 运算符和一个数值表达式，指定 PE 映像的基址，然后
+; 可选地 on 运算符后跟一个包含文件名的带引号字符串，为 PE 程序选择自定义 MZ 存根（当指
+; 定文件不是 MZ 可执行文件时，它被视为扁平二进制可执行文件并转换为 MZ 格式）。MZ 可执行
+; 文件 是 DOS（磁盘操作系统）时代最经典的可执行文件格式，至今仍在 Windows 系统中作为兼
+; 容层存在。现代 Windows 可执行文件（.exe, .dll）采用 PE（Portable Executable） 格
+; 式，但保留了 MZ 头作为存根（Stub）。格式 PE 的默认代码设置为 32 位。完整功能的 PE 格
+; 式声明示例：
+;
+;       format PE GUI 4.0 DLL at 7000000h on 'stub.exe'
+;
+;       format PE console|GUI|native                ; native 用于 windows 驱动程序
+;       format PE EFI|EFIboot|EFIruntime            ; 用于 UEFI，统一可扩展固件接口（Unified Extensible Firmware Interface）
+;       format PE GUI 4.0                           ; 可执行文件所针对的系统最低版本
+;       format PE GUI 4.0 [DLL|WDM]                 ; 输出动态链接库或WDM驱动程序
+;       format PE GUI 4.0 large                     ; 将可执行文件标记为能够处理大于 2GB 的地址空间
+;       format PE GUI 4.0 large NX                  ; 不在非可执行段执行代码
+;       format PE GUI 4.0 large at base_address     ; at 运算符指定 PE 映像的基地址
+;       format PE GUI 4.0 at base [on 'stub.exe']   ; 为 PE 程序选择自定义 MZ 存根
+;
+; 要为 x86-64 架构创建 PE 文件，在格式声明中使用 PE64 关键字代替 PE，在这种情况下默认
+; 生成长模式（long mode）代码。可以在数值表达式内使用 rva 运算符，以获取应用该值的项的
+; RVA（相对于 PE 映像基址的偏移量）。
+;
+;       format PE64 GUI 4.0 at 7000000h
+;
+;   1.  section 指令定义一个新段，它后面应跟定义段名称的带引号字符串，然后可以跟一个或
+;       多个段标志。可用的标志有：code、data、readable、writeable、executable、
+;       shareable、discardable、notpageable。段的起始地址按页（4096 字节）对齐。除了
+;       标志之外，还可以指定特殊的 PE 数据标识符之一，以将整个段标记为特殊数据，可能的
+;       标识符有 export、import、resource 和 fixups。如果段被标记为包含 fixups，它们
+;       将自动生成，此段中不需要定义更多数据。资源数据也可以从资源文件自动生成，可以通过
+;       在资源标识符后写入 from 运算符和带引号的文件名来实现。
+;
+;       section '.text' code readable executable ; 段的起始地址按页面大小 4KB 对齐
+;       section '.reloc' data readable discardable fixups
+;       section '.rsrc' data readable resource from 'my.res'
+;
+;   2.  entry 指令设置可移植可执行文件的入口点，后面应跟入口点的值。
+;   3.  stack 指令设置可移植可执行文件的堆栈大小，后面应跟堆栈保留大小的值，可选地可以
+;       跟逗号分隔的堆栈提交值。当未定义堆栈时，默认设置为 4096 字节。
+;   4.  heap 指令选择可移植可执行文件的堆大小，后面应跟堆保留大小的值，可选地可以跟逗号
+;       分隔的堆提交值。当未定义堆时，默认设置为 65536 字节，当未指定堆提交大小时，默认
+;       设置为零。
+;   5.  data 指令开始定义特殊 PE 数据，它后面应跟数据标识符之一（export、import、resource
+;       或 fixups）或 PE 头中的数据条目编号。数据应在接下来的行中定义，以 end data 指
+;       令结束。当选择 fixups 数据定义时，它们将自动生成，那里不需要定义更多数据。当资
+;       源标识符后跟 from 运算符和带引号的文件名时，同样适用于资源数据，在这种情况下，
+;       数据取自给定的资源文件。
+;
+;       entry entry_point_name                      ; 程序入口地址
+;       stack reserve_size_expr[, commit_size]      ; 未定义时创建默认大小为 4096 个字节的栈
+;       heap  reserve_size_expr[, commit_size]      ; 默认预留大小 65536，默认提交大小为零
+;
+;       data export|import|resource|fixups|PE头部数据条目编号
+;       ; 定义特殊 PE 数据
+;       end data
+;
+; 通用对象文件格式（Common Object File Format），要选择通用对象文件格式，使用 format    *** 通用对象文件（format MS COFF/MS64 COFF）
+; COFF 或 format MS COFF 指令，取决于你想创建经典的（DJGPP）还是 Microsoft 的 COFF
+; 文件变体。此格式的默认代码设置为 32 位。要为 x86-64 架构创建 Microsoft COFF 格式的
+; 文件，使用 format MS64 COFF 设置，在这种情况下默认生成长模式代码。
+;
+;   1.  section 指令定义一个新段，它后面应跟定义段名称的带引号字符串，然后可以跟一个或
+;       多个段标志。两种 COFF 变体都可用的段标志是 code 和 data，而标志 readable、writeable、
+;       executable、shareable、discardable、notpageable、linkremove 和 linkinfo
+;       仅适用于 Microsoft 的 COFF 变体。
+;
+;       默认情况下，段按双字（4 字节）对齐，在 Microsoft COFF 变体的情况下，可以通过
+;       在段标志中提供 align 运算符后跟对齐值（任何不超过 8192 的 2 的幂）来指定其他
+;       对齐方式。
+;
+;   2.  extrn 指令定义外部符号，它后面应跟符号名称，可选地可以跟指定该符号标记的数据大
+;       小的 size 运算符。符号名称前面也可以跟包含外部符号名称的带引号字符串和 as 运算
+;       符。
+;
+;   3.  public 指令将现有符号声明为公共符号，它后面应跟符号名称，可选地可以跟 as 运算
+;       符和包含符号应以公共方式可用的名称的带引号字符串。
+;
+;   4.  此外，使用 COFF 格式时，可以将导出的符号指定为 static，这是通过在符号名称前加
+;       上 static 关键字来完成的。使用 Microsoft 的 COFF 格式时，可以在数值表达式内使
+;       用 rva 运算符，以获取应用该值的项的 RVA（相对于 PE 映像基址的偏移量）。
+;
+;       format MS COFF
+;       format MS64 COFF
+;       section '.text' code readable executable                ; 默认段按4字节对齐
+;       section '.data' data readable writeable align 4096      ; 手动设置对齐，不能超过 8192
+;
+;       extrn exit[:size]                                       ; 声明外部符号
+;       extrn '__imp__MessageBoxA@16' as MessageBox:dword       ; 定义修饰名称和函数地址的大小
+;
+;       public main [as 'public_use_name']                      ; 定义公开符号
+;       public start as '_start'                                ; 可指定一个公开可用的修饰名称
+;
+; 可执行和可链接格式（Executable and Linkable Format），要选择 ELF 输出格式，使用       *** ELF 格式文件（format ELF/ELF64）
+; format ELF 指令。此格式的默认代码设置为 32 位。要为 x86-64 架构创建 ELF 文件，使用
+; format ELF64 指令，在这种情况下默认生成长模式代码。
+;
+;   1.  section 指令定义一个新段，它后面应跟定义段名称的带引号字符串，然后可以跟 executable
+;       和 writeable 标志中的一个或两个，可选地还可以跟 align 运算符后跟指定段对齐方式
+;       的数字（必须是 2 的幂），如果未指定对齐方式，则使用默认值，根据选择的格式变体是
+;       4 或 8。
+;   2.  extrn 和 public 指令具有与选择 COFF 输出格式时相同的含义和语法。
+;
+;       format ELF
+;       format ELF64
+;       section '.text' executable              ; 默认按4字节或8字节对齐
+;       section '.data' writeable [align 4096]  ; 手动设置对齐
+;
+;       extrn exit[:size]                                       ; 声明外部符号
+;       extrn '__imp__MessageBoxA@16' as MessageBox:dword       ; 定义修饰名称和函数地址的大小
+;
+;       public main [as 'public_use_name']                      ; 定义公开符号
+;       public start as '_start'                                ; 可指定一个公开可用的修饰名称
+;
+;   3.  也可以使用 rva 运算符（然而当目标架构是 x86-64 时不行），它将地址转换为相对于
+;       GOT 表的偏移量，因此可能对创建与位置无关的代码有用。还有一个特殊的 plt 运算符，
+;       它允许通过过程链接表（Procedure Linkage Table）调用外部函数。你甚至可以创建外
+;       部函数的别名，使其始终通过 PLT 调用，代码如下：
+;
+;           extrn 'printf' as _printf
+;           printf = PLT _printf
+;
+;   4.  要创建可执行文件，在格式选择指令后跟 executable 或 dynamic 关键字，以及可选的
+;       指定目标操作系统品牌的数字（例如值 3 将标记为 Linux 系统的可执行文件）。选择此
+;       格式时，允许使用 entry 指令后跟要设置为程序入口点的值。另一方面，这使得 extrn
+;       和 public 指令不可用，并且期望使用 segment 指令代替 section，后跟一个或多个段
+;       权限标志，以及可选的特殊 ELF 可执行段标记，可以是 interpreter、dynamic、note、
+;       gnuehframe、gnustack 或 gnurelro。可用的权限标志有：readable、writeable 和
+;       executable。非特殊段的起始地址按页（4096 字节）对齐。
+;
+;       format ELF executable|dynamic
+;       format ELF64 executable [the brand of the target operating system]
+;       entry entry_point_name              ; 程序入口地址
+;
+;       segment executable interpreter      ; 非特殊段的起始地址按页对齐
+;       segment readable writeable note
+;
+;
 ; 汇编基本语法
 ;
 ;   1.  行注释以分号开始
