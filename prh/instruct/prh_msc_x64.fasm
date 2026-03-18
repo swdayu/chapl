@@ -660,3 +660,131 @@
 ;       export 'MYLIB.DLL',\
 ;              MyStart,'Start',\
 ;              MyStop,'Stop'
+;
+;
+; 过程（32位）
+;
+; 用于 32 位 Windows 的头文件提供了四个宏指令，用于调用使用栈传递参数的过程。stdcall
+; 指令使用 STDCALL 调用约定调用第一个参数指定的过程。传递给宏的其余参数定义过程的参数，
+; 并以相反顺序存储在栈上。invoke 宏执行相同的操作，然而它通过第一个参数标记的指针间接
+; 调用过程。因此 invoke 可用于通过导入表中定义的指针调用过程。
+;
+;       invoke MessageBox,0,szText,szCaption,MB_OK      ; 等价于
+;       stdcall [MessageBox],0,szText,szCaption,MB_OK   ; 它们都生成以下代码
+;
+;       push MB_OK
+;       push szCaption
+;       push szText
+;       push 0
+;       call [MessageBox]
+;
+; ccall 和 cinvoke 类似于 stdcall 和 invoke，但它们应用于调用使用 C 调用约定的过程，
+; 其中栈帧必须由调用者恢复。要定义使用栈传递参数和局部变量的过程，应使用 proc 宏指令。
+; 在其最简单的形式中，它后面必须跟过程的名称，然后跟它接受的所有参数的名称，例如：
+;
+;       proc WindowProc,hwnd,wmsg,wparam,lparam ; 开始过程定义，它等价于
+;       proc WindowProc,hwnd:DWORD,wmsg:DWORD,wparam:DWORD,lparam:DWORD
+;       proc WindowProc stdcall uses ebx esi edi,hwnd:DWORD,wmsg:DWORD,wparam:DWORD,lparam:DWORD
+;       endp
+;
+; 过程名称和第一个参数之间的逗号是可选的。过程指令应放在接下来的行中，以 endp 宏指令结束。
+; 栈帧在进入过程时自动设置，EBP 寄存器用作访问参数的基址，因此应避免将此寄存器用于其他目
+; 的。为参数指定的名称用于定义基于 EBP 的标签，您可以使用它们像常规变量一样访问参数。例
+; 如，上面示例中定义的过程内部的 mov eax,[hwnd] 指令等价于 mov eax,[ebp+8]。这些标签
+; 的作用域限于过程，因此您可以在给定过程之外将相同名称用于其他目的。由于调用此类过程时任
+; 何参数都作为双字压入栈，因此参数标签默认定义为标记双字数据，但是如果您愿意，可以通过在
+; 参数名称后跟冒号和大小运算符来指定参数的大小。
+;
+; 如果指定的大小小于双字，则给定标签适用于存储在栈上的整个双字的较小部分。如果指定更大的
+; 大小，如远指针或四字，则定义两个双字参数来保存此值，但标记为一个变量。过程名称后面还可   *** 如果指定更大大小的参数，例如8字节，会定义两个4字节参数来保存此值
+; 以跟 stdcall 或 c 关键字，以定义它使用的调用约定。当未指定此类类型时，使用默认值，等
+; 价于 STDCALL。然后还可以跟 uses 关键字，之后是将在进入过程时自动存储并在退出时恢复的
+; 寄存器列表（仅用空格分隔）。在这种情况下，寄存器列表后和第一个参数前的逗号是必需的。
+;
+; 要声明局部变量，可以使用 local 宏指令，后面跟一个或多个用逗号分隔的声明，每个声明由变
+; 量名称后跟冒号和变量类型组成, 标准类型之一（必须大写）或数据结构名称。要声明局部数组，
+; 可以在变量名称后跟方括号括起的数组大小。定义局部变量的另一种方式是在 locals 宏指令开
+; 始和 endl 结束的块内声明它们，在这种情况下，它们可以像常规数据一样定义。
+;
+;       local hDC:DWORD,rc:RECT
+;       local str[256]:BYTE
+;       locals  ; 此声明与前面的示例等价
+;           hDC dd ?
+;           rc RECT
+;           str db 256 dup (?)
+;       endl
+;
+; 局部变量可以在过程内部的任何地方声明，唯一的限制是必须在它们使用之前声明。定义为局部的
+; 变量的标签作用域限于过程内部，您可以在过程之外将相同名称用于其他目的。如果给声明为局部
+; 变量提供初始化值，宏指令将生成初始化这些变量的指令，并将这些指令放在与声明相同的位置。
+; 放置在过程内部任何位置的 ret 指令将生成正确退出过程所需的完整代码，恢复栈帧和过程使用
+; 的寄存器。如果需要生成原始返回指令，使用 retn 助记符，或 ret 后跟数字参数，这也会使其
+; 被解释为单条指令。总之过程的完整定义可能如下所示：
+;
+;       proc WindowProc uses ebx esi edi,hwnd,wmsg,wparam,lparam
+;       local hDC:DWORD,rc:RECT
+;           ; 指令
+;           ret
+;       endp
+;
+;
+; 过程（64位）
+;
+; 在 64 位 Windows 中只有一种调用约定，因此只提供了两个调用过程的宏指令。fastcall 直接
+; 使用 64 位 Windows 系统的标准约定调用第一个参数指定的过程。invoke 宏执行相同的操作，
+; 但间接地，通过第一个参数标记的指针。参数由后面的参数提供，它们可以是任何大小，最大 64
+; 位。当某些参数值不能直接使用 mov 指令复制到栈时，宏指令使用 RAX 寄存器作为临时存储。
+; 如果参数前面有 addr 关键字，则将其视为地址并用 lea 指令计算，因此如果地址是绝对的，它
+; 将被计算为相对于 RIP 的地址，从而防止在具有 fixups 的文件情况下生成重定位。
+;
+; 因为在 64 位 Windows 中浮点参数以不同方式传递，所以必须通过在每个参数前加上 float 词
+; 来标记它们。它们可以是双字或四字大小。以下是调用某些具有双精度或单精度参数的 OpenGL
+; 过程的示例：
+;
+;       invoke glVertex3d,float 0.6,float -0.6,float 0.0
+;       invoke glVertex2f,float dword 0.1,float dword 0.2
+;
+; 参数的栈空间，在每次函数调用之前分配，并在之后立即释放。然而，可以为给定代码块内的所有
+; 调用一次性分配参数栈空间，为此提供了 frame 和 endf 宏。它们应用于包围一个块，其中 RSP
+; 寄存器在过程调用之间不改变，避免每次调用都为参数分配栈空间，因为参数栈空间仅由 frame
+; 宏预留一次，然后由 endf 宏在结束时释放。
+;
+;       frame ; 只分配一次栈空间
+;           invoke TranslateMessage,msg
+;           invoke DispatchMessage,msg
+;       endf
+;
+;       macro frame
+;       {
+;           local size,current
+;           if size
+;               sub rsp,size
+;           end if
+;           current = 0
+;           current@frame equ current
+;           size@frame equ size
+;       }
+;
+;       macro endf
+;       {
+;           size@frame = current@frame
+;           if size@frame
+;               add rsp,size@frame
+;           end if
+;           restore size@frame,current@frame
+;       }
+;
+; 用于 64 位 Windows 的 proc 宏具有与 32 位宏相同的语法和功能（尽管在这种情况下 stdcall
+; 和 c 选项无用）。但是应该注意，在 64 位 Windows 使用的调用约定中，前四个参数在寄存器
+; 中传递（RCX、RDX、R8 和 R9），因此，即使栈中有为它们预留了空间，并且用过程定义中提供
+; 的名称标记，但这四个参数最初不会驻留在那里。应通过直接读取寄存器来访问它们。但如果这些
+; 寄存器需要用于其他目的，建议将此类参数的值存储到为其保留的内存单元中。此类过程的开头可
+; 能如下所示：
+;
+;       proc WindowProc hwnd,wmsg,wparam,lparam
+;           mov [hwnd],rcx
+;           mov [wmsg],edx
+;           mov [wparam],r8
+;           mov [lparam],r9
+;           ; 现在寄存器可以用于其他目的
+;           ; 并且参数稍后仍可访问
