@@ -788,3 +788,154 @@
 ;           mov [lparam],r9
 ;           ; 现在寄存器可以用于其他目的
 ;           ; 并且参数稍后仍可访问
+;
+;
+; 自定义过程
+;
+; 使用 proc 宏指令时，可以创建过程框架的自定义代码。有三个符号变量：prologue@proc、
+; epilogue@proc 和 close@proc，它们定义 proc 在过程入口、从过程返回（用 ret 宏创建）
+; 和过程结束时（用 endp 宏创建）调用的宏指令的名称。这些变量可以重新定义以指向其他宏指
+; 令，以便可以自定义 proc 宏生成的所有代码。
+;
+; 这三个宏指令中的每一个都接受五个参数。第一个提供过程入口点的标签，这也是过程的名称。
+; 第二个是包含某些标志的位域，特别是当调用者应恢复栈时设置第 4 位，否则清除。第三个是指
+; 定过程参数在栈上占用的字节数的值。第四个是指定应为局部变量保留的字节数的值。最后，第五
+; 个也是最后一个参数是逗号分隔的寄存器列表，过程声明要使用这些寄存器，因此应由 prologue
+; 保存并由 epilogue 恢复。
+;
+; prologue 宏除了生成设置栈帧和局部变量指针的代码外，还必须定义两个符号变量：parmbase@proc
+; 和 localbase@proc。第一个应提供参数所在的基地址，第二个应提供局部变量所在的地址，通常
+; 相对于 EBP/RBP 寄存器，但如果可以确保这些指针在过程内部访问参数或局部变量的任何点都有
+; 效，则可以使用其他基址。有任何对齐要求的有效过程的对齐实现也取决于 prologue 宏指令，
+; 作为第四个参数提供的局部变量大小本身可能根本没有对齐。
+;
+; proc 的默认行为由 prologuedef 和 epiloguedef 宏定义（在默认情况下不需要关闭宏指令，
+; 因此 close@proc 具有空值）。如果需要在某些自定义后返回默认值，应通过以下三行完成：
+;
+;       prologue@proc equ prologuedef
+;       epilogue@proc equ epiloguedef
+;       close@proc equ
+;
+;       macro prologuedef procname,flag,parmbytes,localbytes,reglist
+;       {
+;           local loc
+;           loc = (localbytes+3) and (not 3)
+;           parmbase@proc equ ebp+8
+;           localbase@proc equ ebp-loc
+;           if parmbytes | localbytes
+;               push ebp
+;               mov ebp,esp
+;               if localbytes
+;                   sub esp,loc
+;               end if
+;           end if
+;           irps reg, reglist \{ push reg \}
+;       }
+;
+;       macro epiloguedef procname,flag,parmbytes,localbytes,reglist
+;       {
+;           irps reg, reglist \{ reverse pop reg \}
+;           if parmbytes | localbytes
+;               leave
+;           end if
+;           if flag and 10000b
+;               retn
+;           else
+;               retn parmbytes
+;           end if
+;       }
+;
+; 作为修改 prologue 的示例，下面是实现 32 位 Windows 栈探测 prologue 的宏指令。每当
+; 局部变量区域可能大于 4096 字节时，应使用这种分配方法。它可以轻松修改为使用程序员偏好
+; 的任何其他栈探测方法。
+;
+;       prologue@proc equ sp_prologue ; stack-probing prologue
+;
+;       macro sp_prologue procname,flag,parmbytes,localbytes,reglist
+;       {
+;           local loc
+;           loc = (localbytes+3) and (not 3) ; (localbytes + 3) & (~ 3)
+;           parmbase@proc equ ebp+8
+;           localbase@proc equ ebp-loc
+;           if parmbytes | localbytes
+;               push ebp
+;               mov ebp,esp
+;               if localbytes
+;                   repeat localbytes shr 12
+;                       mov byte [esp-%*4096],0
+;                   end repeat
+;                   sub esp,loc
+;               end if
+;           end if
+;           irps reg, reglist \{ push reg \}
+;       }
+;
+; 64 位头文件提供了一组额外的 prologue/epilogue 宏，允许定义使用 RSP 访问参数和局部变
+; 量的过程（因此 RBP 寄存器可由过程自由用于任何其他用途），并且还为内部进行的所有过程调
+; 用分配公共空间，以便调用的 fastcall 或 invoke 宏不需要自己分配任何栈空间。这与将过程
+; 内部的代码放入 frame 块中获得的效果类似，但在这种情况下，为过程调用分配栈空间与为局部
+; 变量分配空间合并。此类过程内部的代码不得以任何方式改变 RSP 寄存器。要切换到 64 位 proc
+; 的此行为，使用以下指令：
+;
+;       prologue@proc equ static_rsp_prologue
+;       epilogue@proc equ static_rsp_epilogue
+;       close@proc equ static_rsp_close
+;
+;       macro static_rsp_prologue procname,flag,parmbytes,localbytes,reglist
+;       {
+;           local counter,loc,frame,current
+;           counter = 0
+;           irps reg, reglist \{ push reg counter = counter+1 \}
+;           loc = (localbytes+7) and (not 7)
+;           if frame & (counter+loc shr 3+1) and 1
+;               loc = loc + 8
+;           end if
+;           framebytes@proc equ frame+loc
+;           if framebytes@proc
+;               sub rsp,framebytes@proc
+;           end if
+;           localbase@proc equ rsp+frame
+;           regsbase@proc equ rsp+frame+loc
+;           parmbase@proc equ rsp+frame+loc+counter*8+8
+;           current = 0
+;           current@frame equ current
+;           size@frame equ frame
+;       }
+;
+;       macro static_rsp_epilogue procname,flag,parmbytes,localbytes,reglist
+;       {
+;           if framebytes@proc
+;               add rsp,framebytes@proc
+;           end if
+;           irps reg, reglist \{ reverse pop reg \}
+;           retn
+;       }
+;
+;       macro static_rsp_close procname,flag,parmbytes,localbytes,reglist
+;       {
+;           size@frame = current@frame
+;           restore size@frame,current@frame
+;       }
+;
+;       macro prologuedef procname,flag,parmbytes,localbytes,reglist
+;       {
+;           local loc,fill,counter
+;           loc = (localbytes+15) and (not 15)
+;           parmbase@proc equ rbp+16
+;           localbase@proc equ rbp-loc
+;           push rbp
+;           mov rbp,rsp
+;           if loc+fill
+;               sub rsp,loc+fill
+;           end if
+;           counter = 0
+;           irps reg, reglist \{ push reg counter = counter+1 \}
+;           fill = 8*(counter and 1)
+;       }
+;
+;       macro epiloguedef procname,flag,parmbytes,localbytes,reglist
+;       {
+;           irps reg, reglist \{ reverse pop reg \}
+;           leave
+;           retn
+;       }
