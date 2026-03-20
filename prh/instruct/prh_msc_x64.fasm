@@ -754,26 +754,6 @@
 ;           invoke DispatchMessage,msg
 ;       endf
 ;
-;       macro frame
-;       {
-;           local size,current
-;           if size
-;               sub rsp,size
-;           end if
-;           current = 0
-;           current@frame equ current
-;           size@frame equ size
-;       }
-;
-;       macro endf
-;       {
-;           size@frame = current@frame
-;           if size@frame
-;               add rsp,size@frame
-;           end if
-;           restore size@frame,current@frame
-;       }
-;
 ; 用于 64 位 Windows 的 proc 宏具有与 32 位宏相同的语法和功能（尽管在这种情况下 stdcall
 ; 和 c 选项无用）。但是应该注意，在 64 位 Windows 使用的调用约定中，前四个参数在寄存器
 ; 中传递（RCX、RDX、R8 和 R9），因此，即使栈中有为它们预留了空间，并且用过程定义中提供
@@ -816,12 +796,26 @@
 ;       epilogue@proc equ epiloguedef
 ;       close@proc equ
 ;
+;       寄存器保护   <-- esp
+;       寄存器保护
+;       寄存器保护
+;       局部变量一   <-- localbase@proc
+;       局部变量二
+;       局部变量三
+;       寄存器ebp    <-- ebp
+;       ----------- 进入被调函数
+;       返回地址     <-- esp
+;       栈参数一     <-- parmbase@proc
+;       栈参数二
+;       栈参数三
+;       主调函数，此处为高地址（栈底）
+;
 ;       macro prologuedef procname,flag,parmbytes,localbytes,reglist
 ;       {
 ;           local loc
-;           loc = (localbytes+3) and (not 3)
-;           parmbase@proc equ ebp+8
-;           localbase@proc equ ebp-loc
+;           loc = (localbytes+3) and (not 3) ; 局部变量的大小扩展到4字节的倍数
+;           parmbase@proc equ ebp+8          ; 输入参数基址，跳过ebp保护和返回地址
+;           localbase@proc equ ebp-loc       ; 局部变量机制，跳过局部变量空间大小
 ;           if parmbytes | localbytes
 ;               push ebp
 ;               mov ebp,esp
@@ -836,12 +830,12 @@
 ;       {
 ;           irps reg, reglist \{ reverse pop reg \}
 ;           if parmbytes | localbytes
-;               leave
+;               leave           ; 相当于恢复esp和ebp两个寄存器的值： mov esp,ebp  pop ebp
 ;           end if
 ;           if flag and 10000b
-;               retn
+;               retn            ; 标志 10000b 相当于主调函数恢复栈参数空间
 ;           else
-;               retn parmbytes
+;               retn parmbytes  ; 被调函数自动恢复栈参数空间
 ;           end if
 ;       }
 ;
@@ -854,15 +848,15 @@
 ;       macro sp_prologue procname,flag,parmbytes,localbytes,reglist
 ;       {
 ;           local loc
-;           loc = (localbytes+3) and (not 3) ; (localbytes + 3) & (~ 3)
-;           parmbase@proc equ ebp+8
-;           localbase@proc equ ebp-loc
+;           loc = (localbytes+3) and (not 3)    ; 局部变量的大小扩展到4字节的倍数
+;           parmbase@proc equ ebp+8             ; 输入参数基址，跳过ebp保护和返回地址
+;           localbase@proc equ ebp-loc          ; 局部变量机制，跳过局部变量空间大小
 ;           if parmbytes | localbytes
 ;               push ebp
 ;               mov ebp,esp
 ;               if localbytes
-;                   repeat localbytes shr 12
-;                       mov byte [esp-%*4096],0
+;                   repeat localbytes shr 12    ; 重复 localbytes/4096 次，当次数大于等于1时才会执行下面的操作
+;                       mov byte [esp-%*4096],0 ; 局部变量的每4096字节中的第一个字节写为零
 ;                   end repeat
 ;                   sub esp,loc
 ;               end if
@@ -881,12 +875,25 @@
 ;       epilogue@proc equ static_rsp_epilogue
 ;       close@proc equ static_rsp_close
 ;
+;       局部变量一   <-- rsp localbase@proc
+;       局部变量二
+;       局部变量三
+;       寄存器保护   <-- regsbase@proc rsp+局部变量空间大小
+;       寄存器保护
+;       寄存器保护
+;       ----------- 进入被调函数
+;       返回地址     <-- rsp
+;       栈参数一     <-- parmbase@proc rsp+局部变量空间大小+保护寄存器个数*8+8
+;       栈参数二
+;       栈参数三
+;       主调函数，此处为高地址（栈底）
+;
 ;       macro static_rsp_prologue procname,flag,parmbytes,localbytes,reglist
 ;       {
 ;           local counter,loc,frame,current
 ;           counter = 0
 ;           irps reg, reglist \{ push reg counter = counter+1 \}
-;           loc = (localbytes+7) and (not 7)
+;           loc = (localbytes+7) and (not 7) ; 局部变量的大小扩展到8字节的倍数
 ;           if frame & (counter+loc shr 3+1) and 1
 ;               loc = loc + 8
 ;           end if
@@ -908,7 +915,7 @@
 ;               add rsp,framebytes@proc
 ;           end if
 ;           irps reg, reglist \{ reverse pop reg \}
-;           retn
+;           retn ; 由主调函数恢复栈参数空间
 ;       }
 ;
 ;       macro static_rsp_close procname,flag,parmbytes,localbytes,reglist
@@ -917,10 +924,24 @@
 ;           restore size@frame,current@frame
 ;       }
 ;
+;       寄存器保护   <-- rsp
+;       寄存器保护
+;       寄存器保护
+;       局部变量一   <-- localbase@proc rbp-局部变量空间大小
+;       局部变量二
+;       局部变量三
+;       寄存器rbp    <-- rbp
+;       ----------- 进入被调函数
+;       返回地址     <-- rsp
+;       栈参数一     <-- parmbase@proc rbp+16
+;       栈参数二
+;       栈参数三
+;       主调函数，此处为高地址（栈底）
+;
 ;       macro prologuedef procname,flag,parmbytes,localbytes,reglist
 ;       {
 ;           local loc,fill,counter
-;           loc = (localbytes+15) and (not 15)
+;           loc = (localbytes+15) and (not 15) ; 局部变量的大小扩展到16字节的倍数
 ;           parmbase@proc equ rbp+16
 ;           localbase@proc equ rbp-loc
 ;           push rbp
@@ -1604,3 +1625,90 @@
 ;       {
 ;           code_size = $
 ;       }
+;
+;
+; 重复宏指令
+;
+; rept 指令是一种特殊的宏指令，它将大括号括起的块重复指定次数。基本语法是 rept 指令后跟
+; 数字，然后是 { 和 } 字符括起的源代码块。最简单的示例如下，将生成五行 in al,dx。指令块
+; 的定义方式与标准宏指令相同，任何只能在宏指令内部使用的特殊运算符和指令也允许在这里使用。
+; 当给定计数为零时，块将被简单跳过，就像你定义了宏指令但从未使用它一样。重复次数后面可以
+; 跟计数器符号的名称，该符号将被符号性地替换为当前生成的重复次数。
+;
+;       rept 5 { in al,dx }
+;
+;       rept 3 counter
+;       {
+;           byte#counter db counter
+;       } ; 生成下面的指令
+;
+;       byte1 db 1
+;       byte2 db 2
+;       byte3 db 3
+;
+; 应用于 rept 块的重复机制与用于处理宏指令多组参数的机制相同，因此 forward、common 和
+; reverse 等指令可以按其通常含义使用。例如下面的 reverse 指令将显示数字 7 到 1。local
+; 指令的行为与具有多组参数的宏指令内部相同，下面使用 local 的宏为每次重复生成唯一的标签。
+; 计数器符号默认从 1 开始计数，但你可以通过在计数器名称后立即放置冒号前导的数字来声明不
+; 同的基值。还可以定义用逗号分隔的多个计数器，每个计数器可以有不同的基值。
+;
+;       rept 7 num { reverse display 'num }
+;
+;       rept 21
+;       {
+;           local label
+;           label: loop label
+;       }
+;
+;       rept 8 n:0 { pxor xmm#n,xmm#n } ; 生成清除八个 SSE 寄存器内容的代码
+;
+; 重复次数和计数器的基值可以使用数值表达式指定，其运算符规则与汇编器中的相同。然而，此类
+; 表达式中使用的每个值必须是直接指定的数字，或者是值也是预处理器可以计算的表达式的符号常
+; 量（在这种情况下，首先计算与符号常量关联的表达式值，然后将其替换到外部表达式中该常量的   *** rept 只能接受预处理常量，repeat 和 while 可以接受汇编时常量
+; 位置）。如果你需要基于只能在汇编时计算的值进行重复，需要使用汇编器处理的代码重复指令
+; repeat 或 while 控制指令。
+;
+; irp 指令使单个参数遍历给定的参数列表。语法是 irp 后跟参数名称，然后是逗号和参数列表。   *** irp 指令遍历指定的参数列表
+; 参数的指定方式与标准宏指令的调用相同，因此它们必须用逗号分隔，每个参数可以用 < 和 >
+; 字符括起。参数名称后面也可以跟 * 以标记它不能获得空值。
+;
+;       irp each_arg,arg1,arg2,arg3
+;       irp each_arg,<arg,arg>,arg2  ; <arg,arg> 是第一个参数
+;       irp each_arg*,arg1,arg2,arg3 ; 表示参数列表不能为空
+;
+;       irp value, 2,3,5
+;       {
+;           db value
+;       } ; 将生成以下指令
+;
+;       db 2
+;       db 3
+;       db 5
+;
+; irps 指令遍历给定的符号列表，它后面应跟参数名称，然后是逗号和任意符号序列。此序列中的   *** irps 指令遍历指定的符号列表，符号自动形成参数，没有逗号分隔
+; 每个符号，无论是名称符号、符号字符还是引号字符串，都将成为一次迭代的参数值。如果逗号后
+; 面没有符号，则根本不进行迭代。
+;
+;       irps reg, al bx ecx
+;       {
+;           xor reg,reg
+;       } ; 将生成以下指令
+;
+;       xor al,al
+;       xor bx,bx
+;       xor ecx,ecx
+;
+; irpv 指令遍历分配给给定符号变量的所有值。它后面应跟参数名称和符号变量名称，用逗号分隔。   *** irpv 指令遍历符号常量定义的所有符号
+; 当用 restore 指令处理符号变量以移除其最新值时，该值也会从 irpv 访问的值列表中移除。但
+; 在 irpv 执行的迭代过程中对该列表进行的任何修改（通过为符号变量定义新值或用 restore 指
+; 令销毁值）都不影响此指令执行的操作。被迭代的列表反映 irpv 指令遇到时符号变量的状态，
+; 例如此代码片段将名为 d 的符号变量恢复到其初始状态，即在分配任何值之前，它简单地生成与
+; 要移除的值数量一样多的 restore 指令副本。
+;
+;       irpv value, d
+;       {
+;           restore d   ; 符号常量 d 中有多少个符号，就会生成多少个 resotre 指令
+;       }
+;
+; irp、irps 和 irpv 指令定义的块也以与任何宏指令相同的方式处理，因此特定于宏指令的运算    *** rept irp irps irpv 可以使用宏定义中可以使用的运算符和指令
+; 符和指令也可以在这种情况下自由使用。
