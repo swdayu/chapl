@@ -6,6 +6,52 @@
 ;  -d <name>=<value>  define symbolic variable
 ;  -s <file>          dump symbolic information for debugging
 ;
+; 寄存器（x86）
+;
+;   通用寄存器
+;       08      al      cl      dl      bl      ah      ch      dh      bh
+;       16      ax      cx      dx      bx      sp      bp      si      di
+;       32      eax     ecx     edx     ebx     esp     ebp     esi     edi
+;   段寄存器
+;       16      es      cs      ss      ds      fs      gs
+;   控制寄存器
+;       32      cr0             cr2     cr3     cr4
+;   调试寄存器
+;       32      dr0     dr1     dr2     dr3                     dr6     dr7
+;   浮点寄存器
+;       80      st0     st1     st2     st3     st4     st5     st6     st7
+;   MMX寄存器
+;       64      mm0     mm1     mm2     mm3     mm4     mm5     mm6     mm7
+;   SSE寄存器
+;       128     xmm0    xmm1    xmm2    xmm3    xmm4    xmm5    xmm6    xmm7
+;   AVX寄存器
+;       256     ymm0    ymm1    ymm2    ymm3    ymm4    ymm5    ymm6    ymm7
+;   AVX-512
+;       512     zmm0    zmm1    zmm2    zmm3    zmm4    zmm5    zmm6    zmm7
+;   Opmask
+;       64      k0      k1      k2      k3      k4      k5      k6      k7
+;   Bounds
+;       128     bnd0    bnd1    bnd2    bnd3
+;
+; 寄存器（x64）扩展
+;
+;   通用寄存器
+;       08                                      spl     bpl     sil     dil
+;               r8b     r9b     r10b    r11b    r12b    r13b    r14b    r15b
+;       16      r8w     r9w     r10w    r11w    r12w    r13w    r14w    r15w
+;       32      r8d     r9d     r10d    r11d    r12d    r13d    r14d    r15d
+;       64      rax     rcx     rdx     rbx     rsp     rbp     rsi     rdi
+;               r8      r9      r10     r11     r12     r13     r14     r15
+;   SSE寄存器
+;       128     xmm8    xmm9    xmm10   xmm11   xmm12   xmm13   xmm14   xmm15
+;   AVX寄存器
+;       256     ymm8    ymm9    ymm10   ymm11   ymm12   ymm13   ymm14   ymm15
+;   AVX-512
+;       512     zmm8    zmm9    zmm10   zmm11   zmm12   zmm13   zmm14   zmm15
+;               zmm16   zmm17   zmm18   zmm19   zmm20   zmm21   zmm22   zmm23
+;               zmm24   zmm25   zmm26   zmm27   zmm28   zmm29   zmm30   zmm31
+;
+;
 ; 可执行文件格式
 ;
 ; 默认情况下，当源文件中没有 format 指令时，flat assembler 只是将生成的指令代码放入输   *** 扁平二进制格式（format binary）
@@ -228,7 +274,7 @@
 ; 数值表达式可以使用的算术操作
 ;
 ;   1.  基本操作 + - * / mod
-;   2.  位操作，与（and）或（or）非（not）异或（xor）位移（shl shr），以及 bsf bsr
+;   2.  位操作，与（and）或（or）反（not）异或（xor）位移（shl shr），以及 bsf bsr
 ;   3.  特殊的一元操作符 rva plt 用于不同地址间的转换，RVA 相对虚拟地址，表示相对于
 ;       PE 映像基址的偏移量
 ;   4.  对于 ELF 格式，也可以使用 rva 运算符（然而当目标架构是 x86-64 时不行），它将
@@ -1866,3 +1912,61 @@
 ; 应该非常小心。在这种情况下，重要的是要意识到源代码在预处理后会变成什么，从而汇编器会
 ; 看到什么并在上面进行多次汇编。
 
+format MS64 COFF
+section '.text' code readable executable align 16
+
+; [in]  rcx 需要执行的协程，主协程返回地址已在栈顶
+; 特制的简单协程不会修改非易变寄存器，而协程调用的C函数会立即返回，因此不需要保护寄存器
+prh_impl_spco_main_yield:
+    ;   协程初态
+    ;   born_proc  <-- rsp      进入协程函数
+    ;   spco_proc               返回地址  <-- rsp
+    ;   guardaddr               guardaddr
+    ;   mainstack               mainstack
+    ;   stacktop   <-- coro --> stacktop
+    ;   userdata   ____________ userdata
+    ; ------------- 进入协程函数
+    ;   函数返回地址 <-- mainstack
+    ;   RCX 影子空间
+    ;   RDX 影子空间
+    ;   R8 影子空间
+    ;   R9 影子空间
+    ;   栈函数参数一
+    ;   栈函数参数二
+    ;   栈函数参数三
+    ; 主协程栈布局，此处为高地址（栈底）
+    mov rax, rsp        ; 主协程栈指针
+    mov rsp, [rcx]      ; 加载协程栈
+    mov [rcx-8], rax    ; 保护主协程栈指针
+    ret                 ; 协程栈顶为start函数或协程继续执行地址或finish函数
+
+; [in]  rcx 当前协程，协程返回地址已在栈顶
+prh_impl_spco_yield:
+    mov [rcx], rsp      ; 保护协程栈指针
+    mov rsp, [rcx-8]    ; 切换到主协程栈
+    mov rax, 1          ; 协程成功返回
+    ret                 ; 返回主协程
+
+; [in]  rcx 当前协程
+prh_impl_spco_finish:
+    mov [rcx], 0        ; 协程执行完毕，将栈指针清零
+    mov rsp, [rcx-8]    ; 切换到主协程栈
+    mov rax, 0          ; 协程执行完毕
+    ret                 ; 返回主协程
+
+; [in]  rcx 需要执行的协程
+; 由 prh_impl_spco_main_yield 触发调用
+prh_impl_spco_start:
+    ;   born_proc   <-- 00 对齐需求（输入参数必须对齐，即返回地址下面的地址是16字节对齐的）
+    ;   spco_proc   <-- 08 <-- rsp 返回地址   <-- 08 <-- rsp
+    ;   guardaddr   <-- 00     ==> guardaddr <-- 00
+    ;   mainstack   <-- 08     ==> mainstack <-- 08
+    ;   stacktop    <-- 00 <-- coro
+    ;   userdata    <-- 08
+    ; 协程初态布局，此处为高地址（栈底）
+    pop rdx             ; 协程函数 spco_proc
+    call rdx            ; 调用协程函数，特制协程不需要影子空间
+    mov rax,OFFSET prh_impl_spco_finish
+    push rax            ; 栈顶压入finish函数
+    mov rcx, [rsp+24]   ; rsp指向spco_proc位置，往后移动三个指针指向协程
+    jmp prh_impl_spco_yield
