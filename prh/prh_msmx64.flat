@@ -1917,7 +1917,7 @@ section '.text' code readable executable align 16
 
 ; [in]  rcx 需要执行的协程，主协程返回地址已在栈顶
 ; 特制的简单协程不会修改非易变寄存器，而协程调用的C函数会立即返回，因此不需要保护寄存器
-prh_impl_spco_main_yield:
+prh_asm_main_yield:
     ;   协程初态
     ;   born_proc  <-- rsp      进入协程函数
     ;   spco_proc               返回地址  <-- rsp
@@ -1970,3 +1970,9 @@ prh_impl_spco_start:
     push rax            ; 栈顶压入finish函数
     mov rcx, [rsp+24]   ; rsp指向spco_proc位置，往后移动三个指针指向协程
     jmp prh_impl_spco_yield
+
+; [in]  rcx     prh_spco*
+prh_asm_spco_execute:   ; 主协程栈顶已保存返回地址
+    mov rax, rsp        ; 主协程栈指针
+    mov rsp, [rcx]      ; 加载协程栈
+    mov [rcx-8], rax    ; 保护主协程栈指针
