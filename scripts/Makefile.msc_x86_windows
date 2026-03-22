@@ -1,4 +1,9 @@
 # msc tool chain for x86 arch on windows or wsl2
+# https://learn.microsoft.com/en-us/cpp/build/reference/compiler-options-listed-by-category
+# https://learn.microsoft.com/en-us/cpp/build/reference/microsoft-extensions-to-c-and-cpp
+# https://learn.microsoft.com/en-us/cpp/c-runtime-library/compatibility
+# https://learn.microsoft.com/en-us/cpp/preprocessor/predefined-macros
+# https://learn.microsoft.com/en-us/cpp/cpp/keywords-cpp
 
 # dont export variables defined in this makefile
 cur_makefile := $(lastword $(MAKEFILE_LIST))
@@ -76,7 +81,13 @@ OUT_PRE_FILE = /Fi$@ $(OUT_PDB_FILE) /sourceDependencies$(basename $@).d.json
 CLOPT_FIRST_PREREQ = $(call windows_path_style,$<)
 COMPILE_ASM_TO_OBJ := /c /Ta
 ASM_TO_OBJ_OUTFILE = /Sf /Sa /Fl$(basename $@).lst /Fo$@
+FASM := fasm.exe
 
+# /permissive- 设置标准遵从模式，即禁止宽松（permissive）模式
+# /Ze 启用语言扩展，该选项已弃用，因为这是默认行为
+# /Za 禁用不兼容 C89 C90 的扩展，不推荐使用在 C++ 编译中
+# /Zc:__cplusplus[-] 启用 __cplusplus 宏
+# /Zc:__STDC__ 启用 __STDC__ 宏
 INIT_C_ONLY += /std:c11 /experimental:c11atomics /TC #/Zc:__STDC__
 INIT_CXX_ON += /std:c++17 /Zc:__cplusplus /TP
 INIT_AFLAGS := /X /W3 /WX
@@ -228,7 +239,7 @@ endif
 # but the generated pdb also support edit and continue debugging feature.
 # /ZI cannot used together with /GL, and /ZI conflict with /OPT:REF /OPT:ICF.
 # Removes unreferenced data or functions that are COMDATs, or that only have
-# internal linkage. Under /Zc:inline , the compiler specifies that translation
+# internal linkage. Under /Zc:inline, the compiler specifies that translation
 # units with inline data or functions must also include their definitions.
 INIT_CFLAGS += /Zi /Zc:inline
 
@@ -303,7 +314,7 @@ INIT_CFLAGS += \
 # /MDd msvcrtd.lib	ucrtd.lib (ucrtbased.dll)	vcruntimed.lib (vcruntime<v>d.dll)
 
 msc-crt-y := # libcmt.lib libucrt.lib ucrt.lib
-msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib shell32.lib dbghelp.lib
+msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib ws2_32.lib shell32.lib ntdll.lib dbghelp.lib
 
 OPTION_LDLIBS = $(patsubst -l%,%,$(1))
 OPTION_LDDIRS = $(foreach d,$(patsubst -L%,%,$(1)),/LIBPATH:$(call windows_path_style,$(d)))
@@ -342,3 +353,8 @@ quiet_cmd_gen_target_sec = $(quiet_echo_genbin)
 # .asm -> .o
 quiet_cmd_asm_to_o  = $(quiet_echo_as)
       cmd_asm_to_o  = $(AS) $(built_as_flags) $(ASM_TO_OBJ_OUTFILE) $(COMPILE_ASM_TO_OBJ) $(CLOPT_FIRST_PREREQ)
+
+# compile flat assembly code to object
+# .flat -> .o
+quiet_cmd_flat_to_o  = $(quiet_echo_as)
+      cmd_flat_to_o  = $(FASM) -s $@.symb -d srctree="$(srctree)/" $(CLOPT_FIRST_PREREQ) $@

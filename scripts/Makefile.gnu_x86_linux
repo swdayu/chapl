@@ -26,6 +26,7 @@ OUT_PRE_FILE = -o $@
 OUT_OBJ_FILE = -o $@
 OUT_ASM_FILE = -o $@
 CLOPT_FIRST_PREREQ = $<
+FASM := fasm
 
 PEDANTIC_FLAGS := # -pedantic -pedantic-errors
 INIT_C_ONLY += -std=c11 $(PEDANTIC_FLAGS)
@@ -223,3 +224,8 @@ quiet_cmd_gen_target_hex = $(quiet_echo_genhex)
 
 quiet_cmd_gen_target_sec = $(quiet_echo_genbin)
       cmd_gen_target_sec = $(OBJCOPY) $(GEN_TARGET_SEC_FLAGS) -O binary $< $@
+
+# compile flat assembly code to object
+# .flat -> .o
+quiet_cmd_flat_to_o  = $(quiet_echo_as)
+      cmd_flat_to_o  = $(FASM) -s $@.symb -d srctree="$(srctree)/" $(CLOPT_FIRST_PREREQ) $@

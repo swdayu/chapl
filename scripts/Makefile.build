@@ -191,6 +191,9 @@ $(obj)/%.s: $(src)/%.cpp FORCE
 $(obj)/%.o: $(src)/%.asm FORCE
 	$(call if_changed_dep,asm_to_o)
 
+$(obj)/%.o: $(src)/%.flat FORCE
+	$(call if_changed_dep,flat_to_o)
+
 $(obj)/%.o: $(src)/%.S FORCE
 	$(call if_changed_dep,S_to_o)
 
