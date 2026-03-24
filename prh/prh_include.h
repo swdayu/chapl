@@ -22503,6 +22503,443 @@ void prh_ehub_join(void);
 #endif // PRH_EHUB_INCLUDE
 
 #if defined(PRH_IMPL_WINDOWS_EHUB)
+// 使用原子 queue_length 的方式一对一原子队列：
+//  1.  入队时直接入队，然后 queue_length 原子地递增
+//  2.  出队时需要原子的检查 queue_length 是否为零，然后出队，再对 queue_length 递减
+//  3.  入队需要一次原子写，出队需要一次原子读和一次原子写
+//
+// 如果使用原子 tail 指针的方式实现：
+//  1.  入队时直接入队，然后原子的修改 tail 指针
+//  2.  出队时原子的读取 tail 指针，如果与头指针不相等则有元素，直接获取该元素即可
+//  3.  入队需要一次原子写，出队只需要一次原子读，而且还省了保存 queue_length 的空间
+//
+// 线程发送队列
+//  1.  生产者是当前线程
+//  2.  消费者是调度线程
+//  3.  发给调度线程的消息调度线程自己消费
+//  4.  发给其他线程的消息调度线程负责转发
+//  5.  释放的内存块由调度线程通过释放队列还给生产者线程
+//
+// 线程或协程接收队列
+//  1.  生产者为调度线程
+//  2.  消费者为对应线程或协程
+//  3.  消费完之后，通过线程的发送队列还给调度线程
+
+typedef struct prh_thrd_struct(
+    /* +4p +3p */ union { prh_r32 flags; struct { bool thrd_exit; }; };
+    /* +1p +1p */ void **give_back_rx_head; // 当前线程接收调度线程返还的内存块
+    /* +1p +1p */ void **thrd_rx_task_head; // 当前线程接收调度线程分派的任务
+    /*  6p  4p => 24B 32B */
+    /* 16p  8p => 64B 64B */ prh_alignas(prh_cache_line_size) // 共享给调度线程，会被调度线程修改的字段
+    /* +1p +1p */ prh_atom_ptr tx_tail_to_schd; // 发送给调度线程的消息
+    /* +1p +1p */ prh_atom_ptr tx_tail_to_thrd; // 发送给其他线程的消息
+    /* +1p +1p */ prh_atom_ptr schd_give_back_tail; // 调度线程返还消息内存块
+    /* +1p +1p */ prh_atom_ptr schd_tx_task_tail; // 调度线程给当前线程分配任务
+    /* +1p +1p */ void **schd_rx_schd_head; // 调度线程接收发送给调度线程的消息
+    /* +1p +1p */ void **schd_rx_thrd_head; // 调度线程接收发送给其他线程的消息
+                  prh_thrd_cond thrd_sleep_cond;
+) prh_ehub_thrd;
+
+typedef void (*prh_cont)(void *post);
+
+typedef struct {
+    void *post;
+    prh_cont cont;
+} prh_ehub_post;
+
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L0 ((int)(16 * sizeof(void *)))    //  64/128 字节
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L1 ((int)(32 * sizeof(void *)))    // 128/256 字节
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L2 ((int)(64 * sizeof(void *)))    // 256/512 字节
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L3 ((int)(128 * sizeof(void *)))   // 512/1024字节
+
+#define PRH_EHUB_QUEUE_BLOCK_SIZE PRH_IMPL_QUEUE_BLOCK_SIZE_L3
+#define PRH_EHUB_QUEUE_BLOCK_ENDP (PRH_EHUB_QUEUE_BLOCK_SIZE = 2 * (int)sizeof(void *))
+#define PRH_EHUB_BLOCK_END ((void *)(~(prh_ptr)0x02))
+#define PRH_EHUB_BLOCK_ITEM_FREE ((void *)(~(prh_ptr)0x03))
+
+prh_inline prh_byte *prh_impl_ehub_queue_block_from_endp(void **block_end) {
+    return (prh_byte *)block_end - PRH_EHUB_QUEUE_BLOCK_ENDP;
+}
+
+prh_inline void **prh_impl_ehub_queue_block_endp(prh_byte *block) {
+    return (void **)(block + PRH_EHUB_QUEUE_BLOCK_ENDP);
+}
+
+prh_inline void **prh_impl_ehub_queue_block_next(prh_byte *block) {
+    return (void **)(block + PRH_EHUB_QUEUE_BLOCK_SIZE - (int)sizeof(void *));
+}
+
+prh_inline prh_arena *prh_impl_ehub_thrd_set_alloc(prh_ehub_thrd *thrd) {
+    prh_arena *alloc = prh_get_arena_allocator();
+    thrd->extra_ptr = alloc;
+    return alloc;
+}
+
+prh_inline prh_arena *prh_impl_ehub_thrd_get_alloc(prh_ehub_thrd *thrd) {
+    return (prh_arena *)thrd->extra_ptr;
+}
+
+prh_inline prh_byte *prh_impl_ehub_alloc_queue_block(prh_ehub_thrd *thrd) {
+    prh_byte *block = prh_arena_calloc(prh_impl_ehub_thrd_get_alloc(thrd), PRH_EHUB_QUEUE_BLOCK_SIZE, prh_alignment_cache_line);
+    *prh_impl_ehub_queue_block_endp(block) = PRH_EHUB_BLOCK_END;
+    return block;
+}
+
+prh_inline prh_byte *prh_impl_ehub_queue_block_get(prh_ehub_thrd *thrd, prh_byte *free_block) {
+    return free_block ? free_block : prh_impl_ehub_alloc_queue_block(thrd);
+}
+
+prh_inline void **prh_impl_schd_give_back_tail_read(prh_ehub_thrd *thrd) {
+    return (void **)prh_atom_ptr_read(&thrd->schd_give_back_tail);
+}
+
+prh_inline void prh_impl_schd_give_back_tail_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
+    prh_atom_ptr_write(&thrd->schd_give_back_tail, block_position);
+}
+
+void prh_impl_schd_give_block_back(prh_ehub_thrd *thrd, void **block_end) {
+    prh_byte *free_block = prh_impl_ehub_queue_block_from_endp(block_end);
+    assert(free_block != prh_null && free_block != PRH_EHUB_BLOCK_END);
+    void **schd_give_back_tail = prh_impl_schd_give_back_tail_read(thrd);
+    if (schd_give_back_tail[0] == PRH_EHUB_BLOCK_END) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
+        // 不需要修改 free_block->next 为空，因为总是可以通过 PRH_EHUB_BLOCK_END 判断尾部
+        schd_give_back_tail[1] = free_block; // 当前块next指向下一块
+        prh_impl_schd_give_back_tail_write(thrd, free_block); // 队列尾指针指向下一块第一个可写元素
+    } else { // 否则当前内存块还有位置，将空闲块直接插入到队尾
+        schd_give_back_tail[0] = free_block;
+        prh_impl_schd_give_back_tail_write(thrd, free_block + sizeof(void *)); // 指向下一个可写位置
+        assert(*(void **)(thrd->schd_give_back_tail - sizeof(void *)) == free_block); // 仅允许单生产者和单消费者
+    }
+}
+
+prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd) {
+    void **schd_give_back_tail = prh_impl_schd_give_back_tail_read(thrd);
+    if (thrd->give_back_rx_head == schd_give_back_tail) return prh_null;
+    prh_byte *free_block;
+    if (thrd->give_back_rx_head[0] == PRH_EHUB_BLOCK_END) { // 如果已到达当前内存块末尾，移动到下一个内存块
+        free_block = prh_impl_ehub_queue_block_from_endp(thrd->give_back_rx_head); // 需要释放的当前内存块，就是一个可用的空闲块
+        thrd->give_back_rx_head = (void **)thrd->give_back_rx_head[1];
+    } else {
+        free_block = thrd->give_back_rx_head[0]; assert(free_block != prh_null);
+        thrd->give_back_rx_head += 1;
+        assert(*(thrd->give_back_rx_head - 1) == free_block); // 仅允许单生产者和单消费者
+    }
+    return free_block;
+}
+
+prh_inline prh_byte *prh_impl_ehub_thrd_alloc_tx_block(prh_ehub_thrd *thrd) {
+    return prh_impl_ehub_queue_block_get(thrd, prh_impl_thrd_recv_free_block(thrd));
+}
+
+prh_inline void **prh_impl_thrd_tx_tail_to_schd_read(prh_ehub_thrd *thrd) {
+    return (void **)prh_atom_ptr_read(&thrd->tx_tail_to_schd);
+}
+
+prh_inline void prh_impl_thrd_tx_tail_to_schd_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
+    prh_atom_ptr_write(&thrd->tx_tail_to_schd, block_position);
+}
+
+prh_inline void **prh_impl_thrd_tx_tail_to_thrd_read(prh_ehub_thrd *thrd) {
+    return (void **)prh_atom_ptr_read(&thrd->tx_tail_to_thrd);
+}
+
+prh_inline void prh_impl_thrd_tx_tail_to_thrd_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
+    prh_atom_ptr_write(&thrd->tx_tail_to_thrd, block_position);
+}
+
+prh_inline void **prh_impl_schd_tx_task_tail_read(prh_ehub_thrd *thrd) {
+    return (void **)prh_atom_ptr_read(&thrd->schd_tx_task_tail);
+}
+
+prh_inline void prh_impl_schd_tx_task_tail_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
+    prh_atom_ptr_write(&thrd->schd_tx_task_tail, block_position);
+}
+
+void prh_impl_ehub_thrd_queue_init(prh_ehub_thrd *thrd) {
+    // 空闲块队列必须有一个隐藏的头节点，因为在仅剩一个空闲块的时候移除该空闲块时：
+    //  1.  空闲队列消费者线程需要违反只修改头指针的规则，因为已经没有空闲块存在，尾指针也要改为空
+    //  2.  这种修改无法做到不说，空闲队列消费者线程无法阻止空闲队列生产者线程继续在原有的空闲块上添加空闲块
+    //  3.  只有总存在一个节点时，头指针总是在追赶尾指针，当头指针追赶到下一个节点时，上一个节点就可以自然而然的安全释放
+    prh_byte *block = prh_impl_ehub_alloc_queue_block(thrd);
+    thrd->give_back_rx_head = (void **)block; // 首尾指针指向相同表示为空
+    prh_impl_schd_give_back_tail_write(thrd, block);
+
+    // 发送给调度线程的消息队列
+    block = prh_impl_ehub_thrd_alloc_tx_block(thrd);
+    thrd->schd_rx_schd_head = block;
+    prh_impl_thrd_tx_tail_to_schd_write(thrd, block);
+
+    // 发送给其他线程的消息队列
+    block = prh_impl_ehub_thrd_alloc_tx_block(thrd);
+    thrd->schd_rx_thrd_head = block;
+    prh_impl_thrd_tx_tail_to_thrd_write(thrd, block);
+
+    // 当前线程接收消息队列
+    block = prh_impl_ehub_thrd_alloc_rx_block(thrd);
+    thrd->thrd_tx_task_head = block;
+    prh_impl_schd_tx_task_tail_write(thrd, block);
+}
+
+prh_inline prh_ehub_thrd *prh_impl_ehub_thrd(void) {
+    return (prh_ehub_thrd *)prh_thrd_self();
+}
+
+void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
+    prh_impl_ehub_thrd_queue_init(thrd);
+    // prh_impl_thrd_cond_init(&thrd->share_thrd_data.thrd_sleep_cond);
+}
+
+void prh_impl_ehub_thrd_free(prh_ehub_thrd *thrd, int index) {
+    // prh_impl_thrd_cond_free(&thrd->share_thrd_data.thrd_sleep_cond);
+}
+
+static int prh_impl_worker_thrd_routine(prh_thrd *thrd_ptr) {
+    prh_atom_ext_mult_rd_arrque *post_dispatch_que = PRH_IOCP_GLOBAL.post_dispatch_que;
+    prh_co_thrd *thrd = (prh_co_thrd *)thrd_ptr;
+    prh_atom_bool *atom_thrd_exit = &thrd->atom_thrd_exit;
+    void *linear_memory, *braver_memory;
+    bool thrd_is_exit = false;
+
+    prh_impl_create_thrd_memory(thrd);
+    linear_memory = thrd->linear_memory_buffer_top;
+    braver_memory = thrd->braver_memory_cache_line;
+
+    for (; ;) {
+        prh_iocp_post_req post;
+        while (prh_atom_ext_mult_rd_arrque_pop(post_dispatch_que, &post)) {
+            post.continue_routine(post.post_req); // 调用被 <operation>_complete 或 <operation>_completed_from_port 设置的函数
+        }
+        if (prh_atom_bool_read(atom_thrd_exit)) {
+            if (thrd_is_exit) break;
+            thrd_is_exit = true; // 程序退出时，给工作线程最后一次运行的机会
+        } else {
+            prh_impl_iocp_thrd_sleep(&thrd->share_thrd_data); // 进入睡眠，等待调度线程唤醒
+        }
+    }
+
+    prh_debug(printf("[thrd %02d] exit\n", prh_thrd_id(thrd_ptr)));
+    if (linear_memory) prh_virtual_free(linear_memory);
+    if (braver_memory) prh_virtual_free(braver_memory);
+    return 0;
+}
+
+typedef struct prh_thrd_struct(
+    int worker_count, entry_count;
+    prh_simple_thrds *ehub_thrds;
+    OVERLAPPED_ENTRY *iocp_entry;
+    bool exit;
+) prh_ehub_schd;
+
+static prh_alignas(prh_cache_line_size) prh_ehub_schd PRH_IMPL_SCHD;
+
+prh_inline prh_ehub_post *prh_impl_thrd_tx_to_schd_begin(prh_ehub_thrd *thrd) {
+    return (prh_ehub_post *)prh_impl_thrd_tx_tail_to_schd_read(thrd);
+}
+
+void prh_impl_thrd_tx_to_schd_end(prh_ehub_thrd *thrd, prh_ehub_post *post) {
+    void **tail = (void **)(post + 1);
+    if (tail[0] == PRH_EHUB_BLOCK_END) {
+        post = (prh_ehub_post *)prh_impl_ehub_thrd_alloc_tx_block(thrd);
+        tail = (void **)(tail[1] = post);
+    }
+    prh_impl_thrd_tx_tail_to_schd_write(thrd, (prh_byte *)tail);
+}
+
+typedef void (*prh_ehub_schd_task)(prh_ehub_thrd *thrd, void *post);
+
+void prh_ehub_post_to_schd(void *post, prh_ehub_schd_task cont) {
+    assert(post != prh_null && cont != prh_null);
+    prh_ehub_thrd *thrd = prh_impl_ehub_thrd();
+    prh_ehub_post *post = prh_impl_thrd_tx_to_schd_begin(thrd);
+    post->post = post;
+    post->cont = (prh_cont)cont;
+    prh_impl_thrd_tx_to_schd_end(thrd, post);
+}
+
+void prh_impl_schd_process_post(prh_ehub_thrd *thrd) {
+    prh_ehub_post *tail = (prh_ehub_post *)prh_impl_thrd_tx_tail_to_schd_read(thrd);
+    prh_ehub_post *post = (prh_ehub_post *)thrd->schd_rx_schd_head;
+    while (post != tail) {
+        ((prh_ehub_schd_task)post->cont)(thrd, post->post);
+        post += 1;
+        if (((void **)post)[0] == PRH_EHUB_BLOCK_END) { // 需要将空闲块还给生产者线程
+            prh_impl_schd_give_block_back(thrd, ((void **)post));
+            post = (prh_ehub_post *)((void **)post)[1];
+        }
+    }
+    thrd->schd_rx_schd_head = (void **)post;
+}
+
+// typedef struct _OVERLAPPED_ENTRY {
+//     ULONG_PTR lpCompletionKey;
+//     LPOVERLAPPED lpOverlapped;
+//     ULONG_PTR Internal;
+//     DWORD dwNumberOfBytesTransferred;
+// } OVERLAPPED_ENTRY, *LPOVERLAPPED_ENTRY;
+//
+// typedef struct _OVERLAPPED {     // minwinbase.h (included in WinBase.h)
+//     ULONG_PTR Internal;          // [out] Error Code
+//     ULONG_PTR InternalHigh;      // [out] Number of bytes transferred
+//     union {
+//         struct {
+//             DWORD Offset;        // [in] Low 32-bit file offset
+//             DWORD OffsetHigh;    // [in] High 32-bit file offset
+//         } DUMMYSTRUCTNAME;
+//         PVOID Pointer;
+//     } DUMMYUNIONNAME;
+//     HANDLE hEvent;               // [in] Event handle or data
+// } OVERLAPPED, *LPOVERLAPPED;
+//
+// #define WSAEVENT                HANDLE
+// #define LPWSAEVENT              LPHANDLE
+// #define WSAOVERLAPPED           OVERLAPPED
+// typedef struct _OVERLAPPED *    LPWSAOVERLAPPED; // winsock2.h
+//
+// 三个成员，Offset OffsetHigh hEvent 必须在调用异步操作函数之前进行初始化，其他
+// 两个成员 Internal InternalHigh 由驱动程序来设置，当 I/O 操作完成时我们可以检
+// 查它们的值。当使用可提醒 I/O 操作完成时，设备驱动程序不会试图去触发一个事件对象。
+// 实际上，此时设备根本就没有用到 OVERLAPPED 结构的 hEvent 成员，因此如果需要，我
+// 们可以将 hEvent 据为己用。
+//
+// Internal 成员用来保存已处理的 I/O 请求的错误码，一旦我们发出一个异步 I/O 请求，
+// 设备驱动程序立即将 Internal 设为 STATUS_PENDING，表示没有错误操作尚未开始。实
+// 际上，WinBase.h 中定义的 HasOverlappedIoCompleted 宏允许我们检查一个异步 I/O
+// 操作是否已经完成（Internal != STATUS_PENDING）。
+//
+// 在最初设计 OVERLAPPED 结构的时候，Microsoft 决定不公开 Internal 和 InternalHigh
+// 成员。随着时间的推移，Microsoft 认识到这些成员中包含的信息会对开发人员有用，因此
+// 把它们公开了。但是 Microsoft 没有改变这些成员的名字，这是因为操作系统的源代码频
+// 繁地用到它们，而 Microsoft 并不想为此修改源代码。由于现在 Microsoft 已经公开了
+// Internal 和 Internal High 成员，因此 GetOverlappedResult 函数（获取 lpNumberOfBytesTransferred
+// 并设置错误码）就不怎么有用了。
+
+static HANDLE PRH_IMPL_IOCP;
+typedef void (*prh_iocp_complete)(OVERLAPPED_ENTRY *entry);
+
+void prh_impl_iocp_post_complete_entry(prh_iocp_complete completion_key, void *overlapped) {
+    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)completion_key, .lpOverlapped = overlapped};
+    prh_impl_completion_port_post(PRH_IMPL_IOCP, &overlapped_entry);
+}
+
+static void prh_impl_iocp_entry_complete(OVERLAPPED_ENTRY *entry) { // 被 prh_impl_schd_complete_iocp_entry 函数调用
+    OVERLAPPED *overlapped = entry->lpOverlapped;
+    assert(entry->Internal == overlapped->Internal);
+    assert(entry->dwNumberOfBytesTransferred == overlapped->InternalHigh);
+    if (overlapped->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
+        DWORD error_code = RtlNtStatusToDosError((NTSTATUS)overlapped->Internal); // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
+        prh_prerr(error_code);
+        overlapped->Internal = error_code;
+    }
+    ((prh_iocp_continue)overlapped->hEvent)(overlapped); // 调用 <operation>_completed_from_port 函数，该函数向 iocp_continue_que 投递一个线程任务
+}
+
+void prh_impl_iocp_register_handle(prh_handle handle) {
+    prh_impl_completion_port_attach(PRH_IMPL_IOCP, (HANDLE)handle, (void *)prh_impl_iocp_entry_complete);
+}
+
+// 完成事件处理过程：
+//  1.  调度线程查询完成端口，调用 prh_impl_schd_complete_iocp_entry 对每个完成事件
+//      进行处理
+//  2.  会调用每个 OVERLAPPED_ENTRY 注册在 lpCompletionKey 中的完成函数，该完成函数
+//      通过 prh_impl_iocp_register_handle 或 prh_impl_iocp_post_complete_entry
+//      注册
+//  3.  完成函数原型为 void (*prh_iocp_complete)(OVERLAPPED_ENTRY *entry)，对于正
+//      常的套接字句柄，对应的完成函数为 prh_impl_iocp_entry_complete，该函数会调用
+//      套接字在操作请求时注册在 OVERLAPPED 结构体 hEvent 中的继续处理函数，继续处理
+//      函数的原型为 void (*prh_iocp_continue)(void *overlapped)，继续处理函数通过
+//      调用函数 prh_impl_iocp_continue_routine 进行注册
+
+prh_inline int prh_impl_schd_query_iocp_entries(prh_r32 wait_msec) { // INFINITE
+    return prh_impl_completion_port_extend_query(PRH_IMPL_IOCP,
+        PRH_IMPL_SCHD.iocp_entry, PRH_IMPL_SCHD.entry_count, wait_msec);
+}
+
+void prh_impl_schd_complete_iocp_entry(OVERLAPPED_ENTRY *entry) {
+    prh_iocp_complete completion_routine = (prh_iocp_complete)entry->lpCompletionKey;
+    assert(completion_routine != prh_null);
+    assert(entry->lpOverlapped != prh_null);
+    completion_routine(entry); // 调用完成键 lpCompletionKey 对应的 prh_iocp_complete 函数
+}
+
+void prh_ehub_init(void) {
+    DWORD concurrent_thread_count = 1; // 仅由调度线程等待并处理该完成端口的完成数据
+    PRH_IMPL_IOCP = prh_impl_create_completion_port(concurrent_thread_count);
+
+    for (int i = 0; i < concurrent_thread_count; i += 1) { // 创建工作线程并启动
+        prh_co_thrd *iocp_thrd = prh_simp_thrd_create(PRH_IOCP_GLOBAL.iocp_thrds);
+        prh_impl_iocp_thrd_init(iocp_thrd, &PRH_IOCP_GLOBAL.thrd_tx_que[i + 1].thrd_tx_que_consumer);
+        PRH_IOCP_GLOBAL.thrd_tx_que[i + 1].thrd_tx_que_length = &iocp_thrd->share_thrd_data.thrd_tx_que_length;
+        prh_simp_thrd_sched(PRH_IOCP_GLOBAL.iocp_thrds, iocp_thrd, prh_impl_worker_thrd_routine, 0);
+    }
+}
+
+void prh_impl_ehub_free(void) {
+    prh_simp_thrd_free(&PRH_IOCP_GLOBAL.iocp_thrds, prh_impl_iocp_thrd_free);
+    prh_impl_close_completion_port(PRH_IMPL_IOCP);
+    prh_impl_iocp_rio_free();
+    prh_impl_iocp_shared_global_free();
+}
+
+void prh_impl_schd_process_exit(void) {
+
+}
+
+// 挂起的协程在等待执行的过程中不会改变其所在的线程，只有可执行的协程在当前线程无法处理
+// 的情况下被其他线程抢去执行权，移动到其他线程去执行，当在新线程执行继续挂起之后，挂起
+// 的协程将在该线程等待，直到可以恢复执行。也可以实现为，当调度线程恢复协程执行时，根据
+// 当前的线程执行情况，是否直接分配给新的线程去处理。
+//
+// 如何估计线程的当前负载。
+//
+// 线程中的协程分为两类：
+//  1.  一类为活跃协程，活跃协程已满足运行条件，可以被当前线程或被其他线程抢夺执行
+//  2.  二类为休眠协程，休眠协程的运行条件还未满足，将在当前线程中一直等待直到可以运行
+//  3.  休眠的协程一般都在调度线程的完成端口中等待，当可以继续运行时通知所属线程处理
+//  4.  活跃协程分为两种，一种是可被其他线程抢夺运行的，一种是专属当前线程执行
+//  5.  线程以尽量公平的方式对专属协程和其他协程轮转执行
+//
+// 谁调用 prh_ehub_schedule 谁就是调度线程。
+
+void prh_ehub_schedule(void) {
+    OVERLAPPED_ENTRY *entry_start = prh_null;
+    OVERLAPPED_ENTRY *entry_end = prh_null;
+    prh_ehub_thrd *thrd_start = (prh_ehub_thrd *)prh_simp_thrd_begin(PRH_IMPL_SCHD.ehub_thrds);
+    prh_ehub_thrd *thrd_end = (prh_ehub_thrd *)prh_simp_thrd_end(PRH_IMPL_SCHD.ehub_thrds);
+    prh_ehub_thrd *thrd;
+    prh_r32 query_wait = 0;
+    int entry_count;
+
+    for (; ;) {
+        if (entry_start < entry_end) goto label_unhandled_entries;
+        entry_count = prh_impl_schd_query_iocp_entries(query_wait);
+        entry_start = PRH_IMPL_SCHD.iocp_entry;
+        entry_end = entry_start + entry_count;
+
+    label_unhandled_entries:
+        for (; entry_start < entry_end; entry_start += 1) {
+            // if (prh_impl_iocp_continue_que_len() >= PRH_IOCP_GLOBAL.iocp_query_max_entries) break;
+            prh_impl_schd_complete_iocp_entry(entry_start);
+        }
+
+        thrd = thrd_start;
+        while (thrd < thrd_end) {
+            prh_impl_schd_process_post(thrd);
+            thrd = (prh_ehub_thrd *)prh_simp_thrd_next(PRH_IMPL_SCHD.ehub_thrds, (prh_thrd *)thrd);
+        }
+
+        if (PRH_IMPL_SCHD.exit) {
+            prh_impl_schd_process_exit();
+            break;
+        }
+    }
+}
+
+void prh_ehub_join(void) {
+    prh_simp_thrd_join_except_main(PRH_IOCP_GLOBAL.iocp_thrds, prh_impl_iocp_thrd_free);
+    prh_debug(printf("[thrd %02d] exit\n", prh_thrd_id(sched_thrd)));
+    prh_impl_ehub_free();
+}
+
 #if 0
 // 指针长度     32-bit              64-bit
 // 64  个字节    16 个指针（14）      8 个指针（6*）
