@@ -22921,6 +22921,131 @@ void prh_impl_ehub_thrd_free(prh_ehub_thrd *thrd, int index) {
     // prh_impl_thrd_cond_free(&thrd->share_thrd_data.thrd_sleep_cond);
 }
 
+void prh_impl_thrd_sleep_sync(prh_ehub_thrd *thrd);
+void prh_impl_thrd_give_block_to_schd(prh_ehub_thrd *thrd, void **block_end);
+
+bool prh_impl_thrd_cycle(prh_ehub_thrd *thrd) {
+    prh_ehub_post *tail = (prh_ehub_post *)prh_impl_schd_tx_task_tail_read(thrd);
+    prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_rx_task_head;
+    if (post == tail) return false;
+    do {
+        post->cont(post->post);
+        post += 1;
+        if (((void **)post)[0] == PRH_EHUB_BLOCK_END) { // 需要将空闲块还给生产者线程
+            prh_impl_thrd_give_block_to_schd(thrd, ((void **)post));
+            post = (prh_ehub_post *)((void **)post)[1];
+        }
+    } while (post != tail);
+    thrd->thrd_rx_task_head = (void **)post;
+    return true;
+}
+
+// 有时候自旋等待要好于真正的阻塞，许多同步原语都使用了一种称为两阶段锁定协议，在等待获
+// 取锁之前会自旋一段时间。为什么自旋是一种合适的方式，原因是上下文切换以及内核切换等操
+// 作的开销都是很高的，不仅是上下文切换需要花费时间，而且上下文切换回来继续执行时，原本
+// 运行该线程的物理核可能被调度用于执行其他线程的任务，此时切换回来继续执行当前线程，处
+// 理器存储缓存已经失效了；或者当前线程恢复回来时被搬运到新的物理核执行，这时处理器缓存
+// 也失效了。另外频繁锁的获取和释放会将线程时间片切得很碎导致线程的执行效率低下（锁护送
+// 效应），即线程的时间大部分都在等待，然后执行一小段代码后马上又进入等待状态，处理器资
+// 源利用率非常低，每次物理核被调度进来执行任务，其大部分时间都在做上下文切换，实际执行
+// 的有用代码非常少。在多处理器机器上，有效的自旋通常可以带来一定的好处。
+//
+// 然而，要实现通用的自旋锁却非常困难，在确保自旋锁在 Windows 上正确地工作，需要考虑许
+// 多细节问题，这些问题与线程调度器、Intel 超线程技术（HT）、以及缓存等都是相关的。此外，
+// 在最坏的情况下，大多数资源最终都将执行真正的等待，例如实现自旋锁的复杂性超过了上下文
+// 切换带来的开销。即使最坏的情况看上去是不太可能的，但当线程正在临界区中执行时被中断，
+// 或者当某个锁上的到达率非常高时，仍然会出现这种情况。
+//
+// 如何在 Windows 上正确地自旋，在分析自旋锁具体细节之前，我们必须考虑一些如何在 Windows
+// 上使用自旋等待的基本规则。
+//  1.  在自旋等待循环中的每次迭代中调用 YieldProcessor，该函数将在启动 Intel 超线程
+//      技术（HT）的处理器上生成 YIELD 或者 PAUSE 指令，在不支持超线程技术的处理器上
+//      则产生 NOP 指令。在 .NET 中的 Thread.Yield 带有一个数值参数，表示在循环中生成
+//      这些指令的数量。这确保了处理器能够知道当前运行的代码正在执行自旋等待，因此将执行
+//      单元提供给其他逻辑处理器使用。
+//  2.  在大多数自旋等待情况中，每次迭代都将读取一些工作状态，这可能导致内存通信量以及
+//      缓存竞争的增加。因此，一种明智的做法就是在每次自旋迭代中使用逐渐增长的延迟，称
+//      为指数衰减（Exponential Backoff）。有时候，可以通过等待一段随机的时间来避免线
+//      程执行同一种自旋策略，因为这可能导致严重的活锁问题。
+//  3.  如果使用了纯粹的自旋等待（而不是两阶段自旋等待），那么有时候需要通过相应的 API
+//      来执行显式的上下文切换。原因是，如果线程自旋的时间超过了执行一个完成上下文切换
+//      所需的时间，那么更合适的做法就是允许其他的线程执行，而不是持续使用处理器资源（可
+//      能会妨碍其他正在等待的线程执行）。
+//  4.  当主动引发上下文切换时，最合适使用的 Win32 函数是 SwitchToThread，它将交出调
+//      用线程的时间片，并且由另一个可允许的线程来取代它执行。如果函数返回 TRUE，表示
+//      切换操作成功了，否则将返回 FALSE。从 Windows Vista 和 Server 2008 开始，这个
+//      函数将不会考虑系统中所有的线程。
+//  5.  因为 SwitchToThread 在切换时不会考虑系统中所有的线程，一种明智的做法就是偶尔
+//      调用 Sleep 或者 SleepEx 并将参数指定为 0，因为当不存在优先级相同并且就绪的可
+//      运行线程时，将不会导致上下文切换。然而，有时候将参数指定为 1 同样有用，如果你遇
+//      到的情况是，某个高优先级的线程正在自旋等待一个低优先级的线程，那么这将有助于避免
+//      产生饥饿问题。
+//
+// 纯自旋锁（Spin Only Lock）仅适合于当临界区极小的情况，判断是否可以采用纯自旋锁的一个
+// 经验法则是：临界区中不超过 10 条指令，并且执行时间不超过 50 个时钟周期。这排除了许多
+// 操作，包括内存分配、任何高延迟资源的访问，例如文件系统。构建一个纯自旋锁很简单，我们
+// 将使用一个标志，其中 0 表示锁是可用的，并且线程将通过互锁操作来比较并交换（CAS）一个
+// 非 0 值。线程通过它们自己的 ID 来标识所有权，在构建纯自旋锁时最困难的地方在于，如何
+// 根据具体的负载来调整自旋逻辑。
+//
+// 函数 VOID YieldProcessor() 向处理器发出信号，将资源分配给正在等待资源的线程。
+//  1.  在超线程核上执行时，可以让当前线程暂停，使同一物理核上的兄弟线程访问芯片资源
+//  2.  通过该 PAUSE 指令，还可以在非常耗电、密集的循环中添加间歇性空操作，减少消能
+//  3.  在不支持超线程的处理器上，PAUSE 指令等价于 REP NOP 指令，相当于执行空指令
+//  4.  该函数仅涉及处理器内部的指令级并行（ILP），并不涉及线程级并行（TLP）
+//  5.  其作用范围仅涉及处理器指令级优化，仅提示处理器优化流水线
+
+#define PRH_IMPL_THRD_SPIN_COUNT 1200
+
+static int prh_impl_thrd_routine(prh_ehub_thrd *thrd) {
+    bool thrd_sleep;
+    bool sleep_state = true;
+    int spin_count = 0;
+
+label_continue_rx:
+    if (prh_impl_thrd_cycle(thrd)) {
+        goto label_continue_rx;
+    }
+
+    thrd->sleep_synced = false;
+    prh_impl_thrd_sleep_sync(thrd);
+label_wait_sleep_sync: // 仅当 single_thread_program 为假时才忙等
+    if (prh_atom_bool_read(&thrd->sleep_synced) == false) {
+        prh_yield_processor();
+        goto label_wait_sleep_sync;
+    }
+    if (prh_atom_bool_read(&thrd->sleep) == false) {
+        goto label_continue_rx; // 不允许睡眠
+    }
+
+    // 忙等一段时间看是否会被马上唤醒处理新任务
+    spin_count = 0;
+label_spin_for_wakeup:
+    if (spin_count < PRH_IMPL_THRD_SPIN_COUNT) {
+        if (prh_atom_bool_read(&thrd->sleep)) {
+            spin_count += 1;
+            goto label_spin_for_wakeup;
+        } else {
+            goto label_thrd_wakeup;
+        }
+    }
+
+    // 没有被马上唤醒，真正进入内核等待唤醒
+    thrd_sleep = prh_atom_bool_read(&thrd->sleep);
+    while (thrd_sleep == sleep_state) {
+        prh_wait_on_address(&thrd->sleep, &sleep_state, sizeof(bool));
+        thrd_sleep = prh_atom_bool_read(&thrd->sleep);
+    }
+
+label_thrd_wakeup: // 线程被唤醒
+    if (prh_atom_bool_read(&thrd->rx_activity)) {
+        goto label_continue_rx;
+    }
+
+    prh_debug(printf("[thrd %02d] exit\n", prh_thrd_id(thrd_ptr)));
+    return 0;
+}
+
 typedef struct prh_thrd_struct(
     prh_simple_thrds *ehub_thrds;
     OVERLAPPED_ENTRY *iocp_entry;
