@@ -22780,7 +22780,7 @@ typedef struct {
 #define PRH_EHUB_BLOCK_END ((void *)(~(prh_ptr)0x02))
 #define PRH_EHUB_BLOCK_ITEM_FREE ((void *)(~(prh_ptr)0x03))
 
-prh_inline prh_byte *prh_impl_ehub_queue_block_from_endp(void **block_end) {
+prh_inline prh_byte *prh_impl_ehub_block_from_endp(void **block_end) {
     return (prh_byte *)block_end - PRH_EHUB_QUEUE_BLOCK_ENDP;
 }
 
@@ -22817,7 +22817,7 @@ prh_inline void prh_impl_schd_give_back_write(prh_ehub_thrd *thrd, prh_byte *blo
 }
 
 void prh_impl_schd_give_block_back(prh_ehub_thrd *thrd, void **block_end) {
-    prh_byte *free_block = prh_impl_ehub_queue_block_from_endp(block_end);
+    prh_byte *free_block = prh_impl_ehub_block_from_endp(block_end);
     assert(free_block != prh_null && free_block != PRH_EHUB_BLOCK_END);
     void **schd_give_back_tail = prh_impl_schd_give_back_tail(thrd);
     if (schd_give_back_tail[0] == PRH_EHUB_BLOCK_END) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
@@ -22836,7 +22836,7 @@ prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd) {
     if (thrd->give_back_rx_head == schd_give_back_tail) return prh_null;
     prh_byte *free_block;
     if (thrd->give_back_rx_head[0] == PRH_EHUB_BLOCK_END) { // 如果已到达当前内存块末尾，移动到下一个内存块
-        free_block = prh_impl_ehub_queue_block_from_endp(thrd->give_back_rx_head); // 需要释放的当前内存块，就是一个可用的空闲块
+        free_block = prh_impl_ehub_block_from_endp(thrd->give_back_rx_head); // 需要释放的当前内存块，就是一个可用的空闲块
         thrd->give_back_rx_head = (void **)thrd->give_back_rx_head[1];
     } else {
         free_block = thrd->give_back_rx_head[0]; assert(free_block != prh_null);
@@ -22846,7 +22846,7 @@ prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd) {
     return free_block;
 }
 
-prh_inline prh_byte *prh_impl_ehub_thrd_alloc_tx_block(prh_ehub_thrd *thrd) {
+prh_inline prh_byte *prh_impl_ehub_alloc_tx_block(prh_ehub_thrd *thrd) {
     prh_byte *block = prh_impl_thrd_recv_free_block(thrd);
     return block ? block : prh_impl_ehub_alloc_queue_block(thrd);
 }
@@ -22876,7 +22876,7 @@ void prh_impl_ehub_thrd_queue_init(prh_ehub_thrd *thrd) {
     thrd->give_back_rx_head = (void **)block; // 首尾指针指向相同表示为空
     prh_impl_schd_give_back_write(thrd, block);
     // 发送给调度线程的消息队列
-    block = prh_impl_ehub_thrd_alloc_tx_block(thrd);
+    block = prh_impl_ehub_alloc_tx_block(thrd);
     thrd->schd_task_rx_head = block;
     prh_impl_thrd_tx_to_schd_write(thrd, block);
 }
@@ -22971,22 +22971,25 @@ bool prh_impl_thrd_cycle(prh_ehub_thrd *thrd) {
 #define PRH_IMPL_THRD_SPIN_COUNT 1200
 
 static int prh_impl_thrd_routine(prh_ehub_thrd *thrd) {
-    bool thrd_sleep;
     bool sleep_state = true;
-    int spin_count = 0;
+    bool thrd_sleep;
+    prh_reg sync_count;
+    prh_reg spin_count;
 
 label_continue_rx:
     if (prh_impl_thrd_cycle(thrd)) {
         goto label_continue_rx;
     }
 
+    sync_count = 0;
     prh_atom_bool_write(&thrd->sleep_synced, false);
     prh_impl_thrd_sleep_sync(thrd);
 label_wait_sleep_sync: // 仅当 single_thread_program 为假时才忙等
     if (prh_atom_bool_read(&thrd->sleep_synced) == false) {
-        prh_yield_processor();
+        sync_count += 1;
         goto label_wait_sleep_sync;
     }
+    prh_debug(printf("[thrd %02d] sync_count %d\n", thrd->thrd_id, sync_count));
     if (prh_atom_bool_read(&thrd->sleep) == false) {
         goto label_continue_rx; // 不允许睡眠
     }
@@ -23002,6 +23005,7 @@ label_spin_for_wakeup:
             goto label_thrd_wakeup;
         }
     }
+    prh_debug(printf("[thrd %02d] spin_count %d\n", thrd->thrd_id, spin_count));
 
     // 没有被马上唤醒，真正进入内核等待唤醒
     thrd_sleep = prh_atom_bool_read(&thrd->sleep);
@@ -23015,7 +23019,7 @@ label_thrd_wakeup: // 线程被唤醒
         goto label_continue_rx;
     }
 
-    prh_debug(printf("[thrd %02d] exit\n", prh_thrd_id(thrd_ptr)));
+    prh_debug(printf("[thrd %02d] exit\n", thrd->thrd_id));
     return 0;
 }
 
@@ -23039,7 +23043,7 @@ prh_inline prh_ehub_post *prh_impl_thrd_tx_to_schd_begin(prh_ehub_thrd *thrd) {
 void prh_impl_thrd_tx_to_schd_end(prh_ehub_thrd *thrd, prh_ehub_post *post) {
     void **tail = (void **)(post + 1);
     if (tail[0] == PRH_EHUB_BLOCK_END) {
-        post = (prh_ehub_post *)prh_impl_ehub_thrd_alloc_tx_block(thrd);
+        post = (prh_ehub_post *)prh_impl_ehub_alloc_tx_block(thrd);
         tail = (void **)(tail[1] = post);
     }
     prh_impl_thrd_tx_to_schd_write(thrd, (prh_byte *)tail);
@@ -23075,7 +23079,7 @@ int prh_impl_schd_process_post(prh_ehub_thrd *thrd) {
 }
 
 void prh_impl_schd_push_free_block(void **block_end) {
-    prh_byte *free_block = prh_impl_ehub_queue_block_from_endp(block_end);
+    prh_byte *free_block = prh_impl_ehub_block_from_endp(block_end);
     assert(free_block != prh_null && free_block != PRH_EHUB_BLOCK_END);
     void **tail = PRH_IMPL_SCHD.free_block_tail;
     if (tail[0] == PRH_EHUB_BLOCK_END) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
@@ -23109,7 +23113,7 @@ prh_byte *prh_impl_schd_pop_free_block(void) {
     if (head == tail) return prh_null;
     prh_byte *free_block;
     if (head[0] == PRH_EHUB_BLOCK_END) { // 如果已到达当前内存块末尾，移动到下一个内存块
-        free_block = prh_impl_ehub_queue_block_from_endp(head); // 需要释放的当前内存块，就是一个可用的空闲块
+        free_block = prh_impl_ehub_block_from_endp(head); // 需要释放的当前内存块，就是一个可用的空闲块
         PRH_IMPL_SCHD.free_block_head = (void **)head[1];
     } else {
         free_block = head[0]; assert(free_block != prh_null);
@@ -23148,7 +23152,7 @@ prh_inline prh_ehub_post *prh_impl_schd_tx_tail_begin(prh_ehub_thrd *thrd) {
 void prh_impl_schd_tx_tail_end(prh_ehub_thrd *thrd, prh_ehub_post *post) {
     void **tail = (void **)(post + 1);
     if (tail[0] == PRH_EHUB_BLOCK_END) {
-        post = (prh_ehub_post *)prh_impl_ehub_thrd_alloc_tx_block(thrd);
+        post = (prh_ehub_post *)prh_impl_ehub_alloc_tx_block(thrd);
         tail = (void **)(tail[1] = post);
     }
     prh_impl_schd_give_task_write(thrd, (prh_byte *)tail);
