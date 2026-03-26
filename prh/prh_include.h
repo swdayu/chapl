@@ -6244,8 +6244,6 @@ typedef prh_yield *(*prh_co_proc)(prh_co_struct *);
 typedef struct prh_co_struct {
     prh_co_proc proc;
     prh_reg yield;
-    void *belong_thrd;
-    prh_arena *alloc;
 } prh_co_struct;
 
 #define prh_co_start case 0
@@ -6257,23 +6255,13 @@ typedef struct prh_co_struct {
     case __LINE__:                              \
     } while (0)
 
-prh_co_struct *prh_co_struct_alloc(prh_arena *alloc, prh_reg datasize);
-prh_inline void prh_co_struct_free(prh_co_struct *co) { prh_arena_dealloc(co->alloc, co); }
-void prh_co_struct_load(prh_co_struct *co, prh_co_proc proc, void *thrd);
+void prh_co_load(prh_co_struct *co, prh_co_proc proc);
 void prh_impl_co_ready(prh_co_struct *co);
 
 #ifdef PRH_CO_IMPLEMENTATION
-prh_co_struct *prh_co_struct_alloc(prh_arena *alloc, prh_reg datasize) {
-    assert(alloc != prh_null);
-    assert(datasize > sizeof(prh_co_struct));
-    prh_co_struct *co = prh_arena_calloc(alloc, datasize, prh_alignment_cache_line);
-    co->alloc = alloc;
-}
-
-void prh_co_struct_load(prh_co_struct *co, prh_co_proc proc, void *thrd) {
+void prh_co_load(prh_co_struct *co, prh_co_proc proc) {
     assert(proc != prh_null);
     co->proc = proc;
-    co->belong_thrd = thrd;
     co->yield = 0;
 }
 
@@ -29731,28 +29719,40 @@ typedef struct {
 } prh_listen;
 
 typedef struct {
-    /* +5p +4p */ OVERLAPPED overlapped; // 只有 open 之后才能 close/tx，只有 tx 完才能 close
+    /* +5p +4p */ OVERLAPPED overlapped; // tcp 只有 open 之后才能 close/tx，只有 tx 完才能 close
     /* +5p +4p */ OVERLAPPED rx_node;
     /* +1p +1p */ prh_handle socket;
-    /* +1p +1p */ union { prh_listen *listen; prh_arena *alloc; };
-    /* +0p +0p */ prh_r16 ipv6: 1, accept: 1, opening: 1, open: 1, l_closing: 1, l_hup: 1, r_hup: 1, tx: 1, rx: 1;
+    /* +1p +1p */ prh_byte *tx_data;
+    /* +2p +1p */ prh_r32 error_code, tx_size;
+    /* +0p +0p */ prh_r16 tcp: 1, ipv6: 1, accept: 1, l_opening: 1, open: 1, l_closing: 1, l_hup: 1, r_hup: 1, tx: 1, rx: 1;
     /* +2p +1p */ prh_r16 family, l_port, r_port;
     /* +4p +2p */ prh_r32 r_addr, tail_r[3];
     /* +4p +2p */ prh_r32 l_addr, tail_l[3];
-    /* +2p +1p */ prh_r32 error_code, tx_size;
-    /* +1p +1p */ prh_byte *tx_data;
-    /* 25p 17p => 100B 136B */
+    /* 24p 16p */
 } prh_socket;
 
 typedef struct {
-    /* +2p +2p */ prh_spco co_struct;
-    /* 25p 17p */ prh_socket accept_tcp;
-    /* +2p +0p */ prh_r32 error_code;
-    /* +1p +1p */ prh_r32 addrlen;
+    /* +4p +4p */ prh_co_struct co_struct;
+    /* 24p 16p */ prh_socket accept_tcp;
+    /* +1p +1p */ prh_listen *listen;
+    /* +1p +1p */ void *request_thrd;
     /* 14p +7p */ struct sockaddr_in6 addr[2];
     /* +8p +4p */ prh_byte align[32]; // AcceptEx本地和远程地址缓冲区必须比对应的协议地址多16字节
-    /* 51p 31p => 204B 248B */
+    /* 51p 32p */
 } prh_accept;
+
+prh_inline prh_co_struct *prh_accept_co_struct(prh_accept *a) {
+    return (prh_co_struct *)a;
+}
+
+prh_inline prh_socket *prh_accept_tcp(prh_accept *a) {
+    return (prh_socket *)(prh_accept_co_struct(a) + 1);
+}
+
+prh_inline prh_accept *prh_impl_accept_from_socket(prh_socket *tcp) {
+    assert(tcp->accept == 1);
+    return (prh_accept *)((prh_co_struct *)tcp - 1);
+}
 
 typedef struct {
     prh_spco co_struct;
@@ -29794,7 +29794,7 @@ bool prh_impl_sched_dispatch_tcp_accept(prh_thrd_post_req *thrd_req) { // 在调
 
 prh_accept *prh_tcp_accept(prh_liten *l, prh_reg datasize) {
     assert(datasize >= sizeof(prh_accept));
-    prh_accept *a = (prh_accept *)prh_co_struct_alloc(l->alloc, datasize);
+    prh_accept *a = (prh_accept *)prh_co_alloc(l->alloc, datasize);
     a->accept_tcp.listen = l;
     a->accept_tcp.socket = prh_invalid_socket;
     a->accept_tcp.ipv6 = l->ipv6;
@@ -29808,7 +29808,7 @@ void prh_tcp_wait_client(prh_accept *a, prh_co_proc proc) {
     prh_co_struct *co = &a->co_struct;
     prh_ehub_thrd *thrd = prh_ehub_thrd_self();
     prh_impl_create_tcp_socket(&a->accept_tcp.socket);
-    prh_co_struct_load(co, proc, thrd);
+    prh_co_load(co, proc, thrd);
     prh_thrd_post_to_schd(thrd, co, prh_impl_schd_accept_req);
 }
 
