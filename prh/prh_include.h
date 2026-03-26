@@ -3100,10 +3100,12 @@ typedef struct { // 勇往直前，永不后退
 typedef struct prh_arena prh_arena;
 void *prh_arena_alloc(prh_arena *a, prh_reg size, prh_reg line_alignment);
 void *prh_arena_calloc(prh_arena *a, prh_reg size, prh_reg line_alignment);
+void *prh_arena_line_alloc(prh_arena *a, prh_reg size);
+void *prh_arena_line_calloc(prh_arena *a, prh_reg size);
 void prh_arena_dealloc(prh_arena *a, void *ptr);
 
 extern prh_thread_local prh_arena *PRH_IMPL_ARENA_ALLOC;
-#define prh_get_arena_allocator() PRH_IMPL_ARENA_ALLOC
+#define prh_arena_allocator() PRH_IMPL_ARENA_ALLOC
 
 #ifdef PRH_ALLOC_IMPLEMENTATION
 prh_thread_local prh_allocator *PRH_IMPL_LOCAL_ALLOC;
@@ -22753,8 +22755,8 @@ typedef struct prh_thrd_struct(
     /* +1p +1p */ void **thrd_rx_task_head; // 当前线程接收调度线程分派的任务
     /*  6p  4p => 24B 32B */
     /* 16p  8p => 64B 64B */ prh_alignas(prh_cache_line_size) // 共享给调度线程，会被调度线程修改的字段
-    /* +1p +1p */ prh_atom_ptr tx_tail_to_schd; // 发送给调度线程的消息
-    /* +1p +1p */ prh_atom_ptr tx_tail_to_thrd; // 发送给其他线程的消息
+    /* +1p +1p */ prh_atom_ptr tx_to_schd_tail; // 发送给调度线程的消息
+    /* +1p +1p */ prh_atom_ptr tx_to_thrd_tail; // 发送给其他线程的消息
     /* +1p +1p */ prh_atom_ptr schd_give_back_tail; // 调度线程返还消息内存块
     /* +1p +1p */ prh_atom_ptr schd_tx_task_tail; // 调度线程给当前线程分配任务
     /* +1p +1p */ void **schd_rx_schd_head; // 调度线程接收发送给调度线程的消息
@@ -22794,7 +22796,7 @@ prh_inline void **prh_impl_ehub_queue_block_next(prh_byte *block) {
 }
 
 prh_inline prh_arena *prh_impl_ehub_thrd_set_alloc(prh_ehub_thrd *thrd) {
-    prh_arena *alloc = prh_get_arena_allocator();
+    prh_arena *alloc = prh_arena_allocator();
     thrd->extra_ptr = alloc;
     return alloc;
 }
@@ -22852,20 +22854,20 @@ prh_inline prh_byte *prh_impl_ehub_thrd_alloc_tx_block(prh_ehub_thrd *thrd) {
     return block ? block : prh_impl_ehub_alloc_queue_block(thrd);
 }
 
-prh_inline void **prh_impl_thrd_tx_tail_to_schd_read(prh_ehub_thrd *thrd) {
-    return (void **)prh_atom_ptr_read(&thrd->tx_tail_to_schd);
+prh_inline void **prh_impl_thrd_tx_to_schd_tail_read(prh_ehub_thrd *thrd) {
+    return (void **)prh_atom_ptr_read(&thrd->tx_to_schd_tail);
 }
 
-prh_inline void prh_impl_thrd_tx_tail_to_schd_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
-    prh_atom_ptr_write(&thrd->tx_tail_to_schd, block_position);
+prh_inline void prh_impl_thrd_tx_to_schd_tail_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
+    prh_atom_ptr_write(&thrd->tx_to_schd_tail, block_position);
 }
 
-prh_inline void **prh_impl_thrd_tx_tail_to_thrd_read(prh_ehub_thrd *thrd) {
-    return (void **)prh_atom_ptr_read(&thrd->tx_tail_to_thrd);
+prh_inline void **prh_impl_thrd_tx_to_thrd_tail_read(prh_ehub_thrd *thrd) {
+    return (void **)prh_atom_ptr_read(&thrd->tx_to_thrd_tail);
 }
 
-prh_inline void prh_impl_thrd_tx_tail_to_thrd_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
-    prh_atom_ptr_write(&thrd->tx_tail_to_thrd, block_position);
+prh_inline void prh_impl_thrd_tx_to_thrd_tail_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
+    prh_atom_ptr_write(&thrd->tx_to_thrd_tail, block_position);
 }
 
 prh_inline void **prh_impl_schd_tx_task_tail_read(prh_ehub_thrd *thrd) {
@@ -22888,12 +22890,12 @@ void prh_impl_ehub_thrd_queue_init(prh_ehub_thrd *thrd) {
     // 发送给调度线程的消息队列
     block = prh_impl_ehub_thrd_alloc_tx_block(thrd);
     thrd->schd_rx_schd_head = block;
-    prh_impl_thrd_tx_tail_to_schd_write(thrd, block);
+    prh_impl_thrd_tx_to_schd_tail_write(thrd, block);
 
     // 发送给其他线程的消息队列
     block = prh_impl_ehub_thrd_alloc_tx_block(thrd);
     thrd->schd_rx_thrd_head = block;
-    prh_impl_thrd_tx_tail_to_thrd_write(thrd, block);
+    prh_impl_thrd_tx_to_thrd_tail_write(thrd, block);
 }
 
 prh_inline prh_ehub_thrd *prh_ehub_thrd_self(void) {
@@ -23048,7 +23050,7 @@ typedef struct prh_thrd_struct(
 static prh_alignas(prh_cache_line_size) prh_ehub_schd PRH_IMPL_SCHD;
 
 prh_inline prh_ehub_post *prh_impl_thrd_tx_to_schd_begin(prh_ehub_thrd *thrd) {
-    return (prh_ehub_post *)prh_impl_thrd_tx_tail_to_schd_read(thrd);
+    return (prh_ehub_post *)prh_impl_thrd_tx_to_schd_tail_read(thrd);
 }
 
 void prh_impl_thrd_tx_to_schd_end(prh_ehub_thrd *thrd, prh_ehub_post *post) {
@@ -23057,7 +23059,7 @@ void prh_impl_thrd_tx_to_schd_end(prh_ehub_thrd *thrd, prh_ehub_post *post) {
         post = (prh_ehub_post *)prh_impl_ehub_thrd_alloc_tx_block(thrd);
         tail = (void **)(tail[1] = post);
     }
-    prh_impl_thrd_tx_tail_to_schd_write(thrd, (prh_byte *)tail);
+    prh_impl_thrd_tx_to_schd_tail_write(thrd, (prh_byte *)tail);
 }
 
 void prh_thrd_post_to_schd(prh_ehub_thrd *thrd, void *priv, prh_cont cont) {
@@ -23068,8 +23070,12 @@ void prh_thrd_post_to_schd(prh_ehub_thrd *thrd, void *priv, prh_cont cont) {
     prh_impl_thrd_tx_to_schd_end(thrd, post);
 }
 
+prh_inline void prh_ehub_post_to_schd(void *priv, prh_cont cont) {
+    prh_thrd_post_to_schd(prh_ehub_self_thrd(), priv, cont);
+}
+
 int prh_impl_schd_process_post(prh_ehub_thrd *thrd) {
-    prh_ehub_post *tail = (prh_ehub_post *)prh_impl_thrd_tx_tail_to_schd_read(thrd);
+    prh_ehub_post *tail = (prh_ehub_post *)prh_impl_thrd_tx_to_schd_tail_read(thrd);
     prh_ehub_post *post = (prh_ehub_post *)thrd->schd_rx_schd_head;
     int count = 0;
     while (post != tail) {
@@ -23141,7 +23147,7 @@ prh_byte *prh_impl_schd_alloc_thrd_rx_block(void) {
 }
 
 void prh_impl_ehub_schd_init(int worker_count, int entry_count) {
-    PRH_IMPL_SCHD.alloc = prh_get_arena_allocator();
+    PRH_IMPL_SCHD.alloc = prh_arena_allocator();
     PRH_IMPL_SCHD.free_block_head = (void **)prh_impl_schd_alloc_post_block();
     PRH_IMPL_SCHD.free_block_tail = PRH_IMPL_SCHD.free_block_head;
 }
@@ -23172,8 +23178,7 @@ void prh_impl_schd_wakeup_thrd(prh_ehub_thrd *thrd) {
     PRH_IMPL_SCHD.sleep_count -= 1;
 }
 
-void prh_impl_schd_post_to_thrd(prh_co_struct *co) {
-    prh_ehub_thrd *thrd = (prh_ehub_thrd *)co->belong_thrd;
+void prh_impl_schd_post_to_thrd(prh_ehub_thrd *thrd, prh_co_struct *co) {
     prh_ehub_post *post = prh_impl_schd_tx_tail_begin(thrd);
     post->post = co;
     post->cont = prh_impl_co_ready;
@@ -29713,10 +29718,26 @@ typedef struct {
     /* +0p +0p */ prh_r16 ipv6: 1, sched: 1, quit: 1;
     /* +2p +1p */ prh_r16 l_port, family, align;
     /* +4p +2p */ prh_r32 l_addr, tail_l[3];
-    /* +1p +0p */ prh_r32 conn_count;
-    /* +1p +1p */ prh_r32 max_clients;
-    /* 10p +6p => 40B 48B */
+    /* +1p +0p */ prh_r32 refr_count; // 当前关联了多少 prh_accept
+    /* +1p +1p */ prh_r32 open_count; // 当前有多少客户处于连接状态
+    /* +1p +1p */ prh_r32 open_limit; // 最多支持多少客户同时在线
+    /* 11p +7p */
 } prh_listen;
+
+void prh_impl_schd_listen_inc(prh_listen *l) {
+    l->refr_count += 1;
+}
+
+void prh_impl_schd_listen_dec(prh_listen *l) {
+    assert(l->refr_count > 0);
+    l->refr_count -= 1;
+    if (l->refr_count == 0) {
+        assert(l->open_count == 0);
+        prh_impl_close_socket(l->socket);
+        l->socket = prh_invalid_socket;
+        prh_arena_dealloc(l->arena, l);
+    }
+}
 
 typedef struct {
     /* +5p +4p */ OVERLAPPED overlapped; // tcp 只有 open 之后才能 close/tx，只有 tx 完才能 close
@@ -29792,24 +29813,46 @@ bool prh_impl_sched_dispatch_tcp_accept(prh_thrd_post_req *thrd_req) { // 在调
     return false;
 }
 
-prh_accept *prh_tcp_accept(prh_liten *l, prh_reg datasize) {
-    assert(datasize >= sizeof(prh_accept));
-    prh_accept *a = (prh_accept *)prh_co_alloc(l->alloc, datasize);
-    a->accept_tcp.listen = l;
+void prh_impl_init_accept(prh_accept *a, prh_listen *l) {
+    a->listen = l;
     a->accept_tcp.socket = prh_invalid_socket;
     a->accept_tcp.ipv6 = l->ipv6;
     a->accept_tcp.family = l->family;
+    a->accept_tcp.tcp = 1;
     a->accept_tcp.accept = 1;
-    a->addrlen = l->ipv6 ? (prh_r32)sizeof(struct sockaddr_in6) : (prh_r32)sizeof(struct sockaddr_in);
-    return accept;
+    a->accept_tcp.tx_size = l->ipv6 ? (prh_r32)sizeof(struct sockaddr_in6) : (prh_r32)sizeof(struct sockaddr_in);
+}
+
+prh_accept *prh_tcp_accept(prh_liten *l, prh_reg datasize) {
+    assert(datasize >= sizeof(prh_accept));
+    prh_accept *a = (prh_accept *)prh_arena_line_calloc(l->alloc, datasize);
+    prh_impl_init_accept(a, l);
+    prh_ehub_post_to_schd(l, prh_impl_schd_listen_inc)
+    return a;
+}
+
+void prh_tcp_free_accept(prh_accept *a) {
+    prh_listen *l = a->listen;
+    prh_impl_close_socket(a->accept_tcp.socket);
+    a->accept_tcp.socket = prh_invalid_socket;
+    prh_arena_dealloc(l->alloc, a);
+    prh_ehub_post_to_schd(l, prh_impl_schd_listen_dec)
+}
+
+void prh_tcp_reuse_accept(prh_accept *a) {
+    prh_socket *tcp = &a->accept_tcp;
+    prh_impl_close_socket(tcp->socket);
+    memset(tcp, 0, sizeof(*tcp));
+    prh_impl_init_accept(a, a->listen);
 }
 
 void prh_tcp_wait_client(prh_accept *a, prh_co_proc proc) {
-    prh_co_struct *co = &a->co_struct;
-    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
-    prh_impl_create_tcp_socket(&a->accept_tcp.socket);
-    prh_co_load(co, proc, thrd);
-    prh_thrd_post_to_schd(thrd, co, prh_impl_schd_accept_req);
+    prh_co_load(&a->co_struct, proc);
+    if (a->accept_tcp.socket == prh_invalid_socket) {
+        prh_impl_create_tcp_socket(&a->accept_tcp.socket);
+    }
+    a->request_thrd = prh_ehub_thrd_self();
+    prh_thrd_post_to_schd(a->request_thrd, a, prh_impl_schd_accept_req);
 }
 
 prh_r32 prh_impl_sock_listen(prh_handle socket, int backlog) {
@@ -29905,8 +29948,8 @@ void prh_impl_create_tcp_socket(prh_socket *tcp) {
 }
 
 prh_listen *prh_tcp_listen(const char *host, prh_r32 flags_port, prh_r32 backlog) {
-    prh_arena *alloc = prh_get_arena_allocator();
-    prh_listen *l = prh_arena_calloc(alloc, sizeof(prh_listen), prh_alignment_cache_line);
+    prh_arena *alloc = prh_arena_allocator();
+    prh_listen *l = prh_arena_line_calloc(alloc, sizeof(prh_listen));
     l->ipv6 = prh_impl_parse_address(host, flags_port, &l->l_port, &l->l_addr);
     l->family = l->ipv6 ? AF_INET6 : AF_INET;
 
@@ -30191,8 +30234,8 @@ label_error_handle:
 // lpOverlapped 区分是哪个 AcceptEx 完成。
 
 prh_inline void prh_impl_schd_accept_complete(prh_accept *a, prh_r32 error_code) {
-    a->error_code = error_code;
-    prh_impl_schd_post_to_thrd(&a->co_struct);
+    a->accept_tcp.error_code = error_code;
+    prh_impl_schd_post_to_thrd(a->request_thrd, &a->co_struct);
 }
 
 void prh_impl_schd_accept_error(prh_accept *a, prh_r32 error_code) {
@@ -30227,31 +30270,33 @@ void prh_impl_schd_accept_from_port(OVERLAPPED *overlapped) {
         prh_impl_schd_accept_error(a, (prh_r32)overlapped->Internal);
         overlapped->Internal = 0;
     } else {
-        struct sockaddr_in6 *l_addr, *p_addr;
-        INT l_addrlen = 0, p_addrlen = 0;
+        struct sockaddr_in6 *l_addr, *r_addr;
+        INT l_addrlen = 0, r_addrlen = 0;
+        DWORD addrlen = tcp->tx_size + 16; // tx_size 暂存地址大小
         PRH_IMPL_GETACCEPTEXSOCKADDRS(
             /* [in]  PVOID    lpOutputBuffer        */ a->addr,
             /* [in]  DWORD    dwReceiveDataLength   */ 0,
-            /* [in]  DWORD    dwLocalAddressLength  */ a->addrlen + 16,
-            /* [in]  DWORD    dwRemoteAddressLength */ a->addrlen + 16,
+            /* [in]  DWORD    dwLocalAddressLength  */ addrlen,
+            /* [in]  DWORD    dwRemoteAddressLength */ addrlen,
             /* [out] sockaddr **LocalSockaddr       */ (sockaddr **)&l_addr,
             /* [out] LPINT    LocalSockaddrLength   */ &l_addrlen,
             /* [out] sockaddr **RemoteSockaddr      */ (sockaddr **)&p_addr,
-            /* [out] LPINT    RemoteSockaddrLength  */ &p_addrlen
+            /* [out] LPINT    RemoteSockaddrLength  */ &r_addrlen
             );
         assert(l_addrlen == a->addrlen);
-        assert(p_addrlen == a->addrlen);
+        assert(r_addrlen == a->addrlen);
         assert(l_addr->sin6_family == tcp->family);
-        assert(p_addr->sin6_family == tcp->family);
+        assert(r_addr->sin6_family == tcp->family);
         prh_impl_recv_sockaddr(l_addr, &tcp->l_port, &tcp->l_addr);
-        prh_impl_recv_sockaddr(p_addr, &tcp->p_port, &tcp->p_addr);
-        tcp->listen->conn_count += 1;
+        prh_impl_recv_sockaddr(r_addr, &tcp->r_port, &tcp->r_addr);
+        a->listen->conn_count += 1;
         prh_impl_schd_accept_complete(a, 0);
     }
 }
 
 void prh_impl_schd_accept_req(prh_accept *a) {
     prh_socket *tcp = &a->accept_tcp;
+    DWORD addrlen = tcp->tx_size + 16; // tx_size 暂存地址大小
     assert(tcp->listen->socket != prh_invalid_socket);
     assert(tcp->socket != prh_invalid_socket);
     tcp->overlapped.hEvent = prh_null; // 确保完成操作被投递到完成端口
@@ -30260,8 +30305,8 @@ void prh_impl_schd_accept_req(prh_accept *a) {
         /* [in]  SOCKET       sAcceptSocket         */  (SOCKET)tcp->socket, // 必须是未绑定未连接的套接字句柄
         /* [in]  PVOID        lpOutputBuffer        */  a->addr,
         /* [in]  DWORD        dwReceiveDataLength,  */  0,
-        /* [in]  DWORD        dwLocalAddressLength, */  a->addrlen + 16,
-        /* [in]  DWORD        dwRemoteAddressLength,*/  a->addrlen + 16,
+        /* [in]  DWORD        dwLocalAddressLength, */  addrlen,
+        /* [in]  DWORD        dwRemoteAddressLength,*/  addrlen,
         /* [out] LPDWORD      lpdwBytesReceived,    */  prh_null, // 仅操作同步完成时才设置此参数，如果 ERROR_IO_PENDING 永远不会被设置，必须从完成机制中获取读取的字节数
         /* [in]  LPOVERLAPPED lpOverlapped          */  &tcp->overlapped
         );
