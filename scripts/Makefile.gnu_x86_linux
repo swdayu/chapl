@@ -225,7 +225,28 @@ quiet_cmd_gen_target_hex = $(quiet_echo_genhex)
 quiet_cmd_gen_target_sec = $(quiet_echo_genbin)
       cmd_gen_target_sec = $(OBJCOPY) $(GEN_TARGET_SEC_FLAGS) -O binary $< $@
 
+# 设置当前窗口有效的环境变量的值
+# 场景         Windows CMD       WSL / Linux
+# 当前窗口有效  set VAR=value     export VAR=value
+# 查看变量      echo %VAR%        echo $VAR
+# 删除变量      set VAR=          unset VAR
+#
+# 在 WSL 中设置的环境变量，默认不会传递给 Windows 可执行文件。需要使用 WSLENV 特殊变量
+# 来显式传递。WSLENV 是一个特殊的环境变量，用于指定哪些 WSL 变量可以传递给 Windows 程
+# 序。
+#
+# Windows CMD 永久写入
+#   setx VAR value      永久写入用户环境变量（需重启 CMD）
+#   setx VAR value /M   永久写入系统环境变量
+#
+# WSL / Linux 永久写入
+#   ~/.bashrc
+#
+# 设置仅当前应用程序有效的环境变量的值
+# Windows CMD   set VAR=value && program.exe
+# WSL / Linux   VAR=value ./program
+#
 # compile flat assembly code to object
 # .flat -> .o
-quiet_cmd_flat_to_o  = $(quiet_echo_as)
-      cmd_flat_to_o  = $(FASM) -s $@.symb -d srctree="$(srctree)/" $(CLOPT_FIRST_PREREQ) $@
+quiet_cmd_flat_to_o = $(quiet_echo_as)
+      cmd_flat_to_o = export srctree=$(call windows_path_style,$(srctree)) && export WSLENV=srctree && $(FASM) -s $@.symb $(CLOPT_FIRST_PREREQ) $@

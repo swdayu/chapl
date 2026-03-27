@@ -1843,7 +1843,7 @@
 ; 处理。虽然符号常量通常只在未找到预处理器指令或宏指令的行中被替换，但在某些特殊情况下，
 ; 这些替换在包含预处理命令的行中部分的执行。第一种是符号常量的定义，其中在 equ 关键字之   *** 在处理预处理命令和宏指令的过程中，可能同时伴随着符号常量的替换
 ; 后的任何地方进行替换，然后将结果值分配给新常量。第二种情况是 match 指令，其中在将逗号     1.  equ 之后的常量表达式
-; 之后的符号与模式匹配之前进行替换。这些功能可用于例如维护列表。                           2.   match 宏指令中的模式表达式，和之后的被匹配符号表达式
+; 之后的符号与模式匹配之前进行替换。这些功能可用于例如维护列表。                           2.  match 宏指令中的模式表达式，和之后的被匹配符号表达式
 ;                                                                                    3.  rept 指令中的重复次数和计数器的基值
 ;       list equ
 ;       macro append item
@@ -1915,6 +1915,8 @@
 format MS64 COFF
 section '.text' code readable executable align 16
 
+include "prh_msmx64.inc"
+
 ; [in]  rcx 需要执行的协程，主协程返回地址已在栈顶
 ; 特制的简单协程不会修改非易变寄存器，而协程调用的C函数会立即返回，因此不需要保护寄存器
 prh_asm_main_yield:
@@ -1949,7 +1951,7 @@ prh_impl_spco_yield:
 
 ; [in]  rcx 当前协程
 prh_impl_spco_finish:
-    mov [rcx], 0        ; 协程执行完毕，将栈指针清零
+    mov ptrword [rcx], 0; 协程执行完毕，将栈指针清零
     mov rsp, [rcx-8]    ; 切换到主协程栈
     mov rax, 0          ; 协程执行完毕
     ret                 ; 返回主协程
@@ -1966,7 +1968,7 @@ prh_impl_spco_start:
     ; 协程初态布局，此处为高地址（栈底）
     pop rdx             ; 协程函数 spco_proc
     call rdx            ; 调用协程函数，特制协程不需要影子空间
-    mov rax,OFFSET prh_impl_spco_finish
+    mov rax, prh_impl_spco_finish
     push rax            ; 栈顶压入finish函数
     mov rcx, [rsp+24]   ; rsp指向spco_proc位置，往后移动三个指针指向协程
     jmp prh_impl_spco_yield
@@ -1976,3 +1978,36 @@ prh_asm_spco_execute:   ; 主协程栈顶已保存返回地址
     mov rax, rsp        ; 主协程栈指针
     mov rsp, [rcx]      ; 加载协程栈
     mov [rcx-8], rax    ; 保护主协程栈指针
+
+struct PRH_SPCO_BASE
+    shadow dptr 4 dup ?
+    guardaddr dptr ?
+    thrdstack dptr ?
+ends
+
+assert sizeof.PRH_SPCO_BASE.shadow=32
+
+; [in]  rcx     prh_spco*
+prh_asm_spco_ready:
+    ; ----------------------------------- 进入继续执行函数（在协程中执行spco_cont）
+    ;   spco_cont               返回地址   <-- rsp
+    ;   shadow[4]               shadow[4]
+    ;   guardaddr               guardaddr
+    ;   thrdstack               thrdstack
+    ;   stacktop  <-- coro -->  stacktop
+    ;   ehubthrd  ____________  ehubthrd
+    ;   userdata                userdata
+    ; ------------- 进入协程栈
+    ;   函数返回地址 <-- 返回到线程函数
+    ;   RCX 影子空间
+    ;   RDX 影子空间
+    ;   R8 影子空间
+    ;   R9 影子空间
+    ; 处理线程栈，此处为高地址（栈底）
+    mov rax, rsp        ; 线程栈指针
+    mov rsp, [rcx]      ; 加载协程栈
+    mov [rcx-8], rax    ; 保护线程栈指针
+    pop rax             ; 协程栈顶始终保存继续执行函数
+    call ptrword [rax]  ; 在协程中执行spco_cont或
+    mov rsp, [rsp+PRH_SPCO_BASE.thrdstack] ; 切换到线程栈
+    ret

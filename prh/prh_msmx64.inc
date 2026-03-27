@@ -16,13 +16,10 @@
 ; 栈函数参数三
 ; 主调函数，此处为高地址（栈底）
 
-; [in]  rcx 当前协程，协程返回地址已在栈顶
-prh_asm_spco_yield:
-    mov [rcx], rsp      ; 保护协程栈指针
-    mov rsp, [rcx-8]    ; 切换到主协程栈
-    ret                 ; 返回主协程
+include "%srctree%/prh/assembly/struct.inc"
 
-dptr equ dq
+dptr fix dq
+ptrword fix qword
 
 macro prh_asm_rsp_enter { ; 仅使用寄存器传递参数，因此适用于函数参数不大于4个的场景
     sub rsp,40 ; 预留4个寄存器影子栈空间，填补1个空间用于rsp对齐到16字节边界
