@@ -2059,6 +2059,9 @@ typedef enum {
     #define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
     #define prh_wsa_abort_error() prh_impl_abort_error(__LINE__, WSAGetLastError())
     #endif // PRH_SOCK_INCLUDE
+    #ifdef PRH_THRD_INCLUDE
+    #define PRH_IMPL_WINDOWS_THREAD
+    #endif // PRH_THRD_INCLUDE
     #ifdef PRH_EHUB_INCLUDE
     #define PRH_IMPL_WINDOWS_EHUB
     #define PRH_IMPL_WINDOWS_IOCP
@@ -2371,6 +2374,9 @@ typedef enum {
     #define PRH_IMPL_LINUX_IOUR
     #endif // prh_plat_linux
     #endif // PRH_SOCK_INCLUDE
+    #ifdef PRH_THRD_INCLUDE
+    #define PRH_IMPL_POSIX_THREAD
+    #endif // PRH_THRD_INCLUDE
     #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(__LINE__, errno); }
 #endif // prh_plat_posix
 #endif // ATOMIC THRD TIME CONO_IMPLEMENTATION
@@ -2462,7 +2468,7 @@ prh_inline bool prh_is_times_of_16_byte(prh_reg n) {
     return (n & 0xF) == 0;
 }
 
-prh_inline bool prh_is_times_of_cache_line_size(prh_reg n) {
+prh_inline bool prh_is_times_of_line_size(prh_reg n) {
     return (n & (prh_cache_line_size - 1)) == 0;
 }
 
@@ -2488,7 +2494,8 @@ prh_inline prh_reg prh_round_power_of_2(prh_reg n, prh_reg power_of_2) {
 }
 
 #define prh_round_ptrsize(n) (((prh_reg)(n)+(prh_reg)(sizeof(void*)-1)) & (~(prh_reg)(sizeof(void*)-1)))
-#define prh_round_cache_line_size(n) (((prh_reg)(n)+prh_cache_line_size-1) & (~(prh_reg)(prh_cache_line_size-1)))
+#define prh_round_line_size(n) (((prh_reg)(n)+prh_cache_line_size-1) & (~(prh_reg)(prh_cache_line_size-1)))
+#define prh_round_page_size(n) (((prh_reg)(n)+prh_memory_page_size-1) & (~(prh_reg)(prh_memory_page_size-1)))
 #define prh_round_08_byte(n) (((prh_reg)(n)+7) & (~(prh_reg)7))
 #define prh_round_16_byte(n) (((prh_reg)(n)+15) & (~(prh_reg)15))
 #endif // prh_round_ptrsize
@@ -6502,7 +6509,7 @@ prh_inline void prh_impl_spco_guard_init(prh_spco *spco, prh_byte *stack) {
 }
 
 prh_spco *prh_impl_spco_create(prh_arena *alloc, prh_spcoproc_t proc, prh_reg stacksize, prh_reg maxudsize) {
-    stacksize = prh_round_cache_line_size(stacksize);
+    stacksize = prh_round_line_size(stacksize);
     maxudsize = prh_round_16_byte(maxudsize); // 用户数据位于缓存行对齐的协程栈内部，已不可能被两个线程同时访问，只需满足栈的16字节对齐
     assert(stacksize >= prh_impl_spco_stack_base_size + maxudsize);
     prh_byte *stack = (prh_byte *)prh_arena_alloc(alloc, stacksize, prh_alignment_cache_line);
@@ -7186,7 +7193,7 @@ label_co_for_loop:
 static void *prh_impl_default_co_alloc(prh_reg size, int line) {
     // 同一系列的协程集合同一时间只在一个线程中执行，内部的协程结构体不需要对齐到缓存行
     // 边界，但是不同系列的协程可以同时在不同线程执行，需要分配到不同的缓存行。
-    if (line != -1) return prh_impl_aligned_alloc(prh_round_cache_line_size(size), prh_cache_line_size, line);
+    if (line != -1) return prh_impl_aligned_alloc(prh_round_line_size(size), prh_cache_line_size, line);
     prh_aligned_dealloc((void *)size);
     return prh_null;
 }
@@ -7289,18 +7296,18 @@ prh_inline int prh_impl_coro_extend_size(int coro_extend_size) {
 
 int prh_impl_coro_cache_line_aligned_alloc_size(int stack_size, int coro_extend_size, int maxudsize) {
     assert(coro_extend_size >= 0 && maxudsize >= 0);
-    int coro_size = (int)prh_round_cache_line_size(prh_impl_coro_size + coro_extend_size);
-    int data_size = (int)prh_round_cache_line_size(maxudsize);
-    stack_size = (int)prh_round_cache_line_size(stack_size);
+    int coro_size = (int)prh_round_line_size(prh_impl_coro_size + coro_extend_size);
+    int data_size = (int)prh_round_line_size(maxudsize);
+    stack_size = (int)prh_round_line_size(stack_size);
     prh_real_assert(stack_size > coro_size + data_size + (int)sizeof(struct prh_impl_coro_guard) + prh_impl_asm_stack_init_depth());
     return stack_size;
 }
 
 prh_coro *prh_impl_coro_cache_line_aligned_init(void *stack, int stack_size, int coro_extend_size, int maxudsize) {
     assert(coro_extend_size >= 0 && maxudsize >= 0);
-    int coro_size = (int)prh_round_cache_line_size(prh_impl_coro_size + coro_extend_size);
-    int data_size = (int)prh_round_cache_line_size(maxudsize);
-    stack_size = (int)prh_round_cache_line_size(stack_size);
+    int coro_size = (int)prh_round_line_size(prh_impl_coro_size + coro_extend_size);
+    int data_size = (int)prh_round_line_size(maxudsize);
+    stack_size = (int)prh_round_line_size(stack_size);
     prh_real_assert(stack_size > coro_size + data_size + (int)sizeof(struct prh_impl_coro_guard) + prh_impl_asm_stack_init_depth());
 
     prh_coro *coro = (prh_coro *)((prh_byte *)stack + stack_size - coro_size - data_size);
@@ -12618,7 +12625,7 @@ prh_atom_dynque_block *prh_impl_atom_dynque_alloc_block(prh_int block_end_offset
 
 void prh_atom_dynque_init(prh_atom_dynque_producer *p, prh_atom_dynque_consumer *c, prh_atom_dynque_length *l, prh_int queue_block_bytes) {
     assert(queue_block_bytes > 0);
-    prh_int block_end_offset = prh_round_cache_line_size(queue_block_bytes) - 2 * sizeof(void *);
+    prh_int block_end_offset = prh_round_line_size(queue_block_bytes) - 2 * sizeof(void *);
     prh_atom_dynque_block *block = prh_impl_atom_dynque_aligned_alloc(block_end_offset, prh_null);
     c->head_block_head_item = (void **)(c->head_block = block);
     p->tail_block_tail_item = (void **)(p->tail_block = block);
@@ -15115,6 +15122,56 @@ void prh_impl_time_test(void) {
 
 #ifdef PRH_THRD_INCLUDE
 // impl_hdl_ => x64 pthread_t size 8-byte HANDLE size 8-byte
+typedef struct {
+    prh_ptr handle;
+    union { prh_ptr extra; prh_r32 thrd_id; };
+} prh_thrd;
+
+#define prh_thrd_id(thrd) ((prh_r32)((thrd)->thrd_id))
+typedef int (*prh_thrd_proc)(prh_thrd *thrd);
+extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
+
+void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrd_proc proc, prh_reg reserved_stack_size);
+void prh_impl_plat_thrd_join(prh_ptr handle, prh_r32 thrd_id);
+void prh_impl_plat_thrd_exit(int exit_code);
+
+prh_inline void *prh_thrd_self(void) { return PRH_IMPL_THRD; }
+prh_inline void prh_thrd_start(prh_thrd *thrd, prh_thrd_proc proc, prh_reg stacksize) { prh_impl_plat_thrd_start(thrd, proc, stacksize); }
+prh_inline void prh_thrd_join(prh_thrd *thrd) { prh_impl_plat_thrd_join(thrd->handle, thrd->thrd_id); }
+prh_inline void prh_thrd_exit(int exit_code) { prh_impl_plat_thrd_exit(exit_code); }
+prh_inline void prh_prepare_thrd_id(prh_thrd *thrd, prh_r32 id) { thrd->thrd_id = id; }
+void prh_prepare_main_thrd(prh_thrd *main);
+
+#ifdef PRH_THRD_IMPLEMENTATION
+prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
+prh_ptr prh_impl_plat_thrd_self(void);
+void prh_impl_plat_print_thrd_info(prh_r32 thrd_id);
+
+void prh_impl_thrd_prepare(prh_thrd *thrd) {
+    PRH_IMPL_THRD = thrd;
+#if PRH_DEBUG
+    prh_impl_plat_print_thrd_info(thrd->thrd_id);
+#endif
+    thrd->extra_ptr = 0;
+    prh_reset_local_allocator();
+    prh_reset_tempo_allocator();
+    prh_reset_arena_allocator();
+}
+
+int prh_impl_thrd_start_proc(prh_thrd *thrd) {
+    prh_thrd_proc proc = (prh_thrd_proc)thrd->extra_ptr;
+    prh_impl_thrd_prepare(thrd);
+    return proc(thrd);
+}
+
+void prh_prepare_main_thrd(prh_thrd *main) {
+    main->handle = prh_impl_plat_thrd_self();
+    prh_impl_thrd_prepare(main);
+}
+#endif // PRH_THRD_IMPLEMENTATION
+#endif // PRH_THRD_INCLUDE
+
+#ifdef PRH_THRD_INCLUDE
 #define prh_thrd_struct(...) {              \
     prh_ptr impl_hdl_;                      \
     prh_ptr extra_ptr;                      \
@@ -15122,18 +15179,14 @@ void prh_impl_time_test(void) {
     __VA_ARGS__                             \
 }
 
-typedef struct {
-    prh_allocator_alloc_func alloc;
-} prh_tctx;
-
 typedef struct prh_thrd_struct(void *userdata;) prh_user_thrd;
-typedef struct prh_thrd_struct() prh_thrd;
+typedef struct prh_thrd_struct() prh_base_thrd;
 typedef struct {
     prh_i32 thrd_cnt;
     prh_r32 thrd_max: 31, thrd_end: 1;
-    prh_thrd *main;
-    // [prh_thrd *] thrd_max 个非主线程个数
-    // [prh_thrd *]
+    prh_base_thrd *main;
+    // [prh_base_thrd *] thrd_max 个非主线程个数
+    // [prh_base_thrd *]
 } prh_thrds;
 
 typedef struct {
@@ -15146,75 +15199,36 @@ typedef struct {
 prh_static_assert(sizeof(prh_simple_thrds) <= PRH_SIMPLE_THRD_ALIGNOF);
 prh_static_assert(sizeof(prh_simple_thrds) == 8 + sizeof(prh_int));
 
-typedef int (*prh_thrdproc_t)(prh_thrd *thrd);
-typedef void (*prh_thrdfree_t)(prh_thrd *thrd, int thrd_index); // thrd_index 0 for main thrd
-extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
-
-#define prh_thrd_for_begin(THRD_TYPE, begin, end) {                             \
-        prh_thrd **prh_impl_p = (begin);                                        \
-        prh_thrd **prh_impl_e = (end);                                          \
-        while (prh_impl_p < prh_impl_e) {                                       \
-            THRD_TYPE *it = (THRD_TYPE *)*prh_impl_p++;                         \
-            if (it == prh_null) continue;
-#define prh_thrd_for_end()                                                      \
-        }                                                                       \
-    }
-
-#define PRH_THRD_INDEX_MASK 0xffff
-#define prh_thrd_id(thrd) ((int)((thrd)->thrd_id))
-#define prh_thrd_index(thrd) (prh_thrd_id(thrd) & PRH_THRD_INDEX_MASK)
-prh_inline prh_thrd *prh_thrd_self(void) { return PRH_IMPL_THRD; }
-prh_inline void *prh_thrd_self_data(void) { return ((prh_user_thrd *)prh_thrd_self())->userdata; }
-prh_inline int prh_thrd_self_id(void) { return prh_thrd_id(prh_thrd_self()); }
-prh_inline int prh_thrd_self_index(void) { return prh_thrd_index(prh_thrd_self()); }
-
-prh_inline prh_thrd **prh_thrd_begin(prh_thrds *s) { return &s->main; }
-prh_inline prh_thrd **prh_thrd_end(prh_thrds *s) { return &s->main + (int)s->thrd_max + 1; }
-prh_inline prh_thrd *prh_thrd_get(prh_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= (int)s->thrd_max); return prh_thrd_begin(s)[thrd_index]; /* 0 for main thrd */ }
-prh_inline prh_thrd *prh_thrd_get_with_end(prh_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= (int)s->thrd_max + 1); return prh_thrd_begin(s)[thrd_index]; /* 0 for main thrd */ }
-prh_inline prh_thrd *prh_thrd_main(prh_thrds *s) { return s->main; }
-prh_inline void *prh_thrd_main_data(prh_thrds *s) { return ((prh_user_thrd *)prh_thrd_main(s))->userdata; }
-prh_inline int prh_thrd_main_id(prh_thrds *s) { return prh_thrd_id(prh_thrd_main(s)); }
-
-prh_thrds *prh_thrd_init(int thrd_group, int thrd_num, void *main_userdata); // 使用 prh_thrd_main_data() 获取主线程的 userdata
-prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size);
-void *prh_thrd_create(prh_thrds *s, prh_int thrd_size); // 仅创建线程，创建之后可以自由初始化，然后使用 prh_thrd_sched() 启动线程
-int prh_thrd_sched(prh_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size); // 返回 thrd_index
-int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, prh_int stack_size, void *userdata); // 线程需要初始化的仅有 userdata ，返回 thrd_index，使用 prh_thrd_self_data() 获取 userdata
-void prh_thrd_join(prh_thrds *s, int thrd_index, prh_thrdfree_t thrd_free); // 记得调用 prh_thrd_free() 释放主线程
-void prh_thrd_join_except_main(prh_thrds *s, prh_thrdfree_t thrd_free); // 释放所有 joined 线程，排除主线程，之后记得调用 prh_thrd_free() 释放主线程
-void prh_thrd_jall(prh_thrds **s, prh_thrdfree_t thrd_free); // 释放所有 joined 线程，包括主线程
-void prh_thrd_free(prh_thrds **s, prh_thrdfree_t thrd_free); // 释放主线程
-void prh_thrd_exit(int exit_code);
+typedef void (*prh_thrdfree_t)(prh_base_thrd *thrd, int thrd_index); // thrd_index 0 for main thrd
 
 #define prh_simp_thrd_for_begin(THRD_TYPE, s, begin, end) {                     \
         THRD_TYPE *it = (THRD_TYPE *)(begin);                                   \
-        prh_thrd *prh_impl_e = (end);                                           \
-        for (; (prh_thrd *)it < prh_impl_e; it = (THRD_TYPE *)prh_simp_thrd_next((s), (prh_thrd *)it)) {
+        prh_base_thrd *prh_impl_e = (end);                                           \
+        for (; (prh_base_thrd *)it < prh_impl_e; it = (THRD_TYPE *)prh_simp_thrd_next((s), (prh_base_thrd *)it)) {
 #define prh_simp_thrd_for_end()                                                 \
         }                                                                       \
     }
 
-prh_inline prh_thrd *prh_simp_thrd_begin(prh_simple_thrds *s) { return (prh_thrd *)((prh_byte *)s + PRH_SIMPLE_THRD_ALIGNOF); }
-prh_inline prh_thrd *prh_simp_thrd_next(prh_simple_thrds *s, prh_thrd *curr_thrd) { return (prh_thrd *)((prh_byte *)curr_thrd + s->thrd_size); }
-prh_inline prh_thrd *prh_simp_thrd_end(prh_simple_thrds *s) { return (prh_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + (s->thrd_max + 1) * s->thrd_size); }
-prh_inline prh_thrd *prh_simp_thrd_get(prh_simple_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= (int)s->thrd_max); return (prh_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + thrd_index * s->thrd_size); /* 0 for main thrd */ }
-prh_inline prh_thrd *prh_simp_thrd_get_with_end(prh_simple_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= (int)s->thrd_max + 1); return (prh_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + thrd_index * s->thrd_size); /* 0 for main thrd */ }
-prh_inline prh_thrd *prh_simp_thrd_main(prh_simple_thrds *s) { return prh_simp_thrd_begin(s); }
+prh_inline prh_base_thrd *prh_simp_thrd_begin(prh_simple_thrds *s) { return (prh_base_thrd *)((prh_byte *)s + PRH_SIMPLE_THRD_ALIGNOF); }
+prh_inline prh_base_thrd *prh_simp_thrd_next(prh_simple_thrds *s, prh_base_thrd *curr_thrd) { return (prh_base_thrd *)((prh_byte *)curr_thrd + s->thrd_size); }
+prh_inline prh_base_thrd *prh_simp_thrd_end(prh_simple_thrds *s) { return (prh_base_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + (s->thrd_max + 1) * s->thrd_size); }
+prh_inline prh_base_thrd *prh_simp_thrd_get(prh_simple_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= (int)s->thrd_max); return (prh_base_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + thrd_index * s->thrd_size); /* 0 for main thrd */ }
+prh_inline prh_base_thrd *prh_simp_thrd_get_with_end(prh_simple_thrds *s, int thrd_index) { assert(thrd_index >= 0 && thrd_index <= (int)s->thrd_max + 1); return (prh_base_thrd *)((prh_byte *)prh_simp_thrd_begin(s) + thrd_index * s->thrd_size); /* 0 for main thrd */ }
+prh_inline prh_base_thrd *prh_simp_thrd_main(prh_simple_thrds *s) { return prh_simp_thrd_begin(s); }
 prh_inline int prh_simp_thrd_main_id(prh_simple_thrds *s) { return prh_thrd_id(prh_simp_thrd_main(s)); }
 #define prh_simp_thrd_index(simple_thrds, thrd) (prh_thrd_id(thrd) - prh_simp_thrd_main_id(simple_thrds))
 
 prh_simple_thrds *prh_simp_thrd_init(int thrd_group, int thrd_num, prh_int thrd_size);
-void *prh_simp_thrd_create(prh_simple_thrds *s); // 仅创建线程，创建之后可以自由初始化，然后使用 prh_thrd_sched() 启动线程
-int prh_simp_thrd_sched(prh_simple_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size); // 返回 thrd_index
-void prh_simp_thrd_join(prh_simple_thrds *s, int thrd_index, prh_thrdfree_t thrd_free); // 记得调用 prh_thrd_free() 释放主线程
-void prh_simp_thrd_join_except_main(prh_simple_thrds *s, prh_thrdfree_t thrd_free); // 释放所有 joined 线程，排除主线程，之后记得调用 prh_thrd_free() 释放主线程
+void *prh_simp_thrd_create(prh_simple_thrds *s); // 仅创建线程，创建之后可以自由初始化，然后使用 prh_simp_thrd_sched() 启动线程
+int prh_simp_thrd_sched(prh_simple_thrds *s, void *created_thrd, prh_thrd_proc proc, prh_int stack_size); // 返回 thrd_index
+void prh_simp_thrd_join(prh_simple_thrds *s, int thrd_index, prh_thrdfree_t thrd_free); // 记得调用 prh_simp_thrd_free() 释放主线程
+void prh_simp_thrd_join_except_main(prh_simple_thrds *s, prh_thrdfree_t thrd_free); // 释放所有 joined 线程，排除主线程，之后记得调用 prh_simp_thrd_free() 释放主线程
 void prh_simp_thrd_jall(prh_simple_thrds **s, prh_thrdfree_t thrd_free); // 释放所有 joined 线程，包括主线程
 void prh_simp_thrd_free(prh_simple_thrds **s, prh_thrdfree_t thrd_free); // 释放主线程
 
-prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size);
-void prh_impl_thrd_sched(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size);
-void prh_impl_thrd_join(prh_thrd *thrd, prh_thrdfree_t thrd_free);
+prh_base_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size);
+void prh_impl_thrd_sched(prh_base_thrd *thrd, prh_thrd_proc proc, prh_int stack_size);
+void prh_impl_thrd_join(prh_base_thrd *thrd, prh_thrdfree_t thrd_free);
 
 typedef struct prh_mutex prh_mutex;
 int prh_mutex_size(void);
@@ -15341,37 +15355,10 @@ bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_ptr time);
 prh_ptr prh_impl_plat_cond_time(prh_i64 *ptr, prh_r32 msec);
 
 #ifdef PRH_THRD_IMPLEMENTATION
-void prh_impl_plat_set_fault_handler(void);
-void prh_impl_plat_print_thrd_info(prh_thrd *thrd);
-void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reserved_stack_size);
-void prh_impl_plat_thrd_join(prh_thrd *thrd);
-prh_ptr prh_impl_plat_thrd_self(void);
 
-#ifndef PRH_THRD_DEBUG
-#define PRH_THRD_DEBUG PRH_DEBUG
-#endif
-
-prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
-prh_thread_local prh_tctx PRH_IMPL_TCTX;
-
-void prh_impl_thrd_prestart_init(prh_thrd *thrd) {
-    PRH_IMPL_THRD = thrd;
-#if PRH_THRD_DEBUG
-    prh_impl_plat_print_thrd_info(thrd);
-#endif
-    thrd->extra_ptr = 0; // 可以在用户线程函数中重用 extra_ptr
-    prh_reset_local_allocator();
-}
-
-int prh_impl_thrd_start_proc(prh_thrd *thrd) {
-    prh_thrdproc_t proc = (prh_thrdproc_t)thrd->extra_ptr;
-    prh_impl_thrd_prestart_init(thrd);
-    return proc(thrd);
-}
-
-prh_int prh_impl_thrd_size(prh_int thrd_size) {
-    assert(thrd_size >= sizeof(prh_thrd));
-    return (prh_int)prh_round_cache_line_size(thrd_size);
+prh_int prh_impl_simp_thrd_size(prh_int thrd_size) {
+    assert(thrd_size >= sizeof(prh_base_thrd));
+    return (prh_int)prh_round_line_size(thrd_size);
 }
 
 prh_reg prh_impl_thrds_size(int thrd_num) {
@@ -15384,50 +15371,51 @@ prh_reg prh_impl_simp_thrds_size(int thrd_num, prh_int thrd_size) {
     return PRH_SIMPLE_THRD_ALIGNOF + (thrd_num + 1) * thrd_size;
 }
 
-prh_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size) {
-    thrd_size = prh_impl_thrd_size(thrd_size);
-    prh_thrd *thrd = prh_cache_line_aligned_alloc(thrd_size);
+prh_base_thrd *prh_impl_thrd_create(int thrd_id, prh_int thrd_size) {
+    thrd_size = prh_impl_simp_thrd_size(thrd_size);
+    prh_base_thrd *thrd = prh_cache_line_aligned_alloc(thrd_size);
     assert(thrd != prh_null);
     memset(thrd, 0, thrd_size);
     thrd->thrd_id = thrd_id;
     return thrd;
 }
 
-void prh_impl_launch_main_thrd(prh_thrd *main) {
+void prh_impl_launch_main_thrd(prh_base_thrd *main) {
     main->impl_hdl_ = prh_impl_plat_thrd_self();
-    prh_impl_thrd_prestart_init(main);
+    prh_impl_thrd_prepare(main);
 }
 
 prh_thrds *prh_thrd_init_with_size(int thrd_group, int thrd_num, prh_int main_thrd_size) {
     prh_thrds *s = prh_calloc(prh_impl_thrds_size(thrd_num));
     assert(thrd_group >= 0 && thrd_group < 0x3fff);
-    prh_thrd *main = prh_impl_thrd_create(thrd_group << 16, main_thrd_size ? main_thrd_size : sizeof(prh_thrd));
+    prh_base_thrd *main = prh_impl_thrd_create(thrd_group << 16, main_thrd_size ? main_thrd_size : sizeof(prh_base_thrd));
     s->thrd_max = thrd_num;
     s->main = main;
     prh_impl_launch_main_thrd(main);
     return s;
 }
 
-prh_thrds *prh_thrd_init(int thrd_group, int thrd_num, void *main_userdata) {
-    prh_thrds *s = prh_thrd_init_with_size(thrd_group, thrd_num, sizeof(prh_user_thrd));
-    prh_user_thrd *main = (prh_user_thrd *)prh_thrd_main(s);
-    main->userdata = main_userdata;
-    return s;
-}
-
 prh_simple_thrds *prh_simp_thrd_init(int thrd_group, int thrd_num, prh_int each_thrd_size) {
-    prh_int thrd_size = prh_impl_thrd_size(each_thrd_size);
+    prh_int thrd_size = prh_impl_simp_thrd_size(each_thrd_size);
     prh_reg simp_thrds_size = prh_impl_simp_thrds_size(thrd_num, thrd_size);
     prh_simple_thrds *s = prh_cache_line_aligned_alloc(simp_thrds_size);
     assert(s != prh_null);
     assert(thrd_group >= 0 && thrd_group < 0x3fff);
     memset(s, 0, simp_thrds_size);
-    prh_thrd *main = prh_simp_thrd_main(s);
+    prh_base_thrd *main = prh_simp_thrd_main(s);
     main->thrd_id = thrd_group << 16;
     main->created = 1;
     s->thrd_max = thrd_num;
     s->thrd_size = thrd_size;
     prh_impl_launch_main_thrd(main);
+    return s;
+}
+
+#if 0
+prh_thrds *prh_base_thrd_init(int thrd_group, int thrd_num, void *main_userdata) {
+    prh_thrds *s = prh_thrd_init_with_size(thrd_group, thrd_num, sizeof(prh_user_thrd));
+    prh_user_thrd *main = (prh_user_thrd *)prh_thrd_main(s);
+    main->userdata = main_userdata;
     return s;
 }
 
@@ -15458,7 +15446,7 @@ label_find_empty_thrd:
     return created_thrd;
 }
 
-int prh_thrd_start(prh_thrds *s, prh_thrdproc_t proc, prh_int stack_size, void *userdata) {
+int prh_thrd_start(prh_thrds *s, prh_thrd_proc proc, prh_int stack_size, void *userdata) {
     prh_user_thrd *thrd = (prh_user_thrd *)prh_impl_create_and_set(s, sizeof(prh_user_thrd));
     thrd->userdata = userdata;
     prh_impl_plat_thrd_start((prh_thrd *)thrd, proc, stack_size);
@@ -15470,64 +15458,13 @@ void *prh_thrd_create(prh_thrds *s, prh_int thrd_size) {
     return thrd;
 }
 
-void prh_impl_thrd_sched(prh_thrd *thrd, prh_thrdproc_t proc, prh_int stack_size) {
+void prh_impl_thrd_sched(prh_thrd *thrd, prh_thrd_proc proc, prh_int stack_size) {
     prh_impl_plat_thrd_start(thrd, proc, stack_size);
 }
 
-int prh_thrd_sched(prh_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size) {
+int prh_thrd_sched(prh_thrds *s, void *created_thrd, prh_thrd_proc proc, prh_int stack_size) {
     prh_impl_plat_thrd_start(created_thrd, proc, stack_size);
     return prh_thrd_index((prh_thrd *)created_thrd);
-}
-
-void *prh_simp_thrd_create(prh_simple_thrds *s) {
-    prh_thrd *thrd = prh_null;
-    int thrd_index = 1;
-    if (s->thrd_end) {
-        thrd = prh_simp_thrd_get_with_end(s, thrd_index);
-        for (; thrd_index <= (int)s->thrd_max; thrd_index += 1, thrd = prh_simp_thrd_next(s, thrd)) {
-            if (thrd->created == 0) {
-                s->thrd_cnt += 1;
-                goto label_find_empty_thrd;
-            }
-        }
-    } else {
-        assert(s->thrd_cnt >= 0 && s->thrd_cnt < (int)s->thrd_max);
-        thrd_index = ++s->thrd_cnt;
-        if (thrd_index >= (int)s->thrd_max) {
-            s->thrd_end = 1;
-        }
-        thrd = prh_simp_thrd_get(s, thrd_index);
-        goto label_find_empty_thrd;
-    }
-    prh_abort_error(__LINE__);
-label_find_empty_thrd:
-    thrd->created = 1;
-    thrd->thrd_id = prh_simp_thrd_main_id(s) + thrd_index;
-    return thrd;
-}
-
-int prh_simp_thrd_sched(prh_simple_thrds *s, void *created_thrd, prh_thrdproc_t proc, prh_int stack_size) {
-    prh_impl_plat_thrd_start(created_thrd, proc, stack_size);
-    return prh_simp_thrd_index(s, (prh_thrd *)created_thrd);
-}
-
-void prh_impl_thrd_join(prh_thrd *thrd, prh_thrdfree_t thrd_free) {
-    prh_impl_plat_thrd_join(thrd);
-    if (thrd_free) {
-        thrd_free(thrd, thrd->thrd_id);
-    }
-    prh_aligned_dealloc(thrd);
-}
-
-void prh_impl_thrd_single_join(prh_thrd **thrd_list, int thrd_index, prh_thrdfree_t thrd_free) {
-    prh_thrd *thrd = thrd_list[thrd_index];
-    if (thrd == prh_null) return;
-    prh_impl_plat_thrd_join(thrd);
-    if (thrd_free) {
-        thrd_free(thrd, thrd_index);
-    }
-    prh_aligned_dealloc(thrd);
-    thrd_list[thrd_index] = prh_null;
 }
 
 void prh_thrd_join(prh_thrds *s, int thrd_index, prh_thrdfree_t thrd_free) {
@@ -15567,10 +15504,62 @@ void prh_thrd_free(prh_thrds **main, prh_thrdfree_t thrd_free) {
     prh_dealloc(s);
     *main = prh_null;
 }
+#endif
 
-void prh_impl_simp_thrd_join(prh_thrd *thrd, int thrd_index, prh_thrdfree_t thrd_free) {
+void *prh_simp_thrd_create(prh_simple_thrds *s) {
+    prh_base_thrd *thrd = prh_null;
+    int thrd_index = 1;
+    if (s->thrd_end) {
+        thrd = prh_simp_thrd_get_with_end(s, thrd_index);
+        for (; thrd_index <= (int)s->thrd_max; thrd_index += 1, thrd = prh_simp_thrd_next(s, thrd)) {
+            if (thrd->created == 0) {
+                s->thrd_cnt += 1;
+                goto label_find_empty_thrd;
+            }
+        }
+    } else {
+        assert(s->thrd_cnt >= 0 && s->thrd_cnt < (int)s->thrd_max);
+        thrd_index = ++s->thrd_cnt;
+        if (thrd_index >= (int)s->thrd_max) {
+            s->thrd_end = 1;
+        }
+        thrd = prh_simp_thrd_get(s, thrd_index);
+        goto label_find_empty_thrd;
+    }
+    prh_abort_error(__LINE__);
+label_find_empty_thrd:
+    thrd->created = 1;
+    thrd->thrd_id = prh_simp_thrd_main_id(s) + thrd_index;
+    return thrd;
+}
+
+int prh_simp_thrd_sched(prh_simple_thrds *s, void *created_thrd, prh_thrd_proc proc, prh_int stack_size) {
+    prh_impl_plat_thrd_start(created_thrd, proc, stack_size);
+    return prh_simp_thrd_index(s, (prh_base_thrd *)created_thrd);
+}
+
+void prh_impl_thrd_join(prh_base_thrd *thrd, prh_thrdfree_t thrd_free) {
+    prh_impl_plat_thrd_join(thrd->impl_hdl_, thrd->thrd_id);
+    if (thrd_free) {
+        thrd_free(thrd, thrd->thrd_id);
+    }
+    prh_aligned_dealloc(thrd);
+}
+
+void prh_impl_thrd_single_join(prh_base_thrd **thrd_list, int thrd_index, prh_thrdfree_t thrd_free) {
+    prh_base_thrd *thrd = thrd_list[thrd_index];
+    if (thrd == prh_null) return;
+    prh_impl_plat_thrd_join(thrd->impl_hdl_, thrd->thrd_id);
+    if (thrd_free) {
+        thrd_free(thrd, thrd_index);
+    }
+    prh_aligned_dealloc(thrd);
+    thrd_list[thrd_index] = prh_null;
+}
+
+void prh_impl_simp_thrd_join(prh_base_thrd *thrd, int thrd_index, prh_thrdfree_t thrd_free) {
     if (thrd->created == 0) return;
-    prh_impl_plat_thrd_join(thrd);
+    prh_impl_plat_thrd_join(thrd->impl_hdl_, thrd->thrd_id);
     if (thrd_free) {
         thrd_free(thrd, thrd_index);
     }
@@ -15585,7 +15574,7 @@ void prh_simp_thrd_join(prh_simple_thrds *s, int thrd_index, prh_thrdfree_t thrd
 
 void prh_simp_thrd_join_except_main(prh_simple_thrds *s, prh_thrdfree_t thrd_free) {
     int thrd_index = 1;
-    prh_simp_thrd_for_begin(prh_thrd, s, prh_simp_thrd_get_with_end(s, thrd_index), prh_simp_thrd_end(s))
+    prh_simp_thrd_for_begin(prh_base_thrd, s, prh_simp_thrd_get_with_end(s, thrd_index), prh_simp_thrd_end(s))
         prh_impl_simp_thrd_join(it, thrd_index++, thrd_free);
     prh_simp_thrd_for_end()
     s->thrd_cnt = 0;
@@ -15602,7 +15591,7 @@ void prh_simp_thrd_jall(prh_simple_thrds **main, prh_thrdfree_t thrd_free) {
 void prh_simp_thrd_free(prh_simple_thrds **main, prh_thrdfree_t thrd_free) {
     prh_simple_thrds *s = *main;
     if (s == prh_null) return;
-    prh_thrd *main_thrd = prh_simp_thrd_main(s);
+    prh_base_thrd *main_thrd = prh_simp_thrd_main(s);
     if (main_thrd->created) {
         if (thrd_free) {
             thrd_free(main_thrd, 0);
@@ -15613,7 +15602,18 @@ void prh_simp_thrd_free(prh_simple_thrds **main, prh_thrdfree_t thrd_free) {
     *main = prh_null;
 }
 
-#if defined(prh_plat_windows)
+prh_sysinfo *prh_get_sysinfo(void) {
+    static prh_sysinfo si = {0};
+    if (si.page_size == 0) {
+        prh_system_info(&si);
+    }
+    return &si;
+}
+#endif // PRH_THRD_IMPLEMENTATION
+#endif // PRH_THRD_INCLUDE
+
+#ifdef PRH_IMPL_WINDOWS_THREAD
+#ifdef PRH_THRD_IMPLEMENTATION
 // DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
 // HANDLE CreateThread(
 //      [in, optional]  LPSECURITY_ATTRIBUTES   lpThreadAttributes,
@@ -15762,8 +15762,8 @@ void prh_impl_thrd_self_get_stack(prh_ptr *low, prh_ptr *high) {
     GetCurrentThreadStackLimits((PULONG_PTR)low, (PULONG_PTR)high);
 }
 
-#if PRH_THRD_DEBUG
-void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
+#if PRH_DEBUG
+void prh_impl_plat_print_thrd_info(prh_r32 thrd_id) {
     prh_ptr stack_low_limit = 0;
     prh_ptr stack_high_limit = 0;
     prh_impl_thrd_self_get_stack(&stack_low_limit, &stack_high_limit);
@@ -15771,7 +15771,7 @@ void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
     SYSTEM_INFO info;
     GetSystemInfo(&info);
     printf("[thrd %02d] %p %p stack %d-byte (%dKB) guard %d-byte\n",
-        prh_thrd_id(thrd), (void *)stack_low_limit, (void *)stack_high_limit,
+        thrd_id, (void *)stack_low_limit, (void *)stack_high_limit,
         (int)stack_size, (int)(stack_size/1024), (int)info.dwPageSize);
 }
 #endif
@@ -15791,7 +15791,7 @@ static unsigned __stdcall prh_impl_plat_thrd_procedure(void *param) {
 // 慢。如果你没有使用 __declspec(dllexport) 关键字来导出 DLL 的函数，那么该 DLL 必须
 // 提供一个 .def 文件。
 
-void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reserved_stack_size) {
+void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrd_proc proc, prh_reg reserved_stack_size) {
     // 1. stack_size 总是向上取整到 page size 的整数倍，并且调整为分配颗粒度的整数倍（通常为 64KB，可调用 GetSystemInfo 获取），如果为0则使用可执行文件设置的默认栈大小
     // 2. 预留栈大小（reserved pages）和初始提交大小（commited pages）的默认值在可执行文件头部中指定，可用使用编译选项控制 /STACK:reserve[,commit]
     // 3. reserve 和 commit 的单位为字节，默认预留大小为 1MB，默认初始提交大小是一个页面为 4KB，/STACK 编译选项在构建 .dll 文件时会被忽略
@@ -15805,13 +15805,13 @@ void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reser
     thrd->extra_ptr = (prh_ptr)proc; // 如果指定的栈大小 < 64KB，将使用默认的栈大小 1MB
     HANDLE thrd_hdl = (HANDLE)_beginthreadex(prh_null, (unsigned int)reserved_stack_size, prh_impl_plat_thrd_procedure, thrd, STACK_SIZE_PARAM_IS_A_RESERVATION, prh_null);
     if (thrd_hdl > 0) {
-        thrd->impl_hdl_ = (prh_ptr)thrd_hdl;
+        thrd->handle = (prh_ptr)thrd_hdl;
     } else {
         prh_abort_error(errno);
     }
 }
 
-void prh_thrd_exit(int exit_code) {
+void prh_impl_plat_thrd_exit(int exit_code) {
     // ExitThread 是在 C 代码中退出线程的首选方法。然而，在 C++ 代码中，调用 ExitThread
     // 会导致线程在调用任何析构函数或执行其他自动清理操作之前就终止。因此，在 C++ 代码
     // 中，应该从线程函数中返回。
@@ -15881,8 +15881,8 @@ bool prh_impl_wait_single_object(HANDLE handle, DWORD msec) {
     return false;
 }
 
-void prh_impl_plat_thrd_join(prh_thrd *thrd) {
-    HANDLE thrd_impl_hdl = (HANDLE)thrd->impl_hdl_;
+void prh_impl_plat_thrd_join(prh_ptr handle, prh_r32 thrd_id) {
+    HANDLE thrd_impl_hdl = (HANDLE)handle;
     int exit_code = 0;
     if (prh_impl_wait_single_object(thrd_impl_hdl, INFINITE)) {
         DWORD ExitCode;
@@ -15894,11 +15894,11 @@ void prh_impl_plat_thrd_join(prh_thrd *thrd) {
     }
     // 终止线程并不一定会从操作系统中删除线程对象，当线程的最后一个句柄被关闭时，线程对象才会被删除。
     prh_impl_close_handle(thrd_impl_hdl);
-#if PRH_THRD_DEBUG
-    printf("[thrd %02d] joined %d\n", prh_thrd_id(thrd), exit_code);
+#if PRH_DEBUG
+    printf("[thrd %02d] joined %d\n", thrd_id, exit_code);
 #else
     if (exit_code != 0) {
-        prh_print_exit_code(prh_thrd_id(thrd), exit_code);
+        prh_print_exit_code(thrd_id, exit_code);
     }
 #endif
 }
@@ -17406,7 +17406,11 @@ void prh_impl_thrd_test(void) {
     printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#else // PTHREAD BEGIN
+#endif // PRH_THRD_IMPLEMENTATION
+#endif // PRH_IMPL_WINDOWS_THREAD
+
+#ifdef PRH_IMPL_POSIX_THREAD
+#ifdef PRH_THRD_IMPLEMENTATION
 // 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
 //
 // 1. 进程ID和父进程ID，进程组ID与会话（session）ID，进程凭证（credential）
@@ -17927,9 +17931,9 @@ void prh_impl_thrd_test(void) {
 // NPTL的性能优于LinuxThreads，也更符合SUSv3的pthreads标准。对NPTL的支持需要修改内
 // 核，这始于Linux 2.6。值得强调的是，LinuxThreads实现已经过时，并且glibc从2.4版本
 // 开始也已不再支持它，所有新的线程库开发都基于NPTL。
-#if PRH_THRD_DEBUG
+#if PRH_DEBUG
 #if defined(prh_impl_pthread_getattr)
-void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
+void prh_impl_plat_print_thrd_info(prh_r32 thrd_id) {
     pthread_t tid = pthread_self();
     void *stackaddr = prh_null;
     size_t stacksize = 0, guard_size = 0;
@@ -17946,12 +17950,12 @@ void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
     prh_zeroret(pthread_attr_destroy(&attr));
     // stackaddr 是内存块的起始地址，一般对齐到内存页面大小边界，stacksize 是内存页面的整数倍
     printf("[thrd %02d] %p stack %d-byte (%dKB) guard %d-byte (%dKB)\n",
-        prh_thrd_id(thrd), stackaddr, (int)stacksize, (int)(stacksize/1024),
+        thrd_id, stackaddr, (int)stacksize, (int)(stacksize/1024),
         (int)guard_size, (int)(guard_size/1024));
 }
 #else
-void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
-    prh_unused(thrd);
+void prh_impl_plat_print_thrd_info(prh_r32 thrd_id) {
+    prh_unused(thrd_id);
 }
 #endif
 #endif
@@ -17960,7 +17964,7 @@ static void *prh_impl_plat_thrd_procedure(void *param) {
     return (void *)(prh_int)prh_impl_thrd_start_proc((prh_thrd *)param);
 }
 
-prh_int prh_impl_thread_stack_size(prh_int stacksize) { // 改进：因为线程栈最小为16KB，当线程用来执行协程时，将主协程需要的除外可以直接拿来当子协程的栈用
+prh_reg prh_impl_thread_stack_size(prh_reg stacksize) { // 改进：因为线程栈最小为16KB，当线程用来执行协程时，将主协程需要的除外可以直接拿来当子协程的栈用
     if (stacksize <= 0) return 0;
     // https://www.man7.org/linux/man-pages/man3/sysconf.3.html
     // https://www.man7.org/linux/man-pages/man3/sysconf.3p.html
@@ -17975,7 +17979,7 @@ prh_int prh_impl_thread_stack_size(prh_int stacksize) { // 改进：因为线程
     return pagesize * times; // stacksize 是 pagesize 的整数倍
 }
 
-void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reserved_stack_size) {
+void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrd_proc proc, prh_reg reserved_stack_size) {
     // 1. stacksize 最小 16KB，必须是页面大小的整数倍，默认值通常 2MB 到 8MB，线程的栈大小在创建线程时就已固定，只有主线程的栈可以动态增长
     // 2. stacksize 是线程栈的预留大小（reserved size），pthread 只能设置预留大小，物理页随用随配，没有对初始提交大小进行设置的接口。
     // 3. pthread_attr_setstack() 可以同时控制线程栈的大小和位置，不过设置栈的地址将降低程序的可移植性，指定的 stackaddr 是内存块的起始地址，必须对齐到页面大小的边界，分配的页面必须具有可读可写权限
@@ -17985,11 +17989,11 @@ void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reser
     // 7. 将警戒区大小设置为 0 对于创建大量线程且确定不会发生栈溢出的应用程序来说，有助于节省内存，默认的警戒区大小为 1 个页面大小
     // 8. 如果线程在栈上分配大型数据结构，为了能够检测到栈溢出，选择大于默认大小的警戒区可能对于检测栈溢出是必要的
     // 9. 截至 glibc 版本 2.8，NPTL 线程实现将警戒区包含在栈大小分配之内，而不是像POSIX.1 要求的那样在栈末尾分配额外的空间，这可能会导致 pthread_create(3) 返回 EINVAL 错误，因为无足够多的实际栈空间
-    pthread_t *tid = (pthread_t *)&thrd->impl_hdl_;
+    pthread_t tid;
     pthread_attr_t *attr_ptr = prh_null;
     pthread_attr_t attr;
 
-    prh_int stacksize = prh_impl_thread_stack_size(reserved_stack_size);
+    prh_reg stacksize = prh_impl_thread_stack_size(reserved_stack_size);
     if (stacksize > 0) {
         attr_ptr = &attr;
         prh_zeroret(pthread_attr_init(attr_ptr));
@@ -17999,15 +18003,16 @@ void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrdproc_t proc, prh_int reser
 
     assert(proc != prh_null);
     thrd->extra_ptr = (prh_ptr)proc;
-    int n = pthread_create(tid, attr_ptr, prh_impl_plat_thrd_procedure, thrd);
+    int n = pthread_create(&tid, attr_ptr, prh_impl_plat_thrd_procedure, thrd);
     prh_abort_if_error(n);
+    thrd->handle = (prh_ptr)tid;
 
     if (attr_ptr) {
         prh_zeroret(pthread_attr_destroy(attr_ptr));
     }
 }
 
-void prh_thrd_exit(int exit_code) {
+void prh_impl_plat_thrd_exit(int exit_code) {
     // pthread_exit() 函数用于终止当前线程，并通过参数 retval 返回一个退出码；如果该
     // 线程是可 join 的，则这个返回值可以被同一进程中另一个调用 pthread_join(3) 的线
     // 程获取。
@@ -18028,18 +18033,17 @@ void prh_thrd_exit(int exit_code) {
     pthread_exit((void *)(prh_int)exit_code);
 }
 
-void prh_impl_plat_thrd_join(prh_thrd *thrd) {
+void prh_impl_plat_thrd_join(prh_ptr handle, prh_r32 thrd_id) {
     void *retv = prh_null;
-    pthread_t tid = *(pthread_t *)&thrd->impl_hdl_;
+    pthread_t tid = handle;
     int n = pthread_join(tid, &retv); // 返回0或错误码
-    int thrd_id = prh_thrd_id(thrd);
     int exit_code = 0;
     if (n == 0) {
         exit_code = (int)(prh_int)retv;
     } else {
         prh_prerr(n);
     }
-#if PRH_THRD_DEBUG
+#if PRH_DEBUG
     if ((prh_reg)retv == (prh_reg)PTHREAD_CANCELED) { // -1 is PTHREAD_CANCELED
         printf("[thrd %02d] canceled join\n", thrd_id);
     } else {
@@ -20611,16 +20615,8 @@ void prh_impl_thrd_test(void) {
     printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
 #endif // PRH_TEST_IMPLEMENTATION
-#endif // PTHREAD END
-prh_sysinfo *prh_get_sysinfo(void) {
-    static prh_sysinfo si = {0};
-    if (si.page_size == 0) {
-        prh_system_info(&si);
-    }
-    return &si;
-}
 #endif // PRH_THRD_IMPLEMENTATION
-#endif // PRH_THRD_INCLUDE
+#endif // PRH_IMPL_POSIX_THREAD
 
 // Reactor Pattern 和 Proactor Pattern
 //
@@ -22727,6 +22723,7 @@ void prh_ehub_join(void);
 #endif // PRH_EHUB_INCLUDE
 
 #if defined(PRH_IMPL_WINDOWS_EHUB)
+#ifdef PRH_EHUB_IMPLEMENTATION
 // 使用原子 queue_length 的方式一对一原子队列：
 //  1.  入队时直接入队，然后 queue_length 原子地递增
 //  2.  出队时需要原子的检查 queue_length 是否为零，然后出队，再对 queue_length 递减
@@ -23254,9 +23251,9 @@ void prh_impl_iocp_register_handle(prh_handle handle) {
 //      函数的原型为 void (*prh_iocp_continue)(void *overlapped)，继续处理函数通过
 //      调用函数 prh_impl_iocp_continue_routine 进行注册
 
-prh_inline int prh_impl_schd_query_iocp_entries(prh_r32 wait_msec) { // INFINITE
+prh_inline int prh_impl_schd_query_iocp_entries(prh_r32 query_wait) { // INFINITE
     return prh_impl_completion_port_extend_query(PRH_IMPL_IOCP,
-        PRH_IMPL_SCHD.iocp_entry, PRH_IMPL_SCHD.entry_count, wait_msec);
+        PRH_IMPL_SCHD.iocp_entry, PRH_IMPL_SCHD.entry_count, query_wait);
 }
 
 void prh_impl_schd_complete_iocp_entry(OVERLAPPED_ENTRY *entry) {
@@ -23319,30 +23316,24 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
 // 谁调用 prh_ehub_schedule 谁就是调度线程。
 
 void prh_ehub_schedule(void) {
-    OVERLAPPED_ENTRY *entry_start = prh_null;
-    OVERLAPPED_ENTRY *entry_end = prh_null;
+    OVERLAPPED_ENTRY *entry = PRH_IMPL_SCHD.iocp_entry;
     prh_ehub_thrd *thrd_start = (prh_ehub_thrd *)prh_simp_thrd_begin(PRH_IMPL_SCHD.ehub_thrds);
     prh_ehub_thrd *thrd_end = (prh_ehub_thrd *)prh_simp_thrd_end(PRH_IMPL_SCHD.ehub_thrds);
     prh_ehub_thrd *thrd;
-    prh_r32 wait_msec = 0;
+    prh_r32 query_wait = 0;
     prh_r32 idle_cycle = 0;
     prh_r32 activity;
     int entry_count;
+    int i;
 
     for (; ;) {
-        activity = 0;
-        if (entry_start < entry_end) goto label_unhandled_entries;
-        if ((entry_count = prh_impl_schd_query_iocp_entries(wait_msec)) == 0) goto label_process_post;
-        entry_start = PRH_IMPL_SCHD.iocp_entry;
-        entry_end = entry_start + entry_count;
-
-    label_unhandled_entries:
-        for (; entry_start < entry_end; entry_start += 1) {
-            prh_impl_schd_complete_iocp_entry(entry_start);
+        activity = 0; // 需要接受多少连接以及收发多少数据都是由上层控制的，无需调度线程控制处理速度
+        entry_count = prh_impl_schd_query_iocp_entries(query_wait);
+        for (i = 0; i < entry_count; i += 1) {
+            prh_impl_schd_complete_iocp_entry(entry + i);
             activity += 1;
         }
 
-    label_process_post:
         thrd = thrd_start;
         while (thrd < thrd_end) {
             activity += prh_impl_schd_process_post(thrd);
@@ -23351,20 +23342,20 @@ void prh_ehub_schedule(void) {
 
         if (activity) {
             idle_cycle = 0;
-            wait_msec = 0;
+            query_wait = 0;
             continue;
         }
 
         idle_cycle += 1;
         if (PRH_IMPL_SCHD.sleep_count < PRH_IMPL_SCHD.thrd_count) {
             prh_impl_schd_take_a_break(idle_cycle);
-            wait_msec = 0;
+            query_wait = 0;
             continue;
         }
 
         prh_debug(printf("all threads %d in sleep\n", PRH_IMPL_SCHD.sleep_count));
         if (!PRH_IMPL_SCHD.exit) {
-            wait_msec = INFINITE;
+            query_wait = INFINITE;
             continue;
         }
 
@@ -24356,13 +24347,13 @@ void prh_impl_iocp_init(prh_iocp_config *config) {
     PRH_IOCP_GLOBAL.sched_braver_buffer = PRH_IOCP_GLOBAL.sched_thrd->braver_memory_cache_line;
 
     // 分配的内存仅被调度线程访问
-    prh_int overlapped_entry_array_bytes = prh_round_cache_line_size(sizeof(OVERLAPPED_ENTRY) * iocp_query_max_entries);
-    prh_int rio_result_entry_array_bytes = prh_round_cache_line_size(sizeof(RIORESULT) * iocp_query_max_entries);
-    prh_int iocp_continue_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(iocp_query_max_entries, sizeof(prh_thrd_post_req)));
-    prh_int post_collect_que_bytes = prh_round_cache_line_size(prh_fixed_arrque_alloc_size(collect_que_size, sizeof(prh_iocp_post_req)));
-    prh_int thrd_tx_que_consumer_bytes = prh_round_cache_line_size(sizeof(prh_sched_thrd_tx_que_consumer) * iocp_thrd_count);
-    prh_int post_dispatch_que_bytes = prh_round_cache_line_size(prh_atom_mult_rd_arrque_alloc_size(dispatch_que_size, sizeof(prh_iocp_post_req)));
-    prh_int thrd_wait_que_bytes = prh_round_cache_line_size(concurrent_thread_count * sizeof(void *));
+    prh_int overlapped_entry_array_bytes = prh_round_line_size(sizeof(OVERLAPPED_ENTRY) * iocp_query_max_entries);
+    prh_int rio_result_entry_array_bytes = prh_round_line_size(sizeof(RIORESULT) * iocp_query_max_entries);
+    prh_int iocp_continue_que_bytes = prh_round_line_size(prh_fixed_arrque_alloc_size(iocp_query_max_entries, sizeof(prh_thrd_post_req)));
+    prh_int post_collect_que_bytes = prh_round_line_size(prh_fixed_arrque_alloc_size(collect_que_size, sizeof(prh_iocp_post_req)));
+    prh_int thrd_tx_que_consumer_bytes = prh_round_line_size(sizeof(prh_sched_thrd_tx_que_consumer) * iocp_thrd_count);
+    prh_int post_dispatch_que_bytes = prh_round_line_size(prh_atom_mult_rd_arrque_alloc_size(dispatch_que_size, sizeof(prh_iocp_post_req)));
+    prh_int thrd_wait_que_bytes = prh_round_line_size(concurrent_thread_count * sizeof(void *));
     prh_byte *sched_thrd_buffer = prh_impl_thrd_braver_memory_alloc(overlapped_entry_array_bytes + rio_result_entry_array_bytes + iocp_continue_que_bytes +
         post_collect_que_bytes + thrd_tx_que_consumer_bytes + post_dispatch_que_bytes + thrd_wait_que_bytes, PRH_IOCP_GLOBAL.sched_thrd);
 
@@ -24414,6 +24405,7 @@ void prh_iocp_startup(prh_iocp_config *config) {
     prh_impl_iocp_global_free();
 }
 #endif
+#endif // PRH_EHUB_IMPLEMENTATION
 #endif // PRH_IMPL_WINDOWS_EHUB
 
 #if defined(PRH_IMPL_LINUX_EPOLL)
@@ -25135,7 +25127,7 @@ void prh_impl_report_epev_added(prh_epoll_port *port) {
 void prh_impl_process_epac_add(prh_impl_epoll *epoll, prh_cono_pdata *pdata) {
     prh_data_epac_add *from = (prh_data_epac_add *)pdata;
     int fd = (int)from->head.u.value;
-    int alloc_size = prh_round_cache_line_size(sizeof(prh_epoll_port));
+    int alloc_size = prh_round_line_size(sizeof(prh_epoll_port));
     prh_epoll_port *port = prh_cache_line_aligned_alloc(alloc_size);
     assert(port != prh_null);
     memset(port, 0, sizeof(prh_epoll_port));
@@ -26381,14 +26373,14 @@ int prh_impl_cono_extend_size(prh_byte subq_num) {
     int share_coro_data_size = (int)(sizeof(prh_share_coro_data) + subq_num * sizeof(prh_coro_subq));
     if (share_coro_data_size <= prh_cache_line_size) return prh_impl_cono_fixed_extend_size;
     int exceeded_size = share_coro_data_size - prh_cache_line_size;
-    return prh_impl_cono_fixed_extend_size + (int)prh_round_cache_line_size(exceeded_size);
+    return prh_impl_cono_fixed_extend_size + (int)prh_round_line_size(exceeded_size);
 }
 
 int prh_impl_cono_struct_size(prh_byte subq_num) {
     int share_coro_data_size = (int)(sizeof(prh_share_coro_data) + subq_num * sizeof(prh_coro_subq));
     if (share_coro_data_size <= prh_cache_line_size) return prh_impl_cono_fixed_size;
     int exceeded_size = share_coro_data_size - prh_cache_line_size;
-    return prh_impl_cono_fixed_size + (int)prh_round_cache_line_size(exceeded_size);
+    return prh_impl_cono_fixed_size + (int)prh_round_line_size(exceeded_size);
 }
 
 // 当 start 一个需要 await_cono_yield 的子协程时，caller 协程需要创建 callee_rx_que
@@ -26543,7 +26535,7 @@ prh_coro *prh_impl_cono_create(prh_conoproc_t proc, int stack_size, int maxudsiz
     struct prh_impl_coro_guard *guard = prh_impl_coro_guard(coro);
     printf("[cono   ] %p create -- lower %p (left %d) rsp %p coro %p (size %d) data %p (size %d) -- stack %d\n",
         (void *)coro, (void *)guard, (int)(rsp - (char *)(guard + 1)), (void *)rsp,
-        (void *)coro, (prh_impl_coro_size + cono_extend_size), userdata, (int)prh_round_cache_line_size(maxudsize), stack_size);
+        (void *)coro, (prh_impl_coro_size + cono_extend_size), userdata, (int)prh_round_line_size(maxudsize), stack_size);
 #endif
     *((void **)((void **)userdata - 1)) = coro;
     int times_of_cache_line_size = prh_impl_cono_struct_size(subq_num) / prh_cache_line_size;
