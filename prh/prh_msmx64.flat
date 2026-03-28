@@ -1911,6 +1911,12 @@
 ; 即使它的定义紧挨着 a 的定义。因此由于可能的混淆，每次混合预处理器和汇编器的功能时都
 ; 应该非常小心。在这种情况下，重要的是要意识到源代码在预处理后会变成什么，从而汇编器会
 ; 看到什么并在上面进行多次汇编。
+;
+; http://comrade.ownz.com/docs/fasm.html
+; http://comrade.ownz.com/sources.html
+; https://board.flatassembler.net/topic.php?t=2126
+; https://board.flatassembler.net/topic.php?t=3839
+; https://board.flatassembler.net/index.php
 
 format MS64 COFF
 section '.text' code readable executable align 16

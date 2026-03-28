@@ -215,7 +215,7 @@ endif
 # warning C4505: unreferenced local function
 # warning C4810: This warning is issued when you use the show option of the pack pragma. n is the current pack value
 # warning C4819: The file contains a character that cannot be represented in the current code page (936). Save the file in Unicode format to prevent data loss
-OPT_WARN_FLAGS := /W4 /wd4100 /wd4127 /wd4214 /wd4706 /wd4204 /wd4245
+OPT_WARN_FLAGS := /W3 # /wd4100 /wd4127 /wd4214 /wd4706 /wd4204 /wd4245
 INIT_CFLAGS += $(OPT_WARN_FLAGS)
 ifeq ($(filter wowx,$(CONFIG_COMPILER)),)
 INIT_CFLAGS += /WX
