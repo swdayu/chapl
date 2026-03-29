@@ -2066,6 +2066,8 @@ typedef enum {
     #define prh_wsa_abort_error() prh_impl_abort_error(__LINE__, WSAGetLastError())
     #endif // PRH_SOCK_INCLUDE
     #ifdef PRH_THRD_INCLUDE
+    #include <process.h>
+    #include <timeapi.h>
     #define PRH_IMPL_WINDOWS_THREAD
     #endif // PRH_THRD_INCLUDE
     #ifdef PRH_EHUB_INCLUDE
@@ -2920,28 +2922,13 @@ void *prh_impl_relloc(void *ptr, prh_reg size) {
     return ptr;
 }
 
-#if defined(prh_plat_windows)
-#if PRH_DEBUG
+#if defined(prh_plat_windows) && PRH_DEBUG
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
 void prh_impl_dump_memory_leaks(void) {
     _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG | _CRTDBG_MODE_FILE);
     _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
     _CrtDumpMemoryLeaks();
 }
-#endif
-#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
-void prh_impl_wsasocket_init(void);
-#endif
-#endif // WINDOWS
-
-#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
-void prh_impl_plat_set_fault_handler(void);
-#endif
-#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
-void prh_impl_time_init(void);
-#endif
-#if defined(PRH_TEST_IMPLEMENTATION)
-void prh_impl_test_code(void);
 #endif
 
 void prh_main_init(void) {
@@ -2950,17 +2937,21 @@ void prh_main_init(void) {
     prh_zeroret(atexit(prh_impl_dump_memory_leaks));
 #endif
 #if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
+    void prh_impl_wsasocket_init(void);
     prh_impl_wsasocket_init();
 #endif
-#endif // WINDOWS
+#endif // prh_plat_windows
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+    void prh_impl_plat_set_fault_handler(void);
     prh_impl_plat_set_fault_handler();
 #endif
 #if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+    void prh_impl_time_init(void);
     prh_impl_time_init();
 #endif
 #if defined(PRH_TEST_IMPLEMENTATION)
-    prh_impl_test_code();
+    void prh_impl_run_all_tests(void);
+    prh_impl_run_all_tests();
 #endif
 }
 
@@ -3079,27 +3070,13 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 #endif // PRH_BASE_IMPLEMENTATION
 
 #ifdef PRH_TEST_IMPLEMENTATION
-#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
-void prh_impl_atomic_test(void);
-#endif
-#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
-void prh_impl_time_test(void);
-#endif
-#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
-void prh_impl_thrd_test(void);
-#endif
-#if defined(PRH_CONO_INCLUDE) && defined(PRH_CONO_IMPLEMENTATION)
-void prh_impl_cono_test(void);
-#endif
-#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
-void prh_impl_sock_test(void);
-#endif
 typedef struct {
     char a;
     int b;
     short c;
     void *d;
 } prh_impl_test_struct;
+#define PRH_IMPL_PREV_TEST prh_impl_basic_test
 void prh_impl_basic_test(void) {
     int a[6] = {0}, b = 1, count = 0;
     int len, *len_ptr = a;
@@ -3124,8 +3101,6 @@ void prh_impl_basic_test(void) {
 #elif prh_int_64
     prh_real_assert(prh_offsetof(prh_impl_test_struct, d) == 16);
 #endif
-}
-void prh_impl_test_code(void) {
 #if defined(__linux__)
     printf("__linux__ %d defined\n", __linux__);
 #endif
@@ -3197,22 +3172,6 @@ void prh_impl_test_code(void) {
 #endif
 #if defined(__cplusplus)
     printf("c++ version %ld\n", (long)__cplusplus);
-#endif
-    prh_impl_basic_test();
-#if defined(PRH_ATOMIC_INCLUDE) && defined(PRH_ATOMIC_IMPLEMENTATION)
-    prh_impl_atomic_test();
-#endif
-#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
-    prh_impl_time_test();
-#endif
-#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
-    prh_impl_thrd_test();
-#endif
-#if defined(PRH_CONO_INCLUDE) && defined(PRH_CONO_IMPLEMENTATION)
-    prh_impl_cono_test();
-#endif
-#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
-    prh_impl_sock_test();
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
@@ -13683,6 +13642,7 @@ label_return:
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_atomic_test(void) {
+    PRH_IMPL_PREV_TEST();
     atomic_flag f; atomic_bool b; atomic_int i; atomic_uint u;
     atomic_intptr_t ip; atomic_uintptr_t up; atomic_size_t sz; atomic_ptrdiff_t pd;
     atomic_char ch; atomic_schar sc; atomic_uchar uc; atomic_short sh;
@@ -13706,6 +13666,8 @@ void prh_impl_atomic_test(void) {
     printf("atomic_llong size %d align %d lock free %d\n", (int)sizeof(atomic_llong), (int)prh_alignof(atomic_llong), atomic_is_lock_free(&ll));
     printf("atomic_ullong size %d align %d lock free %d\n", (int)sizeof(atomic_ullong), (int)prh_alignof(atomic_ullong), atomic_is_lock_free(&ull));
 }
+#undef PRH_IMPL_PREV_TEST
+#define PRH_IMPL_PREV_TEST prh_impl_atomic_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_ATOMIC_IMPLEMENTATION
 #endif // PRH_ATOMIC_INCLUDE
@@ -14805,6 +14767,7 @@ prh_i64 prh_elapse_nsec(prh_i64 ticks) {
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <time.h>
 void prh_impl_time_test(void) {
+    PRH_IMPL_PREV_TEST();
     printf("\n\n[MSC][time]\n");
     printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("void * %zd-byte\n", sizeof(void *));
@@ -14840,6 +14803,8 @@ void prh_impl_time_test(void) {
     long long long_long_number = 1000000000001LL;
     prh_real_assert((long_long_number * 1000000000LL / 1000000LL) != 1000000000001000LL);
 }
+#undef PRH_IMPL_PREV_TEST
+#define PRH_IMPL_PREV_TEST prh_impl_time_test
 #endif // PRH_TEST_IMPLEMENTATION
 #else // POSIX BEGIN
 // 无论地理位置如何，UNIX系统内部对时间的表示方式均是以自Epoch以来的秒数来度量的，
@@ -15452,6 +15417,7 @@ prh_i64 prh_thread_time(void) {
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_time_test(void) {
+    PRH_IMPL_PREV_TEST();
     printf("\n\n[GNU][time]\n");
     printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds, it is signed integer
@@ -15483,6 +15449,8 @@ void prh_impl_time_test(void) {
     }
     prh_real_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
 }
+#undef PRH_IMPL_PREV_TEST
+#define PRH_IMPL_PREV_TEST prh_impl_time_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // POSIX END
 #endif // PRH_TIME_IMPLEMENTATION
@@ -16117,7 +16085,6 @@ prh_sysinfo *prh_get_sysinfo(void) {
 // 创建的线程。更多信息，请参见 Locale。
 // 这些函数，仅适用于多线程版本的 C 运行时库。要使用 _beginthread 或 _beginthreadex，
 // 应用程序必须链接到多线程 C 运行时库（例如 libcmt.lib）。
-#include <process.h>
 
 void prh_impl_thrd_self_get_stack(prh_reg *low, prh_reg *high) {
     // VOID GetCurrentThreadStackLimits([out] PULONG_PTR LowLimit, [out] PULONG_PTR HighLimit)
@@ -17202,7 +17169,6 @@ void prh_sleep_until_next_tick(void) {
 // 设置更高的分辨率可以提高等待函数中超时间隔的准确性，但同时也会降低整体系统性能，因
 // 为线程调度器会更频繁地切换任务。高分辨率还可能阻止 CPU 电源管理系统进入省电模式。设
 // 置更高的分辨率并不会提高高分辨率性能计数器的准确性。
-#include <timeapi.h>
 
 prh_static_assert(MMSYSERR_NOERROR == 0);
 
@@ -17717,6 +17683,7 @@ void prh_impl_plat_set_fault_handler(void) {
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_thrd_test(void) {
+    PRH_IMPL_PREV_TEST();
     printf("BOOL %zd-byte\n", sizeof(BOOL));
     printf("TRUE %d FALSE %d\n", TRUE, FALSE);
     printf("UINT %zd-byte\n", sizeof(UINT));
@@ -17778,6 +17745,8 @@ void prh_impl_thrd_test(void) {
     printf("prh_thrd_cond %d-byte\n", (int)sizeof(prh_thrd_cond));
     printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
+#undef PRH_IMPL_PREV_TEST
+#define PRH_IMPL_PREV_TEST prh_impl_thrd_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_IMPL_WINDOWS_THREAD
@@ -20889,6 +20858,7 @@ int getpagesize(void);
 // https://www.man7.org/linux/man-pages/man3/sysconf.3.html
 // https://www.man7.org/linux/man-pages/man3/sysconf.3p.html
 void prh_impl_thrd_test(void) {
+    PRH_IMPL_PREV_TEST();
     long n = 0;
     char buf[32];
     struct rlimit l = {0};
@@ -20997,6 +20967,8 @@ void prh_impl_thrd_test(void) {
     printf("prh_thrd_cond %d-byte\n", (int)sizeof(prh_thrd_cond));
     printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
 }
+#undef PRH_IMPL_PREV_TEST
+#define PRH_IMPL_PREV_TEST prh_impl_thrd_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_IMPL_POSIX_THREAD
@@ -30087,8 +30059,8 @@ void prh_sock_local_addr(prh_handle sock, struct sockaddr *addr) {
 }
 
 void prh_impl_local_sockaddr(prh_handle sock, prh_sock_addr *addr, int addrlen) {
-    if (getsockname((SOCKET)sock, (struct sockaddr *)addr, &namelen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
-    assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
+    if (getsockname((SOCKET)sock, (struct sockaddr *)addr, &addrlen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
+    assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (addrlen == sizeof(struct sockaddr_in)) {
         addr->ip_address = addr->ipv4_address;
     }
@@ -30134,8 +30106,8 @@ prh_r32 prh_sock_peer_addr(prh_handle sock, struct sockaddr *addr) {
 }
 
 void prh_impl_remote_sockaddr(prh_handle sock, prh_sock_addr *addr, int addrlen) {
-    if (getpeername((SOCKET)sock, (struct sockaddr *)addr, &namelen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
-    assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
+    if (getpeername((SOCKET)sock, (struct sockaddr *)addr, &addrlen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
+    assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (addrlen == sizeof(struct sockaddr_in)) {
         addr->ip_address = addr->ipv4_address;
     }
@@ -30409,7 +30381,7 @@ void prh_tcp_reuse_accept(prh_socket *tcp, prh_listen *l) {
     assert(tcp->closed == 1); // 必须已经关闭才能重用
     assert(l != prh_null && l->socket != prh_invalid_socket);
     prh_impl_close_socket(tcp->socket);
-    memset(tcp, 0, sizeof(prh_socket));
+    memset(tcp, 0, sizeof(*tcp));
     prh_impl_init_accept(tcp, l);
 }
 
@@ -31943,7 +31915,7 @@ void prh_impl_schd_open_from_port(OVERLAPPED *overlapped) {
         // 套接字断连关闭。
         prh_handle connect_socket = tcp->socket;
         prh_setsockopt_update_connect_context(connect_socket);
-        int addrlen = prh_impl_socket_addrlen(tcp->ipv6);
+        int addrlen = prh_impl_socket_addrlen(tcp->ipv6 == 1);
         prh_impl_local_sockaddr(connect_socket, &tcp->local, addrlen);
         prh_impl_remote_sockaddr(connect_socket, &tcp->remote, addrlen);
         tcp->opened = 1;
@@ -31953,16 +31925,16 @@ void prh_impl_schd_open_from_port(OVERLAPPED *overlapped) {
 
 void prh_impl_thrd_connect_req(prh_socket *tcp) {
     assert(tcp->socket != prh_invalid_socket);
-    int addrlen = prh_impl_socket_addrlen(tcp->ipv6);
+    int addrlen = prh_impl_socket_addrlen(tcp->ipv6 == 1);
     tcp->request_thrd = prh_ehub_thrd_self();
     BOOL b = PRH_IMPL_CONNECTEX(
         /* [in]           SOCKET s                  */ tcp->socket,
-        /* [in]           const sockaddr *name      */ (struct sockaddr *)&tcp->remote;
+        /* [in]           const sockaddr *name      */ (struct sockaddr *)&tcp->remote,
         /* [in]           int namelen               */ addrlen,
         /* [in, optional] PVOID lpSendBuffer        */ prh_null,
         /* [in]           DWORD dwSendDataLength    */ 0,
         /* [out]          LPDWORD lpdwBytesSent     */ prh_null,
-        /* [in]           LPOVERLAPPED lpOverlapped */ (OVERLAPPED *)&tcp->overlapped,
+        /* [in]           LPOVERLAPPED lpOverlapped */ (OVERLAPPED *)&tcp->overlapped
         );
     // 如果一个句柄与完成端口关联，即使异步请求以同步方式完成，其结果仍然会被添加到完成端口队列中
     // 代码都走 “发起→挂起→完成” 流程，可以统一使用重叠模型编写，无需关注操作同步完成的分支
@@ -31988,7 +31960,7 @@ void prh_impl_init_conn_socket(prh_socket *t, prh_handle socket) {
 }
 
 void prh_impl_init_connect(const char *host, prh_reg port, prh_socket *tcp, prh_handle socket) {
-    int addrlen = prh_impl_parse_remote_address(host, port, &t->remote);
+    int addrlen = prh_impl_parse_remote_address(host, port, &tcp->remote);
     prh_impl_init_conn_socket(tcp, socket);
     prh_impl_thrd_connect_req(tcp);
 }
@@ -32007,8 +31979,8 @@ void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp, prh_
     assert(host != prh_null);
     assert(tcp->closed == 1 && tcp->alloc != prh_null); // 必须已经关闭才能重用
     prh_arena_alloc *alloc = tcp->accept ? tcp->listen->alloc : tcp->alloc;
-    prh_socket socket = tcp->socket;
-    memset(tcp, 0, sizeof(prh_socket));
+    prh_handle socket = tcp->socket;
+    memset(tcp, 0, sizeof(*tcp));
     tcp->alloc = alloc;
     prh_co_load(&tcp->co_struct, proc);
     prh_impl_init_connect(host, port, tcp, socket);
@@ -32018,15 +31990,15 @@ void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc) {
     assert(tcp->client == 1); // 必须是一个主动连接套接字
     assert(tcp->closed == 1 && tcp->alloc != prh_null); // 必须已经关闭才能重用
     prh_arena_alloc *alloc = tcp->alloc;
-    prh_socket socket = tcp->socket;
+    prh_handle socket = tcp->socket;
     prh_sock_addr remote = tcp->remote;
-    memset(tcp, 0, sizeof(prh_socket));
+    memset(tcp, 0, sizeof(*tcp));
     tcp->alloc = alloc;
     tcp->remote = remote;
     tcp->ipv6 = remote.family == AF_INET6;
     assert(remote.family == AF_INET || remote.family == AF_INET6);
     prh_co_load(&tcp->co_struct, proc);
-    prh_impl_init_conn_socket(prh_null, 0, tcp, socket);
+    prh_impl_init_conn_socket(tcp, socket);
     prh_impl_thrd_connect_req(tcp);
 }
 
@@ -33009,12 +32981,15 @@ label_complete: prh_prerr(error_code);
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_sock_test(void) {
+    PRH_IMPL_PREV_TEST();
     printf("SOCKET %d-byte\n", (int)sizeof(SOCKET));
     printf("INVALID_SOCKET %d\n", INVALID_SOCKET);
     printf("struct sockaddr_in %d-byte\n", (int)sizeof(struct sockaddr_in));
     printf("struct sockaddr_in6 %d-byte\n", (int)sizeof(struct sockaddr_in6));
     printf("RIO_MAX_CQ_SIZE %d (%08x)\n", RIO_MAX_CQ_SIZE, RIO_MAX_CQ_SIZE);
 }
+#undef PRH_IMPL_PREV_TEST
+#define PRH_IMPL_PREV_TEST prh_impl_sock_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_IMPL_WINDOWS_SOCKET
@@ -34934,6 +34909,7 @@ label_continue:
 #ifdef PRH_TEST_IMPLEMENTATION
 #include <limits.h>
 void prh_impl_sock_test(void) {
+    PRH_IMPL_PREV_TEST();
     prh_r32 ipv4_loopback = htonl(INADDR_LOOPBACK);
     prh_r32 ipv4_addr_any = htonl(INADDR_ANY);
     struct in6_addr ip6_loopback = in6addr_loopback;
@@ -34963,6 +34939,8 @@ void prh_impl_sock_test(void) {
     printf("IOV_MAX %d\n", IOV_MAX);
 #endif
 }
+#undef PRH_IMPL_PREV_TEST
+#define PRH_IMPL_PREV_TEST prh_impl_sock_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_IMPL_POSIX_SOCKET
 
@@ -43430,6 +43408,12 @@ label_skipped:
 
 #endif // PRH_LEXER_INCLUDE
 
+
+#ifdef PRH_TEST_IMPLEMENTATION
+void prh_impl_run_all_tests(void) {
+    PRH_IMPL_PREV_TEST();
+}
+#endif // PRH_TEST_IMPLEMENTATION
 #ifdef __cplusplus
 }
 #endif
