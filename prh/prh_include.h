@@ -1131,8 +1131,6 @@ typedef enum {
     e_expired,
     e_fatal_error,
     e_fault,
-    e_memory_fault,
-    e_segment_fault,
     e_file_busy,
     e_file_error,
     e_file_type,
@@ -1161,6 +1159,8 @@ typedef enum {
     e_invalid,
     e_invalid_access,
     e_invalid_address,
+    e_invalid_remote_address,
+    e_invalid_local_address,
     e_invalid_argument,
     e_invalid_buffer,
     e_invalid_parameter,
@@ -1208,6 +1208,7 @@ typedef enum {
     e_invalid_style,
     e_invalid_syntax,
     e_invalid_source,
+    e_invalid_socket,
     e_invalid_destination,
     e_invalid_device_type,
     e_invalid_type,
@@ -1317,7 +1318,9 @@ typedef enum {
     e_open_failed,
     e_operation_aborted,
     e_operation_already_exist,
+    e_operation_blocked,
     e_operation_failed,
+    e_operation_failure,
     e_operation_incomplete,
     e_operation_pending,
     e_operation_canceled,
@@ -1384,10 +1387,13 @@ typedef enum {
     e_send_failed,
     e_send_closed,
     e_service,
+    e_segment_fault,
     e_shutdown,
     e_specific_error,
     e_stopped,
     e_system_error,
+    e_system_resources,
+    e_system_nobufs,
     e_suspended,
     e_violate,
     e_write_error,
@@ -27620,21 +27626,27 @@ typedef struct {
     /* +1p +1p */ void *request_thrd;
     /* +1p +1p */ union { prh_listen *listen; prh_arena_alloc *alloc; };
     /* +2p +1p */ prh_r32 error_code, send_size;
-    /* +1p +1p */ prh_r16 tcp: 1, ipv6: 1, accept: 1, l_opening: 1, open: 1, l_closing: 1, l_hup: 1, r_hup: 1, send: 1, recv: 1;
+    /* +1p +1p */ prh_r16 tcp: 1, ipv6: 1, client: 1, accept: 1, opened: 1, closed: 1,
+                    l_opening: 1, open: 1, l_closing: 1, reusable: 1, r_hup: 1, send: 1, recv: 1;
     /* 14p +7p */ prh_sock_addr local, remote; // AcceptEx本地和远程地址缓冲区必须比对应的协议地址多16字节
     /* +8p +4p */ union { prh_impl_overlapped recv_overlapped; prh_r32 align[8]; };
     /* +5p +4p */ prh_impl_overlapped overlapped; // tcp 只有 open 之后才能 close/tx，只有 tx 完才能 close
     /* 30p 23p */
 } prh_socket;
 
-prh_listen *prh_tcp_listen(const char *host, prh_reg flag_port, prh_reg backlog);
-prh_socket *prh_tcp_accept(prh_listen *l, prh_reg datasize);
-void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc);
-
 prh_inline bool prh_is_sock_ipv6(const prh_sock_addr *p) { return p->family == PRH_IPV6; }
 prh_inline bool prh_tcp_ipv6_socket(prh_socket *tcp) { return tcp->ipv6 == 1; }
 prh_inline prh_r16 prh_tcp_local_port(prh_socket *tcp) { return prh_be_to_host_16(tcp->local.port); }
 prh_inline prh_r16 prh_tcp_remote_port(prh_socket *tcp) { return prh_be_to_host_16(tcp->remote.port); }
+
+prh_listen *prh_tcp_listen(const char *host, prh_reg port, prh_reg backlog);
+prh_socket *prh_tcp_accept(prh_listen *l, prh_reg datasize);
+void prh_tcp_reuse_accept(prh_socket *tcp, prh_listen *l);
+void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc);
+
+void prh_tcp_connect(const char *host, prh_reg port, prh_reg datasize, prh_co_proc proc);
+void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp, prh_co_proc proc);
+void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc);
 
 #ifdef PRH_SOCK_IMPLEMENTATION
 // https://learn.microsoft.com/en-us/windows/win32/debug/system-error-code-lookup-tool
@@ -30074,6 +30086,14 @@ void prh_sock_local_addr(prh_handle sock, struct sockaddr *addr) {
     assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
 }
 
+void prh_impl_local_sockaddr(prh_handle sock, prh_sock_addr *addr, int addrlen) {
+    if (getsockname((SOCKET)sock, (struct sockaddr *)addr, &namelen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
+    assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
+    if (addrlen == sizeof(struct sockaddr_in)) {
+        addr->ip_address = addr->ipv4_address;
+    }
+}
+
 // int getpeername(
 //      [in]      SOCKET   s, // 已连接套接字
 //      [out]     sockaddr *name,
@@ -30111,6 +30131,14 @@ prh_r32 prh_sock_peer_addr(prh_handle sock, struct sockaddr *addr) {
     }
     assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
     return 0;
+}
+
+void prh_impl_remote_sockaddr(prh_handle sock, prh_sock_addr *addr, int addrlen) {
+    if (getpeername((SOCKET)sock, (struct sockaddr *)addr, &namelen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
+    assert(namelen == sizeof(struct sockaddr_in) || namelen == sizeof(struct sockaddr_in6));
+    if (addrlen == sizeof(struct sockaddr_in)) {
+        addr->ip_address = addr->ipv4_address;
+    }
 }
 
 // int bind(SOCKET s, const sockaddr *name, int namelen);
@@ -30330,6 +30358,10 @@ prh_inline prh_socket *prh_impl_socket_from_recv_overlapped(OVERLAPPED *overlapp
     return (prh_socket *)((prh_byte *)overlapped - prh_offsetof(prh_socket, recv_overlapped));
 }
 
+prh_inline int prh_impl_socket_addrlen(bool ipv6) {
+    return ipv6 ? (int)sizeof(struct sockaddr_in6) : (int)sizeof(struct sockaddr_in);
+}
+
 void prh_impl_schd_listen_inc(prh_listen *l) {
     l->refr_count += 1;
 }
@@ -30353,6 +30385,7 @@ void prh_impl_init_accept(prh_socket *t, prh_listen *l) {
     t->send_size = t->ipv6 ? (prh_r32)sizeof(struct sockaddr_in6) : (prh_r32)sizeof(struct sockaddr_in);
     t->tcp = 1;
     t->accept = 1;
+    t->client = 0;
 }
 
 prh_socket *prh_tcp_accept(prh_listen *l, prh_reg datasize) {
@@ -30364,6 +30397,7 @@ prh_socket *prh_tcp_accept(prh_listen *l, prh_reg datasize) {
 }
 
 void prh_tcp_free_accept(prh_socket *tcp) {
+    assert(tcp->accept == 1);
     prh_listen *l = tcp->listen;
     prh_impl_close_socket(tcp->socket);
     tcp->socket = prh_invalid_socket;
@@ -30371,10 +30405,12 @@ void prh_tcp_free_accept(prh_socket *tcp) {
     prh_ehub_post_to_schd(l, prh_impl_schd_listen_dec);
 }
 
-void prh_tcp_reuse_accept(prh_socket *tcp) {
+void prh_tcp_reuse_accept(prh_socket *tcp, prh_listen *l) {
+    assert(tcp->closed == 1); // 必须已经关闭才能重用
+    assert(l != prh_null && l->socket != prh_invalid_socket);
     prh_impl_close_socket(tcp->socket);
     memset(tcp, 0, sizeof(prh_socket));
-    prh_impl_init_accept(tcp, tcp->listen);
+    prh_impl_init_accept(tcp, l);
 }
 
 void prh_impl_create_tcp_socket(prh_socket *tcp) {
@@ -30383,14 +30419,19 @@ void prh_impl_create_tcp_socket(prh_socket *tcp) {
     prh_impl_iocp_register_handle(socket);
 }
 
-void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc) {
-    extern void prh_impl_schd_accept_req(prh_socket *t);
+void prh_impl_tcp_load_and_start(prh_socket *tcp, prh_co_proc proc, void (*start)(prh_socket *t)) {
     prh_co_load(&tcp->co_struct, proc);
     if (tcp->socket == prh_invalid_socket) {
         prh_impl_create_tcp_socket(tcp);
     }
     tcp->request_thrd = prh_ehub_thrd_self();
-    prh_thrd_post_to_schd(tcp->request_thrd, tcp, prh_impl_schd_accept_req);
+    prh_thrd_post_to_schd(tcp->request_thrd, tcp, start);
+}
+
+void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc) {
+    assert(tcp->accept == 1);
+    extern void prh_impl_schd_accept_req(prh_socket *t);
+    prh_impl_tcp_load_and_start(tcp, proc, prh_impl_schd_accept_req);
 }
 
 prh_r32 prh_impl_sock_listen(prh_handle socket, int backlog) {
@@ -30412,6 +30453,7 @@ int prh_impl_parse_local_address(const char *host, prh_reg flags_port, prh_sock_
         memcpy(ipv4, host, 4);
 label_ipv4:
         l->family = AF_INET;
+        l->ip_address = l->ipv4_address;
         return (int)sizeof(struct sockaddr_in);
     }
 
@@ -30465,6 +30507,7 @@ int prh_impl_parse_remote_address(const char *host, prh_reg flags_port, prh_sock
         memcpy(ipv4, host, 4);
 label_ipv4:
         l->family = AF_INET;
+        l->ip_address = l->ipv4_address;
         return (int)sizeof(struct sockaddr_in);
     }
 
@@ -30555,10 +30598,10 @@ int prh_impl_init_sockaddr(int family, prh_r16 port, prh_r32 *addr, struct socka
     return namelen;
 }
 
-prh_listen *prh_tcp_listen(const char *host, prh_reg flags_port, prh_reg backlog) {
+prh_listen *prh_tcp_listen(const char *host, prh_reg port, prh_reg backlog) {
     prh_arena_alloc *alloc = prh_get_arena_alloc();
     prh_listen *l = prh_arena_line_calloc(alloc, sizeof(prh_listen));
-    int addrlen = prh_impl_parse_local_address(host, flags_port, &l->local);
+    int addrlen = prh_impl_parse_local_address(host, port, &l->local);
     prh_handle listen_socket = prh_impl_create_socket(l->local.family);
     l->socket = listen_socket;
     l->alloc = alloc;
@@ -30837,7 +30880,7 @@ label_error_handle:
 // 操作完成时会通过 GetQueuedCompletionStatus 返回，你可以通过 lpCompletionKey 和
 // lpOverlapped 区分是哪个 AcceptEx 完成。
 
-prh_inline void prh_impl_schd_accept_complete(prh_socket *tcp, prh_r32 error_code) {
+prh_inline void prh_impl_schd_operation_complete(prh_socket *tcp, prh_r32 error_code) {
     tcp->error_code = error_code;
     prh_impl_schd_post_to_thrd(tcp->request_thrd, &tcp->co_struct);
 }
@@ -30864,14 +30907,13 @@ void prh_impl_schd_accept_error(prh_socket *tcp, prh_r32 error_code) {
         return;
     }
     prh_prerr(error_code);
-    prh_impl_schd_accept_complete(tcp, error_code);
+    prh_impl_schd_operation_complete(tcp, error_code);
 }
 
 void prh_impl_schd_accept_from_port(OVERLAPPED *overlapped) {
     prh_socket *tcp = prh_impl_socket_from_overlapped(overlapped);
     if (overlapped->Internal) {
         prh_impl_schd_accept_error(tcp, (prh_r32)overlapped->Internal);
-        overlapped->Internal = 0;
     } else {
         struct sockaddr *l_addr, *r_addr;
         INT l_addrlen = 0, r_addrlen = 0;
@@ -30897,7 +30939,8 @@ void prh_impl_schd_accept_from_port(OVERLAPPED *overlapped) {
             prh_debug(printf("accept remote address %p %p\n", &tcp->local, l_addr));
         }
         tcp->listen->open_count += 1;
-        prh_impl_schd_accept_complete(tcp, 0);
+        tcp->opened = 1;
+        prh_impl_schd_operation_complete(tcp, 0);
     }
 }
 
@@ -30905,7 +30948,6 @@ void prh_impl_schd_accept_req(prh_socket *tcp) {
     DWORD addrlen = tcp->send_size + 16; // send_size 暂存地址大小
     assert(tcp->listen->socket != prh_invalid_socket);
     assert(tcp->socket != prh_invalid_socket);
-    tcp->overlapped.hEvent = 0; // 确保完成操作被投递到完成端口
     BOOL b = PRH_IMPL_ACCEPTEX(
         /* [in]  SOCKET       sListenSocket         */  (SOCKET)tcp->listen->socket,
         /* [in]  SOCKET       sAcceptSocket         */  (SOCKET)tcp->socket, // 必须是未绑定未连接的套接字句柄
@@ -30914,7 +30956,7 @@ void prh_impl_schd_accept_req(prh_socket *tcp) {
         /* [in]  DWORD        dwLocalAddressLength, */  addrlen,
         /* [in]  DWORD        dwRemoteAddressLength,*/  addrlen,
         /* [out] LPDWORD      lpdwBytesReceived,    */  prh_null, // 仅操作同步完成时才设置此参数，如果 ERROR_IO_PENDING 永远不会被设置，必须从完成机制中获取读取的字节数
-        /* [in]  LPOVERLAPPED lpOverlapped          */  (LPOVERLAPPED)&tcp->overlapped
+        /* [in]  LPOVERLAPPED lpOverlapped          */  (OVERLAPPED *)&tcp->overlapped
         );
     // 如果一个句柄与完成端口关联，即使异步请求以同步方式完成，其结果仍然会被添加到完成端口队列中
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
@@ -31836,115 +31878,156 @@ void prh_tcp_accept_dispatch(prh_listen *listen, int co_thrd_id) {
 // 低，TCP 可能在连接完成之前释放连接资源，导致服务器需要使用额外的资源重新建立连接。此
 // 注册值可设置的范围从 0 到 300 秒。
 
-void prh_impl_iocp_connect_continue(void *post_req) {
-    prh_tcp *tcp = (prh_tcp *)post_req;
-    prh_r32 error_code = (prh_r32)tcp->open_close_tx_node.Internal;
-    if (error_code) { // 不管成功还是失败，上层在 continue_routine 中调用完 prh_iocp_connect_result 之后 prh_iocp_connect 就可以重用
-        // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_connect_socket 主动关闭
-        // 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连
-        // PRH_ECONN_UNREACH
-        //      WSAENETUNREACH      当前无法从该主机到达网络。
-        //      WSAEHOSTUNREACH     尝试对无法到达的主机执行套接字操作。
-        // PRH_ECONN_TIMEOUT
-        //      WSAETIMEDOUT        连接尝试超时而未建立连接。
-        // PRH_ECONN_REFUSED
-        //      WSAECONNREFUSED     连接尝试被拒绝。
-        // PRH_ECONN_INVALID
-        //      WSAEADDRNOTAVAIL    远程地址不是有效地址，例如 ADDR_ANY（ConnectEx 函数仅支持面向连接的套接字）。
-        //      WSAEAFNOSUPPORT     指定地址族的地址不能与该套接字一起使用。
-        //      WSAEFAULT           name、lpSendBuffer 或 lpOverlapped 参数不是用户地址空间的有效部分，或者 namelen 太小。
-        //      WSAEINVAL           参数 s 是未绑定的或监听套接字。
-        //      WSAENOTSOCK         描述符不是套接字。
-        // PRH_ECONN_FAILURE
-        //      WSANOTINITIALISED   在调用 ConnectEx 之前，必须先成功调用 WSAStartup 函数。
-        //      WSAENETDOWN         网络子系统已失败。
-        //      WSAENOBUFS          没有可用的缓冲区空间；套接字无法连接。
-        //      WSAEADDRINUSE       套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错误通常在绑
-        //                          定操作期间发生，但如果 bind 函数使用通配符地址（INADDR_ANY 或 in6addr_any）指定了本地 IP
-        //                          地址，则错误可能会延迟到 ConnectEx 函数调用。ConnectEx 函数需要隐式绑定到特定的 IP 地址。
-        //      WSAEALREADY         在指定的套接字上正在进行非阻塞的 connect、WSAConnect 或 ConnectEx 函数调用。
-        //      WSAEISCONN          套接字已连接。
-        if (error_code == WSAENETUNREACH || error_code == WSAEHOSTUNREACH) {
-            error_code = PRH_ECONN_UNREACH;
-        } else if (error_code == WSAETIMEDOUT) {
-            error_code = PRH_ECONN_TIMEOUT;
-        } else if (error_code == WSAECONNREFUSED) {
-            error_code = PRH_ECONN_REFUSED;
-        } else if (error_code == WSAEADDRNOTAVAIL || error_code == WSAEAFNOSUPPORT || error_code == WSAEFAULT || error_code == WSAEINVAL || error_code == WSAENOTSOCK) {
-            error_code = PRH_ECONN_INVALID;
-        } else {
-            error_code = PRH_ECONN_FAILURE;
-        }
-    } else { // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需的套接字用于连接
-        prh_handle connect_socket = tcp->socket; // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到套接字断连关闭
+void prh_impl_schd_open_error(prh_socket *tcp) {
+    prh_r32 error_code = tcp->error_code;
+    // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_socket 主动关闭
+    // 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连
+    // PRH_ECONN_UNREACH
+    //      WSAENETUNREACH      当前无法从该主机到达网络。
+    //      WSAEHOSTUNREACH     尝试对无法到达的主机执行套接字操作。
+    // PRH_ECONN_TIMEOUT
+    //      WSAETIMEDOUT        连接尝试超时而未建立连接。
+    // PRH_ECONN_REFUSED
+    //      WSAECONNREFUSED     连接尝试被拒绝。
+    // PRH_ECONN_INVALID
+    //      WSAEADDRNOTAVAIL    远程地址不是有效地址，例如 ADDR_ANY（ConnectEx 函数仅支持面向连接的套接字）。
+    //      WSAEAFNOSUPPORT     指定地址族的地址不能与该套接字一起使用。
+    //      WSAEFAULT           name、lpSendBuffer 或 lpOverlapped 参数不是用户地址空间的有效部分，或者 namelen 太小。
+    //      WSAEINVAL           参数 s 是未绑定的或监听套接字。
+    //      WSAENOTSOCK         描述符不是套接字。
+    // PRH_ECONN_FAILURE
+    //      WSANOTINITIALISED   在调用 ConnectEx 之前，必须先成功调用 WSAStartup 函数。
+    //      WSAENETDOWN         网络子系统已失败。
+    //      WSAENOBUFS          没有可用的缓冲区空间；套接字无法连接。
+    //      WSAEADDRINUSE       套接字的本地地址已在使用中，且套接字未使用 SO_REUSEADDR 标记为允许地址重用。此错误通常在绑
+    //                          定操作期间发生，但如果 bind 函数使用通配符地址（INADDR_ANY 或 in6addr_any）指定了本地 IP
+    //                          地址，则错误可能会延迟到 ConnectEx 函数调用。ConnectEx 函数需要隐式绑定到特定的 IP 地址。
+    //      WSAEALREADY         在指定的套接字上正在进行非阻塞的 connect、WSAConnect 或 ConnectEx 函数调用。
+    //      WSAEISCONN          套接字已连接。
+    if (error_code == WSAECONNREFUSED || error_code == WSAENETUNREACH || error_code == WSAETIMEDOUT) {
+        tcp->reusable = 1;
+    }
+    if (error_code == WSAECONNREFUSED) {
+        error_code = e_connection_refused;
+    } else if (error_code == WSAENETUNREACH || error_code == WSAEHOSTUNREACH) {
+        error_code = e_network_unreachable;
+    } else if (error_code == WSAETIMEDOUT) {
+        error_code = e_connection_timeout;
+    } else if (error_code == WSAEADDRNOTAVAIL || error_code == WSAEAFNOSUPPORT) {
+        error_code = e_invalid_remote_address;
+    } else if (error_code == WSAEINVAL || error_code == WSAENOTSOCK) {
+        error_code = e_invalid_socket;
+    } else if (error_code == WSAENETDOWN) {
+        error_code = e_network_down;
+    } else if (error_code == WSAENOBUFS) {
+        error_code = e_system_nobufs;
+    } else if (error_code == WSAEISCONN) {
+        error_code = e_already_connected;
+    } else if (error_code == WSAEALREADY) {
+        error_code = e_operation_blocked;
+    } else {
+        error_code = e_operation_failure;
+    }
+    prh_impl_schd_operation_complete(tcp, error_code);
+}
+
+void prh_impl_schd_open_from_port(OVERLAPPED *overlapped) {
+    prh_socket *tcp = prh_impl_socket_from_overlapped(overlapped);
+    if (overlapped->Internal) {
+        tcp->error_code = (prh_r32)overlapped->Internal;
+        prh_prerr(tcp->error_code);
+        prh_impl_schd_open_error(tcp);
+    } else {
+        // 当已连接的套接字因任何原因出现问题时，应用程序应该丢弃该套接字并重新创建所需
+        // 的套接字用于连接。注意，connect_socket 一直注册在 PRH_IMPL_IOCP 中，直到
+        // 套接字断连关闭。
+        prh_handle connect_socket = tcp->socket;
         prh_setsockopt_update_connect_context(connect_socket);
-        struct sockaddr_in6 in6_local;
-        in6_local.sin6_family = (tcp->family == PRH_AF_IPV6) ? AF_INET6 : AF_INET;
-        prh_sock_local_addr(connect_socket, &in6_local);
-        prh_impl_recv_sockaddr((struct sockaddr_in *)&in6_local, &tcp->address.l_port, &tcp->address.l_addr);
-        tcp->flags.opened = true;
+        int addrlen = prh_impl_socket_addrlen(tcp->ipv6);
+        prh_impl_local_sockaddr(connect_socket, &tcp->local, addrlen);
+        prh_impl_remote_sockaddr(connect_socket, &tcp->remote, addrlen);
+        tcp->opened = 1;
+        prh_impl_schd_operation_complete(tcp, 0);
     }
-    tcp->callback->conn_rsp(tcp->context, error_code, tcp);
 }
 
-void prh_impl_iocp_connect_immediately_complete(prh_tcp *tcp, prh_r32 error_code) {
-    assert(error_code != 0);
-    tcp->open_close_tx_node.Internal = error_code;
-    prh_iocp_thrd_post(&tcp->open_close_tx_node, prh_impl_iocp_connect_continue);
-}
-
-void prh_impl_iocp_connect_completed_from_port(void *overlapped) {
-    prh_impl_sched_thrd_post(overlapped, prh_impl_iocp_connect_continue);
-}
-
-void prh_impl_iocp_connect_req(prh_tcp *tcp) {
-    struct sockaddr_in6 in6_remote = {0};
-    int family = (tcp->family == PRH_AF_IPV6) ? AF_INET6 : AF_INET;
-    int namelen = prh_impl_init_sockaddr(&in6_remote, family, tcp->address.r_port, &tcp->address.r_addr);
-    if (tcp->socket == prh_invalid_socket) {
-        prh_impl_create_tcp_socket(req, family);
-    }
-    OVERLAPPED *overlapped = &tcp->open_close_tx_node;
-    overlapped->hEvent = prh_null; // 确保完成操作被投递到完成端口
+void prh_impl_thrd_connect_req(prh_socket *tcp) {
+    assert(tcp->socket != prh_invalid_socket);
+    int addrlen = prh_impl_socket_addrlen(tcp->ipv6);
+    tcp->request_thrd = prh_ehub_thrd_self();
     BOOL b = PRH_IMPL_CONNECTEX(
         /* [in]           SOCKET s                  */ tcp->socket,
-        /* [in]           const sockaddr *name      */ (struct sockaddr *)&in6_remote;
-        /* [in]           int namelen               */ namelen,
+        /* [in]           const sockaddr *name      */ (struct sockaddr *)&tcp->remote;
+        /* [in]           int namelen               */ addrlen,
         /* [in, optional] PVOID lpSendBuffer        */ prh_null,
         /* [in]           DWORD dwSendDataLength    */ 0,
         /* [out]          LPDWORD lpdwBytesSent     */ prh_null,
-        /* [in]           LPOVERLAPPED lpOverlapped */ overlapped,
+        /* [in]           LPOVERLAPPED lpOverlapped */ (OVERLAPPED *)&tcp->overlapped,
         );
     // 如果一个句柄与完成端口关联，即使异步请求以同步方式完成，其结果仍然会被添加到完成端口队列中
     // 代码都走 “发起→挂起→完成” 流程，可以统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
-    if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
-        prh_impl_iocp_continue_routine(overlapped, prh_impl_iocp_connect_completed_from_port);
-        return; // 请求立即完成或已经成功投递
+    if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) { // 请求立即完成或已经成功投递
+        prh_impl_iocp_continue_routine((OVERLAPPED *)&tcp->overlapped, prh_impl_schd_open_from_port);
+    } else {
+        prh_prerr(error_code);
+        tcp->error_code = error_code ? error_code : WSAEINVAL;
+        prh_thrd_post_to_schd(tcp->request_thrd, tcp, prh_impl_schd_open_error);
     }
-    prh_prerr(error_code);
-    prh_impl_iocp_connect_immediately_complete(tcp, error_code);
 }
 
-prh_tcp *prh_iocp_tcp_client(void *address, struct tcp_callback *callback, void *context) {
-    prh_tcp *tcp = (prh_tcp *)address;
-    assert(address != prh_null && callback != prh_null);
-    memset(tcp, 0, sizeof(prh_tcp));
-    tcp->callback = callback;
-    tcp->context = context;
-    tcp->socket = prh_invalid_socket;
+void prh_impl_init_conn_socket(prh_socket *t, prh_handle socket) {
+    if (socket == prh_invalid_socket) {
+        socket = prh_impl_create_socket(t->remote.family);
+    }
+    t->socket = socket;
+    t->ipv6 = prh_is_sock_ipv6(&t->remote);
+    t->tcp = 1;
+    t->accept = 0;
+    t->client = 1;
 }
 
-void prh_iocp_tcp_connect_req(prh_tcp *tcp, const char *host, int flags_port) {
-    assert(host != prh_addr_any && host != prh_ipv6_addr_any);
-    assert((flags_port & 0xffff) != prh_port_any);
-    if (tcp->flags.client_connect || tcp->flags.server_accept || tcp->flags.opened) {
-        prh_prerr(*(prh_byte *)(&tcp->flags));
-        return;
-    }
-    tcp->flags.client_connect = true;
-    prh_impl_parse_address(host, flags_port, &tcp->family, &tcp->address.r_port, &tcp->address.r_addr);
-    prh_impl_iocp_connect_req(tcp);
+void prh_impl_init_connect(const char *host, prh_reg port, prh_socket *tcp, prh_handle socket) {
+    int addrlen = prh_impl_parse_remote_address(host, port, &t->remote);
+    prh_impl_init_conn_socket(tcp, socket);
+    prh_impl_thrd_connect_req(tcp);
+}
+
+void prh_tcp_connect(const char *host, prh_reg port, prh_reg datasize, prh_co_proc proc) {
+    assert(host != prh_null);
+    assert(datasize >= sizeof(prh_socket));
+    prh_arena_alloc *alloc = prh_get_arena_alloc();
+    prh_socket *tcp = (prh_socket *)prh_arena_line_calloc(alloc, datasize);
+    tcp->alloc = alloc;
+    prh_co_load(&tcp->co_struct, proc);
+    prh_impl_init_connect(host, port, tcp, prh_invalid_socket);
+}
+
+void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp, prh_co_proc proc) {
+    assert(host != prh_null);
+    assert(tcp->closed == 1 && tcp->alloc != prh_null); // 必须已经关闭才能重用
+    prh_arena_alloc *alloc = tcp->accept ? tcp->listen->alloc : tcp->alloc;
+    prh_socket socket = tcp->socket;
+    memset(tcp, 0, sizeof(prh_socket));
+    tcp->alloc = alloc;
+    prh_co_load(&tcp->co_struct, proc);
+    prh_impl_init_connect(host, port, tcp, socket);
+}
+
+void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc) {
+    assert(tcp->client == 1); // 必须是一个主动连接套接字
+    assert(tcp->closed == 1 && tcp->alloc != prh_null); // 必须已经关闭才能重用
+    prh_arena_alloc *alloc = tcp->alloc;
+    prh_socket socket = tcp->socket;
+    prh_sock_addr remote = tcp->remote;
+    memset(tcp, 0, sizeof(prh_socket));
+    tcp->alloc = alloc;
+    tcp->remote = remote;
+    tcp->ipv6 = remote.family == AF_INET6;
+    assert(remote.family == AF_INET || remote.family == AF_INET6);
+    prh_co_load(&tcp->co_struct, proc);
+    prh_impl_init_conn_socket(prh_null, 0, tcp, socket);
+    prh_impl_thrd_connect_req(tcp);
 }
 
 // BOOL TransmitFile(
