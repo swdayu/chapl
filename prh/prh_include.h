@@ -800,7 +800,7 @@ extern "C" {
     #define prh_zeroret_or_errno(a) a
     #define prh_nnegret(a) a
     #define prh_boolret(a) a
-    #define prh_debug(...) ((void)0)
+    #define prh_debug(...)
     #define prh_debug_prerr(error) ((void)0)
 #endif
 #endif
@@ -22213,7 +22213,7 @@ void prh_iocp_riorecv_dont_notify_req(prh_iocp_riorecv *req, const prh_byte *buf
 //
 // 尽管任何数量的线程都可以以指定的 I/O 完成端口调用 GetQueuedCompletionStatus，但当
 // 一个指定的线程第一次调用 GetQueuedCompletionStatus 时，它就与指定的 I/O 完成端口
-// 关联，直到发生以下三种情况之一。换句话说，一个线程最多只能与一个 I/O 完成端口关联。
+// 关联，直到发生以下三种情况之一。换句话说，一个线程最多只能与一个 I/O 完成端口关联。    *** 一个线程最多只能与一个 I/O 完成端口关联
 //  1.  线程退出
 //  2.  指定不同的 I/O 完成端口
 //  3.  关闭 I/O 完成端口
@@ -22228,10 +22228,10 @@ void prh_iocp_riorecv_dont_notify_req(prh_iocp_riorecv *req, const prh_byte *buf
 // 程的通信。PostQueuedCompletionStatus 函数允许应用程序将自己特殊的完成数据包排队到
 // I/O 完成端口，而无需启动异步 I/O 操作。这对于，例如通知工作线程外部事件非常有用。
 //
-// I/O 完成端口句柄以及与该特定 I/O 完成端口关联的每个文件句柄都称为对 I/O 完成端口的
-// 引用。当没有更多引用时，I/O 完成端口将被释放。因此，所有这些句柄都必须正确关闭，以释
+// I/O 完成端口句柄以及与该特定 I/O 完成端口关联的每个文件句柄都称为对 I/O 完成端口的    *** 完成端口会关联完成端口句柄以及所有关联句柄的引用，
+// 引用。当没有更多引用时，I/O 完成端口将被释放。因此，所有这些句柄都必须正确关闭，以释       只有当这些句柄都成功关闭之后，完成端口才会释放
 // 放 I/O 完成端口及其关联的系统资源。在满足这些条件后，应用程序应通过调用 CloseHandle
-// 函数关闭 I/O 完成端口句柄。注意，I/O 完成端口与创建它的进程相关联，不能在进程之间共
+// 函数关闭 I/O 完成端口句柄。注意，I/O 完成端口与创建它的进程相关联，不能在进程之间共    *** 完成端口与创建它的进程关联，不能跨进程
 // 享。然而，同一个进程中的线程可以共享一个完成端口句柄。
 //
 // 线程和并发，需要仔细考虑的 I/O 完成端口最重要的属性是并发值。完成端口的并发值在使用
@@ -22284,7 +22284,7 @@ void prh_iocp_riorecv_dont_notify_req(prh_iocp_riorecv *req, const prh_byte *buf
 // 在处理时，仍然可以销毁。另外，我们必须确保线程池种总是至少有一个线程，否则客户请求将
 // 永远得不到处理。
 //
-// 当一个线程终止时，系统会自动将该线程发出的所有待处理的 I/O 请求取消掉（取消队列中的
+// 当一个线程终止时，系统会自动将该线程发出的所有待处理的 I/O 请求取消掉（取消队列中的     *** 当线程终止时，系统会自动将该线程发出的所有待处理请求取消
 // 设备 I/O 请求）。在 Windows Vista 之前的版本，当线程向一个完成端口管理的设备发出
 // I/O 请求时，存在一条硬性规定，即在请求完成之前，该线程必须不能终止，否则 Windows 会
 // 将该线程发出的任何待处理请求都取消掉。而在 Windows Vista 中，已经不存在类似的规定，
@@ -22529,8 +22529,10 @@ void prh_impl_prevent_operation_enqueue_to_completion_port(OVERLAPPED *overlappe
 //      ERROR_PENDING 且调用的函数不是同步函数，则 I/O 管理器不会为文件对象设置事件。
 //      如果为请求提供了显式事件，则仍会触发该事件。
 
-void prh_impl_skip_completion_port_on_success(prh_handle handle) {
-    PRH_BOOLRET_OR_ABORT(SetFileCompletionNotificationModes((HANDLE)handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS));
+bool prh_impl_skip_completion_port_on_success(prh_handle handle) {
+    BOOL b = SetFileCompletionNotificationModes((HANDLE)handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    prh_debug(if (!b) prh_prerr(GetLastError()));
+    return b == TRUE;
 }
 
 // HANDLE WINAPI CreateIoCompletionPort(
@@ -22744,7 +22746,6 @@ void prh_impl_close_completion_port(HANDLE completion_port) {
 //      lpOverlapped 指向的变量中。要获取扩展错误信息，请调用 GetLastError。
 
 int prh_impl_completion_port_query(HANDLE completion_port, OVERLAPPED_ENTRY *entry, DWORD msec) {
-    assert(completion_port != prh_null);
     assert(entry != prh_null); // 超时时间在 Windows 8 及更高版本上，不包含系统睡眠时间
     BOOL b = GetQueuedCompletionStatus(completion_port, &entry->dwNumberOfBytesTransferred, (PULONG_PTR)&entry->lpCompletionKey, &entry->lpOverlapped, msec);
     if (b) {
@@ -22752,8 +22753,8 @@ int prh_impl_completion_port_query(HANDLE completion_port, OVERLAPPED_ENTRY *ent
         return 1; // 操作成功
     }
     DWORD error_code = GetLastError();
-    if (error_code != WAIT_TIMEOUT) prh_prerr(error_code); // 如果返回 ERROR_INVALID_HANDLE 表示完成端口已经关闭
-    entry->Internal = error_code;
+    entry->Internal = error_code; // 如果返回 ERROR_INVALID_HANDLE 表示完成端口已经关闭
+    prh_debug(if (error_code != WAIT_TIMEOUT) prh_prerr(error_code));
     return entry->lpOverlapped ? 1 : 0;
 }
 
@@ -22833,15 +22834,11 @@ int prh_impl_completion_port_query(HANDLE completion_port, OVERLAPPED_ENTRY *ent
 // 连接数高、吞吐大：优先用 GetQueuedCompletionStatusEx，批量收割、均衡负载。连接数低、
 // 完成稀疏：继续用 GetQueuedCompletionStatus，避免“杀鸡用牛刀”带来的额外开销。
 
-prh_reg prh_impl_completion_port_extend_query(HANDLE completion_port, OVERLAPPED_ENTRY *entry, prh_reg count, DWORD msec) {
-    assert(entry != prh_null);
-    assert(count > 0);
+prh_inline prh_r32 prh_impl_completion_port_extend_query(HANDLE completion_port, OVERLAPPED_ENTRY *entry, prh_r32 count, DWORD msec) {
+    assert(entry != prh_null && count > 0);
     ULONG n = 0;
-    if (!GetQueuedCompletionStatusEx(completion_port, entry, (ULONG)count, &n, msec, FALSE)) {
-        DWORD error = GetLastError();
-        if (error != WAIT_TIMEOUT) prh_prerr(error);
-        return 0;
-    }
+    prh_debug(BOOL b = )GetQueuedCompletionStatusEx(completion_port, entry, (ULONG)count, &n, msec, FALSE);
+    prh_debug(if (!b && GetLastError() != WAIT_TIMEOUT) prh_prerr(GetLastError()));
     return n;
 }
 
@@ -22873,11 +22870,10 @@ prh_reg prh_impl_completion_port_extend_query(HANDLE completion_port, OVERLAPPED
 // 时会携带作为 PostQueuedCompletionStatus 调用的第二个、第三个和第四个参数传递的三个
 // 值。系统不会使用或验证这些值。特别是，lpOverlapped 不必指向一个 OVERLAPPED 结构。
 
-void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *entry) {
-    assert(completion_port != prh_null);
+prh_inline void prh_impl_completion_port_post(HANDLE completion_port, OVERLAPPED_ENTRY *entry) {
     assert(entry != prh_null);
-    BOOL b = PostQueuedCompletionStatus(completion_port, entry->dwNumberOfBytesTransferred, entry->lpCompletionKey, entry->lpOverlapped);
-    if (!b) prh_prerr(GetLastError());
+    prh_debug(BOOL b = )PostQueuedCompletionStatus(completion_port, entry->dwNumberOfBytesTransferred, entry->lpCompletionKey, entry->lpOverlapped);
+    prh_debug(if (!b) prh_prerr(GetLastError()));
 }
 
 // BOOL GetOverlappedResult(
@@ -23101,7 +23097,7 @@ typedef struct {
     // 内存块仍然是没有释放的。只有在程序退出时，整个内存会一次性还给系统。
     prh_reg thread_braver_memory_size;
     // 事件中心最多一次性查询就绪事件的个数
-    prh_reg query_ready_event_each_time;
+    prh_r32 query_ready_event_each_time;
     // 是否时单线程应用程序，对单线程应用程序调度线程会作特殊的优化
     bool single_thread_program;
 } prh_impl_global;
@@ -23295,7 +23291,7 @@ typedef struct {
     prh_reg worker_thrds;
     prh_reg total_thrds;
     prh_ehub_thrd *thrd;
-    prh_reg entry_count;
+    prh_r32 entry_count;
     void *iocp_entry;
     void **free_block_head;
     void **free_block_tail;
@@ -23714,7 +23710,7 @@ void prh_impl_iocp_register_handle(prh_handle handle) {
 //      函数的原型为 void (*prh_iocp_continue)(void *overlapped)，继续处理函数通过
 //      调用函数 prh_impl_iocp_continue_routine 进行注册
 
-prh_inline prh_reg prh_impl_schd_query_iocp_entries(prh_r32 query_wait) { // INFINITE
+prh_inline prh_r32 prh_impl_schd_query_iocp_entries(prh_r32 query_wait) { // INFINITE
     return prh_impl_completion_port_extend_query(PRH_IMPL_IOCP,
         PRH_IMPL_SCHD.iocp_entry, PRH_IMPL_SCHD.entry_count, query_wait);
 }
@@ -23776,10 +23772,36 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
     }
 }
 
+// 创建完成端口可以传递一个并发值，此值限制了与完成端口关联的可运行线程的数量。当与完成
+// 端口关联的可运行线程总数达到并发值时，系统会阻止与该完成端口关联的后续线程的执行，直
+// 到可运行线程数量低于并发值。只要正在运行的线程数量大于等于并发值，正在等待完成端口的
+// 线程都不会得运行机会，即使此时完成端口已经有完成事件。当运行线程阻塞时，完成端口会立
+// 即唤醒一个等待的线程立即工作，当阻塞的线程继续运行时，会有一小段时间，运行的线程数量
+// 会大于并发值。
+//
+// 并发值一般是机器的处理核心的个数，但是关联完成端口的线程，包括运行线程和正在等待的线
+// 程的数量一般需要大于并发值，一般可以设置并发值的两倍。原因是，完成端口会监控正在运行
+// 的线程，一旦运行线程进入阻塞状态，就可以立即唤醒等待的线程。如果关联的线程与并发值相
+// 等，一旦所有线程都在运行，线程阻塞之后没法立即唤醒一个线程继续工作。
+//
+// 完成端口的优势是，所有线程都可以投递任务，然后当投递的任务完成后，所有线程都可以当作
+// 处理线程来处理这些任务的完成事件。完成端口系统内核自动分发完成事件，保证高并发和线程
+// 的均衡性，一旦运行的线程阻塞，内核自动分配事件给空闲线程。完成端口使用后入先出的机制
+// 来唤醒等待的线程，让持续活跃的线程优先执行任务，只有活跃的线程不足以处理当前的事件，
+// 才继续唤醒线程处理。这不仅最大程度利用了处理器资源，因为如果少量线程就能够将完成队列
+// 处理完，完成端口只会唤醒少量线程。因而不会让很多处理器都同时执行无事空忙，也避免了不
+// 必要的线程上下文切换，理论上并发值是处理器核心的数量，几乎不会产生没必要的上下文切换
+// 开销。这也一定程度上提高了处理器的亲和性，避免处理器高速缓存频繁失效，提高了处理器高
+// 速缓存效率。
+//
+// 当完成端口有排队的事件时，活跃线程来获取事件都会立即返回，不会发生线程上下文切换。当
+// 多个工作线程同时调用 GetQueuedCompletionStatusEx 时，内核采用轮转队列算法，保证每
+// 个线程大致均等地拿到完成包，避免某一个线程忙死、其余线程空转的现象。
+
 void prh_impl_ehub_schedule(void) {
     OVERLAPPED_ENTRY *entry = PRH_IMPL_SCHD.iocp_entry;
     prh_ehub_thrd *thrd = PRH_IMPL_SCHD.thrd;
-    prh_reg entry_count, i;
+    prh_r32 entry_count, i;
     prh_r32 query_wait = 0;
     prh_r32 idle_cycle = 0;
     prh_r32 activity;
@@ -27617,7 +27639,7 @@ typedef struct {
     /* +1p +1p */ prh_r16 tcp: 1, ipv6: 1, client: 1, accept: 1, opened: 1, closed: 1, tx_closed: 1,
                     l_opening: 1, l_closing: 1, reusable: 1, r_hup: 1, sending: 1, recving: 1;
     /* +2p +1p */ prh_r32 send_size, bytes_transferred;
-                  prh_r32 recv_buff_size, recv_bytes;
+                  prh_r32 recv_buff_size, bytes_received;
     /* 14p +7p */ prh_sock_addr local, remote; // AcceptEx本地和远程地址缓冲区必须比对应的协议地址多16字节
     /* +8p +4p */ union { prh_impl_overlapped recv_overlapped; prh_r32 align[8]; };
     /* +5p +4p */ prh_impl_overlapped overlapped; // tcp 只有 open 之后才能 close/tx，只有 tx 完才能 close
@@ -27638,7 +27660,7 @@ void prh_tcp_connect(const char *host, prh_reg port, prh_reg datasize, prh_co_pr
 void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp, prh_co_proc proc);
 void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc);
 
-void prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size);
+prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size);
 void prh_tcp_recv(prh_socket *tcp, prh_byte *recv_buff, prh_r32 buff_size);
 
 #ifdef PRH_SOCK_IMPLEMENTATION
@@ -32483,8 +32505,9 @@ void prh_impl_thrd_wsasend_continue(prh_socket *tcp) {
         prh_impl_thrd_wsasend_req(tcp, tcp->send_buff + tcp->bytes_transferred, tcp->send_size);
     } else {
         tcp->bytes_transferred += tcp->send_size;
-        tcp->sending = 0;
+        tcp->sys_raw_error = 0;
         tcp->error_code = 0;
+        tcp->sending = 0;
         prh_impl_co_ready(&tcp->co_struct);
     }
 }
@@ -32500,18 +32523,21 @@ void prh_impl_schd_wsasend_from_port(OVERLAPPED *overlapped) {
         prh_prerr(tcp->sys_raw_error);
         prh_impl_schd_wsasend_error(tcp);
     } else {
-        tcp->sys_raw_error = 0;
         prh_impl_schd_send_task(tcp->request_thrd, tcp, prh_impl_thrd_wsasend_continue);
     }
 }
-
+ 
 void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) {
     // 如果以重叠方式完成此函数，Winsock 服务提供程序负责在返回之前捕获 WSABUF 结构。
     // 这使得应用程序可以构建基于堆栈的 WSABUF 数组。Windows Me/98/95：WSASend 函数
     // 不支持超过 16 个缓冲区。
     WSABUF send_buffer = {(ULONG)size, (CHAR *)data};
     tcp->request_thrd = prh_ehub_thrd_self();
-    // 必须先设置，防止竞争条件问题，避免 continue_routine 还没有设置，调度线程就已经从完成端口查到这个完成事件
+    // 必须先设置，防止竞争条件问题，避免 continue_routine 还没有设置，调度线程就已经
+    // 从完成端口查到这个完成事件。当调用一个重叠操作时，例如 WSASend，投递线程在 WSASend
+    // 之前写的内存，会保证处理线程拿到的是正确的内容，不会产生竞争条件问题，这时该系统
+    // 调用保证的。但是在 WSASend 之后不能再写相关内存。另外高并发推荐为每个操作独立分
+    // 配嵌入缓存区提供性能。struct { OVERLAPPED o; WSABUF b; char data[4096]; }
     prh_impl_iocp_continue_routine((OVERLAPPED *)&tcp->overlapped, prh_impl_schd_wsasend_from_port);
     // 如果传输缓冲区没有足够的空间，WSASend 将仅返回部分已消耗缓冲区大小。在相同的情况
     // 下，对于阻塞套接字，WSASend 将阻塞直到应用程序缓冲区内容都被消耗。不应从不同线程
@@ -32538,9 +32564,8 @@ void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) 
 prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size) {
     assert(send_data != prh_null);
     assert(tcp->socket != prh_invalid_socket);
-    assert(tcp->opened == 1);
-    assert(tcp->sending == 0);
-    assert(tcp->l_closing == 0);
+    assert(tcp->opened == 1 && tcp->closed == 0);
+    assert(tcp->sending == 0 && tcp->tx_closed == 0 && tcp->l_closing == 0);
     if (send_data == prh_null || data_size == 0) {
         return e_success;
     }
@@ -32822,119 +32847,7 @@ prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_si
 // 络事件才能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排
 // 的异步过程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发
 // 出另一个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
-
-void prh_impl_iocp_wsarecv_continue(void *overlapped) {
-    prh_tcp *tcp = prh_impl_tcp_socket_from_rx_node(overlapped);
-    prh_r32 error_code = (prh_r32)(((OVERLAPPED *)overlapped)->Internal);
-    prh_r32 bytes_transferred = (prh_r32)(((OVERLAPPED *)overlapped)->InternalHigh);
-    if (error_code) {
-        // 错误代码 WSA_IO_PENDING 表示重叠操作已成功启动，操作将在稍后完成。任何其他
-        // 错误代码表示重叠操作未成功启动，不会产生操作完成通知。
-        // PRH_ERECV_RXCLOSE
-        //      WSAESHUTDOWN        套接字已关闭；在调用 shutdown 后，无法在套接字上使用 WSARecv，其中 how 设置为 SD_RECEIVE
-        //                          或 SD_BOTH。
-        //      WSAEDISCON          套接字 s 是面向消息的，且虚拟电路已被远程方优雅关闭。
-        // PRH_ESEND_DISCONN
-        //      WSAETIMEDOUT        由于网络故障或对等系统未响应，连接已断开。
-        //      WSAECONNABORTED     虚拟电路因超时或其他故障而终止。
-        //      WSAECONNRESET       对于流式套接字，虚拟电路被远程方重置。应用程序应关闭套接字，因为它已不再可用。对于 UDP 数据
-        //                          报套接字，此错误表示之前的发送操作导致了 ICMP“端口不可达”消息。
-        //      WSAENETRESET        对于面向连接的套接字，此错误表示由于在操作进行中检测到故障而通过保持活动操作断开了连接。对于
-        //                          数报套接字，此错误表示生存时间已到期。
-        // PRH_ESEND_INVALID
-        //      WSAEFAULT           lpBuffers 参数未完全包含在用户地址空间的有效部分。
-        //      WSAEINVAL           套接字未绑定（例如，未使用 bind）。
-        //      WSAEMSGSIZE         消息太大无法放入指定的缓冲区，并且（仅适用于不可靠协议）消息中未放入缓冲区的尾部部分已被丢弃
-        //      WSAENOTSOCK         描述符不是套接字。
-        //      WSAEOPNOTSUPP       指定了 MSG_OOB，但套接字不是流式套接字（如 SOCK_STREAM），OOB 数据在与该套接字关联的通信域
-        //                          中不支持，或者套接字是单向的且仅支持发送操作。
-        // PRH_ESEND_FAILURE
-        //      WSAEINTR            通过 WSACancelBlockingCall 函数取消了（阻塞）调用。
-        //      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
-        //      WSAENETDOWN         网络子系统已失败。
-        //      WSAENOTCONN         套接字未连接。
-        //      WSAEWOULDBLOCK      Windows NT：重叠套接字：存在过多的未完成重叠 I/O 请求。非重叠套接字：套接字被标记为非阻塞，
-        //                          且接收操作无法立即完成。
-        //      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
-        //      WSA_OPERATION_ABORTED 由于套接字关闭，重叠操作已被取消。
-        if (error_code == WSAESHUTDOWN || error_code == WSAEDISCON) {
-            error_code = PRH_ERECV_RXCLOSE;
-            tcp->flags.r_hup = true;
-        } else if (error_code == WSAETIMEDOUT || error_code == WSAECONNABORTED || error_code == WSAECONNRESET || error_code == WSAENETRESET) {
-            error_code = PRH_ERECV_DISCONN;
-            tcp->flags.conn_closed = true;
-            tcp->flags.l_hup = tcp->flags.r_hup = true;
-        } else if (error_code == WSAEFAULT || error_code == WSAEINVAL || error_code == WSAEMSGSIZE || error_code == WSAENOTSOCK || error_code == WSAEOPNOTSUPP) {
-            error_code = PRH_ERECV_INVALID;
-        } else {
-            error_code = PRH_ERECV_FAILURE;
-        }
-    }
-    tcp->flags.rx_pending = false;
-    tcp->callback->recv_rsp(tcp->context, error_code, bytes_transferred);
-}
-
-void prh_impl_iocp_wsarecv_immediately_complete(prh_tcp *tcp, prh_r32 error_code) {
-    assert(error_code != 0);
-    OVERLAPPED *overlapped = &tcp->rx_node;
-    overlapped->Internal = error_code;
-    overlapped->InternalHigh = 0;
-    prh_iocp_thrd_post(overlapped, prh_impl_iocp_wsarecv_continue);
-}
-
-void prh_impl_iocp_wsarecv_completed_from_port(void *overlapped) {
-    prh_impl_sched_thrd_post(overlapped, prh_impl_iocp_wsarecv_continue);
-}
-
-void prh_impl_iocp_wsarecv_req(prh_tcp *tcp, prh_byte *buffer, int length) {
-    assert(length > 0 && length < PRH_IMPL_TXRX_BYTES);
-    // 如果以重叠方式调用此函数，Winsock 服务提供程序负责在返回之前捕获 WSABUF 结构，
-    // 这使得应用程序可以构建基于堆栈的 WSABUF 数组。
-    WSABUF recv_buffer = {(ULONG)length, (CHAR *)buffer};
-    // 标志 MSG_PARTIAL 仅适用于面向消息的套接字，当 lpFlags 作为输入参数时，如果指定
-    // 了 MSG_PARTIAL，表示即使收到消息的一部分，接收操作也应完成。当 lpFlags 作为输出
-    // 参数时，如果包含了 MSG_PARTIAL 标志，则表示指定的数据是发送方传输的消息的一部分，
-    // 消息的剩余部分将在后续接收操作中指定。
-    // 对于面向消息的套接字，如果收到部分消息，则在 lpFlags 参数中设置 MSG_PARTIAL 位。
-    // 如果收到完整消息，则在 lpFlags 中清除 MSG_PARTIAL。在延迟完成的情况下，lpFlags
-    // 指向的值不会被更新。完成指示后，应用程序应调用 WSAGetOverlappedResult 并检查
-    // lpdwFlags 参数指示的标志。
-    DWORD recv_flags = 0;
-    // 套接字的本地地址必须已知。对于服务器应用程序，这通常是通过 bind 显式完成的，或者
-    // 通过 accept 或 WSAAccept 隐式完成。不建议客户端应用程序显式绑定。对于客户端应用
-    // 程序，套接字可以通过 connect、WSAConnect、sendto、WSASendTo 或 WSAJoinLeaf
-    // 隐式绑定到本地地址。
-    // 阻塞套接字，对于作为字节流协议运行的协议，协议栈会尝试返回尽可能多的数据，具体取
-    // 决于可用的缓冲区空间和已接收的数据量。然而，接收单个字节就足以解除调用者的阻塞，
-    // 不能保证返回的字节数会超过一个。对于作为面向消息的协议运行的协议，需要一个完整的
-    // 消息才能解除调用者的阻塞。注意，套接字选项 SO_RCVTIMEO 和 SO_SNDTIMEO 仅适用于
-    // 阻塞套接字。
-    // 当对同一个套接字同时调用多次 WSARecv 函数时，如果使用的是 I/O 完成端口，对 WSARecv
-    // 的调用顺序也是缓冲区被填充的顺序。不应从不同线程并发地在同一个套接字上调用 WSARecv，
-    // 因为这可能导致不可预测的缓冲区顺序。
-    OVERLAPPED *overlapped = &tcp->rx_node;
-    overlapped->hEvent = prh_null; // 确保完成操作被投递到完成端口
-    assert(tcp->socket != prh_invalid_socket);
-    int n = WSARecv(
-        /* [in]      SOCKET             s                    */ (SOCKET)tcp->socket,
-        /* [in, out] LPWSABUF           lpBuffers            */ &recv_buffer,
-        /* [in]      DWORD              dwBufferCount        */ 1, // 传入的 WSABUF 个数
-        /* [out]     LPDWORD            lpNumberOfBytesRecvd */ prh_null, // 仅当 lpOverlapped 参数不为 NULL 时，此参数可以为 NULL
-        /* [in, out] LPDWORD            lpFlags              */ &recv_flags,
-        /* [in]      LPWSAOVERLAPPED    lpOverlapped         */ overlapped,
-        /* [in]      LPWSAOVERLAPPED_COMPLETION_ROUTINE      */ prh_null
-        );
-    // 如果一个句柄与完成端口关联，即使异步请求以同步方式完成，其结果仍然会被添加到完成端口队列中
-    // 代码都走 “发起→挂起→完成” 流程，可以统一使用重叠模型编写，无需关注操作同步完成的分支
-    DWORD error_code;
-    if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) { // 请求立即完成或已经成功投递
-        prh_impl_iocp_continue_routine(overlapped, prh_impl_iocp_wsarecv_completed_from_port);
-    } else {
-        prh_prerr(error_code);
-        prh_impl_iocp_wsarecv_immediately_complete(tcp, error_code);
-    }
-}
-
+//
 // 在资源充足的机器上，Winsock 服务器处理数千个并发连接应该没有任何问题。然而，随着服务
 // 器处理的并发连接数量不断增加，最终会遇到资源限制。最有可能遇到的两个限制是锁定页面的数
 // 量和非分页池（non-paged pool）的使用。锁定页面的限制比耗尽非分页池要不那么严重，也更
@@ -32995,26 +32908,6 @@ void prh_impl_iocp_wsarecv_req(prh_tcp *tcp, prh_byte *buffer, int length) {
 // 法可以在所有情况下 100% 奏效。服务器大致可以分为两类：高吞吐量和高连接数。高吞吐量服
 // 务器更关注在少量连接上推送数据。当然，“少量连接” 这一说法是相对于服务器上可用资源的数
 // 量而言的。高连接数服务器则更关注处理大量连接，而不是试图推送大量数据。
-
-void prh_iocp_tcp_recv_req(prh_tcp *tcp, prh_byte *buffer, int length) {
-    prh_r32 error_code; assert(tcp != prh_null);
-    if (!tcp->opened || tcp->r_hup) {
-        prh_prerr(*(prh_byte *)(&tcp->flags));
-        error_code = WSAENOTCONN;
-        goto label_complete;
-    }
-    if (buffer == prh_null || length <= 0 || tcp->socket == prh_invalid_socket) {
-        error_code = WSAEINVAL;
-        goto label_complete;
-    }
-    if (tcp->flags.rx_pending) {
-        error_code = WSAEALREADY;
-label_complete: prh_prerr(error_code);
-        return;
-    }
-    tcp->flags.rx_pending = true;
-    prh_impl_iocp_wsarecv_req(tcp, buffer, length);
-}
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_sock_test(void) {
