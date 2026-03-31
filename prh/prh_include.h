@@ -1389,7 +1389,7 @@ typedef enum {
     e_seek_error,
     e_send_failed,
     e_send_error,
-    e_send_error_tx_closed,
+    e_send_closed,
     e_service,
     e_segment_fault,
     e_shutdown,
@@ -15484,12 +15484,11 @@ void prh_prepare_main_thrd(prh_thrd *main);
 
 #ifdef PRH_THRD_IMPLEMENTATION
 prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
-prh_reg prh_impl_plat_thrd_self(void);
-void prh_impl_plat_print_thrd_info(prh_r32 thrd_id);
 
 void prh_impl_thrd_prepare(prh_thrd *thrd) {
     PRH_IMPL_THRD = thrd;
 #if PRH_DEBUG
+    extern void prh_impl_plat_print_thrd_info(prh_r32 thrd_id);
     prh_impl_plat_print_thrd_info(thrd->thrd_id);
 #endif
     thrd->extra_ptr = 0;
@@ -15505,6 +15504,7 @@ int prh_impl_thrd_start_proc(prh_thrd *thrd) {
 }
 
 void prh_prepare_main_thrd(prh_thrd *main) {
+    extern prh_reg prh_impl_plat_thrd_self(void);
     main->handle = prh_impl_plat_thrd_self();
     prh_impl_thrd_prepare(main);
 }
@@ -27617,15 +27617,14 @@ typedef struct {
     /* 12p +7p */
 } prh_listen;
 
-typedef enum: prh_byte {
+typedef prh_byte prh_tcp_error_type;
+enum {
     prh_tcp_accept_error = 1,
     prh_tcp_conn_error,
     prh_tcp_send_error,
     prh_tcp_recv_error,
     prh_tcp_disc_error,
-} prh_tcp_error_type;
-
-prh_static_assert(sizeof(prh_tcp_error_type) == 1);
+};
 
 typedef struct {
     /* +2p +2p */ prh_co_struct co_struct;
@@ -27636,8 +27635,8 @@ typedef struct {
     /* +1p +1p */ union { prh_listen *listen; prh_arena_alloc *alloc; };
     /* +2p +1p */ prh_r32 error_code, sys_raw_error;
                   prh_tcp_error_type error_type;
-    /* +1p +1p */ prh_r16 tcp: 1, ipv6: 1, client: 1, accept: 1, opened: 1, closed: 1, tx_closed: 1,
-                    l_opening: 1, l_closing: 1, reusable: 1, r_hup: 1, sending: 1, recving: 1;
+    /* +1p +1p */ prh_r16 tcp: 1, ipv6: 1, reusable: 1, client: 1, accept: 1, opening: 1, opened: 1,
+                    closing: 1, closed: 1, sending: 1, send_closed: 1, recving: 1, recv_closed: 1;
     /* +2p +1p */ prh_r32 send_size, bytes_transferred;
                   prh_r32 recv_buff_size, bytes_received;
     /* 14p +7p */ prh_sock_addr local, remote; // AcceptEx本地和远程地址缓冲区必须比对应的协议地址多16字节
@@ -30938,8 +30937,7 @@ void prh_impl_schd_accept_from_port(OVERLAPPED *overlapped) {
             /* [out] sockaddr **LocalSockaddr       */ &l_addr,
             /* [out] LPINT    LocalSockaddrLength   */ &l_addrlen,
             /* [out] sockaddr **RemoteSockaddr      */ &r_addr,
-            /* [out] LPINT    RemoteSockaddrLength  */ &r_addrlen
-            );
+            /* [out] LPINT    RemoteSockaddrLength  */ &r_addrlen);
         assert(l_addrlen == addrlen);
         assert(r_addrlen == addrlen);
         assert(l_addr->sa_family == AF_INET6 || l_addr->sa_family == AF_INET);
@@ -30968,8 +30966,7 @@ void prh_impl_schd_accept_req(prh_socket *tcp) {
         /* [in]  DWORD        dwLocalAddressLength, */  addrlen,
         /* [in]  DWORD        dwRemoteAddressLength,*/  addrlen,
         /* [out] LPDWORD      lpdwBytesReceived,    */  prh_null, // 仅操作同步完成时才设置此参数，如果 ERROR_IO_PENDING 永远不会被设置，必须从完成机制中获取读取的字节数
-        /* [in]  LPOVERLAPPED lpOverlapped          */  (OVERLAPPED *)&tcp->overlapped
-        );
+        /* [in]  LPOVERLAPPED lpOverlapped          */  (OVERLAPPED *)&tcp->overlapped);
     // 如果一个句柄与完成端口关联，即使异步请求以同步方式完成，其结果仍然会被添加到完成端口队列中
     // 不管当前完成端口上有没有排队的新连接，都走 “发起→挂起→完成” 流程，代码统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code;
@@ -31970,8 +31967,7 @@ void prh_impl_thrd_connect_req(prh_socket *tcp) {
         /* [in, optional] PVOID lpSendBuffer        */ prh_null,
         /* [in]           DWORD dwSendDataLength    */ 0,
         /* [out]          LPDWORD lpdwBytesSent     */ prh_null,
-        /* [in]           LPOVERLAPPED lpOverlapped */ (OVERLAPPED *)&tcp->overlapped
-        );
+        /* [in]           LPOVERLAPPED lpOverlapped */ (OVERLAPPED *)&tcp->overlapped);
     DWORD error_code; // 请求立即完成（b == TRUE）或请求已经成功投递（WSA_IO_PENDING）
     if (b != TRUE && (error_code = WSAGetLastError()) != WSA_IO_PENDING) {
         prh_prerr(error_code);
@@ -32448,12 +32444,13 @@ void prh_impl_thrd_wsasend_error_handling(prh_socket *tcp) {
     // WSA_OPERATION_ABORTED 由于套接字关闭、在 WSAIoctl 中执行“SIO_FLUSH”命令或启动重叠请求的线程在操作完成前退出，重叠操作已被取消。
     bool close_socket = false;
     if (error_code == WSAESHUTDOWN) {
-        tcp->tx_closed = 1;
-        error_code = e_send_error_tx_closed;
+        tcp->send_closed = 1;
+        error_code = e_send_closed;
     } else if (error_code == WSAECONNRESET) {
         error_code = e_connection_reset; // 对于流式套接字，虚拟电路被远程方重置，应用程序应关闭套接字，因为它已不再可用
         close_socket = true;
-    } else if (error_code == WSAETIMEDOUT || error_code == WSAECONNABORTED || error_code == WSAENETRESET || error_code == WSAENOTCONN || error_code == WSAENETDOWN) {
+    } else if (error_code == WSAETIMEDOUT || error_code == WSAECONNABORTED ||
+        error_code == WSAENETRESET || error_code == WSAENOTCONN || error_code == WSAENETDOWN) {
         // WSAENETDOWN: 网络子系统崩溃/重置，通常网卡禁用、驱动故障，套接字已失效，但
         // 内核资源仍被占用，需要关闭套接字，释放内核资源（TCB、端口占用、内存）
         error_code = e_connection_closed;
@@ -32473,14 +32470,14 @@ void prh_impl_thrd_wsasend_error_handling(prh_socket *tcp) {
         close_socket = true;
     }
     if (close_socket) {
-        tcp->tx_closed = 1;
+        tcp->send_closed = 1;
         tcp->closed = 1;
         prh_impl_close_socket(tcp->socket); // 套接字关闭操作会立即完成吗？？？
         tcp->socket = prh_invalid_socket;
     }
     // 当发送失败时，上层至少需要处理以下四类错误：
     // if (error_type == prh_tcp_send_error) {
-    //     if (error_code == e_send_error_tx_closed) {
+    //     if (error_code == e_send_closed) {
     //         // 本地发送已经关闭，不能继续发送数据，等接收完所有接收缓存中的数据后可以断开连接
     //     } else if (error_code == e_system_resources) {
     //         // 系统资源不足导致操作失败，需要稍后重试，并提醒上层或其他线程暂停新请求提交
@@ -32492,11 +32489,11 @@ void prh_impl_thrd_wsasend_error_handling(prh_socket *tcp) {
     // }
     tcp->error_type = prh_tcp_send_error;
     tcp->error_code = error_code;
-    prh_impl_co_error_handling(&tcp->co_struct);
+    // prh_impl_co_error_handling(&tcp->co_struct);
 }
 
 void prh_impl_thrd_wsasend_continue(prh_socket *tcp) {
-    prh_r32 bytes_transferred = (prh_r32)overlapped->InternalHigh;
+    prh_r32 bytes_transferred = (prh_r32)tcp->overlapped.InternalHigh;
     assert(bytes_transferred <= tcp->send_size);
     if (bytes_transferred < tcp->send_size) {
         tcp->bytes_transferred += bytes_transferred;
@@ -32551,8 +32548,7 @@ void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) 
         /* [out] LPDWORD            lpNumberOfBytesSent */ prh_null, // 仅当 lpOverlapped 参数不为 NULL 时此参数可为 NULL
         /* [in]  DWORD              dwFlags             */ 0,
         /* [in]  LPWSAOVERLAPPED    lpOverlapped        */ (OVERLAPPED *)&tcp->overlapped,
-        /* [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE     */ prh_null,
-        );
+        /* [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE     */ prh_null);
     DWORD error_code; // 请求立即完成（n == 0）或请求已经成功投递（WSA_IO_PENDING）
     if (n != 0 && (error_code = WSAGetLastError()) != WSA_IO_PENDING) {
         prh_prerr(error_code);
@@ -32562,18 +32558,18 @@ void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) 
 }
 
 prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size) {
-    assert(send_data != prh_null);
+    assert(send_buff != prh_null);
     assert(tcp->socket != prh_invalid_socket);
     assert(tcp->opened == 1 && tcp->closed == 0);
-    assert(tcp->sending == 0 && tcp->tx_closed == 0 && tcp->l_closing == 0);
-    if (send_data == prh_null || data_size == 0) {
+    assert(tcp->sending == 0 && tcp->send_closed == 0 && tcp->closing == 0);
+    if (send_buff == prh_null || data_size == 0) {
         return e_success;
     }
     tcp->send_buff = (prh_byte *)send_buff;
     tcp->send_size = data_size;
     tcp->bytes_transferred = 0;
     tcp->sending = 1;
-    prh_impl_thrd_wsasend_req(tcp, send_data, data_size);
+    prh_impl_thrd_wsasend_req(tcp, send_buff, data_size);
     return e_operation_pending;
 }
 
@@ -32670,14 +32666,12 @@ prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_si
 // 地地址。
 //
 // 对于已连接的无连接套接字，此函数限制了接受来源消息的地址。该函数仅返回连接中指定的远
-// 程地址的消息。来自其他地址的消息将被（静默地）丢弃。
-//
-// 对于重叠套接字，WSARecv 用于发布一个或多个缓冲区，当数据可用时，传入数据将被放入这些
-// 缓冲区，之后将发生应用程序指定的完成指示（调用完成例程或设置事件对象）。如果操作未立
-// 即完成，则通过完成例程或 WSAGetOverlappedResult 获取最终完成状态。
-//
-// 注意，当给定线程退出时，该线程启动的所有 I/O 都将被取消。对于重叠套接字，如果在线程
-// 关闭之前操作未完成，则挂起的异步操作可能会失败。有关更多信息，请参阅 ExitThread。
+// 程地址的消息。来自其他地址的消息将被（静默地）丢弃。对于重叠套接字，WSARecv 用于发布
+// 一个或多个缓冲区，当数据可用时，传入数据将被放入这些缓冲区，之后将发生应用程序指定的
+// 完成指示（调用完成例程或设置事件对象）。如果操作未立即完成，则通过完成例程或
+// WSAGetOverlappedResult 获取最终完成状态。注意，当给定线程退出时，该线程启动的所有
+// I/O 都将被取消。对于重叠套接字，如果在线程关闭之前操作未完成，则挂起的异步操作可能会
+// 失败。有关更多信息，请参阅 ExitThread。
 //
 // 如果 lpOverlapped 和 lpCompletionRoutine 均为 NULL，则此函数中的套接字将被视为非
 // 重叠套接字。对于非重叠套接字，阻塞语义与标准 recv 函数完全相同，lpOverlapped 和
@@ -32717,34 +32711,34 @@ prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_si
 //
 // 对于面向连接的套接字，WSARecv 可以通过两种方式之一指示虚拟电路的优雅终止，这取决于
 // 套接字是字节流还是面向消息。对于字节流，读取零字节（通过返回值指示成功，且 lpNumberOfBytesRecvd
-// 值为零）表示优雅关闭，且不会再读取任何字节。对于面向消息的套接字，零字节消息通常是允
-// 许的，因此使用 WSAEDISCON 错误代码的失败表示优雅关闭。在任何情况下，返回错误代码
+// 值为零）表示优雅关闭，且不会再读取任何字节。对于面向消息的套接字，零字节消息通常是允    *** 流套接字，返回成功但零字节表示优雅关闭
+// 许的，因此使用 WSAEDISCON 错误代码的失败表示优雅关闭。在任何情况下，返回错误代码       *** 面向消息的套接字，使用 WSAEDISCON 表示优雅关闭
 // WSAECONNRESET 表示发生了强制关闭。
 //
 // lpFlags 参数可用于在关联套接字指定的选项之外影响函数调用的行为。也就是说，该函数的
 // 语义由套接字选项和 lpFlags 参数决定。后者是通过使用按位 OR 运算符与以下表中列出的值
 // 中的任何一个组合而成的。
-//      MSG_PEEK            查看传入数据。数据被复制到缓冲区，但不会从输入队列中移除。此标志仅适用于非重叠套接字。
-//      MSG_OOB             处理带外数据。
-//      MSG_PARTIAL         仅适用于面向消息的套接字。在输出时，此标志表示指定的数据是发送方传输的消息的一部分。消息的剩余部分将
-//                          在后续接收操作中指定。作为输入参数时，此标志表示即使仅接收到了消息的一部分，接收操作也应完成。
-//      MSG_PUSH_IMMEDIATE  仅适用于面向流的套接字。此标志允许使用流式套接字的应用程序告诉传输提供程序不要延迟挂起的（pending）
-//                          部分填充接收请求的完成。这是提示传输提供程序，表示应用程序愿意尽快接收任何传入数据，而不必等待可能仍
-//                          在传输中的其余数据。什么是部分填充的挂起接收请求是传输特定的。
-//                          在 TCP 的情况下，这指的是传入的 TCP 数据段被放入接收请求数据缓冲区，但没有任何 TCP 数据段指示 PUSH
-//                          位值为 1。在这种情况下，TCP 可能会稍微延迟部分填充的接收请求，以便让其余数据与设置了 PUSH 位的 TCP
-//                          数据段一起到达。此标志告诉 TCP 不要延迟接收请求，而是立即完成它。
-//                          不建议在大块传输中使用此标志，因为处理部分数据块通常不是最优的。此标志仅适用于接收和处理部分数据可以
-//                          立即帮助减少处理延迟的情况。此标志是一个提示，而不是实际的保证。此标志在 Windows 8.1、Windows Server
-//                          2012 R2 及更高版本中受支持。
-//      MSG_WAITALL         接收请求仅在以下事件之一发生时完成：
-//                              * 调用方提供的缓冲区完全填满。
-//                              * 连接已关闭。
-//                              * 请求被取消或发生错误。
-//                          请注意，如果底层传输提供程序不支持 MSG_WAITALL，或者套接字处于非阻塞模式，则此调用将因 WSAEOPNOTSUPP
-//                          错误而失败。此外，如果 MSG_WAITALL 与 MSG_OOB、MSG_PEEK 或 MSG_PARTIAL 一起指定，则此调用将因
-//                          WSAEOPNOTSUPP 错误而失败。
-//                          此标志不适用于数据报套接字或面向消息的套接字。
+//  MSG_PEEK            查看传入数据。数据被复制到缓冲区，但不会从输入队列中移除。此标志仅适用于非重叠套接字。
+//  MSG_OOB             处理带外数据。
+//  MSG_PARTIAL         仅适用于面向消息的套接字。在输出时，此标志表示指定的数据是发送方传输的消息的一部分。消息的剩余部分将
+//                      在后续接收操作中指定。作为输入参数时，此标志表示即使仅接收到了消息的一部分，接收操作也应完成。
+//  MSG_PUSH_IMMEDIATE  仅适用于面向流的套接字。此标志允许使用流式套接字的应用程序告诉传输提供程序不要延迟挂起的（pending）
+//                      部分填充接收请求的完成。这是提示传输提供程序，表示应用程序愿意尽快接收任何传入数据，而不必等待可能仍
+//                      在传输中的其余数据。什么是部分填充的挂起接收请求是传输特定的。
+//                      在 TCP 的情况下，这指的是传入的 TCP 数据段被放入接收请求数据缓冲区，但没有任何 TCP 数据段指示 PUSH
+//                      位值为 1。在这种情况下，TCP 可能会稍微延迟部分填充的接收请求，以便让其余数据与设置了 PUSH 位的 TCP
+//                      数据段一起到达。此标志告诉 TCP 不要延迟接收请求，而是立即完成它。
+//                      不建议在大块传输中使用此标志，因为处理部分数据块通常不是最优的。此标志仅适用于接收和处理部分数据可以
+//                      立即帮助减少处理延迟的情况。此标志是一个提示，而不是实际的保证。此标志在 Windows 8.1、Windows Server
+//                      2012 R2 及更高版本中受支持。
+//  MSG_WAITALL         接收请求仅在以下事件之一发生时完成：
+//                          * 调用方提供的缓冲区完全填满。
+//                          * 连接已关闭。
+//                          * 请求被取消或发生错误。
+//                      请注意，如果底层传输提供程序不支持 MSG_WAITALL，或者套接字处于非阻塞模式，则此调用将因 WSAEOPNOTSUPP
+//                      错误而失败。此外，如果 MSG_WAITALL 与 MSG_OOB、MSG_PEEK 或 MSG_PARTIAL 一起指定，则此调用将因
+//                      WSAEOPNOTSUPP 错误而失败。
+//                      此标志不适用于数据报套接字或面向消息的套接字。
 //
 // 对于面向消息的套接字，如果收到部分消息，则在 lpFlags 参数中设置 MSG_PARTIAL 位。如
 // 果收到完整消息，则在 lpFlags 中清除 MSG_PARTIAL。在延迟完成的情况下，lpFlags 指向
@@ -32766,10 +32760,8 @@ prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_si
 //
 // 使用重叠 I/O 的 WSARecv 函数可以在 WSARecv、WSARecvFrom、WSASend 或 WSASendTo
 // 函数的完成例程中调用。对于给定的套接字，I/O 完成例程不会嵌套。这允许时间敏感的数据传
-// 输完全在抢占式上下文中发生。
-//
-// lpOverlapped 参数必须在整个重叠操作期间有效。如果同时有多个 I/O 操作挂起，则每个操
-// 作都必须引用一个单独的 WSAOVERLAPPED 结构。
+// 输完全在抢占式上下文中发生。lpOverlapped 参数必须在整个重叠操作期间有效。如果同时有
+// 多个 I/O 操作挂起，则每个操作都必须引用一个单独的 WSAOVERLAPPED 结构。
 //
 // 如果 lpCompletionRoutine 参数为 NULL，则当重叠操作完成且 lpOverlapped 中包含有效
 // 的事件对象句柄时，lpOverlapped 的 hEvent 参数将被触发。应用程序可以使用 WSAWaitForMultipleEvents
@@ -32809,14 +32801,14 @@ prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_si
 // WSARecvDisconnect 函数用于终止套接字上的接收，并在套接字是面向连接的情况下检索断开
 // 连接数据。如果没有错误发生，WSARecvDisconnect 返回零。否则返回 SOCKET_ERROR，可以
 // 通过调用 WSAGetLastError 获取特定的错误代码。
-//      WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
-//      WSAENETDOWN         网络子系统已失败。
-//      WSAEFAULT           lpInboundDisconnectData 参数引用的缓冲区太小。
-//      WSAENOPROTOOPT      指定的协议族不支持断开连接数据。注意，不支持断开连接数据的 TCP/IP 实现不要求返回 WSAENOPROTOOPT 错
-//                          误代码。有关 Microsoft 实现的 TCP/IP 的信息，请参阅备注部分。
-//      WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
-//      WSAENOTCONN         套接字未连接（仅适用于面向连接的套接字）。
-//      WSAENOTSOCK         描述符不是套接字。
+//  WSANOTINITIALISED   在调用此函数之前，必须先成功调用 WSAStartup。
+//  WSAENETDOWN         网络子系统已失败。
+//  WSAEFAULT           lpInboundDisconnectData 参数引用的缓冲区太小。
+//  WSAENOPROTOOPT      指定的协议族不支持断开连接数据。注意，不支持断开连接数据的 TCP/IP 实现不要求返回 WSAENOPROTOOPT 错
+//                      误代码。有关 Microsoft 实现的 TCP/IP 的信息，请参阅备注部分。
+//  WSAEINPROGRESS      一个阻塞的 Windows 套接字 1.1 调用正在进行中，或者服务提供程序仍在处理回调函数。
+//  WSAENOTCONN         套接字未连接（仅适用于面向连接的套接字）。
+//  WSAENOTSOCK         描述符不是套接字。
 //
 // 参数 s 标识套接字的描述符。参数 lpInboundDisconnectData 指向传入的断开连接数据。
 //
@@ -32870,7 +32862,7 @@ prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_si
 //
 // 另一个重要的考虑因素是服务器运行架构的页面大小。当系统锁定传递给重叠操作的内存时，它是
 // 按页面边界锁定的。在 x86 架构上，页面以 4 KB 的倍数锁定。如果一个操作发布了一个 1 KB
-// 的缓冲区，那么系统实际上锁定了一块 4 KB 的内存。为了避免这种浪费，重叠的发送和接收缓
+// 的缓冲区，那么系统实际上锁定了一块 4 KB 的内存。为了避免这种浪费，重叠的发送和接收缓    *** 重叠发送和接收缓存区应设为页面大小的整数倍
 // 冲区应该是页面大小的倍数。
 //
 // 达到非分页池限制是一个更严重的错误，很难从中恢复。非分页池是始终驻留在物理内存中且永远
@@ -32934,29 +32926,53 @@ void prh_impl_thrd_wsarecv_error_handling(prh_socket *tcp) {
     // WSAEWOULDBLOCK  Windows NT：重叠套接字：存在过多的未完成重叠 I/O 请求。非重叠套接字：套接字被标记为非阻塞，且接收操作无法立即完成。
     // WSANOTINITIALISED 在调用此函数之前，必须先成功调用 WSAStartup。
     // WSA_OPERATION_ABORTED 由于套接字关闭，重叠操作已被取消。
+    bool close_socket = false;
     if (error_code == WSAESHUTDOWN || error_code == WSAEDISCON) {
-        error_code = PRH_ERECV_RXCLOSE;
-        tcp->flags.r_hup = true;
-    } else if (error_code == WSAETIMEDOUT || error_code == WSAECONNABORTED || error_code == WSAECONNRESET || error_code == WSAENETRESET) {
-        error_code = PRH_ERECV_DISCONN;
-        tcp->flags.conn_closed = true;
-        tcp->flags.l_hup = tcp->flags.r_hup = true;
-    } else if (error_code == WSAEFAULT || error_code == WSAEINVAL || error_code == WSAEMSGSIZE || error_code == WSAENOTSOCK || error_code == WSAEOPNOTSUPP) {
-        error_code = PRH_ERECV_INVALID;
+        error_code = e_recv_closed;
+        tcp->recv_closed = 1;
+    } else if (error_code == WSAECONNRESET) {
+        error_code = e_connection_reset;
+        close_socket = true;
+    } else if (error_code == WSAETIMEDOUT || error_code == WSAECONNABORTED ||
+        error_code == WSAENETRESET || error_code == WSAENOTCONN || error_code == WSAENETDOWN) {
+        error_code = e_connection_closed;
+        close_socket = true;
+    } else if (error_code == WSAENOBUFS || error_code == WSAEWOULDBLOCK) {
+        error_code = e_system_resources;
+    } else if (error_code == WSA_OPERATION_ABORTED) {
+        error_code = e_operation_canceled;
     } else {
-        error_code = PRH_ERECV_FAILURE;
+        error_code = e_operation_failure;
+        close_socket = true;
     }
+    if (close_socket) {
+        tcp->closed = 1;
+        prh_impl_close_socket(tcp->socket); // 套接字关闭操作会立即完成吗？？？
+        tcp->socket = prh_invalid_socket;
+    }
+    // 当接收失败时，上层至少需要处理以下四类错误：
+    // if (error_type == prh_tcp_recv_error) {
+    //     if (error_code == e_recv_closed) {
+    //         // 接收已经关闭，不能继续接收数据，可以安全关闭套接字（连接已经断开）
+    //     } else if (error_code == e_system_resources) {
+    //         // 系统资源不足导致操作失败，需要稍后重试，并提醒上层或其他线程暂停新请求提交
+    //     } else if (error_code == e_operation_canceled) {
+    //         // 接收操作被取消
+    //     } else {
+    //         // 连接被重置或者已经掉线，或者操作因某种原因失败，底层已经关闭套接字
+    //     }
+    // }
     tcp->error_type = prh_tcp_recv_error;
     tcp->error_code = error_code;
-    prh_impl_co_error_handling(&tcp->co_struct);
+    // prh_impl_co_error_handling(&tcp->co_struct);
 }
 
 void prh_impl_thrd_wsarecv_continue(prh_socket *tcp) {
-    prh_r32 bytes_received = (prh_r32)overlapped->InternalHigh;
+    prh_r32 bytes_received = (prh_r32)tcp->recv_overlapped.InternalHigh;
     assert(bytes_received <= tcp->recv_buff_size);
-    tcp->sys_raw_error = 0;
     tcp->error_code = 0;
-    tcp->sending = 0;
+    tcp->sys_raw_error = 0;
+    tcp->recving = 0;
     tcp->bytes_received = bytes_received;
     prh_impl_co_ready(&tcp->co_struct);
 }
@@ -33012,8 +33028,7 @@ void prh_impl_thrd_wsarecv_req(prh_socket *tcp) {
         /* [out]     LPDWORD            lpNumberOfBytesRecvd */ prh_null, // 仅当 lpOverlapped 参数不为 NULL 时，此参数可以为 NULL
         /* [in, out] LPDWORD            lpFlags              */ &recv_flags,
         /* [in]      LPWSAOVERLAPPED    lpOverlapped         */ overlapped,
-        /* [in]      LPWSAOVERLAPPED_COMPLETION_ROUTINE      */ prh_null
-        );
+        /* [in]      LPWSAOVERLAPPED_COMPLETION_ROUTINE      */ prh_null);
     // 如果一个句柄与完成端口关联，即使异步请求以同步方式完成，其结果仍然会被添加到完成端口队列中
     // 代码都走 “发起→挂起→完成” 流程，可以统一使用重叠模型编写，无需关注操作同步完成的分支
     DWORD error_code; // 请求立即完成（n == 0）或请求已经成功投递（WSA_IO_PENDING）
