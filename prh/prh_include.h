@@ -4877,6 +4877,27 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 //  erase           移除所在位置或范围内的所有元素，或移除所有与指定值相等的元素，或移除指定范围内与指定值相等的元素
 //  erase_after     移除所在位置之后或范围内除第一个元素外的所有元素
 //  erase_if        移除所有满足条件的元素，或移除指定范围内满足条件的元素
+//
+// def array $(any T reg N) { // 固定长度原地连续阵列（fixed-sized inplace congiguous array）
+//      [N]T data
+// }
+//
+// def vector $(any T) { // 变长动态连续阵列（resizable contiguous array）
+//      *T data
+//      reg capacity
+//      reg size
+// }
+//
+// def inplace_vector $(any T) { // 变参固定容量原地连续阵列（resizable, fixed capacity, inplace contiguous array）
+//      *T data
+//      reg capacity
+//      reg size
+// }
+//
+// def forward_list $(any T)
+// def list $(any T)
+// def hive $(any T) // collection that reuses erased elements' memory
+// def deque $(any T) // 双端队列（double-ended queue）
 
 #if 1
 typedef struct {
@@ -4896,9 +4917,17 @@ typedef struct {
     prh_reg size;
 } prh_string;
 
+typedef struct {
+    prh_byte *data;
+    prh_reg capacity;
+    prh_reg size;
+    prh_reg start;
+} prh_strdde;
+
 #define prh_arriew(elem_type) struct { elem_type *data; prh_reg size; }
 #define prh_arrfit(elem_type) struct { elem_type *data; prh_reg capacity; prh_reg size; }
 #define prh_arrdyn(elem_type) struct { elem_type *data; prh_reg capacity; prh_reg size; }
+#define prh_arrdde(elem_type) struct { elem_type *data; prh_reg capacity; prh_reg size; prh_reg start; }
 
 #define prh_arrfit_init(a, init_capacity) prh_impl_array_init((a), (init_capacity))
 #define prh_arrfit_free(a) prh_impl_array_free(a, __LINE__)
@@ -6569,12 +6598,12 @@ typedef struct prh_co_struct prh_co_struct;
 typedef prh_yield *(*prh_co_proc)(prh_co_struct *);
 
 typedef struct prh_co_struct { // 无栈协程实现，并且不切换线程
-    prh_co_proc proc;
-    prh_reg yield;
+    prh_co_proc proc, error_handling;
+    prh_reg yield, error_yield;
 } prh_co_struct;
 
 #define prh_co_start case 0
-#define prh_co_end (prh_yield *)(prh_reg)(-1)
+#define prh_co_end (prh_yield *)(prh_reg)(0)
 
 #define prh_co_yield(operation)                 \
     do {                                        \
@@ -6596,6 +6625,13 @@ void prh_co_load(prh_co_struct *co, prh_co_proc proc) {
 void prh_impl_co_ready(prh_co_struct *co) {
     prh_yield *yield = co->proc(co);
     co->yield = (prh_reg)yield;
+}
+
+void prh_impl_co_error_handling(prh_co_struct *co) {
+    prh_reg yield = co->yield;
+    co->yield = co->error_yield;
+    co->error_yield = (prh_reg)co->error_handling(co);
+    co->yield = yield;
 }
 #endif // PRH_CO_IMPLEMENTATION
 #endif // PRH_CO_INCLUDE
@@ -27577,8 +27613,8 @@ void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_r16 port
 typedef struct {
     prh_r16 family;
     prh_r16 port;
-    union { prh_r32 ipv4_address; prh_r32 flow_info; };
-    prh_r32 ip_address, tail[3];
+    union { prh_r32 ipv4_addr; prh_r32 flow_info; };
+    prh_r32 ip_addr, tail[3];
     prh_r32 scope_id;
 } prh_sock_addr;
 
@@ -28700,8 +28736,6 @@ void prh_impl_wsasocket_init(void) {
 // 常量的定义自动选择 ANSI 或 Unicode 版本的函数。将编码中立的别名与非编码中立的代码
 // 混合使用可能会导致不匹配，从而引发编译时或运行时错误。
 
-void prh_sock_setnonblock(prh_handle sock, int nonblock);
-
 // winsock2.h
 // WinSock 2 extension -- manifest constants for WSASocket
 // #define WSA_FLAG_OVERLAPPED           0x01
@@ -28716,6 +28750,7 @@ void prh_sock_setnonblock(prh_handle sock, int nonblock);
 prh_handle prh_impl_create_socket(int family) {
     SOCKET sock = WSASocket(family, SOCK_STREAM, IPPROTO_TCP, prh_null, 0, WSA_FLAG_OVERLAPPED | WSA_FLAG_REGISTERED_IO | WSA_FLAG_NO_HANDLE_INHERIT);
     prh_wsa_abort_if(sock == INVALID_SOCKET);
+    extern void prh_sock_setnonblock(prh_handle sock, int nonblock);
     prh_sock_setnonblock(sock, 1);
     return (prh_handle)sock;
 }
@@ -28796,7 +28831,37 @@ void prh_impl_close_socket(prh_handle sock) {
 // 用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步过程调用
 // （APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一个阻塞
 // Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
-//
+
+prh_r32 prh_sock_shut_send(prh_handle sock) {
+    int n = shutdown((SOCKET)sock, SD_SEND);
+    prh_r32 error_code = 0;
+    if (n != 0) {
+        error_code = WSAGetLastError();
+        prh_prerr(error_code);
+    }
+    return error_code;
+}
+
+prh_r32 prh_sock_shut_recv(prh_handle sock) {
+    int n = shutdown((SOCKET)sock, SD_RECEIVE);
+    prh_r32 error_code = 0;
+    if (n != 0) {
+        error_code = WSAGetLastError();
+        prh_prerr(error_code);
+    }
+    return error_code;
+}
+
+prh_r32 prh_sock_shut_both(prh_handle sock) {
+    int n = shutdown((SOCKET)sock, SD_BOTH);
+    prh_r32 error_code = 0;
+    if (n != 0) {
+        error_code = WSAGetLastError();
+        prh_prerr(error_code);
+    }
+    return error_code;
+}
+
 // BOOL DisconnectEx(
 //      SOCKET s,
 //      LPOVERLAPPED lpOverlapped,
@@ -28970,36 +29035,6 @@ void prh_impl_close_socket(prh_handle sock) {
 // 才能完成调用。在这种情况下，Winsock 会执行可警报等待，这可能会被同一线程上安排的异步
 // 过程调用（APC）中断。在中断了同一线程上正在进行的阻塞 Winsock 调用的 APC 中发出另一
 // 个阻塞 Winsock 调用，将导致未定义行为，Winsock 客户端绝对不应尝试此操作。
-
-prh_r32 prh_sock_shut_send(prh_handle sock) {
-    int n = shutdown((SOCKET)sock, SD_SEND);
-    prh_r32 error_code = 0;
-    if (n != 0) {
-        error_code = WSAGetLastError();
-        prh_prerr(error_code);
-    }
-    return error_code;
-}
-
-prh_r32 prh_sock_shut_recv(prh_handle sock) {
-    int n = shutdown((SOCKET)sock, SD_RECEIVE);
-    prh_r32 error_code = 0;
-    if (n != 0) {
-        error_code = WSAGetLastError();
-        prh_prerr(error_code);
-    }
-    return error_code;
-}
-
-prh_r32 prh_sock_shut_both(prh_handle sock) {
-    int n = shutdown((SOCKET)sock, SD_BOTH);
-    prh_r32 error_code = 0;
-    if (n != 0) {
-        error_code = WSAGetLastError();
-        prh_prerr(error_code);
-    }
-    return error_code;
-}
 
 // LINGER 结构用于维护特定套接字的信息，指定在套接字上有排队的数据待发送且调用 closesocket
 // 函数时，该套接字的行为。套接字的默认参数是 linger 结构的 l_onoff 成员为零，表示套接
@@ -30104,7 +30139,7 @@ void prh_impl_local_sockaddr(prh_handle sock, prh_sock_addr *addr, int addrlen) 
     if (getsockname((SOCKET)sock, (struct sockaddr *)addr, &addrlen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (addrlen == sizeof(struct sockaddr_in)) {
-        addr->ip_address = addr->ipv4_address;
+        addr->ip_addr = addr->ipv4_addr;
     }
 }
 
@@ -30151,7 +30186,7 @@ void prh_impl_remote_sockaddr(prh_handle sock, prh_sock_addr *addr, int addrlen)
     if (getpeername((SOCKET)sock, (struct sockaddr *)addr, &addrlen)) prh_wsa_abort_error(); // 以上错误正常不可能发生
     assert(addrlen == sizeof(struct sockaddr_in) || addrlen == sizeof(struct sockaddr_in6));
     if (addrlen == sizeof(struct sockaddr_in)) {
-        addr->ip_address = addr->ipv4_address;
+        addr->ip_addr = addr->ipv4_addr;
     }
 }
 
@@ -30459,15 +30494,15 @@ prh_r32 prh_impl_sock_listen(prh_handle socket, int backlog) {
 }
 
 int prh_impl_parse_local_address(const char *host, prh_reg flags_port, prh_sock_addr *l) {
-    prh_r32 *ipv6 = &l->ip_address;
-    prh_r32 *ipv4 = &l->ipv4_address;
+    prh_r32 *ipv6 = &l->ip_addr;
+    prh_r32 *ipv4 = &l->ipv4_addr;
     l->port = htons((prh_r16)(flags_port & 0xffff));
 
     if (flags_port & PRH_IPV4_BYTE_ARRAY) {
         memcpy(ipv4, host, 4);
 label_ipv4:
         l->family = AF_INET;
-        l->ip_address = l->ipv4_address;
+        l->ip_addr = l->ipv4_addr;
         return (int)sizeof(struct sockaddr_in);
     }
 
@@ -30513,15 +30548,15 @@ label_ipv6:
 }
 
 int prh_impl_parse_remote_address(const char *host, prh_reg flags_port, prh_sock_addr *l) {
-    prh_r32 *ipv6 = &l->ip_address;
-    prh_r32 *ipv4 = &l->ipv4_address;
+    prh_r32 *ipv6 = &l->ip_addr;
+    prh_r32 *ipv4 = &l->ipv4_addr;
     l->port = htons((prh_r16)(flags_port & 0xffff));
 
     if (flags_port & PRH_IPV4_BYTE_ARRAY) {
         memcpy(ipv4, host, 4);
 label_ipv4:
         l->family = AF_INET;
-        l->ip_address = l->ipv4_address;
+        l->ip_addr = l->ipv4_addr;
         return (int)sizeof(struct sockaddr_in);
     }
 
@@ -30562,7 +30597,7 @@ label_ipv6:
 bool prh_impl_recv_sockaddr(struct sockaddr *sa, prh_sock_addr *addr) {
     if ((prh_sock_addr *)sa == addr) {
         if (sa->sa_family == AF_INET) {
-            addr->ip_address = addr->ipv4_address;
+            addr->ip_addr = addr->ipv4_addr;
         }
         return false;
     }
@@ -30572,8 +30607,8 @@ bool prh_impl_recv_sockaddr(struct sockaddr *sa, prh_sock_addr *addr) {
         struct sockaddr_in *in = (struct sockaddr_in *)sa;
         addr->family = in->sin_family;
         addr->port = in->sin_port;
-        addr->ipv4_address = *(prh_r32 *)&in->sin_addr;
-        addr->ip_address = addr->ipv4_address;
+        addr->ipv4_addr = *(prh_r32 *)&in->sin_addr;
+        addr->ip_addr = addr->ipv4_addr;
     }
     return true;
 }
@@ -32489,7 +32524,7 @@ void prh_impl_thrd_wsasend_error_handling(prh_socket *tcp) {
     // }
     tcp->error_type = prh_tcp_send_error;
     tcp->error_code = error_code;
-    // prh_impl_co_error_handling(&tcp->co_struct);
+    prh_impl_co_error_handling(&tcp->co_struct);
 }
 
 void prh_impl_thrd_wsasend_continue(prh_socket *tcp) {
@@ -32964,7 +32999,7 @@ void prh_impl_thrd_wsarecv_error_handling(prh_socket *tcp) {
     // }
     tcp->error_type = prh_tcp_recv_error;
     tcp->error_code = error_code;
-    // prh_impl_co_error_handling(&tcp->co_struct);
+    prh_impl_co_error_handling(&tcp->co_struct);
 }
 
 void prh_impl_thrd_wsarecv_continue(prh_socket *tcp) {
@@ -38180,8 +38215,9 @@ int prh_lexer_separator(prh_lexer *l, prh_byte c) {
 // https://go.dev/ref/spec#Operator_precedence
 // https://ziglang.org/documentation/master/#Precedence
 //
-// 12 名字空间，从左到右结合（--->）： a::b
-// 11 成员访问，从左到右结合（--->）： 成员变量 a.b a->b 函数调用 a() 数组访问也通过函数调用方式
+// 13 名字空间，从左到右结合（--->）： a::b
+// 12 成员访问，从左到右结合（--->）： 成员变量 a.b a->b 函数调用 a() 数组访问也通过函数调用方式
+// 11 函数组合，从右至左结合（<---）： f~g~h(x) 相当于 f(g(h(x)))
 // 10 一元操作，从右到左结合（<---）： + - ! ^ fer der sizeof typeof 类型转换 type expr 指针引用数组元组等类型声明
 // 09 乘法系列，从左到右结合（--->）： * / % & &^ ^ ^^ | |^ << <<< >> >>>
 // 08 加法系列，从左到右结合（--->）： + -
@@ -38504,7 +38540,7 @@ int prh_impl_oper_plus(prh_lexer *l) { // 002B + +=
     }
 }
 
-int prh_impl_oper_minus(prh_lexer *l) { // 002D - -=
+int prh_impl_oper_minus(prh_lexer *l) { // 002D - -= 如何处理多个负一元操作符 3 + ---3.1415926
     prh_byte c; prh_tokid o = PRH_OP_SUB;
     switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
         case true: /* -=  */ o = (c == '=') ? PRH_OP_SUB_ASSIGN : PRH_TOKERR; switch (prh_impl_b256[(c = prh_lexer_next_char(l))] == prh_b256_operator) {
