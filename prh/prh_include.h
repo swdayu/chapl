@@ -43514,9 +43514,375 @@ label_skipped:
         return prh_lexer_ident_start(l);
     }
 }
-
 #endif // PRH_LEXER_INCLUDE
 
+#ifdef PRH_PARSER_INCLUDE
+// 左递归问题
+// Pratt 解析器
+// 上下文无关文法 LL LR
+// 解析是编译器将词元序列转换为树形表示的过程，完成这个任务有许多方法，大致可分为两类，
+// 使用 DSL 来描述语言的抽象语法，手写解析器，Pratt 解析是手写解析中最常用的技术之一。
+//
+// 语法分析理论的巅峰是发现上下文无关文法记法（通常使用 BNF 语法表示），可用于将线性结
+// 构解码为树。我记得当初被这个想法所吸引，尤其是与自然语言句子结构的类比。然而，一旦我
+// 们开始描述表达式，我的乐观就迅速消退了。自然的表达式语法确实能让人看懂什么是表达式，
+// 但是，这个语法是有歧义的！它不能告诉我们 1 + 2 + 3 是应该解析为 (1 + 2) + 3 还是
+// 1 + (2 + 3)。更糟的是，它也不能表示运算符优先级。
+//      Expr = Expr '+' Expr | Expr '*' Expr | '(' Expr ')' | number
+//
+// 手写解析器最简单的技术是递归下降，它将语法建模为一组互相递归的函数，例如下面的 Item
+// 语法片段：
+//
+//      Item = StructItem | EnumItem | ...
+//      StructItem = 'struct' Name '{' FieldList '}'
+//
+//      def item(*parser p) {
+//          if [p.peek()] {
+//              case KEYWORD_STRUCT: struct_item(p)
+//              case KEYWORD_ENUM: enum_item(p)
+//              ...
+//          }
+//      }
+//
+//      def struct_item(*parser p) {
+//          p.expect(KEYWORD_STRUCT)
+//          name(p)
+//          p.expect(L_CURLY)
+//          field_list(p)
+//          p.expect(R_CURLY)
+//      }
+//
+// 传统教科书指出左递归语法（Left Recursive）是这种方法（Pratt）的阿喀琉斯之踵（致命弱
+// 点），并用这个缺点来推动更先进的 LR 解析技术。一个有问题的语法例子如下，
+//
+//      Sum = Sum '+' Int | Int
+//
+//      def sum(*parser p) {
+//          // 尝试第一个可选项
+//          sum(p) // 这里会导致递归循环并栈溢出
+//          p.expect(PLUS)
+//          integer(p)
+//          // 如果失败，尝试第二个方案 Int
+//      }
+//
+// 理论上的解决方案涉及重写语法以消除左递归，然而在实践中，对于手写解析器，解决方案简单
+// 得多，打破递归范式，使用循环：
+//
+//      def sum(*parser p) {
+//          integer(p)
+//          while p.eat(PLUS) {
+//              integer(p)
+//          }
+//      }
+//
+// 仅仅使用循环对于解析中缀表达式是不够的，相反 Pratt 解析同时使用循环和递归。它不仅让
+// 你的头脑进入莫比乌斯形状的仓鼠轮，它还能处理结合性和优先级。
+//
+//      def parse_expr(void) {
+//          ...
+//          loop {
+//              ...
+//              parse_expr()
+//              ...
+//          }
+//      }
+//
+// 从优先级到绑定能力，我必须承认，我总是被“高优先级”和“低优先级”搞糊涂。在 a + b * c
+// 中，加法有较低的优先级，但它在解析树的顶部。因此，我发现用绑定能力（binding power）
+// 来思考更直观。乘法（*）更强，，它有更大的力量将 B 和 C 绑在一起，因此表达式被解析为
+// A + (B * C)。那结合性呢？在 A + B + C 中，所有运算符似乎都有相同的力量，不清楚应该
+// 先折叠哪个 +。但这也可以用力量来建模，只要让它略微不对称。虽然两个 + 的力量相同，但
+// 左边的力量是在运算符之前，右边的力量是在运算符之后。这种不对称性确保了左结合性。
+//
+//      expr:       A       +       B       *       C
+//      power:          3       3       5       5
+//
+//      expr:       A       +       B       +       C
+//      power:  0       3       3.1     3       3.1     0
+//
+//      expr:       (A + B)     +       C
+//      power:  0           3       3.1     0
+//
+//          f       .       g       .       h
+//      0       8.5     8       8.5     8       0
+//
+//          f       .       (g.h)
+//      0       8.5     8           0
+//
+//      运算符优先级和结合性，都是为了确定 **相邻的两个操作符** 先执行哪个。
+//
+// 加法从左到右结合，左边的力量要稍小于右边的力量，我们还在两端添加了零，因为从两侧没
+// 有运算符可以绑定。举另一个从右到左结合的例子点运算符（.），操作符从右到左变强。当 g
+// 选择向那边结合时，因为右边的优先级高，先结合 h，即 f . (g . h)。
+//
+// 最小 Pratt 解析器，解析的基本单元是单字符数字和单字符变量的表达式，并使用标点作为运
+// 算符。为避免混淆以及确保得到正确的绑定力，我们将中缀表达式转换为黄金标准的不混淆记法，
+// 即符号表达式（S-expression），原子（数字、符号）在操作符之后。
+//      1 + 2 * 3 == (+ 1 (* 2 3))
+//
+// 中缀表达式（infix expression）
+//      1 + 2 * 3
+// 前缀表达式（prefix expression），也称为波兰式（波兰记法，Polish Notation）
+//      + 1 * 2 3
+// 后缀表达式（suffix expression），也称为逆波兰式（Reverse Polish Notation）
+//      1 2 3 * +
+// 符号表达式（Symbolic Expression），带括号的前缀表达式
+//      (+ 1 (* 2 3))
+//
+// https://matklad.github.io/2020/04/15/from-pratt-to-dijkstra.html
+// https://matklad.github.io/2018/06/06/modern-parser-generator.html
+// https://eli.thegreenplace.net/2007/11/24/the-context-sensitivity-of-cs-grammar/
+// https://github.com/matklad/minipratt
+//
+// 自顶向下运算符优先级（Pratt 解析）与更著名的调度场（shunting yard）算法之间的关系。
+// 它们是同一个算法，区别在于实现风格是递归（Pratt，递归下降算法）还是手动栈（Dijkstra，
+// 即使用显式栈替代递归的迭代版本）。
+//
+// 手写解析器最重要的功能是对错误恢复和部分解析的出色支持。尽管手写解析器也能产生高质量
+// 的错误消息，但我认为这不重要。在 IDE 上下文中，对于语法错误，在您键入无效代码后立即
+// 获得红色波浪下划线要重要和有益得多。即时反馈和精确定位，根据我的个人经验，足以修复语
+// 法错误。错误消息可以是"语法错误"，更详细的消息通常会使事情更糟，因为从错误消息映射到
+// 实际错误比仅仅输入和删除内容并检查是否有效更困难。交互性很重要，反应式语法 REPL 和内
+// 联测试很棒！
+//
+// https://neugierig.org/software/blog/2026/01/smallest-build-system.html
+// https://github.com/evmar/retrowin32/tree/main/minibuild/src
+// https://matklad.github.io/2018/01/03/make-your-own-make.html
+// https://matklad.github.io/2026/01/27/make-ts.html
+// https://ziglang.org/learn/build-system/
+// https://pydoit.org/
+//
+// https://cacm.acm.org/research/a-few-billion-lines-of-code-later/
+// https://github.com/BurntSushi/fst
+//
+// xi-rope 是一个特定的数据结构实现，一个基于 B 树的通用 Rope（绳索）数据结构，Rope
+// 高效文本存储与编辑（O(log n) 操作），CRDT 分布式/异步编辑的冲突解决。
+//
+//  操作        传统 String     Rope            复杂度
+//  插入        O(n)            O(log n)        指数级提升
+//  删除        O(n)            O(log n)        指数级提升
+//  拼接        O(n+m)          O(1)            线性级提升
+//  子串提取    O(n)            O(log n + k)    对数级提升
+
+#ifdef PRH_PARSER_IMPLEMENTATION
+typedef prh_byte prh_token_enum;
+enum {
+    PRH_ATOM,
+    PRH_OPER,
+    PRH_EOF,
+};
+
+typedef struct {
+    prh_token_enum t;
+    prh_byte c;
+} prh_token;
+
+typedef prh_arrdde(prh_token) prh_tokens;
+
+typedef struct {
+    prh_tokens tokens;
+    prh_arena_alloc *alloc;
+} prh_lexer;
+
+prh_lexer *prh_lexer_init(const prh_byte *input) {
+    prh_arena_alloc *alloc = prh_get_arena_alloc();
+    prh_lexer *l = (prh_lexer *)prh_arena_calloc(alloc, sizeof(prh_lexer));
+    l->alloc = alloc;
+    prh_byte c;
+    while ((c = *input++)) {
+        if (c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+            prh_arrdde_push(&l->tokens, (prh_token){PRH_ATOM, c});
+        } else {
+            prh_arrdde_push(&l->tokens, (prh_token){PRH_OPER, c});
+        }
+    }
+}
+
+void prh_lexer_free(prh_lexer *l) {
+    prh_arena_dalloc(l->alloc, l);
+}
+
+prh_token *peek(prh_lexer *l) {
+    return (prh_token *)prh_arrdde_top(&l->tokens);
+}
+
+prh_token *next(prh_lexer *l) {
+    return (prh_token *)prh_arrdde_pop(&l->tokens);
+}
+
+typedef prh_byte prh_s_enum;
+enum {
+    PRH_S_ATOM, // 原子
+    PRH_S_CONS, // 列表
+};
+
+struct prh_s_expr;
+typedef prh_arrdde(struct prh_s_expr) prh_s_exprs;
+
+typedef struct prh_s_expr {
+    prh_s_enum t;
+    prh_byte c;
+    prh_s_exprs cons;
+} prh_s_expr;
+
+prh_s_expr *prh_s_expr_atom(prh_lexer *l, prh_byte c) {
+    prh_s_expr *s = (prh_s_expr *)prh_arena_calloc(l->alloc, sizeof(prh_s_expr));
+    s->t = PRH_S_ATOM;
+    s->c = c;
+    return s;
+}
+
+prh_s_expr *prh_s_expr_cons(prh_lexer *l, prh_byte op, prh_s_expr *lhs, prh_s_expr *rhs) {
+    prh_s_expr *s = (prh_s_expr *)prh_arena_calloc(l->alloc, sizeof(prh_s_expr));
+    s->t = PRH_S_CONS;
+    s->c = op;
+    prh_arrdde_push(&s->cons, lhs);
+    prh_arrdde_push(&s->cons, rhs);
+    return s;
+}
+
+prh_s_expr *prh_s_expr_cons_unary(prh_lexer *l, prh_byte op, prh_s_expr *lhs) {
+    prh_s_expr *s = (prh_s_expr *)prh_arena_calloc(l->alloc, sizeof(prh_s_expr));
+    s->t = PRH_S_CONS;
+    s->c = op;
+    prh_arrdde_push(&s->cons, lhs);
+    return s;
+}
+
+prh_s_expr *prh_s_expr_cons_ternary(prh_lexer *l, prh_byte op, prh_s_expr *lhs, prh_s_expr *mhs, prh_s_expr *rhs) {
+    prh_s_expr *s = (prh_s_expr *)prh_arena_calloc(l->alloc, sizeof(prh_s_expr));
+    s->t = PRH_S_CONS;
+    s->c = op;
+    prh_arrdde_push(&s->cons, lhs);
+    prh_arrdde_push(&s->cons, mhs);
+    prh_arrdde_push(&s->cons, rhs);
+    return s;
+}
+
+void print(prh_s_expr *s) {
+    if (s->t == PRH_S_ATOM) printf("%d", s->c);
+    else {
+        printf("%d", s->c);
+        prh_s_exprs *b = prh_arrdde_begin(&s->cons);
+        prh_s_exprs *e = prh_arrdde_end(&s->cons);
+        for (; b < e; b += 1) {
+            print(b);
+        }
+        printf(")");
+    }
+}
+
+typedef struct {
+    prh_byte l;
+    prh_byte r;
+} prh_bind_power;
+
+prh_bind_power infix_binding_power(prh_byte op) {
+    if (op == '=') {
+        return (prh_bind_power){2, 1};
+    }
+    if (op == '?') {
+        return (prh_bind_power){4, 3};
+    }
+    if (op == '+' || op == '-') {
+        return (prh_bind_power){5, 6};
+    }
+    if (op == '*' || op == '/') {
+        return (prh_bind_power){7, 8};
+    }
+    if (op == '~') { // 函数组合运算符
+        return (prh_bind_power){14, 13};
+    }
+    if (op == '.') { // 成员访问运算符
+        return (prh_bind_power){15, 16};
+    }
+    if (op == ')' || op == ']') {
+        return (prh_bind_power){0, 0};
+    }
+    prh_abort_error(0);
+}
+
+prh_bind_power prefix_binding_power(prh_byte op) {
+    if (op == '+' || op == '-') { // 正负
+        return ((prh_bind_power){0, 9});
+    }
+    prh_abort_error(0);
+}
+
+prh_bind_power postfix_binding_power(prh_byte op) {
+    if (op == '!' || op == '[') { // 阶乘和下标
+        retrun ((prh_bind_power){11, 0});
+    }
+    retrun ((prh_bind_power){0, 0});
+}
+
+prh_s_expr *expr(prh_lexer *l, prh_byte min_bp) {
+    prh_token *t = next(l);
+    prh_s_expr *lhs, *mhs, *rhs;
+    prh_byte op;
+    prh_bind_power bp;
+
+    if (t->t == PRH_ATOM) {
+        lhs = prh_s_expr_atom(l, t->c);
+    } else if (t->t == PRH_OPER) {
+        op = t->c;
+        if (op == '(') {
+            lhs = expr(l, 0);
+            t = next(l);
+            prh_abort_if(t->c != ')');
+        } else {
+            bp = prefix_binding_power(op);
+            prh_abort_if(bp.r == 0);
+            rhs = expr(l, bp.r);
+            lhs = prh_s_expr_cons_unary(l, op, rhs);
+        }
+    } else { // 开始词元必须是操作数，或一元前缀操作符
+        prh_abort_error(0);
+    }
+
+    while ((t = peek(l))) { // 遇到 EOF 和结束括号 ) 都需要终止
+        prh_abort_if(t->t != PRH_OPER);
+        op = t->c;
+
+        bp = postfix_binding_power(op);
+        if (bp.l) {
+            if (bp.l < min_bp) break;
+            next(l);
+            if (op == '[') {
+                rhs = expr(l, 0);
+                t = next(l);
+                prh_abort_if(t->c != ']');
+                lhs = prh_s_expr_cons(l, op, lhs, rhs);
+            } else {
+                lhs = prh_s_expr_cons_unary(l, op, lhs);
+            }
+            continue;
+        }
+
+        bp = infix_binding_power(op);
+        if (bp.l) {
+            if (bp.l < min_bp) break;
+            next(l);
+            if (op == '?') {
+                mhs = expr(l, 0);
+                t = next(l);
+                prh_abort_if(t->c != ':');
+                rhs = expr(l, bp.r);
+                lhs = prh_s_expr_cons_ternary(l, op, lhs, mhs, rhs);
+            } else {
+                rhs = expr(l, bp.r);
+                lhs = prh_s_expr_cons(l, op, lhs, rhs);
+            }
+            continue;
+        }
+
+        break;
+    }
+    return lhs;
+}
+
+#endif // PRH_PARSER_IMPLEMENTATION
+#endif // PRH_PARSER_INCLUDE
 
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_run_all_tests(void) {
