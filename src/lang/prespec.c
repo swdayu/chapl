@@ -4,12 +4,12 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，统一各种分支语句和各种循环语句
-//  if else elif case for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
-//  struct const void embed def pub let var undefined devel revel
+//  if else elif case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
+//  struct const void embed of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
-//  static or this import scoped as inf (inferred type 推导的类型)
+//  static or this import scoped scope_guard as inf (inferred type 推导的类型)
 //  with fer der todo debug trap local global // 全局变量必须使用 global 引用
-//  mod mut ref gen priv do abstract macro tane (typename) defined
+//  mod mut ref gen priv do abstract macro tane (typename)
 //  alignof(type) sizeof(type) offsetof(type.offset) drop
 //  where it it.i
 //
@@ -85,6 +85,33 @@
 //      因为需要修改成员，传递一个成员指针和两个成员指针区别不大。在函数中对传入的参数
 //      取地址，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到
 //      栈中。
+//
+//  有关传参
+//
+//      指向的内容不可修改，使用 & 传递指针 &point，指向的内容当前默认只会被当前函数
+//      修改（即只由当前线程修改），如果是可并行修改的内容，该变量或指针需要声明为 ^，
+//      避免被编译器优化。
+//          def func(&point)
+//          def func(*point)
+//          def func(^point)
+//          def func(&^point) // 当前函数不修改，但是可能被其他线程修改
+//          def func(*^point) // 当前函数会修改，其他线程也可能修改
+//
+//  有关所有权
+//
+//      def array $(anytype T) {
+//          *!T data    // *! 表示该结构体拥有内存的所有权
+//          reg size
+//          reg capacity
+//      }
+//
+//  有关测试
+//
+//      将代码的即时测试兼容特殊注释中，例如：
+//      // inline test fn_pointer_type
+//      // type A = fn();
+//      // type B = unsafe fn();
+//      // type C = unsafe extern "C" fn();
 //
 // 宏的实现：
 //  1.  本质上说，宏是一种编写可以生成源代码的代码的方式，称为元编程。宏具有一些函数所
@@ -262,8 +289,15 @@
 //  std::print 访问全局作用域中名字空间 std 中的名称 print
 //  static expr
 //  static if
+// 标签扩展：
+//  def spco_yield(void) #macro {
+//      yield = @> // 引用下一个匿名标签
+//      goto lable_return
+//      @@: // 匿名标签
+//  }
 // 符号属性，包括函数、类型、变量的属性名称等
 //  alignas(n) forcedalignas(n) // forcedalignas(n) 不会被 packed 属性抑制
+//  timesof(n) // 结构体是 n 的倍数
 //  "fastcall" "cdecl" "stdcall" "strict" "nacked"
 //  "nonzero" "nonalls" "zeroinit" "packed"
 // 内置函数：
@@ -282,7 +316,7 @@
 //  (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
 //
 // 基本类型，定义在 type 代码包中：
-//  bool null none byte char rune string errno struct "32-byte" i32 r32 int reg arch_int arch_reg arch_reg struct i struct u struct p
+//  bool null none byte char rune string errno struct "32-byte" i32 r32 int reg sys_int sys_reg sys_reg struct i struct u struct p
 //  i08 i16 i32 i64 i128 int <32>int <64>int <128>int (b w d q x y z p r) byte word double-word quad-word xmm-word ymm-word zmm-word
 //  r08 r16 r32 r64 r128 reg <32>reg <64>reg <128>reg ...
 //  f08 f16 f32 f64 f128 float <32>float <64>float <128>float
@@ -290,8 +324,8 @@
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
 //  bool byte char string none null true false def error
-//  i08 i16 i32 i64 i128 i256 i512 int arch_int
-//  r08 r16 r32 r64 r128 r256 r512 reg arch_reg
+//  i08 i16 i32 i64 i128 i256 i512 int sys_int
+//  r08 r16 r32 r64 r128 r256 r512 reg sys_reg
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -309,10 +343,10 @@
 //  泛型数组 泛型字串 泛型列表 泛型队列 泛栈类型 泛堆类型 泛型集合 泛型映射
 //  泛型视图 泛型切片 泛型元组 数值类型 基础类型
 //
-//  int // signed pointer size integer
-//  reg // unsigned pointer size integer // 使用 @ 开始的标识符可以转义关键字 @int @reg
-//  arch_int // real architecture register size signed integer
-//  arch_reg // real architecture register size unsigned integer
+//  int // signed register size integer
+//  reg // unsigned register size integer // 使用 @ 开始的标识符可以转义关键字 @int @reg
+//  sys_int // real architecture register size signed integer
+//  sys_reg // real architecture register size unsigned integer
 //  bool byte char error float decimal complex
 //  array string slice
 //
@@ -353,12 +387,12 @@
 //  fix`array   arrfix
 //  fit`array   arrfit
 //  dyn`array   arrdyn
-//  bid`array   arrbid
+//  bdi`array   arrbdi
 //  vew`string  striew
 //  fix`string  strfix
 //  fit`string  strfit
 //  dyn`string  string
-//  bid`string  strbid
+//  bdi`string  strbdi
 //
 //  .digit 表示一个十进制数
 //  ident` 表示是类型名称
@@ -371,11 +405,11 @@
 //  'B          @t  @f      @z      'c          's
 //  bool        true false  null    char        string
 //  单字节  双字节  四字节  八字节  指针或向量大小
-//  '1      '2      'i      '8      'j      arch_int      有符号整数
-//  'b      'w      'u      'q      'p      arch_reg    无符号整数
+//  '1      '2      'i      '8      'j      sys_int      有符号整数
+//  'b      'w      'u      'q      'p      sys_reg    无符号整数
 //  f08     f16     'f      'g      'x 'y 'z            单精度/双精度/128-bit xmm/256-bit ymm/512-bit zmm
-//  i08     i16     int     i64     'j      arch_int
-//  r08     r16     r32     r64     'p      arch_reg
+//  i08     i16     int     i64     'j      sys_int
+//  r08     r16     r32     r64     'p      sys_reg
 //
 // 类型信息：type|flag
 //  i08 ~ <128>int      0   ~   15
@@ -383,9 +417,9 @@
 //  d08 ~ <128>decimal  32  ~   47
 //  c08 ~ <128>complex  48  ~   63
 //  string 64 array 65 slice 66 view 67 struct 68 sumt 69 func 70
-//  int/arch_int: ixx|int: 1
-//  reg/arch_reg: ixx|reg: 1
-//  ptr/arch_reg: uxx|ptr: 1
+//  int/sys_int: ixx|int: 1
+//  reg/sys_reg: ixx|reg: 1
+//  ptr/sys_reg: uxx|ptr: 1
 //  bool: r08|bool:1
 //  null: r08|null:1
 //  char: r32|char:1
@@ -399,9 +433,9 @@
 //  int - pointer size signed type          32-bit      32-bit                          64-bit
 //  reg - pointer size unsigned type        32-bit      32-bit                          64-bit
 //  ptr - pointer type                      32-bit      32-bit                          64-bit
-//  arch_int - system register size type     32-bit      64-bit                          64-bit
-//  arch_reg - system register size type     32-bit      64-bit                          64-bit
-//  arch_reg - system register width pointer 32-bit      64-bit                          64-bit
+//  sys_int - system register size type     32-bit      64-bit                          64-bit
+//  sys_reg - system register size type     32-bit      64-bit                          64-bit
+//  sys_reg - system register width pointer 32-bit      64-bit                          64-bit
 //
 // 类型约束：
 //  Any Integer Float Unsigned Decimal Complex BasicType AnonyType NamedType GimplType
@@ -636,8 +670,8 @@ a + (''int b + c) * d
 (int a int b yield int point >> int point)
 (int a int b yield int point >> int)
 (int a int b yield int point)
-(int a >> int point float let count point scale)
-(int a >> int point let count point or error)
+(int a >> int point float as count point scale)
+(int a >> int point as count point or error)
 (*file? file {stdin} point point string name {"root"} string mode)
 (*file? file {stdin} point point point origin string name string mode int a int b int c >> int string float)
 (*file? file {stdin} point point ~ origin string name ~ mode int a ~ b ~ c >> int string float)
@@ -1317,7 +1351,7 @@ for [&it] // 迭代元素捕获
 //  5.  实现标签数组跳转，实现标签传递给函数，让函数返回时跳转
 //
 
-def point "zeroinit packed" {
+def point zeroinit packed {
     float x
     float y
 }
@@ -1327,6 +1361,12 @@ def data {
     int b
     (int a int b >> int) f
     (int a int b >> int) g
+}
+
+def user_thrd of thrd alignas(line) {
+    *reg thrd_rx_head
+    *reg thrd_tx_tail
+    bool sleep
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
@@ -2589,6 +2629,8 @@ len typeof(pos) 3
 
 for i int 3 .. 10 { /* */ }
 
+// ~ 之前必须是结束大括号，也即嵌套的上层 for 必须加大括号，不能是 for then for {} ~ if ()
+// 也即 for 必须加大括号，如上面 ~ if 不知道是第一个 for 还是第二个 for 的后置条件
 for {
     capacity *= 2
 } ~ if (capacity < new_capacity)
@@ -2920,31 +2962,22 @@ math:*
 //          final
 //
 //  5.  静态条件编译
-//  static if expr {
-//  }
+//  #if expr
+//  #endif
 //
-//  static if expr {
-//  } else {
-//  }
+//  #if expr
+//  #else
+//  #endif
 //
-//  static if expr {
-//  } else if expr {
-//  }
+//  #if expr
+//  #elif expr
+//  #else
+//  #endif
 //
-//  static if expr {
-//  } else if expr {
-//  } else {
-//  }
-//
-//  static if [expr] item, item {
-//  } else item {
-//  } else {
-//  }
-//
-//  static if [expr] item {
-//  } else item, item {
-//  } else {
-//  }
+//  #if [expr] item, item
+//  #elif item, item
+//  #else
+//  #endif
 //
 //  6. 条件表达式
 //  let a = let if expr { stmt }
@@ -3011,7 +3044,7 @@ math:*
 if [expr] { // final 标签定义在 if 语句块最后一条语句之后
 case item, item:
 case item:
-case else:
+else:
 }
 
 if [expr] {
@@ -3019,35 +3052,45 @@ case item, else:
 case item:
 }
 
+if [expr] true expr else expr
+if [expr] false expr else expr
+if [expr <> expr] expr or expr else expr
+let [expr] expr else expr
+let [expr <> expr] expr or expr else expr
+
 if [expr] item, item { // final 标签定义在 if 语句块最后一条语句之后
-} else item {
-} else item, item {
+} elif item {
+} elif item, item {
 } else {
 }
 
-if [expr] lable item, item: // 如果使用了 final 必须定义一个 final 标签
-label item, else:
-lable item:
-final:
+if [expr] item, else { // final 标签定义在 if 语句块最后一条语句之后
+} elif item {
+}
 
-if [expr] lable item: // 如果多个 if case 交杂，跳转目标有多个，额外的跳转需要使用 goto 语句
-lable item, item:
-lable item:
-lable else:
-final:
+if [expr] .label item, item: // 如果使用了 final 必须定义一个 final 标签
+.label item, else:
+.label item:
+.final
+
+if [expr].lable item: // 如果多个 if case 交杂，跳转目标有多个，额外的跳转需要使用 goto 语句
+.lable item, item:
+.lable item:
+.lable else:
+.final
 
 if [impl_bstr[impl_b256[c]]] {
-    case .dquote:
+case .dquote:
     goto finish
-    case .bslash:
+case .bslash:
     l.escape_code = false
     if !lexer_escape(l) {
-    case .invalid:
+case .invalid:
         return TOK_ERROR
     }
     c = l.cvalue
     if l.escape_code == false {
-    case else:
+else:
         string_push(s, c)
         final
     }
@@ -3255,8 +3298,10 @@ defer_return @label
 //  2.  循环的延迟执行
 //
 
+// for 必须加大括号，不能有省略形式，下面两行不允许
+// for expr then stmt
+// for then void // 无限空循环
 for expr { stmt ... }
-for expr then stmt
 for { stmt ... }
 for { stmt ... } ~ if (expr)
 
@@ -3355,13 +3400,13 @@ print(typestring, "\n")
 //      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_#(TX_END)
 //      port->action.head.opcode[PRH_TCPA_INDEX_..] = PRH_TCPA_#(FINISH)
 //
-//  3.  scoped 语句块
+//  3.  scope_guard 语句块
 //
-//      def enter_read(*rwlock lock) scoped leave_read(lock) {
+//      def enter_read(*rwlock lock) scope_guard leave_read(lock) {
 //          ...
 //      }
 //
-//      scoped enter_read(rwlock) {
+//      scope_guard enter_read(rwlock) {
 //          ... // 退出当前作用域后，会自动调用 leave_read(lock)
 //      }
 //
@@ -3370,7 +3415,7 @@ print(typestring, "\n")
 //      只有小于等于两个字长的命名类型才可以传值，其他都只能传指针，传指针的变量如果不想
 //      修改其自身，可以使用语法 test(&copyof a)
 //
-//      基本类型 int reg arch_int arch_reg def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
+//      基本类型 int reg sys_int sys_reg def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
 //      结构体类型总是传指针表示修改，声明为 *point，test(fer point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
 //      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
@@ -3541,7 +3586,7 @@ print(typestring, "\n")
 —— this
 —— type
 —— import
-—— scoped
+—— scoped scope_guard
 —— fer      址
 —— der      值 之指向内容
 —— todo
@@ -3574,8 +3619,8 @@ print(typestring, "\n")
 —— fillof(vsym)         施填充 变量 · 10
 ——
 —— bool byte char string none null true false unsigned
-—— i08 i16 i32 i64 i128 i256 i512 int arch_int type error
-—— r08 r16 r32 r64 r128 r256 r512 reg arch_reg
+—— i08 i16 i32 i64 i128 i256 i512 int sys_int type error
+—— r08 r16 r32 r64 r128 r256 r512 reg sys_reg
 —— f08 f16 f32 f64 f128 f256 f512 float
 —— d08 d16 d32 d64 d128 d256 d512 decimal
 —— c08 c16 c32 c64 c128 c256 c512 complex
