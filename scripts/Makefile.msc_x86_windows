@@ -314,7 +314,8 @@ INIT_CFLAGS += \
 # /MDd msvcrtd.lib	ucrtd.lib (ucrtbased.dll)	vcruntimed.lib (vcruntime<v>d.dll)
 
 msc-crt-y := # libcmt.lib libucrt.lib ucrt.lib
-msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib ws2_32.lib shell32.lib ntdll.lib dbghelp.lib
+msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib ws2_32.lib shell32.lib \
+	ntdll.lib dbghelp.lib synchronization.lib
 
 OPTION_LDLIBS = $(patsubst -l%,%,$(1))
 OPTION_LDDIRS = $(foreach d,$(patsubst -L%,%,$(1)),/LIBPATH:$(call windows_path_style,$(d)))
