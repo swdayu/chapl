@@ -6785,6 +6785,9 @@ void prh_impl_co_error_handling(prh_co_struct *co) {
 //  6.  这也就是特制一个协程可以在其他任何地方随意使用，与特制一个协程扩散到在任何使用
 //      的地方都需要专门特制的区别
 //
+// 对于立即返回的同步协程，一种很简单的实现方式是，将协程的栈空间完全预先分配在主调协程
+// 的栈空间中，这样被调协程相当于只需记录一个继续执行的地址，相当于是一种无栈协程。
+//
 // 函数栈帧
 //  栈动态信息区 <-- rsp
 //  寄存器保护区
@@ -23213,24 +23216,24 @@ typedef struct {
     prh_cont cont;
 } prh_ehub_post;
 
-typedef struct {
-    prh_thrd thrd_struct;
-    void **give_back_rx_head; // 当前线程接收调度线程返还的内存块
-    void **thrd_task_rx_head; // 当前线程接收调度线程分派的任务
-    prh_byte *braver_cache_line; // 仅分配不释放的线程内存块，勇往直前永不后退分配器
-    prh_atom_reg tx_to_schd_tail; // 发送给调度线程的消息，被当前线程修改，调度线程只读
-    prh_alignas(prh_cache_line_size) // 以下是会被调度线程修改的字段
+typedef struct prh_impl_ehub_thrd {
+    /* +2p +2p */ prh_thrd thrd_struct; // 仅被当前线程修改的字段
+    /* +1p +1p */ void **give_back_rx_head; // 当前线程接收调度线程返还的内存块
+    /* +1p +1p */ void **thrd_task_rx_head; // 当前线程接收调度线程分派的任务
+    /* +1p +1p */ prh_byte *braver_cache_line; // 仅分配不释放的线程内存块，勇往直前永不后退分配器
+    /* +1p +1p */ prh_atom_reg tx_to_schd_tail; // 发送给调度线程的消息，被当前线程修改，调度线程只读
+#if PRH_DEBUG
+    /* +1p +1p */ prh_reg used_virtual_size;
+#endif
+    prh_alignas(prh_cache_line_size) // 仅被调度线程修改的字段
     prh_atom_reg schd_give_back_tail; // 调度线程返还消息内存块
     prh_atom_reg schd_give_task_tail; // 调度线程给当前线程分配任务
     void **schd_task_rx_head; // 调度线程接收发送给调度线程的消息
-    prh_atom_bool sleep_synced; // 被当前线程核调度线程修改
+    struct prh_impl_ehub_thrd *next; // 仅被调度线程修改
     prh_atom_bool rx_activity; // 仅由调度线程修改
     prh_atom_bool sleep; // 仅由调度线程修改
-#if PRH_DEBUG
-    prh_reg tx_alloc_size;
-    prh_reg rx_alloc_size;
-    prh_reg virtual_size;
-#endif
+    prh_alignas(prh_cache_line_size) // 被当前线程和调度线程修改的字段
+    prh_atom_bool sleep_synced;
 } prh_ehub_thrd;
 
 prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd);
@@ -23275,8 +23278,8 @@ prh_byte *prh_thrd_braver_alloc(prh_reg size) {
     prh_ehub_thrd *thrd = prh_ehub_thrd_self();
     prh_byte *p = prh_impl_thrd_braver_alloc(thrd, prh_round_line_size(size));
 #if PRH_DEBUG
-    thrd->virtual_size += prh_round_line_size(size);
-    printf("[thrd %02d] virtual alloc ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->virtual_size);
+    thrd->used_virtual_size += prh_round_line_size(size);
+    printf("[thrd %02d] virtual alloc ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->used_virtual_size);
 #endif
     return p;
 }
@@ -23285,10 +23288,8 @@ prh_byte *prh_impl_thrd_alloc_thrd_tx_block(prh_ehub_thrd *thrd) {
     prh_byte *block = prh_impl_thrd_braver_alloc(thrd, PRH_EHUB_QUEUE_BLOCK_SIZE);
     *prh_impl_ehub_queue_block_endp(block) = PRH_EHUB_BLOCK_END;
 #if PRH_DEBUG
-    thrd->tx_alloc_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    thrd->virtual_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    printf("[thrd %02d] tx block alloc ++ to %lu-byte %lu-byte\n", prh_impl_ehub_thrd_index(thrd),
-        (unsigned long)thrd->tx_alloc_size, (unsigned long)thrd->virtual_size);
+    thrd->used_virtual_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
+    printf("[thrd %02d] tx block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->used_virtual_size);
 #endif
     return block;
 }
@@ -23297,10 +23298,8 @@ prh_byte *prh_impl_schd_alloc_thrd_rx_block(prh_ehub_thrd *schd) {
     prh_byte *block = prh_impl_thrd_braver_alloc(schd, PRH_EHUB_QUEUE_BLOCK_SIZE);
     *prh_impl_ehub_queue_block_endp(block) = PRH_EHUB_BLOCK_END;
 #if PRH_DEBUG
-    schd->rx_alloc_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    schd->virtual_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    printf("[thrd %02d] rx block alloc ++ to %lu-byte %lu-byte\n", prh_impl_ehub_thrd_index(schd),
-        (unsigned long)schd->rx_alloc_size, (unsigned long)schd->virtual_size);
+    schd->used_virtual_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
+    printf("[thrd %02d] rx block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(schd), (unsigned long)schd->used_virtual_size);
 #endif
     return block;
 }
@@ -23344,6 +23343,7 @@ typedef struct {
     void **free_block_head;
     void **free_block_tail;
     prh_arena_alloc *alloc;
+    prh_ehub_thrd *waiting;
     prh_reg sleep_count;
     bool single_thread_program;
     bool schd_exit;
@@ -23589,11 +23589,25 @@ void prh_impl_thrd_give_block_to_schd(prh_ehub_thrd *thrd, void **block_end) {
     prh_thrd_post_to_schd(thrd, (void *)block_end, prh_impl_schd_push_free_block);
 }
 
+void prh_impl_sched_push_waiting_thrd(prh_ehub_thrd *thrd) {
+    if (PRH_IMPL_SCHD.waiting == prh_null) {
+        PRH_IMPL_SCHD.waiting = thrd;
+        thrd->next = prh_null;
+    } else {
+        thrd->next = PRH_IMPL_SCHD.waiting;
+        PRH_IMPL_SCHD.waiting = thrd;
+    }
+    PRH_IMPL_SCHD.sleep_count += 1;
+}
+
+prh_ehub_thrd *prh_impl_sched_pop_waiting_thrd(void) {
+}
+
 void prh_impl_schd_sync_thrd_sleep(prh_ehub_thrd *thrd) {
     bool allow_sleep = (prh_impl_schd_give_task_tail(thrd) == thrd->thrd_task_rx_head);
     thrd->sleep = allow_sleep;
     prh_atom_bool_write(&thrd->sleep_synced, true);
-    PRH_IMPL_SCHD.sleep_count += 1;
+    prh_impl_sched_push_waiting_thrd(thrd);
 }
 
 void prh_impl_thrd_sleep_sync(prh_ehub_thrd *thrd) {
@@ -23823,13 +23837,13 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
 // 端口关联的可运行线程总数达到并发值时，系统会阻止与该完成端口关联的后续线程的执行，直
 // 到可运行线程数量低于并发值。只要正在运行的线程数量大于等于并发值，正在等待完成端口的
 // 线程都不会得运行机会，即使此时完成端口已经有完成事件。当运行线程阻塞时，完成端口会立
-// 即唤醒一个等待的线程立即工作，当阻塞的线程继续运行时，会有一小段时间，运行的线程数量
-// 会大于并发值。
+// 即唤醒一个等待的线程立即工作，当阻塞的线程继续运行时，有一小段时间，运行的线程数量会
+// 大于并发值。
 //
-// 并发值一般是机器的处理核心的个数，但是关联完成端口的线程，包括运行线程和正在等待的线
-// 程的数量一般需要大于并发值，一般可以设置并发值的两倍。原因是，完成端口会监控正在运行
-// 的线程，一旦运行线程进入阻塞状态，就可以立即唤醒等待的线程。如果关联的线程与并发值相
-// 等，一旦所有线程都在运行，线程阻塞之后没法立即唤醒一个线程继续工作。
+// 并发值一般是机器处理核心的个数，但是关联完成端口的线程，包括运行线程和正在等待的线程
+// 的数量一般需要大于并发值，一般设置为并发值的两倍。原因是，完成端口监控正在运行的线程，
+// 一旦运行线程进入阻塞状态，就可以立即唤醒等待的线程。如果关联的线程与并发值相等，一旦
+// 所有线程都在运行，线程阻塞之后没办法立即唤醒一个线程继续工作。
 //
 // 完成端口的优势是，所有线程都可以投递任务，然后当投递的任务完成后，所有线程都可以当作
 // 处理线程来处理这些任务的完成事件。完成端口系统内核自动分发完成事件，保证高并发和线程
@@ -23844,6 +23858,50 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
 // 当完成端口有排队的事件时，活跃线程来获取事件都会立即返回，不会发生线程上下文切换。当
 // 多个工作线程同时调用 GetQueuedCompletionStatusEx 时，内核采用轮转队列算法，保证每
 // 个线程大致均等地拿到完成包，避免某一个线程忙死、其余线程空转的现象。
+//
+// 投递线程在请求一个操作前，例如 WSASend，必须先设置操作相关的数据，防止竞争条件问题发
+// 生，因为处理线程不一定与投递线程是同一个线程。当调用一个重叠操作时，例如 WSASend，投
+// 递线程在 WSASend 之前写的内存，会保证处理线程拿到的是正确的内容，不会产生竞争条件，
+// 这时该系统调用保证的。但是在 WSASend 之后不能再写相关内存。另外高并发推荐为每个操作
+// 独立分配嵌入缓存区提供性能。struct { OVERLAPPED o; WSABUF b; char data[4096]; }
+//
+// 套接字的单个连接同一时间只会在同一个线程中处理，因为套接字的连接/断连/发送/读取都是
+// 在一个处理函数中顺序执行的，并且只有处理函数主动触发对应的请求，才会执行相应的操作。
+//
+// 可以理解为，内核并没有额外的调度算法分配完成事件，当前线程 GetQueuedCompletionStatusEx
+// 等待 Count 个事件，内核简单的将可用的 <= Count 个事件分配给它，然后以同样简单的方式
+// 分配事件给下一个线程。没有复杂的调度算法，就是简单的"尾部线程优先，能拿多少拿多少"。
+// IOCP 选择了最简路径，牺牲公平性换取极致性能。对比其他设计：
+//      设计            复杂度      延迟    吞吐
+//      IOCP简单LIFO    O(1)        低      高
+//      优先级队列      O(log n)    中      中
+//      工作窃取        O(1)        中      高（多队列）
+//      轮询公平        O(1)        高      低
+//
+// 如果事件是突发到达的，5个线程在等待，一下来了3个事件，如果每个线程等待的 Count 大于
+// 3，那么唤醒一个线程处理3个事件。如果事件是稀疏到达的，来了1个事件唤醒一个线程处理，
+// 在该事件处理完之前又来了一个事件，继续唤醒一个线程处理一个事件。突发到达 → 批量获取，
+// 稀疏到达 → 分散处理，Count 越大越倾向于集中处理。在高吞吐场景下，需要处理大量的事件，
+// 此时可以使用大 Count，减少线程切换，例如 BATCH_SIZE 64。在低延迟场景下，不需要处理
+// 大量事件，但到达的事件必须立即处理，可以使用小 Count 以便立即处理，例如 BATCH_SIZE
+// 为 1。当然还可以根据历史自适应调整，那如何根据工作负载动态调整 Count 实现自适应批量
+// 处理呢？
+//
+// 性能监控，每秒平均处理到达事件的数量，即每秒吞吐率（throughput）单位时间内处理或传
+// 输数据的数量，平均延迟，P99 延迟（99th Percentile Latency）是性能监控中的关键指标，
+// 表示99%的请求延迟都低于该值。提高线程批处理能力（增加 BATCH_SIZE），能够处理的事件
+// 数量增加，吞吐率增加，但会导致处理延迟，可以选择一个可接受的 P99 延迟前提下最大化吞
+// 吐。P99 延迟反映绝大多数用户体验，排除异常值干扰，平均值被慢请求拉偏，P99 更稳定。计
+// 算方法，将延迟排序，获取 99% 位置的延迟值。
+//
+// 线程批量值的动态调整，例如每毫秒平均到达事件个数大于100，批量增大一倍最大256，每毫秒
+// 事件到达个数小于10个并且等待线程的数量大于50%，将批量值减小一倍最小为1。或者每个线程
+// 根据自己的接收情况动态调整批量值，当一段时间内，当高于80%概率都是以满批量处理时，经常
+// 填满，竞争不足，可以增大批量。当高于30%概率接收都为空时，经常空等，竞争过度，线程经常
+// 没事做需要去竞争夺取事件来处理，减小批量。
+//
+// 调度线程如何调度事件？当协程事件到来时，如果线程为活跃线程，且线程还未填满，投递到该
+// 线程处理，如果所属线程已经睡眠，唤醒最近的一个线程来处理。如何调整线程的批量处理值？
 
 void prh_impl_ehub_schedule(void) {
     OVERLAPPED_ENTRY *entry = PRH_IMPL_SCHD.iocp_entry;
@@ -38284,7 +38342,7 @@ int prh_lexer_separator(prh_lexer *l, prh_byte c) {
 //
 // 13 名字空间，从左到右结合（--->）： a::b
 // 12 成员访问，从左到右结合（--->）： 成员变量 a.b a->b 函数调用 a() 数组访问也通过函数调用方式
-// 11 函数组合，从右至左结合（<---）： f~g~h(x) 相当于 f(g(h(x)))
+// 11 函数组合，从右至左结合（<---）： f~g~h(x) 相当于 f(g(h(x)))，f/g/h(x)
 // 10 一元操作，从右到左结合（<---）： + - ! ^ fer der sizeof typeof 类型转换 type expr 指针引用数组元组等类型声明
 // 09 乘法系列，从左到右结合（--->）： * / % & &^ ^ ^^ | |^ << <<< >> >>>
 // 08 加法系列，从左到右结合（--->）： + -
