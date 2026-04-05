@@ -23120,7 +23120,7 @@ prh_static_assert((PRH_BRAVER_MEMORY_DEFAULT_SIZE % prh_vmem_unit_size) == 0);
 prh_static_assert(PRH_EHUB_MAX_BATCH_SIZE >= 8);
 
 void prh_ehub_init(prh_r32 worker_thrds); // 必须由主线程调用
-void prh_ehub_schedule(void);
+void prh_ehub_schedule(void); // 必须由主线程调用
 void prh_ehub_join(void); // 必须由主线程调用
 void prh_ehub_exit(void); // 可以由任意线程调用
 
@@ -23193,18 +23193,23 @@ typedef struct {
     prh_reg hEvent;
 } prh_impl_overlapped;
 
+typedef struct {
+    /* +5p +4p */ prh_impl_overlapped overlapped;
+    /* +1p +1p */ void *target_thrd;
+    /* +1p +1p */ void *param;
+} prh_overlapped;
+
 typedef struct prh_yield prh_yield;
 typedef struct prh_co_struct prh_co_struct;
 typedef prh_yield *(*prh_co_proc)(prh_co_struct *);
 
 typedef struct { // 无栈异步协程实现
-    /* +5p +4p */ prh_impl_overlapped overlapped;
-    /* +1p +1p */ void *request_thrd;
+    /* +7p +6p */ prh_overlapped overlapped;
     /* +1p +1p */ prh_co_proc proc;
     /* +1p +1p */ prh_co_proc error_handling;
     /* +1p +1p */ prh_reg yield;
     /* +1p +1p */ prh_reg error_yield;
-    /* 10p  9p */
+    /* 11p 10p */
 } prh_co_struct;
 
 #define prh_co_start case 0
@@ -23226,6 +23231,10 @@ prh_static_assert(sizeof(HANDLE) == sizeof(prh_reg));
 prh_static_assert(sizeof(DWORD) == sizeof(prh_r32));
 prh_static_assert(sizeof(PVOID) == sizeof(prh_reg));
 prh_static_assert(sizeof(prh_impl_overlapped) == sizeof(OVERLAPPED));
+prh_static_assert(prh_offsetof(prh_impl_overlapped, Internal) == prh_offsetof(OVERLAPPED, Internal));
+prh_static_assert(prh_offsetof(prh_impl_overlapped, InternalHigh) == prh_offsetof(OVERLAPPED, InternalHigh));
+prh_static_assert(prh_offsetof(prh_impl_overlapped, Offset) == prh_offsetof(OVERLAPPED, Offset));
+prh_static_assert(prh_offsetof(prh_impl_overlapped, OffsetHigh) == prh_offsetof(OVERLAPPED, OffsetHigh));
 prh_static_assert(prh_offsetof(prh_impl_overlapped, hEvent) == prh_offsetof(OVERLAPPED, hEvent));
 
 void prh_impl_co_ready(prh_co_struct *co) {
@@ -23243,7 +23252,10 @@ void prh_impl_co_error_handling(prh_co_struct *co) {
 #define PRH_IMPL_QUEUE_BLOCK_SIZE_L0 ((int)(16 * sizeof(void *)))    //  64/128 字节
 #define PRH_IMPL_QUEUE_BLOCK_SIZE_L1 ((int)(32 * sizeof(void *)))    // 128/256 字节
 #define PRH_IMPL_QUEUE_BLOCK_SIZE_L2 ((int)(64 * sizeof(void *)))    // 256/512 字节
-#define PRH_IMPL_QUEUE_BLOCK_SIZE_L3 ((int)(128 * sizeof(void *)))   // 512/1024字节
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L3 ((int)(128 * sizeof(void *)))   // 512/1KB
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L4 ((int)(256 * sizeof(void *)))   // 1KB/2KB
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L5 ((int)(512 * sizeof(void *)))   // 2KB/4KB
+#define PRH_IMPL_QUEUE_BLOCK_SIZE_L6 ((int)(1024 * sizeof(void *)))  // 4KB/8KB
 
 #define PRH_EHUB_QUEUE_BLOCK_SIZE PRH_IMPL_QUEUE_BLOCK_SIZE_L3
 #define PRH_EHUB_QUEUE_BLOCK_ENDP (PRH_EHUB_QUEUE_BLOCK_SIZE - prh_cache_line_size)
@@ -23332,7 +23344,7 @@ void prh_co_load(prh_co_struct *co, prh_co_proc proc, prh_co_proc error_handling
     co->error_handling = error_handling;
     co->yield = 0;
     co->error_yield = 0;
-    co->request_thrd = prh_ehub_thrd_self();
+    co->target_thrd = prh_ehub_thrd_self();
 }
 
 void prh_impl_ehub_thrd_sleep(prh_ehub_thrd *thrd) {
@@ -24054,21 +24066,35 @@ void prh_impl_schd_send_task_end(prh_ehub_thrd *thrd) {
 // 并设置错误码）就不怎么有用了。
 
 static HANDLE PRH_IMPL_IOCP;
-typedef void (*prh_io_complete)(prh_io_request *req);
+typedef void (*prh_io_complete)(prh_overlapped *overlapped);
+prh_static_assert(sizeof(NTSTATUS) == sizeof(prh_r32));
 
-void prh_impl_iocp_post_complete_entry(prh_io_complete completion_key, void *overlapped) {
-    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)completion_key, .lpOverlapped = overlapped};
+void prh_impl_iocp_post_complete_entry(prh_io_complete completion_routine, prh_overlapped *overlapped) {
+    assert(completion_routine != prh_null && overlapped != prh_null);
+    OVERLAPPED_ENTRY overlapped_entry = {.lpCompletionKey = (ULONG_PTR)completion_routine, .lpOverlapped = overlapped};
     prh_impl_completion_port_post(PRH_IMPL_IOCP, &overlapped_entry);
 }
 
-static void prh_impl_iocp_entry_complete(prh_io_request *req) { // 被 prh_impl_schd_complete_iocp_entry 函数调用
-    OVERLAPPED *overlapped = (OVERLAPPED *)&req->overlapped;
-    if (overlapped->Internal) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
-        prh_prerr((prh_r32)overlapped->Internal);
-        DWORD error_code = RtlNtStatusToDosError((NTSTATUS)overlapped->Internal); // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
-        overlapped->Internal = error_code;
+static void prh_impl_iocp_entry_complete(prh_impl_overlapped *overlapped) { // 由调度线程投递给工作线程执行
+    if (overlapped->sys_raw_error) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
+        prh_prerr(overlapped->sys_raw_error);
+        DWORD error_code = RtlNtStatusToDosError((NTSTATUS)overlapped->sys_raw_error);
+        overlapped->sys_raw_error = error_code; // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
     }
-    ((prh_iocp_continue)overlapped->hEvent)(overlapped); // 调用 <operation>_completed_from_port 函数，该函数向 iocp_continue_que 投递一个线程任务
+    ((prh_iocp_continue)overlapped->hEvent)(overlapped); // 调用由 prh_impl_iocp_continue_routine 注册的函数
+}
+
+void prh_impl_schd_overlapped_entry_check(OVERLAPPED_ENTRY *entry, OVERLAPPED *overlapped) {
+#if PRH_DEBUG
+    prh_io_complete completion_routine = (prh_io_complete)entry->lpCompletionKey;
+    if (completion_routine == prh_impl_iocp_entry_complete) {
+        assert(entry->Internal == overlapped->Internal);
+        assert(entry->dwNumberOfBytesTransferred == overlapped->InternalHigh);
+        assert(overlapped->Internal == ((prh_impl_overlapped *)overlapped)->sys_raw_error);
+        assert(overlapped->InternalHigh == ((prh_impl_overlapped *)overlapped)->bytes_transferred);
+    }
+#endif
+    assert(completion_routine != prh_null);
 }
 
 void prh_impl_iocp_register_handle(prh_handle handle) {
@@ -24122,7 +24148,7 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
 }
 
 prh_ehub_thrd *prh_impl_schd_get_active_thrd(prh_ehub_thrd *thrd, prh_r32 batch_size) {
-    if (thrd->sleep == false && prh_atom_r32_read(&thrd->thrd_task_rx_qlen) < batch_size) {
+    if (thrd != prh_null && thrd->sleep == false && prh_atom_r32_read(&thrd->thrd_task_rx_qlen) < batch_size) {
         return thrd;
     }
     return prh_impl_schd_pop_waiting_thrd();
@@ -24209,6 +24235,7 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
     OVERLAPPED_ENTRY *entry = prh_null;
     OVERLAPPED_ENTRY *entry_end = prh_null;
     prh_ehub_thrd *thrds = PRH_IMPL_SCHD.thrds;
+    prh_ehub_thrd *curr_thrd;
     prh_r32 activity, idle_cycle = 0, worker_thrds = PRH_IMPL_SCHD.total_thrds - 1;
     prh_r32 sleep_limit = prh_set_value_32_if_zero(PRH_IMPL_SCHD.total_thrds / 3, 1);
     prh_r32 entry_count, average_entries_per_thread, active_threads_needed;
@@ -24238,33 +24265,23 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
         }
 
         for (; entry < entry_end; entry += 1) {
-            prh_io_request *req = (prh_io_request *)entry->lpOverlapped;
-            prh_io_complete completion_routine = (prh_io_complete)entry->lpCompletionKey;
-        #if PRH_DEBUG
-            if (completion_routine == prh_impl_iocp_entry_complete) {
-                assert(entry->Internal == req->overlapped.Internal);
-                assert(entry->dwNumberOfBytesTransferred == req->overlapped.InternalHigh);
-            }
-        #endif
-            assert(completion_routine != prh_null);
-            prh_ehub_thrd *thrd = prh_impl_schd_get_active_thrd((prh_ehub_thrd *)req->request_thrd, batch_size);
-            if (thrd == prh_null) {
-                break;
-            }
-            prh_impl_schd_send_task_begin(thrd, entry, completion_routine);
-            thrd->schd_give_task_num += 1; // 调用完成键 lpCompletionKey 对应的 prh_io_complete 函数
+            OVERLAPPED *overlapped = entry->lpOverlapped;
+            prh_debug(prh_impl_schd_overlapped_entry_check(entry, overlapped));
+            if (!(curr_thrd = prh_impl_schd_get_active_thrd(((prh_overlapped *)overlapped)->target_thrd, batch_size))) break;
+            prh_impl_schd_send_task_begin(curr_thrd, overlapped, (prh_io_complete)entry->lpCompletionKey);
+            curr_thrd->schd_give_task_num += 1; // 调用完成键 lpCompletionKey 对应的 prh_io_complete 函数
             activity += 1;
         }
 
         for (prh_r32 i = 0; i < PRH_IMPL_SCHD.total_thrds; i += 1) {
-            prh_ehub_thrd *thrd = thrds + i;
+            curr_thrd = thrds + i;
             // 尽快更新任务队列让工作线程处理，必须在 prh_impl_schd_process_post 之前更新，当线程sync_sleep的时候可以立即处理
-            if (thrd->schd_give_task_num) {
-                prh_impl_schd_send_task_end(thrd);
-                thrd->schd_give_task_num = 0;
+            if (curr_thrd->schd_give_task_num) {
+                prh_impl_schd_send_task_end(curr_thrd);
+                curr_thrd->schd_give_task_num = 0;
             }
             // 处理工作线程投递给调度线程的任务，包括sync_sleep
-            activity += prh_impl_schd_process_post(thrd);
+            activity += prh_impl_schd_process_post(curr_thrd);
         }
 
         if (activity) {
@@ -30909,8 +30926,8 @@ void prh_impl_tcp_load_and_start(prh_socket *tcp, prh_co_proc proc, void (*start
     if (tcp->socket == prh_invalid_socket) {
         prh_impl_create_tcp_socket(tcp);
     }
-    tcp->request_thrd = prh_ehub_thrd_self();
-    prh_thrd_post_to_schd(tcp->request_thrd, tcp, start);
+    tcp->target_thrd = prh_ehub_thrd_self();
+    prh_thrd_post_to_schd(tcp->target_thrd, tcp, start);
 }
 
 void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc) {
@@ -31380,7 +31397,7 @@ label_error_handle:
 
 prh_inline void prh_impl_schd_operation_complete(prh_socket *tcp, prh_r32 error_code) {
     tcp->error_code = error_code;
-    prh_impl_schd_send_task(tcp->request_thrd, &tcp->co_struct, prh_impl_co_ready);
+    prh_impl_schd_send_task(tcp->target_thrd, &tcp->co_struct, prh_impl_co_ready);
 }
 
 void prh_impl_schd_accept_error(prh_socket *tcp, prh_r32 error_code) {
@@ -33006,7 +33023,7 @@ void prh_impl_thrd_wsasend_continue(prh_socket *tcp) {
 }
 
 void prh_impl_schd_wsasend_error(prh_socket *tcp) {
-    prh_impl_schd_send_task(tcp->request_thrd, tcp, prh_impl_thrd_wsasend_error_handling);
+    prh_impl_schd_send_task(tcp->target_thrd, tcp, prh_impl_thrd_wsasend_error_handling);
 }
 
 void prh_impl_schd_wsasend_from_port(OVERLAPPED *overlapped) {
@@ -33016,7 +33033,7 @@ void prh_impl_schd_wsasend_from_port(OVERLAPPED *overlapped) {
         prh_prerr(tcp->sys_raw_error);
         prh_impl_schd_wsasend_error(tcp);
     } else {
-        prh_impl_schd_send_task(tcp->request_thrd, tcp, prh_impl_thrd_wsasend_continue);
+        prh_impl_schd_send_task(tcp->target_thrd, tcp, prh_impl_thrd_wsasend_continue);
     }
 }
 
@@ -33025,7 +33042,7 @@ void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) 
     // 这使得应用程序可以构建基于堆栈的 WSABUF 数组。Windows Me/98/95：WSASend 函数
     // 不支持超过 16 个缓冲区。
     WSABUF send_buffer = {(ULONG)size, (CHAR *)data};
-    tcp->request_thrd = prh_ehub_thrd_self();
+    tcp->target_thrd = prh_ehub_thrd_self();
     // 必须先设置，防止竞争条件问题，避免 continue_routine 还没有设置，调度线程就已经
     // 从完成端口查到这个完成事件。当调用一个重叠操作时，例如 WSASend，投递线程在 WSASend
     // 之前写的内存，会保证处理线程拿到的是正确的内容，不会产生竞争条件问题，这时该系统
@@ -33049,7 +33066,7 @@ void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) 
     if (n != 0 && (error_code = WSAGetLastError()) != WSA_IO_PENDING) {
         prh_prerr(error_code);
         tcp->sys_raw_error = error_code ? error_code : WSAEINVAL;
-        prh_thrd_post_to_schd(tcp->request_thrd, tcp, prh_impl_schd_wsasend_error);
+        prh_thrd_post_to_schd(tcp->target_thrd, tcp, prh_impl_schd_wsasend_error);
     }
 }
 
@@ -33473,7 +33490,7 @@ void prh_impl_thrd_wsarecv_continue(prh_socket *tcp) {
 }
 
 void prh_impl_schd_wsarecv_error(prh_socket *tcp) {
-    prh_impl_schd_send_task(tcp->request_thrd, tcp, prh_impl_thrd_wsarecv_error_handling);
+    prh_impl_schd_send_task(tcp->target_thrd, tcp, prh_impl_thrd_wsarecv_error_handling);
 }
 
 void prh_impl_schd_wsarecv_from_port(OVERLAPPED *overlapped) {
@@ -33483,7 +33500,7 @@ void prh_impl_schd_wsarecv_from_port(OVERLAPPED *overlapped) {
         prh_prerr(tcp->sys_raw_error);
         prh_impl_schd_wsarecv_error(tcp);
     } else {
-        prh_impl_schd_send_task(tcp->request_thrd, tcp, prh_impl_thrd_wsarecv_continue);
+        prh_impl_schd_send_task(tcp->target_thrd, tcp, prh_impl_thrd_wsarecv_continue);
     }
 }
 
@@ -33491,7 +33508,7 @@ void prh_impl_thrd_wsarecv_req(prh_socket *tcp) {
     // 如果以重叠方式调用此函数，Winsock 服务提供程序负责在返回之前捕获 WSABUF 结构，
     // 这使得应用程序可以构建基于堆栈的 WSABUF 数组。
     WSABUF recv_buffer = {(ULONG)tcp->recv_buff_size, (CHAR *)tcp->recv_buff};
-    tcp->request_thrd = prh_ehub_thrd_self();
+    tcp->target_thrd = prh_ehub_thrd_self();
     // 标志 MSG_PARTIAL 仅适用于面向消息的套接字，当 lpFlags 作为输入参数时，如果指定
     // 了 MSG_PARTIAL，表示即使收到消息的一部分，接收操作也应完成。当 lpFlags 作为输出
     // 参数时，如果包含了 MSG_PARTIAL 标志，则表示指定的数据是发送方传输的消息的一部分，
@@ -33530,7 +33547,7 @@ void prh_impl_thrd_wsarecv_req(prh_socket *tcp) {
     if (n != 0 && (error_code = WSAGetLastError()) != WSA_IO_PENDING) {
         prh_prerr(error_code);
         tcp->sys_raw_error = error_code ? error_code : WSAEINVAL;
-        prh_thrd_post_to_schd(tcp->request_thrd, tcp, prh_impl_schd_wsarecv_error);
+        prh_thrd_post_to_schd(tcp->target_thrd, tcp, prh_impl_schd_wsarecv_error);
     }
 }
 
