@@ -2959,12 +2959,14 @@ void prh_main_init(void) {
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
     extern void prh_impl_plat_set_fault_handler(void);
     prh_impl_plat_set_fault_handler();
-    extern void prh_impl_prepare_main_thrd(void);
-    prh_impl_prepare_main_thrd();
 #endif
 #if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
     extern void prh_impl_time_init(void);
     prh_impl_time_init();
+#endif
+#if defined(PRH_EHUB_INCLUDE) && defined(PRH_EHUB_IMPLEMENTATION)
+    extern void prh_impl_ehub_prepare_main(void);
+    prh_impl_ehub_prepare_main();
 #endif
 #if defined(prh_plat_windows)
 #if PRH_DEBUG
@@ -15482,6 +15484,7 @@ extern prh_thread_local prh_thrd *PRH_IMPL_THRD;
 void prh_impl_plat_thrd_start(prh_thrd *thrd, prh_thrd_proc proc, prh_reg reserved_stack_size);
 void prh_impl_plat_thrd_join(prh_reg handle, prh_r32 thrd_id);
 void prh_impl_plat_thrd_exit(int exit_code);
+void prh_impl_prepare_main_thrd(prh_thrd *thrd);
 
 prh_inline void *prh_thrd_self(void) { return PRH_IMPL_THRD; }
 prh_inline void prh_thrd_start(prh_thrd *thrd, prh_thrd_proc proc, prh_reg stacksize) { prh_impl_plat_thrd_start(thrd, proc, stacksize); }
@@ -15491,8 +15494,6 @@ prh_inline void prh_prepare_thrd_id(prh_thrd *thrd, prh_r32 id) { thrd->thrd_id 
 
 #ifdef PRH_THRD_IMPLEMENTATION
 prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
-static prh_thrd prh_impl_main_thrd;
-prh_thrd *PRH_IMPL_MAIN = prh_null;
 
 void prh_impl_thrd_prepare(prh_thrd *thrd) {
     PRH_IMPL_THRD = thrd;
@@ -15512,11 +15513,10 @@ int prh_impl_thrd_start_proc(prh_thrd *thrd) {
     return proc(thrd);
 }
 
-void prh_impl_prepare_main_thrd(void) {
+void prh_impl_prepare_main_thrd(prh_thrd *main) {
     extern prh_reg prh_impl_plat_thrd_self(void);
     main->handle = prh_impl_plat_thrd_self();
-    prh_impl_thrd_prepare(&prh_impl_main_thrd);
-    PRH_IMPL_MAIN = &prh_impl_main_thrd;
+    prh_impl_thrd_prepare(main);
 }
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
@@ -17028,6 +17028,19 @@ prh_inline void prh_wake_address_single(void *address) {
 //  3.  在不支持超线程的处理器上，PAUSE 指令等价于 REP NOP 指令，相当于执行空指令
 //  4.  该函数仅涉及处理器内部的指令级并行（ILP），并不涉及线程级并行（TLP）
 //  5.  其作用范围仅涉及处理器指令级优化，仅提示处理器优化流水线
+//
+// YieldProcessor() 的延迟非常短，通常在 10-100 个时钟周期 级别，具体取决于硬件实现。
+//  平台        指令实现                            典型延迟
+//  x86/x64     PAUSE (F3 90) 或 REP NOP (旧)       ~10-40 周期
+//  ARM         YIELD (ARMv6+) 或 WFE/WFE           ~5-20 周期
+//  Intel HT    提示超线程切换                      ~10-15 周期
+//  AMD         PAUSE 变体                          ~50-100 周期
+//
+// 与上下文切换相比：
+//  YieldProcessor()    ~10-100 周期        用户态，无特权切换
+//  SwitchToThread()    ~1000+ 周期         内核态线程切换
+//  Sleep(0)            ~1000-10000 周期    进入内核调度器
+//  Sleep(1)            ~1-15 毫秒          强制时间片放弃
 #define prh_yield_processor() YieldProcessor()
 
 // 函数 BOOL SwitchToThread() 可以切换到另一个可调度线程。调用该函数时，系统查看是否
@@ -17053,6 +17066,16 @@ prh_inline void prh_wake_address_single(void *address) {
 // 限制了可以运行的关联线程数量。如果已达到最大线程数，在正在运行的线程完成之前，不能运
 // 行额外的关联线程。如果线程使用 SwitchToThread 等待某个额外的关联线程完成某些工作，
 // 进程可能会发生死锁。
+//
+// 现代操作系统线程时间片通常在 1-10 毫秒 范围内，具体取决于操作系统和调度策略。主流操
+// 作系统对比：
+//      操作系统            默认时间片               说明
+//      Windows             ~10-15 毫秒（客户端）   可变，后台任务可能更长
+//      Windows Server      ~180 毫秒               吞吐量优先
+//      Linux (CFS)         ~4-8 毫秒（默认 6ms）   完全公平调度器，动态调整
+//      macOS               ~10 毫秒                Mach 内核，基于优先级
+//      FreeBSD             ~1-10 毫秒              可配置
+//      实时系统 (RTOS)     ~100 微秒 - 1 毫秒      确定性要求
 
 bool prh_switch_to_next_thread_on_current_processor(void) {
     //  1.  切换到当前处理器上准备运行的另一个线程执行，操作系统选择下一个要执行的线程
@@ -23097,6 +23120,7 @@ prh_static_assert((PRH_BRAVER_MEMORY_DEFAULT_SIZE % prh_vmem_unit_size) == 0);
 prh_static_assert(PRH_EHUB_MAX_BATCH_SIZE >= 8);
 
 void prh_ehub_init(prh_r32 worker_thrds); // 必须由主线程调用
+void prh_ehub_schedule(void);
 void prh_ehub_join(void); // 必须由主线程调用
 void prh_ehub_exit(void); // 可以由任意线程调用
 
@@ -23119,6 +23143,13 @@ extern prh_impl_global PRH_GLOBAL;
 
 #ifdef PRH_EHUB_IMPLEMENTATION
 prh_impl_global PRH_GLOBAL;
+static prh_thrd prh_impl_ehub_main;
+prh_thrd *PRH_EHUB_MAIN = prh_null;
+
+void prh_impl_ehub_prepare_main(void) {
+    prh_impl_prepare_main_thrd(&prh_impl_ehub_main);
+    PRH_EHUB_MAIN = &PRH_EHUB_MAIN;
+}
 #endif // PRH_EHUB_IMPLEMENTATION
 #endif // PRH_EHUB_INCLUDE
 
@@ -23264,15 +23295,15 @@ typedef struct {
 } prh_ehub_post;
 
 typedef struct prh_impl_ehub_thrd {
-    /* +2p +2p */ prh_thrd thrd_struct; // 仅被当前线程修改的字段
-    /* +1p +1p */ void **give_back_rx_head; // 当前线程接收调度线程返还的内存块
-    /* +1p +1p */ void **thrd_task_rx_head; // 当前线程接收调度线程分派的任务
-    /* +1p +1p */ void **thrd_self_rx_head; // 线程自己投递给自己的任务
-    /* +1p +1p */ void **thrd_self_rx_tail; // 线程自己投递给自己的任务
-    /* +1p +1p */ prh_byte *braver_cache_line; // 仅分配不释放的线程内存块，勇往直前永不后退分配器
-    /* +1p +1p */ prh_atom_reg tx_to_schd_tail; // 发送给调度线程的消息，被当前线程修改，调度线程只读
+    prh_thrd thrd_struct; // 仅被当前线程修改的字段
+    void **give_back_rx_head; // 当前线程接收调度线程返还的内存块
+    void **thrd_task_rx_head; // 当前线程接收调度线程分派的任务
+    void **thrd_self_rx_head; // 线程自己投递给自己的任务
+    void **thrd_self_rx_tail; // 线程自己投递给自己的任务
+    prh_byte *braver_cache_line; // 仅分配不释放的线程内存块，勇往直前永不后退分配器
+    prh_atom_reg tx_to_schd_tail; // 发送给调度线程的消息，被当前线程修改，调度线程只读
 #if PRH_DEBUG
-    /* +1p +1p */ prh_reg used_virtual_size;
+    prh_reg used_virtual_size;
 #endif
     prh_alignas(prh_cache_line_size) // 仅被调度线程修改的字段
     struct prh_impl_ehub_thrd *next; // 仅被调度线程修改
@@ -23280,11 +23311,12 @@ typedef struct prh_impl_ehub_thrd {
     void **schd_task_rx_head; // 调度线程接收发送给调度线程的消息
     void **schd_give_task_tail; // 调度线程给当前线程分配任务
     prh_r32 schd_give_task_num; // 临时记录分配的任务数量
-    prh_atom_bool rx_activity; // 仅由调度线程修改
+    prh_atom_bool thrd_exit; // 仅由调度线程修改
     prh_atom_bool sleep; // 仅由调度线程修改
     prh_alignas(prh_cache_line_size) // 被当前线程和调度线程修改的字段
     prh_atom_r32 thrd_task_rx_qlen;
     prh_atom_bool sleep_synced;
+    prh_atom_bool exit_synced;
 } prh_ehub_thrd;
 
 prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd);
@@ -23494,8 +23526,8 @@ void prh_impl_schd_free(void) {
 }
 
 void prh_ehub_init(prh_r32 worker_thrds) {
-    assert(PRH_IMPL_MAIN != prh_null); // prh_main_init 必须已经调用
-    assert(PRH_IMPL_THRD == PRH_IMPL_MAIN); // 必须由主线程调用
+    assert(PRH_EHUB_MAIN != prh_null); // prh_main_init 必须已经调用
+    assert(PRH_IMPL_THRD == PRH_EHUB_MAIN); // 必须由主线程调用
     PRH_IMPL_IOCP = prh_impl_create_completion_port(1); // 仅由调度线程等待并处理该完成端口的完成数据
     prh_impl_schd_prepare(worker_thrds);
 
@@ -23509,7 +23541,7 @@ void prh_ehub_init(prh_r32 worker_thrds) {
     }
 
     prh_impl_ehub_thrd_init(main_thrd); // 初始化主线程
-    main_thrd->thrd_struct = *PRH_IMPL_MAIN;
+    main_thrd->thrd_struct = *PRH_EHUB_MAIN;
     PRH_IMPL_THRD = (prh_thrd *)main_thrd;
 
     for (prh_r32 i = 1; i < PRH_IMPL_SCHD.total_thrds; i += 1) { // 初始化和启动除主线程之外的所有工作线程
@@ -23518,11 +23550,12 @@ void prh_ehub_init(prh_r32 worker_thrds) {
     }
 }
 
-void prh_impl_schd_post_init(prh_ehub_thrd *thrd) {
+void prh_impl_schd_wakeup_workers(prh_ehub_thrd *thrd) {
     prh_ehub_thrd *schd_thrd = PRH_IMPL_SCHD.schd_thrd;
     prh_ehub_thrd *main_thrd = PRH_IMPL_SCHD.thrds;
     assert(thrd == schd_thrd && prh_ehub_thrd_self() == schd_thrd); // 必须由调度线程调用
     prh_prepare_thrd_id(&thrd->thrd_struct, prh_impl_ehub_thrd_index(thrd));
+
     if (schd_thrd != main_thrd) {
         prh_impl_schd_init_thrd_rx_queue(schd_thrd, schd_thrd);
     }
@@ -23625,7 +23658,6 @@ prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd) {
 
 struct prh_ehub_thrd_post;
 typedef struct prh_ehub_thrd_post *(*prh_ehub_thrd_cont)(prh_ehub_thrd *thrd, struct prh_ehub_thrd_post *post);
-
 typedef struct {
     void *post; // post 和 task 必须赋值，避免与 PRH_EHUB_BLOCK_END 冲突
     prh_cont cont;
@@ -23661,6 +23693,20 @@ prh_ehub_thrd_post *prh_impl_thrd_skip_empty(prh_ehub_thrd *thrd, prh_ehub_thrd_
     return post;
 }
 
+bool prh_impl_thrd_cycle(prh_ehub_thrd *thrd) {
+    prh_r32 thrd_task_rx_qlen = prh_atom_r32_read(&thrd->thrd_task_rx_qlen);
+    extern bool prh_impl_thrd_self_task(thrd);
+    if (!thrd_task_rx_qlen) return prh_impl_thrd_self_task();
+    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)thrd->thrd_task_rx_head;
+    prh_r32 batch_size = prh_atom_r32_read(&PRH_IMPL_SCHD.batch_size);
+    batch_size = prh_set_value_32_if_true(thrd_task_rx_qlen < batch_size, thrd_task_rx_qlen, batch_size);
+    prh_atom_r32_sub(&thrd->thrd_task_rx_qlen, batch_size);
+    do { post = post->task(thrd, post); } while (--batch_size > 0);
+    thrd->thrd_task_rx_head = (void **)post;
+    prh_impl_thrd_self_task(thrd);
+    return true;
+}
+
 void prh_thrd_post_to_self(void *priv, prh_cont cont) {
     prh_ehub_thrd *thrd = prh_ehub_thrd_self();
     prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_self_rx_tail;
@@ -23675,23 +23721,19 @@ void prh_thrd_post_to_self(void *priv, prh_cont cont) {
     thrd->thrd_self_rx_tail = tail;
 }
 
-void prh_impl_thrd_self_task(prh_ehub_thrd *thrd) {
-
-}
-
-bool prh_impl_thrd_cycle(prh_ehub_thrd *thrd) {
-    prh_r32 thrd_task_rx_qlen = prh_atom_r32_read(&thrd->thrd_task_rx_qlen);
-    if (!thrd_task_rx_qlen) return false;
-    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)thrd->thrd_task_rx_head;
-    prh_r32 batch_size = prh_atom_r32_read(&PRH_IMPL_SCHD.batch_size);
-    batch_size = prh_set_value_32_if_true(thrd_task_rx_qlen < batch_size, thrd_task_rx_qlen, batch_size);
-    prh_atom_r32_sub(&thrd->thrd_task_rx_qlen, batch_size);
-    do {
-        post = post->task(thrd, post);
-        batch_size -= 1;
-    } while (batch_size > 0);
-    thrd->thrd_task_rx_head = (void **)post;
-    prh_impl_thrd_self_task(thrd);
+bool prh_impl_thrd_self_task(prh_ehub_thrd *thrd) {
+    prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_self_rx_head;
+    prh_ehub_post *tail = (prh_ehub_post *)thrd->thrd_self_rx_tail;
+    if (post == tail) return false;
+label_continue:
+    post->cont(post->post);
+    post += 1;
+    if (((void **)post)[0] == PRH_EHUB_BLOCK_END) {
+        void **block_end = (void **)post;
+        post = (prh_ehub_post *)((void **)post)[1];
+        prh_impl_thrd_give_free_block(thrd, block_end);
+    }
+    if (post != tail) goto label_continue;
     return true;
 }
 
@@ -23750,54 +23792,56 @@ bool prh_impl_thrd_cycle(prh_ehub_thrd *thrd) {
 //  4.  该函数仅涉及处理器内部的指令级并行（ILP），并不涉及线程级并行（TLP）
 //  5.  其作用范围仅涉及处理器指令级优化，仅提示处理器优化流水线
 
-#define PRH_IMPL_THRD_SPIN_COUNT 1200
+#define PRH_IMPL_THRD_SPIN_COUNT 4096
 
 static int prh_impl_thrd_routine(prh_ehub_thrd *thrd) {
     int sync_count, spin_count;
     prh_prepare_thrd_id(&thrd->thrd_struct, prh_impl_ehub_thrd_index(thrd));
     prh_impl_ehub_thrd_sleep(thrd); // 等待调度线程运行
 
-label_continue_rx:
-    if (prh_impl_thrd_cycle(thrd)) {
-        goto label_continue_rx;
-    }
-
-    sync_count = 0;
-    prh_atom_bool_write(&thrd->sleep_synced, false);
-    extern void prh_impl_thrd_sleep_sync(prh_ehub_thrd *thrd);
-    prh_impl_thrd_sleep_sync(thrd);
-label_wait_sleep_sync: // 仅当 single_thread_program 为假时才忙等
-    if (prh_atom_bool_read(&thrd->sleep_synced) == false) {
-        sync_count += 1;
-        goto label_wait_sleep_sync;
-    }
-    prh_debug(printf("[thrd %02d] sync_count %d\n", thrd->thrd_struct.thrd_id, sync_count));
-    if (prh_atom_bool_read(&thrd->sleep) == false) {
-        goto label_continue_rx; // 不允许睡眠
-    }
-
-    // 忙等一段时间看是否会被马上唤醒处理新任务
-    spin_count = 0;
-label_spin_for_wakeup:
-    if (spin_count < PRH_IMPL_THRD_SPIN_COUNT) {
-        if (prh_atom_bool_read(&thrd->sleep)) {
-            spin_count += 1;
-            goto label_spin_for_wakeup;
-        } else {
-            goto label_thrd_wakeup;
+    for (; ;) {
+        if (prh_impl_thrd_cycle(thrd)) {
+            continue;
         }
+
+        sync_count = 0;
+        prh_atom_bool_write(&thrd->sleep_synced, false);
+        extern void prh_impl_thrd_sleep_sync(prh_ehub_thrd *thrd);
+        prh_impl_thrd_sleep_sync(thrd);
+    label_wait_sleep_sync: // 仅当 single_thread_program 为假时才忙等
+        if (prh_atom_bool_read(&thrd->sleep_synced) == false) {
+            sync_count += 1;
+            goto label_wait_sleep_sync;
+        }
+        prh_debug(printf("[thrd %02d] sync_count %d\n", thrd->thrd_struct.thrd_id, sync_count));
+        if (prh_atom_bool_read(&thrd->sleep) == false) {
+            continue; // 不允许睡眠
+        }
+
+        // 忙等一段时间看是否会被马上唤醒处理新任务
+        spin_count = 0;
+    label_spin_for_wakeup:
+        if (spin_count < PRH_IMPL_THRD_SPIN_COUNT) {
+            if (prh_atom_bool_read(&thrd->sleep)) {
+                prh_yield_processor();
+                spin_count += 1;
+                goto label_spin_for_wakeup;
+            } else {
+                goto label_thrd_wakeup;
+            }
+        }
+        prh_debug(printf("[thrd %02d] spin_count %d\n", thrd->thrd_struct.thrd_id, spin_count));
+        prh_impl_ehub_thrd_sleep(thrd); // 没有被马上唤醒，真正进入内核等待唤醒
+
+    label_thrd_wakeup: // 线程被唤醒
+        if (!prh_atom_bool_read(&thrd->thrd_exit)) {
+            continue;
+        }
+
+        prh_debug(printf("[thrd %02d] exit\n", thrd->thrd_struct.thrd_id));
+        break;
     }
-    prh_debug(printf("[thrd %02d] spin_count %d\n", thrd->thrd_struct.thrd_id, spin_count));
 
-    // 没有被马上唤醒，真正进入内核等待唤醒
-    prh_impl_ehub_thrd_sleep(thrd);
-
-label_thrd_wakeup: // 线程被唤醒
-    if (prh_atom_bool_read(&thrd->rx_activity)) {
-        goto label_continue_rx;
-    }
-
-    prh_debug(printf("[thrd %02d] exit\n", thrd->thrd_struct.thrd_id));
     return 0;
 }
 
@@ -23962,7 +24006,6 @@ void prh_impl_schd_send_task_end(prh_ehub_thrd *thrd) {
     }
     prh_atom_r32_add(&thrd->thrd_task_rx_qlen, thrd->schd_give_task_num);
     if (thrd->sleep) {
-        thrd->rx_activity = true;
         prh_impl_schd_wakeup_thrd(thrd);
     }
 }
@@ -24071,12 +24114,10 @@ void prh_impl_schd_handle_exit(void) {
 }
 
 void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
-    if ((idle_cycle % 1024) == 0) {
-        if ((idle_cycle % 4096) == 0) {
-            prh_switch_to_any_equal_or_higher_ready_thread();
-        } else {
-            prh_yield_processor();
-        }
+    if ((idle_cycle % 4096) == 0) {
+        prh_switch_to_next_thread_on_current_processor();
+    } else {
+        prh_yield_processor();
     }
 }
 
@@ -24164,7 +24205,7 @@ prh_r32 prh_impl_schd_update_batch_size(prh_r32 batch_size_shift) {
 // 线程处理，如果所属线程已经睡眠，唤醒最近的一个线程来处理。如何调整线程的批量处理值？
 
 int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
-    prh_impl_schd_post_init(schd_thrd);
+    prh_impl_schd_wakeup_workers(schd_thrd);
     OVERLAPPED_ENTRY *entry = prh_null;
     OVERLAPPED_ENTRY *entry_end = prh_null;
     prh_ehub_thrd *thrds = PRH_IMPL_SCHD.thrds;
@@ -28027,8 +28068,8 @@ typedef struct {
     };
 } prh_socket;
 
-prh_inline bool prh_is_sock_ipv6(const prh_sock_addr *p) { return p->family == PRH_IPV6; }
-prh_inline bool prh_tcp_ipv6_socket(prh_socket *tcp) { return tcp->ipv6 == 1; }
+prh_inline bool prh_sock_addr_ipv6(const prh_sock_addr *p) { return p->family == PRH_IPV6; }
+prh_inline bool prh_tcp_socket_ipv6(prh_socket *tcp) { return tcp->ipv6 == 1; }
 prh_inline prh_r16 prh_tcp_local_port(prh_socket *tcp) { return prh_be_to_host_16(tcp->local.port); }
 prh_inline prh_r16 prh_tcp_remote_port(prh_socket *tcp) { return prh_be_to_host_16(tcp->remote.port); }
 
@@ -28037,11 +28078,16 @@ prh_socket *prh_tcp_accept(prh_listen *l, prh_reg datasize);
 void prh_tcp_reuse_accept(prh_socket *tcp, prh_listen *l);
 void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc);
 
-
 prh_socket *prh_tcp_connect(const char *host, prh_reg port, prh_reg datasize);
 void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp);
 void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc);
-bool prh_impl_tcp_wait_open(prh_socket *tcp, prh_co_proc proc, pro_co_proc error_handling);
+
+#define prh_tcp_wait_open(tcp, proc, error_handling) do {                       \
+    extern void prh_impl_tcp_wait_open(prh_socket *tcp, prh_co_proc proc, pro_co_proc error_handling); \
+    prh_impl_tcp_wait_open((tcp), (proc), (error_handling));                    \
+    return (prh_yield *)(prh_reg)__LINE__;                                      \
+case __LINE__:                                                                  \
+} while (0)
 
 prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size);
 void prh_tcp_recv(prh_socket *tcp, prh_byte *recv_buff, prh_r32 buff_size);
@@ -30820,7 +30866,7 @@ void prh_impl_init_accept(prh_socket *t, prh_listen *l) {
     t->listen = l;
     t->socket = prh_invalid_socket;
     t->local.family = l->local.family;
-    t->ipv6 = prh_is_sock_ipv6(&l->local); // send_size 暂存 accept 时的地址大小
+    t->ipv6 = prh_sock_addr_ipv6(&l->local); // send_size 暂存 accept 时的地址大小
     t->send_size = t->ipv6 ? (prh_r32)sizeof(struct sockaddr_in6) : (prh_r32)sizeof(struct sockaddr_in);
     t->tcp = 1;
     t->accept = 1;
@@ -32397,7 +32443,7 @@ label_connected:
     }
 }
 
-bool prh_impl_thrd_connect_req(prh_socket *tcp) {
+void prh_impl_thrd_connect_req(prh_socket *tcp) {
     assert(tcp->socket != prh_invalid_socket);
     prh_impl_overlapped *overlapped = &tcp->co_struct.overlapped;
     // 必须先设置，防止竞争条件问题，避免 continue_routine 还没有设置，调度线程就已经从完成端口查到这个完成事件
@@ -32412,7 +32458,7 @@ bool prh_impl_thrd_connect_req(prh_socket *tcp) {
         /* [in]           LPOVERLAPPED lpOverlapped */ (OVERLAPPPED *)overlapped);
     DWORD error_code; // 请求立即完成（b == TRUE）或请求已经成功投递（WSA_IO_PENDING）
     if (b || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
-        return false;
+        return;
     }
     prh_prerr(error_code);
     error_code = error_code ? error_code : WSAEINVAL;
@@ -32420,10 +32466,10 @@ bool prh_impl_thrd_connect_req(prh_socket *tcp) {
     tcp->flags.opening = 0;
     if (sys_raw_error == WSAEISCONN) {
         prh_impl_thrd_connect_success(tcp);
-        return true;
+        prh_thrd_post_to_self(&tcp->co_struct, prh_impl_co_ready);
+    } else {
+        prh_thrd_post_to_self(tcp, prh_impl_thrd_connect_error);
     }
-    prh_thrd_post_to_self(tcp, prh_impl_thrd_connect_error);
-    return false;
 }
 
 void prh_impl_thrd_reset_socket(prh_socket *tcp, prh_handle socket) {
@@ -32437,7 +32483,7 @@ void prh_impl_thrd_reset_socket(prh_socket *tcp, prh_handle socket) {
 
 void prh_impl_init_conn_socket(prh_socket *t, prh_handle socket) {
     prh_impl_thrd_reset_socket(t, socket);
-    t->flags.ipv6 = prh_is_sock_ipv6(&t->remote);
+    t->flags.ipv6 = prh_sock_addr_ipv6(&t->remote);
     t->flags.tcp = 1;
     t->flags.accept = 0;
     t->flags.client = 1;
@@ -32475,11 +32521,11 @@ void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc) {
 #endif
 }
 
-bool prh_impl_tcp_wait_open(prh_socket *tcp, prh_co_proc proc, pro_co_proc error_handling) {
+void prh_impl_tcp_wait_open(prh_socket *tcp, prh_co_proc proc, pro_co_proc error_handling) {
     assert(tcp != prh_null && tcp->flags.tcp == 1 && tcp->flags.client == 1 && tcp->flags.opening == 0 && tcp->flags.opened == 0);
     prh_co_load(&tcp->co_struct, proc, error_handling);
     tcp->flags.opening = 1;
-    return prh_impl_thrd_connect_req(tcp);
+    prh_impl_thrd_connect_req(tcp);
 }
 
 // BOOL TransmitFile(
