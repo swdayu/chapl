@@ -23110,8 +23110,9 @@ typedef struct {
     prh_r32 thread_max_batch_size;
     // 是否时单线程应用程序，对单线程应用程序调度线程会作特殊的优化
     bool single_thread_program;
-    // 单独创建一个独立的调度线程
+    // 单独创建一个独立的调度线程，创建独立调度线程时，主线程可配置做其他事
     bool separated_schedule_thread;
+    bool main_thread_do_own_work;
 } prh_impl_global;
 
 extern prh_impl_global PRH_GLOBAL;
@@ -23421,6 +23422,7 @@ typedef struct {
     /* +1p +1p */ prh_ehub_thrd *schd_thrd; // 初始化后只读
     /* +1p +0p */ bool single_thread_program; // 初始化后只读
     /* +0p +0p */ bool separated_schd_thrd; // 初始化后只读
+    /* +0p +0p */ bool main_thrd_as_worker; // 初始化后只读
     /* +1p +1p */ prh_r32 total_thrds;      // 初始化后只读
     /* +1p +0p */ prh_r32 thrds_shift; // 初始化后只读
     /* +1p +1p */ prh_atom_r32 batch_size; // 共享给工作线程访问
@@ -23455,14 +23457,19 @@ void prh_impl_schd_prepare(prh_r32 worker_thrds) {
         worker_thrds = 0;
     } else {
         if (worker_thrds == 0) { // 如果主机只有一个处理器核，工作线程将为零
-            worker_thrds = PRH_IMPL_SCHD.sysinfo.processor_count - 1;
+            worker_thrds = PRH_IMPL_SCHD.sysinfo.processor_count - 1; // 这里表示的工作线程不包括主线程
         }
         if (worker_thrds > 1 && PRH_GLOBAL.separated_schedule_thread) {
-            PRH_IMPL_SCHD.separated_schd_thrd = true;
+            PRH_IMPL_SCHD.separated_schd_thrd = true; // 此时最后一个线程是调度线程，主线程可以配置作为工作线程使用，也可做自己独立的工作
         }
     }
 #endif
-    PRH_IMPL_SCHD.single_thread_program = (worker_thrds == 0);
+    PRH_IMPL_SCHD.single_thread_program = (worker_thrds == 0); // 仅有主线程的程序
+
+    //  1.  当调度线程是主线程时，主线程是调度线程，其他线程都是工作线程
+    //  2.  当调度线程是独立新线程时，主线程可以配置是否做自己独立的工作
+    //  3.  如果主线程不做独立工作，则主线程也是一个工作线程
+    PRH_IMPL_SCHD.main_thrd_as_worker = PRH_IMPL_SCHD.separated_schd_thrd && !PRH_GLOBAL.main_thread_do_own_work;
 
     PRH_IMPL_SCHD.total_thrds = worker_thrds + 1; // 主线程和工作线程
     PRH_IMPL_SCHD.thrds_shift = 0;
@@ -23524,6 +23531,10 @@ void prh_impl_schd_post_init(prh_ehub_thrd *thrd) {
     }
     PRH_IMPL_SCHD.free_block_head = (void **)prh_impl_schd_alloc_block(schd_thrd);
     PRH_IMPL_SCHD.free_block_tail = PRH_IMPL_SCHD.free_block_head;
+
+    if (schd_thrd != main_thrd && PRH_IMPL_SCHD.main_thrd_as_worker) {
+        prh_impl_schd_wakeup_thrd(main_thrd); // 主线程也是运行 prh_impl_thrd_routine 的工作线程
+    }
     for (prh_r32 i = 1; i < PRH_IMPL_SCHD.total_thrds; i += 1) {
         prh_impl_schd_wakeup_thrd(PRH_IMPL_SCHD.thrds + i); // 工作线程默认进入睡眠状态，调度线程启动后唤醒所有工作线程
     }
@@ -23534,8 +23545,14 @@ void prh_ehub_schedule(void) {
     assert(prh_ehub_thrd_self() == main_thrd); // 必须由主线程调用
     extern int prh_impl_schd_routine(prh_ehub_thrd *thrd);
     if (PRH_IMPL_SCHD.schd_thrd == main_thrd) {
-        prh_impl_schd_routine(main_thrd);
+        prh_impl_schd_routine(main_thrd); // 主线程是调度线程
     } else {
+        if (PRH_IMPL_SCHD.main_thrd_as_worker) {
+            prh_impl_thrd_routine(main_thrd); // 主线程是工作线程
+        } else {
+            // 主线程做独立工作，这里会返回到 prh_ehub_schedule 之外做主线程自己的事
+        }
+        // 启动调度线程
         prh_thrd_start(&PRH_IMPL_SCHD.schd_thrd->thrd_struct, (prh_thrd_proc)prh_impl_schd_routine, 0);
     }
 }
