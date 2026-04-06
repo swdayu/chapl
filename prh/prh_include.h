@@ -23194,9 +23194,9 @@ typedef struct {
 } prh_impl_overlapped;
 
 typedef struct {
-    /* +5p +4p */ prh_impl_overlapped overlapped;
+    /* +5p +4p */ prh_impl_overlapped impl;
     /* +1p +1p */ void *target_thrd;
-    /* +1p +1p */ void *param;
+    /* +1p +1p */ void *context;
 } prh_overlapped;
 
 typedef struct prh_yield prh_yield;
@@ -23236,6 +23236,14 @@ prh_static_assert(prh_offsetof(prh_impl_overlapped, InternalHigh) == prh_offseto
 prh_static_assert(prh_offsetof(prh_impl_overlapped, Offset) == prh_offsetof(OVERLAPPED, Offset));
 prh_static_assert(prh_offsetof(prh_impl_overlapped, OffsetHigh) == prh_offsetof(OVERLAPPED, OffsetHigh));
 prh_static_assert(prh_offsetof(prh_impl_overlapped, hEvent) == prh_offsetof(OVERLAPPED, hEvent));
+
+void prh_co_load(prh_co_struct *co, prh_co_proc proc, prh_co_proc error_handling) {
+    assert(co != prh_null && proc != prh_null && error_handling != prh_null);
+    co->proc = proc;
+    co->error_handling = error_handling;
+    co->yield = 0;
+    co->error_yield = 0;
+}
 
 void prh_impl_co_ready(prh_co_struct *co) {
     prh_yield *yield = co->proc(co);
@@ -23336,15 +23344,6 @@ int prh_impl_ehub_thrd_index(prh_ehub_thrd *thrd);
 
 prh_inline prh_ehub_thrd *prh_ehub_thrd_self(void) {
     return (prh_ehub_thrd *)prh_thrd_self();
-}
-
-void prh_co_load(prh_co_struct *co, prh_co_proc proc, prh_co_proc error_handling) {
-    assert(co != prh_null && proc != prh_null && error_handling != prh_null);
-    co->proc = proc;
-    co->error_handling = error_handling;
-    co->yield = 0;
-    co->error_yield = 0;
-    co->target_thrd = prh_ehub_thrd_self();
 }
 
 void prh_impl_ehub_thrd_sleep(prh_ehub_thrd *thrd) {
@@ -24075,7 +24074,7 @@ void prh_impl_iocp_post_complete_entry(prh_io_complete completion_routine, prh_o
     prh_impl_completion_port_post(PRH_IMPL_IOCP, &overlapped_entry);
 }
 
-static void prh_impl_iocp_entry_complete(prh_impl_overlapped *overlapped) { // 由调度线程投递给工作线程执行
+static void prh_impl_thrd_iocp_complete(prh_impl_overlapped *overlapped) { // 由调度线程投递给工作线程执行
     if (overlapped->sys_raw_error) { // 内核会把 NTSTATUS 写进 Internal，成功时为 STATUS_SUCCESS(0)，失败时为对应错误码
         prh_prerr(overlapped->sys_raw_error);
         DWORD error_code = RtlNtStatusToDosError((NTSTATUS)overlapped->sys_raw_error);
@@ -24087,7 +24086,7 @@ static void prh_impl_iocp_entry_complete(prh_impl_overlapped *overlapped) { // �
 void prh_impl_schd_overlapped_entry_check(OVERLAPPED_ENTRY *entry, OVERLAPPED *overlapped) {
 #if PRH_DEBUG
     prh_io_complete completion_routine = (prh_io_complete)entry->lpCompletionKey;
-    if (completion_routine == prh_impl_iocp_entry_complete) {
+    if (completion_routine == prh_impl_thrd_iocp_complete) {
         assert(entry->Internal == overlapped->Internal);
         assert(entry->dwNumberOfBytesTransferred == overlapped->InternalHigh);
         assert(overlapped->Internal == ((prh_impl_overlapped *)overlapped)->sys_raw_error);
@@ -24098,7 +24097,7 @@ void prh_impl_schd_overlapped_entry_check(OVERLAPPED_ENTRY *entry, OVERLAPPED *o
 }
 
 void prh_impl_iocp_register_handle(prh_handle handle) {
-    prh_impl_completion_port_attach(PRH_IMPL_IOCP, (HANDLE)handle, (void *)prh_impl_iocp_entry_complete);
+    prh_impl_completion_port_attach(PRH_IMPL_IOCP, (HANDLE)handle, (void *)prh_impl_thrd_iocp_complete);
 }
 
 prh_inline prh_r32 prh_impl_schd_query_iocp_entries(OVERLAPPED_ENTRY *entry, prh_r32 count, prh_r32 query_wait) { // INFINITE
@@ -24147,8 +24146,8 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
     }
 }
 
-prh_ehub_thrd *prh_impl_schd_get_active_thrd(prh_ehub_thrd *thrd, prh_r32 batch_size) {
-    if (thrd != prh_null && thrd->sleep == false && prh_atom_r32_read(&thrd->thrd_task_rx_qlen) < batch_size) {
+prh_ehub_thrd *prh_impl_schd_select_thread(prh_ehub_thrd *thrd, prh_r32 batch_size) {
+    if (thrd && !thrd->sleep && prh_atom_r32_read(&thrd->thrd_task_rx_qlen) < batch_size) {
         return thrd;
     }
     return prh_impl_schd_pop_waiting_thrd();
@@ -24234,8 +24233,7 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
     prh_impl_schd_wakeup_workers(schd_thrd);
     OVERLAPPED_ENTRY *entry = prh_null;
     OVERLAPPED_ENTRY *entry_end = prh_null;
-    prh_ehub_thrd *thrds = PRH_IMPL_SCHD.thrds;
-    prh_ehub_thrd *curr_thrd;
+    prh_ehub_thrd *thrd, *thrds = PRH_IMPL_SCHD.thrds;
     prh_r32 activity, idle_cycle = 0, worker_thrds = PRH_IMPL_SCHD.total_thrds - 1;
     prh_r32 sleep_limit = prh_set_value_32_if_zero(PRH_IMPL_SCHD.total_thrds / 3, 1);
     prh_r32 entry_count, average_entries_per_thread, active_threads_needed;
@@ -24267,21 +24265,22 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
         for (; entry < entry_end; entry += 1) {
             OVERLAPPED *overlapped = entry->lpOverlapped;
             prh_debug(prh_impl_schd_overlapped_entry_check(entry, overlapped));
-            if (!(curr_thrd = prh_impl_schd_get_active_thrd(((prh_overlapped *)overlapped)->target_thrd, batch_size))) break;
-            prh_impl_schd_send_task_begin(curr_thrd, overlapped, (prh_io_complete)entry->lpCompletionKey);
-            curr_thrd->schd_give_task_num += 1; // 调用完成键 lpCompletionKey 对应的 prh_io_complete 函数
+            if (!(thrd = prh_impl_schd_select_thread(((prh_overlapped *)overlapped)->target_thrd, batch_size))) break;
+            ((prh_overlapped *)overlapped)->target_thrd = thrd;
+            prh_impl_schd_send_task_begin(thrd, overlapped, (prh_io_complete)entry->lpCompletionKey);
+            thrd->schd_give_task_num += 1; // 调用完成键 lpCompletionKey 对应的 prh_io_complete 函数
             activity += 1;
         }
 
         for (prh_r32 i = 0; i < PRH_IMPL_SCHD.total_thrds; i += 1) {
-            curr_thrd = thrds + i;
+            thrd = thrds + i;
             // 尽快更新任务队列让工作线程处理，必须在 prh_impl_schd_process_post 之前更新，当线程sync_sleep的时候可以立即处理
-            if (curr_thrd->schd_give_task_num) {
-                prh_impl_schd_send_task_end(curr_thrd);
-                curr_thrd->schd_give_task_num = 0;
+            if (thrd->schd_give_task_num) {
+                prh_impl_schd_send_task_end(thrd);
+                thrd->schd_give_task_num = 0;
             }
             // 处理工作线程投递给调度线程的任务，包括sync_sleep
-            activity += prh_impl_schd_process_post(curr_thrd);
+            activity += prh_impl_schd_process_post(thrd);
         }
 
         if (activity) {
@@ -24904,7 +24903,7 @@ static void prh_impl_iocp_rio_socket_completion(OVERLAPPED_ENTRY *entry) { // �
             entry->Internal = error_code;
             entry->lpOverlapped = (OVERLAPPED *)(prh_reg)rio_result->RequestContext;
             entry->dwNumberOfBytesTransferred = rio_result->BytesTransferred;
-            prh_impl_iocp_entry_complete(entry);
+            prh_impl_thrd_iocp_complete(entry);
         }
     }
     prh_iocp_rio_notify();
@@ -28062,27 +28061,21 @@ enum {
 };
 
 typedef struct {
-    prh_byte tcp: 1, ipv6: 1, reusable: 1, client: 1, accept: 1, opening: 1, opened: 1;
-    prh_byte closing: 1, closed: 1, sending: 1, send_closed: 1, recving: 1, recv_closed: 1;
+    prh_byte tcp: 1, ipv6: 1, reusable: 1, transferring: 1, client: 1, accept: 1, opening: 1, opened: 1;
+    prh_byte closing: 1, closed: 1, send_closed: 1, recv_closed: 1;
 } prh_impl_sock_flags;
 
 typedef struct {
-    /* 10p +9p */ prh_co_struct co_struct;
+    /* 11p 10p */ prh_co_struct co_struct;
     /* +1p +1p */ prh_handle socket;
     /* +1p +1p */ union { prh_listen *listen; prh_arena_alloc *alloc; };
-    /* +1p +0p */ union { prh_r32 error_code; int addrlen; };
-    /* +1p +1p */ prh_impl_sock_flags flags; prh_byte error_type;
-    /* +2p +1p */ prh_r32 send_size, recv_buff_size;
-    /* 14p +7p */ prh_sock_addr local, remote;
-    /* +8p +4p */ union { // AcceptEx本地和远程地址缓冲区必须比对应的协议地址多16字节
-    /* 38p 24p */ prh_r32 align[8];
-        struct {
-            prh_byte *send_buff;        // +2 => 2
-            prh_impl_wsabuf wsabuf;     // +4 => 6
-            prh_r32 bytes_transferred;  // +1 => 7
-            prh_r32 bytes_received;     // +1 => 8
-        };
-    };
+    /* +1p +0p */ union { struct { prh_byte error_type; prh_impl_sock_flags flags; }; prh_r32 flags_value; };
+    /* +1p +1p */ union { prh_r32 addrlen; prh_r32 error_code; };
+    /* 14p +7p */ prh_sock_addr local, remote; // AcceptEx本地和远程地址缓冲区必须比对应的协议地址多16字节
+    /* +8p +4p */ union { prh_r32 align[8]; struct {
+    /* 37p 24p */ prh_impl_wsabuf wsabuf;       // +4 => 4
+                  prh_r32 bytes_transferred;    // +1 => 5
+                  prh_r32 bytes_received; }; }; // +1 => 6
 } prh_socket;
 
 prh_inline bool prh_sock_addr_ipv6(const prh_sock_addr *p) { return p->family == PRH_IPV6; }
@@ -28097,7 +28090,7 @@ void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc);
 
 prh_socket *prh_tcp_connect(const char *host, prh_reg port, prh_reg datasize);
 void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp);
-void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc);
+void prh_tcp_reconnect(prh_socket *tcp);
 
 #define prh_tcp_wait_open(tcp, proc, error_handling) do {                       \
     extern void prh_impl_tcp_wait_open(prh_socket *tcp, prh_co_proc proc, pro_co_proc error_handling); \
@@ -28106,8 +28099,19 @@ void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc);
 case __LINE__:                                                                  \
 } while (0)
 
-prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size);
-void prh_tcp_recv(prh_socket *tcp, prh_byte *recv_buff, prh_r32 buff_size);
+#define prh_tcp_send(tcp, send_buff, data_size) do {                            \
+    extern void prh_impl_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size); \
+    prh_impl_tcp_send((tcp), (send_buff), (data_size));                         \
+    return (prh_yield *)(prh_reg)__LINE__;                                      \
+case __LINE__:                                                                  \
+} while (0)
+
+#define prh_tcp_recv(tcp, recv_buff, buff_size) do {                            \
+    extern void prh_impl_tcp_recv(prh_socket *tcp, prh_byte *recv_buff, prh_r32 buff_size); \
+    prh_impl_tcp_recv((tcp), (recv_buff), (buff_size));                         \
+    return (prh_yield *)(prh_reg)__LINE__;                                      \
+case __LINE__:                                                                  \
+} while (0)
 
 #ifdef PRH_SOCK_IMPLEMENTATION
 // https://learn.microsoft.com/en-us/windows/win32/debug/system-error-code-lookup-tool
@@ -30946,6 +30950,10 @@ prh_r32 prh_impl_sock_listen(prh_handle socket, int backlog) {
     return error_code;
 }
 
+int prh_impl_sockaddr_len(prh_sock_addr *sa) {
+    return sa->family == AF_INET6 ? (int)sizeof(struct sockaddr_in6) : (int)sizeof(struct sockaddr_in);
+}
+
 int prh_impl_parse_local_address(const char *host, prh_reg flags_port, prh_sock_addr *l) {
     prh_r32 *ipv6 = &l->ip_addr;
     prh_r32 *ipv4 = &l->ipv4_addr;
@@ -32389,7 +32397,7 @@ void prh_tcp_accept_dispatch(prh_listen *listen, int co_thrd_id) {
 // 注册值可设置的范围从 0 到 300 秒。
 
 void prh_impl_thrd_connect_error(prh_socket *tcp) {
-    prh_r32 sys_raw_error = tcp->co_struct.overlapped.sys_raw_error;
+    prh_r32 sys_raw_error = tcp->co_struct.overlapped.impl.sys_raw_error;
     prh_r32 error_code = 0;
     // 注意，connect_socket 任然注册在 PRH_IMPL_IOCP 中，直到上层调用 prh_iocp_close_socket 主动关闭
     // 对于因 WSAECONNREFUSED WSAENETUNREACH WSAETIMEDOUT 错误而失败的未连接套接字可以用来重连。
@@ -32442,7 +32450,6 @@ void prh_impl_thrd_connect_success(prh_socket *tcp) {
     prh_setsockopt_update_connect_context(connect_socket);
     prh_impl_local_sockaddr(connect_socket, &tcp->local, tcp->addrlen);
     prh_impl_remote_sockaddr(connect_socket, &tcp->remote, tcp->addrlen);
-    tcp->error_code = 0; // 使用完 tcp->addrlen 之后才能修改 error_code
     tcp->flags.opened = 1;
 }
 
@@ -32462,7 +32469,7 @@ label_connected:
 
 void prh_impl_thrd_connect_req(prh_socket *tcp) {
     assert(tcp->socket != prh_invalid_socket);
-    prh_impl_overlapped *overlapped = &tcp->co_struct.overlapped;
+    prh_impl_overlapped *overlapped = &tcp->co_struct.overlapped.impl;
     // 必须先设置，防止竞争条件问题，避免 continue_routine 还没有设置，调度线程就已经从完成端口查到这个完成事件
     prh_impl_iocp_continue_routine((OVERLAPPPED *)overlapped, prh_impl_thrd_open_from_port);
     BOOL b = PRH_IMPL_CONNECTEX(
@@ -32478,10 +32485,9 @@ void prh_impl_thrd_connect_req(prh_socket *tcp) {
         return;
     }
     prh_prerr(error_code);
-    error_code = error_code ? error_code : WSAEINVAL;
     overlapped->sys_raw_error = error_code;
     tcp->flags.opening = 0;
-    if (sys_raw_error == WSAEISCONN) {
+    if (error_code == WSAEISCONN) {
         prh_impl_thrd_connect_success(tcp);
         prh_thrd_post_to_self(&tcp->co_struct, prh_impl_co_ready);
     } else {
@@ -32490,12 +32496,12 @@ void prh_impl_thrd_connect_req(prh_socket *tcp) {
 }
 
 void prh_impl_thrd_reset_socket(prh_socket *tcp, prh_handle socket) {
-    memset(&tcp->co_struct.overlapped, 0, sizeof(prh_impl_overlapped));
-    memset(&tcp->flags, 0, sizeof(prh_impl_sock_flags));
+    memset(&tcp->co_struct.overlapped.impl, 0, sizeof(prh_impl_overlapped));
     if (socket == prh_invalid_socket) {
-        socket = prh_impl_create_socket(t->remote.family);
+        socket = prh_impl_create_socket(tcp->remote.family);
     }
-    t->socket = socket;
+    tcp->socket = socket;
+    tcp->flags_value = 0;
 }
 
 void prh_impl_init_conn_socket(prh_socket *t, prh_handle socket) {
@@ -32525,17 +32531,11 @@ void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp) {
     prh_impl_init_conn_socket(tcp, tcp->socket);
 }
 
-void prh_tcp_reconnect(prh_socket *tcp, prh_co_proc proc) {
+void prh_tcp_reconnect(prh_socket *tcp) {
     assert(tcp->client == 1 && tcp->closed == 1 && tcp->alloc != prh_null); // 必须是一个主动连接套接字
-    prh_impl_init_conn_socket(tcp, tcp->socket);
-#if PRH_DEBUG
     assert(remote->family == AF_INET || remote->family == AF_INET6);
-    if (remote->family == AF_INET) {
-        assert(tcp->addrlen == sizeof(struct sockaddr_in));
-    } else {
-        assert(tcp->addrlen == sizeof(struct sockaddr_in6));
-    }
-#endif
+    tcp->addrlen = prh_impl_sockaddr_len(&tcp->remote);
+    prh_impl_init_conn_socket(tcp, tcp->socket);
 }
 
 void prh_impl_tcp_wait_open(prh_socket *tcp, prh_co_proc proc, pro_co_proc error_handling) {
@@ -32933,8 +32933,9 @@ void prh_impl_tcp_wait_open(prh_socket *tcp, prh_co_proc proc, pro_co_proc error
 // 的等待以 WSA_IO_COMPLETION 返回码满足之前被调用。完成例程可以以任何顺序被调用，不一
 // 定是重叠操作完成的相同顺序。但是，发送的缓冲区保证按照它们指定的顺序发送。
 
-void prh_impl_thrd_wsasend_error_handling(prh_socket *tcp) {
-    prh_r32 error_code = tcp->sys_raw_error;
+void prh_impl_thrd_wsasend_error(prh_socket *tcp) {
+    prh_r32 sys_raw_error = tcp->co_struct.overlapped.impl.sys_raw_error;
+    prh_r32 error_code = 0;
     // 错误代码 WSA_IO_PENDING 表示重叠操作已成功启动，操作将在稍后完成。任何其他错误
     // 代码表示重叠操作未成功启动，不会产生操作完成通知。
     // WSAESHUTDOWN          套接字已关闭；在调用 shutdown 后，无法在套接字上使用 WSASend，其中 how 设置为 SD_SEND 或 SD_BOTH。
@@ -33005,50 +33006,39 @@ void prh_impl_thrd_wsasend_error_handling(prh_socket *tcp) {
     prh_impl_co_error_handling(&tcp->co_struct);
 }
 
-void prh_impl_thrd_wsasend_continue(prh_socket *tcp) {
-    prh_r32 bytes_transferred = (prh_r32)tcp->overlapped.InternalHigh;
-    assert(bytes_transferred <= tcp->send_size);
-    if (bytes_transferred < tcp->send_size) {
-        tcp->bytes_transferred += bytes_transferred;
-        tcp->send_size -= bytes_transferred;
-        void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size);
-        prh_impl_thrd_wsasend_req(tcp, tcp->send_buff + tcp->bytes_transferred, tcp->send_size);
-    } else {
-        tcp->bytes_transferred += tcp->send_size;
-        tcp->sys_raw_error = 0;
-        tcp->error_code = 0;
-        tcp->sending = 0;
-        prh_impl_co_ready(&tcp->co_struct);
-    }
-}
-
-void prh_impl_schd_wsasend_error(prh_socket *tcp) {
-    prh_impl_schd_send_task(tcp->target_thrd, tcp, prh_impl_thrd_wsasend_error_handling);
-}
-
-void prh_impl_schd_wsasend_from_port(OVERLAPPED *overlapped) {
+void prh_impl_thrd_wsasend_from_port(prh_impl_overlapped *overlapped) {
     prh_socket *tcp = prh_impl_socket_from_overlapped(overlapped);
-    if (overlapped->Internal) {
-        tcp->sys_raw_error = (prh_r32)overlapped->Internal;
-        prh_prerr(tcp->sys_raw_error);
-        prh_impl_schd_wsasend_error(tcp);
+    tcp->flags.transferring = 0;
+    if (overlapped->sys_raw_error) {
+        prh_prerr(overlapped->sys_raw_error);
+        prh_impl_thrd_wsasend_error(tcp);
     } else {
-        prh_impl_schd_send_task(tcp->target_thrd, tcp, prh_impl_thrd_wsasend_continue);
+        prh_r32 bytes_transferred = overlapped->bytes_transferred;
+        assert(bytes_transferred <= tcp->wsabuf.len);
+        tcp->bytes_transferred += bytes_transferred;
+        if (bytes_transferred < tcp->wsabuf.len) {
+            void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size);
+            prh_impl_thrd_wsasend_req(tcp, tcp->wsabuf.buf + bytes_transferred, tcp->wsabuf.len - bytes_transferred);
+        } else {
+            prh_impl_co_ready(&tcp->co_struct);
+        }
     }
 }
 
 void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) {
+    prh_impl_overlapped *overlapped = &tcp->co_struct.overlapped.impl;
+    assert(tcp->socket != prh_invalid_socket);
     // 如果以重叠方式完成此函数，Winsock 服务提供程序负责在返回之前捕获 WSABUF 结构。
     // 这使得应用程序可以构建基于堆栈的 WSABUF 数组。Windows Me/98/95：WSASend 函数
     // 不支持超过 16 个缓冲区。
-    WSABUF send_buffer = {(ULONG)size, (CHAR *)data};
-    tcp->target_thrd = prh_ehub_thrd_self();
+    tcp->wsabuf.buf = data;
+    tcp->wsabuf.len = size;
     // 必须先设置，防止竞争条件问题，避免 continue_routine 还没有设置，调度线程就已经
     // 从完成端口查到这个完成事件。当调用一个重叠操作时，例如 WSASend，投递线程在 WSASend
     // 之前写的内存，会保证处理线程拿到的是正确的内容，不会产生竞争条件问题，这时该系统
     // 调用保证的。但是在 WSASend 之后不能再写相关内存。另外高并发推荐为每个操作独立分
     // 配嵌入缓存区提供性能。struct { OVERLAPPED o; WSABUF b; char data[4096]; }
-    prh_impl_iocp_continue_routine((OVERLAPPED *)&tcp->overlapped, prh_impl_schd_wsasend_from_port);
+    prh_impl_iocp_continue_routine((OVERLAPPED *)overlapped, prh_impl_thrd_wsasend_from_port);
     // 如果传输缓冲区没有足够的空间，WSASend 将仅返回部分已消耗缓冲区大小。在相同的情况
     // 下，对于阻塞套接字，WSASend 将阻塞直到应用程序缓冲区内容都被消耗。不应从不同线程
     // 并发地在同一个面向流的套接字上调用 WSASend，因为某些 Winsock 提供程序可能会将较
@@ -33056,34 +33046,31 @@ void prh_impl_thrd_wsasend_req(prh_socket *tcp, const char *data, prh_reg size) 
     // 的数据意外交织。
     int n = WSASend( // 面向流的非阻塞套接字，如果传输层缓存不足仅拷贝部分然后立即返回，而阻塞套接字会被阻塞直到所有数据消耗完毕
         /* [in]  SOCKET             s                   */ (SOCKET)tcp->socket,
-        /* [in]  LPWSABUF           lpBuffers           */ &send_buffer,
+        /* [in]  LPWSABUF           lpBuffers           */ (WSABUF *)&tcp->wsabuf,
         /* [in]  DWORD              dwBufferCount       */ 1, // 传入的 WSABUF 个数
         /* [out] LPDWORD            lpNumberOfBytesSent */ prh_null, // 仅当 lpOverlapped 参数不为 NULL 时此参数可为 NULL
         /* [in]  DWORD              dwFlags             */ 0,
-        /* [in]  LPWSAOVERLAPPED    lpOverlapped        */ (OVERLAPPED *)&tcp->overlapped,
+        /* [in]  LPWSAOVERLAPPED    lpOverlapped        */ (OVERLAPPED *)overlapped,
         /* [in]  LPWSAOVERLAPPED_COMPLETION_ROUTINE     */ prh_null);
     DWORD error_code; // 请求立即完成（n == 0）或请求已经成功投递（WSA_IO_PENDING）
-    if (n != 0 && (error_code = WSAGetLastError()) != WSA_IO_PENDING) {
-        prh_prerr(error_code);
-        tcp->sys_raw_error = error_code ? error_code : WSAEINVAL;
-        prh_thrd_post_to_schd(tcp->target_thrd, tcp, prh_impl_schd_wsasend_error);
+    if (n == 0 || (error_code = WSAGetLastError()) == WSA_IO_PENDING) {
+        return;
     }
+    prh_prerr(error_code);
+    overlapped->sys_raw_error = error_code;
+    tcp->flags.transferring = 0;
+    prh_thrd_post_to_self(tcp, prh_impl_thrd_wsasend_error);
 }
 
-prh_r32 prh_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size) {
-    assert(send_buff != prh_null);
-    assert(tcp->socket != prh_invalid_socket);
-    assert(tcp->opened == 1 && tcp->closed == 0);
-    assert(tcp->sending == 0 && tcp->send_closed == 0 && tcp->closing == 0);
+void prh_impl_tcp_send(prh_socket *tcp, const prh_byte *send_buff, prh_r32 data_size) {
+    assert(tcp->flags.opened == 1 && tcp->flags.send_closed == 0 && tcp->flags.transferring == 0);
     if (send_buff == prh_null || data_size == 0) {
-        return e_success;
+        prh_thrd_post_to_self(&tcp->co_struct, prh_impl_co_ready);
+    } else {
+        tcp->bytes_transferred = 0;
+        tcp->flags.transferring = 1;
+        prh_impl_thrd_wsasend_req(tcp, send_buff, data_size);
     }
-    tcp->send_buff = (prh_byte *)send_buff;
-    tcp->send_size = data_size;
-    tcp->bytes_transferred = 0;
-    tcp->sending = 1;
-    prh_impl_thrd_wsasend_req(tcp, send_buff, data_size);
-    return e_operation_pending;
 }
 
 // int recvfrom(SOCKET s, char *buf, int len, int flags, struct sockaddr *from, int *fromlen);
