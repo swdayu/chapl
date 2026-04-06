@@ -14416,7 +14416,7 @@ prh_i64 prh_impl_file_time_nsec(const FILETIME *f) {
     return nsec * 100;
 }
 
-prh_i64 prh_impl_system_time(void) {
+prh_i64 prh_impl_system_filetime(void) {
     FILETIME f;
     GetSystemTimePreciseAsFileTime(&f);
     return ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
@@ -15750,9 +15750,9 @@ typedef struct {
 } prh_sysinfo;
 
 void prh_system_info(prh_sysinfo *info);
-void prh_sleep_secs(int secs); // 32位有符号整数保存秒可以表示68年
-void prh_thrd_sleep_msec(int msec); // 32位有符号整数保存毫秒可以表示24天
-void prh_thrd_sleep(int secs, int nsec);
+void prh_sleep_secs(prh_r32 secs); // 32位无符号整数保存秒可以表示136年
+void prh_sleep_msec(prh_r32 msec); // 32位无符号整数保存毫秒可以表示48天
+void prh_sleep_nsec(prh_i64 nsec);
 
 void prh_impl_plat_cond_wait(prh_thrd_cond *p);
 bool prh_impl_plat_cond_timedwait(prh_thrd_cond *p, prh_reg time);
@@ -17270,7 +17270,7 @@ void prh_impl_timer_resolution(prh_r32 *min_msec, prh_r32 *max_msec) {
     *max_msec = (prh_r32)TimeCaps.wPeriodMax;
 }
 
-void prh_sleep_secs(int secs) { // 32位有符号整数保存秒可以表示68年
+void prh_sleep_secs(prh_r32 secs) { // 32位有符号整数保存秒可以表示68年
     // 1. Sleep(0) 线程仍然处于就绪状态，如果没有其他就绪线程，当前线程会继续执行
     // 2. 如果有其他就绪线程，当前线程会放弃当前时间片，将在下次调度机会继续执行
     Sleep(secs * 1000);
@@ -17602,7 +17602,7 @@ void prh_impl_thrd_sleep(prh_i64 due_time_100ns, bool resume) {
 
     LARGE_INTEGER due_time;
     if (resume) {
-        due_time.QuadPart = prh_impl_system_time() + due_time_100ns; // 100ns 为单位，绝对时间
+        due_time.QuadPart = prh_impl_system_filetime() + due_time_100ns; // 100ns 为单位，绝对时间
     } else {
         due_time.QuadPart = -(due_time_100ns); // 100ns 为单位，相对时间
     }
@@ -17621,18 +17621,16 @@ void prh_impl_thrd_sleep(prh_i64 due_time_100ns, bool resume) {
     prh_impl_close_handle(timer);
 }
 
-void prh_thrd_sleep_msec(int msec) { // 32位有符号整数保存毫秒可以表示24天
+void prh_sleep_msec(prh_r32 msec) { // 32位无符号整数保存毫秒可以表示48天
     prh_impl_thrd_sleep(((prh_i64)msec) * 1000 * 10, false);
 }
 
-void prh_thrd_sleep(int secs, int nsec) { // 32位有符号整数保存秒可以表示68年
-    prh_i64 due_time_100ns = (prh_i64)secs * 1000 * 1000 * 10 + nsec / 100;
-    prh_impl_thrd_sleep(due_time_100ns, false);
+void prh_sleep_nsec(prh_i64 nsec) {
+    prh_impl_thrd_sleep(nsec / 100, false);
 }
 
-void prh_thrd_sleep_and_trigger_system_wakeup(int secs, int nsec) {
-    prh_i64 due_time_100ns = (prh_i64)secs * 1000 * 1000 * 10 + nsec / 100;
-    prh_impl_thrd_sleep(due_time_100ns, true);
+void prh_sleep_and_trigger_system_wakeup(prh_r32 secs) {
+    prh_impl_thrd_sleep((prh_i64)secs * 1000000 * 10, true);
 }
 
 void prh_system_info(prh_sysinfo *info) {
@@ -20826,17 +20824,7 @@ void prh_thrd_wakeup(prh_cond_sleep *p) {
 // 会继续执行，进程停止的时间也会计入睡眠时间。
 #include <time.h>
 
-void prh_sleep_secs(int secs) { // 32位有符号整数保存秒可以表示68年
-    prh_thrd_sleep(secs, 0);
-}
-
-void prh_thrd_sleep_msec(int msec) { // 32位有符号整数保存毫秒可以表示24天
-    int nsec = (msec % 1000) * 1000000;
-    prh_thrd_sleep(msec / 1000, nsec);
-}
-
-void prh_thrd_sleep(int secs, int nsec) { // 严格睡满一段时间
-    assert(secs >= 0 && nsec >= 0 && nsec < PRH_NSEC_PER_SEC);
+void prh_impl_thrd_sleep(prh_i64 secs, prh_r32 nsec) { // 严格睡满一段时间
     struct timespec duration = {.tv_sec = secs, .tv_nsec = nsec};
     struct timespec remain;
 #if defined(prh_plat_linux) || defined(CLOCK_MONOTONIC)
@@ -20874,7 +20862,19 @@ label_continue: // 这里 duration 是相对时间，每次中断后需要重新
 #endif
 }
 
-void prh_thrd_sleep_and_trigger_system_wakeup(int secs, int nsec) {
+void prh_sleep_secs(prh_r32 secs) { // 32位无符号整数保存秒可以表示136年
+    prh_impl_thrd_sleep(secs, 0);
+}
+
+void prh_sleep_msec(prh_r32 msec) { // 32位无符号整数保存毫秒可以表示48天
+    prh_impl_thrd_sleep(msec / 1000, (msec % 1000) * 1000000);
+}
+
+void prh_sleep_nsec(prh_i64 nsec) {
+    prh_impl_thrd_sleep(nsec / PRH_NSEC_PER_SEC, nsec % PRH_NSEC_PER_SEC);
+}
+
+void prh_sleep_and_trigger_system_wakeup(prh_r32 secs) {
 }
 
 #if !defined(_SC_NPROCESSORS_ONLN)
