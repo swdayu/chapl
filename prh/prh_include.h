@@ -13706,6 +13706,7 @@ void prh_impl_atomic_test(void) {
 // UTC时间从1970/1/1 00:00:00开始，uint32 只能表示 136 年大约在 2106 年失效。在32位
 // Linux系统上，time_t是一个32位有符号整数，可以表示的日期范围从 1901/12/13 20:45:52
 // 至 2038/1/19 03:14:07。Windows 上 x86 和 x64 的 time_t 类型大小总是 8 字节。
+// time_t 保持 UTC 时间的秒数，不包括闰秒。
 
 // Epoch delta from 0000/1/1 to 1970/1/1
 #define PRH_EPOCH_DELTA_SECS 0x0000000E79844E00LL // 62168256000-sec
@@ -13718,24 +13719,36 @@ void prh_impl_atomic_test(void) {
 
 typedef struct {
     prh_i64 secs; // 最大可以表示正负2.9千亿年
-    prh_i32 usec;
-} prh_timeusec;
-
-typedef struct {
-    prh_i64 secs;
     prh_i32 nsec;
-} prh_timensec;
+    union {
+        prh_i32 extra;
+        struct { prh_i08 zone; prh_i08 epoch; };
+    };
+} prh_timespec;
 
 typedef struct {
-    prh_i32 year;   // 正负20亿年
-    prh_i32 usec;   // 0 ~ 999999
-    prh_byte month; // 1 ~ 12
-    prh_byte mday;  // 1 ~ 31
-    prh_byte wday;  // 0 ~ 6 (sunday = 0)
-    prh_byte hour;  // 0 ~ 23
-    prh_byte min;   // 0 ~ 59
-    prh_byte sec;   // 0 ~ 60 since C99
+#if prh_lit_endian
+    union {
+        struct { prh_i32 year; union { prh_i32 high_year; struct { prh_i16 pad1; prh_i08 pad2; prh_i08 zone; }; }; };
+        struct { prh_i64 large_year: 48, pad3: 8, zone: 8; }; // 至少可以表示正负2.9千亿年
+    };
+#else
+    union {
+        struct { union { prh_i32 high_year; struct { prh_i08 zone; prh_i08 pad2; prh_i16 pad1; }; }; prh_i32 year; };
+        struct { prh_i64 zone: 8, pad3: 8, large_year: 48; }; // 至少可以表示正负2.9千亿年
+    };
+#endif
+    prh_i32 nsec;   // 0 ~ 999999999
+    prh_r32 month:  4,  // [04] 1 ~ 12
+            day:    5,  // [09] 1 ~ 31
+            hour:   5,  // [14] 0 ~ 23
+            min:    6,  // [20] 0 ~ 59
+            sec:    6,  // [26] 0 ~ 60 since C99 同一分钟内不允许有2个闰秒
+            wday:   3,  // [29] 0 ~ 6 (sunday = 0)
 } prh_datetime;
+
+prh_static_assert(sizeof(prh_timespec) == 16);
+prh_static_assert(sizeof(prh_datetime) == 16);
 
 #define prh_abs_sec_to_utc(abs) ((abs) - PRH_EPOCH_DELTA_SECS)
 #define prh_utc_sec_to_abs(utc) ((utc) + PRH_EPOCH_DELTA_SECS)
@@ -13743,31 +13756,37 @@ typedef struct {
 prh_i64 prh_system_secs(void);
 prh_i64 prh_system_msec(void);
 prh_i64 prh_system_usec(void);
+prh_i64 prh_system_nsec(void);
 prh_i64 prh_steady_secs(void);
 prh_i64 prh_steady_msec(void);
 prh_i64 prh_steady_usec(void);
 prh_i64 prh_steady_nsec(void);
 prh_i64 prh_clock_ticks(void); // 如果精度为纳秒（精度为1000000000每秒，1GHZ）可以表示292年
+prh_i64 prh_clock_rate(void);
 prh_i64 prh_elapse_secs(prh_i64 ticks);
 prh_i64 prh_elapse_msec(prh_i64 ticks);
 prh_i64 prh_elapse_usec(prh_i64 ticks);
 prh_i64 prh_elapse_nsec(prh_i64 ticks);
 prh_i64 prh_thread_time(void); // 当前线程执行时间，包含用户以及内核的执行时间
 
-void prh_system_time(prh_timeusec *t);
+void prh_system_time(prh_timespec *utc_time);
 void prh_system_date(prh_datetime *utc_date);
-void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time);
-void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_date);
-void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime *local_date);
+void prh_system_date_from(prh_datetime *utc_date, const prh_timespec *utc_time);
+void prh_system_time_from_date(prh_timespec *utc_time, const prh_datetime *utc_date);
+void prh_system_time_from_local_date(prh_timespec *utc_time, const prh_datetime *local_date);
 void prh_local_date(prh_datetime *local_date);
-void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time);
+void prh_local_date_from(prh_datetime *local_date, const prh_timespec *utc_time);
 
-prh_inline prh_i64 prh_system_msec_from(const prh_timeusec *p) {
-    return p->secs * PRH_MSEC_PER_SEC + p->usec / PRH_MSEC_PER_SEC;
+prh_inline prh_i64 prh_system_msec_from(const prh_timespec *p) {
+    return p->secs * PRH_MSEC_PER_SEC + p->nsec / 1000000;
 }
 
-prh_inline prh_i64 prh_system_usec_from(const prh_timeusec *p) {
-    return p->secs * PRH_USEC_PER_SEC + p->usec;
+prh_inline prh_i64 prh_system_usec_from(const prh_timespec *p) {
+    return p->secs * PRH_USEC_PER_SEC + p->nsec / 1000;
+}
+
+prh_inline prh_i64 prh_system_nsec_from(const prh_timespec *p) {
+    return p->secs * PRH_NSEC_PER_SEC + p->nsec;
 }
 
 // https://github.com/adobe/chromium/blob/master/base/time_mac.cc
@@ -13784,7 +13803,7 @@ prh_impl_timeinit PRH_IMPL_TIMEINIT;
 // Computes (value*numer)/denom without overflow, as long as both
 // (numer*denom) and the overall result fit into i64 (which is the case
 // for our time conversions). 分子（numerator）分母（denominator）
-// Decompose value as (value/denom*denom + value%denom):
+// Decompose (value) as (value/denom*denom + value%denom)，倍数 * 除数 + 余数
 //      v * n / d = (v / d * d + v % d) * n / d =
 //      (v / d * d * n / d) + (v % d * n / d) =
 //      v / d * n + v % d * n / d = q * n + r * n / d
@@ -14373,7 +14392,26 @@ prh_i64 prh_impl_1970_utc_time_nsec(const FILETIME *f) {
     return (nsec - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_100N) * 100;
 }
 
-prh_i64 prh_impl_filetime_nsec(const FILETIME *f) {
+void prh_impl_1970_utc_time_spec(const FILETIME *f, prh_timespec *utc_time) {
+    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    utc_time->secs = nsec / 10000000;
+    utc_time->nsec = (prh_i32)(nsec % 10000000) * 100;
+    utc_time->extra = 0;
+}
+
+void prh_impl_1970_utc_time_spec_with_nsec(const FILETIME *f, prh_timespec *utc_time, prh_i32 date_nsec) {
+    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    utc_time->secs = nsec / 10000000;
+    utc_time->nsec = date_nsec;
+    utc_time->extra = 0;
+}
+
+prh_i32 prh_impl_nsec_part_file_time(const FILETIME *f) {
+    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    return (prh_i32)(nsec % 10000000) * 100;
+}
+
+prh_i64 prh_impl_file_time_nsec(const FILETIME *f) {
     prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
     return nsec * 100;
 }
@@ -14396,26 +14434,25 @@ prh_i64 prh_system_msec(void) { // 可表示2.9亿年
     return prh_impl_1970_utc_time_msec(&f);
 }
 
-void prh_impl_system_filetime(FILETIME *f) {
-    GetSystemTimePreciseAsFileTime(f);
-}
-
 prh_i64 prh_system_usec(void) { // 可表示29万年
     FILETIME f;
-    prh_impl_system_filetime(&f);
+    GetSystemTimePreciseAsFileTime(&f);
     return prh_impl_1970_utc_time_usec(&f);
 }
 
-void prh_impl_usec_to_timeusec(prh_timeusec *utc_time, prh_i64 usec) {
-    utc_time->secs = usec / PRH_USEC_PER_SEC;
-    utc_time->usec = usec % PRH_USEC_PER_SEC;
+prh_i64 prh_system_nsec(void) { // 可表示292年
+    FILETIME f;
+    GetSystemTimePreciseAsFileTime(&f);
+    return prh_impl_1970_utc_time_nsec(&f);
 }
 
-void prh_system_time(prh_timeusec *utc_time) {
-    prh_impl_usec_to_timeusec(utc_time, prh_system_usec());
+void prh_system_time(prh_timespec *utc_time) {
+    FILETIME f;
+    GetSystemTimePreciseAsFileTime(&f);
+    prh_impl_1970_utc_time_spec(&f, utc_time);
 }
 
-void prh_impl_date_time(prh_datetime *t, const SYSTEMTIME *s, prh_i32 usec) {
+void prh_impl_date_time(prh_datetime *t, const SYSTEMTIME *s, prh_i32 nsec) {
     // typedef struct _SYSTEMTIME {
     //      WORD wYear;         // the valid value is 1601 ~ 30827
     //      WORD wMonth;        // 1 ~ 12
@@ -14437,68 +14474,66 @@ void prh_impl_date_time(prh_datetime *t, const SYSTEMTIME *s, prh_i32 usec) {
     //      its validity, especially in leap year scenarios. See leap day
     //      readiness for more information.
     //      https://techcommunity.microsoft.com/blog/azuredevcommunityblog/it%e2%80%99s-2020-is-your-code-ready-for-leap-day/1157279
-    t->year = s->wYear;
+    t->year = s->wYear; t->high_year = 0;
     t->month = (prh_byte)s->wMonth;
-    t->mday = (prh_byte)s->wDay;
+    t->day = (prh_byte)s->wDay;
     t->wday = (prh_byte)s->wDayOfWeek;
     t->hour = (prh_byte)s->wHour;
     t->min = (prh_byte)s->wMinute;
     t->sec = (prh_byte)s->wSecond;
-    t->usec = usec;
+    t->nsec = nsec;
 }
 
 void prh_impl_system_date(SYSTEMTIME *s, const prh_datetime *t) {
     s->wYear = (WORD)t->year;
     s->wMonth = t->month;
     s->wDayOfWeek = t->wday;
-    s->wDay = t->mday;
+    s->wDay = t->day;
     s->wHour = t->hour;
     s->wMinute = t->min;
     s->wSecond = t->sec;
     s->wMilliseconds = 0;
 }
 
-void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_date) {
+void prh_system_time_from_date(prh_timespec *utc_time, const prh_datetime *utc_date) {
     SYSTEMTIME s; FILETIME f;
-    prh_impl_system_date(&s, utc_date);
-    PRH_BOOLRET_OR_ABORT(SystemTimeToFileTime(&s, &f));
-    prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + utc_date->usec);
+    prh_impl_system_date(&s, utc_date); // 只计算了秒
+    prh_boolret(SystemTimeToFileTime(&s, &f));
+    prh_impl_1970_utc_time_spec_with_nsec(&f, utc_time, utc_date->nsec);
 }
 
-void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime *local_date) {
+void prh_system_time_from_local_date(prh_timespec *utc_time, const prh_datetime *local_date) {
     SYSTEMTIME local, s; FILETIME f;
-    prh_impl_system_date(&local, local_date);
-    PRH_BOOLRET_OR_ABORT(TzSpecificLocalTimeToSystemTime(prh_null, &local, &s));
-    PRH_BOOLRET_OR_ABORT(SystemTimeToFileTime(&s, &f));
-    prh_impl_usec_to_timeusec(utc_time, prh_impl_1970_utc_time_usec(&f) + local_date->usec);
+    prh_impl_system_date(&local, local_date); // 只计算了秒
+    prh_boolret(TzSpecificLocalTimeToSystemTime(prh_null, &local, &s));
+    prh_boolret(SystemTimeToFileTime(&s, &f));
+    prh_impl_1970_utc_time_spec_with_nsec(&f, utc_time, local_date->nsec);
 }
 
 void prh_system_date(prh_datetime *utc_date) {
     FILETIME f; SYSTEMTIME s;
-    prh_impl_system_filetime(&f);
-    prh_i64 filetime = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    GetSystemTimePreciseAsFileTime(&f);
     prh_boolret(FileTimeToSystemTime(&f, &s));
-    prh_impl_date_time(utc_date, &s, filetime / 10 % 1000000);
+    prh_impl_date_time(utc_date, &s, prh_impl_nsec_part_file_time(&f));
 }
 
 void prh_local_date(prh_datetime *local_date) {
     FILETIME f; SYSTEMTIME s, local;
-    prh_impl_system_filetime(&f);
-    prh_i64 filetime = ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    GetSystemTimePreciseAsFileTime(&f);
     prh_boolret(FileTimeToSystemTime(&f, &s));
     prh_boolret(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
-    prh_impl_date_time(local_date, &local, filetime / 10 % 1000000);
+    prh_impl_date_time(local_date, &local, prh_impl_nsec_part_file_time(&f));
 }
 
-void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time) {
+void prh_local_date_from(prh_datetime *local_date, const prh_timespec *utc_time) {
     FILETIME f; SYSTEMTIME s, local;
     prh_impl_1970_utc_secs_to_filetime(utc_time->secs, &f);
-    PRH_BOOLRET_OR_ABORT(FileTimeToSystemTime(&f, &s));
-    PRH_BOOLRET_OR_ABORT(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
-    prh_impl_date_time(local_date, &local, utc_time->usec);
+    prh_boolret(FileTimeToSystemTime(&f, &s));
+    prh_boolret(SystemTimeToTzSpecificLocalTime(prh_null, &s, &local));
+    prh_impl_date_time(local_date, &local, utc_time->nsec);
 }
 
-void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) {
+void prh_system_date_from(prh_datetime *utc_date, const prh_timespec *utc_time) {
     // void GetSystemTime(SYSTEMTIME *SystemTime);
     // void GetLocalTime(SYSTEMTIME *SystemTime);
     // Windows 2000 Professional Windows 2000 Server
@@ -14565,7 +14600,7 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
     //      error information, call GetLastError.
     FILETIME f; SYSTEMTIME s;
     prh_impl_1970_utc_secs_to_filetime(utc_time->secs, &f);
-    PRH_BOOLRET_OR_ABORT(FileTimeToSystemTime(&f, &s));
+    prh_boolret(FileTimeToSystemTime(&f, &s));
     prh_impl_date_time(utc_date, &s, utc_time->usec);
 }
 
@@ -14575,7 +14610,8 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
 // GetTickCount64 are limited to the resolution of the system timer, which
 // is approximately 10 milliseconds to 16 milliseconds. The elapsed time
 // retrieved by GetTickCount or GetTickCount64 includes time the system
-// spends in sleep or hibernation.（精度 10msec ~ 16msec）
+// spends in sleep or hibernation.（精度 10msec ~ 16msec）GetTickCount64() 精度
+// 10msec ~ 16msec，包含睡眠时间。
 //
 // If you need a higher resolution timer, use the QueryUnbiasedInterruptTime
 // function, a multimedia timer, or a high-resolution timer. The elapsed
@@ -14663,22 +14699,19 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
 //      _WIN32_WINNT as 0x0601 or later.
 
 prh_i64 prh_steady_secs(void) {
-    return (prh_i64)GetTickCount64() / PRH_MSEC_PER_SEC; // 包含睡眠时间
+    return prh_elapse_secs(prh_clock_ticks());
 }
 
-prh_i64 prh_steady_msec(void) { // GetTickCount64() 精度 10msec ~ 16msec，包含睡眠时间
-    prh_i64 ticks = prh_clock_ticks();
-    return prh_elapse_msec(ticks);
+prh_i64 prh_steady_msec(void) {
+    return prh_elapse_msec(prh_clock_ticks());
 }
 
 prh_i64 prh_steady_usec(void) {
-    prh_i64 ticks = prh_clock_ticks();
-    return prh_elapse_usec(ticks);
+    return prh_elapse_usec(prh_clock_ticks());
 }
 
 prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
-    prh_i64 ticks = prh_clock_ticks(); // 精度小于1微妙（<1us），包含待机休眠等睡眠时间
-    return prh_elapse_nsec(ticks);
+    return prh_elapse_nsec(prh_clock_ticks()); // 精度小于1微妙（<1us），包含待机休眠等睡眠时间
 }
 
 // BOOL GetThreadTimes(HANDLE hThread,
@@ -14740,14 +14773,8 @@ prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
 prh_i64 prh_thread_time(void) {
     HANDLE pseudo_handle = GetCurrentThread();
     FILETIME creation_time, exit_time, kernel_time, user_time;
-    PRH_BOOLRET_OR_ABORT(GetThreadTimes(pseudo_handle, &creation_time, &exit_time, &kernel_time, &user_time));
-    return prh_impl_filetime_nsec(&kernel_time) + prh_impl_filetime_nsec(&user_time);
-}
-
-prh_i64 prh_clock_ticks(void) {
-    LARGE_INTEGER ticks;
-    prh_boolret(QueryPerformanceCounter(&ticks));
-    return ticks.QuadPart; // LONGLONG
+    prh_boolret(GetThreadTimes(pseudo_handle, &creation_time, &exit_time, &kernel_time, &user_time));
+    return prh_impl_file_time_nsec(&kernel_time) + prh_impl_file_time_nsec(&user_time);
 }
 
 void prh_impl_time_init(void) {
@@ -14756,25 +14783,30 @@ void prh_impl_time_init(void) {
     PRH_IMPL_TIMEINIT.ticks_per_sec = freq.QuadPart;
 }
 
+prh_i64 prh_clock_ticks(void) {
+    LARGE_INTEGER ticks;
+    prh_boolret(QueryPerformanceCounter(&ticks));
+    return ticks.QuadPart; // LONGLONG
+}
+
+prh_i64 prh_clock_rate(void) {
+    return PRH_IMPL_TIMEINIT.ticks_per_sec;
+}
+
 prh_i64 prh_elapse_secs(prh_i64 ticks) {
     return ticks / PRH_IMPL_TIMEINIT.ticks_per_sec;
 }
 
 prh_i64 prh_elapse_msec(prh_i64 ticks) {
-    // To guard against loss-of-precision, we convert to microseconds
-    // *before* dividing by ticks-per-second.
     return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
 }
 
 prh_i64 prh_elapse_usec(prh_i64 ticks) {
-    // To guard against loss-of-precision, we convert to microseconds
-    // *before* dividing by ticks-per-second.
     return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
 }
 
 prh_i64 prh_elapse_nsec(prh_i64 ticks) {
-    // To guard against loss-of-precision, we convert to nanoseconds
-    // *before* dividing by ticks-per-second.
+    // To guard against loss-of-precision, we convert to nanoseconds *before* dividing by ticks-per-second.
     return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
 }
 
@@ -14813,6 +14845,7 @@ void prh_impl_time_test(void) {
     for (i = 0; i < n; i += 1) {
         printf("clock ticks: %lli\n", (long long)prh_clock_ticks());
     }
+    prh_real_assert((prh_i64)(12 * 34 / 3) == prh_impl_mul_div(12, 34, 3))
     prh_real_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
     long long long_long_number = 1000000000001LL;
     prh_real_assert((long_long_number * 1000000000LL / 1000000LL) != 1000000000001000LL);
@@ -14928,21 +14961,35 @@ prh_i64 prh_system_usec(void) {
 #endif
 }
 
-void prh_system_time(prh_timeusec *t) {
+prh_i64 prh_system_nsec(void) {
+#if defined(CLOCK_REALTIME)
+    struct timespec ts;
+    prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
+    return (prh_i64)ts.tv_sec * PRH_NSEC_PER_SEC + ts.tv_nsec;
+#else
+    struct timeval tv;
+    prh_zeroret(gettimeofday(&tv, prh_null));
+    return (prh_i64)tv.tv_sec * PRH_NSEC_PER_SEC + tv.tv_usec * 1000;
+#endif
+}
+
+void prh_system_time(prh_timespec *t) {
 #if defined(CLOCK_REALTIME)
     struct timespec ts;
     prh_zeroret(clock_gettime(CLOCK_REALTIME, &ts));
     t->secs = ts.tv_sec;
-    t->usec = ts.tv_nsec / 1000;
+    t->nsec = ts.tv_nsec;
+    t->extra = 0;
 #else
     struct timeval tv;
     prh_zeroret(gettimeofday(&tv, prh_null));
     t->secs = tv.tv_sec;
-    t->usec = tv.tv_usec;
+    t->nsec = tv.tv_usec * 1000;
+    t->extra = 0;
 #endif
 }
 
-void prh_impl_date_time(prh_datetime *t, const struct tm *tm, prh_i32 usec) {
+void prh_impl_date_time(prh_datetime *t, const struct tm *tm, prh_i32 nsec) {
     // struct tm {
     //     int tm_sec;   // 0 ~ 60 since C99 allows for a positive leap second
     //     int tm_min;   // 0 ~ 59
@@ -14954,14 +15001,15 @@ void prh_impl_date_time(prh_datetime *t, const struct tm *tm, prh_i32 usec) {
     //     int tm_yday;  // 0 ~ 365
     //     int tm_isdst; // > 0 dst in effect, = 0 dst not effect, < 0 dst not available
     // };
-    t->year = tm->tm_year + 1900; // 正负20亿年
+    t->high_year = 0;
+    t->year = tm->tm_year + 1900;
     t->month = tm->tm_mon + 1; // 1 ~ 12
-    t->mday = tm->tm_mday; // 1 ~ 31
+    t->day = tm->tm_mday; // 1 ~ 31
     t->wday = tm->tm_wday; // 0 ~ 6 (sunday = 0)
     t->hour = tm->tm_hour; // 0 ~ 23
     t->min = tm->tm_min; // 0 ~ 59
     t->sec = tm->tm_sec; // 0 ~ 60 since C99
-    t->usec = usec; // 0 ~ 999999
+    t->nsec = nsec; // 0 ~ 999999999
 }
 
 void prh_impl_system_date(struct tm *tm, const prh_datetime *t) {
@@ -14976,7 +15024,7 @@ void prh_impl_system_date(struct tm *tm, const prh_datetime *t) {
     tm->tm_isdst = -1; // not available
 }
 
-void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_date) {
+void prh_system_time_from_date(prh_timespec *utc_time, const prh_datetime *utc_date) {
     // #include <time.h>
     // [[deprecated]] time_t timelocal(struct tm *tm);
     // time_t timegm(struct tm *tm);
@@ -14987,44 +15035,46 @@ void prh_system_time_from_date(prh_timeusec *utc_time, const prh_datetime *utc_d
     time_t utc_secs = timegm(&utc); // timegm 是 gmtime_r 的反操作，忽略 tm_wday 和 tm_yady
     if (utc_secs == (time_t)-1) prh_abort_error(errno);
     utc_time->secs = utc_secs;
-    utc_time->usec = utc_date->usec;
+    utc_time->nsec = utc_date->nsec;
+    utc_time->extra = 0;
 }
 
-void prh_system_time_from_local_date(prh_timeusec *utc_time, const prh_datetime *local_date) {
+void prh_system_time_from_local_date(prh_timespec *utc_time, const prh_datetime *local_date) {
     struct tm local;
     prh_impl_system_date(&local, local_date);
     time_t utc_secs = mktime(&local); // mktime 是 localtime_r 的反操作，忽略 tm_wday 和 tm_yady
     if (utc_secs == (time_t)-1) prh_abort_error(errno);
     utc_time->secs = utc_secs;
-    utc_time->usec = local_date->usec;
+    utc_time->nsec = utc_date->nsec;
+    utc_time->extra = 0;
 }
 
 void prh_system_date(prh_datetime *utc_date) {
-    prh_timeusec utc_time;
+    prh_timespec utc_time;
     prh_system_time(&utc_time);
     time_t time = (time_t)utc_time.secs;
     struct tm tm;
     prh_boolret(gmtime_r(&time, &tm));
-    prh_impl_date_time(utc_date, &tm, utc_time.usec);
+    prh_impl_date_time(utc_date, &tm, utc_time.nsec);
 }
 
 void prh_local_date(prh_datetime *local_date) {
-    prh_timeusec utc_time;
+    prh_timespec utc_time;
     prh_system_time(&utc_time);
     time_t time = (time_t)utc_time.secs;
     struct tm tm;
     prh_boolret(localtime_r(&time, &tm));
-    prh_impl_date_time(local_date, &tm, utc_time.usec);
+    prh_impl_date_time(local_date, &tm, utc_time.nsec);
 }
 
-void prh_local_date_from(prh_datetime *local_date, const prh_timeusec *utc_time) {
+void prh_local_date_from(prh_datetime *local_date, const prh_timespec *utc_time) {
     time_t time = (time_t)utc_time->secs;
     struct tm tm;
     prh_boolret(localtime_r(&time, &tm));
-    prh_impl_date_time(local_date, &tm, utc_time->usec);
+    prh_impl_date_time(local_date, &tm, utc_time->nsec);
 }
 
-void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) {
+void prh_system_date_from(prh_datetime *utc_date, const prh_timespec *utc_time) {
     // 夏令时（Daylight Saving Time，DST）是一种为了节约能源而人为调整时钟的做法。
     // 具体来说，它通过在夏季将时钟拨快一定时间（通常是1小时）。夏令时的主要目的是减
     // 少照明需求。通过将时钟拨快1小时，人们在夏季的傍晚可以更晚地开灯，从而节省电力。
@@ -15074,7 +15124,7 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
     time_t time = (time_t)utc_time->secs;
     struct tm tm;
     prh_boolret(gmtime_r(&time, &tm));
-    prh_impl_date_time(utc_date, &tm, utc_time->usec);
+    prh_impl_date_time(utc_date, &tm, utc_time->nsec);
 }
 
 // #include <time.h>
@@ -15322,10 +15372,11 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timeusec *utc_time) 
 
 prh_i64 prh_clock_ticks(void) {
 #if defined(prh_plat_apple)
-    #if defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER) // macOS 10.12+
-    return (prh_i64)clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW); // 包含睡眠时间，不受频率或时间调整的影响，等价于 mach_continuous_time
-    #else // macOS 10.0+
-    return (prh_i64)mach_absolute_time(); // 不包含睡眠时间，不受频率或时间调整的影响
+    #if defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+    // macOS 10.12+，包含睡眠时间，不受频率或时间调整的影响，等价于 mach_continuous_time
+    return (prh_i64)clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
+    #else // macOS 10.0+，不包含睡眠时间，不受频率或时间调整的影响
+    return (prh_i64)mach_absolute_time();
     #endif
 #elif defined(prh_plat_linux)
     #if defined(CLOCK_BOOTTIME)
@@ -15363,6 +15414,14 @@ void prh_impl_time_init(void) {
 }
 #endif
 
+prh_i64 prh_clock_rate(void) {
+#if PRH_IMPL_NSEC_PRECISE
+    return PRH_NSEC_PER_SEC;
+#else
+    return PRH_IMPL_TIMEINIT.ticks_per_sec;
+#endif
+}
+
 prh_i64 prh_elapse_secs(prh_i64 ticks) {
 #if PRH_IMPL_NSEC_PRECISE
     return ticks / PRH_NSEC_PER_SEC;
@@ -15375,8 +15434,6 @@ prh_i64 prh_elapse_msec(prh_i64 ticks) {
 #if PRH_IMPL_NSEC_PRECISE
     return ticks / 1000000;
 #else
-    // To guard against loss-of-precision, we convert to microseconds
-    // *before* dividing by ticks-per-second.
     return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
 #endif
 }
@@ -15385,8 +15442,6 @@ prh_i64 prh_elapse_usec(prh_i64 ticks) {
 #if PRH_IMPL_NSEC_PRECISE
     return ticks / 1000;
 #else
-    // To guard against loss-of-precision, we convert to microseconds
-    // *before* dividing by ticks-per-second.
     return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
 #endif
 }
@@ -15395,8 +15450,7 @@ prh_i64 prh_elapse_nsec(prh_i64 ticks) {
 #if PRH_IMPL_NSEC_PRECISE
     return ticks;
 #else
-    // To guard against loss-of-precision, we convert to nanoseconds
-    // *before* dividing by ticks-per-second.
+    // To guard against loss-of-precision, we convert to nanoseconds *before* dividing by ticks-per-second.
     return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
 #endif
 }
@@ -28084,10 +28138,24 @@ prh_inline prh_r16 prh_tcp_remote_port(prh_socket *tcp) { return prh_be_to_host_
 prh_listen *prh_tcp_listen(const char *host, prh_reg port, prh_reg backlog);
 prh_socket *prh_tcp_accept(prh_listen *l, prh_reg datasize);
 void prh_tcp_reuse_accept(prh_socket *tcp, prh_listen *l);
-void prh_tcp_wait_client(prh_socket *tcp, prh_co_proc proc);
+void prh_tcp_close(prh_socket *tcp);
+
+#define prh_tcp_wait_client(tcp, proc, error_handling) do {                     \
+    extern void prh_impl_tcp_wait_client(prh_socket *tcp, prh_co_proc proc, pro_co_proc error_handling); \
+    prh_impl_tcp_wait_client((tcp), (proc), (error_handling));                  \
+    return (prh_yield *)(prh_reg)__LINE__;                                      \
+case __LINE__:                                                                  \
+} while (0)
+
+#define prh_tcp_close(tcp) do {                                                 \
+    extern void prh_impl_tcp_close(prh_socket *tcp);                            \
+    prh_impl_tcp_close(tcp);                                                    \
+    return (prh_yield *)(prh_reg)__LINE__;                                      \
+case __LINE__:                                                                  \
+} while (0)
 
 prh_socket *prh_tcp_connect(const char *host, prh_reg port, prh_reg datasize);
-void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp);
+void prh_tcp_reuse_connect(prh_socket *tcp, const char *host, prh_reg port);
 void prh_tcp_reconnect(prh_socket *tcp);
 
 #define prh_tcp_wait_open(tcp, proc, error_handling) do {                       \
@@ -30892,7 +30960,7 @@ void prh_impl_init_accept(prh_socket *t, prh_listen *l) {
     t->client = 0;
 }
 
-prh_socket *prh_tcp_accept(prh_listen *l, prh_reg datasize) {
+void prh_tcp_accept(prh_listen *l, prh_reg datasize) {
     assert(datasize >= sizeof(prh_socket));
     prh_socket *tcp = (prh_socket *)prh_arena_line_calloc(l->alloc, datasize);
     prh_impl_init_accept(tcp, l);
@@ -30946,10 +31014,6 @@ prh_r32 prh_impl_sock_listen(prh_handle socket, int backlog) {
         prh_prerr(error_code);
     }
     return error_code;
-}
-
-int prh_impl_sockaddr_len(prh_sock_addr *sa) {
-    return sa->family == AF_INET6 ? (int)sizeof(struct sockaddr_in6) : (int)sizeof(struct sockaddr_in);
 }
 
 int prh_impl_parse_local_address(const char *host, prh_reg flags_port, prh_sock_addr *l) {
@@ -32519,7 +32583,7 @@ prh_socket *prh_tcp_connect(const char *host, prh_reg port, prh_reg datasize) {
     return tcp;
 }
 
-void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp) {
+void prh_tcp_reuse_connect(prh_socket *tcp, const char *host, prh_reg port) {
     assert(host != prh_null && port != 0 && tcp != prh_null);
     assert(tcp->closed == 1 && tcp->alloc != prh_null); // 必须已经关闭才能重用
     prh_arena_alloc *alloc = tcp->accept ? tcp->listen->alloc : tcp->alloc;
@@ -32530,8 +32594,8 @@ void prh_tcp_reuse_connect(const char *host, prh_reg port, prh_socket *tcp) {
 
 void prh_tcp_reconnect(prh_socket *tcp) { // 必须是一个主动连接套接字，对端地址已经设置
     assert(tcp->client == 1 && tcp->closed == 1 && tcp->alloc != prh_null);
-    assert(remote->family == AF_INET || remote->family == AF_INET6);
-    tcp->addrlen = prh_impl_sockaddr_len(&tcp->remote);
+    assert(tcp->remote.family == AF_INET || tcp->remote.family == AF_INET6);
+    tcp->addrlen = prh_impl_socket_addrlen(tcp->remote.family == AF_INET6);
     prh_impl_init_conn_socket(tcp, tcp->socket);
 }
 
