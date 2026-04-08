@@ -13793,11 +13793,6 @@ prh_inline prh_i64 prh_system_nsec_from(const prh_timespec *p) {
 // https://github.com/adobe/chromium/blob/master/base/time_posix.cc
 // https://github.com/adobe/chromium/blob/master/base/time_win.cc
 #ifdef PRH_TIME_IMPLEMENTATION
-typedef struct {
-    prh_i64 ticks_per_sec;
-} prh_impl_timeinit;
-
-prh_impl_timeinit PRH_IMPL_TIMEINIT;
 
 // https://github.com/rust-lang/rust/blob/3809bbf47c8557bd149b3e52ceb47434ca8378d5/src/libstd/sys_common/mod.rs#L124
 // Computes (value*numer)/denom without overflow, as long as both
@@ -13814,6 +13809,138 @@ prh_i64 prh_impl_mul_div(prh_i64 value, prh_i64 numer, prh_i64 denom) {
 }
 
 #if defined(prh_plat_windows)
+// https://mirrors.arcadecontrols.com/www.sysinternals.com/Information/HighResolutionTimers.html
+//
+// 高分辨率计时器在各种不同的应用程序中都非常有用。例如，在 Windows 中，此类计时器最常
+// 见的用途是多媒体应用程序生成声音或音频时需要精确控制。MIDI 是一个完美的例子，因为
+// MIDI 序列器必须以 1 毫秒的精度保持 MIDI 事件的节奏。本文描述了 NT 中高分辨率计时器
+// 的实现方式，并记录了 NtSetTimerResolution 和 NtQueryTimerResolution，这两个 NT
+// 内核函数用于操作和返回有关系统时钟的信息。不幸的是，NtSetTimerResolution 和 NtQueryTimerResolution
+// 并没有被 NT 内核导出，因此它们不可用于内核模式设备驱动程序。
+//
+// Windows NT 的所有计时器支持都基于一个系统时钟中断，默认运行在 10 毫秒的粒度上。因
+// 此，标准 Windows 计时器的分辨率就是 10 毫秒。当多媒体应用程序使用 timeBeginPeriod
+// 多媒体 API 时，该 API 由 Windows NT 动态链接库 WINMM.DLL 导出，调用会被重定向到
+// Windows NT 内核模式函数 NtSetTimerResolution，该函数由本地 Windows NT 库 NTDLL.DLL
+// 导出。
+//
+// NtSetTimerResolution 和 NtQueryTimerResolution 的定义如下。所有时间都以 100 纳
+// 秒为单位指定。
+//
+// NTSTATUS NTAPI NtSetTimerResolution (
+//     IN ULONG RequestedResolution,
+//     IN BOOLEAN Set,
+//     OUT PULONG ActualResolution
+// );
+//
+// 参数 RequestedResolution 期望的计时器分辨率。必须在 NT 支持的系统计时器值的合法范
+// 围内。在标准 x86 系统上，这个范围是 1-10 毫秒。在标准 x86 HAL 中，可接受范围内的值
+// 会被四舍五入到下一个最高的毫秒边界。如果 Set 参数为 FALSE，则忽略此参数。
+//
+// 参数 Set，如果请求新的计时器分辨率，则为 TRUE；如果应用程序表示不再需要之前设置的分
+// 辨率，则为 FALSE。参数 ActualResolution，调用返回后生效的计时器分辨率。
+//
+// 如果请求的分辨率在有效范围内的计时器值内，NtSetTimerResolution 返回 STATUS_SUCCESS。
+// 如果 Set 为 FALSE，调用者必须之前调用过 NtSetTimerResolution，否则返回
+// STATUS_TIMER_RESOLUTION_NOT_SET。
+//
+// NTSTATUS NTAPI NtQueryTimerResolution (
+//     OUT PULONG MinimumResolution,
+//     OUT PULONG MaximumResolution,
+//     OUT PULONG ActualResolution
+// );
+//
+// 参数 MinimumResolution 最小计时器分辨率。在标准 x86 系统上，大约是 1 毫秒。参数
+// MaximumResolution 最大计时器分辨率。在标准 x86 系统上为 0x2625A，大约是 15 毫秒。
+// 参数 ActualResolution 系统时钟的当前分辨率。
+//
+// 实现细节，NtSetTimerResolution 可以被多个应用程序调用来设置计时器分辨率。为了支持
+// 后续进程设置计时器分辨率而不违反之前调用者的分辨率假设，NtSetTimerResolution 从不
+// 降低计时器的分辨率，只提高它。例如，如果一个进程将分辨率设置为 5 毫秒，后续将分辨率
+// 设置为 5 到 10 毫秒之间的调用将返回一个状态码表示成功，但计时器将保持在 5 毫秒。
+// NtSetTimerResolution 还会在其进程控制块中跟踪进程是否设置了计时器分辨率，以便在调
+// 用时 Set 等于 FALSE 时可以验证调用者之前是否请求过新的分辨率。每次设置新的分辨率时，
+// 全局计数器会递增，每次重置时，计数器会递减。当计数器在重置调用时变为 0 时，计时器会
+// 恢复到默认速率，否则不采取任何操作。同样，这通过保证分辨率至少与它们指定的一样好，来
+// 保留所有请求高分辨率计时器的应用程序的计时器分辨率假设。
+//
+// 你可以使用 Sysinternals 的 ClockRes 小工具查看系统当前的时钟分辨率。
+//
+// MMRESULT timeGetDevCaps(LPTIMECAPS ptc, UINT cbtc);
+// typedef struct timecaps_tag {
+//      UINT wPeriodMin; // 计时器支持的最小精度值，单位毫秒（milliseconds）
+//      UINT wPeriodMax; // 计时器支持的最大精度值
+// } TIMECAPS, *PTIMECAPS, *NPTIMECAPS, *LPTIMECAPS;
+//
+// timeapi.h (include windows.h)
+// Windows 2000 Professional Windows 2000 Server
+// Winmm.lib Winmm.dll
+//
+// 参数 cbtc，结构体 TIMECAPS 的字节大小。返回值 MMSYSERR_NOERROR 表示成功，一般错误
+// MMSYSERR_ERROR，非法参数或其他错误 TIMERR_NOCANDO。
+//
+// MMRESULT timeBeginPeriod(UINT uPeriodMsec); // 设置周期性计时器的最小精度值
+// MMRESULT timeEndPeriod(UINT uPeriodMsec); // 清除最小精度值的设置
+//
+// 请在即将使用计时器服务之前调用此函数 timeBeginPeriod，并在使用完毕之后立即调用
+// timeEndPeriod 函数。每一次对 timeBeginPeriod 的调用都必须与一次对 timeEndPeriod
+// 的调用相匹配，且两次调用中指定的最小分辨率必须相同。应用程序可以多次调用
+// timeBeginPeriod，只要每一次调用都有对应的 timeEndPeriod 调用即可。
+//
+// 在 Windows 10 版本 2004 之前，此函数会影响全局 Windows 设置。对于所有进程，
+// Windows 会使用 “任何进程所请求的最小值”（即最高分辨率）。从 Windows 10 版本 2004     *** Windows 10 版本 2004 之后只影响进行时钟精度
+// 开始，此函数不再影响全局计时器分辨率。对于调用了此函数的进程，Windows 会使用
+// “该进程所请求的最小值”（即最高分辨率）。对于未调用此函数的进程，Windows 不保证提供
+// 高于默认系统分辨率的精度。
+//
+// 从 Windows 11 开始，如果一个拥有窗口的进程被完全遮挡、最小化，或以其他方式对用户不     *** Windows 11 开始，进程窗口被完全遮挡、最小化、或不可见
+// 可见或不可听，Windows 不保证提供高于默认系统分辨率的精度。有关此行为的更多信息，请         不保证提供高于默认系统分辨率的精度
+// 参阅 SetProcessInformation。
+//
+// 设置更高的分辨率可以提高等待函数中超时间隔的准确性，但同时也会降低整体系统性能，因
+// 为线程调度器会更频繁地切换任务。高分辨率还可能阻止 CPU 电源管理系统进入省电模式。设
+// 置更高的分辨率并不会提高高分辨率性能计数器的准确性。
+
+prh_static_assert(MMSYSERR_NOERROR == 0 && STATUS_SUCCESS == 0);
+prh_static_assert(sizeof(ULONG) == sizeof(prh_r32));
+
+typedef struct {
+    prh_i64 ticks_per_sec;
+    prh_r32 min_mesc;
+    prh_r32 max_mesc;
+    prh_r32 cur_nsec;
+    prh_r32 nt_min_nsec;
+    prh_r32 nt_max_nsec;
+} prh_time_caps;
+
+static prh_time_caps PRH_IMPL_TIMECAPS;
+
+void prh_impl_time_caps(prh_time_caps *t) {
+    LARGE_INTEGER freq; // QueryPerformanceFrequency expressed in counts per second
+    prh_boolret(QueryPerformanceFrequency(&freq));
+    t->ticks_per_sec = freq.QuadPart;
+    TIMECAPS TimeCaps;
+    prh_zeroret(timeGetDevCaps(&TimeCaps, (UINT)sizeof(TIMECAPS)));
+    t->min_msec = (prh_r32)TimeCaps.wPeriodMin;
+    t->max_msec = (prh_r32)TimeCaps.wPeriodMax;
+    prh_zeroret(NtQueryTimerResolution(&t->nt_min_nsec, &t->nt_max_nsec, &t->cur_nsec));
+    t->nt_min_nsec *= 100;
+    t->nt_max_nsec *= 100;
+    t->cur_nsec *= 100;
+}
+
+void prh_impl_time_init(void) {
+    prh_impl_time_caps(&PRH_IMPL_TIMECAPS);
+}
+
+void prh_time_start_high_resolution(void) {
+    prh_zeroret(timeBeginPeriod(1));
+}
+
+void prh_time_reset_resolution(void) {
+    prh_zeroret(timeEndPeriod(1));
+}
+
 // https://learn.microsoft.com/en-us/windows/win32/winmsg/about-timers
 //
 // High-resolution timer 性能计数器的值是一个单调递增的计数值，其频率可以通过
@@ -14356,6 +14483,25 @@ prh_i64 prh_impl_mul_div(prh_i64 value, prh_i64 numer, prh_i64 denom) {
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC 0x00295E9648864000LL // 11644473600000000-usec
 #define PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_100N 0x019DB1DED53E8000LL // 116444736000000000-100nsec
 
+prh_inline prh_i64 *prh_impl_file_time_64(const FILETIME *f) {
+    // typedef union _LARGE_INTEGER {
+    //     struct {
+    //         DWORD LowPart;
+    //         LONG HighPart;
+    //     } DUMMYSTRUCTNAME;
+    //     struct {
+    //         DWORD LowPart;
+    //         LONG HighPart;
+    //     } u;
+    //     LONGLONG QuadPart; // a signed 64-bit integer
+    // } LARGE_INTEGER;
+    // typedef struct _FILETIME {
+    //     DWORD dwLowDateTime;
+    //     DWORD dwHighDateTime;
+    // } FILETIME;
+    return (prh_i64 *)f;
+}
+
 void prh_impl_1970_utc_secs_to_filetime(prh_i64 secs, FILETIME *f) {
     // The time functions included in the C run-time use the time_t type to
     // represent the number of seconds elapsed since midnight, January 1, 1970.
@@ -14367,58 +14513,50 @@ void prh_impl_1970_utc_secs_to_filetime(prh_i64 secs, FILETIME *f) {
     //          f->dwHighDateTime = time_value.HighPart;
     //      }
     // FILETIME 单位为 100 纳秒，从 1601/1/1 为基准开始。
-    secs = (secs + PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SECS) * 10000000;
-    f->dwLowDateTime = (DWORD)(secs & 0xFFFFFFFF);
-    f->dwHighDateTime = (DWORD)(secs >> 32);
+    *prh_impl_file_time_64(f) = (secs + PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SECS) * 10000000;
 }
 
 prh_i64 prh_impl_1970_utc_time_secs(const FILETIME *f) {
-    prh_i64 secs = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
-    return secs / 10000000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SECS;
+    return *prh_impl_file_time_64(f) / 10000000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_SECS;
 }
 
 prh_i64 prh_impl_1970_utc_time_msec(const FILETIME *f) {
-    prh_i64 msec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
-    return msec / 10000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC;
+    return *prh_impl_file_time_64(f) / 10000 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_MSEC;
 }
 
 prh_i64 prh_impl_1970_utc_time_usec(const FILETIME *f) {
-    prh_i64 usec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
-    return usec / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
+    return *prh_impl_file_time_64(f) / 10 - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_USEC;
 }
 
 prh_i64 prh_impl_1970_utc_time_nsec(const FILETIME *f) {
-    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
-    return (nsec - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_100N) * 100;
+    return (*prh_impl_file_time_64(f) - PRH_IMPL_FILETIME_DELTA_FROM_EPOCH_100N) * 100;
 }
 
 void prh_impl_1970_utc_time_spec(const FILETIME *f, prh_timespec *utc_time) {
-    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
+    prh_i64 nsec = *prh_impl_file_time_64(f)
     utc_time->secs = nsec / 10000000;
-    utc_time->nsec = (prh_i32)(nsec % 10000000) * 100;
+    utc_time->nsec = (prh_i32)(nsec % 10000000 * 100); // 必须先运算最后转32位
     utc_time->extra = 0;
 }
 
 void prh_impl_1970_utc_time_spec_with_nsec(const FILETIME *f, prh_timespec *utc_time, prh_i32 date_nsec) {
-    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
-    utc_time->secs = nsec / 10000000;
+    utc_time->secs = *prh_impl_file_time_64(f) / 10000000;
     utc_time->nsec = date_nsec;
     utc_time->extra = 0;
 }
 
 prh_i32 prh_impl_filetime_nsec_part(const FILETIME *f) {
-    prh_i64 nsec = ((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime;
-    return (prh_i32)(nsec % 10000000) * 100;
+    return (prh_i32)(*prh_impl_file_time_64(f) % 10000000 * 100); // 必须先运算最后转32位
 }
 
 prh_i64 prh_impl_filetime_total_nsec(const FILETIME *f) {
-    return (((prh_i64)f->dwHighDateTime << 32) | f->dwLowDateTime) * 100;
+    return *prh_impl_file_time_64(f) * 100;
 }
 
 prh_i64 prh_impl_system_filetime(void) {
     FILETIME f;
     GetSystemTimePreciseAsFileTime(&f);
-    return ((prh_i64)f.dwHighDateTime << 32) | f.dwLowDateTime;
+    return *prh_impl_file_time_64(f)
 }
 
 prh_i64 prh_system_secs(void) { // 可表示2.9千亿年
@@ -14495,14 +14633,14 @@ void prh_impl_system_date(SYSTEMTIME *s, const prh_datetime *t) {
 }
 
 void prh_system_time_from_date(prh_timespec *utc_time, const prh_datetime *utc_date) {
-    SYSTEMTIME s; FILETIME f;
+    FILETIME f; SYSTEMTIME s;
     prh_impl_system_date(&s, utc_date); // 只计算了秒
     prh_boolret(SystemTimeToFileTime(&s, &f));
     prh_impl_1970_utc_time_spec_with_nsec(&f, utc_time, utc_date->nsec);
 }
 
 void prh_system_time_from_local_date(prh_timespec *utc_time, const prh_datetime *local_date) {
-    SYSTEMTIME local, s; FILETIME f;
+    FILETIME f; SYSTEMTIME local, s;
     prh_impl_system_date(&local, local_date); // 只计算了秒
     prh_boolret(TzSpecificLocalTimeToSystemTime(prh_null, &local, &s));
     prh_boolret(SystemTimeToFileTime(&s, &f));
@@ -14774,21 +14912,16 @@ prh_i64 prh_steady_nsec(void) { // 保存纳秒只能表示292年
 //      handle must be closed.
 
 prh_i64 prh_thread_time(void) {
-    FILETIME creation_time, exit_time, kernel_time, user_time;
-    prh_boolret(GetThreadTimes(GetCurrentThread(), &creation_time, &exit_time, &kernel_time, &user_time));
-    return prh_impl_filetime_total_nsec(&kernel_time) + prh_impl_filetime_total_nsec(&user_time);
+    FILETIME creation_time, exit_time, time, user_time;
+    prh_boolret(GetThreadTimes(GetCurrentThread(), &creation_time, &exit_time, &time, &user_time));
+    *prh_impl_file_time_64(&time) += *prh_impl_file_time_64(&user_time);
+    return prh_impl_filetime_total_nsec(&time);
 }
 
 prh_i64 prh_thread_user_time(void) {
-    FILETIME creation_time, exit_time, kernel_time, user_time;
-    prh_boolret(GetThreadTimes(GetCurrentThread(), &creation_time, &exit_time, &kernel_time, &user_time));
-    return prh_impl_filetime_total_nsec(&user_time);
-}
-
-void prh_impl_time_init(void) {
-    LARGE_INTEGER freq;
-    prh_boolret(QueryPerformanceFrequency(&freq));
-    PRH_IMPL_TIMEINIT.ticks_per_sec = freq.QuadPart;
+    FILETIME creation_time, exit_time, kernel_time, time;
+    prh_boolret(GetThreadTimes(GetCurrentThread(), &creation_time, &exit_time, &kernel_time, &time));
+    return prh_impl_filetime_total_nsec(&time);
 }
 
 prh_i64 prh_clock_ticks(void) {
@@ -14798,11 +14931,11 @@ prh_i64 prh_clock_ticks(void) {
 }
 
 prh_i64 prh_clock_rate(void) {
-    return PRH_IMPL_TIMEINIT.ticks_per_sec;
+    return PRH_IMPL_TIMECAPS.ticks_per_sec;
 }
 
 prh_i64 prh_ticks_to_secs(prh_i64 ticks) {
-    return ticks / PRH_IMPL_TIMEINIT.ticks_per_sec;
+    return ticks / PRH_IMPL_TIMECAPS.ticks_per_sec;
 }
 
 prh_i64 prh_ticks_to_msec(prh_i64 ticks) {
@@ -14811,16 +14944,16 @@ prh_i64 prh_ticks_to_msec(prh_i64 ticks) {
     // 的精度为纳秒，64位有符号保存纳秒可以表示292年，74752 天，为了乘以 1000 不溢
     // 出，系统最久只能运行 74 天，长期运行的服务器很容易超过这个时间。为了确保乘法不
     // 溢出，需要调用 prh_impl_mul_div 执行先乘后除。
-    return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+    return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMECAPS.ticks_per_sec);
 }
 
 prh_i64 prh_ticks_to_usec(prh_i64 ticks) {
-    return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+    return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMECAPS.ticks_per_sec);
 }
 
 prh_i64 prh_ticks_to_nsec(prh_i64 ticks) {
     // To guard against loss-of-precision, we convert to nanoseconds *before* dividing by ticks-per-second.
-    return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+    return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMECAPS.ticks_per_sec);
 }
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -14828,12 +14961,15 @@ prh_i64 prh_ticks_to_nsec(prh_i64 ticks) {
 void prh_impl_time_test(void) {
     PRH_IMPL_PREV_TEST();
     printf("\n\n[MSC][time]\n");
-    printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
     printf("void * %zd-byte\n", sizeof(void *));
     printf("size_t %zd-byte\n", sizeof(size_t));
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
+    prh_time_caps caps;
+    prh_impl_time_caps(&t);
+    printf("System Time Supported Resolution: %u ms %u ns -> %u ms %u ns curr %u ns ticks_per_sec %u\n",
+        caps.min_msec, caps.nt_min_nsec, caps.max_msec, caps.nt_max_nsec, caps.cur_nsec, caps.ticks_per_sec);
     int i, n = 30, count = 0; prh_i64 t1, t2;
     for (i = 0; i < n; i += 1) {
         printf("system time: %lli\n", (long long)prh_system_usec());
@@ -15383,6 +15519,34 @@ void prh_system_date_from(prh_datetime *utc_date, const prh_timespec *utc_time) 
 //      等价于 clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) 返回的纳秒数。
 // #endif
 
+typedef struct {
+    prh_i64 ticks_per_sec;
+} prh_time_caps;
+
+static prh_time_caps PRH_IMPL_TIMECAPS;
+
+#if defined(prh_plat_apple) && !defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
+#define PRH_IMPL_NSEC_PRECISE 0
+void prh_impl_time_init(void) {
+    mach_timebase_info_data_t info; // ticks * n / d = nsecs => nsecs / (n / d) = ticks => nsecs * d / n = ticks
+    mach_timebase_info(&info); // 1-sec = 1000000000-nsec = 1000000000 * d / n ticks
+    PRH_IMPL_TIMECAPS.ticks_per_sec = prh_impl_mul_div(PRH_NSEC_PER_SEC, info.denom, info.numer);
+}
+#else
+#define PRH_IMPL_NSEC_PRECISE 1
+void prh_impl_time_init(void) {
+    PRH_IMPL_TIMECAPS.ticks_per_sec = PRH_NSEC_PER_SEC;
+}
+#endif
+
+prh_i64 prh_clock_rate(void) {
+#if PRH_IMPL_NSEC_PRECISE
+    return PRH_NSEC_PER_SEC;
+#else
+    return PRH_IMPL_TIMECAPS.ticks_per_sec;
+#endif
+}
+
 prh_i64 prh_clock_ticks(void) {
 #if defined(prh_plat_apple)
     #if defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
@@ -15413,33 +15577,11 @@ prh_i64 prh_clock_ticks(void) {
 #endif
 }
 
-#if defined(prh_plat_apple) && !defined(AVAILABLE_MAC_OS_X_VERSION_10_12_AND_LATER)
-#define PRH_IMPL_NSEC_PRECISE 0
-void prh_impl_time_init(void) {
-    mach_timebase_info_data_t info; // ticks * n / d = nsecs => nsecs / (n / d) = ticks => nsecs * d / n = ticks
-    mach_timebase_info(&info); // 1-sec = 1000000000-nsec = 1000000000 * d / n ticks
-    PRH_IMPL_TIMEINIT.ticks_per_sec = prh_impl_mul_div(PRH_NSEC_PER_SEC, info.denom, info.numer);
-}
-#else
-#define PRH_IMPL_NSEC_PRECISE 1
-void prh_impl_time_init(void) {
-    PRH_IMPL_TIMEINIT.ticks_per_sec = PRH_NSEC_PER_SEC;
-}
-#endif
-
-prh_i64 prh_clock_rate(void) {
-#if PRH_IMPL_NSEC_PRECISE
-    return PRH_NSEC_PER_SEC;
-#else
-    return PRH_IMPL_TIMEINIT.ticks_per_sec;
-#endif
-}
-
 prh_i64 prh_ticks_to_secs(prh_i64 ticks) {
 #if PRH_IMPL_NSEC_PRECISE
     return ticks / PRH_NSEC_PER_SEC;
 #else
-    return ticks / PRH_IMPL_TIMEINIT.ticks_per_sec;
+    return ticks / PRH_IMPL_TIMECAPS.ticks_per_sec;
 #endif
 }
 
@@ -15447,7 +15589,7 @@ prh_i64 prh_ticks_to_msec(prh_i64 ticks) {
 #if PRH_IMPL_NSEC_PRECISE
     return ticks / 1000000;
 #else
-    return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+    return prh_impl_mul_div(ticks, PRH_MSEC_PER_SEC, PRH_IMPL_TIMECAPS.ticks_per_sec);
 #endif
 }
 
@@ -15455,7 +15597,7 @@ prh_i64 prh_ticks_to_usec(prh_i64 ticks) {
 #if PRH_IMPL_NSEC_PRECISE
     return ticks / 1000;
 #else
-    return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+    return prh_impl_mul_div(ticks, PRH_USEC_PER_SEC, PRH_IMPL_TIMECAPS.ticks_per_sec);
 #endif
 }
 
@@ -15464,7 +15606,7 @@ prh_i64 prh_ticks_to_nsec(prh_i64 ticks) {
     return ticks;
 #else
     // To guard against loss-of-precision, we convert to nanoseconds *before* dividing by ticks-per-second.
-    return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMEINIT.ticks_per_sec);
+    return prh_impl_mul_div(ticks, PRH_NSEC_PER_SEC, PRH_IMPL_TIMECAPS.ticks_per_sec);
 #endif
 }
 
@@ -15500,7 +15642,7 @@ prh_i64 prh_thread_time(void) {
 void prh_impl_time_test(void) {
     PRH_IMPL_PREV_TEST();
     printf("\n\n[GNU][time]\n");
-    printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMEINIT.ticks_per_sec);
+    printf("clock tick frequency %lli\n", (long long)PRH_IMPL_TIMECAPS.ticks_per_sec);
     printf("time_t %zi-byte\n", sizeof(time_t)); // seconds, it is signed integer
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
@@ -17192,26 +17334,7 @@ bool prh_switch_to_next_thread_on_current_processor(void) {
 //
 // 对于这些场景，请使用 MsgWaitForMultipleObjects 或 MsgWaitForMultipleObjectsEx，
 // 而非 Sleep 或 SleepEx。
-
-void prh_switch_to_any_equal_or_higher_ready_thread(void) {
-    //  1.  线程仅放弃当前剩余的时间片，并且自己仍然保持就绪状态
-    //  2.  如果没有其他相同（equal）或更高优先级的就绪线程可执行，函数立即返回继续执行
-    //  3.  即使没有其他就绪线程，并且存在低优先级的饥饿线程，也会得不到调度
-    //  4.  与 SwitchToThread 相比，两者都是放弃线程当前剩余时间片
-    //  5.  但 SwitchToThread 仅考虑当前处理器上的需要执行的线程，不论优先级高低
-    //  6.  而 Sleep(0) 考虑所有线程，但比当前线程优先级低的线程没有执行机会
-    Sleep(0);
-}
-
-void prh_sleep_until_next_tick(void) {
-    // 放弃线程当前剩余的时间片，并阻塞线程进入不可运行状态，直到下一个时钟滴答。即阻塞
-    // 当前线程直到下一次系统时钟滴答（make current thread block until the next
-    // timer tick），然后变成就绪状态等待系统调度执行。系统时钟滴答实际精度由系统时钟
-    // 中断周期决定，默认粒度约为 15 ms，但可以提高时钟精度到 1 ~ 3ms。由于当前线程被
-    // 阻塞，因此有机会让其他低优先级线程执行。
-    Sleep(1);
-}
-
+//
 // DWORD SleepEx(DWORD dwMilliseconds, BOOL bAlertable);
 //
 // 挂起当前线程，直到满足指定条件。执行将在以下任一情况发生时恢复：
@@ -17238,127 +17361,24 @@ void prh_sleep_until_next_tick(void) {
 // 完成端口回调时，调用 I/O 函数的线程必须处于“可提醒等待”状态。线程通过调用 SleepEx、
 // MsgWaitForMultipleObjectsEx、WaitForSingleObjectEx 或 WaitForMultipleObjectsEx，
 // 并将 bAlertable 参数设为 TRUE，即可进入可提醒等待状态。
-//
-// https://mirrors.arcadecontrols.com/www.sysinternals.com/Information/HighResolutionTimers.html
-//
-// 高分辨率计时器在各种不同的应用程序中都非常有用。例如，在 Windows 中，此类计时器最常
-// 见的用途是多媒体应用程序生成声音或音频时需要精确控制。MIDI 是一个完美的例子，因为
-// MIDI 序列器必须以 1 毫秒的精度保持 MIDI 事件的节奏。本文描述了 NT 中高分辨率计时器
-// 的实现方式，并记录了 NtSetTimerResolution 和 NtQueryTimerResolution，这两个 NT
-// 内核函数用于操作和返回有关系统时钟的信息。不幸的是，NtSetTimerResolution 和 NtQueryTimerResolution
-// 并没有被 NT 内核导出，因此它们不可用于内核模式设备驱动程序。
-//
-// Windows NT 的所有计时器支持都基于一个系统时钟中断，默认运行在 10 毫秒的粒度上。因
-// 此，标准 Windows 计时器的分辨率就是 10 毫秒。当多媒体应用程序使用 timeBeginPeriod
-// 多媒体 API 时，该 API 由 Windows NT 动态链接库 WINMM.DLL 导出，调用会被重定向到
-// Windows NT 内核模式函数 NtSetTimerResolution，该函数由本地 Windows NT 库 NTDLL.DLL
-// 导出。
-//
-// NtSetTimerResolution 和 NtQueryTimerResolution 的定义如下。所有时间都以 100 纳
-// 秒为单位指定。
-//
-// NTSTATUS NTAPI NtSetTimerResolution (
-//     IN ULONG RequestedResolution,
-//     IN BOOLEAN Set,
-//     OUT PULONG ActualResolution
-// );
-//
-// 参数 RequestedResolution 期望的计时器分辨率。必须在 NT 支持的系统计时器值的合法范
-// 围内。在标准 x86 系统上，这个范围是 1-10 毫秒。在标准 x86 HAL 中，可接受范围内的值
-// 会被四舍五入到下一个最高的毫秒边界。如果 Set 参数为 FALSE，则忽略此参数。
-//
-// 参数 Set，如果请求新的计时器分辨率，则为 TRUE；如果应用程序表示不再需要之前设置的分
-// 辨率，则为 FALSE。参数 ActualResolution，调用返回后生效的计时器分辨率。
-//
-// 如果请求的分辨率在有效范围内的计时器值内，NtSetTimerResolution 返回 STATUS_SUCCESS。
-// 如果 Set 为 FALSE，调用者必须之前调用过 NtSetTimerResolution，否则返回
-// STATUS_TIMER_RESOLUTION_NOT_SET。
-//
-// NTSTATUS NTAPI NtQueryTimerResolution (
-//     OUT PULONG MinimumResolution,
-//     OUT PULONG MaximumResolution,
-//     OUT PULONG ActualResolution
-// );
-//
-// 参数 MinimumResolution 最小计时器分辨率。在标准 x86 系统上，大约是 1 毫秒。参数
-// MaximumResolution 最大计时器分辨率。在标准 x86 系统上为 0x2625A，大约是 15 毫秒。
-// 参数 ActualResolution 系统时钟的当前分辨率。
-//
-// 实现细节，NtSetTimerResolution 可以被多个应用程序调用来设置计时器分辨率。为了支持
-// 后续进程设置计时器分辨率而不违反之前调用者的分辨率假设，NtSetTimerResolution 从不
-// 降低计时器的分辨率，只提高它。例如，如果一个进程将分辨率设置为 5 毫秒，后续将分辨率
-// 设置为 5 到 10 毫秒之间的调用将返回一个状态码表示成功，但计时器将保持在 5 毫秒。
-// NtSetTimerResolution 还会在其进程控制块中跟踪进程是否设置了计时器分辨率，以便在调
-// 用时 Set 等于 FALSE 时可以验证调用者之前是否请求过新的分辨率。每次设置新的分辨率时，
-// 全局计数器会递增，每次重置时，计数器会递减。当计数器在重置调用时变为 0 时，计时器会
-// 恢复到默认速率，否则不采取任何操作。同样，这通过保证分辨率至少与它们指定的一样好，来
-// 保留所有请求高分辨率计时器的应用程序的计时器分辨率假设。
-//
-// 你可以使用 Sysinternals 的 ClockRes 小工具查看系统当前的时钟分辨率。
-//
-// MMRESULT timeGetDevCaps(LPTIMECAPS ptc, UINT cbtc);
-// typedef struct timecaps_tag {
-//      UINT wPeriodMin; // 计时器支持的最小精度值，单位毫秒（milliseconds）
-//      UINT wPeriodMax; // 计时器支持的最大精度值
-// } TIMECAPS, *PTIMECAPS, *NPTIMECAPS, *LPTIMECAPS;
-//
-// timeapi.h (include windows.h)
-// Windows 2000 Professional Windows 2000 Server
-// Winmm.lib Winmm.dll
-//
-// 参数 cbtc，结构体 TIMECAPS 的字节大小。返回值 MMSYSERR_NOERROR 表示成功，一般错误
-// MMSYSERR_ERROR，非法参数或其他错误 TIMERR_NOCANDO。
-//
-// MMRESULT timeBeginPeriod(UINT uPeriodMsec); // 设置周期性计时器的最小精度值
-// MMRESULT timeEndPeriod(UINT uPeriodMsec); // 清除最小精度值的设置
-//
-// 请在即将使用计时器服务之前调用此函数 timeBeginPeriod，并在使用完毕之后立即调用
-// timeEndPeriod 函数。每一次对 timeBeginPeriod 的调用都必须与一次对 timeEndPeriod
-// 的调用相匹配，且两次调用中指定的最小分辨率必须相同。应用程序可以多次调用
-// timeBeginPeriod，只要每一次调用都有对应的 timeEndPeriod 调用即可。
-//
-// 在 Windows 10 版本 2004 之前，此函数会影响全局 Windows 设置。对于所有进程，
-// Windows 会使用 “任何进程所请求的最小值”（即最高分辨率）。从 Windows 10 版本 2004     *** Windows 10 版本 2004 之后只影响进行时钟精度
-// 开始，此函数不再影响全局计时器分辨率。对于调用了此函数的进程，Windows 会使用
-// “该进程所请求的最小值”（即最高分辨率）。对于未调用此函数的进程，Windows 不保证提供
-// 高于默认系统分辨率的精度。
-//
-// 从 Windows 11 开始，如果一个拥有窗口的进程被完全遮挡、最小化，或以其他方式对用户不     *** Windows 11 开始，进程窗口被完全遮挡、最小化、或不可见
-// 可见或不可听，Windows 不保证提供高于默认系统分辨率的精度。有关此行为的更多信息，请         不保证提供高于默认系统分辨率的精度
-// 参阅 SetProcessInformation。
-//
-// 设置更高的分辨率可以提高等待函数中超时间隔的准确性，但同时也会降低整体系统性能，因
-// 为线程调度器会更频繁地切换任务。高分辨率还可能阻止 CPU 电源管理系统进入省电模式。设
-// 置更高的分辨率并不会提高高分辨率性能计数器的准确性。
 
-prh_static_assert(MMSYSERR_NOERROR == 0 && STATUS_SUCCESS == 0);
-prh_static_assert(sizeof(ULONG) == sizeof(prh_r32));
-
-typedef struct {
-    prh_r32 min_mesc;
-    prh_r32 max_mesc;
-    prh_r32 cur_nsec;
-    prh_r32 nt_min_nsec;
-    prh_r32 nt_max_nsec;
-} prh_time_caps;
-
-void prh_impl_time_resolution(prh_time_caps *t) {
-    TIMECAPS TimeCaps;
-    prh_zeroret(timeGetDevCaps(&TimeCaps, (UINT)sizeof(TIMECAPS)));
-    t->min_msec = (prh_r32)TimeCaps.wPeriodMin;
-    t->max_msec = (prh_r32)TimeCaps.wPeriodMax;
-    prh_zeroret(NtQueryTimerResolution(&t->nt_min_nsec, &t->nt_max_nsec, &t->cur_nsec));
-    t->nt_min_nsec *= 100;
-    t->nt_max_nsec *= 100;
-    t->cur_nsec *= 100;
+void prh_switch_to_any_equal_or_higher_ready_thread(void) {
+    //  1.  线程仅放弃当前剩余的时间片，并且自己仍然保持就绪状态
+    //  2.  如果没有其他相同（equal）或更高优先级的就绪线程可执行，函数立即返回继续执行
+    //  3.  即使没有其他就绪线程，并且存在低优先级的饥饿线程，也会得不到调度
+    //  4.  与 SwitchToThread 相比，两者都是放弃线程当前剩余时间片
+    //  5.  但 SwitchToThread 仅考虑当前处理器上的需要执行的线程，不论优先级高低
+    //  6.  而 Sleep(0) 考虑所有线程，但比当前线程优先级低的线程没有执行机会
+    Sleep(0);
 }
 
-void prh_time_start_high_resolution(void) {
-    prh_zeroret(timeBeginPeriod(1));
-}
-
-void prh_time_reset_resolution(void) {
-    prh_zeroret(timeEndPeriod(1));
+void prh_sleep_until_next_tick(void) {
+    // 放弃线程当前剩余的时间片，并阻塞线程进入不可运行状态，直到下一个时钟滴答。即阻塞
+    // 当前线程直到下一次系统时钟滴答（make current thread block until the next
+    // timer tick），然后变成就绪状态等待系统调度执行。系统时钟滴答实际精度由系统时钟
+    // 中断周期决定，默认粒度约为 15 ms，但可以提高时钟精度到 1 ~ 3ms。由于当前线程被
+    // 阻塞，因此有机会让其他低优先级线程执行。
+    Sleep(1);
 }
 
 void prh_sleep_secs(prh_r32 secs) { // 32位有符号整数保存秒可以表示68年
@@ -17838,10 +17858,6 @@ void prh_impl_thrd_test(void) {
     printf("SYSTEM_INFO dwNumberOfProcessors %d\n", (int)info.dwNumberOfProcessors);
     printf("SYSTEM_INFO lpMinimumApplicationAddress %p\n", (void *)info.lpMinimumApplicationAddress);
     printf("SYSTEM_INFO lpMaximumApplicationAddress %p\n", (void *)info.lpMaximumApplicationAddress);
-    prh_time_caps caps;
-    prh_impl_time_resolution(&t);
-    printf("System Time Supported Resolution: %u ms %u ns -> %u ms %u ns curr %u ns\n",
-        caps.min_msec, caps.nt_min_nsec, caps.max_msec, caps.nt_max_nsec, caps.cur_nsec);
     prh_sysinfo sys_info;
     prh_system_info(&sys_info);
     printf("page size %d %dKB\n", sys_info.page_size, sys_info.page_size/1024);
