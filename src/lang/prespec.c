@@ -65,12 +65,91 @@
 //  6.  函数内部定义的类型名，也可以覆盖全局名称，但不可以覆盖局部作用域中的变量名，也
 //      不可以覆盖局部作用域中定义的类型名，以及其他局部名称。但是使用该类型可以定义一
 //      个同名的变量名，该类型可以通过 typeof(name) 访问到。
-//  7.  每个文件可以一个全局名字空间，类型名自然而然是当前文件中的一个子名字空间
-//  8.  导入符号时，文件如果没有定义全局名字空间，则自动导入全局符号，除了类型名称，因
-//      为类型名称自动是一个子名字空间，必须单独导入
-//          import 
-//      point::x 字段偏移 point::sizeof 类型字节大小 point::alignof 类型对齐字节
-//      point::x::sizeof 字段字节大小 point::x::alignof 字段对齐字节
+//  7.  std.file::offset 使用操作符 :: 专门用于涉及类型的操作，例如 date::year 表示
+//      类型 date 字段 year 的字段偏移值，sizeof(date::year) 字段的大小，另外类型的
+//      的小可以通过 date::sizeof 表示，date::alignof 表示对齐字节，而字段的对齐字节
+//      可以通过 alignof(date::year) 表示。类型操作符 :: 还可以用来实例化泛型，例如
+//      array::(int, 4)，get_array_genric_type()::(int, 4)
+//
+//      typeof(a)@type_info.type INTEGER FLOAT STRING ARRAY STRUCT PROCEDURE POINTER TYPE
+//      date@type_info.name      name offset runtime_size enum_type_flags & .STRICT
+//
+//      类型操作符 :: 和 @ 。
+//
+//  <assert> <complex> <math> <tgmath> <stdarg> <stddef> <stdlib> <stdio> <time>
+//  <thread> <array> <string> <list> <vector> <memory> <atomic> <flat_map>
+//
+//  一个代码模块可以是一个文件，或者是一个包含 module.jai 的文件夹。例如系统模块目录下
+//  的文件 random.jai 可以通过 import "random" 导入，或者一个名为 basic 的目录包含模
+//  块文件 module.jai 可以通过 import "basic" 导入。module.jai文件通常用于汇集文件夹
+//  中的所有源文件，使用#load来完成此操作，#load 相当于 C 语言的 #include 命令。
+//          #load "Array.jai";
+//          #load "Simple_String.jai";
+//          #load "String_Builder.jai";
+//          #load "Print.jai";
+//          #load "Int128.jai";
+//          #load "Apollo_Time.jai";
+//          #load "string_to_float.jai";
+//          #load "float_to_string.jai";
+//
+//  #load 相当于将所属程序的代码都集中到一个文件中，例如 main 源文件就是将所有相关的代
+//  码都集中到一起形成最终的程序。想知道#load和#import之间的区别吗？#load 的代码可以访
+//  问全局作用域，但 #import 的代码没有，#import 可以引入命名导入。
+//
+//          import math "tgmath"
+//          y = math.sqrt(2.0)
+//          using math
+//          y = sqrt(2.0)
+//
+//          import "math_a"
+//          import "math_b"
+//          y = sqrt(2.0) // 名字冲突
+//
+//          import math "math_a"
+//          import "math_b"
+//          y = sqrt(2.0) // 来源于 math_b
+//          y = math.sqrt(2.0) // 来源于 math_a
+//
+//          import math "math_a"
+//          import libm "math_b"
+//          y = math.sqrt(2.0)
+//          y = libm.sqrt(2.0)
+//
+//          import "path/single_file.cw"
+//          import "path/folder/*.cw"
+//          import "path/folder" // 导入 path/folder/module.cw
+//
+//  run/data/ 数据文件，比如字体、图像、声音、视频、文本
+//  run/program.exe
+//  lib/core.dll
+//  src/main.cw 代码文件
+//  src/file.cw 代码文件
+//  src/base/code.cw 模块文件
+//  build.cw
+//
+//  文件中使用 def 定义的符号属于文件作用域（局部于文件），使用 pub 定义的符号数据全局
+//  作用域（属于全局，可被其他文件导入后访问），在函数中定义的局部变量和常量属于局部作用
+//  域（仅在当前代码块中可见）。另外再定义模块作用域？每个模块都有自己完全封闭的作用域，
+//  它看不到全局作用域，也看不到其他模块。为了避免在引入一些代码之后，导致后面引入的模块
+//  代码出错，需要隔离？或许需要考虑定义一些规则避免这种情况？
+//
+//  Jai 中的所有类型都具有类型 Type，Type 的类型也是 Type。代码也是一种类型。如果类型
+//  是常量（换句话说，在编译时已知），您可以用该类型声明其他变量。编译器在编译时对所有类
+//  型有完整的了解，其中一些在运行时仍然可访问（所谓的运行时类型信息，或 RTTI）。Any 类
+//  型（在模块 Preload 中定义）是最宽泛的类型。它包含并匹配所有其他类型。所有类型的值都
+//  可以转换为 Any。这允许您使用一个变量来赋值不同类型的值，例如大于任意类型的值。Any
+//  类型的大小为 16 字节。它实际上是 C 语言中 void 指针的更具信息性且类型安全的版本，
+//  包含一个指向类型的类型指针和一个指向值的 void 指针。它在处理指向不同类型的异构指针
+//  数组时非常有用。某些语言（如 Java）有引用而不是指针。引用用于用另一个名称引用现有变
+//  量，而指针用于存储变量的地址。Jai 没有引用，只有值和指针。
+//
+//      def Any_Struct {
+//          *Type_Info type // 8 字节
+//          *void value_pointer // 8 字节
+//      }
+//
+//  内层匿名函数不能访问外层函数的变量，但可以引用外层作用域定义的常量、命令，因为函数也
+//  是常量，也可以调用。
 //
 //  The philosophy here is that the compiler itself should simply be fast enough
 //  that incremental builds are unnecessary. 编译器足够强大，编译快到以至于增量编译
@@ -426,12 +505,12 @@
 //  fix`array   arrfix
 //  fit`array   arrfit
 //  dyn`array   arrdyn
-//  bdi`array   arrbdi
+//  dde`array   arrbdi
 //  vew`string  striew
 //  fix`string  strfix
 //  fit`string  strfit
 //  dyn`string  string
-//  bdi`string  strbdi
+//  dde`string  strbdi
 //
 //  .digit 表示一个十进制数
 //  ident` 表示是类型名称
@@ -1815,7 +1894,7 @@ def name $(anytype T ~ U) { ... }
 def name $(int SIZE) { ... }
 def name $(int SIZE anytype T ~ U) { ... }
 
-def $T as transfer {
+def $T as transfer { // reader writer updater sender receiver transfer
     send(*T self &byte data reg size)
     recv(*T self *byte buff reg size)
     close(*T self)
@@ -1893,8 +1972,8 @@ pub data [int int point] = {10, 20, {100, 200}}
 //  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
 //  let a type = expr, b = expr, c = expr, ...
-let a = a + int b + c * d
-let a = a + (int b + c) * d
+let a = a + int b + c * d               dr p = a + b
+let a = a + (int b + c) * d             dr **int p = curr + size
 let a = a + dr p + size
 let a = a + dr (p + size)
 let a = a + dr *int b + size
