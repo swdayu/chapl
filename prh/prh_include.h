@@ -5940,6 +5940,89 @@ prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i) {
 #endif // PRH_ARRAY_INCLUDE
 
 #ifdef PRH_LIST_INCLUDE
+typedef struct prh_next {
+    struct prh_next *next;
+} prh_next;
+
+typedef struct prh_data_next {
+    struct prh_data_next *next;
+    void *data;
+} prh_data_next;
+
+typedef struct prh_side {
+    prh_next *head;
+    prh_next *tail;
+} prh_side;
+
+typedef struct prh_data_side {
+    prh_data_next *head;
+    prh_data_next *tail;
+} prh_data_side;
+
+prh_inline void prh_next_init(prh_next *node) {
+    node->next = prh_null;
+}
+
+prh_inline void prh_insert_after(prh_next *node, prh_next *new_node) {
+    new_node->next = node->next;
+    node->next = new_node;
+}
+
+prh_inline prh_next *prh_remove_next(prh_next *node) {
+    prh_next *removed = node->next;
+    if (removed) node->next = removed->next;
+    return removed;
+}
+
+prh_inline prh_next *prh_unchecked_remove_next(prh_next *node) {
+    prh_next *removed = node->next;
+    assert(removed != prh_null);
+    node->next = removed->next;
+    return removed;
+}
+
+typedef struct prh_node {
+    struct prh_node *next;
+    struct prh_node *prev;
+} prh_node;
+
+typedef struct prh_data_node {
+    struct prh_data_node *next;
+    struct prh_data_node *prev;
+    void *data;
+} prh_data_node;
+
+typedef struct {
+    prh_node *head;
+    prh_node *tail;
+} prh_list;
+
+typedef struct {
+    prh_data_node *head;
+    prh_data_node *tail;
+} prh_data_list;
+
+typedef struct prh_trid {
+    struct prh_trid *next;
+    struct prh_trid *prev;
+    struct prh_trid *base;
+} prh_trid;
+
+typedef struct prh_trid {
+    struct prh_trid *next;
+    struct prh_trid *prev;
+    struct prh_trid *base;
+    void *data;
+} prh_data_trid;
+
+typedef struct {
+    prh_trid root;
+} prh_tree;
+
+typedef struct {
+    prh_data_trid root;
+} prh_data_tree;
+
 typedef struct prh_snode { // node single linked
     struct prh_snode *next;
 } prh_snode;
@@ -23246,6 +23329,16 @@ typedef struct {
 
 extern prh_impl_global PRH_GLOBAL;
 
+typedef struct prh_impl_timer *prh_timer;
+typedef void (*prh_timer_proc)(void *param);
+
+void prh_timer_create(prh_timer *timer, prh_timer_proc proc, void *param);
+void prh_timer_reset(prh_timer *timer, prh_timer_proc proc, void *param);
+void prh_timer_start(prh_timer *timer, prh_r32 msec);
+void prh_timer_fires(prh_timer *timer, prh_r32 msec, prh_r32 fire_times);
+void prh_timer_stop(prh_timer *timer);
+void prh_timer_free(prh_timer *timer);
+
 #ifdef PRH_EHUB_IMPLEMENTATION
 prh_impl_global PRH_GLOBAL;
 static prh_thrd prh_impl_ehub_main;
@@ -23301,7 +23394,7 @@ typedef struct {
 typedef struct {
     /* +5p +4p */ prh_impl_overlapped impl;
     /* +1p +1p */ void *target_thrd;
-    /* +1p +1p */ void *context;
+    /* +1p +1p */ void *param;
 } prh_overlapped;
 
 typedef struct prh_yield prh_yield;
@@ -23413,9 +23506,7 @@ prh_inline void **prh_impl_ehub_queue_block_next(prh_byte *block) {
 //  3.  消费完之后，通过线程的发送队列还给调度线程
 
 typedef void (*prh_cont)(void *post);
-typedef void (*prh_ext_cont)(void *post, void *param);
 typedef struct {
-    void *post;
     prh_cont cont;
 } prh_ehub_post;
 
@@ -23469,8 +23560,8 @@ prh_inline void **prh_impl_thrd_tx_to_schd_tail(prh_ehub_thrd *thrd) {
     return (void **)prh_atom_ptr_read(&thrd->tx_to_schd_tail);
 }
 
-prh_inline void prh_impl_thrd_tx_to_schd_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
-    prh_atom_ptr_write(&thrd->tx_to_schd_tail, block_position);
+prh_inline void prh_impl_thrd_tx_to_schd_write(prh_ehub_thrd *thrd, void **block_position) {
+    prh_atom_ptr_write(&thrd->tx_to_schd_tail, (void *)block_position);
 }
 
 prh_inline void **prh_impl_schd_give_back_tail(prh_ehub_thrd *thrd) {
@@ -23539,7 +23630,7 @@ void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
     // 线程发送给调度线程的消息
     block = prh_impl_thrd_alloc_block(thrd);
     thrd->schd_task_rx_head = (void **)block;
-    prh_impl_thrd_tx_to_schd_write(thrd, block);
+    prh_impl_thrd_tx_to_schd_write(thrd, (void **)block);
 
     // 线程发送给自己的消息
     block = prh_impl_thrd_alloc_block(thrd);
@@ -23961,8 +24052,37 @@ static int prh_impl_thrd_routine(prh_ehub_thrd *thrd) {
     return 0;
 }
 
+typedef struct {
+    void *post; // post 和 task 必须赋值，避免与 PRH_EHUB_BLOCK_END 冲突
+    prh_cont cont;
+    prh_ehub_thrd_cont task;
+    void *param;
+} prh_ehub_thrd_post;
+
+typedef void (*prh_ehub_post_proc)()
+prh_ehub_thrd_post *prh_impl_thrd_cont_task(prh_ehub_thrd *thrd, prh_ehub_thrd_post *post) {
+
 prh_inline prh_ehub_post *prh_impl_thrd_tx_to_schd_begin(prh_ehub_thrd *thrd) {
     return (prh_ehub_post *)prh_impl_thrd_tx_to_schd_tail(thrd);
+}
+
+void *prh_thrd_post_to_schd_begin(prh_cont cont, prh_byte size) {
+    assert(data != prh_null && size <= prh_cache_line_size - sizeof(prh_cont));
+    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
+    prh_ehub_post *post = (prh_ehub_post *)thrd->tx_to_schd_tail;
+    post->cont = cont;
+    return post + 1;
+}
+
+void prh_thrd_post_to_schd_end(void) {
+    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
+    void **tail = (void **)(thrd->tx_to_schd_tail + prh_cache_line_size);
+    if (tail[0] == PRH_EHUB_BLOCK_END) {
+        prh_byte *block = prh_impl_thrd_recv_free_block(thrd);
+        if (block == prh_null) block = prh_impl_thrd_alloc_block(thrd);
+        tail = (void **)(tail[1] = block);
+    }
+    prh_impl_thrd_tx_to_schd_write(thrd, tail);
 }
 
 void prh_impl_thrd_tx_to_schd_end(prh_ehub_thrd *thrd, prh_ehub_post *post) {
@@ -23972,7 +24092,7 @@ void prh_impl_thrd_tx_to_schd_end(prh_ehub_thrd *thrd, prh_ehub_post *post) {
         if (post == prh_null) post = (prh_ehub_post *)prh_impl_thrd_alloc_block(thrd);
         tail = (void **)(tail[1] = post);
     }
-    prh_impl_thrd_tx_to_schd_write(thrd, (prh_byte *)tail);
+    prh_impl_thrd_tx_to_schd_write(thrd, tail);
 }
 
 void prh_thrd_post_to_schd(prh_ehub_thrd *thrd, void *priv, prh_cont cont) {
@@ -24412,6 +24532,107 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
     }
 
     return 0;
+}
+
+// 分级时间轮超时算法，五级时间轮可以表示的时间范围 1ms ~ 49d：
+// 256 * 64 = 16s
+// 256 * 64 * 64 = 17m
+// 256 * 64 * 64 * 64 = 18h
+// 256 * 64 * 64 * 64 * 64 = 49d
+
+typedef struct prh_impl_timer {
+    prh_next node;
+    void *context;
+    void *
+    prh_timer_proc timer_proc;
+    prh_reg time_point_msec; // 32位系统可以表示48天
+} prh_impl_timer; // 计时器是否要与协程进行绑定避免线程竞争问题
+
+typedef struct {
+
+} prh_time_wheel;
+
+typedef struct {
+    prh_timer *timer;
+    prh_timer_proc proc;
+    void *param;
+} prh_impl_tmcr;
+
+typedef struct {
+    prh_timer *timer;
+    prh_r32 msec;
+    prh_r32 times;
+    prh_i64 base;
+} prh_impl_tmst;
+
+typedef struct {
+    prh_timer *timer;
+} prh_impl_tmer;
+
+void prh_impl_schd_timer_create(prh_impl_tmcr *post) {
+
+}
+
+void prh_impl_schd_timer_reset(prh_impl_tmcr *post) {
+
+}
+
+void prh_impl_schd_timer_start(prh_impl_tmst *post) {
+
+}
+
+void prh_impl_schd_timer_stop(prh_impl_tmer *post) {
+
+}
+
+void prh_impl_schd_timer_free(prh_impl_tmer *post) {
+
+}
+
+void prh_timer_create(prh_timer *timer, prh_timer_proc proc, void *param) {
+    assert(timer != prh_null && proc != prh_null);
+    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_create, sizeof(*post));
+    post->timer = timer;
+    post->proc = proc;
+    post->param = param;
+    prh_thrd_post_to_schd_end();
+}
+
+void prh_timer_reset(prh_timer *timer, prh_timer_proc proc, void *param) {
+    assert(timer != prh_null && proc != prh_null);
+    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_reset, sizeof(*post));
+    post->timer = timer;
+    post->proc = proc;
+    post->param = param;
+    prh_thrd_post_to_schd_end();
+}
+
+void prh_timer_start(prh_timer *timer, prh_r32 msec) {
+    prh_timer_fires(timer, mesc, 1);
+}
+
+void prh_timer_fires(prh_timer *timer, prh_r32 msec, prh_r32 fire_times) {
+    assert(timer != prh_null && fire_times > 0);
+    prh_impl_tmst *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_start, sizeof(*post));
+    post->timer = timer;
+    post->msec = msec;
+    post->times = fire_times;
+    post->base = prh_steady_msec();
+    prh_thrd_post_to_schd_end();
+}
+
+void prh_timer_stop(prh_timer *timer) {
+    assert(timer != prh_null);
+    prh_impl_tmer *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_stop, sizeof(*post));
+    post->timer = timer;
+    prh_thrd_post_to_schd_end();
+}
+
+void prh_timer_free(prh_timer *timer) {
+    assert(timer != prh_null);
+    prh_impl_tmer *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_free, sizeof(*post));
+    post->timer = timer;
+    prh_thrd_post_to_schd_end();
 }
 
 #if 0
@@ -39193,8 +39414,8 @@ static const prh_impl_cmmt_enum prh_impl_cmmt[prh_b256_enum_max] = {
 // 块注释使用 C 语言规则不嵌套，嵌套块注释的一个限制是不可注释块注释的开始会报错，如果要注释任意一大块代码可以使用条件编译语句
 // 不嵌套的块注释，可以注释块注释的开始 /* /* */
 // 不嵌套的块注释，不可注释块注释的结束 /* */ */，可以使用条件编译注释 static if 0 $ { */ } $
-// 可嵌套的块注释，不可注释块注释的开始 /* /* */
-// 可嵌套的块注释，不可注释块注释的结束 /* */ */
+// 可嵌套的块注释，不可注释块注释的开始 /* /* */，但可以使用 /** /* **/ 注释掉，还是兼容 C 为好
+// 可嵌套的块注释，不可注释块注释的结束 /* */ */，但可以使用 /** */ **/ 注释掉，还是兼容 C 为好
 int prh_impl_comment(prh_lexer *l, bool line_comment) {
     prh_impl_b256_enum b; l->str_p = l->parse;
     prh_byte c = prh_lexer_next_char(l);
