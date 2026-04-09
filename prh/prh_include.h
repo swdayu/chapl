@@ -6002,25 +6002,25 @@ typedef struct {
     prh_data_node *tail;
 } prh_data_list;
 
-typedef struct prh_trid {
+typedef struct prh_trno {
     struct prh_trid *next;
     struct prh_trid *prev;
     struct prh_trid *base;
-} prh_trid;
+} prh_trno;
 
-typedef struct prh_trid {
-    struct prh_trid *next;
-    struct prh_trid *prev;
-    struct prh_trid *base;
+typedef struct prh_data_trno {
+    struct prh_data_trno *next;
+    struct prh_data_trno *prev;
+    struct prh_data_trno *base;
     void *data;
-} prh_data_trid;
+} prh_data_trno;
 
 typedef struct {
-    prh_trid root;
+    prh_trno root;
 } prh_tree;
 
 typedef struct {
-    prh_data_trid root;
+    prh_data_trno root;
 } prh_data_tree;
 
 typedef struct prh_snode { // node single linked
@@ -23579,7 +23579,7 @@ prh_inline prh_byte *prh_impl_thrd_braver_alloc(prh_ehub_thrd *thrd, prh_reg siz
     return p;
 }
 
-prh_byte *prh_impl_ehub_thrd_braver_alloc(prh_ehub_thrd *thrd, prh_reg size) {
+prh_byte *prh_impl_ehub_thrd_alloc(prh_ehub_thrd *thrd, prh_reg size) {
     prh_byte *p = prh_impl_thrd_braver_alloc(thrd, size);
 #if PRH_DEBUG
     thrd->used_virtual_size += size;
@@ -23589,7 +23589,7 @@ prh_byte *prh_impl_ehub_thrd_braver_alloc(prh_ehub_thrd *thrd, prh_reg size) {
 }
 
 prh_byte *prh_thrd_braver_alloc(prh_reg size) {
-    return prh_impl_ehub_thrd_braver_alloc(prh_ehub_thrd_self(), prh_round_line_size(size));
+    return prh_impl_ehub_thrd_alloc(prh_ehub_thrd_self(), prh_round_line_size(size));
 }
 
 prh_byte *prh_impl_thrd_alloc_block(prh_ehub_thrd *thrd) {
@@ -24066,16 +24066,14 @@ prh_inline prh_ehub_post *prh_impl_thrd_tx_to_schd_begin(prh_ehub_thrd *thrd) {
     return (prh_ehub_post *)prh_impl_thrd_tx_to_schd_tail(thrd);
 }
 
-void *prh_thrd_post_to_schd_begin(prh_cont cont, prh_byte size) {
+void *prh_impl_thrd_post_to_schd_begin(prh_ehub_thrd *thrd, prh_cont cont, prh_byte size) {
     assert(data != prh_null && size <= prh_cache_line_size - sizeof(prh_cont));
-    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
     prh_ehub_post *post = (prh_ehub_post *)thrd->tx_to_schd_tail;
     post->cont = cont;
     return post + 1;
 }
 
-void prh_thrd_post_to_schd_end(void) {
-    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
+void prh_impl_thrd_post_to_schd_end(prh_ehub_thrd *thrd) {
     void **tail = (void **)(thrd->tx_to_schd_tail + prh_cache_line_size);
     if (tail[0] == PRH_EHUB_BLOCK_END) {
         prh_byte *block = prh_impl_thrd_recv_free_block(thrd);
@@ -24466,7 +24464,7 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
     prh_r32 batch_size = prh_impl_schd_update_batch_size(batch_size_shift);
     prh_r32 thrd_max_batch_size = prh_set_value_32_if_zero(PRH_GLOBAL.thread_max_batch_size, PRH_EHUB_MAX_BATCH_SIZE);
     prh_r32 query_count = thrd_max_batch_size * (1 << PRH_IMPL_SCHD.thrds_shift);
-    OVERLAPPED_ENTRY *entry_array = prh_impl_ehub_thrd_braver_alloc(schd_thrd, prh_round_align_size(sizeof(OVERLAPPED_ENTRY) * query_count, PRH_ALIGN_LINE));
+    OVERLAPPED_ENTRY *entry_array = prh_impl_ehub_thrd_alloc(schd_thrd, prh_round_align_size(sizeof(OVERLAPPED_ENTRY) * query_count, PRH_ALIGN_LINE));
     prh_debug(printf("ehub schedule query_count %d thread %d %d batch_size %d\n", query_count, PRH_IMPL_SCHD.total_thrds, (1 << PRH_IMPL_SCHD.thrds_shift), batch_size));
     assert(thrd_max_batch_size > batch_size);
 
@@ -24538,19 +24536,31 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
 // 256 * 64 = 16s
 // 256 * 64 * 64 = 17m
 // 256 * 64 * 64 * 64 = 18h
-// 256 * 64 * 64 * 64 * 64 = 49d
+// 256 * 64 * 64 * 64 * 64 = 49d (8 + 6 + 6 + 6 + 6 = 32)
+#define PRH_IMPL_NEAR 256
+#define PRH_IMPL_SLOT 64
+#define PRH_IMPL_NEAR_BITS 8
+#define PRH_IMPL_SLOT_BITS 6
+#define PRH_IMPL_NEAR_MASK (PRH_IMPL_NEAR - 1)
+#define PRH_IMPL_SLOT_MASK (PRH_IMPL_SLOT - 1)
 
 typedef struct prh_impl_timer {
-    prh_next node;
+    struct prh_impl_timer *next;
+    struct prh_impl_timer *prev;
+    prh_timer_proc proc;
+    prh_timer *timer;
+    void *param;
+    prh_r32 period; // 32位无符号可以表示49天，五级时间轮最多表示49天
+    prh_r32 expire; // 基于 baseline 的超时时间点
+    prh_r32 repeat;
+    bool started;
+    bool chained;
     void *context;
-    void *
-    prh_timer_proc timer_proc;
-    prh_reg time_point_msec; // 32位系统可以表示48天
 } prh_impl_timer; // 计时器是否要与协程进行绑定避免线程竞争问题
 
 typedef struct {
-
-} prh_time_wheel;
+    prh_impl_timer *next;
+} prh_timer_list;
 
 typedef struct {
     prh_timer *timer;
@@ -24569,42 +24579,148 @@ typedef struct {
     prh_timer *timer;
 } prh_impl_tmer;
 
-void prh_impl_schd_timer_create(prh_impl_tmcr *post) {
+typedef struct {
+    prh_timer_list near[PRH_IMPL_NEAR];
+    prh_timer_list slot[4][PRH_IMPL_SLOT];
+    prh_timer_list free_list;
+    prh_i64 baseline;
+    prh_r32 time; // 以基准为开始的时钟当前时间
+} prh_time_wheel;
 
+static prh_time_wheel *PRH_TIME_WHEEL;
+
+prh_inline prh_timer_list *prh_impl_near_list(prh_r32 time) {
+    return PRH_TIME_WHEEL->near + (time & PRH_IMPL_NEAR_MASK);
+}
+
+prh_inline prh_timer_list *prh_impl_slot_list(prh_r32 level, prh_r32 time) {
+    return PRH_TIME_WHEEL->slot[level] + (((time >> PRH_IMPL_NEAR_BITS) >> (level * PRH_IMPL_SLOT_BITS)) & PRH_IMPL_SLOT_MASK);
+}
+
+void prh_impl_time_wheel_init(void) {
+    PRH_TIME_WHEEL = (prh_time_wheel *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, prh_round_line_size(sizeof(prh_time_wheel)));
+    PRH_TIME_WHEEL->baseline = steady_msec();
+    PRH_TIME_WHEEL->time = 0;
+}
+
+void prh_impl_schd_remove_timer_node(prh_impl_timer *node) {
+    if (node->chained == false) return;
+    // [slot next] --> [node next] --> [node next] -->|
+    //             <-- [prev     ] <-- [prev     ]
+    prh_impl_time *prev = node->prev;
+    prh_impl_time *next = node->next;
+    if (next) next->prev = prev;
+    prev->next = next;
+    node->chained = false;
+}
+
+void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 time_point) {
+    prh_impl_schd_remove_timer_node(node);
+    if (time_point > PRH_TIME_WHEEL->baseline) {
+        node->expire = (prh_r32)(time_point - PRH_TIME_WHEEL->baseline);
+    } else {
+        node->expire = 0;
+    }
+    if (node->expire < PRH_TIME_WHEEL->time) {
+        node->expire = PRH_TIME_WHEEL->time;
+    }
+}
+
+prh_impl_timer *prh_impl_schd_alloc_timer_nodes(void) {
+    prh_impl_timer *timer = (prh_impl_timer *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, PRH_EHUB_QUEUE_BLOCK_SIZE);
+    prh_impl_timer *timer_end = (prh_impl_timer *)((prh_byte *)timer + PRH_EHUB_QUEUE_BLOCK_SIZE);
+    prh_impl_timer *tail = (prh_impl_timer *)&PRH_TIME_WHEEL->free_list;
+    prh_impl_timer *free = timer + 1; // 第一个空闲计时器给当前分配
+    while (free + 1 <= timer_end) { // 当前空闲计时器尾部不超过内存块尾部
+        tail->next = free;
+        tail = free;
+    }
+    tail->next = prh_null;
+    return timer;
+}
+
+prh_impl_timer *prh_impl_schd_free_timer(prh_impl_timer *free) {
+    prh_impl_timer *head = (prh_impl_timer *)&PRH_TIME_WHEEL->free_list;
+    free->next = head->next;
+    head->next = free;
+}
+
+prh_impl_timer *prh_impl_schd_alloc_timer(void) {
+    prh_impl_timer *t = PRH_TIME_WHEEL->free_list.next;
+    if (t != prh_null {
+        PRH_TIME_WHEEL->free_list.next = t->next;
+    } else {
+        t = prh_impl_schd_alloc_timer_nodes();
+    }
+    return t;
+}
+
+void prh_impl_schd_timer_create(prh_impl_tmcr *post) {
+    prh_impl_timer *node = prh_impl_schd_alloc_timer();
+    prh_timer *timer = post->timer;
+    assert(*timer == prh_null); // 原来分配的计时器没有释放
+    *timer = node;
+    node->timer = timer;
+    node->proc = post->proc;
+    node->param = post->param;
+    node->started = false;
+    node->chained = false;
 }
 
 void prh_impl_schd_timer_reset(prh_impl_tmcr *post) {
-
+    prh_timer *timer = post->timer;
+    prh_impl_timer *node = *timer;
+    assert(node != prh_null && node->timer == timer);
+    node->proc = post->proc;
+    node->param = post->param;
+    node->started = false;
+    node->chained = false;
 }
 
 void prh_impl_schd_timer_start(prh_impl_tmst *post) {
-
+    prh_timer *timer = post->timer;
+    prh_impl_timer *node = *timer;
+    assert(node != prh_null && node->timer == timer);
+    node->started = true;
+    node->period = post->msec;
+    node->repeat = post->times - 1;
+    prh_impl_schd_chain_timer(node, post->base + post->msec);
 }
 
 void prh_impl_schd_timer_stop(prh_impl_tmer *post) {
-
+    prh_timer *timer = post->timer;
+    prh_impl_timer *node = *timer;
+    assert(node != prh_null && node->timer == timer);
+    node->started = false;
 }
 
 void prh_impl_schd_timer_free(prh_impl_tmer *post) {
-
+    prh_timer *timer = post->timer;
+    prh_impl_timer *node = *timer;
+    assert(node != prh_null && node->timer == timer);
+    prh_impl_schd_remove_timer_node(node);
+    prh_impl_schd_free_timer(node);
+    *timer = prh_null;
 }
 
 void prh_timer_create(prh_timer *timer, prh_timer_proc proc, void *param) {
     assert(timer != prh_null && proc != prh_null);
-    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_create, sizeof(*post));
+    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
+    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_impl_thrd_post_to_schd_begin(thrd, prh_impl_schd_timer_create, sizeof(*post));
     post->timer = timer;
     post->proc = proc;
     post->param = param;
-    prh_thrd_post_to_schd_end();
+    prh_impl_thrd_post_to_schd_end(thrd);
 }
 
 void prh_timer_reset(prh_timer *timer, prh_timer_proc proc, void *param) {
     assert(timer != prh_null && proc != prh_null);
-    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_reset, sizeof(*post));
+    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
+    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_impl_thrd_post_to_schd_begin(thrd, prh_impl_schd_timer_reset, sizeof(*post));
     post->timer = timer;
     post->proc = proc;
     post->param = param;
-    prh_thrd_post_to_schd_end();
+    prh_impl_thrd_post_to_schd_end(thrd);
 }
 
 void prh_timer_start(prh_timer *timer, prh_r32 msec) {
@@ -40052,15 +40168,15 @@ bool prh_is_extend_blank(int c) { // blank + linetab \v + newpage \f
 //      23'kg   <literal>'tag<space>
 //  7.  原始清晰缩进的多行字符串，字符串从每行的前导\\之后开始以换行符结束，不包含最后一行的换行
 //      // 段落字符串，等价于 "abc\ndefghijk"
-//      \\abc
-//      \\defghijk
+//      ''abc
+//      ''defghijk
 //      let main_func_of_c =
-//      \\int main(int argc, char **argv) {
-//      \\    printf("hello world\n");
-//      \\    return 0;
-//      \\}
+//      ''int main(int argc, char **argv) {
+//      ''    printf("hello world\n");
+//      ''    return 0;
+//      ''}
 //      // 孤立的 \\ 表示一个空字符串
-//      \\
+//      ''
 
 bool prh_lexer_escape(prh_lexer *l) {
     // \"          // 22 "
