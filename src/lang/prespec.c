@@ -69,7 +69,17 @@
 //      类型 date 字段 year 的字段偏移值，sizeof(date::year) 字段的大小，另外类型的
 //      的小可以通过 date::sizeof 表示，date::alignof 表示对齐字节，而字段的对齐字节
 //      可以通过 alignof(date::year) 表示。类型操作符 :: 还可以用来实例化泛型，例如
-//      array::(int, 4)，get_array_genric_type()::(int, 4)
+//      array(int, 4)，get_array_genric_type()(int, 4)
+//
+//      array(int, 4)
+//      std.file::offset
+//      date::year
+//      sizeof(date::year)
+//      alignof(date::year)
+//      date::sizeof
+//      date::alignof
+//      date@type_info.name
+//      date@type_info.size
 //
 //      typeof(a)@type_info.type INTEGER FLOAT STRING ARRAY STRUCT PROCEDURE POINTER TYPE
 //      date@type_info.name      name offset runtime_size enum_type_flags & .STRICT
