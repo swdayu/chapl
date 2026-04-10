@@ -24541,8 +24541,16 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
 #define PRH_IMPL_SLOT 64
 #define PRH_IMPL_NEAR_BITS 8
 #define PRH_IMPL_SLOT_BITS 6
-#define PRH_IMPL_NEAR_MASK (PRH_IMPL_NEAR - 1)
-#define PRH_IMPL_SLOT_MASK (PRH_IMPL_SLOT - 1)
+#define PRH_IMPL_NEAR_MASK 0xFF
+#define PRH_IMPL_SLOT_MASK 0x3F
+#define PRH_IMPL_SLOT_0_MASK 0x00003F00
+#define PRH_IMPL_SLOT_1_MASK 0x000FC000
+#define PRH_IMPL_SLOT_2_MASK 0x03F00000
+#define PRH_IMPL_SLOT_3_MASK 0xFC000000
+#define PRH_IMPL_SLOT_0_SHIFT (PRH_IMPL_NEAR_BITS)
+#define PRH_IMPL_SLOT_1_SHIFT (PRH_IMPL_NEAR_BITS + PRH_IMPL_SLOT_BITS)
+#define PRH_IMPL_SLOT_2_SHIFT (PRH_IMPL_NEAR_BITS + PRH_IMPL_SLOT_BITS + PRH_IMPL_SLOT_BITS)
+#define PRH_IMPL_SLOT_3_SHIFT (PRH_IMPL_NEAR_BITS + PRH_IMPL_SLOT_BITS + PRH_IMPL_SLOT_BITS + PRH_IMPL_SLOT_BITS)
 
 typedef struct prh_impl_timer {
     struct prh_impl_timer *next;
@@ -24580,14 +24588,17 @@ typedef struct {
 } prh_impl_tmer;
 
 typedef struct {
-    prh_timer_list near[PRH_IMPL_NEAR];
-    prh_timer_list slot[4][PRH_IMPL_SLOT];
+    prh_timer_list near[PRH_IMPL_NEAR]; // 必须声明在 slot 之前保证 high_timer
+    prh_timer_list slot[4][PRH_IMPL_SLOT]; // 必须紧跟 near 之后
     prh_timer_list free_list;
+    prh_timer_list *high_timer;
     prh_i64 baseline;
+    prh_r32 level[5]
     prh_r32 time; // 以基准为开始的时钟当前时间
 } prh_time_wheel;
 
 static prh_time_wheel *PRH_TIME_WHEEL;
+prh_static_assert(prh_offsetof(prh_time_wheel, near) < prh_offsetof(prh_time_wheel, slot));
 
 prh_inline prh_timer_list *prh_impl_near_list(prh_r32 time) {
     return PRH_TIME_WHEEL->near + (time & PRH_IMPL_NEAR_MASK);
@@ -24599,8 +24610,8 @@ prh_inline prh_timer_list *prh_impl_slot_list(prh_r32 level, prh_r32 time) {
 
 void prh_impl_time_wheel_init(void) {
     PRH_TIME_WHEEL = (prh_time_wheel *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, prh_round_line_size(sizeof(prh_time_wheel)));
-    PRH_TIME_WHEEL->baseline = steady_msec();
-    PRH_TIME_WHEEL->time = 0;
+    memset(PRH_TIME_WHEEL, 0, sizeof(prh_time_wheel));
+    PRH_TIME_WHEEL->baseline = prh_steady_msec();
 }
 
 void prh_impl_schd_remove_timer_node(prh_impl_timer *node) {
@@ -24614,16 +24625,98 @@ void prh_impl_schd_remove_timer_node(prh_impl_timer *node) {
     node->chained = false;
 }
 
-void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 time_point) {
+void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 point) {
     prh_impl_schd_remove_timer_node(node);
-    if (time_point > PRH_TIME_WHEEL->baseline) {
-        node->expire = (prh_r32)(time_point - PRH_TIME_WHEEL->baseline);
+    prh_i64 time_point = PRH_TIME_WHEEL->baseline + PRH_TIME_WHEEL->time;
+    if (point > time_point) {
+        assert(point <= PRH_TIME_WHEEL->baseline + (prh_i64)PRH_I32_UMX); // 否则需要重构整个时间轮
+        node->expire = (prh_r32)(point - PRH_TIME_WHEEL->baseline);
     } else {
-        node->expire = 0;
-    }
-    if (node->expire < PRH_TIME_WHEEL->time) {
         node->expire = PRH_TIME_WHEEL->time;
     }
+    prh_r32 expire = node->expire;
+    prh_timer_list *list;
+    if (expire < (1 << 8)) {
+        list = PRH_TIME_WHEEL->near + expire;
+    } else if (expire < (1 << (6 + 8))) {
+        list = PRH_TIME_WHEEL->slot[0] + (expire >> 8);
+    } else if (expire < (1 << (6 + 14))) {
+        list = PRH_TIME_WHEEL->slot[1] + (expire >> 14);
+    } else if (expire < (1 << (6 + 20))) {
+        list = PRH_TIME_WHEEL->slot[2] + (expire >> 20);
+    } else {
+        list = PRH_TIME_WHEEL->slot[3] + (expire >> 26);
+    }
+    node->next = list->next;
+    list->next = node;
+    node->chained = true;
+}
+
+void prh_impl_schd_check_timers(prh_i64 time_point) {
+    prh_r32 curr = (prh_r32)(time_point - PRH_TIME_WHEEL->baseline);
+    prh_r32 time = PRH_TIME_WHEEL->time; assert(curr >= time);
+    prh_timer_list timers = {0};
+    prh_timer_list *list;
+    prh_r32 curr_level;
+    if ((curr_level = (curr >> PRH_IMPL_SLOT_3_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
+        prh_timer_list *slot = PRH_TIME_WHEEL->slot[3];
+        list = slot + curr_level;
+        // 时间为 curr_level 的计时器可能只有一部分到期
+        // time 00:20:25
+        //    + 01:15:40
+        // curr 01:36:05
+        // 时钟为 01 的计时器，只有分钟 <= 36 的才到期
+        // 分钟为 36 的计时器，只有秒钟 <= 05 的才到期
+        prh_impl_schd_diaptach_timer_list(list);
+        for (list -= 1; list > slot; list -= 1) { // 低于 curr_level 的计时器一定全部到期
+            if (list->next != (prh_impl_timer *)list) {
+                list->tail->next = timers.next;
+                timers.next = list->next;
+            }
+        }
+    }
+    if ((curr_level = (curr >> PRH_IMPL_SLOT_2_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
+        prh_timer_list *slot = PRH_TIME_WHEEL->slot[2];
+        list = slot + curr_level;
+        prh_impl_schd_diaptach_timer_list(list);
+        for (list -= 1; list > slot; list -= 1) {
+            if (list->next != (prh_impl_timer *)list) {
+                list->tail->next = timers.next;
+                timers.next = list->next;
+            }
+        }
+    }
+    if ((curr_level = (curr >> PRH_IMPL_SLOT_1_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
+        prh_timer_list *slot = PRH_TIME_WHEEL->slot[1];
+        list = slot + curr_level;
+        prh_impl_schd_diaptach_timer_list(list);
+        for (list -= 1; list > slot; list -= 1) {
+            if (list->next != (prh_impl_timer *)list) {
+                list->tail->next = timers.next;
+                timers.next = list->next;
+            }
+        }
+    }
+    if ((curr_level = (curr >> PRH_IMPL_SLOT_0_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
+        prh_timer_list *slot = PRH_TIME_WHEEL->slot[0];
+        list = slot + curr_level;
+        prh_impl_schd_diaptach_timer_list(list);
+        for (list -= 1; list > slot; list -= 1) {
+            if (list->next != (prh_impl_timer *)list) {
+                list->tail->next = timers.next;
+                timers.next = list->next;
+            }
+        }
+    }
+    curr_level = curr & PRH_IMPL_NEAR_MASK;
+    list = PRH_TIME_WHEEL->near + curr_level;
+    for (; list >= PRH_TIME_WHEEL->near; list -= 1) {
+        if (list->next != (prh_impl_timer *)list) {
+            list->tail->next = timers.next;
+            timers.next = list->next;
+        }
+    }
+    prh_impl_schd_timer_expired(&timers);
 }
 
 prh_impl_timer *prh_impl_schd_alloc_timer_nodes(void) {
