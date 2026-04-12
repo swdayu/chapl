@@ -44872,6 +44872,313 @@ prh_s_expr *expr(prh_lexer *l, prh_byte min_bp) {
 #endif // PRH_PARSER_IMPLEMENTATION
 #endif // PRH_PARSER_INCLUDE
 
+#ifdef PRH_PEFMT_INCLUDE
+// https://learn.microsoft.com/en-us/windows/win32/debug/pe-format
+// PECOFF, Protable Executable and Common Object File Format
+//
+// 属性证书，用于将可验证语句与一个映像文件关联的证书。可以将许多不同的可验证语句与文件
+// 关联；最有用的之一是软件制造商表示映像的预期消息摘要是什么的语句。消息摘要类似于校验
+// 和，但极难伪造。因此，很难修改文件以具有与原始文件相同的消息摘要。通过使用公钥或私钥
+// 密码方案可以验证该语句是由制造商作出的。本文档描述了有关属性证书的详细信息，除了允许
+// 将其插入映像文件之外。
+//
+// 日期/时间戳，在PE或COFF文件的多个位置用于不同目的的戳记。在大多数情况下，每个戳记的
+// 格式与C运行时库中的时间函数使用的格式相同。有关例外情况，请参阅调试类型中IMAGE_DEBUG_TYPE_REPRO
+// 的描述。如果戳记值为0或0xFFFFFFFF，则不代表真实或有意义的日期/时间戳记。
+//
+// 目标文件，链接器（linker）读取目标文件，生成映像文件（image file），映像文件由作为
+// 程序加载器（loader）的输入。
+//
+// 分区或节（section），PE或COFF文件中的代码或数据的基本单位。例如，目标文件中的所有代
+// 码可以组合在单个节中，或者（取决于编译器行为）每个函数可以占用自己的节。节越多，文件
+// 开销越大，但链接器能够更有选择性地链接代码。节类似于Intel 8086体系结构中的段。节中的
+// 所有原始数据必须连续加载。此外，映像文件可以包含许多具有特殊用途的节，例如 .tls 或
+// .reloc。
+//
+// 相对虚拟地址（Relative Virtual Address, RVA），在映像文件中，这是项目加载到内存后
+// 的地址，减去映像文件的基地址。RVA地址几乎总是与其在磁盘上的文件位置（文件指针）不同。
+// 在目标文件中，RVA的意义较小，因为未分配内存位置。在这种情况下，RVA将是节内的地址，然
+// 后链接期间将进行重定位。为简单起见，编译器应将每个节中的第一个 RVA 设置为零。
+//
+// 虚拟地址（Virtual Address）与 RVA 相同，只是不减去映像文件的基地址。该地址称为VA，
+// 因为Windows为每个进程创建了一个独立的VA空间，与物理内存无关。对于几乎所有目的，VA应
+// 仅被视为一个地址。VA不如RVA可预测，因为加载器可能不会加载映像在其首选位置。
+//
+// PE可执行格式：
+//  MS-DOS 2.0兼容EXE头
+//  未使用（MS-DOS 2.0 节，仅用于MS-DOS兼容）
+//  OEM标识符 OEM信息 PE头偏移
+//  MS-DOS 2.0存根程序和重定位表
+//  未使用（MS-DOS 2.0 节，仅用于MS-DOS兼容）
+//  PE头（在8字节边界上对齐）
+//      MS-DOS存根（MS-DOS Stub）
+//      PE签名（Signature）
+//      COFF文件头：机器类型、特征
+//      可选头：各标准字段、各Windows特定字段、各数据目录
+//  各节头
+//  各映像页：导入信息 导出信息 各基重定位 资源信息
+//
+// COFF对象模块格式：
+//  COFF头: 机器类型、特征
+//  各节头
+//  原始数据：代码 数据 调试信息 各重定位
+//
+// MS-DOS存根是在MS-DOS下运行的有效应用程序。它放置在EXE映像的前面。链接器在此处放置默
+// 认存根，当映像在MS-DOS中运行时，该存根会打印消息"此程序无法在DOS模式下运行"。用户可
+// 以使用/STUB链接器选项指定不同的存根。在位置0x3c处，存根具有PE签名的文件偏移。此信息
+// 使Windows能够正确执行映像文件，即使它具有MS-DOS存根。此文件偏移在链接期间放置在位置
+// 0x3c。
+//
+// 在MS-DOS存根之后，在偏移0x3c指定的文件偏移处，是一个4字节签名，用于将文件标识为PE格
+// 式映像文件。此签名是"PE\0\0"（字母"P"和"E"后跟两个空字节）。
+//
+// 在目标文件的开头，或紧跟在映像文件的签名之后，是标准COFF文件头，格式如下。请注意，
+// Windows加载器将节数限制为96。
+//
+//  偏移    大小    字段                    描述
+//  0       2       Machine                 标识目标机器类型的数字。有关更多信息，请参阅机器类型。
+//  2       2       NumberOfSections        节数。这指示紧跟在头之后的节表的大小。
+//  4       4       TimeDateStamp           自1970年1月1日00:00以来的秒数的低32位（C运行时time_t值），
+//                                          指示文件何时创建。
+//  8       4       PointerToSymbolTable    COFF符号表的文件偏移，如果不存在COFF符号表则为零。对于映像，
+//                                          此值应为零，因为COFF调试信息已弃用。
+//  12      4       NumberOfSymbols         符号表中的条目数。此数据可用于定位紧跟在符号表之后的字符串表。
+//                                          对于映像，此值应为零，因为COFF调试信息已弃用。
+//  16      2       SizeOfOptionalHeader    可选头的大小，对于可执行文件是必需的，但对于目标文件不是必需的。
+//                                          对于目标文件，此值应为零。有关头格式的描述，请参阅可选头（仅映
+//                                          像）。
+//  18      2       Characteristics         指示文件属性的标志。有关特定标志值，请参阅特征。
+//
+// 机器类型。Machine字段具有以下值之一，用于指定CPU类型。映像文件只能在指定的机器上或
+// 在模拟指定机器的系统上运行。
+//
+//  常量                            值      描述
+//  IMAGE_FILE_MACHINE_UNKNOWN      0x0     假定此字段的内容适用于任何机器类型
+//  IMAGE_FILE_MACHINE_ALPHA        0x184   Alpha AXP，32位地址空间
+//  IMAGE_FILE_MACHINE_ALPHA64      0x284   Alpha 64，64位地址空间
+//  IMAGE_FILE_MACHINE_AM33         0x1d3   松下AM33
+//  IMAGE_FILE_MACHINE_AMD64        0x8664  x64
+//  IMAGE_FILE_MACHINE_ARM          0x1c0   ARM小端序
+//  IMAGE_FILE_MACHINE_ARM64        0xaa64  ARM64小端序
+//  IMAGE_FILE_MACHINE_ARM64EC      0xA641  启用本机ARM64和模拟x64代码之间互操作的ABI
+//  IMAGE_FILE_MACHINE_ARM64X       0xA64E  允许本机ARM64和ARM64EC代码在同一文件中共存的二进制格式
+//  IMAGE_FILE_MACHINE_ARMNT        0x1c4   ARM Thumb-2小端序
+//  IMAGE_FILE_MACHINE_AXP64        0x284   AXP 64（与Alpha 64相同）
+//  IMAGE_FILE_MACHINE_EBC          0xebc   EFI字节码
+//  IMAGE_FILE_MACHINE_I386         0x14c   Intel 386或更高版本的处理器及兼容处理器
+//  IMAGE_FILE_MACHINE_IA64         0x200   Intel Itanium处理器系列
+//  IMAGE_FILE_MACHINE_LOONGARCH32  0x6232  龙芯32位处理器系列
+//  IMAGE_FILE_MACHINE_LOONGARCH64  0x6264  龙芯64位处理器系列
+//  IMAGE_FILE_MACHINE_M32R         0x9041  三菱M32R小端序
+//  IMAGE_FILE_MACHINE_MIPS16       0x266   MIPS16
+//  IMAGE_FILE_MACHINE_MIPSFPU      0x366   带FPU的MIPS
+//  IMAGE_FILE_MACHINE_MIPSFPU16    0x466   带FPU的MIPS16
+//  IMAGE_FILE_MACHINE_POWERPC      0x1f0   Power PC小端序
+//  IMAGE_FILE_MACHINE_POWERPCFP    0x1f1   带浮点支持的Power PC
+//  IMAGE_FILE_MACHINE_R3000BE      0x160   MIPS I兼容32位大端序
+//  IMAGE_FILE_MACHINE_R3000        0x162   MIPS I兼容32位小端序
+//  IMAGE_FILE_MACHINE_R4000        0x166   MIPS III兼容64位小端序
+//  IMAGE_FILE_MACHINE_R10000       0x168   MIPS IV兼容64位小端序
+//  IMAGE_FILE_MACHINE_RISCV32      0x5032  RISC-V 32位地址空间
+//  IMAGE_FILE_MACHINE_RISCV64      0x5064  RISC-V 64位地址空间
+//  IMAGE_FILE_MACHINE_RISCV128     0x5128  RISC-V 128位地址空间
+//  IMAGE_FILE_MACHINE_SH3          0x1a2   日立SH3
+//  IMAGE_FILE_MACHINE_SH3DSP       0x1a3   日立SH3 DSP
+//  IMAGE_FILE_MACHINE_SH4          0x1a6   日立SH4
+//  IMAGE_FILE_MACHINE_SH5          0x1a8   日立SH5
+//  IMAGE_FILE_MACHINE_THUMB        0x1c2   Thumb
+//  IMAGE_FILE_MACHINE_WCEMIPSV2    0x169   MIPS小端序WCE v2
+//
+// 特征（Characteristics）字段包含指示对象或映像文件属性的标志。当前定义了以下标志：
+//
+//  标志                                值          描述
+//  IMAGE_FILE_RELOCS_STRIPPED          0x0001      仅映像，Windows CE和Microsoft Windows NT及更高版本。这表示文件不包含基重
+//                                                  定位，因此必须在其首选基地址加载。如果基地址不可用，加载器会报告错误。链接
+//                                                  器的默认行为是从可执行（EXE）文件中剥离基重定位。
+//  IMAGE_FILE_EXECUTABLE_IMAGE         0x0002      仅映像。这表示映像文件有效且可以运行。如果未设置此标志，则表示链接器错误。
+//  IMAGE_FILE_LINE_NUMS_STRIPPED       0x0004      COFF行号已被移除。此标志已弃用，应为零。
+//  IMAGE_FILE_LOCAL_SYMS_STRIPPED      0x0008      本地符号的COFF符号表条目已被移除。此标志已弃用，应为零。
+//  IMAGE_FILE_AGGRESSIVE_WS_TRIM       0x0010      已过时。积极修剪工作集。此标志对于Windows 2000及更高版本已弃用，必须为零。
+//  IMAGE_FILE_LARGE_ADDRESS_AWARE      0x0020      应用程序可以处理>2GB地址。
+//                                      0x0040      此标志保留供将来使用。
+//  IMAGE_FILE_BYTES_REVERSED_LO        0x0080      小端序：最低有效位（LSB）在内存中先于最高有效位（MSB）。此标志已弃用，应为零。
+//  IMAGE_FILE_32BIT_MACHINE            0x0100      机器基于32位字体系结构。
+//  IMAGE_FILE_DEBUG_STRIPPED           0x0200      调试信息已从映像文件中移除。
+//  IMAGE_FILE_REMOVABLE_RUN_FROM_SWAP  0x0400      如果映像在可移动媒体上，则完全加载它并将其复制到交换文件。
+//  IMAGE_FILE_NET_RUN_FROM_SWAP        0x0800      如果映像在网络媒体上，则完全加载它并将其复制到交换文件。
+//  IMAGE_FILE_SYSTEM                   0x1000      映像文件是系统文件，而不是用户程序。
+//  IMAGE_FILE_DLL                      0x2000      映像文件是动态链接库（DLL）。此类文件被当作可执行文件，尽管它们不能直接运行。
+//  IMAGE_FILE_UP_SYSTEM_ONLY           0x4000      文件应仅在单处理器机器上运行。
+//  IMAGE_FILE_BYTES_REVERSED_HI        0x8000      大端序：MSB在内存中先于LSB。此标志已弃用，应为零。
+//
+// 每个映像文件都有一个可选头，为加载器提供信息。此头是可选的在某种意义上，某些文件（特
+// 别是目标文件）没有它。对于映像文件，此头是必需的。目标文件可以有一个可选头，但通常此
+// 头在目标文件中没有功能，除了增加其大小。
+//
+// 请注意，可选头的大小不是固定的。必须使用COFF头中的SizeOfOptionalHeader字段来验证对
+// 文件中特定数据目录的探测不会超出SizeOfOptionalHeader。可选头的NumberOfRvaAndSizes
+// 字段也应确保对特定数据目录条目的探测不会超出可选头。此外，验证可选头幻数以获取格式兼
+// 容性非常重要。可选头幻数确定映像是PE32还是PE32+可执行文件。
+//
+//  幻数     PE格式
+//  0x10b   PE32
+//  0x20b   PE32+
+//
+// PE32+映像允许64位地址空间，同时将映像大小限制为2GB。其他PE32+修改在其相应节中讨论。
+// 可选头本身有三个主要部分。
+//
+//  偏移（PE32/PE32+）  大小（PE32/PE32+）  头部分              描述
+//  0                   28/24               标准字段            为所有COFF实现（包括UNIX）定义的字段。
+//  28/24               68/88               Windows特定字段     支持Windows特定功能（例如子系统）的附加字段。
+//  96/112              可变                数据目录            在映像文件中找到并由操作系统使用的特殊表的地址/大小对（例如，
+//                                                             导入表和导出表）。
+//
+// 可选头标准字段（仅映像），可选头的前八个字段是为每个COFF实现定义的标准字段。这些字段
+// 包含对加载和运行可执行文件有用的一般信息。对于PE32+格式，这些字段保持不变。
+//
+//  偏移    大小    字段                         描述
+//  0       2       Magic                       标识映像文件状态的无符号整数。最常见的数字是0x10B，将其标识为正常可执行文件。
+//                                              0x107将其标识为ROM映像，0x20B将其标识为PE32+可执行文件。
+//  2       1       MajorLinkerVersion          链接器主版本号。
+//  3       1       MinorLinkerVersion          链接器次版本号。
+//  4       4       SizeOfCode                  代码（文本）节的大小，或者如果有多个代码节，则是所有代码节的总和。
+//  8       4       SizeOfInitializedData       初始化数据节的大小，或者如果有多个数据节，则是所有此类节的总和。
+//  12      4       SizeOfUninitializedData     未初始化数据节（BSS）的大小，或者如果有多个BSS节，则是所有此类节的总和。
+//  16      4       AddressOfEntryPoint         当可执行文件加载到内存时，相对于映像基的入口点地址。对于程序映像，这是起始地址。
+//                                              对于设备驱动程序，这是初始化函数的地址。对于DLL，入口点是可选的。当没有入口点时，
+//                                              此字段必须为零。
+//  20      4       BaseOfCode                  当加载到内存时，相对于映像基的代码节开始的地址。
+//
+// PE32包含此附加字段，该字段在PE32+中不存在，位于BaseOfCode之后。
+//
+//  偏移    大小    字段                         描述
+//  24      4       BaseOfData                  当加载到内存时，相对于映像基的数据节开始的地址。
+//
+// 可选头Windows特定字段（仅映像）​，接下来的21个字段是COFF可选头格式的扩展。它们包含
+// Windows中链接器和加载器所需的附加信息。
+//
+//  偏移（PE32/PE32+）  大小（PE32/PE32+）   字段                             描述
+//  28/24               4/8                 ImageBase                       映像加载到内存时第一个字节的首选地址；必须是64K
+//                                                                          的倍数。DLL的默认值为0x10000000。Windows CE EXE
+//                                                                          的默认值为0x00010000。Windows NT、Windows 2000、
+//                                                                          Windows XP、Windows 95、Windows 98和Windows Me
+//                                                                          的默认值为0x00400000。
+//  32/32               4                   SectionAlignment                节加载到内存时的对齐方式（以字节为单位）。它必须
+//                                                                          大于或等于FileAlignment。默认值是体系结构的页面
+//                                                                          大小。
+//  36/36               4                   FileAlignment                   用于对齐映像文件中节的原始数据的对齐因子（以字节
+//                                                                          为单位）。该值应为512到64 K之间的2的幂，包括端点。
+//                                                                          默认值为512。如果SectionAlignment小于体系结构的
+//                                                                          页面大小，则FileAlignment必须匹配SectionAlignment。
+//  40/40               2                   MajorOperatingSystemVersion     所需操作系统的主版本号。
+//  42/42               2                   MinorOperatingSystemVersion     所需操作系统的次版本号。
+//  44/44               2                   MajorImageVersion               映像的主版本号。
+//  46/46               2                   MinorImageVersion               映像的次版本号。
+//  48/48               2                   MajorSubsystemVersion           子系统的主版本号。
+//  50/50               2                   MinorSubsystemVersion           子系统的次版本号。
+//  52/52               4                   Win32VersionValue               保留，必须为零。
+//  56/56               4                   SizeOfImage                     映像的大小（以字节为单位），包括所有头，当映像加
+//                                                                          载到内存时。它必须是SectionAlignment的倍数。
+//  60/60               4                   SizeOfHeaders                   MS-DOS存根、PE头和节头的组合大小，向上舍入为
+//                                                                          FileAlignment的倍数。
+//  64/64               4                   CheckSum                        映像文件校验和。计算校验和的算法已并入IMAGHELP.DLL。
+//                                                                          在加载时检查以下内容进行验证：所有驱动程序、在启
+//                                                                          动时加载的任何DLL以及加载到关键Windows进程中的任
+//                                                                          何DLL。
+//  68/68               2                   Subsystem                       运行此映像所需的子系统。有关更多信息，请参阅
+//                                                                          Windows子系统。
+//  70/70               2                   DllCharacteristics              有关更多信息，请参阅本规范后面的DLL特征。
+//  72/72               4/8                 SizeOfStackReserve              要保留的堆栈大小。仅提交SizeOfStackCommit；其余
+//                                                                          部分一次一页可用，直到达到保留大小。
+//  76/80               4/8                 SizeOfStackCommit               要提交的堆栈大小。
+//  80/88               4/8                 SizeOfHeapReserve               要保留的本地堆空间大小。仅提交SizeOfHeapCommit；
+//                                                                          其余部分一次一页可用，直到达到保留大小。
+//  84/96               4/8                 SizeOfHeapCommit                要提交的本地堆空间大小。
+//  88/104              4                   LoaderFlags                     保留，必须为零。
+//  92/108              4                   NumberOfRvaAndSizes             可选头其余部分中的数据目录条目数。每个描述一个位
+//                                                                          置和大小。
+//
+// Windows子系统，可选头的Subsystem字段的以下定义值确定运行映像需要哪个Windows子系统
+//（如果有）。
+//
+//  常量                                        值      描述
+//  IMAGE_SUBSYSTEM_UNKNOWN                     0       未知子系统
+//  IMAGE_SUBSYSTEM_NATIVE                      1       设备驱动程序和本机Windows进程
+//  IMAGE_SUBSYSTEM_WINDOWS_GUI                 2       Windows图形用户界面（GUI）子系统
+//  IMAGE_SUBSYSTEM_WINDOWS_CUI                 3       Windows字符子系统
+//  IMAGE_SUBSYSTEM_OS2_CUI                     5       OS/2字符子系统
+//  IMAGE_SUBSYSTEM_POSIX_CUI                   7       Posix字符子系统
+//  IMAGE_SUBSYSTEM_NATIVE_WINDOWS              8       本机Win9x驱动程序
+//  IMAGE_SUBSYSTEM_WINDOWS_CE_GUI              9       Windows CE
+//  IMAGE_SUBSYSTEM_EFI_APPLICATION             10      可扩展固件接口（EFI）应用程序
+//  IMAGE_SUBSYSTEM_EFI_BOOT_SERVICE_DRIVER     11      具有引导服务的EFI驱动程序
+//  IMAGE_SUBSYSTEM_EFI_RUNTIME_DRIVER          12      具有运行时服务的EFI驱动程序
+//  IMAGE_SUBSYSTEM_EFI_ROM                     13      EFI ROM映像
+//  IMAGE_SUBSYSTEM_XBOX                        14      XBOX
+//  IMAGE_SUBSYSTEM_WINDOWS_BOOT_APPLICATION    16      Windows引导应用程序
+//
+// DLL特征，可选头的DllCharacteristics字段定义了以下值。
+//
+//  常量                                            值          描述
+//  0x0001                                                      保留，必须为零
+//  0x0002                                                      保留，必须为零
+//  0x0004                                                      保留，必须为零
+//  0x0008                                                      保留，必须为零
+//  IMAGE_DLLCHARACTERISTICS_HIGH_ENTROPY_VA        0x0020      映像可以处理高熵64位虚拟地址空间
+//  IMAGE_DLLCHARACTERISTICS_DYNAMIC_BASE           0x0040      DLL可以在加载时重定位
+//  IMAGE_DLLCHARACTERISTICS_FORCE_INTEGRITY        0x0080      强制执行代码完整性检查
+//  IMAGE_DLLCHARACTERISTICS_NX_COMPAT              0x0100      映像与NX兼容
+//  IMAGE_DLLCHARACTERISTICS_NO_ISOLATION           0x0200      隔离感知，但不隔离映像
+//  IMAGE_DLLCHARACTERISTICS_NO_SEH                 0x0400      不使用结构化异常（SE）处理。此映像中可能不会调用SE处理程序
+//  IMAGE_DLLCHARACTERISTICS_NO_BIND                0x0800      不绑定映像
+//  IMAGE_DLLCHARACTERISTICS_APPCONTAINER           0x1000      映像必须在AppContainer中执行
+//  IMAGE_DLLCHARACTERISTICS_WDM_DRIVER             0x2000      WDM驱动程序
+//  IMAGE_DLLCHARACTERISTICS_GUARD_CF               0x4000      映像支持控制流防护
+//  IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE  0x8000      终端服务器感知
+//
+// 可选头数据目录（仅映像）​，每个数据目录提供Windows使用的表或字符串的地址和大小。这些
+// 数据目录条目都加载到内存中，以便系统在运行时可以使用它们。数据目录是一个8字节字段，
+// 具有以下声明：
+//
+//  typedef struct _IMAGE_DATA_DIRECTORY {
+//      DWORD   VirtualAddress;
+//      DWORD   Size;
+//  } IMAGE_DATA_DIRECTORY, *PIMAGE_DATA_DIRECTORY;
+//
+// 第一个字段VirtualAddress实际上是表的RVA。RVA是表相对于映像基地址的地址，当表加载时。
+// 第二个字段给出大小（以字节为单位）。数据目录（构成可选头的最后一部分）列在下表中。请
+// 注意，目录的数量不是固定的。在查找特定目录之前，请检查可选头中的NumberOfRvaAndSizes
+// 字段。此外，不要假设此表中的RVA指向节的开头，或者包含特定表的节具有特定名称。
+//
+//  偏移（PE/PE32+）    大小     字段             描述
+//  96/112              8       导出表           导出表的地址和大小。有关更多信息，请参阅.edata节（仅映像）
+//  104/120             8       导入表           导入表的地址和大小。有关更多信息，请参阅.idata节
+//  112/128             8       资源表           资源表的地址和大小。有关更多信息，请参阅.rsrc节
+//  120/136             8       异常表           异常表的地址和大小。有关更多信息，请参阅.pdata节
+//  128/144             8       证书表           属性证书表的地址和大小。有关更多信息，请参阅属性证书表（仅映像）
+//  136/152             8       基重定位表       基重定位表的地址和大小。有关更多信息，请参阅.reloc节（仅映像）
+//  144/160             8       调试             调试数据的起始地址和大小。有关更多信息，请参阅.debug节
+//  152/168             8       体系结构         保留，必须为0
+//  160/176             8       全局指针         要存储在全局指针寄存器中的值的RVA。此结构的大小成员必须设置为零
+//  168/184             8       TLS表            线程本地存储（TLS）表的地址和大小。有关更多信息，请参阅.tls节
+//  176/192             8       加载配置表       加载配置表的地址和大小。有关更多信息，请参阅加载配置结构（仅映像）
+//  184/200             8       绑定导入         绑定导入表的地址和大小
+//  192/208             8       IAT             导入地址表的地址和大小。有关更多信息，请参阅导入地址表
+//  200/216             8       延迟导入描述符   延迟导入描述符的地址和大小。有关更多信息，请参阅延迟加载导入表（仅映像）
+//  208/224             8       CLR运行时头      CLR运行时头的地址和大小。有关更多信息，请参阅.cormeta节（仅对象）
+//  216/232             8       保留，必须为零   证书表条目指向属性证书表。这些证书不作为映像的一部分加载到内存中。因此，此条目
+//                                              的第一个字段（通常是RVA）是文件指针
+//
+// 节表（节头）​，节表的每一行实际上是一个节头。此表紧跟在可选头（如果有）之后。此定位是
+// 必需的，因为文件头不包含指向节表的直接指针。相反，节表的位置是通过计算头之后第一个字
+// 节的位置来确定的。确保使用文件头中指定的可选头大小。节表中的条目数由文件头中的NumberOfSections
+// 字段给出。节表中的条目从一（1）开始编号。代码和数据内存节条目按链接器选择的顺序排列。
+// 在映像文件中，节的VA必须由链接器分配，以便它们按升序和相邻排列，并且必须是可选头中
+// SectionAlignment值的倍数。每个节头（节表条目）具有以下格式，每个条目总共40字节。
+//
+
+#endif // PRH_PEFMT_INCLUDE
+
 #ifdef PRH_TEST_IMPLEMENTATION
 void prh_impl_run_all_tests(void) {
     PRH_IMPL_PREV_TEST();
