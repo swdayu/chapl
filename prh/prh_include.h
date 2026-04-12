@@ -24591,10 +24591,9 @@ typedef struct {
     prh_timer_list near[PRH_IMPL_NEAR]; // 必须声明在 slot 之前保证 high_timer
     prh_timer_list slot[4][PRH_IMPL_SLOT]; // 必须紧跟 near 之后
     prh_timer_list free_list;
-    prh_timer_list *high_timer;
     prh_i64 baseline;
-    prh_r32 level[5]
     prh_r32 time; // 以基准为开始的时钟当前时间
+    prh_r32 started_timers;
 } prh_time_wheel;
 
 static prh_time_wheel *PRH_TIME_WHEEL;
@@ -24612,9 +24611,10 @@ void prh_impl_time_wheel_init(void) {
     PRH_TIME_WHEEL = (prh_time_wheel *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, prh_round_line_size(sizeof(prh_time_wheel)));
     memset(PRH_TIME_WHEEL, 0, sizeof(prh_time_wheel));
     PRH_TIME_WHEEL->baseline = prh_steady_msec();
+    PRH_TIME_WHEEL->latest = PRH_TIME_WHEEL->slot + 4 * PRH_IMPL_SLOT;
 }
 
-void prh_impl_schd_remove_timer_node(prh_impl_timer *node) {
+void prh_impl_schd_unchain_timer(prh_impl_timer *node) {
     if (node->chained == false) return;
     // [slot next] --> [node next] --> [node next] -->|
     //             <-- [prev     ] <-- [prev     ]
@@ -24625,12 +24625,12 @@ void prh_impl_schd_remove_timer_node(prh_impl_timer *node) {
     node->chained = false;
 }
 
-void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 point) {
-    prh_impl_schd_remove_timer_node(node);
+void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 expire_point) {
+    prh_impl_schd_unchain_timer(node);
     prh_i64 time_point = PRH_TIME_WHEEL->baseline + PRH_TIME_WHEEL->time;
-    if (point > time_point) {
-        assert(point <= PRH_TIME_WHEEL->baseline + (prh_i64)PRH_I32_UMX); // 否则需要重构整个时间轮
-        node->expire = (prh_r32)(point - PRH_TIME_WHEEL->baseline);
+    if (expire_point > time_point) {
+        assert(expire_point <= PRH_TIME_WHEEL->baseline + (prh_i64)PRH_I32_UMX); // 否则需要重构整个时间轮
+        node->expire = (prh_r32)(expire_point - PRH_TIME_WHEEL->baseline);
     } else {
         node->expire = PRH_TIME_WHEEL->time;
     }
@@ -24662,11 +24662,11 @@ void prh_impl_schd_check_timers(prh_i64 time_point) {
         prh_timer_list *slot = PRH_TIME_WHEEL->slot[3];
         list = slot + curr_level;
         // 时间为 curr_level 的计时器可能只有一部分到期
-        // time 00:20:25
-        //    + 01:15:40
-        // curr 01:36:05
-        // 时钟为 01 的计时器，只有分钟 <= 36 的才到期
-        // 分钟为 36 的计时器，只有秒钟 <= 05 的才到期
+        // time 03:20:25
+        //    + 02:15:40
+        // curr 05:36:05
+        // 时钟为 05 的计时器，只有分钟 <= 36 的才到期，其他计算器都保留在 05 位置不变
+        // 分钟为 36 的计时器，只有秒钟 <= 05 的才到期，其他计时器都保留在 05 位置不变
         prh_impl_schd_diaptach_timer_list(list);
         for (list -= 1; list > slot; list -= 1) { // 低于 curr_level 的计时器一定全部到期
             if (list->next != (prh_impl_timer *)list) {
@@ -24674,8 +24674,7 @@ void prh_impl_schd_check_timers(prh_i64 time_point) {
                 timers.next = list->next;
             }
         }
-    }
-    if ((curr_level = (curr >> PRH_IMPL_SLOT_2_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
+    } else if ((curr_level = (curr >> PRH_IMPL_SLOT_2_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
         prh_timer_list *slot = PRH_TIME_WHEEL->slot[2];
         list = slot + curr_level;
         prh_impl_schd_diaptach_timer_list(list);
@@ -24764,10 +24763,9 @@ void prh_impl_schd_timer_reset(prh_impl_tmcr *post) {
     prh_timer *timer = post->timer;
     prh_impl_timer *node = *timer;
     assert(node != prh_null && node->timer == timer);
-    node->proc = post->proc;
+    node->proc = post->proc; // 如果 chained 保存其状态
     node->param = post->param;
     node->started = false;
-    node->chained = false;
 }
 
 void prh_impl_schd_timer_start(prh_impl_tmst *post) {
@@ -24791,7 +24789,7 @@ void prh_impl_schd_timer_free(prh_impl_tmer *post) {
     prh_timer *timer = post->timer;
     prh_impl_timer *node = *timer;
     assert(node != prh_null && node->timer == timer);
-    prh_impl_schd_remove_timer_node(node);
+    prh_impl_schd_unchain_timer(node);
     prh_impl_schd_free_timer(node);
     *timer = prh_null;
 }
