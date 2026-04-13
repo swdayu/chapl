@@ -1754,6 +1754,13 @@ typedef enum {
 #endif
 #endif
 
+#ifdef PRH_TIMER_INCLUDE
+#define PRH_EHUB_INCLUDE
+#ifdef PRH_TIMER_IMPLEMENTATION
+#define PRH_EHUB_IMPLEMENTATION
+#endif
+#endif
+
 #ifdef PRH_EHUB_INCLUDE
 #define PRH_THRD_INCLUDE
 #define PRH_ALLOC_INCLUDE
@@ -5963,9 +5970,18 @@ prh_inline void prh_next_init(prh_next *node) {
     node->next = prh_null;
 }
 
+prh_inline bool prh_next_node_is_self(prh_next *node) {
+    return node->next == node;
+}
+
 prh_inline void prh_insert_after(prh_next *node, prh_next *new_node) {
     new_node->next = node->next;
     node->next = new_node;
+}
+
+prh_inline void prh_insert_list_after(prh_next *node, prh_next *start, prh_next *last) {
+    last->next = node->next;
+    node->next = start;
 }
 
 prh_inline prh_next *prh_remove_next(prh_next *node) {
@@ -6006,15 +6022,35 @@ prh_inline void prh_node_unchecked_insert_after(prh_node *node, prh_node *new_no
     prh_node *next = node->next;
     node->next = new_node;
     new_node->next = next;
+    assert(next != prh_null);
     next->prev = new_node;
     new_node->prev = node;
+}
+
+prh_inline void prh_node_unchecked_insert_list_after(prh_node *node, prh_node *start, prh_node *last) {
+    prh_node *next = node->next;
+    node->next = start;
+    last->next = next;
+    assert(next != prh_null);
+    next->prev = last;
+    start->prev = node;
 }
 
 prh_inline void prh_node_unchecked_remove(prh_node *node) {
     prh_node *next = node->next;
     prh_node *prev = node->prev;
+    assert(next != prh_null && prev != prh_null);
     next->prev = prev;
     prev->next = next;
+}
+
+prh_inline prh_node *prh_node_unchecked_remove_next(prh_node *node) {
+    prh_node *next = node->next; // 循环空头节点可以作为 node 调用，返回头节点
+    assert(next != prh_null);
+    prh_node *next_next = next->next;
+    assert(next_next != prh_null);
+    node->next = next_next;
+    next_next->prev = node;
 }
 
 prh_inline void prh_node_link_self(prh_node *node) {
@@ -23377,6 +23413,11 @@ prh_impl_global PRH_GLOBAL;
 static prh_thrd prh_impl_ehub_main;
 prh_thrd *PRH_EHUB_MAIN = prh_null;
 
+typedef void (*prh_cont)(void *post);
+typedef struct {
+    prh_cont cont;
+} prh_ehub_post;
+
 void prh_impl_ehub_prepare_main(void) {
     prh_impl_prepare_main_thrd(&prh_impl_ehub_main);
     PRH_EHUB_MAIN = &PRH_EHUB_MAIN;
@@ -23415,21 +23456,6 @@ void prh_timer_free(prh_timer *timer);
 #define PRH_IMPL_FAR2_MASK 0x03FFFFFF
 #define PRH_IMPL_FAR3_MASK 0xFFFFFFFF
 
-typedef struct {
-    prh_timer_list near[PRH_IMPL_NEAR];
-    prh_timer_list far0[PRH_IMPL_FARN];
-    prh_timer_list far1[PRH_IMPL_FARN];
-    prh_timer_list far2[PRH_IMPL_FARN];
-    prh_timer_list far3[PRH_IMPL_FARN];
-    prh_timer_list free_list; // 必须是第六个字段
-    prh_i64 baseline;
-    prh_r32 time; // 以基准开始的时间
-    prh_r32 started_timers;
-    prh_r32 created_timers;
-} prh_time_wheel;
-
-static prh_time_wheel *PRH_TIME_WHEEL;
-
 typedef struct prh_impl_timer {
     struct prh_impl_timer *next;
     struct prh_impl_timer *prev;
@@ -23442,11 +23468,6 @@ typedef struct prh_impl_timer {
     bool started;
     void *context;
 } prh_impl_timer; // 计时器是否要与协程进行绑定避免线程竞争问题
-
-typedef struct {
-    prh_impl_timer *next;
-    prh_impl_timer *prev;
-} prh_timer_list;
 
 typedef struct {
     prh_timer *timer;
@@ -23465,23 +23486,47 @@ typedef struct {
     prh_i64 base;
 } prh_impl_tmst;
 
+typedef struct {
+    prh_impl_timer *next;
+    prh_impl_timer *prev;
+} prh_timer_list;
+
+typedef struct {
+    prh_timer_list near[PRH_IMPL_NEAR];
+    prh_timer_list far0[PRH_IMPL_FARN];
+    prh_timer_list far1[PRH_IMPL_FARN];
+    prh_timer_list far2[PRH_IMPL_FARN];
+    prh_timer_list far3[PRH_IMPL_FARN];
+    prh_timer_list free_list; // 必须是第六个字段
+    prh_i64 baseline;
+    prh_r32 time; // 以基准开始的时间
+    prh_r32 started_timers;
+    prh_r32 created_timers;
+} prh_time_wheel;
+
+static prh_time_wheel PRH_TIME_WHEEL;
+typedef struct prh_impl_ehub_thrd prh_ehub_thrd;
+
+void prh_impl_schd_post_timer_task(prh_impl_timer *node);
+void *prh_impl_thrd_post_to_schd_begin(prh_ehub_thrd *thrd, prh_cont cont, prh_byte size);
+void prh_impl_thrd_post_to_schd_end(prh_ehub_thrd *thrd);
+
 void prh_impl_schd_time_wheel_init(void) {
     PRH_TIME_WHEEL = (prh_time_wheel *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, prh_round_line_size(sizeof(prh_time_wheel)));
     memset(PRH_TIME_WHEEL, 0, sizeof(prh_time_wheel));
-    PRH_TIME_WHEEL->baseline = prh_steady_msec();
-    prh_timer_list *list = PRH_TIME_WHEEL->near;
-    for (; list < &PRH_TIME_WHEEL->free_list; list += 1) {
-        prh_node_link_self((prh_node *)list);
+    PRH_TIME_WHEEL.baseline = prh_steady_msec();
+    prh_timer_list *p = PRH_TIME_WHEEL.near;
+    for (; p < &PRH_TIME_WHEEL.free_list; p += 1) {
+        prh_node_link_self((prh_node *)p);
     }
 }
 
 void prh_impl_schd_time_wheel_reset(void) {
-    PRH_TIME_WHEEL->baseline = prh_steady_msec();
-    PRH_TIME_WHEEL->time = 0;
+    PRH_TIME_WHEEL.baseline = prh_steady_msec();
+    PRH_TIME_WHEEL.time = 0;
 }
 
-void prh_impl_schd_count_down(void) {
-    PRH_TIME_WHEEL.started_timers -= 1;
+void prh_impl_schd_counted_down(void) {
     if (PRH_TIME_WHEEL.started_timers == 0) {
         prh_debug(printf("time wheel started timer 0"));
         prh_impl_schd_time_wheel_reset();
@@ -23492,158 +23537,242 @@ void prh_impl_schd_unchain_timer(prh_impl_timer *node) {
     // [slot next] --> [node next] --> [node next] --> [slot next]
     //             <-- [prev     ] <-- [prev     ] <-- [prev     ]
     prh_node_unchecked_remove((prh_node *)node);
+    PRH_TIME_WHEEL.started_timers -= 1;
     node->started = false;
 }
 
 void prh_impl_schd_add_timer(prh_impl_timer *node, prh_r32 diff) {
-    assert(diff > 0);
-
-    prh_r32 time = PRH_TIME_WHEEL->time;
-    prh_r32 expire = time + diff;
-    prh_timer_list *list;
+    prh_r32 time = PRH_TIME_WHEEL.time;
+    prh_r32 i, expire = time + diff;
+    assert(diff > 0 && expire > time); // 确保无符号整数没有溢出
 
     if (diff + (time & PRH_IMPL_NEAR_MASK) <= PRH_IMPL_NEAR_MASK) {
-        list = PRH_TIME_WHEEL->near + (expire & PRH_IMPL_NEAR_MASK);
+        i = (expire & PRH_IMPL_NEAR_MASK);
+        prh_node_unchecked_insert_after((prh_node *)(PRH_TIME_WHEEL.near + i), (prh_node *)node);
     } else if (diff + (time & PRH_IMPL_FAR0_MASK) <= PRH_IMPL_FAR0_MASK) {
-        list = PRH_TIME_WHEEL->far0 + ((expire >> PRH_IMPL_NEAR_BITS) & PRH_IMPL_FARN_MASK);
+        i = (expire >> PRH_IMPL_NEAR_BITS) & PRH_IMPL_FARN_MASK;
+        prh_node_unchecked_insert_after((prh_node *)(PRH_TIME_WHEEL.far0 + i), (prh_node *)node);
     } else if (diff + (time & PRH_IMPL_FAR1_MASK) <= PRH_IMPL_FAR1_MASK) {
-        list = PRH_TIME_WHEEL->far1 + ((expire >> PRH_IMPL_FAR0_BITS) & PRH_IMPL_FARN_MASK);
+        i = (expire >> PRH_IMPL_FAR0_BITS) & PRH_IMPL_FARN_MASK;
+        prh_node_unchecked_insert_after((prh_node *)(PRH_TIME_WHEEL.far1 + i), (prh_node *)node);
     } else if (diff + (time & PRH_IMPL_FAR2_MASK) <= PRH_IMPL_FAR2_MASK) {
-        list = PRH_TIME_WHEEL->far2 + ((expire >> PRH_IMPL_FAR1_BITS) & PRH_IMPL_FARN_MASK);
+        i = (expire >> PRH_IMPL_FAR1_BITS) & PRH_IMPL_FARN_MASK;
+        prh_node_unchecked_insert_after((prh_node *)(PRH_TIME_WHEEL.far2 + i), (prh_node *)node);
     } else {
-        list = PRH_TIME_WHEEL->far3 + ((expire >> PRH_IMPL_FAR2_BITS) & PRH_IMPL_FARN_MASK);
+        i = (expire >> PRH_IMPL_FAR2_BITS) & PRH_IMPL_FARN_MASK;
+        prh_node_unchecked_insert_after((prh_node *)(PRH_TIME_WHEEL.far3 + i), (prh_node *)node);
     }
 
-    prh_node_unchecked_insert_after((prh_node *)list, (prh_node *)node);
     node->expire = expire;
     node->started = true;
+    PRH_TIME_WHEEL.started_timers += 1;
+}
+
+prh_next *prh_impl_schd_collect_timer_list(prh_next *tail, prh_timer_list *list, prh_r32 near, prh_r32 far) {
+    prh_impl_timer *node;
+    prh_timer_list *p = list + near;
+    for (list += far; p <= list; p += 1) {
+        if (prh_next_node_is_self((prh_node *)p)) continue;
+        p->prev->next = prh_null;
+        while ((node = prh_remove_next((prh_next *)p))) {
+            tail->next = node;
+            tail = node;
+        }
+        prh_node_link_self((prh_node *)p);
+    }
+    return tail;
+}
+
+prh_next *prh_impl_schd_collect_all_timers(prh_next *tail) {
+    prh_r32 time_near = time & PRH_IMPL_NEAR_MASK;
+    prh_r32 time_far0 = (time >> PRH_IMPL_NEAR_BITS) & PRH_IMPL_FARN_MASK;
+    prh_r32 time_far1 = (time >> PRH_IMPL_FAR0_BITS) & PRH_IMPL_FARN_MASK;
+    prh_r32 time_far2 = (time >> PRH_IMPL_FAR1_BITS) & PRH_IMPL_FARN_MASK;
+    prh_r32 time_far3 = (time >> PRH_IMPL_FAR2_BITS) & PRH_IMPL_FARN_MASK;
+    tail = prh_impl_schd_collect_timer_list(tail, PRH_TIME_WHEEL.near, time_near, PRH_IMPL_NEAR_MASK);
+    tail = prh_impl_schd_collect_timer_list(tail, PRH_TIME_WHEEL.far0, time_far0, PRH_IMPL_FARN_MASK);
+    tail = prh_impl_schd_collect_timer_list(tail, PRH_TIME_WHEEL.far1, time_far1, PRH_IMPL_FARN_MASK);
+    tail = prh_impl_schd_collect_timer_list(tail, PRH_TIME_WHEEL.far2, time_far2, PRH_IMPL_FARN_MASK);
+    tail = prh_impl_schd_collect_timer_list(tail, PRH_TIME_WHEEL.far3, time_far3, PRH_IMPL_FARN_MASK);
+    return tail;
+}
+
+void prh_impl_schd_time_wheel_recreate(prh_impl_timer *trigger_timer, prh_i64 expire_point) {
+    prh_timer_list *p = PRH_TIME_WHEEL.near;
+    prh_timer_list timers = {0};
+    prh_next *tail = (prh_next *)&timers;
+    tail = prh_impl_schd_collect_all_timers(tail);
+    tail->next = prh_null;
+
+    prh_i64 baseline = PRH_TIME_WHEEL.baseline;
+    prh_r32 time = PRH_TIME_WHEEL.time; assert(time > 0);
+    prh_r32 started_timers = PRH_TIME_WHEEL.started_timers;
+    prh_debug(printf("time wheel recreate %u %lld timer %p\n", time, (long long)(expire_point - baseline), trigger_timer->timer));
+    PRH_TIME_WHEEL.baseline += time;
+    PRH_TIME_WHEEL.time = 0;
+
+    // 基于新的基准不溢出，如果溢出应该是添加了一个非常长的计时器，即使靠除当前的 time 值还是溢出
+    PRH_TIME_WHEEL.started_timers = 0;
+    assert(expire_point <= PRH_TIME_WHEEL.baseline + (prh_i64)PRH_I32_UMX);
+    prh_impl_schd_add_timer(trigger_timer, (prh_r32)(expire_point - PRH_TIME_WHEEL.baseline));
+
+    prh_impl_timer *node;
+    prh_r32 count_timer = 0;
+    while ((node = prh_remove_next((prh_next *)&timers))) {
+        assert(node->expire > time);
+        prh_impl_schd_add_timer(node, node->expire - time);
+        count_timer += 1;
+    }
+    assert(count_timer == started_timers);
 }
 
 void prh_impl_schd_fire_timer(prh_impl_timer *node) {
-    prh_impl_schd_timer_task(node);
+    node->started = false;
+    prh_impl_schd_post_timer_task(node);
     if (node->period && node->repeat > 1) { // 周期性计时器必须有周期和重复次数
         node->repeat -= 1;
-        assert(PRH_TIME_WHEEL->time + node->period > PRH_TIME_WHEEL->time); // 否则需要重构整个时间轮
-        prh_impl_schd_add_timer(node, node->period);
+        if (PRH_TIME_WHEEL.time + node->period < PRH_TIME_WHEEL.time) { // 无符号整数溢出，重构整个时间轮
+            prh_impl_schd_time_wheel_recreate(node, PRH_TIME_WHEEL.baseline + (prh_i64)PRH_TIME_WHEEL.time + (prh_i64)node->period);
+        } else {
+            prh_impl_schd_add_timer(node, node->period); // 在当前 time 基础上推进 period 时间
+        }
     } else {
-        node->started = false;
-        prh_impl_schd_count_down();
-    }
-}
-
-void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 expire_point) {
-    prh_i64 time_point = PRH_TIME_WHEEL->baseline + PRH_TIME_WHEEL->time;
-    if (expire_point <= time_point) {
-        prh_impl_schd_fire_timer(node);
-    } else {
-        assert(expire_point <= PRH_TIME_WHEEL->baseline + (prh_i64)PRH_I32_UMX); // 否则需要重构整个时间轮
-        prh_impl_schd_add_timer(node, (prh_r32)(expire_point - time_point));
+        prh_impl_schd_counted_down();
     }
 }
 
 void prh_impl_schd_fire_timer_list(prh_timer_list *list, prh_r32 near, prh_r32 far) {
-    prh_timer_list *p = list + near + 1;
-    prh_timer_list *end = list + far;
-    for (; p <= end; p += 1) {
-        prh_impl_timer *node = list->next;
-        if (node == (prh_impl_timer *)list) continue;
-        for (; ;) {
+    prh_impl_timer *node;
+    prh_timer_list *p = list + near;
+    for (list += far; p <= list; p += 1) {
+        if (prh_next_node_is_self((prh_node *)p)) continue;
+        p->prev->next = prh_null;
+        while ((node = prh_remove_next((prh_next *)p))) {
+            PRH_TIME_WHEEL.started_timers -= 1;
             prh_impl_schd_fire_timer(node);
-            node = node->next;
-            if (node == (prh_impl_timer *)list) break;
         }
         prh_node_link_self((prh_node *)p);
     }
 }
 
-void prh_impl_schd_check_timers(void) {
-    prh_i64 time_point = prh_steady_msec();
-    if (time_point <= PRH_TIME_WHEEL->baseline + PRH_TIME_WHEEL->time) {
-        return; // 不足一个时间单位
+void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 expire_point) {
+    prh_i64 time_point = PRH_TIME_WHEEL.baseline + PRH_TIME_WHEEL.time;
+    if (expire_point <= time_point) {
+        prh_impl_schd_fire_timer(node); // 立即超时
+    } else if (expire_point > PRH_TIME_WHEEL.baseline + (prh_i64)PRH_I32_UMX) {
+        prh_impl_schd_time_wheel_recreate(node, expire_point); // 超时时间超出32位无符号最大值，需要重构整个时间轮
+    } else {
+        prh_impl_schd_add_timer(node, (prh_r32)(expire_point - time_point));
     }
+}
 
-    prh_r32 curr = (prh_r32)(time_point - PRH_TIME_WHEEL->baseline);
-    prh_r32 time = PRH_TIME_WHEEL->time;
-    prh_r32 elapse = curr - time;
-    PRH_TIME_WHEEL->time = curr; // 这里必须先更新
-
-    prh_timer_list *list;
-    prh_timer_list timers = {(prh_impl_timer *)&timers, (prh_impl_timer *)&timers};
-
-    prh_r32 time_near = time & PRH_IMPL_NEAR_MASK;
-    if (elapse + time_near <= PRH_IMPL_NEAR_MASK) {
-        prh_r32 curr_near = curr & PRH_IMPL_NEAR_MASK;
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->near, time_near, curr_near);
-        return;
-    }
-
-    prh_r32 time_far0 = (time >> PRH_IMPL_NEAR_BITS) & PRH_IMPL_FARN_MASK;
-    if (elapse + (time & PRH_IMPL_FAR0_MASK) <= PRH_IMPL_FAR0_MASK) {
-        prh_r32 curr_far0 = (curr >> PRH_IMPL_NEAR_BITS) & PRH_IMPL_FARN_MASK;
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->near, time_near, PRH_IMPL_NEAR_MASK);
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far0, time_far0, curr_far0 - 1);
-        list = PRH_TIME_WHEEL->far0 + curr_far0;
-        goto label_check_list_expire;
-    }
-
-    prh_r32 time_far1 = (time >> PRH_IMPL_FAR0_BITS) & PRH_IMPL_FARN_MASK;
-    if (elapse + (time & PRH_IMPL_FAR1_MASK) <= PRH_IMPL_FAR1_MASK) {
-        prh_r32 curr_far1 = (curr >> PRH_IMPL_FAR0_BITS) & PRH_IMPL_FARN_MASK;
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->near, time_near, PRH_IMPL_NEAR_MASK);
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far0, time_far0, PRH_IMPL_FARN_MASK);
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far1, time_far1, curr_far1 - 1);
-        list = PRH_TIME_WHEEL->far1 + curr_far1;
-        goto label_check_list_expire;
-    }
-
-    prh_r32 time_far2 = (time >> PRH_IMPL_FAR1_BITS) & PRH_IMPL_FARN_MASK;
-    if (elapse + (time & PRH_IMPL_FAR2_MASK) <= PRH_IMPL_FAR2_MASK) {
-        prh_r32 curr_far2 = (curr >> PRH_IMPL_FAR1_BITS) & PRH_IMPL_FARN_MASK;
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->near, time_near, PRH_IMPL_NEAR_MASK);
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far0, time_far0, PRH_IMPL_FARN_MASK);
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far1, time_far1, PRH_IMPL_FARN_MASK);
-        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far2, time_far2, curr_far2 - 1);
-        list = PRH_TIME_WHEEL->far2 + curr_far2;
-        goto label_check_list_expire;
-    }
-
-    prh_r32 time_far3 = (time >> PRH_IMPL_FAR2_BITS) & PRH_IMPL_FARN_MASK;
-    prh_r32 curr_far3 = (curr >> PRH_IMPL_FAR2_BITS) & PRH_IMPL_FARN_MASK;
-    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->near, time_near, PRH_IMPL_NEAR_MASK);
-    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far0, time_far0, PRH_IMPL_FARN_MASK);
-    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far1, time_far1, PRH_IMPL_FARN_MASK);
-    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far2, time_far2, PRH_IMPL_FARN_MASK);
-    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL->far3, time_far3, curr_far3 - 1);
-    list = PRH_TIME_WHEEL->far3 + curr_far3;
-
+void prh_impl_schd_check_timer_expire(prh_timer_list *list, prh_r32 curr) {
     // 时间为 curr 的计时器可能只有一部分到期
     // time 03:20:25    time 03:20:25
     //    + 00:15:40       + 02:10:20
     // curr 00:36:05    curr 05:30:45
     // 分钟为 36 的计时器，只有 <= 36:05 的才到期，没有到期的全部插入到秒盘
     // 时钟为 05 的计时器，只有 <= 05:30:45 的才到期，没有到期的全部重新插入
-label_check_list_expire:
-    prh_impl_timer *node = list->next;
-    if (node != (prh_impl_timer *)list) {
-    label_continue:
-        prh_impl_timer *next = node->next;
+    if (prh_next_node_is_self((prh_next *)list)) return;
+    list->prev->next = prh_null;
+
+    prh_impl_timer *node;
+    while ((node = prh_remove_next((prh_next *)list))) {
+        PRH_TIME_WHEEL.started_timers -= 1;
         if (node->expire <= curr) {
             prh_impl_schd_fire_timer(node);
         } else {
             prh_impl_schd_add_timer(node, node->expire - curr);
         }
-        if (next != (prh_impl_timer *)list) {
-            node = next;
-            goto label_continue;
-        }
-        prh_node_link_self((prh_node *)list);
     }
+
+    prh_node_link_self((prh_node *)list);
+}
+
+void prh_impl_schd_check_timers(void) {
+    prh_i64 time_point = prh_steady_msec();
+    if (time_point <= PRH_TIME_WHEEL.baseline + PRH_TIME_WHEEL.time) {
+        return; // 不足一个时间单位
+    }
+
+    if (time_point - PRH_TIME_WHEEL.baseline >= PRH_I32_UMX) {
+        prh_timer_list timers = {0}; // 超出最大值，所有计时器都超时
+        prh_next *tail = (prh_next *)&timers;
+        tail = prh_impl_schd_collect_all_timers(tail);
+        tail->next = prh_null;
+        prh_debug(printf("time wheel check point reach limit %lld %lld\n", PRH_TIME_WHEEL.baseline, time_point));
+
+        prh_r32 count_timer = 0;
+        prh_r32 started_timers = PRH_TIME_WHEEL.started_timers;
+        PRH_TIME_WHEEL.started_timers = 0;
+        prh_impl_schd_time_wheel_reset(); // 所有计时器都已经超时，可以重置时间轮
+
+        prh_impl_timer *node;
+        while ((node = prh_remove_next((prh_next *)&timers))) {
+            prh_impl_schd_fire_timer(node); // 如果是周期计时器，会基于新的 time 推进 period 时间
+            count_timer += 1;
+        }
+        assert(count_timer == started_timers);
+        return;
+    }
+
+    prh_r32 curr = (prh_r32)(time_point - PRH_TIME_WHEEL.baseline);
+    prh_r32 time = PRH_TIME_WHEEL.time;
+    prh_r32 elapse = curr - time;
+    PRH_TIME_WHEEL.time = curr; // 这里必须先更新
+
+    prh_r32 time_near = time & PRH_IMPL_NEAR_MASK;
+    if (elapse + time_near <= PRH_IMPL_NEAR_MASK) {
+        prh_r32 curr_near = curr & PRH_IMPL_NEAR_MASK;
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.near, time_near, curr_near);
+        return;
+    }
+
+    prh_r32 time_far0 = (time >> PRH_IMPL_NEAR_BITS) & PRH_IMPL_FARN_MASK;
+    if (elapse + (time & PRH_IMPL_FAR0_MASK) <= PRH_IMPL_FAR0_MASK) {
+        prh_r32 curr_far0 = (curr >> PRH_IMPL_NEAR_BITS) & PRH_IMPL_FARN_MASK;
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.near, time_near, PRH_IMPL_NEAR_MASK);
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far0, time_far0, curr_far0 - 1);
+        prh_impl_schd_check_timer_expire(PRH_TIME_WHEEL.far0 + curr_far0, curr);
+        return;
+    }
+
+    prh_r32 time_far1 = (time >> PRH_IMPL_FAR0_BITS) & PRH_IMPL_FARN_MASK;
+    prh_debug(printf("time wheel large check interval %ums\n", elapse)); // > 16s
+    if (elapse + (time & PRH_IMPL_FAR1_MASK) <= PRH_IMPL_FAR1_MASK) {
+        prh_r32 curr_far1 = (curr >> PRH_IMPL_FAR0_BITS) & PRH_IMPL_FARN_MASK;
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.near, time_near, PRH_IMPL_NEAR_MASK);
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far0, time_far0, PRH_IMPL_FARN_MASK);
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far1, time_far1, curr_far1 - 1);
+        prh_impl_schd_check_timer_expire(PRH_TIME_WHEEL.far1 + curr_far1, curr);
+        return;
+    }
+
+    prh_r32 time_far2 = (time >> PRH_IMPL_FAR1_BITS) & PRH_IMPL_FARN_MASK;
+    if (elapse + (time & PRH_IMPL_FAR2_MASK) <= PRH_IMPL_FAR2_MASK) {
+        prh_r32 curr_far2 = (curr >> PRH_IMPL_FAR1_BITS) & PRH_IMPL_FARN_MASK;
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.near, time_near, PRH_IMPL_NEAR_MASK);
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far0, time_far0, PRH_IMPL_FARN_MASK);
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far1, time_far1, PRH_IMPL_FARN_MASK);
+        prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far2, time_far2, curr_far2 - 1);
+        prh_impl_schd_check_timer_expire(PRH_TIME_WHEEL.far2 + curr_far2, curr);
+        return;
+    }
+
+    prh_r32 time_far3 = (time >> PRH_IMPL_FAR2_BITS) & PRH_IMPL_FARN_MASK;
+    prh_r32 curr_far3 = (curr >> PRH_IMPL_FAR2_BITS) & PRH_IMPL_FARN_MASK;
+    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.near, time_near, PRH_IMPL_NEAR_MASK);
+    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far0, time_far0, PRH_IMPL_FARN_MASK);
+    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far1, time_far1, PRH_IMPL_FARN_MASK);
+    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far2, time_far2, PRH_IMPL_FARN_MASK);
+    prh_impl_schd_fire_timer_list(PRH_TIME_WHEEL.far3, time_far3, curr_far3 - 1);
+    prh_impl_schd_check_timer_expire(PRH_TIME_WHEEL.far3 + curr_far3, curr);
 }
 
 prh_impl_timer *prh_impl_schd_alloc_timer_nodes(void) {
     prh_impl_timer *timer = (prh_impl_timer *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, PRH_EHUB_QUEUE_BLOCK_SIZE);
     prh_impl_timer *timer_end = (prh_impl_timer *)((prh_byte *)timer + PRH_EHUB_QUEUE_BLOCK_SIZE);
-    prh_impl_timer *tail = (prh_impl_timer *)&PRH_TIME_WHEEL->free_list;
+    prh_impl_timer *tail = (prh_impl_timer *)&PRH_TIME_WHEEL.free_list;
     prh_impl_timer *free = timer + 1; // 第一个空闲计时器给当前分配
     while (free + 1 <= timer_end) { // 当前空闲计时器尾部不超过内存块尾部
         tail->next = free;
@@ -23654,13 +23783,8 @@ prh_impl_timer *prh_impl_schd_alloc_timer_nodes(void) {
 }
 
 prh_impl_timer *prh_impl_schd_alloc_timer(void) {
-    prh_impl_timer *t = PRH_TIME_WHEEL->free_list.next;
-    if (t != prh_null {
-        PRH_TIME_WHEEL->free_list.next = t->next;
-    } else {
-        t = prh_impl_schd_alloc_timer_nodes();
-    }
-    return t;
+    prh_impl_timer *t = prh_remove_next((prh_next *)&PRH_TIME_WHEEL.free_list);
+    return t ? t : prh_impl_schd_alloc_timer_nodes();
 }
 
 void prh_impl_schd_create_timer(prh_impl_tmcr *post) {
@@ -23683,7 +23807,7 @@ void prh_impl_schd_reset_timer(prh_impl_tmcr *post) {
     node->param = post->param;
     if (node->started) {
         prh_impl_schd_unchain_timer(node);
-        prh_impl_schd_count_down();
+        prh_impl_schd_counted_down();
     }
 }
 
@@ -23691,11 +23815,7 @@ void prh_impl_schd_start_timer(prh_impl_tmst *post) {
     prh_timer *timer = post->timer;
     prh_impl_timer *node = *timer;
     assert(node != prh_null && node->timer == timer);
-    if (node->started) {
-        prh_impl_schd_unchain_timer(node);
-    } else {
-        PRH_TIME_WHEEL.started_timers += 1;
-    }
+    if (node->started) prh_impl_schd_unchain_timer(node);
     node->period = post->msec;
     node->repeat = post->times;
     prh_impl_schd_chain_timer(node, post->base + post->msec);
@@ -23707,7 +23827,7 @@ void prh_impl_schd_stop_timer(prh_impl_tmer *post) {
     assert(node != prh_null && node->timer == timer);
     if (node->started) { // 启动的计时器可能已经时间到期
         prh_impl_schd_unchain_timer(node);
-        prh_impl_schd_count_down();
+        prh_impl_schd_counted_down();
     }
 }
 
@@ -23717,11 +23837,10 @@ void prh_impl_schd_free_timer(prh_impl_tmer *post) {
     assert(node != prh_null && node->timer == timer);
     if (node->started) {
         prh_impl_schd_unchain_timer(node);
-        prh_impl_schd_count_down();
+        prh_impl_schd_counted_down();
     }
     PRH_TIME_WHEEL.created_timers -= 1;
-    node->next = PRH_TIME_WHEEL->free_list.next;
-    PRH_TIME_WHEEL->free_list.next = node;
+    prh_insert_after((prh_next *)&PRH_TIME_WHEEL.free_list, node);
     *timer = prh_null;
 }
 
@@ -23928,11 +24047,6 @@ prh_inline void **prh_impl_ehub_queue_block_next(prh_byte *block) {
 //  1.  生产者为调度线程
 //  2.  消费者为对应线程或协程
 //  3.  消费完之后，通过线程的发送队列还给调度线程
-
-typedef void (*prh_cont)(void *post);
-typedef struct {
-    prh_cont cont;
-} prh_ehub_post;
 
 typedef struct prh_impl_ehub_thrd {
     prh_thrd thrd_struct; // 仅被当前线程修改的字段
@@ -24667,6 +24781,12 @@ void prh_impl_schd_send_task_end(prh_ehub_thrd *thrd) {
         prh_impl_schd_wakeup_thrd(thrd);
     }
 }
+
+#ifdef PRH_TIMER_INCLUDE
+void prh_impl_schd_post_timer_task(prh_impl_timer *node) {
+
+}
+#endif
 
 // typedef struct _OVERLAPPED_ENTRY {
 //     ULONG_PTR lpCompletionKey;
