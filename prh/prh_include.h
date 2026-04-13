@@ -5949,15 +5949,15 @@ typedef struct prh_data_next {
     void *data;
 } prh_data_next;
 
-typedef struct prh_side {
+typedef struct prh_link {
     prh_next *head;
     prh_next *tail;
-} prh_side;
+} prh_link;
 
-typedef struct prh_data_side {
+typedef struct prh_data_link {
     prh_data_next *head;
     prh_data_next *tail;
-} prh_data_side;
+} prh_data_link;
 
 prh_inline void prh_next_init(prh_next *node) {
     node->next = prh_null;
@@ -6002,25 +6002,44 @@ typedef struct {
     prh_data_node *tail;
 } prh_data_list;
 
-typedef struct prh_trno {
-    struct prh_trid *next;
-    struct prh_trid *prev;
-    struct prh_trid *base;
-} prh_trno;
+prh_inline void prh_node_unchecked_insert_after(prh_node *node, prh_node *new_node) {
+    prh_node *next = node->next;
+    node->next = new_node;
+    new_node->next = next;
+    next->prev = new_node;
+    new_node->prev = node;
+}
 
-typedef struct prh_data_trno {
-    struct prh_data_trno *next;
-    struct prh_data_trno *prev;
-    struct prh_data_trno *base;
+prh_inline void prh_node_unchecked_remove(prh_node *node) {
+    prh_node *next = node->next;
+    prh_node *prev = node->prev;
+    next->prev = prev;
+    prev->next = next;
+}
+
+prh_inline void prh_node_link_self(prh_node *node) {
+    node->next = node->prev = node;
+}
+
+typedef struct prh_tode {
+    struct prh_tode *next;
+    struct prh_tode *prev;
+    struct prh_tode *base;
+} prh_tode;
+
+typedef struct prh_data_tode {
+    struct prh_data_tode *next;
+    struct prh_data_tode *prev;
+    struct prh_data_tode *base;
     void *data;
-} prh_data_trno;
+} prh_data_tode;
 
 typedef struct {
-    prh_trno root;
+    prh_tode root;
 } prh_tree;
 
 typedef struct {
-    prh_data_trno root;
+    prh_data_tode root;
 } prh_data_tree;
 
 typedef struct prh_snode { // node single linked
@@ -6866,13 +6885,37 @@ void *prh_quedyn_pop(prh_quedyn *q) {
 //  ------------- 被调函数
 //  函数返回地址 <-- rsp
 //  栈动态信息区
-//  局部变量第一
-//  局部变量第二
 //  寄存器保护一
 //  寄存器保护二
+//  局部变量第一
+//  局部变量第二
+//  寄存器影子一
+//  寄存器影子二
+//  寄存器影子三
+//  寄存器影子四
 //  栈函数参数一
 //  栈函数参数二
 //  主调函数，此处为高地址（栈底）
+//
+//  RAX RDX [RCX RDI RSI R8 R9 R10] R11
+//  函数一个参数：          函数两个参数：          函数七个参数：
+//  寄存器影子一 RAX        寄存器影子一 RAX        寄存器影子一 RAX <-- rsp
+//  寄存器影子二 RDX        寄存器影子二 RDX        寄存器影子二 RDX
+//  寄存器变量一 RDI 对齐   寄存器变量一 RSI 对齐    栈局部变量一 对齐 local@proc rsp+16
+//  寄存器变量二 RSI        寄存器变量二 R8         栈局部变量二
+//  寄存器变量三 R8         寄存器变量三 R9         栈局部变量三
+//  寄存器变量四 R9         寄存器变量四 R10        栈局部变量四
+//  寄存器变量五 R10        栈局部变量五            栈局部变量五
+//  栈局部变量六            栈局部变量六            栈局部变量六
+//  栈局部变量七            栈局部变量七            栈空间填充
+//  函数返回地址 R11        函数返回地址 R11        函数返回地址 R11 <-- old_rsp rsp+proc@frame_size
+//  寄存器参数一 RCX 对齐   寄存器参数一 RCX 对齐    寄存器参数一 RCX 对齐 param@proc old_rsp+8
+//                         寄存器参数二 RDI        寄存器参数二 RDI
+//                                                寄存器参数三 RSI
+//                                                寄存器参数四 R8
+//                                                寄存器参数五 R9
+//                                                寄存器参数六 R10
+//                                                函数栈参数七
 //
 // stackful specially made coroutine stack layout:
 //  Lower memery address
@@ -23329,16 +23372,6 @@ typedef struct {
 
 extern prh_impl_global PRH_GLOBAL;
 
-typedef struct prh_impl_timer *prh_timer;
-typedef void (*prh_timer_proc)(void *param);
-
-void prh_timer_create(prh_timer *timer, prh_timer_proc proc, void *param);
-void prh_timer_reset(prh_timer *timer, prh_timer_proc proc, void *param);
-void prh_timer_start(prh_timer *timer, prh_r32 msec);
-void prh_timer_fires(prh_timer *timer, prh_r32 msec, prh_r32 fire_times);
-void prh_timer_stop(prh_timer *timer);
-void prh_timer_free(prh_timer *timer);
-
 #ifdef PRH_EHUB_IMPLEMENTATION
 prh_impl_global PRH_GLOBAL;
 static prh_thrd prh_impl_ehub_main;
@@ -23350,6 +23383,19 @@ void prh_impl_ehub_prepare_main(void) {
 }
 #endif // PRH_EHUB_IMPLEMENTATION
 #endif // PRH_EHUB_INCLUDE
+
+#ifdef PRH_TIMER_INCLUDE
+typedef struct prh_impl_timer *prh_timer;
+typedef void (*prh_timer_proc)(void *param);
+
+void prh_timer_create(prh_timer *timer, prh_timer_proc proc, void *param);
+void prh_timer_reset(prh_timer *timer, prh_timer_proc proc, void *param);
+void prh_timer_start(prh_timer *timer, prh_r32 msec);
+void prh_timer_fires(prh_timer *timer, prh_r32 msec, prh_r32 fire_times); // 0 次 1 次都表示 1 次
+void prh_timer_stop(prh_timer *timer);
+void prh_timer_free(prh_timer *timer);
+
+#endif // PRH_TIMER_INCLUDE
 
 #if defined(PRH_IMPL_WINDOWS_EHUB)
 // Windows Kits/10/Include/10.X.XXXXX.X/um/minwinbase.h
@@ -24485,6 +24531,10 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
             }
         }
 
+#ifdef PRH_TIMER_INCLUDE
+        prh_impl_schd_check_timers();
+#endif
+
         for (; entry < entry_end; entry += 1) {
             OVERLAPPED *overlapped = entry->lpOverlapped;
             prh_debug(prh_impl_schd_overlapped_entry_check(entry, overlapped));
@@ -24530,316 +24580,6 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
     }
 
     return 0;
-}
-
-// 分级时间轮超时算法，五级时间轮可以表示的时间范围 1ms ~ 49d：
-// 256 * 64 = 16s
-// 256 * 64 * 64 = 17m
-// 256 * 64 * 64 * 64 = 18h
-// 256 * 64 * 64 * 64 * 64 = 49d (8 + 6 + 6 + 6 + 6 = 32)
-#define PRH_IMPL_NEAR 256
-#define PRH_IMPL_SLOT 64
-#define PRH_IMPL_NEAR_BITS 8
-#define PRH_IMPL_SLOT_BITS 6
-#define PRH_IMPL_NEAR_MASK 0xFF
-#define PRH_IMPL_SLOT_MASK 0x3F
-#define PRH_IMPL_SLOT_0_MASK 0x00003F00
-#define PRH_IMPL_SLOT_1_MASK 0x000FC000
-#define PRH_IMPL_SLOT_2_MASK 0x03F00000
-#define PRH_IMPL_SLOT_3_MASK 0xFC000000
-#define PRH_IMPL_SLOT_0_SHIFT (PRH_IMPL_NEAR_BITS)
-#define PRH_IMPL_SLOT_1_SHIFT (PRH_IMPL_NEAR_BITS + PRH_IMPL_SLOT_BITS)
-#define PRH_IMPL_SLOT_2_SHIFT (PRH_IMPL_NEAR_BITS + PRH_IMPL_SLOT_BITS + PRH_IMPL_SLOT_BITS)
-#define PRH_IMPL_SLOT_3_SHIFT (PRH_IMPL_NEAR_BITS + PRH_IMPL_SLOT_BITS + PRH_IMPL_SLOT_BITS + PRH_IMPL_SLOT_BITS)
-
-typedef struct prh_impl_timer {
-    struct prh_impl_timer *next;
-    struct prh_impl_timer *prev;
-    prh_timer_proc proc;
-    prh_timer *timer;
-    void *param;
-    prh_r32 period; // 32位无符号可以表示49天，五级时间轮最多表示49天
-    prh_r32 expire; // 基于 baseline 的超时时间点
-    prh_r32 repeat;
-    bool started;
-    bool chained;
-    void *context;
-} prh_impl_timer; // 计时器是否要与协程进行绑定避免线程竞争问题
-
-typedef struct {
-    prh_impl_timer *next;
-} prh_timer_list;
-
-typedef struct {
-    prh_timer *timer;
-    prh_timer_proc proc;
-    void *param;
-} prh_impl_tmcr;
-
-typedef struct {
-    prh_timer *timer;
-    prh_r32 msec;
-    prh_r32 times;
-    prh_i64 base;
-} prh_impl_tmst;
-
-typedef struct {
-    prh_timer *timer;
-} prh_impl_tmer;
-
-typedef struct {
-    prh_timer_list near[PRH_IMPL_NEAR]; // 必须声明在 slot 之前保证 high_timer
-    prh_timer_list slot[4][PRH_IMPL_SLOT]; // 必须紧跟 near 之后
-    prh_timer_list free_list;
-    prh_i64 baseline;
-    prh_r32 time; // 以基准为开始的时钟当前时间
-    prh_r32 started_timers;
-} prh_time_wheel;
-
-static prh_time_wheel *PRH_TIME_WHEEL;
-prh_static_assert(prh_offsetof(prh_time_wheel, near) < prh_offsetof(prh_time_wheel, slot));
-
-prh_inline prh_timer_list *prh_impl_near_list(prh_r32 time) {
-    return PRH_TIME_WHEEL->near + (time & PRH_IMPL_NEAR_MASK);
-}
-
-prh_inline prh_timer_list *prh_impl_slot_list(prh_r32 level, prh_r32 time) {
-    return PRH_TIME_WHEEL->slot[level] + (((time >> PRH_IMPL_NEAR_BITS) >> (level * PRH_IMPL_SLOT_BITS)) & PRH_IMPL_SLOT_MASK);
-}
-
-void prh_impl_time_wheel_init(void) {
-    PRH_TIME_WHEEL = (prh_time_wheel *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, prh_round_line_size(sizeof(prh_time_wheel)));
-    memset(PRH_TIME_WHEEL, 0, sizeof(prh_time_wheel));
-    PRH_TIME_WHEEL->baseline = prh_steady_msec();
-    PRH_TIME_WHEEL->latest = PRH_TIME_WHEEL->slot + 4 * PRH_IMPL_SLOT;
-}
-
-void prh_impl_schd_unchain_timer(prh_impl_timer *node) {
-    if (node->chained == false) return;
-    // [slot next] --> [node next] --> [node next] -->|
-    //             <-- [prev     ] <-- [prev     ]
-    prh_impl_time *prev = node->prev;
-    prh_impl_time *next = node->next;
-    if (next) next->prev = prev;
-    prev->next = next;
-    node->chained = false;
-}
-
-void prh_impl_schd_chain_timer(prh_impl_timer *node, prh_i64 expire_point) {
-    prh_impl_schd_unchain_timer(node);
-    prh_i64 time_point = PRH_TIME_WHEEL->baseline + PRH_TIME_WHEEL->time;
-    if (expire_point > time_point) {
-        assert(expire_point <= PRH_TIME_WHEEL->baseline + (prh_i64)PRH_I32_UMX); // 否则需要重构整个时间轮
-        node->expire = (prh_r32)(expire_point - PRH_TIME_WHEEL->baseline);
-    } else {
-        node->expire = PRH_TIME_WHEEL->time;
-    }
-    prh_r32 expire = node->expire;
-    prh_timer_list *list;
-    if (expire < (1 << 8)) {
-        list = PRH_TIME_WHEEL->near + expire;
-    } else if (expire < (1 << (6 + 8))) {
-        list = PRH_TIME_WHEEL->slot[0] + (expire >> 8);
-    } else if (expire < (1 << (6 + 14))) {
-        list = PRH_TIME_WHEEL->slot[1] + (expire >> 14);
-    } else if (expire < (1 << (6 + 20))) {
-        list = PRH_TIME_WHEEL->slot[2] + (expire >> 20);
-    } else {
-        list = PRH_TIME_WHEEL->slot[3] + (expire >> 26);
-    }
-    node->next = list->next;
-    list->next = node;
-    node->chained = true;
-}
-
-void prh_impl_schd_check_timers(prh_i64 time_point) {
-    prh_r32 curr = (prh_r32)(time_point - PRH_TIME_WHEEL->baseline);
-    prh_r32 time = PRH_TIME_WHEEL->time; assert(curr >= time);
-    prh_timer_list timers = {0};
-    prh_timer_list *list;
-    prh_r32 curr_level;
-    if ((curr_level = (curr >> PRH_IMPL_SLOT_3_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
-        prh_timer_list *slot = PRH_TIME_WHEEL->slot[3];
-        list = slot + curr_level;
-        // 时间为 curr_level 的计时器可能只有一部分到期
-        // time 03:20:25
-        //    + 02:15:40
-        // curr 05:36:05
-        // 时钟为 05 的计时器，只有分钟 <= 36 的才到期，其他计算器都保留在 05 位置不变
-        // 分钟为 36 的计时器，只有秒钟 <= 05 的才到期，其他计时器都保留在 05 位置不变
-        prh_impl_schd_diaptach_timer_list(list);
-        for (list -= 1; list > slot; list -= 1) { // 低于 curr_level 的计时器一定全部到期
-            if (list->next != (prh_impl_timer *)list) {
-                list->tail->next = timers.next;
-                timers.next = list->next;
-            }
-        }
-    } else if ((curr_level = (curr >> PRH_IMPL_SLOT_2_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
-        prh_timer_list *slot = PRH_TIME_WHEEL->slot[2];
-        list = slot + curr_level;
-        prh_impl_schd_diaptach_timer_list(list);
-        for (list -= 1; list > slot; list -= 1) {
-            if (list->next != (prh_impl_timer *)list) {
-                list->tail->next = timers.next;
-                timers.next = list->next;
-            }
-        }
-    }
-    if ((curr_level = (curr >> PRH_IMPL_SLOT_1_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
-        prh_timer_list *slot = PRH_TIME_WHEEL->slot[1];
-        list = slot + curr_level;
-        prh_impl_schd_diaptach_timer_list(list);
-        for (list -= 1; list > slot; list -= 1) {
-            if (list->next != (prh_impl_timer *)list) {
-                list->tail->next = timers.next;
-                timers.next = list->next;
-            }
-        }
-    }
-    if ((curr_level = (curr >> PRH_IMPL_SLOT_0_SHIFT) & PRH_IMPL_SLOT_MASK) > 0) {
-        prh_timer_list *slot = PRH_TIME_WHEEL->slot[0];
-        list = slot + curr_level;
-        prh_impl_schd_diaptach_timer_list(list);
-        for (list -= 1; list > slot; list -= 1) {
-            if (list->next != (prh_impl_timer *)list) {
-                list->tail->next = timers.next;
-                timers.next = list->next;
-            }
-        }
-    }
-    curr_level = curr & PRH_IMPL_NEAR_MASK;
-    list = PRH_TIME_WHEEL->near + curr_level;
-    for (; list >= PRH_TIME_WHEEL->near; list -= 1) {
-        if (list->next != (prh_impl_timer *)list) {
-            list->tail->next = timers.next;
-            timers.next = list->next;
-        }
-    }
-    prh_impl_schd_timer_expired(&timers);
-}
-
-prh_impl_timer *prh_impl_schd_alloc_timer_nodes(void) {
-    prh_impl_timer *timer = (prh_impl_timer *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, PRH_EHUB_QUEUE_BLOCK_SIZE);
-    prh_impl_timer *timer_end = (prh_impl_timer *)((prh_byte *)timer + PRH_EHUB_QUEUE_BLOCK_SIZE);
-    prh_impl_timer *tail = (prh_impl_timer *)&PRH_TIME_WHEEL->free_list;
-    prh_impl_timer *free = timer + 1; // 第一个空闲计时器给当前分配
-    while (free + 1 <= timer_end) { // 当前空闲计时器尾部不超过内存块尾部
-        tail->next = free;
-        tail = free;
-    }
-    tail->next = prh_null;
-    return timer;
-}
-
-prh_impl_timer *prh_impl_schd_free_timer(prh_impl_timer *free) {
-    prh_impl_timer *head = (prh_impl_timer *)&PRH_TIME_WHEEL->free_list;
-    free->next = head->next;
-    head->next = free;
-}
-
-prh_impl_timer *prh_impl_schd_alloc_timer(void) {
-    prh_impl_timer *t = PRH_TIME_WHEEL->free_list.next;
-    if (t != prh_null {
-        PRH_TIME_WHEEL->free_list.next = t->next;
-    } else {
-        t = prh_impl_schd_alloc_timer_nodes();
-    }
-    return t;
-}
-
-void prh_impl_schd_timer_create(prh_impl_tmcr *post) {
-    prh_impl_timer *node = prh_impl_schd_alloc_timer();
-    prh_timer *timer = post->timer;
-    assert(*timer == prh_null); // 原来分配的计时器没有释放
-    *timer = node;
-    node->timer = timer;
-    node->proc = post->proc;
-    node->param = post->param;
-    node->started = false;
-    node->chained = false;
-}
-
-void prh_impl_schd_timer_reset(prh_impl_tmcr *post) {
-    prh_timer *timer = post->timer;
-    prh_impl_timer *node = *timer;
-    assert(node != prh_null && node->timer == timer);
-    node->proc = post->proc; // 如果 chained 保存其状态
-    node->param = post->param;
-    node->started = false;
-}
-
-void prh_impl_schd_timer_start(prh_impl_tmst *post) {
-    prh_timer *timer = post->timer;
-    prh_impl_timer *node = *timer;
-    assert(node != prh_null && node->timer == timer);
-    node->started = true;
-    node->period = post->msec;
-    node->repeat = post->times - 1;
-    prh_impl_schd_chain_timer(node, post->base + post->msec);
-}
-
-void prh_impl_schd_timer_stop(prh_impl_tmer *post) {
-    prh_timer *timer = post->timer;
-    prh_impl_timer *node = *timer;
-    assert(node != prh_null && node->timer == timer);
-    node->started = false;
-}
-
-void prh_impl_schd_timer_free(prh_impl_tmer *post) {
-    prh_timer *timer = post->timer;
-    prh_impl_timer *node = *timer;
-    assert(node != prh_null && node->timer == timer);
-    prh_impl_schd_unchain_timer(node);
-    prh_impl_schd_free_timer(node);
-    *timer = prh_null;
-}
-
-void prh_timer_create(prh_timer *timer, prh_timer_proc proc, void *param) {
-    assert(timer != prh_null && proc != prh_null);
-    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
-    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_impl_thrd_post_to_schd_begin(thrd, prh_impl_schd_timer_create, sizeof(*post));
-    post->timer = timer;
-    post->proc = proc;
-    post->param = param;
-    prh_impl_thrd_post_to_schd_end(thrd);
-}
-
-void prh_timer_reset(prh_timer *timer, prh_timer_proc proc, void *param) {
-    assert(timer != prh_null && proc != prh_null);
-    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
-    prh_impl_tmcr *post = (prh_impl_tmcr *)prh_impl_thrd_post_to_schd_begin(thrd, prh_impl_schd_timer_reset, sizeof(*post));
-    post->timer = timer;
-    post->proc = proc;
-    post->param = param;
-    prh_impl_thrd_post_to_schd_end(thrd);
-}
-
-void prh_timer_start(prh_timer *timer, prh_r32 msec) {
-    prh_timer_fires(timer, mesc, 1);
-}
-
-void prh_timer_fires(prh_timer *timer, prh_r32 msec, prh_r32 fire_times) {
-    assert(timer != prh_null && fire_times > 0);
-    prh_impl_tmst *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_start, sizeof(*post));
-    post->timer = timer;
-    post->msec = msec;
-    post->times = fire_times;
-    post->base = prh_steady_msec();
-    prh_thrd_post_to_schd_end();
-}
-
-void prh_timer_stop(prh_timer *timer) {
-    assert(timer != prh_null);
-    prh_impl_tmer *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_stop, sizeof(*post));
-    post->timer = timer;
-    prh_thrd_post_to_schd_end();
-}
-
-void prh_timer_free(prh_timer *timer) {
-    assert(timer != prh_null);
-    prh_impl_tmer *post = (prh_impl_tmcr *)prh_thrd_post_to_schd_begin(prh_impl_schd_timer_free, sizeof(*post));
-    post->timer = timer;
-    prh_thrd_post_to_schd_end();
 }
 
 #if 0
