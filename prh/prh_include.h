@@ -24056,33 +24056,43 @@ prh_inline void **prh_impl_ehub_queue_block_next(prh_byte *block) {
 //  2.  消费者为对应线程或协程
 //  3.  消费完之后，通过线程的发送队列还给调度线程
 
-typedef struct prh_impl_ehub_thrd {
-    prh_thrd thrd_struct; // 仅被当前线程修改的字段
-    void **give_back_rx_head; // 当前线程接收调度线程返还的内存块
-    void **thrd_task_rx_head; // 当前线程接收调度线程分派的任务
+typedef struct {
+    prh_byte *cache_line;
+    prh_byte *buffer_end;
+    prh_next *block_chain;
+    prh_reg total_size;
+#if PRH_DEBUG
+    prh_reg used_size;
+#endif
+} prh_impl_braver;
+
+typedef struct prh_impl_ehub_thrd { // TODO 处理线程退出，处理单线程程序，主线程处不处理线程任务
+    prh_thrd thrd_struct; // 仅被当前线程访问的字段
+    void **thrd_free_head; // 返还的空闲内存块
+    void **thrd_free_tail; // 返还的空闲内存块
     void **thrd_self_rx_head; // 线程自己投递给自己的任务
     void **thrd_self_rx_tail; // 线程自己投递给自己的任务
-    prh_byte *braver_cache_line; // 仅分配不释放的线程内存块，勇往直前永不后退分配器
-    prh_atom_reg tx_to_schd_tail; // 发送给调度线程的消息，被当前线程修改，调度线程只读
-#if PRH_DEBUG
-    prh_reg used_virtual_size;
-#endif
-    prh_alignas(prh_cache_line_size) // 仅被调度线程修改的字段
+    void **thrd_task_rx_head; // 当前线程接收调度线程分派的任务
+    prh_impl_braver braver; // 仅分配不释放勇往直前不后退的分配器
+    prh_alignas(prh_cache_line_size) // 共享给调度线程
+    prh_atom_reg thrd_to_schd_tail; // 调度线程消息队列，由工作线程修改
+    prh_alignas(prh_cache_line_size) // 仅被调度线程访问的字段
     struct prh_impl_ehub_thrd *next; // 仅被调度线程修改
-    prh_atom_reg schd_give_back_tail; // 调度线程返还消息内存块，仅由调度线程修改
     void **schd_task_rx_head; // 调度线程接收发送给调度线程的消息
-    void **schd_give_task_tail; // 调度线程给当前线程分配任务
-    prh_r32 schd_give_task_num; // 临时记录分配的任务数量
-    prh_atom_bool thrd_exit; // 仅由调度线程修改
+    void **schd_tx_temp_tail; // 临时记录任务队列的尾部
+    prh_r32 schd_to_thrd_load; // 临时记录分配给工作线程的外部负载
+    prh_alignas(prh_cache_line_size) // 共享给工作线程，仅被调度线程修改
+    prh_atom_reg schd_to_thrd_tail; // 仅由调度线程修改
     prh_atom_bool sleep; // 仅由调度线程修改
-    prh_alignas(prh_cache_line_size) // 被当前线程和调度线程修改的字段
-    prh_atom_r32 thrd_task_rx_qlen;
-    prh_atom_bool wait_sync_sleep;
-    prh_atom_bool exit_synced;
+    prh_atom_bool thrd_exit; // 仅由调度线程修改
+    prh_alignas(prh_cache_line_size) // 工作线程和调度线程都可以修改的字段
+    prh_atom_r32 workload_tasks; // 工作线程的外部任务负载
+    prh_atom_bool wait_sync_sleep; // 工作线程修改，被调度线程探测然后修改
+    prh_atom_bool exit_synced; // 工作线程修改，被调度线程探测然后修改
 } prh_ehub_thrd;
 
-prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd);
 int prh_impl_ehub_thrd_index(prh_ehub_thrd *thrd);
+prh_static_assert(sizeof(prh_ehub_thrd) == 6 * prh_cache_line_size);
 
 prh_inline prh_ehub_thrd *prh_ehub_thrd_self(void) {
     return (prh_ehub_thrd *)prh_thrd_self();
@@ -24102,34 +24112,18 @@ void prh_impl_schd_wakeup_thrd(prh_ehub_thrd *thrd) {
     prh_wake_address_single(&thrd->sleep);
 }
 
-prh_inline void **prh_impl_thrd_tx_to_schd_tail(prh_ehub_thrd *thrd) {
-    return (void **)prh_atom_ptr_read(&thrd->tx_to_schd_tail);
-}
-
-prh_inline void prh_impl_thrd_tx_to_schd_write(prh_ehub_thrd *thrd, void **block_position) {
-    prh_atom_ptr_write(&thrd->tx_to_schd_tail, (void *)block_position);
-}
-
-prh_inline void **prh_impl_schd_give_back_tail(prh_ehub_thrd *thrd) {
-    return (void **)prh_atom_ptr_read(&thrd->schd_give_back_tail);
-}
-
-prh_inline void prh_impl_schd_give_back_write(prh_ehub_thrd *thrd, prh_byte *block_position) {
-    prh_atom_ptr_write(&thrd->schd_give_back_tail, block_position);
-}
-
 prh_inline prh_byte *prh_impl_thrd_braver_alloc(prh_ehub_thrd *thrd, prh_reg size) {
     assert(size > 0 && (size % prh_cache_line_size) == 0);
-    prh_byte *p = thrd->braver_cache_line;
-    thrd->braver_cache_line += size;
+    prh_byte *p = thrd->braver.cache_line;
+    thrd->braver.cache_line += size;
     return p;
 }
 
 prh_byte *prh_impl_ehub_thrd_alloc(prh_ehub_thrd *thrd, prh_reg size) {
     prh_byte *p = prh_impl_thrd_braver_alloc(thrd, size);
 #if PRH_DEBUG
-    thrd->used_virtual_size += size;
-    printf("[thrd %02d] virtual alloc ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->used_virtual_size);
+    thrd->braver.used_size += size;
+    printf("[thrd %02d] virtual alloc ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->braver.used_size);
 #endif
     return p;
 }
@@ -24142,8 +24136,8 @@ prh_byte *prh_impl_thrd_alloc_block(prh_ehub_thrd *thrd) {
     prh_byte *block = prh_impl_thrd_braver_alloc(thrd, PRH_EHUB_QUEUE_BLOCK_SIZE);
     *prh_impl_ehub_queue_block_endp(block) = PRH_EHUB_BLOCK_END;
 #if PRH_DEBUG
-    thrd->used_virtual_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    printf("[thrd %02d] thrd block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->used_virtual_size);
+    thrd->braver.used_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
+    printf("[thrd %02d] thrd block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->braver.used_size);
 #endif
     return block;
 }
@@ -24152,8 +24146,8 @@ prh_byte *prh_impl_schd_alloc_block(prh_ehub_thrd *schd) {
     prh_byte *block = prh_impl_thrd_braver_alloc(schd, PRH_EHUB_QUEUE_BLOCK_SIZE);
     *prh_impl_ehub_queue_block_endp(block) = PRH_EHUB_BLOCK_END;
 #if PRH_DEBUG
-    schd->used_virtual_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    printf("[thrd %02d] schd block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(schd), (unsigned long)schd->used_virtual_size);
+    schd->braver.used_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
+    printf("[thrd %02d] schd block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(schd), (unsigned long)schd->braver.used_size);
 #endif
     return block;
 }
@@ -24162,21 +24156,21 @@ void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
     prh_reg virtual_size = PRH_GLOBAL.thread_braver_memory_size;
     if (virtual_size == 0) virtual_size = PRH_BRAVER_MEMORY_DEFAULT_SIZE;
     assert(virtual_size % prh_vmem_unit_size == 0);
-    thrd->braver_cache_line = prh_virtual_alloc(virtual_size);
-    prh_debug(printf("[thrd %02d] virtual size %dKB %p\n", prh_impl_ehub_thrd_index(thrd), (int)virtual_size, thrd->braver_cache_line));
+    thrd->braver.cache_line = prh_virtual_alloc(virtual_size);
+    prh_debug(printf("[thrd %02d] virtual size %dKB %p\n", prh_impl_ehub_thrd_index(thrd), (int)virtual_size, thrd->braver.cache_line));
 
     // 空闲块队列必须有一个隐藏的头节点，因为在仅剩一个空闲块的时候移除该空闲块时：
     //  1.  空闲队列消费者线程需要违反只修改头指针的规则，因为已经没有空闲块存在，尾指针也要改为空
     //  2.  这种修改无法做到不说，空闲队列消费者线程无法阻止空闲队列生产者线程继续在原有的空闲块上添加空闲块
     //  3.  只有总存在一个节点时，头指针总是在追赶尾指针，当头指针追赶到下一个节点时，上一个节点就可以自然而然的安全释放
     prh_byte *block = prh_impl_thrd_alloc_block(thrd);
-    thrd->give_back_rx_head = (void **)block; // 首尾指针指向相同表示为空
-    prh_impl_schd_give_back_write(thrd, block);
+    thrd->thrd_free_head = (void **)block; // 首尾指针指向相同表示为空
+    thrd->thrd_free_tail = (void **)block;
 
     // 线程发送给调度线程的消息
     block = prh_impl_thrd_alloc_block(thrd);
     thrd->schd_task_rx_head = (void **)block;
-    prh_impl_thrd_tx_to_schd_write(thrd, (void **)block);
+    prh_atom_ptr_write(&thrd->thrd_to_schd_tail, block);
 
     // 线程发送给自己的消息
     block = prh_impl_thrd_alloc_block(thrd);
@@ -24184,8 +24178,9 @@ void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
     thrd->thrd_self_rx_tail = (void **)block;
 
     thrd->thrd_task_rx_head = prh_null;
-    thrd->schd_give_task_tail = prh_null;
-    prh_atom_r32_init(&thrd->thrd_task_rx_qlen, 0);
+    thrd->schd_tx_temp_tail = prh_null;
+    prh_atom_ptr_init(&thrd->schd_to_thrd_tail, prh_null);
+    prh_atom_r32_init(&thrd->workload_tasks, 0);
     prh_atom_bool_init(&thrd->wait_sync_sleep, false);
     prh_atom_bool_init(&thrd->sleep, true); // 默认为睡眠状态
 }
@@ -24193,30 +24188,31 @@ void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
 void prh_impl_schd_init_thrd_rx_queue(prh_ehub_thrd *thrd, prh_ehub_thrd *schd) {
     prh_byte *block = prh_impl_schd_alloc_block(schd);
     thrd->thrd_task_rx_head = (void **)block;
-    thrd->schd_give_task_tail = (void **)block;
+    thrd->schd_tx_temp_tail = (void **)block;
+    prh_atom_ptr_write(&thrd->schd_to_thrd_tail, block);
 }
 
 void prh_impl_ehub_thrd_free(prh_ehub_thrd *thrd) {
     // 无需 prh_virtual_free，因为程序退出后，分配的空间会自动回收
 }
 
-typedef struct {
-    /* +4p +2p */ prh_sysinfo sysinfo;      // 初始化后只读
-    /* +1p +1p */ prh_arena_alloc *alloc;   // 初始化后只读
-    /* +1p +1p */ prh_ehub_thrd *thrds;     // 初始化后只读
-    /* +1p +1p */ prh_ehub_thrd *schd_thrd; // 初始化后只读
-    /* +1p +0p */ bool single_thread_program; // 初始化后只读
-    /* +0p +0p */ bool separated_schd_thrd; // 初始化后只读
-    /* +0p +0p */ bool main_thrd_as_worker; // 初始化后只读
-    /* +1p +1p */ prh_r32 total_thrds;      // 初始化后只读
-    /* +1p +0p */ prh_r32 thrds_shift; // 初始化后只读
-    /* +1p +1p */ prh_atom_r32 batch_size; // 共享给工作线程访问
-                  prh_alignas(prh_cache_line_size) // 以下仅由调度线程访问
-    /* +1p +1p */ void **free_block_head;
-    /* +1p +1p */ void **free_block_tail;
-    /* +1p +1p */ prh_ehub_thrd *waiting;
-    /* +1p +0p */ prh_r32 sleep_count;
-    /* +1p +1p */ bool schd_exit;
+typedef struct { // 仅由调度线程访问
+    prh_sysinfo sysinfo; // 初始化后只读
+    prh_arena_alloc *alloc; // 初始化后只读
+    prh_ehub_thrd *thrds; // 初始化后只读
+    prh_ehub_thrd *schd_thrd; // 初始化后只读
+    prh_r32 total_thrds; // 初始化后只读
+    prh_r32 thrds_shift; // 初始化后只读
+    bool single_thread_program; // 初始化后只读
+    bool separated_schd_thrd; // 初始化后只读
+    bool main_thrd_as_worker; // 初始化后只读
+    prh_alignas(prh_cache_line_size) // 以上只读
+    void **free_block_head;
+    void **free_block_tail;
+    prh_ehub_thrd *waiting;
+    prh_r32 batch_size;
+    prh_r32 sleep_count;
+    bool schd_exit;
 } prh_ehub_schd;
 
 static prh_alignas(prh_cache_line_size) prh_ehub_schd PRH_IMPL_SCHD;
@@ -24351,6 +24347,167 @@ void prh_ehub_join(void) {
     prh_impl_schd_free();
 }
 
+void prh_impl_ehub_push_free_block(void ***free_block_tail, void **block_end) {
+    prh_byte *free_block = prh_impl_ehub_block_from_endp(block_end);
+    assert(free_block != prh_null && free_block != PRH_EHUB_BLOCK_END);
+    void **tail = *free_block_tail;
+    if (tail[0] == PRH_EHUB_BLOCK_END) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
+        // 不需要修改 free_block->next 为空，因为总是可以通过 PRH_EHUB_BLOCK_END 判断尾部
+        tail[1] = free_block; // 当前块next指向下一块
+        *free_block_tail = (void **)free_block; // 队列尾指针指向下一块第一个可写元素
+    } else { // 否则当前内存块还有位置，将空闲块直接插入到队尾
+        tail[0] = free_block;
+        *free_block_tail = (void **)(tail + 1); // 指向下一个可写位置
+    }
+}
+
+prh_byte *prh_impl_ehub_pop_free_block(void ***free_block_head, void **tail) {
+    void **head = *free_block_head;
+    if (head == tail) return prh_null;
+    prh_byte *free_block;
+    if (head[0] == PRH_EHUB_BLOCK_END) { // 如果已到达当前内存块末尾，移动到下一个内存块
+        free_block = prh_impl_ehub_block_from_endp(head); // 需要释放的当前内存块，就是一个可用的空闲块
+        *free_block_head = (void **)head[1];
+    } else {
+        free_block = head[0]; assert(free_block != prh_null);
+        *free_block_head = (void **)(head + 1);
+    }
+    return free_block;
+}
+
+prh_inline void prh_impl_thrd_give_free_block(prh_ehub_thrd *thrd, void **block_end) {
+    prh_impl_ehub_push_free_block(&thrd->thrd_free_tail, block_end);
+}
+
+prh_inline prh_byte *prh_impl_thrd_pop_free_block(prh_ehub_thrd *thrd) {
+    return prh_impl_ehub_pop_free_block(&thrd->thrd_free_head, thrd->thrd_free_tail);
+}
+
+prh_inline prh_byte *prh_impl_schd_pop_free_block(void) {
+    return prh_impl_ehub_pop_free_block(&PRH_IMPL_SCHD.free_block_head, PRH_IMPL_SCHD.free_block_tail);
+}
+
+void prh_impl_thrd_push_free_block(prh_ehub_post *post) {
+    prh_impl_thrd_give_free_block(prh_ehub_thrd_self(), (void **)post->priv);
+}
+
+void prh_impl_schd_push_free_block(prh_ehub_post *post) {
+    prh_impl_ehub_push_free_block(&PRH_IMPL_SCHD.free_block_tail, (void **)post->priv);
+}
+
+typedef struct { // schd post to thrd
+    prh_ehub_post post;
+    void *param;
+    void *extra;
+} prh_ehub_thrd_post;
+
+prh_ehub_thrd_post *prh_impl_thrd_read_next_post(prh_ehub_thrd *thrd, prh_ehub_thrd_post *post) {
+    post = (prh_ehub_thrd_post *)((prh_byte *)post + prh_cache_line_size);
+    if (((void **)post)[0] == PRH_EHUB_BLOCK_END) { // 需要将空闲块还给生产者线程
+        prh_thrd_post_to_schd(thrd, prh_impl_schd_push_free_block, ((void **)post));
+        post = (prh_ehub_thrd_post *)((void **)post)[1];
+    }
+    return post;
+}
+
+void prh_impl_schd_to_thrd_update(prh_ehub_thrd *thrd, prh_ehub_post *post) {
+    void **tail = (void **)((prh_byte *)post + prh_cache_line_size);
+    if (tail[0] == PRH_EHUB_BLOCK_END) {
+        post = (prh_ehub_post *)prh_impl_schd_pop_free_block();
+        if (post == prh_null) {
+            post = (prh_ehub_post *)prh_impl_schd_alloc_block(PRH_IMPL_SCHD.schd_thrd);
+        }
+        tail = (void **)(tail[1] = post);
+    }
+    thrd->schd_tx_temp_tail = tail;
+}
+
+void *prh_impl_schd_add_post_to_thrd(prh_ehub_thrd *thrd, prh_cont cont, prh_reg size) {
+    assert(cont != prh_null && size >= sizeof(prh_ehub_post) && size <= prh_cache_line_size);
+    prh_ehub_post *post = (prh_ehub_post *)thrd->schd_tx_temp_tail;
+    post->cont = cont;
+    prh_impl_schd_to_thrd_update(thrd, post);
+    return post;
+}
+
+void prh_impl_schd_add_post_end(prh_ehub_thrd *thrd) {
+    prh_atom_ptr_write(&thrd->schd_to_thrd_tail, thrd->schd_tx_temp_tail);
+    if (thrd->schd_to_thrd_load) {
+        prh_atom_r32_add(&thrd->workload_tasks, thrd->schd_to_thrd_load);
+        thrd->schd_to_thrd_load = 0;
+    }
+    if (thrd->sleep) {
+        prh_impl_schd_wakeup_thrd(thrd);
+    }
+}
+
+void prh_impl_thrd_recv_load_task(prh_ehub_thrd_post *post) {
+    ((prh_cont)post->param)(post);
+    prh_atom_r32_dec(&thrd->workload_tasks);
+}
+
+void prh_schd_post_load_task(prh_ehub_thrd *thrd, prh_cont cont, void *priv) {
+    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)prh_impl_schd_add_post_to_thrd(thrd, prh_impl_thrd_recv_load_task, sizeof(*post));
+    thrd->schd_to_thrd_load += 1;
+    post->post.priv = priv;
+    post->param = (void *)cont;
+}
+
+void prh_schd_post_to_thrd(prh_ehub_thrd *thrd, prh_cont cont, void *priv) {
+    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)prh_impl_schd_add_post_to_thrd(thrd, cont, sizeof(*post));
+    post->post.priv = priv;
+}
+
+void prh_impl_schd_post_to_thrd(prh_ehub_thrd *thrd, prh_cont cont, void *priv, void *param) {
+    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)prh_impl_schd_add_post_to_thrd(thrd, cont, sizeof(*post));
+    post->post.priv = priv;
+    post->param = param;
+}
+
+void prh_thrd_post_to_self(prh_cont cont, void *priv) {
+    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
+    prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_self_rx_tail;
+    post->post.cont = cont;
+    post->priv = priv;
+    void **tail = (void **)(post + 1);
+    if (tail[0] == PRH_EHUB_BLOCK_END) {
+        post = (prh_ehub_post *)prh_impl_thrd_pop_free_block(thrd);
+        if (post == prh_null) post = (prh_ehub_post *)prh_impl_thrd_alloc_block(thrd);
+        tail = (void **)(tail[1] = post);
+    }
+    thrd->thrd_self_rx_tail = tail;
+}
+
+bool prh_impl_thrd_self_task(prh_ehub_thrd *thrd) {
+    prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_self_rx_head;
+    prh_ehub_post *tail = (prh_ehub_post *)thrd->thrd_self_rx_tail;
+    if (post == tail) return false;
+label_continue:
+    post->post.cont(post->priv);
+    post += 1;
+    if (((void **)post)[0] == PRH_EHUB_BLOCK_END) {
+        void **block_end = (void **)post;
+        post = (prh_ehub_post *)((void **)post)[1];
+        prh_impl_thrd_give_free_block(thrd, block_end);
+    }
+    if (post != tail) goto label_continue;
+    return true;
+}
+
+bool prh_impl_thrd_cycle(prh_ehub_thrd *thrd) {
+    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)thrd->thrd_task_rx_head;
+    prh_ehub_thrd_post *tail = (prh_ehub_thrd_post *)prh_atom_ptr_read(&thrd->schd_to_thrd_tail);
+    if (post == tail) return prh_impl_thrd_self_task();
+    do {
+        post->post.cont(post);
+        post = prh_impl_thrd_read_next_post(thrd, post);
+    } while (post != tail);
+    thrd->thrd_task_rx_head = (void **)post;
+    prh_impl_thrd_self_task(thrd);
+    return true;
+}
+
+#if 0
 void prh_impl_schd_give_block_back(prh_ehub_thrd *thrd, void **block_end) {
     prh_byte *free_block = prh_impl_ehub_block_from_endp(block_end);
     assert(free_block != prh_null && free_block != PRH_EHUB_BLOCK_END);
@@ -24404,113 +24561,26 @@ prh_byte *prh_impl_thrd_recv_free_block(prh_ehub_thrd *thrd) {
     return free_block;
 }
 
-typedef struct { // schd post to thrd
-    prh_ehub_post post;
-    void *param;
-    void *extra;
-} prh_ehub_thrd_post;
-
-prh_ehub_thrd_post *prh_impl_thrd_next_rx_post(prh_ehub_thrd *thrd, prh_ehub_thrd_post *post) {
-    post = (prh_ehub_thrd_post *)((prh_byte *)post + prh_cache_line_size);
-    if (((void **)post)[0] == PRH_EHUB_BLOCK_END) { // 需要将空闲块还给生产者线程
-        extern void prh_impl_thrd_give_block_to_schd(prh_ehub_thrd *thrd, void **block_end);
-        prh_impl_thrd_give_block_to_schd(thrd, ((void **)post));
-        post = (prh_ehub_thrd_post *)((void **)post)[1];
-    }
-    return post;
-}
-
-void prh_impl_schd_post_to_thrd_update_tail(prh_ehub_thrd *thrd, prh_ehub_post *post) {
-    void **tail = (void **)((prh_byte *)post + prh_cache_line_size);
-    if (tail[0] == PRH_EHUB_BLOCK_END) {
-        post = (prh_ehub_post *)prh_impl_schd_pop_free_block();
-        if (post == prh_null) {
-            post = (prh_ehub_post *)prh_impl_schd_alloc_block(PRH_IMPL_SCHD.schd_thrd);
-        }
-        tail = (void **)(tail[1] = post);
-    }
-    thrd->schd_give_task_tail = tail;
-}
-
-void *prh_impl_schd_add_post_to_thrd(prh_ehub_thrd *thrd, prh_cont cont, prh_reg size) {
-    assert(cont != prh_null && size >= sizeof(prh_ehub_post) && size <= prh_cache_line_size);
-    prh_ehub_post *post = (prh_ehub_post *)thrd->schd_give_task_tail;
-    post->cont = cont;
-    thrd->schd_give_task_num += 1;
-    prh_impl_schd_post_to_thrd_update_tail(thrd, post);
-    return post;
-}
-
-void prh_impl_schd_post_to_thrd_end(prh_ehub_thrd *thrd) {
-    prh_atom_r32_add(&thrd->thrd_task_rx_qlen, thrd->schd_give_task_num);
-    if (thrd->sleep) {
-        prh_impl_schd_wakeup_thrd(thrd);
-    }
-    thrd->schd_give_task_num = 0;
-}
-
-void prh_impl_schd_post_basic_task(prh_ehub_thrd *thrd, prh_cont cont, void *priv) {
-    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)prh_impl_schd_add_post_to_thrd(thrd, cont, sizeof(*post));
-    post->post.priv = priv;
-}
-
-void prh_impl_schd_post_param_task(prh_ehub_thrd *thrd, prh_cont cont, void *priv, void *param) {
-    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)prh_impl_schd_add_post_to_thrd(thrd, cont, sizeof(*post));
-    post->post.priv = priv;
-    post->param = param;
-}
-
-void prh_thrd_post_to_self(prh_cont cont, void *priv) {
-    prh_ehub_thrd *thrd = prh_ehub_thrd_self();
-    prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_self_rx_tail;
-    post->post.cont = cont;
-    post->priv = priv;
-    void **tail = (void **)(post + 1);
-    if (tail[0] == PRH_EHUB_BLOCK_END) {
-        post = (prh_ehub_post *)prh_impl_thrd_recv_free_block(thrd);
-        if (post == prh_null) post = (prh_ehub_post *)prh_impl_thrd_alloc_block(thrd);
-        tail = (void **)(tail[1] = post);
-    }
-    thrd->thrd_self_rx_tail = tail;
-}
-
-bool prh_impl_thrd_self_task(prh_ehub_thrd *thrd) {
-    prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_self_rx_head;
-    prh_ehub_post *tail = (prh_ehub_post *)thrd->thrd_self_rx_tail;
-    if (post == tail) return false;
-label_continue:
-    post->post.cont(post->priv);
-    post += 1;
-    if (((void **)post)[0] == PRH_EHUB_BLOCK_END) {
-        void **block_end = (void **)post;
-        post = (prh_ehub_post *)((void **)post)[1];
-        prh_impl_thrd_give_free_block(thrd, block_end);
-    }
-    if (post != tail) goto label_continue;
-    return true;
-}
-
-#if 0
 void prh_impl_schd_send_task_begin(prh_ehub_thrd *thrd, void *priv, prh_cont cont) {
-    prh_ehub_thrd_post *post = thrd->schd_give_task_tail;
+    prh_ehub_thrd_post *post = thrd->schd_to_thrd_tail;
     post->post = priv;
     post->cont = cont;
     post->task = prh_impl_thrd_cont_task;
-    prh_impl_schd_post_to_thrd_update_tail(thrd, post);
+    prh_impl_schd_to_thrd_update(thrd, post);
 }
 
 void prh_impl_schd_send_task_end(prh_ehub_thrd *thrd) {
-    prh_ehub_thrd_post *post = thrd->schd_give_task_tail;
+    prh_ehub_thrd_post *post = thrd->schd_to_thrd_tail;
     void **align_tail = (void **)prh_round_align_size((prh_reg)post, PRH_ALIGN_LINE);
     // 每次任务分配都分配到64字节边界，让调度线程插入任务与工作线程处理任务互不影响
     if ((void **)post != align_tail) {
-        thrd->schd_give_task_tail = prh_impl_schd_update_tx_tail(thrd, align_tail);
+        thrd->schd_to_thrd_tail = prh_impl_schd_update_tx_tail(thrd, align_tail);
         post->post = prh_null; // post->post 和 post->task 必须赋值，避免与 PRH_EHUB_BLOCK_END 冲突
         post->task = prh_impl_thrd_skip_empty;
-        post->param = (void *)thrd->schd_give_task_tail;
-        thrd->schd_give_task_num += 1;
+        post->param = (void *)thrd->schd_to_thrd_tail;
+        thrd->schd_to_thrd_num += 1;
     }
-    prh_atom_r32_add(&thrd->thrd_task_rx_qlen, thrd->schd_give_task_num);
+    prh_atom_r32_add(&thrd->thrd_task_rx_qlen, thrd->schd_to_thrd_num);
     if (thrd->sleep) {
         prh_impl_schd_wakeup_thrd(thrd);
     }
@@ -24600,22 +24670,6 @@ prh_ehub_thrd_post *prh_impl_thrd_skip_empty(prh_ehub_thrd *thrd, prh_ehub_thrd_
 //  4.  该函数仅涉及处理器内部的指令级并行（ILP），并不涉及线程级并行（TLP）
 //  5.  其作用范围仅涉及处理器指令级优化，仅提示处理器优化流水线
 
-bool prh_impl_thrd_cycle(prh_ehub_thrd *thrd) {
-    prh_r32 thrd_task_rx_qlen = prh_atom_r32_read(&thrd->thrd_task_rx_qlen);
-    if (!thrd_task_rx_qlen) return prh_impl_thrd_self_task();
-    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)thrd->thrd_task_rx_head;
-    prh_r32 batch_size = prh_atom_r32_read(&PRH_IMPL_SCHD.batch_size);
-    batch_size = prh_set_value_32_if_true(thrd_task_rx_qlen < batch_size, thrd_task_rx_qlen, batch_size);
-    prh_atom_r32_sub(&thrd->thrd_task_rx_qlen, batch_size);
-    do {
-        post->post.cont(post);
-        post = prh_impl_thrd_next_rx_post(thrd, post);
-    } while (--batch_size > 0);
-    thrd->thrd_task_rx_head = (void **)post;
-    prh_impl_thrd_self_task(thrd);
-    return true;
-}
-
 #define PRH_IMPL_THRD_SPIN_COUNT 4096
 
 static int prh_impl_thrd_routine(prh_ehub_thrd *thrd) {
@@ -24669,19 +24723,19 @@ static int prh_impl_thrd_routine(prh_ehub_thrd *thrd) {
 
 void *prh_impl_thrd_post_to_schd_begin(prh_ehub_thrd *thrd, prh_cont cont, prh_reg size) {
     assert(cont != prh_null && size >= sizeof(prh_ehub_post) && size <= prh_cache_line_size);
-    prh_ehub_post *post = (prh_ehub_post *)thrd->tx_to_schd_tail;
+    prh_ehub_post *post = (prh_ehub_post *)thrd->thrd_to_schd_tail;
     post->cont = cont;
     return post;
 }
 
 void prh_impl_thrd_post_to_schd_end(prh_ehub_thrd *thrd) {
-    void **tail = (void **)(thrd->tx_to_schd_tail + prh_cache_line_size);
+    void **tail = (void **)(thrd->thrd_to_schd_tail + prh_cache_line_size);
     if (tail[0] == PRH_EHUB_BLOCK_END) {
-        prh_byte *block = prh_impl_thrd_recv_free_block(thrd);
+        prh_byte *block = prh_impl_thrd_pop_free_block(thrd);
         if (block == prh_null) block = prh_impl_thrd_alloc_block(thrd);
         tail = (void **)(tail[1] = block);
     }
-    prh_impl_thrd_tx_to_schd_write(thrd, tail);
+    prh_atom_ptr_write(&thrd->thrd_to_schd_tail, (void *)tail);
 }
 
 void prh_thrd_post_to_schd(prh_ehub_thrd *thrd, prh_cont cont, void *priv) {
@@ -24692,11 +24746,6 @@ void prh_thrd_post_to_schd(prh_ehub_thrd *thrd, prh_cont cont, void *priv) {
 
 prh_inline void prh_ehub_post_to_schd(prh_cont cont, void *priv) {
     prh_thrd_post_to_schd(prh_ehub_thrd_self(), cont, priv);
-}
-
-void prh_impl_thrd_give_block_to_schd(prh_ehub_thrd *thrd, void **block_end) {
-    extern void prh_impl_schd_push_free_block(prh_ehub_post *post);
-    prh_thrd_post_to_schd(thrd, prh_impl_schd_push_free_block, (void *)block_end);
 }
 
 void prh_impl_schd_push_waiting_thrd(prh_ehub_thrd *thrd) {
@@ -24741,7 +24790,7 @@ prh_ehub_thrd *prh_impl_schd_pop_waiting_thrd(void) {
 }
 
 void prh_impl_schd_sync_thrd_sleep(prh_ehub_thrd *thrd) {
-    bool allow_sleep = prh_atom_r32_read(&thrd->thrd_task_rx_qlen) == 0;
+    bool allow_sleep = prh_atom_ptr_read(&thrd->thrd_task_rx_head) == thrd->schd_tx_temp_tail;
     thrd->sleep = allow_sleep;
     prh_atom_bool_write(&thrd->wait_sync_sleep, false);
     if (allow_sleep) {
@@ -24750,48 +24799,19 @@ void prh_impl_schd_sync_thrd_sleep(prh_ehub_thrd *thrd) {
 }
 
 bool prh_impl_schd_process_post(prh_ehub_thrd *thrd) {
-    prh_ehub_post *tail = (prh_ehub_post *)prh_impl_thrd_tx_to_schd_tail(thrd);
+    prh_ehub_post *tail = (prh_ehub_post *)prh_atom_ptr_read(&thrd->thrd_to_schd_tail);
     prh_ehub_post *post = (prh_ehub_post *)thrd->schd_task_rx_head;
     if (post == tail) return false;
     while (post != tail) {
         post->post.cont(post);
         post = (prh_ehub_post *)((prh_byte *)post + prh_cache_line_size);
         if (((void **)post)[0] == PRH_EHUB_BLOCK_END) { // 需要将空闲块还给生产者线程
-            prh_impl_schd_give_block_back(thrd, ((void **)post));
+            prh_schd_post_to_thrd(thrd, prh_impl_thrd_push_free_block, ((void **)post));
             post = (prh_ehub_post *)((void **)post)[1];
         }
     }
     thrd->schd_task_rx_head = (void **)post;
     return true;
-}
-
-void prh_impl_schd_push_free_block(prh_ehub_post *post) {
-    prh_byte *free_block = prh_impl_ehub_block_from_endp((void **)post->priv);
-    assert(free_block != prh_null && free_block != PRH_EHUB_BLOCK_END);
-    void **tail = PRH_IMPL_SCHD.free_block_tail;
-    if (tail[0] == PRH_EHUB_BLOCK_END) { // 如果当前内存块已满，将空闲块当作空闲队列的下一个内存块
-        // 不需要修改 free_block->next 为空，因为总是可以通过 PRH_EHUB_BLOCK_END 判断尾部
-        tail[1] = free_block; // 当前块next指向下一块
-        PRH_IMPL_SCHD.free_block_tail = (void **)free_block; // 队列尾指针指向下一块第一个可写元素
-    } else { // 否则当前内存块还有位置，将空闲块直接插入到队尾
-        tail[0] = free_block;
-        PRH_IMPL_SCHD.free_block_tail += 1; // 指向下一个可写位置
-    }
-}
-
-prh_byte *prh_impl_schd_pop_free_block(void) {
-    void **tail = PRH_IMPL_SCHD.free_block_tail;
-    void **head = PRH_IMPL_SCHD.free_block_head;
-    if (head == tail) return prh_null;
-    prh_byte *free_block;
-    if (head[0] == PRH_EHUB_BLOCK_END) { // 如果已到达当前内存块末尾，移动到下一个内存块
-        free_block = prh_impl_ehub_block_from_endp(head); // 需要释放的当前内存块，就是一个可用的空闲块
-        PRH_IMPL_SCHD.free_block_head = (void **)head[1];
-    } else {
-        free_block = head[0]; assert(free_block != prh_null);
-        PRH_IMPL_SCHD.free_block_head += 1;
-    }
-    return free_block;
 }
 
 #ifdef PRH_TIMER_INCLUDE
@@ -24844,26 +24864,26 @@ void prh_impl_schd_post_timer_task(prh_impl_timer *node) {
 // 并设置错误码）就不怎么有用了。
 
 static HANDLE PRH_IMPL_IOCP;
-typedef bool (*prh_iocp_complete)(OVERLAPPED_ENTRY *entry, prh_r32 thrd_batch_size);
+typedef bool (*prh_iocp_complete)(OVERLAPPED_ENTRY *entry);
 prh_static_assert(sizeof(NTSTATUS) == sizeof(prh_r32));
 prh_static_assert(sizeof(ULONG_PTR) == sizeof(void *));
 prh_static_assert(sizeof(OVERLAPPED_ENTRY) == sizeof(void *) * 4);
 
-static bool prh_impl_schd_user_iocp_complete(OVERLAPPED_ENTRY *entry, prh_r32 batch_size) {
+static bool prh_impl_schd_user_iocp_complete(OVERLAPPED_ENTRY *entry) {
     prh_ehub_thrd *thrd = (prh_ehub_thrd *)*(void **)(&entry->dwNumberOfBytesTransferred);
-    thrd = prh_impl_schd_select_thread(thrd, batch_size);
-    if (thrd != prh_null)  {
-        prh_impl_schd_post_basic_task(thrd, (prh_cont)entry->Internal, entry->lpOverlapped);
+    thrd = prh_impl_schd_select_thread(thrd);
+    if (thrd != prh_null) {
+        prh_schd_post_load_task(thrd, (prh_cont)entry->Internal, entry->lpOverlapped);
         return true;
     } else {
         return false;
     }
 }
 
-static bool prh_impl_schd_iocp_entry_complete(OVERLAPPED_ENTRY *entry, prh_r32 batch_size) { // 由调度线程投递给工作线程执行
+static bool prh_impl_schd_iocp_entry_complete(OVERLAPPED_ENTRY *entry) { // 由调度线程投递给工作线程执行
     prh_overlapped *overlapped = (prh_overlapped *)entry->lpOverlapped;
     prh_ehub_thrd *thrd = overlapped->target_thrd;
-    thrd = prh_impl_schd_select_thread(thrd, batch_size);
+    thrd = prh_impl_schd_select_thread(thrd);
     if (thrd != prh_null) {
         assert(entry->Internal == overlapped->impl.Internal);
         assert(entry->dwNumberOfBytesTransferred == overlapped->impl.InternalHigh);
@@ -24875,7 +24895,7 @@ static bool prh_impl_schd_iocp_entry_complete(OVERLAPPED_ENTRY *entry, prh_r32 b
             overlapped->sys_raw_error = error_code; // 如果没有对应的系统错误码，将返回 ERROR_MR_MID_NOT_FOUND 317 (0x013D)
         }
         overlapped->target_thrd = thrd; // hEvent 保存的函数由 prh_impl_iocp_continue_routine 注册
-        prh_impl_schd_post_basic_task(thrd, (prh_cont)overlapped->impl.hEvent, overlapped);
+        prh_schd_post_load_task(thrd, (prh_cont)overlapped->impl.hEvent, overlapped);
         return true;
     } else {
         return false;
@@ -24946,8 +24966,8 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
     }
 }
 
-prh_ehub_thrd *prh_impl_schd_select_thread(prh_ehub_thrd *thrd, prh_r32 batch_size) {
-    if (thrd && !thrd->sleep && prh_atom_r32_read(&thrd->thrd_task_rx_qlen) < batch_size) {
+prh_ehub_thrd *prh_impl_schd_select_thread(prh_ehub_thrd *thrd) {
+    if (thrd && !thrd->sleep && prh_atom_r32_read(&thrd->workload_tasks) < PRH_IMPL_SCHD.batch_size) {
         return thrd;
     }
     return prh_impl_schd_pop_waiting_thrd();
@@ -24955,7 +24975,7 @@ prh_ehub_thrd *prh_impl_schd_select_thread(prh_ehub_thrd *thrd, prh_r32 batch_si
 
 prh_r32 prh_impl_schd_update_batch_size(prh_r32 batch_size_shift) {
     prh_r32 batch_size = (1 << batch_size_shift);
-    prh_atom_r32_write(&PRH_IMPL_SCHD.batch_size, batch_size);
+    PRH_IMPL_SCHD.batch_size = batch_size;
     return batch_size;
 }
 
@@ -25067,7 +25087,7 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
 #endif
 
         for (; entry < entry_end; entry += 1) {
-            if (!((prh_iocp_complete)entry->lpCompletionKey)(entry, batch_size)) {
+            if (!((prh_iocp_complete)entry->lpCompletionKey)(entry)) {
                 break; // 调用完成键 lpCompletionKey 对应的 prh_iocp_complete 函数，会向线程投递任务
             }
         }
@@ -25075,8 +25095,8 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
         for (prh_r32 i = 0; i < PRH_IMPL_SCHD.total_thrds; i += 1) {
             thrd = thrds + i;
             activity += prh_impl_schd_process_post(thrd); // 先处理该线程发送给调度线程的任务
-            if (thrd->schd_give_task_num) { // 提交所有投递的任务
-                prh_impl_schd_post_to_thrd_end(thrd);
+            if (thrd->schd_tx_temp_tail != thrd->schd_to_thrd_tail) { // 提交所有投递的任务
+                prh_impl_schd_add_post_end(thrd);
                 activity += 1;
             }
             if (prh_atom_bool_read(&thrd->wait_sync_sleep)) {
