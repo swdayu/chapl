@@ -86,21 +86,31 @@
 //
 //      类型操作符 :: 和 @ 。
 //
+//      每个文件都有一个默认的文件作用域，当导入到其他文件时，其中的符号还是在其文件作
+//      用域中，需要通过导入时的文件名作为名字空间访问，或强制导入全部公开符号。结构体
+//      仅能够在自己所在文件修改，一旦离开自己的文件，结构体字段都变成只读字段，要修改
+//      字段值必须到结构体所在的文件添加修改代码。
+//
+//      import "path/array.code" // 名字空间为 array
+//      import string "path/string-view.code" // 文件名不是合法标识符时必须显式提供名字空间名称
+//      import * "path/string-view.code" // 或者强制导入所有公开符号
+//
 //  <assert> <complex> <math> <tgmath> <stdarg> <stddef> <stdlib> <stdio> <time>
 //  <thread> <array> <string> <list> <vector> <memory> <atomic> <flat_map>
 //
-//  一个代码模块可以是一个文件，或者是一个包含 module.jai 的文件夹。例如系统模块目录下
-//  的文件 random.jai 可以通过 import "random" 导入，或者一个名为 basic 的目录包含模
-//  块文件 module.jai 可以通过 import "basic" 导入。module.jai文件通常用于汇集文件夹
-//  中的所有源文件，使用#load来完成此操作，#load 相当于 C 语言的 #include 命令。
-//          #load "Array.jai";
-//          #load "Simple_String.jai";
-//          #load "String_Builder.jai";
-//          #load "Print.jai";
-//          #load "Int128.jai";
-//          #load "Apollo_Time.jai";
-//          #load "string_to_float.jai";
-//          #load "float_to_string.jai";
+//  一个代码模块可以是一个文件，或者是一个包含 module.code 的文件夹。例如系统模块目录
+//  下的文件 random.code 可以通过 import "random" 导入，或者一个名为 basic 的目录包
+//  含模块文件 module.code 可以通过 import "basic" 导入。module.code文件通常用于汇
+//  集文件夹中的所有源文件，使用#load来完成此操作，#load 相当于 C 语言的 #include 命
+//  令。
+//          #load "Array.code";
+//          #load "Simple_String.code";
+//          #load "String_Builder.code";
+//          #load "Print.code";
+//          #load "Int128.code";
+//          #load "Apollo_Time.code";
+//          #load "string_to_float.code";
+//          #load "float_to_string.code";
 //
 //  #load 相当于将所属程序的代码都集中到一个文件中，例如 main 源文件就是将所有相关的代
 //  码都集中到一起形成最终的程序。想知道#load和#import之间的区别吗？#load 的代码可以访
@@ -125,17 +135,17 @@
 //          y = math.sqrt(2.0)
 //          y = libm.sqrt(2.0)
 //
-//          import "path/single_file.cw"
-//          import "path/folder/*.cw"
-//          import "path/folder" // 导入 path/folder/module.cw
+//          import "path/single_file.code"
+//          import "path/folder/*.code" // 为了安全不能导入所有，只能一个一个文件导入
+//          import "path/folder" // 导入 path/folder/module.code
 //
 //  run/data/ 数据文件，比如字体、图像、声音、视频、文本
 //  run/program.exe
 //  lib/core.dll
-//  src/main.cw 代码文件
-//  src/file.cw 代码文件
-//  src/base/code.cw 模块文件
-//  build.cw
+//  src/main.code 代码文件
+//  src/file.code 代码文件
+//  src/base/code.code 模块文件
+//  build.code
 //
 //  文件中使用 def 定义的符号属于文件作用域（局部于文件），使用 pub 定义的符号数据全局
 //  作用域（属于全局，可被其他文件导入后访问），在函数中定义的局部变量和常量属于局部作用
@@ -3453,8 +3463,8 @@ for { stmt ... } ~ if (expr)
 // pop(q, free_func)
 // pop(q, =>(x)free(x))
 
-// __jai_runtime_init
-// __jai_runtime_fini
+// __code_runtime_init
+// __code_runtime_fini
 // __system_entry_point
 (+ 12 24 13)
 (* 13 14 15)
