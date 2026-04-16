@@ -23515,7 +23515,7 @@ typedef struct {
 static prh_time_wheel PRH_TIME_WHEEL;
 typedef struct prh_impl_ehub_thrd prh_ehub_thrd;
 
-void prh_impl_schd_post_timer_task(prh_impl_timer *node);
+void prh_impl_schd_post_timer(prh_impl_timer *node);
 void *prh_impl_thrd_post_to_schd_begin(prh_ehub_thrd *thrd, prh_cont cont, prh_byte size);
 void prh_impl_thrd_post_to_schd_end(prh_ehub_thrd *thrd);
 
@@ -23636,7 +23636,7 @@ void prh_impl_schd_time_wheel_recreate(prh_impl_timer *trigger_timer, prh_i64 ex
 
 void prh_impl_schd_fire_timer(prh_impl_timer *node) {
     node->started = false;
-    prh_impl_schd_post_timer_task(node);
+    prh_impl_schd_post_timer(node);
     if (node->period && node->repeat > 1) { // 周期性计时器必须有周期和重复次数
         node->repeat -= 1;
         if (PRH_TIME_WHEEL.time + node->period < PRH_TIME_WHEEL.time) { // 无符号整数溢出，重构整个时间轮
@@ -24850,6 +24850,37 @@ bool prh_impl_schd_process_post(prh_ehub_thrd *thrd) {
     thrd->schd_task_rx_head = (void **)post;
     return true;
 }
+
+prh_ehub_thrd *prh_impl_schd_select_thread(prh_ehub_thrd *thrd) {
+    if (PRH_IMPL_SCHD.single_thread_program) {
+        thrd = PRH_IMPL_SCHD.thrds;
+        return (thrd->workload_tasks < PRH_IMPL_SCHD.batch_size) ? thrd : prh_null;
+    } else {
+        return (thrd && !thrd->sleep && prh_atom_r32_read(&thrd->workload_tasks) < PRH_IMPL_SCHD.batch_size) ? thrd : prh_impl_schd_pop_waiting_thrd();
+    }
+}
+
+prh_ehub_thrd *prh_impl_schd_timer_thread(prh_impl_timer *timer) {
+    prh_ehub_thrd *thrd = timer->target_thrd;
+    if (thrd == prh_null || thrd->sleep) {
+        thrd = prh_impl_schd_pop_waiting_thrd();
+        if (thrd == prh_null) thrd = PRH_IMPL_SCHD.worker_start;
+    }
+    timer->target_thrd = thrd;
+    return thrd;
+}
+
+#ifdef PRH_TIMER_INCLUDE
+void prh_impl_thrd_timer_proc(prh_ehub_thrd_post *post) {
+    ((prh_timer_proc)post->priv)(post->param);
+}
+
+void prh_impl_schd_post_timer(prh_impl_timer *timer) {
+    prh_ehub_thrd *thrd = prh_impl_schd_timer_thread(timer);
+    prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)prh_impl_schd_add_post_to_thrd(thrd, prh_impl_thrd_timer_proc, (void *)timer->proc, sizeof(*post));
+    post->param = timer->param;
+}
+#endif
 
 #ifndef PRH_TIMER_INCLUDE
 prh_inline void prh_impl_schd_check_timers(void) {
