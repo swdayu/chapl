@@ -23471,7 +23471,7 @@ typedef struct prh_impl_timer {
     prh_r32 expire; // 基于 baseline 的超时时间点
     prh_r32 repeat;
     bool started;
-    void *context;
+    void *target_thrd;
 } prh_impl_timer; // 计时器是否要与协程进行绑定避免线程竞争问题
 
 typedef struct {
@@ -24057,16 +24057,17 @@ prh_inline void **prh_impl_ehub_queue_block_next(prh_byte *block) {
 //  3.  消费完之后，通过线程的发送队列还给调度线程
 
 typedef struct {
+    prh_next node;
     prh_byte *cache_line;
     prh_byte *buffer_end;
-    prh_next *block_chain;
+    prh_reg virtual_size;
     prh_reg total_size;
 #if PRH_DEBUG
     prh_reg used_size;
 #endif
 } prh_impl_braver;
 
-typedef struct prh_impl_ehub_thrd { // TODO：处理单线程程序，主线程处不处理线程任务，工作线程的个数
+typedef struct prh_impl_ehub_thrd { // TODO：处理单线程程序和单工作线程情况
     prh_thrd thrd_struct; // 仅被当前线程访问的字段
     void **thrd_free_head; // 返还的空闲内存块
     void **thrd_free_tail; // 返还的空闲内存块
@@ -24112,7 +24113,8 @@ void prh_impl_schd_wakeup_thrd(prh_ehub_thrd *thrd) {
 }
 
 prh_inline prh_byte *prh_impl_thrd_braver_alloc(prh_ehub_thrd *thrd, prh_reg size) {
-    assert(size > 0 && (size % prh_cache_line_size) == 0);
+    assert(size > 0 && (size % prh_cache_line_size) == 0 && size + prh_cache_line_size <= thrd->braver.virtual_size);
+    if (thrd->braver.cache_line + size > thrd->braver.buffer_end) prh_impl_thrd_virtual_buffer_alloc(thrd);
     prh_byte *p = thrd->braver.cache_line;
     thrd->braver.cache_line += size;
     return p;
@@ -24151,12 +24153,24 @@ prh_byte *prh_impl_schd_alloc_block(prh_ehub_thrd *schd) {
     return block;
 }
 
+void prh_impl_thrd_virtual_buffer_alloc(prh_ehub_thrd *thrd) {
+    prh_byte *buffer = (prh_byte *)prh_virtual_alloc(thrd->braver.virtual_size);
+    prh_insert_after(&thrd->braver.node, (prh_next *)buffer);
+    thrd->braver.total_size += thrd->braver.virtual_size;
+    thrd->braver.cache_line = buffer + prh_cache_line_size;
+    thrd->braver.buffer_end = buffer + thrd->braver.virtual_size;
+    prh_debug(printf("[thrd %02d] virtual buffer %p size %uKB\n", prh_impl_ehub_thrd_index(thrd), buffer, (prh_r32)(thrd->braver.total_size/1024)));
+}
+
 void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
     prh_reg virtual_size = PRH_GLOBAL.thread_braver_memory_size;
     if (virtual_size == 0) virtual_size = PRH_BRAVER_MEMORY_DEFAULT_SIZE;
     assert(virtual_size % prh_vmem_unit_size == 0);
-    thrd->braver.cache_line = prh_virtual_alloc(virtual_size);
-    prh_debug(printf("[thrd %02d] virtual size %dKB %p\n", prh_impl_ehub_thrd_index(thrd), (int)virtual_size, thrd->braver.cache_line));
+    thrd->braver.virtual_size = virtual_size;
+    thrd->braver.node.next = prh_null;
+    thrd->braver.total_size = 0;
+    prh_debug(thrd->braver.used_size = 0);
+    prh_impl_thrd_virtual_buffer_alloc(thrd)
 
     // 空闲块队列必须有一个隐藏的头节点，因为在仅剩一个空闲块的时候移除该空闲块时：
     //  1.  空闲队列消费者线程需要违反只修改头指针的规则，因为已经没有空闲块存在，尾指针也要改为空
@@ -24194,7 +24208,10 @@ void prh_impl_schd_init_thrd_rx_queue(prh_ehub_thrd *thrd, prh_ehub_thrd *schd) 
 }
 
 void prh_impl_ehub_thrd_free(prh_ehub_thrd *thrd) {
-    // 无需 prh_virtual_free，因为程序退出后，分配的空间会自动回收
+    prh_next *buffer;
+    while ((buffer = prh_remove_next(&thrd->braver.node))) {
+        prh_virtual_free(buffer);
+    }
 }
 
 typedef struct { // 仅由调度线程访问
@@ -24834,12 +24851,6 @@ bool prh_impl_schd_process_post(prh_ehub_thrd *thrd) {
     return true;
 }
 
-#ifdef PRH_TIMER_INCLUDE
-void prh_impl_schd_post_timer_task(prh_impl_timer *node) {
-
-}
-#endif
-
 #ifndef PRH_TIMER_INCLUDE
 prh_inline void prh_impl_schd_check_timers(void) {
 }
@@ -25001,10 +25012,6 @@ void prh_impl_schd_take_a_break(prh_r32 idle_cycle) {
     }
 }
 
-prh_ehub_thrd *prh_impl_schd_select_thread(prh_ehub_thrd *thrd) {
-    return (thrd && !thrd->sleep && prh_atom_r32_read(&thrd->workload_tasks) < PRH_IMPL_SCHD.batch_size) ? thrd : prh_impl_schd_pop_waiting_thrd();
-}
-
 void prh_impl_schd_update_batch_size(prh_r32 entry_count) {
     prh_r32 average_entries_per_thread = entry_count >> PRH_IMPL_SCHD.thrds_shift;
     prh_r32 active_threads_needed = entry_count >> PRH_IMPL_SCHD.batch_size_shift;
@@ -25110,7 +25117,7 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
 
         prh_impl_schd_check_timers(); // 计时器激发时会向线程投递任务
 
-        for (prh_ehub_thrd *thrd = PRH_IMPL_SCHD.worker_start; thrd < PRH_IMPL_SCHD.worker_end; thrd += 1) {
+        for (prh_ehub_thrd *thrd = PRH_IMPL_SCHD.thrds; thrd < PRH_IMPL_SCHD.worker_end; thrd += 1) { // 总是处理主线程投递的任务
             activity += prh_impl_schd_process_post(thrd); // 先处理该线程发送给调度线程的任务
             if (thrd->schd_tx_temp_tail != thrd->schd_to_thrd_tail) { // 提交所有投递的任务
                 prh_impl_schd_add_post_end(thrd);
@@ -25119,6 +25126,10 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
             if (prh_atom_bool_read(&thrd->wait_sync_sleep)) {
                 prh_impl_schd_sync_thrd_sleep(thrd); // 最后处理线程睡眠同步
             }
+        }
+
+        if (PRH_IMPL_SCHD.single_thread_program) {
+            activity += prh_impl_thrd_cycle(schd_thrd);
         }
 
         if (activity) { // 调度线程有事可做，处理了调度线程任务或投递了任务，继续做事直到无事可做为止
