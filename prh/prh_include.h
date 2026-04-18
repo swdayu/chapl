@@ -23957,6 +23957,32 @@ typedef struct { // 无栈异步协程实现
     prh_reg yield;
 } prh_co_struct;
 
+typedef struct {
+    prh_co_proc proc;
+    prh_reg yield;
+    void *target_thrd;
+    void **ctrl_post_rx_head;
+    prh_atom_reg schd_to_ctrl_tail;
+    bool await;
+} prh_co_central;
+
+typedef struct prh_co_spawnee {
+    prh_co_proc proc;
+    prh_reg yield;
+    void *target_thrd;
+    void *spawner;
+    struct prh_co_spawnee *next;
+} prh_co_spawnee;
+
+typedef struct {
+    prh_co_proc proc;
+    prh_reg yield;
+    void *target_thrd;
+    prh_link spawnee;
+    prh_reg await_count;
+    bool await;
+} prh_co_spawner;
+
 #define prh_co_start case 0
 #define prh_co_error case prh_impl_error_yield
 #define prh_co_end (prh_yield *)(prh_reg)(0)
@@ -24776,6 +24802,20 @@ void prh_thrd_post_to_schd(prh_ehub_thrd *thrd, prh_cont cont, void *priv) {
 
 prh_inline void prh_ehub_post_to_schd(prh_cont cont, void *priv) {
     prh_thrd_post_to_schd(prh_ehub_thrd_self(), cont, priv);
+}
+
+void prh_impl_schd_init_co_central(prh_ehub_post *post) {
+    prh_co_central *co = (prh_co_central *)post->priv;
+    prh_byte *block = prh_impl_schd_alloc_block(PRH_IMPL_SCHD.schd_thrd);
+    co->ctrl_post_rx_head = (void **)block;
+    prh_atom_ptr_write(&co->schd_to_ctrl_tail, block);
+}
+
+viod prh_co_central_init(prh_co_central *co, prh_co_proc proc) {
+    assert(co != prh_null && proc != prh_null);
+    memset(co, 0, sizeof(prh_co_central));
+    co->proc = proc;
+    prh_ehub_post_to_schd(prh_impl_schd_init_co_central, co);
 }
 
 void prh_impl_schd_push_waiting_thrd(prh_ehub_thrd *thrd) {
@@ -28927,6 +28967,7 @@ typedef struct {
     prh_r32 wait_count; // 当前有多少accept请求正在进行中
     prh_r32 open_count; // 当前有多少客户处于连接状态
     prh_r32 open_limit; // 最多支持多少客户同时在线
+    bool exit;
 } prh_listen;
 
 typedef struct {
@@ -31761,6 +31802,18 @@ prh_inline prh_socket *prh_impl_socket_from_recv_overlapped(prh_impl_overlapped 
 
 prh_inline int prh_impl_socket_addrlen(bool ipv6) {
     return ipv6 ? (int)sizeof(struct sockaddr_in6) : (int)sizeof(struct sockaddr_in);
+}
+
+//  1.  多个线程可以通过调度线程投递 accept 请求
+//  2.  多个线程可以通过调度线程投递重用 accept 请求
+//  3.  多个线程可以通过调度线程投递释放 accept 请求
+//  4.  可以投递程序退出请求，当所有连接断连后关闭监听套接字
+prh_yield *prh_impl_listen_routine(prh_listen *l, prh_reg yield) {
+    switch (yield) {
+    prh_co_start:
+        break;
+    }
+    return prh_co_end;
 }
 
 void prh_impl_schd_listen_inc(prh_listen *l) {
