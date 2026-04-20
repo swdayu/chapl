@@ -23950,7 +23950,7 @@ typedef struct {
 
 typedef struct prh_yield prh_yield;
 typedef struct prh_co_struct prh_co_struct;
-typedef prh_yield *(*prh_co_proc)(prh_co_struct *, prh_reg yield);
+typedef prh_yield *(*prh_co_proc)(prh_co_struct *co, prh_reg yield);
 
 typedef struct { // 无栈异步协程实现
     prh_co_proc proc;
@@ -23963,7 +23963,7 @@ typedef struct {
 } prh_co_data;
 
 typedef struct prh_co_central prh_co_central;
-typedef void (*prh_co_central_proc)(prh_co_central *, prh_co_data *data);
+typedef void (*prh_co_central_proc)(prh_co_central *co, prh_co_data *data);
 
 typedef struct prh_co_central {
     prh_co_central_proc proc;
@@ -24479,7 +24479,7 @@ typedef struct { // schd post to thrd
 } prh_ehub_thrd_post;
 
 void *prh_impl_thrd_read_next_post(prh_ehub_thrd *thrd, void *post, prh_reg size) {
-    post = ((prh_byte *)post + prh_cache_line_size);
+    post = ((prh_byte *)post + size);
     if (((void **)post)[0] == PRH_EHUB_BLOCK_END) { // 需要将空闲块还给生产者线程
         prh_thrd_post_to_schd(thrd, prh_impl_schd_push_free_block, ((void **)post));
         post = ((void **)post)[1];
@@ -24487,12 +24487,12 @@ void *prh_impl_thrd_read_next_post(prh_ehub_thrd *thrd, void *post, prh_reg size
     return post;
 }
 
-void **prh_impl_schd_update_tx_tail(prh_ehub_post *post, prh_reg size) {
+void **prh_impl_schd_update_tx_tail(void *post, prh_reg size) {
     void **tail = (void **)((prh_byte *)post + size);
     if (tail[0] == PRH_EHUB_BLOCK_END) {
-        post = (prh_ehub_post *)prh_impl_schd_pop_free_block();
+        post = prh_impl_schd_pop_free_block();
         if (post == prh_null) {
-            post = (prh_ehub_post *)prh_impl_schd_alloc_block(PRH_IMPL_SCHD.schd_thrd);
+            post = prh_impl_schd_alloc_block(PRH_IMPL_SCHD.schd_thrd);
         }
         tail = (void **)(tail[1] = post);
     }
@@ -24841,6 +24841,10 @@ void prh_impl_schd_co_recv_data(prh_co_central *co) {
     prh_ehub_thrd_post *post = (prh_ehub_thrd_post *)prh_impl_schd_add_post_to_thrd(thrd, prh_impl_thrd_handle_co_central_post, co, sizeof(*post));
     post->param = co->ctrl_post_rx_head;
     post->extra = co->schd_to_ctrl_tail;
+    void **align_tail = (void **)prh_round_align_size((prh_reg)co->schd_to_ctrl_tail, PRH_ALIGN_LINE);
+    if (align_tail != co->schd_to_ctrl_tail) { // 下次投递消息在缓存行边界写入，不影响工作线程并行处理之前的消息
+        co->schd_to_ctrl_tail = prh_impl_schd_update_tx_tail(align_tail, 0);
+    }
     co->ctrl_post_rx_head = co->schd_to_ctrl_tail;
 }
 
@@ -31885,6 +31889,27 @@ prh_inline prh_socket *prh_impl_socket_from_recv_overlapped(prh_impl_overlapped 
 
 prh_inline int prh_impl_socket_addrlen(bool ipv6) {
     return ipv6 ? (int)sizeof(struct sockaddr_in6) : (int)sizeof(struct sockaddr_in);
+}
+
+typedef enum {
+    PRH_IMPL_LISTEN_ACCEPT,
+    PRH_IMPL_LISTEN_REUSE_SOCKET,
+    PRH_IMPL_LISTEN_FREE_SOCKET,
+    PRH_IMPL_LISTEN_EXIT, // 当所有连接断连后关闭监听套接字
+} prh_impl_listen_opcode;
+
+void prh_impl_listen_routine(prh_listen *l, prh_co_data *data) {
+    prh_impl_listen_opcode opcode = (prh_impl_listen_opcode)data->code;
+    switch (opcode) {
+    case PRH_IMPL_LISTEN_ACCEPT:
+        break;
+    case PRH_IMPL_LISTEN_REUSE_SOCKET:
+        break;
+    case PRH_IMPL_LISTEN_FREE_SOCKET:
+        break;
+    default:
+        break;
+    }
 }
 
 void prh_impl_schd_listen_inc(prh_listen *l) {
