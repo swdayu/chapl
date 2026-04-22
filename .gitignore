@@ -1,7 +1,6 @@
 .*
 !.gitignore
 !.gitattributes
-__test__
 *~
 *.genfile
 *.orig
