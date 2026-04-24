@@ -773,17 +773,17 @@ extern "C" {
     #define prh_abort_errno_if(a) if (a) { prh_abort_error(errno); }
     #define prh_prerr(error) prh_impl_prerr((error), __LINE__)
     #define prh_ext_prerr(priv, error) prh_impl_ext_prerr((prh_reg)(priv), (error), __LINE__)
-    #define prh_abort_error(error) prh_impl_abort_error(__LINE__, (error))
+    #define prh_abort_error(error) prh_impl_abort_error((error), __LINE__)
     #define prh_abort_if(a) if (a) { prh_impl_abort(__LINE__); }
     void prh_impl_prerr(unsigned int error, prh_int line);
     void prh_impl_ext_prerr(prh_reg priv, unsigned int error, prh_int line);
     void prh_impl_abort(prh_int line);
-    void prh_impl_abort_error(prh_int line, unsigned int error);
+    void prh_impl_abort_error(unsigned int error, prh_int line);
     void prh_print_exit_code(int thrd_id, int exit_code);
     #define prh_real_condret(c, a) if (!((a) c)) { prh_impl_abort(__LINE__); }
     #define prh_real_numbret(n, a) if ((a) != (n)) { prh_impl_abort(__LINE__); }
     #define prh_real_zeroret(a) if ((a) != 0) { prh_impl_abort(__LINE__); }
-    #define prh_real_zeroret_or_errno(a) if ((a) != 0) { prh_impl_abort_error(__LINE__, errno); }
+    #define prh_real_zeroret_or_errno(a) if ((a) != 0) { prh_impl_abort_error(errno, __LINE__); }
     #define prh_real_nnegret(a) if ((a) < 0) { prh_impl_abort(__LINE__); }
     #define prh_real_boolret(a) if (!(a)) { prh_impl_abort(__LINE__); }
 #if PRH_DEBUG // macro arg 'a' can only expand once
@@ -2068,8 +2068,8 @@ typedef enum {
     #define prh_invalid_socket INVALID_SOCKET
     #define prh_wsa_prerr() prh_impl_prerr(WSAGetLastError(), __LINE__)
     #define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
-    #define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(__LINE__, WSAGetLastError()); }
-    #define prh_wsa_abort_error() prh_impl_abort_error(__LINE__, WSAGetLastError())
+    #define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(WSAGetLastError(), __LINE__); }
+    #define prh_wsa_abort_error() prh_impl_abort_error(WSAGetLastError(), __LINE__)
     #endif // PRH_SOCK_INCLUDE
     #ifdef PRH_THRD_INCLUDE
     #include <process.h>
@@ -2080,7 +2080,7 @@ typedef enum {
     #define PRH_IMPL_WINDOWS_EHUB
     #define PRH_IMPL_WINDOWS_IOCP
     #endif // PRH_EHUB_INCLUDE
-    #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(__LINE__, GetLastError()); }
+    #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(GetLastError(), __LINE__); }
     #if PRH_DEBUG
     #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(GetLastError(), __LINE__); }
     #else
@@ -2391,7 +2391,7 @@ typedef enum {
     #ifdef PRH_THRD_INCLUDE
     #define PRH_IMPL_POSIX_THREAD
     #endif // PRH_THRD_INCLUDE
-    #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(__LINE__, errno); }
+    #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(errno, __LINE__); }
 #endif // prh_plat_posix
 #endif // ATOMIC THRD TIME CONO_IMPLEMENTATION
 
@@ -2930,7 +2930,7 @@ void prh_impl_abort(prh_int line) {
     abort();
 }
 
-void prh_impl_abort_error(prh_int line, unsigned int error) {
+void prh_impl_abort_error(unsigned int error, prh_int line) {
     fprintf(stderr, "abort %d line %ld\n", error, (long)line);
     abort();
 }
@@ -15747,8 +15747,8 @@ prh_thread_local prh_thrd *PRH_IMPL_THRD = prh_null;
 void prh_impl_thrd_prepare(prh_thrd *thrd) {
     PRH_IMPL_THRD = thrd;
 #if PRH_DEBUG
-    extern void prh_impl_plat_print_thrd_info(prh_r32 thrd_id);
-    prh_impl_plat_print_thrd_info(thrd->thrd_id);
+    extern void prh_impl_plat_print_thrd_info(prh_thrd *thrd);
+    prh_impl_plat_print_thrd_info(thrd);
 #endif
     thrd->extra_ptr = 0;
     prh_reset_grown_alloc();
@@ -16362,15 +16362,15 @@ void prh_impl_thrd_self_get_stack(prh_reg *low, prh_reg *high) {
 }
 
 #if PRH_DEBUG
-void prh_impl_plat_print_thrd_info(prh_r32 thrd_id) {
+void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
     prh_reg stack_low_limit = 0;
     prh_reg stack_high_limit = 0;
     prh_impl_thrd_self_get_stack(&stack_low_limit, &stack_high_limit);
     prh_int stack_size = stack_high_limit - stack_low_limit;
     SYSTEM_INFO info;
     GetSystemInfo(&info);
-    printf("[thrd %02d] %p %p stack %d-byte (%dKB) guard %d-byte\n",
-        thrd_id, (void *)stack_low_limit, (void *)stack_high_limit,
+    printf("thread %p stack %p %p size %d-byte (%dKB) guard %d-byte\n",
+        thrd, (void *)stack_low_limit, (void *)stack_high_limit,
         (int)stack_size, (int)(stack_size/1024), (int)info.dwPageSize);
 }
 #endif
@@ -18455,7 +18455,7 @@ void prh_impl_thrd_test(void) {
 // 开始也已不再支持它，所有新的线程库开发都基于NPTL。
 #if PRH_DEBUG
 #if defined(prh_impl_pthread_getattr)
-void prh_impl_plat_print_thrd_info(prh_r32 thrd_id) {
+void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
     pthread_t tid = pthread_self();
     void *stackaddr = prh_null;
     size_t stacksize = 0, guard_size = 0;
@@ -18471,13 +18471,13 @@ void prh_impl_plat_print_thrd_info(prh_r32 thrd_id) {
     prh_zeroret(pthread_attr_getguardsize(&attr, &guard_size));
     prh_zeroret(pthread_attr_destroy(&attr));
     // stackaddr 是内存块的起始地址，一般对齐到内存页面大小边界，stacksize 是内存页面的整数倍
-    printf("[thrd %02d] %p stack %d-byte (%dKB) guard %d-byte (%dKB)\n",
-        thrd_id, stackaddr, (int)stacksize, (int)(stacksize/1024),
+    printf("thread %p stack %p size %d-byte (%dKB) guard %d-byte (%dKB)\n",
+        thrd, stackaddr, (int)stacksize, (int)(stacksize/1024),
         (int)guard_size, (int)(guard_size/1024));
 }
 #else
-void prh_impl_plat_print_thrd_info(prh_r32 thrd_id) {
-    prh_unused(thrd_id);
+void prh_impl_plat_print_thrd_info(prh_thrd *thrd) {
+    prh_unused(thrd);
 }
 #endif
 #endif
@@ -23015,6 +23015,15 @@ int prh_impl_completion_port_query(HANDLE completion_port, OVERLAPPED_ENTRY *ent
 prh_inline prh_r32 prh_impl_completion_port_extend_query(HANDLE completion_port, OVERLAPPED_ENTRY *entry, prh_r32 count, DWORD msec) {
     assert(entry != prh_null && count > 0);
     ULONG n = 0;
+    // GetQueuedCompletionStatusEx () 返回 1 个 entry，但内容为空/全零的核心原因，
+    // 这是 Windows IOCP 完全正常、设计如此的行为，你收到的不是 I/O 完成包，而是线程
+    // 唤醒信号。这是内核的「虚假唤醒」（Spurious Wakeup），不是错误。为什么会出现这
+    // 种空 entry？Windows 内核对 GetQueuedCompletionStatusEx 有一个特殊设计：当你
+    // 调用 PostQueuedCompletionStatus(NULL, 0, NULL)，或者内核主动唤醒等待线程时，
+    // 会向调用线程返回 1 个全 0 的 OVERLAPPED_ENTRY。IOCP 并发值限制被解除：之前运
+    // 行线程数达到了 ConcurrentThreads，某个线程处理完任务重新等待，内核唤醒下一个线
+    // 程，但此时完成队列已空，就会返回空 entry。系统调度/中断导致的虚假唤醒：Windows
+    // 内核允许 IOCP 等待线程无理由唤醒，唤醒后发现没有完成包返回空 entry。
     prh_debug(BOOL b = )GetQueuedCompletionStatusEx(completion_port, entry, (ULONG)count, &n, msec, FALSE);
     prh_debug(if (!b && GetLastError() != WAIT_TIMEOUT) prh_prerr(GetLastError()));
     return n;
@@ -23339,14 +23348,17 @@ typedef struct prh_impl_timer {
     struct prh_impl_timer *next;
     struct prh_impl_timer *prev;
     prh_timer_proc proc;
-    prh_timer *timer;
     void *param;
+    prh_timer *timer;
+    prh_r32 repeat:31, started: 1;
     prh_r32 period; // 32位无符号可以表示49天，五级时间轮最多表示49天
     prh_r32 expire; // 基于 baseline 的超时时间点
-    prh_r32 repeat;
-    bool started;
     void *target_thrd;
 } prh_impl_timer; // 计时器是否要与协程进行绑定避免线程竞争问题
+
+prh_static_assert(sizeof(prh_impl_timer) <= prh_cache_line_size);
+prh_static_assert(prh_offsetof(prh_impl_timer, timer) == 4 * sizeof(void *));
+prh_static_assert(prh_offsetof(prh_impl_timer, target_thrd) <= 8 * sizeof(void *));
 
 typedef struct {
     prh_ehub_post post;
@@ -23366,7 +23378,6 @@ typedef struct {
     prh_i64 base;
 } prh_impl_tmst;
 
-#define PRH_IMPL_TIMER_CREATING ((prh_impl_timer *)1)
 prh_static_assert(prh_offsetof(prh_impl_tmst, align) == 4 * sizeof(void *));
 
 typedef struct {
@@ -23406,6 +23417,10 @@ void prh_impl_schd_time_wheel_init(void) {
 void prh_impl_schd_time_wheel_reset(void) {
     PRH_TIME_WHEEL.baseline = prh_steady_msec();
     PRH_TIME_WHEEL.time = 0;
+}
+
+prh_inline void prh_impl_schd_timer_init(void) {
+    prh_impl_schd_time_wheel_init();
 }
 
 void prh_impl_schd_counted_down(void) {
@@ -23661,7 +23676,7 @@ prh_impl_timer *prh_impl_schd_alloc_timer(void) {
 void prh_impl_schd_create_timer(prh_impl_tmcr *post) {
     prh_impl_timer *node = prh_impl_schd_alloc_timer();
     prh_timer *timer = post->post.priv;
-    assert(*timer == prh_null); // 原来分配的计时器没有释放
+    assert(*timer == prh_null); // 原来分配的计时器没有释放，或者没有初始化为零
     *timer = node;
     node->timer = timer;
     node->proc = post->proc;
@@ -23705,7 +23720,8 @@ void prh_impl_schd_stop_timer(prh_impl_tmer *post) {
 void prh_impl_schd_free_timer(prh_impl_tmer *post) {
     prh_timer *timer = post->post.priv; // 不访问 timer 的内容（timer 内容可能已在工作线程释放）
     prh_impl_timer *node = *timer;
-    assert(node != prh_null && node != PRH_IMPL_TIMER_CREATING && node->timer == timer);
+    if (node == prh_null) return; // 该计时器已经释放，或者从来没有被创建
+    assert(node->timer == timer);
     if (node->started) {
         prh_impl_schd_unchain_timer(node);
         prh_impl_schd_counted_down();
@@ -23720,7 +23736,6 @@ void prh_timer_create(prh_timer *timer, prh_timer_proc proc, void *param) {
     prh_impl_tmcr *post = (prh_impl_tmcr *)prh_impl_thrd_post_to_schd_begin(thrd, prh_impl_schd_create_timer, timer, sizeof(*post));
     post->proc = proc;
     post->param = param;
-    *timer = PRH_IMPL_TIMER_CREATING;
     prh_impl_thrd_post_to_schd_end(thrd);
 }
 
@@ -23757,7 +23772,6 @@ void prh_timer_stop(prh_timer *timer) {
 
 void prh_timer_free(prh_timer *timer) {
     assert(timer != prh_null);
-    if (*timer == prh_null) return; // 创建的计时器要么 PRH_IMPL_TIMER_CREATING 要么已经赋值非空
     prh_ehub_thrd *thrd = prh_ehub_thrd_self();
     prh_impl_thrd_post_to_schd_begin(thrd, prh_impl_schd_free_timer, timer, sizeof(prh_impl_tmer));
     prh_impl_thrd_post_to_schd_end(thrd);
@@ -23765,6 +23779,8 @@ void prh_timer_free(prh_timer *timer) {
 #endif // PRH_TIMER_IMPLEMENTATION
 #else // ifndef PRH_TIMER_INCLUDE
 #ifdef PRH_TIMER_IMPLEMENTATION
+prh_inline void prh_impl_schd_timer_init(void) {
+}
 prh_inline void prh_impl_schd_check_timers(void) {
 }
 #endif // PRH_TIMER_IMPLEMENTATION
@@ -24018,20 +24034,19 @@ typedef struct prh_impl_ehub_thrd { // TODO：处理单线程程序和单工作�
     prh_atom_bool wait_sync_sleep; // 工作线程修改，被调度线程探测然后修改
 } prh_ehub_thrd;
 
-int prh_impl_ehub_thrd_index(prh_ehub_thrd *thrd);
 prh_static_assert(sizeof(prh_ehub_thrd) == 6 * prh_cache_line_size);
-
-prh_inline prh_ehub_thrd *prh_ehub_thrd_self(void) {
-    return (prh_ehub_thrd *)prh_thrd_self();
-}
+prh_inline prh_r32 prh_ehub_thrd_id(prh_ehub_thrd *thrd) { return prh_thrd_id(&thrd->thrd_struct); }
+prh_inline prh_ehub_thrd *prh_ehub_thrd_self(void) { return (prh_ehub_thrd *)prh_thrd_self(); }
 
 void prh_impl_ehub_thrd_sleep(prh_ehub_thrd *thrd) {
     bool sleep_state = true;
     bool thrd_sleep = prh_atom_bool_read(&thrd->sleep);
+    prh_debug(printf("[thrd %02d] sleep %d start\n", prh_ehub_thrd_id(thrd), thrd_sleep));
     while (thrd_sleep == sleep_state) {
         prh_wait_on_address(&thrd->sleep, &sleep_state, sizeof(bool));
         thrd_sleep = prh_atom_bool_read(&thrd->sleep);
     }
+    prh_debug(printf("[thrd %02d] sleep ended\n", prh_ehub_thrd_id(thrd)));
 }
 
 void prh_impl_schd_wakeup_thrd(prh_ehub_thrd *thrd) {
@@ -24045,7 +24060,7 @@ void prh_impl_thrd_virtual_buffer_alloc(prh_ehub_thrd *thrd) {
     thrd->braver.total_size += thrd->braver.virtual_size;
     thrd->braver.cache_line = buffer + prh_cache_line_size;
     thrd->braver.buffer_end = buffer + thrd->braver.virtual_size;
-    prh_debug(printf("[thrd %02d] virtual buffer %p size %uKB\n", prh_impl_ehub_thrd_index(thrd), buffer, (prh_r32)(thrd->braver.total_size/1024)));
+    prh_debug(printf("[thrd %02d] virtual buffer %p size %uKB\n", prh_ehub_thrd_id(thrd), buffer, (prh_r32)(thrd->braver.total_size/1024)));
 }
 
 prh_inline prh_byte *prh_impl_thrd_braver_alloc(prh_ehub_thrd *thrd, prh_reg size) {
@@ -24060,7 +24075,7 @@ prh_byte *prh_impl_ehub_thrd_alloc(prh_ehub_thrd *thrd, prh_reg size) {
     prh_byte *p = prh_impl_thrd_braver_alloc(thrd, size);
 #if PRH_DEBUG
     thrd->braver.used_size += size;
-    printf("[thrd %02d] virtual alloc ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->braver.used_size);
+    printf("[thrd %02d] virtual alloc ++ to %lu-byte\n", prh_ehub_thrd_id(thrd), (unsigned long)thrd->braver.used_size);
 #endif
     return p;
 }
@@ -24074,7 +24089,7 @@ prh_byte *prh_impl_thrd_alloc_block(prh_ehub_thrd *thrd) {
     *prh_impl_ehub_queue_block_endp(block) = PRH_EHUB_BLOCK_END;
 #if PRH_DEBUG
     thrd->braver.used_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    printf("[thrd %02d] thrd block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(thrd), (unsigned long)thrd->braver.used_size);
+    printf("[thrd %02d] thrd block ++ to %lu-byte\n", prh_ehub_thrd_id(thrd), (unsigned long)thrd->braver.used_size);
 #endif
     return block;
 }
@@ -24084,12 +24099,12 @@ prh_byte *prh_impl_schd_alloc_block(prh_ehub_thrd *schd) {
     *prh_impl_ehub_queue_block_endp(block) = PRH_EHUB_BLOCK_END;
 #if PRH_DEBUG
     schd->braver.used_size += PRH_EHUB_QUEUE_BLOCK_SIZE;
-    printf("[thrd %02d] schd block ++ to %lu-byte\n", prh_impl_ehub_thrd_index(schd), (unsigned long)schd->braver.used_size);
+    printf("[thrd %02d] schd block ++ to %lu-byte\n", prh_ehub_thrd_id(schd), (unsigned long)schd->braver.used_size);
 #endif
     return block;
 }
 
-void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
+void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd, prh_r32 thrd_id) {
     prh_reg virtual_size = PRH_GLOBAL.thread_braver_memory_size;
     if (virtual_size == 0) virtual_size = PRH_BRAVER_MEMORY_DEFAULT_SIZE;
     assert(virtual_size % prh_vmem_unit_size == 0);
@@ -24097,6 +24112,7 @@ void prh_impl_ehub_thrd_init(prh_ehub_thrd *thrd) {
     thrd->braver.node.next = prh_null;
     thrd->braver.total_size = 0;
     prh_debug(thrd->braver.used_size = 0);
+    prh_prepare_thrd_id(&thrd->thrd_struct, thrd_id);
     prh_impl_thrd_virtual_buffer_alloc(thrd);
 
     // 空闲块队列必须有一个隐藏的头节点，因为在仅剩一个空闲块的时候移除该空闲块时：
@@ -24172,11 +24188,8 @@ typedef struct { // 仅由调度线程访问
 
 static HANDLE PRH_IMPL_IOCP;
 static prh_alignas(prh_cache_line_size) prh_ehub_schd_thrd PRH_IMPL_SCHD;
+prh_inline void prh_impl_ehub_prepare_thrd_id(prh_ehub_thrd *thrd) { thrd->thrd_struct.thrd_id = (prh_r32)(thrd - PRH_IMPL_SCHD.thrds); }
 int prh_impl_thrd_routine(prh_ehub_thrd *thrd);
-
-int prh_impl_ehub_thrd_index(prh_ehub_thrd *thrd) {
-    return (int)(thrd - PRH_IMPL_SCHD.thrds);
-}
 
 void prh_impl_schd_prepare(prh_r32 worker_thrds) {
     prh_system_info(&PRH_IMPL_SCHD.sysinfo);
@@ -24197,7 +24210,7 @@ void prh_impl_schd_prepare(prh_r32 worker_thrds) {
         if (worker_thrds == 0) { // 如果主机只有一个处理器核，工作线程将为零
             worker_thrds = PRH_IMPL_SCHD.sysinfo.processor_count - 1; // 这里表示的工作线程不包括主线程
         }
-        if (worker_thrds > 1 && PRH_GLOBAL.separated_schedule_thread) {
+        if (worker_thrds > 1 && PRH_GLOBAL.separated_schedule_thread) { // 至少有2个工作线程，才能将调度线程设置为独立线程
             PRH_IMPL_SCHD.separated_schd_thrd = true; // 此时最后一个线程是调度线程，主线程可以配置作为工作线程使用，也可做自己独立的工作
         }
     }
@@ -24246,26 +24259,26 @@ void prh_ehub_init(prh_r32 worker_thrds) {
     if (PRH_IMPL_SCHD.separated_schd_thrd) {
         PRH_IMPL_SCHD.total_thrds -= 1; // 使用最后一个线程作为调度线程
         PRH_IMPL_SCHD.schd_thrd = PRH_IMPL_SCHD.thrds + PRH_IMPL_SCHD.total_thrds;
-        prh_impl_ehub_thrd_init(PRH_IMPL_SCHD.schd_thrd);
+        prh_impl_ehub_thrd_init(PRH_IMPL_SCHD.schd_thrd, PRH_IMPL_SCHD.total_thrds);
     } else {
         PRH_IMPL_SCHD.schd_thrd = main_thrd; // 使用主线程作为调度线程
     }
 
-    prh_impl_ehub_thrd_init(main_thrd); // 初始化主线程
+    prh_impl_ehub_thrd_init(main_thrd, 0); // 初始化主线程
     main_thrd->thrd_struct = *PRH_EHUB_MAIN;
     PRH_IMPL_THRD = (prh_thrd *)main_thrd;
 
     for (prh_r32 i = 1; i < PRH_IMPL_SCHD.total_thrds; i += 1) { // 初始化和启动除主线程之外的所有工作线程
-        prh_impl_ehub_thrd_init(PRH_IMPL_SCHD.thrds + i); // 此时工作线程还不能接收调度线程的任务，因为接收还需要在调度线程中初始化
+        prh_impl_ehub_thrd_init(&PRH_IMPL_SCHD.thrds[i], i); // 此时工作线程还不能接收调度线程的任务，因为接收还需要在调度线程中初始化
         prh_thrd_start(&PRH_IMPL_SCHD.thrds[i].thrd_struct, (prh_thrd_proc)prh_impl_thrd_routine, 0);
     }
 }
 
-void prh_impl_schd_thrd_start(prh_ehub_thrd *thrd) {
+void prh_impl_schd_thrd_prepare(prh_ehub_thrd *thrd) {
     prh_ehub_thrd *schd_thrd = PRH_IMPL_SCHD.schd_thrd;
     prh_ehub_thrd *main_thrd = PRH_IMPL_SCHD.thrds;
     assert(thrd == schd_thrd && prh_ehub_thrd_self() == schd_thrd); // 必须由调度线程调用
-    prh_prepare_thrd_id(&thrd->thrd_struct, prh_impl_ehub_thrd_index(thrd));
+    prh_impl_ehub_prepare_thrd_id(thrd);
 
     for (prh_r32 i = 0; i < PRH_IMPL_SCHD.total_thrds; i += 1) {
         prh_impl_schd_init_thrd_rx_queue(PRH_IMPL_SCHD.thrds + i, schd_thrd);
@@ -24388,12 +24401,12 @@ prh_byte *prh_impl_schd_make_block(void) {
     return post ? post : prh_impl_schd_alloc_block(PRH_IMPL_SCHD.schd_thrd);
 }
 
-prh_impl_timer *prh_impl_schd_alloc_timer_nodes(void) {
+prh_impl_timer *prh_impl_schd_alloc_timer_nodes(void) { // 计时器分配的堆内存不再返还到线程重用，一直占用仅供计时器使用
     prh_impl_timer *timer = (prh_impl_timer *)prh_impl_ehub_thrd_alloc(PRH_IMPL_SCHD.schd_thrd, PRH_EHUB_QUEUE_BLOCK_SIZE);
     prh_impl_timer *timer_end = (prh_impl_timer *)((prh_byte *)timer + PRH_EHUB_QUEUE_BLOCK_SIZE);
     prh_impl_timer *tail = (prh_impl_timer *)&PRH_TIME_WHEEL.free_list;
     prh_impl_timer *free = timer + 1; // 第一个空闲计时器给当前分配
-    while (free + 1 <= timer_end) { // 当前空闲计时器尾部不超过内存块尾部
+    for (; free + 1 <= timer_end; free += 1) { // 当前空闲计时器尾部不超过内存块尾部
         tail->next = free;
         tail = free;
     }
@@ -24661,7 +24674,7 @@ prh_ehub_thrd_post *prh_impl_thrd_skip_empty(prh_ehub_thrd *thrd, prh_ehub_thrd_
 int prh_impl_thrd_routine(prh_ehub_thrd *thrd) {
     int sync_count, spin_count;
     prh_debug(prh_i64 sync_msec, spin_msec);
-    prh_prepare_thrd_id(&thrd->thrd_struct, prh_impl_ehub_thrd_index(thrd));
+    prh_impl_ehub_prepare_thrd_id(thrd);
     prh_impl_ehub_thrd_sleep(thrd); // 等待调度线程运行
 
     for (; ;) {
@@ -25238,11 +25251,13 @@ void prh_impl_schd_update_batch_size(prh_r32 entry_count) {
 // 线程处理，如果所属线程已经睡眠，唤醒最近的一个线程来处理。如何调整线程的批量处理值？
 
 int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
-    prh_impl_schd_thrd_start(schd_thrd);
     OVERLAPPED_ENTRY *entry = prh_null;
     OVERLAPPED_ENTRY *entry_end = prh_null;
     prh_r32 idle_cycle = 0, query_wait = 0;
     prh_r32 activity, entry_count;
+
+    prh_impl_schd_thrd_prepare(schd_thrd);
+    prh_impl_schd_timer_init();
 
     for (; ;) {
         activity = 0; // 需要接受多少连接以及收发多少数据都是由上层控制的，无需调度线程控制处理速度
@@ -25253,7 +25268,8 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
         }
 
         for (; entry < entry_end; entry += 1) { // 调用完成键 lpCompletionKey 对应的 prh_iocp_complete 函数，会向线程投递任务
-            if (!((prh_iocp_complete)entry->lpCompletionKey)(entry)) break;
+            prh_iocp_complete completion_routine = (prh_iocp_complete)entry->lpCompletionKey;
+            if (completion_routine && !completion_routine(entry)) break;
         }
 
         prh_impl_schd_check_timers(); // 计时器激发时会向线程投递任务
@@ -25280,13 +25296,14 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
         }
 
         idle_cycle += 1; // 调度线程无事可做，但有活跃的工作线程存在调度线程就必须保持活跃
+        prh_debug(printf("[thrd %02d] thread sleep count %d %d\n", prh_ehub_thrd_id(schd_thrd), (int)PRH_IMPL_SCHD.sleep_count, (int)PRH_IMPL_SCHD.worker_thrds));
         if (PRH_IMPL_SCHD.sleep_count < PRH_IMPL_SCHD.worker_thrds) {
             prh_impl_schd_take_a_break(idle_cycle);
             query_wait = 0;
             continue;
         }
 
-        prh_debug(printf("all threads %d sleep\n", (int)PRH_IMPL_SCHD.sleep_count));
+        prh_debug(printf("[thrd %02d] all threads %d sleep\n", prh_ehub_thrd_id(schd_thrd), (int)PRH_IMPL_SCHD.sleep_count));
         if (!PRH_IMPL_SCHD.schd_exit) {
             if (query_wait == 0) {
                 query_wait = 1;
@@ -25301,7 +25318,7 @@ int prh_impl_schd_routine(prh_ehub_thrd *schd_thrd) {
         }
     }
 
-    prh_debug(printf("[thrd %02d] exit\n", schd_thrd->thrd_struct.thrd_id));
+    prh_debug(printf("[thrd %02d] exit\n", prh_ehub_thrd_id(schd_thrd)));
     return 0;
 }
 
@@ -29765,6 +29782,7 @@ void prh_impl_wsaenumprotocol(void) {
     DWORD length = sizeof(WSAPROTOCOL_INFO) * count;
     prh_tempo_alloc *alloc = prh_get_tempo_alloc();
     LPWSAPROTOCOL_INFO info = (LPWSAPROTOCOL_INFO)prh_tempo_malloc(alloc, length);
+    wprintf(L"WSAEnumProtocols WSAENOBUFS: WSAPROTOCOL_INFO %zd*%d Needed %d\n", sizeof(WSAPROTOCOL_INFO), count, length);
     int i = 0, n = WSAEnumProtocols(protocols, info, &length);
     if (n == SOCKET_ERROR) {
         DWORD error = WSAGetLastError();
@@ -29782,15 +29800,15 @@ void prh_impl_wsaenumprotocol(void) {
         return;
     }
 label_enum_success:
-    while (i < n) {
+    for (; i < n; i += 1) {
         wprintf(L"Socket Protocol [%d]:\t\t %d\n", (i+1), info[i].iProtocol);
-        wprintf(L"Protocol Identifer:\t\t\t %s\n", info[i].szProtocol);
-        wprintf(L"Protocol Version:\t\t\t %d\n", info[i].iVersion);
+        wprintf(L"Protocol Identifer:\t\t %s\n", info[i].szProtocol);
+        wprintf(L"Protocol Version:\t\t %d\n", info[i].iVersion);
         wprintf(L"Protocol Chain length:\t\t %d ", info[i].ProtocolChain.ChainLen);
         if (info[i].ProtocolChain.ChainLen == 1)
-            wprintf(L"Base Service Provider\n");
+            wprintf(L"- Base Service Provider\n");
         else
-            wprintf(L"Layered Chain Entry\n");
+            wprintf(L"- Layered Chain Entry\n");
         wprintf(L"Protocol Info Entry ID:\t\t %u\n", info[i].dwCatalogEntryId); // 由 WS2_32.DLL 分配的每个 WSAPROTOCOL_INFO 的唯一标识
         wprintf(L"Address Family:\t\t\t %d\n", info[i].iAddressFamily); // AF_INET 2 AF_INET6 26 AF_BTH 32
         wprintf(L"Socket Address Max Length:\t %d\n", info[i].iMaxSockAddr);
@@ -29799,8 +29817,8 @@ label_enum_success:
         wprintf(L"Socket Protocol Max Offset:\t %d\n", info[i].iProtocolMaxOffset);
         wprintf(L"Network Byte Order:\t\t %d\n", info[i].iNetworkByteOrder); // 0 be 1 le
         wprintf(L"Security Scheme:\t\t %d\n", info[i].iSecurityScheme); // 协议使用的安全模式类型，SECURITY_PROTOCOL_NONE (0)
-        wprintf(L"Protocol Max Message Size:\t\t 0x%x\n", info[i].dwMessageSize);
-        if (info[i].dwServiceFlags1 & XP1_IFS_HANDLES) wprintf(L"ServiceFlags XP1_IFS_HANDLES:\t\t 1\n");
+        wprintf(L"Protocol Max Message Size:\t 0x%x\n", info[i].dwMessageSize);
+        if (info[i].dwServiceFlags1 & XP1_IFS_HANDLES) wprintf(L"ServiceFlags XP1_IFS_HANDLES:\t 1\n");
         wprintf(L"ServiceFlags1:\t\t\t 0x%x\n", info[i].dwServiceFlags1);
         wprintf(L"ServiceFlags2:\t\t\t 0x%x\n", info[i].dwServiceFlags2);
         wprintf(L"ServiceFlags3:\t\t\t 0x%x\n", info[i].dwServiceFlags3);
@@ -29828,7 +29846,7 @@ void prh_impl_wsasocket_startup(void) {
         return;
     }
     prh_zeroret(atexit(prh_impl_wsasocket_cleanup));
-    prh_impl_wsaenumprotocol();
+    prh_debug(prh_impl_wsaenumprotocol());
 }
 
 // Windows TCP/IP 服务提供程序支持的扩展函数的 GUID 值在 Mswsock.h 头文件中定义。这些
@@ -29902,12 +29920,12 @@ void prh_impl_mswsock_load_ext_funcs(prh_handle sock) {
 
 void prh_impl_wsasocket_init(void) {
     prh_impl_wsasocket_startup();
-    prh_handle sock = prh_impl_create_socket(AF_INET);
-    prh_real_assert(sock != prh_invalid_socket);
-    prh_impl_mswsock_load_ext_funcs(sock);
-    prh_impl_mswsock_load_rio_funcs(sock);
-    extern void prh_impl_close_socket(prh_handle sock);
-    prh_impl_close_socket(sock);
+    prh_handle socket = prh_impl_create_socket(AF_INET);
+    prh_real_assert(socket != prh_invalid_socket);
+    prh_impl_mswsock_load_ext_funcs(socket);
+    prh_impl_mswsock_load_rio_funcs(socket);
+    extern void prh_impl_close_socket(prh_handle socket);
+    prh_impl_close_socket(socket);
 }
 
 // int WSAEnumProtocols(LPINT protocols, LPWSAPROTOCOL_INFO protocol_buffer LPDWORD buffer_length);
@@ -30195,8 +30213,13 @@ prh_handle prh_impl_create_socket(int family) {
         }
         return prh_invalid_socket;
     } else {
-        extern void prh_sock_setnonblock(prh_handle sock, int nonblock);
-        prh_sock_setnonblock(sock, 1);
+        // 已绑定到 IOCP 的重叠套接字，不能设置非阻塞（FIONBIO），IOCP 是纯异步驱动的
+        // 模型，内核不允许你再手动控制阻塞/非阻塞模式，会破坏 IOCP 调度机制。使用IOCP
+        // 套接字时不需要非阻塞，所有 I/O 操作（WSASend WSARecv AcceptEx ConnectEx）
+        // 本身就是异步非阻塞的。重叠 I/O WSA_FLAG_OVERLAPPED 已经允许异步发送/接收
+        // （WSASend、WSARecv），设置 FIONBIO 只是让 connect、accept、send、recv
+        // 等同步函数立即返回。另外，如果设置了 WSA_FLAG_REGISTERED_IO 标志，使用非阻
+        // 塞 FIONBIO 标志调用 ioctlsocket 也会返回错误 WSAEOPNOTSUPP。
         return (prh_handle)sock;
     }
 }
@@ -30720,11 +30743,11 @@ void prh_impl_test_print_linger(prh_handle socket) {
 // 个套接字，这可能导致新创建的套接字也被关闭。关闭套接字时，如果存在还未完成的操作，这     *** 未完成的操作将以 WSA_OPERATION_ABORTED 错误而失败
 // 些操作将以 WSA_OPERATION_ABORTED 错误而失败。
 
-void prh_impl_close_socket(prh_handle sock) {
+void prh_impl_close_socket(prh_handle socket) {
     // 不建议在非阻塞套接字上启用非零 linger 时间。因为如果无法立即完成关闭操作，
     // closesocket 调用将返回 WSAEWOULDBLOCK。此时，套接字句柄仍然有效，并且不会启动
     // 断开连接，应用程序必须再次调用 closesocket 来关闭套接字。
-    prh_wsa_prerr_if(closesocket((SOCKET)sock));
+    prh_wsa_prerr_if(closesocket((SOCKET)socket));
 }
 
 void prh_impl_tcp_close_socket(prh_socket *tcp) {
@@ -31321,10 +31344,10 @@ bool prh_getsockopt_keepalive(prh_handle socket) {
 // 部分功能。ioctlsocket 函数没有与 ioctl 的 FIOASYNC 等效的命令参数，SIOCATMARK 是
 // ioctlsocket 唯一支持的套接字级别命令。
 
-void prh_sock_setnonblock(prh_handle sock, int nonblock) {
+void prh_sock_setnonblock(prh_handle socket, int nonblock) {
     // Windows 重叠 I/O + 完成端口时，不要切换为阻塞，会破坏完成断开机制
     u_long set_nonblock = nonblock; // 0 blcok mode, 1 nonblock mode
-    int n = ioctlsocket((SOCKET)sock, FIONBIO, &set_nonblock);
+    int n = ioctlsocket((SOCKET)socket, FIONBIO, &set_nonblock);
     prh_wsa_prerr_if(n != 0);
 }
 
