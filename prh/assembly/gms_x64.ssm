@@ -1921,7 +1921,7 @@
 format MS64 COFF
 section '.text' code readable executable align 16
 
-include "prh_mswx64.inc"
+include "gms_x64.inc"
 
 ; [in]  rcx 需要执行的协程，主协程返回地址已在栈顶
 ; 特制的简单协程不会修改非易变寄存器，而协程调用的C函数会立即返回，因此不需要保护寄存器

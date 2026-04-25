@@ -9,6 +9,8 @@
 cur_makefile := $(lastword $(MAKEFILE_LIST))
 $(cur_makefile):: ;
 
+CURCC := msc
+
 MSVC_HOME_PATH := /mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.43.34808
 WINDOWS_SDK_PATH := /mnt/c/Program Files (x86)/Windows Kits/10
 WINDOWS_SDK_VERSION := 10.0.22621.0
@@ -88,15 +90,18 @@ FASM := fasm.exe
 # /Za 禁用不兼容 C89 C90 的扩展，不推荐使用在 C++ 编译中
 # /Zc:__cplusplus[-] 启用 __cplusplus 宏
 # /Zc:__STDC__ 启用 __STDC__ 宏
+# /Zc:wchar_t (wchar_t 为原生内置类型)，根据 C++ 标准，将 wchar_t 解析为内置基础类型。
+# 启用 /Zc:wchar_t 时：在 C++ 编译代码中，wchar_t 是关键字，属于原生内置整型。使用带
+# 减号的 /Zc:wchar_t-，或是以 C 模式编译时：wchar_t 不是内置类型，而是在标准头文件
+# stddef.h 中被定义为 unsigned short 的类型别名（微软实际在另一被 stddef.h 间接包含
+# 的头文件中实现该定义）。微软不推荐使用 /Zc:wchar_t-，因为 C++ 标准强制要求 wchar_t
+# 为内置原生类型；改用类型别名的实现方式会带来跨平台兼容性问题。如果从旧版 VS 升级项目
+# 后，因代码隐式转换 wchar_t 与 unsigned short 触发 C2664 编译错误，建议修改代码修复
+# 问题，而非关闭该选项。C++ 编译模式下，/Zc:wchar_t 默认开启；C 语言编译模式下，该选项
+# 会被直接忽略；标准合规选项 /permissive- 不会影响 /Zc:wchar_t。微软环境中，wchar_t
+# 实现为 2 字节无符号类型，对应微软专属原生类型 __wchar_t。
 INIT_C_ONLY += /std:c11 /experimental:c11atomics /TC #/Zc:__STDC__
 INIT_CXX_ON += /std:c++17 /Zc:__cplusplus /TP
-INIT_AFLAGS := /X /W3 /WX
-
-ifneq ($(filter debug,$(CONFIG_COMPILER)),)
-# /Zi 生成调试信息，包括行号和符号信息，用于调试
-INIT_AFLAGS += /Zi
-INIT_MACROS += /D_DEBUG
-endif
 
 # INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
 ifneq ($(filter dll,$(TARGET_TYPE)),)
@@ -114,9 +119,88 @@ endif
 #   you will get LNK4075.
 LINK_WARN_FLAGS := /IGNORE:4001 /WX
 
-# 选项 /NXCOMPA 和 /DYNAMICBASE 默认开启
+# 选项 /NXCOMPAT /DYNAMICBASE /HIGHENTROPYVA /LARGEADDRESSAWARE 都是默认开启的。默
+# 认情况下，/NXCOMPAT 为启用状态。可使用 /NXCOMPAT:NO 显式指定该可执行文件不兼容数据执
+# 行保护（DEP）。数据执行保护（DEP）是一项系统级内存防护功能，从 Windows XP 与 Windows
+# Server 2003 版本开始内置在操作系统中。DEP 允许系统将一块或多块内存页标记为不可执行。
+# 将内存区域设为不可执行，意味着无法在该内存区域内运行代码，从而提升缓冲区溢出漏洞的利用
+# 难度。DEP 会禁止在默认堆、栈、内存池等数据页中执行代码。若应用程序尝试在受保护的数据
+# 页内运行代码，会触发内存访问违规异常；若该异常未被捕获处理，当前进程会被系统终止。
+#
+# 数据执行保护的工作原理，当应用程序试图在受保护内存页中执行代码时，会收到状态码为
+# STATUS_ACCESS_VIOLATION 的异常。如果程序必须在某块内存中运行自定义代码，需要自行分
+# 配内存并配置合法的虚拟内存保护属性。分配内存时，必须将内存属性标记为以下可执行类型之
+# 一：PAGE_EXECUTE、PAGE_EXECUTE_READ、PAGE_EXECUTE_READWRITE、PAGE_EXECUTE_WRITECOPY。
+# 通过 malloc、HeapAlloc 申请的堆内存，默认均为不可执行属性。应用程序无法在进程默认堆
+# 与线程栈中执行代码。
+#
+# DEP 策略在系统开机阶段，由启动配置数据中的「不可执行页保护策略」决定。应用程序可调用
+# GetSystemDEPPolicy 获取当前系统 DEP 策略；根据策略权限，也可通过 SetProcessDEPPolicy
+# 修改当前进程的 DEP 配置。应用程序可使用 VirtualAlloc 搭配对应内存保护选项，手动分配
+# 可执行内存。建议至少配置 PAGE_EXECUTE 基础执行权限。动态生成代码完成后，推荐通过
+# VirtualProtect 修改内存属性，移除内存写入权限。禁止写入权限，可最大限度保护进程地址
+# 空间中的可执行内存区域。开发时应尽量缩减程序的可执行内存范围，减少易被漏洞利用的内存面。
+# 同时合理规划进程虚拟内存布局，合理划分可执行区域与非执行区域；尽量将可执行内存段布置在
+# 低地址空间、非执行数据段布置在高地址，避免缓冲区溢出越界覆盖到可执行代码区。
+#
+# 应用程序兼容性，部分老旧程序功能与 DEP 机制冲突。典型场景：即时编译（JIT）等动态生成
+# 代码的程序，若没有手动给生成的代码内存添加执行权限，会在开启 DEP 的系统上出现兼容问题。
+# 基于 ATL 7.1 及更早版本 开发的程序，常会非法在不可执行页面执行代码，触发 NX 防护错误，
+# 导致程序崩溃。这类程序通常需要升级改造，才能在开启 DEP 的环境下正常运行。少量可执行文
+# 件与库文件，会在数据段中存放可执行代码（例如跳转垫片 Thunk 代码）。但 DEP 会默认把加
+# 载到内存的数据段标记为不可执行，除非该段头预先声明了可执行属性。解决方案：将数据段内的
+# 可执行代码迁移至标准代码段；若必须保留在数据段，则需要手动给对应节区添加可执行特性。需
+# 要在节区头部的特征字段中，增加 IMAGE_SCN_MEM_EXECUTE 执行标记。
+#
+# /DYNAMICBASE（启用地址空间布局随机化）指定是否生成可执行镜像，使其在程序加载时，可借
+# 助 Windows 的地址空间布局随机化（ASLR）功能完成随机重基址。ASLR 功能最早于 Windows
+# Vista 系统开始提供。/DYNAMICBASE 选项会修改可执行镜像（.dll 或 .exe 文件）的文件头，
+# 用于标识应用程序在加载时是否需要随机重定位基址；同时启用虚拟地址分配随机化，会影响堆、
+# 栈以及其他操作系统内存分配的虚拟内存位置。该选项同时适用于 32 位与 64 位 程序镜像。
+# 地址空间布局随机化（ASLR）仅受 Windows Vista 及以上系统支持，旧版系统会直接忽略此选
+# 项。
+#
+# /DYNAMICBASE 默认开启。如需禁用，请使用 /DYNAMICBASE:NO。若要让 /HIGHENTROPYVA（高
+# 熵虚拟地址）选项生效，必须启用 /DYNAMICBASE。由于在 ARM、ARM64、ARM64EC 架构下，系
+# 统强制锁定 ASLR 无法关闭，因此这些目标平台不支持 /DYNAMICBASE:NO 关闭项。
+#
+# 重基址：程序默认加载固定内存地址，ASLR 会每次运行随机分配基址；作用：防范缓冲区溢出、
+# 内存注入等漏洞攻击，是 Windows 标准安全加固选项。ASLR 通过每次运行随机化程序、库、堆、
+# 栈的虚拟内存地址，让攻击者无法依赖固定内存地址实施溢出、ROP、代码跳转等漏洞利用，大幅
+# 提升恶意攻击的难度与成本。无 ASLR 时：EXE、DLL、系统库（ntdll.dll、kernel32.dll 等）
+# 每次运行都加载到固定虚拟基址。堆、栈、模块代码段、数据段地址永久不变，黑客只要抓一次地
+# 址，就能永久复用。缓冲区溢出、UAF、越界读写等漏洞一旦出现：攻击者硬编码写死固定内存地
+# 址，直接跳转执行系统 shellcode、调用危险 API、注入恶意代码，攻击极其稳定、一键复现。
+#
+# ASLR 核心机制：程序 / DLL 不再固定基址，每次开机、每次启动程序都随机重定向。系统随机
+# 分配：所有模块基址（exe、dll、系统库），堆内存起始位置，线程栈起始地址，系统内核内存
+# 分配区域。32 位：低熵随机；64 位 + /HIGHENTROPYVA：高熵大范围随机，地址空间混乱度极
+# 高。
+#
+# /HIGHENTROPYVA 会修改可执行镜像文件（例如 .dll 或 .exe）的文件头，用以标识 ASLR 是
+# 否可以使用完整的 64 位地址空间。若要使该选项生效，可执行程序及其所有依赖模块都必须启
+# 用此选项。此后，支持 64 位 ASLR 的操作系统，便可在程序加载时，使用64 位随机虚拟地址
+# 对程序镜像的各个段进行随机基址重定向。更大的地址空间范围，会大幅提高攻击者猜测特定内存
+# 区域位置的难度。在 64 位程序镜像中，/HIGHENTROPYVA 默认启用。该选项依赖 /LARGEADDRESSAWARE
+# （64 位镜像同样默认开启）。本选项不适用于 32 位程序镜像，链接器会直接忽略该参数。如需
+# 手动关闭，可使用：/HIGHENTROPYVA:NO。想要在加载阶段让 /HIGHENTROPYVA 生效，必须同时
+# 开启 /DYNAMICBASE。/DYNAMICBASE 默认开启，是 Windows Vista 及以上系统启用 ASLR 的
+# 必要条件。旧版 Windows 系统会忽略该标识位。
+#
+# /LARGEADDRESSAWARE 选项用于告知链接器：当前应用程序可识别并使用 2GB 以上的内存地址。
+# 在 64 位编译器环境中，该选项默认启用。在 32 位编译器环境中，若未在链接器命令行主动指
+# 定 /LARGEADDRESSAWARE，则默认等效启用 /LARGEADDRESSAWARE:NO。如果应用程序以 /LARGEADDRESSAWARE
+# 方式链接，使用 DUMPBIN /HEADERS 命令可以查看对应的标识信息。不建议为 64 位应用程序
+# 使用 /LARGEADDRESSAWARE:NO 进行链接。该配置会限制可用地址空间，一旦程序内存耗尽，将
+# 引发运行时崩溃。同时还可能导致 x64 程序无法在 ARM64 架构系统上运行：ARM64 模拟运行环
+# 境会尝试预留 4GB 虚拟地址空间；若程序关闭大地址支持，无法分配如此大的地址区间，最终会
+# 启动失败。32 位进程默认上限：用户态仅能用 2GB 虚拟内存，开启大地址感知后，32 位程序可
+# 拓展至 3GB / 4GB。64 位程序天然拥有超大地址空间，关闭该选项纯属画蛇添足且存在兼容性
+# 隐患。
+#
 # /debug[:{FASTLINK|FULL|NONE}] 调试器会产一个pdb文件来包含调试信息，
 # 不指定参数相当于/debug:full。
+#
 # /pdb:filename创建一个pdb文件，当指定了/debug选项是链接器会创建pdb文件，
 # 如果没有指定/debug该选项会被忽略，pdb文件最大可以到2GB。
 LINK_LTCG_FLAG = /LTCG:incremental /LTCGOUT:$(basename $@).iobj
@@ -166,6 +250,155 @@ else
 OUT_OBJ_FILE = $(OUTOBJFILE__)
 endif
 
+# /Gd 为默认设置，为除 C++ 成员函数以及标记为 __stdcall、__fastcall 或 __vectorcall
+# 的函数之外的所有函数指定 __cdecl 调用约定。
+#
+# /FC（在诊断信息中显示源代码文件的完整路径）使编译器在诊断信息中显示传递给编译器的源代
+# 码文件的完整路径。不加 /FC 时，编译器输出的诊断文本类似这样：
+#   compiler_option_FC.cpp(5): error C2143: syntax error: missing ';' before '}'
+# 加了 /FC 后，编译器输出的诊断文本类似这样：
+#   C:\test\compiler_option_FC.cpp(5): error C2143: syntax error: missing ';' before '}'
+# 如果你希望在使用 __FILE__ 宏时看到文件名的完整路径，也需要使用 /FC。/ZI 选项会隐式启
+# 用 /FC。
+#
+# /diagnostics 编译器选项控制错误和警告信息的显示方式。/diagnostics:classic：默认值，
+# 仅报告发现问题所在的行号。/diagnostics:column：额外包含发现问题所在的列号。这有助于
+# 你识别导致问题的具体语言结构或字符。/diagnostics:caret：包含发现问题所在的列号，并在
+# 检测到问题的代码行对应位置下方放置一个脱字符号（^）。注意，在某些情况下，编译器并非在
+# 问题实际发生的位置检测到它。例如，缺少分号可能要等到遇到其他意外的符号后才会被检测到。
+# 此时报告的列号和脱字符号放置的位置是编译器检测到异常的地方，而这并不总是你需要修改代码
+# 的位置。/diagnostics 选项从 Visual Studio 2017 开始可用。
+INIT_CFLAGS += /FC /diagnostics:caret
+
+# /fp:contract 选项允许编译器在指定了 /fp:precise 和 /fp:except 选项时生成浮点收缩指
+# 令。收缩是一种将多个浮点运算合并为一条机器指令的操作，例如融合乘加（FMA）。FMA 是
+# IEEE-754 定义的基本运算，它在加法之前不会对中间乘积进行舍入，因此结果可能与分别执行乘
+# 法和加法运算的结果不同。由于它作为单条指令实现，因此可能比多条独立指令更快。速度的提升
+# 以牺牲逐位精确的结果为代价，并且无法检查中间值。默认情况下，/fp:fast 选项会启用
+# /fp:contract。/fp:contract 选项与 /fp:strict 不兼容。/fp:contract 选项是 Visual
+# Studio 2022 中新增的。
+#
+# /fp:precise 默认情况下，编译器使用 /fp:precise 行为。在 /fp:precise 下，编译器在为
+# 目标机器生成和优化目标代码时，保留源代码中的表达式顺序和浮点代码的舍入属性。编译器在表
+# 达式求值过程中的四个特定点舍入到源代码精度：赋值时、类型转换时、浮点参数传递给函数调用
+# 时，以及函数调用返回浮点值时。中间计算可以以机器精度执行，可以使用类型转换来显式舍入中
+# 间计算。编译器不会对浮点表达式执行代数变换（如重新结合或分配），除非它能保证变换产生逐
+# 位相同的结果。涉及特殊值（NaN、+无穷大、-无穷大、-0.0）的表达式按照 IEEE-754 规范处
+# 理。例如，如果 x 是 NaN，则 x != x 的求值结果为 true。在 /fp:precise 下默认不生成浮
+# 点收缩。此行为是 Visual Studio 2022 中新增的。在之前的编译器版本中，/fp:precise 下
+# 默认可能生成收缩。编译器生成旨在在默认浮点环境中运行的代码。它还假设浮点环境在运行时不
+# 会被访问或修改。也就是说，它假设代码：保持浮点异常被屏蔽、不读取或写入浮点状态寄存器、
+# 不改变舍入模式。如果你的浮点代码不依赖于浮点语句中运算和表达式的顺序（例如，你不关心
+# a * b + a * c 是按 (b + c) * a 计算还是 2 * a 按 a + a 计算），请考虑使用 /fp:fast
+# 选项，它可以生成更快、更高效的代码。如果你的代码既依赖于运算和表达式的顺序，又访问或修
+# 改浮点环境（例如，改变舍入模式或捕获浮点异常），请使用 /fp:strict。
+#
+# /fp:strict 的行为类似于 /fp:precise，即编译器在为目标机器生成和优化目标代码时保留源
+# 代码顺序和浮点代码的舍入属性，并在处理特殊值时遵循标准。程序还可以在运行时安全地访问或
+# 修改浮点环境。在 /fp:strict 下，编译器生成的代码允许程序安全地取消屏蔽浮点异常、读取
+# 或写入浮点状态寄存器，或改变舍入模式。它在表达式求值过程中的四个特定点舍入到源代码精
+# 度：赋值时、类型转换时、浮点参数传递给函数调用时，以及函数调用返回浮点值时。中间计算可
+# 以以机器精度执行。可以使用类型转换来显式舍入中间计算。编译器不会对浮点表达式进行任何代
+# 数变换（如重新结合或分配），除非它能保证变换产生逐位相同的结果。涉及特殊值（NaN、+无穷
+# 大、-无穷大、-0.0）的表达式按照 IEEE-754 规范处理。例如，如果 x 是 NaN，则 x != x
+# 的求值结果为 true。在 /fp:strict 下不生成浮点收缩。/fp:strict 的计算开销比 /fp:precise
+# 更大，因为编译器必须插入额外的指令来捕获异常，并允许程序在运行时访问或修改浮点环境。如
+# 果你的代码不使用此功能，但需要源代码顺序和舍入，或依赖于特殊值，请使用 /fp:precise。
+# 否则，请考虑使用 /fp:fast，它可以生成更快、更小的代码。
+#
+# /fp:fast 选项允许编译器重新排序、合并或简化浮点运算，以优化浮点代码的速度和大小。编译
+# 器可以省略赋值语句、类型转换或函数调用处的舍入。它可以重新排序运算或进行代数变换，例如
+# 使用结合律和分配律。即使此类变换导致可观察到的不同舍入行为，它也可以重新排序代码。由于
+# 这种增强的优化，某些浮点计算的结果可能与其他 /fp 选项产生的结果不同。特殊值（NaN、+无
+# 穷大、-无穷大、-0.0）可能不会被传播，或者不会严格按照 IEEE-754 标准的行为执行。在
+# /fp:fast 下可能生成浮点收缩。在 /fp:fast 下，编译器仍受底层架构的约束，并且可以通过
+# 使用 /arch 选项获得更多优化。在 /fp:fast 下，编译器生成旨在在默认浮点环境中运行的代
+# 码，并假设浮点环境在运行时不会被访问或修改。也就是说，它假设代码：保持浮点异常被屏蔽、
+# 不读取或写入浮点状态寄存器、不改变舍入模式。/fp:fast 适用于不需要严格源代码顺序和浮点
+# 表达式舍入，且不依赖于 NaN 等特殊值标准处理规则的程序。如果你的浮点代码需要保留源代码
+# 顺序和舍入，或依赖于特殊值的标准行为，请使用 /fp:precise。如果你的代码访问或修改浮点
+# 环境以改变舍入模式、取消屏蔽浮点异常或检查浮点状态，请使用 /fp:strict。
+#
+# /fp:except 选项生成代码以确保任何未屏蔽的浮点异常在其发生的精确位置被引发，并且不会引
+# 发其他浮点异常。默认情况下，/fp:strict 选项会启用 /fp:except，而 /fp:precise 不会。
+# /fp:except 选项与 /fp:fast 不兼容。可以通过使用 /fp:except- 显式禁用该选项。单独使
+# 用 /fp:except 不会启用任何浮点异常。但是，它是程序启用浮点异常所必需的。有关如何启用
+# 浮点异常的更多信息，请参阅 _controlfp。
+#
+# /O1 smallest code - /Og /Os /Oy /Ob2 /GF /Gy
+# /O2 fastest code - /Og /Oi /Ot /Oy /Ob2 /GF /Gy
+# /Oi 生成没有调用开销的内部函数（intrinsic functions）
+# /GF 启用只读字符串池，消除重复的字符串，最多只能创建65536个地址区
+# /Gy 启用函数级（function-level）链接，指向同一个函数共享一个指针
+# /Od 禁用优化（默认），最快编译速度和简单调试信息
+OPT_FLAGS_SPACE := /O1 /GF /Gy
+OPT_FLAGS_SPEED := /O2 /Oi /GF /Gy /fp:fast
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+INIT_CFLAGS += /Od
+else
+INIT_CFLAGS += /O2 /Oi
+endif
+
+# /GS (Buffer Security Check)
+# Detects some buffer overruns that overwrite a function's return
+# address, exception handler address, or certain types of parameters.
+# Causing a buffer overrun is a technique used by hackers to exploit
+# code that does not enforce buffer size restrictions.
+# /GS is on by default. 栈保护/栈金丝雀（Stack Canary）编译选项 /GS 原理，函数栈帧
+# 插入随机校验密匙。防护，检测栈缓冲区溢出，溢出篡改栈就直接程序崩溃，防止栈劫持。
+# /sdl enable more security features and warnings
+# /EHsc 开启异常处理，但是extern "C"里面的函数绝不会抛出异常
+# INIT_CFLAGS += /EHsc
+INIT_CFLAGS += /GS /sdl
+
+# /W0 disable all wranings, it's equivalent to /w
+# /W1 display level 1 (severe) wranings, is the default setting
+# /W2 also display level 2 (signficant) warnings
+# /W3 also display level 3 (production quality) warnings, is the default IDE setting
+# /W4 also display level 4 (informational) warnings
+# /Wall enable /W4 and all other warnings that /W4 doesn't include
+# /wd<n> suppresses the compiler warning
+# /we<n> treats the compiler warning as error
+# /wo<n> report the compiler warning only once
+# /WX treats all compiler warnings as errors
+# /WX- 覆盖 /WX 的设置，不将警告当成编译错误
+# warning C4100: unreferenced formal parameter in the body of the function
+# warning C4127: conditional expression is constant
+# warning C4214: nonstandard extension used: bit field types other than int
+# warning C4706: assignment within conditional expression
+# warning C4204: nonstandard extension used: non-constant aggregate initializer
+# warning C4245: conversion from type to type2, signed/unsigned mismatch
+# warning C4505: unreferenced local function
+# warning C4810: This warning is issued when you use the show option of the pack pragma. n is the current pack value
+# warning C4819: The file contains a character that cannot be represented in the current code page (936). Save the file in Unicode format to prevent data loss
+# /X 忽略标准包含路径，阻止编译器在 PATH 和 INCLUDE 环境变量指定的目录中搜索包含文件。
+# 编译器仅在通过 /I 选项显式指定的目录，以及包含源文件的目录中查找头文件。
+INIT_AFLAGS := /X /WX /W3
+INIT_CFLAGS += /WX /W3 # /wd4100 /wd4127 /wd4214 /wd4706 /wd4204 /wd4245
+
+ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+# /Zi 生成调试信息，包括行号和符号信息，用于调试
+INIT_AFLAGS += /Zi
+INIT_MACROS += /D_DEBUG
+endif
+
+# /ZI 与 /Zi 相同，生成独立的 PDB 文件用于存储调试信息，但生成的 PDB 还支持"编辑并继
+# 续"调试功能（仅用于 Debug 配置）。/ZI 不能与 /GL 一起使用，且与 /OPT:REF /OPT:ICF
+# 冲突。
+#
+# /Zi 生成普通调试 PDB，不支持"编辑并继续"。/GL 全程序优化，与 /ZI 不兼容。/OPT:REF
+# 移除未引用函数/数据。/OPT:ICF 合并相同的 COMDAT。/Zc:inline 强制要求内联函数必须有
+# 定义，编译器要求包含内联数据或函数的翻译单元必须包含它们的定义。
+INIT_CFLAGS += /Zi /Zc:inline
+
+# /GL开启全程序优化，但生成的代码高度依赖于当前的VS版本，并且生成的.obj不能用于editbin
+# 和dumpbin，也不能发布.obj或者.lib。该选项不能与/ZI一起使用，如果开启/GL编译源文件，
+# 链接时需要开启/LTCG选项。
+INIT_CFLAGS += /GL
+
+# /Gw 启用整个程序全局数据优化
+INIT_CFLAGS += /Gw
+
 # /MT use multithread static version of the run-time library,
 # will place library name LIBCMT.lib into the .obj file so
 # that the linker will use LIBCMT.lib to resolve external
@@ -183,73 +416,23 @@ else
 INIT_CFLAGS += /MD
 endif
 
-# /GS (Buffer Security Check)
-# Detects some buffer overruns that overwrite a function's return
-# address, exception handler address, or certain types of parameters.
-# Causing a buffer overrun is a technique used by hackers to exploit
-# code that does not enforce buffer size restrictions.
-# /GS is on by default.
-# /sdl enable more security features and warnings
-# /EHsc 开启异常处理，但是extern "C"里面的函数绝不会抛出异常
-# INIT_CFLAGS += /EHsc
-ifneq ($(filter debug,$(CONFIG_COMPILER)),)
-INIT_CFLAGS += /GS /sdl
-endif
-
-# /W0 disable all wranings, it's equivalent to /w
-# /W1 display level 1 (severe) wranings, is the default setting
-# /W2 also display level 2 (signficant) warnings
-# /W3 also display level 3 (production quality) warnings, is the default IDE setting
-# /W4 also display level 4 (informational) warnings
-# /Wall enable /W4 and all other warnings that /W4 doesn't include
-# /wd<n> suppresses the compiler warning
-# /we<n> treats the compiler warning as error
-# /wo<n> report the compiler warning only once
-# /WX treats all compiler warnings as errors
-# warning C4100: unreferenced formal parameter in the body of the function
-# warning C4127: conditional expression is constant
-# warning C4214: nonstandard extension used: bit field types other than int
-# warning C4706: assignment within conditional expression
-# warning C4204: nonstandard extension used: non-constant aggregate initializer
-# warning C4245: conversion from type to type2, signed/unsigned mismatch
-# warning C4505: unreferenced local function
-# warning C4810: This warning is issued when you use the show option of the pack pragma. n is the current pack value
-# warning C4819: The file contains a character that cannot be represented in the current code page (936). Save the file in Unicode format to prevent data loss
-OPT_WARN_FLAGS := /W3 # /wd4100 /wd4127 /wd4214 /wd4706 /wd4204 /wd4245
-INIT_CFLAGS += $(OPT_WARN_FLAGS)
-ifeq ($(filter wowx,$(CONFIG_COMPILER)),)
-INIT_CFLAGS += /WX
-endif
-
-# /O1 smallest code - /Og /Os /Oy /Ob2 /GF /Gy
-# /O2 fastest code - /Og /Oi /Ot /Oy /Ob2 /GF /Gy
-# /Oi 生成没有调用开销的内部函数（intrinsic functions）
-# /GF 启用只读字符串池，消除重复的字符串，最多只能创建65536个地址区
-# /Gy 启用函数级（function-level）链接，指向同一个函数共享一个指针
-# /Od 禁用优化（默认），最快编译速度和简单调试信息
-OPT_FLAGS_SPACE := /O1 /GF /Gy
-OPT_FLAGS_SPEED := /O2 /Oi /GF /Gy /fp:fast
-ifneq ($(filter debug,$(CONFIG_COMPILER)),)
-INIT_CFLAGS += /Od
-else
-INIT_CFLAGS += /O2
-endif
-
-# /ZI same as /Zi generate a separated pdb file to cotiain debug information,
-# but the generated pdb also support edit and continue debugging feature.
-# /ZI cannot used together with /GL, and /ZI conflict with /OPT:REF /OPT:ICF.
-# Removes unreferenced data or functions that are COMDATs, or that only have
-# internal linkage. Under /Zc:inline, the compiler specifies that translation
-# units with inline data or functions must also include their definitions.
-INIT_CFLAGS += /Zi /Zc:inline
-
-# /GL开启全程序优化，但生成的代码高度依赖于当前的VS版本，并且生成的.obj不能用于editbin
-# 和dumpbin，也不能发布.obj或者.lib。该选项不能与/ZI一起使用，如果开启/GL编译源文件，
-# 链接时需要开启/LTCG选项。
-INIT_CFLAGS += /GL
-
-# /Gw 启用整个程序全局数据优化
-INIT_CFLAGS += /Gw
+# _LIB 是 MSVC 的编译型宏，用于标识当前目标是静态库，从而调整头文件的条件编译、CRT 链
+# 接策略和函数声明方式，避免库与库、库与 exe 之间的符号冲突。
+#   1.  控制标准库/CRT的链接策略，避免静态库工程里又链接一遍完整CRT，导致重复符号/冲突。
+#   2.  影响某些 API 的导入/导出声明（__declspec），例如有 _LIB 静态库模式，函数仅普
+#       通声明，不声明为动态导出。
+#       #ifdef _LIB
+#       #define MYAPI
+#       #else
+#       #define MYAPI __declspec(dllexport)
+#       #endif
+#   3.  你自己也可以用它做条件编译，例如区分工程类型：
+#       #ifdef _LIB
+#       // 只在编译静态库时才编译的代码
+#       #else
+#       // 编译成可执行文件时的代码
+#       #endif
+# INIT_MACROS += /D_LIB
 
 # /LD 创建DLL，会传递/DLL给链接器，默认使用/MT链接静态运行时库
 # /LDd 创建DLL调试库，会传递/DLL给链接器，默认使用/MTd链接静态运行时库
@@ -308,14 +491,12 @@ INIT_CFLAGS += \
 # "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib" "uuid.lib"
 # "odbc32.lib" "odbccp32.lib"
 # https://learn.microsoft.com/zh-cn/cpp/c-runtime-library/crt-library-features?view=msvc-170
-# /MT  libcmt.lib	libucrt.lib					libvcruntime.lib
-# /MTd libcmtd.lib	libucrtd.lib 				libvcruntimed.lib
-# /MD  msvcrt.lib	ucrt.lib (ucrtbase.dll)		vcruntime.lib (vcruntime<v>.dll)
-# /MDd msvcrtd.lib	ucrtd.lib (ucrtbased.dll)	vcruntimed.lib (vcruntime<v>d.dll)
-
-msc-crt-y := # libcmt.lib libucrt.lib ucrt.lib
-msc-lib-y = $(msc-crt-y) kernel32.lib winmm.lib ws2_32.lib shell32.lib \
-	ntdll.lib dbghelp.lib synchronization.lib
+# /MT  libcmt.lib   libucrt.lib                 libvcruntime.lib
+# /MTd libcmtd.lib  libucrtd.lib                libvcruntimed.lib
+# /MD  msvcrt.lib   ucrt.lib (ucrtbase.dll)     vcruntime.lib (vcruntime<v>.dll)
+# /MDd msvcrtd.lib  ucrtd.lib (ucrtbased.dll)   vcruntimed.lib (vcruntime<v>d.dll)
+# libcmt.lib libucrt.lib ucrt.lib
+msc-lib-y = kernel32.lib winmm.lib ws2_32.lib shell32.lib ntdll.lib dbghelp.lib synchronization.lib
 
 OPTION_LDLIBS = $(patsubst -l%,%,$(1))
 OPTION_LDDIRS = $(foreach d,$(patsubst -L%,%,$(1)),/LIBPATH:$(call windows_path_style,$(d)))

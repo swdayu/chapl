@@ -4,6 +4,8 @@
 cur_makefile := $(lastword $(MAKEFILE_LIST))
 $(cur_makefile):: ;
 
+CURCC := gcc
+
 CROSS_COMPILE :=
 CONFIG_PREFIX_VIA_OPTION ?= 1
 OPTION_TRY_LD := -Werror -x c -o $(devnull) -

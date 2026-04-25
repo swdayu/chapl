@@ -165,8 +165,8 @@ _incdir-y = $(filter-out $(call object_flags,INCDIR_REMOVE_) $(call object_flags
                          $(filter-out $(incdir-remove-y),$(init-incdir-y) $(built-incdir-y) $(incdir-y) $(root_search_dir)) \
                          $(filter -I%,$(call object_flags,INCDIR_) $(call object_flags,CCFLAGS_)))
 
-_cc_flags = $(init-cflags-y) $(INIT_C_ONLY) $(_macros-y) $(_incdir-y)
-_c++flags = $(init-cflags-y) $(INIT_CXX_ON) $(_macros-y) $(_incdir-y)
+_cc_flags = $(filter-out $($(CURCC)-removes-y),$(init-cflags-y)) $(INIT_C_ONLY) $(_macros-y) $(_incdir-y) $($(CURCC)-ccflags-y)
+_c++flags = $(filter-out $($(CURCC)-removes-y),$(init-cflags-y)) $(INIT_CXX_ON) $(_macros-y) $(_incdir-y) $($(CURCC)-ccflags-y)
 _as_flags = $(init-aflags-y) $(_macros-y) $(_incdir-y)
 
 built_cc_flags = $(OPTION_DEPEND) $(call abs_cc_flags,$(_cc_flags))
@@ -174,7 +174,7 @@ built_c++flags = $(OPTION_DEPEND) $(call abs_cc_flags,$(_c++flags))
 built_as_flags = $(OPTION_DEPEND) $(call abs_as_flags,$(_as_flags))
 
 # 当前模块依赖的库文件和库搜索目录
-ldflag-y := $(filter-out $(ldflag-remove-y),$(built-ldflag-y) $(ldflag-y))
+ldflag-y := $(filter-out $(ldflag-remove-y),$(built-ldflag-y) $(ldflag-y) $($(CURCC)-ldflags-y))
 ld_dirs_y := $(call OPTION_LDDIRS,$(filter -L%,$(ldflag-y)))
 ld_libs_y := $(call OPTION_LDLIBS,$(filter -l%,$(ldflag-y)))
 
