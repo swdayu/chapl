@@ -2035,6 +2035,22 @@ typedef enum {
     // Suppress deprecation warnings for the older less secure functions.
     #define _CRT_SECURE_NO_DEPRECATE 1
     #define _CRT_SECURE_NO_WARNINGS 1
+    // 微软 C 运行时库，通用 C 运行时库（UCRT，Universal C Runtime Library）支持
+    // C++ 兼容所需的大部分 C 标准库，它实现了 C99（ISO/IEC 9899:1999），还实现了
+    // POSIX.1（ISO/IEC 9945-1:1996），但它并不完全符号任何特定的 POSIX 标准。UCRT
+    // 还实现了一些微软特定的不属于标准的函数和宏。
+    // 在全局命名空间中，以单个下划线开头的函数名是 C++ 标准为实现保留的。POSIX 函数和
+    // 微软特定函数都在全局命名空间中，但不属于标准 C 运行时库的一部分。这就是为什么微
+    // 软推荐这些名称使用下划线版本的原因。为了可移植性，UCRT 也支持默认名称，但微软
+    // C++ 编译器在编译这些名称时会报警告信息。只有默认名称是被标记为过时的，而下划线
+    // 版本不是。要抑制警告信息，在包含 POSIX 名称的头文件之前定义 _CRT_NONSTDC_NO_WARNINGS
+    // 宏。因为 C 标准不允许在头文件中使用非标准名称，所以默认 /std:c11 和 /std:c17
+    // 不会暴露 POSIX 函数、类型、宏的默认名称。如果需要这些名称，需要定义
+    // _CRT_DECLARE_NONSTDC_NAMES 来暴露它们。
+    // export original POSIX names and suppress deprecation warnings.
+    #define _CRT_DECLARE_NONSTDC_NAMES 1
+    #define _CRT_NONSTDC_NO_DEPRECATE 1 // _CRT_NONSTDC_NO_DEPRECATE 与 _CRT_NONSTDC_NO_WARNINGS 等效
+    #define _CRT_NONSTDC_NO_WARNINGS 1
     // Define one or more of the NOapi symbols to exclude the API. For example,
     // NOCOMM excludes the serial communication API. For a list of support
     // NOapi symbols, see Windows.h. such as #define NOCOMM
@@ -3118,11 +3134,11 @@ void prh_impl_basic_test(void) {
     memmove(&a, &b, count);
     memset(&a, 2, count);
     prh_r32 s = 0xfffffffe;
-    prh_r32 a[] = {0xfffffffe, 0xffffffff, 0, 1};
-    prh_real_assert((prh_r32)(a[0] - s) == 0);
-    prh_real_assert((prh_r32)(a[1] - s) == 1);
-    prh_real_assert((prh_r32)(a[2] - s) == 2);
-    prh_real_assert((prh_r32)(a[3] - s) == 3);
+    prh_r32 v[] = {0xfffffffe, 0xffffffff, 0, 1};
+    prh_real_assert((prh_r32)(v[0] - s) == 0);
+    prh_real_assert((prh_r32)(v[1] - s) == 1);
+    prh_real_assert((prh_r32)(v[2] - s) == 2);
+    prh_real_assert((prh_r32)(v[3] - s) == 3);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, a) == 0);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, b) == 4);
     prh_real_assert(prh_offsetof(prh_impl_test_struct, c) == 8);
@@ -3176,6 +3192,15 @@ void prh_impl_basic_test(void) {
 #if defined(WDK_NTDDI_VERSION)
     printf("WDK_NTDDI_VERSION %08x\n", WDK_NTDDI_VERSION);
 #endif
+#if defined(WIN32)
+    printf("WIN32 defined\n");
+#endif
+#if defined(_WIN32)
+    printf("_WIN32 defined %d\n", _WIN32);
+#endif
+#if defined(_WIN64)
+    printf("_WIN64 defined %d\n", _WIN64);
+#endif
 #if defined(WINVER)
     printf("WINVER %04x\n", WINVER);
 #endif
@@ -3186,7 +3211,7 @@ void prh_impl_basic_test(void) {
     printf("NTDDI_VERSION %08x\n", NTDDI_VERSION);
 #endif
 #if defined(_MSC_VER)
-    printf("msc version %d\n", _MSC_VER);
+    printf("_MSC_VER %d\n", _MSC_VER);
 #endif
 #if defined(PRH_GCC_VERSION)
     printf("gcc version %d\n", PRH_GCC_VERSION);
@@ -15007,9 +15032,9 @@ void prh_impl_time_test(void) {
     printf("clock_t %zi-byte\n", sizeof(clock_t));
     printf("CLOCKS_PER_SEC %li\n", CLOCKS_PER_SEC);
     prh_time_caps caps;
-    prh_impl_time_caps(&t);
-    printf("System Time Supported Resolution: %u ms %u ns -> %u ms %u ns curr %u ns ticks_per_sec %u\n",
-        caps.min_msec, caps.nt_min_nsec, caps.max_msec, caps.nt_max_nsec, caps.cur_nsec, caps.ticks_per_sec);
+    prh_impl_time_caps(&caps);
+    printf("System Time Supported Resolution: %u ms %u ns -> %u ms %u ns curr %u ns ticks_per_sec %lld\n",
+        caps.min_msec, caps.nt_min_nsec, caps.max_msec, caps.nt_max_nsec, caps.cur_nsec, (long long)caps.ticks_per_sec);
     int i, n = 30, count = 0; prh_i64 t1, t2;
     for (i = 0; i < n; i += 1) {
         printf("system time: %lli\n", (long long)prh_system_usec());
@@ -15034,7 +15059,7 @@ void prh_impl_time_test(void) {
     for (i = 0; i < n; i += 1) {
         printf("clock ticks: %lli\n", (long long)prh_clock_ticks());
     }
-    prh_real_assert((prh_i64)(12 * 34 / 3) == prh_impl_mul_div(12, 34, 3))
+    prh_real_assert((prh_i64)(12 * 34 / 3) == prh_impl_mul_div(12, 34, 3));
     prh_real_assert(prh_impl_mul_div(1000000000001LL, 1000000000LL, 1000000LL) == 1000000000001000LL);
     long long long_long_number = 1000000000001LL;
     prh_real_assert((long_long_number * 1000000000LL / 1000000LL) != 1000000000001000LL);
@@ -29846,7 +29871,6 @@ void prh_impl_wsasocket_startup(void) {
         return;
     }
     prh_zeroret(atexit(prh_impl_wsasocket_cleanup));
-    prh_debug(prh_impl_wsaenumprotocol());
 }
 
 // Windows TCP/IP 服务提供程序支持的扩展函数的 GUID 值在 Mswsock.h 头文件中定义。这些
@@ -34788,10 +34812,11 @@ void prh_impl_tcp_recv(prh_socket *tcp, prh_byte *recv_buff, prh_r32 buff_size) 
 void prh_impl_sock_test(void) {
     PRH_IMPL_PREV_TEST();
     printf("SOCKET %d-byte\n", (int)sizeof(SOCKET));
-    printf("INVALID_SOCKET %d\n", INVALID_SOCKET);
+    printf("INVALID_SOCKET %p\n", (void *)INVALID_SOCKET);
     printf("struct sockaddr_in %d-byte\n", (int)sizeof(struct sockaddr_in));
     printf("struct sockaddr_in6 %d-byte\n", (int)sizeof(struct sockaddr_in6));
     printf("RIO_MAX_CQ_SIZE %d (%08x)\n", RIO_MAX_CQ_SIZE, RIO_MAX_CQ_SIZE);
+    prh_impl_wsaenumprotocol();
 }
 #undef PRH_IMPL_PREV_TEST
 #define PRH_IMPL_PREV_TEST prh_impl_sock_test
