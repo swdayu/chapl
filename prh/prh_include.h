@@ -71,7 +71,9 @@
 // If only few specific names cause conflicts for you, you can just #undef
 // those names after include prh_include.h since they are macros anyway.
 #ifndef PRH_IMPL_INCLUDE_H
+#if !defined(PRH_PARTIAL_INCLUDE)
 #define PRH_IMPL_INCLUDE_H
+#endif
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -807,6 +809,8 @@ extern "C" {
 #endif
 #endif
 
+#ifndef prh_impl_errors
+#define prh_impl_errors
 // https://en.cppreference.com/w/cpp/error/errno_macros.html
 // https://en.cppreference.com/w/cpp/error/errc.html
 typedef enum {
@@ -1462,6 +1466,7 @@ typedef enum {
     e_unused,
     e_error_last = 1023, // 0x03ff
 } prh_error_code;
+#endif // prh_impl_errors
 
 // Linux 操作系统开发与调试命令
 // 打印系统信息：
@@ -1998,7 +2003,6 @@ typedef enum {
     // 文章就会成为那些“古色古香的历史小玩意儿”，就像所有关于 16 位 Windows 的文章
     // 一样。就像“一个关于 21 世纪初疯狂日子里人们不得不做的事情的小故事。谢天谢地，
     // 我们再也不用担心这些了！”
-    //
     // GetTickCount64 Windows Vista Windows Server 2008             0x0600
     // QueryInterruptTime Windows 7 Windows Server 2008 S2          0x0601
     // GetCurrentThreadStackLimits Windows 8 Windows Server 2012    0x0602
@@ -2100,53 +2104,6 @@ typedef enum {
     #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(GetLastError(), __LINE__); }
     #else
     #define PRH_BOOLRET_OR_ERROR(a) a
-    #endif
-    // https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
-    // 检测内存泄漏的主要工具是 C/C++ 调试器和 CRT 调试堆函数。要启用所有调试堆函数，
-    // 需要在你的 C++ 程序中按以下顺序包含下面的语句。其中 #define _CRTDBG_MAP_ALLOC
-    // 将 CRT 堆函数的基本版本映射到相应的调试版本。如果省略了 #define 语句，内存泄漏
-    // 信息将不够详细。包含 crtdbg.h 会将 malloc 和 free 函数映射到它们的调试版本 _malloc_dbg
-    // 和 _free_dbg，这些版本会跟踪内存分配和释放。这种映射仅在具有 _DEBUG 的调试生成
-    // 中发生。发布生成使用普通的 malloc 和 free 函数。
-    // 通过使用前面的语句启用了调试堆函数后，在应用程序退出点之前调用 _CrtDumpMemoryLeaks()，
-    // 以在应用程序退出时显示内存泄漏报告。如果你的应用程序有多个退出点，你无需手动在每
-    // 个退出点放置 _CrtDumpMemoryLeaks()。为了在每个退出点自动调用 _CrtDumpMemoryLeaks()，
-    // 在应用程序开头放置一个对 _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF)
-    // 的调用即可。
-    // 默认情况下， _CrtDumpMemoryLeaks 将内存泄漏报告输出到“输出”窗口的“调试”窗格。
-    // 如果你使用了库，库可能会将输出重置到另一个位置。你可以使用 _CrtSetReportMode
-    // 将报告重定向到另一个位置，或者像下面这样重新定向回“输出”窗口：
-    //      _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
-    //
-    // 内存块类型有 “normal”、“client” 和 “CRT”。普通块是由你的程序分配的普通内存。
-    // “client”块是 MFC 程序用于需要析构函数的对象的特殊类型的内存块。MFC 的 new 运
-    // 算符会根据被创建的对象类型创建普通块或客户端块。“CRT” 块是由 CRT 库为其自身用
-    // 途分配的。CRT 库会处理这些块的释放，因此除非 CRT 库出现严重问题，否则 CRT 块
-    // 不会出现在内存泄漏报告中。还有两种内存块类型永远不会出现在内存泄漏报告中。“free”
-    // 块是已经释放的内存，按定义不会泄漏。“ignore” 块是你明确标记为从内存泄漏报告中
-    // 排除的内存。
-    //
-    // 前面的技术可以识别使用标准 CRT malloc 函数分配的内存的内存泄漏。然而，如果你的
-    // 程序使用 C++ 的 new 运算符分配内存，你可能只能在内存泄漏报告中看到 operator
-    // new 调用 _malloc_dbg 的文件名和行号。为了创建更有用的内存泄漏报告，你可以编写
-    // 一个像下面这样的宏来报告 new 分配的行，然后你可以使用 DBG_NEW 宏在代码中替换
-    // new 运算符。
-    // #ifdef _DEBUG
-    //     #define DBG_NEW new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
-    //     // Replace _NORMAL_BLOCK with _CLIENT_BLOCK if you want the
-    //     // allocations to be of _CLIENT_BLOCK type
-    // #else
-    //     #define DBG_NEW new
-    // #endif
-    //
-    // 内存分配编号可以告诉你泄漏的内存块是在何时分配的。例如，一个内存分配编号为 18
-    // 的块是在应用程序运行期间分配的第 18 个内存块。CRT 报告会统计运行期间的所有内存
-    // 块分配，包括 CRT 库和其他库（如 MFC）的分配。因此，内存分配块编号 18 可能不是
-    // 你的代码分配的第 18 个内存块。你可以使用分配编号在内存分配上设置断点。
-    #if PRH_DEBUG
-    #define _CRTDBG_MAP_ALLOC
-    #include <stdlib.h>
-    #include <crtdbg.h>
     #endif
 #else
     // POSIX allows an application to test at compile or run time whether
@@ -2902,6 +2859,53 @@ void prh_impl_aligned_dalloc(void *context, void *ptr);
 #undef prh_plat_aligned_relloc
 
 #if defined(prh_cl_msc)
+    // https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
+    // 检测内存泄漏的主要工具是 C/C++ 调试器和 CRT 调试堆函数。要启用所有调试堆函数，
+    // 需要在你的 C++ 程序中按以下顺序包含下面的语句。其中 #define _CRTDBG_MAP_ALLOC
+    // 将 CRT 堆函数的基本版本映射到相应的调试版本。如果省略了 #define 语句，内存泄漏
+    // 信息将不够详细。包含 crtdbg.h 会将 malloc 和 free 函数映射到它们的调试版本 _malloc_dbg
+    // 和 _free_dbg，这些版本会跟踪内存分配和释放。这种映射仅在具有 _DEBUG 的调试生成
+    // 中发生。发布生成使用普通的 malloc 和 free 函数。
+    // 通过使用前面的语句启用了调试堆函数后，在应用程序退出点之前调用 _CrtDumpMemoryLeaks()，
+    // 以在应用程序退出时显示内存泄漏报告。如果你的应用程序有多个退出点，你无需手动在每
+    // 个退出点放置 _CrtDumpMemoryLeaks()。为了在每个退出点自动调用 _CrtDumpMemoryLeaks()，
+    // 在应用程序开头放置一个对 _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF)
+    // 的调用即可。
+    // 默认情况下， _CrtDumpMemoryLeaks 将内存泄漏报告输出到“输出”窗口的“调试”窗格。
+    // 如果你使用了库，库可能会将输出重置到另一个位置。你可以使用 _CrtSetReportMode
+    // 将报告重定向到另一个位置，或者像下面这样重新定向回“输出”窗口：
+    //      _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
+    //
+    // 内存块类型有 “normal”、“client” 和 “CRT”。普通块是由你的程序分配的普通内存。
+    // “client”块是 MFC 程序用于需要析构函数的对象的特殊类型的内存块。MFC 的 new 运
+    // 算符会根据被创建的对象类型创建普通块或客户端块。“CRT” 块是由 CRT 库为其自身用
+    // 途分配的。CRT 库会处理这些块的释放，因此除非 CRT 库出现严重问题，否则 CRT 块
+    // 不会出现在内存泄漏报告中。还有两种内存块类型永远不会出现在内存泄漏报告中。“free”
+    // 块是已经释放的内存，按定义不会泄漏。“ignore” 块是你明确标记为从内存泄漏报告中
+    // 排除的内存。
+    //
+    // 前面的技术可以识别使用标准 CRT malloc 函数分配的内存的内存泄漏。然而，如果你的
+    // 程序使用 C++ 的 new 运算符分配内存，你可能只能在内存泄漏报告中看到 operator
+    // new 调用 _malloc_dbg 的文件名和行号。为了创建更有用的内存泄漏报告，你可以编写
+    // 一个像下面这样的宏来报告 new 分配的行，然后你可以使用 DBG_NEW 宏在代码中替换
+    // new 运算符。
+    // #ifdef _DEBUG
+    //     #define DBG_NEW new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
+    //     // Replace _NORMAL_BLOCK with _CLIENT_BLOCK if you want the
+    //     // allocations to be of _CLIENT_BLOCK type
+    // #else
+    //     #define DBG_NEW new
+    // #endif
+    //
+    // 内存分配编号可以告诉你泄漏的内存块是在何时分配的。例如，一个内存分配编号为 18
+    // 的块是在应用程序运行期间分配的第 18 个内存块。CRT 报告会统计运行期间的所有内存
+    // 块分配，包括 CRT 库和其他库（如 MFC）的分配。因此，内存分配块编号 18 可能不是
+    // 你的代码分配的第 18 个内存块。你可以使用分配编号在内存分配上设置断点。
+    #if PRH_DEBUG
+    #define _CRTDBG_MAP_ALLOC
+    #include <stdlib.h>
+    #include <crtdbg.h>
+    #endif // PRH_DEBUG
     #include <malloc.h>
     // _aligned_malloc is based on malloc. required C header malloc.h.
     // if alignment isn't a power of 2 or size is zero, this function invokes
@@ -2922,6 +2926,8 @@ void prh_impl_aligned_dalloc(void *context, void *ptr);
 #endif // prh_malloc
 
 #ifdef PRH_PLAT_IMPLEMENTATION
+prh_thread_local prh_int prh_impl_line;
+
 void prh_impl_assert(prh_int line) {
     fprintf(stderr, "assert line %ld\n", (long)line);
     abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
@@ -3448,7 +3454,6 @@ prh_thread_local const prh_allocator *PRH_IMPL_LOCAL_ALLOC;
 prh_thread_local prh_grown_alloc *PRH_GROWN_ALLOC;
 prh_thread_local prh_arena_alloc *PRH_ARENA_ALLOC;
 prh_thread_local prh_tempo_alloc *PRH_TEMPO_ALLOC;
-prh_thread_local prh_int prh_impl_line;
 
 void prh_impl_empty_dalloc(void *context, void *ptr) {
     // used for the allocator that no need a deallocator
