@@ -1804,12 +1804,11 @@ typedef enum {
 #endif
 #endif
 
-#if defined(PRH_ARRAY_IMPLEMENTATION) || defined(PRH_LIST_IMPLEMENTATION)
-#define PRH_BASE_IMPLEMENTATION
+#if defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION) || defined(PRH_CONO_IMPLEMENTATION)
+#define PRH_PLAT_IMPLEMENTATION
 #endif
 
-#if defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || \
-    defined(PRH_TIME_IMPLEMENTATION) || defined(PRH_CONO_IMPLEMENTATION)
+#if defined(PRH_PLAT_IMPLEMENTATION)
 #if defined(prh_plat_windows)
     // Predefined macros:
     //      _WIN16      A 16-bit platform
@@ -2409,7 +2408,7 @@ typedef enum {
     #endif // PRH_THRD_INCLUDE
     #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(errno, __LINE__); }
 #endif // prh_plat_posix
-#endif // ATOMIC THRD TIME CONO_IMPLEMENTATION
+#endif // PRH_PLAT_IMPLEMENTATION
 
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
@@ -2922,7 +2921,7 @@ void prh_impl_aligned_dalloc(void *context, void *ptr);
 #endif
 #endif // prh_malloc
 
-#ifdef PRH_BASE_IMPLEMENTATION
+#ifdef PRH_PLAT_IMPLEMENTATION
 void prh_impl_assert(prh_int line) {
     fprintf(stderr, "assert line %ld\n", (long)line);
     abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
@@ -3113,7 +3112,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 #endif
 #endif
 #endif // WINDOWS
-#endif // PRH_BASE_IMPLEMENTATION
+#endif // PRH_PLAT_IMPLEMENTATION
 
 #ifdef PRH_TEST_IMPLEMENTATION
 typedef struct {
