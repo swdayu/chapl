@@ -240,6 +240,8 @@ endif
 # /Fa<file>
 #    默认为每个源文件生成一个 source.asm 文件。directory/filename.extension 将汇编文
 #    件输出到对应目录的对应后缀的对应文件，只能在编译单个的源文件时才有效。
+# /FI<file>
+#    在每个源文件开头强制包含一个头文件
 EACH_SOURCE_GEN_ASM_FILE = /FAsu /Fa$(basename $@).d.asm
 EACH_SOURCE_GEN_COD_FILE = /FAcsu /Fa$(basename $@).d.asm
 ifneq ($(filter genasm,$(CONFIG_COMPILER)),)
