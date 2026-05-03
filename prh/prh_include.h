@@ -660,10 +660,10 @@ extern "C" {
     #define PRH_SYS_INT_MIN PRH_I32_MIN
     #define PRH_SYS_INT_MAX PRH_I32_MAX
     #define PRH_SYS_INT_UMX PRH_I32_UMX
-    #define prh_sys_int_bits 32
-    #define prh_sys_int_bytes 4
-    typedef prh_i32 prh_sys_int;
-    typedef prh_r32 prh_sys_reg;
+    #define prh_raw_int_bits 32
+    #define prh_raw_int_bytes 4
+    typedef prh_i32 prh_raw_int;
+    typedef prh_r32 prh_raw_reg;
     typedef prh_i32 prh_int;
     typedef prh_r32 prh_reg;
     #define prh_int_bits 32
@@ -674,10 +674,10 @@ extern "C" {
     #define PRH_SYS_INT_MIN PRH_I64_MIN
     #define PRH_SYS_INT_MAX PRH_I64_MAX
     #define PRH_SYS_INT_UMX PRH_I64_UMX
-    #define prh_sys_int_bits 64
-    #define prh_sys_int_bytes 8
-    typedef prh_i64 prh_sys_int;
-    typedef prh_r64 prh_sys_reg;
+    #define prh_raw_int_bits 64
+    #define prh_raw_int_bytes 8
+    typedef prh_i64 prh_raw_int;
+    typedef prh_r64 prh_raw_reg;
     #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
         typedef prh_r32 prh_reg;
@@ -708,7 +708,7 @@ extern "C" {
     #define prh_int_shl_size 3
 #endif
     typedef prh_r32 prh_char;
-    typedef prh_sys_reg prh_handle;
+    typedef prh_raw_reg prh_handle;
     typedef float prh_f32;
     typedef double prh_f64;
     typedef prh_f32 prh_float;
@@ -726,8 +726,8 @@ extern "C" {
     prh_static_assert(sizeof(prh_int) == sizeof(void *)); // signed pointer size type
     prh_static_assert(sizeof(prh_reg) == sizeof(void *)); // unsigned pointer size type
     prh_static_assert(sizeof(prh_char) == sizeof(prh_r32));
-    prh_static_assert(sizeof(prh_sys_int) == prh_arch_bits / 8); // architecture signed type with generic purpose regiter size
-    prh_static_assert(sizeof(prh_sys_reg) == prh_arch_bits / 8); // architecture unsigned type with generic purpose register size
+    prh_static_assert(sizeof(prh_raw_int) == prh_arch_bits / 8); // architecture signed type with generic purpose regiter size
+    prh_static_assert(sizeof(prh_raw_reg) == prh_arch_bits / 8); // architecture unsigned type with generic purpose register size
     prh_static_assert(sizeof(prh_f32) == 4);
     prh_static_assert(sizeof(prh_f64) == 8);
     prh_static_assert(sizeof(prh_float) == 4);
@@ -2451,10 +2451,10 @@ typedef enum {
 #define PRH_ALIGN_PAGE PRH_ALIGN_4KB
 #define PRH_ALIGN_VMEM PRH_ALIGN_64KB
 #define PRH_ALIGN_DEFAULT PRH_ALIGN_16_BYTE
-#define PRH_ALIGN_POINTER (prh_sys_int_bytes - 1)
-#define PRH_ALIGN_2P_SIZE ((prh_sys_int_bytes << 1) - 1)
-#define PRH_ALIGN_4P_SIZE ((prh_sys_int_bytes << 2) - 1)
-#define PRH_ALIGN_8P_SIZE ((prh_sys_int_bytes << 3) - 1)
+#define PRH_ALIGN_POINTER (prh_raw_int_bytes - 1)
+#define PRH_ALIGN_2P_SIZE ((prh_raw_int_bytes << 1) - 1)
+#define PRH_ALIGN_4P_SIZE ((prh_raw_int_bytes << 2) - 1)
+#define PRH_ALIGN_8P_SIZE ((prh_raw_int_bytes << 3) - 1)
 #define PRH_ALIGN_04_BYTE 3
 #define PRH_ALIGN_08_BYTE 7
 #define PRH_ALIGN_16_BYTE 15
@@ -2769,7 +2769,6 @@ prh_inline prh_r64 prh_be_to_host_64(prh_r64 n) { return n; }
 #endif
 #endif // PRH_BYTE
 
-#ifndef prh_malloc
 // 内存分配的几种类别
 //  1.  固定大小栈分配
 //  2.  程序初始化时的全局分配
@@ -2778,6 +2777,33 @@ prh_inline prh_r64 prh_be_to_host_64(prh_r64 n) { return n; }
 //  5.  不能通过静态分析推断生存期的分配
 //  6.  分配的释放必须早于内存池的释放
 //  7.  注意以上类型的相互赋值，以及分配释放跨不同线程的处理
+// 关于静态分配
+// https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/internals/ARCHITECTURE.md#static-memory-allocation
+// https://matklad.github.io/2025/12/23/static-allocation-compilers.html
+// 与"静态分配"完全不同，使用 arena 时，大小是显式固定的，但你可能会 OOM（内存耗尽）。
+// 而静态分配则相反，不会 OOM，但直到启动完成你才知道需要多少内存。tigerBeetle 以使用
+// "静态分配"而闻名。颇具争议的是，这个术语的用法有些特立独行：它指的不是嵌入式开发中常
+// 见的静态数组，而是一种更弱的"启动后不再分配"的形式。TigerBeetle 进程使用的内存量并
+// 没有硬编码到 ELF 二进制文件中，它取决于运行时的命令行参数。然而，所有分配都发生在启
+// 动阶段，并且没有释放操作。长期运行的事件愉快地循环往复，从不进行分配。静态分配取决于
+// 底层问题的物理特性。而分布式数据库的物理特性出奇地简单，至少在 TigerBeetle 的情况下
+// 是如此。系统的唯一输入和输出都是消息。每条消息的大小是有限的（1MiB）。系统的实际数据
+// 存储在磁盘上，可以任意大。但单条消息应用的差异是有限的。而且，如果你的输入是有限的，
+// 输出也是有限的，那么实际上很难需要分配额外的内存！这一点值得强调——静态分配看似困难，
+// 需要时刻保持警惕并手动核算资源。实际上，我发现它出奇地具有组合性。只要系统的输入和输
+// 出是有限的，无分配处理就很容易。反直觉的是，不分配比分配更简单——前提是你能做到！
+// 所以我们可以说，编译器消耗任意大的输入，产生任意大的输出，但这些"不计入"静态内存分配
+// 的范畴。在开始时，我们预留一个"输出竞技场"来存储编译器完成的、不可变的结果。然后我们
+// 可以说，这个输出是在处理一系列块之后累积的，其中块的大小是严格有限的。虽然限制代码库
+// 的总大小不合理，但将单个文件限制为比如 4 MiB（可在运行时覆盖）是完全可以接受的。编译
+// 本质上就变成了一个"流处理"问题，其中输入和输出都可以任意大，但过滤器程序本身必须在
+// O(1) 内存中执行。在这种设置下，使用索引而不是指针来引用"输出数据"是很自然的，这也使
+// 得在变更之间将其持久化到磁盘变得容易。而且，思考"变更块"不仅在空间上（编译器看到新文
+// 件），也在时间上（编译器看到旧文件的新版本）也是很自然的。这有什么实际好处吗？我不知
+// 道！但似乎值得尝试一下！我觉得严格区分 O(N) 的编译器输出和 O(1) 的中间处理产物可以
+// 澄清编译器的架构，而且如果编译器中的 O(1) 处理能像数据库一样带来更简单的代码，我也不
+// 会太惊讶？
+#ifndef prh_malloc
 #define prh_malloc(size) ((prh_impl_line = __LINE__), prh_impl_malloc(size))
 #define prh_calloc(size) ((prh_impl_line = __LINE__), prh_impl_calloc(size))
 #define prh_relloc(ptr, size) ((prh_impl_line = __LINE__), prh_impl_relloc((ptr), (size)))
@@ -6937,8 +6963,8 @@ void *prh_quedyn_pop(prh_quedyn *q) {
 
 // 特制的简单协程不会修改非易变寄存器，而协程调用的C函数会立即返回，因此不需要保护寄存器
 typedef struct { // 有栈协程实现，并且仅作为立即返回结果的同步协程使用
-    prh_sys_reg stacktop;
-    prh_sys_reg ehubthrd;
+    prh_raw_reg stacktop;
+    prh_raw_reg ehubthrd;
 } prh_spco;
 
 #define prh_spco_proc prh_fastcall(void) // prh_spco_proc procedure(prh_spco *co)
@@ -6952,13 +6978,13 @@ typedef struct {
 
 #ifdef PRH_SPCO_IMPLEMENTATION
 typedef struct {
-    prh_sys_reg guardaddr;
-    prh_sys_reg thrdstack;
+    prh_raw_reg guardaddr;
+    prh_raw_reg thrdstack;
 } prh_impl_spco_base;
 
 typedef struct {
-    prh_sys_reg lower_guard_word;
-    prh_sys_reg upper_guard_word;
+    prh_raw_reg lower_guard_word;
+    prh_raw_reg upper_guard_word;
 } prh_impl_guard;
 
 #if prh_arch_bits == 64
@@ -6976,17 +7002,17 @@ prh_fastcall(void) prh_impl_asm_spco_start(prh_spco *);
 void prh_impl_spco_load(prh_spco *spco, prh_spcoproc_t proc) {
     assert((prh_reg)spco % 16 == 0); // initial rsp shall 16-byte aligned
     prh_impl_spco_base *base = (prh_impl_spco_base *)spco - 1;
-    base->born_proc = (prh_sys_reg)prh_impl_asm_spco_start;
-    base->spco_proc = (prh_sys_reg)proc;
-    spco->stacktop = (prh_sys_reg)base;
+    base->born_proc = (prh_raw_reg)prh_impl_asm_spco_start;
+    base->spco_proc = (prh_raw_reg)proc;
+    spco->stacktop = (prh_raw_reg)base;
 }
 
 #define prh_impl_spco_stack_reserve_size 64 // W64每次函数调用需要预留32个字节寄存器影子空间，另外预留32字节
 #define prh_impl_spco_stack_base_size (sizeof(prh_spco) + sizeof(prh_impl_spco_base) + sizeof(prh_impl_guard) + prh_impl_spco_stack_reserve_size)
 
 prh_inline void prh_impl_spco_guard_init(prh_spco *spco, prh_byte *stack) {
-    prh_sys_reg *guardaddr = (prh_sys_reg *)spco - 2;
-    prh_impl_guard *guard = (prh_impl_guard *)(*guardaddr = (prh_sys_reg)stack);
+    prh_raw_reg *guardaddr = (prh_raw_reg *)spco - 2;
+    prh_impl_guard *guard = (prh_impl_guard *)(*guardaddr = (prh_raw_reg)stack);
     guard->lower_guard_word = prh_impl_lower_guard_word;
     guard->lower_guard_word = prh_impl_upper_guard_word;
 }
@@ -6997,7 +7023,7 @@ prh_spco *prh_impl_spco_create(prh_arena_alloc *alloc, prh_spcoproc_t proc, prh_
     assert(stacksize >= prh_impl_spco_stack_base_size + maxudsize);
     prh_byte *stack = (prh_byte *)prh_arena_line_malloc(alloc, stacksize);
     prh_spco *spco = (prh_spco *)(stack + stacksize - maxudsize - sizeof(prh_spco));
-    spco->userdata = (prh_sys_reg)(spco + 1);
+    spco->userdata = (prh_raw_reg)(spco + 1);
     prh_impl_spco_guard_init(spco, stack);
     prh_impl_spco_load(spco, proc);
     return spco;
