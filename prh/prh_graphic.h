@@ -5,9 +5,9 @@
 // | abcd | abcd | abcd |
 // | 中ab | 中ab | 中ab |
 //
-// 字体风格，衬线体（Serif）和无衬线体（Sans-Serif），Serif 源自荷兰语 Schreef 笔画、线条，
-// Sans 源自法语（without）。核心区别在于笔画末端是否有装饰性的"小脚"。衬线体（Serif）或
-// 罗马体，在笔画末端有额外的装饰性笔触（衬线），像"小脚" 或"小横杠"。例如常见的西文字体
+// 字体风格，衬线体（Serif）和无衬线体（Sans-Serif），Serif 源自荷兰语 Schreef 笔画、
+// 线条，Sans 源自法语（without）。核心区别在于笔画末端是否有装饰性的"小脚"。衬线体（Serif）
+// 或罗马体，在笔画末端有额外的装饰性笔触（衬线），像"小脚" 或"小横杠"。例如常见的西文字体
 // Times New Roman、中文宋体（SimSun）、思源宋体。起源：模仿古罗马石刻字母的凿刻痕迹；用
 // 途：长文阅读（书籍、报纸、论文）；优势：衬线引导视线水平移动，提高阅读流畅性，笔画对比
 // 度强，字内结构清晰（阅读疲劳低，视线引导好）。
@@ -79,9 +79,9 @@
 //      17px 之间，行距推荐 1.6 至 2.0 倍，在碎片化的手机阅读场景下，稍宽的行距有助于维
 //      持节奏，减少视线落错行的概率。这种设置下，每行字数约为 20 至 25 字，基本落在舒
 //      适范围内。
-//  3.  网页桌面端：正文字号 16px 起步，17 至 18px 更舒适，行距推荐 1.5 至 1.8 倍，每行
-//      字数 30 至 40 字是舒适范围。每行字数越多，需要越宽的行距来帮助视线准备回到下一
-//      行起点，否则很容易重读同一行。
+//  3.  网页桌面端：正文字号 16px 起步，17 至 18px 更舒适，行距推荐 1.5 至 1.8 倍，每
+//      行字数 30 至 40 字是舒适范围。每行字数越多，需要越宽的行距来帮助视线准备回到下
+//      一行起点，否则很容易重读同一行。
 //
 // 字体的 Unhinted 版本，是指未添加字体提示（hints）的版本。字体提示是一组指令或数据，
 // 告诉渲染引擎（操作系统、浏览器）如何在低分辨率（尤其是屏幕显示）下调整字体的轮廓，使
@@ -89,10 +89,215 @@
 // (Unhinted) 完全依赖渲染引擎的抗锯齿和子像素渲染。去掉 hinting 数据，字体文件体积可
 // 减少 20-50%，在高 DPI（200+ PPI）屏幕上，矢量轮廓本身的精度已足够，hinting 的强制对
 // 齐反而可能造成字形扭曲，无需为每个字号单独调整 hinting 指令，避免不同渲染引擎（Windows
-// ClearType / macOS CoreText / FreeType）对 hinting 解释的差异。但主要的问题是，低分辨
-// 率发虚：在 96 DPI 的传统显示器上，小字号（<16px）可能模糊、不均匀；Windows 尤其明显：
+// ClearType / macOS CoreText / FreeType）对 hinting 解释的差异。但主要的问题是，低分
+// 辨率发虚：在 96 DPI 的传统显示器上，小字号（<16px）可能模糊、不均匀；Windows 尤其明显：
 // Windows 的 GDI 渲染传统上重度依赖 hinting，无 hinting 时回退到灰度抗锯齿，效果较差；
 // 小字号可读性下降：中文笔画复杂，低像素下容易糊成一团。为什么现代字体常提供 Unhinted
 // 版本？屏幕 DPI 演进：2000 年代 96 DPI (1x)，Hinting 至关重要；2010 年代 130 DPI
 // (Retina)，Hinting 有帮助；2020 年代 200+ DPI (4K/手机)，Hinting 基本不需要。高 DPI
 // 时代，Unhinted 成为主流选择。
+//
+// Can get look-and-feel hints from the underlying operating system, so it never
+// seems out of place. Is adaptable to the different form factors and resolution
+// ranges. Has good standard support for high contrast and other similar display
+// modes. Supports both manual layout and lightweight widget packing mechanisms;
+// stays away from heavier constraints models as much as is practical. Supports
+// animations, sounds and such, without being over-the-top by default. Supports
+// RTL, i18n and l10n out of the box. In other words, I want a modern, GPU accelerated
+// version of the Delphi VCL.
+//
+// Widgets               Containers
+//  Label                 Window
+//  Button                Panel
+//  ToggleButton          Row
+//  RangeSlider           Column
+//  Scrollbar             Grid
+//  Checkbox              Tabs
+//  Dropdown              Pills
+//  Radio Button          Dock
+//  Image                 SlidePane
+//  Video                 Modal
+//  Text Input            Accordionl
+//  Toggle Switch
+//  Progress Bar
+//  Date Picker
+//  Time Picker
+//  Slider
+//  Color Picker        Utilities
+//  Calendar             Translation Provider
+//  File Picker          Animation Provider
+//  Table                Localization Provider
+//  List                 Theme Provider
+//  Buttonbar
+//  Menubar
+//  Menu
+//  Menu Item
+//  Tooltip
+//  Badge
+//  PixelCanvas
+//
+// 风格，审美，启示，观感，真实
+//
+// https://without.boats/blog/futures-unordered/
+// https://without.boats/blog/let-futures-be-futures/
+//
+// 每个屏幕上的像素，是直接生成的实时流，没有 HTML，没有布局引擎，没有代码，仅仅是你想
+// 要看到的东西。打开浏览器，没有代码，美哟 HTML，没有 CSS 布局引擎，屏幕上每一帧画面，
+// 都是 AI 模型实时生成的像素视频流。它能瞬间理解你的意图，动态重塑整个界面，从旅行规
+// 划到复杂数据可视化，全是手绘级插图般生动，还能随点击无缝变形、交互。视频模型实现真
+// 实演示，1080p 24fps 实时流式传输，背后是 Modal GPU 服务器。一切简化为像素流，模型
+// 直接决定你看到什么、怎么交互。无需布局引擎，插图随窗口自适应变形，不再被 CSS 框死。
+// 全屏互动，任何像素都能响应点击，模型实时判断意图，不再局限于预定义按钮。视觉优先，
+// 复杂概念用插图、动画、真实渲染表达，而不是枯燥文字和矩形框。(WebSocket)
+//
+// https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html
+//
+// 指令（instructions）
+//
+//  1.  字（Word）：32 位。
+//  2.  标识符<id>：一个数值名称，用来表示一个对象、类型、函数、标签等。每个 <id> 总占
+//      用一个字，一个模块（module）中定义的<id>遵循静态单赋值（SSA）原则。
+//  3.  结果 Result <id>：绝大多数指令都会定义一个结果，并由指令显式给出的 <id> 命名。
+//      该 Result <id> 可在其他指令里作为操作数。
+//  4.  字面量（Literal）：立即数，不是标识符<id>。超过一个字长的字面量会占用多个操作数，
+//      每个占一个字长。指令会说明该字面量将被解释成何种类型。
+//      字符串，视为以 NULL 结尾的字符流，所有字符区分大小写，字符集为 UTF-8。UTF-8 的
+//      字节按小端每4个字节打包进一个字中，即第一个字节占字的最低8位，最后一个字包含NUL
+//      终止符，其后多位全部填零。
+//      数值字面量，若数值类型的位宽小于32位，值放在字的低有效位，高有效位对于浮点或符
+//      号位为0的整数填0，而对于符号位为1的整数做符号位扩展必须都填1。位宽大于 32 位但
+//      非 32 位整数倍时，剩余位也按同样规则处理。
+//  5.  操作数（Operand）：一个指令的单字长参数，可以是一个标识符 <id>，或者是一个字面
+//      量，或部分是一个字面量。其具体形式由操作码明确指定。
+//  6.  字计数（WordCount）：一条指令所占的全部字数，包括字计数本身和操作码，以及所有可
+//      选操作数。换言之，指令的 WordCount 即该指令在二进制流里占用的总空间。
+//  7.  指令（Instruction）：模块头部之后，模块就是由一个指令列表组成。一条指令包含一个
+//      字计数（WordCount），一个操作码（Opcode），一个可选的结果 Result <id>，一个可选
+//      的表示指令类型的 <id>，和一个可变长度的操作数（Operand）列表。所有指令的操作码
+//      及语义均在后面的指令章节列出。
+//  8.  修饰符（Decoration）：表示附加信息，例如内建（built-in）变量、流（stream）编号、
+//      不变性（invariance）、插值方式（interpolation type）、宽松精度（relaxed precision）
+//      等，通过修饰符指令附加到 <id> 或结构体成员上。所有修饰符枚举见后面的二进制形式
+//      章节修饰符部分。
+//  9.  对象（Object）：一个非 void 类型的实例，可表现为：某一运算操作的 Result <id>，或
+//      通过 OpVariable 创建的变量。
+//  10. 内存对象（Memory Object）：一个由 OpVariable 创建的对象。若为函数变量，仅在函数
+//      期间存在；否则在整个 invocation 期间存在。
+//  11. 内存对象声明（Memory Object Declaration）：一个变量（OpVariable），或者一个指针
+//      类型的函数参数（OpFunctionParameter），或者一个变量的内容，它持有一个 PhysicalStorageBuffer
+//      存储类型的指针，或此类指针的数组。
+//  12. 中间对象/值/结果（Intermediate Object / Value / Result）：由运算指令（而非 OpVariable
+//      分配的内存）创建的对象，并在最后一次使用后即消亡。
+//  13. 常量指令（Constant Instruction）：特化常量（specialization-constant）指令（以 OpSpec
+//      开头）或非特化常量指令（以 OpConstant 开头）。
+//  14. 区间记号：[a, b] 表示闭区间（含端点），(a, b] 表示开闭区间（不含 a 但含 b），以此类推。
+//  15. 非语义指令（Non-Semantic Instruction）：对程序语义无影响的指令，可安全地从模块中删除。
+//  16. 提示（Hint）：向编译器暗示某属性多半成立，或请求编译器执行特定转换。它们不改变程序
+//      语义。除非另有说明，编译器不得假定该属性一定成立，也不得假定该转换总是安全可行。
+//
+// OpenGL 是一种编程接口，可以对图形硬件设备特性进行访问的软件库。OpenGL 官方参考文档
+// http://www.opengl-redbook.com/。在应用层面，OpenGL 4.5 最大的更新是引入了直接状态
+// 访问（Direct State Access, DSA），这是对 OpenGL 编程模型以及应用程序访问对象方式的
+// 全面革新。OpenGL 4.5 引入的新编程模型，允许直接修改对象状态而无需先绑定对象。此外，
+// 随着将越来越多的功能转移到图形处理器的趋势持续发展，本书更多地致力于着色器功能和 GPU
+// 处理相关内容。OpenGL 本身并不包含任何执行窗口任务或者处理用户输入的函数，于此类似，
+// OpenGL 也没有提供任何用于表达三维物体模型、或者读取图像文件的操作。这个时候，我们需
+// 要通过一系列的几何图元（geometric primitives）来创建三维空间中的物体，包括点、线、
+// 三角形、和 Patch。OpenGL 是使用客户端-服务端的形式实现的，我们编写的应用程序可以看作
+// 客户端，而计算机图形硬件厂商所提供的 OpenGL 实现可看作是服务端。OpenGL 的某些实现
+// （例如 X 窗口系统的实现）允许服务端和客户端在一个网络内的不同计算机上运行。这种情况
+// 下，客户端负责提交 OpenGL 命令，这些命令然后被转换为窗口系统相关的协议，通过共享网络
+// 传输到服务器，最终执行并产生图像内容。
+//
+// 所有 OpenGL 程序的基本结构通常都是类似的，一是初始化物体关联的状态，这些状态决定物体
+// 如何渲染，二是设置这些需要渲染的物体。
+//
+//  1.  数学图元（primitives），点、线、三角形、Patch，各种不同的着色器（shaders）可
+//      以对图元进行计算，来确定它们的位置、颜色、和其他渲染（rendering）属性
+//  2.  屏幕片元（fragments），将输入图元的数学描述转换为与屏幕位置对应的像素片元，也
+//      称为光栅化（rasterization），最后针对光栅化过程产生的每个片元，可以执行片元着
+//      色器（fragment shader），来决定这个片元的最终颜色和位置。如果有必要，还可以对
+//      每个片元执行一些额外的操作（per-fragment operations），来决定片元对应的对象是
+//      否可见，或者将片元的颜色与当前屏幕位置的颜色进行融合（blending）。
+//  3.  渲染（rendering），表示计算机从模型（model）创建最终图像（image）的过程。OpenGL
+//      只是其中一种渲染系统，它是基于光栅化（rasterization-based）的系统，但是也有别
+//      方法用于生成图像，例如光线追踪（ray tracing），而这类技术已经超出了本书的介绍
+//      范围。不过，即使一个系统使用了光线追踪技术，同样有可能需要用到 OpenGL 来显式图
+//      像，或者计算图像生成所需的信息。此外，OpenGL 最新版本所提供的灵活性已经变得如此
+//      之大，以至于诸如光线追踪（ray tracing）、光子映射（photon mapping）、路径追踪
+//      （path tracing）以及基于图像的渲染（image-based rendering）等算法，在可编程图
+//      形硬件上的实现已变得相对容易。光线追踪，通过追踪光线路径模拟真实光照，生成高质量
+//      图像。光子映射，预计算光子传播路径，用于全局光照模拟。路径追踪，光线追踪的蒙特卡
+//      洛变体，通过随机采样路径求解渲染方程。基于图像的渲染，利用现有图像（照片、环境贴
+//      图）合成新视角图像，而非纯几何计算。可编程图形硬件，支持着色器编程的 GPU，区别于
+//      早期固定功能管线。
+//  4.  模型（models）或物体、对象（objects），是由图元（点、线、三角形）构建的，而图
+//      元通过它们的顶点（vertices）指定。
+//  5.  着色器（shaders）是另一个 OpenGL 最本质的概念，它是图形硬件设备所执行的一类特
+//      殊函数。理解着色器最好的办法是把它看作专门为图形处理单元（GPU）编译的一种小型
+//      程序。OpenGL 在其内部包含了所有的编译器工具，可以直接从着色器源代码创建 GPU 所
+//      需的代码并执行。在 OpenGL 中，有六个不同的着色阶段（shader stages）。其中最常
+//      用的是顶点着色（vertex shader）用于处理顶点数据，和片元着色（fragment shader）
+//      用于处理光栅化后的片元数据。
+//  6.  像素（pixel）是显示器上最小的可见单元，最终生成的图像包含了屏幕上绘制的所有像素
+//      点。计算机系统将所有的像素保存在一个帧缓存（framebuffer）中，此为图形硬件设备
+//      管理的一块独立内存区域，可以直接映射到最终的显式设备上。
+//
+// 窗口上下文创建、提供输入和事件
+// https://github.com/glfw/glfw
+// for creating windows, contexts and surfaces, receiving input and events
+//
+// 加载 OpenGL 核心规范功能，是获取OpenGL核心配置文件规范所提供功能的最简单方法
+// https://github.com/skaslev/gl3w
+// Simple opengl core profile loading, get your hands on the functionality
+// offered by the opengl core profile specification. Its main part is a simple
+// gl3w_gen.py Python script that downloads the Khronos supported glcorearb.h
+// header and generates gl3w.h and gl3w.c from it. Those files can then be
+// added and linked (statically or dynamically) into your project.
+//
+// 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
+// https://github.com/Dav1dde/glad  https://gen.glad.sh/
+// Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
+// specifications for multiple languages.
+//
+// OpenGL 编程接口完整列表和参考，并包含各版本 API 参考页面集合
+// https://github.com/KhronosGroup/OpenGL-Refpages
+//  . es1.1 - OpenGL ES 1.1 (fixed function)
+//  . es2.0 3.0 3.1 - OpenGL ES 2.0 3.0 3.1
+//  . es3 - OpenGL ES 3.x (will always be the latest ES, currently 3.2)
+//  . gl2.1 - OpenGL 2.1 (including fixed functionality)
+//  . gl4/html/index.php - OpenGL 4.x (always be the latest GL, currently 4.6)
+//
+// OpenGL 标准头文件和扩展头文件。由于扩展因平台和驱动而异，OpenGL 开发人员不能期望所有
+// 扩展的接口都定义在操作系统/显卡驱动提供的标准 gl.h、glx.h 和 wgl.h 头文件中，因此提
+// 供了额外的头文件。这些头文件定义的接口包括枚举常量、函数原型，以及对于支持动态运行时扩
+// 展查询的平台（如 Linux 和 Microsoft Windows），还包括函数指针类型定义。
+//  . <GL/gl.h>
+//  . <GL/glx.h>
+//  . <GL/wgl.h>
+//  . <GL/glcorearb.h> OpenGL 核心配置文件和 ARB 扩展接口，如《OpenGL 4.3 规范》附
+//    录 G.2 所述。不包含仅存在于兼容配置文件中的接口。
+//  . <GL/glext.h> OpenGL 1.2 及以上版本的兼容配置文件和扩展接口。
+//  . <GL/glxext.h> GLX 1.3 及以上版本的 API 和 GLX 扩展接口。
+//  . <GL/wglext.h> WGL 扩展接口。
+//
+// https://registry.khronos.org/OpenGL/index_gl.php
+// https://github.com/KhronosGroup/OpenGL-Registry/pull/183
+//
+// 以上几乎所有的头文件都依赖于一个称为 <KHR/khrplatform.h> 的跨平台头文件，该文件为多
+// 个 Khronos API 所共用。Khronos 共享平台头文件<KHR/khrplatform.h>，所有 OpenGL 头
+// 文件都依赖于来自 EGL Registry 的共享 <KHR/khrplatform.h> 头文件。这是一个新增的依
+// 赖关系，在上面链接所示的 OpenGL-Registry 拉取请求中引入，旨在增强 OpenGL 与 OpenGL
+// ES 头文件之间的兼容性。
+//
+// OpenGL 函数名称都以 gl 开头，常量名称 GL_COLOR，OpenGL 基本数据类型和后缀名称如下，
+// glUniform2f 表示传入 2 个浮点类型参数，glUniform2fv表示传入一个向量（vector）参数，
+// 其中包含 2 个浮点类型数据。
+//  . GLbyte                    b       有符号字节型
+//  . GLubyte                   ub      无符号字节型
+//  . GLshort                   s       有符号短整型
+//  . GLushort                  us      无符号短整型
+//  . GLint GLsizei             i       有符号32位整型
+//  . GLuint GLenum GLbitfield  ui      无符号32位整型
+//  . GLfloat GLclampf          f       float
+//  . GLdouble GLclampd         d       double
