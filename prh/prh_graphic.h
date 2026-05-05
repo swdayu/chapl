@@ -475,3 +475,153 @@
 // OpenGL Context 关联到这个窗口上。要开始使用这个上下文，需要将它设置成当前上下文。一
 // 个程序可以有多个上下文和多个窗口，而当前上下文（current context）是当前处理命令的这
 // 个上下文。实际上，你程序中的每个线程都有一个对应的当前上下文。
+//
+// 顶点数组对象（VAO，Vertex Array Object），创建函数会返回顶点数组对象的名字，该名字    *** 顶点数组对象（VAO）
+// 相当于 C 语言中的指针，指向分配在内存中的顶点数组对象。调用 glGetError() 可以判断调
+// 用 OpenGL 函数后是否报错，OpenGL 的多个错误可能累积，需循环查询知道无错误（GL_NO_ERROR）
+// 为止。错误独立存在于每个 OpenGL 线程上下文中。
+//
+// void glCreateVertexArrays(GLsizei n, GLuint *arrays); // 4.5+
+// void glGenVertexArrays(GLsizei n, GLuint *arrays); // 3.0+
+// GLboolean glIsVertexArray(GLuint array); // 3.0+
+//
+// 参数 n 表示创建顶点数组对象的个数，参数 arrays 指向 uint 数组，该数组的每个元素接收
+// 数组的新顶点数组对象的名字。返回 n 个未使用的顶点数组对象的名称，每个都表示一个初始化
+// 为默认状态的顶点数组对象。如果 n 为负数，则返回错误 GL_INVALID_VALUE。通过调用函数
+// glGenVertexArrays() 创建的顶点数组对象，必须 glBindVertexArray 进行绑定，才是一个
+// glIsVertexArray 对象。另外，如果 array 为零，或者 array 不是一个顶点对象的名字，或
+// 者有错误发生，glIsVertexArray 都会返回 GL_FALSE。
+//
+// void glBindVertexArray(GLuint array); // 3.0+
+// void glDeleteVertexArrays(GLsizei n, const GLuint *arrays); // 3.0+
+//
+// glDeleteVertexArrays 删除 n 个顶点数组对象，置为无内容未使用状态。如果 n 为负数，则
+// 返回错误 GL_INVALID_VALUE。一旦顶点数组对象被删除，它便不再包含任何内容，其名称也重
+// 新变为未使用状态。如果当前绑定的顶点数组对象被删除，该类对象的绑定将恢复为零，即默认顶
+// 点数组变为当前数组。默认顶点数组是绑定为 0 时的隐式 VAO（兼容旧代码）。arrays 中未使
+// 用的名称（无效的未生成的或已删除的）将被静默忽略，零值同样如此。
+//
+// glBindVertexArray 绑定名为 array 的顶点数组对象。array 是先前通过调用 glGenVertexArrays
+// 返回的顶点数组对象名称，如果不存在名为 array 的顶点数组对象，即仅仅生成但还没有调用过
+// glBindVertexArray 则在首次绑定时会创建一个，并将新创建的对象与提供的 array 名称进行
+// 关联，如果顶点数组对象已经创建，那么会激活这个顶点数组对象（即进行绑定）。或者为零以解
+// 除现有顶点数组对象的绑定，那么 OpenGL 将不再使用程序所分配的任何顶点数组对象，并且将渲
+// 染状态重设为顶点数组的默认状态。如果绑定成功，顶点数组对象的状态不会发生任何改变，并且
+// 任何先前的顶点数组对象绑定将被解除。如果 array 不为零，且不是先前通过调用 glGenVertexArrays
+// 返回的顶点数组对象名称，则产生 GL_INVALID_OPERATION 错误。绑定对象的过程有点类似设置
+// 铁路的道岔开关，一旦设置了开关，从这条线路通过的所有列车都会驶向对应的轨道，如果设置到
+// 另一状态，那么所有之后经过的列车都会驶向另一条轨道。总统来讲，在两种情况下我们需要绑定
+// 一个对象：创建对象并初始化它所对应的数据时，以及我们准备使用不是当前绑定的对象时。
+//  1.  array 为零，解除绑定
+//  2.  array 为 glGenVertexArrays 生成但为创建，首次绑定时自动创建
+//  3.  array 为 glGenVertexArrays 生成但重复绑定，合法无操作状态不变
+//  4.  array 为任意随机整数或已被 glDeleteVertexArrays 删除，GL_INVALID_OPERATION
+//
+// 与 OpenGL 4.5+ 引入的直接状态访问（DSA）相比，许多操作都无限绑定，直接通过对象作为函
+// 数的第一个参数进行访问修改。但 glBindVertexArray 本身仍是必要的，它决定了当前渲染使
+// 用哪个顶点数组对象（VAO）。对 glCreateVertexArrays 调用 glBindVertecArray 相当于
+// 对已经创建好的顶点数组对象进行绑定。
+//
+// 缓存对象（Buffer Object）。OpenGL 需要将几乎所有传入的数据都保存到缓存对象中，它相当
+// 于 OpenGL 服务端分配和管理的一块内存区域。缓存区域可以存储各种各样的对象，这些对象称为
+// 缓存对象目标（buffer object target）。顶点数组对象就是其中一种需要存储在缓存对象中
+// 的对象，顶点数组对象相当于仅仅是一个用于区分其他对象类型的包装器，是对缓存对象区域的引
+// 用或描述符，它实际的顶点属性数据都存储在缓存对象中。
+//
+// void glGenBuffers(GLsizei n, GLuint *buffers); // 2.0+
+// void glCreateBuffers(GLsizei n, GLuint *buffers); // 4.5+
+// void glDeleteBuffers(GLsizei n, const GLuint *buffers); // 2.0+
+// GLboolean glIsBuffer(GLuint buffer); // 2.0+
+//
+// 调用 glGenBuffers 之后，没有缓存对象与名字相关联，直到首次调用 glBindBuffer。如果
+// n 为负数，返回 GL_INVALID_VALUE 错误。glCreateBuffers 会之间创建与名字关联的缓存
+// 对象。如果删除已经绑定了缓存对象，绑定重新设置为 0（没有绑定任何缓存对象）。如果当前
+// 的名字是缓存对象，glIsBuffer 返回 GL_TRUE，如果 buffer 为零，或者非零的非缓存对象
+// 名字，或者有错误发生，都返回 GL_FALSE。如果是一个 glGenBuffers 名字，如果还没有调
+// 用 glBindBuffer 绑定，也不是一个缓存对象。
+//
+// void glBindBuffer(GLenum target, GLuint buffer); // 2.0+
+// void glGetBooleanv(GLenum type, GLboolean *data); // 2.0+
+// void glGetBooleani_v(GLenum target, GLuint index, GLboolean *data); // 3.0+
+// void glGetDoublev(GLenum type, GLdouble *data); // 2.0+
+// void glGetDoublei_v(GLenum target, GLuint index, GLdouble *data); // 4.1+
+// void glGetFloatv(GLenum type, GLfloat *data); // 2.0+
+// void glGetFloati_v(GLenum target, GLuint index, GLfloat *data); // 4.1+
+// void glGetIntegerv(GLenum type, GLint *data); // 2.0+
+// void glGetIntegeri_v(GLenum target, GLuint index, GLint *data); // 3.0+
+// void glGetInteger64v(GLenum type, GLint64 *data); // 3.2+
+// void glGetInteger64i_v(GLenum target, GLuint index, GLint64 *data); // 3.2+
+//
+// glBindBuffer 绑定一个 target 类型的缓存对象，glBindBuffer 将缓冲区对象绑定到指定的
+// 缓冲区绑定点。调用 glBindBuffer 时，target 设置为某个可接受的常量，buffer 设置为缓
+// 冲区对象的名称，则该缓冲区对象名称被绑定到该目标。如果不存在名为 buffer 的缓冲区对象，
+// 则会创建一个具有该名称的缓冲区对象。当缓冲区对象被绑定到某个目标时，该目标先前的绑定将
+// 自动解除。缓冲区对象名称是无符号整数，零是保留值，但每个缓冲区对象目标没有默认绑定的缓
+// 冲区对象。相反，将 buffer 设置为零实际上会解除先前绑定的任何缓冲区对象，并恢复该缓冲区
+// 对象目标的客户端内存使用（如果该目标支持的话）。缓冲区对象名称及其对应的缓冲区对象内容
+// 对于当前 GL 渲染上下文的共享对象空间是局部的；两个渲染上下文只有在通过适当的 GL 窗口
+// 接口函数显式启用上下文间共享时，才会共享缓冲区对象名称。需要调用 glGenBuffers 来生成
+// 一组未使用的缓冲区对象名称。如果 target 不是允许的值之一，则产生 GL_INVALID_ENUM 错
+// 误。如果 buffer 不是先前通过调用 glGenBuffers 返回的名称，则产生 GL_INVALID_VALUE
+// 错误。
+//
+// 缓冲区对象首次绑定后的状态是一个未映射的、大小为零的内存缓冲区，具有 GL_READ_WRITE
+// 访问权限和 GL_STATIC_DRAW 使用方式。当绑定了非零缓冲区对象名称时，对其所绑定目标的
+// GL 操作会影响该绑定的缓冲区对象，对该目标的查询会返回该绑定缓冲区对象的状态。当绑定了
+// 缓冲区对象名称零时，如在初始状态下，尝试修改或查询其所绑定目标的状态会产生 GL_INVALID_OPERATION
+// 错误。通过 glBindBuffer 创建的缓冲区对象绑定将保持活动状态，直到不同的缓冲区对象名称
+// 被绑定到同一目标，或者直到绑定的缓冲区对象被 glDeleteBuffers 删除。一旦创建，命名的
+// 缓冲区对象可以根据需要多次重新绑定到任何目标。但是，GL 实现可能会根据其初始绑定目标对
+// 如何优化缓冲区对象的存储做出选择。
+//
+// 当非零缓冲区对象绑定到 GL_ARRAY_BUFFER 目标时，顶点数组指针参数（the vertex array
+// pointer parameter）被解释为缓冲区对象中以基本机器单位度量的偏移量。
+//
+// 当非零缓冲区对象绑定到 GL_DRAW_INDIRECT_BUFFER 目标时，通过 glDrawArraysIndirect
+// 和 glDrawElementsIndirect 发出的绘制参数从该缓冲区对象数据存储中的指定偏移量获取。
+//
+// 当非零缓冲区对象绑定到 GL_DISPATCH_INDIRECT_BUFFER 目标时，通过 glDispatchComputeIndirect
+// 发出的计算调度参数从该缓冲区对象数据存储中的指定偏移量获取。
+//
+// 当非零缓冲区对象绑定到 GL_ELEMENT_ARRAY_BUFFER 目标时，glDrawElements、glDrawElementsInstanced、
+// glDrawElementsBaseVertex、glDrawRangeElements、glDrawRangeElementsBaseVertex、
+// glMultiDrawElements 或 glMultiDrawElementsBaseVertex 的 indices 参数被解释为缓
+// 冲区对象中以基本机器单位度量的偏移量。
+//
+// 当非零缓冲区对象绑定到 GL_PIXEL_PACK_BUFFER 目标时，以下命令会受到影响：glGetCompressedTexImage、
+// glGetTexImage 和 glReadPixels。pointer 参数被解释为缓冲区对象中以基本机器单位度量
+// 的偏移量。
+//
+// 当非零缓冲区对象绑定到 GL_PIXEL_UNPACK_BUFFER 目标时，以下命令会受到影响：glCompressedTexImage1D、
+// glCompressedTexImage2D、glCompressedTexImage3D、glCompressedTexSubImage1D、
+// glCompressedTexSubImage2D、glCompressedTexSubImage3D、glTexImage1D、glTexImage2D、
+// glTexImage3D、glTexSubImage1D、glTexSubImage2D 和 glTexSubImage3D。pointer 参数
+// 被解释为缓冲区对象中以基本机器单位度量的偏移量。
+//
+// 提供 GL_COPY_READ_BUFFER（3.1+）和 GL_COPY_WRITE_BUFFER 缓冲区目标，是为了允许使用 glCopyBufferSubData
+// 而不干扰其他绑定的状态。但是，glCopyBufferSubData 可以与任意一对缓冲区绑定点一起使
+// 用。GL_TRANSFORM_FEEDBACK_BUFFER 缓冲区绑定点可以传递给 glBindBuffer，但不会直接
+// 影响变换反馈状态。相反，必须通过调用 glBindBufferBase 或 glBindBufferRange 来使用
+// 索引化的 GL_TRANSFORM_FEEDBACK_BUFFER 绑定。这将影响通用的 GL_TRANSFORM_FEEDBACK_BUFFER
+// 绑定。同样，GL_UNIFORM_BUFFER（3.1+）、GL_ATOMIC_COUNTER_BUFFER（4.2+） 和 GL_SHADER_STORAGE_BUFFER（4.3+）
+// 缓冲区绑定点也可以使用，但分别不会直接影响 uniform 缓冲区、原子计数器缓冲区或着色器存
+// 储缓冲区的状态。必须使用 glBindBufferBase 或 glBindBufferRange 将缓冲区绑定到索引
+// 化的 uniform 缓冲区、原子计数器缓冲区或着色器存储缓冲区绑定点。GL_QUERY_BUFFER（4.4+） 绑定
+// 点用于指定一个缓冲区对象，该对象将通过 glGetQueryObject 系列命令接收查询对象的结果。
+//
+// 可用的缓存绑定目标类型，以及关联的 glGet 参数：
+//      常量                        glGet 参数                              用途和目的
+//      GL_ARRAY_BUFFER             GL_ARRAY_BUFFER_BINDING                顶点属性数据，位置、颜色、法线、纹理坐标等（Vertex Attributes，2.0+）
+//      GL_ELEMENT_ARRAY_BUFFER     GL_ELEMENT_ARRAY_BUFFER_BINDING        顶点数组索引，图元装配用（Vertex Array Indices，2.0+）
+//      GL_ATOMIC_COUNTER_BUFFER    GL_ATOMIC_COUNTER_BUFFER_BINDING       原子计数器存储，用于着色器中的原子操作（Atomic Counter Storage，4.2+）
+//      GL_COPY_READ_BUFFER         GL_COPY_READ_BUFFER_BINDING            缓冲区复制源（Buffer Copy Source，3.1+）
+//      GL_COPY_WRITE_BUFFER        GL_COPY_WRITE_BUFFER_BINDING           缓冲区复制目标（Buffer Copy Destination，3.1+）
+//      GL_DISPATCH_INDIRECT_BUFFER GL_DISPATCH_INDIRECT_BUFFER_BINDING    间接计算调度命令（4.3+）
+//      GL_DRAW_INDIRECT_BUFFER     GL_DRAW_INDIRECT_BUFFER_BINDING        间接绘制命令参数（4.0+）
+//      GL_PIXEL_PACK_BUFFER        GL_PIXEL_PACK_BUFFER_BINDING           像素打包缓冲区，像素读取目标（Pixel Read Target，2.1+）
+//      GL_PIXEL_UNPACK_BUFFER      GL_PIXEL_UNPACK_BUFFER_BINDING         像素解包缓冲区，纹理数据源（Texture Data Source，2.1+）
+//      GL_SHADER_STORAGE_BUFFER    GL_SHADER_STORAGE_BUFFER_BINDING       着色器存储（Shaders Read-Write Storage，4.3+）
+//      GL_TEXTURE_BUFFER           GL_TEXTURE_BINDING_BUFFER              纹理缓冲区（Texture Data Buffer，3.1+）
+//      GL_TRANSFORM_FEEDBACK_BUFFER GL_TRANSFORM_FEEDBACK_BUFFER_BINDING  变换反馈缓冲区，变换反馈捕获的顶点数据
+//      GL_UNIFORM_BUFFER           GL_UNIFORM_BUFFER_BINDING              Uniform 块数据（UBO，Uniform Block Storage，3.1+）
+//      GL_QUERY_BUFFER             ---                                    查询结果存储（Query Result Buffer，4.4+）
