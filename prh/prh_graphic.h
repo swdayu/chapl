@@ -290,6 +290,104 @@
 // 赖关系，在上面链接所示的 OpenGL-Registry 拉取请求中引入，旨在增强 OpenGL 与 OpenGL
 // ES 头文件之间的兼容性。
 //
+// void glEnable(GLenum capability); // 2.0+
+// void glEnablei(GLenum capability, GLuint index); // 3.0+
+// void glDisable(GLenum capability); // 2.0+
+// void glDisablei(GLenum capability, GLuint index); // 3.0+
+// GLboolean glIsEnabled(GLenum capability); // 2.0+
+// GLboolean glIsEnabledi(GLenum capability, GLuint index); // 3.0+
+//
+// 启用或禁用服务器端 GL 功能。glEnable 和 glDisable 用于启用和禁用各种功能。使用 glIsEnabled
+// 或 glGet 来确定任何功能的当前设置。除 GL_DITHER 和 GL_MULTISAMPLE 外，每个功能的初
+// 始值均为 GL_FALSE。GL_DITHER 和 GL_MULTISAMPLE 的初始值为 GL_TRUE。glEnable 和
+// glDisable 均接受单个参数 cap，该参数可假定为以下值之一。部分 GL 功能是索引化的，
+// glEnablei 和 glDisablei 用于启用和禁用索引化的功能。如果 cap 不是上述列出的值之一，
+// 则生成 GL_INVALID_ENUM。如果 index 大于或等于 cap 的索引化功能数量，则 glEnablei
+// 和 glDisablei 生成 GL_INVALID_VALUE。glEnable 或 glDisable 接受的任何标记也都被
+// glEnablei 和 glDisablei 接受，但如果该功能不是索引化的，则 index 可取的最大值为零。
+// 一般来说，将索引化功能传递给 glEnable 或 glDisable 将分别启用或禁用该功能的所有索引。
+//
+// GL_BLEND
+//      如果启用，将计算出的片段颜色值与颜色缓冲区中的值进行混合。参见 glBlendFunc。
+// GL_CLIP_DISTANCE i
+//      如果启用，根据用户定义的半空间 i 裁剪几何体。
+// GL_COLOR_LOGIC_OP
+//      如果启用，将当前选定的逻辑运算应用于计算出的片段颜色和颜色缓冲区值。参见 glLogicOp。
+// GL_CULL_FACE
+//      如果启用，根据多边形在窗口坐标中的绕向来剔除多边形。参见 glCullFace。
+// GL_DEBUG_OUTPUT（4.3+）
+//      如果启用，调试上下文会产生调试消息。禁用时，调试消息日志将被静默。注意，在非调试
+//      上下文中，即使启用了 GL_DEBUG_OUTPUT，也可能很少或根本不产生消息。
+// GL_DEBUG_OUTPUT_SYNCHRONOUS（4.3+）
+//      如果启用，调试上下文会同步产生调试消息。如果禁用，调试消息可能异步产生。特别是，
+//      它们可能相对于 GL 命令的执行有所延迟，且调试回调函数可能从执行命令的线程以外的线
+//      程被调用。参见 glDebugMessageCallback。
+// GL_DEPTH_CLAMP
+//      如果启用，视图体裁剪将忽略 −wc≤zc≤wc 平面方程（实际上，不存在近或远平面裁剪）。
+//      参见 glDepthRange。
+// GL_DEPTH_TEST
+//      如果启用，执行深度比较并更新深度缓冲区。注意，即使深度缓冲区存在且深度掩码非零，
+//      如果禁用了深度测试，深度缓冲区也不会更新。参见 glDepthFunc 和 glDepthRange。
+// GL_DITHER
+//      如果启用，在将颜色分量或索引写入颜色缓冲区之前对其进行抖动处理。
+// GL_FRAMEBUFFER_SRGB
+//      如果启用，且对应目标缓冲区的帧缓冲区附件的 GL_FRAMEBUFFER_ATTACHMENT_COLOR_ENCODING
+//      值为 GL_SRGB，则 R、G 和 B 目标颜色值（从定点转换为浮点后）被视为已编码为 sRGB
+//      颜色空间，因此在使用于混合之前会先进行线性化处理。
+// GL_LINE_SMOOTH
+//      如果启用，使用正确的过滤绘制线条。否则，绘制锯齿线。参见 glLineWidth。
+// GL_MULTISAMPLE
+//      如果启用，在计算像素的最终颜色时使用多个片段样本。参见 glSampleCoverage。
+// GL_POLYGON_OFFSET_FILL
+//      如果启用，且多边形以 GL_FILL 模式渲染，则在执行深度比较之前向多边形片段的深度值
+//      添加偏移量。参见 glPolygonOffset。
+// GL_POLYGON_OFFSET_LINE
+//      如果启用，且多边形以 GL_LINE 模式渲染，则在执行深度比较之前向多边形片段的深度值
+//      添加偏移量。参见 glPolygonOffset。
+// GL_POLYGON_OFFSET_POINT
+//      如果启用，且多边形以 GL_POINT 模式渲染，则在执行深度比较之前向多边形片段的深度
+//      值添加偏移量。参见 glPolygonOffset。
+// GL_POLYGON_SMOOTH
+//      如果启用，使用适当的过滤绘制多边形。否则，绘制锯齿多边形。为了正确实现抗锯齿多边
+//      形，需要 Alpha 缓冲区，且多边形必须按从前到后的顺序排序。
+// GL_PRIMITIVE_RESTART（3.1+）
+//      启用图元重启。如果启用，任何将一组通用属性数组元素传输到 GL 的绘制命令，当顶点索
+//      引等于图元重启索引时，将重启图元。参见 glPrimitiveRestartIndex。
+// GL_PRIMITIVE_RESTART_FIXED_INDEX（4.3+）
+//      使用固定索引启用图元重启。如果启用，任何将一组通用属性数组元素传输到 GL 的绘制命
+//      令，当顶点索引等于指定索引类型的固定图元索引时，将重启图元。固定索引等于 2^n−1，
+//      其中 n 对于 GL_UNSIGNED_BYTE 等于 8，对于 GL_UNSIGNED_SHORT 等于 16，对于
+//      GL_UNSIGNED_INT 等于 32。
+// GL_RASTERIZER_DISCARD
+//      如果启用，图元在可选的变换反馈阶段之后、光栅化之前被丢弃。此外，启用时，glClear、
+//      glClearBufferData、glClearBufferSubData、glClearTexImage 和 glClearTexSubImage
+//      将被忽略。
+// GL_SAMPLE_ALPHA_TO_COVERAGE
+//      如果启用，计算一个临时覆盖值，其中每个位由对应样本位置的 Alpha 值决定。然后将临
+//      时覆盖值与片段覆盖值进行按位与（AND）运算。
+// GL_SAMPLE_ALPHA_TO_ONE
+//      如果启用，每个样本的 Alpha 值被替换为可表示的最大 Alpha 值。
+// GL_SAMPLE_COVERAGE
+//      如果启用，片段的覆盖值与临时覆盖值进行按位与（AND）运算。如果 GL_SAMPLE_COVERAGE_INVERT
+//      设置为 GL_TRUE，则反转覆盖值。参见 glSampleCoverage。
+// GL_SAMPLE_SHADING
+//      如果启用，活动片段着色器对每个被覆盖的样本运行一次，或按 GL_MIN_SAMPLE_SHADING_VALUE
+//      当前值确定的该速率的一部分运行。参见 glMinSampleShading。
+// GL_SAMPLE_MASK
+//      如果启用，光栅化期间为片段生成的样本覆盖掩码将在着色发生之前与 GL_SAMPLE_MASK_VALUE
+//      的值进行按位与（AND）运算。参见 glSampleMaski。
+// GL_SCISSOR_TEST
+//      如果启用，丢弃裁剪矩形之外的片段。参见 glScissor。
+// GL_STENCIL_TEST
+//      如果启用，执行模板测试并更新模板缓冲区。参见 glStencilFunc 和 glStencilOp。
+// GL_TEXTURE_CUBE_MAP_SEAMLESS（3.2+）
+//      如果启用，立方体贴图纹理的采样方式使得从两个相邻面之间的边界进行线性采样时，使用
+//      来自两个面的纹理元素来生成最终采样值。禁用时，仅使用单个面的纹理元素来构造最终采
+//      样值。
+// GL_PROGRAM_POINT_SIZE
+//      如果启用且顶点或几何着色器处于活动状态，则派生点大小取自（可能被裁剪的）着色器内
+//      置变量 gl_PointSize，并钳制到实现相关的点大小范围。
+//
 // OpenGL 函数名称都以 gl 开头，常量名称 GL_COLOR，OpenGL 基本数据类型和后缀名称如下，
 // glUniform2f 表示传入 2 个浮点类型参数，glUniform2fv表示传入一个向量（vector）参数，
 // 其中包含 2 个浮点类型数据。
@@ -310,13 +408,13 @@
 // 和片元着色是必需的，细分着色和几何着色是可选步骤。
 //
 //  1.  顶点数据（Vertex Data），OpenGL 需要将所有的数据都保存到缓存对象（buffer objects）
-//      中，它相当于 OpenGL 服务端维护的一块内存区域。我们可以使用多种方式来创建这样的
-//      数据缓存，不过最常用的方法是使用下面的函数，我们还需要对这些缓存做一些额外的设置。
-//      当讲缓存初始化完毕之后，我们可以通过 OpenGL 的绘图命令请求渲染几何图元，例如使
-//      用函数 glDrawArrays()。OpenGL 的绘制通常就是将顶点数据传输到 OpenGL 服务端，可
-//      以将一个顶点（vertex）视为一个需要统一处理的数据包。这个包中的数据可以是我们需要
-//      的任何数据（我们自己负责定义构成顶点的所有数据），通常其中始终包含位置信息，其他
-//      数据例如决定像素的最终颜色。更详细的绘制命令将在使用 OpenGL 绘制章节中涵盖。
+//      中，它相当于 OpenGL 服务端维护的一块内存区域。我们有多种方式用数据填充这些缓冲区，
+//      不过最常用的方法是使用下面的函数，我们还需要对这些缓存做一些额外的设置。当将缓存
+//      初始化完毕之后，我们可以通过 OpenGL 的绘图命令请求渲染几何图元，例如使用函数
+//      glDrawArrays()。OpenGL 的绘制通常就是将顶点数据传输到 OpenGL 服务端，可以将一
+//      个顶点（vertex）视为一个需要统一处理的数据包。这个包中的数据可以是我们需要的任何
+//      数据（我们自己负责定义构成顶点的所有数据），通常其中始终包含位置信息，其他数据例
+//      如决定像素的最终颜色。更详细的绘制命令将在使用 OpenGL 绘制章节中涵盖。
 //          glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage);
 //          glNamedBufferStorage(GLenum target, GLsizeiptr size, const void *data, GLbitfield flags);
 //          glDrawArrays(GLenum mode, GLint first, GLsizei count);
