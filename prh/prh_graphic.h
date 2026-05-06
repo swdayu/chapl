@@ -736,3 +736,128 @@
 //             ↑ 可选，非相干模式需要
 //      清理时：
 //        glUnmapNamedBuffer // 仅程序结束时
+//
+// 初始化顶点和片元着色器。对于每一个 OpenGL 程序，当它所使用的 OpenGL 版本高于或等于
+// 3.1 时，需要绘制任何东西的程序都需要指定至少两个着色器：一个顶点着色器和一个片元着色
+// 器。我们通过一个辅助函数 LoadShaders() 来实现这个要求，它需要传入一个 ShaderInfo 的
+// 结构体数组，其中提供了着色器的类别和对于的着色器代码文件名称，数组的最后一个结构体为
+// 空表示数组结束。对于 OpenGL 程序而言，目前而言着色器是使用 OpenGL 着色语言 GLSL 编
+// 写的小型程序。我们可以以字符串的形式将 GLSL 着色器代码传给 OpenGL，但为了简化示例，
+// 并且让读者更容易地使用着色器进行开发，我们选择将着色器字符串的内容保存到文件中，并且使
+// 用 LoadShaders() 读取文件和创建 OpenGL 着色器程序。
+//
+// void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid *pointer); // 2.0+
+// void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride, const void *pointer); // 3.0+
+// void glVertexAttribLPointer(GLuint index, GLint size, GLenum type, GLsizei stride, cosnt void *pointer); // 4.1+
+//
+// 我们基本完成了初始化工作，init() 剩最后两个函数用于指定顶点着色器的变量与我们存储在缓
+// 存对象中的关系，这也就是所谓的着色器管线工程（shader plumbing），即将应用程序与着色
+// 器之间，以及不同着色阶段之间的数据通道连接起来。为了将数据关联到我们的顶点着色器，也就
+// 是 OpenGL 将要处理的所有顶点数据，需要在着色器中声明一个 in 变量，然后使用 glVertexAttribPointer
+// 将它关联到一个顶点属性数组（vertex attribute array）。错误和触发条件：
+//      GL_INVALID_VALUE        index 大于或等于 GL_MAX_VERTEX_ATTRIBS
+//      GL_INVALID_VALUE        size 不是 1、2、3、4 或（对于 glVertexAttribPointer）GL_BGRA
+//      GL_INVALID_ENUM         type 不是可接受的值
+//      GL_INVALID_VALUE        stride 为负数
+//      GL_INVALID_OPERATION    size 为 GL_BGRA 且 type 不是 GL_UNSIGNED_BYTE、GL_INT_2_10_10_10_REV 或 GL_UNSIGNED_INT_2_10_10_10_REV
+//      GL_INVALID_OPERATION    type 为 GL_INT_2_10_10_10_REV 或 GL_UNSIGNED_INT_2_10_10_10_REV 且 size 不是 4 或 GL_BGRA
+//      GL_INVALID_OPERATION    type 为 GL_UNSIGNED_INT_10F_11F_11F_REV 且 size 不是 3
+//      GL_INVALID_OPERATION    glVertexAttribPointer 的 size 为 GL_BGRA 且 normalized 为 GL_FALSE
+//      GL_INVALID_OPERATION    零绑定到 GL_ARRAY_BUFFER 缓冲区对象绑定点且 pointer 参数不为 NULL
+//
+// glVertexAttribPointer 定义通用顶点属性数据数组（generic vertex attribute data
+// array）。参数 index 指定要修改的通用顶点属性的索引。size 指定每个通用顶点属性的分量
+// 数（初始值为 4），必须是 1、2、3、4。此外，glVertexAttribPointer 接受符号常量 GL_BGRA。
+// type 指定数组中每个分量的数据类型（初始值为 GL_FLOAT），glVertexAttribPointer 和
+// glVertexAttribIPointer 接受 GL_BYTE、GL_UNSIGNED_BYTE、GL_SHORT、GL_UNSIGNED_SHORT、
+// GL_INT 和 GL_UNSIGNED_INT。此外，glVertexAttribPointer 还接受 GL_HALF_FLOAT、GL_FLOAT、
+// GL_DOUBLE、GL_FIXED、GL_INT_2_10_10_10_REV、GL_UNSIGNED_INT_2_10_10_10_REV 和
+// GL_UNSIGNED_INT_10F_11F_11F_REV（4.4+）。glVertexAttribLPointer 也接受 GL_DOUBLE，
+// 且这是该函数 type 参数唯一接受的标记。
+//
+// 参数 normalized，对于 glVertexAttribPointer，指定定点数据值在访问时是否应被归一化
+// （GL_TRUE）或直接转换作为定点值不进行归一化（GL_FALSE）。参数 stride 指定连续通用顶
+// 点属性之间的字节偏移量（初始值为 0）。如果 stride 为 0，则通用顶点属性被理解为在数组
+// 中紧密排列。参数 pointer 指定当前绑定到 GL_ARRAY_BUFFER 目标的缓冲区的数据存储中，
+// 第一个通用顶点属性的第一个分量的偏移量（初始值为 0）。可以定义一个宏 BUFFER_OFFSET(offset)
+// ((void *)offset) 来指定偏移量。在以往版本的 OpenGL 中并不需要这个宏，不过显著我们希
+// 望使用它来设置数据在缓存对象中的偏移，而不是像 pointer 原型那样直接设置一个指向内存块
+// 的指针。在 OpenGL 的早期版本中（3.1 版本之前），顶点属性数据可以直接保存在应用程序内
+// 存中，而不一定是 GPU 的缓存对象，因此旧版本使用指针的形式也是合理的。
+//
+// 例如以下代码示例，vPosition 顶点着色器中输入变量的 location 值，size 是 2 表示数组
+// 中每个顶点的元素数目（即 x 和 y 坐标），type 是 GL_FLOAT 表示元素类型是浮点，归一化
+// 为 GL_FALSE 表示坐标值不限定在 [-1.0, 1.0] 归一化范围内，stride 为 0 表示紧密排列，
+// pointer 为 0 因为数据是从缓存对象的第一个字节（地址为 0）开始的。
+//      glBindVertexArray(vertex_array_object);
+//      glBindBuffer(GL_ARRAY_BUFFER, vertex_array_buffer_object);
+//      glVertexAttribPointer(vPosition, 2, GL_FLOAT, GL_FALSE, 0, BUFFER_OFFSET(0));
+//      glEnableVertexAttribArray(vPosition);
+//
+// 函数的三种变体对比
+//      函数                    数据类型                归一化             着色器中使用
+//      glVertexAttribPointer   整数或浮点              可选归一化          float、vec2/3/4
+//      glVertexAttribIPointer  仅限整数                不归一化（强制）    int、ivec2/3/4、uint、uvec2/3/4
+//      glVertexAttribLPointer  仅限双精度 (GL_DOUBLE)  不适用             double、dvec2/3/4
+//
+// glVertexAttribPointer、glVertexAttribIPointer 和 glVertexAttribLPointer 指定渲
+// 染时使用的、位于索引 index 处的通用顶点属性数组的位置和数据格式。size 指定每个属性的
+// 分量数，必须是 1、2、3、4 或 GL_BGRA。type 指定每个分量的数据类型，stride 指定从一
+// 个属性到下一个属性的字节跨度，允许顶点和属性被打包到单个数组中或存储在单独的数组中。
+// 对于 glVertexAttribPointer，如果 normalized 设置为 GL_TRUE，则表示以整数格式存储
+// 的值在访问并转换为浮点数时，将被映射到范围 [-1,1]（对于有符号值）或 [0,1]（对于无符
+// 号值）。否则，值将直接转换为浮点数而不进行归一化。
+//
+// 对于 glVertexAttribIPointer，仅接受整数类型 GL_BYTE、GL_UNSIGNED_BYTE、GL_SHORT、
+// GL_UNSIGNED_SHORT、GL_INT、GL_UNSIGNED_INT。值始终保持为整数值。glVertexAttribLPointer
+// 为与声明为 64 位双精度分量的着色器属性变量相关联的通用顶点属性数组指定状态。type 必须
+// 是 GL_DOUBLE。index、size 和 stride 的行为与 glVertexAttribPointer 和 glVertexAttribIPointer
+// 的描述相同。
+//
+// 如果 pointer 不为 NULL，则必须有一个非零命名缓冲区对象绑定到 GL_ARRAY_BUFFER 目标
+// （参见 glBindBuffer），否则会生成错误。pointer 被视为缓冲区对象数据存储中的字节偏移
+// 量。缓冲区对象绑定（GL_ARRAY_BUFFER_BINDING）被保存为索引 index 的通用顶点属性数组
+// 状态（GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING）。
+//
+// 当指定通用顶点属性数组时，size、type、normalized、stride 和 pointer 以及当前顶点数
+// 组缓冲区对象绑定都被作为顶点数组状态保存。要启用和禁用通用顶点属性数组，请使用 index
+// 调用 glEnableVertexAttribArray 和 glDisableVertexAttribArray。如果启用，则在调用
+// glDrawArrays、glMultiDrawArrays、glDrawElements、glMultiDrawElements 或 glDrawRangeElements
+// 时使用该通用顶点属性数组。每个通用顶点属性数组初始处于禁用状态，在调用 glDrawElements、
+// glDrawRangeElements、glDrawArrays、glMultiDrawArrays 或 glMultiDrawElements 时
+// 不会被访问。
+//
+// 获取对应的顶点属性信息：
+//      glGet(GL_MAX_VERTEX_ATTRIBS)
+//      glGet(GL_ARRAY_BUFFER_BINDING)
+//      glGetVertexAttrib(index, GL_VERTEX_ATTRIB_ARRAY_ENABLED)
+//      glGetVertexAttrib(index, GL_VERTEX_ATTRIB_ARRAY_SIZE)
+//      glGetVertexAttrib(index, GL_VERTEX_ATTRIB_ARRAY_TYPE)
+//      glGetVertexAttrib(index, GL_VERTEX_ATTRIB_ARRAY_NORMALIZED)
+//      glGetVertexAttrib(index, GL_VERTEX_ATTRIB_ARRAY_STRIDE)
+//      glGetVertexAttrib(index, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING)
+//      glGetVertexAttribPointerv(index, GL_VERTEX_ATTRIB_ARRAY_POINTER)
+//
+// void glEnableVertexAttribArray(GLuint index); // 2.0+
+// void glEnableVertexArrayAttrib(GLuint vaobj, GLuint index); // 4.5+
+// void glDisableVertexAttribArray(GLuint index); // 2.0+
+// void glDisableVertexArrayAttrib(GLuint vaobj, GLuint index); // 4.5+
+//
+// 启用或禁用通用顶点属性数组。glEnableVertexAttribArray 和 glEnableVertexArrayAttrib
+// 启用由 index 指定的通用顶点属性数组。glEnableVertexAttribArray 使用当前绑定的顶点数
+// 组对象进行操作，而 glEnableVertexArrayAttrib 更新 ID 为 vaobj 的顶点数组对象的状态。
+// glDisableVertexAttribArray 和 glDisableVertexArrayAttrib 禁用由 index 指定的通用
+// 顶点属性数组。glDisableVertexAttribArray 使用当前绑定的顶点数组对象进行操作，而
+// glDisableVertexArrayAttrib 更新 ID 为 vaobj 的顶点数组对象的状态。默认情况下，所有
+// 客户端功能都被禁用，包括所有通用顶点属性数组。如果启用，则在调用顶点数组命令（如 glDrawArrays、
+// glDrawElements、glDrawRangeElements、glMultiDrawElements 或 glMultiDrawArrays）
+// 时，将访问并使用通用顶点属性数组中的值进行渲染。
+//
+// 错误和触发条件：
+//      GL_INVALID_OPERATION glEnableVertexAttribArray 和 glDisableVertexAttribArray
+//          在没有绑定顶点数组对象时调用。
+//      GL_INVALID_OPERATION glEnableVertexArrayAttrib 和 glDisableVertexArrayAttrib
+//          的 vaobj 不是现有顶点数组对象的名称。
+//      GL_INVALID_VALUE，index 大于或等于 GL_MAX_VERTEX_ATTRIBS，最大属性数由 GL_MAX_VERTEX_ATTRIBS
+//          决定，通常至少 16。因此 index 必须是一个 0 到 GL_MAX_VERTEX_ATTRIBS-1 之
+//          间的值。
