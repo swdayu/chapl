@@ -861,3 +861,144 @@
 //      GL_INVALID_VALUE，index 大于或等于 GL_MAX_VERTEX_ATTRIBS，最大属性数由 GL_MAX_VERTEX_ATTRIBS
 //          决定，通常至少 16。因此 index 必须是一个 0 到 GL_MAX_VERTEX_ATTRIBS-1 之
 //          间的值。
+//
+// void glClear(GLbitfield mask); // 2.0+
+// void glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha); // 2.0+
+// void glClearDepth(GLdouble depth); // 2.0+
+// void glClearDepthf(GLfloat depth); // 4.1+
+// void glClearStencil(GLint s); // 2.0+
+// void glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLfloat stencil); // 3.0+
+// void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value); // 3.0+
+// void glClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint *value); // 3.0+
+// void glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint *value); // 3.0+
+// void glClearNamedFramebufferfi(GLuint framebuffer, GLenum buffer, GLint drawbuffer, GLfloat depth, GLfloat stencil); // 4.5+
+// void glClearNamedFramebufferfv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLfloat *value); // 4.5+
+// void glClearNamedFramebufferiv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLint *value); // 4.5+
+// void glClearNamedFramebufferuiv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLuint *value); // 4.5+
+//
+// glClear 将缓冲区清除为预设值，掩码表示要清除的缓冲区 GL_COLOR_BUFFER_BIT、
+// GL_DEPTH_BUFFER_BIT 和 GL_STENCIL_BUFFER_BIT。glClear 将窗口的位平面区域设置为之
+// 前由 glClearColor、glClearDepth 和 glClearStencil 选定的值。通过调用 glDrawBuffer
+// 可以同时清除选多个颜色缓冲区（multiple color buffers）。像素所有权测试（pixel ownership
+// test）、裁剪测试（scissor test）、抖动（dithering）和缓冲区写入掩码（buffer writemasks）
+// 会影响 glClear 的操作。裁剪框（scissor box）限定清除区域。Alpha 函数、混合（blend）
+// 函数、逻辑运算、模板测试（stenciling）、纹理映射（texture mapping）和深度缓冲（depth
+// buffering）都会被 glClear 忽略。glClear 接受一个参数，该参数是多个值的按位或，指示
+// 要清除哪个缓冲区，每个缓冲区清除到的值取决于该缓冲区的清除值设置。如果某个缓冲区不存在，
+// 则针对该缓冲区的 glClear 调用不会产生任何效果。如果 mask 中设置了除上述三个定义位之外
+// 的任何位，则生成 GL_INVALID_VALUE 错误。
+//      GL_COLOR_BUFFER_BIT 当前已启用用于颜色写入的缓冲区
+//      GL_DEPTH_BUFFER_BIT 深度缓冲区
+//      GL_STENCIL_BUFFER_BIT 模板缓冲区
+//
+// 获取相关清除值值：
+//      glGet(GL_DEPTH_CLEAR_VALUE)
+//      glGet(GL_COLOR_CLEAR_VALUE)
+//      glGet(GL_STENCIL_CLEAR_VALUE)
+//
+// glClearColor 设置颜色缓冲区的清除值，指定清除颜色缓冲区时使用的红、绿、蓝和 Alpha
+// 值。初始值为 0 表示黑色。glClearColor 指定 glClear 清除颜色缓冲区时使用的红、绿、蓝
+// 和 Alpha 值。glClearColor 指定的值会被钳制到 [0,1] 范围内。注意，red、green、blue
+// 和 alpha 参数的类型已从 GLclampf 更改为 GLfloat。此更改对用户代码是透明的，详细说明
+// 见 removedTypes 页面。清除颜色本身是 OpenGL 状态机制的一个例子，它的数值会一直保留
+// 在当前 OpenGL 环境中。OpenGL 有一个庞大的状态列表（见附录），当创建一个新的 OpenGL
+// 环境时，所有状态都会被初始化为默认值。因为 OpenGL 会保留所有更改的状态，所有我们可以
+// 减少设置状态值的次数。
+//
+// glClearDepth 设置深度缓冲区的清除值，参数 depth 指定清除深度缓冲区时使用的深度值，
+// 初始值为 1。glClearDepth 指定 glClear 清除深度缓冲区时使用的深度值。glClearDepth
+// 指定的值会被钳制到 [0,1] 范围内。注意，glClearDepthf 的 depth 参数类型已从 GLclampf
+// 更改为 GLfloat，glClearDepth 的 depth 参数类型已从 GLclampd 更改为 GLdouble。此更
+// 改对用户代码是透明的，详细说明见 removedTypes 页面。
+//
+// glClearStencil 设置模板缓冲区的清除值，参数 s 指定清除模板缓冲区时使用的索引值，初始
+// 值为 0。glClearStencil 指定 glClear 清除模板缓冲区时使用的索引值。s 会与 2^m − 1
+// 进行掩码运算，其中 m 是模板缓冲区的位数。
+//
+// glClearBuffer 清除帧缓冲中的单个缓存，参数 framebuffer 指定 glClearNamedFramebuffer*
+// 的帧缓冲区对象名称，buffer 指定要清除的缓存，drawbuffer 指定要清除的特定绘制缓冲区，
+// value 指向用于清除缓冲区的值或值组的指针，depth 清除深度缓冲区所使用的值，stencil
+// 清除模板缓冲区所使用的值。
+//
+// 这些命令将帧缓冲的指定缓存清除为指定值，对于 glClearBuffer*，帧缓冲区为当前绑定的绘
+// 制帧缓冲区对象。对于 glClearNamedFramebuffer*，framebuffer 为 0（表示默认绘制帧缓
+// 冲区）或帧缓冲区对象的名称。buffer 和 drawbuffer 标识要清除的缓冲区：
+//
+// 如果 buffer 为 GL_COLOR，则通过将 i 作为 drawbuffer 传递来指定特定的绘制缓冲区 GL_DRAW_BUFFERi，
+// value 指向一个四元素向量，指定用于清除该绘制缓冲区的 R、G、B 和 A 颜色值。如果 GL_DRAW_BUFFERi
+// 的值为 GL_NONE，则该命令不产生任何效果。否则，GL_DRAW_BUFFERi 的值标识一个或多个颜
+// 色缓冲区，每个缓冲区都被清除为相同的值。定点颜色缓冲区的钳制和类型转换与 glClearColor
+// 执行方式相同。应使用这些命令的 *fv、*iv 和 *uiv 形式分别清除定点和浮点、有符号整数和
+// 无符号整数颜色缓冲区。
+//
+// 如果 buffer 为 GL_DEPTH，则 drawbuffer 必须为 0，且 value 指向用于清除深度缓冲区的
+// 单个值。定点深度缓冲区的钳制和类型转换与 glClearDepth 执行方式相同。应仅使用这些命令
+// 的 *fv 形式清除深度缓冲区；其他形式不接受 GL_DEPTH 缓冲区。
+//
+// 如果 buffer 为 GL_STENCIL，则 drawbuffer 必须为 0，且 value 指向用于清除模板缓冲区
+// 的单个值。掩码运算与 glClearStencil 执行方式相同。应仅使用这些命令的 *iv 形式清除模
+// 板缓冲区；其他形式不接受 GL_STENCIL 缓冲区。
+//
+// glClearBufferfi 和 glClearNamedFramebufferfi 用于同时清除深度和模板缓冲区。buffer
+// 必须为 GL_DEPTH_STENCIL，且 drawbuffer 必须为 0。depth 和 stencil 分别为清除深度
+// 和模板缓冲区所使用的值。定点深度缓冲区的深度钳制和类型转换与 glClearDepth 执行方式相
+// 同。模板缓冲区的模板掩码运算与 glClearStencil 执行方式相同。这些命令等效于分别清除深
+// 度和模板缓冲区，但在清除内部格式为 GL_DEPTH_STENCIL 的缓冲区时可能更快。glClear 定义
+// 的相同逐片段和掩码操作均适用。
+//
+// 如果指定的值类型与要清除的缓冲区类型之间未定义转换（例如，对定点或浮点缓冲区调用 glClearBufferiv，
+// 或对有符号或无符号整数缓冲区调用 glClearBufferfv），则这些命令的结果未定义。这不是一
+// 个错误。错误触发条件：
+//      如果 framebuffer 不为 0 且不是现有帧缓冲区对象的名称，则 glClearNamedFramebuffer* 生成 GL_INVALID_OPERATION。
+//      如果 buffer 不是 GL_COLOR 或 GL_STENCIL，则 glClearBufferiv 和 glClearNamedFramebufferiv 生成 GL_INVALID_ENUM。
+//      如果 buffer 不是 GL_COLOR，则 glClearBufferuiv 和 glClearNamedFramebufferuiv 生成 GL_INVALID_ENUM。
+//      如果 buffer 不是 GL_COLOR 或 GL_DEPTH，则 glClearBufferfv 和 glClearNamedFramebufferfv 生成 GL_INVALID_ENUM。
+//      如果 buffer 不是 GL_DEPTH_STENCIL，则 glClearBufferfi 和 glClearNamedFramebufferfi 生成 GL_INVALID_ENUM。
+//      如果 buffer 为 GL_COLOR 且 drawbuffer 为负数，或大于 GL_MAX_DRAW_BUFFERS 减 1 的值，则生成 GL_INVALID_VALUE。
+//      如果 buffer 为 GL_DEPTH、GL_STENCIL 或 GL_DEPTH_STENCIL 且 drawbuffer 不为 0，则生成 GL_INVALID_VALUE。
+//
+// void glDrawArrays(GLenum mode, GLint first, GLsizei count); // 2.0+
+//
+// 最后我们选择准备要绘制的顶点数组（通过 glBindVertexArray）作为顶点数据，然后调用
+// glDrawArrays 将顶点数据实际发送给 OpenGL 渲染管线。绘制最后调用 glFlush() 即强制
+// 所有进行中的 OpenGL 命令立即传输到 OpenGL 服务端处理，在后文我们会将 glFlush 替换
+// 为另一个更为平滑的命令，但需要进行更多的设置。在你的 OpenGL 编程生涯的某个时刻，你
+// 可能会被问及或自问“这需要多少时间”？“这”可能是渲染一个物体，绘制一整个场景，或者 OpenGL
+// 能够实现的其他操作。为了能够精确度量和执行自己的任务，我们有必要了解 OpenGL 是什么时
+// 候完成这些操作的。这里的 glFlush 命令看起来像是一个正确的答案，但是它不是。事实上
+// glFlush 只是强制所有运行中的命令送入 OpenGL 服务端而已，并且它会立即返回，它并不会
+// 等待所有的命令完成，而等待却是我们所需要的。此时，我们可以调用 glFinish 命令，它会一
+// 直等待所有当前的 OpenGL 操作完成后再返回。你最好只是在开发阶段使用 glFinish()，如果
+// 你已经完成了开发的工作，那么最好去掉对这个命令的调用。虽然它对于判断 OpenGL 命令的运
+// 行有帮助，但是对于程序的整体性能却有着相当的拖累。
+//
+// glDrawArrays 从数组数据渲染图元，参数 mode 指定要渲染的图元类型，可接受的符号常量包
+// 括 GL_POINTS、GL_LINE_STRIP、GL_LINE_LOOP、GL_LINES、GL_LINE_STRIP_ADJACENCY（3.2+）、
+// GL_LINES_ADJACENCY（3.2+）、GL_TRIANGLE_STRIP、GL_TRIANGLE_FAN、GL_TRIANGLES、
+// GL_TRIANGLE_STRIP_ADJACENCY（3.2+）、GL_TRIANGLES_ADJACENCY（3.2+） 和 GL_PATCHES。
+// 参数 first 指定已启用数组中的起始索引，参数 count 指定要渲染的索引数量。错误值：
+//      如果 mode 不是可接受的值，则生成 GL_INVALID_ENUM。
+//      如果 count 为负数，则生成 GL_INVALID_VALUE。
+//      如果非零缓冲区对象名称绑定到已启用的数组，且该缓冲区对象的数据存储当前已被映射，则生成 GL_INVALID_OPERATION。
+//      如果几何着色器处于活动状态，且 mode 与当前安装的程序对象中几何着色器的输入图元类型不兼容，则生成 GL_INVALID_OPERATION。
+//
+// glDrawArrays 仅需极少量的子程序调用即可指定多个几何图元。无需为传递每个单独的顶点、
+// 法线、纹理坐标、边标志或颜色而调用 GL 过程，你可以预先指定独立的顶点、法线和颜色数组，
+// 并通过单次调用 glDrawArrays 来使用它们构建一系列图元。调用 glDrawArrays 时，它从每
+// 个已启用的数组中使用 count 个连续元素来构建一系列几何图元，从元素 first 开始。mode
+// 指定构建何种图元以及数组元素如何构建这些图元。被 glDrawArrays 修改的顶点属性在
+// glDrawArrays 返回后具有未指定的值，而未被修改的属性保持明确定义。
+//
+// void glFlush(void); // 2.0+
+// void glFinish(void); // 2.0+
+//
+// glFlush 强制在有限时间内执行 GL 命令，不同的 GL 实现在多个不同位置缓冲命令，包括网络
+// 缓存和图形缓存本身。glFlush 清空所有这些缓冲区，使所有已发出的命令在实际渲染引擎接受
+// 后尽快执行。尽管此执行可能不在任何特定时间段内完成，但它确实在有限时间内完成。由于任何
+// GL 程序可能通过网络执行，或在缓冲命令的加速器上执行，所有程序在依赖所有先前发出的命令
+// 已完成时都应调用 glFlush。例如，在等待依赖于生成图像的用户输入之前调用 glFlush。注意，
+// glFlush 可以随时返回，它不会等待所有先前发出的 GL 命令执行完毕。
+//
+// glFinish 阻塞直到所有 GL 执行完成，glFinish 直到所有先前调用的 GL 命令的效果完全完
+// 成后才返回。这些效果包括所有 GL 状态的改变、所有连接状态的改变以及帧缓冲区内容的所有
+// 改变。注意，glFinish 需要一次与服务器的往返通信。
