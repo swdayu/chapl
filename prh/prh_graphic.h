@@ -418,23 +418,23 @@
 //          glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage);
 //          glNamedBufferStorage(GLenum target, GLsizeiptr size, const void *data, GLbitfield flags);
 //          glDrawArrays(GLenum mode, GLint first, GLsizei count);
-//  2.  顶点着色器（Vertex Shader），对于绘制命令传输的每个顶点，OpenGL 都会调用一个
+//  2.  顶点着色器（Vertex Shader），对于绘制命令传输的每个顶点，OpenGL 都会调用一个     *** 一、顶点着色（M）：单独处理顶点缓存对象中的每个顶点数据
 //      顶点着色器来处理顶点相关的数据。根据其他光栅化之前的着色器的活跃状态，顶点着色器
 //      可能非常简单，例如只是将数据复制并传递到下一个着色阶段，称为传递着色器（pass-through
 //      shader）。也可能非常复杂，例如执行大量的计算来得到顶点在屏幕上的位置，通常会用到
 //      变换矩阵（transformation matrices）的概念，或者通过光照的计算来判断顶点的颜色，
 //      或者其他一些技法的实现。通常一个复杂的程序可能包含许多各顶点着色器，但是在同一时
 //      刻只能有一个顶点着色器起作用（处于激活状态，active）。
-//  3.  细分控制（Tessellation 镶嵌 密铺 细分曲面 紧密排列 Control）着色器
-//  4.  细分求值（Tessellation Evaluation）着色器，当顶点着色器处理完每个顶点的数据之
+//  3.  细分控制（Tessellation 镶嵌 密铺 细分曲面 紧密排列 Control）着色器             *** 二、细分着色（O）：接收顶点着色后的数据进一步处理，通过
+//  4.  细分求值（Tessellation Evaluation）着色器，当顶点着色器处理完每个顶点的数据之       Patch 细分形态生成额外的几何图元
 //      后，如果同时激活了细分着色器，那么它将进一步处理这些信息。后面可以看到，细分着色
 //      器使用 Patch 来描述一个物体的形状（object's shape），并且使用相对简单的 Patch
 //      几何体集合来完成细分（tessllated）的工作，其结果是几何图元的数量增加，提供更好
 //      看的模型外观。细分着色阶段潜在地使用两个着色器来分别操作 Patch 数据和生成最终的
 //      形状（shape）。
-//  5.  几何（Geometry）着色器允许在光栅化之前对每个几何图元做更进一步的处理，例如创建
-//      新的图元。这个着色阶段是可选的，但后面我们可以体会到它的强大之处。
-//  6.  图元装配（Primitive Setup/Assembly），前面的着色阶段所处理的都是顶点数据，此外
+//  5.  几何（Geometry）着色器允许在光栅化之前对每个几何图元做更进一步的处理，例如创建   *** 三、几何着色（O）：接着处理顶点着色或细分着色后的每个几何
+//      新的图元。这个着色阶段是可选的，但后面我们可以体会到它的强大之处。                   图元，可以基于输入图元生成更多几何体，或者例如将三角形
+//  6.  图元装配（Primitive Setup/Assembly），前面的着色阶段所处理的都是顶点数据，此外      变为线段改变几何图元类型，或者放弃几何体。
 //      这些顶点之间如何构成几何图元的所有信息也会被传递到 OpenGL 中。图元装配阶段将这些
 //      顶点和相关的几何图元之间组织到一起，准备下一步的剪切和光栅化操作。
 //  7.  剔除和剪切（Culling and Clipping），顶点可能会落在视口（viewport）之外，也就是
@@ -452,17 +452,17 @@
 //      台相关的，你不应期望不同平台会以完全相同的方式插值。虽然光栅化开启了一个片元的生
 //      命，且片元着色器中进行的计算对于计算片元的最终颜色至关重要，但这绝不是可以应用于
 //      片元的全部处理。
-//  9.  片元（Fragment）着色器，最后一个可以通过编程控制屏幕像素位置上显示颜色的阶段，称
-//      为片元着色阶段（fragment shading）。这个阶段，我们使用一个着色器来确定片元的最
-//      终颜色（尽管逐片元操作阶段还可能改变依次颜色）和它的深度值（depth value）。片元
-//      着色器非常强大，通常这个阶段会应用纹理映射来对顶点处理阶段所计算的颜色进行增强。
+//  9.  片元（Fragment）着色器，最后一个可以通过编程控制屏幕像素位置上显示颜色的阶段，称   *** 四、片元着色（M）：处理光栅化后的每个独立片元（fragments）
+//      为片元着色阶段（fragment shading）。这个阶段，我们使用一个着色器来确定片元的最        或采样（samples，如果采用着色开启，sample-shading），这个
+//      终颜色（尽管逐片元操作阶段还可能改变依次颜色）和它的深度值（depth value）。片元        阶段计算每个片元的颜色和深度值，然后传递到管线的片元测试和
+//      着色器非常强大，通常这个阶段会应用纹理映射来对顶点处理阶段所计算的颜色进行增强。        混合模块。
 //      如果我们觉得不应该继续绘制某个片元，在片元着色器中还可以终止这个片元的处理，这一
 //      处理叫做片元丢弃（fragment discard）。如果我们需要更好地理解处理顶点的着色器与
-//      片元着色器之间的区别，可以用这种方式理解：顶点着色（包括细分和几何着色）决定了一
-//      个图元应该出现在屏幕什么位置，而片元着色使用这些信息决定某个片元的颜色应该是什么。
-//      片元 ≠ 像素，一个像素可能被多个片段覆盖（如透明叠加、多重采样），也可能没有片段
-//      （被裁剪/深度测试拒绝）。因此称为“候选像素”，强调其尚未确定能否写入帧缓冲。
-//  10. 逐片元操作（Per-Fragment Operations），该阶段使用深度测试（depth testing，也
+//      片元着色器之间的区别，可以用这种方式理解：顶点着色（包括细分和几何着色）决定了一    *** 五、计算着色（Compute Shading）：与上述着色阶段不同，计算
+//      个图元应该出现在屏幕什么位置，而片元着色使用这些信息决定某个片元的颜色应该是什么。      着色不是图形渲染着色的一部分，二是在程序中相对独立的一个阶段。
+//      片元 ≠ 像素，一个像素可能被多个片段覆盖（如透明叠加、多重采样），也可能没有片段         计算着色处理的并不是顶点和片元这类图形数据，而是计算应用程序
+//      （被裁剪/深度测试拒绝）。因此称为“候选像素”，强调其尚未确定能否写入帧缓冲。            选定范围内的通用工作项。计算着色可以处理其他着色程序创建和使用
+//  10. 逐片元操作（Per-Fragment Operations），该阶段使用深度测试（depth testing，也        的缓存数据，以及包括帧缓存后处理效果，或者所期望的任何任务。
 //      通常称为 z-buffering）和模板测试（stencil testing）来决定一个片元是否可见。如
 //      果一个片元成功通过了所有启用测试，那么它可能直接写入帧缓存（framebuffer）更新其
 //      像素的颜色（以及可能的深度值）；或者如果启用了混合（blending），片段的颜色将与像
@@ -625,3 +625,114 @@
 //      GL_TRANSFORM_FEEDBACK_BUFFER GL_TRANSFORM_FEEDBACK_BUFFER_BINDING  变换反馈缓冲区，变换反馈捕获的顶点数据
 //      GL_UNIFORM_BUFFER           GL_UNIFORM_BUFFER_BINDING              Uniform 块数据（UBO，Uniform Block Storage，3.1+）
 //      GL_QUERY_BUFFER             ---                                    查询结果存储（Query Result Buffer，4.4+）
+//
+// void glBufferData(GLenum target, GLsizeiptr size, const GLvoid *data, GLenum usage); // 2.0+
+// void glNamedBufferData(GLuint buffer, GLsizeiptr size, const void *data, GLenum usage); // 4.5+
+// void glBufferStorage(GLenum target, GLsizeiptr size, const void *data, GLbitfield flags); // 4.4+
+// void glNamedBufferStorage(GLuint buffer, GLsizeiptr size, const void *data, GLbitfield flags); // 4.5+
+//
+// 创建缓存对象后，需要将数据载入缓存对象中。调用 glBufferData 分配数据所需的存储空间，
+// 然后将数据拷贝到 OpenGL 服务端的内存中。参数 size 表示缓存对像的新数据存储的字节大
+// 小，data 表示需要拷贝到数据存储区的数据，如果为 NULL 表示没有数据需要拷贝。如果 data
+// 为 NULL，仍会创建指定大小的数据存储，但其内容保持未初始化状态，因此是未定义的。客户端
+// 必须按照客户端平台的要求一致地对齐数据元素，并额外满足一个基本要求：缓冲区中到包含 N
+// 字节的数据的偏移量必须是 N 的倍数。错误和触发条件：
+//      GL_INVALID_ENUM         glBufferData 的 target 不是可接受的缓冲区目标
+//      GL_INVALID_ENUM         usage 不是 GL_STREAM_DRAW/READ/COPY、GL_STATIC_DRAW/READ/COPY、GL_DYNAMIC_DRAW/READ/COPY
+//      GL_INVALID_VALUE        size 为负数
+//      GL_INVALID_OPERATION    glBufferData 绑定的目标缓冲区对象名称为保留的 0
+//      GL_INVALID_OPERATION    glNamedBufferData 的 buffer 不是现有缓冲区对象的名称
+//      GL_INVALID_OPERATION    缓冲区对象的 GL_BUFFER_IMMUTABLE_STORAGE 标志为 GL_TRUE（即不可变存储）
+//      GL_OUT_OF_MEMORY        GL 无法创建指定大小的数据存储
+//
+// glBufferData 和 glNamedBufferData 为缓冲区对象创建新的数据存储。对于 glBufferData，
+// 使用当前绑定到 target 的缓冲区对象。对于 glNamedBufferData，则使用调用者在 buffer
+// 中指定的 ID 关联的缓冲区对象。创建新存储时，任何预先存在的数据存储都会被删除，新数据存
+// 储以指定的字节大小和用途提示创建。如果 data 不为 NULL，则数据存储将使用此指针的数据进
+// 行初始化。在其初始状态下，新数据存储未映射（not mapped），其映射指针（mapped pointer）
+// 为 NULL，映射访问权限（mapped access）为 GL_READ_WRITE。usage 是对 GL 实现的一个提
+// 示，说明缓冲区对象的数据存储将如何被访问。这使 GL 实现能够做出更智能的决策，从而显著影
+// 响缓冲区对象的性能。然而，它并不限制数据存储的实际使用方式。usage 可分为两部分：首先是
+// 访问频率（修改和使用），其次是访问性质。
+//      访问频率  STREAM  数据存储内容将修改一次，最多使用几次
+//               STATIC  数据存储内容将修改一次，使用多次
+//               DYNAMIC 数据存储内容将反复修改，使用多次
+//      访问性质  DRAW    数据存储内容由应用程序修改，并作为 GL 绘制和图像规范命令的源
+//               READ    数据存储内容通过从 GL 读取数据来修改，并在应用程序查询时返回该数据
+//               COPY    数据存储内容通过从 GL 读取数据来修改，并作为 GL 绘制和图像规范命令的源
+//      典型场景  GL_STREAM_DRAW  每帧更新的动态顶点数据（如粒子系统）
+//               GL_STREAM_READ  偶尔读取一次的 GPU 计算结果
+//               GL_STREAM_COPY  每帧从纹理读取并用于绘制的数据
+//               GL_STATIC_DRAW  加载一次的几何体、纹理坐标
+//               GL_STATIC_READ  从不修改的查询结果缓存
+//               GL_STATIC_COPY  预烘焙的 GPU 生成数据
+//               GL_DYNAMIC_DRAW 频繁更新的 uniform/实例化数据
+//               GL_DYNAMIC_READ 每帧读取的 GPU 计算结果
+//               GL_DYNAMIC_COPY 每帧在 GPU 上生成并复用的数据
+//
+// glBufferStorage 和 glNamedBufferStorage 创建一个新的不可变数据存储。对于 glBufferStorage，
+// 当前绑定到 target 的缓冲区对象将被初始化。对于 glNamedBufferStorage，buffer 是要配
+// 置的缓冲区对象的名称。数据存储的大小由 size 指定。如果初始数据可用，其地址可以通过 data
+// 提供。否则，若要创建未初始化的数据存储，data 应为 NULL。如果 data 为 NULL，仍会创建
+// 指定大小的数据存储，但其内容保持未初始化状态，因此是未定义的。错误和触发条件：
+//      GL_INVALID_ENUM         glBufferStorage 的 target 不是可接受的缓冲区目标之一
+//      GL_INVALID_OPERATION    glNamedBufferStorage 的 buffer 不是现有缓冲区对象的名称
+//      GL_INVALID_VALUE        size 小于或等于零
+//      GL_INVALID_OPERATION    glBufferStorage 绑定的目标缓冲区对象名称为保留的 0
+//      GL_OUT_OF_MEMORY        GL 无法创建具有 flags 中请求属性的数据存储
+//      GL_INVALID_VALUE        flags 设置了除合法定义之外的任何位
+//      GL_INVALID_VALUE        flags 包含 GL_MAP_PERSISTENT_BIT，但不包含 GL_MAP_READ_BIT 或 GL_MAP_WRITE_BIT 中的至少一个
+//      GL_INVALID_VALUE        flags 包含 GL_MAP_COHERENT_BIT，但不同时包含 GL_MAP_PERSISTENT_BIT
+//      GL_INVALID_OPERATION    glBufferStorage 绑定到 target 的缓冲区的 GL_BUFFER_IMMUTABLE_STORAGE 标志已为 GL_TRUE（即已不可变）
+//
+// flags 参数指定缓冲区数据存储的预期用途。它必须是以下标志的子集的按位组合，标志允许的
+// 组合受到以下限制：如果 flags 包含 GL_MAP_PERSISTENT_BIT，则它还必须包含 GL_MAP_READ_BIT
+// 或 GL_MAP_WRITE_BIT 中的至少一个；如果 flags 包含 GL_MAP_COHERENT_BIT，则它还必须
+// 包含 GL_MAP_PERSISTENT_BIT。
+//      GL_DYNAMIC_STORAGE_BIT 数据存储的内容可以在创建后通过调用 glBufferSubData 更新。如果未设置此位，缓
+//          冲区内容可能无法由客户端直接更新。无论是否设置 GL_DYNAMIC_STORAGE_BIT，data 参数都可用于指定缓
+//          冲区数据存储的初始内容。无论此位是否存在，缓冲区始终可以通过服务器端调用（如 glCopyBufferSubData
+//          和 glClearBufferSubData）进行更新。
+//      GL_MAP_READ_BIT 数据存储可以由客户端映射以进行读取访问，并获得客户端地址空间中的指针，可以从中读取。
+//      GL_MAP_WRITE_BIT 数据存储可以由客户端映射以进行写入访问，并获得客户端地址空间中的指针，可以通过其写入。
+//      GL_MAP_PERSISTENT_BIT 客户端可以请求服务器在缓冲区映射时对其进行读取或写入。只要数据存储处于映射状态，
+//          客户端指向数据存储的指针就保持有效，即使在执行绘制或调度命令期间也是如此。
+//      GL_MAP_COHERENT_BIT 只要使用 glMapBufferRange 执行映射，客户端访问映射且服务器同时使用的缓冲区的共
+//          享访问将是一致的。也就是说，客户端或服务器写入存储的数据将立即对另一方可见，应用程序无需采取进一步
+//          操作。具体而言：
+//          • 如果未设置 GL_MAP_COHERENT_BIT 且客户端执行写入，随后调用 glMemoryBarrier 命令并设置
+//            GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT，则在后续命令中服务器将看到写入。
+//          • 如果设置了 GL_MAP_COHERENT_BIT 且客户端执行写入，则在后续命令中服务器将看到写入。
+//          • 如果未设置 GL_MAP_COHERENT_BIT 且服务器执行写入，应用程序必须调用 glMemoryBarrier 并设置
+//            GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT，然后调用 glFenceSync 并设置 GL_SYNC_GPU_COMMANDS_COMPLETE
+//            （或 glFinish）。同步完成后，CPU 将看到写入。
+//          • 如果设置了 GL_MAP_COHERENT_BIT 且服务器执行写入，应用程序必须调用 glFenceSync 并设置
+//            GL_SYNC_GPU_COMMANDS_COMPLETE（或 glFinish）。同步完成后，CPU 将看到写入。
+//      GL_CLIENT_STORAGE_BIT 当满足缓冲区存储分配的所有其他条件时，实现可以使用此位来确定是使用服务器本地还
+//          是客户端本地的存储作为缓冲区的后备存储（the backing store for the buffer）。
+//
+// 可变存储（glBufferData）和不可变存储（glBufferStorage）的对比：
+//      大小可变性  可重新分配（再次调用即删除旧存储）     大小固定，不可重新分配
+//      持久映射    不支持                              支持（GL_MAP_PERSISTENT_BIT）
+//      一致性映射  不支持                              支持（GL_MAP_COHERENT_BIT）
+//      客户端存储  不支持                              可选（GL_CLIENT_STORAGE_BIT）
+//      直接更新    始终允许                            需显式设置 GL_DYNAMIC_STORAGE_BIT
+//      性能        良好                               更优（驱动可做出更强优化假设）
+//      适用场景    通用、简单场景                       高性能、多线程、CPU-GPU 协作、持久映射场景
+//
+// 传统映射（glBufferData）
+//      每帧循环：
+//        glMapBufferRange → 写入 → glUnmapBuffer
+//             ↑___________________________↑
+//                  高频率 CPU-GPU 同步开销
+//
+// 持久映射（glBufferStorage）
+//      初始化一次：
+//        glNamedBufferStorage(..., PERSISTENT)
+//        ptr = glMapNamedBufferRange(..., PERSISTENT)
+//      每帧循环：
+//        直接写入 ptr
+//        glMemoryBarrier(CLIENT_MAPPED_BUFFER)
+//             ↑ 可选，非相干模式需要
+//      清理时：
+//        glUnmapNamedBuffer // 仅程序结束时
