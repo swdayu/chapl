@@ -243,11 +243,20 @@
 //      点。计算机系统将所有的像素保存在一个帧缓存（framebuffer）中，此为图形硬件设备
 //      管理的一块独立内存区域，可以直接映射到最终的显式设备上。
 //
-// 窗口上下文创建、提供输入和事件
-// https://github.com/glfw/glfw
-// for creating windows, contexts and surfaces, receiving input and events
+// https://wikis.khronos.org/opengl/Main_Page
+// https://wikis.khronos.org/opengl/Getting_Started
+// https://www.realtech-vr.com/glview-download/
+//
+// 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
+// 生成方式：通过 在线生成器 或本地 Python 脚本生成
+// 功能丰富：支持 OpenGL、OpenGL ES、EGL、GLX、WGL 等多种 API
+// https://github.com/Dav1dde/glad  https://gen.glad.sh/
+// Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
+// specifications for multiple languages.
 //
 // 加载 OpenGL 核心规范功能，是获取OpenGL核心配置文件规范所提供功能的最简单方法
+// 生成方式：基于 Python 脚本，从 Khronos 官方 gl.xml 生成 C 代码
+// 代码体积：极简，只生成你需要的部分，体积很小
 // https://github.com/skaslev/gl3w
 // Simple opengl core profile loading, get your hands on the functionality
 // offered by the opengl core profile specification. Its main part is a simple
@@ -255,10 +264,9 @@
 // header and generates gl3w.h and gl3w.c from it. Those files can then be
 // added and linked (statically or dynamically) into your project.
 //
-// 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
-// https://github.com/Dav1dde/glad  https://gen.glad.sh/
-// Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
-// specifications for multiple languages.
+// 窗口上下文创建、提供输入和事件
+// https://github.com/glfw/glfw
+// for creating windows, contexts and surfaces, receiving input and events
 //
 // OpenGL 编程接口完整列表和参考，并包含各版本 API 参考页面集合
 // https://github.com/KhronosGroup/OpenGL-Refpages
@@ -1002,3 +1010,167 @@
 // glFinish 阻塞直到所有 GL 执行完成，glFinish 直到所有先前调用的 GL 命令的效果完全完
 // 成后才返回。这些效果包括所有 GL 状态的改变、所有连接状态的改变以及帧缓冲区内容的所有
 // 改变。注意，glFinish 需要一次与服务器的往返通信。
+//
+// 着色器编程语言
+//
+// 现代 OpenGL 渲染管线严重依赖着色器处理传入的数据，如果不使用着色器，那么 OpenGL 可以
+// 做的可能只有清除窗口内容了。在 OpenGL 3.0 及以前，如果用到兼容模式（compatibility
+// profile）环境，OpenGL 还包含一个固定功能管线（fixed function pipeline），可以在不
+// 使用着色器的情况下处理几何与像素数据。但从 3.1 版本开始，固定功能管线从核心模式中去掉
+// 了，此时必须使用着色器来完成工作。
+//
+// 无论是 OpenGL 还是其他图形接口的着色器，通常都是通过一种特殊的编程语言来编写。对于
+// OpenGL 就是 GLSL（OpenGL Shading Language），虽然 GLSL 是一种专门为图形开发设计的
+// 编程语言，但是它与 C 语言非常类似。这里我们将介绍 GLSL 并讨论如何编译着色器将其集成
+// 到你的应用程序中，以及如何将应用程序中的数据在不同着色器之间传递。一个重要概念是，着色
+// 器之间数据传输的方式。着色器类似一个函数调用的方式，数据传输进来，经过处理，然后再传输
+// 出去。例如 C 语言中，这一过程可以通过全局变量或者函数参数来完成。GLSL 与之稍有差异，每
+// 个着色器都像是一个完整的 C 程序，它的输入点就是主函数，GLSL 的主函数没有任何参数，在
+// 某个着色阶段中输入和输出的所有数据都是通过着色器中的特殊全局变量来传递的。请不要将它们
+// 与应用中的全局变量相混淆，着色器变量与你在应用程序代码中声明的变量是完全不相干的。
+//
+// 一个简单的顶点着色器如下，每个变量除了有类型（vec4、mat4），还有 in 表示将数据拷贝到
+// 着色器，out 表示将着色器的内容拷贝出去，uniform 直接从 OpenGL 应用程序中接收数据。
+// 输入输出变量的值会在 OpenGL 每次执行着色器的过程中更新，而 uniform 变量不会随着顶点
+// 或片元的变化而变化，它对于所有的几何体图元都是一样的，除非应用程序对它进行了更新。
+//
+//      #version 430 core
+//
+//      in vec4 vertex_position;
+//      in vec4 vertex_color;
+//      out vec4 color;
+//      uniform mat4 model_view_projection_matrix;
+//
+//      void main() {
+//          color = vertex_color;
+//          gl_Position = model_view_projection_matrix * vertex_position;
+//      }
+//
+// GLSL 行注释 // 或块注释 /* */，主函数没有参数也没有返回值，每条语句都以分号（;）结束。
+// GLSL 是一种强类型语言，所有变量都必须事先声明，并且给出变量的类型。变量命名规范与 C
+// 语言相同，由字母、数字、下划线组成，但是数字和下划线不能作为变量名称的第一个字符，另外
+// 变量名称不能包含连续的下划线（这些名称被 GLSL 保留使用）。GLSL 支持的基本数据类型，
+// 布尔型（bool），32 位有符号（int），32 位无符号（uint），单精度浮点（float），双精度
+// 浮点（double），这些类型以及它们的聚合类型，都称为透明类型。与之对应的不透明类型，它们
+// 的内部形式是不透明的，例如采样器（sampler）、图像（image）、以及原子计数器（atomic
+// counter）。它们所声明的变量相当于一个不透明的句柄，可以用来读取纹理贴图、图像、以及原
+// 子计数器数据。
+//
+// 变量的作用域。在任何函数定义之外的变量拥有全局作用域，对着色器程序中的所有函数都是可见
+// 的。在一组大括号内声明的变量，只能在大括号范围内存在。循环的迭代自变量，只在循环体内起
+// 作用。所有变量都必须在声明的同时进行初始化。整型字面量可以是八进制、十进制、或十六进制
+// 的值，可以在数字之前加一个符号表示负数，或者在末尾添加 u 或者 U 表示一个无符号整数。浮
+// 点字面量必须包含一个小数点，除非使用科学记数法。此外，浮点数也可以选择在末尾添加 f 或
+// F，要表达双精度浮点数，必须在末尾添加 lF 或者 LF。布尔值可以是 true 或者 false。GLSL
+// 中的隐式转换，int 可以隐式转换为 uint 类型，int uint 可以隐式转换为 float，int uint
+// float 可以隐式转换为 double。这些类型转换适用于这些类型的标量、向量、以及矩阵，类型转
+// 换不能应用于数组或结构体之上。所有其他的数值转换都需要提供显式的转换构造函数，这里构造
+// 函数的意义与 C++ 等语言类似，它是一个名字与类型名称相同的函数，返回值就是对应类型的值。
+// 例如 float f = 10.0; int ten = int(f); 此外其他一些类型也有转换构造函数，包括 float
+// double uint bool 以及这些类型的向量和矩阵。每种构造函数都可以传入多个其他类型的并且进
+// 行显式转换，这也体现了 GLSL 的另一个特性，函数可以重载，即每个函数都可以接受不同类型的
+// 输入，但是它们都使用相同的一个函数名称。
+//
+// 聚合类型。GLSL 的基本类型可以进行合并，从而与核心 OpenGL 的数据类型相匹配，以及简化计
+// 算过程。首先 GLSL 支持 2、3、4 分量的向量，每个分量都可以使用 bool int uint float
+// double 这些基本类型。此外，GLSL 也支持 float 和 double 类型的矩阵，下表给出了所有可
+// 用的向量和矩阵类型。矩阵类型需要给出两个维度信息，例如 mat4x3 四列三行矩阵，其中第一个
+// 值表示列数，第二个值表示行数。
+//      基本类型    2D向量      3D向量      4D向量      矩阵类型
+//      float       vec2        vec3        vec4        mat2    mat3    mat4    mat2x2  mat2x3  mat2x4
+//                                                      mat3x2  mat3x3  mat3x4  mat4x2  mat4x3  mat4x4
+//      double      dvec2       dvec3       dvec4       dmat2   dmat3   dmat4   dmat2x2 dmat2x3 dmat2x4
+//                                                      dmat3x2 dmat3x3 dmat3x4 dmat4x2 dmat4x3 dmat4x4
+//      int         ivec2       ivec3       ivec4
+//      uint        uvec2       uvec3       uvec4
+//      bool        bvec2       bvec3       bvec4
+//
+// 使用这些类型声明的变量的初始化过程与它们的标量部分是类似的，类型之间也可以进行等价转换，
+// 向量的构造函数还可以用来截短或者加长一个向量。矩阵的构建方式与此相同，并且可以将它初始
+// 为一个对角矩阵或者完全填充的矩阵。对于对角矩阵，只需要向构造函数传递一个值，矩阵的对角
+// 线元素就设置为这个值，其他元素全部设置为 0。矩阵也可以通过在构造函数中指定每一个元素的
+// 值来构建，传入元素可以是标量和向量的集合，只要给定足够数量的数据即可，每一列的设置方式
+// 也遵循这样的原则。此外，矩阵的指定需要遵循列的主序原则，也就是，传入的数据将首先填充列，
+// 然后填充行。这一点与 C 语言的多维数组刚好相反，C 语言的多维数组是以行优先。
+//      vec3 velocity = vec3(0.0, 2.0, 3.0);
+//      ivec3 steps = ivec3(velocity);
+//      vec4 color;
+//      vec3 rgb = vec3(color); // 保留前三个分量
+//      vec3 white = vec3(1.0); // 三个分量都是 1.0
+//      vec4 trans = vec4(white, 0.5);
+//      mat3 m = mat3(4.0); // 3x3 矩阵，对角线都为 4.0，其余元素都为 0
+//      mat3 m = mat3(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0);
+//      vec3 column1 = vec3(1.0, 2.0, 3.0);
+//      vec3 column2 = vec3(4.0, 5.0, 6.0);
+//      vec3 column3 = vec3(7.0, 8.0, 9.0);
+//      mat3 m = mat3(column1, column2, column3)
+//      vec2 column1 = vec2(1.0, 2.0);
+//      vec2 column2 = vec2(4.0, 5.0);
+//      vec2 column3 = vec2(7.0, 8.0);
+//      mat3 m = mat3(column1, 3.0, column2 6.0, column3, 9.0);
+//
+// 访问向量和矩阵中的元素。向量与矩阵中的元素可以单独访问和设置，支持名称和下标两种访问
+// 形式。与位置相关的向量分量 (x, y, z, w)，与颜色相关的向量分量 (r, g, b, a)，与纹理
+// 坐标相关的向量分量 (s, t, p, q)。还可以重复一个向量分量多次来形成一个多分量的值，这
+// 种方式称为调换重排（swizzle）。
+//      float red = color.r;
+//      float v_y = velocity.y;
+//      float red = color[0];
+//      float v_y = velocity[1];
+//      vec3 luminance = color.rrr;
+//      color = color.abgr; // 反转分量
+//      mat4 m = mat4(2.0);
+//      vec4 zvec = m[2]; // 第三列
+//      float yscale = m[1][1] 第二列第二行
+//      float yscale = m[1].y
+//
+// 结构体可以简化多组数据传入函数的过程，如果定义一个结构体，那么会自动创建一个新类型，并
+// 且隐式定义了一个构造函数，将各种类型的结构体元素作为输入参数。GLSL 还支持任意类型的数
+// 组，包括结构体数组。GLSL 4.3 种，数组的组成元素也可以是另一个数组，因此可以处理多维数
+// 据。数组可以定义为有大小的，或者没有大小的。我们可以使用没有大小的数组作为一个数组变量
+// 的前置声明，然后重新用一个合适的大小来声明它。数组属于 GLSL 种的第一等类型，也就是说它
+// 有构造函数，并且可以用作函数的参数和返回类型。此外，GLSL 的数组与 Java 类型，它有一个
+// 隐式方法返回元素的个数 length()。向量和矩阵类型也可以使用 length() 方法，向量的长度就
+// 是它包含的分量个数，矩阵的长度是它包含的列的个数。因为长度值在编译时是已知的，length()
+// 返回一个编译时常量，可以在需要使用常量的场合直接使用它。对于所有向量和矩阵，以及大部分
+// 的数组来说，length() 都是一个编译时已知的常量。但是对于某些数组来说，length() 的值在
+// 连接之前可能都是未知的，如果使用链接器来减少同一阶段种多个着色器的大小，那么可能发生这
+// 种情况。对于着色器种保存的缓存对象（使用 buffer 进行声明），length() 的值直到渲染时才
+// 可能得到。如果我们需要 length() 返回一个编译时常量，那么我们需要保证着色器的数组大小在
+// 使用它的 length() 方法之前就以及确定了。多维数组相当于从数组种再创建数组，它的语言与C
+// 语言当中类似，多维数组可以使用任何类型或者形式来构成。如果需要与应用程序共享，那么最内层
+// （即最右侧）维度的数据在内存布局中的变化是最快的，GLSL（以及 C/C++）使用行优先（Row-Major）
+// 存储，即最右侧的索引变化最快。
+//      struct particle { float lifetime; vec3 position; vec3 velocity; };
+//      particle p = particle(10.0, pos, vel);
+//      float coeff[3];
+//      float[3] coeff; // 与上面定义等价
+//      int indices[]; // 长度未定义，稍后可以重新声明它的长度
+//      float coeff[3] = float[3](2.38, 3.14, 42.0);
+//      float coeff[3] = float(2.38, 3,14, 42.0); // 这里构造函数的长度值可以不填
+//      for (int i = 0; i < coeff.length(); ++i) { coeff[i] *= 2.0; }
+//      mat3x4 m;
+//      int c = m.length(); // 3
+//      int r = m[0].length(); // 4
+//      mat4 m;
+//      float diagonal[m.length()]; // 4
+//      float x[gl_in.length()];
+//      float coeff[3][5]; // 有3个数组，每个数组有5个元素
+//      coeff[2][1] *= 2.0;
+//      coeff.length(); // 3
+//      coeff[2]; // 长度为5的数组
+//      coeff[2].length(); // 5
+//
+// 存储限定符。数据类型还可以通过一些修饰符来改变自己的行为，GLSL 定义以下多种全局范围内
+// 的修饰符。如果需要在应用程序中共享一大块缓存给着色器，那么最好的方式是使用 buffer 变量。
+// 它与 uniform 变量非常类似，不过也可以用着色器对它的内容进行修改。通常来说，需要在一个
+// buffer 块中使用 buffer 变量，后面将对“块”的概念进行介绍。buffer修饰符指定随后作为着
+// 色器与应用程序共享的一块内存缓存，这块内存缓存对于着色器来说是可读也是可写的，缓存的大
+// 小可以在着色器编译和程序连接完成后设置。shared 修饰符只能用于计算着色，它可以建立本地
+// 工作组内共享内存。
+//      const   将一个变量定义为只读，如果用常量初始化，那么它本身也会变成编译时常量
+//      in      设置变量为着色阶段的输入变量，可以是输入的顶点属性，或前一个着色器的输出变量
+//      out     设置变量为着色阶段的输出变量，如顶点着色输出变换后的齐次坐标，片元着色输出的片元颜色
+//      uniform 用户应用程序传递给着色器的数据，它对于给定的图元而言是一个常量
+//      buffer  与应用程序共享的一块可读写内存，该内存也作为着色器的存储缓存使用（shader storage buffer）
+//      shared  设置变量在本地工作组（local work group）中共享，它仅用在计算着色器中（compute shader）
