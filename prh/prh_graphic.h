@@ -1333,3 +1333,162 @@
 //      enable      如果对应的扩展无法支持则提示警告，如果设置为 all 则提示错误
 //      warn        如果对应的扩展无法支持，或者编译过程使用了任何扩展，则提示警告
 //      disable     强制编译器不提供对该扩展功能的支持，如果设置为all则禁止所有扩展
+//
+// 着色器与应用程序之间，或者着色器各阶段之间共享的变量可以组织为变量块的形式，并且有时候
+// 必须采用这种形式。uniform 变量可以使用 uniform 块，输入和输出变量可以使用 in 和 out
+// 块，着色器的存储缓存可以使用 buffer 块。它们的形式都是类似的，看下面的 uniform 块的
+// 写法。块（block）开始部分的名称对应于外部访问时的接口名称，而尾部名称用于在着色器代码
+// 中访问具体成员变量。如果着色器变得比较复杂，那么其中用到的 uniform 变量的数量大增，通
+// 常会在多个着色器程序中用到同一个 uniform 变量。由于 uniform 变量的位置是着色器链接时
+// 产生的，也就是调用 glLinkProgram 的时候，因此它在应用程序中获得的索引可能会有变化，即
+// 使我们给 uniform 变量设置的值可能是完全相同的。而 uniform 缓存对象（uniform buffer
+// object）就是一种优化 uniform 变量访问，以及在不同着色器之间共享 uniform 数据的方法。
+// 正如你知道的，uniform 变量是同时存在于用户应用程序和着色器当中的，因此需要同时修改着色
+// 器的内容并调用 OpenGL 函数来设置 uniform 缓存对象。
+//      uniform a {
+//          vec4 v1;
+//          bool v2;
+//      }; // 着色器访问块成员使用 v1 v2
+//      uniform a {
+//          vec4 v1;
+//          bool v2;
+//      } name; // 着色器访问块成员使用 name.v1 name.v2
+//      uniform matrices {
+//          mat4 model_view;
+//          mat4 projection;
+//          mat4 color;
+//      };
+//
+// 在着色器中指定 uniform 块。访问一组 uniform 变量的方法是使用如 glMapBuffer 函数，而
+// 在着色器中对它们的声明，不再分别声明每个 uniform 变量，而是直接成组声明成 uniform 块。
+// 着色器中的数据类型有两种，不透明和透明的，一个 uniform 块中只可以包含透明类型的变量，
+// 此外 uniform 块必须在全局作用中声明。可以使用限定符来指定 uniform 块中变量的布局方式，
+// 这些限制符可以用来设置单个 uniform 块，也可以使用布局声明来设置所有后继 uniform 块的
+// 排列方式。
+//      shared          设置 uniform 块是多个程序间共享（这是默认布局方式，注意还有一个名为 shared 变量存储限定符）
+//      packed          设置 uniform 块占用最小的内存空间，但是这样会禁止程序间共享这个块
+//      std140          使用标准布局来设置 uniform 块或者 buffer 块
+//      std430          使用标准布局来设置 buffer 块
+//      binding=N       指定缓存的绑定点，被 OpenGL 函数使用
+//      offset=N        显式强制一个成员偏移位于缓存偏移 N 的位置
+//      align=N         显式强制一个成员偏移是 N 的倍数
+//      row_major       使用行主序来存储 uniform 块中的矩阵
+//      column_major    使用列主序来存储 uniform 块中的矩阵（这是默认顺序）
+//
+// 多个限制符可以通过圆括号中的逗号来分隔，如果需要对所有后继的 uniform 块设置同一种布局，
+// 单纯声明一个 uniform 关键字。这样一来，当前行之后的所有 uniform 块都会使用这种布局方
+// 式，除非再次改变全局布局，或者多某个块单独声明设置专属的布局方式。当你在一个着色器和应
+// 用程序之间共享缓冲区时，双方需要就哪些内存偏移量存放哪些成员达成一致。因此，需要一个显
+// 式布局，这正是 std140 和 std430 所提供的。虽然 std140 和 std430 提供了定义良好的显
+// 式缓冲区布局，但你可能希望对缓冲区的布局方式进行更精细的控制。你可以使用 offset 精确
+// 控制成员的位置，或者使用 align 在更粗粒度上对齐成员。你只需要对部分成员使用这些限定符，
+// 以保持应用程序和着色器之间的布局同步。随后未加限定符的成员会自动分配偏移量，这与 std140
+// 或 std430 的标准做法一致。在应用程序中，设置缓冲区的结构以匹配上述布局，可以使用 C/C++
+// struct 的语言工具进行修饰，或者直接以正确的偏移量写入缓冲区。唯一需要注意的是，偏移量
+// 对齐方式都必须是合理的。成员仍然按照偏移量递增的顺序排列，并且仍然必须按照 std140 和
+// std430 规则的要求进行对齐。一般来说，对于包含浮点数和双精度数的任何类型，这是自然对齐
+// 的，其中 std140 还有一个额外约束：小于 vec4 的类型需要 16 字节对齐。关于 N 的说明：任
+// 何时候 GLSL 布局限定符采用 layout(ID = N) 的形式，值 N 必须是非负整数。在 #version
+// 430 或更早版本中，N 必须是字面量整数。然而，从 #version 440 开始，N 可以是常量整数表
+// 达式。
+//      layout (shared, row_major) uniform { ... }; // 专属布局
+//      layout (packed, column_major) uniform; // 全局布局
+//
+//      #version 440
+//      layout (std140) uniform b {
+//          float size; // 偏移从 0 开始
+//          layout (offset=32) vec4 color; // 偏移从 32 字节开始
+//          layout (align=1024) vec4 a[12]; // 偏移从 1024 倍数处开始
+//          vec4 b[12]; // 偏移紧跟在 a[12] 之后
+//      } buf;
+//
+// 访问在 uniform 块中声明的 uniform 变量。虽然 uniform 块是有名称的，但在其中声明的
+// uniform 变量并不由该名称限定。也就是说，uniform 块不会对 uniform 变量的名称进行作用
+// 域限定，因此在两个不同名称的 uniform 块中声明两个同名变量会导致错误。不过，访问 uniform
+// 变量时并不需要使用块名称。
+//
+// 从应用程序种访问 uniform 块。niform 变量是着色器与应用程序之间数据的桥梁，因此如果着
+// 色器种的 uniform 变量是定义在命名 uniform 块中，那么就必要找到不同变量的偏移值。如果
+// 获取了这些变量的具体位置，那么就可以使用数据对它们进行初始化，这一过程与处理缓存对象是
+// 一致的（使用 glBufferData 函数）。调用 glGetUniformBlockIndex() 可以找到块在着色器
+// 程序种的索引位置，然后在应用程序的地址空间中完成 uniform 变量的映射。如果要初始化 uniform
+// 块对应的缓存对象，需要使用 glBindBuffer() 将缓存对象绑定到目标 GL_UNIFORM_BUFFER 之
+// 上。当对缓存对象进行初始化之后，我们需要判断命名的 uniform 块中的变量总共占据多大的空间，
+// 可以调用函数 glGetActiveUniformBlockiv() 并设置参数为 GL_UNIFORM_BLOCK_DATA_SIZE
+// 得到编译器分配的大小（根据 uniform 块的布局，编译器可能会自动排除着色器中没有用到的变
+// 量）。glGetActiveUniformBlockiv() 还可用来获取命名 uniform 块的其他相关参数。在获取
+// uniform 块的索引之后，我们需要将一个缓存对象与这个块相关联，最常见的方法是调用 glBindBufferRange()，
+// 或者如果整个缓存都是来存储 uniform 块的，那么可以使用 glBindBufferBase()。当建立了命
+// 名 uniform 块和缓存对象之间的关联之后，只要使用缓存相关命令即可对块内的数据进行初始化
+// 或者修改。
+//
+// GLuint glGetUniformBlockIndex(GLuint program, const char *uniformBlockName);
+// glGetActiveUniformBlockiv()
+// glBindBufferRange()
+// glBindBufferBase()
+// GLint glUniformBlockBinding(GLuint program, GLuint uniform_block_index, GLuint uniform_block_binding);
+// void glGetUniformIndices(GLuint program, GLsizei uniform_count, const char **uniform_names, GLuint *uniform_indices);
+// glGetActiveUniformsiv()
+//
+// 我们也可以直接设置某个命令 uniform 块和缓存对象之间的绑定关系，也就是说不使用链接器内
+// 部自动绑定块对象并且查询关联结果的方式。如果多个着色器程序需要共享同一个 uniform 块，
+// 那么你可能需要用到这种方法。这样可以避免对不同的着色器程序同一个块有不同的索引号。如果
+// 需要显式地控制一个 uniform 块的绑定方式，可以在调用 glLinkProgram() 之前调用 glUniformBlockBinding()
+// 函数。在一个命名的 uniform 块中，uniform 变量的布局是通过各种布局限制符在编译和链接时
+// 控制的。如果使用了默认的布局方式，那么需要判断每个变量在 uniform 块中的偏移量和数据存
+// 储大小。为此，需要调用两个命令，glGetUniformIndices() 负责获取指定名称 uniform 变量
+// 的索引位置，而 glGetActiveUniformsiv() 可以获得指定索引位置的编译量和大小。
+//
+// 在着色器运行之前，uniform 修饰符可以指定一个在应用程序中设置好的变量，它不会在图元处理
+// 的过程中发生变化。uniform 变量在所有可用的着色阶段之间都是共享的，它必须定义为全局变量。
+// 任何类型的变量（包括结构体和数组）都可以设置为 uniform 变量，着色器无法写入到 uniform
+// 变量，也无法改变它的值。举例来说，我们可能需要设置一个给图元着色的颜色值，此时可以声明
+// 一个 uniform 变量，将颜色值信息传递到着色器，而在着色器中会进行以下声明。在着色器中，
+// 可以根据名字 base_color 来引用这个变量，但是如果需要在用户应用程序中设置它的值，还需
+// 要多做一些工作。GLSL 编译器会在链接着色器程序时创建一个 uniform 变量列表，如果需要设置
+// 应用程序中 base_color 的值，我们需要首先获得 base_color 在列表中的索引，这一步可以通
+// 过 glGetUniformLocation() 函数完成。当得到 uniform 变量对应的索引值之后，可以通过调
+// 用 glUniform*() 或者 glUniformMatrix*() 系列函数来设置 uniform 变量的值了。
+//      uniform vec4 base_color;
+//      GLint time_location;
+//      GLfloat time_value;
+//      time_location = glGetUniformLocation(program, "time");
+//      glUniformf(time_location, time_value);
+//
+// GLint glGetUniformLocation(GLuint program, const char *name);
+// void glUniform{1234}{fdi ui}(GLint location, TYPE value);
+// void glUniform{1234}{fdi ui}v(GLint location, GLsizei count, const TYPE *values);
+// void glUniformMatrix{234}{fd}v(GLint location, GLsizei count, GLboolean transpose, const GLfloat *values);
+// void glUniformMatrix{2x3,2x4,3x2,3x4,4x2,4x3}{fd}v(GLint location, GLsizei count, GLboolean transpose, const GLfloat *values);
+//
+// GLSL 中的 buffer 块，或着色器的存储缓存对象（shader storage buffer object），它的
+// 行为类似 uniform 块。不过两者之间有两个决定性的区别，使得 buffer 块的功能更加强大。
+// 首先，着色器可以写入 buffer 块，修改其中的内容并呈现给其他着色器或应用程序本身。其次，
+// 可以在渲染之前再决定它的大小，而不是编译和链接时决定。例如下面的 buffer 块声明，如果
+// 没有给出对应数组的大小，那么可以在应用程序中编译和链接后，在渲染之前设置它的大小。着色
+// 器可以通过 length() 方法来获取渲染时的数组大小。着色器可以对 buffer 块中的成员执行读
+// 或者写，写入操作对着色器存储缓存对象的修改对于其他着色器都是可见的。这种特性对于计算着
+// 色器非常有意义，尤其是对非图像的内存区域进行处理的时候。有关 buffer 块的内存限制符，如
+// coherent 以及原子操作的相关讨论见后面计算着色器部分。设置着色器存储缓存对象的方式与设
+// 置 uniform 缓存的方式类似，不过 glBindBuffer() 和 glBufferData() 需要使用 GL_SHADER_STORGAGE_BUFFER
+// 作为目标参数。如果你不许在着色器中写入缓存，那么可以直接使用 uniform 块，并且硬件设备
+// 本身可能也没有足够的资源空间来支持 buffer 块，但是 uniform 块通常是足够的。
+//      buffer buffer_object { // 可被着色器读写的缓存块
+//          int mode; // preamble members
+//          vec4 points[]; // 最后一个成员可以是未定义大小的数组
+//      };
+//
+// 输入输出块。着色器变量从一个阶段输出，然后再输入到下一个阶段，这一过程可以使用块接口来
+// 表示。使用逻辑上成组的方式来进行组织也更有利于判断两个阶段的数据接口是否一致，同样对单
+// 独程序的链接也会变得更加简单。例如，一个顶点着色器的输出可能如下，它必须与片元着色器的
+// 输入匹配。顶点着色器可以输出材质和光照信息，并且都分成独立的数据块。OpenGL 着色语言中
+// 内置的接口同样也是以块的方式存在的。例如 gl_PerVertex 其中包含了内置变量 gl_Position
+// 等信息。
+//      out lighting {
+//          vec3 normal;
+//          vec2 bump_coord;
+//      };
+//      in lighting {
+//          vec3 normal;
+//          vec2 bump_coord;
+//      };
