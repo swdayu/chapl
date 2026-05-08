@@ -1635,3 +1635,155 @@
 // 着色器程序的 unifrom 变量的值。另一种方法，也是我们推荐的方法，是调用 glProgramUniform*()
 // 和 glProgramUnifromMatrix*() 函数，它们有一个显式的 program 对象参数，这样可以独立
 // 地设置某个程序的 unifrom 变量的值。
+//
+// Khronos SPIR-V Registry https://registry.khronos.org/SPIR-V/#spec
+//
+// SPIR-V 是 Khronos 标准化的中间语言，为分发着色器提供了另一种选择。OpenGL 接受 SPIR-V
+// 形式的着色器，就像它接受 GLSL 形式的着色器一样。通常，对于 SPIR-V 形式，离线工具链会
+// 从高级着色语言（如 GLSL）生成 SPIR-V，而不是随应用程序分发 GLSL 源代码，你会分发生成
+// 的 SPIR-V。SPIR-V 以称为模块（modules）的二进制单元形式创建、分发和消费。SPIR-V 模块
+// 可以作为 32 位字的序列存在于内存中，也可以作为文件存储，同样作为 32 位字的序列。然而，
+// 与 GLSL 一样，OpenGL 不处理文件，因此 SPIR-V 必须以指向内存中 32 位字序列的指针形式
+// 交给 OpenGL。
+//
+// 每个 SPIR-V 模块包含一个或多个入口点，作为着色器执行的起始位置，每个入口点都知道它属于
+// 哪个 OpenGL 管线阶段。这些入口点中的每一个必须形成一个单一的、完整的 OpenGL 管线阶段。
+// 也就是说，与桌面版 GLSL 不同，SPIR-V 着色器不包含多个编译单元，以便后续链接在一起形成
+// 单个阶段。对于 SPIR-V，这种链接将由前端在将高级语言形式翻译为 SPIR-V 时离线完成，产生
+// 的结果是一个完全链接的阶段。单个 SPIR-V 模块可以包含多个入口点，甚至可以是同一阶段的多
+// 个入口点。SPIR-V 模块可以被特化，这意味着在运行时最终编译之前，更改模块内部某些特殊标
+// 识的常量的值。这样做是为了减少表示着色器多个微小变体所需的 SPIR-V 模块的数量（或大小）。
+//
+// 选择 SPIR-V 的理由。与 GLSL 相比，分发 SPIR-V 形式的着色器有几个潜在的理由。有些可能
+// 适用于你的情况，有些可能不适用：
+//  1.  更好的可移植性。可移植性的一个问题是，每个平台的驱动程序对 GLSL 的高级规则可能有
+//      略微不同的解释。高级语言之所以部分是高级的，是因为它们允许编码者拥有表达自由。然而，
+//      这种自由的界限有时很难完全确定，导致解释上的差异。SPIR-V 在构造表达方式上要严格得
+//      多、规范得多，留下的解释空间更少。这反过来导致各平台对 SPIR-V 的解释差异更小，从
+//      而提高了可移植性。当然，你不是用 SPIR-V 编写代码，所以你仍然需要处理 GLSL（例如）。
+//      然而，为了生成 SPIR-V，你可以为所有目标平台选择单一的前端。也就是说，你可以通过坚
+//      持使用单一的 GLSL 前端，来消除源于不同 GLSL 解释的可移植性问题。其他人可能会为他
+//      们的着色器选择不同的前端，那也没关系。重要的是，一个应用程序的 GLSL 着色器在 SPIR-V
+//      最终运行的所有平台上获得相同的 GLSL 解释。
+//  2.  其他源语言。SPIR-V 使得使用 GLSL 以外的高级语言成为可能。只要分发的 SPIR-V 格式
+//      正确，它是如何生成的不重要。
+//  3.  减小分发体积。SPIR-V 具有多种特性，可以显著减小分发时着色器集合的大小。单个着色器
+//      本身在 SPIR-V 中通常比在 GLSL 中大，但单个着色器本身在任何情况下都很小。然而，相
+//      关着色器的集合可能相当大，而 SPIR-V 有两个特性专门用于解决这个问题：特化和每模块多
+//      个入口点。特化允许后期更改某些常量值，同一 SPIR-V 模块中的多个入口点允许交付单个函
+//      数体的单一实例，该函数体可能被多个入口点使用。GLSL 分发可能需要为集合中的每个着色器
+//      分发该函数的副本，而 SPIR-V 分发只需交付一个副本。
+//  4.  保护源代码。这有时被称为混淆，因为有时你不想以易于利用的形式分发着色器源代码。着色
+//      器源代码可以代表新颖的想法或知识产权，你不想以透明、易于修改的格式将其分发给其他方。
+//      你可以通过将源代码离线编译为 SPIR-V 并分发 SPIR-V 来避免分发源代码。这使得查看着
+//      色器如何实现某种效果变得更加困难。是的，反向编译仍然可以重新创建 GLSL 或其他高级
+//      着色语言，这些语言会编译为你分发的 SPIR-V。然而，接收者需要进行这种逆向工程活动的
+//      需求，为你的知识产权提供了真正的保护。
+//
+// 运行时编译器性能通常被认为是选择中间语言而非高级语言的另一个理由，但这里需要谨慎。高性
+// 能着色器可执行文件通常需要在运行时执行调度和寄存器分配算法，这些算法本身就很耗时。这些
+// 后续步骤无法通过使用可移植的中间语言来消除。然而，运行时编译器性能在多个方面得到了改善。
+// 首先，解析高级语言需要一些时间。虽然解析通常是编译栈的一小部分，但对于包含大量未使用代
+// 码的着色器，或多个着色器编译为相同中间结果的情况，解析变得更加重要。在这些情况下，使用
+// SPIR-V 可以显著消除解析时间。此外，一些高级优化可以离线执行，但要注意不要执行可能损害
+// 某些目标平台性能的平台特定优化。例如，是否应在所有调用点内联所有函数可能是平台相关的。
+//
+// 在 OpenGL 中使用 SPIR-V。在 OpenGL 中使用 SPIR-V 着色器与使用 GLSL 着色器非常相似。
+// 按照我们之前描述的方式创建着色器对象后，需要两个步骤将 SPIR-V 入口点与每个着色器对象
+// 关联。第一步是通过调用 glShaderBinary() 将 SPIR-V 模块与每个着色器对象关联。由于 SPIR-V
+// 通常以 32 位字流的形式指定和操作，请确保将 SPIR-V 的大小转换为字节以用于 glShaderBinary()。
+// 此 glShaderBinary() 函数可用于其他非源代码形式的着色器，因此这是一个通用函数，除非指定
+// 了 SHADER_BINARY_FORMAT_SPIR_V_ARB，否则不特定于 SPIR-V。将 SPIR-V 入口点与着色器对
+// 象关联所需的第二步是 glSpecializeShader()，如果成功，它将把由 glShaderBinary() 设置
+// 的编译状态从 GL_FALSE 更改为 GL_TRUE。我们将稍后讨论使用 GLSL 进行特化，之后你使用
+// glAttachShader() 和 glLinkProgram()，就像我们之前使用 glShaderSource() 处理 GLSL
+// 时一样，其他一切工作方式相同。
+//
+// 使用 GLSL 为 OpenGL 生成 SPIR-V。如何生成 SPIR-V 没有任何要求，只要求 SPIR-V 本身是
+// 格式良好的。虽然这对于支持广泛的高级语言和创建 SPIR-V 的新颖工具非常有利，但拥有用于编
+// 写和交换着色器的标准高级语言也很方便。为此，Khronos 标准化了一种用于创建 SPIR-V 的 GLSL
+// 形式。有两种用于制作 SPIR-V 着色器的 GLSL 风格：一种创建适合 Vulkan 的 SPIR-V（通过
+// KHR_glsl_vulkan 扩展），一种创建适合 OpenGL 的 SPIR-V（通过 ARB_gl_spirv 扩展）。
+// 这里，当然，我们将讨论用于为 OpenGL 生成 SPIR-V 的 GLSL。用于此目的的 GLSL 与标准 GLSL
+// 相同，有少量添加、少量删除和一些小的更改。通常，所有输入和输出都需要指定位置，I/O 类似
+// 于使用 SSO 模型。除此之外，它与本章前面介绍的 GLSL 完全相同。
+//
+// 验证 SPIR-V。OpenGL 驱动程序不会在运行时完全验证 SPIR-V，因为创建有效的离线 SPIR-V
+// 是一种性能优势。OpenGL 只需要在被给予完全有效的 SPIR-V 时表现正确。也就是说，无效的
+// SPIR-V 可能导致意外行为。Khronos 提供了 SPIR-V 验证器以及其他工具，可在以下网页地址
+// https://github.com/KhronosGroup/SPIRV-Tools 获取，帮助你离线验证要分发的 SPIR-V
+// 是否有效。此工具应集成到你的离线 SPIR-V 生成工具链中，以使着色器获得最大的可移植性。
+//
+// 为了生成 SPIR-V，GLSL 添加的关键特性是特化。特化常量可以大大减少你分发的着色器变体数
+// 量。它们允许后期更改着色器常量，而无需手动生成新着色器。通常，知道哪些值在编译时是常量
+// 有助于优化器生成执行更快的代码，相比访问始终具有相同值的变量。循环可以获得已知计数，计
+// 算可以简化。由于使用常量的这些积极影响，GLSL 着色器通常用预处理器宏或某种形式的计算机
+// 生成代码进行参数化。然后为参数的不同值创建多个不同的着色器。使用特化常量，此类参数被显
+// 式标识，赋予默认值，并允许被视为常量，即使其值可以在最终运行时编译之前更改。因此，可以
+// 创建和分发带有特化常量的单个着色器，这些常量稍后获取其正确的最终值。在 GLSL 中，这看起
+// 来像下面这样。它声明 param 是特化常量（因为 constant_id），默认值为 8。值 17 是如果
+// 应用程序想通过 OpenGL API 更改默认值时，稍后引用 param 的方式，就像之前使用 glSpecializeShader()
+// 所做的那样。当编译为 SPIR-V 时，SPIR-V 着色器将此 param 跟踪为特化常量。当需要使用着
+// 色器创建渲染管线时，提供正确的常量值与 SPIR-V 着色器，然后针对该值进行优化。因此，这就
+// 是避免分发同一着色器多个变体的原因。
+//      layout (constant_id = 17) const int param = 8;
+//
+// 为了生成 SPIR-V，GLSL 有一些删除，SPIR-V 不支持一些传统的 GLSL 特性。我们在此列出并
+// 给出替代的建议。
+//  1.  子程序：OpenGL GLSL 子程序特性在 SPIR-V 中不可用。可以使用 GLSL 中的其他构造表
+//      达类似功能，包括 switch 语句和函数调用。例如：
+//      switch (material) {
+//          case 1: result = material1(...); break;
+//          case 2: result = material2(...); break;
+//          case 3: result = material3(...); break;
+//      }
+//  2.  已弃用特性：应始终避免使用已弃用特性，但某些特性在生成 SPIR-V 时完全缺失。这包括
+//      旧的已弃用纹理函数，如 texture2D()，它们不再被允许，因为 texture2D 现在保留为从
+//      单独的采样器和 2D 纹理创建 sampler2D 的类型。相反，只需使用现代版本 texture 及
+//      其纹理查找内置函数家族。
+//  3.  兼容配置文件（compatibility profile）：通常，仅属于兼容配置文件的特性不受 SPIR-V
+//      支持，从 GLSL 生成 SPIR-V 时不允许使用 GLSL 兼容配置文件。你需要使用核心配置文件
+//      的特性来表达着色器，包括前面为 SPIR-V 添加到 GLSL 的特性。
+//  4.  gl_DepthRangeParameters：SPIR-V 没有用于深度范围参数的内置变量。任何你想与着色
+//      器共享的此类信息，你可以改为通过声明自己的 uniform 变量并通过 API 显式设置它们
+//      来共享。
+//
+// 为了生成 SPIR-V，对 GLSL 的更改。gl_FragColor 广播：当直接使用 GLSL（而非通过 SPIR-V）
+// 时，写入 gl_FragColor 可以生成对所有颜色输出附件的广播写入。然而，SPIR-V 不支持此特
+// 性。理想情况下，你将声明要写入的输出变量并显式写入它们。如果你确实使用 gl_FragColor，
+// 写入它将只写入附加在位置 0 的单个颜色输出。
+//
+// Khronos Group 提供了一个 GLSL 参考前端，能够从 GLSL 为 OpenGL 或 Vulkan 生成 SPIR-V。
+// 注意，你必须指定为哪个 API 生成 SPIR-V，因为它们具有不同的特性，因此具有不同的 GLSL 语
+// 义。虽然它是用于验证正确 GLSL 的 Khronos 参考前端，但它只是 SPIR-V 编译器的一个示例，
+// 不应被视为唯一的方式。Glslang 作为 GitHub 上的开源项目维护，地址为 https://github.com/KhronosGroup/glslang。
+// 注意，glslang 是 Khronos 用于直接 OpenGL 消费的有效 GLSL，或 OpenGL ES 消费的有效
+// ESSL 的合法语义检查的参考。这种高地位尚未赋予它用于 SPIR-V 生成，SPIR-V 生成应被视为
+// 示例实现，而非 Khronos 认可的参考。
+//
+// SPIR-V 内部是什么？SPIR-V 是一种简单的纯二进制形式，表示高级中间语言。它以此形式存储为
+// 简单的线性 32 位字序列。当你从离线编译器获得结果或设置到 API 时，它将是这样的 32 位字
+// 流（但你确实需要乘以 4 以获得 glShaderBinary() 期望的字节数）。它是自包含的；字序列周
+// 围没有包装器；只需从文件或 API 入口点获取或设置原始字序列。在此序列中，前几个字提供关于
+// 其余部分的完整性检查，包括第一个字是 SPIR-V 魔数，你可以验证它是 0x07230203。如果你有
+// 该值，但字节顺序相反，你要么没有一次查看一个 32 位字，要么某些步骤反转了字节序。
+//
+// SPIR-V 从高级语言编写的着色器中丢失的信息非常少。它可以保留嵌套控制和其他高级构造、GLSL
+// 原生类型以及关于内置变量语义的装饰，以便没有目标平台缺少执行高性能优化所需的信息。关于
+// SPIR-V 的进一步内部细节超出了本书的范围，本书旨在向你展示如何使用 GLSL 生成 SPIR-V，
+// 然后你可以将其随应用程序分发，但不是如何自己制作 SPIR-V。
+//
+// void glShaderBinary(GLsizei count, const GLuint *shaders, enum binaryformat, const void *binary, GLsizei length);
+// 当 binaryformat 为 GL_SHADER_BINARY_FORMAT_SPIR_V_ARB 时，将一组着色器对象与 binary 中给定的 SPIR-V 模块关联。
+// shaders 包含 count 个着色器对象句柄的列表。每个着色器对象句柄引用唯一的着色器类型，即 GL_VERTEX_SHADER、GL_FRAGMENT_SHADER、GL_TESS_CONTROL_SHADER、GL_TESS_EVALUATION_SHADER、GL_GEOMETRY_SHADER 或 GL_COMPUTE_SHADER 之一。
+// binary 指向有效 SPIR-V 模块的第一个字节，length 包含 SPIR-V 模块的长度（以字节为单位）。
+// 成功消费 SPIR-V 模块后，shaders 的每个条目将知道从此 SPIR-V 模块获取其入口点。这些着色器中每个的编译状态被设置为 GL_FALSE。
+//
+// void glSpecializeShader(GLuint shader, const char* pEntryPoint, GLuint numSpecializationConstants, const uint* pConstantIndex, const uint* pConstantValue);
+// 设置 SPIR-V 模块中入口点的名称，并设置 SPIR-V 模块中任何特化常量的值。
+// shader 是之前通过 glShaderBinary() 与 SPIR-V 模块关联的着色器对象的名称。
+// pEntryPoint 是指向以 NUL 结尾的 UTF-8 字符串的指针，指定用于着色器的 SPIR-V 模块中的入口点名称。如果 pEntryPoint 为 NULL，将使用字符串 "main"。
+// numSpecializationConstants 是此调用设置值的特化常量数量。
+// pConstantIndex 是指向 numSpecializationConstants 个无符号整数数组的指针，每个整数保存 SPIR-V 模块中特化常量的索引。pConstantValue 中的对应条目用于设置由 pConstantIndex 中条目索引的特化常量的值。虽然此数组是无符号整数，但每个条目会按位转换为模块的适当类型，因此可以通过在 pConstantValue 数组中包含其 IEEE-754 位表示来设置浮点常量。
+// pConstantIndex 未引用的特化常量保留其在 SPIR-V 模块中的默认值。
+// 着色器特化成功后，着色器的编译状态设置为 GL_TRUE。失败时，着色器的编译状态设置为 GL_FALSE，有关失败原因的附加信息可能在着色器编译日志中可用。
