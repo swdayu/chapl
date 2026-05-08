@@ -1492,3 +1492,146 @@
 //          vec3 normal;
 //          vec2 bump_coord;
 //      };
+//
+// 着色器的编译。OpenGL 着色器程序的编写与 C 语言等基于编译器的语言非常类似。我们使用编
+// 译器来解析程序，检查是否存在错误，然后将它翻译为目标代码。然后，在链接过程中将一些列目
+// 标代码合并，并产生最终的可执行程序。在程序中使用 GLSL 着色器的过程与之类似，只不过编
+// 译器和链接器都是 OpenGL 接口的一部分而已。以下给出了创建 GLSL 着色器对象并且通过链接
+// 生成可执行着色器程序的过程。对于每个着色器程序，我们都需要在应用程序中通过下面的步骤进
+// 行设置。对每个着色器对象，执行以下步骤。为什么要创建多个着色器对象？这是因为我们有可能
+// 在不同的程序中复用同一个函数，我们创建的通用函数可以在多个着色器中得到复用。
+//  1.  创建一个着色器对象并关联源代码，glCreateShader() glShaderSource()
+//  2.  将着色器源代码编译为对象，glCompileShader() glGetShaderInfoLog()
+//  3.  验证着色器的编译是否成功
+//
+// 然后需要将多个着色器对象链接为一个着色器程序，包括：
+//  1.  创建一个着色器程序，glCreateProgram()
+//  2.  将着色器对象关联到着色器程序，glAttachShader() glDetachShader()
+//  3.  链接着色器程序，glLinkProgram() glGetProgramInfoLog()
+//  4.  判断着色器的链接过程是否成功完成
+//  5.  使用着色器来处理顶点和片元，glUseProgram()
+//
+// 如果成功完成着色器程序的链接，那么就可以调用 glUseProgram() 启用着色器程序。当这些任
+// 务完成后，就可以调用 glDeleteShader() 删除着色器对象，并不需要关心它是否关联到某个活
+// 动程序上。这一点与 C 语言程序的链接是相同的，当我们得到可执行程序之后，就不再需要对象
+// 文件了，直到我们再次进行编译为止。与此类似，如果我们不再使用某个着色器程序，可以调用
+// glDeleteProgram() 删除。最后可以通过 glIsShader() 和 glIsProgram() 判断一个对象是
+// 不是着色器对象或者程序。
+//
+// GLuint glCreateShader(GLenum type);
+// void glDeleteShader(GLuint shader);
+// GLboolean glIsShader(GLuint shader);
+// void glShaderSource(GLuint shader, GLsizei count, const GLchar **string, const GLint length);
+// void glCompileShader(GLuint shader);
+// void glGetShaderInfoLog(GLuint shader, GLsizei buffer_size, GLsizei *length, char *info_log);
+// GLuint glCreateProgram(void);
+// void glDeleteProgram(GLuint program);
+// GLboolean glIsProgram(GLuint program);
+// void glAttachShader(GLuint program, GLuint shader);
+// void glDetachShader(GLuint program, GLuint shader);
+// void glLinkProgram(GLuint program);
+// void glGetProgramInfoLog(GLuint program, GLsizei buffer_size, GLsizei *length, char *info_log);
+// void glUseProgram(GLuint program);
+//
+// 着色器子程序。GLSL 允许我们在着色器中定义函数，而这些函数的调用过程总是静态的，如果需
+// 要动态地选择调用不同的函数，那么可以创建两个不同的着色器，或者使用 if 语句来进行运行时
+// 选择。而着色器子程序在概念上类似于 C 语言的函数指针，它可以实现动态子程序选择。在着色
+// 器中，可以预先声明一个可用子程序的集合，然后动态地指定子程序的类型，然后通过设置一个子
+// 程序的 uniform 变量，从预设的子程序中选择一个并加以执行。当我们需要在着色器中进行子程
+// 序选择时，通过需要三个步骤来设置一个子程序池。首先，通过关键字 subroutine 定义子程序的
+// 类型，它相当于定义一个函数原型；然后，使用刚才定义的 subroutine_type 来定义这个子程序
+// 集合的内容，以便稍后进行动态选择；最后，指定一个子程序 uniform 变量，其中保存了相当于
+// 函数指针，在应该程序中更改进行选择。函数并不一定只属于一个子程序类型，如果定义了多种类
+// 型的子程序，只要能够适配我们可以设置一个函数属于多个类型，方法是在定义函数时把类型添加
+// 到列表中。例如下面的示例，可以将函数 func_1 赋值给函数指针 name_1 和 name_2。
+//      void func1() { ... }
+//      void func2() { ... }
+//      uniform int func; // 静态着色器控制
+//      void main() { if (func == 1) func1() else func2(); }
+//
+//      subroutine return_type subroutine_type(type param, ...);
+//      subroutine (subroutine_type) return_type func_name(type param, ...);
+//      subroutine uniform subroutine_type variable_name;
+//
+//      subroutine void type_1();
+//      subroutine void type_2();
+//      subroutine void type_3();
+//      subroutine (type_1, type_2) func_1();
+//      subroutine (type_1, type_3) func_2();
+//      subroutine uniform type_1 name_1;
+//      subroutine uniform type_2 name_2;
+//      subroutine uniform type_3 name_3;
+//
+// 选择着色器函数。如果我们已经在着色器中定义了所有的子程序类型和函数，那么只需要在链接后
+// 的着色器程序中查询这些值，然后设置合适的函数即可。与其他 uniform 变量不同，子程序的
+// uniform 变量需要使用 glGetSubroutineUniformLocation() 来获取自身的位置。然后调用
+// glGetSubroutineIndex() 获取着色器函数的索引，最后调用 glUniformSubroutinesuiv()
+// 设置选择的函数。某个着色阶段中，所有的子程序 uniform 变量都必须先进行初始化。注意，调
+// 用 glUseProgram() 时会重置所有子程序 uniform 变量的值，具体的顺序与硬件实现相关。
+//
+// GLint glGetSubroutineUniformLocation(GLuint program, GLenum shadertype, const char *name);
+// GLuint glGetSubroutineIndex(GLuint program, GLenum shadertype, const char* name);
+// GLuint glUniformSubroutinesuiv(GLenum shadertype, GLsizei count, const GLuint * indices);
+//
+// 可以看下面的一个实现环境光照和漫反射光照动态选择的例子：
+//      // GLSL 着色器程序
+//      subroutine vec4 LightFunc(vec3);
+//      subroutine (LightFunc) vec4 ambient(vec3 n) {
+//          return Materials.ambient;
+//      }
+//      subroutine (LightFunc) vec4 diffuse(vec3 n) {
+//      return Materials.diffuse * max(dot(normalize(n), LightVec.xyz), 0.0);
+//      }
+//      subroutine uniform LightFunc material_shader;
+//
+//      // OpenGL 程序 C 代码
+//      GLint materialShaderLoc;
+//      GLuint ambientIndex;
+//      GLuint diffuseIndex;
+//      glUseProgram(program);
+//      materialShaderLoc = glGetSubroutineUniformLocation(program, GL_VERTEX_SHADER, "material_shader");
+//      if (materialShaderLoc < 0) ; // Error: materialShader is not an active subroutine uniform in the shader.
+//      ambientIndex = glGetSubroutineIndex(program, GL_VERTEX_SHADER, "ambient");
+//      diffuseIndex = glGetSubroutineIndex(program, GL_VERTEX_SHADER, "diffuse");
+//      if (ambientIndex == GL_INVALID_INDEX || diffuseIndex == GL_INVALID_INDEX) {
+//          // Error: the specified subroutines are not active in the currently bound program for the GL_VERTEX_SHADER stage.
+//      } else {
+//          GLsizei n;
+//          glGetIntegerv(GL_MAX_SUBROUTINE_UNIFORM_LOCATIONS, &n);
+//          GLuint *indices = new GLuint[n];
+//          indices[materialShaderLoc] = ambientIndex;
+//          glUniformSubroutinesuiv(GL_VERTEX_SHADER, n, indices);
+//          delete[] indices;
+//      }
+//
+// 独立的着色器对象。在 OpenGL 4.1 版本之前（不考虑扩展功能），在应用程序中，同一时间只能
+// 绑定一个着色器程序。如果你的程序需要使用多个片元着色器来处理来自同一个顶点着色器的几何体
+// 变换数据，那么这样很不方便。此时只能将同一个顶点着色器复制多份，并且多次绑定到不同的着色
+// 器程序，从而造成资源的浪费和代码的重复。独立的着色器对象可以将不同程序的着色阶段（如顶点
+// 着色）合并到同一个程序管线中。首先，我们需要创建用于着色器管线的着色器程序。我们可以调用
+// glProgramParameteri() 设置参数 GL_PROGRAM_SEPARABLE，然后再链接着色器程序。这样该程
+// 序就被标记为在着色器程序管线中使用。如果想要简化这个过程，还可以直接使用新增的 glCreateShaderProgramv()
+// 来封装着色器编译过程，并且将程序标识为可共享，然后链接到最终的对象。着色器管线的创建可以
+// 调用 glGenProgramPipelines() 或 glCreateProgramPipelines() 然后 glBindProgramPipeline()。
+// 之后，可以调用 glUesProgramStages() 将之前标记为独立的程序对象关联到管线上，它通过位
+// 域的方式来描述管线处理几何体和着色片元时程序所处的着色阶段。而之前的 glUseProgram() 只
+// 能直接调用一个程序并且替换当前绑定的程序管线。
+//
+// 为了确保管线可以使用，着色器阶段之间的接口（in 和 out 变量）必须匹配。非独立的着色器
+// 对象在链接时就可以检查这些接口的匹配情况，与之相比，使用独立程序对象的着色器管线只能在
+// 绘制调用过程中进行检查。如果接口没有正确匹配，那么所有的可变变量（out 变量）都未定义。
+// 内置的 gl_PerVertex 块必须重新声明，以便显式地指定固定管线接口中的哪些部分可以使用。
+// 如果管线用到了多个程序，那么这一步是必需的。例如：
+//      out gl_PerVertex {
+//          vec4 gl_Position; // 设置 gl_Position 在接口中可用
+//          float gl_PointSize; // 设置 gl_PointSize 在接口中可用，不再使用 gl_PerVertex 其他成员
+//      };
+//
+// 这样我们就建立了着色器的输出接口，它将用户后续的管线阶段当中。这里必须使用 gl_PerVertex
+// 自己的内置成员。如果不同的着色器程序都用到了同一个内置的块接口，那么所有的着色器都必须
+// 使用相同的方式重新声明这个内置的块。因为独立的着色器对象可以有各自独立的程序 uniform
+// 集合，所有我们可以使用两种方法来设置 uniform 变量的值。第一种方法是通过 glActiveShaderProgram()
+// 来选择一个活动的着色器程序，然后调用 glUniform*() 和 glUniformMatrix*() 来设置某个
+// 着色器程序的 unifrom 变量的值。另一种方法，也是我们推荐的方法，是调用 glProgramUniform*()
+// 和 glProgramUnifromMatrix*() 函数，它们有一个显式的 program 对象参数，这样可以独立
+// 地设置某个程序的 unifrom 变量的值。
