@@ -8,7 +8,7 @@
 //  struct const void embed of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
-//  with at dr todo debug trap local global // 全局变量必须使用 global 引用
+//  with fer der todo debug trap local global // 全局变量必须使用 global 引用
 //  mod mut ref gen priv do abstract macro tane (typename)
 //  alignof(type) sizeof(type) offsetof(type.offset) drop
 //  where it it.i halt emit print
@@ -462,11 +462,26 @@
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
 //  bool byte char string none null true false def error
-//  i08 i16 i32 i64 i128 i256 i512 int sys_int
-//  r08 r16 r32 r64 r128 r256 r512 reg sys_reg
+//  i08 i16 i32 i64 i128 i256 i512 int raw_int // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
+//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg // 编写上层应用，一般只需要使用 int 和 reg
 //  f08 f16 f32 f64 f128 f256 f512 float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
+//
+//  rem res rim ron rou rut ra re rf ri rl ro rs rv
+//  pointer
+//  raw pointer
+//  unsafe pointer
+//  register
+//  address
+//  reference
+//  handle
+//  descriptor
+//  iterator
+//  cursor
+//  indicator
+//  marker
+//  arrow
 //
 //  俩值 叁值 字符 字串 空值 未定 真 假 左 中 右 常 单 双 四 八 大 巨 超 字 机
 //  类型大小    单字节  双字节  四字节  八字节  16字节  32字节  64字节  语言指针大小 机器寄存器长度
@@ -762,15 +777,15 @@
 //      如果前面的表达式是一个变量，则进行函数调用
 //      如果前面的表达式是一个常量，则报错
 
-// 参数传递
-(point point) // 传值，发生拷贝
-(&point point) // 传地址，不修改实参
-(*point point) // 传地址，修改实参
-(^point point) // 传地址，可能被其他线程并行修改
+// 参数传递，一个参数至少占一个寄存器，占据不大于两个指针空间的结构体传值也占一到两个寄存器，其他都往后
+(point point) // 传值，大于两个指针传地址，只是临时拷贝一份局部变量给函数用
+(&point point) // 指针，不修改实参
+(*point point) // 指针，修改实参
+(^point point) // 指针，可能被硬件或其他线程并行修改
 (int a) // 传值
-(&int a) // 级别类型不存在&形式的传参，因为等价于 (int a)
-(*int a) // 传递地址，修改实参
-(^int a) // 传递地址，可能被其他线程并行修改
+(&int a) // 指针，不修改实参
+(*int a) // 指针，修改实参
+(^int a) // 指针，可能被硬件或其他线程并行修改
 // 逗号只能出现在 {} 或 [] 或 let 表达式中，不能出现在 () 中，避免与函数类型和函数调用冲突
 (point point camera camera) // 括号 () 中出现逗号必然是函数声明，只有函数类型声明和函数调用中才能包含逗号
 (typexpr ...)
@@ -803,16 +818,18 @@
 (*point) // 简写形式
 (int a)
 (int a int b int c float d)
-(int a ~ b ~ c float d) // ~ 表示类型为前一个参数的类型
+(int a.b.c float d) // . 表示复用前一类型
+(int .a .b .c float d)
+(int .a{0} .b{2} .c{3} float d) // 允许第一个也使用点号，方便自动化工具
 (int a int b yield int point >> int point)
 (int a int b yield int point >> int)
 (int a int b yield int point)
 (int a >> int point float as count point scale)
 (int a >> int point as count point or error)
-(*file? file {stdin} point point string name {"root"} string mode)
-(*file? file {stdin} point point point origin string name string mode int a int b int c >> int string float)
-(*file? file {stdin} point point ~ origin string name ~ mode int a ~ b ~ c >> int string float)
-(*file? _ point _ point _ string _ string _ int _ int _ int _ >> int string float)
+(*file? file{stdin} point point string name{"root"} string mode)
+(*file? file{stdin} point point point origin string name string mode int a int b int c >> int string float)
+(*file? file{stdin} point point.origin string name.mode int a.b.c >> int string float)
+(*file? _ point _._ string _._ int _._._ >> int string float)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
 [int] (x $) // int 成员命名为 x
@@ -839,16 +856,16 @@ $(anytype T) { (*T p int size >> int) read }
 //  3. 成员别名 type (a | b | c | ...)
 //  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ... }
 def test {
-    int a int b int c int d ~ e ~ f // ~ 重复前一类型
+    int a int b int c int x .y .z // . 重复前一类型
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int [1] inplace [31] size // 位域
     int (size | bytes | count) // 成员别名
     double d {
-    | int (i | j | k)
-    | float f float g
-    | byte b r32 u
-    | byte b r32 u
-    | char c
+        | int (i | j | k)
+        | float f float g
+        | byte b r32 u
+        | byte b r32 u
+        | char c
     }
 }
 
@@ -1651,8 +1668,8 @@ pub P6 = (int a int b >> int) { return a + b } // 相当于 pub P6(int a b retur
 // def name func_type { func_body }
 def a int = 10
 def b int = 20
-def int_ptr *int = at a
-def point_ptr *point = at point
+def int_ptr *int = fer a
+def point_ptr *point = fer point
 def point point = {100, 200}
 def calc (int a int b >> int) { return a + b } // 定义一个函数常量
 def calc (int a int b >> int) = null // 定义一个函数指针
@@ -1661,8 +1678,8 @@ def data [int int point] = {10, 20, {100, 200}}
 
 pub a int = 10
 pub b int = 20
-pub int_ptr *int = at a
-pub point_ptr *point = at point
+pub int_ptr *int = fer a
+pub point_ptr *point = fer point
 pub point point = {100, 200}
 pub calc (int a int b >> int) { return a + b } // 定义一个函数常量
 pub calc (int a int b >> int) = null // 定义一个函数指针
@@ -1679,20 +1696,20 @@ pub data [int int point] = {10, 20, {100, 200}}
 //  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
 //  let a type = expr, b = expr, c = expr, ...
-let a = a + int b + c * d               dr p = a + b
-let a = a + (int b + c) * d             dr **int p = curr + size
-let a = a + dr p + size
-let a = a + dr (p + size)
-let a = a + dr *int b + size
-let a = a + dr (*int b + size)
-let a = a + dr dr **int base + size
-let a = a + dr dr (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let a = a + dr dr (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let p *int = dr **int base + size
-let p *int = dr (**int base + size)
+let a = a + int b + c * d               der p = a + b
+let a = a + (int b + c) * d             der **int p = curr + size
+let a = a + der p + size
+let a = a + der (p + size)
+let a = a + der *int b + size
+let a = a + der (*int b + size)
+let a = a + der der **int base + size
+let a = a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let a = a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let p *int = der **int base + size
+let p *int = der (**int base + size)
 let point point = {100, 200} // 第一个 point 是类型
-let p *point = at copyof(point)
-let p *point = at {0}
+let p *point = fer copyof(point)
+let p *point = fer {0}
 let p *int = null
 let q *int = undefined
 let p *int = null, q = undefined
@@ -1712,7 +1729,7 @@ let a [8]int = {1, 2, 3, 4}
 let tup [i32 f64 r08] = {500, 6.4, 1} // tup(0) tup(1) tup(2)
 let tup (a b c) [i32 f64 r08] = {500, 6.4, 1} // tup.a tup.b tup.c
 let a, b, c [i32 f64 r08] = {500, 6.4, 1} // a b c
-let fp (int a ~ b >> int) = at calc
+let fp (int a ~ b >> int) = fer calc
 let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 let data (value error) = read_tuple() // 元组类型值的返回 data(0) data(1) data.value data.error
 let a, _ = read_tuple() // 赋值右边必须是一个元组类型
@@ -1731,8 +1748,8 @@ let array_ints = {{1,2}, {3,4,5}} // 元组
 let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
 let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
 let str_array = mixed_array[1]
-let o = dr p
-let p = at a
+let o = der p
+let p = fer a
 let o = point {1, 2}
 let ppb = *ppb malloc(size)
 let p = *int null
@@ -1754,16 +1771,16 @@ let ppb = *ppb malloc(size)
 
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
-if $a point{100, 200} + b: expr { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
-if $a $_ $c read_tuple(): expr { stmt ... }
-if $u lexer_next_utf8(l): u == '\'' || u == prh_char_invalid
+if $a point{100, 200} + b with expr { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
+if $a $_ $c read_tuple() with expr { stmt ... }
+if $u lexer_next_utf8(l) with u == '\'' || u == prh_char_invalid
     return TOKERR
 if $c getarray(l).[0,1].(a): c != '\''
     return TOKERR
 l.c = lexer_next_char(l)
 l.cvalue = u
 return CHARLIT
-l.parse = utf8_to_unicode(l.parse, at $unicode);
+l.parse = utf8_to_unicode(l.parse, fer $unicode);
 return unicode;
 
 // 使用符号#定义局部常量，常量的定义不占用函数栈空间，而 $a 实际分配函数栈空间
@@ -1786,7 +1803,7 @@ def calc(int a ~ b >> int int let x y or error) {
 def read_username(>> string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
     let f = open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
     let s = string {}
-    f.read_to_string(at s) or return
+    f.read_to_string(fer s) or return
     if s == "unknown" return e_notfound
     return s
 }
@@ -2075,11 +2092,11 @@ perform_tcpa_open_accept(*TcpSocket tcp r32 txbuf_size r32 rxbuf_size) {
 
 def report_tcpe_opened(*TcpSocket tcp) {
     let pdata = *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(TcpOpened))
-    let txbuf = *ByteArrfit at tcp.txbuf
+    let txbuf = *ByteArrfit fer tcp.txbuf
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_freely_post(tcp.upp_coro, at pdata->head)
+    cono_freely_post(tcp.upp_coro, fer pdata->head)
 }
 
 def epoll_proc(*coro) {
@@ -2147,12 +2164,12 @@ perform_tcpa_open_accept(*TcpSocket tcp r32 txbuf_size r32 rxbuf_size) {
 }
 
 report_tcpe_opened(*TcpSocket tcp) {
-    let txbuf = at tcp.txbuf
+    let txbuf = fer tcp.txbuf
     let pdata = tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(TcpOpened))
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_post(at pdata->head)
+    cono_post(fer pdata->head)
 }
 
 epoll_proc(*Cono cono) {
@@ -2204,8 +2221,8 @@ def snode $T {
 }
 
 for i I 0 .. 9 {
-    i int dr *I addr
-    pos + dr at *I (*byte p + size + f(g))
+    i int der *I addr
+    pos + der fer *I (*byte p + size + f(g))
 }
 
 def memcpy(reg dest unsigned src int count)
@@ -2218,9 +2235,9 @@ def coroguard(*coro p return coro_guard) 'cdcel inline'
 Calc (int a b int)
 Snode $T { this next T data }
 for [&] i I 0 .. 9 {
-    i int dr *I addr
+    i int der *I addr
     if i%2 continue &
-    pos + dr at I (*byte p + size + f(g))
+    pos + der fer I (*byte p + size + f(g))
 }
 memcpy (Ptr dst src int count)
 memcmp (Ptr dst src int count int)
@@ -2297,10 +2314,10 @@ def size(*triple(int size, $t, $u) return int) {
 }
 
 data { int a b } {1, 2}
-data *{ int a b } at {1, 2}
+data *{ int a b } fer {1, 2}
 data [2]{ int a b } {{1, 2}, {3, 4}}
 data Data {1, 2}
-data *Data at data
+data *Data fer data
 data Data[2] {data1, data2}
 
 found .. index array_find(<<array, item)
@@ -2312,10 +2329,10 @@ cal2 *(int a b int) (int a b int) {return a + b } // 函数不需要声明成指
 cal2 *(int a b int) Calc {return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc { return a + b }
-cal2 *(int a b int) at {return a + b }
+cal2 *(int a b int) fer {return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
-cal2 *Calc at (int a b int) {return a + b }
-cal2 *Calc at {return a + b }
+cal2 *Calc fer (int a b int) {return a + b }
+cal2 *Calc fer {return a + b }
 cal2 Calc{return a + b}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
@@ -2391,14 +2408,14 @@ let Calc cal2 { return a + b }
 let Calc cal2 calc
 let cal2 calc
 
-dat3 *{ int a b } at {3, 4}
+dat3 *{ int a b } fer {3, 4}
 dat3 [2]{ int a b } {{3, 4}, data}
-dat3 *{ int a b } at {3, 4}
-dat3 *Data at data
+dat3 *{ int a b } fer {3, 4}
+dat3 *Data fer data
 dat3 [2]Data {{3, 4}, data}
 
-cal3 *(int a b int) at { return a + b }
-cal3 *(int a b int) at calc
+cal3 *(int a b int) fer { return a + b }
+cal3 *(int a b int) fer calc
 cal3 (int a b int) { return a + b }
 cal3 Calc { return a + b }
 let cal3 calc
@@ -2409,13 +2426,13 @@ let cal3 calc
 // 一个非类型标识符后跟一个字面常量，表示用字面常量定义一个变量
 
 cal3 *(int a b int) null
-cal3 *(int a b int) at { a + b }
+cal3 *(int a b int) fer { a + b }
 cal3 *(int a b int) calc
 
 numb errno null
 numb float 3.14
 numb *int null
-numb *int at data
+numb *int fer data
 numb bool false
 
 let data false
@@ -2429,13 +2446,13 @@ data Data {1, 2}
 data int 1024
 numb errno null
 numb float 3.14
-numb *int at data
+numb *int fer data
 calc Calc { a + b }
 data Data {1, 2}
 data int 1024
 numb errno null
 numb float 3.14
-numb *int at data
+numb *int fer data
 temp int 1024
 temp float 3.14
 
@@ -2454,12 +2471,12 @@ aaa Data {3, 4} // 赋值语句因为目标变量只有一个，因此只要将�
 ppb *Ppb ppb_alloc(alloc)
 
 let pos = dist + int scale_x(facter)
-let len = int pos + at *byte p + size + f(g)
-let len = int pos + dr *byte (p + size + f(g))
+let len = int pos + fer *byte p + size + f(g)
+let len = int pos + der *byte (p + size + f(g))
 let len = typeof(pos) 3
 
 pos int dist + int scale_x(facter)
-len int pos + dr *int *byte (p + size + f(g))
+len int pos + der *int *byte (p + size + f(g))
 len typeof(pos) 3
 
 for i int 3 .. 10 { /* */ }
@@ -2660,7 +2677,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    -a +a ^a !a type a at a dr a sizeof a typeof a ->> <<-  not neg int at dr *int [2]int
+    10 从右到左    -a +a ^a !a type a fer a der a sizeof a typeof a ->> <<-  not neg int fer der *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b a<<<b a>>>b  mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -2688,14 +2705,14 @@ math:*
 
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
-    取地址 & 改为 (&) 地址标记 &1 &2 at
-    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 dr
+    取地址 & 改为 (&) 地址标记 &1 &2 fer
+    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 der
 
     @negt()     @-          @-3.14      @-c         (-3.14) (-c)
     @posi()     @+          @+6.24      @+c         (+6.24) (+c)
     @comp()     @^          @^1024      @^c         (^1024) (^c)
-    @at()     (&)         @&data                  (&)data (*&)data    at data    dr at data
-    @dr()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
+    @fer()     (&)         @&data                  (&)data (*&)data    fer data    der fer data
+    @der()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 条件语句包含传统C的if和switch：
 //  if cond { expr }
@@ -3251,7 +3268,7 @@ print(typestring, "\n")
 //      修改其自身，可以使用语法 test(&copyof a)
 //
 //      基本类型 int reg sys_int sys_reg def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
-//      结构体类型总是传指针表示修改，声明为 *point，test(at point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
+//      结构体类型总是传指针表示修改，声明为 *point，test(fer point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
 //      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
@@ -3337,7 +3354,7 @@ print(typestring, "\n")
 ——
 ——     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
 ——     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-——     10 从右到左    -a +a ^a !a type a at a dr a sizeof a typeof a ->> <<-  not neg int at dr *int [2]int
+——     10 从右到左    -a +a ^a !a type a fer a der a sizeof a typeof a ->> <<-  not neg int fer der *int [2]int
 ——      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
 ——      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
 ——      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -3422,8 +3439,8 @@ print(typestring, "\n")
 —— type
 —— import
 —— scoped scope_guard
-—— at      址
-—— dr      值 之指向内容
+—— fer      址
+—— der      值 之指向内容
 —— todo
 —— debug
 —— alignof type         取对齐属性 类型
