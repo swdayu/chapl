@@ -16,7 +16,7 @@
 ; 栈函数参数三
 ; 主调函数，此处为高地址（栈底）
 
-include "%srctree%/prh/assembly/struct.inc"
+include "%srctree%/prh/assembly/pre_struct.inc"
 
 dptr fix dq
 ptrword fix qword

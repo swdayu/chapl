@@ -560,6 +560,6 @@ quiet_cmd_asm_to_o = $(quiet_echo_as)
 # WSL / Linux   VAR=value ./program
 #
 # compile flat assembly code to object
-# .flat -> .o
-quiet_cmd_flat_to_o = $(quiet_echo_as)
-      cmd_flat_to_o = export srctree=$(call windows_path_style,$(srctree)) && export WSLENV=srctree && $(FASM) -s $@.symb $(CLOPT_FIRST_PREREQ) $@
+# .as -> .o
+quiet_cmd_fasm_to_o = $(quiet_echo_as)
+      cmd_fasm_to_o = export srctree=$(call windows_path_style,$(srctree)) && export WSLENV=srctree && $(FASM) -s $@.symb $(CLOPT_FIRST_PREREQ) $@
