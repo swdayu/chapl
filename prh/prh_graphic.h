@@ -530,7 +530,7 @@
 // 用哪个顶点数组对象（VAO）。对 glCreateVertexArrays 调用 glBindVertecArray 相当于
 // 对已经创建好的顶点数组对象进行绑定。
 //
-// 缓存对象（Buffer Object）。OpenGL 需要将几乎所有传入的数据都保存到缓存对象中，它相当
+// 缓存对象（Buffer Object）。OpenGL 需要将几乎所有传入的数据都保存到缓存对象中，它相当    *** 缓存对象（Buffer Object）
 // 于 OpenGL 服务端分配和管理的一块内存区域。缓存区域可以存储各种各样的对象，这些对象称为
 // 缓存对象目标（buffer object target）。顶点数组对象就是其中一种需要存储在缓存对象中
 // 的对象，顶点数组对象相当于仅仅是一个用于区分其他对象类型的包装器，是对缓存对象区域的引
@@ -542,22 +542,22 @@
 // GLboolean glIsBuffer(GLuint buffer); // 2.0+
 //
 // 调用 glGenBuffers 之后，没有缓存对象与名字相关联，直到首次调用 glBindBuffer。如果
-// n 为负数，返回 GL_INVALID_VALUE 错误。glCreateBuffers 会之间创建与名字关联的缓存
+// n 为负数，返回 GL_INVALID_VALUE 错误。glCreateBuffers 会直接创建与名字关联的缓存
 // 对象。如果删除已经绑定了缓存对象，绑定重新设置为 0（没有绑定任何缓存对象）。如果当前
 // 的名字是缓存对象，glIsBuffer 返回 GL_TRUE，如果 buffer 为零，或者非零的非缓存对象
 // 名字，或者有错误发生，都返回 GL_FALSE。如果是一个 glGenBuffers 名字，如果还没有调
 // 用 glBindBuffer 绑定，也不是一个缓存对象。
 //
-// void glBindBuffer(GLenum target, GLuint buffer); // 2.0+
-// void glGetBooleanv(GLenum type, GLboolean *data); // 2.0+
-// void glGetBooleani_v(GLenum target, GLuint index, GLboolean *data); // 3.0+
+// void glBindBuffer(GLenum target, GLuint buffer); // 2.0+，将当前对应类型的目标缓存绑定到指定的缓存对象，指定后缓存数据内容为空
+// void glGetBooleanv(GLenum type, GLboolean *data); // 2.0+，从当前的目标缓存对象中获取数据
 // void glGetDoublev(GLenum type, GLdouble *data); // 2.0+
-// void glGetDoublei_v(GLenum target, GLuint index, GLdouble *data); // 4.1+
 // void glGetFloatv(GLenum type, GLfloat *data); // 2.0+
-// void glGetFloati_v(GLenum target, GLuint index, GLfloat *data); // 4.1+
 // void glGetIntegerv(GLenum type, GLint *data); // 2.0+
-// void glGetIntegeri_v(GLenum target, GLuint index, GLint *data); // 3.0+
 // void glGetInteger64v(GLenum type, GLint64 *data); // 3.2+
+// void glGetBooleani_v(GLenum target, GLuint index, GLboolean *data); // 3.0+
+// void glGetDoublei_v(GLenum target, GLuint index, GLdouble *data); // 4.1+
+// void glGetFloati_v(GLenum target, GLuint index, GLfloat *data); // 4.1+
+// void glGetIntegeri_v(GLenum target, GLuint index, GLint *data); // 3.0+
 // void glGetInteger64i_v(GLenum target, GLuint index, GLint64 *data); // 3.2+
 //
 // glBindBuffer 绑定一个 target 类型的缓存对象，glBindBuffer 将缓冲区对象绑定到指定的
@@ -565,7 +565,7 @@
 // 冲区对象的名称，则该缓冲区对象名称被绑定到该目标。如果不存在名为 buffer 的缓冲区对象，
 // 则会创建一个具有该名称的缓冲区对象。当缓冲区对象被绑定到某个目标时，该目标先前的绑定将
 // 自动解除。缓冲区对象名称是无符号整数，零是保留值，但每个缓冲区对象目标没有默认绑定的缓
-// 冲区对象。相反，将 buffer 设置为零实际上会解除先前绑定的任何缓冲区对象，并恢复该缓冲区
+// 冲区对象。相反，将 buffer 设置为零实际上会解除先前绑定的任何缓冲区对象，并恢复该缓冲区   *** 指定零缓存对象会解除绑定
 // 对象目标的客户端内存使用（如果该目标支持的话）。缓冲区对象名称及其对应的缓冲区对象内容
 // 对于当前 GL 渲染上下文的共享对象空间是局部的；两个渲染上下文只有在通过适当的 GL 窗口
 // 接口函数显式启用上下文间共享时，才会共享缓冲区对象名称。需要调用 glGenBuffers 来生成
@@ -582,7 +582,7 @@
 // 缓冲区对象可以根据需要多次重新绑定到任何目标。但是，GL 实现可能会根据其初始绑定目标对
 // 如何优化缓冲区对象的存储做出选择。
 //
-// 当非零缓冲区对象绑定到 GL_ARRAY_BUFFER 目标时，顶点数组指针参数（the vertex array
+// 当非零缓冲区对象绑定到 GL_ARRAY_BUFFER 目标时，顶点数组指针参数（the vertex array   *** GL_ARRAY_BUFFER
 // pointer parameter）被解释为缓冲区对象中以基本机器单位度量的偏移量。
 //
 // 当非零缓冲区对象绑定到 GL_DRAW_INDIRECT_BUFFER 目标时，通过 glDrawArraysIndirect
@@ -617,22 +617,36 @@
 // 化的 uniform 缓冲区、原子计数器缓冲区或着色器存储缓冲区绑定点。GL_QUERY_BUFFER（4.4+） 绑定
 // 点用于指定一个缓冲区对象，该对象将通过 glGetQueryObject 系列命令接收查询对象的结果。
 //
+// 变换反馈缓存（GL_TRANSFORM_FEEDBACK_BUFFER）是 OpenGL 提供的一种便捷方案，它可以在管
+// 线的顶点处理部分结束时（即经过顶点着色、可能的几何着色阶段），将经过变换的顶点重新捕
+// 获，并且将部分属性写入到缓存对象中。这个绑定目标可以建立专门的缓存来记录这些属性数据。
+//
 // 可用的缓存绑定目标类型，以及关联的 glGet 参数：
 //      常量                        glGet 参数                              用途和目的
-//      GL_ARRAY_BUFFER             GL_ARRAY_BUFFER_BINDING                顶点属性数据，位置、颜色、法线、纹理坐标等（Vertex Attributes，2.0+）
-//      GL_ELEMENT_ARRAY_BUFFER     GL_ELEMENT_ARRAY_BUFFER_BINDING        顶点数组索引，图元装配用（Vertex Array Indices，2.0+）
+//      GL_ARRAY_BUFFER             GL_ARRAY_BUFFER_BINDING                顶点属性数据，位置、颜色、法线、纹理坐标等（Vertex Attributes，2.0+），用来保存 glVertexAttribPointer()设置的顶点数组数据
+//      GL_ELEMENT_ARRAY_BUFFER     GL_ELEMENT_ARRAY_BUFFER_BINDING        顶点数组索引，图元装配用（Vertex Array Indices，2.0+），包含顶点索引数据，用于 glDrawElements() 等索引形式的绘制命令
 //      GL_ATOMIC_COUNTER_BUFFER    GL_ATOMIC_COUNTER_BUFFER_BINDING       原子计数器存储，用于着色器中的原子操作（Atomic Counter Storage，4.2+）
-//      GL_COPY_READ_BUFFER         GL_COPY_READ_BUFFER_BINDING            缓冲区复制源（Buffer Copy Source，3.1+）
-//      GL_COPY_WRITE_BUFFER        GL_COPY_WRITE_BUFFER_BINDING           缓冲区复制目标（Buffer Copy Destination，3.1+）
+//      GL_COPY_READ_BUFFER         GL_COPY_READ_BUFFER_BINDING            缓冲区复制源（Buffer Copy Source，3.1+），这两个是一对相互匹配的绑定目标，用于拷贝缓存之间的数据，
+//      GL_COPY_WRITE_BUFFER        GL_COPY_WRITE_BUFFER_BINDING           缓冲区复制目标（Buffer Copy Destination，3.1+），并且不会引起 OpenGL 状态变化，也不会产生任何特殊 OpenGL 调用
 //      GL_DISPATCH_INDIRECT_BUFFER GL_DISPATCH_INDIRECT_BUFFER_BINDING    间接计算调度命令（4.3+）
-//      GL_DRAW_INDIRECT_BUFFER     GL_DRAW_INDIRECT_BUFFER_BINDING        间接绘制命令参数（4.0+）
-//      GL_PIXEL_PACK_BUFFER        GL_PIXEL_PACK_BUFFER_BINDING           像素打包缓冲区，像素读取目标（Pixel Read Target，2.1+）
-//      GL_PIXEL_UNPACK_BUFFER      GL_PIXEL_UNPACK_BUFFER_BINDING         像素解包缓冲区，纹理数据源（Texture Data Source，2.1+）
+//      GL_DRAW_INDIRECT_BUFFER     GL_DRAW_INDIRECT_BUFFER_BINDING        间接绘制命令参数（4.0+），用于存储绘制命令的参数
+//      GL_PIXEL_PACK_BUFFER        GL_PIXEL_PACK_BUFFER_BINDING           像素打包缓冲区，像素读取目标（Pixel Read Target，2.1+），读取图像对象（如纹理或帧缓存）数据的存储目标
+//      GL_PIXEL_UNPACK_BUFFER      GL_PIXEL_UNPACK_BUFFER_BINDING         像素解包缓冲区，纹理数据源（Texture Data Source，2.1+），用作如 glTextureSubImage2D() 数据的源头
 //      GL_SHADER_STORAGE_BUFFER    GL_SHADER_STORAGE_BUFFER_BINDING       着色器存储（Shaders Read-Write Storage，4.3+）
 //      GL_TEXTURE_BUFFER           GL_TEXTURE_BINDING_BUFFER              纹理缓冲区（Texture Data Buffer，3.1+）
 //      GL_TRANSFORM_FEEDBACK_BUFFER GL_TRANSFORM_FEEDBACK_BUFFER_BINDING  变换反馈缓冲区，变换反馈捕获的顶点数据
-//      GL_UNIFORM_BUFFER           GL_UNIFORM_BUFFER_BINDING              Uniform 块数据（UBO，Uniform Block Storage，3.1+）
+//      GL_UNIFORM_BUFFER           GL_UNIFORM_BUFFER_BINDING              Uniform 块数据（UBO，Uniform Block Storage，3.1+），用于创建 unifrom 缓存对象
 //      GL_QUERY_BUFFER             ---                                    查询结果存储（Query Result Buffer，4.4+）
+//
+// 将数据输入和输出 OpenGL 缓存的方法有很多种，比如直接显式地传递数据，又比如用新的数据
+// 替换缓存对象种已有的部分数据，或者由 OpenGL 负责生成数据然后将它记录到缓存对象种。向
+// 缓存对象种传递数据最简单的方法是在缓存对象分配之后将数据加载到缓存种。这一步可以调用
+// glBufferData/Storage() 或 glNamedBufferData/Storage() 函数来完成。需要注意的是，glBufferData()
+// 是真正为缓存对象分配或重新分配空间的函数，也就是说，如果新的数据大小比缓存对象当前所
+// 分配的空间要大，那么缓存对象的大小将被重设为获取更多空间。与之类似，如果新的数据大小
+// 比当前所分配的缓存要小，那么缓存对象将会收缩以适应新的大小。虽然我们可以直接在初始化
+// 时指定缓存对象的大小和数据，但这只是一种方便的用法而已，并不一定是最好的方法，有时候
+// 也不一定是最方便的用法。
 //
 // void glBufferData(GLenum target, GLsizeiptr size, const GLvoid *data, GLenum usage); // 2.0+
 // void glNamedBufferData(GLuint buffer, GLsizeiptr size, const void *data, GLenum usage); // 4.5+
@@ -662,13 +676,16 @@
 // 示，说明缓冲区对象的数据存储将如何被访问。这使 GL 实现能够做出更智能的决策，从而显著影
 // 响缓冲区对象的性能。然而，它并不限制数据存储的实际使用方式。usage 可分为两部分：首先是
 // 访问频率（修改和使用），其次是访问性质。
-//      访问频率  STREAM  数据存储内容将修改一次，最多使用几次
-//               STATIC  数据存储内容将修改一次，使用多次
-//               DYNAMIC 数据存储内容将反复修改，使用多次
-//      访问性质  DRAW    数据存储内容由应用程序修改，并作为 GL 绘制和图像规范命令的源
-//               READ    数据存储内容通过从 GL 读取数据来修改，并在应用程序查询时返回该数据
-//               COPY    数据存储内容通过从 GL 读取数据来修改，并作为 GL 绘制和图像规范命令的源
-//      典型场景  GL_STREAM_DRAW  每帧更新的动态顶点数据（如粒子系统）
+//      访问频率 STREAM  数据存储内容将修改一次，然后也不会被频繁使用（最多使用几次，可能只使用一次）
+//               STATIC  数据存储内容将修改一次，使用多次，静态数据，修改一次就不再变动的数据
+//               DYNAMIC 数据存储内容将反复修改，使用多次，动态数据，频繁变动的数据
+//      访问性质 DRAW    数据存储内容由应用程序修改，并作为 GL 绘制和图像规范命令的数据源
+//               READ    数据存储内容通过从 GL 反馈的数据写入，并在应用程序查询时返回这些数据
+//               COPY    数据存储内容通过从 GL 反馈的数据写入，并作为 GL 绘制和图像规范命令的数据源，
+//                       应用程序通过 OpenGL 端生成的数据并且保存到缓存种，然后它将作为后续绘制操作
+//                       的数据输入源。使用 COPY 标志的一个例子是变换反馈缓存，这个缓存需要由 OpenGL
+//                       写入数据，然后在之后的绘制命令种再作为顶点缓存使用。
+//      典型场景 GL_STREAM_DRAW  每帧更新的动态顶点数据（如粒子系统）
 //               GL_STREAM_READ  偶尔读取一次的 GPU 计算结果
 //               GL_STREAM_COPY  每帧从纹理读取并用于绘制的数据
 //               GL_STATIC_DRAW  加载一次的几何体、纹理坐标
@@ -697,17 +714,21 @@
 // 组合受到以下限制：如果 flags 包含 GL_MAP_PERSISTENT_BIT，则它还必须包含 GL_MAP_READ_BIT
 // 或 GL_MAP_WRITE_BIT 中的至少一个；如果 flags 包含 GL_MAP_COHERENT_BIT，则它还必须
 // 包含 GL_MAP_PERSISTENT_BIT。
-//      GL_DYNAMIC_STORAGE_BIT 数据存储的内容可以在创建后通过调用 glBufferSubData 更新。如果未设置此位，缓
-//          冲区内容可能无法由客户端直接更新。无论是否设置 GL_DYNAMIC_STORAGE_BIT，data 参数都可用于指定缓
-//          冲区数据存储的初始内容。无论此位是否存在，缓冲区始终可以通过服务器端调用（如 glCopyBufferSubData
-//          和 glClearBufferSubData）进行更新。
-//      GL_MAP_READ_BIT 数据存储可以由客户端映射以进行读取访问，并获得客户端地址空间中的指针，可以从中读取。
-//      GL_MAP_WRITE_BIT 数据存储可以由客户端映射以进行写入访问，并获得客户端地址空间中的指针，可以通过其写入。
-//      GL_MAP_PERSISTENT_BIT 客户端可以请求服务器在缓冲区映射时对其进行读取或写入。只要数据存储处于映射状态，
-//          客户端指向数据存储的指针就保持有效，即使在执行绘制或调度命令期间也是如此。
+//      GL_DYNAMIC_STORAGE_BIT 数据存储的内容可以在创建后通过调用 glBufferSubData/glNamedBufferSubData 直接
+//          更新。如果未设置此位，缓冲区内容可能无法由客户端直接更新，只能由 GPU 修改，例如在着色器程序种修
+//          改它。无论是否设置 GL_DYNAMIC_STORAGE_BIT，data 参数都可用于指定缓冲区数据存储的初始内容。无论此
+//          位是否存在，缓冲区始终可以通过服务器端调用（如 glCopyBufferSubData 和 glClearBufferSubData）进行
+//          更新。
+//      GL_MAP_READ_BIT 数据存储可以由客户端（CPU）映射以进行读取访问，并获得客户端地址空间中的指针，可以从
+//          中读取，否则 glMapNamedBufferRange() 读取将失败。
+//      GL_MAP_WRITE_BIT 数据存储可以由客户端（CPU）映射以进行写入访问，并获得客户端地址空间中的指针，可以通
+//          过其写入，否则 glMapNamedBufferRange() 写入将失败。
+//      GL_MAP_PERSISTENT_BIT 客户端可以请求服务器在缓冲区映射时对其进行读取或写入（根据是否设置 GL_MAP_READ_BIT
+//          和 GL_MAP_WRITE_BIT），即缓存数据在渲染时仍保持有效。只要数据存储处于映射状态，客户端指向数据存储
+//          的指针就保持有效，即使在执行绘制或调度命令期间也是如此。创建持久化映射时必须指定。
 //      GL_MAP_COHERENT_BIT 只要使用 glMapBufferRange 执行映射，客户端访问映射且服务器同时使用的缓冲区的共
-//          享访问将是一致的。也就是说，客户端或服务器写入存储的数据将立即对另一方可见，应用程序无需采取进一步
-//          操作。具体而言：
+//          享访问将是一致的。也就是说，客户端（CPU）或服务端（GPU）写入存储的数据将立即对另一方可见，应用
+//          程序无需采取进一步操作。创建一致性映射时必须指定。具体而言：
 //          • 如果未设置 GL_MAP_COHERENT_BIT 且客户端执行写入，随后调用 glMemoryBarrier 命令并设置
 //            GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT，则在后续命令中服务器将看到写入。
 //          • 如果设置了 GL_MAP_COHERENT_BIT 且客户端执行写入，则在后续命令中服务器将看到写入。
@@ -716,8 +737,15 @@
 //            （或 glFinish）。同步完成后，CPU 将看到写入。
 //          • 如果设置了 GL_MAP_COHERENT_BIT 且服务器执行写入，应用程序必须调用 glFenceSync 并设置
 //            GL_SYNC_GPU_COMMANDS_COMPLETE（或 glFinish）。同步完成后，CPU 将看到写入。
-//      GL_CLIENT_STORAGE_BIT 当满足缓冲区存储分配的所有其他条件时，实现可以使用此位来确定是使用服务器本地还
-//          是客户端本地的存储作为缓冲区的后备存储（the backing store for the buffer）。
+//      GL_CLIENT_STORAGE_BIT 当满足缓冲区存储分配的所有其他条件时，实现可以使用此位来确定是使用服务器本地
+//          还是客户端本地的存储作为缓冲区的后备存储（the backing store for the buffer）。在非统一内存架构
+//          （non-uniform memory architecture）系统中，某些内存区域由主机（host）访问效率更高，而另一些内存
+//          区域由 GPU 访问效率更高。当所有其他要求都已满足时，此标志的存在告知 OpenGL：如果存在这种差异，
+//          则优先保证 CPU（主机）的高效访问。非统一内存架构（NUMA），CPU 和 GPU 拥有各自独立的物理内存，访
+//          问对方内存需通过总线。GL_CLIENT_STORAGE_BIT 提示驱动：即使需要额外拷贝，也要让数据驻留在 CPU 侧
+//          易访问的内存中。在 UMA（统一内存架构，如 Apple Silicon、集成显卡）系统上，此标志通常无实际影响。
+//          典型使用场景，CPU 需要频繁读取/修改缓冲区内容（如动态顶点数据、计算结果回读），数据由 CPU 生成后
+//          立即上传，但之后 CPU 仍需持续更新。
 //
 // 可变存储（glBufferData）和不可变存储（glBufferStorage）的对比：
 //      大小可变性  可重新分配（再次调用即删除旧存储）     大小固定，不可重新分配
@@ -725,8 +753,8 @@
 //      一致性映射  不支持                              支持（GL_MAP_COHERENT_BIT）
 //      客户端存储  不支持                              可选（GL_CLIENT_STORAGE_BIT）
 //      直接更新    始终允许                            需显式设置 GL_DYNAMIC_STORAGE_BIT
-//      性能        良好                               更优（驱动可做出更强优化假设）
-//      适用场景    通用、简单场景                       高性能、多线程、CPU-GPU 协作、持久映射场景
+//      性能        良好                                更优（驱动可做出更强优化假设）
+//      适用场景    通用、简单场景                      高性能、多线程、CPU-GPU 协作、持久映射场景
 //
 // 传统映射（glBufferData）
 //      每帧循环：
@@ -744,6 +772,8 @@
 //             ↑ 可选，非相干模式需要
 //      清理时：
 //        glUnmapNamedBuffer // 仅程序结束时
+//
+// 缓存的部分初始化（initializing part of a buffer）。假设有一个包含部分顶点
 //
 // 初始化顶点和片元着色器。对于每一个 OpenGL 程序，当它所使用的 OpenGL 版本高于或等于
 // 3.1 时，需要绘制任何东西的程序都需要指定至少两个着色器：一个顶点着色器和一个片元着色
