@@ -773,7 +773,82 @@
 //      清理时：
 //        glUnmapNamedBuffer // 仅程序结束时
 //
-// 缓存的部分初始化（initializing part of a buffer）。假设有一个包含部分顶点
+// 缓存的部分初始化（initializing part of a buffer）。假设一个数组包含一些顶点数据，另一
+// 个数组包含一些颜色信息，还有一个数组包含纹理坐标或别的数据。你需要将这些数据进行紧凑打
+// 包到一个足够大的缓存对象让 OpenGL 使用。在内存种数组之间可能是连续的，也可能不连续，因
+// 此无法使用 glBufferData/Storage() 一次性地更新所有的数据。此外，如果使用 glBufferData
+// 进行更新，那么首先比如说是顶点数据，然后缓存的大小将与顶点数据匹配，不再有空间去存储颜
+// 色或者纹理坐标信息了。因此我们需要引入新的 glBufferSubData/glNamedBufferSubData 等函数。
+// 通过将 glBufferData/Storage 和 glBufferSubData 结合起来使用，或者 glNamedBufferData/Storage
+// 和 glNamedBufferSubData 结合起来使用，我们可以对一个缓存对象进行分配和初始化，然后将数
+// 据更新到缓存的不同区域中。例如：
+//
+//      static const GLfloat positions[] = {
+//          -1.0f, -1.0f, 0.0f, 1.0f,
+//           1.0f, -1.0f, 0.0f, 1.0f,
+//           1.0f,  1.0f, 0.0f, 1.0f,
+//           -1.0f, 1.0f, 0.0f, 1.0f
+//      };
+//      static const GLfloat colors[] = {
+//          1.0f, 0.0f, 0.0f,
+//          0.0f, 1.0f, 0.0f,
+//          0.0f, 0.0f, 1.0f,
+//          1.0f, 1.0f, 1.0f,
+//      };
+//      GLuint buffer; // 缓存对象
+//  #if 0
+//      glGenBuffers(1, &buffer);
+//      glBindBuffer(GL_ARRAY_BUFFER, buffer);
+//      glBufferData(GL_ARRAY_BUFFER, sizeof(positions) + sizeof(colors), NULL, GL_STATIC_DRAW); // 分配足够大的空间，无数据
+//      glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(positions), positions);
+//      glBufferSubData(GL_ARRAY_BUFFER, sizeof(positions), sizeof(colors), colors);
+//  #else
+//      glCreateBuffers(1, &buffer);
+//      glNamedBufferStorage(buffer, sizeof(positions) + sizeof(colors), NULL, GL_DYNAMIC_STORAGE_BIT);
+//      glNamedBufferSubData(buffer, 0, sizeof(positions), positions);
+//      glNamedBufferSubData(buffer, sizeof(positions), sizeof(colors), colors);
+//  #endif
+//
+// void glBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, const GLvoid *data);
+// void glNameBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, const GLvoid *data);
+//
+// 如果希望将缓存对象的数据清除为已知的值，可以使用 glClearBufferData/glClearNamedBufferData
+// 或者 glClearBufferSubData/glClearNamedBufferSubData。这些函数清除缓存对象中所有或者
+// 部分数据，并使用 data 中的数据进行填充。format 和 type 分别指定了 data 对应数据的格
+// 式和类型。首先将数据转换为 internalformat 所指定的格式，然后填充缓存对象所指定的区域。
+// 对于 glClearBufferData/glClearNamedBufferData，整个区域都会被指定的数据填充，而对于
+// glClearBufferSubData/glClearNamedBufferSubData，填充区域通过 offset 和 size 指定，它
+// 们分别给出以字节为单位的起始偏移地址和大小。这些函数允许我们初始化缓存对象中存储的数
+// 据，并且不需要先保留或清除任何一处系统内存。
+//
+// void glClearBufferData(GLenum target, GLenum internalformat, GLenum format, GLenum type, const void *data);
+// void glClearNamedBufferData(GLuint buffer, GLenum internalformat, GLenum format, GLenum type, const void *data);
+//
+// void glClearBufferSubData(GLenum target, GLenum internalformat, GLintptr offset, GLintptr size, GLenum format, GLenum type, const void *data);
+// void glClearNamedBufferSubData(GLuint buffer, GLenum internalformat, GLintptr offset, GLsizeiptr size, GLenum format, GLenum type, const void *data);
+//
+// 缓存对象中的数据还可以使用 glCopyBufferSubData/glCopyNamedBufferSubData 进行拷贝，与
+// glBufferSubData 对较大缓存的数据进行依次组装的做法不同，我们可以使用 glBufferData/Storage
+// 将数据更新到独立的缓存中，然后将这些缓存直接用 glCopyBufferSubData 拷贝到一个较大的
+// 缓存中。你可以通过分配一组暂存缓冲区（staging buffers）并循环使用它们来实现复制的重
+// 叠，使得被覆盖的数据不会同时处于使用状态。glCopyBufferSubData/glCopyNamedBufferSubData
+// 可以在两个缓存之间拷贝数据，而 GL_COPY_READ_BUFFER 和 GL_COPY_WRITE_BUFFER 正是为了
+// 这个目的而生的。它们不能用于其他 OpenGL 的操作中，因此可以安全的将它们与缓存绑定进行
+// 数据拷贝和暂存，不影响 OpenGL 的状态也不需要记录拷贝之前的绑定目标。
+//
+// void glCopyBufferSubData(GLenum readtarget, GLenum writetarget, GLintptr readoffset, GLintptr writeoffset, GLsizeiptr size);
+// void glCopyNamedBufferSubData(GLuint readbuffer, GLuint writebuffer, GLintptr readoffset, GLintptr writeoffset, GLsizeiptr size);
+//
+// 我们可以通过多种方式从缓存对象中读回信息，第一种方式是使用 glGetBufferSubData/glGetNamedBufferSubData
+// 函数。这个函数可以从目标缓存读取数据，然后将其放置到应用程序的内存中。如果缓存对象当
+// 前已经被映射，或者 offset 和 size 超出缓存对象数据区域的范围，那么将会报错。如果我们
+// 使用 OpenGL 生成了一些数据，然后希望重新获取到它们的内容，那么此时就可以调用这些函数。
+// 这样的例子包括在 GPU 中使用变换反馈（transform feedback）处理顶点数据，已经将帧缓存
+// 或者文件数据读取到像素缓存对象（pixel buffer object）中。当然，我们可以可以使用这些
+// 函数简单地将之前存入缓存对象中的数据读回到内存中。
+//
+// void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, GLvoid *data);
+// void glGetNamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, GLvoid *data);
 //
 // 初始化顶点和片元着色器。对于每一个 OpenGL 程序，当它所使用的 OpenGL 版本高于或等于
 // 3.1 时，需要绘制任何东西的程序都需要指定至少两个着色器：一个顶点着色器和一个片元着色
