@@ -850,18 +850,166 @@
 // void glGetBufferSubData(GLenum target, GLintptr offset, GLsizeiptr size, GLvoid *data);
 // void glGetNamedBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr size, GLvoid *data);
 //
+// 目前为止，所有的函数包括 glBufferData/glBufferSubData/glCopyBufferSubData/glGetBufferSubData
+// 都存在同一个问题，它们都会导致 OpenGL 进行一次数据的拷贝操作。glBufferData/glBufferSubData
+// 会将应用程序内存中的数据拷贝到 OpenGL 管理的内存中，而 glCopyBufferSubData 会将数据从
+// 一个缓存拷贝到另一个，或者同一个缓存的不同位置。glGetBufferSubData/glGetNamedBufferSubData
+// 则将数据从 OpenGL 管理的内存拷贝到应用程序内存中。根据硬件的配置，其实也可以通过获取
+// 一个指针的形式，直接在应用程序中对 OpenGL 管理的内存进行访问。为了获取这样的指针，需
+// 要调用 glMapBuffer() ，该函数会将对应的缓存对象的整个数据区域映射到客户端的地址空间中。
+// 之后，可以根据给定的 access 策略，通过返回的指针对数据进行直接读取或者写入的操作。如果
+// OpenGL 无法将缓存对象的数据映射出来，那么 glMapBuffer() 将产生一个错误并且返回 NULL。
+// 发生这种情况的原因可能与系统相关，例如可用的虚拟内存过低等。注意，这块映射的内存只是
+// 对应于这个缓存对象本身，它不一定就是图形处理器用到的内存区域。access 参数指定了应用程
+// 序对于映射后的内存区域的使用方式，可以是以下标识之一。access 参数相当于用户程序与 OpenGL
+// 对内存访问的一个约定，如果用户程序违反了这个约定，那么将产生不好的结果，例如写缓存
+// 的操作被忽略，数据被破坏，甚至用户程序直接崩溃。遗憾的是，很多应用程序都会破坏这样
+// 的约定，而大部分 OpenGL 的实现都会假设用户其实并不知道如何正确的调用 glMapBuffer()，
+// 因此直接将访问模式参数重新设定为 GL_READ_WRITE，因此这些程序还是可以正常工作。当你
+// 要求映射到应用程序的数据正处于你的应用程序无法访问的内存中时，OpenGL 可能会被迫将数
+// 据进行移动，以保证能够获取到数据的指针，也就是所期望的结果。与之类似，当你完成了对数
+// 据的操作对它进行修改，OpenGL 将再次把数据移回到图形处理器所需的位置上。这样的操作对
+// 性能的损耗是比较高的，因此必须特别加以对待。
+//      GL_READ_ONLY        应用程序仅对 OpenGL 映射的内存区域进行读操作
+//      GL_WRITE_ONLY       应用程序仅对 OpenGL 映射的内存区域进行写操作
+//      GL_READ_WRITE       应用程序对 OpenGL 映射区域可执行读或写操作
+//
+// 如果缓存已经通过 GL_READ_ONLY 或者 GL_READ_WRITE 访问模式进行了映射，那么缓存对象中
+// 的数据对于应用程序时可见的。我们可以回读它的内容，将它写入磁盘文件，甚至直接对它进行
+// 修改。如果访问模式为 GL_READ_WRITE 或者 GL_WRITE_ONLY，那么可以通过 OpenGL 返回的指
+// 针向映射内存中写入数据。当结束数据的读取或者写入缓存对象之后，必须使用 glUnmapBuffer
+// 执行解除映射的操作。该函数解除 glMapBuffer 创建的映射，如果对象数据的内容在映射过程
+// 中没有发生损坏，那么 glUnmapBuffer 将返回 GL_TRUE。发生损坏的原因通常与系统相关，例
+// 如屏幕模式发生了改变，这会影响图形内存的可用性。这种情况下，函数的返回值为 GL_FALSE，
+// 并且对应的数据内容是不可预测的。应用程序必须考虑这种几率较低的情况，并且及时对数据进
+// 行重新初始化。
+//
+// 如果解除了缓存的映射，那么之前写入到 OpenGL 映射内存的数据将会重新对缓存对象可见。这意
+// 味着我们可以先使用 glBufferData/glNamedBufferStorage 分配数据空间，并且在 data 参数直
+// 接传递 NULL，之后进行映射并且直接将数据写入，最好解除映射，从而完成数据向缓存对象传递
+// 的操作。下面是一个将文件内容读取并写入到缓存对象的例子，文件的所有内容都在单一操作中
+// 被读入到缓存对象中，缓存对象创建时的大小与文件大小相同。当缓存映射之后，我们就可以直接
+// 将文件内容读入到缓存对象中，应用程序端并没有拷贝的操作，并且如果数据对于应用程序和图形
+// 处理器都是可见的，那么 OpenGL 端也没有进行任何拷贝操作。
+//
+//      GLuint buffer;
+//      FILE *f;
+//      size_t fiesize;
+//      f = fopen("data.dat", "rb");
+//      fseek(f, 0, SEEK_END);
+//      filesize = ftell(f);
+//      fseek(f, 0, SEEK_SET);
+//      glGenBuffers(1, &buffer);
+//      glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+//      glBufferData(GL_COPY_WRITE_BUFFER, (GLsizei)filesize, NULL, GL_STATIC_DRAW);
+//      void *data = glMapBuffer(GL_COPY_WRITE_BUFFER, GL_WRITE_ONLY);
+//      fread(data, 1, filesize, f);
+//      glUnmapBuffer(GL_COPY_WRITE_BUFFER);
+//      fclose(f);
+//
+// 使用这种方式来初始化缓存对象可能带来显著的性能提升，因为如果调用 glBufferData/Storage
+// 或者 glBufferSubData/glNamedBufferSubData，当这些函数返回之后，可以对提供的内存做任何
+// 事。也就是说，这些函数在返回之后不再与提供的内存有任何瓜葛，因此必须采用数据拷贝的方式。
+// 但是，如果调用 glMapBuffer，它返回的指针是 OpenGL 管理的，当调用 glUnmapBuffer 之后，
+// OpenGL 依然负责管理这处内存，而用户程序与这处内存不再有瓜葛。这样的话即使数据需要移动
+// 或者拷贝，OpenGL 都可以在调用 glUnmapBuffer 之后的空闲时间开始这些操作，不再受应用程
+// 序的影响。因此，OpenGL 的数据拷贝操作与应用程序之后的操作（例如建立更多的缓存，读取别
+// 的文件等等）实际上是同步进行的。如果不需要进行拷贝的话，那么结果就再好不过了，此时在
+// 本质上解除映射的操作是免费的。
+//
+// void *glMapBuffer(GLenum target, GLenum access);
+// GLboolean glUnmapBuffer(GLenum target);
+//
+// 异步和显式映射（asynchronous and explicit mapping）。为了避免 glMapBuffer 可能造成的
+// 缓存映射问题，例如应用程序错误的指定了 access 参数或者总是使用 GL_READ_WRITE，使用函
+// 数 glMapBufferRange 可以更精确地设置访问模式。该函数将缓存对象数据的全部或者一部分
+// 映射到应用程序的地址空间中，offset 和 length 设置了映射的数据范围，access 是标识符，
+// 用于描述映射模式。access 必须包含 GL_MAP_READ_BIT 和 GL_MAP_WRITE_BIT 中的一个或两个，
+// 以确认应用程序是否要对映射数据进行读操作、写操作、或者两者皆有。此外，access 还可以包
+// 含如下的标志。
+//      GL_MAP_INVALIDATE_RANGE_BIT，如果设置的话，给定的缓存区域内的数据都可以被丢弃（discarded）
+//          变成无效。如果给定区域范围内的任何数据没有随后被重新写入的话，那么将变长未
+//          定义的数据。这个标识无法与 GL_MAP_READ_BIT 同时使用。
+//      GL_MAP_INVALIDATE_BUFFER_BIT，如果设置的话，缓存的整个内容都可以被丢弃变成无效，
+//          不再受区域范围的设置影响，缓存中所有映射范围之外的数据都变成未定义状态，而
+//          如果定义范围内的数据没有被重新写入的话，那么它也会变成未定义。这个标志无法
+//          与 GL_MAP_READ_BIT 同时使用。
+//      GL_MAP_FLUSH_EXPLICIT_BIT，应用程序负责通知 OpenGL 映射范围内的哪个部分包含了可
+//          用的数据，方法是在调用 glUnmapBuffer 之前调用 glFlushMappedBufferRange。如果
+//          缓存中较大范围内的数据都会被映射，而并不是全部被应用程序写入的话，应当使用这
+//          个标识符。这个标识符必须与 GL_MAP_WRITE_BIT 结合使用。如果 GL_MAP_FLUSH_EXPLICIT_BIT
+//          未指定的话，那么 glUnmapBuffer 会自动刷新整个映射区域的内容。
+//      GL_MAP_UNSYNCHRONIZED_BIT，如果这个标识没有设置的话，那么 OpenGL 会等待所有正在
+//          处理的缓存访问操作结束，然后再返回映射范围的内存。如果设置了这个标识，那么
+//          OpenGL 将不会尝试进行这样的缓存同步操作。
+//
+// 当你通过指定 GL_MAP_INVALIDATE_RANGE_BIT 或 GL_MAP_INVALIDATE_BUFFER_BIT 来表明要废
+// 弃缓冲区对象中的数据时，这意味着 OpenGL 可以自由丢弃缓冲区中先前存储的任何数据。这两
+// 个标志只有在同时指定了 GL_MAP_WRITE_BIT（表示你将写入缓冲区）时才能设置。如果你指定了
+// GL_MAP_INVALIDATE_RANGE_BIT，表示你将更新整个映射范围（或至少是你关心的所有部分）。如
+// 果你设置了 GL_MAP_INVALIDATE_BUFFER_BIT，意味着你不关心缓冲区中未被映射的部分最终会是
+// 什么内容，或者你计划通过后续的映射操作来更新缓冲区的其余部分。注意不要对每一段都指定
+// GL_MAP_INVALIDATE_BUFFER_BIT，否则只有最后映射的那一段才会包含有效数据。当 OpenGL 被允
+// 许丢弃缓冲区的其余数据时，它就不必费力将你的修改数据合并回原始缓冲区的其余部分。对于
+// 缓冲区的第一段映射，建议使用 GL_MAP_INVALIDATE_BUFFER_BIT；对于缓冲区的其余部分，则使
+// 用 GL_MAP_INVALIDATE_RANGE_BIT。
+//
+// GL_MAP_UNSYNCHRONIZED_BIT 标志用于解除 OpenGL 在数据传输和使用之间的自动同步。如果没有
+// 这个标志，OpenGL 会等待所有正在执行中、可能正在使用该缓冲区对象的命令完成。这会导致
+// OpenGL 流水线停顿，产生气泡并造成性能损失。如果你能保证所有挂起的命令在你实际修改缓
+// 冲区内容之前（但不一定是在调用 glMapNamedBufferRange() 之前）已经完成，例如通过调用
+// glFinish() 或使用同步对象（见原子操作与同步），那么 OpenGL 就不需要为你执行这种同步。
+//
+// 最后，GL_MAP_FLUSH_EXPLICIT_BIT 标志表明应用程序将承担通知 OpenGL 哪些部分已被修改的
+// 责任，然后再调用 glUnmapNamedBuffer()。通知操作通过 glFlushMappedBufferRange 函数完
+// 成，它通知 OpenGL 缓存中 offset 和 length 区域中以发生修改，需要立即更新到缓存对象的
+// 数据区域中。可以对映射的缓冲区对象的独立范围甚至重叠范围多次调用 glFlushMappedNamedBufferRange()。
+// 由 offset 和 length 指定的缓冲区对象范围必须位于已映射的缓冲区范围之内，且该范围必须
+// 是通过调用 glMapNamedBufferRange() 映射的，其访问标志中需包含 GL_MAP_FLUSH_EXPLICIT_BIT。
+// 当进行此调用时，OpenGL 假定你已完成对映射缓冲区指定范围的修改，并可以开始执行任何必
+// 要的操作以使该数据可用，例如将其复制到图形处理器可见的内存、刷新缓存或使数据缓存失效
+// （invalidating data caches）。即使缓冲区的部分或全部仍处于映射状态，它也可以执行这些
+// 操作。这是实现 OpenGL 与应用程序其他操作并行化的一种有效方式。例如，如果你需要从文件
+// 加载大量数据到缓冲区，可以映射一个足够容纳整个文件的缓冲区范围，然后分块读取文件，每
+// 读完一块就调用一次 glFlushMappedNamedBufferRange()。OpenGL 将与你的应用程序并行运行，
+// 同时读取文件的下一块数据。
+//
+// 通过以各种方式组合这些标志，可以优化应用程序与 OpenGL 之间的数据传输，或实现一些高级
+// 技巧，如多线程和异步文件操作。
+//
+// void *glMapBufferRange(GLenum target, GLintptr offset, GLsizeiptr length, GLbitfield access);
+// void glFlushMappedBufferRange(GLenum target, GLintptr offset, GLsizeiptr length);
+//
+// 丢弃缓存数据（discarding buffer data）。如果已经完成对缓存数据的处理，那么可以直接通
+// 知 OpenGL 我们不再需要这些数据。例如，如果我们正在向变换反馈（transform feedback）的
+// 缓存中写入数据，然后使用这些数据进行绘制。如果最后访问数据的是绘制命令，那么我们就可
+// 以及时通知 OpenGL，让它适时地丢弃数据并且将内存用作其他用途。这样 OpenGL 的实现可以完
+// 成一些优化工作，诸如紧密的内存分配策略，或者避免系统与多个 GPU 之间产生代价高昂的拷贝
+// 操作。如果要丢弃缓存对象中的部分或者全部数据，可以调用 glInvalidateBufferData 或者
+// glInvalidateBufferSubData。注意，从理论上来说，如果调用 glBufferData 并传入 NULL 数据
+// 指针的话，那么所实现的功能与直接调用 glInvalidateBufferData 是非常相似的。这两个方法
+// 都会通知 OpenGL 实现可以安全地抛弃缓存中的数据。但是，从逻辑上 glBufferData 会重新分
+// 配内存区域，而 glInvalidateBufferData 不会。此外，glInvalidateBufferSubData 是唯一一
+// 个可以抛弃缓存对象中部分数据的方法。
+//
+// void glInvalidateBufferData(GLuint buffer);
+// void glInvalidateBufferSubData(GLuint buffer, GLintptr offset, GLsizeiptr length);
+//
 // 初始化顶点和片元着色器。对于每一个 OpenGL 程序，当它所使用的 OpenGL 版本高于或等于
 // 3.1 时，需要绘制任何东西的程序都需要指定至少两个着色器：一个顶点着色器和一个片元着色
 // 器。我们通过一个辅助函数 LoadShaders() 来实现这个要求，它需要传入一个 ShaderInfo 的
 // 结构体数组，其中提供了着色器的类别和对于的着色器代码文件名称，数组的最后一个结构体为
 // 空表示数组结束。对于 OpenGL 程序而言，目前而言着色器是使用 OpenGL 着色语言 GLSL 编
 // 写的小型程序。我们可以以字符串的形式将 GLSL 着色器代码传给 OpenGL，但为了简化示例，
-// 并且让读者更容易地使用着色器进行开发，我们选择将着色器字符串的内容保存到文件中，并且使
-// 用 LoadShaders() 读取文件和创建 OpenGL 着色器程序。
+// 并且让读者更容易地使用着色器进行开发，我们选择将着色器字符串的内容保存到文件中，并且
+// 使用 LoadShaders() 读取文件和创建 OpenGL 着色器程序。
 //
-// void glVertexAttribPointer(GLuint index, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid *pointer); // 2.0+
-// void glVertexAttribIPointer(GLuint index, GLint size, GLenum type, GLsizei stride, const void *pointer); // 3.0+
-// void glVertexAttribLPointer(GLuint index, GLint size, GLenum type, GLsizei stride, cosnt void *pointer); // 4.1+
+// 现在我们已经在缓存中存储了数据，并且知道如何编写一个基本的顶点着色器，此时我们必须将
+// 数据传递到着色器中。
+//
+// void glVertexAttribPointer(GLuint index /*shader_location*/, GLint size, GLenum type, GLboolean normalized, GLsizei stride, const GLvoid *pointer); // 2.0+
+// void glVertexAttribIPointer(GLuint index /*shader_location*/, GLint size, GLenum type, GLsizei stride, const void *pointer); // 3.0+
+// void glVertexAttribLPointer(GLuint index /*shader_location*/, GLint size, GLenum type, GLsizei stride, cosnt void *pointer); // 4.1+
 //
 // 我们基本完成了初始化工作，init() 剩最后两个函数用于指定顶点着色器的变量与我们存储在缓
 // 存对象中的关系，这也就是所谓的着色器管线工程（shader plumbing），即将应用程序与着色
@@ -886,7 +1034,19 @@
 // GL_INT 和 GL_UNSIGNED_INT。此外，glVertexAttribPointer 还接受 GL_HALF_FLOAT、GL_FLOAT、
 // GL_DOUBLE、GL_FIXED、GL_INT_2_10_10_10_REV、GL_UNSIGNED_INT_2_10_10_10_REV 和
 // GL_UNSIGNED_INT_10F_11F_11F_REV（4.4+）。glVertexAttribLPointer 也接受 GL_DOUBLE，
-// 且这是该函数 type 参数唯一接受的标记。
+// 且这是该函数 type 参数唯一接受的标记。数据类型 type 总结如下：
+//      GL_BYTE                             8位有符号整数（GLbyte）
+//      GL_UNSIGNED_BYTE                    8位无符号整数（GLubyte）
+//      GL_SHORT                            16位有符号整数（GLshort）
+//      GL_UNSIGNED_SHORT                   16位无符号整数（GLushort）
+//      GL_INT                              32位有符号整数（GLint）
+//      GL_UNSIGNED_INT                     32位无符号整数（GLuint）
+//      GL_FIXED                            16位有符号定点（GLfixed）
+//      GL_FLOAT                            32位 IEEE 单精度浮点（GLfloat）
+//      GL_HALF_FLOAT                       16位 S1E5M10 半精度浮点（GLhalf）
+//      GL_DOUBLE                           64位 IEEE 双精度浮点（GLdouble）
+//      GL_INT_2_10_10_10_REV               有符号打包数据（packed data）类型（GLuint）
+//      GL_UNSIGNED_INT_2_10_10_10_REV      无符号打包数据（packed data）类型（GLuint）
 //
 // 参数 normalized，对于 glVertexAttribPointer，指定定点数据值在访问时是否应被归一化
 // （GL_TRUE）或直接转换作为定点值不进行归一化（GL_FALSE）。参数 stride 指定连续通用顶
@@ -897,6 +1057,20 @@
 // 望使用它来设置数据在缓存对象中的偏移，而不是像 pointer 原型那样直接设置一个指向内存块
 // 的指针。在 OpenGL 的早期版本中（3.1 版本之前），顶点属性数据可以直接保存在应用程序内
 // 存中，而不一定是 GPU 的缓存对象，因此旧版本使用指针的形式也是合理的。
+//
+// 注意，如果在 type 中传入 GL_SHORT 或者 GL_UNSIGNED_INT 这样的整数类型，那么这仅告诉
+// OpenGL 是什么数据类型保存在缓存对象的内存中。OpenGL 需要将这些数据转换为浮点数才能
+// 将它们加载到浮点顶点属性中。执行这一转换过程通过 normalize 参数控制，如果 normalize
+// 为 GL_FALSE，那么整数将直接被轻质转换为浮点数的形式，然后再传入到顶点着色器中的输入
+// 变量（float vec2 vec3 vec4）。换句话说，如果缓存中保存的是整数 4，类型设置为 GL_INT，
+// 那么着色器中传入的值就是 4.0。如果 normalize 为 GL_TRUE，那么数据再传入到顶点着色器
+// 之前需要首先进行归一化，为此，OpenGL 会使用一个固定的依赖于数据类型的常数去除每个元
+// 素。根据数据类型是有符号的还是无符号的，相应的计算公式如下，其中 f 的结果就是浮点数
+// 值，c 标识输入的整数，b 标识数据类型的位数，注意无符号数据类型在除以类型相关的常数
+// 之前，需要进行缩放和偏移操作。如果代入整数 4，那么将得到 f = 4 / (2^32 - 1) = 0.000000009313，
+// 这是一个非常小的数字。
+//      f = c / (2^b - 1)           有符号
+//      f = (2c + 1) / (2^b - 1)    无符号
 //
 // 例如以下代码示例，vPosition 顶点着色器中输入变量的 location 值，size 是 2 表示数组
 // 中每个顶点的元素数目（即 x 和 y 坐标），type 是 GL_FLOAT 表示元素类型是浮点，归一化
@@ -927,6 +1101,33 @@
 // 是 GL_DOUBLE。index、size 和 stride 的行为与 glVertexAttribPointer 和 glVertexAttribIPointer
 // 的描述相同。
 //
+// 整型顶点属性（integer vertex attributes）。如果你对浮点数值的工作方式比较熟悉的话，
+// 那么你应该知道如果它的数值很大的时候，会造成精度的丢失，因此大范围的整数值不能直接
+// 使用浮点型属性传入顶点着色器。因此，我们需要引入整数顶点属性，它们在顶点着色器中的
+// 表示方法为 int ivec2 ivec3 ivec4，当由也有无符号形式 uint uvec2 uvec3 uvec4。我们需
+// 要用到另一个顶点属性函数将整数传递到顶点属性中，它不会执行自动转换到浮点数的操作。
+// 该函数为 glVertexAttribIPointer，该函数与 glVertexAttribPointer 是完全等价的，只是
+// 不再需要 normalize 参数。
+//
+// 双精度顶点属性（double precision vertex attributes）。函数 glVertexAttribLPointer
+// 专门用于将属性数据加载到 64 为双精度浮点型顶点属性中，这里 normalize 参数也是不需要
+// 的。如果 glVertexAttribPointer() 函数也使用 GL_DOUBLE 类型，那么实际上数据在传递到
+// 顶点着色器之前会自动转换为 32 位单精度浮点，即使我们的目标顶点属性已经声明为双精度
+// 类型，例如 double dvec2 dvec3 dvec4 或者双精度矩阵类型，例如 dmat4。但是 glVertexAttribLPointer
+// 可以保证输入数据的完整精度，并且将它们直接传递到顶点着色器阶段。
+//
+// 顶点属性的打包数据格式（packed data formats for vertex attributes）。前面提及，参数
+// size 的可选值包括 1 2 3 4 以及一个特殊值 GL_BGRA。此外，type 参数也可以使用某些特殊值
+// GL_INT_2_10_10_10_REV 或者 GL_UNSIGNED_INT_2_10_10_10_REV，它们都对应 GLuint 数据类型。
+// 这些特殊的标识符可以用来表达 OpenGL 支持的打包数据格式，它们表示一种有四个分量的数据格
+// 式，前三个分量占 10 个比特，第四个分量占据最高的 2 个比特，这样的四个分量逆序打包到一
+// 个 32 位数据中（GLuint）。GL_BGRA 可以被简单地视为 GL_ZYXW 的格式，W 位于最高比特，从
+// 高比特到低比特依次是 X Y Z。如果设置为这个格式，那么顶点数组中的每一项都会占据 32 位，
+// 这个数据会被分解位各个分量然后根据 normalize 参数进行归一化，最后被传递到对应的顶点属
+// 性中。这种数据的排布方式对于法线等类型的属性设置特别有益处，三个主要分量的大小均为 10
+// 位，因此精度可以得到额外的提高，并且此时通常不需要达到半浮点数的精度级别（每个分量占据
+// 16 位）。这样节约了内存空间和系统带宽，因此有助于提升程序性能。
+//
 // 如果 pointer 不为 NULL，则必须有一个非零命名缓冲区对象绑定到 GL_ARRAY_BUFFER 目标
 // （参见 glBindBuffer），否则会生成错误。pointer 被视为缓冲区对象数据存储中的字节偏移
 // 量。缓冲区对象绑定（GL_ARRAY_BUFFER_BINDING）被保存为索引 index 的通用顶点属性数组
@@ -951,9 +1152,20 @@
 //      glGetVertexAttrib(index, GL_VERTEX_ATTRIB_ARRAY_BUFFER_BINDING)
 //      glGetVertexAttribPointerv(index, GL_VERTEX_ATTRIB_ARRAY_POINTER)
 //
-// void glEnableVertexAttribArray(GLuint index); // 2.0+
+// 静态顶点属性规范（static vertex-attribute specification）。函数 glEnableVertexAttribArray
+// 和 glDisableVertexAttribArray 可以用来通知 OpenGL 顶点缓存中记录了哪些顶点属性数据。在
+// OpenGL 从顶点缓存中读取数据之前，我们必须使用 glEnableVertexAttribArray 启用对应的顶点
+// 属性数组。如果某个顶点属性对应的属性数组没有启用的话，会发生什么事情呢？此时，OpenGL
+// 会使用静态顶点属性（static vertex attribute）。每个顶点的静态顶点属性都是一个默认值，
+// 如果某个属性没有启用人恶化属性数组的话，就会使用这个默认值。举例来说，我们的顶点着色
+// 器中可能需要从某个顶点属性中读取点的颜色值。如果某个模型中所有的顶点或者一部分顶点的
+// 颜色值是相同的，那么我们使用一个常数值来填充模型中所有顶点的数据缓存，这无疑是一种内
+// 存浪费和性能损失。因此，这里可以禁止顶点属性数值，并且使用静态的顶点属性值来设置所有
+// 顶点的颜色。
+//
+// void glEnableVertexAttribArray(GLuint index /*shader_location*/); // 2.0+
+// void glDisableVertexAttribArray(GLuint index /*shader_location*/); // 2.0+
 // void glEnableVertexArrayAttrib(GLuint vaobj, GLuint index); // 4.5+
-// void glDisableVertexAttribArray(GLuint index); // 2.0+
 // void glDisableVertexArrayAttrib(GLuint vaobj, GLuint index); // 4.5+
 //
 // 启用或禁用通用顶点属性数组。glEnableVertexAttribArray 和 glEnableVertexArrayAttrib
@@ -974,6 +1186,44 @@
 //      GL_INVALID_VALUE，index 大于或等于 GL_MAX_VERTEX_ATTRIBS，最大属性数由 GL_MAX_VERTEX_ATTRIBS
 //          决定，通常至少 16。因此 index 必须是一个 0 到 GL_MAX_VERTEX_ATTRIBS-1 之
 //          间的值。
+//
+// 每个属性的静态顶点属性可以通过 glVertexAttrib*() 系列函数来设置，如果顶点属性在顶点
+// 着色器中是一个浮点变量（如 float vec2 vec3 vec4 mat4），那么就可以使用下面的函数来
+// 设置它们的值。如果函数名称末尾没有 v，那么最多可以指定 4 个参数值 x y z w，如果函数
+// 末尾有 v，那么最多有 4 个参数值保存在一个数组中传入，它的地址通过 values 指定，存储
+// 顺序依次为 x y z w 分量。所有这些函数都会自动将输入参数转换为浮点数，除非它们本来就
+// 是浮点形式，然后再传递到着色器中。这里的转换是简单的强制类型转换，也就是说，输入的
+// 数值被转换为浮点数的过程，与缓存中的数据通过 glVertexAttribPointer 设置 normalize
+// 为 GL_FALSE 是一样的。
+//
+// void glVertexAttrib{1234}{fds}(GLuint index, TYPE values);
+// void glVertexAttrib{1234}{fds}v(GLuint index, const TYPE *values);
+// void glVertexAttrib4{bsifd ub us ui}v(GLuint index, const TYPE *valuse);
+//
+// 对于函数中需要传入整数值的情况，我们也可以使用另外的函数，将数据归一化到 [0, 1] 或者
+// [-1, 1] 的范围内，其根据是输入参数是否是有符号或无符号类型。这类函数为如下前两个函数，
+// 即使使用这两个函数，输入参数依然会转换为浮点数的形式，然后再传递给顶点着色器。因此只
+// 能用来设置单精度浮点数类型的静态属性数据。如果顶点属性变量必须声明为整数类型或者双精
+// 度浮点数的话，必须使用后面的函数。
+//
+// void glVertexAttrib4Nub(GLuint index, GLubyte x, GLubyte y, GLubyte z, GLubyte w);
+// void glVertexAttrib4N{bsi ub us ui}(GLuint index, const TYPE *v);
+// void glVertexAttribI{1234}{i ui}(GLuint index, TYPE values);
+// void glVertexAttribI{123}{i ui}v(GLuint index, const TYPE *values);
+// void glVertexAttribI4{bsi ub us ui}v(GLuint index, const TYPE *values);
+// void glVertexAttribL{1234}(GLuint index, TYPE values);
+// void glVertexAttribL{1234}v(GLuint index, const TYPE *values);
+//
+// 如果使用了某个 glVertexAttrib*() 函数，但是传递给顶点属性的分量个数不足的话，例如使用
+// glVertexAttrib2f() 形式，但所设置的顶点属性实际上声明为 vec4，那么缺少的分量中将自动
+// 填充为默认的值。对于 w 分量，默认值为 1.0，而 x y z 分量的默认值为 0.0。如果函数中包
+// 含的分量个数多个着色器中顶点属性的声明个数，那么多余的分量会被简单地进行丢弃处理。
+//
+// 静态顶点属性值是保存再当前的顶点数组对象（VAO）中的，而不是程序对象。这也意味着，如果
+// 当前的顶点着色器中存在一个 vec3 的输入属性，而我们使用 glVertexAttrib*() 的 4fv 形式
+// 设置了一个四分量的向量给它，那么第四个分量值虽然会被忽略，但是依然被保存了。如果改变
+// 顶点着色器的内容，重新设置当前属性为 vec4 的输入形式，那么之前设置的第四个分量值就会
+// 出现再属性 w 分量当中。
 //
 // void glClear(GLbitfield mask); // 2.0+
 // void glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha); // 2.0+
@@ -1069,38 +1319,6 @@
 //      如果 buffer 不是 GL_DEPTH_STENCIL，则 glClearBufferfi 和 glClearNamedFramebufferfi 生成 GL_INVALID_ENUM。
 //      如果 buffer 为 GL_COLOR 且 drawbuffer 为负数，或大于 GL_MAX_DRAW_BUFFERS 减 1 的值，则生成 GL_INVALID_VALUE。
 //      如果 buffer 为 GL_DEPTH、GL_STENCIL 或 GL_DEPTH_STENCIL 且 drawbuffer 不为 0，则生成 GL_INVALID_VALUE。
-//
-// void glDrawArrays(GLenum mode, GLint first, GLsizei count); // 2.0+
-//
-// 最后我们选择准备要绘制的顶点数组（通过 glBindVertexArray）作为顶点数据，然后调用
-// glDrawArrays 将顶点数据实际发送给 OpenGL 渲染管线。绘制最后调用 glFlush() 即强制
-// 所有进行中的 OpenGL 命令立即传输到 OpenGL 服务端处理，在后文我们会将 glFlush 替换
-// 为另一个更为平滑的命令，但需要进行更多的设置。在你的 OpenGL 编程生涯的某个时刻，你
-// 可能会被问及或自问“这需要多少时间”？“这”可能是渲染一个物体，绘制一整个场景，或者 OpenGL
-// 能够实现的其他操作。为了能够精确度量和执行自己的任务，我们有必要了解 OpenGL 是什么时
-// 候完成这些操作的。这里的 glFlush 命令看起来像是一个正确的答案，但是它不是。事实上
-// glFlush 只是强制所有运行中的命令送入 OpenGL 服务端而已，并且它会立即返回，它并不会
-// 等待所有的命令完成，而等待却是我们所需要的。此时，我们可以调用 glFinish 命令，它会一
-// 直等待所有当前的 OpenGL 操作完成后再返回。你最好只是在开发阶段使用 glFinish()，如果
-// 你已经完成了开发的工作，那么最好去掉对这个命令的调用。虽然它对于判断 OpenGL 命令的运
-// 行有帮助，但是对于程序的整体性能却有着相当的拖累。
-//
-// glDrawArrays 从数组数据渲染图元，参数 mode 指定要渲染的图元类型，可接受的符号常量包
-// 括 GL_POINTS、GL_LINE_STRIP、GL_LINE_LOOP、GL_LINES、GL_LINE_STRIP_ADJACENCY（3.2+）、
-// GL_LINES_ADJACENCY（3.2+）、GL_TRIANGLE_STRIP、GL_TRIANGLE_FAN、GL_TRIANGLES、
-// GL_TRIANGLE_STRIP_ADJACENCY（3.2+）、GL_TRIANGLES_ADJACENCY（3.2+） 和 GL_PATCHES。
-// 参数 first 指定已启用数组中的起始索引，参数 count 指定要渲染的索引数量。错误值：
-//      如果 mode 不是可接受的值，则生成 GL_INVALID_ENUM。
-//      如果 count 为负数，则生成 GL_INVALID_VALUE。
-//      如果非零缓冲区对象名称绑定到已启用的数组，且该缓冲区对象的数据存储当前已被映射，则生成 GL_INVALID_OPERATION。
-//      如果几何着色器处于活动状态，且 mode 与当前安装的程序对象中几何着色器的输入图元类型不兼容，则生成 GL_INVALID_OPERATION。
-//
-// glDrawArrays 仅需极少量的子程序调用即可指定多个几何图元。无需为传递每个单独的顶点、
-// 法线、纹理坐标、边标志或颜色而调用 GL 过程，你可以预先指定独立的顶点、法线和颜色数组，
-// 并通过单次调用 glDrawArrays 来使用它们构建一系列图元。调用 glDrawArrays 时，它从每
-// 个已启用的数组中使用 count 个连续元素来构建一系列几何图元，从元素 first 开始。mode
-// 指定构建何种图元以及数组元素如何构建这些图元。被 glDrawArrays 修改的顶点属性在
-// glDrawArrays 返回后具有未指定的值，而未被修改的属性保持明确定义。
 //
 // void glFlush(void); // 2.0+
 // void glFinish(void); // 2.0+
