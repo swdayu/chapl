@@ -2710,3 +2710,223 @@
 // (xi + 1) % n * yi)。其中 xi 和 yi 分别是多边形的 n 个顶点中第 i 个顶点的窗口坐标 x
 // 和 y。假设我们设置为 GL_CCW，那么 a > 0 的时候，顶点所对应的多边形就是位于正面，否则
 // 位于背面。如果设置为 GL_CW 且 a < 0，那么对应的多边形位于正面，否则位于背面。
+//
+// 大部分 OpenGL 绘制命令都是以 Draw 开始的，但实际上还出现两个 Draw 开始的函数，glDrawBuffer
+// 和 glDrawBuffers，它们不会执行任何绘制操作。绘制命令大致可以分为两个部分，索引形式和非
+// 索引形式的绘制。索引形式的绘制需要用到 GL_ELEMENT_ARRAY_BUFFER 缓存对象中存储的索引数组，
+// 它们可以用来间接地对已经启用的顶点数组进行索引。另一方面，非索引的绘制不需要使用该缓存
+// 对象，只需要简单地按顺序读取顶点数据即可。OpenGL 中，最基本的非索引形式的绘制命令就是
+// glDrawArrays。
+//
+// void glDrawArrays(GLenum mode, GLint first, GLsizei count); // 2.0+
+//
+// 最后我们选择准备要绘制的顶点数组（通过 glBindVertexArray）作为顶点数据，然后调用
+// glDrawArrays 将顶点数据实际发送给 OpenGL 渲染管线。绘制最后调用 glFlush() 即强制
+// 所有进行中的 OpenGL 命令立即传输到 OpenGL 服务端处理，在后文我们会将 glFlush 替换
+// 为另一个更为平滑的命令，但需要进行更多的设置。在你的 OpenGL 编程生涯的某个时刻，你
+// 可能会被问及或自问“这需要多少时间”？“这”可能是渲染一个物体，绘制一整个场景，或者 OpenGL
+// 能够实现的其他操作。为了能够精确度量和执行自己的任务，我们有必要了解 OpenGL 是什么时
+// 候完成这些操作的。这里的 glFlush 命令看起来像是一个正确的答案，但是它不是。事实上
+// glFlush 只是强制所有运行中的命令送入 OpenGL 服务端而已，并且它会立即返回，它并不会
+// 等待所有的命令完成，而等待却是我们所需要的。此时，我们可以调用 glFinish 命令，它会一
+// 直等待所有当前的 OpenGL 操作完成后再返回。你最好只是在开发阶段使用 glFinish()，如果
+// 你已经完成了开发的工作，那么最好去掉对这个命令的调用。虽然它对于判断 OpenGL 命令的运
+// 行有帮助，但是对于程序的整体性能却有着相当的拖累。
+//
+// glDrawArrays 从数组数据渲染图元，参数 mode 指定要渲染的图元类型，可接受的符号常量包
+// 括 GL_POINTS、GL_LINE_STRIP、GL_LINE_LOOP、GL_LINES、GL_LINE_STRIP_ADJACENCY（3.2+）、
+// GL_LINES_ADJACENCY（3.2+）、GL_TRIANGLE_STRIP、GL_TRIANGLE_FAN、GL_TRIANGLES、
+// GL_TRIANGLE_STRIP_ADJACENCY（3.2+）、GL_TRIANGLES_ADJACENCY（3.2+） 和 GL_PATCHES。
+// 参数 first 指定已启用数组中的起始索引，参数 count 指定要渲染的索引数量。错误值：
+//      如果 mode 不是可接受的值，则生成 GL_INVALID_ENUM。
+//      如果 count 为负数，则生成 GL_INVALID_VALUE。
+//      如果非零缓冲区对象名称绑定到已启用的数组，且该缓冲区对象的数据存储当前已被映射，则生成 GL_INVALID_OPERATION。
+//      如果几何着色器处于活动状态，且 mode 与当前安装的程序对象中几何着色器的输入图元类型不兼容，则生成 GL_INVALID_OPERATION。
+//
+// glDrawArrays 仅需极少量的子程序调用即可指定多个几何图元。无需为传递每个单独的顶点、
+// 法线、纹理坐标、边标志或颜色而调用 GL 过程，你可以预先指定独立的顶点、法线和颜色数组，
+// 并通过单次调用 glDrawArrays 来使用它们构建一系列图元。调用 glDrawArrays 时，它从每
+// 个已启用的数组中使用 count 个连续元素来构建一系列几何图元，从元素 first 开始。mode
+// 指定构建何种图元以及数组元素如何构建这些图元。被 glDrawArrays 修改的顶点属性在
+// glDrawArrays 返回后具有未指定的值，而未被修改的属性保持明确定义。
+//
+// OpenGL 中最级别的索引形式的绘制命令是 glDrawElements，它使用 count 个元素来定义一系列
+// 几何图元，而元素的索引值保存在当前的 GL_ELEMENT_ARRAY_BUFFER 缓存中，indices 定义了元
+// 素数组缓存中的偏移地址，也就是索引数据开始的位置，单位为字节。参数 type 必须是 GL_UNSIGNED_BYTE
+// GL_UNSIGNED_SHORT 或者 GL_UNSIGNED_INT 中的一个，它给出了元素数组缓存中索引数据的类型。
+// 参数 mode 定义了图元构建的方式，它必须是图元类型标识符中的一个，例如 GL_TRIANGLES
+// GL_LINE_LOOP GL_LINES GL_POINTS。
+//
+// glDrawElementsBaseVertex 与 glDrawElements 本质上并无区别，但是它的第 i 个元素在传入
+// 绘制命令时，实际上读取的是各个顶点属性数组中的第 indices[i] + basevertex 个元素。该
+// 函数可以根据某个索引基数来解析元素数组缓存中的索引数据。例如，如果一个模型存在多个版
+// 本（如模型动画的多帧数据），并且保存在一个独立的顶点缓存集合中，只通过缓存中不同的偏
+// 移量来区分。那么 glDrawElementsBaseVertex 可以通过设置某一帧对应的索引基数，直接绘制
+// 这一帧所对应的动画数据，而每一帧用到的索引数据集总是一致的。glDrawRangeElements 是
+// glDrawElemnts 的一种更严格的形式，它实际上相当于应用程序与 OpenGL 之间形成一种约定，
+// 集元素数组缓存中所包含的任何一个索引值（来自 indices）都会落入到 start 和 end 所定义
+// 的范围中。
+//
+// void glDrawArrays(GLenum mode, GLint first, GLsizei count); // 2.0+
+// void glDrawElements(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices);
+// void glDrawElementsBaseVertex(GLenum mode, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex);
+// void glDrawRangeElements(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid *indices);
+// void glDrawRangeElementsBaseVertex(GLenum mode, GLuint start, GLuint end, GLsizei count, GLenum type, const GLvoid *indices, GLint basevertex);
+//
+// 以下为绘制命令的多变量形式，例如 glMultiDrawArrays 需要一个 first 参数数组，以及一个
+// count 参数的数组，数组的大小为 primcount，相当于在一个 OpenGL 函数调用中绘制多组几何
+// 图元集，数组的每个元素都相当于调用依次 glDrawArrays 函数。同理，glMultiDrawElements
+// 的参数 count indices 都是 primcount 大小的数组。glMultiDrawElementsBaseVertex 的参数
+// count indices basevertex 都是 primcount 大小的数组。
+//
+// void glMultiDrawArrays(GLenum mode, const GLint *first, const GLint *count, GLsizei primcount);
+// void glMultiDrawElements(GLenum mode, const GLint *count, GLenum type, const GLvoid *const *indices, GLsizei primcount);
+// void glMultiDrawElementsBaseVertex(GLenum mode, const GLint *count, GLenum type, const GLvoid *const *indices, GLsizei primcount, const GLint *basevertex);
+//
+// 最后还有几个比较特殊的命令，它们的参数不是直接从程序中得到，而是从缓存对象中获取，
+// 它们被称为间接绘制函数，如果要使用的话，必须首先将一个缓存对象绑定到 GL_DRAW_INDIRECT_BUFFER
+// 目标上。glDrawArraysIndirect 的实际绘制命令参数，是从间接绘制缓存（draw indirect buffer）
+// 中 indirect 偏移地址处的结构体中获取的，这个结构体的内容如下。而 glDrawElementsIndirect
+// 需要的参数也来自于 indirect 偏移地址处的结构体，该数据如下第二个结构体所示。
+//      typedef struct {
+//          GLuint count; // first 和 count 会被直接传递到内部函数中
+//          GLuint primCount; // 表示多实例的个数
+//          GLuint first; // first 和 count 会被直接传递到内部函数中
+//          GLuint baseInstance; // 相当于多实例顶点属性的 baseInstance 偏移
+//      } DrawArraysIndirectCommand;
+//      typedef struct {
+//          GLuint count; // count 和 baseVertex 会被直接传递到内部函数
+//          GLuint primCount; // 表示多实例的个数
+//          GLuint firstIndex; // 可以与 type 参数所定义的索引数据大小相结合，以计算传递到 glDrawElementsInstancedBaseVertex 的索引数据结果
+//          GLuint baseVertex; // count 和 baseVertex 会被直接传递到内部函数
+//          GLuint baseInstance; // 表示结果绘制命令中，所有多实例顶点属性的实例偏移值
+//      } DrawElementsIndirectCommmand;
+//
+// 如果有大量的绘制内容需要处理，并且相关参数已经保存到一个婚车对象中，可以直接调用函数
+// glDrawArraysIndirect 或 glDrawElementsIndirect 处理的话，那么也可以使用这两个函数的
+// 多变量版本，即 glMultiDrawArraysIndirect 和 glMultiDrawElementsIndirect，相当于在一
+// 次绘制中分发 drawcount 个独立的绘制命令，其中两个间接参数结构体之间相隔 stride 个字节。
+// 如果 stride 为零，则表示所有的间接结构体是一个紧密排列的数组。
+//
+// void glDrawArraysIndirect(GLenum mode, const GLvoid *indirect);
+// void glDrawElementsIndirect(GLenum mode, GLenum type, const GLvoid *indirect);
+// void glMultiDrawArraysIndirect(GLenum mode, const void *indirect, GLsizei drawcount, GLsizei stride);
+// void glMultiDrawElementsIndirect(GLenum mode, GLenum type, const void *indirect, GLsizei drawcount, GLsizei stride);
+//
+// 一个绘制的示例如下，将会绘制四个相似的三角形，并且每个三角形的渲染都用到了一个不同的
+// 绘制命令：
+//      static const GLfloat vertex_positions[] = { // 四个顶点
+//          -1.0f, -1.0f, 0.0f, 1.0f,
+//           1.0f, -1.0f, 0.0f, 1.0f,
+//          -1.0f,  1.0f, 0.0f, 1.0f,
+//          -1.0f, -1.0f, 0.0f, 1.0f,
+//      };
+//      static const GLfloat vertex_colors[] = { // 四个顶点的颜色
+//          1.0f, 1.0f, 1.0f, 1.0f,
+//          1.0f, 1.0f, 0.0f, 1.0f,
+//          1.0f, 0.0f, 1.0f, 1.0f,
+//          0.0f, 1.0f, 1.0f, 1.0f,
+//      };
+//      static const GLushort vertex_indices[] = { // 三个索引值，三个顶点的索引，这里只绘制一个三角形
+//          0, 1, 2
+//      };
+//      glGenBuffers(1, ebo); // 设置元素数组缓存
+//      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[0]);
+//      glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(vertex_indices), vertex_indices, GL_STATIC_DRAW);
+//      glGenVertexArray(1, vao); // 设置顶点属性
+//      glBindVertexArray(vao[0]);
+//      glGenBuffers(1, vbo);
+//      glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
+//      glBufferData(GL_ARRAY_BUFFER, sizeof(vertex_positions) + sizeof(vertex_colors), NULL, GL_STATIC_DRAW);
+//      glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertex_positions), vertex_positions);
+//      glBufferSubData(GL_ARRAY_BUFFER, sizeof(vertex_positions), sizeof(vertex_colors), vertex_colors);
+//      // 使用 DrawArrays 绘制
+//      model_matrix = m::translation(-3.0f, 0.0f, -5.0f);
+//      glUniformMatrix4fv(render_model_matrix_loc, 4, GL_FALSE, model_matrix);
+//      glDrawArrays(GL_TRIANGLES, 0, 3);
+//      // 使用 DrawElements 绘制
+//      model_matrix = m::translation(-1.0f, 0.0f, -5.0f);
+//      glUniformMatrix4fv(render_model_matrix_loc, 4, GL_FALSE, model_matrix);
+//      glDrawElements(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, NULL);
+//      // 使用 DrawElementsBaseVertex 绘制
+//      model_matrix = m::translation(1.0f, 0.0f, -5.0f);
+//      glUniformMatrix4fv(render_model_matrix_loc, 4, GL_FALSE, model_matrix);
+//      glDrawElementsBaseVertex(GL_TRIANGLES, 3, GL_UNSIGNED_SHORT, NULL, 1);
+//      // 使用 DrawArraysInstanced 绘制
+//      model_matrix = m::translation(3.0f, 0.0f, -5.0f);
+//      glUniformMatrix4fv(render_model_matrix_loc, 4, GL_FALSE, model_matrix);
+//      glDrawArraysInstanced(GL_TRIANGLES, 0, 3, 1);
+//
+// 图元的重启（restarting primitives）。当需要处理较大的顶点数据集的时候，我们可能会被
+// 迫执行大量的 OpenGL 绘制操作，并且每次绘制的内容总是于前一次图元的类型相同，例如
+// GL_TRIANGLE_STRIP。当然，我可以使用 glMultiDraw*() 形式的函数，但是这样需要额外去管
+// 理图元的起始索引位置和长度的数组。OpenGL 支持在同一个渲染命令中进行图元重启动的功能，
+// 此时需要指定一个特殊的值，叫做图元重启动索引（primitive restart index），OpenGL 内部
+// 会对它做特殊的处理。如果绘制调用过程中遇到了重启动索引，那么就会从这个索引之后的顶点
+// 开始，重新开始进行相同图元类型的渲染。图元重启索引的定义是通过 glPrimitiveRestartIndex
+// 函数来完成的。该函数设置一个顶点数组元素的索引值，用来指定渲染过程中，从什么地方启
+// 动新的图元绘制。当处理顶点数组元素索引的过程中遇到这个匹配的索引，那么系统不会处理
+// 它对应的顶点数据，而是终止当前的图元绘制，并且从下一个顶点重新开始渲染同一类型的图
+// 元集合。
+//
+// void glPrimitiveRestartIndex(GLuint index);
+//
+// 当顶点使用 glDrawElements 系列函数进行渲染时，OpenGL 可监控 glPrimitiveRestartIndex
+// 指定的顶点索引是否出现在元素数组缓存（element array buffer）中。不过，我们必须启用
+// 图元重启功能之后才可以进行这种检查，其通过 glEnable 和 glDisable 函数来完成，调用参
+// 数 GL_PRIMITIVE_RESTART。下面的示例使用图元重启索引将一个立方体分割为两个三角形条带。
+// 每当 OpenGL 在元素数组缓存中遇到当前设置的重启索引时，都会执行图元重启的操作。因此，
+// 不妨将重启索引设置为一个代码中绝对不会用到的数值。默认的重启索引为 0，但是这个值非常
+// 容易出现在元素数值缓存中。一个不错的选择时 2^n - 1，这个值不太可能时一个真实的索引
+// 值。如果将它作为重启索引标准值的话，那么也就不要为程序中的每个模型都单独设置一个索引
+// 了。
+//
+//      static const GLfloat cube_positions[] = { // 立方体 8 个顶点，边长为 2，中心为原点
+//          -1.0f, -1.0f, -1.0f, 1.0f,
+//          -1.0f, -1.0f,  1.0f, 1.0f,
+//          -1.0f,  1.0f, -1.0f, 1.0f,
+//          -1.0f,  1.0f,  1.0f, 1.0f,
+//           1.0f, -1.0f, -1.0f, 1.0f,
+//           1.0f, -1.0f,  1.0f, 1.0f,
+//           1.0f,  1.0f, -1.0f, 1.0f,
+//           1.0f,  1.0f,  1.0f, 1.0f,
+//      };
+//      static const GLfloat cube_colors[] = { // 每个顶点的颜色
+//          1.0f, 1.0f, 1.0f, 1.0f,
+//          1.0f, 1.0f, 0.0f, 1.0f,
+//          1.0f, 0.0f, 1.0f, 1.0f,
+//          1.0f, 0.0f, 0.0f, 1.0f,
+//          0.0f, 1.0f, 1.0f, 1.0f,
+//          0.0f, 1.0f, 0.0f, 1.0f,
+//          0.0f, 0.0f, 1.0f, 1.0f,
+//          0.5f, 0.5f, 0.5f, 1.0f,
+//      };
+//      static const GLushort cube_indices[] = {
+//          0, 1, 2, 3, 6, 7, 4, 5, // 第一组条带
+//          0xffff,
+//          2, 6, 0, 4, 1, 5, 3, 7 // 第二组条带
+//      };
+//      glGenBuffers(1, ebo); // 设置元素数组缓存
+//      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[0]);
+//      glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_indices), cube_indices, GL_STATIC_DRAW);
+//      glGenVertexArray(1, vao); // 设置顶点属性
+//      glBindVertexArray(vao[0]);
+//      glGenBuffers(1, vbo);
+//      glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
+//      glBufferData(GL_ARRAY_BUFFER, sizeof(cube_positions) + sizeof(cube_colors), NULL, GL_STATIC_DRAW);
+//      glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(cube_positions), cube_positions);
+//      glBufferSubData(GL_ARRAY_BUFFER, sizeof(cube_positions), sizeof(cube_colors), cube_colors);
+//      glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+//      glVertexAttribPointer(1, 4, GL_FLOAT, GL_FALSE, 0, (const GLvoid *)sizeof(cube_positions));
+//      glEnableVertexAttribArray(0);
+//      glEnableVertexAttribArray(1);
+//      glBindVertexArray(vao[0]); // 设置使用元素数组缓存
+//      glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo[0]);
+//  #if USE_PRIMITIVE_RESTART
+//      glEnable(GL_PRIMITIVE_RESTART);
+//      glPrimitiveRestartIndex(0xffff);
+//      glDrawElements(GL_TRIANGLE_STRIP, 17, GL_UNSIGNED_SHORT, NULL);
+//  #else
+//      glDrawElements(GL_TRIANGLE_STRIP, 8, GL_UNSIGNED_SHORT, NULL);
+//      glDrawElements(GL_TRIANGLE_STRIP, 8, GL_UNSIGNED_SHORT, (const GLvoid *)(9 * sizeof(GLushort));
+//  #endif
