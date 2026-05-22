@@ -248,13 +248,13 @@
 // https://www.realtech-vr.com/glview-download/
 //
 // 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
-// 生成方式：通过 在线生成器 或本地 Python 脚本生成
+// 生成方式：通过在线生成器或本地 Python 脚本生成
 // 功能丰富：支持 OpenGL、OpenGL ES、EGL、GLX、WGL 等多种 API
 // https://github.com/Dav1dde/glad  https://gen.glad.sh/
 // Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
 // specifications for multiple languages.
 //
-// 加载 OpenGL 核心规范功能，是获取OpenGL核心配置文件规范所提供功能的最简单方法
+// 加载 OpenGL 核心规范功能，是获取 OpenGL 核心配置文件规范所提供功能的最简单方法
 // 生成方式：基于 Python 脚本，从 Khronos 官方 gl.xml 生成 C 代码
 // 代码体积：极简，只生成你需要的部分，体积很小
 // https://github.com/skaslev/gl3w
@@ -426,23 +426,23 @@
 //          glBufferData(GLenum target, GLsizeiptr size, const void *data, GLenum usage);
 //          glNamedBufferStorage(GLenum target, GLsizeiptr size, const void *data, GLbitfield flags);
 //          glDrawArrays(GLenum mode, GLint first, GLsizei count);
-//  2.  顶点着色器（Vertex Shader），对于绘制命令传输的每个顶点，OpenGL 都会调用一个     *** 一、顶点着色（M）：单独处理顶点缓存对象中的每个顶点数据
+//  2.  顶点着色器（Vertex Shader），对于绘制命令传输的每个顶点，OpenGL 都会调用一个     *** 一、顶点着色（M）：单独处理顶点缓存对象中的每个顶点数据（逐顶点）
 //      顶点着色器来处理顶点相关的数据。根据其他光栅化之前的着色器的活跃状态，顶点着色器
 //      可能非常简单，例如只是将数据复制并传递到下一个着色阶段，称为传递着色器（pass-through
 //      shader）。也可能非常复杂，例如执行大量的计算来得到顶点在屏幕上的位置，通常会用到
 //      变换矩阵（transformation matrices）的概念，或者通过光照的计算来判断顶点的颜色，
 //      或者其他一些技法的实现。通常一个复杂的程序可能包含许多各顶点着色器，但是在同一时
 //      刻只能有一个顶点着色器起作用（处于激活状态，active）。
-//  3.  细分控制（Tessellation 镶嵌 密铺 细分曲面 紧密排列 Control）着色器             *** 二、细分着色（O）：接收顶点着色后的数据进一步处理，通过
-//  4.  细分求值（Tessellation Evaluation）着色器，当顶点着色器处理完每个顶点的数据之       Patch 细分形态生成额外的几何图元
+//  3.  细分控制（Tessellation 镶嵌 密铺 细分曲面 紧密排列 Control）着色器             *** 二、细分着色（O）：接收顶点着色后的数据进一步处理，通过 Patch
+//  4.  细分求值（Tessellation Evaluation）着色器，当顶点着色器处理完每个顶点的数据之       细分形态生成额外的几何图元
 //      后，如果同时激活了细分着色器，那么它将进一步处理这些信息。后面可以看到，细分着色
 //      器使用 Patch 来描述一个物体的形状（object's shape），并且使用相对简单的 Patch
 //      几何体集合来完成细分（tessllated）的工作，其结果是几何图元的数量增加，提供更好
 //      看的模型外观。细分着色阶段潜在地使用两个着色器来分别操作 Patch 数据和生成最终的
 //      形状（shape）。
-//  5.  几何（Geometry）着色器允许在光栅化之前对每个几何图元做更进一步的处理，例如创建   *** 三、几何着色（O）：接着处理顶点着色或细分着色后的每个几何
-//      新的图元。这个着色阶段是可选的，但后面我们可以体会到它的强大之处。                   图元，可以基于输入图元生成更多几何体，或者例如将三角形
-//  6.  图元装配（Primitive Setup/Assembly），前面的着色阶段所处理的都是顶点数据，此外      变为线段改变几何图元类型，或者放弃几何体。
+//  5.  几何（Geometry）着色器允许在光栅化之前对每个几何图元做更进一步的处理，例如创建   *** 三、几何着色（O）：接着处理顶点着色或细分着色后的每个几何图元（逐图元），
+//      新的图元。这个着色阶段是可选的，但后面我们可以体会到它的强大之处。                   可以基于输入图元生成更多几何体，或者例如将三角形变为线段改变几何图元
+//  6.  图元装配（Primitive Setup/Assembly），前面的着色阶段所处理的都是顶点数据，此外       类型，或者放弃几何体。
 //      这些顶点之间如何构成几何图元的所有信息也会被传递到 OpenGL 中。图元装配阶段将这些
 //      顶点和相关的几何图元之间组织到一起，准备下一步的剪切和光栅化操作。
 //  7.  剔除和剪切（Culling and Clipping），顶点可能会落在视口（viewport）之外，也就是
@@ -470,7 +470,7 @@
 //      个图元应该出现在屏幕什么位置，而片元着色使用这些信息决定某个片元的颜色应该是什么。      着色不是图形渲染着色的一部分，二是在程序中相对独立的一个阶段。
 //      片元 ≠ 像素，一个像素可能被多个片段覆盖（如透明叠加、多重采样），也可能没有片段         计算着色处理的并不是顶点和片元这类图形数据，而是计算应用程序
 //      （被裁剪/深度测试拒绝）。因此称为“候选像素”，强调其尚未确定能否写入帧缓冲。            选定范围内的通用工作项。计算着色可以处理其他着色程序创建和使用
-//  10. 逐片元操作（Per-Fragment Operations），该阶段使用深度测试（depth testing，也        的缓存数据，以及包括帧缓存后处理效果，或者所期望的任何任务。
+//  10. 逐片元操作（Per-Fragment Operations），该阶段使用深度测试（depth testing，也           的缓存数据，以及包括帧缓存后处理效果，或者所期望的任何任务。
 //      通常称为 z-buffering）和模板测试（stencil testing）来决定一个片元是否可见。如
 //      果一个片元成功通过了所有启用测试，那么它可能直接写入帧缓存（framebuffer）更新其
 //      像素的颜色（以及可能的深度值）；或者如果启用了混合（blending），片段的颜色将与像
@@ -623,7 +623,7 @@
 //
 // 可用的缓存绑定目标类型，以及关联的 glGet 参数：
 //      常量                        glGet 参数                              用途和目的
-//      GL_ARRAY_BUFFER             GL_ARRAY_BUFFER_BINDING                顶点属性数据，位置、颜色、法线、纹理坐标等（Vertex Attributes，2.0+），用来保存 glVertexAttribPointer()设置的顶点数组数据
+//      GL_ARRAY_BUFFER             GL_ARRAY_BUFFER_BINDING                顶点属性数据，位置、颜色、法线、纹理坐标等（Vertex Attributes，2.0+），用来保存 glVertexAttribPointer() 设置的顶点数组数据
 //      GL_ELEMENT_ARRAY_BUFFER     GL_ELEMENT_ARRAY_BUFFER_BINDING        顶点数组索引，图元装配用（Vertex Array Indices，2.0+），包含顶点索引数据，用于 glDrawElements() 等索引形式的绘制命令
 //      GL_ATOMIC_COUNTER_BUFFER    GL_ATOMIC_COUNTER_BUFFER_BINDING       原子计数器存储，用于着色器中的原子操作（Atomic Counter Storage，4.2+）
 //      GL_COPY_READ_BUFFER         GL_COPY_READ_BUFFER_BINDING            缓冲区复制源（Buffer Copy Source，3.1+），这两个是一对相互匹配的绑定目标，用于拷贝缓存之间的数据，
@@ -1334,7 +1334,7 @@
 // 成后才返回。这些效果包括所有 GL 状态的改变、所有连接状态的改变以及帧缓冲区内容的所有
 // 改变。注意，glFinish 需要一次与服务器的往返通信。
 //
-// 着色器编程语言
+// 着色器编程语言（Shader Programming Language）                                          *** 着色器编程
 //
 // 现代 OpenGL 渲染管线严重依赖着色器处理传入的数据，如果不使用着色器，那么 OpenGL 可以
 // 做的可能只有清除窗口内容了。在 OpenGL 3.0 及以前，如果用到兼容模式（compatibility
@@ -1449,7 +1449,7 @@
 //
 // 结构体可以简化多组数据传入函数的过程，如果定义一个结构体，那么会自动创建一个新类型，并
 // 且隐式定义了一个构造函数，将各种类型的结构体元素作为输入参数。GLSL 还支持任意类型的数
-// 组，包括结构体数组。GLSL 4.3 种，数组的组成元素也可以是另一个数组，因此可以处理多维数
+// 组，包括结构体数组。GLSL 4.3 中，数组的组成元素也可以是另一个数组，因此可以处理多维数
 // 据。数组可以定义为有大小的，或者没有大小的。我们可以使用没有大小的数组作为一个数组变量
 // 的前置声明，然后重新用一个合适的大小来声明它。数组属于 GLSL 种的第一等类型，也就是说它
 // 有构造函数，并且可以用作函数的参数和返回类型。此外，GLSL 的数组与 Java 类型，它有一个
@@ -1562,11 +1562,11 @@
 // 如果需要在编译时验证函数是否修改某个输入变量，可以设置 const in 修饰符来阻止函数对变量
 // 进行修改。如果不这么做，那么在函数中写入一个 in 类型的变量，相当于对变量的局部拷贝进行
 // 修改，因此只在函数自身范围内产生作用。
-//      访问修饰符      描述
-//      in              将数据拷贝到函数中，如果没有指定修饰符，默认为 in
-//      const in        将只读数据拷贝到函数中
-//      out             从函数中获取数据，因此输入函数的值是未定义的
-//      inout           将数据拷贝到函数中，并且返回函数中修改的数据
+//      函数参数访问修饰符      描述
+//      in                      将数据拷贝到函数中，如果没有指定修饰符，默认为 in
+//      const in                将只读数据拷贝到函数中
+//      out                     从函数中获取数据，因此输入函数的值是未定义的
+//      inout                   将数据拷贝到函数中，并且返回函数中修改的数据
 //
 // 计算的不变性。GLSL 无法保证在不同的着色器中，两个完全相同的计算式得到完全一样的结果。
 // 这一情形与 CPU 端应用程序进行计算时的问题相同，即不同的优化方式可能会导致结果非常细微
@@ -2151,10 +2151,10 @@
 // 用到的坐标系统。OpenGL 得到的最终坐标是归一化之后的齐次坐标，并且将进行剪切和光栅化的
 // 操作。也就是说，最后要绘制的坐标总是在 [-1.0, 1.0] 范围内，直到 OpenGL 对它们进行缩放
 // 以匹配视口大小为止。在 OpenGL 不可见的用户或着色器变换内部，首先模型有自己的齐次模型    *** 模型坐标，局部坐标（model/local coordinates）
-// （model）坐标 (x, y, z, 1.0)，经过模型变换（物体在场景中缩放、旋转、平移）后，变成世界     世界坐标（world coordinates）
-// （world）坐标 (x, y, z, 1.0)，经过视图变换（观察者从某一位置和角度观察眼前场景）后，       相机坐标，观察坐标，人眼坐标（view/eye coordinates）
-// 变成人眼（eye）坐标 (x, y, z, 1.0)，经过投影变换（应用视锥体的透视和大小设置）后，变       投影坐标，裁剪坐标（project/clip coordinates）
-// 成齐次的剪切（clip）坐标 (x, y, z, w)，这是最终 OpenGL 所需要的输入坐标。而前面的坐       归一化设备坐标（NDC），经投影视口变换后，Z 轴方向反转指向屏幕内
+// （model）坐标 (x, y, z, 1.0)，经过模型变换（物体在场景中缩放、旋转、平移）后，变成世界      世界坐标（world coordinates）
+// （world）坐标 (x, y, z, 1.0)，经过视图变换（观察者从某一位置和角度观察眼前场景）后，        相机坐标，观察坐标，人眼坐标（view/eye coordinates）
+// 变成人眼（eye）坐标 (x, y, z, 1.0)，经过投影变换（应用视锥体的透视和大小设置）后，变        投影坐标，裁剪坐标（project/clip coordinates）
+// 成齐次的剪切（clip）坐标 (x, y, z, w)，这是最终 OpenGL 所需要的输入坐标。而前面的坐         归一化设备坐标（NDC），经投影视口变换后，Z 轴方向反转指向屏幕内
 // 标都不是 OpenGL 所使用的，但是对于光照和其他着色器计算非常重要，尤其是着色器中的大部分      屏幕坐标，窗口坐标
 // 光照计算都是在人眼空间坐标完成的。
 //
@@ -2598,7 +2598,7 @@
 // 着色器。每当一个顶点传递到图元装配阶段时，将所有需要捕获的属性数据记录到一个或者多个缓
 // 存对象中。用户程序可以回读这些缓存对象的内容，或者 OpenGL 将它们用户后续的渲染工作。
 //
-// OpenGL 绘制
+// OpenGL 绘制（每个绘制调用都会触发完整的图形流水线，包括顶点着色器）
 //
 // OpenGL 的主要作用就是将图形渲染到帧缓存中，为了实现这一要求，需要将复杂的物体分解成图
 // 元的形式（点、线、以及三角形），当它们的分布密度足够高时，就可以表达为 2D 以及 3D 物体
@@ -2930,3 +2930,181 @@
 //      glDrawElements(GL_TRIANGLE_STRIP, 8, GL_UNSIGNED_SHORT, NULL);
 //      glDrawElements(GL_TRIANGLE_STRIP, 8, GL_UNSIGNED_SHORT, (const GLvoid *)(9 * sizeof(GLushort));
 //  #endif
+//
+// 多实例渲染（instanced rendering）。实例化（instancing）或者多实例渲染（instanced rendering）
+// 是一种连续执行多条相同渲染命令的方法，并且每个渲染命令所产生的结果都会有轻微的差异。这是
+// 一种非常有效的，使用少量 API 调用来渲染大量几何体的方法。OpenGL 中已经提高了一些常用绘制
+// 函数的多变量形式来优化命令的多次执行。此外，OpenGL 中也提供了多种机制，允许着色器使用绘制
+// 的不同实例作为输入，并且对每个实例（而不是每个顶点）都赋予不同的顶点属性值。glDrawArraysInstanced
+// 相当于绘制 glDrawArrays 的 primcount 个实例，对于每个实例内置变量 gl_InstanceID 都会依次
+// 递增，新的数值会被传递到顶点着色器，以区分不同实例的顶点属性。当 OpenGL 执行这个函数的时
+// 候，实际上会执行 glDrawArrays 的 primcount 次，每次的调用参数都是 mode first count。这看
+// 起并不是一个很有用的功能，不过 OpenGL 提供了两种机制来设置对应不同实例的顶点属性，并且在
+// 顶点着色器中可以获取当前实例所对应的索引号。
+//
+// void glDrawArraysInstanced(GLenum mode, GLint first, GLsizei count, GLsizei primcount);
+// void glDrawElementsInstanced(GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei primcount);
+// void glDrawElementsInstancedBaseVertex(GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount, GLuint basevertex);
+//
+// 多实例顶点属性（instanced vertex attributes）。多实例的顶点属性与正规的顶点属性是
+// 类似的，它们在顶点着色器中的声明和使用方式都是完全一致的。对应应用程序来说，它们
+// 的配置方法与顶点属性也是相同的，也就是说，它们需要保存到缓存对象中，可以通过 glGetAttriLocation
+// 查询，通过 glVertexAttribPointer 来设置，已经通过 glEnable/DisableVertexAttribArray()
+// 进行启动和禁用。一个重要的函数 glVertexAttribDivisor 用来启用多实例顶点属性，该函数
+// 设置多实例渲染时，位于 index 位置的顶点着色器中的顶点属性是如何分配到每个实例的。如
+// 果 divisor 为零，那么该属性的多实例特性被禁用，而其他的值则表示每 divisor 个实例都
+// 会分配一个新的属性值。glVertexAttribDivisor 相当于控制顶点属性更新的频率，默认情况
+// 下，每个顶点都会分配到一个独立的属性值，如果 divisor 为零的话，那么顶点属性将遵循这
+// 一默认的非实例化规则。如果 divisor 设置为一个非零值，那么顶点属性将启用多实例特性，
+// 此时 OpenGL 从属性数组中每隔 divisor 个实例都会读取一个新的数值。此时在这个属性所对
+// 应的顶点属性数组中，数据索引值的计算将变成 instance/divisor 的形式。
+//
+// void glVertexAttribDivisor(GLuint index /*shader_location*/, GLuint divisor);
+//
+// 对于每个顶点属性实例，实例中的所有顶点都共享同一个属性值。如果 divisor 为 2，则每两
+// 个实例都共享同一个属性值，如果 divisor 为 3，那么每三个实例共享同一个属性值。一个多
+// 实例属性的示例如下。
+//
+//      #version 430 core // 位置和法线都是规则的顶点属性
+//      layout (location = 0) in vec4 position;
+//      layout (location = 1) in vec3 normal;
+//      layout (location = 2) in vec4 color; // 颜色是一个逐实例属性
+//      layout (location = 3) in mat4 model_matrix; // 逐实例变换矩阵，注意 mat4 会占据 4 个连续位置，因此占据四个索引位
+//
+//      int position_loc = glGetAttribLocation(shader, "position");
+//      int normal_loc = glGetAttribLocation(shader, "normal");
+//      int color_loc = glGetAttribLocation(shader, "color");
+//      int matrix_loc = glGetAttribLocation(shader, "model_matrix");
+//
+//      // 配置正规的顶点属性数组，位置属性数组和法线属性数组
+//      glBindBuffer(GL_ARRAY_BUFFER, position_buffer);
+//      glVertexArribPointer(position_loc, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+//      glEnableVertexAttribArray(position_loc);
+//      glBindBuffer(GL_ARRAY_BUFFER, normal_buffer);
+//      glVertexAttribPointer(normal_loc, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+//      glEnableVertexAttribArray(normal_loc);
+//
+//      // 设置颜色属性数组，我们希望几何体的每个实例都有一个不同的颜色
+//      glBindBuffer(GL_ARRAY_BUFFER, color_buffer);
+//      glVertexAttribPointer(color_loc, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+//      glEnableVertexAttribArray(color_loc);
+//      glVertexAttribDivisor(color_loc, 1); // OpenGL 给每个实例设置一个新的颜色属性，而不是每个顶点设置
+//
+//      // 设置变换矩阵，顶点着色器的矩阵会占据 N 个连续的输入位置，N 表示矩阵的列数，因此这里相当于需要设置 4 个顶点属性
+//      glBindBuffer(GL_ARRAY_BUFFER, model_matrix_buffer);
+//      for (int i = 0; i < 4; i += 1) {
+//          glVertexAttribPointer(matrix_loc + i, 4, GL_FLOAT, GL_FALSE, sizeof(mat4), (void *)(sizeof(vec4) * i));
+//          glEnableVertexAttribArray(matrix_loc + i);
+//          glVertexAttribDivisor(matrix_loc + i, 1);
+//      }
+//
+// 上例中 color 是一个 divisor 为 1 的多实例顶点属性，也就是说每个实例的颜色属性都会有
+// 一个独立的值，而实例当中的所有顶点都使用这个值。此外，model_matrix 属性也被设置为多
+// 实例属性，它可以为每个实例提供一个新的模型变换矩阵。以下是多实例渲染的剩余代码，每个
+// 实例都有自己的模型矩阵，而观察矩阵（包括一个绕 Y 轴的旋转以及一个 Z 方向的平移）对于
+// 所有实例都是相同的。模型矩阵通过 glMapBuffer 映射的方式直接写入缓存，每隔模型矩阵都
+// 会将物体移动到远离原点的位置，然后绕着原点对平移过的物体进行旋转。观察和投影矩阵都是
+// 简单地通过 uniform 变量来传递的，然后调用一次 glDrawArraysInstanced 绘制模型的所有实
+// 例。
+//
+//      uniform mat4 view_matrix; // 观察矩阵和投影矩阵在绘制过程中都是常数
+//      uniform mat4 projection_matrix;
+//      out VERTEX { // 顶点着色器的输出，对应片元着色器的输入
+//          vec3 normal;
+//          vec4 color;
+//      } vertex;
+//      void main() {
+//          mat4 model_view_matrix = view_matrix * model_matrix; // 依次应用模型变换、视图变换、投影变换
+//          gl_Position = projection_matrix * model_view_matrix * position;
+//          vertex.normal = mat3(model_view_matrix) * normal;
+//          vertex.color = color;
+//      }
+//
+//      mat4 *matrices = (mat4 *)glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+//      for (i = 0; i < INSTANCE_COUNT; i += 1) {
+//          float a = 50.0f * float(i) / 4.0f;
+//          float b = 50.0f * float(i) / 5.0f;
+//          float c = 50.0f * float(i) / 6.0f;
+//          matrices[i] = rotation(a + t * 360.0f, 1.0f, 0.0f, 0.0f) *
+//              rotation(b + t * 360.0f, 0.0f, 1.0f, 0.0f) *
+//              rotation(c + t * 360.0f, 0.0f, 0.0f, 1.0f) *
+//              translation(10.0f + a, 40.0f + b, 50.0f + c);
+//      }
+//      glUnmapBuffer(GL_ARRAY_BUFFER);
+//      glUseProgram(render_program);
+//      mat4 view_matrix(translation(0.0f, 0.0f, -1500.0f) * rotation(t * 360.0f * 2.0f, 0.0f, 1.0f, 0.0f));
+//      mat4 projection_matrix(frustum(-1.0f, 1.0f, -aspect, aspect, 1.0f, 5000.0f));
+//      glUniformMatrix4fv(view_matrix_loc, 1, GL_FALSE, view_matrix);
+//      glUniformMatrix4fv(projection_matrix_loc, 1, GL_FALSE, projection_matrix);
+//      glDrawArraysInstanced(GL_TRIANGLES, 0, object_size, INSTANCE_COUNT);
+//
+// 上例中的代码存在一些效率问题，每个实例中的所有顶点都会产生一些相同的结果值，但是它们
+// 依然会被逐顶点地进行计算。例如 model_view_matrix 的计算结果矩阵对于单个实例中的所有
+// 顶点都是相同的，我看可以通过第二个实例化的 mat4 属性输入逐实例的模型视图矩阵来避免
+// 重复计算。其他时候可能无法避免这种计算，但还是可以把它们移动到几何着色器中来完成，这
+// 样每次计算都是逐图元，而非逐顶点计算，或者也可以用到几何着色器的多实例方法，参考后面
+// 几何着色器部分。
+//
+// 另一个使用多实例顶点属性的例子是将一系列纹理打包到一个 2D 纹理数组中，然后将数组的
+// 序号通过实例化的顶点属性传递给每个实例。顶点着色器可以将实例对应的序号传递到片元着色
+// 器中，然后使用不同的纹理来渲染不同的几何体实例。我们也可以在系统内部设置一个偏移量，
+// 以改变顶点缓存中得到实例化的顶点属性时的索引位置。与 glDrawElementsBaseVertex() 中提
+// 供的 basevertex 参数类似，在多实例绘制函数中，实例的索引偏移值可以通过一个额外的参数
+// baseinstance 设置。例如 glDrawArraysInstancedBaseInstance 相当于调用 glDrawArrays
+// 绘制 instancecount 个实例，对于每隔实例，内置变量 gl_InstanceID 都会依次递增，新的数
+// 值会被传递到顶点着色器，以区分不同实例的顶点属性。此外 baseinstance 的值用来对实例化
+// 的顶点属性设置一个索引偏移值，从而改变 OpenGL 获取多实例顶点属性的位置。
+//
+// void glDrawArraysInstancedBaseInstance(GLenum mode, GLint first, GLsizei count, GLsizei instancecount, GLuint baseinstance);
+// void glDrawElementsInstancedBaseInstance(GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount, GLuint baseinstance);
+// void glDrawElementsInstancedBaseVertexBaseInstance(GLenum mode, GLsizei count, GLenum type, const void *indices, GLsizei instancecount, GLuint basevertex, GLuint baseinstance);
+//
+// 第二种方式，在着色器中使用实例计数器（using instance counter in shaders）。除了多
+// 实例属性，着色器还可以使用内置的 gl_InstanceID 变量获取实例索引值。它从 0 开始计数，
+// 每当一个实例被渲染之后，这个值都会加 1。gl_InstanceID 总是存在于顶点着色器中，即使
+// 当前的绘制命令并没有用到多实例的特性也是如此，这时它的值保持为 0。gl_InstanceID 可
+// 以作为 uniform 数值的索引使用，也可以作为纹理查找的参数使用，或者作为某个分析函数的
+// 输入，等等。
+//
+// 在下面的例子中，我们使用 gl_InstanceID 重现了上例的功能，不过这一次使用纹理缓存对象
+// （Texture Buffer Objects, TBO）而非实例化的顶点属性。这里我们将顶点属性替换为 TBO
+// 的查找，因此移除了相应的顶点属性设置代码。使用一个 TBO 来记录每个实例的颜色值，而第
+// 二个 TBO 用来记录模型矩阵的值。因为现在采用显式的方法在顶点着色器中获取每个实例的
+// 颜色和模型矩阵，所以在顶点着色器的主体中需要添加额外代码。
+//
+//      uniform mat4 view_matrix;
+//      uniform mat4 projection_matrix;
+//      uniform sampler_buffer color_tbo;
+//      uniform sampler_buffer model_matrix_tbo;
+//      out VERTEX {
+//          vec3 normal;
+//          vec4 color;
+//      } vertex;
+//      void main(void) {
+//          vec4 color = texel_fetch(color_tbo, gl_InstanceID);
+//          vec4 col_1 = texel_fetch(model_matrix_tbo, gl_InstanceID * 4);
+//          vec4 col_2 = texel_fetch(model_matrix_tbo, gl_InstanceID * 4 + 1);
+//          vec4 col_3 = texel_fetch(model_matrix_tbo, gl_InstanceID * 4 + 2);
+//          vec4 col_4 = texel_fetch(model_matrix_tbo, gl_InstanceID * 4 + 3);
+//          mat4 model_matrix = mat4(col_1, col_2, col_3, col_4);
+//          mat4 model_view_matrix = view_matrix * model_matrix;
+//          gl_Position = projection_matrix * model_view_matrix * position;
+//          vertex.normal = mat3(model_view_matrix) * normal;
+//          vertex.color = color;
+//      }
+//
+//      int positon_loc = glGetAttribLocation(shader, "position");
+//      int normal_loc = glGetAttribLocation(shader, "normal");
+//      glBindBuffer(GL_ARRAY_BUFFER, position_buffer);
+//      glVertexAttribPointer(position_loc, 4, GL_FLOAT, GL_FALSE, 0, NULL);
+//      glEnableVertexAttribArray(position_loc);
+//      glBindBuffer(GL_ARRAY_BUFFER, normal_buffer);
+//      glVertexAttribPointer(normal_loc, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+//      glEnableVertexAttribArray(normal_loc);
+//      glGenTextures(1, &color_tbo);
+//      glBindTexture(GL_TEXTURE_BUFFER, color_tbo);
+//      glTexBuffer(GL_TEXTURE_BUFFER, GL_RGBA32F, color_buffer);
+//      glGenTextures(1, &model_matrix_tbo);
+//      glActiveTexture(GL_TEXTURE1);
+//      glBindTexture(GL_TEXTURE_BUFFER, model_matrix_tbo);
+//      glTexBuffer(GL_TEXTURE_BUFFER, GL_RGAB32F, model_matrix_buffer);
