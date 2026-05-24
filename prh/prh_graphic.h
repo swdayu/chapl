@@ -1225,39 +1225,10 @@
 // 顶点着色器的内容，重新设置当前属性为 vec4 的输入形式，那么之前设置的第四个分量值就会
 // 出现再属性 w 分量当中。
 //
-// void glClear(GLbitfield mask); // 2.0+
 // void glClearColor(GLfloat red, GLfloat green, GLfloat blue, GLfloat alpha); // 2.0+
 // void glClearDepth(GLdouble depth); // 2.0+
 // void glClearDepthf(GLfloat depth); // 4.1+
 // void glClearStencil(GLint s); // 2.0+
-// void glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLfloat stencil); // 3.0+
-// void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value); // 3.0+
-// void glClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint *value); // 3.0+
-// void glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint *value); // 3.0+
-// void glClearNamedFramebufferfi(GLuint framebuffer, GLenum buffer, GLint drawbuffer, GLfloat depth, GLfloat stencil); // 4.5+
-// void glClearNamedFramebufferfv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLfloat *value); // 4.5+
-// void glClearNamedFramebufferiv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLint *value); // 4.5+
-// void glClearNamedFramebufferuiv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLuint *value); // 4.5+
-//
-// glClear 将缓冲区清除为预设值，掩码表示要清除的缓冲区 GL_COLOR_BUFFER_BIT、
-// GL_DEPTH_BUFFER_BIT 和 GL_STENCIL_BUFFER_BIT。glClear 将窗口的位平面区域设置为之
-// 前由 glClearColor、glClearDepth 和 glClearStencil 选定的值。通过调用 glDrawBuffer
-// 可以同时清除选多个颜色缓冲区（multiple color buffers）。像素所有权测试（pixel ownership
-// test）、裁剪测试（scissor test）、抖动（dithering）和缓冲区写入掩码（buffer writemasks）
-// 会影响 glClear 的操作。裁剪框（scissor box）限定清除区域。Alpha 函数、混合（blend）
-// 函数、逻辑运算、模板测试（stenciling）、纹理映射（texture mapping）和深度缓冲（depth
-// buffering）都会被 glClear 忽略。glClear 接受一个参数，该参数是多个值的按位或，指示
-// 要清除哪个缓冲区，每个缓冲区清除到的值取决于该缓冲区的清除值设置。如果某个缓冲区不存在，
-// 则针对该缓冲区的 glClear 调用不会产生任何效果。如果 mask 中设置了除上述三个定义位之外
-// 的任何位，则生成 GL_INVALID_VALUE 错误。
-//      GL_COLOR_BUFFER_BIT 当前已启用用于颜色写入的缓冲区
-//      GL_DEPTH_BUFFER_BIT 深度缓冲区
-//      GL_STENCIL_BUFFER_BIT 模板缓冲区
-//
-// 获取相关清除值值：
-//      glGet(GL_DEPTH_CLEAR_VALUE)
-//      glGet(GL_COLOR_CLEAR_VALUE)
-//      glGet(GL_STENCIL_CLEAR_VALUE)
 //
 // glClearColor 设置颜色缓冲区的清除值，指定清除颜色缓冲区时使用的红、绿、蓝和 Alpha
 // 值。初始值为 0 表示黑色。glClearColor 指定 glClear 清除颜色缓冲区时使用的红、绿、蓝
@@ -1278,14 +1249,58 @@
 // 值为 0。glClearStencil 指定 glClear 清除模板缓冲区时使用的索引值。s 会与 2^m − 1
 // 进行掩码运算，其中 m 是模板缓冲区的位数。
 //
-// glClearBuffer 清除帧缓冲中的单个缓存，参数 framebuffer 指定 glClearNamedFramebuffer*
-// 的帧缓冲区对象名称，buffer 指定要清除的缓存，drawbuffer 指定要清除的特定绘制缓冲区，
-// value 指向用于清除缓冲区的值或值组的指针，depth 清除深度缓冲区所使用的值，stencil
-// 清除模板缓冲区所使用的值。
+// 获取相关清除值值：
+//      glGet(GL_DEPTH_CLEAR_VALUE)
+//      glGet(GL_COLOR_CLEAR_VALUE)
+//      glGet(GL_STENCIL_CLEAR_VALUE)
 //
-// 这些命令将帧缓冲的指定缓存清除为指定值，对于 glClearBuffer*，帧缓冲区为当前绑定的绘
-// 制帧缓冲区对象。对于 glClearNamedFramebuffer*，framebuffer 为 0（表示默认绘制帧缓
-// 冲区）或帧缓冲区对象的名称。buffer 和 drawbuffer 标识要清除的缓冲区：
+// void glClear(GLbitfield mask); // 2.0+
+//
+// glClear 将缓冲区清除为预设值，掩码表示要清除的缓冲区 GL_COLOR_BUFFER_BIT、GL_DEPTH_BUFFER_BIT
+// 和 GL_STENCIL_BUFFER_BIT。glClear 将窗口的位平面区域设置为之前由 glClearColor、glClearDepth
+// 和 glClearStencil 选定的值。通过调用 glDrawBuffer 可以同时清除选多个颜色缓冲区（multiple
+// color buffers）。像素所有权测试（pixel ownership test）、裁剪测试（scissor test）、抖动
+// （dithering）和缓冲区写入掩码（buffer writemasks）会影响 glClear 的操作，裁剪框（scissor
+// box）限定清除区域。Alpha 函数、混合（blend）函数、逻辑运算、模板测试（stenciling）、纹理
+// 映射（texture mapping）和深度缓冲（depthnbuffering）都会被 glClear 忽略。glClear 接受一个
+// 参数，该参数是多个值的按位或，指示要清除哪个缓冲区，每个缓冲区清除到的值取决于该缓冲区的
+// 清除值设置。如果某个缓冲区不存在，则针对该缓冲区的 glClear 调用不会产生任何效果。如果 mask
+// 中设置了除上述三个定义位之外的任何位，则生成 GL_INVALID_VALUE 错误。
+//      GL_COLOR_BUFFER_BIT 当前已启用用于颜色写入的缓冲区
+//      GL_DEPTH_BUFFER_BIT 深度缓冲区
+//      GL_STENCIL_BUFFER_BIT 模板缓冲区
+//
+// void glColorMask(GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+// void glColorMaski(GLuint buffer, GLboolean red, GLboolean green, GLboolean blue, GLboolean alpha);
+// void glDepthMask(GLboolean flag);
+// void glStencilMask(GLboolean mask);
+// void glStencilMaskSeparate(GLenum face, GLuint mask);
+//
+// 缓存的掩码（masking buffers）。在 OpenGL 向颜色、深度或者模板缓存写入数据之前，可以对
+// 数据执行一次掩码操作，这些掩码操作设置用于控制写入不同缓存的掩码。如果 glDepthMask 的
+// 参数设为 GL_TRUE，那么深度缓存可以写入，否则无法写入。glStencilMask 的 mask 值用于与
+// 模板值进行按位与操作，如果对应位操作为 1 那么像素的模板值可以写入，否则无法写入。所有
+// GLboolean 掩码的默认值均为 GL_TRUE，而所有 GLuint 掩码的默认值都为 1。glStencilMaskSeparate
+// 可以为多边形的正面和背面设置不同的模板掩码值。如果需要渲染到多个颜色缓存，glColorMaski
+// 可以对特定缓存对象设置颜色掩码。glStencilMask 所设置的掩码用于控制写入的模板位平面（bitplanes），
+// 这个掩码与 glStencilFunc() 中的第三个掩码参数没有关系，后者用于指定模板函数所对应的位
+// 平面值。
+//
+// void glClearBufferfv(GLenum buffer, GLint drawbuffer, const GLfloat *value); // 3.0+，将缓存内容清除为指定值
+// void glClearBufferiv(GLenum buffer, GLint drawbuffer, const GLint *value); // 3.0+
+// void glClearBufferuiv(GLenum buffer, GLint drawbuffer, const GLuint *value); // 3.0+
+// void glClearBufferfi(GLenum buffer, GLint drawbuffer, GLfloat depth, GLfloat stencil); // 3.0+，可同时清除深度和模板缓存
+// void glClearNamedFramebufferfv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLfloat *value); // 4.5+
+// void glClearNamedFramebufferiv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLint *value); // 4.5+
+// void glClearNamedFramebufferuiv(GLuint framebuffer, GLenum buffer, GLint drawbuffer, const GLuint *value); // 4.5+
+// void glClearNamedFramebufferfi(GLuint framebuffer, GLenum buffer, GLint drawbuffer, GLfloat depth, GLfloat stencil); // 4.5+
+//
+// glClearBuffer 清除帧缓冲中的单个缓存，参数 framebuffer 指定 glClearNamedFramebuffer*
+// 的帧缓冲区对象名称，value 指向用于清除缓冲区的值或值组的指针，depth 清除深度缓冲区
+// 所使用的值，stencil 清除模板缓冲区所使用的值。这些命令将帧缓冲的指定缓存清除为指定
+// 值，对于 glClearBuffer*，帧缓冲区为当前绑定的绘制帧缓冲区对象。对于 glClearNamedFramebuffer*，
+// framebuffer 为 0（表示默认绘制帧缓冲区）或帧缓冲区对象的名称。buffer（GL_COLOR、GL_DEPTH、
+// GL_STENCIL） 和 drawbuffer 共同标识要清除的缓冲区：
 //
 // 如果 buffer 为 GL_COLOR，则通过将 i 作为 drawbuffer 传递来指定特定的绘制缓冲区 GL_DRAW_BUFFERi，
 // value 指向一个四元素向量，指定用于清除该绘制缓冲区的 R、G、B 和 A 颜色值。如果 GL_DRAW_BUFFERi
@@ -1294,13 +1309,13 @@
 // 执行方式相同。应使用这些命令的 *fv、*iv 和 *uiv 形式分别清除定点和浮点、有符号整数和
 // 无符号整数颜色缓冲区。
 //
-// 如果 buffer 为 GL_DEPTH，则 drawbuffer 必须为 0，且 value 指向用于清除深度缓冲区的
-// 单个值。定点深度缓冲区的钳制和类型转换与 glClearDepth 执行方式相同。应仅使用这些命令
-// 的 *fv 形式清除深度缓冲区；其他形式不接受 GL_DEPTH 缓冲区。
+// 如果 buffer 为 GL_DEPTH，则 drawbuffer 必须为 0（因为始终只有一个深度缓冲区），且 value
+// 指向用于清除深度缓冲区的单个值。定点深度缓冲区的钳制和类型转换与 glClearDepth 执行方
+// 式相同。应仅使用这些命令的 *fv 形式清除深度缓冲区，其他形式不接受 GL_DEPTH 缓冲区。
 //
 // 如果 buffer 为 GL_STENCIL，则 drawbuffer 必须为 0，且 value 指向用于清除模板缓冲区
 // 的单个值。掩码运算与 glClearStencil 执行方式相同。应仅使用这些命令的 *iv 形式清除模
-// 板缓冲区；其他形式不接受 GL_STENCIL 缓冲区。
+// 板缓冲区，其他形式不接受 GL_STENCIL 缓冲区。
 //
 // glClearBufferfi 和 glClearNamedFramebufferfi 用于同时清除深度和模板缓冲区。buffer
 // 必须为 GL_DEPTH_STENCIL，且 drawbuffer 必须为 0。depth 和 stencil 分别为清除深度
@@ -3320,3 +3335,150 @@
 // 空洞花纹的硬纸板，将它按在纸面上再使用喷漆进行绘制，就可以得到非常精确的花纹图案了。
 // 举例来说，模板缓存的一个经典用途就是模拟汽车的后视镜视角，首先将镜子本身的形状渲染
 // 到模板缓存中，然后绘制整个场景，该模板缓存可以阻止所有在镜子形状之外的绘制操作。
+//
+// 颜色与 OpenGL（Color and OpenGL）。在 OpenGL 中如何使用颜色？如你所了解的，片元着色
+// 器将负责设置每个片元的颜色值，而有多种方式来完成这一操作。
+//  1.  片元着色器可以不借助任何外部数据（例如传入片元着色器的数据）直接生成片元的颜色
+//      值，例如给每个片元都设置一个常量颜色。
+//  2.  每个输入的顶点都会提供一个附加的颜色数据，可以在其他着色阶段（例如顶点着色）中
+//      修改再传入片元着色器，并且用它来判断颜色值。
+//  3.  颜色的补充，并不是特定的颜色值，可以在片元着色器中通过计算来生成颜色，例如光照
+//      和阴影。
+//  4.  外部数据，例如数字图像等，可以在片元着色器中引用，用于查找颜色值或者其他数据值，
+//      这些数据保存在纹理贴图中，并且需要用到纹理映射（texture mapping）。
+//
+// 在深入介绍相关技术之前，不妨先讨论一下 OpenGL 内部是如果使用颜色值的，我们已经知道
+// 帧缓存中需要红绿蓝的值来组成一个像素的颜色，因此我们的工作就是在片元着色器中提供足
+// 够的信息，以生成这些数值。最常见的情形下，OpenGL 内部会使用浮点数来表示一个颜色值，
+// 并且负责维护它的精度，直到数据保存到帧缓存中为止。换句话说，除非另有设置，否则片元着
+// 色器的输入总是浮点数类型，为片元颜色设置的数值也是如此，并且这些值总是限制在 [0, 1]
+// 的范围内，称之为归一化数值（normalized value），有符号的归一化数据被截取到 [-1, 1]
+// 区间中。这一的颜色写入到帧缓存之后，会被映射到帧缓存所支持的数据区间内。例如，如果帧
+// 缓存的每个红色、绿色、蓝色分量都是 8 位，那么最后颜色分量的区间范围为 [0, 255]。用户
+// 应用程序提供给 OpenGL 的数据基本上都是 C 数据类型（例如 int 或者 float），我们可以选
+// 择让 OpenGL 自动将非浮点类型转换位归一化的浮点数，即通过 glVertexAttribPointer 或者
+// glVertexAttribN*() 系列函数，此时 OpenGL 把输入的数据类型转换到对应的归一化数值范围。
+// 下标列出了各种数据类型的转换结果：
+//      OpenGL 类型     OpenGL 枚举值       最小最大值              映射后的最小最大值
+//      GLbyte          GL_BYTE             -128        127         -1.0    1.0
+//      GLshort         GL_SHORT            -32768      32767       -1.0    1.0
+//      GLfixed         GL_FIXED            -32767      32767       -1.0    1.0
+//      GLint           GL_INT              -2147483648 2147483647  -1.0    1.0
+//      GLubyte         GL_UNSIGNED_BYTE        0       255          0.0    1.0
+//      GLushort        GL_UNSIGNED_SHORT       0       65535        0.0    1.0
+//      GLuint          GL_UNSIGNED_INT         0       4294967295   0.0    1.0
+//
+// 让我们更仔细地看看如何为顶点指定颜色数据，顶点可以关联多个数据值，颜色也可以是其中之
+// 一。与任何其他顶点数据一样，颜色数据必须存储在顶点缓冲区对象（vertex-buffer object）
+// 中。当数据从顶点着色器传递到片段着色器时，OpenGL 会在被渲染图元的表面上对其进行平滑
+// 插值。通过在片段着色器中使用这些数据来生成颜色，我们可以在屏幕上产生平滑着色的物体，
+// 这被称为 Gouraud 着色（高洛德着色）。在以下示例中，我们将顶点的颜色和位置数据交错存
+// 储，并使用整型来演示让 OpenGL 对我们的值进行归一化处理。下面的片元着色器看起来非常
+// 简单，它只是将着色器的输入颜色与片元的输出颜色相关联而已。但是要注意的是，输入到片元
+// 着色器的颜色并不是直接来自于之前的顶点着色器，而是来自光栅化的结果。
+//
+//      #version 430 core
+//      layout (location = 0) in vec4 position;
+//      layout (location = 1) in vec4 color;
+//      out vec4 vertex_color;
+//      void main() {
+//          vertex_color = color;
+//          gl_Position = position;
+//      }
+//
+//      #version 430 core
+//      in vec4 vertex_color;
+//      out vec4 fragment_color;
+//      void main() {
+//          fragment_color = vertex_color;
+//      }
+//
+//      GLuint vao[1];
+//      GLuint vbo[1];
+//      const GLuint NUM_VERTICES = 6;
+//      typedef struct {
+//          GLubyte color[4];
+//          GLfloat position[4];
+//      } vertex_data;
+//      void init(void) {
+//          glGenVertexArrays(1, vao);
+//          glBindVertexArray(vao[0]);
+//          vertex_data vertices[NUM_VERTICES] = {
+//              {{255,  0, 0, 255}, {-0.90, -0.90}}, // 三角形一
+//              {{0,  255, 0, 255}, { 0.85, -0.90}},
+//              {{0,  0, 255, 255}, {-0.90,  0.85}},
+//              {{10, 10, 10, 255}, { 0.90, -0.85}}, // 三角形二
+//              {{100,100,100,255}, { 0.90,  0.90}},
+//              {{255,255,255,255}, {-0.85,  0.90}},
+//          };
+//          glGenBuffers(1, vbo);
+//          glBindBuffer(GL_ARRAY_BUFFER, vbo[0]);
+//          glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+//          ShaderInfo shaders[] = {
+//              {GL_VERTEX_SHADER, "gouraud,vert"},
+//              {GL_FRAGMENT_SHADER, "gouraud.frag"},
+//              {GL_NONE, NULL}
+//          };
+//          GLuint program = LoadShaders(shaders);
+//          glUseProgram(program);
+//          glVertexAttribPointer(color_loc, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(vertex_data), 0);
+//          glVertexAttribPointer(position_loc, 2, GL_FLOAT, GL_FALSE, sizeof(vertex_data), sizeof(vertices[0].color));
+//          glEnableVertexAttribArray(color_loc);
+//          glEnableVertexAttribArray(position_loc);
+//      }
+//
+// OpenGL 管线中，顶点着色器（顶点、细分、几何着色）和片元着色阶段之间的过程称为光栅化
+// （rasterization）。它的注意职责是判断屏幕空间的哪个部分被几何体（点、线、三角形）所
+// 覆盖。如果知道这些区域，再与输入的顶点数据相结合，那么光栅化阶段就可以对片元着色器
+// 中的每个变量数值进行线性插值计算，然后将结果输入到片元着色器当中。如果我们对颜色数据
+// 执行这一线性插值的过程，那么它在计算机图形学中有一个特殊的名字（Gouraud 着色）。如果
+// 一个图元的所有顶点的颜色值都是一样的，那么每个片元也会接收到同样的颜色值，这成为扁平
+// 着色（flat shading）。颜色并不是唯一需要在几何图元之间进行插值的数值，在后面会看到，
+// 其他一些数据也是需要进行插值的，例如表面法线（surface normal），以及纹理映射过程中需
+// 要用到的纹理坐标（texture coordinate）。OpenGL 对于光栅化和数据插值过程的实现是与平台
+// 相关的，我们不能保证不同平台得到的插值结果完全一致。光栅化相当于一个片元生命的开始，
+// 而片元着色器中的计算过程本质上就相当于计算这个片元的最终颜色，不过我们也不能保证所有
+// 操作最终被应用到这个片元上。因为管线对每个片元的测试和操作，它们将真正决定一个片元最
+// 终能否称为帧缓存当中的一个像素。
+//
+// 片元测试和操作（Testing and Operating on Fragments）
+//
+// 当我们在屏幕上绘制几何体的时候，OpenGL 会按照下面的顺序来处理管线：首先执行当前绑定
+// 的顶点着色器，然后是细分和几何着色器（如果是当前程序对象的一部分），然后将最终几何体
+// 装配为图元并送入光栅化阶段（assembles the final geometry into primitives that get
+// sent to the rasterizer），这里将计算出窗口中哪些像素受到几何体的影响。当 OpenGL 确定
+// 需要生成一个独立的片元时，对应的片元着色器将被执行，然后再经过几个处理阶段，判断片元
+// 是否可以作为像素绘制到帧缓存中，以及控制绘制的方式。例如，如果片元超出了帧缓存的矩形
+// 区域，或者它与当前帧缓存中同位置的像素相比，距离视点更远，那么正在处理的过程会停止，
+// 片元不会被绘制。而另一个决定中，片元的颜色会与当前帧缓存中的像素颜色进行混合等操作。
+// 这里将介绍片元进入到帧缓存之前所需要经过的完成测试过程，以及片元写入时可以执行的一些
+// 操作。这些测试和操作大部分可以通过 glEnable 和 glDisable 来分别启用和禁用。这些测试
+// 和操作的发生顺序如下，如果一个片元在某个测试过程中被丢弃，那么之后所有的测试或者操作
+// 都不会再执行。我们将在后面了解到，可以同时渲染输出到多个缓存当中，那么对于大部分的片
+// 元测试和操作而言，它们也可以采取逐缓存的方式来进行控制，或者统一进行处理。没有意外的
+// 话，在介绍 OpenGL 设置函数的时候都会介绍对所有缓存统一处理的函数形式，以及影响单个缓
+// 存的形式。大多数情况下，单个缓存的处理函数往往就是在函数名的最后添加了一个 i 字母。
+//  1.  剪切测试（scissor test）
+//  2.  多重采样片元操作（multisample fragment operations）
+//  3.  模板测试（stencil test）
+//  4.  深度测试（depth test）
+//  5.  融混（blending）
+//  6.  抖动（dithering）
+//  7.  逻辑操作（logical operations）
+//
+// 剪切测试（scissor test）。片元可见性判断的第一个附加测试，就是剪切测试。我们将程序窗
+// 口中的一个矩形区域称为一个剪切盒（scissor box），并且将所有的绘制操作都限制在这个区域
+// 内。我们可以使用 glScissor 命令来设置这个剪切盒，并且使用 glEnable 设置 GL_SCISSOR_TEST
+// 启用这个功能。如果片元位于矩形区域内，那么它将通过剪切测试。该函数设置剪切盒的位置和
+// 大小，函数的参数定义了矩形的坐下角 (x, y) 以及宽度和高度。所有位于矩形之内的像素都会通
+// 过剪切测试。默认条件下，剪切矩形与窗口的大小是相等的，并且剪切测试是关闭的。
+//
+// void glScissor(GLint x, GLint y, GLsizei width, GLsizei height);
+//
+// 如果已经开启测试，那么所有渲染，包括清除窗口，都会被限制在剪切盒区域内（这一点与视口
+// 的设置不同，后者不会限制屏幕的清除操作）。如果要判断是否开启了剪切测试，或者获取剪切
+// 矩形的参数，可以使用 glIsEnable(GL_SCISSOR_TEST) 和 glGetIntegerv(GL_SCISSOR_BOX)。
+// OpenGL 实际上有多个裁剪矩形（scissor rectangles）。默认情况下，所有渲染都针对第一个
+// 裁剪矩形进行测试（当启用裁剪测试时），glScissor() 函数会为所有裁剪矩形设置新值。要在
+// 不使用扩展的情况下访问其他裁剪矩形，需要使用几何着色器，这将在第十章"多视口与分层渲
+// 染"中解释。
