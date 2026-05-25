@@ -11,7 +11,7 @@
 //  with fer der todo debug trap local global // 全局变量必须使用 global 引用
 //  mod mut ref gen priv do abstract macro tane (typename)
 //  alignof(type) sizeof(type) offsetof(type.offset) drop
-//  where it it.i halt emit print
+//  where it it.i halt emit print namespace alias
 //
 //  defer if error deallocation(ptr)
 //
@@ -69,22 +69,29 @@
 //      类型 date 字段 year 的字段偏移值，sizeof(date::year) 字段的大小，另外类型的
 //      的小可以通过 date::sizeof 表示，date::alignof 表示对齐字节，而字段的对齐字节
 //      可以通过 alignof(date::year) 表示。类型操作符 :: 还可以用来实例化泛型，例如
-//      array(int, 4)，get_array_genric_type()(int, 4)
+//      array!(int, 4)，get_array_genric_type()!(int, 4)
 //
-//      array(int, 4)
+//      array!(int, 4)
 //      std.file::offset
-//      date::year
-//      sizeof(date::year)
-//      alignof(date::year)
-//      date::sizeof
-//      date::alignof
-//      date@type_info.name
-//      date@type_info.size
+//      date::year // 返回类型成员的偏移值
+//      date::year::sizeof // 返回类型成员的大小
+//      date::year::alignof // 返回类型成员的对齐属性值
+//      date.year.offsetof
+//      date.year.sizeof
+//      date.year.alignof
+//      date.sizeof // date 必须是变量名
+//      date::sizeof // date 必须是类型名
+//      date.alignof // date 必须是变量名
+//      date::alignof // date 必须是类型名
+//      date@type_info.name // date 必须是类型名
+//      date@type_info.size // date 必须是类型名
+//      date.typeof@type_info.name // date 是变量名
+//      date.typeof@type_info.size // date 是变量名
 //
 //      typeof(a)@type_info.type INTEGER FLOAT STRING ARRAY STRUCT PROCEDURE POINTER TYPE
 //      date@type_info.name      name offset runtime_size enum_type_flags & .STRICT
 //
-//      类型操作符 :: 和 @ 。
+//      类型操作符 :: 和 @ 以及 !()。
 //
 //      每个文件都有一个默认的文件作用域，当导入到其他文件时，其中的符号还是在其文件作
 //      用域中，需要通过导入时的文件名作为名字空间访问，或强制导入全部公开符号。结构体
@@ -95,6 +102,16 @@
 //      import string "path/string-view.code" // 文件名不是合法标识符时必须显式提供名字空间名称
 //      import * "path/string-view.code" // 或者强制导入所有公开符号
 //
+//      import <array> // 标准库位于 std 名字空间中
+//      import "array" // 一个代码文件最多提供一个名字空间，或者不定义名字空间
+//      import 3rd "array" // 当代码文件没有定义名字空间时，导入时可以提供一个
+//      import std.* 3rd.* // 导入名字空间中的名字到当前文件中，这些导入的名字仅当前文件可见
+//      using namespace std
+//      using std_array = std::array
+//      using int_type = int
+//      const pi = 3.1415926
+//
+//  使用 <file> 导入的代码，都是位于 std 名字空间中，标准头文件打包成了一个特殊格式，不能直接将文件加入到其中，编译器会检查标准库文件名称。
 //  <assert> <complex> <math> <tgmath> <stdarg> <stddef> <stdlib> <stdio> <time>
 //  <thread> <array> <string> <list> <vector> <memory> <atomic> <flat_map>
 //
@@ -117,8 +134,8 @@
 //  问全局作用域，但 #import 的代码没有，#import 可以引入命名导入。
 //
 //          import math "tgmath"
-//          y = math.sqrt(2.0)
-//          using math
+//          y = math::sqrt(2.0)
+//          using namespace math
 //          y = sqrt(2.0)
 //
 //          import "math_a"
@@ -128,12 +145,12 @@
 //          import math "math_a"
 //          import "math_b"
 //          y = sqrt(2.0) // 来源于 math_b
-//          y = math.sqrt(2.0) // 来源于 math_a
+//          y = math::sqrt(2.0) // 来源于 math_a
 //
 //          import math "math_a"
 //          import libm "math_b"
-//          y = math.sqrt(2.0)
-//          y = libm.sqrt(2.0)
+//          y = math::sqrt(2.0)
+//          y = libm::sqrt(2.0)
 //
 //          import "path/single_file.code"
 //          import "path/folder/*.code" // 为了安全不能导入所有，只能一个一个文件导入
@@ -385,14 +402,15 @@
 // 程序最基本的元素只有：
 //  变量，其中编译时已知的变量称为常量
 //  类型，类型是一种特殊的变量，该变量的类型为 anytype，类型可以是编译时已知的，也可以处理一个运行时才已知的类型
-//      inttype // 一个有符号整数类型
-//      regtype // 一个无符号整数类型
-//      flotype // 一个浮点类型
-//      dectype // 一个定点类型
-//      comtype // 一个复数类型
-//      anytype // 一个具体类型
-//      integer // 一个整数类型，包括有符号和无符号
+//      inttype // 一个有符号整数类型，i08 i16 i32 i64 i128 i256 i512 int raw_int
+//      regtype // 一个无符号整数类型，r08 r16 r32 r64 r128 r256 r512 reg raw_reg
+//      flotype // 一个浮点类型，f08 f16 f32 f64 ...
+//      dectype // 一个定点类型，d08 d16 d32 d64 ...
+//      comtype // 一个复数类型，c08 c16 c32 c64 ...
+//      integer // 一个整数类型，包括有符号和无符号 inttype + regtype
 //      numeric // 一个数值类型，包括整数类型、浮点类型、定点类型、复数类型
+//      anytype // 一个具体类型
+//      anycode // 一个代码片段
 //      settype // 一个集合类型
 //      maptype // 一个映射类型
 //      arrtype
@@ -400,8 +418,8 @@
 //      quetype
 //
 //  参数化类型，一个返回类型或参数化类型的函数
-//  def func(type a type b return type) { ... }
-//  def type $(anytype T anytype U int SIZE const C) { ... } // C 可以时常量，也可以是编译时已知类型
+//  def func(&type a b >> type) { ... }
+//  def type $(anytype T U, int SIZE, const C) { ... } // C 可以是常量，也可以是编译时已知类型
 //
 // 定义类型参数（generic type parameter）和常量参数（compile time const parameter）
 //  $T $U
@@ -419,6 +437,8 @@
 //  __func__
 //  __line__
 //  __retp__
+//  __args__
+//  __argv__
 // 编译时指令： #label_name 定义标签名称
 //  PRH_TCPA_#(OPEN_REQ) #{int} #{if} ${int} ${if} #'operation
 //  global.override_name 在局部作用域中访问局部作用域中被局部作用域覆盖的名称
@@ -464,9 +484,27 @@
 //  bool byte char string none null true false def error
 //  i08 i16 i32 i64 i128 i256 i512 int raw_int // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
 //  r08 r16 r32 r64 r128 r256 r512 reg raw_reg // 编写上层应用，一般只需要使用 int 和 reg
-//  f08 f16 f32 f64 f128 f256 f512 float
+//  f08 f16 f32 f64 f128 f256 f512 float float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
+//
+//  i<1> i<2> i<4> i<8> i<16> i<32> i<64> int i<raw> // <> 中可以是单个数值或标识符
+//  r<1> r<2> r<4> r<8> r<16> r<32> r<64> reg r<raw>
+//  f<1> f<2> f<4> f<8> f<16> f<32> f<64>
+//  d<1> d<2> d<4> d<8> d<16> d<32> d<64>
+//  c<1> c<2> c<4> c<8> c<16> c<32> c<64>
+//
+//  predefined header types
+//  vew`array   arriew      std.array_view
+//  fix`array   arrfix      std.array<fix>
+//  fit`array   arrfit      std.array<fit>
+//  dyn`array   arrdyn      std.array<dyn>
+//  dde`array   arrbdi      std.array<bdi>
+//  vew`string  striew      std.string_view
+//  fix`string  strfix      std.string<fix>
+//  fit`string  strfit      std.string<fit>
+//  dde`string  strbdi      std.string<bdi>
+//  dyn`string  string      std.string
 //
 //  rem res rim ron rou rut ra re rf ri rl ro rs rv
 //  pointer
@@ -535,22 +573,10 @@
 //  vy` float ffy f256    vy` decimal ddy d256    vy` complex ccy c256
 //  vz` float ffz f512    vz` decimal ddz d512    vz` complex ccz c512
 //
-//  predefined header types
-//  vew`array   arriew
-//  fix`array   arrfix
-//  fit`array   arrfit
-//  dyn`array   arrdyn
-//  dde`array   arrbdi
-//  vew`string  striew
-//  fix`string  strfix
-//  fit`string  strfit
-//  dyn`string  string
-//  dde`string  strbdi
-//
 //  .digit 表示一个十进制数
-//  ident` 表示是类型名称
+//  ident` 表示是类型名称 ident<>
 //  .ident = expr 表示成员赋值
-//  a.ident (expr).ident() 表示成员访问，点号与之前的a之间不能有空格，但点号之后可以有空格
+//  a.ident (expr).ident() 表示成员访问，包括访问名字空间中的符号
 //  ::ident 访问类型成员
 //
 // 简洁尽量实现使用最少字符
@@ -776,60 +802,113 @@
 //      如果前面的表达式是一个类型，值是常量且类型是接受该常量类型的模块则进行类型实例化，否则报错
 //      如果前面的表达式是一个变量，则进行函数调用
 //      如果前面的表达式是一个常量，则报错
-
+//
+// 定义一个与 C 语言兼容的函数，新语言的目标之一是统一所有平台上的调用约定的一致性，C 语言可以通过新语言的基础设施调用
+// 新语言的函数。
+//      def calc @cdecl void (int a b c, point x y, *point)
+//
+// #if 1
+// 参数传递，传值表示不修改实参，传指针表示修改实参
+//  1.  传值不修改实参，函数的参数不能修改，也不能取地址
+//      def f(int a) // 当正真是传值时，形参可以直接修改，但是为了语义一致性，规定不能修改形参
+//      def f(vec4 point) // 当大于两个指针空间大小时，会传指针，此时不能修改形参
+//  2.  传指针修改实参，但是函数形参即不能修改，也不能取地址
+//      def f(*int a) // 可以修改 *a 的值，但不能修改 a 的值，也不能取 a 的地址
+//      def f(**int a) // 可以修改 *a 和 **a 的值，但不能修改 a 的值，也不能取 a 的地址
+// 寄存器的使用，有一组固定的参数寄存器，剩余的参数寄存器和返回值寄存器可以自由当作表达式中间结果用
+// #else
 // 参数传递，一个参数至少占一个寄存器，占据不大于两个指针空间的结构体传值也占一到两个寄存器，其他都往后
-(point point) // 传值，大于两个指针传地址，只是临时拷贝一份局部变量给函数用
-(&point point) // 指针，不修改实参
+//  1.  & 表示不修改实参，不大于两个指针空间的类型传值，其他传指针，不能对函数参数取地址
+//      def f(int a) { print(a) 单独的 a 表示一个具体值 } // 所有基本类型都不需要声明成 & 前缀的形式
+//      def f(&int_type a) { print(a) } // 任何其他类型，包括基本类型的别名，都需要使用 & 前缀的形式
+//      def f(&*int p)
+//      def g(&mat a) { print(a.m[0][0]) 单独的 a 表示一个具体值，rawtype(a) 仅对实际传递指针的情况有效 }
+//          int a           f(a)
+//          *int p = &a     f(imm p)
+//  2.  * 表示会对实参进行修改，都传指针，不能对函数参数取地址
+//      def h(*int a) { *a = 1 }
+//      def l(&*int a);
+//      def k(**int a);
+//          int a           h(mut a)
+//          *int p = &a     h(p)    l(p)
+//          **int q = &p            k(q)
+//  3.  & 参数不能传给 * 参数，* 参数可以传给 & 参数
+//      def h(*int a) { f(a) 单独的 a 表示一个指针值 }
+//      def h(*mat a) { f(a) 单独的 a 表示一个指针值 }
+// #endif
+//
+(&point point) // 不修改实参，大于两个指针传地址，只是临时拷贝一份局部变量给函数用
 (*point point) // 指针，修改实参
 (^point point) // 指针，可能被硬件或其他线程并行修改
-(int a) // 传值
-(&int a) // 指针，不修改实参
+(int a) // 不修改实参
+(&int_type a) // 类型别名也必须添加 & 前缀
 (*int a) // 指针，修改实参
 (^int a) // 指针，可能被硬件或其他线程并行修改
 // 逗号只能出现在 {} 或 [] 或 let 表达式中，不能出现在 () 中，避免与函数类型和函数调用冲突
 (point point camera camera) // 括号 () 中出现逗号必然是函数声明，只有函数类型声明和函数调用中才能包含逗号
 (typexpr ...)
+// 函数的声明，定义函数，定义函数类型变量，函数类型字面量遇到 =、{、def、pub、let、换行符（读取小括号对之后的换行符）就会结束
+def calc(void) { } // 同一行有开始大括号，表示定义一个函数字面量
+def calc(int a) { }
+def calc(>> int) { }
+def calc(int a) int float as a b { }
+def calc(void) = { } // 同一行有等号，表示定义一个函数指针变量
+def calc(int a) = null
+def calc(>> int) = null
+def calc(void) // 同一行没有大括号和等号，表示一个函数字面量的声明
+def calc(int a) // 函数声明以等号（=）、开始大括号（{）、def 关键字、或换行结尾
+def calc(int a) int float
+let calc(int a) = null // 定义局部函数指针变量
+let calc(>> int) = null
+let calc(int a) int float = null
+let calc = (void) { }
+let calc = (>> int) { }
+let calc = (int a) { } // 定义函数指针变量，当函数类型前面没有函数名称时，必须使用特殊形式
+let calc = ((int a) int float) { } // (int a) 表示没有返回值 ((int a) int float) 表示有返回值，且返回值不能为空
+using func_type = (void)// 定义函数类型别名，当函数类型前面没有函数名称时，必须使用特殊形式
+using func_type = (>> int float)
+using func_type = ((int a) int float)
+
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
 // 函数类型字面量，“开始小括号 + 结果为类型的表达式” 表示函数类型的开始，函数复合常量是函数类型字面量 + { stmt ... }
 (void) // void 表示没有参数，也没有返回值
 (>> int) // 返回 int，当有返回值时才需要 return 关键字
 (>> int string point) // 返回 int string point
-(yield int >> int float)
-(yield int point >> int)
+(>> int float yield int)
+(>> int yield int point)
 (yield int point)
-(int a >> int) // 返回 int
+(int a) int // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
 (int _) // 匿名参数
 (int) // 报错，参数名不能是关键字
-(int argc **char argv >> int or none)
-(point p int a >> int) // 返回 int
-(point point int a >> int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
-(point point int a >> int) // 简写形式，除了预定义类型参数类型名必须使用~前缀区分
-(camera camera point point)
+(int argc, **char argv) int or none
+(point p, int a) int // 返回 int
+(point, int a) int // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
+(point point, int a) int // 简写形式，除了预定义类型参数类型名必须使用~前缀区分
+(camera camera, point point)
 (point point) // 函数声明优先识别为类型，函数体内优先识别为变量名
-(point point) (point point {expr}) // 简写形式，使用 point` 避免与表达式语法冲突
-(*camera camera *point point)
+(point) (point {expr}) // 简写形式，使用 point` 避免与表达式语法冲突
+(*camera camera, *point point)
 (*point point)
-(*camera camera point point)
+(*camera camera, point point)
 (*camera point) // 除了预定义类型参数类型名必须使用~前缀区分
-(*point point point a)
-(*camera *point) // 简写形式
-(&camera *point) // 使用&标记的类型，也传递指针但指向的内容不可修改
+(*point point, point a)
+(*camera, *point) // 简写形式
+(camera, *point) // 使用&标记的类型，也传递指针但指向的内容不可修改
 (*point) // 简写形式
 (int a)
-(int a int b int c float d)
-(int a.b.c float d) // . 表示复用前一类型
-(int .a .b .c float d)
-(int .a{0} .b{2} .c{3} float d) // 允许第一个也使用点号，方便自动化工具
-(int a int b yield int point >> int point)
-(int a int b yield int point >> int)
-(int a int b yield int point)
-(int a >> int point float as count point scale)
-(int a >> int point as count point or error)
-(*file? file{stdin} point point string name{"root"} string mode)
-(*file? file{stdin} point point point origin string name string mode int a int b int c >> int string float)
-(*file? file{stdin} point point.origin string name.mode int a.b.c >> int string float)
-(*file? _ point _._ string _._ int _._._ >> int string float)
+(int a, int b c, float d)
+(int a b c, float d)
+(int a{0} b{2} c{3}, float d) // 允许第一个也使用点号，方便自动化工具
+(int a b) int point yield int point
+(int a b) int yield int point
+(int a b) yield int point
+(int a) int point float as count point scale
+(int a) int point as count point or error
+(*file? file{stdin}, point point, string name{"root"}, string mode)
+(*file? file{stdin}, point point, point origin, string name, string mode, int a, int b, int c) int string float
+(*file? {stdin}, point point origin, string name mode, int a b c) int string float
+(*file? _, point _ _, string _ _, int _ _ _) int string float
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
 [int] (x $) // int 成员命名为 x
@@ -849,14 +928,14 @@ struct {} // 空结构体
 {int point} // point 是 int 型类型成员
 const { red green blue }
 const int { red green = 2 blue }
-$(anytype T) { (*T p int size >> int) read }
+$(anytype T) { ((*T p, int size) int) read }
 // 结构体中的各类成员
 //  1. 成员 type field_name field_name
 //  2. 位域 type [bits] name [bits] name ...
 //  3. 成员别名 type (a | b | c | ...)
 //  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ... }
 def test {
-    int a int b int c int x .y .z // . 重复前一类型
+    int a int b int c int x, y, z // 重复前一类型
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int [1] inplace [31] size // 位域
     int (size | bytes | count) // 成员别名
@@ -886,7 +965,7 @@ array(int, float)
 *[N]Type // 指向的内容是一个 [N]Type 类型
 [*][N]Type // 指向的内容是一个 [N]Type 类型的数组
 [N][N]Type
-[N]*Type
+[N]*Type // 固定大小的数据
 [:int] // 集合类型
 |flat_set|[:int] // 自定义集合类型
 [string:int] // 映射类型
@@ -1197,8 +1276,8 @@ def point zeroinit packed {
 def data {
     int a
     int b
-    (int a int b >> int) f
-    (int a int b >> int) g
+    ((int a int b) int) f
+    ((int a int b) int) g
 }
 
 def user_thrd of thrd alignas(line) {
@@ -1277,20 +1356,20 @@ def main(int argc **byte argv int)
 def scale(def point point int a b)
 def calc(int a b int)
 
-def array $(anytype t int size) {
+def array $(anytype t, int size) {
     [size]t a
 }
 
-def array $(anytype a int size) { // $ 定义一个类型参数 a
+def array $(anytype a, int size) { // $ 定义一个类型参数 a
     [size]a a
 }
 
-def test $(anytype a ~ b) {
+def test $(anytype a b) {
     a a // 指定 a 是一个类型
     b b
 }
 
-def test $(anytype t ~ u) {
+def test $(anytype t u) {
     t t
     u u
 }
@@ -1302,7 +1381,7 @@ def color const int {
     yellow
 }
 
-def test $(anytype T ~ U int SIZE array(SIZE, T) A point POINT) {
+def test $(anytype T U, int SIZE, array!(SIZE, T) Array, point POINT) {
     T t
     U u
 }
@@ -1336,7 +1415,7 @@ def node $(anytype t) {
     t data
 }
 
-def tripple $(anytype t ~ u int size) {
+def tripple $(anytype t u, int size) {
     [size]t a
     u b
 }
@@ -1545,31 +1624,15 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
     i32 coro_id
 }
 
-// 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
-// def type as new_type
-def (int argc **char argv >> int) as func_type
-def |flat_map|[string:int] as type_of_map
-def [int int float string] as tuple_type
-def *int as int_ptr
-def *point as point_ptr
-def point as type_point
-
-pub (int argc **char argv >> int) as func_type
-pub |flat_map|[string:int] as type_of_map
-pub [int int float string] as tuple_type
-pub *int as int_ptr
-pub *point as point_ptr
-pub point as type_point
-
-def main(int argc **char argv >> int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
+def main(int argc, **char argv) int { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
     return 0
 }
 
-def eat(*lexer l expr e >> *oper) { // 编译器可以访问到完整代码的函数就是一个常量，而动态加载的函数相当于时一个函数变量（函数指针变量）
+def eat(*lexer l, expr e) *oper { // 编译器可以访问到完整代码的函数就是一个常量，而动态加载的函数相当于时一个函数变量（函数指针变量）
     return l.op or e.op
 }
 
-def "==" (&string a ~ b >> bool) {
+def "=="(string a b) bool {
     return a.size == b.size && equal(a.data, b.data, a.size)
 }
 
@@ -1603,76 +1666,102 @@ def test $(const C) {
     int data
 }
 
-def name (int a >> int) { ... }
-def (int a return int) as func_type
-def [int float] as tuple_type
-def name = 3.1415926
+// 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
+using func_type = ((int argc, **char argv) int)
+using type_of_map = |flat_map|[string:int]
+using tuple_type = [int int float string]
+using int_ptr = *int
+using point_ptr = *point
+using type_point = point
+using func_type = ((int a) int)
+using tuple_type = [int float]
+const name = 3.1415926
+
+def name(int a) int { ... }
 def name const { red blue green }
 def name const int { red bule green }
 def name const int with {r08 lpri r08 rpri} { ... }
 def name const with {r08 lpri r08 rpri} { ... }
 def name { int a int b }
-def name $(anytype T ~ U const SIZE int N T VALUE) { ... }
+def name $(anytype T U, const SIZE, int N T VALUE) { ... }
 def name $(anytype T) { ... }
-def name $(anytype T ~ U) { ... }
+def name $(anytype T U) { ... }
 def name $(int SIZE) { ... }
-def name $(int SIZE anytype T ~ U) { ... }
+def name $(int SIZE, anytype T U) { ... }
 
 def $T as transfer { // reader writer updater sender receiver transfer
-    send(*T self &byte data reg size)
-    recv(*T self *byte buff reg size)
-    close(*T self)
+    ((*T self, @byte data, reg size) reg) send // 传值的 byte 数组，不可修改
+    ((*T self, *byte buff, reg size) reg) recv
+    (*T self) close
 }
 
-def test $(any T ~ U const C int SIZE) {
+def test $(anytype T U, const C, int SIZE) {
     int data
     T t
 }
 
-def test $(int SIZE point POINT) {
+def test $(int SIZE, point POINT) {
     [SIZE]int a
 }
 
-def array $(anytype T int SIZE) SIZE > 0 {
+def array $(anytype T, int SIZE) SIZE > 0 {
     [SIZE]T a
 }
 
-def array $(anytype T const SIZE) (typeof SIZE == Integer && SIZE > 0) {
+def array $(anytype T, const SIZE) static (typeof SIZE == Integer && SIZE > 0) {
     [SIZE]T a
 }
 
-// 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）, *** 逗号只能包含在括号内，或 let 与 = 之间 ***
-// def name = expr
-def SZ = 1024 // 类型为 const int
-def PI = 3.1415926 // 类型为 const float
-def 2P = 2 * PI // 类型为 const float
-def PI = f64 3.1415926 // 类型为 const f64
-def PT = point {100, 200} // 类型为 const point
-def P3 = [_]int {100, 200} // 类型为 const [2]int
-def P4 = [int int] {100, 200} // 类型为 const [int int]
-def P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
-def P6 = (int a int b >> int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
+// 定义名字空间，def namespace global 表示没有定义名字空间
+def namespace std // def std::array // array 必须是结构体名称，目的是将结构体和对应的函数打包在一起，并没有定义子名字空间
 
-pub PI = 3.1415926
-pub 2P = 2 * PI
-pub PI = f64 3.1415926
-pub PT = point {100, 200}
-pub P2 = point {100, 200}
-pub P3 = [_]int {100, 200}
-pub P4 = [int int] {100, 200}
-pub P5 = {int a int b} {100, 200}
-pub P6 = (int a int b >> int) { return a + b } // 相当于 pub P6(int a b return int) { return a + b }
+def array<dyn> $(anytype T) {
+    *T data
+    reg capacity
+    reg size
+}
+
+def array_push(*array<dyn>!(T), T a) {
+    array.data[array.size++] = a
+}
+
+// 代码导入
+import <array> // 标准头文件不能包含路径名称
+import "array" // 用户代码可以包含额外路径名称
+import 3rd "array" // 仅当 array 没有定义名字空间时才能提供自定义名字空间
+using namespace std // using 仅当前文件作用域可见
+using std_array = std::array
+
+// 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
+const SZ = 1024 // 类型为 const int
+const PI = 3.1415926 // 类型为 const float
+const 2P = 2 * PI // 类型为 const float
+const PI = f64 3.1415926 // 类型为 const f64
+const PT = point {100, 200} // 类型为 const point
+const P3 = [_]int {100, 200} // 类型为 const [2]int
+const P4 = [int int] {100, 200} // 类型为 const [int int]
+const P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
+const P6 = ((int a int b) int) { return a + b } // 相当于 def P6(int a b return int) { return a + b }
+
+pub global { // 符号别名和常量定义
+    using std_array = std::array
+    const PI = 3.1415926
+}
+
+// 定义的提前声明
+def calc(int a b) int // 私有函数的提取声明
 
 // 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
 // def name type = value
-// def name func_type { func_body }
+// def name func_type { func_body } 定义一个函数常量
+// def name func_type = { func_body } 定义一个函数指针
 def a int = 10
 def b int = 20
 def int_ptr *int = fer a
 def point_ptr *point = fer point
 def point point = {100, 200}
-def calc (int a int b >> int) { return a + b } // 定义一个函数常量
-def calc (int a int b >> int) = null // 定义一个函数指针
+def calc (int a, int b) int { return a + b } // 定义一个函数常量
+def calc (int a, int b) int = null // 定义一个函数指针
 def data {int a int b point point} = {10, 20, {100, 200}}
 def data [int int point] = {10, 20, {100, 200}}
 
@@ -1681,9 +1770,9 @@ pub b int = 20
 pub int_ptr *int = fer a
 pub point_ptr *point = fer point
 pub point point = {100, 200}
-pub calc (int a int b >> int) { return a + b } // 定义一个函数常量
-pub calc (int a int b >> int) = null // 定义一个函数指针
-pub data {int a int b point point} = {10, 20, {100, 200}}
+pub calc (int a, int b) int { return a + b } // 定义一个函数常量
+pub calc (int a, int b) int = null // 定义一个函数指针
+pub data {int a int b int x, y point point} = {10, 20, 30, 40, {100, 200}}
 pub data [int int point] = {10, 20, {100, 200}}
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &），代码行不能以小括号开始，否则报错
@@ -1729,7 +1818,7 @@ let a [8]int = {1, 2, 3, 4}
 let tup [i32 f64 r08] = {500, 6.4, 1} // tup(0) tup(1) tup(2)
 let tup (a b c) [i32 f64 r08] = {500, 6.4, 1} // tup.a tup.b tup.c
 let a, b, c [i32 f64 r08] = {500, 6.4, 1} // a b c
-let fp (int a ~ b >> int) = fer calc
+let fp (int a b) int = fer calc
 let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 let data (value error) = read_tuple() // 元组类型值的返回 data(0) data(1) data.value data.error
 let a, _ = read_tuple() // 赋值右边必须是一个元组类型
@@ -1769,6 +1858,8 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
+// 表达式的隔断，表示一个表达式的开始
+
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
 if $a point{100, 200} + b with expr { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
@@ -1789,12 +1880,12 @@ for i in [0, SIZE) {
     string_unchecked_push(s, value)
 }
 
-def calc(int a ~ b >> int int let x y) {
+def calc(int a b >> int int as x y) {
     x = a + b
     y = a * b
 }
 
-def calc(int a ~ b >> int int let x y or error) {
+def calc(int a b >> int int as x y or error) {
     if a == 0 return e_invalid
     x = a * b
     y = e_notzero
