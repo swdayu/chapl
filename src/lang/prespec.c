@@ -1479,8 +1479,6 @@ def 协程 {
     r32 loweraddr
 }
 
-def "std"
-
 def coro_guard {
     r32 lower_guard_word
     r32 upper_guard_word
@@ -2215,7 +2213,7 @@ def main(void) {
     print("hello")
 }
 
-def main(int argc **byte argv >> int) { // main 函数默认是 public
+def main(int argc, **byte argv) int { // main 函数默认是 public
     print("hello world\n")
     return 0
 }
@@ -2373,34 +2371,34 @@ pub main(return int) {
     return 0
 }
 
-pub main(int argc **char argv return int) {
+pub main(int argc, **char argv) int {
     return 0
 }
 
-pub calc(int a b return int) {
+pub calc(int a b) int {
     return a + b
 }
 
-def scale(type point float factor) {
+def scale(type point, float factor) {
     point.x *= factor
     point.y *= factor
 }
 
-def scale(type point float factor) "cdecl align 64" {
+def scale(type point, float factor) "cdecl align 64" {
     p.x *= factor
     p.y *= factor
 }
 
-def scale(type point float factor) "fastcall" {
+def scale(type point, float factor) "fastcall" {
     p.x *= factor
     p.y *= factor
 }
 
-def next(*node($t) return *t) {
+def next(*node!(T)) *T {
     return node.next
 }
 
-def size(*triple(int size, $t, $u) return int) {
+def size(*triple(int size, $t, $u)) int {
     return triple.a + size + sizeof(t)
 }
 
