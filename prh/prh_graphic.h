@@ -151,6 +151,7 @@
 // 复杂概念用插图、动画、真实渲染表达，而不是枯燥文字和矩形框。(WebSocket)
 //
 // https://registry.khronos.org/SPIR-V/specs/unified1/SPIRV.html
+// https://www.khronos.org/spirv/
 //
 // 指令（instructions）
 //
@@ -275,6 +276,13 @@
 //  . es3 - OpenGL ES 3.x (will always be the latest ES, currently 3.2)
 //  . gl2.1 - OpenGL 2.1 (including fixed functionality)
 //  . gl4/html/index.php - OpenGL 4.x (always be the latest GL, currently 4.6)
+//
+// https://webgpu.org/
+// https://webgpu.rocks/
+// https://gpuweb.github.io/gpuweb/
+// https://gpuweb.github.io/gpuweb/wgsl/
+// https://www.w3.org/TR/WGSL/
+// https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API
 //
 // OpenGL 标准头文件和扩展头文件。由于扩展因平台和驱动而异，OpenGL 开发人员不能期望所有
 // 扩展的接口都定义在操作系统/显卡驱动提供的标准 gl.h、glx.h 和 wgl.h 头文件中，因此提
@@ -3547,3 +3555,150 @@
 // 于透视投影条件下深度值并不是线性地变换到窗口坐标当中的，因此与近剪裁平面更接近的多边
 // 形需要的偏移值也就更小，而那些远处的多边形就需要更大的偏移值。我们可能需要对 glPolygonOffset
 // 设置的数据进行多次实验，才能得到自己期望的结果。
+//
+// 帧缓存对象（framebuffer objects）。到现在为止，我们所有有关缓存的讨论都集中在窗口系统
+// 的缓存，也就是调用 glfwCreateWindow 这样的函数得到的缓存。虽然我们可以对这类缓存应用
+// 各种技术，但是要在不同的缓存之间大量地迁移数据仍需要有很多操作。这就是帧缓存对象存在
+// 的意义，通过帧缓存对象，我们可以创建自己的缓存帧，并且将它们绑定到渲染缓存（renderbuffer）
+// 上，将数据拷贝的消耗最小化，同时对性能进行优化。
+//
+// 帧缓存对象对于离屏渲染技术、纹理贴图的更新，以及缓存乒乓技术（buffer ping-ponging，
+// 这是 GPGPU 当中用到的一种数据传输方法）的实现非常有意义。窗口系统所提供的帧缓存是唯
+// 一可以被图形服务器的显示系统所识别的帧缓存，也就是说，我们在屏幕上看到的只能是这个缓
+// 存，并且系统对于这种在窗口打开时才被创建的缓存有一些限制。相比而言，应用程序中创建的
+// 帧缓存无法被显示器显示，它们只能用于离屏渲染。窗口系统的缓存和自己创建的帧缓存之间还
+// 有另外一个区别，就是窗口系统所管理的帧缓存有自己的缓存对象（颜色、深度、模板），它们
+// 诞生于窗口创建之时。当你创建了一个应用程序管理的帧缓存对象时，还需要创建额外的渲染缓
+// 存（renderbuffers）并且与帧缓存对象进行关联。窗口系统管理的缓存是无法与应用程序创建
+// 的帧缓存关联的，反之亦然。
+//
+// 要分配一个应用程序使用的帧缓存对象描述符（或名称），需要调用 glGen/CreateFramebuffers
+// 得到一个位置用的帧缓存对象标识符，并且初始化为默认的帧缓存状态。如果 n 为负数将产生
+// GL_IVALID_VALUE 错误。由 glGenFramebuffers 分配的帧缓存对象的名称并不意味着我们创建了
+// 帧缓存对象，也不存在存储空间的分配。这些工作需要通过 glBindFramebuffer 函数完成。该
+// 函数与其他大部分 glBind*() 函数类似，当第一次调用它来绑定某个帧缓存时，它会分配这个对
+// 象的存储空间并且将其初始化。此后再次调用这个函数时，会将给定的帧缓存对象绑定为当前激活
+// 的状态。glBindFramebuffer 设置一个可读或者可写的帧缓存，target 可以为以下值，framebuffer
+// 如果为 0 表示目标绑定到默认的窗口系统帧缓存。如果 framebuffer 不是 0 也不是 glGen/CreateFramebuffers
+// 分配的可用帧缓存对象（没有被 glDeleteFramebuffers 释放），那么将产生一个 GL_INVALID_OPERATION
+// 错误。
+//  1.  GL_DRAW_FRAMEBUFFER，那么 framebuffer 设置的是绘制时的目标帧缓存
+//  2.  GL_READ_FRAMEBUFFER，那么 framebuffer 设置的是读取操作的数据源
+//  3.  GL_FRAMEBUFFER，那么 framebuffer 设置的帧缓存是可读可写的
+//
+// void glGenFramebuffers(GLsizei n, GLuint *framebuffers);
+// void glCreateFramebuffers(GLsizei n, GLuint *framebuffers);
+// void glBindFramebuffer(GLenum target, GLuint framebuffer);
+// void glDeleteFramebuffers(GLsizei n, const GLuint *frambuffers);
+// GLboolean glIsFramebuffer(GLuint framebuffer);
+//
+// glDeleteFramebuffers 可以将帧缓存对象的名称重新标记为未分配的状态，并且将帧缓存对象
+// 相关联的资源全部释放。如果某个帧缓存对象当前已经被绑定，那么删除它意味着帧缓存的目标
+// 被重置为 0（也就是窗口系统帧缓存），同时释放帧缓存对象本身。如果 n 为负数将产生一个
+// GL_INVALID_VALUE 错误。如果传入的名称是未分配的，或者传入 0，那么函数不会产生错误，
+// 而是直接忽略这些值。调用 glIsFramebuffer 可以判断是否是程序分配的帧缓存对象，如果
+// 传入的值为 0，或者值未分配，或者已经 glDeleteFramebuffers，那么都返回 GL_FALSE。
+//
+// 当帧缓存对象创建之后，我们还有很多工作需要完成，我们需要指定一处空间用于绘制操作或者
+// 读取操作，这处空间称为帧缓存附件（frambuffer attachment）。帧缓存附件可以是纹理或者
+// 渲染缓存，这些都是能够附加到帧缓存对象上的缓存类型。在帧缓存对象还没有附加缓存空间时，
+// 可以调用 glFramebufferParameter 函数设置帧缓存对象的参数，否则这些参数需要通过帧缓存
+// 对象的附件缓存进行设置。target 可以是 GL_DRAW_FRAMEBUFFER、GL_READ_FRAMEBUFFER 和
+// GL_FRAMEBUFFER，GL_FRAMEBUFFER 与 GL_DRAW_FRAMEBUFFER 等价。pname 表示 target 对应的
+// 帧缓存对象的参数，必须是以下枚举值：
+//  1.  GL_FRAMEBUFFER_DEFAULT_WIDTH
+//  2.  GL_FRAMEBUFFER_DEFAULT_HEIGHT
+//  3.  GL_FRAMEBUFFER_DEFAULT_LAYERS
+//  4.  GL_FRAMEBUFFER_DEFAULT_SAMPLES
+//  5.  GL_FRAMEBUFFER_DEFAULT_FIXED_SAMPLE_LOCATIONS
+//
+// void glFramebufferParameter(GLenum target, GLenum pname, GLint param);
+// void glNamedFramebufferParameteri(GLuint framebuffer, GLenum pname, GLint param);
+//
+// 渲染缓存（renderbuffer）是 OpenGL 所管理的一处高效的内存区域，它可以存储格式化的图像
+// 数据。渲染缓存中的数据只有关联到一个帧缓存对象之后才有意义，并且需要保证图像缓存的格
+// 式必须与 OpenGL 要求的渲染格式相符（例如不能将颜色值渲染到深度缓存中）。与 OpenGL 中
+// 的其他缓存类型相比，渲染缓存的分配和删除也是采用类似的方法。创建新的渲染缓存需要调用
+// glGen/CreateRenderbuffers 函数。
+//
+// void glGenRenderbuffers(GLsizei n, GLuint *renderbuffers);
+// void glCreateRenderbuffers(GLsizei n, GLuint renderbuffers);
+// void glBindRenderbuffer(GLenum target, GLuint renderbufffer);
+// void glDeleteRenderbuffers(GLsizei n, const GLuint *renderbuffers);
+// GLboolean glIsRenderbuffer(GLuint renderbuffer);
+//
+// 调用 glBindRenderbuffer 绑定渲染缓存，target 必须是 GL_RENDERBUFFER。绑定之后（对于
+// glGenRenderbuffers）才可以修改它的状态，包括图像数据格式。该函数创建（对于 glGenRenderbuffers）
+// 并绑定渲染缓存，renderbuffer 可以是 0，表示移除当前的绑定。否则必须是 glGen/CreateRenderbuffers
+// 分配的有效名称，否则会产生 GL_INVALID_OPERATION 错误。
+//
+// 当第一次调用 glBindRenderbuffer (对于 glGenRenderbuffers) 并传入一个未使用的渲染缓存
+// 的时候，或者调用 glCreateRenderbuffers 创建新渲染缓存对象的时候，OpenGL 服务端会创建
+// 一个所有状态信息均为默认值的渲染缓存，这个时候它还没有分配存储空间来存储图像信息。在
+// 将渲染缓存关联到帧缓存并且渲染到其中之前，我们需要分配存储空间并且设置图像格式。这一
+// 步通过调用 gl[Named]RenderbufferStorage 和 gl[Named]RenderbufferStorageMultisample
+// 函数来完成。
+//
+// void glRenderbufferStorage(GLenum target, GLenum internalformat, GLsizei width, GLsizei height);
+// void glRenderbufferStorageMultisample(GLenum target, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height);
+// void glNamedRenderbufferStorage(GLuint renderbuffer, GLenum internalformat, GLsizei width, GLsizei height);
+// void glNamedRenderbufferStorageMultisample(GLuint renderbuffer, GLsizei samples, GLenum internalformat, GLsizei width, GLsizei height);
+//
+// 这些函数给对应的渲染缓存分配图像数据的空间，target 必须是 GL_RENDERBUFFER，对于一个
+// 可渲染的颜色缓存来说，internalformat 必须是以下值：
+//      GL_RED      GL_R8       GL_R16      GL_R16F     GL_R32F     GL_R8I          GL_R8UI         GL_R16I     GL_R16UI    GL_R32I     GL_R32UI    GL_R8_SNORM     GL_R16_SNORM
+//      GL_RG       GL_RG8      GL_RG16     GL_RG16F    GL_RG32F    GL_RG8I         GL_RG8UI        GL_RG16I    GL_RG16UI   GL_RG32I    GL_RG32UI   GL_RG8_SNORM    GL_RG16_SNORM
+//      GL_RGB      GL_R3_G3_B2 GL_RGB4     GL_RGB5     GL_RGB8     GL_RGB10        GL_RGB12        GL_RGB16    GL_RGB16F   GL_RGB32F   GL_R11F_G11F_B10F   GL_RGB9_E5
+//      GL_RGBA     GL_RGBA2    GL_RGBA4    GL_RGBA5_A1 GL_RGBA8    GL_RGB10_A2     GL_RGBA12       GL_RGBA16   GL_RGBA16F  GL_RGBA32F
+//      GL_RGB8I    GL_RGB8UI   GL_RGB16I   GL_RGB16UI  GL_RGB32I   GL_RGB32UI      GL_RGB8_SNORM   GL_RGB16_SNORM
+//      GL_RGBA8I   GL_RGBA8UI  GL_RGBA16I  GL_RGBA16UI GL_RGBA32I  GL_RGBA32UI     GL_RGBA8_SNORM  GL_RGBA16_SNORM
+//      GL_SRGB     GL_SRGB8    GL_SRGB_ALPHA   GL_SRGB_ALPHA8
+//
+// 如果渲染缓存是作为深度缓存使用，那么 internalformat 必须是以下值：
+//      GL_DEPTH_COMPONENT
+//      GL_DEPTH_COMPONENT16
+//      GL_DEPTH_COMPONENT32
+//      GL_DEPTH_COMPONENT32F
+//
+// 如果渲染缓存是作为模板缓存使用，那么 internalformat 必须是以下值：
+//      GL_STENCIL_INDEX
+//      GL_STENCIL_INDEX1
+//      GL_STENCIL_INDEX4
+//      GL_STENCIL_INDEX8
+//      GL_STENCIL_INDEX16
+//
+// 对于打包的深度模板存储（packed depth-stencil storage），internalformat 必须设置为
+// GL_DEPTH_STENCIL，这样就允许渲染缓存附加作为深度缓存或者模板缓存，甚至作为合并的深
+// 度模板附加点使用。
+//
+// 参数 width 和 height 用来设置渲染缓存的像素宽度和高度，而 samples 可以设置逐像素多重
+// 采样的样本个数。对于 gl[Named]RenderbufferStorageMultisample 来时，如果将 samples 设
+// 成 0，就相当于与函数 gl[Named]RenderbufferStorage 等价。如果 width 和 height 超出了
+// GL_MAX_RENDERBUFFER_SIZE 所定义的数值范围，或者 samples 超出了 GL_MAX_SAMPLES 所定义
+// 的范围，那么将产生错误 GL_INVALID_VALUE。如果 internalformat 是有符号或者无符号的整数
+// 类型（名称带有 I 或者 UI 字样的格式），并且 samples 非零，以及硬件实现无法支持多重采
+// 样的整数缓存的话，那么系统将产生一个 GL_INVALID_OPERATION 错误。最后，如果渲染缓存的
+// 大小和格式合起来超出了可分配的内存范围的话，那么系统将产生一个 GL_OUT_OF_MEMORY 错误。
+//
+// 例如，创建一个 256 x 256 的 RGBA 颜色渲染缓存如下。当创建渲染缓存的存储空间之后，我们
+// 就需要将它真正附加到帧缓存对象上，然后将数据渲染到该缓存中。
+//      glGenRenderbuffers(1, &color);
+//      glBindRenderbuffer(GL_RENDERBUFFER, color);
+//      glRenderbufferStorage(GL_RNEDERBUFFER, GL_RGBA, 256, 256);
+//      glCreateRenderbuffers(1, &color);
+//      glNamedRenderbufferStorage(color, GL_RGBA, 256, 256);
+//
+// 帧缓存附件缓存（frambuffer attachments）。当进行渲染时，你可以将渲染结果发送到以下几
+// 个地方：
+//  1.  如果使用了都冲渲染目标（multiple render targets）同时写到多个渲染缓存，那么创建
+//      创建图像到颜色缓存，甚至多个颜色缓存
+//  2.  将遮挡信息（occlusion information）保存到深度缓存
+//  3.  将逐像素的渲染掩码保存到模板缓存
+//
+// 以上每个缓冲区都代表一个帧缓存附着点（framebuffer attachment），你可以将合适的图像缓存
+// 附着到这些点上，随后向其中渲染或从中读取数据。下表列出了所有可用的帧缓存附着点。
+//      GL_COLOR_ATTACHMENTi            第 i 个颜色缓存，i 的范围从 0（默认颜色缓存）到 GL_MAX_COLOR_ATTACHMENTS - 1
+//      GL_DEPTH_ATTACHMENT             深度缓存
+//      GL_STENCIL_ATTACHMENT           模板缓存
+//      GL_DEPTH_STENCIL_ATTACHMENT     这是一个特殊的附着点，用于保存压缩后的深度-模板缓存，此时需要将渲染像素格式设置为 GL_DEPTH_STENCIL
+//
