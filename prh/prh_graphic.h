@@ -3321,11 +3321,11 @@
 // 存可执行的操作。
 //
 // 颜色缓存（color buffers）是我们通常进行绘制的缓存对象，它包含 RGB 或 sRGB 形式的颜色
-// 数据，也可能包含帧缓存种每个像素的 alpha 值。帧缓存种可能会包含多个颜色缓存，其中默认
+// 数据，也可能包含帧缓存中每个像素的 alpha 值。帧缓存中可能会包含多个颜色缓存，其中默认
 // 帧缓存（default framebuffer）中的主颜色缓存（primary color buffer）需要特别对待，因为
 // 它是与屏幕上的窗口相关联的，所以绘制到其中的图像都会直接显示到屏幕上，而所有其他的颜
 // 色缓存都是离屏（off screen）的。颜色缓存中的像素，可能是采用每个像素存储单一颜色的形
-// 式，也可能从逻辑上被划分位多个子像素（subpixels），这样可以启用一种名为多重采样（multi-sampling）
+// 式，也可能从逻辑上被划分为多个子像素（subpixels），这样可以启用一种名为多重采样（multi-sampling）
 // 的抗锯齿或反走样（anti-aliasing）技术。我们以及在动画制作中广泛用到双缓冲（double-buffering）
 // 技术，双重缓冲技术的实现需要将主颜色缓冲划分为两个部分，直接在窗口中显示的前置缓存
 // （front buffer），以及用来渲染新图像的后备缓存（back buffer）。当我们执行缓存交换操
@@ -3436,7 +3436,7 @@
 //      }
 //
 // OpenGL 管线中，顶点着色器（顶点、细分、几何着色）和片元着色阶段之间的过程称为光栅化
-// （rasterization）。它的注意职责是判断屏幕空间的哪个部分被几何体（点、线、三角形）所
+// （rasterization）。它的主要职责是判断屏幕空间的哪个部分被几何体（点、线、三角形）所
 // 覆盖。如果知道这些区域，再与输入的顶点数据相结合，那么光栅化阶段就可以对片元着色器
 // 中的每个变量数值进行线性插值计算，然后将结果输入到片元着色器当中。如果我们对颜色数据
 // 执行这一线性插值的过程，那么它在计算机图形学中有一个特殊的名字（Gouraud 着色）。如果
@@ -3556,7 +3556,7 @@
 // 形需要的偏移值也就更小，而那些远处的多边形就需要更大的偏移值。我们可能需要对 glPolygonOffset
 // 设置的数据进行多次实验，才能得到自己期望的结果。
 //
-// 帧缓存对象（framebuffer objects）。到现在为止，我们所有有关缓存的讨论都集中在窗口系统
+// 帧缓存对象（framebuffer objects）。到现在为止，我们所有有关缓存的讨论都集中在窗口系统  *** 帧缓存对象
 // 的缓存，也就是调用 glfwCreateWindow 这样的函数得到的缓存。虽然我们可以对这类缓存应用
 // 各种技术，但是要在不同的缓存之间大量地迁移数据仍需要有很多操作。这就是帧缓存对象存在
 // 的意义，通过帧缓存对象，我们可以创建自己的缓存帧，并且将它们绑定到渲染缓存（renderbuffer）
@@ -3690,8 +3690,8 @@
 //
 // 帧缓存附件缓存（frambuffer attachments）。当进行渲染时，你可以将渲染结果发送到以下几
 // 个地方：
-//  1.  如果使用了都冲渲染目标（multiple render targets）同时写到多个渲染缓存，那么创建
-//      创建图像到颜色缓存，甚至多个颜色缓存
+//  1.  如果使用了多重渲染目标（multiple render targets）同时写到多个渲染缓存，那么创建
+//      图像到颜色缓存，甚至多个颜色缓存
 //  2.  将遮挡信息（occlusion information）保存到深度缓存
 //  3.  将逐像素的渲染掩码保存到模板缓存
 //
@@ -3702,3 +3702,122 @@
 //      GL_STENCIL_ATTACHMENT           模板缓存
 //      GL_DEPTH_STENCIL_ATTACHMENT     这是一个特殊的附着点，用于保存压缩后的深度-模板缓存，此时需要将渲染像素格式设置为 GL_DEPTH_STENCIL
 //
+// 目前，你可以与帧缓存附件关联的渲染表面（rendering surfaces）有两种类型：渲染缓存（renderbuffers）
+// 和某个层级的纹理图像（a level of a texture image）。我们首先讨论如何将渲染缓存附加到
+// 帧缓存对象上，这是通过调用 gl[Named]FramebufferRenderbuffer() 完成的。该函数将渲染缓
+// 存 renderbuffer 关联到当前绑定的（由 target 指定）或直接指定的帧缓存对象的附件 attachment
+// 上。target 必须是 GL_READ/DRAW_FRAMEBUFFER 或者 GL_FRAMEBUFFER，其中 GL_FRAMEBUFFER
+// 等价于 GL_DRAW_FRAMEBUFFER。attachment 必须是 GL_COLOR_ATTACHMENTi、GL_DEPTH/STENCIL_ATTACHMENT
+// 或者 GL_DEPTH_STENCIL_ATTACHMENT。renderbuffertarget 必须设置为 GL_RENDERBUFFER，而
+// renderbuffer 必须是 0（表示将附件所关联的渲染缓存移除）或者是对应的渲染缓存名称。
+//
+// void glFramebufferRenderbuffer(GLenum target, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
+// void glNamedFramebufferRenderbuffer(GLuint framebuffer, GLenum attachment, GLenum renderbuffertarget, GLuint renderbuffer);
+//
+// 下例中，我们创建并附加了两个渲染缓存：一个用于颜色，另一个用于深度。然后我们进行渲染，
+// 最后将结果复制回窗口系统提供的帧缓存以显示结果。你可能会使用这种技术来为电影生成离屏
+// 渲染的帧，这样你就不必担心可见帧缓存被重叠窗口（overlapped windows）破坏，或者有人调
+// 整窗口大小而中断渲染。需要记住的一个重要点是，在渲染之前，你可能需要为每个帧缓存重置
+// 视口，特别是当你的应用程序定义的帧缓存大小与窗口系统提供的帧缓存大小不同时。
+//
+//      enum { color = 0, depth = 1 };
+//      GLuint framebuffer;
+//      GLuint renderbuffer[2];
+//      void init(void) {
+//          glCreateRenderbuffers(2, renderbuffer);
+//          glNamedRenderbufferStorage(renderbuffer[color], GL_RGBA, 256, 256);
+//          glNamedRenderbufferStorage(renderbuffer[depth], GL_DEPTH_COMPONENT24, 256, 256);
+//          glGenFramebuffers(1, &framebuffer);
+//          glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+//          glNamedFramebufferRenderbuffer(framebuffer, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer[color]);
+//          glNamedFramebufferRenderbuffer(framebuffer, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffer[depth]);
+//          glEnable(GL_DEPTH_TEST);
+//      }
+//      void display(void) {
+//          // 渲染到渲染缓存
+//          glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+//          glViewport(0, 0, 256, 256);
+//          glClearColor(1.0, 0.0, 0.0, 1.0);
+//          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+//          ...
+//          // 设置从渲染缓存读取，然后绘制到窗口帧缓存
+//          glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+//          glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+//          glViewport(0, 0, window_width, window_hieght);
+//          glClearColor(0.0, 0.0, 1.0, 1.0);
+//          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+//          glBlitFramebuffer(0, 0, 255, 255, 0, 0, 255, 255, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+//          glfwSwapBuffers();
+//      }
+//
+// 渲染到纹理贴图（rendering to texture maps），也即将某个层级的纹理图像附加到帧缓存。帧
+// 缓存对象另一个最常见的用途可能是直接渲染到纹理贴图中。你可能会这样做用来表示一个表面
+// 纹理的变化（例如游戏中墙壁的破损），或者如果你正在进行类似 GPGPU 的计算，用来更新查找
+// 表中的值。在这些情况下，将纹理贴图的一个层级绑定为帧缓存的附件。渲染后，纹理贴图可以
+// 从帧缓存对象中分离，并用于后续渲染。注意，没有任何限制阻止你从纹理中读取数据，同时该
+// 纹理被绑定为可写入的帧缓存附件。在这种情况下，称为帧缓存渲染循环（framebuffer rendering loop），
+// 两种操作的结果都是未定义的。也就是说，从绑定的纹理贴图采样返回的值，以及绑定期间写入
+// 纹理层级的值，都是未定义的，而且很可能是错误的。
+//
+// void glNamedFramebufferTexture(GLuint framebuffer, GLenum attachment, GLuint texture, GLint level);
+// void glNamedFramebufferTextureLayer(GLuint framebuffer, GLenum attachment, GLuint texture, GLint level, GLint layer);
+//
+// glNamedFramebufferTexture* 系列函数将纹理贴图的层级作为帧缓存附件附加到由 framebuffer
+// 命名的帧缓存对象。glNamedFramebufferTexture() 将纹理对象 texture 的 level 层级（假设
+// texture 不为零）附加到 attachment。glNamedFramebufferTextureLayer() 将数组纹理的单个
+// 层附加到帧缓冲区。在这种情况下，texture 必须是数组纹理，而 layer 是该纹理中要附加的层
+// 的索引。attachment 必须是以下帧缓冲区附件点之一：GL_COLOR_ATTACHMENTi、GL_DEPTH_ATTACHMENT、
+// GL_STENCIL_ATTACHMENT 或 GL_DEPTH_STENCIL_ATTACHMENT（在这种情况下，纹理的内部格式必
+// 须是 GL_DEPTH_STENCIL）。
+//
+// 如果 texture 为零，表示释放绑定到 attachment 的任何纹理，则不会对 attachment 进行后续
+// 绑定。在这种情况下，level 和 layer（如果存在）将被忽略。如果 texture 不为零，它必须是
+// 现有纹理对象的名称（使用 glCreateTextures() 创建），其 texturetarget 与纹理类型（例如
+// GL_TEXTURE_1D 等）相关联，或者如果 texture 是立方体贴图，则 texturetarget 必须是立方体
+// 贴图面目标之一；否则，将生成 GL_INVALID_OPERATION 错误。level 表示要作为渲染目标附加的
+// 相关纹理图像的 mipmap 层级，对于三维纹理或二维纹理数组，layer 表示要使用的纹理层。如果
+// texturetarget 是 GL_TEXTURE_RECTANGLE 或 GL_TEXTURE_2D_MULTISAMPLE，则 level 必须为零。
+//
+// 以下是一个创建纹理并将其一个层级关联到帧缓存进行渲染的示例：
+//
+//      GLsizei texture_width, texture_height;
+//      GLuint framebuffer, texture;
+//      void init(void) {
+//          glCreateTextures(GL_TEXTURE_2D, 1, &texture); // 创建一个空纹理
+//          glTextureStorage2D(texture, 1, GL_RGBA8, texture_width, texture_height);
+//          glCreateFramebuffers(1, &framebuffer); // 将纹理关联到创建的帧缓存对象中
+//          glNameFramebufferTexture2D(framebuffer, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texture, 0);
+//      }
+//      void display(void) {
+//          // 渲染到帧缓存
+//          glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebuffer);
+//          glViewport(0, 0, texture_width, texture_height);
+//          glClearColor(1.0, 0.0, 1.0, 1.0);
+//          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+//          ...
+//          glGenerateTextureMipmap(texture);
+//          // 切换到窗口帧缓存进行渲染
+//          glBindFramebuffer(GL_FRAMEBUFFER, 0);
+//          glViewport(0, 0, window_width, window_height);
+//          glClearColor(0,0, 0.0, 1.0, 1.0);
+//          glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+//          glEnable(GL_TEXTURE_2D);
+//          ...
+//      }
+//
+// 考虑到纹理和缓存格式之间，以及帧缓存附件之间的无数组合，在使用应用程序定义的帧缓存对象
+// 时，可能会出现各种阻止渲染完成的情况。在修改帧缓存对象的附件后，最好通过调用 glCheckFramebufferStatus
+// 来检查帧缓存的状态。该函数返回帧缓存完整性状态检查的结果，target 必须是 GL_DRAW/READ_FRAMEBUFFER
+// 或者 GL_FRAMEBUFFER（等价于 GL_DRAW_FRAMEBUFFER）。
+//
+// GLenum glCheckFramebufferStatus(GLenum target);
+//
+// 如果该函数产生了一个错误，那么返回值将为 0，对应可能的错误如下：
+//      GL_FRAMEBUFFER_COMPLETE                         帧缓存和它的附件完全符合渲染或数据读取需求
+//      GL_FRAMEBUFFER_UNDEFINED                        绑定的帧缓存可能是默认的帧缓存，而默认的帧缓存不存在
+//      GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT            绑定的帧缓存没有设置必需的附件信息
+//      GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT    帧缓存没有关联任何图像（例如纹理层或渲染缓存）
+//      GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER           每个绘制缓存（例如 glDrawBuffers 绑定的 GL_DRAW_BUFFERi）都必须有一个附件
+//      GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER           每个用 glReadBuffer() 设置的缓存都必须有一个附件
+//      GL_FRAMEBUFFER_UNSUPPORTED                      关联到帧缓存对象的图像数据与 OpenGL 设备实现的需求不兼容
+//      GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE           帧缓存各个附件所关联的所有图像的采样值数量相互不匹配
