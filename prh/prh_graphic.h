@@ -3766,7 +3766,7 @@
 // 命名的帧缓存对象。glNamedFramebufferTexture() 将纹理对象 texture 的 level 层级（假设
 // texture 不为零）附加到 attachment。glNamedFramebufferTextureLayer() 将数组纹理的单个
 // 层附加到帧缓冲区。在这种情况下，texture 必须是数组纹理，而 layer 是该纹理中要附加的层
-// 的索引。attachment 必须是以下帧缓冲区附件点之一：GL_COLOR_ATTACHMENTi、GL_DEPTH_ATTACHMENT、
+// 的索引。attachment 必须是以下帧缓存附件点之一：GL_COLOR_ATTACHMENTi、GL_DEPTH_ATTACHMENT、
 // GL_STENCIL_ATTACHMENT 或 GL_DEPTH_STENCIL_ATTACHMENT（在这种情况下，纹理的内部格式必
 // 须是 GL_DEPTH_STENCIL）。
 //
@@ -3821,3 +3821,93 @@
 //      GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER           每个用 glReadBuffer() 设置的缓存都必须有一个附件
 //      GL_FRAMEBUFFER_UNSUPPORTED                      关联到帧缓存对象的图像数据与 OpenGL 设备实现的需求不兼容
 //      GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE           帧缓存各个附件所关联的所有图像的采样值数量相互不匹配
+//
+// 帧缓存对象总结
+//
+// 程序可以有多个帧缓存（framebuffer），每个帧缓存可以附加多个附件缓存对象，所有这些缓存
+// 对象共同构成帧缓存，有如下两种附件缓存对象。程序启动时使用的帧缓存是默认帧缓存（default
+// framebuffer），即与窗口关联的帧缓存，默认帧缓存始终包含一个双重缓冲（double buffered）
+// 机制的颜色缓存。窗口帧缓存是唯一可以被图形服务器的显示系统所识别的帧缓存，它有自己关联
+// 的缓存对象（颜色、深度、模板），这些缓存对象无法与程序创建的帧缓存关联，反之亦然。我们
+// 可以自行创建更多的帧缓存，完成离屏渲染等工作，这些特定的帧缓存，你可以决定使用哪些附件
+// 缓存对象以及对应的像素格式。你可以拥有多个视觉配置（visuals）或窗口类型，因此可能需要不
+// 同的可用缓存对象。
+//  1.  第一种缓存对象类别是渲染缓存（renderbuffer），可以附加用作：
+//      .   GL_COLOR_ATTACHMENTi 第 i 个颜色缓存，i 的范围从 0（默认颜色缓存或主颜色缓存）到 GL_MAX_COLOR_ATTACHMENTS - 1
+//      .   GL_DEPTH_ATTACHMENT
+//      .   GL_STENCIL_ATTACHMENT
+//      .   GL_DEPTH_STENCIL_ATTACHMENT
+//  2.  另一种缓存对象类别是某个层级的纹理图像（a level of texture image），可以附加用作：
+//      .   GL_COLOR_ATTACHMENTi 第 i 个颜色缓存
+//      .   GL_DEPTH_ATTACHMENT
+//      .   GL_STENCIL_ATTACHMENT
+//      .   GL_DEPTH_STENCIL_ATTACHMENT
+//
+// 颜色缓存（color buffers）是我们通常进行绘制的缓存对象，它包含 RGB 或 sRGB 形式的颜色
+// 数据，也可能包含帧缓存中每个像素的 alpha 值。帧缓存中可能会包含多个颜色缓存，其中默认
+// 帧缓存（default framebuffer）中的主颜色缓存（primary color buffer）需要特别对待，因为
+// 它是与屏幕上的窗口相关联的，所以绘制到其中的图像都会直接显示到屏幕上，而所有其他的颜
+// 色缓存都是离屏（off screen）的。颜色缓存中的像素，可能是采用每个像素存储单一颜色的形
+// 式，也可能从逻辑上被划分为多个子像素（subpixels），这样可以启用一种名为多重采样（multi-sampling）
+// 的抗锯齿或反走样（anti-aliasing）技术。我们以及在动画制作中广泛用到双缓冲（double-buffering）
+// 技术，双重缓冲技术的实现需要将主颜色缓冲划分为两个部分，直接在窗口中显示的前置缓存
+// （front buffer），以及用来渲染新图像的后备缓存（back buffer）。当我们执行缓存交换操
+// 作时（例如 glfwSwapBuffers），前置和后置缓存进行交换。注意，只有默认缓存中的主颜色
+// 缓存可以使用双缓存技术。此外，某些 OpenGL 的实现还可能支持立体显示（stereoscopic viewing），
+// 也就是每个颜色缓存（即使已经是双重缓存的形式）都会再划分出左颜色缓存（left buffer）
+// 和右颜色缓存（right buffer），以展现立体图像。
+//
+// 帧缓存（framebuffer）可以绑定到 GL_DRAW_FRAMEBUFFER 用于绘制，绑定到 GL_READ_FRAMEBUFFER
+// 当作读取源，绑定到 GL_FRAMEBUFFER 用于读写。调用 gl[Named]FramebufferRenderbuffer 可以将
+// 渲染缓存附加到指定的帧缓存或者绑定为 GL_READ/DRAW_FRAMEBUFFER 的帧缓存；而通过调用函数
+// glNamedFramebufferTexture* 系列函数可以将纹理缓存附加到指定的或者绑定为 GL_READ/DRAW_FRAMEBUFFER
+// 的帧缓存。两种附加方式都可以附加到以下帧缓存附加点：GL_COLOR_ATTACHMENTi、GL_DEPTH_ATTACHMENT、
+// GL_STENCIL_ATTACHMENT 或 GL_DEPTH_STENCIL_ATTACHMENT。
+//
+// 函数 glClear(GL_COLOR_BUFFER_BIT) 会清除所有附加的颜色缓存，我们也可以调用 glClearBuffer*()
+// 来清除某个独立的缓存，例如 glClearBufferfv(GL_COLOR, 1, color_rgba)。第二个参数 drawbuffer
+// 是绘制缓存的索引值，如果 drawbuffer 所对应的缓存多个绘制缓存（可以通过 glDrawBuffers 指定），
+// 那么所有的绘制缓存都会被清除到 value 对应的数值。
+//
+// 帧缓存的无效化（invalidating framebuffers）。OpenGL 的某些实现可能是在一个内存有限的
+// 环境中使用（包括移动平台或嵌入式设备上的 OpenGL ES）。而帧缓存有可能占用相当大的内存
+// 资源，尤其是多个帧缓存、多重采样的颜色附件以及纹理的情况。因此 OpenGL 提供了一种机制，
+// 可以将帧缓存的一块区域或者整体声明为不再使用，并且可以立即释放。这一操作可以通过调用
+// 函数 glInvalidate[Sub]Framebuffer() 来完成。
+//
+// void glInvalidateFramebuffer(GLenum target, GLsizei num_attachments, const GLenum *attachments);
+// void glInvalidateSubFramebuffer(GLenum tareget, GLsizei num_attachments, const GLenum *attachments, GLint x, GLint y, GLsizei width, GLsizei height);
+//
+// 这些函数将帧缓存对象的一部分或者整体变得无效，target 必须是 GL_READ/DRAW_FRAMEUBFFER
+// 或者是 GL_FRAMEBUFFER（同时指定绘制和读取目标），num_attachments 表示要丢弃的附件缓存
+// 的个数，对应的附件名称包含在 attachments 数组中，其中的每个元素可以是 GL_COLOR_ATTACHMENTi、
+// GL_DEPTH/STENCIL_ATTACHMENT。而 x y width height 参数表示所有指定的附件缓存中该区域内
+// 的值都不再使用。
+//
+// 丢弃已渲染的数据（discarding rendered data）。作为一条经验法则，在渲染一帧之前，应该
+// 始终清除帧缓存。现代 GPU 实现了压缩和其他技术来提高性能、减少内存带宽需求等。当你清除
+// 帧缓存时，OpenGL 实现知道它可以丢弃帧缓存中任何已渲染的数据，并在可能的情况下将其恢复
+// 到干净的压缩状态。然而，如果你确定你即将覆盖整个帧缓存，会发生什么呢？清除帧缓存似乎
+// 是一种浪费，因为你即将在已清除的区域上绘制所有内容。如果你确定要完全用新的渲染内容替
+// 换帧缓区的内容，你可以通过调用 glInvalidateNamedFramebufferData() 或 glInvalidateNamedFramebufferSubData()
+// 来丢弃它。
+//
+// void glInvalidateNamedFramebufferData(GLuint framebuffer, GLsizei num_attachments, const GLenum *attachments);
+// void glInvalidateNamedFramebufferSubData(GLuint framebuffer, GLsizei num_attachments, const GLenum *attachments, GLint x, GLint y, GLsizei width, GLsizei height);
+//
+// 函数 glInvalidateNamedFramebuffer() 丢弃指定附件的全部内容，而 glInvalidateNamedFramebufferSubData
+// 告诉 OpenGL 可以丢弃指定帧缓存附件中由 x、y、width 和 height 限定区域内的内容。附件数量
+// 由 num_attachments 给出，attachments 是该数量标记数组的地址。对于非默认帧缓存，存储在
+// attachments 数组中的标记必须从以下选项中选择：GL_DEPTH/STENCIL_ATTACHMENT、GL_DEPTH_STENCIL_ATTACHMENT、
+// 以及 GL_COLOR_ATTACHMENTi（其中 i 是颜色附件的索引）。
+//
+// 丢弃帧缓存的内容可能比清除它高效得多，具体取决于 OpenGL 实现。此外，这可以消除多 GPU 系统
+// 中一些昂贵的数据复制。如果你希望直接丢弃纹理的内容，而不是丢弃帧缓冲区对象附件的内容，可以
+// 调用 glInvalidateTexImage() 或 glInvalidateTexSubImage()。
+//
+// void glInvalidateTexImage(GLuint texture, GLint level);
+// void glInvalidateTexSubImage(GLuint texture, GLint level, GLint xoffset, GLint yoffset, GLint zoffset, GLint width, GLint height, GLint depth);
+//
+// 这两个函数告诉 OpenGL 可以丢弃由 texture 命名的纹理指定层级的内容。glInvalidateTexImage()
+// 丢弃纹理对象的整个图像层级，而 glInvalidateTexSubImage() 仅丢弃由 xoffset、yoffset
+// 和 zoffset 给定的原点、width × height × depth 区域所涵盖的区域。
