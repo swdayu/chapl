@@ -3911,3 +3911,186 @@
 // 这两个函数告诉 OpenGL 可以丢弃由 texture 命名的纹理指定层级的内容。glInvalidateTexImage()
 // 丢弃纹理对象的整个图像层级，而 glInvalidateTexSubImage() 仅丢弃由 xoffset、yoffset
 // 和 zoffset 给定的原点、width × height × depth 区域所涵盖的区域。
+//
+// 多个渲染缓存的同步写入（writing to multple renderbuffers simultianeously），也就是在
+// 一个片元着色器中同时写入到多个缓存的能力，通常也叫做多重渲染目标（MRT，multiple-render
+// target）。这通常是一种性能的优化方案，它可以避免因为多次处理同一组顶点列表而浪费时间，
+// 并且不需要多次对同样的图元进行光栅化。这项技术经常应用于 GPGPU 领域，不过它也可以用来
+// 生成几何体或者其他信息（例如纹理和法线贴图），这些信息可以在同一个渲染过程中被写入到
+// 不同的缓存当中。如果要使用这项技术，那么我们必须设置一个帧缓存对象并且附加多组颜色值
+// （可能还有深度和模板值）附件缓存，并且对片元着色器进行一定的修改。上文已经讨论过多个
+// 附件点的设置，现在我们将讨论片元着色器的内容。
+//
+// 片元着色器是通过 out 变量来输出数据，如果要设置 out 变量与帧缓存附件之间的对应关系，
+// 我们需要使用 layout 限定符将变量直接设置到正确的位置即可。
+//
+// layout (location = 0) out vec4 color;
+// layout (location = 1) out vec4 normal;
+//
+// 如果当前绑定的帧缓存的附件与当前绑定的片段着色器不匹配，那么被错误定向的数据（即写入
+// 到没有附加任何内容的附件的片段着色器数据）会被忽略。此外，如果你正在使用双源混合，配
+// 合多渲染目标（MRT）渲染，你只需为 layout 指令同时指定 location 和 index 选项。在着色
+// 器内使用 layout 限定符是将片段着色器输出与帧缓存附件关联的首选方式，但如果未指定，OpenGL
+// 将在着色器链接期间进行分配。你可以通过使用 glBindFragDataLocation() 来指导链接器进行
+// 适当的关联，如果你还需要指定片段索引，则使用 glBindFragDataLocationIndexed()。如果在
+// 着色器源代码中指定了片段着色器绑定，则无论是否使用这些函数之一指定了位置，都将使用着
+// 色器源代码中指定的绑定。
+//
+// void glBindFragDataLocation(GLuint program, GLuint color_number, const GLchar *name);
+// void glBindFragDataLocationIndexed(GLuint program, GLuint color_number, GLuint index, const GLchar *name);
+// GLint glGetFragDataLocation(GLuint program, const GLchar *name);
+// GLint glGetFragDataIndex(GLuint program, const GLchar *name);
+//
+// 使用 color_number 的值作为片段着色器变量 name 的输出位置，与着色器程序 program 相关联。
+// 对于索引版本，index 还指定了输出索引。如果 program 不是着色器程序、如果 index 大于一、
+// 或者如果 color_number 大于或等于最大颜色附件数，则生成 GL_INVALID_VALUE 错误。
+//
+// 程序链接后，你可以通过调用 glGetFragDataLocation() 或 glGetFragDataIndex() 来检索片段
+// 着色器变量的输出位置，以及源索引。返回与已链接的着色器程序 program 相关联的片段着色器
+// 变量 name 的位置或索引。如果 name 不是 program 的适用变量名称；如果 program 已成功链接
+// 但没有关联的片段着色器；或者如果 program 尚未链接或链接失败，则返回 -1。在最后一种情况
+// 下，还会生成 GL_INVALID_OPERATION 错误。
+//
+// 选择颜色缓存来进行读写（selecting color buffers for writing and reading）。绘制或者读取
+// 操作的结果通常与以下几种颜色缓存的内容关联：
+//  1.  默认帧缓存中的前（front）、后（back）、左前（front-left）、左后（back-left）、
+//      右前（front-right）、右后（back-right）颜色缓存
+//  2.  或者用户自定义帧缓存对象中的前缓存，或者任意渲染缓存附件
+//
+// 我们可以选择一个独立的缓存来完成目标的绘制或者读取，对于绘制来说，我们还可以同时向
+// 多个缓存中写入。这里我们可以调用 glDrawBuffer() 或者 glDrawBuffers() 来选择要写入
+// 的缓存，以及使用 glReadBuffer() 来选择读取用的缓存，并作为 glReadPixels()、glCopyTexImage*()
+// 和 glCopyTexSubImage*() 等函数的数据源。
+//
+// void glDrawBuffer(GLenum mode);
+// void glDrawBuffers(GLsizei n, const GLenum *buffers);
+// void glReadBuffer(GLenum mode);
+//
+// glDrawBuffer* 函数设置可以进行写入或清除操作的颜色缓存，同时禁止前一次 glDrawBuffer*
+// 设置的缓存。我们可以一次性启用多个缓存，mode 以及 buffers 中的值必须是以下值之一。如
+// 果当绑定了一个帧缓存对象，并且它不是默认帧缓存，那么我们只能使用 GL_NONE 或者 GL_COLOR_ATTACHMENTi
+// 模式，否则会产生 GL_INVALID_ENUM 错误。
+//      GL_FRONT
+//      GL_FRONT_LEFT
+//      GL_FRONT_RIGHT
+//      GL_FRONT_AND_BACK
+//      GL_BACK
+//      GL_BACK_LEFT
+//      GL_BACK_RIGHT
+//      GL_LEFT
+//      GL_RIGHT
+//      GL_COLOR_ATTACHMENTi
+//      GL_NONE
+//
+// 其中，没有指定 LEFT 和 RIGHT 名称的枚举量，同时用于立体缓存中的左右缓存。同理，名称中
+// 没有指定 FRONT 和 BACK 的枚举量，同时用于前后缓存。默认的 mode 值为 GL_BACK，用于双重
+// 缓冲（double-buffered）情形。glDrawBuffers() 可以设置多个颜色缓存来接收多组颜色值，
+// buffers 是一个缓存枚举量的数组，它只能接受 GL_NONE、GL_FRONT_LEFT、GL_FRONT_RIGHT、
+// GL_BACK_LEFT、GL_BACK_RIGHT 这几种类型。
+//
+// 当使用双重缓冲技术的时候，我们通常希望在后缓存中进行绘制，完成绘制后再交换缓存。不过
+// 有时候，我们可能也需要将双重缓冲的窗口作为一个单缓冲的窗口来使用，此时可以调用以下函
+// 数设置同时写入前缓存和后缓存：glDrawBuffer(GL_FRONT_AND_BACK) 。
+//
+// 如果要选择读取用的缓存，需要调用 glReadBuffer() 函数。该函数设置可以用作像素读取的
+// 缓存，并禁止上一次使用 glReadBuffer() 所设置的缓存。另外，如果帧缓存对象有多个附件，
+// 那么我们可以自由控制作为附件的渲染缓存，例如控制剪切盒的大小、或者执行融混。还可以
+// 调用 glEnablei() 和 glDisablei() 对每个附件的能力分别进行精确控制。
+//
+// 像素数据读取和拷贝（reading and copying pixel data）。渲染工作结束之后，我们可能需要
+// 获取渲染后的图像以作他用。此时可以调用 glReadPixels() 从可读帧缓存读取像素，然后将像
+// 素返回到应用程序中。我们可以再程序中分配一处内存空间以保存返回的像素，或者使用当前绑
+// 定的像素压缩缓存（pixel pack buffer）。我们可能还需要设置从哪个缓存读取像素数据，例如
+// 对于双重缓存的窗口来说，我们可以从前缓存或者后缓存读取像素，此时需要调用 glReadBuffer
+// 来设置要读取像素的缓存。
+//
+// void glReadPixels(GLint x, GLint y, GLsizei width, GLsizei height, GLenum format, GLenum type, void *pixels);
+//
+// 该函数从可读的帧缓存读取像素数据，读取对应的矩形区域范围，然后将数据数组保存到 pixels
+// 中。format 用于指定要读取的像素数据元素的类型（颜色、深度或者模板值），而 type 用于
+// 指定每个元素的数据类型。如果 format 设置为 GL_DEPTH 但深度缓存不存在，或者设为 GL_STENCIL
+// 但模板缓存不存在，或者设为 GL_DEPTH_STENCIL 但是帧缓存没有同时关联深度和模板缓存，那么
+// 都会产生 GL_INVALID_OPERATION 错误。如果 format 为 GL_DEPTH_STENCIL，但是 type 不是
+// GL_UNSIGNED_INT_24_8 也不是 GL_FLOAT_32_UNSIGNED_INT_24_8_REV 则会产生 GL_INVALID_ENUM
+// 错误。
+//
+// 参数 format 的可用值如下：
+//      GL_RED      GL_RED_INTEGER      单一红色分量
+//      GL_GREEN    GL_GREEN_INTEGER    单一绿色分量
+//      GL_BLUE     GL_BLUE_INTEGER     单一蓝色分量
+//      GL_ALPHA    GL_ALPHA_INTEGER    单一混合分量
+//      GL_RG       GL_RG_INTEGER       依次红绿分量
+//      GL_RGB      GL_RGB_INTEGER      依次红绿蓝分量
+//      GL_RGBA     GL_RGBA_INTEGER     依次红绿蓝混合分量
+//      GL_BGR      GL_BGR_INTEGER      依次蓝绿红分量
+//      GL_BGRA     GL_BGRA_INTEGER     依次蓝绿红混合分量
+//      GL_STENCIL_INDEX                单一模板索引
+//      GL_DEPTH_COMPONENT              单一深度分量
+//      GL_DEPTH_STENCIL                深度和模板值的合并结果
+//
+// 参数 type 的可用值如下：
+//      GL_FLOAT GL_HALF_FLOAT                          GLfloat GLhalf
+//      GL_UNSIGNED_BYTE GL_BYTE                        GLubyte GLbyte
+//      GL_UNSIGNED_SHORT GL_SHORT                      GLushort GLshort
+//      GL_UNSIGNED_INT GL_INT                          GLuint GLint
+//      GL_UNSIGNED_BYTE_3_3_3/2_3_3_REV                GLubyte 压缩格式
+//      GL_UNSIGNED_SHORT_5_6_5/5_6_5_REV               GLushort 压缩格式
+//      GL_UNSIGNED_SHORT_4_4_4_4/4_4_4_4_REV           GLushort 压缩格式
+//      GL_UNSIGNED_SHORT_5_5_5_1/1_5_5_5_REV           GLushort 压缩格式
+//      GL_UNSIGNED_INT_8_8_8_8/8_8_8_8_REV             GLuint 压缩格式
+//      GL_UNSIGNED_INT_10_10_10_2/2_10_10_10_REV       GLuint 压缩格式
+//      GL_UNSIGNED_INT_24_8                            GLuint 压缩格式
+//      GL_UNSIGNED_INT_5_9_9_9_REV                     GLuint 压缩格式
+//      GL_UNSIGNED_INT_10F_11F_11F_REV                 GLuint 压缩格式
+//      GL_FLOAT_32_UNSIGNED_INT_24_8_REV               GLfloat 压缩格式
+//
+// 返回值的截断处理（clamping returned values）。OpenGL 中各种不同类型的缓存，尤其是浮点
+// 数据类型的缓存，都可以保存范围在 [0, 1] 之外的数据。当使用 glReadPixels() 读回这项数
+// 据的时候，可以自行设置这些数值释放需要使用 glClampColor() 截断到归一化的范围内，或者
+// 保留原始的全数据范围形式。
+//
+// void glClampColor(GLenum target, GLenum clamp);
+//
+// 该函数控制浮点数和顶点数据的颜色值截断方式，如果 target 设置为 GL_CLAMP_READ_COLOR
+// 则开启截断。如果 clamp 设置为 GL_TRUE，那么从缓存读回的颜色值将被截断到 [0, 1] 范围，
+// 反之不会进行截断。如果用户程序使用的是定点数与浮点数混合的缓存类型，那么设置 clamp
+// 为 GL_FIXED_ONLY 只截断定点数据，而浮点数据仍然保留原始形式。
+//
+// 如果要在一块缓存的不同区域之间进行拷贝，或者在不同的帧缓存之间进行拷贝，则可以使用
+// glBlit[Named]Framebuffer 函数。它在拷贝过程中使用像素过滤（pixel filtering）的方式，
+// 这与纹理映射的做法非常类似，实际上拷贝过程中也会用到与纹理映射相同的过滤策略，包括
+// GL_NEAREST 和 GL_LINEAR。此外，这个函数支持多重采样的缓存类型，并且支持不同帧缓存
+// 之间的拷贝操作。
+//
+// void glBlitFramebuffer(GLint src_x0 src_y0 src_x1 src_y1, GLint dst_x0 dst_y0 dst_x1 dst_y1, GLbitfield buffers, GLenum filter);
+// void glBlitNamedFramebuffer(GLuint readframebuffer, GLuint drawframebuffer, GLint src_x0 src_y0 src_x1 src_y1, GLint dst_x0 dst_y0 dst_x1 dst_y1, GLbitfield buffers, GLenum filter);
+//
+// 此函数将将像素值矩形从 readframebuffer 帧缓存的一个区域复制到 drawframebuffer 帧缓存
+// 的另一个区域，在此过程中可能调整大小、翻转、转换或过滤像素。srcX0、srcY0、srcX1、srcY1
+// 表示从中获取像素的源区域，并写入由 dstX0、dstY0、dstX1 和 dstY1 指定的矩形区域。buffers
+// 是 GL_COLOR_BUFFER_BIT、GL_DEPTH_BUFFER_BIT 和 GL_STENCIL_BUFFER_BIT 的按位或，表示应
+// 在哪些缓冲区中进行复制。最后，filter 指定当两个矩形区域大小不同时所使用的插值方法，必
+// 须是 GL_NEAREST 或 GL_LINEAR 之一；如果区域大小相同，则不应用过滤。如果有多个颜色绘制
+// 缓冲区，每个缓冲区都会接收源区域的副本。如果 buffers 设置了不允许的位，或者 filter 不
+// 是 GL_LINEAR 或 GL_NEAREST，则生成 GL_INVALID_VALUE 错误。
+//
+// 如果 srcX1 < srcX0 或 dstX1 < dstX0，图像在水平方向上翻转。同样，如果 srcY1 < srcY0 或
+// dstY1 < dstY0，图像在垂直方向上翻转。然而，如果源和目标尺寸在同一方向上均为负值，则不
+// 执行翻转。
+//
+// 如果源缓冲区和目标缓冲区格式不同，在大多数情况下会执行像素值的转换。但是，如果读取的
+// 颜色缓冲区是浮点格式而任何写入的颜色缓冲区不是（反之亦然），以及如果读取的颜色缓冲区
+// 是有符号（无符号）整数格式而并非所有绘制缓冲区都是有符号（无符号）整数值，则调用将生
+// 成 GL_INVALID_OPERATION，并且不会复制任何像素。
+//
+// 多采样缓冲区也会影响像素的复制。如果源缓冲区是多采样的而目标不是，则样本会被解析为单
+// 个像素值写入目标缓冲区。相反，如果源缓冲区不是多采样的而目标是，则源像素的数据会为每
+// 个样本复制一份。最后，如果两个缓冲区都是多采样的且每个缓冲区的样本数相同，则样本会被
+// 原样复制。但是，如果缓冲区的样本数不同，则不会复制任何像素，并生成 GL_INVALID_OPERATION
+// 错误。
+//
+// 多重采样片元操作（multisample fragment operations）
+// 逐图元反走样（per-primitive antialiasing）
+//
+// 融混操作（blending）
+// 双源融混（dual-source blending）
