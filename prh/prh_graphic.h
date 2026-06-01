@@ -150,6 +150,46 @@
 // 全屏互动，任何像素都能响应点击，模型实时判断意图，不再局限于预定义按钮。视觉优先，
 // 复杂概念用插图、动画、真实渲染表达，而不是枯燥文字和矩形框。(WebSocket)
 //
+// https://wikis.khronos.org/opengl/Main_Page
+// https://wikis.khronos.org/opengl/Getting_Started
+// https://www.realtech-vr.com/glview-download/
+//
+// 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
+// 生成方式：通过在线生成器或本地 Python 脚本生成
+// 功能丰富：支持 OpenGL、OpenGL ES、EGL、GLX、WGL 等多种 API
+// https://github.com/Dav1dde/glad  https://gen.glad.sh/
+// Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
+// specifications for multiple languages.
+//
+// 加载 OpenGL 核心规范功能，是获取 OpenGL 核心配置文件规范所提供功能的最简单方法
+// 生成方式：基于 Python 脚本，从 Khronos 官方 gl.xml 生成 C 代码
+// 代码体积：极简，只生成你需要的部分，体积很小
+// https://github.com/skaslev/gl3w
+// Simple opengl core profile loading, get your hands on the functionality
+// offered by the opengl core profile specification. Its main part is a simple
+// gl3w_gen.py Python script that downloads the Khronos supported glcorearb.h
+// header and generates gl3w.h and gl3w.c from it. Those files can then be
+// added and linked (statically or dynamically) into your project.
+//
+// 窗口上下文创建、提供输入和事件
+// https://github.com/glfw/glfw
+// for creating windows, contexts and surfaces, receiving input and events
+//
+// OpenGL 编程接口完整列表和参考，并包含各版本 API 参考页面集合
+// https://github.com/KhronosGroup/OpenGL-Refpages
+//  . es1.1 - OpenGL ES 1.1 (fixed function)
+//  . es2.0 3.0 3.1 - OpenGL ES 2.0 3.0 3.1
+//  . es3 - OpenGL ES 3.x (will always be the latest ES, currently 3.2)
+//  . gl2.1 - OpenGL 2.1 (including fixed functionality)
+//  . gl4/html/index.php - OpenGL 4.x (always be the latest GL, currently 4.6)
+//
+// https://webgpu.org/
+// https://webgpu.rocks/
+// https://gpuweb.github.io/gpuweb/
+// https://gpuweb.github.io/gpuweb/wgsl/
+// https://www.w3.org/TR/WGSL/
+// https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API
+//
 // OpenGL 是一种编程接口，可以对图形硬件设备特性进行访问的软件库。OpenGL 官方参考文档
 // http://www.opengl-redbook.com/。在应用层面，OpenGL 4.5 最大的更新是引入了直接状态
 // 访问（Direct State Access, DSA），这是对 OpenGL 编程模型以及应用程序访问对象方式的
@@ -198,46 +238,6 @@
 //      点。计算机系统将所有的像素保存在一个帧缓存（framebuffer）中，此为图形硬件设备
 //      管理的一块独立内存区域，可以直接映射到最终的显式设备上。
 //
-// https://wikis.khronos.org/opengl/Main_Page
-// https://wikis.khronos.org/opengl/Getting_Started
-// https://www.realtech-vr.com/glview-download/
-//
-// 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
-// 生成方式：通过在线生成器或本地 Python 脚本生成
-// 功能丰富：支持 OpenGL、OpenGL ES、EGL、GLX、WGL 等多种 API
-// https://github.com/Dav1dde/glad  https://gen.glad.sh/
-// Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
-// specifications for multiple languages.
-//
-// 加载 OpenGL 核心规范功能，是获取 OpenGL 核心配置文件规范所提供功能的最简单方法
-// 生成方式：基于 Python 脚本，从 Khronos 官方 gl.xml 生成 C 代码
-// 代码体积：极简，只生成你需要的部分，体积很小
-// https://github.com/skaslev/gl3w
-// Simple opengl core profile loading, get your hands on the functionality
-// offered by the opengl core profile specification. Its main part is a simple
-// gl3w_gen.py Python script that downloads the Khronos supported glcorearb.h
-// header and generates gl3w.h and gl3w.c from it. Those files can then be
-// added and linked (statically or dynamically) into your project.
-//
-// 窗口上下文创建、提供输入和事件
-// https://github.com/glfw/glfw
-// for creating windows, contexts and surfaces, receiving input and events
-//
-// OpenGL 编程接口完整列表和参考，并包含各版本 API 参考页面集合
-// https://github.com/KhronosGroup/OpenGL-Refpages
-//  . es1.1 - OpenGL ES 1.1 (fixed function)
-//  . es2.0 3.0 3.1 - OpenGL ES 2.0 3.0 3.1
-//  . es3 - OpenGL ES 3.x (will always be the latest ES, currently 3.2)
-//  . gl2.1 - OpenGL 2.1 (including fixed functionality)
-//  . gl4/html/index.php - OpenGL 4.x (always be the latest GL, currently 4.6)
-//
-// https://webgpu.org/
-// https://webgpu.rocks/
-// https://gpuweb.github.io/gpuweb/
-// https://gpuweb.github.io/gpuweb/wgsl/
-// https://www.w3.org/TR/WGSL/
-// https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API
-//
 // OpenGL 标准头文件和扩展头文件。由于扩展因平台和驱动而异，OpenGL 开发人员不能期望所有
 // 扩展的接口都定义在操作系统/显卡驱动提供的标准 gl.h、glx.h 和 wgl.h 头文件中，因此提
 // 供了额外的头文件。这些头文件定义的接口包括枚举常量、函数原型，以及对于支持动态运行时扩
@@ -245,12 +245,12 @@
 //  . <GL/gl.h>
 //  . <GL/glx.h>
 //  . <GL/wgl.h>
-//  . <GL/glcorearb.h> OpenGL 核心配置文件和 ARB 扩展接口，如《OpenGL 4.3 规范》附
-//    录 G.2 所述。不包含仅存在于兼容配置文件中的接口。
+//  . <GL/glcorearb.h> OpenGL 核心配置文件和 ARB 扩展接口，不包含仅存在于兼容配置文件中的接口。
 //  . <GL/glext.h> OpenGL 1.2 及以上版本的兼容配置文件和扩展接口。
 //  . <GL/glxext.h> GLX 1.3 及以上版本的 API 和 GLX 扩展接口。
 //  . <GL/wglext.h> WGL 扩展接口。
 //
+// https://registry.khronos.org/EGL/
 // https://registry.khronos.org/OpenGL/index_gl.php
 // https://github.com/KhronosGroup/OpenGL-Registry/pull/183
 //
@@ -259,6 +259,253 @@
 // 文件都依赖于来自 EGL Registry 的共享 <KHR/khrplatform.h> 头文件。这是一个新增的依
 // 赖关系，在上面链接所示的 OpenGL-Registry 拉取请求中引入，旨在增强 OpenGL 与 OpenGL
 // ES 头文件之间的兼容性。
+//
+// OpenGL 注册表、头文件和 ARB 扩展
+//
+// OpenGL 注册表或登记处（registry）。许多对 OpenGL API 的扩展已由供应商（vendors）、
+// 供应商群体和 OpenGL ARB 定义。为了不损害 OpenGL 规范的可读性，此类扩展未集成到核心
+// 语言中。而是与窗口系统绑定 API（如 GLX 和 WGL）的扩展，以及 OpenGL、GLX 和相关 API
+// 的规范一起，在线提供于 OpenGL 注册表中。扩展被记录为对特定版本规范的更改，注册表可
+// 在此网址获取：http://www.opengl.org/registry/ 。
+//
+//      ARB（OpenGL 架构审查委员会，OpenGL Architecture Review Board），审批 OpenGL 核心
+//          规范及扩展，确保跨平台一致性。2016 年后，ARB 职能并入 Khronos Group，"ARB
+//          扩展" 成为历史命名遗留。ARB 批准的扩展命名格式为 GL_ARB_*，例如 GL_ARB_texture_float。
+//      KHR（科纳斯组织，Khronos Group），非营利行业协会，管理 OpenGL Vulkan WebGL 等
+//          标准，制定开发标准 API，协调成员公司（AMD、Intel、NVIDIA、Apple 等）。KHR
+//          扩展是由 Khronos 批准的跨 API 扩展，例如 GL_KHR_debug。KHR 扩展通常代表跨
+//          OpenGL/OpenGL ES/Vulkan 的通用功能。
+//      GLX（OpenGL Extension to the X Window System），Unix/Linux 系统上的 OpenGL 窗
+//          口系统绑定接口。创建 OpenGL 上下文、交换缓存、管理 X11 窗口与 OpenGL 的交互，
+//          现代 Wayland + EGL 逐渐替代 GLX。
+//      WGL（Windows Graphics Library），Windows 上的 OpenGL 窗口系统绑定接口，用于创建
+//          OpenGL 上下文，管理窗口与 GPU 的交互、扩展加载等。
+//      EGL（Embedded-System Graphic Library），平台无关的 OpenGL/OpenGL ES/Vulkan 上下
+//          文管理接口。替代 GLX (linux)、WGL (Windows)、AGL (macOS)，设计目的是用于嵌
+//          入式系统，但现已扩展为所有平台的通用标准。
+//
+//      Wayland 是 Linux 新一代显示服务器协议，替代臃肿的 X11，EGL 是跨平台 GPU 上下文
+//      管理接口，替代 GLX/WGL。两者配合实现了现代 Linux 图形栈的直接渲染结构，应用通过
+//      EGL 创建 OpenGL 上下文，渲染结果直接提交给 Wayland 合成器显示，无需 X Server 介
+//      入。EGL + Wayland 直接渲染，零拷贝（dmabuf），客户端直接提交 GPU 缓冲区，隔离设
+//      计无法窥探，支持 VRR、tearing-free、低延迟，轻量，Android 也基于 ELG，EGL 1.5+
+//      支持 Vulkan 交换链。
+//
+//      Khronos Group (KHR)
+//          - 管理 OpenGL 核心规范
+//          - ARB 扩展（跨平台标准扩展）
+//              - GL_ARB_*
+//          - KHR 扩展（跨 API 通用扩展）
+//              - GL_KHR_* / GL_EXT_*
+//          - 窗口系统绑定（由平台各自实现）
+//              - WGL - Windows 平台
+//              - GLX - Linux/X11 平台
+//              - AGL - macOS 平台（已废弃，现用 CGL/NSOpenGL）
+//              - EGL - 嵌入式/跨平台（Android，Wayland，现代 Linux）
+//
+//      扩展名前缀：
+//          - GL_ARB_*      ARB/Khronos 标准扩展
+//          - GL_KHR_*      Khronos 跨 API 扩展
+//          - GL_EXT_*      多供应商联合扩展
+//          - GL_NV_*       NVIDIA 专有扩展
+//          - GL_AMD_*      AMD 专有扩展
+//          - GL_INTEL_*    Intel 专有扩展
+//          - GL_APPLE_*    Apple 专有扩展
+//
+// 头文件（header files）。历史上，调用 OpenGL 的 C 和 C++ 源代码需要 #include 单个头
+// 文件 <GL/gl.h>。除了核心 OpenGL API 外，实现提供的所有扩展的 API 都在此头文件中定
+// 义。当 OpenGL SDK（库和头文件）不一定与 OpenGL 驱动程序来自同一来源的平台变得常见
+// 时，例如 Microsoft Windows 和 Linux，<GL/gl.h> 无法始终与驱动程序支持的新核心 API
+// 版本和扩展保持同步。此时，OpenGL ARB 定义了一个新头文件 <GL/glext.h>，可以直接从
+// OpenGL 注册表中获取。<GL/gl.h> 和 <GL/glext.h> 的组合始终定义最新 OpenGL 版本所有
+// 配置文件的所有 API，以及注册表中定义的所有扩展。
+//
+// <GL/glcorearb.h> 定义 OpenGL 核心配置文件的 API，以及与核心配置文件兼容的 ARB 扩展。
+// 它不包括仅在兼容性配置文件中的功能或其他扩展的 API。目前没有 Khronos 支持的机制将
+// 供应商扩展与 <GL/glcorearb.h> 一起使用，原因是缺乏需求，以及缺乏关于哪些供应商扩展
+// 与核心配置文件兼容的知识。未来，这可能通过假设的头文件 <GL/glcoreext.h> 来解决，该
+// 头文件将定义与核心配置文件兼容但未在 <GL/glcorearb.h> 中定义的额外 EXT 和供应商扩展
+// 的 API。大多数较旧的扩展与核心配置文件不兼容。
+//
+// 使用兼容性配置文件（参见附录 E）的应用程序应包含传统的 <GL/gl.h> 和 <GL/glext.h> 头
+// 文件。使用核心配置文件且不需要使用供应商扩展的应用程序可以改为包含 <GL/glcorearb.h>
+// 头文件。通过使用 <GL/glcorearb.h> 而不是传统的 <GL/gl.h> 和 <GL/glext.h>，新开发的
+// 应用程序获得更强的保护，防止意外使用已从核心配置文件中移除的遗留功能，以及防止使用
+// 可移植性较低的 EXT 或供应商扩展。这有助于在支持兼容性配置文件的 GL 实现上开发应用程
+// 序，同时该应用程序也打算在仅支持核心配置文件的其他平台上运行。
+//
+// 开发人员始终能够从注册表下载 <GL/glcorearb.h>，此头文件替换或替代平台 SDK 可能提供的
+// 旧版本。
+//
+// ARB 和 Khronos 扩展。即由 Khronos OpenGL 架构审查委员会工作组（ARB）批准，或由 ARB
+// 与 Khronos OpenGL ES 工作组（KHR）联合批准的 OpenGL 扩展。ARB 和 KHR 扩展不是符合规
+// 范的 OpenGL 实现必须支持的，但预计会广泛可用；它们定义的功能可能会在未来版本的规范中
+// 进入必需的功能集。
+//
+// 为了将 ARB 和 KHR 扩展与核心 OpenGL 功能以及供应商特定扩展区分开，使用以下命名约定：
+//  1.  每个扩展关联一个唯一名称字符串，形式为 "GL_ARB_name" 或 "GL_KHR_name"。如果实现
+//      支持该扩展，此字符串将出现在 GetStringi 返回的 EXTENSIONS 字符串中。
+//  2.  扩展定义的所有函数名称形式为 FunctionARB 或 FunctionKHR。
+//  3.  扩展定义的所有枚举量名称形式为 NAME_ARB 或 NAME_KHR。
+//  4.  除了 OpenGL 扩展，还有相关 GLX 和 WGL API 的 ARB 扩展。此类扩展的名称字符串分别
+//      以 "GLX_" 和 "WGL_" 为前缀。并非所有 GLX 和 WGL ARB 扩展都在这里描述，但所有此类
+//      扩展都包含在注册表中。
+//
+// 将扩展提升为核心功能。扩展可以在 OpenGL 的后续版本中提升为必需的核心功能。当这种情况
+// 发生时，扩展规范被合并到核心规范中。作为此类提升扩展一部分的函数和枚举量将移除 ARB、KHR、
+// EXT 或供应商后缀。后续版本的实现应继续在 EXTENSIONS 字符串中导出提升扩展的名称字符串，
+// 并继续支持带后缀的函数和枚举量版本，作为过渡辅助。
+//
+// 对于在 OpenGL 1.3 及更高版本中提升为核心功能的扩展的描述，请参阅相应版本的 OpenGL 规范，
+// 或后续版本规范中特定版本的附录中的描述。在大多数情况下，这些扩展的功能也已添加到 OpenGL
+// 规范的某个版本中，在这些情况下，仅描述扩展字符串，以及相应的 OpenGL 版本。
+//
+// 配置文件与弃用模型（profiles and the deprecation model）。OpenGL 3.0 引入了一个弃用
+// 模型，其中某些功能被标记为已弃用。已弃用的功能预计将从 OpenGL 的未来版本中完全移除。
+// 为了帮助开发人员编写能够在未来版本上运行的应用程序，可以创建一个不支持已弃用功能的
+// OpenGL 上下文。此类上下文称为前向兼容上下文（forward compatible context），而支持所
+// 有 OpenGL 功能的上下文称为完整上下文（full context）。前向兼容上下文无法通过扩展恢复
+// 已弃用的功能，但可以通过扩展支持额外的、未弃用的功能。
+//
+// 配置文件（profiles）定义了针对特定应用领域的 OpenGL 功能子集。从 OpenGL 3.2 开始，定
+// 义了两个配置文件（见下文）。未来版本可能会定义额外的配置文件，以应对嵌入式系统或其他
+// 领域。OpenGL 实现不需要支持所有定义的配置文件，但必须支持下面描述的核心配置文件（core
+// profile）。
+//
+// 为了使应用程序能够控制弃用和配置文件，新的上下文创建 API 已被定义为 GLX、WGL 和 EGL
+// 的扩展。这些 API 允许指定特定的版本、配置文件以及完整或前向兼容状态，并将创建与请求兼
+// 容的上下文，或失败（例如，请求的 OpenGL 版本或配置文件不受实现支持）。只有 ARB 可以
+// 定义 OpenGL 配置文件和已弃用的功能。
+//
+// 核心配置文件与兼容性配置文件（core and compatibility profiles）。OpenGL 的核心配置
+// 文件定义了 OpenGL 2.0 引入的现代可编程着色模型所必需的功能，但不包括该版本规范中标
+// 记为已移除的功能。兼容性配置文件（compatibility profile）不移除任何功能。
+//
+// 不可能在单个 GL 上下文中同时实现核心配置文件和兼容性配置文件，因为核心配置文件强制
+// 要求的功能限制在兼容性配置文件中并不存在。有关创建实现特定配置文件的上下文的信息，
+// 请参阅 WGL_ARB_create_context_profile 和 GLX_ARB_create_context_profile 扩展。
+//
+// 已弃用和已移除的功能（deprecated and removed features）。OpenGL 3.0 定义了一组已弃用
+// 的功能。OpenGL 3.1 移除了大部分已弃用的功能，并将它们移入了可选的 GL_ARB_compatibility
+// 扩展中。OpenGL 3.2 核心配置文件移除了与 OpenGL 3.1 相同的功能，而可选的兼容性配置文件
+// 支持所有这些功能。
+//
+// 已弃用和已移除的功能在以下两个组中汇总：被核心配置文件标记为已弃用但尚未移除的功能，
+// 以及从当前版本 OpenGL 核心配置文件中实际移除的功能（兼容性配置文件中没有任何功能被
+// 移除或弃用）。如果已在核心配置文件或前向兼容上下文中调用已移除的函数，将生成 INVALID_OPERATION
+// 错误。部分移除的函数（例如不再接受某些参数值）在核心配置文件或前向兼容上下文中传入
+// 已移除的参数值时，将生成与该参数任何其他无法识别值相应的错误。已弃用但尚未从核心配置
+// 文件中移除的函数继续正常运行，但在前向兼容上下文中它们也被移除。
+//
+// 已弃用但仍支持的功能。以下功能已弃用，但仍存在于核心配置文件中。它们可能从 OpenGL 的
+// 未来版本中移除，并在实现核心配置文件的前向兼容上下文中被移除。
+//  1.  宽线（Wide lines），LineWidth 值大于 1.0 将生成 INVALID_VALUE 错误
+//  2.  全局分量限制查询，实现相关的值 MAX_VARYING_COMPONENTS 和 MAX_VARYING_FLOATS
+//  3.  查询目标 NUM_COMPRESSED_TEXTURE_FORMATS 和 COMPRESSED_TEXTURE_FORMATS
+//  4.  位图的位图打包/解包状态，像素打包参数 UNPACK_LSB_FIRST 和 PACK_LSB_FIRST
+//
+// 已移除的功能：
+//  1.  应用程序生成的对象名称。所有对象类型的名称，如缓冲区、查询和纹理对象，必须使用
+//      相应的 Gen* 命令生成。尝试绑定未由 Gen* 命令返回的对象名称将导致 INVALID_OPERATION
+//      错误。对于帧缓冲区、渲染缓冲区和顶点数组对象，此行为已经如此。具有默认对象（名称
+//      为零的对象）的对象类型，如顶点数组、帧缓冲区和纹理对象，也可以绑定默认对象，即使
+//      它不是由 Gen* 返回的。
+//  2.  颜色索引模式（Color index mode）。窗口系统绑定 API（如 GLX 和 WGL）不提供颜色索
+//      引视觉配置，因此默认帧缓冲区始终处于 RGBA 模式。与颜色索引模式顶点、光栅化和片段
+//      处理行为相关的所有语言和状态都被移除。COLOR_INDEX 格式也被弃用。
+//  3.  OpenGL 着色语言版本 1.10 和 1.20。这些版本的着色语言依赖于许多同样已被弃用的 API
+//      功能。
+//  4.  Begin / End 图元指定。Begin、End 和 EdgeFlag*；Color*、FogCoord*、Index*、Normal3*、
+//      SecondaryColor3*、TexCoord*、Vertex*；以及所有相关状态。必须使用顶点数组和数组绘制
+//      命令来绘制图元。然而，VertexAttrib* 和当前顶点属性状态被保留，以便为禁用的属性数组
+//      提供默认属性值。
+//  5.  边标志（edge flags）和固定功能顶点处理。ColorPointer、EdgeFlagPointer、FogCoordPointer、
+//      IndexPointer、NormalPointer、SecondaryColorPointer、TexCoordPointer、VertexPointer、
+//      EnableClientState、DisableClientState 和 InterleavedArrays、ClientActiveTexture；
+//      Frustum、LoadIdentity、LoadMatrix、LoadTransposeMatrix、MatrixMode、MultMatrix、
+//      MultTransposeMatrix、Ortho、PopMatrix、PushMatrix、Rotate、Scale 和 Translate；
+//      Enable/Disable 目标 RESCALE_NORMAL 和 NORMALIZE；TexGen* 和 Enable/Disable 目标
+//      TEXTURE_GEN_*、Material*、Light*、LightModel* 和 ColorMaterial、ShadeModel，以及
+//      Enable/Disable 目标 LIGHTING、VERTEX_PROGRAM_TWO_SIDE、LIGHTi 和 COLOR_MATERIAL；
+//      ClipPlane；以及所有相关的固定功能顶点数组、多重纹理、矩阵和矩阵栈、法线和纹理坐标、
+//      光照和裁剪状态。必须定义顶点着色器才能绘制图元。
+//      当前规范中引用边标志的语言被修改为就好像所有边标志都是 TRUE。注意，FrontFace 和
+//      ClampColor 命令未被弃用，因为它们仍然影响其他未弃用的功能；然而，ClampColor 目标
+//      CLAMP_VERTEX_COLOR 和 CLAMP_FRAGMENT_COLOR 已弃用。
+//  6.  客户端顶点和索引数组。所有顶点数组属性和元素数组索引指针必须引用缓冲区对象。默认
+//      顶点数组对象（名称零）也被弃用。当未绑定缓冲区对象或未绑定顶点数组对象时调用
+//      VertexAttribPointer 将生成 INVALID_OPERATION 错误，未绑定顶点数组对象时调用任何
+//      数组绘制命令也将生成此错误。
+//  7.  矩形（Rectangles），Rect*。
+//  8.  当前光栅位置，RasterPos* 和 WindowPos*，以及所有相关状态。
+//  9.  双面颜色选择。Enable 目标 VERTEX_PROGRAM_TWO_SIDE；OpenGL 着色语言内置变量 gl_BackColor
+//      和 gl_BackSecondaryColor；以及所有相关状态。
+//  10. 非精灵点（Non-sprite points）。Enable/Disable 目标 POINT_SMOOTH 和 POINT_SPRITE，
+//      以及所有相关状态。点光栅化始终按 POINT_SPRITE 已启用的方式执行。
+//  11. 宽线和线型（Wide lines and line stipple）。LineWidth 未被弃用，但大于 1.0 的值
+//      将生成 INVALID_VALUE 错误；LineStipple 和 Enable/Disable 目标 LINE_STIPPLE，以
+//      及所有相关状态。
+//  12. 四边形和多边形图元（quadrilateral and polygon primitives）。顶点数组绘制模式 POLYGON、
+//      QUADS 和 QUAD_STRIP，非三角形多边形光栅化的相关描述，以及所有相关状态。
+//  13. 单独的多边形绘制模式（separate polygon draw mode）。PolygonMode 面值为 FRONT 和 BACK；
+//      多边形始终按相同模式绘制，无论正在光栅化哪个面。
+//  14. 多边形点画（Polygon Stipple）。PolygonStipple 和 Enable/Disable 目标 POLYGON_STIPPLE，
+//      以及所有相关状态。
+//  15. 像素传输模式和操作。所有像素传输模式，包括像素映射、位移和偏置、颜色表查找、颜色
+//      矩阵和卷积命令及状态，以及所有定义该状态的相关状态和命令。
+//  16. 像素绘制（Pixel drawing），DrawPixels 和 PixelZoom。然而，描述 8.4 节中像素矩形
+//      的语言被保留，因为它是 TexImage* 和 ReadPixels 所必需的。
+//  17. 位图（Bitmaps），Bitmap 和 BITMAP 外部格式。
+//  18. 遗留的 OpenGL 1.0 像素格式。值 1、2、3 和 4 不再被 TexImage* 或任何其他接受内部
+//      格式参数的命令接受为内部格式。纹理数组的初始内部格式是 RGBA 而不是 1。TEXTURE_COMPONENTS
+//      已弃用；始终使用 TEXTURE_INTERNAL_FORMAT。
+//  19. 遗留像素格式。所有 ALPHA、LUMINANCE、LUMINANCE_ALPHA 和 INTENSITY 外部和内部格
+//      式，包括压缩、浮点和整数变体；规范中其他地方对这些格式的所有引用，包括与这些格
+//      式之间的转换；以及所有相关状态，包括描述亮度或强度纹理或帧缓冲区分量分配或格式
+//      的状态。
+//  20. 深度纹理模式（Depth texture mode），DEPTH_TEXTURE_MODE。8.23.1 节将被更改为直接
+//      将 r 返回到纹理采样器，OpenGL 着色语言 1.30 规范将被更改为在这种情况下深度纹理
+//      采样器始终返回 (r, 0, 0, 1)。
+//  21. 纹理环绕模式 CLAMP。CLAMP 不再被接受为纹理参数 TEXTURE_WRAP_S、TEXTURE_WRAP_T 或
+//      TEXTURE_WRAP_R 的值。
+//  22. 纹理边框（Texture borders）。TexImage* 的 border 值必须始终为零，否则将生成 INVALID_VALUE
+//      错误；第 8 章节中所有引用纹理图像指定和纹理采样期间非零边框宽度的语言；以及所
+//      有相关状态。
+//  23. 自动 mipmap 生成，TexParameter* 目标 GENERATE_MIPMAP，以及所有相关状态。
+//  24. 固定功能片段处理，AreTexturesResident、PrioritizeTextures 和 TexParameter 目标
+//      TEXTURE_PRIORITY；TexEnv 目标 TEXTURE_ENV 和所有相关参数；TexEnv 目标 TEXTURE_FILTER_CONTROL
+//      和参数名 TEXTURE_LOD_BIAS；所有维度（TEXTURE_1D、TEXTURE_2D、TEXTURE_3D、TEXTURE_1D_ARRAY、
+//      TEXTURE_2D_ARRAY 和 TEXTURE_CUBE_MAP）的 Enable 目标；Enable 目标 COLOR_SUM；Enable
+//      目标 FOG、Fog 和所有相关参数；实现相关的值 MAX_TEXTURE_UNITS 和 MAX_TEXTURE_COORDS；
+//      以及所有相关状态。
+//  25. Alpha 测试，AlphaFunc 和 Enable/Disable 目标 ALPHA_TEST，以及所有相关状态。
+//  26. 累积缓冲区（Accumulation buffers）。ClearAccum，以及 ACCUM_BUFFER_BIT 作为 Clear
+//      参数中的位无效（17.4.3 节）；Accum；描述累积缓冲区分量大小的 ACCUM_*_BITS 帧缓
+//      冲区状态；以及所有相关状态。
+//      窗口系统绑定 API（如 GLX 和 WGL）可以选择不公开包含累积缓冲区的窗口配置，或者在
+//      默认帧缓冲区绑定到包含累积缓冲区的 GL 上下文时忽略累积缓冲区。
+//  27. 像素复制（Pixel copying），CopyPixels（同样适用于 CopyTexImage 的注释将被移至
+//      8.6 节）。
+//  28. 辅助颜色缓冲区（auxiliary color buffers），包括默认帧缓冲区的 AUXi 目标。
+//  29. 上下文帧缓冲区大小查询。RED_BITS、GREEN_BITS、BLUE_BITS、ALPHA_BITS、DEPTH_BITS
+//      和 STENCIL_BITS。
+//  30. 求值器（Evaluators）。Map*、EvalCoord*、MapGrid*、EvalMesh*、EvalPoint*，以及所
+//      有求值器映射启用和相关状态。
+//  31. 选择和反馈模式（Selection and feedback modes）。RenderMode、InitNames、PopName、
+//      PushName、LoadName 和 SelectBuffer；FeedbackBuffer 和 PassThrough；以及所有相
+//      关状态。
+//  32. 显示列表（Display lists）。NewList、EndList、CallList、CallLists、ListBase、GenLists、
+//      IsList 和 DeleteLists；规范中其他地方引用显示列表和将命令编译到显示列表时的行为
+//      的所有引用；以及所有相关状态。
+//  33. 提示（Hints），Hint 的目标 PERSPECTIVE_CORRECTION_HINT、POINT_SMOOTH_HINT、FOG_HINT
+//      和 GENERATE_MIPMAP_HINT。
+//  34. 属性栈（Attribute stacks）。PushAttrib、PushClientAttrib、PopAttrib、PopClientAttrib、
+//      MAX_ATTRIB_STACK_DEPTH、MAX_CLIENT_ATTRIB_STACK_DEPTH、ATTRIB_STACK_DEPTH 和
+//      CLIENT_ATTRIB_STACK_DEPTH 状态、客户端和服务器属性栈，以及值 ALL_ATTRIB_BITS 和
+//      CLIENT_ALL_ATTRIB_BITS。
+//  35. 统一扩展字符串（Unified extension string），GetString 的 EXTENSIONS 目标。
+//  36. 令牌名称和查询（Token names and queries）。所有未在上面提及的已弃用状态的令牌名
+//      称和查询，以及所有有效目标都是已弃用状态的查询入口点（第 22 章和状态表）。
 //
 // void glEnable(GLenum capability); // 2.0+
 // void glEnablei(GLenum capability, GLuint index); // 3.0+
