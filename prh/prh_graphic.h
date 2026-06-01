@@ -157,7 +157,8 @@
 // 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
 // 生成方式：通过在线生成器或本地 Python 脚本生成
 // 功能丰富：支持 OpenGL、OpenGL ES、EGL、GLX、WGL 等多种 API
-// https://github.com/Dav1dde/glad  https://gen.glad.sh/
+// https://github.com/Dav1dde/glad // https://gen.glad.sh/
+// https://github.com/Dav1dde/glad/wiki/C
 // Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
 // specifications for multiple languages.
 //
@@ -183,12 +184,13 @@
 //  . gl2.1 - OpenGL 2.1 (including fixed functionality)
 //  . gl4/html/index.php - OpenGL 4.x (always be the latest GL, currently 4.6)
 //
-// https://webgpu.org/
-// https://webgpu.rocks/
-// https://gpuweb.github.io/gpuweb/
-// https://gpuweb.github.io/gpuweb/wgsl/
-// https://www.w3.org/TR/WGSL/
-// https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API
+// 网页图形处理单元和着色器语言（WebGPU 和 WGSL）
+//  https://webgpu.org/
+//  https://webgpu.rocks/
+//  https://gpuweb.github.io/gpuweb/
+//  https://gpuweb.github.io/gpuweb/wgsl/
+//  https://www.w3.org/TR/WGSL/
+//  https://developer.mozilla.org/en-US/docs/Web/API/WebGPU_API
 //
 // OpenGL 是一种编程接口，可以对图形硬件设备特性进行访问的软件库。OpenGL 官方参考文档
 // http://www.opengl-redbook.com/。在应用层面，OpenGL 4.5 最大的更新是引入了直接状态
@@ -259,6 +261,200 @@
 // 文件都依赖于来自 EGL Registry 的共享 <KHR/khrplatform.h> 头文件。这是一个新增的依
 // 赖关系，在上面链接所示的 OpenGL-Registry 拉取请求中引入，旨在增强 OpenGL 与 OpenGL
 // ES 头文件之间的兼容性。
+//
+// https://github.com/Dav1dde/glad/wiki/C
+//
+// 使用在线生成器生成你需要的绑定，最常见的是只需选择一个 OpenGL 版本，添加你想要的 OpenGL
+// 扩展，然后点击生成。如果你不使用 GLFW、SDL、Qt 或提供某种 GetProcAddress 函数的窗口
+// 库，你还需要勾选加载器选项。将生成的文件添加到你的项目中一起编译，示例：
+//      gcc src/main.c glad/src/gl.c -Iglad/include -lglfw -ldl
+//      glad                            src
+//      ├── src                         └── main.c
+//      │  └── gl.c
+//      ├── include
+//      │  ├── glad
+//      │  │  └── gl.h
+//      │  └── KHR
+//      │     └── khrplatform.h
+//
+// GLFW：在 GLFW 之前包含 glad，在创建上下文后初始化 glad。
+//      #include <glad/gl.h>
+//      #include <GLFW/glfw3.h>
+//      GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "[glad] GL with GLFW", NULL, NULL);
+//      glfwMakeContextCurrent(window);
+//      int version = gladLoadGL(glfwGetProcAddress);
+//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+//
+// SDL：在 SDL 之前包含 glad，在创建上下文后初始化 glad。
+//      #include <glad/gl.h>
+//      #include <SDL.h>
+//      #include <SDL_opengl.h>
+//      SDL_GLContext context = SDL_GL_CreateContext(window);
+//      int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
+//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+//
+// 内置加载器。在前面的 GLFW 和 SDL 示例中，窗口库用于通过 glfwGetProcAddress 或 SDL_GL_GetProcAddress
+// 加载 OpenGL。Glad 可以配置为包含一个加载器（通过勾选加载器选项），使加载独立于窗口库
+// （如果你使用窗口库，应该使用窗口库提供的那个）。
+//      // 首先创建 OpenGL 上下文
+//      int version = gladLoaderLoadGL(); // 加载 glad
+//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+//      // .. 渲染，退出前卸载 glad
+//      gladLoaderUnloadGL();
+//
+// 加载器。加载器选项将内部加载器添加到生成的文件中。如果你使用的窗口库没有自带加载器，或者
+// 你自己处理窗口，这很有用。将添加以下函数，如果你使用内部加载器 gladLoaderLoad{API}，则不
+// 必调用 gladLoad{API}。注意：即使多次调用 gladLoaderLoad{API}，也只需要调用一次 gladLoaderUnload{API}。
+//      int gladLoaderLoad{API}(void);
+//      void gladLoaderUnload{API}(void); // 某些 API 可能不存在
+//      int main(void) {
+//          // ... 设置上下文
+//          int version = gladLoaderLoadGL();
+//          if (!version) {
+//              printf("Unable to load OpenGL\n");
+//              return 1;
+//          }
+//          // ... 渲染
+//          gladLoaderUnloadGL();
+//          return 0;
+//      }
+//
+// CMake：包含 glad 源文件，你可以简单地从在线生成器下载 glad 源文件并与之一起编译。在你的
+// CMakesLists.txt 中：
+//      include_directories(${CMAKE_CURRENT_SOURCE_DIR}/glad/include)
+//      file(GLOB BUTTERFLIES_SOURCES_C ${CMAKE_CURRENT_SOURCE_DIR} *.c glad/src/gl.c)
+//
+// 在构建过程中生成。使用 glad 与 CMake 需要对你的 CMakeLists.txt 进行轻微修改，需要一个
+// Python 解释器和 glad 源文件（例如作为 git 子模块嵌入）。
+//      cmake_minimum_required(VERSION 3.1)
+//      project(my_project C CXX)
+//      find_package(glfw3 REQUIRED)
+//      # glad 目录路径
+//      set(GLAD_SOURCES_DIR "${PROJECT_SOURCE_DIR}/external/glad/")
+//      # glad cmake 文件路径
+//      add_subdirectory("${GLAD_SOURCES_DIR}/cmake" glad_cmake)
+//      # 指定 glad 设置
+//      glad_add_library(glad_gl_core_33 REPRODUCIBLE API gl:core=3.3)
+//      add_executable(multiwin_mx
+//          multiwin_mx.cpp
+//          )
+//      # 将 glad 添加到你的项目
+//      target_link_libraries(multiwin_mx
+//          PUBLIC
+//              glad_gl_core_33
+//              glfw
+//          )
+//
+// 基本 API。所有公共和 glad 特定的符号遵循特定规则：
+//  -   所有符号包含 API（GL、GLES2、WGL 等），在下文中标记为 {API}
+//  -   所有符号在所有 API 中命名相同（例如 gladLoad{API}）
+//  -   函数以 glad 为前缀
+//  -   结构体以 Glad 为前缀
+//  -   宏以 GLAD_ 为前缀
+//  -   常量/全局变量以 GLAD_ 为前缀
+//  -   类型定义以 GLAD 为前缀
+//
+// 初始化 Glad。glad 生成的所有内容都需要通过一个加载器函数进行初始化。Glad 默认公开
+// 两个具有相似 API 的函数：
+//      typedef void (*GLADapiproc)(void);
+//      typedef GLADapiproc (*GLADloadfunc)(const char *name);
+//      typedef GLADapiproc (*GLADuserptrloadfunc)(void *userptr, const char *name);
+//      int gladLoad{API}(GLADloadfunc load);
+//      int gladLoad{API}UserPtr(GLADuserptrloadfunc load, void *userptr);
+//
+// gladLoad{API}UserPtr 允许你传递一个用户指针，该指针将被转发给你的加载器函数，这允许你
+// 编写独立于全局状态的加载器函数（对于像 Qt 这样的 GUI 框架很有用）。在大多数情况下，你
+// 将使用 gladLoad{API}，它与流行的窗口框架（如 GLFW 或 SDL）无缝集成。gladLoad{API}UserPtr
+// 和 gladLoad{API} 的返回值是实际加载的 API 版本。要从返回值中提取主版本和次版本，你可以
+// 使用 GLAD_VERSION_MAJOR(version) 和 GLAD_VERSION_MINOR(version) 宏。注意：由于某些 API
+// 需要额外信息才能初始化，加载器签名可能因 API 而异（例如 WGL 和 EGL 具有不同的签名）。
+//      int version = gladLoadGL(glfwGetProcAddress); // GLFW + GL
+//      int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress); // SDL + GL
+//      int major = GLAD_VERSION_MAJOR(version);
+//      int minor = GLAD_VERSION_MINOR(version);
+//      printf("Loaded OpenGL version %d.%d\n", major, minor);
+//
+// 运行时检查。glad 初始化后，将填充一些变量。Glad 为每个生成的版本和扩展创建一个全局布尔
+// 值。如果版本/扩展成功加载，全局变量将被设置为 true (1)。
+//      int GLAD_{API}_VERSION_3_0;
+//      int GLAD_{API}_VERSION_3_1;
+//      // ...
+//      int GLAD_{API}_EXT_texture_buffer_object;
+//      int GLAD_{API}_KHR_debug;
+//      // ...
+//
+// 编译时检查。有时你想编写与 glad 无关的代码，为此 glad 根据使用的生成选项生成并定义一些宏。
+//      #define GLAD_{API}
+//      #define GLAD_OPTION_{API}_LOADER
+//      #define GLAD_OPTION_{API}_ALIAS
+//      #define GLAD_OPTION_{API}_{OPTION} // {OPTION} 是启用的加载器选项
+//
+// 例如使用 glfwGetProcAddress 初始化 glad 并提取加载的主版本和次版本：
+//      int version = gladLoadGL(glfwGetProcAddress);
+//      if (version == 0) {
+//          std::cout << "Failed to initialize OpenGL context" << std::endl;
+//          return -1;
+//      }
+//      std::cout << "Loaded OpenGL " << GLAD_VERSION_MAJOR(version) << "." << GLAD_VERSION_MINOR(version) << std::endl;
+//
+// 仅头文件。仅头文件选项将源文件和头文件合并为单个头文件。实现将由 GLAD_{API}_IMPLEMENTATION
+// 保护。为了避免出现缺少符号的情况，你需要在一个源文件中定义此宏，然后再包含 glad。
+//      #define GLAD_GL_IMPLEMENTATION
+//      #include <glad/gl.h>
+//      int main(void) {
+//          // ... 设置上下文
+//          if (!gladLoadGL(glfwGetProcAddress)) {
+//              return -1;
+//          }
+//          // ...
+//      }
+//
+// 调试。调试选项添加了一个额外的间接层，允许你拦截和修改任何调用。非调试 glad 构建使用
+// define 将调用转发到以 glad_ 为前缀的函数指针，例如 glClear() => glad_glClear()。使用
+// 调试选项时，在 glClear 和 glad_glClear 之间插入了额外的一层：glClear() => glad_debug_glClear()
+// => glad_glClear()。默认情况下，额外的一层（glad_debug_glClear）调用"前置回调"，然后调
+// 用实际函数（glad_glClear），之后调用"后置回调"。回调可以使用以下函数设置，注意调试选项
+// 不能与多上下文选项一起使用。
+//      typedef void (*GLADprecallback)(const char *name, GLADapiproc apiproc, int len_args, ...);
+//      typedef void (*GLADpostcallback)(void *ret, const char *name, GLADapiproc apiproc, int len_args, ...);
+//      void gladSet{API}PreCallback(GLADprecallback cb);
+//      void gladSet{API}PostCallback(GLADpostcallback cb);
+//
+// 别名，启用自动别名解析。许多功能和特性在多个扩展和版本中实现。因此你最终会得到一堆功能
+// 完全相同但名称不同的函数，并且根据你所在的环境可能可用或不可用。Glad 将自动包含所有具
+// 有指向你在功能集中指定的函数别名的扩展，并且在运行时所有函数将使用其别名进行初始化。生
+// 成代码摘录如下，如你所见，如果 glVertexAttrib2svARB 或 glVertexAttrib2svNV 可用，glVertexAttrib2sv
+// 将可以使用。
+//      // 在初始加载阶段之后执行：
+//      if (glVertexAttrib2sv == NULL && glVertexAttrib2svARB != NULL) glVertexAttrib2sv = (PFNGLVERTEXATTRIB2SVPROC)glVertexAttrib2svARB;
+//      if (glVertexAttrib2sv == NULL && glVertexAttrib2svNV != NULL) glVertexAttrib2sv = (PFNGLVERTEXATTRIB2SVPROC)glVertexAttrib2svNV;
+//
+// 多上下文。默认情况下，glad 将所有内容生成为全局变量，这对大多数用例来说工作得很好。但
+// 当你必须支持多个上下文时，基本上不可能这样做。如果启用了多上下文，所有函数指针和变量都
+// 放在结构体中。Glad 生成一个名为 Glad{API}Context 的结构体，可以传递给适当的加载器函数
+// （加载器函数后缀为 Context）。结构体中的符号去掉了前缀，例如 glClear 变为 gl->Clear，
+// 这也适用于标志，如 GLAD_GL_EXT_framebuffer_multisample 变为 gl->EXT_framebuffer_multisample。
+//
+// 默认情况下，glad 不生成全局别名。可以使用"mx global"选项打开。除了上下文结构体外，还将
+// 生成该结构体的全局实例，可以通过 gladSet{API}Context(struct Glad{API}Context *context)
+// 填充，并通过 struct Glad{API}Context* gladGet{API}Context() 查询。注意 mx 选项不能与调
+// 试选项一起使用。
+//      // ... 设置 GL 上下文
+//      GladGLContext context;
+//      int version = gladLoadGLContext(&context, glfwGetProcAddress);
+//      // 或者使用内部加载器
+//      // int version = gladLoaderLoadGLContext(&context);
+//      if (version == 0) {
+//          std::cout << "Failed to initialize OpenGL context" << std::endl;
+//          return -1;
+//      }
+//      gl->Viewport(0, 0, WIDTH, HEIGHT);
+//      while (!glfwWindowShouldClose(window)) {
+//          glfwPollEvents();
+//          gl->ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+//          gl->Clear(GL_COLOR_BUFFER_BIT);
+//          glfwSwapBuffers(window);
+//      }
 //
 // OpenGL 注册表、头文件和 ARB 扩展
 //
