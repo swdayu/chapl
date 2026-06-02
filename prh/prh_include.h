@@ -5481,6 +5481,181 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 // 不存在但恶意版本的 DLL 在搜索路径中的环境中运行，则可能加载恶意版本的 DLL。相反，请使
 // 用"获取系统版本"中描述的推荐技术。有关 DLL 安全问题的总体讨论，请参阅"动态链接库安全性"。
 // https://learn.microsoft.com/en-us/windows/desktop/Dlls/dynamic-link-library-security
+//
+// 动态链接库搜索顺序
+// https://learn.microsoft.com/en-us/windows/desktop/Dlls/dynamic-link-library-search-order
+//
+// 同一动态链接库（DLL）的多个版本存在于操作系统（OS）内不同文件系统位置中是很常见的。你可
+// 以通过指定完整路径来控制加载任何给定 DLL 的特定位置。但如果你不使用该方法，则系统会在加
+// 载时按本文所述搜索 DLL。DLL 加载器是操作系统（OS）的一部分，负责加载 DLL 和/或解析对 DLL
+// 的引用。有关打包应用和未打包应用的定义，请参阅"打包应用的优缺点"。
+// https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/#advantages-and-disadvantages-of-packaging-your-app
+//
+// 影响搜索的因素。以下是本文讨论的一些特殊搜索因素，你可以将它们视为 DLL 搜索顺序的一部
+// 分。本文后续章节会在某些应用类型的适当搜索顺序中列出这些因素，以及其他搜索位置。本节
+// 仅用于介绍这些概念，并给出名称，以便我们在本文后续部分引用它们。如果 DLL 有依赖项，则
+// 系统搜索依赖 DLL 的方式就像它们仅使用模块名称加载一样。即使第一个 DLL 是通过指定完整
+// 路径加载的，也是如此。
+//  1.  DLL 重定向（redirection）。有关详细信息，请参阅"动态链接库重定向"。
+//      https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-redirection
+//  2.  API 集（API sets）。有关详细信息，请参阅"Windows API 集"。
+//      https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-apisets
+//  3.  并行清单重定向（Side-by-side SxS manifest redirection）。仅限桌面应用（不适用于
+//      UWP 应用）。你可以使用应用程序清单（也称为并行应用程序清单或融合清单）进行重定
+//      向。有关详细信息，请参阅"清单"。 https://learn.microsoft.com/en-us/windows/win32/sbscs/manifests
+//  4.  已加载模块列表。系统可以检查具有相同模块名称的 DLL 是否已加载到内存中（无论它是
+//      从哪个文件夹加载的）。
+//  5.  已知 DLL（Known DLLs）。如果 DLL 在应用程序运行的 Windows 版本的已知 DLL 列表中，
+//      则系统使用其已知 DLL 的副本（以及已知 DLL 的依赖 DLL，如果有）。有关当前系统上的
+//      已知 DLL 列表，请参阅注册表项 HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\KnownDLLs。
+//          _wow64cpu       wow64cpu.dll
+//          _wowarmhw       wowarmhw.dll
+//          _xtajit         xtajit.dll
+//          advapi32        advapi32.dll
+//          clbcatq         clbcatq.dll
+//          combase         combase.dll
+//          COMDLG32        COMDLG32.dll
+//          coml2           coml2.dll
+//          DifxApi         difxapi.dll
+//          gdi32           gdi32.dll
+//          gdiplus         gdiplus.dll
+//          IMAGEHLP        IMAGEHLP.dll
+//          IMM32           IMM32.dll
+//          kernel32        kernel32.dll
+//          MSCTF           MSCTF.dll
+//          MSVCRT          MSVCRT.dll
+//          NORMALIZ        NORMALIZ.dll
+//          NSI             NSI.dll
+//          ole32           ole32.dll
+//          OLEAUT32        OLEAUT32.dll
+//          PSAPI           PSAPI.DLL
+//          rpcrt4          rpcrt4.dll
+//          sechost         sechost.dll
+//          Setupapi        Setupapi.dll
+//          SHCORE          SHCORE.dll
+//          SHELL32         SHELL32.dll
+//          SHLWAPI         SHLWAPI.dll
+//          user32          user32.dll
+//          WLDAP32         WLDAP32.dll
+//          wow64           wow64.dll
+//          wow64win        wow64win.dll
+//          WS2_32          WS2_32.dll
+//
+// 已知的 DLL。系统对操作系统提供的某些 DLL 进行了特殊处理，这些 DLL 被称为已知的 DLL
+// （Known DLL）。除了操作系统在载入它们的时候总是在同一个目录中查找之外，它们与其他
+// 的 DLL 并没有不同。当 LoadLibrary 或 LoadLibraryEx 被调用的时候，函数首先会检查我
+// 们传入的 DLL 的名字是否包含了 .dll 扩展名，如果没有包含，那么函数会用正常的搜索规则
+// 来搜索这个 DLL。
+//
+// 如果我们指定了 .dll 扩展名，那么这两个函数会先将扩展名去掉，然后再在  KnownDLLs 注册
+// 表项中搜索，看其中是否有与之相符的值名。如果没有值名与之相符，那么函数会使用正常的搜
+// 索规则。但是，如果找到了与之相符的值名，那么系统会查看与值名相对应的数据，并试图用该
+// 数据来载入 DLL。系统还会从这个注册表项的 DllDirectory 值所表示的目录总开始搜索 DLL。
+// 如果找不到，那么会失败并返回 NULL 和错误 ERROR_FILE_NOT_FOUND。
+//
+// 打包应用（packaged apps）的搜索顺序。当打包应用通过调用 LoadPackagedLibrary 函数加载
+// 打包模块（特别是库模块，一个 .dll 文件）时，DLL 必须位于进程的包依赖关系图中。有关更
+// 多信息，请参阅 LoadPackagedLibrary。当打包应用通过其他方式加载模块且未指定完整路径时，
+// 系统会在加载时按本节所述搜索 DLL 及其依赖项。当系统搜索模块或其依赖项时，始终使用打包
+// 应用的搜索顺序；即使依赖项不是打包应用代码。
+//
+//  (1) 打包应用的标准搜索顺序，系统按以下顺序搜索，如果 DLL 有依赖项，则系统搜索依赖 DLL
+//      的方式就像它们仅使用模块名称加载一样（即使第一个 DLL 是通过指定完整路径加载的）。
+//      1.  DLL 重定向
+//      2.  API 集
+//      3.  SxS 清单重定向，仅限桌面应用（不适用于 UWP 应用）
+//      4.  已加载模块列表
+//      5.  已知 DLL
+//      6.  进程的包依赖关系图，这是应用程序的包和包清单 <Dependencies> 部分指定为 <PackageDependency>
+//          的任何依赖项，依赖项按它们在清单中出现的顺序搜索
+//      7.  调用进程加载自的文件夹（可执行文件文件夹），相当于程序安装目录
+//      8.  系统目录（%SystemRoot%\system32）
+//
+//  (2) 打包应用的备用搜索顺序，如果模块通过调用 LoadLibraryEx 函数并指定 LOAD_WITH_ALTERED_SEARCH_PATH
+//      来更改标准搜索顺序，则搜索顺序与标准搜索顺序相同，只是在第 7 步中，系统搜索指定
+//      模块加载自的文件夹（顶层加载模块的文件夹），而不是可执行文件的文件夹。
+//
+// 未打包应用（unpackaged apps）的搜索顺序。当未打包应用加载模块且未指定完整路径时，系统
+// 会在加载时按本节所述搜索 DLL。如果攻击者控制了搜索的某个目录，则可以在该文件夹中放置
+// 恶意版本的 DLL。有关帮助防止此类攻击的方法，请参阅"动态链接库安全性"。
+// https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-security
+//
+//  (3) 未打包应用的标准搜索顺序。系统使用的标准 DLL 搜索顺序取决于是否启用了安全 DLL 搜
+//      索模式。安全 DLL 搜索模式（默认启用）将用户的当前文件夹移到搜索顺序的更后面。要禁
+//      用安全 DLL 搜索模式，请创建注册表值 HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\Session Manager\SafeDllSearchMode，
+//      并将其设置为 0。调用 SetDllDirectory 函数会有效地禁用安全 DLL 搜索模式（当指定文
+//      件夹在搜索路径中时），并按本文所述更改搜索顺序。如果启用了安全 DLL 搜索模式，则搜
+//      索顺序如下。如果禁用了安全 DLL 搜索模式，则搜索顺序相同，只是当前文件夹从序列中的
+//      第 11 位移到第 8 位（紧接在第 7 步"应用程序加载自的文件夹"之后）。
+//      1.  DLL 重定向
+//      2.  API 集
+//      3.  SxS 清单重定向
+//      4.  已加载模块列表
+//      5.  已知 DLL
+//      6.  Windows 11 版本 21H2（10.0；Build 22000）及更高版本。进程的包依赖关系图，这是
+//          应用程序的包加上在应用程序包清单的 <Dependencies> 部分中指定为 <PackageDependency>
+//          的任何依赖项，依赖项按它们在清单中出现的顺序搜索
+//      7.  应用程序加载自的文件夹，相当于程序安装目录
+//      8.  系统文件夹，使用 GetSystemDirectory 函数检索此文件夹的路径
+//      9.  16 位系统文件夹，没有函数获取此文件夹的路径，但会搜索它
+//      10. Windows 文件夹，使用 GetWindowsDirectory 函数获取此文件夹的路径
+//      11. 当前文件夹，即进程当前工作目录
+//      12. PATH 环境变量中列出的目录，这不包括由 App Paths 注册表项指定的每应用程序路
+//          径，计算 DLL 搜索路径时不使用 App Paths 项
+//
+//  (4) 未打包应用的备用搜索顺序（alternate search order）。要更改系统使用的标准搜索顺
+//      序，你可以调用 LoadLibraryEx 函数并指定 LOAD_WITH_ALTERED_SEARCH_PATH，也可以通
+//      过调用 SetDllDirectory 函数来更改标准搜索顺序。注意，如果在当前进程开始之前，父
+//      进程调用 SetDllDirectory 函数，则进程的标准搜索顺序也会受到影响。如果你指定了备
+//      用搜索策略，则其行为会一直持续到所有关联的可执行模块都已定位，系统开始处理 DLL
+//      初始化例程后，系统会恢复为标准搜索策略。
+//
+//      如果调用指定了 LOAD_WITH_ALTERED_SEARCH_PATH 且 lpFileName 参数指定了绝对路径，则
+//      LoadLibraryEx 函数支持备用搜索顺序。以下是两种搜索模式的唯一区别：
+//      - 标准搜索策略在调用应用程序所在文件夹中开始（在初始步骤之后）
+//      - LoadLibraryEx 使用 LOAD_WITH_ALTERED_SEARCH_PATH 指定的备用搜索策略在 LoadLibraryEx
+//        正在加载的可执行模块的文件夹中开始（在初始步骤之后）
+//
+//      如果启用了安全 DLL 搜索模式，则备用搜索顺序如下。如果禁用了安全 DLL 搜索模式，则
+//      备用搜索顺序相同，只是当前文件夹从序列中的第 11 位移到第 8 位（紧接在第 7 步 "lpFileName 指定的文件夹"
+//      之后）。
+//      1.  第 1-6 步与标准搜索顺序相同
+//      7.  lpFileName 指定的文件夹
+//      8.  系统文件夹，使用 GetSystemDirectory 函数检索此文件夹的路径
+//      9.  16 位系统文件夹，没有函数获取此文件夹的路径，但会搜索它
+//      10. Windows 文件夹，使用 GetWindowsDirectory 函数获取此文件夹的路径
+//      11. 当前文件夹，即进程当前工作目录
+//      12. PATH 环境变量中列出的目录，这不包括由 App Paths 注册表项指定的每应用程序路
+//          径，计算 DLL 搜索路径时不使用 App Paths 项
+//
+//      如果 SetDllDirectory 参数 lpPathName 参数指定了路径，则 SetDllDirectory 函数支
+//      持备用搜索顺序。备用搜索顺序如下，如果 lpPathName 参数是空字符串 TEXT("")，则调
+//      用会从搜索顺序中移除当前文件夹。当 SetDllDirectory 指定的文件夹位于搜索路径中时，
+//      会有效地禁用安全 DLL 搜索模式。要基于 SafeDllSearchMode 注册表值恢复安全 DLL 搜
+//      索模式，并将当前文件夹恢复到搜索顺序，请使用 lpPathName 为 NULL 调用 SetDllDirectory
+//      （恢复使用默认的标准搜索模式）。
+//      1.  第 1-6 步与标准搜索顺序相同
+//      7.  应用程序加载自的文件夹，相当于程序安装目录
+//      8.  SetDllDirectory 的 lpPathName 参数指定的文件夹
+//      9.  系统文件夹
+//      10. 16 位系统文件夹
+//      11. Windows 文件夹
+//      12. PATH 环境变量中列出的目录
+//
+//  (5) 使用 LOAD_LIBRARY_SEARCH 标志的搜索顺序。你可以使用 LoadLibraryEx 函数的一个或
+//      多个 LOAD_LIBRARY_SEARCH 标志来指定搜索顺序。你也可以使用 SetDefaultDllDirectories
+//      函数的 LOAD_LIBRARY_SEARCH 标志为进程建立 DLL 搜索顺序。你可以使用 AddDllDirectory
+//      或 SetDllDirectory 函数为进程 DLL 搜索顺序指定额外的目录。搜索的目录取决于与
+//      SetDefaultDllDirectories 或 LoadLibraryEx 一起指定的标志。如果你使用多个标志，
+//      则相应目录按以下顺序搜索。如果你调用 LoadLibraryEx 时没有指定 LOAD_LIBRARY_SEARCH
+//      标志，或者你为进程建立了 DLL 搜索顺序，则系统使用标准搜索顺序或备用搜索顺序搜索
+//      DLL。
+//      1.  LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR，搜索包含 DLL 的文件夹，此文件夹仅搜索要加
+//          载的 DLL 的依赖项
+//      2.  LOAD_LIBRARY_SEARCH_APPLICATION_DIR，搜索应用程序文件夹
+//      3.  LOAD_LIBRARY_SEARCH_USER_DIRS，搜索使用 AddDllDirectory 函数或 SetDllDirectory
+//          函数显式添加的路径，如果你添加了多个路径，则搜索路径的顺序未指定
+//      4.  LOAD_LIBRARY_SEARCH_SYSTEM32，搜索系统文件夹
 
 #ifdef PRH_MMAP_IMPLEMENTATION
 
