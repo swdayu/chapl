@@ -852,134 +852,134 @@ typedef enum {
     e_error_code_x = 0x21,
     e_error_code_y = 0x22,
     e_error_code_z = 0x23,
-    e_error_0x00 = 0x00,
-    e_error_0x01 = 0x01,
-    e_error_0x02 = 0x02,
-    e_error_0x03 = 0x03,
-    e_error_0x04 = 0x04,
-    e_error_0x05 = 0x05,
-    e_error_0x06 = 0x06,
-    e_error_0x07 = 0x07,
-    e_error_0x08 = 0x08,
-    e_error_0x09 = 0x09,
-    e_error_0x0a = 0x0a,
-    e_error_0x0b = 0x0b,
-    e_error_0x0c = 0x0c,
-    e_error_0x0d = 0x0d,
-    e_error_0x0e = 0x0e,
-    e_error_0x0f = 0x0f,
-    e_error_0x10 = 0x10,
-    e_error_0x11 = 0x11,
-    e_error_0x12 = 0x12,
-    e_error_0x13 = 0x13,
-    e_error_0x14 = 0x14,
-    e_error_0x15 = 0x15,
-    e_error_0x16 = 0x16,
-    e_error_0x17 = 0x17,
-    e_error_0x18 = 0x18,
-    e_error_0x19 = 0x19,
-    e_error_0x1a = 0x1a,
-    e_error_0x1b = 0x1b,
-    e_error_0x1c = 0x1c,
-    e_error_0x1d = 0x1d,
-    e_error_0x1e = 0x1e,
-    e_error_0x1f = 0x1f,
-    e_error_0x20 = 0x20,
-    e_error_0x21 = 0x21,
-    e_error_0x22 = 0x22,
-    e_error_0x23 = 0x23,
-    e_error_0x24 = 0x24,
-    e_error_0x25 = 0x25,
-    e_error_0x26 = 0x26,
-    e_error_0x27 = 0x27,
-    e_error_0x28 = 0x28,
-    e_error_0x29 = 0x29,
-    e_error_0x2a = 0x2a,
-    e_error_0x2b = 0x2b,
-    e_error_0x2c = 0x2c,
-    e_error_0x2d = 0x2d,
-    e_error_0x2e = 0x2e,
-    e_error_0x2f = 0x2f,
-    e_error_0x30 = 0x30,
-    e_error_0x31 = 0x31,
-    e_error_0x32 = 0x32,
-    e_error_0x33 = 0x33,
-    e_error_0x34 = 0x34,
-    e_error_0x35 = 0x35,
-    e_error_0x36 = 0x36,
-    e_error_0x37 = 0x37,
-    e_error_0x38 = 0x38,
-    e_error_0x39 = 0x39,
-    e_error_0x3a = 0x3a,
-    e_error_0x3b = 0x3b,
-    e_error_0x3c = 0x3c,
-    e_error_0x3d = 0x3d,
-    e_error_0x3e = 0x3e,
-    e_error_0x3f = 0x3f,
-    e_error_0x40 = 0x40,
-    e_error_0x41 = 0x41,
-    e_error_0x42 = 0x42,
-    e_error_0x43 = 0x43,
-    e_error_0x44 = 0x44,
-    e_error_0x45 = 0x45,
-    e_error_0x46 = 0x46,
-    e_error_0x47 = 0x47,
-    e_error_0x48 = 0x48,
-    e_error_0x49 = 0x49,
-    e_error_0x4a = 0x4a,
-    e_error_0x4b = 0x4b,
-    e_error_0x4c = 0x4c,
-    e_error_0x4d = 0x4d,
-    e_error_0x4e = 0x4e,
-    e_error_0x4f = 0x4f,
-    e_error_0x50 = 0x50,
-    e_error_0x51 = 0x51,
-    e_error_0x52 = 0x52,
-    e_error_0x53 = 0x53,
-    e_error_0x54 = 0x54,
-    e_error_0x55 = 0x55,
-    e_error_0x56 = 0x56,
-    e_error_0x57 = 0x57,
-    e_error_0x58 = 0x58,
-    e_error_0x59 = 0x59,
-    e_error_0x5a = 0x5a,
-    e_error_0x5b = 0x5b,
-    e_error_0x5c = 0x5c,
-    e_error_0x5d = 0x5d,
-    e_error_0x5e = 0x5e,
-    e_error_0x5f = 0x5f,
-    e_error_0x60 = 0x60,
-    e_error_0x61 = 0x61,
-    e_error_0x62 = 0x62,
-    e_error_0x63 = 0x63,
-    e_error_0x64 = 0x64,
-    e_error_0x65 = 0x65,
-    e_error_0x66 = 0x66,
-    e_error_0x67 = 0x67,
-    e_error_0x68 = 0x68,
-    e_error_0x69 = 0x69,
-    e_error_0x6a = 0x6a,
-    e_error_0x6b = 0x6b,
-    e_error_0x6c = 0x6c,
-    e_error_0x6d = 0x6d,
-    e_error_0x6e = 0x6e,
-    e_error_0x6f = 0x6f,
-    e_error_0x70 = 0x70,
-    e_error_0x71 = 0x71,
-    e_error_0x72 = 0x72,
-    e_error_0x73 = 0x73,
-    e_error_0x74 = 0x74,
-    e_error_0x75 = 0x75,
-    e_error_0x76 = 0x76,
-    e_error_0x77 = 0x77,
-    e_error_0x78 = 0x78,
-    e_error_0x79 = 0x79,
-    e_error_0x7a = 0x7a,
-    e_error_0x7b = 0x7b,
-    e_error_0x7c = 0x7c,
-    e_error_0x7d = 0x7d,
-    e_error_0x7e = 0x7e,
-    e_error_0x7f = 0x7f,
+    e_error_00 = 0x00,
+    e_error_01 = 0x01,
+    e_error_02 = 0x02,
+    e_error_03 = 0x03,
+    e_error_04 = 0x04,
+    e_error_05 = 0x05,
+    e_error_06 = 0x06,
+    e_error_07 = 0x07,
+    e_error_08 = 0x08,
+    e_error_09 = 0x09,
+    e_error_0a = 0x0a,
+    e_error_0b = 0x0b,
+    e_error_0c = 0x0c,
+    e_error_0d = 0x0d,
+    e_error_0e = 0x0e,
+    e_error_0f = 0x0f,
+    e_error_10 = 0x10,
+    e_error_11 = 0x11,
+    e_error_12 = 0x12,
+    e_error_13 = 0x13,
+    e_error_14 = 0x14,
+    e_error_15 = 0x15,
+    e_error_16 = 0x16,
+    e_error_17 = 0x17,
+    e_error_18 = 0x18,
+    e_error_19 = 0x19,
+    e_error_1a = 0x1a,
+    e_error_1b = 0x1b,
+    e_error_1c = 0x1c,
+    e_error_1d = 0x1d,
+    e_error_1e = 0x1e,
+    e_error_1f = 0x1f,
+    e_error_20 = 0x20,
+    e_error_21 = 0x21,
+    e_error_22 = 0x22,
+    e_error_23 = 0x23,
+    e_error_24 = 0x24,
+    e_error_25 = 0x25,
+    e_error_26 = 0x26,
+    e_error_27 = 0x27,
+    e_error_28 = 0x28,
+    e_error_29 = 0x29,
+    e_error_2a = 0x2a,
+    e_error_2b = 0x2b,
+    e_error_2c = 0x2c,
+    e_error_2d = 0x2d,
+    e_error_2e = 0x2e,
+    e_error_2f = 0x2f,
+    e_error_30 = 0x30,
+    e_error_31 = 0x31,
+    e_error_32 = 0x32,
+    e_error_33 = 0x33,
+    e_error_34 = 0x34,
+    e_error_35 = 0x35,
+    e_error_36 = 0x36,
+    e_error_37 = 0x37,
+    e_error_38 = 0x38,
+    e_error_39 = 0x39,
+    e_error_3a = 0x3a,
+    e_error_3b = 0x3b,
+    e_error_3c = 0x3c,
+    e_error_3d = 0x3d,
+    e_error_3e = 0x3e,
+    e_error_3f = 0x3f,
+    e_error_40 = 0x40,
+    e_error_41 = 0x41,
+    e_error_42 = 0x42,
+    e_error_43 = 0x43,
+    e_error_44 = 0x44,
+    e_error_45 = 0x45,
+    e_error_46 = 0x46,
+    e_error_47 = 0x47,
+    e_error_48 = 0x48,
+    e_error_49 = 0x49,
+    e_error_4a = 0x4a,
+    e_error_4b = 0x4b,
+    e_error_4c = 0x4c,
+    e_error_4d = 0x4d,
+    e_error_4e = 0x4e,
+    e_error_4f = 0x4f,
+    e_error_50 = 0x50,
+    e_error_51 = 0x51,
+    e_error_52 = 0x52,
+    e_error_53 = 0x53,
+    e_error_54 = 0x54,
+    e_error_55 = 0x55,
+    e_error_56 = 0x56,
+    e_error_57 = 0x57,
+    e_error_58 = 0x58,
+    e_error_59 = 0x59,
+    e_error_5a = 0x5a,
+    e_error_5b = 0x5b,
+    e_error_5c = 0x5c,
+    e_error_5d = 0x5d,
+    e_error_5e = 0x5e,
+    e_error_5f = 0x5f,
+    e_error_60 = 0x60,
+    e_error_61 = 0x61,
+    e_error_62 = 0x62,
+    e_error_63 = 0x63,
+    e_error_64 = 0x64,
+    e_error_65 = 0x65,
+    e_error_66 = 0x66,
+    e_error_67 = 0x67,
+    e_error_68 = 0x68,
+    e_error_69 = 0x69,
+    e_error_6a = 0x6a,
+    e_error_6b = 0x6b,
+    e_error_6c = 0x6c,
+    e_error_6d = 0x6d,
+    e_error_6e = 0x6e,
+    e_error_6f = 0x6f,
+    e_error_70 = 0x70,
+    e_error_71 = 0x71,
+    e_error_72 = 0x72,
+    e_error_73 = 0x73,
+    e_error_74 = 0x74,
+    e_error_75 = 0x75,
+    e_error_76 = 0x76,
+    e_error_77 = 0x77,
+    e_error_78 = 0x78,
+    e_error_79 = 0x79,
+    e_error_7a = 0x7a,
+    e_error_7b = 0x7b,
+    e_error_7c = 0x7c,
+    e_error_7d = 0x7d,
+    e_error_7e = 0x7e,
+    e_error_7f = 0x7f,
     e_aborted,
     e_access_error,
     e_access_denied,
@@ -2082,8 +2082,8 @@ typedef enum {
     #include <winsock2.h> // ws2def.h (include Winsock2.h)
     #include <ws2ipdef.h> // IPV6 address and options
     #include <mswsock.h> // WSAID_ACCEPTEX RIO_EXTENSION_FUNCTION_TABLE
-    #define PRH_IMPL_WINDOWS_SOCKET
-    #define PRH_IMPL_WINDOWS_RIO
+    #define PRH_PLAT_WINDOWS_SOCKET
+    #define PRH_PLAT_WINDOWS_RIO
     #define prh_invalid_socket INVALID_SOCKET
     #define prh_wsa_prerr() prh_impl_prerr(WSAGetLastError(), __LINE__)
     #define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
@@ -2093,11 +2093,11 @@ typedef enum {
     #ifdef PRH_THRD_INCLUDE
     #include <process.h>
     #include <timeapi.h>
-    #define PRH_IMPL_WINDOWS_THREAD
+    #define PRH_PLAT_WINDOWS_THREAD
     #endif // PRH_THRD_INCLUDE
     #ifdef PRH_EHUB_INCLUDE
-    #define PRH_IMPL_WINDOWS_EHUB
-    #define PRH_IMPL_WINDOWS_IOCP
+    #define PRH_PLAT_WINDOWS_EHUB
+    #define PRH_PLAT_WINDOWS_IOCP
     #endif // PRH_EHUB_INCLUDE
     #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(GetLastError(), __LINE__); }
     #if PRH_DEBUG
@@ -2353,15 +2353,15 @@ typedef enum {
     #include <netinet/in.h>
     #include <arpa/inet.h>
     #include <netdb.h>
-    #define PRH_IMPL_POSIX_SOCKET
+    #define PRH_PLAT_POSIX_SOCKET
     #define prh_invalid_socket (-1)
     #if defined(prh_plat_linux)
-    #define PRH_IMPL_LINUX_EPOLL
-    #define PRH_IMPL_LINUX_IOUR
+    #define PRH_PLAT_LINUX_EPOLL
+    #define PRH_PLAT_LINUX_IOUR
     #endif // prh_plat_linux
     #endif // PRH_SOCK_INCLUDE
     #ifdef PRH_THRD_INCLUDE
-    #define PRH_IMPL_POSIX_THREAD
+    #define PRH_PLAT_POSIX_THREAD
     #endif // PRH_THRD_INCLUDE
     #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(errno, __LINE__); }
 #endif // prh_plat_posix
@@ -4895,7 +4895,7 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 
 #endif // PRH_MMAP_INCLUDE
 
-#ifdef PRH_IMPL_WINDOWS_DLL
+#ifdef PRH_PLAT_WINDOWS_DLL
 // DLL 可以促进本地化，一个应用程序可以只包含代码但不包含用户界面组件，DLL 用来存在本地
 // 化的用户界面组件，供应用程序载入并使用，DLL 还有助于解决平台间的差异。另外 DLL 可以
 // 用于特殊目的，Windows 提供的某些特性只有 DLL 才能使用。例如，我们可以通过 SetWindowsHookEx
@@ -4932,21 +4932,159 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 //
 // 与 DLL 文件一起生成的 .lib 文件，它只是列出了所有被导出的函数和变量的符号名，为了构
 // 建可执行模块（被可执行隐式链接），这个文件是必需的。另外 .def 文件是如果需要显式指定
-// 要导出的符号，是在生成 DLL 文件之前传给给链接器的输入文件。当可执行文件对 DLL 进行
-// 隐式链接时，在其包含的导入段（import section）中，会列出所有它需要的 DLL 模块的名称。
-// 此外，对列出的每个 DLL，该段还记录了可执行文件的二进制代码从中引用的函数和变量的符号
-// 名。操作系统的加载程序会解析这个导入段，加载程序先为新的进程创建一个虚拟地址空间，并
-// 将可执行模块映射到新进程的地址中。加载程序接着解析可执行模块的导入段，对导入段中列出
+// 要导出的符号，是在生成 DLL 文件之前传给链接器的输入文件。当可执行文件对 DLL 进行隐式
+// 链接时，在其包含的导入段（import section）中，会列出所有它需要的 DLL 模块的名称。此
+// 外，对列出的每个 DLL，该段还记录了可执行文件的二进制代码从中引用的函数和变量的符号名。
+// 操作系统的加载程序会解析这个导入段，加载程序先为新的进程创建一个虚拟地址空间，并将
+// 可执行模块映射到新进程的地址中。加载程序接着解析可执行模块的导入段，对导入段中列出
 // 的每个 DLL，加载程序会在用户的系统中对该 DLL 模块进行定位，并将该 DLL 映射到进程的
 // 地址空间中。注意，由于 DLL 模块可以从其他 DLL 模块中导入函数和变量，因此 DLL 模块可
 // 能有自己的导入段并需要将它所需的 DLL 模块映射到进程的地址空间中，这一个进程的初始化
 // 过程可能会耗费很长时间。一旦加载程序将可执行模块和所有 DLL 模块映射到进程的地址空间
 // 之后，进程的主线程就可以开始执行，应用程序就运行起来了。
+//
+// 构建 DLL 模块。在创建一个 DLL 的时候，我们实际上是在创建一组可供一个可执行模块（或其
+// 他 DLL）调用的函数。一个 DLL 可以导出变量、函数或者 C++ 类供其他模块使用。在实际开发
+// 中，我们应该避免从 DLL 中导出变量、因为这等于是去掉代码中的抽象层，从而使得 DLL 代码
+// 更加难以维护。此外，只有当导出 C++ 类的模块使用的编译器与导入 C++ 类的模块使用的编译
+// 器由同一家厂商提供时，我们才可以导出 C++ 类。因此，除非知道可执行模块的开发人员与 DLL
+// 模块的开发人员使用的是相同的工具包，否则我们应该避免从 DLL 中导出 C++ 类。
+//
+// 在创建 DLL 的时候，我们应该首先创建一个头文件来包含想要导出的变量和函数。这个头文件还
+// 必须定义导出函数或变量所用到的任何符号和数据结构。DLL 的所有源文件应该包含这个头文件。
+// 另外，我们必须分发这个头文件，这样任何可能需要导入这个函数或变量的源文件就可以包含该
+// 头文件。让 DLL 的构建者和可执行模块的构建者使用同一个头文件可以使维护变得更容易。下面
+// 的代码展示了如何编写这样的头文件，以便让可执行模块和 DLL 的源文件都能包含它。
+//
+//      // mylib.h
+//      #ifndef MYLIB_API
+//      #ifdef __cplusplus
+//      #define MYLIB_API extern "C" __declspec(dllimport)
+//      #else
+//      #define MYLIB_API extern __declspec(dllimport)
+//      #endif
+//      #endif
+//      MYLIB_API int g_result;
+//      MYLIB_API int add(int left, int right);
+//
+//      // mylib.cpp
+//      #define MYLIB_API extern "C" __declspec(dllexport)
+//      #include "mylib.h"
+//      int g_result;
+//      int add(int left, int right) {
+//          g_result = left + right;
+//          return g_result;
+//      }
+//
+// 注意到 MYLIB_API 包含了 extern "C" 修饰符，只有在编写 C++ 代码的时候，才应该使用这个
+// 修饰符，在编写 C 代码的时候不应该使用。C++ 编译器回对函数名和变量名进行改编（mangle），
+// 这在链接的时候会导致严重的问题。举个例子，假设一个 DLL 使用 C++ 编写的，而可执行文件
+// 使用 C 编写的。在构建 DLL 的时候，编译器会对函数名进行改编，但在构建可执行文件的时候，
+// 编译器不会对函数名进行改编。当链接器试图链接可执行文件的时候，会发现可执行文件引用了
+// 一个不存在的符号而报错。extern "C" 用来告诉编译器不要对变量名或函数名进行改编，这样
+// 用 C 或 C++ 或任何编程语言编写的可执行模块都可以访问该变量或函数。
+//
+// 构建 DLL 时，生成的目标文件（*.obj）会嵌入一些额外信息，链接器链接时会检测到这些导出
+// 的变量、函数或类有关的嵌入信息，并生成一个 .lib 文件。这个 .lib 文件列出了该 DLL 导出
+// 的符号。在链接任何可执行模块的时候，只要可执行模块引用了该 DLL 导出的符号，那么这个
+// .lib 文件当然时必需的。除了创建这个 .lib 文件外，链接器还会在生成的 DLL 文件中嵌入一
+// 个导出符号表。这个按字母顺序排列的导出段（export section）列出了导出的变量、函数和类
+// 的符号名。链接器还会保存相对虚拟地址（RVA，relative virtual address），表示每个符号
+// 可以在 DLL 模块中的何处找到。我们可以使用 DumpBin.exe 工具（添加 -exports 选项）来查
+// 看一个 DLL 的导出段。
+//
+// 如果用 Visual C++ 创建的 DLL 要与其他厂商工具包构建的可执行文件进行链接，必需要做一些
+// 额外的工作。如前所述，在混合使用 C 和 C++ 编程的时候，要使用 extern "C" 修饰符。我们还
+// 提到过，由于 C++ 类的名称改编问题，我们必须使用同一家编译器厂商提供的工具包。即使完全
+// 用 C 来编程，但使用了不同厂商提供的工具包，还是会遇到另外一个问题。这个问题就是即使根
+// 本没有用到 C++，Microsoft 的 C 编译器也会对 C 函数的名称进行改编。只有当我们的函数使用
+// 了 __stdcall（WINAPI）调用约定的时候，才会出现这种情况。但不巧的是，这个调用约定是最常
+// 用的类型。当使用 __stdcall 来导出 C 函数的时候，Microsoft 的编译器会对函数名进行改编，
+// 具体方法是给函数名添加下划线前缀和一个特殊的后缀，该后缀由一个 @ 符号后跟作为参数传给
+// 函数的字节数组成。例如下面的函数在 DLL 的导出段中被导出为 _myfunc@8。如果用另一家厂商
+// 提供的工具包来构建可执行文件，链接器将试图链接到一个名为 myfunc 的函数，由于该函数在
+// Microsoft 编译器生成的 DLL 中并不存在，因此链接会失败。
+//      __declspec(dllexport) LONG __stdcall myfunc(int a, int b);
+//
+// 为了用 Microsoft 的工具包来构建一个能与其他编译器厂商的工具包链接的 DLL，我们必须告诉
+// Microsoft 编译器不要对导出的函数名进行改编。我们可以通过两种方法来达到这个目的。第一种
+// 方法是为我们的项目创建一个 .def 文件，并在 .def 文件中包含要导出符号的导出（EXPORTS）
+// 段。当 Microsoft 链接器解析这个 .def 文件的时候，会发现 _myfunc@8 和 myfunc 都被导出。
+// 由于这两个函数名是匹配的（不考虑改编），因此链接器会使用 .def 文件中定义的名称，也就是
+// myfunc 来导出函数，而根本不会用 _myfunc@8 导出函数。现在读者可能会想，在用 Microsoft
+// 的工具包来构建可执行文件并链接这个 DLL 的时候，因为该 DLL 包含了未经改编的符号，那么由
+// 于链接器会试图链接到名为 _myfunc@8 的函数，因此链接将会失败。值得庆幸的是，在这种情况
+// 下，Microsoft 的链接器能够做出正确的选择并将可执行文件链接到名称 myfunc 的函数。
+//      EXPORTS
+//          myfunc
+//
+// 如果不想使用 .def 文件，我们还可以使用第二种方法来导出未经改编的函数名。我们可以在 DLL
+// 源文件中添加一行类似下面的代码。这行代码会使得编译器产生一个链接器指示符，该指示符告诉
+// 链接器要导出一个名为 myfunc 的函数，该函数的入口点与 _myfunc@8 相同。与第一种方法相比，
+// 第二种方法相对来说不太方便，因为在写这行代码的时候，我们必须自己对函数名进行改编。另外，
+// 在使用这种方法的时候，DLL 实际上导出了两个符号，即 myfunc 和 _myfunc@8，它们都对应同一
+// 个函数，而第一种则只导出了 myfunc 符号。第二种方法没有特别之处，它只不过能让我们避免使
+// 用 .def 文件而已。
+//      #pragma comment(linker, "/export:myfunc=_myfunc@8")
+//
+// 可执行模块以及执行。可执行模块的源文件不应该在包含 mylib.h 之前定义 MYLIB_API，此时此宏
+// 被定义为 __declspec(dllimport)。如果编译器看到一个变量、函数或 C++ 类是使用 __declspec(dllimport)
+// 来修饰的，那么它会知道应该从某个 DLL 模块导入该符号。编译器不知道，也不需要知道具体的
+// DLL 模块是哪一个。编译器只想确认我们以正确的方式来访问这些导入的符号。接下来，为了创
+// 建可执行模块，链接器必须将所有的 .obj 模块合并到一起。由于链接器必须确定代码中引用的
+// 导入符号来自哪个 DLL，因此我们必须将 DLL 的 .lib 文件传给链接器。正如我们前面以及提到
+// 的，.lib 文件只不过是列出了 DLL 模块导出的符号。链接器只想知道被引用的符号确实存在，以
+// 及符号来自哪个 DLL 模块。如果链接器能够解决（resolve）对所有外部符号的引用，那么它将
+// 生成可执行模块。当链接器在解决导入符号的时候，会在生成的可执行模块中嵌入一个特殊的段，
+// 它的名字叫导入段（import section）。导出段列出了该模块所需的 DLL 模块，以及它从每个
+// DLL 模块中引用的符号。我们可以使用 DumpBin.exe 工具（加上 -imports 选项）来查看一个模
+// 块的导入段。在每个导入 DLL 模块的下面，列出了从该模块导入的所有符号，每一行符号最左边
+// 的数值是一个内存地址，表示该符号在进程的地址空间中位于何处。只有当可执行模块以及被绑定
+// 的时候，才会显示这个内存地址。
+//
+// 启动一个可执行模块的时候，操作系统的加载程序会先为进程创建虚拟地址空间，接着把可执行
+// 模块映射到进程的地址空间中。之后加载程序会检查可执行模块的导入段，试图对所需的 DLL 进
+// 行定位并将它们映射到进行的地址空间中。由于导入段只包含 DLL 的名称，不包含 DLL 的路径，
+// 因此加载成必须在用户的磁盘上搜索 DLL。下面是加载程序的搜索顺序：
+//  1.  包含可执行文件的目录，即程序安装目录
+//  2.  Windows 的系统目录，该目录可以通过 GetSystemDirectory 得到
+//  3.  16 位的系统目录，即 Windows 目录中的 System 子目录
+//  4.  Windows 目录，该目录可以通过 GetWindowDirectory 得到
+//  5.  进程的当前目录，即当前进程工作目录
+//  6.  PATH 环境变量中所列出的目录
+//
+// 注意，对应该程序进程当前目录的搜索位于 Windows 目录之后，这个改变始于 Windows XP SP2，
+// 其目的是为了防止加载程序在应用程序进程的当前目录中找到伪造的系统 DLL 并将它们载入，
+// 从而保证系统 DLL 始终都是从它们在 Windows 目录中的正式位置载入的。MSDN 联机帮助提到
+// HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager 注册表中的一个
+// DWORD 值可以来改变这个搜索顺序，但如果不想让恶意软件危害我们的机器，那么我们绝对不应
+// 该设置这个 DWORD 值。另外请注意，还有其他一些东西可能会对加载程序如何搜索 DLL 产生
+// 影响，更多信息间下一章。
+//
+// 随着加载程序将 DLL 模块映射到进程的地址空间中，它会同时检查每个 DLL 的导入段。如果一
+// 个 DLL 有导入段（通常如此），那么加载程序会继续将所需的额外 DLL 模块映射到进程的地址
+// 空间中。由于加载程序会对载入的 DLL 模块进行记录，因此即使多个模块用到了同一个模块，该
+// 模块也只会被载入和映射一次。当加载程序将所有 DLL 模块都载入并映射到进程的地址空间中
+// 后，它开始修复所有对导入符号的引用。为了完成这一工作，它会再次查看每个模块的代入段。
+// 对导入段中列出的每个符号，加载程序会检查对应 DLL 的导出段，看该符号是否存在。如果该
+// 符号存在，那么加载程序会取得该符号的 RVA 并给它加上 DLL 模块被载入到的虚拟地址（从而
+// 得到符号在进程的地址空间中的位置）。接着加载程序会将这个虚拟地址保存到可执行模块的导
+// 入段中。现在，当代码引用到一个导入符号的时候，会查看调用模块的导入段并得到被导入符号
+// 的地址，这一就能够成功地访问被导入的变量、函数或 C++ 类成员函数了。这样，动态链接就
+// 完成了，进行的主线程开始执行，应用程序最终运行起来了。
+//
+// 加载程序要载入所有这些 DLL 模块，并用所有导出符号的正确地址来修复每个模块的导入段，这
+// 自然需要相当多的时间。由于这项工作是在进程初始化的时候完成的，因此它不会对应用程序的
+// 性能产生影响。但是，对许多应用程序来说，初始化过程太慢也是不可接受的，为了减少应用程
+// 序的载入时间，我们应该对自己的可执行模块和 DLL 模块进行基地址重定位和绑定。这两项技术
+// 极其重要，但不幸的是，很少有开发人员知道该如何应用它们。如果每家公司都应用这两项技术，
+// 那么整个系统会运行得更好。事实上，我认为操作系统应该发布一个工具来自动地执行这些操作，
+// 我们将在下章对基地址重定位和绑定进行介绍。
 
 #ifdef PRH_MMAP_IMPLEMENTATION
 
 #endif // PRH_MMAP_IMPLEMENTATION
-#endif // PRH_IMPL_WINDOWS_DLL
+#endif // PRH_PLAT_WINDOWS_DLL
 
 // ARRAYS, STRINGS, BUFFERS
 #ifdef PRH_ARRAY_INCLUDE
@@ -16324,7 +16462,7 @@ prh_sysinfo *prh_get_sysinfo(void) {
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
 
-#ifdef PRH_IMPL_WINDOWS_THREAD
+#ifdef PRH_PLAT_WINDOWS_THREAD
 #ifdef PRH_THRD_IMPLEMENTATION
 // DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
 // HANDLE CreateThread(
@@ -18041,9 +18179,9 @@ void prh_impl_thrd_test(void) {
 #define PRH_IMPL_PREV_TEST prh_impl_thrd_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_THRD_IMPLEMENTATION
-#endif // PRH_IMPL_WINDOWS_THREAD
+#endif // PRH_PLAT_WINDOWS_THREAD
 
-#ifdef PRH_IMPL_POSIX_THREAD
+#ifdef PRH_PLAT_POSIX_THREAD
 #ifdef PRH_THRD_IMPLEMENTATION
 // 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
 //
@@ -21265,7 +21403,7 @@ void prh_impl_thrd_test(void) {
 #define PRH_IMPL_PREV_TEST prh_impl_thrd_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_THRD_IMPLEMENTATION
-#endif // PRH_IMPL_POSIX_THREAD
+#endif // PRH_PLAT_POSIX_THREAD
 
 // Reactor Pattern 和 Proactor Pattern
 //
@@ -21337,7 +21475,7 @@ void prh_impl_thrd_test(void) {
 //
 // https://idea.popcount.org/2017-02-20-epoll-is-fundamentally-broken-12/
 
-#if defined(PRH_IMPL_WINDOWS_RIO)
+#if defined(PRH_PLAT_WINDOWS_RIO)
 // RIO_CQ RIOCreateCompletionQueue(
 //      DWORD QueueSize, // [1, RIO_MAX_CQ_SIZE]
 //      PRIO_NOTIFICATION_COMPLETION NotificationCompletion
@@ -22322,9 +22460,9 @@ void prh_iocp_riorecv_dont_notify_req(prh_iocp_riorecv *req, const prh_byte *buf
     prh_impl_iocp_riorecv_req(req, buffer, length, RIO_MSG_DONT_NOTIFY);
 }
 #endif
-#endif // PRH_IMPL_WINDOWS_RIO
+#endif // PRH_PLAT_WINDOWS_RIO
 
-#if defined(PRH_IMPL_WINDOWS_IOCP)
+#if defined(PRH_PLAT_WINDOWS_IOCP)
 // 当线程发出一个异步设备 I/O 请求的时候，它会被临时挂起，直到设备完成 I/O 请求为止。
 // 此类挂起会损害性能，这是因为线程无法进行有用的工作，比如开始对另一个客户请求进行处
 // 理。因此简而言之，我们希望线程不会被阻塞，这样它们就能始终进行有用的工作。Microsoft
@@ -23368,7 +23506,7 @@ prh_inline void prh_impl_iocp_continue_routine(OVERLAPPED *overlapped, prh_iocp_
     assert(((prh_reg)iocp_cont & 0x01) == 0); // 低阶位置1会阻止重叠 I/O 将完成数据包排队到完成端口
     overlapped->hEvent = (HANDLE)iocp_cont;
 }
-#endif // PRH_IMPL_WINDOWS_IOCP
+#endif // PRH_PLAT_WINDOWS_IOCP
 
 #ifdef PRH_EHUB_INCLUDE
 #ifndef PRH_SINGLE_THREAD_PROGRAM
@@ -23898,7 +24036,7 @@ prh_inline void prh_impl_schd_check_timers(void) {
 #endif // PRH_TIMER_IMPLEMENTATION
 #endif // PRH_TIMER_INCLUDE
 
-#if defined(PRH_IMPL_WINDOWS_EHUB)
+#if defined(PRH_PLAT_WINDOWS_EHUB)
 // Windows Kits/10/Include/10.X.XXXXX.X/um/minwinbase.h
 // typedef struct _OVERLAPPED {
 //     ULONG_PTR Internal;          // [out] Error Code
@@ -26470,9 +26608,9 @@ void prh_iocp_startup(prh_iocp_config *config) {
 }
 #endif
 #endif // PRH_EHUB_IMPLEMENTATION
-#endif // PRH_IMPL_WINDOWS_EHUB
+#endif // PRH_PLAT_WINDOWS_EHUB
 
-#if defined(PRH_IMPL_LINUX_EPOLL)
+#if defined(PRH_PLAT_LINUX_EPOLL)
 #include <sys/types.h>
 #include <sys/ioctl.h>
 #include <sys/epoll.h>
@@ -27384,7 +27522,7 @@ void prh_epoll_init(int max_num_fds_hint, int poll_fds_each_time) {
     prh_arrdyn_init(&epoll->wait, initial_wait_array_size);
     prh_cono_start((prh_spawn_data *)epoll, false);
 }
-#endif // PRH_IMPL_LINUX_EPOLL
+#endif // PRH_PLAT_LINUX_EPOLL
 
 #ifdef PRH_CONO_INCLUDE
 #define PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3 1
@@ -29085,7 +29223,7 @@ void prh_ipv6_sock_tcp_listen(prh_tcplisten *tcp, const char *host, prh_r16 port
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_SOCK_INCLUDE
 
-#if defined(PRH_IMPL_WINDOWS_SOCKET)
+#if defined(PRH_PLAT_WINDOWS_SOCKET)
 // Windows Kits/10/Include/10.X.XXXXX.X/shared/ws2def.h
 // #define AF_UNSPEC       0               // unspecified
 // #define AF_UNIX         1               // local to host (pipes, portals)
@@ -34909,9 +35047,9 @@ void prh_impl_sock_test(void) {
 #define PRH_IMPL_PREV_TEST prh_impl_sock_test
 #endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_SOCK_IMPLEMENTATION
-#endif // PRH_IMPL_WINDOWS_SOCKET
+#endif // PRH_PLAT_WINDOWS_SOCKET
 
-#if defined(PRH_IMPL_POSIX_SOCKET)
+#if defined(PRH_PLAT_POSIX_SOCKET)
 // RFC 791 - Internet Protocol, J. Postel (ed.), 1981
 // RFC 950 - Internet Standard Subnetting Procedure, J. Mogul J. Postel, 1985
 // RFC 793 - Transmission Control Protocol, J. Postel (ed.), 1981
@@ -36859,7 +36997,7 @@ void prh_impl_sock_test(void) {
 #undef PRH_IMPL_PREV_TEST
 #define PRH_IMPL_PREV_TEST prh_impl_sock_test
 #endif // PRH_TEST_IMPLEMENTATION
-#endif // PRH_IMPL_POSIX_SOCKET
+#endif // PRH_PLAT_POSIX_SOCKET
 
 #ifdef PRH_SOCK_INCLUDE
 #if 0
