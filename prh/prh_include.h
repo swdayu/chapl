@@ -5027,6 +5027,8 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 // 用 .def 文件而已。
 //      #pragma comment(linker, "/export:myfunc=_myfunc@8")
 //
+// https://learn.microsoft.com/en-us/cpp/build/reference/module-definition-dot-def-files
+//
 // 可执行模块以及执行。可执行模块的源文件不应该在包含 mylib.h 之前定义 MYLIB_API，此时此宏
 // 被定义为 __declspec(dllimport)。如果编译器看到一个变量、函数或 C++ 类是使用 __declspec(dllimport)
 // 来修饰的，那么它会知道应该从某个 DLL 模块导入该符号。编译器不知道，也不需要知道具体的
@@ -5080,6 +5082,405 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 // 极其重要，但不幸的是，很少有开发人员知道该如何应用它们。如果每家公司都应用这两项技术，
 // 那么整个系统会运行得更好。事实上，我认为操作系统应该发布一个工具来自动地执行这些操作，
 // 我们将在下章对基地址重定位和绑定进行介绍。
+//
+// DLL 模块的显示载入和符号链接。为了让线程能够调用 DLL 模块中的一个函数，我们必须将 DLL
+// 的文件映像映射到调用线程所在的进程地址空间中。我们可以通过两种方式达到这一目的，一是
+// 直接让程序的源代码引用 DLL 中所包含的符号，这使得加载程序在初始化时隐式地载入所需的
+// DLL。第二种方式是让应用程序在运行的过程中，显式地载入所需的 DLL 并显式地与想要的输出
+// 符号进行链接。换句话说，当应用程序在运行的时候，其中的一个线程能够决定它想要调用一个
+// DLL 中的一个函数，并显式地将该 DLL 载入到进程的地址空间中，得到 DLL 所包含的一个函数
+// 的虚拟内存地址，然后用该内存地址来调用这个函数。这项技术的美妙之处在于，这一切都是在
+// 应用程序运行的时候完成的。
+//
+// HMODULE LoadLibrary([in] LPCSTR lpLibFileName);
+// libloaderapi.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 将指定的模块加载到调用进程的地址空间中。指定的模块可能会导致其他模块被加载。如需额外
+// 的加载选项，请使用 LoadLibraryEx 函数。参数 lpLibFileName 模块的名称。可以是库模块
+// （.dll 文件）或可执行模块（.exe 文件）。如果指定的模块是可执行模块，静态导入（static
+// imports）不会被加载；相反，该模块会像使用 LoadLibraryEx 并带有 DONT_RESOLVE_DLL_REFERENCES
+// 标志一样加载。指定的名称是模块的文件名，与模块定义（.def）文件中 LIBRARY 关键字指定
+// 的库模块本身存储的名称无关。如果函数成功，返回值是模块的句柄。如果函数失败，返回值为 NULL，
+// 要获取扩展错误信息，请调用 GetLastError。
+//
+// 如果字符串指定了完整路径，则函数仅在该路径中搜索模块。如果字符串指定了相对路径或没有
+// 路径的模块名称，则函数使用标准搜索策略来查找模块。如果函数找不到模块，则函数失败。指
+// 定路径时，务必使用反斜杠（\），而不是正斜杠（/）。有关路径的更多信息，请参阅"命名文
+// 件或目录"。 https://learn.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file
+//
+// 如果字符串指定了没有路径的模块名称且省略了文件扩展名，则函数会将默认库扩展名".DLL"附
+// 加到模块名称。要阻止函数将".DLL"附加到模块名称，请在模块名称字符串中包含尾部点字符（.）。
+//
+// 要启用或禁用在 DLL 加载期间加载器显示的错误消息，请使用 SetErrorMode 函数。LoadLibrary
+// 可用于将库模块加载到进程的地址空间中，并返回一个可用于 GetProcAddress 以获取 DLL 函数
+// 地址的句柄。LoadLibrary 也可用于加载其他可执行模块。例如，该函数可以指定 .exe 文件以获
+// 取可用于 FindResource 或 LoadResource 的句柄。但是，不要使用 LoadLibrary 来运行 .exe
+// 文件。相反，请使用 CreateProcess 函数。
+//
+// 如果指定的模块是尚未为调用进程加载的 DLL，则系统使用 DLL_PROCESS_ATTACH 值调用该 DLL 的
+// DllMain 函数。如果 DllMain 返回 TRUE，LoadLibrary 返回模块的句柄。如果 DllMain 返回 FALSE，
+// 系统将从进程地址空间卸载该 DLL，LoadLibrary 返回 NULL。从 DllMain 调用 LoadLibrary 是不
+// 安全的。有关更多信息，请参阅 DllMain 中的"备注"部分。
+//
+// 模块句柄不是全局的或可继承的。一个进程调用 LoadLibrary 产生的句柄不能被另一个进程使用，
+// 例如在调用 GetProcAddress 时。另一个进程必须在调用 GetProcAddress 之前自己调用 LoadLibrary
+// 来加载该模块。
+//
+// 如果 lpFileName 不包含路径，且有多个已加载模块具有相同的基本名称和扩展名，则函数返回
+// 首先加载的模块的句柄。如果 lpFileName 参数中未指定文件扩展名，则附加默认库扩展名 .dll。
+// 但是，文件名字符串可以包含尾部点字符（.）以指示模块名称没有扩展名。当未指定路径时，
+// 函数搜索基本名称与要加载模块的基本名称匹配的已加载模块。如果名称匹配，则加载成功。否则，
+// 函数搜索该文件。
+//
+// 搜索的第一个目录是包含用于创建调用进程的映像文件的目录（有关更多信息，请参阅 CreateProcess
+// 函数）。这样做允许找到与进程关联的私有动态链接库（DLL）文件，而无需将进程的安装目录
+// 添加到 PATH 环境变量。如果指定了相对路径，则整个相对路径附加到 DLL 搜索路径列表中的
+// 每一项中。要从相对路径加载模块而不搜索任何其他路径，请使用 GetFullPathName 获取非相
+// 对路径，然后使用非相对路径调用 LoadLibrary。有关 DLL 搜索顺序的更多信息，请参阅"动态
+// 链接库搜索顺序"。 https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-search-order
+//
+// 可以使用 SetDllDirectory 函数更改搜索路径。建议使用此解决方案，而不是使用 SetCurrentDirectory
+// 或对 DLL 硬编码完整路径。如果 lpFileName 指定了路径且应用程序存在重定向文件，则该函数
+// 在应用程序目录中搜索模块。如果模块存在于应用程序目录中，LoadLibrary 将忽略指定的路径并
+// 从应用程序目录加载模块。如果模块不存在于应用程序目录中，LoadLibrary 从指定的目录加载模
+// 块。有关更多信息，请参阅"动态链接库重定向"。 https://learn.microsoft.com/en-us/windows/desktop/Dlls/dynamic-link-library-redirection
+//
+// 如果你调用 LoadLibrary 是只指定程序集名称而不指定路径，且该程序集在系统兼容清单（system
+// compatible manifest）中列出，则调用会自动重定向到并行程序集（side-by-side assembly）。
+// Windows 并行程序集（Side-by-Side Assembly, SxS），Windows 中的程序集（assembly）是一种
+// 打包的代码/资源集合，通常包含 DLL、清单文件（manifest）和元数据。而并行程序集，允许同一
+// DLL 的多个版本共存，避免 "DLL Hell" 版本冲突，Manifest 文件是 XML 描述文件，声明应用程
+// 序依赖哪些程序集版本。如果你调用 LoadLibrary 时，只给程序集名称（如 "Microsoft.Windows.Common-Controls"），
+// 不带路径，且该程序列在系统兼容清单中，调用会自动重定向到并行程序集。例如当 LoadLibrary("comctl32.dll")
+// 被调用时，系统根据清单自动加载正确的版本，而不是默认的 System32 版本。
+//
+//      C:\Windows\System32\comctl32.dll    ← 所有应用共享同一个 DLL，一个应用升级 DLL，其他应用可能崩溃
+//      C:\Windows\WinSxS\
+//        ├── amd64_microsoft.windows.common-controls_6595b64144ccf1df_6.0.19041.1110_none_60b525f...
+//        │   └── comctl32.dll              ← 版本 6.0.19041.1110
+//        ├── amd64_microsoft.windows.common-controls_6595b64144ccf1df_5.82.19041.1110_none_...
+//        │   └── comctl32.dll              ← 版本 5.82.19041.1110
+//        └── ...
+//      <!-- app.exe.manifest -->
+//      <dependency>
+//        <dependentAssembly>
+//          <assemblyIdentity
+//            type="win32"
+//            name="Microsoft.Windows.Common-Controls"
+//            version="6.0.0.0"
+//            processorArchitecture="amd64"
+//            publicKeyToken="6595b64144ccf1df" />
+//        </dependentAssembly>
+//      </dependency>
+//
+// 系统维护所有已加载模块的每进程引用计数，调用 LoadLibrary 会增加引用计数，调用 FreeLibrary
+// 或 FreeLibraryAndExitThread 函数会减少引用计数。当引用计数达到零或进程终止时（无论引用
+// 计数如何），系统卸载模块。
+//
+// Windows Server 2003 和 Windows XP：Visual C++ 编译器支持一种语法，允许你声明线程局部
+// 变量 __declspec(thread)。如果你在 DLL 中使用此语法，则在 Windows Vista 之前的 Windows
+// 版本上无法使用 LoadLibrary 显式加载该 DLL。如果你的 DLL 将被显式加载，则必须使用线程
+// 局部存储函数而不是 __declspec(thread)。有关示例，请参阅"在动态链接库中使用线程局部存储"。
+// https://learn.microsoft.com/en-us/windows/desktop/Dlls/using-thread-local-storage-in-a-dynamic-link-library
+//
+// 安全备注。不要使用 SearchPath 函数检索路径以供后续 LoadLibrary 调用加载 DLL。SearchPath
+// 函数使用的搜索顺序与 LoadLibrary 不同，除非通过调用 SetSearchPathMode 并指定 BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE
+// 显式启用，否则它不会使用安全进程搜索模式。因此，SearchPath 可能会首先在当前工作目录中
+// 搜索指定的 DLL。如果攻击者已将恶意版本的 DLL 复制到当前工作目录，则 SearchPath 检索到
+// 的路径将指向恶意 DLL，然后 LoadLibrary 将加载该恶意 DLL。
+//
+// 不要基于 LoadLibrary 对 DLL 的搜索结果对操作系统版本做出假设。如果应用程序在 DLL 合法
+// 不存在但恶意版本的 DLL 在搜索路径中的环境中运行，则可能加载恶意版本的 DLL。相反，请使
+// 用"获取系统版本"中描述的推荐技术。 https://learn.microsoft.com/en-us/windows/desktop/SysInfo/getting-the-system-version
+//
+// 注意，libloaderapi.h 头文件将 LoadLibrary 定义为别名，根据 UNICODE 预处理器常量的定义
+// 自动选择此函数的 ANSI 或 Unicode 版本。将中性别名与非别名混合使用可能导致不匹配，从而
+// 导致编译或运行时错误。
+//
+// HMODULE LoadLibraryExA([in] LPCSTR lpLibFileName, HANDLE hFile, [in] DWORD dwFlags);
+// libloaderapi.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 将指定的模块加载到调用进程的地址空间中，指定的模块可能会导致其他模块被加载。如果函数
+// 成功，返回值是已加载模块的句柄。如果函数失败，返回值为 NULL。要获取扩展错误信息，请
+// 调用 GetLastError。参数 hFile 此参数保留供将来使用，必须为 NULL。
+//
+// 参数 lpLibFileName 指定要加载模块文件名的字符串。此名称与模块定义（.def）文件中由
+// LIBRARY 关键字指定的库模块本身存储的名称无关。模块可以是库模块（.dll 文件）或可执行
+// 模块（.exe 文件）。如果指定的模块是可执行模块，则不会加载静态导入；相反，模块会像指
+// 定了 DONT_RESOLVE_DLL_REFERENCES 一样加载。有关更多信息，请参阅 dwFlags 参数。
+//
+// 如果字符串指定了没有路径的模块名称且省略了文件扩展名，则函数会将默认库扩展名".DLL"附
+// 加到模块名称。要阻止函数将".DLL"附加到模块名称，请在模块名称字符串中包含尾部点字符（.）。
+// 如果字符串指定了完全限定路径，则函数仅在该路径中搜索模块。指定路径时，务必使用反斜杠
+// （\），而不是正斜杠（/）。有关路径的更多信息，请参阅"命名文件、路径和命名空间"。
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/naming-a-file
+//
+// 如果字符串指定了没有路径的模块名称，且有多个已加载模块具有相同的基本名称和扩展名，则
+// 函数返回首先加载的模块的句柄。如果字符串指定了没有路径的模块名称，且没有已加载的同名
+// 模块，或者字符串指定了带有相对路径的模块名称，则函数搜索指定的模块。如果加载指定模块
+// 导致系统加载其他关联模块（即模块有依赖项），函数也会搜索这些模块。搜索的目录及其搜索
+// 顺序取决于指定的路径和 dwFlags 参数。如果函数找不到模块或其某个依赖项，则函数失败。
+//
+// 参数 dwFlags 指定加载模块时要执行的操作。如果未指定标志，则此函数的行为与 LoadLibrary
+// 函数相同。此参数可以使用以下标志：
+//  1.  DONT_RESOLVE_DLL_REFERENCES 0x00000001
+//      如果使用此值，且可执行模块是 DLL，则系统不会为进程和线程初始化和终止调用 DllMain。
+//      此外，系统不会加载指定模块引用的其他可执行模块。注意：不要使用此值，它仅提供用于
+//      向后兼容。如果你计划仅访问 DLL 中的数据或资源，请使用 LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE
+//      或 LOAD_LIBRARY_AS_IMAGE_RESOURCE 或两者。否则，使用 LoadLibrary 函数将库加载为
+//      DLL 或可执行模块。
+//      不会执行 DllMain，也不会加载当前加载模块依赖的模块，因此此种方式导入 DLL 中的任何
+//      函数将面临很大的风险：代码所依赖的内部数据结构可能尚未初始化，或者代码所引用的
+//      DLL 尚未载入。这些原因足以让我们避免使用这个标志。
+//      https://devblogs.microsoft.com/oldnewthing/20050214-00/?p=36463
+//  2.  LOAD_IGNORE_CODE_AUTHZ_LEVEL 0x00000010
+//      如果使用此值，系统不会检查 AppLocker 规则或关闭 DLL 执行软件限制策略（Software
+//      Restriction Policies 或 WinSafer 或 Safer）。WinSafer 是在 Windows XP 中引入的，
+//      其目的是为了对代码在执行过程中可以拥有的特权加以控制。此操作仅适用于正在加载的
+//      DLL，而不适用于其依赖项。建议用于在安装期间必须运行提取的 DLL 的安装程序中（use
+//      in setup programs that must run extracted DLLs during installation）。
+//      Windows Server 2008 R2 和 Windows 7：在安装了 KB2532445 的系统上，调用者必须以
+//      "LocalSystem" 或 "TrustedInstaller" 运行；否则系统将忽略此标志。有关更多信息，
+//      请参阅帮助和支持知识库中的 "你可以在运行 Windows 7 或 Windows Server 2008 R2
+//      的计算机上使用 Office 宏绕过 AppLocker 规则"（https://support.microsoft.com/kb/2532445）。
+//      Windows Server 2008、Windows Vista、Windows Server 2003 和 Windows XP：AppLocker
+//      在 Windows 7 和 Windows Server 2008 R2 中引入。
+//  3.  LOAD_LIBRARY_AS_DATAFILE 0x00000002
+//      如果使用此值，系统会将文件映射到调用进程的虚拟地址空间中，就像它是数据文件一样。
+//      不会对映射的文件执行或准备执行任何操作。因此，你不能对此 DLL 调用 GetModuleFileName、
+//      GetModuleHandle 或 GetProcAddress 等函数。使用此值会导致对只读内存的写入引发访问
+//      冲突，当你只想加载 DLL 以从中提取消息或资源时，请使用此标志。此值可与 LOAD_LIBRARY_AS_IMAGE_RESOURCE
+//      一起使用。
+//      将 DLL 作为数据映射到进程地址空间中，不会执行任何代码，不会使用相应的方式为不同
+//      的段所属页面设置任何保护属性。如果一个 DLL 使用这个标志载入，当对这个 DLL 调用
+//      GetProcAddress 的时候，返回值将是 NULL，而 GetLastError 会返回 ERROR_MOD_NOT_FOUND。
+//      出于几个原因，这个标志非常有用。首先，如果我们有一个 DLL，其中只包含资源而不包
+//      含函数，那么我们可以指定这个标志来将 DLL 的文件映像映射到进程的地址空间中。然后
+//      我们可以使用返回的 HMOUDLE 值，调用资源载入函数。另外，如果想要使用一个 exe 文件
+//      中包含的资源，我们也可以使用这个标志。通常载入一个 exe 文件会启动一个新的进程，但
+//      我们也可以将 exe 文件映像映射到进行地址空间中，然后访问其中的资源。由于 exe 文件
+//      没有 DllMain 函数，因此必须指定 LOAD_LIBRARY_AS_DATAFILE 标志。
+//  4.  LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE 0x00000040
+//      类似于 LOAD_LIBRARY_AS_DATAFILE，但 DLL 文件以调用进程的独占写访问权限打开，其他
+//      进程无法在其使用时打开 DLL 文件进行写访问。但是，DLL 仍可由其他进程打开。此值可与
+//      LOAD_LIBRARY_AS_IMAGE_RESOURCE 一起使用。Windows Server 2003 和 Windows XP：此值
+//      直到 Windows Vista 才受支持。
+//      这个值与 LOAD_LIBRARY_AS_DATAFILE 相比，提供了更好的安全性，因此除非想让其他应用程
+//      序能够对 DLL 文件的内容进行修改，建议使用这个标志。
+//  5.  LOAD_LIBRARY_AS_IMAGE_RESOURCE 0x00000020
+//      如果使用此值，系统会将文件作为映像文件映射到进程的虚拟地址空间中。但是，加载器不
+//      会加载静态导入或执行其他通常的初始化步骤。当你只想加载 DLL 以从中提取消息或资源时，
+//      请使用此标志。
+//      除非应用程序依赖文件具有映像的内存布局，否则此值应与 LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE
+//      或 LOAD_LIBRARY_AS_DATAFILE 一起使用。Windows Server 2003 和 Windows XP：此值直到
+//      Windows Vista 才受支持。
+//      类似于 LOAD_LIBRARY_AS_DATAFILE，但有一点略有不同，当系统载入 DLL 的时候，会对相对
+//      虚拟地址（RVA，relative virtual address）进行修复。这样，RVA 就可以直接使用，而不必
+//      再根据 DLL 载入到的内存地址来对它们进行转换。当需要对 DLL 进行解析来遍历其中的 PE
+//      分段时，这个标志特别有用。
+//  6.  LOAD_LIBRARY_SEARCH_APPLICATION_DIR 0x00000200
+//      如果使用此值，则在应用程序的安装目录中搜索 DLL 及其依赖项，不搜索标准搜索路径中的
+//      目录。此值不能与 LOAD_WITH_ALTERED_SEARCH_PATH 组合。
+//      Windows 7、Windows Server 2008 R2、Windows Vista 和 Windows Server 2008：此值需要
+//      安装 KB2533623。Windows Server 2003 和 Windows XP：此值不受支持。 https://support.microsoft.com/kb/2533623
+//  7.  LOAD_LIBRARY_SEARCH_DEFAULT_DIRS 0x00001000
+//      此值是 LOAD_LIBRARY_SEARCH_APPLICATION_DIR、LOAD_LIBRARY_SEARCH_SYSTEM32 和 LOAD_LIBRARY_SEARCH_USER_DIRS
+//      的组合，不搜索标准搜索路径中的目录。此值不能与 LOAD_WITH_ALTERED_SEARCH_PATH 组
+//      合。此值表示推荐的最大目录数，应用程序应该包含的，用于 DLL 搜索路径。
+//      Windows 7、Windows Server 2008 R2、Windows Vista 和 Windows Server 2008：此值需
+//      要安装 KB2533623。Windows Server 2003 和 Windows XP：此值不受支持。
+//  8.  LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR 0x00000100
+//      如果使用此值，则包含 DLL 的目录会临时添加到搜索 DLL 依赖项的目录列表的开头，不搜
+//      索标准搜索路径中的目录。lpFileName 参数必须指定完全限定路径。此值不能与 LOAD_WITH_ALTERED_SEARCH_PATH
+//      组合。例如，如果 Lib2.dll 是 C:\Dir1\Lib1.dll 的依赖项，使用此值加载 Lib1.dll 会
+//      导致系统仅在 C:\Dir1 中搜索 Lib2.dll。要在 C:\Dir1 和 DLL 搜索路径中的所有目录中
+//      搜索 Lib2.dll，请将此值与 LOAD_LIBRARY_SEARCH_DEFAULT_DIRS 组合。完全限定路径，是
+//      从根开始的完整路径（C:\... 或 \\...\...），不含相对符号（. ..），不依赖当前目录
+//      或环境变量。为什么 LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR 要求完全限定路径？如果路径本身
+//      就不完整，系统无法确定"DLL 所在目录"是哪个目录。
+//      Windows 7、Windows Server 2008 R2、Windows Vista 和 Windows Server 2008：此值需要
+//      安装 KB2533623。Windows Server 2003 和 Windows XP：此值不受支持。
+//  9.  LOAD_LIBRARY_SEARCH_SYSTEM32 0x00000800
+//      如果使用此值，则在 %windows%\system32 中搜索 DLL 及其依赖项，不搜索标准搜索路径中
+//      的目录。此值不能与 LOAD_WITH_ALTERED_SEARCH_PATH 组合。
+//      Windows 7、Windows Server 2008 R2、Windows Vista 和 Windows Server 2008：此值需要
+//      安装 KB2533623。Windows Server 2003 和 Windows XP：此值不受支持。
+//  10. LOAD_LIBRARY_SEARCH_USER_DIRS 0x00000400
+//      如果使用此值，则在使用 AddDllDirectory 或 SetDllDirectory 函数添加的目录中搜索 DLL
+//      及其依赖项。如果添加了多个目录，则搜索目录的顺序未指定。不搜索标准搜索路径中的目录。
+//      此值不能与 LOAD_WITH_ALTERED_SEARCH_PATH 组合。
+//      Windows 7、Windows Server 2008 R2、Windows Vista 和 Windows Server 2008：此值需要
+//      安装 KB2533623。Windows Server 2003 和 Windows XP：此值不受支持。
+//  11. LOAD_WITH_ALTERED_SEARCH_PATH 0x00000008
+//      如果使用此值且 lpFileName 指定了绝对路径，则系统使用"备注"部分中讨论的备用文件搜索
+//      策略来查找指定模块的关联模块。如果使用此值且 lpFileName 指定了相对路径，则行为未定
+//      义。
+//      如果未使用此值，或 lpFileName 未指定路径，则系统使用"备注"部分中讨论的标准搜索策略
+//      来查找指定模块的关联模块。此值不能与任何 LOAD_LIBRARY_SEARCH 标志组合。
+//  12. LOAD_LIBRARY_REQUIRE_SIGNED_TARGET 0x00000080
+//      指定必须在加载时检查二进制映像的数字签名。此值需要 Windows 8.1、Windows 10 或更高
+//      版本。
+//  13. LOAD_LIBRARY_SAFE_CURRENT_DIRS 0x00002000
+//      如果使用此值，则仅当 DLL 位于安全加载列表中的目录下时，才允许从当前目录加载用于执
+//      行的 DLL。
+//
+// LoadLibraryEx 函数与 LoadLibrary 函数非常相似。区别在于 LoadLibraryEx 提供如下的一组
+// 可选行为。你通过设置 dwFlags 参数来选择这些可选行为；如果 dwFlags 为零，则 LoadLibraryEx
+// 的行为与 LoadLibrary 完全相同。
+//  1.  LoadLibraryEx 可以在不调用 DLL 的 DllMain 函数的情况下加载 DLL 模块。
+//  2.  LoadLibraryEx 可以以一种针对模块永远不会被执行的情况优化的方式加载模块，将模块加载为好像它是数据文件。
+//  3.  LoadLibraryEx 可以使用两种搜索策略之一查找模块及其关联模块，或者使用通过 SetDefaultDllDirectories 和 AddDllDirectory 函数建立的进程特定目录集进行搜索。
+//
+// 调用进程可以使用 LoadLibraryEx 返回的句柄在调用 GetProcAddress、FindResource 和 LoadResource
+// 函数时标识模块。要启用或禁用在 DLL 加载期间加载器显示的错误消息，请使用 SetErrorMode 函数。
+// 从 DllMain 调用 LoadLibraryEx 是不安全的。有关更多信息，请参阅 DllMain 中的"备注"部分。
+//
+// https://learn.microsoft.com/en-us/windows/desktop/Dlls/using-thread-local-storage-in-a-dynamic-link-library
+// Visual C++ 编译器支持一种语法，允许你声明线程局部变量 __declspec(thread)。如果你在 DLL 中
+// 使用此语法，则在 Windows Vista 之前的 Windows 版本上无法使用 LoadLibraryEx 显式加载该 DLL。
+// 如果你的 DLL 将被显式加载，则必须使用线程局部存储函数而不是 __declspec(thread)。有关示例，
+// 请参阅"在动态链接库中使用线程局部存储"。
+//
+// 将 DLL 作为数据文件或映像资源加载。LOAD_LIBRARY_AS_DATAFILE、LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE
+// 和 LOAD_LIBRARY_AS_IMAGE_RESOURCE 值会影响每进程引用计数和指定模块的加载。如果为 dwFlags
+// 参数指定了这些值中的任何一个，加载器会检查进程是否已将模块作为可执行 DLL 加载。如果是，    *** 加载作为数据文件时，如果已经作为可执行模块加载，将仍然作为可执行模块加载
+// 则意味着模块已映射到调用进程的虚拟地址空间中。在这种情况下，LoadLibraryEx 返回 DLL 的
+// 句柄并增加 DLL 引用计数。如果 DLL 模块尚未作为 DLL 加载，则系统将模块映射为数据或映像
+// 文件，而不是作为可执行 DLL。在这种情况下，LoadLibraryEx 返回已加载数据或映像文件的句柄，
+// 但不增加模块的引用计数，也不使模块对 CreateToolhelp32Snapshot 或 EnumProcessModules
+// 等函数可见。如果两次调用 LoadLibraryEx 加载同一文件，且使用 LOAD_LIBRARY_AS_DATAFILE、     *** 对同一个文件使用标志加载两次，将为该文件创建两个单独的映射
+// LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE 或 LOAD_LIBRARY_AS_IMAGE_RESOURCE，则会为该文件创
+// 建两个单独的映射。
+//
+// 当使用 LOAD_LIBRARY_AS_IMAGE_RESOURCE 值时，模块以 PE 分段对齐扩展的形式被映射到内存
+// 地址中。相对虚拟地址（RVA）不必映射到磁盘地址，因此可以更快地从模块中检索资源。指定
+// LOAD_LIBRARY_AS_IMAGE_RESOURCE 可防止其他进程在模块加载时修改它。
+//
+// PE 是 Windows 可执行文件（.exe/.dll）的标准格式，其内存布局与磁盘布局不同。文件对齐
+// 通常是 0x200（512 字节），磁盘 I/O 的最小单位。内存对齐（SectionAlignment）通常是 0x1000
+// （4096 字节，页大小），虚拟内存管理的最小单位。"PE section alignment expansion" 含义
+// 是，加载器将磁盘上紧凑排列的各节，按内存页边界重新对齐展开，以便 CPU/MMUV 进行内存保
+// 护（代码页只读、数据页可读写）。
+//      磁盘上的 PE 文件（未对齐）          内存中的 PE 映像（对齐后）
+//      ┌─────────────┐                    ┌─────────────┐
+//      │   DOS 头    │                    │   DOS 头    │
+//      ├─────────────┤                    ├─────────────┤
+//      │   PE 头     │                    │   PE 头     │
+//      ├─────────────┤                    ├─────────────┤
+//      │   节表      │                    │   节表      │
+//      ├─────────────┤                    ├─────────────┤
+//      │  .text 节   │ ← 文件偏移 0x400   │  填充       │ ← 虚拟地址 0x1000，对齐到页面大小
+//      │  (代码)     │   大小 0x800       │  .text 节   │
+//      ├─────────────┤                    │  (代码)     │   大小 0x1000
+//      │  .data 节   │ ← 文件偏移 0xC00   ├─────────────┤
+//      │  (数据)     │   大小 0x200       │  填充       │ ← 虚拟地址 0x2000，对齐到页面大小
+//      ├─────────────┤                    │  .data 节   │
+//      │  .rsrc 节   │ ← 文件偏移 0xE00   │  (数据)     │   大小 0x1000
+//      │  (资源)     │   大小 0x500       ├─────────────┤
+//      └─────────────┘                    │  .rsrc 节   │ ← 虚拟地址 0x3000，对齐到页面大小
+//                                         │  (资源)     │   大小 0x1000
+//                                         └─────────────┘
+// 使用 LOAD_LIBRARY_AS_IMAGE_RESOURCE 标识时，Windows 加载器完整执行 PE 加载流程——解析
+// PE 头、按内存对齐展开各节、建立虚拟地址映射，但跳过执行初始化（不调用 DllMain，不解析
+// 静态导入）。与 LOAD_LIBRARY_AS_DATAFILE 的区别：DATAFILE 文件原样映射到内存，保持磁盘
+// 布局，不解析 PE 结构；IMAGE_RESOURCE 执行完整的 PE 内存布局重建，但仅用于资源访问。
+//
+// 相对虚拟地址（RVA）不必映射到磁盘地址，因此可以更快地从模块中检索资源。相对虚拟地址
+// （RVA）基于内存对齐后的布局，而非磁盘文件布局。为什么更快？DATAFILE 方式（慢）：
+// 资源 RVA 0x3000 → 需要换算成磁盘偏移 0xE00 → 文件定位 → 读取。换算公式：磁盘偏移 =
+// 节文件偏移 + (RVA - 节虚拟地址)。IMAGE_RESOURCE 方式（快）：资源 RVA 0x3000 → 直接
+// 映射到内存地址 Base + 0x3000 → 直接访问。无需换算，因为内存布局与 PE 头描述的完全一
+// 致。
+//
+// 指定 LOAD_LIBRARY_AS_IMAGE_RESOURCE 可防止其他进程在模块加载时修改它。作为映像加载时，
+// 系统以只读共享方式映射文件，内存页映射到底层文件，且标记为 PAGE_READONLY，其他进程尝
+// 试以写入方式打开该 DLL 会失败（文件被锁定）。
+//      LOAD_LIBRARY_AS_DATAFILE            PAGE_READONLY               无文件锁定      其他进程能否修改，可以（文件未被锁定）
+//      LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE  PAGE_READONLY               独占打开        不可以
+//      LOAD_LIBRARY_AS_IMAGE_RESOURCE      PAGE_READONLY（映像映射）   共享但映像锁定  不可以
+//
+// 除非应用程序依赖特定的映像映射特性，否则 LOAD_LIBRARY_AS_IMAGE_RESOURCE 值应与 LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE
+// 或 LOAD_LIBRARY_AS_DATAFILE 一起使用。这允许加载器自动选择将模块作为映像资源还是数据
+// 文件加载，选择选项使系统能更有效地共享页面。资源函数（如 FindResource）可以使用任一
+// 这两者映射。要确定模块的加载方式，请使用以下宏之一测试 LoadLibraryEx 返回的句柄。
+//      #define LDR_IS_DATAFILE(handle)      (((ULONG_PTR)(handle)) & (ULONG_PTR)1)
+//      #define LDR_IS_IMAGEMAPPING(handle)  (((ULONG_PTR)(handle)) & (ULONG_PTR)2)
+//      #define LDR_IS_RESOURCE(handle)      (LDR_IS_IMAGEMAPPING(handle) || LDR_IS_DATAFILE(handle))
+//
+// LDR_IS_DATAFILE(handle) 如果此宏返回 TRUE，则模块作为数据文件加载（LOAD_LIBRARY_AS_DATAFILE 或 LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE）。
+// LDR_IS_IMAGEMAPPING(handle) 如果此宏返回 TRUE，则模块作为映像文件加载（LOAD_LIBRARY_AS_IMAGE_RESOURCE）。
+// LDR_IS_RESOURCE(handle) 如果此宏返回 TRUE，则模块作为数据文件或映像文件加载。
+//
+// 使用 FreeLibrary 函数释放已加载的模块，无论加载模块是否导致其引用计数增加。如果模块作
+// 为数据或映像文件加载，则映射被销毁但引用计数不减少。否则，DLL 引用计数减少。因此，使
+// 用 LoadLibraryEx 返回的任何句柄调用 FreeLibrary 都是安全的。
+//
+// 搜索 DLL 和依赖项，搜索路径是搜索 DLL 的目录集。LoadLibraryEx 函数可以使用标准搜索路
+// 径或备用搜索路径搜索 DLL，或者使用通过 SetDefaultDllDirectories 和 AddDllDirectory 函
+// 数建立的进程特定搜索路径。有关目录列表及其搜索顺序，请参阅"动态链接库搜索顺序"。
+// https://learn.microsoft.com/en-us/windows/desktop/Dlls/dynamic-link-library-search-order
+//
+// LoadLibraryEx 函数在以下情况下使用标准搜索路径：
+//  1.  文件名未指定路径，且基本文件名与已加载模块的基本文件名不匹配，且未使用任何 LOAD_LIBRARY_SEARCH 标志。
+//  2.  指定了路径但未使用 LOAD_WITH_ALTERED_SEARCH_PATH。
+//  3.  应用程序未使用 SetDefaultDllDirectories 为进程指定默认 DLL 搜索路径。
+//
+// 如果 lpFileName 指定了相对路径，则整个相对路径附加到 DLL 搜索路径的每一项中。要从相对
+// 路径加载模块而不搜索任何其他路径，请使用 GetFullPathName 获取非相对路径，然后使用非相
+// 对路径调用 LoadLibraryEx。如果模块作为数据文件加载且相对路径以"."或".."开头，则相对路
+// 径被视为绝对路径。
+//
+// 如果 lpFileName 指定了绝对路径且 dwFlags 设置为 LOAD_WITH_ALTERED_SEARCH_PATH，则 LoadLibraryEx
+// 使用备用搜索路径（altered search path）。当设置了 LOAD_WITH_ALTERED_SEARCH_PATH 标志且
+// lpFileName 指定了相对路径时，行为未定义。
+//
+// SetDllDirectory 函数可用于修改搜索路径。此解决方案比使用 SetCurrentDirectory 或对 DLL
+// 硬编码完整路径更好。但是，请注意，使用 SetDllDirectory 在指定目录位于搜索路径中时有效
+// 地禁用安全 DLL 搜索模式，且它不是线程安全的。如果可能，最好使用 AddDllDirectory 修改默
+// 认进程搜索路径。有关更多信息，请参阅"动态链接库搜索顺序"。
+//
+// 应用程序可以使用 LOAD_LIBRARY_SEARCH_* 标志指定单个 LoadLibraryEx 调用要搜索的目录。如
+// 果指定了多个 LOAD_LIBRARY_SEARCH 标志，则按以下顺序搜索目录：
+//  1.  包含 DLL 的目录（LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR），此目录仅搜索要加载的 DLL 的依
+//      赖项。
+//  2.  应用程序目录（LOAD_LIBRARY_SEARCH_APPLICATION_DIR）。
+//  3.  使用 AddDllDirectory 函数（LOAD_LIBRARY_SEARCH_USER_DIRS）或 SetDllDirectory 函数
+//      显式添加到应用程序搜索路径的路径。如果添加了多个路径，则搜索路径的顺序未指定。
+//  4.  System32 目录（LOAD_LIBRARY_SEARCH_SYSTEM32）。
+//
+// Windows 7、Windows Server 2008 R2、Windows Vista 和 Windows Server 2008：LOAD_LIBRARY_SEARCH_
+// 标志在安装了 KB2533623 的系统上可用。要确定这些标志是否可用，请使用 GetProcAddress 获取
+// AddDllDirectory、RemoveDllDirectory 或 SetDefaultDllDirectories 函数的地址。如果 GetProcAddress
+// 成功，则 LOAD_LIBRARY_SEARCH_ 标志可以与 LoadLibraryEx 一起使用。如果应用程序已使用
+// SetDefaultDllDirectories 函数为进程建立 DLL 搜索路径，且未使用任何 LOAD_LIBRARY_SEARCH_*
+// 标志，则 LoadLibraryEx 函数使用进程 DLL 搜索路径而不是标准搜索路径。
+//
+// 如果指定了路径且存在与应用程序关联的重定向文件，则 LoadLibraryEx 函数在应用程序目录中
+// 搜索模块。如果模块存在于应用程序目录中，LoadLibraryEx 忽略路径规范并从应用程序目录加载
+// 模块。如果模块不存在于应用程序目录中，则函数从指定的目录加载模块。有关更多信息，请参阅
+// "动态链接库重定向"。 https://learn.microsoft.com/en-us/windows/desktop/Dlls/dynamic-link-library-redirection
+//
+// 如果你调用 LoadLibraryEx 时只指定程序集名称而不指定路径，且该程序集在系统兼容清单中列
+// 出，则调用会自动重定向到并行程序集（side-by-side assembly）。
+//
+// 安全性。LOAD_LIBRARY_AS_DATAFILE 不会阻止其他进程在模块加载时修改它，这可能使你的应
+// 用程序安全性降低，所以在将模块作为数据文件加载时，应使用 LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE
+// 而不是 LOAD_LIBRARY_AS_DATAFILE，除非你特别需要使用 LOAD_LIBRARY_AS_DATAFILE。指定
+// LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE 可防止其他进程在模块加载时修改它。不要在同一调用
+// 中同时指定 LOAD_LIBRARY_AS_DATAFILE 和 LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE。
+//
+// 不要使用 SearchPath 函数检索路径以供后续 LoadLibraryEx 调用加载 DLL。SearchPath 函数
+// 使用的搜索顺序与 LoadLibraryEx 不同，除非通过调用 SetSearchPathMode 并指定 BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE
+// 显式启用，否则它不会使用安全进程搜索模式。因此，SearchPath 可能会首先在当前工作目录中
+// 搜索指定的 DLL。如果攻击者已将恶意版本的 DLL 复制到当前工作目录，则 SearchPath 检索到
+// 的路径将指向恶意 DLL，然后 LoadLibraryEx 将加载该恶意 DLL。
+//
+// 不要基于搜索 DLL 的 LoadLibraryEx 调用对操作系统版本做出假设。如果应用程序在 DLL 合法
+// 不存在但恶意版本的 DLL 在搜索路径中的环境中运行，则可能加载恶意版本的 DLL。相反，请使
+// 用"获取系统版本"中描述的推荐技术。有关 DLL 安全问题的总体讨论，请参阅"动态链接库安全性"。
+// https://learn.microsoft.com/en-us/windows/desktop/Dlls/dynamic-link-library-security
 
 #ifdef PRH_MMAP_IMPLEMENTATION
 
