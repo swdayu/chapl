@@ -5656,6 +5656,330 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 //      3.  LOAD_LIBRARY_SEARCH_USER_DIRS，搜索使用 AddDllDirectory 函数或 SetDllDirectory
 //          函数显式添加的路径，如果你添加了多个路径，则搜索路径的顺序未指定
 //      4.  LOAD_LIBRARY_SEARCH_SYSTEM32，搜索系统文件夹
+//
+// BOOL SetDllDirectory([in, optional] LPCSTR lpPathName);
+// LPCSTR GetDllDirectory(void);
+// DLL_DIRECTORY_COOKIE AddDllDirectory([in] PCWSTR NewDirectory);
+// BOOL RemoveDllDirectory([in] DLL_DIRECTORY_COOKIE Cookie);
+// BOOL SetDefaultDllDirectories([in] DWORD DirectoryFlags);
+// SetCurrentDirectory
+// GetSystemDirectory
+// GetWindowsDirectory
+// SetErrorMode
+// FindResource
+// LoadResource
+//
+// DWORD GetModuleFileName([in, optional] HMODULE hModule, [out] LPSTR lpFilename, [in] DWORD nSize);
+// DWORD GetModuleFileNameEx([in] HANDLE hProcess, [in, optional] HMODULE hModule, [out] LPSTR lpFilename, [in] DWORD nSize);
+//
+// HMODULE GetModuleHandle([in, optional] LPCSTR lpModuleName);
+// BOOL GetModuleHandleEx([in] DWORD dwFlags, [in, optional] LPCSTR lpModuleName, [out] HMODULE *phModule);
+//
+// BOOL FreeLibrary([in] HMODULE hLibModule);
+// VOID FreeLibraryAndExitThread([in] HMODULE hLibModule, [in] DWORD dwExitCode);
+// libloaderapi.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 当进程不再需要引用 DLL 中的符号时，我们应该调用 FreeLibrary 显式地将 DLL 从进程地址
+// 空间中卸载。我们还可以调用 FreeLibraryAndExitThread 将一个 DLL 模块从进程的地址空间
+// 中卸载。有这个函数的原因是，假设我们正在编写一个 DLL，在一开始被映射到进程的地址空间
+// 中时，这个 DLL 会创建一个线程，当线程完成它的工作后，可以先后调用 FreeLibrary 和 ExitThread
+// 来从进程空间中撤销对 DLL 的映射并终止线程。但如果分别这样调用，会出现一个严重的问题，
+// 就是 FreeLibrary 会立即从进程的地址空间中撤销对 DLL 的映射，当 FreeLibrary 调用返回
+// 后，调用 ExitThread 的代码已经不复存在了，线程试图执行的是不存在的代码，这将引入访问
+// 违规，并导致整个进程被终止。而如果调用 FreeLibraryAndExitThread，那么这个函数会调用
+// FreeLibrary 使得撤销 DLL 的映射，要执行的下一个函数的指令仍在 Kernel32.dll 中，而不
+// 是在已经被撤销映射的 DLL 中。这意味着线程可以继续执行并调用 ExitThread，最后使线程
+// 终止并且不再返回。
+//
+// 实际上，每个 DLL 在进程中有一个与之对应的使用计数，LoadLibrary 和 LoadLibraryEx 函数
+// 会递增该使用计数，而 FreeLibrary 和 FreeLibraryAndExitThread 会递减该使用计数。例如，
+// 当我们第一次调用 LoadLibrary 载入一个 DLL 的时候，系统会将 DLL 的文件映像映射到调用
+// 进程的地址空间中，并将 DLL 的使用计数设为 1。如果同一个进程中的一个线程后来在调用该
+// 函数载入同一个 DLL 文件映像的时候，系统不会再次将 DLL 映射到进程的地址空间中，它只是
+// 将进程中与该 DLL 对应的使用计数递增。此时需要调用 FreeLibrary 两次，第一次调用只是将
+// DLL 的使用计数递减为 1，第二次调用将 DLL 的使用计数减为 0。当系统发现 DLL 的使用计数
+// 已经为 0 时，会从进程的地址空间中撤销对该 DLL 的映射。如果任何线程再次试图调用该 DLL
+// 中的函数，将引发访问违规，因为原来被映射到进程的地址空间中的代码已经不复存在了。
+//
+// 系统会在每个进程中为每个 DLL 维护一个使用计数，也就是说，如果进程 A 中的一个线程加载
+// mylib.dll，然后进程 B 中的一个线程执行了相同的代码，那么 mylib.dll 会被映射到两个进程
+// 的地址空间中，该 DLL 在进程 A 和进程 B 中的使用计数都是 1。如果进程 B 中的一个线程后
+// 来执行代码释放了该 DLL 映射，那么该 DLL 在进程 B 中的使用计数将变为 0，系统从进程 B
+// 的地址空间中撤销对该 DLL 的映射。但是，这对映射到进程 A 的地址空间中的 DLL 丝毫没有
+// 影响，该 DLL 在进程 A 中的使用计数仍然是 1。
+//
+// 线程可以调用 GetModuleHandle 函数来检测一个 DLL 释放已经被映射到来进程的地址空间中。
+// 例如，只有当 mylib.dll 尚未被映射到进程的地址空间中时，我们才载入它。如果将 NULL 传
+// 给 GetModuleHandle，那么函数会返回应用程序的可执行文件的句柄。
+//      HMOUDLE handle = GetMoudleHandle(TEXT("mylib"));
+//      if (handle == NULL) handle = LoadLibrary(TEXT("mylib"));
+//
+// 使用 DLL 或 EXE 模块句柄或进程句柄，可以调用 GetModuleFileName 得到模块的全路径名称。
+// 第一个参数是该 DLL 或 EXE 的 HMOUDLE，第二三个参数是缓存地址和大小，以字符为单位。如
+// 果传入 NULL 作为 HMOUDLE，那么 GetModuleFileName 会返回当前正在运行的应用程序的可执行
+// 文件的文件名。在进程部分详细介绍了这项方法、__ImageBase 伪变量以及 GetModuleHandleEx
+// 函数。
+//
+// 混用 LoadLibrary 和 LoadLibraryEx 可能会导致将同一个 DLL 映射到同一个地址空间中的不同
+// 位置。例如下面的代码，读者认为 hdll1 hdll2 hdll3 的值分别是什么，显然如果载入的是同一
+// 个 mylib.dll，那么它们的值应该相同。但如果改变代码的顺序，就不那么明显了。
+//      HMODULE hdll1 = LoadLibrary(TEXT("mylib.dll"));
+//      HMODULE hdll2 = LoadLibraryEx(TEXT("mylib.dll"), NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+//      HMODULE hdll3 = LoadLibraryEx(TEXT("mylib.dll"), NULL, LOAD_LIBRARY_AS_DATAFILE);
+//
+// 在这种情况下，hdll1 hdll2 hdll3 各不相同，当我们用 LOAD_LIBRARY_AS_DATAFILE 或 LOAD_LIBRARY_AS_IMAGE_RESOURCE
+// 标志调用 LoadLibraryEx 的时候，操作系统先检测该 DLL 是否已经被正常（不使用这些标志）载
+// 入过。如果已经被载入过，那么函数会返回地址空间中 DLL 以被映射的地址。但是，如果 DLL 尚
+// 未被载入，那么 Windows 会将该 DLL 载入到地址空间中一个可用的地址，但并不认为它是一个完
+// 全载入的 DLL。这时如果用这个模块句柄调用 GetModuleFileName 那么将得到返回值 0。这是一种
+// 非常好的方法，可以让我们知道与一个 DLL 相对应的模块句柄并不包含动态函数，因此无法通过
+// GetProcAddress 得到函数地址并对函数进行调用。
+//      HMODULE hdll1 = LoadLibraryEx(TEXT("mylib.dll"), NULL, LOAD_LIBRARY_AS_DATAFILE);
+//      HMODULE hdll2 = LoadLibraryEX(TEXT("mylib.dll"), NULL, LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+//      HMODULE hdll3 = LoadLibrary(TEXT("mylib.dll"));
+//
+// 始终应该记住的是，即便 LoadLibrary 和 LoadLibraryEx 载入的 DLL 理应是磁盘上的同一个文件，
+// 我们也不能将它们返回的映射地址互换使用。
+//
+// 显式的链接到导出符号。一旦显式地载入一个 DLL 模块，线程必须通过调用下面的函数来得到它
+// 想要引用的符号地址。参数 lpProcName 可以有两种形式，第一种形式是用符号名来指定我们想要
+// 得到哪个符号的地址，符号名通过一个以字符零为终止符的字符串来指定。注意，该参数在函数原
+// 型中的类型为 PCSTR，而不是 PCTSTR，这意味着 GetProcAddress 函数只能接受 ANSI 字符串，
+// 我们从来不会传 Unicode 字符串给这个函数，这是因为编译器/链接器始终都是将符号的名称以
+// ANSI 字符串的形式保存在 DLL 的导出段中。参数 lpProcName 的第二种形式是用序号来指定我们
+// 想要得到哪个符号的地址 MAKEINTRESOURCE(2)，这种用法假定我们知道 DLL 的创建者给我们想
+// 要的符号名指定的序号为 2。再强调一次，Microsoft 强烈反对使用序号，因此我们不会经常看
+// 到 GetProcAddress 的第二种用法。
+//
+// FARPROC GetProcAddress([in] HMODULE hModule, [in] LPCSTR lpProcName);
+//
+// 两种形式都能够从 DLL 中得到我们想要的符号地址，如果 DLL 模块的导出段中不包含指定的符号，
+// 那么 GetProcAddress 会返回 NULL，表示调用失败。应该意识到的是，调用 GetProcAddress 的
+// 第一种方法要比第二种方法慢，因为系统必须根据传入的符号来执行字符串比较和搜索。如果使用
+// 第二种方法，即使传入的序号并没有任何导出函数与之相对应，GetProcAddress 也可能会返回一个
+// 非 NULL 值。这个返回值会让我们的应用程序误以为得到了一个有效的地址，但事实上却并非如此，
+// 试图调用这个地址几乎肯定会引发访问违规。在我们早期的 Windows 编程生涯中，我并不完全理解
+// 这种行为，也多次为其所害，因此请读者务必小心。这种行为也是我们应该优先使用符号名而避免
+// 使用序号的另一个原因。在能够用 GetProcAddress 返回的函数指针来调用函数之前，我们需要将
+// 它转型为与函数的签名匹配的正确类型。
+//
+// DLL 的入口点函数。一个 DLL 可以有一个入口点函数，系统会在不同时候调用这个入口函数，具体
+// 什么时候我们马上就会介绍。这些调用是通知性质的，通常被 DLL 用来执行一些与进程或线程有关
+// 的初始化和清理工作。如果 DLL 不需要这些通知，那么我们可以不必在源代码中实现这个入口函数。
+// 例如，如果要创建一个只包含资源的 DLL，那么我们就不需要实现这个函数。如果想要在 DLL 中
+// 接收通知，那么我们可以像下面这样实现这个入口函数。函数名 DllMain 是区分大小写的，如果我
+// 们将入口点函数命名为 DllMain 之外的其他名称，那么虽然代码仍然能够编译和链接，但我们的
+// 入口函数将永远不会被调用，DLL 也永远不会进行初始化。
+//      BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, PVOID implicit_load) {
+//          switch (reason) {
+//          case DLL_PROCESS_ATTACH:
+//              break; // DLL 被映射到进程空间中
+//          case DLL_PROCESS_DETACH:
+//              break; // DLL 映射被撤销
+//          case DLL_THREAD_ATTACH:
+//              break; // 一个线程被创建
+//          case DLL_THREAD_DETACH:
+//              break; // 一个线程已经干净地退出
+//          }
+//          return TRUE; // 仅用于 DLL_PROCESS_ATTACH
+//      }
+//
+// HINSTANCE 表示该 DLL 实例的句柄，这个值表示一个虚拟内存地址，DLL 的文件映像被映射到
+// 进程地址空间中的这个位置。我们通常将这个参数保存在一个全局变量中，这样在调用资源载入
+// 函数时（例如 DialogBox 或者 LoadString），就可以使用它。如果 DLL 是隐式载入的，那么
+// 最后一个参数 implicit_load 的值将不为零，如果 DLL 是显式载入的，那么 implicit_load
+// 的值将为零。而参数 reason 表示系统调用入口函数的原因。
+//
+// 必须记住的是，DLL 使用 DllMain 函数来对自己进行初始化，DllMain 函数执行的时候，同一个
+// 地址空间中的其他 DLL 可能还没有执行它的 DllMain。这意味着它们尚未初始化，因此我们应该
+// 避免调用那些从其他 DLL 中导入的函数。此外，我们应该避免在 DllMain 中调用 LoadLibrary
+// 和 FreeLibrary，因为这些函数可能会产生循环依赖。Platform SDK 文档说 DllMain 函数只应
+// 该执行简单的初始化，比如设置线程局部存储区，创建内核对象，打开文件，等等。我们必须避免
+// 调用 User、Shell、ODBC、COM、RPC 以及套接字函数，或其他调用了这些函数的函数，这是因为
+// 包含这些函数的 DLL 可能尚未初始化完毕，或者函数可能会在内部调用 LoadLibrary，从而产生
+// 循环依赖。
+//
+// 另外值得注意的是，如果要创建全局或静态 C++ 对象，会存在同样的问题，因为在 DllMain 函数
+// 被调用的同时，这些对象的构造函数和析构函数也会被调用。DllMain 入口函数在执行时存在一些
+// 限制，这些限制与获取进程范围内的加载程序锁（loader lock）有关。
+// https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-library-best-practices
+//
+// (1)  DLL_PROCESS_ATTACH 通知
+//
+// 当系统第一次将一个 DLL 映射到进程的地址空间中时，会调用 DllMain 函数。如果再次调用加载
+// 函数加载一个已经被映射的 DLL，那么操作系统只不过是递增该 DLL 的使用计数，而不会再次使用
+// DLL_PROCESS_ATTACH 来调用 DllMain 函数。
+//
+// 当一个 DLL 在处理 DLL_PROCESS_ATTACH 的时候，应该根据包含在 DLL 中的函数的需要，来执行
+// 与进程相关的初始化。例如，一个 DLL 中可能包含一些函数，这些函数需要使用自己的堆（在进程
+// 地址空间中创建）。该 DLL 的 DllMain 函数可以在处理该通知时调用 HeapCreate 创建所需的堆。
+// 为了让 DLL 中的函数能够访问刚才创建的堆的句柄，我们可以将它保存在一个该 DLL 函数能访问
+// 到的全局变量中。当 DllMain 处理该通知的时候，DllMain 的返回值用来表示该 DLL 的初始化是
+// 否成功。例如调用 HeapCreate 成功，那么 DllMain 应该返回 TRUE，否则返回 FALSE。如果 reason
+// 是任何其他值，那么系统将忽略 DllMain 的返回值。
+//
+// 当然，系统中的某个线程必须负责执行 DllMain 函数中的代码，创建新的进程时，系统会分配进程
+// 地址空间并将 EXE 的文件映像以及所需 DLL 的文件映像映射到进行的地址空间中。然后，系统将创
+// 建进行的主线程并用这个线程来调用每个 DLL 的 DllMain 函数，同时传入 DLL_PROCESS_ATTACH。
+// 当所有以映射的 DLL 都完成对该通知的处理后，系统会让进程的主线程开始执行可执行模块的 C/C++
+// 运行时启动代码（startup code），然后执行可执行模块的入口函数（_tmain 或 _tWinMain）。如果
+// 任何一个 DLL 的 DllMain 函数返回 FALSE，也就是说初始化没有成功，那么系统会把所有的文件映
+// 像从地址空间中移除，向用户显示一个消息框来告知用户进程无法启动，然后终止整个进程。
+//
+// 现在让我们看一看显式载入 DLL 时会发生什么，进程调用 LoadLibarry 的时候，系统会对指定的
+// DLL 进行定位，并将该 DLL 映射到进程的地址空间中。然后系统会通过调用 LoadLibrary 的线程
+// 来调用 DLL 的 DllMain 函数，并传入 DLL_PROCESS_ATTACH 值。当 DLL 的 DllMain 函数完成对
+// 通知的处理后，系统会让 LoadLibrary 返回，这样线程就可以继续正常执行。如果 DllMain 函数
+// 返回 FALSE，也就是初始化不成功，那么系统会自动从进程的地址空间中撤销对 DLL 映像的映射，
+// 并让 LoadLibrary 返回 NULL。
+//
+// (2)  DLL_PROCESS_DETACH 通知
+//
+// 当系统将一个 DLL 从进程地址空间中撤销映射时，会调用 DLL 的 DllMain 函数，当 DLL 处理
+// 这个通知时，应该执行与进程相关的清理工作。注意，如果 DllMain 函数在处理 DLL_PROCESS_ATTACH
+// 的时候返回 FALSE，那么 DllMain 将不会收到 DLL_PROCESS_DETACH 通知。如果撤销映射的原因
+// 是因为进程要终止，那么调用 ExitProcess 函数的线程将负责执行 DllMain 函数。在正常情况
+// 下，这个线程就是应用程序的主线程。
+//
+// 如果进程终止是因为系统中的某个线程调用了 TerminateProcess，系统便不会调用 DllMain 函
+// 数。这意味着在进程终止之前，已映射到进程地址空间中的任何 DLL 将没有机会执行任何清理
+// 代码。这可能会导致数据丢失。因此，除非万不得已，我们应该避免使用 TerminateProcess
+// 函数。
+//
+// 如果撤销映射的原因是因为进程中的一个线程调用了 FreeLibrary 或 FreeLibraryAndExitThread，
+// 那么发出调用的线程将执行 DllMain 函数。如果调用的是 FreeLibrary，那么在 DllMain 处理
+// 完 DLL_PROCESS_DETACH 通知前，线程是不会从该调用中返回的。
+//
+// 注意，DLL 可能会阻碍进程的终止，例如当 DllMain 收到 DLL_PROCESS_DETACH 通知的时候，有可
+// 能会进入无限循环。只有当每个 DLL 都处理完 DLL_PROCESS_DETACH 通知之后，操作系统才会真正
+// 地终止进程。
+//
+// (3)  DLL_THREAD_ATTACH 通知
+//
+// 当进程创建一个线程的时候，系统会检查当前映射到该进程地址空间中的所有 DLL 文件映像，并用
+// DLL_THREAD_ATTACH 来调用每个 DLL 的 DllMain 函数，这告诉 DLL 需要执行与线程相关的初始化。
+// 新创建的线程负责执行所有 DLL 的 DllMain 函数中的代码。只有当所有 DLL 都完成了对该通知的
+// 处理之后，系统才会让新线程开始执行它的线程函数。
+//
+// 当系统将一个 DLL 映射到进程的地址空间中时，如果进程已经有多个线程在运行，那么系统不会让
+// 任何已有的线程用 DLL_THREAD_ATTACH 来调用该 DLL 的 DllMain 函数。如果在创建新线程的时候
+// DLL 已经被映射到进程的地址空间中，系统才会用 DLL_THREAD_ATTACH 来调用 DLL 的 DllMain 函
+// 数。
+//
+// 另外要注意的是，系统不会让进程的主线程用 DLL_THREAD_ATTACH 值来调用 DllMain 函数。在进程
+// 创建的时候被映射到进程地址空间中的任何 DLL 会收到 DLL_PROCESS_ATTACH 通知，但不会收到
+// DLL_THREAD_ATTACH 通知。
+//
+// (4)  DLL_THREAD_DETACH 通知
+//
+// 让线程终止的首选方式是让它的线程函数返回，这会使得系统调用 ExitThread 来终止线程。ExitThread
+// 告诉系统该线程想要终止，但系统不会立即终止该线程，而会让这个即将终止的线程调用 DllMain 函数。
+// 这个通知告诉 DLL 执行与线程相关的清理。注意，DLL 可能会妨碍线程的终止，例如当 DllMain 收到
+// DLL_THREAD_DETACH 通知的时候，有可能会进入无限循环。只有当每个 DLL 都处理完 DLL_THREAD_DETACH
+// 通知之后，操作系统才会真正地终止线程。
+//
+// 如果线程终止是因为系统中的线程调用了 TerminateThread，那么系统不会用 DLL_THREAD_DETACH 来
+// 调用所有 DLL 的 DllMain 函数。这意味着在线程终止之前，已映射到进程地址空间中的任何 DLL 将
+// 没有机会执行任何清理代码。这可能会导致数据丢失。因此，与 TerminateProcess 一样，除非万不得
+// 已，我们应该避免使用 TerminateThread 函数。
+//
+// 如果在撤销一个 DLL 映射时还有任何线程在运行，那么系统不会让任何这些线程用 DLL_THREAD_DETACH
+// 调用 DllMain。我们可能想要在自己处理 DLL_PROCESS_DETACH 的代码中对此进行检查，这样就能够进行
+// 任何必要的清理。
+//
+// 前面提到的这些规则可能会导致下面的情况：进程中的一个线程调用 LoadLibrary 载入一个 DLL，这
+// 使得系统用 DLL_PROCESS_ATTACH 调用该 DLL 的 DllMain 函数，注意该线程不会得到 DLL_THREAD_ATTACH
+// 通知。后来，载入该 DLL 的线程退出，这使得系统再次调用 DllMain 函数，传入 DLL_THREAD_DETACH。
+// 注意，虽然当系统将该线程关联到 DLL 的时候，不会向 DLL 发送 DLL_THREAD_ATTACH 同时，但是当
+// 系统将该线程与 DLL 解除连接的时候，却会向该 DLL 发送 DLL_THREAD_DETACH 通知。由于这个原因，
+// 我们在进行与线程相关的清理时必须极其小心。
+//
+// DllMain 的序列化调用。系统会对 DLL 的 DllMain 函数的调用序列化，为了理解序列化的确切
+// 含义，让我们考虑下面的情形。一个进程有两个线程，线程 A 和线程 B。进程的地址空间中还映
+// 射了另一个名为 somedll.dll 的 DLL。两个线程都准备调用 CreateThread 函数来创建另外两个
+// 线程：线程 C 和线程 D。当线程 A 调用 CreateThread 创建线程 C 的时候，系统会用 DLL_THREAD_ATTACH
+// 来调用 somdll.dll 的 DllMain 函数。当线程 C 执行 DllMain 函数的代码时，线程 B 调用
+// CreateThread 创建线程 D。系统必须再次用 DLL_THREAD_ATTACH 来调用 DllMain，但这次是让
+// 线程 D 来执行其中的代码。但是，系统会对 DllMain 的调用序列化，它将线程 D 挂起，直到线
+// 程 C 执行完 DllMain 中的代码并返回为止。当线程 C 执行完 DllMain 中的代码之后，可以开
+// 始执行它的线程函数。现在系统将唤醒线程 D 并让它执行 DllMain 中的代码。当函数返回之后，
+// 线程 D 可以开始执行它的线程函数。
+//
+// 通常我们根本不会考虑 DllMain 这种序列化调用，之所以在这里专门提到这个问题，是因为之前
+// 遇到过由 DllMain 序列化调用而导致的缺陷，如以下代码。你能看出问题吗？当 DllMain 收到
+// DLL_PROCESS_ATTACH 通知的时候，会创建一个新的线程，系统必须调用 DLL_THREAD_ATTACH 来
+// 再次调用 DllMain。但是来线程尚未完成对 DllMain 的处理，因此新线程会被挂起。弯头处在
+// 对 WaitForSingleObject 的调用，这个函数会把当前正在执行的线程挂起，直到新的线程结束为
+// 止。但是，由于新线程为了等待当前线程退出 DllMain 函数而被挂起，因此它从来没有机会运行，
+// 更别提运行结束了。这是一个死锁的情况，两个线程都将永远出于挂起状态。
+//      BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, PVOID implicit_load) {
+//          HANDLE thread;
+//          DWORD thred_id;
+//          switch (reason) {
+//          case DLL_PROCESS_ATTACH:
+//              DisableThreadLibraryCalls(instance); // 新增代码
+//              thread = CreateThread(NULL, 0, SomeFunction, NULL, 0, &thread_id);
+//              WaitForSingleObject(thread, INFINITE); // 等待新创建的线程结束
+//              CloseHandle(thread);
+//              break;
+//          }
+//          return TRUE;
+//      }
+//
+// 当我们开始考虑如果解决这个问题的时候，发现了 DisableThreadLibraryCalls 函数。该函数
+// 告诉系统，我们不想让系统向某个指定 DLL 的 DllMain 函数发送 DLL_THREAD_ATTACH 和
+// DLL_THREAD_DETACH 通知。我觉得如果告诉系统不要向该 DLL 发送 DLL 通知，就不会发生死锁
+// 的情形。但是，当我对这个方案进行测试的时候，随即发现这并不能解决问题。因为它不会阻
+// 止调用其他 DLL 的 DllMain 函数。当新线程创建的时候，仍然会需要拿到锁，然后执行其他
+// DLL 的 DllMain 函数，然后释放锁，最后才能执行自己的代码结束线程。但是这个锁一直被
+// 老线程执行 DLL_PROCESS_ATTACH 拿着，并在一直在等待新线程的结束，导致死锁。
+//
+// 问题在于，当系统创建进程的时候，会同时创建一个锁或关键段，每个进程都有自己的锁，多个
+// 进程不会共享同一个锁。当进程中的线程调用映射到进程地址空间中的 DLL 的 DllMain 函数时，
+// 会用这个锁来同步各个线程。注意，在今后的 Windows 版本中，这个锁可能会消失。在程序调
+// 用 CreateThread 的时候，系统首先会创建线程内核对象和线程栈。然后系统会在内部调用 WaitForSingleObject
+// 函数，并传入进程的互斥量对象的句柄。当新线程得到互斥量所有权之后，系统会让新线程用
+// DLL_THREAD_ATTACH 来调用每个 DLL 的 DllMain 函数。只有在这个时候，系统才会调用 ReleaseMutex
+// 来释放对进程互斥量对象的所有权。由于系统是以这种方式运作的，因此添加 DisableThreadLibraryCalls
+// 调用并不能防止线程死锁。我唯一能想到的能够防止线程挂起的方法，就是重新设计这部分代码，
+// 不要在 DLL 的 DllMain 函数中调用 WaitForSingleObject。
+//
+// DllMain 和 C/C++ 运行库。在刚才对 DllMain 函数的讨论中，我们假设读者是用 Microsoft
+// Visual C++ 编译器来构建 DLL 的。在编写一个 DLL 的时候，可能需要 C/C++ 运行库在启动
+// 方面给予我们一些帮助。举个例子，假设我们正在构建的 DLL 包含一个全局变量，这个全局变
+// 量是一个 C++ 类的实例。在我们能够在 DllMain 函数中安全地使用该全局变量之前，必须保证
+// 它的构造函数已经被调用过，这就是 C/C++ 运行库的 DLL 启动代码的工作。
+//
+// 在链接 DLL 的时候，链接器会将 DLL 的入口函数的地址嵌入到生成的 DLL 文件映像中。我们可
+// 以用链接器的 /ENTRY 开关来指定入口函数的地址，在默认情况下，如果用的是 Miscrosoft 链
+// 接器并指定了 /DLL 开关，那么链接器会认为入口点函数的函数名是 _DllMainCRTStartup。这个
+// 函数包含在 C/C++ 运行库中，在链接 DLL 的时候会被静态地链接到 DLL 的文件映像。即便用的
+// 是 C/C++ 运行库的 DLL 版本，对这个函数的链接仍然会是静态的。
+//
+// 系统将 DLL 的文件映像映射到进程的地址空间中时，实际上调用的是 _DllMainCRTStartup 函数，
+// 而不是我们的 DllMain 函数。在将所有的通知都转发到 __DllMainCRTStartup（双下划线）函数
+// 之前，为了支持 /GS 开关所提供的安全特性，_DllMainCRTStartup 函数会对 DLL_PROCESS_ATTACH
+// 通知进行处理。__DllMainCRTStartup 函数会初始化 C/C++ 运行库，并确保在 _DllMainCRTStartup
+// 收到 DLL_PROCESS_ATTACH 通知的时候，所有全局或静态 C++ 对象都已经构造完毕。在 C/C++ 运
+// 行时的初始化完成之后，__DllMainCRTStartup 函数会调用我们的 DllMain 函数。
+//
+// 当 DLL 收到 DLL_PROCESS_DETACH 通知的时候，系统会再次调用 __DllMainCRTStartup 函数。这
+// 一次，该函数会调用我们的 DllMain 函数，当 DllMain 返回的时候，__DllMainCRTStartup 会调
+// 用 DLL 中所有全局或静态 C++ 对象的析构函数。当接收到 DLL_THREAD_ATTACH 或 DLL_THREAD_DETACH
+// 的时候，__DllMainCRTStartup 不会做任何的特殊处理。
+//
+// 前面已经提供过在 DLL 的源代码实现中实现 DllMain 函数并不是必需的。如果没有自己的 DllMain
+// 函数，那么我们可以使用 C/C++ 运行库提供的 DllMain 函数，它的实现看起来大致如下：
+//      BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, PVOID implicit_load) {
+//          if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(instance);
+//          return TRUE;
+//      }
+//
+// 在链接 DLL 的时候，如果链接器无法在 DLL 中的 obj 文件中找到一个名为 DllMain 的函数，
+// 那么它会链接 C/C++ 运行库的 DllMain 函数。如果不提供自己的 DllMain，那么 C/C++ 运行库
+// 认为我们并不关心 DLL_THREAD_ATTACH 和 DLL_THREAD_DETACH 通知。于是为了提升创建线程和
+// 销毁线程的性能，C/C++ 运行库在它提供的 DllMain 函数中调用了 DisableThreadLibraryCalls。
 
 #ifdef PRH_MMAP_IMPLEMENTATION
 
