@@ -6312,6 +6312,183 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 // DLL 也确实被载入到它们的首选基址位置，而且时间戳也吻合，那么它实际上就不需要再做任何事
 // 情了。它不必再对任何模块进行重新定位，它也不必再查看任何导入函数的虚拟地址，应用程序可
 // 以直接开始执行。
+//
+// 模块定义文件格式（Module-Definition Files，.def）
+// https://learn.microsoft.com/en-us/cpp/build/reference/module-definition-dot-def-files
+//
+// 模块定义（.def）文件为链接器提供有关导出、属性以及要链接的程序的其他信息。.def 文件在
+// 构建 DLL 时最有用，由于有 MSVC 链接器选项可以替代模块定义语句，因此 .def 文件通常不是
+// 必需的。你也可以使用 __declspec(dllexport) 来指定导出的函数。你可以在链接阶段使用 /DEF
+// （指定模块定义文件）链接器选项来调用 .def 文件。如果你构建的是没有导出的 .exe 文件，使
+// 用 .def 文件会使输出文件更大且加载更慢。
+//
+// 模块定义语句的规则。以下语法规则适用于 .def 文件中的所有语句。适用于特定语句的其他规则
+// 将在每个语句的描述中说明。
+//  1.  语句、属性关键字和用户指定的标识符区分大小写
+//  2.  包含空格或分号（;）的长文件名必须用引号（"）括起来
+//  3.  使用一个或多个空格、制表符或换行符来分隔语句关键字与其参数，以及分隔彼此之间的语
+//      句，指定参数的冒号（:）或等号（=）前后可以有零个或多个空格、制表符或换行符
+//  4.  如果使用了 NAME 或 LIBRARY 语句，它们必须位于所有其他语句之前
+//  5.  SECTIONS 和 EXPORTS 语句可以在 .def 文件中出现多次，每个语句可以接受多个规范，这
+//      些规范必须用一个或多个空格、制表符或换行符分隔，语句关键字必须在第一个规范之前出
+//      现一次，并且可以在每个附加规范之前重复
+//  6.  许多语句都有等效的 LINK 命令行选项，有关更多详细信息，请参阅相应 LINK 选项的描述
+//  7.  .def 文件中的注释由每行开头的分号（;）指定，注释不能与语句共享一行，但可以出现在
+//      多行语句的规范之间，SECTIONS 和 EXPORTS 是多行语句
+//  8.  数值参数以十进制或十六进制指定
+//  9.  如果字符串参数与保留字匹配，则必须用双引号（"）括起来
+//
+// EXPORTS。引入一个或多个导出定义，这些定义指定函数或数据的导出名称或序号。每个定义必须
+// 单独占一行。第一个定义可以与 EXPORTS 关键字在同一行，也可以在后续行。.def 文件可以包
+// 含一个或多个 EXPORTS 语句。
+//      EXPORTS
+//         definition
+//      EXPORTS
+//          entryname[=internal_name|other_module.exported_name] [@ordinal [NONAME]] [[PRIVATE] | [DATA]]
+//
+// entryname 是要导出的函数或变量名称，这是必需的。如果导出的名称与 DLL 中的名称不同，请
+// 使用 internal_name 指定 DLL 中的导出名称。例如，如果 DLL 导出一个函数 func1，而你想让
+// 调用者使用 func2，则应指定：
+//      EXPORTS
+//         func2=func1
+//
+// 如果导出的名称来自其他模块，请使用 other_module.exported_name 指定 DLL 中的导出名称。例
+// 如，如果 DLL 导出函数 other_module.func1，而你想让调用者使用 func2，则应指定：
+//      EXPORTS
+//         func2=other_module.func1
+//
+// 如果导出的名称来自另一个按序号导出的模块，请使用 other_module.#ordinal 指定 DLL 中的导
+// 出序号。例如，如果 DLL 从另一个模块导出函数，该模块中其序号为 42，而你想让调用者使用
+// func2，则应指定：
+//      EXPORTS
+//         func2=other_module.#42
+//
+// 由于 MSVC 编译器对 C++ 函数使用名称修饰，你必须使用修饰后的名称 internal_name，或在源
+// 代码中使用 extern "C" 定义导出的函数。编译器还会对使用 __stdcall 调用约定的 C 函数进
+// 行修饰，添加下划线（_）前缀和由 at 符号（@）后跟参数列表字节数（十进制）组成的后缀。
+//
+// 要查找编译器生成的修饰名称，请使用 DUMPBIN 工具或链接器的 /MAP 选项。修饰名称是编译器
+// 特定的。如果你在 .def 文件中导出修饰名称，则链接到 DLL 的可执行文件也必须使用相同版本
+// 的编译器构建。这确保调用者中的修饰名称与 .def 文件中的导出名称匹配。
+//
+// 你可以使用 @ordinal 指定将数字而不是函数名称放入 DLL 的导出表中。许多 Windows DLL 导
+// 出序号以支持遗留代码。在 16 位 Windows 代码中使用序号很常见，因为它有助于减小 DLL 的
+// 大小。除非 DLL 的客户端需要遗留支持，否则我们不建议按序号导出函数。由于 .lib 文件将包
+// 含序号与函数之间的映射，因此你可以在使用 DLL 的项目中像平常一样使用函数名称。通过使用
+// 可选的 NONAME 关键字，你可以仅按序号导出并减小生成的 DLL 中导出表的大小。但是，如果你
+// 想在 DLL 上使用 GetProcAddress，则必须知道序号，因为名称将无效。
+//
+// 可选关键字 PRIVATE 阻止 entryname 被包含在 LINK 生成的导入库中。它不会影响 LINK 生成的
+// 映像中的导出。
+//
+// 可选关键字 DATA 指定导出的是数据而不是代码。此示例显示如何导出名为 exported_global 的
+// 数据变量：
+//      EXPORTS
+//      exported_global DATA
+//
+// 有四种方式可以导出定义，按推荐顺序列出：
+//  1.  源代码中的 __declspec(dllexport) 关键字
+//  2.  .def 文件中的 EXPORTS 语句
+//  3.  LINK 命令中的 /EXPORT 规范
+//  4.  源代码中的注释指令，形式为 #pragma comment(linker, "/export: definition")，以下
+//      示例显示在函数声明之前的 #pragma comment 指令，其中 PlainFuncName 是未修饰名称，
+//      _PlainFuncName@4 是函数的修饰名称：
+//      #pragma comment(linker, "/export:PlainFuncName=_PlainFuncName@4")
+//      BOOL CALLBACK PlainFuncName(Things *lpParams)
+//
+// 如果你需要导出未修饰的函数名称，并且根据构建配置（例如 32 位或 64 位构建）有不同的导
+// 出，则 #pragma 指令很有用。所有四种方法可以在同一程序中使用。当 LINK 构建包含导出的程
+// 序时，它还会创建导入库（.lib 文件），除非在构建中使用了 .exp 文件（导出文件，纯导出
+// 符号表，包含该 DLL 导出的所有符号，即 DLL 的导出表）。
+//
+// 以下是 EXPORTS 节的示例：
+//      EXPORTS
+//         DllCanUnloadNow      @1          PRIVATE
+//         DllWindowName = WindowName       DATA
+//         DllGetClassObject    @4 NONAME   PRIVATE
+//         DllRegisterServer    @7
+//         DllUnregisterServer
+//
+// 当你使用 .def 文件从 DLL 导出变量时，不必在变量上指定 __declspec(dllexport)。但是，在
+// 使用 DLL 的任何文件中，你仍然必须在数据声明上使用 __declspec(dllimport)。
+//
+// HEAPSIZE。公开与 /HEAP 链接器选项相同的功能。
+//      /HEAP:reserve[,commit]
+//
+// LIBRARY。告诉 LINK 创建 DLL。同时，LINK 创建导入库，除非在构建中使用了 .exp 文件。
+//      LIBRARY [library][BASE=address]
+//
+// library 参数指定 DLL 的名称。你也可以使用 /OUT 链接器选项指定 DLL 的输出名称。BASE=address
+// 参数设置操作系统加载 DLL 时使用的基地址。此参数覆盖默认的 DLL 位置 0x10000000。有关基
+// 地址的详细信息，请参阅 /BASE 选项的描述。构建 DLL 时请记住使用 /DLL 链接器选项。
+//
+// NAME (C/C++)。指定主输出文件的名称。
+//      NAME [application][BASE=address]
+//
+// 指定输出文件名称的等效方式是使用 /OUT 链接器选项，设置基地址的等效方式是使用 /BASE 链接
+// 器选项。如果两者都指定，则 /OUT 覆盖 NAME。如果你构建 DLL，NAME 只会影响 DLL 名称。
+//
+// SECTIONS (C/C++)。引入一个或多个定义的节，这些定义是项目输出文件中各节的访问说明符。
+//      SECTIONS
+//          definitions
+//      SECTIONS
+//          .section_name specifier
+//
+// 每个定义必须单独占一行。SECTIONS 关键字可以与第一个定义在同一行，也可以在前一行。.def
+// 文件可以包含一个或多个 SECTIONS 语句。此 SECTIONS 语句设置映像文件中一个或多个节的属
+// 性，并且可以用于覆盖每种类型节的默认属性。其中 .section_name 是程序映像中的节名称，specifier
+// 是以下一个或多个访问修饰符：
+//      修饰符      描述
+//      EXECUTE     该节可执行
+//      READ        允许对数据进行读取操作
+//      SHARED      在加载映像的所有进程之间共享该节
+//      WRITE       允许对数据进行写入操作
+//
+// 用空格分隔修饰符名称，例如：
+//      SECTIONS
+//          .rdata READ WRITE
+//
+// SECTIONS 标记节定义列表的开始。每个定义必须单独占一行。SECTIONS 关键字可以与第一个定义
+// 在同一行，也可以在前一行。.def 文件可以包含一个或多个 SECTIONS 语句。SEGMENTS 关键字作
+// 为 SECTIONS 的同义词受支持。旧版本的 Visual C++ 支持以下形式，CLASS 关键字为兼容性而受
+// 支持，但会被忽略。指定节属性的等效方式是使用 /SECTION 选项。
+//      section [CLASS 'classname'] specifier
+//
+// STACKSIZE。以字节为单位设置堆栈大小。
+//      STACKSIZE reserve[,commit]
+//
+// 设置堆栈的等效方式是使用堆栈分配（/STACK）选项。有关 reserve 和 commit 参数的详细信息，
+// 请参阅该选项的文档。此选项对 DLL 没有影响。
+//
+// STUB。在构建虚拟设备驱动程序（VxD）的模块定义文件中使用时，允许你指定包含 IMAGE_DOS_HEADER
+// 结构（在 WINNT.H 中定义）的文件名，以用于虚拟设备驱动程序（VxD），而不是默认头。
+//      STUB:filename
+//
+// 指定 filename 的等效方式是使用 /STUB 链接器选项。STUB 仅在构建 VxD 时有效。
+//
+// VERSION (C/C++)。告诉 LINK 在 .exe 文件或 DLL 的头中放入一个数字。
+//      VERSION major[.minor]
+//
+// major 和 minor 参数是 0 到 65535 范围内的十进制数字。默认版本为 0.0。指定版本号的等效
+// 方式是使用版本信息（/VERSION）选项。
+//
+// 保留字，以下单词由链接器保留。这些名称只能作为模块定义语句中的参数使用，且名称必须用
+// 双引号（""）括起来。
+//      ¹ 链接器遇到此术语时会发出警告（"ignored"），但是该词仍然是保留字
+//      ² 链接器忽略此词但不发出警告
+//      APPLOADER¹      BASE            CODE        CONFORMING
+//      DATA            DESCRIPTION     DEV386      DISCARDABLE     DYNAMIC
+//      EXECUTE-ONLY    EXECUTEONLY     EXECUTEREAD EXETYPE         EXPORTS
+//      FIXED¹          FUNCTIONS²      HEAPSIZE
+//      IMPORTS         IMPURE¹         INCLUDE²    INITINSTANCE²   IOPL
+//      LIBRARY¹        LOADONCALL¹     LONGNAMES²
+//      MOVABLE¹        MOVEABLE¹       MULTIPLE    NAME    NEWFILES²   NODATA¹
+//      NOIOPL¹         NONAME          NONCONFORMING¹      NONDISCARDABLE
+//      NONE            NONSHARED       NOTWINDOWCOMPAT¹    OBJECTS     OLD¹
+//      PRELOAD         PRIVATE         PROTMODE²           PURE¹
+//      READONLY        READWRITE       REALMODE¹   RESIDENT    RESIDENTNAME¹
+//      SECTIONS        SEGMENTS        SHARED      SINGLE  STACKSIZE   STUB
+//      VERSION         WINDOWAPI       WINDOWCOMPAT        WINDOWS
 
 #ifdef PRH_MMAP_IMPLEMENTATION
 
