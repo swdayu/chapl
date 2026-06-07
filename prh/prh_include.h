@@ -7600,6 +7600,79 @@ prh_byte *prh_impl_strdyn_insert(prh_byte *elem_ptr, prh_int start, prh_int i) {
 #endif // PRH_ARRAY_IMPLEMENTAION
 #endif // PRH_ARRAY_INCLUDE
 
+#ifdef PRH_HASH_INCLUDE
+
+// 符号哈希表。Elf32_Word 成员组成的哈希表支持符号查表访问，bucket 数组包含 nbucket 个
+// 条目，表示哈希桶，存储哈希值对应的首个符号表索引。chain 数组包含 nchain 个条目，表示
+// 冲突链，用于处理哈希冲突，将相同哈希值的符号链接在一起。两个数组都包含符号表的索引，
+// 索引从 0 开始。
+//
+//      prh_r32 nbucket
+//      prh_r32 nchain
+//      prh_r32 bucket[0]
+//      prh_r32 ...
+//      prh_r32 bucket[nbucket-1]
+//      prh_r32 chain[0]
+//      prh_r32 ...
+//      prh_r32 chain[nchain-1]
+//
+// 冲突链数组中条目的个数，应与符号表的大小相等，因此符号表索引也选择冲突链数组索引。符
+// 号名称经过哈希得到符号表索引，如果查到的符号与当前符号不匹配，在 y = chain[y] 给出具
+// 有相同哈希值的下一个符号表索引，这一沿着 chain 前进，直到所选的符号表条目与当前符号
+// 名称匹配，或者 chain 包含空值 STN_UNDEF。具体查找流程如下：
+//  1.  hash(name) 计算符号哈希值 h
+//  2.  取得哈希值对应的符号表索引，y = bucket[h%nbucket]
+//  3.  检查符号表的第 y 项是否与当前符号匹配
+//  4.  如果匹配则成功，如果不匹配继续查看冲突链 y = chain[y]
+//  5.  直到 y == STN_UNDEF 表示未找到
+//
+// 符号表分区的第一个符号总是未定义符号：
+//  ElfSym.name     0 没有名称
+//  ElfSym.value    0 零值
+//  ElfSym.size     0 没有大小
+//  ElfSym.info     0 没有类型，本地符号
+//  ElfSym.other    0 默认可见性
+//  ElfSym.shndx    0 无关联分区，符号索引为 ELF_SYMNDX_UNDEF
+//  typedef struct {
+//      prh_r32 name;   // 符号名称对应的字符串表索引，符号表头部的 link 字段表示关联的字符串表
+//      prh_r32 value;  // 符号的值，例如函数所在的分区偏移或虚拟地址
+//      prh_r32 size;   // 例如符号是一个结构体类型名称，该值表示结构体类型的大小
+//      prh_byte info;  // 定义符号的类型和绑定属性，例如一个全局函数符号、一个本地变量符号
+//      prh_byte other; // 定义符号可见性，默认可见性、内部可见、隐藏的符号、受保护的符号
+//      prh_r16 shndx;  // 关联分区头部索引
+//  } Elf32Sym;
+//  typedef struct {
+//      prh_r32 name;
+//      prh_byte info;
+//      prh_byte other;
+//      prh_r16 shndx;
+//      prh_r64 value;
+//      prh_r64 size;
+//  } Elf64Sym;
+
+prh_r32 prh_elf_symbol_hash(const prh_byte *name) {
+    prh_r32 h = 0, g;
+    while (*name) {
+        h = (h << 4) + *name++;
+        if ((g = h & 0xf0000000)) h ^= g >> 24;
+        h &= ~g;
+    }
+    return h;
+}
+
+#define PRH_SYMBOL_HASH_INIT 1
+
+prh_r32 prh_symbol_hash(prh_r32 h, prh_r32 c) {
+    return h + (h << 5) + (h >> 27) + c;
+}
+
+// https://github.com/torvalds/linux/blob/master/lib/siphash.c
+// https://github.com/nothings/stb/blob/master/stb_ds.h
+// https://github.com/veorq/SipHash
+// https://handwiki.org/wiki/SipHash
+
+#endif // PRH_HASH_INCLUDE
+
 #ifdef PRH_LIST_INCLUDE
 typedef bool (*prh_less_than)(void *a, void *b);
 typedef void (*prh_node_free)(void *node);
