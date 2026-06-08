@@ -1815,6 +1815,9 @@ typedef enum {
 
 #if defined(PRH_PLAT_IMPLEMENTATION)
 #if defined(prh_plat_windows)
+    // https://learn.microsoft.com/en-us/windows/win32/api/
+    // https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-api-list
+    //
     // Predefined macros:
     //      _WIN16      A 16-bit platform
     //      _WIN32      A 32-bit platform. This value is also defined by the
@@ -2020,8 +2023,8 @@ typedef enum {
     // reported at compile time instead of causing fatal errors at run time.
     // With Visual C++, STRICT type checking is defined by default.
     #define STRICT 1 // #define NO_STRICT
-    // https://learn.microsoft.com/en-us/windows/win32/intl/unicode-in-the-windows-api
-    // https://learn.microsoft.com/en-us/windows/win32/intl/unicode
+    // https://learn.microsoft.com/en-us/windows/win32/intl/unicode-and-character-sets
+    // https://learn.microsoft.com/en-us/cpp/text/text-and-strings-in-visual-cpp
     // https://learn.microsoft.com/en-us/cpp/text/unicode-programming-summary
     // To take advantage of the MFC and C run-time support for Unicode, you
     // need to:
@@ -2030,8 +2033,9 @@ typedef enum {
     //      Use portable run-time functions and types.
     // The run-time library provides a wide-character version of main. Use
     // wmain to make your application Unicode-aware.
-    #define UNICODE 1
-    #define _UNICODE 1
+    // 在应用程序中，应确保要么同时定义 UNICODE 和 _UNICODE，那么一个都不要定义
+    #define UNICODE 1 // 用于 Windows 系统函数
+    #define _UNICODE 1 // 用于 C/C++ 运行时函数
     // Define WIN32_LEAN_AND_MEAN to exclude APIs such as Cryptography, DDE,
     // RPC, Shell, and Windows Sockets.
     #define WIN32_LEAN_AND_MEAN 1
@@ -3004,35 +3008,141 @@ void prh_impl_dump_memory_leaks(void) {
 }
 #endif
 
-void prh_main_init(void) {
-#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
-    extern void prh_impl_plat_set_fault_handler(void);
-    prh_impl_plat_set_fault_handler();
-#endif
-#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
-    extern void prh_impl_time_init(void);
-    prh_impl_time_init();
-#endif
-#if defined(PRH_EHUB_INCLUDE) && defined(PRH_EHUB_IMPLEMENTATION)
-    extern void prh_impl_ehub_prepare_main(void);
-    prh_impl_ehub_prepare_main();
-#endif
 #if defined(prh_plat_windows)
-#if PRH_DEBUG
-    prh_zeroret(atexit(prh_impl_dump_memory_leaks));
+// https://learn.microsoft.com/en-us/cpp/text/text-and-strings-in-visual-cpp
+// https://learn.microsoft.com/en-us/cpp/text/unicode-programming-summary
+//
+// 自 Windows NT 起，Windows 的所有版本都完全用 Unicode 来构建。也就是说，所有核心函数
+// （创建窗口、显示文本、进行字符串处理等等）都需要 Unicode 字符串。调用 Windows 函数
+// 时，如果向它传入一个 ANSI 字符串（由单字节字符组成的字符串），那么函数首先会把字符
+// 串转换为 Unicode，再把结果传给操作系统。如果希望函数返回 ANSI 字符串，那么操作系统
+// 会先把 Unicode 字符串转换为 ANSI 字符串，再把结果返回给我们的应用程序。所有这些转换
+// 都是在幕后进行的。当然，为了执行这些字符串转换，系统会产生时间和内存上的开销。
+//
+// 在 Windows Vista 中，CreateWindowExA 的源代码只是一个转换层（translation layer），
+// 它负责分配内存，以便将 ANSI 字符串转换为 Unicode 字符串。然后，代码会调用 CreateWindowExW，
+// 并向它传递转换后的字符串。CreateWindowExW 返回时，CreateWindowExA 会释放它的内存缓冲
+// 区，并将窗口句柄返回。所以，对于要在缓冲区中填充字符串的任何函数，在应用程序能够处理
+// 字符传之前，系统必须先将 Unicode 字符串转换为非 Unicode 形式。由于系统必须执行所有这
+// 些转换，所以应用程序需要更多内存，而且运行速度较慢。为了使应用程序的执行更高效，一开
+// 始应该就用 Unicode 来开发程序。另外，目前已知 Windows 的这些转换函数中存在一些缺陷，
+// 所以避免使用它们还有助于消除一些潜在的问题。
+//
+// 最后，当资源编译器编译所有资源后，输出文件就是资源的一个二进制形式。资源中的字符串值
+// （字符串表、对话框模板、菜单等）始终是以 Unicode 字符串的形式保存的。在 Windows Vista
+// 中，如果应用程序没有定义 UNICODE 宏，那么操作系统将执行内部转换。例如，在编译资源模块
+// 时，如果没有定义 UNICODE，那么对 LoadString 的调用实际会调用 LoadStringA，然后 LoadStringA
+// 读取资源中的 Unicode 字符串，并把它转换成 ANSI 形式，并将 ANSI 形式的字符串返回给应用
+// 程序。
+//
+// 和 Windows 函数一样，C/C++ 运行库也提供了一系列函数来处理 ANSI 字符和字符串，并提供了
+// 另一系列函数来处理 Unicode 字符和字符串。然而与 Windows 不同的是，ANSI 版本的函数就处
+// 理 ANSI 字符串，它们不会把字符串转换为 Unicode 形式，再从内部调用函数的 Unicode 版本。
+// Unicode 版本的函数也是一样，它们不会再内部调用 ANSI 版本，就直接处理 Unicode 字符串。
+// 例如 C 运行时库，strlen 是 ANSI 版本的函数，wcslen 是 Unicode 版本的函数，这两个函数
+// 都在 string.h 中定义，然后如果定义了 _UNICODE 宏，则 _tcslen 扩展为 wcslen，否则扩展
+// 为 strlen。默认情况下，在 Visual Studio 中新建一个 C/C++ 项目时，会自动定义 _UNICODE
+// 和 UNICODE。应用程序应确保要么同时定义了 UNICODE 和 _UNICODE，那么一个都不要定义。
+//
+// 强烈建议开发人员在开发应用时使用 Unicode 字符和字符串，具体理由如下：
+//  1.  Unicode 有利于应用程序的本地化
+//  2.  使用 Unicode 只需要发布一个二进制 EXE 或 DLL 文件，即可支持所有语言
+//  3.  Unicode 提升了应用程序的效率，因为代码执行速度更快，占用内存更少，Windows 内部的
+//      一切工作都是使用 Unicode 字符和 Unicode 字符串完成的，假如我们坚持传入 ANSI 字符
+//      或字符串，Windows 会被迫分配内存，并将 ANSI 字符或字符串转换为等价的 Unicode 形式
+//  4.  使用 Unicode，应用程序能够轻松调用所以尚未弃用的 Windows 函数，因为一些 Windows
+//      函数提供的版本只能处理 Unicode 字符和字符串
+//  5.  使用 Unicode，应用程序的代码很容易与 COM 集成，因为 COM 要求使用 Unicode 字符和
+//      Unicode 字符串
+//  6.  使用 Unicode，应用程序的代码很容易与 .NET Framework 集成，.NET 也要求使用 Unicode
+//      字符和字符串
+//  7.  使用 Unicode，能保证应用程序的代码能够轻松操纵我们自己的资源，因为资源中的字符串
+//      总是以 Unicode 形式保存
+#if defined(UNICODE) && defined(_UNICODE)
+#define prh_impl_windows_unicode 1
+#else
+#define prh_impl_windows_unicode 0
+#if defined(UNICODE) || defined(_UNICODE)
+#error "UNICODE and _UNICODE shall both defined or undefined"
 #endif
-#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
-    extern void prh_impl_wsasocket_init(void);
-    prh_impl_wsasocket_init();
 #endif
-#endif // prh_plat_windows
-#if defined(PRH_TEST_IMPLEMENTATION)
-    extern void prh_impl_run_all_tests(void);
-    prh_impl_run_all_tests();
-#endif
-}
 
-#if defined(prh_plat_windows)
+// Unicode 与 ANSI 字符串的转换。可以使用 Windows 函数 MultiByteToWideChar 将多字节字符
+// 串转换为宽字符字符串。codepage 指定与多字节字符串关联的一个代码页值，flags 允许我们
+// 进行额外的控制，它会影响待变音符号（比如重音）的字符，但一般情况下不使用这些标志。
+// bytes 表示多字符字符串的字节数，如果传入 -1 表示函数自行判断字符串的长度。size_cch
+// 指定宽字符串缓冲区的最多长度（字符数）。如果传入 0，函数不会执行转换，而是返回一个宽
+// 字符数（包括终止字符 \0），只有当缓冲区能够容纳这个数量的宽字符时，转换才会成功。一
+// 般按照以下步骤将一个多字节字符串转换为 Unicode 形式：
+//  1.  int count = MultiByteToWideChar(codepage, 0, mbstr, -1, NULL, 0);
+//  2.  分配足够容纳抓换后的 Unicode 字符串的内存（至少 count 个字符），即 count * sizeof(wchar_t)
+//  3.  再次调用 MultiByteToWideChar，并传入分配的内存
+//  4.  使用转换后的字符串
+//  5.  释放 Unicode 字符串占用的内存块
+//
+// int MultiByteToWideChar(UINT codepage, DWORD flags, PCSTR mbstr, int bytes, PWSTR wcstr, int size_cch);
+// int WideCharToMultiByte(UINT codepage, DWORD flags, PCWSTR wcstr, int chars, PSTR mbstr, int size_byte, PCSTR default_char, PBOOL used_default_char);
+//
+// 对应地，WideCharToMultiByte 函数将宽字符字符串转换为多字节字符串。如果 chars 传入 -1，
+// 则由函数自己判断源字符串的长度。如果 size_byte 传入 0，会导致该函数返回目标缓冲需要
+// 的实际大小。将宽字符字符串转换为多字节字符串时，采取的步骤和前面多字节字符串转换为宽
+// 字符字符串的步骤相似。唯一不同的是，，返回值直接就是确保转换成功所需的字节数，所以无
+// 需执行乘法运算。
+//
+// 注意，与 MultiByteToWideChar 函数相比，WideCharToMultiByte 函数接受的参数要多两个，
+// 分别是 default_char 和 used_default_char。只有一个字符在 codepage 指定的代码页中没
+// 有对应的表示时，WideCharToMultiByte 函数才会使用这两个参数。在遇到一个不能转换的宽
+// 字符时，函数便使用 default_char 指向的字符。如果这个参数为 NULL，函数就会使用一个
+// 系统默认的字符。这个默认字符通常时一个问号。这对文件名来说非常危险，因为问号是一个
+// 通配符。used_default_char 指向一个布尔变量，在宽字符串中，如果至少有一个字符不能转
+// 换为对应的多字节形式，函数就会把这个变量设为 TRUE。如果所有字符都能成功转换，就会
+// 把这个变量设为 FALSE。我们可以在函数返回后测试这个变量，验证宽字符字符串是否已成功
+// 转换。同样地，我们也可以将这个参数设为 NULL 值。
+//
+// https://learn.microsoft.com/en-us/windows/win32/winprog64/programming-guide-for-64-bit-windows
+// 虚拟地址空间（64 位 Windows 编程指南）。默认情况下，基于 64 位 Microsoft Windows 的
+// 应用程序拥有数 TB 的用户模式地址空间。有关精确值，请参阅《Windows 和 Windows Server
+// 版本的内存限制》。https://learn.microsoft.com/en-us/windows/win32/memory/memory-limits-for-windows-releases
+// 然而，应用程序可以指定系统将所有内存分配在 2GB 以下。如果以下条件成立，此功能对 64 位
+// 应用程序有益：
+//  1.  2GB 地址空间足够
+//  2.  代码存在大量指针截断警告（pointer truncation warnings）
+//  3.  指针和整数自由混用（pointers and integers are freely mixed）
+//  4.  代码使用 32 位数据类型的多态性（the code has polymorphism using 32-bit data types）
+//
+// 所有指针仍然是 64 位指针，但系统确保每次内存分配都发生在 2GB 限制以下，这样如果应用
+// 程序截断指针，不会丢失重要数据。指针可以截断为 32 位值，然后通过符号扩展或零扩展恢复
+// 为 64 位值。要指定此内存限制，请使用 /LARGEADDRESSAWARE:NO 链接器选项。注意，对于 ARM64
+// 二进制文件，/LARGEADDRESSAWARE:NO 被忽略。然而，请注意使用此选项时可能会出现问题。如
+// 果你构建的 DLL 使用了此选项，而该 DLL 被未使用此选项的应用程序调用，则该 DLL 可能会截
+// 断一个高位 32 位有效的 64 位指针。这可能导致应用程序在没有任何警告的情况下失败。
+//  1.  DLL 使用 2GB 虚拟空间
+//  2.  应用呈现使用完整的 64 位空间
+//  3.  应用程序调用 DLL 函数会导致非法访问
+//
+// IMAGE_FILE_LARGE_ADDRESS_AWARE 应用程序可以处理大于 2GB 的地中空间。编译选项 /LARGEADDRESSAWARE
+// 用于告知链接器：当前应用程序可识别并使用 2GB 以上的内存地址。在 64 位编译器环境中，该
+// 选项默认启用。在 32 位编译器环境中，若未在链接器命令行主动指定 /LARGEADDRESSAWARE，则
+// 默认等效启用 /LARGEADDRESSAWARE:NO。如果应用程序以 /LARGEADDRESSAWARE方式链接，使用
+// DUMPBIN /HEADERS 命令可以查看对应的标识信息。不建议为 64 位应用程序使用 /LARGEADDRESSAWARE:NO
+// 进行链接。该配置会限制可用地址空间，一旦程序内存耗尽，将引发运行时崩溃。同时还可能导致
+// x64 程序无法在 ARM64 架构系统上运行：ARM64 模拟运行环境会尝试预留 4GB 虚拟地址空间；若
+// 程序关闭大地址支持，无法分配如此大的地址区间，最终会启动失败。32 位进程默认上限：用户
+// 态仅能用 2GB 虚拟内存，开启大地址感知后，32 位程序可拓展至 3GB / 4GB。64 位程序天然拥
+// 有超大地址空间，关闭该选项纯属画蛇添足且存在兼容性隐患。
+#if defined(PRH_TEST_IMPLEMENTATION)
+void prh_impl_windows_test(void) {
+    printf("size_t %zd-byte\n", sizeof(size_t));
+    printf("ptrdiff_t %zd-byte\n", sizeof(ptrdiff_t));
+    printf("time_t %zd-byte\n", sizeof(time_t));
+    printf("uintptr_t %zd-byte\n", sizeof(uintptr_t));
+    printf("void* %zd-byte\n", sizeof(void *));
+    printf("PVOID %zd-byte\n", sizeof(PVOID));
+    printf("HANDLE %zd-byte\n", sizeof(HANDLE));
+    printf("HMODULE %zd-byte \n", sizeof(HMODULE));
+}
+#endif
+
 // https://learn.microsoft.com/en-us/cpp/c-language/main-function-and-program-execution
 // https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
 // https://learn.microsoft.com/en-us/cpp/c-language/customizing-c-command-line-processing
@@ -3058,13 +3168,13 @@ void prh_main_init(void) {
 // int wmain(void);
 // int wmain(int argc, wchar_t *argv[]);
 // int wmain(int argc, wchar_t *argv[], wchar_t *envp[]);
-#if defined(_UNICODE)
+#if prh_impl_windows_unicode == 1
 extern int main(int argc, char **argv);
 int wmain(int argc, wchar_t *wargv[]) {
     return main(argc, (char **)wargv); // TODO: 将 wargv 转换成 UTF-8 版本的 argv
 }
-#endif
-#else
+#endif // prh_impl_windows_unicode
+#else // _CONSOLE
 // 每个 Windows 程序都包含一个名为 WinMain 或 wWinMain 的入口点函数。wWinMain 的四
 // 个参数如下：
 // * hInstance 是实例句柄或模块句柄。操作系统使用此值在内存中加载时识别可执行文件。某
@@ -3121,7 +3231,7 @@ int wmain(int argc, wchar_t *wargv[]) {
 // 重要提示，CommandLineToArgvW 将引号外的空白字符视为参数分隔符。但是，如果 lpCmdLine
 // 以任意数量的空白字符开头，CommandLineToArgvW 会将第一个参数视为一个空字符串。lpCmdLine
 // 末尾多余的空白字符将被忽略。
-#if defined(_UNICODE)
+#if prh_impl_windows_unicode == 1
 #include <shellapi.h>
 extern int main(int argc, char **argv);
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine, int nCmdShow) {
@@ -3138,12 +3248,43 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
     if (wargv) LocalFree(wargv);
     return n;
 }
-#else
+#else // prh_impl_windows_unicode
 // int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PSTR lpCmdLine, int nCmdShow);
 #error "please use unicode for windows application"
+#endif // prh_impl_windows_unicode
+#endif // _WINDOWS
+#endif // prh_plat_windows
+
+void prh_main_init(void) {
+#if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
+    extern void prh_impl_plat_set_fault_handler(void);
+    prh_impl_plat_set_fault_handler();
 #endif
+#if defined(PRH_TIME_INCLUDE) && defined(PRH_TIME_IMPLEMENTATION)
+    extern void prh_impl_time_init(void);
+    prh_impl_time_init();
 #endif
-#endif // WINDOWS
+#if defined(PRH_EHUB_INCLUDE) && defined(PRH_EHUB_IMPLEMENTATION)
+    extern void prh_impl_ehub_prepare_main(void);
+    prh_impl_ehub_prepare_main();
+#endif
+#if defined(prh_plat_windows)
+#if PRH_DEBUG
+    prh_zeroret(atexit(prh_impl_dump_memory_leaks));
+#endif
+#if defined(PRH_SOCK_INCLUDE) && defined(PRH_SOCK_IMPLEMENTATION)
+    extern void prh_impl_wsasocket_init(void);
+    prh_impl_wsasocket_init();
+#endif
+#if defined(PRH_TEST_IMPLEMENTATION)
+    prh_impl_windows_test();
+#endif
+#endif // prh_plat_windows
+#if defined(PRH_TEST_IMPLEMENTATION)
+    extern void prh_impl_run_all_tests(void);
+    prh_impl_run_all_tests();
+#endif
+}
 #endif // PRH_PLAT_IMPLEMENTATION
 
 #ifdef PRH_TEST_IMPLEMENTATION
@@ -19604,8 +19745,6 @@ void prh_impl_thrd_test(void) {
     printf("UINT %zd-byte\n", sizeof(UINT));
     printf("CRITICAL_SECTION %zd-byte\n", sizeof(CRITICAL_SECTION));
     printf("CONDITION_VARIABLE %zd-byte\n", sizeof(CONDITION_VARIABLE));
-    printf("void* %zd-byte\n", sizeof(void *));
-    printf("HANDLE %zd-byte\n", sizeof(HANDLE));
     printf("MMSYSERR_NOERROR %d\n", MMSYSERR_NOERROR);
     printf("MAX_PATH %d\n", MAX_PATH);
     printf("MAXIMUM_SUSPEND_COUNT %d\n", MAXIMUM_SUSPEND_COUNT);
