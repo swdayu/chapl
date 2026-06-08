@@ -9,10 +9,10 @@
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
 //  with fer der todo debug trap local global // 全局变量必须使用 global 引用
-//  mod mut ref gen priv do abstract macro tane (typename)
+//  mod mut imm ref gen priv do abstract macro tane (typename)
 //  alignof(type) sizeof(type) offsetof(type.offset) drop
 //  where it it.i halt emit print prinf namespace typename
-//  where when with overloaded in not_in
+//  where when with overloaded in not_in struct strict
 //  or_else or_return or_continue or_break or_final
 //
 //  defer if error deallocation(ptr)
@@ -172,6 +172,10 @@
 //  6.  或者将库名称定义为指定一个库描述文件，这样代码包的引入就不需要放到引号内
 //          import std.array // 使用库名称引入代码包
 //          import "../utils/test" // 根据当前目录引入代码包
+//
+// 库名称可以定义为一个目录，该目录下的 build.code 描述该库所有的代码文件，以及各自所属包名。
+// 库名称也可以定义为一个具体的文件，该文件就是该库的所有代码，整个库的所有代码到发布在单个
+// 文中，文件头部声明了该库所有的代码包层次。
 //
 // 可以发布二进制库，但这个库必须直接编辑（通过集成开发环境）并直接生成，不能有任何副本，
 // 库的描述信息放在私有的第二个文件中，如果要闭源该私有文件不公开发布。
@@ -983,9 +987,9 @@ let calc = (int a) { } // 定义函数指针变量，当函数类型前面没有
 let calc = (int a, &int float) { } // (int a) 表示没有返回值 (int a, &int float) 表示有返回值，且返回值不能为空
 let calc = (int a, x y &int float) { }
 let calc = (int a, &int) { }
-using func_type (void) // 定义函数类型别名，当函数类型前面没有函数名称时，必须使用特殊形式
-using func_type (&int float or error)
-using func_type (int a, &int float)
+using func_type = (void) // 定义函数类型别名，当函数类型前面没有函数名称时，必须使用特殊形式
+using func_type = (&int float or error)
+using func_type = (int a, &int float)
 
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
 // 函数类型字面量，“开始小括号 + 结果为类型的表达式” 表示函数类型的开始，函数复合常量是函数类型字面量 + { stmt ... }
@@ -1833,10 +1837,10 @@ def name $(anytype T U) { ... }
 def name $(int SIZE) { ... }
 def name $(int SIZE, anytype T U) { ... }
 
-def $T as transfer { // reader writer updater sender receiver transfer
-    (*T self, [@]byte data, reg size, &reg) send // 传值的 byte 数组，不可修改
-    (*T self, *byte buff, reg size, &reg) recv
-    (*T self) close
+def this transfer { // reader writer updater sender receiver transfer
+    (this, @byte data, reg size, &reg) send // 传值的 byte 数组，不可修改
+    (this, *byte buff, reg size, &reg) recv
+    (this) close
 }
 
 def test $(anytype T U, const C, int SIZE) {
@@ -1889,16 +1893,65 @@ const P3 = [_]int {100, 200} // 类型为 const [2]int
 const P4 = [int int] {100, 200} // 类型为 const [int int]
 const P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
 const P6 = (int a, int b, &int) { return a + b } // 相当于 def P6(int a b, &int) { return a + b }
+const SZ = 1024
+const PI = 3.1415926
 
 // 应该统一常量和变量，如果变量的值是编译时已知的，就自动解析为一个常量，只要不获取这个
 // 变量的地址，这个变量就是一个常量，当然可能需要有一个不能修改的限定符。变量都是可以修
-// 改的。仅存在与编译时的常量，和运行时可以访问的常量（保存在 rodata 分区的只读数据）。
+// 改的。仅存在于编译时的常量，和运行时可以访问的常量（保存在 rodata 分区的只读数据）。
 // 例如常量数组，使用运行时变量索引进行访问 const A = {1, 2, 3} def f(int i, &int) { return A[i] }
+//
+//  1.  仅存在于编译时的常量，没有存储位置，不是任何运行时数据，不会成为数据保存到 rodata
+//      分区。编译时常量的存在，仅用于编译时计算，类似于 C 语言中的宏定义。
+//  2.  普通的只读常量，可以在运行时使用运行时才确定的参数对只读常量进行访问，可以对只读
+//      常量进行取地址操作，除了不能写入外，可以像任何数据一样进行读取，该只读数据保存在
+//      rodata 数据分区中
+//  3.  初始化后不再修改的数据，即进入 main 函数后就不能在修改的只读数据，该数据可以放在
+//      一个特殊的数据分区中，例如出厂设置分区，或者命名为 roinit 分区
+//  4.  进入 main 之后，运行时变量初始化后不再修改的数据，不进行归类，按第 5 类变量处理，
+//      如果是一种方案，可声明为函数参数，因为函数参数在参数传递后总是不可修改的
+//  5.  变量定义后一直可修改的数据
+//          a := int undefined
+//          a := int // 局部变量必须提供初始化，或显式指定 undefined
+//          b := 0
+//  6.  未初始化的全局变量，即初始值为零的所有全局变量，都放到 bss 数据分区
+//          def a := int // 全局变量可以不提供初始化，表示未初始化全局变量
+//          def b := float
+//          def c := 0
+//          def d := float 0.0
+//  7.  有非零初始值的全局变量，都放到 data 数据分区
+//          def a := 1024
+//          def b := 3.14
+//          def c := f64 3.14
+//  8.  全局变量的前向声明 forward declaration
+//          def a = int
+//          def b = float
+//
+// 定义的符号的前向声明方式，所有定义都是公开的，唯一不同是 pub 是公开导出的，但是外部
+// 代码还是可以公开访问所有的代码：
+//      using int = int
+//      using reg = reg
+//      const PI = PI
+//      def calc(int a b, &int)
+//      def main(int argc, **argv, &int)
+//      def color enum
+//      def color int
+//      def color r32 [r08 lpri ~ rpri]
+//      def point struct
+//      def array $(anytype T, reg SIZE)
+//      def this transfer
+//      def name = int
+//
+// 保留限制区域的定义
+//      strict region
+//      using std_array = std::array
+//      const PI = 3.1415926
+//      final
 
-pub "global" { // 符号别名和常量定义
-    using std_array = std::array
-    const PI = 3.1415926
-}
+pub global
+using std_array = std::array
+const PI = 3.1415926
+final
 
 // 定义的提前声明
 def calc(int a b, &int) // 私有函数的提取声明
@@ -1909,28 +1962,42 @@ def calc(int a b, &int) // 私有函数的提取声明
 // def name func_type = { func_body } 定义一个函数指针
 def a int = 10
 def b int = 20
-def int_ptr *int = fer a
-def point_ptr *point = fer point
+def int_ptr *int = &a
+def point_ptr *point = &point
 def point point = {100, 200}
 def calc (int a, int b, &int) { return a + b } // 定义一个函数常量
 def calc (int a, int b, &int) = null // 定义一个函数指针
 def data {int a int b point point} = {10, 20, {100, 200}}
 def data [int int point] = {10, 20, {100, 200}}
 
-def a = int 10
-def b = 20
-def int_ptr = *int fer a
-def point_ptr = *point fer point
-def point = point {100, 200}
+def a := int 10
+def a := int // 未初始化全局变量
+def a := int 0 // 也属于未初始化全局变量
+def b := 20
+def int_ptr := *int &a
+def point_ptr := *point &point
+def point := point {100, 200}
+def data := {int a int b point point} {10, 20, {100, 200}}
+def data := [int int point] {10, 20, {100, 200}}
+def calc := (int a, int b, &int) null // 定义一个函数指针
 def calc (int a, int b, &int) { return a + b } // 定义一个函数常量
-def calc = (int a, int b, &int) null // 定义一个函数指针
-def data = {int a int b point point} {10, 20, {100, 200}}
-def data = [int int point] {10, 20, {100, 200}}
+
+pub a := int 10
+pub a := int // 未初始化全局变量
+pub a := int 0 // 也属于未初始化全局变量
+pub b := 20
+pub int_ptr := *int &a
+pub point_ptr := *point &point
+pub point := point {100, 200}
+pub data := {int a int b point point} {10, 20, {100, 200}}
+pub data := [int int point] {10, 20, {100, 200}}
+pub calc := (int a, int b, &int) null // 定义一个函数指针
+pub calc (int a, int b, &int) { return a + b } // 定义一个函数常量
 
 pub a int = 10
 pub b int = 20
-pub int_ptr *int = fer a
-pub point_ptr *point = fer point
+pub int_ptr *int = &a
+pub point_ptr *point = &point
 pub point point = {100, 200}
 pub calc (int a, int b, &int) { return a + b } // 定义一个函数常量
 pub calc (int a, int b, &int) = null // 定义一个函数指针
@@ -1941,10 +2008,10 @@ pub data [int int point] = {10, 20, {100, 200}}
 let aaa = Data {3, 4}
 let ppb = *Ppb ppb_alloc(alloc)
 let pos = dist + int scale_x(facter)
-let len = int pos + fer *byte p + size + f(g)
-let len = int pos + der *byte (p + size + f(g))
+let len = int pos + &*byte p + size + f(g)
+let len = int pos + *inf *byte (p + size + f(g))
 let pos = int dist + int scale_x(facter)
-let len = int pos + der *int *byte (p + size + f(g))
+let len = int pos + *inf *int *byte (p + size + f(g))
 let len = typeof(pos) 3
 let len = foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
 let len = int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
@@ -1960,25 +2027,25 @@ let len = foo ~ -3
 //  2.  named_type {initialize_list} 形式也不需要添加 'type 转换前缀
 //  3.  named_type undefined 形式也不需要添加 'type 转换前缀
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
-//  5.  取地址操作符 fer (fetch reference) ref address-of of
-//  6.  解引用操作符 der（dereference)
+//  5.  取地址操作符 &(fetch reference) ref address-of of
+//  6.  解引用操作符 *inf（dereference)
 //  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
 //  let a type = expr, b = expr, c = expr, ...
-let a = a + int b + c * d               der p = a + b
-let a = a + (int b + c) * d             der **int p = curr + size
-let a = a + der p + size
-let a = a + der (p + size)
-let a = a + der *int b + size
-let a = a + der (*int b + size)
-let a = a + der der **int base + size
-let a = a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let a = a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let p *int = der **int base + size
-let p *int = der (**int base + size)
+let a = a + int b + c * d               *inf p <= a + b
+let a = a + (int b + c) * d             *inf **int p <= curr + size // inverse reference
+let a = a + *inf p + size
+let a = a + *inf (p + size)
+let a = a + *inf *int b + size
+let a = a + *inf (*int b + size)
+let a = a + **inf **int base + size
+let a = a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let a = a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let p *int = *inf **int base + size
+let p *int = *inf (**int base + size)
 let point point = {100, 200} // 第一个 point 是类型
-let p *point = fer copyof(point)
-let p *point = fer {0}
+let p *point = &copyof(point)
+let p *point = &{0}
 let p *int = null
 let q *int = undefined
 let p *int = null, q = undefined
@@ -1999,7 +2066,7 @@ let tup [i32 f64 r08] = {500, 6.4, 1} // tup(0) tup(1) tup(2)
 let tup (a b c) [i32 f64 r08] = {500, 6.4, 1} // tup.a tup.b tup.c
 let a, b, c [i32 f64 r08] = {500, 6.4, 1} // a b c
 let a, b, c [int _] = {1, 2, 3} // 三个整型变量
-let fp (int a b, &int) = fer calc
+let fp (int a b, &int) = &calc
 let tup (a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
 let data (value error) = read_tuple() // 元组类型值的返回 data(0) data(1) data.value data.error
 let a, _ = read_tuple() // 赋值右边必须是一个元组类型
@@ -2018,8 +2085,8 @@ let array_ints = {{1,2}, {3,4,5}} // 元组
 let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
 let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
 let str_array = mixed_array[1]
-let o = der p
-let p = fer a
+let o = *^p
+let p = &a
 let o = point {1, 2}
 let ppb = *ppb malloc(size)
 let p = *int null
@@ -2039,20 +2106,20 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
-a := a + int b + c * d               der p = a + b
-a := a + (int b + c) * d             der **int p = curr + size
-a := a + der p + size
-a := a + der (p + size)
-a := a + der *int b + size
-a := a + der (*int b + size)
-a := a + der der **int base + size
-a := a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-a := a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-p := *int der **int base + size
-p := *int der (**int base + size)
+a := a + int b + c * d               *inf p <= a + b
+a := a + (int b + c) * d             *inf **int p <= curr + size
+a := a + *inf p + size
+a := a + *inf (p + size)
+a := a + *inf *int b + size
+a := a + *inf (*int b + size)
+a := a + **inf **int base + size
+a := a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+a := a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+p := *int *inf **int base + size
+p := *int *inf (**int base + size)
 point := point {100, 200} // 第一个 point 是类型
-p := *point fer copyof(point)
-p := *point fer {0}
+p := *point &copyof(point)
+p := *point &{0}
 p := *int null
 q := *int undefined
 p := *int null q := undefined
@@ -2093,8 +2160,8 @@ array_ints := {{1,2}, {3,4,5}} // 元组
 mixed_array := {{1,2}, {"a", "b", "c"}} // 元组
 int_array := mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
 str_array := mixed_array[1]
-o := der p
-p := fer a
+o := *inf p
+p := &a
 o := point {1, 2}
 ppb := *ppb malloc(size)
 p := *int null
@@ -2132,7 +2199,7 @@ if $c getarray(l)[0,1](a) with c != '\''
 l.c = lexer_next_char(l)
 l.cvalue = u
 return CHARLIT
-l.parse = utf8_to_unicode(l.parse, fer $unicode);
+l.parse = utf8_to_unicode(l.parse, &$unicode);
 return unicode;
 
 // 使用符号#定义局部常量，常量的定义不占用函数栈空间，而 $a 实际分配函数栈空间
@@ -2155,7 +2222,7 @@ def calc(int a b, &int int of x y or error) {
 def read_username(&string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
     let f = open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
     let s = string {}
-    f.read_to_string(fer s) or return
+    f.read_to_string(&s) or return
     if s == "unknown" return e_notfound
     return s
 }
@@ -2222,17 +2289,17 @@ def array $(anytype t int size) static size > 0 {
     [size]t a
 }
 
-def color const { // 默认是 byte 或 r16 或 r32 或 u64，根据最大值的大小而定
+def color enum { // 默认是 byte 或 r16 或 r32 或 u64，根据最大值的大小而定
     RED GREEN BLUE
 }
 
-def color const int {
-    RED = 1
+def color int {
+    RED {1}
     GREEN
     BLUE
 }
 
-def oper const r32 with r08 lpri r08 rpri { // sum type
+def oper r32 [r08 lpri ~ rpri] { // sum type
     ASS {'=', 200, 201}
     ADD {'+', 211, 210}
     SUB {'-', 211, 210}
@@ -2243,12 +2310,12 @@ def oper const r32 with r08 lpri r08 rpri { // sum type
     END {0} // 默认值为零
 }
 
-def read_username_result const {
+def read_username_result enum {
     OK [string]
     ERR [unsigned]
 }
 
-def token const { // sum type
+def token enum { // sum type
     ATOM {byte id}
     OPER {byte id}
     TEST [int int]
@@ -2267,7 +2334,7 @@ def token test = {.TEST, a = 1, b = 2}
 def token eof = {.EOF}
 
 // 泛型代码相当于在目标文件中不能生成具体代码，而是生成一个代码模板
-def expr const byte { // 相当于是一种泛型类型
+def expr byte { // 相当于是一种泛型类型
     VALUE {int n} // 相当于存储 {byte 0 int n}
     IDENT {int id} // 相当于存储 {byte 1 int n}
     TEST [int int]
@@ -2444,11 +2511,11 @@ def perform_tcpa_open_accept(*TcpSocket tcp, r32 txbuf_size, r32 rxbuf_size) {
 
 def report_tcpe_opened(*TcpSocket tcp) {
     let pdata = *TcpOpened tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(TcpOpened))
-    let txbuf = *ByteArrfit fer tcp.txbuf
+    let txbuf = *ByteArrfit &tcp.txbuf
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_freely_post(tcp.upp_coro, fer pdata->head)
+    cono_freely_post(tcp.upp_coro, &pdata->head)
 }
 
 def epoll_proc(*coro) {
@@ -2516,12 +2583,12 @@ perform_tcpa_open_accept(*TcpSocket tcp r32 txbuf_size r32 rxbuf_size) {
 }
 
 report_tcpe_opened(*TcpSocket tcp) {
-    let txbuf = fer tcp.txbuf
+    let txbuf = &tcp.txbuf
     let pdata = tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(TcpOpened))
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
-    cono_post(fer pdata->head)
+    cono_post(&pdata->head)
 }
 
 epoll_proc(*Cono cono) {
@@ -2573,8 +2640,8 @@ def snode $T {
 }
 
 for i I 0 .. 9 {
-    i int der *I addr
-    pos + der fer *I (*byte p + size + f(g))
+    i int *inf *I addr
+    pos + *inf &*I (*byte p + size + f(g))
 }
 
 def memcpy(reg dest unsigned src int count)
@@ -2587,9 +2654,9 @@ def coroguard(*coro p return coro_guard) 'cdcel inline'
 Calc (int a b int)
 Snode $T { this next T data }
 for [&] i I 0 .. 9 {
-    i int der *I addr
+    i int *inf *I addr
     if i%2 continue &
-    pos + der fer I (*byte p + size + f(g))
+    pos + *inf &I (*byte p + size + f(g))
 }
 memcpy (Ptr dst src int count)
 memcmp (Ptr dst src int count int)
@@ -2666,10 +2733,10 @@ def size(*triple(int size, $t, $u)) int {
 }
 
 data { int a b } {1, 2}
-data *{ int a b } fer {1, 2}
+data *{ int a b } &{1, 2}
 data [2]{ int a b } {{1, 2}, {3, 4}}
 data Data {1, 2}
-data *Data fer data
+data *Data &data
 data Data[2] {data1, data2}
 
 found .. index array_find(<<array, item)
@@ -2681,10 +2748,10 @@ cal2 *(int a b int) (int a b int) {return a + b } // 函数不需要声明成指
 cal2 *(int a b int) Calc {return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
 cal2 Calc { return a + b }
-cal2 *(int a b int) fer {return a + b }
+cal2 *(int a b int) &{return a + b }
 cal2 [2](int a b int) {Calc {return a + b}, Calc { return a * b }}
-cal2 *Calc fer (int a b int) {return a + b }
-cal2 *Calc fer {return a + b }
+cal2 *Calc &(int a b int) {return a + b }
+cal2 *Calc &{return a + b }
 cal2 Calc{return a + b}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
 cal2 [2]Calc {Calc {return a + b}, Calc { return a * b }}
@@ -2760,14 +2827,14 @@ let Calc cal2 { return a + b }
 let Calc cal2 calc
 let cal2 calc
 
-dat3 *{ int a b } fer {3, 4}
+dat3 *{ int a b } &{3, 4}
 dat3 [2]{ int a b } {{3, 4}, data}
-dat3 *{ int a b } fer {3, 4}
-dat3 *Data fer data
+dat3 *{ int a b } &{3, 4}
+dat3 *Data &data
 dat3 [2]Data {{3, 4}, data}
 
-cal3 *(int a b int) fer { return a + b }
-cal3 *(int a b int) fer calc
+cal3 *(int a b int) &{ return a + b }
+cal3 *(int a b int) &calc
 cal3 (int a b int) { return a + b }
 cal3 Calc { return a + b }
 let cal3 calc
@@ -2778,13 +2845,13 @@ let cal3 calc
 // 一个非类型标识符后跟一个字面常量，表示用字面常量定义一个变量
 
 cal3 *(int a b int) null
-cal3 *(int a b int) fer { a + b }
+cal3 *(int a b int) &{ a + b }
 cal3 *(int a b int) calc
 
 numb errno null
 numb float 3.14
 numb *int null
-numb *int fer data
+numb *int &data
 numb bool false
 
 let data false
@@ -2798,13 +2865,13 @@ data Data {1, 2}
 data int 1024
 numb errno null
 numb float 3.14
-numb *int fer data
+numb *int &data
 calc Calc { a + b }
 data Data {1, 2}
 data int 1024
 numb errno null
 numb float 3.14
-numb *int fer data
+numb *int &data
 temp int 1024
 temp float 3.14
 
@@ -3015,7 +3082,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    -a +a ^a !a type a fer a der a sizeof a typeof a ->> <<-  not neg int fer der *int [2]int
+    10 从右到左    -a +a ^a !a type a &a *inf a sizeof a typeof a ->> <<-  not neg int &*inf *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b a<<<b a>>>b  mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -3044,12 +3111,12 @@ math:*
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
     取地址 & 改为 (&) 地址标记 &1 &2 fer
-    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 der
+    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 *inf
 
     @negt()     @-          @-3.14      @-c         (-3.14) (-c)
     @posi()     @+          @+6.24      @+c         (+6.24) (+c)
     @comp()     @^          @^1024      @^c         (^1024) (^c)
-    @fer()     (&)         @&data                  (&)data (*&)data    fer data    der fer data
+    @fer()     (&)         @&data                  (&)data (*&)data    &data    *inf &data
     @der()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 条件语句包含传统C的if和switch：
@@ -3606,7 +3673,7 @@ print(typestring, "\n")
 //      修改其自身，可以使用语法 test(&copyof a)
 //
 //      基本类型 int reg sys_int sys_reg def ptr float 和枚举类型，可以显式传值或指针，传值(1)表示不修改，传指针表示修改，传指针需要声明为 *int
-//      结构体类型总是传指针表示修改，声明为 *point，test(fer point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
+//      结构体类型总是传指针表示修改，声明为 *point，test(&point) test(point_ptr)，即使是双字长的结构体也只传一个指针，因为需要修改成员，传递一个成员指针和两个成员指针区别不大
 //      如果不需要修改结构体，需要声明为 *imm point，不同的是小于等于双字长的结构体直接传递结构体内容（2），大于双字长的将内容拷贝到栈并传递地址
 //      情况(1)在函数中变为传指针，可能（通过寄存器而不是通过栈传递的情况下）需要将寄存器中的值重新复制到栈中
 //      结构体类型总是传指针，函数参数只允许 def *type_name 语法，如果不想修改提前复制一份副本，或通过 copyof 修改副本，如果函数本身不进行修改则无所谓
@@ -3692,7 +3759,7 @@ print(typestring, "\n")
 ——
 ——     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
 ——     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-——     10 从右到左    -a +a ^a !a type a fer a der a sizeof a typeof a ->> <<-  not neg int fer der *int [2]int
+——     10 从右到左    -a +a ^a !a type a &a *inf a sizeof a typeof a ->> <<-  not neg int &*inf *int [2]int
 ——      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
 ——      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
 ——      7 从左到右    a+b a-b a|b a^b             add_op   |^
