@@ -9,12 +9,12 @@
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
 //  with fer der todo debug trap local global // 全局变量必须使用 global 引用
-//  mod mut imm ref gen priv do abstract macro tane (typename)
+//  mod mut imm rua ref gen priv do abstract macro tane (typename)
 //  alignof(type) sizeof(type) offsetof(type.offset) drop
 //  where it it.i halt emit print prinf namespace typename
 //  where when with overloaded in not_in struct strict
 //  or_else or_return or_continue or_break or_final
-//  macro using const romst immst local
+//  macro using const ruast immst local named
 //
 //  defer if error deallocation(ptr)
 //
@@ -109,10 +109,10 @@
 //      import "array" // 一个代码文件最多提供一个名字空间，或者不定义名字空间
 //      import 3rd "array" // 当代码文件没有定义名字空间时，导入时可以提供一个
 //      import std.* 3rd.* // 导入名字空间中的名字到当前文件中，这些导入的名字仅当前文件可见
-//      using namespace std
-//      using std_array = std::array
-//      using int_type = int
-//      const pi = 3.1415926
+//      use namespace std
+//      use std_array std::array
+//      use int_type int
+//      let pi 3.1415926
 //
 //  使用 <file> 导入的代码，都是位于 std 名字空间中，标准头文件打包成了一个特殊格式，不能直接将文件加入到其中，编译器会检查标准库文件名称。
 //  <assert> <complex> <math> <tgmath> <stdarg> <stddef> <stdlib> <stdio> <time>
@@ -276,9 +276,9 @@
 //      b := [2]int{5, -3}
 //      fmt.prinf(cross_2d(a, b))
 //      def cross_3d($T/[3]$E a b, &T) where E::type_is_numeric {
-//          const pi 3.1415926
-//          using t {int a b}
-//          using int_ptr *int
+//          let pi 3.1415926
+//          use t {int a b}
+//          use int_ptr *int
 //          x := a.y*b.z - a.z*b.y
 //          y := a.z*b.x - a.x*b.z
 //          z := a.x*b.y - a.y*b.x
@@ -314,9 +314,9 @@
 //          [N]T x
 //          [N-2]T y
 //      }
-//      using T = i32
-//      const N = 5
-//      let f = Foo!(T, N)
+//      use T i32
+//      let N 5
+//      f := Foo!(T, N)
 //      #assert(size_of(f) == (N+N-2)*size_of(T))
 //
 //  有关传参
@@ -543,8 +543,9 @@
 //
 // 下划线保留字：
 //  __file__
-//  __func__
 //  __line__
+//  __name__
+//  __func__
 //  __retp__
 //  __args__
 //  __argv__
@@ -825,15 +826,15 @@
 //      def data = {this, a = 1, b = 2, 3}          // 可以实现对元组的修改 data.a = 10  data.b = 20
 //      def data = {this, 1, 2, 3}                  // data.0 不能修改 data.1 = 10  data.2 = 20
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式
-//      const i08 {RED = const * 2 YELLOW BLUE} // const 是枚举元素的索引值
-//      const int {RED YELLOW BLUE}
+//      enum {RED{enum * 2} YELLOW BLUE} // enum 是枚举元素的索引值
+//      enum int {RED YELLOW BLUE}
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
 //      $p { (*p int size return int) read (*p return int) get } // 允许使用关键字 this 定义 $this，然后参数声明使用 (this int size return int)
 //  Struct 表示定义一个类型
 //      def empty {}
 //      { int a b } {1, 2}
 //      { (this int a b int) calc }
-//      $t $u const size/int { [size]t a u b }
+//      $(anytype t u, int size) { [size]t a u b }
 //  常量类型，可以表示任意常量，包括结构体常量，常量类型定义一个对应类型的常量值，是一个值不是类型
 //      const f16 PI = 3.14
 //      const PI = 3.1415926
@@ -972,7 +973,7 @@
 def calc(void) { } // 同一行有开始大括号，表示定义一个函数字面量
 def calc(int a) { }
 def calc(&int) { }
-def calc(int a, x y &int float or error) { }
+def calc(int a, &int float named x y or error) { }
 def calc(void) = { } // 同一行有等号，表示定义一个函数指针变量
 def calc(int a) = null
 def calc(&int) = null
@@ -986,7 +987,7 @@ let calc = (void) { } // 没有参数，也没有返回值
 let calc = (&int) { }
 let calc = (int a) { } // 定义函数指针变量，当函数类型前面没有函数名称时，必须使用特殊形式
 let calc = (int a, &int float) { } // (int a) 表示没有返回值 (int a, &int float) 表示有返回值，且返回值不能为空
-let calc = (int a, x y &int float) { }
+let calc = (int a, &int float named a b) { }
 let calc = (int a, &int) { }
 using func_type = (void) // 定义函数类型别名，当函数类型前面没有函数名称时，必须使用特殊形式
 using func_type = (&int float or error)
@@ -998,15 +999,15 @@ using func_type = (int a, &int float)
 (&int) // 返回 int，当有返回值时才需要 return 关键字
 (&int string point) // 返回 int string point
 (&int float)
-(x y &int float or error)
-(&(a &int) float) // 错误，函数类型参数声明不能有返回值命名变量
-(& (&int) float)
-(x y &(&int) float or error)
-([int a float b] x y z &int (&int or none) float or error)
-([int a] &int float)
-([int a ~ b] &int float)
-([int a point b] &int)
-([int a point b])
+(&int float named x y or error)
+(&(&int named a) float) // 错误，函数类型参数声明不能有返回值命名变量
+(&(&int) float)
+(&(&int) float named x y or error)
+(yield int a float b, &int (&int or none) float named x y z or error)
+(yield int a, &int float)
+(yield int a ~ b, &int float)
+(yield int a point b, &int)
+(yield int a point b)
 (int a, &int) // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
 (int _) // 匿名参数
@@ -1030,10 +1031,10 @@ using func_type = (int a, &int float)
 (int a, int b c, float d)
 (int a b c, float d)
 (int a{1} b{2} c{3}, float d) // 允许第一个也使用点号，方便自动化工具
-(int a b, yield int point, &int, &point)
+(int a b, yield int point, &int point)
 (int a b, yield int point)
-(int a b, &int count, &point point, &float scale)
-(int a, &int count, &point point, or error)
+(int a b, &int point float named count point scale)
+(int a, &int point named count point or error)
 (*file? file{stdin}, point point, string name{"root"}, string mode)
 (*file? file{stdin}, point point, point origin, string name, string mode, int a, int b, int c, &int string float)
 (*file? {stdin}, point point origin, string name mode, int a b c, &int string float)
@@ -1056,8 +1057,8 @@ struct {} // 空结构体
 {int a int b point o string s}
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point} // point 是 int 型类型成员
-const { red green blue }
-const int { red green = 2 blue }
+enum { red green blue }
+enum int { red green{2} blue }
 $(anytype T) { ((*T p, int size) int) read }
 // 结构体中的各类成员
 //  1. 成员 type field_name field_name
@@ -1485,9 +1486,9 @@ def reader $t $(def *t int a b return int) calc $(def *t  def []byte a) get { }
 def get ($*t p return int)
 def read ($*t p def *byte buf int n return int)
 def reader $T $get(T) get $read(T) read { }
-def color const i08 { RED = 1 BLUE = 2 YELLOW = 3 }
-def bitvalue const int { FLAT_BIT1 = 1 << const FLAG_BIT2 FLAG_BIT3 }
-def tcpaction const int { TCPA_OPEN_ACCEPT TCPA_TX_DATA TCPA_RX_DONE }
+def color enum i08 { RED{1} BLUE{2} YELLOW{3} }
+def bitvalue enum int { FLAT_BIT1{1 << enum} FLAG_BIT2 FLAG_BIT3 }
+def tcpaction enum int { TCPA_OPEN_ACCEPT TCPA_TX_DATA TCPA_RX_DONE }
 def 协程 { r32 rspoffset loweraddr }
 def coroguard { r32 lower_guard_word def *coro coro (def *coroguard g int a b int) f g }
 def handle(def *hcirxdesc rxdesc r32 ca def hcidatatype type def u line)
@@ -1513,8 +1514,8 @@ def test $(anytype t u) {
     u u
 }
 
-def color const int {
-    red {const + 1}
+def color enum int {
+    red {enum + 1}
     blue
     green
     yellow
@@ -1652,7 +1653,7 @@ CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
 }
 
 Color $i08 {
-    RED {const + 1}
+    RED {enum + 1}
     BLUE
     YELLOW
 }
@@ -1670,7 +1671,7 @@ Color $i08 "strict" { // strict 枚举类型必需为全部枚举手动指定值
 }
 
 BitValue $int {
-    FLAG_BIT1 {1 << const}
+    FLAG_BIT1 {1 << enum}
     FLAG_BIT2
     FLAG_BIT3
     FLAG_BIT4
@@ -1681,7 +1682,7 @@ Scale(Point point int a b)
 Calc(int a b int)
 Array $T $int size { [size]T a }
 Color $i08 {RED 1 BLUE 2 YELLOW 3}
-BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3}
+BitValue $int {FLAG_BIT1 {1 << enum} FLAG_BIT2 FLAG_BIT3}
 
 TcpAction $int {
     TCPA_OPEN_ACCEPT
@@ -1733,17 +1734,17 @@ Oper $int -> {int lpri int rpri} { // $int 定义的是一个常量
     end {0} // 默认值为零
 }
 
-def color const r08 { // private type
+def color enum r08 { // private type
     RED GREEN BLUE
 }
 
-pub color const r08 { // public type
+pub color enum r08 { // public type
     RED
-    GREEN {1 << const}
+    GREEN {1 << enum}
     BLUE
 }
 
-pub color const r08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
+pub color enum r08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
     RED {1}
     BLUE {2}
     YELLOW {3}
@@ -1761,16 +1762,29 @@ pub coro { // 包外访问，结构体成员只读，以下划线结束的成员
     i32 coro_id
 }
 
+def point struct [3]float // 使用另一个类型定义一个新的类型
+pub point struct [3]float
+
 def calc(&int) {
     return 0
 }
 
-def calc(a &int) {
+def calc(&int) {
+    use "named result" a
     a = 0
 }
 
-def calc(a b &int float) {
+def calc(&int float) {
+    use "named result" a b
     return 0, pi
+}
+
+def calc(&int named a) {
+    a = 0
+}
+
+def calc(&int float named a b) {
+    return 0, PI
 }
 
 def main(int argc, **char argv, &int) { // 相当于定义一个函数类型的常量，函数代码其实就是只读的代码数据，会放到只读分区
@@ -1785,52 +1799,52 @@ def "=="(string a b, &bool) {
     return a.size == b.size && equal(a.data, b.data, a.size)
 }
 
-def color const r08 { // private type
+def color enum r08 { // private type
     red green blue
 }
 
-pub color const r08 { // public type
+pub color enum r08 { // public type
     red
-    green {1 << const}
+    green {1 << enum}
     blue
 }
 
-def color const r08 {
+def color enum r08 {
     red {1} green {2} blue
 }
 
-def color const r08 {
+def color enum r08 {
     red {blue_defined_value} green blue
 }
 
-def color const {
+def color enum {
     red green blue
 }
 
-def color const int {
+def color enum int {
     red green blue
 }
 
-def test $(const C) {
+def test $(enum C) {
     int data
 }
 
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
-using func_type = (int argc, **char argv, &int)
-using type_of_map = |flat_map|[string:int]
-using tuple_type = [int int float string]
-using int_ptr = *int
-using point_ptr = *point
-using type_point = point
-using func_type = (int a, &int)
-using tuple_type = [int float]
-const name = 3.1415926
+use func_type (int argc, **char argv, &int)
+use type_of_map |flat_map|[string:int]
+use tuple_type [int int float string]
+use int_ptr *int
+use point_ptr *point
+use type_point point
+use func_type (int a, &int)
+use tuple_type [int float]
+let name 3.1415926
 
 def name(int a, &int) { ... }
-def name const { red blue green }
-def name const int { red bule green }
-def name const int with {r08 lpri r08 rpri} { ... }
-def name const with {r08 lpri r08 rpri} { ... }
+def name enum { red blue green }
+def name enum int { red bule green }
+def name enum int with {r08 lpri r08 rpri} { ... }
+def name enum with {r08 lpri r08 rpri} { ... }
 def name { int a int b }
 def name $(anytype T U, const SIZE, int N T VALUE) { ... }
 def name $(anytype T) { ... }
@@ -1878,42 +1892,42 @@ def array_push(*array<dyn>!(T), T a) {
 import <array> // 标准头文件不能包含路径名称
 import "array" // 用户代码可以包含额外路径名称
 import 3rd "array" // 仅当 array 没有定义名字空间时才能提供自定义名字空间
-using namespace std // using 仅当前文件作用域可见
-using real_std = namespace std // 以防两个文件中定义了相同的名字空间
-using array_type = typename array // 引用类型名称
-using name_array = array // 默认名称是一个变量名或函数名
-using std_array = std::array
+use namespace std // using 仅当前文件作用域可见
+use real_std namespace std // 以防两个文件中定义了相同的名字空间
+use array_type typename array // 引用类型名称
+use name_array array // 默认名称是一个变量名或函数名
+use std_array std::array
 
 // 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
-const SZ = 1024 // 类型为 const int
-const PI = 3.1415926 // 类型为 const float
-const 2P = 2 * PI // 类型为 const float
-const PI = f64 3.1415926 // 类型为 const f64
-const PT = point {100, 200} // 类型为 const point
-const P3 = [_]int {100, 200} // 类型为 const [2]int
-const P4 = [int int] {100, 200} // 类型为 const [int int]
-const P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
-const P6 = (int a, int b, &int) { return a + b } // 相当于 def P6(int a b, &int) { return a + b }
-const SZ = 1024
-const PI = 3.1415926
-romst P7 = [int int] {100, 200}
-immst P8 = [int int] {xval, yval}
+let SZ 1024 // 类型为 const int
+let PI 3.1415926 // 类型为 const float
+let 2P 2 * PI // 类型为 const float
+let PI f64 3.1415926 // 类型为 const f64
+let PT point {100, 200} // 类型为 const point
+let P3 [_]int {100, 200} // 类型为 const [2]int
+let P4 [int int] {100, 200} // 类型为 const [int int]
+let P5 {int a int b} {100, 200} // 类型为 const {int a int b}
+let P6 (int a, int b, &int) { return a + b } // 相当于 def P6(int a b, &int) { return a + b }
+let SZ 1024
+let PI 3.1415926
+rua P7 [int int] {100, 200}
+imm P8 [int int] {xval, yval}
 
 // 应该统一常量和变量，如果变量的值是编译时已知的，就自动解析为一个常量，只要不获取这个
 // 变量的地址，这个变量就是一个常量，当然可能需要有一个不能修改的限定符。变量都是可以修
 // 改的。仅存在于编译时的常量，和运行时可以访问的常量（保存在 rodata 分区的只读数据）。
-// 例如常量数组，使用运行时变量索引进行访问 const A = {1, 2, 3} def f(int i, &int) { return A[i] }
+// 例如常量数组，使用运行时变量索引进行访问 let A {1, 2, 3} def f(int i, &int) { return A[i] }
 //
 //  1.  仅存在于编译时的常量，没有存储位置，不是任何运行时数据，不会成为数据保存到 rodata
 //      分区。编译时常量的存在，仅用于编译时计算，类似于 C 语言中的宏定义。
-//          const TUPLE = [int int] {32, 64}
+//          let TUPLE [int int] {32, 64}
 //  2.  普通的只读常量，可以在运行时使用运行时才确定的参数对只读常量进行访问，可以对只读
 //      常量进行取地址操作，除了不能写入外，可以像任何数据一样进行读取，该只读数据保存在
 //      rodata 数据分区中
-//          romst TUPLE = [int int] {32, 64}
+//          rua TUPLE [int int] {32, 64}
 //  3.  初始化后不再修改的数据，即进入 main 函数后就不能在修改的只读数据，该数据可以放在
 //      一个特殊的数据分区中，例如出厂设置分区，或者命名为 roinit 分区
-//          immst TUPLE = [int int] {int_variable, ver_number}
+//          imm TUPLE [int int] {int_variable, ver_number}
 //  4.  进入 main 之后，运行时变量初始化后不再修改的数据，不进行归类，按第 5 类变量处理，
 //      如果是一种方案，可声明为函数参数，因为函数参数在参数传递后总是不可修改的
 //  5.  变量定义后一直可修改的数据
@@ -1933,14 +1947,19 @@ immst P8 = [int int] {xval, yval}
 //          def a = int
 //          def b = float
 //  9.  线程局部变量和协程局部变量
-//          def local a := int
-//          def local b := float
+//          def a "thread_local" := int
+//          def b "thread_local" := float
 //
 // 定义的符号的前向声明方式，所有定义都是公开的，唯一不同是 pub 是公开导出的，但是外部
-// 代码还是可以公开访问所有的代码：
-//      using int = int
-//      using reg = reg
-//      const PI = PI
+// 代码还是可以公开访问所有的代码。或者默认都是代码包私有的，声明成 pub 变成公开，但是
+// 只是一种声明，外部还是可以 strict 关键字访问私有代码。所有定义都是公开，除非符号的
+// 名称以 impl Impl IMPL impl_ Impl_ IMPL_ 和单下划线（_）开头，这些符号被认为是私有定
+// 义。下划线开头的名称是编译保留的名称，有特殊含义，不能用作程序正常的符号名称。
+//      use int int
+//      use reg reg
+//      let PI PI
+//      rua RO RO
+//      imm IM IM
 //      def calc(int a b, &int)
 //      def main(int argc, **argv, &int)
 //      def color enum
@@ -1953,13 +1972,13 @@ immst P8 = [int int] {xval, yval}
 //
 // 保留限制区域的定义
 //      strict region
-//      using std_array = std::array
-//      const PI = 3.1415926
+//      use std_array std::array
+//      let PI 3.1415926
 //      final
 
-pub global
-using std_array = std::array
-const PI = 3.1415926
+pub "global"
+use std_array std::array
+let PI 3.1415926
 final
 
 // 定义的提前声明
@@ -2014,18 +2033,18 @@ pub data {int a int b int x, y point point} = {10, 20, 30, 40, {100, 200}}
 pub data [int int point] = {10, 20, {100, 200}}
 
 // 数据类型转换，注意类型名不能加上小括号，例如 (Point)，因为它将变成一个函数类型
-let aaa = Data {3, 4}
-let ppb = *Ppb ppb_alloc(alloc)
-let pos = dist + int scale_x(facter)
-let len = int pos + &*byte p + size + f(g)
-let len = int pos + *inf *byte (p + size + f(g))
-let pos = int dist + int scale_x(facter)
-let len = int pos + *inf *int *byte (p + size + f(g))
-let len = typeof(pos) 3
-let len = foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
-let len = int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
-let len = foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
-let len = foo ~ -3
+aaa := Data {3, 4}
+ppb := *Ppb ppb_alloc(alloc)
+pos := dist + int scale_x(facter)
+len := int pos + &*byte p + size + f(g)
+len := int pos + *inf *byte (p + size + f(g))
+pos := int dist + int scale_x(facter)
+len := int pos + *inf *int *byte (p + size + f(g))
+len := typeof(pos) 3
+len := foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
+len := int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
+len := foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
+len := foo ~ -3
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &），代码行不能
 // 以小括号开始，否则报错。D 语言禁止大多数原始表达式语句，所以如果没有产生副作用，就
@@ -2567,7 +2586,7 @@ def scale(type point int a b)
 def calc(int a b >> int)
 Array $T $int size { [size]T a }
 Color $i08 [[strict]] {RED {1} BLUE {2} YELLOW {3}}
-BitValue $int {FLAG_BIT1 {1 << const} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
+BitValue $int {FLAG_BIT1 {1 << enum} FLAG_BIT2 FLAG_BIT3 FLAG_BIT4}
 
 TcpAction $i08 {
     TCPA_OPEN_ACCEPT
@@ -3305,7 +3324,7 @@ math:*
 //  let [a <> b] ?= statement else statement
 //
 //  ?< ?= ?> 可以看作是预定义的三个枚举常量值：
-//  const i08 {
+//  enum i08 {
 //      ?<  =   -1
 //      ?=  =   0
 //      ?>  =   1
