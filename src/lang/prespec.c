@@ -14,6 +14,7 @@
 //  where it it.i halt emit print prinf namespace typename
 //  where when with overloaded in not_in struct strict
 //  or_else or_return or_continue or_break or_final
+//  macro using const romst immst local
 //
 //  defer if error deallocation(ptr)
 //
@@ -1895,6 +1896,8 @@ const P5 = {int a int b} {100, 200} // 类型为 const {int a int b}
 const P6 = (int a, int b, &int) { return a + b } // 相当于 def P6(int a b, &int) { return a + b }
 const SZ = 1024
 const PI = 3.1415926
+romst P7 = [int int] {100, 200}
+immst P8 = [int int] {xval, yval}
 
 // 应该统一常量和变量，如果变量的值是编译时已知的，就自动解析为一个常量，只要不获取这个
 // 变量的地址，这个变量就是一个常量，当然可能需要有一个不能修改的限定符。变量都是可以修
@@ -1903,11 +1906,14 @@ const PI = 3.1415926
 //
 //  1.  仅存在于编译时的常量，没有存储位置，不是任何运行时数据，不会成为数据保存到 rodata
 //      分区。编译时常量的存在，仅用于编译时计算，类似于 C 语言中的宏定义。
+//          const TUPLE = [int int] {32, 64}
 //  2.  普通的只读常量，可以在运行时使用运行时才确定的参数对只读常量进行访问，可以对只读
 //      常量进行取地址操作，除了不能写入外，可以像任何数据一样进行读取，该只读数据保存在
 //      rodata 数据分区中
+//          romst TUPLE = [int int] {32, 64}
 //  3.  初始化后不再修改的数据，即进入 main 函数后就不能在修改的只读数据，该数据可以放在
 //      一个特殊的数据分区中，例如出厂设置分区，或者命名为 roinit 分区
+//          immst TUPLE = [int int] {int_variable, ver_number}
 //  4.  进入 main 之后，运行时变量初始化后不再修改的数据，不进行归类，按第 5 类变量处理，
 //      如果是一种方案，可声明为函数参数，因为函数参数在参数传递后总是不可修改的
 //  5.  变量定义后一直可修改的数据
@@ -1926,6 +1932,9 @@ const PI = 3.1415926
 //  8.  全局变量的前向声明 forward declaration
 //          def a = int
 //          def b = float
+//  9.  线程局部变量和协程局部变量
+//          def local a := int
+//          def local b := float
 //
 // 定义的符号的前向声明方式，所有定义都是公开的，唯一不同是 pub 是公开导出的，但是外部
 // 代码还是可以公开访问所有的代码：
@@ -3096,6 +3105,11 @@ math:*
 
     -- ++ .. ** %% ?? :: ==
     ... --*-- --.-- ## @@ $$
+
+    为什么没有 ++ 或 -- 运算符。前置递增和后置递增，以及它们的递减等价物，看起来简单但
+    实际上很复杂。它们需要了解求值顺序，并会导致微妙的错误。f(i++) 或 a[++i] = b[i] 都
+    令人困惑，即使规则定义得很清楚。移除这是一个重大的简化。x += 1 稍微长一点，但它是明
+    确的。
 
     交换操作
         a <=> b
