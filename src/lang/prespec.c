@@ -73,6 +73,9 @@
 //      的小可以通过 date::sizeof 表示，date::alignof 表示对齐字节，而字段的对齐字节
 //      可以通过 alignof(date::year) 表示。类型操作符 :: 还可以用来实例化泛型，例如
 //      array!(int, 4)，get_array_genric_type()!(int, 4)
+//  8.  如果成员变量名称与成员函数名称冲突，成员变量名称可以使用 a.__field__.name 访问
+//  9.  如果变量名与类型名冲突，可以使用 name!inf 访问类型名称，inf 表示类型推导
+//      a := point!inf !cond ? {10, 20} : {30, 40}
 //
 //      array!(int, 4)
 //      std.file::offset
@@ -159,6 +162,18 @@
 //          import "path/folder/*.code" // 为了安全不能导入所有，只能一个一个文件导入
 //          import "path/folder" // 导入 path/folder/module.code
 //
+// 代码导入功能，仅简化 C 语言的头文件搜索规则：
+//  1.  为每个搜索路径定义一个确定的库名称，一个路径与一个库名称唯一对应
+//  2.  导入文件时，必须基于指定的库名为基准引入文件，有两个特殊的库名 std 和 sys
+//  3.  从初始导入点开始，导入路径自动展示出当前代码构建的全貌，无需编写额外的文件构建
+//      依赖关系，就可以自动完成编译，也就是构建项目的所有文件依赖都自动包含在源代码中
+//  4.  如果文件提供了一个代码分块，使用代码的分块名称，如果代码没有分块就直接导入全局空间
+//  5.  不同的库名下，可以定相同的包名，除了当前项目，导入的代码都必须以库名加包名的方式访问
+//          import std "array.rua" // 导入标准库中 array.rua 文件中的所有包（但会按实际访问情况进行编译），可以一个或多个包名，或者没有定义任何包名，所有定义导入到 std 名字空间下
+//          import "utils/test.rua" // 从当前目录导入文件
+//          import "../helpers.rua" // 以当前目录为基准导入文件
+//          a := std::array {1, 2, 3}
+//
 // 一个工程可以包含多个库（library），每个库可以包含多个命名空间或代码包，例如：
 //  1.  标准库 std 可以包含各种代码包 std.array std.string
 //  2.  只分为两个级别，库和包，不会出现 std.array.index
@@ -184,10 +199,15 @@
 //  bin/data/ 数据文件，比如字体、图像、声音、视频、文本
 //  bin/program.exe
 //  lib/core.lib
-//  src/main.code 代码文件
-//  src/file.code 代码文件
-//  src/base/code.code 模块文件
-//  build.code
+//  src/main.rua 代码文件
+//  src/file.rua 代码文件
+//  src/base/code.rua 模块文件
+//  drive.ras
+//  hello.rua
+//  rua_out/target/ruas
+//  rua_out/target/data
+//  rua_out/target/libs
+//  rua_out/target/hello
 //
 //  文件中使用 def 定义的符号属于文件作用域（局部于文件），使用 pub 定义的符号数据全局
 //  作用域（属于全局，可被其他文件导入后访问），在函数中定义的局部变量和常量属于局部作用
@@ -549,6 +569,8 @@
 //  __retp__
 //  __args__
 //  __argv__
+//  __field__
+//  __type__
 // 编译时指令： #label_name 定义标签名称
 //  PRH_TCPA_#(OPEN_REQ) #{int} #{if} ${int} ${if} #'operation
 //  global.override_name 在局部作用域中访问局部作用域中被局部作用域覆盖的名称
@@ -613,15 +635,15 @@
 //  mat2 mat3 mat4
 //
 //  predefined header types
-//  vew`array   arriew      std.array_view
-//  fix`array   arrfix      std.array<fix>
-//  fit`array   arrfit      std.array<fit>
-//  dyn`array   arrdyn      std.array<dyn>
-//  dde`array   arrbdi      std.array<bdi>
-//  vew`string  striew      std.string_view
-//  fix`string  strfix      std.string<fix>
-//  fit`string  strfit      std.string<fit>
-//  dde`string  strbdi      std.string<bdi>
+//  vew`array   arriew      std.array_view    array_view
+//  fix`array   arrfix      std.array<fix>    fixed_array!<int>      point!__type__ !cond ? {10, 20} : {30, 40}
+//  fit`array   arrfit      std.array<fit>    inplace_array!<int>
+//  dyn`array   arrdyn      std.array<dyn>    array!<int>
+//  dde`array   arrbdi      std.array<bdi>    bdi_array!<int>
+//  vew`string  striew      std.string_view   string_view
+//  fix`string  strfix      std.string<fix>   string!fix
+//  fit`string  strfit      std.string<fit>   string!fit
+//  dde`string  strbdi      std.string<bdi>   string!bdi
 //  dyn`string  string      std.string
 //
 //  rem res rim ron rou rut ra re rf ri rl ro rs rv
@@ -1969,6 +1991,13 @@ imm P8 [int int] {xval, yval}
 //      def array $(anytype T, reg SIZE)
 //      def this transfer
 //      def name = int
+//
+//  def _coro {
+//      r32 _rspoffset
+//  }
+//  def _spawn(*_coro) { }
+//  coro._spawn()
+//  coro._rspoffset
 //
 // 保留限制区域的定义
 //      strict region
