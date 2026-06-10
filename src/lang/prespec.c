@@ -8,13 +8,13 @@
 //  struct const void embed of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
-//  with fer der todo debug trap local global // 全局变量必须使用 global 引用
+//  with fet dre todo debug trap local global // 全局变量必须使用 global 引用
 //  mod mut imm rua ref gen priv do abstract macro tane (typename)
 //  alignof(type) sizeof(type) offsetof(type.offset) drop
 //  where it it.i halt emit print prinf namespace typename
 //  where when with overloaded in not_in struct strict
 //  or_else or_return or_continue or_break or_final
-//  macro using const ruast immst local named
+//  macro using const ruast immst local named also
 //
 //  defer if error deallocation(ptr)
 //
@@ -2037,9 +2037,9 @@ aaa := Data {3, 4}
 ppb := *Ppb ppb_alloc(alloc)
 pos := dist + int scale_x(facter)
 len := int pos + &*byte p + size + f(g)
-len := int pos + *inf *byte (p + size + f(g))
+len := int pos + dre *byte (p + size + f(g))
 pos := int dist + int scale_x(facter)
-len := int pos + *inf *int *byte (p + size + f(g))
+len := int pos + dre *int *byte (p + size + f(g))
 len := typeof(pos) 3
 len := foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
 len := int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
@@ -2055,25 +2055,25 @@ len := foo ~ -3
 //  2.  named_type {initialize_list} 形式也不需要添加 'type 转换前缀
 //  3.  named_type undefined 形式也不需要添加 'type 转换前缀
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
-//  5.  取地址操作符 &(fetch reference) ref address-of of
-//  6.  解引用操作符 *inf（dereference)
+//  5.  取地址操作符 &(fetch reference) fer ref address-of of   取址 fetch address   fet
+//  6.  解引用操作符 *drf) get value in reference inf           取值 fetch value     fav
 //  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
 //  let a type = expr, b = expr, c = expr, ...
-let a = a + int b + c * d               *inf p <= a + b
-let a = a + (int b + c) * d             *inf **int p <= curr + size // inverse reference
-let a = a + *inf p + size
-let a = a + *inf (p + size)
-let a = a + *inf *int b + size
-let a = a + *inf (*int b + size)
-let a = a + **inf **int base + size
-let a = a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let a = a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let p *int = *inf **int base + size
-let p *int = *inf (**int base + size)
+let a = a + int b + c * d               dre p <= a + b
+let a = a + (int b + c) * d             dre **int p <= curr + size
+let a = a + dre p + size
+let a = a + dre (p + size)
+let a = a + dre *int b + size
+let a = a + dre (*int b + size)
+let a = a + dre dre **int base + size
+let a = a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let a = a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let p *int = fet **int base + size
+let p *int = fet (**int base + size)
 let point point = {100, 200} // 第一个 point 是类型
-let p *point = &copyof(point)
-let p *point = &{0}
+let p *point = fet copyof(point)
+let p *point = fet {0}
 let p *int = null
 let q *int = undefined
 let p *int = null, q = undefined
@@ -2134,20 +2134,20 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
-a := a + int b + c * d               *inf p <= a + b
-a := a + (int b + c) * d             *inf **int p <= curr + size
-a := a + *inf p + size
-a := a + *inf (p + size)
-a := a + *inf *int b + size
-a := a + *inf (*int b + size)
-a := a + **inf **int base + size
-a := a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-a := a + **inf (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-p := *int *inf **int base + size
-p := *int *inf (**int base + size)
+a := a + int b + c * d               dre p <= a + b
+a := a + (int b + c) * d             dre **int p <= curr + size
+a := a + dre p + size
+a := a + dre (p + size)
+a := a + dre *int b + size
+a := a + dre (*int b + size)
+a := a + dre dre **int base + size
+a := a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+a := a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+p := *int dre **int base + size
+p := *int dre (**int base + size)
 point := point {100, 200} // 第一个 point 是类型
-p := *point &copyof(point)
-p := *point &{0}
+p := *point fet copyof(point)
+p := *point fet {0}
 p := *int null
 q := *int undefined
 p := *int null q := undefined
@@ -2188,8 +2188,8 @@ array_ints := {{1,2}, {3,4,5}} // 元组
 mixed_array := {{1,2}, {"a", "b", "c"}} // 元组
 int_array := mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
 str_array := mixed_array[1]
-o := *inf p
-p := &a
+o := dre p
+p := fet a
 o := point {1, 2}
 ppb := *ppb malloc(size)
 p := *int null
@@ -2213,21 +2213,21 @@ for var i = 0; i < 10; i += 1 { }
 for i := 0; i < 10; i += 1 { }
 for $i = 0; i < 10; i += 1 { }
 for $i 0 to 10 step 1 { }
+for $i 0 .. 10 step 2 { }
 
-// 表达式的隔断，表示一个表达式的开始
-
+// 表达式的隔断，表示一个表达式的开始 also
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
-if $a point{100, 200} + b with expr { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
-if $a $_ $c read_tuple() with expr { stmt ... }
-if $u lexer_next_utf8(l) with u == '\'' || u == prh_char_invalid
+if $a point{100, 200} + b also expr { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
+if $a $_ $c read_tuple() also expr { stmt ... }
+if $u lexer_next_utf8(l) also u == '\'' || u == prh_char_invalid
     return TOKERR
-if $c getarray(l)[0,1](a) with c != '\''
+if $c getarray(l)[0,1](a) also c != '\''
     return TOKERR
 l.c = lexer_next_char(l)
 l.cvalue = u
 return CHARLIT
-l.parse = utf8_to_unicode(l.parse, &$unicode);
+l.parse = utf8_to_unicode(l.parse, fet $unicode);
 return unicode;
 
 // 使用符号#定义局部常量，常量的定义不占用函数栈空间，而 $a 实际分配函数栈空间
@@ -2236,22 +2236,22 @@ for i in [0, SIZE) {
     string_unchecked_push(s, value)
 }
 
-def calc(int a b, &int int of x y) {
+def calc(int a b, &int int named x y) {
     x = a + b
     y = a * b
 }
 
-def calc(int a b, &int int of x y or error) {
-    if a == 0 return e_invalid
+def calc(int a b, &int int named x y or error) {
+    if a == 0 return error_invalid
     x = a * b
     y = e_notzero
 }
 
 def read_username(&string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
-    let f = open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
-    let s = string {}
+    f := open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
+    s := string {}
     f.read_to_string(&s) or return
-    if s == "unknown" return e_notfound
+    if s == "unknown" return error_not_found
     return s
 }
 
@@ -2433,7 +2433,7 @@ def eval(oper o expr l expr r >> expr) {
     return expr
 }
 
-eat(*lexer lexer >> token) {
+def eat(*lexer, &token) {
     return lexer.pop()
 }
 
@@ -2668,8 +2668,8 @@ def snode $T {
 }
 
 for i I 0 .. 9 {
-    i int *inf *I addr
-    pos + *inf &*I (*byte p + size + f(g))
+    i int dre *I addr
+    pos + dre &*I (*byte p + size + f(g))
 }
 
 def memcpy(reg dest unsigned src int count)
@@ -2682,9 +2682,9 @@ def coroguard(*coro p return coro_guard) 'cdcel inline'
 Calc (int a b int)
 Snode $T { this next T data }
 for [&] i I 0 .. 9 {
-    i int *inf *I addr
+    i int dre *I addr
     if i%2 continue &
-    pos + *inf &I (*byte p + size + f(g))
+    pos + dre &I (*byte p + size + f(g))
 }
 memcpy (Ptr dst src int count)
 memcmp (Ptr dst src int count int)
@@ -2918,7 +2918,7 @@ for i int 3 .. 10 { /* */ }
 // 也即 for 必须加大括号，如上面 ~ if 不知道是第一个 for 还是第二个 for 的后置条件
 for {
     capacity *= 2
-} ~ if (capacity < new_capacity)
+} also if (capacity < new_capacity)
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
@@ -3110,7 +3110,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    -a +a ^a !a type a &a *inf a sizeof a typeof a ->> <<-  not neg int &*inf *int [2]int
+    10 从右到左    -a +a ^a !a type a &a dre a sizeof a typeof a ->> <<-  not neg int &dre *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b a<<<b a>>>b  mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -3144,12 +3144,12 @@ math:*
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
     取地址 & 改为 (&) 地址标记 &1 &2 fer
-    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 *inf
+    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 dre
 
     @negt()     @-          @-3.14      @-c         (-3.14) (-c)
     @posi()     @+          @+6.24      @+c         (+6.24) (+c)
     @comp()     @^          @^1024      @^c         (^1024) (^c)
-    @fer()     (&)         @&data                  (&)data (*&)data    &data    *inf &data
+    @fer()     (&)         @&data                  (&)data (*&)data    &data    dre &data
     @der()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 条件语句包含传统C的if和switch：
@@ -3792,7 +3792,7 @@ print(typestring, "\n")
 ——
 ——     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
 ——     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-——     10 从右到左    -a +a ^a !a type a &a *inf a sizeof a typeof a ->> <<-  not neg int &*inf *int [2]int
+——     10 从右到左    -a +a ^a !a type a &a dre a sizeof a typeof a ->> <<-  not neg int &dre *int [2]int
 ——      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
 ——      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
 ——      7 从左到右    a+b a-b a|b a^b             add_op   |^
