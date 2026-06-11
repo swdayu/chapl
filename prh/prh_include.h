@@ -3099,6 +3099,563 @@ void prh_impl_dump_memory_leaks(void) {
 // 把这个变量设为 FALSE。我们可以在函数返回后测试这个变量，验证宽字符字符串是否已成功
 // 转换。同样地，我们也可以将这个参数设为 NULL 值。
 //
+// https://learn.microsoft.com/en-us/windows/win32/intl/unicode-and-character-sets
+// https://learn.microsoft.com/en-us/windows/win32/intl/using-unicode-normalization-to-represent-strings
+//
+// Microsoft Windows 通过 Unicode 和传统字符集为国际市场中许多不同的书面语言提供支持。Unicode
+// 是一种全球字符编码标准，为现代计算中使用的每个字符（包括出版中使用的技术符号和特殊字符）
+// 提供一个唯一的数字。Unicode 是现代标准（如 XML 和 ECMAScript/JavaScript）所必需的，也
+// 是实现 ISO/IEC 10646 的官方机制。它受到许多操作系统、所有现代浏览器和许多其他产品的支
+// 持。新的 Windows 应用程序应使用 Unicode，以避免各种代码页的不一致性，并有助于简化本地
+// 化。
+//
+// 传统字符集是以前的字符编码标准，例如使用 8 位代码值或 8 位值组合来表示特定语言或地理
+// 区域中使用的字符的 Windows 代码页。全球的字符数据是使用 Unicode 和传统字符集开发的。
+// 因此，Windows 提供了字符集函数，帮助应用程序将字符数据从其原始字符集转换为 Unicode 或
+// 其他传统字符集。这些字符集函数还帮助应用程序创建可以传输到任何操作系统并使用于任何操
+// 作系统的字符数据，包括那些不支持 Unicode 的操作系统。
+//
+// "字符集"是字符到其标识代码值的映射。当今计算机中最常用的字符集是 Unicode，一种全球字
+// 符编码标准。在内部，Windows 应用程序使用 Unicode 的 UTF-16 实现。在 UTF-16 中，大多数
+// 字符由两字节代码标识。较少使用的补充字符每个由一个代理对表示，代理对是一对两字节代码。
+//
+// 某些 Windows 应用程序必须与 Windows Me/98/95 原生的旧字符集一起工作。Windows 代码页
+// 允许你的应用程序与这些字符集一起工作。这些字符集可分为：
+//  1.  单字节字符集（SBCS）。在 SBCS 中，每个字符由一个一字节宽的值标识。
+//  2.  多字节字符集，特别是双字节字符集（DBCS）。多字节字符集提供了一种表示许多亚洲语言
+//      中大量字符的方法。
+//
+// 今天编写的大多数应用程序主要将字符数据作为 Unicode 处理，使用 UTF-16 编码。然而，许多
+// 遗留应用程序继续使用基于代码页的字符集。即使是新应用程序有时也必须与代码页一起工作，通
+// 常出于以下原因之一。但是注意，新的 Windows 应用程序应使用 Unicode，以避免各种代码页的
+// 不一致性，并便于本地化。
+//  1.  与遗留应用程序通信。
+//  2.  与可能不总是支持 Unicode 的旧邮件和新闻服务器通信。
+//  3.  出于遗留目的与 Windows 控制台通信，控制台确实支持 Unicode，但某些遗留命令行应用
+//      程序工具可能不支持。
+//
+// 每个代码页由一个代码页标识符表示，例如 1252，并由 Unicode 和字符集 API 函数处理。有关
+// 支持的代码页标识符列表，请参阅"代码页标识符"。Microsoft Go Global 开发者中心的"代码页"
+// 参考提供了许多代码页的完整描述。https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
+//      936     gb2312  ANSI/OEM Simplified Chinese (PRC, Singapore); Chinese Simplified (GB2312)
+//      950     big5    ANSI/OEM Traditional Chinese (Taiwan; Hong Kong SAR, PRC); Chinese Traditional (Big5)
+//      1200    utf-16  Unicode UTF-16, little endian byte order (BMP of ISO 10646); available only to managed applications
+//      1201    unicodeFFFE     Unicode UTF-16, big endian byte order; available only to managed applications
+//      1252    windows-1252    ANSI Latin 1; Western European (Windows)
+//      10002   x-mac-chinesetrad   MAC Traditional Chinese (Big5); Chinese Traditional (Mac)
+//      10008   x-mac-chinesesimp   MAC Simplified Chinese (GB 2312); Chinese Simplified (Mac)
+//      12000   utf-32  Unicode UTF-32, little endian byte order; available only to managed applications
+//      12001   utf-32BE    Unicode UTF-32, big endian byte order; available only to managed applications
+//      20936   x-cp20936   Simplified Chinese (GB2312); Chinese Simplified (GB2312-80)
+//      50227   x-cp50227   ISO 2022 Simplified Chinese; Chinese Simplified (ISO 2022)
+//      54936   GB18030 Windows XP and later: GB18030 Simplified Chinese (4 byte); Chinese Simplified (GB18030)
+//      65000   utf-7   Unicode (UTF-7)
+//      65001   utf-8   Unicode (UTF-8)
+//
+// Windows 代码页，通常称为"ANSI 代码页"，是非 ASCII 值（大于 127 的值）表示国际字符的
+// 代码页。这些代码页在 Windows Me 中本地使用，在 Windows NT 及更高版本上也可用。注意：
+// 最初，Windows 代码页 1252（通常用于英语和其他西欧语言的代码页）基于美国国家标准协会
+// （ANSI）草案。该草案最终成为 ISO 8859-1，但 Windows 代码页 1252 在标准最终确定之前
+// 就已实现，与 ISO 8859-1 不完全相同。
+//
+// 许多 Windows API 函数有"A"（ANSI）和"W"（宽字符，Unicode）版本。"A"版本处理基于 Windows
+// 代码页的文本，而"W"版本处理 Unicode 文本。请参阅"Windows 字符串数据类型"和"函数原型约定"。
+// https://learn.microsoft.com/en-us/windows/win32/intl/conventions-for-function-prototypes
+//
+// Windows 代码页有时也称为"活动代码页"或"系统活动代码页"。Windows 操作系统始终有一个当前
+// 活动的 Windows 代码页。所有 ANSI 版本的 API 函数都使用当前活动的代码页。原始设备制造商
+// （OEM）代码页是非 ASCII 值表示线条绘制和标点字符的代码页。这些代码页最初用于 MS-DOS，
+// 至今仍用于控制台应用程序。它们还用于 FAT12、FAT16 和 FAT32 文件系统中的非扩展文件名，
+// 如"文件名中使用的字符集"所述。英语的通常 OEM 代码页是代码页 437。
+//
+// 对于 Windows 代码页和 OEM 代码页，代码值 0x00 到 0x7F 对应于 7 位 ASCII 字符集。代码值
+// 0x00 到 0x19 和 0x7F 始终表示标准化的控制字符，0x20 到 0x7E 表示标准化的可显示字符。由
+// 剩余代码 0x80 到 0xFF 表示的字符因字符集而异。每个字符集包含不同的特殊字符，通常针对一
+// 种语言或一组语言定制。Windows 代码页 1252 和 OEM 代码页 437 通常在美国使用。除了 Windows
+// 和 OEM 代码页，你的应用程序还可以使用非原生代码页。示例包括 EBCDIC 和 Macintosh 代码页。
+//
+// Unicode 的两种编码（UTF-7 和 UTF-8）被实现为代码页。与其他代码页一样，每个页面由一个数
+// 字标识符标识，并且可以使用许多相同的 Unicode 和字符集 API 函数处理。
+//
+// 代码页可以是单字节字符集（SBCS）页面或双字节字符集（DBCS）页面。在 SBCS 页面中，每个字节
+// 直接编码单个字符，因此可以精确表示 256 个不同的字符（包括控制字符、字母、数字、标点、符
+// 号等）。DBCS 代码页用于日语和汉语等语言。在此类代码页中，某些字符具有双字节编码，其中某
+// 些字节值（始终大于 127 的值）用作"前导字节"。前导字节本身不编码字符，只能与"尾随字节"联
+// 合映射到字符。
+//
+// 某些遗留协议需要使用 SBCS 和 DBCS 代码页。每个 SBCS/DBCS 代码页支持不同的字符，但没有代
+// 码页支持 Unicode 提供的全部字符。每个 SBCS/DBCS 代码页支持不同的子集，编码方式也不同。
+// 注意，从一个 SBCS 或 DBCS 代码页转换到另一个代码页的数据可能会损坏，因为不同代码页上的
+// 相同数据值可能编码不同的字符。从 Unicode 转换为 SBCS 或 DBCS 的数据可能会丢失数据，因为
+// 给定的代码页可能无法表示该特定 Unicode 数据中使用的每个字符。
+//
+// 除了 SBCS 和 DBCS 代码页，你的应用程序还可以使用多字节字符集代码页 52936、54936、51949
+// 和 5022x，它们使用类似于 DBCS 的方法。然而，多字节字符集代码页对某些字符的编码超出了两
+// 字节。UTF-7 和 UTF-8 使用类似的方法分别基于 7 位和 8 位字节编码 Unicode。
+//
+// 几个 Unicode 和字符集函数允许你的应用程序处理代码页。应用程序可以使用 GetCPInfo 和 GetCPInfoEx
+// 函数获取有关代码页的信息。此信息包括转换字符串中的字符在代码页中没有对应条目时使用的
+// 默认字符。应用程序可以使用 MultiByteToWideChar 和 WideCharToMultiByte 函数在基于 Windows
+// 代码页的字符串和 Unicode 字符串之间进行转换。尽管它们的名称提到"MultiByte"，但这些函数
+// 同样适用于 SBCS、DBCS 和多字节字符集代码页。注意，如果提供的代码页无法表示 Unicode 字
+// 符串中的所有字符，WideCharToMultiByte 可能会丢失一些数据。
+//
+// 你的应用程序可以使用标准 C 运行时库函数在 Windows 代码页和 OEM 代码页之间进行转换。然
+// 而，使用这些函数存在数据丢失的风险，因为每个代码页可以表示的字符不完全匹配。你的应用
+// 程序还可以调用 GetACP 函数。此函数检索当前 Windows（ANSI）代码页的标识符。
+//
+// UINT GetACP();
+// UINT GetOEMCP();
+// BOOL GetCPInfo([in] UINT CodePage, [out] LPCPINFO lpCPInfo);
+// BOOL GetCPInfoEx([in] UINT CodePage, [in] DWORD dwFlags, [out] LPCPINFOEXA lpCPInfoEx);
+// BOOL IsDBCSLeadByte([in] BYTE TestChar);
+// unsigned char *_mbsstr(const unsigned char *str, const unsigned char *strSearch);
+//
+// 双字节字符集（DBCS），也称为"扩展 8 位字符集"，是扩展的单字节字符集（SBCS），实现为
+// 代码页。DBCS 最初是为扩展 SBCS 设计以处理日语和汉语等语言而开发的。DBCS 中的某些字符
+// （包括用于书写英语的数字和字母）具有单字节代码值。其他字符（如汉字或日语汉字）具有双
+// 字节代码值。DBCS 可以对应于 Windows 代码页或 OEM 代码页。DBCS 代码页还可以包括非原生
+// 代码页，例如 EBCDIC 代码页。注意：新的 Windows 应用程序应使用 Unicode，以避免各种代码
+// 页的不一致性，并便于本地化。然而，某些遗留协议可能需要使用 DBCS 代码页。每个 DBCS 代
+// 码页支持不同的字符，但没有页面支持 Unicode 提供的全部字符。每个 DBCS 代码页支持不同的
+// 子集，编码方式也不同。从一个 DBCS 代码页转换到另一个代码页的数据可能会损坏，因为不同
+// 代码页上的相同数据值可能编码不同的字符。从 Unicode 转换为 DBCS 的数据可能会丢失数据，
+// 因为给定的代码页可能无法表示该特定 Unicode 数据中使用的每个字符。
+//
+// 要解释 DBCS 字符串，应用程序必须从字符串开头开始向前扫描。当遇到字符串中的前导字节时，
+// 它将下一个字节视为同一字符的尾随部分。如果应用程序简单地逐字节扫描字符串并遇到看似表
+// 示反斜杠（"\"）的代码值的字节，该字节可能只是双字节字符的尾随字节。应用程序不能简单
+// 地回退一个字节来查看前一个字节是否是前导字节，因为该字节值可能既可用作前导字节又可用
+// 作尾随字节。换句话说，它与可能的反斜杠有基本相同的问题。换句话说，使用 DBCS 进行子字
+// 符串搜索比使用 SBCS 或 Unicode 复杂得多。因此，支持 DBCS 的应用程序必须使用特殊函数
+// （如 _mbsstr），而不是 StrStr 函数。
+//
+// 你的应用程序使用 DBCS Windows 代码页与 Windows 函数的"A"版本一起使用。为了帮助识别
+// DBCS 代码页，应用程序可以使用 GetCPInfo 或 GetCPInfoEx 函数。应用程序可以使用 IsDBCSLeadByte
+// 函数确定给定值是否可用作 2 字节字符的前导字节。此外，应用程序可以使用 MultiByteToWideChar
+// 和 WideCharToMultiByte 函数在 Unicode 和 DBCS 字符串之间映射。
+//
+// 单字节字符集（SBCS）是将 256 个单独字符映射到其标识代码值的映射，实现为代码页。SBCS
+// 可以对应于 Windows 代码页或 OEM 代码页。SBCS 代码页还可以包括非原生代码页，例如 EBCDIC
+// 代码页。注意：新的 Windows 应用程序应使用 Unicode，以避免各种代码页的不一致性，并便于
+// 本地化。然而，某些遗留协议需要使用 SBCS。每个 SBCS 代码页支持不同的字符，但没有页面支
+// 持 Unicode 提供的全部字符。每个 SBCS 代码页支持不同的子集，编码方式也不同。从一个 SBCS
+// 代码页转换到另一个代码页的数据可能会损坏，因为不同代码页上的相同数据值可能编码不同的字
+// 符。从 Unicode 转换为 SBCS 的数据可能会丢失数据，因为给定的代码页可能无法表示该特定 Unicode
+// 数据中使用的每个字符。
+//
+// 你的应用程序使用 SBCS Windows 代码页与 Windows 函数的"A"版本一起使用。为了帮助识别 SBCS
+// 代码页，应用程序可以使用 GetCPInfo 或 GetCPInfoEx 函数。此外，应用程序可以使用 MultiByteToWideChar
+// 和 WideCharToMultiByte 函数在 Unicode 和 SBCS 字符串之间映射。
+//
+// Windows 应用程序通常使用 UTF-16 来表示 Unicode 字符数据。使用 16 位允许直接表示 65,536
+// 个唯一字符，但这个基本多文种平面（BMP）远不足以覆盖人类语言中使用的所有符号。Unicode 版
+// 本 4.1 包含超过 97,000 个字符，其中仅中文就有超过 70,000 个字符。Unicode 标准建立了 16
+// 个额外的"平面"字符，每个平面与 BMP 大小相同。当然，大多数超出 BMP 的代码点尚未分配字符，
+// 但平面的定义为 Unicode 提供了在代码点范围 U+0000 到 U+10FFFF 内定义 1,114,112 个字符
+// （即 2^16 × 17 个字符）的潜力。为了让 UTF-16 表示这个更大的字符集，Unicode 标准定义了
+// "补充字符"。
+//
+// 关于补充字符（Supplementary Characters）。补充字符是位于 BMP 之外的字符，"代理（surrogate）"
+// 是一个 UTF-16 代码值。对于 UTF-16，表示单个补充字符需要一个"代理对"。第一个（高）代理
+// 是范围 U+D800 到 U+DBFF 中的 16 位代码值。第二个（低）代理是范围 U+DC00 到 U+DFFF 中的
+// 16 位代码值。使用代理机制，UTF-16 可以支持所有 1,114,112 个潜在的 Unicode 字符。有关补
+// 充字符、代理和代理对的更多详细信息，请参阅《Unicode 标准》。
+//
+// 注意：Windows 2000 引入了对补充字符的基本输入、输出和简单排序支持。然而，并非所有系统
+// 组件都与补充字符兼容。操作系统通过以下方式支持补充字符：
+//  1.  OpenType 字体 cmap 表的格式 12 直接支持 4 字节字符代码。有关更多信息，请参阅
+//      OpenType 字体规范。https://learn.microsoft.com/en-us/typography/opentype/spec/
+//  2.  Windows 支持启用代理的输入法编辑器（IME）。 https://learn.microsoft.com/en-us/windows/win32/dxtecharts/installing-and-using-input-method-editors
+//  3.  Windows GDI API 支持字体中的格式 12 cmap 表，以便正确显示代理。 https://learn.microsoft.com/en-us/windows/win32/gdi/windows-gdi
+//  4.  Uniscribe API 支持补充字符。 https://learn.microsoft.com/en-us/windows/win32/intl/uniscribe
+//  5.  Windows 控件（包括 Edit 和 Rich Edit）支持补充字符。
+//  6.  HTML 引擎支持包含补充字符的 HTML 页面，用于显示、编辑（通过 Outlook Express）
+//      和表单提交。
+//  7.  操作系统排序表支持补充字符。
+//
+// 使用补充字符进行软件开发的一般指南。UTF-16 将补充字符作为代理对处理。操作系统处理代理对
+// 的方式类似于处理非间距标记。在显示时，代理对通过 Uniscribe 显示为一个字形，正如 Unicode
+// 标准所规定。https://learn.microsoft.com/en-us/windows/win32/intl/using-nonspacing-characters-and-diacritics
+//
+// Windows Vista 引入了三个新宏来帮助识别 UTF-16 字符串中的代理和代理对：IS_HIGH_SURROGATE、
+// IS_LOW_SURROGATE 和 IS_SURROGATE_PAIR。如果应用程序支持 Unicode 并使用系统控件和标准 API
+// 函数（如 ExtTextOut 和 DrawText），则应用程序自动支持补充字符。因此，如果你的应用程序使
+// 用标准系统控件或使用通用 ExtTextOut 类型的调用来显示，补充字符应该无需任何特殊编码即可
+// 工作。
+//
+// 通过以自定义方式计算字形位置来实现自己编辑支持的应用程序可以对所有文本处理使用 Uniscribe。
+// Uniscribe 有单独的函数来处理复杂脚本处理，如文本显示、命中测试和光标移动。应用程序必须
+// 专门调用 Uniscribe 函数才能获得这些高级功能。注意，使用 Uniscribe 函数的应用程序是完全
+// 多语言的，但这会带来性能损失。因此，某些应用程序应该自己处理补充字符。
+//
+// 由于表示补充字符的代理机制定义明确，你的应用程序可以包含处理 UTF-16 代理文本处理的代码。
+// 当应用程序遇到来自较低保留代理范围（低代理）或较高保留代理范围（高代理）的分离 UTF-16
+// 值时，该值必须是代理对的一半。因此，应用程序可以通过简单的范围检查来检测代理对。如果它
+// 在较低或较高范围内遇到 UTF-16 值，它必须向后或向前跟踪一个 16 位宽度以获得字符的其余部
+// 分。编写应用程序时，请记住 CharNext 和 CharPrev 按 16 位代码点移动，而不是按代理对移动。
+// 注意：独立代理代码点要么是没有相邻低代理的高代理，要么反过来。这些代码点无效且不受支持。
+// 它们的行为未定义。
+//
+// 如果你正在开发字体或 IME 提供商，请注意 Windows XP 之前的操作系统默认禁用补充字符支持。
+// Windows XP 及更高版本默认启用补充字符。如果你提供需要补充字符的字体和 IME 包，你的应用
+// 程序必须设置以下注册表值：
+//      [HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows NT\CurrentVersion\LanguagePack]
+//      SURROGATE=(REG_DWORD)0x00000002
+//      [HKEY_CURRENT_USER\Software\Microsoft\Internet Explorer\International\Scripts\42]
+//      IEFixedFontName=[Surrogate Font Face Name]
+//      IEPropFontName=[Surrogate Font Face Name]
+//
+// Unicode 是一种全球字符编码标准。系统专门使用 Unicode 进行字符和字符串操作。与处理字符
+// 和字符串数据的旧机制相比，Unicode 简化了软件本地化并改善了多语言文本处理。通过在应用
+// 程序中使用 Unicode 来表示字符和字符串数据，你可以使用单一二进制文件实现全球营销的通用
+// 数据交换能力，用于每个可能的字符代码。Unicode 的作用如下：
+//  1.  允许任何字符组合，从任何脚本和语言中提取，共存于单个文档中
+//  2.  为每个字符定义语义
+//  3.  标准化脚本行为
+//  4.  为双向文本提供标准算法
+//  5.  定义与其他标准的交叉映射
+//  6.  定义其单一字符集的多种编码，UTF-7、UTF-8、UTF-16 和 UTF-32，这些数据编码之间的转
+//      换是无损的
+//
+// Unicode 支持世界各地语言使用的众多脚本，以及出版中使用的大量技术符号和特殊字符。支持的
+// 脚本包括但不限于拉丁、希腊、西里尔、希伯来、阿拉伯、天城文、泰文、汉文、韩文、平假名和
+// 片假名。支持的语言包括但不限于德语、法语、英语、希腊语、俄语、希伯来语、阿拉伯语、印地
+// 语、泰语、汉语、韩语和日语。Unicode 目前可以表示全球现代计算机使用中绝大多数的字符，并
+// 持续更新以使其更加完整。
+//
+// Unicode 启用函数在"函数原型约定"中描述。这些函数使用 UTF-16（宽字符）编码，这是 Unicode
+// 最常见的编码，也是 Windows 操作系统上原生 Unicode 编码使用的编码。每个代码值宽 16 位，
+// 与字符和字符串数据的旧代码页方法形成对比，后者使用 8 位代码值。使用 16 位允许直接编码
+// 65,536 个字符。实际上，用于转录人类语言的符号宇宙甚至比这更大，UTF-16 中范围 U+D800 到
+// U+DFFF 的代码点用于形成代理对，代理对构成补充字符的 32 位编码。
+//
+// Unicode 字符集包括众多组合字符，如 U+0308（"¨"），组合分音符或变音符。Unicode 通常可以
+// 用"组合"或"分解"形式表示相同的字形：例如，"Ä" 的组合形式是单个 Unicode 代码点 "Ä"（U+00C4），
+// 而其分解形式是 "A" + "¨"（U+0041 U+0308）。Unicode 没有为每个字形定义组合形式。例如，越
+// 南语小写 "o" 带扬抑符和波浪号（"ỗ"）由 U+006f U+0302 U+0303（o + 扬抑符 + 波浪号）表示。
+// 有关组合字符和相关问题的进一步讨论，请参阅"使用 Unicode 规范化表示字符串"。
+// https://learn.microsoft.com/en-us/windows/win32/intl/using-unicode-normalization-to-represent-strings
+//
+// 为了与 8 位和 7 位环境兼容，Unicode 还可以编码为 UTF-8 和 UTF-7。虽然 Windows 中的 Unicode
+// 启用函数使用 UTF-16，但也可以处理以 UTF-8 或 UTF-7 编码的数据，它们在 Windows 中作为多
+// 字节字符集代码页受支持。
+//
+// 新的 Windows 应用程序应使用 UTF-16 作为其内部数据表示。Windows 还提供对代码页的广泛支持，
+// 同一应用程序中混合使用是可能的。即使是基于 Unicode 的新应用程序有时也必须与代码页一起
+// 工作。应用程序可以使用 MultiByteToWideChar 和 WideCharToMultiByte 函数在基于代码页的字
+// 符串和 Unicode 字符串之间进行转换。尽管它们的名称提到"MultiByte"，但这些函数同样适用于
+// 单字节字符集（SBCS）、双字节字符集（DBCS）和多字节字符集（MBCS）代码页。
+//
+// 通常，Windows 应用程序应在内部使用 UTF-16，仅在必须使用另一种格式的接口上作为"薄层"进
+// 行转换。这种技术可防止数据丢失和损坏。每个代码页支持不同的字符，但没有一个支持 Unicode
+// 提供的全部字符。大多数代码页支持不同的子集，编码方式也不同。UTF-8 和 UTF-7 的代码页是
+// 例外，因为它们支持完整的 Unicode 字符集，并且这些编码与 UTF-16 之间的转换是无损的。
+//
+// 直接从一种代码页使用的编码转换到另一种代码页使用的编码的数据可能会损坏，因为不同代码
+// 页上的相同数据值可能编码不同的字符。即使你的应用程序在尽可能接近接口的地方进行转换，
+// 你也应该仔细考虑要处理的数据范围。从 Unicode 转换为代码页的数据可能会丢失数据，因为
+// 给定的代码页可能无法表示该特定 Unicode 数据中使用的每个字符。因此，请注意，如果目标
+// 代码页无法表示 Unicode 字符串中的所有字符，WideCharToMultiByte 可能会丢失一些数据。
+//
+// 在将基于代码页的遗留应用程序现代化为使用 Unicode 时，你可以使用通用函数和 TEXT 宏来
+// 维护一组源代码，从中可以编译应用程序的两个版本。一个版本支持 Unicode，另一个版本使用
+// Windows 代码页工作。使用这种机制，你可以在转换的所有阶段编译、构建和测试应用程序，将
+// 非常大的应用程序从 Windows 代码页转换为 Unicode。
+//
+// Unicode 字符和字符串使用与基于代码页的字符和字符串不同的数据类型。连同一系列宏和命名约定，
+// 这种区别最大限度地减少了意外混合两种类型字符数据的机会。它便于编译器类型检查，以确保只有
+// Unicode 参数值与期望 Unicode 字符串的函数一起使用。
+//
+// 双字节字符集（DBCS）中的最终用户定义字符（EUDC，End-User-Defined Characters）和 Unicode
+// 中的专用区（PUA, Private Use Area Characters）字符是自定义字符。它们可以由最终用户或另一
+// 方（如设备制造商、用户组、政府机构或字体设计公司）定义和实现。它们的使用使用户能够使用
+// 标准屏幕和打印机字体中不可用的字符来形成名称和其他单词。
+//
+// EUDC 和 PUA 字符可以在不同计算机上不同分配，或根本不分配。某些代码页有重用 EUDC 范围的
+// 扩展，这些扩展可能相互冲突。在其他情况下，制造商可能在这些范围之一中提供一组自定义字符。
+// 此外，用户组可能尝试在 PUA 中提供额外的字符。这些不同情况的组合可能导致冲突。在创建依赖
+// EUDC 或 PUA 字符的应用程序时，你应该记住单个代码点的冲突解释。
+//
+// Windows 允许在双字节字符集（DBCS）和 Unicode 中本地定义非标准字符。对于 DBCS，这些非标
+// 准字符称为最终用户定义字符（EUDC）。Unicode 通过其专用区（PUA）提供类似功能。应用程序使
+// 用关联的 DBCS 或 Unicode 字符值来标识指定的字符。
+//
+// 可以分配的 DBCS 字符值取决于指定的字符集。每个东亚 Windows 代码页至少有一个保留值范围
+// 用作 EUDC。范围由 EUDCCodeRange 注册表项定义。用于此目的的 Unicode 值始终来自 Unicode
+// PUA，值 U+E000 到 U+F8FF、U+F0000 到 U+FFFFD 和 U+100000 到 U+10FFFD。
+//
+// 要创建 EUDC 或 PUA 字符，用户选择指定范围内的字符值，并将字形添加到对应该字符值的字体
+// 条目中。用户使用 EUDC 编辑器或使用从字体供应商购买的字体包来创建字形。任何 DBCS 字体都
+// 可以包含 EUDC，任何 Unicode 字体都可以包含 PUA 字符。如果字体仅包含 EUDC，则称为"独立"
+// EUDC/PUA 字体。如果字体包含标准字符和 EUDC，则称为"集成"EUDC/PUA 字体。
+//
+// 系统默认 EUDC/PUA 字体是操作系统自动与所有 DBCS 和 Unicode 字体关联的字体，除了具有显
+// 式关联 EUDC/PUA 字体的字体。应用程序通过设置 EUDC 注册表项下 SystemDefaultEUDCFont 名
+// 称的值来设置系统默认 EUDC/PUA 字体。类似地，应用程序可以通过在 EUDC 项下指定字体名称
+// 和关联字体文件，将独立 EUDC/PUA 字体与相应字体关联。操作系统始终首先尝试在当前选择的
+// 字体中查找 EUDC/PUA。如果找不到字体，操作系统会在为当前选择字体定义的关联 EUDC/PUA 字
+// 体中查找字符。如果仍然找不到字符，操作系统会在系统默认 EUDC/PUA 字体中查找。
+//
+// TrueType 字体可以作为 .ttf 文件或 .tte 文件安装。由于操作系统隐藏 .tte 文件，应用程序
+// 无法使用 GDI API 函数枚举或以其他方式检查已安装的字体。在许多操作系统上，系统默认 EUDC/PUA
+// 字体和独立 EUDC/PUA 字体作为 .tte 文件安装。EUDC 编辑器和控制面板等应用程序必须使用注册
+// 表项来添加、修改和删除此类字体。
+//
+// EUDC 和 PUA 字符的使用不能可靠地在不同计算机或字符集之间保留含义。EUDC 注册表项包含一个
+// 或多个子键，包含定义给定代码页的最终用户定义字符（EUDC）关联字体的值。它具有以下注册表
+// 位置：HKEY_CURRENT_USER\EUDC。格式为：
+//      SystemDefaultEUDCFont=TrueTypeEUDCFontFileName
+//      TrueTypeFontTypeface=TrueTypeEUDCFontFileName
+//
+// SystemDefaultEUDCFont
+//      用于设置系统默认字体的预定义名称。除非显式指定此条目，否则没有系统默认 EUDC 字体。
+// TrueTypeFontTypeface
+//      与非 EUDC TrueType 字体关联的用户定义名称。
+// TrueTypeEUDCFontFileName
+//      由独立 EUDC 字体文件名组成的字符串。此文件标识要与 TrueTypeFontTypeface 关联的字体。
+//
+// 以下示例显示代码页 932 的 EUDC 项。
+//      HKEY_CURRENT_USER\EUDC\932
+//      SystemDefaultEUDCFont=EUDC.TTF
+//      MS Mincho=MINEUDC.TTF
+//      MS Gothic=GTEUDC.TTF
+//
+// 以下示例将系统默认 EUDC 字体设置为 Eudc.ttf，并将独立 EUDC 字体 Mineudc.ttf 和 Goteudc.ttf
+// 分别与字体名称 MS Mincho 和 MS Gothic 关联。
+//      SystemDefaultEUDCFont=EUDC.TTF
+//      MS Mincho=MINEUDC.TTF
+//      MS Gothic=GOTEUDC.TTF
+//
+// 当与非 Unicode 程序语言关联的 Windows 代码页（系统 ACP）匹配子键时，GDI 子系统查看子键
+// 值对以获取有关字符显示信息的信息。它首先查找与当前字体匹配的名称。如果没有，则检查 SystemDefaultEUDCFont
+// 值。如果未定义值，GDI 将字符视为未定义。注意，文本本身不必在 Windows 代码页中。例如，
+// 假设代码页标识符为 1252（英语默认 Windows 代码页）。应用程序将 Unicode 专用区（PUA）
+// 中的单个 Unicode 代码点 U+E000 传递给 DrawText。在这种情况下，GDI 查看 1252 下的注册
+// 表值以获取字符显示属性的字体信息。
+//
+// EUDCCodeRange 注册表项定义各种代码页（字符集）的最终用户定义字符（EUDC）代码范围。它仅
+// 由创建 EUDC 的工具使用，与 EUDC 用户没有直接关系。此注册表项具有以下注册表位置：
+//      HKEY_LOCAL_MACHINE\System\CurrentControlSet\Control\NLS\CodePage\EUDCCodeRange
+//      CodePage=FromTo[,FromTo]
+//
+// CodePage
+//      字符串"932"（日语）、"936"（简体中文）、"949"（韩语）、"950"（繁体中文）或 "Unicode"
+//      （Unicode）之一。不支持其他值。
+// FromTo
+//      由一对 4 位十六进制值组成的字符串值，用连字符（-）分隔。最多可以指定四个 FromTo
+//      值，但每个值必须与前一个值用逗号（,）分隔。
+//
+// 以下是注册表条目的正确值：
+//      932=F040-F9FC
+//      936=A140-A7A0,AAA1-AFFE,F8A1-FEFE
+//      949=C9A1-C9FE,FEA1-FEFE
+//      950=8140-8DFE,8E40-A0FE,C6A1-C8FE,FA40-FEFE
+//      Unicode=E000-F8FF
+//
+// https://learn.microsoft.com/en-us/windows/win32/intl/using-unicode-normalization-to-represent-strings
+//
+// 应用程序可以以多种形式使用 Unicode 来表示字符串。随着 Unicode 的普及，特别是通过互联
+// 网，消除 Unicode 字符串中非必要差异的需求已经出现。字符组合的多种表示使软件复杂化，例
+// 如，当 Web 服务器响应页面请求或链接器在库中查找特定标识符时。不同的 Unicode 字符串可
+// 能看起来在视觉上相同，引发安全担忧。有关更多信息，请参阅"安全注意事项：国际功能"。
+//
+// 为了响应这一需求，Unicode 联盟定义了一个称为"规范化"的过程，为字符的任何等效二进制表示
+// 产生一个二进制表示。一旦规范化，两个字符串等效当且仅当它们具有相同的二进制表示。规范化
+// 消除了一些差异，但保留了大小写。
+//
+// 要使用 Unicode 规范化，应用程序可以调用 NormalizeString 和 IsNormalizedString 函数，
+// 根据 Unicode 4.0 TR#15 重新排列字符串。规范化可以通过减少具有相同语言含义的替代字符串
+// 表示来帮助提高安全性。然而，请记住，规范化不能完全消除替代表示。因为规范化可以更改字
+// 符串的形式，所以安全机制或字符验证算法通常应该在规范化之后实现。有关更多信息，请参阅
+// "安全注意事项：国际功能"。有关规范化 Unicode 标准的详细描述，请参阅 Unicode 标准附件
+// #15：Unicode 规范化形式（UAX #15）。https://www.unicode.org/reports/tr15
+//
+// 提供同一字符串的多种表示。在许多情况下，Unicode 允许在语言上相同的字符串有多种表示。例
+// 如：
+//  1.  带分音符的大写 A 可以表示为单个 Unicode 代码点 "Ä"（U+00C4）或大写 A 和组合分音符
+//      字符的组合（"A" + "¨"，即 U+0041 U+0308）。类似考虑适用于许多其他带变音符号的字符。
+//  2.  大写 A 本身可以用通常的方式（拉丁大写字母 A，U+0041）或全角拉丁大写字母 A（U+FF21）
+//      表示。类似考虑适用于其他简单拉丁字母（大写和小写）以及用于书写日语的片假名字符。
+//  3.  字符串 "fi" 可以由字符 "f" 和 "i"（U+0066 U+0069）或连字 "ﬁ"（U+FB01）表示。类似考
+//      虑适用于 Unicode 定义连字的许多其他字符组合。
+//
+// 使用四种定义的规范化形式（Four Defined Normalization Forms）。你的应用程序可以使用几种
+// 称为"规范化形式"的算法执行 Unicode 规范化，这些算法遵循不同的规则。Unicode 联盟定义了四
+// 种规范化形式：NFC（形式 C）、NFD（形式 D）、NFKC（形式 KC）和 NFKD（形式 KD）。每种形式
+// 消除一些差异，但保留大小写。Win32 和 .NET Framework 支持所有四种规范化形式。
+//
+// NLS 枚举类型 NORM_FORM 支持四种标准 Unicode 规范化形式。形式 C 和 D 提供字符串的标准形
+// 式。非标准形式 KC 和 KD 提供进一步的兼容性，可以揭示某些在形式 C 和 D 中不明显的语义等
+// 价性。然而，它们以一定的信息损失为代价，通常不应用作字符串的标准存储方式。
+//
+// 两种标准形式中，形式 C 是"组合"形式，形式 D 是"分解"形式。例如，形式 C 使用单个 Unicode
+// 代码点 "Ä"（U+00C4），而形式 D 使用（"A" + "¨"，即 U+0041 U+0308）。这些渲染相同，因为
+// "¨"（U+0308）是组合字符。形式 D 可以使用任意数量的代码点来表示形式 C 使用的单个代码点。
+// 如果两个字符串在形式 C 或形式 D 中相同，则它们在另一种形式中也相同。此外，当正确渲染时，
+// 它们彼此无法区分，也与原始非规范化字符串无法区分。
+//
+// 一旦规范化，字符串不能一致地返回到其原始表示。例如，如果将混合有组合和分解两种字符表示
+// 的字符串转换为规范化形式，则没有办法将其反规范化回原始混合字符串。因此，如果应用程序需
+// 要字符串的原始表示，则必须显式存储该表示。然而，两种规范形式之间的转换是可逆的。形式 C
+// 中的字符串可以转换为形式 D，然后回到形式 C，结果与原始形式 C 字符串相同。
+//
+// 形式 KC 和 KD 类似于形式 C 和 D，但这些"兼容形式"具有兼容字符到每个字符基本形式的额外映
+// 射。此类映射可能导致细微字符变化丢失，它们是组合视觉上不同但语义相同的某些字符。例如，它
+// 们将全角和半角字符视为相同语义含义组合，或同一阿拉伯字母的不同形式，或连字 "ﬁ"（U+FB01）
+// 和字符对 "fi"（U+0066 U+0069）。它们还组合某些有时可能具有不同语义含义的字符，如上标、
+// 下标或圆圈内书写的数字。由于这种信息损失，形式 KC 和 KD 通常不应用作字符串的规范形式，
+// 但它们对某些应用程序有用。形式 KC 是组合形式，形式 KD 是分解形式。应用程序可以在形式 KC
+// 和 KD 之间来回转换，但没有一致的方式从形式 KC 或 KD 返回到原始字符串，即使原始字符串是
+// 形式 C 或 D。
+//
+// Windows、Microsoft 应用程序和 .NET Framework 通常使用正常输入方法生成形式 C 中的字符。
+// 对于 Windows 上的大多数目的，形式 C 是首选形式。例如，形式 C 中的字符由 Windows 键盘输
+// 入生成。然而，从 Web 和其他平台导入的字符可以将其他规范化形式引入数据流。以下示例来自
+// UAX #15，说明了四种规范化形式之间的差异。注意以下两个表格的版权为 © 1998-2006 Unicode,
+// Inc. 保留所有权利。
+//
+//      原始            形式 D              形式 C          说明
+//      "Äffin"         "A\u0308ffin"       "Äffin"         ffi 连字（U+FB03）未被分解，因为它具有兼容性映射，而不是规范映射
+//      "Ä\uFB03n"      "A\u0308\uFB03n"    "Ä\uFB03n"
+//      "Henry IV"      "Henry IV"          "Henry IV"      罗马数字 IV（U+2163）未被分解
+//      "Henry \u2163"  "Henry \u2163"      "Henry \u2163"
+//      が              か + てん           が              单个日语字符的不同兼容性等价物在形式 C 中不会产生相同的字符串
+//      か + てん       か + てん           が
+//      hw_か + hw_てん hw_か + hw_てん     hw_か + hw_てん
+//      か + hw_てん    か + hw_てん        か + hw_てん
+//      hw_か + てん    hw_か + てん        hw_か + てん
+//      각              k i + a ₘ + ks f    각              韩文音节在规范化下保持不变
+//
+//      原始            形式 KD             形式 KC         说明
+//      "Äffin"         "A\u0308ffin"       "Äffin"         ffi 连字（U+FB03）在形式 KC 中被分解，但在形式 C 中未被分解
+//      "Ä\uFB03n"      "A\u0308ffin"       "Äffin"
+//      "Henry IV"      "Henry IV"          "Henry IV"      此处的结果字符串在形式 KC 中相同
+//      "Henry \u2163"  "Henry IV"          "Henry IV"
+//      が              か + てん           が              单个日语字符的不同兼容性等价物在形式 KC 中产生相同的字符串
+//      か + てん       か + てん           が
+//      hw_か + hw_てん か + てん           が
+//      か + hw_てん    か + てん           が
+//      hw_か + てん    か + てん           が
+//      각              k i + a ₘ + ks f    각              韩文音节在规范化下保持不变。在 Unicode 早期版本中，jamo 字符
+//                      如 ks f 具有到 k f + s f 的兼容性映射。这些映射在 Unicode 2.1.9 中被移除，以确保韩文音节保持不变。
+//
+// 对单个字形（Glyphs）使用组合形式。许多对应于单个字形的字符序列没有组合形式。即使通过
+// 形式 C 规范化，单个视觉字形或逻辑文本元素也可以由多个 Unicode 代码点组成。例如，用于
+// 书写立陶宛语的几个字符具有双重变音符号，因为它们只有分解形式。示例是小写 U 带长音符号
+// 和波浪号（"ū̃"，U+016b U+0303，其中第一个代码点是带长音符号的小写 U，第二个是组合锐音
+// 符）。
+//
+// https://learn.microsoft.com/en-us/windows/win32/intl/security-considerations--international-features
+//
+// 本主题提供有关与国际支持功能相关的安全注意事项的信息。你可以将其作为起点，然后查看感
+// 兴趣的国际技术文档以获取特定于技术的安全注意事项。
+//
+// 字符转换函数的安全注意事项。MultiByteToWideChar 和 WideCharToMultiByte 是最常用于在
+// ANSI 和 Unicode 之间转换字符的 Unicode 和字符集函数。这些函数可能造成安全风险，因为
+// 它们对输入和输出缓冲区的元素计数方式不同。例如，MultiByteToWideChar 接受以字节计数
+// 的输入缓冲区，并将转换后的字符放入以 Unicode 字符计数的缓冲区中。当你的应用程序使用
+// 此函数时，必须正确调整缓冲区大小以避免缓冲区溢出。
+//
+// WideCharToMultiByte 默认对代码页（如 1252）使用"最佳匹配"映射。然而，这种映射允许同
+// 一字符串的多种表示，可能使你的应用程序容易受到攻击。例如，拉丁大写字母 A 带分音符（"Ä"）
+// 可能映射到拉丁大写字母 A（"A"）；亚洲语言中的 Unicode 字符可能映射到斜杠（"/"）。从
+// 安全角度来看，使用 WC_NO_BEST_FIT_CHARS 标志是首选。
+//
+// 某些代码页，例如 5022x（iso-2022-x）代码页，本质上不安全，因为它们允许同一字符串的多
+// 种表示。正确编写的代码以 Unicode 形式执行安全检查，但这些类型的代码页扩展了应用程序的
+// 攻击易感性，如果可能应避免使用。
+//
+// 比较函数的安全注意事项。字符串比较可能潜在地带来安全问题。因为所有比较函数都略有不同，
+// 一个函数可能报告两个字符串相等，而另一个函数可能认为它们不同。以下是应用程序可用于比
+// 较字符串的几个函数：
+//  1.  lstrcmpi：根据区域设置规则比较两个字符串，不区分大小写。该函数通过检查第一个字符
+//      与第一个字符、第二个字符与第二个字符等，直到找到不等式或到达字符串末尾。
+//  2.  lstrcmp：使用与 lstrcmpi 类似的技术比较字符串。唯一区别是 lstrcmp 执行区分大小写
+//      的字符串比较。
+//  3.  CompareString、CompareStringEx（Windows Vista 及更高版本）：在应用程序提供的区域
+//      设置上执行字符串比较。CompareStringEx 类似于 CompareString，但它通过区域设置名称
+//      而不是区域设置标识符来标识区域设置。这些函数类似于 lstrcmpi 和 lstrcmp，只是它们
+//      在特定区域设置上操作，而不是在用户选择的区域设置上操作。
+//  4.  CompareStringOrdinal（Windows Vista 及更高版本）：比较两个 Unicode 字符串以测试二
+//      进制等价性。除了不区分大小写的选项外，此函数忽略所有非二进制等价性，并测试所有代码
+//      点的相等性，包括在语言排序方案中未赋予权重的代码点。注意，本主题中提到的其他比较
+//      函数不测试所有代码点的相等性。
+//  5.  FindNLSString、FindNLSStringEx（Windows Vista 及更高版本）：在另一个 Unicode 字符
+//      串中定位一个 Unicode 字符串。FindNLSStringEx 类似于 FindNLSString，只是它通过区域
+//      设置名称而不是区域设置标识符来标识区域设置。
+//  6.  FindStringOrdinal（Windows 7 及更高版本）：在另一个 Unicode 字符串中定位一个 Unicode
+//      字符串。对于所有非语言比较，应用程序应使用此函数而不是 FindNLSString。
+//
+// 与 lstrcmpi 和 lstrcmp 一样，CompareString 逐字符评估字符串。然而，许多语言具有多字符
+// 元素，例如传统西班牙语中的双字符元素 "CH"。因为 CompareString 使用应用程序提供的区域设
+// 置来识别多字符元素，而 lstrcmpi 和 lstrcmp 使用线程区域设置，相同的字符串可能不会被比
+// 较为相等。
+//
+// CompareString 忽略未定义的字符，因此为许多截然不同的字符串对返回零（表示字符串相等）。
+// 字符串可能包含不映射到任何字符的值，或者可能包含语义超出应用程序域的字符，如 URL 中的
+// 控制字符。使用此函数的应用程序应提供错误处理程序，并在使用字符串之前测试字符串以确保
+// 它们有效。
+//
+// 类似的安全问题适用于进行隐式比较的函数，如 FindNLSString。根据设置的标志，调用 FindNLSString
+// 在一个字符串中搜索另一个字符串的结果可能大不相同。对于 Windows Vista 及更高版本，FindNLSStringEx
+// 类似于 FindNLSString。这些函数的安全问题相同。
+//
+// 文件名中字符集的安全注意事项。日本语言系统上使用的 Windows 代码页和 OEM 字符集包含日元
+// 符号（¥）而不是反斜杠（\）。因此，日元字符是 NTFS 和 FAT 文件系统的禁止字符。将 Unicode
+// 映射到日语代码页时，转换函数将反斜杠（U+005C）和普通 Unicode 日元符号（U+00A5）都映射到
+// 同一字符。出于安全原因，你的应用程序通常不应允许在可能转换为 FAT 文件名的 Unicode 字符串
+// 中使用字符 U+00A5。
+//
+// 国际化域名的安全注意事项。国际化域名（IDN）由网络工作组 RFC 3490：应用程序中的国际化域名
+// （IDNA）指定。该标准引入了许多安全问题。http://www.faqs.org/rfcs/rfc3490.html
+//
+// 来自不同脚本的某些字符所表示的字形可能看起来相似甚至完全相同。例如，在许多字体中，西里尔
+// 小写 A（"а"）与拉丁小写 A（"a"）无法区分。无法从视觉上判断 "example.com" 和 "example.com"
+// 是两个不同的域名，一个名称中使用拉丁小写 A，另一个使用西里尔小写 A。不道德的主机站点可以
+// 使用这种视觉歧义来假装是另一个站点，进行欺骗攻击。
+//
+// IDNA 允许 IDN 使用的扩展字符集在特定脚本内也具有欺骗潜力。例如，连字符减号（"-" U+002D）、
+// 连字符（"—" U+2010）、不间断连字符（"‑" U+2011）、数字短划线（"‒" U+2012）、短破折号
+// （"–" U+2013）和减号（"−" U+2212）之间有很强的相似性。
+//
+// 某些兼容性组合也会出现类似问题。例如，单个 Unicode 字符 NUMBER TWENTY FULL STOP（"⒛"，U+249B）
+// 在 NamePrep 步骤中转换为 "20."（U+0032 U+0030 U+002E），然后转换为 Punycode。换句话说，
+// 此组合插入了一个句点。此类组合具有欺骗潜力。
+//
+// IDN 中不同脚本的混合不一定表示欺骗或欺骗意图。技术报告 #36：Unicode 安全注意事项给出了
+// 几个包含脚本混合的合理 IDN 示例，如 XML-Документы.com（"Документы" 是俄语中的"文档"）。
+//
+// 欺骗攻击不仅限于 IDN。例如，"rnicrosoft.com" 看起来很像 "microsoft.com"，但它是 ASCII
+// 名称。此外，可以通过损坏名称来进行欺骗攻击。在知名品牌名称后添加额外标签，或将品牌名称
+// 包含在标记为安全的 URL 路径中，可能会混淆新手用户，无论是否使用 IDN。对于某些区域设置，
+// IDN 是必需的，这些名称的 Punycode 形式是不可接受的，因为它使名称看起来像乱码。
+//
+// 有关此处提到的安全问题以及许多其他与 IDNA 相关的问题的更多信息，请参阅技术报告 #36：Unicode
+// 安全注意事项。除了详细讨论与 IDNA 相关的安全问题外，本报告还提供了处理应用程序中可疑
+// IDN 的建议。 https://www.unicode.org/reports/tr36/#international_domain_names
+//
+// ANSI 函数的安全注意事项。注意：建议你在全球化应用程序中使用 Unicode，特别是新应用程序，
+// 如果可能的话。只有在有压倒性理由不使用 Unicode 的情况下，才应使用 ANSI 函数，例如符合
+// 不支持 Unicode 的旧协议。
+//
+// 许多国家语言支持（NLS，National Language Support）函数，如 GetLocaleInfo 和 GetCalendarInfo，
+// 具有特定的 ANSI 版本，在本例中为 GetLocaleInfoA 和 GetCalendarInfoA。当你的应用程序
+// 使用基于 Unicode 的操作系统（如 Windows NT、Windows 2000、Windows XP 或 Windows Vista）
+// 上的函数的 ANSI 版本时，该函数可能会失败或产生未定义的结果。如果你有令人信服的理由在
+// 此类操作系统上使用 ANSI 函数，请确保应用程序传递的数据对 ANSI 有效。
+//
+// Unicode 规范化的安全注意事项。由于 Unicode 规范化可以更改字符串的形式，安全机制或字符
+// 验证算法通常应该在规范化之后实现。例如，考虑一个具有 Web 界面的应用程序，它接受文件名，
+// 但不接受路径名。全角 U+FF43 U+FF1A U+FF3C U+FF57 U+FF49 U+FF4E U+FF44 U+FF4F U+FF57
+// U+FF53（c : \ w i n d o w s）通过形式 KC 规范化变为 U+0063 U+001A U+003C U+0077 U+0069
+// U+006E U+0064 U+006F U+0077 U+0073（c:\windows）。如果应用程序在实现规范化之前测试冒号
+// 和反斜杠字符的存在，结果可能是无意的文件访问。
+//
+// 虽然 Unicode 规范化是使操作系统安全的要素之一，但请记住，规范化不能替代全面的安全策略。
+//
+// https://learn.microsoft.com/en-us/windows/win32/netmgmt/looking-up-text-for-error-code-numbers
+//
 // https://learn.microsoft.com/en-us/windows/win32/winprog64/programming-guide-for-64-bit-windows
 // 虚拟地址空间（64 位 Windows 编程指南）。默认情况下，基于 64 位 Microsoft Windows 的
 // 应用程序拥有数 TB 的用户模式地址空间。有关精确值，请参阅《Windows 和 Windows Server
