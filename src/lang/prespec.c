@@ -636,6 +636,9 @@
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
 //
+//  r16_le r32_le r64_le reg_le raw_reg_le
+//  r16_be r32_be_r64_be reg_be raw_reg_be
+//
 //  i<1> i<2> i<4> i<8> i<x> i<y> i<z> int i<raw> // <> 中可以是单个数值或标识符
 //  r<1> r<2> r<4> r<8> r<x> r<y> r<z> reg r<raw>
 //  f<1> f<2> f<4> f<8> f<x> f<y> f<z>
@@ -1877,8 +1880,8 @@ const name 3.1415926
 def name(int a, &int) { ... }
 def name enum { red blue green }
 def name enum int { red bule green }
-def name enum int with {r08 lpri r08 rpri} { ... }
-def name enum with {r08 lpri r08 rpri} { ... }
+def name enum int [r08 lpri r08 rpri] { ... }
+def name enum [r08 lpri r08 rpri] { ... }
 def name { int a int b }
 def name $(anytype T U, const SIZE, int N T VALUE) { ... }
 def name $(anytype T) { ... }
@@ -1988,45 +1991,46 @@ immut P8 [int int] {xval, yval}
 // 代码还是可以公开访问所有的代码。或者默认都是代码包私有的，声明成 pub 变成公开，但是
 // 只是一种声明，外部还是可以 strict 关键字访问私有代码。所有定义都是公开，除非符号的
 // 名称以 impl Impl IMPL impl_ Impl_ IMPL_ 和单下划线（_）开头，这些符号被认为是私有定
-// 义。下划线开头的名称是编译保留的名称，有特殊含义，不能用作程序正常的符号名称。
-//      using int int // 常量声明都是全局可见的，要将定义的别名或常量导出，只需添加一个额外声明
-//      using reg reg
-//      const PI PI
-//      romem RO RO
-//      immut IM IM
-//      def calc(int a b, &int) // 私有声明
-//      def main(int argc, **argv, &int)
-//      def color enum
-//      def color int
-//      def color r32 [r08 lpri ~ rpri]
-//      def point struct
-//      def array $(anytype T, reg SIZE)
-//      def this transfer
-//      def name = int
-//      pub calc(int a b, &int) // 公共声明
-//      pub main(int argc, **argv, &int)
-//      pub color enum
-//      pub color int
-//      pub color r32 [r08 lpri ~ rpri]
-//      pub point struct
-//      pub array $(anytype T, reg SIZE)
-//      pub this transfer
-//      pub name = int
+// 义。下划线开头的名称是编译保留的名称，有特殊含义，不能用作程序正常的符号名称。私有名
+// 称都可以通过 __priv__.name 访问。名称的声明与定义的公开性是相互独立的，互不影响。
 //
-//  def _coro {
-//      r32 _rspoffset
-//  }
-//  def _spawn(*_coro) { }
-//  coro._spawn()
-//  coro._rspoffset
+//  using int int // 别名和常量声明都是私有的
+//  using reg reg
+//  const PI int
+//  romem RO int
+//  immut IM int
+//  def calc(int a b, &int) // def 声明都是私有的
+//  def main(int argc, **argv, &int) // main 函数默认是公开的，即使定义为 def 形式也是如此
+//  def color enum
+//  def color enum int
+//  def color enum r32 [r08 lpri ~ rpri]
+//  def point struct
+//  def array $(anytype T, reg SIZE)
+//  def this transfer
+//  def name = int
+//
+//  pub using int int
+//  pub using reg reg
+//  pub const PI int
+//  pub romem RO int
+//  pub immut IM int
+//  pub calc(int a b, &int)
+//  pub main(int argc, **argv, &int)
+//  pub color enum
+//  pub color enum int
+//  pub color enum r32 [r08 lpri ~ rpri]
+//  pub point struct
+//  pub array $(anytype T, reg SIZE)
+//  pub this transfer
+//  pub name = int
 //
 // 保留限制区域的定义
-//      strict region
-//      use std_array std::array
-//      let PI 3.1415926
-//      final
+//  strict region
+//  use std_array std::array
+//  let PI 3.1415926
+//  final
 
-pub "global"
+pub global
 use std_array std::array
 let PI 3.1415926
 final
@@ -2110,15 +2114,15 @@ len := foo ~ -3
 //  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
 //  let a type = expr, b = expr, c = expr, ...
-let a = a + int b + c * d               dre p <= a + b
-let a = a + (int b + c) * d             dre **int p <= curr + size
-let a = a + dre p + size
-let a = a + dre (p + size)
-let a = a + dre *int b + size
-let a = a + dre (*int b + size)
-let a = a + dre dre **int base + size
-let a = a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let a = a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let a = a + int b + c * d               det p <= a + b
+let a = a + (int b + c) * d             det **int p <= curr + size
+let a = a + det p + size
+let a = a + det (p + size)
+let a = a + det *int b + size
+let a = a + det (*int b + size)
+let a = a + det det **int base + size
+let a = a + det det (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let a = a + det det (**int base + size) // 因为括号内有操作符，与函数声明不冲突
 let p *int = fet **int base + size
 let p *int = fet (**int base + size)
 let point point = {100, 200} // 第一个 point 是类型
@@ -2184,20 +2188,20 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
-a := a + int b + c * d               dre p <= a + b
-a := a + (int b + c) * d             dre **int p <= curr + size
-a := a + dre p + size
-a := a + dre (p + size)
-a := a + dre *int b + size
-a := a + dre (*int b + size)
-a := a + dre dre **int base + size
-a := a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-a := a + dre dre (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-p := *int dre **int base + size
-p := *int dre (**int base + size)
+a := a + int b + c * d               der p <= a + b
+a := a + (int b + c) * d             der **int p <= curr + size
+a := a + der p + size
+a := a + der (p + size)
+a := a + der *int b + size
+a := a + der (*int b + size)
+a := a + der der **int base + size
+a := a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+a := a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+p := *int der **int base + size
+p := *int der (**int base + size)
 point := point {100, 200} // 第一个 point 是类型
-p := *point fet copyof(point)
-p := *point fet {0}
+p := *point fer copyof(point)
+p := *point fer {0}
 p := *int null
 q := *int undefined
 p := *int null q := undefined
@@ -2262,17 +2266,17 @@ ppb := *ppb malloc(size)
 for var i = 0; i < 10; i += 1 { }
 for i := 0; i < 10; i += 1 { }
 for $i = 0; i < 10; i += 1 { }
-for $i 0 to 10 step 1 { }
-for $i 0 .. 10 step 2 { }
+for $i [0 to 10) step 1 { }
+for $i [0 to 10] step 2 { }
 
-// 表达式的隔断，表示一个表达式的开始 also
+// 表达式的隔断，表示一个表达式的开始 let
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
-if $a point{100, 200} + b also expr { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
-if $a $_ $c read_tuple() also expr { stmt ... }
-if $u lexer_next_utf8(l) also u == '\'' || u == prh_char_invalid
+if $a point {100, 200} + b (expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
+if $a $_ $c read_tuple() (expr) { stmt ... }
+if $u lexer_next_utf8(l) (u == '\'' || u == prh_char_invalid)
     return TOKERR
-if $c getarray(l)[0,1](a) also c != '\''
+if $c getarray(l)[0][1](a) (c != '\'')
     return TOKERR
 l.c = lexer_next_char(l)
 l.cvalue = u
@@ -2282,7 +2286,7 @@ return unicode;
 
 // 使用符号#定义局部常量，常量的定义不占用函数栈空间，而 $a 实际分配函数栈空间
 string_reserve(s, #SIZE 64)
-for i in [0, SIZE) {
+for i = [0 to SIZE) {
     string_unchecked_push(s, value)
 }
 
@@ -2717,9 +2721,9 @@ def snode $T {
     T data
 }
 
-for i I 0 .. 9 {
-    i int dre *I addr
-    pos + dre &*I (*byte p + size + f(g))
+for $i I 0 .. 9 {
+    i int der *I addr
+    pos + der &*I (*byte p + size + f(g))
 }
 
 def memcpy(reg dest unsigned src int count)
@@ -2968,7 +2972,7 @@ for i int 3 .. 10 { /* */ }
 // 也即 for 必须加大括号，如上面 ~ if 不知道是第一个 for 还是第二个 for 的后置条件
 for {
     capacity *= 2
-} also if (capacity < new_capacity)
+} ~ continue if (capacity < new_capacity)
 
 // 函数和普通变量提前声明，同一个变量声明可以出现多次，定义一个变量时必须有初始化也即
 // 推荐仅在使用的地方才进行变量定义不提前定义变量
