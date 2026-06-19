@@ -9,7 +9,7 @@
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
 //  with fet dre todo debug trap local global // 全局变量必须使用 global 引用
-//  mod mut imm rua ref gen priv do abstract macro tane (typename)
+//  mod mut imm rua ref gen priv do abstract macro tane (typename) ended
 //  alignof(type) sizeof(type) offsetof(type.offset) drop zeroed
 //  where it it.i halt emit print prinf namespace typename
 //  where when with overloaded in not_in struct strict
@@ -1045,12 +1045,12 @@ using func_type (int a, &int float)
 (&(&int) float)
 (&(&int) float named x y or error)
 (&(&int) float [x y] or error)
-(yield int a float b, &int (&int or none) float named x y z or error)
-(yield int a float b, &int (&int or none) float [x y z] or error)
+(yield int a, float b, &int (&int or none) float named x y z or error)
+(yield int a, float b, &int (&int or none) float [x y z] or error)
 (yield int a, &int float)
-(yield int a int b, &int float)
-(yield int a point b, &int)
-(yield int a point b)
+(yield int a b, &int float)
+(yield int a, point b, &int)
+(yield int a, point b)
 (int a, &int) // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
 (int _) // 匿名参数
@@ -1074,8 +1074,8 @@ using func_type (int a, &int float)
 (int a, int b c, float d)
 (int a b c, float d)
 (int a{1} b{2} c{3}, float d) // 允许第一个也使用点号，方便自动化工具
-(int a b, yield int point, &int point)
-(int a b, yield int point)
+(int a b, yield int, point, &int point)
+(int a b, yield int, point)
 (int a b, &int point float named count point scale)
 (int a, &int point named count point or error)
 (*file? file{stdin}, point point, string name{"root"}, string mode)
@@ -3286,7 +3286,25 @@ math:*
 //  if expr { stmt } else { stmt }
 //  if expr { stmt } else if expr { stmt } else { stmt }
 //
-//  2.  简单条件语句
+//  2.  简单条件语句，endif 语句还可以是 else elif 或者 return break continue final goto 等跳转语句
+//  if (expr) stmt endif
+//  if (expr) stmt else stmt endif
+//  if (expr) stmt elif (expr) stmt else stmt endif // 必须是 elif 否则 endif 不知道是终结 if 还是 else if 中的 if
+//
+//  if (expr)
+//      stmt
+//      if (expr)
+//          stmt
+//      endif
+//  else
+//      stmt
+//      if (expr)
+//          stmt
+//      elif (expr)
+//          stmt
+//      endif
+//  endif
+//
 //  if expr then statement
 //  if expr then statement else then statement
 //  if expr then statement
