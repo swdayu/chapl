@@ -664,6 +664,7 @@ extern "C" {
     #define prh_raw_int_bytes 4
     typedef prh_i32 prh_raw_int;
     typedef prh_r32 prh_raw_reg;
+    typedef prh_r32 prh_raw;
     typedef prh_i32 prh_int;
     typedef prh_r32 prh_reg;
     #define prh_int_bits 32
@@ -678,6 +679,7 @@ extern "C" {
     #define prh_raw_int_bytes 8
     typedef prh_i64 prh_raw_int;
     typedef prh_r64 prh_raw_reg;
+    typedef prh_r64 prh_raw;
     #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
         typedef prh_r32 prh_reg;
@@ -728,6 +730,7 @@ extern "C" {
     prh_static_assert(sizeof(prh_char) == sizeof(prh_r32));
     prh_static_assert(sizeof(prh_raw_int) == prh_arch_bits / 8); // architecture signed type with generic purpose regiter size
     prh_static_assert(sizeof(prh_raw_reg) == prh_arch_bits / 8); // architecture unsigned type with generic purpose register size
+    prh_static_assert(sizeof(prh_raw) == sizeof(prh_raw_reg));
     prh_static_assert(sizeof(prh_f32) == 4);
     prh_static_assert(sizeof(prh_f64) == 8);
     prh_static_assert(sizeof(prh_float) == 4);
@@ -797,6 +800,7 @@ extern "C" {
     #define prh_boolret(a) prh_real_boolret(a)
     #define prh_debug(...) __VA_ARGS__
     #define prh_debug_prerr(error) prh_prerr(error)
+    #define prh_impl_debug_prerr(error, line) prh_impl_prerr((error), (line))
 #else
     #define prh_condret(c, a) a
     #define prh_numbret(n, a) a
@@ -806,6 +810,7 @@ extern "C" {
     #define prh_boolret(a) a
     #define prh_debug(...)
     #define prh_debug_prerr(error) ((void)0)
+    #define prh_impl_debug_prerr(error, line) ((void)0)
 #endif
 #endif
 
@@ -2579,217 +2584,194 @@ prh_inline prh_r32 prh_set_value_32_if_zero(prh_r32 a, prh_r32 value) {
 #define prh_round_16_byte(n) (((prh_reg)(n)+15) & (~(prh_reg)15))
 #endif // PRH_ALIGN_LINE
 
-#ifndef PRH_BYTE
-#define PRH_BYTE(a) ((prh_byte)((a)&0xff))
-#define PRH_16_LE_BYTES(a) PRH_BYTE(a), PRH_BYTE((a)>>8)
-#define PRH_24_LE_BYTES(a) PRH_16_LE_BYTES(a), PRH_BYTE((a)>>16)
-#define PRH_32_LE_BYTES(a) PRH_16_LE_BYTES(a), PRH_16_LE_BYTES((a)>>16)
-#define PRH_64_LE_BYTES(a) PRH_32_LE_BYTES(a), PRH_32_LE_BYTES((a)>>32)
-#define PRH_16_BE_BYTES(a) PRH_BYTE((a)>>8), PRH_BYTE(a)
-#define PRH_24_BE_BYTES(a) PRH_BYTE((a)>>16), PRH_16_BE_BYTES(a)
-#define PRH_32_BE_BYTES(a) PRH_16_BE_BYTES((a)>>16), PRH_16_BE_BYTES(a)
-#define PRH_64_BE_BYTES(a) PRH_32_BE_BYTES((a)>>32), PRH_32_BE_BYTES(a)
+#ifndef prh_byte_1
+#define prh_byte_1(n) ((prh_byte)((n)&0xFF))
+#define prh_byte_2(n) ((prh_byte)(((n)>>8)&0xFF))
+#define prh_byte_3(n) ((prh_byte)(((n)>>16)&0xFF))
+#define prh_byte_4(n) ((prh_byte)(((n)>>24)&0xFF))
+#define prh_byte_5(n) ((prh_byte)(((n)>>32)&0xFF))
+#define prh_byte_6(n) ((prh_byte)(((n)>>40)&0xFF))
+#define prh_byte_7(n) ((prh_byte)(((n)>>48)&0xFF))
+#define prh_byte_8(n) ((prh_byte)(((n)>>56)&0xFF))
 
-prh_inline void prh_write_le_buffer_16(prh_r16 n, prh_byte *p) {
-    p[0] = PRH_BYTE(n);
-    p[1] = PRH_BYTE(n >> 8);
-}
+#define prh_le_2_bytes(n) prh_byte_1(n), prh_byte_2(n)
+#define prh_le_3_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n)
+#define prh_le_4_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n)
+#define prh_le_5_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n)
+#define prh_le_6_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n), prh_byte_6(n)
+#define prh_le_7_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n), prh_byte_6(n), prh_byte_7(n)
+#define prh_le_8_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n), prh_byte_6(n), prh_byte_7(n), prh_byte_8(n)
 
-prh_inline void prh_write_be_buffer_16(prh_r16 n, prh_byte *p) {
-    p[0] = PRH_BYTE(n >> 8);
-    p[1] = PRH_BYTE(n);
-}
+#define prh_be_2_bytes(n) prh_byte_2(n), prh_byte_1(n)
+#define prh_be_3_bytes(n) prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_4_bytes(n) prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_5_bytes(n) prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_6_bytes(n) prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_7_bytes(n) prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_8_bytes(n) prh_byte_8(n), prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
 
-prh_inline prh_r16 prh_read_le_buffer_16(prh_byte *p) {
-    return (((prh_r16)p[1]) << 8) | p[0];
-}
+prh_inline prh_r16 prh_impl_r16_from(prh_r16 a, prh_r16 b) { return (b << 8) | a; }
+prh_inline prh_r32 prh_impl_r24_from(prh_r32 a, prh_r32 b, prh_r32 c) { return (c << 16) | (b << 8) | a; }
+prh_inline prh_r32 prh_impl_r32_from(prh_r32 a, prh_r32 b, prh_r32 c, prh_r32 d) { return (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r40_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e) { return (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r48_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e, prh_r64 f) { return (f << 40) | (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r56_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e, prh_r64 f, prh_r64 g) { return (g << 48) | (f << 40) | (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r64_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e, prh_r64 f, prh_r64 g, prh_r64 h) { return (h << 56) | (g << 48) | (f << 40) | (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
 
-prh_inline prh_r16 prh_read_be_buffer_16(prh_byte *p) {
-    return (((prh_r16)p[0]) << 8) | p[1];
-}
+prh_inline prh_r16 prh_le_2b_to_host(prh_byte a, prh_byte b) { return prh_impl_r16_from(a, b); }
+prh_inline prh_r32 prh_le_3b_to_host(prh_byte a, prh_byte b, prh_byte c) { return prh_impl_r24_from(a, b, c); }
+prh_inline prh_r32 prh_le_4b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d) { return prh_impl_r32_from(a, b, c, d); }
+prh_inline prh_r64 prh_le_5b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e) { return prh_impl_r40_from(a, b, c, d, e); }
+prh_inline prh_r64 prh_le_6b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f) { return prh_impl_r48_from(a, b, c, d, e, f); }
+prh_inline prh_r64 prh_le_7b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g) { return prh_impl_r56_from(a, b, c, d, e, f, g); }
+prh_inline prh_r64 prh_le_8b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g, prh_byte h) { return prh_impl_r64_from(a, b, c, d, e, f, g, h); }
 
-prh_inline prh_byte *prh_host_to_lp_16(prh_r16 n, prh_byte *p) {
-    p[0] = PRH_BYTE(n);
-    p[1] = PRH_BYTE(n >> 8);
-    return p + 2;
-}
+prh_inline prh_r16 prh_be_2b_to_host(prh_byte a, prh_byte b) { return prh_impl_r16_from(b, a); }
+prh_inline prh_r32 prh_be_3b_to_host(prh_byte a, prh_byte b, prh_byte c) { return prh_impl_r24_from(c, b, a); }
+prh_inline prh_r32 prh_be_4b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d) { return prh_impl_r32_from(d, c, b, a); }
+prh_inline prh_r64 prh_be_5b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e) { return prh_impl_r40_from(e, d, c, b, a); }
+prh_inline prh_r64 prh_be_6b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f) { return prh_impl_r48_from(f, e, d, c, b, a); }
+prh_inline prh_r64 prh_be_7b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g) { return prh_impl_r56_from(g, f, e, d, c, b, a); }
+prh_inline prh_r64 prh_be_8b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g, prh_byte h) { return prh_impl_r64_from(h, g, f, e, d, c, b, a); }
 
-prh_inline prh_byte *prh_host_to_lp_24(prh_r32 n, prh_byte *p) {
-    p[0] = PRH_BYTE(n);
-    p[1] = PRH_BYTE(n >> 8);
-    p[2] = PRH_BYTE(n >> 16);
-    return p + 3;
-}
+prh_inline prh_r16 prh_lp_2b_to_host(const prh_byte *p) { return prh_le_2b_to_host(p[0], p[1]); }
+prh_inline prh_r32 prh_lp_3b_to_host(const prh_byte *p) { return prh_le_3b_to_host(p[0], p[1], p[2]); }
+prh_inline prh_r32 prh_lp_4b_to_host(const prh_byte *p) { return prh_le_4b_to_host(p[0], p[1], p[2], p[3]); }
+prh_inline prh_r64 prh_lp_5b_to_host(const prh_byte *p) { return prh_le_5b_to_host(p[0], p[1], p[2], p[3], p[4]); }
+prh_inline prh_r64 prh_lp_6b_to_host(const prh_byte *p) { return prh_le_6b_to_host(p[0], p[1], p[2], p[3], p[4], p[5]); }
+prh_inline prh_r64 prh_lp_7b_to_host(const prh_byte *p) { return prh_le_7b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6]); }
+prh_inline prh_r64 prh_lp_8b_to_host(const prh_byte *p) { return prh_le_8b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]); }
 
-prh_inline prh_byte *prh_host_to_lp_32(prh_r32 n, prh_byte *p) {
-    p[0] = PRH_BYTE(n);
-    p[1] = PRH_BYTE(n >> 8);
-    p[2] = PRH_BYTE(n >> 16);
-    p[3] = PRH_BYTE(n >> 24);
-    return p + 4;
-}
+prh_inline prh_r16 prh_bp_2b_to_host(const prh_byte *p) { return prh_be_2b_to_host(p[0], p[1]); }
+prh_inline prh_r32 prh_bp_3b_to_host(const prh_byte *p) { return prh_be_3b_to_host(p[0], p[1], p[2]); }
+prh_inline prh_r32 prh_bp_4b_to_host(const prh_byte *p) { return prh_be_4b_to_host(p[0], p[1], p[2], p[3]); }
+prh_inline prh_r64 prh_bp_5b_to_host(const prh_byte *p) { return prh_be_5b_to_host(p[0], p[1], p[2], p[3], p[4]); }
+prh_inline prh_r64 prh_bp_6b_to_host(const prh_byte *p) { return prh_be_6b_to_host(p[0], p[1], p[2], p[3], p[4], p[5]); }
+prh_inline prh_r64 prh_bp_7b_to_host(const prh_byte *p) { return prh_be_7b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6]); }
+prh_inline prh_r64 prh_bp_8b_to_host(const prh_byte *p) { return prh_be_8b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]); }
 
-prh_inline prh_byte *prh_host_to_lp_64(prh_r64 n, prh_byte *p) {
-    p[0] = PRH_BYTE(n);
-    p[1] = PRH_BYTE(n >> 8);
-    p[2] = PRH_BYTE(n >> 16);
-    p[3] = PRH_BYTE(n >> 24);
-    p[4] = PRH_BYTE(n >> 32);
-    p[5] = PRH_BYTE(n >> 40);
-    p[6] = PRH_BYTE(n >> 48);
-    p[7] = PRH_BYTE(n >> 56);
-    return p + 8;
-}
+prh_inline void prh_host_to_lp_2b(prh_r16 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); }
+prh_inline void prh_host_to_lp_3b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); }
+prh_inline void prh_host_to_lp_4b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); }
+prh_inline void prh_host_to_lp_5b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); }
+prh_inline void prh_host_to_lp_6b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); p[5] = prh_byte_6(n); }
+prh_inline void prh_host_to_lp_7b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); p[5] = prh_byte_6(n); p[6] = prh_byte_7(n); }
+prh_inline void prh_host_to_lp_8b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); p[5] = prh_byte_6(n); p[6] = prh_byte_7(n); p[7] = prh_byte_8(n); }
 
-prh_inline prh_byte *prh_host_to_bp_16(prh_r16 n, prh_byte *p) {
-    p[1] = PRH_BYTE(n);
-    p[0] = PRH_BYTE(n >> 8);
-    return p + 2;
-}
+prh_inline void prh_host_to_bp_2b(prh_r16 n, prh_byte *p) { p[0] = prh_byte_2(n); p[1] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_3b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_3(n); p[1] = prh_byte_2(n); p[2] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_4b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_4(n); p[1] = prh_byte_3(n); p[2] = prh_byte_2(n); p[3] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_5b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_5(n); p[1] = prh_byte_4(n); p[2] = prh_byte_3(n); p[3] = prh_byte_2(n); p[4] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_6b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_6(n); p[1] = prh_byte_5(n); p[2] = prh_byte_4(n); p[3] = prh_byte_3(n); p[4] = prh_byte_2(n); p[5] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_7b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_7(n); p[1] = prh_byte_6(n); p[2] = prh_byte_5(n); p[3] = prh_byte_4(n); p[4] = prh_byte_3(n); p[5] = prh_byte_2(n); p[6] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_8b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_8(n); p[1] = prh_byte_7(n); p[2] = prh_byte_6(n); p[3] = prh_byte_5(n); p[4] = prh_byte_4(n); p[5] = prh_byte_3(n); p[6] = prh_byte_2(n); p[7] = prh_byte_1(n); }
 
-prh_inline prh_byte *prh_host_to_bp_24(prh_r32 n, prh_byte *p) {
-    p[2] = PRH_BYTE(n);
-    p[1] = PRH_BYTE(n >> 8);
-    p[0] = PRH_BYTE(n >> 16);
-    return p + 3;
-}
-
-prh_inline prh_byte *prh_host_to_bp_32(prh_r32 n, prh_byte *p) {
-    p[3] = PRH_BYTE(n);
-    p[2] = PRH_BYTE(n >> 8);
-    p[1] = PRH_BYTE(n >> 16);
-    p[0] = PRH_BYTE(n >> 24);
-    return p + 4;
-}
-
-prh_inline prh_byte *prh_host_to_bp_64(prh_r64 n, prh_byte *p) {
-    p[7] = PRH_BYTE(n);
-    p[6] = PRH_BYTE(n >> 8);
-    p[5] = PRH_BYTE(n >> 16);
-    p[4] = PRH_BYTE(n >> 24);
-    p[3] = PRH_BYTE(n >> 32);
-    p[2] = PRH_BYTE(n >> 40);
-    p[1] = PRH_BYTE(n >> 48);
-    p[0] = PRH_BYTE(n >> 56);
-    return p + 8;
-}
-
-prh_inline prh_r16 prh_lp_to_host_16(prh_byte *p) {
-    return (((prh_r16)p[1]) << 8) | p[0];
-}
-
-prh_inline prh_r32 prh_lp_to_host_24(prh_byte *p) {
-    return (((prh_r32)p[2]) << 16) | (((prh_r32)p[1]) << 8) | p[0];
-}
-
-prh_inline prh_r32 prh_lp_to_host_32(prh_byte *p) {
-    return (((prh_r32)p[3]) << 24) | (((prh_r32)p[2]) << 16) | (((prh_r32)p[1]) << 8) | p[0];
-}
-
-prh_inline prh_r64 prh_lp_to_host_64(prh_byte *p) {
-    return
-        (((prh_r64)p[7]) << 56) | (((prh_r64)p[6]) << 48) |
-        (((prh_r64)p[5]) << 40) | (((prh_r64)p[4]) << 32) |
-        (((prh_r64)p[3]) << 24) | (((prh_r64)p[2]) << 16) |
-        (((prh_r64)p[1]) << 8)  | p[0];
-}
-
-prh_inline prh_r16 prh_bp_to_host_16(prh_byte *p) {
-    return (((prh_r16)p[0]) << 8) | p[1];
-}
-
-prh_inline prh_r32 prh_bp_to_host_24(prh_byte *p) {
-    return (((prh_r32)p[0]) << 16) | (((prh_r32)p[1]) << 8) | p[2];
-}
-
-prh_inline prh_r32 prh_bp_to_host_32(prh_byte *p) {
-    return (((prh_r32)p[0]) << 24) | (((prh_r32)p[1]) << 16) | (((prh_r32)p[2]) << 8) | p[3];
-}
-
-prh_inline prh_r64 prh_bp_to_host_64(prh_byte *p) {
-    return
-        (((prh_r64)p[0]) << 56) | (((prh_r64)p[1]) << 48) |
-        (((prh_r64)p[2]) << 40) | (((prh_r64)p[3]) << 32) |
-        (((prh_r64)p[4]) << 24) | (((prh_r64)p[5]) << 16) |
-        (((prh_r64)p[6]) << 8)  | p[7];
-}
-
-#if prh_lit_endian
-prh_inline prh_r16 prh_host_to_le_16(prh_r16 n) { return n; }
-prh_inline prh_r32 prh_host_to_le_24(prh_r32 n) { return n; }
-prh_inline prh_r32 prh_host_to_le_32(prh_r32 n) { return n; }
-prh_inline prh_r64 prh_host_to_le_64(prh_r64 n) { return n; }
-prh_inline prh_r16 prh_le_to_host_16(prh_r16 n) { return n; }
-prh_inline prh_r32 prh_le_to_host_24(prh_r32 n) { return n; }
-prh_inline prh_r32 prh_le_to_host_32(prh_r32 n) { return n; }
-prh_inline prh_r64 prh_le_to_host_64(prh_r64 n) { return n; }
-prh_inline prh_r16 prh_host_to_be_16(prh_r16 n) { return ((n & 0xff) << 8) | (n >> 8); }
-prh_inline prh_r32 prh_host_to_be_24(prh_r32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
-prh_inline prh_r32 prh_host_to_be_32(prh_r32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
-prh_inline prh_r64 prh_host_to_be_64(prh_r64 n) { return (((prh_r64)prh_host_to_be_32(n & 0xffffffff)) << 32) | prh_host_to_be_32(n >> 32); }
-prh_inline prh_r16 prh_be_to_host_16(prh_r16 n) { return prh_host_to_be_16(n); }
-prh_inline prh_r32 prh_be_to_host_24(prh_r32 n) { return prh_host_to_be_24(n); }
-prh_inline prh_r32 prh_be_to_host_32(prh_r32 n) { return prh_host_to_be_32(n); }
-prh_inline prh_r64 prh_be_to_host_64(prh_r64 n) { return prh_host_to_be_64(n); }
-#else
-prh_inline prh_r16 prh_host_to_le_16(prh_r16 n) { return ((n & 0xff) << 8) | (n >> 8); }
-prh_inline prh_r32 prh_host_to_le_24(prh_r32 n) { return ((n & 0xff) << 16) | (n & 0xff00) | ((n & 0xff0000) >> 16); }
-prh_inline prh_r32 prh_host_to_le_32(prh_r32 n) { return ((n & 0xff) << 24) | ((n & 0xff00) << 8) | ((n & 0xff0000) >> 8) | ((n & 0xff000000) >> 24); }
-prh_inline prh_r64 prh_host_to_le_64(prh_r64 n) { return (((prh_r64)prh_host_to_le_32(n & 0xffffffff)) << 32) | prh_host_to_le_32(n >> 32); }
-prh_inline prh_r16 prh_le_to_host_16(prh_r16 n) { return prh_host_to_le_16(n); }
-prh_inline prh_r32 prh_le_to_host_24(prh_r32 n) { return prh_host_to_le_24(n); }
-prh_inline prh_r32 prh_le_to_host_32(prh_r32 n) { return prh_host_to_le_32(n); }
-prh_inline prh_r64 prh_le_to_host_64(prh_r64 n) { return prh_host_to_le_64(n); }
-prh_inline prh_r16 prh_host_to_be_16(prh_r16 n) { return n; }
-prh_inline prh_r32 prh_host_to_be_24(prh_r32 n) { return n; }
-prh_inline prh_r32 prh_host_to_be_32(prh_r32 n) { return n; }
-prh_inline prh_r64 prh_host_to_be_64(prh_r64 n) { return n; }
-prh_inline prh_r16 prh_be_to_host_16(prh_r16 n) { return n; }
-prh_inline prh_r32 prh_be_to_host_24(prh_r32 n) { return n; }
-prh_inline prh_r32 prh_be_to_host_32(prh_r32 n) { return n; }
-prh_inline prh_r64 prh_be_to_host_64(prh_r64 n) { return n; }
-#endif
+prh_inline prh_r16 prh_impl_r16_invert_order(prh_r16 n) { return prh_impl_r16_from(prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r32 prh_impl_r24_invert_order(prh_r32 n) { return prh_impl_r24_from(prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r32 prh_impl_r32_invert_order(prh_r32 n) { return prh_impl_r32_from(prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r40_invert_order(prh_r64 n) { return prh_impl_r40_from(prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r48_invert_order(prh_r64 n) { return prh_impl_r48_from(prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r56_invert_order(prh_r64 n) { return prh_impl_r56_from(prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r64_invert_order(prh_r64 n) { return prh_impl_r64_from(prh_byte_8(n), prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
 
 #if prh_int_bits == 32
-#define prh_host_to_le_reg(n)    prh_host_to_le_32(n)
-#define prh_host_to_be_reg(n)    prh_host_to_be_32(n)
-#define prh_host_to_lp_reg(n, p) prh_host_to_lp_32((n), (p))
-#define prh_host_to_bp_reg(n, p) prh_host_to_bp_32((n), (p))
-#define prh_le_to_host_reg(n)    prh_le_to_host_32(n)
-#define prh_be_to_host_reg(n)    prh_be_to_host_32(n)
-#define prh_lp_to_host_reg(p)    prh_lp_to_host_32(p)
-#define prh_bp_to_host_reg(p)    prh_bp_to_host_32(p)
+prh_inline prh_reg prh_impl_reg_invert_order(prh_reg n) { return prh_impl_r32_invert_order(n); }
 #elif prh_int_bits == 64
-#define prh_host_to_le_reg(n)    prh_host_to_le_64(n)
-#define prh_host_to_be_reg(n)    prh_host_to_be_64(n)
-#define prh_host_to_lp_reg(n, p) prh_host_to_lp_64((n), (p))
-#define prh_host_to_bp_reg(n, p) prh_host_to_bp_64((n), (p))
-#define prh_le_to_host_reg(n)    prh_le_to_host_64(n)
-#define prh_be_to_host_reg(n)    prh_be_to_host_64(n)
-#define prh_lp_to_host_reg(p)    prh_lp_to_host_64(p)
-#define prh_bp_to_host_reg(p)    prh_bp_to_host_64(p)
+prh_inline prh_reg prh_impl_reg_invert_order(prh_reg n) { return prh_impl_r64_invert_order(n); }
+#else
+#error unsupported int bits
 #endif
 
-#if prh_arch_bits == 32
-#define prh_host_to_le_sys(n)    prh_host_to_le_32(n)
-#define prh_host_to_be_sys(n)    prh_host_to_be_32(n)
-#define prh_host_to_lp_sys(n, p) prh_host_to_lp_32((n), (p))
-#define prh_host_to_bp_sys(n, p) prh_host_to_bp_32((n), (p))
-#define prh_le_to_host_sys(n)    prh_le_to_host_32(n)
-#define prh_be_to_host_sys(n)    prh_be_to_host_32(n)
-#define prh_lp_to_host_sys(p)    prh_lp_to_host_32(p)
-#define prh_bp_to_host_sys(p)    prh_bp_to_host_32(p)
-#elif prh_arch_bits == 64
-#define prh_host_to_le_sys(n)    prh_host_to_le_64(n)
-#define prh_host_to_be_sys(n)    prh_host_to_be_64(n)
-#define prh_host_to_lp_sys(n, p) prh_host_to_lp_64((n), (p))
-#define prh_host_to_bp_sys(n, p) prh_host_to_bp_64((n), (p))
-#define prh_le_to_host_sys(n)    prh_le_to_host_64(n)
-#define prh_be_to_host_sys(n)    prh_be_to_host_64(n)
-#define prh_lp_to_host_sys(p)    prh_lp_to_host_64(p)
-#define prh_bp_to_host_sys(p)    prh_bp_to_host_64(p)
+#if prh_raw_int_bits == 32
+prh_inline prh_raw prh_impl_raw_invert_order(prh_raw n) { return prh_impl_r32_invert_order(n); }
+#elif prh_raw_int_bits == 64
+prh_inline prh_raw prh_impl_raw_invert_order(prh_raw n) { return prh_impl_r64_invert_order(n); }
+#else
+#error unsupported raw_int bits
 #endif
-#endif // PRH_BYTE
+
+#if prh_lit_endian
+prh_inline prh_r16 prh_r16_host_to_le(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_host_to_le(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_host_to_le(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_host_to_le(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_host_to_le(prh_raw n) { return n; }
+
+prh_inline prh_r16 prh_r16_le_to_host(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_le_to_host(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_le_to_host(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_le_to_host(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_le_to_host(prh_raw n) { return n; }
+
+prh_inline prh_r16 prh_r16_host_to_be(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_host_to_be(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_host_to_be(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_host_to_be(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_host_to_be(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_host_to_be(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_host_to_be(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_host_to_be(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_host_to_be(prh_raw n) { return prh_impl_raw_invert_order(n); }
+
+prh_inline prh_r16 prh_r16_be_to_host(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_be_to_host(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_be_to_host(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_be_to_host(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_be_to_host(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_be_to_host(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_be_to_host(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_be_to_host(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return prh_impl_raw_invert_order(n); }
+#else
+prh_inline prh_r16 prh_r16_host_to_le(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_host_to_le(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_host_to_le(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_host_to_le(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_host_to_le(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_host_to_le(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_host_to_le(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_host_to_le(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_host_to_le(prh_raw n) { return prh_impl_raw_invert_order(n); }
+
+prh_inline prh_r16 prh_r16_le_to_host(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_le_to_host(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_le_to_host(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_le_to_host(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_le_to_host(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_le_to_host(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_le_to_host(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_le_to_host(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_le_to_host(prh_raw n) { return prh_impl_raw_invert_order(n); }
+
+prh_inline prh_r16 prh_r16_host_to_be(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_host_to_be(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_host_to_be(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_host_to_be(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_host_to_be(prh_raw n) { return n; }
+
+prh_inline prh_r16 prh_r16_be_to_host(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_be_to_host(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_be_to_host(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_be_to_host(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
+#endif
+#endif // prh_byte_1
 
 // 内存分配的几种类别
 //  1.  固定大小栈分配
@@ -3985,6 +3967,27 @@ typedef void *(*prh_malloc_func)(void *context, prh_reg size, prh_reg alignment)
 typedef void *(*prh_relloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
 typedef void (*prh_dalloc_func)(void *context, void *ptr);
 
+typedef struct {
+    void *context;
+    prh_malloc_func malloc_func;
+    prh_dalloc_func dalloc_func;
+} prh_local_alloc;
+
+prh_inline void *prh_impl_local_malloc(prh_local_alloc* alloc, prh_reg size, prh_reg alignment) {
+    return alloc->malloc_func(alloc->context, size, alignment);
+}
+
+prh_inline void prh_impl_grown_dalloc(prh_local_alloc* alloc, void *ptr) {
+    alloc->dalloc_func(alloc->context, ptr);
+}
+
+#define prh_local_aligned_malloc(alloc, size, alignment) ((prh_impl_line = __LINE__), prh_impl_local_malloc((alloc), (size), (alignment)))
+#define prh_local_dalloc(alloc, ptr) ((prh_impl_line = __LINE__), prh_impl_local_dalloc((alloc), (ptr)))
+
+#define prh_local_malloc(alloc, size) prh_local_aligned_malloc((alloc), (size), PRH_ALIGN_DEFAULT)
+#define prh_local_line_malloc(alloc, size) prh_local_aligned_malloc((alloc), (size), PRH_ALIGN_LINE)
+#define prh_local_page_malloc(alloc, size) prh_local_aligned_malloc((alloc), (size), PRH_ALIGN_PAGE)
+
 // local scope guard frame scene cubic
 typedef struct { // 让用户可以配置翻倍增长、固定增长、斐波那契增长？？？
     void *context;
@@ -4132,14 +4135,14 @@ extern prh_arena_alloc prh_impl_default_alloc;
 #define prh_arena_malloc(alloc, size) prh_arena_aligned_malloc((alloc), (size), PRH_ALIGN_DEFAULT)
 #define prh_arena_line_malloc(alloc, size) prh_arena_aligned_malloc((alloc), (size), PRH_ALIGN_LINE)
 #define prh_arena_page_malloc(alloc, size) prh_arena_aligned_malloc((alloc), (size), PRH_ALIGN_PAGE)
-#define prh_arena_vmem_malloc(alloc, size) prh_arena_aligned_malloc((alloc), (size), PRH_ALIGN_VMEM)
+#define prh_arena_heap_malloc(alloc, size) prh_arena_aligned_malloc((alloc), (size), PRH_ALIGN_VMEM)
 
 #define prh_arena_calloc(alloc, size) prh_arena_aligned_calloc((alloc), (size), PRH_ALIGN_DEFAULT)
 #define prh_arena_line_calloc(alloc, size) prh_arena_aligned_calloc((alloc), (size), PRH_ALIGN_LINE)
 #define prh_arena_page_calloc(alloc, size) prh_arena_aligned_calloc((alloc), (size), PRH_ALIGN_PAGE)
-#define prh_arena_vmem_calloc(alloc, size) prh_arena_aligned_calloc((alloc), (size), PRH_ALIGN_VMEM)
+#define prh_arena_heap_calloc(alloc, size) prh_arena_aligned_calloc((alloc), (size), PRH_ALIGN_VMEM)
 
-typedef struct { // 临时用完即丢的内存分配器，预期会在同一函数内使用后立即释放
+typedef struct { // 临时用完即丢的内存分配器，预期会在同一函数内使用后立即释放 instant blink flash blitz
     void *context;
     prh_malloc_func malloc_func;
     prh_dalloc_func dalloc_func;
@@ -5608,1258 +5611,6 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 #endif // POSIX END
 #endif // PRH_ALLOC_IMPLEMENTATION
 #endif // PRH_ALLOC_INCLUDE
-
-#ifdef PRH_CHAR_INCLUDE
-// 3.2 统一编码一致性需求（Conformance Requirements）
-
-#define prh_char_null       0x00 // NUL
-#define prh_char_bell       0x07 // BEL
-#define prh_char_baskspace  0x08 // BS
-#define prh_char_tab        0x09 // HT
-#define prh_char_newline    0x0A // LF NL EOL
-#define prh_char_linetab    0x0B // VT
-#define prh_char_newpage    0x0C // FF
-#define prh_char_return     0x0D // CR
-#define prh_char_cancel     0x18 // CAN
-#define prh_char_escape     0x1B // ESC
-#define prh_char_space      0x20 // SP
-#define prh_char_emark      0x21 // !
-#define prh_char_dquote     0x22 // "
-#define prh_char_hash       0x23 // #
-#define prh_char_dollar     0x24 // $
-#define prh_char_percent    0x25 // %
-#define prh_char_bitand     0x26 // &
-#define prh_char_squote     0x27 // '
-#define prh_char_lparen     0x28 // (
-#define prh_char_rparen     0x29 // )
-#define prh_char_aster      0x2A // *
-#define prh_char_plus       0x2B // +
-#define prh_char_comma      0x2C // ,
-#define prh_char_minus      0x2D // -
-#define prh_char_point      0x2E // .
-#define prh_char_slash      0x2F // /
-#define prh_char_colon      0x3A // :
-#define prh_char_semic      0x3B // ;
-#define prh_char_less       0x3C // <
-#define prh_char_equal      0x3D // =
-#define prh_char_great      0x3E // >
-#define prh_char_qmark      0x3F // ?
-#define prh_char_atsign     0x40 // @
-#define prh_char_lsquare    0x5B // [
-#define prh_char_bslash     0x5C // '\\'
-#define prh_char_rsquare    0x5D // ]
-#define prh_char_caret      0x5E // ^
-#define prh_char_underscore 0x5F // _
-#define prh_char_bquote     0x60 // `
-#define prh_char_lcurly     0x7B // {
-#define prh_char_vertbar    0x7C // |
-#define prh_char_rcurly     0x7D // }
-#define prh_char_tilde      0x7E // ~
-#define prh_char_del        0x7F // DEL
-#define prh_text_end        prh_char_null
-#define prh_text_continue   0x
-#define prh_unicode_maxcode 0x0010ffff
-#define prh_unicode_invalid 0xff7fffff
-
-// 统一字符编码标准支持三种字符编码形式：UTF-32、UTF-16和UTF-8。每种编码形式都将码点
-// U+0000 ~ U+D7FF、U+E000 ~ U+10FFFF 映射为唯一的码元序列。每种编码形式都规定了码元
-// 的大小。统一编码标量值（unicode scalar value），除高代理码点和低代理码点之外的任何
-// 码点，根据此定义，编码标量值集合的范围为 U+0000 ~ U+D7FF、U+E000 ~ U+10FFFF。
-//
-// 代理码点（surrogate code point），2048个码点被分配为代理码点，用于UTF-16编码形式。
-// 高代理码点（High-surrogate code point）范围为 U+D800 ~ U+DBFF，低代理码点（Low
-// surrogate code point）范围 U+DC00 ~ U+DFFF。代理对（Surrogate pair），单个抽象字
-// 符的表示，由两个16位码元组成的序列，第一个值是高代理码元，第二个值是低代理码元。高代
-// 理码元和低代理码元仅在UTF-16字符编码形式的上下文中使用，代理对仅在UTF-16中使用。孤立
-// 的代理码元自身没有解释，其他编码形式中的某些其他孤立码元也没有自身解释。例如，孤立字
-// 节 0x80 在 UTF-8 中没有解释；它只能用作多字节序列的一部分。有时高代理码元被称为引导
-// 代理（leading surrogates），低代理码元则被称为尾随代理（trailing surrogates）。这
-// 类似于 UTF-8 中的用法，UTF-8有引导字节（leading bytes）和尾随字节（trailing
-// bytes）。更多信息，参见第 5.4 节《UTF-16中代理对的处理》。
-//
-// 当使用UTF-16表示增补字符时，每个字符使用一对16位码元，这些码元称为代理。为了将它们与
-// 普通字符区分开来，它们被分配在一个单独的区域。代理区域由1024个低半代理码点和 1024 个
-// 高半代理码点组成。高代理码点始终是代理对的第一个元素，低代理码点始终是代理对的第二个
-// 元素。范围 U+DB80 ~ U+DBFF 的高代理码点是私用高代理码点（共128个码点）。通过代理对
-// 表示的字符，若其高代理码点为私用高代理，则这些字符来自增补私用区。关于私用字符的更多
-// 信息，参见第23.5节《私用字符》。
-//
-// 码元（code unit），能够表示用于处理或交换的编码文本单元的最小位组合。码元是计算机存
-// 储的特定单元，其他字符编码标准通常使用定义为8位单元的码元，即八位字节（octets）。统
-// 一编码标准在 UTF-8 编码形式中使用 8 位码元，在 UTF-16 编码形式中使用 16 位码元，在
-// UTF-32 编码形式中使用 32 位码元。当码元为 8 位单元时，码元序列也可称为字节序列，码元
-// 序列可以由单个码元组成。根据字符编码标准的结构，可能需要使用码元序列（多于一个单元）
-// 来表示单个编码字符。
-//
-// 在统一编码标准中，某些码元的特定值不能单独用于表示编码字符。此限制适用于 UTF-16 中孤
-// 立的代理码元和 UTF-8 中的字节 80~FF。其他字符编码标准的实现也有类似的限制；例如 SJIS
-// （Shift-JIS）中的字节 81~9F、E0~FC 不能单独表示编码字符。
-//
-// 统一字符编码形式（Unicode Encoding Form），从每个编码标量值到唯一码元序列的映射。本
-// 标准定义了三种编码形式，除非另有说明，术语 "统一字符编码形式" 指的是这三种形式之一。
-// 由于历史原因，统一字符编码形式也被称为统一编码转换格式（UTF）或通用字符集（Universal
-// Character Set，UCS）转换格式（UTF）。
-//
-// 为确保统一编码形式的映射是一对一的，所有统一编码标量值，包括那些对应于非字符码点和未
-// 分配码点的标量值，必须映射到唯一的码元序列。注意，此要求不适用于高代理码点和低代理码
-// 点，它们根据定义被排除在统一编码标量值集合之外。
-//
-// UTF-8 编码中，码点序列 <004D, 0430, 4E8C, 10302> 表示为 <4D D0 B0 E4 BA 8C F0
-// 90 8C 82>，其中 <4D> 对应 U+004D，<D0 B0> 对应 U+0430，<E4 BA 8C> 对应 U+4E8C，
-// <F0 90 8C 82> 对应 U+10302。任何不符合下表所列模式的 UTF-8 字节序列形式的格式都是
-// 错误的（ill-formed）。在统一编码标准 3.1 版之前，UTF-8 中存在问题的 "非最短形式"
-// 字节序列是指那些可以用多种方式表示的基本多语言页（BMP）字符的序列。这些序列格式非法，
-// 因为它们不被下表所允许。由于代理码点（surrogate code points）不是统一编码标量值，
-// 任何原本会映射到 U+D800 ~ U+DFFF 码点的 UTF-8 字节序列都是格式错误的。关于ISO/IEC
-// 10646 中 UTF-8 表述差异的讨论，参见附录C.3《UTF-8与UTF-16》。
-//
-//  UTF-8 编码形式的位分布（显示对应一二三四字节序列的统一编码标量值范围）
-//           标量值             标量范围         第一字节  第二字节  第三字节  第四字节  编码范围
-//           00000000 0xxxxxxx  U+0000~U+007F   0xxxxxxx                            00~7F
-//           00000yyy yyxxxxxx  U+0080~U+07FF   110yyyyy 10xxxxxx                   C0~DF 80~BF
-//           zzzzyyyy yyxxxxxx  U+0800~U+FFFF   1110zzzz 10yyyyyy 10xxxxxx          E0~EF 80~BF 80~BF
-//  000uuuuu zzzzyyyy yyxxxxxx  010000~1FFFFF   11110uuu 10uuzzzz 10yyyyyy 10xxxxxx F0~F7 80~BF 80~BF 80~BF
-//
-//  合法 UTF-8 字节序列
-//          码点范围       第一字节
-//          U+0000~U+007F  00~7F
-//          ------------- 第一字节 第二字节
-//          U+0080~U+07FF  C2~DF   80~BF
-//          ------------- 第一字节 第二字节  第三字节
-//          U+0800~U+0FFF  E0      (A0)~BF  80~BF
-//          U+1000~U+CFFF  E1~EC   80~BF    80~BF
-//          U+D000~U+D7FF  ED      80~(9F)  80~BF
-//          U+E000~U+FFFF  EE~EF   80~BF    80~BF
-//          ------------- 第一字节 第二字节  第三字节  第四字节
-//          010000~03FFFF  F0      (90)~BF  80~BF    80~BF
-//          040000~0FFFFF  F1~F3   80~BF    80~BF    80~BF
-//          100000~10FFFF  F4      80~(8F)  80~BF    80~BF
-//
-// 上表列出了 UTF-8 中所有格式正确（well-formed）的字节序列。任何超出所列范围的字节值
-// 都是格式错误（ill-formed）的。例如，第一字节不能出现 80~C1 F5~FF，第二字节不能出现
-// 00~7F C0~FF 并且还有额外情况，第三第四字节必须是 80~BF。空缺的码点：
-//          1.  两字节序列中以 C0 和 C1 字节开始的序列，该范围与单字节 UTF-8 重复
-//              (110)0_0000 C0 => 0_0000_xxxxxx => 00xx_xxxx => U+00~U+3F
-//              (110)0_0001 C1 => 0_0001_xxxxxx => 01xx_xxxx => U+40~U+7F
-//          2.  三字节序列中以 <E0 80~9F> 开始的序列，该范围与单字节和双字节 UTF-8 重复
-//              (1110)_0000 (10)00_0000 <E0 80> => 0y_yyyy_xxxxxx
-//              (1110)_0000 (10)01_1111 <E0 9F> => 0yyy_yyxx_xxxx => U+0000~U+07FF
-//          3.  三字节序列中以 <ED A0~BF> 开始的序列，该范围是代理码点（surrogate code points）的范围
-//              (1110)_1101 (10)10_0000 <ED A0> => 1101_1y_yyyy_xxxxxx
-//              (1110)_1101 (10)11_1111 <ED BF> => 1101_1yyy_yyxx_xxxx => U+D800~U+DFFF
-//          4.  四字节序列中以 <F0 80~8F> 开始的序列，该范围与单字节和双字节和三字节 UTF-8 重复
-//              (1111_0)000 (10)00_0000 <F0 80> => zzzz_yyyyyy_xxxxxx
-//              (1111_0)000 (10)00_1111 <F0 8F> => zzzz_yyyy_yyxx_xxxx => U+0000~U+FFFF
-//          5.  四字节序列中以 <F4 90~BF> 开始的序列，码点必须 <= U+10FFFF
-//              (1111_0)100 (10)01_0000 <F4 90> => 100_01_0000_yyyyyy_xxxxxx
-//                                              => 1_0001_0000_yyyy_yyxx_xxxx => U+110000
-//
-// 处理原则：如果转换器遇到格式错误的 UTF-8 码元序列，该序列以有效的首字节开始，但后续
-// 没有有效的后继字节，则当这些后继字节本身构成格式正确的 UTF-8 码元子序列的一部分时，
-// 转换器不得将这些后继字节作为格式错误子序列的一部分消耗掉。对于UTF-8转换过程来说，消
-// 耗有效的后继字节不仅不符合规范，还会使转换器面临安全漏洞的风险。参见Unicode技术报告
-// #36《Unicode安全考虑》。
-//
-// 例如，在处理UTF-8码元序列 <F0 80 80 41> 时，Unicode一致性对转换器的唯一正式要求是
-// <41> 必须被处理并正确解释为 <U+0041>。转换器可以返回 <U+FFFD, U+0041>，将 <F0 80
-// 80>作为单个错误处理；或返回 <U+FFFD, U+FFFD, U+FFFD, U+0041>，将 <F0 80 80> 的每
-// 个字节作为单独的错误处理；或者采用其他方式来标记 <F0 80 80> 为格式错误的码元子序列。
-//
-// 最大子部分（Maximal Subparts）的 U+FFFD 替换。越来越多的实现正在采用W3C编码标准中
-// 规定的格式错误子序列处理方式，以实现一致的U+FFFD替换（http://www.w3.org/TR/encoding/）。
-// 尽管Unicode标准并不要求采用这种做法以符合一致性，但以下文本描述了这种做法并提供了详
-// 细的示例。不可转换偏移量（Unconvertible offset）：码元序列中的一个偏移位置，从该位
-// 置开始的任何码元子序列格式都不正确。格式错误子序列的最大子部分（Maximal subpart of
-// an ill-formed subsequence）：从不可转换偏移量（UTF-8的起始码元）开始的最长码元子序
-// 列，且满足以下任一条件：匹配一个合法码元序列的起始序列，或长度为1的子序列。
-//
-// 这个最大子部分的定义用于描述在进行替换时应前进多远：始终至少处理一个码元，或者尽可能
-// 多地处理合法码元，直到下一个码元会使其变为格式错误为止。即将合法码元序列前缀替换成
-// U+FFFD，或不能组成合法码元前缀则将 UTF-8 预期长度范围内的不能作为起始码元的字节都转
-// 换成 U+FFFD。更正式地表述为，在码元序列转换过程中，当遇到不可转换偏移量（该偏移量从
-// UTF-8 的起始码元开始）时：
-//  1.  该偏移量处的最大子部分被单个 U+FFFD 替换
-//  2.  转换在最大子部分偏移之后继续处理
-//
-// 这种替换最大子部分的做法可以简单地应用于 UTF-32 或 UTF-16 编码形式，但主要适用于转
-// 换 UTF-8 字符串的情况。除非格式错误子序列的开头与某些格式正确序列的开头相匹配，否则
-// 这种做法几乎会将格式错误的 UTF-8 序列中的每个字节都替换为一个 U+FFFD。例如，"非最短
-// 形式" 序列或其截断版本的每个字节都会被替换。对于代理码点或其截断版本的序列中的每个字
-// 节也会被替换为一个U+FFFD，对于超出U+10FFFF的码点的序列中的每个字节，以及任何其他不构
-// 成有效序列的字节，也会被替换为一个U+FFFD。只有当两字节或三字节的序列是原本至此为止格
-// 式正确的序列的截断版本时，才会有多个字节被替换为单个U+FFFD，如下表。关于这种方法在将
-// 其他字符集转换为Unicode时的推广讨论，参见第5.22节《转换中的U+FFFD替换》。
-//           E1 80      E2         F0 91 92      F1 BF         41
-//      =>  <E1 80 ??> <E2 ?? ??> <F0 91 92 ??> <F1 BF ?? ??> <41>
-//      =>   U+FFFD     U+FFFD     U+FFFD        U+FFFD        U+41
-//
-// 源代码使用UTF-8编码，编码文本是没有规范化的，单个变音字符与对应的音调和字母是不同的，
-// 后者被当作两个字符对待。为简单性，该文档使用字符与Unicode的编码点进行对应。每一个编
-// 码点都是独立区别的，例如小写和大写是不同的字符。为了与其他工具兼容，编译器允许源代码
-// 中包含NUL字符（U+0000）。同样为了兼容其他工具，编译器可能会忽略UTF-8的编码记号字节
-// （U+FEFF），但它必须是源文件的第一个字符，记号字节可能不允许在源文件的其他地方出现。
-//
-// UTF-8 中 BOM 的使用指南。 UTF-8 编码方案允许但不要求存在 BOM。这引发了在生成或消费
-// UTF-8 编码文本时，何时应该或不应该生成或期望 BOM 的问题。UTF-8 中 BOM 的效用仅限于
-// 字节序列包含可能是或可能不是以 UTF-8 编码的文本的场景。在这些场景中，BOM 可能有助于
-// 区分以少数可能字符编码之一编码的文本。然而，BOM 的存在也可能使文本处理复杂化。
-//
-//  1.  某些文本处理工具无法正确处理 BOM。这对于历史上编码无关的程序以及为一次性使用目
-//      的编写的临时程序尤其如此。
-//  2.  文本处理工具必须维护额外的状态，以识别观察到的 U+FEFF 字符是 BOM 还是应该被视为
-//      零宽度不间断空格。这种状态可能是或可能不是程序结构的固有部分。
-//  3.  如果第一个要编码的字符是 U+FEFF，且该字符不打算用作 BOM，文本生成工具可能需要生     *** 第一个字符如果要用作非间断空格，可能需要输出两个 U+FEFF
-//      成 BOM。这仅是为了与 Unicode 3.2 版本之前的版本兼容；对于更新的 Unicode 版本，应        例如对解析 BOM 的程序，第一个是 BOM，第二个才是非间断空格
-//      使用 U+2060 WORD JOINER 代替 U+FEFF 用于此类目的。
-//  4.  连接包含 BOM 的文本需要小心。当连接到空文本时，保留 BOM 可能是合理的，但否则，未
-//      能省略 BOM 将导致插入成为连接文本内容一部分的 U+FEFF 字符。
-//  5.  在已知文本编码为 UTF-8 的情况下，BOM 不必要地消耗存储空间。虽然这对单个文档不太
-//      可能是问题，但在涉及数千或数百万个小文本源的情况下，这可能是一个重大问题。
-//
-// 以下指南为几个不同的受众提供了替代方法。除非另有说明，这些方法排除了文本以非 BOM 意图的
-// U+FEFF 字符开头的可能性，预期此类文本极其罕见，很可能是由于未能省略 BOM。为 Unicode 3.2
-// 或更高版本编写的文本应使用 U+2060 WORD JOINER 代替。
-//
-// 软件开发人员
-//  . 如果消费 UTF-8，识别并丢弃 BOM
-//  . 如果生成 UTF-8，仅在明确要求时或已知协议需要时才包含 BOM
-//
-// 文本作者
-//  . 不要使用 U+FEFF 作为零宽度不间断空格字符，请使用 U+2060 WORD JOINER 代替
-//  . 如果已知目标协议需要，请包含 BOM
-//  . 否则，在编写包含非 ASCII 字符、不针对特定协议、但可能由默认不假设 UTF-8 的应用程序
-//    打开的 UTF-8 文本文件时，请包含 BOM。这在某些系统上很有用，例如 Microsoft Windows，
-//    其中某些应用程序假设文本文件使用活动代码页编码。
-//  . 否则，不要包含 BOM。
-
-typedef struct {
-    prh_r32 data;
-    struct {
-        prh_byte b1;
-        prh_byte b2;
-        prh_byte b3;
-        prh_byte b4;
-    };
-} prh_impl_utf8_data;
-
-typedef struct {
-    prh_r16 data;
-    struct {
-        prh_byte b2;
-        prh_byte b3;
-    };
-} prh_impl_utf8_b2b3;
-
-// 解析符合以下 UTF-8 编码标准的统一编码字符串
-//  1.  每种编码形式将 Unicode 码点 U+0000..U+D7FF 和 U+E000..U+10FFFF 映射到唯一的码元序列。
-//  2.  为确保 Unicode 编码形式的映射是一对一的，所有 Unicode 标量值，包括对应于非字符码点和
-//      未分配码点的标量值，必须映射到唯一的码元序列。注意，此要求不扩展到高代理和低代理码点，
-//      它们根据定义被排除在 Unicode 标量值集合之外。
-//  3.  禁止 UTF-8 的非最短形式
-
-// 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4
-prh_byte *prh_utf8_to_unicode(prh_byte *p, prh_char *u) {
-    prh_impl_utf8_data b; b.b1 = *p;
-    if (b.b1 <= 0x7F) { *c = b.b1; return p + 1; }
-    if (b.b1 <= 0xDF) goto label_2_byte;
-    if (b.b1 <= 0xEF) goto label_3_byte;
-    if (b.b1 <= 0xF4) goto label_4_byte;
-    goto label_invalid; // 第一字节不能出现 F5~FF
-label_2_byte:
-    b.b2 = p[1]; // 第一字节范围 C2~DF
-    if (b.b1 < 0xC2 || (b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    *u = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
-    return p + 2;
-label_3_byte:
-    prh_impl_utf8_b2b3 u = {.b2 = p[1], .b3 = p[2]};
-    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
-    if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
-    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
-    *u = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
-    return p + 3;
-label_4_byte:
-    b.b2 = p[1]; b.b3 = p[2]; b.b4 = p[3];
-#if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
-#else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
-#endif
-    if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
-    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
-    *u = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
-    return p + 4;
-label_invalid:
-    *u = prh_unicode_invalid;
-    return p;
-}
-
-// 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4，第一字节是 C2 ~ F4 时才会调用以下函数
-prh_byte *prh_impl_check_curr_utf8_valid(prh_byte *p, prh_char b1) {
-    prh_impl_utf8_data b;
-    if (b1 <= 0xDF) goto label_2_byte;
-    if (b1 <= 0xEF) goto label_3_byte;
-    goto label_4_byte; // 第一字节不能出现 F5~FF
-label_2_byte:
-    b.b2 = p[0]; // 第一字节范围 C2~DF
-    if ((b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    return p + 1;
-label_3_byte:
-    prh_impl_utf8_b2b3 u = {.b2 = p[0], .b3 = p[1]};
-    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
-    if (b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
-    if (b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
-    return p + 2;
-label_4_byte:
-    b.b2 = p[0]; b.b3 = p[1]; b.b4 = p[2];
-#if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
-#else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
-#endif
-    if (b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
-    if (b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
-    return p + 3;
-label_invalid:
-    return p;
-}
-
-// 第一字节不能出现 80~C1 F5~FF，合法的第一字节 C2 ~ F4，第一字节是 C2 ~ F4 时才会调用以下函数
-prh_byte *prh_impl_curr_utf8_to_unicode(prh_byte *p, prh_char c, prh_char *u) {
-    prh_impl_utf8_data b; b.b1 = c;
-    if (b.b1 <= 0xDF) goto label_2_byte;
-    if (b.b1 <= 0xEF) goto label_3_byte;
-    goto label_4_byte; // 第一字节不能出现 F5~FF
-label_2_byte:
-    b.b2 = p[0]; // 第一字节范围 C2~DF
-    if ((b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    *u = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
-    return p + 1;
-label_3_byte:
-    prh_impl_utf8_b2b3 u = {.b2 = p[0], .b3 = p[1]};
-    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
-    if (b.b1 == 0xE0 && u.b2 < 0xA0) goto label_invalid;
-    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
-    *u = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
-    return p + 2;
-label_4_byte:
-    b.b2 = p[0]; b.b3 = p[1]; b.b4 = p[2];
-#if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
-#else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
-#endif
-    if (b.b1 == 0xF0 && b.b2 < 0x90) goto label_invalid;
-    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
-    *u = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
-    return p + 3;
-label_invalid:
-    *u = prh_unicode_invalid;
-    return p;
-}
-
-prh_byte *prh_impl_read_curr_utf8_to_unicode_allow_non_shortest_form(prh_byte *p, prh_char *c) {
-    prh_impl_utf8_data b; b.b1 = (prh_byte)*c;
-    if (b.b1 <= 0xDF) goto label_2_byte;
-    if (b.b1 <= 0xEF) goto label_3_byte;
-    goto label_4_byte; // 第一字节不能出现 F5~FF
-label_2_byte:
-    b.b2 = p[0]; // 第一字节范围 C0~DF
-    if ((b.b2 & 0xC0) != 0x80) goto label_invalid; // 第二字节必须是 80~BF
-    *c = (((int)(b.b1 & 0x1F)) << 6) | (b.b2 & 0x3F);
-    return p + 1;
-label_3_byte:
-    prh_impl_utf8_b2b3 u = {.b2 = p[0], .b3 = p[1]};
-    if ((u.data & 0xC0C0) != 0x8080) goto label_invalid;
-    if (b.b1 == 0xED && u.b2 > 0x9F) goto label_invalid; // 代理码点范围 U+D800~U+DFFF
-    *c = (((int)(b.b1 & 0x0F)) << 12) | (((int)(u.b2 & 0x3F)) << 6) | (u.b3 & 0x3F);
-    return p + 2;
-label_4_byte:
-    b.b2 = p[0]; b.b3 = p[1]; b.b4 = p[2];
-#if prh_lit_endian
-    if ((b.data & 0xC0C0C000) != 0x80808000) goto label_invalid;
-#else
-    if ((b.data & 0x00C0C0C0) != 0x00808080) goto label_invalid;
-#endif
-    if (b.b1 == 0xF4 && b.b2 > 0x8F) goto label_invalid; // 不能超过码点最大值 U+10FFFF
-    *c = (((int)(b.b1 & 0x07)) << 18) | (((int)(b.b2 & 0x3F)) << 12) | (((int)(b.b3 & 0x3F)) << 6) | (b.b4 & 0x3F);
-    return p + 3;
-label_invalid:
-    *c = prh_unicode_invalid;
-    return p;
-}
-
-int prh_unicode_to_utf8(prh_char unicode, prh_byte *p) {
-    if (unicode <= 0x7F) {
-        *p = (prh_byte)unicode;
-        return 1;
-    }
-    if (unicode <= 0x07FF) { // 110yyyyy 10xxxxxx
-        p[0] = 0xC0 | (prh_byte)(unicode >> 6);
-        p[1] = 0x80 | (prh_byte)(unicode & 0x3f);
-        return 2;
-    }
-    if (unicode <= 0xFFFF) { // 1110zzzz 10yyyyyy 10xxxxxx
-        if (unicode <= 0xD7FF || unicode >= 0xE000) {
-            p[0] = 0xE0 | (prh_byte)(unicode >> 12);
-            p[1] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
-            p[2] = 0x80 | (prh_byte)(unicode & 0x3f);
-            return 3;
-        } else {
-            goto label_invalid;
-        }
-    }
-    if (unicode <= 0x10FFFF) { // 11110uuu 10uuzzzz 10yyyyyy 10xxxxxx
-        p[0] = 0xF0 | (prh_byte)(unicode >> 18);
-        p[1] = 0x80 | (prh_byte)((unicode >> 12) & 0x3f);
-        p[2] = 0x80 | (prh_byte)((unicode >> 6) & 0x3f);
-        p[3] = 0x80 | (prh_byte)(unicode & 0x3f);
-        return 4;
-    }
-label_invalid: // 代理码点不是合法的统一编码标量值，或不能超过码点最大值 U+10FFFF
-    prh_debug_prerr(unicode);
-    return 0;
-}
-
-// 统一编码空间 U+0000 到 U+10FFFF 分为多个平面，每个平面占 16 位有 64K（65536）个码点，
-// 共有 17 个平面，从第 0 平面到第 16 平面。四个十六进制数字表示字符在平面内的位置，剩
-// 余高位数字表示当前的平面。
-//      第0平面，基本多语言平面（BMP，Basic Multilingual Plane）
-//          0000 007F 基本拉丁文字
-//          0080 00FF 扩展拉丁文字
-//          0100 1FFF 统一文字区
-//          2000 33FF 符号标点以及扩展兼容区
-//          3400 9FFF 表意文字区
-//          A000 D7FF 亚非韩文字
-//          D800 DFFF 代理码点区（共 2048 个代码码点）
-//                    D800 DBFF  高代理码点
-//                    DC00 DFFF  低代理码点
-//          E000 F8FF 私用码点区（共 6400 个私用码点）
-//          F900 FFFF 特殊兼容区
-//      第1平面，补充多语言平面（SMP，Supplementary Multilingual Plane）
-//          1_0000 1_FFFF
-//      第2平面，补充表意文字平面（SIP，Supplementary Ideographic Plane）
-//          2_0000 2_FFFF
-//      第3平面，第三表意文字平面（TIP，Tertiary Ideographic Plane）
-//          3_0000 3_FFFF
-//      第4平面到第13平面，保留码点分区，并且所有平面的最后两个码点永久都保留作为非字符（FFFE FFFF）
-//          4_0000 D_FFFF
-//      第14平面，补充特殊用途平面（SSP，Supplementary Special-purpose Plane）
-//          E_0000 E_FFFF
-//      第15平面，补充私用区域一（SPU-A，Supplementary Private Use Area-A）
-//          F_0000 F_FFFF
-//      第16平面，补充私用区域二（SPU-B，Supplementary Private Use Area-B）
-//          10_0000 10_FFFF
-//
-// Unicode 纯文本的 UTF-16 和 UTF-32 编码形式对字节序敏感，字节序是指将文本序列化为字节
-// 序列时使用的字节排列顺序，例如将数据写入文件或通过网络传输数据时。某些处理器将最低有
-// 效字节放在初始位置；其他处理器将最高有效字节放在初始位置。理想情况下，Unicode 标准的
-// 所有实现都只遵循一组字节序规则，但这种方案会迫使某一类处理器在读取和写入纯文本文件时
-// 交换字节序，即使文件从未离开创建它的系统。
-//
-// 为了有一种有效的方式来指示文本中使用哪种字节序，Unicode 标准包含两个码点：U+FEFF 零宽
-// 度不间断空格（在此上下文中更常被称为字节序标记或 BOM）和 U+FFFE（一个非字符），它们是
-// 彼此的字节序镜像。当收到字节序相反的 BOM 时，它将被识别为非字符，因此可用于检测文本的
-// 预期字节序。BOM 不是选择文本字节序的控制字符；相反，其功能是允许接收者确定文件中使用的
-// 字节序。
-//
-// 初始 BOM 也可以作为隐式标记，用于识别文件包含 Unicode 文本。对于 UTF-16，字节序列 FE₁₆
-// FF₁₆（或其字节反转的对应物 FF₁₆ FE₁₆）在使用其他字符编码的文本文件开头极其罕见。BOM 对
-// 应的 UTF-8 字节序列 EF₁₆ BB₁₆ BF₁₆ 同样极其罕见。无论哪种情况，因此不太可能与其他真实
-// 文本数据混淆。对于单字节和多字节编码都是如此。
-//
-// 以给定编码形式的 U+FEFF 字节序标记的字节序列开头的数据流（或文件）可能包含该编码形式的
-// Unicode 字符。符合 Unicode 标准不要求将 BOM 用作此类签名。有关字节序标记及其用作编码签
-// 名的更多信息，请参阅第 23.8 节"特殊字符"。
-//
-// 由于历史原因，用于字节序标记（BOM）的字符 U+FEFF 被命名为 ZERO WIDTH NO-BREAK SPACE（零     *** 字节序标记（BOM）U+FEFF 字符
-// 宽度不间断空格）。除了与 Unicode 3.2 版本之前的版本兼容外，U+FEFF 不再使用零宽度不间断          除了与 Unicode 3.2 之前的版本兼容，表示不间断空格外（表示不能换行）
-// 空格的语义（参见第 23.2 节"布局控制"）。相反，它最常见和最重要的用法出现在以下两种情况。        仅作为标记字符使用，为了表示不间断空格，应使用新的词连接符（Word Joiner）U+2060
-// 在这两种情况下，BOM 字符（U+FEFF）被用作签名，通过检测第 3.10 节"Unicode 编码方案"中描          如果要与 Unicode 3.2 版本兼容，除了文件开头的 U+FEFF 都应该解析成不间断空格
-// 述的字节序列化来指示字节序和字符集。                                                            或者字节序显式指定的文本，其中所有的 U+FEFF（即使最开头的）都应该解析成不间断空格
-//  1.  未标记的字节序。某些机器架构使用所谓的大端字节序，而其他架构使用小端字节序。当 Unicode
-//      文本被序列化为字节时，字节可以按任一顺序排列，具体取决于架构。有时这种字节序没有
-//      外部标记，这导致不同系统之间的交换出现问题。
-//  2.  未标记的字符集。在某些情况下，编码字符流（如文件）的字符集信息不可用。唯一可用的
-//      信息是该流包含文本，但精确的字符集未知。
-//
-// 在 UTF-16 编码形式中，文件或流开头的 BOM 显式地指示字节序。当解释进程发现 U+FEFF 作为
-// 第一个码元时，它表示文本以预期的字节序编码为 UTF-16。因为字节交换版本 U+FFFE 是非字符，
-// 当解释进程发现 U+FFFE 作为第一个码元时，它表示进程遇到了字节序错误的文本，或者文件不是
-// 有效的 Unicode 文本。字节序列 <FE₁₆ FF₁₆> 或 <FF₁₆ FE₁₆> 也可以作为签名，用于识别文件
-// 包含 UTF-16 文本。这两个序列在使用其他字符编码（无论是单字节还是多字节）的文本文件开头
-// 都极其罕见，因此不太可能与其他真实文本数据混淆。例如，在使用 ISO Latin-1（ISO/IEC 8859-1）
-// 或 Microsoft Windows ANSI 代码页 1252 的系统中，字节序列 <FE₁₆ FF₁₆> 构成字符串 <thorn,
-// y diaeresis> "þÿ"；在使用 Apple Macintosh Roman 字符集或 Adobe Standard Encoding 的系统
-// 中，此序列表示序列 <ogonek, hacek> "˛ˇ"；在使用其他常见 IBM PC 代码页（例如 CP 437、850）
-// 的系统中，此序列表示 <black square, no-break space> "■ "。
-//
-// 在 UTF-8 中，BOM 对应于字节序列 <EF₁₆ BB₁₆ BF₁₆>。虽然 UTF-8 文本不存在任何字节序问题，
-// 但当字符集未标记时，此序列可以作为 UTF-8 编码文本的签名。与 UTF-16 中的 BOM 一样，此字节
-// 序列在其他字符编码的文本文件开头将极其罕见。例如，在使用 Microsoft Windows ANSI 代码页
-// 1252 的系统中，<EF₁₆ BB₁₆ BF₁₆> 对应于序列 <i diaeresis, guillemet, inverted question
-// mark> "ï » ¿"。
-//
-// 为了与 Unicode 标准 3.2 版本之前的版本兼容，当 U+FEFF 不用作 BOM 时，它具有零宽度不间断
-// 空格的词连接语义。在新文本中，这些语义应由 U+2060 WORD JOINER（词连接符）编码。有关更多
-// 信息，请参见第 23.2 节"布局控制"中的"行和词断行"。当字节序被显式指定时，例如在 UTF-16BE
-// 或 UTF-16LE 中，所有 U+FEFF 字符（即使在文本的最开头）都应被解释为零宽度不间断空格。类似
-// 地，当 Unicode 文本具有已知的字节序时，不需要初始的 U+FEFF 字符，但为了向后兼容，应将其解
-// 释为零宽度不间断空格。例如，对于 API 中的字符串，处理器的内存架构提供了显式的字节序。对于
-// 数据库和类似结构，对同一字段（如果不是整个数据库）使用统一的字节序更加高效和稳健，从而避
-// 免使用字节序标记。
-//
-// 使用字节序标记的系统必须识别初始 U+FEFF 何时指示字节序。在这些情况下，它不是文本内容的一部
-// 分，应在处理前删除，否则可能被误认为是合法的零宽度不间断空格。要在 UTF-16 文件中表示初始的
-// U+FEFF 零宽度不间断空格，请连续使用两次 U+FEFF。第一个是字节序标记；第二个是初始的零宽度不
-// 间断空格。有关编码方案签名的摘要，请参见下表。
-//
-//      编码方案        签名
-//      UTF-8           EF BB BF
-//      UTF-16 大端     FE FF
-//      UTF-16 小端     FF FE
-//      UTF-32 大端     00 00 FE FF
-//      UTF-32 小端     FF FE 00 00
-//
-// 如果 U+FEFF 只有签名码点的语义，它可以自由地从文本中删除，而不会影响其余文本的解释。例如，
-// 粗心地拼接文件可能导致签名码点出现在文本中间。不幸的是，U+FEFF 也具有作为字符的意义。作为
-// 零宽度不间断空格，它表示相邻字符之间不允许换行。因此 U+FEFF 会影响文本的解释，不能自由删除。
-// 此码点的语义重载给程序和协议带来了问题。新字符 U+2060 WORD JOINER 在所有情况下与 U+FEFF
-// 具有相同的语义，只是它不能用作签名。强烈鼓励实现者在需要词连接语义的情况下使用词连接符。
-//
-// U+FEFF 在其他字符集中的签名。初始的 U+FEFF 在为 Unicode 文本设计的其他字符集中也呈现特征
-// 形式。术语"字符集"指的是广泛的文本编码范围，包括编码方案以及压缩方案和文本特定的转换格式。
-// 与初始 U+FEFF 关联的特征字节序列可以在这些情况下作为签名。
-//
-//      字符集          签名
-//      SCSU            0E FE FF
-//      BOCU-1          FB EE 28
-//      UTF-7           2B 2F 76 38 或
-//                      2B 2F 76 39 或
-//                      2B 2F 76 2B 或
-//                      2B 2F 76 2F
-//      UTF-EBCDIC      DD 73 66 73
-//
-// UTF-7 是已废弃的邮件时代 7-bit ASCII 兼容的特殊编码方案，将 Unicode 码点编码为 ASCII 可
-// 打印字符，避免 8-bit 数据。直接传输 ASCII 字符（U+00-7F），非 ASCII 用 Base64 编码的 UTF-16
-// 表示。编码/解码逻辑复杂，长度不固定，RFC 2152 已被标记为历史状态。
-//
-// UTF-EBCDIC 是EBCDIC 主机系统（IBM 大型机）上兼容统一编码的方案，将 Unicode 码点映射到 EBCDIC
-// （Extended Binary Coded Decimal Interchange Code）字节序列，而非 ASCII。基于 UTF-8 结构，但
-// 使用 EBCDIC 字符集而非 ASCII。
-//
-// 大多数签名可以在将输入流转换为 Unicode 编码形式之前或之后删除。然而，对于 BOCU-1 和 UTF-7，
-// 必须先转换输入字节序列，然后才能删除初始的 U+FEFF，因为剥离签名字节序列而不进行转换会破坏
-// 正确解释输入序列中后续字节所需的上下文。
-
-#define prh_char_byte_order_mark 0xFEFF
-#define prh_char_object_replacement 0xFFFC
-#define prh_char_ill_formed_sequence 0xFFFD // 统一格式编码允许范围外的不合法编码
-
-typedef struct { // 当输出文本给解析 BOM 且支持不间断空格的程序时，如果第一个字符就是不间断空格，必须输出两个 U+FEFF
-    bool check_start_byte_order_mark; // 检查文本开始处的字节序标记，如果 support_legacy_nobreak_space 不打开，其他地方的任何 U+FEFF 都视为非法字符
-    bool support_legacy_nobreak_space; // 将除字节序标记处外的任何 U+FEFF 都解析为零宽度不间断空格
-    bool replace_ill_formed_sequence; // 解析时，使用 0xFFFD 替换字符串中的格式不良序列
-} prh_utf_parameter;
-
-prh_int prh_byte_order_mark_utf_8(prh_byte *p) {
-    p[0] = 0xEF;
-    p[1] = 0xBB;
-    p[2] = 0xBF;
-    return 3;
-}
-
-prh_int prh_byte_order_mark_utf_16_le(prh_byte *p) {
-    p[0] = 0xFF;
-    p[1] = 0xFE;
-    return 2;
-}
-
-prh_int prh_byte_order_mark_utf_16_be(prh_byte *p) {
-    p[0] = 0xFE;
-    p[1] = 0xFF;
-    return 2;
-}
-
-prh_int prh_byte_order_mark_utf_32_le(prh_byte *p) {
-    p[0] = 0xFF;
-    p[1] = 0xFE;
-    p[2] = 0x00;
-    p[3] = 0x00;
-    return 4;
-}
-
-prh_int prh_byte_order_mark_utf_32_be(prh_byte *p) {
-    p[0] = 0x00;
-    p[1] = 0x00;
-    p[2] = 0xFE;
-    p[3] = 0xFF;
-    return 4;
-}
-
-bool prh_unicode_scaler_value(prh_char code) {
-    return code <= 0xD7FF || (code >= 0xE000 && code <= 0x10FFFF);
-}
-
-// Unicode 标准支持三种字符编码形式：UTF-32、UTF-16 和 UTF-8。每种编码形式将 Unicode
-// 码点 U+0000..U+D7FF 和 U+E000..U+10FFFF 映射到唯一的码元序列。每种编码形式指定了码
-// 元的大小。Unicode 标量值：任何 Unicode 码点，除了高代理和低代理码点。根据此定义，
-// Unicode 标量值的集合由范围 0 到 D7FF₁₆ 和 E000₁₆ 到 10FFFF₁₆（含）组成。
-//
-// 码元：能够表示编码文本单元以进行处理或交换的最小位组合。码元是计算机存储的特定单元。
-// 其他字符编码标准通常使用定义为 8 位单元的码元——即八位字节。Unicode 标准在 UTF-8 编码
-// 形式中使用 8 位码元，在 UTF-16 编码形式中使用 16 位码元，在 UTF-32 编码形式中使用 32
-// 位码元。码元在信息行业中也被称为码值。在 Unicode 标准中，某些码元的特定值不能单独用于
-// 表示编码字符。此限制适用于 UTF-16 中孤立的代理码元和 UTF-8 中的字节 80–FF。类似限制适
-// 用于其他字符编码标准的实现；例如，SJIS（Shift-JIS）中的字节 81–9F、E0–FC 不能单独表示
-// 编码字符。有关使用 wchar_t 或其他编程语言类型表示 Unicode 码元的信息，请参见第 5.2 节
-// "编程语言和数据类型"中的"ANSI/ISO C wchar_t"。
-//
-// 码元序列：一个或多个码元的有序序列。当码元是 8 位单元时，码元序列也可称为字节序列。码
-// 元序列可以由单个码元组成。在编程语言的上下文中，字符串数据类型的值基本上由码元序列组成。
-// 非正式地，码元序列本身被称为字符串，字节序列被称为字节字符串。然而，在进行这种术语等价
-// 时必须小心，因为正式定义的字符串概念在编程语言中可能有额外的要求或复杂性。例如，在 C 语
-// 言中，字符串定义为指向 char 的指针，并约定以 NULL 字符终止。在面向对象语言中，字符串是
-// 一个复杂对象，具有关联方法，其值可能或可能不仅仅由码元序列组成。根据字符编码标准的结构，
-// 可能需要使用码元序列（多于一个单元）来表示单个编码字符。例如，SJIS 中的码元是字节：编码
-// 字符如"a"可以用 SJIS 中的单个字节表示，而表意文字需要两个码元的序列。Unicode 标准也使用
-// 长度大于一个码元的码元序列。
-//
-// Unicode 编码形式：从每个 Unicode 标量值到唯一码元序列的映射。本标准定义了三种 Unicode
-// 编码形式，UTF-8 UTF-16 UTF-32。除非另有说明，术语 Unicode 编码形式指这三种形式之一。为
-// 清晰起见，它们可以被称为标准 Unicode 编码形式。由于历史原因，Unicode 编码形式也被称为
-// Unicode（或 UCS）转换格式（UTF）。该术语在编码形式和编码方案的使用之间实际上是模糊的。
-//
-// 对于 Unicode 编码形式，Unicode 标量值集合到码元序列集合的映射是一对一的。此属性保证可
-// 以始终推导出反向映射。给定任何 Unicode 标量值到特定编码形式的特定码元序列的映射，可以
-// 从该码元序列明确推导出原始 Unicode 标量值。对于 Unicode 编码形式，Unicode 标量值集合到
-// 码元序列集合的映射不是满射。换句话说，对于任何给定的编码形式，存在没有关联 Unicode 标
-// 量值的码元序列。
-//
-// 为确保 Unicode 编码形式的映射是一对一的，所有 Unicode 标量值，包括对应于非字符码点和未
-// 分配码点的标量值，必须映射到唯一的码元序列。注意，此要求不扩展到高代理和低代理码点，它
-// 们根据定义被排除在 Unicode 标量值集合之外。
-//
-// Unicode 字符串：包含特定 Unicode 编码形式的码元的码元序列。在最原始的形式中，Unicode 字
-// 符串可以简单地实现为适当整数数据类型的数组，由一个接一个排列的码元序列组成。单个 Unicode
-// 字符串必须仅包含来自单个 Unicode 编码形式的码元。不允许在字符串中混合形式。Unicode 8 位
-// 字符串：仅包含 UTF-8 码元的 Unicode 字符串。Unicode 16 位字符串：仅包含 UTF-16 码元的
-// Unicode 字符串。Unicode 32 位字符串：仅包含 UTF-32 码元的 Unicode 字符串。
-//
-// 格式不良：声称处于 Unicode 编码形式的 Unicode 码元序列，当且仅当它不遵循该 Unicode 编码
-// 形式的规范时，被称为格式不良。任何对应于 Unicode 标量值定义范围之外的码点的码元序列，都
-// 是格式不良的。UTF-8 对前导字节和尾随字节的可能字节范围有一些强约束。违反这些约束将产生
-// 无法映射到 Unicode 标量值的码元序列，导致格式不良的码元序列。
-//
-// 格式不良码元子序列：Unicode 码元序列 X 的非空子序列，它不包含任何属于 X 的任何最小格式
-// 良好子序列的码元。换句话说，格式不良码元子序列不能与最小格式良好子序列重叠。
-//
-// 格式良好：声称处于 Unicode 编码形式的 Unicode 码元序列，当且仅当它遵循该 Unicode 编码形
-// 式的规范时，被称为格式良好。
-//
-// 最小格式良好码元子序列：映射到单个 Unicode 标量值的格式良好 Unicode 码元序列。格式良好
-// 的 Unicode 码元序列可以划分为一个或多个给定 Unicode 编码形式的最小格式良好码元子序列。
-// 任何 Unicode 码元序列可以划分为格式良好或格式不良的子序列。整个序列是格式良好的，当且
-// 仅当它不包含任何格式不良子序列。整个序列是格式不良的，当且仅当它包含至少一个格式不良
-// 子序列。
-//
-// 格式良好的 UTF-8 码元序列：UTF-8 码元的格式良好 Unicode 码元序列。UTF-8 码元序列 <41 C3 B1 42>
-// 是格式良好的，因为它可以划分为子序列，所有子序列都匹配表 UTF-8 的规范。它由以下最小
-// 格式良好码元子序列组成：<41>、<C3 B1> 和 <42>。UTF-8 码元序列 <41 C2 C3 B1 42> 是格式
-// 不良的，因为它包含一个格式不良子序列。没有以 C2 字节开始的子序列匹配 UTF-8 的规范。该
-// 码元序列被划分为一个最小格式良好码元子序列 <41>，后跟一个格式不良码元子序列 <C2>，后
-// 跟两个最小格式良好码元子序列 <C3 B1> 和 <42>。孤立地看，UTF-8 码元序列 <C2 C3> 将是格
-// 式不良的，但在 UTF-8 码元序列 <41 C2 C3 B1 42> 的上下文中，<C2 C3> 不构成格式不良码元
-// 子序列，因为 C3 字节实际上是最小格式良好 UTF-8 码元子序列 <C3 B1> 的第一个字节。格式
-// 不良码元子序列不与最小格式良好码元子序列重叠。
-//
-// 格式良好的 UTF-16 码元序列：UTF-16 码元的格式良好 Unicode 码元序列。格式良好的 UTF-32
-// 码元序列：UTF-32 码元的格式良好 Unicode 码元序列。
-//
-// 处于 Unicode 编码形式中：Unicode 字符串被称为处于特定 Unicode 编码形式中，当且仅当
-// 它由该 Unicode 编码形式的格式良好 Unicode 码元序列组成。由格式良好 UTF-8 码元序列组
-// 成的 Unicode 字符串被称为处于 UTF-8 中。此类 Unicode 字符串被称为有效 UTF-8 字符串，
-// 或简称 UTF-8 字符串。由格式良好 UTF-16 码元序列组成的 Unicode 字符串被称为处于 UTF-16
-// 中。此类 Unicode 字符串被称为有效 UTF-16 字符串，或简称 UTF-16 字符串。由格式良好
-// UTF-32 码元序列组成的 Unicode 字符串被称为处于 UTF-32 中。此类 Unicode 字符串被称为
-// 有效 UTF-32 字符串，或简称 UTF-32 字符串。
-//
-// Unicode 字符串在所有条件下不一定包含格式良好的码元序列。这等价于说特定 Unicode 字符串
-// 不一定处于 Unicode 编码形式中。例如，操作两个 Unicode 16 位字符串 <004D D800> 和 <DF02
-// 004D>（每个都包含格式不良的 UTF-16 码元序列）并将它们连接形成另一个 Unicode 字符串 <004D
-// D800 DF02 004D>（包含格式良好的 UTF-16 码元序列）是完全合理的。前两个 Unicode 字符串
-// 不处于 UTF-16 中，但结果 Unicode 字符串处于 UTF-16 中。
-//
-// 作为另一个例子，码元序列 <C0 80 61 F3> 是 Unicode 8 位字符串，但不由格式良好的 UTF-8
-// 码元序列组成。该码元序列无法由 UTF-8 编码形式的规范产生，因此是格式不良的。相同的码
-// 元序列当然可以在使用 8 位码元的其他字符编码标准（如 ISO/IEC 8859-1 或供应商代码页）的
-// 上下文中是格式良好的。
-//
-// 如果 Unicode 字符串声称处于 Unicode 编码形式中，则它不得包含任何格式不良码元子序列。
-// 如果验证 Unicode 字符串是否处于 Unicode 编码形式中的进程在该字符串中遇到格式不良码
-// 元子序列，则它不得将该字符串识别为处于该 Unicode 编码形式中。解释 Unicode 字符串的
-// 进程不得将字符串中的任何格式不良码元子序列解释为字符（参见一致性条款 C10）。此外，
-// 此类进程不得将任何相邻的格式良好码元序列视为这些格式不良码元子序列的一部分。
-//
-// UTF-32 编码形式：将每个 Unicode 标量值分配给单个无符号 32 位码元的 Unicode 编码形式，
-// 该码元具有与 Unicode 标量值相同的数值。在 UTF-32 中，码点序列 <004D, 0430, 4E8C, 10302>
-// 表示为 <0000004D 00000430 00004E8C 00010302>。因为代理码点不包含在 Unicode 标量值集合
-// 中，范围 0000D800₁₆..0000DFFF₁₆ 的 UTF-32 码元是格式不良的。任何大于 0010FFFF₁₆ 的 UTF-32
-// 码元是格式不良的。有关 UTF-32 与 ISO/IEC 10646 中定义的 UCS-4 编码形式之间的关系讨论，
-// 请参见附录 C.2"ISO/IEC 10646 中的编码形式"。
-//
-// UTF-16 编码形式：将范围 U+0000..U+D7FF 和 U+E000..U+FFFF 中的每个 Unicode 标量值分配
-// 给具有与 Unicode 标量值相同数值的单个无符号 16 位码元，并将范围 U+10000..U+10FFFF 中
-// 的每个 Unicode 标量值根据下表分配给代理对的 Unicode 编码形式。在 UTF-16 中，码点序列
-// <004D, 0430, 4E8C, 10302> 表示为 <004D 0430 4E8C D800 DF02>，其中 <D800 DF02> 对应于
-// U+10302。因为代理码点不是 Unicode 标量值，孤立的范围 D800₁₆..DFFF₁₆ 的 UTF-16 码元是
-// 格式不良的。
-//
-// 下表指定了 UTF-16 编码形式的位分布。注意，对于等于或大于 U+10000 的 Unicode 标量值，
-// UTF-16 使用代理对。代理对值的计算涉及减去 10000₁₆，以考虑标量值的起始偏移。ISO/IEC
-// 10646 指定了等效的 UTF-16 编码形式。有关详细信息，请参见附录 C.3"UTF-8 和 UTF-16"。
-//
-//      标量值                          UTF-16（wwww = uuuuu - 1）
-//      xxxx_xxxx_xxxx_xxxx             xxxx_xxxx_xxxx_xxxx
-//      000u_uuuu_xxxx_xxxx_xxxx_xxxx   1101_10ww_wwxx_xxxx 1101_11xx_xxxx_xxxx
-//                                      D800 DBFF           DC00 DFFF
-//
-// 3.8 代理
-//
-// 高代理码点：范围 U+D800 到 U+DBFF 的 Unicode 码点。范围 D800₁₆ 到 DBFF₁₆ 的 16 位码元，
-// 在 UTF-16 中用作代理对的引导码元。
-//
-// 低代理码点：范围 U+DC00 到 U+DFFF 的 Unicode 码点。范围 DC00₁₆ 到 DFFF₁₆ 的 16 位码元，
-// 在 UTF-16 中用作代理对的尾随码元。
-//
-// 高代理和低代理码点仅指定用于该用途。高代理和低代理码元仅在 UTF-16 字符编码形式的上下文
-// 中使用。
-//
-// 代理对：单个抽象字符的表示，由两个 16 位码元的序列组成，其中对的第一个值是高代理码元，
-// 第二个值是低代理码元。代理对仅在 UTF-16 中使用。
-//
-// 孤立代理码元自身没有解释。其他编码形式中的某些其他孤立码元自身也没有解释。例如，孤立字
-// 节 80₁₆ 在 UTF-8 中没有解释；它只能用作多字节序列的一部分。
-//
-// 有时高代理码元被称为引导代理。低代理码元则被称为尾随代理。这类似于 UTF-8 中的用法，UTF-8
-// 有引导字节和尾随字节。有关更多信息，请参见第 23.6 节"代理区"和第 5.4 节"UTF-16 中处理代理
-// 对"。
-//
-// 23.6 代理区：U+D800–U+DFFF
-//
-// 使用 UTF-16 表示补充字符时，每个字符使用一对 16 位码元。这些单元称为代理。为了将它们与
-// 普通字符区分开，它们被分配在一个单独的区域中。代理区由 1,024 个低半代理码点和 1,024 个
-// 高半代理码点组成。有关代理对的正式定义和代理对在 Unicode 一致性条款中的作用，请参见第
-// 3.8 节"代理"和第 5.4 节"UTF-16 中处理代理对"。
-//
-// Unicode 标准中代理对的使用在形式上等同于 ISO/IEC 10646 中定义的通用转换格式-16（UTF-16）。
-// 有关更多信息，请参见附录 C，与 ISO/IEC 10646 的关系。
-//
-// 高代理。高代理码点被分配到范围 U+D800..U+DBFF。高代理码点始终是代理对的第一个元素。
-//
-// 低代理。低代理码点被分配到范围 U+DC00..U+DFFF。低代理码点始终是代理对的第二个元素。
-//
-// 私用高代理。范围 U+DB80..U+DBFF 的高代理码点是私用高代理码点（总共 128 个码点）。通过代
-// 理对表示的字符，其中高代理码点是私用高代理，是来自补充私用区的专用字符。有关私用字符的
-// 更多信息，请参见第 23.5 节"私用字符"。
-//
-// 码表没有 U+D800..U+DFFF 范围的图表或名称列表条目，因为单个、不成对的代理仅有码点。
-//
-// 5.4 UTF-16 中处理代理对
-//
-// UTF-16 用于处理无法由单个 16 位值表示的 1,048,576 个补充码点的方法称为代理对。代理对
-// 由高代理码元（引导代理）后跟低代理码元（尾随代理）组成。在格式良好的 UTF-16 中，尾随
-// 代理前面只能是引导代理，而不能是另一个尾随代理、非代理或文本开头。引导代理后面只能是
-// 尾随代理，而不能是另一个引导代理、非代理或文本结尾。保持 UTF-16 码序列的格式良好性或
-// 在 UTF-16 码序列中访问字符因此对某些文本过程提出了额外要求。代理对旨在最小化这种影响。
-//
-// 引导代理和尾随代理被分配到不相交的码元范围。在 UTF-16 中，非代理码点永远不能在这些范
-// 围内的码元值表示。因为范围是不相交的，格式良好的 UTF-16 中的每个码元必须是以下之一：
-//  1.  单个非代理码元，表示 0 到 D7FF₁₆ 或 E000₁₆ 到 FFFF₁₆ 之间的码点
-//  2.  引导代理，表示代理对的第一个部分
-//  3.  尾随代理，表示代理对的第二个部分
-//
-// 因此，通过访问最多两个码元，使用 UTF-16 编码形式的过程可以解释任何 Unicode 字符。确定
-// 字符边界最多需要扫描一个前面或一个后面的码元，而不考虑任何其他上下文。只要实现不移除
-// 代理码元对的任何一个，或错误地在它们之间插入另一个字符，数据的完整性就得到维护。此外，
-// 即使数据损坏，损坏仍然保持局部化，不像某些其他多字节编码如 Shift-JIS 或 EUC。损坏单个
-// UTF-16 码元仅影响单个字符。由于非重叠（参见第 2.5 节"编码形式"），这种错误不会传播到
-// 文本的其余部分。
-//
-// UTF-16 享有有益的频率分布，因为对于绝大多数文本数据，代理对将非常罕见；相比之下，非代理
-// 码元将非常常见。这不仅有助于限制处理变长编码时产生的性能损失，而且允许许多过程要么对代理
-// 不采取特定操作，要么使用已经需要处理字符序列的现有机制来处理代理对。
-//
-// 实现应完全支持处理 UTF-16 文本中的代理对。没有代理支持，实现将无法解释任何补充字符或保证
-// 代理对的完整性。这可能适用于，例如，符合 Unicode 1.1 或更早版本的旧实现，在 UTF-16 定义
-// 之前。支持补充字符很重要，因为尽管它们的频率很低，但大量补充字符与现代使用相关。
-//
-// 实现的各个组件可能对代理有不同的支持级别，只要这些组件正确组装和通信。低级字符串处理，
-// 其中 Unicode 字符串不被解释而只是作为码元数组处理，可以忽略代理对。对于此类字符串，例如，
-// 具有任意偏移的截断操作可能破坏代理对。有关进一步讨论，请参见第 2.7 节"Unicode 字符串"。
-// 对于字符串操作的性能，这种行为在低级是合理的，但它需要高级过程确保偏移在字符边界上，以
-// 保证代理对的完整性。
-//
-// 代理对支持策略。许多处理 Unicode 标准高级功能的实现可以轻松修改为支持 UTF-16 中的代理对。
-// 例如：
-//  1.  文本排序可以通过将这些代理对视为"组合字符"来处理，如同荷兰语中的"ij"或斯洛伐克语中
-//      的"ch"的处理方式。
-//  2.  文本输入可以通过让键盘单次按键生成两个 Unicode 码点来处理，就像 ENTER 键可以生成
-//      CRLF 或阿拉伯语键盘可以有生成两个字符序列（lam 和 alef）的"lam-alef"键一样。
-//  3.  截断可以使用与保持组合标记与基字符相同的机制来处理。有关更多信息，请参见 Unicode
-//      标准附件 #29，"Unicode 文本分割"。
-//
-// 如果文本编辑器将插入点（也称为插入符号）保持在字符边界上，用户将被阻止损坏文本。使用 UTF-8
-// 和 Unicode 8 位字符串的实现需要类似的考虑。与处理 UTF-16 的主要区别在于，在 UTF-8 情况下，
-// UTF-8 中由单个码元（单字节）表示的唯一字符是 ASCII 字符 U+0000..U+007F。UTF-8 中由多字节序列
-// 表示的字符非常常见，不像 UTF-16 中的代理对相当罕见。这种频率差异可能导致处理 UTF-8 中多字节
-// 序列的不同策略。
-
-prh_int prh_unicode_to_utf_16_le(prh_char unicode, prh_byte *p) {
-    if (unicode <= 0xD7FF || unicode >= 0xE000 && unicode <= 0xFFFF) {
-        prh_write_le_buffer_16((prh_r16)unicode, p);
-        return 2;
-    } else if (unicode >= 0x010000 && unicode <= 0x10FFFF) { // (0x01XXXX 0x0FXXXX 0x10XXXX - 0x010000) => (0x00 ~ 0x0F)_XXXX
-        unicode -= 0x010000; // 0x0X_XXXX xxxx_xxxx_xx|xx_xxxx_xxxx
-        prh_write_le_buffer_16(0xD800 | (prh_r16)(unicode >> 10));
-        prh_write_le_buffer_16(0xDC00 | (prh_r16)(unicode & 0x3FF));
-        return 4;
-    } else {
-        prh_prerr(unicode);
-        return 0;
-    }
-}
-
-prh_int prh_unicode_to_utf_16_be(prh_char unicode, prh_byte *p) {
-    if (unicode <= 0xD7FF || unicode >= 0xE000 && unicode <= 0xFFFF) {
-        prh_write_be_buffer_16((prh_r16)unicode, p);
-        return 2;
-    } else if (unicode >= 0x010000 && unicode <= 0x10FFFF) { // (0x01XXXX 0x0FXXXX 0x10XXXX - 0x010000) => (0x00 ~ 0x0F)_XXXX
-        unicode -= 0x010000; // 0x0X_XXXX xxxx_xxxx_xx|xx_xxxx_xxxx
-        prh_write_be_buffer_16(0xD800 | (prh_r16)(unicode >> 10));
-        prh_write_be_buffer_16(0xDC00 | (prh_r16)(unicode & 0x3FF));
-        return 4;
-    } else {
-        prh_prerr(unicode);
-        return 0;
-    }
-}
-
-prh_inline prh_int prh_unicode_to_utf_16(prh_char unicode, prh_byte *p) {
-#if prh_lit_endian
-    return prh_unicode_to_utf_16_le(unicode, p);
-#else
-    return prh_unicode_to_utf_16_be(unicode, p);
-#endif
-}
-
-// 解析符合以下 UTF-16 编码标准的统一编码字符串
-//  1.  每种编码形式将 Unicode 码点 U+0000..U+D7FF 和 U+E000..U+10FFFF 映射到唯一的码元序列。
-//  2.  为确保 Unicode 编码形式的映射是一对一的，所有 Unicode 标量值，包括对应于非字符码点和
-//      未分配码点的标量值，必须映射到唯一的码元序列。注意，此要求不扩展到高代理和低代理码点，
-//      它们根据定义被排除在 Unicode 标量值集合之外。
-//  3.  只要实现不移除代理码元对的任何一个，或错误地在它们之间插入另一个字符，数据的完整性就
-//      得到维护。此外，即使数据损坏，损坏仍然保持局部化，损坏单个 UTF-16 码元仅影响单个字符。
-
-prh_char prh_utf_16_le_to_unicode(prh_byte *p) {
-    // D8XX 1101_1000_XXXX_XXXX     DCXX 1101_1100_XXXX_XXXX
-    // D9XX 1101_1001_XXXX_XXXX     DDXX 1101_1101_XXXX_XXXX
-    // DAXX 1101_1010_XXXX_XXXX     DEXX 1101_1110_XXXX_XXXX
-    // DBXX 1101_1011_XXXX_XXXX     DFXX 1101_1111_XXXX_XXXX
-    prh_byte a = p[1] & 0xFC;
-    if (a < 0xD8) {
-        return prh_read_le_buffer_16(p);
-    } else if (a == 0xD8) {
-        if ((p[3] & 0xFC) == 0xDC) {
-            prh_char unicode = (prh_read_le_buffer_16(p) & 0x3FF) << 10;
-            return 0x010000 + (unicode | (prh_read_le_buffer_16(p + 2) & 0x3FF));
-        } else {
-            prh_prerr(prh_read_le_buffer_16(p + 2));
-            return prh_unicode_invalid;
-        }
-    } else if (a == 0xDC) {
-        prh_prerr(prh_read_le_buffer_16(p));
-        return prh_unicode_invalid;
-    } else {
-        prh_prerr(prh_read_le_buffer_16(p));
-        return prh_unicode_invalid;
-    }
-}
-
-prh_char prh_utf_16_be_to_unicode(prh_byte *p) {
-    // D8XX 1101_1000_XXXX_XXXX     DCXX 1101_1100_XXXX_XXXX
-    // D9XX 1101_1001_XXXX_XXXX     DDXX 1101_1101_XXXX_XXXX
-    // DAXX 1101_1010_XXXX_XXXX     DEXX 1101_1110_XXXX_XXXX
-    // DBXX 1101_1011_XXXX_XXXX     DFXX 1101_1111_XXXX_XXXX
-    prh_byte a = p[0] & 0xFC;
-    if (a < 0xD8) {
-        return prh_read_be_buffer_16(p);
-    } else if (a == 0xD8) {
-        if ((p[2] & 0xFC) == 0xDC) {
-            prh_char unicode = (prh_read_be_buffer_16(p) & 0x3FF) << 10;
-            return 0x010000 + (unicode | (prh_read_be_buffer_16(p + 2) & 0x3FF));
-        } else {
-            prh_prerr(prh_read_be_buffer_16(p + 2));
-            return prh_unicode_invalid;
-        }
-    } else if (a == 0xDC) {
-        prh_prerr(prh_read_be_buffer_16(p));
-        return prh_unicode_invalid;
-    } else {
-        prh_prerr(prh_read_be_buffer_16(p));
-        return prh_unicode_invalid;
-    }
-}
-
-prh_inline prh_char prh_utf_16_to_unicode(prh_byte *p) {
-#if prh_lit_endian
-    return prh_utf_16_le_to_unicode(p);
-#else
-    return prh_utf_16_be_to_unicode(p);
-#endif
-}
-
-// UTF-8 编码形式：将每个 Unicode 标量值分配为一到四个字节长度的无符号字节序列的 Unicode
-// 编码形式，如表 3-6 和表 3-7 所指定。在 UTF-8 中，码点序列 <004D, 0430, 4E8C, 10302>
-// 表示为 <4D D0 B0 E4 BA 8C F0 90 8C 82>，其中 <4D> 对应于 U+004D，<D0 B0> 对应于 U+0430，
-// <E4 BA 8C> 对应于 U+4E8C，<F0 90 8C 82> 对应于 U+10302。任何不匹配表 3-7 所列模式的
-// UTF-8 字节序列是格式不良的。
-//
-// 在 Unicode 标准 3.1 版本之前，UTF-8 中有问题的"非最短形式"字节序列是那些 BMP 字符可以
-// 用多种方式表示的序列。这些序列是格式不良的，因为表 3-7 不允许它们。因为代理码点不是
-// Unicode 标量值，任何否则将映射到码点 U+D800..U+DFFF 的 UTF-8 字节序列是格式不良的。
-//
-// 表 3-6 指定了 UTF-8 编码形式的位分布，显示了对应于一字节、两字节、三字节和四字节序列
-// 的 Unicode 标量值范围。有关 ISO/IEC 10646 中 UTF-8 公式化差异的讨论，请参见附录 C.3
-// "UTF-8 和 UTF-16"。
-//
-//      标量值      第一字节    第二字节    第三字节    第四字节
-//      00000000    0xxxxxxx    0xxxxxxx
-//      00000yyy    yyxxxxxx    110yyyyy    10xxxxxx
-//      zzzzyyyy    yyxxxxxx    1110zzzz    10yyyyyy    10xxxxxx
-//      000uuuuu    zzzzyyyy    yyxxxxxx    11110uuu    10uuzzzz    10yyyyyy    10xxxxxx
-//
-// 表 3-7 列出了 UTF-8 中所有格式良好的字节序列。字节值范围如 A0..BF 表示该位置中从 A0 到
-// BF（含）的任何字节都是格式良好的。任何超出所列范围的字节值是格式不良的。例如：
-//  . 字节序列 <C0 AF> 是格式不良的，因为 C0 在"第一字节"列中不是格式良好的。
-//  . 字节序列 <E0 9F 80> 是格式不良的，因为在 E0 作为第一字节格式良好的行中，9F 作为第二
-//    字节不是格式良好的。
-//  . 字节序列 <F4 80 83 92> 是格式良好的，因为该序列中的每个字节都匹配表中某一行的字节范围。
-//
-//      码点                第一字节    第二字节    第三字节    第四字节
-//      U+0000..U+007F      00..7F
-//      U+0080..U+07FF      C2..DF      80..BF
-//      U+0800..U+0FFF      E0          A0..BF      80..BF
-//      U+1000..U+CFFF      E1..EC      80..BF      80..BF
-//      U+D000..U+D7FF      ED          80..9F      80..BF
-//      U+E000..U+FFFF      EE..EF      80..BF      80..BF
-//      U+10000..U+3FFFF    F0          90..BF      80..BF      80..BF
-//      U+40000..U+FFFFF    F1..F3      80..BF      80..BF      80..BF
-//      U+100000..U+10FFFF  F4          80..8F      80..BF      80..BF
-//
-// 在表 3-7 中，尾随字节范围不是 80..BF 的情况以粗斜体显示以引起注意。这些一般模式的例外仅
-// 出现在序列的第二字节中。作为表 3-7 中格式良好条件的结果，以下字节值在 UTF-8 中是不允许的：
-// C0–C1、F5–FF。
-//
-// 编码形式转换：直接在一种 Unicode 编码形式的码元序列与另一种 Unicode 编码形式的码元序列
-// 之间定义的转换。在 Unicode 标准的实现中，典型的 API 将逻辑上将输入码元序列转换为 Unicode
-// 标量值（码点），然后将这些 Unicode 标量值转换为输出码元序列。对编码形式的正确分析使得
-// 可以直接转换码元，从而获得相同的结果但过程更高效。符合规范的编码形式转换将把任何格式不良
-// 码元序列视为错误条件（参见一致性条款 C10）。这保证它既不会解释也不会发出格式不良码元序列。
-// 任何编码形式转换的实现都必须考虑此要求，因为编码形式转换隐含地涉及验证正在转换的 Unicode
-// 字符串确实包含格式良好的码元序列。
-//
-// 转换过程的约束。不将字符串中的任何格式不良码元子序列解释为字符的要求（参见一致性条款 C10）
-// 对转换过程有重要后果。此类过程可能，例如，将 UTF-8 码元序列解释为 Unicode 字符序列。如果
-// 转换器遇到以有效第一字节开始但没有继续有效后继字节的格式不良 UTF-8 码元序列（参见表 3-7），
-// 它不得将这些后继字节作为格式不良子序列的一部分消耗，只要这些后继字节本身构成格式良好的
-// UTF-8 码元子序列的一部分。
-//
-// 如果 UTF-8 转换过程的实现在遇到第一个错误时停止，而不报告任何格式不良 UTF-8 码元子序列的
-// 结束，则该要求几乎没有实际差异。然而，如果 UTF-8 转换器继续越过检测到的错误点，可能通过用
-// 一个或多个 U+FFFD 替换字符替换不可解释的、格式不良的 UTF-8 码元子序列，则该要求确实引入
-// 了重大约束。例如，对于输入 UTF-8 码元序列 <C2 41 42>，此类 UTF-8 转换过程不得返回 <U+FFFD>
-// 或 <U+FFFD, U+0042>，因为这些输出中的任何一个都是将格式良好子序列误解为格式不良子序列一部
-// 分的结果。此类过程的预期返回值应为 <U+FFFD, U+0041, U+0042>。
-//
-// 对于 UTF-8 转换过程消耗有效后继字节不仅不符合规范，而且使转换器容易受到安全攻击。请参见
-// Unicode 技术报告 #36，"Unicode 安全注意事项"。虽然 UTF-8 转换过程被要求永远不要将格式良好
-// 子序列作为其格式不良子序列错误处理的一部分来消耗，但此类过程在处理任何格式不良子序列本身
-// 时不受其他约束。由多个码元组成的格式不良子序列可以作为单个错误或多个错误处理。例如，在处理
-// UTF-8 码元序列 <F0 80 80 41> 时，Unicode 一致性对转换器的唯一正式要求是 <41> 被处理并正确
-// 解释为 <U+0041>。转换器可以返回 <U+FFFD, U+0041>，将 <F0 80 80> 作为单个错误处理，或
-// <U+FFFD, U+FFFD, U+FFFD, U+0041>，将 <F0 80 80> 的每个字节作为单独错误处理，或者可以采取
-// 其他方法来表示 <F0 80 80> 是格式不良码元子序列。
-//
-// 最大子部分的 U+FFFD 替换。越来越多的实现正在采用 W3C 编码标准中指定的格式不良子序列处理
-// 方式，以实现一致的 U+FFFD 替换。参见：http://www.w3.org/TR/encoding/ 。虽然 Unicode 标准
-// 不要求此实践以符合规范，但以下文本描述了此实践并给出详细示例。
-//
-// 不可转换偏移：码元序列中没有任何从该偏移开始的码元子序列是格式良好的偏移。格式不良子序列
-// 的最大子部分：从不可转换偏移开始的最长码元子序列，它是：
-//  a. 格式良好码元序列的初始子序列（如果第一个和后续字节匹配格式良好字符的开始部分），或
-//  b. 长度为 1 的子序列。
-//
-// 最大子部分的此定义用于描述进行替换时推进处理的程度：始终至少处理一个码元，或尽可能多的
-// 匹配格式良好字符开头的码元，直到下一个码元使其格式不良为止，即到达该部分字符不可再继续
-// 的偏移。或者更正式地表述，每当在码元序列转换过程中到达不可转换偏移时：该偏移处的最大子
-// 部分被单个 U+FFFD 替换。转换在最大子部分之后的偏移处继续。
-//
-// 此替换最大子部分的实践可以简单地应用于 UTF-32 或 UTF-16 编码形式，但在转换 UTF-8 字符串
-// 时主要引起关注。除非格式不良子序列的开头匹配某些格式良好序列的开头，否则此实践几乎将格式
-// 不良 UTF-8 序列的每个字节替换为一个 U+FFFD。例如，"非最短形式"序列或其截断版本的每个字节
-// 都被替换，如下表所示。自更正 #1 发布以来，"非最短形式"序列的解释已被禁止。
-//      字节    C0      AF      E0      80      BF      F0      81      82      41  （用于非最短形式序列的 U+FFFD）
-//      输出    FFFD    FFFD    FFFD    FFFD    FFFD    FFFD    FFFD    FFFD    0041
-//
-// 此外，对应于代理码点的序列或其截断版本的每个字节也被替换为一个 U+FFFD，如下表所示。自 Unicode
-// 3.2 以来，此类字节序列的解释已被禁止。
-//      字节    ED      A0      80      ED      BF      BF      ED      AF      41  （用于代理码点这个格式不良序列的 U+FFFD）
-//      输出    FFFD    FFFD    FFFD    FFFD    FFFD    FFFD    FFFD    FFFD    0041
-//
-// 最后，对应于 U+10FFFF 之外码点的序列的任何其他字节，以及任何其他不构成有效序列的字节，
-// 也被替换为一个 U+FFFD，如下表所示。
-//      字节    F4      91      92      93      FF      41      80      BF      42  （用于其他格式不良序列的 U+FFFD）
-//      输出    FFFD    FFFD    FFFD    FFFD    FFFD    0041    FFFD    FFFD    0042
-//
-// 仅当两字节或三字节序列是格式良好序列的截断版本时，即如果不是后一个字节的存在，否则就是
-// 一个格式良好的序列，才将多个字节替换为单个 U+FFFD，如下表所示。
-//      字节    E1 80   E2      F0 91 92    F1 BF   41  （用于截断的格式良好序列的 U+FFFD）
-//      输出    FFFD    FFFD    FFFD        FFFD    0041
-//
-// 有关此方法推广用于其他字符集转换为 Unicode 的讨论，请参见第 5.22 节"转换中的 U+FFFD 替换"。
-//
-// 5.22 转换中的 U+FFFD 替换
-//
-// 将文本从一种字符编码转换为另一种时，转换算法可能会遇到不可转换的码元。这通常是由于源数据
-// 的某种损坏造成的，使其不能正确遵循该字符编码的规范。示例包括在 Shift-JIS 等多字节编码中
-// 丢失字节、字符串的不当连接、编码声明与文本实际编码之间的不匹配、UTF-8 使用非最短形式等。
-//
-// 当转换算法遇到此类不可转换数据时，通常的做法是抛出异常或使用定义的替换字符来表示不可转换
-// 的数据。在转换为 Unicode 标准的编码形式之一的情况下，替换字符定义为 U+FFFD REPLACEMENT
-// CHARACTER（替换字符）。
-//
-// 对于 Unicode 标准不同编码形式之间的转换，第 3.9 节"Unicode 编码形式"中的"最大子部分的
-// U+FFFD 替换"定义了与 W3C 编码标准一致的 U+FFFD 使用实践。将此相同实践应用于从非 Unicode
-// 编码到 Unicode 标准编码形式的转换是有用的。
-//
-// 此实践更安全，因为它不会导致转换将有效序列的部分作为无效序列来消耗。它还保证原始文本中
-// 每个无效序列的实例至少会出现一个替换字符。此外，此实践可以一致地定义，以实现不同转换实
-// 现之间更好的互操作性。
-//
-// 为了完全一致性，转换实现就以下方面达成一致很重要：
-//  1.  源编码的格式良好序列的确切集合，
-//  2.  有效序列的所有映射，以及
-//  3.  处理格式不良序列的实践细节
-//
-// 3.10 统一字符编码方案（Unicode Encoding Schemes）
-//
-// Unicode 编码方案：Unicode 编码形式的指定字节序列化，包括如果允许的话，字节序标记（BOM）
-// 的处理规范。由于历史原因，Unicode 编码方案也被称为 Unicode（或 UCS）转换格式（UTF）。
-// 然而，该术语在编码形式和编码方案的使用之间是模糊的。Unicode 标准支持七种编码方案。本节
-// 介绍每种编码方案的正式定义。
-//
-//  1.  UTF-8 编码方案：以与码元序列本身完全相同的顺序序列化 UTF-8 码元序列的 Unicode 编码
-//      方案。在 UTF-8 编码方案中，UTF-8 码元序列 <4D D0 B0 E4 BA 8C F0 90 8C 82> 被序列化
-//      为 <4D D0 B0 E4 BA 8C F0 90 8C 82>。因为 UTF-8 编码形式已经处理有序的字节序列，UTF-8
-//      编码方案是平凡的。字节顺序已经由 UTF-8 码元序列本身明显且完全定义。定义 UTF-8 编码
-//      方案仅仅是为了 Unicode 字符编码模型的完整性。
-//      虽然在使用 UTF-8 时显然不需要字节序签名，但有时进程会将包含字节序标记的 UTF-16 或
-//      UTF-32 数据转换为 UTF-8。当在 UTF-8 中表示时，字节序标记变成字节序列 <EF BB BF>。
-//      它在 UTF-8 数据流开头的使用不是 Unicode 标准所要求的，但它的存在不影响对 UTF-8 编码
-//      方案的符合性。然而，在数据流开头识别 <EF BB BF> 字节序列可以被相当确定地视为数据流
-//      正在使用 UTF-8 编码方案的迹象。
-//  2.  UTF-16BE 编码方案：以大端格式将 UTF-16 码元序列序列化为字节序列的 Unicode 编码方案。
-//      在 UTF-16BE 中，UTF-16 码元序列 <004D 0430 4E8C D800 DF02> 被序列化为 <00 4D 04 30
-//      4E 8C D8 00 DF 02>。在 UTF-16BE 中，初始字节序列 <FE FF> 被解释为 U+FEFF 零宽度不间
-//      断空格。
-//  3.  UTF-16LE 编码方案：以小端格式将 UTF-16 码元序列序列化为字节序列的 Unicode 编码方案。
-//      在 UTF-16LE 中，UTF-16 码元序列 <004D 0430 4E8C D800 DF02> 被序列化为 <4D 00 30 04
-//      8C 4E 00 D8 02 DF>。在 UTF-16LE 中，初始字节序列 <FF FE> 被解释为 U+FEFF 零宽度不间
-//      断空格。
-//  4.  UTF-16 编码方案：以大端或小端格式将 UTF-16 码元序列序列化为字节序列的 Unicode 编码
-//      方案。在 UTF-16 编码方案中，UTF-16 码元序列 <004D 0430 4E8C D800 DF02> 被序列化为
-//      <FE FF 00 4D 04 30 4E 8C D8 00 DF 02> 或 <FF FE 4D 00 30 04 8C 4E 00 D8 02 DF> 或
-//      <00 4D 04 30 4E 8C D8 00 DF 02>。
-//      在 UTF-16 编码方案中，对应于 U+FEFF 的初始字节序列被解释为字节序标记；它用于区分两种
-//      字节序。初始字节序列 <FE FF> 表示大端序，初始字节序列 <FF FE> 表示小端序。BOM 不被
-//      视为文本内容的一部分。
-//      UTF-16 编码方案可能以 BOM 开头，也可能不以 BOM 开头。然而，当没有 BOM 时，在没有更高
-//      级别协议的情况下，UTF-16 编码方案的字节序是大端序。下表给出了总结 UTF-16 编码形式的
-//      三种 Unicode 编码方案的示例。
-//          码元序列    编码方案    字节序列
-//          004D        UTF-16BE    00 4D
-//                      UTF-16LE    4D 00
-//                      UTF-16      FE FF 00 4D / FF FE 4D 00 / 00 4D
-//          0430        UTF-16BE    04 30
-//                      UTF-16LE    30 04
-//                      UTF-16      FE FF 04 30 / FF FE 30 04 / 04 30
-//          4E8C        UTF-16BE    4E 8C
-//                      UTF-16LE    8C 4E
-//                      UTF-16      FE FF 4E 8C / FF FE 8C 4E / 4E 8C
-//          D800 DF02   UTF-16BE    D8 00 DF 02
-//                      UTF-16LE    00 D8 02 DF
-//                      UTF-16      FE FF D8 00 DF 02 / FF FE 00 D8 02 DF / D8 00 DF 02
-//  5.  UTF-32BE 编码方案：以大端格式将 UTF-32 码元序列序列化为字节序列的 Unicode 编码方案。
-//      在 UTF-32BE 中，UTF-32 码元序列 <0000004D 00000430 00004E8C 00010302> 被序列化为
-//      <00 00 00 4D 00 00 04 30 00 00 4E 8C 00 01 03 02>。在 UTF-32BE 中，初始字节序列
-//      <00 00 FE FF> 被解释为 U+FEFF 零宽度不间断空格。
-//  6.  UTF-32LE 编码方案：以小端格式将 UTF-32 码元序列序列化为字节序列的 Unicode 编码方案。
-//      在 UTF-32LE 中，UTF-32 码元序列 <0000004D 00000430 00004E8C 00010302> 被序列化为
-//      <4D 00 00 00 30 04 00 00 8C 4E 00 00 02 03 01 00>。在 UTF-32LE 中，初始字节序列
-//      <FF FE 00 00> 被解释为 U+FEFF 零宽度不间断空格。
-//  7.  UTF-32 编码方案：以大端或小端格式将 UTF-32 码元序列序列化为字节序列的 Unicode 编码
-//      方案。在 UTF-32 编码方案中，UTF-32 码元序列 <0000004D 00000430 00004E8C 00010302>
-//      被序列化为 <00 00 FE FF 00 00 00 4D 00 00 04 30 00 00 4E 8C 00 01 03 02> 或 <FF FE
-//      00 00 4D 00 00 00 30 04 00 00 8C 4E 00 00 02 03 01 00> 或 <00 00 00 4D 00 00 04 30
-//      00 00 4E 8C 00 01 03 02>。
-//      在 UTF-32 编码方案中，对应于 U+FEFF 的初始字节序列被解释为字节序标记；它用于区分两种
-//      字节序。初始字节序列 <00 00 FE FF> 表示大端序，初始字节序列 <FF FE 00 00> 表示小端序。
-//      BOM 不被视为文本内容的一部分。
-//      UTF-32 编码方案可能以 BOM 开头，也可能不以 BOM 开头。然而，当没有 BOM 时，在没有更
-//      高级别协议的情况下，UTF-32 编码方案的字节序是大端序。下表给出了总结 UTF-32 编码形式
-//      的三种 Unicode 编码方案的示例。
-//          码元序列    编码方案    字节序列
-//          0000004D    UTF-32BE    00 00 00 4D
-//                      UTF-32LE    4D 00 00 00
-//                      UTF-32      00 00 FE FF 00 00 00 4D / FF FE 00 00 4D 00 00 00 / 00 00 00 4D
-//          00000430    UTF-32BE    00 00 04 30
-//                      UTF-32LE    30 04 00 00
-//                      UTF-32      00 00 FE FF 00 00 04 30 / FF FE 00 00 30 04 00 00 / 00 00 04 30
-//          00004E8C    UTF-32BE    00 00 4E 8C
-//                      UTF-32LE    8C 4E 00 00
-//                      UTF-32      00 00 FE FF 00 00 4E 8C / FF FE 00 00 8C 4E 00 00 / 00 00 4E 8C
-//          00010302    UTF-32BE    00 01 03 02
-//                      UTF-32LE    02 03 01 00
-//                      UTF-32      00 00 FE FF 00 01 03 02 / FF FE 00 00 02 03 01 00 / 00 01 03 02
-//
-// 当无限制地使用时，术语 UTF-8、UTF-16 和 UTF-32 在作为 Unicode 编码形式或 Unicode 编码
-// 方案的意义之间是模糊的。对于 UTF-8，这种模糊通常是无害的，因为 UTF-8 编码方案是从为
-// UTF-8 编码形式定义的字节序列平凡地推导出来的。然而，对于 UTF-16 和 UTF-32，这种模糊更
-// 有问题。作为编码形式，UTF-16 和 UTF-32 指内存中的码元；没有关联的字节方向，且从不使用
-// BOM。作为编码方案，UTF-16 和 UTF-32 指序列化的字节，如用于流数据或文件；它们可能具有
-// 任一字节方向，且可能存在 BOM。
-//
-// 当短术语"UTF-16"或"UTF-32"的使用可能被误解时，且它们作为指 Unicode 编码形式或 Unicode
-// 编码方案的用法之间的区别很重要时，应使用本章中定义的完整术语。例如，使用 UTF-16 编码
-// 形式或 UTF-16 编码方案。这些术语也可以分别缩写为 UTF-16 CEF 或 UTF-16 CES。
-//
-// 在不同编码方案之间转换时，必须极其小心处理任何初始字节序标记。例如，如果将带有初始字节
-// 序标记的 UTF-16 字节序列化转换为 UTF-8 字节序列化，从而将字节序标记转换为 UTF-8 形式中
-// 的 <EF BB BF>，则 <EF BB BF> 现在作为字节序标记（来自其源）或作为初始零宽度不间断空格
-// 的状态是模糊的。如果然后将 UTF-8 字节序列化转换为 UTF-16BE，且初始 <EF BB BF> 转换为
-// <FE FF>，则 U+FEFF 字符的解释将被转换修改。根据一致性条款 C7，这将是非符合性行为，因为
-// 字节序列化之间的更改将导致文本解释的修改。这就是为什么 Unicode 标准不推荐在 UTF-8 字节
-// 序列开头使用初始字节序列 <EF BB BF> 作为签名的原因之一。
-//
-// 5.17 二进制排序
-//
-// 比较对最终用户可见的文本时，应使用正确的语言排序，如第 5.16 节"排序和搜索"所述。然而，
-// 在许多情况下，唯一要求是快速、明确定义的排序。在这种情况下，可以使用二进制排序。
-//
-// 并非 Unicode 的所有编码形式都具有相同的二进制顺序。UTF-8 和 UTF-32 数据，以及仅包含 BMP
-// 字符的 UTF-16 数据，按码点顺序排序，而包含 BMP 和补充字符混合的 UTF-16 数据则不是。这是
-// 因为补充字符在 UTF-16 中用代理码元对编码，这些代理码元对的值（D800₁₆..DFFF₁₆）低于某些
-// BMP 码点。
-//
-// 此外，当使用 Unicode 编码方案之一序列化 UTF-16 或 UTF-32 数据并逐字节比较时，结果字节序列
-// 可能具有也可能不具有相同的二进制排序，因为交换字节顺序会影响数据的整体排序。由于这些因素，
-// UTF-16BE、UTF-16LE 和 UTF-32LE 编码方案中的文本不按码点顺序排序。
-//
-// 通常，Unicode 文本的默认二进制排序顺序应为码点顺序。然而，可能需要匹配特定编码形式（encoding
-// form）的码元排序或特定编码方案（encoding scheme）的字节排序，以便复制不同应用程序中使用
-// 的排序。这里提供了一些示例例程，用于以一种编码形式的二进制顺序对另一种编码形式进行排序。
-//
-// 5.17.1 以 UTF-16 顺序排列 UTF-8
-//
-// 以下 UTF-8 比较函数产生与 UTF-16 二进制比较相同的结果。在代码中，注意每字符串只需额外工作
-// 一次，而不是每字节一次。该工作可以通过小数组简单地重新映射完成；没有额外的条件分支来减慢
-// 处理过程。rotate 数组由取 0x00 到 0xFF 的 256 字节数组组成，并将 0xEE 到 0xF4 旋转，这些
-// 值是 UTF-8 中码点范围 U+E000..U+10FFFF 的初始字节值。这些旋转值以粗体显示。当此旋转在 UTF-8
-// 的初始字节上执行时，其效果是使码点 U+10000..U+10FFFF 排序低于 U+E000..U+FFFF，从而模仿
-// UTF-16 的排序。
-//
-//      int strcmp8like16(unsigned char* a, unsigned char* b) {
-//          while (true) {
-//              int ac = *a++;
-//              int bc = *b++;
-//              if (ac != bc) return rotate[ac] - rotate[bc];
-//              if (ac == 0) return 0;
-//          }
-//      }
-//      static char rotate[256] = {
-//          0x00, ..., 0x0F,
-//          0x10, ..., 0x1F,
-//          . . .
-//          0xD0, ..., 0xDF,
-//          0xE0, ..., 0xED,
-//          ***0xF3, 0xF4, 0xEE, 0xEF, 0xF0, 0xF1, 0xF2***,
-//          0xF5, ..., 0xFF
-//      };
-//
-// 5.17.2 以 UTF-8 顺序排列 UTF-16
-//
-// 以下代码可用于按码点顺序对 UTF-16 进行排序。与以 UTF-16 顺序排列 UTF-8 的例程一样，额外成本
-// 每次函数调用产生一次，而不是每字符一次。
-//
-// int strcmp16like8(Unichar* a, Unichar* b) {
-//     while (true) {
-//         int ac = *a++;
-//         int bc = *b++;
-//         if (ac != bc) {
-//             return (Unichar)(ac + utf16Fixup[ac>>11]) - (Unichar)(bc + utf16Fixup[bc>>11]);
-//         }
-//         if (ac == 0) return 0;
-//     }
-// }
-// static const Unichar utf16Fixup[32]={
-//     0, 0, 0, 0, 0, 0, 0, 0,
-//     0, 0, 0, 0, 0, 0, 0, 0,
-//     0, 0, 0, 0, 0, 0, 0, 0,
-//     0, 0, 0, 0x2000, 0xf800, 0xf800, 0xf800, 0xf800
-// };
-//
-// 此代码使用 Unichar 作为无符号 16 位整数类型。utf16Fixup 数组的构造基于以下概念。UTF-16 值
-// 的范围被划分为三十二个 2K 块。第 28 块对应于值 0xD800..0xDFFF，即代理码元。第 29 到 32 块
-// 对应于值 0xE000..0xFFFF。向代理码元添加 0x2000 将它们旋转到范围 0xF800..0xFFFF。向值
-// 0xE000..0xFFFF 添加 0xF800 并忽略无符号整数溢出将它们旋转到范围 0xD800..0xF7FF。从旋转值
-// 计算返回的最终差值产生与基于码点比较而非 UTF-16 码元比较相同的结果。使用无符号整数溢出
-// 加法技巧避免了实现值旋转所需的条件测试。注意，此机制仅在格式良好的 UTF-16 文本上正确工作。
-// 必须使用修改的算法来处理可能包含孤立代理的 16 位 Unicode 字符串。
-//
-// 5.3 未知和缺失字符（Unknown and Missing Characters）
-//
-// 本节简要讨论用户或实现者如何处理不受支持的字符，或虽然受支持但无法清晰渲染的字符。保留
-// （Reserved）和私用字符（Private-Use）代码。有两类码点，即使是 Unicode 标准的"完整"实现
-// 也不一定能正确解释：
-//  1.  保留的码点
-//  2.  不存在私有一致协议的私用区码点
-//
-// 实现不应尝试解释此类码点。然而，在实践中，应用程序必须处理未分配的码点或专用字符。这可能
-// 发生在应用程序处理源自实现 Unicode 标准更高版本的系统（具有额外已分配字符）的文本时。渲染
-// 此类未知码点的选项包括将码点打印为四到六位十六进制数字，打印黑色或白色方框，或另一个替代
-// 字形，如通常为 U+FFFD 显示的那样。对于某些码点，通常不显示任何内容；有关详细信息，请参见
-// 本节后面的"默认可忽略码点"。实现不应盲目删除此类字符，也不应无意中将它们转换为其他内容。
-//
-// 可解释但不可渲染的字符。实现可能接收到 Unicode 标准中已分配字符的码点，但无法渲染它，因为
-// 它缺少该码点的字体或无法适当渲染它。在这种情况下，实现能够提供的视觉反馈是有限的。虽然它
-// 可能有资源对任意文本进行排序或断行，但任何不可渲染的字符只能通过某种占位符指示，例如显示
-// 码点的十六进制值，或其他有意义的信息，如字符的脚本。例如，不可渲染（但已分配）的字符可以
-// 用提供其类型某些有意义指示的独特字形显示。Unicode 联盟维护一个开源 Last Resort 字体
-// （https://github.com/unicode-org/last-resort-font/），实现可以用于已分配和未分配码点的此类
-// 回退渲染。
-//
-// 默认可忽略码点（default ignorable code points）。通常，实现支持字符集之外的字符将是用回退
-// 字形（如黑框）显示的图形字符。然而，某些特殊用途字符，如格式控制或变体选择器，没有自己的
-// 可见字形，尽管它们可能影响其他字符的显示。当实现不支持此类特殊用途字符时，它不应使用可见
-// 回退字形显示，而应完全不渲染。不应使用回退字形渲染的此类字符列表由 Unicode 字符数据库中的
-// Default_Ignorable_Code_Point 属性定义。有关更多信息，请参见第 5.21 节"处理中忽略字符"。
-//
-// 与下级系统交互（Interacting with Downlevel Systems）。Unicode 2.0 之后的 Unicode 标准版本
-// 是 Unicode 2.0 及所有中间版本的严格超集。派生年龄（Derived Age）属性跟踪特定字符添加到标
-// 准的版本。此信息在与下级系统的某些交互中可能特别有用。如果系统之间用于通信的协议提供每个
-// 系统上 Unicode 版本的声明，上级系统可以预测哪些最近添加的字符对下级系统将显示为未分配字符。
-
-#endif // PRH_CHAR_INCLUDE
 
 #ifdef PRH_MMAP_INCLUDE
 
@@ -43257,13 +42008,14 @@ int prh_lexer_separator(prh_lexer *l, prh_byte c) {
 // https://cppreference.com/w/cpp/language/operator_precedence.html
 // https://go.dev/ref/spec#Operator_precedence
 // https://ziglang.org/documentation/master/#Precedence
+// https://odin-lang.org/docs/overview/#operator-precedence
 //
 // 13 名字空间，从左到右结合（--->）： a::b
 // 12 成员访问，从左到右结合（--->）： 成员变量 a.b a->b 函数调用 a() 数组访问也通过函数调用方式
 // 11 函数组合，从右至左结合（<---）： f~g~h(x) 相当于 f(g(h(x)))，f/g/h(x)
 // 10 一元操作，从右到左结合（<---）： + - ! ^ fer der sizeof typeof 类型转换 type expr 指针引用数组元组等类型声明
-// 09 乘法系列，从左到右结合（--->）： * / % & &^ ^ ^^ | |^ << <<< >> >>>
-// 08 加法系列，从左到右结合（--->）： + -
+// 09 乘法系列，从左到右结合（--->）： * / % & &^ ^ ^^ << >> <<< >>>
+// 08 加法系列，从左到右结合（--->）： + - | |^
 // 07 关系操作，从左到右结合（--->）： < <= > >= == != <>
 // 06 逻辑与符，从左到右结合（--->）： &&
 // 05 逻辑或符，从左到右结合（--->）： ||
