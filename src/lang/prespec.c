@@ -9,12 +9,14 @@
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
 //  with fet dre todo debug trap local global // 全局变量必须使用 global 引用
-//  mod mut imm rua ref gen priv do abstract macro tane (typename) ended
-//  alignof(type) sizeof(type) offsetof(type.offset) drop zeroed
+//  mod mut imm rua ref gen priv do abstract tane (typename)
+//  alignof(type) sizeof(type) offsetof(type.offset) drop
 //  where it it.i halt emit print prinf namespace typename
 //  where when with overloaded in not_in struct strict
 //  or_else or_return or_continue or_break or_final
 //  macro using const romem immut local named also
+//  async await del from global is lambda nonlocal
+//  pass raise try not endif zeroed
 //
 //  defer if error deallocation(ptr)
 //
@@ -171,15 +173,15 @@
 //  5.  不同的库名下，可以定相同的包名，除了当前项目，导入的代码都必须以库名加包名的方式访问
 //          import <array.rua> // std "array.rua" 的省略写法，也只能使用这种省略写法
 //          import std "array.rua" // 导入标准库中 array.rua 文件中的所有包（但会按实际访问情况进行编译），可以一个或多个包名，或者没有定义任何包名，所有定义导入到 std 名字空间下
-//          import bar#foo "libfoo.rua" // 如果文件中包含名为 foo 包名，因为这些名称要导入到 bar 名字空闲下，这里表示将 bar::foo:: 重命名为 bar::
-//          import rgl#rgl "path/librgl.rua" // 将 rgl::rgl:: 重命名为 rgl::
-//          import vendor "path/libfab.rua" // vendor::fab::
-//          import vendor "path/librgl.rua" // vendor::rgl::
+//          import bar [bar.foo] "libfoo.rua" // 如果文件中包含名为 foo 包名，因为这些名称要导入到 bar 名字空闲下，这里表示将 bar.foo. 重命名为 bar.
+//          import rgl [rgl.rgl] "path/librgl.rua" // 将 rgl.rgl. 重命名为 rgl.
+//          import vendor "path/libfab.rua" // vendor.fab.
+//          import vendor "path/librgl.rua" // vendor.rgl.
 //          import "utils/test.rua" // 从当前目录导入文件
 //          import "../helpers.rua" // 以当前目录为基准导入文件
-//          using namespace vendor::rgl
-//          using fab vendor::fab
-//          a := std::array {1, 2, 3}
+//          using namespace vendor.rgl
+//          using fab vendor.fab
+//          a := std.array {1, 2, 3}
 //
 // 一个工程可以包含多个库（library），每个库可以包含多个命名空间或代码包，例如：
 //  1.  标准库 std 可以包含各种代码包 std.array std.string
@@ -631,7 +633,7 @@
 //
 //  bool byte char string none null true false def error
 //  i08 i16 i32 i64 i128 i256 i512 int raw_int // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
-//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg // 编写上层应用，一般只需要使用 int 和 reg
+//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg raw // 编写上层应用，一般只需要使用 int 和 reg
 //  f08 f16 f32 f64 f128 f256 f512 float float
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
@@ -3291,6 +3293,15 @@ math:*
 //  if (expr) stmt else stmt endif
 //  if (expr) stmt elif (expr) stmt else stmt endif // 必须是 elif 否则 endif 不知道是终结 if 还是 else if 中的 if
 //
+//  if (a <= 0xc1) print(a) let n = 1 return 0
+//
+//  注意 else if 之间不能插入跳转标签，但可以调整写法实现相同的目的：
+//      if (expr) {                 if (expr) {
+//      } else if (expr) {          } else {
+//      } else {                    label: if (expr) {
+//      }                               } else {
+//                                      }
+//                                  }
 //  if (expr)
 //      stmt
 //      if (expr)
