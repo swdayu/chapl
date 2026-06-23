@@ -31238,6 +31238,194 @@ void prh_impl_cono_test(void) {
 #ifdef PRH_FILE_IMPLEMENTATION
 #if defined(prh_plat_windows)
 
+// 关于字符模式应用程序（Character Mode Application）。字符模式或命令行应用程序：
+//  1.  [可选] 从标准输入（stdin）读取数据
+//  2.  执行"工作"
+//  3.  [可选] 将数据写入标准输出（stdout）或标准错误（stderr）
+//
+// 字符模式应用程序通过"控制台"或"终端"应用程序与最终用户通信。控制台将来自键盘、鼠标、
+// 触摸屏、手写笔等的用户输入进行转换，并发送给字符模式应用程序的 stdin。控制台还可以
+// 在用户屏幕上显示字符模式应用程序的文本输出。
+//
+// 在 Windows 中，控制台是内置的，并提供丰富的 API，字符模式应用程序可以通过这些 API 与
+// 用户交互。然而，近年来，控制台团队鼓励所有字符模式应用程序使用虚拟终端序列而非经典 API
+// 调用进行开发，以在 Windows 与其他操作系统之间实现最大兼容性。有关此过渡及所涉权衡的
+// 更多详细信息，请参阅我们关于经典 API 与虚拟终端序列的讨论。
+// https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
+// https://learn.microsoft.com/en-us/windows/console/classic-vs-vt
+//
+// 代码页是将 256 个字符代码映射到单个字符的表。不同代码页包含不同的特殊字符，通常针对
+// 某种语言或语言组进行定制。https://learn.microsoft.com/en-us/windows/console/console-code-pages
+//
+// 每个控制台关联两个代码页：一个用于输入，一个用于输出。控制台使用其输入代码页将键盘输
+// 入转换为对应的字符值。它使用其输出代码页将各种输出函数写入的字符值转换为控制台窗口中
+// 显示的图像。应用程序可以使用 SetConsoleCP 和 GetConsoleCP 函数设置和检索控制台的输入
+// 代码页，使用 SetConsoleOutputCP 和 GetConsoleOutputCP 函数设置和检索其输出代码页。
+//
+// 本地计算机上可用的代码页标识符存储在以下注册表项下：HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Nls\CodePage
+// 有关使用注册表函数确定可用代码页的信息，请参阅"注册表"。
+// https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry
+//
+// 建议所有新的和更新的命令行应用程序避免使用代码页，改用 Unicode。UTF-16 格式的文本可以
+// 发送到控制台 API 的 W 系列。在确保首先使用 SetConsoleCP 和 SetConsoleOutputCP 函数将代
+// 码页设置为 65001（CP_UTF8）后，UTF-8 格式的文本可以发送到控制台 API 的 A 系列。
+//
+// 8 位控制台函数使用 OEM 代码页。所有其他函数默认使用 ANSI 代码页。这意味着控制台函数返回
+// 的字符串可能无法被其他函数正确处理，反之亦然。例如，如果 FindFirstFileA 返回包含某些扩展
+// ANSI 字符的字符串，WriteConsoleA 将无法正确显示该字符串。
+// https://learn.microsoft.com/en-us/windows/console/console-application-issues
+//
+// 控制台应用程序的最佳长期解决方案是使用 Unicode。控制台在 API 的 W 变体上接受 UTF-16 编码，
+// 或在 API 的 A 变体上接受 UTF-8 编码（前提是使用 SetConsoleCP 和 SetConsoleOutputCP 设置为
+// 65001（CP_UTF8 常量）以使用 UTF-8 代码页。
+//
+// 如果无法采用该解决方案，控制台应用程序应使用 SetFileApisToOEM 函数。该函数会更改相关文件
+// 函数，使其生成 OEM 字符集字符串而非 ANSI 字符集字符串。以下是文件函数：
+//
+//  CopyFile            CreateDirectory             CreateFile              CreateProcess
+//  DeleteFile          FindFirstFile               FindNextFile
+//  GetCurrentDirectory GetDiskFreeSpace            GetDriveType            GetFileAttributes
+//  GetFullPathName     GetModuleFileName           GetModuleHandle         GetSystemDirectory
+//  GetTempFileName     GetTempPath                 GetVolumeInformation    GetWindowsDirectory
+//  LoadLibrary         LoadLibraryEx
+//  MoveFile            MoveFileEx                  OpenFile                RemoveDirectory
+//  SearchPath          SetCurrentDirectory         SetFileAttributes
+//
+// 处理命令行时，控制台应用程序应以 Unicode 形式获取命令行，并使用相关字符转 OEM 函数将
+// 其转换为 OEM 形式。另请注意，argv 使用 ANSI 字符集。
+//
+// 高级 I/O 函数提供了一种简单的方式，用于从控制台输入读取字符流或向控制台输出写入字符流。
+// 高级读取操作从控制台的输入缓冲区获取输入字符，并将其存储到指定的缓冲区中。高级写入操作
+// 从指定缓冲区获取字符，并将其写入屏幕缓冲区的当前光标位置，每写入一个字符光标就前进一格。
+// https://learn.microsoft.com/en-us/windows/console/high-level-console-i-o
+//
+// 高级 I/O 让你在 ReadFile 和 WriteFile 函数与 ReadConsole 和 WriteConsole 函数之间进行
+// 选择。它们是相同的，除了两个重要的区别。控制台函数通过每个函数的 A 和 W 变体支持使用
+// Unicode 字符或 ANSI 字符集；文件 I/O 函数不支持 Unicode，除非在使用前通过 SetConsoleCP
+// 和 SetConsoleOutputCP 函数将代码页设置为 CP_UTF8 常量。此外，文件 I/O 函数可用于访问
+// 文件、管道和串行通信设备；控制台函数只能用于控制台句柄。如果应用程序依赖于可能已被重
+// 定向的标准句柄，这一区别很重要。
+//
+// 使用任一组高级函数时，应用程序可以控制用于显示随后写入屏幕缓冲区的字符的文本和背景颜色，
+// 首选机制是通过虚拟终端序列。应用程序还可以使用影响高级控制台 I/O 的控制台模式来启用或
+// 禁用以下属性：
+//  1.  将键盘输入回显到活动屏幕缓冲区
+//  2.  行输入，即读取操作直到按下 ENTER 键才返回
+//  3.  自动处理键盘输入以处理回车、CTRL+C 和其他输入细节
+//  4.  自动处理输出以处理自动换行、回车、退格和其他输出细节
+//
+// 高级控制台输入和输出函数
+// https://learn.microsoft.com/en-us/windows/console/high-level-console-input-and-output-functions
+//
+// ReadFile 和 WriteFile 函数，或 ReadConsole 和 WriteConsole 函数，使应用程序能够将控制
+// 台输入读取为字符流，并将控制台输出写入为字符流。ReadConsole 和 WriteConsole 的行为与
+// ReadFile 和 WriteFile 完全相同，唯一的区别是它们既可以作为宽字符函数使用（此时文本参数
+// 必须使用 Unicode），也可以作为 ANSI 函数使用（此时文本参数必须使用 Windows 字符集中的
+// 字符）。需要维护单一源代码以同时支持 Unicode 或 ANSI 字符集的应用程序应使用 ReadConsole
+// 和 WriteConsole。
+//
+// ReadConsole 和 WriteConsole 只能用于控制台句柄；ReadFile 和 WriteFile 可用于其他句柄（如
+// 文件或管道）。如果 ReadConsole 和 WriteConsole 与已被重定向且不再是控制台句柄的标准句柄
+// 一起使用，将会失败。
+//
+// 要获取键盘输入，进程可以使用 ReadFile 或 ReadConsole 配合控制台输入缓冲区的句柄，或者如果
+// STDIN 已被重定向，可以使用 ReadFile 从文件或管道读取输入。这些函数仅返回可以转换为 ANSI 或
+// Unicode 字符的键盘事件。可返回的输入包括控制键组合。函数不返回涉及功能键或方向键的键盘事件。
+// 由鼠标、窗口、焦点或菜单输入生成的事件将被丢弃。
+//
+// 如果启用行输入模式（默认模式），ReadFile 和 ReadConsole 直到按下 ENTER 键才返回调用应用
+// 程序。如果禁用行输入模式，函数直到至少有一个字符可用时才返回。无论哪种模式，都会读取所有
+// 可用字符，直到没有更多按键可用或已读取指定数量的字符。未读取的字符将被缓冲到下一次读取
+// 操作。函数报告实际读取的字符总数。如果启用回显输入模式，这些函数读取的字符将写入活动屏幕
+// 缓冲区的当前光标位置。
+//
+// 进程可以使用 WriteFile 或 WriteConsole 写入活动或非活动屏幕缓冲区，或者如果 STDOUT 已被
+// 重定向，可以使用 WriteFile 写入文件或管道。已处理输出模式和行尾换行输出模式控制字符写入
+// 或回显到屏幕缓冲区的方式。
+//
+// WriteFile 或 WriteConsole 写入的字符，或 ReadFile 或 ReadConsole 回显的字符，将插入屏幕
+// 缓冲区的当前光标位置。每写入一个字符，光标位置前进到下一个字符单元；然而，在行尾的行为
+// 取决于控制台屏幕缓冲区的行尾换行输出模式。
+//
+// 有关光标位置的更多详细信息，可以通过虚拟终端序列获取，特别是在查询状态类别中查找当前位置，
+// 以及在光标定位类别中设置当前位置。或者，应用程序可以使用 GetConsoleScreenBufferInfo 函数
+// 确定当前光标位置，使用 SetConsoleCursorPosition 函数设置光标位置。然而，对于所有新的和持续
+// 的开发，首选虚拟终端序列机制。有关此决策背后策略的更多详细信息，请参阅经典函数与虚拟终端
+// 以及生态系统路线图文档。https://learn.microsoft.com/en-us/windows/console/ecosystem-roadmap
+//
+// HRESULT WINAPI CreatePseudoConsole(
+//      _In_ COORD size,
+//      _In_ HANDLE hInput,
+//      _In_ HANDLE hOutput,
+//      _In_ DWORD dwFlags,
+//      _Out_ HPCON* phPC);
+// Windows 10 October 2018 Update (version 1809) [desktop apps only]
+// Windows Server 2019 [desktop apps only]
+// Kernel32.lib Kernel32.dll
+//
+// 为调用进程创建一个新的伪控制台对象。如果此方法成功，返回 S_OK。否则，返回一个 HRESULT
+// 错误代码。输出参数 phPC 指向一个位置，该位置将接收新伪控制台设备的句柄。
+//
+// 参数 size 伪控制台初始创建时使用的窗口/缓冲区尺寸，以字符数为单位。之后可以使用 ResizePseudoConsole
+// 进行调整。参数 hInput，一个已打开的句柄，指向表示设备用户输入的数据流，目前限制为同步 I/O。
+// 参数 hOutput，一个已打开的句柄，指向表示设备应用程序输出的数据流，目前限制为同步 I/O。参数
+// dwFlags，该值可以是以下之一：
+//  1.  0                                       执行标准伪控制台创建。
+//  2.  PSEUDOCONSOLE_INHERIT_CURSOR ((DWORD)1) 创建的伪控制台会话将尝试继承父控制台的光标位置。
+//
+// 此函数主要由试图为命令行用户界面（CUI）应用程序充当终端窗口的应用程序使用。调用者负责
+// 在输出流上呈现信息，以及收集用户输入并将其序列化到输入流中。编码为 UTF-8 的输入和输出
+// 流包含纯文本与虚拟终端序列交错的数据。https://learn.microsoft.com/en-us/windows/console/console-virtual-terminal-sequences
+//
+// 在输出流上，调用应用程序可以解码虚拟终端序列，以便在显示窗口中布局和呈现纯文本。在输入
+// 流上，纯文本表示用户输入的标准键盘按键。更复杂的操作通过将控制键和鼠标移动编码为嵌入在
+// 此流中的虚拟终端序列来表示。
+//
+// 此函数创建的句柄在操作完成后必须使用 ClosePseudoConsole 关闭。如果使用 PSEUDOCONSOLE_INHERIT_CURSOR，
+// 调用应用程序应准备在后台线程上以异步方式响应光标状态请求，方法是转发或解释将在 hOutput
+// 上接收到的光标信息请求，并在 hInput 上回复。未能这样做可能会导致调用应用程序在向伪控制
+// 台系统发出其他请求时挂起。
+//
+// https://learn.microsoft.com/en-us/windows/console/creating-a-pseudoconsole-session
+// https://learn.microsoft.com/en-us/windows/console/pseudoconsoles
+//
+// 伪控制台是一种设备类型，允许应用程序成为字符模式应用程序的主机（the host for character-mode
+// applications）。这与典型的控制台会话形成对比——在典型控制台会话中，操作系统会代表字符
+// 模式应用程序创建托管窗口，以处理图形输出和用户输入。使用伪控制台时，不会创建托管窗口。
+// 创建伪控制台的应用程序必须负责显示图形输出和收集用户输入。或者，这些信息可以在链路的
+// 后续阶段中继到另一个负责这些活动的应用程序。
+//
+// 此功能旨在让第三方"终端窗口"应用程序存在于平台上，或将字符模式活动重定向到另一台机器
+// 甚至另一个平台上的远程"终端窗口"会话。
+//
+// 请注意，底层控制台会话仍会代表请求伪控制台的应用程序创建。控制台会话的所有规则仍然适用，
+// 包括多个客户端字符模式应用程序连接到会话的能力。
+//
+// 为了与现有的伪终端功能保持最大兼容性，通过伪控制台通道提供的信息将始终以 UTF-8 编码。
+// 这不会影响附加的客户端应用程序的代码页或编码。必要时，转换将在伪控制台系统内部进行。
+// 入门示例请参阅"创建伪控制台会话"。有关伪控制台的更多背景信息，请参阅公告博客文章：
+// Windows 命令行：介绍 Windows 伪控制台（ConPTY）。
+// https://devblogs.microsoft.com/commandline/windows-command-line-introducing-the-windows-pseudo-console-conpty/
+//
+// void WINAPI ClosePseudoConsole(_In_ HPCON hPC);
+// Windows 10 October 2018 Update (version 1809) [desktop apps only]
+// Windows Server 2019 [desktop apps only]
+// ConsoleApi.h (via WinCon.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 关闭并释放与给定伪控制台关联的资源。关闭伪控制台会向每个仍连接的客户端应用程序发送
+// CTRL_CLOSE_EVENT。在应用程序断开连接之前，它们可能会继续写入更多输出。因此，您的应用
+// 程序应在调用 ClosePseudoConsole 之前关闭输出管道，或在 ClosePseudoConsole 返回后继续
+// 从管道读取。
+//
+// 注意从 Windows 11 24H2（版本 26100）开始，ClosePseudoConsole 将立即返回，以避免意外
+// 死锁。早期版本将无限期等待伪控制台退出。如果您需要知道所有客户端何时已断开连接，只需
+// 继续从输出管道读取，直到管道被关闭。
+//
+// 警告。由于上述原因，未能关闭或排空输出管道可能会导致 ClosePseudoConsole 在 Windows
+// 早期版本中无限期等待。为避免旧版本上的死锁，请勿在与读取输出管道相同的线程上调用
+// ClosePseudoConsole，除非输出管道已被您关闭，或被伪控制台关闭。
+
 #else
 // 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
 // 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
