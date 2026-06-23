@@ -31426,6 +31426,200 @@ void prh_impl_cono_test(void) {
 // 早期版本中无限期等待。为避免旧版本上的死锁，请勿在与读取输出管道相同的线程上调用
 // ClosePseudoConsole，除非输出管道已被您关闭，或被伪控制台关闭。
 
+// HANDLE WINAPI GetStdHandle(_In_ DWORD nStdHandle);
+// BOOL WINAPI SetStdHandle(_In_ DWORD nStdHandle, _In_ HANDLE hHandle);
+// ProcessEnv.h (via Winbase.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 获取指向指定标准设备（标准输入、标准输出或标准错误）的句柄。如果函数成功，返回值是
+// 指定设备的句柄，或由先前调用 SetStdHandle 设置的已重定向句柄。该句柄具有 GENERIC_READ
+// 和 GENERIC_WRITE 访问权限，除非应用程序已使用 SetStdHandle 设置了访问权限较低的标准
+// 句柄。完成后无需使用 CloseHandle 释放此句柄。如果函数失败，返回值为 INVALID_HANDLE_VALUE。
+// 要获取扩展错误信息，请调用 GetLastError。如果应用程序没有关联的标准句柄，例如运行在
+// 交互式桌面上（interactive desktop）的服务，且未对其进行重定向，则返回值为 NULL。即使
+// 服务能访问交互式桌面，它仍然可能没有标准句柄。交互式桌面，是用户能看到、能点击、能输
+// 入的桌面环境。即使服务运行在有界面的环境中，也不意味着它自动拥有标准输入输出句柄。
+//  1.  因为标准句柄（stdin/stdout/stderr）是进程启动时继承的
+//  2.  服务通常由 SCM（服务控制管理器）启动，没有控制台父进程
+//  3.  所以 GetStdHandle 返回 NULL
+//
+// 参数 nStdHandle 标准设备，此参数可以是以下值之一。这些常量的值是无符号数，但在头文件
+// 中定义为从有符号数强制转换而来，利用了 C 编译器将其回绕到接近 32 位最大值的特点。当在
+// 不解析头文件且重新定义这些常量的语言中与此类句柄交互时，请注意此限制。例如，((DWORD)-10)
+// 实际上是 4294967286。
+//  1.  STD_INPUT_HANDLE ((DWORD)-10) 标准输入设备，初始状态下，这是控制台输入缓冲区 CONIN$
+//  2.  STD_OUTPUT_HANDLE ((DWORD)−11) 标准输出设备，初始状态下，这是活动控制台屏幕缓冲区 CONOUT$
+//  3.  STD_ERROR_HANDLE ((DWORD)-12) 标准错误设备，初始状态下，这是活动控制台屏幕缓冲区 CONOUT$
+//
+// GetStdHandle 返回的句柄可供需要从控制台读取或写入控制台的应用程序使用。创建控制台时，
+// 标准输入句柄是指向控制台输入缓冲区的句柄，标准输出和标准错误句柄是指向控制台活动屏幕
+// 缓冲区的句柄。这些句柄可由 ReadFile 和 WriteFile 函数使用，也可由任何访问控制台输入缓
+// 冲区或屏幕缓冲区的控制台函数使用（例如 ReadConsoleInput、WriteConsole 或 GetConsoleScreenBufferInfo
+// 函数）。
+//
+// 进程的标准句柄可通过调用 SetStdHandle 进行重定向，此时 GetStdHandle 返回重定向后的句
+// 柄。如果标准句柄已被重定向，可以在调用 CreateFile 函数时指定 CONIN$ 值以获取控制台输入
+// 缓冲区的句柄。同样，可以指定 CONOUT$ 值以获取控制台活动屏幕缓冲区的句柄。
+//
+// 进程在进入 main 方法时的标准句柄由构建应用程序时传递给链接器的 /SUBSYSTEM 标志配置决
+// 定。指定 /SUBSYSTEM:CONSOLE 要求操作系统在启动时填充句柄以建立控制台会话，前提是父进
+// 程尚未通过继承填充标准句柄表。相反，/SUBSYSTEM:WINDOWS 表示应用程序不需要控制台，很可
+// 能不会使用标准句柄。有关句柄继承的更多信息，请参阅 STARTF_USESTDHANDLES 的文档。
+// https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/ns-processthreadsapi-startupinfoa
+//
+// 某些应用程序在其声明的子系统边界之外运行；例如，/SUBSYSTEM:WINDOWS 应用程序可能会检查
+// 或使用标准句柄进行日志记录或调试，但通常使用图形用户界面正常运行。这些应用程序需要在启
+// 动时仔细探测标准句柄的状态，并根据需要使用 AttachConsole、AllocConsole 和 FreeConsole
+// 来添加/移除控制台。
+//
+// 某些应用程序还可能根据继承句柄的类型改变其行为。可以使用 GetFileType 来区分控制台、管
+// 道、文件等类型。
+//
+// 句柄释放。使用完从 GetStdHandle 获取的句柄后，无需调用 CloseHandle。返回值仅仅是存储
+// 在进程表中的值的副本。进程本身通常被认为是这些句柄及其生命周期的所有者。每个句柄根据
+// CreateProcess 调用的继承和启动特性在创建时被放入表中，并将在进程销毁时被释放。
+//
+// 对于有意替换这些句柄或阻止进程的其他部分使用它们的应用程序，手动操作这些句柄的生命期
+// 可能是可取的。由于运行中的代码可能会缓存 HANDLE，因此该代码不一定会通过 SetStdHandle
+// 获取更改。通过 CloseHandle 显式关闭句柄将在进程范围内关闭它，任何缓存引用的下次使用都
+// 会遇到错误。
+//
+// 在进程表中替换标准句柄的指导方法是：使用 GetStdHandle 从表中获取现有的 HANDLE，使用
+// SetStdHandle 放入一个通过 CreateFile（或类似函数）打开的新 HANDLE，然后关闭获取到的
+// 原有句柄。
+//
+// GetStdHandle 和 SetStdHandle 函数都不会对作为句柄存储在进程表中的值进行验证。验证在
+// 实际读写操作（如 ReadFile 或 WriteFile）时执行。
+//
+// 附加/分离行为。附加到新控制台时，除非在进程创建期间指定了 STARTF_USESTDHANDLES，否则
+// 标准句柄始终会被替换为控制台句柄。如果标准句柄的现有值为 NULL，或现有值看起来像控制台
+// 伪句柄，则该句柄将被替换为控制台句柄。当父进程同时使用 CREATE_NEW_CONSOLE 和 STARTF_USESTDHANDLES
+// 创建控制台进程时，除非标准句柄的现有值为 NULL 或控制台伪句柄，否则不会替换标准句柄。
+// 注意，控制台进程启动时必须已填充标准句柄，否则将自动填充指向新控制台的适当句柄。图形
+// 用户界面（GUI）应用程序可以在没有标准句柄的情况下启动，且不会自动填充。
+//
+// 标准句柄是三个全局变量值，控制台句柄是所属控制台对象的句柄。如果进程是通过 STARTF_USESTDHANDLES
+// 创建的，在 AttachConsole 或 AllocConsole 时，只有当标准句柄为 NULL 或是控制台伪句柄时，
+// 标准句柄才会被关联的控制台句柄替换。如果进程不是通过 STARTF_USESTDHANDLES 创建的，标准
+// 句柄总是被控制台句柄替换。
+
+prh_handle prh_stdin_handle(void) {
+    HANDLE handle = GetStdHandle(STD_INPUT_HANDLE);
+    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
+    if (handle == NULL) prh_prerr(e_empty);
+    return handle;
+}
+
+prh_handle prh_stdout_handle(void) {
+    HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
+    if (handle == NULL) prh_prerr(e_empty);
+    return handle;
+}
+
+prh_handle prh_stderr_handle(void) {
+    HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);
+    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
+    if (handle == NULL) prh_prerr(e_empty);
+    return handle;
+}
+
+// BOOL WINAPI AllocConsole(void);
+// Windows 2000 Professional [desktop apps only] Windows 2000 Server [desktop apps only]
+// ConsoleApi.h (via WinCon.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// HRESULT WINAPI AllocConsoleWithOptions(_In_opt_  PALLOC_CONSOLE_OPTIONS allocOptions, _Out_opt_ PALLOC_CONSOLE_RESULT result);
+// Windows 11 24H2 (build 26100) [desktop apps only] Windows Server 2025 (build 26100)
+// ConsoleApi.h (via WinCon.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 一个进程只能关联一个控制台，因此如果调用进程已经拥有控制台，AllocConsole 函数将失败。
+// 进程可以使用 FreeConsole 函数从当前控制台分离，然后调用 AllocConsole 创建新控制台，
+// 或调用 AttachConsole 附加到另一个控制台。如果调用进程创建了子进程，子进程将继承这个
+// 新控制台。
+//
+// AllocConsole 为新控制台初始化标准输入、标准输出和标准错误句柄。标准输入句柄是指向控制
+// 台输入缓冲区的句柄，标准输出和标准错误句柄是指向控制台屏幕缓冲区的句柄。要获取这些句柄，
+// 请使用 GetStdHandle 函数。
+//
+// 此函数主要由图形用户界面（GUI）应用程序用于创建控制台窗口。GUI 应用程序初始化时不带
+// 控制台。控制台应用程序初始化时带有控制台，除非它们被创建为分离进程（通过调用 CreateProcess
+// 函数时指定 DETACHED_PROCESS 标志）。
+//
+// BOOL WINAPI AttachConsole(_In_ DWORD dwProcessId);
+// Windows XP [desktop apps only] Windows Server 2003 [desktop apps only]
+// ConsoleApi.h (via WinCon.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 将调用进程附加到指定进程的控制台，作为客户端应用程序运行。成功返回非零值，失败返回零，
+// 调用 GetLastError 获取错误码。参数 dwProcessId 目标进程的标识符，指定要使用的控制台所
+// 属进程。特殊值 ATTACH_PARENT_PROCESS ((DWORD)-1) 表示使用当前进程的父进程的控制台。
+//
+// 一个进程最多只能附加到一个控制台，已附加到控制台的进程再次调用会返回 ERROR_ACCESS_DENIED。
+// 如果目标进程无控制台，返回错误 ERROR_INVALID_HANDLE。如果目标进程不存在，返回错误
+// ERROR_INVALID_PARAMETER。
+//
+// 进程可先调用 FreeConsole 分离当前控制台，如果另一进程共享该控制台，这个控制台不会被释放，
+// 但是调用 FreeConsole 的进程不能再引用它。控制台将在最后一个引用它的进程终止或调用了 FreeConsole
+// 才会关闭。当进程调用 FreeConsole 之后，可以调用 AllocConsole 创建一个新控制台，或者调用
+// AttachConsole 关联一个现存的控制台。
+//
+// 典型应用场景。主要用于 /SUBSYSTEM:WINDOWS 链接的 GUI 程序——这类程序启动时操作系统不为其
+// 分配控制台，因此 GetStdHandle 获取的标准句柄初始无效。调用 AttachConsole 后，标准输入输出
+// 才能正常工作。
+//
+// BOOL WINAPI FreeConsole(void);
+// Windows 2000 Professional [desktop apps only] Windows 2000 Server [desktop apps only]
+// ConsoleApi.h (via WinCon.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 分离（detach）当前进程的控制台，一个进程最多只能附加到一个控制台。进程可以使用 FreeConsole
+// 函数从当前控制台分离。如果其他进程共享该控制台，控制台不会被销毁，但调用 FreeConsole 的
+// 进程无法再引用它。当最后一个附加到控制台的进程终止或调用 FreeConsole 时，控制台才会关闭。
+// 进程调用 FreeConsole 后，可以调用 AllocConsole 函数创建新控制台，或调用 AttachConsole 附
+// 加到另一个控制台。如果调用进程尚未附加到任何控制台，FreeConsole 请求仍然会成功。
+
+void prh_impl_detach_console(void) {
+    BOOL b = FreeConsole();
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_impl_alloc_and_attach_console(void) {
+    BOOL b = AllocConsole();
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_impl_share_console_with_parent(void) {
+    BOOL b = AttachConsole(ATTACH_PARENT_PROCESS);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_impl_share_console_with_process(prh_r32 pid) {
+    BOOL b = AttachConsole(pid);
+    if (!b) prh_prerr(GetLastError());
+}
+
+bool prh_impl_get_std_handles(prh_handle *std_handle) {
+    HANDLE inp_handle, out_handle, err_handle;
+    inp_handle = GetStdHandle(STD_INPUT_HANDLE);
+    out_handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    err_handle = GetStdHandle(STD_ERROR_HANDLE);
+    if (inp_handle == INVALID_HANDLE_VALUE) prh_abort_error(GetLastError());
+    if (out_handle == INVALID_HANDLE_VALUE) prh_abort_error(GetLastError());
+    if (err_handle == INVALID_HANDLE_VALUE) prh_abort_error(GetLastError());
+    std_handle[0] = inp_handle;
+    std_handle[1] = out_handle;
+    std_handle[2] = err_handle;
+    return inp_handle != NULL && out_handle != NULL && err_handle != NULL;
+}
+
+bool prh_impl_setup_std_handles(prh_handle *std_handle) {
+    prh_impl_detach_console();
+    prh_impl_alloc_and_attach_console();
+    return prh_impl_get_std_handles(std_handle);
+}
+
 #else
 // 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
 // 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
