@@ -196,6 +196,27 @@ $(obj)/%.s: $(src)/%.cc FORCE
 $(obj)/%.s: $(src)/%.cpp FORCE
 	$(call if_changed_dep,c++_to_s)
 
+$(obj)/%.asm.o: $(src)/%.asm FORCE
+	$(call if_changed_dep,asm_to_o)
+
+$(obj)/%.as.o: $(src)/%.as FORCE
+	$(call if_changed_dep,fasm_to_o)
+
+$(obj)/%.S.o: $(src)/%.S FORCE
+	$(call if_changed_dep,S_to_o)
+
+$(obj)/%.s.o: $(src)/%.s FORCE
+	$(call if_changed_dep,S_to_o)
+
+$(obj)/%.c.o: $(src)/%.c FORCE
+	$(call if_changed_dep,c_to_o)
+
+$(obj)/%.cc.o: $(src)/%.cc FORCE
+	$(call if_changed_dep,c++_to_o)
+
+$(obj)/%.cpp.o: $(src)/%.cpp FORCE
+	$(call if_changed_dep,c++_to_o)
+
 $(obj)/%.o: $(src)/%.asm FORCE
 	$(call if_changed_dep,asm_to_o)
 

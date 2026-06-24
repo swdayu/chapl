@@ -29,9 +29,17 @@ endif
 export target_root := $(DEST)
 target_suffix := $(call target-file-suffix,$(TARGET_TYPE) $(TARGET_OUTS))
 ifneq ($(filter debug,$(CONFIG_COMPILER)),)
+ifneq ($(filter windows,$(CONFIG_COMPILER)),)
+target_file := $(target_root)/$(TARGET_NAME)_gui_debug$(target_suffix)
+else
 target_file := $(target_root)/$(TARGET_NAME)_debug$(target_suffix)
+endif
+else
+ifneq ($(filter windows,$(CONFIG_COMPILER)),)
+target_file := $(target_root)/$(TARGET_NAME)_gui$(target_suffix)
 else
 target_file := $(target_root)/$(TARGET_NAME)$(target_suffix)
+endif
 endif
 built_in_file := $(target_root)/$(built-in)
 targets :=

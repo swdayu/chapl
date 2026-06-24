@@ -56,6 +56,10 @@ else
 subsystem := CONSOLE # 默认是 console
 endif
 
+ifneq ($(filter entry,$(CONFIG_COMPILER)),)
+LINK_MAIN_ENTRY := start_entry
+endif
+
 unicode_windows_api := 1
 ifeq ($(unicode_windows_api),1)
 LINK_MAIN_ENTRY := w$(LINK_MAIN_ENTRY)
@@ -492,12 +496,12 @@ INIT_CFLAGS += \
 # "kernel32.lib" "user32.lib" "gdi32.lib" "winspool.lib" "comdlg32.lib"
 # "advapi32.lib" "shell32.lib" "ole32.lib" "oleaut32.lib" "uuid.lib"
 # "odbc32.lib" "odbccp32.lib"
+#
 # https://learn.microsoft.com/zh-cn/cpp/c-runtime-library/crt-library-features?view=msvc-170
 # /MT  libcmt.lib   libucrt.lib                 libvcruntime.lib
 # /MTd libcmtd.lib  libucrtd.lib                libvcruntimed.lib
 # /MD  msvcrt.lib   ucrt.lib (ucrtbase.dll)     vcruntime.lib (vcruntime<v>.dll)
 # /MDd msvcrtd.lib  ucrtd.lib (ucrtbased.dll)   vcruntimed.lib (vcruntime<v>d.dll)
-# libcmt.lib libucrt.lib ucrt.lib
 msc-lib-y = kernel32.lib winmm.lib ws2_32.lib shell32.lib ntdll.lib dbghelp.lib synchronization.lib
 
 OPTION_LDLIBS = $(patsubst -l%,%,$(1))
