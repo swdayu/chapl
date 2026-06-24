@@ -31620,6 +31620,340 @@ bool prh_impl_setup_std_handles(prh_handle *std_handle) {
     return prh_impl_get_std_handles(std_handle);
 }
 
+// BOOL WINAPI GetConsoleMode(_In_ HANDLE hConsoleHandle, _Out_ LPDWORD lpMode);
+// BOOL WINAPI SetConsoleMode(_In_ HANDLE hConsoleHandle, _In_ DWORD dwMode);
+// Windows 2000 Professional [desktop apps | UWP apps]
+// Windows 2000 Server [desktop apps | UWP apps]
+// ConsoleApi.h (via WinCon.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 获取控制台输入缓冲区的当前输入模式，或控制台屏幕缓冲区的当前输出模式。如果函数成功，
+// 返回值为非零值。如果函数失败，返回值为零。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 hConsoleHandle 控制台输入缓冲区或控制台屏幕缓冲区的句柄。该句柄必须具有 GENERIC_READ
+// 访问权限。有关更多信息，请参阅"控制台缓冲区安全与访问权限"。
+// https://learn.microsoft.com/en-us/windows/console/console-buffer-security-and-access-rights
+//
+// 参数 lpMode 指向一个变量的指针，该变量接收指定缓冲区的当前模式。如果 hConsoleHandle
+// 参数是输入句柄，则模式可以是以下一个或多个值。创建控制台时，除 ENABLE_WINDOW_INPUT
+// 和 ENABLE_VIRTUAL_TERMINAL_INPUT 外，所有输入模式默认启用。
+//  1.  ENABLE_ECHO_INPUT 0x0004：ReadFile 或 ReadConsole 函数读取的字符会在键入控制台
+//      时写入活动屏幕缓冲区。此模式仅在同时启用 ENABLE_LINE_INPUT 模式时才能使用。
+//  2.  ENABLE_INSERT_MODE 0x0020：启用时，在控制台窗口中输入的文本将插入到当前光标位置，
+//      该位置之后的所有文本不会被覆盖。禁用时，该位置之后的所有文本将被覆盖。
+//  3.  ENABLE_LINE_INPUT 0x0002：ReadFile 或 ReadConsole 函数仅在读取到回车符时才返回。
+//      如果禁用此模式，则当一个或多个字符可用时函数即返回。
+//  4.  ENABLE_MOUSE_INPUT 0x0010：如果鼠标指针位于控制台窗口边框内且窗口具有键盘焦点，
+//      则由鼠标移动和按钮按下产生的鼠标事件将被放入输入缓冲区。即使启用此模式，这些事件
+//      也会被 ReadFile 或 ReadConsole 丢弃。ReadConsoleInput 函数可用于从输入缓冲区读取
+//      MOUSE_EVENT 输入记录。
+//  5.  ENABLE_PROCESSED_INPUT 0x0001：CTRL+C 由系统处理，不会放入输入缓冲区。如果输入缓
+//      冲区正由 ReadFile 或 ReadConsole 读取，其他控制键由系统处理，不会返回到 ReadFile
+//      或 ReadConsole 缓冲区。如果同时启用 ENABLE_LINE_INPUT 模式，退格、回车和换行字符
+//      由系统处理。
+//  6.  ENABLE_QUICK_EDIT_MODE 0x0040：此标志允许用户使用鼠标选择和编辑文本。要启用此模式，
+//      请使用 ENABLE_QUICK_EDIT_MODE | ENABLE_EXTENDED_FLAGS。要禁用此模式，请使用不带此
+//      标志的 ENABLE_EXTENDED_FLAGS。
+//  7.  ENABLE_WINDOW_INPUT 0x0008：更改控制台屏幕缓冲区大小的用户交互将报告在控制台的输入
+//      缓冲区中。有关这些事件的信息可由使用 ReadConsoleInput 函数的应用程序从输入缓冲区
+//      读取，但使用 ReadFile 或 ReadConsole 的应用程序无法读取。
+//  8.  ENABLE_VIRTUAL_TERMINAL_INPUT 0x0200：设置此标志将指示虚拟终端处理引擎将控制台窗口
+//      接收的用户输入转换为控制台虚拟终端序列，支持的应用程序可通过 ReadFile 或 ReadConsole
+//      函数检索这些序列。
+//      此标志的典型用法是与输出句柄上的 ENABLE_VIRTUAL_TERMINAL_PROCESSING 配合使用，以
+//      连接到仅通过虚拟终端序列通信的应用程序。
+//
+// 如果 hConsoleHandle 参数是屏幕缓冲区句柄，则模式可以是以下一个或多个值。创建屏幕缓冲区时，
+// 两种输出模式默认都启用。
+//  1.  ENABLE_PROCESSED_OUTPUT 0x0001：WriteFile 或 WriteConsole 函数写入的字符，或由 ReadFile
+//      或 ReadConsole 函数回显的字符，会被解析为 ASCII 控制序列并执行正确的操作。退格、制表、
+//      响铃、回车和换行字符会被处理。使用控制序列或设置 ENABLE_VIRTUAL_TERMINAL_PROCESSING
+//      时应启用此模式。
+//  2.  ENABLE_WRAP_AT_EOL_OUTPUT 0x0002：使用 WriteFile 或 WriteConsole 写入，或使用 ReadFile
+//      或 ReadConsole 回显时，当光标到达当前行末尾时会移动到下一行的开头。这会导致控制台窗口
+//      中显示的行在光标移出窗口最后一行时自动向上滚动。当光标移出控制台屏幕缓冲区最后一行时，
+//      也会导致控制台屏幕缓冲区内容向上滚动（丢弃控制台屏幕缓冲区的顶行）。如果禁用此模式，
+//      后续字符将覆盖该行的最后一个字符。
+//  3.  ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004：使用 WriteFile 或 WriteConsole 写入时，
+//      字符会被解析为 VT100 及类似的控制字符序列，这些序列控制光标移动、颜色/字体模式以及
+//      可通过现有控制台 API 执行的其他操作。有关更多信息，请参阅"控制台虚拟终端序列"。使用
+//      此标志时，请确保设置 ENABLE_PROCESSED_OUTPUT。
+//  4.  DISABLE_NEWLINE_AUTO_RETURN 0x0008：使用 WriteFile 或 WriteConsole 写入时，此标志为
+//      行尾换行添加额外状态，可以延迟光标移动和缓冲区滚动操作。
+//      通常，当设置 ENABLE_WRAP_AT_EOL_OUTPUT 且文本到达行尾时，光标会立即移动到下一行，缓
+//      冲区内容会向上滚动一行。与此相反，设置此标志后，光标不会移动到下一行，也不会执行滚动
+//      操作。写入的字符将打印在该行的最后一个位置，光标将保持在该字符上方，就像 ENABLE_WRAP_AT_EOL_OUTPUT
+//      被关闭一样，但下一个可打印字符将像 ENABLE_WRAP_AT_EOL_OUTPUT 开启一样打印。不会发生
+//      覆盖。具体来说，光标会快速向下移动到下一行，必要时执行滚动，打印字符，然后光标再前进
+//      一个位置。
+//      此标志的典型用法是与设置 ENABLE_VIRTUAL_TERMINAL_PROCESSING 配合使用，以更好地模拟
+//      终端仿真器，其中在屏幕（右下角）写入最后一个字符而不触发立即滚动是期望的行为。
+//  5.  ENABLE_LVB_GRID_WORLDWIDE 0x0010：用于写入字符属性的 API（包括 WriteConsoleOutput 和
+//      WriteConsoleOutputAttribute）允许使用字符属性标志来调整文本的前景色和背景色。此外，
+//      还指定了一系列带有 COMMON_LVB 前缀的 DBCS 标志。历史上，这些标志仅在中文、日文和韩文
+//      的 DBCS 代码页中起作用。
+//      除了前导字节和尾随字节标志外，描述线条绘制和反色（交换前景色和背景色）的剩余标志对其
+//      他语言强调输出部分也很有用。设置此控制台模式标志将允许这些属性在每个代码页的每种语言
+//      中使用。
+//      默认情况下它是关闭的，以保持与已知应用程序的兼容性，这些应用程序历史上利用控制台在非
+//      CJK 机器上忽略这些标志的特性，在这些字段中存储位用于自己的目的或意外情况。
+//      请注意，使用 ENABLE_VIRTUAL_TERMINAL_PROCESSING 模式时，如果附加的应用程序通过控制台
+//      虚拟终端序列请求下划线或反色视频，即使此标志仍关闭，也可能导致设置 LVB 网格和反色视
+//      频标志。
+//
+// 控制台由一个输入缓冲区和一个或多个屏幕缓冲区组成。控制台缓冲区的模式决定了控制台在输入或
+// 输出（I/O）操作期间的行为。一组标志常量用于输入句柄，另一组用于屏幕缓冲区（输出）句柄。设
+// 置一个屏幕缓冲区的输出模式不会影响其他屏幕缓冲区的输出模式。
+//
+// ENABLE_LINE_INPUT 和 ENABLE_ECHO_INPUT 模式仅影响使用 ReadFile 或 ReadConsole 从控制台输入
+// 缓冲区读取的进程。同样，ENABLE_PROCESSED_INPUT 模式主要影响 ReadFile 和 ReadConsole 用户，
+// 但它也决定 CTRL+C 输入是报告在输入缓冲区中（由 ReadConsoleInput 函数读取）还是传递给应用程
+// 序定义的函数。
+//
+// ENABLE_WINDOW_INPUT 和 ENABLE_MOUSE_INPUT 模式决定涉及窗口大小调整和鼠标操作的用户交互是
+// 报告在输入缓冲区中还是被丢弃。这些事件可由 ReadConsoleInput 读取，但始终会被 ReadFile 和
+// ReadConsole 过滤。
+//
+// ENABLE_PROCESSED_OUTPUT 和 ENABLE_WRAP_AT_EOL_OUTPUT 模式仅影响使用 ReadFile 或 ReadConsole
+// 以及 WriteFile 或 WriteConsole 的进程。要更改控制台的 I/O 模式，请调用 SetConsoleMode 函数。
+//
+// BOOL WINAPI WriteConsole(
+//      _In_             HANDLE  hConsoleOutput,
+//      _In_       const VOID    *lpBuffer,
+//      _In_             DWORD   nNumberOfCharsToWrite,
+//      _Out_opt_        LPDWORD lpNumberOfCharsWritten,
+//      _Reserved_       LPVOID  lpReserved);
+// WriteConsoleW (Unicode) and WriteConsoleA (ANSI)
+// Windows 2000 Professional [desktop apps only] Windows 2000 Server [desktop apps only]
+// ConsoleApi.h (via WinCon.h, include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 将字符字符串写入控制台屏幕缓冲区，从当前光标位置开始。如果函数成功，返回值为非零值。
+// 如果函数失败，返回值为零。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 hConsoleOutput 控制台屏幕缓冲区的句柄。该句柄必须具有 GENERIC_WRITE 访问权限。
+// 有关更多信息，请参阅"控制台缓冲区安全与访问权限"。参数 lpBuffer 指向包含要写入控制
+// 台屏幕缓冲区的字符的缓冲区指针。对于 WriteConsoleA 应为 char 数组，对于 WriteConsoleW
+// 应为 wchar_t 数组。
+//
+// 参数 nNumberOfCharsToWrite 要写入的字符数。如果指定字符数的总大小超过可用堆，函数将
+// 以 ERROR_NOT_ENOUGH_MEMORY 失败。参数 lpNumberOfCharsWritten 可选，指向接收实际写入
+// 字符数的变量的指针。参数 lpReserved 保留，必须为 NULL。
+//
+// WriteConsole 函数在当前光标位置将字符写入控制台屏幕缓冲区。写入字符时光标位置会前进。
+// SetConsoleCursorPosition 函数设置当前光标位置。
+//
+// 字符使用与控制台屏幕缓冲区关联的前景和背景颜色属性写入。SetConsoleTextAttribute 函数
+// 更改这些颜色。要确定当前颜色属性和当前光标位置，请使用 GetConsoleScreenBufferInfo。
+//
+// 所有影响 WriteFile 函数行为的输入模式对 WriteConsole 具有相同效果。要检索和设置控制台
+// 屏幕缓冲区的输出模式，请使用 GetConsoleMode 和 SetConsoleMode 函数。
+//
+// 此函数使用 Unicode 字符或控制台当前代码页的 8 位字符。控制台的代码页默认初始化为系统的
+// OEM 代码页。要更改控制台的代码页，请使用 SetConsoleCP 或 SetConsoleOutputCP 函数。旧版
+// 消费者也可以使用 chcp 或 mode con cp select= 命令，但不建议用于新开发。
+//
+// 如果 WriteConsole 与重定向到文件的标准句柄一起使用，则会失败。如果应用程序处理可重定向
+// 的多语言输出，请确定输出句柄是否为控制台句柄（一种方法是调用 GetConsoleMode 函数并检查
+// 是否成功）。如果句柄是控制台句柄，则调用 WriteConsole。如果句柄不是控制台句柄，则输出已
+// 被重定向，应调用 WriteFile 执行 I/O。确保为 Unicode 纯文本文件添加字节顺序标记前缀。有
+// 关更多信息，请参阅"使用字节顺序标记"。
+//
+// 虽然应用程序可以在 ANSI 模式下使用 WriteConsole 写入 ANSI 字符，但除非启用，否则控制台
+// 不支持"ANSI 转义"或"虚拟终端"序列。有关更多信息以及操作系统版本适用性，请参阅"控制台虚
+// 拟终端序列"。
+//
+// 当未启用虚拟终端转义序列时，控制台函数可以提供等效功能。有关更多信息，请参阅 SetCursorPos、
+// SetConsoleTextAttribute 和 GetConsoleCursorInfo。
+//
+// BOOL WriteFile(
+//      [in]                HANDLE       hFile,
+//      [in]                LPCVOID      lpBuffer,
+//      [in]                DWORD        nNumberOfBytesToWrite,
+//      [out, optional]     LPDWORD      lpNumberOfBytesWritten,
+//      [in, out, optional] LPOVERLAPPED lpOverlapped);
+// Windows XP [desktop apps | UWP apps] Windows Server 2003 [desktop apps | UWP apps]
+// fileapi.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 将数据写入指定的文件或输入/输出（I/O）设备。此函数设计用于同步和异步操作。有关仅用于
+// 异步操作的类似函数，请参阅 WriteFileEx。如果函数成功，返回值为非零（TRUE）。如果函数
+// 失败，或正在异步完成，返回值为零（FALSE）。要获取扩展错误信息，请调用 GetLastError
+// 函数。注意，GetLastError 代码 ERROR_IO_PENDING 不是失败；它表示写操作正在异步等待完成。
+//
+// 参数 hFile 文件或 I/O 设备的句柄（例如，文件、文件流、物理磁盘、卷、控制台缓冲区、磁带
+// 驱动器、套接字、通信资源、邮件槽或管道）。hFile 参数必须已使用写访问权限创建。有关更多
+// 信息，请参阅"通用访问权限"和"文件安全与访问权限"。
+// https://learn.microsoft.com/en-us/windows/win32/SecAuthZ/generic-access-rights
+// https://learn.microsoft.com/en-us/windows/win32/FileIO/file-security-and-access-rights
+//
+// 对于异步写操作，hFile 可以是使用 CreateFile 函数以 FILE_FLAG_OVERLAPPED 标志打开的任何
+// 句柄，或是由 socket 或 accept 函数返回的套接字句柄。
+//
+// 参数 lpBuffer 指向包含要写入文件或设备的数据的缓冲区的指针。此缓冲区必须在写操作期间保
+// 持有效。调用者在写操作完成之前不得使用此缓冲区。
+//
+// 参数 nNumberOfBytesToWrite 要写入文件或设备的字节数。值为零指定空写操作。空写操作的行为
+// 取决于底层文件系统或通信技术。Windows Server 2003 和 Windows XP：跨网络的管道写操作每次
+// 写入的大小受限。具体数量因平台而异。x86 平台为 63.97 MB，x64 平台为 31.97 MB，Itanium 为
+// 63.95 MB。有关管道的更多信息，请参阅"备注"部分。
+//
+// 参数 lpNumberOfBytesWritten，该变量在使用同步 hFile 参数时接收写入的字节数。WriteFile 在
+// 执行任何工作或错误检查之前将此值设置为零。如果这是异步操作，请对此参数使用 NULL 以避免潜
+// 在的错误结果。此参数仅在 lpOverlapped 参数不为 NULL 时可以为 NULL。Windows 7：此参数不能
+// 为 NULL。有关更多信息，请参阅"备注"部分。
+//
+// 参数 lpOverlapped，如果 hFile 参数使用 FILE_FLAG_OVERLAPPED 打开，则必须指向 OVERLAPPED
+// 结构，否则此参数可以为 NULL。
+//
+// 对于支持字节偏移的 hFile，如果使用此参数，必须指定开始写入文件或设备的字节偏移。此偏移通
+// 过设置 OVERLAPPED 结构的 Offset 和 OffsetHigh 成员来指定。对于不支持字节偏移的 hFile，
+// Offset 和 OffsetHigh 被忽略。
+//
+// 要写入文件末尾，请将 OVERLAPPED 结构的 Offset 和 OffsetHigh 成员均指定为 0xFFFFFFFF。
+// 这在功能上等同于先前调用 CreateFile 函数以 FILE_APPEND_DATA 访问权限打开 hFile。有关
+// lpOverlapped 和 FILE_FLAG_OVERLAPPED 的不同组合的更多信息，请参阅"备注"部分和"同步与
+// 文件位置"部分。
+//
+// WriteFile 函数在以下任一条件发生时返回：
+//  1.  请求的字节数已写入。
+//  2.  读操作释放了管道读端的缓冲区空间（如果写操作被阻塞）。有关更多信息，请参阅"管道"部分。
+//  3.  正在使用异步句柄且写操作异步进行。
+//  4.  发生错误。
+//
+// 当存在过多未完成的异步 I/O 请求时，WriteFile 函数可能以 ERROR_INVALID_USER_BUFFER 或
+// ERROR_NOT_ENOUGH_MEMORY 失败。要取消所有待处理的异步 I/O 操作，请使用以下之一：
+//  * CancelIo — 此函数仅取消调用线程为指定文件句柄发出的操作。
+//  * CancelIoEx — 此函数取消线程为指定文件句柄发出的所有操作。
+//
+// 使用 CancelSynchronousIo 函数取消待处理的同步 I/O 操作。被取消的 I/O 操作以错误 ERROR_OPERATION_ABORTED
+// 完成。
+//
+// WriteFile 函数可能以 ERROR_NOT_ENOUGH_QUOTA 失败，这意味着调用进程的缓冲区无法页锁定。
+// 有关更多信息，请参阅 SetProcessWorkingSetSize。
+// https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-setprocessworkingsetsize
+//
+// 如果文件的某部分被另一个进程锁定，且写操作与锁定部分重叠，WriteFile 将失败。
+//
+// 写入文件时，直到所有用于写入的句柄都关闭后，最后写入时间才会完全更新。因此，为确保准确
+// 的最后写入时间，请在写入文件后立即关闭文件句柄。请注意，远程文件的时间戳可能无法正确更新。
+// 为确保一致的结果，请使用无缓冲 I/O。
+//
+// 在写操作使用缓冲区期间访问输出缓冲区可能导致写入数据损坏。应用程序在写操作完成之前，不得
+// 写入、重新分配或释放写操作正在使用的输出缓冲区。使用异步文件句柄时，这可能特别成问题。有
+// 关同步与异步文件句柄的更多信息，请参阅后文的"同步与文件位置"部分和"同步与异步 I/O"。
+//
+// 系统将零字节写入解释为空写操作，WriteFile 不会截断或扩展文件。要截断或扩展文件，请使用
+// SetEndOfFile 函数。
+//
+// 可以使用 WriteFile 和指向控制台输出的句柄将字符写入屏幕缓冲区。函数的确切行为由控制台模
+// 式决定。数据写入当前光标位置。写操作后更新光标位置。有关控制台句柄的更多信息，请参阅
+// CreateFile。
+//
+// 写入通信设备时，WriteFile 的行为由使用 SetCommTimeouts 和 GetCommTimeouts 函数设置和检索
+// 的当前通信超时决定。如果未能设置超时值，可能会产生不可预测的结果。有关通信超时的更多信息，
+// 请参阅 COMMTIMEOUTS。
+//
+// 虽然单扇区写入是原子的，但多扇区写入不保证是原子的，除非您使用事务（即，创建的句柄是事务
+// 句柄；例如，使用 CreateFileTransacted 创建的句柄）。被缓存的多扇区写入可能不会总是立即写
+// 入磁盘；因此，在 CreateFile 中指定 FILE_FLAG_WRITE_THROUGH 以确保整个多扇区写入在不受潜在
+// 缓存延迟影响的情况下写入磁盘。
+//
+// 如果直接写入已挂载文件系统的卷，必须首先获得对该卷的独占访问权限。否则，您可能会导致数据
+// 损坏或系统不稳定，因为应用程序的写入可能与来自文件系统的其他更改冲突，导致卷内容处于不一
+// 致状态。为防止这些问题，Windows Vista 及更高版本进行了以下更改：
+//  1.  如果卷没有挂载文件系统，或满足以下条件之一，对卷句柄的写入将成功：
+//      * 要写入的扇区是引导扇区。
+//      * 要写入的扇区位于文件系统空间之外。
+//      * 您已使用 FSCTL_LOCK_VOLUME 或 FSCTL_DISMOUNT_VOLUME 显式锁定或卸载了卷。
+//      * 卷没有实际的文件系统。（换句话说，它挂载了 RAW 文件系统。）
+//  2.  如果满足以下条件之一，对磁盘句柄的写入将成功：
+//      * 要写入的扇区不落在卷的范围内。
+//      * 要写入的扇区落在已挂载的卷内，但您已使用 FSCTL_LOCK_VOLUME 或 FSCTL_DISMOUNT_VOLUME 显式锁定或卸载了卷。
+//      * 要写入的扇区落在没有挂载除 RAW 之外的文件系统的卷内。
+//
+// 对于使用 CreateFile 以 FILE_FLAG_NO_BUFFERING 打开的文件，成功操作有严格的要求。有关详细信息，
+// 请参阅"文件缓冲"。https://learn.microsoft.com/en-us/windows/win32/FileIO/file-buffering
+//
+// 如果 hFile 使用 FILE_FLAG_OVERLAPPED 打开，以下条件生效：
+//  1.  lpOverlapped 参数必须指向有效且唯一的 OVERLAPPED 结构，否则函数可能错误地报告写操作已完成。
+//  2.  lpNumberOfBytesWritten 参数应设置为 NULL。要获取写入的字节数，请使用 GetOverlappedResult
+//      函数。如果 hFile 参数与 I/O 完成端口关联，您还可以通过调用 GetQueuedCompletionStatus 函数
+//      获取写入的字节数。
+//
+// 在 Windows Server 2012 中，此函数由以下技术支持。
+//      服务器消息块（SMB）3.0 协议     是
+//      SMB 3.0 透明故障转移（TFO）     是
+//      SMB 3.0 与扩展文件共享（SO）    是
+//      群集共享卷文件系统（CsvFS）     是
+//      弹性文件系统（ReFS）            是
+//
+// 同步与文件位置。如果 hFile 使用 FILE_FLAG_OVERLAPPED 打开，则为异步文件句柄；否则为同步
+// 文件句柄。如前所述，每种情况下使用 OVERLAPPED 结构的规则略有不同。注意，如果文件或设备为
+// 异步 I/O 打开，随后使用该句柄调用 WriteFile 等函数通常立即返回，但也可能相对于阻塞执行表
+// 现为同步。有关更多信息，请参阅"Windows 上异步磁盘 I/O 表现为同步"。
+//
+// 使用异步文件句柄的注意事项：
+//  1.  WriteFile 可能在写操作完成之前返回。在这种情况下，WriteFile 返回 FALSE，GetLastError
+//      函数返回 ERROR_IO_PENDING，允许调用进程在系统完成写操作期间继续执行。
+//  2.  lpOverlapped 参数不能为 NULL，并应牢记以下事实：
+//      2.1 虽然 OVERLAPPED 结构中指定的事件由系统自动设置和重置，但 OVERLAPPED 结构中指定的偏移量不会自动更新。
+//      2.2 WriteFile 在开始 I/O 操作时将事件重置为非信号状态。
+//      2.3 写操作完成时，OVERLAPPED 结构中指定的事件设置为信号状态；在此之前，写操作被视为待处理。
+//      2.4 由于写操作从 OVERLAPPED 结构中指定的偏移量开始，且 WriteFile 可能在系统级写操作完成之前
+//      返回（写待处理），因此在事件被信号化之前（即写完成之前），应用程序不得修改、释放或重用结构的
+//      偏移量或任何其他部分。
+//
+// 使用同步文件句柄的注意事项：
+//  1.  如果 lpOverlapped 为 NULL，写操作从当前文件位置开始，WriteFile 直到操作完成才返回，
+//      系统在 WriteFile 返回之前更新文件指针。
+//  2.  如果 lpOverlapped 不为 NULL，写操作从 OVERLAPPED 结构中指定的偏移量开始，WriteFile
+//      直到写操作完成才返回。系统在 WriteFile 返回之前更新 OVERLAPPED 的 Internal 和 InternalHigh
+//      字段以及文件指针。
+//
+// 有关更多信息，请参阅 CreateFile 和"同步与异步 I/O"。
+// https://learn.microsoft.com/en-us/windows/win32/FileIO/synchronous-and-asynchronous-i-o
+//
+// 管道。如果正在使用匿名管道且读句柄已关闭，当 WriteFile 尝试使用管道对应的写句柄写入时，函数
+// 返回 FALSE，GetLastError 返回 ERROR_BROKEN_PIPE。
+//
+// 当应用程序使用 WriteFile 函数写入管道时，如果管道缓冲区已满，写操作可能不会立即完成。当读操作
+// （使用 ReadFile 函数）为管道释放更多系统缓冲区空间时，写操作将完成。
+//
+// 使用非阻塞字节模式管道句柄写入且缓冲区空间不足时，WriteFile 返回 TRUE，且 *lpNumberOfBytesWritten
+// < nNumberOfBytesToWrite。有关管道的更多信息，请参阅"管道"。
+//
+// 事务操作。如果文件句柄绑定到事务，则文件写入是事务性的。有关更多信息，请参阅"关于事务性 NTFS"。
+//
+// 有关示例，请参阅"创建和使用临时文件"以及"打开文件进行读取或写入"。
+// https://learn.microsoft.com/en-us/windows/win32/FileIO/creating-and-using-a-temporary-file
+// https://learn.microsoft.com/en-us/windows/win32/FileIO/opening-a-file-for-reading-or-writing
+//
+// 以下 C++ 示例演示如何为无缓冲文件写入对齐扇区。Size 变量是您有兴趣写入文件的原始数据块的大小。
+// 有关无缓冲文件 I/O 的其他规则，请参阅"文件缓冲"。
+//      #include <windows.h>
+//      #define ROUND_UP_SIZE(Value,Pow2) ((SIZE_T) ((((ULONG)(Value)) + (Pow2) - 1) & (~(((LONG)(Pow2)) - 1))))
+//      #define ROUND_UP_PTR(Ptr,Pow2)  ((void *) ((((ULONG_PTR)(Ptr)) + (Pow2) - 1) & (~(((LONG_PTR)(Pow2)) - 1))))
+//      int main() {
+//          // 示例数据
+//          unsigned long bytesPerSector = 65536; // 从 GetFreeDiskSpace 函数获取
+//          unsigned long size = 15536; // 要写入的数据缓冲区大小
+//          // 确保比 Size 所需的扇区数多一个
+//          size_t sizeNeeded = bytesPerSector + ROUND_UP_SIZE(size, bytesPerSector);
+//          // 将此语句替换为任何分配例程
+//          auto buffer = new uint8_t[sizeNeeded];
+//          // 实际对齐发生在这里
+//          auto bufferAligned = ROUND_UP_PTR(buffer, bytesPerSector);
+//          // ... 在此处添加使用 bufferAligned 的代码
+//          // 替换为对应的释放例程
+//          delete buffer;
+//      }
+prh_r32 prh_impl_write_console(prh_handle output, const void *buffer, prh_r32 bytes) {
+    prh_r32 written = 0;
+    BOOL b = WriteFile((HANDLE)output, buffer, bytes, &written, prh_null);
+    if (!b) prh_prerr(GetLastError());
+    return written;
+}
 #else
 // 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
 // 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
