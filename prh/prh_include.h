@@ -44548,6 +44548,288 @@ typedef struct {
     prh_byte escape_values[26][2];
 } prh_lexer;
 
+// C 语言转义字符：
+//
+//  \'
+//  \"
+//  \?
+//  \\
+//  \a
+//  \b
+//  \f
+//  \n
+//  \r
+//  \t
+//  \v
+//  \0
+//  \n... (1~3 octal digits)
+//  \xn... (arbitrary hex digits)
+//  \unnnn (4 hex digits)
+//  \Unnnnnnnn (8 hex digits)
+//
+// Unicode 允许码点：
+//  1.  码点 ≥ 0xA0 且 ≤ 0x10FFFF 的 Unicode 字符
+//  2.  但允许以下特殊值 0x24 ($)、0x40 (@)、0x60 (`)
+// 禁止的码点（导致程序格式错误）
+//  范围            说明
+//  0x00–0x1F       控制字符（C0 控制区）
+//  0x20–0x7E       基本源字符集成员（但 $ @ ` 字符除外）
+//  0x7F–0x9F       控制字符（DEL 和 C1 控制区）
+//  0xD800–0xDFFF   UTF-16 代理对码点
+//  > 0x10FFFF      超出 Unicode 范围
+//
+// \0 是最常用的八进制转义序列，因为它表示空终止字符串中的终止空字符。换行符 \n 在文本
+// 模式 I/O 中具有特殊含义：它被转换为操作系统特定的换行字节或字节序列。
+//
+// 八进制转义序列的长度限制为三个八进制数字，但如果提前遇到非有效八进制数字的字符，则在
+// 该字符处终止。
+//
+// 十六进制转义序列没有长度限制，并在第一个非有效十六进制数字的字符处终止。如果单个十六
+// 进制转义序列表示的值超出该字符串字面量或字符常量中使用的字符类型（char、char8_t、
+// char16_t、char32_t 或 wchar_t）所表示的值范围，则结果未指定。
+//
+// 窄字符串字面量或 16 位字符串字面量中的通用字符名可能映射到多个码元，例如 \U0001f34c
+// 在 UTF-8 中是 4 个 char 码元（\xF0\x9F\x8D\x8C），在 UTF-16 中是 2 个 char16_t 码元
+// （\xD83C\xDF4C）。
+//
+// 问号转义序列 \? 用于防止在字符串字面量中解释三字符组：字符串如 "??/" 被编译为 "\"，但
+// 如果第二个问号被转义，如 "?\?/"，则变为 "??/"
+//
+// 'c-char'    char         'c-char-sequence'   int // 大端字节序存储的整数，例如 '\1' 表示 0x01，'\1\2\3\4' 表示 0x01020304
+// L'c-ahr'    wchar_t      L'c-char_sequence'  wchar_t // L'A' L'AB'
+// u'c-char'   char16_t     u'c-char-sequence'  char16_t (since C11)(removed in C23)
+// U'c-char'   char32_t     U'c-char-sequence'  char32_t (since C11)(removed in C23)
+
+// C++ 转义字符
+//
+//  \o{n...}
+//  \x{n...}
+//  \c conditional escape sequences, implementation-defined
+//  \u{n...}
+//  \N{NAME}
+//
+// 条件转义序列是条件支持的。每个条件转义序列中的字符 c 是基本源字符集（C++23 之前）/ 基本
+// 字符集（C++23 起）的成员，但不是任何其他转义序列中 \ 后面跟随的字符。
+//
+// 如果通用字符名对应的码点不是 0x24 ($)、0x40 (@) 或 ` (0x60) 且小于 0xA0，则程序是格式
+// 错误的。换言之，基本源字符集的成员和控制字符（范围 0x0–0x1F 和 0x7F–0x9F）不能用通用字
+// 符表示。（C++11 之前）https://cppreference.com/cpp/language/charset#Basic_character_set
+//
+// 如果对应于基本源字符集成员或控制字符的码点的通用字符名出现在字符或字符串字面量之外，则
+// 程序是格式错误的。如果通用字符对应于代理码点（范围 0xD800–0xDFFF，含端点），则程序是格式
+// 错误的。如果在 UTF-16/32 字符串字面量中使用的通用字符名不对应于 ISO/IEC 10646 中的码点
+// （范围 0x0–0x10FFFF，含端点），则程序是格式错误的。（C++11 起）（C++20 之前）
+//
+// 如果对应于基本源字符集成员或控制字符的码点的通用字符名出现在字符或字符串字面量之外，则程
+// 序是格式错误的。如果通用字符名不对应于 ISO/IEC 10646 中的码点（范围 0x0–0x10FFFF，含端点），
+// 或对应于代理码点（范围 0xD800–0xDFFF，含端点），则程序是格式错误的。（C++20 起）（C++23 之前）
+//
+// 如果对应于基本字符集中字符的标量值或控制字符的通用字符名出现在字符或字符串字面量之外，则
+// 程序是格式错误的。如果通用字符名不对应于翻译字符集中字符的标量值，则程序是格式错误的。（C++23 起）
+//
+// 命名通用字符转义 \N{ n-char-sequence } （C++23 起）
+//      n-char-sequence 一个或多个 n-char
+//      n-char 翻译字符集中的字符，但右花括号 } 和换行符除外
+//
+// 上述语法的通用字符名是命名通用字符。如果 n-char-sequence 等于其字符名称或其字符名称别名之一，
+// 则它指定 Unicode 标准（第 4.8 节"名称"）中对应的字符；否则，程序是格式错误的。这些别名列在
+// Unicode 字符数据库的 NameAliases.txt 中。这些名称或别名都没有前导或尾随空格。
+//
+// 有效的 n-char-sequence 必须仅包含大写拉丁字母 A 到 Z、数字、空格和连字符减号。其他字符从不出
+// 现在 Unicode 字符名称中，因此它们在 n-char-sequence 中出现总是使程序格式错误。
+//
+// \0 是最常用的八进制转义序列，因为它表示空终止字符串中的终止空字符。换行符 \n 在文本模式 I/O
+// 中具有特殊含义：它被转换为操作系统特定的换行表示，通常是字节或字节序列。某些系统用长度字段标
+// 记其行。
+//
+// 八进制转义序列限制为三个八进制数字，但如果提前遇到非有效八进制数字的字符，则在该字符处终止。
+// 十六进制转义序列没有长度限制，并在第一个非有效十六进制数字的字符处终止。如果单个十六进制转义
+// 序列表示的值超出该字符串字面量中使用的字符类型（char、char8_t（C++20 起）、char16_t、char32_t
+// （C++11 起）或 wchar_t）所表示的值范围，则结果未指定。
+//
+// 窄字符串字面量或 16 位字符串字面量中的通用字符名可能映射到多个码单元，例如 \U0001f34c 在 UTF-8
+// 中是 4 个 char 码单元（\xF0\x9F\x8D\x8C），在 UTF-16 中是 2 个 char16_t 码单元（\xD83C\xDF4C）。
+//
+// 问号转义序列 \? 用于防止在字符串字面量中解释三字符组：字符串如 "??/" 被编译为 "\"，但如果第二
+// 个问号被转义，如 "?\?/"，则变为 "??/"。由于三字符组已从 C++ 中移除，问号转义序列不再必要。为与
+// C++14（及更早版本）和 C 兼容而保留。（C++17 起）
+
+typedef enum: prh_byte {
+    prh_impl_esch_invalid = 0,
+    prh_impl_esch_ext_value,
+    prh_impl_esch_value,
+    prh_impl_esch_octal,
+    prh_impl_esch_xcode,
+    prh_impl_esch_ucode,
+    prh_impl_esch_Ucode,
+    prh_impl_esch_uname,
+} prh_impl_esch_type;
+
+//  [C/C++] \' 兼容 C/C++
+//  [C/C++] \" 兼容 C/C++
+//  [C/C++] \? 兼容 C/C++
+//  [C/C++] \\ 兼容 C/C++
+//  [C/C++] \a 兼容 C/C++
+//  [C/C++] \b 兼容 C/C++
+//  [C/C++] \f 兼容 C/C++
+//  [C/C++] \n 兼容 C/C++
+//  [C/C++] \r 兼容 C/C++
+//  [C/C++] \t 兼容 C/C++
+//  [C/C++] \v 兼容 C/C++
+//  [C/C++] \0 兼容 C/C++
+//  [C/C++] \n... (1~3 octal digits) [NEW_LANG] 不支持，仅支持 \0
+//  [C/C++] \xn... (arbitrary hex digits) [NEW_LANG] 不支持，必须显式编写 \xNN
+//  [C/C++] \unnnn (4 hex digits) [NEW_LANG] 兼容 C/C++，必须四个数位
+//  [C/C++] \Unnnnnnnn (8 hex digits) [NEW_LANG] 兼容 C/C++，必须八个数位
+//  [C++]   \o{n...} [NEW_LANG] 不支持
+//  [C++]   \x{n...} [NEW_LANG] 不支持，最多8个数位，最后是否在目标类型范围内由语法阶段判断
+//  [C++]   \u{n...} [NEW_LANG] 不支持
+//  [C++]   \N{NAME} [NEW_LANG] 不支持
+//
+//  [NEW_LINE] \e      新增，表示ESC
+//  [NEW_LANG] \s      新增，表示空格
+//  [NEW_LANG] \xNN    必须两个数位
+//  [NEW_LANG] \uNNNN  必须四个数位
+//
+//  0x00  \0    0x10        0x20  SP    0x30 [0] 3  0x40  @     0x50  P     0x60  `     0x70  p
+//  0x01        0x11        0x21  !     0x31 [1] 4  0x41  A     0x51  Q     0x61 [a]15  0x71  q
+//  0x02        0x12        0x22 ["] 1  0x32 [2] 5  0x42  B     0x52  R     0x62 [b]16  0x72 [r]20
+//  0x03        0x13        0x23  #     0x33 [3] 6  0x43  C     0x53  S     0x63  c     0x73 <s>21
+//  0x04        0x14        0x24  $     0x34 [4] 7  0x44  D     0x54  T     0x64  d     0x74 [t]22
+//  0x05        0x15        0x25  %     0x35 [5] 8  0x45  E     0x55 [U]13  0x65 <e>17  0x75 [u]23
+//  0x06        0x16        0x26  &     0x36 [6] 9  0x46  F     0x56  V     0x66 [f]18  0x76 [v]24
+//  0x07  \a    0x17        0x27 ['] 2* 0x37 [7]10  0x47  G     0x57  W     0x67  g     0x77  w
+//
+//  0x08  \b    0x18        0x28  (     0x38  8     0x48  H     0x58  X     0x68  h     0x78 [x]25*
+//  0x09  \t    0x19        0x29  )     0x39  9     0x49  I     0x59  Y     0x69  i     0x79  y
+//  0x0a  \n    0x1a        0x2a  *     0x3a  :     0x4a  J     0x5a  Z     0x6a  j     0x7a  z
+//  0x0b  \v    0x1b ESC    0x2b  +     0x3b  ;     0x4b  K     0x5b  [     0x6b  k     0x7b  {
+//  0x0c  \f    0x1c        0x2c  ,     0x3c  <     0x4c  L     0x5c [\]14* 0x6c  l     0x7c  |
+//  0x0d  \r    0x1d        0x2d  -     0x3d  =     0x4d  M     0x5d  ]     0x6d  m     0x7d  }
+//  0x0e        0x1e        0x2e  .     0x3e  >     0x4e [N]12* 0x5e  ^     0x6e [n]19* 0x7e  ~
+//  0x0f        0x1f        0x2f  /     0x3f [?]11* 0x4f  O     0x5f  _     0x6f  o     0x7f DEL
+//
+//                          1000_0100   1111_1111   0000_0000   0010_0000   0110_0110   0111_1100
+//                          0000_0000   1000_0000   0100_0000   0001_0000   0100_0000   0000_0001
+//                             0x0084      0x80ff      0x4000      0x1020      0x4066      0x017c
+//  _____________________________________________________________________________________________
+//  0000_0000   0001_0000   0010_0000   0011_0000   0100_0000   0101_0000   0110_0000   0111_0000
+//  0000_1111   0001_1111   0010_1111   0011_1111   0100_1111   0101_1111   0110_1111   0111_1111
+
+void prh_impl_escape_lexing_init(prh_lexer *l) {
+    prh_impl_8_column escape_filter = {
+        { 0x0000, 0x0000, 0x0084, 0x80ff, 0x4000, 0x1020, 0x4066, 0x017c },
+        {      0,      0,      0,      2,     11,     12,     14,     19 },
+    };
+    prh_byte escape_values[26][2] = {
+        /* 0 [ ] */ {prh_impl_esch_invalid, 0},
+        /* 1 ["] */ {prh_impl_esch_value, '\"'},
+        /* 2 ['] */ {prh_impl_esch_value, '\''},
+        /* 3 [0] */ {prh_impl_esch_octal, 0},
+        /* 4 [1] */ {prh_impl_esch_octal, 1},
+        /* 5 [2] */ {prh_impl_esch_octal, 2},
+        /* 6 [3] */ {prh_impl_esch_octal, 3},
+        /* 7 [4] */ {prh_impl_esch_octal, 4},
+        /* 8 [5] */ {prh_impl_esch_octal, 5},
+        /* 9 [6] */ {prh_impl_esch_octal, 6},
+        /*10 [7] */ {prh_impl_esch_octal, 7},
+        /*11 [?] */ {prh_impl_esch_value, '?'},
+        /*12 [N] */ {prh_impl_esch_uname, 'N'},
+        /*13 [U] */ {prh_impl_esch_Ucode, 'U'},
+        /*14 [\] */ {prh_impl_esch_value, '\\'},
+        /*15 [a] */ {prh_impl_esch_value, '\a'},
+        /*16 [b] */ {prh_impl_esch_value, '\b'},
+        /*17 [e] */ {prh_impl_esch_ext_value, 0x1b},
+        /*18 [f] */ {prh_impl_esch_value, '\f'},
+        /*19 [n] */ {prh_impl_esch_value, '\n'},
+        /*20 [r] */ {prh_impl_esch_value, '\r'},
+        /*21 [s] */ {prh_impl_esch_ext_value, 0x20},
+        /*22 [t] */ {prh_impl_esch_value, '\t'},
+        /*23 [u] */ {prh_impl_esch_ucode, 'u'},
+        /*24 [v] */ {prh_impl_esch_value, '\v'},
+        /*25 [x] */ {prh_impl_esch_xcode, 'x'},
+    };
+    prh_static_assert(sizeof(escape_values) == sizeof(l->escape_values));
+    l->escape_filter = escape_filter;
+    l->escape_values = escape_values;
+}
+
+prh_inline prh_byte *prh_impl_lexing_escape(prh_lexer *l, prh_byte c) { // 返回指向转义字符类型和值的指针
+    return l->escape_values[prh_impl_char_index_8_clomn(c, l->escape_filter)];
+}
+
+bool prh_impl_lexer_escape(prh_lexer *l, prh_byte c) { // 返回 false 表示转义字符解析出现错误
+    prh_byte *p = prh_impl_lexing_escape(l, c);
+    prh_char value = 0; prh_byte a;
+    switch (p[0]) {
+    case prh_impl_esch_ext_value:
+        if (l->c_lexer) goto label_fail_eat_none;
+    case prh_impl_esch_value:
+        value = p[1]; break;
+    case prh_impl_esch_octal:
+        value = p[1];
+        if (l->c_lexer) { // 三个八进制数位表示的单字节字符最大值是 \377
+            c = prh_lexer_eat_byte(l); if (c - '0' > 7) goto label_succ_eat_some; // 第二个数位是否是八进制数位，不是则八进制只有一个数位
+            value = (value << 3) | (c - '0');
+            c = prh_lexer_eat_byte(l); if (c - '0' > 7) goto label_succ_eat_some; // 第三个数位是否是八进制数位，不是则八进制只有两个数位
+            value = (value << 3) | (c - '0'); // 此时八进制有三个数位，但表示的数字可能超出字节的范围，如果超出范围必须报错
+            if (value <= 0xff) break; // 不管成功失败，总是吃掉三个数位
+            l->c = prh_lexer_eat_byte(l);
+            goto label_fail_eat_none;
+        }
+        if (value != 0) goto label_fail_eat_none;
+        break;
+    case prh_impl_esch_xcode:
+        if (l->c_lexer) {
+            c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some; // 必须至少有一个数位
+            value = (value << 4) | a;
+            int i = 1;
+        label_xcode_8_digits: // 最多八个数位
+            c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_succ_eat_some; // 第N个数位，失败则十六进制只有N-1个数位
+            value = (value << 4) | a;
+            if (++i < 8) goto label_xcode_8_digits;
+            break;
+        }
+        goto label_xcode_2_digits;
+    case prh_impl_esch_ucode:
+        goto label_ucode_4_digits;
+    case prh_impl_esch_Ucode:
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+    label_ucode_4_digits:
+        l->unicode_point = true;
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+    label_xcode_2_digits:
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+        c = prh_lexer_eat_byte(l); if (!prh_impl_digit_0_f(c, &a)) goto label_fail_eat_some;
+        value = (value << 4) | a;
+        break;
+    case prh_impl_esch_uname:
+    default: label_fail_eat_none:
+        return false;
+    }
+    l->c = prh_lexer_eat_byte(l); // 吃掉的字节正好组成解析的词元
+    l->u.cvalue = value;
+    return true;
+label_succ_eat_some:
+    l->c = c;
+    l->u.cvalue = value;
+    return true;
+label_fail_eat_some:
+    l->c = c;
+    return false;
+}
+
 typedef struct {
     prh_byte subval;
     prh_byte irange; // range 用来确定每一行的前几个是有效的
