@@ -2375,6 +2375,9 @@ typedef enum {
     #ifdef PRH_THRD_INCLUDE
     #define PRH_PLAT_POSIX_THREAD
     #endif // PRH_THRD_INCLUDE
+    #ifdef PRH_FILE_INCLUDE
+    #define PRH_PLAT_POSIX_FILE
+    #endif // PRH_FILE_INCLUDE
     #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(errno, __LINE__); }
 #endif // prh_plat_posix
 #endif // PRH_PLAT_IMPLEMENTATION
@@ -33115,9 +33118,530 @@ void prh_impl_cono_test(void) {
 #endif // PRH_CONO_INCLUDE
 
 #ifdef PRH_FILE_INCLUDE
-
+#if defined(PRH_PLAT_WINDOWS_FILE)
 #ifdef PRH_FILE_IMPLEMENTATION
-#if defined(prh_plat_windows)
+// HANDLE CreateFileW(
+//      [in]           LPCWSTR               lpFileName,
+//      [in]           DWORD                 dwDesiredAccess,
+//      [in]           DWORD                 dwShareMode,
+//      [in, optional] LPSECURITY_ATTRIBUTES lpSecurityAttributes,
+//      [in]           DWORD                 dwCreationDisposition,
+//      [in]           DWORD                 dwFlagsAndAttributes,
+//      [in, optional] HANDLE                hTemplateFile);
+// Windows XP [desktop apps only] Windows Server 2003 [desktop apps only]
+// fileapi.h (include Windows.h)
+// Kernel32.lib Kernel32.dll
+//
+// 创建或打开文件或 I/O 设备。最常用的 I/O 设备包括：文件、文件流、目录、物理磁盘、卷、
+// 控制台缓冲区、磁带驱动器、通信资源、邮件槽和管道。该函数返回一个句柄，可用于根据文
+// 件或设备以及指定的标志和属性，对各种类型的 I/O 访问该文件或设备。要作为事务性操作执
+// 行此操作，从而产生可用于事务性 I/O 的句柄，请使用 CreateFileTransacted 函数。如果函
+// 数成功，返回值是指定文件、设备、命名管道或邮件槽的打开句柄。如果函数失败，返回值为
+// INVALID_HANDLE_VALUE。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpFileName，要创建或打开的文件或设备的名称。在此名称中，您可以使用正斜杠 (/) 或
+// 反斜杠 (\)。有关特殊设备名称的信息，请参阅"定义 MS-DOS 设备名称"。要创建文件流，请指
+// 定文件名，后跟冒号，然后是流的名称。有关更多信息，请参阅"文件流"。https://learn.microsoft.com/en-us/windows/win32/fileio/file-streams
+//
+// 默认情况下，名称限制为 MAX_PATH 个字符。要将此限制扩展到 32,767 个宽字符，请在路径前
+// 添加 "\?"。有关更多信息，请参阅"命名文件、路径和命名空间"。https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+// 从 Windows 10 版本 1607 开始，您可以选择加入以移除 MAX_PATH 限制，而无需添加 "\?"。有
+// 关详细信息，请参阅"命名文件、路径和命名空间"的"最大路径长度限制"部分。
+//
+// 参数 dwDesiredAccess，请求的文件或设备访问权限，可概括为读取、写入、两者兼有或零（既不
+// 读取也不写入）。最常用的值是 GENERIC_READ、GENERIC_WRITE 或两者兼有（GENERIC_READ |
+// GENERIC_WRITE）。有关更多信息，请参阅"通用访问权限"、"文件安全与访问权限"、"文件访问权限
+// 常量"和 ACCESS_MASK。
+//
+// https://learn.microsoft.com/en-us/windows/desktop/SecAuthZ/generic-access-rights
+// https://learn.microsoft.com/en-us/windows/desktop/SecAuthZ/access-mask
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-security-and-access-rights
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-access-rights-constants
+//
+// 如果此参数为零，则应用程序可以查询某些元数据，如文件、目录或设备属性，而无需访问该文件
+// 或设备，即使 GENERIC_READ 访问权限已被拒绝。您不能请求一个与共享模式冲突的模式，来打开
+// 一个已经有打开句柄的文件。有关更多信息，请参阅本主题的"备注"部分和"创建和打开文件"。
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/creating-and-opening-files
+//
+// 参数 dwShareMode，请求以共享模式打开文件或设备，可以是读取、写入、读写、删除、全部或全不
+// （参考下表）。对属性或扩展属性的访问请求不受此标志影响。如果此参数为零且 CreateFile 成功，
+// 则文件或设备无法共享，在文件或设备的句柄关闭之前无法再次打开。有关更多信息，请参阅"备注"
+// 部分。
+//
+// 您不能请求与已存在打开句柄的现有请求中指定的访问模式冲突的共享模式。CreateFile 将失败，
+// GetLastError 函数将返回 ERROR_SHARING_VIOLATION。要使进程在另一个进程已打开文件或设备时
+// 共享该文件或设备，请使用以下一个或多个值的兼容组合。有关此参数与 dwDesiredAccess 参数的
+// 有效组合的更多信息，请参阅"创建和打开文件"。注意，每个打开句柄的共享选项在句柄关闭之前
+// 一直有效，无论进程上下文如何。
+//
+//  0x00000000
+//      如果后续打开操作请求删除、读取或写入访问权限，则阻止对文件或设备的后续打开操作。
+//  0x00000004 FILE_SHARE_DELETE
+//      允许后续以删除访问权限继续打开文件，注意，删除访问权限允许删除和重命名操作。
+//      否则，如果请求删除访问权限，则任何进程都无法打开该文件或设备。
+//      如果未指定此标志，但文件或设备已打开删除访问权限，则函数失败。
+//  0x00000001 FILE_SHARE_READ
+//      1.  使用该标志打开一个未打开的文件，后续以读取方式继续打开这个文件会成功
+//      2.  如果未使用该标志打开一个未打开的文件，后续以读取方式打开这个文件会失败
+//      3.  一个已经以该标志打开的文件，
+//      如果以读取方式打开一个已经以读取方式打开的文件，如果不指定该标志，则函数失败；
+//      如果指定了该标志，
+//      允许对文件或设备的后续打开操作请求读取访问权限。
+//      否则，如果请求读取访问权限，则任何进程都无法打开该文件或设备。
+//      如果未指定此标志，但文件或设备已打开读取访问权限，则函数失败。
+//  0x00000002 FILE_SHARE_WRITE
+//      允许对文件或设备的后续打开操作请求写入访问权限。
+//      否则，如果请求写入访问权限，则任何进程都无法打开该文件或设备。
+//      如果未指定此标志，但文件或设备已打开写入访问权限或具有写入访问权限的文件映射，则函数失败。
+//
+// 参数 lpSecurityAttributes 指向 SECURITY_ATTRIBUTES 结构的指针，该结构包含两个独立但
+// 相关的数据成员：可选的安全描述符，以及一个布尔值，用于确定返回的句柄是否可以由子进程
+// 继承。此参数可以为 NULL。如果此参数为 NULL，则 CreateFile 返回的句柄不能被应用程序可
+// 能创建的任何子进程继承，并且与返回的句柄关联的文件或设备将获得默认安全描述符。结构的
+// lpSecurityDescriptor 成员为文件或设备指定 SECURITY_DESCRIPTOR。如果此成员为 NULL，则
+// 与返回的句柄关联的文件或设备被分配默认安全描述符。
+//
+// 打开现有文件或设备时，CreateFile 忽略 lpSecurityDescriptor 成员，但仍使用 bInheritHandle
+// 成员。结构的 bInheritHandle 成员指定返回的句柄是否可以被继承。有关更多信息，请参阅"备注"
+// 部分。
+//
+// 参数 dwCreationDisposition 对存在或不存在的文件或设备执行的操作。对于文件以外的设备，此
+// 参数通常设置为 OPEN_EXISTING。此参数必须是以下值之一，这些值不能组合：
+//  1.  CREATE_ALWAYS 2
+//      始终创建新文件。如果指定的文件存在且可写，则函数截断该文件，函数成功，最后错误代码
+//      设置为 ERROR_ALREADY_EXISTS (183)。如果指定的文件不存在且路径有效，则创建新文件，函
+//      数成功，最后错误代码设置为零。有关更多信息，请参阅本主题的"备注"部分。
+//  2.  CREATE_NEW 1
+//      仅当文件不存在时创建新文件。如果指定的文件存在，则函数失败，最后错误代码设置为
+//      ERROR_FILE_EXISTS (80)。如果指定的文件不存在且路径指向可写位置，则创建新文件。
+//  3.  OPEN_ALWAYS 4
+//      始终打开文件。如果指定的文件存在，则函数成功，最后错误代码设置为 ERROR_ALREADY_EXISTS
+//      (183)。如果指定的文件不存在且路径指向可写位置，则函数创建文件，最后错误代码设置为零。
+//  4.  OPEN_EXISTING 3
+//      仅当文件或设备存在时打开。如果指定的文件或设备不存在，则函数失败，最后错误代码设置为
+//      ERROR_FILE_NOT_FOUND (2)。有关设备的更多信息，请参阅"备注"部分。
+//  5.  TRUNCATE_EXISTING 5
+//      仅当文件存在时打开文件并将其截断为零字节大小。如果指定的文件不存在，则函数失败，最后
+//      错误代码设置为 ERROR_FILE_NOT_FOUND (2)。调用进程必须以 GENERIC_WRITE 位作为
+//      dwDesiredAccess 参数的一部分打开文件。
+//
+// 参数 dwFlagsAndAttributes 文件或设备属性和标志，FILE_ATTRIBUTE_NORMAL 是文件最常见的默认值。
+// 此参数可以包括任何可用文件属性（FILE_ATTRIBUTE_*）的组合，所有其他文件属性都会覆盖
+// FILE_ATTRIBUTE_NORMAL。此参数还可以包含标志（FILE_FLAG_*）的组合，用于控制文件或设备的缓存
+// 行为、访问模式和其他特殊用途标志。这些与任何 FILE_ATTRIBUTE_ 值组合。此参数还可以通过指定
+// SECURITY_SQOS_PRESENT 标志来包含安全服务质量（SQOS）信息。下表在属性和标志表之后提供了额外
+// 的 SQOS 相关标志信息。
+//
+// 注意，当 CreateFile 打开现有文件时，它通常将文件标志与现有文件的文件属性组合，并忽略
+// dwFlagsAndAttributes 中提供的任何文件属性。特殊情况在"创建和打开文件"中详细说明。以下某些文
+// 件属性和标志可能仅适用于文件，而不一定适用于 CreateFile 可以打开的所有其他类型的设备。有关
+// 其他信息，请参阅本主题的"备注"部分和"创建和打开文件"。有关文件属性的更高级访问，请参阅
+// SetFileAttributes。有关所有文件属性及其值和描述的完整列表，请参阅"文件属性常量"。
+//
+//  1.  FILE_ATTRIBUTE_ARCHIVE 32 (0x20)
+//      文件应归档。应用程序使用此属性标记文件以进行备份或删除。
+//  2.  FILE_ATTRIBUTE_ENCRYPTED 16384 (0x4000)
+//      文件或目录已加密。对于文件，这意味着文件中的所有数据都已加密。对于目录，这意味着加密是新创建的文件和子目录的默认值。有关更多信息，请参阅"文件加密"。
+//      如果同时指定了 FILE_ATTRIBUTE_SYSTEM，则此标志无效。
+//      此标志在 Windows 的家庭版、家庭高级版、入门版或 ARM 版本中不受支持。
+//  3.  FILE_ATTRIBUTE_HIDDEN 2 (0x2)
+//      文件是隐藏的。不要将其包含在普通目录列表中。
+//  4.  FILE_ATTRIBUTE_NORMAL 128 (0x80)
+//      文件未设置其他属性。此属性仅在单独使用时有效。
+//  5.  FILE_ATTRIBUTE_OFFLINE 4096 (0x1000)
+//      文件数据不立即可用。此属性表示文件数据已物理移动到离线存储。此属性由远程存储（分层存储管理软件）使用。应用程序不应随意更改此属性。
+//  6.  FILE_ATTRIBUTE_READONLY 1 (0x1)
+//      文件是只读的。应用程序可以读取文件，但不能写入或删除它。
+//  7.  FILE_ATTRIBUTE_SYSTEM 4 (0x4)
+//      文件是操作系统的一部分或仅供操作系统使用。
+//  8.  FILE_ATTRIBUTE_TEMPORARY 256 (0x100)
+//      文件用于临时存储。有关更多信息，请参阅本主题的"缓存行为"部分。
+//
+//  1.  FILE_FLAG_BACKUP_SEMANTICS 0x02000000
+//      文件正被打开或创建用于备份或还原操作。当进程具有 SE_BACKUP_NAME 和 SE_RESTORE_NAME 权限时，系统确保调用进程覆盖文件安全检查。有关更多信息，请参阅"在令牌中更改权限"。
+//      必须设置此标志以获取目录的句柄。目录句柄可以传递给某些函数代替文件句柄。有关更多信息，请参阅"备注"部分。
+//  2.  FILE_FLAG_DELETE_ON_CLOSE 0x04000000
+//      文件将在其所有句柄（包括指定句柄和任何其他打开或复制的句柄）关闭后立即删除。
+//      如果文件存在现有打开句柄，则调用失败，除非它们都以 FILE_SHARE_DELETE 共享模式打开。
+//      文件的后续打开请求将失败，除非指定了 FILE_SHARE_DELETE 共享模式。
+//  3.  FILE_FLAG_NO_BUFFERING 0x20000000
+//      文件或设备在打开时不使用系统缓存进行数据读取和写入。此标志不影响硬盘缓存或内存映射文件。
+//      使用 CreateFile 以 FILE_FLAG_NO_BUFFERING 标志成功打开的文件有严格要求，有关详细信息，请参阅"文件缓冲"。
+//  4.  FILE_FLAG_OPEN_NO_RECALL 0x00100000
+//      请求文件数据，但应继续位于远程存储中。不应将其传输回本地存储。此标志供远程存储系统使用。
+//  5.  FILE_FLAG_OPEN_REPARSE_POINT 0x00200000
+//      不会进行正常的重解析点处理；CreateFile 将尝试打开重解析点。打开文件时，无论控制重解析点的筛选器是否运行，都会返回文件句柄。
+//      此标志不能与 CREATE_ALWAYS 标志一起使用。
+//      如果文件不是重解析点，则忽略此标志。
+//      有关更多信息，请参阅"备注"部分。
+//  6.  FILE_FLAG_OVERLAPPED 0x40000000
+//      文件或设备正在打开或创建用于异步 I/O。
+//      当在此句柄上完成后续 I/O 操作时，OVERLAPPED 结构中指定的事件将设置为信号状态。
+//      如果指定了此标志，文件可用于同时读取和写入操作。
+//      如果未指定此标志，则 I/O 操作是串行化的，即使对读写函数的调用指定了 OVERLAPPED 结构。
+//      有关使用使用此标志创建的文件句柄的注意事项的信息，请参阅本主题的"同步和异步 I/O 句柄"部分。
+//  7.  FILE_FLAG_POSIX_SEMANTICS 0x01000000
+//      访问将根据 POSIX 规则进行。这包括允许文件系统支持该命名的情况下，允许多个仅大小写不同的文件名。使用此选项时要小心，因为使用此标志创建的文件可能无法供为 MS-DOS 或 16 位 Windows 编写的应用程序访问。
+//  8.  FILE_FLAG_RANDOM_ACCESS 0x10000000
+//      访问预期是随机的。系统可以使用此作为提示来优化文件缓存。
+//      如果文件系统不支持缓存 I/O 和 FILE_FLAG_NO_BUFFERING，则此标志无效。
+//      有关更多信息，请参阅本主题的"缓存行为"部分。
+//  9.  FILE_FLAG_SESSION_AWARE 0x00800000
+//      文件或设备正在以会话感知方式打开。如果未指定此标志，则会话设备（例如使用 RemoteFX USB 重定向的设备）无法由在会话 0 中运行的进程打开。此标志对不在会话 0 中的调用者没有影响。此标志仅在 Windows 服务器版本上受支持。
+//      Windows Server 2008 R2 和 Windows Server 2008：Windows Server 2012 之前不支持此标志。
+//  10. FILE_FLAG_SEQUENTIAL_SCAN 0x08000000
+//      访问预期从头到尾是顺序的。系统可以使用此作为提示来优化文件缓存。
+//      如果使用后读（即反向扫描），则不应使用此标志。
+//      如果文件系统不支持缓存 I/O 和 FILE_FLAG_NO_BUFFERING，则此标志无效。
+//      有关更多信息，请参阅本主题的"缓存行为"部分。
+//  11. FILE_FLAG_WRITE_THROUGH 0x80000000
+//      写入操作不会经过任何中间缓存，而是直接写入磁盘。
+//      有关其他信息，请参阅本主题的"缓存行为"部分。
+//
+// dwFlagsAndAttributes 参数还可以指定 SQOS 信息。有关更多信息，请参阅"模拟级别"。当调用应用
+// 程序将 SECURITY_SQOS_PRESENT 安全标志作为 dwFlagsAndAttributes 的一部分指定时，它还可以包
+// 含以下一个或多个值。
+//
+//  1.  SECURITY_ANONYMOUS
+//      在 Anonymous 模拟级别模拟客户端。
+//  2.  SECURITY_CONTEXT_TRACKING
+//      安全跟踪模式是动态的。如果未指定此标志，安全跟踪模式是静态的。
+//  3.  SECURITY_DELEGATION
+//      在 Delegation 模拟级别模拟客户端。
+//  4.  SECURITY_EFFECTIVE_ONLY
+//      只有客户端安全上下文的已启用方面可供服务器使用。如果未指定此标志，客户端安全上下文的所有方面都可用。
+//      这允许客户端限制服务器在模拟客户端时可以使用的组和权限。
+//  5.  SECURITY_IDENTIFICATION
+//      在 Identification 模拟级别模拟客户端。
+//  6.  SECURITY_IMPERSONATION
+//      在 Impersonation 级别模拟客户端。如果未指定其他标志与 SECURITY_SQOS_PRESENT 标志一起使用，这是默认行为。
+//
+// 参数 hTemplateFile，具有 GENERIC_READ 访问权限的模板文件的有效句柄。模板文件为正在创建
+// 的文件提供文件属性和扩展属性。此参数可以为 NULL。打开现有文件（existing file）时，CreateFile
+// 忽略此参数。打开新的加密文件时，文件从其父目录继承自主访问控制（discretionary access
+// control）列表。有关其他信息，请参阅"文件加密"。https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-encryption
+//
+// CreateFile 最初是专门为文件交互开发的，但后来已扩展和增强，以包括 Windows 开发人员可用
+// 的其他大多数类型的 I/O 设备和机制。本节试图涵盖开发人员在不同的上下文中和不同的 I/O 类型
+// 中使用 CreateFile 时可能遇到的各种问题。本文试图仅在专门指代存储在实际文件系统上的实际文
+// 件中的数据时使用"文件"一词。然而，"文件"的某些用法可能更一般地指代支持类文件机制的 I/O
+// 对象。由于前面提到的历史原因，这种对"文件"一词的自由使用在常量名称和参数名称中尤为普遍。
+//
+// 当应用程序完成使用 CreateFile 返回的对象句柄时，请使用 CloseHandle 函数关闭句柄。这不仅
+// 释放系统资源，还可能对共享文件或设备以及将数据提交到磁盘等产生更广泛的影响。具体情况在本
+// 主题中适当位置注明。
+//
+// Windows Server 2003 和 Windows XP：如果尝试在远程计算机上打开文件或目录以进行删除，且
+// dwDesiredAccess 参数的值是 DELETE 访问标志 (0x00010000) 与任何其他访问标志进行 OR 运算，
+// 并且远程文件或目录未以 FILE_SHARE_DELETE 打开，则会发生共享冲突。为避免此场景中的共享冲突，
+// 请仅以 DELETE 访问权限打开远程文件或目录，或在不首先打开文件或目录以进行删除的情况下调用
+// DeleteFile。
+//
+// 某些文件系统（如 NTFS 文件系统）支持单个文件和目录的压缩或加密。在挂载了具有此支持的文件
+// 系统的卷上，新文件继承其目录的压缩和加密属性。您不能使用 CreateFile 来控制文件或目录的压
+// 缩、解压缩或解密。有关更多信息，请参阅"创建和打开文件"、"文件压缩和解压缩"以及"文件加密"。
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-compression-and-decompression
+//
+// Windows Server 2003 和 Windows XP：出于向后兼容的目的，当您在 lpSecurityAttributes 中指定
+// 安全描述符时，CreateFile 不应用继承规则。为了支持继承，稍后查询此文件安全描述符的函数可能
+// 会启发式地确定并报告继承正在生效。有关更多信息，请参阅"可继承 ACE 的自动传播"。
+// https://learn.microsoft.com/en-us/windows/desktop/SecAuthZ/automatic-propagation-of-inheritable-aces
+//
+// 如前所述，如果 lpSecurityAttributes 参数为 NULL，则 CreateFile 返回的句柄不能被应用程序可
+// 能创建的任何子进程继承。有关此参数的以下信息也适用：
+//  1.  如果 bInheritHandle 成员变量不是 FALSE（即任何非零值），则句柄可以被继承。因此，如果
+//      您不打算让句柄可继承，则正确初始化此结构成员为 FALSE 至关重要。
+//  2.  文件或目录的默认安全描述符中的访问控制列表（ACL）从其父目录继承。
+//  3.  目标文件系统必须支持文件和目录的安全性，lpSecurityDescriptor 成员才能对它们产生影响，
+//      这可以通过使用 GetVolumeInformation 来确定。
+//
+// 注意，如果在已存在打开备用数据流（open alternate data stream）的文件上执行具有取代处置
+// （supersede disposition）的 CreateFile，则会失败。
+//
+// 符号链接行为（Symbolic Link Behavior）
+//
+// 如果调用此函数创建文件，则行为没有变化。此外，请考虑以下有关 FILE_FLAG_OPEN_REPARSE_POINT
+// 的信息：
+//  1.  如果指定了 FILE_FLAG_OPEN_REPARSE_POINT：如果打开现有文件且它是符号链接，则返回的句
+//      柄是指向符号链接的句柄。如果指定了 TRUNCATE_EXISTING 或 FILE_FLAG_DELETE_ON_CLOSE，
+//      则受影响的文件是符号链接。
+//  2.  如果未指定 FILE_FLAG_OPEN_REPARSE_POINT：如果打开现有文件且它是符号链接，则返回的句
+//      柄是指向目标的句柄。如果指定了 CREATE_ALWAYS、TRUNCATE_EXISTING 或 FILE_FLAG_DELETE_ON_CLOSE，
+//      则受影响的文件是目标。
+//
+// 缓存行为（Caching Behavior）
+//
+// dwFlagsAndAttributes 参数的几个可能值由 CreateFile 用于控制或影响系统如何缓存与句柄关联
+// 的数据。它们是：
+//      FILE_FLAG_NO_BUFFERING
+//      FILE_FLAG_RANDOM_ACCESS
+//      FILE_FLAG_SEQUENTIAL_SCAN
+//      FILE_FLAG_WRITE_THROUGH
+//      FILE_ATTRIBUTE_TEMPORARY
+//
+// 如果未指定这些标志，系统使用默认的通用缓存方案。否则，系统缓存按每个标志指定的方式运行。
+// 其中一些标志不应组合。例如，将 FILE_FLAG_RANDOM_ACCESS 与 FILE_FLAG_SEQUENTIAL_SCAN 组
+// 合是自相矛盾的。指定 FILE_FLAG_SEQUENTIAL_SCAN 标志可以提高使用顺序访问读取大文件的应
+// 用程序的性能。对于主要顺序读取大文件但偶尔跳过少量字节范围的应用程序，性能提升可能更为
+// 明显。如果应用程序移动文件指针进行随机访问，则最佳缓存性能很可能不会发生。然而，仍保证
+// 正确操作。
+//
+// FILE_FLAG_WRITE_THROUGH 和 FILE_FLAG_NO_BUFFERING 标志是独立的，可以组合。如果使用了
+// FILE_FLAG_WRITE_THROUGH 但未同时指定 FILE_FLAG_NO_BUFFERING，因此系统缓存生效，则数据
+// 写入系统缓存，但会立即刷新到磁盘。如果同时指定了 FILE_FLAG_WRITE_THROUGH 和 FILE_FLAG_NO_BUFFERING，
+// 因此系统缓存不生效，则数据立即刷新到磁盘，而不经过 Windows 系统缓存。操作系统还请求
+// 硬盘的本地硬件缓存直写到持久介质。注意，并非所有硬盘硬件都支持这种直写功能。正确使用
+// FILE_FLAG_NO_BUFFERING 标志需要特殊的应用程序考虑。有关更多信息，请参阅"文件缓冲"。
+//
+// 通过 FILE_FLAG_WRITE_THROUGH 的直写请求还会导致 NTFS 刷新任何元数据更改，例如由处理请
+// 求产生的时间戳更新或重命名操作。因此，FILE_FLAG_WRITE_THROUGH 标志通常与 FILE_FLAG_NO_BUFFERING
+// 标志一起使用，作为每次写入后调用 FlushFileBuffers 函数的替代，这可能导致不必要的性能损
+// 失。一起使用这些标志可以避免这些损失。有关文件和元数据缓存的一般信息，请参阅"文件缓存"。
+//
+// 当 FILE_FLAG_NO_BUFFERING 与 FILE_FLAG_OVERLAPPED 组合时，这些标志提供最大的异步性能，
+// 因为 I/O 不依赖于内存管理器的同步操作。然而，某些 I/O 操作需要更多时间，因为数据不保存
+// 在缓存中。此外，文件元数据可能仍被缓存（例如，创建空文件时）。要确保元数据刷新到磁盘，
+// 请使用 FlushFileBuffers 函数。
+//
+// 指定 FILE_ATTRIBUTE_TEMPORARY 属性会导致文件系统避免将数据写回大容量存储（如果可用缓存
+// 内存足够），因为应用程序在句柄关闭后删除临时文件。在这种情况下，系统可以完全避免写入数
+// 据。虽然它不像前面提到的标志那样直接控制数据缓存，但 FILE_ATTRIBUTE_TEMPORARY 属性确实
+// 告诉系统尽可能多地保存在系统缓存中而不写入，因此对于某些应用程序可能值得关注。
+//
+// 文件。如果您重命名或删除文件，然后在短时间内恢复它，系统会搜索缓存中的文件信息以恢复。缓
+// 存的信息包括其短/长名称对和创建时间。如果您在由于先前调用 DeleteFile 而挂起删除的文件上
+// 调用 CreateFile，则函数失败。操作系统会延迟文件删除，直到所有指向该文件的句柄都关闭。
+// GetLastError 返回 ERROR_ACCESS_DENIED。
+//
+// 如果 dwDesiredAccess 参数可以为零，则允许应用程序在具有足够安全设置的情况下运行时不访问文
+// 件而查询文件属性。这对于测试文件是否存在而不打开它以进行读取和/或写入访问，或获取有关文件
+// 或目录的其他统计信息很有用。请参阅"获取和设置文件信息"和 GetFileInformationByHandle。
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/obtaining-and-setting-file-information
+//
+// 如果指定了 CREATE_ALWAYS 和 FILE_ATTRIBUTE_NORMAL，且文件存在并具有 FILE_ATTRIBUTE_HIDDEN
+// 或 FILE_ATTRIBUTE_SYSTEM 属性，则 CreateFile 失败并将最后错误设置为 ERROR_ACCESS_DENIED。要
+// 避免错误，请指定与现有文件相同的属性。
+//
+// 当应用程序跨网络创建文件时，对于 dwDesiredAccess 使用 GENERIC_READ | GENERIC_WRITE 比单独使用
+// GENERIC_WRITE 更好。生成的代码更快，因为重定向器可以使用缓存管理器并发送更少的 SMB 但数据更多。
+// 这种组合还可以避免通过网络写入文件时偶尔返回 ERROR_ACCESS_DENIED 的问题。有关更多信息，请参阅
+// "创建和打开文件"。
+//
+// 同步和异步 I/O 句柄。CreateFile 提供创建同步或异步文件或设备句柄。同步句柄的行为方式是，使用该
+// 句柄的 I/O 函数调用会被阻塞直到完成，而异步文件句柄使系统能够立即从 I/O 函数调用返回，无论它们
+// 是否完成了 I/O 操作。如前所述，这种同步与异步行为是通过在 dwFlagsAndAttributes 参数中指定
+// FILE_FLAG_OVERLAPPED 来确定的。使用异步 I/O 时存在几个复杂性和潜在陷阱；有关更多信息，请参阅
+// "同步和异步 I/O"。
+//
+// 文件流。在 NTFS 文件系统上，您可以使用 CreateFile 在文件内创建单独的流。有关更多信息，请参阅
+// "文件流"。目录。应用程序不能使用 CreateFile 创建目录，因此对此用例，dwCreationDisposition 只有
+// OPEN_EXISTING 值有效。要创建目录，应用程序必须调用 CreateDirectory 或 CreateDirectoryEx。要使
+// 用 CreateFile 打开目录，请在 dwFlagsAndAttributes 中指定 FILE_FLAG_BACKUP_SEMANTICS 标志。即使
+// 未使用 SE_BACKUP_NAME 和 SE_RESTORE_NAME 权限，使用此标志时仍会应用适当的安全检查。
+//
+// 在碎片整理 FAT 或 FAT32 文件系统卷期间使用 CreateFile 打开目录时，不要指定 MAXIMUM_ALLOWED 访问
+// 权限。如果这样做，将拒绝对目录的访问。请指定 GENERIC_READ 访问权限。有关更多信息，请参阅"关于目
+// 录管理"。https://learn.microsoft.com/en-us/windows/desktop/FileIO/about-directory-management
+//
+// 物理磁盘和卷（Physical Disks and Volumes）。直接访问磁盘或卷受到限制。Windows Server 2003 和
+// Windows XP：直接访问磁盘或卷不受此方式限制。您可以使用 CreateFile 函数打开物理磁盘驱动器或卷，
+// 该函数返回直接访问存储设备（DASD）句柄，可与 DeviceIoControl 函数一起使用。这使您能够直接访问
+// 磁盘或卷，例如访问分区表等磁盘元数据。然而，这种访问也会使磁盘驱动器或卷面临潜在的数据丢失风
+// 险，因为使用此机制对磁盘进行不正确的写入可能使其内容对操作系统不可访问。为确保数据完整性，请
+// 务必熟悉 DeviceIoControl 以及使用直接访问句柄与文件系统句柄时其他 API 的行为差异。
+//
+// 对此类调用成功必须满足以下要求：
+//  1.  调用者必须具有管理权限。有关更多信息，请参阅"以特殊权限运行"。
+//  2.  dwCreationDisposition 参数必须具有 OPEN_EXISTING 标志。
+//  3.  打开卷或软盘时，dwShareMode 参数必须具有 FILE_SHARE_WRITE 标志。
+//
+// 注意 dwDesiredAccess 参数可以为零，允许应用程序在不访问设备的情况下查询设备属性。这对于应用程
+// 序确定软盘驱动器的大小及其支持的格式而无需驱动器中有软盘很有用。它也可以用于读取统计信息而无
+// 需更高级别的数据读取/写入权限。
+//
+// 打开物理驱动器 x: 时，lpFileName 字符串应采用以下形式："\.\PhysicalDriveX"。硬盘编号从零开始。
+// 下表显示了一些物理驱动器字符串示例。
+//      "\.\PhysicalDrive0" 打开第一个物理驱动器
+//      "\.\PhysicalDrive2" 打开第三个物理驱动器
+//
+// 要获取卷的物理驱动器标识符，请打开卷的句柄，并使用 IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS 调用
+// DeviceIoControl 函数。此控制代码返回卷的每个一个或多个扩展的磁盘编号和偏移量；一个卷可以跨多
+// 个物理磁盘。有关打开物理驱动器的示例，请参阅"调用 DeviceIoControl"。
+//
+// 打开卷或可移动媒体驱动器（例如，软盘驱动器或闪存拇指驱动器）时，lpFileName 字符串应采用以下
+// 形式："\.\X:"。不要使用尾部反斜杠 (\)，这表示驱动器的根目录。下表显示了一些驱动器字符串示例。
+// 您还可以通过引用其卷名称来打开卷。有关更多信息，请参阅"命名卷"。
+//      "\.\A:" 打开软盘驱动器 A
+//      "\.\C:" 打开 C: 卷
+//      "\.\C:\" 打开 C: 卷的文件系统
+//
+// 卷包含一个或多个挂载的文件系统。即使未在 CreateFile 中指定非缓存选项，卷句柄也可以由特定文件
+// 系统酌情作为非缓存打开。您应假设所有 Microsoft 文件系统都将卷句柄作为非缓存打开。对文件的非
+// 缓存 I/O 限制也适用于卷。
+//
+// 文件系统可能要求也可能不要求缓冲区对齐，即使数据是非缓存的。然而，如果在打开卷时指定了非缓
+// 存选项，则无论卷上的文件系统如何，都会强制执行缓冲区对齐。建议在所有文件系统上将卷句柄作为
+// 非缓存打开，并遵循非缓存 I/O 限制。注意，要读取或写入卷的最后几个扇区，您必须调用 DeviceIoControl
+// 并指定 FSCTL_ALLOW_EXTENDED_DASD_IO。这向文件系统驱动程序发出信号，不对分区读取或写入调用
+// 执行任何 I/O 边界检查。相反，边界检查由设备驱动程序执行。
+//
+// 更换器设备（Changer Device）。DeviceIoControl 的 IOCTL_CHANGER_* 控制代码接受更换器设备的
+// 句柄。要打开更换器设备，请使用以下形式的文件名："\.\Changerx"，其中 x 是指示要打开哪个设备
+// 的数字，从零开始。要在以 C 或 C++ 编写的应用程序中打开更换器设备零，请使用以下文件名：
+// "\\.\Changer0"。
+//
+// 磁带驱动器（Tape Drives）。您可以使用以下形式的文件名打开磁带驱动器："\.\TAPEx"，其中 x 是
+// 指示要打开哪个驱动器的数字，从磁带驱动器零开始。要在以 C 或 C++ 编写的应用程序中打开磁带驱
+// 动器零，请使用以下文件名："\\.\TAPE0"。有关更多信息，请参阅"备份"。
+//
+// 通信资源（Communications Resources）。CreateFile 函数可以创建通信资源（如串口 COM1）的句柄。
+// 对于通信资源，dwCreationDisposition 参数必须为 OPEN_EXISTING，dwShareMode 参数必须为零（独
+// 占访问），hTemplateFile 参数必须为 NULL。可以指定读取、写入或读/写访问，并且句柄可以为重叠
+//  I/O 打开。
+//
+// 要指定大于 9 的 COM 端口号，请使用以下语法：".\COM10"。此语法适用于所有端口号和允许指定 COM
+// 端口号的硬件。有关通信的更多信息，请参阅"通信"。
+// https://learn.microsoft.com/en-us/windows/desktop/DevIO/communications-resources
+//
+// 控制台（Consoles）。CreateFile 函数可以创建控制台输入（CONIN$）的句柄。如果进程由于继承或
+// 复制而具有打开的句柄，它还可以创建活动屏幕缓冲区（CONOUT$）的句柄。调用进程必须附加到继承
+// 的控制台或由 AllocConsole 函数分配的控制台。对于控制台句柄，按如下方式设置 CreateFile 参数。
+//
+//  lpFileName
+//      使用 CONIN$ 值指定控制台输入，使用 CONOUT$ 值指定控制台输出。CONIN$ 获取控制台输入缓
+//      冲区的句柄，即使 SetStdHandle 函数重定向了标准输入句柄。要获取标准输入句柄，请使用
+//      GetStdHandle 函数。CONOUT$ 获取活动屏幕缓冲区的句柄，即使 SetStdHandle 重定向了标准输
+//      出句柄。要获取标准输出句柄，请使用 GetStdHandle。
+//  dwDesiredAccess
+//      首选 GENERIC_READ | GENERIC_WRITE，但任一权限都可以限制访问。
+//  dwShareMode
+//      打开 CONIN$ 时，指定 FILE_SHARE_READ。打开 CONOUT$ 时，指定 FILE_SHARE_WRITE。如果调
+//      用进程继承了控制台，或子进程应该能够访问控制台，则此参数必须为 FILE_SHARE_READ |
+//      FILE_SHARE_WRITE。
+//  lpSecurityAttributes
+//      如果希望控制台被继承，SECURITY_ATTRIBUTES 结构的 bInheritHandle 成员必须为 TRUE。
+//  dwCreationDisposition
+//      使用 CreateFile 打开控制台时，应指定 OPEN_EXISTING。
+//  dwFlagsAndAttributes 忽略
+//  hTemplateFile 忽略
+//
+// 下表显示了 dwDesiredAccess 和 lpFileName 的各种设置。
+//      lpFileName  dwDesiredAccess                 结果
+//      "CON"       GENERIC_READ                    打开控制台进行输入
+//      "CON"       GENERIC_WRITE                   打开控制台进行输出
+//      "CON"       GENERIC_READ | GENERIC_WRITE    导致 CreateFile 失败，GetLastError 返回 ERROR_FILE_NOT_FOUND
+//
+// 邮件槽（Mailslots）。如果 CreateFile 打开邮件槽的客户端，则如果邮件槽客户端在邮件槽服
+// 务器使用 CreateMailSlot 函数创建它之前尝试打开本地邮件槽，函数将返回 INVALID_HANDLE_VALUE。
+// 有关更多信息，请参阅"邮件槽"。
+//
+// 管道（Pipes）。如果 CreateFile 打开命名管道的客户端，则函数使用处于侦听状态的命名管道
+// 的任何实例。打开进程可以根据需要多次复制句柄，但在打开后，命名管道实例无法由另一个客
+// 户端打开。打开管道时指定的访问权限必须与 CreateNamedPipe 函数的 dwOpenMode 参数中指定
+// 的访问权限兼容。
+//
+// 如果在此操作之前服务器未成功调用 CreateNamedPipe 函数，则管道将不存在，CreateFile 将
+// 失败并返回 ERROR_FILE_NOT_FOUND。如果至少有一个活动的管道实例，但服务器上没有可用的侦
+// 听器管道，这意味着所有管道实例当前都已连接，则 CreateFile 失败并返回 ERROR_PIPE_BUSY。
+// 有关更多信息，请参阅"管道"。https://learn.microsoft.com/en-us/windows/desktop/ipc/pipes
+//
+// 以下主题展示了文件操作的示例：
+//  - 将文件追加到另一个文件 https://learn.microsoft.com/en-us/windows/desktop/FileIO/appending-one-file-to-another-file
+//  - 取消待处理的 I/O 操作 https://learn.microsoft.com/en-us/windows/desktop/FileIO/canceling-pending-i-o-operations
+//  - 创建具有重定向输入和输出的子进程 https://learn.microsoft.com/en-us/windows/desktop/ProcThread/creating-a-child-process-with-redirected-input-and-output
+//  - 创建和使用临时文件 https://learn.microsoft.com/en-us/windows/desktop/FileIO/creating-and-using-a-temporary-file
+//  - FSCTL_RECALL_FILE https://learn.microsoft.com/en-us/windows/desktop/api/winioctl/ni-winioctl-fsctl_recall_file
+//  - GetFinalPathNameByHandle https://learn.microsoft.com/en-us/windows/desktop/api/fileapi/nf-fileapi-getfinalpathnamebyhandlea
+//  - 锁定和解锁文件中的字节范围 https://learn.microsoft.com/en-us/windows/desktop/FileIO/locking-and-unlocking-byte-ranges-in-files
+//  - 从文件句柄获取文件名 https://learn.microsoft.com/en-us/windows/desktop/Memory/obtaining-a-file-name-from-a-file-handle
+//  - 获取文件系统识别信息 https://learn.microsoft.com/en-us/windows/desktop/FileIO/obtaining-file-system-recognition-information
+//  - 打开文件进行读取或写入 https://learn.microsoft.com/en-us/windows/desktop/FileIO/opening-a-file-for-reading-or-writing
+//  - 获取最后写入时间 https://learn.microsoft.com/en-us/windows/desktop/SysInfo/retrieving-the-last-write-time
+//  - SetFileInformationByHandle https://learn.microsoft.com/en-us/windows/desktop/api/fileapi/nf-fileapi-setfileinformationbyhandle
+//  - 测试文件末尾 https://learn.microsoft.com/en-us/windows/desktop/FileIO/testing-for-the-end-of-a-file
+//  - 使用纤程 https://learn.microsoft.com/en-us/windows/desktop/ProcThread/using-fibers
+//  - 使用流 https://learn.microsoft.com/en-us/windows/desktop/FileIO/using-streams
+//  - 遍历更改日志记录缓冲区 https://learn.microsoft.com/en-us/windows/desktop/FileIO/walking-a-buffer-of-change-journal-records
+//  - Wow64DisableWow64FsRedirection https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-wow64disablewow64fsredirection
+//  - Wow64EnableWow64FsRedirection https://learn.microsoft.com/en-us/windows/win32/api/wow64apiset/nf-wow64apiset-wow64enablewow64fsredirection
+//
+// 以下主题中演示了物理设备 I/O：
+//  - 调用 DeviceIoControl https://learn.microsoft.com/en-us/windows/desktop/DevIO/calling-deviceiocontrol
+//  - 配置通信资源 https://learn.microsoft.com/en-us/windows/desktop/DevIO/configuring-a-communications-resource
+//  - 监视通信事件 https://learn.microsoft.com/en-us/windows/desktop/DevIO/monitoring-communications-events
+//  - 处理删除设备的请求 https://learn.microsoft.com/en-us/windows/desktop/DevIO/processing-a-request-to-remove-a-device
+//
+// 使用命名管道的示例位于"命名管道客户端"。https://learn.microsoft.com/en-us/windows/desktop/ipc/named-pipe-client
+// 使用邮件槽的示例显示在"写入邮件槽"中。https://learn.microsoft.com/en-us/windows/desktop/ipc/writing-to-a-mailslot
+// 磁带备份代码片段可以在"创建备份应用程序"中找到。https://learn.microsoft.com/en-us/windows/desktop/Backup/creating-a-backup-application
+//
+// 注意，fileapi.h 头文件将 CreateFile 定义为别名，该别名根据 UNICODE 预处理器常量的定义
+// 自动选择此函数的 ANSI 或 Unicode 版本。将编码中性别名与编码非中性代码混合使用可能导致
+// 不匹配，从而导致编译或运行时错误。
+
+// 文件缓冲（File Buffering）。本文涵盖应用程序控制文件缓冲的各种注意事项，也称为无缓冲文件
+// 输入/输出（I/O）。文件缓冲通常由系统在后台处理，除非另有说明，否则被视为 Windows 操作系统
+// 内文件缓存的一部分。尽管缓存（caching）和缓冲（buffering）这两个术语有时可以互换使用，但
+// 本文专门使用"缓冲"一词来解释如何与未被系统缓存（缓冲）的数据进行交互，而在其他情况下，这
+// 些数据很大程度上不受用户模式应用程序的直接控制。
+//
+// 使用 CreateFile 函数打开或创建文件时，可以指定 FILE_FLAG_NO_BUFFERING 标志来禁用系统对文件
+// 读写数据的缓存。虽然这提供了对数据 I/O 缓冲的完全直接控制，但对于文件和类似设备，必须考虑
+// 数据对齐要求。
+//
+// 注意，此对齐信息适用于支持寻道以及文件位置指针（或偏移量）概念的设备上的 I/O。对于不支持寻
+// 道的设备，如命名管道或通信设备，关闭缓冲可能不需要任何特定对齐。在这种情况下，通过对齐可能
+// 获得的任何限制或效率取决于底层技术。
+//
+// 在一个简单示例中，应用程序使用 FILE_FLAG_NO_BUFFERING 标志打开文件以进行写入访问，然后使用
+// 应用程序内定义的数据缓冲区调用 WriteFile 函数。在这些情况下，此本地缓冲区实际上是此操作存
+// 在的唯一文件缓冲区。由于物理磁盘布局、文件系统存储布局和系统级文件指针位置跟踪，除非本地定
+// 义的数据缓冲区满足某些对齐条件（在以下部分讨论），否则此写入操作将失败。
+//
+// 注意，缓存的讨论不考虑物理磁盘本身的任何硬件缓存，无论如何，这不保证能在系统的直接控制范围
+// 内。这不会影响本文中指定的要求。有关 FILE_FLAG_NO_BUFFERING 如何与其他缓存相关标志交互的更
+// 多信息，请参阅 CreateFile。
+//
+// 对齐和文件访问要求（Alignment and File Access Requirements）。如前所述，应用程序在处理使用
+// FILE_FLAG_NO_BUFFERING 打开的文件时必须满足某些要求。具体适用以下规定：
+//  1.  文件访问大小，包括 OVERLAPPED 结构中指定的可选文件偏移量（如果指定），必须是卷扇区大小
+//      整数倍的字节数。例如，如果扇区大小为 512 字节，应用程序可以请求 512、1,024、1,536 或
+//      2,048 字节的读写，但不能请求 335、981 或 7,171 字节。
+//  2.  读写操作的文件访问缓冲区地址应为物理扇区对齐，即在内存中对齐到卷物理扇区大小的整数倍的
+//      地址。根据磁盘的不同，此要求可能不会被强制执行。
+//
+// 应用程序开发人员应注意，市场上正在引入物理介质扇区大小为 4,096 字节的新型存储设备。这些设
+// 备的行业名称是"高级格式"（Advanced Format）。由于直接将 4,096 字节作为介质寻址单位引入可能
+// 存在兼容性问题，一种临时兼容性解决方案是引入模拟常规 512 字节扇区存储设备的设备，但通过标
+// 准 ATA 和 SCSI 命令提供有关真实扇区大小的信息。
+//
+// 由于这种模拟，开发人员本质上需要了解两种扇区大小：
+//  1.  逻辑扇区：用于介质逻辑块寻址的单位，我们也可以将其视为存储能够接受的最小写入单位，
+//      这就是"模拟"
+//  2.  物理扇区：设备上读写操作以单个操作完成的单位，这是原子写入的单位，无缓冲 I/O 需要
+//      与之对齐以获得最佳性能和可靠性特性
+//
+// 大多数当前的 Windows API，如 IOCTL_DISK_GET_DRIVE_GEOMETRY 和 GetDiskFreeSpace，将返回
+// 逻辑扇区大小，但物理扇区大小可以通过 IOCTL_STORAGE_QUERY_PROPERTY 控制代码检索，相关信
+// 息包含在 STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR 结构的 BytesPerPhysicalSector 成员中。有关
+// 示例，请参阅 STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR 处的示例代码。Microsoft 强烈建议开发人
+// 员将无缓冲 I/O 对齐到 IOCTL_STORAGE_QUERY_PROPERTY 控制代码报告的物理扇区大小，以帮助确
+// 保其应用程序为此扇区大小转换做好准备。
+// https://learn.microsoft.com/en-us/windows/win32/api/WinIoCtl/ns-winioctl-storage_access_alignment_descriptor
+//
+// Windows Server 2003 和 Windows XP：STORAGE_ACCESS_ALIGNMENT_DESCRIPTOR 结构不可用。它随
+// Windows Vista 和 Windows Server 2008 引入。
+//
+// 由于读写操作的缓冲区地址必须扇区对齐，应用程序必须直接控制这些缓冲区的分配方式。一种扇区
+// 对齐缓冲区的方法是使用 VirtualAlloc 函数分配缓冲区。考虑以下因素：
+//  1.  VirtualAlloc 分配的内存对齐到系统页面大小整数倍的地址。页面大小在 x64 和 x86 上为 4,096
+//      字节，在基于 Itanium 的系统上为 8,192 字节。有关其他信息，请参阅 GetSystemInfo 函数。
+//  2.  扇区大小通常为直接访问存储设备（硬盘）512 到 4,096 字节，CD-ROM 为 2,048 字节。
+//  3.  页面大小和扇区大小都是 2 的幂。
+//
+// 因此，在大多数情况下，页面对齐的内存也将是扇区对齐的，因为扇区大小大于页面大小的情况很少见。
+// 另一种获取手动对齐内存缓冲区的方法是使用 C 运行时库中的 _aligned_malloc 函数。有关如何手动
+// 控制缓冲区对齐的示例，请参阅 WriteFile 的"示例代码"部分中的 C++ 语言代码示例。
 
 // 关于字符模式应用程序（Character Mode Application）。字符模式或命令行应用程序：
 //  1.  [可选] 从标准输入（stdin）读取数据
@@ -34055,12 +34579,11 @@ prh_r32 prh_impl_write_console(prh_handle output, const void *buffer, prh_r32 by
     if (!b) prh_prerr(GetLastError());
     return written;
 }
+#endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_PLAT_WINDOWS_FILE
 
-#ifdef PRH_LANG_IMPLEMENTATION
-
-#endif // PRH_LANG_IMPLEMENTATION
-
-#else
+#if defined(PRH_PLAT_POSIX_FILE)
+#ifdef PRH_FILE_IMPLEMENTATION
 // 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
 // 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
 // 文件描述符的分配基于进程，不同的进程对文件描述符的分配互不干扰。有三个始终打开的文件描
@@ -34112,11 +34635,8 @@ prh_r32 prh_impl_write_console(prh_handle output, const void *buffer, prh_r32 by
 // 服务器断电时对数据完整性带来一定风险。Linux NFS 客户端对 O_DIRECT I/O 没有任何对齐
 // 限制。总之，O_DIRECT 是一个潜在的强大工具，应谨慎使用。建议应用程序将 O_DIRECT 的使
 // 用视为一个默认禁用的性能选项。
-#endif // POSIX IMPLEMENTATION
-#ifdef PRH_TEST_IMPLEMENTATION
-
-#endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_PLAT_POSIX_FILE
 #endif // PRH_FILE_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
@@ -44656,6 +45176,7 @@ typedef struct {
 
 typedef enum: prh_byte {
     prh_impl_esch_invalid = 0,
+    prh_impl_esch_c_value,
     prh_impl_esch_ext_value,
     prh_impl_esch_value,
     prh_impl_esch_octal,
@@ -44667,15 +45188,15 @@ typedef enum: prh_byte {
 
 //  [C/C++] \' 兼容 C/C++
 //  [C/C++] \" 兼容 C/C++
-//  [C/C++] \? 兼容 C/C++
+//  [C/C++] \? 不支持
 //  [C/C++] \\ 兼容 C/C++
-//  [C/C++] \a 兼容 C/C++
-//  [C/C++] \b 兼容 C/C++
-//  [C/C++] \f 兼容 C/C++
+//  [C/C++] \a 不支持
+//  [C/C++] \b 不支持
+//  [C/C++] \f 不支持
 //  [C/C++] \n 兼容 C/C++
 //  [C/C++] \r 兼容 C/C++
 //  [C/C++] \t 兼容 C/C++
-//  [C/C++] \v 兼容 C/C++
+//  [C/C++] \v 不支持
 //  [C/C++] \0 兼容 C/C++
 //  [C/C++] \n... (1~3 octal digits) [NEW_LANG] 不支持，仅支持 \0
 //  [C/C++] \xn... (arbitrary hex digits) [NEW_LANG] 不支持，必须显式编写 \xNN
@@ -44733,20 +45254,20 @@ void prh_impl_escape_lexing_init(prh_lexer *l) {
         /* 8 [5] */ {prh_impl_esch_octal, 5},
         /* 9 [6] */ {prh_impl_esch_octal, 6},
         /*10 [7] */ {prh_impl_esch_octal, 7},
-        /*11 [?] */ {prh_impl_esch_value, '?'},
+        /*11 [?] */ {prh_impl_esch_c_value, '?'},
         /*12 [N] */ {prh_impl_esch_uname, 'N'},
         /*13 [U] */ {prh_impl_esch_Ucode, 'U'},
         /*14 [\] */ {prh_impl_esch_value, '\\'},
-        /*15 [a] */ {prh_impl_esch_value, '\a'},
-        /*16 [b] */ {prh_impl_esch_value, '\b'},
+        /*15 [a] */ {prh_impl_esch_c_value, '\a'},
+        /*16 [b] */ {prh_impl_esch_c_value, '\b'},
         /*17 [e] */ {prh_impl_esch_ext_value, 0x1b},
-        /*18 [f] */ {prh_impl_esch_value, '\f'},
+        /*18 [f] */ {prh_impl_esch_c_value, '\f'},
         /*19 [n] */ {prh_impl_esch_value, '\n'},
         /*20 [r] */ {prh_impl_esch_value, '\r'},
         /*21 [s] */ {prh_impl_esch_ext_value, 0x20},
         /*22 [t] */ {prh_impl_esch_value, '\t'},
         /*23 [u] */ {prh_impl_esch_ucode, 'u'},
-        /*24 [v] */ {prh_impl_esch_value, '\v'},
+        /*24 [v] */ {prh_impl_esch_c_value, '\v'},
         /*25 [x] */ {prh_impl_esch_xcode, 'x'},
     };
     prh_static_assert(sizeof(escape_values) == sizeof(l->escape_values));
@@ -44762,10 +45283,14 @@ bool prh_impl_lexer_escape(prh_lexer *l, prh_byte c) { // 返回 false 表示转
     prh_byte *p = prh_impl_lexing_escape(l, c);
     prh_char value = 0; prh_byte a;
     switch (p[0]) {
+    case prh_impl_esch_c_value:
+        if (l->c_lexer) goto label_share_value;
+        goto label_fail_eat_none;
     case prh_impl_esch_ext_value:
         if (l->c_lexer) goto label_fail_eat_none;
-    case prh_impl_esch_value:
-        value = p[1]; break;
+    case prh_impl_esch_value: label_share_value:
+        value = p[1];
+        break;
     case prh_impl_esch_octal:
         value = p[1];
         if (l->c_lexer) { // 三个八进制数位表示的单字节字符最大值是 \377
