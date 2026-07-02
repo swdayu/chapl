@@ -2461,7 +2461,24 @@ typedef enum {
 #define prh_vmem_unit_size (64*1024)
 #endif
 
+// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18
+// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB
 #ifndef PRH_ALIGN_LINE
+#define prh_shift_align_4_byte 2
+#define prh_shift_align_8_byte 3
+#define prh_shift_align_16_byte 4
+#define prh_shift_align_32_byte 5
+#define prh_shift_align_64_byte 6
+#define prh_shift_align_128_byte 7
+#define prh_shift_align_256_byte 8
+#define prh_shift_align_512_byte 9
+#define prh_shift_align_1k_byte 10
+#define prh_shift_align_2k_byte 11
+#define prh_shift_align_4k_byte 12
+#define prh_shift_align_8k_byte 13
+#define prh_shift_align_16k_byte 14
+#define prh_shift_align_32k_byte 15
+#define prh_shift_align_64k_byte 16
 #define PRH_ALIGN_LINE PRH_ALIGN_64_BYTE
 #define PRH_ALIGN_PAGE PRH_ALIGN_4KB
 #define PRH_ALIGN_VMEM PRH_ALIGN_64KB
@@ -4011,15 +4028,79 @@ typedef struct {
     prh_reg size;
 } prh_str;
 
+#define PRH_IMPL_FREE_MASK_BIT 0x02
+typedef struct prh_buffer prh_buffer; // ptr & 0x02 为真表示释放内存
+typedef void (*prh_alloc_func)(prh_buffer *ptr, prh_reg new_size);
+
+typedef struct {
+    void *self;
+    prh_alloc_func func;
+} prh_alloc_trait;
+
+#if prh_int_bits == 64
+typedef struct prh_buffer {
+    prh_byte *_data;
+    prh_reg _capacity: 56, _shift_alignment: 8; // 0 表示使用默认对齐
+    prh_alloc_trait _alloc;
+}  prh_buffer;
+#define prh_default_shift_alignment prh_shift_align_16_byte
+prh_inline prh_byte *prh_get_alloc_data(const prh_buffer *a) { return a->_data; }
+prh_inline prh_reg prh_get_alloc_size(const prh_buffer *a) { return a->_capacity; }
+prh_inline prh_r08 prh_get_shift_alignment(const prh_buffer *a) { return (prh_r08)4 + (prh_r08)(a->_shift_alignment); }
+prh_inline prh_reg prh_get_alloc_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_get_shift_alignment(a); }
+prh_inline const prh_alloc_trait *prh_get_alloc_trait(const prh_buffer *a) { return &a->_alloc; }
+prh_inline void prh_set_alloc_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0xf) == 0); a->_data = data; }
+prh_inline void prh_set_alloc_size(prh_buffer *a, prh_reg size) { assert((size & 0xf) == 0); a->_capacity = size; }
+prh_inline void prh_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { assert(shift_alignment >= prh_shift_align_16_byte); a->_shift_alignment = shift_alignment - 4; }
+prh_inline void prh_set_alloc_trait(prh_buffer *a, const prh_alloc_trait *alloc) { a->_alloc = *alloc; }
+prh_inline prh_buffer prh_buffer_from(const prh_alloc_trait *alloc) { return (prh_buffer){._alloc = *alloc}; }
+prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_trait *alloc, prh_r08 shift_alignment) { prh_buffer b = {._alloc = *alloc}; prh_set_shift_alignment(&b, shift_alignment); return b; }
+#elif prh_int_bits == 32
+#ifdef prh_eabi_low_cost
+typedef struct prh_buffer {
+    prh_byte *_data;
+    prh_r16 _capacity;
+    prh_r16 _extra;
+}  prh_buffer;
+#define prh_default_shift_alignment prh_shift_align_4_byte
+prh_inline prh_byte *prh_get_alloc_data(const prh_buffer *a) { return a->_data; }
+prh_inline prh_r16 prh_get_alloc_size(const prh_buffer *a) { return a->_capacity; }
+prh_inline prh_r08 prh_get_shift_alignment(const prh_buffer *a) { return prh_shift_align_4_byte; }
+prh_inline prh_reg prh_get_alloc_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_get_shift_alignment(a); }
+prh_inline const prh_alloc_trait *prh_get_alloc_trait(const prh_buffer *a) { return prh_null; }
+prh_inline void prh_set_alloc_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0x3) == 0); a->_data = data; }
+prh_inline void prh_set_alloc_size(prh_buffer *a, prh_reg size) { assert((size & 0x3) == 0 && size <= 0xFFFF); a->_capacity = (prh_r16)size; }
+prh_inline void prh_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { prh_unused(a); prh_unused(shift_alignment); }
+prh_inline void prh_set_alloc_trait(prh_buffer *a, const prh_alloc_trait *alloc) { prh_unused(a); prh_unused(alloc); }
+prh_inline prh_buffer prh_buffer_from(const prh_alloc_trait *alloc) { return (prh_buffer){0}; }
+prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_trait *alloc, prh_r08 shift_alignment) { return (prh_buffer){0}; }
+#else
+// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18    19
+// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB 512KB
+//          0  1  2   3   4   5   6   7   8   9   10   11   12   13     14    15
+typedef struct prh_buffer {
+    prh_byte *_data;
+    prh_r32 _capacity_28_bits: 28, _shift_alignment: 4; // 0 表示使用默认对齐
+    prh_alloc_trait _alloc;
+}  prh_buffer;
+#define prh_default_shift_alignment prh_shift_align_16_byte
+prh_inline prh_byte *prh_get_alloc_data(const prh_buffer *a) { return a->_data; }
+prh_inline prh_reg prh_get_alloc_size(const prh_buffer *a) { return a->_capacity_28_bits << 4; }
+prh_inline prh_r08 prh_get_shift_alignment(const prh_buffer *a) { return (prh_r08)4 + (prh_r08)(a->_shift_alignment); }
+prh_inline prh_reg prh_get_alloc_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_get_shift_alignment(a); }
+prh_inline const prh_alloc_trait *prh_get_alloc_trait(const prh_buffer *a) { return &a->_alloc; }
+prh_inline void prh_set_alloc_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0xf) == 0); a->_data = data; }
+prh_inline void prh_set_alloc_size(prh_buffer *a, prh_reg size) { assert((size & 0xf) == 0); a->_capacity_28_bits = size >> 4; }
+prh_inline void prh_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { assert(shift_alignment >= prh_shift_align_16_byte && shift_alignment <= 19); a->_shift_alignment = shift_alignment - 4; }
+prh_inline void prh_set_alloc_trait(prh_buffer *a, const prh_alloc_trait *alloc) { a->_alloc = *alloc; }
+prh_inline prh_buffer prh_buffer_from(const prh_alloc_trait *alloc) { return (prh_buffer){._alloc = *alloc}; }
+prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_trait *alloc, prh_r08 shift_alignment) { prh_buffer b = {._alloc = *alloc}; prh_set_shift_alignment(&b, shift_alignment); return b; }
+#endif
+#endif
+
 typedef void *(*prh_malloc_func)(void *context, prh_reg size, prh_reg alignment);
 typedef void *(*prh_relloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
 typedef void (*prh_delloc_func)(void *context, void *ptr);
-
-typedef struct {
-    void *context;
-    prh_malloc_func malloc_func;
-    prh_delloc_func delloc_func;
-} prh_alloc_func;
 
 typedef struct { // 动态增长式分配
     void *context;
@@ -4038,29 +4119,40 @@ typedef struct { // 多次分配一次性释放
     prh_malloc_func malloc_func;
     prh_delloc_func delloc_func;
 } prh_area_alloc;
-
-typedef struct {
-    prh_alloc_func base;
-    prh_temp_alloc temp;
-    prh_grow_alloc grow;
-} prh_envp_alloc;
 #endif // prh_impl_base_type
 
 #ifdef PRH_ALLOC_INCLUDE
-prh_inline void *prh_impl_local_malloc(prh_alloc_func* alloc, prh_reg size, prh_reg alignment) {
-    return alloc->malloc_func(alloc->context, size, alignment);
+const prh_alloc_trait *prh_local_alloc(void);
+const prh_alloc_trait *prh_default_alloc(void);
+void prh_set_local_alloc(const prh_alloc_trait *alloc);
+
+prh_inline prh_buffer prh_make_buffer(const prh_alloc_trait *alloc, prh_reg size) {
+    prh_buffer b = prh_buffer_from(alloc);
+    assert(alloc->func != prh_null);
+    alloc->func(&b, size);
+    return b;
 }
 
-prh_inline void prh_impl_local_delloc(prh_alloc_func* alloc, void *ptr) {
-    alloc->delloc_func(alloc->context, ptr);
+prh_inline prh_buffer prh_make_aligned_buffer(const prh_alloc_trait *alloc, prh_reg size, prh_r08 shift_alignment) {
+    prh_buffer b = prh_buffer_from_aligned(alloc, shift_alignment);
+    assert(alloc->func != prh_null);
+    alloc->func(&b, size);
+    return b;
 }
 
-#define prh_local_aligned_malloc(alloc, size, alignment) ((prh_impl_line = __LINE__), prh_impl_local_malloc((alloc), (size), (alignment)))
-#define prh_local_delloc(alloc, ptr) ((prh_impl_line = __LINE__), prh_impl_local_delloc((alloc), (ptr)))
+prh_inline void prh_impl_make_buffer(prh_buffer *ptr, prh_reg new_size) {
+    assert(ptr != prh_null && ((prh_reg)ptr & PRH_IMPL_FREE_MASK_BIT)) == 0);
+    prh_alloc_trait *alloc = prh_get_alloc_trait(ptr);
+    assert(alloc->func != prh_null);
+    alloc->func(ptr, new_size);
+}
 
-#define prh_local_malloc(alloc, size) prh_local_aligned_malloc((alloc), (size), PRH_ALIGN_DEFAULT)
-#define prh_local_line_malloc(alloc, size) prh_local_aligned_malloc((alloc), (size), PRH_ALIGN_LINE)
-#define prh_local_page_malloc(alloc, size) prh_local_aligned_malloc((alloc), (size), PRH_ALIGN_PAGE)
+prh_inline void prh_free_buffer(prh_buffer *ptr) {
+    assert(ptr != prh_null && ((prh_reg)ptr & PRH_IMPL_FREE_MASK_BIT)) == 0);
+    prh_alloc_trait *alloc = prh_get_alloc_trait(ptr);
+    assert(alloc->func != prh_null);
+    alloc->func((prh_buffer *)((prh_reg)ptr | PRH_IMPL_FREE_MASK_BIT), 0);
+}
 
 // local scope guard frame scene cubic
 typedef struct { // 让用户可以配置翻倍增长、固定增长、斐波那契增长？？？
@@ -4118,42 +4210,8 @@ typedef struct {
 
 prh_static_assert(sizeof(prh_impl_alloc_header) == 2 * sizeof(void *));
 
-prh_inline void *prh_impl_local_alloc(prh_reg size, prh_reg line_alignment) {
-    prh_reg alignment = ((prh_reg)1 << (line_alignment & 0x0F)); assert(alignment >= 2 * sizeof(void *));
-    prh_byte *ptr = (prh_byte *)PRH_IMPL_LOCAL_ALLOC->malloc_func(PRH_IMPL_LOCAL_ALLOC->context, size + alignment, alignment);
-    prh_impl_alloc_header *header = (prh_impl_alloc_header *)(ptr + alignment - sizeof(prh_impl_alloc_header));
-    prh_assert_line(ptr != prh_null, line_alignment >> 4);
-    header->alloc = PRH_IMPL_LOCAL_ALLOC;
-    header->alignment = (line_alignment & 0x0F);
-    return (header + 1);
-}
-
-prh_inline void *prh_impl_local_realloc(void *ptr, prh_reg size, prh_reg line_alignment) {
-    if (ptr == prh_null) return prh_impl_local_alloc(size, line_alignment);
-    prh_impl_alloc_header *header = (prh_impl_alloc_header *)ptr - 1;
-    const prh_allocator *alloc = header->alloc; prh_reg alignment = ((prh_reg)1 << header->alignment);
-    assert(alignment == ((prh_reg)1 << (line_alignment & 0x0F))); // 重新分配时的对齐字节必须一致
-    ptr = alloc->relloc_func(alloc->context, (prh_byte *)ptr - alignment, size + alignment, alignment);
-    prh_assert_line(ptr != prh_null, line_alignment >> 4);
-    return (prh_byte *)ptr + alignment;
-}
-
-prh_inline void prh_impl_local_dealloc(void *ptr, prh_reg line) {
-    if (ptr == prh_null) return;
-    prh_impl_alloc_header *header = (prh_impl_alloc_header *)ptr - 1;
-    const prh_allocator *alloc = header->alloc;
-    alloc->delloc_func(alloc->context, (prh_byte *)ptr - ((prh_reg)1 << header->alignment));
-}
-
 // 使用当前局部环境中的分配器进行分配，该动态分配器总是多分配一个两指针大小的头部空间，
 // 用来保存当前分配器指针和对齐字节，当重新分配或释放内存时，需要调用最初的分配器函数。
-#define prh_set_local_allocator(a) PRH_IMPL_LOCAL_ALLOC = (a)
-#define prh_reset_local_allocator() prh_set_local_allocator(prh_impl_default_allocator)
-#define prh_local_alloc(size, line) prh_local_aligned_alloc((size), prh_default_local_alloc_alignment, (line))
-#define prh_local_realloc(ptr, size, line) prh_local_aligned_realloc((ptr), (size), prh_default_local_alloc_alignment, (line))
-#define prh_local_dealloc(ptr, line) prh_impl_local_dealloc((ptr), (line))
-#define prh_local_aligned_alloc(size, alignment, line) prh_impl_local_alloc((size), ((prh_reg)(line) << 4) | (alignment))
-#define prh_local_aligned_realloc(ptr, size, alignment, line) prh_impl_local_realloc((ptr), (size), ((prh_reg)(line) << 4) | (alignment))
 
 // 竞技场分配器（Arena Allocator）是一种内存管理技术，简而言之，先借一大块，随用随取，
 // 最后一次性还清，牺牲灵活性换取极致性能和简单性。
@@ -4271,6 +4329,56 @@ void prh_linear_rollback(prh_linear *l, void *p);
 void prh_linear_reset(prh_linear *l);
 
 #ifdef PRH_ALLOC_IMPLEMENTATION
+void prh_impl_default_alloc_func(prh_buffer *ptr, prh_reg new_size) {
+    assert(ptr != prh_null);
+    if (((prh_reg)ptr & PRH_IMPL_FREE_MASK_BIT) == 0) {
+        void *data = prh_get_alloc_data(ptr);
+        prh_reg alignment = prh_get_alloc_alignment(ptr);
+    #if defined(prh_plat_aligned_relloc)
+        if (new_size == 0) {
+            new_size = alignment;
+        } else {
+            new_size = prh_impl_round_power_of_2(new_size, alignment - 1);
+        }
+        data = prh_plat_aligned_relloc(data, new_size, alignment);
+        prh_assert_line(data != prh_null, __LINE__);
+    #else
+        new_size = prh_impl_round_power_of_2(new_size, alignment - 1);
+        if (data == prh_null) {
+            data = prh_plat_aligned_malloc(new_size, alignment);
+            prh_assert_line(data != prh_null, __LINE__);
+        } else {
+            prh_reg old_size = prh_get_alloc_size(ptr);
+            void *old_data = data;
+            data = prh_plat_aligned_malloc(new_size, alignment);
+            prh_assert_line(data != prh_null, __LINE__);
+            if (new_size > old_size) { // new_size 可能扩大或缩小
+                memcpy(data, old_data, old_size);
+            } else {
+                memcpy(data, old_data, new_size);
+            }
+            prh_plat_aligned_delloc(old_ptr);
+        }
+    #endif
+        prh_set_alloc_data(ptr, (prh_byte *)data);
+        prh_set_alloc_size(ptr, new_size);
+    } else {
+        ptr = (prh_buffer *)((prh_reg)ptr & ~((prh_reg)PRH_IMPL_FREE_MASK_BIT));
+        prh_plat_aligned_delloc(prh_get_alloc_data(ptr)); // 如果 data 为空，prh_plat_aligned_delloc 不做任何事
+        prh_set_alloc_data(ptr, prh_null);
+    }
+}
+
+static const prh_alloc_trait PRH_DEFAULT_ALLOC = { prh_null, prh_impl_default_alloc_func };
+prh_thread_local prh_alloc_trait PRH_LOCAL_ALLOC;
+
+const prh_alloc_trait *prh_local_alloc(void) { return &PRH_LOCAL_ALLOC; }
+const prh_alloc_trait *prh_default_alloc(void) { return &PRH_DEFAULT_ALLOC; }
+
+void prh_set_local_alloc(const prh_alloc_trait *alloc) {
+    PRH_LOCAL_ALLOC = *alloc;
+}
+
 prh_thread_local const prh_allocator *PRH_IMPL_LOCAL_ALLOC;
 prh_thread_local prh_grown_alloc *PRH_GROWN_ALLOC;
 prh_thread_local prh_arena_alloc *PRH_ARENA_ALLOC;
@@ -6239,24 +6347,15 @@ bool prh_is_non_character(prh_char unicode) {
     return false;
 }
 
-typedef struct {
-    prh_byte *data;
-    prh_alloc_func alloc;
-} prh_utf_data;
-
-void prh_free_utf_data(prh_utf_data *data) {
-    assert(data->data != prh_null);
-    prh_local_delloc(data->alloc, data->data);
-}
-
-prh_reg prh_utf8_to_utf16(const prh_byte *p, prh_reg n, prh_utf_data *out) {
+prh_reg prh_utf8_to_utf16(const prh_byte *p, prh_reg n, prh_buffer *out) {
     // UTF-8    U+0000~U+FFFF 占 1~3 个字节
     //          U+01_0000~U+10_FFFF 占 4 个字节
     // UTF-16   U+0000~U+FFFF 占 2 个字节
     //          U+01_0000~U+10_FFFF 占 4 个字节
-    assert(p != prh_null && out->alloc != prh_null);
-    prh_byte *data = (prh_byte *)prh_local_malloc(out->alloc, n * 2);
+    assert(p != prh_null);
+    prh_impl_make_buffer(out, n * 2 + 2);
     const prh_byte *e = p + n;
+    prh_byte *data = prh_get_alloc_data(out);
     prh_reg bytes = 0;
 
     while (p < e) {
@@ -6266,18 +6365,20 @@ prh_reg prh_utf8_to_utf16(const prh_byte *p, prh_reg n, prh_utf_data *out) {
     }
 
     assert(bytes <= n * 2);
-    out->data = data;
+    data[bytes + 0] = 0; // 以 \0 结尾
+    data[bytes + 1] = 0;
     return bytes;
 }
 
-prh_reg prh_utf16_to_utf8(const prh_byte *p, prh_reg n, prh_utf_data *out) {
+prh_reg prh_utf16_to_utf8(const prh_byte *p, prh_reg n, prh_buffer *out) {
     // UTF-8    U+0000~U+FFFF 占 1~3 个字节
     //          U+01_0000~U+10_FFFF 占 4 个字节
     // UTF-16   U+0000~U+FFFF 占 2 个字节
     //          U+01_0000~U+10_FFFF 占 4 个字节
-    assert(p != prh_null && out->alloc != prh_null);
-    prh_byte *data = (prh_byte *)prh_local_malloc(out->alloc, n * 2);
+    assert(p != prh_null);
+    prh_impl_make_buffer(out, n * 2 + 1);
     const prh_byte *e = p + n;
+    prh_byte *data = prh_get_alloc_data(out);
     prh_reg bytes = 0;
 
     while (p < e) {
@@ -6287,7 +6388,7 @@ prh_reg prh_utf16_to_utf8(const prh_byte *p, prh_reg n, prh_utf_data *out) {
     }
 
     assert(bytes <= n * 2);
-    out->data = data;
+    data[bytes] = 0; // 以 \0 结尾
     return bytes;
 }
 
@@ -33144,24 +33245,19 @@ void prh_impl_cono_test(void) {
 // 定文件名，后跟冒号，然后是流的名称。有关更多信息，请参阅"文件流"。https://learn.microsoft.com/en-us/windows/win32/fileio/file-streams
 //
 // 默认情况下，名称限制为 MAX_PATH 个字符。要将此限制扩展到 32,767 个宽字符，请在路径前
-// 添加 "\?"。有关更多信息，请参阅"命名文件、路径和命名空间"。https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
-// 从 Windows 10 版本 1607 开始，您可以选择加入以移除 MAX_PATH 限制，而无需添加 "\?"。有
-// 关详细信息，请参阅"命名文件、路径和命名空间"的"最大路径长度限制"部分。
+// 添加 "\\?\"。有关更多信息，请参阅"命名文件、路径和命名空间"。https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+// 从 Windows 10 版本 1607 开始，您可以选择加入（opt-in）以移除 MAX_PATH 限制，而无需添
+// 加 "\\?\"。有关详细信息，请参阅"命名文件、路径和命名空间"的"最大路径长度限制"部分。
 //
 // 参数 dwDesiredAccess，请求的文件或设备访问权限，可概括为读取、写入、两者兼有或零（既不
 // 读取也不写入）。最常用的值是 GENERIC_READ、GENERIC_WRITE 或两者兼有（GENERIC_READ |
 // GENERIC_WRITE）。有关更多信息，请参阅"通用访问权限"、"文件安全与访问权限"、"文件访问权限
 // 常量"和 ACCESS_MASK。
 //
-// https://learn.microsoft.com/en-us/windows/desktop/SecAuthZ/generic-access-rights
-// https://learn.microsoft.com/en-us/windows/desktop/SecAuthZ/access-mask
-// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-security-and-access-rights
-// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-access-rights-constants
-//
 // 如果此参数为零，则应用程序可以查询某些元数据，如文件、目录或设备属性，而无需访问该文件
-// 或设备，即使 GENERIC_READ 访问权限已被拒绝。您不能请求一个与共享模式冲突的模式，来打开
-// 一个已经有打开句柄的文件。有关更多信息，请参阅本主题的"备注"部分和"创建和打开文件"。
-// https://learn.microsoft.com/en-us/windows/desktop/FileIO/creating-and-opening-files
+// 或设备，可能即使使用 GENERIC_READ 访问权限也被拒绝访问。您不能请求一个与共享模式冲突的
+// 模式，来打开一个已经有打开句柄的文件。有关更多信息，请参阅本主题的"备注"部分和"创建和打
+// 开文件"。https://learn.microsoft.com/en-us/windows/desktop/FileIO/creating-and-opening-files
 //
 // 参数 dwShareMode，请求以共享模式打开文件或设备，可以是读取、写入、读写、删除、全部或全不
 // （参考下表）。对属性或扩展属性的访问请求不受此标志影响。如果此参数为零且 CreateFile 成功，
@@ -33578,6 +33674,22 @@ void prh_impl_cono_test(void) {
 // 注意，fileapi.h 头文件将 CreateFile 定义为别名，该别名根据 UNICODE 预处理器常量的定义
 // 自动选择此函数的 ANSI 或 Unicode 版本。将编码中性别名与编码非中性代码混合使用可能导致
 // 不匹配，从而导致编译或运行时错误。
+
+prh_handle prh_open_file_read(const prh_byte *name) {
+    prh_buffer b = prh_buffer_from(prh_local_alloc());
+    prh_utf8_to_utf16(name, strlen(name), &b);
+    HANDLE file_handle = CreateFile((LPCWSTR)prh_get_alloc_data(&b), );
+    prh_free_buffer(&b);
+    return file_handle;
+}
+
+prh_handle prh_open_file_append(const prh_byte *name) {
+    prh_buffer b = prh_buffer_from(prh_local_alloc());
+    prh_utf8_to_utf16(name, strlen(name), &b);
+    HANDLE file_handle = CreateFile((LPCWSTR)prh_get_alloc_data(&b), );
+    prh_free_buffer(&b);
+    return file_handle;
+}
 
 // 文件缓冲（File Buffering）。本文涵盖应用程序控制文件缓冲的各种注意事项，也称为无缓冲文件
 // 输入/输出（I/O）。文件缓冲通常由系统在后台处理，除非另有说明，否则被视为 Windows 操作系统
