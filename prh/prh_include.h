@@ -33254,6 +33254,297 @@ void prh_impl_cono_test(void) {
 // GENERIC_WRITE）。有关更多信息，请参阅"通用访问权限"、"文件安全与访问权限"、"文件访问权限
 // 常量"和 ACCESS_MASK。
 //
+// https://learn.microsoft.com/en-us/windows/win32/secauthz/generic-access-rights
+// https://learn.microsoft.com/en-us/windows/win32/secauthz/access-mask-format
+// https://learn.microsoft.com/en-us/windows/win32/secgloss/a-gly
+//
+// 通用访问权限（generic access rights）。可安全访问对象（securable objects）使用一种访问
+// 掩码格式（access mask format），其中四个高位指定通用访问权限。每种类型的可安全对象将这
+// 些位映射到一组其标准和对象特定访问权限。例如，Windows 文件对象将 GENERIC_READ 位映射到
+// READ_CONTROL 和 SYNCHRONIZE 标准访问权限，以及 FILE_READ_DATA、FILE_READ_EA 和 FILE_READ_ATTRIBUTES
+// 对象特定访问权限。其他类型的对象将 GENERIC_READ 位映射到适合该类型对象的任何访问权限集
+// 合。
+//
+// 在打开对象句柄时，您可以使用通用访问权限来指定所需的访问类型。这通常比指定所有相应的标准
+// 和特定权限更简单。下表显示了为通用访问权限定义的常量。定义私有可安全对象的应用程序也可以
+// 使用通用访问权限。
+//      0x10000000 GENERIC_ALL      所有可能的访问权限
+//      0x20000000 GENERIC_EXECUTE  执行
+//      0x40000000 GENERIC_WRITE    写入
+//      0x80000000 GENERIC_READ     读取
+//
+// 访问掩码格式（access mask format）。所有可安全对象都使用下图所示的访问掩码格式来安排其访
+// 问权限。在此格式中，低 16 位用于对象特定访问权限，接下来的 8 位用于标准访问权限（适用于大
+// 多数类型的对象），4 个高位用于指定通用访问权限，每种对象类型可将其映射到一组标准和对象特
+// 定权限。ACCESS_SYSTEM_SECURITY 位对应于访问对象 SACL 的权限。
+//      [ 31 | 30 | 29 | 28 | 27 | 26 | 25 | 24 | 23 | 22 | 21 | 20 | 19 | 18 | 17 |16 | 15 | 14 | 13 | 12 | 11 | 10 |  9 |  8 |  7 |  6 |  5 |  4 |  3 |  2 |  1 |  0 ]
+//      | GR | GW | GE | GA |   Reserved   | AS |        Standard Access Rights        |                        Object Specific Access Rights                          |
+//      GR -> Generic_Read
+//      GW -> Generic_Write
+//      GE -> Generic_Execute
+//      GA -> Generic_ALL
+//      AS -> Right to access SACL (system access control list)
+//
+// https://learn.microsoft.com/en-us/windows/win32/secauthz/standard-access-rights
+//
+// 标准访问权限（standard access rights）。每种类型的可安全对象都有一组与该类型对象特定
+// 操作相对应的访问权限。除了这些对象特定访问权限外，还有一组标准访问权限，它们对应于大
+// 多数类型可安全对象的通用操作。
+//
+// 标准访问权限常量。访问掩码格式包含一组用于标准访问权限的位。以下 Windows 标准访问权
+// 限常量在 Winnt.h 中定义。
+//      DELETE          删除对象
+//      READ_CONTROL    读取对象安全描述符中信息的权限，不包括系统访问控制列表（SACL）中的信息
+//      SYNCHRONIZE     将对象用于同步的权限，这使线程能够等待直到对象处于信号状态，某些对象类型不支持此访问权限
+//      WRITE_DAC       修改对象安全描述符中自主访问控制列表（DACL，discretionary access control list）的权限
+//      WRITE_OWNER     更改对象安全描述符中所有者的权限
+//
+// Winnt.h 还定义了以下标准访问权限常量的组合。
+//      STANDARD_RIGHTS_ALL         组合 DELETE、READ_CONTROL、WRITE_DAC、WRITE_OWNER 和 SYNCHRONIZE 访问权限
+//      STANDARD_RIGHTS_EXECUTE     当前定义为等于 READ_CONTROL
+//      STANDARD_RIGHTS_READ        当前定义为等于 READ_CONTROL
+//      STANDARD_RIGHTS_REQUIRED    组合 DELETE、READ_CONTROL、WRITE_DAC 和 WRITE_OWNER 访问权限
+//      STANDARD_RIGHTS_WRITE       当前定义为等于 READ_CONTROL
+//
+// https://learn.microsoft.com/en-us/windows/win32/secauthz/access-mask
+//
+// ACCESS_MASK 数据类型是一个 DWORD 值，定义标准、特定和通用权限。这些权限在访问控制项（ACE，
+// access control entries）中使用，是指定对对象的请求或授予访问权限的主要方式。
+//      typedef DWORD ACCESS_MASK;
+//      typedef ACCESS_MASK* PACCESS_MASK;
+//
+// 此值中的位分配如下：
+//      0-15    特定权限。包含与掩码关联的对象类型特定的访问掩码。有关不同对象类型的访问权限链接，请参阅对象特定访问权限。
+//      16-23   标准权限。包含对象的标准访问权限。
+//      24      访问系统安全（ACCESS_SYSTEM_SECURITY）。用于指示对系统访问控制列表（SACL）的访问。此类访问要求调用进程具
+//              有 SE_SECURITY_NAME（管理审核和安全日志）特权。如果此标志在审核访问 ACE（成功或失败访问）的访问掩码中设
+//              置，则将审核 SACL 访问。
+//      25      最大允许（MAXIMUM_ALLOWED）
+//      26-27   保留
+//      28      通用所有（GENERIC_ALL）
+//      29      通用执行（GENERIC_EXECUTE）
+//      30      通用写入（GENERIC_WRITE）
+//      31      通用读取（GENERIC_READ）
+//
+// 标准权限位 16 到 23 包含对象的标准访问权限，可以是以下预定义标志的组合：
+//      16      DELETE          删除访问
+//      17      READ_CONTROL    对安全描述符的所有者、组和自主访问控制列表（DACL）的读取访问
+//      18      WRITE_DAC       对 DACL 的写入访问
+//      19      WRITE_OWNER     对所有者的写入访问
+//      20      SYNCHRONIZE     同步访问
+//
+// 以下在 Winnt.h 中定义的常量代表特定和标准访问权限。
+//      #define DELETE                           (0x00010000L)
+//      #define READ_CONTROL                     (0x00020000L)
+//      #define WRITE_DAC                        (0x00040000L)
+//      #define WRITE_OWNER                      (0x00080000L)
+//      #define SYNCHRONIZE                      (0x00100000L)
+//      #define STANDARD_RIGHTS_REQUIRED         (0x000F0000L)
+//      #define STANDARD_RIGHTS_READ             (READ_CONTROL)
+//      #define STANDARD_RIGHTS_WRITE            (READ_CONTROL)
+//      #define STANDARD_RIGHTS_EXECUTE          (READ_CONTROL)
+//      #define STANDARD_RIGHTS_ALL              (0x001F0000L)
+//      #define SPECIFIC_RIGHTS_ALL              (0x0000FFFFL)
+//
+// 对象特定访问权限（object-specific access rights）。ACCESS_MASK 的低 16 位（位 0-15）
+// 用于对象特定访问权限。这些位的含义取决于正在访问的对象类型。有关特定对象类型的访问
+// 权限的详细信息，请参阅以下主题。有关可安全对象及其访问权限的完整列表，请参阅访问权
+// 限和访问掩码（access rights and access masks）。
+//
+// 常见对象类型
+//  文件和目录 - 文件访问权限常量 https://learn.microsoft.com/en-us/windows/win32/FileIO/file-access-rights-constants
+//      定义特定访问权限，如 FILE_READ_DATA、FILE_WRITE_DATA、FILE_APPEND_DATA、FILE_EXECUTE、
+//      FILE_DELETE_CHILD、FILE_READ_ATTRIBUTES 和 FILE_WRITE_ATTRIBUTES。
+//  注册表项（registry keys）- 注册表项安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/SysInfo/registry-key-security-and-access-rights
+//      定义特定访问权限，如 KEY_QUERY_VALUE、KEY_SET_VALUE、KEY_CREATE_SUB_KEY、
+//      KEY_ENUMERATE_SUB_KEYS 和 KEY_NOTIFY。
+//  进程 - 进程安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/ProcThread/process-security-and-access-rights
+//      定义特定访问权限，如 PROCESS_TERMINATE、PROCESS_CREATE_THREAD、PROCESS_VM_OPERATION、
+//      PROCESS_VM_READ、PROCESS_VM_WRITE、PROCESS_QUERY_INFORMATION 和 PROCESS_SET_INFORMATION。
+//  线程 - 线程安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/ProcThread/thread-security-and-access-rights
+//      定义特定访问权限，如 THREAD_TERMINATE、THREAD_SUSPEND_RESUME、THREAD_GET_CONTEXT、
+//      THREAD_SET_CONTEXT、THREAD_QUERY_INFORMATION 和 THREAD_SET_INFORMATION。
+//
+// 其他对象类型
+//  窗口站（window stations）- 窗口站安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/winstation/window-station-security-and-access-rights
+//  桌面（desktops）- 桌面安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/winstation/desktop-security-and-access-rights
+//  服务（services）- 服务安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/Services/service-security-and-access-rights
+//  文件映射对象（files mapped objects）- 文件映射安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/Memory/file-mapping-security-and-access-rights
+//  作业对象（job objects）- 作业对象安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/ProcThread/job-object-security-and-access-rights
+//  命名管道（named pipes）- 命名管道安全与访问权限 https://learn.microsoft.com/en-us/windows/win32/ipc/named-pipe-security-and-access-rights
+//
+// https://learn.microsoft.com/en-us/windows/win32/secauthz/access-rights-and-access-masks
+//
+// 访问权限和访问掩码（access rights and access masks）。访问权限（access right）是一个位
+// 标志，对应于线程可对安全对象执行的特定操作集。例如，注册表项具有 KEY_SET_VALUE 访问权限，
+// 对应于线程在项下设置值的能力。如果线程尝试对对象执行操作，但没有该对象的必要访问权限，系
+// 统不会执行该操作。
+//
+// 访问掩码（access mask）是一个 32 位值，其位对应于对象支持的访问权限。所有 Windows 可安全
+// 对象都使用包含以下类型访问权限位的访问掩码格式：
+//  1.  通用访问权限（generic access rights）
+//  2.  标准访问权限（standard access rights）
+//  3.  SACL 访问权限（SACL access right）
+//  4.  目录服务访问权限（directory services access rights）
+//      https://learn.microsoft.com/en-us/windows/win32/secauthz/directory-services-access-rights
+//
+// 当线程尝试打开对象的句柄时，线程通常指定访问掩码以请求一组访问权限。例如，需要设置和查询
+// 注册表项值的应用程序可以使用访问掩码打开该项，以请求 KEY_SET_VALUE 和 KEY_QUERY_VALUE 访
+// 问权限。
+//
+// 访问权限和可安全对象（access rights and securable objects）。下表显示了操作每种安全对象
+// 安全信息的函数。
+//      对象类型                        安全描述符函数
+//      NTFS 文件系统上的文件或目录     GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//      命名管道 匿名管道               GetSecurityInfo, SetSecurityInfo
+//      控制台屏幕缓冲区                不支持
+//      进程 线程                       GetSecurityInfo, SetSecurityInfo
+//      文件映射对象                    GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//      访问令牌                        SetKernelObjectSecurity, GetKernelObjectSecurity
+//      窗口管理对象（窗口站和桌面）    GetSecurityInfo, SetSecurityInfo
+//      注册表项                        GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//      Windows 服务                    GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//      本地或远程打印机                GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//      网络共享                        GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//      进程间同步对象（事件、互斥体、信号量和可等待计时器） GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//      作业对象                        GetNamedSecurityInfo, SetNamedSecurityInfo, GetSecurityInfo, SetSecurityInfo
+//
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-access-rights-constants
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-security-and-access-rights
+//
+// 文件访问权限常量（file access rights constants）
+//
+// 文件和目录的有效访问权限包括 DELETE、READ_CONTROL、WRITE_DAC、WRITE_OWNER 和 SYNCHRONIZE
+// 标准访问权限。下表列出了文件和目录特定的访问权限。
+//
+//      0x0001 FILE_READ_DATA 对于文件对象，读取相应文件数据的权限。对于目录对象，读取相应目录数据的权限。
+//      0x0001 FILE_LIST_DIRECTORY 对于目录，列出目录内容的权限
+//      0x0002 FILE_WRITE_DATA 对于文件对象，向文件写入数据的权限。对于目录对象，在目录中创建文件的权限（FILE_ADD_FILE）。
+//      0x0002 FILE_ADD_FILE 对于目录，在目录中创建文件的权限
+//      0x0004 FILE_APPEND_DATA 对于文件对象，向文件追加数据的权限。对于本地文件，如果仅指定此标志而不指定 FILE_WRITE_DATA，则写入操作不会覆盖现有数据。对于目录对象，创建子目录的权限（FILE_ADD_SUBDIRECTORY）。
+//      0x0004 FILE_ADD_SUBDIRECTORY 对于目录，创建子目录的权限
+//      0x0004 FILE_CREATE_PIPE_INSTANCE 对于命名管道，创建管道的权限
+//      0x0008 FILE_READ_EA 读取扩展文件属性的权限
+//      0x0010 FILE_WRITE_EA 写入扩展文件属性的权限
+//      0x0020 FILE_EXECUTE 对于本机代码文件，执行文件的权限。授予脚本的此访问权限可能导致脚本可执行，具体取决于脚本解释器。
+//      0x0020 FILE_TRAVERSE 对于目录，遍历目录的权限，默认情况下，用户被分配 BYPASS_TRAVERSE_CHECKING 特权，该特权忽略 FILE_TRAVERSE 访问权限。有关更多信息，请参阅文件安全与访问权限中的备注。
+//      0x0040 FILE_DELETE_CHILD 对于目录，删除目录及其包含的所有文件（包括只读文件）的权限。
+//      0x0080 FILE_READ_ATTRIBUTES 读取文件属性的权限
+//      0x0100 FILE_WRITE_ATTRIBUTES 写入文件属性的权限
+//      FILE_ALL_ACCESS 文件的所有可能访问权限
+//      STANDARD_RIGHTS_READ 包括 READ_CONTROL，即读取文件或目录对象安全描述符中信息的权限。这不包括 SACL 中的信息。
+//      STANDARD_RIGHTS_WRITE 与 STANDARD_RIGHTS_READ 相同
+//
+// 文件安全与访问权限（file security and access rights）
+//
+// 因为文件是安全对象，所以对它们的访问受控制 Windows 中所有其他可安全对象访问的访问控制
+// 模型监管。有关此模型的详细说明，请参阅访问控制。https://learn.microsoft.com/en-us/windows/win32/SecAuthZ/access-control
+//
+// 安全描述符（security descriptors）。在调用 CreateFile、CreateDirectory 或 CreateDirectoryEx
+// 函数时，可以为文件或目录指定安全描述符。如果为 lpSecurityAttributes 参数指定 NULL，
+// 则文件或目录获得默认安全描述符。文件或目录默认安全描述符中的访问控制列表（ACL）从
+// 其父目录继承。请注意，仅在文件或目录新创建时分配默认安全描述符，而在重命名或移动时
+// 不会分配。
+//
+// 要检索文件或目录对象的安全描述符，请调用 GetNamedSecurityInfo 或 GetSecurityInfo 函数。
+// 要更改文件或目录对象的安全描述符，请调用 SetNamedSecurityInfo 或 SetSecurityInfo 函数。
+//
+// 文件访问权限（file access rights）。文件和目录的有效访问权限包括 DELETE、READ_CONTROL、
+// WRITE_DAC、WRITE_OWNER 和 SYNCHRONIZE 标准访问权限。文件访问权限常量表中的表列出了文件
+// 和目录特定的访问权限。
+//
+// 虽然 SYNCHRONIZE 访问权限在标准访问权限列表中定义为在其中一个等待函数中指定文件句柄的
+// 权限，但在使用异步文件 I/O 操作时，应等待正确配置的 OVERLAPPED 结构中包含的事件句柄，
+// 而不是使用具有 SYNCHRONIZE 访问权限的文件句柄进行同步。
+//
+// 以下是文件和目录的通用访问权限：
+//      通用访问权限            映射的访问权限              通用含义
+//      FILE_GENERIC_EXECUTE    FILE_EXECUTE                执行
+//                              FILE_READ_ATTRIBUTES
+//                              STANDARD_RIGHTS_EXECUTE
+//                              SYNCHRONIZE
+//      FILE_GENERIC_READ       FILE_READ_ATTRIBUTES        读取
+//                              FILE_READ_DATA
+//                              FILE_READ_EA
+//                              STANDARD_RIGHTS_READ
+//                              SYNCHRONIZE
+//      FILE_GENERIC_WRITE      FILE_APPEND_DATA            写入
+//                              FILE_WRITE_ATTRIBUTES
+//                              FILE_WRITE_DATA
+//                              FILE_WRITE_EA
+//                              STANDARD_RIGHTS_WRITE
+//                              SYNCHRONIZE
+//
+// Windows 将请求的访问权限与线程访问令牌中的信息以及文件或目录对象安全描述符中的信息进行
+// 比较。如果比较不禁止授予所有请求的访问权限，则将对象的句柄返回给线程，并授予访问权限。
+// 有关此过程的更多信息，请参阅线程与可安全对象之间的交互。
+//
+// 默认情况下，对文件或目录的访问授权严格由与该文件或目录关联的安全描述符中的 ACL 控制。特
+// 别是，父目录的安全描述符不用于控制对任何子文件或目录的访问。可以通过从用户中移除 BYPASS_TRAVERSE_CHECKING
+// 特权来强制执行 FILE_TRAVERSE 访问权限。一般情况下不建议这样做，因为许多程序不能正确处理
+// 目录遍历错误。目录上 FILE_TRAVERSE 访问权限的主要用途是在与 Unix 系统互操作性是要求时，
+// 使符合某些 IEEE 和 ISO POSIX 标准。
+//
+// Windows 安全模型提供了一种方式，让子目录继承或阻止继承父目录安全描述符中的一个或多个 ACE。
+// 每个 ACE 包含确定其如何被继承以及是否对继承目录对象产生影响的信息。例如，某些继承的 ACE
+// 控制对继承目录对象的访问，这些称为有效 ACE。所有其他 ACE 称为仅继承 ACE。
+//
+// Windows 安全模型还根据 ACE 继承规则强制将 ACE 自动继承到子对象。这种自动继承与每个 ACE
+// 中的继承信息一起，决定了安全限制如何沿目录层次结构传递。https://learn.microsoft.com/en-us/windows/win32/SecAuthZ/ace-inheritance-rules
+//
+// 请注意，不能使用一个访问拒绝 ACE（an access-denied ACE）来仅拒绝 GENERIC_READ 或仅拒绝
+// GENERIC_WRITE 对文件的访问。这是因为对于文件对象，GENERIC_READ 和 GENERIC_WRITE 的通用
+// 映射都包含 SYNCHRONIZE 访问权限。如果 ACE 拒绝受托人的 GENERIC_WRITE 访问，而受托人请求
+// GENERIC_READ 访问，则请求将失败，因为请求隐式包含 SYNCHRONIZE 访问权限，而该访问权限被
+// ACE 隐式拒绝，反之亦然。不要使用访问拒绝 ACE（access-denied ACEs），而是使用访问允许 ACE
+// （access-allowed ACEs）来显式允许允许的访问权限。
+//
+// 管理对存储对象访问的另一种方式是加密。Windows 中文件系统加密的实现是加密文件系统（EFS）。
+// EFS 仅加密文件而不加密目录。加密的优点是它为文件提供了额外保护，这种保护应用于介质而非
+// 通过文件系统和标准 Windows 访问控制架构。有关文件加密的更多信息，请参阅文件加密。
+// https://learn.microsoft.com/en-us/windows/win32/fileio/file-encryption
+//
+// 备份和恢复访问权限。在大多数情况下，读取和写入文件或目录对象安全设置的能力仅限于内核模
+// 式进程。显然，您不希望任何用户进程能够更改您私有文件或目录的所有权或访问限制。然而，如
+// 果文件或目录的访问限制不允许应用程序的用户模式进程读取它，备份应用程序将无法完成备份您
+// 文件的工作。备份应用程序必须能够覆盖文件和目录对象的安全设置，以确保完整备份。类似地，
+// 如果备份应用程序尝试将您文件的备份副本写入磁盘驻留副本，而您明确拒绝备份应用程序进程的
+// 写入权限，则恢复操作无法完成。在这种情况下，备份应用程序也必须能够覆盖您文件的访问控制
+// 设置。
+//
+// SE_BACKUP_NAME 和 SE_RESTORE_NAME 访问特权（access privileges）专门为此目的而创建，为备
+// 份应用程序提供这种能力。如果这些特权已在备份应用程序进程的访问令牌中授予并启用，它就可以
+// 调用 CreateFile 打开您的文件或目录进行备份，将标准 READ_CONTROL 访问权限指定为 dwDesiredAccess
+// 参数的值。然而，为了将调用进程标识为备份进程，对 CreateFile 的调用必须在 dwFlagsAndAttributes
+// 参数中包含 FILE_FLAG_BACKUP_SEMANTICS 标志。函数调用的完整语法如下，这将允许备份应用程序
+// 进程打开您的文件并覆盖标准安全检查。要恢复您的文件，备份应用程序在打开要写入的文件时使用
+// 后面 CreateFile 调用语法。
+//      HANDLE hFile = CreateFile( fileName,                   // lpFileName
+//                                 READ_CONTROL,               // dwDesiredAccess
+//                                 0,                          // dwShareMode
+//                                 NULL,                       // lpSecurityAttributes
+//                                 OPEN_EXISTING,              // dwCreationDisposition
+//                                 FILE_FLAG_BACKUP_SEMANTICS, // dwFlagsAndAttributes
+//                                 NULL );                     // hTemplateFile
+//      HANDLE hFile = CreateFile( fileName,                   // lpFileName
+//                                 WRITE_OWNER | WRITE_DAC,    // dwDesiredAccess
+//                                 0,                          // dwShareMode
+//                                 NULL,                       // lpSecurityAttributes
+//                                 CREATE_ALWAYS,              // dwCreationDisposition
+//                                 FILE_FLAG_BACKUP_SEMANTICS, // dwFlagsAndAttributes
+//                                 NULL );                     // hTemplateFile
+//
+// 在某些情况下，备份应用程序必须能够更改文件或目录的访问控制设置。例如，当文件或目录的
+// 磁盘驻留副本（disk-resident copy）的访问控制设置与备份副本不同时。如果备份后更改了这
+// 些设置，或者它们已损坏，就会发生这种情况。
+//
+// 在调用 CreateFile 时指定的 FILE_FLAG_BACKUP_SEMANTICS 标志授予备份应用程序进程读取文件
+// 或目录访问控制设置的权限。凭借此权限，备份应用程序进程可以调用 GetKernelObjectSecurity
+// 和 SetKernelObjectSecurity 来读取然后重置访问控制设置。如果备份应用程序必须访问系统级
+// 访问控制设置，则必须在传递给 CreateFile 的 dwDesiredAccess 参数值中指定 ACCESS_SYSTEM_SECURITY
+// 标志。备份应用程序调用 BackupRead 来读取为恢复操作指定的文件和目录，并调用 BackupWrite
+// 来写入它们。
+//
 // 如果此参数为零，则应用程序可以查询某些元数据，如文件、目录或设备属性，而无需访问该文件
 // 或设备，可能即使使用 GENERIC_READ 访问权限也被拒绝访问。您不能请求一个与共享模式冲突的
 // 模式，来打开一个已经有打开句柄的文件。有关更多信息，请参阅本主题的"备注"部分和"创建和打
