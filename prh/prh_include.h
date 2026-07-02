@@ -33924,6 +33924,151 @@ void prh_impl_cono_test(void) {
 // 据。虽然它不像前面提到的标志那样直接控制数据缓存，但 FILE_ATTRIBUTE_TEMPORARY 属性确实
 // 告诉系统尽可能多地保存在系统缓存中而不写入，因此对于某些应用程序可能值得关注。
 //
+// https://learn.microsoft.com/en-us/windows/win32/fileio/creating-and-using-a-temporary-file
+//
+// 创建和使用临时文件（creating and using a temporary file）
+//
+// 应用程序可以使用 GetTempFileName 和 GetTempPath2 函数为临时文件获取唯一的文件名和路径名。
+// GetTempFileName 函数生成唯一的文件名，GetTempPath2 函数检索可以创建临时文件的目录路径。
+// 以下过程描述应用程序如何创建用于数据操作的临时文件。创建和使用临时文件：
+//  1.  应用程序使用 CreateFile 打开用户提供的源文本文件。
+//  2.  应用程序使用 GetTempPath2 和 GetTempFileName 函数检索临时文件路径和文件名，然后使用
+//      CreateFile 创建临时文件。
+//  3.  应用程序将文本数据块读取到缓冲区中，使用 CharUpperBuffA 函数将缓冲区内容转换为大写，
+//      并将转换后的缓冲区写入临时文件。
+//  4.  当源文件的所有内容都写入临时文件后，应用程序关闭两个文件，并使用 MoveFileEx 函数将
+//      临时文件重命名为 "allcaps.txt"。
+//
+// 上述每个步骤在进入下一步之前都会检查是否成功，如果发生错误，则显示失败描述。应用程序在显
+// 示错误消息后立即终止。请注意，选择文本文件操作仅为了便于演示，可以替换为任何所需的数据操
+// 作过程。数据文件可以是任何数据类型，不仅仅是文本。
+//
+// GetTempPath2 函数从环境变量检索完全限定路径字符串，但不提前检查路径的存在性或对该路径的充
+// 分访问权限，这是应用程序开发人员的责任。有关更多信息，请参阅 GetTempPath2。在以下示例中，
+// 错误被视为终止条件，应用程序在向标准输出发送描述性消息后退出。然而，还存在许多其他选项，
+// 例如提示用户输入临时目录或简单地尝试使用当前目录。
+//
+// 注意，GetTempFileName 函数不要求必须使用 GetTempPath2 函数。以下 C++ 示例展示了如何创建用
+// 于数据操作的临时文件。
+//
+//      //  此应用程序打开用户指定的文件，并使用临时文件将文件转换为大写字母。
+//      //  请注意，给定的源文件假定为 ASCII 文本文件并且每次运行应用程序时创建的新文件都会被覆盖。
+//      #include <windows.h>
+//      #include <tchar.h>
+//      #include <stdio.h>
+//      #define BUFSIZE 1024
+//      void PrintError(LPCTSTR errDesc);
+//      int _tmain(int argc, TCHAR *argv[]) {
+//          HANDLE hFile     = INVALID_HANDLE_VALUE;
+//          HANDLE hTempFile = INVALID_HANDLE_VALUE;
+//          BOOL fSuccess  = FALSE;
+//          DWORD dwRetVal = 0;
+//          UINT uRetVal   = 0;
+//          DWORD dwBytesRead    = 0;
+//          DWORD dwBytesWritten = 0;
+//          TCHAR szTempFileName[MAX_PATH];
+//          TCHAR lpTempPathBuffer[MAX_PATH];
+//          char  chBuffer[BUFSIZE];
+//          LPCTSTR errMsg;
+//          if(argc != 2) {
+//              _tprintf(TEXT("Usage: %s <file>\n"), argv[0]);
+//              return -1;
+//          }
+//          hFile = CreateFile(argv[1],               // 文件名，打开现有文件
+//                             GENERIC_READ,          // 打开以读取
+//                             0,                     // 不共享
+//                             NULL,                  // 默认安全性
+//                             OPEN_EXISTING,         // 仅现有文件
+//                             FILE_ATTRIBUTE_NORMAL, // 普通文件
+//                             NULL);                 // 无模板
+//          if (hFile == INVALID_HANDLE_VALUE) {
+//              PrintError(TEXT("First CreateFile failed"));
+//              return (1);
+//          }
+//          dwRetVal = GetTempPath2(MAX_PATH, lpTempPathBuffer); // 获取临时路径环境字符串（不保证它是有效路径）
+//          if (dwRetVal > MAX_PATH || (dwRetVal == 0)) {
+//              PrintError(TEXT("GetTempPath2 failed"));
+//              if (!CloseHandle(hFile)) {
+//                  PrintError(TEXT("CloseHandle(hFile) failed"));
+//                  return (7);
+//              }
+//              return (2);
+//          }
+//          uRetVal = GetTempFileName(lpTempPathBuffer, // 临时文件目录
+//                                    TEXT("DEMO"),     // 临时文件名前缀
+//                                    0,                // 创建唯一名称
+//                                    szTempFileName);  // 名称缓冲区，生成临时文件名
+//          if (uRetVal == 0) {
+//              PrintError(TEXT("GetTempFileName failed"));
+//              if (!CloseHandle(hFile)) {
+//                  PrintError(TEXT("CloseHandle(hFile) failed"));
+//                  return (7);
+//              }
+//              return (3);
+//          }
+//          hTempFile = CreateFile((LPTSTR) szTempFileName, // 文件名，创建要写入的新文件，用于大写版本
+//                                 GENERIC_WRITE,        // 打开以写入
+//                                 0,                    // 不共享
+//                                 NULL,                 // 默认安全性
+//                                 CREATE_ALWAYS,        // 覆盖现有文件
+//                                 FILE_ATTRIBUTE_NORMAL,// 普通文件
+//                                 NULL);                // 无模板
+//          if (hTempFile == INVALID_HANDLE_VALUE) {
+//              PrintError(TEXT("Second CreateFile failed"));
+//              if (!CloseHandle(hFile)) {
+//                  PrintError(TEXT("CloseHandle(hFile) failed"));
+//                  return (7);
+//              }
+//              return (4);
+//          }
+//          do { //  将 BUFSIZE 块读取到缓冲区，并将缓冲区中的所有字符，转换为大写，然后将缓冲区写入临时文件
+//              if (ReadFile(hFile, chBuffer, BUFSIZE, &dwBytesRead, NULL)) {
+//                  // 将缓冲区中的小写字母替换为大写（使用同一缓冲区），返回值是执行的替换次数，对于此演示我们不感兴趣
+//                  CharUpperBuffA(chBuffer, dwBytesRead);
+//                  fSuccess = WriteFile(hTempFile, chBuffer, dwBytesRead, &dwBytesWritten, NULL);
+//                  if (!fSuccess) {
+//                      PrintError(TEXT("WriteFile failed"));
+//                      return (5);
+//                  }
+//              } else {
+//                  PrintError(TEXT("ReadFile failed"));
+//                  return (6);
+//              }
+//          } while (dwBytesRead == BUFSIZE);
+//          if (!CloseHandle(hFile)) { // 不再需要文件的句柄，所以在移动新文件之前关闭它们
+//             PrintError(TEXT("CloseHandle(hFile) failed"));
+//             return (7);
+//          }
+//          if (!CloseHandle(hTempFile)) {
+//             PrintError(TEXT("CloseHandle(hTempFile) failed"));
+//             return (8);
+//          }
+//          fSuccess = MoveFileEx(szTempFileName, TEXT("AllCaps.txt"), MOVEFILE_REPLACE_EXISTING | MOVEFILE_COPY_ALLOWED);
+//          if (!fSuccess) { // 将临时文件移动到新文本文件，允许不同的驱动器盘符或卷名称
+//              PrintError(TEXT("MoveFileEx failed"));
+//              return (9);
+//          } else _tprintf(TEXT("All-caps version of %s written to AllCaps.txt\n"), argv[1]);
+//          return (0);
+//      }
+//      LPCTSTR ErrorMessage(DWORD error) {
+//          LPVOID lpMsgBuf; // ErrorMessage 支持函数，检索 GetLastError() 代码的系统错误消息；注意，调用者必须在返回的 LPCTSTR 缓冲区上使用 LocalFree()
+//          FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER
+//                         | FORMAT_MESSAGE_FROM_SYSTEM
+//                         | FORMAT_MESSAGE_IGNORE_INSERTS,
+//                        NULL,
+//                        error,
+//                        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+//                        (LPTSTR) &lpMsgBuf,
+//                        0,
+//                        NULL);
+//          return((LPCTSTR)lpMsgBuf);
+//      }
+//      void PrintError(LPCTSTR errDesc) { // PrintError 支持函数，错误输出的简单包装函数
+//              LPCTSTR errMsg = ErrorMessage(GetLastError());
+//              _tprintf(TEXT("\n** ERROR ** %s: %s\n"), errDesc, errMsg);
+//              LocalFree((LPVOID)errMsg);
+//      }
+//
 // 文件。如果您重命名或删除文件，然后在短时间内恢复它，系统会搜索缓存中的文件信息以恢复。缓
 // 存的信息包括其短/长名称对和创建时间。如果您在由于先前调用 DeleteFile 而挂起删除的文件上
 // 调用 CreateFile，则函数失败。操作系统会延迟文件删除，直到所有指向该文件的句柄都关闭。
@@ -33954,6 +34099,65 @@ void prh_impl_cono_test(void) {
 // OPEN_EXISTING 值有效。要创建目录，应用程序必须调用 CreateDirectory 或 CreateDirectoryEx。要使
 // 用 CreateFile 打开目录，请在 dwFlagsAndAttributes 中指定 FILE_FLAG_BACKUP_SEMANTICS 标志。即使
 // 未使用 SE_BACKUP_NAME 和 SE_RESTORE_NAME 权限，使用此标志时仍会应用适当的安全检查。
+//
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-streams
+//
+// 文件流（本地文件系统）
+//
+// 流是字节的序列。在 NTFS 文件系统中，流包含写入文件的数据，并提供比属性和属性更多关于
+// 文件的信息。例如，您可以创建一个包含搜索关键字或创建文件的用户帐户标识的流。与文件关
+// 联的每个流都有自己的分配大小、实际大小和有效数据长度：
+//  1.  分配大小是为流保留的磁盘空间量
+//  2.  实际大小是调用者正在使用的字节数
+//  3.  有效数据长度（VDL）是从流的分配大小初始化的字节数
+//
+// 每个流还维护自己的压缩、加密和稀疏状态（sparseness）。如果任何流曾经是稀疏的，则从
+// FindFirstFile、FindFirstFileEx 和 FindNextFile 函数返回的 WIN32_FIND_DATA 结构的
+// dwFileAttributes 成员中设置 FILE_ATTRIBUTE_SPARSE_FILE 属性。如果未指定流，则 GetFileAttributes、
+// GetFileAttributesEx、GetFileAttributesTransacted、GetFileInformationByHandle 和
+// GetFileInformationByHandleEx 返回默认数据流的稀疏状态。
+//
+// 流没有关联的文件时间。当文件中的任何流更新时，文件的文件时间都会更新。机会锁（opportunistic
+// locks）按流维护。共享模式也按流维护。当请求对文件的删除访问时，操作系统检查文件中所有
+// 打开流的删除访问。如果另一个进程在没有 FILE_SHARE_DELETE 权限的情况下打开了流，则无法
+// 打开文件进行删除访问。
+//
+// 如果正在复制的文件具有数据流，并且使用了网络重定向器（network redirector），则只有在
+// 客户端具有读取权限和读取属性权限时，才能复制该文件。
+//
+// 流的命名约定。从 Windows shell 命令行指定时，流的完整名称为"文件名:流名称:流类型"，如
+// 以下示例所示："myfile.dat:stream1:$DATA"。对文件名合法的任何字符对流名称也合法，包括空
+// 格。有关更多信息，请参阅命名文件。https://learn.microsoft.com/en-us/windows/win32/fileio/naming-a-file
+//
+// 流类型（也称为属性类型代码）对 NTFS 文件系统是内部的。因此，用户无法创建新的流类型，但
+// 可以打开现有的 NTFS 文件系统类型。流类型说明符值始终以美元符号（$）开头。有关流类型列表，
+// 请参见下文。默认情况下，默认数据流未命名。要完全指定默认数据流，请使用"文件名::$DATA"，
+// 其中 $DATA 是流类型。这等价于"文件名"。您可以使用文件命名约定在文件中创建命名流。请注意，
+// "$DATA"是合法的流名称。例如，名为 "$DATA" 的流在名为 "sample" 的文件上的完整名称为
+// "sample:$DATA:$DATA"。如果在同一文件上创建名为 "bar" 的流，其完整名称将是 "sample:bar:$DATA"。
+//
+// 创建和使用具有单字符名称的文件时，请在文件名前加句点后跟反斜杠（.\）或使用完全限定路径名。
+// 这样做的原因是 Windows 将单字符文件名视为驱动器盘符。当使用相对路径指定驱动器盘符时，冒号
+// 将驱动器盘符与路径分开。当单字符名称是驱动器盘符还是文件名存在歧义时，如果冒号后面的字符串
+// 是有效路径，Windows 会假设它是驱动器盘符，即使该驱动器盘符无效。
+//
+// 流类型（stream types）。以下是 NTFS 流类型列表，也称为属性类型代码。某些流类型对 NTFS 是
+// 内部的，其格式未记录。
+//      流类型                  描述
+//      ::$ATTRIBUTE_LIST       包含组成文件的所有属性列表，并标识每个属性的位置。
+//      ::$BITMAP               索引用于管理目录 b 树空闲空间的位图。b 树以 4 KB 块管理（无论簇大小如何），这用于管理这些块的分配。此流类型存在于每个目录上。
+//      ::$DATA                 数据流。默认数据流没有名称。可以使用 FindFirstStreamW 和 FindNextStreamW 函数枚举数据流。
+//      ::$EA                   包含扩展属性数据。
+//      ::$EA_INFORMATION       包含有关扩展属性的支持信息。
+//      ::$FILE_NAME            文件的名称，以 Unicode 字符表示。这包括文件的短名称以及任何硬链接。
+//      ::$INDEX_ALLOCATION     目录的流类型。用于实现大目录的文件名分配。此流代表目录本身，包含目录的所有数据。对此类型流的更改记录到 NTFS 更改日志中。
+//                              $INDEX_ALLOCATION 流类型的默认流名称为 $I30，因此 "DirName"、"DirName::$INDEX_ALLOCATION"和"DirName:$I30:$INDEX_ALLOCATION"
+//                              都是等价的。
+//      ::$INDEX_ROOT           此流表示索引 b 树的根。此流类型存在于每个目录上。
+//      ::$LOGGED_UTILITY_STREAM 类似于 ::DATA，但操作记录到NTFS更改日志。由EFS和事务性NTFS（TxF）使用。EFS的":StreamName:$StreamType" 对为
+//                              ":EFS:$LOGGED_UTILITY_STREAM"，TxF 的为 ":TXF_DATA:$LOGGED_UTILITY_STREAM"。
+//      ::$OBJECT_ID            用于标识链接跟踪服务文件的 16 字节 ID。
+//      ::$REPARSE_POINT        重解析点数据。
 //
 // 在碎片整理 FAT 或 FAT32 文件系统卷期间使用 CreateFile 打开目录时，不要指定 MAXIMUM_ALLOWED 访问
 // 权限。如果这样做，将拒绝对目录的访问。请指定 GENERIC_READ 访问权限。有关更多信息，请参阅"关于目
