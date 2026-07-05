@@ -1775,6 +1775,13 @@ typedef enum {
 #endif
 #endif
 
+#ifdef PRH_FILE_INCLUDE
+#define PRH_ALLOC_INCLUDE
+#ifdef PRH_FILE_IMPLEMENTATION
+#define PRH_ALLOC_IMPLEMENTATION
+#endif
+#endif
+
 #ifdef PRH_THRD_INCLUDE
 #define PRH_ATOMIC_INCLUDE
 #define PRH_TIME_INCLUDE
@@ -1814,12 +1821,30 @@ typedef enum {
 #endif
 #endif
 
-#if defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION) || defined(PRH_CONO_IMPLEMENTATION)
-#define PRH_PLAT_IMPLEMENTATION
+#ifdef PRH_ALLOC_IMPLEMENTATION
+#define PRH_BASE_IMPLEMENTATION
 #endif
 
-#if defined(PRH_PLAT_IMPLEMENTATION)
+#if defined(PRH_PLAT_IMPLEMENTATION) || defined(PRH_ATOMIC_IMPLEMENTATION) || defined(PRH_THRD_IMPLEMENTATION) || defined(PRH_TIME_IMPLEMENTATION) || \
+    defined(PRH_CONO_IMPLEMENTATION) || defined(PRH_FILE_IMPLEMENTATION)
 #if defined(prh_plat_windows)
+#define PRH_PLAT_WINDOWS_HEADERS
+#define PRH_PLAT_WINDOWS_BASE_IMPLEMENTATION
+#else
+#define PRH_PLAT_POSIX_HEADERS
+#define PRH_PLAT_POSIX_BASE_IMPLEMENTATION
+#endif
+#endif
+
+#if defined(PRH_PLAT_SPECIFIC_HEADERS)
+#if defined(prh_plat_windows)
+#define PRH_PLAT_WINDOWS_HEADERS
+#else
+#define PRH_PLAT_POSIX_HEADERS
+#endif
+#endif
+
+#if defined(PRH_PLAT_WINDOWS_HEADERS)
     // https://learn.microsoft.com/en-us/windows/win32/api/
     // https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-api-list
     //
@@ -2102,22 +2127,20 @@ typedef enum {
     #ifdef PRH_THRD_INCLUDE
     #include <process.h>
     #include <timeapi.h>
-    #define PRH_PLAT_WINDOWS_THREAD
     #endif // PRH_THRD_INCLUDE
     #ifdef PRH_EHUB_INCLUDE
     #define PRH_PLAT_WINDOWS_EHUB
     #define PRH_PLAT_WINDOWS_IOCP
     #endif // PRH_EHUB_INCLUDE
-    #ifdef PRH_FILE_INCLUDE
-    #define PRH_PLAT_WINDOWS_FILE
-    #endif // PRH_FILE_INCLUDE
     #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(GetLastError(), __LINE__); }
     #if PRH_DEBUG
     #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(GetLastError(), __LINE__); }
     #else
     #define PRH_BOOLRET_OR_ERROR(a) a
     #endif
-#else
+#endif // PRH_PLAT_WINDOWS_HEADERS
+
+#if defined(PRH_PLAT_POSIX_HEADERS)
     // POSIX allows an application to test at compile or run time whether
     // certain options are supported, or what the value is of certain
     // configurable constants or limits.
@@ -2372,15 +2395,8 @@ typedef enum {
     #define PRH_PLAT_LINUX_IOUR
     #endif // prh_plat_linux
     #endif // PRH_SOCK_INCLUDE
-    #ifdef PRH_THRD_INCLUDE
-    #define PRH_PLAT_POSIX_THREAD
-    #endif // PRH_THRD_INCLUDE
-    #ifdef PRH_FILE_INCLUDE
-    #define PRH_PLAT_POSIX_FILE
-    #endif // PRH_FILE_INCLUDE
     #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(errno, __LINE__); }
-#endif // prh_plat_posix
-#endif // PRH_PLAT_IMPLEMENTATION
+#endif // PRH_PLAT_POSIX_HEADERS
 
 #ifndef PRH_GLIBC_VERSION
 #if defined(__GLIBC__) && defined(__GLIBC_MINOR__)
@@ -2434,6 +2450,52 @@ typedef enum {
         #define prh_impl_pthread_getattr prh_impl_pthread_attr_get_np
     #endif
 #endif // prh_impl_pthread_getattr
+#endif // prh_plat_posix
+
+#if defined(prh_plat_windows)
+#if defined(PRH_SOCK_INCLUDE)
+#define PRH_PLAT_WINDOWS_SOCK
+#ifdef PRH_SOCK_IMPLEMENTATION
+#define PRH_IMPL_WINDOWS_SOCK
+#endif // PRH_SOCK_IMPLEMENTATION
+#endif // PRH_SOCK_INCLUDE
+
+#if defined(PRH_THRD_INCLUDE)
+#define PRH_PLAT_WINDOWS_THRD
+#ifdef PRH_THRD_IMPLEMENTATION
+#define PRH_IMPL_WINDOWS_THRD
+#endif // PRH_THRD_IMPLEMENTATION
+#endif // PRH_THRD_INCLUDE
+
+#if defined(PRH_FILE_INCLUDE)
+#define PRH_PLAT_WINDOWS_FILE
+#ifdef PRH_FILE_IMPLEMENTATION
+#define PRH_IMPL_WINDOWS_FILE
+#endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_FILE_INCLUDE
+#endif // prh_plat_windows
+
+#if defined(prh_plat_posix)
+#if defined(PRH_SOCK_INCLUDE)
+#define PRH_PLAT_POSIX_SOCK
+#ifdef PRH_SOCK_IMPLEMENTATION
+#define PRH_IMPL_POSIX_SOCK
+#endif // PRH_SOCK_IMPLEMENTATION
+#endif // PRH_SOCK_INCLUDE
+
+#if defined(PRH_THRD_INCLUDE)
+#define PRH_PLAT_POSIX_THRD
+#ifdef PRH_THRD_IMPLEMENTATION
+#define PRH_IMPL_POSIX_THRD
+#endif // PRH_THRD_IMPLEMENTATION
+#endif // PRH_THRD_INCLUDE
+
+#if defined(PRH_FILE_INCLUDE)
+#define PRH_PLAT_POSIX_FILE
+#ifdef PRH_FILE_IMPLEMENTATION
+#define PRH_IMPL_POSIX_FILE
+#endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_FILE_INCLUDE
 #endif // prh_plat_posix
 
 // include basic common use C headers
@@ -3014,60 +3076,14 @@ void prh_impl_aligned_delloc(void *context, void *ptr);
 #endif
 #endif // prh_malloc
 
-#ifdef PRH_PLAT_IMPLEMENTATION
-prh_thread_local prh_int prh_impl_line;
+#ifdef PRH_PLAT_WINDOWS_HEADERS
+typedef struct {
+} prh_windows_sysconf;
+void prh_windows_init_sysconf(void);
+const prh_windows_sysconf *prh_windows_get_sysconf(void);
+#endif // PRH_PLAT_WINDOWS_HEADERS
 
-void prh_impl_assert(prh_int line) {
-    fprintf(stderr, "assert line %ld\n", (long)line);
-    abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
-}
-
-void prh_impl_line_assert(prh_int line, prh_int dest) {
-    fprintf(stderr, "assert line %ld -> line %ld\n", (long)line, (long)dest);
-    abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
-}
-
-void prh_impl_prerr(unsigned int error, prh_int line) {
-    fprintf(stderr, "error %d line %ld\n", error, (long)line);
-}
-
-void prh_impl_ext_prerr(prh_reg priv, unsigned int error, prh_int line) {
-    fprintf(stderr, "data %p error %d line %ld\n", (void *)priv, error, (long)line);
-}
-
-void prh_impl_abort(prh_int line) {
-    fprintf(stderr, "abort line %ld\n", (long)line);
-    abort();
-}
-
-void prh_impl_abort_error(unsigned int error, prh_int line) {
-    fprintf(stderr, "abort %d line %ld\n", error, (long)line);
-    abort();
-}
-
-void prh_print_exit_code(int thrd_id, int exit_code) {
-    fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
-}
-
-void *prh_impl_relloc(void *ptr, prh_reg size) {
-    // 规范 prh_relloc 只做分配操作，不释放内存，释放内存必须调用 prh_delloc
-    // 当 ptr 为空时直接分配 size 大小内存，当 ptr 不为空时，重新分配到 size 大小
-    size = prh_set_value_if_zero(size, sizeof(void *));
-    ptr = realloc(ptr, size);
-    prh_assert_line(ptr != prh_null, prh_impl_line);
-    return ptr;
-}
-
-#if defined(prh_plat_windows) && PRH_DEBUG
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
-void prh_impl_dump_memory_leaks(void) {
-    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG | _CRTDBG_MODE_FILE);
-    _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
-    _CrtDumpMemoryLeaks();
-}
-#endif
-
-#if defined(prh_plat_windows)
+#ifdef PRH_PLAT_WINDOWS_BASE_IMPLEMENTATION
 // https://learn.microsoft.com/en-us/cpp/text/text-and-strings-in-visual-cpp
 // https://learn.microsoft.com/en-us/cpp/text/unicode-programming-summary
 //
@@ -3126,6 +3142,8 @@ void prh_impl_dump_memory_leaks(void) {
 #endif
 #endif
 
+// [windows.unicode_wide_char.ansi_multi_byte]
+//
 // Unicode 与 ANSI 字符串的转换。可以使用 Windows 函数 MultiByteToWideChar 将多字节字符
 // 串转换为宽字符字符串。codepage 指定与多字节字符串关联的一个代码页值，flags 允许我们
 // 进行额外的控制，它会影响待变音符号（比如重音）的字符，但一般情况下不使用这些标志。
@@ -3714,6 +3732,8 @@ void prh_impl_dump_memory_leaks(void) {
 // 虽然 Unicode 规范化是使操作系统安全的要素之一，但请记住，规范化不能替代全面的安全策略。
 //
 // https://learn.microsoft.com/en-us/windows/win32/netmgmt/looking-up-text-for-error-code-numbers
+
+// [windows.64-bit.large_address_aware]
 //
 // https://learn.microsoft.com/en-us/windows/win32/winprog64/programming-guide-for-64-bit-windows
 // 虚拟地址空间（64 位 Windows 编程指南）。默认情况下，基于 64 位 Microsoft Windows 的
@@ -3746,18 +3766,6 @@ void prh_impl_dump_memory_leaks(void) {
 // 程序关闭大地址支持，无法分配如此大的地址区间，最终会启动失败。32 位进程默认上限：用户
 // 态仅能用 2GB 虚拟内存，开启大地址感知后，32 位程序可拓展至 3GB / 4GB。64 位程序天然拥
 // 有超大地址空间，关闭该选项纯属画蛇添足且存在兼容性隐患。
-#if defined(PRH_TEST_IMPLEMENTATION)
-void prh_impl_windows_test(void) {
-    printf("size_t %zd-byte\n", sizeof(size_t));
-    printf("ptrdiff_t %zd-byte\n", sizeof(ptrdiff_t));
-    printf("time_t %zd-byte\n", sizeof(time_t));
-    printf("uintptr_t %zd-byte\n", sizeof(uintptr_t));
-    printf("void* %zd-byte\n", sizeof(void *));
-    printf("PVOID %zd-byte\n", sizeof(PVOID));
-    printf("HANDLE %zd-byte\n", sizeof(HANDLE));
-    printf("HMODULE %zd-byte \n", sizeof(HMODULE));
-}
-#endif
 
 // https://learn.microsoft.com/en-us/cpp/c-language/main-function-and-program-execution
 // https://learn.microsoft.com/en-us/cpp/c-language/parsing-c-command-line-arguments
@@ -3871,7 +3879,64 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
 #error "please use unicode for windows application"
 #endif // prh_impl_windows_unicode
 #endif // _WINDOWS
-#endif // prh_plat_windows
+
+#if PRH_DEBUG
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
+void prh_impl_dump_memory_leaks(void) {
+    _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG | _CRTDBG_MODE_FILE);
+    _CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
+    _CrtDumpMemoryLeaks();
+}
+#endif
+
+#if defined(PRH_TEST_IMPLEMENTATION)
+void prh_impl_windows_test(void);
+#endif
+#endif // PRH_PLAT_WINDOWS_BASE_IMPLEMENTATION
+
+#ifdef PRH_BASE_IMPLEMENTATION
+prh_thread_local prh_int prh_impl_line;
+
+void prh_impl_assert(prh_int line) {
+    fprintf(stderr, "assert line %ld\n", (long)line);
+    abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
+}
+
+void prh_impl_line_assert(prh_int line, prh_int dest) {
+    fprintf(stderr, "assert line %ld -> line %ld\n", (long)line, (long)dest);
+    abort(); // 不能使用 exit(line)，因为退出码>=128有移植性问题，可能导致shell混乱
+}
+
+void prh_impl_prerr(unsigned int error, prh_int line) {
+    fprintf(stderr, "error %d line %ld\n", error, (long)line);
+}
+
+void prh_impl_ext_prerr(prh_reg priv, unsigned int error, prh_int line) {
+    fprintf(stderr, "data %p error %d line %ld\n", (void *)priv, error, (long)line);
+}
+
+void prh_impl_abort(prh_int line) {
+    fprintf(stderr, "abort line %ld\n", (long)line);
+    abort();
+}
+
+void prh_impl_abort_error(unsigned int error, prh_int line) {
+    fprintf(stderr, "abort %d line %ld\n", error, (long)line);
+    abort();
+}
+
+void prh_print_exit_code(int thrd_id, int exit_code) {
+    fprintf(stderr, "thrd %02d exit code %d\n", thrd_id, exit_code);
+}
+
+void *prh_impl_relloc(void *ptr, prh_reg size) {
+    // 规范 prh_relloc 只做分配操作，不释放内存，释放内存必须调用 prh_delloc
+    // 当 ptr 为空时直接分配 size 大小内存，当 ptr 不为空时，重新分配到 size 大小
+    size = prh_set_value_if_zero(size, sizeof(void *));
+    ptr = realloc(ptr, size);
+    prh_assert_line(ptr != prh_null, prh_impl_line);
+    return ptr;
+}
 
 void prh_main_init(void) {
 #if defined(PRH_THRD_INCLUDE) && defined(PRH_THRD_IMPLEMENTATION)
@@ -3894,18 +3959,12 @@ void prh_main_init(void) {
     extern void prh_impl_wsasocket_init(void);
     prh_impl_wsasocket_init();
 #endif
-#if defined(PRH_TEST_IMPLEMENTATION)
-    prh_impl_windows_test();
-#endif
 #endif // prh_plat_windows
-#if defined(PRH_TEST_IMPLEMENTATION)
-    extern void prh_impl_run_all_tests(void);
-    prh_impl_run_all_tests();
-#endif
 }
-#endif // PRH_PLAT_IMPLEMENTATION
+#endif // PRH_BASE_IMPLEMENTATION
 
 #ifdef PRH_TEST_IMPLEMENTATION
+void prh_start_all_tests(void);
 typedef struct {
     char a;
     int b;
@@ -3976,30 +4035,6 @@ void prh_impl_basic_test(void) {
 #if defined(MAC_OS_X_VERSION_MIN_REQUIRED)
     printf("MAC_OS_X_VERSION_MIN_REQUIRED %d\n", MAC_OS_X_VERSION_MIN_REQUIRED);
 #endif
-#if defined(WINVER_MAXVER)
-    printf("WINVER_MAXVER %04x\n", WINVER_MAXVER);
-#endif
-#if defined(WDK_NTDDI_VERSION)
-    printf("WDK_NTDDI_VERSION %08x\n", WDK_NTDDI_VERSION);
-#endif
-#if defined(WIN32)
-    printf("WIN32 defined\n");
-#endif
-#if defined(_WIN32)
-    printf("_WIN32 defined %d\n", _WIN32);
-#endif
-#if defined(_WIN64)
-    printf("_WIN64 defined %d\n", _WIN64);
-#endif
-#if defined(WINVER)
-    printf("WINVER %04x\n", WINVER);
-#endif
-#if defined(_WIN32_WINNT)
-    printf("_WIN32_WINNT %04x\n", _WIN32_WINNT);
-#endif
-#if defined(NTDDI_VERSION)
-    printf("NTDDI_VERSION %08x\n", NTDDI_VERSION);
-#endif
 #if defined(_MSC_VER)
     printf("_MSC_VER %d\n", _MSC_VER);
 #endif
@@ -4017,6 +4052,9 @@ void prh_impl_basic_test(void) {
 #endif
 #if defined(__cplusplus)
     printf("c++ version %ld\n", (long)__cplusplus);
+#endif
+#if defined(prh_plat_windows)
+    prh_impl_windows_test();
 #endif
 }
 #endif // PRH_TEST_IMPLEMENTATION
@@ -20640,8 +20678,7 @@ prh_sysinfo *prh_get_sysinfo(void) {
 #endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_THRD_INCLUDE
 
-#ifdef PRH_PLAT_WINDOWS_THREAD
-#ifdef PRH_THRD_IMPLEMENTATION
+#ifdef PRH_IMPL_WINDOWS_THRD
 // DWORD WINAPI ThreadProc(_In_ LPVOID lpParameter)
 // HANDLE CreateThread(
 //      [in, optional]  LPSECURITY_ATTRIBUTES   lpThreadAttributes,
@@ -22291,74 +22328,9 @@ void prh_system_info(prh_sysinfo *info) {
 void prh_impl_plat_set_fault_handler(void) {
 
 }
+#endif // PRH_IMPL_WINDOWS_THRD
 
-#ifdef PRH_TEST_IMPLEMENTATION
-void prh_impl_thrd_test(void) {
-    PRH_IMPL_PREV_TEST();
-    printf("BOOL %zd-byte\n", sizeof(BOOL));
-    printf("TRUE %d FALSE %d\n", TRUE, FALSE);
-    printf("UINT %zd-byte\n", sizeof(UINT));
-    printf("CRITICAL_SECTION %zd-byte\n", sizeof(CRITICAL_SECTION));
-    printf("CONDITION_VARIABLE %zd-byte\n", sizeof(CONDITION_VARIABLE));
-    printf("MMSYSERR_NOERROR %d\n", MMSYSERR_NOERROR);
-    printf("MAX_PATH %d\n", MAX_PATH);
-    printf("MAXIMUM_SUSPEND_COUNT %d\n", MAXIMUM_SUSPEND_COUNT);
-    printf("MAXIMUM_WAIT_OBJECTS %d\n", MAXIMUM_WAIT_OBJECTS);
-    printf("MAXIMUM_PROCESSORS %d\n", MAXIMUM_PROCESSORS);
-    printf("MEMORY_ALLOCATION_ALIGNMENT %d\n", MEMORY_ALLOCATION_ALIGNMENT);
-    SYSTEM_INFO info;
-    GetSystemInfo(&info);
-    int arch = info.wProcessorArchitecture;
-    if (arch == PROCESSOR_ARCHITECTURE_INTEL) {
-        printf("PROCESSOR_ARCHITECTURE_INTEL X86\n");
-    } else if (arch == PROCESSOR_ARCHITECTURE_AMD64) {
-        printf("PROCESSOR_ARCHITECTURE_AMD64 X64\n");
-    } else if (arch == PROCESSOR_ARCHITECTURE_ARM) {
-        printf("PROCESSOR_ARCHITECTURE_ARM\n");
-    } else if (arch == PROCESSOR_ARCHITECTURE_ARM64) {
-        printf("PROCESSOR_ARCHITECTURE_ARM64\n");
-    } else {
-        printf("PROCESSOR_ARCHITECTURE_UNKNOWN\n");
-    }
-    printf("SYSTEM_INFO dwActiveProcessorMask %p\n", (void *)info.dwActiveProcessorMask);
-    printf("SYSTEM_INFO dwNumberOfProcessors %d\n", (int)info.dwNumberOfProcessors);
-    printf("SYSTEM_INFO lpMinimumApplicationAddress %p\n", (void *)info.lpMinimumApplicationAddress);
-    printf("SYSTEM_INFO lpMaximumApplicationAddress %p\n", (void *)info.lpMaximumApplicationAddress);
-    prh_sysinfo sys_info;
-    prh_system_info(&sys_info);
-    printf("page size %d %dKB\n", sys_info.page_size, sys_info.page_size/1024);
-    printf("vmem unit %d %dKB\n", sys_info.vmem_unit, sys_info.vmem_unit/1024);
-    printf("cache line size %d\n", sys_info.cache_line_size);
-    printf("active processor count %d\n", sys_info.processor_count);
-#if defined(UNICODE)
-    printf("UNICODE is defined\n");
-#else
-    printf("UNICODE is NOT defined\n");
-#endif
-#if defined(_UNICODE)
-    printf("_UNICODE is defined\n");
-#endif
-#if defined(_CONSOLE)
-    printf("_CONSOLE is defined\n");
-#else
-    printf("_CONSOLE is NOT defined\n");
-#endif
-#if defined(CREATE_WAITABLE_TIMER_HIGH_RESOLUTION)
-    printf("CREATE_WAITABLE_TIMER_HIGH_RESOLUTION is defined\n");
-#endif
-
-    printf("prh_mutex %d-byte\n", (int)sizeof(prh_mutex));
-    printf("prh_thrd_cond %d-byte\n", (int)sizeof(prh_thrd_cond));
-    printf("prh_cond_sleep %d-byte\n", (int)sizeof(prh_cond_sleep));
-}
-#undef PRH_IMPL_PREV_TEST
-#define PRH_IMPL_PREV_TEST prh_impl_thrd_test
-#endif // PRH_TEST_IMPLEMENTATION
-#endif // PRH_THRD_IMPLEMENTATION
-#endif // PRH_PLAT_WINDOWS_THREAD
-
-#ifdef PRH_PLAT_POSIX_THREAD
-#ifdef PRH_THRD_IMPLEMENTATION
+#ifdef PRH_IMPL_POSIX_THREAD
 // 线程间除全局内存还共享以下属性，它们对于进程而言是全局的，并非针对某个特定线程：
 //
 // 1. 进程ID和父进程ID，进程组ID与会话（session）ID，进程凭证（credential）
@@ -25578,7 +25550,6 @@ void prh_impl_thrd_test(void) {
 #undef PRH_IMPL_PREV_TEST
 #define PRH_IMPL_PREV_TEST prh_impl_thrd_test
 #endif // PRH_TEST_IMPLEMENTATION
-#endif // PRH_THRD_IMPLEMENTATION
 #endif // PRH_PLAT_POSIX_THREAD
 
 // Reactor Pattern 和 Proactor Pattern
@@ -33197,22 +33168,14 @@ prh_pwait_data prh_cono_pwait(void) {
     prh_impl_cono_pwait_data(caller, &data);
     return data;
 }
-
 #endif // PRH_IMPL_CONO_SCHEDULE_STRATEGY_V3
-
-#ifdef PRH_TEST_IMPLEMENTATION
-void prh_impl_cono_test(void) {
-
-}
-#endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_CONO_IMPLEMENTATION
 #endif // PRH_CONO_INCLUDE
 
-#ifdef PRH_FILE_INCLUDE
-#if defined(PRH_PLAT_WINDOWS_FILE)
+#if PRH_PLAT_WINDOWS_FILE
 // INVALID_HANDLE_VALUE ((HANDLE)(LONG_PTR)-1)
 #define prh_invalid_handle ((prh_handle)-1)
-#ifdef PRH_FILE_IMPLEMENTATION
+#ifdef PRH_IMPL_WINDOWS_FILE
 // https://learn.microsoft.com/en-us/windows/win32/fileio/files-and-clusters
 //
 // 文件和簇（Files and Clusters）
@@ -37052,11 +37015,11 @@ prh_r32 prh_impl_write_console(prh_handle output, const void *buffer, prh_r32 by
     if (!b) prh_prerr(GetLastError());
     return written;
 }
-#endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_IMPL_WINDOWS_FILE
 #endif // PRH_PLAT_WINDOWS_FILE
 
 #if defined(PRH_PLAT_POSIX_FILE)
-#ifdef PRH_FILE_IMPLEMENTATION
+#if defined(PRH_IMPL_POSIX_FILE)
 // 所有执行 I/O 操作的系统调用都以文件描述符，一个非负整数，来指代打开的文件。文件描述符
 // 可以表示所有类型的已打开文件，包括管道（pipe）、FIFO、套接字、终端、设备、普通文件。
 // 文件描述符的分配基于进程，不同的进程对文件描述符的分配互不干扰。有三个始终打开的文件描
@@ -37108,9 +37071,8 @@ prh_r32 prh_impl_write_console(prh_handle output, const void *buffer, prh_r32 by
 // 服务器断电时对数据完整性带来一定风险。Linux NFS 客户端对 O_DIRECT I/O 没有任何对齐
 // 限制。总之，O_DIRECT 是一个潜在的强大工具，应谨慎使用。建议应用程序将 O_DIRECT 的使
 // 用视为一个默认禁用的性能选项。
-#endif // PRH_FILE_IMPLEMENTATION
+#endif // PRH_IMPL_POSIX_FILE
 #endif // PRH_PLAT_POSIX_FILE
-#endif // PRH_FILE_INCLUDE
 
 #ifdef PRH_SOCK_INCLUDE
 #define prh_port_any ((prh_r16)0)
@@ -43048,20 +43010,6 @@ void prh_impl_tcp_recv(prh_socket *tcp, prh_byte *recv_buff, prh_r32 buff_size) 
     assert(tcp->flags.opened == 1 && tcp->flags.recv_closed == 0 && tcp->flags.transfer == 0);
     prh_impl_thrd_wsarecv_req(tcp, recv_buff, buff_size); // 可以接收零字节探测接收情况
 }
-
-#ifdef PRH_TEST_IMPLEMENTATION
-void prh_impl_sock_test(void) {
-    PRH_IMPL_PREV_TEST();
-    printf("SOCKET %d-byte\n", (int)sizeof(SOCKET));
-    printf("INVALID_SOCKET %p\n", (void *)INVALID_SOCKET);
-    printf("struct sockaddr_in %d-byte\n", (int)sizeof(struct sockaddr_in));
-    printf("struct sockaddr_in6 %d-byte\n", (int)sizeof(struct sockaddr_in6));
-    printf("RIO_MAX_CQ_SIZE %d (%08x)\n", RIO_MAX_CQ_SIZE, RIO_MAX_CQ_SIZE);
-    prh_impl_wsaenumprotocol();
-}
-#undef PRH_IMPL_PREV_TEST
-#define PRH_IMPL_PREV_TEST prh_impl_sock_test
-#endif // PRH_TEST_IMPLEMENTATION
 #endif // PRH_SOCK_IMPLEMENTATION
 #endif // PRH_PLAT_WINDOWS_SOCKET
 
@@ -53745,7 +53693,7 @@ label_skipped:
 #endif // PRH_PEFMT_INCLUDE
 
 #ifdef PRH_TEST_IMPLEMENTATION
-void prh_impl_run_all_tests(void) {
+void prh_start_all_tests(void) {
     PRH_IMPL_PREV_TEST();
 }
 #endif // PRH_TEST_IMPLEMENTATION
