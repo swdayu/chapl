@@ -37433,6 +37433,387 @@ void prh_text_free(prh_text *p) {
 // 的映射，而不是每次调用时加载单独的字体。这会影响扩展字符（ASCII 值大于 127）在控制台窗口
 // 中的显示方式。然而，如果当前字体是光栅字体，SetConsoleOutputCP 不会影响扩展字符的显示方式。
 
+// 控制台标准句柄，当标准句柄为空时，对标准句柄的读写将失败，其效果相当于忽略对应的操作
+//  1.  控制台模式程序、或者说字符模式程序、命令行模式程序
+//      * 标准句柄在程序启动后必须总是存在，它们要么从父进程自动继承，要么被父进程显式设置
+//      * 如果这两种情况都未指定或允许，那么操作系统将自动创建这些标准句柄
+//  2.  对于窗口模式程序或其他一些特殊情况
+//      * 标准句柄在程序启动后，它们的值可能都为空值（NULL）
+//      * 但是，它们可以在运行时从父进程隐式或显式继承，或者由应用程序自行分配、附加、释放
+//
+// CONOUT$ 是控制台输出缓冲区的特殊设备名称，特点：
+//  - 每个控制台会话只有一个活动屏幕缓冲区
+//  - CONOUT$ 始终指向当前活动的屏幕缓冲区
+//  - 不能创建多个独立的 CONOUT$ 设备
+//  - 但可以通过 CreateConsoleScreenBuffer 创建多个屏幕缓冲区，然后切换（SetConsoleActiveScreenBuffer）
+//
+// program.exe > file.txt program 1> file.txt
+// program.exe > file.txt 2> error.txt
+// program.exe > file.txt 2>&1   两者都保存到 file.txt
+// program.exe 2> file.txt >&2   两者都保存到 file.txt
+// program.exe > nul 2>&1        两者都丢弃
+// program.exe >> file.txt       追加到文件
+// program.exe >> file.txt 2>> error.txt
+//
+// 控制台程序（program.exe)
+//  * CONIN 正常
+//  * CONOUT 正常
+//  * stdin 正常，指向 CONIN
+//  * stdout 正常，指向 CONOUT，如果 SetStdHandle，设置之前输出到 CONOUT，设置之后输出到目标句柄
+//  * stderr 正常，指向 CONOUT
+//
+// 控制台程序重定向（program.exe > file.txt）
+//  * CONIN 正常
+//  * CONOUT 正常
+//  * stdin 正常，指向 CONIN
+//  * stdout 正常，指向 file.txt，如果 SetStdHandle，设置之前输出到 file.txt，设置之后输出到目标句柄
+//  * stderr 正常，指向 CONOUT
+//
+// 控制台程序重定向（program.exe 2> error.txt）
+//  * CONIN 正常
+//  * CONOUT 正常
+//  * stdin 正常，指向 CONIN
+//  * stdout 正常，指向 CONOUT
+//  * stderr 正常，指向 error.txt
+//
+// 控制台程序通过管道传给另一个程序（program.exe | findstr /R "." > echo.txt）
+//  * CONIN 正常
+//  * CONOUT 正常
+//  * stdin 正常，指向 CONIN
+//  * stdout 正常，输出到管道，如果 SetStdHandle，设置之前输出到管道，设置之后输出到目标句柄
+//  * stderr 正常，指向 CONOUT
+//
+// 图形界面程序（program.exe）
+//  * CONIN INVALID_HANDLE_VALUE
+//  * CONOUT INVALID_HANDLE_VALUE
+//  * stdin NULL
+//  * stdout NULL
+//  * stderr NULL
+//
+// 图形界面程序（program.exe > file.txt）
+//  * CONIN INVALID_HANDLE_VALUE
+//  * CONOUT INVALID_HANDLE_VALUE
+//  * stdin NULL
+//  * stdout 正常，指向 file.txt
+//  * stderr NULL
+//
+// 图形界面程序（program.exe 2> error.txt）
+//  * CONIN INVALID_HANDLE_VALUE
+//  * CONOUT INVALID_HANDLE_VALUE
+//  * stdin NULL
+//  * stdout NULL
+//  * stderr 正常，指向 error.txt
+//
+// 图形界面程序（program.exe | findstr /R "." > echo.txt）
+//  * CONIN INVALID_HANDLE_VALUE
+//  * CONOUT INVALID_HANDLE_VALUE
+//  * stdin NULL
+//  * stdout 正常，输出到管道
+//  * stderr NULL
+
+prh_handle prh_windows_console_input(void) {
+    HANDLE handle = CreateFile((LPCWSTR)TEXT("CONIN$"), GENERIC_READ|GENERIC_WRITE,
+        FILE_SHARE_READ|FILE_SHARE_WRITE, prh_null, OPEN_EXISTING, 0, prh_null);
+    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
+    return (prh_handle)handle;
+}
+
+prh_handle prh_windows_console_output(void) {
+    HANDLE handle = CreateFile((LPCWSTR)TEXT("CONOUT$"), GENERIC_READ|GENERIC_WRITE,
+        FILE_SHARE_READ|FILE_SHARE_WRITE, prh_null, OPEN_EXISTING, 0, prh_null);
+    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
+    return (prh_handle)handle;
+}
+
+void prh_impl_console_exit(void) {
+    if (PRH_WINDOWS_SYSCONF.console_input != prh_invalid_handle) {
+        prh_file_close(PRH_WINDOWS_SYSCONF.console_input);
+        PRH_WINDOWS_SYSCONF.console_input = prh_invalid_handle;
+    }
+    if (PRH_WINDOWS_SYSCONF.console_output != prh_invalid_handle) {
+        prh_file_close(PRH_WINDOWS_SYSCONF.console_output);
+        PRH_WINDOWS_SYSCONF.console_output = prh_invalid_handle;
+    }
+}
+
+void prh_console_setup(void) {
+    PRH_WINDOWS_SYSCONF.console_input = prh_windows_console_input();
+    PRH_WINDOWS_SYSCONF.console_output = prh_windows_console_output();
+    if (!SetConsoleCP(CP_UTF8)) prh_prerr(GetLastError());
+    if (!SetConsoleOutputCP(CP_UTF8)) prh_prerr(GetLastError());
+    atexit(prh_impl_console_exit);
+}
+
+prh_handle prh_conin_handle(void) { // 打开的控制台句柄需要释放
+    return PRH_WINDOWS_SYSCONF.console_input;
+}
+
+prh_handle prh_conout_handle(void) {
+    return PRH_WINDOWS_SYSCONF.console_output;
+}
+
+prh_handle prh_stdin_handle(void) { // 标准句柄由进程拥有，不需要释放
+    HANDLE handle = GetStdHandle(STD_INPUT_HANDLE);
+#if PRH_DEBUG
+    if (handle == INVALID_HANDLE_VALUE) {
+        prh_prerr(GetLastError());
+        return prh_invalid_handle;
+    }
+    if (handle == prh_null) {
+        prh_prerr(e_null);
+        return prh_invalid_handle;
+    }
+#else
+    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
+#endif
+    return (prh_handle)handle;
+}
+
+prh_handle prh_stdout_handle(void) {
+    HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+#if PRH_DEBUG
+    if (handle == INVALID_HANDLE_VALUE) {
+        prh_prerr(GetLastError());
+        return prh_invalid_handle;
+    }
+    if (handle == prh_null) {
+        prh_prerr(e_null);
+        return prh_invalid_handle;
+    }
+#else
+    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
+#endif
+    return (prh_handle)handle;
+}
+
+prh_handle prh_stderr_handle(void) {
+    HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);
+#if PRH_DEBUG
+    if (handle == INVALID_HANDLE_VALUE) {
+        prh_prerr(GetLastError());
+        return prh_invalid_handle;
+    }
+    if (handle == prh_null) {
+        prh_prerr(e_null);
+        return prh_invalid_handle;
+    }
+#else
+    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
+#endif
+    return (prh_handle)handle;
+}
+
+void prh_redirect_stdin(prh_handle handle) {
+    BOOL b = SetStdHandle(STD_INPUT_HANDLE, (HANDLE)handle);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_redirect_stdout(prh_handle handle) {
+    BOOL b = SetStdHandle(STD_OUTPUT_HANDLE, (HANDLE)handle);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_redirect_stderr(prh_handle handle) {
+    BOOL b = SetStdHandle(STD_ERROR_HANDLE, (HANDLE)handle);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_windows_detach_console(void) {
+    BOOL b = FreeConsole();
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_windows_alloc_and_attach_console(void) {
+    BOOL b = AllocConsole();
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_windows_share_console_with_parent(void) {
+    BOOL b = AttachConsole(ATTACH_PARENT_PROCESS);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_windows_share_console_with_process(prh_r32 pid) {
+    BOOL b = AttachConsole(pid);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_windows_setup_std_handles(void) {
+    prh_windows_detach_console();
+    prh_windows_alloc_and_attach_console();
+}
+
+bool prh_windows_is_console_handle(prh_handle handle) {
+    DWORD mode; // NULL 和 INVALID_HANDLE_VALUE 都会返回 ERROR_INVALID_HANDLE
+    BOOL b = GetConsoleMode((HANDLE)handle, &mode);
+    if (!b) { SetLastError(0); return false; } // ERROR_INVALID_HANDLE 0x06
+    return true;
+}
+
+prh_r32 prh_impl_write_conout(prh_handle conout, const prh_r16 *utf16, prh_r32 chars) {
+    DWORD written = 0;
+    BOOL b = WriteConsole((HANDLE)conout, utf16, chars, &written, prh_null);
+    if (!b) prh_prerr(GetLastError());
+    return written;
+}
+
+prh_reg prh_print_bytes(prh_handle handle, const prh_byte *p, prh_reg bytes) {
+    assert(p != prh_null);
+    if (handle == prh_invalid_handle) return bytes;
+    return prh_file_write(handle, p, bytes);
+}
+
+prh_reg prh_print_zero_ended_bytes(prh_handle handle, const prh_byte *p) {
+    assert(p != prh_null);
+    prh_reg bytes = 0; while (p[bytes]) bytes += 1;
+    return prh_print_bytes(handle, p, bytes);
+}
+
+prh_reg prh_print_wchars(prh_handle handle, const prh_r16 *p, prh_reg count) {
+    prh_buffer buffer = prh_buffer_from(prh_local_alloc());
+    count = prh_utf16_to_utf8(p, count, &buffer);
+    count = prh_print_bytes(handle, buffer.data, count);
+    prh_free_buffer(&buffer);
+    return count;
+}
+
+prh_reg prh_print_zero_ended_wchars(prh_handle handle, const prh_r16 *p) {
+    assert(p != prh_null);
+    prh_reg count = 0; while (p[count]) count += 1;
+    return prh_print_wchars(handle, p, count);
+}
+
+prh_reg prh_print_uchars(prh_handle handle, const prh_r32 *p, prh_reg count) {
+    prh_buffer buffer = prh_buffer_from(prh_local_alloc());
+    count = prh_utf32_to_utf8(p, count, &buffer);
+    count = prh_print_bytes(handle, buffer.data, count);
+    prh_free_buffer(&buffer);
+    return count;
+}
+
+prh_reg prh_print_zero_ended_uchars(prh_handle handle, const prh_r32 *p) {
+    assert(p != prh_null);
+    prh_reg count = 0; while (p[count]) count += 1;
+    return prh_print_uchars(handle, p, count);
+}
+
+prh_reg prh_print_r32_dec(prh_handle handle, prh_r32 value, prh_r32 width_flags) {
+    prh_byte a[10]; // 4294967295
+    prh_reg bytes;
+    a[9] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 1; goto label_print; }
+    a[8] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 2; goto label_print; }
+    a[7] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 3; goto label_print; }
+    a[6] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 4; goto label_print; }
+    a[5] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 5; goto label_print; }
+    a[4] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 6; goto label_print; }
+    a[3] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 7; goto label_print; }
+    a[2] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 8; goto label_print; }
+    a[1] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 9; goto label_print; }
+    a[0] = '0' + value % 10;
+    bytes = 10;
+label_print:
+    return prh_print_bytes(handle, a + 10 - bytes, bytes);
+}
+
+prh_reg prh_print_r64_dec(prh_handle handle, prh_r64 value, prh_r32 width_flags) {
+    prh_byte a[20]; // 18446744073709551615
+    prh_reg bytes;
+    a[19] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 1; goto label_print; }
+    a[18] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 2; goto label_print; }
+    a[17] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 3; goto label_print; }
+    a[16] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 4; goto label_print; }
+    a[15] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 5; goto label_print; }
+    a[14] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 6; goto label_print; }
+    a[13] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 7; goto label_print; }
+    a[12] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 8; goto label_print; }
+    a[11] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 9; goto label_print; }
+    a[10] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 10; goto label_print; }
+    a[9] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 11; goto label_print; }
+    a[8] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 12; goto label_print; }
+    a[7] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 13; goto label_print; }
+    a[6] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 14; goto label_print; }
+    a[5] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 15; goto label_print; }
+    a[4] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 16; goto label_print; }
+    a[3] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 17; goto label_print; }
+    a[2] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 18; goto label_print; }
+    a[1] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 19; goto label_print; }
+    a[0] = '0' + value % 10;
+    bytes = 20;
+label_print:
+    return prh_print_bytes(handle, a + 20 - bytes, bytes);
+}
+
+prh_reg prh_print_reg_dec(prh_handle handle, prh_reg value, prh_r32 width_flags) {
+#if prh_int_bits == 32
+    return prh_print_r32_dec(handle, value, width_flags);
+#elif prh_int_bits == 64
+    return prh_print_r64_dec(handle, value, width_flags);
+#endif
+}
+
+prh_reg prh_print_raw_dec(prh_handle handle, prh_reg value, prh_r32 width_flags) {
+#if prh_raw_int_bits == 32
+    return prh_print_r32_dec(handle, value, width_flags);
+#elif prh_raw_int_bits == 64
+    return prh_print_r64_dec(handle, value, width_flags);
+#endif
+}
+
+static const prh_byte prh_impl_hex_digits[16] = {
+    '0', '1', '2', '3', '4', '5', '6', '7',
+    '8', '9', 'A', 'B', 'C', 'D', 'E', 'F',
+};
+
+prh_reg prh_print_r32_hex(prh_handle handle, prh_r32 value, prh_r32 width_flags) {
+    prh_byte a[8];
+    a[7] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[6] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[5] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[4] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[3] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[2] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[1] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[0] = prh_impl_hex_digits[value & 0xf];
+    return prh_print_bytes(handle, a, 8);
+}
+
+prh_reg prh_print_r64_hex(prh_handle handle, prh_r64 value, prh_r32 width_flags) {
+    prh_byte a[16];
+    a[15] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[14] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[13] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[12] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[11] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[10] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[9] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[8] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[7] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[6] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[5] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[4] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[3] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[2] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[1] = prh_impl_hex_digits[value & 0xf]; value >>= 4;
+    a[0] = prh_impl_hex_digits[value & 0xf];
+    return prh_print_bytes(handle, a, 16);
+}
+
+prh_reg prh_print_reg_hex(prh_handle handle, prh_reg value, prh_r32 width_flags) {
+#if prh_int_bits == 32
+    return prh_print_r32_hex(handle, value, width_flags);
+#elif prh_int_bits == 64
+    return prh_print_r64_hex(handle, value, width_flags);
+#endif
+}
+
+prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags) {
+#if prh_raw_int_bits == 32
+    return prh_print_r32_hex(handle, value, width_flags);
+#elif prh_raw_int_bits == 64
+    return prh_print_r64_hex(handle, value, width_flags);
+#endif
+}
+
 #endif // PRH_IMPL_WINDOWS_FILE
 #endif // PRH_PLAT_WINDOWS_FILE
 
