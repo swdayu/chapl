@@ -3095,6 +3095,9 @@ typedef struct {
     prh_r32 path_component_max_chars;
     prh_handle console_input;
     prh_handle console_output;
+    prh_handle stdin_handle;
+    prh_handle stdout_handle;
+    prh_handle stderr_handle;
 } prh_windows_sysconf;
 void prh_windows_init_sysconf(void);
 const prh_windows_sysconf *prh_windows_get_sysconf(void);
@@ -37676,133 +37679,29 @@ void prh_text_free(prh_text *p) {
 //  * stdout NULL
 //  * stderr NULL
 //
-// 图形界面程序（program.exe > file.txt）
-//  * CONIN INVALID_HANDLE_VALUE
-//  * CONOUT INVALID_HANDLE_VALUE
-//  * stdin NULL
-//  * stdout 正常，指向 file.txt
-//  * stderr NULL
+// 图形界面程序（program.exe > file.txt）           WSL 命令行：
+//  * CONIN INVALID_HANDLE_VALUE                    * CONIN INVALID_HANDLE_VALUE
+//  * CONOUT INVALID_HANDLE_VALUE                   * CONOUT INVALID_HANDLE_VALUE
+//  * stdin NULL                                    * stdin 正常，控制台输入
+//  * stdout 正常，指向 file.txt                    * stdout 正常，指向 file.txt
+//  * stderr NULL                                   * stderr 正常，控制台输出
 //
-// 图形界面程序（program.exe 2> error.txt）
-//  * CONIN INVALID_HANDLE_VALUE
-//  * CONOUT INVALID_HANDLE_VALUE
-//  * stdin NULL
-//  * stdout NULL
-//  * stderr 正常，指向 error.txt
+// 图形界面程序（program.exe 2> error.txt）         WSL 命令行：
+//  * CONIN INVALID_HANDLE_VALUE                    * CONIN INVALID_HANDLE_VALUE
+//  * CONOUT INVALID_HANDLE_VALUE                   * CONOUT INVALID_HANDLE_VALUE
+//  * stdin NULL                                    * stdin 正常，控制台输入
+//  * stdout NULL                                   * stdout 正常，控制台输出
+//  * stderr 正常，指向 error.txt                   * stderr 正常，指向 error.txt
 //
-// 图形界面程序（program.exe | findstr /R "." > echo.txt）
-//  * CONIN INVALID_HANDLE_VALUE
-//  * CONOUT INVALID_HANDLE_VALUE
-//  * stdin NULL
-//  * stdout 正常，输出到管道
-//  * stderr NULL
-
-prh_handle prh_windows_console_input(void) {
-    HANDLE handle = CreateFile((LPCWSTR)TEXT("CONIN$"), GENERIC_READ|GENERIC_WRITE,
-        FILE_SHARE_READ|FILE_SHARE_WRITE, prh_null, OPEN_EXISTING, 0, prh_null);
-    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
-    return (prh_handle)handle;
-}
-
-prh_handle prh_windows_console_output(void) {
-    HANDLE handle = CreateFile((LPCWSTR)TEXT("CONOUT$"), GENERIC_READ|GENERIC_WRITE,
-        FILE_SHARE_READ|FILE_SHARE_WRITE, prh_null, OPEN_EXISTING, 0, prh_null);
-    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
-    return (prh_handle)handle;
-}
-
-void prh_impl_console_exit(void) {
-    if (PRH_WINDOWS_SYSCONF.console_input != prh_invalid_handle) {
-        prh_file_close(PRH_WINDOWS_SYSCONF.console_input);
-        PRH_WINDOWS_SYSCONF.console_input = prh_invalid_handle;
-    }
-    if (PRH_WINDOWS_SYSCONF.console_output != prh_invalid_handle) {
-        prh_file_close(PRH_WINDOWS_SYSCONF.console_output);
-        PRH_WINDOWS_SYSCONF.console_output = prh_invalid_handle;
-    }
-}
-
-void prh_console_setup(void) {
-    PRH_WINDOWS_SYSCONF.console_input = prh_windows_console_input();
-    PRH_WINDOWS_SYSCONF.console_output = prh_windows_console_output();
-    if (!SetConsoleCP(CP_UTF8)) prh_prerr(GetLastError());
-    if (!SetConsoleOutputCP(CP_UTF8)) prh_prerr(GetLastError());
-    atexit(prh_impl_console_exit);
-}
-
-prh_handle prh_conin_handle(void) { // 打开的控制台句柄需要释放
-    return PRH_WINDOWS_SYSCONF.console_input;
-}
-
-prh_handle prh_conout_handle(void) {
-    return PRH_WINDOWS_SYSCONF.console_output;
-}
-
-prh_handle prh_stdin_handle(void) { // 标准句柄由进程拥有，不需要释放
-    HANDLE handle = GetStdHandle(STD_INPUT_HANDLE);
-#if PRH_DEBUG
-    if (handle == INVALID_HANDLE_VALUE) {
-        prh_prerr(GetLastError());
-        return prh_invalid_handle;
-    }
-    if (handle == prh_null) {
-        prh_prerr(e_null);
-        return prh_invalid_handle;
-    }
-#else
-    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
-#endif
-    return (prh_handle)handle;
-}
-
-prh_handle prh_stdout_handle(void) {
-    HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
-#if PRH_DEBUG
-    if (handle == INVALID_HANDLE_VALUE) {
-        prh_prerr(GetLastError());
-        return prh_invalid_handle;
-    }
-    if (handle == prh_null) {
-        prh_prerr(e_null);
-        return prh_invalid_handle;
-    }
-#else
-    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
-#endif
-    return (prh_handle)handle;
-}
-
-prh_handle prh_stderr_handle(void) {
-    HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);
-#if PRH_DEBUG
-    if (handle == INVALID_HANDLE_VALUE) {
-        prh_prerr(GetLastError());
-        return prh_invalid_handle;
-    }
-    if (handle == prh_null) {
-        prh_prerr(e_null);
-        return prh_invalid_handle;
-    }
-#else
-    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
-#endif
-    return (prh_handle)handle;
-}
-
-void prh_redirect_stdin(prh_handle handle) {
-    BOOL b = SetStdHandle(STD_INPUT_HANDLE, (HANDLE)handle);
-    if (!b) prh_prerr(GetLastError());
-}
-
-void prh_redirect_stdout(prh_handle handle) {
-    BOOL b = SetStdHandle(STD_OUTPUT_HANDLE, (HANDLE)handle);
-    if (!b) prh_prerr(GetLastError());
-}
-
-void prh_redirect_stderr(prh_handle handle) {
-    BOOL b = SetStdHandle(STD_ERROR_HANDLE, (HANDLE)handle);
-    if (!b) prh_prerr(GetLastError());
-}
+// 图形界面程序（program.exe | findstr /R "." > echo.txt）  WSL 命令行（program.exe | cat > echo.txt）：
+//  * CONIN INVALID_HANDLE_VALUE                            * CONIN INVALID_HANDLE_VALUE
+//  * CONOUT INVALID_HANDLE_VALUE                           * CONOUT INVALID_HANDLE_VALUE
+//  * stdin NULL                                            * stdin 正常，控制台输入
+//  * stdout 正常，输出到管道                               * stdout 正常，输出到管道
+//  * stderr NULL                                           * stderr 正常，控制台输出
+//
+// C 语言 freopen stdout 并不影响进程的 GetStdHandle(STD_OUTPUT_HANDLE) 的值，只改变 C 语言
+// 自己局部保存的 stdout 的内容。
 
 void prh_windows_detach_console(void) {
     BOOL b = FreeConsole();
@@ -37814,9 +37713,10 @@ void prh_windows_alloc_and_attach_console(void) {
     if (!b) prh_prerr(GetLastError());
 }
 
-void prh_windows_share_console_with_parent(void) {
+bool prh_windows_share_console_with_parent(void) {
     BOOL b = AttachConsole(ATTACH_PARENT_PROCESS);
-    if (!b) prh_prerr(GetLastError());
+    if (!b) { prh_prerr(GetLastError()); return false; }
+    return true;
 }
 
 void prh_windows_share_console_with_process(prh_r32 pid) {
@@ -37834,6 +37734,124 @@ bool prh_windows_is_console_handle(prh_handle handle) {
     BOOL b = GetConsoleMode((HANDLE)handle, &mode);
     if (!b) { SetLastError(0); return false; } // ERROR_INVALID_HANDLE 0x06
     return true;
+}
+
+prh_handle prh_windows_console_input(void) {
+    HANDLE handle = CreateFile((LPCWSTR)TEXT("CONIN$"), GENERIC_READ|GENERIC_WRITE,
+        FILE_SHARE_READ|FILE_SHARE_WRITE, prh_null, OPEN_EXISTING, 0, prh_null);
+    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
+    return (prh_handle)handle;
+}
+
+prh_handle prh_windows_console_output(void) {
+    HANDLE handle = CreateFile((LPCWSTR)TEXT("CONOUT$"), GENERIC_READ|GENERIC_WRITE,
+        FILE_SHARE_READ|FILE_SHARE_WRITE, prh_null, OPEN_EXISTING, 0, prh_null);
+    if (handle == INVALID_HANDLE_VALUE) prh_prerr(GetLastError());
+    return (prh_handle)handle;
+}
+
+prh_handle prh_windows_stdin_handle(void) { // 标准句柄由进程拥有，不需要释放
+    HANDLE handle = GetStdHandle(STD_INPUT_HANDLE);
+    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
+    return (prh_handle)handle;
+}
+
+prh_handle prh_windows_stdout_handle(void) {
+    HANDLE handle = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
+    return (prh_handle)handle;
+}
+
+prh_handle prh_windows_stderr_handle(void) {
+    HANDLE handle = GetStdHandle(STD_ERROR_HANDLE);
+    if (handle == INVALID_HANDLE_VALUE || handle == prh_null) return prh_invalid_handle;
+    return (prh_handle)handle;
+}
+
+// 默认情况下，图形界面程序不会分配控制台，当使用命令行执行程序时，命令行程序是当前
+// 程序的父进程。一种解决方法是 prh_windows_share_console_with_parent() 但是命令行
+// 默认不会等待 GUI 程序进程退出，需要使用 start /wait 或者 cmd /c 命令，但是这种方
+// 法在 WSL 中行不通。第二种方法是将标准输出和错误输出都重定向到文件。
+//
+// if (console_output == prh_invalid_handle && prh_windows_share_console_with_parent()) {
+//      console_output = prh_windows_console_output(); // 启动当前程序的命令行是父进程
+// }
+//
+// 程序类型                         CMD 行为
+// 控制台程序 (/SUBSYSTEM:CONSOLE)  CMD 等待进程退出，显示输出
+// GUI 程序 (/SUBSYSTEM:WINDOWS)    CMD 立即返回，不等待
+//
+// 如果想让 GUI 程序等待进程退出，需要使用：
+//  1.  start /wait gui_program.exe 或者
+//  2.  cmd /c gui_program.exe
+
+void prh_impl_console_exit(void) {
+    if (PRH_WINDOWS_SYSCONF.console_input != prh_invalid_handle) {
+        prh_file_close(PRH_WINDOWS_SYSCONF.console_input);
+        PRH_WINDOWS_SYSCONF.console_input = prh_invalid_handle;
+    }
+    if (PRH_WINDOWS_SYSCONF.console_output != prh_invalid_handle) {
+        prh_file_close(PRH_WINDOWS_SYSCONF.console_output);
+        PRH_WINDOWS_SYSCONF.console_output = prh_invalid_handle;
+    }
+}
+
+void prh_console_setup(void) {
+    PRH_WINDOWS_SYSCONF.console_output = prh_windows_console_output();
+    PRH_WINDOWS_SYSCONF.console_input = prh_windows_console_input();
+    if (!SetConsoleCP(CP_UTF8)) prh_prerr(GetLastError());
+    if (!SetConsoleOutputCP(CP_UTF8)) prh_prerr(GetLastError());
+    atexit(prh_impl_console_exit);
+    PRH_WINDOWS_SYSCONF.stdin_handle = prh_windows_stdin_handle();
+    PRH_WINDOWS_SYSCONF.stdout_handle = prh_windows_stdout_handle();
+    PRH_WINDOWS_SYSCONF.stderr_handle = prh_windows_stderr_handle();
+}
+
+prh_handle prh_conin_handle(void) {
+    return PRH_WINDOWS_SYSCONF.console_input;
+}
+
+prh_handle prh_conout_handle(void) {
+    return PRH_WINDOWS_SYSCONF.console_output;
+}
+
+prh_handle prh_stdin_handle(void) {
+    return PRH_WINDOWS_SYSCONF.stdin_handle;
+}
+
+prh_handle prh_stdout_handle(void) {
+    return PRH_WINDOWS_SYSCONF.stdout_handle;
+}
+
+prh_handle prh_stderr_handle(void) {
+    return PRH_WINDOWS_SYSCONF.stderr_handle;
+}
+
+void prh_redirect_windows_stdin(prh_handle handle) {
+    BOOL b = SetStdHandle(STD_INPUT_HANDLE, (HANDLE)handle);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_redirect_windows_stdout(prh_handle handle) {
+    BOOL b = SetStdHandle(STD_OUTPUT_HANDLE, (HANDLE)handle);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_redirect_windows_stderr(prh_handle handle) {
+    BOOL b = SetStdHandle(STD_ERROR_HANDLE, (HANDLE)handle);
+    if (!b) prh_prerr(GetLastError());
+}
+
+void prh_redirect_stdin(prh_handle handle) {
+    PRH_WINDOWS_SYSCONF.stdin_handle = handle;
+}
+
+void prh_redirect_stdout(prh_handle handle) {
+    PRH_WINDOWS_SYSCONF.stdout_handle = handle;
+}
+
+void prh_redirect_stderr(prh_handle handle) {
+    PRH_WINDOWS_SYSCONF.stderr_handle = handle;
 }
 
 prh_r32 prh_impl_write_conout(prh_handle conout, const prh_r16 *utf16, prh_r32 chars) {
