@@ -96,6 +96,187 @@
 // 版本？屏幕 DPI 演进：2000 年代 96 DPI (1x)，Hinting 至关重要；2010 年代 130 DPI
 // (Retina)，Hinting 有帮助；2020 年代 200+ DPI (4K/手机)，Hinting 基本不需要。高 DPI
 // 时代，Unhinted 成为主流选择。
+
+// https://github.com/adobe-fonts/source-han-serif/tree/release#downloading-source-han-serif
+//
+// 可变字体和静态字体
+//      特性        可变字体（Variable Font）                       静态字体（Static Font）
+//      文件数量    一个文件包含全部字重                            每个字重一个文件（如 Regular、Bold、Light 各一个）
+//      字重调节    连续可调（如 100-900 任意值）                   固定档位（通常 7 种：ExtraLight、Light、Regular、Medium、SemiBold、Bold、Heavy）
+//      文件大小    更小（所有字重共享字形轮廓数据）                更大（多个文件总和）
+//      渲染方式    运行时插值生成中间字重                          直接使用预先生成的字形
+//      兼容性      需要较新系统/应用支持                           兼容性更好，老旧系统也能用
+//      性能        首次加载略慢（需解析变轴数据），但缓存后正常    直接加载，无额外计算
+//
+// 字体的选择
+//      只需要简体中文，用常规字重          静态 OTF 或 TTF
+//      需要简体中文多种字重                可变 OTF 或可变 TTF
+//      需要简/繁/日/韩多种语言             可变 OTC 或超级 OTC
+//      系统很新（Win10 1703+/macOS 10.8+） 可变 OTC（最小体积）
+//      系统较老，兼容性优先                静态 OTF/TTF
+//      Web 使用（WOFF2）                   可变 WOFF2（压缩率更高）
+//
+// 但字体文件和字体集合文件
+//      格式     全称                    本质           特点
+//      TTF      TrueType Font           单个字体文件   使用 TrueType 轮廓的单个字体文件（例如）
+//      OTF      OpenType Font           单个字体文件   最基础的格式，一个文件 = 一种语言的一个字重（例如 SourceHanSerifSC-Regular.otf）
+//      OTC      OpenType Collection     字体集合       一个文件包含多个字体（如 5 种语言 × 7 字重 = 35 个字体在一个文件里，例如 SourceHanSerif.ttc）
+//      TTC      TrueType Collection     字体集合       原始名称，由 TrueType 规范定义，OTC 和 TTC 本质上是同一个东西，OpenType 标准沿用
+//
+// 字体格式 OTF 和 TTF 的区别
+//      功能特性        OTF（CFF 轮廓）                 TTF（TrueType 轮廓）
+//      曲线数学        三次贝塞尔曲线（Cubic Bezier）  二次贝塞尔曲线（Quadratic Bezier）
+//      文件大小        通常更小（曲线更紧凑）          通常更大
+//      渲染 hinting    依赖 PostScript 渲染器          依赖 TrueType 解释器
+//      屏幕小字号      可能略逊                        通常更好（hinting 更成熟）
+//      打印/专业排版   更优                            良好
+//
+// 思源宋体是一款开源的泛中日韩（Pan-CJK）字体，其 OpenType/CFF 字体和基于 CID 的源文件
+// 均受 SIL 开源字体许可证 1.1 版条款保护（另请参阅 LICENSE 和 FAQ）。在此您可以找到可直
+// 接安装的 OpenType/CFF 字体资源，既可单独下载单个字体文件，也可打包下载 ZIP 压缩文件。
+// 字体的 CID 源文件和构建说明可在仓库的主分支中获取。http://scripts.sil.org/OFL
+//
+// 可变 OTC 字体（Variable OTCs）。如果您的系统同时支持可变字体和 OTC 格式，且需要使用     *** 02_SourceHanSerif-VF\Variable\OTC
+// 全部五种语言及全部字重，请选择此部署格式。注意：不存在区域子集可变 OTC 字体，因为其
+// 文件大小会大于语言特定 OTC，从而失去文件大小优势。
+// https://github.com/adobe-fonts/source-han-serif/raw/release/Variable/OTC/SourceHanSerif-VF.otf.ttc
+// https://github.com/adobe-fonts/source-han-serif/raw/release/Variable/OTC/SourceHanSerif-VF.ttf.ttc
+//
+// 语言特定可变字体（Language-specific Variable Fonts）。如果您的系统支持可变字体，且您只   *** 02_SourceHanSerif-VF\Variable\[TTF|OTF|WOFF2]\
+// 使用一种语言，但同时需要完整的字符覆盖范围，或希望通过对文本进行语言标记来使用适合其他
+// 语言的字形（这需要支持语言标记和 OpenType 'locl' GSUB 特性的应用程序），请选择此部署格
+// 式。语言特定字节包含完整 CJK 统一表意文字，Simplied Chinese 和 Tranditional Chinese 和
+// Japanese 等都包含完整的 CJK 字符集。这三个版本的核心区别在于字形设计规范和语言特定的排
+// 版习惯，而非字符覆盖范围。
+//      特性            简体中文 (SC)               繁体中文—台湾 (TC)      日语 (J)
+//      字形标准        中国大陆规范字形            台湾教育部标准字形      日本常用汉字表 (Jōyō)
+//      简繁关系        以简体为主，繁体回退        以繁体为主，简体回退    日文汉字独立规范
+//      具体字形差异    骨、角、雨等部首写法不同    与 SC 在细节笔画上有别  大量日文独有字形
+//      标点位置        居左下（横排）              居中                    居中
+//      引号样式        「」、""                    「」、""                「」、『』
+//      假名            无                          无                      包含平假名、片假名
+//      谚文            无                          无                      无
+//      字符覆盖        完整 CJK                    完整 CJK                完整 CJK + 假名
+//
+// 具体字形差异示例
+//      汉字    简体中文        台湾繁体        日语
+//      骨      骨（上部开口）  骨（上部开口）  骨（上部封口，更方）
+//      角      角（下部"用"）  角（下部"用"）  角（下部不同）
+//      雨      雨（四点平直）  雨（四点略弯）  雨（四点独立，更竖）
+//      门      门（简体）      門（繁体）      門（繁体，但内部细节不同）
+//      直      直（内部三横）  直（内部三横）  直（内部两横，日文字形）
+//      真      真（内部三横）  真（内部三横）  真（日文字形差异）
+//
+// 技术实现：通过 OpenType 'locl' 特性切换。三个版本的字形数据实际上都存储在字体中，区别
+// 通过 GSUB 表和 语言标记控制：
+//      /* CSS 示例 */
+//      font-family: "Source Han Serif SC";  /* 简体中文字形优先 */
+//      font-family: "Source Han Serif TC";  /* 台湾繁体字形优先 */
+//      font-family: "Source Han Serif J";   /* 日文字形优先 */
+//      /* 或通过语言标记让同一个字体自动切换 */
+//      <p lang="zh-CN">骨</p>   /* 显示简体字形 */
+//      <p lang="zh-TW">骨</p>   /* 显示台湾繁体字形 */
+//      <p lang="ja">骨</p>      /* 显示日文字形 */
+//
+// 韩语（Korean）版本与中日文版本的核心区别在于文字系统的根本差异——韩语使用谚文（Hangul），
+// 而非汉字。
+//      特性            简体中文 (SC)   繁体中文 (TC)   日语 (J)        韩语 (K)
+//      主要文字        汉字（简体）    汉字（繁体）    汉字 + 假名     谚文（Hangul）
+//      谚文支持        无              无              无              完整
+//      汉字覆盖        完整 CJK        完整 CJK        完整 CJK        完整 CJK + 韩语汉字
+//      假名支持        无              无              平假名、片假名  无
+//      汉字使用频率    高              高              中高            低（主要用谚文）
+//      汉字字形标准    大陆规范        台湾/香港规范   日本常用汉字表  韩语汉字规范
+//
+// Unicode 中文字和韩文谚文是不同的区块如下，韩语版本必须额外包含 11,000+ 谚文码点 的设计，
+// 这是其他版本完全没有的。
+//      CJK Unified Ideographs（中日韩统一汉字）← 四者都包含
+//      Hiragana（平假名）← 仅日语
+//      Katakana（片假名）← 仅日语
+//      Hangul Syllables（谚文音节）← 仅韩语
+//      Hangul Jamo（谚文字母）← 仅韩语
+//
+// 区域子集可变字体（Region-specific Subset Variable Fonts）。如果您的系统支持可变字体，且   *** 02_SourceHanSerif-VF\Variable\[TTF|OTF|WOFF2]\Subset\
+// 您只需要特定区域的字符字形，请选择此部署格式。例如简体中文语言特定字体和区域子集字体的
+// 区别如下。
+//      特性            语言特定（Language Specific）           区域子集（Region Specific Subset）
+//      字符数量        约 65,000+（完整 CJK 统一表意文字）     约 8,000-15,000（仅该区域常用字）
+//      覆盖范围        中日韩越全部 CJK 字符                   仅中国大陆常用字符
+//      文件大小        大（约 8-20 MB）                        小（约 2-4 MB）
+//      用途            专业排版、多语言混排、古籍              日常网页、普通文档
+//      生僻字          支持                                    不支持（显示为空白或回退字体）
+//      旧字形/异体字   包含                                    不包含
+//
+// 超级 OTC（Super OTC）。如果您希望在一个易于管理的单一字体资源中获取全部五种语言和全部   *** 01_SourceHanSerif.ttc
+// 七种字重（共 35 款字体），请选择此部署格式。切换语言可通过选择所需语言字体，或对文本进
+// 行语言标记来实现。支持语言标记及相应 OpenType 'locl'（本地化字形）GSUB 特性的应用程序
+// 数量有限，如 Adobe InDesign 和现代浏览器。相当于将所有静态字体打包。
+// https://github.com/adobe-fonts/source-han-serif/releases/download/2.003R/01_SourceHanSerif.ttc.zip
+//
+// 特别说明：此部署格式需要 macOS（OS X）10.8（即 Mountain Lion）或更高版本、iOS 7 或更高版
+// 本、Windows 10 版本 1703（即创意者更新）或更高版本、使用 fontconfig 且 FreeType 版本为
+// 2.5.0.1 或更高的 Linux 发行版，或 Adobe CS6 及更高版本应用程序。
+//
+// OTC 字体（OTCs）。如果您需要全部五种语言和特定字重，或者您的环境不支持超级 OTC，请选择   *** 03_SourceHanSerifOTC
+// 此部署格式。切换语言的方式与超级 OTC 相同。如果您需要特定字重，请从 OTC 文件夹下载单个
+// 字体资源，否则请点击以下链接。相当于将所有静态字体打包到一起，但每个字重一个文件，即一
+// 个文件包含了所有五种语言，但只有一个字重。
+// https://github.com/adobe-fonts/source-han-serif/releases/download/2.003R/03_SourceHanSerifOTC.zip
+//
+// 特别说明：此部署格式需要 macOS（OS X）10.8（即 Mountain Lion）或更高版本、iOS 7 或更高
+// 版本、Windows 10 版本 1607（即周年更新）或更高版本、使用 fontconfig 且 FreeType 版本为
+// 2.5.0.1 或更高的 Linux 发行版，或 Adobe CS6 及更高版本应用程序。
+//
+// 语言特定 OTF 字体（分散的单个语言特定静态字体）。如果您只使用一种语言，但同时需要完整的   *** 04_SourceHanSerifOTF
+// 字符覆盖范围，或希望通过对文本进行语言标记来使用适合其他语言的字形（与超级 OTC 和 OTC 字
+// 体一样，这需要支持语言标记和 OpenType 'locl' GSUB 特性的应用程序），请选择此部署格式。
+//
+// 区域子集 OTF 字体（分散的单个区域子集静态字体）。如果您只需要特定区域的字符字形，或不确   *** 05_SourceHanSerifSubsetOTF
+// 定选择哪种部署格式，请选择此部署格式。每个 ZIP 文件包含七款字体资源，涵盖全部七种字重。
+//
+// WOFF2 文件比 OTF/TTF 小的核心原因是采用了更高效的压缩算法，并针对字体数据做了专门优化。
+// WOFF2 使用每个表独立用 Brotli 压缩（可选择不同压缩级别）的算法替代了旧的（WOFF 1.0）整
+// 个文件统一 deflate，加上字体专用的轮廓编码优化和按表独立压缩，比 OTF 小 50-60%，比 WOFF
+// 1.0 小 30% 左右。专为网页传输设计，不适合本地编辑。WOFF2 不适合本地编辑，主要有以下几个
+// 原因。
+//
+//  1.  格式设计目标不同
+//                  WOFF2               OTF/TTF
+//      设计目的    网页传输、下载      本地安装、编辑、排版
+//      优化方向    压缩率最大化        随机访问、快速渲染
+//      数据结构    压缩后的流式数据    可直接寻址的表结构
+//  2.  需要解压才能使用
+//      编辑软件需要频繁随机访问字体的各个表（字形、度量、字距等），WOFF2 每次都要先解压，
+//      效率极低。
+//  3.  软件生态不支持，法律/许可层面 WOFF2 规范定位为传输格式，而非分发格式。
+//  4.  元数据丢失或简化，WOFF2 为压缩会丢弃或简化一些本地编辑需要的信息。
+//  5.  解压后的文件并不等价，专业排版需要字节级精确的字体文件，解压还原无法保证。WOFF2
+//      解压 → OTF，但这个过程可能丢失原始 hinting 的精确性，表顺序可能改变，某些私有表
+//      （非标准）可能无法还原。
+
+// https://github.com/be5invis/Iosevka（西文等宽字体）
+//
+// Iosevka 支持连字，部分负号不等宽。Iosevka Term 和 Fixed 不支持连字，字符全部严格等宽：
+//      特性                Iosevka                         Iosevka Term        Iosevka Fixed
+//      设计目标            通用编程字体，平衡可读性与紧凑  终端/命令行优化     严格等宽，无连字
+//      字符宽度            大部分等宽，但部分符号可比例    全部严格等宽        全部严格等宽
+//      连字（Ligatures）   支持                            不支持              不支持
+//      箭头符号宽度        -> => 可连成比例宽度            保持单个字符等宽    保持单个字符等宽
+//      M W 宽度            可能略宽于标准格子              严格占一个格子      严格占一个格子
+//      Powerline 符号      支持                            优化对齐            优化对齐
+//      终端兼容性          良好                            最佳                良好
+//
+// Thin 100 ExtraLight 200 Light 300 Regular 400 Medium 500 SemiBold 600 Bold 700 ExtraBold 800 Black/Heavy 900
+// 薄（bao）   超细         细体      常规        中等        半粗        粗体      超粗           黑体
+
+#ifdef PRH_FONT_INCLUDE
+#ifdef PRH_FONT_IMPLEMENTATION
+#include "prh_renders.h"
+
+#endif // PRH_FONT_IMPLEMENTATION
+#endif // PRH_FONT_INCLUDE
+
+// https://learn.microsoft.com/en-us/windows/win32/intl/uniscribe-glossary
 //
 // Can get look-and-feel hints from the underlying operating system, so it never
 // seems out of place. Is adaptable to the different form factors and resolution
@@ -149,7 +330,7 @@
 // 直接决定你看到什么、怎么交互。无需布局引擎，插图随窗口自适应变形，不再被 CSS 框死。
 // 全屏互动，任何像素都能响应点击，模型实时判断意图，不再局限于预定义按钮。视觉优先，
 // 复杂概念用插图、动画、真实渲染表达，而不是枯燥文字和矩形框。(WebSocket)
-//
+
 // https://wikis.khronos.org/opengl/Main_Page
 // https://wikis.khronos.org/opengl/Getting_Started
 // https://www.realtech-vr.com/glview-download/
@@ -261,6 +442,9 @@
 // 文件都依赖于来自 EGL Registry 的共享 <KHR/khrplatform.h> 头文件。这是一个新增的依
 // 赖关系，在上面链接所示的 OpenGL-Registry 拉取请求中引入，旨在增强 OpenGL 与 OpenGL
 // ES 头文件之间的兼容性。
+//
+// https://learn.microsoft.com/en-us/windows/win32/api/_opengl/
+// https://learn.microsoft.com/en-us/windows/win32/OpenGL/opengl
 //
 // https://github.com/Dav1dde/glad/wiki/C
 //
@@ -1044,8 +1228,8 @@
 //      GL_QUERY_BUFFER             ---                                    查询结果存储（Query Result Buffer，4.4+）
 //
 // 将数据输入和输出 OpenGL 缓存的方法有很多种，比如直接显式地传递数据，又比如用新的数据
-// 替换缓存对象种已有的部分数据，或者由 OpenGL 负责生成数据然后将它记录到缓存对象种。向
-// 缓存对象种传递数据最简单的方法是在缓存对象分配之后将数据加载到缓存种。这一步可以调用
+// 替换缓存对象中已有的部分数据，或者由 OpenGL 负责生成数据然后将它记录到缓存对象种。向
+// 缓存对象中传递数据最简单的方法是在缓存对象分配之后将数据加载到缓存中。这一步可以调用
 // glBufferData/Storage() 或 glNamedBufferData/Storage() 函数来完成。需要注意的是，glBufferData()
 // 是真正为缓存对象分配或重新分配空间的函数，也就是说，如果新的数据大小比缓存对象当前所
 // 分配的空间要大，那么缓存对象的大小将被重设为获取更多空间。与之类似，如果新的数据大小
@@ -1180,7 +1364,7 @@
 //
 // 缓存的部分初始化（initializing part of a buffer）。假设一个数组包含一些顶点数据，另一
 // 个数组包含一些颜色信息，还有一个数组包含纹理坐标或别的数据。你需要将这些数据进行紧凑打
-// 包到一个足够大的缓存对象让 OpenGL 使用。在内存种数组之间可能是连续的，也可能不连续，因
+// 包到一个足够大的缓存对象让 OpenGL 使用。在内存中数组之间可能是连续的，也可能不连续，因
 // 此无法使用 glBufferData/Storage() 一次性地更新所有的数据。此外，如果使用 glBufferData
 // 进行更新，那么首先比如说是顶点数据，然后缓存的大小将与顶点数据匹配，不再有空间去存储颜
 // 色或者纹理坐标信息了。因此我们需要引入新的 glBufferSubData/glNamedBufferSubData 等函数。
