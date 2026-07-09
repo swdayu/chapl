@@ -2984,7 +2984,106 @@ prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
 // 道！但似乎值得尝试一下！我觉得严格区分 O(N) 的编译器输出和 O(1) 的中间处理产物可以
 // 澄清编译器的架构，而且如果编译器中的 O(1) 处理能像数据库一样带来更简单的代码，我也不
 // 会太惊讶？
-#ifndef prh_malloc
+
+#ifndef prh_impl_base_defs
+#define prh_impl_base_defs
+typedef struct {
+    prh_byte *data;
+    prh_reg size;
+} prh_data;
+
+#define PRH_IMPL_FREE_MASK_BIT 0x02
+typedef struct prh_buffer prh_buffer; // ptr & 0x02 为真表示释放内存
+typedef void (*prh_alloc_func)(prh_buffer *ptr, prh_reg new_size);
+
+typedef struct {
+    void *self;
+    prh_alloc_func func;
+} prh_alloc_face;
+
+#if prh_int_bits == 64
+typedef struct prh_buffer {
+    prh_byte *data;
+    prh_reg _capacity: 56, _shift_alignment: 8; // 0 表示使用默认对齐
+    prh_alloc_face _alloc;
+}  prh_buffer;
+#define prh_default_shift_alignment prh_shift_align_16_byte
+prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
+prh_inline prh_reg prh_buffer_capacity(const prh_buffer *a) { return a->_capacity; }
+prh_inline prh_r08 prh_buffer_shift_alignment(const prh_buffer *a) { return (prh_r08)4 + (prh_r08)(a->_shift_alignment); }
+prh_inline prh_reg prh_buffer_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_buffer_shift_alignment(a); }
+prh_inline const prh_alloc_face *prh_buffer_alloc(const prh_buffer *a) { return &a->_alloc; }
+prh_inline void prh_buffer_set_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0xf) == 0); a->data = data; }
+prh_inline void prh_buffer_set_capacity(prh_buffer *a, prh_reg size) { assert((size & 0xf) == 0); a->_capacity = size; }
+prh_inline void prh_buffer_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { assert(shift_alignment >= prh_shift_align_16_byte); a->_shift_alignment = shift_alignment - 4; }
+prh_inline void prh_buffer_set_alloc(prh_buffer *a, const prh_alloc_face *alloc) { a->_alloc = *alloc; }
+prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { return (prh_buffer){._alloc = *alloc}; }
+prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r08 shift_alignment) { prh_buffer b = {._alloc = *alloc}; prh_buffer_set_shift_alignment(&b, shift_alignment); return b; }
+#elif prh_int_bits == 32
+#ifdef prh_eabi_low_cost
+typedef struct prh_buffer {
+    prh_byte *data;
+    prh_r16 _capacity;
+    prh_r16 _extra;
+}  prh_buffer;
+#define prh_default_shift_alignment prh_shift_align_4_byte
+prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
+prh_inline prh_r16 prh_buffer_capacity(const prh_buffer *a) { return a->_capacity; }
+prh_inline prh_r08 prh_buffer_shift_alignment(const prh_buffer *a) { return prh_shift_align_4_byte; }
+prh_inline prh_reg prh_buffer_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_buffer_shift_alignment(a); }
+prh_inline const prh_alloc_face *prh_buffer_alloc(const prh_buffer *a) { return prh_null; }
+prh_inline void prh_buffer_set_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0x3) == 0); a->data = data; }
+prh_inline void prh_buffer_set_capacity(prh_buffer *a, prh_reg size) { assert((size & 0x3) == 0 && size <= 0xFFFF); a->_capacity = (prh_r16)size; }
+prh_inline void prh_buffer_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { prh_unused(a); prh_unused(shift_alignment); }
+prh_inline void prh_buffer_set_alloc(prh_buffer *a, const prh_alloc_face *alloc) { prh_unused(a); prh_unused(alloc); }
+prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { return (prh_buffer){0}; }
+prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r08 shift_alignment) { return (prh_buffer){0}; }
+#else
+// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18    19
+// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB 512KB
+//          0  1  2   3   4   5   6   7   8   9   10   11   12   13     14    15
+typedef struct prh_buffer {
+    prh_byte *data;
+    prh_r32 _capacity_28_bits: 28, _shift_alignment: 4; // 0 表示使用默认对齐
+    prh_alloc_face _alloc;
+}  prh_buffer;
+#define prh_default_shift_alignment prh_shift_align_16_byte
+prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
+prh_inline prh_reg prh_buffer_capacity(const prh_buffer *a) { return a->_capacity_28_bits << 4; }
+prh_inline prh_r08 prh_buffer_shift_alignment(const prh_buffer *a) { return (prh_r08)4 + (prh_r08)(a->_shift_alignment); }
+prh_inline prh_reg prh_buffer_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_buffer_shift_alignment(a); }
+prh_inline const prh_alloc_face *prh_buffer_alloc(const prh_buffer *a) { return &a->_alloc; }
+prh_inline void prh_buffer_set_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0xf) == 0); a->data = data; }
+prh_inline void prh_buffer_set_capacity(prh_buffer *a, prh_reg size) { assert((size & 0xf) == 0); a->_capacity_28_bits = size >> 4; }
+prh_inline void prh_buffer_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { assert(shift_alignment >= prh_shift_align_16_byte && shift_alignment <= 19); a->_shift_alignment = shift_alignment - 4; }
+prh_inline void prh_buffer_set_alloc(prh_buffer *a, const prh_alloc_face *alloc) { a->_alloc = *alloc; }
+prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { return (prh_buffer){._alloc = *alloc}; }
+prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r08 shift_alignment) { prh_buffer b = {._alloc = *alloc}; prh_buffer_set_shift_alignment(&b, shift_alignment); return b; }
+#endif
+#endif
+
+typedef void *(*prh_malloc_func)(void *context, prh_reg size, prh_reg alignment);
+typedef void *(*prh_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
+typedef void (*prh_dealloc_func)(void *context, void *ptr);
+
+typedef struct { // 动态增长式分配
+    void *context;
+    prh_realloc_func malloc_func;
+    prh_dealloc_func dealloc_func;
+} prh_grow_alloc;
+
+typedef struct { // 叠栈式临时分配
+    void *context;
+    prh_malloc_func malloc_func;
+    prh_dealloc_func dealloc_func;
+} prh_temp_alloc;
+
+typedef struct { // 多次分配一次性释放
+    void *context;
+    prh_malloc_func malloc_func;
+    prh_dealloc_func dealloc_func;
+} prh_area_alloc;
+
 #define prh_malloc(size) ((prh_impl_line = __LINE__), prh_impl_malloc(size))
 #define prh_calloc(size) ((prh_impl_line = __LINE__), prh_impl_calloc(size))
 #define prh_realloc(ptr, size) ((prh_impl_line = __LINE__), prh_impl_realloc((ptr), (size)))
@@ -3044,7 +3143,9 @@ void prh_impl_aligned_dealloc(void *context, void *ptr);
     // free(p) if p is null do nothing
     #define prh_plat_aligned_dealloc(p) free(p)
 #endif
-#endif // prh_malloc
+
+void prh_main_init(void);
+#endif // prh_impl_base_defs
 
 #ifdef PRH_BASE_IMPLEMENTATION
 prh_thread_local prh_int prh_impl_line;
@@ -4081,106 +4182,6 @@ void prh_impl_basic_test(void) {
 }
 #endif // PRH_TEST_IMPLEMENTATION
 
-#ifndef prh_impl_base_type
-#define prh_impl_base_type
-typedef struct {
-    prh_byte *data;
-    prh_reg size;
-} prh_data;
-
-#define PRH_IMPL_FREE_MASK_BIT 0x02
-typedef struct prh_buffer prh_buffer; // ptr & 0x02 为真表示释放内存
-typedef void (*prh_alloc_func)(prh_buffer *ptr, prh_reg new_size);
-
-typedef struct {
-    void *self;
-    prh_alloc_func func;
-} prh_alloc_face;
-
-#if prh_int_bits == 64
-typedef struct prh_buffer {
-    prh_byte *data;
-    prh_reg _capacity: 56, _shift_alignment: 8; // 0 表示使用默认对齐
-    prh_alloc_face _alloc;
-}  prh_buffer;
-#define prh_default_shift_alignment prh_shift_align_16_byte
-prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
-prh_inline prh_reg prh_buffer_capacity(const prh_buffer *a) { return a->_capacity; }
-prh_inline prh_r08 prh_buffer_shift_alignment(const prh_buffer *a) { return (prh_r08)4 + (prh_r08)(a->_shift_alignment); }
-prh_inline prh_reg prh_buffer_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_buffer_shift_alignment(a); }
-prh_inline const prh_alloc_face *prh_buffer_alloc(const prh_buffer *a) { return &a->_alloc; }
-prh_inline void prh_buffer_set_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0xf) == 0); a->data = data; }
-prh_inline void prh_buffer_set_capacity(prh_buffer *a, prh_reg size) { assert((size & 0xf) == 0); a->_capacity = size; }
-prh_inline void prh_buffer_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { assert(shift_alignment >= prh_shift_align_16_byte); a->_shift_alignment = shift_alignment - 4; }
-prh_inline void prh_buffer_set_alloc(prh_buffer *a, const prh_alloc_face *alloc) { a->_alloc = *alloc; }
-prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { return (prh_buffer){._alloc = *alloc}; }
-prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r08 shift_alignment) { prh_buffer b = {._alloc = *alloc}; prh_buffer_set_shift_alignment(&b, shift_alignment); return b; }
-#elif prh_int_bits == 32
-#ifdef prh_eabi_low_cost
-typedef struct prh_buffer {
-    prh_byte *data;
-    prh_r16 _capacity;
-    prh_r16 _extra;
-}  prh_buffer;
-#define prh_default_shift_alignment prh_shift_align_4_byte
-prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
-prh_inline prh_r16 prh_buffer_capacity(const prh_buffer *a) { return a->_capacity; }
-prh_inline prh_r08 prh_buffer_shift_alignment(const prh_buffer *a) { return prh_shift_align_4_byte; }
-prh_inline prh_reg prh_buffer_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_buffer_shift_alignment(a); }
-prh_inline const prh_alloc_face *prh_buffer_alloc(const prh_buffer *a) { return prh_null; }
-prh_inline void prh_buffer_set_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0x3) == 0); a->data = data; }
-prh_inline void prh_buffer_set_capacity(prh_buffer *a, prh_reg size) { assert((size & 0x3) == 0 && size <= 0xFFFF); a->_capacity = (prh_r16)size; }
-prh_inline void prh_buffer_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { prh_unused(a); prh_unused(shift_alignment); }
-prh_inline void prh_buffer_set_alloc(prh_buffer *a, const prh_alloc_face *alloc) { prh_unused(a); prh_unused(alloc); }
-prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { return (prh_buffer){0}; }
-prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r08 shift_alignment) { return (prh_buffer){0}; }
-#else
-// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18    19
-// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB 512KB
-//          0  1  2   3   4   5   6   7   8   9   10   11   12   13     14    15
-typedef struct prh_buffer {
-    prh_byte *data;
-    prh_r32 _capacity_28_bits: 28, _shift_alignment: 4; // 0 表示使用默认对齐
-    prh_alloc_face _alloc;
-}  prh_buffer;
-#define prh_default_shift_alignment prh_shift_align_16_byte
-prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
-prh_inline prh_reg prh_buffer_capacity(const prh_buffer *a) { return a->_capacity_28_bits << 4; }
-prh_inline prh_r08 prh_buffer_shift_alignment(const prh_buffer *a) { return (prh_r08)4 + (prh_r08)(a->_shift_alignment); }
-prh_inline prh_reg prh_buffer_alignment(const prh_buffer *a) { return (prh_reg)1 << prh_buffer_shift_alignment(a); }
-prh_inline const prh_alloc_face *prh_buffer_alloc(const prh_buffer *a) { return &a->_alloc; }
-prh_inline void prh_buffer_set_data(prh_buffer *a, prh_byte *data) { assert(((prh_reg)data & 0xf) == 0); a->data = data; }
-prh_inline void prh_buffer_set_capacity(prh_buffer *a, prh_reg size) { assert((size & 0xf) == 0); a->_capacity_28_bits = size >> 4; }
-prh_inline void prh_buffer_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { assert(shift_alignment >= prh_shift_align_16_byte && shift_alignment <= 19); a->_shift_alignment = shift_alignment - 4; }
-prh_inline void prh_buffer_set_alloc(prh_buffer *a, const prh_alloc_face *alloc) { a->_alloc = *alloc; }
-prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { return (prh_buffer){._alloc = *alloc}; }
-prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r08 shift_alignment) { prh_buffer b = {._alloc = *alloc}; prh_buffer_set_shift_alignment(&b, shift_alignment); return b; }
-#endif
-#endif
-
-typedef void *(*prh_malloc_func)(void *context, prh_reg size, prh_reg alignment);
-typedef void *(*prh_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
-typedef void (*prh_dealloc_func)(void *context, void *ptr);
-
-typedef struct { // 动态增长式分配
-    void *context;
-    prh_realloc_func malloc_func;
-    prh_dealloc_func dealloc_func;
-} prh_grow_alloc;
-
-typedef struct { // 叠栈式临时分配
-    void *context;
-    prh_malloc_func malloc_func;
-    prh_dealloc_func dealloc_func;
-} prh_temp_alloc;
-
-typedef struct { // 多次分配一次性释放
-    void *context;
-    prh_malloc_func malloc_func;
-    prh_dealloc_func dealloc_func;
-} prh_area_alloc;
-#endif // prh_impl_base_type
-
 #ifdef PRH_ALLOC_INCLUDE
 const prh_alloc_face *prh_local_alloc(void);
 const prh_alloc_face *prh_default_alloc(void);
@@ -4200,7 +4201,7 @@ prh_inline prh_buffer prh_make_aligned_buffer(const prh_alloc_face *alloc, prh_r
     return b;
 }
 
-prh_inline void prh_impl_make_buffer(prh_buffer *ptr, prh_reg new_size) {
+prh_inline void prh_make_memory(prh_buffer *ptr, prh_reg new_size) {
     assert(ptr != prh_null && ((prh_reg)ptr & PRH_IMPL_FREE_MASK_BIT) == 0);
     const prh_alloc_face *alloc = prh_buffer_alloc(ptr);
     assert(alloc->func != prh_null);
@@ -6411,7 +6412,7 @@ prh_reg prh_utf8_to_utf16(const prh_byte *p, prh_reg n, prh_buffer *out) {
     // UTF-16   U+0000~U+FFFF 占 2 个字节
     //          U+01_0000~U+10_FFFF 占 4 个字节
     if (n > (PRH_INT_UMX - prh_buffer_alignment(out) / 2)) prh_abort_error(n);
-    prh_impl_make_buffer(out, n * 2 + 2); assert(p != prh_null);
+    prh_make_memory(out, n * 2 + 2); assert(p != prh_null);
     const prh_byte *e = p + n; prh_char unicode;
     prh_reg bytes = 0;
     while (p < e) {
@@ -6430,7 +6431,7 @@ prh_reg prh_utf16_to_utf8(const prh_r16 *p, prh_reg count, prh_buffer *out) {
     // UTF-8    U+0000~U+FFFF 占 1~3 个字节
     //          U+01_0000~U+10_FFFF 占 4 个字节
     if (count > (PRH_INT_UMX - prh_buffer_alignment(out) / 2)) prh_abort_error(count);
-    prh_impl_make_buffer(out, count * 2 + 1); assert(p != prh_null);
+    prh_make_memory(out, count * 2 + 1); assert(p != prh_null);
     const prh_r16 *pend = p + count; prh_char unicode;
     prh_reg bytes = 0;
     while (p < pend) {
@@ -6444,7 +6445,7 @@ prh_reg prh_utf16_to_utf8(const prh_r16 *p, prh_reg count, prh_buffer *out) {
 
 prh_reg prh_utf32_to_utf8(const prh_r32 *p, prh_reg count, prh_buffer *out) {
     if (count > (PRH_INT_UMX - prh_buffer_alignment(out)) / 4) prh_abort_error(count);
-    prh_impl_make_buffer(out, count * 4 + 1); assert(p != prh_null);
+    prh_make_memory(out, count * 4 + 1); assert(p != prh_null);
     const prh_r32 *pend = p + count;
     prh_reg bytes = 0;
     while (p < pend) {
