@@ -33224,6 +33224,10 @@ prh_handle prh_open_new_file_update(const prh_byte *name);
 prh_handle prh_open_file_update(const prh_byte *name, bool truncate_existing_file);
 prh_handle prh_open_existing_file_update(const prh_byte *name, bool truncate);
 
+prh_r32 prh_file_size_32(prh_handle handle);
+prh_r64 prh_large_file_size(prh_handle handle);
+prh_reg prh_get_file_size(prh_handle handle);
+
 void prh_file_seek(prh_handle handle, prh_i64 offset);
 void prh_file_seek_from_begin(prh_handle handle, prh_i64 offset);
 void prh_file_seek_from_end(prh_handle handle, prh_i64 offset);
@@ -33232,13 +33236,12 @@ void prh_file_seek_end(prh_handle handle);
 
 prh_r32 prh_impl_file_read(prh_handle handle, prh_byte *p, prh_r32 bytes);
 prh_r32 prh_impl_file_pread(prh_handle handle, prh_byte *p, prh_r32 bytes, prh_r64 position);
-
 prh_reg prh_file_pread(prh_handle handle, prh_byte *p, prh_reg bytes, prh_r64 position);
 prh_reg prh_file_read(prh_handle handle, prh_byte *p, prh_reg bytes);
+prh_reg prh_read_entire_file(const prh_byte *name, prh_buffer *out);
 
 prh_r32 prh_impl_file_write(prh_handle handle, const prh_byte *p, prh_r32 bytes);
 prh_r32 prh_impl_file_pwrite(prh_handle handle, const prh_byte *p, prh_r32 bytes, prh_r64 position);
-
 prh_reg prh_file_write(prh_handle handle, const prh_byte *p, prh_reg bytes);
 prh_reg prh_file_pwrite(prh_handle handle, const prh_byte *p, prh_reg bytes, prh_r64 position);
 
@@ -34154,6 +34157,42 @@ void prh_file_seek_end(prh_handle handle) {
     if (!SetFilePointerEx((HANDLE)handle, distance, prh_null, FILE_END)) {
         prh_abort_error(GetLastError());
     }
+}
+
+prh_r32 prh_file_size_32(prh_handle handle)
+{
+    LARGE_INTEGER file_size;
+    if (!GetFileSizeEx((HANDLE)handle, &file_size))
+    {
+        prh_abort_error(GetLastError());
+        return 0;
+    }
+    if (file_size.HighPart != 0)
+    {
+        prh_abort_error(e_value_too_large);
+        return 0;
+    }
+    return file_size.LowPart;
+}
+
+prh_r64 prh_large_file_size(prh_handle handle)
+{
+    LARGE_INTEGER file_size;
+    if (!GetFileSizeEx((HANDLE)handle, &file_size))
+    {
+        prh_abort_error(GetLastError());
+        return 0;
+    }
+    return file_size.QuadPart;
+}
+
+prh_reg prh_get_file_size(prh_handle handle)
+{
+#if prh_int_bits == 32
+    return prh_file_size_32(handle);
+#elif prh_int_bits == 64
+    return prh_large_file_size(handle);
+#endif
 }
 
 // HANDLE CreateFileW(
@@ -35788,6 +35827,7 @@ prh_handle prh_open_existing_file_update(const prh_byte *name, bool truncate) {
 // 不要使用 CloseHandle 函数关闭打开的注册表项的句柄。而应使用 RegCloseKey 函数。CloseHandle
 // 不会关闭注册表项的句柄，也不会返回错误来指示此失败。
 
+#if 0
 prh_r32 prh_impl_file_read(prh_handle handle, prh_byte *p, prh_r32 bytes) {
     // 如果文件上的读取操作从文件末尾或超过文件末尾开始，则读取操作以错误 ERROR_HANDLE_EOF
     // 失败。如果文件上的读取操作从文件末尾之前开始，但读取操作延伸到文件末尾之后，则读取操
@@ -35846,6 +35886,102 @@ prh_reg prh_file_pread(prh_handle handle, prh_byte *p, prh_reg bytes, prh_r64 po
 #elif prh_int_bits == 64
     return prh_impl_file_pread(handle, p, (prh_r32)(bytes & 0xFFFFFFFF), position);
 #endif
+}
+#endif
+
+prh_r32 prh_impl_file_read(prh_handle handle, prh_byte *p, prh_r32 bytes) {
+    // 如果文件上的读取操作从文件末尾或超过文件末尾开始，则读取操作以错误 ERROR_HANDLE_EOF
+    // 失败。如果文件上的读取操作从文件末尾之前开始，但读取操作延伸到文件末尾之后，则读取操
+    // 作成功，读取的字节数是到达文件末尾之前读取的字节数。一直读取直到遇到错误（errno）或者
+    // 读取的数据小于指定的。
+    //  1.  如果一直读取直到小于预期长度，等效于一直读取直到遇到错误或文件结束
+    //  2.  如果指定的 bytes 大于 0，条件 1. 的情况总是能够达到
+    //  3.  如果指定的 bytes 等于 0，需要手动检查 errno 看是否遇到错误或文件结束
+    DWORD bytes_read = 0; prh_r32 count = 0;
+label_cont_read: // ReadFile 在执行任何工作或错误检查之前将 *lpNumberOfBytesRead 设置为零
+    if (ReadFile((HANDLE)handle, p + count, bytes - count, &bytes_read, prh_null)) {
+        count += bytes_read;
+        if (count < bytes) goto label_cont_read;
+        errno = 0;
+    } else {
+        DWORD error_code = GetLastError();
+        if (error_code == ERROR_HANDLE_EOF) {
+            errno = e_file_end;
+        } else {
+            prh_ext_prerr(error_code, bytes_read);
+            errno = e_file_error;
+        }
+        count += bytes_read;
+    }
+    return count;
+}
+
+prh_r32 prh_impl_file_pread(prh_handle handle, prh_byte *p, prh_r32 bytes, prh_r64 position) {
+    DWORD bytes_read = 0; prh_r32 count = 0;
+    OVERLAPPED overlapped = {0};
+label_cont_read:
+    overlapped.Offset = (DWORD)(position & 0xFFFFFFFF);
+    overlapped.OffsetHigh = (DWORD)(position >> 32);
+    if (ReadFile((HANDLE)handle, p + count, bytes - count, &bytes_read, &overlapped)) {
+        count += bytes_read;
+        if (count < bytes) { position += bytes_read; goto label_cont_read; }
+        errno = 0;
+    } else {
+        DWORD error_code = GetLastError();
+        if (error_code == ERROR_HANDLE_EOF) {
+            errno = e_file_end;
+        } else {
+            prh_ext_prerr(error_code, bytes_read);
+            errno = e_file_error;
+        }
+        count += bytes_read;
+    }
+    return count;
+}
+
+prh_reg prh_file_read(prh_handle handle, prh_byte *p, prh_reg bytes) {
+#if prh_int_bits == 32
+    return prh_impl_file_read(handle, p, bytes);
+#elif prh_int_bits == 64
+    DWORD bytes_read = 0; prh_r32 curr_bytes; prh_reg count = 0;
+label_next_cycle:
+    curr_bytes = (prh_r32)(bytes & 0xFFFFFFFF);
+    count += prh_impl_file_read(handle, p, curr_bytes);
+    if (errno == 0 && (bytes -= curr_bytes)) {
+        p += curr_bytes; goto label_next_cycle;
+    }
+    return count;
+#endif
+}
+
+prh_reg prh_file_pread(prh_handle handle, prh_byte *p, prh_reg bytes, prh_r64 position) {
+#if prh_int_bits == 32
+    return prh_impl_file_pread(handle, p, bytes, position);
+#elif prh_int_bits == 64
+    DWORD bytes_read = 0; prh_r32 curr_bytes; prh_reg count = 0;
+label_next_cycle:
+    curr_bytes = (prh_r32)(bytes & 0xFFFFFFFF);
+    count += prh_impl_file_pread(handle, p, curr_bytes, position);
+    if (errno == 0 && (bytes -= curr_bytes)) {
+        p += curr_bytes; position += curr_bytes; goto label_next_cycle;
+    }
+    return count;
+#endif
+}
+
+prh_reg prh_read_entire_file(const prh_byte *name, prh_buffer *out)
+{
+    prh_handle f = prh_open_file_forward_read(name);
+    if (f == prh_invalid_handle) prh_abort_error(GetLastError());
+
+    prh_reg file_size = prh_get_file_size(f);
+    prh_make_memory(out, file_size);
+
+    prh_reg bytes = prh_file_read(f, out->data, file_size);
+    if (bytes != file_size) prh_abort_error(GetLastError());
+
+    prh_file_close(f);
+    return bytes;
 }
 
 prh_byte prh_text_get_byte(prh_text *r) {
