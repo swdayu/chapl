@@ -23,7 +23,9 @@ TARGET_OUTS := $(target-outs-y)
 INSTALL_DIR := $(install-dir-y)
 
 ifneq ($(INSTALL_DIR),)
-INIT_MACROS += -DCONFIG_INSTALL_DIR=\"$(patsubst %/,%,$(INSTALL_DIR))\"
+INIT_MACROS += -DCONFIG_INSTALL_DIR=\"$(INSTALL_DIR)\"
+else
+INIT_MACROS += -DCONFIG_INSTALL_DIR=\"\"
 endif
 
 export target_root := $(DEST)

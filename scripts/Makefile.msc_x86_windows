@@ -107,7 +107,8 @@ FASM := fasm.exe
 INIT_C_ONLY += /std:c11 /experimental:c11atomics /TC #/Zc:__STDC__
 INIT_CXX_ON += /std:c++17 /Zc:__cplusplus /TP
 
-# INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))\"
+INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))/\"
+
 ifneq ($(filter dll,$(TARGET_TYPE)),)
 INIT_MACROS += -DCONFIG_BUILD_DLL
 endif
