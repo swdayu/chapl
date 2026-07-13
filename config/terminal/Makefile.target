@@ -1,0 +1,6 @@
+target-y := default
+
+default-y := config/terminal/main.o
+default-ccflags-y := -Iprh
+default-binary-type := exe
+default-install-dir := config/terminal/.files/
