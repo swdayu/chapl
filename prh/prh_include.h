@@ -2637,6 +2637,14 @@ typedef enum {
 #define PRH_ALIGN_2GB 2147483647
 #define PRH_ALIGN_4GB 4294967295
 
+prh_inline prh_r32 prh_r32_clear_and_set(prh_r32 value, prh_r32 mask, prh_r32 set) {
+    return (value & (~mask)) | set;
+}
+
+prh_inline prh_r32 prh_r32_clear_bits(prh_r32 value, prh_r32 mask) {
+    return value & (~mask);
+}
+
 #if defined(prh_cl_msc)
 #include <intrin.h> // https://learn.microsoft.com/en-us/cpp/intrinsics/x64-amd64-intrinsics-list
 prh_inline prh_r32 prh_trailing_zeros(prh_r32 n) {
@@ -33281,6 +33289,21 @@ void prh_text_from_cstring(prh_text *p, const void *s);
 prh_byte prh_text_get_byte(prh_text *p);
 void prh_text_free(prh_text *p);
 
+typedef struct {
+    prh_buffer buffer;
+    prh_handle handle;
+    prh_reg offset;
+} prh_writer;
+
+void prh_write_from(prh_writer *p, prh_handle handle, prh_reg write_buff_size, const prh_alloc_face *alloc);
+void prh_write_free(prh_writer *p);
+void prh_write_flush(prh_writer *p);
+
+prh_writer prh_write_stdout(const prh_alloc_face *alloc);
+prh_writer prh_write_stderr(const prh_alloc_face *alloc);
+prh_reg prh_write_bytes(prh_writer *p, const prh_byte *data, prh_reg bytes);
+void prh_write_end(prh_writer *p);
+
 #if defined(PRH_IMPL_WINDOWS_FILE)
 // https://learn.microsoft.com/en-us/windows/win32/fileio/files-and-clusters
 //
@@ -36112,6 +36135,61 @@ void prh_text_free(prh_text *p) {
     prh_file_close(p->handle);
     prh_free_buffer(&p->buffer);
     p->handle = prh_invalid_handle;
+}
+
+void prh_write_from(prh_writer *p, prh_handle handle, prh_reg write_buff_size, const prh_alloc_face *alloc) {
+    p->buffer = prh_make_buffer(alloc, write_buff_size);
+    p->handle = handle;
+    p->offset = 0;
+}
+
+void prh_write_free(prh_writer *p) {
+    assert(p->buffer.data != prh_null);
+    prh_free_buffer(&p->buffer);
+    p->buffer.data = prh_null;
+}
+
+prh_writer prh_write_stdout(const prh_alloc_face *alloc) {
+    prh_writer writer;
+    prh_write_from(&writer, PRH_WINDOWS_SYSCONF.stdout_handle, prh_memory_page_size, alloc);
+    return writer;
+}
+
+prh_writer prh_write_stderr(const prh_alloc_face *alloc) {
+    prh_writer writer;
+    prh_write_from(&writer, PRH_WINDOWS_SYSCONF.stderr_handle, prh_memory_page_size, alloc);
+    return writer;
+}
+
+void prh_write_end(prh_writer *p) {
+    prh_writer_flush(p);
+    prh_write_free(p);
+}
+
+prh_reg prh_write_bytes(prh_writer *p, const prh_byte *data, prh_reg bytes) {
+    prh_reg capacity = prh_buffer_capacity(&p->buffer);
+    prh_reg left;
+label_cont_write:
+    left = capacity - p->offset;
+    if (bytes <= left) {
+        memcpy(p->buffer.data + p->offset, data, bytes);
+        p->offset += bytes;
+    } else {
+        memcpy(p->buffer.data + p->offset, data, left);
+        prh_file_write(p->handle, p->buffer.data, capacity);
+        if (errno) prh_abort_error(GetLastError());
+        data += left;
+        bytes -= left;
+        p->offset = 0;
+        goto label_cont_write;
+    }
+    return bytes;
+}
+
+void prh_write_flush(prh_writer *p) {
+    prh_impl_file_write(p->handle, p->buffer.data, p->offset);
+    if (errno) prh_abort_error(GetLastError());
+    p->offset = 0;
 }
 
 // 文件缓冲（File Buffering）。本文涵盖应用程序控制文件缓冲的各种注意事项，也称为无缓冲文件
