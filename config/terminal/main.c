@@ -71,6 +71,11 @@ int main(int argc, char **argv) {
 
     prh_file_close(file_error);
     prh_file_close(file_output);
+
+    prh_reg a = -100;
+    prh_reg width = 8;
+    prh_prend("%% percent %% %d %4d %0*d %.16????x %#+.80??x ended", a, a, width, a, a, a);
+    printf("printf %03d %08x %+d %+u %#+.8x\n", -100, 100, 100, 100, -100);
     return 0;
 }
 
