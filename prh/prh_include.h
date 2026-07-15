@@ -38253,13 +38253,14 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 #define prh_pf_type_reg 2
 
 #define prh_pf_get_width(flags) ((prh_byte)(((flags) & 0xFF00) >> 8))           // 0000_0000_0000_0000_1111_1111_0000_0000
-#define prh_pf_set_width(flags, width) (flags) |= ((prh_r32)(width & 0xff) << 8)
+#define prh_pf_set_width(flags, width) (flags) |= (((prh_r32)(width)) << 8)
 
 #define prh_impl_pf_plus_sign  0x01 // 如果是正数，打印一个正号，也表示必须打印符号（正数都要打印符号，负数更应该打印）
 #define prh_impl_pf_space_sign 0x02 // 如果没有符号，打印一个空格
 #define prh_impl_pf_print_base 0x04 // 打印数值基数前缀，例如 0b 0x
 #define prh_impl_pf_print_as_signed 0x08 // 以有符号数打印，这些标记可在精度设置前使用
-#define prh_pf_set_precision(flags, precision) prh_r32_clear_and_set((flags), 0xff, (prh_r32)((precision) & 0xff)) // 精度值必须最后设置
+#define prh_pf_set_precision(flags, precision) prh_r32_clear_and_set((flags), 0xff, (prh_r32)(precision)) // 精度值必须最后设置
+#define prh_pf_get_sub_one_precision(flags) ((prh_r32)((flags) & 0xff))
 
 #define prh_pf_get_sign_type(flags) ((prh_byte)(((flags) & 0x00300000) >> 20))  // 0000_0000_0011_0000_16
 #define prh_pf_set_sign(flags, sign) (flags) |= ((prh_r32)(sign & 0x3) << 20)
@@ -38271,7 +38272,7 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 #define prh_pf_print_base   0x00010000 // 打印 0b 0x 前缀
 #define prh_pf_left_adjust  0x00020000 // 左对齐
 #define prh_pf_zero_padding 0x00040000 // 左填补前导零，补齐宽度
-#define prh_pf_flag_xxxxxx  0x00080000 // 保留
+#define prh_pf_flag_c_style 0x00080000 // C 语言规则的左填补前导零
 
 // prh_bf_sign _S
 // prh_bf_base _0x _0b
@@ -38291,17 +38292,26 @@ prh_reg prh_impl_print_bytes(prh_writer *p, const prh_byte *data, prh_reg bytes)
 }
 
 prh_reg prh_impl_print_with_flags(prh_writer *p, const prh_byte *data, prh_reg bytes, prh_r32 flags) {
-    prh_byte a[PRH_I08_UMX];
+    prh_byte a[256];
     prh_byte *start = a, *pend = a + sizeof(a);
     prh_byte width = prh_pf_get_width(flags);
     prh_byte sign = prh_pf_get_sign_type(flags);
+    prh_byte print_base_mark = (flags & prh_pf_print_base) ? 2 : 0;
+    prh_byte print_sign_mark = sign ? 1 : 0;
     memcpy(pend - bytes, data, bytes);
-    if (flags & prh_pf_print_base) {
-        prh_byte base_char = (prh_byte)(flags & 0xff);
-        bytes += 1; *(pend - bytes) = base_char;
+    if ((flags & prh_pf_flag_c_style) && (flags & prh_pf_left_adjust) == 0 &&
+        (flags & prh_pf_zero_padding) && width > print_base_mark + print_sign_mark) {
+        width -= print_base_mark + print_sign_mark;
+        while (bytes < width) {
+            bytes += 1;
+            *(pend - bytes) = '0';
+        }
+    }
+    if (print_base_mark) {
+        bytes += 1; *(pend - bytes) = (prh_byte)(flags & 0xff);
         bytes += 1; *(pend - bytes) = '0';
     }
-    if (sign != 0) {
+    if (print_sign_mark) {
         bytes += 1;
         switch (sign) {
         case prh_pf_positive: *(pend - bytes) = '+'; break;
@@ -38315,10 +38325,9 @@ prh_reg prh_impl_print_with_flags(prh_writer *p, const prh_byte *data, prh_reg b
             a[bytes++] = ' ';
         }
     } else {
-        prh_byte left_padding_char = (flags & prh_pf_zero_padding) ? '0' : ' ';
         while (bytes < width) {
             bytes += 1;
-            *(pend - bytes) = left_padding_char;
+            *(pend - bytes) = ' ';
         }
         start = pend - bytes;
     }
@@ -38332,7 +38341,7 @@ prh_reg prh_impl_print_with_flags(prh_writer *p, const prh_byte *data, prh_reg b
 
 prh_reg prh_impl_print_r32_dec_none(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
     prh_byte a[20] = {prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_4_digit_zeros};
-    prh_reg bytes; // 最大32位十进制 4294967295
+    prh_r32 bytes; // 最大32位十进制 4294967295
     a[19] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 1; goto label_print; }
     a[18] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 2; goto label_print; }
     a[17] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 3; goto label_print; }
@@ -38344,7 +38353,7 @@ prh_reg prh_impl_print_r32_dec_none(prh_writer *p, prh_r32 value, prh_r32 flags_
     a[11] = '0' + value % 10; if ((value /= 10) == 0) { bytes = 9; goto label_print; }
     a[10] = '0' + value % 10; bytes = 10;
 label_print:
-    prh_byte precision = (prh_byte)((flags_width_precision & 0x1f) + 1);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
     if (precision > 20) precision = 20;
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, flags_width_precision);
@@ -38353,7 +38362,7 @@ label_print:
 prh_reg prh_impl_print_r64_dec_none(prh_writer *p, prh_r64 value, prh_r32 flags_width_precision) {
     prh_byte a[20] = {prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_4_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1; // 最大64位十进制 18446744073709551615
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
@@ -38361,7 +38370,7 @@ label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     if (bytes < 20) goto label_continue; // 以上行数可以是 1*20 2*10 4*5
 label_print:
-    precision = (prh_byte)((flags_width_precision & 0x1f) + 1);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
     if (precision > 20) precision = 20;
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, flags_width_precision);
@@ -38373,7 +38382,7 @@ prh_reg prh_impl_print_r32_dec_ddd(prh_writer *p, prh_r32 value, prh_r32 flags_w
         prh_impl_3_digit_zeros, '_', prh_impl_3_digit_zeros, '_',
         prh_impl_3_digit_zeros, '_', prh_impl_3_digit_zeros, '_', prh_impl_2_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
@@ -38388,9 +38397,9 @@ label_print:
     // 3 / 3 = 1   4 + 1 = 5
     // 4 / 3 = 1   5 + 1 = 6
     // 5 / 3 = 1   6 + 1 = 7
-    precision = (prh_byte)(flags_width_precision & 0x1f);
-    precision = (precision + 1) + (precision / 3);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
     if (precision > 20) precision = 20;
+    precision = precision + ((precision - 1) / 3); // precision 一定大于等于一
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, flags_width_precision);
 }
@@ -38401,7 +38410,7 @@ prh_reg prh_impl_print_r64_dec_ddd(prh_writer *p, prh_r64 value, prh_r32 flags_w
         prh_impl_3_digit_zeros, '_', prh_impl_3_digit_zeros, '_',
         prh_impl_3_digit_zeros, '_', prh_impl_3_digit_zeros, '_', prh_impl_2_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
@@ -38410,9 +38419,9 @@ label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     *(pend - bytes) = '0' + value % 10; bytes += 1; // 最多 20 个数位
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0x1f);
-    precision = (precision + 1) + (precision / 3);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
     if (precision > 20) precision = 20;
+    precision = precision + ((precision - 1) / 3);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, flags_width_precision);
 }
@@ -38422,7 +38431,7 @@ prh_reg prh_impl_print_r32_dec_dddd(prh_writer *p, prh_r32 value, prh_r32 flags_
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
@@ -38432,9 +38441,9 @@ label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     *(pend - bytes) = '0' + value % 10; bytes += 1; // 最多 10 个数位
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0x1f);
-    precision = (precision + 1) + (precision / 4);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
     if (precision > 20) precision = 20;
+    precision = precision + ((precision - 1) / 4);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, flags_width_precision);
 }
@@ -38444,7 +38453,7 @@ prh_reg prh_impl_print_r64_dec_dddd(prh_writer *p, prh_r64 value, prh_r32 flags_
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
@@ -38452,9 +38461,9 @@ label_continue:
     *(pend - bytes) = '0' + value % 10; bytes += 1; if ((value /= 10) == 0) goto label_print;
     if (bytes < 24) { bytes += 1; goto label_continue; } // 4 9 14 19 24
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0x1f);
-    precision = (precision + 1) + (precision / 4);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
     if (precision > 20) precision = 20;
+    precision = precision + ((precision - 1) / 4);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, flags_width_precision);
 }
@@ -38484,7 +38493,7 @@ prh_reg prh_impl_print_r64_bin(prh_writer *p, prh_r64 value, prh_r32 flags) {
 }
 
 prh_reg prh_impl_print_r32_hex_none(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
-    prh_byte a[16] = {prh_impl_8_digit_zeros, prh_impl_8_digit_zeros}; prh_byte bytes, precision;
+    prh_byte a[16] = {prh_impl_8_digit_zeros, prh_impl_8_digit_zeros}; prh_r32 bytes;
     a[15] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 1; goto label_print; }
     a[14] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 2; goto label_print; }
     a[13] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 3; goto label_print; }
@@ -38494,7 +38503,8 @@ prh_reg prh_impl_print_r32_hex_none(prh_writer *p, prh_r32 value, prh_r32 flags_
     a[ 9] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 7; goto label_print; }
     a[ 8] = prh_impl_hex_digits[value & 0xf]; bytes = 8;
 label_print:
-    precision = (prh_byte)((flags_width_precision & 0xf) + 1); // 最大 15 表示精度长度为 16
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
@@ -38502,7 +38512,7 @@ label_print:
 prh_reg prh_impl_print_r64_hex_none(prh_writer *p, prh_r64 value, prh_r32 flags_width_precision) {
     prh_byte a[16] = {prh_impl_8_digit_zeros, prh_impl_8_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
@@ -38510,7 +38520,8 @@ label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     if (bytes < 16) goto label_continue;
 label_print:
-    precision = (prh_byte)((flags_width_precision & 0xf) + 1); // 最大 15 表示精度长度为 16
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
@@ -38522,7 +38533,7 @@ prh_reg prh_impl_print_r32_hex_ff(prh_writer *p, prh_r32 value, prh_r32 flags_wi
         prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
         prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
@@ -38533,8 +38544,9 @@ label_print:
     // 1 / 2 = 0   2 + 0 = 2
     // 2 / 2 = 1   3 + 1 = 4
     // 3 / 2 = 1   4 + 1 = 5
-    precision = (prh_byte)(flags_width_precision & 0xf); // 最大 15 表示精度长度为 16
-    precision = (precision + 1) + (precision / 2);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
+    precision = precision + ((precision - 1) / 2); // precision 一定大于等于一
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
@@ -38546,14 +38558,15 @@ prh_reg prh_impl_print_r64_hex_ff(prh_writer *p, prh_r64 value, prh_r32 flags_wi
         prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
         prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     if (bytes < 23) { bytes += 1; goto label_continue; }
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0xf); // 最大 15 表示精度长度为 16
-    precision = (precision + 1) + (precision / 2);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
+    precision = precision + ((precision - 1) / 2);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
@@ -38563,7 +38576,7 @@ prh_reg prh_impl_print_r32_hex_ffff(prh_writer *p, prh_r32 value, prh_r32 flags_
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
@@ -38571,8 +38584,9 @@ label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     if (bytes < 9) { bytes += 1; goto label_continue; } // 最多到 19 的一半
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0xf); // 最大 15 表示精度长度为 16
-    precision = (precision + 1) + (precision / 4);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
+    precision = precision + ((precision - 1) / 4);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
@@ -38582,7 +38596,7 @@ prh_reg prh_impl_print_r64_hex_ffff(prh_writer *p, prh_r64 value, prh_r32 flags_
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
         prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
@@ -38590,15 +38604,16 @@ label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     if (bytes < 19) { bytes += 1; goto label_continue; }
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0xf); // 最大 15 表示精度长度为 16
-    precision = (precision + 1) + (precision / 4);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
+    precision = precision + ((precision - 1) / 4);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
 
 prh_reg prh_impl_print_r32_hex_ffffffff(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
     prh_byte a[17] = {prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros};
-    prh_byte bytes, precision;
+    prh_r32 bytes;
     a[18] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 1; goto label_print; }
     a[17] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 2; goto label_print; }
     a[16] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 3; goto label_print; }
@@ -38608,8 +38623,9 @@ prh_reg prh_impl_print_r32_hex_ffffffff(prh_writer *p, prh_r32 value, prh_r32 fl
     a[12] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 7; goto label_print; }
     a[11] = prh_impl_hex_digits[value & 0xf]; bytes = 8;
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0xf); // 最大 15 表示精度长度为 16
-    precision = (precision + 1) + (precision / 8);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
+    precision = precision + ((precision - 1) / 8);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
@@ -38617,7 +38633,7 @@ label_print:
 prh_reg prh_impl_print_r64_hex_ffffffff(prh_writer *p, prh_r64 value, prh_r32 flags_width_precision) {
     prh_byte a[17] = {prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros};
     prh_byte *pend = a + sizeof(a) - 1;
-    prh_byte bytes = 0, precision;
+    prh_r32 bytes = 0;
 label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
@@ -38629,8 +38645,9 @@ label_continue:
     *(pend - bytes) = prh_impl_hex_digits[value & 0xf]; bytes += 1; if ((value >>= 4) == 0) goto label_print;
     if (bytes < 17) { bytes += 1; goto label_continue; }
 label_print:
-    precision = (prh_byte)(flags_width_precision & 0xf); // 最大 15 表示精度长度为 16
-    precision = (precision + 1) + (precision / 8);
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 16) precision = 16;
+    precision = precision + ((precision - 1) / 8);
     if (precision > bytes) bytes = precision;
     return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'x'));
 }
@@ -38741,6 +38758,7 @@ typedef struct {
     const char *f;
     prh_reg count;
     prh_writer writer;
+    prh_reg width;
     prh_reg precision;
     prh_r32 flags;
     prh_r08 digit_count;
@@ -38781,17 +38799,19 @@ bool prh_impl_print_next_flag(prh_impl_print_args *args) {
 }
 
 void prh_impl_print_read_width(prh_impl_print_args *args) {
-    prh_reg width = va_arg(args->vl, prh_reg);
-    prh_pf_set_width(args->flags, width);
+    args->width = va_arg(args->vl, prh_reg);
+    if (args->width > 0xff) args->width = 0xff;
+    prh_pf_set_width(args->flags, args->width);
 }
 
 void prh_impl_print_parse_width(prh_impl_print_args *args) {
-    prh_reg width = *(args->f - 1) - '0';
+    args->width = *(args->f - 1) - '0';
     while (*args->f >= '0' && *args->f <= '9') {
-        width = width * 10 + (*args->f - '0');
+        args->width = args->width * 10 + (*args->f - '0');
         args->f += 1;
     }
-    prh_pf_set_width(args->flags, width);
+    if (args->width > 0xff) args->width = 0xff;
+    prh_pf_set_width(args->flags, args->width);
 }
 
 void prh_impl_print_parse_precision(prh_impl_print_args *args) {
@@ -38804,7 +38824,6 @@ void prh_impl_print_parse_precision(prh_impl_print_args *args) {
             args->f += 1;
         }
     }
-    if (args->precision > 0) args->precision -= 1;
 }
 
 void prh_impl_parse_digit_group(prh_impl_print_args *args) {
@@ -38820,14 +38839,10 @@ void prh_impl_parse_digit_group(prh_impl_print_args *args) {
 }
 
 prh_r32 prh_impl_parse_sign_r32(prh_impl_print_args *args, prh_r32 value, bool signed_value) {
-    if (args->flags & prh_impl_pf_print_as_signed) {
-        signed_value = true;
-    }
-
+    if (args->flags & prh_impl_pf_print_as_signed) signed_value = true;
     if (!signed_value) return value;
 
     prh_byte plus_sign_mark = 0; // 正数默认不打印符号
-
     if (args->flags & prh_impl_pf_plus_sign) {
         plus_sign_mark = prh_pf_positive;
     } else if (args->flags & prh_impl_pf_space_sign) {
@@ -38840,19 +38855,14 @@ prh_r32 prh_impl_parse_sign_r32(prh_impl_print_args *args, prh_r32 value, bool s
     } else {
         prh_pf_set_sign(args->flags, plus_sign_mark);
     }
-
     return value;
 }
 
 prh_r64 prh_impl_parse_sign_r64(prh_impl_print_args *args, prh_r64 value, bool signed_value) {
-    if (args->flags & prh_impl_pf_print_as_signed) {
-        signed_value = true;
-    }
-
+    if (args->flags & prh_impl_pf_print_as_signed) signed_value = true;
     if (!signed_value) return value;
 
     prh_byte plus_sign_mark = 0; // 正数默认不打印符号
-
     if (args->flags & prh_impl_pf_plus_sign) {
         plus_sign_mark = prh_pf_positive;
     } else if (args->flags & prh_impl_pf_space_sign) {
@@ -38865,11 +38875,14 @@ prh_r64 prh_impl_parse_sign_r64(prh_impl_print_args *args, prh_r64 value, bool s
     } else {
         prh_pf_set_sign(args->flags, plus_sign_mark);
     }
-
     return value;
 }
 
 void prh_impl_print_parse_integer(prh_impl_print_args *args, bool signed_value) {
+    if ((args->flags & prh_pf_flag_c_style) == 0 && (args->flags & prh_pf_zero_padding) && args->precision == 0) args->precision = args->width;
+    if (args->precision > 0) args->precision -= 1;
+    if (args->precision > 0xff) args->precision = 0xff;
+
     switch (args->length_char) {
     case 'l':
     label_value_r64:
@@ -38905,11 +38918,10 @@ void prh_impl_print_check_specifier(prh_impl_print_args *args) {
         args->precision = sizeof(void *) == 32 ? 7 : 15; // fallthrough
     case 'x':
         switch (args->digit_count) {
-            case 2: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_2); break;
-            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_4); break;
-            case 8: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_8); break;
-            default: break;
-        }
+        case 2: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_2); break;
+        case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_4); break;
+        case 8: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_8); break;
+        default: break; }
         prh_pf_set_number_base(args->flags, prh_pf_hex);
         prh_pf_set_print_base_mark(args->flags, args->flags & prh_impl_pf_print_base);
         prh_impl_print_parse_integer(args, signed_value);
@@ -38918,15 +38930,17 @@ void prh_impl_print_check_specifier(prh_impl_print_args *args) {
         signed_value = true; // fallthrough
     case 'u':
         switch (args->digit_count) {
-            case 3: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_3); break;
-            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_4); break;
-            default: break;
-        }
+        case 3: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_3); break;
+        case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_4); break;
+        default: break; }
         prh_impl_print_parse_integer(args, signed_value);
         break;
     case 's': prh_impl_print_parse_string(args); break;
     case 'c': prh_impl_print_parse_char(args); break;
-    default: args->f -= 1; prh_abort_error(*args->f); break;
+    default:
+        args->f -= 1;
+        prh_abort_error(*args->f);
+        break;
     }
 }
 
@@ -38994,7 +39008,7 @@ const char *prh_impl_print_end_newline(const char *format) {
 }
 
 #define prh_print(format, ...) prh_impl_print(prh_stdout_handle(), (format), ## __VA_ARGS__)
-#define prh_prend(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
+#define prh_prind(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
 
 prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
     bool need_print_newline = prh_impl_need_print_newline(format);
@@ -39013,6 +39027,7 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
         }
         // *args.f 不为 % 不为 NUL
         args.count += prh_impl_print_bytes(&args.writer, s, args.f - 1 - s);
+        args.width = 0;
         args.precision = 0;
         args.flags = 0;
         args.digit_count = 0;
