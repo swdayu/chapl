@@ -38700,6 +38700,372 @@ prh_reg prh_print_char(prh_writer *p, prh_char c, prh_r32 flags) {
     return prh_print_string(p, a, bytes, flags);
 }
 
+// %[flags][width][.precision][length]specifier
+// [flags]
+//  -   在给定宽度内左对齐，默认是右对齐
+//  +   正数加上正号，默认正数不加正号
+//  SP  如果没有符号，在数字前加一个空格
+//  #   正数添加 0 0x 0X 前缀，浮点强制添加小数点
+//  0   添加前缀 0 进行对齐填补，默认使用空格对齐
+// [width]
+//  N   打印的最小宽度
+//  *   通过 int 参数动态提供最小宽度值
+// [.precision]
+//  .   等价精度值为 0
+//  .N  对于 d i o u x X 表示最小数位长度（不足的补前导零），对于 a A e E f F 表示需要打印的小数位数（默认为 6），对于 g G 最大有效位数，对于 s 表示打印的最大字符个数
+//  .*  通过 int 参数动态提供最小精度值
+//          specifier
+// [length] d i         u o x X             f F e E g G a A     c       s           p           n 输出当前打印的字节数
+//          int         unsigned int        double              int     char*       void*       int*
+//  hh      signed char unsigned char                                                           singed char*
+//  h       short int   unsigned short                                                          short int*
+//  l       long int    unsigned long                           wint_t  wchar_t*                long int*
+//  ll      long long   unsigned long long                                                      long long int*
+//  j       intmax_t    uintmax_t                                                               intmax_t*
+//  z       size_t      size_t                                                                  size_t*
+//  t       ptrdiff_t   ptrdiff_t                                                               ptrdiff_t*
+//  L                                       long double
+//
+//  1.  小于 int 的整型会自动提升到 int 类型大小，如果传入 %hd 仅读取 int 的第 16 位
+//  2.  小于 double 的浮点型会自动提升到 double 类型大小
+//  3.  %d  %u  %x      prh_int/reg             %n      prh_reg*
+//  4.  %ld %lu %lx     prh_i64/r64             %ln     prh_r64*
+//  5.  %zd %zu %zx     prh_raw_int/raw_reg     %zn     prh_raw_reg*
+//  6.  %c              prh_char
+//  7.  %s              const char*
+//  8.  %ls             const wchar_t*
+//  9·  %p              void*
+
+typedef struct {
+    va_list vl;
+    const char *f;
+    prh_reg count;
+    prh_writer writer;
+    prh_reg precision;
+    prh_r32 flags;
+    prh_r08 digit_count;
+    prh_r08 length_char;
+    union {
+        prh_r32 r32;
+        prh_r64 r64;
+    } u;
+} prh_impl_print_args;
+
+void prh_impl_print_parse_string(prh_impl_print_args *args) {
+    const char *s = va_arg(args->vl, const char *);
+    args->count += prh_print_cstring(&args->writer, s, prh_pf_set_precision(args->flags, 0));
+}
+
+void prh_impl_print_parse_char(prh_impl_print_args *args) {
+    prh_char c = va_arg(args->vl, prh_char);
+    args->count += prh_print_char(&args->writer, c, prh_pf_set_precision(args->flags, 0));
+}
+
+bool prh_impl_print_curr_flag(prh_impl_print_args *args, prh_byte c) {
+    switch (c) {
+    case '0': args->flags |= prh_pf_zero_padding; break;
+    case '-': args->flags |= prh_pf_left_adjust; break;
+    case '+': args->flags |= prh_impl_pf_plus_sign; break;
+    case '#': args->flags |= prh_impl_pf_print_base; break;
+    case ' ': args->flags |= prh_impl_pf_space_sign; break;
+    case 'S': args->flags |= prh_impl_pf_print_as_signed; break;
+    default: return false;
+    }
+    return true;
+}
+
+bool prh_impl_print_next_flag(prh_impl_print_args *args) {
+    if (!prh_impl_print_curr_flag(args, *args->f)) return false;
+    args->f += 1;
+    return true;
+}
+
+void prh_impl_print_read_width(prh_impl_print_args *args) {
+    prh_reg width = va_arg(args->vl, prh_reg);
+    prh_pf_set_width(args->flags, width);
+}
+
+void prh_impl_print_parse_width(prh_impl_print_args *args) {
+    prh_reg width = *(args->f - 1) - '0';
+    while (*args->f >= '0' && *args->f <= '9') {
+        width = width * 10 + (*args->f - '0');
+        args->f += 1;
+    }
+    prh_pf_set_width(args->flags, width);
+}
+
+void prh_impl_print_parse_precision(prh_impl_print_args *args) {
+    if (*args->f == '*') {
+        args->precision = va_arg(args->vl, prh_reg);
+        args->f += 1;
+    } else {
+        while (*args->f >= '0' && *args->f <= '9') {
+            args->precision = args->precision * 10 + (*args->f - '0');
+            args->f += 1;
+        }
+    }
+    if (args->precision > 0) args->precision -= 1;
+}
+
+void prh_impl_parse_digit_group(prh_impl_print_args *args) {
+    args->digit_count = 1;
+    while (*args->f == '?') {
+        args->digit_count += 1;
+        args->f += 1;
+    }
+    if (args->digit_count == 4 && *args->f == '8') {
+        args->digit_count = 8;
+        args->f += 1;
+    }
+}
+
+prh_r32 prh_impl_parse_sign_r32(prh_impl_print_args *args, prh_r32 value, bool signed_value) {
+    if (args->flags & prh_impl_pf_print_as_signed) {
+        signed_value = true;
+    }
+
+    if (!signed_value) return value;
+
+    prh_byte plus_sign_mark = 0; // 正数默认不打印符号
+
+    if (args->flags & prh_impl_pf_plus_sign) {
+        plus_sign_mark = prh_pf_positive;
+    } else if (args->flags & prh_impl_pf_space_sign) {
+        plus_sign_mark = prh_pf_space_sign;
+    }
+
+    if (value & 0x80000000) { // 有符号数并且是负数
+        value = -(prh_i32)value;
+        prh_pf_set_sign(args->flags, prh_pf_negative);
+    } else {
+        prh_pf_set_sign(args->flags, plus_sign_mark);
+    }
+
+    return value;
+}
+
+prh_r64 prh_impl_parse_sign_r64(prh_impl_print_args *args, prh_r64 value, bool signed_value) {
+    if (args->flags & prh_impl_pf_print_as_signed) {
+        signed_value = true;
+    }
+
+    if (!signed_value) return value;
+
+    prh_byte plus_sign_mark = 0; // 正数默认不打印符号
+
+    if (args->flags & prh_impl_pf_plus_sign) {
+        plus_sign_mark = prh_pf_positive;
+    } else if (args->flags & prh_impl_pf_space_sign) {
+        plus_sign_mark = prh_pf_space_sign;
+    }
+
+    if (value & 0x8000000000000000ULL) { // 有符号数并且是负数
+        value = -(prh_i64)value;
+        prh_pf_set_sign(args->flags, prh_pf_negative);
+    } else {
+        prh_pf_set_sign(args->flags, plus_sign_mark);
+    }
+
+    return value;
+}
+
+void prh_impl_print_parse_integer(prh_impl_print_args *args, bool signed_value) {
+    switch (args->length_char) {
+    case 'l':
+    label_value_r64:
+        args->u.r64 = prh_impl_parse_sign_r64(args, va_arg(args->vl, prh_r64), signed_value);
+        args->count += prh_impl_print_r64(&args->writer, args->u.r64, prh_pf_set_precision(args->flags, args->precision));
+        break;
+    #if prh_raw_int_bits == 32 || prh_int_bits == 32
+    label_value_r32:
+        args->u.r32 = prh_impl_parse_sign_r32(args, va_arg(args->vl, prh_r32), signed_value);
+        args->count += prh_impl_print_r32(&args->writer, args->u.r32, prh_pf_set_precision(args->flags, args->precision));
+        break;
+    #endif
+    case 'z':
+    #if prh_raw_int_bits == 32
+        goto label_value_r32;
+    #elif prh_raw_int_bits == 64
+        goto label_value_r64;
+    #endif
+    default:
+    #if prh_int_bits == 32
+        goto label_value_r32;
+    #elif prh_int_bits == 64
+        goto label_value_r64;
+    #endif
+    }
+}
+
+void prh_impl_print_check_specifier(prh_impl_print_args *args) {
+    bool signed_value = false;
+    switch (*args->f++) {
+    case 'p':
+        args->length_char = 'z';
+        args->precision = sizeof(void *) == 32 ? 7 : 15; // fallthrough
+    case 'x':
+        switch (args->digit_count) {
+            case 2: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_2); break;
+            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_4); break;
+            case 8: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_8); break;
+            default: break;
+        }
+        prh_pf_set_number_base(args->flags, prh_pf_hex);
+        prh_pf_set_print_base_mark(args->flags, args->flags & prh_impl_pf_print_base);
+        prh_impl_print_parse_integer(args, signed_value);
+        break;
+    case 'd':
+        signed_value = true; // fallthrough
+    case 'u':
+        switch (args->digit_count) {
+            case 3: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_3); break;
+            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_4); break;
+            default: break;
+        }
+        prh_impl_print_parse_integer(args, signed_value);
+        break;
+    case 's': prh_impl_print_parse_string(args); break;
+    case 'c': prh_impl_print_parse_char(args); break;
+    default: args->f -= 1; prh_abort_error(*args->f); break;
+    }
+}
+
+void prh_impl_print_check_length(prh_impl_print_args *args) {
+    if (*args->f == 'l' || *args->f == 'z') {
+        args->length_char = *args->f;
+        args->f += 1;
+    }
+    prh_impl_print_check_specifier(args);
+}
+
+void prh_impl_print_check_digit_group(prh_impl_print_args *args) {
+    if (*args->f == '?') {
+        args->f += 1;
+        prh_impl_parse_digit_group(args);
+    }
+    prh_impl_print_check_length(args);
+}
+
+void prh_impl_print_check_precision(prh_impl_print_args *args) {
+    if (*args->f == '.') {
+        args->f += 1;
+        prh_impl_print_parse_precision(args);
+    }
+    prh_impl_print_check_digit_group(args);
+}
+
+void prh_impl_print_check_width(prh_impl_print_args *args) {
+    if (*args->f >= '1' && *args->f <= '9') {
+        args->f += 1;
+        prh_impl_print_parse_width(args);
+    } else if (*args->f == '*') {
+        args->f += 1;
+        prh_impl_print_read_width(args);
+    }
+    prh_impl_print_check_precision(args); // 不管有没有 width 都需要检查 precision
+}
+
+static const char *prh_impl_print_get_format(const char *format) {
+#if prh_raw_int_bits == 32
+    prh_static_assert(sizeof(void *) == 4);
+    return (const char *)((prh_raw_reg)format & 0x7FFFFFFF);
+#elif prh_raw_int_bits == 64
+    prh_static_assert(sizeof(void *) == 8);
+    return (const char *)((prh_raw_reg)format & 0x7FFFFFFFFFFFFFFFULL);
+#endif
+}
+
+static bool prh_impl_need_print_newline(const char *format) {
+#if prh_raw_int_bits == 32
+    return ((prh_raw_reg)format & 0x80000000) != 0;
+#elif prh_raw_int_bits == 64
+    return ((prh_raw_reg)format & 0x8000000000000000ULL) != 0;
+#endif
+}
+
+const char *prh_impl_print_end_newline(const char *format) {
+#if prh_raw_int_bits == 32
+    assert(((prh_raw_reg)format & 0x80000000) == 0);
+    return (const char *)((prh_raw_reg)format | 0x80000000);
+#elif prh_raw_int_bits == 64
+    assert(((prh_raw_reg)format & 0x8000000000000000ULL) == 0);
+    return (const char *)((prh_raw_reg)format | 0x8000000000000000ULL);
+#endif
+}
+
+#define prh_print(format, ...) prh_impl_print(prh_stdout_handle(), (format), ## __VA_ARGS__)
+#define prh_prend(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
+
+prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
+    bool need_print_newline = prh_impl_need_print_newline(format);
+    format = prh_impl_print_get_format(format);
+    if (format == prh_null) return 0;
+    prh_impl_print_args args = {.f = format, .count = 0, .writer = prh_write_begin(handle, prh_local_alloc())};
+    const char *s = args.f;
+    va_start(args.vl, format);
+    while (*args.f) {
+        if (*args.f++ != '%') continue;
+        if (*args.f == 0) break;
+        if (*args.f == '%') {
+            args.count += prh_impl_print_bytes(&args.writer, s, args.f - s);
+            s = (args.f += 1);
+            continue;
+        }
+        // *args.f 不为 % 不为 NUL
+        args.count += prh_impl_print_bytes(&args.writer, s, args.f - 1 - s);
+        args.precision = 0;
+        args.flags = 0;
+        args.digit_count = 0;
+        args.length_char = 0;
+        switch (*args.f++) {
+        // [flags]
+        case '0': case '-': case '+': case '#': case ' ': case 'S':
+            prh_impl_print_curr_flag(&args, *(args.f - 1));
+            while (prh_impl_print_next_flag(&args)) ;
+            prh_impl_print_check_width(&args);
+            break;
+        // [width]
+        case '1': case '2': case '3': case '4': case '5': case '6': case '7': case '8': case '9':
+            prh_impl_print_parse_width(&args);
+            prh_impl_print_check_precision(&args);
+            break;
+        case '*':
+            prh_impl_print_read_width(&args);
+            prh_impl_print_check_precision(&args);
+            break;
+        // [.precision]
+        case '.':
+            prh_impl_print_parse_precision(&args);
+            prh_impl_print_check_digit_group(&args);
+            break;
+        // [digit group]
+        case '?':
+            prh_impl_parse_digit_group(&args);
+            prh_impl_print_check_length(&args);
+            break;
+        // [length]
+        case 'l': case 'z':
+            args.length_char = *(args.f - 1);
+            prh_impl_print_check_specifier(&args);
+            break;
+        // specifier
+        default:
+            args.f -= 1;
+            prh_impl_print_check_specifier(&args);
+            break;
+        }
+        s = args.f;
+    }
+    args.count += prh_impl_print_bytes(&args.writer, s, args.f - s);
+    if (need_print_newline) {
+        prh_byte c = '\n';
+        args.count += prh_impl_print_bytes(&args.writer, &c, 1);
+    }
+    va_end(args.vl);
+    prh_write_end(&args.writer);
+    return args.count;
+}
+
 #endif // PRH_IMPL_WINDOWS_FILE
 #endif // PRH_PLAT_WINDOWS_FILE
 
