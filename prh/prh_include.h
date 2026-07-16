@@ -1778,6 +1778,15 @@ typedef enum {
 #endif
 #endif
 
+#ifdef PRH_FONT_INCLUDE
+#define PRH_FILE_INCLUDE
+#define PRH_ARRAY_INCLUDE
+#ifdef PRH_FONT_IMPLEMENTATION
+#define PRH_FILE_IMPLEMENTATION
+#define PRH_ARRAY_IMPLEMENTATION
+#endif
+#endif
+
 #ifdef PRH_FILE_INCLUDE
 #define PRH_CHAR_INCLUDE
 #define PRH_ALLOC_INCLUDE
@@ -2875,6 +2884,43 @@ prh_inline prh_raw prh_impl_raw_invert_order(prh_raw n) { return prh_impl_r64_in
 #error unsupported raw_int bits
 #endif
 
+#define prh_set_r16_host_to_le(a) (a) = prh_r16_host_to_le(a)
+#define prh_set_r24_host_to_le(a) (a) = prh_r24_host_to_le(a)
+#define prh_set_r32_host_to_le(a) (a) = prh_r32_host_to_le(a)
+#define prh_set_r40_host_to_le(a) (a) = prh_r40_host_to_le(a)
+#define prh_set_r48_host_to_le(a) (a) = prh_r48_host_to_le(a)
+#define prh_set_r56_host_to_le(a) (a) = prh_r56_host_to_le(a)
+#define prh_set_r64_host_to_le(a) (a) = prh_r64_host_to_le(a)
+#define prh_set_reg_host_to_le(a) (a) = prh_reg_host_to_le(a)
+#define prh_set_raw_host_to_le(a) (a) = prh_raw_host_to_le(a)
+#define prh_set_r16_le_to_host(a) (a) = prh_r16_le_to_host(a)
+#define prh_set_r24_le_to_host(a) (a) = prh_r24_le_to_host(a)
+#define prh_set_r32_le_to_host(a) (a) = prh_r32_le_to_host(a)
+#define prh_set_r40_le_to_host(a) (a) = prh_r40_le_to_host(a)
+#define prh_set_r48_le_to_host(a) (a) = prh_r48_le_to_host(a)
+#define prh_set_r56_le_to_host(a) (a) = prh_r56_le_to_host(a)
+#define prh_set_r64_le_to_host(a) (a) = prh_r64_le_to_host(a)
+#define prh_set_reg_le_to_host(a) (a) = prh_reg_le_to_host(a)
+#define prh_set_raw_le_to_host(a) (a) = prh_raw_le_to_host(a)
+#define prh_set_r16_host_to_be(a) (a) = prh_r16_host_to_be(a)
+#define prh_set_r24_host_to_be(a) (a) = prh_r24_host_to_be(a)
+#define prh_set_r32_host_to_be(a) (a) = prh_r32_host_to_be(a)
+#define prh_set_r40_host_to_be(a) (a) = prh_r40_host_to_be(a)
+#define prh_set_r48_host_to_be(a) (a) = prh_r48_host_to_be(a)
+#define prh_set_r56_host_to_be(a) (a) = prh_r56_host_to_be(a)
+#define prh_set_r64_host_to_be(a) (a) = prh_r64_host_to_be(a)
+#define prh_set_reg_host_to_be(a) (a) = prh_reg_host_to_be(a)
+#define prh_set_raw_host_to_be(a) (a) = prh_raw_host_to_be(a)
+#define prh_set_r16_be_to_host(a) (a) = prh_r16_be_to_host(a)
+#define prh_set_r24_be_to_host(a) (a) = prh_r24_be_to_host(a)
+#define prh_set_r32_be_to_host(a) (a) = prh_r32_be_to_host(a)
+#define prh_set_r40_be_to_host(a) (a) = prh_r40_be_to_host(a)
+#define prh_set_r48_be_to_host(a) (a) = prh_r48_be_to_host(a)
+#define prh_set_r56_be_to_host(a) (a) = prh_r56_be_to_host(a)
+#define prh_set_r64_be_to_host(a) (a) = prh_r64_be_to_host(a)
+#define prh_set_reg_be_to_host(a) (a) = prh_reg_be_to_host(a)
+#define prh_set_raw_be_to_host(a) (a) = prh_raw_be_to_host(a)
+
 #if prh_lit_endian
 prh_inline prh_r16 prh_r16_host_to_le(prh_r16 n) { return n; }
 prh_inline prh_r32 prh_r24_host_to_le(prh_r32 n) { return n; }
@@ -3014,7 +3060,7 @@ typedef struct prh_buffer {
     prh_byte *data;
     prh_reg _capacity: 56, _shift_alignment: 8; // 0 表示使用默认对齐
     prh_alloc_face _alloc;
-}  prh_buffer;
+} prh_buffer;
 #define prh_default_shift_alignment prh_shift_align_16_byte
 prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
 prh_inline prh_reg prh_buffer_capacity(const prh_buffer *a) { return a->_capacity; }
@@ -3033,7 +3079,7 @@ typedef struct prh_buffer {
     prh_byte *data;
     prh_r16 _capacity;
     prh_r16 _extra;
-}  prh_buffer;
+} prh_buffer;
 #define prh_default_shift_alignment prh_shift_align_4_byte
 prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
 prh_inline prh_r16 prh_buffer_capacity(const prh_buffer *a) { return a->_capacity; }
@@ -3054,7 +3100,7 @@ typedef struct prh_buffer {
     prh_byte *data;
     prh_r32 _capacity_28_bits: 28, _shift_alignment: 4; // 0 表示使用默认对齐
     prh_alloc_face _alloc;
-}  prh_buffer;
+} prh_buffer;
 #define prh_default_shift_alignment prh_shift_align_16_byte
 prh_inline prh_byte *prh_buffer_data(const prh_buffer *a) { return a->data; }
 prh_inline prh_reg prh_buffer_capacity(const prh_buffer *a) { return a->_capacity_28_bits << 4; }
@@ -4433,8 +4479,9 @@ void prh_impl_default_alloc_func(prh_buffer *ptr, prh_reg new_size) {
         prh_buffer_set_capacity(ptr, new_size);
     } else {
         ptr = (prh_buffer *)((prh_reg)ptr & ~((prh_reg)PRH_IMPL_FREE_MASK_BIT));
-        prh_plat_aligned_dealloc(prh_buffer_data(ptr)); // 如果 data 为空，prh_plat_aligned_dealloc 不做任何事
-        prh_buffer_set_data(ptr, prh_null);
+        void *data = prh_buffer_data(ptr);
+        prh_buffer_set_data(ptr, prh_null); // 需要先设置后释放，因为 buffer 可能位于这个分配的内存之内
+        prh_plat_aligned_dealloc(data); // 如果 data 为空，prh_plat_aligned_dealloc 不做任何事
     }
 }
 
@@ -9361,6 +9408,64 @@ prh_reg prh_utf32_to_utf8(const prh_r32 *p, prh_reg count, prh_buffer *out) {
 // def hive $(any T) // collection that reuses erased elements' memory
 // def deque $(any T) // 双端队列（double-ended queue）
 
+typedef struct {
+    prh_buffer buffer;
+    prh_reg capacity;
+    prh_reg size;
+} prh_impl_daheader;
+
+void *prh_impl_da_init(prh_reg capacity, prh_reg elem_size);
+void *prh_impl_da_expand(prh_impl_daheader *p, prh_reg grow_capacity, prh_reg elem_size);
+void *prh_impl_da_reserve(prh_impl_daheader *p, prh_reg capacity, prh_reg elem_size);
+void *prh_impl_da_shrink(prh_impl_daheader *p, prh_reg capacity, prh_reg elem_size);
+void prh_impl_da_free(prh_impl_daheader *p);
+
+#define prh_da_init(p, capacity) (p) = (prh_typeof(p))prh_impl_da_init((capacity), sizeof(prh_typeof(*(p))))
+#define prh_da_expand(p, grow_capacity) (p) = (prh_typeof(p))prh_impl_da_expand((prh_impl_daheader *)(p), (grow_capacity), sizeof(prh_typeof(*(p))))
+#define prh_da_reserve(p, capacity) (p) = (prh_typeof(p))prh_impl_da_reserve((prh_impl_daheader *)(p), (capacity), sizeof(prh_typeof(*(p))))
+#define prh_da_shrink(p, capacity) (p) = (prh_typeof(p))prh_impl_da_shrink((prh_impl_daheader *)(p), (capacity), sizeof(prh_typeof(*(p))))
+#define prh_da_free(p) do { prh_impl_da_free((prh_impl_daheader *)(p)); (p) = prh_null; } while (0)
+#define prh_da_pop(p) (p)[(assert(prh_da_size(p) > 0)), (prh_da_size(p) -= 1)]
+#define prh_da_capacity(p) ((prh_impl_daheader *)(p) - 1)->capacity
+#define prh_da_size(p) ((prh_impl_daheader *)(p) - 1)->size
+
+#define prh_da_foreach(p, it) for (prh_typeof(p) it = (p); it < (p) + prh_da_size(p); it += 1)
+
+#define prh_da_add_size(p, size_grow) do {                          \
+    assert((size_grow) <= prh_da_capacity(p) - prh_da_size(p));     \
+    prh_da_size(p) += (size_grow);                                  \
+} while (0)
+
+#define prh_da_append(p, value) do {    \
+    prh_da_expand((p), 1);              \
+    (p)[prh_da_size(p)++] = (value);    \
+} while (0)
+
+#define prh_da_unchecked_append(p, value) do {      \
+    assert(prh_da_size(p) < prh_da_capacity(p));    \
+    (p)[prh_da_size(p)++] = (value);                \
+} while (0)
+
+#define prh_da_append_elems(p, elems, count) do {                                       \
+    prh_reg prh_impl_count = (count);                                                   \
+    prh_da_expand((p), prh_impl_count);                                                 \
+    memcpy((p) + prh_da_size(p), (elems), prh_impl_count * sizeof(prh_typeof(*(p))));   \
+    prh_da_size(p) += prh_impl_count;                                                   \
+} while (0)
+
+#define prh_da_unchecked_append_elems(p, elems, count) do {                             \
+    prh_reg prh_impl_count = (count);                                                   \
+    assert(prh_impl_count <= prh_da_capacity(p) - prh_da_size(p));                      \
+    memcpy((p) + prh_da_size(p), (elems), prh_impl_count * sizeof(prh_typeof(*(p))));   \
+    prh_da_size(p) += prh_impl_count;                                                   \
+} while (0)
+
+#define prh_da_unordered_remove(p, i) do {      \
+    prh_reg prh_impl_i = (i);                   \
+    assert(prh_impl_i < prh_da_size(p));        \
+    (p)[prh_impl_i] = prh_da_pop(p);            \
+} while (0)
+
 #if 1
 typedef struct {
     prh_byte *data;
@@ -10162,6 +10267,60 @@ void prh_strlax_slice(prh_sslice *p, const prh_strlax *s, prh_int i, prh_int j);
 #endif
 
 #ifdef PRH_ARRAY_IMPLEMENTATION
+
+void *prh_impl_da_init(prh_reg capacity, prh_reg elem_size) {
+    prh_reg new_capacity = 1; // 容量总是2的幂
+    while (new_capacity < capacity) new_capacity *= 2;
+    prh_buffer buffer = prh_make_buffer(prh_local_alloc(), sizeof(prh_impl_daheader) + new_capacity * elem_size);
+    p = (prh_impl_daheader *)buffer.data;
+    p->buffer = buffer;
+    p->capacity = new_capacity;
+    p->size = 0;
+    return p + 1;
+}
+
+void *prh_impl_da_realloc(prh_impl_daheader *p, prh_reg capacity, prh_reg elem_size) {
+    prh_buffer buffer = p->buffer;
+    prh_make_memory(&buffer, sizeof(prh_impl_daheader) + capacity * elem_size);
+    p = (prh_impl_daheader *)buffer.data;
+    p->buffer = buffer;
+    p->capacity = capacity;
+    return p + 1;
+}
+
+void *prh_impl_da_reserve(prh_impl_daheader *p, prh_reg capacity, prh_reg elem_size) {
+    if (p == prh_null) return prh_impl_da_init(capacity, elem_size);
+    prh_impl_daheader *header = p - 1;
+    if (capacity <= header->capacity) return p;
+    assert(header->capacity != 0 && prh_is_power_of_2(header->capacity));
+    do header->capacity *= 2; while (header->capacity < capacity);
+    return prh_impl_da_realloc(header, header->capacity, elem_size);
+}
+
+void *prh_impl_da_expand(prh_impl_daheader *p, prh_reg grow_capacity, prh_reg elem_size) {
+    if (p == prh_null) return prh_impl_da_init(grow_capacity, elem_size);
+    prh_impl_daheader *header = p - 1;
+    if (header->size + grow_capacity <= header->capacity) return p;
+    assert(header->capacity != 0 && prh_is_power_of_2(header->capacity));
+    do header->capacity *= 2; while (header->capacity < header->size + grow_capacity);
+    return prh_impl_da_realloc(header, header->capacity, elem_size);
+}
+
+void *prh_impl_da_shrink(prh_impl_daheader *p, prh_reg capacity, prh_reg elem_size) {
+    if (p == prh_null) return prh_impl_da_init(capacity, elem_size);
+    prh_impl_daheader *header = p - 1;
+    if (capacity > header->capacity / 2) return p;
+    assert(header->capacity != 0 && prh_is_power_of_2(header->capacity));
+    while (header->capacity > 1 && capacity <= header->capacity / 2) header->capacity /= 2;
+    return prh_impl_da_realloc(header, header->capacity, elem_size);
+}
+
+void prh_impl_da_free(prh_impl_daheader *p) {
+    if (p == prh_null) return;
+    prh_impl_daheader *header = p - 1;
+    prh_free_buffer(&header->buffer);
+}
+
 #if 1
 #else
 void prh_impl_arrdyn_initialize(prh_impl_arrdyn *p, prh_int new_capacity, prh_int elem_size) {
@@ -33276,18 +33435,22 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 
 typedef struct {
     prh_handle handle;
-    prh_r32 offset;
-    prh_r32 length; // 最多缓存4GB-PAGE_SIZE，32位最大值4GB-1
+    prh_reg offset;
+    prh_reg length;
     prh_byte mode;
     prh_byte file_end;
     prh_buffer buffer;
-} prh_text;
+} prh_reader;
 
-void prh_text_from_file(prh_text *p, const prh_byte *name, prh_r32 file_buff_size);
-void prh_text_from_buffer(prh_text *p, const prh_byte *buffer, prh_r32 length);
-void prh_text_from_cstring(prh_text *p, const void *s);
-prh_byte prh_text_get_byte(prh_text *p);
-void prh_text_free(prh_text *p);
+prh_reader prh_read_from_file(const prh_byte *name, prh_reg file_buff_size, const prh_alloc_face *alloc);
+prh_reader prh_read_from_handle(prh_handle handle, prh_reg file_buff_size, const prh_alloc_face *alloc);
+prh_reader prh_read_from_buffer(const prh_byte *buffer, prh_reg length);
+prh_reader prh_read_from_c_text(const void *s);
+prh_byte prh_read_text_byte(prh_reader *p);
+prh_reg prh_read_a_byte(prh_reader *r, prh_byte *p);
+prh_reg prh_read_bytes(prh_reader *r, prh_byte *p, prh_reg bytes);
+prh_reg prh_read_exact_bytes(prh_reader *r, prh_byte *p, prh_reg bytes);
+void prh_read_free(prh_reader *p);
 
 typedef struct {
     prh_buffer buffer;
@@ -33295,19 +33458,72 @@ typedef struct {
     prh_reg offset;
 } prh_writer;
 
-void prh_write_from(prh_writer *p, prh_handle handle, prh_reg write_buff_size, const prh_alloc_face *alloc);
+prh_writer prh_write_from(prh_handle handle, prh_reg write_buff_size, const prh_alloc_face *alloc);
 void prh_write_free(prh_writer *p);
 void prh_write_flush(prh_writer *p);
 
 prh_writer prh_write_begin(prh_handle handle, const prh_alloc_face *alloc);
 prh_reg prh_write_bytes(prh_writer *p, const prh_byte *data, prh_reg bytes);
+prh_reg prh_write_a_byte(prh_writer *p, prh_byte data);
 void prh_write_end(prh_writer *p);
 
 prh_reg prh_impl_print(prh_handle handle, const char *format, ...);
 const char *prh_impl_print_end_newline(const char *format);
 
 #define prh_print(format, ...) prh_impl_print(prh_stdout_handle(), (format), ## __VA_ARGS__)
-#define prh_prend(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
+#define prh_prinf(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
+
+#define prh_eprint(format, ...) prh_impl_print(prh_stderr_handle(), (format), ## __VA_ARGS__)
+#define prh_eprinf(format, ...) prh_impl_print(prh_stderr_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
+
+#define prh_pf_hex          0x40000000
+#define prh_pf_bin          0x80000000
+#define prh_pf_oct          0xC0000000
+#define prh_pf_gd_3         0x10000000
+#define prh_pf_gd_4         0x20000000
+#define prh_pf_gf_2         0x10000000
+#define prh_pf_gf_4         0x20000000
+#define prh_pf_gf_8         0x30000000
+#define prh_impl_pf_newline 0x01000000
+#define prh_pf_signed       0x02000000
+#define prh_pf_print_base   0x00010000
+
+prh_reg prh_impl_print_integer_32(prh_handle handle, prh_r32 value, prh_r32 flags);
+prh_reg prh_impl_print_integer_64(prh_handle handle, prh_r64 value, prh_r32 flags);
+
+#define prh_print_r32(value, flags) prh_impl_print_integer_32(prh_stdout_handle(), (value), (flags))
+#define prh_prinf_r32(value, flags) prh_impl_print_integer_32(prh_stdout_handle(), (value), (flags) | prh_impl_pf_newline)
+#define prh_print_r64(value, flags) prh_impl_print_integer_64(prh_stdout_handle(), (value), (flags))
+#define prh_prinf_r64(value, flags) prh_impl_print_integer_64(prh_stdout_handle(), (value), (flags) | prh_impl_pf_newline)
+
+#define prh_eprint_r32(value, flags) prh_impl_print_integer_32(prh_stderr_handle(), (value), (flags))
+#define prh_eprinf_r32(value, flags) prh_impl_print_integer_32(prh_stderr_handle(), (value), (flags) | prh_impl_pf_newline)
+#define prh_eprint_r64(value, flags) prh_impl_print_integer_64(prh_stderr_handle(), (value), (flags))
+#define prh_eprinf_r64(value, flags) prh_impl_print_integer_64(prh_stderr_handle(), (value), (flags) | prh_impl_pf_newline)
+
+#if prh_int_bits == 32
+#define prh_print_reg(value, flags) prh_print_r32((value), (flags))
+#define prh_prinf_reg(value, flags) prh_prinf_r32((value), (flags))
+#define prh_eprint_reg(value, flags) prh_eprint_r32((value), (flags))
+#define prh_eprinf_reg(value, flags) prh_eprinf_r32((value), (flags))
+#elif prh_int_bits == 64
+#define prh_print_reg(value, flags) prh_print_r64((value), (flags))
+#define prh_prinf_reg(value, flags) prh_prinf_r64((value), (flags))
+#define prh_eprint_reg(value, flags) prh_eprint_r64((value), (flags))
+#define prh_eprinf_reg(value, flags) prh_eprinf_r64((value), (flags))
+#endif
+
+#if prh_raw_int_bits == 32
+#define prh_print_raw(value, flags) prh_print_r32((value), (flags))
+#define prh_prinf_raw(value, flags) prh_prinf_r32((value), (flags))
+#define prh_eprint_raw(value, flags) prh_eprint_r32((value), (flags))
+#define prh_eprinf_raw(value, flags) prh_eprinf_r32((value), (flags))
+#elif prh_raw_int_bits == 64
+#define prh_print_raw(value, flags) prh_print_r64((value), (flags))
+#define prh_prinf_raw(value, flags) prh_prinf_r64((value), (flags))
+#define prh_eprint_raw(value, flags) prh_eprint_r64((value), (flags))
+#define prh_eprinf_raw(value, flags) prh_eprinf_r64((value), (flags))
+#endif
 
 #if defined(PRH_IMPL_WINDOWS_FILE)
 // https://learn.microsoft.com/en-us/windows/win32/fileio/files-and-clusters
@@ -36012,19 +36228,25 @@ prh_reg prh_read_entire_file(const prh_byte *name, prh_buffer *out)
     return bytes;
 }
 
-prh_byte prh_text_get_byte(prh_text *r) {
+#define PRH_IMPL_FROM_BUFFER 0
+#define PRH_IMPL_FROM_C_TEXT 1
+#define PRH_IMPL_FROM_HANDLE 2
+#define PRH_IMPL_FROM_FILE 3
+
+prh_byte prh_read_text_byte(prh_reader *r) {
     prh_byte c;
     switch (r->mode) {
-    case 0: // from file
+    case PRH_IMPL_FROM_FILE:
+    case PRH_IMPL_FROM_HANDLE:
         if (r->offset >= r->length) {
             if (r->file_end) return 0;
-            prh_r32 bytes = prh_impl_file_read(r->handle, r->buffer.data, (prh_r32)prh_buffer_capacity(&r->buffer));
-            if (errno == e_file_error) prh_abort_error(GetLastError());
-            if (bytes == 0) { r->file_end = 1; return 0; }
             r->offset = 0;
-            r->length = bytes;
+            r->length = prh_file_read(r->handle, r->buffer.data, prh_buffer_capacity(&r->buffer));
+            if (errno == e_file_error) prh_abort_error(GetLastError());
+            if (r->length == 0) { r->file_end = 1; return 0; }
         } // fallthrough
-    case 1: label_read_char: // c string
+    case PRH_IMPL_FROM_C_TEXT:
+    label_read_char: // c string
         c = r->buffer.data[r->offset];
         if (c == 0) return 0;
         r->offset += 1;
@@ -36035,33 +36257,101 @@ prh_byte prh_text_get_byte(prh_text *r) {
     }
 }
 
-void prh_text_from_cstring(prh_text *p, const void *s) {
+prh_reg prh_read_a_byte(prh_reader *r, prh_byte *p) {
+    return prh_read_bytes(r, p, 1);
+}
+
+prh_reg prh_read_exact_bytes(prh_reader *r, prh_byte *p, prh_reg bytes) {
+    prh_reg n = prh_read_bytes(r, p, bytes);
+    if (n != bytes) prh_abort_error(e_too_short);
+    return n;
+}
+
+prh_reg prh_read_bytes(prh_reader *r, prh_byte *p, prh_reg bytes) {
+    prh_reg curr_read;
+    prh_reg total_read = 0;
+    switch (r->mode) {
+    case PRH_IMPL_FROM_FILE:
+    case PRH_IMPL_FROM_HANDLE:
+    label_cont_read:
+        curr_read = r->length - r->offset;
+        if (bytes - total_read < curr_read) curr_read = bytes - total_read;
+        memcpy(p + total_read, r->buffer.data + r->offset, curr_read);
+        r->offset += curr_read;
+        total_read += curr_read;
+        if (total_read < bytes) {
+            if (r->file_end) break;
+            r->offset = 0;
+            r->length = prh_file_read(r->handle, r->buffer.data, prh_buffer_capacity(&r->buffer));
+            if (errno == e_file_error) prh_abort_error(GetLastError());
+            if (r->length == 0) { r->file_end = 1; break; }
+            goto label_cont_read;
+        }
+        break;
+    case PRH_IMPL_FROM_C_TEXT:
+        while (total_read < bytes) {
+            prh_byte c = r->buffer.data[r->offset];
+            if (c == 0) break;
+            r->offset += 1;
+            p[total_read++] = c;
+        }
+        break;
+    default: // buffer + length
+        curr_read = r->length - r->offset;
+        if (bytes < curr_read) curr_read = bytes;
+        memcpy(p, r->buffer.data + r->offset, curr_read);
+        r->offset += curr_read;
+        total_read = curr_read;
+        break;
+    }
+    return total_read;
+}
+
+prh_reader prh_read_from_c_text(const void *s) {
+    prh_reader reader;
     assert(s != prh_null);
-    p->handle = prh_invalid_handle;
-    p->mode = 1;
-    p->offset = 0;
-    p->buffer.data = (prh_byte *)s;
+    reader.handle = prh_invalid_handle;
+    reader.mode = PRH_IMPL_FROM_C_TEXT;
+    reader.offset = 0;
+    reader.buffer.data = (prh_byte *)s;
+    return reader;
 }
 
-void prh_text_from_buffer(prh_text *p, const prh_byte *buffer, prh_r32 length) {
+prh_reader prh_read_from_buffer(const prh_byte *buffer, prh_reg length) {
+    prh_reader reader;
     assert(buffer != prh_null);
-    p->handle = prh_invalid_handle;
-    p->mode = 2;
-    p->offset = 0;
-    p->length = length;
-    p->buffer.data = (prh_byte *)buffer;
+    reader.handle = prh_invalid_handle;
+    reader.mode = PRH_IMPL_FROM_BUFFER;
+    reader.offset = 0;
+    reader.length = length;
+    reader.buffer.data = (prh_byte *)buffer;
+    return reader;
 }
 
-void prh_text_from_file(prh_text *p, const prh_byte *name, prh_r32 file_buff_size) {
+prh_reader prh_read_from_file(const prh_byte *name, prh_reg file_buff_size, const prh_alloc_face *alloc) {
+    prh_reader reader;
     assert(name != prh_null);
-    p->handle = prh_open_file_forward_read(name);
-    if (p->handle == prh_invalid_handle) prh_abort_error(GetLastError());
+    reader.handle = prh_open_file_read(name);
+    if (reader.handle == prh_invalid_handle) prh_abort_error(GetLastError());
     if (file_buff_size == 0) file_buff_size = prh_memory_page_size;
-    p->buffer = prh_make_buffer(prh_local_alloc(), prh_round_page_size(file_buff_size));
-    p->mode = 0;
-    p->offset = 0;
-    p->length = 0;
-    p->file_end = 0;
+    reader.buffer = prh_make_buffer(alloc, prh_round_page_size(file_buff_size));
+    reader.mode = PRH_IMPL_FROM_FILE;
+    reader.offset = 0;
+    reader.length = 0;
+    reader.file_end = 0;
+    return reader;
+}
+
+prh_reader prh_read_from_handle(prh_handle handle, prh_reg file_buff_size, const prh_alloc_face *alloc) {
+    prh_reader reader;
+    reader.handle = handle;
+    if (file_buff_size == 0) file_buff_size = prh_memory_page_size;
+    reader.buffer = prh_make_buffer(alloc, prh_round_page_size(file_buff_size));
+    reader.mode = PRH_IMPL_FROM_HANDLE;
+    reader.offset = 0;
+    reader.length = 0;
+    reader.file_end = 0;
+    return reader;
 }
 
 prh_r32 prh_impl_file_write(prh_handle handle, const prh_byte *p, prh_r32 bytes) {
@@ -36135,17 +36425,19 @@ void prh_file_close(prh_handle handle) {
     if (!CloseHandle((HANDLE)handle)) prh_prerr(GetLastError());
 }
 
-void prh_text_free(prh_text *p) {
+void prh_read_free(prh_reader *p) {
     if (p->handle == prh_invalid_handle) return;
-    prh_file_close(p->handle);
+    if (p->mode == PRH_IMPL_FROM_FILE) prh_file_close(p->handle);
     prh_free_buffer(&p->buffer);
     p->handle = prh_invalid_handle;
 }
 
-void prh_write_from(prh_writer *p, prh_handle handle, prh_reg write_buff_size, const prh_alloc_face *alloc) {
-    p->buffer = prh_make_buffer(alloc, write_buff_size);
-    p->handle = handle;
-    p->offset = 0;
+prh_writer prh_write_from(prh_handle handle, prh_reg write_buff_size, const prh_alloc_face *alloc) {
+    prh_writer writer;
+    writer.buffer = prh_make_buffer(alloc, write_buff_size);
+    writer.handle = handle;
+    writer.offset = 0;
+    return writer;
 }
 
 void prh_write_free(prh_writer *p) {
@@ -36155,14 +36447,16 @@ void prh_write_free(prh_writer *p) {
 }
 
 prh_writer prh_write_begin(prh_handle handle, const prh_alloc_face *alloc) {
-    prh_writer writer;
-    prh_write_from(&writer, handle, prh_memory_page_size, alloc);
-    return writer;
+    return prh_write_from(handle, prh_memory_page_size, alloc);
 }
 
 void prh_write_end(prh_writer *p) {
     prh_write_flush(p);
     prh_write_free(p);
+}
+
+prh_reg prh_write_a_byte(prh_writer *p, prh_byte data) {
+    return prh_write_bytes(p, &data, 1);
 }
 
 prh_reg prh_write_bytes(prh_writer *p, const prh_byte *data, prh_reg bytes) {
@@ -38231,21 +38525,32 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 
 #define prh_pf_get_base_type(flags) ((prh_byte)(((flags) & 0xC0000000) >> 30))  // 1100_28
 #define prh_pf_set_number_base(flags, base) (flags) |= (((base) & 0x3) << 30)
-#define prh_pf_dec  0   // 打印十进制
-#define prh_pf_hex  1   // 打印十六进制
-#define prh_pf_bin  2   // 打印二进制
-#define prh_pf_oct  3   // 打印八进制
+#define prh_pf_hex          0x40000000
+#define prh_pf_bin          0x80000000
+#define prh_pf_oct          0xC0000000
+#define prh_impl_pf_dec  0   // 打印十进制
+#define prh_impl_pf_hex  1   // 打印十六进制
+#define prh_impl_pf_bin  2   // 打印二进制
+#define prh_impl_pf_oct  3   // 打印八进制
 
 #define prh_pf_get_dgrp_type(flags) ((prh_byte)(((flags) & 0x30000000) >> 28))  // 0011_28
 #define prh_pf_set_dgrp_type(flags, dgrp) (flags) |= (((dgrp) & 0x3) << 28)
-#define prh_pf_gd_0 0   // 不分组，数位分组打印（digits group）
-#define prh_pf_gd_3 1   // ddd_ddd_ddd
-#define prh_pf_gd_4 2   // dddd_dddd_dddd_dddd
-#define prh_pf_gf_2 1   // FF_FF_FF_FF 11_11_11_11
-#define prh_pf_gf_4 2   // FFFF_FFFF_FFFF_FFFF 1111_1111_1111_1111
-#define prh_pf_gf_8 3   // FFFFFFFF_FFFFFFFF 11111111_11111111
+#define prh_pf_gd_3         0x10000000
+#define prh_pf_gd_4         0x20000000
+#define prh_pf_gf_2         0x10000000
+#define prh_pf_gf_4         0x20000000
+#define prh_pf_gf_8         0x30000000
+#define prh_impl_pf_gd_0 0   // 不分组，数位分组打印（digits group）
+#define prh_impl_pf_gd_3 1   // ddd_ddd_ddd
+#define prh_impl_pf_gd_4 2   // dddd_dddd_dddd_dddd
+#define prh_impl_pf_gf_2 1   // FF_FF_FF_FF 11_11_11_11
+#define prh_impl_pf_gf_4 2   // FFFF_FFFF_FFFF_FFFF 1111_1111_1111_1111
+#define prh_impl_pf_gf_8 3   // FFFFFFFF_FFFFFFFF 11111111_11111111
 
 #define prh_pf_get_value_type(flags) ((prh_byte)(((flags) & 0x0FC00000) >> 22))  // 0000_1111_1100_0000_16
+#define prh_pf_value_type_mask 0x0FC00000
+#define prh_impl_pf_newline 0x01000000
+#define prh_pf_signed       0x02000000
 #define prh_pf_type_int 1
 #define prh_pf_type_reg 2
 
@@ -38261,9 +38566,9 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 
 #define prh_pf_get_sign_type(flags) ((prh_byte)(((flags) & 0x00300000) >> 20))  // 0000_0000_0011_0000_16
 #define prh_pf_set_sign(flags, sign) (flags) |= ((prh_r32)(sign & 0x3) << 20)
-#define prh_pf_positive 1 // 输出一个正号
-#define prh_pf_negative 2 // 输出一个负号
-#define prh_pf_space_sign 3 // 如果没有其他符号需要输出，打印一个空格
+#define prh_impl_pf_positive 1 // 输出一个正号
+#define prh_impl_pf_negative 2 // 输出一个负号
+#define prh_impl_pf_space_sign 3 // 如果没有其他符号需要输出，打印一个空格
 
 #define prh_pf_set_print_base_mark(flags, print_base) (flags) |= (print_base) ? prh_pf_print_base : 0
 #define prh_pf_print_base   0x00010000 // 打印 0b 0x 前缀
@@ -38311,8 +38616,8 @@ prh_reg prh_impl_print_with_flags(prh_writer *p, const prh_byte *data, prh_reg b
     if (print_sign_mark) {
         bytes += 1;
         switch (sign) {
-        case prh_pf_positive: *(pend - bytes) = '+'; break;
-        case prh_pf_negative: *(pend - bytes) = '-'; break;
+        case prh_impl_pf_positive: *(pend - bytes) = '+'; break;
+        case prh_impl_pf_negative: *(pend - bytes) = '-'; break;
         default: *(pend - bytes) = ' '; break;
         }
     }
@@ -38467,16 +38772,16 @@ label_print:
 
 prh_reg prh_impl_print_r32_dec(prh_writer *p, prh_r32 value, prh_r32 flags) {
     switch (prh_pf_get_dgrp_type(flags)) {
-        case prh_pf_gd_3: return prh_impl_print_r32_dec_ddd(p, value, flags);
-        case prh_pf_gd_4: return prh_impl_print_r32_dec_dddd(p, value, flags);
+        case prh_impl_pf_gd_3: return prh_impl_print_r32_dec_ddd(p, value, flags);
+        case prh_impl_pf_gd_4: return prh_impl_print_r32_dec_dddd(p, value, flags);
         default: return prh_impl_print_r32_dec_none(p, value, flags);
     }
 }
 
 prh_reg prh_impl_print_r64_dec(prh_writer *p, prh_r64 value, prh_r32 flags) {
     switch (prh_pf_get_dgrp_type(flags)) {
-        case prh_pf_gd_3: return prh_impl_print_r64_dec_ddd(p, value, flags);
-        case prh_pf_gd_4: return prh_impl_print_r64_dec_dddd(p, value, flags);
+        case prh_impl_pf_gd_3: return prh_impl_print_r64_dec_ddd(p, value, flags);
+        case prh_impl_pf_gd_4: return prh_impl_print_r64_dec_dddd(p, value, flags);
         default: return prh_impl_print_r64_dec_none(p, value, flags);
     }
 }
@@ -38712,18 +39017,18 @@ label_print:
 
 prh_reg prh_impl_print_r32_bin(prh_writer *p, prh_r32 value, prh_r32 flags) {
     switch (prh_pf_get_dgrp_type(flags)) {
-        case prh_pf_gf_2: return prh_impl_print_r32_bin_11(p, value, flags);
-        case prh_pf_gf_4: return prh_impl_print_r32_bin_1111(p, value, flags);
-        case prh_pf_gf_8: return prh_impl_print_r32_bin_11111111(p, value, flags);
+        case prh_impl_pf_gf_2: return prh_impl_print_r32_bin_11(p, value, flags);
+        case prh_impl_pf_gf_4: return prh_impl_print_r32_bin_1111(p, value, flags);
+        case prh_impl_pf_gf_8: return prh_impl_print_r32_bin_11111111(p, value, flags);
         default: return prh_impl_print_r32_bin_none(p, value, flags);
     }
 }
 
 prh_reg prh_impl_print_r64_bin(prh_writer *p, prh_r64 value, prh_r32 flags) {
     switch (prh_pf_get_dgrp_type(flags)) {
-        case prh_pf_gf_2: return prh_impl_print_r64_bin_11(p, value, flags);
-        case prh_pf_gf_4: return prh_impl_print_r64_bin_1111(p, value, flags);
-        case prh_pf_gf_8: return prh_impl_print_r64_bin_11111111(p, value, flags);
+        case prh_impl_pf_gf_2: return prh_impl_print_r64_bin_11(p, value, flags);
+        case prh_impl_pf_gf_4: return prh_impl_print_r64_bin_1111(p, value, flags);
+        case prh_impl_pf_gf_8: return prh_impl_print_r64_bin_11111111(p, value, flags);
         default: return prh_impl_print_r64_bin_none(p, value, flags);
     }
 }
@@ -38890,36 +39195,36 @@ label_print:
 
 prh_reg prh_impl_print_r32_hex(prh_writer *p, prh_r32 value, prh_r32 flags) {
     switch (prh_pf_get_dgrp_type(flags)) {
-        case prh_pf_gf_2: return prh_impl_print_r32_hex_ff(p, value, flags);
-        case prh_pf_gf_4: return prh_impl_print_r32_hex_ffff(p, value, flags);
-        case prh_pf_gf_8: return prh_impl_print_r32_hex_ffffffff(p, value, flags);
+        case prh_impl_pf_gf_2: return prh_impl_print_r32_hex_ff(p, value, flags);
+        case prh_impl_pf_gf_4: return prh_impl_print_r32_hex_ffff(p, value, flags);
+        case prh_impl_pf_gf_8: return prh_impl_print_r32_hex_ffffffff(p, value, flags);
         default: return prh_impl_print_r32_hex_none(p, value, flags);
     }
 }
 
 prh_reg prh_impl_print_r64_hex(prh_writer *p, prh_r64 value, prh_r32 flags) {
     switch (prh_pf_get_dgrp_type(flags)) {
-        case prh_pf_gf_2: return prh_impl_print_r64_hex_ff(p, value, flags);
-        case prh_pf_gf_4: return prh_impl_print_r64_hex_ffff(p, value, flags);
-        case prh_pf_gf_8: return prh_impl_print_r64_hex_ffffffff(p, value, flags);
+        case prh_impl_pf_gf_2: return prh_impl_print_r64_hex_ff(p, value, flags);
+        case prh_impl_pf_gf_4: return prh_impl_print_r64_hex_ffff(p, value, flags);
+        case prh_impl_pf_gf_8: return prh_impl_print_r64_hex_ffffffff(p, value, flags);
         default: return prh_impl_print_r64_hex_none(p, value, flags);
     }
 }
 
 prh_reg prh_impl_print_r32(prh_writer *p, prh_r32 value, prh_r32 flags) {
     switch (prh_pf_get_base_type(flags)) {
-        case prh_pf_hex: return prh_impl_print_r32_hex(p, value, flags);
-        case prh_pf_bin: return prh_impl_print_r32_bin(p, value, flags);
-        case prh_pf_oct: return prh_impl_print_r32_oct(p, value, flags);
+        case prh_impl_pf_hex: return prh_impl_print_r32_hex(p, value, flags);
+        case prh_impl_pf_bin: return prh_impl_print_r32_bin(p, value, flags);
+        case prh_impl_pf_oct: return prh_impl_print_r32_oct(p, value, flags);
         default: return prh_impl_print_r32_dec(p, value, flags);;
     }
 }
 
 prh_reg prh_impl_print_r64(prh_writer *p, prh_r64 value, prh_r32 flags) {
     switch (prh_pf_get_base_type(flags)) {
-        case prh_pf_hex: return prh_impl_print_r64_hex(p, value, flags);
-        case prh_pf_bin: return prh_impl_print_r64_bin(p, value, flags);
-        case prh_pf_oct: return prh_impl_print_r64_oct(p, value, flags);
+        case prh_impl_pf_hex: return prh_impl_print_r64_hex(p, value, flags);
+        case prh_impl_pf_bin: return prh_impl_print_r64_bin(p, value, flags);
+        case prh_impl_pf_oct: return prh_impl_print_r64_oct(p, value, flags);
         default: return prh_impl_print_r64_dec(p, value, flags);;
     }
 }
@@ -39077,44 +39382,48 @@ void prh_impl_parse_digit_group(prh_impl_print_args *args) {
     }
 }
 
-prh_r32 prh_impl_parse_sign_r32(prh_impl_print_args *args, prh_r32 value, bool signed_value) {
-    if (args->flags & prh_impl_pf_print_as_signed) signed_value = true;
-    if (!signed_value) return value;
+prh_r32 prh_impl_parse_sign_r32(prh_r32 flags, prh_r32 value, prh_r32 *out, bool signed_value) {
+    if (flags & prh_impl_pf_print_as_signed) signed_value = true;
+    if (!signed_value) goto label_return;
 
     prh_byte plus_sign_mark = 0; // 正数默认不打印符号
-    if (args->flags & prh_impl_pf_plus_sign) {
-        plus_sign_mark = prh_pf_positive;
-    } else if (args->flags & prh_impl_pf_space_sign) {
-        plus_sign_mark = prh_pf_space_sign;
+    if (flags & prh_impl_pf_plus_sign) {
+        plus_sign_mark = prh_impl_pf_positive;
+    } else if (flags & prh_impl_pf_space_sign) {
+        plus_sign_mark = prh_impl_pf_space_sign;
     }
 
     if (value & 0x80000000) { // 有符号数并且是负数
         value = -(prh_i32)value;
-        prh_pf_set_sign(args->flags, prh_pf_negative);
+        prh_pf_set_sign(flags, prh_impl_pf_negative);
     } else {
-        prh_pf_set_sign(args->flags, plus_sign_mark);
+        prh_pf_set_sign(flags, plus_sign_mark);
     }
-    return value;
+label_return:
+    *out = value;
+    return flags;
 }
 
-prh_r64 prh_impl_parse_sign_r64(prh_impl_print_args *args, prh_r64 value, bool signed_value) {
-    if (args->flags & prh_impl_pf_print_as_signed) signed_value = true;
-    if (!signed_value) return value;
+prh_r32 prh_impl_parse_sign_r64(prh_r32 flags, prh_r64 value, prh_r64 *out, bool signed_value) {
+    if (flags & prh_impl_pf_print_as_signed) signed_value = true;
+    if (!signed_value) goto label_return;
 
     prh_byte plus_sign_mark = 0; // 正数默认不打印符号
-    if (args->flags & prh_impl_pf_plus_sign) {
-        plus_sign_mark = prh_pf_positive;
-    } else if (args->flags & prh_impl_pf_space_sign) {
-        plus_sign_mark = prh_pf_space_sign;
+    if (flags & prh_impl_pf_plus_sign) {
+        plus_sign_mark = prh_impl_pf_positive;
+    } else if (flags & prh_impl_pf_space_sign) {
+        plus_sign_mark = prh_impl_pf_space_sign;
     }
 
     if (value & 0x8000000000000000ULL) { // 有符号数并且是负数
         value = -(prh_i64)value;
-        prh_pf_set_sign(args->flags, prh_pf_negative);
+        prh_pf_set_sign(flags, prh_impl_pf_negative);
     } else {
-        prh_pf_set_sign(args->flags, plus_sign_mark);
+        prh_pf_set_sign(flags, plus_sign_mark);
     }
-    return value;
+label_return:
+    *out = value;
+    return flags;
 }
 
 prh_r32 prh_impl_pf_integer_flags(prh_impl_print_args *args) {
@@ -39134,16 +39443,56 @@ prh_r32 prh_impl_pf_integer_flags(prh_impl_print_args *args) {
     return prh_pf_set_precision(args->flags, args->precision);
 }
 
+prh_reg prh_impl_print_integer_32(prh_handle handle, prh_r32 value, prh_r32 flags) {
+    prh_writer writer = prh_write_begin(handle, prh_local_alloc());
+    bool need_print_newline = (flags & prh_impl_pf_newline) != 0;
+    bool print_as_signed = (flags & prh_pf_signed) != 0;
+    prh_reg precision = flags & 0xff;
+    if (precision > 0) precision -= 1;
+
+    flags = prh_r32_clear_bits(flags, prh_pf_value_type_mask);
+    flags = prh_impl_parse_sign_r32(flags, value, &value, print_as_signed);
+
+    prh_reg count = prh_impl_print_r32(&writer, value, prh_pf_set_precision(flags, precision));
+    if (need_print_newline) {
+        prh_byte c = '\n';
+        count += prh_impl_print_bytes(&writer, &c, 1);
+    }
+
+    prh_write_end(&writer);
+    return count;
+}
+
+prh_reg prh_impl_print_integer_64(prh_handle handle, prh_r64 value, prh_r32 flags) {
+    prh_writer writer = prh_write_begin(handle, prh_local_alloc());
+    bool need_print_newline = (flags & prh_impl_pf_newline) != 0;
+    bool print_as_signed = (flags & prh_pf_signed) != 0;
+    prh_reg precision = flags & 0xff;
+    if (precision > 0) precision -= 1;
+
+    flags = prh_r32_clear_bits(flags, prh_pf_value_type_mask);
+    flags = prh_impl_parse_sign_r64(flags, value, &value, print_as_signed);
+
+    prh_reg count = prh_impl_print_r64(&writer, value, prh_pf_set_precision(flags, precision));
+    if (need_print_newline) {
+        prh_byte c = '\n';
+        count += prh_impl_print_bytes(&writer, &c, 1);
+    }
+
+    prh_write_end(&writer);
+    return count;
+}
+
 void prh_impl_print_parse_integer(prh_impl_print_args *args, bool signed_value) {
     switch (args->length_char) {
     case 'l':
     label_value_r64:
-        args->u.r64 = prh_impl_parse_sign_r64(args, va_arg(args->vl, prh_r64), signed_value);
+        args->flags = prh_impl_parse_sign_r64(args->flags, va_arg(args->vl, prh_r64), &args->u.r64, signed_value);
         args->count += prh_impl_print_r64(&args->writer, args->u.r64, prh_impl_pf_integer_flags(args));
         break;
     #if prh_raw_int_bits == 32 || prh_int_bits == 32
     label_value_r32:
-        args->u.r32 = prh_impl_parse_sign_r32(args, va_arg(args->vl, prh_r32), signed_value);
+        args->flags = prh_impl_parse_sign_r32(args->flags, va_arg(args->vl, prh_r32), &args->u.r32, signed_value);
         args->count += prh_impl_print_r32(&args->writer, args->u.r32, prh_impl_pf_integer_flags(args));
         break;
     #endif
@@ -39170,12 +39519,12 @@ void prh_impl_print_check_specifier(prh_impl_print_args *args) {
         args->length_char = 'z';
         args->precision = sizeof(void *) == 32 ? 7 : 15; // fallthrough
     case 'x':
-        number_base = prh_pf_hex;
+        number_base = prh_impl_pf_hex;
     label_print_based_grouped_value:
         switch (args->digit_count) {
-            case 2: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_2); break;
-            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_4); break;
-            case 8: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_8); break;
+            case 2: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gf_2); break;
+            case 4: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gf_4); break;
+            case 8: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gf_8); break;
             default: break;
         }
     label_print_based_value:
@@ -39183,13 +39532,13 @@ void prh_impl_print_check_specifier(prh_impl_print_args *args) {
         prh_pf_set_print_base_mark(args->flags, args->flags & prh_impl_pf_print_base);
         prh_impl_print_parse_integer(args, signed_value);
         break;
-    case 'b': number_base = prh_pf_bin; goto label_print_based_grouped_value;
-    case 'o': number_base = prh_pf_oct; goto label_print_based_value;
+    case 'b': number_base = prh_impl_pf_bin; goto label_print_based_grouped_value;
+    case 'o': number_base = prh_impl_pf_oct; goto label_print_based_value;
     case 'd': signed_value = true; // fallthrough
     case 'u':
         switch (args->digit_count) {
-            case 3: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_3); break;
-            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_4); break;
+            case 3: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gd_3); break;
+            case 4: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gd_4); break;
             default: break;
         }
         prh_impl_print_parse_integer(args, signed_value);
@@ -39265,9 +39614,6 @@ const char *prh_impl_print_end_newline(const char *format) {
     return (const char *)((prh_raw_reg)format | 0x8000000000000000ULL);
 #endif
 }
-
-#define prh_print(format, ...) prh_impl_print(prh_stdout_handle(), (format), ## __VA_ARGS__)
-#define prh_prinf(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
 
 prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
     bool need_print_newline = prh_impl_need_print_newline(format);
@@ -49765,7 +50111,7 @@ prh_inline prh_byte prh_impl_hex_digit(prh_byte c) { // 已经确定c是十六�
 }
 
 typedef struct {
-    prh_text text;
+    prh_reader text;
     prh_byte *start;
     prh_byte *parse;
     prh_byte *ident;
@@ -55645,7 +55991,7 @@ void prh_lexer_init(prh_lexer *l) {
 }
 
 prh_inline prh_byte prh_lexer_eat_byte(prh_lexer *l) {
-    return prh_text_get_byte(&l->text); // 消耗一个字节
+    return prh_read_text_byte(&l->text); // 消耗一个字节
 }
 
 prh_inline prh_char prh_impl_curr_utf8(prh_lexer *l, prh_byte c) { // 当前是一个多字节utf8字符，消耗当前utf8字符的剩余部分
