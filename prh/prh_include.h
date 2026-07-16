@@ -38241,12 +38241,9 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 #define prh_pf_gd_0 0   // 不分组，数位分组打印（digits group）
 #define prh_pf_gd_3 1   // ddd_ddd_ddd
 #define prh_pf_gd_4 2   // dddd_dddd_dddd_dddd
-#define prh_pf_gb_2 1   // 11_11_11_11
-#define prh_pf_gb_4 2   // 1111_1111_1111_1111
-#define prh_pf_gb_8 3   // 11111111_11111111
-#define prh_pf_gf_2 1   // FF_FF_FF_FF
-#define prh_pf_gf_4 2   // FFFF_FFFF_FFFF_FFFF
-#define prh_pf_gf_8 3   // FFFFFFFF_FFFFFFFF
+#define prh_pf_gf_2 1   // FF_FF_FF_FF 11_11_11_11
+#define prh_pf_gf_4 2   // FFFF_FFFF_FFFF_FFFF 1111_1111_1111_1111
+#define prh_pf_gf_8 3   // FFFFFFFF_FFFFFFFF 11111111_11111111
 
 #define prh_pf_get_value_type(flags) ((prh_byte)(((flags) & 0x0FC00000) >> 22))  // 0000_1111_1100_0000_16
 #define prh_pf_type_int 1
@@ -38275,7 +38272,7 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 #define prh_pf_flag_c_style 0x00080000 // C 语言规则的左填补前导零
 
 // prh_bf_sign _S
-// prh_bf_base _0x _0b
+// prh_bf_base _0x _0b _0o
 // prh_bf_left _L
 // prh_bf_hex  _f  _3f _0x _0xf _0x3f
 // prh_bf_bin  _b  _3b _0b _0bb _0b3b
@@ -38484,12 +38481,251 @@ prh_reg prh_impl_print_r64_dec(prh_writer *p, prh_r64 value, prh_r32 flags) {
     }
 }
 
+prh_reg prh_impl_print_r32_oct(prh_writer *p, prh_r32 value, prh_r32 flags) {
+    prh_byte a[22] = {prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_4_digit_zeros, prh_impl_2_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1; // 最大32位八进制 37777777777 最大64位 1777777777777777777777
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    if (bytes < 8) goto label_continue; // 以上行数可以是 1*8 2*4 4*2 => 8 + 3 = 11
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1;
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags) + 1;
+    if (precision > 22) precision = 22;
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags, 0xff, 'o'));
+}
+
+prh_reg prh_impl_print_r64_oct(prh_writer *p, prh_r64 value, prh_r32 flags) {
+    prh_byte a[22] = {prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_4_digit_zeros, prh_impl_2_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1; // 最大32位八进制 37777777777 最大64位 1777777777777777777777
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    if (bytes < 20) goto label_continue; // 以上行数可以是 1*20 2*10 4*5 => 20 + 2 = 22
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1; if ((value >>= 3) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 0x7); bytes += 1;
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags) + 1;
+    if (precision > 22) precision = 22;
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags, 0xff, 'o'));
+}
+
+prh_reg prh_impl_print_r32_bin_none(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
+    prh_byte a[64] = {
+        prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros,
+        prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 32) goto label_continue;
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
+prh_reg prh_impl_print_r64_bin_none(prh_writer *p, prh_r64 value, prh_r32 flags_width_precision) {
+    prh_byte a[64] = {
+        prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros,
+        prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros, prh_impl_8_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 64) goto label_continue;
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
+prh_reg prh_impl_print_r32_bin_11(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
+    prh_byte a[64+31] = {
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 47) { bytes += 1; goto label_continue; } // 2 5 8 11 14 17 20 23 26 29 32 35 38 41 44 47
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    precision = precision + ((precision - 1) / 2); // precision 一定大于等于一
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
+prh_reg prh_impl_print_r64_bin_11(prh_writer *p, prh_r64 value, prh_r32 flags_width_precision) {
+    prh_byte a[64+31] = {
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_',
+        prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros, '_', prh_impl_2_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 95) { bytes += 1; goto label_continue; } // 50 53 56 59 62 65 68 71 74 77 80 83 86 89 92 95
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    precision = precision + ((precision - 1) / 2); // precision 一定大于等于一
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
+prh_reg prh_impl_print_r32_bin_1111(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
+    prh_byte a[64+15] = {
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 39) { bytes += 1; goto label_continue; } // 4 9 14 19 24 29 34 39
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    precision = precision + ((precision - 1) / 4);
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
+prh_reg prh_impl_print_r64_bin_1111(prh_writer *p, prh_r64 value, prh_r32 flags_width_precision) {
+    prh_byte a[64+15] = {
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros, '_',
+        prh_impl_4_digit_zeros, '_', prh_impl_4_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 79) { bytes += 1; goto label_continue; } // 44 49 54 59 64 69 74 79
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    precision = precision + ((precision - 1) / 4);
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
+prh_reg prh_impl_print_r32_bin_11111111(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
+    prh_byte a[64+7] = {
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros, '_',
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros, '_',
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros, '_',
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 35) { bytes += 1; goto label_continue; } // 8 17 26 35
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    precision = precision + ((precision - 1) / 8);
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
+prh_reg prh_impl_print_r64_bin_11111111(prh_writer *p, prh_r64 value, prh_r32 flags_width_precision) {
+    prh_byte a[64+7] = {
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros, '_',
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros, '_',
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros, '_',
+        prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros};
+    prh_byte *pend = a + sizeof(a) - 1;
+    prh_r32 bytes = 0;
+label_continue:
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    *(pend - bytes) = '0' + (value & 1); bytes += 1; if ((value >>= 1) == 0) goto label_print;
+    if (bytes < 71) { bytes += 1; goto label_continue; } // 44 53 62 71
+label_print:
+    prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
+    if (precision > 64) precision = 64;
+    precision = precision + ((precision - 1) / 8);
+    if (precision > bytes) bytes = precision;
+    return prh_impl_print_with_flags(p, a + sizeof(a) - bytes, bytes, prh_r32_clear_and_set(flags_width_precision, 0xff, 'b'));
+}
+
 prh_reg prh_impl_print_r32_bin(prh_writer *p, prh_r32 value, prh_r32 flags) {
-    return 0;
+    switch (prh_pf_get_dgrp_type(flags)) {
+        case prh_pf_gf_2: return prh_impl_print_r32_bin_11(p, value, flags);
+        case prh_pf_gf_4: return prh_impl_print_r32_bin_1111(p, value, flags);
+        case prh_pf_gf_8: return prh_impl_print_r32_bin_11111111(p, value, flags);
+        default: return prh_impl_print_r32_bin_none(p, value, flags);
+    }
 }
 
 prh_reg prh_impl_print_r64_bin(prh_writer *p, prh_r64 value, prh_r32 flags) {
-    return 0;
+    switch (prh_pf_get_dgrp_type(flags)) {
+        case prh_pf_gf_2: return prh_impl_print_r64_bin_11(p, value, flags);
+        case prh_pf_gf_4: return prh_impl_print_r64_bin_1111(p, value, flags);
+        case prh_pf_gf_8: return prh_impl_print_r64_bin_11111111(p, value, flags);
+        default: return prh_impl_print_r64_bin_none(p, value, flags);
+    }
 }
 
 prh_reg prh_impl_print_r32_hex_none(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
@@ -38674,6 +38910,7 @@ prh_reg prh_impl_print_r32(prh_writer *p, prh_r32 value, prh_r32 flags) {
     switch (prh_pf_get_base_type(flags)) {
         case prh_pf_hex: return prh_impl_print_r32_hex(p, value, flags);
         case prh_pf_bin: return prh_impl_print_r32_bin(p, value, flags);
+        case prh_pf_oct: return prh_impl_print_r32_oct(p, value, flags);
         default: return prh_impl_print_r32_dec(p, value, flags);;
     }
 }
@@ -38682,6 +38919,7 @@ prh_reg prh_impl_print_r64(prh_writer *p, prh_r64 value, prh_r32 flags) {
     switch (prh_pf_get_base_type(flags)) {
         case prh_pf_hex: return prh_impl_print_r64_hex(p, value, flags);
         case prh_pf_bin: return prh_impl_print_r64_bin(p, value, flags);
+        case prh_pf_oct: return prh_impl_print_r64_oct(p, value, flags);
         default: return prh_impl_print_r64_dec(p, value, flags);;
     }
 }
@@ -38781,8 +39019,9 @@ void prh_impl_print_parse_char(prh_impl_print_args *args) {
 
 bool prh_impl_print_curr_flag(prh_impl_print_args *args, prh_byte c) {
     switch (c) {
+    case '-': args->flags |= prh_pf_left_adjust | prh_pf_flag_c_style; break;
+    case '^': args->flags |= prh_pf_left_adjust; break;
     case '0': args->flags |= prh_pf_zero_padding; break;
-    case '-': args->flags |= prh_pf_left_adjust; break;
     case '+': args->flags |= prh_impl_pf_plus_sign; break;
     case '#': args->flags |= prh_impl_pf_print_base; break;
     case ' ': args->flags |= prh_impl_pf_space_sign; break;
@@ -38878,21 +39117,34 @@ prh_r64 prh_impl_parse_sign_r64(prh_impl_print_args *args, prh_r64 value, bool s
     return value;
 }
 
-void prh_impl_print_parse_integer(prh_impl_print_args *args, bool signed_value) {
-    if ((args->flags & prh_pf_flag_c_style) == 0 && (args->flags & prh_pf_zero_padding) && args->precision == 0) args->precision = args->width;
+prh_r32 prh_impl_pf_integer_flags(prh_impl_print_args *args) {
+    if ((args->flags & prh_pf_flag_c_style) == 0 && (args->flags & prh_pf_zero_padding)) {
+        prh_byte print_base_mark = (args->flags & prh_pf_print_base) ? 2 : 0;
+        prh_byte print_sign_mark = prh_pf_get_sign_type(args->flags) ? 1 : 0;
+        prh_reg precision = 0;
+        if (args->width > print_base_mark + print_sign_mark) {
+            precision = args->width - (print_base_mark + print_sign_mark);
+        }
+        if (precision > args->precision) {
+            args->precision = precision;
+        }
+    }
     if (args->precision > 0) args->precision -= 1;
     if (args->precision > 0xff) args->precision = 0xff;
+    return prh_pf_set_precision(args->flags, args->precision);
+}
 
+void prh_impl_print_parse_integer(prh_impl_print_args *args, bool signed_value) {
     switch (args->length_char) {
     case 'l':
     label_value_r64:
         args->u.r64 = prh_impl_parse_sign_r64(args, va_arg(args->vl, prh_r64), signed_value);
-        args->count += prh_impl_print_r64(&args->writer, args->u.r64, prh_pf_set_precision(args->flags, args->precision));
+        args->count += prh_impl_print_r64(&args->writer, args->u.r64, prh_impl_pf_integer_flags(args));
         break;
     #if prh_raw_int_bits == 32 || prh_int_bits == 32
     label_value_r32:
         args->u.r32 = prh_impl_parse_sign_r32(args, va_arg(args->vl, prh_r32), signed_value);
-        args->count += prh_impl_print_r32(&args->writer, args->u.r32, prh_pf_set_precision(args->flags, args->precision));
+        args->count += prh_impl_print_r32(&args->writer, args->u.r32, prh_impl_pf_integer_flags(args));
         break;
     #endif
     case 'z':
@@ -38912,27 +39164,34 @@ void prh_impl_print_parse_integer(prh_impl_print_args *args, bool signed_value) 
 
 void prh_impl_print_check_specifier(prh_impl_print_args *args) {
     bool signed_value = false;
+    prh_byte number_base;
     switch (*args->f++) {
     case 'p':
         args->length_char = 'z';
         args->precision = sizeof(void *) == 32 ? 7 : 15; // fallthrough
     case 'x':
+        number_base = prh_pf_hex;
+    label_print_based_grouped_value:
         switch (args->digit_count) {
-        case 2: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_2); break;
-        case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_4); break;
-        case 8: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_8); break;
-        default: break; }
-        prh_pf_set_number_base(args->flags, prh_pf_hex);
+            case 2: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_2); break;
+            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_4); break;
+            case 8: prh_pf_set_dgrp_type(args->flags, prh_pf_gf_8); break;
+            default: break;
+        }
+    label_print_based_value:
+        prh_pf_set_number_base(args->flags, number_base);
         prh_pf_set_print_base_mark(args->flags, args->flags & prh_impl_pf_print_base);
         prh_impl_print_parse_integer(args, signed_value);
         break;
-    case 'd':
-        signed_value = true; // fallthrough
+    case 'b': number_base = prh_pf_bin; goto label_print_based_grouped_value;
+    case 'o': number_base = prh_pf_oct; goto label_print_based_value;
+    case 'd': signed_value = true; // fallthrough
     case 'u':
         switch (args->digit_count) {
-        case 3: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_3); break;
-        case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_4); break;
-        default: break; }
+            case 3: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_3); break;
+            case 4: prh_pf_set_dgrp_type(args->flags, prh_pf_gd_4); break;
+            default: break;
+        }
         prh_impl_print_parse_integer(args, signed_value);
         break;
     case 's': prh_impl_print_parse_string(args); break;
@@ -39008,7 +39267,7 @@ const char *prh_impl_print_end_newline(const char *format) {
 }
 
 #define prh_print(format, ...) prh_impl_print(prh_stdout_handle(), (format), ## __VA_ARGS__)
-#define prh_prind(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
+#define prh_prinf(format, ...) prh_impl_print(prh_stdout_handle(), prh_impl_print_end_newline(format), ## __VA_ARGS__)
 
 prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
     bool need_print_newline = prh_impl_need_print_newline(format);
@@ -39034,7 +39293,7 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
         args.length_char = 0;
         switch (*args.f++) {
         // [flags]
-        case '0': case '-': case '+': case '#': case ' ': case 'S':
+        case '-': case '^': case '0':  case '+': case '#': case ' ': case 'S':
             prh_impl_print_curr_flag(&args, *(args.f - 1));
             while (prh_impl_print_next_flag(&args)) ;
             prh_impl_print_check_width(&args);
