@@ -73,9 +73,14 @@ int main(int argc, char **argv) {
     prh_file_close(file_output);
 
     prh_reg a = -100;
-    prh_reg width = 8;
-    prh_prend("%% percent %% %d %4d %0*d %.16????x %#+.80??x ended", a, a, width, a, a, a);
-    printf("printf %03d %08x %+d %+u %#+.8x\n", -100, 100, 100, 100, -100);
+    prh_reg b = 100;
+    prh_reg width = 16;
+    printf("printf %-08d %-08d %#08x %+d %+u %#+0*x\n", -100, 100, 100, 100, 100, 16, -100);
+    prh_prinf("printf %-08d %-08d %#08x %+d %+u %#+0*x", a, b, b, b, b, width, a);
+    prh_prinf("printf %^08d %^08d %#08x %+d %+u %#+0*x", a, b, b, b, b, width, a);
+    prh_prinf("%%hex%% %x %-08x %x %-08x %^08x %+S????x %+S????x %#016??x %#016??x ended", a, a, b, b, b, a, b, a, b);
+    prh_prinf("%%bin%% %b %-08b %b %-08b %^08b %+S????b %+S????b %#016??b %#016??b ended", a, a, b, b, b, a, b, a, b);
+    prh_prinf("%%oct%% %o %-08o %o %-08o %^08o %+So %+So %#020o %#020o ended", a, a, b, b, b, a, b, a, b);
     return 0;
 }
 
