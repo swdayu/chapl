@@ -2774,8 +2774,16 @@ prh_inline prh_r32 prh_set_value_32_if_zero(prh_r32 a, prh_r32 value) {
 #define prh_round_ptrsize(n) (((prh_reg)(n)+(prh_reg)(sizeof(void*)-1)) & (~(prh_reg)(sizeof(void*)-1)))
 #define prh_round_line_size(n) (((prh_reg)(n)+prh_cache_line_size-1) & (~(prh_reg)(prh_cache_line_size-1)))
 #define prh_round_page_size(n) (((prh_reg)(n)+prh_memory_page_size-1) & (~(prh_reg)(prh_memory_page_size-1)))
+#define prh_round_04_byte(n) (((prh_reg)(n)+3) & (~(prh_reg)3))
 #define prh_round_08_byte(n) (((prh_reg)(n)+7) & (~(prh_reg)7))
 #define prh_round_16_byte(n) (((prh_reg)(n)+15) & (~(prh_reg)15))
+
+#define prh_round_r32_ptrsize(n) (((prh_r32)(n)+(prh_r32)(sizeof(void*)-1)) & (~(prh_r32)(sizeof(void*)-1)))
+#define prh_round_r32_line_size(n) (((prh_r32)(n)+prh_cache_line_size-1) & (~(prh_r32)(prh_cache_line_size-1)))
+#define prh_round_r32_page_size(n) (((prh_r32)(n)+prh_memory_page_size-1) & (~(prh_r32)(prh_memory_page_size-1)))
+#define prh_round_r32_04_byte(n) (((prh_r32)(n)+3) & (~(prh_r32)3))
+#define prh_round_r32_08_byte(n) (((prh_r32)(n)+7) & (~(prh_r32)7))
+#define prh_round_r32_16_byte(n) (((prh_r32)(n)+15) & (~(prh_r32)15))
 #endif // PRH_ALIGN_LINE
 
 #ifndef prh_byte_1
@@ -9614,7 +9622,7 @@ prh_inline void prh_impl_array_reserve(prh_string *a, prh_reg new_capacity, prh_
     if (a->capacity < new_capacity) {
         if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
         do a->capacity *= 2; while (a->capacity < new_capacity);
-        a->data = prh_local_realloc(a->data, a->capacity * elem_size, line);
+        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
     }
 }
 
@@ -9622,7 +9630,7 @@ prh_inline void prh_impl_string_reserve(prh_string *a, prh_reg new_capacity, prh
     if (a->capacity < new_capacity) {
         if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
         do a->capacity *= 2; while (a->capacity < new_capacity);
-        a->data = prh_local_realloc(a->data, a->capacity, line);
+        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
     }
 }
 
@@ -9630,27 +9638,27 @@ prh_inline void prh_impl_array_expand(prh_string *a, prh_reg grow_capacity, prh_
     prh_reg new_capacity = a->capacity + grow_capacity;
     if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
     while (a->capacity < new_capacity) a->capacity *= 2;
-    a->data = prh_local_realloc(a->data, a->capacity * elem_size, line);
+    a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
 }
 
 prh_inline void prh_impl_string_expand(prh_string *a, prh_reg grow_capacity, prh_int line) {
     prh_reg new_capacity = a->capacity + grow_capacity;
     if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
     while (a->capacity < new_capacity) a->capacity *= 2;
-    a->data = prh_local_realloc(a->data, a->capacity, line);
+    a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
 }
 
 prh_inline void prh_impl_array_shrink(prh_string *a, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
     if (new_capacity < a->capacity / 2) { // 容量总是2的幂，当 new_capacity 为零时，a->capacity 将变成零
         do a->capacity /= 2; while (new_capacity < a->capacity / 2);
-        a->data = prh_local_realloc(a->data, a->capacity * elem_size, line);
+        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
     }
 }
 
 prh_inline void prh_impl_string_shrink(prh_string *a, prh_reg new_capacity, prh_int line) {
     if (new_capacity < a->capacity / 2) { // 容量总是2的幂，当 new_capacity 为零时，a->capacity 将变成零
         do a->capacity /= 2; while (new_capacity < a->capacity / 2);
-        a->data = prh_local_realloc(a->data, a->capacity, line);
+        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
     }
 }
 
@@ -10272,7 +10280,7 @@ void *prh_impl_da_init(prh_reg capacity, prh_reg elem_size) {
     prh_reg new_capacity = 1; // 容量总是2的幂
     while (new_capacity < capacity) new_capacity *= 2;
     prh_buffer buffer = prh_make_buffer(prh_local_alloc(), sizeof(prh_impl_daheader) + new_capacity * elem_size);
-    p = (prh_impl_daheader *)buffer.data;
+    prh_impl_daheader *p = (prh_impl_daheader *)buffer.data;
     p->buffer = buffer;
     p->capacity = new_capacity;
     p->size = 0;
@@ -33394,6 +33402,7 @@ prh_handle prh_open_existing_file_update(const prh_byte *name, bool truncate);
 prh_r32 prh_file_size_32(prh_handle handle);
 prh_r64 prh_large_file_size(prh_handle handle);
 prh_reg prh_get_file_size(prh_handle handle);
+prh_i64 prh_current_file_offset(prh_handle handle);
 
 void prh_file_seek(prh_handle handle, prh_i64 offset);
 void prh_file_seek_from_begin(prh_handle handle, prh_i64 offset);
@@ -33439,6 +33448,7 @@ typedef struct {
     prh_reg length;
     prh_byte mode;
     prh_byte file_end;
+    prh_r64 start;
     prh_buffer buffer;
 } prh_reader;
 
@@ -33450,6 +33460,8 @@ prh_byte prh_read_text_byte(prh_reader *p);
 prh_reg prh_read_a_byte(prh_reader *r, prh_byte *p);
 prh_reg prh_read_bytes(prh_reader *r, prh_byte *p, prh_reg bytes);
 prh_reg prh_read_exact_bytes(prh_reader *r, prh_byte *p, prh_reg bytes);
+prh_reg prh_pread_bytes(prh_reader *r, prh_byte *p, prh_reg bytes, prh_r64 offset);
+prh_reg prh_pread_exact_bytes(prh_reader *r, prh_byte *p, prh_reg bytes, prh_r64 offset);
 void prh_read_free(prh_reader *p);
 
 typedef struct {
@@ -34333,7 +34345,7 @@ void prh_windows_file_sysconf(void) {
 // 参数 hFile 文件的句柄。文件句柄必须已使用 GENERIC_READ 或 GENERIC_WRITE 访问权限创建。
 // 有关更多信息，请参阅文件安全与访问权限。参数 liDistanceToMove 移动文件指针的字节数。
 // 正值使指针在文件中向前移动，负值使文件指针向后移动。参数 lpNewFilePointer 指向接收新
-// 文件指针的变量的指针。如果此参数为 NULL，则不返回新文件指针。
+// 文件指针的变量。如果此参数为 NULL，则不返回新文件指针。
 //
 // 参数 dwMoveMethod 文件指针移动的起点，此参数可以是以下值之一：
 //  1.  FILE_BEGIN 0
@@ -34366,6 +34378,15 @@ void prh_windows_file_sysconf(void) {
 // 针），例如未能保存当前文件指针以便程序可以返回到原位置。使用 GetFileSizeEx 函数更简单且
 // 更安全。还可以使用 SetFilePointerEx 查询当前文件指针位置。为此，指定 FILE_CURRENT 的移动
 // 方法和零的距离。
+
+prh_i64 prh_current_file_offset(prh_handle handle) {
+    LARGE_INTEGER distance; distance.QuadPart = 0;
+    LARGE_INTEGER curr_offset = {0};
+    if (!SetFilePointerEx((HANDLE)handle, distance, &curr_offset, FILE_CURRENT)) {
+        prh_abort_error(GetLastError());
+    }
+    return curr_offset.QuadPart;
+}
 
 void prh_file_seek(prh_handle handle, prh_i64 offset) {
     LARGE_INTEGER distance; distance.QuadPart = offset;
@@ -36240,6 +36261,7 @@ prh_byte prh_read_text_byte(prh_reader *r) {
     case PRH_IMPL_FROM_HANDLE:
         if (r->offset >= r->length) {
             if (r->file_end) return 0;
+            r->start += r->length;
             r->offset = 0;
             r->length = prh_file_read(r->handle, r->buffer.data, prh_buffer_capacity(&r->buffer));
             if (errno == e_file_error) prh_abort_error(GetLastError());
@@ -36281,6 +36303,7 @@ prh_reg prh_read_bytes(prh_reader *r, prh_byte *p, prh_reg bytes) {
         total_read += curr_read;
         if (total_read < bytes) {
             if (r->file_end) break;
+            r->start += r->length;
             r->offset = 0;
             r->length = prh_file_read(r->handle, r->buffer.data, prh_buffer_capacity(&r->buffer));
             if (errno == e_file_error) prh_abort_error(GetLastError());
@@ -36302,6 +36325,46 @@ prh_reg prh_read_bytes(prh_reader *r, prh_byte *p, prh_reg bytes) {
         memcpy(p, r->buffer.data + r->offset, curr_read);
         r->offset += curr_read;
         total_read = curr_read;
+        break;
+    }
+    return total_read;
+}
+
+prh_reg prh_pread_exact_bytes(prh_reader *r, prh_byte *p, prh_reg bytes, prh_r64 offset) {
+    prh_reg n = prh_pread_bytes(r, p, bytes, offset);
+    if (n != bytes) prh_abort_error(e_too_short);
+    return n;
+}
+
+prh_reg prh_pread_bytes(prh_reader *r, prh_byte *p, prh_reg bytes, prh_r64 offset) {
+    prh_reg curr_read;
+    prh_reg total_read = 0;
+    switch (r->mode) {
+    case PRH_IMPL_FROM_FILE:
+    case PRH_IMPL_FROM_HANDLE:
+        if (offset >= r->start && offset + bytes < r->start + r->length) {
+            memcpy(p, r->buffer.data + (offset - r->start), bytes);
+            total_read = bytes;
+        } else {
+            prh_i64 old_offset = prh_current_file_offset(r->handle);
+            total_read = prh_file_pread(r->handle, p, bytes, offset);
+            prh_file_seek_from_begin(r->handle, old_offset);
+        }
+        break;
+    case PRH_IMPL_FROM_C_TEXT:
+        while (total_read < bytes) {
+            prh_byte c = r->buffer.data[total_read + offset];
+            if (c == 0) break;
+            p[total_read++] = c;
+        }
+        break;
+    default: // buffer + length
+        if (offset < r->length) { // 此时 offset 一定在 prh_reg 范围内
+            curr_read = r->length - (prh_reg)offset;
+            if (bytes < curr_read) curr_read = bytes;
+            memcpy(p, r->buffer.data + (prh_reg)offset, curr_read);
+            total_read = curr_read;
+        }
         break;
     }
     return total_read;
@@ -36336,6 +36399,7 @@ prh_reader prh_read_from_file(const prh_byte *name, prh_reg file_buff_size, cons
     if (file_buff_size == 0) file_buff_size = prh_memory_page_size;
     reader.buffer = prh_make_buffer(alloc, prh_round_page_size(file_buff_size));
     reader.mode = PRH_IMPL_FROM_FILE;
+    reader.start = 0;
     reader.offset = 0;
     reader.length = 0;
     reader.file_end = 0;
@@ -36348,6 +36412,7 @@ prh_reader prh_read_from_handle(prh_handle handle, prh_reg file_buff_size, const
     if (file_buff_size == 0) file_buff_size = prh_memory_page_size;
     reader.buffer = prh_make_buffer(alloc, prh_round_page_size(file_buff_size));
     reader.mode = PRH_IMPL_FROM_HANDLE;
+    reader.start = 0;
     reader.offset = 0;
     reader.length = 0;
     reader.file_end = 0;
@@ -38566,9 +38631,9 @@ prh_reg prh_print_raw_hex(prh_handle handle, prh_reg value, prh_r32 width_flags)
 
 #define prh_pf_get_sign_type(flags) ((prh_byte)(((flags) & 0x00300000) >> 20))  // 0000_0000_0011_0000_16
 #define prh_pf_set_sign(flags, sign) (flags) |= ((prh_r32)(sign & 0x3) << 20)
-#define prh_impl_pf_positive 1 // 输出一个正号
-#define prh_impl_pf_negative 2 // 输出一个负号
-#define prh_impl_pf_space_sign 3 // 如果没有其他符号需要输出，打印一个空格
+#define prh_impl_pf_plus    1 // 输出一个正号
+#define prh_impl_pf_minus   2 // 输出一个负号
+#define prh_impl_pf_space   3 // 如果没有其他符号需要输出，打印一个空格
 
 #define prh_pf_set_print_base_mark(flags, print_base) (flags) |= (print_base) ? prh_pf_print_base : 0
 #define prh_pf_print_base   0x00010000 // 打印 0b 0x 前缀
@@ -38616,8 +38681,8 @@ prh_reg prh_impl_print_with_flags(prh_writer *p, const prh_byte *data, prh_reg b
     if (print_sign_mark) {
         bytes += 1;
         switch (sign) {
-        case prh_impl_pf_positive: *(pend - bytes) = '+'; break;
-        case prh_impl_pf_negative: *(pend - bytes) = '-'; break;
+        case prh_impl_pf_plus: *(pend - bytes) = '+'; break;
+        case prh_impl_pf_minus: *(pend - bytes) = '-'; break;
         default: *(pend - bytes) = ' '; break;
         }
     }
@@ -39155,14 +39220,14 @@ label_print:
 prh_reg prh_impl_print_r32_hex_ffffffff(prh_writer *p, prh_r32 value, prh_r32 flags_width_precision) {
     prh_byte a[17] = {prh_impl_8_digit_zeros, '_', prh_impl_8_digit_zeros};
     prh_r32 bytes;
-    a[18] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 1; goto label_print; }
-    a[17] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 2; goto label_print; }
-    a[16] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 3; goto label_print; }
-    a[15] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 4; goto label_print; }
-    a[14] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 5; goto label_print; }
-    a[13] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 6; goto label_print; }
-    a[12] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 7; goto label_print; }
-    a[11] = prh_impl_hex_digits[value & 0xf]; bytes = 8;
+    a[16] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 1; goto label_print; }
+    a[15] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 2; goto label_print; }
+    a[14] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 3; goto label_print; }
+    a[13] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 4; goto label_print; }
+    a[12] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 5; goto label_print; }
+    a[11] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 6; goto label_print; }
+    a[10] = prh_impl_hex_digits[value & 0xf]; if ((value >>= 4) == 0) { bytes = 7; goto label_print; }
+    a[ 9] = prh_impl_hex_digits[value & 0xf]; bytes = 8;
 label_print:
     prh_r32 precision = prh_pf_get_sub_one_precision(flags_width_precision) + 1;
     if (precision > 16) precision = 16;
@@ -39388,14 +39453,14 @@ prh_r32 prh_impl_parse_sign_r32(prh_r32 flags, prh_r32 value, prh_r32 *out, bool
 
     prh_byte plus_sign_mark = 0; // 正数默认不打印符号
     if (flags & prh_impl_pf_plus_sign) {
-        plus_sign_mark = prh_impl_pf_positive;
+        plus_sign_mark = prh_impl_pf_plus;
     } else if (flags & prh_impl_pf_space_sign) {
-        plus_sign_mark = prh_impl_pf_space_sign;
+        plus_sign_mark = prh_impl_pf_space;
     }
 
     if (value & 0x80000000) { // 有符号数并且是负数
         value = -(prh_i32)value;
-        prh_pf_set_sign(flags, prh_impl_pf_negative);
+        prh_pf_set_sign(flags, prh_impl_pf_minus);
     } else {
         prh_pf_set_sign(flags, plus_sign_mark);
     }
@@ -39410,14 +39475,14 @@ prh_r32 prh_impl_parse_sign_r64(prh_r32 flags, prh_r64 value, prh_r64 *out, bool
 
     prh_byte plus_sign_mark = 0; // 正数默认不打印符号
     if (flags & prh_impl_pf_plus_sign) {
-        plus_sign_mark = prh_impl_pf_positive;
+        plus_sign_mark = prh_impl_pf_plus;
     } else if (flags & prh_impl_pf_space_sign) {
-        plus_sign_mark = prh_impl_pf_space_sign;
+        plus_sign_mark = prh_impl_pf_space;
     }
 
     if (value & 0x8000000000000000ULL) { // 有符号数并且是负数
         value = -(prh_i64)value;
-        prh_pf_set_sign(flags, prh_impl_pf_negative);
+        prh_pf_set_sign(flags, prh_impl_pf_minus);
     } else {
         prh_pf_set_sign(flags, plus_sign_mark);
     }
@@ -39757,52 +39822,52 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // 字形轮廓数据可以使用 CFF 或 CFF 版本 2（"CFF2"）格式，以及 TrueType 字形格式。
 // 多色字形呈现支持使用嵌入的彩色位图或 SVG 文档，或使用在字体中以二进制格式定义的二维图形合成，该格式将轮廓格式字形与各种图形操作相结合。
 // 支持所有 Unicode® 字符，包括辅助平面字符以及 Unicode 变体序列。
-// OpenType 排版表提供了高质量排版所需的高级排版功能，以及使用 Unicode 标准® 支持的广泛脚本进行国际化文本处理。
+// OpenType 布局表提供了高质量排版所需的高级排版功能，以及使用 Unicode 标准® 支持的广泛脚本进行国际化文本处理。
 // 数学排版表允许字体包含复杂数学公式布局所需的数据。
 // OpenType 集合文件使共享公共数据的多个字体能够存放在单个文件中，从而实现数据去重。这对于例如共享大部分字形但某些字符具有特定区域字形变体的 CJK（中文、日文、韩文）字体集特别有用。
 // 字体变体（"可变字体"）使字形轮廓或其他字体数据能够基于一个或多个设计轴参数而变化。集合文件可以包含多个离散的静态字体资源，而可变字体可以在每个轴上提供连续的设计变化。这可以为内容作者和设计师提供极大的灵活性，同时也允许以高效格式表示整个字体家族的数据。
 // 本规范旨在与其他规范配合使用。
 // 虽然支持各种传统字符编码标准，但它主要设计用于与 Unicode 标准配合使用，Unicode 标准为书面字符和符号提供通用编码，以及不同脚本文本表示方式的规范。
-// 本规范定义了 OpenType 排版表以及高质量排版和在各种脚本中正确显示 Unicode 文本所需的低级字形替换和定位操作。（请参阅 OpenType 排版概述。）OpenType 排版功能注册表定义了各种功能，这些功能代表字体中可能支持的特定排版功能，并用于在给定字体中激活这些功能。许多功能公开了作者和排版师可以酌情选择使用的可选功能；例如，小型大写字母形式或字距调整。但许多其他功能用于激活正确显示文本所必需的功能；例如，阿拉伯文所需的连字或标记字形的定位。Unicode 支持的许多脚本具有复杂的结构行为，需要非平凡的操作，在应用程序或文本布局和"塑形"库中实现，以导出用于呈现底层 Unicode 字符串的正确定位字形序列。功能注册表将包括可用于这些操作的功能。然而，不同脚本的塑形算法的完整规范超出了本规范的范围。这些算法可以是特定应用程序中的专有"闭源"实现；或者可以在供应商特定的规范或其他行业规范中定义。
-// 涉及复杂公式的数学文本支持需要内容格式来描述文本语义，并结合布局和呈现功能。本规范定义了呈现所需的字体特定数据。这样，OpenType 可以用于实现其他文档格式规范（如 TEX 或 MathML）的呈现功能。某些功能可以在 OpenType 排版功能标签注册表中定义，以支持数学布局操作。
-// 文本布局涉及单行文本内的操作，但也涉及将行排列到页面或类似上下文中的更大块中的控制。本规范定义了用于块级布局的某些数据，例如默认行度量（升部、降部、行距）。此外，某些功能可以在 OpenType 排版功能标签注册表中定义，以支持水平或垂直布局方向的文本块布局。然而，块级布局的完整规范超出了本规范的范围。它可以与其他规范（如 Unicode 标准附件 #50：Unicode 垂直文本布局）配合使用。
-// 某些字体功能可能受应用程序或其他更高级别协议的定制影响。例如，本规范中定义的 TrueType 指令定义了用于字形轮廓栅格化的操作，但应用程序可以补充自己的最终栅格化算法（例如，使用超采样或子像素显示元素控制）以优化字形的可读性。此外，虽然 OpenType 排版功能标签注册表中的功能描述可以指定预期用法，但应用程序可以根据其他规范或根据自己的需求定制其功能使用。
-// OpenType 排版概述
-// OpenType 排版表为高质量国际化排版提供高级排版功能：
+// 本规范定义了 OpenType 布局表以及高质量排版和在各种脚本中正确显示 Unicode 文本所需的低级字形替换和定位操作。（请参阅 OpenType 布局概述。）OpenType 布局功能注册表定义了各种功能，这些功能代表字体中可能支持的特定排版功能，并用于在给定字体中激活这些功能。许多功能公开了作者和排版师可以酌情选择使用的可选功能；例如，小型大写字母形式或字距调整。但许多其他功能用于激活正确显示文本所必需的功能；例如，阿拉伯文所需的连字或标记字形的定位。Unicode 支持的许多脚本具有复杂的结构行为，需要非平凡的操作，在应用程序或文本布局和"塑形"库中实现，以导出用于呈现底层 Unicode 字符串的正确定位字形序列。功能注册表将包括可用于这些操作的功能。然而，不同脚本的塑形算法的完整规范超出了本规范的范围。这些算法可以是特定应用程序中的专有"闭源"实现；或者可以在供应商特定的规范或其他行业规范中定义。
+// 涉及复杂公式的数学文本支持需要内容格式来描述文本语义，并结合布局和呈现功能。本规范定义了呈现所需的字体特定数据。这样，OpenType 可以用于实现其他文档格式规范（如 TEX 或 MathML）的呈现功能。某些功能可以在 OpenType 布局功能标签注册表中定义，以支持数学布局操作。
+// 文本布局涉及单行文本内的操作，但也涉及将行排列到页面或类似上下文中的更大块中的控制。本规范定义了用于块级布局的某些数据，例如默认行度量（升部、降部、行距）。此外，某些功能可以在 OpenType 布局功能标签注册表中定义，以支持水平或垂直布局方向的文本块布局。然而，块级布局的完整规范超出了本规范的范围。它可以与其他规范（如 Unicode 标准附件 #50：Unicode 垂直文本布局）配合使用。
+// 某些字体功能可能受应用程序或其他更高级别协议的定制影响。例如，本规范中定义的 TrueType 指令定义了用于字形轮廓栅格化的操作，但应用程序可以补充自己的最终栅格化算法（例如，使用超采样或子像素显示元素控制）以优化字形的可读性。此外，虽然 OpenType 布局功能标签注册表中的功能描述可以指定预期用法，但应用程序可以根据其他规范或根据自己的需求定制其功能使用。
+// OpenType 布局概述
+// OpenType 布局表为高质量国际化排版提供高级排版功能：
 // 字符和字形之间的丰富映射，允许连字、位置形式、替代形式和其他替换。
 // 执行二维定位和字形附着的能力。
 // 显式的脚本和语言信息，以便文本处理应用程序可以相应地调整其行为。
 // 一种开放格式，允许字体开发人员定义自己的排版功能。
-// 本概述介绍了 OpenType 排版字体模型的强大功能和灵活性。OpenType 排版表在 OpenType 规范的单独章节中有更详细的描述。请参阅高级排版表。
-// 不同 OpenType 排版表中使用的通用格式记录在"OpenType 排版通用表格式"章节中。
-// 注册的 OpenType 排版标签（用于脚本、语言、功能和基线）记录在 OpenType 排版标签注册表章节中。
-// OpenType 排版一览
-// OpenType 排版解决了正确显示许多不同脚本以及任何脚本中精细排版的复杂排版需求。
-// 使用 OpenType 排版表，字体可以支持字符的替代形式并提供用于访问它们的数据。例如，在阿拉伯文中，字符的形状通常随字符在单词中的位置而变化。如下图所示，ha 字符将采用四种形状中的任何一种，取决于它是单独出现还是出现在单词的开头、中间或结尾。执行文本布局时，文本处理应用程序评估 ha 字符出现的单词位置上下文，然后 OpenType 排版数据通知应用程序应为每个上下文替换哪个字形。
+// 本概述介绍了 OpenType 布局字体模型的强大功能和灵活性。OpenType 布局表在 OpenType 规范的单独章节中有更详细的描述。请参阅高级排版表。
+// 不同 OpenType 布局表中使用的通用格式记录在"OpenType 布局通用表格式"章节中。
+// 注册的 OpenType 布局标签（用于脚本、语言、功能和基线）记录在 OpenType 布局标签注册表章节中。
+// OpenType 布局一览
+// OpenType 布局解决了正确显示许多不同脚本以及任何脚本中精细排版的复杂排版需求。
+// 使用 OpenType 布局表，字体可以支持字符的替代形式并提供用于访问它们的数据。例如，在阿拉伯文中，字符的形状通常随字符在单词中的位置而变化。如下图所示，ha 字符将采用四种形状中的任何一种，取决于它是单独出现还是出现在单词的开头、中间或结尾。执行文本布局时，文本处理应用程序评估 ha 字符出现的单词位置上下文，然后 OpenType 布局数据通知应用程序应为每个上下文替换哪个字形。
 // 阿拉伯文 ha 的不同位置形式字形
 // 图 1a 阿拉伯文字符 ha 的独立、词首、词中、词尾形式。
-// 类似地，当文本垂直定位而非水平定位时，OpenType 排版数据可被应用程序用于替换正确的字符形式，例如汉字。例如，汉字在垂直定位时使用括号的替代形式。
+// 类似地，当文本垂直定位而非水平定位时，OpenType 布局数据可被应用程序用于替换正确的字符形式，例如汉字。例如，汉字在垂直定位时使用括号的替代形式。
 // 水平和垂直布局中的汉字及括号
 // 图 1b 垂直定位汉字时使用的括号替代形式。
-// OpenType 排版数据还支持连字的合成和分解。例如，使用拉丁文书写英语、法语和其他语言时，可以用单个连字（如"fi"）替换其组成字形——在这种情况下，是"f"和"i"。相反，单个"f"和"i"字形可以替换连字，可能是为了给文本处理应用程序在调整字形间距以填充两端对齐文本行时提供更大的灵活性。或者类似地，许多阿拉伯文脚本字形序列可以用单个连字字形替换。
+// OpenType 布局数据还支持连字的合成和分解。例如，使用拉丁文书写英语、法语和其他语言时，可以用单个连字（如"fi"）替换其组成字形——在这种情况下，是"f"和"i"。相反，单个"f"和"i"字形可以替换连字，可能是为了给文本处理应用程序在调整字形间距以填充两端对齐文本行时提供更大的灵活性。或者类似地，许多阿拉伯文脚本字形序列可以用单个连字字形替换。
 // f 和 i 的字形及 fi 连字字形
 // 图 1c 两个拉丁文字形及其关联的连字。
 // 三个阿拉伯文字形序列及关联的连字字形
 // 图 1d 三个阿拉伯文字形及其关联的连字。
-// 字形替换只是 OpenType 排版扩展字体功能的一种方式。包含 OpenType 排版表的字体还可以指定字形如何相互附着。使用 X 和 Y 坐标来指定字形之间的附着点。此功能可用于将变音符号附着到字形，以及创建连笔（草书）文本。
-// OpenType 排版字体还可以包含基线信息，指定如何水平或垂直定位字形。由于基线可能因一种脚本（字符集）而异，此信息对于对齐混合不同语言字形的文本特别有用。
+// 字形替换只是 OpenType 布局扩展字体功能的一种方式。包含 OpenType 布局表的字体还可以指定字形如何相互附着。使用 X 和 Y 坐标来指定字形之间的附着点。此功能可用于将变音符号附着到字形，以及创建连笔（草书）文本。
+// OpenType 布局字体还可以包含基线信息，指定如何水平或垂直定位字形。由于基线可能因一种脚本（字符集）而异，此信息对于对齐混合不同语言字形的文本特别有用。
 // 一行包含拉丁文和阿拉伯文脚本的文本
 // 图 1e 一行文本，基线已调整，混合拉丁文和阿拉伯文脚本。
-// 尽可能多地，OpenType 排版表只定义特定于特定字体的信息。这些表不尝试编码在特定语言惯例或特定脚本的排版中保持恒定的信息。这种会在给定语言的所有字体中复制的信息属于该语言的文本处理应用程序，而不属于字体。
-// OpenType 排版术语
-// OpenType 排版模型围绕字形、脚本、语言系统、功能和查找组织。
+// 尽可能多地，OpenType 布局表只定义特定于特定字体的信息。这些表不尝试编码在特定语言惯例或特定脚本的排版中保持恒定的信息。这种会在给定语言的所有字体中复制的信息属于该语言的文本处理应用程序，而不属于字体。
+// OpenType 布局术语
+// OpenType 布局模型围绕字形、脚本、语言系统、功能和查找组织。
 // 字符与字形
 // 用户不查看或打印字符：用户查看或打印字形。字符是数据中具有数字表示的抽象实体；字形是字符的可视化。例如，字符大写字母 A 在 Times New Roman Bold 等字体中通过字形"A"进行视觉描绘。字体包含字形的集合。要检索字形，客户端使用字体中的 'cmap' 表信息，将客户端的字符代码映射到表中的字形索引。
-// 字形还可以表示字符的组合和字符的替代形式：字形和字符并不严格一一对应。例如，用户可能键入两个字符，这两个字符可能更好地用单个连字字形表示。相反，同一个字符在单词的开头、中间或结尾可能采用不同的形式，因此字体可能需要几个不同的字形来表示单个字符。OpenType 排版字体包含一个表，为客户提供有关可能的字形替换的信息。
+// 字形还可以表示字符的组合和字符的替代形式：字形和字符并不严格一一对应。例如，用户可能键入两个字符，这两个字符可能更好地用单个连字字形表示。相反，同一个字符在单词的开头、中间或结尾可能采用不同的形式，因此字体可能需要几个不同的字形来表示单个字符。OpenType 布局字体包含一个表，为客户提供有关可能的字形替换的信息。
 // 替代 & 字形
 // 图 1f & 字符的多个字形。
 // 脚本
-// 脚本由一组相关字符组成，可能由一种或多种语言使用。拉丁文、阿拉伯文和泰文是脚本的示例。字体可以支持来自单个脚本或许多脚本的字符。在 OpenType 排版字体中，脚本由唯一的 4 字节标签标识。
+// 脚本由一组相关字符组成，可能由一种或多种语言使用。拉丁文、阿拉伯文和泰文是脚本的示例。字体可以支持来自单个脚本或许多脚本的字符。在 OpenType 布局字体中，脚本由唯一的 4 字节标签标识。
 // 拉丁文、汉字和阿拉伯文字形
 // 图 1g 拉丁文、汉字和阿拉伯文脚本中的字形。
 // 语言系统
@@ -39813,20 +39878,20 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // 功能和查找
 // 功能定义字体的排版功能，是应用程序用于调用这些功能的手段。这些可以包括显示某些脚本所必需的功能，以及精细排版的其他功能。支持变音符号定位的字体将实现 'mark' 功能。支持垂直字形替换的字体将实现 'vert' 功能。
 // 查找是用于实现功能所调用功能的数据。查找表描述了应用程序应应用的字形替换或字形定位操作，以实现所需的排版效果。功能可用于以字体无关的方式引用排版功能，但查找提供用于实现该功能的字体特定数据。
-// OpenType 排版功能模型为字体开发人员提供了灵活性，允许他们选择适合给定设计或其客户要求的字体功能。该模型还为未来的增强提供了可扩展性：持续创新可以随着时间的推移定义新功能的功能。
+// OpenType 布局功能模型为字体开发人员提供了灵活性，允许他们选择适合给定设计或其客户要求的字体功能。该模型还为未来的增强提供了可扩展性：持续创新可以随着时间的推移定义新功能的功能。
 // 显示脚本、语言系统和功能表组织关系的框图
 // 图 1i 脚本、语言系统、功能以及替换和定位表的查找之间的关系。
-// OpenType 排版表
-// OpenType 排版使用五个表：GSUB、GPOS、BASE、JSTF 和 GDEF。这些表及其格式在单独的章节中讨论。以下段落提供简要概述。
+// OpenType 布局表
+// OpenType 布局使用五个表：GSUB、GPOS、BASE、JSTF 和 GDEF。这些表及其格式在单独的章节中讨论。以下段落提供简要概述。
 // GSUB：包含有关字形替换的信息，以处理单个字形替换、一对多替换（连字分解）、美学替代、多个字形替换（连字）和上下文字形替换。
 // GPOS：包含有关字形 X 和 Y 定位的信息，以处理单个字形调整、成对字形调整、草书附着、标记附着和上下文字形定位。
 // BASE：包含有关逐脚本基线偏移的信息。
 // JSTF：包含两端对齐信息，包括空白和 Kashida 调整。
 // GDEF：包含有关字体中所有单个字形的信息：类型（简单字形、连字或组合标记）、附着点（如果有）和连字插入符（如果是连字字形）。
 // MATH 表是一个附加的高级排版表，包含布局数学表达式和公式所需的特殊度量值和其他数据。
-// 通用表格式：几个通用表格式被 OpenType 排版表使用。
-// 使用 OpenType 排版进行文本处理
-// 文本处理客户端遵循标准过程，将用户输入的字符字符串转换为定位的字形。要使用 OpenType 排版字体生成文本：
+// 通用表格式：几个通用表格式被 OpenType 布局表使用。
+// 使用 OpenType 布局进行文本处理
+// 文本处理客户端遵循标准过程，将用户输入的字符字符串转换为定位的字形。要使用 OpenType 布局字体生成文本：
 // 使用字体中的 'cmap' 表，客户端将字符代码转换为字形索引序列。
 // 使用 GSUB 表中的信息，客户端修改生成的字形序列，根据需要替换位置或垂直字形、连字或其他替代形式。
 // 使用 GPOS 表中的定位信息和 BASE 表中的基线偏移信息，客户端然后定位字形。
@@ -39854,11 +39919,11 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // RTL 字形替代：
 // 引擎对整个 RTL 运行应用 'rtla' 功能。如果存在，该功能替换适合从右到左文本的变体（镜像形式除外）。
 // 实际上，引擎可以同时应用功能；因此，由字体供应商确保功能的查找顺序正确，以实现上述算法描述的效果。引擎可以以多种方式优化其实现，例如，利用字符级和字形级镜像不会同时应用于运行中同一元素的事实。
-// OpenType 排版与字体变体
+// OpenType 布局与字体变体
 // OpenType 字体变体允许单个字体沿一个或多个变化轴支持许多设计变化。例如，具有字重和宽度变化的字体可能支持从细到黑的各种字重，以及从超压缩到超扩展的各种宽度。有关 OpenType 字体变体的一般信息，请参阅 OpenType 字体变体概述章节。
-// 用于支持字体变体的数据被集成到用于 OpenType 排版的表中。字形轮廓和度量在字体变化空间中的变化可能会影响 OpenType 排版表中使用的网格设计距离，例如 GPOS 附着查找中使用的锚点位置。OpenType 排版格式中的数据元素可以与描述默认值如何针对不同变化实例进行调整的变化数据相关联。
-// 在某些可变字体中，可能希望在字体的变化空间中的不同区域使用不同的字形替换或字形定位操作。例如，对于窄或重实例，其中字腔变小，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。这种效果可以使用 GSUB 或 GPOS 表中的功能变化表来实现。功能变化表在 OpenType 排版通用表格式章节中描述。另请参阅 OpenType 排版标签注册表中的必需变化替代（'rvrn'）功能。
-// 可变字体的不同变化实例具有相同的字形 ID。因此，似乎可以在字形序列中应用查找，其中字形使用可变字体的不同变化实例进行格式化。然而，这样做可能导致不可预测的行为，因为字体开发人员可能无法充分控制查找表的生成方式，并且测试大量可能的跨实例交互是不可行的。由于这些原因，布局处理实现必须将可变字体的不同变化实例视为不同的样式运行，以用于 OpenType 排版处理。
+// 用于支持字体变体的数据被集成到用于 OpenType 布局的表中。字形轮廓和度量在字体变化空间中的变化可能会影响 OpenType 布局表中使用的网格设计距离，例如 GPOS 附着查找中使用的锚点位置。OpenType 布局格式中的数据元素可以与描述默认值如何针对不同变化实例进行调整的变化数据相关联。
+// 在某些可变字体中，可能希望在字体的变化空间中的不同区域使用不同的字形替换或字形定位操作。例如，对于窄或重实例，其中字腔变小，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。这种效果可以使用 GSUB 或 GPOS 表中的功能变化表来实现。功能变化表在 OpenType 布局通用表格式章节中描述。另请参阅 OpenType 布局标签注册表中的必需变化替代（'rvrn'）功能。
+// 可变字体的不同变化实例具有相同的字形 ID。因此，似乎可以在字形序列中应用查找，其中字形使用可变字体的不同变化实例进行格式化。然而，这样做可能导致不可预测的行为，因为字体开发人员可能无法充分控制查找表的生成方式，并且测试大量可能的跨实例交互是不可行的。由于这些原因，布局处理实现必须将可变字体的不同变化实例视为不同的样式运行，以用于 OpenType 布局处理。
 // OpenType 字体变体概述
 // 本 OpenType 规范章节提供 OpenType 字体变体的概述，包括基本概念介绍、术语表以及关键算法的规范：坐标归一化和实例值插值。
 // 介绍
@@ -40007,7 +40072,7 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // 将小数部分乘以 65536，并将结果四舍五入到最接近的整数（对于 0.5 及更高的分数值，取下一个更高的整数；对于其他分数值，截断）。将结果存储在低序字中。
 // 将整数部分的二进制补码表示移入高序字中。
 // 注意：除了将更高精度表示转换为 16.16 之外，本规范对实例坐标、缩放增量或派生实例值没有其他舍入要求。例如，对于应用增量后的轮廓点坐标，栅格化实现可以使用高精度浮点类型，或根据需要舍入到较低精度表示。不同的实现可以使用不同的精度来计算实例值，从而导致细微的视觉差异。如果字体实例的数据被转换或导出到另一种表示——例如，动态生成给定实例的静态字体——派生的静态字体与源可变字体之间可能存在细微差异。
-// 必须严格按照上述步骤 1-5 获得 2.14 表示中的归一化值。在具有 TrueType 指令的字体中，此精确值必须由 GET VARIATION 指令返回。（请参阅 TrueType 指令集。）如果字体在 OpenType 排版表中使用 FeatureVariation 表，则在比较条件表中指定的轴范围值时，必须使用此精确值。
+// 必须严格按照上述步骤 1-5 获得 2.14 表示中的归一化值。在具有 TrueType 指令的字体中，此精确值必须由 GET VARIATION 指令返回。（请参阅 TrueType 指令集。）如果字体在 OpenType 布局表中使用 FeatureVariation 表，则在比较条件表中指定的轴范围值时，必须使用此精确值。
 // 'avar' 归一化示例
 // 以下示例说明了使用 'avar' 映射的归一化工作原理。
 // 假设字体中某个轴的最小值为 100，默认值为 400，最大值为 900。假设所选实例的用户坐标为 250。根据上述算法，默认归一化值计算如下：
@@ -40098,7 +40163,7 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // 较重字重时简化字形结构
 // 注意：使用此类技术时，应一起考虑沿轴放置此类过渡点以及命名实例的放置，以便急剧过渡不会发生在命名实例附近。这将避免不同应用程序在使用命名实例时由于处理数值的小差异而出现不一致行为的可能性。
 // 注意：使用此类技术时，重要的是要记住，某些应用程序将支持任意实例的选择，包括轴值在重叠范围内的实例，并且在重叠范围内，两个中间区域的缩放增量将具有累积效果。可能需要一些设计迭代，对增量值或区域重叠方式的小调整，以避免过渡范围内的意外或不良结果。
-// 注意：上图说明了使用中间区域实现"笔画减少"效果。另一种可用于改变特定变化轴值范围的字形结构的技术是字形替换。OpenType 排版 GSUB 表中的必需变化替代功能与 FeatureVariations 表结合使用，可以在选择某个变化轴范围内的一个或多个轴的变化实例时执行字形替换。这可能是一种更容易维护的技术，通常推荐用于实现此类效果。
+// 注意：上图说明了使用中间区域实现"笔画减少"效果。另一种可用于改变特定变化轴值范围的字形结构的技术是字形替换。OpenType 布局 GSUB 表中的必需变化替代功能与 FeatureVariations 表结合使用，可以在选择某个变化轴范围内的一个或多个轴的变化实例时执行字形替换。这可能是一种更容易维护的技术，通常推荐用于实现此类效果。
 // 以上提供了变化数据的基本概念概述：适用区域、每个轴和整体标量以及多个适用增量的组合效果。下面提供了插值过程的详细规范。
 // 变化数据表和杂项要求
 // 上一节确定了字形轮廓点的 X 和 Y 坐标作为可以针对不同变化实例进行调整的数据项。字体中的许多其他数据项也可以调整，包括：
@@ -40125,8 +40190,8 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // 在具有 TrueType 轮廓的字体中，栅格化器将 'hmtx' 和 'vmtx' 值与 'glyf' 表中的字形 xMin、xMax、yMin 和 yMax 值组合，生成四个对应于字形水平和垂直度量值的"虚点"。（有关虚点的更多背景，请参阅指导 TrueType 字形章节。）在可变字体中，'gvar' 表中字形的变化数据将包括字形虚点的调整增量。因此，可以通过插值给定实例的虚点位置来获得给定实例的插值字形度量。然而，对于某些文本布局操作，这可能成本高昂。为了在所有平台上提供最佳性能，建议所有具有 TrueType 轮廓的可变字体包含 HVAR 表。如果字体支持垂直布局并包含 'vhea' 和 'vmtx' 表，建议字体包含 VVAR 表。
 // CFF2 栅格化器不生成虚点，CFF2 变化数据不包含虚点的调整增量。因此，在具有 CFF2 轮廓的可变字体中，需要 'hmtx' 和 HVAR 表。类似地，如果字体支持垂直布局，则需要 'vmtx' 和 VVAR 表。
 // 注意：'hdmx' 和 VDMX 表在可变字体中不使用。
-// 如果字体具有 OpenType 排版表，GDEF、GPOS 或 JSTF 表中的值的变化数据将根据需要包含在 GDEF 表中。BASE 表的变化数据将根据需要包含在 BASE 表本身中。
-// 在某些可变字体中，可能希望在字体的变化空间中的不同区域使用不同的字形替换或字形定位操作。例如，对于窄宽度或重字重实例，其中字腔变小，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。这种效果可以使用 GSUB 或 GPOS 表中的功能变化子表来实现。有关更多信息，请参阅 OpenType 排版通用表格式章节。
+// 如果字体具有 OpenType 布局表，GDEF、GPOS 或 JSTF 表中的值的变化数据将根据需要包含在 GDEF 表中。BASE 表的变化数据将根据需要包含在 BASE 表本身中。
+// 在某些可变字体中，可能希望在字体的变化空间中的不同区域使用不同的字形替换或字形定位操作。例如，对于窄宽度或重字重实例，其中字腔变小，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。这种效果可以使用 GSUB 或 GPOS 表中的功能变化子表来实现。有关更多信息，请参阅 OpenType 布局通用表格式章节。
 // 在具有 TrueType 轮廓的可变字体中，每个字形的左侧承必须等于 xMin，并且 'head' 表标志字段中的位 1 必须设置。
 // 在所有可变字体中，'head' 表标志字段中的位 5 必须清除。（在某些平台上，位 5 影响垂直布局中的度量。位 5 必须清除以确保所有平台上的兼容行为。）
 // 实例值插值算法
@@ -40489,13 +40554,11 @@ typedef struct {
 } prh_font_header;
 
 typedef struct {
-    prh_r32 tabletag;   // 表标识符
+    prh_r32 tabletag;   // 表标识符，必须按 tag 值升序排列
     prh_r32 checksum;   // 此表校验和
     prh_r32 offset;     // 此表所在的文件偏移
     prh_r32 length;     // 此表的长度
 } prh_table_header;
-
-prh_r32 prh_font_table_checksum(prh_r32 *table, prh_r32 length);
 
 // 字体集合（Font Collections）
 //
@@ -40592,11 +40655,16 @@ typedef struct {
     prh_font_ttc_signature ttc_signature;
     prh_r32 *ttc_font_header_offset_big;
     prh_r32 file_size;
-} prh_fontfile;
+} prh_font_file;
 
 prh_static_assert(sizeof(prh_font_header) == sizeof(prh_font_ttc_header));
 
-void prh_load_font_from_file(prh_fontfile *f, const prh_byte *name) {
+void prh_free_font_file(prh_font_file *f) {
+    prh_da_free(f->ttc_font_header_offset_big);
+    prh_read_free(&f->reader);
+}
+
+void prh_load_font_file(prh_font_file *f, const prh_byte *name) {
     f->reader = prh_read_from_file(name, prh_vmem_unit_size, prh_local_alloc());
     prh_read_exact_bytes(&f->reader, (prh_byte *)&f->font_header, sizeof(prh_font_header));
     prh_set_r32_be_to_host(f->font_header.sfntversion);
@@ -40615,9 +40683,9 @@ void prh_load_font_from_file(prh_fontfile *f, const prh_byte *name) {
             prh_abort_error(f->ttc_header.majorversion);
         }
         prh_da_init(f->ttc_font_header_offset_big, f->ttc_header.numfonts);
-        prh_read_exact_bytes(&f->reader, f->ttc_font_header_offset_big, f->ttc_header.numfonts * sizeof(prh_r32));
+        prh_read_exact_bytes(&f->reader, (prh_byte *)f->ttc_font_header_offset_big, f->ttc_header.numfonts * sizeof(prh_r32));
         if (f->ttc_header.majorversion == 2) {
-            prh_read_exact_bytes(&f->reader, &f->ttc_signature, sizeof(ttc_signature));
+            prh_read_exact_bytes(&f->reader, (prh_byte *)&f->ttc_signature, sizeof(prh_font_ttc_signature));
             prh_set_r32_be_to_host(f->ttc_signature.dsigtag);
             prh_set_r32_be_to_host(f->ttc_signature.dsiglength);
             prh_set_r32_be_to_host(f->ttc_signature.dsigoffset);
@@ -40633,30 +40701,47 @@ void prh_load_font_from_file(prh_fontfile *f, const prh_byte *name) {
     f->file_size = prh_file_size_32(f->reader.handle);
 }
 
-prh_r32 prh_font_count(prh_fontfile *f) {
+prh_r32 prh_font_count(const prh_font_file *f) {
     return f->ttc_header.numfonts;
 }
 
 typedef struct {
-    prh_fontfile *font_file;
+    prh_font_file *font_file;
     prh_font_header font_header;
     prh_table_header *table_header;
     prh_r32 font_header_offset;
     prh_r32 font_index;
-} prh_fontinfo;
+} prh_open_font;
 
-void prh_impl_font_header_read(prh_fontinfo *p) {
-    prh_fontfile *f = p->font_file;
-    if (p->font_header_offset > f->file_size) {
-        prh_abort_error(p->font_header_offset);
-    }
-    prh_pread_exact_bytes(&f->reader, &p->font_header, sizeof(prh_font_header), p->font_header_offset);
+typedef struct {
+    prh_open_font *font;
+    prh_table_header *header;
+    prh_byte *data;
+    prh_r16 table_index;
+} prh_font_table;
+
+prh_r16 prh_font_table_count(const prh_open_font *f) {
+    return f->font_header.numtables;
+}
+
+void prh_font_free(prh_open_font *p) {
+    prh_da_free(p->table_header);
+}
+
+void prh_impl_font_header_read(prh_open_font *p) {
+    prh_font_file *f = p->font_file;
+    prh_pread_exact_bytes(&f->reader, (prh_byte *)&p->font_header, sizeof(prh_font_header), p->font_header_offset);
     prh_set_r32_be_to_host(f->font_header.sfntversion);
     if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_CFF_OUTLINE) {
-    prh_set_r16_be_to_host(f->font_header.numtables);
+        prh_set_r16_be_to_host(f->font_header.numtables);
+    } else {
+        prh_eprinf_r32(f->font_header.sfntversion, prh_pf_print_base | prh_pf_hex | 8);
+        prh_abort_error(__LINE__);
+    }
 
+    prh_table_header *table_header;
     prh_da_init(p->table_header, p->font_header.numtables);
-    prh_read_exact_bytes(&f->reader, p->table_header, p->font_header.numtables * sizeof(prh_table_header));
+    prh_pread_exact_bytes(&f->reader, (prh_byte *)p->table_header, p->font_header.numtables * sizeof(prh_table_header), p->font_header_offset + sizeof(prh_font_header));
     for (prh_r32 i = 0; i < p->font_header.numtables; i += 1) {
         table_header = p->table_header + i;
         prh_set_r32_be_to_host(table_header->tabletag);
@@ -40666,7 +40751,7 @@ void prh_impl_font_header_read(prh_fontinfo *p) {
     }
 }
 
-void prh_font_init(prh_fontinfo *p, const prh_fontfile *f, prh_r32 font_index) {
+void prh_load_open_font(prh_open_font *p, prh_font_file *f, prh_r32 font_index) {
     assert(font_index < prh_font_count(f));
     if (f->font_header.sfntversion == PRH_TTC_HEADER) {
         p->font_header_offset = f->ttc_font_header_offset_big[font_index];
@@ -40679,115 +40764,90 @@ void prh_font_init(prh_fontinfo *p, const prh_fontfile *f, prh_r32 font_index) {
     prh_impl_font_header_read(p);
 }
 
-// 字体表（Font Tables）
-//
-// 必需表（Required Tables）。无论 TrueType 还是 CFF 轮廓用于 OpenType 字体，以下表对于
-// 字体正确运行是必需的：
-//      标签    名称
-//      'cmap'  字符到字形映射
-//      'head'  字体头
-//      'hhea'  水平头
-//      'hmtx'  水平度量
-//      'maxp'  最大轮廓
-//      'name'  命名表
-//      OS/2    OS/2 和 Windows 特定度量
-//      'post'  PostScript 信息
-//
-// 与 TrueType 轮廓相关的表，对于基于 TrueType 轮廓的 OpenType 字体，使用以下表：
-//      标签    名称
-//      'cvt '  控制值表（可选表）
-//      'fpgm'  字体程序（可选表）
-//      'glyf'  字形数据
-//      'loca'  位置索引
-//      'prep'  控制值程序（可选表）
-//      'gasp'  网格拟合/扫描转换（可选表）
-//
-// 与 CFF 轮廓相关的表，对于基于 CFF 轮廓的 OpenType 字体，使用以下表。强烈建议用于垂直
-// 书写的 CFF OpenType 字体包含垂直原点（VORG）表。
-//      标签    名称
-//      'CFF '  紧凑字体格式 1.0
-//      CFF2    紧凑字体格式 2.0
-//      VORG    垂直原点（可选表）
-//
-// 与 SVG 轮廓相关的表：
-//      标签    名称
-//      'SVG '  SVG（可缩放矢量图形）表
-//
-// 与位图字形相关的表。OpenType 字体还可以包含字形位图，以及轮廓。手工调整的位图在 OpenType
-// 字体中特别有用，用于在非常小的尺寸表示复杂字形。如果字体中提供了特定尺寸的位图，则在渲染
-// 字形时系统将使用它而不是轮廓。
-//      标签    名称
-//      EBDT    嵌入式位图数据
-//      EBLC    嵌入式位图位置数据
-//      EBSC    嵌入式位图缩放数据
-//      CBDT    彩色位图数据
-//      CBLC    彩色位图位置数据
-//      'sbix'  标准位图图形
-//
-// 高级排版表（Advanced Typographic Tables），几个可选表支持高级排版功能。有关通用表格式
-// 的信息，请参阅 OpenType 排版通用表格式。https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2
-//      标签    名称
-//      BASE    基线数据
-//      GDEF    字形定义数据
-//      GPOS    字形定位数据
-//      GSUB    字形替换数据
-//      JSTF    两端对齐数据
-//      MATH    数学布局数据
-//
-// 用于 OpenType 字体变体（Font Variations）的表：
-//      标签    名称
-//      'avar'  轴变体
-//      'cvar'  CVT 变体（仅限 TrueType 轮廓）
-//      'fvar'  字体变体
-//      'gvar'  字形变体（仅限 TrueType 轮廓）
-//      HVAR    水平度量变体
-//      MVAR    度量变体
-//      STAT    样式属性（可变字体必需，非可变字体可选）
-//      VVAR    垂直度量变体
-//
-// 有关 OpenType 字体变体的概述和插值算法的规范，请参阅 OpenType 字体变体概述。有关可变字
-// 体中哪些表是必需或可选的详细信息，请参阅概述章节中的变化数据表和杂项要求。有关用于变体
-// 的通用表格式，请参阅 OpenType 字体变体通用表格式。
-// https://learn.microsoft.com/en-us/typography/opentype/spec/otvaroverview
-// https://learn.microsoft.com/en-us/typography/opentype/spec/otvaroverview#vartables
-// https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats
-//
-// 请注意，某些变化相关（variation-related）格式可能用于上述变化特定表之外的其他表中。特别
-// 是，可变字体中的 GDEF、BASE 或 COLR 表可以使用通用表格式包含变化数据。可变字体中的 CFF2
-// 表也可以包含变化数据，但使用特定于 CFF2 表的格式。
-//
-// 与彩色字体相关的表，请注意，这些表中的几个也在其他部分列出，用于与 SVG 轮廓相关的表，
-// 以及与位图字形相关的表。
-//      标签    名称
-//      COLR    颜色表
-//      CPAL    调色板表
-//      CBDT    彩色位图数据
-//      CBLC    彩色位图位置数据
-//      'sbix'  标准位图图形
-//      'SVG '  SVG（可缩放矢量图形）表
-//
-// 其他 OpenType 表。请注意，STAT 表在可变字体中是必需的。此外，'hdmx' 和 VDMX 表在可变
-// 字体中不使用。
-//      标签    名称
-//      DSIG    数字签名
-//      'hdmx'  水平设备度量
-//      'kern'  字距调整
-//      LTSH    线性阈值数据
-//      MERG    合并
-//      'meta'  元数据
-//      STAT    样式属性
-//      PCLT    PCL 5 数据
-//      VDMX    垂直设备度量
-//      'vhea'  垂直度量头
-//      'vmtx'  垂直度量
+void prh_load_font_table(prh_font_table *t, prh_open_font *f, prh_r16 table_index) {
+    assert(table_index < prh_font_table_count(f));
+    prh_table_header *header = f->table_header + table_index;
+    t->font = f;
+    t->header = header;
+    t->table_index = table_index;
+    prh_r32 round_length = prh_round_r32_04_byte(header->length);
+    prh_da_init(t->data, round_length);
+    prh_pread_exact_bytes(&f->font_file->reader, t->data, round_length, header->offset);
+}
+
+bool prh_font_table_checksum(prh_font_table *t) {
+    prh_r32 sum = 0;
+    prh_table_header *header = t->header;
+    prh_r32 *end = (prh_r32 *)t->data + prh_round_r32_04_byte(header->length) / 4;
+    while ((prh_r32 *)t->data < end) sum += *(prh_r32 *)t->data++;
+    return sum == header->checksum;
+}
+
+void prh_print_ttff_header(prh_font_file *f) {
+    prh_print(
+        "file tag 0x%08x (%c%c%c%c)\n"
+        "file size %d-byte %d-KB %d-MB\n"
+        "font count %d\n"
+        "font ttc version %d.%d\n"
+        "font ttc data signature 0x%08x (%c%c%c%c) offset %d length %d\n\n",
+        (prh_reg)f->font_header.sfntversion,
+        (prh_reg)prh_byte_4(f->font_header.sfntversion),
+        (prh_reg)prh_byte_3(f->font_header.sfntversion),
+        (prh_reg)prh_byte_2(f->font_header.sfntversion),
+        (prh_reg)prh_byte_1(f->font_header.sfntversion),
+        (prh_reg)f->file_size,
+        (prh_reg)f->file_size / 1024,
+        (prh_reg)f->file_size / 1024 / 1024,
+        (prh_reg)prh_font_count(f),
+        (prh_reg)f->ttc_header.majorversion,
+        (prh_reg)f->ttc_header.minorversion,
+        (prh_reg)f->ttc_signature.dsigtag,
+        (prh_reg)prh_byte_4(f->ttc_signature.dsigtag),
+        (prh_reg)prh_byte_3(f->ttc_signature.dsigtag),
+        (prh_reg)prh_byte_2(f->ttc_signature.dsigtag),
+        (prh_reg)prh_byte_1(f->ttc_signature.dsigtag),
+        (prh_reg)f->ttc_signature.dsigoffset,
+        (prh_reg)f->ttc_signature.dsiglength);
+}
+
+void prh_print_font_header(prh_open_font *f) {
+    prh_print(
+        "font index %d / %d\n"
+        "font tag 0x%08x (%c%c%c%c)\n"
+        "font offset %d\n"
+        "font tables %d\n\n",
+        (prh_reg)f->font_index + 1,
+        (prh_reg)prh_font_count(f->font_file),
+        (prh_reg)f->font_header.sfntversion,
+        (prh_reg)prh_byte_4(f->font_header.sfntversion),
+        (prh_reg)prh_byte_3(f->font_header.sfntversion),
+        (prh_reg)prh_byte_2(f->font_header.sfntversion),
+        (prh_reg)prh_byte_1(f->font_header.sfntversion),
+        (prh_reg)f->font_header_offset,
+        (prh_reg)prh_font_table_count(f));
+}
+
+void prh_print_font_table(prh_font_table *f) {
+    prh_table_header *header = f->header;
+    prh_print(
+        "table index %d / %d\n"
+        "table tag 0x%08x (%c%c%c%c)\n"
+        "table offset %.10d (%d/4)\n"
+        "table length %.10d (%d/4)\n"
+        "table checksum 0x%08x\n\n",
+        (prh_reg)f->table_index + 1,
+        (prh_reg)prh_font_table_count(f->font),
+        (prh_reg)header->tabletag,
+        (prh_reg)prh_byte_4(header->tabletag),
+        (prh_reg)prh_byte_3(header->tabletag),
+        (prh_reg)prh_byte_2(header->tabletag),
+        (prh_reg)prh_byte_1(header->tabletag),
+        (prh_reg)header->offset, (prh_reg)header->offset % 4,
+        (prh_reg)header->length, (prh_reg)header->length % 4,
+        (prh_reg)header->checksum);
+}
 
 #ifdef PRH_FONT_IMPLEMENTATION
-prh_r32 prh_font_table_checksum(prh_r32 *table, prh_r32 length) {
-    prh_r32 sum = 0;
-    prh_r32 *end = table + ((length + 3) & ~3) / 4;
-    while (table < end) sum += *table++;
-    return Sum;
-}
 
 #endif // PRH_FONT_IMPLEMENTATION
 #endif // PRH_FONT_INCLUDE
