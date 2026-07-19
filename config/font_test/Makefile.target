@@ -1,0 +1,7 @@
+target-y := default
+
+default-y := config/font_test/
+
+default-binary-type := exe
+
+default-install-dir := config/font_test/.files/
