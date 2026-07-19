@@ -15,7 +15,7 @@
 //  struct const void embed of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
-//  with fet dre todo debug trap local global // 全局变量必须使用 global 引用
+//  with fad fal todo debug trap local global // 全局变量必须使用 global 引用
 //  mod mut imm rua ref gen priv do abstract tane (typename)
 //  alignof(type) sizeof(type) offsetof(type.offset) drop
 //  where it it.i halt emit print prinf namespace typename
@@ -179,16 +179,19 @@
 //  4.  如果文件提供了一个代码分块，使用代码的分块名称，如果代码没有分块就直接导入全局空间
 //  5.  不同的库名下，可以定相同的包名，除了当前项目，导入的代码都必须以库名加包名的方式访问
 //          import <array.rua> // std "array.rua" 的省略写法，也只能使用这种省略写法
-//          import std "array.rua" // 导入标准库中 array.rua 文件中的所有包（但会按实际访问情况进行编译），可以一个或多个包名，或者没有定义任何包名，所有定义导入到 std 名字空间下
-//          import bar:foo "libfoo.rua" // 如果文件中包含名为 foo 包名，因为这些名称要导入到 bar 名字空闲下，这里表示将 bar.foo. 重命名为 bar.
-//          import rgl:rgl "path/librgl.rua" // 将 rgl.rgl. 重命名为 rgl.
-//          import vendor "path/libfab.rua" // vendor.fab.
-//          import vendor "path/librgl.rua" // vendor.rgl.
+//          import "array.rua" // 从当前目录导入文件
 //          import "utils/test.rua" // 从当前目录导入文件
 //          import "../helpers.rua" // 以当前目录为基准导入文件
-//          using namespace vendor.rgl
-//          using fab vendor.fab
-//          a := std.array {1, 2, 3}
+//          import std "array.rua" // 导入标准库中 array.rua 文件中的所有包（但会按实际访问情况进行编译），可以一个或多个包名，或者没有定义任何包名，所有定义导入到 std 名字空间下
+//          import bar:foo "libfoo.rua" // 如果文件中包含名为 foo 包名，因为这些名称要导入到 bar 名字空闲下，这里表示将 bar::foo:: 重命名为 bar::
+//          import rgl:rgl "path/librgl.rua" // 将 rgl::rgl:: 重命名为 rgl::
+//          import vendor "path/libfab.rua" // vendor::fab::
+//          import vendor "path/librgl.rua" // vendor::rgl::
+//          using namespace vendor::rgl
+//          using fab vendor::fab
+//          using std_<name> std::name
+//          let a = std::array {1, 2, 3}
+//          let a = std_array {1, 2, 3}
 //
 // 一个工程可以包含多个库（library），每个库可以包含多个命名空间或代码包，例如：
 //  1.  标准库 std 可以包含各种代码包 std.array std.string
@@ -1008,7 +1011,7 @@
 (&point point) // 不修改实参，大于两个指针传地址，只是临时拷贝一份局部变量给函数用
 (*point point) // 指针，修改实参
 (^point point) // 指针，可能被硬件或其他线程并行修改
-(/point point) // 以一元操作符 / 开始的名称是类型名
+(:point point) // 以一元操作符 : 开始的名称是类型名
 (int a) // 不修改实参
 (&int_type a) // 类型别名也必须添加 & 前缀
 (*int a) // 指针，修改实参
@@ -1090,7 +1093,7 @@ using func_type (int a, &int float)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
 [int] (x $) // int 成员命名为 x
-[int 3] (a b c) // [int int int]
+[int 3] (a b c) // [int int int]，也即定义一个数组
 [int point int]
 [int point int] (a b c)
 [int point int] (_ b _)
@@ -1114,13 +1117,13 @@ $(anytype T) { ((*T p, int size) int) read }
 //  3. 成员别名 type (a | b | c | ...)
 //  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ... }
 def test {
-    int a int b int c int x, y, z // 重复前一类型，不允许 int x, y, z,
+    int a int b int c int x y z // 重复前一类型，不允许 int x, y, z,
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int [1] inplace [31] size // 位域
     int (size | bytes | count) // 成员别名
     f64 d {
-        | int (i | j | k), m
-        | f32 f, g, (h | p | q)
+        | int (i | j | k) m
+        | f32 f g (h | p | q)
         | byte b r32 u
         | byte b r32 u
         | char c
@@ -1161,10 +1164,11 @@ array(int, float)
 *[string:[N]int]
 *int // 指向 int 的指针
 @int // int 型数组的 array_view
-[->]int
-[<>]int
-[|#]int
-[|=]int
+[2]int
+[-]int // 单链表
+[=]int // 双链表
+[~]int // 先入先出
+[$]int // 先入后出
 where [m &a &b] { stmt... } // 捕获参数
 FuncTypeLit [m &a &b] { stmt... } // 捕获参数
 vsym[i] vsym[i,j] // 变量数组元素
@@ -1949,13 +1953,14 @@ using namespace std // using 仅当前文件作用域可见
 using real_std namespace std // 以防两个文件中定义了相同的名字空间
 using array_type typename array // 引用类型名称
 using name_array array // 默认名称是一个变量名或函数名
-using std_array std.array
+using std_array std::array
+using std_<name> std::name
 using my_int int
 
 def real_std namespace std // 以防两个文件中定义了相同的名字空间
 def array_type typename array // 引用类型名称
 def name_array using array // 默认名称是一个变量名或函数名
-def std_array using std.array
+def std_array using std::array
 def my_int using int
 
 // 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
@@ -2156,9 +2161,9 @@ aaa := Data {3, 4}
 ppb := *Ppb ppb_alloc(alloc)
 pos := dist + int scale_x(facter)
 len := int pos + &*byte p + size + f(g)
-len := int pos + dre *byte (p + size + f(g))
+len := int pos + fal *byte (p + size + f(g))
 pos := int dist + int scale_x(facter)
-len := int pos + dre *int *byte (p + size + f(g))
+len := int pos + fal *int *byte (p + size + f(g))
 len := typeof(pos) 3
 len := foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
 len := int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
@@ -2174,7 +2179,7 @@ len := foo ~ -3
 //  2.  named_type {initialize_list} 形式也不需要添加 'type 转换前缀
 //  3.  named_type undefined 形式也不需要添加 'type 转换前缀
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
-//  5.  取地址操作符 &(fetch reference) fer ref address-of of   取址 fetch address   fet
+//  5.  取地址操作符 &(fetch reference) fer ref address-of of   取址 fetch address   fad
 //  6.  解引用操作符 *drf) get value in reference inf           取值 fetch value     fav
 //  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
@@ -2188,11 +2193,11 @@ let a = a + det (*int b + size)
 let a = a + det det **int base + size
 let a = a + det det (**int base + size) // 因为括号内有操作符，与函数声明不冲突
 let a = a + det det (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let p *int = fet **int base + size
-let p *int = fet (**int base + size)
+let p *int = fad **int base + size
+let p *int = fad (**int base + size)
 let point point = {100, 200} // 第一个 point 是类型
-let p *point = fet copyof(point)
-let p *point = fet {0}
+let p *point = fad copyof(point)
+let p *point = fad {0}
 let p *int = null
 let q *int = undefined
 let p *int = null, q = undefined
@@ -2253,86 +2258,87 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
-a := a + int b + c * d               der p <= a + b
-a := a + (int b + c) * d             der **int p <= curr + size
-a := a + der p + size
-a := a + der (p + size)
-a := a + der *int b + size
-a := a + der (*int b + size)
-a := a + der der **int base + size
-a := a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-a := a + der der (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-p := *int der **int base + size
-p := *int der (**int base + size)
-point := point {100, 200} // 第一个 point 是类型
-p := *point fer copyof(point)
-p := *point fer {0}
-p := *int null
-q := *int undefined
-p := *int null q := undefined
-a := int 0
-b := int 0
-a := int 0 b := 0
-o := point undefined
-pos := point {1, 2}
-point := point undefined
-o := point {1, 2}
-p := *ppb malloc(size)
-p := *int undefined
-p := *ppb undefined q := ptr_int
-a := point {100, 200}
-a := [_]int {20, 30, 50}
-a := [8]int {1, 2, 3, 4}
-tup := [i32 f64 r08] {500, 6.4, 1} // tup(0) tup(1) tup(2)
-tup(a b c) := [i32 f64 r08] {500, 6.4, 1} // tup.a tup.b tup.c
-a b c := [i32 f64 r08] {500, 6.4, 1} // a b c
-a b c := [int _] {1, 2, 3} // 三个整型变量
-fp := (int a b, &int) calc
-tup(a b c) := {500, 6.4, 1} // tup.a tup.b tup.c
-data(value error) := read_tuple() // 元组类型值的返回 data(0) data(1) data.value data.error
-a _ := read_tuple() // 赋值右边必须是一个元组类型
-_ a _ b := data // 赋值右边必须是一个元组类型
+let a = a + int b + c * d               fad p <= a + b
+let a = a + (int b + c) * d             fad **int p <= curr + size
+let a = a + fal p + size
+let a = a + fal (p + size)
+let a = a + fal *int b + size
+let a = a + fal (*int b + size)
+let a = a + fal fal **int base + size
+let a = a + fal fal (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let a = a + fal fal (**int base + size) // 因为括号内有操作符，与函数声明不冲突
+let p = *int fal **int base + size
+let p = *int fal (**int base + size)
+let point = point {100, 200} // 第一个 point 是类型
+let p = *point fad fetch address  fad copyof(point)
+let p = *point fad {0}
+let p = *int null
+let q = *int undefined
+let p = *int null, q = undefined
+let a = int 0
+let b = int 0
+let a = int 0, b = 0
+let o = point undefined
+let pos = point {1, 2}
+let point = point undefined
+let o = point {1, 2}
+let p = *ppb malloc(size)
+let p = *int undefined
+let p = *ppb undefined, q = ptr_int
+let a = point {100, 200}
+let a = [_]int {20, 30, 50}
+let a = [8]int {1, 2, 3, 4}
+let tup = [i32 f64 r08] {500, 6.4, 1} // tup(0) tup(1) tup(2)
+let tup(a b c) = [i32 f64 r08] {500, 6.4, 1} // tup.a tup.b tup.c
+let a b c = [i32 f64 r08] {500, 6.4, 1} // a b c
+let a b c = [int _] {1, 2, 3} // 三个整型变量
+let fp = (int a b, &int) calc
+let tup(a b c) = {500, 6.4, 1} // tup.a tup.b tup.c
+let data(value error) = read_tuple() // 元组类型值的返回 data(0) data(1) data.value data.error
+let a _ = read_tuple() // 赋值右边必须是一个元组类型
+let _ a _ b = data // 赋值右边必须是一个元组类型
 a[0], *b = read_tuple() // 逗号分隔的形式一定是赋值，不是变量定义
-a b := {500, 6.4, 1} // 使用已经定义的 a 和 b
-a b := get_tuple() // 使用已经定义的 a 和 b
-a b c := [i32 f64 r08] {500, 6.4, 1}
-tup := {500, 6.4, 1}
-tup := [i32 f64 r08] {500, 6.4, 1}
-integers := {1, 2, 3}
-colors := {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
-set := {:1 :2 :3 :4 :5 :6}
-map := {"a":1, "b":2, "c":3}
-array_ints := {{1,2}, {3,4}, {5,6}} // 数组
-array_ints := {{1,2}, {3,4,5}} // 元组
-mixed_array := {{1,2}, {"a", "b", "c"}} // 元组
-int_array := mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
-str_array := mixed_array[1]
-o := dre p
-p := fet a
-o := point {1, 2}
-ppb := *ppb malloc(size)
-p := *int null
-q := *int undefined
-a := 0
-b := byte 0
-ptr := alloc(1024) or panic()
-data := data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data(2)
-data := data {this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
-a := int 0
-b := float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
-calc := (int a, int b, &int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
-a := point{100, 200}
-a := *int undefined // 行以变量名称 + 类型，或变量名称 + 表达式，表示一个局部变量的定义
-b := *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
-point := {100, 200}
-b := 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
-ppb := *ppb malloc(size)
+let a b = {500, 6.4, 1} // 使用已经定义的 a 和 b
+let a b = get_tuple() // 使用已经定义的 a 和 b
+let a b c = [i32 f64 r08] {500, 6.4, 1}
+let tup = {500, 6.4, 1}
+let tup = [i32 f64 r08] {500, 6.4, 1}
+let integers = {1, 2, 3}
+let colors = {"红", "黄", "绿"} // 相同类型是数组，不同类型是元组，但两者都可以通过下标来访问
+let set = {:1 :2 :3 :4 :5 :6}
+let map = {"a":1, "b":2, "c":3}
+let array_ints = {{1,2}, {3,4}, {5,6}} // 数组
+let array_ints = {{1,2}, {3,4,5}} // 元组
+let mixed_array = {{1,2}, {"a", "b", "c"}} // 元组
+let int_array = mixed_array[0] // 3rd2.0 以数字开头的标识符，访问元组成员可能与浮点冲突
+let str_array = mixed_array[1]
+let o = fal p
+let p = fad a
+let o = point {1, 2}
+let ppb = *ppb malloc(size)
+let p = *int null
+let q = *int undefined
+let a = 0
+let b = byte 0
+let ptr = alloc(1024) or panic()
+let data = data {this, a = 1, 2, b = 3} // 元组类型变量定义 data.a data.b data(2)
+let data = data {this, a = 1, b = 2, 3} // 可以实现对元组的修改 data.a = 10  data.b = 20
+let a = int 0
+let b = float 3.1415926 // 非大括号或undefined形式的类型转换，类型前加转换前缀
+let calc = (int a, int b, &int) { return a + b} // 类型字面量可以自动识别，不需要添加转换前缀
+let a = point{100, 200}
+let a = *int undefined // 行以变量名称 + 类型，或变量名称 + 表达式，表示一个局部变量的定义
+let b = *int undefined // vsym + 大括号/undefined 都是类型的初始化，不需要添加转换前缀
+let point = {100, 200}
+let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
+let ppb = *ppb malloc(size)
 
 for var i = 0; i < 10; i += 1 { }
 for i := 0; i < 10; i += 1 { }
 for $i = 0; i < 10; i += 1 { }
 for $i [0 to 10) step 1 { }
 for $i [0 to 10] step 2 { }
+for $i (10 to 0] step 1 { }
 
 // 表达式的隔断，表示一个表达式的开始 let
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
@@ -2346,7 +2352,7 @@ if $c getarray(l)[0][1](a) (c != '\'')
 l.c = lexer_next_char(l)
 l.cvalue = u
 return CHARLIT
-l.parse = utf8_to_unicode(l.parse, fet $unicode);
+l.parse = utf8_to_unicode(l.parse, fad $unicode);
 return unicode;
 
 // 使用符号#定义局部常量，常量的定义不占用函数栈空间，而 $a 实际分配函数栈空间
@@ -2360,7 +2366,7 @@ def calc(int a, b, &int int [x y]) {
     y = a * b
 }
 
-def calc(int a, b, &int int [x y] or error) {
+def calc(int a, b, &int int or error, x, y) {
     if a == 0 return error_invalid
     x = a * b
     y = e_notzero
@@ -2787,8 +2793,8 @@ def snode $T {
 }
 
 for $i I 0 .. 9 {
-    i int der *I addr
-    pos + der &*I (*byte p + size + f(g))
+    i int *ref *I addr
+    pos + *ref &*I (*byte p + size + f(g))
 }
 
 def memcpy(reg dest unsigned src int count)
@@ -2801,9 +2807,9 @@ def coroguard(*coro p return coro_guard) 'cdcel inline'
 Calc (int a b int)
 Snode $T { this next T data }
 for [&] i I 0 .. 9 {
-    i int dre *I addr
+    i int fal *I addr
     if i%2 continue &
-    pos + dre &I (*byte p + size + f(g))
+    pos + fal &I (*byte p + size + f(g))
 }
 memcpy (Ptr dst src int count)
 memcmp (Ptr dst src int count int)
@@ -3229,7 +3235,7 @@ math:*
 
     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-    10 从右到左    -a +a ^a !a type a &a dre a sizeof a typeof a ->> <<-  not neg int &dre *int [2]int
+    10 从右到左    -a +a ^a !a type a &a fal a sizeof a typeof a ->> <<-  not neg int &fal *int [2]int
      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
      8 从左到右    a*b a/b a%b a&b a<<b a>>b a<<<b a>>>b  mul_op   --> <-- &^
      7 从左到右    a+b a-b a|b a^b             add_op   |^
@@ -3262,13 +3268,13 @@ math:*
 
     小括号包含类型用来定义类型或用作类型转换操作符，小括号包含值表示表达式的一部分。
     大括号只能包含值或由值组成的语句列表，值由变量常量操作符组成。
-    取地址 & 改为 (&) 地址标记 &1 &2 fer
-    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 dre
+    取地址 & 改为 (&) 地址标记 &1 &2 fer fad (fetch address)
+    解引用 * 改为 (*) (**) (*&) (**&) 地址引用 *&1 *&2 fal fal (fetch value)
 
     @negt()     @-          @-3.14      @-c         (-3.14) (-c)
     @posi()     @+          @+6.24      @+c         (+6.24) (+c)
     @comp()     @^          @^1024      @^c         (^1024) (^c)
-    @fer()     (&)         @&data                  (&)data (*&)data    &data    dre &data
+    @fer()     (&)         @&data                  (&)data (*&)data    &data    fal &data
     @der()     (*)         @*p         @**pptr     (*)p    (**&)ptr calc(-3.14, +6.28, ^c, &data, *p, **&ptr) 前面必须有分隔符，包括左括号（( [ {），逗号（,），或（@）
 
 // 条件语句包含传统C的if和switch：
@@ -3938,7 +3944,7 @@ print(typestring, "\n")
 ——
 ——     12 从左到右    a:b 名字空间由代码包和文件内代码分块表示，代码分块的表示形如 :::time::: 代码包由一个文件夹组成
 ——     11 从左到右    a() a[] a.b a->b 函数调用，数组下标，成员访问
-——     10 从右到左    -a +a ^a !a type a &a dre a sizeof a typeof a ->> <<-  not neg int &dre *int [2]int
+——     10 从右到左    -a +a ^a !a type a &a fal a sizeof a typeof a ->> <<-  not neg int &fal *int [2]int
 ——      9 从左到右    a.&b a->&b 返回成员地址，相当于(&)a.b
 ——      8 从左到右    a*b a/b a%b a&b a<<b a>>b   mul_op   --> <-- &^
 ——      7 从左到右    a+b a-b a|b a^b             add_op   |^
