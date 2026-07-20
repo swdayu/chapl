@@ -1,0 +1,4 @@
+cccfg-y := msc_x64_fasm_debug_native_genasm
+cccfg-y += msc_x64_fasm_native_genasm
+
+msc_x64_fasm_native_genasm-ldflag-y := # /LARGEADDRESSAWARE:NO

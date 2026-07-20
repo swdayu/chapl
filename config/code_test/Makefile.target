@@ -1,0 +1,7 @@
+target-y := default
+
+default-y := config/code_test/
+
+default-binary-type := exe
+
+default-install-dir := config/code_test/.files/
