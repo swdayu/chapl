@@ -39,6 +39,7 @@ void init(void)
     }
 
     prh_print_font_cmap(&open_font);
+    prh_print_font_cff1(&open_font);
 
     fread(ttf_buffer, 1, 1<<20, fopen("c:/windows/fonts/times.ttf", "rb"));
     stbtt_BakeFontBitmap(ttf_buffer,0, 64.0, temp_bitmap,1024,1024, 32,96, cdata);
