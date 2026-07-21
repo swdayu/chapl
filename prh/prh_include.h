@@ -3296,6 +3296,94 @@ void prh_impl_aligned_dealloc(void *context, void *ptr);
 
 void prh_main_init(void);
 
+#define prh_generic_bsearch_first_less_equal(out_i, value, p, size, eval) do {  \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > eval(e + mid - 1)) { e += mid; end -= mid; }              \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) + ((value) > eval(e));                       \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_generic_bsearch_last_greater_equal(out_i, value, p, size, eval) do {\
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > eval(e + mid - 1)) { e += mid; end -= mid; }              \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) - ((value) < eval(e));                       \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_bsearch_first_less_equal(out_i, value, p, size) do {                \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) + ((value) > *e);                            \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_bsearch_last_greater_equal(out_i, value, p, size) do {              \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) - ((value) < *e);                            \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_descending_bsearch_first_greater_equal(out_i, value, p, size) do {  \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) < e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 小于中间值小于左半所有值，大于中间值大于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) + ((value) < *e);                            \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_descending_bsearch_last_less_equal(out_i, value, p, size) do {      \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) < e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 小于中间值小于左半所有值，大于中间值大于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) - ((value) > *e);                            \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_fast_bsearch_first_less_equal(out_i, value, p, size) do {           \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 shifts = prh_reg_unchecked_higher_most_bit_position(n);             \
+    /* [0 1 2 3]            1.  当长度就是2的幂，elem_ptr 不会移动      */      \
+    /*  ^                                                               */      \
+    /* [0 1 2 | 3 4 5 6]    2.  不是2的幂，要查找的值在后一2的幂部分    */      \
+    /*          ^                                                       */      \
+    /* [0 1 2 3 | 4 5 6]    3.  不是2的幂，要查找的值在前一2的幂部分    */      \
+    /*  ^                                                               */      \
+    if ((value) >= e[(n -= ((prh_reg)1 << shifts))]) e += n;                    \
+    while (shifts--) {                                                          \
+        if ((value) > e[((prh_reg)1<<shifts)-1]) e += ((prh_reg)1 << shifts);   \
+    } /* 循环 shifts 次，如果 shifts 为 2 即长度 4，循环 2 次检查 [0 1 | 2 3] 和 [0 | 1 | 2 | 3] */ \
+    (out_i) = (prh_reg)(e - (p)) + ((value) > *e);                              \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_fast_bsearch_last_greater_equal(out_i, v, p, size) do {             \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 s = prh_reg_unchecked_higher_most_bit_position(n);                  \
+    if ((v) >= e[(n -= ((prh_reg)1<<s))]) e += n;                               \
+    while (s--) if ((v) > e[((prh_reg)1 << s) - 1]) e += ((prh_reg)1 << s);     \
+    (out_i) = (prh_reg)(e - (p)) - ((v) < *e);                                  \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_fast_descending_bsearch_first_greater_equal(out_i, v, p, size) do { \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 s = prh_reg_unchecked_higher_most_bit_position(n);                  \
+    if ((v) <= e[(n -= ((prh_reg)1<<s))]) e += n;                               \
+    while (s--) if ((v) < e[((prh_reg)1 << s) - 1]) e += ((prh_reg)1 << s);     \
+    (out_i) = (prh_reg)(e - (p)) + ((v) < *e);                                  \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_fast_descending_bsearch_last_less_equal(out_i, v, p, size) do {     \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 s = prh_reg_unchecked_higher_most_bit_position(n);                  \
+    if ((v) <= e[(n -= ((prh_reg)1<<s))]) e += n;                               \
+    while (s--) if ((v) < e[((prh_reg)1 << s) - 1]) e += ((prh_reg)1 << s);     \
+    (out_i) = (prh_reg)(e - (p)) - ((v) > *e);                                  \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
 typedef union {
     prh_f32 value; // <sign> 1.<mantissa> * 10 ^ <exponent>
 #if prh_lit_endian // exponent = exponent + 127
