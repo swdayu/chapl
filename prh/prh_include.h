@@ -40567,6 +40567,619 @@ void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
         (prh_reg)t->checksum);
 }
 
+// 字体表（Font Tables）
+//
+// 必需表（Required Tables）。无论 TrueType 还是 CFF 轮廓用于 OpenType 字体，以下表对于
+// 字体正确运行是必需的：
+//      标签    名称
+//      'cmap'  字符到字形映射
+//      'head'  字体头
+//      'hhea'  水平头
+//      'hmtx'  水平度量
+//      'maxp'  最大轮廓
+//      'name'  命名表
+//      OS/2    OS/2 和 Windows 特定度量
+//      'post'  PostScript 信息
+//
+// 与 TrueType 轮廓相关的表，对于基于 TrueType 轮廓的 OpenType 字体，使用以下表：
+//      标签    名称
+//      'cvt '  控制值表（可选表）
+//      'fpgm'  字体程序（可选表）
+//      'glyf'  字形数据
+//      'loca'  位置索引
+//      'prep'  控制值程序（可选表）
+//      'gasp'  网格拟合/扫描转换（可选表）
+//
+// 与 CFF 轮廓相关的表，对于基于 CFF 轮廓的 OpenType 字体，使用以下表。强烈建议用于垂直
+// 书写的 CFF OpenType 字体包含垂直原点（VORG）表。
+//      标签    名称
+//      'CFF '  紧凑字体格式 1.0
+//      CFF2    紧凑字体格式 2.0
+//      VORG    垂直原点（可选表）
+//
+// 与 SVG 轮廓相关的表：
+//      标签    名称
+//      'SVG '  SVG（可缩放矢量图形）表
+//
+// 与位图字形相关的表。OpenType 字体还可以包含字形位图，以及轮廓。手工调整的位图在 OpenType
+// 字体中特别有用，用于在非常小的尺寸表示复杂字形。如果字体中提供了特定尺寸的位图，则在渲染
+// 字形时系统将使用它而不是轮廓。
+//      标签    名称
+//      EBDT    嵌入式位图数据
+//      EBLC    嵌入式位图位置数据
+//      EBSC    嵌入式位图缩放数据
+//      CBDT    彩色位图数据
+//      CBLC    彩色位图位置数据
+//      'sbix'  标准位图图形
+//
+// 高级排版表（Advanced Typographic Tables），几个可选表支持高级排版功能。有关通用表格式
+// 的信息，请参阅 OpenType 布局通用表格式。https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2
+//      标签    名称
+//      BASE    基线数据
+//      GDEF    字形定义数据
+//      GPOS    字形定位数据
+//      GSUB    字形替换数据
+//      JSTF    两端对齐数据
+//      MATH    数学布局数据
+//
+// 用于 OpenType 字体变体（Font Variations）的表：
+//      标签    名称
+//      'avar'  轴变体
+//      'cvar'  CVT 变体（仅限 TrueType 轮廓）
+//      'fvar'  字体变体
+//      'gvar'  字形变体（仅限 TrueType 轮廓）
+//      HVAR    水平度量变体
+//      MVAR    度量变体
+//      STAT    样式属性（可变字体必需，非可变字体可选）
+//      VVAR    垂直度量变体
+//
+// 有关 OpenType 字体变体的概述和插值算法的规范，请参阅 OpenType 字体变体概述。有关可变字
+// 体中哪些表是必需或可选的详细信息，请参阅概述章节中的变化数据表和杂项要求。有关用于变体
+// 的通用表格式，请参阅 OpenType 字体变体通用表格式。
+// https://learn.microsoft.com/en-us/typography/opentype/spec/otvaroverview
+// https://learn.microsoft.com/en-us/typography/opentype/spec/otvaroverview#vartables
+// https://learn.microsoft.com/en-us/typography/opentype/spec/otvarcommonformats
+//
+// 请注意，某些变化相关（variation-related）格式可能用于上述变化特定表之外的其他表中。特别
+// 是，可变字体中的 GDEF、BASE 或 COLR 表可以使用通用表格式包含变化数据。可变字体中的 CFF2
+// 表也可以包含变化数据，但使用特定于 CFF2 表的格式。
+//
+// 与彩色字体相关的表，请注意，这些表中的几个也在其他部分列出，用于与 SVG 轮廓相关的表，
+// 以及与位图字形相关的表。
+//      标签    名称
+//      COLR    颜色表
+//      CPAL    调色板表
+//      CBDT    彩色位图数据
+//      CBLC    彩色位图位置数据
+//      'sbix'  标准位图图形
+//      'SVG '  SVG（可缩放矢量图形）表
+//
+// 其他 OpenType 表。请注意，STAT 表在可变字体中是必需的。此外，'hdmx' 和 VDMX 表在可变
+// 字体中不使用。
+//      标签    名称
+//      DSIG    数字签名
+//      'hdmx'  水平设备度量
+//      'kern'  字距调整
+//      LTSH    线性阈值数据
+//      MERG    合并
+//      'meta'  元数据
+//      STAT    样式属性
+//      PCLT    PCL 5 数据
+//      VDMX    垂直设备度量
+//      'vhea'  垂直度量头
+//      'vmtx'  垂直度量
+
+#define PRH_OTF_BASE_TABLE 0x42415345
+#define PRH_OTF_CFF1_TABLE 0x43464620 // 紧凑字体格式 1.0
+#define PRH_OTF_CFF2_TABLE 0x43464632 // 紧凑字体格式 2.0
+#define PRH_OTF_DSIG_TABLE 0x44534947 // 数组签名
+#define PRH_OTF_GDEF_TABLE 0x47444546
+#define PRH_OTF_GPOS_TABLE 0x47504F53
+#define PRH_OTF_GSUB_TABLE 0x47535542
+#define PRH_OTF_OS_2_TABLE 0x4F532F32 // OS/2 和 Windows 特定度量信息
+#define PRH_OTF_STAT_TABLE 0x53544154 // 样式属性，可变字体必需，非可变字体可选
+#define PRH_OTF_VDMX_TABLE 0x56444D58 // 垂直设备度量，可变字体不使用
+#define PRH_OTF_VORG_TABLE 0x564F5247 // 垂直原点，可选表
+
+#define PRH_OTF_CMAP_TABLE 0x636D6170 // 字符 char 到字形 glyph 的映射
+#define PRH_OTF_HDMX_TABLE 0x68646D78 // 水平设备度量，可变字体不使用
+#define PRH_OTF_HEAD_TABLE 0x68656164 // 字体头
+#define PRH_OTF_HHEA_TABLE 0x68686561 // 水平度量头
+#define PRH_OTF_HMTX_TABLE 0x686D7478 // 水平度量
+#define PRH_OTF_MAXP_TABLE 0x6D617870 // 最大轮廓
+#define PRH_OTF_NAME_TABLE 0x6E616D65 // 命名表
+#define PRH_OTF_POST_TABLE 0x706F7374 // PostScript 信息
+#define PRH_OTF_VHEA_TABLE 0x76686561 // 垂直度量头
+#define PRH_OTF_VMTX_TABLE 0x766D7478 // 垂直度量
+
+// 字符到字形索引映射表（cmap）
+//
+// 表概述。本表定义字符代码到默认字形索引的映射。可以定义不同的子表，每个子表包含不同
+// 字符编码方案的映射。表头指示存在哪些编码的子表。无论编码方案如何，不对应字体中任何
+// 字形的字符代码应映射到字形索引 0。此位置的字形必须是代表缺失字符的特殊字形，通常称
+// 为 .notdef。
+//
+// 每个子表采用七种可能格式之一，并以指示所用格式的格式字段开头。前四种格式（格式 0、2、
+// 4 和 6）最初在 Unicode 2.0 之前定义。这些格式允许 8 位单字节、8 位多字节和 16 位编码。
+// 随着 Unicode 2.0 中辅助平面的引入，Unicode 可寻址代码空间扩展到 16 位以上。为适应这一
+// 点，添加了三种附加格式（格式 8、10 和 12）允许 32 位编码方案。
+//
+// Unicode 的其他增强功能导致了其他子表格式的添加。子表格式 13 允许将许多字符高效映射到
+// 单个字形；这对于"最后手段"字体很有用，这些字体为所有可能的 Unicode 字符提供回退渲染，
+// 并为不同的 Unicode 范围提供不同的回退字形。子表格式 14 提供支持 Unicode 变体序列的统
+// 一机制。
+//
+// 在七种可用格式中，并非所有格式今天都常用。格式 4 或 12 适用于大多数新字体，取决于支持
+// 的 Unicode 字符库。格式 14 在许多应用程序中用于支持 Unicode 变体序列。某些平台还使用
+// 格式 13 作为最后手段回退字体。其他子表格式不建议用于新字体。然而，应用程序开发人员应
+// 预期字体中可能使用任何格式。注意，使用较新子表格式的字体的 'cmap' 表版本号保持为 0x0000。
+//
+// 'cmap' 表头。字符到字形索引映射表的组织结构如下。
+//      类型    名称        描述
+//      uint16  version     表版本号（0）
+//      uint16  numTables   后续编码表的数量
+//      EncodingRecord encodingRecords[numTables]
+//
+// 编码记录和编码。编码记录（EncodingRecord）数组指定特定编码以及每个编码的子表偏移。
+//      类型        名称            描述
+//      uint16      platformID      平台 ID
+//      uint16      encodingID      平台特定编码 ID
+//      Offset32    subtableOffset  从表开头到此编码子表的字节偏移
+//
+// 编码记录中的平台 ID 和平台特定编码 ID 用于指定特定字符编码。对于 Macintosh 平台，映射
+// 子表中的语言字段也用于此目的。'cmap' 表头中的编码记录条目必须首先按平台 ID 排序，然后
+// 按平台特定编码 ID 排序，然后按相应子表中的语言字段排序。每个平台 ID、平台特定编码 ID
+// 和子表语言组合在 'cmap' 表中只能出现一次。
+//
+// 除格式 14 子表外，所有其他子表都是互斥的：应用程序应选择并使用其中一个，而忽略其他子表。
+// 如果使用 Unicode 子表（平台 0，或平台 3 编码 1 或 10），则还可以补充使用平台 0 编码 5
+// 的格式 14 子表来映射 Unicode 变体序列。
+//
+// 如果字体同时包含 16 位编码（通常是格式 4）和 32 位编码（格式 10 或 12）的 Unicode 子表，
+// 则 32 位编码子表支持的字符应是 16 位编码子表支持字符的超集，应用程序应使用 32 位编码。
+// 字体不应包含同时使用格式 4 和格式 6 的 16 位 Unicode 子表，应使用格式 4。同样，字体不应
+// 包含同时使用格式 10 和格式 12 的 32 位 Unicode 子表，应使用格式 12。
+//
+// 如果字体包含相同格式但不同平台 ID 的 Unicode 子表的编码记录，应用程序可以选择合适的那个，
+// 但应在每次使用字体时一致地进行此选择。
+//
+// 平台 ID。定义了以下平台 ID，平台 ID 值 240 到 255 保留给用户定义的平台，不得分配给
+// 注册的平台。
+//      平台 ID     平台名称            平台特定编码 ID
+//      0           Unicode             各种
+//      1           Macintosh           脚本管理器代码
+//      2           ISO [已弃用]        ISO 编码 [已弃用]
+//      3           Windows             Windows 编码
+//      4           自定义（Custom）    自定义
+
+#define prh_otf_cmap_platform_unicode        0
+#define prh_otf_cmap_platform_macintosh      1
+#define prh_otf_cmap_platform_iso_deprecated 2 // 已废弃
+#define prh_otf_cmap_platform_windows        3
+#define prh_otf_cmap_platform_custom         4
+#define prh_otf_cmap_platform_user_defined   240 // 240 ~ 255
+#define prh_otf_cmap_platform_user_last      255
+
+typedef struct {
+    prh_r16 platform_id; // 编码记录必需先按平台 ID 排序，然后按编码 ID 排序，然后按记录中的语言字段（language field）排序
+    prh_r16 encoding_id; // 每组（平台ID + 编码ID + 语言）的记录只能唯一有一个
+    prh_r32 record_offset; // 基于 cmap 表头的字节偏移
+} prh_font_cmap_header;
+
+typedef struct {
+    prh_r16 version;
+    prh_r16 numrecords;
+    prh_font_cmap_header header[1];
+} prh_font_cmap_table;
+
+prh_r16 prh_font_find_table(prh_open_font *f, prh_r32 table_tag) { // 返回 0 表示失败
+    prh_r16 numtables = prh_font_table_count(f);
+    for (prh_r16 i = 1; i <= numtables; i += 1) {
+        prh_font_table *table = f->table_header + i;
+        if (table->tabletag == table_tag) return i;
+    }
+    return 0;
+}
+
+prh_byte *prh_load_font_table(prh_open_font *f, prh_r16 table_index) {
+    prh_assert(table_index > 0 && table_index <= prh_font_table_count(f));
+    prh_font_table *t = f->table_header + table_index;
+    prh_r32 round_length = prh_round_r32_04_byte(t->length);
+    prh_byte *table_data; prh_da_init(table_data, round_length);
+    prh_pread_exact_bytes(&f->font_file->reader, table_data, round_length, t->offset);
+    return table_data;
+}
+
+// Unicode 平台（平台 ID = 0）。为 Unicode 平台定义了以下编码 ID：
+//      编码 ID     描述
+//      0           Unicode 1.0 语义 [已弃用]
+//      1           Unicode 1.1 语义 [已弃用]
+//      2           ISO/IEC 10646 语义 [已弃用]
+//      3           Unicode 2.0 及更高版本语义，仅 Unicode BMP
+//      4           Unicode 2.0 及更高版本语义，完整 Unicode 库
+//      5           Unicode 变体序列，用于子表格式 14
+//      6           完整 Unicode 库，用于子表格式 13
+//
+//      * 子表格式 14 只能使用在 UNICODE 平台并使用 5 编码
+//      * 子表格式 13 只能使用在 UNICODE 平台并使用 6 编码
+//
+// 编码 ID 3 应与 'cmap' 子表格式 4 或 6 结合使用。编码 ID 4 应与子表格式 10 或 12 结合
+// 使用。字体支持的 Unicode 变体序列应在 'cmap' 表中使用格式 14 子表指定。格式 14 子表只
+// 能用于平台 ID 0 和编码 ID 5，编码 ID 5 只能与格式 14 子表一起使用。编码 ID 6 只能与
+// 'cmap' 子表格式 13 结合使用，子表格式 13 只能用于平台 ID 0 和编码 ID 6。
+
+#define prh_otf_cmap_unicode_1_0_deprecated                         0 // 已废弃
+#define prh_otf_cmap_unicode_1_1_deprecated                         1 // 已废弃
+#define prh_otf_cmap_unicode_iso_deprecated                         2 // 已废弃
+#define prh_otf_cmap_unicode_bmp_only                               3
+#define prh_otf_cmap_unicode_full_repertoire                        4
+#define prh_otf_cmap_unicode_variation_sequences_for_format_14      5
+#define prh_otf_cmap_unicode_full_repertoire_for_format_13          6
+
+// Macintosh 平台（平台 ID = 1）。旧版 Macintosh 版本要求字体具有平台 ID 1 的 'cmap' 子表。
+// 对于当前 Apple 平台，不鼓励使用平台 ID 1。有关为 Macintosh 平台定义的编码 ID 的详细信息，
+// 请参阅 'name' 表章节。
+
+#define prh_otf_cmap_macintosh_roman 0
+#define prh_otf_cmap_macintosh_japanese 1
+#define prh_otf_cmap_macintosh_chinese_traditional 2
+#define prh_otf_cmap_macintosh_korean 3
+#define prh_otf_cmap_macintosh_arabic 4
+#define prh_otf_cmap_macintosh_hebrew 5
+#define prh_otf_cmap_macintosh_greek 6
+#define prh_otf_cmap_macintosh_russian 7
+#define prh_otf_cmap_macintosh_rsymbol 8
+#define prh_otf_cmap_macintosh_devanagari 9
+#define prh_otf_cmap_macintosh_gurmukhi 10
+#define prh_otf_cmap_macintosh_gujarati 11
+#define prh_otf_cmap_macintosh_odia 12
+#define prh_otf_cmap_macintosh_bangla 13
+#define prh_otf_cmap_macintosh_tamil 14
+#define prh_otf_cmap_macintosh_telugu 15
+#define prh_otf_cmap_macintosh_kannada 16
+#define prh_otf_cmap_macintosh_malayalam 17
+#define prh_otf_cmap_macintosh_sinhalese 18
+#define prh_otf_cmap_macintosh_burmese 19
+#define prh_otf_cmap_macintosh_khmer 20
+#define prh_otf_cmap_macintosh_thai 21
+#define prh_otf_cmap_macintosh_laotian 22
+#define prh_otf_cmap_macintosh_georgian 23
+#define prh_otf_cmap_macintosh_armenian 24
+#define prh_otf_cmap_macintosh_chinese_simplified 25
+#define prh_otf_cmap_macintosh_tibetan 26
+#define prh_otf_cmap_macintosh_mongolian 27
+#define prh_otf_cmap_macintosh_geez 28
+#define prh_otf_cmap_macintosh_slavic 29
+#define prh_otf_cmap_macintosh_vietnamese 30
+#define prh_otf_cmap_macintosh_sindhi 31
+#define prh_otf_cmap_macintosh_uninterpreted 32
+
+// ISO 平台（平台 ID = 2）。此平台 ID 的使用已弃用。为 ISO 平台定义了以下编码 ID：
+//      代码    ISO 编码
+//      0       7 位 ASCII
+//      1       ISO 10646
+//      2       ISO 8859-1
+
+#define prh_otf_cmap_iso_ascii_deprecated   0
+#define prh_otf_cmap_iso_10646_deprecated   1
+#define prh_otf_cmap_iso_88591_deprecated   2
+
+// Windows 平台（平台 ID = 3）。Windows 平台支持多种编码。为 Windows 创建字体时，应始终使
+// 用 Unicode 'cmap' 子表，平台 3 与编码 1 或 10。Windows 平台支持以下编码 ID：
+//      平台 ID     编码 ID     描述
+//      3           0           Symbol
+//      3           1           Unicode BMP
+//      3           2           ShiftJIS
+//      3           3           PRC
+//      3           4           Big5
+//      3           5           Wansung
+//      3           6           Johab
+//      3           7           保留
+//      3           8           保留
+//      3           9           保留
+//      3           10          完整 Unicode 库
+//
+// 仅支持 Unicode BMP 字符（U+0000 到 U+FFFF）的 Windows 平台字体必须使用编码 1 和格式 4
+// 子表。此编码不得用于支持 Unicode 辅助平面字符。
+//
+// 在 Windows 平台上支持 Unicode 辅助平面字符（U+10000 到 U+10FFFF）的字体必须使用编码 10
+// 和格式 12 子表。
+//
+// 符号编码是为了支持包含 Unicode 或其他标准编码不支持的任意装饰或符号的字体而创建的。通
+// 常使用格式 4 子表，最多 224 个图形字符分配在从 0xF020 开始的代码位置。这对应于 Unicode
+// 私用区（PUA）的子范围，尽管这不是 Unicode 编码。在旧版使用中，某些应用程序会使用单字节
+// 编码表示符号字符，然后将 0x20 映射到字体中的 OS/2.usFirstCharIndex 值。在新字体中，Unicode
+// 中不存在的符号或字符应使用 Unicode 'cmap' 子表中的 PUA 代码点编码。有关更多信息，请参
+// 阅建议章节。https://learn.microsoft.com/en-us/typography/opentype/spec/recom#cmap-table
+
+#define prh_otf_cmap_windows_symbol             0
+#define prh_otf_cmap_windows_bmp_only           1
+#define prh_otf_cmap_windows_shiftjis           2
+#define prh_otf_cmap_windows_prc                3
+#define prh_otf_cmap_windows_big5               4
+#define prh_otf_cmap_windows_wansung            5
+#define prh_otf_cmap_windows_johab              6
+#define prh_otf_cmap_windows_reserved_1         7
+#define prh_otf_cmap_windows_reserved_2         8
+#define prh_otf_cmap_windows_reserved_3         9
+#define prh_otf_cmap_windows_full_repertoire    10
+
+// 自定义平台（平台 ID = 4）和 OTF Windows NT 兼容性映射。平台 ID 4 是一个遗留平台，创
+// 建用于为已适应旧 Type 1 字体的 OpenType 字体提供旧应用程序兼容性。此平台今天不常用，
+// 不应在新字体中使用。
+//      编码 ID     自定义编码
+//      0-255       OTF Windows NT 兼容性映射
+//
+// 此 'cmap' 平台为非 Unicode 应用程序提供兼容性机制，这些应用程序使用该字体时就像它是
+// Windows ANSI 编码一样。非 Windows ANSI Type 1 字体，例如 Adobe 过去发布的西里尔文和
+// 中欧字体，在 .PFM 文件的 CharSet 字段中记录 "0"（Windows ANSI）；适用于 Windows 9x
+// 的 Adobe Type Manager 完全忽略 CharSet。Adobe 在每个从 Type1 字体转换的 OpenType 字
+// 体中提供此兼容性 'cmap' 编码，其中 Encoding 不是 StandardEncoding。
+//
+// 使用平台 ID 4 时，编码 ID 必须设置为原始 Type 1 字体的 .PFM 文件中存在的 Windows 字
+// 符集值（范围为 0 到 255，含）。
+//
+// 如果平台 ID 4、编码 ID 0 – 255 的 'cmap' 编码存在于具有 CFF 轮廓的 OpenType 字体中，
+// 则 Windows NT 中的 OTF 字体驱动程序将执行以下流程。注意，'cmap' 子表需要对其子表使用
+// 格式 0 或 6，并且编码需要与 CFF 的编码相同。
+//  a)  将编码中字符代码 0-255 的字形叠加到其向系统报告的 Unicode 编码中的相应 Windows
+//      ANSI（代码页 1252）Unicode 值上
+//  b)  将 Windows ANSI（CharSet 0）添加到字体支持的 CharSet 列表中，以及
+//  c)  将编码 ID 的值视为 Windows CharSet 值，并将其添加到字体支持的 CharSet 列表中
+
+typedef struct {
+    prh_open_font *font;
+    prh_byte *table_data;
+    prh_r16 table_index;
+    prh_r16 record_index;
+    prh_r32 table_offset;
+    prh_r32 table_length;
+    prh_r16 cmap_version;
+    prh_r16 cmap_records;
+    prh_r16 record_platform; // 编码记录必需先按平台 ID 排序，然后按编码 ID 排序，然后按记录中的语言字段（language field）排序
+    prh_r16 record_encoding; // 每组（平台ID + 编码ID + 语言）的记录只能唯一有一个
+    prh_r32 record_offset;
+} prh_font_cmap_record;
+
+const void *prh_impl_get_cmap_record_platform_string(prh_font_cmap_record *p) {
+    const char *platform[] = {"Unicode", "Macintosh", "ISO [deprecated]", "Windows", "Custom"};
+    if (p->record_platform <= 4) return platform[p->record_platform];
+    if (p->record_platform >= 240 && p->record_platform <= 255) return "User Defined";
+    return "Unknown Platform ID";
+}
+
+const void *prh_impl_get_cmap_record_encoding_string(prh_font_cmap_record *p) {
+    if (p->record_platform == 0) {
+        const char *unicode_encoding[] = {
+            "Unicode 1.0 [deprecated]",
+            "Unicode 1.1 [deprecated]",
+            "ISO/IEC 10646 [deprecated]",
+            "Unicode 2.0+ BMP only",
+            "Unicode 2.0+ full repertoire",
+            "Unicode variation sequences - for cmap format 14",
+            "Unicode full repertoire - for cmap format 13"};
+        if (p->record_encoding <= 6) return unicode_encoding[p->record_encoding];
+    } else if (p->record_platform == 1) {
+        const char *macintosh_encoding[] = {
+            "Roman", "Japanese", "Chinese Traditional", "Korean", "Arabic", "Hebrew", "Greek", "Russian", "RSymbol", "Devanagari", "Gurmukhi", "Gujarati", "Odia", "Bangla", "Tamil", "Telugu", "Kannada",
+            "Malayalam", "Sinhalese", "Burmese", "Khmer", "Thai", "Laotian", "Georgian", "Armenian", "Chinese Simplified", "Tibetan", "Mongolian", "Geez", "Slavic", "Vietnamese", "Sindhi", "Uninterpreted"};
+        if (p->record_encoding <= 32) return macintosh_encoding[p->record_encoding];
+    } else if (p->record_platform == 2) {
+        const char *iso_encoding[] = {"7-bit ASCII", "ISO 10646", "ISO 8859-1"};
+        if (p->record_encoding <= 2) return iso_encoding[p->record_encoding];
+    } else if (p->record_platform == 3) {
+        const char *windows_encoding[] = {"Symbol", "Unicode BMP", "ShiftJIS", "PRC", "Big5", "Wansung", "Johab", "Reserved", "Reserved", "Reserved", "Unicode full repertoire"};
+        if (p->record_encoding <= 10) return windows_encoding[p->record_encoding];
+    } else if (p->record_platform == 4) {
+        if (p->record_encoding <= 255) return "OTF Windows NT compatibility mapping";
+    }
+    return "Unknown Encoding ID";
+}
+
+void prh_impl_print_font_cmap_format_4(prh_font_cmap_record *p);
+void prh_impl_print_font_cmap_format_12_13(prh_font_cmap_record *p);
+void prh_impl_print_font_cmap_format_14(prh_font_cmap_record *p);
+
+void prh_impl_print_font_cmap_record(prh_font_cmap_record *p) {
+    prh_byte *record_data = p->table_data + p->record_offset;
+    prh_r16 record_format = prh_bp_2b_to_host(record_data);
+
+    prh_print(
+        "----------------------------\n"
+        "cmap record index %d / %d\n"
+        "cmap record platform %d %s\n"
+        "cmap record encoding %d %s\n"
+        "cmap record offset %.10d\n"
+        "cmap record format %d\n",
+        (prh_reg)p->record_index + 1,
+        (prh_reg)p->cmap_records,
+        (prh_reg)p->record_platform, prh_impl_get_cmap_record_platform_string(p),
+        (prh_reg)p->record_encoding, prh_impl_get_cmap_record_encoding_string(p),
+        (prh_reg)p->record_offset,
+        (prh_reg)record_format);
+
+    if (record_format == 4) {
+        prh_impl_print_font_cmap_format_4(p);
+    } else if (record_format == 12 || record_format == 13) {
+        prh_impl_print_font_cmap_format_12_13(p);
+    } else if (record_format == 14) {
+        prh_impl_print_font_cmap_format_14(p);
+    }
+}
+
+prh_r32 prh_font_table_checksum(const prh_r32 *table_data, prh_r32 table_length) {
+    prh_r32 sum = 0;
+    const prh_r32 *end = table_data + prh_round_r32_04_byte(table_length) / 4;
+    while (table_data < end) sum += *table_data++;
+    return sum;
+}
+
+void prh_print_font_cmap(prh_open_font *f) {
+    prh_r16 cmap_table_index = prh_font_find_table(f, PRH_OTF_CMAP_TABLE);
+    if (cmap_table_index == 0) {
+        prh_print("table 'cmap' not found\n");
+        return;
+    }
+
+    prh_byte *table_data = prh_load_font_table(f, cmap_table_index);
+    prh_font_table *t = f->table_header + cmap_table_index;
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, t->length);
+
+    prh_font_cmap_table *cmap = (prh_font_cmap_table *)table_data;
+    prh_set_r16_be_to_host(cmap->version);
+    prh_set_r16_be_to_host(cmap->numrecords);
+
+    if (t->length < 4 + sizeof(prh_font_cmap_header) * cmap->numrecords) {
+        prh_print("table 'cmap' invalid length %d numrecord %d\n", (prh_reg)t->length, (prh_reg)cmap->numrecords);
+        return;
+    }
+
+    prh_print(
+        "cmap table index %d / %d\n"
+        "cmap table tag 0x%08x (%c%c%c%c)\n"
+        "cmap table offset %.10d (%d/4)\n"
+        "cmap table length %.10d (%d/4)\n"
+        "cmap table checksum 0x%08x 0x%08x (valid %d)\n"
+        "cmap table version %04x\n",
+        (prh_reg)cmap_table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)t->tabletag,
+        (prh_reg)prh_byte_4(t->tabletag),
+        (prh_reg)prh_byte_3(t->tabletag),
+        (prh_reg)prh_byte_2(t->tabletag),
+        (prh_reg)prh_byte_1(t->tabletag),
+        (prh_reg)t->offset, (prh_reg)t->offset % 4,
+        (prh_reg)t->length, (prh_reg)t->length % 4,
+        (prh_reg)t->checksum, (prh_reg)checksum, (prh_reg)(checksum == t->checksum),
+        (prh_reg)cmap->version);
+
+    prh_font_cmap_record record;
+    for (int i = 0; i < cmap->numrecords; i += 1) {
+        prh_font_cmap_header *header = cmap->header + i;
+        record.font = f;
+        record.table_index = cmap_table_index;
+        record.record_index = i;
+        record.table_offset = t->offset;
+        record.table_length = t->length;
+        record.table_data = table_data;
+        record.cmap_version = cmap->version;
+        record.cmap_records = cmap->numrecords;
+        record.record_platform = prh_r16_be_to_host(header->platform_id);
+        record.record_encoding = prh_r16_be_to_host(header->encoding_id);
+        record.record_offset = prh_r32_be_to_host(header->record_offset);
+        prh_impl_print_font_cmap_record(&record);
+    }
+
+    prh_print("\n");
+    prh_da_free(table_data);
+}
+
+// 'cmap' 子表格式
+//
+// 'cmap' 子表中语言字段的使用。所有 'cmap' 子表格式都包含语言字段。对于平台 ID 不是 Macintosh
+// （平台 ID 1）的所有 'cmap' 子表，语言字段必须设置为零。对于平台 ID 为 Macintosh 的
+// 'cmap' 子表，将此字段设置为 'cmap' 子表的 Macintosh 语言 ID 加一，或者如果 'cmap'
+// 子表不是语言特定的，则设置为零。例如，Mac OS 土耳其语 'cmap' 子表必须将此字段设置为
+// 18，因为土耳其语的 Macintosh 语言 ID 为 17。Mac OS 罗马语 'cmap' 子表必须将此字段设
+// 置为 0，因为 Mac OS 罗马语不是语言特定的编码。
+//
+// 格式 0：字节编码表（Byte Encoding Table）
+//
+// 格式 0 是旧版 Macintosh 平台上使用的标准映射子表，但新版 Apple 平台不需要。'cmap' 子
+// 表格式 0：
+//      类型    名称                描述
+//      uint16  format              格式号设置为 0
+//      uint16  length              子表的字节长度
+//      uint16  language            特定语言
+//      uint8   glyphIdArray[256]   将字符代码映射到字形索引值的数组
+//
+// 这是字符代码到字形索引的简单 1 对 1 映射。字形集限制为 256。如果此格式用于索引到更大
+// 的字形集，则只能访问前 256 个字形。
+
+typedef struct {
+    prh_r16 format;
+    prh_r16 length;
+    prh_r16 language;
+    prh_r08 glyph_id[256];
+} prh_font_cmap_format_0;
+
+prh_r32 prh_font_glyph_index_from_cmap_format_0(prh_font_cmap_format_0 *f, prh_r32 char_code) {
+    if (char_code < (prh_r32)(f->length - 6)) return f->glyph_id[char_code];
+    return 0;
+}
+
+// 格式 2：高字节映射表（High Byte Mapping Through Table）
+//
+// 此子表格式是为遵循日本、中国和韩国字符使用的国家字符代码标准的"双字节"编码创建的。
+// 这些代码标准使用混合 8/16 位编码。此格式今天不常用。在这些混合 8/16 位编码中，某些
+// 字节值表示双字节字符的第一个字节。这些字节值作为双字节字符的第二个字节也是有效的。
+// 此外，即使是双字节字符，字符代码到字形索引值的映射也很大程度上取决于第一个字节。因
+// 此，表以将第一个字节映射到 SubHeader 记录的数组开头。对于双字节字符代码，SubHeader
+// 用于将第二个字节的值映射到字形索引数组的子范围（子数组），如下所述。处理混合 8/16
+// 位文本时，SubHeader 0 是特殊的：它用于单字节字符代码。使用 SubHeader 0 时，不需要第
+// 二个字节；单字节值通过指定的子数组映射。
+//
+// 'cmap' 子表格式 2：
+//      类型        名称                描述
+//      uint16      format              格式号设置为 2
+//      uint16      length              子表的字节长度
+//      uint16      language            特定语言
+//      uint16      subHeaderKeys[256]  将高字节映射到 subHeaders 数组的数组，值为 subHeaders 索引 × 8
+//      SubHeader   subHeaders[ ]       可变长度 SubHeader 记录数组
+//      uint16      glyphIdArray[ ]     可变长度数组，包含用于映射双字节字符低字节的子数组，数组长度为各 entryCount 之和
+//
+// SubHeader 记录的结构如下：
+//      类型    名称            描述
+//      uint16  firstCode       此 SubHeader 的第一个有效低字节
+//      uint16  entryCount      此 SubHeader 中有效低字节的个数
+//      int16   idDelta         请参阅下文
+//      uint16  idRangeOffset   请参阅下文
+//
+// firstCode 和 entryCount 值指定一个从 firstCode 开始、长度等于 entryCount 值的子范围。
+// 此子范围保持在被映射字节的 0-255 范围内。此子范围外的字节映射到字形索引 0（缺失字形）。
+// 字节在此子范围内的偏移量然后用作 glyphIdArray 相应子数组的索引。此子数组的长度也是
+// entryCount。idRangeOffset 的值是 idRangeOffset 字段实际位置之后的字节数，其中对应于
+// firstCode 的 glyphIdArray 元素。
+//
+// 最后，如果从子数组获得的值不为 0（该值表示缺失字形），则应将 idDelta 添加到其中以获
+// 得 glyphIndex。idDelta 值允许相同的子数组用于几个不同的子表头。idDelta 算术是模 65536
+// 的。如果在添加 idDelta 到子数组值后的结果小于零，则添加 65536 以获得有效的字形 ID。
+
+typedef struct {
+    prh_r16 format;
+    prh_r16 length;
+    prh_r16 language;
+    prh_r16 sub_header_offset[256]; // 相当于将字符分成了 256 组，每一组中的字符最多 256 个，字体实现的字符在范围 [first_code, first_code + entry_count) 内
+} prh_font_cmap_format_2;
+
+typedef struct {
+    prh_r16 first_code;
+    prh_r16 entry_count;
+    prh_i16 glyph_id_delta;
+    prh_r16 glyph_id_offset;
+} prh_font_cmap_sub_header;
+
+prh_r32 prh_font_glyph_index_from_cmap_format_2(prh_font_cmap_record *p, prh_r16 char_code) {
+    prh_font_cmap_format_2 *record = (prh_font_cmap_format_2 *)(p->table_data + p->record_offset);
+    prh_r16 format = prh_bp_2b_to_host((prh_byte *)&record->format);
+    prh_r16 length = prh_bp_2b_to_host((prh_byte *)&record->length);
+    prh_r16 sub_header_offset = prh_bp_2b_to_host((prh_byte *)(record->sub_header_offset + prh_byte_2(char_code)));
+    prh_assert(format == 2 && sub_header_offset % sizeof(prh_font_cmap_sub_header) == 0);
+    prh_assert(length > sizeof(prh_font_cmap_format_2) && (prh_byte *)record + length <= p->table_data + p->table_length);
+
+    prh_font_cmap_sub_header *sub_header = (prh_font_cmap_sub_header *)((prh_byte *)(record + 1) + sub_header_offset);
+    prh_assert((prh_byte *)sub_header + sizeof(prh_font_cmap_sub_header) <= (prh_byte *)record + length);
+    prh_r16 first_code = prh_bp_2b_to_host((prh_byte *)&sub_header->first_code);
+    prh_byte low_byte = prh_byte_1(char_code); prh_r32 i = low_byte - first_code;
+    if (low_byte < first_code || i >= prh_bp_2b_to_host((prh_byte *)&sub_header->entry_count)) return 0;
+
+    prh_r16 glyph_id_offset = prh_bp_2b_to_host((prh_byte *)&sub_header->glyph_id_offset);
+    prh_r16 *ptr_glyph_index = (prh_r16 *)((prh_byte *)&sub_header->glyph_id_offset + glyph_id_offset) + i;
+    prh_assert((prh_byte *)ptr_glyph_index < (prh_byte *)record + length);
+    prh_r16 glyph_index = prh_bp_2b_to_host((prh_byte *)ptr_glyph_index);
+    return glyph_index == 0 ? 0 : (prh_r32)(prh_r16)((prh_i16)glyph_index + (prh_i16)prh_bp_2b_to_host((prh_byte *)&sub_header->glyph_id_delta));
+}
+
 #ifdef PRH_FONT_IMPLEMENTATION
 
 #endif // PRH_FONT_IMPLEMENTATION
