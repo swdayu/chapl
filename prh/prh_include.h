@@ -41180,6 +41180,773 @@ prh_r32 prh_font_glyph_index_from_cmap_format_2(prh_font_cmap_record *p, prh_r16
     return glyph_index == 0 ? 0 : (prh_r32)(prh_r16)((prh_i16)glyph_index + (prh_i16)prh_bp_2b_to_host((prh_byte *)&sub_header->glyph_id_delta));
 }
 
+// 格式 4：段映射到增量值（Segment Mapping to Delta Values）
+//
+// 这是仅支持 Unicode 基本多文种平面字符（U+0000 到 U+FFFF）的字体的标准字符到字形索引
+// 映射子表。注意：要支持 Unicode 辅助平面字符，应使用格式 12。
+//
+// 当字体表示的字符的字符代码落入多个连续范围时，使用此格式，可能在某些或所有范围中有
+// 空洞（即，某些范围中的代码可能没有在字体中的表示）。格式相关数据分为三部分，必须按
+// 以下顺序出现：
+//  1.  四字（four-word）头部给出段列表优化搜索的参数
+//  2.  四个并行数组描述段（每个连续代码范围一个段）
+//  3.  可变长度的字形 ID 数组（无符号字）
+//
+// 'cmap' 子表格式 4：
+//      类型    名称                        描述
+//      uint16  format                      格式号设置为 4
+//      uint16  length                      子表的字节长度
+//      uint16  language                    特定语言
+//      uint16  segCountX2                  2 × segCount
+//      uint16  searchRange                 小于或等于 segCount 的 2 的最大幂乘以 2，2**floor(log2(segCount)) * 2，其中**是幂运算符
+//      uint16  entrySelector               小于或等于 segCount 的 2 的最大幂的 Log2，log2(searchRange/2)，等于 floor(log2(segCount))
+//      uint16  rangeShift                  segCount 乘以 2 减去 searchRange，(segCount * 2) - searchRange
+//      uint16  endCode[segCount]           每个段的结束字符代码，最后一个=0xFFFF
+//      uint16  reservedPad                 设置为 0
+//      uint16  startCode[segCount]         每个段的起始字符代码
+//      int16   idDelta[segCount]           段中所有字符代码的增量
+//      uint16  idRangeOffset[segCount]     glyphIdArray 的偏移量或 0
+//      uint16  glyphIdArray[ ]             任意长度的字形索引数组
+//
+// 段数由 segCount 指定，segCount 不在头部直接给出，但可以从 segCountX2 轻松推导。所有其他
+// 头部参数都从中推导。searchRange 值是小于或等于 segCount 的 2 的最大幂的两倍。例如，如果
+// segCount=39，我们有以下：
+//      segCountX2      78
+//      searchRange     64 (= 2 × 小于等于39的最大2的幂)
+//      entrySelector   5 (= log232)
+//      rangeShift      14 (= 2 × 39 - 64)
+//
+// 为了协助快速二分搜索，searchRange、entrySelector 和 rangeShift 字段作为参数包含在内，
+// 可用于配置搜索算法。特别是，当条目数为 2 的幂时，二分搜索是最优的。searchRange 字段
+// 提供可以用该约束搜索的最大项目数（2 的最大幂）。rangeShift 字段提供还需要搜索的剩余
+// 项目数。entrySelector 字段指示需要进入二叉树的最大层数。在具有有限硬件功能的设备上的
+// 早期实现中，searchRange、entrySelector 和 rangeShift 字段提供的优化非常重要。它们在
+// 现代设备上的重要性较低，但仍可能在某些实现中使用。然而，不正确的值可能被用作对某些实
+// 现的攻击向量。由于这些值可以在解析文件时从 segCountX2 字段推导，强烈建议解析实现不依
+// 赖字体中的 searchRange、entrySelector 和 rangeShift 字段，而是从 segCountX2 独立推导
+// 它们。然而，字体文件应继续为这些字段提供有效值，以维持与所有现有实现的兼容性。
+//
+// 每个段由 startCode 和 endCode 描述，以及用于映射段中字符代码的 idDelta 和 idRangeOffset。
+// 段按 endCode 值递增顺序排序，段值在四个并行数组中指定。搜索第一个大于或等于要映射的字
+// 符代码的 endCode。如果相应的 startCode 小于或等于字符代码，则使用相应的 idDelta 和
+// idRangeOffset 将字符代码映射到字形索引（否则，返回 missingGlyph）。为了使搜索终止，
+// 最终的 startCode 和 endCode 值必须为 0xFFFF。此段不需要包含任何有效映射。它可以将单
+// 个字符代码 0xFFFF 映射到 missingGlyph。但是，该段必须存在。
+//
+// 如果段的 idRangeOffset 值不为 0，则字符代码的映射依赖于 glyphIdArray。从 startCode 的
+// 字符代码偏移量添加到 idRangeOffset 值。此总和用作从 idRangeOffset 本身当前位置开始的偏
+// 移量，以索引出正确的 glyphIdArray 值。这种晦涩的索引技巧有效，因为 glyphIdArray 在字体
+// 文件中紧随 idRangeOffset 之后。产生字形索引的 C 表达式为：
+//      glyphId = *(idRangeOffset[i]/2 + (c - startCode[i]) + &idRangeOffset[i])
+//
+// 值 c 是所讨论的字符代码，i 是 c 出现的段索引。如果从索引操作获得的值不是 0（表示 missingGlyph），
+// 则将 idDelta[i] 添加到其中以获得字形索引。idDelta 算术是模 65536 的。如果 idRangeOffset
+// 为 0，则直接将 idDelta 值添加到字符代码偏移量（即 idDelta[i] + c）以获得相应的字形索引。
+// 同样，idDelta 算术是模 65536 的。如果在添加 idDelta[i] + c 后的结果小于零，则添加 65536
+// 以获得有效的字形 ID。
+//
+// 例如，将字符 10-20、30-90 和 153-480 映射到连续字形索引范围的表的变体部分可能如下所示：
+//      segCountX2:     8
+//      searchRange:    8
+//      entrySelector:  2
+//      rangeShift:     0
+//      endCode:        20 90 480 0xffff
+//      reservedPad:    0
+//      startCode:      10 30 153 0xffff
+//      idDelta:        -9 -18 -80 1
+//      idRangeOffset:  0 0 0 0
+//
+// 此表产生以下映射，注意，增量值可以重新排列以重新排序段。
+//      10 ⇒ 10 - 9 = 1
+//      20 ⇒ 20 - 9 = 11
+//      30 ⇒ 30 - 18 = 12
+//      90 ⇒ 90 - 18 = 72
+//      153 ⇒ 153 - 80 = 73
+//      480 ⇒ 480 - 80 = 400
+//      0xffff ⇒ 0
+
+#define prh_impl_font_cmap_format_4_end_code(ptr_end_code) prh_bp_2b_to_host((prh_byte *)(ptr_end_code))
+
+prh_r32 prh_font_glyph_index_from_cmap_format_4(prh_font_cmap_record *p, prh_r32 char_code) {
+    prh_byte *record = p->table_data + p->record_offset;
+    if (char_code > 0xFFFF) return 0;
+
+    prh_r16 format = prh_bp_2b_to_host(record);
+    prh_r16 length = prh_bp_2b_to_host(record + 2);
+    prh_r16 num_segments = prh_bp_2b_to_host(record + 6) >> 1;
+    prh_assert(format == 4);
+
+    prh_byte *ptr_end_code = record + 14;
+    prh_byte *ptr_start_code = ptr_end_code + 2 + 2 * num_segments;
+    prh_byte *ptr_glyph_id_delta = ptr_start_code + 2 * num_segments;
+    prh_byte *ptr_glyph_id_offset = ptr_glyph_id_delta + 2 * num_segments;
+    prh_assert(ptr_end_code + 2 + num_segments * 8 <= record + length && record + length <= p->table_data + p->table_length);
+
+    prh_reg i;
+    prh_generic_bsearch_first_less_equal(i, (prh_r16)char_code, (prh_r16 *)ptr_end_code, num_segments, prh_impl_font_cmap_format_4_end_code);
+    prh_r16 start_code = prh_bp_2b_to_host(ptr_start_code + 2 * i);
+    if (char_code < start_code) return 0;
+
+    prh_r16 glyph_id_offset = prh_bp_2b_to_host(ptr_glyph_id_offset + 2 * i);
+    if (glyph_id_offset == 0) return (prh_r32)(prh_r16)((prh_i16)char_code + (prh_i16)prh_bp_2b_to_host(ptr_glyph_id_delta + 2 * i));
+    prh_byte *glyph_id = ptr_glyph_id_offset + glyph_id_offset + 2 * (char_code - start_code);
+    prh_assert(glyph_id < record + length);
+    return prh_bp_2b_to_host(glyph_id);
+}
+
+void prh_impl_print_font_cmap_format_4(prh_font_cmap_record *p) {
+    prh_byte *record = p->table_data + p->record_offset;
+    prh_r16 format = prh_bp_2b_to_host(record);
+    prh_r16 length = prh_bp_2b_to_host(record + 2);
+    prh_r16 language = prh_bp_2b_to_host(record + 4);
+    prh_r16 num_segments = prh_bp_2b_to_host(record + 6) >> 1;
+    prh_assert(format == 4);
+
+    prh_byte *end_code = record + 14;
+    prh_byte *header_end = end_code + 2 + num_segments * 8;
+    prh_byte *record_end = record + length;
+    if (record_end < header_end || record_end > p->table_data + p->table_length) {
+        prh_print("table 'cmap' record format 4 invalid length %d %d %d with segments %d\n",
+            (prh_reg)(header_end - record), (prh_reg)length, (prh_reg)(p->table_length - p->record_offset), (prh_reg)num_segments);
+        return;
+    }
+
+    prh_print(
+        "----------------------------\n"
+        "cmap record format 4 length %d\n"
+        "cmap record format 4 language %04x\n"
+        "cmap record format 4 segments %d\n",
+        (prh_reg)length,
+        (prh_reg)language,
+        (prh_reg)num_segments);
+
+    prh_r32 print_count = 8;
+    prh_r32 seg_count = num_segments > print_count ? print_count : num_segments;
+    prh_byte *start_code = end_code + 2 * num_segments + 2;
+    prh_byte *glyph_id_delta = start_code + 2 * num_segments;
+    prh_byte *glyph_id_offset = glyph_id_delta + 2 * num_segments;
+    prh_r32 i = 0;
+
+    for (; i < seg_count; i += 1) {
+        prh_r16 start_char_code = prh_bp_2b_to_host(start_code + 2 * i);
+        prh_r16 end_char_code = prh_bp_2b_to_host(end_code + 2 * i);
+        prh_print(
+            "cmap record format 4 segment index %d / %d\n"
+            "cmap record format 4 segment range U+%04x U+%04x (%05d %05d) glyph index %d %d\n"
+            "cmap record format 4 glyph id delta %d\n"
+            "cmap record format 4 glyph id offset %d\n",
+            (prh_reg)i + 1,
+            (prh_reg)num_segments,
+            (prh_reg)start_char_code,
+            (prh_reg)end_char_code,
+            (prh_reg)start_char_code,
+            (prh_reg)end_char_code,
+            (prh_reg)prh_font_glyph_index_from_cmap_format_4(p, start_char_code),
+            (prh_reg)prh_font_glyph_index_from_cmap_format_4(p, end_char_code),
+            (prh_reg)(prh_int)(prh_i16)prh_bp_2b_to_host(glyph_id_delta + 2 * i),
+            (prh_reg)prh_bp_2b_to_host(glyph_id_offset + 2 * i));
+    }
+
+    i = num_segments > print_count ? num_segments - print_count : 0;
+    for (; i < num_segments; i += 1) {
+        prh_r16 start_char_code = prh_bp_2b_to_host(start_code + 2 * i);
+        prh_r16 end_char_code = prh_bp_2b_to_host(end_code + 2 * i);
+        prh_print(
+            "cmap record format 4 segment index %d / %d\n"
+            "cmap record format 4 segment range U+%04x U+%04x (%05d %05d) glyph index %d %d\n"
+            "cmap record format 4 glyph id delta %d\n"
+            "cmap record format 4 glyph id offset %d\n",
+            (prh_reg)i + 1,
+            (prh_reg)num_segments,
+            (prh_reg)start_char_code,
+            (prh_reg)end_char_code,
+            (prh_reg)start_char_code,
+            (prh_reg)end_char_code,
+            (prh_reg)prh_font_glyph_index_from_cmap_format_4(p, start_char_code),
+            (prh_reg)prh_font_glyph_index_from_cmap_format_4(p, end_char_code),
+            (prh_reg)(prh_int)(prh_i16)prh_bp_2b_to_host(glyph_id_delta + 2 * i),
+            (prh_reg)prh_bp_2b_to_host(glyph_id_offset + 2 * i));
+    }
+}
+
+// 格式 6：修剪表映射（Trimmed Table Mapping）
+//
+// 格式 6 旨在将 16 位字符映射到字形索引，当字体的字符代码落入单个连续范围时。'cmap' 子表
+// 格式 6：
+//      类型    名称                        描述
+//      uint16  format                      格式号设置为 6
+//      uint16  length                      子表的字节长度
+//      uint16  language                    特定语言
+//      uint16  firstCode                   子范围的起始字符代码
+//      uint16  entryCount                  子范围中的字符代码数
+//      uint16  glyphIdArray[entryCount]    范围内字符代码的字形索引值数组
+//
+// firstCode 和 entryCount 值指定可能字符代码范围内的子范围（从 firstCode 开始，长度 =
+// entryCount）。此子范围外的代码映射到字形索引 0。代码（从第一个代码开始）在此子范围内
+// 的偏移量用作 glyphIdArray 的索引，后者提供字形索引值。
+
+typedef struct {
+    prh_r16 format;
+    prh_r16 length;
+    prh_r16 language;
+    prh_r16 first_code;
+    prh_r16 entry_count;
+    prh_r16 glyph_id[1];
+} prh_font_cmap_format_6;
+
+prh_r32 prh_font_glyph_index_from_cmap_format_6(prh_font_cmap_format_6 *f, prh_r32 char_code) {
+    if (char_code >= f->first_code) {
+        prh_r32 i = char_code - f->first_code;
+        if (i < f->entry_count) return f->glyph_id[i];
+    }
+    return 0;
+}
+
+// 格式 8：混合 16 位和 32 位覆盖（Mixed 16-bit and 32-bit Coverage）
+//
+// 子表格式 8 旨在支持 UTF-16 编码中的 Unicode 辅助平面字符，尽管它不常用。格式 8 类似于
+// 格式 2，因为它提供混合长度字符代码。然而，它允许 16 位和 32 位字符代码，而不是 8 位和
+// 16 位字符代码。
+//
+// 如果字体包含 Unicode 辅助平面字符（U+10000 到 U+10FFFF），则很可能它还包含 Unicode BMP
+// 字符（U+0000 到 U+FFFF）。因此，需要映射 16 位和 32 位字符代码的混合。做了一个简化假设：
+// 即没有 32 位字符代码与任何 16 位字符代码共享相同的前 16 位。由于 Unicode 代码空间仅扩展
+// 到 U+10FFFF，潜在冲突仅存在于字符 U+0000 到 U+0010，这些是非打印控制字符。这意味着可以
+// 直接通过查看 16 位值来确定特定 16 位值是独立字符代码还是 32 位字符代码的开始，无需进一
+// 步信息。
+//
+// 'cmap' 子表格式 8：
+//      类型                名称                描述
+//      uint16              format              子表格式，设置为 8
+//      uint16              reserved            保留，设置为 0
+//      uint32              length              此子表的字节长度（包括头部）
+//      uint32              language            特定语言
+//      uint8               is32[8192]          紧密打包的位数组（总共 8K 字节），指示特定 16 位（索引）值是否是 32 位字符代码的开始
+//      uint32              numGroups           后续分组的数量
+//      SequentialMapGroup  groups[numGroups]   SequentialMapGroup 记录数组
+//
+// 每个顺序映射组记录指定一个字符范围以及从第一个字符映射的起始字形 ID。后续字符的字形
+// ID 按顺序排列。SequentialMapGroup 记录：
+//      类型    名称            描述
+//      uint32  startCharCode   此组中的第一个字符代码，注意，如果此组用于一个或多个 16 位字符代码（由 is32 数组确定），则此 32 位值的高 16 位设置为零
+//      uint32  endCharCode     此组中的最后一个字符代码，与上面 startCharCode 列出的条件相同
+//      uint32  startGlyphID    对应于起始字符代码的字形索引
+//
+// 这里有一些说明。endCharCode 被使用，而不是计数，因为组匹配的比较通常在现有字符代码上进行，
+// 而显式拥有 endCharCode 可以节省每个组进行加法运算的必要性。组必须按 startCharCode 递增排
+// 序。组的 endCharCode 必须小于以下组的 startCharCode（如果有）。
+//
+// 要确定特定字（cp）是否是 32 位代码点的前半部分，可以使用 is32[cp/8] & (1 << (7 - (cp % 8)))
+// 的表达式。如果此值非零，则该字是 32 位代码点的前半部分。0 不是 32 位代码点高字（high word）
+// 的特殊值。字体不得同时具有代码点 0x0000 的字形和高字为 0x0000 的代码点的字形。
+//
+// 即使字体不包含特定 16 位起始值的字形，指示特定 16 位值是否是 32 位字符代码开始的打包位数组
+// 的存在也是有用的。这是因为系统软件通常需要知道下一个字符提前多少字节开始，即使当前字符映射
+// 到缺失字形。通过在表中显式包含此信息，不需要将"秘密"知识编码到操作系统中。
+//
+// 虽然此格式是为了支持 Unicode 辅助平面字符而创建的，但它没有得到广泛支持或使用。此外，除
+// Unicode 之外的任何字符编码都不使用混合 16/32 位字符。不鼓励使用此格式。
+
+typedef struct {
+    prh_r32 start_char_code;
+    prh_r32 end_char_code;
+    prh_r32 start_glyph_id;
+} prh_font_cmap_sequential_group;
+
+typedef struct {
+    prh_r16 format;
+    prh_r16 reserved;
+    prh_r32 length;
+    prh_r32 language;
+    prh_r08 is32[8192];
+    prh_r32 num_groups;
+    prh_font_cmap_sequential_group groups[1];
+} prh_font_cmap_format_8;
+
+// 格式 10：修剪数组（Trimmed Array）
+//
+// 子表格式 10 旨在支持 Unicode 辅助平面字符，尽管它不常用。格式 10 类似于格式 6，因为它
+// 为紧密的字符代码范围定义了修剪数组。然而，它使用 32 位字符代码。'cmap' 子表格式 10：
+//      类型    名称                描述
+//      uint16  format              子表格式，设置为 10
+//      uint16  reserved            保留，设置为 0
+//      uint32  length              此子表的字节长度（包括头部）
+//      uint32  language            特定语言
+//      uint32  startCharCode       覆盖的第一个字符代码
+//      uint32  numChars            覆盖的字符代码数
+//      uint16  glyphIdArray[]      覆盖的字符代码的字形索引数组
+//
+// 此格式未广泛使用，Windows 平台不支持。它最适合仅支持连续范围的 Unicode 辅助平面字符的
+// 字体，但此类字体很少见。
+
+typedef struct {
+    prh_r16 format;
+    prh_r16 reserved;
+    prh_r32 length;
+    prh_r32 language;
+    prh_r32 start_char_code;
+    prh_r32 num_chars;
+    prh_r16 glyph_id[2];
+} prh_font_cmap_format_10;
+
+prh_r32 prh_font_glyph_index_from_cmap_format_10(prh_font_cmap_format_10 *f, prh_r32 char_code) {
+    if (char_code >= f->start_char_code) {
+        prh_r32 i = char_code - f->start_char_code;
+        if (i < f->num_chars) return f->glyph_id[i];
+    }
+    return 0;
+}
+
+// 格式 12：分段覆盖（Segmented Coverage）
+//
+// 这是支持包含辅助平面字符（U+10000 到 U+10FFFF）的 Unicode 字符库的字体的标准字符到
+// 字形索引映射子表。包含格式 12 子表的字体还可以包含格式 4 子表以兼容旧应用程序。然而
+// 这不是必需的，但请参阅建议章节以获取更多信息。https://learn.microsoft.com/en-us/typography/opentype/spec/recom#cmap-table
+//
+// 格式 12 类似于格式 4，因为它为稀疏表示定义了段。然而，它使用 32 位字符代码。'cmap'
+// 子表格式 12：
+//      类型    名称                            描述
+//      uint16  format                          子表格式，设置为 12
+//      uint16  reserved                        保留，设置为 0
+//      uint32  length                          此子表的字节长度（包括头部）
+//      uint32  language                        特定语言
+//      uint32  numGroups                       后续分组的数量
+//      SequentialMapGroup groups[numGroups]    SequentialMapGroup 记录数组
+//
+// 顺序映射组记录与格式 8 子表使用的格式相同。然而，此处不适用有关 16 位字符代码的限定，
+// 因为字符代码统一为 32 位。SequentialMapGroup 记录：
+//      类型    名称            描述
+//      uint32  startCharCode   此组中的第一个字符代码
+//      uint32  endCharCode     此组中的最后一个字符代码
+//      uint32  startGlyphID    对应于起始字符代码的字形索引
+//
+// 组必须按 startCharCode 递增排序。组的 endCharCode 必须小于以下组的 startCharCode
+// （如果有）。使用 endCharCode 而不是计数，因为组匹配的比较通常在现有字符代码上进行，
+// 而显式拥有 endCharCode 可以节省每个组进行加法运算的必要性。
+
+// 格式 13：多对一范围映射（Many-to-One Range Mappings）
+//
+// 此子表适用于将相同字形用于跨越代码空间多个范围的数百甚至数千个连续字符的情况。此子表
+// 格式可能对"最后手段"字体有用，尽管这些字体也可以使用其他合适的子表格式。对于"最后手段"
+// 字体，另请参阅 'head' 表标志，14 比特位。注意：子表格式 13 与格式 12 具有相同的结构；
+// 仅在 startGlyphID/glyphID 字段的解释上有所不同。
+//
+// 'cmap' 子表格式 13：
+//      类型    名称                        描述
+//      uint16  format                      子表格式；设置为 13
+//      uint16  reserved                    保留；设置为 0
+//      uint32  length                      此子表的字节长度（包括头部）
+//      uint32  language                    特定语言
+//      uint32  numGroups                   后续分组的数量
+//      ConstantMapGroup groups[numGroups]  ConstantMapGroup 记录数组
+//
+// 常量映射组记录具有与顺序映射组记录相同的结构，具有起始和结束字符代码以及映射的字形 ID。
+// 然而，相同的字形 ID 适用于指定范围内的所有字符，而不是顺序的字形 ID。
+//
+// ConstantMapGroup 记录：
+//      类型    名称            描述
+//      uint32  startCharCode   此组中的第一个字符代码，组必需按 startCharCode 递增排序
+//      uint32  endCharCode     此组中的最后一个字符代码
+//      uint32  glyphID         用于组范围内所有字符的字形索引
+
+typedef struct {
+    prh_r16 format;
+    prh_r16 reserved;
+    prh_r32 length;
+    prh_r32 language;
+    prh_r32 num_groups;
+    prh_font_cmap_sequential_group groups[1];
+} prh_font_cmap_format_12;
+
+#define prh_impl_font_cmap_sequential_group_end_char_code(group) prh_bp_4b_to_host((prh_byte *)&(group)->end_char_code)
+
+prh_r32 prh_font_glyph_index_from_cmap_format_12(prh_font_cmap_record *p, prh_r32 char_code) {
+    prh_byte *record = p->table_data + p->record_offset;
+    prh_r16 format = prh_bp_2b_to_host(record);
+    prh_r32 length = prh_bp_4b_to_host(record + 4);
+    prh_r32 language = prh_bp_4b_to_host(record + 8);
+    prh_r32 num_groups = prh_bp_4b_to_host(record + 12);
+    prh_font_cmap_sequential_group *group = (prh_font_cmap_sequential_group *)(record + 16);
+    prh_reg i;
+
+    prh_assert(format == 12 && (prh_byte *)(group + num_groups) <= record + length && record + length <= p->table_data + p->table_length);
+    prh_generic_bsearch_first_less_equal(i, char_code, group, num_groups, prh_impl_font_cmap_sequential_group_end_char_code);
+    if (i < num_groups) {
+        prh_r32 start_char_code = prh_bp_4b_to_host((prh_byte *)&group[i].start_char_code);
+        if (char_code >= start_char_code) return prh_bp_4b_to_host((prh_byte *)&group[i].start_glyph_id) + (char_code - start_char_code);
+    }
+
+    return 0;
+}
+
+prh_r32 prh_font_glyph_index_from_cmap_format_13(prh_font_cmap_record *p, prh_r32 char_code) {
+    prh_byte *record = p->table_data + p->record_offset;
+    prh_r16 format = prh_bp_2b_to_host(record);
+    prh_r32 length = prh_bp_4b_to_host(record + 4);
+    prh_r32 language = prh_bp_4b_to_host(record + 8);
+    prh_r32 num_groups = prh_bp_4b_to_host(record + 12);
+    prh_font_cmap_sequential_group *group = (prh_font_cmap_sequential_group *)(record + 16);
+    prh_reg i;
+
+    prh_assert(format == 13 && (prh_byte *)(group + num_groups) <= record + length && record + length <= p->table_data + p->table_length);
+    prh_generic_bsearch_first_less_equal(i, char_code, group, num_groups, prh_impl_font_cmap_sequential_group_end_char_code);
+    if (i == num_groups || char_code < prh_bp_4b_to_host((prh_byte *)&group[i].start_char_code)) return 0;
+
+    return prh_bp_4b_to_host((prh_byte *)&group[i].start_glyph_id);
+}
+
+void prh_impl_print_font_cmap_format_12_13(prh_font_cmap_record *p) {
+    prh_byte *record = p->table_data + p->record_offset;
+    prh_r16 format = prh_bp_2b_to_host(record);
+    prh_r32 length = prh_bp_4b_to_host(record + 4);
+    prh_r32 language = prh_bp_4b_to_host(record + 8);
+    prh_r32 num_groups = prh_bp_4b_to_host(record + 12);
+    prh_font_cmap_sequential_group *group = (prh_font_cmap_sequential_group *)(record + 16);
+    prh_r32 i = 0;
+
+    prh_assert(format == 12 || format == 13);
+    prh_assert((prh_byte *)(group + num_groups) <= record + length && record + length <= p->table_data + p->table_length);
+
+    prh_print(
+        "----------------------------\n"
+        "cmap record format %d length %d\n"
+        "cmap record format %d language %04x\n"
+        "cmap record format %d character groups %d\n",
+        (prh_reg)format, (prh_reg)length,
+        (prh_reg)format, (prh_reg)language,
+        (prh_reg)format, (prh_reg)num_groups);
+
+    prh_r32 print_count = 8;
+    prh_r32 group_count = num_groups > print_count ? print_count : num_groups;
+    for (; i < group_count; i += 1) {
+        prh_print(
+            "cmap record format %d group index %d / %d\n"
+            "cmap record format %d character U+%04x U+%04x\n"
+            "cmap record format %d start glyph index %d\n",
+            (prh_reg)format, (prh_reg)i + 1, (prh_reg)num_groups,
+            (prh_reg)format, (prh_reg)prh_bp_4b_to_host((prh_byte *)&group[i].start_char_code), (prh_reg)prh_bp_4b_to_host((prh_byte *)&group[i].end_char_code),
+            (prh_reg)format, (prh_reg)prh_bp_4b_to_host((prh_byte *)&group[i].start_glyph_id));
+    }
+
+    i = num_groups > print_count ? num_groups - print_count : 0;
+    for (; i < num_groups; i += 1) {
+        prh_print(
+            "cmap record format %d group index %d / %d\n"
+            "cmap record format %d character U+%04x U+%04x\n"
+            "cmap record format %d start glyph index %d\n",
+            (prh_reg)format, (prh_reg)i + 1, (prh_reg)num_groups,
+            (prh_reg)format, (prh_reg)prh_bp_4b_to_host((prh_byte *)&group[i].start_char_code), (prh_reg)prh_bp_4b_to_host((prh_byte *)&group[i].end_char_code),
+            (prh_reg)format, (prh_reg)prh_bp_4b_to_host((prh_byte *)&group[i].start_glyph_id));
+    }
+}
+
+// 格式 14：Unicode 变体序列（Unicode Variation Sequences）
+//
+// 子表格式 14 指定字体支持的 Unicode 变体序列（UVSes）。根据 Unicode 标准，变体序列由
+// 基本字符后跟变体选择器组成。例如，<U+82A6, U+E0101>。此子表格式只能用于平台 ID 0 和
+// 编码 ID 5。                          ^       ^
+//                                      |       | 变体选择器
+//                                  基本字符
+// Unicode 变体序列（Unicode Variation Sequences, UVS） 是一种机制，允许同一个 Unicode
+// 码点显示为不同的字形变体，而不需要分配新的独立码点。为什么需要变体序列：
+//      历史字形差异    同一汉字在不同标准中写法不同
+//      地区字形差异    同一字符在中国大陆、台湾、日本有不同写法
+//      专业排版需求    数学、音乐、文字学需要特定变体
+//      避免码点爆炸    不每个变体都分配新码点，保持 Unicode 简洁
+//
+// 变体选择器范围：
+//      范围                用途
+//      U+FE00 – U+FE0F     标准变体选择器（VS1-VS16），用于已有字符的变体
+//      U+E0100 – U+E01EF   变体选择器补充（VS17-VS256），用于 CJK 等大量变体
+//
+// 在字体中的支持，字体通过 cmap 格式 14 子表声明支持哪些变体序列，字体中的两种声明方式：
+//  1.  默认变体（Default UVS）
+//      基本字符在 Unicode cmap 中映射的字形，就是该变体序列要显示的字形
+//      无需额外指定字形 ID
+//  2.  非默认变体（Non-Default UVS）
+//      变体序列需要显示与 Unicode cmap 中不同的字形
+//      必须显式指定字形 ID
+//
+// 子表将字体支持的 UVSes 分为两类："默认" 和 "非默认" UVSes。给定一个 UVS，如果在 Unicode
+// 'cmap' 子表（即 BMP 子表或 BMP+辅助平面子表）中查找该序列的基本字符获得的字形是该序列
+// 要使用的字形，则该序列是 "默认" UVS。否则，它是 "非默认" UVS，并且该序列要使用的字形在
+// 格式 14 子表本身中指定。页面底部的示例显示了字体供应商如何为支持 JIS-2004 的字体使用格
+// 式 14。
+//
+// 'cmap' 子表格式 14：
+//      类型                名称                                描述
+//      uint16              format                              子表格式，设置为 14
+//      uint32              length                              此子表的字节长度（包括此头部）
+//      uint32              numVarSelectorRecords               变体选择器记录的数量
+//      VariationSelector   varSelector[numVarSelectorRecords]  VariationSelector 记录数组
+//
+// 每个 VariationSelector 记录指定一个变体选择器字符，以及用于映射使用该变体选择器的变体
+// 序列的 "默认" 和 "非默认" 表的偏移。VariationSelector 记录：
+//      类型        名称                描述
+//      uint24      varSelector         变体选择器
+//      Offset32    defaultUVSOffset    从格式 14 子表开头到默认 UVS 表的偏移，可能为 0
+//      Offset32    nonDefaultUVSOffset 从格式 14 子表开头到非默认 UVS 表的偏移，可能为 0
+//
+// VariationSelector 记录按 varSelector 递增顺序排序。两条记录不得具有相同的 varSelector
+// 值。VariationSelector 记录及其偏移指向的数据指定字体支持的 UVSes，其中变体选择器是记录
+// 的 varSelector 值。UVSes 的基本字符存储在偏移指向的表中。UVSes 按是否为默认或非默认
+// UVSes 进行分区。非默认 UVSes 要使用的字形 ID 在非默认 UVS 表中指定。
+//
+// 默认 UVS 表。默认 UVS 表是 Unicode 标量值的简单范围压缩列表，表示使用相关 VariationSelector
+// 记录的 varSelector 的默认 UVSes 的基本字符。默认 UVS 表：
+//      类型            名称                            描述
+//      uint32          numUnicodeValueRanges           Unicode 字符范围的数量
+//      UnicodeRange    ranges[numUnicodeValueRanges]   UnicodeRange 记录数组
+//
+// 每个 Unicode 范围记录指定一个连续的 Unicode 值范围。UnicodeRange 记录：
+//      类型    名称                描述
+//      uint24  startUnicodeValue   此范围中的第一个值
+//      uint8   additionalCount     此范围中的附加值数量
+//
+// 例如，范围 U+4E4D – U+4E4F（3 个值）将设置 startUnicodeValue 为 0x004E4D，additionalCount
+// 为 2。单例范围将设置 additionalCount 为 0。（startUnicodeValue + additionalCount）的
+// 总和不得超过 0xFFFFFF。
+//
+// Unicode 值范围按 startUnicodeValue 递增顺序排序。范围不得重叠，即（startUnicodeValue +
+// additionalCount）必须小于以下范围的起始 Unicode 值（如果有）。范围数组中列出的所有代码点
+// 应在 Unicode 'cmap' 子表中有相应的条目。然而，应用程序可能遇到并非如此的情况。
+//
+// 非默认 UVS 表。非默认 UVS 表是 Unicode 标量值和字形 ID 对的列表。Unicode 值表示使用
+// 相关 VariationSelector 记录的 varSelector 的所有非默认 UVSes 的基本字符，字形 ID 指
+// 定 UVSes 要使用的字形 ID。非默认 UVS 表：
+//      类型        名称                            描述
+//      uint32      numUVSMappings                  后续 UVS 映射的数量
+//      UVSMapping  uvsMappings[numUVSMappings]     UVSMapping 记录数组
+//
+// 每个 UVSMapping 记录为单个 Unicode 基本字符提供字形 ID 映射，当该基本字符与当前变体选
+// 择器一起用于变体序列时。UVSMapping 记录：
+//      类型    名称            描述
+//      uint24  unicodeValue    UVS 的 Unicode 基本值
+//      uint16  glyphID         UVS 的字形 ID
+//
+// UVS 映射按 unicodeValue 递增顺序排序。此表中的两条映射不得具有相同的 unicodeValue 值。
+// 通常，uvsMappings 数组中列出的代码点在 Unicode 'cmap' 子表中有相应的条目。然而，这不
+// 是必需的。例如，如果字体旨在用于给定 Unicode 字符仅在变体序列中出现的内容，则可能就是
+// 这种情况。
+//
+// 示例。以下是如何在支持 JIS-2004 变体字形的字体中使用格式 14 'cmap' 子表的示例。本示例
+// 中的 CID（字符 ID）指 Adobe 字符集合 "Adobe-Japan1" 中的那些，可以假设它们与示例中字体
+// 的字形 ID 相同。JIS-2004 更改了其某些代码点的默认字形变体。例如：
+//      JIS-90：U+82A6 ⇒ CID 1142
+//      JIS-2004：U+82A6 ⇒ CID 7961
+//
+// 这两个字形变体都通过使用 Unicode 变体序列来支持，如 Unicode 的 UVS 注册表中的以下示例
+// 所示：
+//      U+82A6 U+E0100 ⇒ CID 1142
+//      U+82A6 U+E0101 ⇒ CID 7961
+//
+// 如果字体想要默认支持 JIS-2004 变体，它将：
+//  * 在 Unicode 'cmap' 子表中将字形 ID 7961 编码在 U+82A6
+//  * 在 UVS 'cmap' 子表的默认 UVS 表中指定 <U+82A6, U+E0101>，varSelector 将为 0x0E0101，
+//    defaultUVSOffset 将指向包含 0x0082A6 Unicode 值的数据
+//  * 在 UVS 'cmap' 子表的非默认 UVS 表中指定 <U+82A6, U+E0100> ⇒ 字形 ID 1142。varSelector
+//    将为 0x0E0100，nonDefaultBaseUVSOffset 将指向包含 unicodeValue 0x0082A6 和 glyphID
+//    1142 的数据。
+//
+// 然而，如果字体想要默认支持 JIS-90 变体，它将：
+//  * 在 Unicode 'cmap' 子表中将字形 ID 1142 编码在 U+82A6
+//  * 在 UVS 'cmap' 子表的默认 UVS 表中指定 <U+82A6, U+E0100>
+//  * 在 UVS 'cmap' 子表的非默认 UVS 表中指定 <U+82A6, U+E0101> ⇒ 字形 ID 7961
+
+typedef struct {
+    prh_r16 aligned;
+    prh_r16 format;
+    prh_r32 length;
+    prh_r32 num_selectors;
+} prh_font_cmap_format_14;
+
+typedef struct {
+    prh_r08 aligned_byte;
+    prh_r08 selector_bytes[3];
+    prh_r32 default_variation_offset;
+    prh_r32 non_default_variation_offset;
+} prh_font_cmap_variation_selector;
+
+typedef struct { // uint32 numUnicodeValueRanges
+    prh_r08 aligned_byte;
+    prh_r08 start_unicode_value[3];
+    prh_r08 additional_count;
+} prh_font_cmap_default_variation_unicode_range;
+
+typedef struct { // uint32 numUVSMappings
+    prh_r08 aligned;
+    prh_r08 unicode_value[3];
+    prh_r16 glyph_id;
+} prh_font_cmap_non_default_variation_mapping;
+
+void prh_impl_print_font_cmap_format_14(prh_font_cmap_record *p) {
+    prh_byte *record_data = p->table_data + p->record_offset;
+    prh_byte *record_start = record_data;
+
+    prh_r16 record_format = prh_bp_2b_to_host(record_data); record_data += 2;
+    prh_r32 record_length = prh_bp_4b_to_host(record_data); record_data += 4;
+    prh_r32 num_selectors = prh_bp_4b_to_host(record_data); record_data += 4;
+    prh_assert(record_format == 14);
+
+    prh_byte *header_end = record_data + num_selectors * 11;
+    prh_byte *record_end = record_start + record_length;
+    if (record_end < header_end || record_end > p->table_data + p->table_length) {
+        prh_print("table 'cmap' record format 14 invalid length %d %d %d with selectors %d\n",
+            (prh_reg)(header_end - record_start), (prh_reg)record_length, (prh_reg)(p->table_length - p->record_offset), (prh_reg)num_selectors);
+        return;
+    }
+
+    prh_print(
+        "----------------------------\n"
+        "cmap record format 14 length %d\n"
+        "cmap record format 14 language 0\n"
+        "cmap record format 14 selectors %d\n",
+        (prh_reg)record_length,
+        (prh_reg)num_selectors);
+
+    for (prh_r32 i = 0; i < num_selectors; i += 1) {
+        prh_r32 selector_character = prh_bp_3b_to_host(record_data); record_data += 3;
+        prh_r32 default_variation_offset = prh_bp_4b_to_host(record_data); record_data += 4;
+        prh_r32 non_default_variation_offset = prh_bp_4b_to_host(record_data); record_data += 4;
+
+        if (default_variation_offset != 0 && default_variation_offset < header_end - record_start || default_variation_offset >= record_length) {
+            prh_print("table 'cmap' record format 14 selector index %d invalid variation default table offset %d\n", (prh_reg)i+1, default_variation_offset);
+            return;
+        }
+
+        if (non_default_variation_offset != 0 && non_default_variation_offset < header_end - record_start || non_default_variation_offset >= record_length) {
+            prh_print("table 'cmap' record format 14 selector index %d invalid variation non-default table offset %d\n", (prh_reg)i+1, non_default_variation_offset);
+            return;
+        }
+
+        prh_print(
+            "cmap record format 14 variation selector index %d / %d\n"
+            "cmap record format 14 variation selector character U+%x \n"
+            "cmap record format 14 variation default table offset %d\n",
+            (prh_reg)i + 1, (prh_reg)num_selectors,
+            (prh_reg)selector_character,
+            (prh_reg)default_variation_offset);
+
+        if (default_variation_offset != 0) {
+            prh_byte *variation_data = record_start + default_variation_offset;
+            prh_r32 variation_unicode_ranges = prh_bp_4b_to_host(variation_data); variation_data += 4;
+            if (variation_data + variation_unicode_ranges * 4 > record_end) {
+                prh_print("table 'cmap' record format 14 selector index %d variation default table invalid num_ranges %d offset %d record_length %d\n",
+                    (prh_reg)i+1, (prh_reg)variation_unicode_ranges, (prh_reg)default_variation_offset, (prh_reg)record_length);
+                return;
+            }
+            prh_r32 num_ranges = variation_unicode_ranges > 8 ? 8 : variation_unicode_ranges;
+            for (prh_r32 range_i = 0; range_i < num_ranges; range_i += 1) {
+                prh_r32 start_unicode_value = prh_bp_3b_to_host(variation_data); variation_data += 3;
+                prh_r08 additional_count = *variation_data; variation_data += 1;
+                prh_print(
+                    "cmap record format 14 variation default table unicode range %d / %d\n"
+                    "cmap record format 14 variation default table unicode U+%x U+%x\n",
+                    (prh_reg)range_i + 1,
+                    (prh_reg)variation_unicode_ranges,
+                    (prh_reg)start_unicode_value,
+                    (prh_reg)start_unicode_value + additional_count);
+            }
+        }
+
+        prh_print(
+            "cmap record format 14 variation non-default table offset %d\n",
+            (prh_reg)non_default_variation_offset);
+
+        if (non_default_variation_offset != 0) {
+            prh_byte *variation_data = record_start + non_default_variation_offset;
+            prh_r32 variation_num_mappings = prh_bp_4b_to_host(variation_data); variation_data += 4;
+            if (variation_data + variation_num_mappings * 5 > record_end) {
+                prh_print("table 'cmap' record format 14 selector index %d variation non-default table invalid num_mappings %d offset %d record_length %d\n",
+                    (prh_reg)i+1, (prh_reg)variation_num_mappings, (prh_reg)non_default_variation_offset, (prh_reg)record_length);
+                return;
+            }
+            prh_r32 num_mappings = variation_num_mappings > 8 ? 8 : variation_num_mappings;
+            for (prh_r32 mapping_i = 0; mapping_i < num_mappings; mapping_i += 1) {
+                prh_r32 unicode_value = prh_bp_3b_to_host(variation_data); variation_data += 3;
+                prh_r16 glyph_id = prh_bp_2b_to_host(variation_data); variation_data += 2;
+                prh_print(
+                    "cmap record format 14 variation non-default table mapping %d / %d\n"
+                    "cmap record format 14 variation non-default table unicode U+%x U+%x glyph index %d\n",
+                    (prh_reg)mapping_i + 1,
+                    (prh_reg)variation_num_mappings,
+                    (prh_reg)unicode_value,
+                    (prh_reg)selector_character,
+                    (prh_reg)glyph_id);
+            }
+        }
+    }
+}
+
+prh_r32 prh_font_glyph_index_from_cmap_format_14(prh_font_cmap_record *p, prh_r32 base_character, prh_r32 variation_selector, prh_r32 (*default_glyph_index_func)(void *f, prh_r32 char_code), void *specified_format) {
+    prh_byte *record_data = p->table_data + p->record_offset;
+    prh_byte *record_start = record_data;
+
+    prh_r16 record_format = prh_bp_2b_to_host(record_data); record_data += 2;
+    prh_r32 record_length = prh_bp_4b_to_host(record_data); record_data += 4;
+    prh_r32 num_selectors = prh_bp_4b_to_host(record_data); record_data += 4;
+    prh_assert(record_format == 14);
+
+    prh_byte *header_end = record_data + num_selectors * 11;
+    prh_byte *record_end = record_start + record_length;
+    if (record_end < header_end || record_end > p->table_data + p->table_length) {
+        prh_eprint("table 'cmap' record format 14 invalid length %d %d %d with selectors %d\n",
+            (prh_reg)(header_end - record_start), (prh_reg)record_length, (prh_reg)(p->table_length - p->record_offset), (prh_reg)num_selectors);
+        return 0;
+    }
+
+    for (prh_r32 i = 0; i < num_selectors; i += 1) {
+        prh_r32 selector_character = prh_bp_3b_to_host(record_data); record_data += 3;
+        prh_r32 default_variation_offset = prh_bp_4b_to_host(record_data); record_data += 4;
+        prh_r32 non_default_variation_offset = prh_bp_4b_to_host(record_data); record_data += 4;
+        if (variation_selector != selector_character) continue;
+
+        if (default_variation_offset != 0 && default_variation_offset < header_end - record_start || default_variation_offset >= record_length) {
+            prh_eprint("table 'cmap' record format 14 selector index %d invalid variation default table offset %d\n", (prh_reg)i+1, default_variation_offset);
+            return 0;
+        }
+
+        if (non_default_variation_offset != 0 && non_default_variation_offset < header_end - record_start || non_default_variation_offset >= record_length) {
+            prh_eprint("table 'cmap' record format 14 selector index %d invalid variation non-default table offset %d\n", (prh_reg)i+1, non_default_variation_offset);
+            return 0;
+        }
+
+        if (default_variation_offset != 0) {
+            prh_byte *variation_data = record_start + default_variation_offset;
+            prh_r32 default_variation_num_ranges = prh_bp_4b_to_host(variation_data); variation_data += 4;
+            if (variation_data + default_variation_num_ranges * 4 > record_end) {
+                prh_eprint("table 'cmap' record format 14 selector index %d variation default table invalid num_ranges %d offset %d record_length %d\n",
+                    (prh_reg)i+1, (prh_reg)default_variation_num_ranges, (prh_reg)default_variation_offset, (prh_reg)record_length);
+                return 0;
+            }
+            for (prh_r32 range_i = 0; range_i < default_variation_num_ranges; range_i += 1) {
+                prh_r32 start_unicode_value = prh_bp_3b_to_host(variation_data); variation_data += 3;
+                prh_r08 additional_count = *variation_data; variation_data += 1;
+                if (base_character >= start_unicode_value && base_character <= start_unicode_value + additional_count) {
+                    return default_glyph_index_func(specified_format, base_character);
+                }
+            }
+        }
+
+        if (non_default_variation_offset != 0) {
+            prh_byte *variation_data = record_start + non_default_variation_offset;
+            prh_r32 variation_num_mappings = prh_bp_4b_to_host(variation_data); variation_data += 4;
+            if (variation_data + variation_num_mappings * 5 > record_end) {
+                prh_eprint("table 'cmap' record format 14 selector index %d variation non-default table invalid num_mappings %d offset %d record_length %d\n",
+                    (prh_reg)i+1, (prh_reg)variation_num_mappings, (prh_reg)non_default_variation_offset, (prh_reg)record_length);
+                return 0;
+            }
+            for (prh_r32 mapping_i = 0; mapping_i < variation_num_mappings; mapping_i += 1) {
+                prh_r32 unicode_value = prh_bp_3b_to_host(variation_data); variation_data += 3;
+                prh_r16 glyph_id = prh_bp_2b_to_host(variation_data); variation_data += 2;
+                if (base_character == unicode_value) return glyph_id;
+            }
+        }
+    }
+
+    return 0;
+}
+
 #ifdef PRH_FONT_IMPLEMENTATION
 
 #endif // PRH_FONT_IMPLEMENTATION
