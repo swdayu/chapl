@@ -41947,6 +41947,308 @@ prh_r32 prh_font_glyph_index_from_cmap_format_14(prh_font_cmap_record *p, prh_r3
     return 0;
 }
 
+// CFF — 紧凑字体格式（版本 1）
+//
+// 本表包含紧凑字体格式（CFF）字体表示，其结构依据 Adobe 技术说明 5176：《紧凑字体格式规范》，
+// 以及 Adobe 技术说明 5177：《Type 2 Charstring 格式》。注意：下面有关提到的 CFF INDEX、
+// DICT 和 FontSet 结构的详细信息，请参阅 Adobe 技术说明 5176。
+// http://partners.adobe.com/public/developer/en/font/5176.CFF.pdf
+// http://partners.adobe.com/public/developer/en/font/5177.Type2.pdf
+//
+// CFF 字体格式在 OpenType 开发之前就已作为独立字体格式存在。当纳入 OpenType 格式时，某些
+// 基本字体信息继续使用 CFF 格式定义的机制来表示，这复制了 OpenType 中用于 TrueType 轮廓字
+// 体的其他数据表示。例如，CFF 将字形宽度纳入字形轮廓描述中，尽管这些信息也可以在 'hmtx'
+// 表中提供。使用 TrueType 轮廓的 OpenType 字体使用字形索引配合 'loca' 表中的偏移来访问
+// 'glyf' 表内的字形数据。这一概念在 OpenType CFF 字体中得以保留，只是字形数据通过 'CFF '
+// 表内的 CharStrings INDEX 结构来访问。
+//
+// 有关 'glyf'、'CFF ' 和 CFF2 表之间显著差异的摘要，请参阅《'glyf'、'CFF ' 和 CFF2 表的
+// 比较》。https://learn.microsoft.com/en-us/typography/opentype/spec/glyphformatcomparison
+//
+// 'CFF ' 表中的 Name INDEX 必须只包含一个条目；也就是说，CFF FontSet 中必须只有一个字体。    *** Name INDEX 必须只包含一个条目，即 CFF FontSet 必须只有一个字体
+// 并不要求此名称与 'name' 表中名称 ID 6 的条目相同。注意，在 OpenType 字体集合文件中，单
+// 个 'CFF ' 表可以跨多个字体共享；应用程序使用的名称必须是 'name' 表中提供的名称，而非
+// Name INDEX 条目。
+//
+// CFF 顶层 DICT 必须指定 CharstringType 值为 2。'maxp' 表中的 numGlyphs 字段必须与 CFF 的    *** Top DICT 必须指定 CharstringType 为 2
+// CharStrings INDEX 中的条目数相同。对于字体中的所有字形，OpenType 字体字形索引与 CFF 字     *** 'maxp' 表中的 numGlyphs 必须与 CFF 的 CharStrings INDEX 条目数相同
+// 形索引相同。
+//
+// CFF2 — 紧凑字体格式（CFF）版本 2 简介
+//
+// 紧凑字体格式表版本 2（CFF2）用于描述 OpenType 字体中的字形。它是 'glyf' 表的替代方案，
+// 使用一种源自 Adobe Postscript 语言的高效格式来表示字形轮廓。在 CFF2 表中，使用三次（三
+// 阶）贝塞尔曲线和直线序列来定义字形轮廓。CFF2 数据还可以包含"混合"操作，由 OpenType 字
+// 体变体机制控制，以改变字形形状。使用栅格化填充规则来提供每个字形的纯色单色形状。CFF2
+// 数据可以包含影响此栅格化的"提示"操作。与 COLR 和 CPAL 表结合使用时，CFF2 表可用于表示
+// 多色字形。
+//
+// CFF2 是 'CFF ' 表和字形格式的后继和改进版本。由于 CFF 起源于 Postscript 语言，完整的
+// 'CFF ' 表中的数据可以作为独立字体使用。然而，当在 OpenType 字体中使用时，CFF 的这一方面
+// 会导致冗余。CFF2 通过依赖其他字体表中的数据来避免冗余。CFF2 还添加了用于可变字体的新操
+// 作符，并使用新的 CFF2 CharString 规范。
+//
+// 有关 'glyf'、'CFF ' 和 'CFF2' 表之间显著差异的摘要，请参阅《'glyf'、'CFF ' 和 CFF2 表
+// 的比较》。
+//
+// 'glyf'、'CFF ' 和 CFF2 表的比较
+// https://learn.microsoft.com/en-us/typography/opentype/spec/glyphformatcomparison
+//
+// OpenType 字体中有三种可选格式可用于存储单色字形轮廓：'glyf' 表、'CFF ' 表和 CFF2 表。
+// 功能正常的 OpenType 字体必须包含这三种表之一。本节提供这些字形数据替代格式的比较。
+//
+// CFF2 和 CFF 使用三次（三阶）贝塞尔曲线表示字形轮廓，而 'glyf' 表使用二次（二阶）贝塞
+// 尔曲线。CFF2 和 CFF 在"提示"概念模型上也与 'glyf' 表不同。这三种表在变体支持以及变体
+// 数据存储方式方面也存在差异。下表提供了 CFF2、'CFF ' 和 'glyf' 表的比较摘要。注意，其
+// 中一些差异可能不会在高阶字体编辑软件或运行时编程接口中暴露。
+//
+//      考量因素        glyf                                CFF                                                 CFF2
+//      曲线            二次（二阶）贝塞尔                  三次（三阶）贝塞尔                                  三次（三阶）贝塞尔
+//      坐标精度        1 设计单位                          1/65536 设计单位                                    1/65536 设计单位
+//      去重            多个字形可通过复合字形共享轮廓      多个字形可通过子程序共享 CharString 数据            多个字形可通过子程序共享 CharString 数据
+//      提示            TrueType 指令按控制量移动轮廓点     对齐区域应用于所有字形，主干位置在每个字形中声明    对齐区域应用于任意字形组，主干位置在每个字形中声明
+//      解码            非基于栈（除 TrueType 指令外）      主要基于栈                                          主要基于栈
+//      OpenType 变体   支持：轮廓变体数据存储在 'gvar'     不支持                                              支持：轮廓和提示的变体数据存储在 CFF2 表内，部分使
+//                      表中（OFF: 7.3.4）；提示变体数据                                                        用其他表也使用的通用变体数据格式，部分与单个字形描
+//                      存储在 'cvar' 表中（OFF: 7.3.2）                                                        述的 CharString 数据交错
+//      数据冗余        低                                  中等                                                低
+//      重叠轮廓        支持                                不支持                                              支持
+//
+//      *** 按控制量：by controlled amounts
+//      *** 移动轮廓点：move outline points
+//      *** 主干位置：stem locations
+//      *** 重叠轮廓：overlapping contours（contour 外形、轮廓、等高线）
+//
+// CFF2 与 CFF 的其他差异。CFF2 格式从 CFF 格式更改而来，以与 OpenType 格式的其他部分整合，
+// 消除 OpenType 字体中不需要的数据，并支持 OpenType 字体变体。以下是主要差异。
+//  1.  CFF2 表中不支持 FontSet。因此，CFF2 表只能包含一个 TopDICT，不支持 TopDICT INDEX。
+//  2.  CFF2 表中不支持名称 INDEX 和字符串 INDEX。
+//  3.  CFF2 不支持编码和字符集表。相应的 TopDICT 操作符被移除，同时还有其他几个 TopDICT 操作符也被移除。
+//  4.  CFF2 CharStrings 不包含前进宽度值（advance width）。
+//  5.  对于 CFF2 表，CharStrings 的填充规则必须始终为非零绕数规则（nonzero winding number rule），而非
+//      偶奇规则（even-odd rule）。这是为了支持可变字体数据，其中强制移除路径之间的重叠是不切实际的。
+//  6.  对于 CFF2，CharString 栈深度从 48 增加到 513。
+//  7.  CFF2 中的 PrivateDICT 和 CharString 操作符集扩展，包含 blend 和 vsindex 操作符。
+//  8.  CFF2 中移除了 Type 2 的 endchar 和 return CharString 操作符，以及所有逻辑、存储和数学操作符。
+
+// 技术说明 5176：《紧凑字体格式规范》
+// http://partners.adobe.com/public/developer/en/font/5176.CFF.pdf
+//
+// 本⽂档描述了⼀种字体格式的规范，该格式适合紧凑地表⽰⼀个或多个 Type 1 或 CID 键控字体。
+// 与以往的 Type 1 和 CID 键控字体格式不同，CFF 允许将多个字体⼀起存储在⼀个称为字体集
+// （FontSet）的单元中。空间节省主要来⾃三个⽅⾯：对⼤部分信息采⽤紧凑的⼆进制表⽰、在字体
+// 之间共享公共数据，以及对频繁出现的数据使⽤默认值。
+//
+// CFF 格式设计上与 Type 2 charstring 配合使⽤，后者作为字符轮廓描述过程（参⻅ Adobe 技术
+// 说明 5177：《Type 2 Charstring 格式》）。该设计⽀持嵌⼊ PostScript 语⾔代码，从⽽在打印
+// 环境中使⽤时为格式提供额外的灵活性和可扩展性（参⻅附录 E）。
+//
+// 数据布局（Data Layout）
+//
+// 从概念上讲，⼆进制数据被组织为若⼲独⽴的数据结构。⼆进制数据内的总体布局如下表所⽰。由
+// 于其中⼀些数据结构是通过偏移量定位的，其次序可以改变，但前五个占据固定位置。附录 D 有
+// CFF 字体的示例。
+//
+//      Header                              --
+//      Name INDEX                          --
+//      Top DICT INDEX                      --
+//      String INDEX                        --
+//      Global Subr INDEX                   全局子例程索引
+//      Encodings                           编码
+//      Charsets                            字符集
+//      FDSelect                            仅 CIDFont
+//      CharStrings INDEX                   per-font
+//      Font DICT INDEX                     per-font, 仅 CIDFonts
+//      Private DICT                        per-font
+//      Local Subr INDEX                    per-font or per-Private DICT for CIDFonts
+//      Copyright and Trademark Notices     版权与商标声明
+//
+// 数据类型（Data Type）
+//
+// 本节描述该格式所⽤的数据表⽰和数据类型。所有多字节数值数据和偏移量字段均按⼤端字节序
+// 存储（⾼位字节在低偏移处），且不受任何对⻬限制。这使得该格式不含填充字节。
+//
+// 数据对象通常通过相对于 CFF 数据内某参考点的字节偏移量来指定。这些偏移量⻓度为 1 ⾄ 4
+// 字节。本⽂档约定将参考点括在括号内：⽤参考点 (0) 表⽰相对于 CFF 数据起点的偏移量，⽤
+// (self) 表⽰相对于包含该偏移量的数据结构的偏移量。
+//
+// CFF 格式的数据类型如下表所⽰。本⽂档通过列出字段类型、名称和描述来说明数据结构。数据
+// 结构可以被赋予⼀个类型名称并在随后加以描述。对象数组⽤通常的⽅括号约定表⽰，⽅括号内
+// 为数组⻓度。CFF 数据的⼤部分都包含在两种分别称为 DICT 和 INDEX 的数据结构中，后续章节
+// 将对其进⾏描述。
+//
+//      名称        范围        描述
+//      Card8       0 – 255     1 字节⽆符号数
+//      Card16      0 – 65535   2 字节⽆符号数
+//      Offset      可变        1、2、3 或 4 字节偏移量（由 OffSize 字段指定）
+//      OffSize     1 – 4       1 字节⽆符号数，指定 Offset 字段的⼤⼩
+//      SID         0 – 64999   2 字节字符串标识符（string identifier）
+//
+// DICT 数据
+//
+// 由键值对组成的字体字典数据以⼀种紧凑的标记化格式表⽰，类似于 Type 1 charstring 所⽤的
+// 表⽰⽅式。字典的键编码为 1 字节或 2 字节的操作符，字典的值编码为可变⼤⼩的数值操作数，
+// 表⽰整数或实数。操作符之前是给出其值的操作数。⼀个 DICT 就是⼀串拼接在⼀起的操作数/操
+// 作符字节序列。
+//
+// 格式定义了若⼲种⼤⼩不同的整数操作数类型，其编码如下表所⽰（操作数⾸字节为 b0，次字节
+// 为 b1，依此类推）。
+//
+//      操作数编码，1、2 和 3 字节整数格式与 Type 2 charstring 所⽤的格式相同：
+//      ⼤⼩    b0 范围     值范围                  值计算
+//      1       32 ~ 246    –107 ~ +107             b0–139
+//      2       247 ~ 250   +108 ~ +1131            (b0–247)*256+b1+108
+//      2       251 ~ 254   –1131 ~ –108            –(b0–251)*256–b1–108
+//      3       28          –32768 ~ +32767         b1<<8|b2
+//      5       29          –(2^31) ~ +(2^31–1)     b1<<24|b2<<16|b3<<8|b4
+//
+// 整数格式的⽰例如下表所⽰。整数格式⽰例：
+//      值          编码
+//      0           8b
+//      100         ef
+//      –100        27
+//      1000        fa 7c
+//      –1000       fe 7c
+//      10000       1c 27 10
+//      –10000      1c d8 f0
+//      100000      1d 00 01 86 a0
+//      –100000     1d ff fe 79 60
+//
+// 除整数操作数外，还提供了实数操作数。该操作数以字节值 30 开头，后跟⼀段可变⻓度的字节
+// 序列。每个字节由两个 4 位半字节（nibble）组成，其定义⻅下表 。⼀对半字节中的第⼀个存
+// 储在字节的⾼ 4 位，第⼆个存储在字节的低 4 位。半字节定义：
+//      半字节      表⽰
+//      0–9         0–9
+//      a           .（⼩数点）
+//      b           E
+//      c           E–
+//      d           <保留>
+//      e           –（负号）
+//      f           数字结束
+//
+// 实数以⼀个（或两个）0xf 半字节终⽌，使其总能填充到整字节。因此，值 –2.25 编码为字节
+// 序列 (1e e2 a2 5f)，值 0.140541E–3 编码为序列 (1e 0a 14 05 41 c3 ff)。
+//
+// 通过检查⾸字节即可区分操作符与操作数：0–21 表⽰操作符，28、29、30 和 32–254 表⽰操作
+// 数（数值）。字节值 22–27、31 和 255 为保留值。⼀个操作符之前最多可以有 48 个操作数。
+//
+// 操作符可以带有⼀个或多个下表所⽰类型的操作数。操作数类型：
+//      类型        描述
+//      number      整数或实数
+//      boolean     整数类型，取值 0（假）和 1（真）
+//      SID         字符串 id（⻅第 10 节）
+//      array       ⼀个或多个数值
+//      delta       ⼀个数值或⼀个 delta 编码的数值数组（⻅下⽂）
+//
+// array 或 delta 类型的⻓度通过数操作符之前的操作数个数来确定。delta 中第⼆个及以后的
+// 数值编码为相邻值之差。例如，数组 a0, a1, ..., an 将编码为：a0 (a1–a0) (a2–a1) ..., 
+// (an–a(n–1))。
+//
+// 双字节操作符以转义字节 12 开头。
+//
+// 通过为各种 DICT 键设定默认值，可以进⼀步压缩字典数据。对于具有默认值的键，DICT 中相
+// 应操作符的缺失即意味着该键应取其默认值。Top DICT 和 Private DICT 的 DICT 操作符列表
+// 分别⻅第 9 节和第 15 节。
+//
+// 字体字典数据由键值对所组成的紧凑标记化格式数据。dictionary keys 被编码为一字节或两字
+// 节的操作符（操作符以字节值 0~21 开始，其中双字节操作符以字节值 12 开头），操作符之前
+// 是给出其值的一个或多个操作数，一个操作符最多 48 个操作数。dictionary values 被编码为
+// 变长数值操作数，可表示整数或实数。对于具有默认值的键，DICT 中相应操作符的缺失即意味着
+// 该键应取其默认值。
+
+prh_i32 prh_font_cff1_dict_value_integer(const prh_byte *b, prh_r32 *value_bytes) {
+    if (b[0] >= 32 && b[0] <= 246) { *value_bytes = 1; return (prh_i32)b[0] - 139; } // -107 ~ +107
+    if (b[0] >= 247 && b[0] <= 250) { *value_bytes = 2; return ((prh_i32)b[0] - 247) * 256 + (prh_i32)b[1] + 108; } // +108 ~ +1131
+    if (b[0] >= 251 && b[0] <= 254) { *value_bytes = 2; return -((prh_i32)b[0] - 251) * 256 - (prh_i32)b[1] - 108; } // -1131 ~ -108
+    if (b[0] == 28) { *value_bytes = 3; return ((prh_i32)b[1] << 8) | b[2]; } // -32768 ~ + 32767
+    if (b[0] == 29) { *value_bytes = 5; return ((prh_i32)b[1] << 24) | ((prh_i32)b[2] << 16) | ((prh_i32)b[3] << 8) | b[4]; } // –(2^31) ~ +(2^31–1)
+    *value_bytes = 0; return 0;
+}
+
+prh_r32 prh_font_cff1_dict_value_bytes(const prh_byte *b) {
+    if (b[0] <= 21) { return b[0] == 12 ? 2 : 1; }
+    if (b[0] >= 32 && b[0] <= 246) return 1;
+    if (b[0] >= 247 && b[0] <= 250) return 2;
+    if (b[0] >= 251 && b[0] <= 254) return 2;
+    if (b[0] == 28) return 3;
+    if (b[0] == 29) return 5;
+    if (b[0] == 30) {
+        prh_r32 i = 1;
+        prh_byte a;
+        bool finish;
+        for (; ;) {
+            a = b[i] >> 4;
+            finish = a == 0xf;
+            a = b[i++] & 0xf;
+            if (finish) {
+                if (a != 0xf) prh_abort_error(0xf);
+                return i;
+            }
+            if (a == 0xf) return i;
+        }
+    }
+    prh_abort_error(b[0]);
+    return 0;
+}
+
+#include <math.h>
+
+double prh_font_cff1_dict_value_float(const prh_byte *b, prh_r32 *value_bytes) {
+    double fpart = 0.0;
+    double scale = 0.1;
+    prh_r32 ipart = 0;
+    prh_r32 epart = 0;
+    prh_r32 i = 1;
+    prh_byte a;
+    bool negative = false;
+    bool finish = false;
+    bool point = false;
+    bool exponent = false;
+    bool neg_exp = false;
+    if (b[0] != 30) { *value_bytes = 0; return 0; }
+    for (; ;) {
+        switch ((a = b[i] >> 4)) {
+        case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8: case 9:
+            if (exponent) epart = epart * 10 + a;
+            else if (point) { fpart += scale * a; scale *= 0.1; }
+            else ipart = ipart * 10 + a;
+            break;
+        case 0xa: point = true; break;
+        case 0xb: exponent = true; break;
+        case 0xc: exponent = true; neg_exp = true; break;
+        case 0xe: negative = true; break;
+        case 0xf: finish = true; break;
+        default: break;
+        }
+        a = b[i++] & 0xf;
+        if (finish) {
+            if (a != 0xf) prh_abort_error(0xf);
+            goto label_parse_finish;
+        }
+        switch (a) {
+        case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7: case 8: case 9:
+            if (exponent) epart = epart * 10 + a;
+            else if (point) { fpart += scale * a; scale *= 0.1; }
+            else ipart = ipart * 10 + a;
+            break;
+        case 0xa: point = true; break;
+        case 0xb: exponent = true; break;
+        case 0xc: exponent = true; neg_exp = true; break;
+        case 0xe: negative = true; break;
+        case 0xf: goto label_parse_finish;
+        default: break;
+        }
+    }
+label_parse_finish:
+    *value_bytes = i;
+    fpart += ipart;
+    if (exponent) {
+        fpart *= pow(10.0, neg_exp ? -(double)epart : (double)epart);
+    }
+    if (negative) fpart = -fpart;
+    return fpart;
+}
+
 // OpenType 布局概述
 // OpenType 布局表为高质量国际化排版提供高级排版功能：
 // 字符和字形之间的丰富映射，允许连字、位置形式、替代形式和其他替换。
