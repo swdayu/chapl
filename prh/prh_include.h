@@ -41947,6 +41947,1264 @@ prh_r32 prh_font_glyph_index_from_cmap_format_14(prh_font_cmap_record *p, prh_r3
     return 0;
 }
 
+// OpenType 布局概述
+// OpenType 布局表为高质量国际化排版提供高级排版功能：
+// 字符和字形之间的丰富映射，允许连字、位置形式、替代形式和其他替换。
+// 执行二维定位和字形附着的能力。
+// 显式的脚本和语言信息，以便文本处理应用程序可以相应地调整其行为。
+// 一种开放格式，允许字体开发人员定义自己的排版功能。
+// 本概述介绍了 OpenType 布局字体模型的强大功能和灵活性。OpenType 布局表在 OpenType 规范的单独章节中有更详细的描述。请参阅高级排版表。
+// 不同 OpenType 布局表中使用的通用格式记录在"OpenType 布局通用表格式"章节中。
+// 注册的 OpenType 布局标签（用于脚本、语言、功能和基线）记录在 OpenType 布局标签注册表章节中。
+// OpenType 布局一览
+// OpenType 布局解决了正确显示许多不同脚本以及任何脚本中精细排版的复杂排版需求。
+// 使用 OpenType 布局表，字体可以支持字符的替代形式并提供用于访问它们的数据。例如，在阿拉伯文中，字符的形状通常随字符在单词中的位置而变化。如下图所示，ha 字符将采用四种形状中的任何一种，取决于它是单独出现还是出现在单词的开头、中间或结尾。执行文本布局时，文本处理应用程序评估 ha 字符出现的单词位置上下文，然后 OpenType 布局数据通知应用程序应为每个上下文替换哪个字形。
+// 阿拉伯文 ha 的不同位置形式字形
+// 图 1a 阿拉伯文字符 ha 的独立、词首、词中、词尾形式。
+// 类似地，当文本垂直定位而非水平定位时，OpenType 布局数据可被应用程序用于替换正确的字符形式，例如汉字。例如，汉字在垂直定位时使用括号的替代形式。
+// 水平和垂直布局中的汉字及括号
+// 图 1b 垂直定位汉字时使用的括号替代形式。
+// OpenType 布局数据还支持连字的合成和分解。例如，使用拉丁文书写英语、法语和其他语言时，可以用单个连字（如"fi"）替换其组成字形——在这种情况下，是"f"和"i"。相反，单个"f"和"i"字形可以替换连字，可能是为了给文本处理应用程序在调整字形间距以填充两端对齐文本行时提供更大的灵活性。或者类似地，许多阿拉伯文脚本字形序列可以用单个连字字形替换。
+// f 和 i 的字形及 fi 连字字形
+// 图 1c 两个拉丁文字形及其关联的连字。
+// 三个阿拉伯文字形序列及关联的连字字形
+// 图 1d 三个阿拉伯文字形及其关联的连字。
+// 字形替换只是 OpenType 布局扩展字体功能的一种方式。包含 OpenType 布局表的字体还可以指定字形如何相互附着。使用 X 和 Y 坐标来指定字形之间的附着点。此功能可用于将变音符号附着到字形，以及创建连笔（草书）文本。
+// OpenType 布局字体还可以包含基线信息，指定如何水平或垂直定位字形。由于基线可能因一种脚本（字符集）而异，此信息对于对齐混合不同语言字形的文本特别有用。
+// 一行包含拉丁文和阿拉伯文脚本的文本
+// 图 1e 一行文本，基线已调整，混合拉丁文和阿拉伯文脚本。
+// 尽可能多地，OpenType 布局表只定义特定于特定字体的信息。这些表不尝试编码在特定语言惯例或特定脚本的排版中保持恒定的信息。这种会在给定语言的所有字体中复制的信息属于该语言的文本处理应用程序，而不属于字体。
+// OpenType 布局术语
+// OpenType 布局模型围绕字形、脚本、语言系统、功能和查找组织。
+// 字符与字形
+// 用户不查看或打印字符：用户查看或打印字形。字符是数据中具有数字表示的抽象实体；字形是字符的可视化。例如，字符大写字母 A 在 Times New Roman Bold 等字体中通过字形"A"进行视觉描绘。字体包含字形的集合。要检索字形，客户端使用字体中的 'cmap' 表信息，将客户端的字符代码映射到表中的字形索引。
+// 字形还可以表示字符的组合和字符的替代形式：字形和字符并不严格一一对应。例如，用户可能键入两个字符，这两个字符可能更好地用单个连字字形表示。相反，同一个字符在单词的开头、中间或结尾可能采用不同的形式，因此字体可能需要几个不同的字形来表示单个字符。OpenType 布局字体包含一个表，为客户提供有关可能的字形替换的信息。
+// 替代 & 字形
+// 图 1f & 字符的多个字形。
+// 脚本
+// 脚本由一组相关字符组成，可能由一种或多种语言使用。拉丁文、阿拉伯文和泰文是脚本的示例。字体可以支持来自单个脚本或许多脚本的字符。在 OpenType 布局字体中，脚本由唯一的 4 字节标签标识。
+// 拉丁文、汉字和阿拉伯文字形
+// 图 1g 拉丁文、汉字和阿拉伯文脚本中的字形。
+// 语言系统
+// 脚本又可以分为语言系统。例如，拉丁文脚本用于书写英语、法语或德语，但每种语言对文本处理都有自己的特殊要求。字体开发人员可以选择提供针对脚本、语言系统或两者定制的信息。
+// 与脚本不同，当文本处理客户端检查正在使用的字符时，语言系统不一定显而易见。为避免歧义，用户或操作系统需要标识语言系统。否则，客户端将使用为每个脚本提供的默认语言系统信息。
+// 使用英语和土耳其语语言系统应用小型大写字母功能的字符串'dil'：使用土耳其语语言系统时，i 的小型大写字母带点。
+// 图 1h 英语和土耳其语语言系统之间的差异。
+// 功能和查找
+// 功能定义字体的排版功能，是应用程序用于调用这些功能的手段。这些可以包括显示某些脚本所必需的功能，以及精细排版的其他功能。支持变音符号定位的字体将实现 'mark' 功能。支持垂直字形替换的字体将实现 'vert' 功能。
+// 查找是用于实现功能所调用功能的数据。查找表描述了应用程序应应用的字形替换或字形定位操作，以实现所需的排版效果。功能可用于以字体无关的方式引用排版功能，但查找提供用于实现该功能的字体特定数据。
+// OpenType 布局功能模型为字体开发人员提供了灵活性，允许他们选择适合给定设计或其客户要求的字体功能。该模型还为未来的增强提供了可扩展性：持续创新可以随着时间的推移定义新功能的功能。
+// 显示脚本、语言系统和功能表组织关系的框图
+// 图 1i 脚本、语言系统、功能以及替换和定位表的查找之间的关系。
+// OpenType 布局表
+// OpenType 布局使用五个表：GSUB、GPOS、BASE、JSTF 和 GDEF。这些表及其格式在单独的章节中讨论。以下段落提供简要概述。
+// GSUB：包含有关字形替换的信息，以处理单个字形替换、一对多替换（连字分解）、美学替代、多个字形替换（连字）和上下文字形替换。
+// GPOS：包含有关字形 X 和 Y 定位的信息，以处理单个字形调整、成对字形调整、草书附着、标记附着和上下文字形定位。
+// BASE：包含有关逐脚本基线偏移的信息。
+// JSTF：包含两端对齐信息，包括空白和 Kashida 调整。
+// GDEF：包含有关字体中所有单个字形的信息：类型（简单字形、连字或组合标记）、附着点（如果有）和连字插入符（如果是连字字形）。
+// MATH 表是一个附加的高级排版表，包含布局数学表达式和公式所需的特殊度量值和其他数据。
+// 通用表格式：几个通用表格式被 OpenType 布局表使用。
+// 使用 OpenType 布局进行文本处理
+// 文本处理客户端遵循标准过程，将用户输入的字符字符串转换为定位的字形。要使用 OpenType 布局字体生成文本：
+// 使用字体中的 'cmap' 表，客户端将字符代码转换为字形索引序列。
+// 使用 GSUB 表中的信息，客户端修改生成的字形序列，根据需要替换位置或垂直字形、连字或其他替代形式。
+// 使用 GPOS 表中的定位信息和 BASE 表中的基线偏移信息，客户端然后定位字形。
+// 使用设计坐标，客户端确定设备无关的换行符。设计坐标是高分辨率和设备无关的。
+// 使用 JSTF 表中的信息，客户端两端对齐行，如果用户指定了此类对齐。
+// 客户端栅格化字形行并在对应于输出设备分辨率的设备坐标中渲染字形。
+// 在整个过程中，文本处理客户端保持原始字符串字符与最终渲染文本的字形索引之间的关联。此外，客户端可以在文本流中保存语言和脚本信息，以清楚地将原始文本中的运行与特定的排版行为相关联。
+// 从左到右和从右到左的文本
+// 当 OpenType 文本布局引擎应用 Unicode 双向算法并到达需要对具有偶数（即从左到右，LTR）解析级别的运行执行镜像时，它执行以下操作：
+// 字形级镜像：
+// 对整个 LTR 运行应用 'ltrm' 功能以替换镜像形式。
+// LTR 字形替代：
+// 对整个 LTR 运行应用 'ltra' 功能以优化字形选择。
+// 对于具有奇数（即从右到左，RTL）解析级别的运行，引擎执行以下操作：
+// 字符级镜像：
+// 对于 RTL 运行中的每个字符 i：
+// 如果它被 OMPL 映射到字符 j 且 cmap(j) 非零：
+// 在字符 i 处使用字形 cmap(j)。
+// 这里 OMPL 指的是 OpenType 镜像对列表，cmap(j) 指的是 Unicode 'cmap' 子表中从代码点 j 映射的字形。
+// 例如，假设 U+0028 左括号出现在解析级别为 1 的运行中。该运行中该代码点处的字形将被替换为 cmap(U+0029)，因为 {U+0028, U+0029} 是 OMPL 中的一对。
+// 字形级镜像：
+// 引擎对整个 RTL 运行应用 'rtlm' 功能。如果存在，该功能替换 OMPL 对第一元素未覆盖的字符的镜像形式（否则，它会取消字符级镜像的效果）。
+// OMPL 的数据内容与 Unicode 5.1 的双向镜像字形属性文件相同，并且不会修订。因此，如果需要，'rtlm' 功能将为（a）Unicode 5.1 中具有"镜像"属性但没有适当 Unicode 5.1 字符镜像的代码点，以及（b）所有未来添加到 Unicode 的"镜像"属性（无论是否存在字符镜像）提供镜像形式。
+// 通过布局引擎和字体之间的这种分工，大多数字体不需要包含 'rtlm' 功能，因为其 Unicode 'cmap' 子表中的镜像形式就足够了。
+// RTL 字形替代：
+// 引擎对整个 RTL 运行应用 'rtla' 功能。如果存在，该功能替换适合从右到左文本的变体（镜像形式除外）。
+// 实际上，引擎可以同时应用功能；因此，由字体供应商确保功能的查找顺序正确，以实现上述算法描述的效果。引擎可以以多种方式优化其实现，例如，利用字符级和字形级镜像不会同时应用于运行中同一元素的事实。
+// OpenType 布局与字体变体
+// OpenType 字体变体允许单个字体沿一个或多个变化轴支持许多设计变化。例如，具有字重和宽度变化的字体可能支持从细到黑的各种字重，以及从超压缩到超扩展的各种宽度。有关 OpenType 字体变体的一般信息，请参阅 OpenType 字体变体概述章节。
+// 用于支持字体变体的数据被集成到用于 OpenType 布局的表中。字形轮廓和度量在字体变化空间中的变化可能会影响 OpenType 布局表中使用的网格设计距离，例如 GPOS 附着查找中使用的锚点位置。OpenType 布局格式中的数据元素可以与描述默认值如何针对不同变化实例进行调整的变化数据相关联。
+// 在某些可变字体中，可能希望在字体的变化空间中的不同区域使用不同的字形替换或字形定位操作。例如，对于窄或重实例，其中字腔变小，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。这种效果可以使用 GSUB 或 GPOS 表中的功能变化表来实现。功能变化表在 OpenType 布局通用表格式章节中描述。另请参阅 OpenType 布局标签注册表中的必需变化替代（'rvrn'）功能。
+// 可变字体的不同变化实例具有相同的字形 ID。因此，似乎可以在字形序列中应用查找，其中字形使用可变字体的不同变化实例进行格式化。然而，这样做可能导致不可预测的行为，因为字体开发人员可能无法充分控制查找表的生成方式，并且测试大量可能的跨实例交互是不可行的。由于这些原因，布局处理实现必须将可变字体的不同变化实例视为不同的样式运行，以用于 OpenType 布局处理。
+
+// OpenType 布局通用表格式（OpenType Layout Common Table Formats）
+// https://learn.microsoft.com/en-us/typography/opentype/spec/chapter2
+//
+// OpenType 布局使用五个表：字形替换表（GSUB）、字形定位表（GPOS）、基线表（BASE）、
+// 两端对齐表（JSTF）和字形定义表（GDEF）。这些表使用一些相同的数据格式。本章定义这些
+// 通用格式，并解释所有 OpenType 布局表中使用的约定。通用格式也用于数学排版表（MATH，
+// Mathematical Typesetting Table）。单独的章节提供 GSUB、GPOS、BASE、JSTF、GDEF 和
+// MATH 表的所有其他详细信息。本章末尾提供了说明通用数据格式的示例和列表。
+//
+// 概述。OpenType 布局表提供用于替换和定位字形的排版信息，这些操作是许多脚本正确文本
+// 显示以及高质量排版所必需的。OpenType 布局数据按脚本（script）、语言系统、排版功能
+// （typographic）和查找（lookup）组织。
+//
+// 在顶层，数据按脚本组织。脚本是用于以一种或多种语言书面形式表示的字形集合。例如，单
+// 个脚本拉丁文用于书写英语、法语、德语和许多其他语言。相比之下，日语使用三种脚本书写：
+// 平假名、片假名和汉字。使用 OpenType 布局，单个字体可以支持多种脚本。
+//
+// 对于每个脚本，数据然后按一个或多个语言系统组织，这允许字体支持不同语言上下文的不同
+// 排版约定。例如，土耳其语与大多数使用拉丁文脚本书写的语言具有不同的大小写关系，这会
+// 影响使用小型大写字母功能（'smcp'）时所需的字形选择。使用英语和土耳其语语言系统应用
+// 小型大写字母功能（small caps feature）的字符串'dil'：使用土耳其语语言系统时，i 的小
+// 型大写字母带点。英语和土耳其语语言系统之间的差异：
+//      No features:            dil
+//      Small caps, Englisth:   DIL
+//      Small caps, Turkish:    DİL
+//
+// 语言系统特定功能，这些功能代表对字形的排版效果。一些功能示例包括用于替换日语中垂直
+// 字形的 'vert' 功能、用于使用连字替代单独字形的 'liga' 功能，以及用于定位阿拉伯语中
+// 变音符号相对于基础字形的 'mark' 功能。连字形成和标记定位，连字字形功能将 <et> 连字
+// 替换为单个字形，'mark' 功能将变音符号定位在阿拉伯语连字字形上方。
+//
+// 在没有特定语言规则的情况下，默认语言系统指定用于给定脚本的功能（features）。例如，
+// 阿拉伯文脚本的默认语言系统功能，将指定根据字形在单词中的位置替换词首、词中和词尾
+// 字形形式的功能。应用程序可以使用自己的标准（its own criteria）来确定何时使用特定
+// 语言系统（a specific language system）或默认语言系统。在对文本运行进行排版（doing
+// layout）时，它使用一个或另一个系统指定的功能，但不会同时使用两者。
+//
+// 功能（features）通过文本处理客户端用于替换和定位字形的查找数据实现。查找描述了受操作影响的字形、应用于这些字形的操作类型以及生成的字形输出。
+// 字体还可以在 GPOS 或 GSUB 表中包含 FeatureVariations 数据，允许在特定条件适用时将与功能关联的默认查找数据替换为备用查找数据。目前，此机制仅用于使用 OpenType 字体变体的可变字体。
+// OpenType 布局与字体变体
+// OpenType 字体变体允许单个字体沿一个或多个设计变化轴支持许多设计变化。例如，具有字重和宽度变化的字体可能支持从细到黑的各种字重，以及从超压缩到超扩展的各种宽度。有关 OpenType 字体变体的一般信息，请参阅 OpenType 字体变体概述章节。
+// 选择不同的变化实例时，单个字形的设计和度量会改变。这可能会影响 GPOS、BASE、JSTF 或 GDEF 表中给出的字体单位值，例如附着锚点位置的 X 和 Y 坐标。这些表中给出的字体单位值适用于可变字体的默认实例。如果不同变化实例需要调整，则使用与字形轮廓和其他字体数据类似的过程，使用变化数据进行调整，如 OpenType 字体变体概述章节所述。GPOS、JSTF 或 GDEF 值的变化数据包含在 GDEF 表中的 ItemVariationStore 表中；BASE 值的变化数据包含在 BASE 表本身的 ItemVariationStore 表中。ItemVariationStore 的格式在 OpenType 字体变体通用表格式章节中详细描述。对于 GPOS、BASE、JSTF 或 GDEF 表中需要变化的字体单位值，通过下面描述的 VariationIndex 表提供对 ItemVariationStore 中特定变化数据的引用。
+// 在某些可变字体中，可能希望在字体变化空间中的不同区域使用不同的字形替换或字形定位操作。例如，对于字腔变小的窄或重实例，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。这种效果可以使用 GSUB 或 GPOS 表中的 FeatureVariations 表来实现。FeatureVariations 表在下面描述。
+// 表组织
+// 两个 OpenType 布局表 GSUB 和 GPOS 使用相同的数据格式来描述它们支持的脚本和语言，以及用于每个支持脚本和语言的排版字形操作：ScriptList 表、FeatureList 表、LookupList 表和可选的 FeatureVariations 表。在 GSUB 中，这些表定义字形替换数据。在 GPOS 中，它们定义字形定位数据。本节描述这些格式之间的组织和关系；以下各节详细描述这些格式。
+// ScriptList 标识字体中的脚本，每个脚本由 Script 表表示。每个 Script 表有一个默认语言系统表加上零个或多个特定语言系统的表。语言系统表引用 FeatureList 中定义的 Feature 表。每个 Feature 表引用 LookupList 中定义的 Lookup 表，这些表描述实现该功能的字形操作。
+// 显示脚本、语言系统和功能表组织关系的框图
+// 图 2d. 脚本、语言系统、功能以及替换和定位表的查找之间的关系
+// 注意：BASE 和 JSTF 表中的数据也按脚本和语言系统组织。然而，数据格式与 GSUB 和 GPOS 中的不同，它们不包括 FeatureList 或 LookupList。BASE 和 JSTF 数据格式在 BASE 和 JSTF 章节中描述。
+// 用于替换和定位字形的信息在查找子表中定义。每个子表提供一种类型的信息，取决于查找是 GSUB 还是 GPOS 表的一部分。例如，GSUB 查找可能指定要替换的字形以及发生替换的上下文，而 GPOS 查找可能指定字距调整的字形位置调整。OpenType 布局有八种类型的 GSUB 查找（在 GSUB 章节中描述）和九种类型的 GPOS 查找（在 GPOS 章节中描述）。
+// 每个子表（扩展 LookupType 子表除外）包括一个 Coverage 表，列出将导致字形替换或定位操作的"覆盖"字形。Coverage 表格式在本章后面的部分描述。
+// 某些替换或定位操作可以应用于字形组或类。GSUB 和 GPOS 查找子表使用类定义表将字形分配到类中。类定义表格式的描述在本章后面提供。
+// 在非可变字体中，GPOS 查找子表还可以包含 Device 表，以调整特定输出尺寸和分辨率的缩放轮廓字形坐标。Device 表还可用于类似调整 BASE 和 GDEF 表中的基线度量或插入符偏移值。类似地，在可变字体中，GPOS 查找子表、BaseCoord 表和 CaretValue 表可以包含 VariationIndex 表，这些表引用变化数据以调整字体变化空间中不同变化实例的字体单位值。Device 和 VariationIndex 表在本章后面的部分描述。
+// 如上所述，功能表引用查找列表中的一组查找。FeatureVariations 表允许在特定条件下将与给定功能一起使用的默认查找集替换为不同的查找集。这可以在可变字体中用于为不同的变化实例提供不同的替换或定位操作。例如，对于字腔变小的窄或重实例，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。
+// 脚本和语言
+// 三个表及其关联记录适用于脚本和语言：ScriptList 表及其脚本记录（ScriptRecord）、Script 表及其语言系统记录（LangSysRecord），以及语言系统表（LangSys）。
+// ScriptList 表
+// 字体可以包含一个或多个用于渲染各种脚本的字形组，这些脚本在 ScriptList 表中枚举。GSUB 和 GPOS 表都定义 ScriptList 表：
+// GSUB 表使用 ScriptList 表来访问适用于脚本的字形替换功能。有关详细信息，请参阅字形替换表（GSUB）章节。
+// GPOS 表使用 ScriptList 表来访问适用于脚本的字形定位功能。有关详细信息，请参阅字形定位表（GPOS）章节。
+// ScriptList 表由字体中脚本表示的字形计数（ScriptCount）和记录数组（ScriptRecord）组成，每个脚本一个记录，字体为其定义了脚本特定功能（没有脚本特定功能的脚本不需要 ScriptRecord）。每个 ScriptRecord 由标识脚本的 ScriptTag 和指向 Script 表的偏移组成。ScriptRecord 数组按脚本标签的字母顺序存储。
+// 字体中可以使用标签为 DFLT（默认）的 Script 表来定义非脚本特定的功能。如果文本格式化没有与特定脚本关联的脚本表，或者文本没有特定脚本（例如，它只包含符号或标点符号），应用程序应使用 DFLT 脚本表。
+// 注意：如果符号或标点符号具有 Unicode 脚本属性"通用"，但与特定脚本的字符一起使用，则适用于这些符号或标点符号的功能不一定应组织在 DFLT 脚本下，而是可以组织在特定脚本下。应用程序可以将脚本中性字符与紧邻其前或后的脚本特定字符一起处理，以获得更好的处理效率。在这种情况下，应用程序将使用特定脚本的 Script 表来查找对这些中性字符进行操作的功能。然而，如果文本只包含中性字符，则仍使用 DFLT 脚本。
+// 如果存在 DFLT 脚本表，它必须有一个默认语言系统表（defaultLangSysOffset 不得等于 NULL——见下文）。
+// 由于语言使用特定脚本书写，通常预期语言特定的排版效果将与特定脚本关联，而不是与通用 DFLT 脚本关联。因此，DFLT 脚本表通常应只有默认语言系统表，没有特定语言表。然而，字体可以具有带有非默认语言系统表的 DFLT 脚本表，如果没有特定脚本的脚本表存在，或者文本上下文中没有特定脚本，应用程序可以使用其中一个特定语言系统的功能。在这种条件下，如果字体包含具有此配置的表，应用程序应支持使用与 DFLT 脚本关联的非默认语言系统表。
+// 示例 1 在本章末尾显示了一个使用三种脚本的日文字体的 ScriptList 表和 ScriptRecord。
+// ScriptList 表
+// 类型	名称	描述
+// uint16	scriptCount	ScriptRecord 的数量
+// ScriptRecord	scriptRecords[scriptCount]	ScriptRecord 数组，按脚本标签字母顺序列出
+// ScriptRecord
+// 类型	名称	描述
+// Tag	scriptTag	4 字节脚本标签标识符
+// Offset16	scriptOffset	从 ScriptList 开头到 Script 表的偏移
+// Script 表
+// Script 表可以指定一个或多个语言系统，这些语言系统定义特定语言中脚本字形的行为。它还引用一个默认语言系统，该系统定义在没有语言特定信息时使用的脚本字形行为。
+// Script 表以默认语言系统表（defaultLangSysOffset）的偏移开头，该表定义脚本默认行为的功能集。接下来是特定语言系统计数（langSysCount），然后是相应的语言系统记录数组（LangSysRecord）。每个记录使用语言系统标签（langSysTag）指定语言系统，并指定语言系统表（LangSys）的偏移。LangSysRecord 数组必须按语言系统标签的字母顺序排序。如果没有定义特定语言行为，langSysCount 字段设置为零，LangSysRecord 数组为空。
+// Script 表
+// 类型	名称	描述
+// Offset16	defaultLangSysOffset	从 Script 表开头到默认 LangSys 表的偏移——可能为 NULL。
+// uint16	langSysCount	langSysRecords 数组中的记录数。
+// LangSysRecord	langSysRecords[langSysCount]	LangSysRecord 数组，按 LangSys 标签字母顺序排序。
+// LangSysRecord
+// 类型	名称	描述
+// Tag	langSysTag	4 字节 LangSysTag 标识符。
+// Offset16	langSysOffset	从 Script 表开头到 LangSys 表的偏移。
+// 语言系统表
+// 语言系统表（LangSys）标识用于脚本字形布局的功能。功能指定为 FeatureList 表中的从零开始的索引，定义在本章下一节。
+// 可选地，LangSys 表可以定义一个必需功能索引（requiredFeatureIndex 字段），以指定在特定语言系统上下文中必需的一个功能。例如，在斯拉夫文脚本中，塞尔维亚语语言系统使用与俄罗斯语语言系统不同的某些字符字形。只能将一个功能索引值指定为必需功能。然而，这不是功能限制，因为功能和查找定义的结构使得一个功能表可以引用许多字形替换或定位查找。当没有定义必需功能时，requiredFeatureIndex 设置为 0xFFFF。
+// 所有其他功能被视为语言系统表一般处理要求方面的可选功能。然而，应用程序可能在某些上下文中将某些功能视为必需，无论功能是否使用 requiredFeatureIndex 字段引用。特别是，应用程序可能将某些功能视为正确布局某些 Unicode 字符或脚本所必需的。此类更高级别的要求超出本规范的范围。
+// 本章末尾的示例 2 显示了用于阿拉伯语脚本中上下文定位的 Script 表、LangSysRecord 和 LangSys 表。
+// LangSys 表
+// 类型	名称	描述
+// Offset16	lookupOrderOffset	保留——设置为 NULL。
+// uint16	requiredFeatureIndex	此语言系统所需功能的索引；如果没有必需功能，设置为 0xFFFF。
+// uint16	featureIndexCount	featureIndices 数组中的元素数。
+// uint16	featureIndices[featureIndexCount]	FeatureList 中的索引数组，顺序任意。
+// lookupOrderOffset 字段保留供将来使用。featureIndices 数组中的索引可以按任意顺序排列。
+// 功能和查找
+// 概述
+// 功能定义字体的高级布局功能，并命名以向文本处理客户端传达含义。考虑使用标签 'liga' 标识的功能来创建连字。由于其名称，客户端知道该功能的作用，并可以决定是否应用它。已经定义了几个功能，可以在字体和应用程序中使用；有关更多信息，请参阅 OpenType 布局标签注册表的功能标签部分。字体开发人员还可以定义自己的功能。
+// 设计字体时，字体开发人员根据字体将支持的排版功能选择功能。对于每个功能，他们然后实现一个或多个查找，描述要执行的字形替换或字形定位操作。给定功能可以使用多个查找；在这种情况下，查找操作将按顺序执行。在某些情况下，可能需要按特定顺序应用多个查找才能获得所需效果。
+// 对文本运行进行布局时，客户端选择要应用于运行的功能，然后按查找定义在 LookupList 中的顺序处理这些功能引用的查找。因此，在 GSUB 或 GPOS 表中，来自多个不同功能的查找可能在文本处理期间交错。由字体开发人员确定查找执行的操作的正确顺序。
+// 客户端可以按有序阶段处理 GSUB 功能，每个阶段处理特定功能。客户端还可以在阶段之前或之间对字形序列执行某些操作，例如重新排序字形。许多脚本的正确支持需要此类处理。此类脚本特定处理的详细信息超出本规范的范围。然而，在任何此类功能处理阶段内，该阶段应用的功能引用的查找必须按 LookupList 顺序处理。
+// 查找数据在一个或多个子表中定义，这些子表包含有关特定字形和要对它们执行的操作的信息。不同的查找类型支持不同类型的操作；例如，单个字形的定位调整与成对字形的定位调整。每种查找类型都有一个或多个相应的子表格式定义。子表类型和格式的选择取决于两个因素：应用于操作的信息的精确内容，以及所需的存储效率。有关所有查找类型和子表的完整定义，请参阅本文档的 GSUB 和 GPOS 章节。
+// 当客户端在字形序列中定位目标字形或字形上下文并执行所描述的替换或定位操作时，查找处理完成。
+// 功能和查找定义特定于给定字体中字形的信息。它们不编码在特定语言惯例或特定脚本排版中保持恒定的信息。这种会在给定脚本或语言的所有字体中复制的信息属于该语言或脚本的文本处理应用程序，而不属于字体。
+// FeatureList 表
+// GSUB 和 GPOS 表的头部包含指向 FeatureList 表的偏移，这些表枚举字体中的所有功能。FeatureList 中的功能不限于任何单个脚本。FeatureList 包含字体支持的所有脚本布局使用的 GSUB 或 GPOS 功能的完整列表。
+// FeatureList 表在记录数组（FeatureRecord）中枚举功能。每个功能需要一个 FeatureRecord，由标识功能的特征标签和指向 Feature 表（在下一节中描述）的偏移组成。
+// 注意：LangSys 表的 FeatureIndex 数组中存储的值是用于定位 FeatureList 表的 FeatureRecord 数组中的从零开始的索引。
+// Feature 表描述了用于给定脚本和语言系统的给定功能的查找。对于不同脚本或语言系统，功能的实现通常不同，需要不同的 Feature 表。因此，当功能为多个脚本或语言系统实现时，FeatureList 表可能包含两个或更多具有相同功能标签的记录。
+// FeatureRecord 数组应按功能标签的字母顺序排序。如果两个或更多记录具有相同的功能标签，则它们的相对顺序是任意的。
+// FeatureList 表
+// 类型	名称	描述
+// uint16	featureCount	featureRecords 数组中的记录数。
+// FeatureRecord	featureRecords[featureCount]	FeatureRecord 数组。
+// FeatureRecord
+// 类型	名称	描述
+// Tag	featureTag	4 字节功能标识标签。
+// Offset16	featureOffset	从 FeatureList 开头到 Feature 表的偏移。
+// Feature 表
+// Feature 表使用一个或多个查找定义功能的实现。GSUB 表中定义的 Feature 表包含对字形替换查找的引用；GPOS 表中定义的 Feature 表包含对字形定位查找的引用。如果功能需要字形替换和定位操作，则使用相同功能标签引用的 Feature 表需要在 GSUB 和 GPOS 表中都定义。
+// Feature 表由功能参数表的偏移、功能列出的查找计数以及指向 LookupList 的任意排序索引数组组成。
+// 功能参数表只能用于某些功能。功能参数表的格式特定于特定功能，并在 OpenType 布局标签注册表的功能标签部分中该功能的描述中指定。目前，仅为以下功能定义了功能参数表：
+// 'cv01' – 'cv99'
+// 'size'
+// 'ss01' – 'ss20'
+// 根据给定功能的规范，功能参数表可能是必需或可选的。功能参数表的长度必须在该表本身中隐式或显式指定。Feature 表中的 featureParamsOffset 字段给出相对于 Feature 表开头的偏移。如果没有为给定功能定义功能参数表，或者定义了功能参数表但在给定字体中未使用，则 featureParamsOffset 字段必须设置为 NULL。
+// 要识别 GSUB 或 GPOS 表中给定脚本和语言系统的功能，文本处理客户端读取给定 LangSys 表中引用的每个 FeatureRecord 的功能标签。然后客户端选择要实施的功能，并使用所选功能的 Feature 表中的 lookupListIndices 数组获取所选功能的查找索引列表。接下来，客户端将索引按数字顺序排列到其 LookupList 顺序中。最后，客户端从 LookupList 检索引用的 Lookup 表，并将查找数据应用于替换或定位字形。
+// 本章末尾的示例 3 显示了用于两种语言中连字替换的 FeatureList 和 Feature 表。
+// Feature 表
+// 类型	名称	描述
+// Offset16	featureParamsOffset	从 Feature 表开头到功能参数表的偏移（如果为该功能定义并存在），否则为 NULL。
+// uint16	lookupIndexCount	lookupListIndices 数组中的元素数。
+// uint16	lookupListIndices[lookupIndexCount]	LookupList 中的索引数组——从零开始。
+// LookupList 表
+// GSUB 和 GPOS 表的头部包含指向 LookupList 表的偏移，用于字形替换和字形定位查找。LookupList 表包含指向 Lookup 表的偏移数组。字体开发人员定义数组中偏移的顺序，以控制文本处理客户端处理查找数据以执行字形替换或定位操作的顺序。
+// 本章末尾的示例 4 显示了 LookupList 表中的三个连字查找。
+// LookupList 表
+// 类型	名称	描述
+// uint16	lookupCount	lookupOffsets 数组中的元素数。
+// Offset16	lookupOffsets[lookupCount]	从 LookupList 开头到 Lookup 表的偏移数组。
+// Lookup 表
+// Lookup 表定义用于实现功能的特定条件、类型和替换或定位操作结果。例如，替换操作需要目标字形索引列表、替换字形索引列表以及替换操作类型的描述。
+// 描述查找操作的数据包含在一个或多个查找子表中。不同的查找类型支持不同类型的操作；例如，单个字形的定位调整与成对字形的定位调整。操作类型确定需要在查找子表中包含的信息。给定查找表可能只支持一种操作类型，因此可能只包含相同查找类型的子表。
+// GSUB 表支持八种查找类型；GPOS 表支持九种查找类型。有关各种替换和定位查找的详细信息，请参阅 GSUB 和 GPOS 章节。
+// 对于每种查找类型，定义了一种或多种子表格式。每种格式由操作所需信息的内容和所需存储效率确定。当字形信息最好以多种格式呈现时，单个查找可能包含多个子表，只要所有子表都是相同的查找类型。
+// 在文本处理期间，客户端对字符串应用功能到某些字形序列。然后它按功能引用的查找在查找列表顺序中处理这些查找。对于每个查找，客户端在功能已应用的字形序列中的每个字形上处理该查找。在该查找已处理完整个字形序列后，它然后以相同方式处理功能引用的下一个查找。随着每个查找的处理，它作用于先前查找的替换或定位结果。这继续直到功能引用的所有查找都已处理。
+// 应用程序可以同时处理多个功能的查找。在这种情况下，查找列表是所有这些功能引用的查找的并集，并且所有这些查找都按查找列表顺序处理。如果不同功能已应用于字符串的不同字形子序列，则每个查找仅应用于引用该查找的功能所应用的子序列。
+// 查找指定一个或多个输入序列模式，每个模式有一个或多个字形。当在字符串中的字形序列上处理查找时，客户端从序列中的第一个字形开始，测试当前字形是否与查找指定的输入序列模式匹配。如果字形序列与任何查找输入序列模式不匹配，则该字形的查找处理完成，客户端前进到字形序列中的下一个字形。如果字形序列确实与查找输入序列模式匹配，则对匹配的输入序列执行相应的替换或定位操作。客户端执行替换或定位操作后，查找对该字形完成。要移动到"下一个"字形，客户端跳过参与查找操作的所有字形：被替换/定位的字形以及匹配输入序列中的任何其他字形。然而，对于成对定位操作（例如字距调整）有一个例外：序列中的"下一个"字形可能是输入序列对的第二个字形，而不是跳过整个输入序列。（有关详细信息，请参阅成对定位查找类型。）
+// 如果 Lookup 表有多个子表，则按顺序处理子表，依次测试当前字形位置的字形序列是否与每个子表指定的输入序列模式匹配。如果字形序列与子表的模式不匹配，则处理移动到下一个子表。如果字形序列与任何查找子表的模式不匹配，则该字形位置的查找处理完成。如果字形序列确实与子表的模式匹配，则执行该子表的操作，并且查找处理完成——不再为该字形序列位置处理进一步的子表。
+// GSUB 和 GPOS 表都包括允许链接上下文的查找类型：GSUB 查找类型 6 和 GPOS 查找类型 8。链接上下文查找类型支持指定在输入序列模式之前和之后的回溯和前瞻序列模式。这些也必须在字形序列中匹配，以便查找在给定位置应用于字形序列。与输入序列模式不同，回溯和前瞻序列的匹配不限于应用关联功能的字形序列。链接上下文查找可以为匹配输入序列中的字形指定操作，但不能为回溯或前瞻序列中的字形指定操作。处理链接上下文查找后，客户端通过跳过输入序列来设置"下一个"字形，但不跳过前瞻序列。
+// Lookup 表指定定义查找子表中存储信息类型的查找类型。查找标志指定查找限定符，向文本处理客户端指示替换或定位字形时要使用的某些处理选项。偏移数组提供从 Lookup 表开头到一个或多个指定查找类型的查找子表的偏移。可选字段为标记字形提供附加限定符。
+// Lookup 表
+// 类型	名称	描述
+// uint16	lookupType	GSUB 和 GPOS 的不同枚举。
+// uint16	lookupFlag	查找限定符。
+// uint16	subTableCount	subtableOffsets 数组中的元素数。
+// Offset16	subtableOffsets[subTableCount]	从 Lookup 表开头到查找子表的偏移数组。
+// uint16	markFilteringSet	如果设置了 USE_MARK_FILTERING_SET 查找标志，则 GDEF 标记字形集结构中的索引（从零开始）。
+// subtableOffsets 数组中偏移的顺序决定查找子表的处理顺序。
+// 查找标志使用两字节数据：
+// 可以设置前四个低位中的每一个，以指定将查找应用于字形序列的附加指令。下表提供这些位使用的详细信息。
+// 第五位指示 Lookup 表中是否存在 markFilteringSet 字段。
+// 接下来的三位保留供将来使用。
+// 高字节可用于指定标记字形类作为字形过滤器。
+// LookupFlag 位枚举
+// 掩码	名称	描述
+// 0x0001	RIGHT_TO_LEFT	此位仅与草书附着定位（GPOS 查找类型 3）相关。设置此位时，匹配输入序列中的最后一个字形将定位在基线上。
+// 0x0002	IGNORE_BASE_GLYPHS	如果设置，跳过基础字形
+// 0x0004	IGNORE_LIGATURES	如果设置，跳过连字
+// 0x0008	IGNORE_MARKS	如果设置，跳过所有组合标记
+// 0x0010	USE_MARK_FILTERING_SET	如果设置，表示 Lookup 表结构包含 markFilteringSet 字段。布局引擎跳过不在指定标记过滤集中的所有标记字形。
+// 0x00E0	reserved	供将来使用（设置为零）
+// 0xFF00	MARK_ATTACHMENT_CLASS_FILTER	如果非零，跳过不在指定标记附着类中的所有标记。
+// RIGHT_TO_LEFT 标志仅用于 GPOS 类型 3 查找，否则被忽略。客户端软件不使用它来确定文本方向。
+// 如上所述，查找为已应用功能的字形序列中的每个字形处理。每种查找类型指定要匹配的输入序列模式：单个字形或字形序列，取决于查找类型。查找处理循环中的当前字形始终针对查找输入字形序列模式中的第一个字形进行测试。查找标志影响输入序列中其他字形的模式匹配，但不影响当前字形。对于链接上下文查找，标志还影响回溯和前瞻序列的匹配。
+// IGNORE_BASE_GLYPHS、IGNORE_LIGATURES 或 IGNORE_MARKS 指 GDEF 表中字形类定义表中定义的基础字形、连字和标记。如果设置了这些标志中的任何一个，则查找必须忽略相应类型的字形；也就是说，必须处理其他字形，就好像这些字形不存在于字形序列中一样。
+// 如果 MARK_ATTACHMENT_CLASS_FILTER 非零，则必须在 GDEF 表中的标记附着类定义表中定义标记附着类。处理字形序列时，查找必须忽略不在指定标记附着类中的任何标记字形；仅处理指定类中的标记。
+// 如果任何查找设置了 USE_MARK_FILTERING_SET 标志，则 Lookup 头必须包含 markFilteringSet 字段，并且 GDEF 表中必须存在 MarkGlyphSets 表。查找必须忽略不在指定标记字形集中的任何标记字形；仅处理指定标记字形集中的字形。
+// 如果指定了标记过滤集，这将取代查找标志中的任何标记附着类指示。如果设置了 IGNORE_MARKS 位，这将取代任何标记过滤集或标记附着类指示。
+// 例如，在阿拉伯语文本中，字符字符串可能具有模式基础标记基础。该字符串可以转换为由两个组件组成的连字，每个基础字符一个组件，组合标记字形位于第一个组件上方。要生成此连字，字体开发人员将设置连字替换查找的 IGNORE_MARKS 位，告诉客户端忽略标记，首先替换连字字形，然后在后续 GPOS 查找中将标记字形定位在连字字形上方。或者，可以使用未设置 IGNORE_MARKS 位的替换查找来描述三组件连字字形，由第一个基础字形、标记字形和第二个基础字形组成。
+// 再例如，将基础字形与上方标记创建连字的查找可以通过指定仅包含上方标记的标记附着类来跳过所有下方标记。
+// 上下文查找类型支持查找数据的嵌套组织。在此结构中，查找子表指定可以修改的输入序列模式，然后引用 LookupList 中的一个或多个"嵌套"查找表，描述要应用于匹配序列中单个字形的操作。在这些情况下，主查找表中有一个 lookupFlag 字段，嵌套查找中有单独的 lookupFlag 字段。
+// GPOS 查找类型 7 和类型 8 具有这种性质，以及 GSUB 查找类型 5、类型 6 和类型 8。对于这些查找类型，主查找的效果是过滤它们应用的字形序列，但不直接修改匹配序列中的字形。主查找表中的查找标志将影响此初始匹配过程。例如，IGNORE_MARKS 标志将导致在评估字形序列是否与查找指定的模式匹配时忽略标记字形。注意，RIGHT_TO_LEFT 标志从不用于主查找。
+// 一旦序列与主查找中的模式匹配，就会在序列中的字形上处理嵌套查找。主查找表中的查找标志在嵌套查找处理时不被考虑。相反，考虑嵌套查找中的查找标志。注意，嵌套查找中的标志可能导致在初始主查找表匹配的字形序列上进行二级过滤。
+// Coverage 表
+// Lookup 表中的每个子表（扩展查找类型子表除外）引用一个 Coverage 表，该表指定受子表中描述的替换或定位操作影响的所有字形。GSUB、GPOS 和 GDEF 表依赖于这种覆盖概念。如果字形未出现在 Coverage 表中，客户端可以跳过该子表并立即移动到下一个子表。
+// Coverage 表以两种方式之一通过字形 ID 标识字形：
+// 作为字形集中的单个字形 ID 列表。
+// 作为连续字形 ID 的范围。范围格式给出一个或多个起始和结束字形 ID 对，表示表覆盖的连续字形。
+// 在 Coverage 表中，format 字段将格式指定为整数：1 = 列表，2 = 范围。
+// Coverage 表为每个覆盖字形定义一个唯一的索引值，即 Coverage 索引。Coverage 索引是顺序的，从 0 到覆盖字形数减 1。此唯一值指定覆盖字形在 Coverage 表中的位置。客户端使用 Coverage 索引在子表中查找每个字形的值。
+// Coverage 格式 1
+// Coverage 格式 1 由格式字段和覆盖字形计数组成，后跟字形索引数组（glyphArray）。字形索引必须按数字顺序排列，以便对列表进行二分搜索。在 Coverage 表中找到字形时，其在 glyphArray 中的位置决定返回的 Coverage 索引——第一个字形的 Coverage 索引 = 0，最后一个字形的 Coverage 索引 = GlyphCount -1。
+// 本章末尾的示例 5 显示了使用格式 1 列出字体中所有小写降部字形 ID 的 Coverage 表。
+// CoverageFormat1 表：单个字形索引
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 1。
+// uint16	glyphCount	字形数组中的字形数。
+// uint16	glyphArray[glyphCount]	字形 ID 数组——按数字顺序。
+// Coverage 格式 2
+// 格式 2 由格式字段和字形索引范围计数组成，后跟记录数组（rangeRecords）。每个 RangeRecord 由起始字形索引、结束字形索引以及与范围起始字形关联的 Coverage 索引组成。范围必须按 startGlyphID 排序，并且必须不同，不重叠。
+// 第一个范围的 Coverage 索引从零（0）开始，并顺序增加到（endGlyphId - startGlyphId）。对于每个后续范围，起始 Coverage 索引比前一个范围的结束 Coverage 索引大 1。因此，每个非初始范围的 startCoverageIndex 必须等于前一个范围的长度（endGlyphID - startGlyphID + 1）加上前一个范围的 startCoverageIndex。这允许使用公式快速计算任何范围内任何字形的 Coverage 索引：Coverage 索引（glyphID）= startCoverageIndex + glyphID - startGlyphID。
+// 本章末尾的示例 6 显示了使用格式 2 标识字体中数字字形范围的 Coverage 表。
+// CoverageFormat2 表：字形范围
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 2。
+// uint16	rangeCount	RangeRecord 的数量。
+// RangeRecord	rangeRecords[rangeCount]	按 startGlyphID 排序的字形范围数组。
+// RangeRecord
+// 类型	名称	描述
+// uint16	startGlyphID	范围中的第一个字形 ID。
+// uint16	endGlyphID	范围中的最后一个字形 ID。
+// uint16	startCoverageIndex	范围中第一个字形 ID 的 Coverage 索引。
+// 类定义表
+// 为了效率和查找中的表示方便，字体开发人员可以将字形分组为字形类。类可用于 GSUB 和 GPOS 查找中的各种目的，包括描述字形上下文或要处理或忽略的一组标记。
+// 考虑仅替换字形字符串中小写升部字形的替换操作。为了更容易描述替换的适当上下文，字体开发人员可以将字体的小写字形分为两类，一类包含升部，一类包含没有升部的字形。
+// 字体开发人员可以将任何字形分配到任何类，每个类用整数标识。类定义表（ClassDef）将字形分配到类，从类 1 开始，然后是类 2，依此类推。所有未分配到类的字形归入类 0。在给定的类定义表内，字体中的每个字形恰好属于一个类。
+// ClassDef 表可以有两种格式之一：一种将连续字形索引范围分配到不同的类，另一种将连续字形索引组放入同一个类。
+// 类定义格式 1
+// 第一种类定义格式（ClassDefFormat1）指定连续字形索引范围并列出相应的字形类值。当每个类中的字形索引未分组在一起时，此表可用于将每个字形分配到不同的类。
+// ClassDefFormat1 表以格式标识符开头。表覆盖的字形 ID 范围由两个值标识：第一个字形的字形 ID（startGlyphID）和将分配类值的连续字形 ID 数（包括第一个）。整数数组列出分配给每个字形 ID 的类值，从 startGlyphID 的类值开始，并遵循与字形 ID 相同的顺序。任何未包含在覆盖字形 ID 范围内的字形被分配到类 0。
+// 本章末尾的示例 7 使用格式 1 为字体中的小写、x 高度、升部和降部字形分配类值。
+// ClassDefFormat1 表：类数组
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 1。
+// uint16	startGlyphID	分配给类的第一个字形 ID。
+// uint16	glyphCount	classValues 数组中的元素数。
+// uint16	classValues[glyphCount]	类值数组——每个字形 ID 一个。
+// 类定义格式 2
+// 第二种类定义格式（ClassDefFormat2）定义属于同一类的多个字形索引组。每个组由连续顺序的字形索引范围组成。字形范围不得重叠。
+// ClassDefFormat2 表包含格式标识符和 ClassRange 记录数组，这些记录指定字形 ID 范围以及分配给的类。记录必须按每个范围中的第一个字形 ID 排序。
+// 任何未由 ClassRange 记录覆盖的字形被分配到类 0。
+// 本章末尾的示例 8 使用格式 2 为阿拉伯语脚本中的四种类字形分配类值。
+// ClassDefFormat2 表：类范围
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 2。
+// uint16	classRangeCount	ClassRange 记录的数量。
+// ClassRange	classRangeRecords[classRangeCount]	按 startGlyphID 排序的 ClassRangeRecord 数组。
+// ClassRange 记录
+// 类型	名称	描述
+// uint16	startGlyphID	范围中的第一个字形 ID。
+// uint16	endGlyphID	范围中的最后一个字形 ID。
+// uint16	class	应用于范围内所有字形的类。
+// 上下文查找子表的通用格式
+// GSUB 和 GPOS 表各自使用不同的查找类型进行各种替换和定位操作。对于 GSUB 和 GPOS，都定义了上下文查找类型：
+// GSUB 类型 5：上下文替换
+// GPOS 类型 7：上下文定位
+// 上下文查找类型支持指定被操作的输入字形序列，以及在序列中任何字形位置执行的操作列表。操作指定为对单独嵌套查找的引用（LookupList 中的索引）。操作为每个字形位置指定，但整个序列必须匹配，因此操作以上下文敏感方式指定。
+// 由于上下文查找表链接到描述要执行的替换操作的"嵌套"查找表，因此每个嵌套查找表中以及主查找表中都有 lookupFlag 字段。有关主查找表和嵌套查找表中查找标志效果的详细信息，请参阅上面的 Lookup 表部分。
+// 注意：字形序列以逻辑顺序给出。对于从右到左书写的文本，最右边的字形将是第一个；相反，对于从左到右书写的文本，最左边的字形将是第一个。
+// 对于 GSUB 类型 5 和 GPOS 类型 7，定义了三种子表格式，以不同方式描述输入序列：
+// 以特定字形 ID 表示（"简单字形上下文"）。
+// 使用类定义表定义的字体集表示（"基于类的字形上下文"）。
+// 使用 Coverage 表定义的字体集表示（"基于覆盖的字形上下文"）。
+// 三种不同的子表格式使用不同的结构，但对于每种子表格式，结构在 GSUB 和 GPOS 表中是通用的。
+// 此外，对于 GSUB 和 GPOS，都定义了链接上下文查找类型：
+// GSUB 类型 6：链接上下文替换
+// GPOS 类型 8：链接上下文定位
+// 链接上下文查找在功能上类似于上下文查找，但添加了链接字形序列上下文：在输入序列之前的回溯字形序列，以及在输入序列之后的前瞻序列。（回溯和前瞻序列在下面更详细描述：请参阅链接序列上下文格式 1：简单字形上下文。）只能为输入序列中的字形指定操作，但回溯、输入和前瞻序列必须与当前正在处理的字形序列匹配，查找才能应用。完成指定操作后，客户端前进到匹配输入序列之后的字形位置（如果嵌套查找是 GPOS 类型 2、成对定位查找，则有特殊考虑）；特别是，客户端不会跳过匹配的前瞻序列。
+// 为上下文查找定义了三种格式，类似于上下文查找的三种格式。使用的结构不同于上下文查找类型使用的结构，因为它们包含了链接上下文。但链接上下文结构在 GSUB 和 GPOS 表中是通用的。
+// 注意：虽然替换和定位操作在 GSUB 和 GPOS 查找之间是不同的，但对于上下文查找类型，这种差异反映在嵌套查找中。例如，GSUB 上下文查找指定的操作由 GSUB 表中的嵌套查找引用。这样，GSUB 和 GPOS 表中使用的上下文查找子表结构可以是相同的，但指定的结果操作仍然是不同的。
+// 对于上下文和链接上下文查找类型，定义了输入序列模式，并对匹配的字形序列执行操作。注意，模式在任何操作执行之前与当前字形序列匹配。在 GSUB 表内，替换操作将更改当前字形序列，但这不影响初始匹配操作。
+// 序列查找记录
+// 对于上下文和链接上下文查找的所有格式，使用通用记录格式来指定操作——嵌套查找——应用于输入序列中特定序列位置的字形。
+// SequenceLookup 记录
+// 类型	名称	描述
+// uint16	sequenceIndex	输入字形序列中的索引（从零开始）。
+// uint16	lookupListIndex	LookupList 中的索引（从零开始）。
+// lookupListIndex 字段指示要应用于输入字形序列中由 sequenceIndex 指示的位置的 Lookup 表。
+// 序列上下文格式 1：简单字形上下文
+// GSUB 类型 5 格式 1 子表和 GPOS 类型 7 格式 1 子表以特定字形 ID 定义输入序列。可以指定多个序列，但每个序列都使用字形 ID 指定。
+// 每个序列的第一个字形在 Coverage 表中指定。每个序列中的剩余字形在 SequenceRule 表中定义——每个序列一个。如果多个序列以相同的字形开头，则该字形 ID 必须在 Coverage 表中列出一次，并且相应的序列规则使用 SequenceRuleSet 表聚合——Coverage 表中指定的每个初始字形一个。
+// 在字形序列中的给定位置评估 SequenceContextFormat1 子表时，客户端在 Coverage 表中搜索当前字形。如果找到，则检索相应的 SequenceRuleSet 表，并检查该集的 SequenceRule 表，以查看当前字形序列是否与任何序列规则中的输入序列模式匹配。使用第一个匹配的子表规则。
+// SequenceContextFormat1 表
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 1。
+// Offset16	coverageOffset	从 SequenceContextFormat1 表开头到 Coverage 表的偏移。
+// uint16	seqRuleSetCount	SequenceRuleSet 表的数量。
+// Offset16	seqRuleSetOffsets[seqRuleSetCount]	从 SequenceContextFormat1 表开头到 SequenceRuleSet 表的偏移数组（偏移可能为 NULL）。
+// Coverage 表列出所有支持的输入字形序列的初始字形。seqRuleSetCount 应与 Coverage 表中的字形数量匹配。如果不同，则忽略额外的覆盖字形或额外的序列规则集。
+// 每个覆盖字形有一个 SequenceRuleSet 表。seqRuleSetOffsets 数组中的偏移必须排序以匹配 Coverage 表中的字形顺序。
+// SequenceRuleSet 表——所有以相同字形开头的上下文
+// 类型	名称	描述
+// uint16	seqRuleCount	SequenceRule 表的数量。
+// Offset16	seqRuleOffsets[seqRuleCount]	从 SequenceRuleSet 表开头到 SequenceRule 表的偏移数组。
+// SequenceRule 子表的偏移按所需结果排序。子表按偏移列出的顺序评估，并使用第一个与当前字形序列匹配的序列规则。较长、更具体的序列的规则通常排序在较短规则之前。
+// 注意：如果一个规则指定的序列是另一个规则中指定的较长序列的初始子序列，并且较短的排序在较长的之前，则较长序列的规则将永远不会被使用。例如，考虑两个上下文 <abc><abcd><abc><abc><abcd><abcd>
+// SequenceRule 表
+// 类型	名称	描述
+// uint16	glyphCount	输入字形序列中的字形数。
+// uint16	seqLookupCount	SequenceLookup 的数量。
+// uint16	inputSequence[glyphCount - 1]	输入字形 ID 数组——从第二个字形开始。
+// SequenceLookup	seqLookupRecords[seqLookupCount]	序列查找记录数组。
+// glyphCount 值是输入序列中的字形总数，包括第一个字形。inputSequence 数组按顺序指定输入序列中的剩余字形。（inputSequence 索引 0 处的字形对应于字形序列索引 1。）
+// seqLookupRecords 数组列出指定要对输入序列中各个位置的字形执行的操作的序列查找记录。这些不必按序列位置顺序排列；它们按所需结果排序。所有序列查找记录按顺序处理，每个应用于前一条记录指示的操作结果。
+// 序列上下文格式 2：基于类的字形上下文
+// GSUB 类型 5 格式 2 子表和 GPOS 类型 7 格式 2 子表使用类定义表定义的字形类定义输入序列模式。可以指定多个序列模式，每个模式为每个输入序列位置指定一个字形类。
+// 类分配整数编号，即类值。输入序列模式指定为类值序列。例如，模式 1, 4, 3 指定具有三个字形的字形序列集，第一个来自类 1，第二个来自类 4，第三个来自类 3。
+// 每个模式在 ClassSequenceRule 表中指定。在第一个位置以相同类值开头的模式使用 ClassSequenceRuleSet 表聚合。
+// SequenceContextFormat2 表具有指向 Coverage 表的偏移。Coverage 表包含作为任何基于类模式第一个字形出现的所有字形 ID。也就是说，Coverage 表包含所有作为任何指定输入序列模式中第一个字形的类中所有字形的字形索引列表。例如，如果模式以类 1 或类 2 开头，则 Coverage 表将列出类 1 或类 2 中的所有字形。Coverage 表中的字形 ID 只给出一次。
+// 注意：由于类定义表的定义方式，每个字形 ID 恰好属于一个类。
+// 在字形序列中的给定位置评估 SequenceContextFormat2 子表时，客户端在 Coverage 表中搜索当前字形。如果找到，客户端然后在类定义表中搜索分配给当前字形的类值。类值用作指向 ClassSequenceRuleSet 表数组的偏移的索引。检索该类值的 ClassSequenceRuleSet 表，并检查该集的 ClassSequenceRule 表，以查看当前序列是否与任何指定模式匹配。
+// 注意：ClassSequenceRuleSet 和 SequenceRuleSet 表的格式本质上相同，ClassSequenceRule 和 SequenceRule 表的格式也相同，但语义不同：ClassSequenceRule 表具有字形类值序列，而 SequenceRule 表具有字形 ID 序列；因此它们被区分。相应地，ClassSequenceRuleSet 和 SequenceRuleSet 表由每个引用的子表区分。
+// SequenceContextFormat2 表
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 2。
+// Offset16	coverageOffset	从 SequenceContextFormat2 表开头到 Coverage 表的偏移。
+// Offset16	classDefOffset	从 SequenceContextFormat2 表开头到 ClassDef 表的偏移。
+// uint16	classSeqRuleSetCount	ClassSequenceRuleSet 表的数量。
+// Offset16	classSeqRuleSetOffsets[classSeqRuleSetCount]	从 SequenceContextFormat2 表开头到 ClassSequenceRuleSet 表的偏移数组（可能为 NULL）。
+// 类定义表中定义的每个类有一个指向 ClassSequenceRuleSet 子表的偏移。偏移按类值顺序列出。如果没有定义以特定类开头的模式，则该类值的偏移可以设置为 NULL。
+// ClassSequenceRuleSet 表
+// 类型	名称	描述
+// uint16	classSeqRuleCount	ClassSequenceRule 表的数量。
+// Offset16	classSeqRuleOffsets[classSeqRuleCount]	从 ClassSequenceRuleSet 表开头到 ClassSequenceRule 表的偏移数组。
+// ClassSequenceRule 子表的偏移按所需结果排序。子表按偏移列出的顺序评估，并使用第一个与当前字形序列匹配的类序列规则。较长、更具体的序列的规则通常排序在较短规则之前。
+// ClassSequenceRule 表
+// 类型	名称	描述
+// uint16	glyphCount	要匹配的字形数。
+// uint16	seqLookupCount	SequenceLookup 记录的数量。
+// uint16	inputSequence[glyphCount - 1]	要与输入字形序列匹配的类序列，从第二个字形位置开始。
+// SequenceLookup	seqLookupRecords[seqLookupCount]	SequenceLookup 记录数组。
+// glyphCount 值是输入序列模式中的字形类总数，包括第一个序列位置。inputSequence 数组按顺序指定输入序列模式中的剩余类值。
+// seqLookupRecords 数组列出指定要对输入序列中各个位置的字形执行的操作的序列查找记录。这些不必按序列位置顺序排列；它们按所需结果排序。所有序列查找记录按顺序处理，每个应用于前一条记录指示的操作结果。
+// 序列上下文格式 3：基于覆盖的字形上下文
+// GSUB 类型 5 格式 3 子表和 GPOS 类型 7 格式 3 子表使用 Coverage 表定义的字体集定义输入序列模式。
+// SequenceContextFormat3 表恰好指定一个输入序列模式。它有一个指向 Coverage 表的偏移数组。这些按顺序对应于输入序列模式中的位置。
+// SequenceContextFormat3 表
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 3。
+// uint16	glyphCount	输入序列中的字形数。
+// uint16	seqLookupCount	SequenceLookup 记录的数量。
+// Offset16	coverageOffsets[glyphCount]	从 SequenceContextFormat3 子表开头到 Coverage 表的偏移数组。
+// SequenceLookup	seqLookupRecords[seqLookupCount]	SequenceLookup 记录数组。
+// seqLookupRecords 数组列出指定要对输入序列中各个位置的字形执行的操作的序列查找记录。这些不必按序列位置顺序排列；它们按所需结果排序。所有序列查找记录按顺序处理，每个应用于前一条记录指示的操作结果。
+// 链接序列上下文格式 1：简单字形上下文
+// GSUB 类型 6 格式 1 和 GPOS 类型 8 格式 1 子表以特定字形 ID 定义输入序列以及链接的回溯和前瞻序列；这是 ChainedSequenceContextFormat1 表。其子表格式类似于 SequenceContextFormat1 表使用的格式，关键区别在于 ChainedSequenceRule 表包含链接的回溯和前瞻序列。
+// 输入序列的第一个字形在 Coverage 表中指定。每个输入序列中的剩余字形以及回溯和前瞻序列在 ChainedSequenceRule 表中定义——每个组合的回溯 + 输入 + 前瞻序列一个。如果多个序列组合在输入序列中具有相同的初始字形，则该字形 ID 必须在 Coverage 表中列出一次，并且相应的规则使用 ChainedSequenceRuleSet 表聚合——Coverage 表中指定的每个输入序列初始字形一个。
+// 在字形序列中的给定位置评估 ChainedSequenceContextFormat1 子表时，客户端在 Coverage 表中搜索当前字形。如果找到，则检索相应的 ChainedSequenceRuleSet 表，并检查该集的 ChainedSequenceRule 表，以查看当前字形序列是否与任何链接序列规则中的任何模式匹配。使用第一个匹配的子表规则。
+// 序列规则与当前字形序列的匹配需要输入、回溯和前瞻序列的匹配。查找标志影响回溯和前瞻序列以及输入序列中的匹配。
+// 注意，回溯序列以反向逻辑顺序给出：如果当前字形位于文本字形缓冲区中的位置 i，则回溯序列从 i-1 开始，并随着远离 i 而递减偏移值。前瞻序列在输入序列之后开始，并按逻辑顺序递增。
+// 为了澄清输入、回溯和前瞻序列的字形数组顺序，提供以下说明。假设在逻辑排序的字形序列中，输入序列匹配从索引 i 开始，长度为 2。
+// 逻辑顺序：	a	b	c	d	m	n	w	x	y	z
+// 序列索引：			…	i - 1	i	i + 1	i + 2	…
+// 输入序列索引：					0	1
+// 回溯序列索引：	3	2	1	0
+// 前瞻序列索引：							0	1	2	3
+// 因此，在此示例中，输入序列将包含字形 ID "mn"；回溯序列将按该顺序包含字形 ID "dcba"；前瞻序列将包含字形 ID "wxyz"。序列查找记录中指定的操作只能为输入序列中的字形指定，即 "mn" 的字形。
+// ChainedSequenceContextFormat1 表
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 1。
+// Offset16	coverageOffset	从 ChainSequenceContextFormat1 表开头到 Coverage 表的偏移。
+// uint16	chainedSeqRuleSetCount	ChainedSequenceRuleSet 表的数量。
+// Offset16	chainedSeqRuleSetOffsets[chainedSeqRuleSetCount]	从 ChainedSequenceContextFormat1 表开头到 ChainedSeqRuleSet 表的偏移数组（可能为 NULL）。
+// Coverage 表列出所有支持的输入字形序列的初始字形。chainedSeqRuleSetCount 应与 Coverage 表中的字形数量匹配。如果不同，则忽略额外的覆盖字形或额外的序列规则集。
+// 每个覆盖字形有一个 ChainedSequenceRuleSet 表。chainedSeqRuleSetOffsets 数组中的偏移必须排序以匹配 Coverage 表中的字形顺序。
+// ChainedSequenceRuleSet 表
+// 类型	名称	描述
+// uint16	chainedSeqRuleCount	ChainedSequenceRule 表的数量。
+// Offset16	chainedSeqRuleOffsets[chainedSeqRuleCount]	从 ChainedSequenceRuleSet 表开头到 ChainedSequenceRule 表的偏移数组。
+// ChainedSequenceRule 子表的偏移按所需结果排序。子表按偏移列出的顺序评估，并使用第一个与当前字形序列匹配的链接序列规则。较长、更具体的序列的规则通常排序在较短规则之前。
+// ChainedSequenceRule 表
+// 类型	名称	描述
+// uint16	backtrackGlyphCount	回溯序列中的字形数。
+// uint16	backtrackSequence[backtrackGlyphCount]	回溯字形 ID 数组。
+// uint16	inputGlyphCount	输入序列中的字形数。
+// uint16	inputSequence[inputGlyphCount - 1]	输入字形 ID 数组——从第二个字形开始。
+// uint16	lookaheadGlyphCount	前瞻序列中的字形数。
+// uint16	lookaheadSequence[lookaheadGlyphCount]	前瞻字形 ID 数组。
+// uint16	seqLookupCount	SequenceLookup 记录的数量。
+// SequenceLookup	seqLookupRecords[seqLookupCount]	SequenceLookup 记录数组。
+// inputGlyphCount 值是输入序列中的字形总数，包括第一个字形。inputSequence 数组按顺序指定输入序列中的剩余字形。
+// seqLookupRecords 数组列出指定要对输入序列中各个位置的字形执行的操作的序列查找记录。这些不必按序列位置顺序排列；它们按所需结果排序。所有序列查找记录按顺序处理，每个应用于前一条记录指示的操作结果。
+// 链接序列上下文格式 2：基于类的字形上下文
+// GSUB 类型 6 格式 2 和 GPOS 类型 8 格式 2 子表使用类定义表定义的字形类定义输入序列模式，以及链接回溯和前瞻序列模式。使用三个单独的类定义表来定义输入、回溯和前瞻序列模式的类。可以定义多个组合序列模式，序列模式中每个位置的字形使用相应类定义表的类值指定。
+// 每个组合模式在 ChainedClassSequenceRule 表中指定。输入序列第一个位置使用相同类值的组合模式使用 ChainedClassSequenceRuleSet 表聚合。
+// ChainedSequenceContextFormat2 表具有指向 Coverage 表的偏移。Coverage 表包含可能作为任何基于类输入序列模式第一个字形出现的所有字形 ID。Coverage 表中的字形 ID 只给出一次。
+// 在字形序列中的给定位置评估 ChainedSequenceContextFormat2 子表时，客户端在 Coverage 表中搜索当前字形。如果找到，客户端然后在类定义表中搜索分配给当前字形的类值。类值用作指向 ChainedClassSequenceRuleSet 表数组的偏移的索引。检索该类值的 ChainedClassSequenceRuleSet 表，并检查该集的 ChainedClassSequenceRule 表，以查看当前字形序列是否与任何指定模式匹配。
+// 序列规则与当前字形序列的匹配需要输入、回溯和前瞻序列的匹配。注意，查找标志影响回溯和前瞻序列以及输入序列中的匹配。回溯序列模式以反向逻辑顺序指定。回溯、输入和前瞻序列的指定与上面链接序列上下文格式 1 描述的相同，只是序列使用类值而不是字形 ID 指定。
+// ChainedSequenceContextFormat2 表
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 2。
+// Offset16	coverageOffset	从 ChainedSequenceContextFormat2 表开头到 Coverage 表的偏移。
+// Offset16	backtrackClassDefOffset	从 ChainedSequenceContextFormat2 表开头到包含回溯序列上下文的 ClassDef 表的偏移。
+// Offset16	inputClassDefOffset	从 ChainedSequenceContextFormat2 表开头到包含输入序列上下文的 ClassDef 表的偏移。
+// Offset16	lookaheadClassDefOffset	从 ChainedSequenceContextFormat2 表开头到包含前瞻序列上下文的 ClassDef 表的偏移。
+// uint16	chainedClassSeqRuleSetCount	ChainedClassSequenceRuleSet 表的数量。
+// Offset16	chainedClassSeqRuleSetOffsets[chainedClassSeqRuleSetCount]	从 ChainedSequenceContextFormat2 表开头到 ChainedClassSequenceRuleSet 表的偏移数组（可能为 NULL）。
+// 输入序列类定义表中定义的每个类有一个指向 ChainedClassSequenceRuleSet 子表的偏移。偏移按类值顺序列出。如果没有定义输入序列以特定类开头的模式，则该类值的偏移可以设置为 NULL。
+// ChainedClassSequenceRuleSet 表
+// 类型	名称	描述
+// uint16	chainedClassSeqRuleCount	ChainedClassSequenceRule 表的数量。
+// Offset16	chainedClassSeqRuleOffsets[chainedClassSeqRuleCount]	从 ChainedClassSequenceRuleSet 开头到 ChainedClassSequenceRule 表的偏移数组。
+// ChainedClassSequenceRule 子表的偏移按所需结果排序。子表按偏移列出的顺序评估，并使用第一个与当前字形序列匹配的链接类序列规则。较长、更具体的序列的规则通常排序在较短规则之前。
+// ChainedClassSequenceRule 表
+// 类型	名称	描述
+// uint16	backtrackGlyphCount	回溯序列中的字形数。
+// uint16	backtrackSequence[backtrackGlyphCount]	回溯序列类数组。
+// uint16	inputGlyphCount	输入序列中的字形总数。
+// uint16	inputSequence[inputGlyphCount - 1]	输入序列类数组，从第二个字形位置开始。
+// uint16	lookaheadGlyphCount	前瞻序列中的字形数。
+// uint16	lookaheadSequence[lookaheadGlyphCount]	前瞻序列类数组。
+// uint16	seqLookupCount	SequenceLookup 记录的数量。
+// SequenceLookup	seqLookupRecords[seqLookupCount]	SequenceLookup 记录数组。
+// inputGlyphCount 值是输入序列模式中的字形类总数，包括第一个序列位置。inputSequence 数组按顺序指定输入序列模式中的剩余类值。
+// seqLookupRecords 数组列出指定要对输入序列中各个位置的字形执行的操作的序列查找记录。这些不必按序列位置顺序排列；它们按所需结果排序。所有序列查找记录按顺序处理，每个应用于前一条记录指示的操作结果。
+// 链接序列上下文格式 3：基于覆盖的字形上下文
+// GSUB 类型 6 格式 3 子表和 GPOS 类型 8 格式 3 子表使用 Coverage 表定义的字体集定义输入序列模式，以及链接回溯和前瞻序列模式。
+// ChainedSequenceContextFormat3 表恰好指定一个输入序列模式。它有三组指向 Coverage 表的偏移：一组用于输入序列模式，一组用于回溯序列模式，一组用于前瞻序列模式。对于每组，偏移按顺序对应于序列模式中的位置。
+// ChainedSequenceContextFormat3 表
+// 类型	名称	描述
+// uint16	format	格式标识符——格式 = 3。
+// uint16	backtrackGlyphCount	回溯序列中的字形数。
+// Offset16	backtrackCoverageOffsets[backtrackGlyphCount]	回溯序列的 Coverage 表偏移数组。
+// uint16	inputGlyphCount	输入序列中的字形数。
+// Offset16	inputCoverageOffsets[inputGlyphCount]	输入序列的 Coverage 表偏移数组。
+// uint16	lookaheadGlyphCount	前瞻序列中的字形数。
+// Offset16	lookaheadCoverageOffsets[lookaheadGlyphCount]	前瞻序列的 Coverage 表偏移数组。
+// uint16	seqLookupCount	SequenceLookup 记录的数量。
+// SequenceLookup	seqLookupRecords[seqLookupCount]	SequenceLookup 记录数组。
+// 所有偏移都是从 ChainedSequenceContextFormat3 表的开头开始。
+// seqLookupRecords 数组列出指定要对输入序列中各个位置的字形执行的操作的序列查找记录。这些不必按序列位置顺序排列；它们按所需结果排序。所有序列查找记录按顺序处理，每个应用于前一条记录指示的操作结果。
+// Device 和 VariationIndex 表
+// Device 表和 VariationIndex 表用于提供 GPOS、JSTF、GDEF 或 BASE 表中字体单位值的调整，例如附着锚点位置的 X 和 Y 坐标。Device 表仅用于非可变字体。VariationIndex 表仅用于可变字体，是 Device 表的变体格式。当值需要调整数据时，包含该值的表还将包含指向 Device 表或 VariationIndex 表的偏移。
+// 注意：由于相同的字段用于提供指向 Device 表或指向 VariationIndex 表的偏移，因此对于给定定位值，Device 表和 VariationIndex 表不能同时使用。Device 表应仅在非可变字体中使用；VariationIndex 表只能在可变字体中使用。
+// 字体中的字形以字体开发人员指定的设计单位定义。字体缩放会增大或减小字形大小，并将其舍入到最接近的整数像素。然而，精确的字形定位通常需要调整这些缩放和舍入后的值，特别是在小 PPEM 尺寸下。对字形轮廓中的点应用提示是解决此问题的有效方法，但可能需要字体开发人员重新设计或重新提示字形。
+// 另一种解决方案，由非可变字体中的 GPOS、BASE、JSTF 和 GDEF 表使用，是使用 Device 表来指定对缩放设计单位的校正。Device 表将校正值应用于由 StartSize 和 EndSize 标识的尺寸范围，这些尺寸指定需要调整的最小和最大每像素点数（ppem）。
+// 由于 Device 表调整通常非常小（一两个像素），因此可以将校正压缩为每个尺寸的 2、4 或 8 位表示。两位可以表示范围 {-2, -1, 0, 或 1} 中的数字，四位可以表示范围 {-8 到 7} 中的数字，八位可以表示范围 {-128 到 127} 中的数字。
+// 在可变字体中，GPOS、JSTF 或 GDEF 数据中的 X 或 Y 字体单位值可能需要针对字体变化空间中的不同变化实例进行调整。此变化数据包含在 GDEF 表中的 ItemVariationStore 表中。类似地，BASE 表中的值可能需要调整，此变化数据包含在 BASE 表本身的 ItemVariationStore 表中。ItemVariationStore 的格式在 OpenType 字体变体通用表格式章节中详细描述。它包含许多增量值，组织成使用增量集索引引用的集。ItemVariationStore 外部的数据为每个需要变化的目标项提供增量集索引。在 GPOS、JSTF、GDEF 和 BASE 表中，增量集索引存储在 VariationIndex 表中。
+// Device 和 VariationIndex 表包含一个 DeltaFormat 字段，用于标识包含数据的格式。格式值 0x0001 到 0x0003 用于 Device 表，并指示直接包含在设备表中的增量调整值的格式：有符号 2、4 或 8 位值。格式值 0x8000 用于 VariationIndex 表，并指示使用增量集索引来引用 ItemVariationStore 表中的增量数据。
+// DeltaFormat 值
+// 掩码	名称	描述
+// 0x0001	LOCAL_2_BIT_DELTAS	有符号 2 位值，每个 uint16 8 个值。
+// 0x0002	LOCAL_4_BIT_DELTAS	有符号 4 位值，每个 uint16 4 个值。
+// 0x0003	LOCAL_8_BIT_DELTAS	有符号 8 位值，每个 uint16 2 个值。
+// 0x8000	VARIATION_INDEX	VariationIndex 表，包含增量集索引对。
+// 0x7FFC	Reserved	供将来使用——设置为 0。
+// Device 表包含一个 uint16 值数组（deltaValue），以打包表示存储调整增量值。2、4 或 8 位有符号值从最高有效位开始打包到 uint16 值中。例如，使用 DeltaFormat 2（4 位值），等于 {1, 2, 3, -1} 的值数组将由 deltaValue 条目 0x123F 表示。
+// 单个 Device 表为一个目标值在尺寸范围内提供增量信息。deltaValue 数组列出在目标范围内每个 ppem 尺寸处要添加或减去的指定 X 或 Y 值的像素数。在数组中，第一个索引位置指定在需要校正的最小 ppem 尺寸处要添加或减去的坐标像素数，第二个索引位置指定在下一个 ppem 尺寸处要添加或减去的坐标像素数，依此类推，对于范围内的每个 ppem 尺寸。
+// 为指定范围内的每个 ppem 尺寸表示一个增量值。所需的 uint16 元素数取决于要表示的值数和每个值使用的位大小。如果增量值数乘以每个值使用的位大小不是 16 的倍数，则最后一个 uint16 元素的剩余低位设置为零。
+// Device 表
+// 类型	名称	描述
+// uint16	startSize	要校正的最小尺寸，以 ppem 为单位。
+// uint16	endSize	要校正的最大尺寸，以 ppem 为单位。
+// uint16	deltaFormat	deltaValue 数组数据的格式：0x0001、0x0002 或 0x0003。
+// uint16	deltaValue[ ]	压缩数据数组。
+// 本章末尾的示例 9 显示了可用于指定 MATH 表中超脚本最小偏移的 Device 表。
+// 在可变字体中，ItemVariationStore 表使用两级组织进行变化数据：存储可以有多个 ItemVariationData 子表，每个子表有多个增量集行。增量集索引是两部分索引：外部索引选择 ItemVariationStore 中的特定项目变化数据子表，内部索引选择该子表中的特定增量集行。VariationIndex 表指定增量集索引的外部部分和内部部分。
+// VariationIndex 表
+// 类型	名称	描述
+// uint16	deltaSetOuterIndex	增量集外部索引——用于选择项目变化存储中的项目变化数据子表。
+// uint16	deltaSetInnerIndex	增量集内部索引——用于选择项目变化数据子表中的增量集行。
+// uint16	deltaFormat	格式，= 0x8000。
+// 注意，VariationIndex 表比 Device 表短，因为它不直接包含增量数据数组。其格式类似于具有空增量数组的 Device 表。当应用程序获取指向 Device 或 VariationIndex 表的偏移时，它们应首先读取前三个字段，然后测试 DeltaFormat 字段以确定前两个字段的解释以及是否有要读取的附加数据。
+// 功能变化
+// FeatureVariations 表
+// 功能变化表描述基于各种条件的功能效果变化。也就是说，它允许在特定条件下将与给定功能关联的默认查找集替换为备用查找集。
+// 功能列表提供功能表和关联功能标签的数组，LangSys 表标识给定脚本和语言系统将支持的特定功能表/标签对集。LangSys 表中指定的功能表在当前条件与功能变化表中定义的任何变化条件不匹配时默认使用。这些默认值也将在不支持功能变化表的实现中的所有条件下使用。
+// 功能变化表有一个条件记录数组，每个记录引用一组条件（条件集表）和一组在当前运行时上下文匹配条件集时使用的备用功能表。
+// 给出的替换是将一个功能表替换为另一个。备用功能表附加在功能变化表的末尾，不包含在功能列表表中。因此，功能列表表中没有对应于备用功能表的功能记录。备用功能表保持与默认功能表相同的功能标签关联。此外，虽然功能列表表中的默认功能表使用 16 位偏移引用，但备用功能表在功能变化表中使用 32 位偏移引用。
+// 处理文本时，从 LangSys 表获取默认功能表集，每个功能表都有关联的功能标签，用于给定脚本和语言系统。条件集按顺序评估，测试与当前运行时上下文匹配的条件集。找到第一个匹配时，使用相应的功能表替换表来修改通过 LangSys 表默认获取的功能表集，如下所述（请参阅 FeatureTableSubstitution 表）。
+// FeatureVariations 表的格式如下。
+// FeatureVariations 表
+// 类型	名称	描述
+// uint16	majorVersion	FeatureVariations 表的主要版本——设置为 1。
+// uint16	minorVersion	FeatureVariations 表的次要版本——设置为 0。
+// uint32	featureVariationRecordCount	功能变化记录的数量。
+// FeatureVariationRecord	featureVariationRecords[featureVariationRecordCount]	功能变化记录数组。
+// 功能变化记录具有指向条件集表和功能表替换表的偏移。
+// 如果 ConditionSet 偏移为 0，则没有条件集表。这被视为通用条件：所有上下文都匹配。
+// 如果 FeatureTableSubstitution 偏移为 0，则没有功能表替换表，不进行替换。
+// 功能变化记录必须按条件集的优先级顺序排列。在处理过程中，将按它们出现的顺序读取功能变化记录，并测试相应的条件集。如果给定记录的条件集与运行时上下文不匹配，则检查下一条记录。对于条件集与运行时上下文匹配的第一个功能变化记录将被视为候选：如果支持 FeatureTableSubstitution 表的版本，则使用此功能变化记录，不再考虑其他功能变化记录。如果不支持 FeatureTableSubtitution 表的版本，则拒绝此功能变化记录，处理将移动到下一条功能变化记录。
+// FeatureVariationRecord
+// 类型	名称	描述
+// Offset32	conditionSetOffset	从 FeatureVariations 表开头到条件集表的偏移。
+// Offset32	featureTableSubstitutionOffset	从 FeatureVariations 表开头到功能表替换表的偏移。
+// ConditionSet 表
+// 条件集表指定应用功能表替换的一组条件。条件集可以指定与各种因素相关的条件；目前，支持一种因素类型：可变字体的变化实例。条件在子表中表示，根据定义条件的因素性质可以使用不同的格式。
+// 对于给定条件集，条件是合取关系（布尔 AND）：必须满足所有指定条件才能应用关联的功能表替换。条件集不需要为所有可能的因素指定条件值。如果没有为某些因素指定值，则条件集匹配该因素的所有运行时值。
+// 如果给定条件集不包含任何条件，则它匹配所有上下文，并且关联的功能表替换始终应用，除非数组中前面有 ConditionSet 与当前上下文匹配的功能变化记录。
+// ConditionSet 表
+// 类型	名称	描述
+// uint16	conditionCount	此条件集的条件数。
+// Offset32	conditionOffsets[conditionCount]	从 ConditionSet 表开头到条件表的偏移数组。
+// Condition 表
+// 条件表描述特定条件。可以为条件表定义不同的格式，每种格式用于特定类型的条件限定符。目前，定义了一种格式：ConditionTableFormat1，用于指定可变字体中变化轴值的值范围。
+// 将来可能会添加其他条件限定符的条件表格式。如果布局引擎遇到具有无法识别格式的条件表，它应无法匹配条件集，但继续测试其他条件集。这样，新条件格式可以在现有实现中以向后兼容的方式定义和使用。
+// 条件表格式 1：字体变化轴范围
+// 字体变化轴范围条件指可变字体中设计变化轴的值范围。变化轴在字体的字体变化（'fvar'）表中指定。如果使用格式 1 条件表，字体中必须有 'fvar' 表，并且 axisIndex 值（从零开始）必须小于 'fvar' 表中的 axisCount 值。如果 axisIndex 无效，则包含此条件表的功能变化记录被忽略。
+// 格式 1 条件表指定沿单个轴的变化实例值的匹配范围。缺少给定变化轴的格式 1 条件意味着该轴不是确定条件集适用性的因素。
+// 'fvar' 表定义每个变化轴的有效值范围。处理特定变化实例时，应用归一化过程，将 'fvar' 表中定义范围内的用户值映射到 -1 到 1 范围的归一化尺度。格式 1 条件表中指定的值以归一化尺度表示，因此可以是 -1 到 1 之间的任何值。
+// 如果当前选择的变化实例对给定轴的值大于或等于 filterRangeMinValue，且小于或等于 filterRangeMaxValue，则满足字体变化轴范围条件。
+// ConditionFormat1 表
+// 类型	名称	描述
+// uint16	format	格式，= 1
+// uint16	axisIndex	'fvar' 表中变化轴的索引（从零开始）。
+// F2DOT14	filterRangeMinValue	满足此条件的字体变化实例的最小值。
+// F2DOT14	filterRangeMaxValue	满足此条件的字体变化实例的最大值。
+// FeatureTableSubstitution 表
+// 功能表替换表描述在当前运行时上下文匹配相应条件集时要应用的一组功能表替换。这些替换使用功能表替换记录数组表示。每条记录给出从一个功能表到另一个的简单替换。检查特定功能索引时，匹配具有该索引的第一条记录，如果遇到具有更高索引值的记录，则搜索结束。
+// 注意，记录必须按 FeatureIndex 值的递增顺序排列，并且两条记录不能具有相同的 FeatureIndex 值。
+// FeatureTableSubstitution 表
+// 类型	名称	描述
+// uint16	majorVersion	功能表替换表的主要版本——设置为 1
+// uint16	minorVersion	功能表替换表的次要版本——设置为 0。
+// uint16	substitutionCount	功能表替换记录的数量。
+// FeatureTableSubstitutionRecord	substitutions[substitutionCount]	功能表替换记录数组。
+// FeatureTableSubstitutionRecord
+// 类型	名称	描述
+// uint16	featureIndex	要匹配的功能表索引。
+// Offset32	alternateFeatureOffset	从 FeatureTableSubstitution 表开头到备用功能表的偏移。
+// 如上所述，评估条件集并可能选择处理关联的功能表替换表，以替换从 LangSys 表获取的默认功能表与备用功能表。给定从 LangSys 表获取的选定功能的默认功能表数组，可以如下进行备用功能表的替换：
+// 对于每个功能索引，按顺序评估 FeatureTableSubstitutionRecords。
+// 如果遇到匹配的记录（FeatureIndex = 当前功能索引），则使用该记录中偏移给出的备用功能表替换该功能索引的功能表。停止处理该功能索引。
+// 如果遇到具有更高功能索引值的记录，则停止搜索该功能索引；不进行替换。
+// 通用表示例
+// 本章的其余部分描述并说明了所有通用表格式的示例。所有示例反映唯一参数，但示例为构建特定于其他情况的表提供了有用的参考。
+// 示例有三列，显示十六进制数据、来源和注释。
+// 示例 1：ScriptList 表和 ScriptRecord
+// 示例 1 说明了使用多种脚本的日文字体的 ScriptList 表和 ScriptRecord 定义：汉字表意文字、假名和拉丁文。每个脚本都有脚本特定行为。
+// 示例 1
+// 十六进制数据	来源	注释
+// ScriptList
+// TheScriptList	ScriptList 表定义
+// 0003	3	scriptCount
+// scriptRecords[0]	按脚本标签字母顺序排列。
+// 68616E69	'hani'	scriptTag，汉字表意文字脚本
+// 0014	HanIScriptTable	到 Script 表的偏移
+// scriptRecords[1]	按脚本标签字母顺序排列。
+// 6B616E61	'kana'	scriptTag，平假名和片假名脚本
+// 0018	KanaScriptTable	到 Script 表的偏移
+// scriptRecords[2]	按脚本标签字母顺序排列。
+// 6C61746E	'latn'	scriptTag，拉丁文脚本
+// 001C	LatinScriptTable	到 Script 表的偏移
+// 示例 2：Script 表、LangSysRecord 和 LangSys 表
+// 示例 2 说明了用于阿拉伯语脚本和乌尔都语语言系统的 Script 表、LangSysRecord 和 LangSys 表定义。默认 LangSys 表定义三个默认阿拉伯语脚本功能，用于将单词中的某些字形替换为其适当的词首、词中和词尾字形形式。这些上下文替换是不变的，并且发生在使用阿拉伯语脚本的所有语言系统中。
+// 阿拉伯语脚本中的许多替代字形具有语言特定用途。例如，阿拉伯语、波斯语和乌尔都语语言系统使用不同的数字字形。为了保持字符集兼容性，Unicode 标准包括阿拉伯语和波斯语数字字形的单独字符代码。然而，标准对波斯语和乌尔都语数字使用相同的字符代码，即使三个乌尔都语字形（4、6 和 7）与波斯语字形不同。要访问和显示乌尔都语数字的适当字形，文本处理客户端的用户必须输入波斯语数字的字符代码。然后文本处理客户端使用必需的 OpenType 布局字形替换功能，在乌尔都语 LangSys 表中定义，以访问 4、6 和 7 数字的正确乌尔都语字形。
+// 注意，乌尔都语 LangSys 表重复默认脚本功能。这种重复是必要的，因为乌尔都语语言系统也使用单词中词首、词中和词尾位置的替代字形。
+// 示例 2
+// 十六进制数据	来源	注释
+// Script
+// ArabicScriptTable	Script 表定义
+// 000A	DefLangSys	到默认 LangSys 表的偏移
+// 0001	1	langSysCount
+// langSysRecords[0]	按 LangSys 标签字母顺序排列。
+// 55524420	"URD "	langSysTag，乌尔都语语言
+// 0016	UrduLangSys	到乌尔都语 LangSys 表的偏移
+// LangSys
+// DefLangSys	默认 LangSys 表定义
+// 0000	NULL	lookupOrderOffset，保留，空
+// FFFF	0xFFFF	requiredFeatureIndex，无必需功能
+// 0003	3	featureIndexCount
+// 0000	0	featureIndices[0]，顺序任意
+// 'init' 功能（词首字形）
+// 0001	1	featureIndices[1]，'fina' 功能（词尾字形）
+// 0002	2	featureIndices[2]，'medi' 功能（词中字形）
+// LangSys
+// UrduLangSys	LangSys 表定义
+// 0000	NULL	lookupOrderOffset，保留，空
+// 0003	3	requiredFeatureIndex，乌尔都语数字替换
+// 0003	3	featureIndexCount
+// 0000	0	featureIndices[0]，顺序任意
+// 'init' 功能（词首字形）
+// 0001	1	featureIndices[1]，'fina' 功能（词尾字形）
+// 0002	2	featureIndices[2]，'medi' 功能（词中字形）
+// 示例 3：FeatureList 表和 Feature 表
+// 示例 3 显示了用于拉丁文脚本中连字的 FeatureList 和 Feature 表定义。FeatureList 有三个功能，都是可选的，命名为 'liga'。一个功能（也是默认功能）在没有语言特定功能指定其他连字的情况下实现拉丁文中的连字。另外两个功能分别在土耳其语和德语中实现连字。
+// 三个查找定义此字体中渲染连字的字形替换。第一个查找产生"ffi"和"fi"连字；第二个产生"ffl"、"fl"和"ff"连字；第三个产生 eszet 连字。
+// 以"f"开头的连字分为两组，因为土耳其语有一个无点"i"字形，因此不使用"ffi"和"fi"连字。然而，土耳其语确实使用"ffl"、"fl"和"ff"连字，TurkishLigatures 功能表列出了这一个查找。
+// 只有德语语言系统使用 eszet 连字，因此 GermanLigatures 功能表包含一个用于渲染该连字的查找。
+// 由于拉丁文脚本可以使用两组连字，DefaultLigatures 功能表定义两个 LookupList 索引：一个用于"ffi"和"fi"连字，一个用于"ffl"、"fl"和"ff"连字。如果文本处理客户端选择此功能，则字体应用两个查找。
+// 注意，TurkishLigatures 和 DefaultLigatures 功能表都列出了"ffl"、"fl"和"ff"连字查找的 LookupListIndex 为一（1）。这是因为语言特定查找覆盖所有默认语言系统查找，并且语言系统功能表必须明确列出适用于该语言的所有查找。
+// 示例 3
+// 十六进制数据	来源	注释
+// FeatureList
+// TheFeatureList	FeatureList 表定义
+// 0003	3	featureCount
+// featureRecords[0]
+// 6C696761	'liga'	featureTag
+// 0014	TurkishLigatures	到 Feature 表的偏移，FflFfFlLiga
+// featureRecords[1]
+// 6C696761	'liga'	featureTag
+// 001A	DefaultLigatures	到 Feature 表的偏移，FfiFiLiga、FflFfFlLiga
+// featureRecords[2]
+// 6C696761	'liga'	featureTag
+// 0022	GermanLigatures	到 Feature 表的偏移，EszetLiga
+// Feature
+// TurkishLigatures	Feature 表定义
+// 0000	NULL	featureParamsOffset，空
+// 0001	1	lookupIndexCount
+// 0001	1	lookupListIndices[1]，ffl、fl、ff 连字替换查找
+// Feature
+// DefaultLigatures	Feature 表定义
+// 0000	NULL	featureParamsOffset，空
+// 0002	2	lookupIndexCount
+// 0000	0	lookupListIndices[0]，顺序任意，ffi、fi 连字
+// 0001	1	lookupListIndices[1]，ffl、fl、ff 连字替换查找
+// Feature
+// GermanLigatures	Feature 表定义
+// 0000	NULL	featureParamsOffset，空
+// 0003	3	lookupIndexCount
+// 0000	0	lookupListIndices[0]，顺序任意，ffi、fi 连字
+// 0001	1	lookupListIndices[1]，ffl、fl、ff 连字替换查找
+// 0002	2	lookupListIndices[2]，eszet 连字替换查找
+// 示例 4：LookupList 表和 Lookup 表
+// 示例 3 的延续，示例 4 显示了 LookupList 表中的三个连字查找。第一个生成"ffi"和"fi"连字；第二个产生"ffl"、"fl"和"ff"连字；第三个生成 eszet 连字。每个查找表定义一个指向包含连字替换数据的子表的偏移。
+// 示例 4
+// 十六进制数据	来源	注释
+// LookupList
+// TheLookupList	LookupList 表定义
+// 0003	3	lookupCount
+// 0008	FfiFiLookup	到 lookups[0] 表的偏移，按设计顺序
+// 0010	FflFlFfLookup	到 lookups[1] 表的偏移
+// 0018	EszetLookup	到 lookups[2] 表的偏移
+// Lookup
+// FfiFiLookup	lookups[0] 表定义
+// 0004	4	lookupType：连字替换
+// 000C	0x000C	lookupFlag：IGNORE_LIGATURES、IGNORE_MARKS
+// 0001	1	subTableCount
+// 0018	FfiFiSubtable	到 FfiFi 连字替换子表的偏移
+// Lookup
+// FflFlFfLookup	lookups[1] 表定义
+// 0004	4	lookupType：连字替换
+// 000C	0x000C	lookupFlag：IGNORE_LIGATURES、IGNORE_MARKS
+// 0001	1	subTableCount
+// 0028	FflFlFfSubtable	到 FflFlFf 连字替换子表的偏移
+// Lookup
+// EszetLookup	lookups[2] 表定义
+// 0004	4	lookupType：连字替换
+// 000C	0x000C	lookupFlag：IGNORE_LIGATURES、IGNORE_MARKS
+// 0001	1	subTableCount
+// 0038	EszetSubtable	到 Eszet 连字替换子表的偏移
+// 示例 5：CoverageFormat1 表（字形 ID 列表）
+// 示例 5 说明了一个列出字体中所有小写降部字形 ID 的 Coverage 表。该表使用列表格式而不是范围格式，因为降部字形的字形 ID 不是连续排序的。
+// 示例 5
+// 十六进制数据	来源	注释
+// CoverageFormat1
+// DescenderCoverage	Coverage 表定义
+// 0001	1	格式：字形 ID 列表
+// 0005	5	glyphCount
+// 0038	gGlyphID	glyphArray[0]，按字形 ID 顺序
+// 003B	jGlyphID	glyphArray[1]
+// 0041	pGlyphID	glyphArray[2]
+// 0042	qGlyphID	glyphArray[3]
+// 004A	yGlyphID	glyphArray[4]
+// 示例 6：CoverageFormat2 表（字形 ID 范围）
+// 示例 6 显示了一个定义十个数字字形（0 到 9）的 Coverage 表。该表使用范围格式而不是列表格式，因为字形 ID 在字体中连续排序。StartCoverageIndex 为零（0）表示第一个字形 ID（零字形）返回 Coverage 索引 0。第二个字形 ID（数字一（1）字形）返回 Coverage 索引 1，依此类推。
+// 示例 6
+// 十六进制数据	来源	注释
+// CoverageFormat2
+// NumeralCoverage	Coverage 表定义
+// 0002	2	格式：字形 ID 范围
+// 0001	1	rangeCount
+// rangeRecords[0]
+// 004E	0glyphID	startGlyphID
+// 0057	9glyphID	endGlyphID
+// 0000	0	StartCoverageIndex，第一个 CoverageIndex = 0
+// 示例 7：ClassDefFormat1 表（类数组）
+// 示例 7 中的 ClassDef 表为字体中的小写字形分配类值。x 高度字形在类 0 中，升部字形在类 1 中，降部字形在类 2 中。数组以小写"a"字形的索引开头。
+// 示例 7
+// 十六进制数据	来源	注释
+// ClassDefFormat1
+// LowercaseClassDef	ClassDef 表定义
+// 0001	1	格式：类数组
+// 0032	aGlyphID	startGlyph
+// 001A	26	glyphCount
+// classValueArray
+// 0000	0	aGlyph，Xheight 类 0
+// 0001	1	bGlyph，Ascender 类 1
+// 0000	0	cGlyph，Xheight 类 0
+// 0001	1	dGlyph，Ascender 类 1
+// 0000	0	eGlyph，Xheight 类 0
+// 0001	1	fGlyph，Ascender 类 1
+// 0002	2	gGlyph，Descender 类 2
+// 0001	1	hGlyph，Ascender 类 1
+// 0000	0	iGlyph，Ascender 类 1
+// 0002	2	jGlyph，Descender 类 2
+// 0001	1	kGlyph，Ascender 类 1
+// 0001	1	lGlyph，Ascender 类 1
+// 0000	0	mGlyph，Xheight 类 0
+// 0000	0	nGlyph，Xheight 类 0
+// 0000	0	oGlyph，Xheight 类 0
+// 0002	2	pGlyph，Descender 类 2
+// 0002	2	qGlyph，Descender 类 2
+// 0000	0	rGlyph，Xheight 类 0
+// 0000	0	sGlyph，Xheight 类 0
+// 0001	1	tGlyph，Ascender 类 1
+// 0000	0	uGlyph，Xheight 类 0
+// 0000	0	vGlyph，Xheight 类 0
+// 0000	0	wGlyph，Xheight 类 0
+// 0000	0	xGlyph，Xheight 类 0
+// 0002	2	yGlyph，Descender 类 2
+// 0000	0	zGlyph，Xheight 类 0
+// 示例 8：ClassDefFormat2 表（类范围）
+// 在示例 8 中，ClassDef 表为阿拉伯语脚本中的四种类字形分配类值：中等高度基础字形、高基础字形、非常高基础字形和默认标记字形。该表仅列出类 1、类 2 和类 3；所有未明确分配类的字形归入类 0。
+// 该表使用范围格式，因为每个类中的字形 ID 在字体中连续排序。在 ClassRange 数组中，ClassRange 定义按每个范围中的起始字形索引排序。高基础字形的索引在字体中排在第一位，类值为 2，定义在 ClassRange[0] 中。ClassRange[1] 定义所有非常高基础字形并分配类值 3。ClassRange[2] 包含所有默认标记字形；类值为 1。类 0 由所有中等高度基础字形组成，这些字形未明确分配类值。
+// 示例 8
+// 十六进制数据	来源	注释
+// ClassDefFormat2
+// GlyphHeightClassDef	Class 表定义
+// 0002	2	格式：范围
+// 0003	3	classRangeCount
+// classRangeRecords[0]	按 startGlyphID 排序
+// 0030	tahGlyphID	startGlyphID——范围中的第一个字形 ID
+// 0031	dhahGlyphID	endGlyphID——范围中的最后一个字形 ID
+// 0002	2	类：高基础字形
+// classRangeRecords[1]
+// 0040	cafGlyphID	startGlyphID
+// 0041	gafGlyphID	endGlyphID
+// 0003	3	类：非常高基础字形
+// classRangeRecords[2]
+// 00D2	fathatanDefaultGlyphID	startGlyphID
+// 00D3	dammatanDefaultGlyphID	endGlyphID
+// 0001	1	类：默认标记
+// 示例 9：Device 表
+// 示例 9 定义了数学脚本的最小范围值，使用 Device 表根据输出字体大小调整值。此处，Device 表定义了从 11 ppem 到 15 ppem 字体大小的单像素调整。DeltaFormat 为 1，表示有符号 2 位值的打包数组，每个 uint16 八个值。
+// 示例 9
+// 十六进制数据	来源	注释
+// DeviceTableFormat1
+// MinCoordDeviceTable	Device 表定义
+// 000B	11	startSize：11 ppem
+// 000F	15	endSize：15 ppem
+// 0001	1	deltaFormat：有符号 2 位值（每个 uint16 8 个值）
+// 1	将 11ppem 增加 1 像素
+// 1	将 12ppem 增加 1 像素
+// 1	将 13ppem 增加 1 像素
+// 1	将 14ppem 增加 1 像素
+// 5540	1	将 15ppem 增加 1 像素
+
+// OpenType 字体变体概述
+// 本 OpenType 规范章节提供 OpenType 字体变体的概述，包括基本概念介绍、术语表以及关键算法的规范：坐标归一化和实例值插值。
+// 介绍
+// OpenType 字体变体允许字体设计师将字体家族中的多个字体面合并到单个字体资源中。可变字体——使用 OpenType 字体变体机制的字体——为内容作者和设计师提供了极大的灵活性，同时也允许以高效格式表示字体数据。
+// 可变字体允许沿某个给定设计轴（如字重）进行连续变化：
+// 沿字重轴变化的大写 G 变体
+// 沿设计轴连续变化
+// 从概念上讲，可变字体定义了一个或多个设计特征可以变化的变化轴。字重是一种可能的变化轴，但许多不同类型的变化都是可能的。可变字体可以组合两个或多个不同的变化轴。例如，下图说明了字重和宽度变化的组合：
+// 具有字重和宽度轴的设计空间中的大写 G 变体
+// 沿多个设计轴连续变化
+// 通常，可变字体会变化字形轮廓的设计。然而，一般来说，视觉外观的任何方面都可能变化。例如，字体可以变化行高度量或彩色字形中的渐变外观，而不是（或除了）字形轮廓。
+// 可变字体包含一个表，即字体变体（'fvar'）表，描述该字体使用的变化轴。该表确定可变字体及其变化参数如何呈现给用户和应用程序。每个轴使用 Fixed（16.16）数据类型表示的分数值定义一个数值范围。从概念上讲，这提供了连续的变化梯度，允许选择大量的设计变化实例。每个实例将由设计变化空间内的坐标数组指定——每个设计轴上的特定值。因此，例如，如果用户或应用程序需要对宽度进行微小调整或需要稍微更明显的衬线，则可以精细控制此类变化轴。
+// 每个轴允许连续的实例选择值范围，并且通常对于给定轴会有连续的外观变化。然而，在某些情况下，随着轴设置的更改，外观可能以离散步骤变化。例如，轴可以触发对轴值离散子范围的不同替代字形的替换。
+// 字体设计师可以预定义具有特定名称的某些实例。例如，字体可以在字重轴上具有连续变化，但设计师可以将特定变化实例标识为"Light"或"Semibold"。命名实例可用于支持的设计变化空间中的任何实例。例如，在具有字重和宽度轴的字体中，命名实例可能包括"Light"、"Extended"或"Semibold Condensed"。有关命名实例的详细信息也包含在字体变体表中。
+// 字重和宽度是常用的设计变化轴，但可变字体可以使用广泛的其他可能变化轴。有关支持的轴的更多信息，请参阅字体变体（'fvar'）表章节。
+// 除了字体变体表之外，可变字体还包含一个样式属性（STAT）表，描述每个变化轴的附加细节以及设计师选择的特定轴值。这些细节包括这些值的描述字符串，如"Bold"、"Extended"或"Semi-sans"。例如，字重/宽度可变字体可能支持"Bold Extended"变化，STAT 表将分别为字重和宽度轴上的特定值提供"Bold"和"Extended"字符串。这些字符串可用于创建字体选择器用户界面。它们还可用于将多轴字体家族的成员投影到假设有限数量子家族变化轴的不同模型中，如字重/宽度/倾斜模型。（有关更多信息，请参阅 STAT 表章节。）由于 STAT 表标识每个轴上的值，软件永远不需要解析子家族字符串并猜测诸如"Halbfett"之类的字符串标记是否指某个轴上的特定值。
+// 注意：样式属性表使具有许多设计轴的字体能够定义为单个多轴家族，同时仍让实例在所有这些轴上得到支持，这些实例在可能只识别有限变化轴集或有限轴值数量的旧应用程序中。宿主平台必须支持样式属性表，可以将多轴家族中的实例转换为旧应用程序将识别的多个家族中的较少实例。
+// 随着选择字体的不同变化实例，字体内的各种数据项可以相应调整。例如，'glyf' 表可以提供给定字形的默认轮廓，但轮廓可以以某种方式调整以反映不同的设计变化。除了字形轮廓之外，还有几个其他数据项也可能需要类似的调整，包括字体范围的度量、CVT 值或字形定位查找表中的锚点位置。可变字体包含必需和可选的表，描述字体中的这些项如何从默认值变化到不同变化实例所需的值。例如，虽然 'glyf' 表可以提供字形的默认轮廓，但字形变体（'gvar'）表将提供描述每个字形轮廓如何针对不同变化实例变化的数据。
+// 可变字体具有默认实例，轴参数值设置为 'fvar' 表中为每个轴定义的默认值。字体中的几个表为许多不同的数据项提供默认值——例如 'glyf' 表中的字形轮廓点位置，或 OS/2 表中的字体范围升部距离。字体的默认实例使用此类项的默认值而不进行任何调整，并且不需要变化特定的表。如果从字体中移除或忽略变化特定的表——'fvar'、'gvar'、MVAR 等——剩余数据将构成默认实例的完整字体。
+// TrueType 轮廓字体的字体变体机制最初由 Apple 在"TrueType GX"中引入。用于 OpenType 字体变体的一些表已从 Apple 的早期规范中改编，并进行了一些增强和修订。（特别是，'fvar' 表规范在格式和使用的数据值方面都有重大变化，并且不使用 'fmtx' 表。）还创建了其他扩展，以便将变体机制集成到 OpenType 中。实现者可能希望参考 Apple 的规范以获取历史见解，但应将 OpenType 规范作为实现 OpenType 字体变体的参考。
+// 术语
+// 讨论 OpenType 字体变体时有几个有用的术语，将在本规范中使用。
+// OpenType 字体变体：本章描述的技术名称。
+// 字体面：共享特定设计参数的字形数据的逻辑集合，以及关联的度量数据和名称或其他元数据。
+// 字体资源：包含（至少）构成功能性字体面所需的最小表集的 OpenType 数据。
+// 注意：在 OpenType 字体文件中，每个表目录及其引用的表构成一个字体资源。格式良好的 .OTF 或 .TTF 文件包含单个字体资源；格式良好的 .OTC 或 .TTC 文件包含一个或多个字体资源。没有变化相关表的字体资源为单个字体面提供数据。包含变化相关表的单个字体资源可以为多个字体面提供数据。
+// 字体家族：共享共同家族名称的一组字体资源——名称 ID 16（排版家族名称）或名称 ID 1 的相同字符串值。
+// 注意：假设家族中的所有字体将共享某些设计特征，但在其他方面有所不同。不同的设计特征可能使用 OpenType 字体变体机制支持。
+// 变化轴：字体面设计中的设计师确定的变量，可用于在家族中导出多个变体设计。
+// 可变字体：使用 OpenType 字体变体机制支持家族中多个字体面沿设计师定义的变化轴的字体资源——即通过字体中的变化表和其他表数据。
+// 字形设计网格：字体字形轮廓设计的视觉二维空间。
+// 设计变化空间：字体设计师设计字体家族时使用的变化轴定义的抽象多维空间。在可变字体的上下文中，变化空间指由字体 'fvar' 表中指定的变化轴定义的 n 维空间。
+// 注意：变化空间可以有一个或多个轴。在可变字体中，变化空间由 'fvar' 表中指定的最小值和最大值界定。零原点在设计变化空间中没有特殊意义。然而，在可变字体中，零原点（使用归一化坐标尺度——定义如下）是一个标记位置，因为它对应于字体资源名称、字形和度量表直接表示的字体面，而不参考任何变化表或其他变化数据。
+// 变化数据：可变字体中用于描述字体中数据项的值如何从默认值调整到变化空间内不同实例所需的值的数据。
+// 变化表：与字体变体特别相关的 OpenType 表，包括：
+// 轴变体（'avar'）表
+// CVT（控制值表）变体（'cvar'）表
+// 字体变体（'fvar'）表
+// 字形变体（'gvar'）表
+// 水平度量变体（HVAR）表
+// 度量变体（MVAR）表
+// 垂直度量变体（VVAR）表
+// 注意：'fvar' 表描述字体的变化空间，其他变化表提供变化数据以描述不同数据项如何在字体的变化空间中变化。请注意，并非所有这些表都是可变字体必需的。另请注意，某些字体数据项的变化数据可能包含在与字体变体不特别相关的其他表中。此外，某些与字体变体不特别相关的表在可变字体中是必需的。有关更多详细信息，请参阅下面的变化数据表和杂项要求部分。
+// 点：为避免歧义，点将仅用于指字形设计网格中的（X，Y）位置。讨论设计变化空间时，将使用位置来指该空间内的位置。
+// 变化实例：对应于可变字体变化空间内特定位置的字体面。
+// 命名实例：在 'fvar' 表中特别定义并分配名称的变化实例。
+// 用户坐标尺度：用于表征给定变化轴的数值尺度，以及应用程序选择可变字体实例时使用的尺度。
+// 注意：某些变化轴具有规定的有限范围，以用户尺度表示。使用特定可变字体时，给定轴的用户尺度由 'fvar' 表中最小值和最大值界定，可能是该轴通常有效范围的子范围。
+// 归一化坐标尺度：处理可变字体中的变化数据以导出特定实例的值时，应用归一化过程将每个轴上的用户尺度值映射到适用于该字体的归一化尺度，范围从 -1 到 1。
+// 注意：'fvar' 表指定每个轴的用户尺度最小值、默认值和最大值。在归一化过程中，这些分别映射到 -1、0 和 1，其他值沿每个轴映射到中间点。其他值的映射由 'avar' 表调节（如果存在）。字体中的所有变化数据都引用归一化尺度值或字体变化空间内的位置。
+// 元组 / N 元组：用于指定字体变化空间内位置的有序坐标值集。
+// 注意：此处"元组"的使用与计算机科学和数学中的常规用法一致。在 Apple TrueType 规范中，"元组"被用于不同的含义，指与字体设计变化空间特定区域相关联的变化数据集。在 OpenType 规范中，"元组变化数据"用于该含义，并且在许多情况下使用"n 元组"以避免与 Apple 规范中的用法混淆。
+// 区域：变化空间的一个子空间（即某些部分或子集），在其上描述了变化调整。
+// 注意：区域涉及字体变化空间的所有轴；它不是"子空间"意义上的只涉及轴的子集。在归一化坐标中，区域始终是矩形的：它们具有直边和直角。字体变化空间中可以定义多达 65,535 个区域的变化数据。
+// 主控：包含特定字体面完整轮廓数据的源字体数据集，用于字体开发工作流程。
+// 注意：某些字体开发工作流程使用多个主控作为创建家族中不同字体面的字体资源的源数据。多个源主控也可用于创建可变字体。每个源主控将对应于变化空间中的单个实例，并且可能对应于可变字体中特定区域的变化数据。然而，每个主控包含完整的轮廓数据，而可变字体只包含一组完整的轮廓数据（在 'glyf' 或 CFF2 表中），由不同区域的变化数据补充，以表示字体支持的完整实例范围。每个源主控可能对应于可变字体中的特定区域的变化数据，但源主控与可变字体内变化数据集之间的关系取决于设计的性质和用于创建可变字体的工具。
+// 增量 / 调整增量：变化数据中的数值，指定变化空间内特定区域或特定轴子范围内数据项默认值的最大调整量。
+// 增量集：与变化空间特定区域相关联的一组调整增量。
+// 标量：应用于增量以导出特定变化实例所需调整值的系数值。
+// 插值：为特定变化实例推导某些字体数据项（如字形轮廓点的 X 和 Y 坐标）的调整值的过程。
+// 变化空间、默认实例和调整增量
+// 可变字体支持一个或多个变化轴。常用变化轴应注册，但也可以使用自定义的、设计师定义的变化轴。每个轴具有不同的标签，用于在 'fvar' 表中标识它。请参阅 'fvar' 表规范以获取有关轴标签的更多详细信息。
+// 可变字体的轴规范在 'fvar' 表中给出，以及每个轴的最小值、默认值和最大值。这定义了字体的变化空间。设计师决定每个轴支持的设计变化范围以及设计如何与每个轴的尺度对齐，完全由设计师决定。
+// 例如，可变字体可能支持从细到黑的完整字重范围：
+// 从细到黑变化的大写 G 变体
+// 字体 A：从细到黑的字重变化
+// 但设计师也可能选择仅支持有限的字重范围：
+// 从常规到黑变化的大写 G 变体
+// 字体 B：从常规到黑的字重变化
+// 可变字体具有默认实例，对应于 'fvar' 表中为每个轴指定的默认值设置坐标的变化空间中的位置。默认实例使用各种数据项的默认值，这些数据项直接由非变化特定字体表提供，例如 'glyf' 表中字形轮廓点的网格坐标。
+// 大写 Q 的轮廓
+// 'glyf' 表条目中的默认字形轮廓数据
+// 所有其他实例对一个或多个轴具有非默认坐标值。这些其他实例由变化数据支持，这些变化数据为各种字体数据项提供调整增量，以从其默认值产生调整。
+// 大写 Q 的轮廓及变化调整后的轮廓
+// 非默认实例的默认字形轮廓和调整后的点位置
+// 控制点调整的增量细节
+// 通常，增量为每个变化轴的极值提供，但也可以为变化空间中的其他位置提供增量。（请参阅下面的更多详细信息。）对于默认值和最小值或最大值极值之间的轴位置，其他值进行插值。
+// 字体设计师可以确定哪个设计被视为默认，以及提供哪些增量。例如，具有从细到黑字重变化的字体可能以常规（400）实现为默认，以细（100）和黑（900）作为最小值/最大值。在这种情况下，变化数据将包括细极值的增量以及黑极值的增量。
+// 两个轴极值都有增量的字重轴
+// 默认靠近轴中点，最小值和最大值极值都有增量
+// 但另一种具有从细到黑字重变化的可变字体可能以细为默认值和最小值，黑为最大值。在这种情况下，变化数据可能只包含黑极值的增量。
+// 默认在轴最小值处且只有最大值增量的字重轴
+// 默认在轴最小值处，只有最大值极值的增量
+// 注意，默认选择的一个考虑因素是不支持字体变体的旧应用程序或平台中的期望行为：在这种软件中，只有可变字体的默认实例会得到支持。
+// 创建可变字体的常见过程涉及使用多个源主控字体。每个主控提供变化空间内不同位置的完整字形轮廓数据。例如，字体设计师可能为字重轴的细和重极值创建字体。
+// 细和黑的源主控
+// 字体开发工作流程的细和黑源主控轮廓
+// 从这些两个源主控，字体工具可以派生一个可变字体，该字体具有常规字重的完整字形轮廓以及一个或多个非默认字重的增量，包括最小值或最大值字重。
+// 具有常规默认轮廓以及细和黑增量的生成字体
+// 具有单个轮廓数据加增量的生成可变字体
+// 注意，每个源主控字体都具有特定设计变体的完整轮廓数据。相比之下，可变字体只有一个变化实例的完整轮廓，所有其他实例使用默认轮廓加增量派生。每个源主控可能对应于可变字体中的特定区域的变化数据，但源主控与可变字体内变化数据集之间的关系取决于设计的性质和用于创建可变字体的工具。
+// 另请注意，使用多个源主控字体派生可变字体的要求是对应的字形轮廓必须是点兼容的：它们必须具有相同数量的轮廓和每个轮廓中相同数量的点。
+// 坐标尺度和归一化
+// 变化空间内的位置可以表示为 n 元组——有序坐标值列表。示例如下。n 元组的坐标值可以使用用户轴尺度，也可以使用归一化尺度。这些尺度之间的精确关系将描述。
+// 用户坐标指使用用户轴尺度表示的坐标值 n 元组。用户尺度指 'fvar' 表中用于描述变化轴的数值尺度。每个变化轴使用自己的数值尺度，适合该变化轴的性质。注册轴标签的尺度作为轴标签注册的一部分定义，但不同字体可能支持轴尺度的不同子范围。这样，给定字体的 'fvar' 表定义了该字体变化空间的特定坐标系，可能与其他字体不同。
+// 而 'fvar' 表中的定义以用户坐标表示，可变字体中使用的变化数据格式使用归一化坐标系——归一化坐标——其中 'fvar' 表中为每个轴指定的最小值、默认值和最大值分别映射到 -1、0 和 1。
+// 例如，下图说明了具有字重和宽度轴变化的可能字体的变化空间的用户坐标系：
+// 使用"用户"坐标的二维坐标空间
+// 以下图形说明了同一设计空间中位置的归一化坐标系：
+// 使用归一化坐标的二维坐标空间
+// 归一化变换使用默认变换，然后是由 'avar' 表定义的变换的二级修改（如果存在）。'avar' 表不影响最小值、默认值和最大值到 -1、0 和 1 的映射；它只能影响中间值的映射。这将在下面更详细地描述。
+// 默认归一化映射将每个轴的变化范围分为两个段：最小值到默认值，以及默认值到最大值。最小值、默认值和最大值分别映射到 -1、0 和 1。在每个段内，所有其他值进行线性插值，如下所示：
+// 设 userValue 为给定轴的用户选择实例值的用户尺度坐标值，设 defaultNormalizedValue 为默认归一化实例值，设 axisMin 为 'fvar' 表中指定的轴最小值，等等。
+// 通过钳制到最小值和最大值来强制用户尺度坐标值在范围内：
+// if userValue < axisMin
+// userValue = axisMin;
+// if userValue > axisMax
+// userValue = axisMax;
+// 在不同段内线性插值值：
+// if (userValue < axisDefault)
+// {
+// defaultNormalizedValue = -(axisDefault - userValue) / (axisDefault - axisMin);
+// }
+// else if (userValue > axisDefault)
+// {
+// defaultNormalizedValue = (userValue - axisDefault) / (axisMax - axisDefault);
+// }
+// else
+// {
+// defaultNormalizedValue = 0;
+// }
+// 如果存在 'avar' 表，则对每个轴执行额外的归一化步骤以计算最终归一化值。在 'avar' 表中，AxisValueMap 记录将轴的默认归一化值映射到修改后的归一化值。连续的 AxisValueMap 记录对定义给定轴范围内的段。在段内，中间值进行线性解释。从上面计算的 defaultNormalizedValue 开始，额外的归一化步骤如下：
+// 从 'avar' 表中检索给定轴的 SegmentMaps 记录，使用 'fvar' 表中定义的轴索引。
+// 扫描 SegmentMaps.axisValueMaps 数组中的 AxisValueMaps 记录，以找到第一个 AxisValueMaps.fromCoordinate 值大于或等于 defaultNormalizedValue 的记录。将此记录指定为 endSeg。（注意，endSeg 不能是第一个映射记录，即 -1 的记录。）
+// 如果 endSeg.fromCoordinate 等于 defaultNormalizedValue，则将 finalNormalizedValue 设置为 endSeg.toCoordinate。返回此值并结束。
+// 否则 endSeg.fromCoordinate 严格大于 defaultNormalizedValue）：将前一个 AxisValueMaps 记录指定为 startSeg。
+// finalNormalizedValue 计算如下：
+// ratio = (defaultNormalizedValue - startSeg.fromCoordinate) /
+// (endSeg.fromCoordinate - startSeg.fromCoordinate)
+// finalNormalizedValue = startSeg.toCoordinate + ratio *
+// (endSeg.toCoordinate - startSeg.toCoordinate)
+// 请参阅上面提到的 'avar' 表章节的表格式部分，了解上述结构的详细信息。
+// 处理变化实例坐标和变化数据时，使用的精度量和舍入处理方式可能对视觉结果产生明显影响。为了确保给定字体在不同实现之间的一致行为，实现必须遵守以下与精度和舍入相关的要求：
+// 归一化的输入必须是 16.16 格式。如果应用程序提供以 float 或 double 数据类型表示的输入值，必须使用以下方法转换为 16.16。
+// 上面指定的归一化数学计算以 16.16 进行。
+// 执行默认归一化计算后，某些结果可能略超出 [-1, +1] 范围。值必须钳制到此范围：
+// if result < -1
+// result = -1;
+// if result > 1
+// result = 1;
+// 如果存在 'avar' 表，数学计算以 16.16 进行，结果按上述方式钳制到 [-1, +1] 范围。
+// 将最终的归一化 16.16 坐标值转换为 2.14，方法如下：加上 0x00000002，并符号扩展右移 2 位。
+// 2.14 结果必须在某些操作中存储和返回，如下所述。
+// 对于后续计算——插值标量的计算或缩放增量值的累积——2.14 表示可以转换为 float、16.16 或其他实现特定的表示。建议至少保持 16 位小数精度，并且任何舍入应在值使用前的最后一点进行。
+// 从 float 或 double 数据类型转换为 16.16 时，必须使用以下方法：
+// 将小数部分乘以 65536，并将结果四舍五入到最接近的整数（对于 0.5 及更高的分数值，取下一个更高的整数；对于其他分数值，截断）。将结果存储在低序字中。
+// 将整数部分的二进制补码表示移入高序字中。
+// 注意：除了将更高精度表示转换为 16.16 之外，本规范对实例坐标、缩放增量或派生实例值没有其他舍入要求。例如，对于应用增量后的轮廓点坐标，栅格化实现可以使用高精度浮点类型，或根据需要舍入到较低精度表示。不同的实现可以使用不同的精度来计算实例值，从而导致细微的视觉差异。如果字体实例的数据被转换或导出到另一种表示——例如，动态生成给定实例的静态字体——派生的静态字体与源可变字体之间可能存在细微差异。
+// 必须严格按照上述步骤 1-5 获得 2.14 表示中的归一化值。在具有 TrueType 指令的字体中，此精确值必须由 GET VARIATION 指令返回。（请参阅 TrueType 指令集。）如果字体在 OpenType 布局表中使用 FeatureVariation 表，则在比较条件表中指定的轴范围值时，必须使用此精确值。
+// 'avar' 归一化示例
+// 以下示例说明了使用 'avar' 映射的归一化工作原理。
+// 假设字体中某个轴的最小值为 100，默认值为 400，最大值为 900。假设所选实例的用户坐标为 250。根据上述算法，默认归一化值计算如下：
+// defaultNormalizedValue = -(axisDefault - userValue) / (axisDefault - axisMin)
+// = -(400 - 250) / (400 - 100)
+// = -150 / 300
+// = -0.5
+// 假设字体还具有该轴的 'avar' 表，包含以下映射（AxisValueMap 记录）：
+// 记录索引	fromCoordinate	toCoordinate
+// 0	-1.0	-1.0
+// 1	-0.75	-0.5
+// 2	0	0
+// 3	0.4	0.4
+// 4	0.6	0.9
+// 5	1.0	1.0
+// 给定默认归一化值 -0.5，相关段由记录 1 和记录 2 定义：
+// 第一个具有大于或等于 defaultNormalizedValue 的 fromCoordinate 的 AxisValueMaps 记录是记录索引 2。因此，记录 2 是 endSeg。
+// endSeg.fromCoordinate 严格大于 defaultNormalizedValue。因此，前一个记录，记录 1，是 startSeg。
+// 因此，最终归一化值计算如下：
+// ratio = (defaultNormalizedValue - startSeg.fromCoordinate) /
+// (endSeg.fromCoordinate - startSeg.fromCoordinate)
+// = (-0.5 - (-0.75)) / (0 - (-0.75))
+// = 0.3333
+// finalNormalizedValue = startSeg.toCoordinate + ratio *
+// (endSeg.toCoordinate - startSeg.toCoordinate)
+// = -0.5 + 0.3333 * (0 - (-0.5))
+// = -0.3333
+// 下表显示了此 'avar' 数据将如何修改几个归一化坐标值：
+// 默认归一化值	最终归一化值
+// -1.0	-1.0
+// -0.75	-0.5
+// -0.5	-0.3333
+// -0.25	-0.1667
+// 0	0
+// 0.25	0.25
+// 0.5	0.65
+// 0.75	0.9375
+// 1.0	1.0
+// 变化数据
+// 变化数据提供描述特定字体值在变化空间上的变化的数据。例如，'gvar' 表中的变化数据描述了 'glyf' 表中的字形轮廓如何通过指定字形轮廓中的各个点如何针对不同变化实例移动来变换。
+// 给定字体值的变化表示为适用于变化空间不同区域的增量组合，并以加权方式组合以导出变化空间中不同位置的实例的调整值。变化数据中的每个增量与变化空间上具有效果的特定区域相关联。增量及其关联区域的总体组合构成变化数据。字体中不同项的变化数据存储在不同位置。例如，'glyf' 表条目的变化数据存储在 'gvar' 表中；OS/2 表中某些条目的变化数据存储在 MVAR 表中。在 CFF2 表中的轮廓数据情况下，变化数据存储在 CFF2 表本身内。有关更多详细信息，请参阅以下部分。
+// 如上所述，每个增量值与变化空间中具有适用性的特定区域相关联。增量的有效区域在归一化坐标中始终是矩形的。因此，该区域总是可以通过一对 n 元组指定，指定区域对角相对角的位置。在指定区域内，变化效果将从零变化变化到区域内特定位置处的峰值变化。因此，在一般情况下，有三个位置很重要：定义区域范围的对角相对角，以及发生峰值变化的位置。
+// 注意：下图将使用两个变化轴。所陈述的概念和陈述适用于具有任意数量轴的字体：区域始终是矩形的，对角相对角加上峰值是描述区域的位置。
+// 笛卡尔空间中的区域，具有定义区域范围的两个位置和区域内的峰值位置
+// 此一般情况在实践中并不最常见。在大多数情况下，需要描述变化空间外边界处的最大变化，该变化在零原点——默认实例处减小到零变化。在这种情况下，零原点是适用区域的一个角位置，而峰值变化发生在对角相对位置。对于这种常见情况，有效区域和峰值位置可以使用单个 n 元组描述。
+// 作为笛卡尔空间中的区域的整个象限
+// 更一般但不常见的情况涉及任意区域，如前所述；这些被称为中间区域。在这些情况下，变化数据需要三个 n 元组：一个用于峰值变化位置，两个用于对角相对角处的起始和结束位置。
+// 变化数据中的增量值指定峰值位置处的最大调整。效果向其他实例逐渐减弱，对于适用区域外的实例，调整效果降至零。选择给定变化实例时，计算标量值并将其应用于给定增量，以导出与该增量和该实例相关联的净调整。这些标量将始终在 0（零调整）到 1（最大调整）的范围内。下面提供了此标量计算的详细说明。
+// 一个示例将有助于解释这些概念。考虑具有字重变化的单轴字体。'glyf' 表中定义的特定字形轮廓可能有一对点（在其他点中），它们是在笔画两侧的曲线上的点。'glyf' 表中的条目将指定字体默认实例的字体设计网格坐标，可能对应于常规字重：
+// 字形轮廓中的两个点
+// 字重轴上最大值处的变化数据将提供两个轮廓点的 X 和 Y 增量，以根据需要移动它们的位置以用于最重的支持字重实例：
+// 使用完整增量量的轮廓点调整位置
+// 在这种情况下，第一个点将具有 X 和 Y 增量 +40 和 +10；第二个点将具有增量 +140 和 +10。这些提供了轮廓点的最大调整，在用户选择的实例处于最大字重时应用。对于默认值和最大值之间的字重，如归一化字重值 0.5，效果会按比例减弱。
+// 使用缩放增量量的轮廓点调整位置
+// 在这种情况下，标量系数 0.5 应用于增量值。
+// 标量计算可以被认为是将每个归一化轴值从 -1 到 1 映射到标量范围 0 到 1 的函数。每个具有关联变化数据的区域都有其自己的标量函数，标量函数由区域描述精确定义。
+// 例如，在单轴字体中，如果为从 0 到 1 的区域提供增量，峰值效果在 1 处，标量函数如下：
+// 标量函数图看起来像一个斜坡，在轴值 0 到 1 之间增加。
+// 此示例考虑非中间区域。相同概念可以推广到中间区域。中间区域具有起始和结束轴值，在其间有一些调整效果，以及应用完整调整效果的峰值轴值。标量函数在适用范围内具有三角形形状，在峰值轴值处值为 1.0，在或低于起始轴值处为 0，在结束轴值以上也为 0。
+// 标量函数图看起来像一个齿。
+// 推广到两个或更多轴时，类似概念适用，但每个轴的贡献被组合成整体效果。为每个轴计算标量，并将每个轴的标量相乘在一起以产生给定增量的整体标量。例如，下图说明了双轴字体中峰值在 (1, 1) 处的区域的标量函数的近似：
+// 双轴的标量函数图是一个三维图，看起来像一个具有方形底座的圆锥的一部分。
+// 由于为每个轴计算的标量值在 0 和 1 之间，因此将每个轴的标量相乘时，乘积也在 0 和 1 之间。只有当实例轴值与给定增量区域的峰值坐标值在所有轴上对齐时，才能获得给定增量的最大调整效果。
+// 'fvar' 表中为轴指定的最小值和最大值确定用户可以选择的实例的限制。如果用户请求低于最小值的轴值，则使用最小值；或者如果请求高于最大值的轴值，则使用最大值。因此，处理所选实例的变化数据时，归一化轴值将始终在 -1 和 1 之间。
+// 在此约束假设下，让我们考虑当实例轴值在适用区域之外时给定增量的标量值。如果所选实例在任何轴上超出范围，则该轴的标量值将为 0。如上所述，每个轴的标量相乘在一起以产生整体标量。因此，如果所选实例在任何轴上超出范围，则该增量的整体标量将为 0，并且不会应用该增量的调整。
+// 当为区域定义的 n 元组在某个轴上具有峰值值为 0 时，该轴不进入标量计算。这意味着该轴的任何值的调整效果都相同，如果其他轴值保持不变。实际上，适用区域跨越零化轴的完整范围。例如，假设字体有两个轴，字重和宽度，并且为从 (0, 0) 到 (1, 0) 的区域提供增量。在这种情况下，增量适用于第二个轴（宽度）的任何实例值，只要第一个轴（字重）的实例值在范围内：
+// 笛卡尔空间中的区域覆盖两个右象限
+// 在这种情况下，第二个轴（宽度）的标量函数实际上是一个常数值 1，对标量计算没有影响。以下图形说明了本示例中两个轴（字重和宽度）的标量函数：
+// 第一个轴的标量函数图看起来像一个斜坡，在轴值 0 到 1 之间增加。第二个轴的标量函数图是一个常数值 1。
+// 对于给定字体值，可以为变化空间中的几个不同区域提供增量。选择特定变化实例时，这些增量中的零个、一个或多个可能具有效果，取决于实例位置是否落入每个增量的适用区域。为每个适用增量计算不同的标量，并将适用增量的缩放值组合以产生整体调整。
+// 创建单轴字体时，需要为轴的最小值和最大值极值提供增量。（两个极值，即，除非一个也是默认值。）还可以提供附加的中间区域增量。创建多轴字体时，通常需要为每个轴的最小值和最大值极值提供增量。下图说明了双轴字体的情况：
+// 笛卡尔空间中的点位于 (-1,0)、(1,0)、(0,-1) 和 (0,1)
+// 双轴字体，每个轴的最小值/最大值极值都有增量
+// 如上所述，当为某个轴值具有零值的区域指定增量时，增量适用于该轴的所有值。因此，对于位于 (1, 1) 的实例，(1, 0) 和 (0, 1) 的增量都将适用。这意味着 (1, 0) 增量的调整和 (0, 1) 增量的调整都将应用以产生组合效果。如果每个轴的调整完全独立于其他轴的调整，则两组增量可能足以提供 (1, 1) 实例的预期值。
+// 然而，通常仅这两组增量不足以提供所有实例的期望结果，并且需要为 (1, 1) 位置提供附加增量。一般而言，在多轴字体中，通常需要为角极值以及轴端点提供至少一些增量。
+// 笛卡尔空间中的点位于 (-1,1)、(-1,0)、(-1,-1)、(0,1)、(0,-1)、(1,1)、(1,0) 和 (1,-1)
+// 最小值/最大值极值加上极值交集角都有增量
+// 如上所述，默认实例可以对应于一个或多个轴上的最小值或最大值。这允许使用更少的区域和关联增量数据来实现变化空间中的变化。下图说明了双轴字体的一些附加可能性。
+// 笛卡尔空间中的点位于 (0,1)、(0,-1)、(1,1) 和 (1,0)
+// 一个轴最小值处为默认的双轴字体
+// 笛卡尔空间中的点位于 (0,1)、(1,1) 和 (1,0)
+// 两个轴最小值处为默认的双轴字体
+// 注意：角极值的增量是可选的。根据特定字体设计的需要，可以不为、部分或全部角极值添加增量。在上面的第一个示例中，设计空间角落在图的左上和左下对应于其中一个轴的最小值和最大值，因此需要这些角落的增量以提供该轴上的变化。但右上和右下角的增量是可选的；在此示例中，仅添加了右上角的补充增量。
+// 如上所述，中间区域提供轴标量函数，其形状为三角形或"齿"。 barely 重叠且重叠处有急剧上升的一对中间区域可用于沿轴提供某个变化行为的拐点。
+// 两个重叠齿函数的图
+// 注意：每个中间区域都有其自己的关联增量值，并且增量可用于在重叠点处提供一些急剧过渡。例如，轮廓点可以突然移动以使字形结构的某些元素出现或消失，如下图所示。
+// 字重变化的大写 Q 字形，在较重字重时简化笔画
+// 较重字重时简化字形结构
+// 注意：使用此类技术时，应一起考虑沿轴放置此类过渡点以及命名实例的放置，以便急剧过渡不会发生在命名实例附近。这将避免不同应用程序在使用命名实例时由于处理数值的小差异而出现不一致行为的可能性。
+// 注意：使用此类技术时，重要的是要记住，某些应用程序将支持任意实例的选择，包括轴值在重叠范围内的实例，并且在重叠范围内，两个中间区域的缩放增量将具有累积效果。可能需要一些设计迭代，对增量值或区域重叠方式的小调整，以避免过渡范围内的意外或不良结果。
+// 注意：上图说明了使用中间区域实现"笔画减少"效果。另一种可用于改变特定变化轴值范围的字形结构的技术是字形替换。OpenType 布局 GSUB 表中的必需变化替代功能与 FeatureVariations 表结合使用，可以在选择某个变化轴范围内的一个或多个轴的变化实例时执行字形替换。这可能是一种更容易维护的技术，通常推荐用于实现此类效果。
+// 以上提供了变化数据的基本概念概述：适用区域、每个轴和整体标量以及多个适用增量的组合效果。下面提供了插值过程的详细规范。
+// 变化数据表和杂项要求
+// 上一节确定了字形轮廓点的 X 和 Y 坐标作为可以针对不同变化实例进行调整的数据项。字体中的许多其他数据项也可以调整，包括：
+// OS/2、'hhea'、'vhea' 或 'post' 表中的字体范围度量值。
+// 'hmtx'、'vmtx' 或 VORG 表中的字形度量值。
+// 'gasp' 表中的 PPEM 范围。
+// GPOS 或 JSTF 表中的锚点位置，以及字形位置或推进的调整。
+// GDEF 表中连字插入符位置的 X 或 Y 坐标。
+// BASE 表中基线度量的 X 或 Y 坐标。
+// CVT 值。
+// COLR 表中彩色字形的渐变放置和颜色停止偏移、颜色 alpha 值和变换。
+// 可变字体可以为这些中的任何一个或全部包含变化数据。不同项的变化数据在字体中的各个表中提供。
+// 注意：虽然字体中的几个数据项可能需要针对不同实例进行调整，但还有其他项不受变化影响。例如，字体家族和 unitsPerEm 不受变化影响。然而，应该特别注意的是，某些可能受变化影响的值不支持变化数据。特别是，字体头（'head'）表中的 xMin、yMin、xMax、yMax、macStyle 和 lowestRecPPEM 字段不支持变化数据，应仅与字体的默认实例相关。此外，字距调整（'kern'）表中的变化不受支持；可变字体应使用 GPOS 表处理字距调整。
+// 可变字体中需要两个表：
+// 字体变体（'fvar'）表，描述字体支持的变化。
+// 样式属性（STAT）表，建立属于家族的字体之间的关系，并通过允许平台将涉及许多轴的变化实例投影到假设有限变化轴集的较旧字体家族模型中，提供与旧应用程序的某种兼容性。
+// 可变字体必须包含一些其他变化相关数据，根据设计变化的方式，但没有其他特定类型的变化相关数据是所有可变字体必需的。
+// 如果可变字体在 'glyf' 表中具有 TrueType 轮廓，轮廓变化数据可以在字形变体（'gvar'）表中提供。CVT 值的变化数据可以在可选的 CVT 变体（'cvar'）表中提供。
+// 如果可变字体在紧凑字体格式 2.0（CFF2）表中具有 PostScript 风格轮廓，CFF2 表本身也可以包含关联的变化数据。
+// 注意：CFF2 表可以在非可变字体和可变字体中使用。另请注意，不支持使用紧凑字体格式版本 1.0（'CFF '）表的轮廓变化。
+// 度量变体（MVAR）表用于为 'gasp'、'hhea'、OS/2、'post' 和 'vhea' 表中的各种字体范围度量或其他数值提供变化数据。如果任何这些值需要调整，则应添加 MVAR 表。请注意，并非必须为 MVAR 表涵盖的所有数据项提供变化数据：所有项的变化数据都是可选的。如果给定项没有变化数据，默认值适用于所有实例。
+// 注意：Apple 平台允许使用字体度量（'fmtx'）表，通过引用指定字形的轮廓点的 X 或 Y 坐标来指定各种字体范围度量值。OpenType 字体变体不使用字体度量表。
+// 'hmtx' 和 'vmtx' 表提供水平和垂直字形度量。可以使用水平度量变体（HVAR）和垂直度量变体（VVAR）表为水平和垂直字形度量提供变化数据。
+// 在具有 TrueType 轮廓的字体中，栅格化器将 'hmtx' 和 'vmtx' 值与 'glyf' 表中的字形 xMin、xMax、yMin 和 yMax 值组合，生成四个对应于字形水平和垂直度量值的"虚点"。（有关虚点的更多背景，请参阅指导 TrueType 字形章节。）在可变字体中，'gvar' 表中字形的变化数据将包括字形虚点的调整增量。因此，可以通过插值给定实例的虚点位置来获得给定实例的插值字形度量。然而，对于某些文本布局操作，这可能成本高昂。为了在所有平台上提供最佳性能，建议所有具有 TrueType 轮廓的可变字体包含 HVAR 表。如果字体支持垂直布局并包含 'vhea' 和 'vmtx' 表，建议字体包含 VVAR 表。
+// CFF2 栅格化器不生成虚点，CFF2 变化数据不包含虚点的调整增量。因此，在具有 CFF2 轮廓的可变字体中，需要 'hmtx' 和 HVAR 表。类似地，如果字体支持垂直布局，则需要 'vmtx' 和 VVAR 表。
+// 注意：'hdmx' 和 VDMX 表在可变字体中不使用。
+// 如果字体具有 OpenType 布局表，GDEF、GPOS 或 JSTF 表中的值的变化数据将根据需要包含在 GDEF 表中。BASE 表的变化数据将根据需要包含在 BASE 表本身中。
+// 在某些可变字体中，可能希望在字体的变化空间中的不同区域使用不同的字形替换或字形定位操作。例如，对于窄宽度或重字重实例，其中字腔变小，可能希望进行某些字形替换，以使用具有某些笔画移除或轮廓简化的替代字形，以允许更大的字腔。这种效果可以使用 GSUB 或 GPOS 表中的功能变化子表来实现。有关更多信息，请参阅 OpenType 布局通用表格式章节。
+// 在具有 TrueType 轮廓的可变字体中，每个字形的左侧承必须等于 xMin，并且 'head' 表标志字段中的位 1 必须设置。
+// 在所有可变字体中，'head' 表标志字段中的位 5 必须清除。（在某些平台上，位 5 影响垂直布局中的度量。位 5 必须清除以确保所有平台上的兼容行为。）
+// 实例值插值算法
+// 为不同变化实例插值调整值的过程用于所有需要变化的字体数据项——字形轮廓点的位置、升部或其他字体范围度量等。插值过程涉及：
+// 确定适用于该实例的增量。
+// 对于每个适用增量，计算该实例的每个轴标量，然后将每个轴的标量相乘以产生该增量的整体标量。
+// 将每个适用增量乘以计算出的标量。
+// 组合所有缩放增量以产生整体调整。
+// 处理 'gvar' 表时，计算中有一个附加步骤，即当增量未明确给出时推断点的增量调整。这仅适用于 'gvar' 表，并在 'gvar' 表章节中描述。
+// 如上所述，给定增量的实例轴值在适用区域之外等价于该增量的每个轴标量值为零。此外，对于给定增量没有影响的轴（n 元组对该轴的峰值值为零）等价于该轴的每个轴标量值为 1。因此，适用性确定和轴交互都可以组合成推导整体标量的步骤。
+// 以下插值过程的描述将引用起始、峰值和结束坐标值。如上所述，中间区域使用三个 n 元组描述，两个用于对角相对角（起始和结束）指定区域范围，以及一个峰值。非中间区域的一个角在峰值处，另一个角在零原点。在某些变化数据结构中，非中间区域使用单个 n 元组指定，即峰值。在这种情况下，起始和结束坐标是隐含的：一个与峰值相同，另一个是零原点。
+// 为了变化数据中的区域定义有效，起始、峰值和结束值必须良序。也就是说，对于每个轴，起始轴坐标必须小于或等于峰值坐标，并且峰值坐标必须小于或等于结束坐标。此外，起始和结束坐标必须同时为非负或非正——它们不能跨越零。
+// 在到目前为止的讨论中，个体增量被描述为具有关联的区域。变化数据可以以不同的方式组织。在某些情况下，如在 'gvar' 表中，几个对应于许多目标项（字形的所有轮廓点）和变化空间单个区域的增量被组织在一起。在某些其他情况下，如在 MVAR 或 CFF2 表中，覆盖多个区域的增量由个体目标项组织在一起。无论哪种情况，个体增量都与变化空间的特定区域相关联。以下插值过程的描述将引用插值个体项的值，但当应用于特定上下文（如 'gvar' 表）时，应理解为相同的计算并行应用于许多不同的项。
+// 如上所述，给定增量的效果由范围从 0 到 1 的标量函数调节，对于区域关联峰值位置处的实例，值为 1。整体标量是每个轴标量的乘积，每个轴标量计算为实例坐标值与峰值坐标值的接近度相对于峰值到区域边缘距离的比例。
+// 例如，考虑双轴变化空间中的中间区域（下图中的绿色），角在 (0.3, 0.15) 和 (1, 1)，峰值（下图中的蓝色）在 (0.7, 0.5)：
+// 具有从 (0.3, 0.1) 到 (1,1) 的矩形区域和 (0.75, 0.5) 峰值点的笛卡尔空间
+// 然后考虑实例（下图中的红色）在 (0.5, 0.35)。每个轴的标量将是实例坐标值到区域最近边缘的距离除以峰值到该边缘的距离：
+// 具有矩形区域的笛卡尔空间，以及用于计算每个轴标量的值
+// 此区域的整体标量将是两个轴标量的乘积：0.5 × 0.571429 = 0.285714。
+// 以下伪代码提供了为给定目标项和给定实例计算插值值的详细算法：
+// C#
+// netAdjustment = 0; /* 将累积调整初始化为零 /
+// (foreach R in Regions) / 对于每个区域，计算标量 S /
+// {
+// S = 1; / 将区域的整体标量初始化为 1 */
+// plain
+// /* 对于每个轴，计算每个轴标量 AS */
+// (for i = 0; i < axisCount; i++)
+// {
+//     /* 如果区域定义相对于某个轴无效，
+//     则忽略该轴。对于区域相对于给定轴有效，
+//     它必须具有在起始和结束值之间的峰值，
+//     并且起始和结束值不能具有不同符号
+//     如果峰值非零。（如果峰值为零，起始和结束
+//     可以具有不同符号：这可用于如果轴在标量计算中
+//     要被忽略。）*/
+// 
+//     if (startCoords[i] > peakCoords[i] || peakCoords[i] > endCoords[i])
+//         AS = 1;
+//     else if (startCoords[i] < 0 && endCoords[i] > 0 && peakCoords[i] != 0)
+//         AS = 1;
+// 
+//     /* 注意：对于剩余情况，起始、峰值和结束都将 <= 0
+//     或都将 >= 0，或者峰值将 == 0。*/
+// 
+//     /* 如果某个轴的峰值为零，则忽略该轴。*/
+//     else if (peakCoords[i] == 0)
+//         AS = 1;
+// 
+//     /* 如果实例坐标在某个轴上超出范围，则区域及其关联增量不适用。*/
+//     else if (instanceCoords[i] < startCoords[i]
+//              || instanceCoords[i] > endCoords[i])
+//         AS = 0;
+// 
+//     /* 区域适用：计算每个轴标量作为实例到峰值在区域内接近度的比例。*/
+//     else
+//     {
+//         if (instanceCoords[i] == peakCoords[i])
+//             AS = 1;
+//         else if (instanceCoords[i] < peakCoords[i])
+//         {
+//             AS = (instanceCoords[i] - startCoords[i])
+//                  / (peakCoords[i] - startCoords[i]);
+//         }
+//         else /* instanceCoords[i] > peakCoords[i] */
+//         {
+//             AS = (endCoords[i] - instanceCoords[i])
+//                  / (endCoords[i] - peakCoords[i]);
+//         }
+//     }
+// 
+//     /* 整体标量是所有每个轴标量的乘积。
+//     注意：轴标量和整体标量将始终 >= 0 且 <= 1。*/
+//     S = S * AS;
+// } /* 每个轴循环 */
+// 
+// /* 获取此区域的缩放增量 */
+// scaledDelta = S * delta;
+// 
+// /* 累积每个区域的调整 */
+// netAdjustment = netAdjustment + scaledDelta;
+// } /* 每个区域循环 */
+// /* 将累积调整应用于默认值以导出插值值 */
+// interpolatedValue = defaultValue + netAdjustment;
+// 将缩放增量应用于默认值时，组合结果可能超出字体中默认值使用的数据类型的范围。例如，默认值可以在字体中表示为 16 位值，但应用增量后的实例值可能需要更多位来表示。计算期间和最终结果（interpolatedValue）可以使用实现确定的表示。计算中使用的数字范围必须至少与增量应用到的项的数据类型相同；例如，将缩放增量应用于 FWORD 值时至少为 [-32768, 32767]。
+// 将缩放的变化增量应用于标量值需要涉及分数值的计算。在标量（S、AS）和插值值（scaledDelta、netAjustment、interpolatedValue）的计算中，应至少保持 16 位小数精度。如果需要内部表示，仅应在最终结果使用时进行舍入，并且可以保留比增量应用到的项的数据类型更大的小数位深度。另请参阅上面的坐标尺度和归一化，了解有关精度和舍入的相关讨论。
+// 根据使用的内部表示，应用增量时算术操作的结果可能超出内部表示支持的范围。增量相加的顺序未规定，但也可能是溢出是否发生的因素。如果资源允许，应用程序应允许更大的范围以避免计算过程中任何点溢出的可能性，并确保增量应用的顺序不影响最终结果。无论字体表示中默认值使用的类型如何，计算中应至少使用 32 个有效位。
+// 如果内部表示的溢出不可避免，可以使用饱和算术（钳制，而不是回绕）来缓解错误伪影。然而，一般来说，溢出行为未定义。因此，字体开发人员应注意增量组合可能超出增量应用到的字体数据的数据类型范围的情况，并预期结果行为在不同应用程序中可能不一致。特别是，字体开发人员不应依赖特定应用程序的溢出行为。
+// 插值示例
+// 以下示例说明了特定实例的插值过程。此示例基于 Skia 字体的字形 45（字形名称"hyphen.oldstyle"），即字符 U+002D 连字符减号的字形。
+// 注意：Skia 字体包含在 Apple 的 OSX 平台中。在 OpenType 1.8 规范发布时，现有版本的 Skia 字体整体上不符合 OpenType 1.8 规范，但 'gvar' 表中变化数据的实现（此处说明）确实符合。
+// 'glyf' 表中的字形条目有一个轮廓，包含四个点。基于 'hmtx' 表中字形 45 的值，栅格化器推断"虚点"来表示左和右侧承。（对于此示例，假设水平布局，因此忽略顶部和底部虚点。）这些虚点位于 (0, 0) 和 (698, 0)。因此，有六个点需要插值。
+// 具有四个点的字形轮廓，加上两个'虚点'。字形看起来像连字符减号。
+// Skia 字体具有字重和宽度轴。'gvar' 表中字形 45 的变化数据具有与字重宽度变化空间内 8 个区域相关联的增量。将考虑其中三个，称为 R1、R2 和 R3。每个都是非中间区域，因此使用单个 n 元组定义。每个的 n 元组如下：
+// 区域	（字重，宽度）
+// R1	(1, 0)
+// R2	(0, 1)
+// R3	(1, 1)
+// 下图说明了这些区域中每个在变化空间上的适用性范围：
+// 覆盖两个右象限的区域笛卡尔空间
+// R1 对宽度轴具有零坐标值，这意味着变化实例的宽度变化对标量计算没有影响。
+// 覆盖两个上象限的区域笛卡尔空间
+// R2 对字重轴具有零坐标值，这意味着变化实例的字重变化对标量计算没有影响。
+// 覆盖右上象限的区域笛卡尔空间
+// R3 对字重和宽度轴都具有非零坐标值，这意味着变化实例的字重或宽度变化都会影响此区域的标量计算。
+// 现在考虑字体中为每个点指定的与这三个区域关联的增量值。为每个点指定 X 和 Y 增量。
+// R1 具有以下关联增量：
+// pt 0	pt 1	pt 2	pt 3	pt 4	pt 5
+// X	234	-26	-26	234	0	209
+// Y	-135	-135	175	175	0	0
+// 将这些增量应用于原始点位置，与 R1 关联的增量的最大效果将修改轮廓如下：
+// 具有四个轮廓点的默认字形轮廓，类似连字符减号，以及虚点。还有应用 R1 区域增量后的调整轮廓和虚点。
+// 对于变化实例 (1, 0)（最重字重，默认宽度），其他区域的标量将为零，因此这将是该实例的轮廓结果。降低实例的字重值将减弱变化的程度，轮廓在原始轮廓和此最大修改轮廓之间插值。
+// 现在考虑 R2：它具有以下关联增量：
+// pt 0	pt 1	pt 2	pt 3	pt 4	pt 5
+// X	165	20	20	165	0	187
+// Y	-2	-2	2	2	0	0
+// 将这些增量应用于原始点位置，与 R2 关联的增量的最大效果将修改轮廓如下：
+// 具有四个轮廓点的默认字形轮廓，类似连字符减号，以及虚点。还有应用 R2 区域增量后的调整轮廓和虚点。
+// 对于变化实例 (0, 1)（常规字重，最宽宽度），其他区域的标量将为零，因此这将是该实例的插值轮廓结果。
+// 现在考虑 R3：它具有以下关联增量：
+// pt 0	pt 1	pt 2	pt 3	pt 4	pt 5
+// X	0	0	0	0	0	0
+// Y	0	0	0	0	0	0
+// 由于所有增量值都为零，与此区域关联的数据对字形轮廓完全没有效果。（事实上，这些数据是多余的。）
+// 现在，考虑变化实例 (1, 1)（最重字重，最宽宽度）。所有三个区域 R1、R2 和 R3 都适用于此实例。如上所述，与 R3 关联的变化数据对字形没有效果。但区域 R1 和 R2 的数据也适用于此实例，它们的最大效果将组合。也就是说，来自 R1 和 R2 关联数据的每个点的 X 和 Y 增量都将应用于点的 X 和 Y 坐标。这将修改字形轮廓如下：
+// 具有四个轮廓点的默认字形轮廓，类似连字符减号，以及虚点。还有应用 R1 和 R2 区域增量后的调整轮廓和虚点。
+// 对于其他字重 > 0 且 < 1 且宽度 > 0 且 < 1 的变化实例，区域 R1 和 R2 的数据都将应用，但两个区域的标量会变化，导致每个区域的数据对轮廓的不同比例效果。例如，考虑坐标为 (0.2, 0.7) 的变化实例——字重略微增加，宽度大幅增加。R1 和 R2 的区域标量将分别为 0.2 和 0.7。这些将分别应用于每个区域的增量，并且给定点的缩放增量值组合：
+// pt 0	pt 1	pt 2	pt 3	pt 4	pt 5
+// X	0.2 × 234
+// 0.7 × 165
+// = 162.3	0.2 × -26
+// 0.7 × 20
+// = 8.8	0.2 × -26
+// 0.7 × 20
+// = 8.8	0.2 × 234
+// 0.7 × 165
+// = 162.3	0.2 × 0
+// 0.7 × 0
+// = 0	0.2 × 209
+// 0.7 × 187
+// = 172.7
+// Y	0.2 × -135
+// 0.7 × -2
+// = -28.4	0.2 × -135
+// 0.7 × -2
+// = -28.4	0.2 × 175
+// 0.7 × 2
+// = 36.4	0.2 × 175
+// 0.7 × 2
+// = 36.4	0.2 × 0
+// 0.7 × 0
+// = 0	0.2 × 0
+// 0.7 × 0
+// = 0
+// 这将修改字形轮廓如下：
+// 具有四个轮廓点的默认字形轮廓，类似连字符减号，以及虚点。还有应用 R1 和 R2 缩放增量后的调整轮廓和虚点。
+// 静态实例字体的动态生成
+// 在某些应用程序工作流程中，可能需要为特定实例动态生成静态字体资源——即使用特定实例插值值的常规非变化字体表。这可能需要向不理解或不支持可变字体的旧软件或数据格式提供字体数据，例如旧打印机驱动程序，或具有嵌入字体数据的 PDF 或 XPS 文件。
+// 例如，可能需要处理可变字体中的 'glyf' 和 'gvar' 表以生成具有特定实例插值轮廓数据的新 'glyf' 表；或处理 'hhea' 和 MVAR 表以生成具有特定实例数据的新 'hhea' 表。
+// 不同的应用场景可能需要更多或更少的完整字体数据，需要生成不同的非变化特定字体表集。此处未指定最低要求。但应注意以下几点：
+// 某些场景可能需要在实例字体数据中使用 PostScript 名称（名称 ID 6），对于使用的每个实例具有不同的名称。Adobe 技术说明提供了可用于从可变字体派生的实例字体的 PostScript 名称生成规范。请参阅 Adobe 技术说明 #5902："变体字体的 PostScript 名称生成"。
+// 对于具有 CFF2 轮廓的可变字体，某些工作流程——例如打印——可能需要生成具有 'CFF ' 表的实例字体。在这种情况下，如果可变字体在 FontDICTINDEX 中有多个 Font DICT，则应生成 CID 键控的 CFF 字体，ROS 为"Adobe-Identity-0"。如果可变字体在 FontDICTINDEX 中有一个 Font DICT，则可以生成名称键控的 CFF 字体，如果在 'post' 表中提供了字形名称（某些旧工作流程查找字形名称以获取语义）；否则，可以如上生成 CID 键控的 CFF。将 CFF2 CharStrings 转换为 Type2 CharStrings 将涉及重新优化 CharString 参数和运算符，以避免超过允许的最大堆栈深度。从 CFF2 规范中移除的大多数 CFF 字段可以省略，以便它们继承 CFF 默认值。有关 'glyf'、'CFF ' 和 CFF2 表之间的差异摘要，请参阅比较 'glyf'、'CFF ' 和 CFF2 表。
+// 具有 TrueType 轮廓的可变字体可能利用 GET VARIATION 指令向字形程序提供当前变化轴坐标。在需要动态生成实例字体数据的场景中，应假设不支持此指令。在生成插值 'glyf' 表的过程中，需要对 GET VARIATION 指令进行特殊处理，以确保程序获得给定实例的适当轴坐标值。有关详细信息，请参阅 TrueType 指令集。
+
 #ifdef PRH_FONT_IMPLEMENTATION
 
 #endif // PRH_FONT_IMPLEMENTATION
