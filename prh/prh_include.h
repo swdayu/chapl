@@ -42249,6 +42249,971 @@ label_parse_finish:
     return fpart;
 }
 
+// INDEX 数据
+//
+// INDEX 是可变⼤⼩对象的数组，由头部、偏移量数组和对象数据组成。偏移量数组指定对象数据
+// 内的偏移量。检索对象时，先索引偏移量数组，再按指定的偏移量取出对象。对象⻓度可通过⽤
+// 偏移量数组中的下⼀个偏移量减去其偏移量得到。偏移量数组末尾额外附加⼀个偏移量，以便确
+// 定最后⼀个对象的⻓度。INDEX 格式如下表所⽰。
+//
+//      类型    名称                描述
+//      Card16  count               INDEX 中存储的对象数
+//      OffSize offSize             偏移量数组元素⼤⼩
+//      Offset  offset [count+1]    偏移量数组（⾃对象数据前⼀字节起）
+//      Card8   data[<可变>]        对象数据
+//
+// 偏移量数组中的偏移量相对于对象数据之前的那个字节。因此偏移量数组的第⼀个元素总是 1。
+// 这确保每个对象都有对应的⾮零偏移量，并允许⾼效地实现对象的动态加载。空 INDEX 由值为
+// 0 的 count 字段表⽰，且不含其他字段。因此空 INDEX 的总⼤⼩为 2 字节。注：可通过跳转
+// 到偏移量数组最后⼀个元素所指定的偏移量来跳过整个 INDEX。
+
+typedef struct {
+    prh_r16 object_count;
+    prh_r08 offset_size; // 1 ~ 4
+    prh_r08 object_offset[1]; // 大小为 offset_size * (object_count + 1)
+} prh_font_cff1_index_data;
+
+prh_r32 prh_font_cff1_offset_value(prh_r08 *offset, prh_r08 offset_size, prh_r32 offset_index) {
+    offset += offset_size * offset_index;
+    switch (offset_size) {
+        case 2: return prh_bp_2b_to_host(offset);
+        case 3: return prh_bp_3b_to_host(offset);
+        case 4: return prh_bp_4b_to_host(offset);
+        default: return *offset;
+    }
+}
+
+prh_r32 prh_font_cff1_object_offset(prh_r08 *offset_array, prh_r08 offset_size, prh_r32 object_index) {
+    prh_r32 offset_value = prh_font_cff1_offset_value(offset_array, offset_size, object_index);
+    prh_assert(offset_value > 0);
+    return offset_value - 1;
+}
+
+prh_r32 prh_font_cff1_object_size(prh_r08 *offset_array, prh_r08 offset_size, prh_r32 object_index, prh_r32 *object_size) {
+    prh_r32 offset_value = prh_font_cff1_offset_value(offset_array, offset_size, object_index);
+    prh_r32 next_offset = prh_font_cff1_offset_value(offset_array, offset_size, object_index + 1);
+    prh_assert(offset_value > 0 && next_offset >= offset_value);
+    *object_size = next_offset - offset_value;
+    return offset_value - 1;
+}
+
+prh_r32 prh_font_cff1_index_data_size(prh_byte *index_data) {
+    prh_r16 object_count = prh_bp_2b_to_host(index_data);
+    if (object_count == 0) return 2;
+    prh_r08 offset_size = *(index_data + 2);
+    prh_r32 header_bytes = 3 + offset_size * (object_count + 1);
+    prh_assert(offset_size >= 1 && offset_size <= 4);
+    return header_bytes + prh_font_cff1_object_offset(index_data + 3, offset_size, object_count);
+}
+
+prh_r08 *prh_font_cff1_object_data(prh_byte *index_data, prh_r16 object_index, prh_r32 *object_size) {
+    prh_r16 object_count = prh_bp_2b_to_host(index_data);
+    if (object_index >= object_count) return prh_null;
+    prh_r08 offset_size = *(index_data + 2); prh_assert(offset_size >= 1 && offset_size <= 4);
+    prh_r32 header_bytes = 3 + offset_size * (object_count + 1);
+    return index_data + header_bytes + prh_font_cff1_object_size(index_data + 3, offset_size, object_index, object_size);
+}
+
+// 头部（Header）
+//
+// ⼆进制数据以头部开始，其格式如下表所⽰。头部格式：
+//      类型    名称        描述
+//      Card8   major       格式主版本号（从 1 开始）
+//      Card8   minor       格式次版本号（从 0 开始）
+//      Card8   hdrSize     头部⼤⼩（字节）
+//      OffSize offSize     绝对偏移量 (0) 的⼤⼩
+//
+// 读取字体集（font set）⽂件的实现必须包含检查版本号的代码，以便当格式及版本号发⽣变化时，
+// 旧实现能够妥善地拒绝新版本。如果实现理解主版本号，就可以安全地继续读取字体。次版本号表
+// ⽰格式的扩展；不⽀持这些扩展的实现⽆法察觉它们，因⽽也⽆法利⽤这些扩展。
+//
+// 定位 Name INDEX 时必须使⽤ hdrSize 字段。设置该字段是为了让格式的未来版本能够在 offSize
+// 字段与 Name INDEX 之间引⼊额外数据，同时与旧实现保持兼容。offSize 字段指定所有相对于 CFF
+// 数据起点的偏移量 (0) 的⼤⼩。
+
+typedef struct {
+    prh_r08 major_version;
+    prh_r08 minor_version;
+    prh_r08 header_length;
+    prh_r08 offset_size;
+} prh_font_cff1_header;
+
+// Name INDEX
+//
+// 其中包含 FontSet 内所有字体的 PostScript 语⾔名称（FontName 或 CIDFontName），存储在⼀个
+// INDEX 结构中。字体名称经过排序，因⽽在 FontSet 内定位特定字体时可以执⾏⼆分查找。排序基于
+// 按 8 位⽆符号整数处理的字符代码。若⼀字体名称是另⼀字体名称的前缀，则较短者排在前⾯。该
+// INDEX 中⾄少要有⼀个条⽬，即 FontSet ⾄少要包含⼀个字体。
+//
+// 为与 PostScript 解释器、Acrobat 等客⼾端软件兼容，字体名称不应超过 127 个字符，且不应包含
+// 以下任何 ASCII 字符：
+//      []
+//      ()
+//      {}
+//      <>
+//      /
+//      %
+//      null（NUL）
+//      空格（SP）
+//      制表符（\t）
+//      回⻋（\r）
+//      换⾏（\n）
+//      换⻚（\f）
+//
+// 建议将字体名称限制在可打印 ASCII ⼦集（代码 33 ⾄ 126）之内。Adobe Type Manager（ATM）软
+// 件进⼀步将字体名称⻓度限制为 63 个字符。注：有关与早期 PostScript 解释器的兼容性，参⻅技
+// 术说明 5088《Font Naming Issues》。
+//
+// ⽆需移除字体数据即可将字体从 FontSet 中删除：只需将其名称在 Name INDEX 中的⾸字节设为 0
+// （NUL）。这种删除⽅式为处理字体升级提供了⼀种简单办法，⽆需重建整个字体集。⼆分查找软件
+// 必须能检测已删除项，并从 INDEX 中的前⼀个或后⼀个名称重新开始查找，以确保所有合适的名称
+// 都能被匹配。
+
+typedef struct {
+    prh_byte *table_data;
+    prh_r32 table_length;
+    prh_r08 major_version;
+    prh_r08 minor_version;
+    prh_r08 header_length;
+    prh_r08 offset_size;
+    prh_byte *name_index_data;
+    prh_byte *cff_font_name;
+    prh_byte *top_dict_index;
+    prh_byte *top_dict_data;
+    prh_byte *string_index;
+    prh_byte *global_subrs_index;
+    prh_byte *charstrings_index;
+    prh_r32 name_index_bytes;
+    prh_r32 font_name_bytes;
+    prh_r32 top_dict_index_bytes;
+    prh_r32 top_dict_length;
+    prh_r32 string_index_bytes;
+    prh_r32 global_subrs_index_bytes;
+    prh_r32 global_subr_count;
+    prh_r32 charstrings_offset;
+    prh_r32 charstrings_index_bytes;
+    prh_r32 charstrings_glyphs;
+    prh_r32 charset_offset;
+} prh_font_cff1_table;
+
+prh_r32 prh_impl_font_cff1_index_objects(prh_byte *index) {
+    return prh_bp_2b_to_host(index);
+}
+
+prh_r32 prh_impl_font_cff1_index_offsize(prh_byte *index) {
+    return index[2];
+}
+
+void prh_font_cff1_load_name_index(prh_font_cff1_table *p) {
+    p->name_index_data = p->table_data + p->header_length;
+    p->name_index_bytes = prh_font_cff1_index_data_size(p->name_index_data);
+    if (prh_impl_font_cff1_index_objects(p->name_index_data) == 0) prh_abort_error(__LINE__);
+    p->cff_font_name = prh_font_cff1_object_data(p->name_index_data, 0, &p->font_name_bytes);
+}
+
+void prh_font_cff1_parse_top_dict(prh_font_cff1_table *p);
+
+void prh_font_cff1_load_top_dict_index(prh_font_cff1_table *p) {
+    p->top_dict_index = p->name_index_data + p->name_index_bytes;
+    p->top_dict_index_bytes = prh_font_cff1_index_data_size(p->top_dict_index);
+    if (prh_impl_font_cff1_index_objects(p->top_dict_index) == 0) prh_abort_error(__LINE__);
+    p->top_dict_data = prh_font_cff1_object_data(p->top_dict_index, 0, &p->top_dict_length);
+    prh_font_cff1_parse_top_dict(p);
+}
+
+void prh_font_cff1_load_string_index(prh_font_cff1_table *p) {
+    p->string_index = p->top_dict_index + p->top_dict_index_bytes;
+    p->string_index_bytes = prh_font_cff1_index_data_size(p->string_index);
+}
+
+void prh_font_cff1_load_global_subrs_index(prh_font_cff1_table *p) {
+    p->global_subrs_index = p->string_index + p->string_index_bytes;
+    p->global_subrs_index_bytes = prh_font_cff1_index_data_size(p->global_subrs_index);
+    p->global_subr_count = prh_impl_font_cff1_index_objects(p->global_subrs_index);
+}
+
+void prh_font_cff1_load_charstrings_index(prh_font_cff1_table *p) {
+    p->charstrings_index = p->table_data + p->charstrings_offset;
+    p->charstrings_index_bytes = prh_font_cff1_index_data_size(p->charstrings_index);
+    p->charstrings_glyphs = prh_impl_font_cff1_index_objects(p->charstrings_index);
+    if (p->charstrings_glyphs == 0) prh_abort_error(__LINE__);
+}
+
+void prh_print_cff1_dict_data(prh_byte *dict, prh_r32 dict_length);
+void prh_print_cff1_string_index(prh_font_cff1_table *p);
+void prh_print_cff1_global_subrs_index(prh_font_cff1_table *p);
+void prh_print_cff1_charstrings_index(prh_font_cff1_table *p);
+void prh_print_cff1_charset(prh_font_cff1_table *p);
+
+void prh_print_font_cff1(prh_open_font *f) {
+    prh_r16 table_index = prh_font_find_table(f, PRH_OTF_CFF1_TABLE);
+    if (table_index == 0) {
+        prh_print("table 'cff ' not found\n");
+        return;
+    }
+
+    prh_byte *table_data = prh_load_font_table(f, table_index);
+    prh_font_table *t = f->table_header + table_index;
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, t->length);
+
+    prh_font_cff1_header *p = (prh_font_cff1_header *)table_data;
+    if (p->header_length < sizeof(prh_font_cff1_header) || t->length < p->header_length) {
+        prh_print("table 'cff ' invalid length %d %d\n", (prh_reg)p->header_length, (prh_reg)t->length);
+        return;
+    }
+
+    prh_font_cff1_table cff;
+    cff.table_data = table_data;
+    cff.table_length = t->length;
+    cff.major_version = p->major_version;
+    cff.minor_version = p->minor_version;
+    cff.header_length = p->header_length;
+    cff.offset_size = p->offset_size;
+    prh_font_cff1_load_name_index(&cff);
+
+    prh_print(
+        "cff1 table index %d / %d\n"
+        "cff1 table tag 0x%08x (%c%c%c%c)\n"
+        "cff1 table offset %.10d (%d/4)\n"
+        "cff1 table length %.10d (%d/4)\n"
+        "cff1 table checksum 0x%08x 0x%08x (valid %d)\n"
+        "cff1 version %d.%d\n"
+        "cff1 header length %d\n"
+        "cff1 offset size %d\n"
+        "----------------------------\n"
+        "cff1 Name INDEX offset %d\n"
+        "cff1 Name INDEX length %d\n"
+        "cff1 Name INDEX object offsize %d\n"
+        "cff1 Name INDEX object 1 / %d\n"
+        "cff1 Name INDEX object 1 offset %d\n"
+        "cff1 Name INDEX object 1 length %d\n"
+        "cff1 Name INDEX object 1 '%s'\n",
+        (prh_reg)table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)t->tabletag,
+        (prh_reg)prh_byte_4(t->tabletag),
+        (prh_reg)prh_byte_3(t->tabletag),
+        (prh_reg)prh_byte_2(t->tabletag),
+        (prh_reg)prh_byte_1(t->tabletag),
+        (prh_reg)t->offset, (prh_reg)t->offset % 4,
+        (prh_reg)t->length, (prh_reg)t->length % 4,
+        (prh_reg)t->checksum, (prh_reg)checksum, (prh_reg)(checksum == t->checksum),
+        (prh_reg)cff.major_version,
+        (prh_reg)cff.minor_version,
+        (prh_reg)cff.header_length,
+        (prh_reg)cff.offset_size,
+        (prh_reg)cff.header_length,
+        (prh_reg)cff.name_index_bytes,
+        (prh_reg)prh_impl_font_cff1_index_offsize(cff.name_index_data),
+        (prh_reg)prh_impl_font_cff1_index_objects(cff.name_index_data),
+        (prh_reg)(cff.cff_font_name - cff.name_index_data),
+        (prh_reg)cff.font_name_bytes,
+        (cff.cff_font_name && *cff.cff_font_name) ? cff.cff_font_name : "NULL");
+
+    prh_font_cff1_load_top_dict_index(&cff);
+    prh_print(
+        "----------------------------\n"
+        "cff1 Top DICT INDEX offset %d\n"
+        "cff1 Top DICT INDEX length %d\n"
+        "cff1 Top DICT INDEX object offsize %d\n"
+        "cff1 Top DICT object 1 / %d\n"
+        "cff1 Top DICT object 1 offset %d\n"
+        "cff1 Top DICT object 1 length %d\n"
+        "----------------------------\n",
+        (prh_reg)(cff.top_dict_index - cff.table_data),
+        (prh_reg)cff.top_dict_index_bytes,
+        (prh_reg)prh_impl_font_cff1_index_offsize(cff.top_dict_index),
+        (prh_reg)prh_impl_font_cff1_index_objects(cff.top_dict_index),
+        (prh_reg)(cff.top_dict_data - cff.top_dict_index),
+        (prh_reg)cff.top_dict_length);
+    prh_print_cff1_dict_data(cff.top_dict_data, cff.top_dict_length);
+
+    prh_font_cff1_load_string_index(&cff);
+    prh_print(
+        "----------------------------\n"
+        "cff1 String INDEX offset %d\n"
+        "cff1 String INDEX length %d\n"
+        "cff1 String INDEX object offsize %d\n"
+        "cff1 String INDEX string count %d\n",
+        (prh_reg)(cff.string_index - cff.table_data),
+        (prh_reg)cff.string_index_bytes,
+        (prh_reg)prh_impl_font_cff1_index_offsize(cff.string_index),
+        (prh_reg)prh_impl_font_cff1_index_objects(cff.string_index));
+    prh_print_cff1_string_index(&cff);
+
+    prh_font_cff1_load_global_subrs_index(&cff);
+    prh_print(
+        "----------------------------\n"
+        "cff1 Global Subrs INDEX offset %d\n"
+        "cff1 Global Subrs INDEX length %d\n"
+        "cff1 Global Subrs INDEX object offsize %d\n"
+        "cff1 Global Subrs INDEX subr count %d\n"
+        "----------------------------",
+        (prh_reg)(cff.global_subrs_index - cff.table_data),
+        (prh_reg)cff.global_subrs_index_bytes,
+        (prh_reg)prh_impl_font_cff1_index_offsize(cff.global_subrs_index),
+        (prh_reg)prh_impl_font_cff1_index_objects(cff.global_subrs_index));
+    prh_print_cff1_global_subrs_index(&cff);
+
+    prh_font_cff1_load_charstrings_index(&cff);
+    prh_print_cff1_charset(&cff);
+
+    prh_print_cff1_charstrings_index(&cff);
+
+    prh_da_free(table_data);
+}
+
+// Top DICT INDEX
+//
+// 其中包含 FontSet 内所有字体的顶层 DICT，存储在⼀个 INDEX 结构中。该 INDEX 所含对象与
+// Name INDEX 中的对象在顺序和数量上⼀⼀对应。每个对象都是⼀个 DICT 结构，对应于⼀个
+// PostScript 字体的顶层字典。
+//
+// 一个字体由 Name INDEX 中的⼀个条⽬标识，其数据通过对应的 Top DICT 访问。
+//
+// Top DICT 数据
+//
+// 下表所⽰ Top DICT 操作符的名称尽可能与对应的 Type 1 字典键（Type 1 dict key）保持⼀致。
+// 没有对应 Type 1 字典键的操作符在下表中注明，并给出默认值（如有）。有若⼲操作符源⾃
+// FontInfo 字典键，但为简便起⻅与 Top DICT 操作符列在⼀起；来⾃ FontInfo 字典的键在下表
+// 的 “默认值/注释” 列中标出。Top DICT 操作符条⽬：
+//
+//      名称                值      操作数      默认值/注释
+//      version             0       SID         –，FontInfo
+//      Notice              1       SID         –，FontInfo
+//      Copyright           12 0    SID         –，FontInfo
+//      FullName            2       SID         –，FontInfo
+//      FamilyName          3       SID         –，FontInfo
+//      Weight              4       SID         –，FontInfo
+//      isFixedPitch        12 1    boolean     0（假），FontInfo
+//      ItalicAngle         12 2    number      0，FontInfo
+//      UnderlinePosition   12 3    number      –100，FontInfo
+//      UnderlineThickness  12 4    number      50，FontInfo
+//      PaintType           12 5    number      0
+//      CharstringType      12 6    number      2
+//      FontMatrix          12 7    array       0.001 0 0 0.001 0 0
+//      UniqueID            13      number      –
+//      FontBBox            5       array       0 0 0 0
+//      StrokeWidth         12 8    number      0
+//      XUID                14      array       –
+//      charset             15      number      0，charset 偏移量 (0)
+//      Encoding            16      number      0，encoding 偏移量 (0)
+//      CharStrings         17      number      –，CharStrings 偏移量 (0)
+//      Private             18    number number –，Private DICT ⼤⼩和偏移量 (0)
+//      SyntheticBase       12 20   number      –，合成基础字体索引
+//      PostScript          12 21   SID         –，嵌⼊的 PostScript 语⾔代码
+//      BaseFontName        12 22   SID         –，（由基于 Adobe 的技术按需添加）
+//      BaseFontBlend       12 23   delta       –，（由基于 Adobe 的技术按需添加）
+//
+// 嵌⼊的 PostScript 操作符提供了⼀种转义机制，可⽤于解决打印机字体中的可扩展性或兼容性
+// 问题（参⻅附录 F）。
+//
+// 将字典数据分为顶层字典和 Private 字典，反映了 Type 1 的⽤法：Top DICT 数据在 findfont
+// 时被解析，⽤于构造合法的 Type 1 字体字典；Private 操作符的值给出⼀个⼤⼩和⼀个偏移量，
+// 在字体渲染时据此定位，以构造与 Private DICT 数据相关的数据结构。
+//
+// BaseFontName 和 BaseFontBlend 操作符被添加到嵌⼊ PDF ⽂档中的多⺟板（multiple master）
+// 字体实例中。BaseFontName 是原始多⺟板字体的 FontName，BaseFontBlend 是⽤于计算该实例
+// 的⽤⼾设计向量（User Design Vector）。
+//
+// CIDFont 还需要下表所⽰的附加 Top DICT 操作符。CIDFont 操作符扩展：
+//      名称                值      操作数              默认值/注释
+//      ROS                 12 30   SID SID number      –，Registry Ordering Supplement
+//      CIDFontVersion      12 31   number              0
+//      CIDFontRevision     12 32   number              0
+//      CIDFontType         12 33   number              0
+//      CIDCount            12 34   number              8720
+//      UIDBase             12 35   number              –
+//      FDArray             12 36   number              –，Font DICT（FD）INDEX 偏移量 (0)
+//      FDSelect            12 37   number              –，FDSelect 偏移量 (0)
+//      FontName            12 38   SID                 –，FD FontName
+//
+// ROS 操作符将 Registry、Ordering 和 Supplement 三个键组合在⼀起。CIDFont 在第 18 节中有
+// 完整描述。合成字体的 Top DICT 以 SyntheticBase 操作符开头，CIDFont 则以 ROS 操作符开头；
+// 常规 Type 1 字体以其他操作符开头。这样⽆需解析整个 Top DICT 即可判断字体的种类。
+//
+// Private DICT 数据
+//
+// 下表所⽰ Private DICT 操作符的名称尽可能与对应的 Type 1 字典键保持⼀致。没有对应 Type 1
+// 字典键的操作符在下表中注明。
+//
+//      Private DICT 操作符
+//      名称                值      操作数      默认值/注释
+//      BlueValues          6       delta       –
+//      OtherBlues          7       delta       –
+//      FamilyBlues         8       delta       –
+//      FamilyOtherBlues    9       delta       –
+//      BlueScale           12 9    number      0.039625
+//      BlueShift           12 10   number      7
+//      BlueFuzz            12 11   number      1
+//      StdHW               10      number      –
+//      StdVW               11      number      –
+//      StemSnapH           12 12   delta       –
+//      StemSnapV           12 13   delta       –
+//      ForceBold           12 14   boolean     false
+//      LanguageGroup       12 17   number      0
+//      ExpansionFactor     12 18   number      0.06
+//      initialRandomSeed   12 19   number      0
+//      Subrs               19      number      –，局部⼦例程的偏移量 (self)
+//      defaultWidthX       20      number      0，⻅下⽂
+//      nominalWidthX       21      number      0，⻅下⽂
+//
+// 局部⼦例程（local subrs）的偏移量相对于 Private DICT 数据的起点。
+//
+// defaultWidthX 和 nominalWidthX 操作符为字形提供宽度值。若字形宽度等于 defaultWidthX 值，
+// 则可在 charstring 中省略；否则字形宽度等于 charstring 中的宽度加上 nominalWidthX 值。若
+// 精⼼选择 nominalWidthX，charstring 中⼤部分宽度可从 2 字节数缩减为单字节数，从⽽节省空
+// 间。
+//
+// OtherBlues 和 FamilyOtherBlues 操作符必须分别出现在 BlueValues 和 FamilyBlues 操作符之
+// 后。Private DICT 是必需的；但如果没有需要存储的⾮默认值，可将其⻓度指定为 0。
+
+#define PRH_CFF_OP_VERSION              0x00 // 0
+#define PRH_CFF_OP_NOTICE               0x01 // 1
+#define PRH_CFF_OP_FULLNAME             0x02 // 2
+#define PRH_CFF_OP_FAMILYNAME           0x03 // 3
+#define PRH_CFF_OP_WEIGHT               0x04 // 4
+#define PRH_CFF_OP_FONTGOX              0x05 // 5
+#define PRH_CFF_OP_BLUEVALUES           0x06 // 6
+#define PRH_CFF_OP_OTHERBLUES           0x07 // 7
+#define PRH_CFF_OP_FAMILYBLUES          0x08 // 8
+#define PRH_CFF_OP_FAMILYOTHERBLUES     0x09 // 9
+#define PRH_CFF_OP_STDHW                0x0A // 10
+#define PRH_CFF_OP_STDVW                0x0B // 11
+#define PRH_CFF_OP_ESCAPE               0x0C // 12
+#define PRH_CFF_OP_UNIQUEID             0x0D // 13
+#define PRH_CFF_OP_XUID                 0x0E // 14
+#define PRH_CFF_OP_CHARSET              0x0F // 15
+#define PRH_CFF_OP_ENCODING             0x10 // 16
+#define PRH_CFF_OP_CHARSTRINGS          0x11 // 17
+#define PRH_CFF_OP_PRIVATE              0x12 // 18
+#define PRH_CFF_OP_SUBRS                0x13 // 19
+#define PRH_CFF_OP_DEFAULTWIDTHX        0x14 // 20
+#define PRH_CFF_OP_NOMINALWIDTHX        0x15 // 21
+
+#define PRH_CFF_EOP_COPYRIGHT           0x00 // 0
+#define PRH_CFF_EOP_ISFIXEDPITCH        0x01 // 1
+#define PRH_CFF_EOP_ITALICANGLE         0x02 // 2
+#define PRH_CFF_EOP_UNDERLINEPOSITION   0x03 // 3
+#define PRH_CFF_EOP_UNDERLINETHICKNESS  0x04 // 4
+#define PRH_CFF_EOP_PAINTTYPE           0x05 // 5
+#define PRH_CFF_EOP_CHARSTRINGTYPE      0x06 // 6
+#define PRH_CFF_EOP_FONTMATRIX          0x07 // 7
+#define PRH_CFF_EOP_STROKEWIDTH         0x08 // 8
+#define PRH_CFF_EOP_BLUESCALE           0x09 // 9
+#define PRH_CFF_EOP_BLUESHIFT           0x0A // 10
+#define PRH_CFF_EOP_BLUEFUZZ            0x0B // 11
+#define PRH_CFF_EOP_STEMSNAPH           0x0C // 12
+#define PRH_CFF_EOP_STEMSNAPV           0x0D // 13
+#define PRH_CFF_EOP_FORCEBOLD           0x0E // 14
+#define PRH_CFF_EOP_LANGUAGEGROUP       0x11 // 17
+#define PRH_CFF_EOP_EXPANSIONFACTOR     0x12 // 18
+#define PRH_CFF_EOP_INITIALRANDOMSEED   0x13 // 19
+#define PRH_CFF_EOP_SYNTHETICBASE       0x14 // 20
+#define PRH_CFF_EOP_POSTSCRIPT          0x15 // 21
+#define PRH_CFF_EOP_BASEFONTNAME        0x16 // 22
+#define PRH_CFF_EOP_BASEFONTBLEND       0x17 // 23
+#define PRH_CFF_EOP_ROS                 0x1E // 30
+#define PRH_CFF_EOP_CIDFONTVERSION      0x1F // 31
+#define PRH_CFF_EOP_CIDFONTREVISION     0x20 // 32
+#define PRH_CFF_EOP_CIDFONTTYPE         0x21 // 33
+#define PRH_CFF_EOP_CIDCOUNT            0x22 // 34
+#define PRH_CFF_EOP_UIDBASE             0x23 // 35
+#define PRH_CFF_EOP_FDARRAY             0x24 // 36
+#define PRH_CFF_EOP_FDSELECT            0x25 // 37
+#define PRH_CFF_EOP_FONTNAME            0x26 // 38
+
+void prh_font_cff1_parse_top_dict(prh_font_cff1_table *p) {
+    prh_r32 count = 0;
+    prh_r32 operand_count = 0;
+    prh_i32 integer = 0;
+    while (count < p->top_dict_length) {
+        prh_byte *b = p->top_dict_data + count;
+        count += prh_font_cff1_dict_value_bytes(b);
+        if (*b <= 21) { // 0 ~ 21 表⽰操作符
+            if (*b == PRH_CFF_OP_CHARSET) {
+                prh_assert(operand_count == 1);
+                p->charset_offset = integer;
+            } else if (*b == PRH_CFF_OP_CHARSTRINGS) {
+                prh_assert(operand_count == 1);
+                p->charstrings_offset = integer;
+            }
+            operand_count = 0;
+        } else { // 字节值 22 ~ 27、31 和 255 为保留值
+            prh_r32 value_bytes;
+            operand_count += 1;
+            if (*b != 30) { // 28、29、30 和 32–254 表⽰操作数（数值）
+                integer = prh_font_cff1_dict_value_integer(b, &value_bytes);
+            } else {
+                integer = 0;
+            }
+        }
+    }
+    prh_assert(count == p->top_dict_length);
+}
+
+const char *prh_impl_print_font_cff_operator(prh_byte *p) {
+    const char *oper[] = {
+        "version", "Notice", "FullName", "FamilyName", "Weight", "FontBBox", "BlueValues", "OtherBlues",
+        "FamilyBlues", "FamilyOtherBlues", "StdHW", "StdVW", "escape", "UniqueID", "XUID", "charset",
+        "Encoding", "CharStrings", "Private", "Subrs", "defaultWidthX", "nominalWidthX"};
+    const char *ext_oper[] = {
+        "Copyright", "isFixedPitch", "ItalicAngle", "UnderlinePosition", "UnderlineThickness", "PaintType", "CharstringType", "FontMatrix",
+        "StrokeWidth", "BlueScale", "BlueShift", "BlueFuzz", "StemSnapH", "StemSnapV", "ForceBold", "Reserved",
+        "Reserved", "LanguageGroup", "ExpansionFactor", "initialRandomSeed", "SyntheticBase", "PostScript", "BaseFontName", "BaseFontBlend",
+        "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "Reserved", "ROS", "CIDFontVersion",
+        "CIDFontRevision", "CIDFontType", "CIDCount", "UIDBase", "FDArray", "FDSelect", "FontName"};
+    if (p[0] != 12) return oper[p[0]];
+    if (p[1] <= 38) return ext_oper[p[1]];
+    return "Unknown";
+}
+
+void prh_print_cff1_dict_data(prh_byte *dict, prh_r32 dict_length) {
+    prh_r32 bytes, count = 0;
+    prh_r32 operand_count = 0;
+    prh_r32 value_count = 0;
+    while (count < dict_length) {
+        prh_byte *b = dict + count;
+        bytes = prh_font_cff1_dict_value_bytes(b);
+        value_count += 1;
+        prh_print("DICT DATA [%02d] %04d %04d len %02d: ",
+            (prh_reg)value_count,
+            (prh_reg)dict_length,
+            (prh_reg)count,
+            (prh_reg)bytes);
+        count += bytes;
+        for (prh_r32 i = 0; i < bytes; i += 1) prh_print("%02x ", (prh_reg)b[i]);
+        if (bytes * 3 < 21) prh_print_byte(' ', 21 - bytes * 3);
+        if (*b <= 21) { // 0 ~ 21 表⽰操作符
+            prh_print("OPERATOR(%d) %s\n", (prh_reg)operand_count, prh_impl_print_font_cff_operator(b));
+            prh_real_assert(operand_count <= 48); // ⼀个操作符之前最多可以有 48 个操作数
+            operand_count = 0;
+        } else { // 字节值 22 ~ 27、31 和 255 为保留值
+            prh_r32 value_bytes;
+            operand_count += 1;
+            if (*b == 30) prh_print("FLOAT TODO\n");
+            else { // 28、29、30 和 32–254 表⽰操作数（数值）
+                prh_i32 integer = prh_font_cff1_dict_value_integer(b, &value_bytes);
+                prh_print("INTEGER %d\n", (prh_reg)integer);
+                prh_real_assert(bytes == value_bytes);
+            }
+        }
+    }
+    prh_real_assert(count == dict_length);
+}
+
+// String INDEX
+//
+// FontSet 内各字体使⽤的所有字符串（出现在 Name INDEX 中的 FontName 和 CIDFontName 除外）
+// 被汇集到⼀个 INDEX 结构中，并由⼀个称为字符串标识符（SID）的 2 字节⽆符号数引⽤。表中只
+// 存储不重复的字符串，从⽽消除了字体之间的重复。此外，通过为常⽤字符串分配预定义 SID 还可
+// 进⼀步节省空间。这些字符串称为标准字符串，描述了 ISOAdobe 和 Expert 字符集中使⽤的所有
+// 名称，以及 Type 1 字体中常⻅的其他⼀些字符串。标准字符串的完整列表⻅附录 A。
+//
+// 客⼾端程序内含⼀个具有 nStdStrings 个元素的标准字符串数组。因此标准字符串占⽤ 0 到
+// (nStdStrings – 1) 范围内的 SID。String INDEX 中的第⼀个字符串对应 SID 值等于 nStdStrings
+// 的字符串（即第⼀个⾮标准字符串），依此类推。当客⼾端需要确定某个 SID 对应的字符串时，执
+// ⾏如下操作：判断 SID 是否在标准范围内，若是则从内部表中取出；否则以 (SID – nStdStrings)
+// 为索引从 String INDEX 中取出字符串。
+//
+// SID 定义为 2 字节⽆符号数，但只取 0–64999（含）范围内的值。SID 值 65000 及以上可供实现
+// 使⽤。不含⾮标准字符串的 FontSet ⽤空 INDEX 表⽰。
+
+#define PRH_CFF_STD_STRINGS 391
+
+const char *prh_font_cff1_get_string(prh_font_cff1_table *p, prh_r16 sid, prh_r32 *string_bytes) {
+    if (sid < PRH_CFF_STD_STRINGS) {
+        *string_bytes = 3;
+        return "std";
+    }
+    if ((prh_r32)(sid - PRH_CFF_STD_STRINGS) >= prh_impl_font_cff1_index_objects(p->string_index)) {
+        *string_bytes = 0;
+        return "";
+    }
+    return prh_font_cff1_object_data(p->string_index, sid - PRH_CFF_STD_STRINGS, string_bytes);
+}
+
+void prh_print_cff1_string_index(prh_font_cff1_table *p) {
+    prh_r32 string_count = prh_impl_font_cff1_index_objects(p->string_index);
+    if (string_count == 0) return;
+
+    prh_r32 n = string_count > 32 ? 32 : string_count;
+    prh_r32 string_bytes;
+
+    for (prh_r16 i = 0; i < n; i += 1) {
+        prh_byte *string = prh_font_cff1_object_data(p->string_index, i, &string_bytes);
+        prh_print(
+            "cff1 String INDEX string %02d SID %03d: %03d '%Ls'\n",
+            (prh_reg)(i + 1),
+            (prh_reg)(PRH_CFF_STD_STRINGS + i),
+            (prh_reg)string_bytes,
+            (prh_reg)string_bytes,
+            string);
+    }
+}
+
+// 局部/全局⼦例程 INDEX
+//
+// Type 1 和 Type 2 charstring 都⽀持⼦例程（subr）的概念。subr 通常是⼀段 charstring 字节
+// 序列，表⽰在字体 charstring 数据中多处出现的⼦程序。该 subr 只需存储⼀次，即可通过 callsubr
+// 操作符（其操作数为要调⽤的 subr 编号）从⼀个或多个 charstring 中多次引⽤。subr 是特定字
+// 体私有的，不能在字体之间共享。
+//
+// Type 2 charstring 还允许全局 subr，其⼯作⽅式相同，但由 callgsubr 操作符调⽤，且可跨字体
+// 共享。局部 subr 存储在⼀个 INDEX 结构中，通过 Private DICT 中 Subrs 操作符的偏移量操作数
+// 定位。没有局部 subr 的字体，其 Private DICT 中没有 Subrs 操作符。
+//
+// 全局 subr 存储在紧随 String INDEX 之后的 INDEX 结构中。不含全局 subr 的 FontSet ⽤空的
+// Global Subrs INDEX 表⽰。
+//
+// Type 2 charstring 中的 subr 编号要加上⼀个称为 “subr 编号偏置”（subr number bias）的数
+// 值，该偏置根据局部或全局 subr INDEX 中的⼦例程数量计算。偏置计算如下：
+//      Card16 bias;
+//      Card16 nSubrs = subrINDEX.count;
+//      if (CharstringType == 1)
+//          bias = 0;
+//      else if (nSubrs < 1240)
+//          bias = 107;
+//      else if (nSubrs < 33900)
+//          bias = 1131;
+//      else
+//          bias = 32768;
+//
+// 为正确选择 subr，必须在访问相应 subr INDEX 之前将算得的偏置加到 subr 编号操作数上。
+// 该技术允许⽤负数和正数指定 subr 编号，从⽽充分利⽤可⽤的数值范围以节省空间。上述计
+// 算免去了在字体中显式存储偏置的需要，Type 1 字体⽬前仍需显式存储。下面各表展⽰了不同
+// 偏置⽅案下 subr 索引、编号、编号⼤⼩和区间数量的关系。
+//
+//      nSubrs < 1240，bias = 107
+//      有序索引    重排索引    加偏置编号      ⼤⼩    数量
+//      0 – 214     0 – 214     –107 – +107     1       215
+//      215 – 1238  215 – 1238  +108 – +1131    2       1024
+//                                               合计： 1239
+//      nSubrs < 33900，bias = 1131
+//      有序索引        重排索引        加偏置编号      ⼤⼩    数量
+//      0 – 214         1024 – 1238     –107 – +107     1       215
+//      215 – 1238      0 – 1023        –1131 – –108    2       1024
+//      1239 – 2262     1239 – 2262     +108 – +1131    2       1024
+//      2263 – 33898    2263 – 33898    +1132 – +32767  3       31636
+//                                                       合计： 33899
+//      nSubrs >= 33900，bias = 32768
+//      有序索引        重排索引        加偏置编号      ⼤⼩    数量
+//      0 – 214         32661 – 32875   –107 – +107     1       215
+//      215 – 1238      31637 – 32660   –1131 – –108    2       1024
+//      1239 – 2262     32876 – 33899   +108 – +1131    2       1024
+//      2263 – 33899    0 – 31636       –32768 – –1132  3       31637
+//      33900 – 65535   33900 – 65535   +1132 – +32767  3       31636
+//                                                       合计： 65536
+// 各列标题含义如下：
+//  1.  有序索引，按 subr 使⽤频率从⾼到低排序的 subr 索引
+//  2.  重排索引，为偏置⽽重排后的有序索引（即局部/全局 Subr INDEX 结构中 subr 的索引）
+//  3.  加偏置编号，重排索引减去偏置后的值（callsubr/callgsubr 的操作数）
+//  4.  ⼤⼩，加偏置编号的⼤⼩（字节）
+//  5.  数量，区间内的 subr 数量
+
+void prh_impl_print_cff1_charstring_glyph(prh_byte *glyph, prh_r32 length);
+
+void prh_print_cff1_global_subrs_index(prh_font_cff1_table *p) {
+    if (p->global_subr_count == 0) return;
+    prh_r32 n = p->global_subr_count > 3 ? 3 : p->global_subr_count;
+    prh_r32 global_subr_bytes;
+
+    for (prh_r16 i = 0; i < n; i += 1) {
+        prh_byte *global_subr = prh_font_cff1_object_data(p->global_subrs_index, i, &global_subr_bytes);
+        prh_prinf(
+                "\ncff1 Global Subr %d / %d offset %d length %d\n",
+                (prh_reg)(i + 1),
+                (prh_reg)p->global_subr_count,
+                (prh_reg)(global_subr - p->global_subrs_index),
+                (prh_reg)global_subr_bytes);
+            prh_impl_print_cff1_charstring_glyph(global_subr, global_subr_bytes);
+    }
+}
+
+// 合成字体（Synthetic Fonts）
+//
+// 合成字体是通过不同的变换矩阵或编码对另⼀字体加以修改⽽得到的字体。倾斜（obliqued）、
+// 加宽（expanded）和压缩（condensed）字体都是可构造为合成字体的例⼦。合成字体具有名称
+// 和引⽤基础字体的 Top DICT。Top DICT 可包含以下操作符：FullName、ItalicAngle、FontMatrix、
+// SyntheticBase 和 Encoding。SyntheticBase 操作符是必需的，它指定⽤作基础字体的字体的
+// 从零开始的索引。对该基础字体应⽤ FontMatrix 和/或 Encoding，即以算法⽅式创建新字体。
+// 其他操作符的值将覆盖基础字体中给定的值。Top DICT 必须以 SyntheticBase 操作符开头。基
+// 础字体不得是 CID 键控字体或合成字体。
+//
+// CID 键控字体（CID-keyed Fonts）
+//
+// CIDFont 的表⽰设计为与其编码相分离。遵循这⼀策略，CFF 表⽰不包含任何编码信息，编码信息
+// 改由 CMap ⽂件承载。若将来需要更紧凑的 CMap ⽂件表⽰，可扩展 CFF 以容纳之。
+//
+// CFF CIDFont 在 Name INDEX 中具有 CIDFontName 和相应的 Top DICT。Top DICT 以 ROS 操作符
+// 开头，该操作符指定字体的 Registry-Ordering-Supplement。这会告知 CFF 解析器应对此字体应
+// ⽤特殊的 CID 处理。具体⽽⾔：
+//  1.  FDArray 操作符应存在，其唯⼀参数指定指向 Font DICT INDEX 的偏移量。该数组中的每个
+//      Font DICT 指定字体中某⼀组特定字形所独有的信息。字形到 Font DICT 的映射由下⽂描述
+//      的 FDSelect 结构指定。每个 Font DICT 通过 Private DICT 操作符指定相应的 Private
+//      DICT。
+//  2.  字符集数据虽与⾮ CIDFont 格式相同，但表⽰的是 CID ⽽⾮ SID，即 CIDFont 中的 charstring
+//      以 CID “命名”。在完整的 CIDFont 中，字符集表指定⼀个恒等映射（对所有字形 GID 等于
+//      CID），即从 CID 1 开始（省略 CID 0，即 .notdef 字形）并覆盖字体中所有字形的单个区间。
+//      ⼦集化的 CIDFont（Subset CIDFont）通常需要使⽤更复杂的字符集表来表⽰⾮恒等映射（CID
+//      不等于 GID）。
+//  3.  Top DICT 包含 FDSelect 操作符，指定指向⼀个类字符集数据结构（⻅下⼀节）的偏移量，该结
+//      构包含⼀个（可能经区间编码的）索引列表，可从中为每个字形导出单个索引。该索引标识光栅
+//      化字形时所⽤的 Font DICT 及其 Private DICT。
+//  4.  编码数据被省略（⻅上⽂）：不存在 Encoding 操作符，也不应应⽤默认的 StandardEncoding。
+//
+// CID 字体没有预定义字符集。
+//
+// FDSelect
+//
+// FDSelect 通过为字形指定 FD 索引，将 FD（Font DICT）与字形关联起来。FD 索引⽤于访问存储在
+// Font DICT INDEX 中的某个 Font DICT。FDSelect 数据通过 Top DICT 中 FDSelect 操作符的偏移量
+// 操作数定位。FDSelect 数据由⼀个格式类型标识字节后跟格式特定数据组成。⽬前定义了两种格式：
+//
+//      格式 0
+//      类型  名称          描述
+//      Card8 format        =0
+//      Card8 fds[nGlyphs]  FD 选择器数组
+//
+// fds 数组的每个元素表⽰对应字形的 FD 索引。当 FD 索引顺序较为随机时应使⽤此格式。字形数
+// （nGlyphs）即 CharStrings INDEX 中 count 字段的值。此格式与字符集格式 0 相同，只是此时
+// 包含 .notdef 字形。
+//
+//      格式 3
+//      类型   名称             描述
+//      Card8  format           =3
+//      Card16 nRanges          区间数
+//      struct Range3[nRanges]  Range3 数组（⻅表 29）
+//      Card16 sentinel         哨兵 GID（⻅下⽂）
+//
+//      Range3 格式
+//      类型   名称     描述
+//      Card16 first    区间中的⾸个字形索引
+//      Card8  fd       区间内所有字形的 FD 索引
+//
+// 每个 Range3 描述⼀组具有相同 FD 索引的连续 GID。每个区间包含从 ‘first’ GID 到下⼀区间
+// 元素的 ‘first’ GID（不含）之间的 GID。因此 Range3 数组的元素按 ‘first’ GID 递增排序。
+// 第⼀个区间的 ‘first’ GID 必须 为 0。最后⼀个区间元素之后跟随⼀个哨兵 GID，⽤于界定数组
+// 中的最后⼀个区间。哨兵 GID 等于字体中的字形数，即⽐字体中最后⼀个 GID ⼤ 1。此格式特别
+// 适合排序良好的 FD 索引（通常情形）。
+
+// 字形组织（Glyph Organization）
+//
+// 字体中的字形构成⼀个字符集（charset），并通过编码（encoding）访问。编码是与字体中部分或
+// 全部字形关联的代码数组，字符集是字体中所有字形的“名称”数组。在 CFF 中，这些名称实际是
+// SID 或 CID，且必须唯⼀。
+//
+// 为理解 CFF 中字符集、编码和字形的关系，可将它们视为 3 个同步索引的“平⾏”数组。这样，对于
+// 给定字形索引（GID）处的字形，可分别⽤ GID 索引字符集数组和编码数组来命名和编码。按定义，
+// 第⼀个字形（GID 0）是 “.notdef”，且必须存在于所有字体中。由于总是如此，因此⽆需为 GID 0
+// 表⽰其编码（不编码）或名称（.notdef）。利⽤这⼀优化，编码和字符集数组总是从 GID 1 开始。
+//
+// 编码（Encoding）- 使用字形索引 GID 访问该数组得到字形对应的字符编码，CIDFont 不指定编码
+//
+// 编码数据通过 Top DICT 中 Encoding 操作符的偏移量操作数定位。除不指定编码的 CIDFont 外，
+// 每个字体只能指定⼀个 Encoding 操作符。字形的编码由 1 字节代码指定，取值范围 0–255。每种
+// 编码由⼀个格式类型标识字节后跟格式特定数据描述。⽬前定义了两种格式，如下：
+//
+//      格式 0，code 数组的每个元素表⽰对应字形的编码。当代码顺序较为随机时应使⽤此格式。
+//      类型  名称          描述
+//      Card8 format        =0
+//      Card8 nCodes        已编码字形数
+//      Card8 code[nCodes]  代码数组
+//
+//      格式 1
+//      类型   名称             描述
+//      Card8  format           =1
+//      Card8  nRanges          代码区间数
+//      struct Range1[nRanges]  Range1 数组（⻅下表）
+//
+//      Range1 格式（编码）
+//      类型  名称  描述
+//      Card8 first 区间中的⾸个代码
+//      Card8 nLeft 区间中剩余的代码数（不含⾸个）
+//
+// 每个 Range1 描述⼀组连续代码。例如，代码 51 52 53 54 55 可⽤ Range1：51 4 表⽰；⼀个完全
+// 有序的 256 代码编码可⽤ Range1：0 255 描述。此格式特别适合排序良好的编码。
+//
+// 少数字体具有多重编码的字形，上述任何格式都不直接⽀持。这种情况通过将格式字节的最⾼位置 1
+// 来表⽰，并（⽆论格式类型如何）按下表补充编码数据。
+//
+//      补充编码数据
+//      类型   名称                 描述
+//      Card8  nSups                补充映射数
+//      struct Supplement[nSups]    补充编码数组（⻅下表）
+//
+//      Supplement 格式
+//      类型  名称  描述
+//      Card8 code  编码
+//      SID   glyph 名称
+//
+// 每个 Supplement 描述⼀个代码到字形的映射，为已在主编码表中出现过的字形提供另⼀个编码。
+// 先按编码排序字形、再对未编码字形按 SID 排序（记住 .notdef 必须在最前），通常可得到⾮
+// 常⼩的字体编码。进⼀步的优化基于以下观察：许多字体采⽤两种常⽤编码之⼀。此时 Top DICT
+// 中 Encoding 操作符的操作数指定下表所定义的预定义编码 id，⽽⾮偏移量。
+//
+//      编码 ID
+//      Id      名称
+//      0       Standard Encoding
+//      1       Expert Encoding
+//
+// 若字体使⽤ Standard Encoding，由于 Encoding 操作符的默认值为 0，可将其从 Top DICT 中
+// 省略。预定义编码的详情⻅附录 B。字体⽆需包含预定义编码所指定的全部字形即可使⽤该编码。
+// 唯⼀的要求是：字体中每个字形的编码与预定义编码中的编码完全相同（包括未编码字形）。
+//
+// 两个或多个字体可通过将各⾃ Encoding 操作符的偏移量操作数设为相同值来共享同⼀编码。按
+// 定义，未被⾃定义或预定义编码指定的字形为未编码字形。注：预定义编码可应⽤于各种字体⽽
+// ⽆论其字符集如何，⽽⾃定义编码只能应⽤于具有特定字符集的字体。因此，预定义编码以代码
+// 到 SID 的映射指定，⾃定义编码以代码到 GID 的映射指定。
+//
+// 字符集（Charsets）- 使用字形索引 GID 访问该数组得到字形对应的字符名称
+//
+// 字符集数据通过 Top DICT 中 charset 操作符的偏移量操作数定位。每种字符集由⼀个格式类型
+// 标识字节后跟格式特定数据描述。⽬前定义了三种格式，如下：
+//
+//      格式  0
+//      类型  名称              描述
+//      Card8 format            =0
+//      SID   glyph[nGlyphs–1]  字形名称数组
+//
+// glyph 数组的每个元素表⽰对应字形的名称。当 SID 顺序较为随机时应使⽤此格式。字形数（nGlyphs）
+// 即 CharStrings INDEX 中 count 字段的值。字形名称数组⽐ nGlyphs 少⼀个元素，因为省略了
+// .notdef 字形名。
+//
+//      格式 1
+//      类型   名称             描述
+//      Card8  format           =1
+//      struct Range1[<可变>]   Range1 数组（⻅下表）
+//
+//      Range1 格式（字符集）
+//      类型  名称  描述
+//      SID   first 区间中的⾸个字形
+//      Card8 nLeft 区间中剩余的字形数（不含⾸个）
+//
+// 每个 Range1 描述⼀组连续 SID。字体中并不显式指定区间数；使⽤该数据的软件只需依次处理
+// 区间，直到覆盖字体中所有字形。此格式特别适合排序良好的字符集。
+//
+//      格式 2
+//      类型   名称             描述
+//      Card8  format           =2
+//      struct Range2[<可变>]   Range2 数组（⻅下表）
+//
+//      Range2 格式
+//      类型  名称      描述
+//      SID   first     区间中的⾸个字形
+//      Card16 nLeft    区间中剩余的字形数（不含⾸个）
+//
+// 格式 2 与格式 1 的区别仅在于每个区间中 nLeft 字段的⼤⼩。此格式最适合具有⼤型且排序
+// 良好字符集的字体，例如亚洲 CIDFont。
+//
+// 精⼼安排 SID 的分配顺序通常可得到⾮常⼩的字体字符集。进⼀步的优化基于以下观察：许多
+// 字体采⽤ 3 种常⽤字符集之⼀。此时 Top DICT 中 charset 操作符的操作数指定下表所⽰的预
+// 定义字符集 id，⽽⾮偏移量。
+//
+//      字符集 ID
+//      Id  名称
+//      0   ISOAdobe
+//      1   Expert
+//      2   ExpertSubset
+//
+// 若字体采⽤ ISOAdobe 字符集，由于 charset 操作符的默认值为 0，可将其从 Top DICT 中省
+// 略。预定义字符集的详情⻅附录 C。若字体的前 nGlyphs 个字形与某预定义字符集完全匹配，
+// 则可以使⽤该预定义字符集。CID 字体不得使⽤预定义字符集。两个或多个字体可通过将各⾃
+// charset 操作符的偏移量操作数设为相同值来共享同⼀字符集。
+
+prh_r16 prh_font_cff1_charset_glyph(prh_font_cff1_table *p, prh_r32 glyph) {
+    prh_byte *charset = p->table_data + p->charset_offset;
+    prh_byte format = charset[0];
+    if (glyph == 0) return 0;
+    switch (format) {
+    case 0: return prh_bp_2b_to_host(charset + 1 + 2 * (glyph - 1));
+    case 1: case 2: {
+        prh_r32 start_glyph = 1;
+        prh_r32 end_glyph;
+        for (prh_r32 i = 0; ; i += 1) {
+            prh_byte *ptr_sid = charset + 1 + (2 + format) * i;
+            end_glyph = start_glyph + ((format == 1) ? *(ptr_sid + 2) : prh_bp_2b_to_host(ptr_sid + 2));
+            if (glyph >= start_glyph && glyph <= end_glyph) {
+                return prh_bp_2b_to_host(ptr_sid) + (glyph - start_glyph);
+            }
+            start_glyph = end_glyph + 1;
+        }
+    } break;
+    default:
+        prh_abort_error(format);
+        break;
+    }
+    return 0;
+}
+
+void prh_print_cff1_charset(prh_font_cff1_table *p) {
+    prh_byte *charset = p->table_data + p->charset_offset;
+    prh_byte format = charset[0];
+    prh_r32 i = 0, print_count = 8;
+    prh_r32 total_glyphs = p->charstrings_glyphs;
+    prh_r32 last_glyph = total_glyphs - 1;
+    prh_print(
+        "----------------------------\n"
+        "cff1 charset data offset %d\n"
+        "cff1 charset data format %d\n"
+        "cff1 charset data glyphs %d\n",
+        (prh_reg)p->charset_offset,
+        (prh_reg)format,
+        (prh_reg)(total_glyphs - 1));
+    switch (format) {
+    case 0: {
+        prh_r16 *ptr_sid = (prh_r16 *)(charset + 1);
+        prh_print("cff1 charset data length %d\n", (prh_reg)(1 + 2 * (total_glyphs - 1)));
+        if (print_count > total_glyphs - 1) print_count = total_glyphs - 1;
+        for (; i < print_count; i += 1) {
+            prh_print(
+                "cff1 charset glyph %04d SID %03d\n",
+                (prh_reg)(i + 1),
+                (prh_reg)prh_bp_2b_to_host((prh_byte *)(ptr_sid + i)));
+        }
+    } break;
+    case 1: case 2: {
+        prh_r32 start_glyph = 1;
+        prh_r32 end_glyph = 0;
+        prh_r32 ranges = 0;
+        while (last_glyph > end_glyph) {
+            prh_byte *ptr_sid = charset + 1 + (2 + format) * ranges++;
+            end_glyph = start_glyph + ((format == 1) ? *(ptr_sid + 2) : prh_bp_2b_to_host(ptr_sid + 2));
+            start_glyph = end_glyph + 1;
+        }
+        prh_print(
+            "cff1 charset data ranges %d\n"
+            "cff1 charset data length %d\n",
+            (prh_reg)ranges,
+            (prh_reg)(1 + ranges * (2 + format)));
+        prh_r32 turns = 4, stride;
+        if (ranges / print_count < turns) turns = ranges / print_count;
+        stride = ranges / turns;
+        start_glyph = 1;
+        for (prh_r32 turn_i = 0; turn_i < turns; turn_i += 1) {
+            for (i = 0; i < stride; i += 1, start_glyph = end_glyph + 1) {
+                prh_byte *ptr_sid = charset + 1 + (2 + format) * (turn_i * stride + i);
+                end_glyph = start_glyph + ((format == 1) ? *(ptr_sid + 2) : prh_bp_2b_to_host(ptr_sid + 2));
+                if (i < print_count) {
+                    prh_print(
+                        "cff1 charset range %04d / %d glyph %04d %04d SID %03d %03d (%d)\n",
+                        (prh_reg)(turn_i * stride + i + 1),
+                        (prh_reg)ranges,
+                        (prh_reg)start_glyph,
+                        (prh_reg)end_glyph,
+                        (prh_reg)prh_bp_2b_to_host(ptr_sid),
+                        (prh_reg)prh_bp_2b_to_host(ptr_sid) + (end_glyph - start_glyph),
+                        (prh_reg)(end_glyph + 1 - start_glyph));
+                }
+            }
+        }
+    } break;
+    default:
+        prh_abort_error(format);
+        break;
+    }
+}
+
 // OpenType 布局概述
 // OpenType 布局表为高质量国际化排版提供高级排版功能：
 // 字符和字形之间的丰富映射，允许连字、位置形式、替代形式和其他替换。
