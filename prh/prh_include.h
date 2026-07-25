@@ -783,16 +783,18 @@ extern "C" {
     #define prh_abort_if_error(error) if (error) { prh_abort_error(error); }
     #define prh_abort_errno_if(a) if (a) { prh_abort_error(errno); }
     #define prh_ext_prerr(priv, error) prh_impl_ext_prerr((error), (prh_reg)(priv), __LINE__)
-    #define prh_abort_error(error) prh_impl_abort_error((error), __LINE__)
+    #define prh_abort_error(error) prh_impl_abort_error((error), __LINE__, __FILE__)
     #define prh_abort_if(a) if (a) { prh_impl_abort(__LINE__); }
+    #define prh_abort_line() prh_impl_abort_line(__LINE__, __FILE__)
+    #define prh_impl_abort(line) prh_impl_abort_line((line), __FILE__)
     void prh_impl_ext_prerr(unsigned int error, prh_reg priv, prh_int line);
-    void prh_impl_abort(prh_int line);
-    void prh_impl_abort_error(prh_reg error, prh_int line);
+    void prh_impl_abort_line(prh_int line, const char *file);
+    void prh_impl_abort_error(prh_reg error, prh_int line, const char *file);
     void prh_print_exit_code(int thrd_id, int exit_code);
     #define prh_real_condret(c, a) if (!((a) c)) { prh_impl_abort(__LINE__); }
     #define prh_real_numbret(n, a) if ((a) != (n)) { prh_impl_abort(__LINE__); }
     #define prh_real_zeroret(a) if ((a) != 0) { prh_impl_abort(__LINE__); }
-    #define prh_real_zeroret_or_errno(a) if ((a) != 0) { prh_impl_abort_error(errno, __LINE__); }
+    #define prh_real_zeroret_or_errno(a) if ((a) != 0) { prh_impl_abort_error(errno, __LINE__, __FILE__); }
     #define prh_real_nnegret(a) if ((a) < 0) { prh_impl_abort(__LINE__); }
     #define prh_real_boolret(a) if (!(a)) { prh_impl_abort(__LINE__); }
 #if PRH_DEBUG // macro arg 'a' can only expand once
@@ -2136,8 +2138,8 @@ typedef enum {
     #define prh_invalid_socket ((prh_handle)INVALID_SOCKET)
     #define prh_wsa_prerr() prh_impl_prerr(WSAGetLastError(), __LINE__)
     #define prh_wsa_prerr_if(expr) if (expr) { prh_wsa_prerr(); }
-    #define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(WSAGetLastError(), __LINE__); }
-    #define prh_wsa_abort_error() prh_impl_abort_error(WSAGetLastError(), __LINE__)
+    #define prh_wsa_abort_if(expr) if (expr) { prh_impl_abort_error(WSAGetLastError(), __LINE__, __FILE__); }
+    #define prh_wsa_abort_error() prh_impl_abort_error(WSAGetLastError(), __LINE__, __FILE__)
     #endif // PRH_SOCK_INCLUDE
     #ifdef PRH_THRD_INCLUDE
     #include <process.h>
@@ -2151,9 +2153,9 @@ typedef enum {
     #include <winioctl.h>
     #include <ntddstor.h>
     #endif
-    #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(GetLastError(), __LINE__); }
+    #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(GetLastError(), __LINE__, __FILE__); }
     #if PRH_DEBUG
-    #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(GetLastError(), __LINE__); }
+    #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(GetLastError(), __LINE__, __FILE__); }
     #else
     #define PRH_BOOLRET_OR_ERROR(a) a
     #endif
@@ -2414,7 +2416,7 @@ typedef enum {
     #define PRH_PLAT_LINUX_IOUR
     #endif // prh_plat_linux
     #endif // PRH_SOCK_INCLUDE
-    #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(errno, __LINE__); }
+    #define PRH_POSIX_ZERORET(a) if (a) { prh_impl_abort_error(errno, __LINE__, __FILE__); }
 #endif // PRH_PLAT_POSIX_HEADERS
 
 #ifndef PRH_GLIBC_VERSION
@@ -3425,13 +3427,13 @@ void prh_impl_ext_prerr(unsigned int error, prh_reg priv, prh_int line) {
     fprintf(stderr, "error %d data %p line %ld\n", error, (void *)priv, (long)line);
 }
 
-void prh_impl_abort(prh_int line) {
-    fprintf(stderr, "abort line %ld\n", (long)line);
+void prh_impl_abort_line(prh_int line, const char *file) {
+    fprintf(stderr, "abort line %ld in file '%s'\n", (long)line, file);
     abort();
 }
 
-void prh_impl_abort_error(prh_reg error, prh_int line) {
-    fprintf(stderr, "abort %zu line %ld\n", (size_t)error, (long)line);
+void prh_impl_abort_error(prh_reg error, prh_int line, const char *file) {
+    fprintf(stderr, "abort %zu line %ld in file '%s'\n", (size_t)error, (long)line, file);
     abort();
 }
 
@@ -40044,6 +40046,86 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 #endif // PRH_PLAT_POSIX_FILE
 
 #ifdef PRH_FONT_INCLUDE
+
+// CID-Keyed sfnt Font File Format for the Macintosh Version 2.0
+// Technical Note 5180, 12 February 1997
+// https://adobe-type-tools.github.io/font-tech-notes/
+//
+// CID 键控 sfnt 字体文件格式（Macintosh 版）
+//
+// CID 键控字体。一种多字节 Type 1 字体的文件组织方式，字形通过字符 ID（CID）而非名称查找
+// 来访问。
+//
+// 本文档描述 Macintosh 的 CID sfnt 字体格式。它仅描述 Adobe 对 Apple 格式所做的扩展，以容
+// 纳 CID 键控字体。此外，它假定读者熟悉 Apple Computer 发布的 sfnt 规范（参见附录 B）。
+//
+// CID 键控 sfnt 字体由嵌入 sfnt 包装器子表中的 PostScript CID 键控字体程序（CIDFont）组成。
+// CID 键控格式专为大型字符集字体（如中文、日文、韩文（CJK）语言字体）的最大灵活性和性能而
+// 设计。该格式支持常规和重新排列的 CID 键控字体。
+//
+// 有关 CID 键控字体文件格式的更多信息，请参阅 Adobe 技术说明 5014《Adobe CMap 和 CIDFont
+// 文件规范》以及 5092《CID 键控字体技术概述》。此外，Adobe 开发者协会提供 CID 软件开发工
+// 具包（SDK）。
+//
+// 本文档仅描述少数超出 CID sfnt 字体最低要求的表。例如，ALMX 表允许为比例间距字符（proportionally
+// spaced characters）指定替代度量（alternate metrics）。此外，许多其他高级功能可以通过使用
+// mort 表来支持（mort 表的格式在 Apple 文档中指定）。
+//
+// 本文档的目的。本文档描述如何为将来可能仅支持 sfnt 格式字体的 Macintosh 操作系统制作 CID
+// 键控字体。目前拥有 CID 键控字体或 PostScript 语言 OCF（原始复合格式，Original Composite
+// Format）字体的字体开发者必须将这些字体转换为 sfnt 格式，以供将来的 Macintosh 系统使用。OCF
+// 字体可以转换为 CID 键控字体文件格式，CID 键控字体可以通过将 CIDFont 嵌入 sfnt 资源的子表
+// 中来转换为 sfnt 格式。
+//
+// 展望未来，为尽可能广泛的市场开发功能齐全的字体的最佳方式将是使用新的 OpenType 字体格式，
+// 该格式由 Adobe Systems 和 Microsoft Corporation 联合开发。在不久的将来，希望为即将推出
+// 的 Macintosh 操作系统制作多字节字体的开发者应使用 CID sfnt 格式。
+//
+// sfnt 和 OpenType 格式本质上都是字体打包格式，允许将 CID 键控字体作为单个子表嵌入。这意
+// 味着将来字体开发者应该可以相对容易地将 CID sfnt 字体转换为 OpenType 格式。
+//
+// 本文档使用的约定。在本文档中，所有 sfnt 表名和表元素以无衬线字体表示，PostScript 语言和
+// Type 1 字体程序操作符以粗体无衬线样式表示。
+//
+// 对文档的引用在首次引用时包含完整信息，后续引用可使用缩写形式。完整的参考书目信息请参阅附
+// 录 B。
+//
+// CID sfnt 格式（The CID sfnt Format）
+//
+// CID sfnt 字体由包含完整 CIDFont 作为子表的 sfnt"包装器"组成。sfnt 包装器中的表由唯一的四
+// 字符标签标识，例如 'cmap'。Apple 定义的所有数据表名使用全部小写字符。Adobe 开发的所有非
+// Apple 表使用全部大写字母，例如 'CID'。
+//
+// CID sfnt 字体与 TrueType 字体的区别在于 sfnt 头部的 4 字节 Fixed 版本字段中存储的标签为
+// 'typ1'，而 TrueType 字体则使用标签 'true' 或值 1.0。CID 键控 Type 1 sfnt 字体与 Type 1
+// 罗马 sfnt 字体的区别在于存在 CID 表且不存在 TYP1 表。
+//
+// 从概念上讲，sfnt 表分为三类。系统特定表（如 name 和 cmap）是注册字体并使操作系统能够使用
+// 它所需的每个字体必备表。可选的布局特定表是用于格式化文本的表（本文档中未描述）。最后，栅
+// 格化器特定表是 Type 1 栅格化器或 TrueType 栅格化器用于栅格化字形、生成字形轮廓、准备字体
+// 下载或返回字距信息的表。本文档中描述的表属于第一类和第三类。
+//
+// 注意：CID sfnt 字体不使用 Adobe 技术说明 5014《Adobe CMap 和 CIDFont 文件规范》中描述的
+// CMap 文件形式。相反，使用 Apple 定义的 cmap 表进行字符编码。
+//
+// 兼容性。本规范定义的 CID sfnt 字体可与 QuickDraw 和 QuickDraw GX 一起使用。该字体通过具
+// 有 FNAM 表与 QuickDraw 兼容，该表还允许 Adobe Type Manager 软件（ATM）使用 QuickDraw GX
+// 的 QuickDraw NFNT 资源来显示位图。FNAM 表还用于选择 cmap 子表进行编码。有关兼容模式下如
+// 何选择编码的更多信息，请参见第 12.1 节。
+//
+// 要在 PostScript 语言打印机上打印 CID 键控 sfnt 字体，必须从 sfnt 包装器中提取 CID 键控
+// 字体。这可以通过获取 sfnt 资源表目录中 CIDFont 的偏移量和长度来完成。
+//
+// CID sfnt 格式还允许使用重新排列的 CID 键控字体，有关更多信息请参见第 12.2 节。
+//
+// 字形变换（Glyph Transformations）。CID sfnt 格式允许指定可应用于字体中字形的一组变换。对
+// 于 CJK 字体，这可能包括连字替换（ligature substitution）和为比例间距字形（proportionally
+// spaced glyphs）指定替代度量等功能。
+//
+// 这些字形变换通过使用字形变形表（glyph metamorphosis table，标签名 mort）来实现，该表由
+// Apple 定义和记录。在为比例间距字形提供替代度量的情况下，必须使用 Adobe 定义并在本文档第
+// 4 节中描述的 CID 特定表 ALMX（替代度量）表。
+
 // https://learn.microsoft.com/en-us/typography/opentype/spec/
 // https://gpuopen.com/learn/mesh_shaders/mesh_shaders-font_and_vector_art_rendering_with_mesh_shaders/
 // https://github.com/nothings/stb/blob/master/stb_truetype.h
@@ -40286,7 +40368,9 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // 中，表校验和必须反映集合文件中的表。'head' 表中的 checksumAdjustment 字段不用于集合文件，
 // 可以设置为零。
 
-#define PRH_TTF_OUTLINE 0x00010000
+#define PRH_TTF_OUTLINE 0x00010000 // TrueType 1.0
+#define PRH_TTF_APLTRUE 0x74727565 // 'true'
+#define PRH_CFF_APLTYP1 0x74797031 // 'typ1'
 #define PRH_CFF_OUTLINE 0x4F54544F // 'OTTO'
 #define PRH_TTC_HEADER  0x74746366 // 'ttcf'
 #define PRH_TTC_DSIG    0x44534947 // 'DSIG'
@@ -40407,7 +40491,8 @@ void prh_load_font_file(prh_font_file *f, const prh_byte *name) {
     f->reader = prh_read_from_file(name, prh_vmem_unit_size, prh_local_alloc());
     prh_read_exact_bytes(&f->reader, (prh_byte *)&f->font_header, sizeof(prh_font_header));
     prh_set_r32_be_to_host(f->font_header.sfntversion);
-    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_CFF_OUTLINE) {
+    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_TTF_APLTRUE ||
+        f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1) {
         prh_set_r16_be_to_host(f->font_header.numtables);
         memset(&f->ttc_header, 0, sizeof(prh_font_ttc_header));
         memset(&f->ttc_signature, 0, sizeof(prh_font_ttc_signature));
@@ -40449,14 +40534,59 @@ typedef struct {
     prh_r32 checksum;   // 此表校验和
     prh_r32 offset;     // 此表所在的文件偏移
     prh_r32 length;     // 此表的长度
+} prh_font_thead;
+
+typedef struct {
+    prh_r32 tabletag;
+    prh_r32 checksum;
+    prh_r32 offset;
+    prh_r32 length;
+    prh_r32 table_index;
 } prh_font_table;
 
 typedef struct prh_open_font {
     prh_font_file *font_file;
     prh_font_header font_header;
-    prh_font_table *table_header;
+    prh_font_thead *table_header;
     prh_r32 font_header_offset;
     prh_r32 font_index;
+    bool is_cff_outline;
+    prh_font_table base; // 'BASE'
+    prh_font_table cff1; // 'CFF '
+    prh_font_table cff2; // 'CFF2'
+    prh_font_table dsig; // 'DSIG'
+    prh_font_table gdef; // 'GDEF'
+    prh_font_table gpos; // 'GPOS'
+    prh_font_table gsub; // 'GSUB'
+    prh_font_table os_2; // 'OS/2'
+    prh_font_table stat; // 'STAT'
+    prh_font_table vdmx; // 'VDMX'
+    prh_font_table vorg; // 'VORG'
+    prh_font_table cmap; // 'cmap'
+    prh_font_table hdmx; // 'hdmx'
+    prh_font_table head; // 'head'
+    prh_font_table hhea; // 'hhea'
+    prh_font_table hmtx; // 'hmtx'
+    prh_font_table maxp; // 'maxp'
+    prh_font_table name; // 'name'
+    prh_font_table post; // 'post'
+    prh_font_table vhea; // 'vhea'
+    prh_font_table vmtx; // 'vmtx'
+    prh_r32 maxp_version;
+    prh_r16 num_glyphs;
+    prh_r16 max_points;
+    prh_r16 max_contours;
+    prh_r16 max_composite_points;
+    prh_r16 max_composite_contours;
+    prh_r16 max_zones;
+    prh_r16 max_twilinght_points;
+    prh_r16 max_storage;
+    prh_r16 max_function_defs;
+    prh_r16 max_instruction_defs;
+    prh_r16 max_stack_elements;
+    prh_r16 max_size_of_instructions;
+    prh_r16 max_component_elements;
+    prh_r16 max_component_depth;
 } prh_open_font;
 
 prh_r16 prh_font_table_count(const prh_open_font *f) {
@@ -40467,30 +40597,10 @@ void prh_open_font_free(prh_open_font *p) {
     prh_da_free(p->table_header);
 }
 
-void prh_impl_font_header_read(prh_open_font *p) {
-    prh_font_file *f = p->font_file;
-    prh_pread_exact_bytes(&f->reader, (prh_byte *)&p->font_header, sizeof(prh_font_header), p->font_header_offset);
-    prh_set_r32_be_to_host(f->font_header.sfntversion);
-    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_CFF_OUTLINE) {
-        prh_set_r16_be_to_host(f->font_header.numtables);
-    } else {
-        prh_eprinf_r32(f->font_header.sfntversion, prh_pf_print_base | prh_pf_hex | 8);
-        prh_abort_error(__LINE__);
-    }
-
-    prh_font_table *table_header;
-    prh_da_init(p->table_header, p->font_header.numtables + 1);
-    prh_pread_exact_bytes(&f->reader, (prh_byte *)(p->table_header + 1), p->font_header.numtables * sizeof(prh_font_table), p->font_header_offset + sizeof(prh_font_header));
-    for (prh_r32 i = 1; i <= p->font_header.numtables; i += 1) {
-        table_header = p->table_header + i;
-        prh_set_r32_be_to_host(table_header->tabletag);
-        prh_set_r32_be_to_host(table_header->checksum);
-        prh_set_r32_be_to_host(table_header->offset);
-        prh_set_r32_be_to_host(table_header->length);
-    }
-}
+void prh_impl_font_header_read(prh_open_font *p);
 
 void prh_load_open_font(prh_open_font *p, prh_font_file *f, prh_r32 font_index) {
+    memset(p, 0, sizeof(prh_open_font));
     prh_assert(font_index < prh_font_count(f));
     if (f->font_header.sfntversion == PRH_TTC_HEADER) {
         p->font_header_offset = f->ttc_font_header_offset_big[font_index];
@@ -40548,7 +40658,11 @@ void prh_print_font_header(prh_open_font *f) {
 }
 
 void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
-    prh_font_table *t = f->table_header + table_index;
+    prh_font_thead *t = f->table_header + table_index;
+    prh_r32 tabletag = prh_r32_be_to_host(t->tabletag);
+    prh_r32 offset = prh_r32_be_to_host(t->offset);
+    prh_r32 length = prh_r32_be_to_host(t->length);
+    prh_r32 checksum = prh_r32_be_to_host(t->checksum);
     prh_print(
         "table index %d / %d\n"
         "table tag 0x%08x (%c%c%c%c)\n"
@@ -40557,14 +40671,14 @@ void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
         "table checksum 0x%08x\n\n",
         (prh_reg)table_index,
         (prh_reg)prh_font_table_count(f),
-        (prh_reg)t->tabletag,
-        (prh_reg)prh_byte_4(t->tabletag),
-        (prh_reg)prh_byte_3(t->tabletag),
-        (prh_reg)prh_byte_2(t->tabletag),
-        (prh_reg)prh_byte_1(t->tabletag),
-        (prh_reg)t->offset, (prh_reg)t->offset % 4,
-        (prh_reg)t->length, (prh_reg)t->length % 4,
-        (prh_reg)t->checksum);
+        (prh_reg)tabletag,
+        (prh_reg)prh_byte_4(tabletag),
+        (prh_reg)prh_byte_3(tabletag),
+        (prh_reg)prh_byte_2(tabletag),
+        (prh_reg)prh_byte_1(tabletag),
+        (prh_reg)offset, (prh_reg)offset % 4,
+        (prh_reg)length, (prh_reg)length % 4,
+        (prh_reg)checksum);
 }
 
 // 字体表（Font Tables）
@@ -40686,11 +40800,419 @@ void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
 #define PRH_OTF_HEAD_TABLE 0x68656164 // 字体头
 #define PRH_OTF_HHEA_TABLE 0x68686561 // 水平度量头
 #define PRH_OTF_HMTX_TABLE 0x686D7478 // 水平度量
-#define PRH_OTF_MAXP_TABLE 0x6D617870 // 最大轮廓
+#define PRH_OTF_MAXP_TABLE 0x6D617870 // 最大配置
 #define PRH_OTF_NAME_TABLE 0x6E616D65 // 命名表
 #define PRH_OTF_POST_TABLE 0x706F7374 // PostScript 信息
 #define PRH_OTF_VHEA_TABLE 0x76686561 // 垂直度量头
 #define PRH_OTF_VMTX_TABLE 0x766D7478 // 垂直度量
+
+prh_r32 prh_font_table_checksum(const prh_r32 *table_data, prh_r32 table_length) {
+    prh_r32 sum = 0;
+    const prh_r32 *end = table_data + prh_round_r32_04_byte(table_length) / 4;
+    while (table_data < end) sum += *table_data++;
+    return sum;
+}
+
+void prh_impl_font_header_read(prh_open_font *p) {
+    struct { prh_r32 tag; prh_font_table *table; } tables[] = {
+        {PRH_OTF_BASE_TABLE, &p->base},
+        {PRH_OTF_CFF1_TABLE, &p->cff1},
+        {PRH_OTF_CFF2_TABLE, &p->cff2},
+        {PRH_OTF_DSIG_TABLE, &p->dsig},
+        {PRH_OTF_GDEF_TABLE, &p->gdef},
+        {PRH_OTF_GPOS_TABLE, &p->gpos},
+        {PRH_OTF_GSUB_TABLE, &p->gsub},
+        {PRH_OTF_OS_2_TABLE, &p->os_2},
+        {PRH_OTF_STAT_TABLE, &p->stat},
+        {PRH_OTF_VDMX_TABLE, &p->vdmx},
+        {PRH_OTF_VORG_TABLE, &p->vorg},
+        {PRH_OTF_CMAP_TABLE, &p->cmap},
+        {PRH_OTF_HDMX_TABLE, &p->hdmx},
+        {PRH_OTF_HEAD_TABLE, &p->head},
+        {PRH_OTF_HHEA_TABLE, &p->hhea},
+        {PRH_OTF_HMTX_TABLE, &p->hmtx},
+        {PRH_OTF_MAXP_TABLE, &p->maxp},
+        {PRH_OTF_NAME_TABLE, &p->name},
+        {PRH_OTF_POST_TABLE, &p->post},
+        {PRH_OTF_VHEA_TABLE, &p->vhea},
+        {PRH_OTF_VMTX_TABLE, &p->vmtx},
+        {0xFFFFFFFF, prh_null}};
+    prh_r32 table_i = 0, tabletag;
+    prh_font_file *f = p->font_file;
+    prh_pread_exact_bytes(&f->reader, (prh_byte *)&p->font_header, sizeof(prh_font_header), p->font_header_offset);
+    prh_set_r32_be_to_host(f->font_header.sfntversion);
+    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_TTF_APLTRUE ||
+        f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1) {
+        prh_set_r16_be_to_host(f->font_header.numtables);
+        p->is_cff_outline = (f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1);
+    } else {
+        prh_eprinf_r32(f->font_header.sfntversion, prh_pf_print_base | prh_pf_hex | 8);
+        prh_abort_error(__LINE__);
+    }
+    prh_font_thead *thead;
+    prh_da_init(p->table_header, p->font_header.numtables + 1);
+    prh_pread_exact_bytes(&f->reader, (prh_byte *)(p->table_header + 1), p->font_header.numtables * sizeof(prh_font_thead), p->font_header_offset + sizeof(prh_font_header));
+    for (prh_r32 i = 1; i <= p->font_header.numtables; i += 1) {
+        thead = p->table_header + i;
+        tabletag = prh_r32_be_to_host(thead->tabletag);
+        while (tables[table_i].tag < tabletag) table_i += 1;
+        if (tabletag == tables[table_i].tag) {
+            tables[table_i].table->tabletag = tabletag;
+            tables[table_i].table->checksum = prh_r32_be_to_host(thead->checksum);
+            tables[table_i].table->offset = prh_r32_be_to_host(thead->offset);
+            tables[table_i].table->length = prh_r32_be_to_host(thead->length);
+            tables[table_i].table->table_index = i;
+            table_i += 1;
+        }
+        if (tables[table_i].tag == 0xFFFFFFFF) break;
+    }
+}
+
+// 字体头表（head）
+//
+// 本表提供有关字体的全局信息。边界框值应仅使用具有轮廓的字形计算。无轮廓的字形应在此计
+// 算中忽略。
+//
+//      类型    名称                描述
+//      uint16  majorVersion        字体头表的主要版本号，设置为 1
+//      uint16  minorVersion        字体头表的次要版本号，设置为 0
+//      Fixed   fontRevision        由字体制造商设置（32-bit signed fixed-point number，16.16）
+//      uint32  checksumAdjustment  计算方法：将其设置为 0，将整个字体作为 uint32 求和，然后存储
+//                                  0xB1B0AFBA - 总和。如果字体用作字体集合文件中的组件，则此字段
+//                                  的值将因文件结构和字体表目录的更改而失效，必须忽略。
+//      uint32  magicNumber         设置为 0x5F0F3CF5
+//      uint16  flags
+//          位 0：字体的基线在 y=0。
+//          位 1：左侧承点位于 x=0（仅与 TrueType 栅格化器相关），请参阅下面关于可变字体
+//                的附加信息。
+//          位 2：指令可能取决于点大小。
+//          位 3：强制 ppem 为整数值用于所有内部缩放器数学；如果此位清除，可以使用分数 ppem
+//                大小。强烈建议在提示字体中设置此位。
+//          位 4：指令可能改变前进宽度（前进宽度可能不按比例缩放）。
+//          位 5：此位在 OpenType 中不使用，不应设置以确保所有平台上的兼容行为。如果设置，
+//                在某些平台上可能导致垂直布局的不同行为。有关 Apple 平台上的行为详细信息，
+//                请参阅 Apple 的规范。http://developer.apple.com/fonts//TrueType-Reference-Manual/RM06/Chap6head.html
+//          位 6~10：这些位在 OpenType 中不使用，应始终清除。有关 Apple 平台上遗留使用的
+//                 详细信息，请参阅 Apple 的规范。
+//          位 11：字体数据是"无损的"，因为经过了优化转换和/或压缩（如 ISO/IEC 14496-18、
+//                 MicroType Express、WOFF 2.0 或类似机制定义的压缩机制），其中保留了原始
+//                 字体功能和特性，但输入和输出字体文件之间的二进制兼容性不保证。由于应用
+//                 的转换，DSIG 表也可能失效。
+//          位 12：字体已转换（产生兼容度量）。
+//          位 13：字体针对 ClearType 优化。注意，依赖嵌入式位图（EBDT）进行渲染的字体不应
+//                 被视为针对 ClearType 优化，因此应保持此位清除。
+//          位 14：最后手段（Last Resort）字体。如果设置，表示 'cmap' 子表中编码的字形只是
+//                 代码点范围的通用符号表示，并不真正代表对这些代码点的支持。如果未设置，
+//                 表示 'cmap' 子表中编码的字形代表对这些代码点的正确支持。
+//          位 15：保留，设置为 0。
+//      uint16 unitsPerEm           设置为 16 到 16384 之间的值。此范围内的任何值都有效。在具有
+//                                  TrueType 轮廓的字体中，建议使用 2 的幂，因为这允许某些栅格化器
+//                                  中的性能优化。
+//      LONGDATETIME created        自 1904 年 1 月 1 日午夜 12:00 以来的秒数，以 GMT/UTC 时区计算。
+//      LONGDATETIME modified       自 1904 年 1 月 1 日午夜 12:00 以来的秒数，以 GMT/UTC 时区计算。
+//      int16 xMin                  所有字形边界框的最小 x 坐标
+//      int16 yMin                  所有字形边界框的最小 y 坐标
+//      int16 xMax                  所有字形边界框的最大 x 坐标
+//      int16 yMax                  所有字形边界框的最大 y 坐标
+//      uint16 macStyle
+//          位 0：粗体 Bold（如果设置为 1）
+//          位 1：斜体 Italic（如果设置为 1）
+//          位 2：下划线 Underline（如果设置为 1）
+//          位 3：轮廓 Outline（如果设置为 1）
+//          位 4：阴影 Shadow（如果设置为 1）
+//          位 5：压缩 Condensed（如果设置为 1）
+//          位 6：扩展 Extended（如果设置为 1）
+//          位 7 – 15：保留（设置为 0）
+//      uint16 lowestRecPPEM        最小可读大小（像素）
+//      int16 fontDirectionHint     已弃用（设置为 2）
+//          0：完全混合方向字形
+//          1：仅强（strongly）从左到右
+//          2：类似 1 但也包含中性（neutrals）
+//          -1：仅强从右到左
+//          -2：类似 -1 但也包含中性
+//      int16 indexToLocFormat      短偏移（Offset16）为 0，长偏移（Offset32）为 1
+//      int16 glyphDataFormat       当前格式为 0
+//
+// fontDirectionHint 字段旨在支持从右到左的脚本。强从左到右、强从右到左和中性是字符的属
+// 性。中性字符没有固有的方向性；它不是零（0）宽度的字符。空格和标点符号是中性字符的示例。
+// 非中性字符是具有固有方向性的字符。例如，罗马字母（从左到右）和阿拉伯字母（从右到左）
+// 具有强方向性。在"正常"的罗马字体中，如果存在空格和标点符号，字体方向提示应设置为 2。
+//
+// unitsPerEm 值确定字体坐标网格的粒度，在该网格中可以指定视觉元素（如轮廓控制点或标记附
+// 着锚点位置）的坐标。有关更多信息，请参阅 TrueType 基础章节。
+// https://learn.microsoft.com/en-us/typography/opentype/spec/ttch01#funits-and-the-grid
+//
+// 字形的边界框（bounding box）是包含字形所有控制点的最小矩形。有关更多信息，请参阅 'glyf'
+// 表章节。xMin、yMin、xMax 和 yMax 值提供一个将包含字体所有字形的边界框。无轮廓的字形被
+// 忽略。
+//
+// macStyle 位必须与 OS/2 表中的 fsSelection 位一致。在 Windows 中，fsSelection 位优先于
+// macStyle 位。PANOSE 值和 'post' 表值在确定粗体或斜体字体时被忽略。
+//
+// 由于历史原因，Windows 不使用此表中包含的 fontRevision 值来确定字体版本。相反，Windows
+// 评估 'name' 表中的版本字符串（ID 5）。
+//
+// 每个字形的左侧承点对应于第一个虚点（下面的"pp1"，请参阅虚点 Phantom Points），并与字形
+// 左侧承（lsb，glyph left sidebearing）和 xMin 相关，如下。如果 flags 字段的位 1 被设置，
+// 则所有字形的 pp1 = 0，且每个字形的 xMin 和左侧承必须相等。
+//      pp1 = xMin - lsb
+// 
+// 在具有 TrueType 轮廓的可变字体中，每个字形的左侧承必须等于 xMin，且 flags 字段中的位 1
+// 必须设置。此外，所有可变字体中必须清除位 5。有关 OpenType 字体变体的一般信息，请参阅
+// OpenType 字体变体概述章节。
+//
+// 此外，在可变字体中，控制点的最小或最大 x 或 y 值可能变化，包含任何给定字形实例轮廓或所
+// 有点的紧密边界矩形可能比该字形的默认实例更小或更大。此表中的 xMin、yMin、xMax 和 yMax
+// 值可能包含也可能不包含字体非默认实例的派生字形轮廓。此外，不为这些值提供变化增量。如果
+// 应用程序需要一个包含字体非默认实例字形的边界矩形，应处理该实例的派生字形轮廓以确定边界
+// 矩形。
+
+typedef struct {
+    prh_r32 head_version;
+    prh_r32 font_revision;
+    prh_r32 checksum_adjustment;
+    prh_r32 magic_number;
+    prh_r16 flags;
+    prh_r16 units_per_em;
+    prh_r08 create_time[8];
+    prh_r08 modify_time[8];
+    prh_i16 xmin;
+    prh_i16 ymin;
+    prh_i16 xmax;
+    prh_i16 ymax;
+    prh_r16 mac_style;
+    prh_r16 lowest_rec_ppem;
+    prh_r16 font_direction_hint;
+    prh_i16 index_to_loc_format;
+    prh_i16 glyph_data_format;
+    prh_r16 aligned;
+} prh_font_head_table;
+
+void prh_print_font_head_table(prh_open_font *f) {
+    if (f->head.length == 0) prh_abort_line();
+    prh_font_head_table t = {0};
+    prh_r32 head_length = (prh_r32)sizeof(prh_font_head_table) - 2;
+    if (head_length != f->head.length) {
+        prh_print("table 'head' invalid length %d %d\n", (prh_reg)head_length, (prh_reg)f->head.length);
+        return;
+    }
+    prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&t, head_length, f->head.offset);
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)&t, head_length);
+    prh_print(
+        "head table index %d / %d\n"
+        "head table tag 0x%08x (%c%c%c%c)\n"
+        "head table offset %.10d (%d/4)\n"
+        "head table length %.10d (%d/4)\n"
+        "head table checksum 0x%08x 0x%08x (valid %d)\n"
+        "head table version %08x\n"
+        "----------------------------\n"
+        "head font reversion %08x\n"
+        "head font checksum adjustment 0x%08x\n"
+        "head font magic number 0x%08x\n"
+        "head font flags %04x\n"
+        "head font units per em %d\n"
+        "head font create time %ld\n"
+        "head font modify time %ld\n"
+        "head font x min %d max %d\n"
+        "head font y min %d max %d\n"
+        "head font mac style %d\n"
+        "head font lowest rec ppem %d\n"
+        "head font direction hint %d\n"
+        "head font index to loc format %d\n"
+        "head font glyph data format %d\n\n",
+        (prh_reg)f->head.table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)f->head.tabletag,
+        (prh_reg)prh_byte_4(f->head.tabletag),
+        (prh_reg)prh_byte_3(f->head.tabletag),
+        (prh_reg)prh_byte_2(f->head.tabletag),
+        (prh_reg)prh_byte_1(f->head.tabletag),
+        (prh_reg)f->head.offset, (prh_reg)f->head.offset % 4,
+        (prh_reg)f->head.length, (prh_reg)f->head.length % 4,
+        (prh_reg)f->head.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->head.checksum),
+        (prh_reg)prh_r32_be_to_host(t.head_version),
+        (prh_reg)prh_r32_be_to_host(t.font_revision),
+        (prh_reg)prh_r32_be_to_host(t.checksum_adjustment),
+        (prh_reg)prh_r32_be_to_host(t.magic_number),
+        (prh_reg)prh_r16_be_to_host(t.flags),
+        (prh_reg)prh_r16_be_to_host(t.units_per_em),
+        (prh_r64)prh_bp_8b_to_host(t.create_time),
+        (prh_r64)prh_bp_8b_to_host(t.modify_time),
+        (prh_int)(prh_i16)prh_r16_be_to_host(t.xmin), (prh_int)(prh_i16)prh_r16_be_to_host(t.xmax),
+        (prh_int)(prh_i16)prh_r16_be_to_host(t.ymin), (prh_int)(prh_i16)prh_r16_be_to_host(t.ymax),
+        (prh_reg)prh_r16_be_to_host(t.mac_style),
+        (prh_reg)prh_r16_be_to_host(t.lowest_rec_ppem),
+        (prh_reg)prh_r16_be_to_host(t.font_direction_hint),
+        (prh_reg)prh_r16_be_to_host(t.index_to_loc_format),
+        (prh_reg)prh_r16_be_to_host(t.glyph_data_format));
+}
+
+// 最大配置（maxp，Maximum Profile）
+//
+// 本表确定此字体的内存需求。具有 CFF 或 CFF2 轮廓的字体必须使用本表的版本 0.5，仅指定
+// numGlyphs 字段。具有 TrueType 轮廓的字体必须使用本表的版本 1.0，其中所有数据都是必需的。
+//
+// 版本 0.5
+//      类型            名称        描述
+//      Version16Dot16  version     版本 0.5 为 0x00005000
+//      uint16          numGlyphs   字体中的字形数
+//
+// 版本 1.0
+//      类型            名称    描述
+//      Version16Dot16  version                 版本 1.0 为 0x00010000
+//      uint16          numGlyphs               字体中的字形数
+//      uint16          maxPoints               非复合字形中的最大点数
+//      uint16          maxContours             非复合字形中的最大轮廓数
+//      uint16          maxCompositePoints      复合字形中的最大点数
+//      uint16          maxCompositeContours    复合字形中的最大轮廓数
+//      uint16          maxZones                如果指令不使用暮光区（Z0）则为 1，如果使用 Z0 则为 2；在大多数情况下应设置为 2
+//      uint16          maxTwilightPoints       Z0 中使用的最大点数
+//      uint16          maxStorage              存储区位置的数量
+//      uint16          maxFunctionDefs         FDEF 的数量，等于最高函数编号 + 1
+//      uint16          maxInstructionDefs      IDEF 的数量
+//      uint16          maxStackElements        字体程序（'fpgm' 表）、CVT 程序（'prep' 表）和所有字形指令（在 'glyf' 表中）的最大栈深度
+//      uint16          maxSizeOfInstructions   字形指令的最大字节数
+//      uint16          maxComponentElements    任何复合字形在"顶层"引用的最大组件数
+//      uint16          maxComponentDepth       最大递归级别；简单组件为 1
+
+typedef struct {
+    prh_r16 major_version;
+    prh_r16 minor_version;
+    prh_r16 glyphs;
+} prh_font_maxp_table_0_5;
+
+typedef struct {
+    prh_r32 maxp_version;
+    prh_r16 num_glyphs;
+    prh_r16 max_points;
+    prh_r16 max_contours;
+    prh_r16 max_composite_points;
+    prh_r16 max_composite_contours;
+    prh_r16 max_zones;
+    prh_r16 max_twilinght_points;
+    prh_r16 max_storage;
+    prh_r16 max_function_defs;
+    prh_r16 max_instruction_defs;
+    prh_r16 max_stack_elements;
+    prh_r16 max_size_of_instructions;
+    prh_r16 max_component_elements;
+    prh_r16 max_component_depth;
+} prh_font_maxp_table;
+
+void prh_load_font_maxp_table(prh_open_font *f) {
+    if (f->maxp.length == 0) prh_abort_line();
+    prh_font_maxp_table header;
+    if (f->is_cff_outline) {
+        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&header, sizeof(prh_font_maxp_table_0_5), f->maxp.offset);
+        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&header);
+        if (f->maxp_version != 0x00005000) prh_abort_error(f->maxp_version);
+    } else {
+        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&header, sizeof(prh_font_maxp_table), f->maxp.offset);
+        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&header);
+        if (f->maxp_version != 0x00010000) prh_abort_error(f->maxp_version);
+        f->max_points = prh_r16_be_to_host(header.max_points);
+        f->max_contours = prh_r16_be_to_host(header.max_contours);
+        f->max_composite_points = prh_r16_be_to_host(header.max_composite_points);
+        f->max_composite_contours = prh_r16_be_to_host(header.max_composite_contours);
+        f->max_zones = prh_r16_be_to_host(header.max_zones);
+        f->max_twilinght_points = prh_r16_be_to_host(header.max_twilinght_points);
+        f->max_storage = prh_r16_be_to_host(header.max_storage);
+        f->max_function_defs = prh_r16_be_to_host(header.max_function_defs);
+        f->max_instruction_defs = prh_r16_be_to_host(header.max_instruction_defs);
+        f->max_stack_elements = prh_r16_be_to_host(header.max_stack_elements);
+        f->max_size_of_instructions = prh_r16_be_to_host(header.max_size_of_instructions);
+        f->max_component_elements = prh_r16_be_to_host(header.max_component_elements);
+        f->max_component_depth = prh_r16_be_to_host(header.max_component_depth);
+    }
+    f->num_glyphs = prh_r16_be_to_host(header.num_glyphs);
+    if (f->num_glyphs == 0) prh_abort_line();
+}
+
+void prh_print_font_maxp_table(prh_open_font *f) {
+    if (f->maxp.length == 0) prh_abort_line();
+    prh_font_maxp_table t = {0};
+    prh_r32 maxp_length = f->is_cff_outline ? (prh_r32)sizeof(prh_font_maxp_table_0_5) : (prh_r32)sizeof(prh_font_maxp_table);
+    if (maxp_length != f->maxp.length) {
+        prh_print("table 'maxp' invalid length %d %d\n", (prh_reg)maxp_length, (prh_reg)f->maxp.length);
+        return;
+    }
+    if (f->is_cff_outline) {
+        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&t, maxp_length, f->maxp.offset);
+        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&t);
+        if (f->maxp_version != 0x00005000) prh_abort_error(f->maxp_version);
+    } else {
+        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&t, maxp_length, f->maxp.offset);
+        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&t);
+        if (f->maxp_version != 0x00010000) prh_abort_error(f->maxp_version);
+        f->max_points = prh_r16_be_to_host(t.max_points);
+        f->max_contours = prh_r16_be_to_host(t.max_contours);
+        f->max_composite_points = prh_r16_be_to_host(t.max_composite_points);
+        f->max_composite_contours = prh_r16_be_to_host(t.max_composite_contours);
+        f->max_zones = prh_r16_be_to_host(t.max_zones);
+        f->max_twilinght_points = prh_r16_be_to_host(t.max_twilinght_points);
+        f->max_storage = prh_r16_be_to_host(t.max_storage);
+        f->max_function_defs = prh_r16_be_to_host(t.max_function_defs);
+        f->max_instruction_defs = prh_r16_be_to_host(t.max_instruction_defs);
+        f->max_stack_elements = prh_r16_be_to_host(t.max_stack_elements);
+        f->max_size_of_instructions = prh_r16_be_to_host(t.max_size_of_instructions);
+        f->max_component_elements = prh_r16_be_to_host(t.max_component_elements);
+        f->max_component_depth = prh_r16_be_to_host(t.max_component_depth);
+    }
+    f->num_glyphs = prh_r16_be_to_host(t.num_glyphs);
+    if (f->num_glyphs == 0) prh_abort_line();
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)&t, maxp_length);
+    prh_print(
+        "maxp table index %d / %d\n"
+        "maxp table tag 0x%08x (%c%c%c%c)\n"
+        "maxp table offset %.10d (%d/4)\n"
+        "maxp table length %.10d (%d/4)\n"
+        "maxp table checksum 0x%08x 0x%08x (valid %d)\n"
+        "maxp table version %08x\n"
+        "----------------------------\n"
+        "maxp num_glyphs %d\n",
+        (prh_reg)f->maxp.table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)f->maxp.tabletag,
+        (prh_reg)prh_byte_4(f->maxp.tabletag),
+        (prh_reg)prh_byte_3(f->maxp.tabletag),
+        (prh_reg)prh_byte_2(f->maxp.tabletag),
+        (prh_reg)prh_byte_1(f->maxp.tabletag),
+        (prh_reg)f->maxp.offset, (prh_reg)f->maxp.offset % 4,
+        (prh_reg)f->maxp.length, (prh_reg)f->maxp.length % 4,
+        (prh_reg)f->maxp.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->maxp.checksum),
+        (prh_reg)f->maxp_version,
+        (prh_reg)f->num_glyphs);
+    if (f->maxp_version == 0x00010000) {
+        prh_print(
+            "maxp max_points %d\n"
+            "maxp max_contours %d\n"
+            "maxp max_composite_points %d\n"
+            "maxp max_composite_contours %d\n"
+            "maxp max_zones %d\n"
+            "maxp max_twilinght_points %d\n"
+            "maxp max_storage %d\n"
+            "maxp max_function_defs %d\n"
+            "maxp max_instruction_defs %d\n"
+            "maxp max_stack_elements %d\n"
+            "maxp max_size_of_instructions %d\n"
+            "maxp max_component_elements %d\n"
+            "maxp max_component_depth %d\n",
+            (prh_reg)f->max_points,
+            (prh_reg)f->max_contours,
+            (prh_reg)f->max_composite_points,
+            (prh_reg)f->max_composite_contours,
+            (prh_reg)f->max_zones,
+            (prh_reg)f->max_twilinght_points,
+            (prh_reg)f->max_storage,
+            (prh_reg)f->max_function_defs,
+            (prh_reg)f->max_instruction_defs,
+            (prh_reg)f->max_stack_elements,
+            (prh_reg)f->max_size_of_instructions,
+            (prh_reg)f->max_component_elements,
+            (prh_reg)f->max_component_depth);
+    }
+    prh_print("\n");
+}
 
 // 字符到字形索引映射表（cmap）
 //
@@ -40775,15 +41297,13 @@ typedef struct {
 prh_r16 prh_font_find_table(prh_open_font *f, prh_r32 table_tag) { // 返回 0 表示失败
     prh_r16 numtables = prh_font_table_count(f);
     for (prh_r16 i = 1; i <= numtables; i += 1) {
-        prh_font_table *table = f->table_header + i;
-        if (table->tabletag == table_tag) return i;
+        prh_font_thead *table = f->table_header + i;
+        if (prh_r32_be_to_host(table->tabletag) == table_tag) return i;
     }
     return 0;
 }
 
-prh_byte *prh_load_font_table(prh_open_font *f, prh_r16 table_index) {
-    prh_assert(table_index > 0 && table_index <= prh_font_table_count(f));
-    prh_font_table *t = f->table_header + table_index;
+prh_byte *prh_load_font_table(prh_open_font *f, prh_font_table *t) {
     prh_r32 round_length = prh_round_r32_04_byte(t->length);
     prh_byte *table_data; prh_da_init(table_data, round_length);
     prh_pread_exact_bytes(&f->font_file->reader, table_data, round_length, t->offset);
@@ -41007,33 +41527,19 @@ void prh_impl_print_font_cmap_record(prh_font_cmap_record *p) {
     }
 }
 
-prh_r32 prh_font_table_checksum(const prh_r32 *table_data, prh_r32 table_length) {
-    prh_r32 sum = 0;
-    const prh_r32 *end = table_data + prh_round_r32_04_byte(table_length) / 4;
-    while (table_data < end) sum += *table_data++;
-    return sum;
-}
-
 void prh_print_font_cmap(prh_open_font *f) {
-    prh_r16 cmap_table_index = prh_font_find_table(f, PRH_OTF_CMAP_TABLE);
-    if (cmap_table_index == 0) {
-        prh_print("table 'cmap' not found\n");
-        return;
-    }
-
-    prh_byte *table_data = prh_load_font_table(f, cmap_table_index);
-    prh_font_table *t = f->table_header + cmap_table_index;
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, t->length);
-
+    if (f->cmap.length == 0) prh_abort_line();
+    prh_byte *table_data = prh_load_font_table(f, &f->cmap);
     prh_font_cmap_table *cmap = (prh_font_cmap_table *)table_data;
     prh_set_r16_be_to_host(cmap->version);
     prh_set_r16_be_to_host(cmap->numrecords);
 
-    if (t->length < 4 + sizeof(prh_font_cmap_header) * cmap->numrecords) {
-        prh_print("table 'cmap' invalid length %d numrecord %d\n", (prh_reg)t->length, (prh_reg)cmap->numrecords);
+    if (f->cmap.length < 4 + sizeof(prh_font_cmap_header) * cmap->numrecords) {
+        prh_print("table 'cmap' invalid length %d numrecord %d\n", (prh_reg)f->cmap.length, (prh_reg)cmap->numrecords);
         return;
     }
 
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->cmap.length);
     prh_print(
         "cmap table index %d / %d\n"
         "cmap table tag 0x%08x (%c%c%c%c)\n"
@@ -41041,26 +41547,26 @@ void prh_print_font_cmap(prh_open_font *f) {
         "cmap table length %.10d (%d/4)\n"
         "cmap table checksum 0x%08x 0x%08x (valid %d)\n"
         "cmap table version %04x\n",
-        (prh_reg)cmap_table_index,
+        (prh_reg)f->cmap.table_index,
         (prh_reg)prh_font_table_count(f),
-        (prh_reg)t->tabletag,
-        (prh_reg)prh_byte_4(t->tabletag),
-        (prh_reg)prh_byte_3(t->tabletag),
-        (prh_reg)prh_byte_2(t->tabletag),
-        (prh_reg)prh_byte_1(t->tabletag),
-        (prh_reg)t->offset, (prh_reg)t->offset % 4,
-        (prh_reg)t->length, (prh_reg)t->length % 4,
-        (prh_reg)t->checksum, (prh_reg)checksum, (prh_reg)(checksum == t->checksum),
+        (prh_reg)f->cmap.tabletag,
+        (prh_reg)prh_byte_4(f->cmap.tabletag),
+        (prh_reg)prh_byte_3(f->cmap.tabletag),
+        (prh_reg)prh_byte_2(f->cmap.tabletag),
+        (prh_reg)prh_byte_1(f->cmap.tabletag),
+        (prh_reg)f->cmap.offset, (prh_reg)f->cmap.offset % 4,
+        (prh_reg)f->cmap.length, (prh_reg)f->cmap.length % 4,
+        (prh_reg)f->cmap.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->cmap.checksum),
         (prh_reg)cmap->version);
 
     prh_font_cmap_record record;
     for (int i = 0; i < cmap->numrecords; i += 1) {
         prh_font_cmap_header *header = cmap->header + i;
         record.font = f;
-        record.table_index = cmap_table_index;
+        record.table_index = f->cmap.table_index;
         record.record_index = i;
-        record.table_offset = t->offset;
-        record.table_length = t->length;
+        record.table_offset = f->cmap.offset;
+        record.table_length = f->cmap.length;
         record.table_data = table_data;
         record.cmap_version = cmap->version;
         record.cmap_records = cmap->numrecords;
@@ -42446,25 +42952,19 @@ void prh_print_cff1_charstrings_index(prh_font_cff1_table *p);
 void prh_print_cff1_charset(prh_font_cff1_table *p);
 
 void prh_print_font_cff1(prh_open_font *f) {
-    prh_r16 table_index = prh_font_find_table(f, PRH_OTF_CFF1_TABLE);
-    if (table_index == 0) {
-        prh_print("table 'cff ' not found\n");
-        return;
-    }
-
-    prh_byte *table_data = prh_load_font_table(f, table_index);
-    prh_font_table *t = f->table_header + table_index;
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, t->length);
-
+    if (f->cff1.length == 0) return;
+    prh_byte *table_data = prh_load_font_table(f, &f->cff1);
     prh_font_cff1_header *p = (prh_font_cff1_header *)table_data;
-    if (p->header_length < sizeof(prh_font_cff1_header) || t->length < p->header_length) {
-        prh_print("table 'cff ' invalid length %d %d\n", (prh_reg)p->header_length, (prh_reg)t->length);
+    if (p->header_length < sizeof(prh_font_cff1_header) || f->cff1.length < p->header_length) {
+        prh_print("table 'cff ' invalid length %d %d\n", (prh_reg)p->header_length, (prh_reg)f->cff1.length);
         return;
     }
+
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->cff1.length);
 
     prh_font_cff1_table cff;
     cff.table_data = table_data;
-    cff.table_length = t->length;
+    cff.table_length = f->cff1.length;
     cff.major_version = p->major_version;
     cff.minor_version = p->minor_version;
     cff.header_length = p->header_length;
@@ -42488,16 +42988,16 @@ void prh_print_font_cff1(prh_open_font *f) {
         "cff1 Name INDEX object 1 offset %d\n"
         "cff1 Name INDEX object 1 length %d\n"
         "cff1 Name INDEX object 1 '%s'\n",
-        (prh_reg)table_index,
+        (prh_reg)f->cff1.table_index,
         (prh_reg)prh_font_table_count(f),
-        (prh_reg)t->tabletag,
-        (prh_reg)prh_byte_4(t->tabletag),
-        (prh_reg)prh_byte_3(t->tabletag),
-        (prh_reg)prh_byte_2(t->tabletag),
-        (prh_reg)prh_byte_1(t->tabletag),
-        (prh_reg)t->offset, (prh_reg)t->offset % 4,
-        (prh_reg)t->length, (prh_reg)t->length % 4,
-        (prh_reg)t->checksum, (prh_reg)checksum, (prh_reg)(checksum == t->checksum),
+        (prh_reg)f->cff1.tabletag,
+        (prh_reg)prh_byte_4(f->cff1.tabletag),
+        (prh_reg)prh_byte_3(f->cff1.tabletag),
+        (prh_reg)prh_byte_2(f->cff1.tabletag),
+        (prh_reg)prh_byte_1(f->cff1.tabletag),
+        (prh_reg)f->cff1.offset, (prh_reg)f->cff1.offset % 4,
+        (prh_reg)f->cff1.length, (prh_reg)f->cff1.length % 4,
+        (prh_reg)f->cff1.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->cff1.checksum),
         (prh_reg)cff.major_version,
         (prh_reg)cff.minor_version,
         (prh_reg)cff.header_length,
@@ -42852,7 +43352,7 @@ void prh_print_cff1_string_index(prh_font_cff1_table *p) {
     }
 }
 
-// 局部/全局⼦例程 INDEX
+// 局部/全局子例程 INDEX
 //
 // Type 1 和 Type 2 charstring 都⽀持⼦例程（subr）的概念。subr 通常是⼀段 charstring 字节
 // 序列，表⽰在字体 charstring 数据中多处出现的⼦程序。该 subr 只需存储⼀次，即可通过 callsubr
@@ -43213,6 +43713,32 @@ void prh_print_cff1_charset(prh_font_cff1_table *p) {
         break;
     }
 }
+
+// ⼦例程操作符（Subroutine Operators）
+//
+// ⼦例程编号通过利⽤数值空间的负半区来更紧凑地编码，这有效地使可紧凑编码的⼦例程编号数
+// 量翻倍。所应⽤的偏置取决于 subr（gsubr）的数量：若 subr（gsubr）数量⼩于 1240，偏置
+// 为 107；否则若⼩于 33900，偏置为 1131；否则为 32768。将该偏置加到编码的 subr（gsubr）
+// 编号上，即可在 subr（gsubr）数组中找到相应条⽬。即使 FontSet 只包含⼀个字体，也可以
+// 使⽤全局⼦例程。
+//
+// callsubr subr# callsubr (10) –
+//
+//      以索引 subr#（实际为 subr 编号加上⼦例程偏置数，如第 2.3 节所述）调⽤ Subrs 数组
+//      中的 charstring ⼦例程。Subrs 数组的每个元素都是⼀个与其他 charstring 同样编码的
+//      charstring。调⽤⼦例程之前压⼊ Type 2 参数栈的参数，以及⼦例程压⼊该栈的结果，按
+//      ⼦例程的编码⽅式起作⽤。调⽤未定义的 subr（gsubr）结果未定义。
+//
+//      这些⼦例程通常⽤于编码在字体程序中反复出现的路径操作符序列，例如衬线轮廓序列。⼦
+//      例程调⽤可以嵌套，深度以附录 B 中的实现限制为准。
+//
+// callgsubr globalsubr# callgsubr (29) –
+//
+//      ⼯作⽅式与 callsubr 相同，只是它调⽤的是全局⼦例程。
+//
+// return – return (11) –
+//
+//      从局部或全局 charstring ⼦例程返回，并在相应的 call(g)subr 之后继续执⾏。
 
 // OpenType 布局概述
 // OpenType 布局表为高质量国际化排版提供高级排版功能：
