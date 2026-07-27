@@ -500,7 +500,7 @@
 //      `a += 10 // 操作外部作用域中的变量
 //  }
 //
-//  def foreach(*list list anycode code) #macro {
+//  def foreach(*list list, anycode code) #macro {
 //      let iter = list
 //      let i = 0
 //      for item != null {
@@ -632,6 +632,7 @@
 //  this 当前函数（当前函数的地址）或当前结构体，不提供任何面向对象的特殊含义，但匿名类型需要用
 // 特殊操作符
 //  (&) (*) (**) (*&) (**&) (&1) (&2) (*&1) (*&2)
+//  r32 turns = 16 and <= elems / count
 //
 // 基本类型，定义在 type 代码包中：
 //  bool null none byte char rune string errno struct "32-byte" i32 r32 int reg sys_int sys_reg sys_reg struct i struct u struct p
@@ -877,6 +878,11 @@
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式，枚举类型可以表示一个负数
 //      enum {RED = enum * 2, YELLOW, BLUE} // enum 是枚举元素的索引值
 //      enum int {RED, YELLOW, BLUE}
+//      #{RED GREEN BLUE}
+//      #int{RED GREEN BLUE}
+//      #COLOR #{RED GREEN BLUE} RED
+//      def color #{ RED GREEN BLUE }
+//      #COLOR color RED
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
 //      $p { (*p int size return int) read (*p return int) get } // 允许使用关键字 this 定义 $this，然后参数声明使用 (this int size return int)
 //  Struct 表示定义一个类型
@@ -1053,11 +1059,11 @@ using func_type (int a, &int float)
 (&(&int [a]) float)
 (&(&int) float)
 (&(&int) float [x y] or error)
-(yield int a, float b, &int (&int or none) float [x y z] or error)
-(yield int a, &int float)
-(yield int a, b, &int float)
-(yield int a, point b, &int)
-(yield int a, point b)
+(yield int float [a b], &int (&int or none) float [x y z] or error)
+(yield int [a], &int float)
+(yield int int [a b], &int float)
+(yield int point [a b], &int)
+(yield int point [a b])
 (int a, &int) // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
 (int _) // 匿名参数
@@ -1108,8 +1114,8 @@ struct {} // 空结构体
 {int a int b point o string s}
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point} // point 是 int 型类型成员
-enum { red, green, blue }
-enum int { red, green = 2, blue }
+enum { red green blue }
+enum int { red green = 2 blue }
 $(anytype T) { ((*T p, int size) int) read }
 // 结构体中的各类成员
 //  1. 成员 type field_name field_name
@@ -1117,13 +1123,13 @@ $(anytype T) { ((*T p, int size) int) read }
 //  3. 成员别名 type (a | b | c | ...)
 //  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ... }
 def test {
-    int a int b int c int x y z // 重复前一类型，不允许 int x, y, z,
+    int a int b int c int x, y, z // 重复前一类型
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int [1] inplace [31] size // 位域
     int (size | bytes | count) // 成员别名
     f64 d {
-        | int (i | j | k) m
-        | f32 f g (h | p | q)
+        | int (i | j | k), m
+        | f32 f, g, (h | p | q)
         | byte b r32 u
         | byte b r32 u
         | char c
@@ -1572,9 +1578,9 @@ def test $(anytype t, u) {
 }
 
 def color enum int {
-    red = enum + 1,
-    blue,
-    green,
+    red = enum + 1
+    blue
+    green
     yellow
 }
 
@@ -1710,36 +1716,36 @@ CoroGuard { // 内嵌只能内嵌结构体类型，不能是指针
 }
 
 Color $i08 {
-    RED = enum + 1,
-    BLUE,
+    RED = enum + 1
+    BLUE
     YELLOW
 }
 
 Color $int {
-    red,
-    blue = blue_defined_value,
-    yellow,
+    red
+    blue = blue_defined_value
+    yellow
 }
 
 Color $i08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    RED = 1,
-    BLUE = 2,
-    YELLOW = 3,
+    RED = 1
+    BLUE = 2
+    YELLOW = 3
 }
 
 BitValue $int {
-    FLAG_BIT1 = 1 << enum,
-    FLAG_BIT2,
-    FLAG_BIT3,
-    FLAG_BIT4,
+    FLAG_BIT1 = 1 << enum
+    FLAG_BIT2
+    FLAG_BIT3
+    FLAG_BIT4
 }
 
 Main(i32 argc **byte argv i32)
 Scale(Point point int a b)
 Calc(int a b int)
 Array $T $int size { [size]T a }
-Color $i08 {RED = 1, BLUE = 2, YELLOW = 3}
-BitValue $int {FLAG_BIT1 = 1 << enum, FLAG_BIT2, FLAG_BIT3}
+Color $i08 {RED = 1  BLUE = 2  YELLOW = 3}
+BitValue $int {FLAG_BIT1 = 1 << enum  FLAG_BIT2  FLAG_BIT3}
 
 TcpAction $int {
     TCPA_OPEN_ACCEPT
@@ -1781,30 +1787,30 @@ Expr $sum { // enum 定义的是一个联合体类型
 }
 
 Oper $int -> {int lpri int rpri} { // $int 定义的是一个常量
-    ass {'=', 200, 201}, // a = 2 + b = 3
-    add {'+', 211, 210},
-    sub {'-', 211, 210},
-    mul {'*', 221, 220},
-    div {'/', 221, 220},
-    pow {'^', 230, 231},
-    dot {'.', 251, 250},
+    ass {'=', 200, 201} // a = 2 + b = 3
+    add {'+', 211, 210}
+    sub {'-', 211, 210}
+    mul {'*', 221, 220}
+    div {'/', 221, 220}
+    pow {'^', 230, 231}
+    dot {'.', 251, 250}
     end {0} // 默认值为零
 }
 
 def color enum r08 { // private type
-    RED, GREEN, BLUE
+    RED GREEN BLUE
 }
 
 pub color enum r08 { // public type
-    RED,
-    GREEN = 1 << enum,
-    BLUE,
+    RED
+    GREEN = 1 << enum
+    BLUE
 }
 
 pub color enum r08 + strict { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
-    RED = 1,
-    BLUE = 2,
-    YELLOW = 3,
+    RED = 1
+    BLUE = 2
+    YELLOW = 3
 }
 
 def point {
@@ -1857,29 +1863,29 @@ def __equal__(string a, b, &bool) {
 }
 
 def color enum r08 { // private type
-    red, green, blue
+    red green blue
 }
 
 pub color enum r08 { // public type
-    red,
-    green = 1 << enum,
-    blue,
+    red
+    green = 1 << enum
+    blue
 }
 
 def color enum r08 {
-    red = 1, green = 2, blue
+    red = 1  green = 2  blue
 }
 
 def color enum r08 {
-    red = blue_defined_value, green, blue
+    red = blue_defined_value  green  blue
 }
 
 def color enum {
-    red, green, blue
+    red green blue
 }
 
 def color enum int {
-    red, green, blue
+    red green blue
 }
 
 def test $(enum C) {
@@ -1895,11 +1901,12 @@ using point_ptr *point
 using type_point point
 using func_type (int a, &int)
 using tuple_type [int float]
-const name 3.1415926
+
+def #name 3.1415926
 
 def name(int a, &int) { ... }
-def name enum { red, blue, green }
-def name enum int { red, bule, green }
+def name enum { red blue green }
+def name enum int { red bule green }
 def name enum int [r08 lpri r08 rpri] { ... }
 def name enum [r08 lpri r08 rpri] { ... }
 def name { int a int b }
@@ -1928,7 +1935,7 @@ def array $(anytype T, int SIZE) SIZE > 0 {
     [SIZE]T a
 }
 
-def array $(anytype T, const SIZE) static typeof SIZE == Integer && SIZE > 0 {
+def array $(anytype T, const SIZE) typeof SIZE == Integer && SIZE > 0 {
     [SIZE]T a
 }
 
@@ -1955,7 +1962,7 @@ using array_type typename array // 引用类型名称
 using name_array array // 默认名称是一个变量名或函数名
 using std_array std::array
 using std_<name> std::name
-using my_int int
+using my_int int export // 导出的别名
 
 def real_std namespace std // 以防两个文件中定义了相同的名字空间
 def array_type typename array // 引用类型名称
@@ -1978,19 +1985,19 @@ const PI 3.1415926
 romem P7 [int int] {100, 200}
 immut P8 [int int] {xval, yval}
 
-def SZ const 1024 // 类型为 const int
-def PI const 3.1415926 // 类型为 const float
-def 2P const 2*PI // 类型为 const float
-def PI const f64 3.1415926 // 类型为 const f64
-def PT const point {100, 200} // 类型为 const point
-def P3 const [_]int {100, 200} // 类型为 const [2]int
-def P4 const [int int] {100, 200} // 类型为 const [int int]
-def P5 const {int a int b} {100, 200} // 类型为 const {int a int b}
-def P6 const (int a, int b, &int) { return a + b } // 相当于 def P6(int a b, &int) { return a + b }
-def SZ const 1024
-def PI const 3.1415926
-def P7 romem [int int] {100, 200}
-def P8 immut [int int] {xval, yval}
+def #SZ 1024
+def #PI 3.14159
+def #2P 2*PI
+def #PI f64 3.1415926
+def #P7 rom [int int] {100, 200}
+def #P8 imm [int int] {x, y}
+
+pub #SZ 1024
+pub #PI 3.14159
+pub #2P 2*PI
+pub #PI f64 3.1415926
+pub #P7 rom [int int] {100, 200}
+pub #P8 imm [int int] {x, y}
 
 // 应该统一常量和变量，如果变量的值是编译时已知的，就自动解析为一个常量，只要不获取这个
 // 变量的地址，这个变量就是一个常量，当然可能需要有一个不能修改的限定符。变量都是可以修
@@ -2043,7 +2050,7 @@ def P8 immut [int int] {xval, yval}
 //  romem RO int
 //  immut IM int
 //  def name int
-//  def calc(int a b, &int) // def 声明都是私有的
+//  def calc(int a, b, &int) // def 声明都是私有的
 //  def main(int argc, **argv, &int) // main 函数默认是公开的，即使定义为 def 形式也是如此
 //  def color enum
 //  def color enum int
@@ -2058,7 +2065,7 @@ def P8 immut [int int] {xval, yval}
 //  pub romem RO int
 //  pub immut IM int
 //  pub name int
-//  pub calc(int a b, &int)
+//  pub calc(int a, b, &int)
 //  pub main(int argc, **argv, &int)
 //  pub color enum
 //  pub color enum int
@@ -2258,6 +2265,9 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
+let a *int undefined
+let a int 1, b float 2
+
 let a = a + int b + c * d               fad p <= a + b
 let a = a + (int b + c) * d             fad **int p <= curr + size
 let a = a + fal p + size
@@ -2343,11 +2353,19 @@ for $i (10 to 0] step 1 { }
 // 表达式的隔断，表示一个表达式的开始 let
 // 局部变量的简化定义语法，复杂表达式需要添加括号，避免与后面括号括起的条件冲突，误解析为函数调用
 // 函数可以返回函数指针，模板类型，数组，元组，它们都是可调用对象，可以继续进行调用
+// 表达式的小括号，必须包含至少一个操作符
+// 函数调用的小括号，包含操作符时必须指定 << 用于获取函数参数值，或者包含分隔逗号
+// 单独存在的表达式（左边没有赋值目标），必须使用 of a - b * c 的 of 语句
+// a int 0, b float 1
+// a 1, b 3, c float 3.14
+// a + b // 相当于 a +b // 必须写成 a +b
+// a - c // 相当于 a -c // 必须写成 a -c
+// a *int null // 必须写成 a *int 不能写成 a * int
 if $a point {100, 200} + b (expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
-if $a $_ $c read_tuple() (expr) { stmt ... }
-if $u lexer_next_utf8(l) (u == '\'' || u == prh_char_invalid)
+if $a $_ $c read_tuple(l) (expr) { stmt ... }
+if $u lexer_next_utf8() (u == '\'' || u == prh_char_invalid)
     return TOKERR
-if $c getarray(l)[0][1](a) (c != '\'')
+if $c getarray(l)[0][1](a)(<< a == c) (c != '\'')
     return TOKERR
 l.c = lexer_next_char(l)
 l.cvalue = u
@@ -2356,9 +2374,9 @@ l.parse = utf8_to_unicode(l.parse, fad $unicode);
 return unicode;
 
 // 使用符号#定义局部常量，常量的定义不占用函数栈空间，而 $a 实际分配函数栈空间
-string_reserve(s, #SIZE 64)
+string_reserve[s, #SIZE 64]
 for i = [0 to SIZE) {
-    string_unchecked_push(s, value)
+    string_unchecked_push[s, value]
 }
 
 def calc(int a, b, &int int [x y]) {
@@ -2366,7 +2384,7 @@ def calc(int a, b, &int int [x y]) {
     y = a * b
 }
 
-def calc(int a, b, &int int or error, x, y) {
+def calc(int a, b, &int int [x y] or error) {
     if a == 0 return error_invalid
     x = a * b
     y = e_notzero
@@ -2400,8 +2418,11 @@ let a = divide(a, b) where [x] { x * 10 } or -1 // 如果有值则捕获其值�
 let a = divide(a, b) where it * 10 or -1
 if a == none
     abort(e_divbyzero)
+elif b == null
+    print("null")
 else
     print("a/b=%", a)
+endf
 
 def calc(*file? file, *expr expr, &int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
 }
@@ -2443,23 +2464,23 @@ def array $(anytype t, int size) static size > 0 {
 }
 
 def color enum { // 默认是 byte 或 r16 或 r32 或 u64，根据最大值的大小而定
-    RED, GREEN, BLUE
+    RED GREEN BLUE
 }
 
 def color int {
-    RED = 1,
-    GREEN,
-    BLUE,
+    RED = 1
+    GREEN
+    BLUE
 }
 
 def oper r32 [r08 lpri ~ rpri] { // sum type
-    ASS {'=', 200, 201},
-    ADD {'+', 211, 210},
-    SUB {'-', 211, 210},
-    MUL {'*', 221, 220},
-    DIV {'/', 221, 220},
-    POW {'^', 230, 231},
-    DOT {'.', 251, 250},
+    ASS {'=', 200, 201}
+    ADD {'+', 211, 210}
+    SUB {'-', 211, 210}
+    MUL {'*', 221, 220}
+    DIV {'/', 221, 220}
+    POW {'^', 230, 231}
+    DOT {'.', 251, 250}
     END {0} // 默认值为零
 }
 
@@ -2469,9 +2490,9 @@ def read_username_result enum {
 }
 
 def token enum { // sum type
-    ATOM {byte id},
-    OPER {byte id},
-    TEST [int int],
+    ATOM {byte id}
+    OPER {byte id}
+    TEST [int int]
     EOF
 }
 
@@ -2672,10 +2693,10 @@ def report_tcpe_opened(*TcpSocket tcp) {
 }
 
 def epoll_proc(*coro) {
-    def *epoll = cono_data(coro)
-    def *coro_pdata = undefined
-    let action = byte undefined
-    def point = {100, 200}
+    epoll *epoll cono_data(coro)
+    pdata *coro_pdata undefined
+    action byte undefined
+    point {100, 200}
     for {
         pdata = cono_pwait(coro)
         action = pdata.action
@@ -2714,12 +2735,12 @@ Color $i08 [[strict]] {RED = 1, BLUE = 2, YELLOW = 3}
 BitValue $int {FLAG_BIT1 = 1 << enum, FLAG_BIT2, FLAG_BIT3, FLAG_BIT4}
 
 TcpAction $i08 {
-    TCPA_OPEN_ACCEPT,
-    TCPA_TX_DATA,
-    TCPA_RX_DONE,
-    TCPA_CLOSE_REQ,
-    TCPA_CLOSE_CFM,
-    TCPA_EPOLL_IND,
+    TCPA_OPEN_ACCEPT
+    TCPA_TX_DATA
+    TCPA_RX_DONE
+    TCPA_CLOSE_REQ
+    TCPA_CLOSE_CFM
+    TCPA_EPOLL_IND
 }
 
 TcpAccept {
@@ -2729,15 +2750,15 @@ TcpAccept {
 }
 
 perform_tcpa_open_accept(*TcpSocket tcp r32 txbuf_size r32 rxbuf_size) {
-    let pdata = cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof(TcpAccept))
+    pdata cono_malloc_pdata(TCPA_OPEN_ACCEPT, TCPQ_UPPER, true, sizeof(TcpAccept))
     pdata.rxbuf_size = rxbuf_size
     pdata.txbuf_size = txbuf_size
     cono_freely_post(tcp.tcp_coro, pdata)
 }
 
 report_tcpe_opened(*TcpSocket tcp) {
-    let txbuf = &tcp.txbuf
-    let pdata = tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(TcpOpened))
+    txbuf fad tcp.txbuf
+    pdata tcpa_post_pdata(tcp, TCPE_OPNED, sizeof(TcpOpened))
     pdata.tcp = tcp
     pdata.txbuf = arrfit_begin(txbuf)
     pdata.size = txbuf.size
@@ -2745,9 +2766,9 @@ report_tcpe_opened(*TcpSocket tcp) {
 }
 
 epoll_proc(*Cono cono) {
-    let epoll = cono_data(cono)
-    let pdata = *ConoPdata undefined
-    let action = byte undefined
+    epoll cono_data(cono)
+    pdata fal ConoPdata undefined
+    action byte undefined
     for {
         pdata = cono_pwait(cono)
         action = pdata.action
@@ -2761,6 +2782,7 @@ epoll_proc(*Cono cono) {
             for epac_wait(epoll) void
         else
             debug(prerr(action))
+        endf
     }
 }
 
@@ -3317,9 +3339,9 @@ math:*
 //  if expr { stmt } else if expr { stmt } else { stmt }
 //
 //  2.  简单条件语句，endif 语句还可以是 else elif 或者 return break continue final goto 等跳转语句
-//  if (expr) stmt endif
-//  if (expr) stmt else stmt endif
-//  if (expr) stmt elif (expr) stmt else stmt endif // 必须是 elif 否则 endif 不知道是终结 if 还是 else if 中的 if
+//  if (expr) stmt endf
+//  if (expr) stmt else stmt endf
+//  if (expr) stmt elif (expr) stmt else stmt endf // 必须是 elif 否则 endf 不知道是终结 if 还是 else if 中的 if
 //
 //  if (a <= 0xc1) print(a) let n = 1 return 0
 //
@@ -3334,15 +3356,19 @@ math:*
 //      stmt
 //      if (expr)
 //          stmt
-//      endif
+//      endf
 //  else
 //      stmt
 //      if (expr)
 //          stmt
 //      elif (expr)
 //          stmt
-//      endif
-//  endif
+//      endf
+//  endf
+//
+//  if (a == 1) print(a) else print(b) endf
+//  if (a == 1) print(a) elif (a == 2) print(b) endf
+//  if (a == 1) print(a) elif (a == 2) print(b) else print(c) endf
 //
 //  if expr then statement
 //  if expr then statement else then statement
@@ -3405,21 +3431,21 @@ math:*
 //
 //  5.  静态条件编译
 //  #if expr
-//  #endif
+//  #endf
 //
 //  #if expr
 //  #else
-//  #endif
+//  #endf
 //
 //  #if expr
 //  #elif expr
 //  #else
-//  #endif
+//  #endf
 //
 //  #if [expr] item, item
 //  #elif item, item
 //  #else
-//  #endif
+//  #endf
 //
 //  6. 条件表达式
 //  let a = let if expr { stmt }
