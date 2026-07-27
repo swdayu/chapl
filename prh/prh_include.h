@@ -43714,6 +43714,712 @@ void prh_print_cff1_charset(prh_font_cff1_table *p) {
     }
 }
 
+// CharStrings INDEX
+// https://adobe-type-tools.github.io/font-tech-notes/
+//
+// 其中包含字体中所有字形的 charstring，存储在⼀个 INDEX 结构中。该 INDEX 中的 charstring
+// 对象按 GID 访问。第⼀个 charstring（GID 0）必须是 .notdef 字形。字体中可⽤的字形数
+// 可由 INDEX 的 count 字段确定。
+//
+// charstring 数据的格式及其解释⽅法由 Top DICT 中的 CharstringType 操作符指定。CharstringType
+// 操作符的默认值为 2，表⽰与 CFF 配套设计的 Type 2 charstring 格式。Type 1 charstring
+// 记录于 Addison-Wesley 出版的 《 Adobe Type 1 Font Format 》。 Type 2 charstring ⻅ Adobe
+// 技 术 说 明 5177 《 Type 2 Charstring Format》。此⽅法也可⽀持其他 charstring 类型。
+//
+// Type 2 格式为轮廓字体程序中的字形过程（glyph procedure）提供了⼀种紧凑编码⽅法。Type 2
+// charstring 必须在 CFF（紧凑字体格式）或 OpenType 字体⽂件中使⽤，才能构成完整的字体程序。
+// 本⽂档仅描述 Type 2 charstring 的编码⽅式，不试图解释各种⽅案选择的理由。Type 2 charstring
+// 基于 Type 1 字体概念，本⽂档假定读者熟悉 Type 1 字体格式规范。更多信息请参⻅《Adobe Type
+// 1 Font Format》1.1 版（Addison Wesley，1991）。此外，还假定读者熟悉 CFF 格式，请参⻅
+// Adobe 技术说明 5176《紧凑字体格式规范》。
+//
+// 与 Type 1 格式相⽐，Type 2 编码体积更⼩，并有机会获得更好的渲染质量和性能。Type 2
+// charstring 操作符（除⼀个例外）是 Type 1 操作符的超集。借助适当的转换程序，合法的
+// Type 1 字体程序（即与 Adobe Type Manager 软件兼容的程序）可以转换为 Type 2 字体程序，
+// Type 2 程序也可以转换回 Type 1 字体程序，且不损失信息或渲染质量。
+//
+// Type 2 Charstring
+//
+// 以下各节描述编码 Type 2 charstring 的⼀般概念。
+//
+// 提⽰（Hints）。Type 2 charstring 格式⽀持六个提⽰操作符：hstem、vstem、hstemhm、vstemhm、
+// hintmask 和 cntrmask。提⽰信息必须在 charstring 的开头声明（⻅第 3.1 节），使⽤ hstem、
+// hstemhm、vstem 和 vstemhm 操作符，每个操作符都可以携带多组 stem（词⼲）提⽰参数。
+//
+// Type 2 提⽰操作符帮助光栅化器识别和控制字形内的词⼲和字怀（counter）区域。⼀个词⼲通常
+// 由两个位置（边缘）及相应的宽度组成。边缘词⼲提⽰（edge stem hint）⽤于控制只有单个边缘
+// 的字符特征（⻅第 4.3 节）。
+//
+// Type 2 格式包含边缘提⽰，它等价于 Type 1 中幽灵提⽰（ghost hint）的概念，⻅《Adobe Type
+// 1 Font Format》第 57 ⻚幽灵提⽰⼀节。它们⽤于定位⼀个边缘，⽽不是具有两个边缘的词⼲。词
+// ⼲宽度值 –20 保留给顶部或右侧边缘，–21 保留给底部或左侧边缘。使⽤其他负宽度值的提⽰，其
+// ⾏为未定义。
+//
+// hintmask 操作符的功能与《Adobe Type 1 Font Format》第 69 ⻚ 8.1 节 “在字符内更改提⽰”
+// 所述相同。它提供了⼀种激活或停⽤词⼲提⽰的⼿段，使得同⼀时刻只有⼀组互不重叠的提⽰处于
+// 激活状态。
+//
+// hintmask 操作符后跟⼀个或多个数据字节，指定后续路径构造中哪些词⼲提⽰处于激活状态。数据
+// 字节的数量必须恰好是表⽰原始词⼲列表（即由 hstem、vstem、hstemhm 或 vstemhm 命令指定的
+// 词⼲）中词⼲数量所需的字节数，数据字节中每⼀位对应原始词⼲列表中的⼀个词⼲。位值为 1 表
+// ⽰该词⼲激活，位值为 0 表⽰该词⼲停⽤。
+//
+// cntrmask（countermask，字怀掩码）提⽰使字符中任意但不重叠的字怀空间集合受到控制，其⽅式
+// 类似于词⼲提⽰命令对词⼲宽度的控制，更多信息⻅技术说明 5015《Type 1 Font Format Supplement》。
+//
+// cntrmask 操作符后跟⼀个或多个数据字节，指定字怀空间两侧词⼲提⽰的索引编号。数据字节的数
+// 量必须恰好是表⽰原始词⼲列表（即由 hstem、vstem、hstemhm 或 vstemhm 命令指定的词⼲）中词
+// ⼲数量所需的字节数——数据字节中每⼀位对应原始词⼲列表中的⼀个词⼲。
+//
+// 对于图 1 所⽰的例⼦，该字形的词⼲列表为：
+//      H1 H2 H3 H4 H5 H6 H7 H8 V1 V2 V3 V4 V5
+//
+// 并使⽤以下 cntrmask 命令控制这些词⼲之间的字怀空间：
+//      cntrmask 0xB5 0xE8（H1 H3 H4 H6 H8 V1 V2 V3 V5）
+//      cntrmask 0x4A 0x00（H2 H5 H7）
+//
+// 数据字节中被置位的位表⽰相应的词⼲提⽰界定了所需的字怀集合。第⼀条命令中指定的提⽰优先级
+// ⾼于第⼆条命令中的提⽰。注意，V4 词⼲并未界定合适的字怀空间，因此本例中未引⽤它。
+//
+// 请注意，提⽰终究只是提⽰，即建议。它们是提供给智能光栅化器的附加指导信息。
+//
+// 如果字体的 LanguageGroup 不等于 1（LanguageGroup 值为 1 表⽰复杂的亚洲语⾔字形），那么在
+// 满⾜ Type 1 规范所规定的相关条件的前提下，可以使⽤带三个词⼲的 cntrmask 操作符来代替 Type
+// 1 格式中的 hstem3 和 vstem3 提⽰。
+//
+// 有关字怀控制（Counter Control）提⽰的更多信息，请参⻅ Adobe 技术说明 5015《Type 1 Font
+// Format Supplement》。
+//
+// Flex 机制（The Flex Machanism）。提供 flex（伸缩）机制是为了改善浅曲线的渲染：在⼩字号下
+// 将浅曲线表⽰为线段，⽽不是字符形状上的⼩凸起或凹陷。它本质上是⼀种路径构造机制：其参数描
+// 述两条曲线的构造，另有⼀个附加参数作为提⽰，指⽰在较⼩字号和分辨率下何时应把曲线渲染为直
+// 线。
+//
+// Type 2 的 flex 机制是通⽤的：对可⽤ flex 操作符表达的曲线类型或⽅向没有限制。flex 操作符
+// ⽤于⼀般情形；特殊情形可以使⽤ flex1、hflex 或 hflex1 操作符以获得更⾼效的编码。图 2 展⽰
+// 了 flex 机制⽤于⽔平曲线的例⼦，图 3 展⽰了⾮标准⻆度下 flex 曲线的例⼦。
+//
+// flex 操作符可⽤于任何⽅向、任何深度的弯曲字符特征，只要满⾜以下要求：
+//  1.  该字符特征必须能够恰好⽤两条曲线表⽰，由两个 rrcurveto 操作符绘制。
+//  2.  两条曲线必须在⼀个称为连接点（joining point）的公共点相接。
+//  3.  组合曲线的⻓度必须⼤于其深度。
+//
+// ⼦例程（Subroutines）。Type 2 字体程序可以使⽤⼦例程（subroutine），通过合并描述字体中
+// 各字符公共元素的程序语句来降低存储需求。
+//
+// ⼦例程可以是局部的或全局的。局部⼦例程仅可从当前字体的 charstring 程序中访问。全局⼦例
+// 程则在⼀个 FontSet 内的多个字体之间共享，更多信息⻅ Adobe 技术说明 5176《CFF 字体格式规
+// 范》。
+//
+// ⼦例程可以包含 charstring ⽚段，编码⽅式与 Type 2 charstring 相同。调⽤时使⽤ callsubr
+// （局部⼦例程）或 callgsubr（全局⼦例程）操作符，参数为指向局部或全局 Subrs 数组的加偏置
+// 索引。注：与 Type 1 格式的偏置不同，Type 2 中的偏置不是可选的，⽽是固定的，取决于⼦例程
+// 的数量。
+//
+// charstring ⼦例程可以调⽤其他⼦例程，嵌套深度以实现限制为准（⻅附录 B）。charstring ⼦例
+// 程必须以 endchar 或 return 操作符结束。如果⼦例程以 endchar 操作符结束，则⽆需 return。
+//
+// Charstring 编码（Charstring Encoding）
+//
+// Type 2 charstring 程序是⼀串⽆符号 8 位字节序列，⽤于编码数值和操作符。字节值指定⼀个操作
+// 符、⼀个数值，或需要以特定⽅式解释的后续字节。字节被解码为数值和操作符。该格式⽐ Type 1 更
+// 节省的原因之⼀是：Type 2 charstring 解释器需要对参数栈上的参数个数进⾏计数，因此可以检测到
+// 属于单个操作符的多组参数。栈深度实现限制⻅附录 B。
+//
+// 从 charstring 解码出的数值被压⼊ Type 2 参数栈。操作符按顺序从参数栈获取其参数，通常所有参
+// 数都取⾃栈底（第⼀个参数在最底部）；但有些操作符（尤其是⼦例程操作符）通常从栈顶取参数。如
+// 果操作符返回结果，结果也被压⼊ Type 2 参数栈（最后⼀个结果在最顶部）。
+//
+// 在以下讨论中，除⾮特别说明，所有数值常量均为⼗进制数。
+//
+// Type 2 Charstring 的组织。Type 2 charstring 程序的序列和形式可表⽰为：
+//      w? {hs* vs* cm* hm* mt subpath}? {mt subpath}* endchar
+// 其中：
+//      w = 宽度（width）
+//      hs = hstem 或 hstemhm 命令
+//      vs = vstem 或 vstemhm 命令
+//      cm = cntrmask 操作符
+//      hm = hintmask 操作符
+//      mt = moveto（即任意⼀种 moveto）操作符
+//      subpath = 指⼀个⼦路径（⼀条完整闭合轮廓）的构造，其中可在适当位置包含 hintmask 操作符
+//
+// 以下符号表⽰特定⽤法：
+//      * 允许出现零次或多次
+//      ? 允许出现零次或⼀次
+//      + 允许出现⼀次或多次
+//      {} 表⽰分组
+//
+// ⽤⽂字表述，charstring 中操作符序列的约束如下。Type 2 charstring 必须按以下特定顺序
+// 组织操作符（或操作符类别）：
+//  1.  宽度：如果 charstring 的宽度与 defaultWidthX 不同，⻅技术说明 5176《紧凑字体格
+//      式规范》，则必须将其指定为 charstring 中的第⼀个数值，并按与 nominalWidthX 的差
+//      值编码。
+//  2.  提⽰：下列各提⽰操作符各出现零次或多次，且严格按以下顺序：hstem、hstemhm、vstem、
+//      vstemhm、cntrmask、hintmask。每⼀项都是可选的，且每⼀项都可以⽤该操作符的⼀次或
+//      多次出现来表⽰。如果 charstring 没有词⼲提⽰，则不得出现 cntrmask 和/或 hintmask
+//      操作符。
+//  3.  路径构造：不含提⽰的 charstring 的第⼀条路径必须以某种 moveto 操作符开始，以便正
+//      确检测前⾯的宽度。使⽤零个或多个路径构造操作符绘制字符的路径；第⼆条及后续所有⼦
+//      路径也必须以某种 moveto 操作符开始。hintmask 操作符可按需使⽤。
+//  4.  endchar：字符必须以 endchar 操作符结束。
+//
+// 注：charstring 可以在任意完整标记（操作符或数值）之间的位置按需包含 subr 和 gsubr 调
+// ⽤。这意味着 subr（gsubr）调⽤不得出现在多字节命令（例如 hintmask）的字节之间。
+//
+// Charstring 数值编码（Number Encoding）。值在 32 到 254（含）之间的 charstring 字节表⽰
+// ⼀个整数。这些值分三个范围解码（另⻅表 1）：
+//  1.  charstring 字节的值 v 在 32 到 246（含）之间时，指定整数 v − 139。因此，–107 到
+//      107（含）的整数值可以⽤单字节编码。
+//  2.  charstring 字节的值 v 在 247 到 250（含）之间时，表⽰⼀个涉及下⼀字节 w 的整数，
+//      按公式：(v − 247) * 256 + w + 108。因此，108 到 1131（含）的整数值可以⽤ 2 字节
+//      编码。
+//  3.  charstring 字节的值 v 在 251 到 254（含）之间时，表⽰⼀个涉及下⼀字节 w 的整数，
+//      按公式：− [(v − 251) * 256] − w − 108。因此，–1131 到 –108（含）的整数值可以⽤
+//      2 字节编码。
+//
+// 如果 charstring 字节的值为 255，则随后四个字节表⽰⼀个⼆进制补码有符号数。这四个字节
+// 中，第⼀个含最⾼位，第⼆个含次⾼位，第四个含最低位。该数被解释为 Fixed 类型，即带 16
+// 位⼩数部分的有符号数。
+//
+// 注：Type 2 对五字节编码数值（⾸字节值为 255）的解释与 Type 1 格式中的解释不同。
+//
+// 除 32 到 255 的范围外，还可以⽤操作符 (28) 后跟两个字节来指定 ShortInt 值，这两个字节
+// 表⽰ –32768 到 +32767 之间的数。最⾼有效字节紧随 (28)。这使得字体中偶尔出现的⼤数能有
+// 更紧凑的表⽰；但也许更重要的是，它使得⽤作 callsubr 和 callgsubr 参数的数值能有更紧凑
+// 的编码。
+//
+//      Type 2 Charstring 编码值
+//      Charstring 字节值       解释                            可表⽰的数值范围                    所需字节数
+//      0 – 11                  操作符                          操作符 0 到 11                      1
+//      12                      转义：下⼀字节解释为附加操作符  操作符代码增加 0 到 255 的范围      2
+//      13 – 18                 操作符                          操作符 13 到 18                     1
+//      19, 20                  操作符（hintmask 和 cntrmask）  操作符 19、20                       2 或更多
+//      21 – 27                 操作符                          操作符 21 到 27                     1
+//      28                      随后 2 字节解释为 16 位⼆进制补码数         –32768 到 +32767        3
+//      29 – 31                 操作符                          操作符 29 到 31                     1
+//      32 – 246                结果 = v–139                    –107 到 +107                        1
+//      247 – 250               与下⼀字节 w，结果 = (v–247)*256+w+108      +108 到 +1131           2
+//      251 – 254               与下⼀字节 w，结果 = –[(v–251)*256]–w–108   –108 到 –1131           2
+//      255                     随后 4 字节解释为 32 位⼆进制补码数     带16位⼩数的16位有符号整数  5
+//
+// Charstring 操作符编码（Operator Encoding）。charstring 操作符以 1 或 2 字节编码。单字节
+// 操作符编码在⼀个字节中，其值在 0 到 31（含）之间，但不包括 12 和 28。并⾮所有可能的操作
+// 符编码值都有定义（操作符编码值列表⻅附录 A）。未定义操作符的⾏为不作规定。
+//
+// 如果操作符字节的值为 12，则下⼀字节中的值指定⼀个操作符。这种转义机制允许编码许多额外的
+// 操作符。
+
+prh_i32 prh_font_cff1_charstring_integer(const prh_byte *b, prh_r32 *value_bytes) {
+    if (b[0] == 28) { *value_bytes = 3; return ((prh_i32)b[1] << 8) | b[2]; } // -32768 ~ + 32767
+    if (b[0] >= 32 && b[0] <= 246) { *value_bytes = 1; return (prh_i32)b[0] - 139; } // -107 ~ +107
+    if (b[0] >= 247 && b[0] <= 250) { *value_bytes = 2; return ((prh_i32)b[0] - 247) * 256 + (prh_i32)b[1] + 108; } // +108 ~ +1131
+    if (b[0] >= 251 && b[0] <= 254) { *value_bytes = 2; return -((prh_i32)b[0] - 251) * 256 - (prh_i32)b[1] - 108; } // -1131 ~ -108
+    if (b[0] == 255) { *value_bytes = 5; return ((prh_i32)b[1] << 24) | ((prh_i32)b[2] << 16) | ((prh_i32)b[3] << 8) | b[4]; } // –(2^31) ~ +(2^31–1)
+    *value_bytes = 0; return 0;
+}
+
+prh_r32 prh_font_cff1_charstring_value_bytes(const prh_byte *b) {
+    if (b[0] <= 31) { if (b[0] == 12) return 2; if (b[0] == 28) return 3; return 1; }
+    if (b[0] >= 32 && b[0] <= 246) return 1;
+    if (b[0] >= 247 && b[0] <= 250) return 2;
+    if (b[0] >= 251 && b[0] <= 254) return 2;
+    return 5;
+}
+
+#define PRH_CFF_CHARSTRING_OP_HSTEM         0x01 // 1
+#define PRH_CFF_CHARSTRING_OP_VSTEM         0x03 // 3
+#define PRH_CFF_CHARSTRING_OP_VMOVETO       0x04 // 4
+#define PRH_CFF_CHARSTRING_OP_RLINETO       0x05 // 5
+#define PRH_CFF_CHARSTRING_OP_HLINETO       0x06 // 6
+#define PRH_CFF_CHARSTRING_OP_VLINETO       0x07 // 7
+#define PRH_CFF_CHARSTRING_OP_RRCURVETO     0x08 // 8
+#define PRH_CFF_CHARSTRING_OP_CLOSEPATH     0x09 // 9 - type 1 operator
+#define PRH_CFF_CHARSTRING_OP_CALLSUBR      0x0A // 10
+#define PRH_CFF_CHARSTRING_OP_RETURN        0x0B // 11
+#define PRH_CFF_CHARSTRING_OP_ESCAPE        0x0C // 12
+#define PRH_CFF_CHARSTRING_OP_HSBW          0x0D // 13 - type 1 operator
+#define PRH_CFF_CHARSTRING_OP_ENDCHAR       0x0E // 14
+#define PRH_CFF_CHARSTRING_OP_HSTEMHM       0x12 // 18
+#define PRH_CFF_CHARSTRING_OP_HINTMASK      0x13 // 19
+#define PRH_CFF_CHARSTRING_OP_CNTRMASK      0x14 // 20
+#define PRH_CFF_CHARSTRING_OP_RMOVETO       0x15 // 21
+#define PRH_CFF_CHARSTRING_OP_HMOVETO       0x16 // 22
+#define PRH_CFF_CHARSTRING_OP_VSTEMHM       0x17 // 23
+#define PRH_CFF_CHARSTRING_OP_RCURVELINE    0x18 // 24
+#define PRH_CFF_CHARSTRING_OP_RLINECURVE    0x19 // 25
+#define PRH_CFF_CHARSTRING_OP_VVCURVETO     0x1A // 26
+#define PRH_CFF_CHARSTRING_OP_HHCURVETO     0x1B // 27
+#define PRH_CFF_CHARSTRING_OP_CALLGSUBR     0x1D // 29
+#define PRH_CFF_CHARSTRING_OP_VHCURVETO     0x1E // 30
+#define PRH_CFF_CHARSTRING_OP_HVCURVETO     0x1F // 31
+
+#define PRH_CFF_CHARSTRING_EOP_DOTSECTION   0x00 // 0 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_VSTEM3       0x01 // 1 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_HSTEM3       0x02 // 2 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_AND          0x03 // 3
+#define PRH_CFF_CHARSTRING_EOP_OR           0x04 // 4
+#define PRH_CFF_CHARSTRING_EOP_NOT          0x05 // 5
+#define PRH_CFF_CHARSTRING_EOP_SEAC         0x06 // 6 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_SBW          0x07 // 7 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_ABS          0x09 // 9
+#define PRH_CFF_CHARSTRING_EOP_ADD          0x0A // 10
+#define PRH_CFF_CHARSTRING_EOP_SUB          0x0B // 11
+#define PRH_CFF_CHARSTRING_EOP_DIV          0x0C // 12
+#define PRH_CFF_CHARSTRING_EOP_NEG          0x0E // 14
+#define PRH_CFF_CHARSTRING_EOP_EQ           0x0F // 15
+#define PRH_CFF_CHARSTRING_EOP_CALLOTHERSUBR 0x10 // 16 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_POP          0x11 // 17 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_DROP         0x12 // 18
+#define PRH_CFF_CHARSTRING_EOP_PUT          0x14 // 20
+#define PRH_CFF_CHARSTRING_EOP_GET          0x15 // 21
+#define PRH_CFF_CHARSTRING_EOP_IFELSE       0x16 // 22
+#define PRH_CFF_CHARSTRING_EOP_RANDOM       0x17 // 23
+#define PRH_CFF_CHARSTRING_EOP_MUL          0x18 // 24
+#define PRH_CFF_CHARSTRING_EOP_SQRT         0x1A // 26
+#define PRH_CFF_CHARSTRING_EOP_DUP          0x1B // 27
+#define PRH_CFF_CHARSTRING_EOP_EXCH         0x1C // 28
+#define PRH_CFF_CHARSTRING_EOP_INDEX        0x1D // 29
+#define PRH_CFF_CHARSTRING_EOP_ROLL         0x1E // 30
+#define PRH_CFF_CHARSTRING_EOP_SETCURRENTPOINT 0x21 // 33 - type 1 operator
+#define PRH_CFF_CHARSTRING_EOP_HFLEX        0x22 // 34
+#define PRH_CFF_CHARSTRING_EOP_FLEX         0x23 // 35
+#define PRH_CFF_CHARSTRING_EOP_HFLEX1       0x24 // 36
+#define PRH_CFF_CHARSTRING_EOP_FLEX1        0x25 // 37
+
+const char *prh_impl_print_cff1_charstring_operator(prh_byte *p) {
+    const char *oper[] = {
+        "Reserved", "hstem", "Reserved", "vstem", "vmoveto", "rlineto", "hlineto", "vlineto",
+        "rrcurveto", "closepath (typ1)", "callsubr", "return", "escape", "hsbw (typ1)", "endchar", "Reserved",
+        "Reserved", "Reserved", "hstemhm", "hintmask", "cntrmask", "rmoveto", "hmoveto", "vstemhm",
+        "rcurveline", "rlinecurve", "vvcurveto", "hhcurveto", "Unknown", "callgsubr", "vhcurveto", "hvcurveto"};
+    const char *ext_oper[] = {
+        "dotsection (typ1)", "vstem3 (typ1)", "hstem3 (typ1)", "and", "or", "not", "seac (typ1)", "sbw (typ1)",
+        "Reserved", "abs", "add", "sub", "div", "Reserved", "neg", "eq"
+        "callothersubr (typ1)", "pop (typ1)", "drop", "Reserved", "put", "get", "ifelse", "random",
+        "mul", "Reserved", "sqrt", "dup", "exch", "index", "roll", "Reserved",
+        "Reserved", "setcurrentpoint (typ1)", "hflex", "flex", "hflex1", "flex1"};
+    if (p[0] == 12) {
+        if (p[1] <= 37) return ext_oper[p[1]];
+        return "Reserved";
+    } else {
+        return oper[p[0]];
+    }
+}
+
+void prh_impl_print_cff1_charstring_glyph(prh_byte *glyph, prh_r32 length) {
+    prh_r32 bytes, count = 0;
+    prh_r32 operand_count = 0;
+    prh_r32 value_count = 0;
+    while (count < length) {
+        prh_byte *b = glyph + count;
+        bytes = prh_font_cff1_charstring_value_bytes(b);
+        value_count += 1;
+        prh_print("GLYPH DATA %04d (%03d) %04d len %02d: ",
+            (prh_reg)length,
+            (prh_reg)value_count,
+            (prh_reg)count,
+            (prh_reg)bytes);
+        count += bytes;
+        for (prh_r32 i = 0; i < bytes; i += 1) prh_print("%02x ", (prh_reg)b[i]);
+        if (bytes * 3 < 21) prh_print_byte(' ', 21 - bytes * 3);
+        if (*b == 28 || *b > 31) { // 28 和 32–255 表⽰操作数（数值）
+            prh_r32 value_bytes;
+            prh_i32 integer = prh_font_cff1_charstring_integer(b, &value_bytes);
+            prh_print("INTEGER %d\n", (prh_reg)integer);
+            prh_real_assert(bytes == value_bytes);
+            operand_count += 1;
+        } else { // 0 ~ 31 除 28 外表⽰操作符
+            prh_print("OPERATOR(%d) %s\n", (prh_reg)operand_count, prh_impl_print_cff1_charstring_operator(b));
+            prh_real_assert(operand_count <= 48); // ⼀个操作符之前最多可以有 48 个操作数
+            operand_count = 0;
+        }
+    }
+    prh_real_assert(count == length);
+}
+
+void prh_print_cff1_charstrings_index(prh_font_cff1_table *p) {
+    prh_r32 charstrings_glyphs = p->charstrings_glyphs;
+    prh_r32 turns = 3, count = 3, stride;
+    prh_byte *glyph_data;
+    prh_r32 data_length;
+    prh_r32 glyph_index;
+    if (charstrings_glyphs / count < turns) turns = charstrings_glyphs / count;
+    stride = charstrings_glyphs / turns;
+
+    prh_print(
+        "----------------------------\n"
+        "cff1 CharStrings INDEX offset %d\n"
+        "cff1 CharStrings INDEX length %d\n"
+        "cff1 CharStrings INDEX object offsize %d\n"
+        "cff1 CharStrings glyphs %d (GID 0 included)\n"
+        "----------------------------",
+        (prh_reg)p->charstrings_offset,
+        (prh_reg)p->charstrings_index_bytes,
+        (prh_reg)prh_impl_font_cff1_index_offsize(p->charstrings_index),
+        (prh_reg)prh_impl_font_cff1_index_objects(p->charstrings_index));
+
+    for (prh_r32 turn_i = 0; turn_i < turns; turn_i += 1) {
+        for (prh_r32 i = 0; i < count; i += 1) {
+            glyph_index = stride * turn_i + i;
+            glyph_data = prh_font_cff1_object_data(p->charstrings_index, (prh_r16)glyph_index, &data_length);
+            prh_prinf(
+                "\ncff1 CharStrings #glyph %04d (%04d/%d) SID %03d\n",
+                (prh_reg)glyph_index, (prh_reg)(glyph_index + 1),
+                (prh_reg)charstrings_glyphs,
+                (prh_reg)prh_font_cff1_charset_glyph(p, glyph_index));
+            prh_impl_print_cff1_charstring_glyph(glyph_data, data_length);
+        }
+    }
+}
+
+// Charstring 操作符（Charstring Operators）
+//
+// Type 2 charstring 操作符按功能分为七组：
+//      1）路径构造
+//      2）结束路径
+//      3）提⽰
+//      4）算术
+//      5）存储
+//      6）条件
+//      7）⼦例程
+//
+// 以下定义采⽤与《PostScript 语⾔参考⼿册》类似的格式。操作符名称后的括号内，是该操
+// 作符在 charstring 字节中的操作符值，或者是表⽰双字节操作符的两个值（以 12 开头）。
+//
+// 许多操作符从 Type 2 参数栈的最底部取参数；此⾏为⽤出现在第⼀个参数左侧的栈底符号“|-”
+// 表⽰。会清空参数栈的操作符，则在操作符定义的结果位置以栈底符号“|-”表⽰。
+//
+// 由于这种清栈⾏为，⼀般来说参数不会在 Type 2 参数栈上累积以供随后⼀系列操作符取⽤；通常
+// 只能为下⼀个操作符提供参数。明显的例外出现在⼦例程调⽤以及算术和条件操作符中。所有栈操
+// 作都必须遵守栈限制（⻅附录 B）。
+//
+// 路径构造操作符（Path Construction Operators）
+//
+// 在 Type 2 charstring 中，路径由⼀个或多个路径构造操作符依次应⽤⽽构成。当前点最初是字符
+// 坐标系的 (0, 0) 点。本节列出的操作符会使当前点发⽣改变，或通过 moveto 操作，或通过在当
+// 前点上追加⼀个或多个曲线或直线段。操作完成后，当前点更新为移动所到的位置，或各线段的最
+// 后⼀个点。许多操作符可以接受多组参数，表⽰⼀系列路径构造操作。操作数量仅受栈⼤⼩限制（⻅
+// 附录 B）。
+//
+// 所有⻉塞尔曲线路径段都使⽤六个参数绘制：dxa、dya、dxb、dyb、dxc、dyc；其中 dxa 和 dya
+// 相对于当前点，所有后续参数均相对于前⼀个点。⼀些曲线操作符利⽤了某些切线点处于⽔平或垂
+// 直⽅向（因⽽相应值为零）的情形，从⽽减少了所需参数的数量。
+//
+// flex 操作符被视为路径构造命令，因为它们指定了两条曲线的绘制。另有⼀个附加参数作为提⽰，
+// 指⽰在⼩字号和低分辨率下何时把曲线渲染为直线。
+//
+// moveto 操作符有三种类型。对于 charstring 中的第⼀个 moveto 操作符，参数相对于字符坐标系
+// 的 (0, 0) 点；后续 moveto 操作符的参数相对于当前点。
+//
+// 每个字符路径和⼦路径都必须以某种 moveto 操作符开始。如果遇到 moveto 操作符时当前路径未
+// 闭合，则在执⾏ moveto 操作之前先闭合该路径。
+//
+// rmoveto |- dx1 dy1 rmoveto (21) |-
+//
+//      将当前点移动到相对坐标 (dx1, dy1) 处。注 4：第⼀个清栈操作符（必须是 hstem、hstemhm、
+//      vstem、vstemhm、cntrmask、hintmask、hmoveto、vmoveto、rmoveto 或 endchar 之⼀）接
+//      受⼀个附加参数，宽度（如前所述），可表⽰为零个或⼀个数值参数。
+//
+// hmoveto |- dx1 hmoveto (22) |-
+//
+//      将当前点沿⽔平⽅向移动 dx1 个单位。⻅注 4。
+//
+// vmoveto |- dy1 vmoveto (4) |-
+//
+//      将当前点沿垂直⽅向移动 dy1 个单位。⻅注 4。
+//
+// rlineto |- {dxa dya}+ rlineto (5) |-
+//
+//      从当前点向相对坐标 dxa、dya 处追加⼀条直线。对所有后续参数对执⾏额外的 rlineto 操作。
+//      直线条数由栈上参数个数决定。
+//
+// hlineto |- dx1 {dya dxb}* hlineto (6) |-
+//         |- {dxa dyb}+ hlineto (6) |-
+//
+//      向当前点追加⼀条⻓度为 dx1 的⽔平线。参数个数为奇数时，后续参数对被解释为 dy 和 dx
+//      交替的值，相应的额外 lineto 操作绘制垂直与⽔平交替的直线。参数个数为偶数时，参数被
+//      解释为⽔平与垂直交替的直线。直线条数由栈上参数个数决定。
+//
+// vlineto |- dy1 {dxa dyb}* vlineto (7) |-
+//         |- {dya dxb}+ vlineto (7) |-
+//
+//      向当前点追加⼀条⻓度为 dy1 的垂直线。参数个数为奇数时，后续参数对被解释为 dx 和 dy
+//      交替的值，相应的额外 lineto 操作绘制⽔平与垂直交替的直线。参数个数为偶数时，参数被
+//      解释为垂直与⽔平交替的直线。直线条数由栈上参数个数决定。
+//
+// rrcurveto |- {dxa dya dxb dyb dxc dyc}+ rrcurveto (8) |-
+//
+//      向当前点追加⼀条由 dxa…dyc 定义的⻉塞尔曲线。对随后每组六个参数，再向当前点追加⼀
+//      条曲线。曲线段数由数值栈上的参数个数决定，仅受数值栈⼤⼩限制。
+//
+// hhcurveto |- dy1? {dxa dxb dyb dxc}+ hhcurveto (27) |-
+//
+//      向当前点追加⼀条或多条由 dxa…dxc 参数组描述的⻉塞尔曲线。对每条曲线，若为 4 个参数，
+//      则曲线⽔平开始且⽔平结束。第⼀条曲线不必⽔平开始（奇数参数情形）。注意奇数参数情形
+//      的参数顺序。
+//
+// hvcurveto |- dx1 dx2 dy2 dy3 {dya dxb dyb dxc dxd dxe dye dyf}* dxf? hvcurveto (31) |-
+//           |- {dxa dxb dyb dyc dyd dxe dye dxf}+ dyf? hvcurveto (31) |-
+//
+//      向当前点追加⼀条或多条⻉塞尔曲线。第⼀条⻉塞尔曲线的切线必须是⽔平的，第⼆条必须是
+//      垂直的（下述情形除外）。如果参数个数是 4 的倍数，曲线⽔平开始、垂直结束。注意曲线
+//      在“⽔平开始、垂直结束”与“垂直开始、⽔平结束”之间交替。最后⼀条曲线（奇数参数情形）
+//      不必以⽔平/垂直结束。
+//
+// rcurveline |- {dxa dya dxb dyb dxc dyc}+ dxd dyd rcurveline (24) |-
+//
+//      等价于对每组六个参数 dxa…dyc 执⾏⼀次 rrcurveto，随后⽤参数 dxd、dyd 恰好执⾏⼀次
+//      rlineto。曲线条数由参数栈上的计数决定。
+//
+// rlinecurve |- {dxa dya}+ dxb dyb dxc dyc dxd dyd rlinecurve (25) |-
+//
+//      等价于：除⼀次 rrcurveto 命令所需的六个参数 dxb…dyd 之外，对其余每对参数执⾏⼀次
+//      rlineto。直线条数由参数栈上的项数决定。
+//
+// vhcurveto |- dy1 dx2 dy2 dx3 {dxa dxb dyb dyc dyd dxe dye dxf}* dyf? vhcurveto (30) |-
+//           |- {dya dxb dyb dxc dxd dxe dye dyf}+ dxf? vhcurveto (30) |-
+//
+//      向当前点追加⼀条或多条⻉塞尔曲线，其中第⼀条切线是垂直的，第⼆条切线是⽔平的。
+//      此命令是 hvcurveto 的互补命令；更多信息⻅ hvcurveto 的描述。
+//
+// vvcurveto |- dx1? {dya dxb dyb dyc}+ vvcurveto (26) |-
+//
+//      向当前点追加⼀条或多条曲线。若参数个数是 4 的倍数，曲线垂直开始且垂直结束。若参数
+//      个数为奇数，第⼀条曲线不以垂直切线开始。
+//
+// flex |- dx1 dy1 dx2 dy2 dx3 dy3 dx4 dy4 dx5 dy5 dx6 dy6 fd flex (12 35) |-
+//
+//      使参数所描述的两条⻉塞尔曲线（如下图 2 所⽰）在 flex 深度⼩于 fd/100 个设备像素时
+//      渲染为直线，在 flex 深度⼤于或等于 fd/100 个设备像素时渲染为曲线。
+//
+//      如图 2 所⽰，⽔平曲线的 flex 深度是从连接点到曲线起点与终点连线的距离。如果曲线并
+//      ⾮严格的⽔平或垂直，则必须按下⽂ flex1 描述中所述的⽅法（如图 3 所⽰）判断曲线更偏
+//      ⽔平还是更偏垂直。图 2 Flex 提⽰⽰例：
+//
+//      注 5：当曲线中的某些点与其他点具有相同的 x 或 y 坐标时，可以使⽤ flex 操作符的下列
+//      形式之⼀，hflex、hflex1 或 flex1，来省略参数。
+//
+// hflex |- dx1 dx2 dy2 dx3 dx4 dx5 dx6 hflex (12 34) |-
+//
+//      使参数 dx1…dx6 所描述的两条曲线在 flex 深度⼩于 0.5（即 fd 为 50）个设备像素时渲染
+//      为直线，在 flex 深度⼤于或等于 0.5 个设备像素时渲染为曲线。当以下条件全部成⽴时使⽤
+//      hflex：
+//      a) 起点和终点、第⼀个和最后⼀个控制点具有相同的 y 值。
+//      b) 连接点及相邻控制点具有相同的 y 值。
+//      c) flex 深度为 50。
+//
+// hflex1 |- dx1 dy1 dx2 dy2 dx3 dx4 dx5 dy5 dx6 hflex1 (12 36) |-
+//
+//      使参数所描述的两条曲线在 flex 深度⼩于 0.5 个设备像素时渲染为直线，在 flex 深度⼤
+//      于或等于 0.5 个设备像素时渲染为曲线。当不满⾜ hflex 的条件但以下条件全部成⽴时使⽤
+//      hflex1：
+//      a) 起点和终点具有相同的 y 值。
+//      b) 连接点及相邻控制点具有相同的 y 值。
+//      c) flex 深度为 50。
+//
+// flex1 |- dx1 dy1 dx2 dy2 dx3 dy3 dx4 dy4 dx5 dy5 d6 flex1 (12 37) |-
+//
+//      使参数所描述的两条曲线在 flex 深度⼩于 0.5 个设备像素时渲染为直线，在 flex 深度⼤
+//      于或等于 0.5 个设备像素时渲染为曲线。参数 d6 是 dx 还是 dy 值取决于曲线（⻅图 3）。
+//      为确定正确的值，计算从起点 (x, y)（第⼀条曲线的第⼀个点）到最后⼀个 flex 控制点
+//       (dx5, dy5) 的距离：将除 d6 之外的所有参数求和，记为 (dx, dy)。若 abs(dx) > abs(dy)，
+//      则最后⼀个点的 x 值由 d6 给出，其 y 值等于 y；否则，最后⼀个点的 x 值等于 x，其 y
+//      值由 d6 给出。当不满⾜ hflex 和 hflex1 的条件但以下条件全部成⽴时使⽤ flex1：
+//      a) 起点和终点具有相同的 x 或 y 值。
+//      b) flex 深度为 50。
+//
+//      图 3 Flex 深度计算（左：垂直 Flex，dy > dx；右：⽔平 Flex，dx > dy）
+//
+// 结束路径的操作符（Operator for Finishing a Path）
+//
+// endchar – endchar (14) |–
+//
+//      结束⼀个 charstring 轮廓定义，必须是字符轮廓中的最后⼀个操作符。注 6：charstring
+//      本⾝可以以 call(g)subr 结尾；此时该⼦例程必须以 endchar 操作符结束。注 7：没有路
+//      径的字符（例如空格字符）可以只由宽度值后跟 endchar 操作符组成。虽然宽度必须在字
+//      体中指定，但它可以在 CFF 数据中指定为 defaultWidthX，此时不应在 charstring 中指定；
+//      也可以作为与 nominalWidthX 的差值出现在 charstring 中。因此，最⼩的合法 charstring
+//      仅由单个 endchar 操作符组成。注 8：endchar 还有⼀个已弃⽤的功能；⻅附录 C《兼容性
+//      与已弃⽤操作符》。
+
+// 提⽰操作符（Hint Operators）
+//
+// 所有提⽰必须在 charstring 程序的开头、宽度之后声明（详⻅第 3.1 节）。
+//
+// hstem |- y dy {dya dyb}* hstem (1) |-
+//
+//      指定⼀个或多个⽔平词⼲提⽰（关于⽔平词⼲提⽰的更多信息⻅下节）。这允许⽤⼀个 hstem
+//      操作符携带多对数值参数，数量受栈深度限制。
+//
+//      要求词⼲按升序编码（按底边缘递增定义）。编码值都是相对的：第⼀对中，y 相对于 0，dy
+//      指定距 y 的距离；后续每对的第⼀个值相对于前⼀对所定义的最后⼀条边缘。
+//
+//      宽度 –20 指定边缘提⽰的上边缘，–21 指定边缘提⽰的下边缘。所有其他负宽度值的含义未定
+//      义。图 4 展⽰了使⽤上、下边缘提⽰编码字符词⼲的例⼦。边缘词⼲提⽰⽤于在控制词⼲宽度
+//      不是主要⽬的的情形下控制词⼲边缘的位置。
+//
+//      图 4 边缘提⽰的编码。图 4 所⽰边缘词⼲提⽰的编码为：
+//          121 –21 400 –20 hstem
+//
+//      图 5 展⽰了字符轮廓某特征上提⽰重叠的例⼦。重叠的提⽰必须通过两个 hintmask 操作符来
+//      解决，使它们不会同时激活。
+//
+//      ⽔平词⼲提⽰不得互相重叠。如有重叠，必须紧跟提⽰声明之后使⽤ hintmask 操作符来建⽴
+//      所需的互不重叠的提⽰集合。hintmask 之后还可以在路径中再次使⽤，以激活另⼀组互不重叠
+//      的提⽰。
+//
+//      图 5 重叠提⽰的编码。图 5 所⽰例⼦的编码为：
+//          280 100 –70 40 hstem
+//
+// vstem |- x dx {dxa dxb}* vstem (3) |-
+//
+//      在 x 坐标 x 与 x+dx 之间指定⼀个或多个垂直词⼲提⽰，其中 x 相对于坐标轴原点。要求词
+//      ⼲按升序编码（按左边缘递增定义）。编码值都是相对的：第⼀对中，x 相对于 0，dx 指定距
+//      x 的距离；后续每对的第⼀个值相对于前⼀对所定义的最后⼀条边缘。
+//
+//      宽度 –20 指定边缘提⽰的右边缘，–21 指定边缘提⽰的左边缘。所有其他负宽度值的含义未定
+//      义。垂直词⼲提⽰不得互相重叠。如有重叠，必须紧跟提⽰声明之后使⽤ hintmask 操作符来建
+//      ⽴所需的互不重叠的提⽰集合。hintmask 之后还可以在路径中再次使⽤，以激活另⼀组互不重
+//      叠的提⽰。
+//
+// hstemhm |- y dy {dya dyb}* hstemhm (18) |-
+//
+//      含义与 hstem (1) 相同，但如果 charstring 包含⼀个或多个 hintmask 操作符，则必须使⽤
+//      它来代替 hstem。
+//
+// vstemhm |- x dx {dxa dxb}* vstemhm (23) |-
+//
+//      含义与 vstem (3) 相同，但如果 charstring 包含⼀个或多个 hintmask 操作符，则必须使⽤
+//      它来代替 vstem。
+//
+// hintmask |- hintmask (19 + mask) |-
+//
+//      指定哪些提⽰激活、哪些不激活。如果任何提⽰重叠，必须使⽤ hintmask 来建⽴⼀个互不重
+//      叠的提⽰⼦集。hintmask 在 charstring 中可以出现任意多次。出现在 hintmask 之后的路径
+//      操作符受新提⽰集合影响，但当前点不移动。如果词⼲提⽰区重叠且未通过 hintmask 操作符
+//      妥善管理，结果未定义。
+//
+//      掩码（mask）数据字节定义如下：
+//      1. 数据字节的数量恰好是引⽤ charstring 程序开头所声明词⼲提⽰数量所需的字节数，每个
+//         提⽰占⼀位。
+//      2. 掩码的每⼀位（从第⼀个字节的最⾼有效位开始）按 charstring 开头声明提⽰的顺序表⽰
+//         相应的提⽰区。
+//      3. 掩码中每⼀位的值为“1”表⽰相应提⽰应激活，位值为“0”表⽰该提⽰应停⽤。
+//      4. 掩码中未使⽤的位（如有）必须为零。
+//
+//      如果 hstem 和 vstem 提⽰都在 charstring 开头声明，且该序列之后紧跟 hintmask 或 cntrmask
+//      操作符，则可以不包含 vstem 提⽰操作符。例如，图 6 展⽰了⼀个带有 hstem 和 vstem 提⽰
+//      的字符的⼀部分：
+//
+//      图 6 提⽰编码⽰例。如果第⼀组提⽰是 280 到 380 的 hstem 和 400 到 450 的 vstem（且只
+//      定义了这三个提⽰），则提⽰应指定为：
+//          280 100 –70 40 hstemhm 400 50 hintmask 0xa0
+//
+//      其中⼗六进制数据 0xa0（10100000）指⽰在路径构造开始时哪些提⽰处于激活状态。注意，这⾥
+//      使⽤ hstemhm 来表⽰启⽤了提⽰替换（hint substitution）。
+//
+// cntrmask |- cntrmask (20 + mask) |-
+//
+//      指定要控制的字怀空间及其相对优先级。操作符之后字节中的掩码位引⽤各词⼲提⽰声明：第⼀
+//      个字节的最⾼有效位指向第⼀个声明的词⼲提⽰，依此类推直到最后⼀个提⽰声明。受控制的字
+//      怀是由被引⽤词⼲提⽰界定的那些。第⼀个 cntrmask 命令中置为 1 的位具有最⾼优先级；后
+//      续 cntrmask 命令指定优先级较低的字怀（⻅图 1 及相应⽰例）。
+
+// 算术操作符（Arithmetic Operators）
+//
+// abs num abs (12 9) num2
+//
+//      返回 num 的绝对值。
+//
+// add num1 num2 add (12 10) sum
+//
+//      返回两个数 num1 和 num2 的和。
+//
+// sub num1 num2 sub (12 11) difference
+//
+//      返回 num1 减去 num2 的结果。
+//
+// div num1 num2 div (12 12) quotient
+//
+//      返回 num1 除以 num2 的商。发⽣上溢时结果未定义，下溢时结果为零。
+//
+// neg num neg (12 14) num2
+//
+//      返回 num 的相反数。
+//
+// random random (12 23) num2
+//
+//      返回区间 (0,1] 内的伪随机数 num2，即⼤于零且⼩于或等于⼀。
+//
+// mul num1 num2 mul (12 24) product
+//
+//      返回 num1 与 num2 的乘积。发⽣上溢时结果未定义，下溢时返回零。
+//
+// sqrt num sqrt (12 26) num2
+//
+//      返回 num 的平⽅根。若 num 为负，结果未定义。
+//
+// drop num drop (12 18)
+//
+//      从 Type 2 参数栈移除栈顶元素 num。
+//
+// exch num1 num2 exch (12 28) num2 num1
+//
+//      交换参数栈顶的两个元素。
+//
+// index numX … num0 i index (12 29) numX … num0 numi
+//
+//      从参数栈顶起取出第 i 个元素，并将该元素的副本压⼊栈中。若 i 为负，则复制栈顶元素。
+//      若 i ⼤于 X，操作未定义。
+//
+// roll num(N–1) … num0 N J roll (12 30) num((J–1) mod N) … num0 num(N–1) … num(J mod N)
+//
+//      将参数栈上的元素 num(N–1) … num0 循环移动 J 位。J 为正表⽰向上移动，J 为负表⽰向
+//      下移动。N 必须是⾮负整数，否则操作未定义。
+//
+// dup any dup (12 27) any any
+//
+//      复制参数栈的栈顶元素。
+
+// 存储操作符（Storage Operators）
+//
+// 存储操作符利⽤⼀个暂存数组（transient array），提供存储和检索暂存数组数据的⼿段。暂存
+// 数组为中间值提供⾮持久性存储。除显式使⽤ put 操作符外，没有初始化该数组的⼿段；数组中
+// 存储的值在单个字符渲染完成后不再保留。暂存数组的元素个数⻅附录 B《Type 2 Charstring
+// 实现限制》。
+//
+// put val i put (12 20)
+//
+//      将 val 存⼊暂存数组中由 i 指定的位置。
+//
+// get i get (12 21) val
+//
+//      取出暂存数组中由 i 指定位置存储的值并压⼊参数栈。如果在当前 charstring 执⾏期间，
+//      对 i 的 get 先于 put 执⾏，则返回值未定义。
+
+// 条件操作符（Conditional Operators）
+//
+// and num1 num2 and (12 3) 1_or_0
+//
+//      若 num1 和 num2 都⾮零，则将 1 压⼊栈中；若任⼀参数为零，则将 0 压⼊栈中。
+//
+// or num1 num2 or (12 4) 1_or_0
+//
+//      若 num1 或 num2 任⼀⾮零，则将 1 压⼊栈中；若两个参数都为零，则将 0 压⼊栈中。
+//
+// not num1 not (12 5) 1_or_0
+//
+//      若 num1 ⾮零则返回 0；若 num1 为零则返回 1。
+//
+// eq num1 num2 eq (12 15) 1_or_0
+//
+//      若 num1 等于 num2，则将 1 压⼊栈中；否则将 0 压⼊栈中。
+//
+// ifelse s1 s2 v1 v2 ifelse (12 22) s1_or_s2
+//
+//      若 v1 ≤ v2，则将值 s1 留在栈上；若 v1 > v2，则将 s2 留在栈上。s1 和 s2 的值通常
+//      是⼦例程的加偏置编号；⻅第 2.3 节。
+
 // ⼦例程操作符（Subroutine Operators）
 //
 // ⼦例程编号通过利⽤数值空间的负半区来更紧凑地编码，这有效地使可紧凑编码的⼦例程编号数
