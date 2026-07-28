@@ -12,7 +12,7 @@
 //
 // 关键字，统一各种分支语句和各种循环语句
 //  if else elif case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
-//  struct const void embed of def pub let var undefined defined devel revel
+//  struct const void embed based of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
 //  with fad fal todo debug trap local global // 全局变量必须使用 global 引用
@@ -1664,6 +1664,10 @@ def coro {
     r32 rspoffset
     int maxudsize
     int coro_id
+}
+
+def default_alloc {
+    alloc_face based // 一个结构体中只能有一个 based 字段，且必须是第一个字段
 }
 
 def coro_guard {
