@@ -3147,6 +3147,7 @@ typedef struct {
 #define PRH_IMPL_FREE_MASK_BIT 0x02
 typedef struct prh_buffer prh_buffer; // ptr & 0x02 为真表示释放内存
 typedef void (*prh_alloc_func)(prh_buffer *ptr, prh_reg new_size);
+typedef void (*prh_alloc_free)(prh_buffer *ptr);
 
 typedef struct {
     void *self;
@@ -35778,6 +35779,10 @@ prh_handle prh_open_file_forward_read(const prh_byte *name) {
     return prh_impl_open_file(name, GENERIC_READ, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN);
 }
 
+prh_handle prh_open_file_random_read(const prh_byte *name) {
+    return prh_impl_open_file(name, GENERIC_READ, OPEN_EXISTING, FILE_FLAG_RANDOM_ACCESS);
+}
+
 prh_handle prh_open_file_append(const prh_byte *name) { // 文件存在则打开，不存在则创建新的
     // OPEN_ALWAYS 文件存在则打开（ERROR_ALREADY_EXISTS），不存在且路径有效且指向可写位置则创建新文件
     prh_handle handle = prh_impl_open_file(name, GENERIC_WRITE, OPEN_ALWAYS, 0);
@@ -40806,6 +40811,13 @@ void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
 #define PRH_OTF_VHEA_TABLE 0x76686561 // 垂直度量头
 #define PRH_OTF_VMTX_TABLE 0x766D7478 // 垂直度量
 
+prh_byte *prh_load_font_table(prh_open_font *f, prh_font_table *t) {
+    prh_r32 round_length = prh_round_r32_04_byte(t->length);
+    prh_byte *table_data; prh_da_init(table_data, round_length);
+    prh_pread_exact_bytes(&f->font_file->reader, table_data, round_length, t->offset);
+    return table_data;
+}
+
 prh_r32 prh_font_table_checksum(const prh_r32 *table_data, prh_r32 table_length) {
     prh_r32 sum = 0;
     const prh_r32 *end = table_data + prh_round_r32_04_byte(table_length) / 4;
@@ -41214,6 +41226,43 @@ void prh_print_font_maxp_table(prh_open_font *f) {
     prh_print("\n");
 }
 
+// VORG — 垂直原点表
+// 此可选表指定字体中每个字形的垂直原点的 y 坐标。
+// 此表只能在 CFF 或 CFF2 OpenType 字体中使用。如果存在于包含 TrueType 轮廓数据的 OpenType 字体中，则必须忽略：垂直度量（'vmtx'）和字形数据（'glyf'）表提供准确计算字形垂直原点 y 坐标所需的所有信息。有关更多详细信息，请参阅 'vmtx' 表规范中的"垂直原点和前进高度"部分。
+// 对于所有支持垂直书写的 OpenType 字体，'vmtx' 和垂直头（'vhea'）表仍然是必需的。前进高度必须继续从 'vmtx' 表获取；这是存储它们的唯一位置。
+// 如果 CFF 或 CFF2 OpenType 字体中存在 VORG 表，应用程序可以选择通过以下方式获取字形垂直原点的 y 坐标：
+// 直接从 VORG 表获取，或
+// 首先通过 CFF 或 CFF2 CharString 数据计算字形边界框的顶部，然后加上 'vmtx' 表中字形的顶部侧承。
+// 前一种方法提供更高准确性和效率的优势，因为根据边界框算法的舍入决策和数据类型，从 CFF 或 CFF2 CharString 计算的边界框结果可能不同。后一种方法为不了解或选择不支持 VORG 的应用程序提供兼容性。
+// 因此，VORG 表本身不添加任何新的字体度量值；它只是提高了应用程序的准确性和效率，因为从 CFF 或 CFF2 CharString 计算边界框的中间步骤变得不必要。
+// 有关构建 CJK（中文、日文和韩文）字体的更多信息，请参阅建议章节中的 OpenType CJK 字体指南。
+// 垂直原点表格式
+// VORG 表的结构如下：
+// VerticalOrigin 表
+// 类型	名称	描述
+// uint16	majorVersion	主要版本——设置为 1。
+// uint16	minorVersion	次要版本——设置为 0。
+// int16	defaultVertOriginY	如果 vertOriginYMetrics 数组中没有该字形的条目，则使用的字形垂直原点 y 坐标，以字体的设计坐标系表示。
+// uint16	numVertOriginYMetrics	vertOriginYMetrics 数组中的元素数。
+// VertOriginYMetrics	vertOriginYMetrics[numVertOriginYMetrics]	按字形 ID 排序的 VertOriginYMetrics 记录数组。
+// VertOriginYMetrics 记录具有以下格式：
+// VertOriginYMetrics 记录
+// 类型	名称	描述
+// uint16	glyphIndex	字形索引。
+// int16	vertOriginY	字形垂直原点的 y 坐标，以字体的设计坐标系表示。
+// 此数组必须按 glyphIndex 递增排序，且不得有多个具有相同 glyphIndex 的元素。在大小优化的实现中，垂直原点 y 坐标等于 defaultVertOriginY 的字形在此数组中没有条目。
+// 如果字体中所有字形共享相同的 defaultVertOriginY 值，则在大小优化的实现中，VORG 表的长度将为 8 字节，因为 vertOriginYMetrics 数组将不存在。
+// 通常，只有东亚字体中的全角拉丁字形会在 vertOriginYMetrics 数组中有条目。为垂直书写旋转的字形，例如垂直替代和旋转（'vrt2'）功能中使用的字形，如果设计适当，可以利用默认值。
+// 在以下 1000 单位 em 字体的完整 VORG 表示例中，除字形索引 10、12 和 13 外，字体中每个字形都指定为 vertOriginY 为 880：
+// majorVersion         =1
+// minorVersion         =0
+// defaultVertOriginY   =880
+// numVertOriginYMetrics=3
+// --- vertOriginYMetrics[index]=(glyphIndex,vertOriginY)
+// [0]=(10,889)
+// [1]=(12,861)
+// [2]=(13,849)
+
 // 字符到字形索引映射表（cmap）
 //
 // 表概述。本表定义字符代码到默认字形索引的映射。可以定义不同的子表，每个子表包含不同
@@ -41264,23 +41313,6 @@ void prh_print_font_maxp_table(prh_open_font *f) {
 //
 // 如果字体包含相同格式但不同平台 ID 的 Unicode 子表的编码记录，应用程序可以选择合适的那个，
 // 但应在每次使用字体时一致地进行此选择。
-//
-// 平台 ID。定义了以下平台 ID，平台 ID 值 240 到 255 保留给用户定义的平台，不得分配给
-// 注册的平台。
-//      平台 ID     平台名称            平台特定编码 ID
-//      0           Unicode             各种
-//      1           Macintosh           脚本管理器代码
-//      2           ISO [已弃用]        ISO 编码 [已弃用]
-//      3           Windows             Windows 编码
-//      4           自定义（Custom）    自定义
-
-#define prh_otf_cmap_platform_unicode        0
-#define prh_otf_cmap_platform_macintosh      1
-#define prh_otf_cmap_platform_iso_deprecated 2 // 已废弃
-#define prh_otf_cmap_platform_windows        3
-#define prh_otf_cmap_platform_custom         4
-#define prh_otf_cmap_platform_user_defined   240 // 240 ~ 255
-#define prh_otf_cmap_platform_user_last      255
 
 typedef struct {
     prh_r16 platform_id; // 编码记录必需先按平台 ID 排序，然后按编码 ID 排序，然后按记录中的语言字段（language field）排序
@@ -41303,150 +41335,6 @@ prh_r16 prh_font_find_table(prh_open_font *f, prh_r32 table_tag) { // 返回 0 �
     return 0;
 }
 
-prh_byte *prh_load_font_table(prh_open_font *f, prh_font_table *t) {
-    prh_r32 round_length = prh_round_r32_04_byte(t->length);
-    prh_byte *table_data; prh_da_init(table_data, round_length);
-    prh_pread_exact_bytes(&f->font_file->reader, table_data, round_length, t->offset);
-    return table_data;
-}
-
-// Unicode 平台（平台 ID = 0）。为 Unicode 平台定义了以下编码 ID：
-//      编码 ID     描述
-//      0           Unicode 1.0 语义 [已弃用]
-//      1           Unicode 1.1 语义 [已弃用]
-//      2           ISO/IEC 10646 语义 [已弃用]
-//      3           Unicode 2.0 及更高版本语义，仅 Unicode BMP
-//      4           Unicode 2.0 及更高版本语义，完整 Unicode 库
-//      5           Unicode 变体序列，用于子表格式 14
-//      6           完整 Unicode 库，用于子表格式 13
-//
-//      * 子表格式 14 只能使用在 UNICODE 平台并使用 5 编码
-//      * 子表格式 13 只能使用在 UNICODE 平台并使用 6 编码
-//
-// 编码 ID 3 应与 'cmap' 子表格式 4 或 6 结合使用。编码 ID 4 应与子表格式 10 或 12 结合
-// 使用。字体支持的 Unicode 变体序列应在 'cmap' 表中使用格式 14 子表指定。格式 14 子表只
-// 能用于平台 ID 0 和编码 ID 5，编码 ID 5 只能与格式 14 子表一起使用。编码 ID 6 只能与
-// 'cmap' 子表格式 13 结合使用，子表格式 13 只能用于平台 ID 0 和编码 ID 6。
-
-#define prh_otf_cmap_unicode_1_0_deprecated                         0 // 已废弃
-#define prh_otf_cmap_unicode_1_1_deprecated                         1 // 已废弃
-#define prh_otf_cmap_unicode_iso_deprecated                         2 // 已废弃
-#define prh_otf_cmap_unicode_bmp_only                               3
-#define prh_otf_cmap_unicode_full_repertoire                        4
-#define prh_otf_cmap_unicode_variation_sequences_for_format_14      5
-#define prh_otf_cmap_unicode_full_repertoire_for_format_13          6
-
-// Macintosh 平台（平台 ID = 1）。旧版 Macintosh 版本要求字体具有平台 ID 1 的 'cmap' 子表。
-// 对于当前 Apple 平台，不鼓励使用平台 ID 1。有关为 Macintosh 平台定义的编码 ID 的详细信息，
-// 请参阅 'name' 表章节。
-
-#define prh_otf_cmap_macintosh_roman 0
-#define prh_otf_cmap_macintosh_japanese 1
-#define prh_otf_cmap_macintosh_chinese_traditional 2
-#define prh_otf_cmap_macintosh_korean 3
-#define prh_otf_cmap_macintosh_arabic 4
-#define prh_otf_cmap_macintosh_hebrew 5
-#define prh_otf_cmap_macintosh_greek 6
-#define prh_otf_cmap_macintosh_russian 7
-#define prh_otf_cmap_macintosh_rsymbol 8
-#define prh_otf_cmap_macintosh_devanagari 9
-#define prh_otf_cmap_macintosh_gurmukhi 10
-#define prh_otf_cmap_macintosh_gujarati 11
-#define prh_otf_cmap_macintosh_odia 12
-#define prh_otf_cmap_macintosh_bangla 13
-#define prh_otf_cmap_macintosh_tamil 14
-#define prh_otf_cmap_macintosh_telugu 15
-#define prh_otf_cmap_macintosh_kannada 16
-#define prh_otf_cmap_macintosh_malayalam 17
-#define prh_otf_cmap_macintosh_sinhalese 18
-#define prh_otf_cmap_macintosh_burmese 19
-#define prh_otf_cmap_macintosh_khmer 20
-#define prh_otf_cmap_macintosh_thai 21
-#define prh_otf_cmap_macintosh_laotian 22
-#define prh_otf_cmap_macintosh_georgian 23
-#define prh_otf_cmap_macintosh_armenian 24
-#define prh_otf_cmap_macintosh_chinese_simplified 25
-#define prh_otf_cmap_macintosh_tibetan 26
-#define prh_otf_cmap_macintosh_mongolian 27
-#define prh_otf_cmap_macintosh_geez 28
-#define prh_otf_cmap_macintosh_slavic 29
-#define prh_otf_cmap_macintosh_vietnamese 30
-#define prh_otf_cmap_macintosh_sindhi 31
-#define prh_otf_cmap_macintosh_uninterpreted 32
-
-// ISO 平台（平台 ID = 2）。此平台 ID 的使用已弃用。为 ISO 平台定义了以下编码 ID：
-//      代码    ISO 编码
-//      0       7 位 ASCII
-//      1       ISO 10646
-//      2       ISO 8859-1
-
-#define prh_otf_cmap_iso_ascii_deprecated   0
-#define prh_otf_cmap_iso_10646_deprecated   1
-#define prh_otf_cmap_iso_88591_deprecated   2
-
-// Windows 平台（平台 ID = 3）。Windows 平台支持多种编码。为 Windows 创建字体时，应始终使
-// 用 Unicode 'cmap' 子表，平台 3 与编码 1 或 10。Windows 平台支持以下编码 ID：
-//      平台 ID     编码 ID     描述
-//      3           0           Symbol
-//      3           1           Unicode BMP
-//      3           2           ShiftJIS
-//      3           3           PRC
-//      3           4           Big5
-//      3           5           Wansung
-//      3           6           Johab
-//      3           7           保留
-//      3           8           保留
-//      3           9           保留
-//      3           10          完整 Unicode 库
-//
-// 仅支持 Unicode BMP 字符（U+0000 到 U+FFFF）的 Windows 平台字体必须使用编码 1 和格式 4
-// 子表。此编码不得用于支持 Unicode 辅助平面字符。
-//
-// 在 Windows 平台上支持 Unicode 辅助平面字符（U+10000 到 U+10FFFF）的字体必须使用编码 10
-// 和格式 12 子表。
-//
-// 符号编码是为了支持包含 Unicode 或其他标准编码不支持的任意装饰或符号的字体而创建的。通
-// 常使用格式 4 子表，最多 224 个图形字符分配在从 0xF020 开始的代码位置。这对应于 Unicode
-// 私用区（PUA）的子范围，尽管这不是 Unicode 编码。在旧版使用中，某些应用程序会使用单字节
-// 编码表示符号字符，然后将 0x20 映射到字体中的 OS/2.usFirstCharIndex 值。在新字体中，Unicode
-// 中不存在的符号或字符应使用 Unicode 'cmap' 子表中的 PUA 代码点编码。有关更多信息，请参
-// 阅建议章节。https://learn.microsoft.com/en-us/typography/opentype/spec/recom#cmap-table
-
-#define prh_otf_cmap_windows_symbol             0
-#define prh_otf_cmap_windows_bmp_only           1
-#define prh_otf_cmap_windows_shiftjis           2
-#define prh_otf_cmap_windows_prc                3
-#define prh_otf_cmap_windows_big5               4
-#define prh_otf_cmap_windows_wansung            5
-#define prh_otf_cmap_windows_johab              6
-#define prh_otf_cmap_windows_reserved_1         7
-#define prh_otf_cmap_windows_reserved_2         8
-#define prh_otf_cmap_windows_reserved_3         9
-#define prh_otf_cmap_windows_full_repertoire    10
-
-// 自定义平台（平台 ID = 4）和 OTF Windows NT 兼容性映射。平台 ID 4 是一个遗留平台，创
-// 建用于为已适应旧 Type 1 字体的 OpenType 字体提供旧应用程序兼容性。此平台今天不常用，
-// 不应在新字体中使用。
-//      编码 ID     自定义编码
-//      0-255       OTF Windows NT 兼容性映射
-//
-// 此 'cmap' 平台为非 Unicode 应用程序提供兼容性机制，这些应用程序使用该字体时就像它是
-// Windows ANSI 编码一样。非 Windows ANSI Type 1 字体，例如 Adobe 过去发布的西里尔文和
-// 中欧字体，在 .PFM 文件的 CharSet 字段中记录 "0"（Windows ANSI）；适用于 Windows 9x
-// 的 Adobe Type Manager 完全忽略 CharSet。Adobe 在每个从 Type1 字体转换的 OpenType 字
-// 体中提供此兼容性 'cmap' 编码，其中 Encoding 不是 StandardEncoding。
-//
-// 使用平台 ID 4 时，编码 ID 必须设置为原始 Type 1 字体的 .PFM 文件中存在的 Windows 字
-// 符集值（范围为 0 到 255，含）。
-//
-// 如果平台 ID 4、编码 ID 0 – 255 的 'cmap' 编码存在于具有 CFF 轮廓的 OpenType 字体中，
-// 则 Windows NT 中的 OTF 字体驱动程序将执行以下流程。注意，'cmap' 子表需要对其子表使用
-// 格式 0 或 6，并且编码需要与 CFF 的编码相同。
-//  a)  将编码中字符代码 0-255 的字形叠加到其向系统报告的 Unicode 编码中的相应 Windows
-//      ANSI（代码页 1252）Unicode 值上
-//  b)  将 Windows ANSI（CharSet 0）添加到字体支持的 CharSet 列表中，以及
-//  c)  将编码 ID 的值视为 Windows CharSet 值，并将其添加到字体支持的 CharSet 列表中
-
 typedef struct {
     prh_open_font *font;
     prh_byte *table_data;
@@ -41460,41 +41348,6 @@ typedef struct {
     prh_r16 record_encoding; // 每组（平台ID + 编码ID + 语言）的记录只能唯一有一个
     prh_r32 record_offset;
 } prh_font_cmap_record;
-
-const void *prh_impl_get_cmap_record_platform_string(prh_font_cmap_record *p) {
-    const char *platform[] = {"Unicode", "Macintosh", "ISO [deprecated]", "Windows", "Custom"};
-    if (p->record_platform <= 4) return platform[p->record_platform];
-    if (p->record_platform >= 240 && p->record_platform <= 255) return "User Defined";
-    return "Unknown Platform ID";
-}
-
-const void *prh_impl_get_cmap_record_encoding_string(prh_font_cmap_record *p) {
-    if (p->record_platform == 0) {
-        const char *unicode_encoding[] = {
-            "Unicode 1.0 [deprecated]",
-            "Unicode 1.1 [deprecated]",
-            "ISO/IEC 10646 [deprecated]",
-            "Unicode 2.0+ BMP only",
-            "Unicode 2.0+ full repertoire",
-            "Unicode variation sequences - for cmap format 14",
-            "Unicode full repertoire - for cmap format 13"};
-        if (p->record_encoding <= 6) return unicode_encoding[p->record_encoding];
-    } else if (p->record_platform == 1) {
-        const char *macintosh_encoding[] = {
-            "Roman", "Japanese", "Chinese Traditional", "Korean", "Arabic", "Hebrew", "Greek", "Russian", "RSymbol", "Devanagari", "Gurmukhi", "Gujarati", "Odia", "Bangla", "Tamil", "Telugu", "Kannada",
-            "Malayalam", "Sinhalese", "Burmese", "Khmer", "Thai", "Laotian", "Georgian", "Armenian", "Chinese Simplified", "Tibetan", "Mongolian", "Geez", "Slavic", "Vietnamese", "Sindhi", "Uninterpreted"};
-        if (p->record_encoding <= 32) return macintosh_encoding[p->record_encoding];
-    } else if (p->record_platform == 2) {
-        const char *iso_encoding[] = {"7-bit ASCII", "ISO 10646", "ISO 8859-1"};
-        if (p->record_encoding <= 2) return iso_encoding[p->record_encoding];
-    } else if (p->record_platform == 3) {
-        const char *windows_encoding[] = {"Symbol", "Unicode BMP", "ShiftJIS", "PRC", "Big5", "Wansung", "Johab", "Reserved", "Reserved", "Reserved", "Unicode full repertoire"};
-        if (p->record_encoding <= 10) return windows_encoding[p->record_encoding];
-    } else if (p->record_platform == 4) {
-        if (p->record_encoding <= 255) return "OTF Windows NT compatibility mapping";
-    }
-    return "Unknown Encoding ID";
-}
 
 void prh_impl_print_font_cmap_format_4(prh_font_cmap_record *p);
 void prh_impl_print_font_cmap_format_12_13(prh_font_cmap_record *p);
@@ -41513,8 +41366,8 @@ void prh_impl_print_font_cmap_record(prh_font_cmap_record *p) {
         "cmap record format %d\n",
         (prh_reg)p->record_index + 1,
         (prh_reg)p->cmap_records,
-        (prh_reg)p->record_platform, prh_impl_get_cmap_record_platform_string(p),
-        (prh_reg)p->record_encoding, prh_impl_get_cmap_record_encoding_string(p),
+        (prh_reg)p->record_platform, prh_impl_font_get_platform_string(p->record_platform),
+        (prh_reg)p->record_encoding, prh_impl_font_get_encoding_string(p->record_platform, p->record_encoding),
         (prh_reg)p->record_offset,
         (prh_reg)record_format);
 
