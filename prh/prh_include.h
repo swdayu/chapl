@@ -41263,6 +41263,745 @@ void prh_print_font_maxp_table(prh_open_font *f) {
 // [1]=(12,861)
 // [2]=(13,849)
 
+// 命名表（name）
+//
+// 命名表允许将多语言字符串与 OpenType 字体关联。这些字符串可以代表版权声明、字体名称、
+// 家族名称、样式名称等。为了保持此表简短，字体制造商可能希望在某些少量语言中制作有限
+// 的一组条目；稍后，字体可以"本地化"，字符串被翻译或添加。OpenType 字体中需要这些字符
+// 串的其他部分可以使用语言无关的名称 ID 引用它们。除了语言变体外（language variants），
+// 该表还允许平台特定的字符编码变体（character-encoding variants）。需要特定字符串的应
+// 用程序可以通过其平台 ID、编码 ID、语言 ID 和名称 ID 查找它。注意，不同平台可能对字符
+// 串编码有不同的要求。
+//
+// 许多较新的平台可以使用为不同平台设计的字符串，如果字体不包含该平台的字符串。然而，某
+// 些应用程序可能会显示不正确的字符串，如果当前平台的字符串未包含。
+//
+// 命名表头（Naming Table Header）
+//
+// 命名表（Naming Table）有两个版本。版本 0 使用平台特定的数字语言标识符。版本 1 允许使用
+// 语言标签字符串来指示字符串的语言。两个版本都包含可变大小的字符串数据存储，以及名称记录
+// 数组，用于标识字符串的类型（名称 ID）、平台、编码和语言变体，以及字符串在存储中的位置。
+//
+//      命名表版本 0，版本 0 命名表的组织结构如下：
+//      类型        名称                描述
+//      uint16      version             表版本号（=0）
+//      uint16      count               名称记录的数量
+//      Offset16    storageOffset       字符串存储起始偏移（从表开头开始）
+//      NameRecord  nameRecord[count]   名称记录，其中 count 是记录数
+//      Variable                        实际字符串数据的存储
+//
+// 版本 0 与版本 1 在语言标识处理方面有所不同：它仅使用数字语言 ID，这些值通常小于 0x8000，
+// 具有平台特定的解释。有关更多详细信息，请参阅下面的名称记录。命名表版本 1，版本 1 命名表
+// 添加了附加元素，如下：
+//      类型            名称                        描述
+//      uint16          version                     表版本号（=1）
+//      uint16          count                       名称记录的数量
+//      Offset16        storageOffset               字符串存储起始偏移（从表开头开始）
+//      NameRecord      nameRecord[count]           名称记录，其中 count 是记录数
+//      uint16          langTagCount                语言标签记录的数量
+//      LangTagRecord   langTagRecord[langTagCount] 语言标签记录，其中 langTagCount 是记录数
+//      Variable                                    实际字符串数据的存储
+//
+// 使用版本 1 时，名称记录中的语言 ID 可以小于或大于 0x8000。如果语言 ID 小于 0x8000，则与
+// 版本 0 命名表一样具有平台特定的解释。如果语言 ID 等于或大于 0x8000，则与引用语言标签字符
+// 串的语言标签记录（LangTagRecord）相关联。这样，语言 ID 与指定使用该语言 ID 的名称记录的
+// 语言的语言标签字符串相关联，无论平台如何。这些可用于支持此语言标签机制的任何平台。
+//
+// 使用版本 1 命名表的字体可以对给定平台和编码组合使用平台特定语言 ID 和语言标签记录的混合。
+// 每个 LangTagRecord 的组织结构如下：
+//      类型        名称            描述
+//      uint16      length          语言标签字符串长度（以字节为单位）
+//      Offset16    langTagOffset   从存储区开头开始的语言标签字符串偏移（以字节为单位）
+//
+// 命名表中存储的语言标签字符串必须使用 UTF-16BE 编码。语言标签必须符合 IETF 规范 BCP 47。
+// 这提供了诸如 "en"、"fr-CA" 和 "zh-Hant" 之类的标签来标识语言，包括方言、书写形式和其他
+// 语言变体。
+//
+// 语言标签记录按顺序与从 0x8000 开始的语言 ID 相关联。每个语言标签记录对应于比前一个语言
+// 标签记录的语言 ID 大 1 的语言 ID。因此，与语言标签记录相关联的语言 ID 必须在 0x8000 到
+// 0x8000 + langTagCount - 1 的范围内。如果名称记录使用的语言 ID 大于此值，则该语言的身份
+// 未知；不应使用此类名称记录。
+//
+// 例如，假设字体有两个语言标签记录引用存储中的字符串：第一个引用字符串"en"，第二个引用字
+// 符串"zh-Hant-HK"。在这种情况下，名称记录中使用语言 ID 0x8000 来索引英语语言字符串。名称
+// 记录中使用语言 ID 0x8001 来索引香港特别行政区使用的繁体中文字符串。
+//
+// 名称记录（Name Records）。字符串存储中的每个字符串由名称记录引用。名称记录具有多部分键，
+// 用于标识字符串的逻辑类型及其语言或平台特定实现变体，以及字符串在字符串存储中的位置。每
+// 个 NameRecord 的组织结构如下：
+//      类型        名称            描述
+//      uint16      platformID      平台 ID
+//      uint16      encodingID      平台特定编码 ID
+//      uint16      languageID      语言 ID
+//      uint16      nameID          名称 ID
+//      uint16      length          字符串长度（以字节为单位）
+//      Offset16    stringOffset    从存储区开头开始的字符串偏移（以字节为单位）
+//
+// 名称 ID 标识逻辑字符串类别，如家族名称或版权。名称 ID 对所有平台和语言都相同；这些在下面
+// 详细描述。键的其他三个元素允许平台特定实现：平台 ID、平台特定编码 ID 和语言 ID。
+//
+// 与 'cmap' 表中的编码记录一样，名称记录必须首先按平台 ID 排序，然后按平台特定编码 ID 排序，
+// 然后按语言 ID 排序，最后按名称 ID 排序。各种 ID 的描述如下。
+//
+// 平台、编码和语言。名称记录的平台、编码和语言 ID 允许平台特定实现。不同平台可以支持不同的
+// 编码和不同的语言。所有编码 ID 都是平台特定的。语言 ID 同样是平台特定的，除非在版本 1 命名
+// 表的语言标签机制中使用的 ID 情况，如上所述。注意：平台 ID、平台特定编码 ID 以及某些情况下
+// 的平台特定语言 ID 也在 'cmap' 表中使用。
+//
+// 语言 ID 指标识特定字符串所用语言的值。小于 0x8000 的值在平台特定基础上定义。版本 0 命名表
+// 必须仅使用下面给出的平台特定枚举中小于 0x8000 的语言 ID 值。但是，此要求的例外允许用于用户
+// 定义的平台，平台 ID 240 到 255。大于或等于 0x8000 的值可以在版本 1 命名表中与语言标签记录
+// 一起使用，如上所述。并非所有平台都有平台特定语言 ID，并非所有平台都支持语言标签记录。
+//
+// 本章末尾提供了 'name' 表中使用的平台、编码和语言 ID 的详细列表。
+//
+// 名称 ID（Name IDs）。以下名称 ID 是预定义的，适用于所有平台，除非另有说明。名称 ID 26 到
+// 255（含）保留用于未来标准名称。名称 ID 256 到 32767（含）保留用于字体特定名称，如字体布局
+// 功能引用的名称。
+//
+//      ID  含义
+//      0   版权声明（Copyright Notice）。
+//      1   字体家族名称（Font Family Name）。字体家族名称与字体子家族名称（名称 ID 2）结合
+//          使用，应在最多四个仅在字重或样式（斜体/倾斜）方面不同的字体之间共享，如下所述。
+//          这种四向区分（four-way distinction）也应反映在 OS/2.fsSelection 字段中，使用位
+//          0 和 5。
+//          虽然某些平台或应用程序没有此限制，但许多使用这对名称的现有应用程序假设字体家族
+//          名称最多由四个形成字体样式链接组的字体共享：常规、斜体（或倾斜）、粗体和粗斜体
+//          （或粗倾斜）。为了与最广泛的平台和应用程序兼容，强烈建议字体以这种方式限制字体
+//          家族名称的使用。
+//          对于包含四种基本样式（常规、斜体、粗体、粗斜体）以外的字体的扩展排版家族，强烈
+//          建议在字体中使用名称 ID 16 和 17 来创建扩展的排版分组。请参阅下面提供的示例。
+//          还强烈建议应用程序使用名称 ID 16 和 17 支持扩展排版家族分组。注意，可变字体可以
+//          包含大量命名实例，每个实例将使用共享的排版家族名称（名称 ID 16），并将具有排版
+//          子家族名称（相当于名称 ID 17）。基于名称 ID 1 和 2 假设四样式家族分组的应用程序
+//          可能会为可变字体提供糟糕的用户体验。
+//          对于扩展排版家族中超出基本四向区分的字体，区分属性应反映在字体家族名称中，以便
+//          这些字体在仅支持四成员家族的应用程序中显示为单独的字体家族。例如，Arial Narrow
+//          字体的字体家族名称是"Arial Narrow"；Arial Black 字体的字体家族名称是"Arial Black"。
+//          注意，在这种情况下，还应包含名称 ID 16，并使用共享名称（例如"Arial"）来反映完整
+//          的排版家族。
+//      2   字体子家族名称（Font Subfamily Name）。字体子家族与字体家族名称（名称 ID 1）结合
+//          使用，区分具有相同字体家族名称的组中的字体。这应仅用于字重和样式（斜体/倾斜）变体，
+//          如下所述。这种四向区分也应反映在 OS/2.fsSelection 字段中，使用位 0 和 5。
+//          虽然某些平台或应用程序没有此限制，但许多使用名称 ID 1 和 2 的现有应用程序假设字体
+//          家族名称最多由四个形成字体样式链接组的字体共享，并且字体子家族名称反映四种基本样式
+//          之一：常规、斜体（或倾斜）、粗体和粗斜体（或粗倾斜）。为了与最广泛的平台和应用程序
+//          兼容，强烈建议字体应以这种方式限制字体子家族的使用。
+//          对于包含四种基本样式（常规、斜体、粗体、粗斜体）以外的字体的扩展排版家族，强烈建议
+//          在字体中使用名称 ID 16 和 17 来创建扩展的排版分组。
+//          在包含常规、粗体、斜体或粗斜体以外字体的扩展排版家族中，这些其他字体的区分在字体家
+//          族名称中进行，以便字体显示为单独的家族。在某些情况下，这可能导致为可能不被视为常规
+//          字体的字体指定子家族名称"Regular"。例如，Arial Black 字体的字体家族名称为"Arial Black"，
+//          子家族名称为"Regular"。注意，在这种情况下，还应包含名称 ID 16 和 17，使用名称 ID 16
+//          的共享值（例如"Arial"）来反映完整的排版家族，以及适当反映每个字体实际设计变体的名称
+//          ID 17 值。
+//          不属于扩展排版家族且没有独特字重或样式（例如，中等字重，非斜体）的字体应使用"Regular"
+//          作为字体子家族名称（对于英语）。
+//      3   唯一字体标识符（Unique Font Identifier）。
+//      4   反映所有家族和相关子家族描述符的完整字体名称。完整字体名称通常是名称 ID 1 和 2 的组
+//          合，或名称 ID 16 和 17 的组合，或类似的人类可读变体。
+//          对于扩展排版家族（即包含常规、斜体、粗体和粗斜体变体以外的家族的字体），名称 ID 1
+//          和 2 的值通常选择为与某些假设家族最多有四个样式链接字体的应用程序兼容。在这种情况下，
+//          某些字体可能最终具有子家族名称（名称 ID 2）"Regular"，即使该字体在排版上不被视为常规
+//          字体。对于名称 ID 2 指定为"Regular"的此类非常规字体，"Regular"描述符通常从名称 ID 4
+//          中省略。例如，Arial Black 字体的字体家族名称（名称 ID 1）为"Arial Black"，子家族名称
+//          （名称 ID 2）为"Regular"，但完整字体名称（名称 ID 4）为"Arial Black"。注意，这些字体
+//          中还应包含名称 ID 16 和 17，并且名称 ID 4 通常是名称 ID 16 和 17 的组合，无需任何关
+//          于"Regular"的附加限定。
+//      5   版本字符串（Version String）。应以模式 "Version <number>.<number>" 表示，"Version"
+//          不区分大小写。字符串必须包含以下形式的版本号：值小于 65,535 的一个或多个数位（0-9），
+//          后跟一个句点，后跟值小于 65,535 的一个或多个数位。除数字以外的任何字符将终止次要编
+//          号。诸如";"之类的字符有助于分隔版本信息的不同部分。
+//          字符串中的第一个此类匹配可由安装软件用于比较字体版本。某些安装程序可能要求字符串以
+//          "Version "开头，后跟上述版本号。
+//      6   字体的 PostScript 名称。名称 ID 6 指定用于调用与此 OpenType 字体对应的 PostScript
+//          语言字体的字符串。转换为 ASCII 时，名称字符串不得超过 63 个字符，并限制为可打印
+//          ASCII 子集，代码 33 到 126，但以下 10 个字符除外：'['、']'、'('、')'、'{'、'}'、'<'、
+//          '>'、'/'、'%'。
+//          在 CFF OpenType 字体中，不要求此名称与 CFF 名称 INDEX 中的字体名称相同。因此，相同
+//          的 CFF 可以在字体集合中的多个字体组件之间共享。有关其他信息，请参阅"OpenType 字体建
+//          议"的 'name' 表部分。
+//          https://learn.microsoft.com/en-us/typography/opentype/spec/recom#name
+//      7   商标（Trademark）。用于保存此字体的任何商标通知/信息。此类信息应基于法律建议。这与
+//          版权（Copyright）明显分开。
+//      8   制造商名称（Manufacturer Name）。
+//      9   设计师（Designer）。字体（typeface）设计师的姓名。
+//      10  描述（Description）。字体描述。可以包含修订信息、使用建议、历史、特性等。
+//      11  供应商（Vendor）URL。字体供应商的 URL（带协议，例如 http://、ftp://）。如果 URL 中
+//          嵌入了唯一序列号（unique serial number），可用于注册字体。
+//      12  设计师 URL。字体设计师的 URL（带协议，例如 http://、ftp://）。
+//      13  许可证描述（License Description）。提供字体所依据的许可证或许可证的描述。这可以是对
+//          命名许可协议的引用（例如，常见的开源许可证）、标识捆绑字体的软件使用许可证、有关如何
+//          定位外部许可证的信息（另请参阅名称 ID 14）、允许用途的摘要，或许可协议的完整法律文本。
+//          对此名称 ID 的内容寻求法律建议是明智的，以避免其或许可证之间可能的解释冲突。
+//      14  许可证信息（License Info）URL。附加许可信息的 URL。
+//      15  保留（Reserved）。
+//      16  排版家族名称（Typographic Family Name）。排版家族分组对其中包含的字形数量没有任何限
+//          制，与 4 样式家族分组（ID 1）形成对比，后者既出于历史原因存在，也用于表达样式链接组。
+//          如果名称 ID 16 不存在，则名称 ID 1 被视为排版家族名称。在规范的早期版本中，名称 ID
+//          16 被称为"首选家族"。
+//      17  排版子家族名称（Typographic Subfamily Name）。这允许字体设计师在排版家族分组中指定子
+//          家族名称。此字符串必须在特定排版家族中唯一。如果不存在，则名称 ID 2 被视为排版子家族
+//          名称。在规范的早期版本中，名称 ID 17 被称为"首选子家族"。
+//      18  兼容全名（仅限 Macintosh）。在 Macintosh 上，菜单名称使用 FOND 资源构造。这通常与全
+//          名匹配。如果希望字体名称与全名不同，可以在 ID 18 中插入兼容全名。
+//      19  示例文本（Sample Text）。这可以是字体名称，或设计师认为显示字体的最佳示例的任何其他
+//          文本。
+//      20  PostScript CID findfont 名称。其在字体中的存在意味着名称 ID 6 保存的 PostScript 字
+//          体名称旨在与 PostScript 解释器中的"composefont"调用一起使用，以调用字体。请参阅名称
+//          ID 6 的定义。
+//          名称 ID 20 字符串中保存的值被解释为 PostScript 字体名称，旨在与 PostScript 解释器中
+//          的"findfont"调用一起使用，以调用字体。
+//          转换为 ASCII 时，此名称字符串必须限制为可打印 ASCII 子集，代码 33 到 126，但以下 10
+//          个字符除外：'['、']'、'('、')'、'{'、'}'、'<'、'>'、'/'、'%'。
+//          有关其他信息，请参阅"OTF 字体建议"。
+//          https://learn.microsoft.com/en-us/typography/opentype/spec/recom
+//      21  WWS 家族名称。用于在 ID 16 和 17 的条目不符合 WWS 模型时提供符合 WWS 的家族名称。即，
+//          ID 17 的条目包含字重、宽度或倾斜以外某些属性的限定符的情况。如果设置了 OS/2 fsSelection
+//          字段的位 8，则不需要也不应包含 WWS 家族名称条目。相反，如果包含此 ID 的条目，则不应
+//          设置位 8。有关详细信息，请参阅 OS/2.fsSelection 字段。名称 ID 21 的示例："Minion Pro
+//          Caption"和"Minion Pro Display"。这些示例中名称 ID 16 为"Minion Pro"。
+//          请参阅下面关于 ID 21 和 22 的附加说明。
+//      22  WWS 子家族名称。与 ID 21 结合使用，此 ID 在 ID 16 和 17 的条目不符合 WWS 模型时提供
+//          符合 WWS 的子家族名称（仅反映字重、宽度和倾斜属性）。与 ID 21 的情况一样，此 ID 的使
+//          用应与设置 OS/2 fsSelection 字段的位 8 成反比。名称 ID 22 的示例："Semibold Italic"、
+//          "Bold Condensed"。例如，名称 ID 17 可以是"Semibold Italic Caption"或"Bold Condensed
+//          Display"。
+//          请参阅下面关于 ID 21 和 22 的附加说明。
+//      23  浅色背景调色板（Light Background Palette）。如果在 CPAL 表的调色板标签数组中使用此
+//          ID，则指定 CPAL 表中的相应调色板适合在浅色背景（如白色）上显示字体时使用。此 ID 的
+//          字符串用作与此调色板关联的用户界面字符串。
+//      24  深色背景调色板（Dark Background Palette）。如果在 CPAL 表的调色板标签数组中使用此
+//          ID，则指定 CPAL 表中的相应调色板适合在深色背景（如黑色）上显示字体时使用。此 ID 的
+//          字符串用作与此调色板关联的用户界面字符串。
+//      25  变体 PostScript 名称前缀。如果在可变字体中存在，可用作变体字体 PostScript 名称生成
+//          算法中的家族前缀。字符集限制为 ASCII 范围内的大写拉丁字母、小写拉丁字母和数字。字体
+//          中名称 ID 25 的所有名称字符串，转换为 ASCII 时必须相同。有关在字体中包含名称 ID 25
+//          的原因和示例，请参阅 Adobe 技术说明 5902："变体字体的 PostScript 名称生成"。有关
+//          OpenType 字体变体的一般信息，请参阅 OpenType 字体变体概述章节。
+//
+// 对于包含在字重、宽度或倾斜以外属性方面与常规不同的成员字形的排版家族，也可能有一些仅在
+// 以下三个方面不同的成员字形。例如，Minion Pro 家族包括 Minion Pro Display，但也包括 Minion
+// Pro Bold 和 Minion Pro Italic。ID 21 和 22 应仅用于在字重、宽度或倾斜以外属性方面与常规
+// 字形不同的字体中。例如，ID 21 和 22 应在 Minion Pro Display 中使用，但不在 Minion Pro
+// Bold 或 Minion Pro Italic 中使用。
+//
+// 注意：虽然 Apple 和 Microsoft 都支持相同的名称字符串集，但解释可能略有不同。但由于名称字
+// 符串按平台、编码和语言存储（为 Apple 和 MS 平台放置单独的字符串），这不应构成问题。
+//
+// 此表对 Microsoft 平台的关键信息涉及名称 ID 1、2、4、16 和 17 的使用。注意，某些较新的应用
+// 程序将使用名称 ID 16 和 17，而某些旧版应用程序需要名称 ID 1 和 2，并且还假设这些值有一定
+// 的限制（请参阅上面名称 ID 1 和 2 的描述）。字体应包含所有这些字符串，以实现最广泛的应用程
+// 序兼容性。为了更好地理解如何为这些名称 ID 设置值，创建了一些名称使用、字重类和样式标志的
+// 示例。https://learn.microsoft.com/en-us/typography/opentype/spec/namesmp
+
+const void *prh_impl_font_get_name_type_string(prh_r32 name_id) {
+    const char *s[] = {
+        "Copyright", "Font Family", "Font Subfamily", "Unique Font Identifier", "Full Font Name", "Version", "PostScript Name", "Trademark",
+        "Manufacturer", "Designer", "Description", "Vendor URL", "Designer URL", "License Description", "License Info URL", "Reserved",
+        "Typographic Family Name", "Typographic Subfamily Name", "Compatible Full Name (for Macintosh)", "Sample Text", "PostScript CID findfont Name",
+        "WWS Family Name", "WWS Subfamily Name", "Light Background Palette", "Dark Background Palette", "Variations PostScript Name Prefix"};
+    if (name_id <= 25) return s[name_id];
+    if (name_id <= 255) return "Standard Reserved Name";
+    if (name_id <= 32767) return "Font Specific Reserved Name";
+    return "Unknnown";
+}
+
+// 名称 ID 示例。以下是基于 Times New Roman Bold 的这些字符串可能如何定义的示例：
+//  * 字体供应商的版权字符串：© Copyright the Monotype Corporation plc，1990
+//  * 用户看到的名称：Times New Roman
+//  * 样式的名称：Bold
+//  * 应用程序可以存储以标识所用字体的唯一标识符：Monotype: Times New Roman Bold: 1990
+//  * 字体的完整、唯一、人类可读名称，此名称由 Windows 使用：Times New Roman Bold
+//  * 字体供应商的发布和版本信息：Version 1.00 June 1, 1990, initial release
+//  * 字体在 PostScript 打印机上的名称：TimesNewRoman-Bold
+//  * 商标字符串：Times New Roman is a registered trademark of the Monotype Corporation.
+//  * 制造商：Monotype Corporation
+//  * 设计师：Stanley Morison
+//  * 描述：Designed in 1932 for the Times of London newspaper. Excellent readability and a narrow overall width, allowing more words per line than most fonts.
+//  * 供应商 URL：http://www.monotype.com
+//  * 设计师 URL：http://www.monotype.com
+//  * 许可证描述：This font may be installed on all of your machines and printers, but you may not sell or give these fonts to anyone else.
+//  * 许可证信息 URL：http://www.monotype.com/license/
+//  * 保留。
+//  * 首选家族。不存在名称字符串，因为它与名称 ID 1（字体家族名称）相同。
+//  * 首选子家族。不存在名称字符串，因为它与名称 ID 2（字体子家族名称）相同。
+//  * 兼容全名（仅限 Macintosh）。不存在名称字符串，因为它与名称 ID 4（全名）相同。
+//  * 示例文本：The quick brown fox jumps over the lazy dog.
+//  * PostScript CID findfont 名称。不存在名称字符串。因此，名称 ID 6 定义的 PostScript 名称
+//    应与 PostScript 解释器中的"findfont"调用一起使用，以定位字体。
+//  * WWS 家族名称：由于 Times New Roman 是 WWS 字体，因此不需要指定此字段。如果字体包含"caption"、
+//    "display"、"handwriting"等样式，则应在此处注明。
+//  * WWS 子家族名称：由于 Times New Roman 是 WWS 字体，因此不需要指定此字段。
+//  * 浅色背景调色板名称。不存在名称字符串，因为这不是彩色字体。
+//  * 深色背景调色板名称。不存在名称字符串，因为这不是彩色字体。
+//  * 变体 PostScript 名称前缀。不存在名称字符串，因为这不是可变字体。
+//
+// 以下是 CFF OpenType 日文字体 Kozuka Mincho Std Regular 中名称 ID 6 和 20 的示例（此字体中
+// 还包含其他名称 ID）：
+//  * PostScript 名称：KozMinStd-Regular。由于字体中存在名称 ID 20，因此名称 ID 6 定义的 PostScript
+//    名称应与 PostScript 解释器中的"composefont"调用一起使用，以定位字体。
+//  * PostScript CID findfont 名称：KozMinStd-Regular-83pv-RKSJ-H，位于平台 1 [Macintosh]、
+//    平台特定脚本 1 [日语]、语言：0xFFFF [英语] 的名称记录中。此名称字符串是应与 PostScript
+//    解释器中的"findfont"调用一起使用的 PostScript 名称，以定位字体，并与以下 'cmap' 子表
+//    指定的编码相关联，该子表必须存在于字体中：平台：1 [Macintosh]；平台特定编码：1 [日语]；
+//    语言：0 [非语言特定]。
+//
+// 以下是扩展 WWS 专用家族的家族/子家族命名示例。考虑 Adobe Caslon Pro，有六个成员：常规、半
+// 粗体和粗体字重的正体和斜体版本。OS/2 表版本 4 的 fsSelection 字段的位 8 应在所有六种字体
+// 中设置，且都不应包含 ID 21 或 22 的 'name' 条目。
+//  * Adobe Caslon Pro Regular：
+//      名称 ID 1：Adobe Caslon Pro
+//      名称 ID 2：Regular
+//  * Adobe Caslon Pro Italic：
+//      名称 ID 1：Adobe Caslon Pro
+//      名称 ID 2：Italic
+//  * Adobe Caslon Pro Semibold：
+//      名称 ID 1：Adobe Caslon Pro
+//      名称 ID 2：Bold
+//      名称 ID 16：Adobe Caslon Pro
+//      名称 ID 17：Semibold
+//  * Adobe Caslon Pro Semibold Italic：
+//      名称 ID 1：Adobe Caslon Pro
+//      名称 ID 2：Bold Italic
+//      名称 ID 16：Adobe Caslon Pro
+//      名称 ID 17：Semibold Italic
+//  * Adobe Caslon Pro Bold：
+//      名称 ID 1：Adobe Caslon Pro Bold
+//      名称 ID 2：Regular
+//      名称 ID 16：Adobe Caslon Pro
+//      名称 ID 17：Bold
+//  * Adobe Caslon Pro Bold Italic：
+//      名称 ID 1：Adobe Caslon Pro Bold
+//      名称 ID 2：Italic
+//      名称 ID 16：Adobe Caslon Pro
+//      名称 ID 17：Bold Italic
+//
+// 以下是扩展非 WWS 家族的家族/子家族命名示例。考虑 Minion Pro Opticals，有 32 个成员字体：
+// 每个四种光学尺寸（常规、caption、display 和 subhead）中常规、中等、半粗体和粗体字重的正
+// 体和斜体版本。以下显示此家族中部分字体的名称。OS/2 表版本 4 的 fsSelection 字段的位 8
+// 应在不包含 ID 21 或 22 的 'name' 条目的那些字体中设置，且仅在这些字体中设置。
+//  * Minion Pro Regular：
+//      名称 ID 1：Minion Pro
+//      名称 ID 2：Regular
+//  * Minion Pro Italic：
+//      名称 ID 1：Minion Pro
+//      名称 ID 2：Italic
+//  * Minion Pro Semibold：
+//      名称 ID 1：Minion Pro SmBd
+//      名称 ID 2：Regular
+//      名称 ID 16：Minion Pro
+//      名称 ID 17：Semibold
+//  * Minion Pro Semibold Italic：
+//      名称 ID 1：Minion Pro SmBd
+//      名称 ID 2：Italic
+//      名称 ID 16：Minion Pro
+//      名称 ID 17：Semibold Italic
+//  * Minion Pro Caption：
+//      名称 ID 1：Minion Pro Capt
+//      名称 ID 2：Regular
+//      名称 ID 16：Minion Pro
+//      名称 ID 17：Caption
+//      名称 ID 21：Minion Pro Caption
+//      名称 ID 22：Regular
+//  * Minion Pro Semibold Italic Caption：
+//      名称 ID 1：Minion Pro SmBd Capt
+//      名称 ID 2：Italic
+//      名称 ID 16：Minion Pro
+//      名称 ID 17：Semibold Italic Caption
+//      名称 ID 21：Minion Pro Caption
+//      名称 ID 22：Semibold Italic
+//
+// 平台、编码和语言 ID。以下部分提供有关 'name' 表中使用的平台 ID、平台特定编码 ID 和平台特定
+// 语言 ID 的详细信息。有关 'cmap' 表中使用的平台、编码或语言 ID 的详细信息，请参阅 'cmap' 表
+// 章节中的编码记录和编码。
+
+// 平台 ID。以下平台 ID 可在 'name' 表中使用，注意，其他平台 ID 的定义，仅用于 'cmap' 表。
+//      平台 ID     平台名称        平台特定编码 ID     语言 ID
+//      0           Unicode         各种                无
+//      1           Macintosh       脚本管理器代码      各种
+//      3           Windows         Windows 编码        各种
+//
+// 平台 ID。定义了以下平台 ID，平台 ID 值 240 到 255 保留给用户定义的平台，不得分配给
+// 注册的平台。
+//      平台 ID     平台名称            平台特定编码 ID
+//      0           Unicode             各种
+//      1           Macintosh           脚本管理器代码
+//      2           ISO [已弃用]        ISO 编码 [已弃用]
+//      3           Windows             Windows 编码
+//      4           自定义（Custom）    自定义
+
+#define prh_otf_platform_unicode        0
+#define prh_otf_platform_macintosh      1
+#define prh_otf_platform_iso_deprecated 2 // 已废弃
+#define prh_otf_platform_windows        3
+#define prh_otf_platform_custom         4
+#define prh_otf_platform_user_defined   240 // 240 ~ 255
+#define prh_otf_platform_user_last      255
+
+// Unicode 平台（平台 ID = 0），以下 Unicode 平台的编码 ID 可在 'name' 表中使用：
+//      编码 ID     描述
+//      0           Unicode 1.0 语义—已弃用
+//      1           Unicode 1.1 语义—已弃用
+//      2           ISO/IEC 10646 语义—已弃用
+//      3           Unicode 2.0 及更高版本语义，仅 Unicode BMP
+//      4           Unicode 2.0 及更高版本语义，完整 Unicode 库
+//
+// 使用编码 ID 0、1 或 2 已弃用。名称条目可以使用编码 ID 3 或 4。注意，其他平台 ID 定义，仅用
+// 于 'cmap' 表。另请注意，当定义新的 'cmap' 子表格式时，有时会为 Unicode 平台分配新的编码 ID，
+// 这些也可能适用于 'name' 表。例如，当将 'cmap' 子表格式 10 和 12 添加到规范时，也添加了编码
+// ID 4。
+//
+// Unicode 平台没有定义平台特定语言 ID。语言 ID = 0 可用于 Unicode 平台字符串，但这不表示任何
+// 特定语言。大于或等于 0x8000 的语言 ID 可以与语言标签记录一起使用，如上所述。Unicode 平台的
+// 字符串必须使用 UTF-16BE 编码。
+//
+// Unicode 平台（平台 ID = 0）。为 Unicode 平台定义了以下编码 ID：
+//      编码 ID     描述
+//      0           Unicode 1.0 语义 [已弃用]
+//      1           Unicode 1.1 语义 [已弃用]
+//      2           ISO/IEC 10646 语义 [已弃用]
+//      3           Unicode 2.0 及更高版本语义，仅 Unicode BMP
+//      4           Unicode 2.0 及更高版本语义，完整 Unicode 库
+//      5           Unicode 变体序列，用于子表格式 14
+//      6           完整 Unicode 库，用于子表格式 13
+//
+//      * 子表格式 14 只能使用在 UNICODE 平台并使用 5 编码
+//      * 子表格式 13 只能使用在 UNICODE 平台并使用 6 编码
+//
+// 编码 ID 3 应与 'cmap' 子表格式 4 或 6 结合使用。编码 ID 4 应与子表格式 10 或 12 结合
+// 使用。字体支持的 Unicode 变体序列应在 'cmap' 表中使用格式 14 子表指定。格式 14 子表只
+// 能用于平台 ID 0 和编码 ID 5，编码 ID 5 只能与格式 14 子表一起使用。编码 ID 6 只能与
+// 'cmap' 子表格式 13 结合使用，子表格式 13 只能用于平台 ID 0 和编码 ID 6。
+
+#define prh_otf_unicode_1_0_deprecated                         0 // 已废弃
+#define prh_otf_unicode_1_1_deprecated                         1 // 已废弃
+#define prh_otf_unicode_iso_deprecated                         2 // 已废弃
+#define prh_otf_unicode_bmp_only                               3
+#define prh_otf_unicode_full_repertoire                        4
+#define prh_otf_unicode_variation_sequences_for_format_14      5
+#define prh_otf_unicode_full_repertoire_for_format_13          6
+
+// Macintosh 平台（平台 ID = 1），Macintosh 编码 ID（脚本管理器代码，script manager codes）为
+// Macintosh 平台定义了以下编码 ID。Macintosh 平台（平台 ID 1）的字符串根据给定名称记录指定的
+// 编码 ID 使用平台特定的单字节或双字节编码。
+//      编码 ID     脚本                    编码 ID     脚本
+//      0           罗马                    17          马拉雅拉姆（Malayalam）
+//      1           日语                    18          僧伽罗（Sinhalese）
+//      2           中文（繁体）            19          缅甸（Burmese）
+//      3           韩语                    20          高棉（Khmer）
+//      4           阿拉伯语                21          泰语（Thai）
+//      5           希伯来语                22          老挝（Laotian）
+//      6           希腊语                  23          格鲁吉亚（Gerogian）
+//      7           俄语                    24          亚美尼亚（Armenian）
+//      8           RSymbol                 25          中文（简体）
+//      9           天城文（Devanagari）    26          藏语
+//      10          古尔穆基（Gurmukhi）    27          蒙古
+//      11          古吉拉特（Gujarati）    28          吉兹
+//      12          奥里亚（Odia）          29          斯拉夫
+//      13          孟加拉（Bangla）        30          越南
+//      14          泰米尔（Tamil）         31          Sindhi
+//      15          泰卢固（Telugu）        32          Uninterpreted
+//      16          卡纳达（Kannada）
+//
+// Macintosh 语言 ID。有关 Macintosh 平台特定语言 ID 的信息，请参阅 Apple 的 TrueType 参考
+// 手册。https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6name.html
+//
+// Macintosh 平台（平台 ID = 1）。旧版 Macintosh 版本要求字体具有平台 ID 1 的 'cmap' 子表。
+// 对于当前 Apple 平台，不鼓励使用平台 ID 1。有关为 Macintosh 平台定义的编码 ID 的详细信息，
+// 请参阅 'name' 表章节。
+
+#define prh_otf_macintosh_roman 0
+#define prh_otf_macintosh_japanese 1
+#define prh_otf_macintosh_chinese_traditional 2
+#define prh_otf_macintosh_korean 3
+#define prh_otf_macintosh_arabic 4
+#define prh_otf_macintosh_hebrew 5
+#define prh_otf_macintosh_greek 6
+#define prh_otf_macintosh_russian 7
+#define prh_otf_macintosh_rsymbol 8
+#define prh_otf_macintosh_devanagari 9
+#define prh_otf_macintosh_gurmukhi 10
+#define prh_otf_macintosh_gujarati 11
+#define prh_otf_macintosh_odia 12
+#define prh_otf_macintosh_bangla 13
+#define prh_otf_macintosh_tamil 14
+#define prh_otf_macintosh_telugu 15
+#define prh_otf_macintosh_kannada 16
+#define prh_otf_macintosh_malayalam 17
+#define prh_otf_macintosh_sinhalese 18
+#define prh_otf_macintosh_burmese 19
+#define prh_otf_macintosh_khmer 20
+#define prh_otf_macintosh_thai 21
+#define prh_otf_macintosh_laotian 22
+#define prh_otf_macintosh_georgian 23
+#define prh_otf_macintosh_armenian 24
+#define prh_otf_macintosh_chinese_simplified 25
+#define prh_otf_macintosh_tibetan 26
+#define prh_otf_macintosh_mongolian 27
+#define prh_otf_macintosh_geez 28
+#define prh_otf_macintosh_slavic 29
+#define prh_otf_macintosh_vietnamese 30
+#define prh_otf_macintosh_sindhi 31
+#define prh_otf_macintosh_uninterpreted 32
+
+// ISO 平台（平台 ID = 2）。此平台 ID 的使用已弃用。为 ISO 平台定义了以下编码 ID：
+//      代码    ISO 编码
+//      0       7 位 ASCII
+//      1       ISO 10646
+//      2       ISO 8859-1
+
+#define prh_otf_iso_ascii_deprecated   0
+#define prh_otf_iso_10646_deprecated   1
+#define prh_otf_iso_88591_deprecated   2
+
+// Windows 平台（平台 ID = 3）。Windows 编码 ID 为 Windows 平台定义了以下编码 ID：
+//      编码 ID     描述
+//      0           Symbol
+//      1           Unicode BMP
+//      2           ShiftJIS
+//      3           PRC         - code page 936
+//      4           Big5        - code page 950
+//      5           Wansung     - code page 949
+//      6           Johab
+//      7           保留
+//      8           保留
+//      9           保留
+//      10          完整 Unicode 库
+//
+// 平台 3 'name' 条目的编码 ID 应与 'cmap' 表中平台 3 子表使用的编码 ID 匹配。为 Windows 构建
+// Unicode 字体时，平台 ID 应为 3，编码 ID 应为 1。为 Windows 构建符号字体时，平台 ID 应为 3，
+// 编码 ID 应为 0。如果字体具有编码 ID 3、4 或 5 的记录，则相应的字符串数据应分别使用代码页
+// 936、950 和 949 编码。否则，平台 3 的所有字符串数据必须使用 UTF-16BE 编码。
+//
+// 注意：某些旧版繁体中文字体具有平台 3、编码 ID 4（Big5）的名称条目，某些字符串数据使用代码页
+// 950 编码，但名称 ID 2（字体子家族）的字符串数据改为使用 UTF-16BE 编码。例如，Windows 95 繁
+// 体中文版中包含的 MingLi 字体就是这种情况。某些旧版软件实现（包括 Windows GDI）允许此例外。
+//
+// Windows 语言 ID。有关 Windows 平台特定语言 ID 和相应 BCP 47 语言标签的信息，请参阅 [MS-LCID]：
+// Windows 语言代码标识符（LCID, Language Code Identifiers）参考。
+// https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-lcid/70feba9f-294e-491e-b6eb-56532684c37f
+//
+// Windows 平台（平台 ID = 3）。Windows 平台支持多种编码。为 Windows 创建字体时，应始终使
+// 用 Unicode 'cmap' 子表，平台 3 与编码 1 或 10。Windows 平台支持以下编码 ID：
+//      平台 ID     编码 ID     描述
+//      3           0           Symbol
+//      3           1           Unicode BMP
+//      3           2           ShiftJIS
+//      3           3           PRC
+//      3           4           Big5
+//      3           5           Wansung
+//      3           6           Johab
+//      3           7           保留
+//      3           8           保留
+//      3           9           保留
+//      3           10          完整 Unicode 库
+//
+// 仅支持 Unicode BMP 字符（U+0000 到 U+FFFF）的 Windows 平台字体必须使用编码 1 和格式 4
+// 子表。此编码不得用于支持 Unicode 辅助平面字符。
+//
+// 在 Windows 平台上支持 Unicode 辅助平面字符（U+10000 到 U+10FFFF）的字体必须使用编码 10
+// 和格式 12 子表。
+//
+// 符号编码是为了支持包含 Unicode 或其他标准编码不支持的任意装饰或符号的字体而创建的。通
+// 常使用格式 4 子表，最多 224 个图形字符分配在从 0xF020 开始的代码位置。这对应于 Unicode
+// 私用区（PUA）的子范围，尽管这不是 Unicode 编码。在旧版使用中，某些应用程序会使用单字节
+// 编码表示符号字符，然后将 0x20 映射到字体中的 OS/2.usFirstCharIndex 值。在新字体中，Unicode
+// 中不存在的符号或字符应使用 Unicode 'cmap' 子表中的 PUA 代码点编码。有关更多信息，请参
+// 阅建议章节。https://learn.microsoft.com/en-us/typography/opentype/spec/recom#cmap-table
+
+#define prh_otf_windows_symbol             0
+#define prh_otf_windows_bmp_only           1
+#define prh_otf_windows_shiftjis           2
+#define prh_otf_windows_prc                3
+#define prh_otf_windows_big5               4
+#define prh_otf_windows_wansung            5
+#define prh_otf_windows_johab              6
+#define prh_otf_windows_reserved_1         7
+#define prh_otf_windows_reserved_2         8
+#define prh_otf_windows_reserved_3         9
+#define prh_otf_windows_full_repertoire    10
+
+// 自定义平台（平台 ID = 4）和 OTF Windows NT 兼容性映射。平台 ID 4 是一个遗留平台，创
+// 建用于为已适应旧 Type 1 字体的 OpenType 字体提供旧应用程序兼容性。此平台今天不常用，
+// 不应在新字体中使用。
+//      编码 ID     自定义编码
+//      0-255       OTF Windows NT 兼容性映射
+//
+// 此 'cmap' 平台为非 Unicode 应用程序提供兼容性机制，这些应用程序使用该字体时就像它是
+// Windows ANSI 编码一样。非 Windows ANSI Type 1 字体，例如 Adobe 过去发布的西里尔文和
+// 中欧字体，在 .PFM 文件的 CharSet 字段中记录 "0"（Windows ANSI）；适用于 Windows 9x
+// 的 Adobe Type Manager 完全忽略 CharSet。Adobe 在每个从 Type1 字体转换的 OpenType 字
+// 体中提供此兼容性 'cmap' 编码，其中 Encoding 不是 StandardEncoding。
+//
+// 使用平台 ID 4 时，编码 ID 必须设置为原始 Type 1 字体的 .PFM 文件中存在的 Windows 字
+// 符集值（范围为 0 到 255，含）。
+//
+// 如果平台 ID 4、编码 ID 0 – 255 的 'cmap' 编码存在于具有 CFF 轮廓的 OpenType 字体中，
+// 则 Windows NT 中的 OTF 字体驱动程序将执行以下流程。注意，'cmap' 子表需要对其子表使用
+// 格式 0 或 6，并且编码需要与 CFF 的编码相同。
+//  a)  将编码中字符代码 0-255 的字形叠加到其向系统报告的 Unicode 编码中的相应 Windows
+//      ANSI（代码页 1252）Unicode 值上
+//  b)  将 Windows ANSI（CharSet 0）添加到字体支持的 CharSet 列表中，以及
+//  c)  将编码 ID 的值视为 Windows CharSet 值，并将其添加到字体支持的 CharSet 列表中
+
+const void *prh_impl_font_get_platform_string(prh_r32 platform_id) {
+    const char *platform[] = {"Unicode", "Macintosh", "ISO [deprecated]", "Windows", "Custom"};
+    if (platform_id <= 4) return platform[platform_id];
+    if (platform_id >= 240 && platform_id <= 255) return "User Defined";
+    return "Unknown Platform ID";
+}
+
+const void *prh_impl_font_get_encoding_string(prh_r32 platform_id, prh_r32 encoding_id) {
+    if (platform_id == 0) {
+        const char *unicode_encoding[] = {
+            "Unicode 1.0 [deprecated]",
+            "Unicode 1.1 [deprecated]",
+            "ISO/IEC 10646 [deprecated]",
+            "Unicode 2.0+ BMP only",
+            "Unicode 2.0+ full repertoire",
+            "Unicode variation sequences - for cmap format 14",
+            "Unicode full repertoire - for cmap format 13"};
+        if (encoding_id <= 6) return unicode_encoding[encoding_id];
+    } else if (platform_id == 1) {
+        const char *macintosh_encoding[] = {
+            "Roman", "Japanese", "Chinese Traditional", "Korean", "Arabic", "Hebrew", "Greek", "Russian", "RSymbol", "Devanagari", "Gurmukhi", "Gujarati", "Odia", "Bangla", "Tamil", "Telugu", "Kannada",
+            "Malayalam", "Sinhalese", "Burmese", "Khmer", "Thai", "Laotian", "Georgian", "Armenian", "Chinese Simplified", "Tibetan", "Mongolian", "Geez", "Slavic", "Vietnamese", "Sindhi", "Uninterpreted"};
+        if (encoding_id <= 32) return macintosh_encoding[encoding_id];
+    } else if (platform_id == 2) {
+        const char *iso_encoding[] = {"7-bit ASCII", "ISO 10646", "ISO 8859-1"};
+        if (encoding_id <= 2) return iso_encoding[encoding_id];
+    } else if (platform_id == 3) {
+        const char *windows_encoding[] = {"Symbol", "Unicode BMP", "ShiftJIS", "PRC", "Big5", "Wansung", "Johab", "Reserved", "Reserved", "Reserved", "Unicode full repertoire"};
+        if (encoding_id <= 10) return windows_encoding[encoding_id];
+    } else if (platform_id == 4) {
+        if (encoding_id <= 255) return "OTF Windows NT compatibility mapping";
+    }
+    return "Unknown Encoding ID";
+}
+
+// uint16      version             表版本号（=0）
+// uint16      count               名称记录的数量
+// Offset16    storageOffset       字符串存储起始偏移（从表开头开始）
+// NameRecord  nameRecord[count]   名称记录，其中 count 是记录数
+// Variable                        实际字符串数据的存储
+//
+// uint16      platformID      平台 ID
+// uint16      encodingID      平台特定编码 ID
+// uint16      languageID      语言 ID
+// uint16      nameID          名称 ID
+// uint16      length          字符串长度（以字节为单位）
+// Offset16    stringOffset    从存储区开头开始的字符串偏移（以字节为单位）
+//
+// uint16          version                     表版本号（=1）
+// uint16          count                       名称记录的数量
+// Offset16        storageOffset               字符串存储起始偏移（从表开头开始）
+// NameRecord      nameRecord[count]           名称记录，其中 count 是记录数
+// uint16          langTagCount                语言标签记录的数量
+// LangTagRecord   langTagRecord[langTagCount] 语言标签记录，其中 langTagCount 是记录数
+// Variable                                    实际字符串数据的存储
+//
+// 类型        名称            描述
+// uint16      length          语言标签字符串长度（以字节为单位）
+// Offset16    langTagOffset   从存储区开头开始的语言标签字符串偏移（以字节为单位）
+
+typedef struct {
+    prh_r16 version;
+    prh_r16 name_count;
+    prh_r16 string_start;
+} prh_font_name_table;
+
+typedef struct {
+    prh_r16 platform_id; // 名称记录必须首先按平台 ID 排序，然后按平台特定编码 ID 排序，然后按语言 ID 排序，最后按名称 ID 排序
+    prh_r16 encoding_id;
+    prh_r16 language_id; // < 0x8000 特定平台语言标签，>= 0x8000 平台无关语言标签
+    prh_r16 name_id;
+    prh_r16 string_length;
+    prh_r16 string_offset;
+} prh_font_name_record;
+
+typedef struct { // 语言标签字符串必须使用 UTF-16BE 编码，并非所有平台都有平台特定语言 ID，并非所有平台都支持语言标签记录
+    prh_r16 lang_tag_length;
+    prh_r16 lang_tag_offset;
+} prh_font_name_lang_tag;
+
+void prh_print_font_name_table(prh_open_font *f) {
+    if (f->name.length == 0) prh_abort_line();
+    prh_byte *table_data = prh_load_font_table(f, &f->name);
+    prh_r16 table_version = prh_bp_2b_to_host(table_data);
+    prh_r16 name_count = prh_bp_2b_to_host(table_data + 2);
+    prh_r16 string_start = prh_bp_2b_to_host(table_data + 4);
+
+    prh_byte *name_record = table_data + 6;
+    prh_byte *lang_tag_count = name_record + name_count * sizeof(prh_font_name_record);
+    prh_byte *lang_tag_record = lang_tag_count + 2;
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->name.length);
+    if (table_version == 0) {
+        prh_real_assert(lang_tag_count - table_data <= string_start);
+        prh_real_assert(string_start <= f->name.length);
+    } else if (table_version == 1) {
+        prh_r16 tag_count = prh_bp_2b_to_host(lang_tag_count);
+        prh_real_assert(lang_tag_record + tag_count * sizeof(prh_font_name_lang_tag) - table_data <= string_start);
+        prh_real_assert(string_start <= f->name.length);
+    } else {
+        prh_abort_error(table_version);
+    }
+
+    prh_print(
+        "name table index %d / %d\n"
+        "name table tag 0x%08x (%c%c%c%c)\n"
+        "name table offset %.10d (%d/4)\n"
+        "name table length %.10d (%d/4)\n"
+        "name table checksum 0x%08x 0x%08x (valid %d)\n"
+        "name table version %d\n"
+        "name table name count %d\n"
+        "name table lang tags %d\n"
+        "name table string start %d\n",
+        (prh_reg)f->name.table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)f->name.tabletag,
+        (prh_reg)prh_byte_4(f->name.tabletag),
+        (prh_reg)prh_byte_3(f->name.tabletag),
+        (prh_reg)prh_byte_2(f->name.tabletag),
+        (prh_reg)prh_byte_1(f->name.tabletag),
+        (prh_reg)f->name.offset, (prh_reg)f->name.offset % 4,
+        (prh_reg)f->name.length, (prh_reg)f->name.length % 4,
+        (prh_reg)f->name.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->name.checksum),
+        (prh_reg)table_version,
+        (prh_reg)name_count,
+        (prh_reg)(table_version == 1 ? prh_bp_2b_to_host(lang_tag_count) : 0),
+        (prh_reg)string_start);
+
+    prh_r32 count = name_count > 20 ? 20 : name_count;
+    for (prh_r32 i = 0; i < count; i += 1) {
+        prh_r16 platform_id = prh_bp_2b_to_host(name_record + i * sizeof(prh_font_name_record));
+        prh_r16 encoding_id = prh_bp_2b_to_host(name_record + i * sizeof(prh_font_name_record) + 2);
+        prh_r16 language_id = prh_bp_2b_to_host(name_record + i * sizeof(prh_font_name_record) + 4);
+        prh_r16 name_id = prh_bp_2b_to_host(name_record + i * sizeof(prh_font_name_record) + 6);
+        prh_r16 string_length = prh_bp_2b_to_host(name_record + i * sizeof(prh_font_name_record) + 8);
+        prh_r16 string_offset = prh_bp_2b_to_host(name_record + i * sizeof(prh_font_name_record) + 10);
+        prh_print(
+            "----------------------------\n"
+            "name record index %d / %d\n"
+            "name record platform %d '%s'\n"
+            "name record encoding %d '%s'\n"
+            "name record language %04x\n"
+            "name record string length %d\n"
+            "name record string offset %d\n"
+            "name record name_id [%d] %s: %Ls\n",
+            (prh_reg)(i + 1),
+            (prh_reg)name_count,
+            (prh_reg)platform_id, prh_impl_font_get_platform_string(platform_id),
+            (prh_reg)encoding_id, prh_impl_font_get_encoding_string(platform_id, encoding_id),
+            (prh_reg)language_id,
+            (prh_reg)string_length,
+            (prh_reg)(string_start + string_offset),
+            (prh_reg)name_id, prh_impl_font_get_name_type_string(name_id),
+            (prh_reg)string_length, table_data + string_start + string_offset);
+    }
+    prh_print("\n");
+}
+
 // 字符到字形索引映射表（cmap）
 //
 // 表概述。本表定义字符代码到默认字形索引的映射。可以定义不同的子表，每个子表包含不同
