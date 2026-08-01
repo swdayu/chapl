@@ -40059,7 +40059,11 @@ prh_reg prh_impl_print(prh_handle handle, const char *format, ...) {
 // CID 键控 sfnt 字体文件格式（Macintosh 版）
 //
 // CID 键控字体。一种多字节 Type 1 字体的文件组织方式，字形通过字符 ID（CID）而非名称查找
-// 来访问。
+// 来访问。sfnt 是 spline font（样条字体）或 scalable font（可缩放字体）的缩写。它最初由
+// Apple 为 Macintosh 上的 TrueType 字体开发，作为 QuickDraw 使用的字体数据包装格式。后来，
+// Adobe 在《CID-Keyed sfnt Font File Format for the Macintosh》（Adobe Technical Note 5180）
+// 中扩展了该格式，用于将 CID 键控字体（CID-keyed font）嵌入到 sfnt 包装器中，以便在 Macintosh
+// 系统上使用。
 //
 // 本文档描述 Macintosh 的 CID sfnt 字体格式。它仅描述 Adobe 对 Apple 格式所做的扩展，以容
 // 纳 CID 键控字体。此外，它假定读者熟悉 Apple Computer 发布的 sfnt 规范（参见附录 B）。
@@ -40556,6 +40560,21 @@ typedef struct prh_open_font {
     prh_r32 font_header_offset;
     prh_r32 font_index;
     bool is_cff_outline;
+    prh_r32 maxp_version;
+    prh_r16 num_glyphs;
+    prh_r16 max_points;
+    prh_r16 max_contours;
+    prh_r16 max_composite_points;
+    prh_r16 max_composite_contours;
+    prh_r16 max_zones;
+    prh_r16 max_twilinght_points;
+    prh_r16 max_storage;
+    prh_r16 max_function_defs;
+    prh_r16 max_instruction_defs;
+    prh_r16 max_stack_elements;
+    prh_r16 max_size_of_instructions;
+    prh_r16 max_component_elements;
+    prh_r16 max_component_depth;
     prh_font_table base; // 'BASE'
     prh_font_table cff1; // 'CFF '
     prh_font_table cff2; // 'CFF2'
@@ -40577,21 +40596,6 @@ typedef struct prh_open_font {
     prh_font_table post; // 'post'
     prh_font_table vhea; // 'vhea'
     prh_font_table vmtx; // 'vmtx'
-    prh_r32 maxp_version;
-    prh_r16 num_glyphs;
-    prh_r16 max_points;
-    prh_r16 max_contours;
-    prh_r16 max_composite_points;
-    prh_r16 max_composite_contours;
-    prh_r16 max_zones;
-    prh_r16 max_twilinght_points;
-    prh_r16 max_storage;
-    prh_r16 max_function_defs;
-    prh_r16 max_instruction_defs;
-    prh_r16 max_stack_elements;
-    prh_r16 max_size_of_instructions;
-    prh_r16 max_component_elements;
-    prh_r16 max_component_depth;
 } prh_open_font;
 
 prh_r16 prh_font_table_count(const prh_open_font *f) {
@@ -41226,42 +41230,173 @@ void prh_print_font_maxp_table(prh_open_font *f) {
     prh_print("\n");
 }
 
-// VORG — 垂直原点表
-// 此可选表指定字体中每个字形的垂直原点的 y 坐标。
-// 此表只能在 CFF 或 CFF2 OpenType 字体中使用。如果存在于包含 TrueType 轮廓数据的 OpenType 字体中，则必须忽略：垂直度量（'vmtx'）和字形数据（'glyf'）表提供准确计算字形垂直原点 y 坐标所需的所有信息。有关更多详细信息，请参阅 'vmtx' 表规范中的"垂直原点和前进高度"部分。
-// 对于所有支持垂直书写的 OpenType 字体，'vmtx' 和垂直头（'vhea'）表仍然是必需的。前进高度必须继续从 'vmtx' 表获取；这是存储它们的唯一位置。
-// 如果 CFF 或 CFF2 OpenType 字体中存在 VORG 表，应用程序可以选择通过以下方式获取字形垂直原点的 y 坐标：
-// 直接从 VORG 表获取，或
-// 首先通过 CFF 或 CFF2 CharString 数据计算字形边界框的顶部，然后加上 'vmtx' 表中字形的顶部侧承。
-// 前一种方法提供更高准确性和效率的优势，因为根据边界框算法的舍入决策和数据类型，从 CFF 或 CFF2 CharString 计算的边界框结果可能不同。后一种方法为不了解或选择不支持 VORG 的应用程序提供兼容性。
-// 因此，VORG 表本身不添加任何新的字体度量值；它只是提高了应用程序的准确性和效率，因为从 CFF 或 CFF2 CharString 计算边界框的中间步骤变得不必要。
+// 垂直原点表（VORG, Vertical Origin Table）
+//
+// 此可选表指定字体中每个字形的垂直原点的 y 坐标。此表只能在 CFF 或 CFF2 OpenType 字体中使用。
+// 如果存在于包含 TrueType 轮廓数据的 OpenType 字体中，则必须忽略：垂直度量（'vmtx'）和字形数
+// 据（'glyf'）表提供准确计算字形垂直原点 y 坐标所需的所有信息。有关更多详细信息，请参阅 'vmtx'
+// 表规范中的"垂直原点和前进高度"部分。
+//
+// 对于所有支持垂直书写的 OpenType 字体，'vmtx' 和垂直头（'vhea'）表仍然是必需的。前进高度必须
+// 继续从 'vmtx' 表获取；这是存储它们的唯一位置。
+//
+// 如果 CFF 或 CFF2 OpenType 字体中存在 VORG 表，应用程序可以选择通过以下方式获取字形垂直原点
+// 的 y 坐标：
+//  1.  直接从 VORG 表获取，或
+//  2.  首先通过 CFF 或 CFF2 CharString 数据计算字形边界框的顶部，然后加上 'vmtx' 表中字形的顶
+//      部侧承（top side bearing）
+//
+// 前一种方法提供更高准确性和效率的优势，因为根据边界框算法的舍入决策和数据类型，从 CFF 或 CFF2
+// CharString 计算的边界框结果可能不同。后一种方法为不了解或选择不支持 VORG 的应用程序提供兼容性。
+// 因此，VORG 表本身不添加任何新的字体度量值；它只是提高了应用程序的准确性和效率，因为从 CFF 或
+// CFF2 CharString 计算边界框的中间步骤变得不必要。
+//
 // 有关构建 CJK（中文、日文和韩文）字体的更多信息，请参阅建议章节中的 OpenType CJK 字体指南。
-// 垂直原点表格式
-// VORG 表的结构如下：
-// VerticalOrigin 表
-// 类型	名称	描述
-// uint16	majorVersion	主要版本——设置为 1。
-// uint16	minorVersion	次要版本——设置为 0。
-// int16	defaultVertOriginY	如果 vertOriginYMetrics 数组中没有该字形的条目，则使用的字形垂直原点 y 坐标，以字体的设计坐标系表示。
-// uint16	numVertOriginYMetrics	vertOriginYMetrics 数组中的元素数。
-// VertOriginYMetrics	vertOriginYMetrics[numVertOriginYMetrics]	按字形 ID 排序的 VertOriginYMetrics 记录数组。
+// https://learn.microsoft.com/en-us/typography/opentype/spec/recom#cjk
+//
+// 垂直原点表格式。VORG 表的结构如下：
+//      类型                名称                                        描述
+//      uint16              majorVersion                                主要版本——设置为 1
+//      uint16              minorVersion                                次要版本——设置为 0
+//      int16               defaultVertOriginY                          如果 vertOriginYMetrics 数组中没有该字形的条目，
+//                                                                      则使用的字形垂直原点 y 坐标（以字体的设计坐标系
+//                                                                      表示）
+//      uint16              numVertOriginYMetrics                       vertOriginYMetrics 数组中的元素数
+//      VertOriginYMetrics  vertOriginYMetrics[numVertOriginYMetrics]   按字形 ID 排序的 VertOriginYMetrics 记录数组
+//
 // VertOriginYMetrics 记录具有以下格式：
-// VertOriginYMetrics 记录
-// 类型	名称	描述
-// uint16	glyphIndex	字形索引。
-// int16	vertOriginY	字形垂直原点的 y 坐标，以字体的设计坐标系表示。
-// 此数组必须按 glyphIndex 递增排序，且不得有多个具有相同 glyphIndex 的元素。在大小优化的实现中，垂直原点 y 坐标等于 defaultVertOriginY 的字形在此数组中没有条目。
-// 如果字体中所有字形共享相同的 defaultVertOriginY 值，则在大小优化的实现中，VORG 表的长度将为 8 字节，因为 vertOriginYMetrics 数组将不存在。
-// 通常，只有东亚字体中的全角拉丁字形会在 vertOriginYMetrics 数组中有条目。为垂直书写旋转的字形，例如垂直替代和旋转（'vrt2'）功能中使用的字形，如果设计适当，可以利用默认值。
-// 在以下 1000 单位 em 字体的完整 VORG 表示例中，除字形索引 10、12 和 13 外，字体中每个字形都指定为 vertOriginY 为 880：
-// majorVersion         =1
-// minorVersion         =0
-// defaultVertOriginY   =880
-// numVertOriginYMetrics=3
-// --- vertOriginYMetrics[index]=(glyphIndex,vertOriginY)
-// [0]=(10,889)
-// [1]=(12,861)
-// [2]=(13,849)
+//      类型    名称        描述
+//      uint16  glyphIndex  字形索引
+//      int16   vertOriginY 字形垂直原点的 y 坐标，以字体的设计坐标系表示
+//
+// 此数组必须按 glyphIndex 递增排序，且不得有多个具有相同 glyphIndex 的元素。在大小优化的
+// 实现中，垂直原点 y 坐标等于 defaultVertOriginY 的字形在此数组中没有条目。
+//
+// 如果字体中所有字形共享相同的 defaultVertOriginY 值，则在大小优化的实现中，VORG 表的长度
+// 将为 8 字节，因为 vertOriginYMetrics 数组将不存在。
+//
+// 通常，只有东亚字体中的全角拉丁字形会在 vertOriginYMetrics 数组中有条目。为垂直书写旋转
+// 的字形，例如垂直替代和旋转（'vrt2'）功能中使用的字形，如果设计适当，可以利用默认值。
+//
+// 在以下 1000 单位 em 字体（1000-unit-em font）的完整 VORG 表示例中，除字形索引 10、12 和
+// 13 外，字体中每个字形都指定为 vertOriginY 为 880：
+//      majorVersion         =1
+//      minorVersion         =0
+//      defaultVertOriginY   =880
+//      numVertOriginYMetrics=3
+//      --- vertOriginYMetrics[index]=(glyphIndex,vertOriginY)
+//      [0]=(10,889)
+//      [1]=(12,861)
+//      [2]=(13,849)
+
+typedef struct {
+    prh_r16 major_version;
+    prh_r16 minor_version;
+    prh_i16 default_vorg_y;
+    prh_r16 num_vorg_metrics;
+} prh_font_vorg_table;
+
+typedef struct {
+    prh_r16 glyph_index;
+    prh_i16 vert_orgin_y;
+} prh_font_vorg_metric;
+
+#define prh_impl_font_vert_metric_glyph_index(metric) prh_bp_2b_to_host((prh_byte *)&(metric)->glyph_index)
+
+prh_i16 prh_font_glyph_vert_origin_y(prh_r32 glyph_index, prh_i16 default_origin_y, prh_font_vorg_metric *metric, prh_r32 n) {
+    prh_reg i;
+    prh_generic_bsearch_last_greater_equal(i, glyph_index, metric, n, prh_impl_font_vert_metric_glyph_index);
+    if (i != (prh_reg)-1 && glyph_index == prh_bp_2b_to_host((prh_byte *)&metric[i].glyph_index)) return prh_bp_2b_to_host((prh_byte *)&metric[i].vert_orgin_y);
+    return default_origin_y;
+}
+
+void prh_print_font_vorg_table(prh_open_font *f) {
+    if (f->vorg.length == 0) return;
+    prh_byte *table_data = prh_load_font_table(f, &f->vorg);
+    prh_r32 table_version = prh_bp_4b_to_host(table_data);
+    prh_i16 default_y = (prh_i16)prh_bp_2b_to_host(table_data + 4);
+    prh_r16 num_metrics = prh_bp_2b_to_host(table_data + 6);
+    prh_r32 table_length = (prh_r32)sizeof(prh_font_vorg_table) + num_metrics * (prh_r32)sizeof(prh_font_vorg_metric);
+    prh_real_assert(table_length == f->vorg.length);
+
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->vorg.length);
+    prh_print(
+        "vorg table index %d / %d\n"
+        "vorg table tag 0x%08x (%c%c%c%c)\n"
+        "vorg table offset %.10d (%d/4)\n"
+        "vorg table length %.10d (%d/4)\n"
+        "vorg table checksum 0x%08x 0x%08x (valid %d)\n"
+        "vorg table version %08x\n"
+        "vorg table default y %d\n"
+        "vorg table num metrics %d\n",
+        (prh_reg)f->vorg.table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)f->vorg.tabletag,
+        (prh_reg)prh_byte_4(f->vorg.tabletag),
+        (prh_reg)prh_byte_3(f->vorg.tabletag),
+        (prh_reg)prh_byte_2(f->vorg.tabletag),
+        (prh_reg)prh_byte_1(f->vorg.tabletag),
+        (prh_reg)f->vorg.offset, (prh_reg)f->vorg.offset % 4,
+        (prh_reg)f->vorg.length, (prh_reg)f->vorg.length % 4,
+        (prh_reg)f->vorg.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->vorg.checksum),
+        (prh_reg)table_version,
+        (prh_reg)default_y,
+        (prh_reg)num_metrics);
+
+    prh_font_vorg_metric *vorg_metrics = (prh_font_vorg_metric *)(table_data + 8);
+    if (num_metrics > 2) {
+        prh_r32 glyph_a = prh_bp_2b_to_host((prh_byte *)&vorg_metrics[0].glyph_index);
+        prh_r32 glyph_b = prh_bp_2b_to_host((prh_byte *)&vorg_metrics[1].glyph_index);
+        prh_r32 glyph_c = prh_bp_2b_to_host((prh_byte *)&vorg_metrics[num_metrics - 1].glyph_index);
+        prh_print(
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n"
+            "vorg table glyph %d origin y %d\n",
+            (prh_reg)glyph_a - 1, (prh_reg)prh_font_glyph_vert_origin_y(glyph_a - 1, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_a + 0, (prh_reg)prh_font_glyph_vert_origin_y(glyph_a, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_a + 1, (prh_reg)prh_font_glyph_vert_origin_y(glyph_a + 1, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_b - 1, (prh_reg)prh_font_glyph_vert_origin_y(glyph_b - 1, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_b + 0, (prh_reg)prh_font_glyph_vert_origin_y(glyph_b, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_b + 1, (prh_reg)prh_font_glyph_vert_origin_y(glyph_b + 1, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_c - 1, (prh_reg)prh_font_glyph_vert_origin_y(glyph_c - 1, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_c + 0, (prh_reg)prh_font_glyph_vert_origin_y(glyph_c, default_y, vorg_metrics, num_metrics),
+            (prh_reg)glyph_c + 1, (prh_reg)prh_font_glyph_vert_origin_y(glyph_c + 1, default_y, vorg_metrics, num_metrics));
+    }
+
+    prh_r32 i, count = num_metrics > 8 ? 8 : num_metrics;
+    for (i = 0; i < count; i += 1) {
+        prh_print(
+            "----------------------------\n"
+            "vorg metric index %d / %d\n"
+            "vorg metric glyph index %d\n"
+            "vorg metric origin y %d\n",
+            (prh_reg)(i + 1),
+            (prh_reg)num_metrics,
+            (prh_reg)prh_bp_2b_to_host((prh_byte *)&vorg_metrics[i].glyph_index),
+            (prh_reg)prh_bp_2b_to_host((prh_byte *)&vorg_metrics[i].vert_orgin_y));
+    }
+
+    for (i = num_metrics - 8; i < num_metrics; i += 1) {
+        prh_print(
+            "----------------------------\n"
+            "vorg metric index %d / %d\n"
+            "vorg metric glyph index %d\n"
+            "vorg metric origin y %d\n",
+            (prh_reg)(i + 1),
+            (prh_reg)num_metrics,
+            (prh_reg)prh_bp_2b_to_host((prh_byte *)&vorg_metrics[i].glyph_index),
+            (prh_reg)prh_bp_2b_to_host((prh_byte *)&vorg_metrics[i].vert_orgin_y));
+    }
+
+    prh_print("\n");
+    prh_da_free(table_data);
+}
 
 // 命名表（name）
 //
@@ -42000,6 +42135,7 @@ void prh_print_font_name_table(prh_open_font *f) {
             (prh_reg)string_length, table_data + string_start + string_offset);
     }
     prh_print("\n");
+    prh_da_free(table_data);
 }
 
 // 字符到字形索引映射表（cmap）
