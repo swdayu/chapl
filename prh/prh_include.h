@@ -41398,6 +41398,156 @@ void prh_print_font_vorg_table(prh_open_font *f) {
     prh_da_free(table_data);
 }
 
+// PostScript 表（post）
+//
+// 本表包含 PostScript 打印机使用的 OpenType 字体所需的附加信息。其中包括 Type 1 字体 FontInfo
+// 字典中的某些数据，以及所有字形的 PostScript 名称。有关 PostScript 名称的更多信息，请
+// 参阅 Adobe 字形列表规范。https://github.com/adobe-type-tools/agl-specification
+//
+// 版本 1.0、2.0 和 2.5 的 'post' 表仅用于包含 TrueType 或 CFF 版本 2 轮廓数据的字体。包
+// 含 TrueType 或 CFF 版本 2 数据的字体也可以使用版本 3.0 的 'post' 表。包含 CFF 版本 1
+// 轮廓数据的 OpenType 字体必须仅使用版本 3.0 的 'post' 表。
+//
+// 表头。表的开头如下：
+//      类型            名称                说明
+//      Version16Dot16  version             0x00010000 表示版本 1.0；0x00020000 表示版本 2.0；0x00025000 表示版本 2.5（已弃
+//                                          用）；0x00030000 表示版本 3.0。
+//      Fixed           italicAngle         斜体角度，以逆时针方向偏离垂直线的度数表示。正立文本为 0，向右倾斜（前倾）为负值。
+//      FWORD           underlinePosition   建议的下划线顶部的 y 坐标。注意，PostScript 语言将 UnderLinePosition FontInfo 定
+//                                          义为从基线到下划线中心的距离。此定义不用于 'post' 表。
+//      FWORD           underlineThickness  建议的下划线厚度值。通常，下划线厚度应与下划线字符（U+005F LOW LINE）的粗细相匹配，
+//                                          并且也应与删除线粗细相匹配，后者在 OS/2 表 yStrikeoutSize 中指定。
+//      uint32          isFixedPitch        如果字体为比例间距（proportionally spaced），则设为 0；如果字体不是比例间距（即等
+//                                          宽，monospaced），则设为非零。
+//      uint32          minMemType42        OpenType 字体下载时的最小内存使用量。
+//      uint32          maxMemType42        OpenType 字体下载时的最大内存使用量。
+//      uint32          minMemType1         OpenType 字体作为 Type 1 字体下载时的最小内存使用量。
+//      uint32          maxMemType1         OpenType 字体作为 Type 1 字体下载时的最大内存使用量。
+//
+// 表中最后四项的存在是因为，如果 PostScript 驱动程序在下载 OpenType 字体之前就知道其虚拟
+// 内存（VM）需求，则可以更好地进行内存管理。如果已知，应提供此信息；如果未知，则将值设为
+// 零。驱动程序仍然可以工作，但效率会降低。最大内存使用量等于最小内存使用量加上最大运行时
+// 内存使用量。最大运行时内存使用量取决于字体光栅化器可能光栅化的任何位图的最大条带大小。
+// 可以通过在不同字号下渲染字符并比较内存使用量来计算运行时内存使用量。
+//
+// 如果版本为 1.0 或 3.0，则表到此结束。版本 2.0 和 2.5 的附加条目如下所示。Apple 为其平台
+// 定义了版本 4.0（请参阅 Apple 的规范），但 OpenType 不支持。
+// https://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6post.html
+//
+// 版本 1.0。此版本用于字体文件恰好包含标准 Macintosh TrueType 字体文件中的 258 个字形时（有
+// 关 258 个 Macintosh 字形名称的列表，请参阅 Apple 规范中的 'post' 格式 1），且字体未另行提
+// 供字形名称。因此，字形名称从系统中获取，字体无需存储。
+//
+// 版本 2.0。版本 2.0 用于使用不在 Macintosh 字形名称集合中的字形名称的字体。给定字体可能将
+// 其某些字形映射到标准 Macintosh 字形名称，某些映射到其自己的自定义名称。版本 2.0 的 'post'
+// 表可用于包含 TrueType 或 CFF 版本 2 轮廓的字体。对于版本 2.0，以下字段附加在表头末尾：
+//      类型    名称                        说明
+//      uint16  numGlyphs                   字形数量（应与 'maxp' 表中的 numGlyphs 相同）
+//      uint16  glyphNameIndex[numGlyphs]   指向字符串数据的索引数组
+//      uint8   stringData[variable]        字符串数据的存储空间
+//
+// 此字体文件包含不在标准 Macintosh 集合中的字形，或者字体文件中字形的排列顺序与标准 Macintosh
+// 集合不同。glyphNameIndex 数组将字形 ID 映射到字形名称索引。如果字形名称索引在 0 到 257（含）
+// 之间，则将该索引视为 Macintosh 标准字形集中的字形索引，并使用 Macintosh 字形名称。如果字形
+// 名称索引在 258 到 65535 之间，则减去 258，并用该值索引表末尾的 Pascal 字符串列表。
+//
+// 例如，假设 glyphNameIndex[302]（对应字形 ID 302）为 217：由于该字形名称索引小于 258，因此字
+// 形名称为字形 ID 217 的 Macintosh 字形名称。假设 glyphNameIndex[408] 为 262：减去 258，差值为
+// 4；该字形的字形名称为字符串数据中的第五个字符串（索引 4，从 0 开始）。
+//
+// 字符串数据采用 Pascal 字符串格式，即给定字符串的第一个字节是长度：该字符串中的字符数。长度字
+// 节本身不计入；例如，长度字节为 8 表示随后的 8 个字节构成字符串字符数据。要查找给定字形名称索
+// 引的字符串，从第一个长度字节开始，前进该字节指定的字节数以找到下一个字符串条目的长度字节，依
+// 此类推。
+//
+// 字形名称字符串使用 ASCII 编码。有效字符限于 A–Z、a–z、0–9、"."（FULL STOP）和 "_"（LOW LINE）。
+// 名称长度不得超过 63 个字符；某些旧实现可能假设长度限制为 31 个字符。如果不想为特定字形关联
+// PostScript 名称，请使用 0（指向名称 .notdef）作为该字形 ID 的 glyphNameIndex 条目。
+//
+// 版本 2.5。版本 2.5 的 'post' 表已弃用。此版本为包含 TrueType 轮廓的字体提供节省空间的表，这些
+// 字体仅包含标准 Macintosh 字形集的子集，或对标准 Macintosh 字形集进行了简单的重新排序。
+//      类型    名称                说明
+//      uint16  numGlyphs           字形数量
+//      int8    offset[numGlyphs]   字形索引与标准顺序中字形索引的差值
+//
+// 此版本已用于某些旧版字体，这些字体包含 TrueType 轮廓，仅包含标准 Macintosh 字形集中的字形，但
+// 这些字形的排列顺序非标准，或缺少某些字形。表中包含字体文件中每个字形的一个字节。该字节被视为有
+// 符号偏移量，将字体中使用的字形索引映射到标准字形索引。例如，假设字体包含三个字形 A、B 和 C，它
+// 们在标准顺序中分别是第 37、38 和 39 个字形，则 'post' 表将包含字节 +36、+36、+36。
+//
+// 版本 3.0。此版本使得创建不受大量字形名称负担的字体成为可能。版本 3.0 的 'post' 表可由包含
+// TrueType 或 CFF（版本 1 或 2）数据的 OpenType 字体使用。此版本指定不为该字体文件中的字形提
+// 供 PostScript 名称信息。此版本在 PostScript 打印机上的打印行为未指定，但不应导致致命或不可
+// 恢复的错误。某些驱动程序可能不打印任何内容；其他驱动程序可能尝试使用默认命名方案进行打印。
+// 注意：Windows 使用 'post' 表中的斜体角度值，但实际上不需要将任何字形名称存储为 Pascal 字符
+// 串。
+//
+// 'post' 表与 OpenType 字体变体。在可变字体中，'post' 表中的各种字体度量值可能需要针对不同的
+// 变体实例进行调整。'post' 条目的变体数据可以在度量变体（MVAR）表中提供。不同的 'post' 条目通
+// 过值标签与 MVAR 表中的特定变体数据相关联，如下所示：
+//      'post' 条目         标签
+//      underlinePosition   'undo'
+//      underlineThickness  'unds'
+//
+// 注意：italicAngle 值不由变体数据调整，因为这对应于可用于定义字体变体空间的 'slnt' 变体轴。
+// 变体实例的适当 post.italicAngle 值可以从用于选择特定变体实例的 'slnt' 用户坐标推导得出。有
+// 关 italicAngle 与 'slnt' 轴之间关系的详细信息，请参阅 OpenType 设计变体轴标签注册表中的 'slnt'
+// 轴讨论。https://learn.microsoft.com/en-us/typography/opentype/spec/dvaraxisreg
+//
+// 有关 OpenType 字体变体的一般信息，请参阅"OpenType 字体变体概述"章节。
+// https://learn.microsoft.com/en-us/typography/opentype/spec/otvaroverview
+
+typedef struct {
+    prh_r32 version;
+    prh_i16 italic_angle_upper; // 32 位有符号定点数（16.16）
+    prh_r16 italic_angle_lower;
+    prh_i16 underline_y_position;
+    prh_i16 underline_thickness;
+    prh_r32 is_fixed_pitch;
+    prh_r32 type42_min_mem;
+    prh_r32 type42_max_mem;
+    prh_r32 type1_min_mem;
+    prh_r32 type1_max_mem;
+} prh_font_post_table;
+
+void prh_print_font_post_table(prh_open_font *f) {
+    if (f->post.length == 0) return;
+    prh_font_post_table *p = (prh_font_post_table *)prh_load_font_table(f, &f->post);
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)p, f->post.length);
+    prh_print(
+        "post table index %d / %d\n"
+        "post table tag 0x%08x (%c%c%c%c)\n"
+        "post table offset %.10d (%d/4)\n"
+        "post table length %.10d (%d/4)\n"
+        "post table checksum 0x%08x 0x%08x (valid %d)\n"
+        "post table version %08x\n"
+        "post table italic angle %d.%d\n"
+        "post table underline y position %d\n"
+        "post table underline thickness %d\n"
+        "post table monospace font %d\n"
+        "post table type42 memory %d ~ %d\n"
+        "post table type1 memory %d ~ %d\n\n",
+        (prh_reg)f->post.table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)f->post.tabletag,
+        (prh_reg)prh_byte_4(f->post.tabletag),
+        (prh_reg)prh_byte_3(f->post.tabletag),
+        (prh_reg)prh_byte_2(f->post.tabletag),
+        (prh_reg)prh_byte_1(f->post.tabletag),
+        (prh_reg)f->post.offset, (prh_reg)f->post.offset % 4,
+        (prh_reg)f->post.length, (prh_reg)f->post.length % 4,
+        (prh_reg)f->post.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->post.checksum),
+        (prh_reg)prh_r32_be_to_host(p->version),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->italic_angle_upper),
+        (prh_reg)prh_r16_be_to_host(p->italic_angle_lower),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->underline_y_position),
+        (prh_reg)prh_r16_be_to_host(p->underline_thickness),
+        (prh_reg)prh_r32_be_to_host(p->is_fixed_pitch),
+        (prh_reg)prh_r32_be_to_host(p->type42_min_mem), (prh_reg)prh_r32_be_to_host(p->type42_max_mem),
+        (prh_reg)prh_r32_be_to_host(p->type1_min_mem), (prh_reg)prh_r32_be_to_host(p->type1_max_mem));
+    prh_da_free((prh_byte *)p);
+}
+
 // 命名表（name）
 //
 // 命名表允许将多语言字符串与 OpenType 字体关联。这些字符串可以代表版权声明、字体名称、
