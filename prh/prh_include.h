@@ -40791,6 +40791,70 @@ void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
 //      VDMX    垂直设备度量
 //      'vhea'  垂直度量头
 //      'vmtx'  垂直度量
+//
+// EM 是字体排版中的基本度量单位，来源于金属活字时代，最初指一个"M"字形的宽度（这也是其
+// 名称的来源）。在数字字体（如 OpenType）中，em 的含义如下：
+//  1.  与字号的关系。em 的高度等于字体的当前字号大小。例如，在 12pt 的字体中，1 em =
+//      12pt；在 16px 的字体中，1 em = 16px。
+//  2.  设计坐标系中的基准单位。字体文件内部使用一个设计单位坐标系，由 unitsPerEm（每 em
+//      的设计单位数）定义。所有字形度量值（如字宽、升部、降部、下标/上标大小等）都以这些
+//      设计单位表示，最终换算为 em 的分数来确定实际显示尺寸。
+//      * 如果 unitsPerEm = 1000，则 1 em = 1000 个设计单位
+//      * 如果 unitsPerEm = 2048（如 Times New Roman），则 1 em = 2048 个设计单位
+//  3.  典型应用。字宽，字符的宽度通常表示为 em 的分数（如 0.5 em）。行距，由升部（ascender）
+//      和降部（descender）之和决定，通常接近 1 em。CSS 中的 em 单位：直接继承自字体排版，
+//      1 em 等于当前元素的字体大小。
+//
+// 简单来说，em 是字体度量系统的"基准方块"，一个虚拟的正方形，其边长等于字体字号，所有其他
+// 度量都围绕它展开。
+//
+// 常用的字体度量单位可分为绝对物理单位、字体相对单位、数字字体设计单位和屏幕/Web 单位四大类：
+//
+// 一、绝对物理单位（印刷排版）
+//      单位    符号    说明
+//      点      pt      最常用的字号单位。桌面出版（PostScript）中 1 pt = 1/72 英寸；传统
+//                      活字印刷中 1 pt ≈ 0.3528 mm
+//      派卡    pc      1 pc = 12 pt，常用于排版行宽、栏宽
+//      毫米    mm      国际标准单位，1 mm ≈ 2.835 pt
+//      厘米    cm      1 cm = 10 mm
+//      英寸    in      1 in = 72 pt（PostScript 标准）
+//
+// 二、字体相对单位（排版核心）
+//      单位    说明
+//      em      等于当前字体大小。在金属活字时代指"M"字形的宽度；在数字字体中，em 是设计
+//              坐标系的基准方块，由 unitsPerEm 定义。所有字形度量（字宽、升部、降部等）
+//              都以 em 的分数表示
+//      en      通常等于 0.5 em，即 em 的一半宽度
+//      ex      约等于当前字体中小写字母 "x" 的高度，用于垂直对齐
+//      ch      等于当前字体中数字 "0" 的宽度（CSS 特有）
+//
+// 三、数字字体设计单位（OpenType/TrueType 内部）
+//      单位                        说明
+//      设计单位 (design units)     字体文件内部坐标系中的抽象单位。例如 unitsPerEm = 1000
+//                                  表示 1 em 被划分为 1000 个设计单位。所有字形轮廓坐标、字
+//                                  宽、升部/降部值都以设计单位存储
+//      FWORD                       OpenType 表中的有符号 16 位整数，以设计单位表示（如 sTypoAscender）
+//      UFWORD                      无符号 16 位整数，以设计单位表示（如 usWinAscent）
+//      TWIP                        二十分之一磅（1/20 pt），OpenType OS/2 v5 表中 usLowerOpticalPointSize
+//                                  等字段使用
+//      Fixed                       16.16 定点数格式，用于 italicAngle 等需要小数的字段
+//
+// 四、屏幕/Web 单位
+//      单位                        说明
+//      px (像素)                   屏幕显示的基本单位，与设备分辨率相关
+//      rem                         相对于根元素（html）字体大小的 em
+//      vw/vh                       视口宽/高的百分比
+//
+// 五、其他专业单位
+//      单位                        说明
+//      Q (Quart)                   日本排版常用单位，1 Q = 0.25 mm
+//      Didot 点                    欧洲大陆传统活字单位，1 Didot pt ≈ 0.376 mm，略大于 PostScript pt
+//      Cicero                      欧洲大陆对应派卡的单位，1 Cicero = 12 Didot pt
+//
+// 日常排版：最常用的是 pt（点） 和 em
+// 字体开发：核心单位是设计单位（相对于 unitsPerEm 的分数）
+// Web 开发：最常用 px、em、rem
+// OpenType 表内部：大量使用设计单位 和 TWIP
 
 #define PRH_OTF_BASE_TABLE 0x42415345
 #define PRH_OTF_CFF1_TABLE 0x43464620 // 紧凑字体格式 1.0
@@ -41547,6 +41611,965 @@ void prh_print_font_post_table(prh_open_font *f) {
         (prh_reg)prh_r32_be_to_host(p->type1_min_mem), (prh_reg)prh_r32_be_to_host(p->type1_max_mem));
     prh_da_free((prh_byte *)p);
 }
+
+// OS/2 和 Windows 度量表
+//
+// OS/2 表由一组在 OpenType 字体中所需的度量值和其他数据组成。OS/2 表格式。OS/2 表已定义
+// 六个版本：版本 0 到 5。所有版本均受支持，但强烈建议使用版本 4 或更高版本。
+//
+// 版本 5 的格式如下：
+//      类型    名称                    备注
+//      uint16  version                 0x0005
+//      FWORD   xAvgCharWidth
+//      uint16  usWeightClass
+//      uint16  usWidthClass
+//      uint16  fsType
+//      FWORD   ySubscriptXSize
+//      FWORD   ySubscriptYSize
+//      FWORD   ySubscriptXOffset
+//      FWORD   ySubscriptYOffset
+//      FWORD   ySuperscriptXSize
+//      FWORD   ySuperscriptYSize
+//      FWORD   ySuperscriptXOffset
+//      FWORD   ySuperscriptYOffset
+//      FWORD   yStrikeoutSize
+//      FWORD   yStrikeoutPosition
+//      int16   sFamilyClass
+//      uint8   panose[10]
+//      uint32  ulUnicodeRange1         位 0 – 31
+//      uint32  ulUnicodeRange2         位 32 – 63
+//      uint32  ulUnicodeRange3         位 64 – 95
+//      uint32  ulUnicodeRange4         位 96 – 127
+//      Tag     achVendID
+//      uint16  fsSelection
+//      uint16  usFirstCharIndex
+//      uint16  usLastCharIndex
+//      FWORD   sTypoAscender
+//      FWORD   sTypoDescender
+//      FWORD   sTypoLineGap
+//      UFWORD  usWinAscent
+//      UFWORD  usWinDescent
+//      uint32  ulCodePageRange1        位 0 – 31
+//      uint32  ulCodePageRange2        位 32 – 63
+//      FWORD   sxHeight
+//      FWORD   sCapHeight
+//      uint16  usDefaultChar
+//      uint16  usBreakChar
+//      uint16  usMaxContext
+//      uint16  usLowerOpticalPointSize
+//      uint16  usUpperOpticalPointSize
+//
+// 版本 4 在 OpenType 1.5 中定义。版本 4 比版本 5 少两个字段，其余字段与版本 3 相同。虽然
+// 未在版本 3 的基础上添加新字段，但某些字段的规范已修订。版本 4 的格式如下：
+//      类型    名称
+//      uint16  version
+//      FWORD   xAvgCharWidth
+//      uint16  usWeightClass
+//      uint16  usWidthClass
+//      uint16  fsType
+//      FWORD   ySubscriptXSize
+//      FWORD   ySubscriptYSize
+//      FWORD   ySubscriptXOffset
+//      FWORD   ySubscriptYOffset
+//      FWORD   ySuperscriptXSize
+//      FWORD   ySuperscriptYSize
+//      FWORD   ySuperscriptXOffset
+//      FWORD   ySuperscriptYOffset
+//      FWORD   yStrikeoutSize
+//      FWORD   yStrikeoutPosition
+//      int16   sFamilyClass
+//      uint8   panose[10]
+//      uint32  ulUnicodeRange1
+//      uint32  ulUnicodeRange2
+//      uint32  ulUnicodeRange3
+//      uint32  ulUnicodeRange4
+//      Tag     achVendID
+//      uint16  fsSelection
+//      uint16  usFirstCharIndex
+//      uint16  usLastCharIndex
+//      FWORD   sTypoAscender
+//      FWORD   sTypoDescender
+//      FWORD   sTypoLineGap
+//      UFWORD  usWinAscent
+//      UFWORD  usWinDescent
+//      uint32  ulCodePageRange1
+//      uint32  ulCodePageRange2
+//      FWORD   sxHeight
+//      FWORD   sCapHeight
+//      uint16  usDefaultChar
+//      uint16  usBreakChar
+//      uint16  usMaxContext
+//
+// 版本 3 在 OpenType 1.4 中定义。版本 3 的字段与版本 4 相同，也与版本 2 相同。虽然未在
+// 版本 2 的基础上添加新字段，但某些字段的规范已修订以反映 Unicode 3.2 的变化。版本 3 的
+// 格式与上述版本 4 的格式相同。
+//
+// 版本 2 在 OpenType 1.1 中定义。版本 2 的字段与版本 3 相同，比版本 1 多五个字段。版本 2
+// 的格式与上述版本 4 的格式相同。
+//
+// 版本 1 在 TrueType 修订版 1.66 中定义。版本 1 比版本 2 少五个字段，比版本 0 多两个字段。
+// 版本 1 的格式如下：
+//      类型    名称
+//      uint16  version
+//      FWORD   xAvgCharWidth
+//      uint16  usWeightClass
+//      uint16  usWidthClass
+//      uint16  fsType
+//      FWORD   ySubscriptXSize
+//      FWORD   ySubscriptYSize
+//      FWORD   ySubscriptXOffset
+//      FWORD   ySubscriptYOffset
+//      FWORD   ySuperscriptXSize
+//      FWORD   ySuperscriptYSize
+//      FWORD   ySuperscriptXOffset
+//      FWORD   ySuperscriptYOffset
+//      FWORD   yStrikeoutSize
+//      FWORD   yStrikeoutPosition
+//      int16   sFamilyClass
+//      uint8   panose[10]
+//      uint32  ulUnicodeRange1
+//      uint32  ulUnicodeRange2
+//      uint32  ulUnicodeRange3
+//      uint32  ulUnicodeRange4
+//      Tag     achVendID
+//      uint16  fsSelection
+//      uint16  usFirstCharIndex
+//      uint16  usLastCharIndex
+//      FWORD   sTypoAscender
+//      FWORD   sTypoDescender
+//      FWORD   sTypoLineGap
+//      UFWORD  usWinAscent
+//      UFWORD  usWinDescent
+//      uint32  ulCodePageRange1
+//      uint32  ulCodePageRange2
+//
+// 版本 0 在 TrueType 修订版 1.5 中定义。版本 0 的格式如下：
+//      类型    名称
+//      uint16  version
+//      FWORD   xAvgCharWidth
+//      uint16  usWeightClass
+//      uint16  usWidthClass
+//      uint16  fsType
+//      FWORD   ySubscriptXSize
+//      FWORD   ySubscriptYSize
+//      FWORD   ySubscriptXOffset
+//      FWORD   ySubscriptYOffset
+//      FWORD   ySuperscriptXSize
+//      FWORD   ySuperscriptYSize
+//      FWORD   ySuperscriptXOffset
+//      FWORD   ySuperscriptYOffset
+//      FWORD   yStrikeoutSize
+//      FWORD   yStrikeoutPosition
+//      int16   sFamilyClass
+//      uint8   panose[10]
+//      uint32  ulUnicodeRange1
+//      uint32  ulUnicodeRange2
+//      uint32  ulUnicodeRange3
+//      uint32  ulUnicodeRange4
+//      Tag     achVendID
+//      uint16  fsSelection
+//      uint16  usFirstCharIndex
+//      uint16  usLastCharIndex
+//      FWORD   sTypoAscender
+//      FWORD   sTypoDescender
+//      FWORD   sTypoLineGap
+//      UFWORD  usWinAscent
+//      UFWORD  usWinDescent
+//
+// 注意：Apple TrueType 参考手册中对 OS/2 版本 0 的文档在 usLastCharIndex 字段处停止，未
+// 包含 Microsoft 定义的表中最后五个字段。某些旧版 TrueType 字体可能是使用缩短的版本 0
+// OS/2 表构建的。应用程序应在读取这些字段之前检查版本 0 OS/2 表的长度。
+//
+// OS/2 字段详情：
+//
+// version
+//      格式： uint16
+//      单位： 无
+//      标题： OS/2 表版本号
+//      说明： OS/2 表的版本号：0x0000 到 0x0005
+//      备注： 版本号允许识别 OS/2 表的确切内容和布局
+//
+// xAvgCharWidth
+//      格式： FWORD
+//      单位： 字体设计单位（font design units）
+//      标题： 平均加权字宽
+//      说明： 平均字符宽度字段指定字体中所有非零宽度字形的字宽（宽度）的算术平均值。
+//      备注： xAvgCharWidth 的值通过获取字体中所有非零宽度字形的宽度的算术平均值来计算。
+//             强烈建议实现者不要依赖此值来计算文本行的布局，尤其是在使用复杂文字的情况
+//             下。注意，某些字体的 xAvgCharWidth 值不符合此计算。字体可能最初使用版本 0
+//             到版本 2 的 OS/2 表创建，并采用下面描述的遗留计算方式，后来更新为较新的
+//             OS/2 表版本但未更改 xAvgCharWidth 值。在某些 CJK 字体中，xAvgCharWidth 可
+//             能几乎是上述计算预期值的一半。应用程序不应使用 xAvgCharWidth 来确定实际的
+//             字形前进宽度。
+//      版本差异： 版本 0 到 2：首次定义时，该规范偏向基本拉丁字符，并认为 xAvgCharWidth
+//             值可用于估计文本行的平均长度。提供了以下计算 xAvgCharWidth 的公式：对于下
+//             表中给出的字符，将每个字符的宽度乘以下指示的权重因子，然后将总和除以 1000。
+//             此计算该字段值的方法在引入 OS/2 表版本 3 时被取代，并已弃用。
+//                  字母    权重因子        字母    权重因子
+//                  a       64              o       56
+//                  b       14              p       17
+//                  c       27              q       4
+//                  d       35              r       49
+//                  e       100             s       56
+//                  f       20              t       71
+//                  g       14              u       31
+//                  h       42              v       10
+//                  i       63              w       18
+//                  j       3               x       3
+//                  k       6               y       18
+//                  l       35              z       2
+//                  m       20              space   166
+//                  n       56
+//
+// usWeightClass
+//      格式： uint16
+//      标题： 字重类别
+//      说明： 指示字体中字符的视觉字重（笔画黑度或粗细程度）。支持 1 到 1000 的值。
+//      备注： usWeightClass 值使用与可变字体的 'fvar' 表和 STAT 表中使用的 'wght' 轴相同的
+//             刻度。虽然支持 1 到 1000 的整数值，但某些旧平台可能对支持的值有限制。以下是
+//             常用值：
+//                  值      说明                                C 定义（来自 windows.h）
+//                  100     极细（Thin）                        FW_THIN
+//                  200     特轻（Extra-light / Ultra-light）   FW_EXTRALIGHT
+//                  300     轻（Light）                         FW_LIGHT
+//                  400     常规（Normal / Regular）            FW_NORMAL
+//                  500     中等（Medium）                      FW_MEDIUM
+//                  600     半粗（Semi-bold / Demi-bold）       FW_SEMIBOLD
+//                  700     粗体（Bold）                        FW_BOLD
+//                  800     特粗（Extra-bold / Ultra-bold）     FW_EXTRABOLD
+//                  900     黑体（Black / Heavy）               FW_BLACK
+//
+// usWidthClass
+//      格式： uint16
+//      标题： 宽度类别
+//      说明： 指示字体中字形相对于字体设计师指定的正常宽高比的相对变化
+//      备注： 虽然字体中每个字形可以有不同的数字宽高比，但正常宽度字体中的每个字形被认为
+//             具有相对宽高比 1。当创建不同宽度类别的新字体样式时（由字体设计师或通过某些
+//             自动化方式），新字体中字形的相对宽高比是正常字体中相应字形的某个百分比更大
+//             或更小——正是这个差异由本字段指定。
+//             有效的 usWidthClass 值如下表所示。注意，usWidthClass 值与可变字体的 'fvar'
+//             表和 STAT 表中使用的 'wdth' 轴的刻度相关但不同。下表中的"正常百分比"列提供
+//             了从 usWidthClass 值 1 – 9 到 'wdth' 值的映射。
+//                  值  说明                            C 定义                  正常百分比
+//                  1   超紧缩（Ultra-condensed）       FWIDTH_ULTRA_CONDENSED  50
+//                  2   特紧缩（Extra-condensed）       FWIDTH_EXTRA_CONDENSED  62.5
+//                  3   紧缩（Condensed）               FWIDTH_CONDENSED        75
+//                  4   半紧缩（Semi-condensed）        FWIDTH_SEMI_CONDENSED   87.5
+//                  5   中等（正常）（Medium / normal） FWIDTH_NORMAL           100
+//                  6   半扩展（Semi-expanded）         FWIDTH_SEMI_EXPANDED    112.5
+//                  7   扩展（Expanded）                FWIDTH_EXPANDED         125
+//                  8   特扩展（Extra-expanded）        FWIDTH_EXTRA_EXPANDED   150
+//                  9   超扩展（Ultra-expanded）        FWIDTH_ULTRA_EXPANDED   200
+//
+// fsType
+//      格式： uint16
+//      标题： 类型标志
+//      说明： 指示字体的字体嵌入（font embedding）许可权限。标志的解释如下：
+//                  位      掩码        说明
+//                  0 – 3   0x000F      使用权限。有效字体最多只能设置位 1、2 或 3 中的一个；位 0 永久保留且必须为零。此
+//                                      子字段的有效值为 0、2、4 或 8。这些值的含义如下：
+//                              0       可安装嵌入。字体可以嵌入，并可以永久安装在远程系统上，或供其他用户使用。远程系统
+//                                      的用户获得与该字体原始购买者相同的权利、义务和许可，并受与原始购买者相同的最终用
+//                                      户许可协议、版权、设计专利和/或商标的约束。
+//                              2       受限许可嵌入。未经法律所有者的明确许可，不得以任何方式修改、嵌入或交换字体。
+//                              4       预览和打印嵌入。字体可以嵌入，并可以临时加载到其他系统上以用于查看或打印文档。包
+//                                      含预览和打印字体的文档必须以"只读"方式打开；不得对文档进行编辑。
+//                              8       可编辑嵌入。字体可以嵌入，并可以临时加载到其他系统上。与预览和打印嵌入一样，包含
+//                                      可编辑字体的文档可以打开以供阅读。此外，允许编辑，包括使用嵌入字体格式化新文本的
+//                                      能力，并且可以保存更改。
+//                  4 – 7   0x00F0      保留，必须为零
+//                  8       0x0100      禁止子集化（no subsetting）。设置此位时，嵌入前不得对字体进行子集化。位 0 – 3 和
+//                                      位 9 指定的其他嵌入限制也适用。
+//                  9       0x0200      仅位图嵌入。设置此位时，只能嵌入字体中包含的位图。不得嵌入任何轮廓数据。如果字体
+//                                      中没有可用的位图，则该字体被视为不可嵌入，嵌入服务将失败。位 0-3 和位 8 指定的其
+//                                      他嵌入限制也适用。
+//                  10 – 15 0xFC00      保留，必须为零
+//      备注： 可嵌入字体可以存储在文档中。当在打开包含嵌入字体的文档时，如果系统未安装该
+//             字体（远程系统），嵌入字体可以由支持嵌入的应用程序临时（在某些情况下永久）
+//             加载到该系统上。嵌入许可权限由字体的供应商授予。
+//             实现字体嵌入支持的应用程序不得嵌入未获许可允许嵌入的字体。此外，将字体嵌入文
+//             档时，应用程序不得修改此字段中指示的嵌入权限和限制。此外，为临时使用加载嵌入
+//             字体（预览和打印或可编辑嵌入）的应用程序必须在包含嵌入字体的文档关闭时删除字
+//             体。
+//             位 0 到 3（嵌入权限子字段）是互斥的：字体不应设置其中多个位。注意，如果设置了
+//             两个或更多位，某些应用程序可能采用指示的限制最少的权限。有关更多讨论，请参阅版
+//             本差异。注意：字体供应商有责任正确设置这些位以获得所需的应用程序行为。要使受限
+//             许可嵌入生效，嵌入权限子字段的值必须为 2（即，仅设置了位 1）。
+//             注意，Apple 的 TrueType 参考手册将 fsType 字段的位 1（且仅位 1）指定为具有分配
+//             的语义。这源自 OS/2 表的预发布草案规范。然而，OS/2 表版本 0 的最终规范定义了位
+//             0 到 3。此外，某些早期字体实现错误地使用了值 1（设置了位 0），导致了互操作性问
+//             题。因此，位 0 在版本 0 的最终规范中被指定为保留。位 0 永久保留，其使用已弃用。
+//      版本差异： 版本 0 到 1：仅分配了位 0 到 3。应用程序在读取版本 0 或版本 1 表时必须忽略
+//             位 4 到 15。版本 0 到 2：版本 0 到 2 的规范未指定位 0 到 3 必须互斥。相反，这些
+//             规范指出，如果在给定字体中设置了位 0 到 3 中的多个位，则采用指示的限制最少的权
+//             限。特别是，某些使用版本 0 到版本 2 OS/2 表的字体同时设置了位 2 和位 3，意图指
+//             示预览/打印和编辑权限。允许应用程序对具有版本 0 到版本 2 OS/2 表的字体使用此行
+//             为。版本 3 及更高版本：版本 3 的规范（在 OpenType 1.4 中添加）引入了位 0 到 3
+//             必须互斥的明确要求。
+//
+// ySubscriptXSize
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 下标水平字体大小
+//      说明： 此字体下标的建议水平大小（以字体设计单位表示）。应大于 0。
+//      备注： 如果字体有两个建议的下标大小，例如数字和其他字符，应强调数字大小。此大小字段映
+//             射到用于下标的字体的 em 大小。水平字体大小指定字体设计师推荐的与此字体关联的下
+//             标字形的水平大小。如果字体未包含应用程序所需的所有下标字形，并且应用程序可以通
+//             过缩放字体字形或从其他字体替换字形来替代，则此字段指定这些下标字形的建议标称宽
+//             度。例如，如果字体的 em 为 2048 单位，ySubScriptXSize 设置为 205，则模拟下标字
+//             形的水平大小将是正常字形的 1/10。注意，这在 OS/2 平台中实现为有符号值，尽管只
+//             应预期大于 0 的值。
+//
+// ySubscriptYSize
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 下标垂直字体大小
+//      说明： 此字体下标的建议垂直大小（以字体设计单位表示）。应大于 0。
+//      备注： 如果字体有两个建议的下标大小，例如数字和其他字符，应强调数字大小。此大小字段映射
+//             到用于下标的字体的 em 大小。垂直字体大小指定字体设计师推荐的与此字体关联的下标字
+//             形的垂直大小。如果字体未包含应用程序所需的所有下标字形，并且应用程序可以通过缩放
+//             字体中的字形或从其他字体替换字形来替代，则此字段指定这些下标字形的建议标称高度。
+//             例如，如果字体的 em 为 2048 单位，ySubScriptYSize 设置为 205，则模拟下标字形的垂
+//             直大小将是正常字形的 1/10。注意，这在 OS/2 平台中实现为有符号值，尽管只应预期大于
+//             0 的值。
+//
+// ySubscriptXOffset
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 下标 x 偏移
+//      说明： 此字体下标的建议水平偏移（以字体设计单位表示）。
+//      备注： ySubscriptXOffset 字段指定字体设计师推荐的与此字体关联的下标字形的水平偏移，从字
+//             形原点到下标字形的原点。如果字体未包含应用程序所需的所有下标字形，并且应用程序可
+//             以替换字形，则此字段指定第一个下标字形之前的最后一个字形的字形的字宽点（glyph
+//             escapement point）到的建议水平位置。对于正立字形（upright glyphs），此值通常为零；
+//             但是，如果字体的字形具有倾斜（斜体或倾斜），下标字形的参考点通常会调整以补偿倾斜
+//             角度。
+//
+// ySubscriptYOffset
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 下标 y 偏移
+//      说明： 此字体下标相对于基线的建议垂直偏移（以字体设计单位表示）。
+//      备注： ySubscriptYOffset 字段指定字体设计师推荐的与此字体关联的下标字形从字形基线到字形
+//             基线的垂直偏移。值表示为字形基线下方的正偏移。如果字体未包含应用程序所需的所有下
+//             标字形，则此字段指定应用程序提供的替代下标字形在字形基线下方的建议垂直距离。
+//
+// ySuperscriptXSize
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 上标水平字体大小
+//      说明： 此字体上标的建议水平大小（以字体设计单位表示）。应大于 0。
+//      备注： 如果字体有两个建议的上标大小，例如数字和其他字符，应强调数字大小。此大小字段映射
+//             到用于上标的字体的 em 大小。水平字体大小指定字体设计师推荐的与此字体关联的上标字
+//             形的水平大小。如果字体未包含应用程序所需的所有上标字形，并且应用程序可以通过缩放
+//             字体字形或从其他字体替换字形来替代，则此字段指定这些上标字形的建议标称宽度。例如，
+//             如果字体的 em 为 2048 单位，ySuperScriptXSize 设置为 205，则模拟上标字形的水平大
+//             小将是正常字形的 1/10。注意，这在 OS/2 平台中实现为有符号值，尽管只应预期大于 0
+//             的值。
+//
+// ySuperscriptYSize
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 上标垂直字体大小
+//      说明： 此字体上标的建议垂直大小（以字体设计单位表示）。应大于 0。
+//      备注： 如果字体有两个建议的上标大小，例如数字和其他字符，应强调数字大小。此大小字段映射
+//             到用于上标的字体的 em 大小。垂直字体大小指定字体设计师推荐的与此字体关联的上标字
+//             形的垂直大小。如果字体未包含应用程序所需的所有上标字形，并且应用程序可以通过缩放
+//             字体中的字形或从其他字体替换字形来替代，则此字段指定这些上标字形的建议标称高度。
+//             例如，如果字体的 em 为 2048 单位，ySuperScriptYSize 设置为 205，则模拟上标字形的
+//             垂直大小将是正常字形的 1/10。注意，这在 OS/2 平台中实现为有符号值，尽管只应预期大
+//             于 0 的值。
+//
+// ySuperscriptXOffset
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 上标 x 偏移
+//      说明： 此字体上标的建议水平偏移（以字体设计单位表示）。
+//      备注： ySuperscriptXOffset 字段指定字体设计师推荐的与此字体关联的上标字形从字形原点到上
+//             标字形原点的水平偏移。如果字体未包含应用程序所需的所有上标字形，则此字段指定从第
+//             一个上标字形之前的字形的字宽点的建议水平位置。对于正立字形，此值通常为零；但是，
+//             如果字体的字形具有倾斜（斜体或倾斜），上标字形的参考点通常会调整以补偿倾斜角度。
+//
+// ySuperscriptYOffset
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 上标 y 偏移
+//      说明： 此字体上标相对于基线的建议垂直偏移（以字体设计单位表示）。
+//      备注： ySuperscriptYOffset 字段指定字体设计师推荐的与此字体关联的上标字形从字形基线到上
+//             标字形基线的垂直偏移。此字段的值表示为字形基线上方的正偏移。如果字体未包含应用程
+//             序所需的所有上标字形，则此字段指定应用程序提供的替代上标字形在字形基线上方的建议
+//             垂直距离。
+//
+// yStrikeoutSize
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 删除线大小
+//      说明： 删除线笔画的厚度（以字体设计单位表示）。应大于 0。
+//      备注： 此字段通常应为当前字体的 em 破折号的厚度，并且也应与 'post' 表中指定的下划线粗细
+//             相匹配。
+//      注意：这在 OS/2 平台中实现为有符号值，尽管只应预期大于 0 的值。
+//
+// yStrikeoutPosition
+//      格式： FWORD
+//      单位： 字体设计单位
+//      标题： 删除线位置。
+//      说明： 删除线笔画顶部相对于基线的位置（以字体设计单位表示）。
+//      备注： 正值表示基线上方的距离；负值表示基线下方的距离。建议将删除线位置与 em 破折号（em
+//             dash）对齐。但是，删除线位置不应干扰标准字符的识别，因此不应与字体中的横杠（crossbar）
+//             对齐。
+//
+// sFamilyClass
+//      格式： int16
+//      标题： 字体族类别和子类
+//      说明： 此字段提供字体族设计的分类
+//      备注： 族类别和子类根据族设计分配给字体。此字段旨在用于在请求的字体不可用时选择替代字
+//             体族。类别和子类提供两级分类。此字段的高字节包含族类别，低字节包含族子类。子类
+//             值的解释取决于类别值。注册的类别和子类值最初由 IBM 定义。有关注册值的详细信息，
+//             请参阅 IBM 字体族分类。https://learn.microsoft.com/en-us/typography/opentype/spec/ibmfc
+//
+// panose
+//      格式： uint8[10]
+//      标题： PANOSE 分类号
+//      国际化： 需要额外的规范才能使 PANOSE 对非拉丁字符集进行分类
+//      说明： 此 10 字节数字数组用于描述给定字体的视觉特征。然后使用这些特征将字体与其他外观
+//             相似但名称不同的字体相关联。每个数字的变量如下所列。
+//      备注： PANOSE 定义包含十个字节，每个字节可以有多个可能的值。PANOSE 值在 PANOSE 分类度
+//             量指南中有完整描述。注意，第一个字节用于高级分类"族类（Family Kind）"，其余字节
+//             的解释取决于第一个字节的值。例如，如果族类值为 2（拉丁文本），则下一个字节指定
+//             "衬线样式（Serif Style）"；但如果族类值为 3（拉丁手写），则下一个字节指定"工具
+//             类型（Tool Kind）"。某些应用程序可能仅支持某些族类值。下表给出了族类为拉丁文本时
+//             panose 数组的解释。http://www.panose.com/
+//                  类型    名称
+//                  uint8   bFamilyType
+//                  uint8   bSerifStyle
+//                  uint8   bWeight
+//                  uint8   bProportion
+//                  uint8   bContrast
+//                  uint8   bStrokeVariation
+//                  uint8   bArmStyle
+//                  uint8   bLetterform
+//                  uint8   bMidline
+//                  uint8   bXHeight
+//             某些应用程序可以使用 PANOSE 值进行字体选择，以选择匹配某些参数的字体。例如，比例
+//             （对于族类 = 拉丁文本）可能用于确定字体是否为等宽字体；或者衬线样式可能用于确定字
+//             体是否属于通用衬线或无衬线类别。某些应用程序将使用族类 = 5（拉丁符号）来识别符号
+//             字体，这可能会影响字体选择或回退行为。对应用程序应如何使用 PANOSE 值没有要求。
+//             在使用 OpenType 字体变体机制的可变字体中，无法为字体支持的不同实例表示不同的 PANOSE
+//             值。PANOSE 值可以基于默认实例设置。
+//      版本差异： 本规范的早期版本提供了有关 PANOSE 值的更多详细信息。但是，上述引用的外部规范
+//             是规范性来源，应参考以获取此类详细信息。
+//
+// ulUnicodeRange1（位 0 – 31）
+// ulUnicodeRange2（位 32 – 63）
+// ulUnicodeRange3（位 64 – 95）
+// ulUnicodeRange4（位 96 – 127）
+//      格式： uint32[4]（共 128 位）
+//      标题： Unicode 字符范围
+//      说明： 此字段用于指定字体文件中 'cmap' 子表，平台 3 编码 ID 1（Microsoft 平台，Unicode
+//             BMP）和平台 3 编码 ID 10（Microsoft 平台，Unicode 完整字符集）所涵盖的 Unicode
+//             块或范围。如果设置了某位（1），则认为该位分配的 Unicode 范围是功能性的。如果该
+//             位清零（0），则认为该范围不是功能性的。每个位都被视为独立的标志，位可以以任何组
+//             合设置。"功能性"的确定由字体设计师决定，但字符集选择应尽可能按范围实现功能性。
+//             所有保留字段必须为零。每个 uint32 为大端序形式。
+//                  位      Unicode 范围                            块范围          备注
+//                  0       基本拉丁文                              0000-007F
+//                  1       拉丁文-1 补充                           0080-00FF
+//                  2       拉丁文扩展-A                            0100-017F
+//                  3       拉丁文扩展-B                            0180-024F
+//                  4       国际音标扩展                            0250-02AF
+//                          语音学（phonetic）扩展                  1D00-1D7F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          语音学扩展补充                          1D80-1DBF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  5       间距修饰符号（spacing modifier）        02B0-02FF
+//                          修饰音调字母（modifier tone）           A700-A71F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  6       组合附加符号（combining diacritical）   0300-036F
+//                          组合附加符号补充                        1DC0-1DFF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  7       希腊文和科普特文                        0370-03FF
+//                  8       科普特文（coptic）                      2C80-2CFF       在 OpenType 1.5 中为 OS/2 版本 4 添加，有关其他版本差异，请参见下文
+//                  9       西里尔文（cyrillic）                    0400-04FF
+//                          西里尔文补充                            0500-052F       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          西里尔文扩展-A                          2DE0-2DFF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          西里尔文扩展-B                          A640-A69F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  10      亚美尼亚文                              0530-058F
+//                  11      希伯来文                                0590-05FF
+//                  12      瓦伊文（vai）                           A500-A63F       在 OpenType 1.5 中为 OS/2 版本 4 添加，有关其他版本差异，请参见下文
+//                  13      阿拉伯文                                0600-06FF
+//                          阿拉伯文补充                            0750-077F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  14      西非书面文字（nko）                     07C0-07FF       在 OpenType 1.5 中为 OS/2 版本 4 添加，有关其他版本差异，请参见下文
+//                  15      天城文（devanagari）                    0900-097F
+//                  16      孟加拉文（bangla）                      0980-09FF
+//                  17      古尔穆基文（gurmukhi）                  0A00-0A7F
+//                  18      古吉拉特文（gujarati）                  0A80-0AFF
+//                  19      奥里亚文（odia）                        0B00-0B7F
+//                  20      泰米尔文（tamil）                       0B80-0BFF
+//                  21      泰卢固文（telugu）                      0C00-0C7F
+//                  22      卡纳达文（kannada）                     0C80-0CFF
+//                  23      马拉雅拉姆文（malayalam）               0D00-0D7F
+//                  24      泰文                                    0E00-0E7F
+//                  25      老挝文                                  0E80-0EFF
+//                  26      格鲁吉亚文（georgian）                  10A0-10FF
+//                          格鲁吉亚文补充                          2D00-2D2F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  27      巴厘文（balinese）                      1B00-1B7F       在 OpenType 1.5 中为 OS/2 版本 4 添加，有关其他版本差异，请参见下文
+//                  28      谚文（hangul jamo）                     1100-11FF
+//                  29      拉丁文扩展附加                          1E00-1EFF
+//                          拉丁文扩展-C                            2C60-2C7F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          拉丁文扩展-D                            A720-A7FF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  30      希腊文扩展                              1F00-1FFF
+//                  31      通用标点符号                            2000-206F
+//                          补充标点符号                            2E00-2E7F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  32      上标和下标                              2070-209F
+//                  33      货币符号                                20A0-20CF
+//                  34      符号用组合附加符号                      20D0-20FF
+//                  35      类字母符号                              2100-214F
+//                  36      数字形式                                2150-218F
+//                  37      箭头                                    2190-21FF
+//                          补充箭头-A                              27F0-27FF       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          补充箭头-B                              2900-297F       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          杂项符号和箭头                          2B00-2BFF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  38      数学运算符                              2200-22FF
+//                          补充数学运算符                          2A00-2AFF       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          杂项数学符号-A                          27C0-27EF       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          杂项数学符号-B                          2980-29FF       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                  39      杂项技术符号                            2300-23FF
+//                  40      控制图片                                2400-243F
+//                  41      光学字符识别                            2440-245F
+//                  42      带圈字母数字                            2460-24FF
+//                  43      制表符                                  2500-257F
+//                  44      块元素                                  2580-259F
+//                  45      几何图形                                25A0-25FF
+//                  46      杂项符号                                2600-26FF
+//                  47      杂项符号和箭头                          2700-27BF
+//                  48      CJK 符号和标点                          3000-303F
+//                  49      平假名                                  3040-309F
+//                  50      片假名                                  30A0-30FF
+//                          片假名语音扩展                          31F0-31FF       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                  51      注音符号（bopomofo）                    3100-312F
+//                          注音符号扩展                            31A0-31BF       在 OpenType 1.3 中添加，扩展 OS/2 版本 2
+//                  52      谚文兼容                                3130-318F
+//                  53      八思巴文（phags-pa）                    A840-A87F       在 OpenType 1.5 中为 OS/2 版本 4 添加，有关其他版本差异，请参见下文
+//                  54      带圈 CJK 字母和月份                     3200-32FF
+//                  55      CJK 兼容                                3300-33FF
+//                  56      谚文音节                                AC00-D7AF
+//                  57      非零平面                                10000-10FFFF    设置此位意味着此字体至少支持基本多文种平面之外的一个字符，首次在 OpenType 1.3 中为 OS/2 版本 2 分配
+//                  58      腓尼基文（phoenician）                  10900-1091F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  59      CJK 统一表意文字                        4E00-9FFF
+//                          CJK 部首补充（radical）                 2E80-2EFF       在 OpenType 1.3 中为 OS/2 版本 2 添加
+//                          康熙部首                                2F00-2FDF       在 OpenType 1.3 中为 OS/2 版本 2 添加
+//                          表意文字描述字符                        2FF0-2FFF       在 OpenType 1.3 中为 OS/2 版本 2 添加
+//                          CJK 统一表意文字扩展 A                  3400-4DBF       在 OpenType 1.3 中为 OS/2 版本 2 添加
+//                          CJK 统一表意文字扩展 B                  20000-2A6DF     在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          宽文，汉文标注号（kanbun）              3190-319F       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                  60      专用区（平面 0）                        E000-F8FF
+//                  61      CJK 笔画（strokes）                     31C0-31EF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          CJK 兼容表意文字                        F900-FAFF
+//                          CJK 兼容表意文字补充                    2F800-2FA1F     在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                  62      字母呈现形式                            FB00-FB4F
+//                  63      阿拉伯文呈现形式-A                      FB50-FDFF
+//                  64      组合半符号（combining half mark）       FE20-FE2F
+//                  65      竖排形式（vertical forms）              FE10-FE1F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          CJK 兼容形式                            FE30-FE4F
+//                  66      小写变体形式                            FE50-FE6F
+//                  67      阿拉伯文呈现形式-B                      FE70-FEFF
+//                  68      半角和全角形式                          FF00-FFEF
+//                  69      特殊符号                                FFF0-FFFF
+//                  70      藏文（tibetan）                         0F00-0FFF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  71      叙利亚文（syriac）                      0700-074F       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  72      塔纳文（thaana）                        0780-07BF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  73      僧伽罗文（sinhala）                     0D80-0DFF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  74      缅甸文（myanmar）                       1000-109F       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  75      埃塞俄比亚文（ethiopic）                1200-137F       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                          埃塞俄比亚文补充                        1380-139F       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          埃塞俄比亚文扩展                        2D80-2DDF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  76      切罗基文（cherokee）                    13A0-13FF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  77      加拿大原住民音节文字                    1400-167F       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  78      欧甘文（ogham）                         1680-169F       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  79      如尼文（runic）                         16A0-16FF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  80      高棉文（khmer）                         1780-17FF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                          高棉符号                                19E0-19FF       在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  81      蒙古文                                  1800-18AF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  82      盲文图案（braille patterns）            2800-28FF       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                  83      彝文音节（yi syllables）                A000-A48F       首次在 OpenType 1.3 中分配，扩展 OS/2 版本 2
+//                          彝文部首                                A490-A4CF       在 OpenType 1.3 中添加，扩展 OS/2 版本 2
+//                  84      他加禄文（tagalog）                     1700-171F       首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                          哈努诺文（hanunoo）                     1720-173F       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          布希德文（buhid）                       1740-175F       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          塔格班瓦文（tagbanwa）                  1760-177F       在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                  85      古意大利文                              10300-1032F     首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                  86      哥特文（gothic）                        10330-1034F     首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                  87      德塞雷特文（deseret）                   10400-1044F     首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                  88      拜占庭音乐符号（byzantine）             1D000-1D0FF     首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                          音乐符号（musical symbols）             1D100-1D1FF     在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                          古希腊音乐符号                          1D200-1D24F     在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  89      数学字母数字符号                        1D400-1D7FF     首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                  90      专用区（平面 15）                       F0000-FFFFD     首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                          专用区（平面 16）                       100000-10FFFD   在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                  91      变体选择符                              FE00-FE0F       首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                          变体选择符补充                          E0100-E01EF     在 OpenType 1.4 中为 OS/2 版本 3 添加
+//                  92      标签（tags）                            E0000-E007F     首次在 OpenType 1.4 中为 OS/2 版本 3 分配
+//                  93      林布文（limbu）                         1900-194F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  94      傣仂文（tai le）                        1950-197F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  95      新傣仂文                                1980-19DF       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  96      布吉斯文（buginese）                    1A00-1A1F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  97      格拉哥里文（glagolitic）                2C00-2C5F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  98      提非纳文（tifinagh）                    2D30-2D7F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  99      易经六十四卦符号                        4DC0-4DFF       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  100     锡尔赫特文（syloti nagri）              A800-A82F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  101     线形文字 B 音节                         10000-1007F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                          线形文字 B 表意文字                     10080-100FF     在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          爱琴海数字（aegean numbers）            10100-1013F     在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  102     古希腊数字                              10140-1018F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  103     乌加里特文（ugaritic）                  10380-1039F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  104     古波斯文                                103A0-103DF     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  105     萧伯纳文（shavian）                     10450-1047F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  106     奥斯曼亚文（osmanya）                   10480-104AF     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  107     塞浦路斯音节文字（cypriot syllabary）   10800-1083F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  108     佉卢文（kharoshthi）                    10A00-10A5F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  109     太玄经符号                              1D300-1D35F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  110     楔形文字（cuneiform）                   12000-123FF     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                          楔形文字数字和标点                      12400-1247F     在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  111     算筹数字（counting rod numbers）        1D360-1D37F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  112     巽他文（sundanese）                     1B80-1BBF       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  113     雷布查文（lepcha）                      1C00-1C4F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  114     桑塔利文（ol chiki）                    1C50-1C7F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  115     索拉什特拉文（saurashtra）              A880-A8DF       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  116     克耶李文（kavah li）                    A900-A92F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  117     拉让文（rejang）                        A930-A95F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  118     占文（cham）                            AA00-AA5F       首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  119     古代符号                                10190-101CF     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  120     斐斯托斯圆盘（phaistos disc）           101D0-101FF     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  121     卡里亚文（carian）                      102A0-102DF     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                          吕基亚文（lycian）                      10280-1029F     在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                          吕底亚文（lydian）                      10920-1093F     在 OpenType 1.5 中为 OS/2 版本 4 添加
+//                  122     多米诺骨牌（domino tiles）              1F030-1F09F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                          麻将牌（mahjong tiles）                 1F000-1F02F     首次在 OpenType 1.5 中为 OS/2 版本 4 分配
+//                  123-127 保留
+//      备注： 截至 Unicode 5.1，所有可用位已用尽。位分配最后更新于 OpenType 1.5 中的 OS/2 版本
+//             4。当前版本的 Unicode 支持许多未在 OS/2 表这些字段中支持的其他范围。请参阅 'meta'
+//             表中的 'dlng' 和 'slng' 标签，以获取声明字体可以支持或为之设计的文字或语言的替代
+//             机制。
+//      版本差异： 创建不同版本的 OS/2 表时，对应的 Unicode 版本不同，给定版本的初始规范定义的位
+//             分配少于后续版本。某些应用程序可能不支持具有较早 OS/2 版本的字体中的所有分配。上述
+//             所有位分配对 OS/2 表的任何版本均有效，但 OS/2 版本 1 和 2 的规范包含一些分配，这些
+//             分配未对应于定义明确的 Unicode 范围，且与后续分配冲突，详见下文。如果字体具有设置
+//             了这些位之一的版本 1 或版本 2 OS/2 表，则可能是预期的过时解释。但是，由于这些分配
+//             不对应于定义明确的范围，因此隐含字符覆盖范围不明确。
+//             版本 0： 首次指定版本 0 时，未定义位分配。某些应用程序可能忽略版本 0 OS/2 表中的
+//             这些字段。
+//             版本 1： 版本 1 首次与 Unicode 1.1 同时指定，仅为位 0 到 69 定义了位分配。对于具有
+//             版本 1 表的字体，某些应用程序可能仅识别位 0 到 69。此外，版本 1 的规范包含一些未对
+//             应于定义明确的 Unicode 范围的位分配，这些分配自版本 2 起已停用。
+//                  位 8："希腊符号和科普特文"（位 7 指定为"基本希腊文"）
+//                  位 12："希伯来文扩展"（位 11 指定为"基本希伯来文"）
+//                  位 14："阿拉伯文扩展"（位 13 指定为"基本阿拉伯文"）
+//                  位 27："格鲁吉亚文扩展"（位 26 指定为"基本格鲁吉亚文"）
+//             此外，版本 1 和 2 将位 53 定义为"CJK 杂项"，这也不对应于任何定义明确的 Unicode 范
+//             围。此分配自版本 3 起已停用。
+//             版本 2： 版本 2 在 OpenType 1.1 中定义，与 Unicode 2.1 同时。当时，仅为位 0 到 69
+//             定义了位分配。版本 2 的位分配在 OpenType 1.3 中更新，添加了对应于 Unicode 2.0 和
+//             Unicode 3.0 中新分配的位 70 到 83。对于具有版本 2 表的字体，某些应用程序可能仅识别
+//             OpenType 1.2 或 OpenType 1.3 中分配的位。此外，版本 2 的规范继续使用位 53 的问题分
+//             配，请参阅版本 1 的详细信息。此分配自版本 3 起已停用。
+//             版本 3： 版本 3 在 OpenType 1.4 中定义，为对应于 Unicode 3.2 中附加范围的位 84 到
+//             92 分配了位。此外，某些已分配的位已扩展以覆盖相关字符的附加 Unicode 范围；详见上表。
+//             版本 4： 版本 4 在 OpenType 1.5 中定义，为对应于 Unicode 5.1 中附加范围的位 58 和
+//             位 93 到 122 分配了位。此外，位 8、12、14、27 和 53 被重新分配（请参阅版本 1 了解
+//             以前的分配）。此外，某些已分配的位已扩展以覆盖相关字符的附加 Unicode 范围；详见上
+//             表。
+//
+// achVendID
+//      格式： Tag
+//      标题： 字体供应商标识
+//      说明： 给定字体供应商的四字符标识符
+//      备注： 这不是原始艺术作品的版权所有者。这是负责所分类字体的营销和分销的公司。例如，可以有
+//             多个 ITC Zapf Dingbats 的供应商，某些供应商在其字体中提供差异化的优势（更多的字距
+//             对、非规范化数据、手工提示等）。此标识符将允许使用正确的供应商字体，而不是另一个可
+//             能较差的字体文件。
+//             Microsoft 维护供应商 ID 注册表。注册的 ID 必须是唯一的，对应于单个供应商。也可以使
+//             用未注册的 ID，但不鼓励：强烈建议供应商注册 ID，以确保不同供应商在使用给定 ID 时不
+//             会发生冲突，并且客户能够找到给定字体的供应商联系信息。此字段也可以留空（设为空，或
+//             四个空格字符组成的标签）。
+//             所有供应商 ID 使用 Tag 数据类型，它等同于由有限 ASCII 字符集组成的四字符字符串。有
+//             关 Tag 数据类型的详细信息，请参阅数据类型。按照惯例，只有注册的标签应仅由大写字母
+//            （或空格）组成。
+//             有关已注册供应商 ID 的列表，或有关注册供应商 ID 或更新供应商信息的详细信息，请参阅
+//             已注册的字体供应商。https://www.microsoft.com/typography/links/vendorlist.aspx
+//
+// fsSelection
+//      格式： uint16
+//      标题： 字体选择标志
+//      说明： 包含有关字体图案性质的信息，如下所示：
+//                  位 #    macStyle 位     C 定义              说明
+//                  0       位 1            ITALIC              字体包含斜体或倾斜字形（italic or oblique），否则为正立（upright）
+//                  1                       UNDERSCORE          字形带下划线
+//                  2                       NEGATIVE            字形的前景和背景反转
+//                  3                       OUTLINED            轮廓（空心）字形，否则为实心
+//                  4                       STRIKEOUT           字形带删除线
+//                  5       位 0            BOLD                字形加粗
+//                  6                       REGULAR             字形处于字体的标准字重/样式
+//                  7                       USE_TYPO_METRICS    如果设置，强烈建议应用程序使用 OS/2.sTypoAscender - OS/2.sTypoDescender + OS/2.sTypoLineGap 作为此字体的默认行距
+//                  8                       WWS                 字体的 'name' 表字符串与字重/宽度/斜率族一致，无需使用名称 ID 21 和 22。详见下文更详细的描述。
+//                  9                       OBLIQUE             字体包含倾斜字形
+//                  10–15                   Reserved            保留，设为 0
+//      备注： 所有未定义的位必须为零。fsSelection 字段最初是为与 OS/2 平台兼容而创建的。
+//             某些样式描述位（如位 0）被现代应用程序使用，而其他样式描述位则不是。
+//             位 0： 位 0 的设置必须与 'head' 表的 macStyle 字段中位 1 的设置匹配。
+//             位 1 – 4： 位 1 – 4 是很少使用的位，指示字体主要是装饰性或特殊用途字体。
+//             位 5： 位 5 的设置必须与 'head' 表的 macStyle 字段中位 0 的设置匹配。
+//             位 6： 位 6 在现代应用程序中未广泛使用。如果设置了位 6，则位 0 和位 5 必须清零，否则
+//                    行为未定义。注意，如果位 0 和位 5 都清零，这并不表示位 6 是否会清零。例如，
+//                    Arial Light 不是 Arial 的常规样式，所有位都将清零。在扩展字体族中，位 6 不需要
+//                    为使用名称 ID 2 为"Regular"的非常规样式字体设置。有关更多信息，请参阅名称 ID。
+//             位 7： 位 7 在版本 4 中定义，并在许多现代应用程序中使用。对于新字体，鼓励供应商使用版
+//                    本 4 或更高版本的 OS/2 表，并设置位 7。
+//                    如果字体是使用较早版本的 OS/2 表创建的，并更新到当前版本的 OS/2 表，则设置位 7
+//                    可能会对使用这些字体的现有文档造成重新排版的风险。为最小化此类风险，仅当使用
+//                    OS/2.usWin* 度量值作为行高会比使用 OS/2.sTypo* 值产生明显较差的结果时，才应设
+//                    置该位。
+//             位 8： 如果设置了位 8，则提供的 'name' 表族和子族字符串与字重/宽度/斜率（WWS）族模型
+//                    一致，无需使用名称 ID 21 或 22。位 8 和名称 ID 21 和 22 的引入是为了供假设 WWS
+//                    族模型的应用程序使用，因为存在不适合三个属性（字重、宽度或斜率）之一的样式变体
+//                    字体。
+//                    许多字体族包含仅在这些三个属性之一或多个方面不同的字形。在这种情况下，名称 ID
+//                    1 和 2 或 ID 16 和 17 不会对假设 WWS 模型的软件造成挑战。但某些字体族包含在其
+//                    他属性方面不同的字形。例如，字体族可能包含"手写"、"说明"、"展示"、"光学大小"等
+//                    变体。在这种情况下，字体可以将该属性纳入字体排印子族名称（ID 17 字符串），而假
+//                    设 WWS 模型的应用程序会要求将该属性纳入族名称（ID 1 或 ID 16）。
+//                    如果字形在其族内仅在字重、宽度或斜率属性方面不同，则应设置位 8。这甚至适用于属
+//                    于包含由其他属性区分的其他字形的大型族的字形。设置位 8 作为向假设 WWS 模型的应
+//                    用程序指示名称 ID 1 和 2 或 ID 16 和 17 与 WWS 模型一致，无需进一步处理（包括
+//                    检查名称 ID 21 和 22 是否存在）的标志。因此，当设置了位 8 时，永远不需要名称
+//                    ID 21 和 22，也不应包含。
+//                    如果字形在其族内与常规字形的差异在于字重、宽度或斜率之外的属性，则不应设置位
+//                    8，并且应包含名称 ID 21 和 22。通过不设置位 8，作为向假设 WWS 模型的应用程序指
+//                    示它们应查找名称 ID 21 和 22，或可能需要对名称进行其他处理。
+//                    STAT 表在 OpenType 的后续版本中引入，在位 8 和名称 ID 21 和 22 定义之后。STAT
+//                    表的引入部分是为了解决相同类型的需求，但以一种更通用的方式，可能对假设其他族模
+//                    型的应用程序有用。如果字形具有字重、宽度或斜率之外的属性，并且没有名称 ID 21
+//                    和 22，某些假设 WWS 模型的应用程序可能能够使用 STAT 表中的信息来支持该字体。但
+//                    是，即使存在 STAT 表（可变字体需要），仍应遵循上述关于位 8 和名称 ID 21 和 22
+//                    的建议。
+//                    在此上下文中，"字体排印族"是名称 ID 16 的 Microsoft Unicode 字符串（如果存在），
+//                    否则是名称 ID 1 的 Microsoft Unicode 字符串；"字重"是 OS/2.usWeightClass；"宽
+//                    度"是 OS/2.usWidthClass；"斜率"是 OS/2.fsSelection 位 0（ITALIC）和位 9
+//                    （OBLIQUE）。
+//             位 9： 如果设置了位 9，则此字体应被区分斜体和倾斜样式的进程视为"倾斜"样式，例如级联样
+//                    式表字体匹配。例如，通过算法倾斜正立面创建的字体会设置此位。
+//                    如果字体具有版本 4 或更高版本的 OS/2 表，并且未设置此位，则此字体不应被视为"倾
+//                    斜"样式。例如，具有经典斜体设计的字体不会设置此位。
+//                    此位与 ITALIC 位（位 0）不同，后者与假设由常规、斜体、粗体和粗斜体组成的四成员
+//                    字体族模型的应用程序中的样式链接无关。它可以独立于 ITALIC 位设置或取消设置。在
+//                    大多数情况下，如果设置了 OBLIQUE，则 ITALIC 也会设置，但这不是必需的。
+//             位 15： 位 15 永久保留。它已在某些旧实现中使用，并可能在某些实现中导致特殊行为。此位
+//                    的使用已弃用。
+//      版本差异：
+//             版本 0 到 3：仅分配了位 0（斜体）到位 6（常规）。位 7 到 15 保留且必须设为 0。应用程
+//             序应忽略具有版本 0 到版本 3 OS/2 表的字体中的位 7 到 15。
+//             版本 4 到 5：位 7 到 9 在版本 4（OpenType 1.5）中定义。位 10 到 15 保留且必须设为 0。
+//             应用程序应忽略具有版本 4 或版本 5 OS/2 表的字体中的位 10 到 15。
+//
+// usFirstCharIndex
+//      格式： uint16
+//      说明： 此字体中的最小 Unicode 索引（字符代码），根据平台 ID 3 和平台特定编码 ID 0
+//             或 1 的 'cmap' 子表。对于支持 Win-ANSI 或其他字符集的大多数字体，此值为
+//             0x0020。此字段不能表示补充字符值（大于 0xFFFF 的码点）。支持补充字符的字体
+//             应将此字段的值设为 0xFFFF（如果最小索引值是补充字符）。
+//
+// usLastCharIndex
+//      格式： uint16
+//      说明： 此字体中的最大 Unicode 索引（字符代码），根据平台 ID 3 和编码 ID 0 或 1 的
+//             'cmap' 子表。此值取决于字体支持的字符集。此字段不能表示补充字符值（大于 0xFFFF
+//             的码点）。支持补充字符的字体应将此字段的值设为 0xFFFF。
+//
+// sTypoAscender
+//      格式： FWORD
+//      单位： 字体设计单位
+//      说明： 此字体的字体排印升部。此字段应与 sTypoDescender 和 sTypoLineGap 值结合使用，以确定默认行距。
+//      此字段类似于 'hhea' 表中的 ascender 字段以及本表中的 usWinAscent 字段。但是，旧平台实现以平台特定的方式使用这些字段。因此，这些字段受向后兼容性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和 sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
+//      fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin* 值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
+//      sTypoAscender - sTypoDescender 等于 unitsPerEm 不是一般要求。这些值应设置为适合字体设计支持的主要语言的默认行距。
+//      对于打算用于垂直（以及水平）布局的 CJK（中文、日文和韩文）字体，sTypoAscender 的所需值是描述表意文字 em 框顶部的值。例如，如果字体的表意文字 em 框从坐标 0,-120 延伸到 1000,880（即，一个 1000 × 1000 的框，设置在拉丁基线下方 120 个设计单位），则 sTypoAscender 的值必须设为 880。不遵守这些要求将导致垂直布局不正确。
+//      有关此字段的更多信息，另请参阅建议部分。
+//
+// sTypoDescender
+//      格式： FWORD
+//      单位： 字体设计单位
+//      说明： 此字体的字体排印降部。此字段应与 sTypoAscender 和 sTypoLineGap 值结合使用，以确定默认行距。
+//      此字段类似于 'hhea' 表中的 descender 字段以及本表中的 usWinDescent 字段。但是，旧平台实现以平台特定的方式使用这些字段。因此，这些字段受向后兼容性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和 sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
+//      fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin* 值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
+//      sTypoAscender - sTypoDescender 等于 unitsPerEm 不是一般要求。这些值应设置为适合字体设计支持的主要语言的默认行距。
+//      对于打算用于垂直（以及水平）布局的 CJK（中文、日文和韩文）字体，sTypoDescender 的所需值是描述表意文字 em 框底部的值。例如，如果字体的表意文字 em 框从坐标 0,-120 延伸到 1000,880（即，一个 1000 × 1000 的框，设置在拉丁基线下方 120 个设计单位），则 sTypoDescender 的值必须设为 -120。不遵守这些要求将导致垂直布局不正确。
+//      有关此字段的更多信息，另请参阅建议部分。
+//
+// sTypoLineGap
+//      格式： FWORD
+//      单位： 字体设计单位
+//      说明： 此字体的字体排印行距。此字段应与 sTypoAscender 和 sTypoDescender 值结合使用，以确定默认行距。
+//      此字段类似于 'hhea' 表中的 lineGap 字段。但是，旧平台实现以平台特定的方式处理该字段。因此，该字段受向后兼容性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和 sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
+//      fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin* 值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
+//
+// usWinAscent
+//      格式： UFWORD
+//      单位： 字体设计单位
+//      说明： "Windows 升部"度量。应用于指定裁剪区域基线上方的高度。
+//      这类似于 sTypoAscender 字段，也类似于 'hhea' 表中的 ascender 字段。但是，它们之间存在重要差异。
+//      在 Windows GDI 实现中，usWinAscent 和 usWinDescent 值已用于确定 TrueType 光栅化器中位图表面的大小。Windows GDI 将裁剪任何出现在 usWinAscent 值上方的 TrueType 字形轮廓部分。如果任何裁剪不可接受，则该值应设为大于或等于 yMax。
+//      注意：这涉及字形的默认位置，而不是在应用 GPOS 或 'kern' 表中的数据后布局中的最终位置。此外，此裁剪行为与 VDMX 表交互：如果存在 VDMX 表，并且有当前设备纵横比和光栅化大小的数据，则 VDMX 数据将取代 usWinAscent 和 usWinDescent 值。
+//      某些旧应用程序使用 usWinAscent 和 usWinDescent 值来确定默认行距。强烈建议不要这样做。应为此目的使用 sTypo* 字段。
+//      注意，某些应用程序根据 fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）是否设置，使用 usWin* 值或 sTypo* 值来确定默认行距。这对于在使用旧字体的旧文档提供兼容性的同时，也使用新字体提供更好的、更可移植的布局可能很有用。有关其他详细信息，请参阅 fsSelection。
+//      使用 sTypo* 字段作为默认行距的应用程序可以使用 usWin* 值来确定裁剪区域的大小。某些应用程序在编辑场景中使用裁剪区域来确定在编辑文本时重新绘制显示表面的哪一部分，或在选择文本时绘制多大的选择矩形。这是 usWin* 值的适当用途。
+//      本规范的早期版本建议将 usWinAscent 值计算为 Windows"ANSI"字符集中所有字符的 yMax。对于新字体，该值应基于字体设计支持的主要语言确定，并应考虑容纳高字形或标记定位可能需要的额外高度。
+//
+// usWinDescent
+//      格式： UFWORD
+//      单位： 字体设计单位
+//      说明： "Windows 降部"度量。应用于指定裁剪区域基线下方的垂直范围。
+//      这类似于 sTypoDescender 字段，也类似于 'hhea' 表中的 descender 字段。但是，它们之间存在重要差异。其中一些差异描述如下。此外，usWinDescent 值将基线下方的距离视为正值；因此，usWinDescent 通常为正值，而 sTypoDescender 和 hhea.descender 通常为负值。
+//      在 Windows GDI 实现中，usWinDescent 和 usWinAscent 值已用于确定 TrueType 光栅化器中位图表面的大小。Windows GDI 将裁剪任何出现在 (-1 × usWinDescent) 下方的 TrueType 字形轮廓部分。如果任何裁剪不可接受，则该值应设为大于或等于 (-yMin)。
+//      注意：这涉及字形的默认位置，而不是在应用 GPOS 或 'kern' 表中的数据后布局中的最终位置。此外，此裁剪行为与 VDMX 表交互：如果存在 VDMX 表，并且有当前设备纵横比和光栅化大小的数据，则 VDMX 数据将取代 usWinAscent 和 usWinDescent 值。
+//      某些旧应用程序使用 usWinAscent 和 usWinDescent 值来确定默认行距。强烈建议不要这样做。应为此目的使用 sTypo* 字段。
+//      注意，某些应用程序根据 fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）是否设置，使用 usWin* 值或 sTypo* 值来确定默认行距。这对于在使用旧字体的旧文档提供兼容性的同时，也使用新字体提供更好的、更可移植的布局可能很有用。有关其他详细信息，请参阅 fsSelection。
+//      使用 sTypo* 字段作为默认行距的应用程序可以使用 usWin* 值来确定裁剪区域的大小。某些应用程序在编辑场景中使用裁剪区域来确定在编辑文本时重新绘制显示表面的哪一部分，或在选择文本时绘制多大的选择矩形。这是 usWin* 值的适当用途。
+//      本规范的早期版本建议将 usWinDescent 值计算为 Windows"ANSI"字符集中所有字符的 -yMin。对于新字体，该值应基于字体设计支持的主要语言确定，并应考虑容纳低降部字形或标记定位可能需要的额外垂直范围。
+//
+// ulCodePageRange1（位 0 – 31）
+// ulCodePageRange2（位 32 – 63）
+//      格式： uint32[2]（共 64 位）
+//      标题： 代码页字符范围
+//      说明： 此字段用于指定字体文件中 'cmap' 子表（平台 3，编码 ID 1（Windows 平台，Unicode BMP））所涵盖的代码页。如果字体文件是编码 ID 0，则应设置符号字符集位。
+//      如果设置了给定位（1），则认为该代码页是功能性的。如果该位清零（0），则认为该代码页不是功能性的。每个位都被视为独立的标志，位可以以任何组合设置。"功能性"的确定由字体设计师决定，但字符集选择应尽可能按代码页实现功能性。
+//      符号字符集具有特殊含义。如果设置了符号位（31），并且字体文件包含平台为 3 且编码 ID 为 1 的 'cmap' 子表，则 Unicode 范围 0xF000 - 0xF0FF（含）中的所有字符将用于枚举符号字符集。如果未设置该位，则该范围中的任何字符都不会被枚举为符号字符集。
+//      所有保留字段必须为零。每个 uint32 为大端序形式。
+//      表格
+//      位	代码页	说明
+//      0	1252	拉丁文 1
+//      1	1250	拉丁文 2：东欧
+//      2	1251	西里尔文
+//      3	1253	希腊文
+//      4	1254	土耳其文
+//      5	1255	希伯来文
+//      6	1256	阿拉伯文
+//      7	1257	Windows 波罗的海文
+//      8	1258	越南文
+//      9 – 15		保留供替代 ANSI 使用
+//      16	874	泰文
+//      17	932	JIS/日本
+//      18	936	中文：简体字—中国和新加坡
+//      19	949	韩文 Wansung
+//      20	950	中文：繁体字—台湾和香港特别行政区
+//      21	1361	韩文 Johab
+//      22 – 28		保留供替代 ANSI 或 OEM 使用
+//      29		Macintosh 字符集（美国罗马体）
+//      30		OEM 字符集
+//      31		符号字符集
+//      32 – 47		保留供 OEM 使用
+//      48	869	IBM 希腊文
+//      49	866	MS-DOS 俄文
+//      50	865	MS-DOS 北欧文
+//      51	864	阿拉伯文
+//      52	863	MS-DOS 加拿大法文
+//      53	862	希伯来文
+//      54	861	MS-DOS 冰岛文
+//      55	860	MS-DOS 葡萄牙文
+//      56	857	IBM 土耳其文
+//      57	855	IBM 西里尔文；主要为俄文
+//      58	852	拉丁文 2
+//      59	775	MS-DOS 波罗的海文
+//      60	737	希腊文；原 437 G
+//      61	708	阿拉伯文；ASMO 708
+//      62	850	西欧/拉丁文 1
+//      63	437	美国
+//      版本差异：
+//      版本 0： 这些字段在版本 0 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，则应忽略 usWinDescent 字段之外的附加数据。
+//      版本 1： 位 8 在版本 1 中未分配。所有其他当前分配的位在版本 1 中定义。
+//      版本 2 及更高版本： 所有当前分配的位在版本 2 中定义。
+//
+// sxHeight
+//      格式： FWORD
+//      单位： 字体设计单位
+//      说明： 此度量指定基线与非上升小写字母的近似顶部之间的距离（以字体设计单位表示）。此值通常由字体设计师指定，但在不可能的情况下，例如转换旧字体时，可以将值设为编码在 U+0078（拉丁小写字母 X）位置的未缩放和未提示字形边界框的顶部。如果此位置未编码字形，则该字段应设为 0。
+//      如果指定了此度量，可用于字体替换：一个字体的 xHeight 值可以缩放以近似另一个字体的表观大小。
+//      版本差异：
+//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
+//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//
+// sCapHeight
+//      格式： FWORD
+//      单位： 字体设计单位
+//      说明： 此度量指定基线与大写字母的近似高度之间的距离（以字体设计单位表示）。此值通常由字体设计师指定，但在不可能的情况下，例如转换旧字体时，可以将值设为编码在 U+0048（拉丁大写字母 H）位置的未缩放和未提示字形边界框的顶部。如果此位置未编码字形，则该字段应设为 0。
+//      如果指定了此度量，可用于以毫米为单位指定大写高度的系统中指定字号。它也可以用作对齐度量；例如，首字下沉的顶部可以与第一行文本的 sCapHeight 度量对齐。
+//      版本差异：
+//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
+//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//
+// usDefaultChar
+//      格式： uint16
+//      说明： 这是 Unicode 码点，以 UTF-16 编码，可用于在字体不支持请求的字符时用作默认字形。如果此字段的值为零，则字形 ID 0 将用作默认字符。此字段不能表示补充平面字符值（大于 0xFFFF 的码点），因此强烈建议应用程序不要使用此字段。
+//      版本差异：
+//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
+//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//
+// usBreakChar
+//      格式： uint16
+//      说明： 这是 Unicode 码点，以 UTF-16 编码，可用作默认换行字符。换行字符用于分隔单词和使文本对齐。大多数字体将 U+0020 SPACE 指定为换行字符。此字段不能表示补充平面字符值（大于 0xFFFF 的码点），因此强烈建议应用程序不要使用此字段。
+//      版本差异：
+//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
+//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//
+// usMaxContext
+//      格式： uint16
+//      说明： 此字体中任何功能的目标字形上下文的最大长度。例如，仅具有字距调整功能的字体应将此字段设为 2。如果字体还具有连字功能，其中字形序列"f f i"被连字"ffi"替换，则此字段应设为 3。此字段可能对复杂的换行引擎有用，帮助它们确定应向前查看多远以测试是否可能影响换行的变化。对于链式上下文查找，应考虑（覆盖的字形）+（输入序列）+（前瞻序列）的字符串长度。
+//      版本差异：
+//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
+//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//
+// usLowerOpticalPointSize
+//      格式： uint16
+//      单位： TWIPs
+//      说明： 此字段用于具有多种光学样式的字体。
+//      此值是为此字体设计的大小范围的下限值。此字段的单位是 TWIPs（二十分之一磅，或每英寸 1440）。该值是包含性的——意味着该字体被设计为在此字号到 usUpperOpticalPointSize 指示的字号（但不包括）范围内最佳工作。当与字体排印族中也指定了 usLowerOpticalPointSize 和 usUpperOpticalPointSize 值的其他光学大小变体字体一起使用时，预期另一个字体的 usUpperOpticalPointSize 字段将设为此字段中的相同值，除非此字体是族中设计用于最低大小范围的字号。光学大小集中最小的字体应将此值设为 0。在多个光学大小变体字体之间工作时，范围中不应有故意的间隙或重叠。
+//      usLowerOpticalPointSize 值必须小于 usUpperOpticalPointSize。最大有效值为 0xFFFE。
+//      对于未设计为多种光学大小变体的字体，此字段应设为 0（零），usUpperOpticalPointSize 应设为 0xFFFF。
+//      注意：此字段的使用已被 STAT 表取代。有关更多信息，请参阅建议部分。
+//      版本差异：
+//      版本 0 – 4： 此字段在版本 0 – 4 中未定义。如果 OS/2 表的大小延伸到给定版本定义的最后一个字段之外，则应忽略此附加数据。
+//      版本 5： 此字段在 OS/2 表的版本 5 中定义。
+//
+// usUpperOpticalPointSize
+//      格式： uint16
+//      单位： TWIPs
+//      说明： 此字段用于具有多种光学样式的字体。
+//      此值是为此字体设计的大小范围的上限值。此字段的单位是 TWIPs（二十分之一磅，或每英寸 1440）。该值是排他性的——意味着该字体被设计为在此字号以下到 usLowerOpticalPointSize 阈值范围内最佳工作。当与字体排印族中也指定了 usLowerOpticalPointSize 和 usUpperOpticalPointSize 值的其他光学大小变体字体一起使用时，预期另一个字体的 usLowerOpticalPointSize 字段将设为此字段中的相同值，除非此字体是族中设计用于最高大小范围的字号。光学大小集中最大的字体应将此值设为 0xFFFF，解释为无穷大。在多个光学大小变体字体之间工作时，范围中不应有故意的间隙或重叠。
+//      usUpperOpticalPointSize 值必须大于 usLowerOpticalPointSize。此字段的最小有效值为 2（二）。此字段表示的最大可能包含字号为 3276.65 磅；任何更高的值将表示为无穷大。
+//      对于未设计为多种光学大小变体的字体，此字段应设为 0xFFFF，usLowerOpticalPointSize 应设为 0（零）。
+//      注意：此字段的使用已被 STAT 表取代。有关更多信息，请参阅建议部分。
+//      版本差异：
+//      版本 0 – 4： 此字段在版本 0 – 4 中未定义。如果 OS/2 表的大小延伸到给定版本定义的最后一个字段之外，则应忽略此附加数据。
+//      版本 5： 此字段在 OS/2 表的版本 5 中定义。
+//
+// OS/2 表与 OpenType 字体变体。在可变字体中，默认行度量应始终使用 sTypoAscender、sTypoDescender 和 sTypoLineGap 值设置，并且应在 fsSelection 字段中设置 USE_TYPO_METRICS 标志。'hhea' 表中的 ascender、descender 和 lineGap 字段应设为与 sTypoAscender、sTypoDescender 和 sTypoLineGap 相同的值。usWinAscent 和 usWinDescent 字段应用于指定推荐的裁剪矩形。
+// 在可变字体中，OS/2 表中的各种字体度量值可能需要针对不同的变体实例进行调整。OS/2 条目的变体数据可以在度量变体（MVAR）表中提供。不同的 OS/2 条目通过值标签与 MVAR 表中的特定变体数据相关联，如下所示：
+//      OS/2 条目	标签
+//      sCapHeight	'cpht'
+//      sTypoAscender	'hasc'
+//      sTypoDescender	'hdsc'
+//      sTypoLineGap	'hlgp'
+//      sxHeight	'xhgt'
+//      usWinAscent	'hcla'
+//      usWinDescent	'hcld'
+//      yStrikeoutPosition	'stro'
+//      yStrikeoutSize	'strs'
+//      ySubscriptXOffset	'sbxo'
+//      ySubScriptXSize	'sbxs'
+//      ySubscriptYOffset	'sbyo'
+//      ySubscriptYSize	'sbys'
+//      ySuperscriptXOffset	'spxo'
+//      ySuperscriptXSize	'spxs'
+//      ySuperscriptYOffset	'spyo'
+//      ySuperscriptYSize	'spys'
+//
+// 注意：usWeightClass 和 usWidthClass 值不由变体数据调整，因为这些对应于可用于定义字体变体空间的 'wght' 和 'wdth' 变体轴。变体实例的适当 usWeightClass 和 usWidthClass 值可以从用于选择特定变体实例的 'wght' 和 'wdth' 用户坐标推导得出。对于大于 200 的 'wdth' 值，usWidthClass 值被钳位到 9。有关这些 OS/2 字段与相应设计轴之间关系的详细信息，请参阅 OpenType 设计变体轴标签注册表中的 'wght' 和 'wdth' 轴讨论。
+// 注意：usLowerOpticalPointSize 和 usUpperOpticalPointSize 值不由变体数据调整。这些值（现在已被 STAT 表取代）用于指示给定字体设计的大小范围。假设针对不同大小的变体将使用 'opsz' 变体轴实现。如果可变字体支持 'opsz' 作为变体轴，则 usLowerOpticalPointSize 和 usUpperOpticalPointSize 字段可以设为与 'fvar' 表中 'opsz' 轴的 minValue 和 maxValue 字段相同的值。
+// 要在可变字体中具有可变行度量，应在 MVAR 表中使用 'hasc'、'hdsc' 和 'hlgp' 值标签来使升部、降部和行距值从 sTypoAscender、sTypoDescender 和 sTypoLineGap 字段中指定的默认值变化。此外，可以使用 'hcla' 和 'hcld' 值标签来使裁剪区域的大小从 winAscent 和 winDescent 字段中指定的默认值变化。可以使用上面列出的值标签来变化其他度量。
+// 有关 OpenType 字体变体的一般信息，请参阅"OpenType 字体变体概述"章节。
 
 // 命名表（name）
 //
