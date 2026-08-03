@@ -42382,193 +42382,470 @@ void prh_print_font_post_table(prh_open_font *f) {
 // sTypoAscender
 //      格式： FWORD
 //      单位： 字体设计单位
-//      说明： 此字体的字体排印升部。此字段应与 sTypoDescender 和 sTypoLineGap 值结合使用，以确定默认行距。
-//      此字段类似于 'hhea' 表中的 ascender 字段以及本表中的 usWinAscent 字段。但是，旧平台实现以平台特定的方式使用这些字段。因此，这些字段受向后兼容性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和 sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
-//      fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin* 值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
-//      sTypoAscender - sTypoDescender 等于 unitsPerEm 不是一般要求。这些值应设置为适合字体设计支持的主要语言的默认行距。
-//      对于打算用于垂直（以及水平）布局的 CJK（中文、日文和韩文）字体，sTypoAscender 的所需值是描述表意文字 em 框顶部的值。例如，如果字体的表意文字 em 框从坐标 0,-120 延伸到 1000,880（即，一个 1000 × 1000 的框，设置在拉丁基线下方 120 个设计单位），则 sTypoAscender 的值必须设为 880。不遵守这些要求将导致垂直布局不正确。
-//      有关此字段的更多信息，另请参阅建议部分。
+//      说明： 此字体的字体排印升部。此字段应与 sTypoDescender 和 sTypoLineGap 值结合使用，
+//             以确定默认行距。此字段类似于 'hhea' 表中的 ascender 字段以及本表中的 usWinAscent
+//             字段。但是，旧平台实现以平台特定的方式使用这些字段。因此，这些字段受向后兼容
+//             性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和
+//             sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
+//             fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin*
+//             值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
+//             差值 sTypoAscender - sTypoDescender 等于 unitsPerEm 不是通用要求。这些值应
+//             设置为适合字体设计支持的主要语言的默认行距。
+//             对于打算用于垂直（以及水平）布局的 CJK（中文、日文和韩文）字体，sTypoAscender
+//             的所需值是描述表意文字 em 框顶部的值。例如，如果字体的表意文字 em 框从坐标
+//             0,-120 延伸到 1000,880（即，一个 1000 × 1000 的框，设置在拉丁基线下方 120 个
+//             设计单位），则 sTypoAscender 的值必须设为 880。不遵守这些要求将导致垂直布局不
+//             正确。有关此字段的更多信息，另请参阅建议部分。
+//             https://learn.microsoft.com/en-us/typography/opentype/spec/baselinetags#ideoembox
+//             https://learn.microsoft.com/en-us/typography/opentype/spec/recom#tad
 //
 // sTypoDescender
 //      格式： FWORD
 //      单位： 字体设计单位
-//      说明： 此字体的字体排印降部。此字段应与 sTypoAscender 和 sTypoLineGap 值结合使用，以确定默认行距。
-//      此字段类似于 'hhea' 表中的 descender 字段以及本表中的 usWinDescent 字段。但是，旧平台实现以平台特定的方式使用这些字段。因此，这些字段受向后兼容性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和 sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
-//      fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin* 值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
-//      sTypoAscender - sTypoDescender 等于 unitsPerEm 不是一般要求。这些值应设置为适合字体设计支持的主要语言的默认行距。
-//      对于打算用于垂直（以及水平）布局的 CJK（中文、日文和韩文）字体，sTypoDescender 的所需值是描述表意文字 em 框底部的值。例如，如果字体的表意文字 em 框从坐标 0,-120 延伸到 1000,880（即，一个 1000 × 1000 的框，设置在拉丁基线下方 120 个设计单位），则 sTypoDescender 的值必须设为 -120。不遵守这些要求将导致垂直布局不正确。
-//      有关此字段的更多信息，另请参阅建议部分。
+//      说明： 此字体的字体排印降部。此字段应与 sTypoAscender 和 sTypoLineGap 值结合使用，
+//             以确定默认行距。此字段类似于 'hhea' 表中的 descender 字段以及本表中的 usWinDescent
+//             字段。但是，旧平台实现以平台特定的方式使用这些字段。因此，这些字段受向后兼
+//             容性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和
+//             sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
+//             fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin*
+//             值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
+//             差值 sTypoAscender - sTypoDescender 等于 unitsPerEm 不是通用要求。这些值应
+//             设置为适合字体设计支持的主要语言的默认行距。
+//             对于打算用于垂直（以及水平）布局的 CJK（中文、日文和韩文）字体，sTypoDescender
+//             的所需值是描述表意文字 em 框底部的值。例如，如果字体的表意文字 em 框从坐标
+//             0,-120 延伸到 1000,880（即，一个 1000 × 1000 的框，设置在拉丁基线下方 120
+//             个设计单位），则 sTypoDescender 的值必须设为 -120。不遵守这些要求将导致垂直
+//             布局不正确。有关此字段的更多信息，另请参阅建议部分。
 //
 // sTypoLineGap
 //      格式： FWORD
 //      单位： 字体设计单位
-//      说明： 此字体的字体排印行距。此字段应与 sTypoAscender 和 sTypoDescender 值结合使用，以确定默认行距。
-//      此字段类似于 'hhea' 表中的 lineGap 字段。但是，旧平台实现以平台特定的方式处理该字段。因此，该字段受向后兼容性要求的约束，无法确保跨实现的一致布局。sTypoAscender、sTypoDescender 和 sTypoLineGap 字段旨在允许应用程序以字体排印正确且可移植的方式布局文档。
-//      fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin* 值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
+//      说明： 此字体的字体排印行距。此字段应与 sTypoAscender 和 sTypoDescender 值结合使用，
+//             以确定默认行距。此字段类似于 'hhea' 表中的 lineGap 字段。但是，旧平台实现以
+//             平台特定的方式处理该字段。因此，该字段受向后兼容性要求的约束，无法确保跨实现
+//             的一致布局。sTypoAscender、sTypoDescender 和 sTypoLineGap 字段旨在允许应用程
+//             序以字体排印正确且可移植的方式布局文档。
+//             fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）用于选择使用 sTypo* 值或 usWin*
+//             值作为默认行度量。有关其他详细信息，请参阅 fsSelection。
 //
 // usWinAscent
 //      格式： UFWORD
 //      单位： 字体设计单位
-//      说明： "Windows 升部"度量。应用于指定裁剪区域基线上方的高度。
-//      这类似于 sTypoAscender 字段，也类似于 'hhea' 表中的 ascender 字段。但是，它们之间存在重要差异。
-//      在 Windows GDI 实现中，usWinAscent 和 usWinDescent 值已用于确定 TrueType 光栅化器中位图表面的大小。Windows GDI 将裁剪任何出现在 usWinAscent 值上方的 TrueType 字形轮廓部分。如果任何裁剪不可接受，则该值应设为大于或等于 yMax。
-//      注意：这涉及字形的默认位置，而不是在应用 GPOS 或 'kern' 表中的数据后布局中的最终位置。此外，此裁剪行为与 VDMX 表交互：如果存在 VDMX 表，并且有当前设备纵横比和光栅化大小的数据，则 VDMX 数据将取代 usWinAscent 和 usWinDescent 值。
-//      某些旧应用程序使用 usWinAscent 和 usWinDescent 值来确定默认行距。强烈建议不要这样做。应为此目的使用 sTypo* 字段。
-//      注意，某些应用程序根据 fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）是否设置，使用 usWin* 值或 sTypo* 值来确定默认行距。这对于在使用旧字体的旧文档提供兼容性的同时，也使用新字体提供更好的、更可移植的布局可能很有用。有关其他详细信息，请参阅 fsSelection。
-//      使用 sTypo* 字段作为默认行距的应用程序可以使用 usWin* 值来确定裁剪区域的大小。某些应用程序在编辑场景中使用裁剪区域来确定在编辑文本时重新绘制显示表面的哪一部分，或在选择文本时绘制多大的选择矩形。这是 usWin* 值的适当用途。
-//      本规范的早期版本建议将 usWinAscent 值计算为 Windows"ANSI"字符集中所有字符的 yMax。对于新字体，该值应基于字体设计支持的主要语言确定，并应考虑容纳高字形或标记定位可能需要的额外高度。
+//      说明： "Windows 升部"度量。应用于指定裁剪区域（clipping region）基线上方的高度。这
+//             类似于 sTypoAscender 字段，也类似于 'hhea' 表中的 ascender 字段。但是，它们
+//             之间存在重要差异。
+//             在 Windows GDI 实现中，usWinAscent 和 usWinDescent 值已用于确定 TrueType 光栅
+//             化器中位图表面（bitmap surface）的大小。Windows GDI 将裁剪任何出现在 usWinAscent
+//             值上方的 TrueType 字形轮廓部分。如果任何裁剪不可接受，则该值应设为大于或等于
+//             yMax。
+//             注意：这涉及字形的默认位置，而不是在应用 GPOS 或 'kern' 表中的数据后布局中的最
+//             终位置。此外，此裁剪行为与 VDMX 表交互：如果存在 VDMX 表，并且有当前设备纵横比
+//             和光栅化大小的数据，则 VDMX 数据将取代 usWinAscent 和 usWinDescent 值。
+//             某些旧应用程序使用 usWinAscent 和 usWinDescent 值来确定默认行距。强烈建议不要这
+//             样做。应为此目的使用 sTypo* 字段。
+//             注意，某些应用程序根据 fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）是否设置，
+//             使用 usWin* 值或 sTypo* 值来确定默认行距。这对于在使用旧字体的旧文档提供兼容性
+//             的同时，也使用新字体提供更好的、更可移植的布局可能很有用。有关其他详细信息，请
+//             参阅 fsSelection。
+//             使用 sTypo* 字段作为默认行距的应用程序可以使用 usWin* 值来确定裁剪区域的大小。
+//             某些应用程序在编辑场景中使用裁剪区域来确定在编辑文本时重新绘制显示表面的哪一部
+//             分，或在选择文本时绘制多大的选择矩形。这是 usWin* 值的适当用途。
+//             本规范的早期版本建议将 usWinAscent 值计算为 Windows "ANSI"字符集中所有字符的
+//             yMax。对于新字体，该值应基于字体设计支持的主要语言确定，并应考虑容纳高字形或
+//             标记定位可能需要的额外高度。
 //
 // usWinDescent
 //      格式： UFWORD
 //      单位： 字体设计单位
-//      说明： "Windows 降部"度量。应用于指定裁剪区域基线下方的垂直范围。
-//      这类似于 sTypoDescender 字段，也类似于 'hhea' 表中的 descender 字段。但是，它们之间存在重要差异。其中一些差异描述如下。此外，usWinDescent 值将基线下方的距离视为正值；因此，usWinDescent 通常为正值，而 sTypoDescender 和 hhea.descender 通常为负值。
-//      在 Windows GDI 实现中，usWinDescent 和 usWinAscent 值已用于确定 TrueType 光栅化器中位图表面的大小。Windows GDI 将裁剪任何出现在 (-1 × usWinDescent) 下方的 TrueType 字形轮廓部分。如果任何裁剪不可接受，则该值应设为大于或等于 (-yMin)。
-//      注意：这涉及字形的默认位置，而不是在应用 GPOS 或 'kern' 表中的数据后布局中的最终位置。此外，此裁剪行为与 VDMX 表交互：如果存在 VDMX 表，并且有当前设备纵横比和光栅化大小的数据，则 VDMX 数据将取代 usWinAscent 和 usWinDescent 值。
-//      某些旧应用程序使用 usWinAscent 和 usWinDescent 值来确定默认行距。强烈建议不要这样做。应为此目的使用 sTypo* 字段。
-//      注意，某些应用程序根据 fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）是否设置，使用 usWin* 值或 sTypo* 值来确定默认行距。这对于在使用旧字体的旧文档提供兼容性的同时，也使用新字体提供更好的、更可移植的布局可能很有用。有关其他详细信息，请参阅 fsSelection。
-//      使用 sTypo* 字段作为默认行距的应用程序可以使用 usWin* 值来确定裁剪区域的大小。某些应用程序在编辑场景中使用裁剪区域来确定在编辑文本时重新绘制显示表面的哪一部分，或在选择文本时绘制多大的选择矩形。这是 usWin* 值的适当用途。
-//      本规范的早期版本建议将 usWinDescent 值计算为 Windows"ANSI"字符集中所有字符的 -yMin。对于新字体，该值应基于字体设计支持的主要语言确定，并应考虑容纳低降部字形或标记定位可能需要的额外垂直范围。
+//      说明： "Windows 降部"度量。应用于指定裁剪区域基线下方的垂直范围。这类似于 sTypoDescender
+//             字段，也类似于 'hhea' 表中的 descender 字段。但是，它们之间存在重要差异。其中一些
+//             差异描述如下。此外，usWinDescent 值将基线下方的距离视为正值；因此，usWinDescent
+//             通常为正值，而 sTypoDescender 和 hhea.descender 通常为负值。
+//             在 Windows GDI 实现中，usWinDescent 和 usWinAscent 值已用于确定 TrueType 光栅化器
+//             中位图表面的大小。Windows GDI 将裁剪任何出现在 (-1 × usWinDescent) 下方的 TrueType
+//             字形轮廓部分。如果任何裁剪不可接受，则该值应设为大于或等于 (-yMin)。
+//             注意：这涉及字形的默认位置，而不是在应用 GPOS 或 'kern' 表中的数据后布局中的最终
+//             位置。此外，此裁剪行为与 VDMX 表交互：如果存在 VDMX 表，并且有当前设备纵横比和光栅
+//             化大小的数据，则 VDMX 数据将取代 usWinAscent 和 usWinDescent 值。
+//             某些旧应用程序使用 usWinAscent 和 usWinDescent 值来确定默认行距。强烈建议不要这样
+//             做。应为此目的使用 sTypo* 字段。
+//             注意，某些应用程序根据 fsSelection 字段的 USE_TYPO_METRICS 标志（位 7）是否设置，
+//             使用 usWin* 值或 sTypo* 值来确定默认行距。这对于在使用旧字体的旧文档提供兼容性的
+//             同时，也使用新字体提供更好的、更可移植的布局可能很有用。有关其他详细信息，请参阅
+//             fsSelection。
+//             使用 sTypo* 字段作为默认行距的应用程序可以使用 usWin* 值来确定裁剪区域的大小。某
+//             些应用程序在编辑场景中使用裁剪区域来确定在编辑文本时重新绘制显示表面的哪一部分，
+//             或在选择文本时绘制多大的选择矩形。这是 usWin* 值的适当用途。
+//             本规范的早期版本建议将 usWinDescent 值计算为 Windows"ANSI"字符集中所有字符的 -yMin。
+//             对于新字体，该值应基于字体设计支持的主要语言确定，并应考虑容纳低降部字形或标记定位
+//             可能需要的额外垂直范围。
 //
 // ulCodePageRange1（位 0 – 31）
 // ulCodePageRange2（位 32 – 63）
 //      格式： uint32[2]（共 64 位）
 //      标题： 代码页字符范围
-//      说明： 此字段用于指定字体文件中 'cmap' 子表（平台 3，编码 ID 1（Windows 平台，Unicode BMP））所涵盖的代码页。如果字体文件是编码 ID 0，则应设置符号字符集位。
-//      如果设置了给定位（1），则认为该代码页是功能性的。如果该位清零（0），则认为该代码页不是功能性的。每个位都被视为独立的标志，位可以以任何组合设置。"功能性"的确定由字体设计师决定，但字符集选择应尽可能按代码页实现功能性。
-//      符号字符集具有特殊含义。如果设置了符号位（31），并且字体文件包含平台为 3 且编码 ID 为 1 的 'cmap' 子表，则 Unicode 范围 0xF000 - 0xF0FF（含）中的所有字符将用于枚举符号字符集。如果未设置该位，则该范围中的任何字符都不会被枚举为符号字符集。
-//      所有保留字段必须为零。每个 uint32 为大端序形式。
-//      表格
-//      位	代码页	说明
-//      0	1252	拉丁文 1
-//      1	1250	拉丁文 2：东欧
-//      2	1251	西里尔文
-//      3	1253	希腊文
-//      4	1254	土耳其文
-//      5	1255	希伯来文
-//      6	1256	阿拉伯文
-//      7	1257	Windows 波罗的海文
-//      8	1258	越南文
-//      9 – 15		保留供替代 ANSI 使用
-//      16	874	泰文
-//      17	932	JIS/日本
-//      18	936	中文：简体字—中国和新加坡
-//      19	949	韩文 Wansung
-//      20	950	中文：繁体字—台湾和香港特别行政区
-//      21	1361	韩文 Johab
-//      22 – 28		保留供替代 ANSI 或 OEM 使用
-//      29		Macintosh 字符集（美国罗马体）
-//      30		OEM 字符集
-//      31		符号字符集
-//      32 – 47		保留供 OEM 使用
-//      48	869	IBM 希腊文
-//      49	866	MS-DOS 俄文
-//      50	865	MS-DOS 北欧文
-//      51	864	阿拉伯文
-//      52	863	MS-DOS 加拿大法文
-//      53	862	希伯来文
-//      54	861	MS-DOS 冰岛文
-//      55	860	MS-DOS 葡萄牙文
-//      56	857	IBM 土耳其文
-//      57	855	IBM 西里尔文；主要为俄文
-//      58	852	拉丁文 2
-//      59	775	MS-DOS 波罗的海文
-//      60	737	希腊文；原 437 G
-//      61	708	阿拉伯文；ASMO 708
-//      62	850	西欧/拉丁文 1
-//      63	437	美国
+//      说明： 此字段用于指定字体文件中 'cmap' 子表平台 3，编码 ID 1（Windows 平台，Unicode
+//             BMP）所涵盖的代码页。如果字体文件是编码 ID 0，则应设置符号字符集位（Symbol
+//             Character Set bit）。
+//             如果设置了给定位（1），则认为该代码页是功能性的。如果该位清零（0），则认为该
+//             代码页不是功能性的。每个位都被视为独立的标志，位可以以任何组合设置。"功能性"
+//             的确定由字体设计师决定，但字符集选择应尽可能按代码页实现功能性。
+//             符号字符集具有特殊含义。如果设置了符号位（31），并且字体文件包含平台为 3 且编
+//             码 ID 为 1 的 'cmap' 子表，则 Unicode 范围 0xF000 - 0xF0FF（含）中的所有字符
+//             将用于枚举符号字符集。如果未设置该位，则该范围中的任何字符都不会被枚举为符号
+//             字符集。所有保留字段必须为零。每个 uint32 为大端序形式。
+//                  位      代码页  说明
+//                  0       1252    拉丁文 1
+//                  1       1250    拉丁文 2：东欧
+//                  2       1251    西里尔文
+//                  3       1253    希腊文
+//                  4       1254    土耳其文
+//                  5       1255    希伯来文
+//                  6       1256    阿拉伯文
+//                  7       1257    Windows 波罗的海文
+//                  8       1258    越南文
+//                  9 – 15          保留供替代 ANSI 使用
+//                  16      874     泰文
+//                  17      932     JIS/日本
+//                  18      936     中文：简体字—中国和新加坡
+//                  19      949     韩文 Wansung
+//                  20      950     中文：繁体字—台湾和香港特别行政区
+//                  21      1361    韩文 Johab
+//                  22 – 28         保留供替代 ANSI 或 OEM 使用
+//                  29              Macintosh 字符集（美国罗马体）
+//                  30              OEM 字符集
+//                  31              符号字符集
+//                  32 – 47         保留供 OEM 使用
+//                  48      869     IBM 希腊文
+//                  49      866     MS-DOS 俄文
+//                  50      865     MS-DOS 北欧文
+//                  51      864     阿拉伯文
+//                  52      863     MS-DOS 加拿大法文
+//                  53      862     希伯来文
+//                  54      861     MS-DOS 冰岛文
+//                  55      860     MS-DOS 葡萄牙文
+//                  56      857     IBM 土耳其文
+//                  57      855     IBM 西里尔文；主要为俄文
+//                  58      852     拉丁文 2
+//                  59      775     MS-DOS 波罗的海文
+//                  60      737     希腊文；原 437 G
+//                  61      708     阿拉伯文；ASMO 708
+//                  62      850     西欧/拉丁文 1
+//                  63      437     美国
 //      版本差异：
-//      版本 0： 这些字段在版本 0 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，则应忽略 usWinDescent 字段之外的附加数据。
-//      版本 1： 位 8 在版本 1 中未分配。所有其他当前分配的位在版本 1 中定义。
-//      版本 2 及更高版本： 所有当前分配的位在版本 2 中定义。
+//              版本 0： 这些字段在版本 0 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent
+//                       字段之外，则应忽略 usWinDescent 字段之外的附加数据。
+//              版本 1： 位 8 在版本 1 中未分配。所有其他当前分配的位在版本 1 中定义。
+//              版本 2 及更高版本： 所有当前分配的位在版本 2 中定义。
+//      代码页标识符 https://learn.microsoft.com/en-us/windows/win32/intl/code-page-identifiers
+//              下表定义了可用的代码页标识符。注意，ANSI 代码页在不同计算机上可能不同，或者
+//              可以在单台计算机上更改，从而导致数据损坏。为了获得最一致的结果，应用程序应使
+//              用 Unicode（如 UTF-8 或 UTF-16），而不是特定的代码页。
+//                  标识符      .NET 名称           附加信息
+//                  037         IBM037              IBM EBCDIC 美国-加拿大
+//                  437         IBM437              OEM 美国
+//                  500         IBM500              IBM EBCDIC 国际
+//                  708         ASMO-708            阿拉伯语 (ASMO 708)
+//                  709                             阿拉伯语 (ASMO-449+, BCON V4)
+//                  710                             阿拉伯语 - 透明阿拉伯语
+//                  720         DOS-720             阿拉伯语 (透明 ASMO)；阿拉伯语 (DOS)
+//                  737         ibm737              OEM 希腊语 (原 437G)；希腊语 (DOS)
+//                  775         ibm775              OEM 波罗的海语；波罗的海语 (DOS)
+//                  850         ibm850              OEM 多语言拉丁语 1；西欧 (DOS)
+//                  852         ibm852              OEM 拉丁语 2；中欧 (DOS)
+//                  855         IBM855              OEM 西里尔语 (主要为俄语)
+//                  857         ibm857              OEM 土耳其语；土耳其语 (DOS)
+//                  858         IBM00858            OEM 多语言拉丁语 1 + 欧元符号
+//                  860         IBM860              OEM 葡萄牙语；葡萄牙语 (DOS)
+//                  861         ibm861              OEM 冰岛语；冰岛语 (DOS)
+//                  862         DOS-862             OEM 希伯来语；希伯来语 (DOS)
+//                  863         IBM863              OEM 加拿大法语；加拿大法语 (DOS)
+//                  864         IBM864              OEM 阿拉伯语；阿拉伯语 (864)
+//                  865         IBM865              OEM 北欧语；北欧语 (DOS)
+//                  866         cp866               OEM 俄语；西里尔语 (DOS)
+//                  869         ibm869              OEM 现代希腊语；希腊语，现代 (DOS)
+//                  870         IBM870              IBM EBCDIC 多语言/ROECE (拉丁语 2)；IBM EBCDIC 多语言拉丁语 2
+//                  875         cp875               IBM EBCDIC 现代希腊语
+//                  932         shift_jis           ANSI/OEM 日语；日语 (Shift-JIS)
+//                  936         gb2312              ANSI/OEM 简体中文 (中国、新加坡)；简体中文 (GB2312)
+//                  949         ks_c_5601-1987      ANSI/OEM 韩语 (统一韩文代码)
+//                  950         big5                ANSI/OEM 繁体中文 (台湾；中国香港特别行政区)；繁体中文 (Big5)
+//                  1026        IBM1026             IBM EBCDIC 土耳其语 (拉丁语 5)
+//                  1047        IBM01047            IBM EBCDIC 拉丁语 1/开放系统
+//                  1140        IBM01140            IBM EBCDIC 美国-加拿大 (037 + 欧元符号)；IBM EBCDIC (美国-加拿大-欧元)
+//                  1141        IBM01141            IBM EBCDIC 德国 (20273 + 欧元符号)；IBM EBCDIC (德国-欧元)
+//                  1142        IBM01142            IBM EBCDIC 丹麦-挪威 (20277 + 欧元符号)；IBM EBCDIC (丹麦-挪威-欧元)
+//                  1143        IBM01143            IBM EBCDIC 芬兰-瑞典 (20278 + 欧元符号)；IBM EBCDIC (芬兰-瑞典-欧元)
+//                  1144        IBM01144            IBM EBCDIC 意大利 (20280 + 欧元符号)；IBM EBCDIC (意大利-欧元)
+//                  1145        IBM01145            IBM EBCDIC 拉丁美洲-西班牙 (20284 + 欧元符号)；IBM EBCDIC (西班牙-欧元)
+//                  1146        IBM01146            IBM EBCDIC 英国 (20285 + 欧元符号)；IBM EBCDIC (英国-欧元)
+//                  1147        IBM01147            IBM EBCDIC 法国 (20297 + 欧元符号)；IBM EBCDIC (法国-欧元)
+//                  1148        IBM01148            IBM EBCDIC 国际 (500 + 欧元符号)；IBM EBCDIC (国际-欧元)
+//                  1149        IBM01149            IBM EBCDIC 冰岛语 (20871 + 欧元符号)；IBM EBCDIC (冰岛语-欧元)
+//                  1200        utf-16              Unicode UTF-16，小端字节序 (ISO 10646 的 BMP)；仅适用于托管应用程序
+//                  1201        unicodeFFFE         Unicode UTF-16，大端字节序；仅适用于托管应用程序
+//                  1250        windows-1250        ANSI 中欧；中欧 (Windows)
+//                  1251        windows-1251        ANSI 西里尔语；西里尔语 (Windows)
+//                  1252        windows-1252        ANSI 拉丁语 1；西欧 (Windows)
+//                  1253        windows-1253        ANSI 希腊语；希腊语 (Windows)
+//                  1254        windows-1254        ANSI 土耳其语；土耳其语 (Windows)
+//                  1255        windows-1255        ANSI 希伯来语；希伯来语 (Windows)
+//                  1256        windows-1256        ANSI 阿拉伯语；阿拉伯语 (Windows)
+//                  1257        windows-1257        ANSI 波罗的海语；波罗的海语 (Windows)
+//                  1258        windows-1258        ANSI/OEM 越南语；越南语 (Windows)
+//                  1361        Johab               韩语 (Johab)
+//                  10000       macintosh           MAC 罗马体；西欧 (Mac)
+//                  10001       x-mac-japanese      日语 (Mac)
+//                  10002       x-mac-chinesetrad   MAC 繁体中文 (Big5)；繁体中文 (Mac)
+//                  10003       x-mac-korean        韩语 (Mac)
+//                  10004       x-mac-arabic        阿拉伯语 (Mac)
+//                  10005       x-mac-hebrew        希伯来语 (Mac)
+//                  10006       x-mac-greek         希腊语 (Mac)
+//                  10007       x-mac-cyrillic      西里尔语 (Mac)
+//                  10008       x-mac-chinesesimp   MAC 简体中文 (GB 2312)；简体中文 (Mac)
+//                  10010       x-mac-romanian      罗马尼亚语 (Mac)
+//                  10017       x-mac-ukrainian     乌克兰语 (Mac)
+//                  10021       x-mac-thai          泰语 (Mac)
+//                  10029       x-mac-ce            MAC 拉丁语 2；中欧 (Mac)
+//                  10079       x-mac-icelandic     冰岛语 (Mac)
+//                  10081       x-mac-turkish       土耳其语 (Mac)
+//                  10082       x-mac-croatian      克罗地亚语 (Mac)
+//                  12000       utf-32              Unicode UTF-32，小端字节序；仅适用于托管应用程序
+//                  12001       utf-32BE            Unicode UTF-32，大端字节序；仅适用于托管应用程序
+//                  20000       x-Chinese_CNS       CNS 台湾；繁体中文 (CNS)
+//                  20001       x-cp20001           TCA 台湾
+//                  20002       x_Chinese-Eten      Eten 台湾；繁体中文 (Eten)
+//                  20003       x-cp20003           IBM5550 台湾
+//                  20004       x-cp20004           TeleText 台湾
+//                  20005       x-cp20005           Wang 台湾
+//                  20105       x-IA5               IA5 (IRV 国际字母表第 5 号，7 位)；西欧 (IA5)
+//                  20106       x-IA5-German        IA5 德语 (7 位)
+//                  20107       x-IA5-Swedish       IA5 瑞典语 (7 位)
+//                  20108       x-IA5-Norwegian     IA5 挪威语 (7 位)
+//                  20127       us-ascii            US-ASCII (7 位)
+//                  20261       x-cp20261           T.61
+//                  20269       x-cp20269           ISO 6937 非间距重音符号
+//                  20273       IBM273              IBM EBCDIC 德国
+//                  20277       IBM277              IBM EBCDIC 丹麦-挪威
+//                  20278       IBM278              IBM EBCDIC 芬兰-瑞典
+//                  20280       IBM280              IBM EBCDIC 意大利
+//                  20284       IBM284              IBM EBCDIC 拉丁美洲-西班牙
+//                  20285       IBM285              IBM EBCDIC 英国
+//                  20290       IBM290              IBM EBCDIC 日语片假名扩展
+//                  20297       IBM297              IBM EBCDIC 法国
+//                  20420       IBM420              IBM EBCDIC 阿拉伯语
+//                  20423       IBM423              IBM EBCDIC 希腊语
+//                  20424       IBM424              IBM EBCDIC 希伯来语
+//                  20833       x-EBCDIC-KoreanExtended IBM EBCDIC 韩语扩展
+//                  20838       IBM-Thai            IBM EBCDIC 泰语
+//                  20866       koi8-r              俄语 (KOI8-R)；西里尔语 (KOI8-R)
+//                  20871       IBM871              IBM EBCDIC 冰岛语
+//                  20880       IBM880              IBM EBCDIC 西里尔语俄语
+//                  20905       IBM905              IBM EBCDIC 土耳其语
+//                  20924       IBM00924            IBM EBCDIC 拉丁语 1/开放系统 (1047 + 欧元符号)
+//                  20932       EUC-JP              日语 (JIS 0208-1990 和 0212-1990)
+//                  20936       x-cp20936           简体中文 (GB2312)；简体中文 (GB2312-80)
+//                  20949       x-cp20949           韩语 Wansung
+//                  21025       cp1025              IBM EBCDIC 西里尔语塞尔维亚-保加利亚语
+//                  21027                           (已弃用)
+//                  21866       koi8-u              乌克兰语 (KOI8-U)；西里尔语 (KOI8-U)
+//                  28591       iso-8859-1          ISO 8859-1 拉丁语 1；西欧 (ISO)
+//                  28592       iso-8859-2          ISO 8859-2 中欧；中欧 (ISO)
+//                  28593       iso-8859-3          ISO 8859-3 拉丁语 3
+//                  28594       iso-8859-4          ISO 8859-4 波罗的海语
+//                  28595       iso-8859-5          ISO 8859-5 西里尔语
+//                  28596       iso-8859-6          ISO 8859-6 阿拉伯语
+//                  28597       iso-8859-7          ISO 8859-7 希腊语
+//                  28598       iso-8859-8          ISO 8859-8 希伯来语；希伯来语 (ISO-Visual)
+//                  28599       iso-8859-9          ISO 8859-9 土耳其语
+//                  28603       iso-8859-13         ISO 8859-13 爱沙尼亚语
+//                  28605       iso-8859-15         ISO 8859-15 拉丁语 9
+//                  29001       x-Europa            Europa 3
+//                  38598       iso-8859-8-i        ISO 8859-8 希伯来语；希伯来语 (ISO-Logical)
+//                  50220       iso-2022-jp         ISO 2022 日语，无半角片假名；日语 (JIS)
+//                  50221       csISO2022JP         ISO 2022 日语，含半角片假名；日语 (JIS-允许 1 字节假名)
+//                  50222       iso-2022-jp         ISO 2022 日语 JIS X 0201-1989；日语 (JIS-允许 1 字节假名 - SO/SI)
+//                  50225       iso-2022-kr         ISO 2022 韩语
+//                  50227       x-cp50227           ISO 2022 简体中文；简体中文 (ISO 2022)
+//                  50229                           ISO 2022 繁体中文
+//                  50930                           EBCDIC 日语 (片假名) 扩展
+//                  50931                           EBCDIC 美国-加拿大和日语
+//                  50933                           EBCDIC 韩语扩展和韩语
+//                  50935                           EBCDIC 简体中文扩展和简体中文
+//                  50936                           EBCDIC 简体中文
+//                  50937                           EBCDIC 美国-加拿大和繁体中文
+//                  50939                           EBCDIC 日语 (拉丁语) 扩展和日语
+//                  51932       euc-jp              EUC 日语
+//                  51936       EUC-CN              EUC 简体中文；简体中文 (EUC)
+//                  51949       euc-kr              EUC 韩语
+//                  51950                           EUC 繁体中文
+//                  52936       hz-gb-2312          HZ-GB2312 简体中文；简体中文 (HZ)
+//                  54936       GB18030             Windows XP 及更高版本：GB18030 简体中文 (4 字节)；简体中文 (GB18030)
+//                  57002       x-iscii-de          ISCII 天城文
+//                  57003       x-iscii-be          ISCII 孟加拉语
+//                  57004       x-iscii-ta          ISCII 泰米尔语
+//                  57005       x-iscii-te          ISCII 泰卢固语
+//                  57006       x-iscii-as          ISCII 阿萨姆语
+//                  57007       x-iscii-or          ISCII 奥里亚语
+//                  57008       x-iscii-ka          ISCII 卡纳达语
+//                  57009       x-iscii-ma          ISCII 马拉雅拉姆语
+//                  57010       x-iscii-gu          ISCII 古吉拉特语
+//                  57011       x-iscii-pa          ISCII 旁遮普语
+//                  65000       utf-7               Unicode (UTF-7)
+//                  65001       utf-8               Unicode (UTF-8)
 //
 // sxHeight
 //      格式： FWORD
 //      单位： 字体设计单位
-//      说明： 此度量指定基线与非上升小写字母的近似顶部之间的距离（以字体设计单位表示）。此值通常由字体设计师指定，但在不可能的情况下，例如转换旧字体时，可以将值设为编码在 U+0078（拉丁小写字母 X）位置的未缩放和未提示字形边界框的顶部。如果此位置未编码字形，则该字段应设为 0。
-//      如果指定了此度量，可用于字体替换：一个字体的 xHeight 值可以缩放以近似另一个字体的表观大小。
+//      说明： 此度量指定基线与非上升小写字母的近似顶部之间的距离（以字体设计单位表示）。
+//             此值通常由字体设计师指定，但在不可能的情况下，例如转换旧字体时，可以将值
+//             设为编码在 U+0078（拉丁小写字母 X）位置的未缩放和未提示字形边界框的顶部。
+//             如果此位置未编码字形，则该字段应设为 0。
+//             如果指定了此度量，可用于字体替换：一个字体的 xHeight 值可以缩放以近似另
+//             一个字体的表观大小。
 //      版本差异：
-//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
-//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//              版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大
+//              小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围
+//              字段之外，则应忽略此附加数据。
+//              版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
 //
 // sCapHeight
 //      格式： FWORD
 //      单位： 字体设计单位
-//      说明： 此度量指定基线与大写字母的近似高度之间的距离（以字体设计单位表示）。此值通常由字体设计师指定，但在不可能的情况下，例如转换旧字体时，可以将值设为编码在 U+0048（拉丁大写字母 H）位置的未缩放和未提示字形边界框的顶部。如果此位置未编码字形，则该字段应设为 0。
-//      如果指定了此度量，可用于以毫米为单位指定大写高度的系统中指定字号。它也可以用作对齐度量；例如，首字下沉的顶部可以与第一行文本的 sCapHeight 度量对齐。
+//      说明： 此度量指定基线与大写字母的近似高度之间的距离（以字体设计单位表示）。此值通
+//             常由字体设计师指定，但在不可能的情况下，例如转换旧字体时，可以将值设为编码
+//             在 U+0048（拉丁大写字母 H）位置的未缩放和未提示字形边界框的顶部。如果此位置
+//             未编码字形，则该字段应设为 0。
+//             如果指定了此度量，可用于以毫米为单位指定大写高度的系统中指定字号。它也可以
+//             用作对齐度量；例如，首字下沉（a drop capital）的顶部可以与第一行文本的 sCapHeight
+//             度量对齐。
 //      版本差异：
-//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
-//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//              版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小
+//              延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之
+//              外，则应忽略此附加数据。
+//              版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
 //
 // usDefaultChar
 //      格式： uint16
-//      说明： 这是 Unicode 码点，以 UTF-16 编码，可用于在字体不支持请求的字符时用作默认字形。如果此字段的值为零，则字形 ID 0 将用作默认字符。此字段不能表示补充平面字符值（大于 0xFFFF 的码点），因此强烈建议应用程序不要使用此字段。
+//      说明： 这是 Unicode 码点，以 UTF-16 编码，可用于在字体不支持请求的字符时用作默认字形。
+//             如果此字段的值为零，则字形 ID 0 将用作默认字符。此字段不能表示补充平面字符值
+//             （大于 0xFFFF 的码点），因此强烈建议应用程序不要使用此字段。
 //      版本差异：
-//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
-//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//              版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延
+//              伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，
+//              则应忽略此附加数据。
+//              版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
 //
 // usBreakChar
 //      格式： uint16
-//      说明： 这是 Unicode 码点，以 UTF-16 编码，可用作默认换行字符。换行字符用于分隔单词和使文本对齐。大多数字体将 U+0020 SPACE 指定为换行字符。此字段不能表示补充平面字符值（大于 0xFFFF 的码点），因此强烈建议应用程序不要使用此字段。
+//      说明： 这是 Unicode 码点，以 UTF-16 编码，可用作默认间断字符。换行字符用于分隔单词和
+//             使文本对齐。大多数字体将 U+0020 SPACE 指定为间断字符。此字段不能表示补充平面字
+//             符值（大于 0xFFFF 的码点），因此强烈建议应用程序不要使用此字段。
 //      版本差异：
-//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
-//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//              版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延
+//              伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，
+//              则应忽略此附加数据。
+//              版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
 //
 // usMaxContext
 //      格式： uint16
-//      说明： 此字体中任何功能的目标字形上下文的最大长度。例如，仅具有字距调整功能的字体应将此字段设为 2。如果字体还具有连字功能，其中字形序列"f f i"被连字"ffi"替换，则此字段应设为 3。此字段可能对复杂的换行引擎有用，帮助它们确定应向前查看多远以测试是否可能影响换行的变化。对于链式上下文查找，应考虑（覆盖的字形）+（输入序列）+（前瞻序列）的字符串长度。
+//      说明： 此字体中任何功能的目标字形上下文的最大长度。例如，仅具有字距调整功能的字体应将
+//             此字段设为 2。如果字体还具有连字功能，其中字形序列"f f i"被连字"ffi"替换，则此
+//             字段应设为 3。此字段可能对复杂的换行引擎有用，帮助它们确定应向前查看多远以测试
+//             是否可能影响换行的变化。对于链式上下文查找（chaining contextual lookups），应考
+//             虑覆盖的字形（covered glyph）+ 输入序列（input sequence）+ 前瞻序列（lookahead
+//             sequence）的字符串长度。
 //      版本差异：
-//      版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，则应忽略此附加数据。
-//      版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
+//              版本 0、版本 1： 此字段在版本 0 或版本 1 中未定义。如果版本 0 OS/2 表的大小延
+//              伸到 usWinDescent 字段之外，或者版本 1 OS/2 表的大小延伸到代码页范围字段之外，
+//              则应忽略此附加数据。
+//              版本 2 及更高版本： 此字段在 OS/2 表的版本 2 中定义。
 //
 // usLowerOpticalPointSize
 //      格式： uint16
-//      单位： TWIPs
-//      说明： 此字段用于具有多种光学样式的字体。
-//      此值是为此字体设计的大小范围的下限值。此字段的单位是 TWIPs（二十分之一磅，或每英寸 1440）。该值是包含性的——意味着该字体被设计为在此字号到 usUpperOpticalPointSize 指示的字号（但不包括）范围内最佳工作。当与字体排印族中也指定了 usLowerOpticalPointSize 和 usUpperOpticalPointSize 值的其他光学大小变体字体一起使用时，预期另一个字体的 usUpperOpticalPointSize 字段将设为此字段中的相同值，除非此字体是族中设计用于最低大小范围的字号。光学大小集中最小的字体应将此值设为 0。在多个光学大小变体字体之间工作时，范围中不应有故意的间隙或重叠。
-//      usLowerOpticalPointSize 值必须小于 usUpperOpticalPointSize。最大有效值为 0xFFFE。
-//      对于未设计为多种光学大小变体的字体，此字段应设为 0（零），usUpperOpticalPointSize 应设为 0xFFFF。
-//      注意：此字段的使用已被 STAT 表取代。有关更多信息，请参阅建议部分。
+//      单位： TWIPs，TWIP 的全称是 twentieth of a point（二十分之一磅，或二十分之一点）。在字
+//             体排版中，1 TWIP = 1/20 pt（点），即 1 英寸 = 1440 TWIPs（因为 1 英寸 = 72 pt，
+//             72 × 20 = 1440）。
+//      说明： 此字段用于具有多种光学样式的字体。此值是为此字体设计的大小范围的下限值。此字段
+//             的单位是 TWIPs（二十分之一磅，或每英寸 1440）。该值是包含性的，意味着该字体被设
+//             计为在此字号到 usUpperOpticalPointSize 指示的字号（但不包括）范围内最佳工作。当
+//             与字体排印族中也指定了 usLowerOpticalPointSize 和 usUpperOpticalPointSize 值的
+//             其他光学大小变体字体一起使用时，预期另一个字体的 usUpperOpticalPointSize 字段将
+//             设为此字段中的相同值，除非此字体是族中设计用于最低大小范围的字号。光学大小集中
+//             最小的字体应将此值设为 0。在多个光学大小变体字体之间工作时，范围中不应有故意的
+//             间隙或重叠。
+//             usLowerOpticalPointSize 值必须小于 usUpperOpticalPointSize。最大有效值为 0xFFFE。
+//             对于未设计为多种光学大小变体的字体，此字段应设为 0（零），usUpperOpticalPointSize
+//             应设为 0xFFFF。注意：此字段的使用已被 STAT 表取代。有关更多信息，请参阅建议部分。
+//             https://learn.microsoft.com/en-us/typography/opentype/spec/recom#OptSize
 //      版本差异：
-//      版本 0 – 4： 此字段在版本 0 – 4 中未定义。如果 OS/2 表的大小延伸到给定版本定义的最后一个字段之外，则应忽略此附加数据。
-//      版本 5： 此字段在 OS/2 表的版本 5 中定义。
+//              版本 0 – 4： 此字段在版本 0 – 4 中未定义。如果 OS/2 表的大小延伸到给定版本定义的
+//              最后一个字段之外，则应忽略此附加数据。
+//              版本 5： 此字段在 OS/2 表的版本 5 中定义。
 //
 // usUpperOpticalPointSize
 //      格式： uint16
 //      单位： TWIPs
-//      说明： 此字段用于具有多种光学样式的字体。
-//      此值是为此字体设计的大小范围的上限值。此字段的单位是 TWIPs（二十分之一磅，或每英寸 1440）。该值是排他性的——意味着该字体被设计为在此字号以下到 usLowerOpticalPointSize 阈值范围内最佳工作。当与字体排印族中也指定了 usLowerOpticalPointSize 和 usUpperOpticalPointSize 值的其他光学大小变体字体一起使用时，预期另一个字体的 usLowerOpticalPointSize 字段将设为此字段中的相同值，除非此字体是族中设计用于最高大小范围的字号。光学大小集中最大的字体应将此值设为 0xFFFF，解释为无穷大。在多个光学大小变体字体之间工作时，范围中不应有故意的间隙或重叠。
-//      usUpperOpticalPointSize 值必须大于 usLowerOpticalPointSize。此字段的最小有效值为 2（二）。此字段表示的最大可能包含字号为 3276.65 磅；任何更高的值将表示为无穷大。
-//      对于未设计为多种光学大小变体的字体，此字段应设为 0xFFFF，usLowerOpticalPointSize 应设为 0（零）。
-//      注意：此字段的使用已被 STAT 表取代。有关更多信息，请参阅建议部分。
+//      说明： 此字段用于具有多种光学样式的字体。此值是为此字体设计的大小范围的上限值。此字段
+//             的单位是 TWIPs（二十分之一磅，或每英寸 1440）。该值是排他性的，意味着该字体被设
+//             计为在此字号以下到 usLowerOpticalPointSize 阈值范围内最佳工作。当与字体排印族中
+//             也指定了 usLowerOpticalPointSize 和 usUpperOpticalPointSize 值的其他光学大小变
+//             体字体一起使用时，预期另一个字体的 usLowerOpticalPointSize 字段将设为此字段中的
+//             相同值，除非此字体是族中设计用于最高大小范围的字号。光学大小集中最大的字体应将
+//             此值设为 0xFFFF，解释为无穷大。
+//             在多个光学大小变体字体之间工作时，范围中不应有故意的间隙或重叠。
+//             usUpperOpticalPointSize 值必须大于 usLowerOpticalPointSize。此字段的最小有效值
+//             为 2。此字段表示的最大可能包含字号为 3276.65 磅；任何更高的值将表示为无穷大。
+//             对于未设计为多种光学大小变体的字体，此字段应设为 0xFFFF，usLowerOpticalPointSize
+//             应设为 0（零）。注意：此字段的使用已被 STAT 表取代。有关更多信息，请参阅建议部分。
 //      版本差异：
-//      版本 0 – 4： 此字段在版本 0 – 4 中未定义。如果 OS/2 表的大小延伸到给定版本定义的最后一个字段之外，则应忽略此附加数据。
-//      版本 5： 此字段在 OS/2 表的版本 5 中定义。
+//              版本 0 – 4： 此字段在版本 0 – 4 中未定义。如果 OS/2 表的大小延伸到给定版本定义
+//              的最后一个字段之外，则应忽略此附加数据。
+//              版本 5： 此字段在 OS/2 表的版本 5 中定义。
 //
-// OS/2 表与 OpenType 字体变体。在可变字体中，默认行度量应始终使用 sTypoAscender、sTypoDescender 和 sTypoLineGap 值设置，并且应在 fsSelection 字段中设置 USE_TYPO_METRICS 标志。'hhea' 表中的 ascender、descender 和 lineGap 字段应设为与 sTypoAscender、sTypoDescender 和 sTypoLineGap 相同的值。usWinAscent 和 usWinDescent 字段应用于指定推荐的裁剪矩形。
-// 在可变字体中，OS/2 表中的各种字体度量值可能需要针对不同的变体实例进行调整。OS/2 条目的变体数据可以在度量变体（MVAR）表中提供。不同的 OS/2 条目通过值标签与 MVAR 表中的特定变体数据相关联，如下所示：
-//      OS/2 条目	标签
-//      sCapHeight	'cpht'
-//      sTypoAscender	'hasc'
-//      sTypoDescender	'hdsc'
-//      sTypoLineGap	'hlgp'
-//      sxHeight	'xhgt'
-//      usWinAscent	'hcla'
-//      usWinDescent	'hcld'
-//      yStrikeoutPosition	'stro'
-//      yStrikeoutSize	'strs'
-//      ySubscriptXOffset	'sbxo'
-//      ySubScriptXSize	'sbxs'
-//      ySubscriptYOffset	'sbyo'
-//      ySubscriptYSize	'sbys'
-//      ySuperscriptXOffset	'spxo'
-//      ySuperscriptXSize	'spxs'
-//      ySuperscriptYOffset	'spyo'
-//      ySuperscriptYSize	'spys'
+// OS/2 表与 OpenType 字体变体。在可变字体中，默认行度量应始终使用 sTypoAscender、sTypoDescender
+// 和 sTypoLineGap 值设置，并且应在 fsSelection 字段中设置 USE_TYPO_METRICS 标志。'hhea' 表中的
+// ascender、descender 和 lineGap 字段应设为与 sTypoAscender、sTypoDescender 和 sTypoLineGap 相
+// 同的值。usWinAscent 和 usWinDescent 字段应用于指定推荐的裁剪矩形。
 //
-// 注意：usWeightClass 和 usWidthClass 值不由变体数据调整，因为这些对应于可用于定义字体变体空间的 'wght' 和 'wdth' 变体轴。变体实例的适当 usWeightClass 和 usWidthClass 值可以从用于选择特定变体实例的 'wght' 和 'wdth' 用户坐标推导得出。对于大于 200 的 'wdth' 值，usWidthClass 值被钳位到 9。有关这些 OS/2 字段与相应设计轴之间关系的详细信息，请参阅 OpenType 设计变体轴标签注册表中的 'wght' 和 'wdth' 轴讨论。
-// 注意：usLowerOpticalPointSize 和 usUpperOpticalPointSize 值不由变体数据调整。这些值（现在已被 STAT 表取代）用于指示给定字体设计的大小范围。假设针对不同大小的变体将使用 'opsz' 变体轴实现。如果可变字体支持 'opsz' 作为变体轴，则 usLowerOpticalPointSize 和 usUpperOpticalPointSize 字段可以设为与 'fvar' 表中 'opsz' 轴的 minValue 和 maxValue 字段相同的值。
-// 要在可变字体中具有可变行度量，应在 MVAR 表中使用 'hasc'、'hdsc' 和 'hlgp' 值标签来使升部、降部和行距值从 sTypoAscender、sTypoDescender 和 sTypoLineGap 字段中指定的默认值变化。此外，可以使用 'hcla' 和 'hcld' 值标签来使裁剪区域的大小从 winAscent 和 winDescent 字段中指定的默认值变化。可以使用上面列出的值标签来变化其他度量。
+// 在可变字体中，OS/2 表中的各种字体度量值可能需要针对不同的变体实例进行调整。OS/2 条目的变体数
+// 据可以在度量变体（MVAR）表中提供。不同的 OS/2 条目通过值标签与 MVAR 表中的特定变体数据相关联，
+// 如下所示：
+//      OS/2 条目               标签
+//      sCapHeight              'cpht'
+//      sTypoAscender           'hasc'
+//      sTypoDescender          'hdsc'
+//      sTypoLineGap            'hlgp'
+//      sxHeight                'xhgt'
+//      usWinAscent             'hcla'
+//      usWinDescent            'hcld'
+//      yStrikeoutPosition      'stro'
+//      yStrikeoutSize          'strs'
+//      ySubscriptXOffset       'sbxo'
+//      ySubScriptXSize         'sbxs'
+//      ySubscriptYOffset       'sbyo'
+//      ySubscriptYSize         'sbys'
+//      ySuperscriptXOffset     'spxo'
+//      ySuperscriptXSize       'spxs'
+//      ySuperscriptYOffset     'spyo'
+//      ySuperscriptYSize       'spys'
+//
+// 注意：usWeightClass 和 usWidthClass 值不由变体数据调整，因为这些对应于可用于定义字体变
+// 体空间的 'wght' 和 'wdth' 变体轴。变体实例的适当 usWeightClass 和 usWidthClass 值可以从
+// 用于选择特定变体实例的 'wght' 和 'wdth' 用户坐标推导得出。对于大于 200 的 'wdth' 值，
+// usWidthClass 值被钳位（clamped）到 9。有关这些 OS/2 字段与相应设计轴之间关系的详细信息，
+// 请参阅 OpenType 设计变体轴标签注册表中的 'wght' 和 'wdth' 轴讨论。
+// https://learn.microsoft.com/en-us/typography/opentype/spec/dvaraxisreg
+//
+// 注意：usLowerOpticalPointSize 和 usUpperOpticalPointSize 值不由变体数据调整。这些值（现
+// 在已被 STAT 表取代）用于指示给定字体设计的大小范围。假设针对不同大小的变体将使用 'opsz'
+// 变体轴实现。如果可变字体支持 'opsz' 作为变体轴，则 usLowerOpticalPointSize 和 usUpperOpticalPointSize
+// 字段可以设为与 'fvar' 表中 'opsz' 轴的 minValue 和 maxValue 字段相同的值。
+//
+// 要在可变字体中具有可变行度量（variable line metrics），应在 MVAR 表中使用 'hasc'、'hdsc'
+// 和 'hlgp' 值标签来使升部、降部和行距值从 sTypoAscender、sTypoDescender 和 sTypoLineGap
+// 字段中指定的默认值变化。此外，可以使用 'hcla' 和 'hcld' 值标签来使裁剪区域的大小从
+// winAscent 和 winDescent 字段中指定的默认值变化。可以使用上面列出的值标签来变化其他度量。
 // 有关 OpenType 字体变体的一般信息，请参阅"OpenType 字体变体概述"章节。
 
 // 命名表（name）
