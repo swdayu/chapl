@@ -39594,6 +39594,7 @@ prh_reg prh_impl_print_data(prh_handle handle, const void *data, prh_reg bytes) 
 //  7.  %s              const char*
 //  8.  %ls             const wchar_t*
 //  9·  %p              void*
+//      %Ls             prh_reg, const char*
 
 typedef struct {
     va_list vl;
@@ -39681,9 +39682,17 @@ void prh_impl_parse_digit_group(prh_impl_print_args *args) {
         args->digit_count += 1;
         args->f += 1;
     }
-    if (args->digit_count == 4 && *args->f == '8') {
-        args->digit_count = 8;
-        args->f += 1;
+    if (args->digit_count == 1) {
+        if (*args->f == '8') {
+            args->digit_count = 8;
+            args->f += 1;
+        } else if (*args->f == '4') {
+            args->digit_count = 4;
+            args->f += 1;
+        } else if (*args->f == '2') {
+            args->digit_count = 2;
+            args->f += 1;
+        }
     }
 }
 
@@ -39827,6 +39836,7 @@ void prh_impl_print_check_specifier(prh_impl_print_args *args) {
         number_base = prh_impl_pf_hex;
     label_print_based_grouped_value:
         switch (args->digit_count) {
+            case 1: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gf_8); break;
             case 2: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gf_2); break;
             case 4: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gf_4); break;
             case 8: prh_pf_set_dgrp_type(args->flags, prh_impl_pf_gf_8); break;
@@ -41585,12 +41595,13 @@ void prh_print_font_post_table(prh_open_font *f) {
         "post table length %.10d (%d/4)\n"
         "post table checksum 0x%08x 0x%08x (valid %d)\n"
         "post table version %08x\n"
-        "post table italic angle %d.%d\n"
-        "post table underline y position %d\n"
-        "post table underline thickness %d\n"
-        "post table monospace font %d\n"
-        "post table type42 memory %d ~ %d\n"
-        "post table type1 memory %d ~ %d\n\n",
+        "----------------------------\n"
+        "post metric - italic angle %d.%d\n"
+        "post metric - underline y position %d\n"
+        "post metric - underline thickness %d\n"
+        "post metric - monospace font %d\n"
+        "post metric - type42 memory %d ~ %d\n"
+        "post metric - type1 memory %d ~ %d\n\n",
         (prh_reg)f->post.table_index,
         (prh_reg)prh_font_table_count(f),
         (prh_reg)f->post.tabletag,
@@ -41792,7 +41803,7 @@ void prh_print_font_post_table(prh_open_font *f) {
 // xAvgCharWidth
 //      格式： FWORD
 //      单位： 字体设计单位（font design units）
-//      标题： 平均加权字宽
+//      标题： 平均加权字宽（escapement/width）
 //      说明： 平均字符宽度字段指定字体中所有非零宽度字形的字宽（宽度）的算术平均值。
 //      备注： xAvgCharWidth 的值通过获取字体中所有非零宽度字形的宽度的算术平均值来计算。
 //             强烈建议实现者不要依赖此值来计算文本行的布局，尤其是在使用复杂文字的情况
@@ -42038,7 +42049,7 @@ void prh_print_font_post_table(prh_open_font *f) {
 //             的解释取决于第一个字节的值。例如，如果族类值为 2（拉丁文本），则下一个字节指定
 //             "衬线样式（Serif Style）"；但如果族类值为 3（拉丁手写），则下一个字节指定"工具
 //             类型（Tool Kind）"。某些应用程序可能仅支持某些族类值。下表给出了族类为拉丁文本时
-//             panose 数组的解释。http://www.panose.com/
+//             panose 数组的解释。https://monotype.github.io/panose/pan1.htm
 //                  类型    名称
 //                  uint8   bFamilyType
 //                  uint8   bSerifStyle
@@ -42847,7 +42858,7 @@ void prh_print_font_post_table(prh_open_font *f) {
 // 字段中指定的默认值变化。此外，可以使用 'hcla' 和 'hcld' 值标签来使裁剪区域的大小从
 // winAscent 和 winDescent 字段中指定的默认值变化。可以使用上面列出的值标签来变化其他度量。
 // 有关 OpenType 字体变体的一般信息，请参阅"OpenType 字体变体概述"章节。
-
+//
 // IBM 字体族分类（IBM Font Class Parameters）
 //
 // 本节定义可在字体的 OS/2 表 sFamilyClass 字段中使用的族类别和子类值。字体设计师或供应商
@@ -43173,6 +43184,206 @@ void prh_print_font_post_table(prh_open_font *f) {
 //
 //      类别 ID = 13 保留
 //      类别 ID = 14 保留
+
+typedef prh_packed_struct {
+    /* 02 */ prh_r16 version; // 5 4 3 2 1 0
+    /* 04 */ prh_i16 average_char_width; // 所有非零宽度字形的字宽的算术平均值
+    /* 06 */ prh_r16 weight_class; // 字重，1 ~ 1000，一般 100 200 ~ 900
+    /* 08 */ prh_r16 width_class; // 字体紧缩程度，1 ~ 9
+    /* 10 */ prh_r16 right_flags;
+    /* 12 */ prh_i16 subscript_x_size;
+    /* 14 */ prh_i16 subscript_y_size;
+    /* 16 */ prh_i16 subscript_x_offset;
+    /* 18 */ prh_i16 subscript_y_offset;
+    /* 20 */ prh_i16 superscript_x_size;
+    /* 22 */ prh_i16 superscript_y_size;
+    /* 24 */ prh_i16 superscript_x_offset;
+    /* 26 */ prh_i16 superscript_y_offset;
+    /* 28 */ prh_i16 strikeout_size;
+    /* 30 */ prh_i16 strikeout_position;
+    /* 32 */ prh_i16 family_class;
+    /* 42 */ prh_r08 panose[10];
+    /* 46 */ prh_r32 unicode_range_00_31;
+    /* 50 */ prh_r32 unicode_range_32_63;
+    /* 54 */ prh_r32 unicode_range_64_95;
+    /* 58 */ prh_r32 unicode_range_96_127;
+    /* 62 */ prh_r32 vendor_tag;
+    /* 64 */ prh_r16 selection_flags;
+    /* 66 */ prh_r16 first_char_index;
+    /* 68 */ prh_r16 last_char_index;                // Apple TrueType OS/2 版本 0 在此处停止
+    /* 70 */ prh_i16 typo_ascender;
+    /* 72 */ prh_i16 typo_descender;
+    /* 74 */ prh_i16 typo_line_gap;
+    /* 76 */ prh_r16 win_ascent;
+    /* 78 */ prh_r16 win_descent;                    // 版本 0 结束位置
+    /* 82 */ prh_r32 code_page_range_00_31;          // 仅版本 1 2 3 4 5
+    /* 86 */ prh_r32 code_page_range_32_63;          // 仅版本 1 2 3 4 5
+    /* 88 */ prh_i16 height;                         // 仅版本 2 3 4 5
+    /* 90 */ prh_i16 capital_height;                 // 仅版本 2 3 4 5
+    /* 92 */ prh_r16 default_char;                   // 仅版本 2 3 4 5
+    /* 94 */ prh_r16 break_char;                     // 仅版本 2 3 4 5
+    /* 96 */ prh_r16 max_glyph_context_length;       // 仅版本 2 3 4 5
+    /* 98 */ prh_r16 lower_optical_point_size_twip;  // 仅版本 5
+    /*100 */ prh_r16 upper_optical_point_size_twip;  // 仅版本 5
+} prh_font_os_2_table;
+prh_packing_reset()
+
+void prh_print_font_os_2_table(prh_open_font *f) {
+    if (f->os_2.length == 0) prh_abort_line();
+    prh_font_os_2_table *p = (prh_font_os_2_table *)prh_load_font_table(f, &f->os_2);
+    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)p, f->os_2.length);
+    prh_r16 table_version = prh_r16_be_to_host(p->version);
+    prh_i16 typo_ascender = 0;
+    prh_i16 typo_descender = 0;
+    prh_i16 typo_line_gap = 0;
+    prh_r16 win_ascent = 0;
+    prh_r16 win_descent = 0;
+    prh_r32 code_page_range_00_31 = 0;
+    prh_r32 code_page_range_32_63 = 0;
+    prh_i16 height = 0;
+    prh_i16 capital_height = 0;
+    prh_r16 default_char = 0;
+    prh_r16 break_char = 0;
+    prh_r16 max_glyph_context_length = 0;
+    prh_r16 lower_optical_point_size_twip = 0;
+    prh_r16 upper_optical_point_size_twip = 0;
+    if (table_version == 0) {
+        if (f->os_2.length == prh_offsetof(prh_font_os_2_table, typo_ascender)) {
+        } else if (f->os_2.length == prh_offsetof(prh_font_os_2_table, code_page_range_00_31)) {
+            goto label_version_0;
+        } else {
+            prh_abort_error(f->os_2.length);
+        }
+    } else if (table_version == 1) {
+        prh_real_assert(f->os_2.length == prh_offsetof(prh_font_os_2_table, height));
+        goto label_version_1;
+    } else if (table_version <= 4) {
+        prh_real_assert(f->os_2.length == prh_offsetof(prh_font_os_2_table, lower_optical_point_size_twip));
+        goto label_version_2_4;
+    } else if (table_version == 5) {
+        prh_real_assert(f->os_2.length == sizeof(prh_font_os_2_table));
+        lower_optical_point_size_twip = prh_r16_be_to_host(p->lower_optical_point_size_twip);
+        upper_optical_point_size_twip = prh_r16_be_to_host(p->upper_optical_point_size_twip);
+label_version_2_4:
+        height = (prh_i16)prh_r16_be_to_host(p->height);
+        capital_height = (prh_i16)prh_r16_be_to_host(p->capital_height);
+        default_char = prh_r16_be_to_host(p->default_char);
+        break_char = prh_r16_be_to_host(p->break_char);
+        max_glyph_context_length = prh_r16_be_to_host(p->max_glyph_context_length);
+label_version_1:
+        code_page_range_00_31 = prh_r32_be_to_host(p->code_page_range_00_31);
+        code_page_range_32_63 = prh_r32_be_to_host(p->code_page_range_32_63);
+label_version_0:
+        typo_ascender = (prh_i16)prh_r16_be_to_host(p->typo_ascender);
+        typo_descender = (prh_i16)prh_r16_be_to_host(p->typo_descender);
+        typo_line_gap = (prh_i16)prh_r16_be_to_host(p->typo_line_gap);
+        win_ascent = prh_r16_be_to_host(p->win_ascent);
+        win_descent = prh_r16_be_to_host(p->win_descent);
+    } else {
+        prh_real_assert(table_version);
+    }
+    prh_print(
+        "os/2 table index %d / %d\n"
+        "os/2 table tag 0x%08x (%c%c%c%c)\n"
+        "os/2 table offset %.10d (%d/4)\n"
+        "os/2 table length %.10d (%d/4)\n"
+        "os/2 table checksum 0x%08x 0x%08x (valid %d)\n"
+        "os/2 table version %d\n"
+        "----------------------------\n"
+        "os/2 metric - average char width %d\n"
+        "os/2 metric - weight class %d\n"
+        "os/2 metric - width class %d\n"
+        "os/2 metric - right flags %04x\n"
+        "os/2 metric - subscript x size %d\n"
+        "os/2 metric - subscript y size %d\n"
+        "os/2 metric - subscript x offset %d\n"
+        "os/2 metric - subscript y offset %d\n"
+        "os/2 metric - superscript x size %d\n"
+        "os/2 metric - superscript y size %d\n"
+        "os/2 metric - superscript x offset %d\n"
+        "os/2 metric - superscript y offset %d\n"
+        "os/2 metric - strikeout size %d\n"
+        "os/2 metric - strikeout position %d\n"
+        "os/2 metric - family class %04x\n"
+        "os/2 metric - panose - family_type %d serif_style %d weight %d proportion %d contrast %d stroke_variation %d arm_style %d letter_form %d midline %d x_height %d\n"
+        "os/2 metric - unicode range 31 ~ 00 %032?b\n"
+        "os/2 metric - unicode range 63 ~ 32 %032?b\n"
+        "os/2 metric - unicode range 95 ~ 64 %032?b\n"
+        "os/2 metric - unicode range 127~ 96 %032?b\n"
+        "os/2 metric - vendor tag %08x '%c%c%c%c'\n"
+        "os/2 metric - selection flags %04x\n"
+        "os/2 metric - first char index %02x\n"
+        "os/2 metric - last char index %02x\n"
+        "os/2 metric - typo ascender %d\n"
+        "os/2 metric - typo descender %d\n"
+        "os/2 metric - typo line gap %d\n"
+        "os/2 metric - win ascent %d\n"
+        "os/2 metric - win descent %d\n"
+        "os/2 metric - code page range 31 ~ 00 %032?b\n"
+        "os/2 metric - code page range 63 ~ 32 %032?b\n"
+        "os/2 metric - height %d\n"
+        "os/2 metric - capital height %d\n"
+        "os/2 metric - default char %02x\n"
+        "os/2 metric - break char %02x\n"
+        "os/2 metric - max glyph context length %d\n"
+        "os/2 metric - lower optical point size %d\n"
+        "os/2 metric - upper optical point size %d\n",
+        (prh_reg)f->os_2.table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)f->os_2.tabletag,
+        (prh_reg)prh_byte_4(f->os_2.tabletag),
+        (prh_reg)prh_byte_3(f->os_2.tabletag),
+        (prh_reg)prh_byte_2(f->os_2.tabletag),
+        (prh_reg)prh_byte_1(f->os_2.tabletag),
+        (prh_reg)f->os_2.offset, (prh_reg)f->os_2.offset % 4,
+        (prh_reg)f->os_2.length, (prh_reg)f->os_2.length % 4,
+        (prh_reg)f->os_2.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->os_2.checksum),
+        (prh_reg)table_version,
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->average_char_width),
+        (prh_reg)prh_r16_be_to_host(p->weight_class),
+        (prh_reg)prh_r16_be_to_host(p->width_class),
+        (prh_reg)prh_r16_be_to_host(p->right_flags),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->subscript_x_size),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->subscript_y_size),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->subscript_x_offset),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->subscript_y_offset),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->superscript_x_size),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->superscript_y_size),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->superscript_x_offset),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->superscript_y_offset),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->strikeout_size),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->strikeout_position),
+        (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->family_class),
+        (prh_reg)p->panose[0], (prh_reg)p->panose[1], (prh_reg)p->panose[2], (prh_reg)p->panose[3], (prh_reg)p->panose[4],
+        (prh_reg)p->panose[5], (prh_reg)p->panose[6], (prh_reg)p->panose[7], (prh_reg)p->panose[8], (prh_reg)p->panose[9],
+        (prh_reg)prh_r32_be_to_host(p->unicode_range_00_31),
+        (prh_reg)prh_r32_be_to_host(p->unicode_range_32_63),
+        (prh_reg)prh_r32_be_to_host(p->unicode_range_64_95),
+        (prh_reg)prh_r32_be_to_host(p->unicode_range_96_127),
+        (prh_reg)prh_r32_be_to_host(p->vendor_tag),
+        (prh_reg)((prh_byte *)&p->vendor_tag)[0],
+        (prh_reg)((prh_byte *)&p->vendor_tag)[1],
+        (prh_reg)((prh_byte *)&p->vendor_tag)[2],
+        (prh_reg)((prh_byte *)&p->vendor_tag)[3],
+        (prh_reg)prh_r16_be_to_host(p->selection_flags),
+        (prh_reg)prh_r16_be_to_host(p->first_char_index),
+        (prh_reg)prh_r16_be_to_host(p->last_char_index),
+        (prh_reg)(prh_int)(prh_i16)typo_ascender,
+        (prh_reg)(prh_int)(prh_i16)typo_descender,
+        (prh_reg)(prh_int)(prh_i16)typo_line_gap,
+        (prh_reg)win_ascent,
+        (prh_reg)win_descent,
+        (prh_reg)code_page_range_00_31,
+        (prh_reg)code_page_range_32_63,
+        (prh_reg)(prh_int)(prh_i16)height,
+        (prh_reg)(prh_int)(prh_i16)capital_height,
+        (prh_reg)default_char,
+        (prh_reg)break_char,
+        (prh_reg)max_glyph_context_length,
+        (prh_reg)lower_optical_point_size_twip,
+        (prh_reg)upper_optical_point_size_twip);
+    prh_da_free((prh_byte *)p);
+}
 
 // 命名表（name）
 //
