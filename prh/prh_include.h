@@ -41080,6 +41080,14 @@ typedef struct {
     prh_r16 aligned;
 } prh_font_head_table;
 
+def head_table_print(*openfont f) {
+    if (f.head.length == 0) print() abort_line() 
+    t head_table {0}
+    n prh_r32 sizeof(head_table) - 2
+    if (n != f.head.length) print() return
+    
+}
+
 void prh_print_font_head_table(prh_open_font *f) {
     if (f->head.length == 0) prh_abort_line();
     prh_font_head_table t = {0};
@@ -41264,6 +41272,229 @@ void prh_print_font_head_table(prh_open_font *f) {
 //
 // 每个 DeviceRecord 用 0 填充，使其 32 位对齐。widths 数组中的每个值是特定字形在 pixelSize
 // 字段给出的每 em 像素（ppem）尺寸下的宽度，以像素为单位。ppem 尺寸沿 y 轴测量。
+
+// 垂直表头表（vhea - Vertical Header Table）
+//
+// 垂直头表包含中文、日文、韩文（CJK）及其他表意文字进行垂直布局所需的信息。在垂直布局中，
+// 这些文字从上到下或从下到上书写。本表包含适用于整个字体的通用信息。与特定字形相关的信息
+// 在垂直度量（'vmtx'）表中给出。这些表的格式与水平度量的 'hhea' 和 'hmtx' 表类似。
+//
+// 垂直头表中的数据必须与垂直度量表中的数据保持一致。垂直度量表中的前进高度和顶部字距值
+// 必须与垂直头表中的最大前进高度和最小底部字距值相对应。有关构建 CJK（中文、日文和韩文）
+// 字体的更多信息，请参阅"OpenType CJK 字体指南"章节。
+// https://learn.microsoft.com/en-us/typography/opentype/spec/recom#cjk
+//
+// 'vhea' 表有两个版本：1.0 和 1.1。版本 1.0 和版本 1.1 之间的差异在于以下字段的名称和定义：
+//  1.  ascender 变为 vertTypoAscender
+//  2.  descender 变为 vertTypoDescender
+//  3.  lineGap 变为 vertTypoLineGap
+//
+// 版本 1.0 的垂直头表格式（VheaHeader）
+//      类型    名称                    说明
+//      Version16Dot16  version         垂直表头表的版本号；版本 1.0 为 0x00010000
+//      FWORD   ascent                  从中心线到上一行降部的距离，以字体设计单位表示
+//      FWORD   descent                 从中心线到下一行升部的距离，以字体设计单位表示
+//      FWORD   lineGap                 保留，设为 0
+//      UFWORD  advanceHeightMax        字体中找到的最大前进高度度量值，以字体设计单位表示。此值必须与垂直度量表中的条目一致。
+//      FWORD   minTopSideBearing       字体中找到的最小顶部字距度量值，以字体设计单位表示。此值必须与垂直度量表中的条目一致。
+//      FWORD   minBottomSideBearing    字体中找到的最小底部字距度量值，以字体设计单位表示。此值必须与垂直度量表中的条目一致。
+//      FWORD   yMaxExtent              定义为 yMaxExtent = max(tsb + (yMax - yMin))。
+//      int16   caretSlopeRise          caretSlopeRise 字段的值除以 caretSlopeRun 字段的值决定插入符号的斜率。上升量为 0、
+//                                      前进量为 1 表示水平插入符号；上升量为 1、前进量为 0 表示垂直插入符号。对于字形为
+//                                      倾斜或斜体的字体，中间值是理想的。对于垂直字体，水平插入符号最佳。
+//      int16   caretSlopeRun           参见 caretSlopeRise 字段。非倾斜垂直字体时值为 1。
+//      int16   caretOffset             倾斜字形上的高亮显示需要远离字形偏移的量，以获得最佳外观。非倾斜字体时设为 0。
+//      int16   reserved                设为 0
+//      int16   reserved                设为 0
+//      int16   reserved                设为 0
+//      int16   reserved                设为 0
+//      int16   metricDataFormat        设为 0
+//      uint16  numOfLongVerMetrics     垂直度量表中的前进高度数量
+//
+// 版本 1.1 的垂直表头表格式（VheaHeader）
+//      类型    名称                    说明
+//      Version16Dot16  version         垂直表头表的版本号；版本 1.1 为 0x00011000
+//      FWORD   vertTypoAscender        此字体的垂直字体排印升部。它是从垂直中心基线到 CJK/表意文字字形（或"表意文字 em
+//                                      框"）设计空间右边缘的距离，以字体设计单位表示。通常设为 (head.unitsPerEm)/2。例
+//                                      如，em 为 1000 设计单位的字体将此字段设为 500。有关表意文字 em 框的描述，请参阅
+//                                      OpenType 布局标签注册表的基线标签章节。https://learn.microsoft.com/en-us/typography/opentype/spec/baselinetags#ideoembox
+//      FWORD   vertTypoDescender       此字体的垂直字体排印降部。它是从垂直中心基线到 CJK/表意文字字形设计空间左边缘的
+//                                      距离，以字体设计单位表示。通常设为 -(head.unitsPerEm/2)。例如，em 为 1000 设计单
+//                                      位的字体将此字段设为 -500。
+//      FWORD   vertTypoLineGap         此字体的垂直字体排印行距。应用程序可以通过以下表达式确定 OpenType
+//                                      字体单倍行距垂直文本的推荐行距：表意文字 em 框宽度 + vhea.vertTypoLineGap。
+//      UFWORD  advanceHeightMax        字体中找到的最大前进高度度量值，以字体设计单位表示。此值必须与垂直度量表中的条目一致。
+//      FWORD   minTopSideBearing       字体中找到的最小顶部字距度量值，以字体设计单位表示。此值必须与垂直度量表中的条目一致。
+//      FWORD   minBottomSideBearing    字体中找到的最小底部字距度量值，以字体设计单位表示。此值必须与垂直度量表中的条目一致。
+//      FWORD   yMaxExtent              定义为 yMaxExtent = max(tsb + (yMax - yMin))。
+//      int16   caretSlopeRise          caretSlopeRise 字段的值除以 caretSlopeRun 字段的值决定插入符号的斜率。上升量为 0、
+//                                      前进量为 1 表示水平插入符号；上升量为 1、前进量为 0 表示垂直插入符号。对于字形为
+//                                      倾斜或斜体的字体，中间值是理想的。对于垂直字体，水平插入符号最佳。
+//      int16   caretSlopeRun           参见 caretSlopeRise 字段。非倾斜垂直字体时值为 1。
+//      int16   caretOffset             倾斜字形上的高亮显示需要远离字形偏移的量，以获得最佳外观。非倾斜字体时设为 0。
+//      int16   reserved                设为 0
+//      int16   reserved                设为 0
+//      int16   reserved                设为 0
+//      int16   reserved                设为 0
+//      int16   metricDataFormat        设为 0
+//      uint16  numOfLongVerMetrics     垂直度量表中的前进高度数量
+//
+// 'vhea' 表与 OpenType 字体变体。在可变字体中，'vhea' 表中的各种字体度量值可能需要针对不同的
+// 变体实例进行调整。'vhea' 条目的变体数据可以在度量变体（MVAR）表中提供。不同的 'vhea' 条目通
+// 过值标签与 MVAR 表中的特定变体数据相关联，如下所示。有关 OpenType 字体变体的一般信息，请参
+// 阅"OpenType 字体变体概述"章节。
+//      'vhea' 条目                 标签
+//      ascent, vertTypoAscender    'vasc'
+//      caretOffset                 'vcof'
+//      caretSlopeRun               'vcrn'
+//      caretSlopeRise              'vcrs'
+//      descent, vertTypoDescender  'vdsc'
+//      lineGap, vertTypoLineGap    'vlgp'
+//
+// 垂直头表示例
+//      偏移/长度   值          名称                    注释
+//      0/4         0x00011000  version                 垂直表头表的版本号为 1.1
+//      4/2         1024        vertTypoAscender        em 方块高度的一半
+//      6/2         -1024       vertTypoDescender       em 方块高度一半的负值
+//      8/2         0           vertTypoLineGap         字体排印行距为 0 个字体设计单位
+//      10/2        2079        advanceHeightMax        字体中找到的最大前进高度度量值为 2079 个字体设计单位
+//      12/2        -342        minTopSideBearing       字体中找到的最小顶部字距度量值为 -342 个字体设计单位
+//      14/2        -333        minBottomSideBearing    字体中找到的最小底部字距度量值为 -333 个字体设计单位
+//      16/2        2036        yMaxExtent              max(tsb + (yMax - yMin)) = 2036
+//      18/2        0           caretSlopeRise          caret 斜率上升量为 0、caret 斜率前进量为 1 表示垂直字体的水平插入符号
+//      20/2        1           caretSlopeRun           caret 斜率上升量为 0、caret 斜率前进量为 1 表示垂直字体的水平插入符号
+//      22/2        0           caretOffset             非倾斜字体时设为 0
+//      24/4        0           reserved                设为 0
+//      26/2        0           reserved                设为 0
+//      28/2        0           reserved                设为 0
+//      30/2        0           reserved                设为 0
+//      32/2        0           metricDataFormat        设为 0
+//      34/2        258         numOfLongVerMetrics     垂直度量表中的前进高度数量为 258
+
+// 垂直度量表（vmtx - Vertical Metrics Table）
+//
+// 垂直度量表允许您为垂直字体中的每个字形指定垂直间距。本表由一个或两个包含度量信息（每个
+// 字形垂直布局的前进高度和顶部字距）的数组组成。垂直度量坐标系如下所示。小写 b 字形，带有
+// 升部、降部、顶部字距和前进高度度量。
+//
+// OpenType 垂直字体需要同时包含垂直头表（'vhea'）和垂直度量表。垂直头表包含适用于整个字体
+// 的通用信息。垂直度量表包含与特定字形相关的信息。这些表的格式与水平度量的 'hhea' 和 'hmtx'
+// 表类似。有关构建 CJK（中文、日文和韩文）字体的更多信息，请参阅"OpenType CJK 字体指南"章节。
+//
+// 垂直原点和前进高度（Vertical origin and advance height）。字形垂直原点的 y 坐标指定为字
+// 形顶部字距（记录在 'vmtx' 表中）与字形边界框顶部（即最大 y 值）之和。
+//
+// 使用 TrueType 轮廓的 OpenType 字体在字形数据（'glyf'）表中包含字形边界框信息。使用 CFF
+// 轮廓的字体不包含字形边界框信息，因此对于这些字体，字形边界框的顶部只能从 'CFF ' 或 CFF2
+// 表中的 CharString 数据计算得出。可选的垂直原点（VORG）表可用于使用 CFF 字形数据的字体中，
+// 直接记录字形垂直原点的 y 坐标，从而无需将计算边界框作为中间步骤。这提高了应用程序的准确
+// 性和效率。
+//
+// 字形垂直原点的 x 坐标未在 'vmtx' 表中指定。垂直书写实现可以利用基线（BASE）表中的基线值
+// （如果存在），以便在 x 方向上根据所需的垂直基线适当对齐字形。字形的前进高度从字形垂直原
+// 点的 y 坐标开始，向下延伸。默认情况下，其终点位于文本行中下一个字形垂直原点的 y 坐标处。
+// 度量调整的 OpenType 布局特性（如垂直字距调整 'vkrn'）可以以类似于水平模式下字距调整的方
+// 式修改垂直前进量。
+//
+// 垂直度量表的整体结构由下面所示的两个数组组成：vMetrics 数组后跟一个顶部字距数组。顶部字
+// 距是相对于字形原点顶部度量的，用于表意文字的垂直排版。本表没有表头，但要求两个数组中包含
+// 的字形数量等于字体中的字形总数。
+//
+// vMetrics 数组中的条目数量由垂直表头表中的 numOfLongVerMetrics 字段值确定。vMetrics 数组
+// 为每个包含的条目包含两个值：前进高度和顶部字距。在等宽字体（如 Courier 或汉字）中，所有
+// 字形具有相同的前进高度。如果字体是等宽的，第一个数组中只需一个条目，但该条目是必需的。
+//
+// 垂直度量数组中条目的格式如下：
+//      类型    名称            说明
+//      UFWORD  advanceHeight   字形的前进高度，以字体设计单位表示
+//      FWORD   topSideBearing  字形的顶部字距，以字体设计单位表示
+//
+// 第二个数组是可选的，通常用于字体中等宽字形的连续段。每个字体只允许一个这样的连续段，且必
+// 须位于字体末尾。此数组包含第一个数组中未表示的字形的顶部字距，且此数组中的所有字形必须与
+// vMetrics 数组中最后一个条目的前进高度相同。因此，此数组中的所有条目都是等宽的。
+//
+// 此数组中的条目数量通过字体中的字形数量减去 numOfLongVerMetrics 的值来计算。第一个数组中表
+// 示的字形数量加上第二个数组中表示的字形数量之和因此等于字体中的字形数量。顶部字距数组的格
+// 式如下：
+//      类型    名称                说明
+//      FWORD   topSideBearing[]    字形的顶部字距，以字体设计单位表示
+
+// 垂直设备度量（VDMX - Vertical Device Metrics）
+//
+// VDMX 表可用于包含 TrueType 轮廓的字体中。在 Windows 下，OS/2 表中的 usWinAscent 和
+// usWinDescent 值将用于确定字体在任何给定字号下的最大黑色高度。Windows 将此距离称为字
+// 体高度。由于 TrueType 指令可能导致字体高度与实际缩放和舍入后的值不同，严格基于 yMax
+// 和 yMin 确定字体高度可能导致"像素丢失"。Windows 将裁剪任何延伸到 yMax 上方或 yMin
+// 下方的像素。为了避免对整个字体进行网格拟合以确定正确高度，定义了 VDMX 表。
+//
+// VDMX 表由表头后跟 VDMX 记录组组成（VdmxHeader）：
+//      类型        名称                            说明
+//      uint16      version                         版本号（0 或 1）
+//      uint16      numRecs                         存在的 VDMX 组数量
+//      uint16      numRatios                       纵横比分组数量
+//      RatioRange  ratRange[numRatios]             比率记录数组
+//      Offset16    vdmxGroupOffsets[numRatios]     从此表开头到对应 RatioRange 记录的 VDMXGroup 表的偏移量
+//
+// RatioRange 记录
+//      类型    名称            说明
+//      uint8   bCharSet        字符集（见下文）
+//      uint8   xRatio          用于 x 比率的值
+//      uint8   yStartRatio     起始 y 比率值
+//      uint8   yEndRatio       结束 y 比率值
+//
+// 比率设置如下：
+//      纵横比          设置
+//      1:1             Ratios.xRatio = 1; Ratios.yStartRatio = 1; Ratios.yEndRatio = 1;
+//      1:1 至 2:1      Ratios.xRatio = 2; Ratios.yStartRatio = 1; Ratios.yEndRatio = 2;
+//      1.33:1          Ratios.xRatio = 4; Ratios.yStartRatio = 3; Ratios.yEndRatio = 3;
+//      所有纵横比      Ratio.xRatio = 0; Ratio.yStartRatio = 0; Ratio.yEndRatio = 0;
+//
+// 所有值设为 0 表示要使用的默认分组；如果存在，这必须是表中最后一个比率组。2:2 的比率与
+// 1:1 相同。纵横比通过基于当前 X 分辨率规范化整个比率范围记录来与目标设备匹配，然后在规
+// 范化后对每个记录的 Y 分辨率执行范围检查。一旦找到匹配，搜索即停止。如果在搜索过程中遇
+// 到 0,0,0 组，则使用它（因此如果该组不在比率分组的末尾，则其后的任何组都不会被使用）。
+// 如果没有匹配且没有 0,0,0 记录，则该纵横比没有 VDMX 数据。
+//
+// 范围检查概念上按以下方式执行：
+//      (deviceXRatio == Ratio.xRatio) && (deviceYRatio >= Ratio.yStartRatio) && (deviceYRatio <= Ratio.yEndRatio)
+//
+// 每个比率分组引用一个特定的 VDMX 记录组；表中必须至少有 1 个 VDMX 组。bCharSet 值用于表示
+// VDMX 组是基于字体文件中存在字形的子集计算的情况。bCharSet 的语义根据 VDMX 表的版本而不同。
+// 建议使用 VDMX 版本 1。当前定义的字符集值如下：
+//
+// 字符集值，版本 0
+//      值  说明
+//      0   无子集；VDMX 组适用于字体中的所有字形。用于符号或装饰符号字体。
+//      1   Windows ANSI 子集；VDMX 组仅使用完成 Windows ANSI 字符集所需的字形计算。Windows 将忽略非 ANSI 子集的 VDMX
+//          条目（即 ANSI_CHARSET）。
+//
+// 字符集值，版本 1
+//      值  说明
+//      0   无子集；VDMX 组适用于字体中的所有字形。如果向现有字体添加新字符集，请添加此标志和必要的组以支持它。这应仅
+//          与 ANSI_CHARSET 结合使用。
+//      1   无子集；VDMX 组适用于字体中的所有字形。用于为 Windows 创建新字体时。无需支持 SYMBOL_CHARSET。
+//
+// VDMX 组紧跟在表头之后。每组记录（只需一组）具有以下布局（VDMXGroup）：
+//      类型    名称            说明
+//      uint16  recs            此组中的高度记录数量
+//      uint8   startsz         起始 yPelHeight
+//      uint8   endsz           结束 yPelHeight
+//      vTable  entry[recs]     VDMX 记录
+//
+// vTable 记录
+//      类型    名称        说明
+//      uint16  yPelHeight  值适用的 yPelHeight
+//      int16   yMax        此 yPelHeight 的最大值（以像素计）
+//      int16   yMin        此 yPelHeight 的最小值（以像素计）
+//
+// 此表必须按排序顺序出现（按 yPelHeight 排序），但不需要连续。对于每个 yMax 和 yMin 不线性
+// 缩放的 yPelHeight，都应有一个条目，其中线性缩放高度定义为：提示后的 yMax 和 yMin 与缩放/
+// 舍入后的 yMax 和 yMin 相同。
+//
+// 假设一旦 yPelHeight 达到 255，所有高度都将线性，或者至少足够接近线性以至于不再重要。请注
+// 意，虽然 Ratios 结构只能支持最大 255 的 ppem 尺寸，但 vTable 结构可以支持更大的 pel 高度
+// （最大 65535）。vTable 记录选择 int16 和 uint16 的原因是 yMax 和 yMin 需要是有符号值（127
+// 到 -128 的范围太小），并且希望将 vTable 元素按字对齐。
 
 // 最大配置（maxp，Maximum Profile）
 //
