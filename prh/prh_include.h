@@ -41139,6 +41139,132 @@ void prh_print_font_head_table(prh_open_font *f) {
         (prh_reg)prh_r16_be_to_host(t.glyph_data_format));
 }
 
+// 水平头表（hhea - Horizontal Header Table）
+//
+// 本表包含用于水平布局的信息。minRightSidebearing、minLeftSideBearing 和 xMaxExtent 的值
+// 应仅使用具有轮廓的字形来计算。对于无轮廓的字形，在计算时应忽略。所有保留区域必须设为 0。
+//      类型    名称                    说明
+//      uint16  majorVersion            水平表头表的主版本号 — 设为 1
+//      uint16  minorVersion            水平表头表的次版本号 — 设为 0
+//      FWORD   ascender                字体排印升部 — 参见下文备注
+//      FWORD   descender               字体排印降部 — 参见下文备注
+//      FWORD   lineGap                 字体排印行距。在某些旧平台实现中，负的 lineGap 值被视为零
+//      UFWORD  advanceWidthMax         'hmtx' 表中的最大前进宽度值
+//      FWORD   minLeftSideBearing      'hmtx' 表中具有轮廓的字形的最小左侧字距值（空字形应被忽略）
+//      FWORD   minRightSideBearing     最小右侧字距值；计算方式为 min(aw - (lsb + xMax - xMin))，仅针对具有轮廓的字形（空字形应被忽略）
+//      FWORD   xMaxExtent              Max(lsb + (xMax - xMin))
+//      int16   caretSlopeRise          用于计算光标斜率（上升量/前进量），垂直时为 1
+//      int16   caretSlopeRun           垂直时为 0
+//      int16   caretOffset             倾斜高亮显示在字形上需要偏移的量，以获得最佳外观，对于非倾斜字体设为 0
+//      int16   (保留)                  设为 0
+//      int16   (保留)                  设为 0
+//      int16   (保留)                  设为 0
+//      int16   (保留)                  设为 0
+//      int16   metricDataFormat        当前格式为 0
+//      uint16  numberOfHMetrics        'hmtx' 表中 hMetric 条目的数量
+//
+// 本表中的 ascender、descender 和 linegap 值是 Apple 特有的；有关 Apple 平台的详细信息，请
+// 参阅 Apple 的规范。OS/2 表中的 sTypoAscender、sTypoDescender 和 sTypoLineGap 字段在 Windows
+// 平台上使用，并建议用于新的文本布局实现。字体开发人员应评估目标应用程序中使用本表或 OS/2
+// 表字段的行为，以确保布局一致。有关更多详细信息，请参阅 OS/2 字段的说明。
+// http://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6hhea.html
+//
+// 'hhea' 表与 OpenType 字体变体。在可变字体中，水平头表中的各种字体度量值可能需要针对不同的
+// 变体实例进行调整。'hhea' 条目的变体数据可以在度量变体（MVAR）表中提供。不同的 'hhea' 条目
+// 通过值标签与 MVAR 表中的特定变体数据相关联，如下所示。有关 OpenType 字体变体的一般信息，请
+// 参阅"OpenType 字体变体概述"章节。
+//      'hhea' 条目         标签
+//      caretOffset         'hcof'
+//      caretSlopeRise      'hcrs'
+//      caretSlopeRun       'hcrn'
+
+// 水平度量表（hmtx - Horizontal Metrics Table）
+//
+// 用于水平文本布局的字形度量包括字形前进宽度、字距和 X 方向最小值与最大值（xMin、xMax）。
+// 这些值通过字形轮廓数据（'glyf'、'CFF ' 或 CFF2）和水平度量表组合得出。水平度量（'hmtx'）
+// 表提供字形前进宽度和左侧字距。
+//
+// 在包含 TrueType 轮廓数据的字体中，'glyf' 表提供 xMin 和 xMax 值，但不提供前进宽度或字距。
+// 前进宽度始终从 'hmtx' 表获取。在某些字体中，取决于 'head' 表中标志的状态，左侧字距可能与
+// 'glyf' 表中的 xMin 值相同，但这并非对所有字体都成立。请参阅 'head' 表 flags 字段位 1 的
+// 说明。因此，'hmtx' 表中提供了左侧字距。右侧字距始终使用 'hmtx' 表中的前进宽度和左侧字距
+// 值，加上字形描述中的边界框信息来推导，详见下文。
+//
+// 在包含 TrueType 轮廓数据的可变字体中，'hmtx' 表中的左侧字距值必须始终等于 xMin（'head'
+// flags 字段的位 1 必须设置）。因此，这些值也可以直接从 'glyf' 表推导得出。注意，这些值仅
+// 适用于可变字体的默认实例：非默认实例可能具有不同的字距值。这些值可以从插值的"虚点"（phantom
+// point）坐标使用 'gvar' 表推导得出（详见下文），或者通过将 HVAR 表中的变体数据应用于 'glyf'
+// 或 'hmtx' 表中的默认实例值来获得。
+//
+// 在包含 CFF 版本 1 轮廓数据的字体中，'CFF ' 表确实包含前进宽度。这些值由 PostScript 处理器
+// 使用，但在 OpenType 布局中不使用。在 OpenType 上下文中，'hmtx' 表是必需的，必须用于前进宽
+// 度。注意，在字体集合文件中共享 'CFF ' 表的字形，可以在特定字形的字体特定 'hmtx' 表中指定不
+// 同的前进宽度。还要注意，CFF2 表不包含前进宽度。此外，对于 CFF 或 CFF2 数据，没有显式的 xMin
+// 和 xMax 值；字距隐式包含在 CharString 数据中，可以从 CFF / CFF2 光栅化器获取。然而，某些布
+// 局引擎可能使用 'hmtx' 表中的左侧字距值；因此，字体生产工具应确保 'hmtx' 表中的左侧字距值与
+// CharString 数据中反映的隐式 xMin 值匹配。在包含 CFF2 轮廓数据的可变字体中，非默认实例的左
+// 侧字距和前进宽度值应通过结合 'hmtx' 和 HVAR 表的信息来获取。
+//
+// 该表使用 LongHorMetric 记录来给出字形的前进宽度和左侧字距。记录按字形 ID 索引。作为优化，记
+// 录数量可以少于字形数量，在这种情况下，最后一条记录的前进宽度值适用于所有剩余的字形 ID。这在
+// 等宽字体中，或在具有大量相同前进宽度字形的字体中（前提是字形按适当顺序排列）非常有用。
+// LongHorMetric 记录的数量由 'hhea' 表中的 numberOfHMetrics 字段确定。
+//
+// 如果 numberOfHMetrics 小于字形总数，则 hMetrics 数组后跟一个数组，包含剩余字形的左侧字距值。
+// leftSideBearings 数组中的元素数量由 'maxp' 表中的 numGlyphs 字段减去 numberOfHMetrics 得出。
+//
+// 水平度量表：
+//      类型            名称                                            说明
+//      LongHorMetric   hMetrics[numberOfHMetrics]                      每个字形成对的前进宽度和左侧字距值，记录按字形 ID 索引
+//      FWORD           leftSideBearings[numGlyphs - numberOfHMetrics]  字形 ID 大于或等于 numberOfHMetrics 的字形的左侧字距
+//
+// LongHorMetric 记录：
+//      类型    名称            说明
+//      UFWORD  advanceWidth    前进宽度，以字体设计单位表示
+//      FWORD   lsb             字形左侧字距，以字体设计单位表示
+//
+// 在包含 TrueType 轮廓的字体中，每个字形的 xMin 和 xMax 值在 'glyf' 表中给出。前进宽度
+// （"aw"）和左侧字距（"lsb"）可以从字形"虚点"（phantom points）推导得出，这些虚点由 TrueType
+// 光栅化器计算；或者可以从 'hmtx' 表获取。在包含 CFF 或 CFF2 轮廓的字体中，xMin（= 左侧字距）
+// 和 xMax 值可以从 CFF / CFF2 光栅化器获取。从这些值中，右侧字距（"rsb"）计算如下：
+//      rsb = aw - (lsb + xMax - xMin)
+//
+// 如果 pp1 和 pp2 是用于控制 lsb 和 rsb 的 TrueType 虚点，则它们在 X 方向上的初始位置计
+// 算如下。如果字形没有轮廓，则 xMax/xMin 未定义。'hmtx' 表中此类字形的左侧字距应指示为零。
+//      pp1 = xMin - lsb
+//      pp2 = pp1 + aw
+
+// 水平设备度量（hdmx - Horizontal Device Metrics）
+//
+// 'hdmx' 表可用于包含 TrueType 轮廓的字体中，以存储缩放到特定像素尺寸的整数前进宽度。这允
+// 许文本布局引擎在不调用缩放器的情况下为每个字形构建整数宽度表。通常，此表仅包含某些像素尺
+// 寸的宽度。
+//
+// 对于非方形像素网格，使用 em 方块宽度（以像素为单位）来确定使用哪个设备记录。例如，在分辨
+// 率为 72×96 的设备上，12 点的 em 方块高 12 像素、宽 16 像素。将使用每 em 16 像素的 'hdmx'
+// 设备记录。
+//
+// 如果 'head' 表 flags 字段的位 4 未设置，则假定字体线性缩放；在这种情况下，不需要 'hdmx'
+// 表，也不应构建。如果 flags 字段的位 4 已设置，则假定字体中有一个或多个字形非线性缩放。在
+// 这种情况下，通过包含重要尺寸的宽度数据的 'hdmx' 表可以提高性能。有关更多详细信息，请参阅
+// "OpenType 字体建议"章节。https://learn.microsoft.com/en-us/typography/opentype/spec/recom#hdmx
+//
+// 表的开头如下（HdmxHeader）：
+//      类型            名称                说明
+//      uint16          version             表版本号 — 设为 0
+//      uint16          numRecords          设备记录的数量
+//      uint32          sizeDeviceRecord    设备记录的大小，32 位对齐
+//      DeviceRecord    records[numRecords] 设备记录数组
+//
+// DeviceRecord 数组必须按像素尺寸递增顺序排序。DeviceRecord 格式如下：
+//      类型    名称                说明
+//      uint8   pixelSize           以下宽度的像素尺寸（以 ppem 计）
+//      uint8   maxWidth            最大宽度
+//      uint8   widths[numGlyphs]   宽度数组（numGlyphs 来自 'maxp' 表）
+//
+// 每个 DeviceRecord 用 0 填充，使其 32 位对齐。widths 数组中的每个值是特定字形在 pixelSize
+// 字段给出的每 em 像素（ppem）尺寸下的宽度，以像素为单位。ppem 尺寸沿 y 轴测量。
+
 // 最大配置（maxp，Maximum Profile）
 //
 // 本表确定此字体的内存需求。具有 CFF 或 CFF2 轮廓的字体必须使用本表的版本 0.5，仅指定
