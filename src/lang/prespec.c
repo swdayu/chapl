@@ -23,11 +23,11 @@
 //  or_else or_return or_continue or_break or_final
 //  macro using const romem immut local named also
 //  async await del from global is lambda nonlocal
-//  pass raise try not endif zeroed
+//  pass raise try not endif zeroed allowed
 //
 //  defer if error deallocation(ptr)
 //
-// act all are ago alt any auf aut dup
+// act all are ago alt any auf aut dup rep // duplicate repeat
 // can cat cor con cue des dhu din don dor dyn
 // fac far fat fen fer fin fit fou fro fry fur
 // gen gre lot off per pat pal phr par
@@ -178,6 +178,8 @@
 //      依赖关系，就可以自动完成编译，也就是构建项目的所有文件依赖都自动包含在源代码中
 //  4.  如果文件提供了一个代码分块，使用代码的分块名称，如果代码没有分块就直接导入全局空间
 //  5.  不同的库名下，可以定相同的包名，除了当前项目，导入的代码都必须以库名加包名的方式访问
+//  6.  不支持名字空间，但支持导入时添加名字前缀和定义别名，手动函数名重载，类型内部常量和类型
+//  7.  单个文件不能定义名称前缀，导入添加的名字前缀不能声明为公开可见
 //          import <array.rua> // std "array.rua" 的省略写法，也只能使用这种省略写法
 //          import "array.rua" // 从当前目录导入文件
 //          import "utils/test.rua" // 从当前目录导入文件
@@ -303,6 +305,11 @@
 //
 //      def int_to_string(int a, &string) { ... }
 //      def float_to_string(float a, &string) { ... }
+//
+//      allowed overload push { // 重载的名称 push 会覆盖前面所有的 push 函数名称和重载名称
+//          array_push(*array self)
+//          string_push(*string self)
+//      }
 //
 // 过程或记录的多态参数的约束可以通过在打开 { 之前立即使用 where 子句来表达，而不是在类型
 // 或常量的首次提及处。此外，where 子句可以将约束应用于任意类型，而不仅仅是多态类型参数。
@@ -566,6 +573,7 @@
 //      anycode // 一个代码片段
 //      settype // 一个集合类型
 //      maptype // 一个映射类型
+//      statype
 //      arrtype
 //      strtype
 //      quetype
@@ -644,10 +652,20 @@
 //
 //  bool byte char string none null true false def error
 //  i08 i16 i32 i64 i128 i256 i512 int raw_int // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
-//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg raw // 编写上层应用，一般只需要使用 int 和 reg
-//  f08 f16 f32 f64 f128 f256 f512 float float
+//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg raw // 编写上层应用，一般只需要使用 int 和 reg，rep raw_ptr
+//  f08 f16 f32 f64 f128 f256 f512 float double
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
+//
+//  iB  iH  iN  iL  iX  iY  iZ  i iR
+//  rB  rH  rN  rL  rX  rY  rZ  r rR
+//  fB  fH  f   fL  fX  fY  fZ
+//  pB  pH  p   pL  pX  pY  pZ
+//
+//  32iB    32iH    32iN   32iL    32iX    32iY    32iZ    32i    32iR
+//  32rB    32rH    32rN   32rL    32rX    32rY    32rZ    32r    32rR
+//  3.14fB  3.14fH  3.14f  3.14fL  3.14fX  3.14fY  3.14fZ
+//  3.14pB  3.14pH  3.14p  3.14pL  3.14pX  3.14pY  3.14pZ
 //
 //  r16_le r32_le r64_le reg_le raw_reg_le
 //  r16_be r32_be_r64_be reg_be raw_reg_be
@@ -661,6 +679,9 @@
 //  1 2 3 4 8 x y z p m
 //  vec2 vec3 vec4
 //  mat2 mat3 mat4
+//  ma22 ma23 ma24
+//  ma32 ma33 ma34
+//  ma42 ma43 ma44
 //
 //  predefined header types
 //  vew`array   arriew      std.array_view    array_view
@@ -878,11 +899,11 @@
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式，枚举类型可以表示一个负数
 //      enum {RED = enum * 2, YELLOW, BLUE} // enum 是枚举元素的索引值
 //      enum int {RED, YELLOW, BLUE}
-//      #{RED GREEN BLUE}
-//      #int{RED GREEN BLUE}
-//      #COLOR #{RED GREEN BLUE} RED
-//      def color #{ RED GREEN BLUE }
-//      #COLOR color RED
+//      #{red green blue}
+//      #int{red green blue}
+//      #color #{red green blue} red
+//      def color #{red green blue}
+//      #color color.red
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
 //      $p { (*p int size return int) read (*p return int) get } // 允许使用关键字 this 定义 $this，然后参数声明使用 (this int size return int)
 //  Struct 表示定义一个类型
@@ -962,7 +983,7 @@
 //  map(string, map(ptr(string), int))                                  string.map(string*.map(int))
 //  map(string, map(string, ptr(int)))                                  string.map(string.map(int*))
 
-// 定义命名类型
+// 定义命名类型，类型必须提前声明
 //
 // 括号内表达式是一个类型或类型列表或者是void：
 //      如果前面是一个类型，则表示类型实例化，怎样区分成员函数的接收参数（参数列表中的第一个标识符是变量而不是类型!!!!）
@@ -1055,15 +1076,17 @@ using func_type (int a, &int float)
 (&int) // 返回 int，当有返回值时才需要 return 关键字
 (&int string point) // 返回 int string point
 (&int float)
-(&int float [x y] or error)
-(&(&int [a]) float)
+(&int float and error)
+(&int float or error)
+(&int float (x y) or error)
+(&(&int (a)) float)
 (&(&int) float)
-(&(&int) float [x y] or error)
-(yield int float [a b], &int (&int or none) float [x y z] or error)
-(yield int [a], &int float)
-(yield int int [a b], &int float)
-(yield int point [a b], &int)
-(yield int point [a b])
+(&(&int) float (x y) or error)
+(yield int int float (a b c), &int (&int or none) float (x y z) or error)
+(yield int int (a b), &int float)
+(yield int point (a b), &int)
+(yield int point (a b))
+(yield int rep float (a b c))
 (int a, &int) // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
 (int _) // 匿名参数
@@ -1695,8 +1718,8 @@ def coro_guard {
     this coro_guard
     (int a, int b, &int) calc
     (*coro p) func
-    (*coro_guard, int a b, &int) f
-    (*coro_guard, int a b, &int) g
+    (*coro_guard, int a, b, &int) f
+    (*coro_guard, int a, b, &int) g
 }
 
 def verify(*coro_guard)
@@ -1731,6 +1754,7 @@ Color $int {
     yellow
 }
 
+// strict 的枚举类型，可以以继承的形式添加新成员
 Color $i08 "strict" { // strict 枚举类型必需为全部枚举手动指定值，并在代码更新时不能修改这些值，以防带来代码版本的不兼容
     RED = 1
     BLUE = 2
@@ -1877,11 +1901,11 @@ pub color enum r08 { // public type
 }
 
 def color enum r08 {
-    red = 1  green = 2  blue
+    red = 1 green = 2 blue
 }
 
 def color enum r08 {
-    red = blue_defined_value  green  blue
+    red = blue_defined_value green blue
 }
 
 def color enum {
@@ -1939,7 +1963,7 @@ def array $(anytype T, int SIZE) SIZE > 0 {
     [SIZE]T a
 }
 
-def array $(anytype T, const SIZE) typeof SIZE == Integer && SIZE > 0 {
+def array $(anytype T, const SIZE) typeof(SIZE) == Integer && SIZE > 0 {
     [SIZE]T a
 }
 
@@ -1996,12 +2020,26 @@ def #PI f64 3.1415926
 def #P7 rom [int int] {100, 200}
 def #P8 imm [int int] {x, y}
 
-pub #SZ 1024
-pub #PI 3.14159
-pub #2P 2*PI
-pub #PI f64 3.1415926
-pub #P7 rom [int int] {100, 200}
-pub #P8 imm [int int] {x, y}
+pub #size 1024
+pub #pi 3.14159
+pub #2p 2*PI
+pub #pi f64 3.1415926
+pub #p7 rom [int int] {100, 200}
+pub #p8 imm [int int] {x, y}
+
+def #size = 1024
+def #pi = 3.14159
+def #2p = 2*PI
+def #pi = 3.1415926
+def #p7 runtime = [int int] {100, 200}
+def #p8 runtime = [int int] {x, y}
+
+pub #size = 1024
+pub #pi = 3.14159f
+pub #2p = 2*PI
+pub #pi = 3.1415926
+pub #p7 runtime = [int int] {100, 200}
+pub #p8 runtime = [int int] {x, y}
 
 // 应该统一常量和变量，如果变量的值是编译时已知的，就自动解析为一个常量，只要不获取这个
 // 变量的地址，这个变量就是一个常量，当然可能需要有一个不能修改的限定符。变量都是可以修
@@ -2024,22 +2062,33 @@ pub #P8 imm [int int] {x, y}
 //          a := int undefined
 //          a := int zeroed // 局部变量必须提供初始化，或显式指定 undefined
 //          b := 0
+//          a int undefined
+//          a int zeroed
+//          b 0
 //  6.  未初始化的全局变量，即初始值为零的所有全局变量，都放到 bss 数据分区
 //          def a := int 0 // 全局变量可以不提供初始化（提供 zeroed 或 0），表示未初始化全局变量
 //          def a := float zeroed
 //          def a := point zeroed
 //          def a := float 0.0
 //          def a := 0
+//          def a int 0
+//          def a point zeroed
+//          def a 0.0
 //  7.  有非零初始值的全局变量，都放到 data 数据分区
 //          def a := 1024
 //          def b := 3.14
 //          def c := f64 3.14
+//          def a 1024
+//          def b 3.14
+//          def c f64 3.14
 //  8.  全局变量的前向声明 forward declaration
-//          def a int
-//          def b float
+//          def a int extern
+//          def b float extern
 //  9.  线程局部变量和协程局部变量
 //          def a "thread_local" := int zeroed
 //          def b "thread_local" := float zeroed
+//          def a "local" int zeroed
+//          def b "local" float zeroed
 //
 // 定义的符号的前向声明方式，所有定义都是公开的，唯一不同是 pub 是公开导出的，但是外部
 // 代码还是可以公开访问所有的代码。或者默认都是代码包私有的，声明成 pub 变成公开，但是
@@ -2053,9 +2102,9 @@ pub #P8 imm [int int] {x, y}
 //  const PI int
 //  romem RO int
 //  immut IM int
-//  def name int
-//  def calc(int a, b, &int) // def 声明都是私有的
-//  def main(int argc, **argv, &int) // main 函数默认是公开的，即使定义为 def 形式也是如此
+//  def name int extern
+//  def calc(int a, b, &int) extern // def 声明都是私有的
+//  def main(int argc, **argv, &int) extern // main 函数默认是公开的，即使定义为 def 形式也是如此
 //  def color enum
 //  def color enum int
 //  def color enum r32 [r08 lpri, rpri]
@@ -2090,9 +2139,9 @@ pub #P8 imm [int int] {x, y}
 //  final
 
 def type = [3]float // def type struct = [3]float
-t := type {1, 2, 3} // t 可以直接作为 [3]float 类型的值使用
+def a type {1, 2, 3} // a 可以直接作为 [3]float 类型的值使用
 
-def type = int { // 该类型的值可以直接作为 int 类型的值使用
+def type = int _ { // 该类型的值可以直接作为 int 类型的值使用
     | byte b | char c | int i
 }
 
@@ -2163,9 +2212,29 @@ pub int_ptr *int = &a
 pub point_ptr *point = &point
 pub point point = {100, 200}
 pub calc (int a, int b, &int) { return a + b } // 定义一个函数常量
-pub calc (int a, int b, &int) = null // 定义一个函数指针
+pub calc *(int a, int b, &int) null // 定义一个函数指针
 pub data {int a int b int x, y point point} = {10, 20, 30, 40, {100, 200}}
 pub data [int int point] = {10, 20, {100, 200}}
+
+pub a int 10
+pub b int 20
+pub int_ptr *int &a
+pub point_ptr *point &point
+pub point point {100, 200}
+pub calc (int a, int b, &int) { return a + b } // 定义一个函数常量
+pub calc *(int a, int b, &int) null // 定义一个函数指针
+pub data {int a int b int x, y point point} {10, 20, 30, 40, {100, 200}}
+pub data [int int point] {10, 20, {100, 200}}
+
+pub a int extern
+pub b int extern
+pub int_ptr *int extern
+pub point_ptr *point extern
+pub point point extern
+pub calc (int a, int b, &int) extern
+pub calc *(int a, int b, &int) extern
+pub data {int a int b int x, y point point} extern
+pub data [int int point] extern
 
 // 数据类型转换，注意类型名不能加上小括号，例如 (Point)，因为它将变成一个函数类型
 aaa := Data {3, 4}
@@ -2181,6 +2250,20 @@ len := int - 3 // 对于基本类型，int 肯定被识别为类型，因此这�
 len := foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
 len := foo ~ -3
 
+// 快捷定义局部变量必须顶格写，*int的星号以及正负号之后不能有空白字符
+aaa = Data {3, 4}
+ppb = *Ppb ppb_alloc(alloc)
+pos = dist + int scale_x(facter)
+len = int pos + &*byte p + size + f(g)
+len = int pos + fal *byte (p + size + f(g))
+pos = int dist + int scale_x(facter)
+len = int pos + fal *int *byte (p + size + f(g))
+len = typeof(pos) 3
+len = foo - 3, a = int 3, b = float 0.1
+len = int - 3
+len = foo (-3)
+len = foo ~ -3
+
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &），代码行不能
 // 以小括号开始，否则报错。D 语言禁止大多数原始表达式语句，所以如果没有产生副作用，就
 // 不允许这样编写；但在操作符重载的情况下，例如重载了乘法，foo * x 要区分是乘法还是一
@@ -2190,12 +2273,12 @@ len := foo ~ -3
 //  2.  named_type {initialize_list} 形式也不需要添加 'type 转换前缀
 //  3.  named_type undefined 形式也不需要添加 'type 转换前缀
 //  4.  符号 - 正号 + 可以正常使用，当出现分歧时，添加括号就行 (-3.14) (+10)
-//  5.  取地址操作符 &(fetch reference) fer ref address-of of   取址 fetch address   fad
-//  6.  解引用操作符 *drf) get value in reference inf           取值 fetch value     fav
+//  5.  取地址操作符 &(fetch reference) fer ref address-of of   取址 fetch address   fad fer fer fet
+//  6.  解引用操作符 *drf) get value in reference inf           取值 fetch value     fal fel der det
 //  let a = expr, b = expr, c = expr
 //  let a, b, c = {expr, expr, expr} or get_tuple()
 //  let a type = expr, b = expr, c = expr, ...
-let a = a + int b + c * d               det p <= a + b
+let a = a + int b + c * d               fet p <= a + b
 let a = a + (int b + c) * d             det **int p <= curr + size
 let a = a + det p + size
 let a = a + det (p + size)
@@ -2204,8 +2287,8 @@ let a = a + det (*int b + size)
 let a = a + det det **int base + size
 let a = a + det det (**int base + size) // 因为括号内有操作符，与函数声明不冲突
 let a = a + det det (**int base + size) // 因为括号内有操作符，与函数声明不冲突
-let p *int = fad **int base + size
-let p *int = fad (**int base + size)
+let p *int = fet **int base + size
+let p *int = fet (**int base + size)
 let point point = {100, 200} // 第一个 point 是类型
 let p *point = fad copyof(point)
 let p *point = fad {0}
@@ -2269,8 +2352,21 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
-let a *int undefined
-let a int 1, b float 2
+#SIZE = 3.14 // 单下划线开头且全大写（对于可以大写的语言）的名称表示定义一个常量
+#3_PI = 3 * 3.14
+#DATA = [int float] {1024, 3.14} // 仅编译时访问
+#DATA runtime = [int float] {1024, 3.14} // 运行时可访问
+#DATA runtime = [int float] {a, b} // 进入 main 函数之后不可修改
+
+data align(4) = *int undefined
+size align(8) = int 1, ratio = float 2
+(size error) = read_tuple()
+data(size error) = read_tuple()
+
+let data + 2
+data += 2
+a[0], *b = read_tuple()
+a += 2
 
 let a = a + int b + c * d               fad p <= a + b
 let a = a + (int b + c) * d             fad **int p <= curr + size
@@ -2292,6 +2388,7 @@ let p = *int null, q = undefined
 let a = int 0
 let b = int 0
 let a = int 0, b = 0
+lat a = int 1, b = float 2
 let o = point undefined
 let pos = point {1, 2}
 let point = point undefined
@@ -2366,10 +2463,14 @@ for $i (10 to 0] step 1 { }
 // a - c // 相当于 a -c // 必须写成 a -c
 // a *int null // 必须写成 a *int 不能写成 a * int
 if $a point {100, 200} + b (expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
-if $a $_ $c read_tuple(l) (expr) { stmt ... }
+if $a point {100, 200} + global.b (expr) { stmt ... }
+if $(a _ c) read_tuple(l) (expr) { stmt ... }
 if $u lexer_next_utf8() (u == '\'' || u == prh_char_invalid)
     return TOKERR
-if $c getarray(l)[0][1](a)(<< a == c) (c != '\'')
+if $c getarray(l)[0][1]!(a)!(a == c) (c != '\'') // 函数必须后接()操作符，连续调用必须使用!()操作符
+    return TOKERR
+if $c getarray(l)
+if $func fet getarray (not func()) // 获取函数的地址和数组的地址，必须使用取地址操作符
     return TOKERR
 l.c = lexer_next_char(l)
 l.cvalue = u
@@ -2950,6 +3051,9 @@ let a = \{ffff_ffff}
 let a = 3.14
 let a = "hello"
 
+let a + 1
+let a * b
+
 // "def" type_symb "=" expr {, symb "=" expr}
 def *ppb = malloc(size) // 全局类型和变量只能使用 def 和 pub 关键字定义
 def *int p = null, q = undefined
@@ -3060,8 +3164,8 @@ temp Calc { a + b } (1, 2)
 temp (int a b int) { a + b } (1, 2)
 
 // 同一行连续的语句必须使用逗号分隔
-i int 0, sume 0
-bytes {more}, same_as_prev {userdata_bytes != 0}
+i = int 0, sume = 0
+bytes = {more}, same_as_prev = {userdata_bytes != 0}
 
 for i int 3 .. 10 { /* */ }
 
@@ -3735,6 +3839,18 @@ else
     stmt
     void
 
+if (expr)
+    return stmt
+elif (expr)
+    aaa
+    bbb
+    if (ccc) stmt endf
+else
+    stmt
+    if (expr) stmt endf
+    stmt
+endf
+
 if [color] red {
     goto green
 } else blue, yellow {
@@ -3775,7 +3891,7 @@ defer_return:
 // for then void // 无限空循环
 for expr { stmt ... }
 for { stmt ... }
-for { stmt ... } ~ if (expr)
+for { stmt ... } while (expr)
 
 // 函数支持默认参数，但不支持函数名重载，但支持第一个参数重载，但支持操作符重载+ - * / == != << >> & | [] % ^ <<< >>> []= .&，symmetric
 // 禁止函数链式调用 a.getb().bfun()
