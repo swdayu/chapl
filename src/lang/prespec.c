@@ -23,7 +23,7 @@
 //  or_else or_return or_continue or_break or_final
 //  macro using const romem immut local named also
 //  async await del from global is lambda nonlocal
-//  pass raise try not endif zeroed allowed
+//  pass raise try not endif zeroed allowed pragma
 //
 //  defer if error deallocation(ptr)
 //
@@ -306,7 +306,7 @@
 //      def int_to_string(int a, &string) { ... }
 //      def float_to_string(float a, &string) { ... }
 //
-//      allowed overload push { // 重载的名称 push 会覆盖前面所有的 push 函数名称和重载名称
+//      allowed overload push { // 重载的名称 push 会覆盖前面所有的 push 函数名称和重载名称，一个文件只能一个不重名的重载名称
 //          array_push(*array self)
 //          string_push(*string self)
 //      }
@@ -650,25 +650,28 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
+//  eint e08i e16i e32i e64i ejaw
+//  ereg e08r e16r e32r e64r eraw
+//
 //  bool byte char string none null true false def error
-//  i08 i16 i32 i64 i128 i256 i512 int raw_int // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
-//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg raw // 编写上层应用，一般只需要使用 int 和 reg，rep raw_ptr
+//  i08 i16 i32 i64 i128 i256 i512 int jaw // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
+//  r08 r16 r32 r64 r128 r256 r512 reg raw // 编写上层应用，一般只需要使用 int 和 reg，rep raw_ptr
 //  f08 f16 f32 f64 f128 f256 f512 float double
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
-//
-//  iB  iH  iN  iL  iX  iY  iZ  i iR
-//  rB  rH  rN  rL  rX  rY  rZ  r rR
-//  fB  fH  f   fL  fX  fY  fZ
-//  pB  pH  p   pL  pX  pY  pZ
 //
 //  32iB    32iH    32iN   32iL    32iX    32iY    32iZ    32i    32iR
 //  32rB    32rH    32rN   32rL    32rX    32rY    32rZ    32r    32rR
 //  3.14fB  3.14fH  3.14f  3.14fL  3.14fX  3.14fY  3.14fZ
 //  3.14pB  3.14pH  3.14p  3.14pL  3.14pX  3.14pY  3.14pZ
 //
-//  r16_le r32_le r64_le reg_le raw_reg_le
-//  r16_be r32_be_r64_be reg_be raw_reg_be
+//  32ib    32i2    32i4   32i8    32ix    32iy    32iz    32i    32ir
+//  32rb    32r2    32r4   32r8    32rx    32ry    32rz    32r    32rr
+//  3.14fb  3.14f2  3.14f  3.14f8  3.14fx 3.14fy  3.14fz
+//  3.14db  3.14d2  3.14d  3.14d8  3.14dx 3.14dy  3.14dz
+//
+//  r16_le r32_le r64_le reg_le raw_le
+//  r16_be r32_be_r64_be reg_be raw_be
 //
 //  i<1> i<2> i<4> i<8> i<x> i<y> i<z> int i<raw> // <> 中可以是单个数值或标识符
 //  r<1> r<2> r<4> r<8> r<x> r<y> r<z> reg r<raw>
@@ -889,6 +892,7 @@
 //  Tuple 元组补充结构体表达不了的一些东西（一个类型列表）
 //      {int int}            结构体不能同时定义两个同类型的内嵌字段，等价于结构体 {int ${0} int ${1}}
 //      {this int int int}   结构体不能内嵌一个指针类型，等价于结构体 {this ${0} int ${1} int ${2} int ${3}}
+//      {int [3]int {int a, b}}
 //      def data {this int int int} 元组成员的命名，可以延迟到使用时
 //      let ptr, a, b, c = data {this, 1, 2, 3}     // 可以使用 ptr a b c
 //      let _, a, _, b = data {this, 1, 2, 3}       // 可以使用 a b，第一个成员只能使用 this 初始化，否则报错
@@ -897,13 +901,14 @@
 //      def data = {this, a = 1, b = 2, 3}          // 可以实现对元组的修改 data.a = 10  data.b = 20
 //      def data = {this, 1, 2, 3}                  // data.0 不能修改 data.1 = 10  data.2 = 20
 //  Enum 枚举类型，只能表示整数常量，枚举是结构体模板的一种特殊形式，枚举类型可以表示一个负数
-//      enum {RED = enum * 2, YELLOW, BLUE} // enum 是枚举元素的索引值
-//      enum int {RED, YELLOW, BLUE}
-//      #{red green blue}
-//      #int{red green blue}
-//      #color #{red green blue} red
-//      def color #{red green blue}
-//      #color color.red
+//      (r08 RED = # * 2 YELLOW BLUE) // enum/# 是枚举元素的索引值
+//      (int red yellow blue)
+//      (i08 red green blue)
+//      color (int red green blue) // 定义一个枚举类型
+//      #color = (int red green blue) red // 定义一个常量
+//      #color = color.red // 定义一个常量
+//      color = (int red green blue) red // 定义一个变量
+//      color = color.red // 定义一个变量
 //  Interface // 接口不能声明为空，必须包含成员函数声明，也只能包含成员函数声明或内嵌接口，接口是一个没有成员只有静态数据的结构体，接口声明也只是结构体模块的一种特殊形式
 //      $p { (*p int size return int) read (*p return int) get } // 允许使用关键字 this 定义 $this，然后参数声明使用 (this int size return int)
 //  Struct 表示定义一个类型
@@ -1607,6 +1612,14 @@ def color enum int {
     yellow
 }
 
+def color (int
+    <base_color>
+    red = # + 1
+    blue
+    green
+    yellow
+)
+
 def test $(anytype T, U, int SIZE, array!(SIZE, T) Array, point POINT) {
     T t
     U u
@@ -1841,6 +1854,12 @@ pub color enum r08 + strict { // strict 枚举类型必需为全部枚举手动�
     YELLOW = 3
 }
 
+pub color (r08 "strict"
+    red = 1
+    blue = 2
+    yellow = 3
+)
+
 def point {
     float x
     float y
@@ -1920,6 +1939,49 @@ def test $(enum C) {
     int data
 }
 
+def #size pragma(runtime) 3.14f // 定义全局常量
+def @type std_array // 定义全局别名
+
+def value = a + b // 定义全局变量
+def a _ c = read_tuple()
+
+def color (int // 定义枚举类型
+    red green blue
+)
+
+def record pragma(packed) {
+    r08 count
+    r32 data
+}
+
+def array $(anytype T, reg SIZE) { // 定义结构体类型
+    [SIZE]TYPE data
+    reg size
+}
+
+def array_push(*array self, self.T elem) { // 定义函数
+    assert(self.size < self.SIZE)
+    self.data[self.size] = elem
+    self.size += 1
+}
+
+def calc(int a, b, &int) pragma(fastcall align 32) { // 定义函数
+    return a + b
+}
+
+def calc = (int a, b, &int) pragma(fastcall align 32) { // 定义一个函数指针变量
+    return a + b
+}
+
+def transfer(this) { // 定义接口
+    (this, int a, b, &int) calc
+}
+
+def push(overload) { // 定义显式重载
+    array_push
+    string_push
+}
+
 // 定义类型别名，结构体和元组使用上面的方式定义，禁止使用该方法
 using func_type (int argc, **char argv, &int)
 using type_of_map |flat_map|[string:int]
@@ -1930,13 +1992,21 @@ using type_point point
 using func_type (int a, &int)
 using tuple_type [int float]
 
-def #name 3.1415926
+def @func_type (int argc, **char argv, &int)
+def @map_type |flat_map|[string:int]
+def @tuple_type [int int float string]
+def @int_ptr *int
+def @point_ptr *point
+def @type_point point
 
 def name(int a, &int) { ... }
 def name enum { red blue green }
 def name enum int { red bule green }
 def name enum int [r08 lpri r08 rpri] { ... }
 def name enum [r08 lpri r08 rpri] { ... }
+def name (r08 red blue green)
+def name (int red blue green)
+def name (int {r08 lpri, rpri} ADD {3, 2} SUB {3, 2})
 def name { int a int b }
 def name $(anytype T U, const SIZE, int N T VALUE) { ... }
 def name $(anytype T) { ... }
@@ -1992,11 +2062,11 @@ using std_array std::array
 using std_<name> std::name
 using my_int int export // 导出的别名
 
-def real_std namespace std // 以防两个文件中定义了相同的名字空间
-def array_type typename array // 引用类型名称
-def name_array using array // 默认名称是一个变量名或函数名
-def std_array using std::array
-def my_int using int
+def @real_std namespace std // 以防两个文件中定义了相同的名字空间
+def @array_type typename array // 引用类型名称
+def @name_array array // 默认名称是一个变量名或函数名
+def @std_array std::array
+def @my_int int
 
 // 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
 const SZ 1024 // 类型为 const int
@@ -2017,29 +2087,15 @@ def #SZ 1024
 def #PI 3.14159
 def #2P 2*PI
 def #PI f64 3.1415926
-def #P7 rom [int int] {100, 200}
-def #P8 imm [int int] {x, y}
+def #P7 pragma(runtime) [int int] {100, 200}
+def #P8 pragma(runtime) [int int] {x, y}
 
 pub #size 1024
 pub #pi 3.14159
 pub #2p 2*PI
 pub #pi f64 3.1415926
-pub #p7 rom [int int] {100, 200}
-pub #p8 imm [int int] {x, y}
-
-def #size = 1024
-def #pi = 3.14159
-def #2p = 2*PI
-def #pi = 3.1415926
-def #p7 runtime = [int int] {100, 200}
-def #p8 runtime = [int int] {x, y}
-
-pub #size = 1024
-pub #pi = 3.14159f
-pub #2p = 2*PI
-pub #pi = 3.1415926
-pub #p7 runtime = [int int] {100, 200}
-pub #p8 runtime = [int int] {x, y}
+pub #p7 pragma(runtime) [int int] {100, 200}
+pub #p8 pragma(runtime) [int int] {x, y}
 
 // 应该统一常量和变量，如果变量的值是编译时已知的，就自动解析为一个常量，只要不获取这个
 // 变量的地址，这个变量就是一个常量，当然可能需要有一个不能修改的限定符。变量都是可以修
@@ -2464,13 +2520,13 @@ for $i (10 to 0] step 1 { }
 // a *int null // 必须写成 a *int 不能写成 a * int
 if $a point {100, 200} + b (expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
 if $a point {100, 200} + global.b (expr) { stmt ... }
-if $(a _ c) read_tuple(l) (expr) { stmt ... }
+if $a $_ $c read_tuple(l) (expr) { stmt ... }
 if $u lexer_next_utf8() (u == '\'' || u == prh_char_invalid)
     return TOKERR
 if $c getarray(l)[0][1]!(a)!(a == c) (c != '\'') // 函数必须后接()操作符，连续调用必须使用!()操作符
     return TOKERR
 if $c getarray(l)
-if $func fet getarray (not func()) // 获取函数的地址和数组的地址，必须使用取地址操作符
+if $func &getarray (not func()) // 获取函数的地址和数组的地址，必须使用取地址操作符
     return TOKERR
 l.c = lexer_next_char(l)
 l.cvalue = u
@@ -2600,6 +2656,32 @@ def token enum { // sum type
     TEST [int int]
     EOF
 }
+
+def color (r08 red green blue)
+def color (int red = 1 green blue)
+
+def oper (r32 {r08 lpri, rpri}
+    ASS {'=', 200, 201}
+    ADD {'+', 211, 210}
+    SUB {'-', 211, 210}
+    MUL {'*', 221, 220}
+    DIV {'/', 221, 220}
+    POW {'^', 230, 231}
+    DOT {'.', 251, 250}
+    END // 默认值为零
+)
+
+def read_username_result (r08 ++
+    OK {string}
+    ERR {reg}
+)
+
+def token (r08 ++
+    ATOM {byte id}
+    OPER {byte id}
+    TEST [int int]
+    EOF
+)
 
 let atom = token {.ATOM, 1}
 let oper = token {.OPER, '+'}
