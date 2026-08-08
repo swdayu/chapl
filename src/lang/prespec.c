@@ -1507,9 +1507,14 @@ for [&it] // 迭代元素捕获
 //  5.  实现标签数组跳转，实现标签传递给函数，让函数返回时跳转
 //
 
-def point "zeroinit packed" {
+def point pragma(zeroinit packed) {
     float x
     float y
+}
+
+def record pragma(packed big endian) {
+    r16_be          count
+    [count]r32_be   array
 }
 
 def data {
@@ -1519,10 +1524,15 @@ def data {
     (int a, int b, &int) g
 }
 
-def user_thrd of thrd alignas(line) {
+def user_thread pragma(align line) {
+    thrd embed
     *reg thrd_rx_head
     *reg thrd_tx_tail
     bool sleep
+}
+
+def routine(*thrd self as *user_thread) {
+
 }
 
 def get ($*T a return int) // 函数参数只能声明类型模板参数
@@ -1621,7 +1631,7 @@ def color enum int {
 }
 
 def color (int
-    <base_color>
+    [base_color]
     red = # + 1
     blue
     green
@@ -2075,6 +2085,7 @@ def @array_type typename array // 引用类型名称
 def @name_array array // 默认名称是一个变量名或函数名
 def @std_array std::array
 def @my_int int
+def @int_array [3]int
 
 // 定义常量，常量没有地址，只有当赋值给变量时才真正保存到只读数据段（等号左边总是变量）
 const SZ 1024 // 类型为 const int
@@ -2202,12 +2213,17 @@ pub #p8 pragma(runtime) [int int] {x, y}
 //  let PI 3.1415926
 //  final
 
-def type = [3]float // def type struct = [3]float
-def a type {1, 2, 3} // a 可以直接作为 [3]float 类型的值使用
+def type [3]float // def type struct = [3]float
+def a = type {1, 2, 3} // a 可以直接作为 [3]float 类型的值使用
 
-def type = int _ { // 该类型的值可以直接作为 int 类型的值使用
-    | byte b | char c | int i
+def type int i { // 该类型的值可以直接作为 int 类型的值使用
+    | byte b | char c | float f
 }
+
+def type [3]int // 默认有4个命名成员 xyzw 或 rgba
+def type [int int int] // 默认有4个命名成员 xyzw 或 rgba
+def type [3]float // 默认有4个命名成员 xyzw 或 rgba
+def point [float float] // 默认有4个命名成员 xyzw 或 rgba
 
 def type { // def type sturct { ... }
     float x,y,z
@@ -2416,21 +2432,20 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
-#SIZE = 3.14 // 单下划线开头且全大写（对于可以大写的语言）的名称表示定义一个常量
-#3_PI = 3 * 3.14
-#DATA = [int float] {1024, 3.14} // 仅编译时访问
-#DATA runtime = [int float] {1024, 3.14} // 运行时可访问
-#DATA runtime = [int float] {a, b} // 进入 main 函数之后不可修改
+#SIZE 3.14 // 单下划线开头且全大写（对于可以大写的语言）的名称表示定义一个常量
+#3_PI 3 * 3.14
+#DATA [int float] {1024, 3.14} // 仅编译时访问
+#DATA runtime [int float] {1024, 3.14} // 运行时可访问
+#DATA runtime [int float] {a, b} // 进入 main 函数之后不可修改
 
 data align(4) = *int undefined
 size align(8) = int 1, ratio = float 2
 (size error) = read_tuple()
 data(size error) = read_tuple()
 
-let data + 2
-data += 2
 a[0], *b = read_tuple()
 a += 2
+let data + 2
 
 let a = a + int b + c * d               fad p <= a + b
 let a = a + (int b + c) * d             fad **int p <= curr + size
