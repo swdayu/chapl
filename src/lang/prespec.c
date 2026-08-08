@@ -650,28 +650,36 @@
 //  d08 d16 d32 d64 d128 decimal <32>decimal <64>decimal ...
 //  c08 c16 c32 c64 c128 complex <32>complex <64>complex ...
 //
-//  eint e08i e16i e32i e64i ejaw
+//  eint e08s e16s e32s e64s esaw
 //  ereg e08r e16r e32r e64r eraw
 //
 //  bool byte char string none null true false def error
-//  i08 i16 i32 i64 i128 i256 i512 int jaw // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
-//  r08 r16 r32 r64 r128 r256 r512 reg raw // 编写上层应用，一般只需要使用 int 和 reg，rep raw_ptr
+//  i08 i16 i32 i64 i128 i256 i512 int raw_int // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
+//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg // 编写上层应用，一般只需要使用 int 和 reg，reg_ptr raw_ptr
 //  f08 f16 f32 f64 f128 f256 f512 float double
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
 //
-//  32iB    32iH    32iN   32iL    32iX    32iY    32iZ    32i    32iR
-//  32rB    32rH    32rN   32rL    32rX    32rY    32rZ    32r    32rR
+//  32iB    32iH    32iN   32iL    32iX    32iY    32iZ    32iR
+//  32rB    32rH    32rN   32rL    32rX    32rY    32rZ    32rR
 //  3.14fB  3.14fH  3.14f  3.14fL  3.14fX  3.14fY  3.14fZ
 //  3.14pB  3.14pH  3.14p  3.14pL  3.14pX  3.14pY  3.14pZ
 //
-//  32ib    32i2    32i4   32i8    32ix    32iy    32iz    32i    32ir
-//  32rb    32r2    32r4   32r8    32rx    32ry    32rz    32r    32rr
+//  32ib    32i2    32i4   32i8    32ix    32iy    32iz    32ir     // 单个i是虚数单位
+//  32rb    32r2    32r4   32r8    32rx    32ry    32rz    32rr
 //  3.14fb  3.14f2  3.14f  3.14f8  3.14fx 3.14fy  3.14fz
 //  3.14db  3.14d2  3.14d  3.14d8  3.14dx 3.14dy  3.14dz
 //
+//  32hh     32h     32l     32ll     32lx    32ly     32lz     32lr
+//  32uhh    32uh    32ul    32ull    32ux    32uy     32uz     32ur
+//  3.14fhh  3.14fh  3.14fl  3.14fll  3.14fx  3.14fy   3.14fz   3.14f
+//  3.14dhh  3.14dh  3.14dl  3.14dll  3.14dx  3.14dy   3.14dz   3.14d
+//
+//  i16_le i32_le i64_le int_le raw_int_le
+//  i16_be i32_be i64_be int_be raw_int_be
+//
 //  r16_le r32_le r64_le reg_le raw_le
-//  r16_be r32_be_r64_be reg_be raw_be
+//  r16_be r32_be r64_be reg_be raw_be
 //
 //  i<1> i<2> i<4> i<8> i<x> i<y> i<z> int i<raw> // <> 中可以是单个数值或标识符
 //  r<1> r<2> r<4> r<8> r<x> r<y> r<z> reg r<raw>
