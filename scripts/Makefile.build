@@ -146,6 +146,9 @@ built_in_target := $(target_built_file)
 built_src_lib := $(strip $(lib-src-y))
 export_src_lib := $(patsubst $(obj_dir)%,$(lib_bin_path)/%,$(built_src_lib))
 copy_ins_files := $(foreach f,$(install-y),$(target_root)/$(notdir $(f)))
+ifneq ($(INSTALL_DIR),)
+copy_ins_files += $(foreach f,$(install-y),$(srctree)/$(INSTALL_DIR)$(notdir $(f)))
+endif
 endif
 
 all: $(if $(pre-build-y),$(pre-build-y) .WAIT) $(built_in_target) $(built_src_lib) $(export_src_lib) $(copy_ins_files)
@@ -277,12 +280,15 @@ endif
 # 当前模块需要安装的文件，通常是将需要的动态库拷贝到可执行文件目录
 ifneq ($(copy_ins_files),)
 define copy_ins_rule
-copy_dest_file := $(target_root)/$(notdir $(1))
+copy_dest_file := $(2)
 $$(copy_dest_file): $(1) FORCE
 	$$(call if_changed,copy_ins_file)
 targets += $$(copy_dest_file)
 endef
-$(foreach a,$(install-y),$(eval $(call copy_ins_rule,$(a))))
+$(foreach a,$(install-y),$(eval $(call copy_ins_rule,$(a),$(target_root)/$(notdir $(a)))))
+ifneq ($(INSTALL_DIR),)
+$(foreach a,$(install-y),$(eval $(call copy_ins_rule,$(a),$(srctree)/$(INSTALL_DIR)$(notdir $(a)))))
+endif
 endif
 
 PHONY += show

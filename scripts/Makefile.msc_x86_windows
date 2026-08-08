@@ -105,7 +105,7 @@ FASM := fasm.exe
 # 会被直接忽略；标准合规选项 /permissive- 不会影响 /Zc:wchar_t。微软环境中，wchar_t
 # 实现为 2 字节无符号类型，对应微软专属原生类型 __wchar_t。
 INIT_C_ONLY += /std:c11 /experimental:c11atomics /TC #/Zc:__STDC__
-INIT_CXX_ON += /std:c++17 /Zc:__cplusplus /TP
+INIT_CXX_ON += /std:c++20 /Zc:__cplusplus /TP
 
 INIT_MACROS += -DCONFIG_SRC_ROOT=\"$(call windows_path_style,$(srctree))/\"
 
