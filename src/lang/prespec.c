@@ -11,7 +11,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，统一各种分支语句和各种循环语句
-//  if else elif case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
+//  if likely else elif case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed based of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
@@ -1161,8 +1161,8 @@ $(anytype T) { ((*T p, int size) int) read }
 def test {
     int a int b int c int x, y, z // 重复前一类型
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
-    int [1] inplace [31] size // 位域
-    int (size | bytes | count) // 成员别名
+    int [1] inplace [signed 31] size // 位域，默认无符号值，有符号需要指定 signed 关键字
+    int (size | bytes | count | 长度 | 大小) // 成员别名，可以为不同语言提供不同名称
     f64 d {
         | int (i | j | k), m
         | f32 f, g, (h | p | q)
@@ -4251,7 +4251,7 @@ print(typestring, "\n")
 —— 则
 —— 止
 ——
-—— 函数      演算 撰 术 法 施
+—— 函数     演算 撰 术 法 施
 —— if       若 若是 如果 若 当
 —— else if  然
 —— else     则
