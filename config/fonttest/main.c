@@ -38,8 +38,15 @@ void init(void)
         prh_print_font_table(&open_font, i);
     }
 
-    prh_print_font_cmap(&open_font);
-    prh_print_font_cff1(&open_font);
+    prh_print_font_head_table(&open_font);
+    prh_print_font_maxp_table(&open_font);
+    prh_print_font_name_table(&open_font);
+    prh_print_font_vorg_table(&open_font);
+    prh_print_font_post_table(&open_font);
+    prh_print_font_os_2_table(&open_font);
+
+    // prh_print_font_cmap(&open_font);
+    // prh_print_font_cff1(&open_font);
 
     fread(ttf_buffer, 1, 1<<20, fopen("c:/windows/fonts/times.ttf", "rb"));
     stbtt_BakeFontBitmap(ttf_buffer,0, 64.0, temp_bitmap,1024,1024, 32,96, cdata);
