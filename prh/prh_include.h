@@ -485,6 +485,7 @@ extern "C" {
 
 #ifndef prh_arrlen
     #define prh_arrlen(a) (sizeof(a)/sizeof((a)[0]))
+    #define prh_arrend(a) ((a) + prh_arrlen(a))
     #define prh_arrelt(a, i) (a)[(prh_assert((i) >= 0 && (i) < prh_arrlen(a))), i]
     #define prh_arrbuf(a) (a), prh_arrlen(a)
 #endif
@@ -499,6 +500,12 @@ extern "C" {
 
 #ifndef prh_fallthrough
     #define prh_fallthrough
+#endif
+
+#if defined(__cplusplus)
+#define prh_struct_object(type, ...) (type{__VA_ARGS__})
+#else
+#define prh_struct_object(type, ...) ((type){__VA_ARGS__})
 #endif
 
 #ifndef prh_macro_make_name
@@ -715,6 +722,40 @@ extern "C" {
     typedef float prh_f32;
     typedef double prh_f64;
     typedef prh_f32 prh_float;
+    typedef bool 布尔;
+    typedef void 空类;
+    typedef void 空;
+    typedef prh_byte 字节;
+    typedef prh_char 字符;
+    typedef prh_r08 壹;
+    typedef prh_r16 贰;
+    typedef prh_r32 肆;
+    typedef prh_r64 捌;
+    typedef prh_reg 正;
+    typedef prh_raw 字; // 机器原始寄存器字长正数
+    typedef prh_i08 小;
+    typedef prh_i16 短;
+    typedef prh_i32 宽;
+    typedef prh_i64 长;
+    typedef prh_int 整;
+    typedef prh_raw_int 数; // 机器原始寄存器字长整数
+    typedef float 浮;
+    typedef double 双;
+    typedef long double 扩;
+    #define 真 true
+    #define 假 false
+    #define 返空 void
+    #define 空参 void
+    #define 空值 prh_null
+    #define 类型 typedef struct
+    #define 文本 prh_striew
+    typedef struct {
+        prh_byte *data;
+        union {
+            prh_reg size;
+            prh_reg bytes;
+        };
+    } prh_striew;
     prh_static_assert(sizeof(int) == 4);
     prh_static_assert(sizeof(bool) == 1);
     prh_static_assert(sizeof(prh_byte) == 1);
@@ -1861,6 +1902,15 @@ typedef enum {
 #endif
 #endif
 
+#if prh_cl_msc // 定义C/C++运行时相关的宏
+#define _UNICODE 1
+#define _CRT_SECURE_NO_DEPRECATE 1
+#define _CRT_SECURE_NO_WARNINGS 1
+#define _CRT_DECLARE_NONSTDC_NAMES 1
+#define _CRT_NONSTDC_NO_DEPRECATE 1
+#define _CRT_NONSTDC_NO_WARNINGS 1
+#endif
+
 #if defined(PRH_PLAT_WINDOWS_HEADERS)
     // https://learn.microsoft.com/en-us/windows/win32/api/
     // https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-api-list
@@ -2143,8 +2193,10 @@ typedef enum {
     #endif // PRH_SOCK_INCLUDE
     #ifdef PRH_THRD_INCLUDE
     #include <process.h>
-    #include <timeapi.h>
     #endif // PRH_THRD_INCLUDE
+    #ifdef PRH_TIME_INCLUDE
+    #include <timeapi.h>
+    #endif
     #ifdef PRH_EHUB_INCLUDE
     #define PRH_PLAT_WINDOWS_EHUB
     #define PRH_PLAT_WINDOWS_IOCP
@@ -2660,14 +2712,14 @@ prh_inline prh_r32 prh_r32_clear_bits(prh_r32 value, prh_r32 mask) {
 #if defined(prh_cl_msc)
 #include <intrin.h> // https://learn.microsoft.com/en-us/cpp/intrinsics/x64-amd64-intrinsics-list
 prh_inline prh_r32 prh_r32_unchecked_lower_most_bit_position(prh_r32 n) {
-    prh_r32 zeros;
+    unsigned long zeros;
     _BitScanForward(&zeros, n);
-    return zeros;
+    return (prh_r32)zeros;
 }
 prh_inline prh_r32 prh_r32_unchecked_higher_most_bit_position(prh_r32 n) {
-    prh_r32 zeros;
+    unsigned long zeros;
     _BitScanReverse(&zeros, n);
-    return zeros;
+    return (prh_r32)zeros;
 }
 prh_inline prh_r32 prh_r32_lower_most_bit_position(prh_r32 n) {
     return n ? prh_r32_unchecked_lower_most_bit_position(n) : 0;
@@ -2676,25 +2728,25 @@ prh_inline prh_r32 prh_r32_higher_most_bit_position(prh_r32 n) {
     return n ? prh_r32_unchecked_higher_most_bit_position(n) : 0;
 }
 prh_inline prh_r32 prh_r32_trailing_zeros(prh_r32 n) {
-    prh_r32 zeros; // 从最低位开始找1比特位，返回第一个1比特位前面的0的个数
+    unsigned long zeros; // 从最低位开始找1比特位，返回第一个1比特位前面的0的个数
     prh_byte has_set_bit = _BitScanForward(&zeros, n);
     return has_set_bit ? zeros : 32;
 }
 prh_inline prh_r32 prh_r32_leading_zeros(prh_r32 n) {
-    prh_r32 zeros; // 从最高位开始找1比特位，返回第一个1比特位前面的0的个数
+    unsigned long zeros; // 从最高位开始找1比特位，返回第一个1比特位前面的0的个数
     prh_byte has_set_bit = _BitScanReverse(&zeros, n);
     return has_set_bit ? 31 - zeros : 32;
 }
 #if defined(prh_arch_x64) || defined(prh_arch_a64)
 prh_inline prh_r32 prh_r64_unchecked_lower_most_bit_position(prh_r64 n) {
-    prh_r32 zeros;
+    unsigned long zeros;
     _BitScanForward64(&zeros, n);
-    return zeros;
+    return (prh_r32)zeros;
 }
 prh_inline prh_r32 prh_r64_unchecked_higher_most_bit_position(prh_r64 n) {
-    prh_r32 zeros;
+    unsigned long zeros;
     _BitScanReverse64(&zeros, n);
-    return zeros;
+    return (prh_r32)zeros;
 }
 prh_inline prh_r32 prh_r64_lower_most_bit_position(prh_r64 n) {
     return n ? prh_r64_unchecked_lower_most_bit_position(n) : 0;
@@ -2703,12 +2755,12 @@ prh_inline prh_r32 prh_r64_higher_most_bit_position(prh_r64 n) {
     return n ? prh_r64_unchecked_higher_most_bit_position(n) : 0;
 }
 prh_inline prh_r32 prh_r64_trailing_zeros(prh_r64 n) {
-    prh_r32 zeros; // 从最低位开始找1比特位，返回第一个1比特位前面的0的个数
+    unsigned long zeros; // 从最低位开始找1比特位，返回第一个1比特位前面的0的个数
     prh_byte has_set_bit = _BitScanForward64(&zeros, n);
     return has_set_bit ? zeros : 64;
 }
 prh_inline prh_r32 prh_r64_leading_zeros(prh_r64 n) {
-    prh_r32 zeros; // 从最高位开始找1比特位，返回第一个1比特位前面的0的个数
+    unsigned long zeros; // 从最高位开始找1比特位，返回第一个1比特位前面的0的个数
     prh_byte has_set_bit = _BitScanReverse64(&zeros, n);
     return has_set_bit ? 63 - zeros : 64;
 }
@@ -3139,10 +3191,6 @@ prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
 
 #ifndef prh_impl_base_defs
 #define prh_impl_base_defs
-typedef struct {
-    prh_byte *data;
-    prh_reg size;
-} prh_data;
 
 #define PRH_IMPL_FREE_MASK_BIT 0x02
 typedef struct prh_buffer prh_buffer; // ptr & 0x02 为真表示释放内存
@@ -3170,7 +3218,7 @@ prh_inline void prh_buffer_set_data(prh_buffer *a, prh_byte *data) { prh_assert(
 prh_inline void prh_buffer_set_capacity(prh_buffer *a, prh_reg size) { prh_assert((size & 0xf) == 0); a->_capacity = size; }
 prh_inline void prh_buffer_set_shift_alignment(prh_buffer *a, prh_r08 shift_alignment) { prh_assert(shift_alignment >= prh_shift_align_16_byte); a->_shift_alignment = shift_alignment - 4; }
 prh_inline void prh_buffer_set_alloc(prh_buffer *a, const prh_alloc_face *alloc) { a->_alloc = *alloc; }
-prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { return (prh_buffer){._alloc = *alloc}; }
+prh_inline prh_buffer prh_buffer_from(const prh_alloc_face *alloc) { prh_buffer b = {._alloc = *alloc}; return b; }
 prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r08 shift_alignment) { prh_buffer b = {._alloc = *alloc}; prh_buffer_set_shift_alignment(&b, shift_alignment); return b; }
 #elif prh_int_bits == 32
 #ifdef prh_eabi_low_cost
@@ -6245,6 +6293,20 @@ void prh_virtual_demmit(void *page, prh_reg size) {
 #define prh_nonchar_10ffff  0x10ffff
 #define prh_char_max_point  0x10ffff
 
+prh_reg prh_utf8_char(const prh_byte *p, prh_char *unicode);
+prh_reg prh_utf16_le_char(const prh_byte *p, prh_char *unicode);
+prh_reg prh_utf16_be_char(const prh_byte *p, prh_char *unicode);
+prh_reg prh_utf16_char(const prh_byte *p, prh_char *unicode);
+prh_reg prh_utf8_string_chars(prh_striew s, prh_reg *missing_tail_bytes);
+prh_reg prh_unicode_to_utf8(prh_char unicode, prh_byte *p);
+prh_reg prh_unicode_to_utf16_le(prh_char unicode, prh_byte *p);
+prh_reg prh_unicode_to_utf16_be(prh_char unicode, prh_byte *p);
+prh_reg prh_unicode_to_utf16(prh_char unicode, prh_byte *p);
+prh_reg prh_utf8_to_utf16(const prh_byte *p, prh_reg n, prh_buffer *out);
+prh_reg prh_utf16_to_utf8(const prh_r16 *p, prh_reg count, prh_buffer *out);
+prh_reg prh_utf32_to_utf8(const prh_r32 *p, prh_reg count, prh_buffer *out);
+
+#if defined(PRH_CHAR_IMPLEMENTATION)
 // prh_utf8/16_char prh_unicode_to_utf8/16 仅作统一编码定义的最小限制，即将标量码点范围
 // [0, 0xD7FF] [0xE000, 0x10FFFF] 映射到唯一的码元序列，为确保 Unicode 编码形式的映射是
 // 一对一的，所有 Unicode 标量值，包括对应于非字符码点和未分配码点的标量值，必须映射到
@@ -6388,12 +6450,46 @@ prh_reg prh_utf16_be_char(const prh_byte *p, prh_char *unicode) {
     }
 }
 
-prh_inline prh_reg prh_utf16_char(const prh_byte *p, prh_char *unicode) {
+prh_reg prh_utf16_char(const prh_byte *p, prh_char *unicode) {
 #if prh_lit_endian
     return prh_utf16_le_char(p, unicode);
 #else
     return prh_utf16_be_char(p, unicode);
 #endif
+}
+
+static const prh_byte prh_impl_utf8_char_bytes[256] = {
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x00
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x10
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x20
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x30
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x40
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x50
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x60
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x70
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x80 10XX_XXXX
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0x90 10XX_XXXX
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0xA0 10XX_XXXX
+    1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1, // 0xB0 10XX_XXXX
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, // 0xC0 110X_XXXX (5 + 6) U+07FF
+    2,2,2,2,2,2,2,2,2,2,2,2,2,2,2,2, // 0xD0 110X_XXXX
+    3,3,3,3,3,3,3,3,3,3,3,3,3,3,3,3, // 0xE0 1110_XXXX (4 +12) U+FFFF
+    4,4,4,4,4,4,4,4,                 // 0xF0 1111_0XXX (3 +18) U+001F_FFFF
+    5,5,5,5,                         // 0xF8 1111_10XX (2 +24) U+03FF_FFFF
+    6,6,                             // 0xFC 1111_110X (1 +30) U+7FFF_FFFF
+    7,                               // 0xFE 1111_1110 (0 +36) U+000F_FFFF_FFFF
+    7,                               // 0xFF 1111_1111
+};
+
+prh_reg prh_utf8_string_chars(prh_striew s, prh_reg *missing_tail_bytes) {
+    prh_reg n = 0;
+    prh_byte *end = s.data + s.bytes;
+    while (s.data < end) {
+        s.data += prh_impl_utf8_char_bytes[*s.data];
+        n += 1;
+    }
+    *missing_tail_bytes = s.data - end;
+    return n;
 }
 
 prh_reg prh_unicode_to_utf8(prh_char unicode, prh_byte *p) {
@@ -6485,7 +6581,7 @@ prh_reg prh_unicode_to_utf16_be(prh_char unicode, prh_byte *p) {
     }
 }
 
-prh_inline prh_reg prh_unicode_to_utf16(prh_char unicode, prh_byte *p) {
+prh_reg prh_unicode_to_utf16(prh_char unicode, prh_byte *p) {
 #if prh_lit_endian
     return prh_unicode_to_utf16_le(unicode, p);
 #else
@@ -6696,7 +6792,7 @@ prh_reg prh_utf16_to_utf8(const prh_r16 *p, prh_reg count, prh_buffer *out) {
     const prh_r16 *pend = p + count; prh_char unicode;
     prh_reg bytes = 0;
     while (p < pend) {
-        ((const prh_byte *)p) += prh_utf16_char((const prh_byte *)p, &unicode);
+        p += prh_utf16_char((const prh_byte *)p, &unicode) / 2;
         bytes += prh_unicode_to_utf8(unicode, out->data + bytes);
     }
     prh_assert(bytes <= count * 2);
@@ -7919,6 +8015,7 @@ prh_reg prh_utf32_to_utf8(const prh_r32 *p, prh_reg count, prh_buffer *out) {
 //  UAX #53：Unicode 阿拉伯语标记渲染
 //  UAX #57：Unicode 埃及象形文字数据库（Unikemet）
 
+#endif // PRH_CHAR_IMPLEMENTATION
 #endif // PRH_CHAR_INCLUDE
 
 #ifdef PRH_MMAP_INCLUDE
@@ -9675,11 +9772,6 @@ void prh_impl_da_free(prh_impl_daheader *p);
 #if 1
 typedef struct {
     prh_byte *data;
-    prh_reg size;
-} prh_striew;
-
-typedef struct {
-    prh_byte *data;
     prh_reg capacity;
     prh_reg size;
 } prh_strfit;
@@ -9820,7 +9912,7 @@ prh_inline void prh_impl_array_reserve(prh_string *a, prh_reg new_capacity, prh_
     if (a->capacity < new_capacity) {
         if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
         do a->capacity *= 2; while (a->capacity < new_capacity);
-        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
+        a->data = (prh_byte *)((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
     }
 }
 
@@ -9828,7 +9920,7 @@ prh_inline void prh_impl_string_reserve(prh_string *a, prh_reg new_capacity, prh
     if (a->capacity < new_capacity) {
         if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
         do a->capacity *= 2; while (a->capacity < new_capacity);
-        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
+        a->data = (prh_byte *)((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
     }
 }
 
@@ -9836,27 +9928,27 @@ prh_inline void prh_impl_array_expand(prh_string *a, prh_reg grow_capacity, prh_
     prh_reg new_capacity = a->capacity + grow_capacity;
     if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
     while (a->capacity < new_capacity) a->capacity *= 2;
-    a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
+    a->data = (prh_byte *)((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
 }
 
 prh_inline void prh_impl_string_expand(prh_string *a, prh_reg grow_capacity, prh_int line) {
     prh_reg new_capacity = a->capacity + grow_capacity;
     if (a->capacity == 0) a->capacity = 1; // 避免下面乘二永远为零，容量总是2的幂
     while (a->capacity < new_capacity) a->capacity *= 2;
-    a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
+    a->data = (prh_byte *)((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
 }
 
 prh_inline void prh_impl_array_shrink(prh_string *a, prh_reg new_capacity, prh_reg elem_size, prh_int line) {
     if (new_capacity < a->capacity / 2) { // 容量总是2的幂，当 new_capacity 为零时，a->capacity 将变成零
         do a->capacity /= 2; while (new_capacity < a->capacity / 2);
-        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
+        a->data = (prh_byte *)((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity * elem_size));
     }
 }
 
 prh_inline void prh_impl_string_shrink(prh_string *a, prh_reg new_capacity, prh_int line) {
     if (new_capacity < a->capacity / 2) { // 容量总是2的幂，当 new_capacity 为零时，a->capacity 将变成零
         do a->capacity /= 2; while (new_capacity < a->capacity / 2);
-        a->data = ((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
+        a->data = (prh_byte *)((prh_impl_line = line), prh_impl_realloc(a->data, a->capacity));
     }
 }
 
@@ -9941,15 +10033,15 @@ prh_inline void prh_impl_string_unchecked_push_items(prh_string *a, void *p, prh
 #define prh_string_shrink_to_fit(a) prh_impl_string_shrink((a), (a)->size, __LINE__)
 
 prh_inline prh_striew prh_striew_from(prh_byte *data, prh_reg size) {
-    return (prh_striew){data, size};
+    return prh_struct_object(prh_striew, data, size);
 }
 
 prh_inline prh_striew prh_striew_from_cstr(const char *s) {
-    return (prh_striew){(prh_byte *)s, (s == prh_null) ? 0 : strlen(s)};
+    return prh_struct_object(prh_striew, (prh_byte *)s, (s == prh_null) ? 0 : strlen(s));
 }
 
 prh_inline prh_striew prh_striew_from_range(prh_byte *data_ptr, prh_byte *end_ptr) {
-    return (prh_striew){data_ptr, end_ptr - data_ptr};
+    return prh_struct_object(prh_striew, data_ptr, (prh_reg)(end_ptr - data_ptr));
 }
 
 prh_inline void prh_strfit_init_from(prh_strfit *s, prh_byte *buffer, prh_reg capacity) {
@@ -18631,6 +18723,25 @@ typedef struct {
 } prh_timespec;
 
 typedef struct {
+    prh_i32 year: 23; // 最大可表示正负约4.19百万年（4194303）
+    prh_r32 month: 4, day: 5; // month 1 ~ 12 day 1 ~ 31
+} prh_day_long_time_span;
+
+prh_static_assert(sizeof(prh_day_long_time_span) == sizeof(prh_r32));
+
+typedef struct {
+    prh_i16 year; // 正负三万多年
+    prh_byte month;
+    prh_byte day;
+} prh_day;
+
+typedef struct {
+    短 年;
+    壹 月;
+    壹 日;
+} 天;
+
+typedef struct { // 日历时间
 #if prh_lit_endian
     union {
         struct { prh_i32 year; union { prh_i32 high_year; struct { prh_i16 pad1; prh_i08 pad2; prh_i08 zone; }; }; };
@@ -35199,8 +35310,8 @@ prh_reg prh_get_file_size(prh_handle handle)
 // 其他信息，请参阅本主题的"备注"部分和"创建和打开文件"。有关文件属性的更高级访问，请参阅
 // SetFileAttributes。有关所有文件属性及其值和描述的完整列表，请参阅"文件属性常量"。
 //
-//  1.  FILE_ATTRIBUTE_ARCHIVE 32 (0x20) 文件应归档，应用程序使用此属性标记文件以进行备份或删除。
-//  2.  FILE_ATTRIBUTE_ENCRYPTED 16384 (0x4000) 文件或目录已加密。对于文件，这意味着文件中的所有
+//  1.  FILE_ATTRIBUTE_ARCHIVE 32 (0x20) 文件应归档，应用程序使用此属性标记文件以进行备份或删除。   *** 打开现有文件时，会忽略 dwFlagsAndAttributes 提供的任何文件属性
+//  2.  FILE_ATTRIBUTE_ENCRYPTED 16384 (0x4000) 文件或目录已加密。对于文件，这意味着文件中的所有    *** 特殊情况在"创建和打开文件"中详细说明
 //          数据都已加密。对于目录，这意味着加密是新创建的文件和子目录的默认值。有关更多信息，请
 //          参阅"文件加密"。如果同时指定了 FILE_ATTRIBUTE_SYSTEM，则此标志无效。此标志在 Windows
 //          的家庭版、家庭高级版、入门版或 ARM 版本中不受支持。
@@ -36743,11 +36854,10 @@ label_cont_write:
         p->offset += bytes;
     } else {
         memcpy(p->buffer.data + p->offset, data, left);
-        prh_file_write(p->handle, p->buffer.data, capacity);
-        if (errno) prh_abort_error(GetLastError());
+        p->offset += left;
+        prh_write_flush(p);
         data += left;
         bytes -= left;
-        p->offset = 0;
         goto label_cont_write;
     }
     return bytes;
@@ -41079,14 +41189,6 @@ typedef struct {
     prh_i16 glyph_data_format;
     prh_r16 aligned;
 } prh_font_head_table;
-
-def head_table_print(*openfont f) {
-    if (f.head.length == 0) print() abort_line() 
-    t head_table {0}
-    n prh_r32 sizeof(head_table) - 2
-    if (n != f.head.length) print() return
-    
-}
 
 void prh_print_font_head_table(prh_open_font *f) {
     if (f->head.length == 0) prh_abort_line();
