@@ -722,8 +722,7 @@ extern "C" {
     typedef float prh_f32;
     typedef double prh_f64;
     typedef prh_f32 prh_float;
-    typedef bool 布尔;
-    typedef void 空类;
+    typedef bool 辩;
     typedef void 空;
     typedef prh_byte 字节;
     typedef prh_char 字符;
@@ -732,22 +731,21 @@ extern "C" {
     typedef prh_r32 肆;
     typedef prh_r64 捌;
     typedef prh_reg 正;
-    typedef prh_raw 字; // 机器原始寄存器字长正数
+    typedef prh_raw 机; // 机器原始寄存器字长正数
     typedef prh_i08 小;
     typedef prh_i16 短;
     typedef prh_i32 宽;
     typedef prh_i64 长;
     typedef prh_int 整;
-    typedef prh_raw_int 数; // 机器原始寄存器字长整数
+    typedef prh_raw_int 原; // 机器原始寄存器字长整数
     typedef float 浮;
     typedef double 双;
     typedef long double 扩;
     #define 真 true
     #define 假 false
-    #define 返空 void
-    #define 空参 void
+    #define 定 typedef struct
+    #define 并 union
     #define 空值 prh_null
-    #define 类型 typedef struct
     #define 文本 prh_striew
     typedef struct {
         prh_byte *data;
@@ -18723,7 +18721,7 @@ typedef struct {
 } prh_timespec;
 
 typedef struct {
-    prh_i32 year: 23; // 最大可表示正负约4.19百万年（4194303）
+    prh_i32 year: 23; // 最大可表示正负约四百万年（4194303）
     prh_r32 month: 4, day: 5; // month 1 ~ 12 day 1 ~ 31
 } prh_day_long_time_span;
 
@@ -18736,10 +18734,23 @@ typedef struct {
 } prh_day;
 
 typedef struct {
-    短 年;
-    壹 月;
-    壹 日;
+    宽 年:22; // 正负约两百万年（2097151）
+    肆 月: 4, // 1 ~ 12
+       日: 5, // 1 ~ 31
+       另: 1; // 额外标记
 } 天;
+
+定 {
+    宽 年:11; // 11 2000±1023年
+    肆 月: 4, // 15 1 ~ 12
+       日: 5, // 20 1 ~ 31
+       时: 5, // 25 0 ~ 23
+       分: 6, // 31 0 ~ 59
+       另: 1; // 额外标记
+} 分;
+
+prh_static_assert(sizeof(天) == sizeof(肆));
+prh_static_assert(sizeof(分) == sizeof(肆));
 
 typedef struct { // 日历时间
 #if prh_lit_endian
@@ -18761,6 +18772,8 @@ typedef struct { // 日历时间
             sec:    6,  // [26] 0 ~ 60 since C99 同一分钟内不允许有2个闰秒
             wday:   3;  // [29] 0 ~ 6 (sunday = 0)
 } prh_datetime;
+
+typedef prh_datetime 戳;
 
 prh_static_assert(sizeof(prh_timespec) == 16);
 prh_static_assert(sizeof(prh_datetime) == 16);
