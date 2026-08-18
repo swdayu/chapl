@@ -724,6 +724,7 @@ extern "C" {
     typedef prh_f32 prh_float;
     typedef bool 辩;
     typedef void 空;
+    typedef prh_handle 句柄;
     typedef prh_byte 字节;
     typedef prh_char 字符;
     typedef prh_r08 壹;
@@ -745,6 +746,7 @@ extern "C" {
     #define 假 false
     #define 定 typedef struct
     #define 并 union
+    #define 结 struct
     #define 空值 prh_null
     #define 文本 prh_striew
     typedef struct {
@@ -3261,6 +3263,7 @@ prh_inline prh_buffer prh_buffer_from_aligned(const prh_alloc_face *alloc, prh_r
 #endif
 #endif
 
+typedef prh_buffer 存储;
 typedef void *(*prh_malloc_func)(void *context, prh_reg size, prh_reg alignment);
 typedef void *(*prh_realloc_func)(void *context, void *ptr, prh_reg size, prh_reg alignment);
 typedef void (*prh_dealloc_func)(void *context, void *ptr);
@@ -18734,23 +18737,35 @@ typedef struct {
 } prh_day;
 
 typedef struct {
-    宽 年:22; // 正负约两百万年（2097151）
+    宽 年:23; // 正负约四百万年（4194303）
     肆 月: 4, // 1 ~ 12
-       日: 5, // 1 ~ 31
-       另: 1; // 额外标记
+       日: 5; // 1 ~ 31
 } 天;
 
 定 {
-    宽 年:11; // 11 2000±1023年
-    肆 月: 4, // 15 1 ~ 12
-       日: 5, // 20 1 ~ 31
-       时: 5, // 25 0 ~ 23
-       分: 6, // 31 0 ~ 59
-       另: 1; // 额外标记
+    宽 年:12; // 12 2000±2047年
+    肆 月: 4, // 16 1 ~ 12
+       日: 5, // 21 1 ~ 31
+       时: 5, // 26 0 ~ 23
+       分: 6; // 32 0 ~ 59
 } 分;
+
+定 {
+    肆 时: 5, // 05 0 ~ 23
+       分: 6, // 11 0 ~ 59
+       秒: 6, // 17 0 ~ 60
+       毫:10; // 27 0 ~ 999
+} 表;
+
+定 {
+    贰 时: 4, // 只能表示基准+15小时
+       分: 6,
+       秒: 6;
+} 时;
 
 prh_static_assert(sizeof(天) == sizeof(肆));
 prh_static_assert(sizeof(分) == sizeof(肆));
+prh_static_assert(sizeof(时) == sizeof(贰));
 
 typedef struct { // 日历时间
 #if prh_lit_endian
