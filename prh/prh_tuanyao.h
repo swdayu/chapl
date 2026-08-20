@@ -1,4 +1,4 @@
-// prh_tuanyao.h - v0.03 - public domain - swdayu <github.com/swdayu>
+// prh_tuanyao.h - v0.05 - public domain - swdayu <github.com/swdayu>
 // No warranty implied, use at your own risk.
 
 //////////////////////////////////////////////////////////////////////////////
@@ -87,10 +87,23 @@ extern "C" {
     肆 平均价;
 } 成交信息; // 28
 
-定 {
-    年度信息 数据;
-    每日信息 每日[270];
+定 年度数据 {
+    结 年度数据 *下一年度;
+    结 年度数据 *上一年度;
+    年度信息 基础;
+    结 {
+        每日信息 每日数据;
+        成交信息 分钟成交[1440];
+        肆 起始时间, 结束时间;
+        空 *分时逐笔;
+    } 每日[270];
 } 年度数据;
+
+定 {
+    年度数据 *下一年度;
+    年度数据 *上一年度;
+    肆 标的代码;
+} 历年节点;
 
 定 {
     肆 版本: 2, 上涨: 1, 成交量: 29; // 单位100股，最大26843545500股（两百亿股）+ 超额量
@@ -187,8 +200,8 @@ prh_static_assert(sizeof(成交秒三) == 12 && sizeof(成交秒三) % 4 == 0);
 prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 
 定 {
-    正 天数;
-    天 交易日[1];
+    贰 天数, 年份;
+    天 交易日[270];
 } 年历数据;
 
 定 {
@@ -206,8 +219,13 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 定 {
     壹 *多标;
     天 日期;
-    辩 后复权;
 } 基础参数;
+
+定 {
+    壹 *标的;
+    天 开始日期;
+    天 结束日期;
+} 单标基参;
 
 定 {
     壹 *多标;
@@ -218,7 +236,8 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 
 定 {
     壹 *多标;
-    分 分钟;
+    分 开始;
+    分 结束;
     辩 后复权;
 } 分钟参数;
 
@@ -250,6 +269,7 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
         年度日历 年历;
         近日日历 日历;
         基础参数 基参;
+        单标基参 单基;
         日线参数 日参;
         多日参数 多日;
         分钟参数 分钟;
@@ -262,8 +282,18 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
     请求参数 *开始;
     请求参数 *当前;
     肆 数量;
-    辩 错误, 结束;
-    空 (*数据处理)(结 单次请求 *请求, 空 *结果, 正 总数, 正 序号);
+    辩 错误;
+    struct {
+        年历数据 *年历;
+        空 (*交易日历)(结 单次请求 *请求, 天 交易日, 正 总数, 正 序号);
+    };
+    struct {
+        历年节点 节点;
+        空 (*标的信息)(结 单次请求 *请求, 肆 类型, 空 *数据);
+    };
+    struct {
+        空 (*市场标的)(结 单次请求 *请求, 空 *数据, 正 总数, 正 序号);
+    };
 } 单次请求;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -275,30 +305,44 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 
 正 标的代码转字符串(肆 代码, 壹 *字符串);
 空 督取历史数据(戳 *开始时间, 戳 *结束时间, 单次请求 *请求);
+空 督保存市场标的信息(单次请求 *请求, 请求参数 *参数);
+空 督打印市场标的信息(单次请求 *请求, 请求参数 *参数);
 空 督年度交易日历(单次请求 *请求, 请求参数 *p);
 空 督最近交易日历(单次请求 *请求, 请求参数 *p);
 空 督交易日标的信息(单次请求 *请求, 请求参数 *p);
+空 督单标的多日信息(单次请求 *请求, 请求参数 *参数);
 空 督多标历史日线(单次请求 *请求, 请求参数 *p);
 空 督多标历史分线(单次请求 *请求, 请求参数 *p);
 空 督多标最近日线(单次请求 *请求, 请求参数 *p);
 空 督多标最近分线(单次请求 *请求, 请求参数 *p);
 空 督多标历史瞬时(单次请求 *请求, 请求参数 *p);
+空 内处理单标多日信息(单次请求 *请求, 肆 类型, void *数据);
 空 策略初始化(空);
+
+定 {
+    肆 前缀个数;
+    肆 标的个数;
+    肆 分类偏移[1000];
+    肆 标的偏移[1000];
+} 标汇头部;
+
+标汇头部 *内读取标的汇总头部(空);
 
 //////////////////////////////////////////////////////////////////////////////
 //
 // PUBLIC INTERFACE
 //
 
-空 构请求参数(空);
-辩 执行请求(单次请求 *请求, 空 (*数据处理)(单次请求 *请求, 空 *结果, 正 总数, 正 序号));
+空 数据请求初始化(空);
+空 使用获取的数据(空);
+辩 执行请求(单次请求 *请求);
 
 空 清空请求(空);
 空 交易年历(正 开始年份, 正 结束年份, 辩 深交所);
 空 交易日历(天 基准日期, 宽 天数, 辩 深交所);
 空 基础信息(壹 *标名, 天 交易日);
 空 历史日线(壹 *标名, 天 开始, 天 结束, 辩 后复权);
-空 历史分线(壹 *标名, 分 分钟, 辩 后复权);
+空 历史分线(壹 *标名, 分 开始, 分 结束, 辩 后复权);
 空 瞬时信息(壹 *标名, 戳 *开始, 戳 *结束, 辩 后复权);
 
 壹 *添加标的(肆 代码);
@@ -310,7 +354,7 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 
 空 获取年度交易日历(肆 年份, 辩 深交所);
 空 更新年度日历文件(空);
-辩 创建指定年度数据(句柄 文件句柄, 肆 文件长度, 肆 年份, 存储 *输出缓冲);
+空 更新标的汇总文件(空);
 
 #ifdef __cplusplus
 }
@@ -465,11 +509,31 @@ static 正 权标名个数;
     return 权标名个数;
 }
 
+空 保存市场标的(空)
+{
+    请求参数 *p = 当前请求();
+    p->处理函数 = 督保存市场标的信息;
+}
+
+空 打印市场标的(空)
+{
+    请求参数 *p = 当前请求();
+    p->处理函数 = 督打印市场标的信息;
+}
+
 空 基础信息(壹 *标名, 天 交易日) {
     请求参数 *p = 当前请求();
     p->处理函数 = 督交易日标的信息;
     p->基参.多标 = 标名;
     p->基参.日期 = 交易日;
+}
+
+空 单标信息(壹 *标名, 天 开始日期, 天 结束日期) {
+    请求参数 *p = 当前请求();
+    p->处理函数 = 督单标的多日信息;
+    p->单基.标的 = 标名;
+    p->单基.开始日期 = 开始日期;
+    p->单基.结束日期 = 结束日期;
 }
 
 空 交易年历(正 开始年份, 正 结束年份, 辩 深交所) {
@@ -497,11 +561,12 @@ static 正 权标名个数;
     p->日参.后复权 = 后复权;
 }
 
-空 历史分线(壹 *标名, 分 分钟, 辩 后复权) {
+空 历史分线(壹 *标名, 分 开始, 分 结束, 辩 后复权) {
     请求参数 *p = 当前请求();
     p->处理函数 = 督多标历史分线;
     p->分钟.多标 = 标名;
-    p->分钟.分钟 = 分钟;
+    p->分钟.开始 = 开始;
+    p->分钟.结束 = 结束;
     p->分钟.后复权 = 后复权;
 }
 
@@ -538,67 +603,64 @@ static 正 权标名个数;
     return a;
 }
 
-空 内数据空处理(单次请求 *请求, 空 *结果, 正 总数, 正 序号) { /* 空处理 */ }
-
-辩 执行请求(单次请求 *请求, 空 (*数据处理)(单次请求 *请求, 空 *结果, 正 总数, 正 序号)) {
-    单次请求 默认请求;
+辩 执行请求(单次请求 *请求) {
+    单次请求 默认请求 = {0};
     if (请求 == 空值) 请求 = &默认请求;
     戳 当下 = {0}; prh_local_date(&当下);
     请求->开始 = 权请求参数;
     请求->数量 = 请求总数();
     请求->当前 = 空值;
     请求->错误 = 假;
-    请求->结束 = 假;
-    请求->数据处理 = 数据处理 ? 数据处理 : 内数据空处理;
     督取历史数据(&当下, &当下, 请求);
-    请求->结束 = 真;
-    请求->数据处理(请求, 空值, 0, 0);
     return 请求->错误 ? 假 : 真;
-}
-
-定 {
-    单次请求 头部;
-    年历数据 数据;
-} 年历请求;
-
-空 内年历数据处理(单次请求 *请求, 空 *结果, 正 总数, 正 序号) {
-    年历请求 *p = (年历请求 *)请求;
-    天 *交易日 = (天 *)结果;
-    if (请求->错误 || 总数 == 0) return;
-    if (总数 < 270 && 序号 < 总数 && p->数据.天数 < 270 && 交易日->年 == 请求->当前->年历.开始年份) {
-        p->数据.交易日[p->数据.天数++] = *交易日;
-    } else {
-        prh_eprint("[ERROR] 年历数据 天数 %d %d 序号 %d 年份 %d %d\n",
-            (prh_reg)总数,
-            (prh_reg)p->数据.天数,
-            (prh_reg)序号,
-            (prh_reg)请求->当前->年历.开始年份,
-            (prh_reg)交易日->年);
-        请求->错误 = 真;
-    }
 }
 
 #define 权开始年份 1990
 #define 权年份跨度 2000
 #define 权头部长度 (4 * 权年份跨度 + 1)
 
+空 内年度日历处理(单次请求 *请求, 天 交易日, 正 总数, 正 序号)
+{
+    年历数据 *p = 请求->年历;
+    if (总数 < 270 && 序号 < 总数 && p->天数 < 270 && 交易日.年 == p->年份)
+    {
+        p->交易日[p->天数++] = 交易日;
+    }
+    else
+    {
+        prh_error_print("年历数据 天数 %d %d 序号 %d 年份 %d %d\n",
+            (prh_reg)总数,
+            (prh_reg)p->天数,
+            (prh_reg)序号,
+            (prh_reg)p->年份,
+            (prh_reg)交易日.年);
+        请求->错误 = 真;
+    }
+}
+
 空 获取年度交易日历(肆 年份, 辩 深交所)
 {
     if (年份 < 权开始年份 || 年份 - 权开始年份 >= 权年份跨度)
     {
-        prh_eprint("[ERROR] 非法年份 %d\n", (prh_reg)年份);
+        prh_error_print("非法年份 %d\n", (prh_reg)年份);
     }
 
     清空请求();
     交易年历(年份, 年份, 深交所);
-    prh_buffer b = prh_make_buffer(prh_local_alloc(), sizeof(年历请求) + sizeof(天) * 270);
-    年历请求 *p = (年历请求 *)b.data;
-    p->数据.天数 = 0;
 
-    if (!执行请求(&p->头部, 内年历数据处理) || p->数据.天数 == 0 || p->数据.天数 >= 270)
+    年历数据 *p = prh_global_alloc(sizeof(年历数据));
+    memset(p, 0, sizeof(年历数据));
+    p->年份 = (贰)年份;
+
+    单次请求 请求 = {0};
+    请求.年历 = p;
+    请求.交易日历 = 内年度日历处理;
+
+    if (!执行请求(&请求) || p->天数 == 0 || p->天数 >= 270)
     {
-        prh_eprint("[ERROR] 年历数据 %d 天数 %d\n", (prh_reg)年份, (prh_reg)p->数据.天数);
-        goto label_return;
+        prh_error_print("年历数据 %d 天数 %d\n", (prh_reg)年份, (prh_reg)p->天数);
+        prh_global_free(p);
+        return;
     }
 
     prh_handle file = prh_open_file_update("a.niandujiaoyirili.txt", false);
@@ -614,7 +676,7 @@ static 正 权标名个数;
     }
     if (file_size < 权头部长度 || (file_size - 权头部长度) % 2700 != 0 || (file_size - 权头部长度) / 2700 > 权年份跨度)
     {
-        prh_eprint("[ERROR] 非法文件大小 %d\n", (prh_reg)file_size);
+        prh_error_print("非法文件大小 %d\n", (prh_reg)file_size);
         goto label_return;
     }
     prh_impl_file_pread(file, (prh_byte *)&offset, 4, year_offset);
@@ -622,10 +684,10 @@ static 正 权标名个数;
     {
         if ((file_size - 权头部长度) / 2700 == 权年份跨度)
         {
-            prh_eprint("[ERROR] 达到最大文件大小 %d\n", (prh_reg)file_size);
+            prh_error_print("达到最大文件大小 %d\n", (prh_reg)file_size);
             goto label_return;
         }
-        offset = (((prh_r32)p->数据.天数) << 23) | file_size; // 4 * 2000 + 1 + 2700 * 2000 = 5408001 0x00528501
+        offset = (((prh_r32)p->天数) << 23) | file_size; // 4 * 2000 + 1 + 2700 * 2000 = 5408001 0x00528501
         prh_impl_file_pwrite(file, (prh_byte *)&offset, 4, year_offset);
         prh_file_seek_end(file);
     }
@@ -635,21 +697,21 @@ static 正 权标名个数;
         offset = offset & 0x007fffff;
         if (offset >= file_size || offset < 权头部长度 || (offset - 权头部长度) % 2700 != 0 || (offset - 权头部长度) / 2700 >= 权年份跨度)
         {
-            prh_eprint("[ERROR] 非法数据偏移 %d\n", (prh_reg)offset);
+            prh_error_print("非法数据偏移 %d\n", (prh_reg)offset);
             goto label_return;
         }
-        if (count != p->数据.天数)
+        if (count != p->天数)
         {
-            prh_eprint("[ERROR] 年份日历 %d 天数不匹配 %d %d\n", (prh_reg)年份, (prh_reg)count, (prh_reg)p->数据.天数);
+            prh_error_print("年份日历 %d 天数不匹配 %d %d\n", (prh_reg)年份, (prh_reg)count, (prh_reg)p->天数);
             goto label_return;
         }
         prh_file_seek_from_begin(file, offset);
     }
 
     prh_reg i = 0;
-    for (; i < p->数据.天数; i += 1)
+    for (; i < p->天数; i += 1)
     {
-        天 *交易日 = p->数据.交易日 + i;
+        天 *交易日 = p->交易日 + i;
         prh_impl_print(file, "%04d-%02d%02d\n", (prh_reg)交易日->年, (prh_reg)交易日->月, (prh_reg)交易日->日);
     }
     for (; i < 270; i += 1)
@@ -658,8 +720,71 @@ static 正 权标名个数;
     }
 
 label_return:
-    prh_free_buffer(&b);
+    prh_global_free(p);
     prh_file_close(file);
+}
+
+定 {
+    肆 数据长度;
+    肆 年度[权年份跨度];
+    // [year][0101]...[1231][0000]
+    // [year][0101]...[1231][0000]
+} 历年年历;
+
+贰 *查找年度日历数据(历年年历 *p, 肆 年份, 肆 *输出天数)
+{
+    prh_real_assert(年份 >= 权开始年份 && 年份 - 权开始年份 < 权年份跨度);
+    肆 数据偏移 = p->年度[年份 - 权开始年份];
+    肆 天数 = 数据偏移 >> 23;
+    肆 长度 = (天数 + 2) * 2;
+    数据偏移 &= 0x007fffff;
+    prh_real_assert(天数 > 0 && 天数 < 270);
+    prh_real_assert(数据偏移 >= sizeof(历年年历) && 数据偏移 + 长度 <= p->数据长度);
+    贰 *数据 = (贰 *)((prh_byte *)p + 数据偏移);
+    prh_real_assert(数据[0] == 年份);
+    prh_real_assert(数据[天数+1] == 0);
+    *输出天数 = 天数;
+    return 数据 + 1;
+}
+
+肆 查找年度交易日(历年年历 *p, 天 日期, 天 *同年交易日)
+{
+    正 i; 肆 天数;
+    贰 *数据 = 查找年度日历数据(p, 日期.年, &天数);
+    贰 日 = (贰)((日期.月 << 8) | 日期.日);
+    prh_bsearch_first_less_equal(i, 日, 数据, 天数);
+    if (i >= 天数) i = 天数 - 1;
+    同年交易日->年 = 日期.年;
+    同年交易日->月 = 数据[i] >> 8;
+    同年交易日->日 = (数据[i] & 0xFF);
+    return (肆)(i + 1);
+}
+
+历年年历 *获取历年年历(空)
+{
+    prh_handle file = prh_open_file_read("a.niandujiaoyirili.bin");
+    prh_real_assert(file != prh_invalid_handle);
+    肆 数据长度, 文件长度 = prh_file_size_32(file);
+    prh_impl_file_read(file, (prh_byte *)&数据长度, 4);
+    prh_real_assert(数据长度 > sizeof(历年年历) && 数据长度 == 文件长度);
+    历年年历 *p = (历年年历 *)prh_global_alloc(数据长度);
+    p->数据长度 = 数据长度;
+    prh_impl_file_read(file, (prh_byte *)p->年度, 数据长度 - 4);
+    肆 天数, 长度 = (肆)sizeof(历年年历);
+    for (int i = 0; i < 权年份跨度; i += 1)
+    {
+        if (p->年度[i] == 0) continue;
+        贰 *数据 = 查找年度日历数据(p, 权开始年份 + i, &天数);
+        长度 += (天数 + 2) * 2;
+        prh_real_assert(数据[0] != 0);
+        for (肆 n = 1; n < 天数; n += 1)
+        {
+            prh_real_assert(数据[n] != 0 && 数据[n] > 数据[n-1]);
+        }
+    }
+    prh_real_assert(长度 == 数据长度);
+    prh_file_close(file);
+    return p;
 }
 
 空 更新年度日历文件(空)
@@ -667,14 +792,14 @@ label_return:
     prh_handle read = prh_open_file_read("a.niandujiaoyirili.txt");
     if (read == prh_invalid_handle)
     {
-        prh_eprint("[ERROR] 年度日历信息不存在\n");
+        prh_error_print("年度日历信息不存在\n");
         return;
     }
 
     prh_r32 file_size = prh_file_size_32(read);
     if (file_size < 权头部长度 || (file_size - 权头部长度) % 2700 != 0 || (file_size - 权头部长度) / 2700 > 权年份跨度)
     {
-        prh_eprint("[ERROR] 非法文件大小 %d\n", (prh_reg)file_size);
+        prh_error_print("非法文件大小 %d\n", (prh_reg)file_size);
         goto label_return;
     }
 
@@ -684,8 +809,14 @@ label_return:
     prh_r32 header_data[权年份跨度];
     prh_impl_file_read(read, (prh_byte *)header_data, 4 * 权年份跨度);
 
-    prh_r32 write_offset = 4 * 权年份跨度;
+    prh_r32 write_offset = 4 + 4 * 权年份跨度;
     prh_file_seek_from_begin(write, write_offset);
+
+    // [数据长度]
+    // [交易天数 | offset] 4 * 2000
+    // [  1  ] year     2 * (1 + count + 1)
+    // [count] 1231
+    // [  1  ] 0000
 
     for (prh_r32 i = 0; i < 权年份跨度; i += 1)
     {
@@ -697,12 +828,12 @@ label_return:
         }
         if (offset >= file_size || offset < 权头部长度 || (offset - 权头部长度) % 2700 != 0 || (offset - 权头部长度) / 2700 >= 权年份跨度)
         {
-            prh_eprint("[ERROR] 非法数据偏移 %d %d\n", (prh_reg)(权开始年份 + i), (prh_reg)offset);
+            prh_error_print("非法数据偏移 %d %d\n", (prh_reg)(权开始年份 + i), (prh_reg)offset);
             goto label_return;
         }
         if (count == 0 || count >= 270)
         {
-            prh_eprint("[ERROR] 年历数据 %d 非法天数 %d\n", (prh_reg)(权开始年份 + i), (prh_reg)count);
+            prh_error_print("年历数据 %d 非法天数 %d\n", (prh_reg)(权开始年份 + i), (prh_reg)count);
             goto label_return;
         }
 
@@ -720,17 +851,18 @@ label_return:
             if (sscanf(read_data, "%04d-%02d%02d", &年, &月, &日) != 3)
             {
                 read_data[9] = 0;
-                prh_eprint("[ERROR] 非法年历数据 %d (%d %d) '%s'\n", (prh_reg)(权开始年份 + i), (prh_reg)(count_i + 1), (prh_reg)count, read_data);
+                prh_error_print("非法年历数据 %d (%d %d) '%s'\n", (prh_reg)(权开始年份 + i), (prh_reg)(count_i + 1), (prh_reg)count, read_data);
                 goto label_return;
             }
             if (年 < 权开始年份 || 年 - 权开始年份 >= 权年份跨度)
             {
-                prh_eprint("[ERROR] 非法年份 %d\n", (prh_reg)年);
+                prh_error_print("非法年份 %d\n", (prh_reg)年);
                 goto label_return;
             }
-            if ((月 < 1 || 月 > 12 || 日 < 1 || 日 > 31) || (月 % 2 == 0 && 日 > 30) || (月 == 2 && 日 > 29))
+            if ((月 < 1 || 月 > 12 || 日 < 1 || 日 > 31) || (月 == 2 && 日 > 29) ||
+                (月 <= 7 && 月 % 2 == 0 && 日 > 30) || (月 >= 8 && 月 % 2 == 1 && 日 > 30))
             {
-                prh_eprint("[ERROR] 非法日期 %d %d\n", (prh_reg)月, (prh_reg)日);
+                prh_error_print("非法日期 %d %d\n", (prh_reg)月, (prh_reg)日);
                 goto label_return;
             }
             write_data = (prh_r16)((月 << 8) | 日);
@@ -741,7 +873,7 @@ label_return:
         if (memcmp(read_data, ".........", 9) != 0)
         {
             read_data[9] = 0;
-            prh_eprint("[ERROR] 非法年历数据 %d %d '%s'\n", (prh_reg)(权开始年份 + i), (prh_reg)count, read_data);
+            prh_error_print("非法年历数据 %d %d '%s'\n", (prh_reg)(权开始年份 + i), (prh_reg)count, read_data);
             goto label_return;
         }
 
@@ -750,62 +882,186 @@ label_return:
         write_offset += (1 + count + 1) * 2;
     }
 
-    prh_impl_file_pwrite(write, (prh_byte *)header_data, 4 * 权年份跨度, 0);
+    prh_file_seek_begin(write);
+    prh_impl_file_write(write, (prh_byte *)&write_offset, 4);
+    prh_impl_file_write(write, (prh_byte *)header_data, 4 * 权年份跨度);
 
 label_return:
     prh_file_close(read);
     prh_file_close(write);
 }
 
-辩 创建指定年度数据(句柄 文件句柄, 肆 文件长度, 肆 年份, 存储 *输出缓冲)
+定 {
+    肆 数据长度;
+    肆 前缀个数;
+    肆 标的个数;
+    壹 标的前缀[1000]; // 前缀序号 1 ~ 255
+    肆 标的序号[1000];
+} 全市标的;
+
+肆 查找标的序号(全市标的 *p, 肆 标的代码)
 {
-    年度数据 *p = (年度数据 *)输出缓冲->data;
-    if (年份 < 权开始年份 || 年份 - 权开始年份 >= 权年份跨度)
+    肆 前缀 = 标的代码 / 1000;
+    肆 序号 = 标的代码 - 前缀 * 1000;
+    prh_real_assert(前缀 < 1000);
+    壹 分类序号 = p->标的前缀[前缀];
+    if (分类序号 == 0) return 0;
+    return (p->标的序号 + 1000 * (分类序号 - 1))[序号];
+}
+
+全市标的 *获取全市标的(空)
+{
+    prh_handle file = prh_open_file_read("a.biaodihuizong.bin");
+    prh_real_assert(file != prh_invalid_handle);
+    肆 文件长度 = prh_file_size_32(file);
+    肆 数据长度, 前缀计数 = 0, 标的计数 = 0;
+    prh_impl_file_read(file, (prh_byte *)&数据长度, 4);
+    prh_real_assert(数据长度 > sizeof(全市标的) && 数据长度 == 文件长度);
+    全市标的 *p = (全市标的 *)prh_global_alloc(数据长度);
+    prh_impl_file_read(file, (prh_byte *)&p->前缀个数, 数据长度 - 4);
+    prh_real_assert(p->前缀个数 > 1 && p->前缀个数 < 255);
+    prh_real_assert(数据长度 == sizeof(全市标的) + 4 * 1000 * (p->前缀个数 - 1));
+    for (int i = 0; i < 1000; i += 1)
     {
-        prh_eprint("[ERROR] 非法年份 %d\n", (prh_reg)年份);
-        return 假;
+        if (p->标的前缀[i] == 0) continue;
+        肆 *标的序号 = p->标的序号 + 1000 * 前缀计数;
+        前缀计数 += 1;
+        prh_real_assert(p->标的前缀[i] == 前缀计数);
+        for (int n = 0; n < 1000; n += 1)
+        {
+            if (标的序号[n] == 0) continue;
+            标的计数 += 1;
+            prh_real_assert(标的序号[n] == 标的计数);
+        }
+    }
+    prh_real_assert(前缀计数 == p->前缀个数);
+    prh_real_assert(标的计数 == p->标的个数);
+    prh_file_close(file);
+    return p;
+}
+
+空 更新标的汇总文件(空)
+{
+    标汇头部 *头部 = 内读取标的汇总头部();
+    肆 标的计数 = 0, 前缀计数 = 0;
+    prh_real_assert(头部->前缀个数 > 1 && 头部->前缀个数 < 255);
+    肆 数据长度 = (肆)sizeof(全市标的) + 4 * 1000 * (头部->前缀个数 - 1);
+
+    全市标的 *p = (全市标的 *)prh_global_alloc(数据长度);
+    memset(p, 0, 数据长度);
+    p->前缀个数 = 头部->前缀个数;
+    p->标的个数 = 头部->标的个数;
+    p->数据长度 = 数据长度;
+
+    prh_handle file = prh_open_file_update((prh_byte *)"a.biaodihuizong.bin", false);
+    prh_real_assert(file != prh_invalid_handle);
+    肆 文件长度 = prh_file_size_32(file);
+    全市标的 *exist = prh_null;
+    if (文件长度 != 0)
+    {
+        prh_impl_file_read(file, (prh_byte *)&数据长度, 4);
+        prh_real_assert(数据长度 > sizeof(全市标的) && 数据长度 == 文件长度);
+        exist = (全市标的 *)prh_global_alloc(数据长度);
+        prh_impl_file_read(file, (prh_byte *)&exist->前缀个数, 数据长度 - 4);
+        prh_real_assert(exist->前缀个数 > 1 && exist->前缀个数 < 255);
+        prh_real_assert(数据长度 == sizeof(全市标的) + 4 * 1000 * (exist->前缀个数 - 1));
     }
 
-    prh_r32 offset, year_offset = 4 * (年份 - 权开始年份);
-    prh_impl_file_pread(文件句柄, (prh_byte *)&offset, 4, year_offset);
-
-    prh_r32 count = offset >> 23;
-    if (count == 0 || count >= 270)
+    for (int i = 0; i < 1000; i += 1)
     {
-        prh_eprint("[ERROR] 年历数据 %d 非法天数 %d\n", (prh_reg)年份, (prh_reg)count);
-        return 假;
+        if (头部->分类偏移[i] == 0)
+        {
+            if (exist && exist->标的前缀[i])
+            {
+                prh_print("[INFO] 移除的标的前缀 %03d\n", (prh_reg)i);
+                for (int k = 0; k < 1000; k += 1)
+                {
+                    if ((exist->标的序号 + 1000 * (exist->标的前缀[i] - 1))[k])
+                    {
+                        prh_print("[INFO] 移除的标的代码 %06d\n", (prh_reg)i * 1000 + k);
+                    }
+                }
+            }
+            continue;
+        }
+        if (exist && exist->标的前缀[i] == 0)
+        {
+            prh_print("[INFO] 添加的标的前缀 %03d\n", (prh_reg)i);
+        }
+        肆 *分类标的 = 头部->标的偏移 + 1000 * 前缀计数;
+        肆 *标的序号 = p->标的序号 + 1000 * 前缀计数;
+        p->标的前缀[i] = (前缀计数 += 1);
+        for (int n = 0; n < 1000; n += 1)
+        {
+            肆 标的代码 = i * 1000 + n;
+            if (分类标的[n] == 0)
+            {
+                if (exist && 查找标的序号(exist, 标的代码))
+                {
+                    prh_print("[INFO] 移除的标的代码 %06d\n", (prh_reg)标的代码);
+                }
+                continue;
+            }
+            if (exist && !查找标的序号(exist, 标的代码))
+            {
+                prh_print("[INFO] 添加的标的代码 %06d\n", (prh_reg)标的代码);
+            }
+            标的序号[n] = (标的计数 += 1);
+        }
     }
 
-    prh_r32 data_length = (1 + count + 1) * 2;
-    offset &= 0x007FFFFF;
-    if (offset < 4 * 权年份跨度 || offset + data_length > 文件长度)
+    prh_real_assert(前缀计数 == p->前缀个数);
+    prh_real_assert(标的计数 == p->标的个数);
+
+    if (exist != prh_null)
     {
-        prh_eprint("[ERROR] 非法数据偏移 %d %d %d\n", (prh_reg)offset, (prh_reg)data_length, (prh_reg)文件长度);
-        return 假;
+        prh_file_seek_begin(file);
+        prh_global_free(exist);
     }
 
-    memset(p, 0, sizeof(年度数据));
+    prh_impl_file_write(file, (prh_byte *)p, p->数据长度);
+    prh_file_close(file);
 
-    prh_impl_file_pread(文件句柄, (prh_byte *)&p->数据.年份, data_length, offset);
-    if (p->数据.年份 != 年份)
-    {
-        prh_eprint("[ERROR] 年份不匹配 %d %d\n", (prh_reg)年份, (prh_reg)p->数据.年份);
-        return 假;
-    }
-    if (p->数据.交易日[count] != 0)
-    {
-        prh_eprint("[ERROR] 年份数据个数不匹配 %d %d\n", (prh_reg)年份, (prh_reg)count);
-        return 假;
-    }
-    p->数据.天数 = count;
+    prh_global_free(头部);
+    prh_global_free(p);
+}
 
-    return 真;
+定 {
+    全市标的 *标的汇总;
+    历年年历 *年历汇总;
+    历年节点 *历年数据; // 数组长度为全市标的个数
+} 全局数据;
+
+static 全局数据 权全局数据;
+
+空 内全局资源释放(空)
+{
+    prh_global_free(权全局数据.标的汇总);
+    prh_global_free(权全局数据.年历汇总);
+    prh_global_free(权全局数据.历年数据);
+}
+
+空 数据请求初始化(空)
+{
+    构请求参数();
+    策略初始化();
+}
+
+空 使用获取的数据(空)
+{
+    权全局数据.标的汇总 = 获取全市标的();
+    权全局数据.年历汇总 = 获取历年年历();
+    肆 数据长度 = (肆)sizeof(历年节点) * 权全局数据.标的汇总->标的个数;
+    权全局数据.历年数据 = (历年节点 *)prh_global_alloc(数据长度);
+    memset(权全局数据.历年数据, 0, 数据长度);
+    atexit(内全局资源释放);
 }
 
 #endif // PRH_TUANYAO_IMPLEMENTATION
 
 // FULL VERSION HISTORY
 //
+//   0.05 (2026-08-21) read files to create global rili and biaodi data
 //   0.03 (2026-08-18) read niandujiaoyirili file to create niandu data
 //   0.02 (2026-08-16) with niandujiaoyirili updated
 //   0.01 (2026-08-15) initial release
