@@ -1161,7 +1161,7 @@ $(anytype T) { ((*T p, int size) int) read }
 //  2. 位域 type [bits] name [bits] name ...
 //  3. 成员别名 type (a | b | c | ...)
 //  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ... }
-def test {
+def test { // 如何实现跨越对齐边界的位域？？？
     int a int b int c int x, y, z // 重复前一类型
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int [1] inplace [signed 31] size // 位域，默认无符号值，有符号需要指定 signed 关键字
@@ -1194,6 +1194,7 @@ array(int, float)
 //      可以与 null 进行比较看是否为空，切片只能指向固定数组
 //  3.  动态数组，是一个长度可以在运行时改变的数组，[@]int 。动态数组可以 resize 并且通过使
 //      用当前的 context 分配器进行内存分配，动态数组有两个内置函数 len 和 cap。
+// 区分指向数组的指针，和指向元素的指针，避免错误的使用指向数组的指针当作元素使用，没有取索引
 *[N]Type // [N] [] [_] * ** 的排列组合，N 是一个常量表达式，常量表达式会进行编译时即时计算
 [*]Type // 指向的内容是一个 Type 类型的数组，长度不定，另外 *Type 表示指向单个 Type 值
 *[N]Type // 指向的内容是一个 [N]Type 类型
@@ -1244,7 +1245,11 @@ for [&it] // 迭代元素捕获
 //  5.  不能通过静态分析推断生存期的分配
 //  6.  分配的释放必须早于内存池的释放
 //  7.  注意以上类型的相互赋值
-//
+
+scoped allocation customed_alloc_face {
+
+}
+
 // 数组实现
 //
 //  数组常量，固定大小，只读，可保存到只读分区，添加 local 限定到函数作用域，用完即丢，

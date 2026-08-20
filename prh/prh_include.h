@@ -4495,6 +4495,9 @@ void prh_impl_basic_test(void) {
 const prh_alloc_face *prh_local_alloc(void);
 const prh_alloc_face *prh_default_alloc(void);
 void prh_set_local_alloc(const prh_alloc_face *alloc);
+void prh_set_global_alloc(const prh_alloc_face *alloc);
+void *prh_global_alloc(prh_reg size);
+void prh_global_free(void *ptr);
 
 prh_inline prh_buffer prh_make_buffer(const prh_alloc_face *alloc, prh_reg size) {
     prh_buffer b = prh_buffer_from(alloc);
@@ -4741,6 +4744,7 @@ void prh_impl_default_alloc_func(prh_buffer *ptr, prh_reg new_size) {
 }
 
 static const prh_alloc_face PRH_DEFAULT_ALLOC = { prh_null, prh_impl_default_alloc_func };
+static const prh_alloc_face *PRH_GLOBAL_ALLOC = &PRH_DEFAULT_ALLOC; // 全局分配器在初始化设置一次之后不可再更改
 prh_thread_local prh_alloc_face PRH_LOCAL_ALLOC;
 
 const prh_alloc_face *prh_local_alloc(void) { return &PRH_LOCAL_ALLOC; }
@@ -4748,6 +4752,20 @@ const prh_alloc_face *prh_default_alloc(void) { return &PRH_DEFAULT_ALLOC; }
 
 void prh_set_local_alloc(const prh_alloc_face *alloc) {
     PRH_LOCAL_ALLOC = *alloc;
+}
+
+void prh_set_global_alloc(const prh_alloc_face *alloc) {
+    PRH_GLOBAL_ALLOC = alloc;
+}
+
+void *prh_global_alloc(prh_reg size) {
+    return prh_make_buffer(PRH_GLOBAL_ALLOC, size).data;
+}
+
+void prh_global_free(void *ptr) {
+    prh_buffer b = prh_buffer_from(PRH_GLOBAL_ALLOC);
+    prh_buffer_set_data(&b, ptr);
+    prh_free_buffer(&b);
 }
 
 prh_thread_local const prh_allocator *PRH_IMPL_LOCAL_ALLOC;
