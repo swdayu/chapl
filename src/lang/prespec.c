@@ -11,7 +11,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，统一各种分支语句和各种循环语句
-//  if likely else elif case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
+//  if likely else elfe fine endf case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed based of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
@@ -657,9 +657,9 @@
 //  ereg e08r e16r e32r e64r eraw
 //
 //  bool byte char string none null true false def error
-//  i08 i16 i32 i64 i128 i256 i512 int raw_int // 面向系统、机器、硬件编程，需要使用 raw_int 和 raw_reg
-//  r08 r16 r32 r64 r128 r256 r512 reg raw_reg // 编写上层应用，一般只需要使用 int 和 reg，reg_ptr raw_ptr
-//  f08 f16 f32 f64 f128 f256 f512 float double
+//  i08 i16 i32 i64 i128 i256 i512 int imt // 面向系统、机器、硬件编程，需要使用 raw.int 和 raw.reg
+//  r08 r16 r32 r64 r128 r256 r512 reg raw // 编写上层应用，一般只需要使用 int 和 reg，reg.ptr raw.ptr
+//  f08 f16 f32 f64 f128 f256 f512 float double // f16.16
 //  d08 d16 d32 d64 d128 d256 d512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
 //
@@ -678,11 +678,10 @@
 //  3.14fhh  3.14fh  3.14fl  3.14fll  3.14fx  3.14fy   3.14fz   3.14f
 //  3.14dhh  3.14dh  3.14dl  3.14dll  3.14dx  3.14dy   3.14dz   3.14d
 //
-//  i16_le i32_le i64_le int_le raw_int_le
-//  i16_be i32_be i64_be int_be raw_int_be
-//
-//  r16_le r32_le r64_le reg_le raw_le
-//  r16_be r32_be r64_be reg_be raw_be
+//  i16.le i32.le i64.le int.le raw.int.le
+//  i16.be i32.be i64.be int.be raw.int.be
+//  r16.le r32.le r64.le reg.le raw.le
+//  r16.be r32.be r64.be reg.be raw.be
 //
 //  i<1> i<2> i<4> i<8> i<x> i<y> i<z> int i<raw> // <> 中可以是单个数值或标识符
 //  r<1> r<2> r<4> r<8> r<x> r<y> r<z> reg r<raw>
@@ -693,9 +692,9 @@
 //  1 2 3 4 8 x y z p m
 //  vec2 vec3 vec4
 //  mat2 mat3 mat4
-//  ma22 ma23 ma24
-//  ma32 ma33 ma34
-//  ma42 ma43 ma44
+//  ma23 ma24
+//  ma32 ma34
+//  ma42 ma43
 //
 //  predefined header types
 //  vew`array   arriew      std.array_view    array_view
@@ -1094,15 +1093,15 @@ using func_type (int a, &int float)
 (&int float)
 (&int float and error)
 (&int float or error)
-(&int float (x y) or error)
-(&(&int (a)) float)
+(&int float [x y] or error)
+(&(&int [a]) float)
 (&(&int) float)
-(&(&int) float (x y) or error)
-(yield int int float (a b c), &int (&int or none) float (x y z) or error)
-(yield int int (a b), &int float)
-(yield int point (a b), &int)
-(yield int point (a b))
-(yield int rep float (a b c))
+(&(&int) float [x y] or error)
+(yield int int float [a b c], &int (&int or none) float [x y z] or error)
+(yield int int [a b], &int float)
+(yield int point [a b], &int)
+(yield int point [a b])
+(yield int dup float [a b c])
 (int a, &int) // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
 (int _) // 匿名参数
@@ -1153,8 +1152,8 @@ struct {} // 空结构体
 {int a int b point o string s}
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
 {int point} // point 是 int 型类型成员
-enum { red green blue }
-enum int { red green = 2 blue }
+(r08 red green blue)
+(int red green {2} blue)
 $(anytype T) { ((*T p, int size) int) read }
 // 结构体中的各类成员
 //  1. 成员 type field_name field_name
@@ -1164,15 +1163,19 @@ $(anytype T) { ((*T p, int size) int) read }
 def test { // 如何实现跨越对齐边界的位域？？？
     int a int b int c int x, y, z // 重复前一类型
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
-    int [1] inplace [signed 31] size // 位域，默认无符号值，有符号需要指定 signed 关键字
-    int (size | bytes | count | 长度 | 大小) // 成员别名，可以为不同语言提供不同名称
-    f64 d {
-        | int (i | j | k), m
-        | f32 f, g, (h | p | q)
-        | byte b r32 u
-        | byte b r32 u
-        | char c
-    }
+    int [1] inplace [signed 31] size // 位域，默认无符号值，有符号需要指定 signed 关键字, 默认不能跨越边界
+    r16 [15] flags [>12<] stride [5] data // 必须显示指定跨越边界
+    int size | bytes | count | 长度 | 大小 // 成员别名，可以为不同语言提供不同名称
+    tie f64 d
+    tie int i | j | k
+        int m
+    tie f32 f
+        f32 g
+        f32 h | p | q
+    tie byte b
+        r32 u
+    tie char c
+    off.data
 }
 
 // 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
@@ -1245,9 +1248,14 @@ for [&it] // 迭代元素捕获
 //  5.  不能通过静态分析推断生存期的分配
 //  6.  分配的释放必须早于内存池的释放
 //  7.  注意以上类型的相互赋值
+//
+// https://codeberg.org/ziglang/zig/src/commit/0.15.2/lib/std/heap/SmpAllocator.zig
+// 如果你能精心设计分配器接口，代码甚至可以变动更简单。
+// 一个不到200行的代码，性能也能与libc相媲美。
+// 与 malloc/free 的主要区别是，用户需要自行维护分配长度和对齐要求，
+// 而这些信息通常在类型系统中就已经静态可知。
 
 scoped allocation customed_alloc_face {
-
 }
 
 // 数组实现
@@ -2549,15 +2557,15 @@ for $i (10 to 0] step 1 { }
 // a + b // 相当于 a +b // 必须写成 a +b
 // a - c // 相当于 a -c // 必须写成 a -c
 // a *int null // 必须写成 a *int 不能写成 a * int
-if $a point {100, 200} + b (expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
-if $a point {100, 200} + global.b (expr) { stmt ... }
-if $a $_ $c read_tuple(l) (expr) { stmt ... }
-if $u lexer_next_utf8() (u == '\'' || u == prh_char_invalid)
+if ($a point {100, 200} + b, expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
+if ($a point {100, 200} + global.b, expr) { stmt ... }
+if ($a $_ $c read_tuple(l), expr) stmt ... fine
+if ($u lexer_next_utf8(), u == '\'' || u == prh_char_invalid)
     return TOKERR
-if $c getarray(l)[0][1]!(a)!(a == c) (c != '\'') // 函数必须后接()操作符，连续调用必须使用!()操作符
+if ($c getarray(l)[0][1]!(a)!(a == c), c != '\'') // 函数必须后接()操作符，连续调用必须使用!()操作符
     return TOKERR
-if $c getarray(l)
-if $func &getarray (not func()) // 获取函数的地址和数组的地址，必须使用取地址操作符
+if ($c getarray(l)) { ... }
+if ($func getarray, not func()) // 获取函数的地址和数组的地址，必须使用取地址操作符
     return TOKERR
 l.c = lexer_next_char(l)
 l.cvalue = u
@@ -2614,7 +2622,7 @@ elif b == null
     print("null")
 else
     print("a/b=%", a)
-endf
+fine
 
 def calc(*file? file, *expr expr, &int) { // 如果加上了 none 属性表示值可能为空，必须要进行 none 检查
 }
@@ -2870,6 +2878,58 @@ def tcp_poll(*file, *socket, *poll_table, &poll) [m] "alignas 16" {
     smp_rmb()
     if READ_ONCE(sk.sk_err) || !skb_queue_empty_lockless(&sk.sk_error_queue) then
         mask |= EPOLLERR
+
+    return mask
+}
+
+def tcp_poll(*file, *socket, *poll_table, &poll) [m] "align 16" {
+    poll = typename(poll) undefined
+    sk "align line" = socket
+    a = byte undefined
+    b = int undefined
+
+    sock_poll_wait(file, sock, wait)
+
+    state = inet_sk_state_load(sk)
+    if (state == TCP_LISTEN) return inet_csk_listen_poll(sk)
+
+    mask = 0
+
+    shutdown = READ_ONCE(sk.sk_shutdown)
+    if (shutdown == SHUTDOWN_MASK || state == TCP_CLOSE)
+        mask != EPOLLHUP
+    elif (condition)
+        mask |= EPOLLHUP
+    elif <\n>
+        mask |= EPOLLHUP
+    endf
+
+    if (shutdown == SHUTDOWN_MASK || state == TCP_CLOSE)
+    {
+        mask != EPOLLHUP
+    }
+    else if (condition)
+    {
+        mask |= EPOLLHUP
+    }
+    else
+    {
+        mask |= EPOLLHUP
+    }
+
+    if (shutdown & RCV_SHUTDOWN)
+        mask |= EPOLLIN | EPOLLRDNORM | EPOLLRDHUP
+    endf
+
+    if (state != TCP_SYN_SENT && (state != TCP_SYN_RECV || rcu_access_pointer(tp.fastopen_rsk)))
+        target = int sock_rcvlowat(sk, 0, INT_MAX)
+        urg_data = r16 READ_ONCE(tp.urg_data)
+    endf
+
+    smp_rmb()
+    if (READ_ONCE(sk.sk_err) || !skb_queue_empty_lockless(&sk.sk_error_queue))
+        mask |= EPOLLERR
+    endf
 
     return mask
 }
@@ -3578,7 +3638,7 @@ math:*
 //      if (expr)
 //          stmt
 //      endf
-//  else
+//  elif
 //      stmt
 //      if (expr)
 //          stmt
@@ -3587,41 +3647,40 @@ math:*
 //      endf
 //  endf
 //
-//  if (a == 1) print(a) else print(b) endf
+//  if (a == 1) print(a) elif print(b) endf
 //  if (a == 1) print(a) elif (a == 2) print(b) endf
-//  if (a == 1) print(a) elif (a == 2) print(b) else print(c) endf
+//  if (a == 1) print(a) elif (a == 2) print(b) elif print(c) endf
 //
-//  if expr then statement
-//  if expr then statement else then statement
-//  if expr then statement
-//  else if expr then statement
-//  else then statement
+//  if (expr) statement endf
+//  if (expr) statement elif statement endf
+//  if (expr) statement
+//  elif (expr) statement
+//  elif statement
+//  endf
 //
-//  if expr statement
-//  if expr statement else statement
-//  if expr statement
-//  else if expr statement
-//  else statement
+//  if (expr) statement endf
+//  if (expr) statement elif statement
+//  if (expr) statement
+//  elif (expr) statement
+//  elif statement
+//  endf
 //
 //  3.  缩进条件语句
-//  if expr <\n> // 如果 expr 要换行，请用操作符作为行的结束
+//  if (expr) // 如果 expr 要换行，请用操作符作为行的结束
 //      stmt
-//      ...
-//  if expr <\n>
+//  endf
+//  if (expr)
 //      stmt
-//      ...
-//  else <\n>
+//  elif
 //      stmt
-//      ...
-//  if expr <\n>
+//  endf
+//  if (expr)
 //      stmt
-//      ...
-//  else if expr <\n>
+//  elif (expr)
 //      stmt
-//      ...
-//  else <\n>
+//  elif
 //      stmt
-//      ...
+//  endf
 //
 //  4.  标签条件语句，if == item 相当于定义了一个标签，可以用在任何标签可以使用的地方
 //  if [expr] label == item statement
@@ -3935,34 +3994,26 @@ if expr // 条件表达式之后没有跟随跳转语句，或起始大括号，
     stmt
     stmt
 
-if expr
-    return stmt
-else if expr
-    aaa
-    bbb
-    if ccc
-        stmt
-        void
-    void
+if (expr) return stmt
+elif (expr)
+    aaa bbb
+    if (ccc) stmt fine
 else
     stmt
-    if expr
-        stmt
-        void
+    if (expr) stmt fine
     stmt
-    void
+fine
 
 if (expr)
     return stmt
 elif (expr)
-    aaa
-    bbb
-    if (ccc) stmt endf
+    aaa bbb
+    if (ccc) stmt fine
 else
     stmt
-    if (expr) stmt endf
+    if (expr) stmt fine
     stmt
-endf
+fine
 
 if [color] red {
     goto green
@@ -4146,12 +4197,14 @@ print(typestring, "\n")
 //
 //  10. 协程的实现
 //
+// 一个函数一旦调用一个函数指针，整个函数栈大小就不再编译时确定。
+//
 // 对于 64 位系统，进程虚拟空间足够大，每个协程可以映射一个足够大的内存来使用，并且按
 // 需对内存进行实际提交。因为用户空间有 128T 可用，而每 1T 虚拟空间可以给100万个协程
 // 每个协程都预留1MB空间。
 //
 // 对于 32 位系统，因为自己的编程语言可以知道每个函数需要的最大栈空间是多少，可以实际
-// 分配对应的栈大小即可。对于递归调用的情况，每次递归调用再次该该函数分配对应大小的栈
+// 分配对应的栈大小即可。对于递归调用的情况，每次递归调用再次给该函数分配对应大小的栈
 // 空间之后才继续执行，相当于创建了同一个函数的多个实例，然后随着递归的进行而分配和释
 // 放。
 
