@@ -11,7 +11,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，统一各种分支语句和各种循环语句
-//  if likely else elfe fine endf case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
+//  if likely else elif endf fine case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed based of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
@@ -83,30 +83,23 @@
 //      可以通过 alignof(date::year) 表示。类型操作符 :: 还可以用来实例化泛型，例如
 //      array!(int, 4)，get_array_genric_type()!(int, 4)
 //  8.  如果成员变量名称与成员函数名称冲突，成员变量名称可以使用 a.__field__.name 访问
-//  9.  如果变量名与类型名冲突，可以使用 name!inf 访问类型名称，inf 表示类型推导
-//      a := point!inf !cond ? {10, 20} : {30, 40}
+//  9.  如果变量名与类型名冲突，可以使用 typename 访问类型名称
+//      a := typename(point) !cond ? {10, 20} : {30, 40}
 //
-//      array!(int, 4)
-//      std.file::offset
-//      date::year // 返回类型成员的偏移值
-//      date::year::sizeof // 返回类型成员的大小
-//      date::year::alignof // 返回类型成员的对齐属性值
-//      date.year.offsetof
-//      date.year.sizeof
-//      date.year.alignof
-//      date.sizeof // date 必须是变量名
-//      date::sizeof // date 必须是类型名
-//      date.alignof // date 必须是变量名
-//      date::alignof // date 必须是类型名
-//      date@type_info.name // date 必须是类型名
-//      date@type_info.size // date 必须是类型名
-//      date.typeof@type_info.name // date 是变量名
-//      date.typeof@type_info.size // date 是变量名
-//
-//      typeof(a)@type_info.type INTEGER FLOAT STRING ARRAY STRUCT PROCEDURE POINTER TYPE
-//      date@type_info.name      name offset runtime_size enum_type_flags & .STRICT
-//
-//      类型操作符 :: 和 @ 以及 !()。
+//      array(int, 4)
+//      std::file.offset
+//      date.field.#type
+//      date.field.#tyid
+//      date.field.#size
+//      date.field.#self
+//      date.field.#name
+//      date.field.#align
+//      date.field.#offset
+//      date.#type
+//      date.#tyid INTEGER FLOAT STRING ARRAY STRUCT PROCEDURE POINTER TYPE
+//      date.#name name offset runtime_size enum_type_flags & .STRICT
+//      date.#self
+//      date.#size
 //
 //      每个文件都有一个默认的文件作用域，当导入到其他文件时，其中的符号还是在其文件作
 //      用域中，需要通过导入时的文件名作为名字空间访问，或强制导入全部公开符号。结构体
@@ -197,6 +190,63 @@
 //          using std_<name> std::name
 //          let a = std::array {1, 2, 3}
 //          let a = std_array {1, 2, 3}
+//
+//          // mylib.code
+//
+//          /mylib/alpha/
+//
+//          -- array --
+//
+//          def array $(anytype T, reg SIZE) {
+//              [SIZE]T data
+//              reg count
+//          }
+//
+//          def capacity(array($T, #SIZE) self) {
+//              return self.SIZE
+//          }
+//
+//          def count(array($T, #SIZE) self) {
+//              return self.count
+//          }
+//
+//          def push(array($T, #SIZE) self, T data) {
+//              assert(self.len < self.SIZE)
+//              self.data[self.len] = data
+//              self.len += 1
+//          }
+//
+//          -- stack --
+//
+//          def stack $(anytype T, reg SIZE) {
+//              [SIZE]T data
+//              reg top
+//          }
+//
+//          def push(stack($T, #SIZE) self, T data) {
+//              self[self.top] = data
+//              self.top += 1
+//          }
+//
+//          def pop(stack($T, #SIZE) self, &T) {
+//              assert(self.top > 0)
+//              self.top -= 1
+//              return self.data[self.top]
+//          }
+//
+//          import [path] "mylib.code" // 从当前或指定目录导入 mylib::alpha::array::push
+//          import [path] m "mylib.code" // m::array::push m::stack::push
+//          import [path] * "mylib.code" // array:push array(int, 32) a 这里 array 表示 array 空间下同名的符号即数组
+//          import [path] "mylib.code" array [as a] // mylib::alpha::array::push => a::push
+//          import [path] m "mylib.code" array [= a] // m::array::push => a::push
+//          import [path] * "mylib.code" array [= a] // array::push => a::push
+//          import [path] "mylib.code" { array stack } // mylib::alpha::array::push mylib::alpha::stack::push
+//          import [path] m "mylib.code" { array stack } // m::array:push m::stack::push
+//          import [path] * "mylib.code" { array stack } // array::push stack::push
+//          import [path] "mylib.code" { array = a stack = s } // a::push s::push
+//          import [path] m "mylib.code" { array * stack = s } // push s::push
+//          import [path] * "mylib.code" { array * stack * } // 如果出现名称冲突则非法
+//          import [path] * "mylib.code" {*} // 如果出现名称冲突则非法
 //
 // 一个工程可以包含多个库（library），每个库可以包含多个命名空间或代码包，例如：
 //  1.  标准库 std 可以包含各种代码包 std.array std.string
