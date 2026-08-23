@@ -1,10 +1,19 @@
-//  1.  简单一篇覆盖测试可以验证逻辑完备性要求的检查，使用 assert
-//      a) 空指针检查，可以使用 assert，因为即使去掉 assert，空指针也会导致空指针异常直接找到问题
-//      b) 除零检查，可以使用 assert，因为去掉也会报异常，直接找到问题所在
-//      c) 算法逻辑的验证，使用 assert，因为一旦覆盖性测试通过，可以保证逻辑不会出错
-//  2.  其他一切在运行时不能出错的边界条件，一律使用 abort
-//  3.  而可以正常出现的错误，要么将错误传递给上层，要么对错误进行处理
-
+// 错误处理
+// 简单一遍覆盖测试可以验证逻辑完备性要求的检查，使用 assert
+//  a) 空指针检查，可以使用 assert，因为即使去掉 assert，空指针也会导致空指针异常直接找到问题
+//  b) 除零检查，可以使用 assert，因为去掉也会报异常，直接找到问题所在
+//  c) 算法逻辑的验证，使用 assert，因为一旦覆盖性测试通过，可以保证逻辑不会出错
+// 其他一切在运行时不能出错的边界条件，一律使用 abort
+// 而可以正常出现的错误，要么将错误传递给上层，要么对错误进行处理
+// 一个对象可以定制对错误的处理，例如文件在打开是可以指定错误模式
+//  . 默认是必须检查文件操作的返回值
+//      file = open_file_read("file")
+//      if (file == invalid_handle) return // 手动处理错误
+//  . 第二种选择是将错误向上层传递
+//      file = orerr open_file_read("file") // 错误立即返回，并向主调函数传递文件错误信息
+//  . 第三种选择是遇到错误直接中断程序
+//      file = abort open_file_read("file") // 错误立即终止程序
+//
 // 符号可以分为变量和类型，变量的底层表示其实就是一个内存中地址，包括全局变量、局部变量、
 // 函数、跳转标签都是一个地址。类型只是一种语法概念并不占据实际物理世界空间，但这两种符号
 // 都可以进行调用，变量的调用其实就是函数，类型的调用相当于模板类型实例化变成具体类型。其
@@ -234,19 +243,54 @@
 //              return self.data[self.top]
 //          }
 //
-//          import [path] "mylib.code" // 从当前或指定目录导入 mylib::alpha::array::push
-//          import [path] m "mylib.code" // m::array::push m::stack::push
-//          import [path] * "mylib.code" // array:push array(int, 32) a 这里 array 表示 array 空间下同名的符号即数组
-//          import [path] "mylib.code" array [as a] // mylib::alpha::array::push => a::push
-//          import [path] m "mylib.code" array [= a] // m::array::push => a::push
-//          import [path] * "mylib.code" array [= a] // array::push => a::push
-//          import [path] "mylib.code" { array stack } // mylib::alpha::array::push mylib::alpha::stack::push
-//          import [path] m "mylib.code" { array stack } // m::array:push m::stack::push
-//          import [path] * "mylib.code" { array stack } // array::push stack::push
-//          import [path] "mylib.code" { array = a stack = s } // a::push s::push
-//          import [path] m "mylib.code" { array * stack = s } // push s::push
-//          import [path] * "mylib.code" { array * stack * } // 如果出现名称冲突则非法
-//          import [path] * "mylib.code" {*} // 如果出现名称冲突则非法
+//          -- test --
+//
+//          def __init__(void) {
+//          }
+//
+//          def __exit__(void) {
+//          }
+//
+//          // 名字空间名称和类型名称必须提前声明，函数名称和标签名称不需要提前声明，变量名称必须先定义后使用
+//
+//          import   "mylib.code" // 从当前目录导入 mylib.alpha.array.push
+//          import m "mylib.code" // m.array.push m.stack.push
+//          import * "mylib.code" // array.push array(int, 32) a 这里 array 表示 array 空间下同名的符号即数组
+//          import   "mylib.code" array // mylib.alpha.array.push
+//          import m "mylib.code" array // m.array.push
+//          import * "mylib.code" array // array.push
+//          import   "mylib.code" array as mylib_array // mylib_array.push
+//          import m "mylib.code" array as mylib_array // mylib_array.push
+//          import * "mylib.code" array as mylib_array // mylib_array.push
+//          import * "mylib.code" array * // push
+//          import   "mylib.code" { array stack } // mylib.alpha.array.push mylib.alpha.stack.push
+//          import m "mylib.code" { array stack } // m.array.push m.stack.push
+//          import * "mylib.code" { array stack } // array.push stack.push
+//          import   "mylib.code" { array as a stack as s } // a.push s.push
+//          import m "mylib.code" { array * stack as s } // push s.push
+//          import * "mylib.code" { array * stack * } // 如果出现名称冲突则非法
+//          import * "mylib.code" {*} // 如果出现名称冲突则非法
+//
+//          import   "%dir%/mylib.code" // 从指定目录导入 mylib.alpha.array.push
+//          import m "%dir%/mylib.code" // m.array.push m.stack.push
+//          import * "%dir%/mylib.code" // array.push array(int, 32) a 这里 array 表示 array 空间下同名的符号即数组
+//          import   "%dir%/mylib.code" array // mylib.alpha.array.push
+//          import m "%dir%/mylib.code" array // m.array.push
+//          import * "%dir%/mylib.code" array // array.push
+//          import   "%dir%/mylib.code" array as mylib_array // mylib_array.push
+//          import m "%dir%/mylib.code" array as mylib_array // mylib_array.push
+//          import * "%dir%/mylib.code" array as mylib_array // mylib_array.push
+//          import * "%dir%/mylib.code" array * // push
+//          import   "%dir%/mylib.code" { array stack } // mylib.alpha.array.push mylib.alpha.stack.push
+//          import m "%dir%/mylib.code" { array stack } // m.array.push m.stack.push
+//          import * "%dir%/mylib.code" { array stack } // array.push stack.push
+//          import   "%dir%/mylib.code" { array as a stack as s } // a.push s.push
+//          import m "%dir%/mylib.code" { array * stack as s } // push s.push
+//          import * "%dir%/mylib.code" { array * stack * } // 如果出现名称冲突则非法
+//          import * "%dir%/mylib.code" {*} // 如果出现名称冲突则非法
+//
+//          using mylib_array_push mylib_array.push
+//          using mylib_array_* mylib_array.*
 //
 // 一个工程可以包含多个库（library），每个库可以包含多个命名空间或代码包，例如：
 //  1.  标准库 std 可以包含各种代码包 std.array std.string
