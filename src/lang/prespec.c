@@ -14,6 +14,11 @@
 //  . 第三种选择是遇到错误直接中断程序
 //      file = abort open_file_read("file") // 错误立即终止程序
 //
+// 逻辑约束
+// 某一类变量的值必须在指定范围
+//      force type.field > start_value && < start_value + value_range
+//      force type.field with this > start_value && this < end_value
+//
 // 符号可以分为变量和类型，变量的底层表示其实就是一个内存中地址，包括全局变量、局部变量、
 // 函数、跳转标签都是一个地址。类型只是一种语法概念并不占据实际物理世界空间，但这两种符号
 // 都可以进行调用，变量的调用其实就是函数，类型的调用相当于模板类型实例化变成具体类型。其
