@@ -425,24 +425,24 @@
 //      def cross_2d($T/[2]$E a b, &E) where E::type_is_numeric { // [4]E a 成员名称 xyzw rgba 可以粘连 xy xx rrga
 //          return a.x*b.y - a.y*b.x
 //      }
-//      a := [2]int{1, 2}
-//      b := [2]int{5, -3}
+//      a mov [2]int {1, 2}
+//      b mov [2]int {5, -3}
 //      fmt.prinf(cross_2d(a, b))
 //      def cross_3d($T/[3]$E a b, &T) where E::type_is_numeric {
-//          let pi 3.1415926
-//          use t {int a b}
+//          let PI 3.1415926
+//          use type {int a b}
 //          use int_ptr *int
-//          x := a.y*b.z - a.z*b.y
-//          y := a.z*b.x - a.x*b.z
-//          z := a.x*b.y - a.y*b.x
+//          x mov a.y*b.z - a.z*b.y
+//          y mov a.z*b.x - a.x*b.z
+//          z mov a.x*b.y - a.y*b.x
 //          return T{x, y, z}
 //      }
-//      x := [3]f32{1, 4, 9}
-//      y := [3]f32{-5, 0, 3}
+//      x mov [3]f32{1, 4, 9}
+//      y mov [3]f32{-5, 0, 3}
 //      fmt.prinf(cross_3d(x, y))
 //      // 失败情况
-//      // i := [2]bool{true, false}
-//      // j := [2]bool{false, true}
+//      // i mov [2]bool{true, false}
+//      // j mov [2]bool{false, true}
 //      // fmt.prinf(cross_2d(i, j))
 //  3.  解决过程分组中多态过程的歧义
 //      def foo([$N]int x, &bool) where N > 2 {
@@ -456,10 +456,10 @@
 //      def baz(overloaded) {
 //          foo bar
 //      }
-//      x := [3]int{1, 2, 3}
-//      y := [2]int{4, 9}
-//      ok_x := baz(x)
-//      ok_y := baz(y)
+//      x mov [3]int{1, 2, 3}
+//      y mov [2]int{4, 9}
+//      ok_x mov baz(x)
+//      ok_y mov baz(y)
 //      assert(ok_x == true)
 //      assert(ok_y == false)
 //  4.  记录类型的参数多态参数限制
@@ -469,7 +469,7 @@
 //      }
 //      use T i32
 //      let N 5
-//      f := Foo!(T, N)
+//      f mov Foo!(T, N)
 //      #assert(size_of(f) == (N+N-2)*size_of(T))
 //
 //  有关传参
@@ -577,7 +577,7 @@
 //  https://lukaswirth.dev/tlborm/ (https://zjp-cn.github.io/tlborm/)
 //
 //  static if defined(x) && y > 3 {
-//      def var int a
+//      def a int
 //  } else if expr {
 //
 //  } else {
@@ -587,7 +587,7 @@
 //  static if defined(x) && y > 3 { def var int a }
 //
 //  static if defined(x) && y > 3 {
-//      def var int a
+//      def a int
 //  }
 //
 //  def add(@x) #macro
@@ -1297,26 +1297,31 @@ array(int, float)
 //  3.  动态数组，是一个长度可以在运行时改变的数组，[@]int 。动态数组可以 resize 并且通过使
 //      用当前的 context 分配器进行内存分配，动态数组有两个内置函数 len 和 cap。
 // 区分指向数组的指针，和指向元素的指针，避免错误的使用指向数组的指针当作元素使用，没有取索引
-*[N]Type // [N] [] [_] * ** 的排列组合，N 是一个常量表达式，常量表达式会进行编译时即时计算
+*[N]Type // [N] [] [?] * ** 的排列组合，N 是一个常量表达式，常量表达式会进行编译时即时计算
 [*]Type // 指向的内容是一个 Type 类型的数组，长度不定，另外 *Type 表示指向单个 Type 值
 *[N]Type // 指向的内容是一个 [N]Type 类型
 [*][N]Type // 指向的内容是一个 [N]Type 类型的数组
 [N][N]Type
 [N]*Type // 固定大小的数据
-[:int] // 集合类型
-|my_array|[@]int // 自定义数组类型
-|flat_set|[:int] // 自定义集合类型
-[string:int] // 映射类型
-|flat_map|[string:int] // 自定义映射类型
-[string:*int]
-*[string:[N]int]
+[:]int // 集合类型
+[@]|in my_array|int
+[@]|de my_array|int
+[@]|my_array|int // 自定义数组类型
+[:]|flat_set|int // 自定义集合类型
+[string:]int // 映射类型
+[string:]|flat_map|int // 自定义映射类型
+[string:]*int
+*[string:][N]int
 *int // 指向 int 的指针
 @int // int 型数组的 array_view
 [2]int
-[-]int // 单链表
+[?]int
+[#]int // 块链
+[~]int // 单链表
 [=]int // 双链表
-[~]int // 先入先出
-[$]int // 先入后出
+[<]int // 三链表
+[>]int // 先入先出
+[_]int // 先入后出
 where [m &a &b] { stmt... } // 捕获参数
 FuncTypeLit [m &a &b] { stmt... } // 捕获参数
 vsym[i] vsym[i,j] // 变量数组元素
@@ -2048,7 +2053,7 @@ def color enum r08 { // private type
 
 pub color enum r08 { // public type
     red
-    green = 1 << enum
+    green {1 << enum}
     blue
 }
 
@@ -2125,13 +2130,6 @@ using type_point point
 using func_type (int a, &int)
 using tuple_type [int float]
 
-def @func_type (int argc, **char argv, &int)
-def @map_type |flat_map|[string:int]
-def @tuple_type [int int float string]
-def @int_ptr *int
-def @point_ptr *point
-def @type_point point
-
 def name(int a, &int) { ... }
 def name enum { red blue green }
 def name enum int { red bule green }
@@ -2139,7 +2137,7 @@ def name enum int [r08 lpri r08 rpri] { ... }
 def name enum [r08 lpri r08 rpri] { ... }
 def name (r08 red blue green)
 def name (int red blue green)
-def name (int {r08 lpri, rpri} ADD {3, 2} SUB {3, 2})
+def name (int tie {r08 lpri, rpri} ADD {3, 2} SUB {3, 2})
 def name { int a int b }
 def name $(anytype T U, const SIZE, int N T VALUE) { ... }
 def name $(anytype T) { ... }
@@ -2328,136 +2326,85 @@ pub #p8 pragma(runtime) [int int] {x, y}
 //  let PI 3.1415926
 //  final
 
-def type [3]float // def type struct = [3]float
-def a = type {1, 2, 3} // a 可以直接作为 [3]float 类型的值使用
+// 定义函数和类型
+def calc [[fastcall align line]] (int a, b, &int) extern // 函数定义的声明
+def calc [[fastcall align 16]] (int a, b, &int) { return 0 } // 定义函数常量
+def point [[packed]] { float x, y, z } // 定义新的类型
+def type { tie int i tie byte b tie char c tie float f off }
+def array $(anytype T, reg SIZE) { [SIZE]T data reg size }
+def transfer this { (this) close }
+def color [int] { red, green = 1, blue }
+def color [int] { red, green 1, blue }
+def color [int] { red, green (N + 1), blue }
+def chars [int] { first 'a', second 'b', last 'z' }
+def mask [int] { red = 1 << enum, green, blue }
+def mask [int] { red (1 << enum), green, blue }
+def oper [int tie r08 lpri r08 rpri] { ADD '+' {3, 2}, SUB '-' {3, 2} }
+def result [byte tie struct] { OK [string] ERROR 1 [reg] }
+def token [byte tie struct] { ATOM {byte id} OPER {byte id} TEST [int int] EXPR {int oper *expr lhs, rhs} EOF}
 
-def type int i { // 该类型的值可以直接作为 int 类型的值使用
-    | byte b | char c | float f
-}
+// 定义别名
+using mylib_array_push mylib_array.push
+using mylib_array_* mylib_array.*
+using int_array [16]int // 以别名方式定义新的类型
+using tuple [int float string]
+using func (int a, b, &int)
+using int_type int distinct
+using int_ptr *int
+using type [3]int // 默认有4个命名成员 xyzw 或 rgba
+using type [int int int] // 默认有4个命名成员 xyzw 或 rgba
+using type [3]float // 默认有4个命名成员 xyzw 或 rgba
+using point [float float] // 默认有4个命名成员 xyzw 或 rgba
 
-def type [3]int // 默认有4个命名成员 xyzw 或 rgba
-def type [int int int] // 默认有4个命名成员 xyzw 或 rgba
-def type [3]float // 默认有4个命名成员 xyzw 或 rgba
-def point [float float] // 默认有4个命名成员 xyzw 或 rgba
+// 定义常量
+const pi 3.1415926 // 编译时常量，运行时常量
+const 2p 2 * pi // const float
+const pi f64 3.1415926 // const f64
+const pt point {100, 200} // const point
+const p3 []int {100, 200} // const [2]int
+const p4 [int int] {100, 200} // const [int int]
+const p5 {int a int b} {100, 200} // const {int a int b}
+const p6 (int a, b, &int) { return 0 } // 相当于 def p6(int a, b, &int) { return 0 }
+const impl.p7 1024 // 私有名称
+const impl.p8 [[stored]] [int int] {100, 200}
+const impl.p8 [[write once]] [int int] {xval, yval}
+const data [[variable]] 0 // 编译时变量，运行时常量
 
-def type { // def type sturct { ... }
-    float x,y,z
-    float a,b,c
-}
+comptime data = 3
+comptime eval data += 4
 
-def type {
-    float x
-    float y
-    float z
-}
+// 定义全局变量
+var a int // 未初始化全局变量，默认初始为零
+var a int 0
+var a int 10
+var a int zeroed
+var a point {1, 2}
+var a type value
+var a {int a, b float x float y} null
+var impl.name type vlaue // 私有名称
+var impl.int_ptr *int &a
+var impl.point_ptr *point &point
+var impl.point point {100, 200}
+var data {int a int b point point} {10, 20, {100, 200}}
+var data [int int point] {10, 20, {100, 200}}
+var calc (int a, int b, &int) null // 定义一个函数指针
+var calc (int a, b, &int) { return 0 } // 定义了一个函数指针，并赋了一个值
 
-def a "thread local" := int zeroed // 定义变量的属性
-def a "thread local" := {int a "align 16", b "align 32" float x float y} zeroed
-def a "thread local" int
-def a "local" int
-def type "align 16" = int
-def type "packed" { } // 定义类型的属性
-def calc "cdecl align 16" := (int a b, &int) null
-def calc(int a b, &int) "cdecl align 16" { }
-
-// 定义的提前声明
-def calc(int a b, &int) // 私有函数的提取声明
-
-// 定义全局变量，函数常量使用上面的方式定义，禁止使用该方法（等号左边总是变量）
-// def name type = value
-// def name func_type { func_body } 定义一个函数常量
-// def name func_type = { func_body } 定义一个函数指针
-def a int = 10
-def b int = 20
-def int_ptr *int = &a
-def point_ptr *point = &point
-def point point = {100, 200}
-def calc (int a, int b, &int) { return a + b } // 定义一个函数常量
-def calc (int a, int b, &int) = null // 定义一个函数指针
-def data {int a int b point point} = {10, 20, {100, 200}}
-def data [int int point] = {10, 20, {100, 200}}
-
-def a := int 10
-def a := int // 未初始化全局变量
-def a := int 0 // 也属于未初始化全局变量
-def b := 20
-def int_ptr := *int &a
-def point_ptr := *point &point
-def point := point {100, 200}
-def data := {int a int b point point} {10, 20, {100, 200}}
-def data := [int int point] {10, 20, {100, 200}}
-def calc := (int a, int b, &int) null // 定义一个函数指针
-def calc (int a, int b, &int) { return a + b } // 定义一个函数常量
-
-pub a := int 10
-pub a := int // 未初始化全局变量
-pub a := int 0 // 也属于未初始化全局变量
-pub b := 20
-pub int_ptr := *int &a
-pub point_ptr := *point &point
-pub point := point {100, 200}
-pub data := {int a int b point point} {10, 20, {100, 200}}
-pub data := [int int point] {10, 20, {100, 200}}
-pub calc := (int a, int b, &int) null // 定义一个函数指针
-pub calc (int a, int b, &int) { return a + b } // 定义一个函数常量
-
-pub a int = 10
-pub b int = 20
-pub int_ptr *int = &a
-pub point_ptr *point = &point
-pub point point = {100, 200}
-pub calc (int a, int b, &int) { return a + b } // 定义一个函数常量
-pub calc *(int a, int b, &int) null // 定义一个函数指针
-pub data {int a int b int x, y point point} = {10, 20, 30, 40, {100, 200}}
-pub data [int int point] = {10, 20, {100, 200}}
-
-pub a int 10
-pub b int 20
-pub int_ptr *int &a
-pub point_ptr *point &point
-pub point point {100, 200}
-pub calc (int a, int b, &int) { return a + b } // 定义一个函数常量
-pub calc *(int a, int b, &int) null // 定义一个函数指针
-pub data {int a int b int x, y point point} {10, 20, 30, 40, {100, 200}}
-pub data [int int point] {10, 20, {100, 200}}
-
-pub a int extern
-pub b int extern
-pub int_ptr *int extern
-pub point_ptr *point extern
-pub point point extern
-pub calc (int a, int b, &int) extern
-pub calc *(int a, int b, &int) extern
-pub data {int a int b int x, y point point} extern
-pub data [int int point] extern
-
-// 数据类型转换，注意类型名不能加上小括号，例如 (Point)，因为它将变成一个函数类型
-aaa := Data {3, 4}
-ppb := *Ppb ppb_alloc(alloc)
-pos := dist + int scale_x(facter)
-len := int pos + &*byte p + size + f(g)
-len := int pos + fal *byte (p + size + f(g))
-pos := int dist + int scale_x(facter)
-len := int pos + fal *int *byte (p + size + f(g))
-len := typeof(pos) 3
-len := foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
-len := int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
-len := foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
-len := foo ~ -3
-
-// 快捷定义局部变量必须顶格写，*int的星号以及正负号之后不能有空白字符
-aaa = Data {3, 4}
-ppb = *Ppb ppb_alloc(alloc)
-pos = dist + int scale_x(facter)
-len = int pos + &*byte p + size + f(g)
-len = int pos + fal *byte (p + size + f(g))
-pos = int dist + int scale_x(facter)
-len = int pos + fal *int *byte (p + size + f(g))
-len = typeof(pos) 3
-len = foo - 3, a = int 3, b = float 0.1
-len = int - 3
-len = foo (-3)
-len = foo ~ -3
+// 定义局部符号
+const name value
+using name symbol
+let aaa data {3, 4} // 注意类型名不能加上括号，例如 (Point)，因为它将变成一个函数类型
+let ppb *ppb ppb_alloc(alloc) // 快捷定义局部变量必须顶格写，*int的星号以及正负号之后不能有空白字符
+let pos dist + int scale_x(facter)
+let len int pos + &*byte p + size + f(g)
+let len int pos + fal *byte (p + size + f(g))
+let pos int dist + int scale_x(facter)
+let len int pos + fal *int *byte (p + size + f(g))
+let len typeof(pos) 3
+let len foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
+let len int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
+let len foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
+let len foo ~ -3
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &），代码行不能
 // 以小括号开始，否则报错。D 语言禁止大多数原始表达式语句，所以如果没有产生副作用，就
@@ -2591,7 +2538,7 @@ let p = *ppb malloc(size)
 let p = *int undefined
 let p = *ppb undefined, q = ptr_int
 let a = point {100, 200}
-let a = [_]int {20, 30, 50}
+let a = [?]int {20, 30, 50}
 let a = [8]int {1, 2, 3, 4}
 let tup = [i32 f64 r08] {500, 6.4, 1} // tup(0) tup(1) tup(2)
 let tup(a b c) = [i32 f64 r08] {500, 6.4, 1} // tup.a tup.b tup.c
@@ -2638,8 +2585,7 @@ let point = {100, 200}
 let b = 3.1415926 // 数据标签，定义一个数据标签，其值是当前代码处表达式的值
 let ppb = *ppb malloc(size)
 
-for var i = 0; i < 10; i += 1 { }
-for i := 0; i < 10; i += 1 { }
+for let i 0; i < 10; i += 1 { }
 for $i = 0; i < 10; i += 1 { }
 for $i [0 to 10) step 1 { }
 for $i [0 to 10] step 2 { }
@@ -2690,8 +2636,8 @@ def calc(int a, b, &int int [x y] or error) {
 }
 
 def read_username(&string or error) { // 返回值的大小为 sizeof read_username_result，比 string 类型长一个字节，调用者必须检查错误码
-    f := open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
-    s := string {}
+    let f open("username.txt") or return // 这里 or error 如果成立会直接返回 open 函数的错误码
+    let s string {}
     f.read_to_string(&s) or return
     if s == "unknown" return error_not_found
     return s
@@ -2750,7 +2696,7 @@ def calc(*file? file, *expr expr, &int) { // 如果加上了 none 属性表示�
 //      a where it * 2 or return + b or return
 
 def sqrt(float x, y, &float or none) { // 调用者必须检查 none 值，不管通过 or 还是 if [a] none 等形式
-    let a = divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
+    let a divide(x, y) or return + divide(3, x) or return // 这里 or 如果成立会直接返回 none
     return sqrt(x * a)
 }
 
@@ -2818,6 +2764,7 @@ def token (r08 ++
     ATOM {byte id}
     OPER {byte id}
     TEST [int int]
+    EXPR {int op *expr lhs dup rhs}
     EOF
 )
 
@@ -2842,22 +2789,23 @@ def expr byte { // 相当于是一种泛型类型
 
 if [expr] == .VALUE { // 必须穷尽所有情况，否则编译报错
     ret = expr.n
-} if == .IDENT {
+} lf == .IDENT {
     ret = expr.id
-} if == .TEST(a b) { // 捕获元组的内容
+} lf == .TEST(a b) { // 捕获元组的内容
     ret = a + b
-} if == .EXPR {
+} lf == .EXPR {
     ret = expr.op
 }
 
 if [expr] == .value
     ret = expr.n
-if == .ident
+lf == .ident
     ret = expr.id
-if == .expr
+lf == .expr
     ret = expr.op
-else
+lf else
     return error
+ff
 
 if expr == .IDENT {
     print("IDNET expr: %", expr.id)
@@ -2889,18 +2837,19 @@ def eval(oper o, expr l, expr r, &expr) {
     if [o] == '=' == '?'
         expr = .value(r.value.n)
         get_symbol(l.ident.id).value = r.value.n
-    if == '+' == '加'
+    lf == '+' == '加'
         expr = .value(l.value.n + r.value.n)
-    if == '-' == '减'
+    lf == '-' == '减'
         expr = .value(l.value.n - r.value.n)
-    if == '*'
+    lf == '*'
         expr = .value(l.value.n * r.value.n)
-    if == '/'
+    lf == '/'
         expr = .value(l.value.n / r.value.n)
-    if == '^'
+    lf == '^'
         expr = .value(pow(l.value.n, r.value.n))
-    if == else
+    lf else
         panic("bad operator %c", o)
+    ff
     return expr
 }
 
@@ -2981,27 +2930,27 @@ def tcp_poll(*file, *socket, *poll_table, &poll) [m] "alignas 16" {
     return mask
 }
 
-def tcp_poll(*file, *socket, *poll_table, &poll) [m] "align 16" {
-    poll = typename(poll) undefined
-    sk "align line" = socket
-    a = byte undefined
-    b = int undefined
+def tcp_poll [[fastcall align 16]] (*file, *socket, *poll_table, &poll) [m] {
+    let poll !poll undefined
+    let sk [[align line]] socket
+    let a byte undefined
+    let b int undefined
 
     sock_poll_wait(file, sock, wait)
 
-    state = inet_sk_state_load(sk)
+    let state inet_sk_state_load(sk)
     if (state == TCP_LISTEN) return inet_csk_listen_poll(sk)
 
-    mask = 0
+    let mask 0
 
-    shutdown = READ_ONCE(sk.sk_shutdown)
+    let shutdown READ_ONCE(sk.sk_shutdown)
     if (shutdown == SHUTDOWN_MASK || state == TCP_CLOSE)
         mask != EPOLLHUP
-    elif (condition)
+    lf (condition)
         mask |= EPOLLHUP
-    elif <\n>
+    lf else
         mask |= EPOLLHUP
-    endf
+    ff
 
     if (shutdown == SHUTDOWN_MASK || state == TCP_CLOSE)
     {
@@ -3018,17 +2967,17 @@ def tcp_poll(*file, *socket, *poll_table, &poll) [m] "align 16" {
 
     if (shutdown & RCV_SHUTDOWN)
         mask |= EPOLLIN | EPOLLRDNORM | EPOLLRDHUP
-    endf
+    ff
 
     if (state != TCP_SYN_SENT && (state != TCP_SYN_RECV || rcu_access_pointer(tp.fastopen_rsk)))
         target = int sock_rcvlowat(sk, 0, INT_MAX)
         urg_data = r16 READ_ONCE(tp.urg_data)
-    endf
+    ff
 
     smp_rmb()
     if (READ_ONCE(sk.sk_err) || !skb_queue_empty_lockless(&sk.sk_error_queue))
         mask |= EPOLLERR
-    endf
+    ff
 
     return mask
 }
@@ -3764,22 +3713,36 @@ math:*
 //  elif statement
 //  endf
 //
-//  3.  缩进条件语句
-//  if (expr) // 如果 expr 要换行，请用操作符作为行的结束
-//      stmt
-//  endf
-//  if (expr)
-//      stmt
-//  elif
-//      stmt
-//  endf
-//  if (expr)
-//      stmt
-//  elif (expr)
-//      stmt
-//  elif
-//      stmt
-//  endf
+//  if (curr_time < start_time) start_time = curr_time ff
+//
+//  if (curr_time < start_time)
+//      start_time = curr_time
+//      ff
+//
+//  if (expr) stmt ff
+//  if (expr) stmt lf stmt ff
+//  if (expr) stmt lf (expr) stmt ls stmt ff
+//  if (expr) stmt
+//  lf (expr) stmt
+//  lf  stmt
+//  ff
+//
+//  3.  缩进条件语句，如果 expr 要换行，请用操作符作为行的结束
+//  if (expr)       if (expr)
+//      stmt            stmt
+//  endf            ``
+//  if (expr)       if (expr)
+//      stmt            stmt
+//  else </n>       else
+//      stmt            stmt
+//  endf            ``
+//  if (expr)       if (expr)
+//      stmt            stmt
+//  elif (expr)     elif (expr)
+//      stmt            stmt
+//  else </n>       else
+//      stmt            stmt
+//  endf            ``
 //
 //  4.  标签条件语句，if == item 相当于定义了一个标签，可以用在任何标签可以使用的地方
 //  if [expr] label == item statement
