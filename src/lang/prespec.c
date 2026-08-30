@@ -25,7 +25,7 @@
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
 //
 // 关键字，统一各种分支语句和各种循环语句
-//  if likely else elif endf fine case then for in break final fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
+//  if likely else elif endif final case then for in break fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
 //  struct const void embed based of def pub let var undefined defined devel revel
 //  continue defer yield range lambda reflex trait cold naked
 //  static or this import scoped scope_guard as inf (inferred type 推导的类型)
@@ -2365,9 +2365,9 @@ const p3 []int {100, 200} // const [2]int
 const p4 [int int] {100, 200} // const [int int]
 const p5 {int a int b} {100, 200} // const {int a int b}
 const p6 (int a, b, &int) { return 0 } // 相当于 def p6(int a, b, &int) { return 0 }
-const impl.p7 1024 // 私有名称
-const impl.p8 [[stored]] [int int] {100, 200}
-const impl.p8 [[write once]] [int int] {xval, yval}
+const impl_p7 1024 // 私有名称
+const impl_p8 [[stored]] [int int] {100, 200}
+const impl_p8 [[write once]] [int int] {xval, yval}
 const data [[variable]] 0 // 编译时变量，运行时常量
 
 comptime data = 3
@@ -2400,11 +2400,15 @@ let len int pos + &*byte p + size + f(g)
 let len int pos + fal *byte (p + size + f(g))
 let pos int dist + int scale_x(facter)
 let len int pos + fal *int *byte (p + size + f(g))
+let tuple read_tuple()
+let (a _ c) read_tuple()
+let tuple (a b c) read_tuple()
 let len typeof(pos) 3
 let len foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
 let len int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
 let len foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
 let len foo ~ -3
+let p *int null, q int_ptr // 同一类型可以使用逗号串连
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &），代码行不能
 // 以小括号开始，否则报错。D 语言禁止大多数原始表达式语句，所以如果没有产生副作用，就
@@ -3667,10 +3671,10 @@ math:*
 //  if expr { stmt } else { stmt }
 //  if expr { stmt } else if expr { stmt } else { stmt }
 //
-//  2.  简单条件语句，endif 语句还可以是 else elif 或者 return break continue final goto 等跳转语句
-//  if (expr) stmt endf
-//  if (expr) stmt else stmt endf
-//  if (expr) stmt elif (expr) stmt else stmt endf // 必须是 elif 否则 endf 不知道是终结 if 还是 else if 中的 if
+//  2.  简单条件语句 (不对：endif 语句还可以是 else elif 或者 return break continue goto 等跳转语句)
+//  if (expr) stmt final
+//  if (expr) stmt else stmt final
+//  if (expr) stmt elif (expr) stmt else stmt final // 必须是 elif 否则 endf 不知道是终结 if 还是 else if 中的 if
 //
 //  if (a <= 0xc1) print(a) let n = 1 return 0
 //
@@ -3685,64 +3689,117 @@ math:*
 //      stmt
 //      if (expr)
 //          stmt
-//      endf
+//      final
 //  elif
 //      stmt
 //      if (expr)
 //          stmt
 //      elif (expr)
 //          stmt
-//      endf
-//  endf
+//      final
+//  final
 //
-//  if (a == 1) print(a) elif print(b) endf
-//  if (a == 1) print(a) elif (a == 2) print(b) endf
-//  if (a == 1) print(a) elif (a == 2) print(b) elif print(c) endf
+//  if (a == 1) print(a) elif print(b) final
+//  if (a == 1) print(a) elif (a == 2) print(b) final
+//  if (a == 1) print(a) elif (a == 2) print(b) else print(c) final
 //
-//  if (expr) statement endf
-//  if (expr) statement elif statement endf
+//  if (expr) statement final
+//  if (expr) statement else statement final
 //  if (expr) statement
 //  elif (expr) statement
-//  elif statement
-//  endf
+//  else statement
+//  final
 //
-//  if (expr) statement endf
-//  if (expr) statement elif statement
+//  if (expr) statement final
+//  if (expr) statement else statement final
 //  if (expr) statement
 //  elif (expr) statement
-//  elif statement
-//  endf
+//  else statement
+//  final
 //
-//  if (curr_time < start_time) start_time = curr_time ff
+//  if (curr_time < start_time) then return curr_time // then 后只能是一条终止语句（return/break/continue/goto），且只能配合if使用，且表示if语句的结束
+//  if (curr_time < start_time) // 还是不支持这种 then 形式的语句，因为很容易混淆
+//      then return curr_time
+//
+//  if (curr_time < start_time) start_time = curr_time final
+//  if (curr_time < start_time)
+//      start_time = curr_time final
+//  if (curr_time < start_time)
+//      start_time = curr_time
+//  final
+//
+//  if (curr_time < start_time) return final
+//  if (curr_time < start_time)
+//      return final
+//  if (curr_time < start_time)
+//      return
+//  final
+//
+//  if (curr_time < start_time)
+//      return curr_time final
+//  if (curr_time < start_time)
+//      return curr_time
+//  final
 //
 //  if (curr_time < start_time)
 //      start_time = curr_time
-//      ff
+//      return curr_time final
 //
-//  if (expr) stmt ff
-//  if (expr) stmt lf stmt ff
-//  if (expr) stmt lf (expr) stmt ls stmt ff
-//  if (expr) stmt
-//  lf (expr) stmt
-//  lf  stmt
-//  ff
+//  if (curr_time < start_time)
+//      start_time = curr_time
+//      return curr_time
+//  final
+//
+//  if (curr_time < start_time)
+//      start_time = curr_time
+//  elif (curr_time > end_time)
+//      end_time = curr_time
+//  final
+//
+//  if (expr) stmt final // 必须是 elif 否则 endf 不知道是终结 if 还是 else if 中的 if
+//  if (expr) stmt else stmt final // 必须换 else，因为分不清 else if 是 elif 的误写，还是 else { if () ... } 逻辑
+//  if (expr) stmt elif (expr) stmt else stmt final
+//  if (expr)
+//      stmt
+//  elif (expr)
+//      stmt
+//  else
+//      stmt
+//  final
+//
+//  if (expr)           if (expr) {                 #if expr
+//      stmt                stmt                        stmt
+//      stmt                stmt                        stmt
+//  elif (expr)         } elif (expr) {             #elif expr
+//      stmt                stmt                        stmt
+//      stmt                stmt                        stmt
+//  else                } else {                    #else
+//      stmt                stmt                        stmt
+//      stmt                stmt                        stmt
+//  final               }                           #endif
 //
 //  3.  缩进条件语句，如果 expr 要换行，请用操作符作为行的结束
 //  if (expr)       if (expr)
 //      stmt            stmt
-//  endf            ``
+//      stmt            stmt
+//  endf            final
 //  if (expr)       if (expr)
 //      stmt            stmt
-//  else </n>       else
 //      stmt            stmt
-//  endf            ``
+//  else            else
+//      stmt            stmt
+//      stmt            stmt
+//  endf            final
 //  if (expr)       if (expr)
+//      stmt            stmt
 //      stmt            stmt
 //  elif (expr)     elif (expr)
 //      stmt            stmt
-//  else </n>       else
 //      stmt            stmt
-//  endf            ``
+//  else            else
+//      stmt            stmt
+//      stmt            stmt
+//  endf            final
 //
 //  4.  标签条件语句，if == item 相当于定义了一个标签，可以用在任何标签可以使用的地方
 //  if [expr] label == item statement
@@ -3851,15 +3908,21 @@ math:*
 //  }
 //
 
-if [expr] { // final 标签定义在 if 语句块最后一条语句之后
+if [expr] let case { // final 标签定义在 if 语句块最后一条语句之后
 case item, item:
 case item:
-else:
+case default:
 }
 
-if [expr] {
-case item, else:
-case item:
+if [expr] let label {
+label item:
+lable item:
+lable default:
+}
+
+if [expr] let label {
+label item, default:
+label item:
 }
 
 if [expr] true expr else expr
@@ -3871,119 +3934,119 @@ let [expr <> expr] expr or expr else expr
 if [expr] item, item { // final 标签定义在 if 语句块最后一条语句之后
 } elif item {
 } elif item, item {
-} else {
+} else { // else 必须出现在最后，不能作为一个 item 出现在前头
 }
 
-if [expr] item, else { // final 标签定义在 if 语句块最后一条语句之后
-} elif item {
+if [expr] let label item, item { // 如果使用了 final 必须定义一个 final 标签
+label item, default:
+label item:
 }
 
-if [expr] .label item, item: // 如果使用了 final 必须定义一个 final 标签
-.label item, else:
-.label item:
-.final
+if [expr] let lable item { // 如果多个 if case 交杂，跳转目标有多个，额外的跳转需要使用 goto 语句
+lable item, item:
+lable item:
+lable default:
+}
 
-if [expr] .lable item: // 如果多个 if case 交杂，跳转目标有多个，额外的跳转需要使用 goto 语句
-.lable item, item:
-.lable item:
-.lable else:
-.final
-
-if [impl_bstr[impl_b256[c]]] {
+if [impl_bstr[impl_b256[c]]] let case {
 case .dquote:
     goto finish
 case .bslash:
     l.escape_code = false
-    if !lexer_escape(l) {
+    if (lexer_escape(l) == false) {
 case .invalid:
         return TOK_ERROR
     }
     c = l.cvalue
-    if l.escape_code == false {
-else:
+    if (l.escape_code == false) {
+case default:
         string_push(s, c)
-        final
+        case.break
     }
-    let n = unicode_to_utf8(c, string_end(s))
+    let n unicode_to_utf8(c, string_end(s))
     if n == 0 return TOK_ERROR
     string_increase_size(s, n)
 }
 
 // 多个 if [expr] 分支语句的交叉
-let c = lexer_next_char(l)
-if [impl_nbox[impl_b256[c]]] label_a {
-    label_a .userlit:
-    if lexer_userlit(l) final // final 表示当前 if [expr] 语句的结束
+let c lexer_next_char(l)
+if [impl_nbox[impl_b256[c]]] let label {
+label .userlit:
+    if lexer_userlit(l) label.break // final 表示当前 if [expr] 语句的结束
     return TOK_ERROR
-    label_a .lit_end:
-    l->c = c final
-    label_a .letter:
-    let p = impl_boxt + ((c & 0x30) >> 4)
-    if [(c -= p->subval) <= (p->irange & 0x0F)] label_b {
+label .lit_end:
+    l->c = c label.break
+label .letter:
+    let p impl_boxt + ((c & 0x30) >> 4)
+    if [(c -= p->subval) <= (p->irange & 0x0F)] let label_b {
         label_b true:
-        if [impl_boxe[c + (p->irange >> 4)]] label_c {
-    label_a else: label_b else: label_c else: return TOK_ERROR
+        if [impl_boxe[c + (p->irange >> 4)]] let label_c {
+label default: label_b default: label_c default: return TOK_ERROR
+            label_c .bin_lit: return lexer_bin_int(l)
+            label_c .oct_lit: return lexer_oct_int(l)
+            label_c .hex_lit: return lexer_hex_int(l)
+            label_c .exponet, .imagine:
+        }
+    }
+label .point:
+    l.parse -= 1
+label .underscore:
+    c = '0'
+label .digit:
+    return prh_lexer_dec_lit(l, c)
+}
+l.ival32 = 0
+return TOK_INT32
+
+let c lexer_next_char(l) // 如何判断 final 所有跳转的目标地址？？？
+if [impl_nbox[impl_b256[c]]] let label .userlit { // 可定义一个默认的 final 标签位置，其他的则需要手动 goto
+    if lexer_userlit(l) label.break // final 表示当前 if [expr] 语句的结束，向下跳转到最近的一个 final 标签
+    return TOK_ERROR
+label .lit_end:
+    l->c = c label.break
+label .letter:
+    let p impl_boxt + ((c & 0x30) >> 4)
+    if [(c -= p->subval) <= (p->irange & 0x0F)] let label_b true {
+        if [impl_boxe[c + (p->irange >> 4)]] let label_c default {
+label default: label_b default: return TOK_ERROR
             label_c .bin_lit: return lexer_bin_int(l)
             label_c .oct_lit: return lexer_oct_int(l)
             label_c .hex_lit: return lexer_hex_int(l)
             label_c .exponet and .imagine:
         }
     }
-    label_a .point:
+label .point:
     l.parse -= 1
-    label_a .underscore:
+label .underscore:
     c = '0'
-    label_a .digit:
+label .digit:
     return prh_lexer_dec_lit(l, c)
 }
 l.ival32 = 0
 return TOK_INT32
 
-let c = lexer_next_char(l) // 如何判断 final 所有跳转的目标地址？？？
-if [impl_nbox[impl_b256[c]]] label_a .userlit: // 可定义一个默认的 final 标签位置，其他的则需要手动 goto
-    if lexer_userlit(l) final // final 表示当前 if [expr] 语句的结束，向下跳转到最近的一个 final 标签
-    return TOK_ERROR
-label_a .lit_end:
-    l->c = c final
-label_a .letter:
-    let p = impl_boxt + ((c & 0x30) >> 4)
-    if [(c -= p->subval) <= (p->irange & 0x0F)] label_b true:
-    if [impl_boxe[c + (p->irange >> 4)]] label_c else:
-label_a else: label_b else: return TOK_ERROR
-        label_c .bin_lit: return lexer_bin_int(l)
-        label_c .oct_lit: return lexer_oct_int(l)
-        label_c .hex_lit: return lexer_hex_int(l)
-        label_c .exponet and .imagine:
-label_a .point:
-    l.parse -= 1
-label_a .underscore:
-    c = '0'
-label_a .digit:
-    return prh_lexer_dec_lit(l, c)
-final:
-    l.ival32 = 0
-    return TOK_INT32
-
 def lexer_dquote(*lexer l return int) {
-    let s = l.svalue
+    let s l.svalue
     string_clear(s)
     for {
-        let c = lexer_next_char(l)
-        if [impl_bstr[impl_b256[c]]] label_a {
-            label_a .dquote:
+        let c lexer_next_char(l)
+        if [impl_bstr[impl_b256[c]]] let label {
+        label .dquote:
             goto label_finish
-            label_a .bslash:
+        label .bslash:
             l.escape_code = false
-            if !lexer_escape(l)
-            label_a .invalid: label_failed: something_wrong:
+            if (lexer_escape(l) == false) {
+        label .invalid: label_failed: something_wrong:
                 return TOK_ERROR
+            }
             c = l.cvalue
-            if l.escape_code == false
-            label_a else:
+            if (l.escape_code == false) {
+        label default:
                 string_push(s, c) // 因为有没有结束的if分支，且 if == 仅仅是一个标签，缩进以未结束的if为准
-                final
-            let n = unicode_to_utf8(c, string_end(s))
-            if n == 0 return TOK_ERROR
+                label.break
+            }
+            let n unicode_to_utf8(c, string_end(s))
+            if (n == 0) return TOK_ERROR final
             string_increase_size(s, n)
         }
     }
@@ -3994,32 +4057,32 @@ label_finish:
 }
 
 def oper_great(*lexer l >> int) {
-    c byte ? and o oper_gt
-    if [impl_b256[(c = next(l))] == b256_operator] label_a {
-        label_a true: // >>   >=
+    let c byte ? and o oper_gt
+    if [impl_b256[(c = next(l))] == b256_operator] let label {
+    label true: // >>   >=
         o = gret_oper(c)
-        if [impl_b256[(c = next(l))] == b256_operator] label_b {
-            label_b true: // >>?  >=?
+        if [impl_b256[(c = next(l))] == b256_operator] let label_b {
+        label_b true: // >>?  >=?
             if o != OPER_BIT_SHR return TOK_ERROR // >>=? 非法
             o = bshr_oper(c) // >>>  >>=
-            if [impl_b256[(c = next(l))] == b256_operator] label_c {
-                label_c true: // >>>? >>=?
-                if [o == OPER_BIT_CSHR && c == '='] label_d {
-                    label_d false:
+            if [impl_b256[(c = next(l))] == b256_operator] let label_c {
+            label_c true: // >>>? >>=?
+                if [o == OPER_BIT_CSHR && c == '='] let label_d {
+                label_d false:
                     return TOK_ERROR // 不是 >>>= 的操作符都非法
-                    label_d true: // >>>=
+                label_d true: // >>>=
                 }
-                if [impl_b256[(c = next(l))] == b256_operator] label_e {
-                    label_e true: // >>>=?
+                if [impl_b256[(c = next(l))] == b256_operator] let label_e {
+                label_e true: // >>>=?
                     return TOK_ERROR
-                    label_e else:
+                label_e default:
                     o = OPER_CSHR_ASSIGN
                 }
-                label_c else: // >>>END >>=END
+            label_c default: // >>>END >>=END
             }
-            label_b else: // >>END  >=END
+        label_b default: // >>END  >=END
         }
-        label_a else: // >END
+    label default: // >END
     }
     l->c = c
     return o
@@ -4027,22 +4090,22 @@ def oper_great(*lexer l >> int) {
 
 def oper_great(*lexer l >> int) {
     let c byte ? and o oper_gt
-    if [impl_b256[next(l) => c] == b256_operator] label_a true: // >>   >=
+    if [impl_b256[next(l) => c] == b256_operator] let label_a true: // >>   >=
     o = gret_oper(c)
-    if [impl_b256[next(l) => c] == b256_operator] label_b true: // >>?  >=?
+    if [impl_b256[next(l) => c] == b256_operator] let label_b true: // >>?  >=?
     if o != OPER_BIT_SHR return TOK_ERROR // >>=? 非法
     o = bshr_oper(c) // >>>  >>=
-    if [impl_b256[next(l) => c] == b256_operator] label_c true: // >>>? >>=?
+    if [impl_b256[next(l) => c] == b256_operator] let label_c true: // >>>? >>=?
     if [o == OPER_BIT_CSHR && c == '='] label_d false:
     return TOK_ERROR // 不是 >>>= 的操作符都非法
     label_d true: // >>>=
-    if [impl_b256[next(l) => c] == b256_operator] label_e true: // >>>=?
+    if [impl_b256[next(l) => c] == b256_operator] let label_e true: // >>>=?
     return TOK_ERROR
-    label_e else:
+    label_e default:
     o = OPER_CSHR_ASSIGN
-    label_c else: // >>>END >>=END
-    label_b else: // >>END  >=END
-    label_a else: // >END
+    label_c default: // >>>END >>=END
+    label_b default: // >>END  >=END
+    label_a default: // >END
     l->c = c
     return o
 }
