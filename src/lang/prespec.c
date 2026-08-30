@@ -1304,9 +1304,9 @@ array(int, float)
 [N][N]Type
 [N]*Type // 固定大小的数据
 [:]int // 集合类型
-[@]|in my_array|int
-[@]|de my_array|int
-[@]|my_array|int // 自定义数组类型
+[]|in my_array|int
+[]|de my_array|int
+[]|my_array|int // 自定义数组类型
 [:]|flat_set|int // 自定义集合类型
 [string:]int // 映射类型
 [string:]|flat_map|int // 自定义映射类型
@@ -2327,29 +2327,41 @@ pub #p8 pragma(runtime) [int int] {x, y}
 //  final
 
 // 定义函数和类型
-def calc [[fastcall align line]] (int a, b, &int) extern // 函数定义的声明
-def calc [[fastcall align 16]] (int a, b, &int) { return 0 } // 定义函数常量
-def point [[packed]] { float x, y, z } // 定义新的类型
+def data(int a) "fastcall alignas line" { return }
+def calc(int a, b, &int ) "fastcall alignas line" extern // 函数定义的声明
+def calc(int a, b, &int) "fastcall alignas 16" { return 0 } // 定义函数常量
+def point "struct packed" { float x, y, z } // 定义新的类型
 def type { tie int i tie byte b tie char c tie float f off }
 def array $(anytype T, reg SIZE) { [SIZE]T data reg size }
 def transfer this { (this) close }
 def color [int] { red, green = 1, blue }
 def color [int] { red, green 1, blue }
 def color [int] { red, green (N + 1), blue }
-def chars [int] { first 'a', second 'b', last 'z' }
+def chars [int restrict] { first 'a', second 'b', last 'z' }
 def mask [int] { red = 1 << enum, green, blue }
 def mask [int] { red (1 << enum), green, blue }
 def oper [int tie r08 lpri r08 rpri] { ADD '+' {3, 2}, SUB '-' {3, 2} }
 def result [byte tie struct] { OK [string] ERROR 1 [reg] }
 def token [byte tie struct] { ATOM {byte id} OPER {byte id} TEST [int int] EXPR {int oper *expr lhs, rhs} EOF}
 
+(int a, b, *int "out" result, &int) "fastcall alignas line"
+[int restrict] { red, green = 1, blue }
+[int restrict tie struct] { OK 0 [string] ERROR 1 [reg] }
+"struct packed" [byte int byte float]
+"struct packed" { int a, b, c float "alignas 16" d }
+$(anytype T, reg SIZE) "struct packed" { int a, b, c float d }
+
 // 定义别名
 using mylib_array_push mylib_array.push
 using mylib_array_* mylib_array.*
+using func (int a, b, *int "out" result, &int) "fastcall alignas line"
+using type [int restrict] { red, green = 1, blue }
+using type "struct packed" [byte int byte float]
+using type "struct packed" { int a, b, c float "alignas 16" d }
 using int_array [16]int // 以别名方式定义新的类型
 using tuple [int float string]
 using func (int a, b, &int)
-using int_type int distinct
+using "distinct" int_type int
 using int_ptr *int
 using type [3]int // 默认有4个命名成员 xyzw 或 rgba
 using type [int int int] // 默认有4个命名成员 xyzw 或 rgba
@@ -2366,9 +2378,9 @@ const p4 [int int] {100, 200} // const [int int]
 const p5 {int a int b} {100, 200} // const {int a int b}
 const p6 (int a, b, &int) { return 0 } // 相当于 def p6(int a, b, &int) { return 0 }
 const impl_p7 1024 // 私有名称
-const impl_p8 [[stored]] [int int] {100, 200}
-const impl_p8 [[write once]] [int int] {xval, yval}
-const data [[variable]] 0 // 编译时变量，运行时常量
+const "run" p8 [int int] {100, 200} // 编译时常量，运行时常量，且可在运行时访问（如获取地址，指为指针）
+const "imm" p8 [int int] {xval, yval} // 编译时未知，运行时在初始化之后不可改变
+const "var" data 0 // 编译时变量，运行时常量
 
 comptime data = 3
 comptime eval data += 4
@@ -2379,7 +2391,7 @@ var a int 0
 var a int 10
 var a int zeroed
 var a point {1, 2}
-var a type value
+var "alignas 32" a type value
 var a {int a, b float x float y} null
 var impl.name type vlaue // 私有名称
 var impl.int_ptr *int &a
@@ -2400,7 +2412,7 @@ let len int pos + &*byte p + size + f(g)
 let len int pos + fal *byte (p + size + f(g))
 let pos int dist + int scale_x(facter)
 let len int pos + fal *int *byte (p + size + f(g))
-let tuple read_tuple()
+let "alignas line" tuple read_tuple()
 let (a _ c) read_tuple()
 let tuple (a b c) read_tuple()
 let len typeof(pos) 3
