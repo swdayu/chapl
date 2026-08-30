@@ -1,4 +1,4 @@
-// prh_tuanyao.h - v0.13 - public domain - swdayu <github.com/swdayu>
+// prh_tuanyao.h - v0.17 - public domain - swdayu <github.com/swdayu>
 // No warranty implied, use at your own risk.
 
 //////////////////////////////////////////////////////////////////////////////
@@ -116,11 +116,11 @@ extern "C" {
 定 {
     肆 标的代码;
     贰 年份, 天数;
-    肆 日偏移[270];
+    肆 日分首偏[270];
 } 年分信息;
 
 定 {
-    年分信息 年度数据;
+    年分信息 该年数据;
     分钟信息 每日[270];
 } 年分数据;
 
@@ -132,7 +132,7 @@ extern "C" {
 
 定 {
     标的信息 基本信息;
-    年度数据 *历年数据;
+    年度数据 *多年信息; // 数组元素个数：基本信息.年份跨度
 } 历年节点;
 
 定 {
@@ -391,7 +391,6 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 //
 
 空 数据请求初始化(空);
-空 使用获取的数据(空);
 辩 执行请求(单次请求 *请求);
 
 空 清空请求(空);
@@ -414,17 +413,21 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 分 交易日下一分钟(分 分钟);
 分 交易日上一分钟(分 分钟);
 
-空 更新年度日历信息(肆 年份);
-空 更新市场标的信息(空);
-
-空 获取标的基础信息(肆 标的代码, 天 开始日期, 天 结束日期);
-空 获取标的日线信息(肆 标的代码, 天 开始日期, 天 结束日期, 辩 前复权);
-
 年度数据 *查找年度数据(历年节点 *节点, 肆 年份);
 肆 查找年度交易日(天 日期, 天 *同年交易日, 肆 *交易天数);
 空 标的代码和市场(标的信息 *每日, 肆 代码);
 辩 检查日期合法性(标的信息 *标的, 肆 年, 肆 月, 肆 日);
 辩 检查日期顺序(天 小于等于, 天 第二个日期);
+
+空 获取年度日历信息(空); // 获取全新的日历信息，丢弃原有数据
+空 更新年度日历信息(肆 年份); // 更新特定年份日历信息
+空 获取市场标的信息(空); // 获取全新标的数据，丢弃现存数据
+空 更新市场标的信息(空); // 获取市场标的信息，与现存标的信息比较打印更新信息
+
+空 标的历年度全局初始化(空);
+空 获取标的历史每日信息(肆 标的代码); // 获取标的上市日期以来的每日信息
+空 更新标的每日成交信息(肆 标的代码, 天 开始日期, 天 结束日期); // 更新特定日期每日信息
+空 更新标的分钟成交信息(肆 标的代码, 天 开始日期, 天 结束日期); // 从无或现有基础上更新年度之内的分钟信息
 
 #ifdef __cplusplus
 }
@@ -761,6 +764,18 @@ static 正 权标名个数;
     prh_handle file = prh_open_file_update("a.niandujiaoyirili.txt", false);
     prh_real_assert(file != prh_invalid_handle);
 
+    // [年历偏移+天数] * 2000 + 换行
+    // --------------
+    // [10-char] 0
+    // [10-char] 1
+    // ...
+    // [10-char] 270
+    // --------------
+    // [10-char] 0
+    // [10-char] 1
+    // ...
+    // [10-char] 270
+
     prh_r32 offset, year_offset = 4 * (年份 - 权开始年份);
     prh_r32 file_size = prh_file_size_32(file);
     if (file_size < 权头部长度)
@@ -832,13 +847,15 @@ static 正 权标名个数;
 
 辩 检查日期合法性(标的信息 *标的, 肆 年, 肆 月, 肆 日)
 {
-    if (标的 && 年 < 标的->起始年份 || 年 - 标的->起始年份 >= 标的->年份跨度)
+    if (标的 && (年 < 标的->起始年份 || 年 - 标的->起始年份 >= 标的->年份跨度))
     {
+        prh_error_print("标的年份 %d %d 日期年份 %d\n", (prh_reg)标的->起始年份, (prh_reg)标的->起始年份 + 标的->年份跨度 - 1, (prh_reg)年);
         return 假;
     }
     if ((月 < 1 || 月 > 12 || 日 < 1 || 日 > 31) || (月 == 2 && 日 > 29) ||
         (月 <= 7 && 月 % 2 == 0 && 日 > 30) || (月 >= 8 && 月 % 2 == 1 && 日 > 30))
     {
+        prh_error_print("非法日期 %d %d %d\n", (prh_reg)年, (prh_reg)月, (prh_reg)日);
         return 假;
     }
     return 真;
@@ -890,25 +907,32 @@ static 正 权标名个数;
 空 更新年度日历文件(空)
 {
     prh_handle read = prh_open_file_read("a.niandujiaoyirili.txt");
-    if (read == prh_invalid_handle)
-    {
-        prh_error_print("年度日历信息不存在\n");
-        return;
-    }
+    prh_real_assert(read != prh_invalid_handle);
 
     prh_r32 file_size = prh_file_size_32(read);
     if (file_size < 权头部长度 || (file_size - 权头部长度) % 2700 != 0 || (file_size - 权头部长度) / 2700 > 权年历跨度)
     {
         prh_error_print("非法文件大小 %d\n", (prh_reg)file_size);
-        goto label_return;
+        prh_abort_line();
     }
 
-    prh_handle write = prh_open_file_write("a.niandujiaoyirili.bin");
-    if (write == prh_invalid_handle) goto label_return;
-
-    prh_r32 header_data[权年历跨度];
+    prh_r32 header_data[权年历跨度] = {0};
     prh_impl_file_read(read, (prh_byte *)header_data, 4 * 权年历跨度);
 
+    // [年历偏移+天数] * 2000 + 换行 => 4 * 权年历跨度 + 1
+    // --------------
+    // [10-char] 0
+    // [10-char] 1
+    // ...
+    // [10-char] 270
+    // --------------
+    // [10-char] 0
+    // [10-char] 1
+    // ...
+    // [10-char] 270
+
+    prh_handle write = prh_open_file_write("a.niandujiaoyirili.bin");
+    prh_real_assert(write != prh_invalid_handle);
     prh_r32 write_offset = 4 + 4 * 权年历跨度;
     prh_file_seek_from_begin(write, write_offset);
 
@@ -922,19 +946,16 @@ static 正 权标名个数;
     {
         prh_r32 count = header_data[i] >> 23;
         prh_r32 offset = header_data[i] & 0x007fffff;
-        if (offset == 0)
-        {
-            continue;
-        }
+        if (offset == 0) continue;
         if (offset >= file_size || offset < 权头部长度 || (offset - 权头部长度) % 2700 != 0 || (offset - 权头部长度) / 2700 >= 权年历跨度)
         {
             prh_error_print("非法数据偏移 %d %d\n", (prh_reg)(权开始年份 + i), (prh_reg)offset);
-            goto label_return;
+            prh_abort_line();
         }
         if (count == 0 || count >= 270)
         {
             prh_error_print("年历数据 %d 非法天数 %d\n", (prh_reg)(权开始年份 + i), (prh_reg)count);
-            goto label_return;
+            prh_abort_line();
         }
 
         prh_r16 write_data = (prh_r16)(权开始年份 + i);
@@ -952,12 +973,12 @@ static 正 权标名个数;
             {
                 read_data[9] = 0;
                 prh_error_print("非法年历数据 %d (%d %d) '%s'\n", (prh_reg)(权开始年份 + i), (prh_reg)(count_i + 1), (prh_reg)count, read_data);
-                goto label_return;
+                prh_abort_line();
             }
             if (!检查日期合法性(空值, 年, 月, 日))
             {
                 prh_error_print("非法日期 %d %d %d\n", (prh_reg)年, (prh_reg)月, (prh_reg)日);
-                goto label_return;
+                prh_abort_line();
             }
             write_data = (prh_r16)((月 << 8) | 日);
             prh_impl_file_write(write, (prh_byte *)&write_data, 2);
@@ -968,7 +989,7 @@ static 正 权标名个数;
         {
             read_data[9] = 0;
             prh_error_print("非法年历数据 %d %d '%s'\n", (prh_reg)(权开始年份 + i), (prh_reg)count, read_data);
-            goto label_return;
+            prh_abort_line();
         }
 
         write_data = 0;
@@ -980,7 +1001,6 @@ static 正 权标名个数;
     prh_impl_file_write(write, (prh_byte *)&write_offset, 4);
     prh_impl_file_write(write, (prh_byte *)header_data, 4 * 权年历跨度);
 
-label_return:
     prh_file_close(read);
     prh_file_close(write);
 }
@@ -1201,15 +1221,15 @@ static 全局数据 权全局数据;
         历年节点 *标的历年节点 = 权全局数据.历年数据 + i;
         for (int n = 0; n < 标的历年节点->基本信息.年份跨度; n += 1)
         {
-            年度数据 *p = 标的历年节点->历年数据 + n;
+            年度数据 *p = 标的历年节点->多年信息 + n;
             if (p->年度日分)
             {
                 prh_global_free(p->年度日分);
                 p->年度日分 = 空值;
             }
         }
-        prh_global_free(标的历年节点->历年数据);
-        标的历年节点->历年数据 = 空值;
+        prh_global_free(标的历年节点->多年信息);
+        标的历年节点->多年信息 = 空值;
     }
     prh_global_free(权全局数据.标的汇总);
     prh_global_free(权全局数据.年历汇总);
@@ -1222,7 +1242,7 @@ static 全局数据 权全局数据;
     策略初始化();
 }
 
-空 使用获取的数据(空)
+空 标的历年度全局初始化(空)
 {
     权全局数据.标的汇总 = 获取全市标的();
     权全局数据.年历汇总 = 获取历年年历();
@@ -1279,14 +1299,32 @@ static 全局数据 权全局数据;
 {
     标的信息 *p = &节点->基本信息;
     prh_real_assert(年份 >= p->起始年份 && 年份 - p->起始年份 < p->年份跨度);
-    prh_real_assert(节点->历年数据 != 空值);
-    return 节点->历年数据 + 年份 - p->起始年份;
+    prh_real_assert(节点->多年信息 != 空值);
+    return 节点->多年信息 + 年份 - p->起始年份;
+}
+
+空 获取年度日历信息(空)
+{
+    prh_file_remove("a.niandujiaoyirili.txt");
+    prh_datetime now; prh_local_date(&now);
+    prh_real_assert(now.year > 权开始年份 && now.year - 权开始年份 < 权年历跨度);
+    for (int i = 权开始年份; i <= now.year; i += 1)
+    {
+        获取年度交易日历(i, 真);
+    }
+    更新年度日历文件();
 }
 
 空 更新年度日历信息(肆 年份)
 {
     获取年度交易日历(年份, 真);
     更新年度日历文件();
+}
+
+空 获取市场标的信息(空)
+{
+    prh_file_remove("a.biaodihuizong.bin");
+    更新市场标的信息();
 }
 
 空 更新市场标的信息(空)
@@ -1352,10 +1390,10 @@ static 全局数据 权全局数据;
     执行请求(&请求);
 }
 
-空 更新标的历年数据文件(历年节点 *标的节点)
+空 保存标的历年数据文件(历年节点 *标的节点)
 {
     标的信息 *基本信息 = &标的节点->基本信息;
-    prh_real_assert(标的节点->历年数据 != 空值);
+    prh_real_assert(标的节点->多年信息 != 空值);
     prh_real_assert(基本信息->数据长度 == sizeof(标的信息));
     prh_real_assert(基本信息->记录长度 == sizeof(年度信息));
 
@@ -1366,12 +1404,12 @@ static 全局数据 权全局数据;
     // [每日信息]
 
     char name[32] = {0};
-    sprintf(name, "a.%06d.mri", 基本信息->代码);
+    sprintf(name, "a.%06d.data.mri", 基本信息->代码);
     prh_handle file = prh_open_file_write(name);
     prh_real_assert(file != prh_invalid_handle);
     prh_impl_file_write(file, (prh_byte *)基本信息, 基本信息->数据长度);
 
-    年度数据 *p = 标的节点->历年数据;
+    年度数据 *p = 标的节点->多年信息;
     年度数据 *end = p + 基本信息->年份跨度;
     肆 数据偏移 = 基本信息->数据长度 + 基本信息->年份跨度 * 基本信息->记录长度;
     prh_file_seek_from_begin(file, 数据偏移);
@@ -1391,7 +1429,7 @@ static 全局数据 权全局数据;
     }
 
     prh_file_seek_from_begin(file, 基本信息->数据长度);
-    for (p = 标的节点->历年数据; p < end; p += 1)
+    for (p = 标的节点->多年信息; p < end; p += 1)
     {
         prh_impl_file_write(file, (prh_byte *)&p->年度数据, 基本信息->记录长度);
     }
@@ -1403,7 +1441,7 @@ static 全局数据 权全局数据;
 {
     历年节点 *标的节点 = 查找标的历年节点(标的代码);
     标的信息 *基本信息 = &标的节点->基本信息;
-    prh_real_assert(标的节点->历年数据 == 空值); // 标的历年信息必须未初始化
+    prh_real_assert(标的节点->多年信息 == 空值); // 标的历年信息必须未初始化
 
     // [标的信息]
     // [年度信息] * 年份跨度
@@ -1412,7 +1450,7 @@ static 全局数据 权全局数据;
     // [每日信息]
 
     char name[32] = {0};
-    sprintf(name, "a.%06d.mri", 标的代码);
+    sprintf(name, "a.%06d.data.mri", 标的代码);
     prh_handle file = prh_open_file_read(name);
     prh_real_assert(file != prh_invalid_handle);
 
@@ -1431,10 +1469,10 @@ static 全局数据 权全局数据;
     基本信息->每日长度 = (贰)sizeof(每日信息);
 
     肆 分配大小 = (肆)sizeof(年度数据) * 基本信息->年份跨度;
-    标的节点->历年数据 = (年度数据 *)prh_global_alloc(分配大小);
-    memset(标的节点->历年数据, 0, 分配大小);
+    标的节点->多年信息 = (年度数据 *)prh_global_alloc(分配大小);
+    memset(标的节点->多年信息, 0, 分配大小);
 
-    年度数据 *p = 标的节点->历年数据;
+    年度数据 *p = 标的节点->多年信息;
     年度数据 *end = p + 基本信息->年份跨度;
     prh_file_seek_from_begin(file, 文件数据.数据长度);
     for (; p < end; p += 1)
@@ -1442,7 +1480,7 @@ static 全局数据 权全局数据;
         prh_impl_file_read(file, (prh_byte *)&p->年度数据, 文件数据.记录长度);
     }
 
-    for (p = 标的节点->历年数据; p < end; p += 1)
+    for (p = 标的节点->多年信息; p < end; p += 1)
     {
         for (int i = 0; i < 270; i += 1)
         {
@@ -1458,11 +1496,11 @@ static 全局数据 权全局数据;
     return 标的节点;
 }
 
-空 保存标的历史每日数据(肆 标的代码)
+空 获取标的历史每日信息(肆 标的代码)
 {
     prh_datetime now; prh_local_date(&now);
     历年节点 *标的节点 = 查找标的历年节点(标的代码);
-    prh_real_assert(标的节点->历年数据 == 空值); // 标的历年信息必须未初始化
+    prh_real_assert(标的节点->多年信息 == 空值); // 标的历年信息必须未初始化
 
     标的信息 *基本信息 = &标的节点->基本信息;
     基本信息->数据长度 = (肆)sizeof(标的信息);
@@ -1472,8 +1510,8 @@ static 全局数据 权全局数据;
     基本信息->年份跨度 = (贰)(now.year - 基本信息->起始年份 + 1);
 
     肆 分配大小 = (肆)sizeof(年度数据) * 基本信息->年份跨度;
-    标的节点->历年数据 = (年度数据 *)prh_global_alloc(分配大小);
-    memset(标的节点->历年数据, 0, 分配大小);
+    标的节点->多年信息 = (年度数据 *)prh_global_alloc(分配大小);
+    memset(标的节点->多年信息, 0, 分配大小);
 
     天 结束日期 = {now.year, now.month, now.day};
     prh_real_assert(检查日期合法性(基本信息, 基本信息->上市日期.年, 基本信息->上市日期.月, 基本信息->上市日期.日));
@@ -1481,13 +1519,48 @@ static 全局数据 权全局数据;
     prh_real_assert(结束日期.年 >= 基本信息->起始年份);
     获取标的每日信息(标的代码, 基本信息->上市日期, 结束日期);
 
-    更新标的历年数据文件(标的节点);
+    保存标的历年数据文件(标的节点);
+}
+
+空 更新标的每日成交信息(肆 标的代码, 天 开始日期, 天 结束日期)
+{
+    prh_real_assert(检查日期顺序(开始日期, 结束日期));
+    历年节点 *标的节点 = 读取标的历年数据文件(标的代码);
+    标的信息 *基本信息 = &标的节点->基本信息;
+    prh_real_assert(标的节点->多年信息 != 空值); // 历史数据必须已经保存到文件并成功读取
+
+    prh_datetime now; prh_local_date(&now);
+    prh_real_assert(开始日期.年 >= 基本信息->起始年份);
+    prh_real_assert(结束日期.年 <= now.year);
+
+    if (结束日期.年 - 基本信息->起始年份 + 1 > 基本信息->年份跨度)
+    {
+        肆 新增年份 = 结束日期.年 - 基本信息->起始年份 + 1 - 基本信息->年份跨度;
+        肆 原始大小 = (肆)sizeof(年度数据) * 基本信息->年份跨度;
+        肆 新增大小 = (肆)sizeof(年度数据) * 新增年份;
+        年度数据 *多年信息 = (年度数据 *)prh_global_alloc(原始大小 + 新增大小);
+        memcpy(多年信息, 标的节点->多年信息, 原始大小); // 多年信息[i].年度日分 已经直接拷贝
+        memset((壹 *)多年信息 + 原始大小, 0, 新增大小);
+        for (int i = 0; i < 基本信息->年份跨度; i += 1)
+        {
+            标的节点->多年信息[i].年度日分 = 空值;
+        }
+        prh_global_free(标的节点->多年信息);
+        标的节点->多年信息 = 多年信息;
+        基本信息->年份跨度 += 新增年份;
+    }
+
+    prh_real_assert(检查日期合法性(基本信息, 开始日期.年, 开始日期.月, 开始日期.日));
+    prh_real_assert(检查日期合法性(基本信息, 结束日期.年, 结束日期.月, 结束日期.日));
+    获取标的每日信息(标的代码, 开始日期, 结束日期);
+
+    保存标的历年数据文件(标的节点);
 }
 
 空 保存标的年分数据文件(年分数据 *p)
 {
     char name[32] = {0};
-    sprintf(name, "a.%06d.%04d.zrf", p->年度数据.标的代码, p->年度数据.年份);
+    sprintf(name, "a.%06d.%04d.zrf", p->该年数据.标的代码, p->该年数据.年份);
     prh_handle file = prh_open_file_write(name);
     prh_real_assert(file != prh_invalid_handle);
 
@@ -1498,14 +1571,14 @@ static 全局数据 权全局数据;
 
     肆 数据偏移 = (肆)sizeof(年分信息);
     prh_file_seek_from_begin(file, 数据偏移);
-    memset(p->年度数据.日偏移, 0, sizeof(p->年度数据.日偏移));
+    memset(p->该年数据.日分首偏, 0, sizeof(p->该年数据.日分首偏));
 
     肆 头部大小 = 256 * 2 * 4; // 最多一个数据项分成两个格式数据保存
     肆 数据大小 = (肆)sizeof(成交信息) * 1440;
     日分信息 *data = (日分信息 *)prh_global_alloc(头部大小);
     壹 *item = (壹 *)prh_global_alloc(数据大小);
 
-    for (int i = 0; i < p->年度数据.天数; i += 1)
+    for (int i = 0; i < p->该年数据.天数; i += 1)
     {
         分钟信息 *每日 = &p->每日[i];
         if (每日->结束时间 == 0) continue;
@@ -1514,13 +1587,13 @@ static 全局数据 权全局数据;
         prh_real_assert(每日->结束时间 < 1440);
         memset(data, 0, 头部大小);
         memset(item, 0, 数据大小);
-        data->交易日期 = 次序年度交易日(p->年度数据.年份, i);
+        data->交易日期 = 次序年度交易日(p->该年数据.年份, i);
         data->数据数量 = 0;
 
         分差格式 *数据格式 = (分差格式 *)&data->数据格式;
         辩 低位 = 真, 第一个数据 = 真;
         贰 时间间隔 = 0;
-        成交信息 *prev;
+        成交信息 *prev = 每日->分钟成交 + 每日->起始时间;
         肆 数据长度 = 0;
 
         for (int n = 每日->起始时间; n <= 每日->结束时间; n += 1)
@@ -1644,15 +1717,20 @@ static 全局数据 权全局数据;
             }
         }
 
+        肆 头部长度 = (肆)sizeof(日分信息) + (data->数据数量 / 8) * 4;
         prh_real_assert(data->数据数量 > 0);
-        data->数据长度 = (肆)sizeof(日分信息) + (data->数据数量 / 8) * 4 + 数据长度;
-        prh_impl_file_write(file, (prh_byte *)data, data->数据长度);
+        prh_real_assert(头部长度 <= 头部大小);
+        prh_real_assert(数据长度 <= 数据大小);
 
-        p->年度数据.日偏移[i] = 数据偏移;
+        data->数据长度 = 头部长度 + 数据长度;
+        prh_impl_file_write(file, (prh_byte *)data, 头部长度);
+        prh_impl_file_write(file, (prh_byte *)item, 数据长度);
+
+        p->该年数据.日分首偏[i] = 数据偏移;
         数据偏移 += data->数据长度;
     }
 
-    prh_impl_file_pwrite(file, (prh_byte *)&p->年度数据, (prh_r32)sizeof(年分信息), 0);
+    prh_impl_file_pwrite(file, (prh_byte *)&p->该年数据, (prh_r32)sizeof(年分信息), 0);
     prh_global_free(data);
     prh_global_free(item);
     prh_file_close(file);
@@ -1683,17 +1761,18 @@ static 全局数据 权全局数据;
     // [日分信息]
 
     年分数据 *p = 内初始化年分数据(代码, 年份);
-    prh_impl_file_read(file, (prh_byte *)&p->年度数据, (prh_r32)sizeof(年分信息));
-    prh_real_assert(p->年度数据.标的代码 == 代码);
-    prh_real_assert(p->年度数据.年份 == 年份);
-    prh_real_assert(p->年度数据.天数 == 年度交易日天数(年份));
+    prh_impl_file_read(file, (prh_byte *)&p->该年数据, (prh_r32)sizeof(年分信息));
+    prh_real_assert(p->该年数据.标的代码 == 代码);
+    prh_real_assert(p->该年数据.年份 == 年份);
+    prh_real_assert(p->该年数据.天数 == 年度交易日天数(年份));
 
     肆 分配大小 = 256 * 2 * 4 + sizeof(成交信息) * 1440; // 最多一个数据项分成两个格式数据保存
     日分信息 *data = (日分信息 *)prh_global_alloc(分配大小);
-    for (int i = 0; i < p->年度数据.天数; i += 1)
+    for (int i = 0; i < p->该年数据.天数; i += 1)
     {
-        if (p->年度数据.日偏移[i] == 0) continue;
-        prh_file_seek_from_begin(file, p->年度数据.日偏移[i]);
+        if (p->该年数据.日分首偏[i] == 0) continue;
+        天 交易日期 = 次序年度交易日(年份, i);
+        prh_file_seek_from_begin(file, p->该年数据.日分首偏[i]);
 
         memset(data, 0, 分配大小);
         prh_impl_file_read(file, (prh_byte *)&data->数据长度, 4);
@@ -1701,17 +1780,16 @@ static 全局数据 权全局数据;
         prh_impl_file_read(file, (prh_byte *)data + 4, data->数据长度 - 4);
         prh_real_assert(data->数据数量 > 0);
         prh_real_assert(data->起始时间 < 1440);
-        天 交易日期 = 次序年度交易日(年份, i);
         prh_real_assert(memcmp(&data->交易日期, &交易日期, sizeof(天)) == 0);
 
         肆 数据长度 = (肆)sizeof(日分信息) + (data->数据数量 / 8) * 4;
         分差格式 *数据格式 = (分差格式 *)&data->数据格式;
         辩 低位 = 真, 第一个数据 = 真;
         贰 当前时间;
-        成交信息 *prev;
         成交信息 *成交;
 
         分钟信息 *每日 = p->每日 + i;
+        成交信息 *prev = 每日->分钟成交 + data->起始时间;
         每日->起始时间 = data->起始时间;
         for (int n = 0; n < data->数据数量; n += 1)
         {
@@ -1825,6 +1903,7 @@ static 全局数据 权全局数据;
         每日->结束时间 = 当前时间;
         prh_real_assert(每日->结束时间 > 0 && 每日->结束时间 < 1440);
         prh_real_assert(data->数据长度 == 数据长度);
+        prh_real_assert(data->数据长度 <= 分配大小);
     }
 
     prh_global_free(data);
@@ -1832,7 +1911,7 @@ static 全局数据 权全局数据;
     return p;
 }
 
-空 更新分钟成交信息(肆 标的代码, 天 开始日期, 天 结束日期)
+空 更新标的分钟成交信息(肆 标的代码, 天 开始日期, 天 结束日期)
 {
     prh_real_assert(开始日期.年 == 结束日期.年);
     prh_real_assert(检查日期顺序(开始日期, 结束日期));
@@ -1841,9 +1920,9 @@ static 全局数据 权全局数据;
     if (p == 空值)
     {
         p = 内初始化年分数据(标的代码, 开始日期.年);
-        p->年度数据.标的代码 = 标的代码;
-        p->年度数据.年份 = 开始日期.年;
-        p->年度数据.天数 = 年度交易日天数(开始日期.年);
+        p->该年数据.标的代码 = 标的代码;
+        p->该年数据.年份 = 开始日期.年;
+        p->该年数据.天数 = 年度交易日天数(开始日期.年);
     }
 
     清空请求();
@@ -1862,6 +1941,7 @@ static 全局数据 权全局数据;
 
 // FULL VERSION HISTORY
 //
+//   0.17 (2026-08-31) correct mri and zrf data file store and update
 //   0.13 (2026-08-28) update fenzhongchengjiao information
 //   0.11 (2026-08-27) update and create danbiao duori data
 //   0.07 (2026-08-26) request danbiao duori daily data
