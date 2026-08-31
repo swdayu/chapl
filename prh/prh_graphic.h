@@ -4857,6 +4857,70 @@
 // glCreateTextures 在 textures 中返回 n 个先前未使用的纹理名称，每个名称代表一个由 target 指
 // 定的维度和类型的新纹理对象，并初始化为该纹理类型的默认值。
 
+// void glActiveTexture( // 选择活动纹理单元
+//      GLenum texture); // 指定要激活的纹理单元
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//  ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// 纹理单元的数量取决于具体实现，但必须至少为 80 个。texture 必须是 GL_TEXTUREi 之一，其中 i 的
+// 范围从零到 GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS 的值减一。初始值为 GL_TEXTURE0。glActiveTexture
+// 选择后续纹理状态调用将影响哪个纹理单元。具体实现支持的纹理单元数量取决于实现，但必须至少为 80
+// 个。如果 texture 不是 GL_TEXTUREi 之一（其中 i 的范围从零到 GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS
+// 的值减一），则生成 GL_INVALID_ENUM 错误。
+//
+// void glBindTextureUnit( // 将现有纹理对象绑定到指定的纹理单元                *** 将纹理对象绑定到指定纹理单元的对应目标上
+//      GLuint unit, // 指定纹理对象应绑定到的纹理单元
+//      GLuint texture); // 指定的纹理对象句柄，GL_INVALID_OPERATION 句柄不是零或现有纹理对象句柄
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// glBindTextureUnit 将现有纹理对象绑定到编号为 unit 的纹理单元。texture 必须为零或现有纹理对象
+// 的句柄。当 texture 是现有纹理对象的句柄时，该对象将绑定到创建该对象时指定的目标所对应的纹理
+// 单元。当 texture 为零时，本节开头枚举的每个目标都将重置为其对应纹理图像单元的默认纹理。
+//
+// void glBindTextures( // 将一个或多个已命名纹理绑定到一系列连续的纹理单元
+//      GLuint first, // 第一个纹理单元，GL_INVALID_OPERATION 表示 first + count 大于具体实现支持的纹理图像单元数量
+//      GLsizei count, // 纹理数量
+//      const GLuint *textures); // 纹理对象句柄数组，GL_INVALID_OPERATION 表示 textures 中的任何值不是零或现有纹理对象
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                    ✔    ✔    ✔
+//
+// glBindTextures 仅在 GL 版本为 4.4 或更高版本时才可用。请注意，由于 glBindTextures 无法创建
+// 新纹理（即使传入的名称此前已通过调用 glGenTextures 生成），因此传递给 glBindTextures 的名称
+// 必须至少通过一次 glBindTexture 调用先前绑定过。
+//
+// glBindTextures 将现有纹理对象数组绑定到指定数量的连续纹理单元。count 指定存储在 textures 数
+// 组中的纹理对象名称的数量。从数组中读取相应数量的纹理名称，并绑定到从 first 开始的 count 个
+// 连续纹理单元。纹理的目标（或类型）从纹理对象推断得出，每个纹理绑定到纹理单元的相应目标。如果
+// textures 数组中出现名称零，则纹理单元的任何现有绑定都将重置，并将该目标的默认纹理绑定到其位
+// 置。textures 中的任何非零条目必须是现有纹理对象的名称。如果 textures 为 NULL，则等效于指定了
+// 一个大小适当且仅包含零的数组。
+//
+// 除了活动纹理选择器保持其当前值外，glBindTextures 等效于以下伪代码。textures 中的每个条目将
+// 单独检查，如果被发现无效，则该纹理单元的状态将不会更改，并会生成一个错误。但是，由该命令引
+// 用的其他纹理单元的状态仍将更新。
+//
+//      for (i = 0; i < count; i++) {
+//          GLuint texture;
+//          if (textures == NULL) {
+//              texture = 0;
+//          } else {
+//              texture = textures[i];
+//          }
+//          glActiveTexture(GL_TEXTURE0 + first + i);                           *** 相当于一个纹理图像单元包含了全部的纹理目标类型
+//          if (texture != 0) {                                                 *** glBindTexture 相当于将纹理对象，绑定到当前活跃纹理单元中的对应目标上
+//              GLenum target = /* textures[i] 的目标 */;
+//              glBindTexture(target, textures[i]);
+//          } else {
+//              for (target in all supported targets) {
+//                  glBindTexture(target, 0);
+//              }
+//          }
+//      }
+
 // void glTexBuffer( // 将一个缓存对象的数据存储附加到一个纹理缓存对象（即类型为 GL_TEXTURE_BUFFER 的纹理对象）
 //      GLenum target, // 必须是 GL_TEXTURE_BUFFER，GL_INVALID_ENUM 非法目标
 //      GLenum internalformat, // 指定缓存数据的内部格式，GL_INVALID_ENUM 非法内部格式
@@ -4867,8 +4931,85 @@
 //
 // void glTextureBuffer( // 将一个缓存对象的数据存储附加到一个纹理缓存对象（即类型为 GL_TEXTURE_BUFFER 的纹理对象）
 //      GLuint texture, // 纹理对象句柄，GL_INVALID_ENUM 句柄绑定的纹理对象的类型不是一个纹理缓存对象，GL_INVALID_OPERATION 句柄对应的不是一个现存的纹理对象
-//      GLenum internalformat, // 指定缓存数据的内部格式，GL_INVALID_ENUM 非法内部格式
+//      GLenum internalformat, // 指定缓存数据的内部格式，GL_INVALID_ENUM 非法数据格式
 //      GLuint buffer); // 缓存对象句柄，GL_INVALID_OPERATION 句柄不是 0 也不是一个现存的缓存对象
 //
 // 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
 //                                                         ✔    ✔
+//
+// glTexBuffer 和 glTextureBuffer 将指定缓存对象的数据存储附加到指定的纹理对象，并指定缓存对象
+// 中纹理图像的存储格式。该纹理对象必须是缓存纹理对象。如果 buffer 为零，则任何附加到该缓存纹理
+// 的缓存对象将被分离，且不会附加新的缓存对象，即没有缓存附加到该纹理对象。如果 buffer 非零，则
+// 它必须是现有缓存对象的名称。
+//
+// internalformat 指定纹理图像的内部存储格式，必须是以下带尺寸的内部格式之一：
+//      带尺寸的内部格式    基本类型    分量数  归一化（Norm）  0   1   2   3
+//      GL_R8               ubyte       1       是              R   0   0   1
+//      GL_R16              ushort      1       是              R   0   0   1
+//      GL_R16F             half        1       否              R   0   0   1
+//      GL_R32F             float       1       否              R   0   0   1
+//      GL_R8I              byte        1       否              R   0   0   1
+//      GL_R16I             short       1       否              R   0   0   1
+//      GL_R32I             int         1       否              R   0   0   1
+//      GL_R8UI             ubyte       1       否              R   0   0   1
+//      GL_R16UI            ushort      1       否              R   0   0   1
+//      GL_R32UI            uint        1       否              R   0   0   1
+//      GL_RG8              ubyte       2       是              R   G   0   1
+//      GL_RG16             ushort      2       是              R   G   0   1
+//      GL_RG16F            half        2       否              R   G   0   1
+//      GL_RG32F            float       2       否              R   G   0   1
+//      GL_RG8I             byte        2       否              R   G   0   1
+//      GL_RG16I            short       2       否              R   G   0   1
+//      GL_RG32I            int         2       否              R   G   0   1
+//      GL_RG8UI            ubyte       2       否              R   G   0   1
+//      GL_RG16UI           ushort      2       否              R   G   0   1
+//      GL_RG32UI           uint        2       否              R   G   0   1
+//      GL_RGB32F           float       3       否              R   G   B   1
+//      GL_RGB32I           int         3       否              R   G   B   1
+//      GL_RGB32UI          uint        3       否              R   G   B   1
+//      GL_RGBA8            uint        4       是              R   G   B   A
+//      GL_RGBA16           short       4       是              R   G   B   A
+//      GL_RGBA16F          half        4       否              R   G   B   A
+//      GL_RGBA32F          float       4       否              R   G   B   A
+//      GL_RGBA8I           byte        4       否              R   G   B   A
+//      GL_RGBA16I          short       4       否              R   G   B   A
+//      GL_RGBA32I          int         4       否              R   G   B   A
+//      GL_RGBA8UI          ubyte       4       否              R   G   B   A
+//      GL_RGBA16UI         ushort      4       否              R   G   B   A
+//      GL_RGBA32UI         uint        4       否              R   G   B   A
+//
+// 当缓存对象附加到缓存纹理时，该缓存对象的数据存储即作为纹理的纹素数组（texel array）。缓存
+// 纹理的纹素数组中的纹素数量由下式给出：floor(size / (components * sizeof(base_type)))，其中
+// size 是缓存对象的基本机器单位大小（buffer 的 GL_BUFFER_SIZE 值），components 和 base_type
+// 分别是上表中指定的元素数量和基本数据类型。纹素数组中的纹素数量随后被钳制（clamped）到实现
+// 相关的限制值 GL_MAX_TEXTURE_BUFFER_SIZE。当在着色器中访问缓存纹理时，如果指定的纹素坐标为
+// 负数，或大于等于纹素数组中经过钳制的纹素数量，则纹素获取的结果是未定义的。
+//
+// void glTexBufferRange( // 将缓存对象数据存储的一个范围附加到缓存纹理对象
+//      GLenum target, // 必须是 GL_TEXTURE_BUFFER，GL_INVALID_ENUM 非法目标
+//      GLenum internalformat, // 缓存中的数据格式，GL_INVALID_ENUM 非法数据格式
+//      GLuint buffer, // 缓存对象句柄，GL_INVALID_OPERATION 句柄不是 0 也不是一个现存的缓存对象
+//      GLintptr offset, // 数据存储范围的起始偏移量，GL_INVALID_VALUE 表示 offset 不是 GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT 值的整数倍
+//      GLsizeiptr size); // 数据存储范围的大小，GL_INVALID_VALUE 表示 offset 为负数、size 小于或等于零，或 offset + size 大于 buffer 的 GL_BUFFER_SIZE 值
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                               ✔    ✔    ✔    ✔
+//
+// void glTextureBufferRange( // 将缓存对象数据存储的一个范围附加到缓存纹理对象
+//      GLuint texture, // 纹理对象句柄，GL_INVALID_ENUM 句柄绑定的纹理对象的类型不是一个纹理缓存对象，GL_INVALID_OPERATION 句柄对应的不是一个现存的纹理对象
+//      GLenum internalformat, // 缓存中的数据格式，GL_INVALID_ENUM 非法数据格式
+//      GLuint buffer, // 缓存对象句柄，GL_INVALID_OPERATION 句柄不是 0 也不是一个现存的缓存对象
+//      GLintptr offset, // 数据存储范围的起始偏移量，GL_INVALID_VALUE 表示 offset 不是 GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT 值的整数倍
+//      GLsizei size); // 数据存储范围的大小，GL_INVALID_VALUE 表示 offset 为负数、size 小于或等于零，或 offset + size 大于 buffer 的 GL_BUFFER_SIZE 值
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// glTexBufferRange 和 glTextureBufferRange 将指定缓存对象的数据存储的一个范围附加到指定的纹理
+// 对象，并指定缓存对象中纹理图像的存储格式。该纹理对象必须是缓存纹理。如果 buffer 为零，则任何
+// 附加到该缓存纹理的缓存对象将被分离，且不会附加新的缓存对象。如果 buffer 非零，则它必须是现有
+// 缓存对象的名称。
+//
+// 范围的起始位置和大小分别由 offset 和 size 指定，两者均以基本机器单位计量。offset 必须大于或等
+// 于零，size 必须大于零，且 offset 与 size 之和不得超过 buffer 的 GL_BUFFER_SIZE 值。此外，offset
+// 必须是 GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT 值的整数倍。
