@@ -445,6 +445,7 @@
 //
 // https://learn.microsoft.com/en-us/windows/win32/api/_opengl/
 // https://learn.microsoft.com/en-us/windows/win32/OpenGL/opengl
+// https://learn.microsoft.com/en-us/windows/win32/opengl/opengl-reference
 //
 // https://github.com/Dav1dde/glad/wiki/C
 //
@@ -4778,3 +4779,96 @@
 //
 // 融混操作（blending）
 // 双源融混（dual-source blending）
+
+// void glGenTextures( // 生成一个或多个纹理句柄（或称为名称）
+//      GLsizei n, // 生成句柄个数，如果是负数，将产生 GL_INVALID_VALUE 错误
+//      GLuint *textures); // 保存句柄的数组
+//
+// void glDeleteTextures( // 释放一个或多个纹理句柄
+//      GLsizei n, 句柄个数，如果是负数，将产生 GL_INVALID_VALUE 错误
+//      const GLuint *textures);
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//  ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// glGenTextures 在 textures 中返回 n 个纹理句柄。不保证这些句柄构成一组连续的整数；但是，
+// 可以保证返回的句柄中没有任何一个在调用 glGenTextures 之前正处于使用状态。生成的纹理没
+// 有维度，以首次绑定时所指定的纹理目标的维度为准，参见 glBindTexture。由 glGenTextures
+// 调用返回的纹理句柄不会由后续调用再次返回，除非它们首先通过 glDeleteTextures 被删除。
+//
+// glDeleteTextures 删除由数组 textures 中的元素命名的 n 个纹理。纹理被删除后，它没有内容
+// 也没有维度，其名称可以被重用（例如由 glGenTextures 重用）。如果当前绑定的纹理被删除，绑
+// 定将恢复为 0（默认纹理），对应的纹理目标没有绑定纹理句柄，可以重新用来绑定新的纹理句柄。
+// glDeleteTextures 会静默忽略 0 和不对应于现有纹理的名称。
+
+// void glBindTexture( // 将一个纹理句柄绑定到一个纹理目标，第一次调用相当于创建纹理对象并绑定该对象，以后的调用将只绑定对象，绑定一个对象将断开之前绑定的纹理
+//      GLenum target, // 纹理目标，GL_INVALID_ENUM 非法目标
+//      GLuint texture); // 纹理句柄，GL_INVALID_VALUE 不是纹理句柄，GL_INVALID_OPERATION 目标不匹配的纹理句柄
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//  ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// void glCreateTextures( // 创建一个或多个纹理对象
+//      GLenum target, // 每个纹理对象的纹理目标，GL_INVALID_ENUM 非法目标
+//      GLsizei n, // 生成句柄个数，如果是负数，将产生 GL_INVALID_VALUE 错误
+//      GLuint *textures); // 保存纹理对象句柄的数组
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// 纹理目标必须是以下值之一：
+//      GL_TEXTURE_1D
+//      GL_TEXTURE_2D
+//      GL_TEXTURE_3D
+//      GL_TEXTURE_1D_ARRAY
+//      GL_TEXTURE_2D_ARRAY
+//      GL_TEXTURE_RECTANGLE
+//      GL_TEXTURE_CUBE_MAP
+//      GL_TEXTURE_CUBE_MAP_ARRAY
+//      GL_TEXTURE_BUFFER
+//      GL_TEXTURE_2D_MULTISAMPLE 仅v3.2+才支持
+//      GL_TEXTURE_2D_MULTISAMPLE_ARRAY 仅v3.2+才支持
+//
+// glBindTexture 允许你创建（第一次调用时会创建并使用该纹理）或使用一个已命名的纹理。当纹理
+// 绑定到某个目标时，该目标上之前的绑定将自动断开。纹理名称是无符号整数。值零被保留，用于表
+// 示每个纹理目标的默认纹理，绑定为空。纹理名称及其对应的纹理内容对于当前 GL 渲染上下文的共
+// 享对象空间是局部的；两个渲染上下文只有在通过适当的 GL 窗口接口函数显式启用上下文间共享时，
+// 才会共享纹理名称。
+//
+// 你必须使用 glGenTextures 来生成一组新的纹理名称。当纹理首次绑定时，即假定指定的目标：首次        *** 纹理对象的首次绑定将指定纹理对象的类型，并初始化为该纹理类型的默认值
+// 绑定到 GL_TEXTURE_1D 的纹理变为一维纹理，首次绑定到 GL_TEXTURE_2D 的纹理变为二维纹理，首次
+// 绑定到 GL_TEXTURE_3D 的纹理变为三维纹理，首次绑定到 GL_TEXTURE_1D_ARRAY 的纹理变为一维数组
+// 纹理，首次绑定到 GL_TEXTURE_2D_ARRAY 的纹理变为二维数组纹理，首次绑定到 GL_TEXTURE_RECTANGLE
+// 的纹理变为矩形纹理，首次绑定到 GL_TEXTURE_CUBE_MAP 的纹理变为立方体贴图纹理，首次绑定到
+// GL_TEXTURE_CUBE_MAP_ARRAY 的纹理变为立方体贴图数组纹理，首次绑定到 GL_TEXTURE_BUFFER 的纹理
+// 变为缓冲区纹理，首次绑定到 GL_TEXTURE_2D_MULTISAMPLE 的纹理变为二维多重采样纹理，首次绑定到
+// GL_TEXTURE_2D_MULTISAMPLE_ARRAY 的纹理变为二维多重采样数组纹理。一维纹理首次绑定后的状态等
+// 效于 GL 初始化时默认 GL_TEXTURE_1D 的状态，其他纹理类型同理。
+//
+// 纹理处于绑定状态时，对其所绑定目标执行的 GL 操作将影响该绑定纹理，对该目标的查询将返回该绑
+// 定纹理的状态。实际上，纹理目标成为当前绑定到它们的纹理的别名，而纹理名称零则指代初始化时绑
+// 定到它们的默认纹理。
+//
+// 通过 glBindTexture 创建的纹理绑定将保持活动状态，直到不同的纹理绑定到同一目标，或者绑定的纹
+// 理通过 glDeleteTextures 被删除。一旦创建，已命名的纹理可以根据需要多次重新绑定到其原始目标。
+// 使用 glBindTexture 将现有已命名纹理绑定到某个纹理目标，通常比重新加载纹理图像（使用 glTexImage1D、
+// glTexImage2D、glTexImage3D 或类似函数）要快得多。
+//
+// glCreateTextures 在 textures 中返回 n 个先前未使用的纹理名称，每个名称代表一个由 target 指
+// 定的维度和类型的新纹理对象，并初始化为该纹理类型的默认值。
+
+// void glTexBuffer( // 将一个缓存对象的数据存储附加到一个纹理缓存对象（即类型为 GL_TEXTURE_BUFFER 的纹理对象）
+//      GLenum target, // 必须是 GL_TEXTURE_BUFFER，GL_INVALID_ENUM 非法目标
+//      GLenum internalformat, // 指定缓存数据的内部格式，GL_INVALID_ENUM 非法内部格式
+//      GLuint buffer); // 缓存对象句柄，GL_INVALID_OPERATION 句柄不是 0 也不是一个现存的缓存对象
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                 ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// void glTextureBuffer( // 将一个缓存对象的数据存储附加到一个纹理缓存对象（即类型为 GL_TEXTURE_BUFFER 的纹理对象）
+//      GLuint texture, // 纹理对象句柄，GL_INVALID_ENUM 句柄绑定的纹理对象的类型不是一个纹理缓存对象，GL_INVALID_OPERATION 句柄对应的不是一个现存的纹理对象
+//      GLenum internalformat, // 指定缓存数据的内部格式，GL_INVALID_ENUM 非法内部格式
+//      GLuint buffer); // 缓存对象句柄，GL_INVALID_OPERATION 句柄不是 0 也不是一个现存的缓存对象
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
