@@ -1,335 +1,63 @@
+// prh_truetype.h - v0.01 - public domain - swdayu <github.com/swdayu>
+// No warranty implied, use at your own risk.
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+////
+////   INTERFACE
+////
+////
+
+#ifndef PRH_IMPL_GRAPHIC_INCLUDED_H
+#define PRH_IMPL_GRAPHIC_INCLUDED_H
+
 #include "prh_include.h"
 
-// 字体（Font），验证等宽字体效果，真正等宽字体下面三行会完美对齐：
-// | 中文 | 中文 | 中文 |
-// | abcd | abcd | abcd |
-// | 中ab | 中ab | 中ab |
-//
-// 字体风格，衬线体（Serif）和无衬线体（Sans-Serif），Serif 源自荷兰语 Schreef 笔画、
-// 线条，Sans 源自法语（without）。核心区别在于笔画末端是否有装饰性的"小脚"。衬线体（Serif）
-// 或罗马体，在笔画末端有额外的装饰性笔触（衬线），像"小脚" 或"小横杠"。例如常见的西文字体
-// Times New Roman、中文宋体（SimSun）、思源宋体。起源：模仿古罗马石刻字母的凿刻痕迹；用
-// 途：长文阅读（书籍、报纸、论文）；优势：衬线引导视线水平移动，提高阅读流畅性，笔画对比
-// 度强，字内结构清晰（阅读疲劳低，视线引导好）。
-//
-// 等宽（Monospace）和变宽（Proportional）。等宽字体也可以是衬线体风格，模仿打字机正式感，
-// 意营造老式打字机氛围。传统打字机打出的并不是真正的衬线体，但视觉效果上确实有类似之处。
-// 打字机"伪衬线"的真正来源，一是机械结构的限制，早期打字机的字模是铸造在金属杆上的，字母
-// 主体与字臂连接处自然形成粗重的横线，看起来像衬线，但其实是机械连接的残余。二是等宽需求
-// 的副作用，为了机械对齐，所有字母必须占据相同的物理宽度，窄字母（i, l）必须加粗/加宽填
-// 充空间，在末端形成"横杠"来占满格子。三是击打清晰度的需求，底部横杠增加了着墨面积，防止
-// 细笔在纸张纤维上断裂/模糊，有横杠的粗笔更清晰。为什么编程字体多为等宽无衬线？因为衬线
-// 在小字号（10-14px）下难以清晰渲染，Sans 不干扰代码逻辑的视觉判断，代码需要严格的列对
-// 齐缩进，终端早期只能显示无衬线点阵字体。Courier（1955年，Howard Kettler 设计）是刻意
-// 模仿打字机外观的字体，Courier New 最知名的等宽衬线体，模仿打字机，而 Consolas 彻底摒
-// 弃了打字机传统的现代等宽无衬线设计。
-//
-// 无衬线体或黑体或哥特体（Sans-Serif），笔画末端没有任何装饰，干净利落，粗细均匀。例如
-// 常见的西文字体 Arial、中文黑体（SimHei）、微软雅黑、思源黑体。起源：19 世纪工业革命后，
-// 为广告牌、海报等需要远距离识别的场景设计；用途：屏幕显示、UI 界面、标题、短文本；优势：
-// 简洁现代；低分辨率下仍清晰可读，中性客观，不干扰内容（像素渲染清晰，现代感强）。
-//
-// 中文的"宋体"虽然原理上属于 Serif，但其"顿笔"是书法性的笔锋，而非西文那种几何化的衬线，
-// 这是活字印刷模仿毛笔书法的结果。"黑体"笔画粗细均匀，末端无装饰。当前电子内容几乎清一
-// 色地都是黑体，而纸质内容绝大部分采用宋体。在大部分电子产品环境下，黑体确实更容易辨认，
-// 但这里有一个重要的前提，只以字体为唯一变量。黑体的特征是笔画基本粗细一致，宋体则是横
-// 细竖粗，如果屏幕分辨率低，横画就看起来很糊，笔画看不清。有研究实验测量了黑、宋、楷、
-// 隶四种字体的辨认阈值，也就是字缩到多小还能认出来。结果发现，可辨认度由高到低依次是黑、
-// 宋、楷、隶，黑体赢得干净利落。要是单论认字这件事，黑体的优势是真实存在的，绝非玄学。
-//
-// 但为什么有的人觉得黑体字难度？但问题是，我们日常做的任何任务可不是认字，而是阅读。这
-// 两件事有本质上的不同。阅读时，大脑是一块一块阅读的，不是一个字一个字读。实际上，眼球
-// 在阅读时做的是一连串短促的跳跃和停顿。每次停顿约持续 200 至 250 毫秒，而每次停顿时，
-// 眼睛在中央视野里能看清细节的范围其实很小，只有 2 到 3 个汉字，但视野周边区域也在同步
-// 提取周围的信息，为下一次跳跃做预判。可辨认度指的是字体能不能被识别，而可读性指的是连
-// 续读一大段文字时，整体是否流畅、省力、不容易疲劳。一个字体的可辨认度高，排出来的文章
-// 不一定号读。例如行距太窄，字间距过松，每行字数太多，这些排版因素（行间距、字间距、每
-// 行字数）的影响权重，在大多数情况下都高于字体是黑体还是宋体。另外，电子阅读材料往往还
-// 有一个纯技术性的问题：没有做自适应。很多原本是网页或电脑端的内容，在手机上打开并没有
-// 做对应的排版适应。
-//
-// 另外字号的影响远大于字体。一些学者研究了多种显式变量对中文阅读的影响，结论是字体类型、
-// 字号大小和间距都会影响阅读速度和主观偏好，但只有字号大小影响了阅读理解率。也就是说，
-// 字体风格影响了读起来有没有感觉，但字号大小决定了都进去多少。在手机场景下的研究也得出
-// 过相似结论：字号更大的中文字，识别速度显著更快，错误率更低，而字体风格的影响，在同等
-// 字号下反而没有字号本身的影响显著。所以，很多人以为是字体让自己看得难受，其实很可能只
-// 是字体太小了。只要字体大到视觉能阅读，用什么字体都行。有人认为宋体更好，因为宋体是衬
-// 线体，在英文文本阅读研究里，衬线体阅读体验更好。但问题是，英文的字形于中文并不相同，
-// 不可直接套用。英文里，衬线就像字母之间隐含的一条基准线，字母衬线就像半隐形的各自。但
-// 中文的衬线是在字的顿笔、折笔处形成的，而且每个字都是独立的方块，阅读单元完全不同，这
-// 就导致英文中衬线的作用在中文里基本失效。其实，同是黑体或宋体，在字重、笔画粗细比例等
-// 细节上，差异也很大，不同黑体字体之间的可辨认度差异，不一定比黑体和宋体之间的差异小。
-// 要想知道选什么字体，首先要问什么场景，以及阅读舒适度，还有主观因素。例如手机字幕需要
-// 在 0.5 秒内被瞥见、路牌需要在车速 60km/h 下被识别，这些场景的确需要最高可辨认度，黑
-// 体的优势在这里最能发挥。而在大段连续阅读的场景下，排版和字号是更关键的变量，字体是次
-// 要的。另外，一项研究探索了字体熟悉程度对阅读速度的影响，发现接触时间对阅读速度又显著
-// 影响，也就是说，你对一款字体越熟悉，读得越快，这与字形本身的设计优劣关系不大。这就形
-// 成了一个自我强化的循环，熟悉了黑体就会觉得黑体阅读感知更自然、更好读，有一些人习惯阅
-// 读宋体，就会觉得宋体更舒服。
-//
-// 不同场景下排版和字号的推荐参考值，字间距正文设为 0，中文方块字内部已有标准间距，额外
-// 加字间距反而破坏词组的视觉连贯性，不利于分块识别。如果你用手机读文章经常感觉眼睛累，
-// 先看看自己屏幕是不是太亮，周围是不是太暗，再把字号调大，把行距拉宽，最后再去纠结换不
-// 换字体，按照这个优先级来，解决问题的效率会高很多。
-//  1.  电子书、长文本阅读器：字号 17 至 20px 之间，行距 1.6 至 1.8 倍，每行 28 至 35
-//      字是中文长文本的舒适范围。这里需要注意的是，对比度是容易被忽略的一个变量，纯黑
-//      文字配纯白背景在高亮度屏幕下，实际上对比过强，长时间阅读容易疲劳，很多阅读器默
-//      认的米黄色背景就很好，可以降低对比度峰值。
-//  2.  手机端：正文字号最小 15px，推荐 16px，主流中文应用的正文字号也通常集中在 15 至
-//      17px 之间，行距推荐 1.6 至 2.0 倍，在碎片化的手机阅读场景下，稍宽的行距有助于维
-//      持节奏，减少视线落错行的概率。这种设置下，每行字数约为 20 至 25 字，基本落在舒
-//      适范围内。
-//  3.  网页桌面端：正文字号 16px 起步，17 至 18px 更舒适，行距推荐 1.5 至 1.8 倍，每
-//      行字数 30 至 40 字是舒适范围。每行字数越多，需要越宽的行距来帮助视线准备回到下
-//      一行起点，否则很容易重读同一行。
-//
-// 字体的 Unhinted 版本，是指未添加字体提示（hints）的版本。字体提示是一组指令或数据，
-// 告诉渲染引擎（操作系统、浏览器）如何在低分辨率（尤其是屏幕显示）下调整字体的轮廓，使
-// 其清晰可读。TrueType Hinting 使用指令语言，可编程控制每个字号的渲染行为，No hinting
-// (Unhinted) 完全依赖渲染引擎的抗锯齿和子像素渲染。去掉 hinting 数据，字体文件体积可
-// 减少 20-50%，在高 DPI（200+ PPI）屏幕上，矢量轮廓本身的精度已足够，hinting 的强制对
-// 齐反而可能造成字形扭曲，无需为每个字号单独调整 hinting 指令，避免不同渲染引擎（Windows
-// ClearType / macOS CoreText / FreeType）对 hinting 解释的差异。但主要的问题是，低分
-// 辨率发虚：在 96 DPI 的传统显示器上，小字号（<16px）可能模糊、不均匀；Windows 尤其明显：
-// Windows 的 GDI 渲染传统上重度依赖 hinting，无 hinting 时回退到灰度抗锯齿，效果较差；
-// 小字号可读性下降：中文笔画复杂，低像素下容易糊成一团。为什么现代字体常提供 Unhinted
-// 版本？屏幕 DPI 演进：2000 年代 96 DPI (1x)，Hinting 至关重要；2010 年代 130 DPI
-// (Retina)，Hinting 有帮助；2020 年代 200+ DPI (4K/手机)，Hinting 基本不需要。高 DPI
-// 时代，Unhinted 成为主流选择。
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-// https://github.com/adobe-fonts/source-han-serif/tree/release#downloading-source-han-serif
-//
-// 可变字体和静态字体
-//      特性        可变字体（Variable Font）                       静态字体（Static Font）
-//      文件数量    一个文件包含全部字重                            每个字重一个文件（如 Regular、Bold、Light 各一个）
-//      字重调节    连续可调（如 100-900 任意值）                   固定档位（通常 7 种：ExtraLight、Light、Regular、Medium、SemiBold、Bold、Heavy）
-//      文件大小    更小（所有字重共享字形轮廓数据）                更大（多个文件总和）
-//      渲染方式    运行时插值生成中间字重                          直接使用预先生成的字形
-//      兼容性      需要较新系统/应用支持                           兼容性更好，老旧系统也能用
-//      性能        首次加载略慢（需解析变轴数据），但缓存后正常    直接加载，无额外计算
-//
-// 字体的选择
-//      只需要简体中文，用常规字重          静态 OTF 或 TTF
-//      需要简体中文多种字重                可变 OTF 或可变 TTF
-//      需要简/繁/日/韩多种语言             可变 OTC 或超级 OTC
-//      系统很新（Win10 1703+/macOS 10.8+） 可变 OTC（最小体积）
-//      系统较老，兼容性优先                静态 OTF/TTF
-//      Web 使用（WOFF2）                   可变 WOFF2（压缩率更高）
-//
-// 但字体文件和字体集合文件
-//      格式     全称                    本质           特点
-//      TTF      TrueType Font           单个字体文件   使用 TrueType 轮廓的单个字体文件（例如）
-//      OTF      OpenType Font           单个字体文件   最基础的格式，一个文件 = 一种语言的一个字重（例如 SourceHanSerifSC-Regular.otf）
-//      OTC      OpenType Collection     字体集合       一个文件包含多个字体（如 5 种语言 × 7 字重 = 35 个字体在一个文件里，例如 SourceHanSerif.ttc）
-//      TTC      TrueType Collection     字体集合       原始名称，由 TrueType 规范定义，OTC 和 TTC 本质上是同一个东西，OpenType 标准沿用
-//
-// 字体格式 OTF 和 TTF 的区别
-//      功能特性        OTF（CFF 轮廓）                 TTF（TrueType 轮廓）
-//      曲线数学        三次贝塞尔曲线（Cubic Bezier）  二次贝塞尔曲线（Quadratic Bezier）
-//      文件大小        通常更小（曲线更紧凑）          通常更大
-//      渲染 hinting    依赖 PostScript 渲染器          依赖 TrueType 解释器
-//      屏幕小字号      可能略逊                        通常更好（hinting 更成熟）
-//      打印/专业排版   更优                            良好
-//
-// 思源宋体是一款开源的泛中日韩（Pan-CJK）字体，其 OpenType/CFF 字体和基于 CID 的源文件
-// 均受 SIL 开源字体许可证 1.1 版条款保护（另请参阅 LICENSE 和 FAQ）。在此您可以找到可直
-// 接安装的 OpenType/CFF 字体资源，既可单独下载单个字体文件，也可打包下载 ZIP 压缩文件。
-// 字体的 CID 源文件和构建说明可在仓库的主分支中获取。http://scripts.sil.org/OFL
-//
-// 可变 OTC 字体（Variable OTCs）。如果您的系统同时支持可变字体和 OTC 格式，且需要使用     *** 02_SourceHanSerif-VF\Variable\OTC
-// 全部五种语言及全部字重，请选择此部署格式。注意：不存在区域子集可变 OTC 字体，因为其
-// 文件大小会大于语言特定 OTC，从而失去文件大小优势。
-// https://github.com/adobe-fonts/source-han-serif/raw/release/Variable/OTC/SourceHanSerif-VF.otf.ttc
-// https://github.com/adobe-fonts/source-han-serif/raw/release/Variable/OTC/SourceHanSerif-VF.ttf.ttc
-//
-// 语言特定可变字体（Language-specific Variable Fonts）。如果您的系统支持可变字体，且您只   *** 02_SourceHanSerif-VF\Variable\[TTF|OTF|WOFF2]\
-// 使用一种语言，但同时需要完整的字符覆盖范围，或希望通过对文本进行语言标记来使用适合其他
-// 语言的字形（这需要支持语言标记和 OpenType 'locl' GSUB 特性的应用程序），请选择此部署格
-// 式。语言特定字节包含完整 CJK 统一表意文字，Simplied Chinese 和 Tranditional Chinese 和
-// Japanese 等都包含完整的 CJK 字符集。这三个版本的核心区别在于字形设计规范和语言特定的排
-// 版习惯，而非字符覆盖范围。
-//      特性            简体中文 (SC)               繁体中文—台湾 (TC)      日语 (J)
-//      字形标准        中国大陆规范字形            台湾教育部标准字形      日本常用汉字表 (Jōyō)
-//      简繁关系        以简体为主，繁体回退        以繁体为主，简体回退    日文汉字独立规范
-//      具体字形差异    骨、角、雨等部首写法不同    与 SC 在细节笔画上有别  大量日文独有字形
-//      标点位置        居左下（横排）              居中                    居中
-//      引号样式        「」、""                    「」、""                「」、『』
-//      假名            无                          无                      包含平假名、片假名
-//      谚文            无                          无                      无
-//      字符覆盖        完整 CJK                    完整 CJK                完整 CJK + 假名
-//
-// 具体字形差异示例
-//      汉字    简体中文        台湾繁体        日语
-//      骨      骨（上部开口）  骨（上部开口）  骨（上部封口，更方）
-//      角      角（下部"用"）  角（下部"用"）  角（下部不同）
-//      雨      雨（四点平直）  雨（四点略弯）  雨（四点独立，更竖）
-//      门      门（简体）      門（繁体）      門（繁体，但内部细节不同）
-//      直      直（内部三横）  直（内部三横）  直（内部两横，日文字形）
-//      真      真（内部三横）  真（内部三横）  真（日文字形差异）
-//
-// 技术实现：通过 OpenType 'locl' 特性切换。三个版本的字形数据实际上都存储在字体中，区别
-// 通过 GSUB 表和 语言标记控制：
-//      /* CSS 示例 */
-//      font-family: "Source Han Serif SC";  /* 简体中文字形优先 */
-//      font-family: "Source Han Serif TC";  /* 台湾繁体字形优先 */
-//      font-family: "Source Han Serif J";   /* 日文字形优先 */
-//      /* 或通过语言标记让同一个字体自动切换 */
-//      <p lang="zh-CN">骨</p>   /* 显示简体字形 */
-//      <p lang="zh-TW">骨</p>   /* 显示台湾繁体字形 */
-//      <p lang="ja">骨</p>      /* 显示日文字形 */
-//
-// 韩语（Korean）版本与中日文版本的核心区别在于文字系统的根本差异——韩语使用谚文（Hangul），
-// 而非汉字。
-//      特性            简体中文 (SC)   繁体中文 (TC)   日语 (J)        韩语 (K)
-//      主要文字        汉字（简体）    汉字（繁体）    汉字 + 假名     谚文（Hangul）
-//      谚文支持        无              无              无              完整
-//      汉字覆盖        完整 CJK        完整 CJK        完整 CJK        完整 CJK + 韩语汉字
-//      假名支持        无              无              平假名、片假名  无
-//      汉字使用频率    高              高              中高            低（主要用谚文）
-//      汉字字形标准    大陆规范        台湾/香港规范   日本常用汉字表  韩语汉字规范
-//
-// Unicode 中文字和韩文谚文是不同的区块如下，韩语版本必须额外包含 11,000+ 谚文码点 的设计，
-// 这是其他版本完全没有的。
-//      CJK Unified Ideographs（中日韩统一汉字）← 四者都包含
-//      Hiragana（平假名）← 仅日语
-//      Katakana（片假名）← 仅日语
-//      Hangul Syllables（谚文音节）← 仅韩语
-//      Hangul Jamo（谚文字母）← 仅韩语
-//
-// 区域子集可变字体（Region-specific Subset Variable Fonts）。如果您的系统支持可变字体，且   *** 02_SourceHanSerif-VF\Variable\[TTF|OTF|WOFF2]\Subset\
-// 您只需要特定区域的字符字形，请选择此部署格式。例如简体中文语言特定字体和区域子集字体的
-// 区别如下。
-//      特性            语言特定（Language Specific）           区域子集（Region Specific Subset）
-//      字符数量        约 65,000+（完整 CJK 统一表意文字）     约 8,000-15,000（仅该区域常用字）
-//      覆盖范围        中日韩越全部 CJK 字符                   仅中国大陆常用字符
-//      文件大小        大（约 8-20 MB）                        小（约 2-4 MB）
-//      用途            专业排版、多语言混排、古籍              日常网页、普通文档
-//      生僻字          支持                                    不支持（显示为空白或回退字体）
-//      旧字形/异体字   包含                                    不包含
-//
-// 超级 OTC（Super OTC）。如果您希望在一个易于管理的单一字体资源中获取全部五种语言和全部   *** 01_SourceHanSerif.ttc
-// 七种字重（共 35 款字体），请选择此部署格式。切换语言可通过选择所需语言字体，或对文本进
-// 行语言标记来实现。支持语言标记及相应 OpenType 'locl'（本地化字形）GSUB 特性的应用程序
-// 数量有限，如 Adobe InDesign 和现代浏览器。相当于将所有静态字体打包。
-// https://github.com/adobe-fonts/source-han-serif/releases/download/2.003R/01_SourceHanSerif.ttc.zip
-//
-// 特别说明：此部署格式需要 macOS（OS X）10.8（即 Mountain Lion）或更高版本、iOS 7 或更高版
-// 本、Windows 10 版本 1703（即创意者更新）或更高版本、使用 fontconfig 且 FreeType 版本为
-// 2.5.0.1 或更高的 Linux 发行版，或 Adobe CS6 及更高版本应用程序。
-//
-// OTC 字体（OTCs）。如果您需要全部五种语言和特定字重，或者您的环境不支持超级 OTC，请选择   *** 03_SourceHanSerifOTC
-// 此部署格式。切换语言的方式与超级 OTC 相同。如果您需要特定字重，请从 OTC 文件夹下载单个
-// 字体资源，否则请点击以下链接。相当于将所有静态字体打包到一起，但每个字重一个文件，即一
-// 个文件包含了所有五种语言，但只有一个字重。
-// https://github.com/adobe-fonts/source-han-serif/releases/download/2.003R/03_SourceHanSerifOTC.zip
-//
-// 特别说明：此部署格式需要 macOS（OS X）10.8（即 Mountain Lion）或更高版本、iOS 7 或更高
-// 版本、Windows 10 版本 1607（即周年更新）或更高版本、使用 fontconfig 且 FreeType 版本为
-// 2.5.0.1 或更高的 Linux 发行版，或 Adobe CS6 及更高版本应用程序。
-//
-// 语言特定 OTF 字体（分散的单个语言特定静态字体）。如果您只使用一种语言，但同时需要完整的   *** 04_SourceHanSerifOTF
-// 字符覆盖范围，或希望通过对文本进行语言标记来使用适合其他语言的字形（与超级 OTC 和 OTC 字
-// 体一样，这需要支持语言标记和 OpenType 'locl' GSUB 特性的应用程序），请选择此部署格式。
-//
-// 区域子集 OTF 字体（分散的单个区域子集静态字体）。如果您只需要特定区域的字符字形，或不确   *** 05_SourceHanSerifSubsetOTF
-// 定选择哪种部署格式，请选择此部署格式。每个 ZIP 文件包含七款字体资源，涵盖全部七种字重。
-//
-// WOFF2 文件比 OTF/TTF 小的核心原因是采用了更高效的压缩算法，并针对字体数据做了专门优化。
-// WOFF2 使用每个表独立用 Brotli 压缩（可选择不同压缩级别）的算法替代了旧的（WOFF 1.0）整
-// 个文件统一 deflate，加上字体专用的轮廓编码优化和按表独立压缩，比 OTF 小 50-60%，比 WOFF
-// 1.0 小 30% 左右。专为网页传输设计，不适合本地编辑。WOFF2 不适合本地编辑，主要有以下几个
-// 原因。
-//
-//  1.  格式设计目标不同
-//                  WOFF2               OTF/TTF
-//      设计目的    网页传输、下载      本地安装、编辑、排版
-//      优化方向    压缩率最大化        随机访问、快速渲染
-//      数据结构    压缩后的流式数据    可直接寻址的表结构
-//  2.  需要解压才能使用
-//      编辑软件需要频繁随机访问字体的各个表（字形、度量、字距等），WOFF2 每次都要先解压，
-//      效率极低。
-//  3.  软件生态不支持，法律/许可层面 WOFF2 规范定位为传输格式，而非分发格式。
-//  4.  元数据丢失或简化，WOFF2 为压缩会丢弃或简化一些本地编辑需要的信息。
-//  5.  解压后的文件并不等价，专业排版需要字节级精确的字体文件，解压还原无法保证。WOFF2
-//      解压 → OTF，但这个过程可能丢失原始 hinting 的精确性，表顺序可能改变，某些私有表
-//      （非标准）可能无法还原。
+#ifdef __cplusplus
+}
+#endif
 
-// https://github.com/be5invis/Iosevka（西文等宽字体）
-//
-// Iosevka 支持连字，部分负号不等宽。Iosevka Term 和 Fixed 不支持连字，字符全部严格等宽：
-//      特性                Iosevka                         Iosevka Term        Iosevka Fixed
-//      设计目标            通用编程字体，平衡可读性与紧凑  终端/命令行优化     严格等宽，无连字
-//      字符宽度            大部分等宽，但部分符号可比例    全部严格等宽        全部严格等宽
-//      连字（Ligatures）   支持                            不支持              不支持
-//      箭头符号宽度        -> => 可连成比例宽度            保持单个字符等宽    保持单个字符等宽
-//      M W 宽度            可能略宽于标准格子              严格占一个格子      严格占一个格子
-//      Powerline 符号      支持                            优化对齐            优化对齐
-//      终端兼容性          良好                            最佳                良好
-//
-// Thin 100 ExtraLight 200 Light 300 Regular 400 Medium 500 SemiBold 600 Bold 700 ExtraBold 800 Black/Heavy 900
-// 薄（bao）   超细         细体      常规        中等        半粗        粗体      超粗           黑体
+#endif // PRH_IMPL_GRAPHIC_INCLUDED_H
 
-#ifdef PRH_FONT_INCLUDE
-#ifdef PRH_FONT_IMPLEMENTATION
-#include "prh_renders.h"
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+////
+////   IMPLEMENTATION
+////
+////
 
-#endif // PRH_FONT_IMPLEMENTATION
-#endif // PRH_FONT_INCLUDE
+#ifdef PRH_GRAPHIC_IMPLEMENTATION
 
-// https://learn.microsoft.com/en-us/windows/win32/intl/uniscribe-glossary
+//////////////////////////////////////////////////////////////////////////////
+///
+/// OPENGL
+///
+
+// OpenGL 窗口或屏幕坐标系原点位于左下角，x向右，y向上。DirectX、HTML5 Canvas、大多数图
+// 像处理库的屏幕原点位于左上角，x向右，y向下，其 y 坐标值正好与 OpenGL 相反。
 //
-// Can get look-and-feel hints from the underlying operating system, so it never
-// seems out of place. Is adaptable to the different form factors and resolution
-// ranges. Has good standard support for high contrast and other similar display
-// modes. Supports both manual layout and lightweight widget packing mechanisms;
-// stays away from heavier constraints models as much as is practical. Supports
-// animations, sounds and such, without being over-the-top by default. Supports
-// RTL, i18n and l10n out of the box. In other words, I want a modern, GPU accelerated
-// version of the Delphi VCL.
+// 标准化设备坐标（NDC，Normalized Device Coordinates），这是3D图形管线中定点经过投影变
+// 换和透视除法后所处的坐标空间，其取值范围通常为 [-1,1]，随后通过视口变换映射到屏幕像素
+// 坐标。其坐标原点位于中心，左下角为 (-1, 1)，右上角为 (1, 1)，视口变换矩阵会自动把 NDC
+// 的 (-1, -1) 映射到窗口坐标的原点 (0, 0)，把 (1, 1) 映射到窗口坐标的右上角 (width, height)。
 //
-// Widgets               Containers
-//  Label                 Window
-//  Button                Panel
-//  ToggleButton          Row
-//  RangeSlider           Column
-//  Scrollbar             Grid
-//  Checkbox              Tabs
-//  Dropdown              Pills
-//  Radio Button          Dock
-//  Image                 SlidePane
-//  Video                 Modal
-//  Text Input            Accordionl
-//  Toggle Switch
-//  Progress Bar
-//  Date Picker
-//  Time Picker
-//  Slider
-//  Color Picker        Utilities
-//  Calendar             Translation Provider
-//  File Picker          Animation Provider
-//  Table                Localization Provider
-//  List                 Theme Provider
-//  Buttonbar
-//  Menubar
-//  Menu
-//  Menu Item
-//  Tooltip
-//  Badge
-//  PixelCanvas
+// 纹理坐标系原点默认情况下左下角，s向右，t向上。在 OpenGL 的纹理坐标系中，s、t、r 分别对
+// 应三维空间中的三个轴，三个坐标的标准范围都是 [0, 1]，超出此范围后的行为由 GL_TEXTURE_WRAP_S/T/R
+// 控制（重复、钳制、镜像等）。注意 r 容易与红色（Red）混淆，因此在 GLSL 着色器中，纹理坐
+// 标的 swizzle 访问通常写作 .stp 而不是 .str。
+//      坐标    方向        含义
+//      s       水平（X）   纹理的横向坐标，0 = 左边缘，1 = 右边缘，相当于 UV 中的 U
+//      t       垂直（Y）   纹理的纵向坐标，0 = 下边缘，1 = 上边缘，相当于 UV 中的 V
+//      r       深度（Z）   纹理的深度/层坐标，用于三维纹理或立方体贴图的面选择，相当于 UVW 中的 W
 //
-// 风格，审美，启示，观感，真实
-//
-// https://without.boats/blog/futures-unordered/
-// https://without.boats/blog/let-futures-be-futures/
-//
-// 每个屏幕上的像素，是直接生成的实时流，没有 HTML，没有布局引擎，没有代码，仅仅是你想
-// 要看到的东西。打开浏览器，没有代码，美哟 HTML，没有 CSS 布局引擎，屏幕上每一帧画面，
-// 都是 AI 模型实时生成的像素视频流。它能瞬间理解你的意图，动态重塑整个界面，从旅行规
-// 划到复杂数据可视化，全是手绘级插图般生动，还能随点击无缝变形、交互。视频模型实现真
-// 实演示，1080p 24fps 实时流式传输，背后是 Modal GPU 服务器。一切简化为像素流，模型
-// 直接决定你看到什么、怎么交互。无需布局引擎，插图随窗口自适应变形，不再被 CSS 框死。
-// 全屏互动，任何像素都能响应点击，模型实时判断意图，不再局限于预定义按钮。视觉优先，
-// 复杂概念用插图、动画、真实渲染表达，而不是枯燥文字和矩形框。(WebSocket)
+// 矩形纹理 GL_TEXTURE_RECTANGLE 不使用归一化 [0, 1] 坐标，而是直接使用像素尺寸范围。矩形
+// 纹理不支持 mipmap，且环绕模式不能设置为 GL_REPEAT 或 GL_MIRRORED_REPEAT。
+//      s ∈ [0, width]
+//      t ∈ [0, height]
 
 // https://wikis.khronos.org/opengl/Main_Page
 // https://wikis.khronos.org/opengl/Getting_Started
@@ -442,10 +170,6 @@
 // 文件都依赖于来自 EGL Registry 的共享 <KHR/khrplatform.h> 头文件。这是一个新增的依
 // 赖关系，在上面链接所示的 OpenGL-Registry 拉取请求中引入，旨在增强 OpenGL 与 OpenGL
 // ES 头文件之间的兼容性。
-//
-// https://learn.microsoft.com/en-us/windows/win32/api/_opengl/
-// https://learn.microsoft.com/en-us/windows/win32/OpenGL/opengl
-// https://learn.microsoft.com/en-us/windows/win32/opengl/opengl-reference
 //
 // https://github.com/Dav1dde/glad/wiki/C
 //
@@ -5013,3 +4737,563 @@
 // 范围的起始位置和大小分别由 offset 和 size 指定，两者均以基本机器单位计量。offset 必须大于或等
 // 于零，size 必须大于零，且 offset 与 size 之和不得超过 buffer 的 GL_BUFFER_SIZE 值。此外，offset
 // 必须是 GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT 值的整数倍。
+
+// void glTexImage2D( // 指定一个二维纹理图像
+//      GLenum target, // 绑定的目标纹理
+//      GLint level, // 指定细节级别数
+//      GLint internalformat, // 指定纹理中的颜色分量数量
+//      GLsizei width, // 纹理图像宽度，所有实现都支持至少 1024 纹素宽的纹理图像
+//      GLsizei height, // 纹理图像高度，或纹理数组的层数（仅对于 GL_TEXTURE_1D_ARRAY 和 GL_PROXY_TEXTURE_1D_ARRAY）
+//      GLint border, // 边框宽度，此值必须为 0
+//      GLenum format, // 指定像素数据的格式
+//      GLenum type, // 像素数据的数据类型
+//      const void *data); // 内存中的图像数据
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//  ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// 错误 GL_INVALID_ENUM：
+//      非法 target
+//      target 是六个立方体贴图二维图像目标之一，但 width 和 height 参数不相等
+//      type 不是类型常量
+// 错误 GL_INVALID_VALUE：
+//      width 小于 0 或大于 GL_MAX_TEXTURE_SIZE
+//      target 不是 GL_TEXTURE_1D_ARRAY 或 GL_PROXY_TEXTURE_1D_ARRAY，且 height 小于 0 或大于 GL_MAX_TEXTURE_SIZE
+//      target 是 GL_TEXTURE_1D_ARRAY 或 GL_PROXY_TEXTURE_1D_ARRAY，且 height 小于 0 或大于 GL_MAX_ARRAY_TEXTURE_LAYERS
+//      target 为 GL_TEXTURE_RECTANGLE 或 GL_PROXY_TEXTURE_RECTANGLE，且 level 不是 0
+//      level 小于 0
+//      level 大于 log₂(max)，其中 max 是 GL_MAX_TEXTURE_SIZE 的返回值
+//      internalformat 不是可接受的分辨率和格式符号常量之一
+//      width 或 height 小于 0 或大于 GL_MAX_TEXTURE_SIZE
+//      border 不是 0
+// 错误 GL_INVALID_OPERATION：
+//      type 是 GL_UNSIGNED_BYTE_3_3_2、GL_UNSIGNED_BYTE_2_3_3_REV、GL_UNSIGNED_SHORT_5_6_5、GL_UNSIGNED_SHORT_5_6_5_REV 或 GL_UNSIGNED_INT_10F_11F_11F_REV 之一，且 format 不是 GL_RGB
+//      type 是 GL_UNSIGNED_SHORT_4_4_4_4 _4_4_4_4_REV _5_5_5_1 _1_5_5_5_REV、GL_UNSIGNED_INT_8_8_8_8 _8_8_8_8_REV _10_10_10_2 _2_10_10_10_REV _5_9_9_9_REV，且 format 既不是 GL_RGBA 也不是 GL_BGRA
+//      target 不是 GL_TEXTURE_2D、GL_PROXY_TEXTURE_2D、GL_TEXTURE_RECTANGLE 或 GL_PROXY_TEXTURE_RECTANGLE，且 internalformat 为 GL_DEPTH_COMPONENT、GL_DEPTH_COMPONENT16/24、GL_DEPTH_COMPONENT32F
+//      format 为 GL_DEPTH_COMPONENT 且 internalformat 不是 GL_DEPTH_COMPONENT、GL_DEPTH_COMPONENT16、GL_DEPTH_COMPONENT24 或 GL_DEPTH_COMPONENT32F
+//      internalformat 为 GL_DEPTH_COMPONENT、GL_DEPTH_COMPONENT16、GL_DEPTH_COMPONENT24 或 GL_DEPTH_COMPONENT32F，且 format 不是 GL_DEPTH_COMPONENT
+//      在指定纹理图像时，有非零缓存对象名称绑定到 GL_PIXEL_UNPACK_BUFFER 目标，且该缓存对象的数据存储当前已映射
+//      在指定纹理图像时，有非零缓存对象名称绑定到 GL_PIXEL_UNPACK_BUFFER 目标，且从缓存对象解包数据所需的内存读取会超出数据存储大小
+//      在指定纹理图像时，有非零缓存对象名称绑定到 GL_PIXEL_UNPACK_BUFFER 目标，且 data 不能被 type 指示的内存中一个数据项所需字节数整除
+//
+// 参数 target 指定目标纹理。必须是以下值之一：
+//      GL_TEXTURE_2D
+//      GL_TEXTURE_1D_ARRAY
+//      GL_TEXTURE_RECTANGLE
+//      GL_TEXTURE_CUBE_MAP_POSITIVE_X
+//      GL_TEXTURE_CUBE_MAP_NEGATIVE_X
+//      GL_TEXTURE_CUBE_MAP_POSITIVE_Y
+//      GL_TEXTURE_CUBE_MAP_NEGATIVE_Y
+//      GL_TEXTURE_CUBE_MAP_POSITIVE_Z
+//      GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
+//      GL_PROXY_TEXTURE_2D
+//      GL_PROXY_TEXTURE_1D_ARRAY
+//      GL_PROXY_TEXTURE_RECTANGLE
+//      GL_PROXY_TEXTURE_CUBE_MAP
+//
+// 参数 level 指定细节级别数。级别 0 是基础图像级别。级别 n 是第 n 级 mipmap 缩减图像。如果
+// target 为 GL_TEXTURE_RECTANGLE 或 GL_PROXY_TEXTURE_RECTANGLE，则 level 必须为 0。
+//
+// 参数 internalformat 指定纹理中的颜色分量数量。必须是下面给出的基本内部格式之一、或带尺寸
+// 内部格式之一，或表压缩内部格式之一。
+//
+// 参数 width 指定纹理图像的宽度。所有实现都支持至少 1024 纹素宽的纹理图像。参数 height 指定
+// 纹理图像的高度，或在 GL_TEXTURE_1D_ARRAY 和 GL_PROXY_TEXTURE_1D_ARRAY 目标的情况下指定纹理
+// 数组的层数。所有实现都支持至少 1024 纹素高的二维纹理图像，以及至少 256 层深的纹理数组。参
+// 数 border 值必须为 0。
+//
+// 参数 format 指定像素数据的格式。接受以下符号值：
+//      GL_RED
+//      GL_RG
+//      GL_RGB
+//      GL_BGR
+//      GL_RGBA
+//      GL_BGRA
+//      GL_RED_INTEGER
+//      GL_RG_INTEGER
+//      GL_RGB_INTEGER
+//      GL_BGR_INTEGER
+//      GL_RGBA_INTEGER
+//      GL_BGRA_INTEGER
+//      GL_DEPTH_COMPONENT
+//      GL_DEPTH_STENCIL
+//      GL_STENCIL_INDEX 仅v4.4+支持
+//
+// 参数 type 指定像素数据的数据类型。接受以下符号值：
+//      GL_UNSIGNED_BYTE
+//      GL_BYTE
+//      GL_UNSIGNED_SHORT
+//      GL_SHORT
+//      GL_UNSIGNED_INT
+//      GL_INT
+//      GL_HALF_FLOAT
+//      GL_FLOAT
+//      GL_UNSIGNED_BYTE_3_3_2
+//      GL_UNSIGNED_BYTE_2_3_3_REV
+//      GL_UNSIGNED_SHORT_5_6_5
+//      GL_UNSIGNED_SHORT_5_6_5_REV
+//      GL_UNSIGNED_SHORT_4_4_4_4
+//      GL_UNSIGNED_SHORT_4_4_4_4_REV
+//      GL_UNSIGNED_SHORT_5_5_5_1
+//      GL_UNSIGNED_SHORT_1_5_5_5_REV
+//      GL_UNSIGNED_INT_8_8_8_8
+//      GL_UNSIGNED_INT_8_8_8_8_REV
+//      GL_UNSIGNED_INT_10_10_10_2
+//      GL_UNSIGNED_INT_2_10_10_10_REV
+//
+// 纹理贴图允许着色器读取图像数组的元素。要定义纹理图像，请调用 glTexImage2D。参数描述了纹理
+// 图像的参数，例如高度、宽度、边框宽度、细节级别数（参见 glTexParameter）以及提供的颜色分量
+// 数量。最后三个参数描述了图像在内存中的表示方式。
+//
+//  1.  如果 target 为 GL_PROXY_TEXTURE_2D、GL_PROXY_TEXTURE_1D_ARRAY、GL_PROXY_TEXTURE_CUBE_MAP
+//      或 GL_PROXY_TEXTURE_RECTANGLE，则不会从 data 读取数据，但会重新计算所有纹理图像状态，检查
+//      一致性，并检查是否满足实现的能力。如果实现无法处理所请求的纹理大小，它会将所有图像状态设
+//      为 0，但不会生成错误（参见 glGetError）。要查询整个 mipmap 数组，请使用大于或等于 1 的图
+//      像数组级别。
+//  2.  如果 target 为 GL_TEXTURE_2D、GL_TEXTURE_RECTANGLE 或某个 GL_TEXTURE_CUBE_MAP 目标，则根
+//      据 type 从 data 读取数据，作为有符号或无符号字节、短整型或长整型序列，或单精度浮点值。这
+//      些值根据 format 分组为一套、两套、三套或四套，以形成元素。每个数据字节被视为八个 1 位元素，
+//      位序由 GL_UNPACK_LSB_FIRST 决定（参见 glPixelStore）。
+//  3.  如果 target 为 GL_TEXTURE_1D_ARRAY，则 data 被解释为一维图像数组。
+//
+// 如果在指定纹理图像时，有非零命名缓存对象绑定到 GL_PIXEL_UNPACK_BUFFER 目标（参见 glBindBuffer），
+// 则 data 被视为缓存对象数据存储中的字节偏移量。
+//
+// 第一个元素对应纹理图像的左下角。后续元素从左到右依次穿过纹理图像最底行的剩余纹素，然后依次穿过
+// 纹理图像的更高行。最后一个元素对应纹理图像的右上角。
+//
+// 参数 format 决定 data 中每个元素的组成。它可以采用以下符号值：
+//      GL_RED              每个元素是单个红色分量。GL 将其转换为浮点数，并通过附加 0 作为绿色和蓝色、1 作为 alpha，将其组装为 RGBA 元素。每个分量被钳制到 [0,1] 范围。
+//      GL_RG               每个元素是红/绿双分量。GL 将其转换为浮点数，并通过附加 0 作为蓝色、1 作为 alpha，将其组装为 RGBA 元素。每个分量被钳制到 [0,1] 范围。
+//      GL_RGB GL_BGR       每个元素是 RGB 三元组。GL 将其转换为浮点数，并通过附加 1 作为 alpha，将其组装为 RGBA 元素。每个分量被钳制到 [0,1] 范围。
+//      GL_RGBA GL_BGRA     每个元素包含所有四个分量。每个分量被钳制到 [0,1] 范围。
+//      GL_DEPTH_COMPONENT  每个元素是单个深度值。GL 将其转换为浮点数并钳制到 [0,1] 范围。
+//      GL_DEPTH_STENCIL    每个元素是一对深度值和模板值。该对中的深度分量按 GL_DEPTH_COMPONENT 方式解释。模板分量基于指定的深度+模板内部格式解释。
+//
+// 如果应用程序希望以特定分辨率或特定格式存储纹理，可以使用 internalformat 请求该分辨率和格式。
+// GL 将选择与 internalformat 所请求的内容非常接近的内部表示，但可能不会完全匹配。GL_RED、GL_RG、
+// GL_RGB 和 GL_RGBA 指定的表示必须完全匹配。
+//
+// internalformat 可以是下面表 1 所示的基本内部格式之一：
+//      表 1. 基本内部格式
+//      基本内部格式        RGBA、深度和模板值          内部分量
+//      GL_DEPTH_COMPONENT  深度                        D
+//      GL_DEPTH_STENCIL    深度、模板                  D、S
+//      GL_RED              红色                        R
+//      GL_RG               红色、绿色                  R、G
+//      GL_RGB              红色、绿色、蓝色            R、G、B
+//      GL_RGBA             红色、绿色、蓝色、Alpha     R、G、B、A
+//
+// internalformat 也可以是下面表 2 所示的带尺寸内部格式之一：
+//      表 2. 带尺寸内部格式
+//      带尺寸内部格式      基本内部格式    红色位数    绿色位数    蓝色位数    Alpha位数   共享位数
+//      GL_R8               GL_RED          8
+//      GL_R8_SNORM         GL_RED          s8
+//      GL_R16              GL_RED          16
+//      GL_R16_SNORM        GL_RED          s16
+//      GL_RG8              GL_RG           8           8
+//      GL_RG8_SNORM        GL_RG           s8          s8
+//      GL_RG16             GL_RG           16          16
+//      GL_RG16_SNORM       GL_RG           s16         s16
+//      GL_R3_G3_B2         GL_RGB          3           3           2
+//      GL_RGB4             GL_RGB          4           4           4
+//      GL_RGB5             GL_RGB          5           5           5
+//      GL_RGB8             GL_RGB          8           8           8
+//      GL_RGB8_SNORM       GL_RGB          s8          s8          s8
+//      GL_RGB10            GL_RGB          10          10          10
+//      GL_RGB12            GL_RGB          12          12          12
+//      GL_RGB16_SNORM      GL_RGB          16          16          16
+//      GL_RGBA2            GL_RGB          2           2           2           2
+//      GL_RGBA4            GL_RGB          4           4           4           4
+//      GL_RGB5_A1          GL_RGBA         5           5           5           1
+//      GL_RGBA8            GL_RGBA         8           8           8           8
+//      GL_RGBA8_SNORM      GL_RGBA         s8          s8          s8          s8
+//      GL_RGB10_A2         GL_RGBA         10          10          10          2
+//      GL_RGB10_A2UI       GL_RGBA         ui10        ui10        ui10        ui2
+//      GL_RGBA12           GL_RGBA         12          12          12          12
+//      GL_RGBA16           GL_RGBA         16          16          16          16
+//      GL_SRGB8            GL_RGB          8           8           8
+//      GL_SRGB8_ALPHA8     GL_RGBA         8           8           8           8
+//      GL_R16F             GL_RED          f16
+//      GL_RG16F            GL_RG           f16         f16
+//      GL_RGB16F           GL_RGB          f16         f16         f16
+//      GL_RGBA16F          GL_RGBA         f16         f16         f16         f16
+//      GL_R32F             GL_RED          f32
+//      GL_RG32F            GL_RG           f32         f32
+//      GL_RGB32F           GL_RGB          f32         f32         f32
+//      GL_RGBA32F          GL_RGBA         f32         f32         f32         f32
+//      GL_R11F_G11F_B10F   GL_RGB          f11         f11         f10
+//      GL_RGB9_E5          GL_RGB          9           9           9                       5
+//      GL_R8I              GL_RED          i8
+//      GL_R8UI             GL_RED          ui8
+//      GL_R16I             GL_RED          i16
+//      GL_R16UI            GL_RED          ui16
+//      GL_R32I             GL_RED          i32
+//      GL_R32UI            GL_RED          ui32
+//      GL_RG8I             GL_RG           i8          i8
+//      GL_RG8UI            GL_RG           ui8         ui8
+//      GL_RG16I            GL_RG           i16         i16
+//      GL_RG16UI           GL_RG           ui16        ui16
+//      GL_RG32I            GL_RG           i32         i32
+//      GL_RG32UI           GL_RG           ui32        ui32
+//      GL_RGB8I            GL_RGB          i8          i8          i8
+//      GL_RGB8UI           GL_RGB          ui8         ui8         ui8
+//      GL_RGB16I           GL_RGB          i16         i16         i16
+//      GL_RGB16UI          GL_RGB          ui16        ui16        ui16
+//      GL_RGB32I           GL_RGB          i32         i32         i32
+//      GL_RGB32UI          GL_RGB          ui32        ui32        ui32
+//      GL_RGBA8I           GL_RGBA         i8          i8          i8          i8
+//      GL_RGBA8UI          GL_RGBA         ui8         ui8         ui8         ui8
+//      GL_RGBA16I          GL_RGBA         i16         i16         i16         i16
+//      GL_RGBA16UI         GL_RGBA         ui16        ui16        ui16        ui16
+//      GL_RGBA32I          GL_RGBA         i32         i32         i32         i32
+//      GL_RGBA32UI         GL_RGBA         ui32        ui32        ui32        ui32
+//
+// 最后，internalformat 也可以是下面表 3 所示的通用或压缩纹理格式之一：
+//      表 3. 压缩内部格式
+//      压缩内部格式                            基本内部格式    类型
+//      GL_COMPRESSED_RED                       GL_RED          通用
+//      GL_COMPRESSED_RG                        GL_RG           通用
+//      GL_COMPRESSED_RGB                       GL_RGB          通用
+//      GL_COMPRESSED_RGBA                      GL_RGBA         通用
+//      GL_COMPRESSED_SRGB                      GL_RGB          通用
+//      GL_COMPRESSED_SRGB_ALPHA                GL_RGBA         通用
+//      GL_COMPRESSED_RED_RGTC1                 GL_RED          特定
+//      GL_COMPRESSED_SIGNED_RED_RGTC1          GL_RED          特定
+//      GL_COMPRESSED_RG_RGTC2                  GL_RG           特定
+//      GL_COMPRESSED_SIGNED_RG_RGTC2           GL_RG           特定
+//      GL_COMPRESSED_RGBA_BPTC_UNORM           GL_RGBA         特定
+//      GL_COMPRESSED_SRGB_ALPHA_BPTC_UNORM     GL_RGBA         特定
+//      GL_COMPRESSED_RGB_BPTC_SIGNED_FLOAT     GL_RGB          特定
+//      GL_COMPRESSED_RGB_BPTC_UNSIGNED_FLOAT   GL_RGB          特定
+//
+// 如果 internalformat 参数是通用压缩格式之一（GL_COMPRESSED_RED、GL_COMPRESSED_RG、GL_COMPRESSED_RGB
+// 或 GL_COMPRESSED_RGBA），GL 将用特定内部格式的符号常量替换该内部格式，并在存储前压缩纹理。
+// 如果没有可用的对应内部格式，或者 GL 由于任何原因无法压缩该图像，则内部格式将被替换为对应
+// 的基本内部格式。
+//
+// 如果 internalformat 参数为 GL_SRGB、GL_SRGB8、GL_SRGB_ALPHA 或 GL_SRGB8_ALPHA8，则纹理被
+// 视为红色、绿色或蓝色分量以 sRGB 颜色空间编码。任何 alpha 分量保持不变。从 sRGB 编码分量
+// cs 到线性分量 cl 的转换如下，假设 cs 是 [0,1] 范围内的 sRGB 分量。
+//
+//      cl = cs / 12.92                     if cs <= 0.04045
+//      cl = ((cs + 0.055) / 1.055) ^ 2.4   if cs > 0.04045
+//
+// 使用 GL_PROXY_TEXTURE_2D、GL_PROXY_TEXTURE_1D_ARRAY、GL_PROXY_TEXTURE_RECTANGLE 或 GL_PROXY_TEXTURE_CUBE_MAP
+// 目标来尝试某种分辨率和格式。实现将更新并重新计算所请求存储分辨率和格式的最佳匹配。要随后查
+// 询此状态，请调用 glGetTexLevelParameter。如果无法容纳该纹理，纹理状态将设为 0。
+//
+// 一个单分量纹理图像仅使用从 data 提取的 RGBA 颜色的红色分量。两分量图像使用 R 和 G 值。三分
+// 量图像使用 R、G 和 B 值。四分量图像使用所有 RGBA 分量。可以通过将纹理 r 坐标与深度纹理值进
+// 行比较来生成布尔结果，从而启用基于图像的阴影。有关纹理比较的详细信息，请参阅 glTexParameter。
+//
+// glTexImage2D 为通过 glActiveTexture 指定的当前纹理单元指定二维纹理。
+//
+// 注意，glPixelStore 模式会影响纹理图像。data 可以是空指针。在这种情况下，会分配纹理内存以容纳
+// 宽为 width、高为 height 的纹理。然后你可以下载子纹理（subtextures）来初始化此纹理内存。如果用
+// 户尝试将纹理图像的未初始化部分应用到图元，则图像是未定义的。GL_STENCIL_INDEX 仅当 GL 版本为
+// 4.4 或更高时才能用于 format。
+
+// void glTexParameteri(GLenum target, GLenum pname, GLint param); // 设置纹理参数
+// void glTexParameteriv(GLenum target, GLenum pname, const GLint *params);
+// void glTexParameterf(GLenum target, GLenum pname, GLfloat param);
+// void glTexParameterfv(GLenum target, GLenum pname, const GLfloat *params);
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//  ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// void glTexParameterIiv(GLenum target, GLenum pname, const GLint *params); // target 指定纹理目标
+// void glTexParameterIuiv(GLenum target, GLenum pname, const GLuint *params);
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//            ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// void glTextureParameteri(GLuint texture, GLenum pname, GLint param); // target 指定纹理句柄
+// void glTextureParameteriv(GLuint texture, GLenum pname, const GLint *params);
+// void glTextureParameterf(GLuint texture, GLenum pname, GLfloat param);
+// void glTextureParameterfv(GLuint texture, GLenum pname, const GLfloat *params);
+// void glTextureParameterIiv(GLuint texture, GLenum pname, const GLint *params);
+// void glTextureParameterIuiv(GLuint texture, GLenum pname, const GLuint *params);
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// 错误 GL_INVALID_ENUM：
+//      glTexParameter 的 target 不是可接受的定义值之一
+//      pname 不是可接受的定义值之一
+//      params 应具有基于 pname 值定义的常量值，但却不是
+//      为标量参数调用 glTexParameter{if} 或 glTextureParameter{if}，pname 为 GL_TEXTURE_BORDER_COLOR 或 GL_TEXTURE_SWIZZLE_RGBA
+//      有效目标为 GL_TEXTURE_2D_MULTISAMPLE 或 GL_TEXTURE_2D_MULTISAMPLE_ARRAY，且 pname 为任何采样器状态
+//      有效目标为 GL_TEXTURE_RECTANGLE，且 GL_TEXTURE_WRAP_S 或 GL_TEXTURE_WRAP_T 之一设置为 GL_MIRROR_CLAMP_TO_EDGE、GL_MIRRORED_REPEAT 或 GL_REPEAT
+//      有效目标为 GL_TEXTURE_RECTANGLE，且 pname GL_TEXTURE_MIN_FILTER 设置为 GL_NEAREST 或 GL_LINEAR 以外的值（不允许 mipmap 过滤）
+// 错误 GL_INVALID_VALUE：
+//      pname 为 GL_TEXTURE_BASE_LEVEL 或 GL_TEXTURE_MAX_LEVEL，且 param 或 params 为负数
+// 错误 GL_INVALID_OPERATION：
+//      有效目标为 GL_TEXTURE_2D_MULTISAMPLE 或 GL_TEXTURE_2D_MULTISAMPLE_ARRAY 之一，且 pname GL_TEXTURE_BASE_LEVEL 设置为非零值
+//      glTextureParameter 的 texture 不是现有纹理对象的名称
+//      有效目标为 GL_TEXTURE_RECTANGLE，且 pname GL_TEXTURE_BASE_LEVEL 设置为非零值
+//
+// 参数 target 指定 glTexParameter 函数中纹理绑定到的目标。必须是以下值之一：
+//      GL_TEXTURE_1D
+//      GL_TEXTURE_1D_ARRAY
+//      GL_TEXTURE_2D
+//      GL_TEXTURE_2D_ARRAY
+//      GL_TEXTURE_2D_MULTISAMPLE
+//      GL_TEXTURE_2D_MULTISAMPLE_ARRAY
+//      GL_TEXTURE_3D
+//      GL_TEXTURE_CUBE_MAP
+//      GL_TEXTURE_CUBE_MAP_ARRAY
+//      GL_TEXTURE_RECTANGLE
+//
+// 参数 pname 指定单值纹理参数的符号名称，pname 可以是以下之一。对于向量命令（glTexParameter*v），
+// pname 还可以是 GL_TEXTURE_BORDER_COLOR 或 GL_TEXTURE_SWIZZLE_RGBA 之一。
+//      GL_DEPTH_STENCIL_TEXTURE_MODE 仅v4.3+可用
+//      GL_TEXTURE_BASE_LEVEL
+//      GL_TEXTURE_COMPARE_FUNC
+//      GL_TEXTURE_COMPARE_MODE
+//      GL_TEXTURE_LOD_BIAS
+//      GL_TEXTURE_MIN_FILTER
+//      GL_TEXTURE_MAG_FILTER
+//      GL_TEXTURE_MIN_LOD
+//      GL_TEXTURE_MAX_LOD
+//      GL_TEXTURE_MAX_LEVEL
+//      GL_TEXTURE_SWIZZLE_R
+//      GL_TEXTURE_SWIZZLE_G
+//      GL_TEXTURE_SWIZZLE_B
+//      GL_TEXTURE_SWIZZLE_A
+//      GL_TEXTURE_WRAP_S
+//      GL_TEXTURE_WRAP_T
+//      GL_TEXTURE_WRAP_R
+//
+// 参数 param 对于标量命令，指定 pname 的值。参数 params 对于向量命令，指定一个指针，指向存储
+// pname 值或值的数组。
+//
+// glTexParameter 和 glTextureParameter 将 param/params 中的值赋给指定为 pname 的纹理参数。对于
+// glTexParameter，target 定义目标纹理。pname 中接受以下符号：
+//
+//  1.  GL_DEPTH_STENCIL_TEXTURE_MODE 仅v4.3+可用
+//      指定从深度-模板格式纹理读取时使用的模式。params 必须是 GL_DEPTH_COMPONENT 或 GL_STENCIL_INDEX
+//      之一。如果深度模板模式为 GL_DEPTH_COMPONENT，则从深度-模板格式纹理读取将返回纹素的深度分量到
+//      Rt，模板分量将被丢弃。如果深度模板模式为 GL_STENCIL_INDEX，则模板分量返回到 Rt，深度分量被丢
+//     弃。初始值为 GL_DEPTH_COMPONENT。
+//  2.  GL_TEXTURE_BASE_LEVEL
+//      指定定义的 mipmap 级别的最低索引。这是一个整数值。初始值为 0。
+//  3.  GL_TEXTURE_BORDER_COLOR
+//      params 中的数据指定四个值，定义应用于边框纹素的边框值。如果从纹理的边框采样纹素，则 GL_TEXTURE_BORDER_COLOR
+//      的值被解释为与纹理内部格式匹配的 RGBA 颜色，并替代不存在的纹素数据。如果纹理包含深度分量，则 GL_TEXTURE_BORDER_COLOR
+//      的第一个分量被解释为深度值。初始值为 (0.0, 0.0, 0.0, 0.0)。
+//      如果使用 glTexParameterIiv 或 glTexParameterIuiv 指定 GL_TEXTURE_BORDER_COLOR 的值，则这些值以内部数据类型
+//      整数原样存储。如果使用 glTexParameteriv 指定，则使用以下方程转换为浮点数：f = (2c + 1) / (2^b - 1)。如果使
+//      用 glTexParameterfv 指定，则它们以浮点值原样存储。
+//  4.  GL_TEXTURE_COMPARE_FUNC
+//      指定当 GL_TEXTURE_COMPARE_MODE 设置为 GL_COMPARE_REF_TO_TEXTURE 时使用的比较运算符。允许的值如下，其中 r 是
+//      当前插值的纹理坐标，Dt 是从当前绑定的深度纹理采样的深度纹理值。result 被赋给红色通道。
+//          纹理比较函数    计算结果
+//          GL_LEQUAL       result = 1.0 (r <= Dt)  result = 0.0 (r > Dt)
+//          GL_GEQUAL       result = 1.0 (r >= Dt)  result = 0.0 (r < Dt)
+//          GL_LESS         result = 1.0 (r < Dt)   result = 0.0 (r >= Dt)
+//          GL_GREATER      result = 1.0 (r > Dt)   result = 0.0 (r <= Dt)
+//          GL_EQUAL        result = 1.0 (r = Dt)   result = 0.0 (r ≠ Dt)
+//          GL_NOTEQUAL     result = 1.0 (r ≠ Dt)   result = 0.0 (r = Dt)
+//          GL_ALWAYS       result = 1.0
+//          GL_NEVER        result = 0.0
+//  5.  GL_TEXTURE_COMPARE_MODE
+//      指定当前绑定的深度纹理的纹理比较模式。即内部格式为 GL_DEPTH_COMPONENT_* 的纹理；参见 glTexImage2D。允许的值有：
+//          GL_COMPARE_REF_TO_TEXTURE   指定应将插值并钳制的 r 纹理坐标与当前绑定的深度纹理中的值进行比较。有关如何评估比较的详细信息，请参阅 GL_TEXTURE_COMPARE_FUNC 的讨论。比较的结果被赋给红色通道。
+//          GL_NONE                     指定应将红色通道赋值为当前绑定的深度纹理中的适当值。
+//  6.  GL_TEXTURE_LOD_BIAS
+//      params 指定一个固定偏置值，该值将在纹理采样前添加到纹理的细节级别参数中。指定的值将加到着色
+//      器提供的偏置值（如果有）上，随后被钳制到实现定义的范围 [−biasmax, biasmax]，其中 biasmax 是
+//      实现定义常量 GL_MAX_TEXTURE_LOD_BIAS 的值。初始值为 0.0。
+//  7.  GL_TEXTURE_MIN_FILTER
+//      当从纹理采样时使用的细节级别函数确定纹理应该缩小时，使用纹理缩小函数。有六种定义的缩小函数。
+//      其中两种使用最近的纹理元素或多个纹理元素的加权平均值来计算纹理值。其他四种使用 mipmap。mipmap
+//      是一组有序数组，表示同一图像在逐渐降低分辨率下的图像。如果纹理尺寸为 2ⁿ×2ᵐ，则有 max(n,m)+1
+//      个 mipmap。第一个 mipmap 是原始纹理，尺寸为 2ⁿ×2ᵐ。每个后续 mipmap 的尺寸为 2ᵏ⁻¹×2ˡ⁻¹，其中
+//      2ᵏ×2ˡ 是前一个 mipmap 的尺寸，直到 k=0 或 l=0。此时，后续 mipmap 的尺寸为 1×2ˡ⁻¹ 或 2ᵏ⁻¹×1，
+//      直到最终尺寸为 1×1 的 mipmap。要定义 mipmap，请使用 level 参数指示 mipmap 顺序调用 glTexImage1D、
+//      glTexImage2D、glTexImage3D、glCopyTexImage1D 或 glCopyTexImage2D。级别 0 是原始纹理，级别
+//      max(n,m) 是最终的 1×1 mipmap。params 提供以下缩小函数之一，在缩小过程中采样越多的纹理元素，
+//      出现的走样伪影就越少。虽然 GL_NEAREST 和 GL_LINEAR 缩小函数可能比其他四种更快，但它们仅采
+//      样一个或多个纹理元素来确定被渲染像素的纹理值，可能产生摩尔纹或锯齿过渡。GL_TEXTURE_MIN_FILTER
+//      的初始值为 GL_NEAREST_MIPMAP_LINEAR。
+//          GL_NEAREST                  返回在曼哈顿距离上最接近指定纹理坐标的纹理元素的值。
+//          GL_LINEAR                   返回最接近指定纹理坐标的四个纹理元素的加权平均值。根据 GL_TEXTURE_WRAP_S 和 GL_TEXTURE_WRAP_T 的值以及确切的映射，这些元素可以包括从纹理其他部分环绕或重复的元素。
+//          GL_NEAREST_MIPMAP_NEAREST   选择最匹配被贴图像素大小的 mipmap，并使用 GL_NEAREST 准则（最接近指定纹理坐标的纹理元素）来生成纹理值。
+//          GL_LINEAR_MIPMAP_NEAREST    选择最匹配被贴图像素大小的 mipmap，并使用 GL_LINEAR 准则（最接近指定纹理坐标的四个纹理元素的加权平均值）来生成纹理值。
+//          GL_NEAREST_MIPMAP_LINEAR    选择两个最匹配被贴图像素大小的 mipmap，并使用 GL_NEAREST 准则（最接近指定纹理坐标的纹理元素）从每个 mipmap 生成纹理值。最终纹理值是这两个值的加权平均值。
+//          GL_LINEAR_MIPMAP_LINEAR     选择两个最匹配被贴图像素大小的 mipmap，并使用 GL_LINEAR 准则（最接近指定纹理坐标的纹理元素的加权平均值）从每个 mipmap 生成纹理值。最终纹理值是这两个值的加权平均值。
+//  8.  GL_TEXTURE_MAG_FILTER
+//      当从纹理采样时使用的细节级别函数确定纹理应该放大时，使用纹理放大函数。它将纹理放大函数设
+//      置为 GL_NEAREST 或 GL_LINEAR（见下文）。GL_NEAREST 通常比 GL_LINEAR 更快，但它可以产生具
+//      有更锐利边缘的纹理图像，因为纹理元素之间的过渡不那么平滑。GL_TEXTURE_MAG_FILTER 的初始值为
+//      GL_LINEAR。
+//          GL_NEAREST  返回在曼哈顿距离上最接近指定纹理坐标的纹理元素的值。
+//          GL_LINEAR   返回最接近指定纹理坐标的纹理元素的加权平均值。根据 GL_TEXTURE_WRAP_S 和 GL_TEXTURE_WRAP_T 的值以及确切的映射，这些元素可以包括从纹理其他部分环绕或重复的元素。
+//  9.  GL_TEXTURE_MIN_LOD
+//      设置最小细节级别参数。此浮点值限制选择最高分辨率 mipmap（最低 mipmap 级别）。初始值为 -1000。
+//  10. GL_TEXTURE_MAX_LOD
+//      设置最大细节级别参数。此浮点值限制选择最低分辨率 mipmap（最高 mipmap 级别）。初始值为 1000。
+//  11. GL_TEXTURE_MAX_LEVEL
+//      设置最高定义的 mipmap 级别的索引。这是一个整数值。初始值为 1000。
+//  12. GL_TEXTURE_SWIZZLE_R
+//      设置在将纹素的 r 分量返回到着色器之前应用于它的分量重排。param 的有效值如下，初始值为 GL_RED。
+//          GL_RED      r 的值取自获取纹素的第一通道
+//          GL_GREEN    r 的值取自获取纹素的第二通道
+//          GL_BLUE     r 的值取自获取纹素的第三通道
+//          GL_ALPHA    r 的值取自获取纹素的第四通道
+//          GL_ZERO     r 的值替换为 0.0
+//          GL_ONE      r 的值替换为 1.0
+//  13. GL_TEXTURE_SWIZZLE_G
+//      设置在将纹素的 g 分量返回到着色器之前应用于它的分量重排。param 的有效值及其效果类似于
+//      GL_TEXTURE_SWIZZLE_R。初始值为 GL_GREEN。
+//  14. GL_TEXTURE_SWIZZLE_B
+//      设置在将纹素的 b 分量返回到着色器之前应用于它的分量重排。param 的有效值及其效果类似于
+//      GL_TEXTURE_SWIZZLE_R。初始值为 GL_BLUE。
+//  15. GL_TEXTURE_SWIZZLE_A
+//      设置在将纹素的 a 分量返回到着色器之前应用于它的分量重排。param 的有效值及其效果类似于
+//      GL_TEXTURE_SWIZZLE_R。初始值为 GL_ALPHA。
+//  16. GL_TEXTURE_SWIZZLE_RGBA
+//      设置在将纹素的 r、g、b 和 a 分量返回到着色器之前应用于它们的分量重排。params 的有效值
+//      及其效果类似于 GL_TEXTURE_SWIZZLE_R，只不过同时指定所有通道。设置 GL_TEXTURE_SWIZZLE_RGBA
+//      的值等效于（假设未生成错误）依次设置 GL_TEXTURE_SWIZZLE_R、GL_TEXTURE_SWIZZLE_G、
+//      GL_TEXTURE_SWIZZLE_B 和 GL_TEXTURE_SWIZZLE_A 的参数。
+//  17. GL_TEXTURE_WRAP_S
+//      将纹理坐标 s 的环绕参数设置为以下值之一，初始时，GL_TEXTURE_WRAP_S 设置为 GL_REPEAT。
+//          GL_CLAMP_TO_EDGE            将 s 坐标钳制到范围 [1/2N, 1−1/2N]，其中 N 是钳制方向上纹理的大小
+//          GL_CLAMP_TO_BORDER          类似于 GL_CLAMP_TO_EDGE 的方式评估 s 坐标。但是，在 GL_CLAMP_TO_EDGE 模式下会发生钳制的情况下，获取的纹素数据将替换为 GL_TEXTURE_BORDER_COLOR 指定的值
+//          GL_MIRRORED_REPEAT          在 s 的整数部分为偶数时将 s 坐标设为纹理坐标的小数部分；如果 s 的整数部分为奇数，则 s 纹理坐标设为 1−frac(s)，其中 frac(s) 表示 s 的小数部分
+//          GL_REPEAT                   忽略 s 坐标的整数部分，GL 仅使用小数部分，从而创建重复图案
+//          GL_MIRROR_CLAMP_TO_EDGE     仅 v4.4+ 可用，将 s 坐标按 GL_MIRRORED_REPEAT 方式重复一次纹理，之后坐标按 GL_CLAMP_TO_EDGE 方式钳制
+//  18. GL_TEXTURE_WRAP_T
+//      将纹理坐标 t 的环绕参数设置为 GL_CLAMP_TO_EDGE、GL_CLAMP_TO_BORDER、GL_MIRRORED_REPEAT、
+//      GL_REPEAT 或 GL_MIRROR_CLAMP_TO_EDGE 之一。请参阅 GL_TEXTURE_WRAP_S 下的讨论。初始时，
+//      GL_TEXTURE_WRAP_T 设置为 GL_REPEAT。
+//  19. GL_TEXTURE_WRAP_R
+//      将纹理坐标 r 的环绕参数设置为 GL_CLAMP_TO_EDGE、GL_CLAMP_TO_BORDER、GL_MIRRORED_REPEAT、
+//      GL_REPEAT 或 GL_MIRROR_CLAMP_TO_EDGE 之一。请参阅 GL_TEXTURE_WRAP_S 下的讨论。初始时，
+//      GL_TEXTURE_WRAP_R 设置为 GL_REPEAT。
+//
+// glTexParameter 为通过调用 glActiveTexture 指定的活动纹理单元指定纹理参数。glTextureParameter
+// 为 ID 为 texture 的纹理对象指定纹理参数。
+//
+// 假设某个程序尝试从纹理采样，并将 GL_TEXTURE_MIN_FILTER 设置为需要 mipmap 的函数之一。如果当前
+// 定义的纹理图像尺寸（通过之前调用 glTexImage1D、glTexImage2D、glTexImage3D、glCopyTexImage1D 或
+// glCopyTexImage2D 定义）不遵循 mipmap 的正确序列（如上所述），或者定义的纹理图像数量不足，或者
+// 纹理图像集的纹理分量数量不同，则该纹理被视为不完整。
+//
+// 线性过滤在二维纹理中仅访问四个最近的纹理元素。在一维纹理中，线性过滤访问两个最近的纹理元素。在
+// 三维纹理中，线性过滤访问八个最近的纹理元素。
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// WINDOW STYLE USER INTERFACE
+///
+
+// https://learn.microsoft.com/en-us/windows/win32/intl/uniscribe-glossary
+//
+// Can get look-and-feel hints from the underlying operating system, so it never
+// seems out of place. Is adaptable to the different form factors and resolution
+// ranges. Has good standard support for high contrast and other similar display
+// modes. Supports both manual layout and lightweight widget packing mechanisms;
+// stays away from heavier constraints models as much as is practical. Supports
+// animations, sounds and such, without being over-the-top by default. Supports
+// RTL, i18n and l10n out of the box. In other words, I want a modern, GPU accelerated
+// version of the Delphi VCL.
+//
+// Widgets               Containers
+//  Label                 Window
+//  Button                Panel
+//  ToggleButton          Row
+//  RangeSlider           Column
+//  Scrollbar             Grid
+//  Checkbox              Tabs
+//  Dropdown              Pills
+//  Radio Button          Dock
+//  Image                 SlidePane
+//  Video                 Modal
+//  Text Input            Accordionl
+//  Toggle Switch
+//  Progress Bar
+//  Date Picker
+//  Time Picker
+//  Slider
+//  Color Picker        Utilities
+//  Calendar             Translation Provider
+//  File Picker          Animation Provider
+//  Table                Localization Provider
+//  List                 Theme Provider
+//  Buttonbar
+//  Menubar
+//  Menu
+//  Menu Item
+//  Tooltip
+//  Badge
+//  PixelCanvas
+//
+// 风格，审美，启示，观感，真实
+//
+// https://without.boats/blog/futures-unordered/
+// https://without.boats/blog/let-futures-be-futures/
+//
+// 每个屏幕上的像素，是直接生成的实时流，没有 HTML，没有布局引擎，没有代码，仅仅是你想
+// 要看到的东西。打开浏览器，没有代码，美哟 HTML，没有 CSS 布局引擎，屏幕上每一帧画面，
+// 都是 AI 模型实时生成的像素视频流。它能瞬间理解你的意图，动态重塑整个界面，从旅行规
+// 划到复杂数据可视化，全是手绘级插图般生动，还能随点击无缝变形、交互。视频模型实现真
+// 实演示，1080p 24fps 实时流式传输，背后是 Modal GPU 服务器。一切简化为像素流，模型
+// 直接决定你看到什么、怎么交互。无需布局引擎，插图随窗口自适应变形，不再被 CSS 框死。
+// 全屏互动，任何像素都能响应点击，模型实时判断意图，不再局限于预定义按钮。视觉优先，
+// 复杂概念用插图、动画、真实渲染表达，而不是枯燥文字和矩形框。(WebSocket)
+//
+// https://learn.microsoft.com/en-us/windows/win32/api/_opengl/
+// https://learn.microsoft.com/en-us/windows/win32/OpenGL/opengl
+// https://learn.microsoft.com/en-us/windows/win32/opengl/opengl-reference
+
+#endif // PRH_GRAPHIC_IMPLEMENTATION
+
+// FULL VERSION HISTORY
+//
+//   0.01 (2026-09-01) initial release still learning
+//
+
+/*
+------------------------------------------------------------------------------
+This software is available under 2 licenses -- choose whichever you prefer.
+------------------------------------------------------------------------------
+ALTERNATIVE A - MIT License
+Copyright (c) 2026 Godelder Brother
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+------------------------------------------------------------------------------
+ALTERNATIVE B - Public Domain (www.unlicense.org)
+This is free and unencumbered software released into the public domain.
+Anyone is free to copy, modify, publish, use, compile, sell, or distribute this
+software, either in source code form or as a compiled binary, for any purpose,
+commercial or non-commercial, and by any means.
+In jurisdictions that recognize copyright laws, the author or authors of this
+software dedicate any and all copyright interest in the software to the public
+domain. We make this dedication for the benefit of the public at large and to
+the detriment of our heirs and successors. We intend this dedication to be an
+overt act of relinquishment in perpetuity of all present and future rights to
+this software under copyright law.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+------------------------------------------------------------------------------
+*/
