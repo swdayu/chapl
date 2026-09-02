@@ -2130,7 +2130,7 @@ typedef enum {
     #endif
     #define PRH_BOOLRET_OR_ABORT(a) if (!(a)) { prh_impl_abort_error(GetLastError(), __LINE__, __FILE__); }
     #if PRH_DEBUG
-    #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(GetLastError(), __LINE__, __FILE__); }
+    #define PRH_BOOLRET_OR_ERROR(a) if (!(a)) { prh_impl_prerr(GetLastError(), __LINE__); }
     #else
     #define PRH_BOOLRET_OR_ERROR(a) a
     #endif
@@ -2564,6 +2564,10 @@ typedef enum {
 
 #ifndef prh_vmem_unit_size
 #define prh_vmem_unit_size (64*1024)
+#endif
+
+#if defined(prh_plat_windows)
+prh_static_assert(prh_vmem_unit_size == 64*1024);
 #endif
 
 // 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18
@@ -33704,6 +33708,40 @@ prh_reg prh_file_pwrite(prh_handle handle, const prh_byte *p, prh_reg bytes, prh
 void prh_file_flush(prh_handle handle);
 void prh_file_close(prh_handle handle);
 
+typedef struct {
+    prh_handle mapping_handle;
+    prh_byte *base_address;
+#if prh_lit_endian
+    prh_r32 file_size_32;
+    prh_r64 large_file_size;
+#else
+    prh_r64 large_file_size;
+    struct {
+        prh_r32 impl_high_bytes;
+        prh_r32 file_size_32;
+    };
+#endif
+    prh_r32 viewing_flags;
+} prh_file_view;
+
+prh_file_view prh_open_view_read(const prh_byte *name, prh_r64 mapping_maxsize);
+prh_file_view prh_open_view_read_with_handle(prh_handle file_handle, prh_r64 mapping_maxsize);
+prh_file_view prh_open_view_write_on_copy(const prh_byte *name, prh_r64 mapping_maxsize);
+prh_file_view prh_open_view_write_on_copy_with_handle(prh_handle file_handle, prh_r64 mapping_maxsize);
+prh_byte *prh_viewing_file(prh_file_view *p, prh_r64 offset, prh_r32 size);
+void prh_close_view(prh_file_view *p);
+
+prh_byte *prh_mapping_file_read(const prh_byte *name);
+prh_byte *prh_mapping_file_read_with_handle(prh_handle file);
+prh_byte *prh_mapping_file_read_with_file_size_32(const prh_byte *name, prh_r32 *out_file_size);
+prh_byte *prh_mapping_file_read_with_large_file_size(const prh_byte *name, prh_r64 *out_file_size);
+prh_byte *prh_mapping_file_write_on_copy(const prh_byte *name);
+prh_byte *prh_mapping_file_write_on_copy_with_handle(prh_handle file);
+prh_byte *prh_mapping_file_write_on_copy_with_file_size_32(const prh_byte *name, prh_r32 *out_file_size);
+prh_byte *prh_mapping_file_write_on_copy_with_large_file_size(const prh_byte *name, prh_r64 *out_file_size);
+void prh_flush_mapping(prh_byte *address, prh_r32 size);
+void prh_unmapping_file(prh_byte *base_address);
+
 prh_reg prh_print_bytes(prh_handle handle, const prh_byte *p, prh_reg bytes);
 prh_reg prh_print_wchars(prh_handle handle, const prh_r16 *p, prh_reg count);
 prh_reg prh_print_uchars(prh_handle handle, const prh_r32 *p, prh_reg count);
@@ -33827,6 +33865,547 @@ prh_reg prh_impl_print_data(prh_handle handle, const void *data, prh_reg bytes);
 #endif
 
 #if defined(PRH_IMPL_WINDOWS_FILE)
+// 内存映射文件允许开发人员预订一块地址空间区域并给区域调拨物理存储器。与虚拟内存的不同之处
+// 在于，内存映射文件的物理存储器来自磁盘上已有的文件，而不是来自系统的页交换文件(pagefile)。
+// 一旦把文件映射到地址空间，我们就可以对它进行访问，就好像整个文件都已经被载入内存一样。但
+// 只有真正访问文件的某一区域时，才真正分配对应的内存页面。
+//
+// 系统使用内存映射文件来载入并运行可执行程序和动态链接库文件，这大量节省了页交换文件的空间
+// 以及应用程序启动的时间。开发人员可以用内存映射文件访问磁盘上的数据文件，避免直接对文件进
+// 行 I/O 操作和对文件内容进行缓存，内存映射文件不需要缓存，因为系统会自动分配要访问区域的
+// 内存页面。通过使用内存映射文件，我们可以在同一台机器的不同进程之间共享数据。Windows 的确
+// 提供了其他一些方法来在进程间传递数据，但这些方法都是通过内存映射文件来实现的。因此，如果
+// 要在同一台机器不同进程之间共享数据，内存映射文件是最高兴的方法。
+//
+// 要使用内存映射文件，需要执行三个步骤：
+//  1.  创建或打开一个文件内核对象，该对象标识了我们想要用作内存映射文件的那个磁盘文件
+//  2.  创建一个文件映射内核对象来告诉系统文件的大小以及我们打算如果访问文件
+//  3.  告诉系统把文件映射对象的部分或全部映射到进程的地址空间中
+//
+// 用完内存映射文件之后，必须执行下面三个步骤来左清理：
+//  1.  告诉系统从进程地址空间中取消对文件映射内核对象的映射
+//  2.  关闭文件映射内核对象
+//  3.  关闭文件内核对象
+//
+// 对于内存映射文件，必须以只读方式（GENERIC_READ）或读写方式（GENERIC_READ|GENERIC_WRITE)
+// 打开文件。
+//
+// HANDLE CreateFileMapping(
+//      [in]           HANDLE                hFile,
+//      [in, optional] LPSECURITY_ATTRIBUTES lpFileMappingAttributes,
+//      [in]           DWORD                 flProtect,
+//      [in]           DWORD                 dwMaximumSizeHigh,
+//      [in]           DWORD                 dwMaximumSizeLow,
+//      [in, optional] LPCSTR                lpName
+// );
+//
+// 为指定文件创建或打开一个已命名或未命名的文件映射对象。若要为物理内存指定 NUMA 节点，请参
+// 阅 CreateFileMappingNuma。如果函数成功，则返回值是新创建的文件映射对象的句柄。如果在函数
+// 调用之前对象已存在，则函数返回现有对象的句柄（使用其当前大小，而非指定大小），且 GetLastError
+// 返回 ERROR_ALREADY_EXISTS。如果函数失败，则返回值为 NULL。要获取扩展错误信息，请调用
+// GetLastError。
+//
+// 参数 hFile 用于创建文件映射对象的文件句柄。该文件必须以与 flProtect 参数指定的保护标志兼
+// 容的访问权限打开。虽然不做强制要求，但建议以独占访问方式打开要映射的文件。有关详细信息，
+// 请参阅《文件安全和访问权限》。
+// https://learn.microsoft.com/en-us/windows/desktop/FileIO/file-security-and-access-rights
+//
+// 如果 hFile 为 INVALID_HANDLE_VALUE，则调用进程还必须在 dwMaximumSizeHigh 和 dwMaximumSizeLow
+// 参数中指定文件映射对象的大小。在这种情况下，CreateFileMapping 创建一个由系统分页文件而非
+// 文件系统中的文件支持的、具有指定大小的文件映射对象。
+//
+// 参数 lpFileMappingAttributes 指向 SECURITY_ATTRIBUTES 结构的指针，该结构确定返回的句柄是否
+// 可以由子进程继承。SECURITY_ATTRIBUTES 结构的 lpSecurityDescriptor 成员为新文件映射对象指定
+// 安全描述符。如果 lpFileMappingAttributes 为 NULL，则句柄不可继承，并且文件映射对象获得默认
+// 安全描述符。文件映射对象默认安全描述符中的访问控制列表 (ACL) 来自创建者的主令牌或模拟令牌。
+// 有关详细信息，请参阅《文件映射安全和访问权限》。
+// https://learn.microsoft.com/en-us/windows/desktop/Memory/file-mapping-security-and-access-rights
+//
+// 参数 flProtect 指定文件映射对象的页面保护。对象的所有已映射视图必须与此保护兼容。此参数可以
+// 是以下值之一。
+//
+//      值                          含义
+//      PAGE_EXECUTE_READ           允许将视图映射为只读、写入时复制或执行访问。hFile 参数指定的文件句柄必须使用 GENERIC_READ
+//      0x20                        和 GENERIC_EXECUTE 访问权限创建。Windows Server 2003 和 Windows XP：此值直到 Windows
+//                                  XP SP2 和 Windows Server 2003 SP1 才可用。
+//      PAGE_EXECUTE_READWRITE      允许将视图映射为只读、写入时复制、读/写或执行访问。hFile 参数指定的文件句柄必须使用
+//      0x40                        GENERIC_READ、GENERIC_WRITE 和 GENERIC_EXECUTE 访问权限创建。Windows Server 2003 和
+//                                  Windows XP：此值直到 Windows XP SP2 和 Windows Server 2003 SP1 才可用。
+//      PAGE_EXECUTE_WRITECOPY      允许将视图映射为只读、写入时复制或执行访问。此值等效于 PAGE_EXECUTE_READ。hFile 参
+//      0x80                        数指定的文件句柄必须使用 GENERIC_READ 和 GENERIC_EXECUTE 访问权限创建。此值直到 Windows
+//                                  Vista SP1 才可用。Windows Server 2003 和 Windows XP：不支持此值。
+//      PAGE_READONLY 0x02          允许将视图映射为只读或写入时复制访问。尝试写入特定区域会导致访问冲突。hFile 参数指
+//                                  定的文件句柄必须使用 GENERIC_READ 访问权限创建。
+//      PAGE_READWRITE 0x04         允许将视图映射为只读、写入时复制或读/写访问。hFile 参数指定的文件句柄必须使用 GENERIC_READ
+//                                  和 GENERIC_WRITE 访问权限创建。
+//      PAGE_WRITECOPY 0x08         允许将视图映射为只读或写入时复制访问。此值等效于 PAGE_READONLY。hFile 参数指定的文
+//                                  件句柄必须使用 GENERIC_READ 访问权限创建。
+//
+// 应用程序可以通过将以下一个或多个属性与前述页面保护值组合，来为文件映射对象指定这些属性。
+//
+//      值                      含义
+//      SEC_COMMIT              如果文件映射对象由操作系统分页文件支持（hFile 参数为 INVALID_HANDLE_VALUE），则指定当文
+//      0x08000000              件的视图映射到进程地址空间时，提交整个页面范围，而不是保留。系统必须有足够的可提交页面
+//                              来容纳整个映射。否则，CreateFileMapping 失败。此属性对由可执行映像文件或数据文件支持的
+//                              文件映射对象（hFile 参数是文件句柄）无效。SEC_COMMIT 不能与 SEC_RESERVE 组合使用。如果
+//                              未指定任何属性，则假定为 SEC_COMMIT。
+//      SEC_IMAGE               hFile 参数指定的文件是可执行映像文件。SEC_IMAGE 属性必须与页面保护值（如 PAGE_READONLY）
+//      0x01000000              组合使用。但是，此页面保护值对可执行映像文件的视图没有影响。可执行映像文件视图的页面保
+//                              护由可执行文件本身决定。SEC_IMAGE 不能与其他任何属性组合使用。
+//      SEC_IMAGE_NO_EXECUTE    hFile 参数指定的文件是可执行映像文件，但不会被执行，并且加载的映像文件不会运行强制完整
+//      0x11000000              性检查。此外，映射使用 SEC_IMAGE_NO_EXECUTE 属性创建的文件映射对象的视图时，不会调用使
+//                              用 PsSetLoadImageNotifyRoutine 内核 API 注册的驱动程序回调。SEC_IMAGE_NO_EXECUTE 属性必
+//                              须与 PAGE_READONLY 页面保护值组合使用。SEC_IMAGE_NO_EXECUTE 不能与其他任何属性组合使用。
+//                              Windows Server 2008 R2、Windows 7、Windows Server 2008、Windows Vista、Windows Server
+//                              2003 和 Windows XP：Windows Server 2012 和 Windows 8 之前不支持此值。
+//      SEC_LARGE_PAGES         允许对由操作系统分页文件支持的文件映射对象（hFile 参数为 INVALID_HANDLE_VALUE）使用大
+//      0x80000000              页面。此属性不支持由可执行映像文件或数据文件支持的文件映射对象（hFile 参数是可执行映像
+//                              或数据文件的句柄）。文件映射对象的最大大小必须是 GetLargePageMinimum 函数返回的最小大
+//                              页面大小的整数倍。如果不是，CreateFileMapping 失败。使用 SEC_LARGE_PAGES 映射文件映射
+//                              对象的视图时，基地址和视图大小也必须是最小大页面大小的整数倍。
+//                              SEC_LARGE_PAGES 要求调用者的令牌中启用 SeLockMemoryPrivilege 权限。如果指定了 SEC_LARGE_PAGES，
+//                              则还必须指定 SEC_COMMIT。Windows Server 2003：此值直到 Windows Server 2003 SP1 才受支持。
+//                              Windows XP：不支持此值。
+//      SEC_NOCACHE             将所有页面设置为不可缓存。除非设备明确要求，否则应用程序不应使用此属性。将互锁函数与使
+//      0x10000000              用 SEC_NOCACHE 映射的内存一起使用可能导致 EXCEPTION_ILLEGAL_INSTRUCTION 异常。
+//                              SEC_NOCACHE 要求设置 SEC_RESERVE 或 SEC_COMMIT 属性之一。
+//      SEC_RESERVE             如果文件映射对象由操作系统分页文件支持（hFile 参数为 INVALID_HANDLE_VALUE），则指定当文
+//      0x04000000              件的视图映射到进程地址空间时，为进程保留整个页面范围供以后使用，而不是提交。
+//                              保留的页面可以在后续调用 VirtualAlloc 函数时提交。页面提交后，无法使用 VirtualFree 函数
+//                              释放或取消提交。此属性对由可执行映像文件或数据文件支持的文件映射对象（hFile 参数是文件
+//                              句柄）无效。SEC_RESERVE 不能与 SEC_COMMIT 组合使用。
+//      SEC_WRITECOMBINE        将所有页面设置为写入合并。除非设备明确要求，否则应用程序不应使用此属性。将互锁函数与使
+//      0x40000000              用 SEC_WRITECOMBINE 映射的内存一起使用可能导致 EXCEPTION_ILLEGAL_INSTRUCTION 异常。
+//                              SEC_WRITECOMBINE 要求设置 SEC_RESERVE 或 SEC_COMMIT 属性之一。Windows Server 2003 和
+//                              Windows XP：此标志直到 Windows Vista 才受支持。
+//
+// 参数 dwMaximumSizeHigh 文件映射对象最大大小的高 32 位。参数 dwMaximumSizeLow 文件映射
+// 对象最大大小的低 32 位。如果此参数和 dwMaximumSizeHigh 均为 0（零），则文件映射对象的
+// 最大大小等于 hFile 标识的文件的当前大小。尝试映射长度为 0（零）的文件将失败，错误代码
+// 为 ERROR_FILE_INVALID。应用程序应检查文件长度是否为 0（零）并拒绝这些文件。
+//
+// 参数 lpName 文件映射对象的名称。如果此参数与现有映射对象的名称匹配，则函数请求使用该对
+// 象，并采用 flProtect 指定的保护。如果此参数为 NULL，则创建的文件映射对象没有名称。如果
+// lpName 与现有的事件、信号量、互斥体、可等待计时器或作业对象的名称匹配，则函数失败，且
+// GetLastError 函数返回 ERROR_INVALID_HANDLE。这是因为这些对象共享同一个命名空间。
+//
+// 名称可以带有 "Global" 或 "Local" 前缀，以在全局或会话命名空间中显式创建对象。名称的其余
+// 部分可以包含除反斜杠字符之外的任何字符。从会话零以外的会话在全局命名空间中创建文件映射
+// 对象需要 SeCreateGlobalPrivilege 权限。有关详细信息，请参阅《内核对象命名空间》。
+// https://learn.microsoft.com/en-us/windows/desktop/TermServ/kernel-object-namespaces
+//
+// 快速用户切换通过使用终端服务会话实现。第一个登录的用户使用会话 0（零），下一个登录的用户
+// 使用会话 1（一），依此类推。内核对象名称必须遵循为终端服务概述的准则，以便应用程序可以支
+// 持多个用户。
+//
+// 创建文件映射对象后，文件的大小不得超过文件映射对象的大小；如果超过，则并非所有文件内容都
+// 可用于共享。如果应用程序为文件映射对象指定的大小大于磁盘上实际命名文件的大小，并且页面保
+// 护允许写入访问（即 flProtect 参数指定 PAGE_READWRITE 或 PAGE_EXECUTE_READWRITE），则磁盘
+// 上的文件将增加到与文件映射对象的指定大小匹配。如果文件被扩展，则文件旧末尾与新末尾之间的
+// 内容不保证为零；该行为由文件系统定义。如果磁盘上的文件无法增加，CreateFileMapping 将失败，
+// 且 GetLastError 返回 ERROR_DISK_FULL。
+//
+// 由操作系统分页文件支持的文件映射对象中页面的初始内容为 0（零）。
+//
+// CreateFileMapping 返回的句柄对新文件映射对象具有完全访问权限，并且可以与任何需要文件映射
+// 对象句柄的函数一起使用。多个进程可以通过使用单个共享文件映射对象或创建由同一文件支持的单
+// 独文件映射对象来共享同一文件的视图。单个文件映射对象可以通过在进程创建时继承句柄、复制句
+// 柄或按名称打开文件映射对象来由多个进程共享。有关详细信息，请参阅 CreateProcess、DuplicateHandle
+// 和 OpenFileMapping 函数。
+//
+// 创建文件映射对象并不会将视图实际映射到进程地址空间中。MapViewOfFile 和 MapViewOfFileEx
+// 函数将文件视图映射到进程地址空间中。除了一个重要例外，由同一文件支持的任何文件映射对象派
+// 生的文件视图在特定时间是一致的或相同的。对于进程内的视图以及由不同进程映射的视图，一致性
+// 是有保证的。该例外与远程文件有关。虽然 CreateFileMapping 适用于远程文件，但它不能保持它们
+// 的一致性。例如，如果两台计算机都将文件映射为可写，并且都更改了同一页面，则每台计算机只能
+// 看到自己的写入。当数据更新到磁盘时，不会被合并。
+//
+// 映射文件与使用输入和输出 (I/O) 函数（ReadFile 和 WriteFile）访问的文件不一定一致。通过已
+// 映射视图修改文件时，最后修改时间戳可能不会自动更新。如果需要，调用者应使用 SetFileTime
+// 设置时间戳。
+//
+// 文件映射对象的已映射视图维护对该对象的内部引用，并且直到所有对其的引用都被释放后，文件映
+// 射对象才会关闭。因此，要完全关闭文件映射对象，应用程序必须通过调用 UnmapViewOfFile 取消映
+// 射文件映射对象的所有已映射视图，并通过调用 CloseHandle 关闭文件映射对象句柄。这些函数可以
+// 按任意顺序调用。
+//
+// 从会话零以外的会话在全局命名空间中创建文件映射对象需要 SeCreateGlobalPrivilege 权限。请注
+// 意，此权限检查仅限于文件映射对象的创建，不适用于打开现有对象。例如，如果服务或系统在全局
+// 命名空间中创建文件映射对象，则任何会话中运行的任何进程都可以访问该文件映射对象，前提是调用
+// 者具有所需的访问权限。Windows XP：上一段中描述的要求是在 Windows Server 2003 和 Windows XP
+// SP2 中引入的。
+//
+// 使用结构化异常处理来保护任何写入或读取文件视图的代码。有关详细信息，请参阅《从文件视图读取
+// 和写入》。https://learn.microsoft.com/en-us/windows/desktop/Memory/reading-and-writing-from-a-file-view
+//
+// 要拥有具有可执行权限的映射，应用程序必须使用 PAGE_EXECUTE_READWRITE 或 PAGE_EXECUTE_READ
+// 调用 CreateFileMapping，然后使用 FILE_MAP_EXECUTE | FILE_MAP_WRITE 或 FILE_MAP_EXECUTE |
+// FILE_MAP_READ 调用 MapViewOfFile。
+//
+// 有关示例，请参阅《创建命名共享内存》或《使用大页面创建文件映射》。
+// https://learn.microsoft.com/en-us/windows/desktop/Memory/creating-named-shared-memory
+// https://learn.microsoft.com/en-us/windows/desktop/Memory/creating-a-file-mapping-using-large-pages
+//
+// LPVOID MapViewOfFile(
+//      [in] HANDLE hFileMappingObject,
+//      [in] DWORD  dwDesiredAccess,
+//      [in] DWORD  dwFileOffsetHigh,
+//      [in] DWORD  dwFileOffsetLow,
+//      [in] SIZE_T dwNumberOfBytesToMap
+// );
+//
+// 创建文件映射对象之后，还需要为文件的数据预定一块地址空间区域，并将文件的数据作为物理存
+// 储器调拨给区域。这可以通过调用 MapViewOfFile 来实现。它将映射文件的一个视图映射到调用
+// 进程的地址空间中。若要指定视图的建议基地址，请使用 MapViewOfFileEx 函数。但是，不建议这
+// 样做。如果函数成功，则返回值是映射视图的起始地址。如果函数失败，则返回值为 NULL。要获取
+// 扩展错误信息，请调用 GetLastError。
+//
+// 参数 hFileMappingObject 文件映射对象的句柄。CreateFileMapping 和 OpenFileMapping 函数返
+// 回此句柄。参数 dwDesiredAccess 对文件映射对象的访问类型，它决定了页面的页面保护。此参数
+// 可以是以下值之一，或在适当情况下是多个值的按位或组合。
+//
+//      值                      含义
+//      FILE_MAP_ALL_ACCESS     映射文件的读/写视图。文件映射对象必须使用 PAGE_READWRITE 或
+//                              PAGE_EXECUTE_READWRITE 保护创建。与 MapViewOfFile 函数一起使
+//                              用时，FILE_MAP_ALL_ACCESS 等效于 FILE_MAP_WRITE。
+//      FILE_MAP_READ           映射文件的只读视图。尝试写入文件视图会导致访问冲突。文件映射
+//                              对象必须使用 PAGE_READONLY、PAGE_READWRITE、PAGE_EXECUTE_READ
+//                              或 PAGE_EXECUTE_READWRITE 保护创建。
+//      FILE_MAP_WRITE          映射文件的读/写视图。文件映射对象必须使用 PAGE_READWRITE 或
+//                              PAGE_EXECUTE_READWRITE 保护创建。与 MapViewOfFile 一起使用时，
+//                              (FILE_MAP_WRITE | FILE_MAP_READ) 和 FILE_MAP_ALL_ACCESS 等效于
+//                              FILE_MAP_WRITE。
+//
+// 使用按位或，可以将上述值与以下值组合。
+//
+//      值                          含义
+//      FILE_MAP_COPY               映射文件的写入时复制视图。文件映射对象必须使用 PAGE_READONLY、PAGE_EXECUTE_READ、
+//                                  PAGE_WRITECOPY、PAGE_EXECUTE_WRITECOPY、PAGE_READWRITE 或 PAGE_EXECUTE_READWRITE
+//                                  保护创建。当进程写入写入时复制页面时，系统会将原始页面复制到仅属于该进程的新页面。
+//                                  新页面由分页文件支持。新页面的保护从写入时复制更改为读/写。
+//                                  指定写入时复制访问时，系统和进程提交的配额是针对整个视图的，因为调用进程可能会写
+//                                  入视图中的每个页面，从而使所有页面变为私有。新页面的内容永远不会写回原始文件，并
+//                                  且在取消映射视图时丢失。
+//      FILE_MAP_EXECUTE            映射文件的可执行视图（映射的内存可以作为代码运行）。文件映射对象必须使用 PAGE_EXECUTE_READ、
+//                                  PAGE_EXECUTE_WRITECOPY 或 PAGE_EXECUTE_READWRITE 保护创建。Windows Server 2003 和
+//                                  Windows XP：此值从 Windows XP SP2 和 Windows Server 2003 SP1 开始可用。
+//      FILE_MAP_LARGE_PAGES        从 Windows 10 版本 1703 开始，此标志指定应使用大页面支持映射视图。视图的大小必须是
+//                                  GetLargePageMinimum 函数报告的大页面大小的整数倍，并且文件映射对象必须使用 SEC_LARGE_PAGES
+//                                  选项创建。如果为 lpBaseAddress 提供非空值，则该值必须是 GetLargePageMinimum 的整数倍。
+//                                  注意：在 Windows 10 版本 1703 之前的操作系统版本上，FILE_MAP_LARGE_PAGES 标志无效。
+//                                  在这些版本上，如果创建节时设置了 SEC_LARGE_PAGES 标志，则视图会自动使用大页面映射。
+//      FILE_MAP_TARGETS_INVALID    将映射文件中的所有位置设置为控制流防护 (CFG) 的无效目标。此标志类似于 PAGE_TARGETS_INVALID。
+//                                  将此标志与执行访问权限 FILE_MAP_EXECUTE 组合使用。对这些页面的任何间接调用都将导致
+//                                  CFG 检查失败，并且进程将被终止。分配的默认可执行页面的行为是标记为 CFG 的有效调用目标。
+//
+// 对于使用 SEC_IMAGE 属性创建的文件映射对象，dwDesiredAccess 参数无效，应设置为任何有效值，
+// 例如 FILE_MAP_READ。有关文件映射对象访问的详细信息，请参阅《文件映射安全和访问权限》。
+// https://learn.microsoft.com/en-us/windows/desktop/Memory/file-mapping-security-and-access-rights
+//
+// 参数 dwFileOffsetHigh 视图开始的文件偏移量的高 32 位。参数 dwFileOffsetLow 视图开始的
+// 文件偏移量的低 32 位。高偏移量和低偏移量的组合必须指定文件映射内的偏移量。它们还必须与
+// 系统的虚拟内存分配粒度匹配。也就是说，偏移量必须是 VirtualAlloc 分配粒度的整数倍。要获
+// 取系统的 VirtualAlloc 内存分配粒度，请使用 GetSystemInfo 函数，该函数填充 SYSTEM_INFO
+// 结构的成员。
+//
+// 参数 dwNumberOfBytesToMap 要映射到视图的文件映射的字节数。所有字节必须在 CreateFileMapping
+// 指定的最大大小范围内。如果此参数为 0（零），则映射从指定偏移量延伸到文件映射的末尾。
+//
+// 映射文件使文件的指定部分在调用进程的地址空间中可见。对于大于地址空间的文件，一次只能映射
+// 一小部分文件数据。第一个视图完成后，可以取消映射并映射一个新视图。要获取视图的大小，请使
+// 用 VirtualQuery 函数。
+//
+// 如果文件视图在指定时间包含相同的数据，则文件（或文件映射对象及其映射文件）的多个视图是一
+// 致的。如果文件视图是从由同一文件支持的任何文件映射对象派生的，则会发生这种情况。进程可以
+// 使用 DuplicateHandle 函数将文件映射对象句柄复制到另一个进程，或者另一个进程可以使用 OpenFileMapping
+// 函数按名称打开文件映射对象。
+//
+// 一个重要例外除外，由同一文件支持的任何文件映射对象派生的文件视图在特定时间是一致的或相同
+// 的。对于进程内的视图以及由不同进程映射的视图，一致性是有保证的。该例外与远程文件有关。虽
+// 然 MapViewOfFile 适用于远程文件，但它不能保持它们的一致性。例如，如果两台计算机都将文件映
+// 射为可写，并且都更改了同一页面，则每台计算机只能看到自己的写入。当数据更新到磁盘时，不会
+// 被合并。
+//
+// 文件的已映射视图与正在使用 ReadFile 或 WriteFile 函数访问的文件不保证一致。请勿在内存映射
+// 文件中存储指针，应存储相对于文件映射基址的偏移量，以便映射可以在任何地址使用。
+//
+// 通过已映射视图修改文件时，最后修改时间戳可能不会自动更新。如果需要，调用者应使用 SetFileTime
+// 设置时间戳。
+//
+// 为防止 EXCEPTION_IN_PAGE_ERROR 异常，请使用结构化异常处理来保护任何写入或读取除分页文件之外
+// 的内存映射文件视图的代码。有关详细信息，请参阅《从文件视图读取和写入》。
+// https://learn.microsoft.com/en-us/windows/desktop/Memory/reading-and-writing-from-a-file-view
+//
+// 如果文件映射对象由分页文件支持（CreateFileMapping 的 hFile 参数设置为 INVALID_HANDLE_VALUE），
+// 则分页文件必须足够大以容纳整个映射。如果不是，MapViewOfFile 将失败。由分页文件支持的文件映射
+// 对象中页面的初始内容为 0（零）。
+//
+// 创建由分页文件支持的文件映射对象时，调用者可以指定 MapViewOfFile 应同时保留和提交页面
+// (SEC_COMMIT)，还是仅保留页面 (SEC_RESERVE)。映射文件会使整个映射的虚拟地址范围对进程中的其他
+// 分配不可用。保留范围内的页面提交后，无法通过调用 VirtualFree 释放或取消提交。保留和提交的页
+// 面在取消映射视图并关闭文件映射对象时释放。有关详细信息，请参阅 UnmapViewOfFile 和 CloseHandle
+// 函数。
+//
+// 要拥有具有可执行权限的文件，应用程序必须使用 PAGE_EXECUTE_READWRITE 或 PAGE_EXECUTE_READ 调用
+// CreateFileMapping，然后使用 FILE_MAP_EXECUTE | FILE_MAP_WRITE 或 FILE_MAP_EXECUTE | FILE_MAP_READ
+// 调用 MapViewOfFile。
+
+prh_handle prh_impl_mapping_entire_file(prh_handle file, prh_r32 flags)
+{
+    // 如果文件映射对象用 PAGE_READONLY 或 PAGE_WRITECOPY 创建，那么指定的大小必须不大于文件在磁盘
+    // 上的实际大小，因为我们不能给文件追加任何数据。
+    return (prh_handle)CreateFileMapping((HANDLE)file, NULL, flags, 0, 0, NULL); // 默认安全性句柄不继承不共享
+}
+
+prh_handle prh_impl_mapping_partial_or_enlarge_file(prh_handle file, prh_r32 flags, prh_r64 maxsize)
+{
+    return (prh_handle)CreateFileMapping((HANDLE)file, NULL, flags, (DWORD)(maxsize >> 32), (DWORD)(maxsize & 0xFFFFFFFF), NULL);
+}
+
+prh_handle prh_impl_mapping_memory(prh_r32 flags, prh_r64 maxsize)
+{
+    return (prh_handle)CreateFileMapping(INVALID_HANDLE_VALUE, NULL, flags, (DWORD)(maxsize >> 32), (DWORD)(maxsize & 0xFFFFFFFF), NULL);
+}
+
+prh_byte *prh_impl_viewing_entire_file(prh_handle map, prh_r32 flags)
+{
+    return MapViewOfFile((HANDLE)map, flags, 0, 0, 0);
+}
+
+prh_byte *prh_impl_viewing_partial_file(prh_handle map, prh_r32 flags, prh_r64 offset, prh_r32 size)
+{
+    prh_assert((offset % prh_vmem_unit_size) == 0);
+    return MapViewOfFile((HANDLE)map, flags, (DWORD)(offset >> 32), (DWORD)(offset & 0xFFFFFFFF), size);
+}
+
+prh_byte *prh_impl_viewing_file_to_tail(prh_handle map, prh_r32 flags, prh_r64 offset)
+{
+    // 如果大小指定为0，系统会把文件从偏移开始到文件末尾的所有部分都映射到视图中
+    return prh_impl_viewing_partial_file(map, flags, offset, 0);
+}
+
+prh_file_view prh_open_view_read(const prh_byte *name, prh_r64 mapping_maxsize)
+{
+    prh_file_view view = {0};
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return view;
+    view.large_file_size = prh_large_file_size(file);
+    view.mapping_handle = prh_impl_mapping_partial_or_enlarge_file(file, PAGE_READONLY, mapping_maxsize);
+    CloseHandle((HANDLE)file);
+    view.viewing_flags = FILE_MAP_READ;
+    view.base_address = prh_null;
+    return view;
+}
+
+prh_file_view prh_open_view_read_with_handle(prh_handle file_handle, prh_r64 mapping_maxsize)
+{
+    prh_file_view view = {0};
+    if (file_handle == prh_invalid_handle) return view;
+    view.large_file_size = prh_large_file_size(file_handle);
+    view.mapping_handle = prh_impl_mapping_partial_or_enlarge_file(file_handle, PAGE_READONLY, mapping_maxsize);
+    view.viewing_flags = FILE_MAP_READ;
+    view.base_address = prh_null;
+    return view;
+}
+
+prh_file_view prh_open_view_write_on_copy(const prh_byte *name, prh_r64 mapping_maxsize)
+{
+    prh_file_view view = {0};
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return view;
+    view.large_file_size = prh_large_file_size(file);
+    view.mapping_handle = prh_impl_mapping_partial_or_enlarge_file(file, PAGE_WRITECOPY, mapping_maxsize);
+    CloseHandle((HANDLE)file);
+    view.viewing_flags = FILE_MAP_COPY;
+    view.base_address = prh_null;
+    return view;
+}
+
+prh_file_view prh_open_view_write_on_copy_with_handle(prh_handle file_handle, prh_r64 mapping_maxsize)
+{
+    prh_file_view view = {0};
+     if (file_handle == prh_invalid_handle) return view;
+    view.large_file_size = prh_large_file_size(file_handle);
+    view.mapping_handle = prh_impl_mapping_partial_or_enlarge_file(file_handle, PAGE_WRITECOPY, mapping_maxsize);
+    view.viewing_flags = FILE_MAP_COPY;
+    view.base_address = prh_null;
+    return view;
+}
+
+prh_byte *prh_viewing_file(prh_file_view *p, prh_r64 offset, prh_r32 size)
+{
+    if (p->base_address)
+    {
+        UnmapViewOfFile(p->base_address);
+    }
+    p->base_address = prh_impl_viewing_partial_file(p->mapping_handle, p->viewing_flags, offset, size);
+    return p->base_address;
+}
+
+void prh_close_view(prh_file_view *p)
+{
+    CloseHandle((HANDLE)p->mapping_handle);
+    UnmapViewOfFile(p->base_address);
+    p->mapping_handle = 0;
+    p->base_address = 0;
+}
+
+prh_byte *prh_mapping_file_read_with_handle(prh_handle file)
+{
+    if (file == prh_invalid_handle) return prh_null;
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_READONLY);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_READ);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+prh_byte *prh_mapping_file_write_on_copy_with_handle(prh_handle file)
+{
+    if (file == prh_invalid_handle) return prh_null;
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_WRITECOPY);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_COPY);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+prh_byte *prh_mapping_file_read(const prh_byte *name)
+{
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return prh_null;
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_READONLY);
+    CloseHandle((HANDLE)file);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_READ);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+prh_byte *prh_mapping_file_read_with_file_size_32(const prh_byte *name, prh_r32 *out_file_size)
+{
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return prh_null;
+    *out_file_size = prh_file_size_32(file);
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_READONLY);
+    CloseHandle((HANDLE)file);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_READ);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+prh_byte *prh_mapping_file_read_with_large_file_size(const prh_byte *name, prh_r64 *out_file_size)
+{
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return prh_null;
+    *out_file_size = prh_large_file_size(file);
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_READONLY);
+    CloseHandle((HANDLE)file);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_READ);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+prh_byte *prh_mapping_file_write_on_copy(const prh_byte *name)
+{
+    // 可以读取和写入文件，写入操作会导致系统为该页面创建一份副本。当指定 FILE_MAP_COPY 标志，
+    // 那么系统会从页交换文件中调拨物理存储器。调拨的物理存储器的大小由 dwNumberOfBytesToMap
+    // 决定。在对文件映射视图进行操作时，只要我们不执行读取数据之外的操作，系统就不会用到从
+    // 页交换文件中调拨的页面。但是，一旦哪个线程写入文件映射视图中的任何内存地址，系统就会
+    // 从页交换文件中已调拨的页面中选择一个页面，把原始数据复制到页交换文件中的页面，然后把
+    // 复制的页面映射到进程的地址空间中。此后，各线程都将访问数据的副本，而不会访问或修改原
+    // 始数据了。系统对原始数据进行复制后，系统会把页面的保护属性从 PAGE_WRITECOPY 改成
+    // PAGE_READWRITE。
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return prh_null;
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_WRITECOPY);
+    CloseHandle((HANDLE)file);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_COPY);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+prh_byte *prh_mapping_file_write_on_copy_with_file_size_32(const prh_byte *name, prh_r32 *out_file_size)
+{
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return prh_null;
+    *out_file_size = prh_file_size_32(file);
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_WRITECOPY);
+    CloseHandle((HANDLE)file);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_COPY);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+prh_byte *prh_mapping_file_write_on_copy_with_large_file_size(const prh_byte *name, prh_r64 *out_file_size)
+{
+    prh_handle file = prh_open_file_read(name);
+    if (file == prh_invalid_handle) return prh_null;
+    *out_file_size = prh_large_file_size(file);
+    prh_handle mapping_handle = prh_impl_mapping_entire_file(file, PAGE_WRITECOPY);
+    CloseHandle((HANDLE)file);
+    prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_COPY);
+    CloseHandle((HANDLE)mapping_handle);
+    return base_address;
+}
+
+// 出于速度上的考虑，系统会对文件数据的页面进行缓存处理，这样在处理文件映射视图的时候就不
+// 需要随时更新磁盘上的文件。如果需要确保所做的修改已经被写入到磁盘中，那么可以调用 FlushViewOfFile。
+// 这个函数用来强制系统把部分或全部修改过的数据写回到磁盘中。第一个参数时内存映射文件视图
+// 中的第一个字节地址，函数会把传入的地址向下取整到页面大小的整数倍。第二个参数标识想要刷
+// 新的字节数，系统会把这个数值向上取整，时总的字节数成为页面大小的整数倍。如果在没有修改
+// 过任何数据的情况下调用 FlushViewOfFile，那么函数不会把任何东西写到磁盘上，而是直接返回。
+//
+// 如果内存映射文件的为u里存储器来自网络，那么 FlushViewOfFile 会保证从当前工作站写入文件
+// 数据。但是，FlushViewOfFile 无法保证远端的共享文件的服务器也会把数据写入到磁盘上，因为
+// 服务器可能会对文件数据进行缓存。为了确保服务器也会把数据写入到磁盘上，我们在创建文件映
+// 射对象并将它映射到视图中的时候，应该传入 FILE_FLAG_WRITE_THROUGH 标志给 CreateFile。
+
+void prh_flush_mapping(prh_byte *base_address, prh_r32 size)
+{
+    prh_assert(((prh_reg)base_address % prh_memory_page_size) == 0);
+    prh_assert((size % prh_memory_page_size) == 0);
+    PRH_BOOLRET_OR_ERROR(FlushViewOfFile(base_address, size));
+}
+
+// 不再需要把文件的数据映射到进程的地址空间中时，可以调用 UnmapViewOfFile 释放内存区域。
+// 如果不这样做，在进程终止之前，区域将得不到释放。UnmapViewOfFile 还有一个特征，如果视
+// 图最初使用 FILE_MAP_COPY 标志映射的，那么对文件数据的任何修改实际上是对保存在页交换
+// 文件中的文件数据副本的修改。如果在这种情况下调用 UnmapViewOfFile，函数不需要对磁盘文
+// 件进行任何更新，但它会释放页交换文件中的页面，从而导致数据丢失。
+//
+// 如果希望保留修改过的数据，必须自己进行额外的操作。例如，可以为同一个文件（PAGE_READWRITE)
+// 创建另一个文件映射对象，并用 FILE_MAP_WRITE 标志把这个新的文件映射对象映射到进程地址
+// 空间中。然后可以在第一个视图中查找具有 PAGE_READWRITE 保护属性页面，只要找到一个具有
+// 该保护属性的页面，就可以对其内容进行检查，并决定释放需要将修改过的数据写入文件。但如
+// 果想保存修改过的数据页面，那么只需要调用 MoveMemory 把该数据页面从第一个视图复制到第
+// 二个视图即可。由于第二个视图是用 PAGE_READWRITE 保护数据映射得到的，因此 MoveMemory
+// 函数会更新文件位于磁盘上的实际内容。我们可以通过这种方法来检测修改和保存文件数据。
+//
+// BOOL UnmapViewOfFile(
+//      [in] LPCVOID lpBaseAddress
+// );
+//
+// 从调用进程的地址空间取消映射文件的已映射视图。如果函数成功，则返回值为非零值。如果函数
+// 失败，则返回值为零。要获取扩展错误信息，请调用 GetLastError。
+//
+// 参数 lpBaseAddress 指向要取消映射的文件映射视图基地址的指针。此值必须与之前调用 MapViewOfFile
+// 系列函数之一返回的值相同。
+//
+// 取消映射文件的已映射视图会使该视图在进程地址空间中占据的范围失效，并使该范围可用于其他
+// 分配。它会移除进程中属于进程工作集的每个已取消映射虚拟页面的工作集条目，并减小进程的工
+// 作集大小。它还会递减相应物理页面的共享计数。
+//
+// 已取消映射视图中的已修改页面在共享计数达到零之前不会写入磁盘，换句话说，在它们从共享页
+// 面的所有进程的工作集中取消映射或修剪之前都不会写入。即使如此，已修改页面也会"延迟"写入
+// 磁盘；也就是说，修改可能缓存在内存中，并在稍后时间写入磁盘。为了最大程度地降低电源故障
+// 或系统崩溃时数据丢失的风险，应用程序应使用 FlushViewOfFile 函数显式刷新已修改页面。
+//
+// 虽然应用程序可以关闭用于创建文件映射对象的文件句柄，但系统会保持相应文件打开，直到文件
+// 的最后一个视图被取消映射。最后一个视图尚未取消映射的文件将保持打开状态，且没有共享限制。
+
+void prh_unmapping_file(prh_byte *base_address)
+{
+    PRH_BOOLRET_OR_ERROR(UnmapViewOfFile(base_address));
+}
+
 // https://learn.microsoft.com/en-us/windows/win32/fileio/files-and-clusters
 //
 // 文件和簇（Files and Clusters）
