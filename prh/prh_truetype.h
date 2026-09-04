@@ -19,6 +19,17 @@
 extern "C" {
 #endif
 
+typedef struct prh_font prh_font;
+
+prh_data prh_read_font_file(const prh_byte *name);
+void prh_free_file_data(prh_data *file);
+
+prh_r32 prh_font_count(prh_data *file);
+prh_r32 prh_font_offset(prh_data *file, prh_r32 font_index);
+
+prh_font *prh_load_font(prh_data *file, prh_r32 offset);
+void prh_free_font(prh_font *font);
+
 #ifdef __cplusplus
 }
 #endif
@@ -33,6 +44,153 @@ extern "C" {
 ////
 
 #ifdef PRH_TRUETYPE_IMPLEMENTATION
+
+// EM 是字体排版中的基本度量单位，来源于金属活字时代，最初指一个"M"字形的宽度（这也是其
+// 名称的来源）。在数字字体（如 OpenType）中，em 的含义如下：
+//  1.  与字号的关系。em 的高度等于字体的当前字号大小。例如，在 12pt 的字体中，1 em =
+//      12pt；在 16px 的字体中，1 em = 16px。
+//  2.  设计坐标系中的基准单位。字体文件内部使用一个设计单位坐标系，由 unitsPerEm（每 em
+//      的设计单位数）定义。所有字形度量值（如字宽、升部、降部、下标/上标大小等）都以这些
+//      设计单位表示，最终换算为 em 的分数来确定实际显示尺寸。
+//      * 如果 unitsPerEm = 1000，则 1 em = 1000 个设计单位
+//      * 如果 unitsPerEm = 2048（如 Times New Roman），则 1 em = 2048 个设计单位
+//  3.  典型应用。字宽，字符的宽度通常表示为 em 的分数（如 0.5 em）。行距，由升部（ascender）
+//      和降部（descender）之和决定，通常接近 1 em。CSS 中的 em 单位：直接继承自字体排版，
+//      1 em 等于当前元素的字体大小。
+//
+// 简单来说，em 是字体度量系统的"基准方块"，一个虚拟的正方形，其边长等于字体字号，所有其他
+// 度量都围绕它展开。
+//
+// 常用的字体度量单位可分为绝对物理单位、字体相对单位、数字字体设计单位和屏幕/Web 单位四大类：
+//
+// 一、绝对物理单位（印刷排版）
+//      单位    符号    说明
+//      点      pt      最常用的字号单位。桌面出版（PostScript）中 1 pt = 1/72 英寸；传统
+//                      活字印刷中 1 pt ≈ 0.3528 mm
+//      派卡    pc      1 pc = 12 pt，常用于排版行宽、栏宽
+//      毫米    mm      国际标准单位，1 mm ≈ 2.835 pt
+//      厘米    cm      1 cm = 10 mm
+//      英寸    in      1 in = 72 pt（PostScript 标准）
+//
+// 二、字体相对单位（排版核心）
+//      单位    说明
+//      em      等于当前字体大小。在金属活字时代指"M"字形的宽度；在数字字体中，em 是设计
+//              坐标系的基准方块，由 unitsPerEm 定义。所有字形度量（字宽、升部、降部等）
+//              都以 em 的分数表示
+//      en      通常等于 0.5 em，即 em 的一半宽度
+//      ex      约等于当前字体中小写字母 "x" 的高度，用于垂直对齐
+//      ch      等于当前字体中数字 "0" 的宽度（CSS 特有）
+//
+// 三、数字字体设计单位（OpenType/TrueType 内部）
+//      单位                        说明
+//      设计单位 (design units)     字体文件内部坐标系中的抽象单位。例如 unitsPerEm = 1000
+//                                  表示 1 em 被划分为 1000 个设计单位。所有字形轮廓坐标、字
+//                                  宽、升部/降部值都以设计单位存储
+//      FWORD                       OpenType 表中的有符号 16 位整数，以设计单位表示（如 sTypoAscender）
+//      UFWORD                      无符号 16 位整数，以设计单位表示（如 usWinAscent）
+//      TWIP                        二十分之一磅（1/20 pt），OpenType OS/2 v5 表中 usLowerOpticalPointSize
+//                                  等字段使用
+//      Fixed                       16.16 定点数格式，用于 italicAngle 等需要小数的字段
+//
+// 四、屏幕/Web 单位
+//      单位                        说明
+//      px (像素)                   屏幕显示的基本单位，与设备分辨率相关
+//      rem                         相对于根元素（html）字体大小的 em
+//      vw/vh                       视口宽/高的百分比
+//
+// 五、其他专业单位
+//      单位                        说明
+//      Q (Quart)                   日本排版常用单位，1 Q = 0.25 mm
+//      Didot 点                    欧洲大陆传统活字单位，1 Didot pt ≈ 0.376 mm，略大于 PostScript pt
+//      Cicero                      欧洲大陆对应派卡的单位，1 Cicero = 12 Didot pt
+//
+// 日常排版：最常用的是 pt（点） 和 em
+// 字体开发：核心单位是设计单位（相对于 unitsPerEm 的分数）
+// Web 开发：最常用 px、em、rem
+// OpenType 表内部：大量使用设计单位 和 TWIP
+
+// 字形垂直方向：
+//  1.  中间是基线（baseline），绘制字形时，绘制位置的y坐标对应的水平线即基线
+//  2.  字形向下超出的部分称为降部（descent），向上超出的部分称为升部（ascent）
+//  3.  降部和升部组成的垂直空间称为字形体（body）
+//  4.  字形体空间加上上下一定的额外间距，就是一个字形的垂直尺寸 EM
+//  5.  EM 方块可以做得足够大以完全包含所有字形，包括带重音符号的字形
+//  6.  或者字形的某些部分可以延伸到 EM 方块之外，例如一个升部和降部超出 EM 方块的 script f 字形
+//  7.  TrueType 字体可以处理这两种方式，因此选择权在于字体制造商
+//
+// 字形水平方向：
+//  1.  当前光标的位置（起始笔位置，或左侧间距点位置）
+//  2.  字形左侧间距（lsb，left side bearing），光标位置到字形最左轮廓边缘的间距
+//  3.  字形轮廓图形占据的水平空间
+//  4.  字形右侧间距（rsb，right side bearing）
+//  5.  前进宽度或字宽（advance）是从当前字形起始笔位置到下一字形起始笔之间的总水平距离
+//  6.  它决定了在排版时，绘制完当前字形后，笔要向前移动多少才能开始绘制下一个字形
+//  7.  前进宽度通常为：Left Side Bearing + 字形实际宽度 + Right Side Bearing
+//
+// 大写字母 Q 的尺寸和字形坐标系
+//
+//        ^ y
+//        |
+//        |
+//        |---------------------·-------------------------------------
+//        |                     |                                    ^
+//        |      ~ ~ * ~ ~      |------------------------------      |
+//        |    * *       * *    |  ^                         ^       |
+//        |   * '         ' *   |  |                         |       |
+//        |   ' '         ' '   |  | 升部（Ascent）          | Body  | EM
+//        |    、*        * ，  |  v                         |       |
+//  ------.------*-*-~-*-*------|--------- 基线（Baseline）--|-------|------------------>
+//      0 |         '、',       |  ^  降部（Descent）        |       |                 x
+//        |           *~_.      |__v_________________________v_      |
+//        |                     |                                    v
+//        |---------------------'-------------------------------------
+//        |
+//        |
+//
+// 字形坐标系
+//  1.  EM 是字体排版中的基本度量单位，来源于金属活字时代，最初指一个"M"字形的宽度（这也
+//      是其名称的来源）。简单来说，EM 是字体度量系统的"基准方块"，一个虚拟的正方形，其边
+//      长等于字体字号，所有其他度量都围绕它展开。
+//  2.  EM 方块定义了一个二维笛卡尔坐标网格，如上图。其 x 轴描述水平方向上的移动，y 轴描
+//      述垂直方向上的移动。字体设计单位 FUnits 以 EM 方块为基准，将网格中的每个点的坐标
+//      最大定义为 -16384 到 +16383 的 FUnits 范围内。即 EM 方块的粒度由每 EM 的 FUnits
+//      数（或更简单地说是每 EM 单位数）决定。EM 方块被划分为 FUnits 后定义了一个坐标系，
+//      其中一个单位等于一个 FUnit。在此坐标系中定义的所有点必须具有整数位置。每 EM 单位
+//      数越大，在 EM 方块内寻址位置的精度越高。
+//  3.  坐标网格粒度（即每 EM 的单位数，upem，units per em）的选择由字体制造商决定。如果
+//      每 EM 单位数选择为 2 的幂（如 2048），轮廓缩放将最快。注意，每 EM 单位数在 x 和
+//      y 方向上始终相同。
+//  4.  FUnits 是相对单位，因为它们的大小随 EM 方块大小的变化而变化。对于给定字体，每 EM
+//      单位数保持不变，无论字号大小如何。然而，每 EM 的点数（points per em）将随字形的字
+//      号（point size）变化而变化。
+//  5.  EM 方块的原点不需要与字形轮廓有任何一致的关系。然而在实践中，应用程序依赖于给定
+//      字体的字形放置存在某种约定。通常 y 坐标值 0 被假定为对应字体的基线，对于水平排列
+//      的字体中的字形 x 坐标值 0 通常为左侧间距点（即起始笔/光标位置），而对于可以垂直
+//      排列的字体，其字形 x 坐标值 0 可以定义位于美学中心点，即轮廓图像的中心，这可以让
+//      字形垂直书写时可以对齐到同一个中心轴线上。
+//  6.  对于不同文字的字体，x 原点和 y 原点的含义可能偏好各种约定。为获得最佳的高亮和插
+//      入符号效果，字符主体（Body）应大致位于前进宽度（advance width）的中心。例如，对
+//      称字符应具有相等的左右字形间距。
+//
+// 字体字号（font size）和字形缩放因子（SF，scale factor）
+//  1.  这里只考虑以像素（pixel）为单位的字号，字体字号即字形的像素高度，其实以点（pt，
+//      point，1/72 英寸）为单位计算并无区别，只差一个点与像素之间的转换。字体设计时的
+//      尺寸与需要的字体字号之间有一个缩放比例，称为字形缩放因子。
+//  2.  字形坐标系是标准的笛卡尔坐标系，而大多图像处理系统使用屏幕左上指向左下的 y 坐标，
+//      因此从字形坐标到屏幕坐标需要反转 y 坐标值的符号，这样字形坐标 (x, y) 转换到屏幕
+//      对应坐标为 (SF * x, - SF * y)。
+//  3.  字形轮廓尺寸通过坐标 (xMin, yMin) (xMax, yMax) 矩形给出（左下到右上），-yMin 相
+//      当于字形降部的高度，yMax 相当于字形升部的高度，xMin 相当于字形左侧间距。该坐标转
+//      换成屏幕坐标变成 left = (SF*xMin, -SF*yMax) right = (SF*xMax,-SF*yMin)，从左上到
+//      右下。
+//  4.  当需要将字形绘制到屏幕坐标 (x_draw, y_draw) 位置时，屏幕上的 y = y_draw 对应字形
+//      的基线，x = x_draw 对应字形的起始笔或光标处。因此字形需要绘制到如下的起始坐标处，
+//      绘制宽度为 SF * (xMax - xMin)，绘制高度为 SF * (yMax - yMin)。
+//          x = x_draw + SF*xMin = x_draw + left.x (加上字形的左侧间距)
+//          y = y_draw - SF*yMax = y_draw + left.y (减去字形的升部高度)
+//  5.  要绘制当前行的下一个字符，需要跨越一个字形的前进宽度 SF * xadvance。
+//  6.  对于 OpenGL 以左下角为原点的情况，只需要将 y 绘制坐标修改如下即可：
+//          y = y_draw + SF*yMax = y_draw - left.y
 
 // 字体（Font），验证等宽字体效果，真正等宽字体下面三行会完美对齐：
 // | 中文 | 中文 | 中文 |
@@ -176,7 +334,7 @@ extern "C" {
 // https://github.com/adobe-fonts/source-han-serif/raw/release/Variable/OTC/SourceHanSerif-VF.otf.ttc
 // https://github.com/adobe-fonts/source-han-serif/raw/release/Variable/OTC/SourceHanSerif-VF.ttf.ttc
 //
-// 语言特定可变字体（Language-specific Variable Fonts）。如果您的系统支持可变字体，且您只           *** 02_SourceHanSerif-VF\Variable\[TTF|OTF|WOFF2]\
+// 语言特定可变字体（Language-specific Variable Fonts）。如果您的系统支持可变字体，且您只           *** 02_SourceHanSerif-VF\Variable\[TTF|OTF|WOFF2]
 // 使用一种语言，但同时需要完整的字符覆盖范围，或希望通过对文本进行语言标记来使用适合其他
 // 语言的字形（这需要支持语言标记和 OpenType 'locl' GSUB 特性的应用程序），请选择此部署格
 // 式。语言特定字节包含完整 CJK 统一表意文字，Simplied Chinese 和 Tranditional Chinese 和
@@ -544,7 +702,7 @@ extern "C" {
 //
 // 如果主要版本未被识别，实现不得读取表，因为它无法对二进制数据的解释做出任何假设。实现应
 // 将表视为缺失。
-//
+
 // OpenType 字体组织（Organization of an OpenType Font）
 //
 // 表目录（Table Directory）。OpenType 格式的一个关键特征是 TrueType sfnt "包装器"，它以通
@@ -628,21 +786,6 @@ extern "C" {
 // 中，表校验和必须反映集合文件中的表。'head' 表中的 checksumAdjustment 字段不用于集合文件，
 // 可以设置为零。
 
-#define PRH_TTF_OUTLINE 0x00010000 // TrueType 1.0
-#define PRH_TTF_APLTRUE 0x74727565 // 'true'
-#define PRH_CFF_APLTYP1 0x74797031 // 'typ1'
-#define PRH_CFF_OUTLINE 0x4F54544F // 'OTTO'
-#define PRH_TTC_HEADER  0x74746366 // 'ttcf'
-#define PRH_TTC_DSIG    0x44534947 // 'DSIG'
-
-typedef struct {
-    prh_r32 sfntversion;    // 0x00010000 或 0x4F54544F ('OTTO')
-    prh_r16 numtables;      // 表的数量
-    prh_r16 searchrange;
-    prh_r16 entryselector;
-    prh_r16 rangeshift;
-} prh_font_header;
-
 // 字体集合（Font Collections）
 //
 // OpenType 字体集合（TTC 或 OTC，以前称为 TrueType Collection）是在单个文件结构中传递多个
@@ -717,229 +860,6 @@ typedef struct {
 //      uint32      dsigTag                         指示 DSIG 表存在的标签，0x44534947 ('DSIG')（如果没有签名为 null）
 //      uint32      dsigLength                      DSIG 表的长度（以字节为单位）（如果没有签名为 null）
 //      uint32      dsigOffset                      从 TTC 文件开头到 DSIG 表的偏移（以字节为单位）（如果没有签名为 null）
-
-typedef struct {
-    prh_r32 ttctag;
-    prh_r16 majorversion;
-    prh_r16 minorversion;
-    prh_r32 numfonts;
-} prh_font_ttc_header;
-
-typedef struct {
-    prh_r32 dsigtag;    // 0x44534947 ('DSIG')，没有签名时为 NULL
-    prh_r32 dsiglength; // DSIG 表的长度，没有签名时为 NULL
-    prh_r32 dsigoffset; // DSIG 表所在的文件偏移，没有签名时为 NULL
-} prh_font_ttc_signature;
-
-typedef struct {
-    prh_reader reader;
-    prh_font_header font_header;
-    prh_font_ttc_header ttc_header;
-    prh_font_ttc_signature ttc_signature;
-    prh_r32 *ttc_font_header_offset_big;
-    prh_r32 file_size;
-} prh_font_file;
-
-prh_static_assert(sizeof(prh_font_header) == sizeof(prh_font_ttc_header));
-
-void prh_font_file_free(prh_font_file *f) {
-    prh_da_free(f->ttc_font_header_offset_big);
-    prh_read_free(&f->reader);
-}
-
-void prh_load_font_file(prh_font_file *f, const prh_byte *name) {
-    f->reader = prh_read_from_file(name, prh_vmem_unit_size, prh_local_alloc());
-    prh_read_exact_bytes(&f->reader, (prh_byte *)&f->font_header, sizeof(prh_font_header));
-    prh_set_r32_be_to_host(f->font_header.sfntversion);
-    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_TTF_APLTRUE ||
-        f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1) {
-        prh_set_r16_be_to_host(f->font_header.numtables);
-        memset(&f->ttc_header, 0, sizeof(prh_font_ttc_header));
-        memset(&f->ttc_signature, 0, sizeof(prh_font_ttc_signature));
-        f->ttc_font_header_offset_big = prh_null;
-        f->ttc_header.numfonts = 1;
-    } else if (f->font_header.sfntversion == PRH_TTC_HEADER) {
-        f->ttc_header = *(prh_font_ttc_header *)&f->font_header;
-        prh_set_r16_be_to_host(f->ttc_header.majorversion);
-        prh_set_r16_be_to_host(f->ttc_header.minorversion);
-        prh_set_r32_be_to_host(f->ttc_header.numfonts);
-        if (f->ttc_header.majorversion != 1 && f->ttc_header.majorversion != 2) {
-            prh_abort_error(f->ttc_header.majorversion);
-        }
-        prh_da_init(f->ttc_font_header_offset_big, f->ttc_header.numfonts);
-        prh_read_exact_bytes(&f->reader, (prh_byte *)f->ttc_font_header_offset_big, f->ttc_header.numfonts * sizeof(prh_r32));
-        if (f->ttc_header.majorversion == 2) {
-            prh_read_exact_bytes(&f->reader, (prh_byte *)&f->ttc_signature, sizeof(prh_font_ttc_signature));
-            prh_set_r32_be_to_host(f->ttc_signature.dsigtag);
-            prh_set_r32_be_to_host(f->ttc_signature.dsiglength);
-            prh_set_r32_be_to_host(f->ttc_signature.dsigoffset);
-            if (f->ttc_signature.dsigtag != 0 && f->ttc_signature.dsigtag != PRH_TTC_DSIG) {
-                prh_abort_error(f->ttc_signature.dsigtag);
-            }
-        }
-        f->font_header.numtables = 0;
-    } else {
-        prh_eprinf_r32(f->font_header.sfntversion, prh_pf_print_base | prh_pf_hex | 8);
-        prh_abort_error(__LINE__);
-    }
-    f->file_size = prh_file_size_32(f->reader.handle);
-}
-
-prh_r32 prh_font_count(const prh_font_file *f) {
-    return f->ttc_header.numfonts;
-}
-
-typedef struct {
-    prh_r32 tabletag;   // 表标识符，必须按 tag 值升序排列
-    prh_r32 checksum;   // 此表校验和
-    prh_r32 offset;     // 此表所在的文件偏移
-    prh_r32 length;     // 此表的长度
-} prh_font_thead;
-
-typedef struct {
-    prh_r32 tabletag;
-    prh_r32 checksum;
-    prh_r32 offset;
-    prh_r32 length;
-    prh_r32 table_index;
-} prh_font_table;
-
-typedef struct prh_open_font {
-    prh_font_file *font_file;
-    prh_font_header font_header;
-    prh_font_thead *table_header;
-    prh_r32 font_header_offset;
-    prh_r32 font_index;
-    bool is_cff_outline;
-    prh_r32 maxp_version;
-    prh_r16 num_glyphs;
-    prh_r16 max_points;
-    prh_r16 max_contours;
-    prh_r16 max_composite_points;
-    prh_r16 max_composite_contours;
-    prh_r16 max_zones;
-    prh_r16 max_twilinght_points;
-    prh_r16 max_storage;
-    prh_r16 max_function_defs;
-    prh_r16 max_instruction_defs;
-    prh_r16 max_stack_elements;
-    prh_r16 max_size_of_instructions;
-    prh_r16 max_component_elements;
-    prh_r16 max_component_depth;
-    prh_font_table base; // 'BASE'
-    prh_font_table cff1; // 'CFF '
-    prh_font_table cff2; // 'CFF2'
-    prh_font_table dsig; // 'DSIG'
-    prh_font_table gdef; // 'GDEF'
-    prh_font_table gpos; // 'GPOS'
-    prh_font_table gsub; // 'GSUB'
-    prh_font_table os_2; // 'OS/2'
-    prh_font_table stat; // 'STAT'
-    prh_font_table vdmx; // 'VDMX'
-    prh_font_table vorg; // 'VORG'
-    prh_font_table cmap; // 'cmap'
-    prh_font_table hdmx; // 'hdmx'
-    prh_font_table head; // 'head'
-    prh_font_table hhea; // 'hhea'
-    prh_font_table hmtx; // 'hmtx'
-    prh_font_table maxp; // 'maxp'
-    prh_font_table name; // 'name'
-    prh_font_table post; // 'post'
-    prh_font_table vhea; // 'vhea'
-    prh_font_table vmtx; // 'vmtx'
-} prh_open_font;
-
-prh_r16 prh_font_table_count(const prh_open_font *f) {
-    return f->font_header.numtables;
-}
-
-void prh_open_font_free(prh_open_font *p) {
-    prh_da_free(p->table_header);
-}
-
-void prh_impl_font_header_read(prh_open_font *p);
-
-void prh_load_open_font(prh_open_font *p, prh_font_file *f, prh_r32 font_index) {
-    memset(p, 0, sizeof(prh_open_font));
-    prh_assert(font_index < prh_font_count(f));
-    if (f->font_header.sfntversion == PRH_TTC_HEADER) {
-        p->font_header_offset = f->ttc_font_header_offset_big[font_index];
-        prh_set_r32_be_to_host(p->font_header_offset);
-    } else {
-        p->font_header_offset = 0;
-    }
-    p->font_file = f;
-    p->font_index = font_index;
-    prh_impl_font_header_read(p);
-}
-
-void prh_print_ttff_header(prh_font_file *f) {
-    prh_print(
-        "file tag 0x%08x (%c%c%c%c)\n"
-        "file size %d-byte %d-KB %d-MB\n"
-        "font count %d\n"
-        "font ttc version %d.%d\n"
-        "font ttc data signature 0x%08x (%c%c%c%c) offset %d length %d\n\n",
-        (prh_reg)f->font_header.sfntversion,
-        (prh_reg)prh_byte_4(f->font_header.sfntversion),
-        (prh_reg)prh_byte_3(f->font_header.sfntversion),
-        (prh_reg)prh_byte_2(f->font_header.sfntversion),
-        (prh_reg)prh_byte_1(f->font_header.sfntversion),
-        (prh_reg)f->file_size,
-        (prh_reg)f->file_size / 1024,
-        (prh_reg)f->file_size / 1024 / 1024,
-        (prh_reg)prh_font_count(f),
-        (prh_reg)f->ttc_header.majorversion,
-        (prh_reg)f->ttc_header.minorversion,
-        (prh_reg)f->ttc_signature.dsigtag,
-        (prh_reg)prh_byte_4(f->ttc_signature.dsigtag),
-        (prh_reg)prh_byte_3(f->ttc_signature.dsigtag),
-        (prh_reg)prh_byte_2(f->ttc_signature.dsigtag),
-        (prh_reg)prh_byte_1(f->ttc_signature.dsigtag),
-        (prh_reg)f->ttc_signature.dsigoffset,
-        (prh_reg)f->ttc_signature.dsiglength);
-}
-
-void prh_print_font_header(prh_open_font *f) {
-    prh_print(
-        "font index %d / %d\n"
-        "font tag 0x%08x (%c%c%c%c)\n"
-        "font offset %d\n"
-        "font tables %d\n\n",
-        (prh_reg)f->font_index + 1,
-        (prh_reg)prh_font_count(f->font_file),
-        (prh_reg)f->font_header.sfntversion,
-        (prh_reg)prh_byte_4(f->font_header.sfntversion),
-        (prh_reg)prh_byte_3(f->font_header.sfntversion),
-        (prh_reg)prh_byte_2(f->font_header.sfntversion),
-        (prh_reg)prh_byte_1(f->font_header.sfntversion),
-        (prh_reg)f->font_header_offset,
-        (prh_reg)prh_font_table_count(f));
-}
-
-void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
-    prh_font_thead *t = f->table_header + table_index;
-    prh_r32 tabletag = prh_r32_be_to_host(t->tabletag);
-    prh_r32 offset = prh_r32_be_to_host(t->offset);
-    prh_r32 length = prh_r32_be_to_host(t->length);
-    prh_r32 checksum = prh_r32_be_to_host(t->checksum);
-    prh_print(
-        "table index %d / %d\n"
-        "table tag 0x%08x (%c%c%c%c)\n"
-        "table offset %.10d (%d/4)\n"
-        "table length %.10d (%d/4)\n"
-        "table checksum 0x%08x\n\n",
-        (prh_reg)table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)tabletag,
-        (prh_reg)prh_byte_4(tabletag),
-        (prh_reg)prh_byte_3(tabletag),
-        (prh_reg)prh_byte_2(tabletag),
-        (prh_reg)prh_byte_1(tabletag),
-        (prh_reg)offset, (prh_reg)offset % 4,
-        (prh_reg)length, (prh_reg)length % 4,
-        (prh_reg)checksum);
-}
 
 // 字体表（Font Tables）
 //
@@ -1042,93 +962,827 @@ void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
 //      VDMX    垂直设备度量
 //      'vhea'  垂直度量头
 //      'vmtx'  垂直度量
-//
-// EM 是字体排版中的基本度量单位，来源于金属活字时代，最初指一个"M"字形的宽度（这也是其
-// 名称的来源）。在数字字体（如 OpenType）中，em 的含义如下：
-//  1.  与字号的关系。em 的高度等于字体的当前字号大小。例如，在 12pt 的字体中，1 em =
-//      12pt；在 16px 的字体中，1 em = 16px。
-//  2.  设计坐标系中的基准单位。字体文件内部使用一个设计单位坐标系，由 unitsPerEm（每 em
-//      的设计单位数）定义。所有字形度量值（如字宽、升部、降部、下标/上标大小等）都以这些
-//      设计单位表示，最终换算为 em 的分数来确定实际显示尺寸。
-//      * 如果 unitsPerEm = 1000，则 1 em = 1000 个设计单位
-//      * 如果 unitsPerEm = 2048（如 Times New Roman），则 1 em = 2048 个设计单位
-//  3.  典型应用。字宽，字符的宽度通常表示为 em 的分数（如 0.5 em）。行距，由升部（ascender）
-//      和降部（descender）之和决定，通常接近 1 em。CSS 中的 em 单位：直接继承自字体排版，
-//      1 em 等于当前元素的字体大小。
-//
-// 简单来说，em 是字体度量系统的"基准方块"，一个虚拟的正方形，其边长等于字体字号，所有其他
-// 度量都围绕它展开。
-//
-// 常用的字体度量单位可分为绝对物理单位、字体相对单位、数字字体设计单位和屏幕/Web 单位四大类：
-//
-// 一、绝对物理单位（印刷排版）
-//      单位    符号    说明
-//      点      pt      最常用的字号单位。桌面出版（PostScript）中 1 pt = 1/72 英寸；传统
-//                      活字印刷中 1 pt ≈ 0.3528 mm
-//      派卡    pc      1 pc = 12 pt，常用于排版行宽、栏宽
-//      毫米    mm      国际标准单位，1 mm ≈ 2.835 pt
-//      厘米    cm      1 cm = 10 mm
-//      英寸    in      1 in = 72 pt（PostScript 标准）
-//
-// 二、字体相对单位（排版核心）
-//      单位    说明
-//      em      等于当前字体大小。在金属活字时代指"M"字形的宽度；在数字字体中，em 是设计
-//              坐标系的基准方块，由 unitsPerEm 定义。所有字形度量（字宽、升部、降部等）
-//              都以 em 的分数表示
-//      en      通常等于 0.5 em，即 em 的一半宽度
-//      ex      约等于当前字体中小写字母 "x" 的高度，用于垂直对齐
-//      ch      等于当前字体中数字 "0" 的宽度（CSS 特有）
-//
-// 三、数字字体设计单位（OpenType/TrueType 内部）
-//      单位                        说明
-//      设计单位 (design units)     字体文件内部坐标系中的抽象单位。例如 unitsPerEm = 1000
-//                                  表示 1 em 被划分为 1000 个设计单位。所有字形轮廓坐标、字
-//                                  宽、升部/降部值都以设计单位存储
-//      FWORD                       OpenType 表中的有符号 16 位整数，以设计单位表示（如 sTypoAscender）
-//      UFWORD                      无符号 16 位整数，以设计单位表示（如 usWinAscent）
-//      TWIP                        二十分之一磅（1/20 pt），OpenType OS/2 v5 表中 usLowerOpticalPointSize
-//                                  等字段使用
-//      Fixed                       16.16 定点数格式，用于 italicAngle 等需要小数的字段
-//
-// 四、屏幕/Web 单位
-//      单位                        说明
-//      px (像素)                   屏幕显示的基本单位，与设备分辨率相关
-//      rem                         相对于根元素（html）字体大小的 em
-//      vw/vh                       视口宽/高的百分比
-//
-// 五、其他专业单位
-//      单位                        说明
-//      Q (Quart)                   日本排版常用单位，1 Q = 0.25 mm
-//      Didot 点                    欧洲大陆传统活字单位，1 Didot pt ≈ 0.376 mm，略大于 PostScript pt
-//      Cicero                      欧洲大陆对应派卡的单位，1 Cicero = 12 Didot pt
-//
-// 日常排版：最常用的是 pt（点） 和 em
-// 字体开发：核心单位是设计单位（相对于 unitsPerEm 的分数）
-// Web 开发：最常用 px、em、rem
-// OpenType 表内部：大量使用设计单位 和 TWIP
 
-#define PRH_OTF_BASE_TABLE 0x42415345
-#define PRH_OTF_CFF1_TABLE 0x43464620 // 紧凑字体格式 1.0
-#define PRH_OTF_CFF2_TABLE 0x43464632 // 紧凑字体格式 2.0
-#define PRH_OTF_DSIG_TABLE 0x44534947 // 数组签名
-#define PRH_OTF_GDEF_TABLE 0x47444546
-#define PRH_OTF_GPOS_TABLE 0x47504F53
-#define PRH_OTF_GSUB_TABLE 0x47535542
-#define PRH_OTF_OS_2_TABLE 0x4F532F32 // OS/2 和 Windows 特定度量信息
-#define PRH_OTF_STAT_TABLE 0x53544154 // 样式属性，可变字体必需，非可变字体可选
-#define PRH_OTF_VDMX_TABLE 0x56444D58 // 垂直设备度量，可变字体不使用
-#define PRH_OTF_VORG_TABLE 0x564F5247 // 垂直原点，可选表
+#define PRH_TTF_OUTLINE 0x00010000 // TrueType 1.0
+#define PRH_TTF_APLTRUE 0x74727565 // 'true'
+#define PRH_CFF_APLTYP1 0x74797031 // 'typ1'
+#define PRH_CFF_OUTLINE 0x4F54544F // 'OTTO'
+#define PRH_TTC_HEADER  0x74746366 // 'ttcf'
 
-#define PRH_OTF_CMAP_TABLE 0x636D6170 // 字符 char 到字形 glyph 的映射
-#define PRH_OTF_HDMX_TABLE 0x68646D78 // 水平设备度量，可变字体不使用
-#define PRH_OTF_HEAD_TABLE 0x68656164 // 字体头
-#define PRH_OTF_HHEA_TABLE 0x68686561 // 水平度量头
-#define PRH_OTF_HMTX_TABLE 0x686D7478 // 水平度量
-#define PRH_OTF_MAXP_TABLE 0x6D617870 // 最大配置
-#define PRH_OTF_NAME_TABLE 0x6E616D65 // 命名表
-#define PRH_OTF_POST_TABLE 0x706F7374 // PostScript 信息
-#define PRH_OTF_VHEA_TABLE 0x76686561 // 垂直度量头
-#define PRH_OTF_VMTX_TABLE 0x766D7478 // 垂直度量
+#define PRH_TTAG_BASE 0x42415345 // 'BASE'
+#define PRH_TTAG_CFF1 0x43464620 // 'CFF ' 紧凑字体格式 1.0
+#define PRH_TTAG_CFF2 0x43464632 // 'CFF2' 紧凑字体格式 2.0
+#define PRH_TTAG_DSIG 0x44534947 // 'DSIG' 数组签名
+#define PRH_TTAG_GDEF 0x47444546 // 'GDEF'
+#define PRH_TTAG_GPOS 0x47504F53 // 'GPOS'
+#define PRH_TTAG_GSUB 0x47535542 // 'GSUB'
+#define PRH_TTAG_HVAR 0x48564152 // 'HVAR'
+#define PRH_TTAG_OS_2 0x4F532F32 // 'OS/2' 和 Windows 特定度量信息
+#define PRH_TTAG_STAT 0x53544154 // 'STAT' 样式属性，可变字体必需，非可变字体可选
+#define PRH_TTAG_VDMX 0x56444D58 // 'VDMX' 垂直设备度量，可变字体不使用
+#define PRH_TTAG_VORG 0x564F5247 // 'VORG' 垂直原点，可选表
+#define PRH_TTAG_AVAR 0x61766172 // 'avar'
+#define PRH_TTAG_CMAP 0x636D6170 // 'cmap' 字符 char 到字形 glyph 的映射
+#define PRH_TTAG_CVT0 0x63767420 // 'cvt '
+#define PRH_TTAG_FPGM 0x6670676d // 'fpgm'
+#define PRH_TTAG_FVAR 0x66766172 // 'fvar'
+#define PRH_TTAG_GASP 0x67617370 // 'gasp'
+#define PRH_TTAG_GLYF 0x676C7966 // 'glyf'
+#define PRH_TTAG_GVAR 0x67766172 // 'gvar'
+#define PRH_TTAG_HDMX 0x68646D78 // 'hdmx' 水平设备度量，可变字体不使用
+#define PRH_TTAG_HEAD 0x68656164 // 'head' 字体头
+#define PRH_TTAG_HHEA 0x68686561 // 'hhea' 水平度量头
+#define PRH_TTAG_HMTX 0x686D7478 // 'hmtx' 水平度量
+#define PRH_TTAG_LOCA 0x6C6F6361 // 'loca'
+#define PRH_TTAG_MAXP 0x6D617870 // 'maxp' 最大配置
+#define PRH_TTAG_NAME 0x6E616D65 // 'name' 命名表
+#define PRH_TTAG_POST 0x706F7374 // 'post' PostScript 信息
+#define PRH_TTAG_PREP 0x70726570 // 'prep'
+#define PRH_TTAG_VHEA 0x76686561 // 'vhea' 垂直度量头
+#define PRH_TTAG_VMTX 0x766D7478 // 'vmtx' 垂直度量
+
+typedef struct {
+    prh_r32 sfntversion;    // 0x00010000 (TrueType 字体) 0x4F54544F 'OTTO' (CFF/CFF2 字体) 0x74727565 'true' (TrueType 字体) 0x74797031 ’typ1' (旧的 Type 1 字体)
+    prh_r16 numtables;      // 表的数量
+    prh_r16 searchrange;
+    prh_r16 entryselector;
+    prh_r16 rangeshift;
+} prh_font_header;
+
+typedef struct {
+    prh_r32 ttctag;
+    prh_r16 majorversion;
+    prh_r16 minorversion;
+    prh_r32 numfonts;
+} prh_font_ttc_header;
+
+typedef struct {
+    prh_r32 dsigtag;    // 0x44534947 ('DSIG')，没有签名时为 NULL
+    prh_r32 dsiglength; // DSIG 表的长度，没有签名时为 NULL
+    prh_r32 dsigoffset; // DSIG 表所在的文件偏移，没有签名时为 NULL
+} prh_font_ttc_signature;
+
+typedef struct {
+    prh_reader reader;
+    prh_font_header font_header;
+    prh_font_ttc_header ttc_header;
+    prh_font_ttc_signature ttc_signature;
+    prh_r32 *ttc_font_header_offset_big;
+    prh_r32 file_size;
+} prh_font_file;
+
+typedef struct {
+    prh_r32 ttc_tag; // 'ttcf'
+    prh_r32 version; // 0x00010000
+    prh_r32 num_fonts; // 文件中字体的个数
+    prh_r32 font_offset[1]; // num_fonts 个元素, 从文件开头开始的偏移
+} prh_impl_ttc_header;
+
+typedef struct {
+    prh_r32 ttc_tag; // 'ttcf'
+    prh_r32 version; // 0x00020000
+    prh_r32 num_fonts; // 文件中字体的个数
+    prh_r32 font_offset[1]; // num_fonts 个元素, 从文件开头开始的偏移
+    // prh_r32 dsig_tag; // 'DSIG' or 0
+    // prh_r32 dsig_length; // length or 0
+    // prh_r32 dsig_offset; // 从文件开头开始的偏移
+} prh_impl_ttc_v2_header;
+
+prh_data prh_read_font_file(const prh_byte *name)
+{
+    prh_data file;
+    prh_assert(name != prh_null);
+    file.data = prh_mapping_file_read_with_file_size(name, &file.size);
+    prh_assert(file.data != prh_null);
+    return file;
+}
+
+void prh_free_file_data(prh_data *file)
+{
+    prh_unmapping_file(file->data);
+}
+
+prh_r32 prh_font_count(prh_data *file)
+{
+    prh_assert(file != prh_null);
+    prh_impl_ttc_header *ttc_header = (prh_impl_ttc_header *)file->data;
+    if (prh_r32_be_to_host(ttc_header->ttc_tag) != PRH_TTC_HEADER) return 1;
+    return prh_r32_be_to_host(ttc_header->num_fonts);
+}
+
+prh_r32 prh_font_offset(prh_data *file, prh_r32 font_index)
+{
+    prh_assert(font_index < prh_font_count(file));
+    prh_impl_ttc_header *ttc_header = (prh_impl_ttc_header *)file->data;
+    if (prh_r32_be_to_host(ttc_header->ttc_tag) != PRH_TTC_HEADER) return 0;
+    prh_r32 font_offset = prh_r32_be_to_host(ttc_header->font_offset[font_index]);
+    prh_assert((font_offset % 4) == 0);
+    prh_assert(font_offset < (prh_r32)file->size);
+    return font_offset;
+}
+
+typedef struct {
+    prh_r32 tabletag; // 表头数组按 tabletag 升序排列
+    prh_r32 checksum; // 表数据校验和
+    prh_r32 offset; // 表数据的位置偏移，从文件开头开始的偏移，顶级表必须在4字节边界上开始，表之间的任何剩余空间必须用零填充
+    prh_r32 length; // 表数据的实际长度，不是填充长度
+} prh_impl_table_header;
+
+typedef struct {
+    prh_r32 sfnt_version; // 0x00010000 (TrueType 字体) 0x4F54544F 'OTTO' (CFF/CFF2 字体) 0x74727565 'true' (TrueType 字体) 0x74797031 ’typ1' (旧的 Type 1 字体)
+    prh_r16 num_tables; // 字体中表的个数
+    prh_r16 search_range;
+    prh_r16 entry_selector;
+    prh_r16 range_shift;
+    prh_impl_table_header table[1]; // num_tables 个元素，按 tabletag 的值升序排列，这个有序必须先 prh_r32_be_to_host 转换后才有序
+} prh_impl_font_header;
+
+static const prh_r32 prh_impl_ftab[] = {
+    PRH_TTAG_BASE,
+    PRH_TTAG_CFF1,
+    PRH_TTAG_CFF2,
+    PRH_TTAG_DSIG,
+    PRH_TTAG_GDEF,
+    PRH_TTAG_GPOS,
+    PRH_TTAG_GSUB,
+    PRH_TTAG_HVAR,
+    PRH_TTAG_OS_2,
+    PRH_TTAG_STAT,
+    PRH_TTAG_VDMX,
+    PRH_TTAG_VORG,
+    PRH_TTAG_AVAR,
+    PRH_TTAG_CMAP,
+    PRH_TTAG_CVT0,
+    PRH_TTAG_FPGM,
+    PRH_TTAG_FVAR,
+    PRH_TTAG_GASP,
+    PRH_TTAG_GLYF,
+    PRH_TTAG_GVAR,
+    PRH_TTAG_HDMX,
+    PRH_TTAG_HEAD,
+    PRH_TTAG_HHEA,
+    PRH_TTAG_HMTX,
+    PRH_TTAG_LOCA,
+    PRH_TTAG_MAXP,
+    PRH_TTAG_NAME,
+    PRH_TTAG_POST,
+    PRH_TTAG_PREP,
+    PRH_TTAG_VHEA,
+    PRH_TTAG_VMTX,
+    0xFFFFFFFF
+};
+
+typedef struct prh_font {
+    prh_byte *font_data; // font header
+    prh_r32 file_size;
+    prh_r32 font_offset;
+    prh_r32 sfnt_version;
+    prh_r32 font_tables;
+    prh_r32
+        cff2: 1, y_at_baseline: 1, x_at_lsb_point: 1,
+        instruction_may_depend_on_point_size: 1,
+        integer_pixels_per_em: 1,
+        instruction_may_alter_advance_width: 1,
+        font_lossless_optimizing_transformed: 1,
+        font_converted_produce_compatible_metrics: 1,
+        font_optimized_for_cleartype_subpixel_rendering: 1,
+        is_last_resort_font: 1,
+        bold_font: 1, italic_font: 1, underline_font: 1, outline_font: 1, // 粗体 斜体 下划线 轮廓
+        shadow_font: 1, condensed_font: 1, extended_font: 1, // 阴影 压缩（紧缩） 扩展
+        long_loca_offset: 1;
+    prh_r16 num_glyphs;
+    prh_r16 units_per_em;
+    prh_r16 smallest_readable_pixels_per_em; // ppem i.e. font size
+    prh_r16 max_advance_width; // 'hmtx' 中的最大前进宽度值
+    prh_i16 min_lsb_for_glyph_with_contours; // 'hmtx' 具有轮廓的字形最小左侧间距，空字形（无轮廓的字形）不考虑在内
+    prh_i16 min_rsb_for_glyph_with_contours; // 所有轮廓字形的 min(advance_with - lsb - (x_max - x_min)) 中的最小值
+    prh_i16 x_max_extent; // lsb + (x_max - x_min) 的最大值
+    prh_r16 num_hmetrics; // 'hmtx' 中水平度量条目的个数
+    prh_i16 all_glyph_rect[4]; // xMin yMin xMax yMax，字形轮廓的紧密边界框
+    prh_data cmap, cff, glyf, loca;
+    prh_data table[prh_arrlen(prh_impl_ftab)];
+} prh_font;
+
+prh_data *prh_impl_font_table(prh_font *font, prh_r32 tabletag)
+{
+    bool find; prh_reg i;
+    prh_bsearch(find, i, tabletag, prh_impl_ftab, prh_arrlen(prh_impl_ftab));
+    return find ? font->table + i : prh_null;
+}
+
+prh_font *prh_load_font(prh_data *file, prh_r32 offset)
+{
+    prh_font *font = (prh_font *)prh_global_alloc(sizeof(prh_font));
+    memset(font, 0, sizeof(prh_font);
+
+    prh_assert(offset < file->size);
+    font->font_data = file->data + offset;
+    font->file_size = (prh_r32)file->size;
+    font->font_offset = offset;
+
+    if (font->file_size == 0) font->file_size = 0xFFFFFFFF;
+
+    prh_impl_font_header *font_header = (prh_impl_font_header *)font->font_data;
+    font->sfnt_version = prh_r32_be_to_host(font_header->sfnt_version);
+    font->font_tables = prh_r16_be_to_host(font_header->num_tables);
+
+    prh_assert(
+        font->sfnt_version == PRH_TTF_OUTLINE ||
+        font->sfnt_version == PRH_TTF_APLTRUE ||
+        font->sfnt_version == PRH_CFF_OUTLINE ||
+        font->sfnt_version == PRH_CFF_APLTYP1);
+
+    prh_r32 ftab_index = 0;
+    for (prh_r32 i = 0; i < font->font_tables; i += 1)
+    {
+        prh_impl_table_header *table_header = font_header->table + i;
+        prh_r32 tabletag = prh_r32_be_to_host(table_header->tabletag);
+        while (prh_impl_ftab[ftab_index] < tabletag) ftab_index += 1;
+        if (prh_impl_ftab[ftab_index] == 0xFFFFFFFF) break;
+        if (prh_impl_ftab[ftab_index] == tabletag)
+        {
+            prh_r32 table_offset = prh_r32_be_to_host(table_header->offset); // 偏移基于文件开头
+            prh_assert((table_offset % 4) == 0); // 表数据必须对齐到四字节边界
+            prh_assert(table_offset < font->file_size && table_offset > font->font_offset);
+            font->table[ftab_index].data = font->font_data + table_offset - font->font_offset;
+            font->table[ftab_index].size = prh_r32_be_to_host(table_header->length);
+        }
+    }
+
+    prh_data *cmap = prh_impl_font_table(font, PRH_TTAG_CMAP);
+    prh_assert(cmap != prh_null && cmap->data != prh_null);
+    font->cmap = *cmap;
+
+    if (font->sfnt_version == PRH_TTF_OUTLINE || font->sfnt_version == PRH_TTF_APLTRUE)
+    {
+        prh_data *glyf = prh_impl_font_table(font, PRH_TTAG_GLYF);
+        prh_data *loca = prh_impl_font_table(font, PRH_TTAG_LOCA);
+        prh_assert(glyf != prh_null && glyf->data != prh_null);
+        prh_assert(loca != prh_null && loca->data != prh_null);
+        font->glyf = *glyf;
+        font->loca = *loca;
+    }
+    else
+    {
+        prh_data *cff1 = prh_impl_font_table(font, PRH_TTAG_CFF1);
+        prh_data *cff2 = prh_impl_font_table(font, PRH_TTAG_CFF2);
+        if (cff2 && cff2->data)
+        {
+            font->cff = *cff2;
+            font->cff2 = 1;
+        }
+        else
+        {
+            prh_assert(cff1 != prh_null && cff1->data != prh_null);
+            font->cff = *cff1;
+            font->cff2 = 0;
+        }
+    }
+
+    return font;
+}
+
+void prh_free_font(prh_font *font)
+{
+    prh_global_free(font);
+}
+
+#define prh_x_component(a) (a)[0]
+#define prh_y_component(a) (a)[1]
+#define prh_z_component(a) (a)[2]
+#define prh_w_component(a) (a)[3]
+
+#define prh_r_component(a) (a)[0]
+#define prh_g_component(a) (a)[1]
+#define prh_b_component(a) (a)[2]
+#define prh_a_component(a) (a)[3]
+
+#define v(a,x) prh_##x##_component(a)
+
+#define prh_rect_x0_component(a) (a)[0]
+#define prh_rect_y0_component(a) (a)[1]
+#define prh_rect_x1_component(a) (a)[2]
+#define prh_rect_y1_component(a) (a)[3]
+#define prh_rect_w_component(a) ((a)[2]-(a)[0])
+#define prh_rect_h_component(a) ((a)[3]-(a)[1])
+
+#define r(a,x) prh_rect_##x##_component(a)
+
+typedef struct {
+    prh_r16 major_version;
+    prh_r16 minor_version;
+    prh_r16 num_glyphs;
+} prh_impl_maxp_table_0_5;
+
+typedef struct {
+    prh_r32 maxp_version;
+    prh_r16 num_glyphs;
+    prh_r16 max_points;
+    prh_r16 max_contours;
+    prh_r16 max_composite_points;
+    prh_r16 max_composite_contours;
+    prh_r16 max_zones;
+    prh_r16 max_twilinght_points;
+    prh_r16 max_storage;
+    prh_r16 max_function_defs;
+    prh_r16 max_instruction_defs;
+    prh_r16 max_stack_elements;
+    prh_r16 max_size_of_instructions;
+    prh_r16 max_component_elements;
+    prh_r16 max_component_depth;
+} prh_impl_maxp_table;
+
+void prh_impl_table_maxp(prh_font *font)
+{
+    prh_data *maxp = prh_impl_font_table(font, PRH_TTAG_MAXP);
+    prh_assert(maxp != prh_null && maxp->data != prh_null);
+
+    prh_impl_maxp_table *p = (prh_impl_maxp_table *)maxp->data;
+    prh_r32 maxp_version = prh_r32_be_to_host(p->maxp_version);
+    prh_assert(maxp_version == 0x00005000 || maxp_version == 0x00010000);
+    font->num_glyphs = prh_r16_be_to_host(p->num_glyphs);
+    prh_assert(font->num_glyphs > 0);
+
+    // 具有 CFF 或 CFF2 轮廓的字体必须使用本表的版本 0.5，仅指定 numGlyphs 字段。具有 TrueType
+    // 轮廓的字体必须使用本表的版本 1.0，其中所有数据都是必需的。
+    if (font->glyf.data) prh_real_assert(maxp_version == 0x00010000);
+    else prh_real_assert(maxp_version == 0x00005000);
+
+    if (maxp_version == 0x00010000)
+    {
+
+    }
+}
+
+typedef struct {
+    prh_r32 head_version; // 0x00010000
+    prh_r32 font_revision; // r16.r16
+    prh_r32 checksum_adjustment;
+    prh_r32 magic_number; // 0x5F0F3CF5
+    prh_r16 flags;
+    prh_r16 units_per_em; // upem
+    prh_r08 create_time[8];
+    prh_r08 modify_time[8];
+    prh_i16 x_min;
+    prh_i16 y_min;
+    prh_i16 x_max;
+    prh_i16 y_max;
+    prh_r16 mac_style;
+    prh_r16 lowest_rec_ppem; // pixels per em
+    prh_r16 font_direction_hint; // deprecated, set to 2
+    prh_i16 index_to_loc_format;
+    prh_i16 glyph_data_format;
+    prh_r16 aligned;
+} prh_impl_head_table;
+
+void prh_impl_table_head(prh_font *font)
+{
+    prh_data *head = prh_impl_font_table(font, PRH_TTAG_HEAD);
+    prh_assert(head != prh_null && head->data != prh_null);
+    prh_assert(head->size == sizeof(prh_impl_head_table));
+
+    prh_impl_head_table *p = (prh_impl_head_table *)head->data;
+    prh_assert(prh_r32_be_to_host(p->head_version == 0x00010000));
+    prh_assert(prh_r32_be_to_host(p->magic_number == 0x5F0F3CF5));
+
+    //    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15
+    // 0001 0002 0004 0008 0010 0020 0040 0080 0100 0200 0400 0800 1000 2000 4000 8000
+    prh_r16 flags = prh_r16_be_to_host(p->flags);
+    if (flags & 0x0001) font->y_at_baseline = 1; // bit-0
+    if (flags & 0x0002) font->x_at_lsb_point = 1; // bit-1 仅与 TrueType 栅格化器相关，参阅可变字体信息
+    if (flags & 0x0004) font->instruction_may_depend_on_point_size = 1; // bit-2
+    if (flags & 0x0008) font->integer_pixels_per_em = 1; // bit-3
+    if (flags & 0x0010) font->instruction_may_alter_advance_width = 1; // bit-4
+    if (flags & 0x0800) font->font_lossless_optimizing_transformed = 1; // bit-11
+    if (flags & 0x1000) font->font_converted_produce_compatible_metrics = 1; // bit-12
+    if (flags & 0x2000) font->font_optimized_for_cleartype_subpixel_rendering = 1; // bit-13 注意，依赖嵌入式位图（EBDT）进行渲染的字体不应被视为针对 ClearType 优化，因此应保持此位清除
+    if (flags & 0x4000) font->is_last_resort_font = 1; // bit-14 'cmap' 子表中编码的字形只是代码点范围的通用符号表示，并不真正代表对这些代码点的支持
+
+    // 在具有 TrueType 轮廓的可变字体中，每个字形的左侧承必须等于 xMin，且 flags 字段中的位 1
+    // 必须设置。此外，所有可变字体中必须清除位 5。有关 OpenType 字体变体的一般信息，请参阅
+    // OpenType 字体变体概述章节。
+#if 0
+    if (font->glyf.data && variable font)
+    {
+        prh_real_assert(font->x_at_lsb_point == 1);
+    }
+#endif
+
+    // bit-1 仅与 TrueType 栅格化器相关，在包含 CFF 或 CFF2 轮廓的字体中，xMin（= 左侧字距）
+    if (font->cff.data) font->x_at_lsb_point = 1;
+
+    font->units_per_em = prh_r16_be_to_host(p->units_per_em); // 对于 TrueType 轮廓的字体，建议使用 2 的幂，因为这允许某些栅格化器中的性能优化
+    prh_assert(font->units_per_em >= 16 && font->units_per_em <= 16384);
+
+    // 在可变字体中，控制点的最小或最大 x 或 y 值可能变化，包含任何给定字形实例轮廓或所有点的
+    // 紧密边界矩形可能比该字形的默认实例更小或更大。此表中的 xMin、yMin、xMax 和 yMax 值可能
+    // 包含也可能不包含字体非默认实例的派生字形轮廓。此外，不为这些值提供变化增量。如果应用程
+    // 序需要一个包含字体非默认实例字形的边界矩形，应处理该实例的派生字形轮廓以确定边界矩形。
+    r(font->all_glyph_rect,x0) = prh_i16_be_to_host(p->x_min);
+    r(font->all_glyph_rect,y0) = prh_i16_be_to_host(p->y_min);
+    r(font->all_glyph_rect,x1) = prh_i16_be_to_host(p->x_max);
+    r(font->all_glyph_rect,y1) = prh_i16_be_to_host(p->y_max);
+
+    // macStyle 位必须与 OS/2 表中的 fsSelection 位一致。在 Windows 中，fsSelection 位优先于
+    // macStyle 位。PANOSE 值和 'post' 表值在确定粗体或斜体字体时被忽略。
+    prh_r16 mac_style = prh_r16_be_to_host(p->mac_style);
+    if (mac_style & 0x01) font->bold_font = 1; // bit-0
+    if (mac_style & 0x02) font->italic_font = 1; // bit-1
+    if (mac_style & 0x04) font->underline_font = 1; // bit-2
+    if (mac_style & 0x08) font->outline_font = 1; // bit-3
+    if (mac_style & 0x10) font->shadow_font = 1; // bit-4
+    if (mac_style & 0x20) font->condensed_font = 1; // bit-5
+    if (mac_style & 0x40) font->extended_font = 1; // bit-6
+
+    font->smallest_readable_pixels_per_em = prh_r16_be_to_host(p->lowest_rec_ppem);
+    font->long_loca_offset = prh_r16_be_to_host(p->index_to_loc_format) ? 1 : 0;
+}
+
+typedef struct {
+    prh_r32 version; // 1.0
+    prh_i16 ascender;
+    prh_i16 descender;
+    prh_i16 line_gap; // 字体行距，在某些旧平台实现中，负的 line_gap 倍视为零
+    prh_r16 max_advance_width;
+    prh_i16 min_left_side_bearing;
+    prh_i16 min_right_side_bearing;
+    prh_i16 x_max_extent;
+    prh_i16 caret_slope_rise;
+    prh_i16 caret_slope_run;
+    prh_i16 caret_offset;
+    prh_i16 reserved_1;
+    prh_i16 reserved_2;
+    prh_i16 reserved_3;
+    prh_i16 reserved_4;
+    prh_i16 metric_data_format;
+    prh_r16 number_of_hmetrics;
+} prh_impl_hhea_table;
+
+void prh_impl_table_hhea(prh_font *font)
+{
+    prh_data *head = prh_impl_font_table(font, PRH_TTAG_HHEA);
+    prh_assert(head != prh_null && head->data != prh_null);
+    prh_assert(head->size == sizeof(prh_impl_hhea_table));
+
+    prh_impl_hhea_table *p = (prh_impl_hhea_table *)head->data;
+    prh_assert(prh_r32_be_to_host(p->version) == 0x00010000);
+
+    // 本表中的 ascender、descender 和 linegap 值是 Apple 特有的；有关 Apple 平台的详细信息，请
+    // 参阅 Apple 的规范。OS/2 表中的 sTypoAscender、sTypoDescender 和 sTypoLineGap 字段在 Windows
+    // 平台上使用，并建议用于新的文本布局实现。字体开发人员应评估目标应用程序中使用本表或 OS/2
+    // 表字段的行为，以确保布局一致。
+
+    font->max_advance_width = prh_r16_be_to_host(p->max_advance_width);
+    font->min_lsb_for_glyph_with_contours = prh_i16_be_to_host(p->min_left_side_bearing);
+    font->min_rsb_for_glyph_with_contours = prh_i16_be_to_host(p->min_right_side_bearing);
+    font->x_max_extent = prh_i16_be_to_host(p->x_max_extent);
+}
+
+typedef struct {
+    prh_r16 advance_width; // 前进宽度，以字体设计单位表示
+    prh_i16 left_side_bearing; // 字形左侧间距，以字体设计单位表示，无轮廓字形 xMax/xMin 未定义且 LSB 应为零
+} prh_glyph_hmetric;
+
+typedef struct {
+    prh_glyph_hmetric metrics[1]; // num_hmetrics 个元素
+    // prh_i16 left_side_bearings[num_glyphs - num_hmetrics]
+} prh_impl_hmtx_table;
+
+void prh_impl_table_hmtx(prh_font *font, prh_r16 glyph_index, prh_glyph_hmetric *out)
+{
+    prh_data *hmtx = prh_impl_font_table(font, PRH_TTAG_HMTX);
+    prh_assert(hmtx != prh_null && hmtx->data != prh_null);
+    prh_assert(glyph_index < font->num_glyphs);
+
+    prh_impl_hmtx_table *p = (prh_impl_hmtx_table *)hmtx->data;
+    prh_assert(font->num_hmetrics > 0 && font->num_hmetrics <= font->num_glyphs);
+
+    // 作为优化，记录数量可以少于字形数量，在这种情况下，最后一条记录的前进宽度值适用于所有
+    // 剩余的字形 ID。如果 numberOfHMetrics 小于字形总数，则 hMetrics 数组后跟一个数组，包含
+    // 剩余字形的左侧字距值。
+
+    if (glyph_index < font->num_hmetrics)
+    {
+        out->advance_width = prh_r16_be_to_host(p->metrics[glyph_index].advance_width);
+        out->left_side_bearing = prh_i16_be_to_host(p->metrics[glyph_index].left_side_bearing);
+    }
+    else
+    {
+        out->advance_width = prh_r16_be_to_host(p->metrics[font->num_hmetrics-1].advance_width);
+        prh_i16 *left_side_bearings = (prh_i16 *)(p->metrics + font->num_hmetrics);
+        out->left_side_bearing = prh_i16_be_to_host(left_side_bearings[glyph_index - font->num_hmetrics]);
+    }
+
+    prh_assert(out->advance_width <= font->max_advance_width);
+    prh_assert(out->left_side_bearing == 0 || out->left_side_bearing >= font->min_lsb_for_glyph_with_contours);
+
+    // 在包含 TrueType 轮廓数据的字体中，'glyf' 表提供 xMin 和 xMax 值，但不提供前进宽度
+    // 或字距。前进宽度始终从 'hmtx' 表获取，左侧字距要么是 xMin 要么由 'hmtx' 提供，右侧
+    // 字距通过以下公式计算：前进宽度 - 左侧字距 - (xMax - xMin)。在包含 TrueType 轮廓的
+    // 字体中，每个字形的 xMin 和 xMax 值在 'glyf' 表中给出。前进宽度（"aw"）和左侧字距
+    // （"lsb"）可以从字形"虚点"（phantom points）推导得出，这些虚点由 TrueType光栅化器计
+    // 算；或者可以从 'hmtx' 表获取。如果 pp1 和 pp2 是用于控制 lsb 和 rsb 的 TrueType 虚
+    // 点，则它们在 X 方向上的初始位置计算如下。如果字形没有轮廓，则 xMax/xMin 未定义。
+    // 'hmtx' 表中此类字形的左侧字距应指示为零。
+    //      pp1 = xMin - lsb
+    //      pp2 = pp1 + aw
+    //
+    // TrueType 可变字体，左侧字距必须是 xMin，但这些值仅适用于可变字体的默认实例，非默认
+    // 实例参考 gvar 和 HVAR。
+
+#if 0
+    if (x_at_lsb_point bit set)
+    {
+        x=0 位于左侧间距点
+        lsb = xMin
+        advance_width = lsb + (xMax - xMin) + (pp2 - xMax) 或从 hmtx advance_width 获取
+    }
+    else
+    {
+        lsb = xMin - pp1 或从 hmtx left side bearing 获取
+        advance_width = lsb + (xMax - xMin) + (pp2 - xMax) 或从 hmtx advance_width 获取
+        x=0 与左侧间距点的距离为 xMin - lsb，字形坐标 x0 转换成屏幕字符绘制坐标 x0' = x0 - (xMin - lsb)
+    }
+#endif
+
+    // 在包含 CFF 版本 1 轮廓数据的字体中，'CFF ' 表确实包含前进宽度。这些值由 PostScript
+    // 处理器使用，但在 OpenType 布局中不使用。在 OpenType 上下文中，'hmtx' 表是必需的，必
+    // 须用于前进宽度。CFF2 表不包含前进宽度。此外，对于 CFF 或 CFF2 数据，没有显式的 xMin
+    // 和 xMax 值，字距隐式包含在 CharString 数据中，可以从 CFF / CFF2 光栅化器获取。然而，
+    // 某些布局引擎可能使用 'hmtx' 表中的左侧字距值；因此，字体生产工具应确保 'hmtx' 表中
+    // 的左侧字距值与 CharString 数据中反映的隐式 xMin 值匹配。
+    //
+    // 在包含 CFF 或 CFF2 轮廓的字体中，xMin（= 左侧字距）和 xMax 值可以从 CFF / CFF2 光栅
+    // 化器获取。
+
+#if 0
+    x=0 总是位于左侧间距点
+    lsb 从光栅化数据中的 xMin 值得到，但为了兼容性 hmtx 中应设置正确的 lsb 值
+    advance_width 从 hmtx advance_width 获取
+#endif
+}
+
+typedef struct {
+    prh_byte pixels_per_em; // 字号的像素大小
+    prh_byte max_width; // 该字号的最大像素前进宽度
+    prh_byte widths[2]; // 该字号下每个字形的像素前进宽度，num_glyphs 个元素的宽度数组，记录的总大小对齐到四字节
+} prh_impl_hdmx_record;
+
+typedef struct {
+    prh_r16 version; // 0
+    prh_r16 num_records;
+    prh_r32 record_size; // 必须是四字节的倍数
+    prh_impl_hdmx_record record[1]; // num_records 个元素
+} prh_impl_hdmx_table;
+
+typedef struct {
+    prh_byte max_pixel_advance_width;
+    prh_byte pixel_advance_width;
+} prh_glyph_hdmetric;
+
+bool prh_impl_table_hdmx(prh_font *font, prh_r16 glyph_index, prh_byte pixel_font_height, prh_glyph_hdmetric *out)
+{
+    prh_data *hdmx = prh_impl_font_table(font, PRH_TTAG_HMTX);
+    if (hdmx == prh_null || hdmx->data == prh_null) return false; // hdmx 表不是必须的
+
+    // 'hdmx' 表可用于包含 TrueType 轮廓的字体中，以存储缩放到特定像素尺寸的整数前进宽度。
+    // 这允许文本布局引擎在不调用缩放器的情况下为每个字形构建整数宽度表。通常，此表仅包含
+    // 某些像素尺寸的宽度。如果 'head' 表 flags 字段的位 4 未设置，则假定字体线性缩放，在
+    // 这种情况下，不需要 'hdmx' 表，也不应构建。如果 flags 字段的位 4 已设置，则假定字体
+    // 中有一个或多个字形非线性缩放。在这种情况下，通过包含重要尺寸的宽度数据的 'hdmx' 表
+    // 可以提高性能。
+
+    if (font->glyf.data == prh_null || font->instruction_may_alter_advance_width == 0)
+    {
+        return false;
+    }
+
+    prh_impl_hdmx_table *p = (prh_impl_hdmx_table *)hdmx->data;
+    prh_r16 num_records = prh_r16_be_to_host(p->num_records);
+    prh_r32 record_size = prh_r32_be_to_host(p->record_size);
+    prh_assert(prh_r16_be_to_host(p->version) == 0);
+    prh_assert(num_records > 0 && record_size > 0 && (record_size % 4) == 0);
+
+    prh_impl_hdmx_record *record = p->record, *find = prh_null;
+    prh_impl_hdmx_record *end = (prh_impl_hdmx_record *)((prh_byte *)record + num_records * record_size);
+    while (record < end)
+    {
+        if (pixel_font_height == record->pixels_per_em)
+        {
+            find = record;
+            break;
+        }
+        record = (prh_impl_hdmx_record *)((prh_byte *)record + record_size);
+    }
+
+    if (find == prh_null) return false;
+
+    prh_assert(glyph_index < font->num_glyphs);
+    out->max_pixel_advance_width = find->max_width;
+    out->pixel_advance_width = find->widths[glyph_index];
+    return true;
+}
+
+prh_static_assert(sizeof(prh_font_header) == sizeof(prh_font_ttc_header));
+
+void prh_font_file_free(prh_font_file *f) {
+    prh_da_free(f->ttc_font_header_offset_big);
+    prh_read_free(&f->reader);
+}
+
+void prh_load_font_file(prh_font_file *f, const prh_byte *name) {
+    f->reader = prh_read_from_file(name, prh_vmem_unit_size, prh_local_alloc());
+    prh_read_exact_bytes(&f->reader, (prh_byte *)&f->font_header, sizeof(prh_font_header));
+    prh_set_r32_be_to_host(f->font_header.sfntversion);
+    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_TTF_APLTRUE ||
+        f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1) {
+        prh_set_r16_be_to_host(f->font_header.numtables);
+        memset(&f->ttc_header, 0, sizeof(prh_font_ttc_header));
+        memset(&f->ttc_signature, 0, sizeof(prh_font_ttc_signature));
+        f->ttc_font_header_offset_big = prh_null;
+        f->ttc_header.numfonts = 1;
+    } else if (f->font_header.sfntversion == PRH_TTC_HEADER) {
+        f->ttc_header = *(prh_font_ttc_header *)&f->font_header;
+        prh_set_r16_be_to_host(f->ttc_header.majorversion);
+        prh_set_r16_be_to_host(f->ttc_header.minorversion);
+        prh_set_r32_be_to_host(f->ttc_header.numfonts);
+        if (f->ttc_header.majorversion != 1 && f->ttc_header.majorversion != 2) {
+            prh_abort_error(f->ttc_header.majorversion);
+        }
+        prh_da_init(f->ttc_font_header_offset_big, f->ttc_header.numfonts);
+        prh_read_exact_bytes(&f->reader, (prh_byte *)f->ttc_font_header_offset_big, f->ttc_header.numfonts * sizeof(prh_r32));
+        if (f->ttc_header.majorversion == 2) {
+            prh_read_exact_bytes(&f->reader, (prh_byte *)&f->ttc_signature, sizeof(prh_font_ttc_signature));
+            prh_set_r32_be_to_host(f->ttc_signature.dsigtag);
+            prh_set_r32_be_to_host(f->ttc_signature.dsiglength);
+            prh_set_r32_be_to_host(f->ttc_signature.dsigoffset);
+            if (f->ttc_signature.dsigtag != 0 && f->ttc_signature.dsigtag != PRH_TTC_DSIG) {
+                prh_abort_error(f->ttc_signature.dsigtag);
+            }
+        }
+        f->font_header.numtables = 0;
+    } else {
+        prh_eprinf_r32(f->font_header.sfntversion, prh_pf_print_base | prh_pf_hex | 8);
+        prh_abort_error(__LINE__);
+    }
+    f->file_size = prh_file_size_32(f->reader.handle);
+}
+
+prh_r32 prh_impl_font_count(const prh_font_file *f) {
+    return f->ttc_header.numfonts;
+}
+
+typedef struct {
+    prh_r32 tabletag;   // 表标识符，必须按 tag 值升序排列
+    prh_r32 checksum;   // 此表校验和
+    prh_r32 offset;     // 此表所在的文件偏移
+    prh_r32 length;     // 此表的长度
+} prh_font_thead;
+
+typedef struct {
+    prh_r32 tabletag;
+    prh_r32 checksum;
+    prh_r32 offset;
+    prh_r32 length;
+    prh_r32 table_index;
+} prh_font_table;
+
+typedef struct prh_open_font {
+    prh_font_file *font_file;
+    prh_font_header font_header;
+    prh_font_thead *table_header;
+    prh_r32 font_header_offset;
+    prh_r32 font_index;
+    bool is_cff_outline;
+    prh_r32 maxp_version;
+    prh_r16 num_glyphs;
+    prh_r16 max_points;
+    prh_r16 max_contours;
+    prh_r16 max_composite_points;
+    prh_r16 max_composite_contours;
+    prh_r16 max_zones;
+    prh_r16 max_twilinght_points;
+    prh_r16 max_storage;
+    prh_r16 max_function_defs;
+    prh_r16 max_instruction_defs;
+    prh_r16 max_stack_elements;
+    prh_r16 max_size_of_instructions;
+    prh_r16 max_component_elements;
+    prh_r16 max_component_depth;
+    prh_font_table base; // 'BASE'
+    prh_font_table cff1; // 'CFF '
+    prh_font_table cff2; // 'CFF2'
+    prh_font_table dsig; // 'DSIG'
+    prh_font_table gdef; // 'GDEF'
+    prh_font_table gpos; // 'GPOS'
+    prh_font_table gsub; // 'GSUB'
+    prh_font_table os_2; // 'OS/2'
+    prh_font_table stat; // 'STAT'
+    prh_font_table vdmx; // 'VDMX'
+    prh_font_table vorg; // 'VORG'
+    prh_font_table cmap; // 'cmap'
+    prh_font_table hdmx; // 'hdmx'
+    prh_font_table head; // 'head'
+    prh_font_table hhea; // 'hhea'
+    prh_font_table hmtx; // 'hmtx'
+    prh_font_table maxp; // 'maxp'
+    prh_font_table name; // 'name'
+    prh_font_table post; // 'post'
+    prh_font_table vhea; // 'vhea'
+    prh_font_table vmtx; // 'vmtx'
+} prh_open_font;
+
+prh_r16 prh_font_table_count(const prh_open_font *f) {
+    return f->font_header.numtables;
+}
+
+void prh_open_font_free(prh_open_font *p) {
+    prh_da_free(p->table_header);
+}
+
+void prh_impl_font_header_read(prh_open_font *p);
+
+void prh_load_open_font(prh_open_font *p, prh_font_file *f, prh_r32 font_index) {
+    memset(p, 0, sizeof(prh_open_font));
+    prh_assert(font_index < prh_impl_font_count(f));
+    if (f->font_header.sfntversion == PRH_TTC_HEADER) {
+        p->font_header_offset = f->ttc_font_header_offset_big[font_index];
+        prh_set_r32_be_to_host(p->font_header_offset);
+    } else {
+        p->font_header_offset = 0;
+    }
+    p->font_file = f;
+    p->font_index = font_index;
+    prh_impl_font_header_read(p);
+}
+
+void prh_print_ttff_header(prh_font_file *f) {
+    prh_print(
+        "file tag 0x%08x (%c%c%c%c)\n"
+        "file size %d-byte %d-KB %d-MB\n"
+        "font count %d\n"
+        "font ttc version %d.%d\n"
+        "font ttc data signature 0x%08x (%c%c%c%c) offset %d length %d\n\n",
+        (prh_reg)f->font_header.sfntversion,
+        (prh_reg)prh_byte_4(f->font_header.sfntversion),
+        (prh_reg)prh_byte_3(f->font_header.sfntversion),
+        (prh_reg)prh_byte_2(f->font_header.sfntversion),
+        (prh_reg)prh_byte_1(f->font_header.sfntversion),
+        (prh_reg)f->file_size,
+        (prh_reg)f->file_size / 1024,
+        (prh_reg)f->file_size / 1024 / 1024,
+        (prh_reg)prh_impl_font_count(f),
+        (prh_reg)f->ttc_header.majorversion,
+        (prh_reg)f->ttc_header.minorversion,
+        (prh_reg)f->ttc_signature.dsigtag,
+        (prh_reg)prh_byte_4(f->ttc_signature.dsigtag),
+        (prh_reg)prh_byte_3(f->ttc_signature.dsigtag),
+        (prh_reg)prh_byte_2(f->ttc_signature.dsigtag),
+        (prh_reg)prh_byte_1(f->ttc_signature.dsigtag),
+        (prh_reg)f->ttc_signature.dsigoffset,
+        (prh_reg)f->ttc_signature.dsiglength);
+}
+
+void prh_print_font_header(prh_open_font *f) {
+    prh_print(
+        "font index %d / %d\n"
+        "font tag 0x%08x (%c%c%c%c)\n"
+        "font offset %d\n"
+        "font tables %d\n\n",
+        (prh_reg)f->font_index + 1,
+        (prh_reg)prh_impl_font_count(f->font_file),
+        (prh_reg)f->font_header.sfntversion,
+        (prh_reg)prh_byte_4(f->font_header.sfntversion),
+        (prh_reg)prh_byte_3(f->font_header.sfntversion),
+        (prh_reg)prh_byte_2(f->font_header.sfntversion),
+        (prh_reg)prh_byte_1(f->font_header.sfntversion),
+        (prh_reg)f->font_header_offset,
+        (prh_reg)prh_font_table_count(f));
+}
+
+void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
+    prh_font_thead *t = f->table_header + table_index;
+    prh_r32 tabletag = prh_r32_be_to_host(t->tabletag);
+    prh_r32 offset = prh_r32_be_to_host(t->offset);
+    prh_r32 length = prh_r32_be_to_host(t->length);
+    prh_r32 checksum = prh_r32_be_to_host(t->checksum);
+    prh_print(
+        "table index %d / %d\n"
+        "table tag 0x%08x (%c%c%c%c)\n"
+        "table offset %.10d (%d/4)\n"
+        "table length %.10d (%d/4)\n"
+        "table checksum 0x%08x\n\n",
+        (prh_reg)table_index,
+        (prh_reg)prh_font_table_count(f),
+        (prh_reg)tabletag,
+        (prh_reg)prh_byte_4(tabletag),
+        (prh_reg)prh_byte_3(tabletag),
+        (prh_reg)prh_byte_2(tabletag),
+        (prh_reg)prh_byte_1(tabletag),
+        (prh_reg)offset, (prh_reg)offset % 4,
+        (prh_reg)length, (prh_reg)length % 4,
+        (prh_reg)checksum);
+}
 
 prh_byte *prh_load_font_table(prh_open_font *f, prh_font_table *t) {
     prh_r32 round_length = prh_round_r32_04_byte(t->length);
@@ -1146,27 +1800,27 @@ prh_r32 prh_font_table_checksum(const prh_r32 *table_data, prh_r32 table_length)
 
 void prh_impl_font_header_read(prh_open_font *p) {
     struct { prh_r32 tag; prh_font_table *table; } tables[] = {
-        {PRH_OTF_BASE_TABLE, &p->base},
-        {PRH_OTF_CFF1_TABLE, &p->cff1},
-        {PRH_OTF_CFF2_TABLE, &p->cff2},
-        {PRH_OTF_DSIG_TABLE, &p->dsig},
-        {PRH_OTF_GDEF_TABLE, &p->gdef},
-        {PRH_OTF_GPOS_TABLE, &p->gpos},
-        {PRH_OTF_GSUB_TABLE, &p->gsub},
-        {PRH_OTF_OS_2_TABLE, &p->os_2},
-        {PRH_OTF_STAT_TABLE, &p->stat},
-        {PRH_OTF_VDMX_TABLE, &p->vdmx},
-        {PRH_OTF_VORG_TABLE, &p->vorg},
-        {PRH_OTF_CMAP_TABLE, &p->cmap},
-        {PRH_OTF_HDMX_TABLE, &p->hdmx},
-        {PRH_OTF_HEAD_TABLE, &p->head},
-        {PRH_OTF_HHEA_TABLE, &p->hhea},
-        {PRH_OTF_HMTX_TABLE, &p->hmtx},
-        {PRH_OTF_MAXP_TABLE, &p->maxp},
-        {PRH_OTF_NAME_TABLE, &p->name},
-        {PRH_OTF_POST_TABLE, &p->post},
-        {PRH_OTF_VHEA_TABLE, &p->vhea},
-        {PRH_OTF_VMTX_TABLE, &p->vmtx},
+        {PRH_TTAG_BASE, &p->base},
+        {PRH_TTAG_CFF1, &p->cff1},
+        {PRH_TTAG_CFF2, &p->cff2},
+        {PRH_TTAG_DSIG, &p->dsig},
+        {PRH_TTAG_GDEF, &p->gdef},
+        {PRH_TTAG_GPOS, &p->gpos},
+        {PRH_TTAG_GSUB, &p->gsub},
+        {PRH_TTAG_OS_2, &p->os_2},
+        {PRH_TTAG_STAT, &p->stat},
+        {PRH_TTAG_VDMX, &p->vdmx},
+        {PRH_TTAG_VORG, &p->vorg},
+        {PRH_TTAG_CMAP, &p->cmap},
+        {PRH_TTAG_HDMX, &p->hdmx},
+        {PRH_TTAG_HEAD, &p->head},
+        {PRH_TTAG_HHEA, &p->hhea},
+        {PRH_TTAG_HMTX, &p->hmtx},
+        {PRH_TTAG_MAXP, &p->maxp},
+        {PRH_TTAG_NAME, &p->name},
+        {PRH_TTAG_POST, &p->post},
+        {PRH_TTAG_VHEA, &p->vhea},
+        {PRH_TTAG_VMTX, &p->vmtx},
         {0xFFFFFFFF, prh_null}};
     prh_r32 table_i = 0, tabletag;
     prh_font_file *f = p->font_file;
@@ -1231,7 +1885,10 @@ void prh_impl_font_header_read(prh_open_font *p) {
 //                 的转换，DSIG 表也可能失效。
 //          位 12：字体已转换（产生兼容度量）。
 //          位 13：字体针对 ClearType 优化。注意，依赖嵌入式位图（EBDT）进行渲染的字体不应
-//                 被视为针对 ClearType 优化，因此应保持此位清除。
+//                 被视为针对 ClearType 优化，因此应保持此位清除。ClearType 是微软开发的一
+//                 种子像素渲染（Subpixel Rendering）技术。它利用 LCD 显示器中每个像素由红、
+//                 绿、蓝三个子像素组成的物理特性，通过控制这些子像素的亮度来"伪造"更高的水
+//                 平分辨率，使文字边缘看起来更平滑、更清晰。
 //          位 14：最后手段（Last Resort）字体。如果设置，表示 'cmap' 子表中编码的字形只是
 //                 代码点范围的通用符号表示，并不真正代表对这些代码点的支持。如果未设置，
 //                 表示 'cmap' 子表中编码的字形代表对这些代码点的正确支持。
@@ -1287,7 +1944,7 @@ void prh_impl_font_header_read(prh_open_font *p) {
 // 左侧承（lsb，glyph left sidebearing）和 xMin 相关，如下。如果 flags 字段的位 1 被设置，
 // 则所有字形的 pp1 = 0，且每个字形的 xMin 和左侧承必须相等。
 //      pp1 = xMin - lsb
-// 
+//
 // 在具有 TrueType 轮廓的可变字体中，每个字形的左侧承必须等于 xMin，且 flags 字段中的位 1
 // 必须设置。此外，所有可变字体中必须清除位 5。有关 OpenType 字体变体的一般信息，请参阅
 // OpenType 字体变体概述章节。
@@ -1409,6 +2066,12 @@ void prh_print_font_head_table(prh_open_font *f) {
 // 平台上使用，并建议用于新的文本布局实现。字体开发人员应评估目标应用程序中使用本表或 OS/2
 // 表字段的行为，以确保布局一致。有关更多详细信息，请参阅 OS/2 字段的说明。
 // http://developer.apple.com/fonts/TrueType-Reference-Manual/RM06/Chap6hhea.html
+//
+// caretSlopeRise 和 caretSlopeRun 这两个字段共同决定 caret 的倾斜角度（光标斜率），斜率等于
+// caretSlopeRise / caretSlopeRun，即文本光标的倾斜角度（竖直、水平或斜体角度）。caretOffset
+// 是斜体字形中专用的视觉补偿偏移量，让光标/高亮在倾斜笔画上看起来居中自然。在斜体文本中，如
+// 果高亮条严格垂直于基线，由于字形整体向右倾斜，高亮条看起来会偏向字形的左侧或右侧。caretOffset
+// 就是用来修正这种视觉偏差的补偿值。
 //
 // 'hhea' 表与 OpenType 字体变体。在可变字体中，水平头表中的各种字体度量值可能需要针对不同的
 // 变体实例进行调整。'hhea' 条目的变体数据可以在度量变体（MVAR）表中提供。不同的 'hhea' 条目
@@ -7969,7 +8632,7 @@ void prh_print_cff1_charstrings_index(prh_font_cff1_table *p) {
 // 例如，你可以放置一个字形，使其美学中心（aesthetic center）位于 x 坐标值 0。也就是说，当
 // 一组如此设计的字形被放置在一列中，且它们的 x 坐标值 0 重合时，它们看起来会很好地居中。此
 // 选项可用于汉字或任何垂直排版的字体。另一种选择是将每个字形放置在其最左侧轮廓极端点的 x
-// 值等于该字形的左侧字距。以这种方式创建的字体可能允许某些应用程序更快地打印到 PostScript
+// 坐标值等于该字形的左侧间距。以这种方式创建的字体可能允许某些应用程序更快地打印到 PostScript
 // 打印机。
 //
 //      图 1-5：罗马字体中字形原点的两种可能选择。第一种情况（左图）左侧字距为 x 零点。第二
