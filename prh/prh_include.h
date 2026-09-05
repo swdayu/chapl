@@ -418,7 +418,7 @@ extern "C" {
     #define prh_arrlen(a) (sizeof(a)/sizeof((a)[0]))
     #define prh_arrend(a) ((a) + prh_arrlen(a))
     #define prh_arrelt(a, i) (a)[(prh_assert((i) >= 0 && (i) < prh_arrlen(a))), i]
-    #define prh_arrbuf(a) (a), prh_arrlen(a)
+    #define prh_arrget(a) (a), prh_arrlen(a)
 #endif
 
 #ifndef prh_offsetof
@@ -603,6 +603,7 @@ extern "C" {
     #define prh_raw_int_bytes 4
     typedef prh_i32 prh_raw_int;
     typedef prh_r32 prh_raw_reg;
+    typedef prh_i32 prh_imt;
     typedef prh_r32 prh_raw;
     typedef prh_i32 prh_int;
     typedef prh_r32 prh_reg;
@@ -618,6 +619,7 @@ extern "C" {
     #define prh_raw_int_bytes 8
     typedef prh_i64 prh_raw_int;
     typedef prh_r64 prh_raw_reg;
+    typedef prh_i64 prh_imt;
     typedef prh_r64 prh_raw;
     #ifdef prh_32_bit_memory_range
         typedef prh_i32 prh_int;
@@ -685,8 +687,11 @@ extern "C" {
         union {
             prh_reg size;
             prh_reg bytes;
+            prh_reg cocunt;
+            prh_reg length;
         };
-    } prh_striew;
+    } prh_data;
+    typedef prh_data prh_striew;
     prh_static_assert(sizeof(int) == 4);
     prh_static_assert(sizeof(bool) == 1);
     prh_static_assert(sizeof(prh_byte) == 1);
@@ -2998,6 +3003,43 @@ prh_inline prh_raw prh_impl_raw_invert_order(prh_raw n) { return prh_impl_r64_in
 #define prh_set_reg_be_to_host(a) (a) = prh_reg_be_to_host(a)
 #define prh_set_raw_be_to_host(a) (a) = prh_raw_be_to_host(a)
 
+#define prh_i16_host_to_le(n) ((prh_i16)prh_r16_host_to_le(n))
+#define prh_i24_host_to_le(n) ((prh_i32)prh_r24_host_to_le(n))
+#define prh_i32_host_to_le(n) ((prh_i32)prh_r32_host_to_le(n))
+#define prh_i40_host_to_le(n) ((prh_i64)prh_r40_host_to_le(n))
+#define prh_i48_host_to_le(n) ((prh_i64)prh_r48_host_to_le(n))
+#define prh_i56_host_to_le(n) ((prh_i64)prh_r56_host_to_le(n))
+#define prh_i64_host_to_le(n) ((prh_i64)prh_r64_host_to_le(n))
+#define prh_int_host_to_le(n) ((prh_int)prh_reg_host_to_le(n))
+#define prh_imt_host_to_le(n) ((prh_imt)prh_raw_host_to_le(n))
+#define prh_i16_le_to_host(n) ((prh_i16)prh_r16_le_to_host(n))
+#define prh_i24_le_to_host(n) ((prh_i32)prh_r24_le_to_host(n))
+#define prh_i32_le_to_host(n) ((prh_i32)prh_r32_le_to_host(n))
+#define prh_i40_le_to_host(n) ((prh_i64)prh_r40_le_to_host(n))
+#define prh_i48_le_to_host(n) ((prh_i64)prh_r48_le_to_host(n))
+#define prh_i56_le_to_host(n) ((prh_i64)prh_r56_le_to_host(n))
+#define prh_i64_le_to_host(n) ((prh_i64)prh_r64_le_to_host(n))
+#define prh_int_le_to_host(n) ((prh_int)prh_reg_le_to_host(n))
+#define prh_imt_le_to_host(n) ((prh_imt)prh_raw_le_to_host(n))
+#define prh_i16_host_to_be(n) ((prh_i16)prh_r16_host_to_be(n))
+#define prh_i24_host_to_be(n) ((prh_i32)prh_r24_host_to_be(n))
+#define prh_i32_host_to_be(n) ((prh_i32)prh_r32_host_to_be(n))
+#define prh_i40_host_to_be(n) ((prh_i64)prh_r40_host_to_be(n))
+#define prh_i48_host_to_be(n) ((prh_i64)prh_r48_host_to_be(n))
+#define prh_i56_host_to_be(n) ((prh_i64)prh_r56_host_to_be(n))
+#define prh_i64_host_to_be(n) ((prh_i64)prh_r64_host_to_be(n))
+#define prh_int_host_to_be(n) ((prh_int)prh_reg_host_to_be(n))
+#define prh_imt_host_to_be(n) ((prh_imt)prh_raw_host_to_be(n))
+#define prh_i16_be_to_host(n) ((prh_i16)prh_r16_be_to_host(n))
+#define prh_i24_be_to_host(n) ((prh_i32)prh_r24_be_to_host(n))
+#define prh_i32_be_to_host(n) ((prh_i32)prh_r32_be_to_host(n))
+#define prh_i40_be_to_host(n) ((prh_i64)prh_r40_be_to_host(n))
+#define prh_i48_be_to_host(n) ((prh_i64)prh_r48_be_to_host(n))
+#define prh_i56_be_to_host(n) ((prh_i64)prh_r56_be_to_host(n))
+#define prh_i64_be_to_host(n) ((prh_i64)prh_r64_be_to_host(n))
+#define prh_int_be_to_host(n) ((prh_int)prh_reg_be_to_host(n))
+#define prh_imt_be_to_host(n) ((prh_imt)prh_raw_be_to_host(n))
+
 #if prh_lit_endian
 prh_inline prh_r16 prh_r16_host_to_le(prh_r16 n) { return n; }
 prh_inline prh_r32 prh_r24_host_to_le(prh_r32 n) { return n; }
@@ -3275,6 +3317,14 @@ void prh_impl_aligned_dealloc(void *context, void *ptr);
 
 void prh_main_init(void);
 
+#define prh_generic_bsearch(succ, out_i, value, p, size, eval) do {             \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > eval(e + mid - 1)) { e += mid; end -= mid; }              \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)); (succ) = ((value) == eval(e));              \
+} while (0)
+
 #define prh_generic_bsearch_first_less_equal(out_i, value, p, size, eval) do {  \
     prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
     while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
@@ -3291,6 +3341,17 @@ void prh_main_init(void);
     } (out_i) = (prh_reg)(e - (p)) - ((value) < eval(e));                       \
 } while (0) /* 返回 (prh_reg)-1 表示失败 */
 
+#define prh_bsearch(succ, out_i, value, p, size) do {                           \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)); (succ) = ((value) == *e);                   \
+} while (0)
+
+#define prh_bsearch_value_belong_range_by_comparing_the_range_end prh_bsearch_first_less_equal
+#define prh_bsearch_value_belong_range_by_comparing_the_range_start prh_bsearch_last_greater_equal
+
 #define prh_bsearch_first_less_equal(out_i, value, p, size) do {                \
     prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
     while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
@@ -3306,6 +3367,14 @@ void prh_main_init(void);
         else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
     } (out_i) = (prh_reg)(e - (p)) - ((value) < *e);                            \
 } while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_descending_bsearch(succ, out_i, value, p, size) do {                \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) < e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 小于中间值小于左半所有值，大于中间值大于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)); (succ) = ((value) == *e);                   \
+} while (0)
 
 #define prh_descending_bsearch_first_greater_equal(out_i, value, p, size) do {  \
     prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
@@ -33733,10 +33802,12 @@ void prh_close_view(prh_file_view *p);
 
 prh_byte *prh_mapping_file_read(const prh_byte *name);
 prh_byte *prh_mapping_file_read_with_handle(prh_handle file);
+prh_byte *prh_mapping_file_read_with_file_size(const prh_byte *name, prh_reg *out_file_size);
 prh_byte *prh_mapping_file_read_with_file_size_32(const prh_byte *name, prh_r32 *out_file_size);
 prh_byte *prh_mapping_file_read_with_large_file_size(const prh_byte *name, prh_r64 *out_file_size);
 prh_byte *prh_mapping_file_write_on_copy(const prh_byte *name);
 prh_byte *prh_mapping_file_write_on_copy_with_handle(prh_handle file);
+prh_byte *prh_mapping_file_write_on_copy_with_file_size(const prh_byte *name, prh_reg *out_file_size);
 prh_byte *prh_mapping_file_write_on_copy_with_file_size_32(const prh_byte *name, prh_r32 *out_file_size);
 prh_byte *prh_mapping_file_write_on_copy_with_large_file_size(const prh_byte *name, prh_r64 *out_file_size);
 void prh_flush_mapping(prh_byte *address, prh_r32 size);
@@ -34303,6 +34374,15 @@ prh_byte *prh_mapping_file_read_with_large_file_size(const prh_byte *name, prh_r
     return base_address;
 }
 
+prh_byte *prh_mapping_file_read_with_file_size(const prh_byte *name, prh_reg *out_file_size)
+{
+#if prh_int_bits == 32
+    return prh_mapping_file_read_with_file_size_32(name, out_file_size);
+#else
+    return prh_mapping_file_read_with_large_file_size(name, out_file_size);
+#endif
+}
+
 prh_byte *prh_mapping_file_write_on_copy(const prh_byte *name)
 {
     // 可以读取和写入文件，写入操作会导致系统为该页面创建一份副本。当指定 FILE_MAP_COPY 标志，
@@ -34344,6 +34424,15 @@ prh_byte *prh_mapping_file_write_on_copy_with_large_file_size(const prh_byte *na
     prh_byte *base_address = prh_impl_viewing_entire_file(mapping_handle, FILE_MAP_COPY);
     CloseHandle((HANDLE)mapping_handle);
     return base_address;
+}
+
+prh_byte *prh_mapping_file_write_on_copy_with_file_size(const prh_byte *name, prh_reg *out_file_size)
+{
+#if prh_int_bits == 32
+    return prh_mapping_file_write_on_copy_with_file_size_32(name, out_file_size);
+#else
+    return prh_mapping_file_write_on_copy_with_large_file_size(name, out_file_size);
+#endif
 }
 
 // 出于速度上的考虑，系统会对文件数据的页面进行缓存处理，这样在处理文件映射视图的时候就不
