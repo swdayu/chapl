@@ -1,6 +1,7 @@
-#define PRH_FONT_INCLUDE
-#define PRH_FONT_IMPLEMENTATION
-#include "prh_include.h"
+#define PRH_FILE_INCLUDE
+#define PRH_FILE_IMPLEMENTATION
+#define PRH_TRUETYPE_IMPLEMENTATION
+#include "prh_truetype.h"
 
 #include <stdio.h>
 #include <tchar.h>
@@ -18,35 +19,32 @@ unsigned char ttf_buffer[1<<20];
 unsigned char temp_bitmap[1024*1024];
 stbtt_bakedchar cdata[96]; // ASCII 32..126 is 95 glyphs
 
-prh_font_file font_file;
-prh_open_font open_font;
+prh_data file;
+prh_font *font;
 
 void init(void)
 {
     prh_set_local_alloc(prh_default_alloc());
     prh_console_setup();
 
-    prh_load_font_file(&font_file, CONFIG_SRC_ROOT CONFIG_INSTALL_DIR "SourceHanSerifCN-Regular.otf");
-    prh_print_ttff_header(&font_file);
+    file = prh_read_font_file(CONFIG_SRC_ROOT CONFIG_INSTALL_DIR "SourceHanSerifCN-Regular.otf");
+    prh_print_file_header(&file);
 
-    prh_load_open_font(&open_font, &font_file, 0);
-    prh_print_font_header(&open_font);
+    font = prh_load_font(&file, 0);
+    prh_print_font_header(font);
 
-    prh_r16 numtables = prh_font_table_count(&open_font);
-    if (numtables > 20) numtables = 20;
-    for (prh_r16 i = 1; i <= numtables; i += 1) {
-        prh_print_font_table(&open_font, i);
-    }
+    prh_print_font_head_table(font);
+    prh_print_font_maxp_table(font);
+    prh_print_font_name_table(font);
+    prh_print_font_vorg_table(font);
+    prh_print_font_post_table(font);
+    prh_print_font_os_2_table(font);
 
-    prh_print_font_head_table(&open_font);
-    prh_print_font_maxp_table(&open_font);
-    prh_print_font_name_table(&open_font);
-    prh_print_font_vorg_table(&open_font);
-    prh_print_font_post_table(&open_font);
-    prh_print_font_os_2_table(&open_font);
+    prh_print_font_cmap(font);
+    prh_print_font_cff1(font);
 
-    // prh_print_font_cmap(&open_font);
-    // prh_print_font_cff1(&open_font);
+    prh_free_font(font);
+    prh_free_file_data(&file);
 
     fread(ttf_buffer, 1, 1<<20, fopen("c:/windows/fonts/times.ttf", "rb"));
     stbtt_BakeFontBitmap(ttf_buffer,0, 64.0, temp_bitmap,1024,1024, 32,96, cdata);
