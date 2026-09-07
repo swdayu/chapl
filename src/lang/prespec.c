@@ -19,6 +19,9 @@
 //      force type.field > start_value && < start_value + value_range
 //      force type.field with this > start_value && this < end_value
 //
+// 特殊操作符
+//      *header file -> num_fonts // 先类型转换，再引用成员
+//
 // 符号可以分为变量和类型，变量的底层表示其实就是一个内存中地址，包括全局变量、局部变量、
 // 函数、跳转标签都是一个地址。类型只是一种语法概念并不占据实际物理世界空间，但这两种符号
 // 都可以进行调用，变量的调用其实就是函数，类型的调用相当于模板类型实例化变成具体类型。其
@@ -230,6 +233,8 @@
 //              self.len += 1
 //          }
 //
+//          -- global --
+//
 //          -- stack --
 //
 //          def stack $(anytype T, reg SIZE) {
@@ -276,23 +281,29 @@
 //          import * "mylib.code" { array * stack * } // 如果出现名称冲突则非法
 //          import * "mylib.code" {*} // 如果出现名称冲突则非法
 //
-//          import   "%dir%/mylib.code" // 从指定目录导入 mylib.alpha.array.push
-//          import m "%dir%/mylib.code" // m.array.push m.stack.push
-//          import * "%dir%/mylib.code" // array.push array(int, 32) a 这里 array 表示 array 空间下同名的符号即数组
-//          import   "%dir%/mylib.code" array // mylib.alpha.array.push
-//          import m "%dir%/mylib.code" array // m.array.push
-//          import * "%dir%/mylib.code" array // array.push
-//          import   "%dir%/mylib.code" array as mylib_array // mylib_array.push
-//          import m "%dir%/mylib.code" array as mylib_array // mylib_array.push
-//          import * "%dir%/mylib.code" array as mylib_array // mylib_array.push
-//          import * "%dir%/mylib.code" array * // push
-//          import   "%dir%/mylib.code" { array stack } // mylib.alpha.array.push mylib.alpha.stack.push
-//          import m "%dir%/mylib.code" { array stack } // m.array.push m.stack.push
-//          import * "%dir%/mylib.code" { array stack } // array.push stack.push
-//          import   "%dir%/mylib.code" { array as a stack as s } // a.push s.push
-//          import m "%dir%/mylib.code" { array * stack as s } // push s.push
-//          import * "%dir%/mylib.code" { array * stack * } // 如果出现名称冲突则非法
-//          import * "%dir%/mylib.code" {*} // 如果出现名称冲突则非法
+//          import   "|dir|mylib.code" // 从指定目录导入 mylib.alpha.array.push
+//          import m "|dir|mylib.code" // m.array.push m.stack.push
+//          import * "|dir|mylib.code" // array.push array(int, 32) a 这里 array 表示 array 空间下同名的符号即数组
+//          import   "|dir|mylib.code" array // mylib.alpha.array.push
+//          import m "|dir|mylib.code" array // m.array.push
+//          import * "|dir|mylib.code" array // array.push
+//          import   "|dir|mylib.code" array as mylib_array // mylib_array.push
+//          import m "|dir|mylib.code" array as mylib_array // mylib_array.push
+//          import * "|dir|mylib.code" array as mylib_array // mylib_array.push
+//          import * "|dir|mylib.code" array * // push
+//          import   "|dir|mylib.code" { array stack } // mylib.alpha.array.push mylib.alpha.stack.push
+//          import m "|dir|mylib.code" { array stack } // m.array.push m.stack.push
+//          import * "|dir|mylib.code" { array stack } // array.push stack.push
+//          import   "|dir|mylib.code" { array as a stack as s } // a.push s.push
+//          import m "|dir|mylib.code" { array * stack as s } // push s.push
+//          import * "|dir|mylib.code" { array * stack * } // 如果出现名称冲突则非法
+//          import * "|dir|mylib.code" {*} // 如果出现名称冲突则非法
+//
+//          import dir "mylib.code" // 同一目录下不能有相同的 /mylib/alpha/ 等
+//          import dir "mylib.code" /mylib/alpha/ /mylib/blpha/ b /mylib/clpha/ * /mylib/dlpha/ *.* /mylib/elpha/ // * 只能在 * 的基础上
+//          import dir "mylib.code" /mylib/alpha/ {alpha, blpha} /mylib/blpha/ b {clpha c, dlpha d} /mylib/clpha/ * {elpha *, flpha f, ...}
+//          import dir "mylib.code" *
+//          import dir "mylib.code" *.*
 //
 //          using mylib_array_push mylib_array.push
 //          using mylib_array_* mylib_array.*
@@ -728,6 +739,7 @@
 //  @cold 是一个极少调用的函数
 //  @init 是一个程序开始时调用的函数，在主函数之前调用
 //  @fini 是一个程序退出是调用的函数，会在主函数退出后调用
+//  always set 函数输出参数必须总是设置
 // 内置函数：
 //  abort() panic()
 //  assert(expr)
@@ -1275,6 +1287,10 @@ def test { // 如何实现跨越对齐边界的位域？？？
         r32 u
     tie char c
     off.data
+    tie [alignas value] // or alignas address
+    tie r32 size_32
+    tie r64 large_size
+    off
 }
 
 // 大括号初始化列表，数组/元组/结构体/集合/映射都通过大括号进行初始化
@@ -2327,10 +2343,11 @@ pub #p8 pragma(runtime) [int int] {x, y}
 //  final
 
 // 定义函数和类型
-def data(int a) "fastcall alignas line" { return }
-def calc(int a, b, &int ) "fastcall alignas line" extern // 函数定义的声明
-def calc(int a, b, &int) "fastcall alignas 16" { return 0 } // 定义函数常量
-def point "struct packed" { float x, y, z } // 定义新的类型
+// def name type_expr
+def data [fastcall alignas line] (int a) { return }
+def calc [fastcall alignas line] (int a, b, &int ) extern // 函数定义的声明
+def calc [fastcall alignas 16] (int a, b, &int) { return 0 } // 定义函数常量
+def point [struct packed] { float x, y, z } // 定义新的类型
 def type { tie int i tie byte b tie char c tie float f off }
 def array $(anytype T, reg SIZE) { [SIZE]T data reg size }
 def transfer this { (this) close }
@@ -2344,24 +2361,25 @@ def oper [int tie r08 lpri r08 rpri] { ADD '+' {3, 2}, SUB '-' {3, 2} }
 def result [byte tie struct] { OK [string] ERROR 1 [reg] }
 def token [byte tie struct] { ATOM {byte id} OPER {byte id} TEST [int int] EXPR {int oper *expr lhs, rhs} EOF}
 
-(int a, b, *int "out" result, &int) "fastcall alignas line"
+[fastcall alignas line] (int a, b, *int [out] result, &int)
 [int restrict] { red, green = 1, blue }
 [int restrict tie struct] { OK 0 [string] ERROR 1 [reg] }
-"struct packed" [byte int byte float]
-"struct packed" { int a, b, c float "alignas 16" d }
-$(anytype T, reg SIZE) "struct packed" { int a, b, c float d }
+[struct packed] [byte int byte float]
+[struct packed] { int a, b, c float [alignas 16] d }
+$(anytype T, reg SIZE) [struct packed] { int a, b, c float d }
 
 // 定义别名
+// using name name_expr
 using mylib_array_push mylib_array.push
 using mylib_array_* mylib_array.*
-using func (int a, b, *int "out" result, &int) "fastcall alignas line"
+using func [fastcall aligas line] (int a, b, *int [out always] result, &int)
 using type [int restrict] { red, green = 1, blue }
-using type "struct packed" [byte int byte float]
-using type "struct packed" { int a, b, c float "alignas 16" d }
+using type [struct packed] [byte int byte float]
+using type [struct packed] { int a, b, c float [alignas 16] d }
 using int_array [16]int // 以别名方式定义新的类型
 using tuple [int float string]
 using func (int a, b, &int)
-using "distinct" int_type int
+using [distinct] int_type int
 using int_ptr *int
 using type [3]int // 默认有4个命名成员 xyzw 或 rgba
 using type [int int int] // 默认有4个命名成员 xyzw 或 rgba
@@ -2369,6 +2387,8 @@ using type [3]float // 默认有4个命名成员 xyzw 或 rgba
 using point [float float] // 默认有4个命名成员 xyzw 或 rgba
 
 // 定义常量
+// const name const_expr
+const pi extern
 const pi 3.1415926 // 编译时常量，运行时常量
 const 2p 2 * pi // const float
 const pi f64 3.1415926 // const f64
@@ -2377,34 +2397,41 @@ const p3 []int {100, 200} // const [2]int
 const p4 [int int] {100, 200} // const [int int]
 const p5 {int a int b} {100, 200} // const {int a int b}
 const p6 (int a, b, &int) { return 0 } // 相当于 def p6(int a, b, &int) { return 0 }
-const impl_p7 1024 // 私有名称
-const "run" p8 [int int] {100, 200} // 编译时常量，运行时常量，且可在运行时访问（如获取地址，指为指针）
-const "imm" p8 [int int] {xval, yval} // 编译时未知，运行时在初始化之后不可改变
-const "var" data 0 // 编译时变量，运行时常量
+const imp_p7 1024 // 私有名称
+const [run] p8 [int int] {100, 200} // 编译时常量，运行时常量，且可在运行时访问（如获取地址，指为指针）
+const [imm] p8 [int int] {xval, yval} // 编译时未知，运行时在初始化之后不可改变
+const [var] data 0 // 编译时变量，运行时常量
 
-comptime data = 3
-comptime eval data += 4
+const data = 3
+const data += 4
 
 // 定义全局变量
+//  var name value_expr
+//  var name type
+//  var name type = value
 var a int // 未初始化全局变量，默认初始为零
 var a int 0
 var a int 10
 var a int zeroed
 var a point {1, 2}
-var "alignas 32" a type value
+var [alignas 32] a type value
 var a {int a, b float x float y} null
-var impl.name type vlaue // 私有名称
-var impl.int_ptr *int &a
-var impl.point_ptr *point &point
-var impl.point point {100, 200}
+var imp_name type vlaue // 私有名称
+var imp_int_ptr *int &a
+var imp_point_ptr *point &point
+var imp_point point {100, 200}
 var data {int a int b point point} {10, 20, {100, 200}}
 var data [int int point] {10, 20, {100, 200}}
 var calc (int a, int b, &int) null // 定义一个函数指针
 var calc (int a, b, &int) { return 0 } // 定义了一个函数指针，并赋了一个值
 
-// 定义局部符号
-const name value
-using name symbol
+// 定义局部变量
+//  let name value_expr
+//  let name type
+//  let name type = value
+//  let name = value
+//  let ..., name
+//  let ..., name = value
 let aaa data {3, 4} // 注意类型名不能加上括号，例如 (Point)，因为它将变成一个函数类型
 let ppb *ppb ppb_alloc(alloc) // 快捷定义局部变量必须顶格写，*int的星号以及正负号之后不能有空白字符
 let pos dist + int scale_x(facter)
@@ -2412,7 +2439,7 @@ let len int pos + &*byte p + size + f(g)
 let len int pos + fal *byte (p + size + f(g))
 let pos int dist + int scale_x(facter)
 let len int pos + fal *int *byte (p + size + f(g))
-let "alignas line" tuple read_tuple()
+let [alignas line] tuple read_tuple()
 let (a _ c) read_tuple()
 let tuple (a b c) read_tuple()
 let len typeof(pos) 3
@@ -2420,7 +2447,15 @@ let len foo - 3 // 类型转换的一个问题是，遇到一元操作符的时�
 let len int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
 let len foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
 let len foo ~ -3
+let len struct foo -3
+let len struct foo ~ -3
+let (a b c) read_tuple()
+let (a b c) [3]int {1, 2, 3}
+let (a b c) [int float int] {1, 2, 3}
+let p *int void
 let p *int null, q int_ptr // 同一类型可以使用逗号串连
+let p *int null, q void // q 未初始化
+let a int void, b void, c void // 定义三个未初始化的int变量
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &），代码行不能
 // 以小括号开始，否则报错。D 语言禁止大多数原始表达式语句，所以如果没有产生副作用，就
@@ -2873,19 +2908,20 @@ def eat(*lexer lexer, &token) {
     return lexer.pop()
 }
 
-parse_expression(*lexer lexer, int min_prior, &expr) {
-    var expr lhs ? // let lhs ? expr
-    if [lexer.eat()] == atom(it) {
-        if it == '0'..'9' then
+def parse_expression(*lexer, int min_prior, &expr) {
+    let lhs expr undefined
+    if [lexer.eat()] .atom(it) {
+        if (it == '0'..'9')
             lhs = .value(it - '0')
-        else if it == 'a'..'z' || it == 'A'..'Z' then
+        elif (it == 'a'..'z' || it == 'A'..'Z')
             lhs = .value(get_symbol(it).value)
-        else then
+        else
             panic("bad token %d", it)
-    } if == oper('(') {
+        final
+    } elif .oper('(') {
         lhs = eval(parse_expression(lexer, 0)
         assert_eq(lexer.skip(), Token.oper(')'))
-    } if == else {
+    } else {
         panic("bad token %d", it)
     }
     for {
@@ -2948,7 +2984,7 @@ def tcp_poll(*file, *socket, *poll_table, &poll) [m] "alignas 16" {
 
 def tcp_poll [[fastcall align 16]] (*file, *socket, *poll_table, &poll) [m] {
     let poll !poll undefined
-    let sk [[align line]] socket
+    let "alignas line" sk socket
     let a byte undefined
     let b int undefined
 
