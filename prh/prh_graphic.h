@@ -5475,6 +5475,186 @@ extern "C" {
 // 线性过滤在二维纹理中仅访问四个最近的纹理元素。在一维纹理中，线性过滤访问两个最近的纹理元素。在
 // 三维纹理中，线性过滤访问八个最近的纹理元素。
 
+// void glGenSamplers( // 生成采样器对象句柄
+//      GLsizei n, // 要生成的采样器对象句柄的数量，如果 n 为负数，则产生 GL_INVALID_VALUE 错误
+//      GLuint *samplers); // 指定一个数组，用于存储生成的采样器对象句柄
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                           ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// glGenSamplers 在 samplers 中返回 n 个采样器对象句柄。不保证这些名称构成一组连续的整数，
+// 但是可以保证返回的句柄中没有任何一个在调用 glGenSamplers 之前正处于使用中。
+//
+// 由 glGenSamplers 调用返回的采样器对象名称不会由后续调用再次返回，除非它们首先通过
+// glDeleteSamplers 被删除。samplers 中返回的名称被标记为已使用（仅就 glGenSamplers 的
+// 目的而言），但它们只有在首次绑定时才获取状态和类型。
+//
+// void glDeleteSamplers( // 删除命名采样器对象
+//      GLsizei n, // 要删除的采样器对象数量，如果 n 为负数，则生成 GL_INVALID_VALUE
+//      const GLuint *samplers); // 要删除的采样器对象数组
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                           ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// glDeleteSamplers 删除由数组 samplers 中的元素命名的 n 个采样器对象。采样器对象被删除后，
+// 其名称再次变为未使用。如果当前绑定到采样器单元的采样器对象被删除，则等效于用该采样器绑
+// 定的单元和零 sampler 调用 glBindSampler。samplers 中未使用的名称将被静默忽略，保留名称
+// 零也是如此。
+//
+// void glCreateSamplers( // 创建采样器对象
+//      GLsizei n, // 要创建的采样器对象数量，如果 n 为负数，则生成 GL_INVALID_VALUE
+//      GLuint *samplers); // 指定一个数组，用于存储新采样器对象的句柄
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// glCreateSamplers 在 samplers 中返回 n 个先前未使用的采样器名称，每个名称代表一个初始化为
+// 默认状态的新采样器对象。
+
+// void glBindSampler( // 将命名采样器绑定到纹理目标
+//      GLuint unit, // 指定要绑定采样器的纹理单元的索引，unit 大于或等于 GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS 的值，则生成 GL_INVALID_VALUE
+//      GLuint sampler); // 采样器对象句柄，sampler 不是零或之前从 glGenSamplers 调用返回的名称，或者如果此类名称已通过 glDeleteSamplers 调用删除，则生成 GL_INVALID_OPERATION
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                           ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// glBindSampler 将采样器绑定到索引为 unit 的纹理单元。采样器必须为零或之前从 glGenSamplers
+// 调用返回的采样器对象的名称。unit 必须小于 GL_MAX_COMBINED_TEXTURE_IMAGE_UNITS 的值。
+//
+// 当采样器对象绑定到纹理单元时，其状态将取代绑定到该纹理单元的纹理对象的状态。如果名称零被
+// 绑定到纹理单元，则当前绑定纹理的采样器状态将变为活动状态。单个采样器对象可以同时绑定到多
+// 个纹理单元。
+//
+// void glBindSamplers( // 将一个或多个命名采样器对象绑定到一系列连续的采样器单元
+//      GLuint first, // 要绑定采样器对象的第一个采样器单元
+//      GLsizei count, // 要绑定的采样器数量，如果 first + count 大于具体实现支持的采样器单元数量，则生成 GL_INVALID_OPERATION
+//      const GLuint *samplers); // 现有采样器对象名称数组的地址，如果 samplers 中的任何值不是零或现有采样器对象的名称，则生成 GL_INVALID_OPERATION
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                    ✔    ✔    ✔
+//
+// glBindSamplers 将现有采样器对象数组中的采样器绑定到指定数量的连续采样器单元。count 指定存
+// 储在 samplers 数组中的采样器对象名称的数量。从数组中读取相应数量的采样器名称，并绑定到从
+// first 开始的 count 个连续采样器单元。
+//
+// 如果 samplers 数组中出现名称零，则重置任何现有绑定到该采样器单元。samplers 中的任何非零条
+// 目必须是现有采样器对象的名称。当 samplers 中存在非零条目时，该采样器对象将绑定到相应的采样
+// 器单元。如果 samplers 为 NULL，则等效于指定了一个大小适当且仅包含零的数组。
+//
+// glBindSamplers 等效于以下伪代码：
+//      for (i = 0; i < count; i++) {
+//          if (samplers == NULL) {
+//              glBindSampler(first + i, 0);
+//          } else {
+//              glBindSampler(first + i, samplers[i]);
+//          }
+//      }
+//
+// samplers 中的每个条目将单独检查，如果被发现无效，则该采样器单元的状态将不会更改，并会生成
+// 一个错误。但是，由该命令引用的其他采样器单元的状态仍将更新。
+
+// void glSamplerParameterf(GLuint sampler, GLenum pname, GLfloat param); // 设置采样器参数
+// void glSamplerParameteri(GLuint sampler, GLenum pname, GLint param);
+// void glSamplerParameterfv(GLuint sampler, GLenum pname, const GLfloat * params);
+// void glSamplerParameteriv(GLuint sampler, GLenum pname, const GLint * params);
+// void glSamplerParameterIiv(GLuint sampler, GLenum pname, const GLint *params);
+// void glSamplerParameterIuiv(GLuint sampler, GLenum pname, const GLuint *params);
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                      ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// 错误 GL_INVALID_ENUM：
+//      params 值非法
+// 错误 GL_INVALID_VALUE：
+//      sampler 不是之前从 glGenSamplers 调用返回的采样器对象的句柄
+//
+// 参数 sampler 指定要修改其参数的采样器对象。参数 param 对于标量命令，指定 pname 的值。参数
+// params 对于向量命令（glSamplerParameter*v），指定一个指针，指向存储 pname 值或值的数组。
+//
+// 参数 pname 指定采样器参数的符号名称。pname 可以是以下之一：
+//      GL_TEXTURE_WRAP_S
+//      GL_TEXTURE_WRAP_T
+//      GL_TEXTURE_WRAP_R
+//      GL_TEXTURE_MIN_FILTER
+//      GL_TEXTURE_MAG_FILTER
+//      GL_TEXTURE_BORDER_COLOR
+//      GL_TEXTURE_MIN_LOD
+//      GL_TEXTURE_MAX_LOD
+//      GL_TEXTURE_LOD_BIAS
+//      GL_TEXTURE_COMPARE_MODE
+//      GL_TEXTURE_COMPARE_FUNC
+//
+// glSamplerParameter 将 params 中的值赋给 pname 采样器参数。采样器指定要修改的采样器对象，并
+// 且必须是之前从 glGenSamplers 调用返回的采样器对象的名称。pname 中接受以下符号：
+//
+//  1.  GL_TEXTURE_MIN_FILTER
+//      当正在贴图的像素映射到大于一个纹理元素的区域时，使用纹理缩小函数。有六种定义的缩小函数。
+//      其中两种使用最近的一个或最近的四个纹理元素来计算纹理值。其他四种使用 mipmap。mipmap 是
+//      一组有序数组，表示同一图像在逐渐降低分辨率下的图像。如果纹理尺寸为 2ⁿ×2ᵐ，则有 max(n,m)
+//      +1 个 mipmap。第一个 mipmap 是原始纹理，尺寸为 2ⁿ×2ᵐ。每个后续 mipmap 的尺寸为 2ᵏ⁻¹×2ˡ⁻¹，
+//      其中 2ᵏ×2ˡ 是前一个 mipmap 的尺寸，直到 k=0 或 l=0。此时，后续 mipmap 的尺寸为 1×2ˡ⁻¹
+//      或 2ᵏ⁻¹×1，直到最终尺寸为 1×1 的 mipmap。要定义 mipmap，请使用 level 参数指示 mipmap 顺
+//      序调用 glTexImage1D、glTexImage2D、glTexImage3D、glCopyTexImage1D 或 glCopyTexImage2D。
+//      级别 0 是原始纹理；级别 max(n,m) 是最终的 1×1 mipmap。
+//      params 提供以下缩小函数之一，在缩小过程中采样越多的纹理元素，出现的走样伪影就越少。虽然
+//      GL_NEAREST 和 GL_LINEAR 缩小函数可能比其他四种更快，但它们仅采样一个或四个纹理元素来确定
+//      正在渲染像素的纹理值，可能产生摩尔纹或锯齿过渡。GL_TEXTURE_MIN_FILTER 的初始值为 GL_NEAREST_MIPMAP_LINEAR。
+//          GL_NEAREST                  返回在曼哈顿距离上最接近正在贴图像素中心的纹理元素的值。
+//          GL_LINEAR                   返回最接近正在贴图像素中心的四个纹理元素的加权平均值。根据 GL_TEXTURE_WRAP_S 和 GL_TEXTURE_WRAP_T 的值以及确切的映射，这些元素可以包括边框纹理元素。
+//          GL_NEAREST_MIPMAP_NEAREST   选择最匹配正在贴图像素大小的 mipmap，并使用 GL_NEAREST 准则（最接近像素中心的纹理元素）来生成纹理值。
+//          GL_LINEAR_MIPMAP_NEAREST    选择最匹配正在贴图像素大小的 mipmap，并使用 GL_LINEAR 准则（最接近像素中心的四个纹理元素的加权平均值）来生成纹理值。
+//          GL_NEAREST_MIPMAP_LINEAR    选择两个最匹配正在贴图像素大小的 mipmap，并使用 GL_NEAREST 准则（最接近像素中心的纹理元素）从每个 mipmap 生成纹理值。最终纹理值是这两个值的加权平均值。
+//          GL_LINEAR_MIPMAP_LINEAR     选择两个最匹配正在贴图像素大小的 mipmap，并使用 GL_LINEAR 准则（最接近像素中心的四个纹理元素的加权平均值）从每个 mipmap 生成纹理值。最终纹理值是这两个值的加权平均值。
+//  2.  GL_TEXTURE_MAG_FILTER
+//      当正在贴图的像素映射到小于或等于一个纹理元素的区域时，使用纹理放大函数。它将纹理放大
+//      函数设置为 GL_NEAREST 或 GL_LINEAR。GL_NEAREST 通常比 GL_LINEAR 更快，但它可以产生具
+//      有更锐利边缘的纹理图像，因为纹理元素之间的过渡不那么平滑。GL_TEXTURE_MAG_FILTER 的初
+//      始值为 GL_LINEAR。
+//          GL_NEAREST  返回在曼哈顿距离上最接近正在贴图像素中心的纹理元素的值。
+//          GL_LINEAR   返回最接近正在贴图像素中心的四个纹理元素的加权平均值。根据 GL_TEXTURE_WRAP_S 和 GL_TEXTURE_WRAP_T 的值以及确切的映射，这些元素可以包括边框纹理元素。
+//  3.  GL_TEXTURE_MIN_LOD
+//      设置最小细节级别参数。此浮点值限制选择最高分辨率 mipmap（最低 mipmap 级别）。初始值为 -1000。
+//  4.  GL_TEXTURE_MAX_LOD
+//      设置最大细节级别参数。此浮点值限制选择最低分辨率 mipmap（最高 mipmap 级别）。初始值为 1000。
+//  5.  GL_TEXTURE_WRAP_S
+//      将纹理坐标 s 的环绕参数设置为以下值之一， 初始时，GL_TEXTURE_WRAP_S 设置为 GL_REPEAT。
+//          GL_CLAMP_TO_BORDER          将 s 坐标钳制到范围 [−1/2N, 1+1/2N]，其中 N 是钳制方向上纹理的大小
+//          GL_CLAMP_TO_EDGE            将 s 坐标钳制到范围 [1/2N, 1−1/2N]，其中 N 是钳制方向上纹理的大小
+//          GL_MIRRORED_REPEAT          在 s 的整数部分为偶数时将 s 坐标设为纹理坐标的小数部分，如果 s 的整数部分为奇数，则 s 纹理坐标设为 1−frac(s)，其中 frac(s) 表示 s 的小数部分
+//          GL_REPEAT                   忽略 s 坐标的整数部分，GL 仅使用小数部分，从而创建重复图案
+//          GL_MIRROR_CLAMP_TO_EDGE     将 s 坐标按 GL_MIRRORED_REPEAT 方式重复一次纹理，之后坐标按 GL_CLAMP_TO_EDGE 方式钳制，仅v4.4+才支持
+//  6.  GL_TEXTURE_WRAP_T
+//      设置纹理坐标 t 的环绕参数，请参阅 GL_TEXTURE_WRAP_S 下的讨论。初始时，GL_TEXTURE_WRAP_T 设置为 GL_REPEAT。
+//  7.  GL_TEXTURE_WRAP_R
+//      设置纹理坐标 r 的环绕参数，请参阅 GL_TEXTURE_WRAP_S 下的讨论。初始时，GL_TEXTURE_WRAP_R 设置为 GL_REPEAT。
+//  8.  GL_TEXTURE_BORDER_COLOR
+//      params 中的数据指定四个值，定义应用于边框纹素的边框值。如果从纹理的边框采样纹素，则 GL_TEXTURE_BORDER_COLOR
+//      的值被解释为与纹理内部格式匹配的 RGBA 颜色，并替代不存在的纹素数据。如果纹理包含深度分量，则 GL_TEXTURE_BORDER_COLOR
+//      的第一个分量被解释为深度值。初始值为 (0.0, 0.0, 0.0, 0.0)。
+//  9.  GL_TEXTURE_COMPARE_MODE
+//      指定当前绑定纹理的纹理比较模式。即，内部格式为 GL_DEPTH_COMPONENT_* 的纹理；参见 glTexImage2D。允许的值有：
+//          GL_COMPARE_REF_TO_TEXTURE   指定应将插值并钳制的 r 纹理坐标与当前绑定纹理中的值进行比较。有关如何评估比较的详细信息，请参阅 GL_TEXTURE_COMPARE_FUNC 的讨论。比较的结果被赋给红色通道。
+//          GL_NONE                     指定应将红色通道赋值为当前绑定纹理中的适当值。
+//  10. GL_TEXTURE_COMPARE_FUNC
+//      指定当 GL_TEXTURE_COMPARE_MODE 设置为 GL_COMPARE_REF_TO_TEXTURE 时使用的比较运算符。
+//      允许的值如下，其中 r 是当前插值的纹理坐标，Dt 是从当前绑定纹理采样的纹理值。result
+//      被赋给 Rt。
+//          纹理比较函数    计算结果
+//          GL_LEQUAL       result = 1.0 (r <= Dt)；0.0 (r > Dt)
+//          GL_GEQUAL       result = 1.0 (r >= Dt)；0.0 (r < Dt)
+//          GL_LESS         result = 1.0 (r < Dt)；0.0 (r >= Dt)
+//          GL_GREATER      result = 1.0 (r > Dt)；0.0 (r <= Dt)
+//          GL_EQUAL        result = 1.0 (r = Dt)；0.0 (r ≠ Dt)
+//          GL_NOTEQUAL     result = 1.0 (r ≠ Dt)；0.0 (r = Dt)
+//          GL_ALWAYS       result = 1.0
+//          GL_NEVER        result = 0.0
+//
+// 如果采样器对象绑定到纹理单元，并且该单元用于从纹理采样，则使用采样器中的参数来从纹理采样，
+// 而不是使用该单元绑定的纹理对象中的等效参数。这引入了使用不同采样器状态集从同一纹理对象采
+// 样的可能性，这可能导致一种情况：相对于一个采样器对象，纹理是不完整的，而相对于另一个采样
+// 器对象则不是。因此，完整性可以被视为绑定到单个纹理单元的采样器对象和纹理对象的函数，而不
+// 是纹理对象本身的属性。
+
 //////////////////////////////////////////////////////////////////////////////
 ///
 /// WINDOW STYLE USER INTERFACE
