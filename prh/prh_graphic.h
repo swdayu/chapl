@@ -33,8 +33,10 @@ extern "C" {
 #ifdef PRH_GRAPHIC_IMPLEMENTATION
 
 //////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
 ///
 /// OPENGL
+///
 ///
 
 // OpenGL 窗口或屏幕坐标系原点位于左下角，x向右，y向上。DirectX、HTML5 Canvas、大多数图
@@ -4504,6 +4506,30 @@ extern "C" {
 // 融混操作（blending）
 // 双源融混（dual-source blending）
 
+//////////////////////////////////////////////////////////////////////////////
+///
+/// 纹理映射（TEXTURE MAPPING）
+///
+
+// 使用纹理映射，需要以下步骤：
+//  1.  创建纹理对象，加载纹素数据
+//  2.  为物体顶点指定纹理坐标
+//  3.  为每个要使用的纹理对象关联一个纹理采样器
+//  4.  在着色器中通过纹理采样器获取纹素数据
+//
+// 纹理目标类型                     采样器类型          维度信息
+//  GL_TEXTURE_1D                   sampler1D           一维
+//  GL_TEXTURE_1D_ARRAY             sampler1DArray      一维数组
+//  GL_TEXTURE_2D                   sampler2D           二维
+//  GL_TEXTURE_2D_ARRAY             sampler2DArray      二维数组
+//  GL_TEXTURE_2D_MULTISAMPLE       sampler2DMS         二维多重采样
+//  GL_TEXTURE_2D_MULTISAMPLE_ARRAY sampler2DMSArray    二维多重采样数组
+//  GL_TEXTURE_3D                   sampler3D           三维
+//  GL_TEXTURE_CUBE_MAP             samplerCube         立方体映射纹理
+//  GL_TEXTURE_CUBE_MAP_ARRAY       samplerCubeArray    立方体映射数组
+//  GL_TEXTURE_RECTANGLE            samplerRect         二维矩形
+//  GL_TEXTURE_BUFFER               samplerBuffer       一维缓存
+
 // void glGenTextures( // 生成一个或多个纹理句柄（或称为名称）
 //      GLsizei n, // 生成句柄个数，如果是负数，将产生 GL_INVALID_VALUE 错误
 //      GLuint *textures); // 保存句柄的数组
@@ -4859,7 +4885,7 @@ extern "C" {
 // 如果在指定纹理图像时，有非零命名缓存对象绑定到 GL_PIXEL_UNPACK_BUFFER 目标（参见 glBindBuffer），
 // 则 data 被视为缓存对象数据存储中的字节偏移量。
 //
-// 第一个元素对应纹理图像的左下角。后续元素从左到右依次穿过纹理图像最底行的剩余纹素，然后依次穿过
+// 第一个元素对应纹理图像的左下角。后续元素从左到右依次穿过纹理图像最底行的剩余纹素，然后依次穿过       *** 提供的纹理数据，第一个元素对应纹理图像的左下角，最后一个元素对应图像的右上角
 // 纹理图像的更高行。最后一个元素对应纹理图像的右上角。
 //
 // 参数 format 决定 data 中每个元素的组成。它可以采用以下符号值：
@@ -4872,7 +4898,12 @@ extern "C" {
 //
 // 如果应用程序希望以特定分辨率或特定格式存储纹理，可以使用 internalformat 请求该分辨率和格式。
 // GL 将选择与 internalformat 所请求的内容非常接近的内部表示，但可能不会完全匹配。GL_RED、GL_RG、
-// GL_RGB 和 GL_RGBA 指定的表示必须完全匹配。
+// GL_RGB 和 GL_RGBA 指定的表示必须完全匹配。内部格式是 OpenGL 用来内部存储开发者给的纹理数据
+// 的格式，如果需要，开发者的数据将在图像设置时转换成这种格式。OpenGL 存储图像的内部格式有多种，
+// 每种格式有大小、性能和质量平衡，应用程序的开发者可以根据需要决定合适的格式。
+//
+// 外部格式（external format）是应用程序通过调用 OpenGL API 提供的数据的格式，如函数 glTexImage2D
+// glTexSubImage2D 中的 format 和 type 参数表示。
 //
 // internalformat 可以是下面表 1 所示的基本内部格式之一：
 //      表 1. 基本内部格式
@@ -4993,6 +5024,265 @@ extern "C" {
 // 宽为 width、高为 height 的纹理。然后你可以下载子纹理（subtextures）来初始化此纹理内存。如果用
 // 户尝试将纹理图像的未初始化部分应用到图元，则图像是未定义的。GL_STENCIL_INDEX 仅当 GL 版本为
 // 4.4 或更高时才能用于 format。
+
+// void glTexStorage2D( // 同时指定二维纹理或一维数组纹理所有级别的存储
+//      GLenum target, // 纹理对象绑定的目标纹理
+//      GLsizei levels, // 纹理级别数量
+//      GLenum internalformat, // 指定用于存储纹理图像数据的带尺寸内部格式
+//      GLsizei width, // 指定纹理的宽度，以纹素为单位
+//      GLsizei height); // 指定纹理的高度，以纹素为单位
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                          ✔    ✔    ✔    ✔    ✔
+//
+// void glTextureStorage2D( // 同时指定二维纹理或一维数组纹理所有级别的存储
+//      GLuint texture, // 纹理对象句柄
+//      GLsizei levels, // 纹理级别数量
+//      GLenum internalformat, // 指定用于存储纹理图像数据的带尺寸内部格式
+//      GLsizei width, // 指定纹理的宽度，以纹素为单位
+//      GLsizei height); // 指定纹理的高度，以纹素为单位
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// 错误 GL_INVALID_ENUM：
+//      internalformat 不是有效的带尺寸内部格式
+//      target 或 texture 的有效目标不是可接受的目标之一
+// 错误 GL_INVALID_VALUE：
+//      width、height 或 levels 小于 1
+// 错误 GL_INVALID_OPERATION：
+//      target 绑定为零，则 glTexStorage2D 生成 GL_INVALID_OPERATION
+//      texture 不是现有纹理对象的名称，则 glTextureStorage2D 生成 GL_INVALID_OPERATION
+//      target 为 GL_TEXTURE_1D_ARRAY 或 GL_PROXY_TEXTURE_1D_ARRAY 且 levels 大于 ⌊log₂(width)⌋+1
+//      target 不是 GL_TEXTURE_1D_ARRAY 或 GL_PROXY_TEXTURE_1D_ARRAY 且 levels 大于 ⌊log₂(max(width, height))⌋+1
+//
+// 使用 glTexStorage*() 可以为纹理创建不可变的固定存储，glTexStorage*() 只允许单采样纹理
+// 存储，多重采样纹理需要使用 glTexStorage*Multisample() 系列函数。纹理的存储属性，即在指
+// 定的分辨率（有选择的内部格式决定）下，所有级别的 mipmap 所需的所有纹素数据的内存需求总
+// 和。使用这些函数进行分配后，不能重新定义存储，这被认为是 OpenGL 的最好实现。OpenGL 实
+// 现假设纹理对象的格式和大小在它的声明周期内不会改变，因此可以停止跟踪纹理对象的某些方面。
+// 注意，这只是存储属性不可改变，纹理的内容是可以改变的，通过 glTexSubImage*() 系列函数。
+//
+// glTexStorage2D 和 glTextureStorage2D 同时指定二维纹理或一维纹理数组所有级别的存储需求。
+// 一旦使用此命令指定纹理，所有级别的格式和维度将变为不可变的，除非它是代理纹理。图像的内
+// 容仍然可以修改，但其存储需求不能更改。此类纹理称为不可变格式纹理。
+//
+// glTexStorage2D 的行为取决于 target 参数。当 target 为以下格式时，调用 glTexStorage2D 等
+// 效于（假设未生成错误）执行以下伪代码：
+//      GL_TEXTURE_2D
+//      GL_PROXY_TEXTURE_2D
+//      GL_TEXTURE_RECTANGLE
+//      GL_PROXY_TEXTURE_RECTANGLE
+//      GL_PROXY_TEXTURE_CUBE_MAP
+//
+//      for (i = 0; i < levels; i++) {
+//          glTexImage2D(target, i, internalformat, width, height, 0, format, type, NULL);
+//          width = max(1, (width / 2));
+//          height = max(1, (height / 2));
+//      }
+//
+// 当 target 为 GL_TEXTURE_CUBE_MAP 时，glTexStorage2D 等效于：
+//      for (i = 0; i < levels; i++) {
+//          for (face in (+X, -X, +Y, -Y, +Z, -Z)) {
+//              glTexImage2D(face, i, internalformat, width, height, 0, format, type, NULL);
+//          }
+//          width = max(1, (width / 2));
+//          height = max(1, (height / 2));
+//      }
+//
+// 当 target 为 GL_TEXTURE_1D_ARRAY 或 GL_PROXY_TEXTURE_1D_ARRAY 时，glTexStorage2D 等效于：
+//      for (i = 0; i < levels; i++) {
+//          glTexImage2D(target, i, internalformat, width, height, 0, format, type, NULL);
+//          width = max(1, (width / 2));
+//      }
+//
+// 调用 glTextureStorage2D 等效于上述伪代码，其中 target 是 texture 的有效目标，并且就好像
+// texture 已绑定到 target 以用于 glTexImage2D 的目的。由于实际上未提供纹理数据，伪代码中使
+// 用的 format 和 type 值无关紧要，可以被视为对所选 internalformat 枚举值合法的任何值。
+//
+// internalformat 必须是带尺寸内部格式之一、带尺寸深度分量格式 GL_DEPTH_COMPONENT32F、GL_DEPTH_COMPONENT24
+// 或 GL_DEPTH_COMPONENT16 之一、组合深度模板格式 GL_DEPTH32F_STENCIL8 或 GL_DEPTH24_STENCIL8
+// 之一，或仅模板格式 GL_STENCIL_INDEX8。成功时，GL_TEXTURE_IMMUTABLE_FORMAT 的值变为 GL_TRUE。
+// 可以通过调用 glGetTexParameter 并将 pname 设置为 GL_TEXTURE_IMMUTABLE_FORMAT 来发现 GL_TEXTURE_IMMUTABLE_FORMAT
+// 的值。不得对纹理对象的维度或格式进行进一步更改。使用任何可能更改纹理对象的维度或格式的命令
+// （例如 glTexImage2D 或对 glTexStorage2D 的另一次调用）将导致生成 GL_INVALID_OPERATION 错误，
+// 即使它实际上不会更改对象的维度或格式。注意，GL_STENCIL_INDEX8 仅在 GL 版本为 4.4 或更高版本
+// 时才被 internalformat 接受。
+
+// void glTexStorage2DMultisample( // 指定二维多重采样纹理的存储
+//      GLenum target, // 纹理对象绑定到的目标，必须是 GL_TEXTURE_2D_MULTISAMPLE 或 GL_PROXY_TEXTURE_2D_MULTISAMPLE
+//      GLsizei samples, // 指定纹理中的采样数
+//      GLenum internalformat, // 指定用于存储纹理图像数据的带尺寸内部格式
+//      GLsizei width, // 指定纹理的宽度，以纹素为单位
+//      GLsizei height, // 指定纹理的高度，以纹素为单位
+//      GLboolean fixedsamplelocations); // 指定图像是否对所有纹素使用相同的采样位置和相同数量的采样，且采样位置不依赖于图像的内部格式或大小
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                               ✔    ✔    ✔    ✔
+//
+// void glTextureStorage2DMultisample( // 指定二维多重采样纹理的存储
+//      GLuint texture, // 纹理对象句柄，texture 的有效目标必须是上述有效的非代理目标值之一
+//      GLsizei samples, // 指定纹理中的采样数
+//      GLenum internalformat, // 指定用于存储纹理图像数据的带尺寸内部格式
+//      GLsizei width, // 指定纹理的宽度，以纹素为单位
+//      GLsizei height, // 指定纹理的高度，以纹素为单位
+//      GLboolean fixedsamplelocations); // 指定图像是否对所有纹素使用相同的采样位置和相同数量的采样，且采样位置不依赖于图像的内部格式或大小
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// 错误 GL_INVALID_ENUM：
+//      internalformat 不是有效的可渲染颜色、可渲染深度或可渲染模板格式
+//      target 或 texture 的有效目标不是可接受的目标之一
+// 错误 GL_INVALID_VALUE：
+//      width 或 height 小于 1 或大于 GL_MAX_TEXTURE_SIZE 的值
+//      samples 为零
+// 错误 GL_INVALID_OPERATION：
+//      target 绑定为零，则 glTexStorage2DMultisample 生成 GL_INVALID_OPERATION
+//      texture 不是现有纹理对象的名称，则 glTextureStorage2DMultisample 生成 GL_INVALID_OPERATION
+//      samples 大于此目标和 internalformat 支持的最大采样数
+//      绑定到 target 的纹理的 GL_TEXTURE_IMMUTABLE_FORMAT 值不是 GL_FALSE
+//
+// glTexStorage2DMultisample 和 glTextureStorage2DMultisample 指定二维多重采样纹理的存储需求。
+// 一旦使用此命令指定纹理，其格式和维度将变为不可变的，除非它是代理纹理。图像的内容仍然可以修
+// 改，但其存储需求不能更改。此类纹理称为不可变格式纹理。
+//
+// samples 指定用于纹理的采样数，必须大于零且小于或等于 GL_MAX_SAMPLES 的值。internalformat 必
+// 须是可渲染颜色、可渲染深度或可渲染模板的格式。width 和 height 分别指定纹理的宽度和高度。如果
+// fixedsamplelocations 为 GL_TRUE，则图像将对所有纹素使用相同的采样位置和相同数量的采样，且采
+// 样位置不依赖于图像的内部格式或大小。
+//
+// void glTexImage2DMultisample( // 建立多重采样纹理图像的数据存储、格式、维度和采样数
+//      GLenum target, // target 必须是 GL_TEXTURE_2D_MULTISAMPLE 或 GL_PROXY_TEXTURE_2D_MULTISAMPLE
+//      GLsizei samples, // 多重采样纹理图像中的采样数
+//      GLenum internalformat, // 用于存储多重采样纹理图像的内部格式，必须指定可渲染颜色、可渲染深度或可渲染模板格式
+//      GLsizei width, // 多重采样纹理图像的宽度，以纹素为单位
+//      GLsizei height, // 多重采样纹理图像的高度，以纹素为单位
+//      GLboolean fixedsamplelocations); // 指定图像是否对所有纹素使用相同的采样位置和相同数量的采样，且采样位置不依赖于图像的内部格式或大小
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                      ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// 错误 GL_INVALID_VALUE：
+//      width 或 height 为负数或大于 GL_MAX_TEXTURE_SIZE
+//      samples 为零
+// 错误 GL_INVALID_OPERATION：
+//      internalformat 是可渲染深度或可渲染模板格式且 samples 大于 GL_MAX_DEPTH_TEXTURE_SAMPLES 的值
+//      internalformat 是可渲染颜色格式且 samples 大于 GL_MAX_COLOR_TEXTURE_SAMPLES 的值
+//      internalformat 是有符号或无符号整数格式且 samples 大于 GL_MAX_INTEGER_SAMPLES 的值
+//      samples 大于此目标和 internalformat 支持的最大采样数
+//
+// 参数 width 和 height 是纹理的维度（以纹素为单位），必须在零到 GL_MAX_TEXTURE_SIZE 值减一
+// 的范围内。samples 指定图像中的采样数，必须在零到 GL_MAX_SAMPLES 值减一的范围内。
+//
+// 如果 fixedsamplelocations 为 GL_TRUE，则图像将对所有纹素使用相同的采样位置和相同数量的采
+// 样，且采样位置不依赖于图像的内部格式或大小。当在着色器中访问多重采样纹理时，访问需要一个
+// 整数向量来描述要获取哪个纹素，以及一个对应于采样号的整数来描述要获取纹素内的哪个采样。不
+// 允许对多重采样纹理目标使用标准采样指令。
+//
+// 因为不能为多重采样纹理设置初始数据，诸如 glTexSubImage2D 等函数不能用来更新多重采样纹理的
+// 内容，把数据放进多重采样纹理的唯一办法时把它与帧缓存对象关联并渲染它。
+
+// void glTexSubImage2D( // 指定二维纹理子图像
+//      GLenum target, // 纹理绑定的目标类型
+//      GLint level, // 指定细节级别数，级别 0 是基础图像级别，级别 n 是第 n 级 mipmap 缩减图像
+//      GLint xoffset, // 指定纹理数组中 x 方向的纹素偏移量
+//      GLint yoffset, // 指定纹理数组中 y 方向的纹素偏移量
+//      GLsizei width, // 指定纹理子图像的宽度
+//      GLsizei height, // 指定纹理子图像的高度
+//      GLenum format, // 指定提供的像素数据的格式
+//      GLenum type, // 指定像素数据的数据类型
+//      const void *pixels); // 指向内存中图像数据的指针
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//  ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔    ✔
+//
+// void glTextureSubImage2D( // 指定二维纹理子图像
+//      GLuint texture, // 纹理对象名称，其有效目标必须是有效目标值之一
+//      GLint level, // 指定细节级别数，级别 0 是基础图像级别，级别 n 是第 n 级 mipmap 缩减图像
+//      GLint xoffset, // 指定纹理数组中 x 方向的纹素偏移量
+//      GLint yoffset, // 指定纹理数组中 y 方向的纹素偏移量
+//      GLsizei width, // 指定纹理子图像的宽度
+//      GLsizei height, // 指定纹理子图像的高度
+//      GLenum format, // 指定提供的像素数据的格式
+//      GLenum type, // 指定像素数据的数据类型
+//      const void *pixels); // 指向内存中图像数据的指针
+//
+// 2.0  2.1  3.0  3.1  3.2  3.3  4.0  4.1  4.2  4.3  4.4  4.5  4.6
+//                                                         ✔    ✔
+//
+// 错误 GL_INVALID_ENUM：
+//      target 或 texture 的有效目标不是有效的目标之一
+//      format 不是可接受的格式常量
+//      type 不是类型常量
+// 错误 GL_INVALID_VALUE：
+//      level 小于 0
+//      level 大于 log₂ max，其中 max 是 GL_MAX_TEXTURE_SIZE 的返回值
+//      xoffset < −b、xoffset+width > (w−b)、yoffset < −b 或 (yoffset+height) > (h−b)，其中 w 是 GL_TEXTURE_WIDTH，h 是 GL_TEXTURE_HEIGHT，b 是被修改的纹理图像的边框宽度，注意 w 和 h 包括边框宽度的两倍
+//      width 或 height 小于 0
+// 错误 GL_INVALID_OPERATION：
+//      glTextureSubImage2D 的 texture 不是现有纹理对象的名称
+//      纹理数组尚未通过之前的 glTexImage2D 操作定义
+//      type 是 GL_UNSIGNED_BYTE_3_3_2、GL_UNSIGNED_BYTE_2_3_3_REV、GL_UNSIGNED_SHORT_5_6_5 或 GL_UNSIGNED_SHORT_5_6_5_REV 之一，且 format 不是 GL_RGB
+//      type 是 GL_UNSIGNED_SHORT_4_4_4_4、GL_UNSIGNED_SHORT_4_4_4_4_REV、GL_UNSIGNED_SHORT_5_5_5_1、GL_UNSIGNED_SHORT_1_5_5_5_REV、GL_UNSIGNED_INT_8_8_8_8、GL_UNSIGNED_INT_8_8_8_8_REV、GL_UNSIGNED_INT_10_10_10_2 或 GL_UNSIGNED_INT_2_10_10_10_REV 之一，且 format 既不是 GL_RGBA 也不是 GL_BGRA
+//      format 为 GL_STENCIL_INDEX 且基本内部格式不是 GL_STENCIL_INDEX
+//      在指定纹理图像时，有非零缓冲区对象名称绑定到 GL_PIXEL_UNPACK_BUFFER 目标，且该缓冲区对象的数据存储当前已映射
+//      在指定纹理图像时，有非零缓冲区对象名称绑定到 GL_PIXEL_UNPACK_BUFFER 目标，且从缓冲区对象解包数据所需的内存读取会超出数据存储大小
+//      在指定纹理图像时，有非零缓冲区对象名称绑定到 GL_PIXEL_UNPACK_BUFFER 目标，且 pixels 不能被 type 指示的内存中一个数据项所需字节数整除
+//
+// 参数 target 指定 glTexSubImage2D 中纹理绑定到的目标，必须是以下之一：
+//      GL_TEXTURE_2D
+//      GL_TEXTURE_CUBE_MAP_POSITIVE_X
+//      GL_TEXTURE_CUBE_MAP_NEGATIVE_X
+//      GL_TEXTURE_CUBE_MAP_POSITIVE_Y
+//      GL_TEXTURE_CUBE_MAP_NEGATIVE_Y
+//      GL_TEXTURE_CUBE_MAP_POSITIVE_Z
+//      GL_TEXTURE_CUBE_MAP_NEGATIVE_Z
+//      GL_TEXTURE_1D_ARRAY
+//
+// 参数 format 指定提供的像素数据的格式。接受以下符号值：
+//      GL_RED
+//      GL_RG
+//      GL_RGB
+//      GL_BGR
+//      GL_RGBA
+//      GL_BGRA
+//      GL_DEPTH_COMPONENT
+//      GL_STENCIL_INDEX
+//
+// 参数 type 指定像素数据的数据类型。接受以下符号值：
+//      GL_UNSIGNED_BYTE
+//      GL_BYTE
+//      GL_UNSIGNED_SHORT
+//      GL_SHORT
+//      GL_UNSIGNED_INT
+//      GL_INT
+//      GL_FLOAT
+//      GL_UNSIGNED_BYTE_3_3_2
+//      GL_UNSIGNED_BYTE_2_3_3_REV
+//      GL_UNSIGNED_SHORT_5_6_5
+//      GL_UNSIGNED_SHORT_5_6_5_REV
+//      GL_UNSIGNED_SHORT_4_4_4_4
+//      GL_UNSIGNED_SHORT_4_4_4_4_REV
+//      GL_UNSIGNED_SHORT_5_5_5_1
+//      GL_UNSIGNED_SHORT_1_5_5_5_REV
+//      GL_UNSIGNED_INT_8_8_8_8
+//      GL_UNSIGNED_INT_8_8_8_8_REV
+//      GL_UNSIGNED_INT_10_10_10_2
+//      GL_UNSIGNED_INT_2_10_10_10_REV
+//
+// 纹理贴图将指定纹理图像的一部分映射到每个启用了纹理的图形图元上。glTexSubImage2D 和
+// glTextureSubImage2D 重新定义现有二维或一维数组纹理图像的连续子区域。pixels 引用的纹素
+// 替换现有纹理数组中 x 索引为 xoffset 到 xoffset+width−1（含）且 y 索引为 yoffset 到
+// yoffset+height−1（含）的部分。此区域不得包含原始指定纹理数组范围之外的任何纹素。指定
+// 宽或高为零的子纹理不是错误，但此类规范无效。
+//
+// 如果在指定纹理图像时，有非零命名缓冲区对象绑定到 GL_PIXEL_UNPACK_BUFFER 目标（参见
+// glBindBuffer），则 pixels 被视为缓冲区对象数据存储中的字节偏移量。注意，glPixelStore
+// 模式会影响纹理图像。
+//
+// glTexSubImage2D 和 glTextureSubImage3D 为通过 glActiveTexture 指定的当前纹理单元指定
+// 二维子纹理。GL_STENCIL_INDEX 仅在 GL 版本为 4.4 或更高版本时才被 format 接受。
 
 // void glTexParameteri(GLenum target, GLenum pname, GLint param); // 设置纹理参数
 // void glTexParameteriv(GLenum target, GLenum pname, const GLint *params);
@@ -5190,8 +5480,6 @@ extern "C" {
 /// WINDOW STYLE USER INTERFACE
 ///
 
-// https://learn.microsoft.com/en-us/windows/win32/intl/uniscribe-glossary
-//
 // Can get look-and-feel hints from the underlying operating system, so it never
 // seems out of place. Is adaptable to the different form factors and resolution
 // ranges. Has good standard support for high contrast and other similar display
@@ -5231,8 +5519,6 @@ extern "C" {
 //  Badge
 //  PixelCanvas
 //
-// 风格，审美，启示，观感，真实
-//
 // https://without.boats/blog/futures-unordered/
 // https://without.boats/blog/let-futures-be-futures/
 //
@@ -5248,6 +5534,8 @@ extern "C" {
 // https://learn.microsoft.com/en-us/windows/win32/api/_opengl/
 // https://learn.microsoft.com/en-us/windows/win32/OpenGL/opengl
 // https://learn.microsoft.com/en-us/windows/win32/opengl/opengl-reference
+
+
 
 #endif // PRH_GRAPHIC_IMPLEMENTATION
 
