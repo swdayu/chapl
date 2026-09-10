@@ -5657,7 +5657,7 @@ extern "C" {
 
 //////////////////////////////////////////////////////////////////////////////
 ///
-/// WINDOW STYLE USER INTERFACE
+/// WINDOWS OPENGL CONTEXT AND USER INTERFACE
 ///
 
 // Can get look-and-feel hints from the underlying operating system, so it never
@@ -5715,7 +5715,500 @@ extern "C" {
 // https://learn.microsoft.com/en-us/windows/win32/OpenGL/opengl
 // https://learn.microsoft.com/en-us/windows/win32/opengl/opengl-reference
 
-
+// 一、OpenGL 简介
+//
+// 作为图形硬件的软件接口，OpenGL 会把多维对象渲染到帧缓冲（framebuffer）中。Microsoft 针对 Windows
+// 操作系统实现的 OpenGL 是业界标准的图形软件，程序员可用它创建高质量的静态与动画三维彩色图像。本节
+// 描述的 OpenGL 版本为 1.1。关于在 Windows 上运行的 OpenGL ES，请参见适用于 Windows 应用商店的
+// ANGLE。https://github.com/microsoft/angle/wiki
+//
+// 适用范围。OpenGL 的构建目标是跨硬件和操作系统的兼容性。这种架构使得 OpenGL 程序很容易从一个系统
+// 移植到另一个系统。虽然每个操作系统都有独特要求，但许多程序中的 OpenGL 代码可以原样使用。
+//
+// 面向开发者。OpenGL 面向 C/C++ 程序员，要求熟悉 Windows 图形用户界面以及消息驱动架构。
+//
+// OpenGL 最初由 Silicon Graphics Incorporated（SGI）为其图形工作站开发，它使应用程序能够创建高质量
+// 彩色图像，并且独立于窗口系统、操作系统和硬件。OpenGL Architecture Review Board（ARB）是一个工业联
+// 盟，目前负责定义 OpenGL。ARB 成员包括 Silicon Graphics Incorporated、Microsoft Corporation、Intel、
+// IBM 和 Digital Equipment Corporation。
+//
+// OpenGL 版本 1 的官方参考文档是 OpenGL Architecture Review Board 编写的《OpenGL Reference Manual》
+// （ISBN 0-201-63276-4）。学习 OpenGL 版本 1 的官方指南是 Jackie Neider、Tom Davis 和 Mason Woo 编
+// 写的《OpenGL Programming Guide》（ISBN 0-201-63274-8）。两本书均由 Addison-Wesley 出版。
+//
+// 作为图形硬件的软件接口，OpenGL 的主要目的是把二维和三维对象渲染到帧缓冲中。这些对象被描述为顶点序
+// 列（定义几何对象）或像素序列（定义图像）。OpenGL 对这些数据执行若干处理，将其转换为像素，从而在帧
+// 缓冲中形成最终期望的图像。以下主题从全局角度介绍 OpenGL 的工作方式：
+//  1.  图元与命令：讨论点、线段和多边形作为基本绘图单位，以及命令的处理
+//  2.  OpenGL 图形控制：说明 OpenGL 控制哪些图形操作，不控制哪些操作
+//  3.  执行模型：讨论用于解释 OpenGL 命令的客户端/服务器模型
+//  4.  OpenGL 基本操作：高层描述 OpenGL 如何处理数据，以在帧缓冲中产生相应图像
+//  5.  OpenGL 函数名：介绍 OpenGL 使用的命名约定
+//
+// 图元与命令。OpenGL 在若干可选模式下绘制图元：点、线段或多边形。你可以彼此独立地控制这些模式，也
+// 就是说，设置一个模式不会影响其他模式是否设置，尽管许多模式可能相互作用，最终决定进入帧缓冲的内容。
+// 要指定图元、设置模式并执行其他 OpenGL 操作，你需要以函数调用形式发出命令。
+//
+// 图元由一个或多个顶点定义。顶点可定义一个点、一条线的端点，或两条边相交的多边形角点。与顶点关联的
+// 数据包括顶点坐标、颜色、法线、纹理坐标和边标志；每个顶点及其关联数据都独立、按顺序且以相同方式处
+// 理。唯一例外是：当一组顶点必须被裁剪，使某个图元适配指定区域时，顶点数据可能被修改，并创建新顶点。
+// 裁剪类型取决于这组顶点所表示的图元。
+//
+// 命令总是按接收顺序处理，但命令生效前可能存在不确定延迟。这意味着每个图元都会在后续任何命令生效前
+// 完整绘制；也意味着状态查询命令返回的数据与所有先前已发出 OpenGL 命令的完整执行结果一致。
+//
+// OpenGL 图形控制。OpenGL 让你能够相当直接地控制二维和三维图形的基本操作，包括变换矩阵、光照方程系
+// 数、抗锯齿方法、像素更新运算符等参数的指定。但它不提供描述或建模复杂几何对象的方法。因此，你发出
+// 的 OpenGL 命令指定的是“应如何产生某个结果”（应遵循什么过程），而不是“该结果具体长什么样”。也就是
+// 说，OpenGL 本质上是过程式的，而不是描述式的。完全理解如何使用 OpenGL，有助于了解它执行操作的顺序。
+//
+// 执行模型。OpenGL 命令的解释模型是客户端/服务器模型。应用程序代码（客户端）发出命令，由 OpenGL
+// （服务器）解释和处理。服务器可以与客户端运行在同一台计算机上，也可以运行在不同计算机上。从这个意
+// 义上说，OpenGL 是网络透明的。服务器可以维护多个 OpenGL 上下文，每个上下文都是一个封装的 OpenGL
+// 状态。客户端可以连接到其中任何一个上下文。所需网络协议可通过增强已有协议（如 X Window System 协
+// 议）或使用独立协议来实现。OpenGL 不提供用于获取用户输入的命令。
+//
+// 分配帧缓冲资源的窗口系统，最终控制 OpenGL 命令对帧缓冲的影响。窗口系统决定：
+//  1.  在任何给定时间，OpenGL 可访问帧缓冲的哪些部分
+//  2.  向 OpenGL 传达这些部分是如何构造的
+//
+// 因此，OpenGL 没有用于配置帧缓冲或初始化 OpenGL 的命令。帧缓冲配置在 OpenGL 之外与窗口系统配合完
+// 成，当窗口系统为 OpenGL 渲染分配一个窗口时，OpenGL 初始化即发生。
+//
+// OpenGL 基本操作。下图说明 OpenGL 如何处理数据。如图所示，命令从左侧进入，并依次通过处理管线。有
+// 些命令指定要绘制的几何对象，有些命令控制在各个处理阶段如何处理这些对象。
+//
+//                    .--> Display List
+//                    |       |
+//      Commands -----'-------|----> Evaluator ---> Per-vertex operations ----------> Rasterization --> Per-fragment opertions --> Framebuffer
+//                        ^   |                     & primitive assembly       ^                                                       |
+//                        |   |                                                |         Texture memory                                |
+//                        |   v                                                |              ^                                        |
+//                        '----------------------------> Pixel operations -----'--------------'                                        |
+//                                                               ^                                                                     |
+//      OpenGL 数据处理管线的各阶段                              '---------------------------------------------------------------------'
+//
+// 基本 OpenGL 操作的处理阶段如下：
+//  1.  显示列表：并非所有命令都立即通过管线，你可以选择把其中一些命令累积在显示列表中，留待稍后处理
+//  2.  求值器（Evaluator）：求值器处理阶段提供一种高效方法，通过计算输入值的多项式命令来逼近曲线和
+//      曲面几何
+//  3.  逐顶点操作与图元组装（Per-Vertex operations & Primitive Assembly）：OpenGL 处理几何图元（点、
+//      线段和多边形），它们都由顶点描述。顶点被变换和光照，图元被裁剪到视口，为光栅化做准备。
+//  4.  光栅化：光栅化阶段使用点、线段或多边形的二维描述，生成一系列帧缓冲地址及相关值。每个如此生成
+//      的片段被送入最后阶段：逐片段操作。
+//  5.  逐片段操作：这是数据在作为像素存储到帧缓冲之前执行的最后操作。逐片段操作包括：基于输入的 z
+//      值和先前存储的 z 值进行帧缓冲的条件更新（用于 z 缓冲）；把输入像素颜色与已存储颜色混合；以及
+//      对像素值进行掩码和其他逻辑操作。
+//
+// 数据也可以像素形式而非顶点形式输入。以像素形式描述的数据（例如用于纹理映射的图像）会跳过上述第一
+// 阶段，改为在像素操作阶段按像素处理。像素操作之后，像素数据要么：
+//  1.  存储为纹理内存，供光栅化阶段使用
+//  2.  或被光栅化，使生成片段像由几何数据生成的一样合并到帧缓冲中
+//
+// OpenGL 函数名。许多 OpenGL 函数彼此是变体，差别主要在于参数的数据类型。有些函数差别在于相关参数的
+// 数量，以及这些参数可作为向量指定，还是必须在列表中分别指定。例如，使用 glVertex2f 时，需要提供 x、
+// y 坐标作为 32 位浮点数；使用 glVertex3sv 时，必须为 x、y、z 提供一个包含三个 short（16 位）整数的
+// 数组。后续主题只使用函数基本名。星号表示实际函数名可能比所示内容更多。例如，glVertex* 表示用于指
+// 定顶点的所有函数变体：glVertex2d、glVertex2f、glVertex2i 等。
+//
+// OpenGL 函数的效果会因某些模式是否启用而不同。例如，如果希望光照相关函数产生正确光照的对象，需要启
+// 用光照。要启用特定模式，使用 glEnable 并提供适当常量标识模式（例如 GL_LIGHTING）；要禁用模式，使
+// 用 glDisable。可启用模式的完整列表见 glEnable。
+//
+// OpenGL 处理管线
+//
+// 许多 OpenGL 函数专门用于绘制点、线、多边形和位图等对象。有些函数控制部分绘制发生的方式（如启用抗
+// 锯齿或纹理的函数）。另一些函数专门处理帧缓冲操作。本节主题说明所有 OpenGL 函数如何协同工作，构成
+// OpenGL 处理管线；本节还更仔细地考察数据实际被处理的阶段，并把这些阶段与 OpenGL 函数关联起来。
+//
+// 下图详细展示了 OpenGL 处理管线。对大部分管线而言，你可以看到主要阶段之间有三个垂直箭头。这些箭头
+// 表示顶点，以及可与顶点关联的两类主要数据：颜色值和纹理坐标。还要注意，顶点被组装为图元，再成为片
+// 段，最后成为帧缓冲中的像素。该过程在“顶点、图元、片段和像素”中有更详细讨论。
+//
+//          OpenGL 处理管线
+//          Vertices     Vertex       Normal    Color Index      Texture Coord
+//              |       RasterPos       |            |                 |
+//              |           |           v            v                 v
+//              |           |     .---------.   .---------.   .-----------------.
+//              |           |     | Current |   | Current |   | Current Texture |
+//              |           |     | Normal  |   |  Color  |   |   Coordinates   |
+//              |           |     '---------'   '---------'   '-----------------'
+//              |           |----------|------------|-----------------.     |
+//              |           v          v            |                 |     |
+//              |        .--------------------.     |                 |     |
+//              |        |  ModelView Matrix  |     |                 |     |
+//              |        '--------------------'     |                 |     |
+//              |           |          |------------|-------------.   |     |
+//              |           |----------|------------|---------.   |   |     |
+//              |           |          v            v         v   v   v     |
+//              |           |      .--------------------.  .-------------.  |
+//              |           |----> | Lighting and Color |  | Texture Gen |  |
+//              |           |      '--------------------'  '-------------'  |
+//              |           |                  |                  |<--------'
+//              |           |                  |                  v
+//              |           |                  |           .----------------.
+//              |           |                  |           | Texture Matrix |
+//              |           |                  |           '------.---------'
+//              |           v                  v                  v
+//              v        .--------------------------------------------------.
+//          Primitives   |                Primitive Assembly                |
+//              |        '--------------------------------------------------'
+//              |               |                 |      |
+//              |               v                 v      v
+//              |           .-------------------------------.
+//              |           | Application Specific Clipping |
+//              |           '-------------------------------'                   Read Pixels
+//              |                |                |      |                           ^
+//              |                v                |      |                           |
+//              |         .-------------------.   |      |               DrawPixels  |
+//              |         | Projection Matrix |   |      |                Teximage   |
+//              |         '-------------------'   |      |                    |      |
+//              |                       |         |      |                    |      |
+//              |                       v         v      v                    v      |
+//              |                    .----------------------.         .---------------------.
+//              |                    | View Volume Clipping |         | Pixel storage modes |
+//              |                    '----------------------'         '---------------------'
+//              |                       |         |      |                    |      ^
+//              |                       v         |      |                    |      |
+//              |                 .-------------. |      |                    v      |
+//              |                 | Divide by w | |      |            .----------------------.
+//              |                 |  viewpoint  | |      |            | Pixel transfer modes |
+//              |                 '-------------' |      |            '----------------------'
+//              |           .--------------|      |      |                    |      ^
+//              |           v              v      v      v                    |      |
+//              |      .----------.     .-------------------.                 |      |
+//              v      | Current  |     |                   | <---------------.      |
+//          Fragments  | Raster   | --> |   Rasterization   |                 |      |
+//              |      | Position |     |                   | <-----.         |      |
+//              |      '----------'     '-------------------'       |         |      |
+//              |                                 |                 |         |      |
+//              |                                 v            .---------.    |      |
+//              |                 .-------------------------.  | Texture | <--'      |
+//              v                 | Per-fragment operations |  | memory  |           |
+//            Pixels              '-------------------------'  '---------'           |
+//              |                             |                                      |
+//              |                             v                                      |
+//              |                      .------------.                                |
+//              |                      |   Frame    |                                |
+//              |                      |   buffer   | -------------------------------'
+//              v                      '------------'
+//
+// 顶点。本节主题讨论在上一页“OpenGL 处理管线”所示处理阶段中执行逐顶点操作的 OpenGL 函数。
+//      输入数据
+//      矩阵变换
+//      设置光照和着色
+//      生成纹理坐标
+//      组装图元
+//      顶点参考
+//
+// glBegin glColor* glColorMaterial glEdgeFlag* glEnd glFrontFace glIndex
+// glLight* glLightModel* glLoadIdentity glLoadMatrix* glMaterial*
+// glMatrixMode glMultMatrix* glNormal* glPopMatrix glPushMatrix glRasterPos*
+// glRect* glRotate* glScale* glShadeModel glTexCoord* glTexGen* glTranslate*
+// glVertex*
+//
+// 输入数据。OpenGL 管线要求输入几类数据：
+//  1.  顶点：顶点描述所需几何对象的形状。用 glVertex* 函数配合 glBegin 和 glEnd 创建点、线或多边形；
+//      也可用 glRect 一次描述整个矩形。
+//  2.  边标志：默认情况下，多边形的所有边都是边界边。用 glEdgeFlag* 显式设置边标志。
+//  3.  当前光栅位置：用 glRasterPos* 指定。当前光栅位置用于确定像素和位图绘制操作的光栅坐标。
+//  4.  当前法线：与特定顶点关联的法线向量决定该顶点处曲面在三维空间中的朝向，进而影响该顶点接收多少
+//      光。用 glNormal* 指定法线向量。
+//  5.  当前颜色：顶点颜色与光照条件共同决定最终光照颜色。RGBA 模式用 glColor* 指定颜色；颜色索引模
+//      式用 glIndex*。
+//  6.  当前纹理坐标：用 glTexCoord* 指定。纹理坐标决定对象顶点应关联到纹理贴图中的位置。
+//
+// 注意，调用 glVertex* 时，结果顶点继承当前边标志、法线、颜色和纹理坐标。因此，若要影响结果顶点，
+// 必须在 glVertex* 之前调用 glEdgeFlag*、glNormal*、glColor* 和 glTexCoord*。
+//
+// 矩阵变换。在用于帧缓冲成像之前，顶点和法线由模型视图矩阵和投影矩阵变换。用 glMatrixMode、glMultMatrix*、
+// glRotate*、glTranslate*、glScale* 等函数组合所需变换；也可用 glLoadMatrix* 和 glLoadIdentity 直接
+// 指定矩阵。用 glPushMatrix 和 glPopMatrix 在相应矩阵栈上保存和恢复模型视图矩阵与投影矩阵。
+//
+// 设置光照和着色。除指定颜色和法线向量外，还可用 glLight* 和 glLightModel* 定义所需光照条件，用 glMaterial*
+// 定义所需材质属性。控制光照计算方式的相关函数包括 glShadeModel、glFrontFace 和 glColorMaterial。
+//
+// 生成纹理坐标。除显式提供纹理坐标外，还可用 glTexGen* 让 OpenGL 根据其他顶点数据生成纹理坐标。纹理
+// 坐标指定或生成后，会由纹理矩阵变换。该矩阵使用与矩阵变换相同的函数控制（见“矩阵变换”）。
+//
+// 组装图元。完成所有必要计算后，顶点与每个顶点相关边标志、颜色和纹理信息一起被组装为图元：点、线段
+// 或多边形。
+//
+// 图元。在下一阶段处理中，图元按以下步骤转换为像素片段：
+//  1.  对图元进行适当裁剪
+//  2.  对颜色和纹理数据做必要相应调整，并把相关坐标变换为窗口坐标
+//  3.  光栅化把裁剪后的图元转换为像素片段
+//
+// glBitmap glClipPlane glCullFace glDepthRange glDrawPixels glFog*
+// glFrontFace glFrustum glLineStipple glLineWidth glOrtho
+// glPixelMap* glPixelStore* glPixelTransfer* glPixelZoom
+// glPointSize glPolygonMode glPolygonStipple glRasterPos*
+// glTexEnv* glTexImage1D glTexImage2D glTexParameter* glViewport
+//
+// 裁剪分两步进行：
+//  1.  观察体裁剪/应用特定裁剪：图元组装后立即在观察坐标中被裁剪，以适配你用 glClipPlane 定义的任
+//      何裁剪平面（OpenGL 要求至少支持六个此类应用特定裁剪平面）。
+//  2.  图元由投影矩阵变换到裁剪坐标，并由相应观察体裁剪。该矩阵可由矩阵变换函数控制（见“矩阵变换”），
+//      但通常由 glFrustum 或 glOrtho 指定。
+//
+// 点、线段和多边形在裁剪中处理方式不同：
+//  1.  点若位于裁剪体内则保持原状态，若位于裁剪体外则丢弃
+//  2.  若线段或多边形部分位于裁剪体外，则在裁剪点生成新顶点
+//  3.  对多边形，可能需要在裁剪点生成的新顶点之间构造整条边
+//  4.  对被裁剪的线段和多边形，边标志、颜色和纹理信息会分配给所有新顶点
+//
+// 变换到窗口坐标。裁剪坐标转换为窗口坐标前，会除以 w 值，得到归一化设备坐标。应用于这些归一化坐标
+// 的视口变换产生窗口坐标。用 glDepthRange 和 glViewport 控制视口；视口决定屏幕上显示图像的窗口区域。
+//
+// 光栅化。光栅化是把图元转换为二维图像的过程。图像中的每个点包含颜色、深度和纹理数据等信息。一个点
+// 及其关联信息称为片段。用 glRasterPos* 指定的当前光栅位置，在该阶段以多种方式用于绘制像素和位图。
+// 光栅化点、线段和多边形时会出现不同问题；此外，像素矩形和位图也需要光栅化。
+//
+// 在 OpenGL 中，可用以下函数控制光栅化：
+//  1.  图元：用决定尺寸和花点/花纹模式的函数控制图元光栅化：glPointSize、glLineWidth、glLineStipple、
+//      glPolygonStipple。用 glCullFace、glFrontFace 和 glPolygonMode 控制多边形正面和背面如何光栅化。
+//  2.  像素：若干函数控制像素存储和传输模式。glPixelStore* 控制客户端内存中像素的编码；glPixelTransfer*
+//      和 glPixelMap* 控制像素放入帧缓冲前的处理。用 glDrawPixels 指定像素矩形；用 glPixelZoom 控制
+//      其光栅化。
+//  3.  位图：位图是由 0 和 1 构成的矩形，指定要生成的特定片段模式。每个片段具有相同关联数据。glBitmap
+//      函数指定位图。
+//  4.  纹理内存：启用纹理时，纹理映射会把指定纹理图像的一部分映射到每个图元。该映射通过使用片段纹理
+//      坐标所指示位置处的纹理图像颜色，修改片段的 RGBA 颜色来完成。用 glTexImage2D 或 glTexImage1D
+//      指定纹理图像；glTexParameter* 和 glTexEnv* 控制纹理值如何解释并应用于片段。
+//  5.  雾：要把雾颜色与光栅化片段的纹理后颜色混合，使用一个混合因子，该因子取决于视点和片段之间的距
+//      离。用 glFog* 指定雾颜色和混合因子。
+//
+// 片段。由光栅化生成的片段，只有在通过以下测试后，才会修改帧缓冲中对应像素：
+//  1.  像素归属测试
+//  2.  裁剪测试（scissor test）
+//  3.  Alpha 测试
+//  4.  模板测试
+//  5.  深度缓冲测试
+//
+// 若通过测试，根据某些模式的状态，片段数据可以替换现有帧缓冲值，也可以与帧缓冲中已有数据结合。可通
+// 过以下方式把片段与帧缓冲数据结合：
+//  1.  混合
+//  2.  抖动
+//  3.  逻辑操作
+//
+// glAlphaFunc glBlendFunc glDepthFunc glLogicOp glScissor glStencilFunc glStencilOp
+//
+// 像素归属测试决定当前 OpenGL 上下文是否拥有与特定片段对应的帧缓冲像素。若拥有，片段进入下一测试；
+// 若不拥有，则由窗口系统决定丢弃该片段，或是否对该片段执行进一步片段操作。借助该测试，窗口系统可在
+// OpenGL 窗口被遮挡等情况控制行为。glScissor 测试指定一个任意的屏幕对齐矩形，矩形之外的片段将被丢
+// 弃。Alpha 测试（仅在 RGBA 模式执行）根据片段 alpha 值与常量参考值之间的比较结果丢弃片段。用 glAlphaFunc
+// 指定比较函数和参考值。
+//
+// 模板测试根据模板缓冲中的值与参考值之间的比较结果，有条件地丢弃片段。glStencilFunc 函数指定比较函
+// 数和参考值。无论片段通过还是未通过模板测试，模板缓冲中的值都按 glStencilOp 指定的指令修改。深度缓
+// 冲测试在深度比较失败时丢弃片段；glDepthFunc 指定比较函数。若启用模板，深度比较结果也会影响模板缓
+// 冲更新值。
+//
+// 混合把片段的 R、G、B、A 值与帧缓冲对应位置存储的值结合。混合仅在 RGBA 模式执行，取决于片段 alpha
+// 值和对应已存储像素的 alpha 值，也可能取决于 RGB 值。用 glBlendFunc 控制混合，并指定源混合因子和
+// 目标混合因子。
+//
+// 若启用抖动，会对片段颜色或颜色索引值应用抖动算法。该算法只取决于片段值及其 x、y 窗口坐标。可在片
+// 段与帧缓冲对应位置存储的值之间应用逻辑操作，结果替换当前帧缓冲值。用 glLogicOp 选择所需逻辑操作。
+// 逻辑操作只对颜色索引执行，不对 RGBA 值执行。
+//
+// 像素。片段被转换为帧缓冲中的像素。帧缓冲组织为一组逻辑缓冲：颜色、深度、模板和累积缓冲。颜色缓冲
+// 本身由 front left、front right、back left、back right 以及若干辅助缓冲组成。你可以发出函数控制这
+// 些缓冲，并直接读取或复制其中像素（注意，你使用的特定 OpenGL 上下文可能不会提供所有这些缓冲）。
+//
+// glAccum glClear glClearAccum glClearColor glClearDepth glClearIndex glClearStencil
+// glColorMask glCopyPixels glDepthMask glDrawBuffer glIndexMask
+// glReadBuffer glReadPixels glStencilMask
+//
+// 要选择颜色值写入哪个缓冲，使用 glDrawBuffer。在所有逐片段操作完成后，用四个不同函数掩码写入每个
+// 逻辑帧缓冲的位：
+//      * glIndexMask
+//      * glColorMask
+//      * glDepthMask
+//      * glStencilMask
+//
+// glAccum 函数控制累积缓冲操作。最后，glClear 把指定缓冲子集中的每个像素设置为用 glClearColor、
+// glClearIndex、glClearDepth、glClearStencil 或 glClearAccum 指定的值。
+//
+// 可从帧缓冲把像素读入内存，用不同方式编码，并用 glReadPixels 把编码结果存储到内存。还可用 glCopyPixels
+// 把一块像素值从帧缓冲一个区域复制到另一个区域。glReadBuffer 控制从哪个颜色缓冲读取或复制像素。
+//
+// 使用求值器
+//
+// OpenGL 求值器函数允许使用多项式映射生成顶点、法线、纹理坐标和颜色。这些计算值随后被传入处理管线，
+// 就像它们被直接指定一样。求值器函数也是 NURBS（Non-Uniform Rational B-Spline，非均匀有理 B 样条）
+// 函数的基础；NURBS 可定义曲线和曲面，见“OpenGL Utility 库”。
+//
+// glEvalCoord glEvalMesh glEvalPoint glMap1 glMap2 glMapGrid
+//
+// 使用求值器的第一步是用 glMap* 定义适当的一维或二维多项式映射。随后可用两种方式之一指定并求值该映
+// 射的定义域值：
+//  1.  用 glMapGrid 定义一系列等间距定义域值映射，再用 glEvalMesh 求值该网格的一个矩形子集。网格中单个点可用 glEvalPoint 求值。
+//  2.  显式把所需定义域值作为参数指定，在该值处求值映射。
+//
+// 执行选择和反馈
+//
+// 选择、反馈和渲染是互斥的操作模式。渲染是正常默认模式，在该模式下由光栅化产生片段。在选择和反馈模
+// 式下，不产生片段，因此不发生帧缓冲修改。在选择模式下，你可确定哪些图元将被绘制到窗口某区域；在反
+// 馈模式下，将被光栅化的图元信息会反馈给应用程序。用 glRenderMode 在这三种模式中选择。
+//
+// glRenderMode glInitNames、glLoadName、glPopName、glPushName、glSelectBuffer、gluPickMatrix
+// glFeedbackBuffer、glPassThrough
+//
+// 选择。选择返回名称栈当前内容；名称栈是一个整数名称数组。你在指定要绘制对象几何的建模代码中赋值名
+// 称并构建名称栈。然后，在选择模式下，每当图元与裁剪体相交，就发生一次选择命中。命中记录写入你用
+// glSelectBuffer 提供的选择数组中，包含命中时刻名称栈内容的信息。
+//
+// 注意，在用 glRenderMode 把 OpenGL 置于选择模式之前，先调用 glSelectBuffer。直到你调用 glRenderMode
+// 使 OpenGL 退出选择模式，整个名称栈内容才保证返回。用 glInitNames、glLoadName、glPushName 和 glPopName
+// 操作名称栈。选择也可用 gluPickMatrix。
+//
+// 反馈。在反馈模式下，每个待光栅化图元生成一块值，复制到反馈数组中。用 glFeedbackBuffer 提供该数组；
+// 必须在把 OpenGL 置于反馈模式前调用。每块值以指示图元类型的代码开始，后跟描述图元顶点及关联数据的
+// 值。位图和像素矩形也会写入条目。直到你调用 glRenderMode 使 OpenGL 退出反馈模式，值才保证写入反馈
+// 数组。可用 glPassThrough 提供一个标记，在反馈模式中像图元一样返回。
+//
+// 使用显示列表
+//
+// glCallList glCallLists glDeleteLists glEndList
+// glGenLists glIsList glListBase glNewList
+//
+// 显示列表是一组已存储、供后续执行的 OpenGL 函数。glNewList 函数开始创建显示列表，glEndList 结束创
+// 建。除少数例外，glNewList 和 glEndList 之间调用的 OpenGL 函数会追加到显示列表中（不能在显示列表
+// 中存储并执行的函数列表见 glNewList）。要触发一个或多个列表执行，使用 glCallList 或 glCallLists，
+// 并提供特定列表的标识号。用 glGenLists、glListBase 和 glIsList 管理用于标识显示列表的索引。用
+// glDeleteLists 删除一组显示列表。
+//
+// 模式和执行
+//
+// glDisable glEnable glFinish glFlush glHint glIsEnabled
+//
+// 许多 OpenGL 函数的效果取决于特定模式是否生效。glEnable 和 glDisable 函数设置此类模式；glIsEnabled
+// 决定特定模式是否已设置。可用 glFinish 强制所有先前已发出的 OpenGL 函数完成，或用 glFlush 确保所有
+// 此类函数将在有限时间内完成，从而控制先前已发出 OpenGL 函数的执行。在特定 OpenGL 实现中，可用 glHint
+// 通过提示控制某些行为。这些行为包括：颜色和纹理坐标插值质量、雾计算精度，以及抗锯齿点、线或多边形
+// 的采样质量。
+//
+// 状态信息
+//
+// OpenGL 维护许多影响大量函数行为的状态变量。其中一些变量具有专门查询函数：
+//      * glGetClipPlane
+//      * glGetPixelMap
+//      * glGetTexImage
+//      * glGetLight
+//      * glGetPolygonStipple
+//      * glGetTexLevelParameter
+//      * glGetMap
+//      * glGetTexEnv
+//      * glGetTexParameter
+//      * glGetMaterial
+//      * glGetTexGen
+//
+// 要获得其他状态变量的值，按情况使用 glGetBooleanv、glGetDoublev、glGetFloatv 或 glGetIntegerv。用
+// 法见 glGet。你可能想用的其他查询函数包括 glGetError、glGetString 和 glIsEnabled（错误处理相关函数
+// 更多信息见“处理错误”）。要保存和恢复状态变量集合，使用 glPushAttrib 和 glPopAttrib。
+//
+// 有四个查询函数用于获取简单状态变量，还有一个用于确定特定状态启用或禁用：
+//      * glGetBooleanv
+//      * glGetIntegerv
+//      * glGetFloatv
+//      * glGetDoublev
+//      * glIsEnabled
+//
+// 其他专门函数返回特定状态变量。返回特定状态变量的函数有：
+//      * glGetClipPlane
+//      * glGetError
+//      * glGetLight
+//      * glGetMap
+//      * glGetMaterial
+//      * glGetPixelMap
+//      * glGetPolygonStipple
+//      * glGetString
+//      * glGetTexEnv
+//      * glGetTexGen
+//      * glGetTexImage
+//      * glGetTexLevelParameter
+//      * glGetTexParameter
+//
+// glGet glGetBooleanv glGetClipPlane glGetDoublev glGetError glGetFloatv glGetIntegerv
+// glIsEnabled glGetLight glGetMap glGetMaterial glGetPixelMap glGetPolygonStipple
+// glGetString glGetTexEnv glGetTexGen glGetTexImage glGetTexLevelParameter
+// glGetTexParameter glPopAttrib glPushAttrib
+//
+// 当 OpenGL 检测到错误时，会记录当前错误码。导致错误的函数被忽略，因此对 OpenGL 状态或帧缓冲内容无
+// 影响（但若记录错误为 GL_OUT_OF_MEMORY，函数结果未定义）。记录后，当前错误码直到调用 glGetError 查
+// 询函数返回当前错误码时才清除。OpenGL 实现可返回多个当前错误码，每个错误码保持设置直到被查询。查询
+// 完所有当前错误码后，或若无错误，glGetError 返回 GL_NO_ERROR。因此，若获得错误码，应持续调用 glGetError
+// 直到返回 GL_NO_ERROR，以确保发现所有错误。错误码列表见“OpenGL 错误码”。
+//
+// 可用 GLU 函数 gluErrorString 获取对应于传入错误码的描述字符串。gluErrorString 更多信息见“处理错误”。
+// 注意，GLU 函数检测到错误时常返回错误值。OpenGL Utility 库还定义错误码 GLU_INVALID_ENUM、GLU_INVALID_VALUE
+// 和 GLU_OUT_OF_MEMORY，含义与相关 OpenGL 错误码相同。
+//
+// OpenGL 包括以下错误码：
+//      错误码                  描述
+//      GL_INVALID_ENUM         GLenum 参数超出范围。
+//      GL_INVALID_VALUE        数值参数超出范围。
+//      GL_INVALID_OPERATION    在当前状态下操作非法。
+//      GL_STACK_OVERFLOW       函数将导致栈溢出。
+//      GL_STACK_UNDERFLOW      函数将导致栈下溢。
+//      GL_OUT_OF_MEMORY        内存不足，无法执行函数。
+//
+// 可在属性栈上用 glPushAttrib 和 glPopAttrib 函数保存和恢复一组状态变量的值。属性栈深度至少为 16。
+// 用 glGetIntegerv 查询 GL_MAX_ATTRIB_STACK_DEPTH 获取实际深度。压栈时栈满或弹栈时栈空会产生错误。
+//
+// 通常，使用 glPushAttrib 和 glPopAttrib 比自己获取并恢复值更快。某些值可能在硬件中压栈和弹栈，保
+// 存和恢复它们可能很耗资源。此外，如果你操作的是远程客户端，所有属性数据在保存和恢复时必须通过网络
+// 连接往返传输。但 OpenGL 实现把属性栈保存在服务器上，可避免不必要网络延迟。
+//
+// glPushAttrib 原型为：void glPushAttrib(GLbitfield mask) 。使用 glPushAttrib 会把 mask 中位所指示
+// 的所有属性压入属性栈保存。可逻辑或组合以保存任意属性组合的掩码位列表，见“属性组”。每个位对应一组
+// 独立状态变量。例如，GL_LIGHTING_BIT 指与光照相关的所有状态变量，包括当前材质颜色；环境光、漫反射、
+// 镜面和发射光；已启用光源列表；以及聚光灯方向。调用 glPopAttrib 时，这些变量全部恢复。要确切了解特
+// 定掩码值保存哪些属性，见“OpenGL 状态变量”。
+//
+// 以下主题列出可查询状态变量的名称：
+//      * 当前值与关联数据的状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/state-variables-for-current-values-and-associated-data
+//      * 变换状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/transformation-state-variables
+//      * 着色状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/coloring-state-variables
+//      * 光照状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/lighting-state-variables
+//      * 光栅化状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/rasterization-state-variables
+//      * 纹理状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/texturing-state-variables
+//      * 像素操作 https://learn.microsoft.com/en-us/windows/win32/opengl/pixel-operations
+//      * 帧缓冲控制状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/framebuffer-control-state-variables
+//      * 像素状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/pixel-state-variables
+//      * 求值器状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/evaluator-state-variables
+//      * 提示状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/hint-state-variables
+//      * 实现相关状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/implementation-dependent-state-variables
+//      * 实现相关像素深度状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/implementation-dependent-pixel-depth-state-variables
+//      * 杂项状态变量 https://learn.microsoft.com/en-us/windows/win32/opengl/miscellaneous-state-variables
+//
+// 对每个变量，主题列出描述、属性组、初始值或最小值，以及建议用于获取它的 glGet* 函数。可用 glGetBooleanv、
+// glGetIntegerv、glGetFloatv 或 glGetDoublev 获得的状态变量，只列出其中最适于返回数据类型的一个函数。
+// 不能用 glIsEnabled 获得这些状态变量。但把 glIsEnabled 列为查询函数的状态变量，可用 glGetBooleanv、
+// glGetIntegerv、glGetFloatv 和 glGetDoublev 获得。把任何其他函数列为查询函数的状态变量，只能用该函
+// 数获得。若未列出属性组，则该变量不属于任何组。所有可查询状态变量，除实现相关变量外，都有初始值。
+// 要确定未列初始值变量的初始值，见该变量参考或《OpenGL Reference Manual》。
+//
+// OpenGL Utility 库函数
+//
+// OpenGL Utility（GLU）库包含若干组函数，通过提供辅助特性支持来补充核心 OpenGL 接口。这些实用函数使
+// 用核心 OpenGL 函数，因此任何 OpenGL 实现都保证支持这些实用函数。注意，Utility 库函数前缀是 glu 而
+// 不是 gl。
+//
+// 许多函数已在文档前面章节按其主题出现处描述；此处为完整起见列出。前面章节未讨论的 GLU 函数在此处描
+// 述。这些函数的更详细描述见《OpenGL Reference Manual》。本节按如下分组组织相关 GLU 函数：
+//      * 初始化
+//      * 处理用于纹理的图像
+//      * 坐标变换
+//      * 多边形镶嵌
+//      * 使用回调函数
+//      * 使用镶嵌对象
+//      * 指定回调
+//      * 指定要镶嵌的多边形
+//      * 渲染简单曲面
+//      * 使用 NURBS 曲线和曲面
+//      * 处理错误
 
 #endif // PRH_GRAPHIC_IMPLEMENTATION
 
