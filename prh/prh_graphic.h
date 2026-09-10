@@ -6210,6 +6210,998 @@ extern "C" {
 //      * 使用 NURBS 曲线和曲面
 //      * 处理错误
 
+// 二、Windows 扩展
+//
+// Windows 上的 OpenGL
+//
+// Microsoft 在 Windows 操作系统中的 OpenGL 实现，是业界标准 OpenGL 三维（3-D）图形软件接口的一种实
+// 现，程序员可用它创建高质量的静态和动画 3-D 彩色图像。本概述介绍的是 OpenGL 的 Windows 实现。关于
+// 在 Windows 上运行的 OpenGL ES，请参见 MSOpenTech ANGLE。https://github.com/MSOpenTech/angle/wiki
+//
+// Windows 版 OpenGL 的文档集包含五个要素，前两个要素是官方 OpenGL 图书，不包含在 Microsoft Windows
+// SDK 中。
+//  1.  《OpenGL Reference Manual》包含 OpenGL 工作原理的概述以及一组详细参考页。参考页覆盖全部 115
+//      个不同的 OpenGL 函数，以及 OpenGL Utility（GLU）库中的 43 个函数。
+//  2.  《OpenGL Programming Guide》解释如何使用 OpenGL 创建图形程序。书中讨论以下主要主题，此外，
+//      还包含讨论 OpenGL Utility 库和 OpenGL Programming Guide Auxiliary 库的附录。
+//          * 绘制几何形状
+//          * 像素、位图、字体和图像
+//          * 观察与矩阵变换
+//          * 纹理映射
+//          * 显示列表
+//          * 高级复合技术
+//          * 颜色
+//          * 求值器与 NURBS
+//          * 光照
+//          * 选择与反馈
+//          * 混合、抗锯齿与雾
+//          * 高级技术
+//  3.  第三个文档要素是本概述。它介绍 OpenGL 的 Windows 实现并概述其组件；讨论渲染上下文、像素格式
+//      和缓冲的概念；连接 OpenGL 与 Windows 窗口系统的 WGL 函数；以及支持 OpenGL 图形窗口的逐窗口像
+//      素格式和窗口双缓冲的 Windows 函数。WGL 函数和这些 Windows 函数是 OpenGL Windows 实现特有的。
+//  4.  第四个文档要素是 WGL 函数、刚刚提到的 Windows 函数以及 PIXELFORMATDESCRIPTOR 数据结构的参考
+//      页。
+//  5.  第五个文档要素是移植指南，讨论如何把现有 OpenGL 代码从其他环境迁移到 Windows。
+//
+// Microsoft 在 Windows 中的 OpenGL 实现包括以下组件：
+//  1.  当前完整的 OpenGL 命令集
+//      OpenGL 包含一个用于 3-D 图形操作的核心函数库。这些基本函数用于管理对象形状描述、矩阵变换、
+//      光照、着色、纹理、裁剪、位图、雾和抗锯齿。这些核心函数的名称带有 gl 前缀。许多 OpenGL 命令
+//      有多个变体，区别在于参数的数量和类型。计入所有变体后，OpenGL 命令超过 300 个。
+//  2.  OpenGL Utility（GLU）库
+//      这个辅助函数库补充了核心 OpenGL 函数。这些命令管理纹理支持、坐标变换、多边形三角剖分、球体/
+//      圆柱体/圆盘渲染、NURBS（非均匀有理 B 样条）曲线和曲面，以及错误处理。
+//  3.  OpenGL Programming Guide Auxiliary 库，该库在《OpenGL Programming Guide》中有描述并被使用
+//      这是一个简单的、平台无关的函数库，用于管理窗口、处理输入事件、绘制经典 3-D 对象、管理后台进
+//      程以及运行程序。窗口管理和输入例程提供了一层基础功能，可让你快速开始在 OpenGL 中编程。但不要
+//      在生产应用中使用它们。警告原因如下：
+//          * 消息循环位于库代码中
+//          * 无法为额外的 WM* 消息添加处理程序
+//          * 对逻辑调色板的支持很少
+//  4.  WGL 函数
+//      这组函数把 OpenGL 连接到 Windows 窗口系统。这些函数管理渲染上下文、显示列表、扩展函数和字体
+//      位图。WGL 函数类似于把 OpenGL 连接到 X Window System 的 GLX 扩展。这些函数的名称带有 wgl 前
+//      缀。
+//  5.  用于像素格式和双缓冲的新 Windows 函数
+//      这些函数支持 OpenGL 图形窗口的逐窗口像素格式和双缓冲（用于平滑图像变化）。这些新函数仅适用
+//      于 OpenGL 图形窗口。
+//
+// 本概述讨论的是 Windows 中 OpenGL 的当前通用实现。硬件厂商可能会在其驱动程序中增强 OpenGL 的某些
+// 部分，并可能支持通用实现不支持的一些特性。通用实现有以下限制：
+//  1.  打印
+//      只能通过元文件把 OpenGL 图像直接打印到打印机。更多信息请参见“Printing an OpenGL Image”。
+//      https://learn.microsoft.com/en-us/windows/win32/opengl/printing-an-opengl-image
+//  2.  OpenGL 与 GDI 图形不能在双缓冲窗口中混用
+//      应用可以直接在单缓冲窗口中同时绘制 OpenGL 图形和 GDI 图形，但不能在双缓冲窗口中这样做。
+//  3.  没有逐窗口硬件颜色调色板
+//      Windows 只有一个系统硬件调色板，应用于整个屏幕。OpenGL 窗口不能拥有自己的硬件调色板，但可以
+//      拥有自己的逻辑调色板。为此，它必须成为能感知调色板（palette-aware）的应用。更多信息请参见
+//      “OpenGL Color Modes and Windows Palette Management”。
+//      https://learn.microsoft.com/en-us/windows/win32/opengl/opengl-color-modes-and-windows-palette-management
+//  4.  不直接支持剪贴板、动态数据交换（DDE）或 OLE
+//      带有 OpenGL 图形的窗口不直接支持这些 Windows 能力。不过，使用剪贴板有变通方法。更多信息请参
+//      见“Copying an OpenGL Image to the Clipboard”。
+//      https://learn.microsoft.com/en-us/windows/win32/opengl/copying-an-opengl-image-to-the-clipboard
+//  5.  不包含 Inventor 2.0 C++ 类库。
+//      Inventor 类库构建在 OpenGL 之上，为 3-D 图形编程提供更高层构造。它不包含在当前 Microsoft
+//      Windows OpenGL 实现中。
+//  6.  不支持以下像素格式特性：立体图像、alpha 位平面和辅助缓冲（auxiliary buffers）。
+//      不过，它支持若干附属缓冲（ancillary buffers），包括：模板缓冲、累积缓冲、后缓冲（双缓冲）、
+//      覆盖层和下层平面缓冲（overlay and underlay plane buffer），以及深度（z 轴）缓冲。
+//
+// 渲染上下文。OpenGL 渲染上下文是所有 OpenGL 命令通过的端口。每个进行 OpenGL 调用的线程都必须拥有
+// 当前渲染上下文。渲染上下文把 OpenGL 链接到 Windows 窗口系统。应用在创建渲染上下文时要指定一个
+// Windows 设备上下文。该渲染上下文适合在指定设备上下文所引用的设备上绘制。特别地，渲染上下文与设备
+// 上下文具有相同的像素格式。更多信息请参见“Rendering Context Functions”。
+// https://learn.microsoft.com/en-us/windows/win32/opengl/rendering-context-functions
+//
+// 尽管存在这种关系，渲染上下文并不等同于设备上下文。设备上下文包含与 Windows 图形组件（GDI）相关的
+// 信息；渲染上下文包含与 OpenGL 相关的信息。设备上下文必须在 GDI 调用中显式指定；而渲染上下文在
+// OpenGL 调用中是隐含的。你应当在创建渲染上下文之前设置设备上下文的像素格式。
+//
+// 进行 OpenGL 调用的线程必须拥有当前渲染上下文。如果应用从一个没有当前渲染上下文的线程进行 OpenGL
+// 调用，什么也不会发生；该调用无效。应用通常会创建一个渲染上下文，将其设为线程的当前渲染上下文，然
+// 后调用 OpenGL 函数。当完成 OpenGL 函数调用后，应用把渲染上下文与线程解耦，然后删除渲染上下文。一
+// 个窗口可以同时有多个渲染上下文向它绘制，但一个线程只能有一个当前活动的渲染上下文。
+//
+// 当前渲染上下文有一个关联的设备上下文。该设备上下文不必与创建渲染上下文时使用的设备上下文相同，但
+// 它必须引用同一设备并具有相同像素格式。一个线程只能有一个当前渲染上下文；一个渲染上下文也只能在一
+// 个线程中处于当前状态。
+//
+// 有五个 WGL 函数管理渲染上下文，如下表所示。
+//      WGL 函数                描述
+//      wglCreateContext        创建新渲染上下文
+//      wglMakeCurrent          设置线程的当前渲染上下文
+//      wglGetCurrentContext    获取线程当前渲染上下文的句柄
+//      wglGetCurrentDC         获取与线程当前渲染上下文关联的设备上下文句柄
+//      wglDeleteContext        删除渲染上下文
+//
+// wglCreateContext 函数接受一个设备上下文句柄作为参数，并返回一个渲染上下文句柄。所创建的渲染上下
+// 文适合在设备上下文句柄所引用的设备上绘制。特别地，其像素格式与设备上下文的像素格式相同。创建渲染
+// 上下文后，可以释放或处置该设备上下文。关于创建、获取、释放和处置设备上下文的更多细节，请参见
+// “Device Contexts”。https://learn.microsoft.com/en-us/windows/desktop/gdi/device-contexts
+//
+// 注意，传给 wglCreateContext 的设备上下文必须是显示设备上下文、内存设备上下文，或使用每像素 4 位
+// 或更多位的彩色打印机设备上下文。该设备上下文不能是单色打印机设备上下文。
+//
+// wglMakeCurrent 函数接受渲染上下文句柄和设备上下文句柄作为参数。此后该线程进行的所有 OpenGL 调用
+// 都通过该渲染上下文完成，并绘制到该设备上下文所引用的设备上。该设备上下文不必与创建渲染上下文时传
+// 给 wglCreateContext 的同一个，但它必须在同一设备上并具有相同像素格式。调用 wglMakeCurrent 会在所
+// 提供的渲染上下文和设备上下文之间建立关联。在渲染上下文仍为当前状态之前，不能释放或处置与其关联的
+// 设备上下文。
+//
+// 一旦线程拥有当前渲染上下文，就可以进行 OpenGL 图形调用。所有调用都必须通过渲染上下文。如果在一个
+// 没有当前渲染上下文的线程中进行 OpenGL 图形调用，什么也不会发生。
+//
+// wglGetCurrentContext 函数不接受参数，返回调用线程当前渲染上下文的句柄。如果该线程没有当前渲染上
+// 下文，则返回值为 NULL。当通过调用 wglGetCurrentDC 获取与线程当前渲染上下文关联的设备上下文句柄
+// 时，该关联是在渲染上下文变为当前状态时建立的。
+//
+// 可以通过用以下两种句柄之一调用 wglMakeCurrent 来断开当前渲染上下文与线程之间的关联：
+//  1.  空渲染上下文句柄
+//  2.  最初调用时句柄以外的句柄
+//
+// 在用渲染上下文句柄参数设为 NULL 调用 wglMakeCurrent 后，调用线程将没有当前渲染上下文。渲染上下文
+// 会解除与线程的连接，其与设备上下文的关联也结束。OpenGL 会刷新所有绘图命令，并可能释放一些资源。在
+// 下一次调用 wglMakeCurrent 之前不会进行 OpenGL 绘制，因为在线程重新获得当前渲染上下文之前无法进行
+// OpenGL 图形调用。
+//
+// 断开渲染上下文与线程之间关联的第二种方法，是用不同的渲染上下文调用 wglMakeCurrent。这样的调用之
+// 后，调用线程拥有新的当前渲染上下文，原当前渲染上下文解除与线程的连接，并且原当前渲染上下文与设备
+// 上下文的关联结束。
+//
+// wglDeleteContext 函数接受单个参数，即要删除的渲染上下文句柄。在调用 wglDeleteContext 之前，应先
+// 调用 wglMakeCurrent 使渲染上下文不再处于当前状态，并通过调用 DeleteDC 或 ReleaseDC（视情况而定）
+// 删除或释放关联的设备上下文。
+//
+// 线程删除作为另一个线程当前渲染上下文的渲染上下文是错误的。但是，如果渲染上下文是调用线程的当前渲
+// 染上下文，wglDeleteContext 会刷新所有 OpenGL 绘图命令，并在删除前使其不再处于当前状态。在这种情况
+// 下，如果依赖 wglDeleteContext 使渲染上下文变为非当前状态，程序员需要删除或释放关联的设备上下文。
+//
+// 像素格式。像素格式指定 OpenGL 绘图表面的若干属性。像素格式指定的部分属性包括：
+//  1.  像素缓冲是单缓冲还是双缓冲
+//  2.  像素数据是 RGBA 形式还是颜色索引形式
+//  3.  用于存储颜色数据的位数
+//  4.  深度（z 轴）缓冲使用的位数
+//  5.  模板缓冲使用的位数
+//  6.  覆盖层和下层平面的数量
+//  7.  各种可见性掩码
+//
+// Microsoft 的 Windows OpenGL 实现使用 PIXELFORMATDESCRIPTOR 数据结构来传达像素格式数据。该结构的
+// 成员指定上述属性以及其他若干属性。给定设备上下文可以支持多种像素格式。Windows 用连续的一基索引值
+// （1、2、3、4 等）标识设备上下文支持的像素格式。设备上下文只能有一种当前像素格式，从其支持的像素
+// 格式集合中选择。
+//
+// 在 Windows 的 OpenGL 中，每个窗口都有自己的当前像素格式。这意味着，例如应用可以同时显示 RGBA 和
+// 颜色索引 OpenGL 窗口，或单缓冲和双缓冲 OpenGL 窗口。这种逐窗口像素格式能力仅限于 OpenGL 窗口。
+//
+// 典型做法是：获取设备上下文，设置设备上下文的像素格式，然后创建适合该设备的 OpenGL 渲染上下文。注
+// 意，要先设置像素格式再创建渲染上下文，因为渲染上下文会继承设备上下文的像素格式。
+//
+// 以下是 Windows 像素格式管理函数：
+//      Windows 函数                描述
+//      ChoosePixelFormat           获取设备上下文的像素格式中，与指定像素格式最接近的匹配项
+//      SetPixelFormat              将设备上下文的当前像素格式设置为像素格式索引指定的像素格式
+//      GetPixelFormat              获取设备上下文当前像素格式的像素格式索引
+//      DescribePixelFormat         给定设备上下文和像素格式索引，用像素格式的属性填充 PIXELFORMATDESCRIPTOR 数据结构
+//      GetEnhMetaFilePixelFormat   检索增强型元文件的像素格式信息
+//
+// ChoosePixelFormat 函数返回一个一基像素格式索引，标识设备上下文支持的最佳匹配像素格式。SetPixelFormat
+// 函数使用一基像素格式索引来标识所需格式。通常先调用 ChoosePixelFormat 找到最佳匹配像素格式，然后用
+// ChoosePixelFormat 的结果调用 SetPixelFormat。如果对引用窗口的设备上下文调用 SetPixelFormat，SetPixelFormat
+// 也会更改该窗口的像素格式。多次设置窗口像素格式会给窗口管理器和多线程应用带来显著复杂性，因此不允
+// 许这样做。窗口像素格式只能设置一次，之后不能更改该窗口的像素格式。
+//
+// GetPixelFormat 函数返回一个一基像素格式索引。DescribePixelFormat 函数接受以下参数，DescribePixelFormat
+// 函数返回时，PIXELFORMATDESCRIPTOR 的成员会被恰当设置。
+//  1.  设备上下文句柄
+//  2.  像素格式索引
+//  3.  指向 PIXELFORMATDESCRIPTOR 数据结构的指针
+//
+// GetEnhMetaFilePixelFormat 函数返回元文件像素格式的大小，并检索该元文件的像素格式信息。
+//
+// 前缓冲、后缓冲及其他缓冲。OpenGL 在帧缓冲中存储和操作像素数据。帧缓冲由一组逻辑缓冲组成：颜色、
+// 深度、累积和模板缓冲。颜色缓冲本身也由一组逻辑缓冲组成，这组缓冲可包括 front-left、front-right、
+// back-left、back-right 以及若干辅助缓冲。特定像素格式或 OpenGL 实现可能不会提供所有这些缓冲。例
+// 如，当前 Microsoft Windows OpenGL 实现不支持立体图像，因此像素格式不能拥有左右颜色缓冲。此外，
+// 当前版本也不支持辅助缓冲。关于 OpenGL 缓冲及操作缓冲的 OpenGL 函数的更多信息，请参见《OpenGL
+// Reference Manual》和《OpenGL Programming Guide》。
+//
+// Microsoft 的 Windows OpenGL 实现支持图像双缓冲。该技术中，应用先把像素绘制到离屏缓冲；当图像准备
+// 好显示时，再把离屏缓冲内容复制到屏上缓冲。双缓冲可实现平滑图像变化，这对动画图像尤为重要。使用双
+// 缓冲的应用可使用两个颜色缓冲：前缓冲和后缓冲。默认情况下，绘图命令定向到后缓冲（离屏缓冲），而前
+// 缓冲显示在屏幕上。当离屏缓冲准备好显示时，调用 SwapBuffers，Windows 会把离屏缓冲内容复制到屏上缓
+// 冲。
+//
+// 通用实现使用设备无关位图（DIB）作为后缓冲，使用屏幕显示作为前缓冲。硬件设备及其驱动程序可能使用
+// 不同方法。双缓冲是像素格式属性。若要请求像素格式支持双缓冲，请在调用 ChoosePixelFormat 时于
+// PIXELFORMATDESCRIPTOR 数据结构中设置 PFD_DOUBLEBUFFER 标志。OpenGL 核心函数 glDrawBuffer 选择用
+// 于写入和清除的缓冲。
+//
+// 要复制离屏缓冲内容到屏上缓冲，调用 SwapBuffers。SwapBuffers 函数接受设备上下文句柄。指定设备上下
+// 文的当前像素格式必须包含后缓冲。默认情况下，后缓冲在屏外，前缓冲在屏上。注意，SwapBuffers 函数并
+// 不是真正交换两个缓冲的内容，而是把一个缓冲内容复制到另一个缓冲。调用 SwapBuffers 后，离屏缓冲内容
+// 未定义。因此，连续两次调用 SwapBuffers 的结果是未定义的。
+//
+// 还有若干 OpenGL 核心函数也管理缓冲。与双缓冲最相关的是 glDrawBuffer；它指定 OpenGL 绘制到哪个或
+// 哪些帧缓冲。以下函数也会影响缓冲：
+//      * glReadBuffer
+//      * glReadPixels
+//      * glCopyPixels
+//      * glAccum
+//      * glColorMask
+//      * glDepthMask
+//      * glIndexMask
+//      * glStencilMask
+//      * glClearAccum
+//      * glClearColor
+//      * glClearDepth
+//      * glClearIndex
+//      * glClearStencil
+//
+// 字体与文本。Microsoft 的 Windows OpenGL 实现在单缓冲 OpenGL 窗口中支持 GDI 图形，但在双缓冲
+// OpenGL 窗口中不支持 GDI 图形。因此，只能在单缓冲 OpenGL 窗口中调用标准 GDI 字体和文本函数来绘制
+// 文本；不能调用这些函数在双缓冲 OpenGL 窗口中绘制文本。对于双缓冲窗口中的文本限制，有一个变通方
+// 法：为字符的位图图像构建 OpenGL 显示列表，然后执行这些显示列表来绘制字符。该过程主要有三步：
+//  1.  为设备上下文选择字体，并按需设置字体属性
+//  2.  基于设备上下文当前字体中的字形创建一组位图显示列表，应用将绘制的每个字形对应一个显示列表
+//  3.  使用这些位图显示列表绘制字符串中的每个字形
+//
+// 要创建显示列表，调用 wglUseFontBitmaps 和 wglUseFontOutlines 函数。要使用这些显示列表绘制字符串
+// 中的字符，调用 glCallLists。
+//
+// 为创建易于本地化且节约资源的应用，必须仔细管理这些字形图像显示列表的创建和存储。与英语不同，许
+// 多语言的字母表字符代码分布在相对较大的取值集合中。以下函数可用于管理字体和文本。
+//      Windows 函数        描述
+//      wglUseFontBitmaps   创建一组字符位图显示列表，字符来自指定设备上下文的当前字体，字符在字体
+//                          字形集中被指定为连续区间
+//      wglUseFontOutlines  基于设备上下文当前选定的轮廓字体字形，为当前渲染上下文创建一组显示列表，
+//                          这些显示列表用于绘制 TrueType 字体的 3D 字符
+//
+// wglUseFontBitmaps 和 wglUseFontOutlines 函数接受设备上下文句柄，并使用该设备上下文的当前字体作为
+// 位图源。因此，必须在调用 wglUseFontBitmaps 或 wglUseFontOutlines 之前设置设备上下文的字体及字体
+// 属性。
+//
+// wglUseFontBitmaps 和 wglUseFontOutlines 函数还接受一个参数，把字体中的第一个字形转换为位图显示列
+// 表；另一个参数指定要把多少个字形转换为显示列表。然后该函数为指定的连续字形区间创建显示列表。例如：
+//  1.  要为所有 Windows 字符集字形创建 224 个位图显示列表，可将这两个参数分别设为 32 和 224
+//  2.  要为所有 OEM 字符集字形创建 256 个位图显示列表，可将这两个参数分别设为 0 和 256
+//  3.  要为任意单个字符集字形创建单个位图显示列表，可将第二个参数设为 1
+//
+// wglUseFontBitmaps 和 wglUseFontOutlines 函数用空显示列表表示字体中的空字形。调用一次 wglUseFontBitmaps
+// 或 wglUseFontOutlines 所创建的显示列表会自动连续编号。调用 wglUseFontBitmaps 或 wglUseFontOutlines
+// 后，调用 glCallLists 来绘制字符串。示例代码请参见“Drawing Text in a Double-Buffered OpenGL Window”。
+// 在这种情况下，glCallLists 使用字符串中的每个字符作为索引，索引到由 wglUseFontBitmaps 或 wglUseFontOutlines
+// 创建的连续编号显示列表数组。
+// https://learn.microsoft.com/en-us/windows/win32/opengl/drawing-text-in-a-double-buffered-opengl-window
+//
+// 完成文本绘制后，调用 glDeleteLists 函数，释放由 wglUseFontBitmaps 和 wglUseFontOutlines 创建的连
+// 续显示列表集合。
+//
+// OpenGL 颜色模式与 Windows 调色板管理。Microsoft 的 Windows OpenGL 实现支持两种颜色像素数据模式：
+// RGBA 和颜色索引模式。Windows 提供两种类似的颜色处理方式：真彩色和调色板管理。
+//
+// 真彩色设备每像素可接受 16、24 或更多位颜色信息，可同时显示数万、数千万或更多颜色。然而，当应用必
+// 须在调色板类型设备上管理 RGBA 或颜色索引模式时，会出现复杂情况。调色板类型设备（如 256 色 VGA 显
+// 示器）可同时显示的颜色数量有限。应用必须处理许多棘手细节，才能成功使用调色板类型设备。由于颜色索
+// 引模式程序不使用硬件调色板，因此在真彩色设备上使用它们比使用 RGBA 模式的程序更困难。
+//
+// Windows 调色板管理器是 GDI 的一部分，专门面向带 256 项硬件调色板的 8 位显示适配器。屏幕上的像素
+// 存储为硬件调色板的 8 位索引。硬件调色板中的每项通常定义一种 24 位颜色（红、绿、蓝各 8 位）。调色
+// 板管理器维护一个系统调色板，它是硬件调色板的副本。系统调色板分为两部分：20 种保留颜色，以及其余
+// 可使用调色板管理器设置的 236 种颜色。
+//
+// 默认 20 色逻辑调色板会被选定并映射（realized）到设备上下文。你可以创建并使用新的逻辑调色板。要更
+// 改系统调色板，可选定并映射你创建的逻辑调色板。你很可能要创建一个逻辑调色板，以指定希望在 OpenGL
+// 应用中显示的颜色。使用某些 GDI 调用，你可以临时用逻辑调色板替换大部分系统调色板。使用逻辑调色板
+// 时，可以用 RGBA 或颜色索引模式为 GDI 定义像素颜色。逻辑调色板的最大大小在 8 位设备上为 256 色，
+// 在真彩色设备（16、24、32 位）上为 4096 色。关于 RGBA 和颜色索引模式的更多信息，请参见“RGBA Mode
+// and Windows Palette Management”和“OpenGL Color Modes and Windows Palette Management”。
+// https://learn.microsoft.com/en-us/windows/win32/opengl/rgba-mode-and-windows-palette-management
+// https://learn.microsoft.com/en-us/windows/win32/opengl/opengl-color-modes-and-windows-palette-management
+//
+// 应用必须响应 WM_PALETTECHANGED、WM_QUERYNEWPALETTE 和 WM_ACTIVATE 消息，以感知并使用调色板。应设
+// 计应用在这些消息响应中选择并映射调色板。关于调色板和调色板感知的更多信息，请参见 Microsoft Developer
+// Network Development Library 光盘中的文章“Palette Awareness”和“The Palette Manager: How and Why”。
+//
+// 当使用从帧缓冲读回颜色值的函数时，要注意在真彩色设备和基于调色板设备上读取 RGBA 值与颜色索引值之
+// 间的差异。在真彩色（true-color）设备上：
+//  1.  RGBA 值受限于设备中的通道
+//  2.  颜色索引值在帧缓冲中存储为 RGBA 值，使用这些值时，必须执行从 RGBA 到逻辑调色板索引的反向转
+//      换，如果两个逻辑索引具有相同 RGBA 值，可能返回错误索引
+//
+// 在基于调色板的设备上：
+//  1.  RGBA 值从系统调色板中的索引读取，逻辑索引从反向表获得，并提取 RGBA 分量
+//  2.  颜色索引值从系统调色板索引读取，并使用反向表获得逻辑调色板索引
+//
+// 一般而言，OpenGL 应用应使用 RGBA 模式；相比颜色索引模式，它在着色、光照、颜色映射、雾、抗锯齿和
+// 混合等效果上更灵活。可考虑在以下情况使用颜色索引模式：
+//  1.  可用位平面数量有限，颜色索引模式可产生比 RGBA 模式更细腻的着色
+//  2.  不关心使用“真实”颜色；例如，在地形图中用几种颜色表示相对海拔
+//  3.  移植大量使用颜色索引模式的现有应用时
+//  4.  希望在应用中使用颜色映射动画和效果（color-map animation and effects）时，这在真彩色设备上不
+//      可能
+//
+// 虽然大多数 GDI 应用倾向于对逻辑调色板使用颜色索引，但 RGBA 模式通常更适合 OpenGL 应用。对于若干
+// 效果，如着色、光照、雾和纹理映射，它比颜色映射效果更好。RGBA 模式使用红、绿、蓝（R、G、B）颜色值
+// 共同指定显示屏中每个像素的颜色。R、G、B 值分别指定每种颜色（红、绿、蓝）的强度；取值范围从 0.0
+// （最弱）到 1.0（最强）。每个分量使用的位数取决于所用硬件（可能为 2、3、5、6、8 位）。显示颜色是
+// 三种颜色值相加的结果。若三个值都为 0.0，结果为黑色；若三个值都为 1.0，结果为白色；其他颜色由 R、
+// G、B 值介于 0 和 1.0 之间的组合产生。A（alpha）位不用于指定颜色。
+//
+// 标准超级 VGA 显示器使用每像素 8 个颜色位的调色板。这 8 位从缓冲中读出，并用作系统调色板中的索引，
+// 以获取 R、G、B 值。当在设备上下文中选定并映射 RGB 调色板后，OpenGL 可使用 RGBA 模式渲染。由于每
+// 像素有 8 个颜色位，OpenGL 强调使用三-三-二 RGBA 调色板。“三-三-二”指颜色位数据由硬件或物理调色板
+// 处理的方式：红（R）和绿（G）各用 3 位指定；蓝（B）用 2 位指定。红是最低有效位，蓝是最高有效位。
+//
+// 你用 PALETTEENTRY 结构确定应用逻辑调色板的颜色。通常你创建一个 PALETTEENTRY 结构数组，以指定逻辑
+// 调色板的整个调色板项表。
+//
+// RGBA 模式调色板示例。以下代码片段展示如何创建三-三-二 RGBA 调色板。
+// https://learn.microsoft.com/en-us/windows/win32/opengl/rgba-mode-and-windows-palette-management
+//
+// 颜色索引模式用指向特定逻辑调色板项的索引，在逻辑调色板中指定颜色。大多数 GDI 程序使用颜色索引调
+// 色板，但 RGBA 模式更适合 OpenGL 的若干效果，例如着色、光照、雾和纹理映射。如果你的 OpenGL 应用
+// 对“最真实颜色”要求不高，可以选择颜色索引模式（例如，用“假色”强调海拔梯度的地形图）。
+//
+// 颜色索引模式调色板示例。以下代码设置 PIXELFORMATDESCRIPTOR 结构，把 iPixelType 成员的标志设为
+// PFD_TYPE_COLORINDEX，指定应用使用颜色索引调色板。
+// https://learn.microsoft.com/en-us/windows/win32/opengl/color-index-mode-and-windows-palette-management
+//
+// 覆盖层（overlay）、下层（underlay）与主（main）平面。你可以在应用中使用硬件层平面（覆盖层和下层
+// 平面）。在 Windows 中，像素格式描述图形设备的像素配置。每种像素格式描述主颜色缓冲的深度和其他特
+// 性，并描述主平面使用的附加缓冲（如深度、累积、模板和辅助缓冲）。像素格式现已扩展为包含覆盖层和下
+// 层缓冲。
+//
+// 层平面（layer plane）总是有 front-left 颜色缓冲，也可以包含 front-right 和 back 颜色缓冲。每个层
+// 平面都有特定渲染上下文，用于渲染到层缓冲中。不能在层平面中使用 GDI 绘图函数。窗口管理层平面颜色缓
+// 冲的方式，类似于管理主平面颜色缓冲的方式。可以同时显示多个带覆盖层或下层平面的窗口。不能拥有可在
+// 主绘图平面任意窗口上移动的浮动覆盖窗口。此外，由于硬件弹出平面若没有透明颜色会在任何时候遮挡窗口
+// 中的下层平面，因此不能使用没有透明颜色的硬件弹出平面。
+//
+// 窗口中的每个层平面都有关联调色板。可以设置颜色索引层平面的调色板，但 RGBA 颜色平面的调色板是固定
+// 的。当窗口位于前台时，必须映射相应调色板。层平面具有透明像素颜色或索引，使任何下层平面能够透显。
+//
+// 你可以把一个渲染上下文的状态复制到另一个层平面中的渲染上下文。也可以在不同层平面的渲染上下文之间
+// 共享显示列表。以下函数用于层平面：
+//      * wglCopyContext
+//      * wglCreateLayerContext
+//      * wglDescribeLayerPlane
+//      * wglGetLayerPaletteEntries
+//      * wglRealizeLayerPalette
+//      * wglSetLayerPaletteEntries
+//      * wglSwapLayerBuffers
+//
+// 共享显示列表。创建渲染上下文时，它拥有自己的显示列表空间。wglShareLists 函数使渲染上下文能够共享
+// 另一个渲染上下文的显示列表空间。任意数量的渲染上下文可以共享同一个显示列表空间。
+//
+// 扩展 OpenGL 函数。OpenGL 库支持其函数的多种实现。一个渲染上下文支持的扩展函数不一定在另一个渲染
+// 上下文中受支持。对于在给定渲染上下文中使用扩展函数的应用，只应使用由 wglGetProcAddress 函数返回
+// 的函数地址。
+//
+// GLX 与 WGL/Windows。部分 WGL 函数和 Windows 函数或多或少类似于 GLX X Window 函数。下表列出 GLX
+// 函数及其对应的 WGL/Windows 函数（如有）。更多信息请参见移植指南。
+//      GLX/Xlib 函数           WGL/Windows 函数
+//      glXChooseVisual         ChoosePixelFormat
+//      glXCopyContext          wglCopyContext
+//      glXCreateContext        wglCreateContext, wglShareLists
+//      glXCreateGLXPixmap      CreateDIBitmap / CreateDIBSection
+//      glXDestroyContext       wglDeleteContext
+//      glXDestroyGLXPixmap     DeleteObject
+//      glXGetConfig            DescribePixelFormat
+//      glXGetCurrentContext    wglGetCurrentContext
+//      glXGetCurrentDrawable   wglGetCurrentDC
+//      glXGetProcAddress       wglGetProcAddress
+//      glXIsDirect             不适用
+//      glXMakeCurrent          wglMakeCurrent
+//      glXQueryExtension       GetVersion
+//      glXQueryVersion         GetVersion
+//      glXSwapBuffers          SwapBuffers
+//      glXUseXFont             wglUseFontBitmaps / wglUseFontOutlines
+//      glXWaitGL               不适用
+//      glXWaitX                不适用
+//      XCreateWindow           CreateWindow / CreateWindowEx 以及 GetDC / BeginPaint
+//      XGetVisualInfo          GetPixelFormat
+//      XSync                   GdiFlush
+//      不适用                  SetPixelFormat
+//
+// 在 Windows 上使用 OpenGL
+//
+// 使用以下组件的应用必须包含相应头文件：
+//  1.  核心 OpenGL 函数：<GL\gl.h>
+//  2.  OpenGL Utility 库：<GL\glu.h>
+//  3.  OpenGL Programming Guide auxiliary 库：<GL\glaux.h>
+//  4.  WGL 函数：windows.h
+//  5.  支持 Microsoft Windows OpenGL 实现的 Windows 函数：Windows.h
+//
+// 在创建 OpenGL 渲染上下文之前，要先设置设备上下文的像素格式。
+//  1.  选择并设置最佳匹配像素格式
+//  2.  检查设备上下文的当前像素格式
+//  3.  检查设备支持的像素格式
+//
+// 本主题说明把设备上下文与像素格式匹配的过程。要获取设备上下文对某像素格式的最佳匹配：
+//  1.  在 PIXELFORMATDESCRIPTOR 结构中指定所需像素格式。
+//  2.  调用 ChoosePixelFormat。ChoosePixelFormat 函数返回一个像素格式索引，然后可将其传给 SetPixelFormat，
+//      把最佳匹配的像素格式设为设备上下文的当前像素格式。
+//
+// 使用 GetPixelFormat 和 DescribePixelFormat 函数检查设备上下文的当前像素格式。DescribePixelFormat
+// 函数获取设备上下文的像素格式数据，并返回一个整数，即该设备上下文的最大像素格式索引。
+//
+// 所有调用都通过渲染上下文进行。设置设备上下文的像素格式后，即可创建渲染上下文。
+//  1.  创建渲染上下文并设为当前
+//  2.  使渲染上下文不再处于当前状态
+//  3.  删除渲染上下文
+//
+// 以下代码示例展示如何响应 WM_CREATE 消息创建 OpenGL 渲染上下文。注意，要先设置像素格式，再创建渲
+// 染上下文。还要注意，在此场景中设备上下文不在局部释放；而是在窗口关闭、渲染上下文不再处于当前状态
+// 后释放。更多信息请参见“Deleting a Rendering Context”。最后注意，设备上下文和渲染上下文句柄可使用
+// 局部变量，因为可用 wglGetCurrentContext 和 wglGetCurrentDC 函数按需获取这些上下文句柄。
+//      // a window has been created, but is not yet visible
+//      case WM_CREATE: {
+//          HDC hdc; // local variables
+//          HGLRC hglrc;
+//          hdc = GetDC(hWnd); // obtain a device context for the window
+//          myPixelFormatSetupFunction(hdc); // set an appropriate pixel format
+//          if (hglrc = wglCreateContext(hdc)) { // if we can create a rendering context ...
+//              bHaveCurrentRC = wglMakeCurrent(hdc, hglrc); // try to make it the thread's current rendering context
+//          }
+//          // perform miscellaneous other WM_CREATE chores ...
+//      } break;
+//
+// 要把渲染上下文从线程分离，使其不再处于当前状态，可用参数设为 NULL 调用 wglMakeCurrent 函数。
+//      // detach the current rendering context from the thread
+//      wglMakeCurrent(NULL, NULL);
+//
+// 以下代码示例展示在 OpenGL 窗口关闭时如何删除 OpenGL 渲染上下文。
+//      // a window is about to be destroyed
+//      case WM_DESTROY: {
+//          HGLRC hglrc; // local variables
+//          HDC hdc;
+//          if (hglrc = wglGetCurrentContext()) { // if the thread has a current rendering context
+//              hdc = wglGetCurrentDC() ; // obtain its associated device context
+//              wglMakeCurrent(NULL, NULL) ; // make the rendering context not current
+//              ReleaseDC (hwnd, hdc) ; // release the device context
+//              wglDeleteContext(hglrc); // delete the rendering context
+//          }
+//      }
+//
+// 双缓冲可平滑屏幕上从一帧图像到另一帧图像的过渡。交换缓冲通常位于一串绘图命令末尾。默认情况下，
+// Microsoft 的 Windows OpenGL 实现绘制到离屏缓冲；绘制完成后，调用 SwapBuffers 函数把离屏缓冲复制
+// 到屏上缓冲。以下代码示例准备绘制，调用绘图函数，然后在可用双缓冲时把完成图像复制到屏幕。
+//      void myRedraw(void) {
+//          glMatrixMode(GL_PROJECTION); // set up for drawing commands
+//          glLoadIdentity();
+//          gluPerspective(45, 1.0, 0.1, 100.0);
+//          myDrawAllObjects(GL_FALSE); // draw our objects
+//          if (bDoubleBuffering) SwapBuffers(hdc); // if we're double-buffering, draw the copied image to the screen
+//      }
+//
+// 以下代码示例获取窗口设备上下文，渲染场景，把图像复制到屏幕以显示渲染结果，然后释放设备上下文。
+//      hdc = GetDC(hwnd);
+//      mySceneRenderingFunction();
+//      SwapBuffers(hdc);
+//      ReleaseDC(hWnd, hdc);
+//
+// 在双缓冲 OpenGL 窗口中绘制文本的方法是：为字体中选定的字符创建显示列表，然后执行相应显示列表来绘
+// 制每个要绘制的字符。以下代码示例创建渲染上下文，绘制红色三角形，然后用文本为其加标签。对于此示例
+// 代码，我们假设已有设备上下文，并设置了字体和像素格式。
+//      hglrc = wglCreateContext(hdc); // create an OpenGL rendering context
+//      wglMakeCurrent(hdc, hglrc); // make it this thread's current rendering context
+//      glClearColor(0.0F, 0.0F, 0.4F, 1.0F); // make the color a deep blue hue
+//      glShadeModel(GL_SMOOTH); // make the shading smooth
+//      glClear(GL_COLOR_BUFFER_BIT); // clear the color buffers
+//      glBegin(GL_TRIANGLES); // specify a red triangle
+//          glColor3f(1.0F, 0.0F, 0.0F);
+//          glVertex2f(10.0F, 10.0F);
+//          glVertex2f(250.0F, 50.0F);
+//          glVertex2f(105.0F, 280.0F);
+//      glEnd();
+//      wglUseFontBitmaps(hdc, 0, 256, 1000); // create bitmaps for the device context font's first 256 glyphs
+//      glRasterPos2f(30.0F, 300.0F); // move bottom left, southwest of the red triangle
+//      glListBase(1000); // set up for a string-drawing display list call
+//      glCallLists(12, GL_UNSIGNED_BYTE, "Red Triangle"); // draw a string using font display lists
+//      glFlush(); // get all those commands to execute
+//      glDeleteLists(1000, 256); // delete our 256 glyph display lists
+//      wglMakeCurrent (NULL, NULL); // make the rendering context not current
+//      ReleaseDC(hdc); // release the device context
+//      wglDeleteContext(hglrc); // delete the rendering context
+//
+// 打印 OpenGL 图像。你可以在增强型元文件中打印 OpenGL 图像。当渲染到打印机设备（HDC）时，它必须由
+// 元文件后台打印程序支持。OpenGL 使用内存存储深度、颜色和其他缓冲，以保存输出到打印机的图形。由于
+// 典型打印机分辨率需要大量内存来存储图形输出，打印 OpenGL 图像可能需要比系统可用内存更多的内存。为
+// 克服这一限制，当前 OpenGL 实现以带状方式（bands）打印 OpenGL 图形。但这会增加打印 OpenGL 图像所
+// 需时间。打印 OpenGL 图像前，必须调用 StartDoc 函数完成打印机设备上下文（DC）的初始化。调用 StartDoc
+// 后，可创建渲染上下文（HGLRC）以渲染到打印机设备。如果在调用 StartDoc 之前创建渲染上下文，将无法
+// 确定元文件是否被后台打印。https://learn.microsoft.com/en-us/windows/desktop/api/wingdi/nf-wingdi-startdoca
+//
+// 以下代码示例展示如何打印 OpenGL 图像，关于使用元文件的更多信息，请参见“Enhanced Metafile
+// Operations”。https://learn.microsoft.com/en-us/windows/desktop/gdi/enhanced-metafile-operations
+//      HDC            hDC;
+//      DOCINFO        di;
+//      HGLRC          hglrc;
+//      StartDoc( hDC, &di ); // Call StartDoc to start the document
+//      StartPage(hDC); // Prepare the printer driver to accept data
+//      hglrc = wglCreateContext(hDCmetafile ); // Create a rendering context using the metafile DC
+//      // . . . Do OpenGL rendering operations here
+//      wglMakeCurrent(NULL, NULL); // Get rid of rendering context
+//      // . . .
+//      EndPage(hDC); // Finish writing to the page
+//      EndDoc(hDC); // End the print job
+//
+// 把 OpenGL 图像复制到剪贴板。尽管当前 Microsoft Windows OpenGL 实现不直接支持剪贴板，你仍可以把
+// Windows OpenGL 图像复制到剪贴板。把 OpenGL 图像复制到剪贴板：
+//  1.  把图像绘制到内存位图或增强型元文件
+//  2.  把该位图复制到剪贴板
+//
+// GDI 不支持多线程。必须为每个线程使用不同的设备上下文和不同的渲染上下文。这往往会限制在运行 OpenGL
+// 应用的单处理器系统上使用多线程的性能优势。不过，仍有办法在单处理器系统上使用多线程来大幅提升性能。
+// 例如，可用一个独立线程把 OpenGL 渲染调用传递给专用 3D 硬件。
+//
+// 对称多处理（SMP）系统可从多线程中大大受益。一个直观策略是为每个处理器使用单独线程，在不同窗口中
+// 分别处理 OpenGL 渲染。例如，在飞行模拟应用中，可用不同处理器和线程渲染前视、后视和侧视图。
+//
+// 一个线程只能有一个当前活动渲染上下文。使用多线程和多个渲染上下文时，必须小心同步它们的使用。例如，
+// 只用一个线程在所有线程完成绘制后调用 SwapBuffers。
+//
+// OpenGL Auxiliary Library。Silicon Graphics（SGI）使用 OpenGL 创建了 Auxiliary Library，用于为
+// 《OpenGL Programming Guide》编写简单示例程序。Auxiliary Library 的源代码随 Microsoft Platform
+// SDK 和 OpenGL 示例一起提供。若想理解 Auxiliary Library 是如何由 OpenGL 函数和例程开发而来，可查
+// 看源代码。你可以在自己的程序中使用 Auxiliary Library 函数。关于 Auxiliary Library 的描述，请参见
+// 《OpenGL Programming Guide》。
+//
+// OpenGL 编程准则
+//
+// 本节列出一些有用的编程准则。这些提示基于 OpenGL 设计者的意图，而不是基于实际应用和实现经验。本节
+// 包含以下主题：
+//  1.  OpenGL 正确性提示
+//  2.  OpenGL 性能提示
+//  3.  安全注意事项：OpenGL
+//
+// OpenGL 正确性提示。遵循以下准则，使你创建的 OpenGL 应用按预期工作：
+//  1.  假定 OpenGL 实现的错误行为在未来版本中可能改变。OpenGL 错误语义在未来修订中可能变化。
+//  2.  使用投影矩阵把所有几何体压平到单一平面。若使用模型视图矩阵，OpenGL 中在观察坐标系（eye coordinate）
+//      下工作的特性（如光照和应用自定义裁剪平面）可能失效。
+//  3.  不要对单个矩阵做大量累积式修改。例如，不要通过不断以增量角度调用 glRotate 来制作旋转动画；
+//      而应对每一帧用 glLoadIdentity 初始化给定矩阵，再用该帧所需完整角度调用 glRotate。
+//  4.  只有在符合 OpenGL 实现 invariant 规则保证时，才可预期多次遍历同一渲染数据库会产生相同像素片
+//      段；否则多次遍历可能生成不同片段集合。
+//  5.  不要预期在定义显示列表时会报告错误。显示列表中的命令只在列表执行时才产生错误。
+//  6.  为优化深度缓冲操作，将近裁剪面尽可能放得离视点远。
+//  7.  调用 glFlush 强制执行所有先前 OpenGL 命令。不要指望 glGet 或 glIsEnabled 会冲刷渲染流。查询
+//      命令只会冲刷到足以返回有效数据的程度，不一定完成所有挂起渲染命令。
+//  8.  渲染预抖动图像时关闭抖动，例如调用 glCopyPixels 时。
+//  9.  充分利用累积缓冲范围，例如累积 4 幅图像时，每幅在累积时按 1/4 缩放。
+//  10. 为获得精确二维光栅化，应仔细指定正交投影和待光栅化图元的顶点。正交投影使用整数坐标，例如：
+//          gluOrtho2D(0, width, 0, height);
+//      其中 width、height 是视口尺寸。给定该投影矩阵后，把多边形顶点和像素图像位置放在整数坐标，
+//      以获得可预测光栅化。例如 glRecti(0,0,1,1) 会可靠填充视口左下角像素；glRasterPos2i(0,0) 会
+//      可靠把未缩放图像定位到视口左下角像素。但点顶点、线顶点和位图位置应放在半整数位置。例如从
+//      (x1, 0.5) 到 (x2, 0.5) 的线会可靠沿视口底部像素行渲染；在 (0.5, 0.5) 绘制的点会可靠填充与
+//      glRecti(0,0,1,1) 相同的像素。
+//      一个折中做法是把 x、y 平移 0.375，使所有图元仍可用整数位置指定，同时保证可预测光栅化：该平
+//      移使多边形和像素图像边缘远离像素中心，又让线顶点足够接近像素中心。示例：
+//          glViewport(0, 0, width, height);
+//          glMatrixMode(GL_PROJECTION);
+//          glLoadIdentity();
+//          gluOrtho2D(0, width, 0, height);
+//          glMatrixMode(GL_MODELVIEW);
+//          glLoadIdentity();
+//          glTranslatef(0.375, 0.375, 0.0);
+//          /* render all primitives at integer positions */
+//  11. 避免使用负的 w 顶点坐标和负的 q 纹理坐标。OpenGL 可能无法正确裁剪这类坐标，并可能在对由这
+//      类坐标定义的图元着色时产生插值错误。
+//
+//  OpenGL 性能提示。以下编程实践可优化应用性能：
+//  1.  当只有一个材质属性快速变化（例如逐顶点变化）时，使用 glColorMaterial；对不频繁变化或多个材
+//      质属性同时快速变化，使用 glMaterial。
+//  2.  用 glLoadIdentity 初始化矩阵，而不是加载你自己的单位矩阵副本。
+//  3.  使用专门矩阵调用，如 glRotate、glTranslate、glScale，而不是自己组合旋转/平移/缩放矩阵再调用
+//      glMultMatrix。
+//  4.  用 glPushAttrib / glPopAttrib 保存和恢复状态值。只有应用需要状态值参与自身计算时才使用查询函数。
+//  5.  用显示列表封装可能占用大量内存的状态变化。例如，把完整指定纹理所需的全部 glTexImage 调用（也
+//      许还有相关 glTexParameter、glPixelStore、glPixelTransfer 调用）放入一个显示列表，之后调用该
+//      显示列表选择纹理。
+//  6.  用显示列表封装会被反复绘制的刚体对象的渲染调用。
+//  7.  在客户端/服务器环境中，即使简单曲面镶嵌也使用求值器，以最小化网络带宽。
+//  8.  如可能，为避免 GL_NORMALIZE 开销，提供单位长度法线。因为 glScale 几乎总需要启用 GL_NORMALIZE，
+//      做光照时避免使用 glScale。
+//  9.  若不需要平滑着色，把 glShadeModel 设为 GL_FLAT。
+//  10. 如可能，每帧只调用一次 glClear。不要用 glClear 清除缓冲区的小子区域；只用于完全或接近完全清除缓冲。
+//  11. 绘制多个独立三角形时，用一次调用替代多次 glBegin(GL_TRIANGLES) 或一次 glBegin(GL_POLYGON)。类似地：
+//      * 画单个三角形用 GL_TRIANGLES 而非 GL_POLYGON
+//      * 用一次 glBegin(GL_QUADS) 替代反复 glBegin(GL_POLYGON)
+//      * 用一次 glBegin(GL_LINES) 绘制多条独立线段，而非多次调用
+//  12. 一般地，传递预计算数据用命令的向量形式，传递接近调用时才计算的值用标量形式。
+//  13. 避免冗余模式改变，例如在平面着色多边形每个顶点之间反复设置为相同颜色。
+//  14. 绘制或复制图像时，关闭光栅化和逐片段操作以优化资源。OpenGL 可对像素图像应用纹理。
+//
+// OpenGL 安全注意事项。本文档提供包含安全信息的主题列表。这些主题并未涵盖你需要知道的全部安全问题；
+// 应把它们作为该技术领域的起点和参考。相关主题：Microsoft Security Response Center。
+// https://www.microsoft.com/msrc
+
+// 三、OpenGL 代码的移植
+//
+// OpenGL 设计目标是跨硬件和操作系统兼容，这使程序员更容易把 OpenGL 程序从一个系统移植到另一个系统。
+// 虽然每个操作系统都有独特要求，但你当前程序中的大量 OpenGL 代码通常可原样使用。要把 OpenGL 应用移
+// 植到 Microsoft Windows，需要修改程序以配合 Windows 窗口系统。一般而言，应用移植到 OpenGL for
+// Windows 主要来自两个平台之一：
+//  1.  为 X Window System 和 X library（Xlib）开发的 OpenGL 应用
+//  2.  IRIS GL 应用
+//
+// 相关主题包括：
+//  1.  移植到 OpenGL for Windows 简介
+//  2.  OpenGL 函数及其 IRIS GL 等价函数
+//  3.  IRIS GL 与 OpenGL 的差异
+//
+// IRIS GL 是 Silicon Graphics（SGI）早年在其 IRIX 工作站/图形硬件上使用的专有 3D 图形编程接口，可
+// 视为 OpenGL 的前身。简要特征：
+//  1.  厂商专有、平台绑定强：主要面向 SGI 软硬件，不像 OpenGL 那样强调跨硬件、跨操作系统移植。
+//  2.  图形与窗口系统混在一起：包含窗口管理、事件/输入设备、颜色图、光标、菜单等能力，例如 winopen、
+//      gconfig、qread/qdevice、mapcolor 一类函数；OpenGL 则只负责渲染，窗口系统部分交给 GLX/WGL 等
+//      平台层。
+//  3.  API 风格接近早期 OpenGL 但不完全等同：没有统一的 gl 前缀；状态管理常用 def/bind 表，如
+//      lmdef/lmbind；显示列表可编辑；矩阵、雾、光照、纹理、NURBS 等细节也与 OpenGL 有差异。
+//  4.  OpenGL 是其标准化/跨平台化后继：OpenGL 保留了类似 IRIS GL 的渲染模型，但去掉窗口管理，统一
+//      命名，显示列表不可编辑，改由 GLU 提供 NURBS/二次曲面等辅助能力。
+//
+// 以下主题说明如何从上述平台移植应用。讨论仅涉及 OpenGL 与窗口管理代码移植，不讨论其他操作系统移植
+// 问题，如读文件、消息、线程创建等。本移植指南聚焦特定移植问题，并假定你已理解 OpenGL 和 Windows
+// 编程。
+//  1.  移植 X Window System 应用
+//  2.  翻译 GLX 库函数
+//  3.  移植设备上下文与像素格式
+//  4.  移植渲染上下文
+//  5.  移植 GLX Pixmap 代码
+//  6.  移植其他 GLX 代码
+//  7.  一个移植示例
+//  8.  从 IRIS GL 移植应用
+//  9.  移植 IRIS GL 的特殊问题
+//
+// 移植 X Window System 应用
+//
+// 与 Windows 类似，X Window System 也是事件处理、基于消息的系统，使用窗口控件和菜单。X Window System
+// 应用中的 OpenGL 代码大概率位于与移植到 Windows 后相对应的区域。大多数 OpenGL 代码不会改变，但必
+// 须重写所有 X Window System 特有代码。把 X Window System OpenGL 程序移植到 Windows 的一般步骤：
+//  1.  用等价 Windows 代码重写 X Window System 特有代码。定位窗口创建和事件处理代码。X Window System
+//      与 Windows 都是事件处理、基于消息的窗口系统，因此较容易确定应在何处做适当修改。但对大型应用
+//      而言，跨操作系统重写仍可能复杂困难。
+//  2.  定位使用 GLX 函数的代码，这些函数就是要翻译成等价 Windows 函数的部分。
+//  3.  把 GLX 像素格式函数和 Visual/Drawable 函数翻译成适当的 Windows/OpenGL 像素格式和设备上下文函数。
+//  4.  把 GLX 渲染上下文函数翻译成 Windows/OpenGL 渲染上下文函数。
+//  5.  把 GLX Pixmap 函数翻译成等价 Windows 函数。
+//  6.  把 GLX 帧缓冲和其他 GLX 函数翻译成适当 Windows 函数。
+//
+// 翻译 GLX 库函数
+//
+// OpenGL X Window System 程序使用 OpenGL Extension with the X Window System（GLX）库。该库初始化像
+// 素格式、控制渲染并执行其他 OpenGL 特定任务，通过管理窗口句柄和渲染上下文把 OpenGL 库连接到 X Window
+// System。必须把这些函数翻译成等价 Windows 函数。核心对照表如下，有些 GLX 函数没有等价 Windows 函
+// 数，需要重写代码以实现相同功能。例如 glXWaitGL 没有等价函数，但可通过调用 glFinish 达到执行所有挂
+// 起 OpenGL 命令的同样效果。
+//      GLX/Xlib 函数                           WGL/Windows 函数
+//      glXChooseVisual                         ChoosePixelFormat
+//      glXCopyContext                          wglCopyContext
+//      glXCreateContext                        wglCreateContext, wglShareLists
+//      glXCreateGLXPixmap                      CreateDIBitmap / CreateDIBSection
+//      glXDestroyContext                       wglDeleteContext
+//      glXDestroyGLXPixmap                     DeleteObject
+//      glXGetConfig                            DescribePixelFormat
+//      glXGetCurrentContext                    wglGetCurrentContext
+//      glXGetCurrentDrawable                   wglGetCurrentDC
+//      glXGetProcAddress                       wglGetProcAddress
+//      glXIsDirect                             不适用
+//      glXMakeCurrent                          wglMakeCurrent
+//      glXQueryExtension / glXQueryVersion     GetVersion
+//      glXSwapBuffers                          SwapBuffers
+//      glXUseXFont                             wglUseFontBitmaps / wglUseFontOutlines
+//      glXWaitGL / glXWaitX                    不适用
+//      XCreateWindow                           CreateWindow / CreateWindowEx 与 GetDC / BeginPaint
+//      XGetVisualInfo                          GetPixelFormat
+//      XSync                                   GdiFlush
+//      不适用                                  SetPixelFormat
+//
+// 移植设备上下文与像素格式
+//
+// 在 Microsoft Windows OpenGL 实现中，每个窗口都有自己的当前像素格式，像素格式由 PIXELFORMATDESCRIPTOR
+// 定义。因为每个窗口有自己的像素格式，所以流程是：获取设备上下文，设置设备上下文像素格式，再为该设
+// 备上下文创建 OpenGL 渲染上下文；渲染上下文自动使用其设备上下文的像素格式。
+//
+// X Window System 用 XVisualInfo 指定窗口像素属性，其中 Visual 描述颜色资源如何在特定屏幕使用。X 中
+// 在用所需像素格式创建窗口时使用 XVisualInfo 返回结构来创建窗口和渲染上下文；Windows 则先创建窗口并
+// 取得窗口 HDC，再用 HDC 设置窗口像素格式，渲染上下文使用窗口像素格式。
+//      X window/GLX visual 函数                        Windows 像素格式函数
+//      glXChooseVisual(...)                            ChoosePixelFormat(HDC hdc, PIXELFORMATDESCRIPTOR *ppfd)
+//      glXGetConfig(...)                               DescribePixelFormat(...)
+//      XGetVisualInfo(...)                             GetPixelFormat(HDC hdc)
+//      glXChooseVisual 返回的 visual 用于创建窗口      SetPixelFormat(...)
+//
+// 以下示例 X 程序用 glXChooseVisual(dpy, DefaultScreen(dpy), attributes) 找带深度缓冲的 OpenGL Color
+// Index visual；Windows 中用 bSetupPixelFormat(HDC hdc) 填充 PIXELFORMATDESCRIPTOR，调用 ChoosePixelFormat，
+// 再 SetPixelFormat。
+//
+//      /* X globals, defines, and prototypes */
+//      Display *dpy;
+//      Window glwin;
+//      static int attributes[] = {GLX_DEPTH_SIZE, 16, GLX_DOUBLEBUFFER, None};
+//      /* find an OpenGL-capable Color Index visual with depth buffer */
+//      vi = glXChooseVisual(dpy, DefaultScreen(dpy), attributes);
+//      if (vi == NULL) {
+//          fprintf(stderr, "could not get visual\n");
+//          exit(1);
+//      }
+//
+//      BOOL bSetupPixelFormat(HDC hdc) {
+//          PIXELFORMATDESCRIPTOR pfd, *ppfd;
+//          int pixelformat;
+//          ppfd = &pfd;
+//          ppfd->nSize = sizeof(PIXELFORMATDESCRIPTOR);
+//          ppfd->nVersion = 1;
+//          ppfd->dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+//          ppfd->dwLayerMask = PFD_MAIN_PLANE;
+//          ppfd->iPixelType = PFD_TYPE_COLORINDEX;
+//          ppfd->cColorBits = 8;
+//          ppfd->cDepthBits = 16;
+//          ppfd->cAccumBits = 0;
+//          ppfd->cStencilBits = 0;
+//          pixelformat = ChoosePixelFormat(hdc, ppfd);
+//          if ((pixelformat = ChoosePixelFormat(hdc, ppfd)) == 0) {
+//              MessageBox(NULL, "ChoosePixelFormat failed", "Error", MB_OK);
+//              return FALSE;
+//          }
+//          if (SetPixelFormat(hdc, pixelformat, ppfd) == FALSE) {
+//              MessageBox(NULL, "SetPixelFormat failed", "Error", MB_OK);
+//              return FALSE;
+//          }
+//          return TRUE;
+//      }
+//
+// 移植渲染上下文
+//
+// X 与 Windows 都通过渲染上下文渲染。6 个 GLX 函数管理渲染上下文，其中 5 个有等价 Windows 函数。
+//      GLX 渲染上下文函数      Windows 渲染上下文函数
+//      glXCopyContext          不适用
+//      glXCreateContext        wglCreateContext(HDC hdc)
+//      glXDeleteContext        wglDeleteContext(HGLRC hglrc)
+//      glXGetCurrentContext    wglGetCurrentContext(VOID)
+//      glXGetCurrentDrawable   wglGetCurrentDC(VOID)
+//      glXMakeCurrent          wglMakeCurrent(HDC hdc, HGLRC hglrc)
+//
+// 返回类型和其他类型在 X 与 Windows 中名称不同。可搜索 GLXContext occurrence 帮助定位需移植代码。
+// X 示例大致为：glXCreateContext(dpy, vi, 0, GL_FALSE)、glXMakeCurrent(dpy, win, cx)，销毁前 cx
+// = glXGetCurrentContext(); glXDestroyContext(dpy, cx);。
+//      Display *dpy;             /* display variable */
+//      XVisualInfo *vi;          /* visual variable */
+//      Window win;               /* window variable */
+//      GLXDrawable drawable;     /* drawable variable */
+//      GLXContext cx, cxTemp;    /* rendering context variables */
+//      /* Code to open a display and get a visual. */
+//      cx = glXCreateContext(dpy, vi, 0, GL_FALSE);
+//      if (!cx) { /* Create a GLX context. */
+//          fprintf(stderr, "Cannot create context.\n");
+//          exit(-1);
+//      }
+//      /* Connect the context to the window. */
+//      glXMakeCurrent(dpy, win, cx);
+//      /* When it's time to destroy the rendering context. . . */
+//      cx = glXGetCurrentContext;
+//      glXDestroyContext(dpy, cx);
+//
+// Windows 对应为：GetDC、wglCreateContext(hDC)、wglMakeCurrent(hDC,hRC)；销毁时在 WM_DESTROY 中
+// wglMakeCurrent(NULL,NULL)、wglDeleteContext(hRC)、ReleaseDC(hwnd,hDC)。
+//      HGLRC hRC;           // rendering context variable
+//      /* Create and initialize a window */
+//      case WM_CREATE: { // Message when window is created
+//          HDC hDC, hDCTemp;    // device context handles
+//          hDC = GetDC(hWnd); /* Get the handle of the windows device context. */
+//          /* Create a rendering context and make it the current context */
+//          hRC = wglCreateContext(hDC);
+//          if (!hRC) {
+//              MessageBox(NULL, "Cannot create context.", "Error", MB_OK);
+//              return FALSE;
+//          }
+//          wglMakeCurrent(hDC, hRC);
+//      } break;
+//      case WM_DESTROYED: { // Message when window is destroyed
+//          HGLRC hRC        // rendering context handle
+//          HDC   hDC;       // device context handle
+//          /* Release and free the device context and rendering context. */
+//          hDC = wglGetCurrentDC;
+//          hRC = wglGetCurrentContext;
+//          wglMakeCurrent(NULL, NULL);
+//          if (hRC) wglDeleteContext(hRC);
+//          if (hDC) ReleaseDC(hWnd, hDC);
+//          PostQuitMessage (0);
+//      }
+//      break;
+//
+// 移植 GLX Pixmap 代码。X 使用 pixmap：离屏虚拟绘图表面，可理解为三维位数组，或一叠 bitmap；每个像
+// 素取值 0 到 2^N - 1，N 为 pixmap 深度。OpenGL 程序用 glXCreateGLXPixmap 和 glXDestroyGLXPixmap
+// 创建/销毁离屏渲染 GLX pixmap。Windows 使用功能相同的 DIB，用标准 Windows 位图函数创建和销毁。
+//      GLX pixmap/font 函数    Windows bitmap/font 函数
+//      glXCreateGLXPixmap      CreateDIBitmap / CreateDIBSection
+//      glXDestroyGLXPixmap     DeleteObject
+//
+// 移植其他 GLX 代码。除前述 Xlib/GLX 函数外，程序中可能还有 GLX/Xlib 对照表中的其他函数。重写 X 代
+// 码到 Windows 时替换为相应函数即可。一个移植示例：
+// https://learn.microsoft.com/en-us/windows/win32/opengl/a-porting-sample
+//
+// 从 IRIS GL 移植应用
+//
+// 本节列出 IRIS GL 与 OpenGL 的重要差异，并描述 IRIS GL 到 OpenGL 的基本移植步骤。完整差异见附录。
+// 把 IRIS GL 程序移植到 OpenGL for Windows 比从 X Window System 转换 OpenGL 程序工作量大得多。IRIS
+// GL 面向特定软硬件；OpenGL 则面向跨系统可移植。
+//
+// 关键差异：
+//  OpenGL 代码                                                             IRIS GL 代码
+//  操作系统无关；不含窗口、事件处理、缓冲分配/管理等函数                   依赖操作系统；窗口系统函数与渲染函数混合；IRIS GL 无窗口管理器
+//  使用标准命名约定；函数和类型以 gl 开头避免冲突                          无统一命名约定
+//  直接一致地管理状态变量（颜色、雾、纹理、光照等），不用表加载状态值      用表管理状态变量，并绑定变量到表值
+//  显示列表不可编辑                                                        显示列表可编辑
+//  不提供字体文件格式                                                      提供字体/文本串处理函数和字体文件格式
+//  包含 GLU 库（NURBS、二次曲面渲染等）                                    不支持 GLU
+//
+// 移植 IRIS GL 到 OpenGL 的一般步骤：
+//  1.  重写调用窗口管理器、窗口配置、设备、事件或加载颜色图的代码为等价 Windows 代码；跨操作系统重
+//      写复杂且超出本节范围。
+//  2.  定位 IRIS GL 函数/例程并翻译为等价 OpenGL 函数；完整对照见附录。
+//  3.  按特殊 IRIS GL 移植问题修改代码，见下文各主题。
+//
+// 特殊移植主题包括：greset、IRIS GL “get” 函数、依赖当前图形位置的代码、绘图函数、颜色/着色/writemask、
+// 像素操作、深度提示与雾、曲线曲面、抗锯齿、累积缓冲、模板平面、显示列表、defs/binds/sets、光照与
+// 材质、纹理、拾取、反馈。
+//
+// 附录：OpenGL 函数及其 IRIS GL 等价函数。说明：列出的 OpenGL/GLU/Windows 函数可能与 IRIS GL 命令
+// 行为略有差异，参数也可能不同；完整差异见下一附录。
+//      累积/缓冲： acbuf→glAccum，acsize→ChoosePixelFormat，clear→glClear(GL_COLOR_BUFFER_BIT)，
+//                  zclear→glClear(GL_DEPTH_BUFFER_BIT)，czclear→glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT)，
+//                  sclear→glClear(GL_STENCIL_BUFFER_BIT)。
+//      矩阵/变换：mmode→glMatrixMode，loadmatrix→glLoadMatrix，multmatrix→glMultMatrix，
+//                  pushmatrix/popmatrix→glPushMatrix/glPopMatrix，ortho→glOrtho，ortho2→glluOrtho2D，
+//                  perspective→gluPerspective，window→glFrustum，rotate/rot→glRotate，scale→glScale，
+//                  translate→glTranslate，lookat→gluLookAt，polarview 用 glTranslate+glRotate。
+//      状态/属性：greset 用 glPushAttrib/glPopAttrib 替代；IRIS GL get 函数用 glGet*；pushattributes/popattributes→glPushAttrib/glPopAttrib。
+//      图元：bgnpoint/endpoint→glBegin(GL_POINTS)/glEnd，bgnline/endline→glBegin(GL_LINE_STRIP)/glEnd，
+//                  bgnclosedline/endclosedline→GL_LINE_LOOP，bgnpolygon/endpolygon→GL_POLYGON，
+//                  bgnqstrip/endqstrip→GL_QUAD_STRIP，bgntmesh/endtmesh→GL_TRIANGLE_STRIP，pnt→glBegin(GL_POINTS)，
+//                  draw/move 等当前位置相关不支持；v→glVertex，n3f/normal→glNormal3fv，RGBcolor/c/cpack→glColor，
+//                  color→glIndex。
+//      线/点/多边形：linewidth→glLineWidth，deflinestyle/setlinestyle/lsrepeat→glLineStipple，linesmooth/smoothline→glEnable(GL_LINE_SMOOTH)，
+//                  pntsize→glPointSize，pntsmooth→glEnable(GL_POINT_SMOOTH)，polymode→glPolygonMode，defpattern/setpattern→glPolygonStipple，
+//                  rect/rectf→glRect，sbox/sboxf→glRect（屏幕对齐矩形），concave→gluBeginPolygon。
+//      圆/弧/球：arc→gluPartialDisk，circ→gluDisk，sphdraw→gluSphere，sphobj→gluNewQuadric，sphfree→gluDeleteQuadric。
+//      像素：lrectread/rectread/readRGB→glReadPixels，lrectwrite/rectwrite→glDrawPixels，rectcopy→glCopyPixels，rectzoom→glPixelZoom，
+//                  cmov/cmov2→glRasterPos3/2，readsource→glReadBuffer，pixmode→glPixelStore/glPixelTransfer，logicop→glLogicOp。
+//      雾/深度：depthcue→glFog，fogvertex→glFog，lRGBrange/lshaderange/getdcm 不支持，见雾。
+//      NURBS：bgncurve/endcurve→gluBeginCurve/gluEndCurve，nurbscurve→gluNurbsCurve，bgnsurface/endsurface→gluBeginSurface/gluEndSurface，
+//                  nurbssurface→gluNurbsSurface，bgntrim/endtrim→gluBeginTrim/gluEndTrim，pwlcurve→gluPwlCurve，
+//                  defbasis/curvebasis/patchbasis/patchcurves→glMap1/glMap2，curveit/patch→glEvalMesh1/2。
+//      显示列表：makeobj/closeobj→glNewList/glEndList，callobj→glCallList，isobj→glIsList，delobj→glDeleteLists，genobj→glGenLists，
+//                  callfunc/editobj/objdelete/objinsert/objreplace/maketag/gentag/istag/deltag 不支持。
+//      光照/材质：lmbind→glEnable(GL_LIGHTING)/glEnable(GL_LIGHTi)，lmdef→glMaterial/glLight/glLightModel，lmcolor→glColorMaterial。
+//      纹理：tevdef/tevbind→glTexEnv，texdef2d/textbind→glTexImage2D/glTexParameter/gluBuild2DMipmaps，t2→glTexCoord2，texgen→glTexGen。
+//      拾取/反馈：pick/select→glRenderMode(GL_SELECT)，endpick/endselect→glRenderMode(GL_RENDER)，picksize→gluPickMatrix/glSelectBuffer，
+//                  initnames→glInitNames，pushname/popname→glPushName/glPopName，loadname→glLoadName，feedback→glFeedbackBuffer，
+//                  passthrough→glPassThrough。
+//      其他 Windows 相关：窗口、菜单、光标、事件、颜色图、字体等多用 Windows 函数替代，如 defpup/dopup/newpup/freepup/setpup→Use Windows for menus，
+//                  qread/qdevice/...→Use Windows for event handling，defcursor/setcursor/RGBcursor/gRGBcursor→Use Windows for cursors，
+//                  mapcolor/cyclemap/multimap/onemap/setmap/gammaramp→Use Windows for color maps，winopen/winclose/winset/...→Use Windows for windowing，
+//                  swapbuffers→SwapBuffers，gflush→glFlush，finish→glFinish，getgdesc→glGet/DescribePixelFormat/wglGetCurrentContext/wglGetCurrentDC。
+//
+// 附录：IRIS GL 与 OpenGL 差异
+//      术语                            描述
+//      accumulation wrapping           当分量值超过 1.0 或低于 -1.0 时，OpenGL 累积缓冲操作未定义。
+//      antialiased lines               OpenGL 会对反走样线做 stipple；IRIS GL 不会。
+//      arc                             OpenGL 在 utility library 支持弧。
+//      attribute lists                 IRIS GL pushattributes 推入的属性与 OpenGL glPushAttrib 推入的集合不同；但 OpenGL 状态可读回，因此可实现所需 push/pop 语义。
+//      automatic texture scaling       OpenGL 纹理接口不支持自动缩放到 2 的幂尺寸；GLU 支持图像缩放。
+//      bbox                            OpenGL 不支持显示列表条件执行。
+//      callfunc                        OpenGL 不支持从显示列表回调；IRIS GL 在客户端/服务器不同平台时也不支持。
+//      circle                          OpenGL 用 GLU 支持圆；disk/partial disk 可有孔；可改变细分，并提供可用于光照的表面法线。
+//      clear options                   OpenGL 真正清除缓冲；不论模式如何，不应用当前指定的像素操作如 blending/logicop。若要使用这类特性清屏，必须渲染窗口大小多边形。
+//      closed lines                    OpenGL 渲染所有单宽度 aliased 线时，使相邻线条不共享像素；独立线最后一个像素不绘制。
+//      color/normal flag               OpenGL 光照显式启用/禁用；启用时与颜色、法线指定顺序无关。不能在 glBegin/glEnd 之间切换光照；要禁用光照，可设环境/漫反射/
+//                                      镜面反射为零，并把材质自发光设为所需颜色。
+//      concave polygons                核心 OpenGL 不处理凹多边形；GLU 支持把凹、非自交轮廓分解为三角形，可立即绘制或返回。
+//      current computed color          OpenGL 无“当前计算颜色”等价；若把 OpenGL 当光照引擎，可用反馈获得光照计算颜色。
+//      current graphics position       OpenGL 不维护当前图形位置；IRIS GL 相对线、多边形等依赖当前位置的命令不包含在 OpenGL 中。
+//      curves                          OpenGL 不支持 IRIS GL curves；推荐 NURBS curves。
+//      defs/binds                      OpenGL 无材质/光照/纹理对象概念，只有属性；可用显示列表自建对象。
+//      depthcue                        OpenGL 不直接支持深度提示，但雾更通用，可轻易模拟 IRIS GL depthcue。
+//      display list editing            OpenGL 显示列表不能编辑，只能创建/销毁；但因可指定显示列表名，可在层级中重定义单个显示列表。显示列表用于数据缓存而非数据
+//                                      库管理；在客户端/服务器环境保证存于服务器，执行不受网络带宽限制；可在 glBegin/glEnd 之间调用，因此层级可细到等效可编辑。
+//      error checking                  OpenGL 比 IRIS GL 更严格检查错误；例如 glBegin/glEnd 之间不接受的函数会被检测为错误且无其他效果。
+//      error return values             返回值的 OpenGL 命令检测到错误时总返回 0；通过指针返回数据的命令出错时不改数组内容。
+//      error side effects              OpenGL 命令出错唯一副作用是更新错误标志；无其他状态改变（OUT_OF_MEMORY 致命错误除外）。
+//      feedback                        OpenGL 标准化反馈，不随机器变化。
+//      fonts and strings               OpenGL 要求把字符字形作为独立显示列表操作；glCallLists 可在调用前对显示列表名加偏移，把显示列表名集合当字符串处理。功能
+//                                      覆盖并超出 IRIS GL 字体。
+//      frontbuffer                     IRIS GL 对单缓冲模式前缓冲渲染有复杂规则；OpenGL 前缓冲渲染直接明了。
+//      hollow polygons                 OpenGL 可用模板能力渲染空心多边形；不支持其他空心多边形方式。
+//      index clamping                  尽可能把颜色和模板索引当位域而非数字；索引按掩码限制到帧缓冲支持范围，而非 clamp。
+//      integer colors                  有符号整型颜色分量线性映射到浮点：最负整数映射 -1.0，最正整数映射 1.0；无符号整数 0→0.0，最大整数→1.0。
+//      integer normals                 整型法线分量像有符号颜色分量一样映射。
+//      pixel fragments                 glDrawPixels/glCopyPixels 绘制的像素总会光栅化并转为片段；结果片段会像几何点生成的一样被纹理、雾、深度、混合等处理；源像
+//                                      素未提供的片段数据由当前 raster position 补齐。
+//      invariance                      OpenGL 保证 IRIS GL 不保证的一致性，例如相同代码序列仅混合函数不同，会生成相同片段（但若启用后又禁用 blending 则不同）。
+//      lighting equation               OpenGL 光照方程与 IRIS GL 略有差异；每光源独立衰减而非全局单一衰减；环境/漫反射/镜面贡献都衰减；光源与材质颜色可分别指定
+//                                      环境/漫反射/镜面强度，且都含 alpha；镜面指数设为 0 不会关闭镜面光照。
+//      mapw                            OpenGL utility 支持 object/window 坐标互转。
+//      matrix mode                     IRIS GL ortho/ortho2/perspective/window 作用于特定矩阵；OpenGL 矩阵操作都作用于当前矩阵。除 glLoadIdentity/glLoadMatrix
+//                                      外，OpenGL 矩阵操作都是乘当前矩阵而非替换。
+//      mipmaps, automatic generation   OpenGL 纹理接口不自动生成 mipmap；GLU 支持 1-D/2-D 纹理自动生成 mipmap。
+//      move/draw/...                   OpenGL 只支持 Begin/End 风格图形，因为不维护当前图形位置；但所有顶点相关命令接受标量参数。
+//      mprojection mode                IRIS GL 在投影矩阵模式时不经 modelview 变换几何；OpenGL 不论矩阵模式都经 modelview 与 projection 变换。
+//      multi-buffer drawing            OpenGL 分别渲染到每个颜色缓冲；不是像 IRIS GL 那样基于一个颜色缓冲计算新颜色值并写入所有启用缓冲。
+//      NURBS                           OpenGL 以核心能力（evaluators）加 GLU 支持 NURBS；覆盖 IRIS GL NURBS 能力。
+//      old polygon mode                OpenGL aliased 多边形总是点采样；不支持 IRIS GL 多边形兼容模式（多边形外像素也纳入光栅化）。若代码用该模式多半用于矩形；
+//                                      旧模式矩形会显得宽高各多 1 像素。
+//      packed color formats            OpenGL 接受 8 位颜色分量，但作为字节数组而非打包进大词；鼓励数组索引而非移位，促进 endian 无关编程。与 IRIS GL 同时接受
+//                                      几何与像素渲染的打包颜色类似，OpenGL 接受几何与像素渲染的颜色分量数组。
+//      patches                         OpenGL 不支持 IRIS GL patches。
+//      per-bit color writemask         OpenGL 颜色分量 writemask 对整个分量（R/G/B/A）启用/禁用，不按分量位；但颜色索引和模板索引支持按位 writemask。
+//      per-bit depth writemask         OpenGL 深度分量 writemask 对整个分量启用/禁用，不按位。
+//      pick                            GLU 提供 gluPickMatrix 生成拾取矩阵。
+//      pixel coordinates               OpenGL 与 IRIS GL 窗口坐标原点都在左下角；OpenGL 原点在该像素左下角，IRIS GL 在左下角像素中心。
+//      pixel zoom                      OpenGL 负 zoom factor 关于当前图形位置反射；IRIS GL 未定义负 zoom，而提供 RIGHT_TO_LEFT/TOP_TO_BOTTOM 就地反射 pixmodes。
+//                                      OpenGL 不定义反射模式。
+//      pixmode                         OpenGL 像素传输按单个颜色分量操作，而非像 IRIS GL 按打包的 4 个 8 位分量组。OpenGL 像素能力更强，但不支持打包颜色结构，
+//                                      也不支持像素复制中重分配颜色分量（红到绿等）。
+//      polf/poly                       OpenGL 除显示列表外不直接支持顶点列表；但 polf/poly 可容易用 OpenGL API 实现。
+//      polygon provoking vertex        IRIS GL 平面着色多边形取最后指定顶点颜色；OpenGL 取第一个指定顶点颜色。
+//      polygon stipple                 IRIS GL polygon stipple 相对屏幕；OpenGL 相对窗口。
+//      polygon vertex count            OpenGL glBegin/glEnd 之间顶点数无限制，即使 glBegin(GL_POLYGON)；IRIS GL 多边形最多 255 顶点。
+//      readdisplay                     读窗口边界外像素本质属窗口系统能力；用 Windows 函数替代 IRIS GL readdisplay。
+//      relative move/draw/...          OpenGL 不维护当前图形位置，不支持相对顶点操作。
+//      RGBA logicop                    OpenGL 不支持 RGBA 缓冲逻辑操作。
+//      sbox                            IRIS GL sbox 矩形原语仅在无旋转变换下定义良好，设计目标是比标准矩形更快；OpenGL 不支持，但在矩阵和模式简化时可很快渲染矩形。
+//      scalar arguments                glBegin/glEnd 之间接受的所有 OpenGL 命令都有接受标量参数的入口，如 glColor4f(r,g,b,a)。
+//      scissor                         OpenGL glScissor 不跟踪 viewport；IRIS GL viewport 会自动更新 scrmask。
+//      scrbox                          OpenGL 不支持包围盒计算。
+//      scrsubdivide                    OpenGL 不支持屏幕细分。
+//      single matrix mode              OpenGL 总维护 ModelView 与 Projection 两个矩阵；实现可为性能合并内部矩阵，但对程序员必须呈现双矩阵模型。
+//      subpixel mode                   所有 OpenGL 渲染都 subpixel 定位，subpixel 模式恒开。
+//      swaptmesh                       OpenGL 不支持 swaptmesh；提供两类三角形 mesh：一类对应 IRIS GL 默认“strip”行为，一类对应 IRIS GL 在第三个及以后顶点前调
+//                                      用 swaptmesh 的行为。
+//      vector arguments                glBegin/glEnd 之间接受的所有 OpenGL 命令都有接受向量参数的入口，如 glColor4fv。
+//      window management               OpenGL 不含窗口系统命令，始终作为窗口/操作系统扩展支持；每个扩展提供创建/销毁/操纵渲染上下文的系统相关机制，如 GLX 约 10
+//                                      个命令。IRIS GL gconfig/drawmode 不由 OpenGL 实现。
+//      window offset                   IRIS GL 以屏幕而非窗口坐标返回 viewport 和字符位置；OpenGL 总用窗口坐标。
+//      z rendering                     OpenGL 不支持把颜色渲染到深度缓冲；允许额外颜色缓冲，可在其他窗口配置中用深度缓冲相同内存实现，但同配置中不能与深度缓冲共享内存。
+
+// 四、Windows OpenGL 扩展
+//
+// 以下是与 OpenGL 相关的 WGL 函数：
+//  wglCopyContext
+//  wglCreateContext
+//  wglCreateLayerContext
+//  wglDeleteContext
+//  wglDescribeLayerPlane
+//  wglGetCurrentContext
+//  wglGetCurrentDC
+//  wglGetLayerPaletteEntries
+//  wglGetProcAddress
+//  wglMakeCurrent
+//  wglRealizeLayerPalette
+//  wglSetLayerPaletteEntries
+//  wglShareLists
+//  wglSwapLayerBuffers
+//  wglUseFontBitmaps
+//  wglUseFontOutlines
+//
+// 以下是与 OpenGL 相关的 Windows 函数：
+//  ChoosePixelFormat
+//  DescribePixelFormat
+//  GetEnhMetaFilePixelFormat
+//  GetPixelFormat
+//  SetPixelFormat
+//  SwapBuffers
+//
+// 以下是与 OpenGL 相关的结构：
+//  GLYPHMETRICSFLOAT
+//  LAYERPLANEDESCRIPTOR
+//  PIXELFORMATDESCRIPTOR
+//  POINTFLOAT
+
 #endif // PRH_GRAPHIC_IMPLEMENTATION
 
 // FULL VERSION HISTORY
