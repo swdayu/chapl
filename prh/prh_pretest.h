@@ -152,6 +152,26 @@ void prh_bsearch_test(void) {
     prh_r32 a[] = {2, 3, 5, 7};
     prh_r32 b[] = {2, 3, 5};
     prh_reg i;
+    bool succ;
+
+    prh_bsearch(succ, i, 0, a, prh_arrlen(a)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 1, a, prh_arrlen(a)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 2, a, prh_arrlen(a)); prh_real_assert(succ == true && i == 0);
+    prh_bsearch(succ, i, 3, a, prh_arrlen(a)); prh_real_assert(succ == true && i == 1);
+    prh_bsearch(succ, i, 4, a, prh_arrlen(a)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 5, a, prh_arrlen(a)); prh_real_assert(succ == true && i == 2);
+    prh_bsearch(succ, i, 6, a, prh_arrlen(a)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 7, a, prh_arrlen(a)); prh_real_assert(succ == true && i == 3);
+    prh_bsearch(succ, i, 8, a, prh_arrlen(a)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 9, a, prh_arrlen(a)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 0, b, prh_arrlen(b)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 1, b, prh_arrlen(b)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 2, b, prh_arrlen(b)); prh_real_assert(succ == true && i == 0);
+    prh_bsearch(succ, i, 3, b, prh_arrlen(b)); prh_real_assert(succ == true && i == 1);
+    prh_bsearch(succ, i, 4, b, prh_arrlen(b)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 5, b, prh_arrlen(b)); prh_real_assert(succ == true && i == 2);
+    prh_bsearch(succ, i, 6, b, prh_arrlen(b)); prh_real_assert(succ == false);
+    prh_bsearch(succ, i, 7, b, prh_arrlen(b)); prh_real_assert(succ == false);
 
     prh_bsearch_first_less_equal(i, 1, a, prh_arrlen(a)); prh_real_assert(i == 0);
     prh_bsearch_first_less_equal(i, 2, a, prh_arrlen(a)); prh_real_assert(i == 0);
@@ -216,6 +236,26 @@ void prh_bsearch_test(void) {
                 // 0  1  2  3
     prh_r32 c[] = {7, 5, 3, 2};
     prh_r32 d[] = {7, 5, 3};
+
+    prh_descending_bsearch(succ, i, 9, c, prh_arrlen(c)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 8, c, prh_arrlen(c)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 7, c, prh_arrlen(c)); prh_real_assert(succ == true && i == 0);
+    prh_descending_bsearch(succ, i, 6, c, prh_arrlen(c)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 5, c, prh_arrlen(c)); prh_real_assert(succ == true && i == 1);
+    prh_descending_bsearch(succ, i, 4, c, prh_arrlen(c)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 3, c, prh_arrlen(c)); prh_real_assert(succ == true && i == 2);
+    prh_descending_bsearch(succ, i, 2, c, prh_arrlen(c)); prh_real_assert(succ == true && i == 3);
+    prh_descending_bsearch(succ, i, 1, c, prh_arrlen(c)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 0, c, prh_arrlen(c)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 9, d, prh_arrlen(d)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 8, d, prh_arrlen(d)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 7, d, prh_arrlen(d)); prh_real_assert(succ == true && i == 0);
+    prh_descending_bsearch(succ, i, 6, d, prh_arrlen(d)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 5, d, prh_arrlen(d)); prh_real_assert(succ == true && i == 1);
+    prh_descending_bsearch(succ, i, 4, d, prh_arrlen(d)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 3, d, prh_arrlen(d)); prh_real_assert(succ == true && i == 2);
+    prh_descending_bsearch(succ, i, 2, d, prh_arrlen(d)); prh_real_assert(succ == false);
+    prh_descending_bsearch(succ, i, 1, d, prh_arrlen(d)); prh_real_assert(succ == false);
 
     prh_descending_bsearch_last_less_equal(i, 8, c, prh_arrlen(c)); prh_real_assert(i == -1);
     prh_descending_bsearch_last_less_equal(i, 7, c, prh_arrlen(c)); prh_real_assert(i == 0);

@@ -13,7 +13,7 @@ CURCC := msc
 
 MSVC_HOME_PATH := /mnt/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.43.34808
 WINDOWS_SDK_PATH := /mnt/c/Program Files (x86)/Windows Kits/10
-WINDOWS_SDK_VERSION := 10.0.22621.0
+WINDOWS_SDK_VERSION := 10.0.26100.0
 
 msvc_inc_path := $(MSVC_HOME_PATH)/include
 msvc_bin_X64 := $(MSVC_HOME_PATH)/bin/Hostx64/x64
@@ -25,6 +25,7 @@ msvc_lib_X86 := $(MSVC_HOME_PATH)/lib/x86
 wsdk_inc_path := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/um
 wsdk_inc_ucrt := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/ucrt
 wsdk_inc_shared := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/shared
+wsdk_inc_winrt := $(WINDOWS_SDK_PATH)/Include/$(WINDOWS_SDK_VERSION)/winrt
 wsdk_bin_X64 := $(WINDOWS_SDK_PATH)/bin/$(WINDOWS_SDK_VERSION)/x64
 wsdk_bin_X86 := $(WINDOWS_SDK_PATH)/bin/$(WINDOWS_SDK_VERSION)/x86
 wsdk_lib_X64 := $(WINDOWS_SDK_PATH)/Lib/$(WINDOWS_SDK_VERSION)/um/x64
@@ -460,7 +461,8 @@ INIT_CFLAGS += \
 	/I"$(call windows_path_style,$(msvc_inc_path))" \
 	/I"$(call windows_path_style,$(wsdk_inc_path))" \
 	/I"$(call windows_path_style,$(wsdk_inc_ucrt))" \
-	/I"$(call windows_path_style,$(wsdk_inc_shared))"
+	/I"$(call windows_path_style,$(wsdk_inc_shared))" \
+	/I"$(call windows_path_style,$(wsdk_inc_winrt))"
 
 # Release Win32
 # Compile:
