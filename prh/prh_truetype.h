@@ -25,9 +25,8 @@ prh_data prh_read_font_file(const prh_byte *name);
 void prh_free_file_data(prh_data *file);
 
 prh_r32 prh_font_count(prh_data *file);
-prh_r32 prh_font_offset(prh_data *file, prh_r32 font_index);
 
-prh_font *prh_load_font(prh_data *file, prh_r32 offset);
+prh_font *prh_load_font(prh_data *file, prh_r32 font_index);
 void prh_free_font(prh_font *font);
 
 #ifdef __cplusplus
@@ -460,6 +459,8 @@ void prh_free_font(prh_font *font);
 //
 // Thin 100 ExtraLight 200 Light 300 Regular 400 Medium 500 SemiBold 600 Bold 700 ExtraBold 800 Black/Heavy 900
 // 薄（bao）   超细         细体      常规        中等        半粗        粗体      超粗           黑体
+
+// https://learn.microsoft.com/en-us/windows/win32/intl/uniscribe-glossary
 
 // CID-Keyed sfnt Font File Format for the Macintosh Version 2.0
 // Technical Note 5180, 12 February 1997
@@ -1002,36 +1003,6 @@ void prh_free_font(prh_font *font);
 #define PRH_TTAG_VMTX 0x766D7478 // 'vmtx' 垂直度量
 
 typedef struct {
-    prh_r32 sfntversion;    // 0x00010000 (TrueType 字体) 0x4F54544F 'OTTO' (CFF/CFF2 字体) 0x74727565 'true' (TrueType 字体) 0x74797031 ’typ1' (旧的 Type 1 字体)
-    prh_r16 numtables;      // 表的数量
-    prh_r16 searchrange;
-    prh_r16 entryselector;
-    prh_r16 rangeshift;
-} prh_font_header;
-
-typedef struct {
-    prh_r32 ttctag;
-    prh_r16 majorversion;
-    prh_r16 minorversion;
-    prh_r32 numfonts;
-} prh_font_ttc_header;
-
-typedef struct {
-    prh_r32 dsigtag;    // 0x44534947 ('DSIG')，没有签名时为 NULL
-    prh_r32 dsiglength; // DSIG 表的长度，没有签名时为 NULL
-    prh_r32 dsigoffset; // DSIG 表所在的文件偏移，没有签名时为 NULL
-} prh_font_ttc_signature;
-
-typedef struct {
-    prh_reader reader;
-    prh_font_header font_header;
-    prh_font_ttc_header ttc_header;
-    prh_font_ttc_signature ttc_signature;
-    prh_r32 *ttc_font_header_offset_big;
-    prh_r32 file_size;
-} prh_font_file;
-
-typedef struct {
     prh_r32 ttc_tag; // 'ttcf'
     prh_r32 version; // 0x00010000
     prh_r32 num_fonts; // 文件中字体的个数
@@ -1043,7 +1014,7 @@ typedef struct {
     prh_r32 version; // 0x00020000
     prh_r32 num_fonts; // 文件中字体的个数
     prh_r32 font_offset[1]; // num_fonts 个元素, 从文件开头开始的偏移
-    // prh_r32 dsig_tag; // 'DSIG' or 0
+    // prh_r32 dsig_tag; // 'DSIG' 没有签名时为 NULL
     // prh_r32 dsig_length; // length or 0
     // prh_r32 dsig_offset; // 从文件开头开始的偏移
 } prh_impl_ttc_v2_header;
@@ -1070,14 +1041,14 @@ prh_r32 prh_font_count(prh_data *file)
     return prh_r32_be_to_host(ttc_header->num_fonts);
 }
 
-prh_r32 prh_font_offset(prh_data *file, prh_r32 font_index)
+prh_r32 prh_impl_font_offset(prh_data *file, prh_r32 font_index)
 {
     prh_assert(font_index < prh_font_count(file));
     prh_impl_ttc_header *ttc_header = (prh_impl_ttc_header *)file->data;
     if (prh_r32_be_to_host(ttc_header->ttc_tag) != PRH_TTC_HEADER) return 0;
     prh_r32 font_offset = prh_r32_be_to_host(ttc_header->font_offset[font_index]);
     prh_assert((font_offset % 4) == 0);
-    prh_assert(font_offset < (prh_r32)file->size);
+    prh_assert(font_offset < (prh_r32)file->size || file->size == 0);
     return font_offset;
 }
 
@@ -1134,10 +1105,10 @@ static const prh_r32 prh_impl_ftab[] = {
 
 typedef struct prh_font {
     prh_byte *font_data; // font header
-    prh_r32 file_size;
-    prh_r32 font_offset;
     prh_r32 sfnt_version;
-    prh_r32 font_tables;
+    prh_r32 font_index;
+    prh_r32 font_offset;
+    prh_r32 file_size;
     prh_r32
         cff2: 1, y_at_baseline: 1, x_at_lsb_point: 1,
         instruction_may_depend_on_point_size: 1,
@@ -1150,6 +1121,7 @@ typedef struct prh_font {
         bold_font: 1, italic_font: 1, underline_font: 1, outline_font: 1, // 粗体 斜体 下划线 轮廓
         shadow_font: 1, condensed_font: 1, extended_font: 1, // 阴影 压缩（紧缩） 扩展
         long_loca_offset: 1;
+    prh_r16 num_tables;
     prh_r16 num_glyphs;
     prh_r16 units_per_em;
     prh_r16 smallest_readable_pixels_per_em; // ppem i.e. font size
@@ -1163,6 +1135,12 @@ typedef struct prh_font {
     prh_data table[prh_arrlen(prh_impl_ftab)];
 } prh_font;
 
+prh_r32 prh_impl_font_count(prh_font *font)
+{
+    prh_data file = {font->font_data - font->font_offset};
+    return prh_font_count(&file);
+}
+
 prh_data *prh_impl_font_table(prh_font *font, prh_r32 tabletag)
 {
     bool find; prh_reg i;
@@ -1170,21 +1148,83 @@ prh_data *prh_impl_font_table(prh_font *font, prh_r32 tabletag)
     return find ? font->table + i : prh_null;
 }
 
-prh_font *prh_load_font(prh_data *file, prh_r32 offset)
+#define prh_impl_bsearch_table_headers(p) prh_r32_be_to_host((p)->tabletag)
+
+prh_i32 prh_impl_table_index(prh_font *font, prh_r32 tabletag)
+{
+    bool find; prh_reg i;
+    prh_impl_font_header *font_header = (prh_impl_font_header *)font->font_data;
+    prh_generic_bsearch(find, i, tabletag, font_header->table, font->num_tables, prh_impl_bsearch_table_headers);
+    return find ? (prh_i32)i : (prh_i32)-1;
+}
+
+prh_r32 prh_impl_table_checksum(prh_byte *table_data, prh_r32 table_length)
+{
+    prh_assert(((prh_reg)table_data % 4) == 0);
+    prh_r32 checksum = 0;
+    prh_r32 *data = (prh_r32 *)table_data;
+    prh_r32 *end = data + (table_length / 4);
+    for (; data < end; data += 1)
+    {
+        checksum += prh_r32_be_to_host(*data);
+    }
+    if (table_data + table_length > (prh_byte *)end)
+    {
+        prh_byte last_bytes[4] = {0};
+        memcpy(last_bytes, (prh_byte *)end, table_data + table_length - (prh_byte *)end);
+        checksum += prh_bp_4b_to_host(last_bytes);
+    }
+    return checksum;
+}
+
+typedef struct {
+    prh_byte *table_data;
+    prh_byte *table_tag;
+    prh_i32 table_index;
+    prh_r32 table_length;
+    prh_r32 table_offset;
+    prh_r32 table_checksum;
+} prh_impl_table_info;
+
+prh_impl_table_info prh_impl_find_table(prh_font *font, prh_r32 tabletag)
+{
+    prh_impl_table_info out = {0};
+    prh_data *table = prh_impl_font_table(font, tabletag);
+    if (table == prh_null || table->data == prh_null) return out;
+    prh_i32 table_index = prh_impl_table_index(font, tabletag);
+    prh_impl_font_header *font_header = (prh_impl_font_header *)font->font_data;
+    prh_impl_table_header *table_header = font_header->table + table_index;
+    out.table_data = table->data;
+    out.table_length = (prh_r32)table->size;
+    out.table_index = table_index;
+    out.table_tag = (prh_byte *)&table_header->tabletag;
+    out.table_offset = prh_r32_be_to_host(table_header->offset);
+    out.table_checksum = prh_r32_be_to_host(table_header->checksum);
+    prh_assert((prh_r32)table->size == prh_r32_be_to_host(table_header->length));
+    return out;
+}
+
+void prh_impl_table_maxp(prh_font *font);
+void prh_impl_table_head(prh_font *font);
+void prh_impl_table_hhea(prh_font *font);
+
+prh_font *prh_load_font(prh_data *file, prh_r32 font_index)
 {
     prh_font *font = (prh_font *)prh_global_alloc(sizeof(prh_font));
-    memset(font, 0, sizeof(prh_font);
+    memset(font, 0, sizeof(prh_font));
 
-    prh_assert(offset < file->size);
-    font->font_data = file->data + offset;
+    prh_r32 font_offset = prh_impl_font_offset(file, font_index);
+    prh_assert(font_offset < file->size);
+    font->font_data = file->data + font_offset;
     font->file_size = (prh_r32)file->size;
-    font->font_offset = offset;
+    font->font_index = font_index;
+    font->font_offset = font_offset;
 
     if (font->file_size == 0) font->file_size = 0xFFFFFFFF;
 
     prh_impl_font_header *font_header = (prh_impl_font_header *)font->font_data;
     font->sfnt_version = prh_r32_be_to_host(font_header->sfnt_version);
-    font->font_tables = prh_r16_be_to_host(font_header->num_tables);
+    font->num_tables = prh_r16_be_to_host(font_header->num_tables);
 
     prh_assert(
         font->sfnt_version == PRH_TTF_OUTLINE ||
@@ -1193,7 +1233,7 @@ prh_font *prh_load_font(prh_data *file, prh_r32 offset)
         font->sfnt_version == PRH_CFF_APLTYP1);
 
     prh_r32 ftab_index = 0;
-    for (prh_r32 i = 0; i < font->font_tables; i += 1)
+    for (prh_r32 i = 0; i < font->num_tables; i += 1)
     {
         prh_impl_table_header *table_header = font_header->table + i;
         prh_r32 tabletag = prh_r32_be_to_host(table_header->tabletag);
@@ -1238,6 +1278,10 @@ prh_font *prh_load_font(prh_data *file, prh_r32 offset)
             font->cff2 = 0;
         }
     }
+
+    prh_impl_table_maxp(font);
+    prh_impl_table_head(font);
+    prh_impl_table_hhea(font);
 
     return font;
 }
@@ -1339,11 +1383,11 @@ void prh_impl_table_head(prh_font *font)
 {
     prh_data *head = prh_impl_font_table(font, PRH_TTAG_HEAD);
     prh_assert(head != prh_null && head->data != prh_null);
-    prh_assert(head->size == sizeof(prh_impl_head_table));
+    prh_assert(head->size == sizeof(prh_impl_head_table) - 2);
 
     prh_impl_head_table *p = (prh_impl_head_table *)head->data;
-    prh_assert(prh_r32_be_to_host(p->head_version == 0x00010000));
-    prh_assert(prh_r32_be_to_host(p->magic_number == 0x5F0F3CF5));
+    prh_assert(prh_r32_be_to_host(p->head_version) == 0x00010000);
+    prh_assert(prh_r32_be_to_host(p->magic_number) == 0x5F0F3CF5);
 
     //    0    1    2    3    4    5    6    7    8    9   10   11   12   13   14   15
     // 0001 0002 0004 0008 0010 0020 0040 0080 0100 0200 0400 0800 1000 2000 4000 8000
@@ -1583,274 +1627,45 @@ bool prh_impl_table_hdmx(prh_font *font, prh_r16 glyph_index, prh_byte pixel_fon
     return true;
 }
 
-prh_static_assert(sizeof(prh_font_header) == sizeof(prh_font_ttc_header));
-
-void prh_font_file_free(prh_font_file *f) {
-    prh_da_free(f->ttc_font_header_offset_big);
-    prh_read_free(&f->reader);
-}
-
-void prh_load_font_file(prh_font_file *f, const prh_byte *name) {
-    f->reader = prh_read_from_file(name, prh_vmem_unit_size, prh_local_alloc());
-    prh_read_exact_bytes(&f->reader, (prh_byte *)&f->font_header, sizeof(prh_font_header));
-    prh_set_r32_be_to_host(f->font_header.sfntversion);
-    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_TTF_APLTRUE ||
-        f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1) {
-        prh_set_r16_be_to_host(f->font_header.numtables);
-        memset(&f->ttc_header, 0, sizeof(prh_font_ttc_header));
-        memset(&f->ttc_signature, 0, sizeof(prh_font_ttc_signature));
-        f->ttc_font_header_offset_big = prh_null;
-        f->ttc_header.numfonts = 1;
-    } else if (f->font_header.sfntversion == PRH_TTC_HEADER) {
-        f->ttc_header = *(prh_font_ttc_header *)&f->font_header;
-        prh_set_r16_be_to_host(f->ttc_header.majorversion);
-        prh_set_r16_be_to_host(f->ttc_header.minorversion);
-        prh_set_r32_be_to_host(f->ttc_header.numfonts);
-        if (f->ttc_header.majorversion != 1 && f->ttc_header.majorversion != 2) {
-            prh_abort_error(f->ttc_header.majorversion);
-        }
-        prh_da_init(f->ttc_font_header_offset_big, f->ttc_header.numfonts);
-        prh_read_exact_bytes(&f->reader, (prh_byte *)f->ttc_font_header_offset_big, f->ttc_header.numfonts * sizeof(prh_r32));
-        if (f->ttc_header.majorversion == 2) {
-            prh_read_exact_bytes(&f->reader, (prh_byte *)&f->ttc_signature, sizeof(prh_font_ttc_signature));
-            prh_set_r32_be_to_host(f->ttc_signature.dsigtag);
-            prh_set_r32_be_to_host(f->ttc_signature.dsiglength);
-            prh_set_r32_be_to_host(f->ttc_signature.dsigoffset);
-            if (f->ttc_signature.dsigtag != 0 && f->ttc_signature.dsigtag != PRH_TTC_DSIG) {
-                prh_abort_error(f->ttc_signature.dsigtag);
-            }
-        }
-        f->font_header.numtables = 0;
-    } else {
-        prh_eprinf_r32(f->font_header.sfntversion, prh_pf_print_base | prh_pf_hex | 8);
-        prh_abort_error(__LINE__);
-    }
-    f->file_size = prh_file_size_32(f->reader.handle);
-}
-
-prh_r32 prh_impl_font_count(const prh_font_file *f) {
-    return f->ttc_header.numfonts;
-}
-
-typedef struct {
-    prh_r32 tabletag;   // 表标识符，必须按 tag 值升序排列
-    prh_r32 checksum;   // 此表校验和
-    prh_r32 offset;     // 此表所在的文件偏移
-    prh_r32 length;     // 此表的长度
-} prh_font_thead;
-
-typedef struct {
-    prh_r32 tabletag;
-    prh_r32 checksum;
-    prh_r32 offset;
-    prh_r32 length;
-    prh_r32 table_index;
-} prh_font_table;
-
-typedef struct prh_open_font {
-    prh_font_file *font_file;
-    prh_font_header font_header;
-    prh_font_thead *table_header;
-    prh_r32 font_header_offset;
-    prh_r32 font_index;
-    bool is_cff_outline;
-    prh_r32 maxp_version;
-    prh_r16 num_glyphs;
-    prh_r16 max_points;
-    prh_r16 max_contours;
-    prh_r16 max_composite_points;
-    prh_r16 max_composite_contours;
-    prh_r16 max_zones;
-    prh_r16 max_twilinght_points;
-    prh_r16 max_storage;
-    prh_r16 max_function_defs;
-    prh_r16 max_instruction_defs;
-    prh_r16 max_stack_elements;
-    prh_r16 max_size_of_instructions;
-    prh_r16 max_component_elements;
-    prh_r16 max_component_depth;
-    prh_font_table base; // 'BASE'
-    prh_font_table cff1; // 'CFF '
-    prh_font_table cff2; // 'CFF2'
-    prh_font_table dsig; // 'DSIG'
-    prh_font_table gdef; // 'GDEF'
-    prh_font_table gpos; // 'GPOS'
-    prh_font_table gsub; // 'GSUB'
-    prh_font_table os_2; // 'OS/2'
-    prh_font_table stat; // 'STAT'
-    prh_font_table vdmx; // 'VDMX'
-    prh_font_table vorg; // 'VORG'
-    prh_font_table cmap; // 'cmap'
-    prh_font_table hdmx; // 'hdmx'
-    prh_font_table head; // 'head'
-    prh_font_table hhea; // 'hhea'
-    prh_font_table hmtx; // 'hmtx'
-    prh_font_table maxp; // 'maxp'
-    prh_font_table name; // 'name'
-    prh_font_table post; // 'post'
-    prh_font_table vhea; // 'vhea'
-    prh_font_table vmtx; // 'vmtx'
-} prh_open_font;
-
-prh_r16 prh_font_table_count(const prh_open_font *f) {
-    return f->font_header.numtables;
-}
-
-void prh_open_font_free(prh_open_font *p) {
-    prh_da_free(p->table_header);
-}
-
-void prh_impl_font_header_read(prh_open_font *p);
-
-void prh_load_open_font(prh_open_font *p, prh_font_file *f, prh_r32 font_index) {
-    memset(p, 0, sizeof(prh_open_font));
-    prh_assert(font_index < prh_impl_font_count(f));
-    if (f->font_header.sfntversion == PRH_TTC_HEADER) {
-        p->font_header_offset = f->ttc_font_header_offset_big[font_index];
-        prh_set_r32_be_to_host(p->font_header_offset);
-    } else {
-        p->font_header_offset = 0;
-    }
-    p->font_file = f;
-    p->font_index = font_index;
-    prh_impl_font_header_read(p);
-}
-
-void prh_print_ttff_header(prh_font_file *f) {
+void prh_print_file_header(prh_data *file) {
+    prh_impl_ttc_header *ttc = (prh_impl_ttc_header *)file->data;
     prh_print(
-        "file tag 0x%08x (%c%c%c%c)\n"
+        "file tag %Ls\n"
         "file size %d-byte %d-KB %d-MB\n"
         "font count %d\n"
-        "font ttc version %d.%d\n"
-        "font ttc data signature 0x%08x (%c%c%c%c) offset %d length %d\n\n",
-        (prh_reg)f->font_header.sfntversion,
-        (prh_reg)prh_byte_4(f->font_header.sfntversion),
-        (prh_reg)prh_byte_3(f->font_header.sfntversion),
-        (prh_reg)prh_byte_2(f->font_header.sfntversion),
-        (prh_reg)prh_byte_1(f->font_header.sfntversion),
-        (prh_reg)f->file_size,
-        (prh_reg)f->file_size / 1024,
-        (prh_reg)f->file_size / 1024 / 1024,
-        (prh_reg)prh_impl_font_count(f),
-        (prh_reg)f->ttc_header.majorversion,
-        (prh_reg)f->ttc_header.minorversion,
-        (prh_reg)f->ttc_signature.dsigtag,
-        (prh_reg)prh_byte_4(f->ttc_signature.dsigtag),
-        (prh_reg)prh_byte_3(f->ttc_signature.dsigtag),
-        (prh_reg)prh_byte_2(f->ttc_signature.dsigtag),
-        (prh_reg)prh_byte_1(f->ttc_signature.dsigtag),
-        (prh_reg)f->ttc_signature.dsigoffset,
-        (prh_reg)f->ttc_signature.dsiglength);
+        "font ttc version %d\n",
+        (prh_reg)4, (prh_byte *)&ttc->ttc_tag,
+        (prh_reg)file->size,
+        (prh_reg)file->size / 1024,
+        (prh_reg)file->size / 1024 / 1024,
+        (prh_reg)prh_font_count(file),
+        (prh_reg)prh_r32_be_to_host(ttc->version));
+    if (prh_r32_be_to_host(ttc->ttc_tag) == PRH_TTC_HEADER)
+    {
+        prh_r32 *dsig_tag = (prh_r32 *)(ttc->font_offset + prh_r32_be_to_host(ttc->num_fonts));
+        prh_r32 *dsig_length = dsig_tag + 1;
+        prh_r32 *dsig_offset = dsig_tag + 2;
+        prh_print("font ttc data signature %Ls offset %d length %d\n\n",
+            (prh_reg)4, dsig_tag,
+            (prh_reg)prh_r32_be_to_host(*dsig_offset),
+            (prh_reg)prh_r32_be_to_host(*dsig_length));
+    }
 }
 
-void prh_print_font_header(prh_open_font *f) {
+void prh_print_font_header(prh_font *font) {
+    prh_impl_font_header *p = (prh_impl_font_header *)font->font_data;
     prh_print(
         "font index %d / %d\n"
-        "font tag 0x%08x (%c%c%c%c)\n"
+        "font tag %08d %Ls\n"
         "font offset %d\n"
-        "font tables %d\n\n",
-        (prh_reg)f->font_index + 1,
-        (prh_reg)prh_impl_font_count(f->font_file),
-        (prh_reg)f->font_header.sfntversion,
-        (prh_reg)prh_byte_4(f->font_header.sfntversion),
-        (prh_reg)prh_byte_3(f->font_header.sfntversion),
-        (prh_reg)prh_byte_2(f->font_header.sfntversion),
-        (prh_reg)prh_byte_1(f->font_header.sfntversion),
-        (prh_reg)f->font_header_offset,
-        (prh_reg)prh_font_table_count(f));
-}
-
-void prh_print_font_table(prh_open_font *f, prh_r16 table_index) {
-    prh_font_thead *t = f->table_header + table_index;
-    prh_r32 tabletag = prh_r32_be_to_host(t->tabletag);
-    prh_r32 offset = prh_r32_be_to_host(t->offset);
-    prh_r32 length = prh_r32_be_to_host(t->length);
-    prh_r32 checksum = prh_r32_be_to_host(t->checksum);
-    prh_print(
-        "table index %d / %d\n"
-        "table tag 0x%08x (%c%c%c%c)\n"
-        "table offset %.10d (%d/4)\n"
-        "table length %.10d (%d/4)\n"
-        "table checksum 0x%08x\n\n",
-        (prh_reg)table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)tabletag,
-        (prh_reg)prh_byte_4(tabletag),
-        (prh_reg)prh_byte_3(tabletag),
-        (prh_reg)prh_byte_2(tabletag),
-        (prh_reg)prh_byte_1(tabletag),
-        (prh_reg)offset, (prh_reg)offset % 4,
-        (prh_reg)length, (prh_reg)length % 4,
-        (prh_reg)checksum);
-}
-
-prh_byte *prh_load_font_table(prh_open_font *f, prh_font_table *t) {
-    prh_r32 round_length = prh_round_r32_04_byte(t->length);
-    prh_byte *table_data; prh_da_init(table_data, round_length);
-    prh_pread_exact_bytes(&f->font_file->reader, table_data, round_length, t->offset);
-    return table_data;
-}
-
-prh_r32 prh_font_table_checksum(const prh_r32 *table_data, prh_r32 table_length) {
-    prh_r32 sum = 0;
-    const prh_r32 *end = table_data + prh_round_r32_04_byte(table_length) / 4;
-    while (table_data < end) sum += *table_data++;
-    return sum;
-}
-
-void prh_impl_font_header_read(prh_open_font *p) {
-    struct { prh_r32 tag; prh_font_table *table; } tables[] = {
-        {PRH_TTAG_BASE, &p->base},
-        {PRH_TTAG_CFF1, &p->cff1},
-        {PRH_TTAG_CFF2, &p->cff2},
-        {PRH_TTAG_DSIG, &p->dsig},
-        {PRH_TTAG_GDEF, &p->gdef},
-        {PRH_TTAG_GPOS, &p->gpos},
-        {PRH_TTAG_GSUB, &p->gsub},
-        {PRH_TTAG_OS_2, &p->os_2},
-        {PRH_TTAG_STAT, &p->stat},
-        {PRH_TTAG_VDMX, &p->vdmx},
-        {PRH_TTAG_VORG, &p->vorg},
-        {PRH_TTAG_CMAP, &p->cmap},
-        {PRH_TTAG_HDMX, &p->hdmx},
-        {PRH_TTAG_HEAD, &p->head},
-        {PRH_TTAG_HHEA, &p->hhea},
-        {PRH_TTAG_HMTX, &p->hmtx},
-        {PRH_TTAG_MAXP, &p->maxp},
-        {PRH_TTAG_NAME, &p->name},
-        {PRH_TTAG_POST, &p->post},
-        {PRH_TTAG_VHEA, &p->vhea},
-        {PRH_TTAG_VMTX, &p->vmtx},
-        {0xFFFFFFFF, prh_null}};
-    prh_r32 table_i = 0, tabletag;
-    prh_font_file *f = p->font_file;
-    prh_pread_exact_bytes(&f->reader, (prh_byte *)&p->font_header, sizeof(prh_font_header), p->font_header_offset);
-    prh_set_r32_be_to_host(f->font_header.sfntversion);
-    if (f->font_header.sfntversion == PRH_TTF_OUTLINE || f->font_header.sfntversion == PRH_TTF_APLTRUE ||
-        f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1) {
-        prh_set_r16_be_to_host(f->font_header.numtables);
-        p->is_cff_outline = (f->font_header.sfntversion == PRH_CFF_OUTLINE || f->font_header.sfntversion == PRH_CFF_APLTYP1);
-    } else {
-        prh_eprinf_r32(f->font_header.sfntversion, prh_pf_print_base | prh_pf_hex | 8);
-        prh_abort_error(__LINE__);
-    }
-    prh_font_thead *thead;
-    prh_da_init(p->table_header, p->font_header.numtables + 1);
-    prh_pread_exact_bytes(&f->reader, (prh_byte *)(p->table_header + 1), p->font_header.numtables * sizeof(prh_font_thead), p->font_header_offset + sizeof(prh_font_header));
-    for (prh_r32 i = 1; i <= p->font_header.numtables; i += 1) {
-        thead = p->table_header + i;
-        tabletag = prh_r32_be_to_host(thead->tabletag);
-        while (tables[table_i].tag < tabletag) table_i += 1;
-        if (tabletag == tables[table_i].tag) {
-            tables[table_i].table->tabletag = tabletag;
-            tables[table_i].table->checksum = prh_r32_be_to_host(thead->checksum);
-            tables[table_i].table->offset = prh_r32_be_to_host(thead->offset);
-            tables[table_i].table->length = prh_r32_be_to_host(thead->length);
-            tables[table_i].table->table_index = i;
-            table_i += 1;
-        }
-        if (tables[table_i].tag == 0xFFFFFFFF) break;
-    }
+        "font tables %d\n"
+        "----------------------------\n",
+        (prh_reg)font->font_index + 1,
+        (prh_reg)prh_impl_font_count(font),
+        (prh_reg)prh_r32_be_to_host(p->sfnt_version),
+        (prh_reg)4, (prh_byte *)&p->sfnt_version,
+        (prh_reg)font->font_offset,
+        (prh_reg)font->num_tables);
 }
 
 // 字体头表（head）
@@ -1955,42 +1770,14 @@ void prh_impl_font_header_read(prh_open_font *p) {
 // 应用程序需要一个包含字体非默认实例字形的边界矩形，应处理该实例的派生字形轮廓以确定边界
 // 矩形。
 
-#define prh_font_flag_baseline_y_0 0x0001
-
-typedef struct {
-    prh_r32 head_version;
-    prh_r32 font_revision;
-    prh_r32 checksum_adjustment;
-    prh_r32 magic_number;
-    prh_r16 flags;
-    prh_r16 units_per_em; // upem
-    prh_r08 create_time[8];
-    prh_r08 modify_time[8];
-    prh_i16 xmin;
-    prh_i16 ymin;
-    prh_i16 xmax;
-    prh_i16 ymax;
-    prh_r16 mac_style;
-    prh_r16 lowest_rec_ppem; // pixels per em
-    prh_r16 font_direction_hint;
-    prh_i16 index_to_loc_format;
-    prh_i16 glyph_data_format;
-    prh_r16 aligned;
-} prh_font_head_table;
-
-void prh_print_font_head_table(prh_open_font *f) {
-    if (f->head.length == 0) prh_abort_line();
-    prh_font_head_table t = {0};
-    prh_r32 head_length = (prh_r32)sizeof(prh_font_head_table) - 2;
-    if (head_length != f->head.length) {
-        prh_print("table 'head' invalid length %d %d\n", (prh_reg)head_length, (prh_reg)f->head.length);
-        return;
-    }
-    prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&t, head_length, f->head.offset);
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)&t, head_length);
+void prh_print_font_head_table(prh_font *font) {
+    prh_impl_table_info head = prh_impl_find_table(font, PRH_TTAG_HEAD);
+    prh_impl_head_table *table_data = (prh_impl_head_table *)head.table_data;
+    prh_assert(table_data != prh_null);
+    prh_r32 checksum = prh_impl_table_checksum(head.table_data, head.table_length);
     prh_print(
         "head table index %d / %d\n"
-        "head table tag 0x%08x (%c%c%c%c)\n"
+        "head table tag '%Ls'\n"
         "head table offset %.10d (%d/4)\n"
         "head table length %.10d (%d/4)\n"
         "head table checksum 0x%08x 0x%08x (valid %d)\n"
@@ -2010,31 +1797,27 @@ void prh_print_font_head_table(prh_open_font *f) {
         "head font direction hint %d\n"
         "head font index to loc format %d\n"
         "head font glyph data format %d\n\n",
-        (prh_reg)f->head.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->head.tabletag,
-        (prh_reg)prh_byte_4(f->head.tabletag),
-        (prh_reg)prh_byte_3(f->head.tabletag),
-        (prh_reg)prh_byte_2(f->head.tabletag),
-        (prh_reg)prh_byte_1(f->head.tabletag),
-        (prh_reg)f->head.offset, (prh_reg)f->head.offset % 4,
-        (prh_reg)f->head.length, (prh_reg)f->head.length % 4,
-        (prh_reg)f->head.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->head.checksum),
-        (prh_reg)prh_r32_be_to_host(t.head_version),
-        (prh_reg)prh_r32_be_to_host(t.font_revision),
-        (prh_reg)prh_r32_be_to_host(t.checksum_adjustment),
-        (prh_reg)prh_r32_be_to_host(t.magic_number),
-        (prh_reg)prh_r16_be_to_host(t.flags),
-        (prh_reg)prh_r16_be_to_host(t.units_per_em),
-        (prh_r64)prh_bp_8b_to_host(t.create_time),
-        (prh_r64)prh_bp_8b_to_host(t.modify_time),
-        (prh_int)(prh_i16)prh_r16_be_to_host(t.xmin), (prh_int)(prh_i16)prh_r16_be_to_host(t.xmax),
-        (prh_int)(prh_i16)prh_r16_be_to_host(t.ymin), (prh_int)(prh_i16)prh_r16_be_to_host(t.ymax),
-        (prh_reg)prh_r16_be_to_host(t.mac_style),
-        (prh_reg)prh_r16_be_to_host(t.lowest_rec_ppem),
-        (prh_reg)prh_r16_be_to_host(t.font_direction_hint),
-        (prh_reg)prh_r16_be_to_host(t.index_to_loc_format),
-        (prh_reg)prh_r16_be_to_host(t.glyph_data_format));
+        (prh_reg)head.table_index + 1,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, head.table_tag,
+        (prh_reg)head.table_offset, (prh_reg)head.table_offset % 4,
+        (prh_reg)head.table_length, (prh_reg)head.table_length % 4,
+        (prh_reg)head.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == head.table_checksum),
+        (prh_reg)prh_r32_be_to_host(table_data->head_version),
+        (prh_reg)prh_r32_be_to_host(table_data->font_revision),
+        (prh_reg)prh_r32_be_to_host(table_data->checksum_adjustment),
+        (prh_reg)prh_r32_be_to_host(table_data->magic_number),
+        (prh_reg)prh_r16_be_to_host(table_data->flags),
+        (prh_reg)prh_r16_be_to_host(table_data->units_per_em),
+        (prh_r64)prh_bp_8b_to_host(table_data->create_time),
+        (prh_r64)prh_bp_8b_to_host(table_data->modify_time),
+        (prh_int)prh_i16_be_to_host(table_data->x_min), (prh_int)prh_i16_be_to_host(table_data->x_max),
+        (prh_int)prh_i16_be_to_host(table_data->y_min), (prh_int)prh_i16_be_to_host(table_data->y_max),
+        (prh_reg)prh_r16_be_to_host(table_data->mac_style),
+        (prh_reg)prh_r16_be_to_host(table_data->lowest_rec_ppem),
+        (prh_reg)prh_r16_be_to_host(table_data->font_direction_hint),
+        (prh_reg)prh_r16_be_to_host(table_data->index_to_loc_format),
+        (prh_reg)prh_r16_be_to_host(table_data->glyph_data_format));
 }
 
 // 水平头表（hhea - Horizontal Header Table）
@@ -2082,40 +1865,14 @@ void prh_print_font_head_table(prh_open_font *f) {
 //      caretSlopeRise      'hcrs'
 //      caretSlopeRun       'hcrn'
 
-typedef struct {
-    prh_r16 major_version;
-    prh_r16 minor_version;
-    prh_i16 ascender;
-    prh_i16 descender;
-    prh_i16 line_cap;
-    prh_r16 advance_width_max;
-    prh_i16 min_left_side_bearing;
-    prh_i16 min_right_side_bearing;
-    prh_i16 x_max_extent;
-    prh_i16 caret_slope_rise;
-    prh_i16 caret_slope_run;
-    prh_i16 caret_offset;
-    prh_i16 reserved_1;
-    prh_i16 reserved_2;
-    prh_i16 reserved_3;
-    prh_i16 reserved_4;
-    prh_i16 metric_data_format;
-    prh_r16 number_of_hmetrics;
-} prh_font_hhea_table;
-
-void prh_print_font_hhea_table(prh_open_font *f) {
-    if (f->hhea.length == 0) prh_abort_line();
-    prh_font_hhea_table t = {0};
-    prh_r32 head_length = (prh_r32)sizeof(prh_font_hhea_table);
-    if (head_length != f->hhea.length) {
-        prh_print("table 'hhea' invalid length %d %d\n", (prh_reg)head_length, (prh_reg)f->hhea.length);
-        return;
-    }
-    prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&t, head_length, f->hhea.offset);
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)&t, head_length);
+void prh_print_font_hhea_table(prh_font *font) {
+    prh_impl_table_info head = prh_impl_find_table(font, PRH_TTAG_HHEA);
+    prh_impl_hhea_table *table_data = (prh_impl_hhea_table *)head.table_data;
+    prh_assert(table_data != prh_null);
+    prh_r32 checksum = prh_impl_table_checksum(head.table_data, head.table_length);
     prh_print(
         "hhea table index %d / %d\n"
-        "hhea table tag 0x%08x (%c%c%c%c)\n"
+        "hhea table tag '%Ls'\n"
         "hhea table offset %.10d (%d/4)\n"
         "hhea table length %.10d (%d/4)\n"
         "hhea table checksum 0x%08x 0x%08x (valid %d)\n"
@@ -2133,29 +1890,25 @@ void prh_print_font_hhea_table(prh_open_font *f) {
         "hhea font caret_offset %d\n"
         "hhea font metric_data_format %d\n"
         "hhea font number_of_hmetrics %d\n\n",
-        (prh_reg)f->hhea.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->hhea.tabletag,
-        (prh_reg)prh_byte_4(f->hhea.tabletag),
-        (prh_reg)prh_byte_3(f->hhea.tabletag),
-        (prh_reg)prh_byte_2(f->hhea.tabletag),
-        (prh_reg)prh_byte_1(f->hhea.tabletag),
-        (prh_reg)f->hhea.offset, (prh_reg)f->hhea.offset % 4,
-        (prh_reg)f->hhea.length, (prh_reg)f->hhea.length % 4,
-        (prh_reg)f->hhea.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->hhea.checksum),
-        (prh_reg)prh_bp_4b_to_host((prh_byte *)&t),
-        (prh_reg)prh_r16_be_to_host(t.ascender),
-        (prh_reg)prh_r16_be_to_host(t.descender),
-        (prh_reg)prh_r16_be_to_host(t.line_cap),
-        (prh_reg)prh_r16_be_to_host(t.advance_width_max),
-        (prh_reg)prh_r16_be_to_host(t.min_left_side_bearing),
-        (prh_reg)prh_r16_be_to_host(t.min_right_side_bearing),
-        (prh_reg)prh_r16_be_to_host(t.x_max_extent),
-        (prh_reg)prh_r16_be_to_host(t.caret_slope_rise),
-        (prh_reg)prh_r16_be_to_host(t.caret_slope_run),
-        (prh_reg)prh_r16_be_to_host(t.caret_offset),
-        (prh_reg)prh_r16_be_to_host(t.metric_data_format),
-        (prh_reg)prh_r16_be_to_host(t.number_of_hmetrics));
+        (prh_reg)head.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, head.table_tag,
+        (prh_reg)head.table_offset, (prh_reg)head.table_offset % 4,
+        (prh_reg)head.table_length, (prh_reg)head.table_length % 4,
+        (prh_reg)head.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == head.table_checksum),
+        (prh_reg)prh_r32_be_to_host(table_data->version),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->ascender),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->descender),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->line_gap),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->max_advance_width),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->min_left_side_bearing),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->min_right_side_bearing),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->x_max_extent),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->caret_slope_rise),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->caret_slope_run),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->caret_offset),
+        (prh_reg)(prh_int)prh_i16_be_to_host(table_data->metric_data_format),
+        (prh_reg)prh_r16_be_to_host(table_data->number_of_hmetrics));
 }
 
 // 水平度量表（hmtx - Horizontal Metrics Table）
@@ -2520,90 +2273,32 @@ typedef struct {
     prh_r16 max_component_depth;
 } prh_font_maxp_table;
 
-void prh_load_font_maxp_table(prh_open_font *f) {
-    if (f->maxp.length == 0) prh_abort_line();
-    prh_font_maxp_table header;
-    if (f->is_cff_outline) {
-        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&header, sizeof(prh_font_maxp_table_0_5), f->maxp.offset);
-        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&header);
-        if (f->maxp_version != 0x00005000) prh_abort_error(f->maxp_version);
-    } else {
-        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&header, sizeof(prh_font_maxp_table), f->maxp.offset);
-        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&header);
-        if (f->maxp_version != 0x00010000) prh_abort_error(f->maxp_version);
-        f->max_points = prh_r16_be_to_host(header.max_points);
-        f->max_contours = prh_r16_be_to_host(header.max_contours);
-        f->max_composite_points = prh_r16_be_to_host(header.max_composite_points);
-        f->max_composite_contours = prh_r16_be_to_host(header.max_composite_contours);
-        f->max_zones = prh_r16_be_to_host(header.max_zones);
-        f->max_twilinght_points = prh_r16_be_to_host(header.max_twilinght_points);
-        f->max_storage = prh_r16_be_to_host(header.max_storage);
-        f->max_function_defs = prh_r16_be_to_host(header.max_function_defs);
-        f->max_instruction_defs = prh_r16_be_to_host(header.max_instruction_defs);
-        f->max_stack_elements = prh_r16_be_to_host(header.max_stack_elements);
-        f->max_size_of_instructions = prh_r16_be_to_host(header.max_size_of_instructions);
-        f->max_component_elements = prh_r16_be_to_host(header.max_component_elements);
-        f->max_component_depth = prh_r16_be_to_host(header.max_component_depth);
-    }
-    f->num_glyphs = prh_r16_be_to_host(header.num_glyphs);
-    if (f->num_glyphs == 0) prh_abort_line();
-}
-
-void prh_print_font_maxp_table(prh_open_font *f) {
-    if (f->maxp.length == 0) prh_abort_line();
-    prh_font_maxp_table t = {0};
-    prh_r32 maxp_length = f->is_cff_outline ? (prh_r32)sizeof(prh_font_maxp_table_0_5) : (prh_r32)sizeof(prh_font_maxp_table);
-    if (maxp_length != f->maxp.length) {
-        prh_print("table 'maxp' invalid length %d %d\n", (prh_reg)maxp_length, (prh_reg)f->maxp.length);
-        return;
-    }
-    if (f->is_cff_outline) {
-        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&t, maxp_length, f->maxp.offset);
-        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&t);
-        if (f->maxp_version != 0x00005000) prh_abort_error(f->maxp_version);
-    } else {
-        prh_pread_exact_bytes(&f->font_file->reader, (prh_byte *)&t, maxp_length, f->maxp.offset);
-        f->maxp_version = prh_bp_4b_to_host((prh_byte *)&t);
-        if (f->maxp_version != 0x00010000) prh_abort_error(f->maxp_version);
-        f->max_points = prh_r16_be_to_host(t.max_points);
-        f->max_contours = prh_r16_be_to_host(t.max_contours);
-        f->max_composite_points = prh_r16_be_to_host(t.max_composite_points);
-        f->max_composite_contours = prh_r16_be_to_host(t.max_composite_contours);
-        f->max_zones = prh_r16_be_to_host(t.max_zones);
-        f->max_twilinght_points = prh_r16_be_to_host(t.max_twilinght_points);
-        f->max_storage = prh_r16_be_to_host(t.max_storage);
-        f->max_function_defs = prh_r16_be_to_host(t.max_function_defs);
-        f->max_instruction_defs = prh_r16_be_to_host(t.max_instruction_defs);
-        f->max_stack_elements = prh_r16_be_to_host(t.max_stack_elements);
-        f->max_size_of_instructions = prh_r16_be_to_host(t.max_size_of_instructions);
-        f->max_component_elements = prh_r16_be_to_host(t.max_component_elements);
-        f->max_component_depth = prh_r16_be_to_host(t.max_component_depth);
-    }
-    f->num_glyphs = prh_r16_be_to_host(t.num_glyphs);
-    if (f->num_glyphs == 0) prh_abort_line();
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)&t, maxp_length);
+void prh_print_font_maxp_table(prh_font *font) {
+    prh_impl_table_info maxp = prh_impl_find_table(font, PRH_TTAG_MAXP);
+    prh_impl_maxp_table *table_data = (prh_impl_maxp_table *)maxp.table_data;
+    prh_assert(table_data != prh_null);
+    prh_r32 maxp_length = font->cff.data ? (prh_r32)sizeof(prh_impl_maxp_table_0_5) : (prh_r32)sizeof(prh_impl_maxp_table);
+    prh_real_assert(maxp_length == maxp.table_length);
+    prh_r32 checksum = prh_impl_table_checksum(maxp.table_data, maxp.table_length);
+    prh_r32 maxp_version = prh_r32_be_to_host(table_data->maxp_version);
     prh_print(
         "maxp table index %d / %d\n"
-        "maxp table tag 0x%08x (%c%c%c%c)\n"
+        "maxp table tag '%Ls'\n"
         "maxp table offset %.10d (%d/4)\n"
         "maxp table length %.10d (%d/4)\n"
         "maxp table checksum 0x%08x 0x%08x (valid %d)\n"
         "maxp table version %08x\n"
         "----------------------------\n"
         "maxp num_glyphs %d\n",
-        (prh_reg)f->maxp.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->maxp.tabletag,
-        (prh_reg)prh_byte_4(f->maxp.tabletag),
-        (prh_reg)prh_byte_3(f->maxp.tabletag),
-        (prh_reg)prh_byte_2(f->maxp.tabletag),
-        (prh_reg)prh_byte_1(f->maxp.tabletag),
-        (prh_reg)f->maxp.offset, (prh_reg)f->maxp.offset % 4,
-        (prh_reg)f->maxp.length, (prh_reg)f->maxp.length % 4,
-        (prh_reg)f->maxp.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->maxp.checksum),
-        (prh_reg)f->maxp_version,
-        (prh_reg)f->num_glyphs);
-    if (f->maxp_version == 0x00010000) {
+        (prh_reg)maxp.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, maxp.table_tag,
+        (prh_reg)maxp.table_offset, (prh_reg)maxp.table_offset % 4,
+        (prh_reg)maxp.table_length, (prh_reg)maxp.table_length % 4,
+        (prh_reg)maxp.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == maxp.table_checksum),
+        (prh_reg)maxp_version,
+        (prh_reg)font->num_glyphs);
+    if (maxp_version == 0x00010000) {
         prh_print(
             "maxp max_points %d\n"
             "maxp max_contours %d\n"
@@ -2618,19 +2313,19 @@ void prh_print_font_maxp_table(prh_open_font *f) {
             "maxp max_size_of_instructions %d\n"
             "maxp max_component_elements %d\n"
             "maxp max_component_depth %d\n",
-            (prh_reg)f->max_points,
-            (prh_reg)f->max_contours,
-            (prh_reg)f->max_composite_points,
-            (prh_reg)f->max_composite_contours,
-            (prh_reg)f->max_zones,
-            (prh_reg)f->max_twilinght_points,
-            (prh_reg)f->max_storage,
-            (prh_reg)f->max_function_defs,
-            (prh_reg)f->max_instruction_defs,
-            (prh_reg)f->max_stack_elements,
-            (prh_reg)f->max_size_of_instructions,
-            (prh_reg)f->max_component_elements,
-            (prh_reg)f->max_component_depth);
+            (prh_reg)prh_r16_be_to_host(table_data->max_points),
+            (prh_reg)prh_r16_be_to_host(table_data->max_contours),
+            (prh_reg)prh_r16_be_to_host(table_data->max_composite_points),
+            (prh_reg)prh_r16_be_to_host(table_data->max_composite_contours),
+            (prh_reg)prh_r16_be_to_host(table_data->max_zones),
+            (prh_reg)prh_r16_be_to_host(table_data->max_twilinght_points),
+            (prh_reg)prh_r16_be_to_host(table_data->max_storage),
+            (prh_reg)prh_r16_be_to_host(table_data->max_function_defs),
+            (prh_reg)prh_r16_be_to_host(table_data->max_instruction_defs),
+            (prh_reg)prh_r16_be_to_host(table_data->max_stack_elements),
+            (prh_reg)prh_r16_be_to_host(table_data->max_size_of_instructions),
+            (prh_reg)prh_r16_be_to_host(table_data->max_component_elements),
+            (prh_reg)prh_r16_be_to_host(table_data->max_component_depth));
     }
     prh_print("\n");
 }
@@ -2715,40 +2410,37 @@ prh_i16 prh_font_glyph_vert_origin_y(prh_r32 glyph_index, prh_i16 default_origin
     return default_origin_y;
 }
 
-void prh_print_font_vorg_table(prh_open_font *f) {
-    if (f->vorg.length == 0) return;
-    prh_byte *table_data = prh_load_font_table(f, &f->vorg);
-    prh_r32 table_version = prh_bp_4b_to_host(table_data);
-    prh_i16 default_y = (prh_i16)prh_bp_2b_to_host(table_data + 4);
-    prh_r16 num_metrics = prh_bp_2b_to_host(table_data + 6);
-    prh_r32 table_length = (prh_r32)sizeof(prh_font_vorg_table) + num_metrics * (prh_r32)sizeof(prh_font_vorg_metric);
-    prh_real_assert(table_length == f->vorg.length);
+void prh_print_font_vorg_table(prh_font *font) {
+    prh_impl_table_info vorg = prh_impl_find_table(font, PRH_TTAG_VORG);
+    if (vorg.table_data == prh_null) return;
+    prh_r32 checksum = prh_impl_table_checksum(vorg.table_data, vorg.table_length);
 
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->vorg.length);
+    prh_r32 table_version = prh_bp_4b_to_host(vorg.table_data);
+    prh_i16 default_y = (prh_i16)prh_bp_2b_to_host(vorg.table_data + 4);
+    prh_r16 num_metrics = prh_bp_2b_to_host(vorg.table_data + 6);
+    prh_r32 table_length = (prh_r32)sizeof(prh_font_vorg_table) + num_metrics * (prh_r32)sizeof(prh_font_vorg_metric);
+    prh_real_assert(table_length == vorg.table_length);
+
     prh_print(
         "vorg table index %d / %d\n"
-        "vorg table tag 0x%08x (%c%c%c%c)\n"
+        "vorg table tag '%Ls'\n"
         "vorg table offset %.10d (%d/4)\n"
         "vorg table length %.10d (%d/4)\n"
         "vorg table checksum 0x%08x 0x%08x (valid %d)\n"
         "vorg table version %08x\n"
         "vorg table default y %d\n"
         "vorg table num metrics %d\n",
-        (prh_reg)f->vorg.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->vorg.tabletag,
-        (prh_reg)prh_byte_4(f->vorg.tabletag),
-        (prh_reg)prh_byte_3(f->vorg.tabletag),
-        (prh_reg)prh_byte_2(f->vorg.tabletag),
-        (prh_reg)prh_byte_1(f->vorg.tabletag),
-        (prh_reg)f->vorg.offset, (prh_reg)f->vorg.offset % 4,
-        (prh_reg)f->vorg.length, (prh_reg)f->vorg.length % 4,
-        (prh_reg)f->vorg.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->vorg.checksum),
+        (prh_reg)vorg.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, vorg.table_tag,
+        (prh_reg)vorg.table_offset, (prh_reg)vorg.table_offset % 4,
+        (prh_reg)vorg.table_length, (prh_reg)vorg.table_length % 4,
+        (prh_reg)vorg.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == vorg.table_checksum),
         (prh_reg)table_version,
         (prh_reg)default_y,
         (prh_reg)num_metrics);
 
-    prh_font_vorg_metric *vorg_metrics = (prh_font_vorg_metric *)(table_data + 8);
+    prh_font_vorg_metric *vorg_metrics = (prh_font_vorg_metric *)(vorg.table_data + 8);
     if (num_metrics > 2) {
         prh_r32 glyph_a = prh_bp_2b_to_host((prh_byte *)&vorg_metrics[0].glyph_index);
         prh_r32 glyph_b = prh_bp_2b_to_host((prh_byte *)&vorg_metrics[1].glyph_index);
@@ -2800,7 +2492,6 @@ void prh_print_font_vorg_table(prh_open_font *f) {
     }
 
     prh_print("\n");
-    prh_da_free(table_data);
 }
 
 // PostScript 表（post）
@@ -2915,13 +2606,15 @@ typedef struct {
     prh_r32 type1_max_mem;
 } prh_font_post_table;
 
-void prh_print_font_post_table(prh_open_font *f) {
-    if (f->post.length == 0) return;
-    prh_font_post_table *p = (prh_font_post_table *)prh_load_font_table(f, &f->post);
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)p, f->post.length);
+void prh_print_font_post_table(prh_font *font) {
+    prh_impl_table_info post = prh_impl_find_table(font, PRH_TTAG_POST);
+    prh_impl_head_table *table_data = (prh_impl_head_table *)post.table_data;
+    prh_assert(table_data != prh_null);
+    prh_r32 checksum = prh_impl_table_checksum(post.table_data, post.table_length);
+    prh_font_post_table *p = (prh_font_post_table *)post.table_data;
     prh_print(
         "post table index %d / %d\n"
-        "post table tag 0x%08x (%c%c%c%c)\n"
+        "post table tag '%Ls'\n"
         "post table offset %.10d (%d/4)\n"
         "post table length %.10d (%d/4)\n"
         "post table checksum 0x%08x 0x%08x (valid %d)\n"
@@ -2933,16 +2626,12 @@ void prh_print_font_post_table(prh_open_font *f) {
         "post metric - monospace font %d\n"
         "post metric - type42 memory %d ~ %d\n"
         "post metric - type1 memory %d ~ %d\n\n",
-        (prh_reg)f->post.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->post.tabletag,
-        (prh_reg)prh_byte_4(f->post.tabletag),
-        (prh_reg)prh_byte_3(f->post.tabletag),
-        (prh_reg)prh_byte_2(f->post.tabletag),
-        (prh_reg)prh_byte_1(f->post.tabletag),
-        (prh_reg)f->post.offset, (prh_reg)f->post.offset % 4,
-        (prh_reg)f->post.length, (prh_reg)f->post.length % 4,
-        (prh_reg)f->post.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->post.checksum),
+        (prh_reg)post.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, post.table_tag,
+        (prh_reg)post.table_offset, (prh_reg)post.table_offset % 4,
+        (prh_reg)post.table_length, (prh_reg)post.table_length % 4,
+        (prh_reg)post.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == post.table_checksum),
         (prh_reg)prh_r32_be_to_host(p->version),
         (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->italic_angle_upper),
         (prh_reg)prh_r16_be_to_host(p->italic_angle_lower),
@@ -2951,7 +2640,6 @@ void prh_print_font_post_table(prh_open_font *f) {
         (prh_reg)prh_r32_be_to_host(p->is_fixed_pitch),
         (prh_reg)prh_r32_be_to_host(p->type42_min_mem), (prh_reg)prh_r32_be_to_host(p->type42_max_mem),
         (prh_reg)prh_r32_be_to_host(p->type1_min_mem), (prh_reg)prh_r32_be_to_host(p->type1_max_mem));
-    prh_da_free((prh_byte *)p);
 }
 
 // OS/2 和 Windows 度量表
@@ -4559,10 +4247,13 @@ typedef prh_packed_struct {
 } prh_font_os_2_table;
 prh_packing_reset()
 
-void prh_print_font_os_2_table(prh_open_font *f) {
-    if (f->os_2.length == 0) prh_abort_line();
-    prh_font_os_2_table *p = (prh_font_os_2_table *)prh_load_font_table(f, &f->os_2);
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)p, f->os_2.length);
+void prh_print_font_os_2_table(prh_font *font) {
+    prh_impl_table_info os_2 = prh_impl_find_table(font, PRH_TTAG_OS_2);
+    prh_impl_head_table *table_data = (prh_impl_head_table *)os_2.table_data;
+    prh_assert(table_data != prh_null);
+    prh_r32 checksum = prh_impl_table_checksum(os_2.table_data, os_2.table_length);
+
+    prh_font_os_2_table *p = (prh_font_os_2_table *)os_2.table_data;
     prh_r16 table_version = prh_r16_be_to_host(p->version);
     prh_i16 typo_ascender = 0;
     prh_i16 typo_descender = 0;
@@ -4579,20 +4270,20 @@ void prh_print_font_os_2_table(prh_open_font *f) {
     prh_r16 lower_optical_point_size_twip = 0;
     prh_r16 upper_optical_point_size_twip = 0;
     if (table_version == 0) {
-        if (f->os_2.length == prh_offsetof(prh_font_os_2_table, typo_ascender)) {
-        } else if (f->os_2.length == prh_offsetof(prh_font_os_2_table, code_page_range_00_31)) {
+        if (os_2.table_length == prh_offsetof(prh_font_os_2_table, typo_ascender)) {
+        } else if (os_2.table_length == prh_offsetof(prh_font_os_2_table, code_page_range_00_31)) {
             goto label_version_0;
         } else {
-            prh_abort_error(f->os_2.length);
+            prh_abort_error(os_2.table_length);
         }
     } else if (table_version == 1) {
-        prh_real_assert(f->os_2.length == prh_offsetof(prh_font_os_2_table, height));
+        prh_real_assert(os_2.table_length == prh_offsetof(prh_font_os_2_table, height));
         goto label_version_1;
     } else if (table_version <= 4) {
-        prh_real_assert(f->os_2.length == prh_offsetof(prh_font_os_2_table, lower_optical_point_size_twip));
+        prh_real_assert(os_2.table_length == prh_offsetof(prh_font_os_2_table, lower_optical_point_size_twip));
         goto label_version_2_4;
     } else if (table_version == 5) {
-        prh_real_assert(f->os_2.length == sizeof(prh_font_os_2_table));
+        prh_real_assert(os_2.table_length == sizeof(prh_font_os_2_table));
         lower_optical_point_size_twip = prh_r16_be_to_host(p->lower_optical_point_size_twip);
         upper_optical_point_size_twip = prh_r16_be_to_host(p->upper_optical_point_size_twip);
 label_version_2_4:
@@ -4615,7 +4306,7 @@ label_version_0:
     }
     prh_print(
         "os/2 table index %d / %d\n"
-        "os/2 table tag 0x%08x (%c%c%c%c)\n"
+        "os/2 table tag '%Ls'\n"
         "os/2 table offset %.10d (%d/4)\n"
         "os/2 table length %.10d (%d/4)\n"
         "os/2 table checksum 0x%08x 0x%08x (valid %d)\n"
@@ -4659,16 +4350,12 @@ label_version_0:
         "os/2 metric - max glyph context length %d\n"
         "os/2 metric - lower optical point size %d\n"
         "os/2 metric - upper optical point size %d\n",
-        (prh_reg)f->os_2.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->os_2.tabletag,
-        (prh_reg)prh_byte_4(f->os_2.tabletag),
-        (prh_reg)prh_byte_3(f->os_2.tabletag),
-        (prh_reg)prh_byte_2(f->os_2.tabletag),
-        (prh_reg)prh_byte_1(f->os_2.tabletag),
-        (prh_reg)f->os_2.offset, (prh_reg)f->os_2.offset % 4,
-        (prh_reg)f->os_2.length, (prh_reg)f->os_2.length % 4,
-        (prh_reg)f->os_2.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->os_2.checksum),
+        (prh_reg)os_2.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, os_2.table_tag,
+        (prh_reg)os_2.table_offset, (prh_reg)os_2.table_offset % 4,
+        (prh_reg)os_2.table_length, (prh_reg)os_2.table_length % 4,
+        (prh_reg)os_2.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == os_2.table_checksum),
         (prh_reg)table_version,
         (prh_reg)(prh_int)(prh_i16)prh_r16_be_to_host(p->average_char_width),
         (prh_reg)prh_r16_be_to_host(p->weight_class),
@@ -4713,7 +4400,6 @@ label_version_0:
         (prh_reg)max_glyph_context_length,
         (prh_reg)lower_optical_point_size_twip,
         (prh_reg)upper_optical_point_size_twip);
-    prh_da_free((prh_byte *)p);
 }
 
 // 命名表（name）
@@ -5378,31 +5064,33 @@ typedef struct { // 语言标签字符串必须使用 UTF-16BE 编码，并非�
     prh_r16 lang_tag_offset;
 } prh_font_name_lang_tag;
 
-void prh_print_font_name_table(prh_open_font *f) {
-    if (f->name.length == 0) prh_abort_line();
-    prh_byte *table_data = prh_load_font_table(f, &f->name);
-    prh_r16 table_version = prh_bp_2b_to_host(table_data);
-    prh_r16 name_count = prh_bp_2b_to_host(table_data + 2);
-    prh_r16 string_start = prh_bp_2b_to_host(table_data + 4);
+void prh_print_font_name_table(prh_font *font) {
+    prh_impl_table_info name = prh_impl_find_table(font, PRH_TTAG_NAME);
+    prh_assert(name.table_data != prh_null);
+    prh_r32 checksum = prh_impl_table_checksum(name.table_data, name.table_length);
 
-    prh_byte *name_record = table_data + 6;
+    prh_r16 table_version = prh_bp_2b_to_host(name.table_data);
+    prh_r16 name_count = prh_bp_2b_to_host(name.table_data + 2);
+    prh_r16 string_start = prh_bp_2b_to_host(name.table_data + 4);
+
+    prh_byte *name_record = name.table_data + 6;
     prh_byte *lang_tag_count = name_record + name_count * sizeof(prh_font_name_record);
     prh_byte *lang_tag_record = lang_tag_count + 2;
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->name.length);
+
     if (table_version == 0) {
-        prh_real_assert(lang_tag_count - table_data <= string_start);
-        prh_real_assert(string_start <= f->name.length);
+        prh_real_assert(lang_tag_count - name.table_data <= string_start);
+        prh_real_assert(string_start <= name.table_length);
     } else if (table_version == 1) {
         prh_r16 tag_count = prh_bp_2b_to_host(lang_tag_count);
-        prh_real_assert(lang_tag_record + tag_count * sizeof(prh_font_name_lang_tag) - table_data <= string_start);
-        prh_real_assert(string_start <= f->name.length);
+        prh_real_assert(lang_tag_record + tag_count * sizeof(prh_font_name_lang_tag) - name.table_data <= string_start);
+        prh_real_assert(string_start <= name.table_length);
     } else {
         prh_abort_error(table_version);
     }
 
     prh_print(
         "name table index %d / %d\n"
-        "name table tag 0x%08x (%c%c%c%c)\n"
+        "name table tag '%Ls'\n"
         "name table offset %.10d (%d/4)\n"
         "name table length %.10d (%d/4)\n"
         "name table checksum 0x%08x 0x%08x (valid %d)\n"
@@ -5410,16 +5098,12 @@ void prh_print_font_name_table(prh_open_font *f) {
         "name table name count %d\n"
         "name table lang tags %d\n"
         "name table string start %d\n",
-        (prh_reg)f->name.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->name.tabletag,
-        (prh_reg)prh_byte_4(f->name.tabletag),
-        (prh_reg)prh_byte_3(f->name.tabletag),
-        (prh_reg)prh_byte_2(f->name.tabletag),
-        (prh_reg)prh_byte_1(f->name.tabletag),
-        (prh_reg)f->name.offset, (prh_reg)f->name.offset % 4,
-        (prh_reg)f->name.length, (prh_reg)f->name.length % 4,
-        (prh_reg)f->name.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->name.checksum),
+        (prh_reg)name.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, name.table_tag,
+        (prh_reg)name.table_offset, (prh_reg)name.table_offset % 4,
+        (prh_reg)name.table_length, (prh_reg)name.table_length % 4,
+        (prh_reg)name.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == name.table_checksum),
         (prh_reg)table_version,
         (prh_reg)name_count,
         (prh_reg)(table_version == 1 ? prh_bp_2b_to_host(lang_tag_count) : 0),
@@ -5450,10 +5134,9 @@ void prh_print_font_name_table(prh_open_font *f) {
             (prh_reg)string_length,
             (prh_reg)(string_start + string_offset),
             (prh_reg)name_id, prh_impl_font_get_name_type_string(name_id),
-            (prh_reg)string_length, table_data + string_start + string_offset);
+            (prh_reg)string_length, name.table_data + string_start + string_offset);
     }
     prh_print("\n");
-    prh_da_free(table_data);
 }
 
 // 字符到字形索引映射表（cmap）
@@ -5519,17 +5202,8 @@ typedef struct {
     prh_font_cmap_header header[1];
 } prh_font_cmap_table;
 
-prh_r16 prh_font_find_table(prh_open_font *f, prh_r32 table_tag) { // 返回 0 表示失败
-    prh_r16 numtables = prh_font_table_count(f);
-    for (prh_r16 i = 1; i <= numtables; i += 1) {
-        prh_font_thead *table = f->table_header + i;
-        if (prh_r32_be_to_host(table->tabletag) == table_tag) return i;
-    }
-    return 0;
-}
-
 typedef struct {
-    prh_open_font *font;
+    prh_font *font;
     prh_byte *table_data;
     prh_r16 table_index;
     prh_r16 record_index;
@@ -5573,49 +5247,46 @@ void prh_impl_print_font_cmap_record(prh_font_cmap_record *p) {
     }
 }
 
-void prh_print_font_cmap(prh_open_font *f) {
-    if (f->cmap.length == 0) prh_abort_line();
-    prh_byte *table_data = prh_load_font_table(f, &f->cmap);
-    prh_font_cmap_table *cmap = (prh_font_cmap_table *)table_data;
-    prh_set_r16_be_to_host(cmap->version);
-    prh_set_r16_be_to_host(cmap->numrecords);
+void prh_print_font_cmap(prh_font *font) {
+    prh_impl_table_info info = prh_impl_find_table(font, PRH_TTAG_CMAP);
+    prh_impl_head_table *table_data = (prh_impl_head_table *)info.table_data;
+    prh_assert(table_data != prh_null);
+    prh_r32 checksum = prh_impl_table_checksum(info.table_data, info.table_length);
+    prh_font_cmap_table *cmap = (prh_font_cmap_table *)info.table_data;
+    prh_r16 cmap_version = prh_r16_be_to_host(cmap->version);
+    prh_r16 numrecords = prh_r16_be_to_host(cmap->numrecords);
 
-    if (f->cmap.length < 4 + sizeof(prh_font_cmap_header) * cmap->numrecords) {
-        prh_print("table 'cmap' invalid length %d numrecord %d\n", (prh_reg)f->cmap.length, (prh_reg)cmap->numrecords);
+    if (info.table_length < 4 + sizeof(prh_font_cmap_header) * numrecords) {
+        prh_print("table 'cmap' invalid length %d numrecord %d\n", (prh_reg)info.table_length, (prh_reg)numrecords);
         return;
     }
 
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->cmap.length);
     prh_print(
         "cmap table index %d / %d\n"
-        "cmap table tag 0x%08x (%c%c%c%c)\n"
+        "cmap table tag '%Ls'\n"
         "cmap table offset %.10d (%d/4)\n"
         "cmap table length %.10d (%d/4)\n"
         "cmap table checksum 0x%08x 0x%08x (valid %d)\n"
         "cmap table version %04x\n",
-        (prh_reg)f->cmap.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->cmap.tabletag,
-        (prh_reg)prh_byte_4(f->cmap.tabletag),
-        (prh_reg)prh_byte_3(f->cmap.tabletag),
-        (prh_reg)prh_byte_2(f->cmap.tabletag),
-        (prh_reg)prh_byte_1(f->cmap.tabletag),
-        (prh_reg)f->cmap.offset, (prh_reg)f->cmap.offset % 4,
-        (prh_reg)f->cmap.length, (prh_reg)f->cmap.length % 4,
-        (prh_reg)f->cmap.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->cmap.checksum),
-        (prh_reg)cmap->version);
+        (prh_reg)info.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, info.table_tag,
+        (prh_reg)info.table_offset, (prh_reg)info.table_offset % 4,
+        (prh_reg)info.table_length, (prh_reg)info.table_length % 4,
+        (prh_reg)info.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == info.table_checksum),
+        (prh_reg)cmap_version);
 
     prh_font_cmap_record record;
-    for (int i = 0; i < cmap->numrecords; i += 1) {
+    for (int i = 0; i < numrecords; i += 1) {
         prh_font_cmap_header *header = cmap->header + i;
-        record.font = f;
-        record.table_index = f->cmap.table_index;
+        record.font = font;
+        record.table_index = info.table_index;
         record.record_index = i;
-        record.table_offset = f->cmap.offset;
-        record.table_length = f->cmap.length;
-        record.table_data = table_data;
-        record.cmap_version = cmap->version;
-        record.cmap_records = cmap->numrecords;
+        record.table_offset = info.table_offset;
+        record.table_length = info.table_length;
+        record.table_data = info.table_data;
+        record.cmap_version = cmap_version;
+        record.cmap_records = numrecords;
         record.record_platform = prh_r16_be_to_host(header->platform_id);
         record.record_encoding = prh_r16_be_to_host(header->encoding_id);
         record.record_offset = prh_r32_be_to_host(header->record_offset);
@@ -5623,7 +5294,6 @@ void prh_print_font_cmap(prh_open_font *f) {
     }
 
     prh_print("\n");
-    prh_da_free(table_data);
 }
 
 // 'cmap' 子表格式
@@ -6997,20 +6667,20 @@ void prh_print_cff1_global_subrs_index(prh_font_cff1_table *p);
 void prh_print_cff1_charstrings_index(prh_font_cff1_table *p);
 void prh_print_cff1_charset(prh_font_cff1_table *p);
 
-void prh_print_font_cff1(prh_open_font *f) {
-    if (f->cff1.length == 0) return;
-    prh_byte *table_data = prh_load_font_table(f, &f->cff1);
-    prh_font_cff1_header *p = (prh_font_cff1_header *)table_data;
-    if (p->header_length < sizeof(prh_font_cff1_header) || f->cff1.length < p->header_length) {
-        prh_print("table 'cff ' invalid length %d %d\n", (prh_reg)p->header_length, (prh_reg)f->cff1.length);
+void prh_print_font_cff1(prh_font *font) {
+    prh_impl_table_info info = prh_impl_find_table(font, PRH_TTAG_CFF1);
+    if (info.table_data == prh_null) return;
+    prh_r32 checksum = prh_impl_table_checksum(info.table_data, info.table_length);
+
+    prh_font_cff1_header *p = (prh_font_cff1_header *)info.table_data;
+    if (p->header_length < sizeof(prh_font_cff1_header) || info.table_length < p->header_length) {
+        prh_print("table 'cff ' invalid length %d %d\n", (prh_reg)p->header_length, (prh_reg)info.table_length);
         return;
     }
 
-    prh_r32 checksum = prh_font_table_checksum((prh_r32 *)table_data, f->cff1.length);
-
     prh_font_cff1_table cff;
-    cff.table_data = table_data;
-    cff.table_length = f->cff1.length;
+    cff.table_data = info.table_data;
+    cff.table_length = info.table_length;
     cff.major_version = p->major_version;
     cff.minor_version = p->minor_version;
     cff.header_length = p->header_length;
@@ -7019,7 +6689,7 @@ void prh_print_font_cff1(prh_open_font *f) {
 
     prh_print(
         "cff1 table index %d / %d\n"
-        "cff1 table tag 0x%08x (%c%c%c%c)\n"
+        "cff1 table tag '%Ls'\n"
         "cff1 table offset %.10d (%d/4)\n"
         "cff1 table length %.10d (%d/4)\n"
         "cff1 table checksum 0x%08x 0x%08x (valid %d)\n"
@@ -7034,16 +6704,12 @@ void prh_print_font_cff1(prh_open_font *f) {
         "cff1 Name INDEX object 1 offset %d\n"
         "cff1 Name INDEX object 1 length %d\n"
         "cff1 Name INDEX object 1 '%s'\n",
-        (prh_reg)f->cff1.table_index,
-        (prh_reg)prh_font_table_count(f),
-        (prh_reg)f->cff1.tabletag,
-        (prh_reg)prh_byte_4(f->cff1.tabletag),
-        (prh_reg)prh_byte_3(f->cff1.tabletag),
-        (prh_reg)prh_byte_2(f->cff1.tabletag),
-        (prh_reg)prh_byte_1(f->cff1.tabletag),
-        (prh_reg)f->cff1.offset, (prh_reg)f->cff1.offset % 4,
-        (prh_reg)f->cff1.length, (prh_reg)f->cff1.length % 4,
-        (prh_reg)f->cff1.checksum, (prh_reg)checksum, (prh_reg)(checksum == f->cff1.checksum),
+        (prh_reg)info.table_index,
+        (prh_reg)font->num_tables,
+        (prh_reg)4, info.table_tag,
+        (prh_reg)info.table_offset, (prh_reg)info.table_offset % 4,
+        (prh_reg)info.table_length, (prh_reg)info.table_length % 4,
+        (prh_reg)info.table_checksum, (prh_reg)checksum, (prh_reg)(checksum == info.table_checksum),
         (prh_reg)cff.major_version,
         (prh_reg)cff.minor_version,
         (prh_reg)cff.header_length,
@@ -7105,8 +6771,6 @@ void prh_print_font_cff1(prh_open_font *f) {
     prh_print_cff1_charset(&cff);
 
     prh_print_cff1_charstrings_index(&cff);
-
-    prh_da_free(table_data);
 }
 
 // Top DICT INDEX
