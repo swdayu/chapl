@@ -3266,6 +3266,33 @@ void *prh_impl_calloc(prh_reg size);
 void *prh_impl_realloc(void *ptr, prh_reg size);
 void prh_impl_dealloc(void *ptr);
 
+prh_inline void *prh_impl_raw_malloc(prh_reg size)
+{
+    return malloc(size);
+}
+
+prh_inline void *prh_impl_raw_realloc(void *ptr, prh_reg size)
+{
+    return realloc(ptr, size);
+}
+
+prh_inline void prh_impl_raw_free(void *ptr)
+{
+    free(ptr);
+}
+
+#if defined(malloc)
+#undef malloc
+#endif
+
+#if defined(realloc)
+#undef realloc
+#endif
+
+#if defined(free)
+#undef free
+#endif
+
 // https://en.cppreference.com/w/c/memory/aligned_alloc
 // https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-malloc
@@ -3312,7 +3339,7 @@ void prh_impl_aligned_dealloc(void *context, void *ptr);
     void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
     #define prh_plat_aligned_malloc(size, alignment) aligned_alloc((alignment), (size))
     // free(p) if p is null do nothing
-    #define prh_plat_aligned_dealloc(p) free(p)
+    #define prh_plat_aligned_dealloc(p) prh_impl_raw_free(p)
 #endif
 
 void prh_main_init(void);
@@ -3492,14 +3519,14 @@ void prh_print_exit_code(int thrd_id, int exit_code) {
 // if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
 // if fails to allocate the requested block of memory, a null pointer is returned.
 void *prh_impl_malloc(prh_reg size) {
-    void *p = malloc(size); // 如果 size 为零，可能返回 null 也可能返回正常地址，但该地址不能访问
+    void *p = prh_impl_raw_malloc(size); // 如果 size 为零，可能返回 null 也可能返回正常地址，但该地址不能访问
     prh_assert_line(p != prh_null, prh_impl_line); // 对于 aligned_alloc，如果 size 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
     return p;
 }
 
 // void free(void *ptr) if ptr is null do nothing
 void prh_impl_dealloc(void *ptr) {
-    free(ptr);
+    prh_impl_raw_free(ptr);
 }
 
 // void *calloc(size_t num, size_t size);
@@ -3532,7 +3559,7 @@ void *prh_impl_realloc(void *ptr, prh_reg size) {
     // 规范 prh_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_dealloc
     // 当 ptr 为空时直接分配 size 大小内存，当 ptr 不为空时，重新分配到 size 大小
     size = prh_set_value_if_zero(size, sizeof(void *));
-    ptr = realloc(ptr, size);
+    ptr = prh_impl_raw_realloc(ptr, size);
     prh_assert_line(ptr != prh_null, prh_impl_line);
     return ptr;
 }
