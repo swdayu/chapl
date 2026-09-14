@@ -7202,6 +7202,299 @@ extern "C" {
 //  PIXELFORMATDESCRIPTOR
 //  POINTFLOAT
 
+#if defined(PRH_WIN32_BACKEND)
+
+// Windows OpenGL 的一些特性：
+//  1.  OpenGL 与 GDI 图形不能在双缓冲窗口中混用，应用可以直接在单缓冲窗口中同时绘制 OpenGL 图形和
+//      GDI 图形，但不能在双缓冲窗口中这样做。
+//  2.  Windows 只有一个系统硬件调色板，应用于整个屏幕。OpenGL 窗口不能拥有自己的硬件调色板，但可以
+//      拥有自己的逻辑调色板。为此，它必须成为能感知调色板（palette-aware）的应用。
+//  3.  不直接支持剪贴板、动态数据交换（DDE）或 OLE，带有 OpenGL 图形的窗口不直接支持这些 Windows
+//      能力。不过，使用剪贴板有变通方法。
+//  4.  OpenGL 渲染上下文是所有 OpenGL 命令通过的端口，每个进行 OpenGL 调用的线程都必须拥有当前渲染
+//      上下文。进行 OpenGL 调用的线程必须拥有当前渲染上下文。如果应用从一个没有当前渲染上下文的线程
+//      进行 OpenGL 调用，什么也不会发生，该调用无效。应用通常会创建一个渲染上下文，将其设为线程的当
+//      前渲染上下文，然后调用 OpenGL 函数。当完成 OpenGL 函数调用后，应用把渲染上下文与线程解耦，然
+//      后删除渲染上下文。
+//  5.  一个窗口可以同时有多个渲染上下文向它绘制，但一个线程只能有一个当前活动的渲染上下文。一个线程
+//      只能有一个当前渲染上下文，一个渲染上下文也只能在一个线程中处于当前状态。当前渲染上下文有一个
+//      关联的设备上下文。该设备上下文不必与创建渲染上下文时使用的设备上下文相同，但它必须引用同一设
+//      备并具有相同像素格式。
+//  6.  渲染上下文把 OpenGL 链接到 Windows 窗口系统，应用在创建渲染上下文时要指定一个 Windows 设备
+//      上下文。该渲染上下文适合在指定设备上下文所引用的设备上绘制。特别地，渲染上下文与设备上下文
+//      具有相同的像素格式。尽管存在这种关系，渲染上下文并不等同于设备上下文。设备上下文包含与 Windows
+//      图形组件（GDI）相关的信息；渲染上下文包含与 OpenGL 相关的信息。设备上下文必须在 GDI 调用中
+//      显式指定；而渲染上下文在OpenGL 调用中是隐含的。你应当在创建渲染上下文之前设置设备上下文的像
+//      素格式。
+//  7.  给定设备上下文可以支持多种像素格式。Windows 用连续的一基索引值（1、2、3、4 等）标识设备上下
+//      文支持的像素格式。设备上下文只能有一种当前像素格式，从其支持的像素格式集合中选择。在 Windows
+//      的 OpenGL 中，每个窗口都有自己的当前像素格式。这意味着，例如应用可以同时显示 RGBA 和颜色索引
+//      OpenGL 窗口，或单缓冲和双缓冲 OpenGL 窗口。这种逐窗口像素格式能力仅限于 OpenGL 窗口。
+
+// int ChoosePixelFormat(HDC hdc, const PIXELFORMATDESCRIPTOR *ppfd); // 返回一个基像素格式索引，表示设备上下文支持的最佳匹配像素格式
+// BOOL SetPixelFormat(HDC hdc, int format, const PIXELFORMATDESCRIPTOR *ppfd); // 通常使用 ChoosePixelFormat 得到的像素格式调用 SetPixelFormat 设置设备上下文即关联窗口的像素格式
+// int GetPixelFormat(HDC hdc); // 获取设备上下文像素格式的格式索引
+// int DescribePixelFormat(HDC hdc, int iPixelFormat, UINT nBytes, LPPIXELFORMATDESCRIPTOR ppfd); // 填充匹配像素格式索引的像素格式结构体，成功时返回设备最大像素格式索引
+// UINT GetEnhMetaFilePixelFormat(HENHMETAFILE hemf, UINT cbBuffer, PIXELFORMATDESCRIPTOR *ppfd); // 获取增强型元文件的像素格式信息
+//
+// HGLRC wglCreateContext(HDC hdc); // 失败返回 NULL, hdc 必须是显示设备上下文、内存设备上下文，或使用每像素 4 位或更多位的彩色打印机设备上下文
+// BOOL wglMakeCurrent(HDC hdc, HGLRC glrc); // 解绑上下文或绑定新的上下文，wglMakeCurrent(NULL, NULL) 解绑
+// HGLRC wglGetCurrentContext(void); // 失败返回 NULL
+// HDC wglGetCurrentDC(void); // 失败返回 NULL
+// BOOL wglDeleteContext(HGLRC glrc);
+//
+// BOOL SwapBuffers(HDC hdc);
+// PROC wglGetProcAddress(LPCSTR name);
+
+// typedef struct tagPIXELFORMATDESCRIPTOR {
+//      WORD  nSize;
+//      WORD  nVersion;
+//      DWORD dwFlags;
+//      BYTE  iPixelType;
+//      BYTE  cColorBits;
+//      BYTE  cRedBits;
+//      BYTE  cRedShift;
+//      BYTE  cGreenBits;
+//      BYTE  cGreenShift;
+//      BYTE  cBlueBits;
+//      BYTE  cBlueShift;
+//      BYTE  cAlphaBits;
+//      BYTE  cAlphaShift;
+//      BYTE  cAccumBits;
+//      BYTE  cAccumRedBits;
+//      BYTE  cAccumGreenBits;
+//      BYTE  cAccumBlueBits;
+//      BYTE  cAccumAlphaBits;
+//      BYTE  cDepthBits;
+//      BYTE  cStencilBits;
+//      BYTE  cAuxBuffers;
+//      BYTE  iLayerType;
+//      BYTE  bReserved;
+//      DWORD dwLayerMask;
+//      DWORD dwVisibleMask;
+//      DWORD dwDamageMask;
+// } PIXELFORMATDESCRIPTOR, *PPIXELFORMATDESCRIPTOR, *LPPIXELFORMATDESCRIPTOR;
+//
+// PIXELFORMATDESCRIPTOR 结构描述绘图表面的像素格式。某些像素格式属性在当前通用实现中不受支持。通用
+// 实现是 OpenGL 的 Microsoft GDI 软件实现。硬件制造商可能增强 OpenGL 的部分功能，并可能支持通用实现
+// 不支持的某些像素格式属性。
+//      nSize 指定此数据结构的大小，应设置为 sizeof(PIXELFORMATDESCRIPTOR)
+//      nVersion 指定此数据结构的版本，应设置为 1
+//      dwFlags 一组指定像素缓冲属性的位标志，这些属性一般不是互斥的，你可以设置任意组合，但需注意例外情况，定义了以下位标志常量：
+//          PFD_DRAW_TO_WINDOW (0x00000004)         缓冲可以绘制到窗口或设备表面
+//          PFD_DRAW_TO_BITMAP (0x00000008)         缓冲可以绘制到内存位图
+//          PFD_SUPPORT_GDI (0x00000010)            缓冲支持 GDI 绘图，在当前通用实现中，此标志与 PFD_DOUBLEBUFFER 互斥
+//          PFD_SUPPORT_OPENGL (0x00000020)         缓冲支持 OpenGL 绘图
+//          PFD_GENERIC_ACCELERATED (0x00001000)    像素格式由加速通用实现的设备驱动支持，如果此标志未设置而 PFD_GENERIC_FORMAT 已设置，则该像素格式仅由通用实现支持
+//          PFD_GENERIC_FORMAT (0x00000040)         像素格式由 GDI 软件实现（即通用实现）支持，如果此位未设置，则该像素格式由设备驱动程序或硬件支持
+//          PFD_NEED_PALETTE (0x00000080)           缓冲在调色板管理的设备上使用 RGBA 像素，这种像素类型需要一个逻辑调色板才能获得最佳效果，调色板中的颜色应根据
+//                                                  cRedBits、cRedShift、cGreenBits、cGreenShift、cBlueBits 和 cBlueShift 成员的值来指定，应在调用 wglMakeCurrent
+//                                                  之前，在设备上下文中创建并映射（realize）调色板
+//          PFD_NEED_SYSTEM_PALETTE (0x00000100)    定义在仅在 256 色模式下支持单个硬件调色板的硬件的像素格式描述符中，在此类系统上，要使用硬件加速，RGBA 模式下
+//                                                  硬件调色板必须按固定顺序（例如 3-3-2），或者颜色索引模式下必须与逻辑调色板匹配，设置此标志时，必须在程序中调
+//                                                  用 SetSystemPaletteUse，以强制逻辑调色板与系统调色板一一映射，如果你的 OpenGL 硬件支持多个硬件调色板，且设备
+//                                                  驱动能为 OpenGL 分配空闲的硬件调色板，此标志通常不设置，通用像素格式中不设置此标志
+//          PFD_DOUBLEBUFFER (0x00000001)           缓冲为双缓冲，在当前通用实现中，此标志与 PFD_SUPPORT_GDI 互斥
+//          PFD_STEREO (0x00000002)                 缓冲为立体的，当前通用实现不支持此标志
+//          PFD_SWAP_LAYER_BUFFERS (0x00000800)     表示设备能否对包含双缓冲覆盖层或下层平面的像素格式单独交换各层平面，否则所有层平面作为一个整体一起交换，设置
+//                                                  此标志时，支持 wglSwapLayerBuffers
+//      调用 ChoosePixelFormat 时还可指定以下位标志：
+//          PFD_DEPTH_DONTCARE (0x20000000)         所请求的像素格式可以有也可以没有深度缓冲，要选择没有深度缓冲的像素格式，必须指定此标志，否则只考虑带深度缓冲
+//                                                  的像素格式
+//          PFD_DOUBLEBUFFER_DONTCARE (0x40000000)  所请求的像素格式可以是单缓冲或双缓冲
+//          PFD_STEREO_DONTCARE (0x80000000)        所请求的像素格式可以是单目或立体的
+//      通过 glAddSwapHintRectWIN 扩展函数，PIXELFORMATDESCRIPTOR 像素格式结构还新增了两个标志：
+//          PFD_SWAP_COPY (0x00000400)              指定双缓冲主颜色平面中后缓冲在缓冲交换之后的内容，交换颜色缓冲会将后缓冲内容复制到前缓冲，后缓冲内容不受交换
+//                                                  影响，PFD_SWAP_COPY 仅是一个提示，驱动程序可能不会提供
+//          PFD_SWAP_EXCHANGE (0x00000200)          指定双缓冲主颜色平面中后缓冲在缓冲交换之后的内容，交换颜色缓冲会使后缓冲内容与前缓冲内容互换，交换后，后缓冲
+//                                                  内容为交换前的前缓冲内容，PFD_SWAP_EXCHANGE 仅是一个提示，驱动程序可能不会提供
+//      iPixelType 指定像素数据的类型，定义了以下类型：
+//          PFD_TYPE_RGBA (0)           RGBA 像素，每个像素按红、绿、蓝、alpha 顺序有四个分量
+//          PFD_TYPE_COLORINDEX (1)     颜色索引像素，每个像素使用一个颜色索引值
+//      cColorBits 指定每个颜色缓冲中的颜色位平面数，对 RGBA 像素类型是颜色缓冲的大小（不包括 alpha 位平面），对颜色索引像素是颜色索引缓冲的大小
+//      cRedBits 指定每个 RGBA 颜色缓冲中红色位平面数
+//      cRedShift 指定每个 RGBA 颜色缓冲中红色位平面的移位计数
+//      cGreenBits 指定每个 RGBA 颜色缓冲中绿色位平面数
+//      cGreenShift 指定每个 RGBA 颜色缓冲中绿色位平面的移位计数
+//      cBlueBits 指定每个 RGBA 颜色缓冲中蓝色位平面数
+//      cBlueShift 指定每个 RGBA 颜色缓冲中蓝色位平面的移位计数
+//      cAlphaBits 指定每个 RGBA 颜色缓冲中 alpha 位平面数，不支持 alpha 位平面
+//      cAlphaShift 指定每个 RGBA 颜色缓冲中 alpha 位平面的移位计数，不支持 alpha 位平面
+//      cAccumBits 指定累积缓冲中的位平面总数
+//      cAccumRedBits 指定累积缓冲中红色位平面数
+//      cAccumGreenBits 指定累积缓冲中绿色位平面数
+//      cAccumBlueBits 指定累积缓冲中蓝色位平面数
+//      cAccumAlphaBits 指定累积缓冲中 alpha 位平面数
+//      cDepthBits 指定深度（z 轴）缓冲的深度
+//      cStencilBits 指定模板缓冲的深度
+//      cAuxBuffers 指定辅助缓冲的数量，不支持辅助缓冲。
+//      iLayerType 已忽略，OpenGL 的早期实现使用过此成员，但现已不再使用
+//      bReserved 指定覆盖层和下层平面的数量，第 0 到 3 位指定最多 15 个覆盖层平面，第 4 到 7 位指定最多 15 个下层平面
+//      dwLayerMask 已忽略，OpenGL 的早期实现使用过此成员，但现已不再使用
+//      dwVisibleMask 指定下层平面的透明颜色或索引，当像素类型为 RGBA 时 dwVisibleMask 是一个透明 RGB 颜色值，当像素类型为颜色索引时它是一个透明索引值
+//      dwDamageMask 已忽略，OpenGL 的早期实现使用过此成员，但现已不再使用
+
+// int ChoosePixelFormat(HDC hdc, const PIXELFORMATDESCRIPTOR *ppfd);
+//
+// ChoosePixelFormat 函数尝试为给定像素格式描述符匹配设备上下文支持的适当像素格式。成功时，返回值是
+// 与给定像素格式描述符最接近匹配的像素格式索引（一基，one-based）。失败时返回零。调用 GetLastError
+// 获取扩展错误信息。
+//
+// 参数 hdc 指定函数检查的设备上下文，用于确定为 ppfd 指向的像素格式描述符找到最佳匹配。参数 ppfd 指
+// 向 PIXELFORMATDESCRIPTOR 结构的指针，指定所请求的像素格式。在此上下文中，ppfd 指向的结构成员用法
+// 如下：
+//      nSize 指定 PIXELFORMATDESCRIPTOR 数据结构的大小，设置为 sizeof(PIXELFORMATDESCRIPTOR)
+//      nVersion 指定版本号，设置为 1
+//      dwFlags 指定像素缓冲属性的一组位标志，可用按位或组合。如果设置了以下任何标志，ChoosePixelFormat 尝试匹配同样设置
+//          了该标志的像素格式，否则忽略该标志：PFD_DRAW_TO_WINDOW、PFD_DRAW_TO_BITMAP、PFD_SUPPORT_GDI、PFD_SUPPORT_OPENGL。
+//          如果设置了以下任何标志，尝试匹配同样设置了该标志的像素格式，否则尝试匹配未设置该标志的像素格式：PFD_DOUBLEBUFFER、
+//          PFD_STEREO。如果设置了 PFD_DOUBLEBUFFER_DONTCARE，函数忽略像素格式中的 PFD_DOUBLEBUFFER 标志。如果设置了
+//          PFD_STEREO_DONTCARE，函数忽略像素格式中的 PFD_STEREO 标志。
+//      iPixelType 指定函数考虑的像素格式类型 PFD_TYPE_RGBA、PFD_TYPE_COLORINDEX
+//      cColorBits 零或更大
+//      cRedBits 不使用
+//      cRedShift 不使用
+//      cGreenBits 不使用
+//      cGreenShift 不使用
+//      cBlueBits 不使用
+//      cBlueShift 不使用
+//      cAlphaBits 零或更大
+//      cAlphaShift 不使用
+//      cAccumBits 零或更大
+//      cAccumRedBits 不使用
+//      cAccumGreenBits 不使用
+//      cAccumBlueBits 不使用
+//      cAccumAlphaBits 不使用
+//      cDepthBits 零或更大
+//      cStencilBits 零或更大
+//      cAuxBuffers 零或更大
+//      iLayerType 指定以下层类型值之一 PFD_MAIN_PLANE、PFD_OVERLAY_PLANE、PFD_UNDERLAY_PLANE
+//      bReserved 不使用
+//      dwLayerMask 不使用
+//      dwVisibleMask 不使用
+//      dwDamageMask 不使用
+//
+// 你必须确保 ChoosePixelFormat 匹配到的像素格式满足你的要求。例如，如果你请求带 24 位 RGB 颜色缓冲
+// 的像素格式，而设备上下文只提供 8 位 RGB 颜色缓冲，函数将返回一个 8 位 RGB 颜色缓冲的像素格式。
+//      PIXELFORMATDESCRIPTOR pfd = {
+//          sizeof(PIXELFORMATDESCRIPTOR), // 此 pfd 的大小
+//          1,                     // 版本号
+//          PFD_DRAW_TO_WINDOW |   // 支持窗口
+//          PFD_SUPPORT_OPENGL |   // 支持 OpenGL
+//          PFD_DOUBLEBUFFER,      // 双缓冲
+//          PFD_TYPE_RGBA,         // RGBA 类型
+//          24,                    // 24 位颜色深度
+//          0, 0, 0, 0, 0, 0,      // 颜色位忽略
+//          0,                     // 无 alpha 缓冲
+//          0,                     // 移位位忽略
+//          0,                     // 无累积缓冲
+//          0, 0, 0, 0,            // 累积位忽略
+//          32,                    // 32 位 z 缓冲
+//          0,                     // 无模板缓冲
+//          0,                     // 无辅助缓冲
+//          PFD_MAIN_PLANE,        // 主层
+//          0,                     // 保留
+//          0, 0, 0                // 层掩码忽略
+//          };
+//      HDC hdc;
+//      int iPixelFormat;
+//      iPixelFormat = ChoosePixelFormat(hdc, &pfd); // 获取设备上下文像素格式的最佳匹配
+//      SetPixelFormat(hdc, iPixelFormat, &pfd); // 将其设为设备上下文的像素格式
+
+// BOOL SetPixelFormat(HDC hdc, int format, const PIXELFORMATDESCRIPTOR *ppfd);
+//
+// SetPixelFormat 函数把指定设备上下文的像素格式设置为 iPixelFormat 索引所指定的格式。成功返回 TRUE，
+// 失败返回 FALSE。调用 GetLastError 获取扩展错误信息。
+//
+// 参数 hdc 指定要尝试设置其像素格式的设备上下文。参数 format 标识要设置的像素格式的索引。设备上下文
+// 支持的各种像素格式由一基索引标识。参数 ppfd 指向包含逻辑像素格式规格的 PIXELFORMATDESCRIPTOR 结构
+// 的指针。系统的元文件组件使用此结构记录逻辑像素格式规格。此结构对 SetPixelFormat 函数的行为没有其
+// 他影响。
+//
+// 如果 hdc 引用一个窗口，调用 SetPixelFormat 也会改变该窗口的像素格式。多次设置窗口像素格式会给窗口
+// 管理器和多线程应用带来显著复杂性，因此不允许。应用只能设置一次窗口像素格式；一旦设置，便不可更改。
+// 应在调用 wglCreateContext 函数之前在设备上下文中选择像素格式。wglCreateContext 函数按设备上下文所
+// 选像素格式创建用于在其上绘制的渲染上下文。OpenGL 窗口拥有自己的像素格式。因此，只有为 OpenGL 窗口
+// 客户区检索到的设备上下文才被允许绘制到该窗口。因此，OpenGL 窗口应以 WS_CLIPCHILDREN 和 WS_CLIPSIBLINGS
+// 样式创建。此外，窗口类属性不应包含 CS_PARENTDC 样式。
+
+// int GetPixelFormat(HDC hdc);
+//
+// GetPixelFormat 函数获取指定设备上下文当前所选像素格式的索引。成功时，返回值是指定设备上下文当前所
+// 选像素格式的索引，一个正的一基索引值。失败时返回零。调用 GetLastError 获取扩展错误信息。参数 hdc
+// 指定函数返回其当前所选像素格式索引的设备上下文。
+
+// int DescribePixelFormat(HDC hdc, int iPixelFormat, UINT nBytes, LPPIXELFORMATDESCRIPTOR ppfd);
+//
+// DescribePixelFormat 函数获取与 hdc 相关联的设备上由 iPixelFormat 标识的像素格式的信息。该函数用该
+// 像素格式数据设置 ppfd 指向的 PIXELFORMATDESCRIPTOR 结构的成员。成功时，返回值是设备上下文的最大像
+// 素格式索引。此外，函数按指定像素格式设置 ppfd 指向的 PIXELFORMATDESCRIPTOR 结构的成员。失败时返回
+// 零，调用 GetLastError 获取扩展错误信息。
+//
+// 参数 hdc 指定设备上下文。参数 iPixelFormat 指定像素格式的索引。设备上下文支持的像素格式由正的一基
+// 整数索引标识。参数 nBytes 表示 ppfd 指向的结构的大小（字节）。DescribePixelFormat 函数最多向该结构
+// 写入 nBytes 字节数据，设置为 sizeof(PIXELFORMATDESCRIPTOR)。参数 ppfd 指向 PIXELFORMATDESCRIPTOR
+// 结构的指针，函数用像素格式数据设置其成员。函数把复制的字节数存入结构的 nSize 成员。如果进入时 ppfd
+// 为 NULL，函数不写入数据。这在只想获取设备上下文的最大像素格式索引时很有用。
+
+// UINT GetEnhMetaFilePixelFormat(HENHMETAFILE hemf, UINT cbBuffer, PIXELFORMATDESCRIPTOR *ppfd);
+//
+// GetEnhMetaFilePixelFormat 函数检索增强型元文件的像素格式信息。成功且找到像素格式时，返回值是元文
+// 件像素格式的大小。没有像素格式时返回零。出错失败时返回值是 GDI_ERROR。调用 GetLastError 获取扩展
+// 错误信息。
+//
+// 参数 hemf 标识增强型元文件。参数 cbBuffer 指定要复制像素格式信息的缓冲区大小（字节）。参数 ppfd
+// 指向包含逻辑像素格式规格的 PIXELFORMATDESCRIPTOR 结构的指针。元文件用此结构记录逻辑像素格式规格。
+//
+// 当增强型元文件在其 ENHMETAHEADER 结构中指定了像素格式、且像素格式能放入缓冲区时，像素格式信息被复
+// 制到 ppfd。当 cbBuffer 太小放不下元文件的像素格式时，像素格式不会被复制到缓冲区。无论哪种情况，函
+// 数都返回元文件像素格式的大小。关于元文件记录和其他操作的信息，见“增强型元文件操作”。
+
+// BOOL wglMakeCurrent(HDC hdc, HGLRC glrc);
+//
+// wglMakeCurrent 函数使指定的 OpenGL 渲染上下文成为调用线程的当前渲染上下文。此后该线程进行的所有
+// OpenGL 调用都绘制在 hdc 所标识的设备上。你也可以用 wglMakeCurrent 改变调用线程的当前渲染上下文，
+// 使其不再处于当前状态。wglMakeCurrent 函数成功时返回 TRUE，否则返回 FALSE。调用 GetLastError 获取
+// 扩展错误信息。如果发生错误，wglMakeCurrent 函数会在返回前使线程的当前渲染上下文变为非当前状态。
+//
+// 参数 hdc 设备上下文句柄。调用线程随后进行的 OpenGL 调用绘制在 hdc 所标识的设备上。参数 glrc OpenGL
+// 渲染上下文句柄，函数将其设置为调用线程的渲染上下文。如果 hglrc 为 NULL，函数使调用线程的当前渲染
+// 上下文不再处于当前状态，并释放该渲染上下文使用的设备上下文。在这种情况下，hdc 被忽略。
+//
+// hdc 参数必须引用 OpenGL 支持的绘图表面。它不必与创建 hglrc 时传给 wglCreateContext 的同一个 hdc，
+// 但必须在同一设备上并具有相同像素格式。渲染上下文不支持 hdc 中的 GDI 变换和裁剪。当前渲染上下文一
+// 直使用 hdc 设备上下文，直到该渲染上下文不再处于当前状态。在切换到新渲染上下文之前，OpenGL 会刷新
+// 先前对调用线程处于当前状态的任何渲染上下文。
+//
+// 一个线程只能有一个当前渲染上下文，一个进程可以通过多线程拥有多个渲染上下文。线程必须在调用任何
+// OpenGL 函数之前设置当前渲染上下文，否则所有 OpenGL 调用都会被忽略。一个渲染上下文同一时刻只能在
+// 一个线程中处于当前状态，你不能让一个渲染上下文在多个线程中同时处于当前状态。应用可以通过让不同渲
+// 染上下文在不同线程中处于当前状态来进行多线程绘制，即为每个线程提供其自己的渲染上下文和设备上下文。
+
+// BOOL SwapBuffers(HDC hdc);
+//
+// 如果指定设备上下文所引用窗口的当前像素格式包含后缓冲，SwapBuffers 函数交换前缓冲和后缓冲。成功返
+// 回 TRUE，失败返回 FALSE。调用 GetLastError 获取扩展错误信息。
+//
+// 参数 hdc 指定一个设备上下文。如果此设备上下文所引用窗口的当前像素格式包含后缓冲，函数交换前缓冲和
+// 后缓冲。如果设备上下文所引用窗口的当前像素格式不包含后缓冲，此调用无效，且函数返回时后缓冲内容未
+// 定义。对多线程应用，在调用 SwapBuffers 之前，先刷新绘制到同一窗口的其他线程中的绘图命令。
+
+// PROC wglGetProcAddress(LPCSTR name);
+//
+// wglGetProcAddress 函数返回用于当前 OpenGL 渲染上下文的 OpenGL 扩展函数地址。成功时返回扩展函数的
+// 地址。不存在当前渲染上下文或函数失败时返回 NULL。调用 GetLastError 获取扩展错误信息。
+//
+// 参数 name 指向以空字符结尾的字符串，即扩展函数的名称。扩展函数的名称必须与 OpenGL 实现的相应函数
+// 完全相同。OpenGL 库支持其函数的多种实现。一个渲染上下文支持的扩展函数在另一个渲染上下文中不一定可
+// 用。因此，对应用中给定渲染上下文，只应使用 wglGetProcAddress 函数返回的函数地址。name 指向的扩展
+// 函数的拼写和大小写必须与 OpenGL 支持并实现的函数完全相同。由于 OpenGL 不导出扩展函数，你必须使用
+// wglGetProcAddress 获取厂商特定扩展函数的地址。扩展函数地址对每个像素格式是唯一的。给定像素格式的
+// 所有渲染上下文共享相同的扩展函数地址。
+
+#endif
+
+
 #endif // PRH_GRAPHIC_IMPLEMENTATION
 
 // FULL VERSION HISTORY
