@@ -347,11 +347,9 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 } 单次请求;
 
 //////////////////////////////////////////////////////////////////////////////
-//
-// BACKEND INTERFACE
-//
-
-#include "tuanyao_backend.h"
+///
+/// BACKEND INTERFACE
+///
 
 正 标的代码转字符串(肆 代码, 壹 *字符串);
 空 督取历史数据(戳 *开始时间, 戳 *结束时间, 单次请求 *请求);
@@ -386,9 +384,9 @@ prh_static_assert(sizeof(成交秒四) ==  8 && sizeof(成交秒四) % 4 == 0);
 标汇头部 *内读取标的汇总头部(空);
 
 //////////////////////////////////////////////////////////////////////////////
-//
-// PUBLIC INTERFACE
-//
+///
+/// PUBLIC INTERFACE
+///
 
 空 数据请求初始化(空);
 辩 执行请求(单次请求 *请求);
@@ -1238,6 +1236,9 @@ static 全局数据 权全局数据;
 
 空 数据请求初始化(空)
 {
+    prh_set_local_alloc(prh_default_alloc());
+    prh_console_setup();
+
     构请求参数();
     策略初始化();
 }
@@ -1935,6 +1936,421 @@ static 全局数据 权全局数据;
     执行请求(&请求);
 
     保存标的年分数据文件(p);
+}
+
+#endif // PRH_TUANYAO_IMPLEMENTATION
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// GRAPHIC INTERFACE
+///
+
+#ifndef PRH_IMPL_TUANYAO_GRAPHIC_INCLUDED_H
+#define PRH_IMPL_TUANYAO_GRAPHIC_INCLUDED_H
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+    prh_i32 image_rect[4]; // 当前字形在纹理图片中的矩形区域，y1比y0大，纹理图片仅保存字形实际的轮廓矩形
+    prh_f32 xoffset; // 字形左侧间距
+    prh_f32 yascent; // 字形升部高度
+    prh_f32 xadvance; // 字形水平前进宽度
+} prh_char_tile;
+
+typedef struct {
+    float draw_rect[4]; // 字形绘制在目标屏幕位置，该位置字形所需的矩形区域
+    float ftex_rect[4]; // 字形来源于纹理图片中一个小块，该纹理坐标是归一化的字形小块的矩形坐标
+} prh_char_quad;
+
+// 根据定义，字形索引零指向"缺失字符"字形，即当某个字符在字体的 'cmap' 表中找不到时显示的
+// 字形。缺失字符通常用一个空白框或空格表示。如果字体不包含该字形的轮廓，则第一个和第二个
+// 偏移量（loca 表中的字形数据偏移量）应具有相同的值，表示字符没有字形轮廓数据。这也适用于
+// 任何其他没有轮廓的字形，例如空格字符的字形。
+
+typedef struct {
+    prh_r32 pixel_font_height;
+    prh_r32 texture_handle;
+    prh_r32 texture_width;
+    prh_r32 texture_height;
+    prh_char_tile ascii_tile[96]; // 0x20 ~ 0x7E 95 chars + 1
+    prh_char_tile hanzi_tile[8*1024];
+} prh_font_texture;
+
+#define prh_x_component(a) (a)[0]
+#define prh_y_component(a) (a)[1]
+#define prh_z_component(a) (a)[2]
+#define prh_w_component(a) (a)[3]
+
+#define prh_r_component(a) (a)[0]
+#define prh_g_component(a) (a)[1]
+#define prh_b_component(a) (a)[2]
+#define prh_a_component(a) (a)[3]
+
+#define v(a,x) prh_##x##_component(a)
+
+#define prh_rect_x0_component(a) (a)[0]
+#define prh_rect_y0_component(a) (a)[1]
+#define prh_rect_x1_component(a) (a)[2]
+#define prh_rect_y1_component(a) (a)[3]
+#define prh_rect_w_component(a) ((a)[2]-(a)[0])
+#define prh_rect_h_component(a) ((a)[3]-(a)[1])
+
+#define r(a,x) prh_rect_##x##_component(a)
+
+int drawing_loop(const prh_byte *font_file, int font_size);
+
+int prh_impl_font_data_offset(const prh_byte *data, int font_index);
+void *prh_impl_font_init(const prh_byte *data, prh_r32 offset);
+void prh_impl_font_free(void *font);
+bool prh_impl_glyph_outline_rect(void *font, int glyph, int *rect);
+void prh_glyph_size_rect(void *font, int glyph, float *scale, float *shift, int *rect);
+float prh_impl_font_scale_factor(void *font, int pixel_font_height);
+int prh_impl_font_glyph_index(void *font, prh_char unicode);
+void prh_impl_glyph_hmetrics(void *font, int glyph_index, int *metrics);
+void prh_impl_make_glyph_tile(void *font, int glyph_index, prh_byte *tile, int glyph_width, int glyph_height, int width_stride, float *scale, float *shift);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif // PRH_IMPL_TUANYAO_GRAPHIC_INCLUDED_H
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// WINDOWS GRAPHIC AND RENDERING
+///
+
+#ifdef PRH_TUANYAO_IMPLEMENTATION
+
+#include <math.h>
+#include <tchar.h>
+#include <gl/gl.h>
+#include <gl/glu.h>
+
+static prh_font_texture prh_impl_font_texture;
+
+void prh_glyph_size_rect(void *font, int glyph, float *scale, float *shift, int *rect)
+{
+    int glyph_rect[4]; // 字形框返回左下角（xMin, yMin）和右上角（xMax, yMax）坐标，y轴向上指，x=0位于起始光标处，y=0位于基线
+    if (prh_impl_glyph_outline_rect(font, glyph, glyph_rect))
+    {
+        // 返回的矩形框左上角和右下角坐标，y轴向下指，因此需要反转y坐标值
+        float x0 = r(glyph_rect,x0) * v(scale,x) + v(shift,x), x1 = r(glyph_rect,x1) * v(scale,x) + v(shift,x);
+        float y0 = -r(glyph_rect,y1) * v(scale,y) + v(shift,y), y1 = -r(glyph_rect,y0) * v(scale,y) + v(shift,y);
+        r(rect,x0)= (int)floorf(x0);
+        r(rect,y0)= (int)floorf(y0);
+        r(rect,x1) = (int)ceilf(x1);
+        r(rect,y1) = (int)ceilf(y1); // 将像素当作小四方形，将浮点坐标对齐到整数坐标
+    }
+    else
+    {
+        r(rect,x0) = r(rect,y0) = 0; // 将坐标设置为纹理图片的起始位置，通常是空格字形
+        r(rect,x1) = r(rect,y1) = 0;
+    }
+}
+
+int prh_load_glyph_tiles(unsigned char *data, int offset, prh_byte *image, int width, int height)
+{
+    int x = 1, y = 1;
+    int bottom_y = 1;
+    float scale[2];
+    float shift[2] = {0};
+
+    void *font = prh_impl_font_init(data, offset);
+    if (font == prh_null) return -1;
+
+    prh_font_texture *p = &prh_impl_font_texture;
+    prh_char_tile *tile = p->ascii_tile;
+    memset(image, 0, width * height);
+    v(scale,x) = v(scale,y) = prh_impl_font_scale_factor(font, p->pixel_font_height);
+
+    for (int i = 0; i < 96; ++i)
+    {
+        int metrics[2];
+        int advance; // 字形的前进宽度或字宽
+        int rect[4]; // 字形矩形的左上角和右下角，y1 坐标比 y0 坐标大
+        int glyph_width, glyph_height; // 字形的宽度和高度
+        int g = prh_impl_font_glyph_index(font, 0x20 + i);
+        prh_impl_glyph_hmetrics(font, g, metrics);
+        advance = metrics[0];
+
+        prh_glyph_size_rect(font, g, scale, shift, rect);
+        glyph_width = r(rect,w);
+        glyph_height = r(rect,h);
+        if (x + glyph_width + 1 >= width) // 当前行的宽度不足以容纳当前字形，移动到图片的下一行
+        {
+            y = bottom_y;
+            x = 1;
+        }
+        if (y + glyph_height + 1 >= height) // 检查当前行的高度能不能足够容纳当前字形
+        {
+            return -i;
+        }
+
+        prh_assert(x + glyph_width < width);
+        prh_assert(y + glyph_height < height);
+        prh_impl_make_glyph_tile(font, g, image + x + y * width, glyph_width, glyph_height, width, scale, shift);
+
+        r(tile[i].image_rect,x0) = x;
+        r(tile[i].image_rect,y0) = y;
+        r(tile[i].image_rect,x1) = x + glyph_width;
+        r(tile[i].image_rect,y1) = y + glyph_height;
+        tile[i].xoffset = (float)r(rect,x0);
+        tile[i].yascent = (float)-r(rect,y0);
+        tile[i].xadvance = v(scale,x) * advance;
+
+        x = x + glyph_width + 1; // 纹理图片中只保存字形实际的轮廓矩形
+        if (y + glyph_height + 1 > bottom_y)
+        {
+            bottom_y = y + glyph_height + 1; // bottom_y 总是记录当前行最大的y值
+        }
+    }
+
+    return bottom_y;
+}
+
+void prh_create_font_texture(const prh_byte *font_file, int pixel_font_height)
+{
+    prh_font_texture *p = &prh_impl_font_texture;
+    prh_byte file_name[4096] = {CONFIG_SRC_ROOT CONFIG_INSTALL_DIR};
+    prh_real_assert(font_file != prh_null && strlen(file_name) + strlen(font_file) + 1 <= sizeof(file_name));
+    memcpy(file_name + strlen(file_name), font_file, strlen(font_file));
+    prh_handle file = prh_open_file_read(file_name);
+    prh_real_assert(file != prh_invalid_handle);
+    prh_r32 file_size = prh_file_size_32(file);
+    prh_byte *data = (prh_byte *)prh_global_alloc(file_size);
+    prh_impl_file_read(file, data, file_size);
+    prh_file_close(file);
+
+    int font_size = pixel_font_height;
+    int first_ascii = 0x20; // 空格，第一个可打印字符
+    int ascii_chars = 96;   // 0x20 ~ 0x7E 95个字符，加一个空字符
+    int culue_chars_per_line = 8;
+    int culue_rows = ascii_chars / culue_chars_per_line + 1;
+    int width = culue_chars_per_line * font_size * 2;
+    int height = culue_rows * font_size * 2;
+    prh_print("[INFO] texture size %d x %d\n", (prh_reg)width, (prh_reg)height);
+
+    prh_byte *texture_image = (prh_byte *)prh_global_alloc(width * height);
+    p->pixel_font_height = pixel_font_height;
+    p->texture_width = width;
+    p->texture_height = height;
+
+    int offset = prh_impl_font_data_offset(data, 0);
+    int n = prh_load_glyph_tiles(data, offset, texture_image, width, height);
+    prh_assert(n > 0);
+    prh_global_free(data);
+
+    GLuint font_tex; // 创建二维纹理对象并绑定
+    glGenTextures(1, &font_tex);
+    glBindTexture(GL_TEXTURE_2D, font_tex);
+    p->texture_handle = font_tex;
+
+    glTexImage2D( // 指定一个二维纹理图像
+        /* GLenum target        */ GL_TEXTURE_2D, // 绑定的目标纹理
+        /* GLint level          */ 0, // 指定细节级别数
+        /* GLint internalformat */ GL_ALPHA,// 指定纹理中的颜色分量数量
+        /* GLsizei width        */ width, // 纹理图像宽度，所有实现都支持至少 1024 纹素宽的纹理图像
+        /* GLsizei height       */ height, // 纹理图像高度，或纹理数组的层数（仅对于 GL_TEXTURE_1D_ARRAY 和 GL_PROXY_TEXTURE_1D_ARRAY）
+        /* GLint border         */ 0, // 边框宽度，此值必须为 0
+        /* GLenum format        */ GL_ALPHA, // 指定像素数据的格式
+        /* GLenum type          */ GL_UNSIGNED_BYTE, // 像素数据的数据类型
+        /* const void *data     */ texture_image); // 内存中的图像数据
+    prh_assert(glGetError() == GL_NO_ERROR);
+    prh_global_free(texture_image);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+}
+
+prh_char_quad prh_char_draw_quad(prh_char ascii_code, float *location, int opengl_fillrule)
+{
+    prh_font_texture *p = &prh_impl_font_texture;
+    int char_index = ascii_code - 0x20;
+    float d3d_bias = opengl_fillrule ? 0 : -0.5f; // 1=opengl & d3d10+, 0=d3d9
+    const prh_char_tile *tile = p->ascii_tile + char_index;
+    prh_char_quad q;
+
+    int draw_x = (int)floorf(v(location,x) + tile->xoffset + 0.5f);
+    int draw_y = (int)floorf(v(location,y) - tile->yascent + 0.5f);
+    r(q.draw_rect,x0) = draw_x + d3d_bias;
+    r(q.draw_rect,y0) = draw_y + d3d_bias;
+    r(q.draw_rect,x1) = draw_x + r(tile->image_rect,w) + d3d_bias;
+    r(q.draw_rect,y1) = draw_y + r(tile->image_rect,h) + d3d_bias;
+
+    // 纹理坐标需要归一化到 [0, 1] 范围内，即：
+    //  1.  x 坐标 [0, texture_image_width] 需要缩放到 [0, 1]，x' = x / texture_image_width
+    //  2.  y 坐标 [0, texture_image_height] 需要缩放到 [0, 1]，y' = y / texture_image_height
+
+    float x_factor = 1.0f / p->texture_width;
+    float y_factor = 1.0f / p->texture_height;
+    r(q.ftex_rect,x0) = r(tile->image_rect,x0) * x_factor;
+    r(q.ftex_rect,y0) = r(tile->image_rect,y0) * y_factor;
+    r(q.ftex_rect,x1) = r(tile->image_rect,x1) * x_factor;
+    r(q.ftex_rect,y1) = r(tile->image_rect,y1) * y_factor;
+
+    v(location,x) += tile->xadvance;
+    return q;
+}
+
+void prh_draw_text(int x, int y, const prh_byte *text)
+{
+    prh_assert(text != prh_null);
+    prh_char unicode;
+    prh_font_texture *font = &prh_impl_font_texture;
+    const prh_byte *end = text + strlen(text);
+    float location[2] = {(float)x, (float)y};
+    glBindTexture(GL_TEXTURE_2D, font->texture_handle);
+    glBegin(GL_QUADS);
+    while (text < end)
+    {
+        text += prh_utf8_char(text, &unicode);
+        if (unicode >= 0x20 && unicode <= 0x7E)
+        {
+            prh_char_quad q = prh_char_draw_quad(unicode, location, 1);
+            glTexCoord2f(r(q.ftex_rect,x0), r(q.ftex_rect,y0)); glVertex2f(r(q.draw_rect,x0), r(q.draw_rect,y0));
+            glTexCoord2f(r(q.ftex_rect,x1), r(q.ftex_rect,y0)); glVertex2f(r(q.draw_rect,x1), r(q.draw_rect,y0));
+            glTexCoord2f(r(q.ftex_rect,x1), r(q.ftex_rect,y1)); glVertex2f(r(q.draw_rect,x1), r(q.draw_rect,y1));
+            glTexCoord2f(r(q.ftex_rect,x0), r(q.ftex_rect,y1)); glVertex2f(r(q.draw_rect,x0), r(q.draw_rect,y1));
+        }
+    }
+    glEnd();
+}
+
+HINSTANCE app;
+HWND window;
+HGLRC rc;
+HDC dc;
+
+#pragma comment(lib, "user32.lib")
+#pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "opengl32.lib")
+#pragma comment(lib, "glu32.lib")
+#pragma comment(lib, "winmm.lib")
+
+int mySetPixelFormat(HWND win)
+{
+    PIXELFORMATDESCRIPTOR pfd = { sizeof(pfd), 1, PFD_SUPPORT_OPENGL | PFD_DRAW_TO_WINDOW | PFD_DOUBLEBUFFER, PFD_TYPE_RGBA };
+    int                   pixel_format;
+    pfd.dwLayerMask  = PFD_MAIN_PLANE;
+    pfd.cColorBits   = 24;
+    pfd.cAlphaBits   = 8;
+    pfd.cDepthBits   = 24;
+    pfd.cStencilBits = 8;
+    pixel_format = ChoosePixelFormat(dc, &pfd);
+    if (!pixel_format) return FALSE;
+    if (!DescribePixelFormat(dc, pixel_format, sizeof(PIXELFORMATDESCRIPTOR), &pfd))
+        return FALSE;
+    SetPixelFormat(dc, pixel_format, &pfd);
+    return TRUE;
+}
+
+static int WINAPI WinProc(HWND wnd, UINT msg, WPARAM wparam, LPARAM lparam)
+{
+    switch (msg) {
+        case WM_CREATE: {
+            LPCREATESTRUCT lpcs = (LPCREATESTRUCT) lparam;
+            dc = GetDC(wnd);
+            if (mySetPixelFormat(wnd)) {
+            rc = wglCreateContext(dc);
+            if (rc) {
+                wglMakeCurrent(dc, rc);
+                return 0;
+            }
+            }
+            return -1;
+        }
+
+        case WM_DESTROY:
+            wglMakeCurrent(NULL, NULL);
+            if (rc) wglDeleteContext(rc);
+            PostQuitMessage (0);
+            return 0;
+
+        default:
+            return (int)DefWindowProc (wnd, msg, wparam, lparam);
+    }
+
+    return (int)DefWindowProc (wnd, msg, wparam, lparam);
+}
+
+void draw(int *screen)
+{
+    glViewport(0,0,v(screen,x),v(screen,y));
+    // glClearColor(0.45f,0.45f,0.75f,0);
+    glClearColor(0.0f,0.0f,0.0f,0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glDisable(GL_CULL_FACE);
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_BLEND);
+
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    glOrtho(0, v(screen,x), v(screen,y),0,-1,1);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    glEnable(GL_TEXTURE_2D);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glColor3f(1,1,1);
+
+    prh_draw_text(100, 150, "Riding the wind straight up the sky, ninety thousand li high!");
+
+    prh_font_texture *p = &prh_impl_font_texture;
+    float x = 256, y = 200;
+    glBegin(GL_QUADS); // draw font texture
+        glTexCoord2f(0, 0); glVertex2f(x, y);
+        glTexCoord2f(1, 0); glVertex2f(x + p->texture_width, y);
+        glTexCoord2f(1, 1); glVertex2f(x + p->texture_width, y + p->texture_height);
+        glTexCoord2f(0, 1); glVertex2f(x, y + p->texture_height);
+    glEnd();
+}
+
+int drawing_loop(const prh_byte *font_file, int font_size)
+{
+    LPCTSTR TUANYAO = _T("抟摇直上九万里");
+    int screen[2] = {1280, 800};
+    DWORD dwstyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    WNDCLASSEX wndclass;
+    HINSTANCE hInstance;
+    GetModuleHandleEx(GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, NULL, &hInstance);
+    wndclass.cbSize        = sizeof(wndclass);
+    wndclass.style         = CS_OWNDC;
+    wndclass.lpfnWndProc   = (WNDPROC) WinProc;
+    wndclass.cbClsExtra    = 0;
+    wndclass.cbWndExtra    = 0;
+    wndclass.hInstance     = hInstance;
+    wndclass.hIcon         = LoadIcon(hInstance, _T("appicon"));
+    wndclass.hCursor       = LoadCursor(NULL,IDC_ARROW);
+    wndclass.hbrBackground = GetStockObject(NULL_BRUSH);
+    wndclass.lpszMenuName  = TUANYAO;
+    wndclass.lpszClassName = TUANYAO;
+    wndclass.hIconSm       = NULL;
+    app = hInstance;
+
+    if (!RegisterClassEx(&wndclass))
+        return 0;
+
+    window = CreateWindow(TUANYAO, TUANYAO, dwstyle,
+                        CW_USEDEFAULT,0, v(screen,x), v(screen,y),
+                        NULL, NULL, app,  NULL);
+    ShowWindow(window, SW_SHOWNORMAL);
+    prh_create_font_texture(font_file, font_size);
+
+    for(;;) {
+        MSG msg;
+        if (GetMessage(&msg, NULL, 0, 0)) {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+        } else {
+            return 1; // WM_QUIT
+        }
+        wglMakeCurrent(dc, rc);
+        draw(screen);
+        SwapBuffers(dc);
+    }
 }
 
 #endif // PRH_TUANYAO_IMPLEMENTATION
