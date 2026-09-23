@@ -65,14 +65,6 @@ extern "C" {
 // https://wikis.khronos.org/opengl/Getting_Started
 // https://www.realtech-vr.com/glview-download/
 //
-// 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
-// 生成方式：通过在线生成器或本地 Python 脚本生成
-// 功能丰富：支持 OpenGL、OpenGL ES、EGL、GLX、WGL 等多种 API
-// https://github.com/Dav1dde/glad // https://gen.glad.sh/
-// https://github.com/Dav1dde/glad/wiki/C
-// Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
-// specifications for multiple languages.
-//
 // 加载 OpenGL 核心规范功能，是获取 OpenGL 核心配置文件规范所提供功能的最简单方法
 // 生成方式：基于 Python 脚本，从 Khronos 官方 gl.xml 生成 C 代码
 // 代码体积：极简，只生成你需要的部分，体积很小
@@ -173,200 +165,6 @@ extern "C" {
 // 赖关系，在上面链接所示的 OpenGL-Registry 拉取请求中引入，旨在增强 OpenGL 与 OpenGL
 // ES 头文件之间的兼容性。
 //
-// https://github.com/Dav1dde/glad/wiki/C
-//
-// 使用在线生成器生成你需要的绑定，最常见的是只需选择一个 OpenGL 版本，添加你想要的 OpenGL
-// 扩展，然后点击生成。如果你不使用 GLFW、SDL、Qt 或提供某种 GetProcAddress 函数的窗口
-// 库，你还需要勾选加载器选项。将生成的文件添加到你的项目中一起编译，示例：
-//      gcc src/main.c glad/src/gl.c -Iglad/include -lglfw -ldl
-//      glad                            src
-//      ├── src                         └── main.c
-//      │  └── gl.c
-//      ├── include
-//      │  ├── glad
-//      │  │  └── gl.h
-//      │  └── KHR
-//      │     └── khrplatform.h
-//
-// GLFW：在 GLFW 之前包含 glad，在创建上下文后初始化 glad。
-//      #include <glad/gl.h>
-//      #include <GLFW/glfw3.h>
-//      GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "[glad] GL with GLFW", NULL, NULL);
-//      glfwMakeContextCurrent(window);
-//      int version = gladLoadGL(glfwGetProcAddress);
-//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
-//
-// SDL：在 SDL 之前包含 glad，在创建上下文后初始化 glad。
-//      #include <glad/gl.h>
-//      #include <SDL.h>
-//      #include <SDL_opengl.h>
-//      SDL_GLContext context = SDL_GL_CreateContext(window);
-//      int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
-//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
-//
-// 内置加载器。在前面的 GLFW 和 SDL 示例中，窗口库用于通过 glfwGetProcAddress 或 SDL_GL_GetProcAddress
-// 加载 OpenGL。Glad 可以配置为包含一个加载器（通过勾选加载器选项），使加载独立于窗口库
-// （如果你使用窗口库，应该使用窗口库提供的那个）。
-//      // 首先创建 OpenGL 上下文
-//      int version = gladLoaderLoadGL(); // 加载 glad
-//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
-//      // .. 渲染，退出前卸载 glad
-//      gladLoaderUnloadGL();
-//
-// 加载器。加载器选项将内部加载器添加到生成的文件中。如果你使用的窗口库没有自带加载器，或者
-// 你自己处理窗口，这很有用。将添加以下函数，如果你使用内部加载器 gladLoaderLoad{API}，则不
-// 必调用 gladLoad{API}。注意：即使多次调用 gladLoaderLoad{API}，也只需要调用一次 gladLoaderUnload{API}。
-//      int gladLoaderLoad{API}(void);
-//      void gladLoaderUnload{API}(void); // 某些 API 可能不存在
-//      int main(void) {
-//          // ... 设置上下文
-//          int version = gladLoaderLoadGL();
-//          if (!version) {
-//              printf("Unable to load OpenGL\n");
-//              return 1;
-//          }
-//          // ... 渲染
-//          gladLoaderUnloadGL();
-//          return 0;
-//      }
-//
-// CMake：包含 glad 源文件，你可以简单地从在线生成器下载 glad 源文件并与之一起编译。在你的
-// CMakesLists.txt 中：
-//      include_directories(${CMAKE_CURRENT_SOURCE_DIR}/glad/include)
-//      file(GLOB BUTTERFLIES_SOURCES_C ${CMAKE_CURRENT_SOURCE_DIR} *.c glad/src/gl.c)
-//
-// 在构建过程中生成。使用 glad 与 CMake 需要对你的 CMakeLists.txt 进行轻微修改，需要一个
-// Python 解释器和 glad 源文件（例如作为 git 子模块嵌入）。
-//      cmake_minimum_required(VERSION 3.1)
-//      project(my_project C CXX)
-//      find_package(glfw3 REQUIRED)
-//      # glad 目录路径
-//      set(GLAD_SOURCES_DIR "${PROJECT_SOURCE_DIR}/external/glad/")
-//      # glad cmake 文件路径
-//      add_subdirectory("${GLAD_SOURCES_DIR}/cmake" glad_cmake)
-//      # 指定 glad 设置
-//      glad_add_library(glad_gl_core_33 REPRODUCIBLE API gl:core=3.3)
-//      add_executable(multiwin_mx
-//          multiwin_mx.cpp
-//          )
-//      # 将 glad 添加到你的项目
-//      target_link_libraries(multiwin_mx
-//          PUBLIC
-//              glad_gl_core_33
-//              glfw
-//          )
-//
-// 基本 API。所有公共和 glad 特定的符号遵循特定规则：
-//  -   所有符号包含 API（GL、GLES2、WGL 等），在下文中标记为 {API}
-//  -   所有符号在所有 API 中命名相同（例如 gladLoad{API}）
-//  -   函数以 glad 为前缀
-//  -   结构体以 Glad 为前缀
-//  -   宏以 GLAD_ 为前缀
-//  -   常量/全局变量以 GLAD_ 为前缀
-//  -   类型定义以 GLAD 为前缀
-//
-// 初始化 Glad。glad 生成的所有内容都需要通过一个加载器函数进行初始化。Glad 默认公开
-// 两个具有相似 API 的函数：
-//      typedef void (*GLADapiproc)(void);
-//      typedef GLADapiproc (*GLADloadfunc)(const char *name);
-//      typedef GLADapiproc (*GLADuserptrloadfunc)(void *userptr, const char *name);
-//      int gladLoad{API}(GLADloadfunc load);
-//      int gladLoad{API}UserPtr(GLADuserptrloadfunc load, void *userptr);
-//
-// gladLoad{API}UserPtr 允许你传递一个用户指针，该指针将被转发给你的加载器函数，这允许你
-// 编写独立于全局状态的加载器函数（对于像 Qt 这样的 GUI 框架很有用）。在大多数情况下，你
-// 将使用 gladLoad{API}，它与流行的窗口框架（如 GLFW 或 SDL）无缝集成。gladLoad{API}UserPtr
-// 和 gladLoad{API} 的返回值是实际加载的 API 版本。要从返回值中提取主版本和次版本，你可以
-// 使用 GLAD_VERSION_MAJOR(version) 和 GLAD_VERSION_MINOR(version) 宏。注意：由于某些 API
-// 需要额外信息才能初始化，加载器签名可能因 API 而异（例如 WGL 和 EGL 具有不同的签名）。
-//      int version = gladLoadGL(glfwGetProcAddress); // GLFW + GL
-//      int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress); // SDL + GL
-//      int major = GLAD_VERSION_MAJOR(version);
-//      int minor = GLAD_VERSION_MINOR(version);
-//      printf("Loaded OpenGL version %d.%d\n", major, minor);
-//
-// 运行时检查。glad 初始化后，将填充一些变量。Glad 为每个生成的版本和扩展创建一个全局布尔
-// 值。如果版本/扩展成功加载，全局变量将被设置为 true (1)。
-//      int GLAD_{API}_VERSION_3_0;
-//      int GLAD_{API}_VERSION_3_1;
-//      // ...
-//      int GLAD_{API}_EXT_texture_buffer_object;
-//      int GLAD_{API}_KHR_debug;
-//      // ...
-//
-// 编译时检查。有时你想编写与 glad 无关的代码，为此 glad 根据使用的生成选项生成并定义一些宏。
-//      #define GLAD_{API}
-//      #define GLAD_OPTION_{API}_LOADER
-//      #define GLAD_OPTION_{API}_ALIAS
-//      #define GLAD_OPTION_{API}_{OPTION} // {OPTION} 是启用的加载器选项
-//
-// 例如使用 glfwGetProcAddress 初始化 glad 并提取加载的主版本和次版本：
-//      int version = gladLoadGL(glfwGetProcAddress);
-//      if (version == 0) {
-//          std::cout << "Failed to initialize OpenGL context" << std::endl;
-//          return -1;
-//      }
-//      std::cout << "Loaded OpenGL " << GLAD_VERSION_MAJOR(version) << "." << GLAD_VERSION_MINOR(version) << std::endl;
-//
-// 仅头文件。仅头文件选项将源文件和头文件合并为单个头文件。实现将由 GLAD_{API}_IMPLEMENTATION
-// 保护。为了避免出现缺少符号的情况，你需要在一个源文件中定义此宏，然后再包含 glad。
-//      #define GLAD_GL_IMPLEMENTATION
-//      #include <glad/gl.h>
-//      int main(void) {
-//          // ... 设置上下文
-//          if (!gladLoadGL(glfwGetProcAddress)) {
-//              return -1;
-//          }
-//          // ...
-//      }
-//
-// 调试。调试选项添加了一个额外的间接层，允许你拦截和修改任何调用。非调试 glad 构建使用
-// define 将调用转发到以 glad_ 为前缀的函数指针，例如 glClear() => glad_glClear()。使用
-// 调试选项时，在 glClear 和 glad_glClear 之间插入了额外的一层：glClear() => glad_debug_glClear()
-// => glad_glClear()。默认情况下，额外的一层（glad_debug_glClear）调用"前置回调"，然后调
-// 用实际函数（glad_glClear），之后调用"后置回调"。回调可以使用以下函数设置，注意调试选项
-// 不能与多上下文选项一起使用。
-//      typedef void (*GLADprecallback)(const char *name, GLADapiproc apiproc, int len_args, ...);
-//      typedef void (*GLADpostcallback)(void *ret, const char *name, GLADapiproc apiproc, int len_args, ...);
-//      void gladSet{API}PreCallback(GLADprecallback cb);
-//      void gladSet{API}PostCallback(GLADpostcallback cb);
-//
-// 别名，启用自动别名解析。许多功能和特性在多个扩展和版本中实现。因此你最终会得到一堆功能
-// 完全相同但名称不同的函数，并且根据你所在的环境可能可用或不可用。Glad 将自动包含所有具
-// 有指向你在功能集中指定的函数别名的扩展，并且在运行时所有函数将使用其别名进行初始化。生
-// 成代码摘录如下，如你所见，如果 glVertexAttrib2svARB 或 glVertexAttrib2svNV 可用，glVertexAttrib2sv
-// 将可以使用。
-//      // 在初始加载阶段之后执行：
-//      if (glVertexAttrib2sv == NULL && glVertexAttrib2svARB != NULL) glVertexAttrib2sv = (PFNGLVERTEXATTRIB2SVPROC)glVertexAttrib2svARB;
-//      if (glVertexAttrib2sv == NULL && glVertexAttrib2svNV != NULL) glVertexAttrib2sv = (PFNGLVERTEXATTRIB2SVPROC)glVertexAttrib2svNV;
-//
-// 多上下文。默认情况下，glad 将所有内容生成为全局变量，这对大多数用例来说工作得很好。但
-// 当你必须支持多个上下文时，基本上不可能这样做。如果启用了多上下文，所有函数指针和变量都
-// 放在结构体中。Glad 生成一个名为 Glad{API}Context 的结构体，可以传递给适当的加载器函数
-// （加载器函数后缀为 Context）。结构体中的符号去掉了前缀，例如 glClear 变为 gl->Clear，
-// 这也适用于标志，如 GLAD_GL_EXT_framebuffer_multisample 变为 gl->EXT_framebuffer_multisample。
-//
-// 默认情况下，glad 不生成全局别名。可以使用"mx global"选项打开。除了上下文结构体外，还将
-// 生成该结构体的全局实例，可以通过 gladSet{API}Context(struct Glad{API}Context *context)
-// 填充，并通过 struct Glad{API}Context* gladGet{API}Context() 查询。注意 mx 选项不能与调
-// 试选项一起使用。
-//      // ... 设置 GL 上下文
-//      GladGLContext context;
-//      int version = gladLoadGLContext(&context, glfwGetProcAddress);
-//      // 或者使用内部加载器
-//      // int version = gladLoaderLoadGLContext(&context);
-//      if (version == 0) {
-//          std::cout << "Failed to initialize OpenGL context" << std::endl;
-//          return -1;
-//      }
-//      gl->Viewport(0, 0, WIDTH, HEIGHT);
-//      while (!glfwWindowShouldClose(window)) {
-//          glfwPollEvents();
-//          gl->ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
-//          gl->Clear(GL_COLOR_BUFFER_BIT);
-//          glfwSwapBuffers(window);
-//      }
-//
 // OpenGL 注册表、头文件和 ARB 扩展
 //
 // OpenGL 注册表或登记处（registry）。许多对 OpenGL API 的扩展已由供应商（vendors）、
@@ -418,6 +216,34 @@ extern "C" {
 //          - GL_AMD_*      AMD 专有扩展
 //          - GL_INTEL_*    Intel 专有扩展
 //          - GL_APPLE_*    Apple 专有扩展
+//
+// EGL（Embedded-System Graphics Library）是 Khronos 集团定义的一个平台抽象接口，它的职责
+// 是在"渲染 API"和"本地窗口系统"之间搭桥。渲染 API（如 OpenGL ES）只定义"怎么画"，但不知
+// 道屏幕、窗口、缓冲区在哪。EGL 负责这部分平台相关的工作：
+//      * 初始化显示设备（eglGetDisplay / eglInitialize）
+//      * 选择帧缓冲配置（eglChooseConfig，类似 WGL 的 ChoosePixelFormat）
+//      * 创建绘图表面：窗口表面、离屏 pixmap/pbuffer 表面（eglCreateWindowSurface 等）
+//      * 创建和绑定渲染上下文（eglCreateContext / eglMakeCurrent）
+//      * 交换缓冲（eglSwapBuffers）
+//      * 提供扩展函数查询（eglGetProcAddress）
+//
+// 典型使用流程：
+//      EGLDisplay dpy = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+//      eglInitialize(dpy, ...);
+//      eglChooseConfig(dpy, attribs, &config, 1, ...);
+//      EGLSurface surf = eglCreateWindowSurface(dpy, config, native_window, NULL);
+//      EGLContext ctx = eglCreateContext(dpy, config, NULL, ctx_attribs);
+//      eglMakeCurrent(dpy, surf, surf, ctx);
+//      glClear(GL_COLOR_BUFFER_BIT); // 之后正常使用 OpenGL ES 命令绘制
+//      ...
+//      eglSwapBuffers(dpy, surf);
+//
+// OpenGL ES 是纯渲染 API 规范，只管把三角形画进帧缓冲，不含任何窗口系统知识。EGL 是 OpenGL
+// ES 的官方配套平台层，负责上下文、表面、缓冲交换等，使 GLES 程序能跑在 Android、Wayland、
+// X11（通过扩展）等窗口系统上。类比桌面平台：OpenGL ↔ WGL（Windows）/ GLX（X11），OpenGL
+// ES ↔ EGL。EGL 并不只属于 GLES，它还可以托管 OpenVG 等其他渲染 API，也能用来创建桌面 OpenGL
+// 上下文（这时 EGL 与 WGL/GLX 是替代关系）。OpenGL ES 程序必须同时用 EGL 来完成上下文和表面
+// 的创建与绑定，两者是规范上配套的 API，EGL 之于 GLES 就像 WGL/GLX 之于桌面 OpenGL。
 //
 // 头文件（header files）。历史上，调用 OpenGL 的 C 和 C++ 源代码需要 #include 单个头
 // 文件 <GL/gl.h>。除了核心 OpenGL API 外，实现提供的所有扩展的 API 都在此头文件中定
@@ -613,7 +439,7 @@ extern "C" {
 //  35. 统一扩展字符串（Unified extension string），GetString 的 EXTENSIONS 目标。
 //  36. 令牌名称和查询（Token names and queries）。所有未在上面提及的已弃用状态的令牌名
 //      称和查询，以及所有有效目标都是已弃用状态的查询入口点（第 22 章和状态表）。
-//
+
 // void glEnable(GLenum capability); // 2.0+
 // void glEnablei(GLenum capability, GLuint index); // 3.0+
 // void glDisable(GLenum capability); // 2.0+
@@ -711,7 +537,7 @@ extern "C" {
 // GL_PROGRAM_POINT_SIZE
 //      如果启用且顶点或几何着色器处于活动状态，则派生点大小取自（可能被裁剪的）着色器内
 //      置变量 gl_PointSize，并钳制到实现相关的点大小范围。
-//
+
 // OpenGL 函数名称都以 gl 开头，常量名称 GL_COLOR，OpenGL 基本数据类型和后缀名称如下，
 // glUniform2f 表示传入 2 个浮点类型参数，glUniform2fv表示传入一个向量（vector）参数，
 // 其中包含 2 个浮点类型数据。
@@ -5657,6 +5483,334 @@ extern "C" {
 
 //////////////////////////////////////////////////////////////////////////////
 ///
+/// GRAPHIC LOADER GENERATOR - GLAD
+///
+
+// 基于官方规格的多语言 Vulkan/GL/GLES/EGL/GLX/WGL 加载生成器
+// 生成方式：通过在线生成器或本地 Python 脚本生成
+// 功能丰富：支持 OpenGL、OpenGL ES、EGL、GLX、WGL 等多种 API
+// https://github.com/Dav1dde/glad // https://gen.glad.sh/
+// https://github.com/Dav1dde/glad/wiki/C
+// Vulkan/GL/GLES/EGL/GLX/WGL Loader-Generator based on the official
+// specifications for multiple languages.
+
+// 使用在线生成器生成你需要的绑定，最常见的是只需选择一个 OpenGL 版本，添加你想要的 OpenGL扩展，然后
+// 点击生成。如果你不使用 GLFW、SDL、Qt 或提供某种 GetProcAddress 函数的窗口库，你还需要勾选加载器选
+// 项。命令行示例，Commandline:
+//      --api='gl:core=4.3'
+//      --extensions='
+//          GL_ARB_ES2_compatibility,
+//          GL_ARB_ES3_1_compatibility,
+//          GL_ARB_ES3_2_compatibility,
+//          GL_ARB_ES3_compatibility,
+//          GL_ARB_blend_func_extended,
+//          GL_ARB_buffer_storage,
+//          GL_ARB_clear_buffer_object,
+//          GL_ARB_clear_texture,
+//          GL_ARB_color_buffer_float,
+//          GL_ARB_compatibility,
+//          GL_ARB_compressed_texture_pixel_storage,
+//          GL_ARB_compute_shader,
+//          GL_ARB_compute_variable_group_size,
+//          GL_ARB_copy_buffer,
+//          GL_ARB_copy_image,
+//          GL_ARB_debug_output,
+//          GL_ARB_depth_buffer_float,
+//          GL_ARB_depth_clamp,
+//          GL_ARB_depth_texture,
+//          GL_ARB_direct_state_access,
+//          GL_ARB_draw_buffers,
+//          GL_ARB_draw_buffers_blend,
+//          GL_ARB_draw_elements_base_vertex,
+//          GL_ARB_draw_indirect,
+//          GL_ARB_draw_instanced,
+//          GL_ARB_enhanced_layouts,
+//          GL_ARB_explicit_attrib_location,
+//          GL_ARB_explicit_uniform_location,
+//          GL_ARB_fragment_coord_conventions,
+//          GL_ARB_fragment_layer_viewport,
+//          GL_ARB_fragment_program,
+//          GL_ARB_fragment_program_shadow,
+//          GL_ARB_fragment_shader,
+//          GL_ARB_fragment_shader_interlock,
+//          GL_ARB_framebuffer_no_attachments,
+//          GL_ARB_framebuffer_object,
+//          GL_ARB_framebuffer_sRGB,
+//          GL_ARB_geometry_shader4,
+//          GL_ARB_get_program_binary,
+//          GL_ARB_get_texture_sub_image,
+//          GL_ARB_gl_spirv,
+//          GL_ARB_gpu_shader5,
+//          GL_ARB_gpu_shader_fp64,
+//          GL_ARB_gpu_shader_int64,
+//          GL_ARB_half_float_pixel,
+//          GL_ARB_half_float_vertex,
+//          GL_ARB_instanced_arrays,
+//          GL_ARB_internalformat_query,
+//          GL_ARB_internalformat_query2,
+//          GL_ARB_map_buffer_range,
+//          GL_ARB_multi_bind,
+//          GL_ARB_multi_draw_indirect,
+//          GL_ARB_multisample,
+//          GL_ARB_multitexture,
+//          GL_ARB_occlusion_query,
+//          GL_ARB_occlusion_query2,
+//          GL_ARB_pipeline_statistics_query,
+//          GL_ARB_query_buffer_object,
+//          GL_ARB_sample_locations,
+//          GL_ARB_sample_shading,
+//          GL_ARB_seamless_cube_map,
+//          GL_ARB_seamless_cubemap_per_texture,
+//          GL_ARB_shader_atomic_counter_ops,
+//          GL_ARB_shader_atomic_counters,
+//          GL_ARB_shader_bit_encoding,
+//          GL_ARB_shader_clock,
+//          GL_ARB_shader_image_load_store,
+//          GL_ARB_shader_image_size,
+//          GL_ARB_shader_objects,
+//          GL_ARB_shader_storage_buffer_object,
+//          GL_ARB_shader_texture_lod,
+//          GL_ARB_shading_language_100,
+//          GL_ARB_shading_language_420pack,
+//          GL_ARB_shading_language_include,
+//          GL_ARB_shading_language_packing,
+//          GL_ARB_spirv_extensions,
+//          GL_ARB_tessellation_shader,
+//          GL_ARB_texture_border_clamp,
+//          GL_ARB_texture_buffer_object_rgb32,
+//          GL_ARB_texture_compression,
+//          GL_ARB_texture_cube_map,
+//          GL_ARB_texture_cube_map_array,
+//          GL_ARB_texture_env_add,
+//          GL_ARB_texture_filter_anisotropic,
+//          GL_ARB_texture_filter_minmax,
+//          GL_ARB_texture_float,
+//          GL_ARB_texture_mirror_clamp_to_edge,
+//          GL_ARB_texture_mirrored_repeat,
+//          GL_ARB_texture_multisample,
+//          GL_ARB_texture_non_power_of_two,
+//          GL_ARB_texture_rg,
+//          GL_ARB_texture_storage,
+//          GL_ARB_texture_swizzle,
+//          GL_ARB_texture_view,
+//          GL_ARB_timer_query,
+//          GL_ARB_transpose_matrix,
+//          GL_ARB_uniform_buffer_object,
+//          GL_ARB_vertex_array_bgra,
+//          GL_ARB_vertex_array_object,
+//          GL_ARB_vertex_attrib_binding,
+//          GL_ARB_vertex_buffer_object,
+//          GL_ARB_vertex_program,
+//          GL_ARB_vertex_shader,
+//          GL_EXT_draw_instanced,
+//          GL_EXT_fog_coord,
+//          GL_EXT_framebuffer_blit,
+//          GL_EXT_framebuffer_multisample,
+//          GL_EXT_framebuffer_object,
+//          GL_EXT_framebuffer_sRGB,
+//          GL_EXT_texture_compression_s3tc,
+//          GL_EXT_texture_filter_anisotropic,
+//          GL_EXT_texture_mirror_clamp,
+//          GL_KHR_texture_compression_astc_hdr,
+//          GL_KHR_texture_compression_astc_ldr,
+//          GL_OES_compressed_paletted_texture,
+//          GL_OES_fixed_point' c --header-only
+//
+// 将生成的文件添加到你的项目中一起编译，示例：
+//      gcc src/main.c glad/src/gl.c -Iglad/include -lglfw -ldl
+//      glad                            src
+//      ├── src                         └── main.c
+//      │  └── gl.c
+//      ├── include
+//      │  ├── glad
+//      │  │  └── gl.h
+//      │  └── KHR
+//      │     └── khrplatform.h
+//
+// GLFW：在 GLFW 之前包含 glad，在创建上下文后初始化 glad。
+//      #include <glad/gl.h>
+//      #include <GLFW/glfw3.h>
+//      GLFWwindow* window = glfwCreateWindow(WIDTH, HEIGHT, "[glad] GL with GLFW", NULL, NULL);
+//      glfwMakeContextCurrent(window);
+//      int version = gladLoadGL(glfwGetProcAddress);
+//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+//
+// SDL：在 SDL 之前包含 glad，在创建上下文后初始化 glad。
+//      #include <glad/gl.h>
+//      #include <SDL.h>
+//      #include <SDL_opengl.h>
+//      SDL_GLContext context = SDL_GL_CreateContext(window);
+//      int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress);
+//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+//
+// 内置加载器。在前面的 GLFW 和 SDL 示例中，窗口库用于通过 glfwGetProcAddress 或 SDL_GL_GetProcAddress
+// 加载 OpenGL。Glad 可以配置为包含一个加载器（通过勾选加载器选项），使加载独立于窗口库
+// （如果你使用窗口库，应该使用窗口库提供的那个）。
+//      // 首先创建 OpenGL 上下文
+//      int version = gladLoaderLoadGL(); // 加载 glad
+//      printf("GL %d.%d\n", GLAD_VERSION_MAJOR(version), GLAD_VERSION_MINOR(version));
+//      // .. 渲染，退出前卸载 glad
+//      gladLoaderUnloadGL();
+//
+// 加载器。加载器选项将内部加载器添加到生成的文件中。如果你使用的窗口库没有自带加载器，或者
+// 你自己处理窗口，这很有用。将添加以下函数，如果你使用内部加载器 gladLoaderLoad{API}，则不
+// 必调用 gladLoad{API}。注意：即使多次调用 gladLoaderLoad{API}，也只需要调用一次 gladLoaderUnload{API}。
+//      int gladLoaderLoad{API}(void);
+//      void gladLoaderUnload{API}(void); // 某些 API 可能不存在
+//      int main(void) {
+//          // ... 设置上下文
+//          int version = gladLoaderLoadGL();
+//          if (!version) {
+//              printf("Unable to load OpenGL\n");
+//              return 1;
+//          }
+//          // ... 渲染
+//          gladLoaderUnloadGL();
+//          return 0;
+//      }
+//
+// CMake：包含 glad 源文件，你可以简单地从在线生成器下载 glad 源文件并与之一起编译。在你的
+// CMakesLists.txt 中：
+//      include_directories(${CMAKE_CURRENT_SOURCE_DIR}/glad/include)
+//      file(GLOB BUTTERFLIES_SOURCES_C ${CMAKE_CURRENT_SOURCE_DIR} *.c glad/src/gl.c)
+//
+// 在构建过程中生成。使用 glad 与 CMake 需要对你的 CMakeLists.txt 进行轻微修改，需要一个
+// Python 解释器和 glad 源文件（例如作为 git 子模块嵌入）。
+//      cmake_minimum_required(VERSION 3.1)
+//      project(my_project C CXX)
+//      find_package(glfw3 REQUIRED)
+//      # glad 目录路径
+//      set(GLAD_SOURCES_DIR "${PROJECT_SOURCE_DIR}/external/glad/")
+//      # glad cmake 文件路径
+//      add_subdirectory("${GLAD_SOURCES_DIR}/cmake" glad_cmake)
+//      # 指定 glad 设置
+//      glad_add_library(glad_gl_core_33 REPRODUCIBLE API gl:core=3.3)
+//      add_executable(multiwin_mx
+//          multiwin_mx.cpp
+//          )
+//      # 将 glad 添加到你的项目
+//      target_link_libraries(multiwin_mx
+//          PUBLIC
+//              glad_gl_core_33
+//              glfw
+//          )
+//
+// 基本 API。所有公共和 glad 特定的符号遵循特定规则：
+//  -   所有符号包含 API（GL、GLES2、WGL 等），在下文中标记为 {API}
+//  -   所有符号在所有 API 中命名相同（例如 gladLoad{API}）
+//  -   函数以 glad 为前缀
+//  -   结构体以 Glad 为前缀
+//  -   宏以 GLAD_ 为前缀
+//  -   常量/全局变量以 GLAD_ 为前缀
+//  -   类型定义以 GLAD 为前缀
+//
+// 初始化 Glad。glad 生成的所有内容都需要通过一个加载器函数进行初始化。Glad 默认公开
+// 两个具有相似 API 的函数：
+//      typedef void (*GLADapiproc)(void);
+//      typedef GLADapiproc (*GLADloadfunc)(const char *name);
+//      typedef GLADapiproc (*GLADuserptrloadfunc)(void *userptr, const char *name);
+//      int gladLoad{API}(GLADloadfunc load);
+//      int gladLoad{API}UserPtr(GLADuserptrloadfunc load, void *userptr);
+//
+// gladLoad{API}UserPtr 允许你传递一个用户指针，该指针将被转发给你的加载器函数，这允许你
+// 编写独立于全局状态的加载器函数（对于像 Qt 这样的 GUI 框架很有用）。在大多数情况下，你
+// 将使用 gladLoad{API}，它与流行的窗口框架（如 GLFW 或 SDL）无缝集成。gladLoad{API}UserPtr
+// 和 gladLoad{API} 的返回值是实际加载的 API 版本。要从返回值中提取主版本和次版本，你可以
+// 使用 GLAD_VERSION_MAJOR(version) 和 GLAD_VERSION_MINOR(version) 宏。注意：由于某些 API
+// 需要额外信息才能初始化，加载器签名可能因 API 而异（例如 WGL 和 EGL 具有不同的签名）。
+//      int version = gladLoadGL(glfwGetProcAddress); // GLFW + GL
+//      int version = gladLoadGL((GLADloadfunc)SDL_GL_GetProcAddress); // SDL + GL
+//      int major = GLAD_VERSION_MAJOR(version);
+//      int minor = GLAD_VERSION_MINOR(version);
+//      printf("Loaded OpenGL version %d.%d\n", major, minor);
+//
+// 运行时检查。glad 初始化后，将填充一些变量。Glad 为每个生成的版本和扩展创建一个全局布尔
+// 值。如果版本/扩展成功加载，全局变量将被设置为 true (1)。
+//      int GLAD_{API}_VERSION_3_0;
+//      int GLAD_{API}_VERSION_3_1;
+//      // ...
+//      int GLAD_{API}_EXT_texture_buffer_object;
+//      int GLAD_{API}_KHR_debug;
+//      // ...
+//
+// 编译时检查。有时你想编写与 glad 无关的代码，为此 glad 根据使用的生成选项生成并定义一些宏。
+//      #define GLAD_{API}
+//      #define GLAD_OPTION_{API}_LOADER
+//      #define GLAD_OPTION_{API}_ALIAS
+//      #define GLAD_OPTION_{API}_{OPTION} // {OPTION} 是启用的加载器选项
+//
+// 例如使用 glfwGetProcAddress 初始化 glad 并提取加载的主版本和次版本：
+//      int version = gladLoadGL(glfwGetProcAddress);
+//      if (version == 0) {
+//          std::cout << "Failed to initialize OpenGL context" << std::endl;
+//          return -1;
+//      }
+//      std::cout << "Loaded OpenGL " << GLAD_VERSION_MAJOR(version) << "." << GLAD_VERSION_MINOR(version) << std::endl;
+//
+// 仅头文件。仅头文件选项将源文件和头文件合并为单个头文件。实现将由 GLAD_{API}_IMPLEMENTATION
+// 保护。为了避免出现缺少符号的情况，你需要在一个源文件中定义此宏，然后再包含 glad。
+//      #define GLAD_GL_IMPLEMENTATION
+//      #include <glad/gl.h>
+//      int main(void) {
+//          // ... 设置上下文
+//          if (!gladLoadGL(glfwGetProcAddress)) {
+//              return -1;
+//          }
+//          // ...
+//      }
+//
+// 调试。调试选项添加了一个额外的间接层，允许你拦截和修改任何调用。非调试 glad 构建使用
+// define 将调用转发到以 glad_ 为前缀的函数指针，例如 glClear() => glad_glClear()。使用
+// 调试选项时，在 glClear 和 glad_glClear 之间插入了额外的一层：glClear() => glad_debug_glClear()
+// => glad_glClear()。默认情况下，额外的一层（glad_debug_glClear）调用"前置回调"，然后调
+// 用实际函数（glad_glClear），之后调用"后置回调"。回调可以使用以下函数设置，注意调试选项
+// 不能与多上下文选项一起使用。
+//      typedef void (*GLADprecallback)(const char *name, GLADapiproc apiproc, int len_args, ...);
+//      typedef void (*GLADpostcallback)(void *ret, const char *name, GLADapiproc apiproc, int len_args, ...);
+//      void gladSet{API}PreCallback(GLADprecallback cb);
+//      void gladSet{API}PostCallback(GLADpostcallback cb);
+//
+// 别名，启用自动别名解析。许多功能和特性在多个扩展和版本中实现。因此你最终会得到一堆功能
+// 完全相同但名称不同的函数，并且根据你所在的环境可能可用或不可用。Glad 将自动包含所有具
+// 有指向你在功能集中指定的函数别名的扩展，并且在运行时所有函数将使用其别名进行初始化。生
+// 成代码摘录如下，如你所见，如果 glVertexAttrib2svARB 或 glVertexAttrib2svNV 可用，glVertexAttrib2sv
+// 将可以使用。
+//      // 在初始加载阶段之后执行：
+//      if (glVertexAttrib2sv == NULL && glVertexAttrib2svARB != NULL) glVertexAttrib2sv = (PFNGLVERTEXATTRIB2SVPROC)glVertexAttrib2svARB;
+//      if (glVertexAttrib2sv == NULL && glVertexAttrib2svNV != NULL) glVertexAttrib2sv = (PFNGLVERTEXATTRIB2SVPROC)glVertexAttrib2svNV;
+//
+// 多上下文。默认情况下，glad 将所有内容生成为全局变量，这对大多数用例来说工作得很好。但
+// 当你必须支持多个上下文时，基本上不可能这样做。如果启用了多上下文，所有函数指针和变量都
+// 放在结构体中。Glad 生成一个名为 Glad{API}Context 的结构体，可以传递给适当的加载器函数
+// （加载器函数后缀为 Context）。结构体中的符号去掉了前缀，例如 glClear 变为 gl->Clear，
+// 这也适用于标志，如 GLAD_GL_EXT_framebuffer_multisample 变为 gl->EXT_framebuffer_multisample。
+//
+// 默认情况下，glad 不生成全局别名。可以使用"mx global"选项打开。除了上下文结构体外，还将
+// 生成该结构体的全局实例，可以通过 gladSet{API}Context(struct Glad{API}Context *context)
+// 填充，并通过 struct Glad{API}Context* gladGet{API}Context() 查询。注意 mx 选项不能与调
+// 试选项一起使用。
+//      // ... 设置 GL 上下文
+//      GladGLContext context;
+//      int version = gladLoadGLContext(&context, glfwGetProcAddress);
+//      // 或者使用内部加载器
+//      // int version = gladLoaderLoadGLContext(&context);
+//      if (version == 0) {
+//          std::cout << "Failed to initialize OpenGL context" << std::endl;
+//          return -1;
+//      }
+//      gl->Viewport(0, 0, WIDTH, HEIGHT);
+//      while (!glfwWindowShouldClose(window)) {
+//          glfwPollEvents();
+//          gl->ClearColor(0.2f, 0.3f, 0.3f, 1.0f);
+//          gl->Clear(GL_COLOR_BUFFER_BIT);
+//          glfwSwapBuffers(window);
+//      }
+//
+
+#include "glad.h"
+
+//////////////////////////////////////////////////////////////////////////////
+///
 /// WINDOWS OPENGL CONTEXT AND USER INTERFACE
 ///
 
@@ -7492,8 +7646,1397 @@ extern "C" {
 // wglGetProcAddress 获取厂商特定扩展函数的地址。扩展函数地址对每个像素格式是唯一的。给定像素格式的
 // 所有渲染上下文共享相同的扩展函数地址。
 
-#endif
+#elif defined(PRH_SDL3_BACKEND)
 
+// https://wiki.libsdl.org/SDL3/FrontPage
+// https://wiki.libsdl.org/SDL3/APIByCategory
+// https://wiki.libsdl.org/SDL3/Tutorials
+// https://wiki.libsdl.org/SDL3/FAQDevelopment
+// https://learnopengl.com/Getting-started/OpenGL
+
+// 初始化、配置、属性、错误、日志、断言、版本
+//
+// 初始化（Init）。所有 SDL 程序在开始使用 SDL 之前，都需要先进行库初始化。几乎所有程序都可以在启动
+// 初期直接调用 SDL_Init()，并通过若干标志指定要启用哪些子系统。这些标志用来确保 SDL 不会去尝试接触
+// 你不打算使用的操作系统底层部件。例如，你可能只用 SDL 处理视频和输入，而音频选择了外部库；这种情况
+// 下，你只需要不加 SDL_INIT_AUDIO 标志，以确保该外部库拥有完全控制权。
+//
+// 大多数应用在退出时应调用 SDL_Quit()。它会清理 SDL 可能分配的几乎所有资源；更关键的是，如果你之前
+// 为了游戏改过显示分辨率，它会确保显示分辨率恢复到用户期望的状态。
+//
+// SDL3 应用被强烈建议在启动时调用 SDL_SetAppMetadata() 填写程序相关信息。这完全是可选的，但能在一些
+// 小地方带来帮助（例如我们可以在 macOS 菜单中提供 About 对话框，可以在系统音频混音器中显示应用名称，
+// 等等）。想要提供更多信息的人，可以查看更详细的 SDL_SetAppMetadataProperty()。
+
+// bool SDL_Init(SDL_InitFlags flags); // 只能在主线程调用
+// bool SDL_InitSubSystem(SDL_InitFlags flags); // 必须在主线程调用，与 SDL_Init 可以互换
+// SDL_InitFlags SDL_WasInit(SDL_InitFlags flags); // 0 返回已经初始化的子系统，或返回对应子系统是否初始化，无线程安全
+//
+// 初始化 SDL 库，失败返回 false，调用 SDL_GetError() 获取错误信息。SDL_Init() 只是直接转发去调用
+// SDL_InitSubSystem()。因此，两者可以互换使用。不过为了代码可读性，可能更推荐 SDL_InitSubSystem()。
+//
+// 文件 I/O（例如 SDL_IOFromFile）和线程（SDL_CreateThread）子系统默认已初始化。消息框（SDL_ShowSimpleMessageBox）
+// 也会尝试在不初始化视频子系统的情况下工作，希望能在 SDL_Init 失败时用于显示错误对话框。如果你使用
+// 了其他子系统，则必须显式初始化它们。日志（如 SDL_Log）同样无需初始化即可工作。
+//
+// flags 可以是以下值按位或（OR）组合：
+//      SDL_INIT_AUDIO：音频子系统；会自动初始化事件子系统。
+//      SDL_INIT_VIDEO：视频子系统；会自动初始化事件子系统，应在主线程初始化。
+//      SDL_INIT_JOYSTICK：摇杆子系统；会自动初始化事件子系统。
+//      SDL_INIT_HAPTIC：触觉（力反馈）子系统。
+//      SDL_INIT_GAMEPAD：手柄子系统；会自动初始化摇杆子系统。
+//      SDL_INIT_EVENTS：事件子系统。
+//      SDL_INIT_SENSOR：传感器子系统；会自动初始化事件子系统。
+//      SDL_INIT_CAMERA：摄像头子系统；会自动初始化事件子系统。
+//
+// 子系统初始化采用引用计数。你必须为每次 SDL_InitSubSystem() 调用对应一次 SDL_QuitSubSystem()，才能
+// 正确手动关闭某个子系统（或者调用 SDL_Quit() 强制全部关闭）。如果某个子系统已经加载，这次调用会增
+// 加引用计数并直接返回。
+//
+// 建议在调用 SDL_Init 之前，使用 SDL_SetAppMetadata() 或 SDL_SetAppMetadataProperty() 报告应用的一
+// 些基本元数据。
+
+// void SDL_Quit(void); // 必须在主线程调用
+// void SDL_QuitSubSystem(SDL_InitFlags flags); // 无线程安全
+//
+// 即使你已经用 SDL_QuitSubSystem() 关闭了每个已初始化的子系统，也应该调用这个函数。即使初始化过程中
+// 发生错误，调用这个函数也是安全的。你可以把这个函数与 atexit() 一起使用，以确保应用程序关闭时它一
+// 定会运行；但从库或其他动态加载的代码中这样做并不明智。
+
+// bool SDL_SetAppMetadata(const char *appname, const char *appversion, const char *appidentifier);
+//
+// 参数 appname，应用程序名称（"My Game 2: Bad Guy's Revenge!"）。参数 appversion，应用程序版本（"1.0.0beta5"、
+// git hash，或任何有意义的字符串）。参数 appidentifier，以反向域格式唯一标识本应用的字符串（"com.example.mygame2"）。
+// 成功返回 true，失败返回 false；可调用 SDL_GetError() 获取更多信息。从任何线程调用此函数都是安全的。
+// 这是一个简化接口，只处理最重要的信息。你可以用 SDL_SetAppMetadataProperty() 提供更详细的元数据。
+//
+// 你可以选择向 SDL 提供应用的元数据。这不是必须的，但强烈建议提供。SDL 可以在多个位置利用这些元数据
+// （例如 macOS 菜单栏中的 "About" 对话框、某些音频混音器上显示的应用名称等）。如果某个具体细节不适
+// 用于你的应用，任何元数据项都可以留作 NULL。
+//
+// 这个函数应尽早调用，在 SDL_Init 之前。允许多次调用此函数，但一旦通过之前的调用设置好某些状态，各
+// 种状态可能不会再改变。传入 NULL 会移除之前设置的所有元数据。
+//
+// bool SDL_SetAppMetadataProperty(const char *name, const char *value);
+// const char *SDL_GetAppMetadataProperty(const char *name);
+//
+// 你可以选择向 SDL 提供应用的元数据。这不是必须的，但强烈建议提供。从任何线程调用此函数都是安全的。
+//
+// SDL 可以在多个位置利用这些元数据（例如 macOS 菜单栏中的 "About" 对话框、某些音频混音器上显示的应
+// 用名称等）。如果某个具体细节不适用于你的应用，可以省略任何元数据项。这个函数应尽早调用，在 SDL_Init
+// 之前。允许多次调用此函数，但一旦通过之前的调用设置好某些状态，各种状态可能不会再改变。设置后，可
+// 以用 SDL_GetAppMetadataProperty() 读取这些元数据。
+//
+// 支持的属性如下：
+//  1.  SDL_PROP_APP_METADATA_NAME_STRING
+//      应用的人类可读名称，如 "My Game 2: Bad Guy's Revenge!"。它会出现在操作系统单独显示应用名称
+//      （区别于窗口标题）的任何地方，比如音量控制小程序等。默认值为 "SDL Application"。
+//  2.  SDL_PROP_APP_METADATA_VERSION_STRING
+//      正在运行的应用版本；格式没有规则，"1.0.3beta2"、"April 22nd, 2024" 或 git hash 都是有效值。
+//      无默认值。
+//  3.  SDL_PROP_APP_METADATA_IDENTIFIER_STRING
+//      唯一标识本应用的字符串，必须是反向域格式，如 "com.example.mygame2"。桌面合成器用此字符串识
+//      别和归组窗口，并匹配应用与关联的桌面设置和图标。如果你计划把应用打包进 Flatpak 之类的容器，
+//      应用 ID 应与 Flatpak 容器名称一致。无默认值。
+//  4.  SDL_PROP_APP_METADATA_CREATOR_STRING
+//      应用创建者/开发者/制作者的人类可读名称，如 "MojoWorkshop, LLC"。
+//  5.  SDL_PROP_APP_METADATA_COPYRIGHT_STRING
+//      人类可读的版权声明，如 "Copyright (c) 2024 MojoWorkshop, LLC" 之类。保持单行，不要把整个软
+//      件许可证粘贴进来。无默认值。
+//  6.  SDL_PROP_APP_METADATA_URL_STRING
+//      应用的网络 URL，可以是产品页、商店页，甚至是 GitHub 仓库，供用户进一步了解。无默认值。
+//  7.  SDL_PROP_APP_METADATA_TYPE_STRING
+//      应用类型。目前该字符串可以是视频游戏的 "game"、媒体播放器的 "mediaplayer"，或其他都不适用时
+//      的通用 "application"。未来版本的 SDL 可能增加新类型。默认值为 "application"。
+
+// bool SDL_IsMainThread(void); // 线程安全
+//
+// 在苹果平台上，主线程是运行你程序 main() 入口点的线程。在其他平台上，主线程是调用 SDL_Init(SDL_INIT_VIDEO)
+// 的线程，通常也应是运行你程序 main() 入口点的线程。如果你使用 main 回调，SDL_AppInit()、SDL_AppIterate()
+// 和 SDL_AppQuit() 都在主线程上被调用。
+//
+// bool SDL_RunOnMainThread(SDL_MainThreadCallback callback, void *userdata, bool wait_complete); // 线程安全
+// typedef void (SDLCALL *SDL_MainThreadCallback)(void *userdata);
+//
+// 在事件处理期间，在主线程上调用一个函数。wait_complete 传 true 表示等待回调执行完成，传 false 表示
+// 立即返回。如果在主线程上调用此函数，回调会立即执行。如果在其他线程上调用，此回调会被排队，在主线
+// 程事件处理期间执行。使用此功能时要小心死锁。当此函数以 wait_complete 为 true 被调用时，你不应让主
+// 线程等待当前线程。
+
+#include "SDL3/SDL.h"
+
+void prh_impl_graphic_free(void)
+{
+    SDL_QuitSubSystem(SDL_INIT_VIDEO);
+    SDL_Quit();
+}
+
+void prh_graphic_init(const char *application_name)
+{
+    prh_boolret(SDL_SetAppMetadataProperty(SDL_PROP_APP_METADATA_NAME_STRING, application_name ? application_name : ""));
+    prh_boolret(SDL_InitSubSystem(SDL_INIT_VIDEO));
+    atexit(prh_impl_graphic_free);
+}
+
+// int SDL_main(int argc, char *argv[]);
+// extern SDLMAIN_DECLSPEC int SDLCALL SDL_main(int argc, char *argv[]);
+// typedef int (SDLCALL *SDL_main_func)(int argc, char *argv[]);
+//
+// 如有必要，重新定义 main()，以便由 SDL 来调用它。为使所有平台保持一致，应用程序的 main() 应如下所
+// 示。平台相关的“如何被调用”细节将由 SDL 处理。SDL_main.h 是一个“单头文件库”，也就是说包含此头文件
+// 会向程序中插入代码；大多数情况下你只应包含它一次。SDL.h 不会自动包含此头文件。
+//
+//      #include <SDL3/SDL.h>
+//      #include <SDL3/SDL_main.h>
+//
+//      int main(int argc, char *argv[]) {
+//          printf("Hello world!\n");
+//          return 0;
+//      }
+//
+// SDL程序从哪里开始运行。SDL在“程序如何启动”这件事上有一段漫长而复杂的历史。在世界上大多数地方，应
+// 用程序从一个名为 main 的 C 可调用函数开始运行。但并非所有平台都这样工作。例如 Windows 应用程序可
+// 能想要一个不同的函数 WinMain。因此 SDL 的目标是抹平这种差异。
+//
+// 通常的做法是：你的应用总是使用标准的 main(argc, argv) 函数作为入口点，并在其前面包含相应的 SDL 头
+// 文件，由它做一些“宏魔法”。在使用标准 main 的平台上，这些宏什么都不做，你看到的就是你得到的。但那
+// 些其他平台呢！如果它们需要的不是 main，SDL 的宏魔法会悄悄把你的函数改名为 SDL_main，并提供它自己
+// 的入口点来调用它。你的应用毫无察觉，代码无需修改就能在所有平台工作。
+//
+// SDL_main。应用并不直接创建这个函数，它们应该创建标准 ANSI-C 的 main 函数。如果 SDL 需要在 main 运
+// 行前插入一些启动代码，或者该平台实际上并不使用名为 "main" 的函数，SDL 会做一些宏魔法，把 main 重
+// 定义为 SDL_main，并提供它自己的 main。应用应该在与其 main 函数相同的文件中包含 SDL_main.h，并且不
+// 应在该文件中把这个符号用于任何其他用途，因为它可能被重定义。只有当应用没有使用 SDL_MAIN_USE_CALLBACKS
+// 时，应用才提供其 main 函数。
+//
+// SDL3 中的 main 入口点。以前版本的 SDL 有一个静态库 SDLmain，你的应用需要链接它。SDL3 仍然有同样的
+// 宏技巧，但静态库已经没了。现在它由“单头文件库”提供，也就是说你 #include <SDL3/SDL_main.h>，这个头
+// 文件会把少量代码插入到包含它的源文件中，这样你就不必担心链接一个在某些平台上可能需要的额外库。你
+// 只需要构建应用，它就能工作。
+//
+// 你只应该从一个文件中包含 SDL_main.h（伞形头文件 SDL.h 并不包含它），并且要知道它会把 main #define
+// 成别的东西。所以如果你在其他地方把这个符号用作变量名等，可能会造成意想不到的问题。SDL_main.h 还会
+// 包含平台特定代码（WinMain 之类），用来调用你真正的 main 函数。这些代码直接编译进你的程序。
+//
+// 如果出于某种原因，你需要在某个文件中包含 SDL_main.h，但又不想让它生成这些平台特定代码，你应该在包
+// 含头文件之前定义一个特殊宏：
+//      #define SDL_MAIN_NOIMPL                                                 *** 想要 SDL_AppInit SDL_RegisterApp 等的定义，但不想让它生成平台特定代码
+//
+// 如果你是从 SDL2 迁移过来的，只需从构建系统中删除所有对 SDLmain 静态库的引用，应该就可以了。事情会
+// 像往常一样工作。如果你从未控制过进程的入口点（例如你从通用脚本语言解释器中把 SDL 当作模块使用，或
+// 者在某个完全无关的应用的插件中使用 SDL），那么这里不需要你做任何事；SDL 入口点代码中没有任何必需
+// 的启动代码，所以使用 SDL_main.h 是完全可选的。准备好后直接使用 SDL API 即可。
+//
+// SDLMAIN_DECLSPEC。用于把 main 入口点函数标记为导出的宏。大多数平台不需要它，这个宏会被定义为空。
+// 某些平台（如 Android）把入口点放在共享库中，需要显式导出符号。外部代码很少需要它；如果需要什么，
+// 几乎总是 SDL_DECLSPEC。
+//      #define SDLMAIN_DECLSPEC
+//
+// SDL_DECLSPEC。用于把符号标记为公共 API 的宏。SDL 对所有公共函数使用这个宏。在某些目标上，它用于
+// 向编译器发出信号，表明该函数需要从共享库中导出，但它可能有其他副作用。这个符号用在 SDL 的头文件
+// 中，但应用和其他库也欢迎把它用于自己的接口。
+//      #define SDL_DECLSPEC __attribute__ ((visibility("default")))
+
+// #define SDL_MAIN_USE_CALLBACKS 1
+// SDL_AppResult SDL_AppInit(void **appstate, int argc, char *argv[]);
+// SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event);
+// SDL_AppResult SDL_AppIterate(void *appstate);
+// void SDL_AppQuit(void *appstate, SDL_AppResult result);
+//
+// SDL3 的 main 回调。SDL3 提供了第二种组织程序结构的选项。这完全是可选的，如果你乐意使用标准 “main”
+// 函数，可以忽略它。有些平台更希望你的程序“分块”运行。大多数情况下，游戏在最顶层看起来像这样：
+//      int main(int argc, char **argv) {
+//          initialize();
+//          while (keep_running()) {
+//              handle_new_events();
+//              do_one_frame_of_stuff();
+//          }
+//          deinitialize();
+//      }
+//
+// 有些平台更希望由它们来控制这个 while 循环：iOS 希望你立刻从 main() 返回，然后它会通知你何时该更新
+// 和绘制下一帧视频。Emscripten（运行在网页上的程序）绝对要求这样做才能工作。像 Wayland 这样的视频目
+// 标也可以通知应用何时绘制新帧，以节省电池寿命并更紧密地与合成器协作。在大多数情况下，你可以在程序
+// 中添加针对不同平台的特例代码来处理这个问题，但 SDL3 提供了一套系统，可以透明地代替应用处理这件事。
+//
+// 要使用它，你需要稍微重新设计应用的最顶层。一旦这样做，它就能在所有受支持的 SDL 平台上正常工作，而
+// 代码中不需要 #ifdef。在这个系统下，你不提供 “main” 函数，而是提供若干函数，由 SDL 在适当时机调用。
+// 在所有平台上都可以使用回调入口点，因为在不需要它们的平台上，我们可以在内部实现的普通 SDL_main 中
+// 用一个简单循环来“伪造”它们。我们期望人们编写 SDL 应用的主要方式仍然是使用 SDL_main，这个回调系统
+// 并不打算取代它。如果应用选择使用它，只是去掉了一些否则需要管理的平台特定细节，或许也去掉了未来某
+// 些平台上的入门障碍。而且你可能会发现自己更喜欢这种程序结构！
+//
+// 应用可以通过 SDL_MAIN_USE_CALLBACKS 宏，在这里配置为使用 main 回调。要启用回调入口点，你需要在项
+// 目中单个源文件中带着一个额外 define 包含 SDL_main.h。
+//      #define SDL_MAIN_USE_CALLBACKS
+//      #include <SDL3/SDL_main.h>
+//
+// SDL_MAIN_USE_CALLBACKS。SDL 不定义这个宏，但会在包含 SDL_main.h 时检查它是否已定义。如果已定义，
+// SDL 将期望应用提供若干函数：SDL_AppInit、SDL_AppEvent、SDL_AppIterate 和 SDL_AppQuit。这种情况下
+// 应用不应提供 main 函数，否则很可能导致构建失败。
+//
+// 这样做之后，你完全不写 “main” 函数（如果写了，应用很可能链接失败）。相反，你提供以下函数。首先是：
+//      SDL_AppResult SDL_AppInit(void **appstate, int argc, char **argv);
+//
+// SDL_AppInit。应用在使用 SDL_MAIN_USE_CALLBACKS 时实现这个函数。如果使用标准 "main" 函数，则不应提
+// 供它。这个函数由 SDL 在启动时调用一次。该函数应初始化一切必要的内容，可能包括创建窗口、打开音频设
+// 备等。argc 和 argv 参数与标准 "main" 函数中的工作方式相同。这个函数不应进入无限主循环；它应只做任
+// 何一次性设置，然后返回。这个函数由 SDL 在主线程上调用。线程安全：这个函数由 SDL 在启动时、在单个线
+// 程上调用一次。
+//
+// 应用可以选择给 *appstate 赋一个指针。这个指针会在之后每次对其他入口点的调用中提供，使应用状态能在
+// 各函数之间保存，而不需要使用全局变量。如果没有设置，后续入口点中该指针将为 NULL。如果这个函数返回
+// SDL_APP_CONTINUE，应用将进入正常运行，并在程序整个生命周期中开始反复收到对 SDL_AppIterate 和 SDL_AppEvent
+// 的调用。如果这个函数返回 SDL_APP_FAILURE，SDL 会调用 SDL_AppQuit 并以向平台报告错误的退出码终止进
+// 程。如果返回 SDL_APP_SUCCESS，SDL 会调用 SDL_AppQuit 并以向平台报告成功的退出码终止。
+//
+// 它会在其他任何事之前被调用一次。argc/argv 与往常一样工作。如果返回 SDL_APP_CONTINUE，应用继续运行；
+// 如果返回 SDL_APP_FAILURE，应用会调用 SDL_AppQuit 并以向平台报告错误的退出码终止；如果返回 SDL_APP_SUCCESS，
+// 应用会调用 SDL_AppQuit 并以向平台报告成功的退出码终止。这个函数不应进入无限主循环；它应只做一次性
+// 的启动工作，然后返回。
+//
+// 如果你愿意，可以给 *appstate 赋一个指针，这个指针会在后续函数调用的 appstate 参数中提供给你。这样
+// 你可以避免使用全局变量，但这完全可选。如果你不设置它，后续调用中该指针将为 NULL。
+//
+// 然后是如下函数，它会反复被调用，可能按显示器刷新率或平台规定的其他节奏调用。你的应用核心就在这里
+// 运行。它应尽快返回，但不是“只运行一次 memcpy，时间就到头了”那种事。应用应在这里做任何游戏更新，并
+// 渲染一帧视频。如果返回 SDL_APP_FAILURE，SDL 会调用 SDL_AppQuit 并以向平台报告错误的退出码终止进程；
+// 如果返回 SDL_APP_SUCCESS，应用调用 SDL_AppQuit 并以成功退出码终止；如果返回 SDL_APP_CONTINUE，则
+// SDL_AppIterate 会在某个规律频率再次被调用。平台可能选择或多或少地运行它（例如在后台时更少），也可
+// 能只是在一个循环中尽可能快地调用这个函数。你不要在这个函数里检查事件队列（事件由 SDL_AppEvent 负
+// 责）。
+//      SDL_AppResult SDL_AppIterate(void *appstate);
+//
+// SDL_AppIterate。应用在使用 SDL_MAIN_USE_CALLBACKS 时实现这个函数。如果使用标准 "main" 函数，则不应
+// 提供它。这个函数在 SDL_AppInit 返回 SDL_APP_CONTINUE 后，由 SDL 反复调用。该函数应作为程序主循环的
+// 单个迭代来工作；通常它应更新所需状态并绘制一帧新视频。
+//
+// 在某些平台上，这个函数会按显示器刷新率被调用（在你的应用生命周期中这个刷新率可能会变化！）。不承诺
+// 这个函数以什么频率运行。如果你需要知道距上次迭代过去了多少时间，应使用 SDL 的计时函数。不需要在这
+// 个函数中处理 SDL 事件队列；SDL 会在事件到达时通过 SDL_AppEvent 发送给你，而且在大多数情况下，这个
+// 函数运行时事件队列本来就是空的。这个函数不应进入无限主循环；它应完成程序的一次迭代并返回。
+//
+// appstate 参数是应用在 SDL_AppInit() 期间可选提供的指针。如果应用从未提供指针，这里将为 NULL。如果
+// 这个函数返回 SDL_APP_CONTINUE，应用将继续正常运行，并在程序整个生命周期中反复收到对 SDL_AppIterate
+// 和 SDL_AppEvent 的调用。如果返回 SDL_APP_FAILURE，SDL 会调用 SDL_AppQuit 并以向平台报告错误的退出
+// 码终止进程。如果返回 SDL_APP_SUCCESS，SDL 会调用 SDL_AppQuit 并以向平台报告成功的退出码终止。这个
+// 函数由 SDL 在主线程上调用。线程安全：对于不是从主线程推送的事件，这个函数可能与 SDL_AppEvent() 并
+// 发被调用。
+//
+// 接着是下面的函数，每当有 SDL 事件到达时会被调用。你的应用不应调用 SDL_PollEvent、SDL_PumpEvent 等，
+// 因为 SDL 会替你管理这一切。返回值与 SDL_AppIterate() 相同，因此你可以响应 SDL_EVENT_QUIT 等事件来
+// 终止程序。
+//      SDL_AppResult SDL_AppEvent(void *appstate, SDL_Event *event);
+//
+// SDL_AppEvent。应用在使用 SDL_MAIN_USE_CALLBACKS 时实现这个函数。如果使用标准 "main" 函数，则不应
+// 提供它。这个函数在 SDL_AppInit 返回 SDL_APP_CONTINUE 后，由 SDL 按需要调用。每个新事件都会调用一
+// 次。（目前）不保证它从哪个线程被调用；任何把事件推入 SDL 队列的线程都会触发这个函数。SDL 负责在每
+// 次调用 SDL_AppIterate 之间泵送事件队列，因此在正常运行中，你应以串行方式收到事件，但如果你有一个
+// 显式调用 SDL_PushEvent 的线程，就要小心。SDL 自己会在主线程上把事件推入队列。
+//
+// 传给这个函数的事件不归应用所有；如果你需要保存数据，应该复制它。这个函数不应进入无限主循环；它应
+// 适当处理所提供的事件并返回。appstate 参数是应用在 SDL_AppInit() 期间可选提供的指针。如果应用从未
+// 提供指针，这里将为 NULL。如果这个函数返回 SDL_APP_CONTINUE，应用将继续正常运行，并在程序整个生命
+// 周期中反复收到对 SDL_AppIterate 和 SDL_AppEvent 的调用。如果返回 SDL_APP_FAILURE，SDL 会调用
+// SDL_AppQuit 并以向平台报告错误的退出码终止进程。如果返回 SDL_APP_SUCCESS，SDL 会调用 SDL_AppQuit
+// 并以向平台报告成功的退出码终止。线程安全：对于不是从主线程推送的事件，这个函数可能与 SDL_AppIterate()
+// 或 SDL_AppQuit() 并发被调用。
+//
+// 最后是如下函数，这个函数会在应用终止前调用一次（假设应用不是被强制杀死或崩溃）作为最后的清理机会。
+// 此函数返回后，SDL 会调用 SDL_Quit，所以应用不必再调用（但应用调用它也是安全的）。进程终止过程就像
+// 应用从 main() 正常返回一样，因此如果你的平台支持，atexit 处理程序会运行。
+//      void SDL_AppQuit(void *appstate, SDL_AppResult result);
+//
+// SDL_AppQuit。应用在使用 SDL_MAIN_USE_CALLBACKS 时实现这个函数。如果使用标准 "main" 函数，则不应提
+// 供它。这个函数由 SDL 在程序终止前调用一次。无论什么情况这个函数都会被调用，即使 SDL_AppInit 在启动
+// 时就请求终止。这个函数不应进入无限主循环；它应释放所有必要资源、执行任何关闭活动并返回。你不需要在
+// 这个函数中调用 SDL_Quit()，因为 SDL 会在它返回后、进程终止前调用，但调用也是安全的。
+//
+// appstate 参数是应用在 SDL_AppInit() 期间可选提供的指针。如果应用从未提供指针，这里将为 NULL。这次
+// 调用是最后一次提供该指针，因此应在这里清理与它关联的所有资源。这个函数由 SDL 在主线程上调用。线程
+// 安全：如果其他推送事件的线程仍在活动，SDL_AppEvent() 可能与这个函数并发被调用。
+//
+// 如果你在 SDL_AppInit 中设置了 *appstate，就应该在这里释放该数据，因为这个指针不会再提供给你的应用。
+// 导致应用终止的 SDL_AppResult 值会传到这里，以便你知道这次运行是成功还是失败。
+//
+// 总结与最佳实践。始终只在一个源文件中包含 SDL_main.h：使用 SDL 时要记住，SDL_main.h 在项目中只能包
+// 含在一个源文件里。在多个文件中包含它会导致冲突和未定义行为。避免重新定义 main：如果你使用 SDL 的
+// 入口点系统（它会把 main 改名为 SDL_main），不要自己定义 main。SDL 会替你处理，重新定义 main 可能
+// 造成问题，尤其是在与 SDL 库链接时。
+//
+// 使用 SDL 的回调系统：如果你面对更复杂的场景，比如需要更多控制应用流程（例如游戏或需要大量事件处理
+// 的应用），可以考虑使用 SDL 的回调系统。定义必要的回调，SDL 会自动处理初始化、事件处理和清理。
+//
+// 平台特定注意事项：在 Windows 等平台上，SDL 会自动处理平台特定入口点（如 WinMain）。这意味着使用
+// SDL 时你不需要编写平台特定入口代码。
+//
+// 何时可以跳过 SDL_main.h：如果你不需要 SDL 的自定义入口点（例如你把 SDL 集成到现有应用或脚本环境
+// 中），可以省略 SDL_main.h。但这样会限制 SDL 抹平平台特定入口点细节的能力。
+
+// int SDL_RunApp(int argc, char *argv[], SDL_main_func mainFunction, void *reserved);
+// int SDL_EnterAppMainCallbacks(int argc, char *argv[], SDL_AppInit_func appinit, SDL_AppIterate_func appiter, SDL_AppEvent_func appevent, SDL_AppQuit_func appquit);
+// void SDL_SetMainReady(void);
+//
+// 从其他语言使用 main 函数。如果你使用的不是 C/C++，使用 SDL 的入口点仍然是可能的，但更复杂。技术细
+// 节请参考 https://wiki.libsdl.org/SDL3/NonstandardStartup。
+//
+// 以非标准方式启动 SDL。目标读者，这几乎肯定不是你应该阅读的文档。如果你有一个使用 SDL 的 C 或 C++
+// 应用程序或游戏，你应该直接使用普通的应用入口点。如果你以某种奇怪的方式管理一个使用 SDL 的应用，或
+// 者你是想要与 SDL 紧密集成的脚本语言维护者，那么这篇文档可能是为你准备的。
+//
+// 用 C/C++ 编写的普通应用程序。传统应用会 #include <SDL3/SDL_main.h>，并提供标准 C main 函数，或使
+// 用 "main 回调"（SDL_AppInit、SDL_AppEvent、SDL_AppIterate 和 SDL_AppQuit）。不过，研究 SDL_main.h
+// 和 SDL_main_impl.h 来了解 C 实现如何工作，可能也是有启发的。
+//
+// 如果你无法包含 SDL3/SDL_main.h。如果你的应用是用 C/C++ 以外的语言编写的，并且必须直接管理应用程序
+// 的入口点，建议从你的实际入口点调用 SDL_RunApp()，并把一个 C 可调用的回调函数作为第三个参数传入，这
+// 个回调函数就构成你的应用的 "main 函数"。SDL_RunApp() 会在调用回调之前初始化平台特定细节，这是确保
+// 你的应用在尽可能多的平台上工作的最佳方式。下面这个示例用 C 编写以求清晰，但任何能调用 C、并能提供
+// C 可调用函数指针的语言都可以工作。
+//
+//      // Include 'SDL3/SDL_main.h' without redefining the main function by defining SDL_MAIN_HANDLED.
+//      #define SDL_MAIN_HANDLED
+//      #include <SDL3/SDL.h>
+//      #include <SDL3/SDL_main.h>
+//      int main(int argc, char *argv[], char *envp[]) { // Native non-standard main function
+//          // The first and second arguments, 'argc' and 'argv', can be
+//          // ignored if you don't care about command-line arguments.
+//          // The fourth argument, 'reserved', is currently unused and must be NULL!
+//          return SDL_RunApp(argc, argv, my_runapp_callback, NULL);
+//      }
+//      int SDLCALL my_runapp_callback(int argc, char *argv[]) { // Callback passed to SDL_RunApp
+//          // Your app logic should live in scope of this function.
+//      }
+//
+// SDL_RunApp。通过在给定平台需要时、于调用你的 mainFunction 之前执行平台特定初始化、并在其返回后执
+// 行清理，来初始化并启动一个 SDL 应用；否则它只是直接调用 mainFunction。参数 reserved 应为 NULL（保
+// 留给未来使用，届时可能与平台相关）。返回 mainFunction 的返回值：0 表示成功，否则失败；SDL_GetError()
+// 可能有关于失败的更多信息。
+//
+// 如果你想使用自己的 main() 实现而不使用 SDL_main（例如使用 SDL_MAIN_HANDLED 时），可以使用此函数。
+// 使用它时，你不需要 SDL_SetMainReady()。如果 argv 为 NULL，SDL 会提供命令行参数：如果可能则向操作
+// 系统查询，否则提供一个填充数组。线程安全：通常此函数在启动时、从进程初始线程调用一次。
+//
+// SDL_MAIN_HANDLED。告知 SDL：应用正在提供入口点，而不是由 SDL 提供。SDL 不定义这个宏，但会在包含
+// SDL_main.h 时检查它是否已定义。如果已定义，SDL 将期望应用为该平台提供正确的入口点，以及所有其他
+// 必要的魔法细节，例如手动调用 SDL_SetMainReady。
+//
+// 如果你还想使用 SDL 的 main 回调系统，传给 SDL_RunApp() 的回调应该再调用 SDL_EnterAppMainCallbacks()，
+// 并传入你应用的 init、iterate、event 和 quit 回调。传给 SDL_RunApp()/SDL_EnterAppMainCallbacks() 的
+// 任何回调函数，都必须以与 SDLCALL 等效的调用约定定义。
+//
+//      #define SDL_MAIN_HANDLED
+//      #include <SDL3/SDL.h>
+//      #include <SDL3/SDL_main.h>
+//      int main(int argc, char *argv[], char *envp[]) {
+//          return SDL_RunApp(argc, argv, my_runapp_callback, NULL);
+//      }
+//      int SDLCALL my_runapp_callback(int argc, char *argv[]) {
+//          // Forward the received 'argc' and 'argv'
+//          return SDL_EnterAppMainCallbacks(
+//              argc, argv,
+//              my_init_callback, my_iterate_callback, my_event_callback, my_quit_callback
+//          );
+//      }
+//      SDL_AppResult SDLCALL my_init_callback(void **appstate, int argc, char *argv[]) { /* ... */ }
+//      SDL_AppResult SDLCALL my_iterate_callback(void *appstate) { /* ... */ }
+//      SDL_AppResult SDLCALL my_event_callback(void *appstate, SDL_Event *event) { /* ... */ }
+//      void SDLCALL my_quit_callback(void *appstate, SDL_AppResult result) { /* ... */ }
+//
+// SDL_EnterAppMainCallbacks。一般来说，你不应直接调用这个函数。它的存在只是为了把工作尽快移交给 SDL，
+// 在那里 SDL 拥有更多可用控制和功能，同时使 SDL_main.h 中的内联代码尽可能小。并非所有平台都使用它；
+// 它的实际用途隐藏在一个魔法般的 header-only 库中，除非你真的知道自己在做什么，否则不应直接调用它。
+// 线程安全：除了作为 SDL_main 中唯一的函数调用之外，在任何地方调用它都是不安全的。
+//
+// 如果你不让 SDL 重新定义 main，也不使用 SDL_RunApp()，SDL 将不会初始化任何平台特定细节，你的应用在
+// 某些平台上可能无法正常工作。在这种情况下，你需要自己执行所有平台初始化，然后通过调用 SDL_SetMainReady()
+// 告知 SDL 初始化工作已完成，必须在初始化任何 SDL 子系统之前调用。虽然许多平台只需要很少（或不需要）
+// 通过 SDL_RunApp 进行初始化，但在某些目标上这可能是一个复杂的过程，所以让 SDL 替你处理可能更好。
+//
+// SDL_SetMainReady。在不用 SDL_main() 作为入口点时，规避 SDL_Init() 的失败。这个函数定义在 SDL_main.h
+// 中，同时带有把 main() 重定义为 SDL_main() 的预处理规则。因此，要确保你的 main() 函数不被改动，必须
+// 在包含 SDL.h 之前定义 SDL_MAIN_HANDLED。线程安全：此函数不是线程安全的。
+//
+// 请注意，某些平台（例如 Android）可能有超出仅仅调用 SDL_RunApp() 的额外要求。如有疑问，最好的建议
+// 是仔细阅读并尽量理解 SDL 源代码中处理应用程序入口点的部分，并在你选择的语言中尽最大能力复刻它们。
+//
+// SDL_RunApp 会阻塞。请注意，在那些示例中，my_runapp_callback 应该在应用终止时返回，就像从 main()
+// 返回一样，此后 SDL_RunApp() 才会返回。因此，SDL_RunApp() 会在应用的整个生命周期内阻塞。如果你的平
+// 台完全无法容忍这一点，事情就会变得棘手。你可能需要提供一个 SDL_RunApp 回调，使用 longjmp() 之类的
+// 等价物或抛出异常，在 SDL 完成初始化后把控制权交回调用者（事实上 Emscripten 就做了类似的事情），或
+// 者干脆不使用 SDL_RunApp，直接处理平台怪癖。
+//
+// 把 SDL 作为外部模块使用。有时 SDL 会从脚本语言模块中被使用：要么作为简单直接的绑定（该语言可以直
+// 接调用 SDL API），要么作为某个其他模块的内部实现。也可能它被某个与主应用无关的插件使用。在这两种
+// 情况下，进程启动时 SDL 甚至还没被加载，也不应指望它来控制应用启动。
+//
+// 在这些情况下，SDL 通常能正常工作。你应该在加载库之后，从进程的主线程调用 SDL_SetMainReady()。由于
+// SDL 不处理启动，你不需要管理命令行参数等。SDL 提供的那些深奥的平台特定启动工作将不会执行，但预期
+// 是基础应用会负责这些；如果你在一台 PlayStation 2 上运行 Python，Python 解释器应该足够了解 PS2 来
+// 处理这些事；如果做不到，在新目标上引导程序时，你应该查阅 SDL 的 "main" 代码以发现任何意外情况。
+
+// bool SDL_RegisterApp(const char *name, Uint32 style, void *hInst);
+// void SDL_UnregisterApp(void);
+//
+// SDL_RegisterApp，为 SDL 的使用注册一个 win32 窗口类。参数 name 窗口类名，UTF-8 编码。如果为 NULL，
+// SDL 目前使用 "SDL_app"，但这不保证。参数 style 用于 WNDCLASSEX::style 的值。参数 hInst 用于
+// WNDCLASSEX::hInstance 的 HINSTANCE。如果为零，SDL 将改用 GetModuleHandle(NULL)。成功返回 true，失
+// 败返回 false；可调用 SDL_GetError() 获取更多信息。
+//
+// 可在启动时调用此函数设置应用窗口类。多次调用是安全的，只要每次调用最终都与一次 SDL_UnregisterApp
+// 调用配对；但在先前注册仍有效时再次注册会被忽略，只是计数器加一。大多数应用不需要、也不应该直接调
+// 用此函数；SDL 会在初始化视频子系统时调用它。如果 name 为 NULL，无论这里指定什么，SDL 目前都使用
+// (CS_BYTEALIGNCLIENT | CS_OWNDC) 作为样式。线程安全：此函数不是线程安全的。
+//
+// SDL_UnregisterApp 注销由 SDL_RegisterApp 调用注册的 win32 窗口类。大多数应用不需要、也不应该直接
+// 调用此函数；SDL 会在反初始化视频子系统时调用它。多次调用是安全的，只要每次调用最终都与先前一次
+// SDL_RegisterApp 调用配对。只有当 SDL_RegisterApp 中的注册计数通过调用此函数递减到零时，窗口类才会
+// 被注销。线程安全：此函数不是线程安全的。
+
+// const char * SDL_GetError(void);
+// bool SDL_SetError(const char *fmt, ...);
+// bool SDL_SetErrorV(const char *fmt, va_list ap);
+// bool SDL_OutOfMemory(void);
+// bool SDL_ClearError(void);
+//
+// #define SDL_InvalidParamError(param) SDL_SetError("Parameter '%s' is invalid", (param))
+// #define SDL_Unsupported() SDL_SetError("That operation is not supported")
+//
+// SDL 的简单错误消息例程。大多数应用只会在一个地方用到这些 API：当几乎任何 SDL 函数调用报告失败时，
+// 你可以通过 SDL_GetError() 获取该问题的人类可读字符串。这些字符串按线程维护，应用也可以设置自己的
+// 错误信息，这在基于 SDL 为其他应用构建库时很常见。这些字符串通过调用 SDL_SetError() 设置。一个常见
+// 的用法模式是：让一个函数在成功时返回 true、失败时返回 false，并在出问题时如下这样做。如果出错的地
+// 方本身已知会调用 SDL_SetError()，通常也可以直接返回 false，让错误简单传播下去。
+//      if (something_went_wrong) {
+//          return SDL_SetError("The thing broke in this specific way: %d", errcode);
+//      }
+//
+// SDL_ClearError。清除此线程之前的所有错误消息。线程安全：从任何线程调用此函数都是安全的。示例：
+//      const char *error = SDL_GetError();
+//      if (*error) {
+//          SDL_Log("SDL error: %s", error);
+//          SDL_ClearError();
+//      }
+//
+// SDL_GetError。检索当前线程上最近一次发生的错误的有关消息。返回一条包含所发生特定错误信息的消息；
+// 如果自上次调用 SDL_ClearError() 以来没有设置过错误消息，则返回空字符串。在调用 SDL_GetError() 之
+// 前可能发生多个错误，只有最后一个错误会被返回。只有当某个 SDL 函数已发出错误信号时，该消息才适用。
+// 你必须检查 SDL 函数调用的返回值，以决定何时适当地调用 SDL_GetError()。你不应使用 SDL_GetError()
+// 的结果来判断是否发生了错误！有时 SDL 即使在报告成功时也会设置错误字符串。对于成功的 API 调用，SDL
+// 不会清除错误字符串。在假定错误字符串适用之前，你必须先检查返回值是否为失败情况。
+//
+// 错误字符串按线程设置，因此在不同线程中设置的错误不会干扰当前线程的操作。返回值是一个线程局部字符
+// 串，在当前线程的错误字符串被更改之前一直有效。如果需要在下一次 SDL API 调用之后仍使用该值，调用者
+// 应自行复制。线程安全：从任何线程调用此函数都是安全的。
+//
+// SDL_SetError。为当前线程设置 SDL 错误消息。返回 false。调用此函数将替换之前设置的任何错误消息。此
+// 函数总是返回 false，因为 SDL 经常用 false 表示失败结果，从而形成了这样的惯用法。线程安全：从任何
+// 线程调用此函数都是安全的。
+//      if (error_code) {
+//          return SDL_SetError("This operation has failed: %d", error_code);
+//      }
+//
+// SDL_SetErrorV，为当前线程设置 SDL 错误消息。返回 false。调用此函数将替换之前设置的任何错误消息。
+// 线程安全：从任何线程调用此函数都是安全的。
+//
+// SDL_OutOfMemory。设置一个表示内存分配失败的错误。返回 false。此函数不做任何内存分配。线程安全：从
+// 任何线程调用此函数都是安全的。
+//
+// SDL_InvalidParamError。标准化参数错误报告的宏。这只是为了便利、一致性和清晰性，用一个标准化的格式
+// 调用 SDL_SetError()。它总是返回 false。线程安全：从任何线程调用此宏都是安全的。
+//      #define SDL_InvalidParamError(param) SDL_SetError("Parameter '%s' is invalid", (param))
+//
+// 代码示例：
+//      bool ProcessText(const char *str) {
+//          if (!str) {
+//              return SDL_InvalidParamError("str");  // 返回 false。
+//          }
+//          DoSomething(str);
+//          return true;
+//      }
+//
+// SDL_Unsupported。标准化不支持操作的错误报告的宏。这只是为了便利、一致性和清晰性，用一个标准化的错
+// 误字符串调用 SDL_SetError()。线程安全：从任何线程调用此宏都是安全的。
+
+// SDL_AssertionHandler SDL_GetAssertionHandler(void **puserdata); // 获取断言处理函数和用户指针
+// SDL_AssertionHandler SDL_GetDefaultAssertionHandler(void);
+// typedef SDL_AssertState (SDLCALL *SDL_AssertionHandler)( const SDL_AssertData *data, void *userdata);
+// void SDL_SetAssertionHandler(SDL_AssertionHandler handler, void *userdata);
+//
+// SDL 断言的工作方式类似你常用的 assert 宏，但增加了如下一些特性。使用方法：编译一个调试构建，然后
+// 到处撒一些测试来检查你的代码。
+//  1.  它利用 sizeof 运算符的技巧，使禁用的断言从编译后的代码中彻底消失，但仅在断言中引用过的变量不会触发编译器的“未使用”警告。
+//  2.  可以安全地与悬空的 else 配合使用：if (x) SDL_assert(y); else do_something();
+//  3.  在任何地方工作方式相同，而不是依赖各种平台的编译器和 C 运行时表现出一致行为。
+//  4.  提供多个断言级别（SDL_assert、SDL_assert_release、SDL_assert_paranoid），而不是单一的“全有或全无”选项。
+//  5.  断言失败时提供多种响应（重试、触发调试器、中止程序、忽略一次、在本次程序运行剩余时间内忽略）。
+//  6.  默认尽可能向用户显示对话框，但应用可以提供自己的回调，以任意方式处理断言失败。
+//  7.  允许重试失败的断言。也许你遇到了网络故障，只想插回网线后重试一下？可以。
+//  8.  允许用户忽略一次断言失败（对可以安全跳过的小问题）。
+//  9.  允许用户把某个断言标记为在本次程序运行剩余时间内忽略（对反复弹出的无害问题）。
+//  10. 向应用提供所有失败断言的统计数据。
+//  11. 允许通过环境变量控制默认断言处理程序，以备自动化脚本需要控制它。
+//  12. 可用作 Clang 静态分析的辅助：Clang 会把 SDL 断言视为普遍为真（假设你对自己断言的主张是认真的，且调试构建能检测出
+//      这些主张何时出错）。这可以帮助分析器避免误报。
+//
+// SDL_GetAssertionHandler。获取断言触发时被调用的 SDL_AssertionHandler。参数 puserdata 指向 void*
+// 的指针，用于存储传给 SDL_SetAssertionHandler() 的 "userdata" 指针。
+//      SDL_AssertionHandler SDL_GetAssertionHandler(void **puserdata);
+//
+// 返回断言触发时被调用的函数指针。它要么是上次传给 SDL_SetAssertionHandler() 的值；如果没有设置应用
+// 指定的函数，则等价于调用 SDL_GetDefaultAssertionHandler()。参数 puserdata 是一个指向 void* 的指针，
+// 用于存储传给 SDL_SetAssertionHandler() 的 "userdata" 指针。对于默认处理程序，该值总是 NULL。如果
+// 你不关心这个数据，可以安全地给此函数传 NULL 指针以忽略它。线程安全：从任何线程调用此函数都是安全的。
+//
+// SDL_GetDefaultAssertionHandler。获取默认断言处理程序。返回断言触发时默认被调用的函数指针。这是 SDL
+// 提供的内部函数，在未使用 SDL_SetAssertionHandler() 提供不同函数时用于断言。线程安全：从任何线程调
+// 用此函数都是安全的。
+//
+// SDL_SetAssertionHandler。设置应用自定义的断言处理程序。此函数允许应用显示自己的断言 UI 和/或强制
+// 决定断言失败的响应。如果应用不提供，SDL 会尝试做正确的事：弹出系统特定的 GUI 对话框，并可能最小化
+// 任何全屏窗口。此回调可能从任何线程触发，但它运行在互斥锁保护中，因此同一时刻只会从一个线程触发。
+// 此回调在 SDL_Quit() 时不会被重置为 SDL 的内部处理程序。线程安全：从任何线程调用此函数都是安全的。
+//      void SDL_SetAssertionHandler(SDL_AssertionHandler handler, void *userdata);
+//
+// SDL_AssertionHandler。SDL 断言失败时触发的回调。返回一个 SDL_AssertState 值，指示如何处理失败。线
+// 程安全：此回调可能在任何时刻、从任何触发断言的线程被调用。
+//      typedef SDL_AssertState (SDLCALL *SDL_AssertionHandler)(const SDL_AssertData *data, void *userdata);
+//
+// SDL_AssertData。关于一次断言失败的信息，此结构用已触发断言的信息填充，供断言处理程序使用，然后被
+// 加入断言报告。它作为链表从 SDL_GetAssertionReport() 返回。
+//      typedef struct SDL_AssertData {
+//          bool always_ignore; // 如果应用应在断言触发时总是继续，则为 true
+//          unsigned int trigger_count; // 此断言已被触发的次数
+//          const char *condition; // 此断言测试代码的字符串
+//          const char *filename; // 此断言所在的源文件
+//          int linenum; // 此断言在 filename 中的行号
+//          const char *function; // 此断言所在的函数名
+//          const struct SDL_AssertData *next; // 链表中的下一项
+//      } SDL_AssertData;
+//
+// SDL_AssertState。已触发断言的可能结果。当启用的断言触发时，它可能调用断言处理程序（可能是应用通过
+// SDL_SetAssertionHandler 提供的），处理程序会返回这些值之一（可能在询问用户之后）。然后 SDL 将根据
+// 该结果做出响应（循环重试条件、尝试进入调试器断点、终止程序，或忽略问题）。
+//      typedef enum SDL_AssertState {
+//          SDL_ASSERTION_RETRY, // 立即重试断言
+//          SDL_ASSERTION_BREAK, // 让调试器触发断点
+//          SDL_ASSERTION_ABORT, // 终止程序
+//          SDL_ASSERTION_IGNORE, // 忽略断言
+//          SDL_ASSERTION_ALWAYS_IGNORE // 从现在起忽略该断言
+//      } SDL_AssertState;
+
+// const SDL_AssertData * SDL_GetAssertionReport(void);
+// void SDL_ResetAssertionReport(void);
+// SDL_AssertState SDL_ReportAssertion(SDL_AssertData *data, const char *func, const char *file, int line);
+//
+// SDL_GetAssertionReport。获取所有断言失败的列表。返回所有失败断言的列表；如果列表为空则返回 NULL。
+// 应用不应修改或释放此内存。此指针在下一次调用 SDL_Quit() 或 SDL_ResetAssertionReport() 之前保持有
+// 效。此函数获取自上次调用 SDL_ResetAssertionReport() 或程序启动以来触发的所有断言。
+//      const SDL_AssertData * SDL_GetAssertionReport(void);
+//
+// 检查这些数据的正确方式大致如下。线程安全：此函数不是线程安全的。其他线程同时调用 SDL_ResetAssertionReport()
+// 可能使返回的指针失效。
+//      const SDL_AssertData *item = SDL_GetAssertionReport();
+//      while (item) {
+//         printf("'%s', %s (%s:%d), triggered %u times, always ignore: %s.\n",
+//                item->condition, item->function, item->filename,
+//                item->linenum, item->trigger_count,
+//                item->always_ignore ? "yes" : "no");
+//         item = item->next;
+//      }
+//
+// SDL_ResetAssertionReport。清除所有断言失败的列表。此函数将清除到那时为止触发的所有断言列表。紧接
+// 着这次调用后，SDL_GetAssertionReport 将不返回任何条目。此外，任何先前触发过的断言将被重置为 trigger_count
+// 为零，其 always_ignore 状态将为 false。线程安全：此函数不是线程安全的。其他线程触发断言，或同时调
+// 用此函数，可能导致内存泄漏或崩溃。
+//
+// SDL_ReportAssertion。永远不要直接调用此函数。请改用 SDL_assert 宏。线程安全：从任何线程调用此函数
+// 都是安全的。
+//      SDL_AssertState SDL_ReportAssertion(SDL_AssertData *data, const char *func, const char *file, int line);
+
+// #define SDL_assert_release(condition) SDL_enabled_assert(condition) // 断言启用且在释放版本中也生效的断言，SDL_ASSERT_LEVEL >= 1
+// #define SDL_assert(condition) if (assertion_enabled && (condition)) { trigger_assertion; } // 断言启用且 SDL_ASSERT_LEVEL >= 2 时生效的断言
+// #define SDL_assert_paranoid(condition) SDL_enabled_assert(condition) // 断言启用且 SDL_ASSERT_LEVEL >= 3 时生效的断言
+// #define SDL_assert_always(condition) SDL_enabled_assert(condition) // 总是启用的断言
+//
+// #define SDL_AssertBreakpoint() SDL_TriggerBreakpoint()
+// #define SDL_TriggerBreakpoint() TriggerABreakpointInAPlatformSpecificManner
+//
+// #define SDL_FILE ""
+// #define SDL_ASSERT_FILE ""
+// #define SDL_ASSERT_LEVEL 0~3
+// #include <SDL3/SDL_assert.h>
+//
+// SDL_assert。通常仅在调试构建中执行的断言测试。当 SDL_ASSERT_LEVEL >= 2 时此宏启用，否则禁用。它意
+// 味着只在调试构建中进行这些测试，因此它们可能更昂贵，并且意味着在失败时让一切停下来、由程序员现场
+// 评估问题。简言之：你可以大量随意放置这些断言，并假定在为最终用户构建时它们会从构建中消失。
+//
+// 当断言被禁用时，它会把 condition 包裹在 sizeof 运算符中，这意味着任何函数调用和副作用都不会执行，
+// 但编译器不会对仅在断言中引用过的、否则未使用的变量发出抱怨。可以把环境变量 "SDL_ASSERT" 设置为若
+// 干字符串之一（"abort"、"break"、"retry"、"ignore"、"always_ignore"）来强制默认行为，这对自动化目
+// 的可能有用。如果你的平台要求 GUI 交互必须发生在主线程，而你在调试后台线程中的断言，把它设为 "break"
+// 可能更可取，这样调试器会在断言触发时立即接管，而不是冒着应用中发生糟糕的 UI 交互（死锁等）的风险。
+// 线程安全：从任何线程调用此宏都是安全的。
+//
+// SDL_assert_always。始终执行的断言测试。无论 SDL_ASSERT_LEVEL 设置为何，此宏始终启用。你几乎绝不希
+// 望使用它，因为它可能在最终用户的系统上触发，导致你的程序崩溃。线程安全：从任何线程调用此宏都是安
+// 全的。
+//
+// SDL_assert_paranoid。仅在以偏执（paranoid）设置构建时才执行的断言测试。当 SDL_ASSERT_LEVEL >= 3 时
+// 此宏启用，否则禁用。这是高于 release 和 debug 的级别，因此这些测试意在昂贵，并且只在专门寻找特殊构
+// 建中极端意外失败情形时才运行。线程安全：从任何线程调用此宏都是安全的。
+//
+// SDL_assert_release。即使在 release 构建中也执行的断言测试。当 SDL_ASSERT_LEVEL >= 1 时此宏启用，
+// 否则禁用。它意在用于代价低廉且极不可能失败的测试；一般来说，release 构建中出现断言失败是不被赞成
+// 的，因此如果有触发可能，这些断言通常需要具有超乎生死的重要性。对这类情况，你几乎总应考虑用比断言
+// 更优雅的方式处理。当断言被禁用时，它会把 condition 包裹在 sizeof 运算符中，这意味着任何函数调用
+// 和副作用都不会执行，但编译器不会对仅在断言中引用过的、否则未使用的变量发出抱怨。线程安全：从任何
+// 线程调用此宏都是安全的。
+//
+// SDL_disabled_assert。断言被禁用时使用的宏。这不是供应用直接使用的，而是 SDL_assert 被禁用（比如在
+// release 构建中）时插入的代码。这段代码什么也不做，但把 condition 包裹在 sizeof 运算符中：它不生生
+// 成代码、没有副作用，但能避免编译器关于未使用变量的警告，并且即使在禁用时仍会检查语法。
+//      #define SDL_disabled_assert(condition) do { (void) sizeof ((condition) ? 1 : 0); } while (SDL_NULL_WHILE_LOOP_CONDITION)
+//
+// SDL_enabled_assert。断言被启用时使用的宏。这不是供应用直接使用的，而是 SDL_assert 被启用时插入的
+// 代码。do {} while(0) 避免了悬空 else 问题：if (x) SDL_assert(y); else blah(); …… 没有 do/while 的
+// 话，"else" 可能会附着到此宏的 "if" 上。我们试图在宏中只处理最低限度需要的东西 …… 循环、静态变量和
+// 断点。重活由 SDL_ReportAssertion() 处理。
+//      #define SDL_enabled_assert(condition) \
+//          do { \
+//              while ( !(condition) ) { \
+//                  static struct SDL_AssertData sdl_assert_data = { false, 0, #condition, NULL, 0, NULL, NULL }; \
+//                  const SDL_AssertState sdl_assert_state = SDL_ReportAssertion(&sdl_assert_data, SDL_FUNCTION, SDL_ASSERT_FILE, SDL_LINE); \
+//                  if (sdl_assert_state == SDL_ASSERTION_RETRY) { \
+//                      continue; /* 再来一次。 */ \
+//                  } else if (sdl_assert_state == SDL_ASSERTION_BREAK) { \
+//                      SDL_AssertBreakpoint(); \
+//                  } \
+//                  break; /* 不重试。 */ \
+//              } \
+//          } while (SDL_NULL_WHILE_LOOP_CONDITION)
+//
+// SDL_AssertBreakpoint。断言触发断点时使用的宏。这不是供应用直接使用的；请改用 SDL_assert 或 SDL_TriggerBreakpoint。
+//      #define SDL_AssertBreakpoint() SDL_TriggerBreakpoint()
+//
+// SDL_TriggerBreakpoint。尝试告知已连接的调试器暂停。允许应用以编程方式暂停（"break"）调试器，就像
+// 命中断点一样，让开发者检查程序状态等。这是一个宏（而不是函数）以便调试器在使用了 SDL_TriggerBreakpoint
+// 的那一行源代码处中断，而不是停在 SDL 内部的某处随机底层代码中。SDL_assert 出于同样原因使用此宏。
+// 如果程序不在调试器下运行，SDL_TriggerBreakpoint 很可能终止应用，且可能没有警告。如果当前平台不受
+// 支持，此宏将保持未定义。线程安全：从任何线程调用此宏都是安全的。
+//      #define SDL_TriggerBreakpoint() TriggerABreakpointInAPlatformSpecificManner
+//
+// SDL_ASSERT_FILE。报告当前正在编译的文件的宏，供断言使用。此宏仅在其尚未被定义时才定义，因此要覆盖
+// 它（比如换成完全不提供路径信息的东西，以免构建机器信息泄漏到公开二进制文件中），应用可以在包含
+// SDL_assert.h 之前定义此宏。例如，把它定义为 "" 可确保断言中不包含源路径信息。
+//      #define SDL_ASSERT_FILE SDL_FILE
+//
+// SDL_ASSERT_LEVEL。断言激进程度级别。此值随编译器选项和其他预处理 define 而变化。
+//      #define SDL_ASSERT_LEVEL SomeNumberBasedOnVariousFactors
+//
+// 它目前为下列值之一，但未来 SDL 版本可能增加更多：
+//      0：所有 SDL 断言宏被禁用。
+//      1：Release 设置：SDL_assert 禁用，SDL_assert_release 启用。
+//      2：Debug 设置：SDL_assert 和 SDL_assert_release 启用。
+//      3：Paranoid 设置：所有 SDL 断言宏启用，包括 SDL_assert_paranoid。
+//
+// SDL_FILE。报告当前正在编译的文件的宏。此宏仅在其尚未被定义时才定义，因此要覆盖它（比如换成完全不
+// 提供路径信息的东西，以免构建机器信息泄漏到公开二进制文件中），应用可以在包含 SDL.h 或 SDL_assert.h
+// 之前定义此宏。
+//      #define SDL_FILE    __FILE_NAME__
+//
+// SDL_FUNCTION。包含当前正在编译的函数的常量。如果 SDL 无法弄清编译器如何报告此信息，它将使用 "???"。
+//      #define SDL_FUNCTION __FUNCTION__
+//
+// SDL_LINE。报告当前正在编译的文件行号的宏。
+//      #define SDL_LINE    __LINE__
+//
+// SDL_NULL_WHILE_LOOP_CONDITION。用于把代码包裹在 do {} while (0); 中且不产生编译器警告的宏。
+//      #define SDL_NULL_WHILE_LOOP_CONDITION (0)
+//
+// 启用了非常激进警告的 Visual Studio 需要这个来避免编译器抱怨。do {} while (0); 技巧可用于把可能是
+// 也可能不是单条语句的代码包裹在宏中，以避免各种 C 语言事故。用法：
+//      do { SomethingOnce(); } while (SDL_NULL_WHILE_LOOP_CONDITION (0));
+
+// #define SDL_MAJOR_VERSION   3 // 当前主版本
+// #define SDL_MINOR_VERSION   5 // 当前次版本
+// #define SDL_MICRO_VERSION   0 // 当前微版本（或 patchlevel）
+// #define SDL_REVISION "Some arbitrary string decided at SDL build time"
+// #define SDL_VERSION SDL_VERSIONNUM(SDL_MAJOR_VERSION, SDL_MINOR_VERSION, SDL_MICRO_VERSION)
+// #define SDL_VERSION_ATLEAST(X, Y, Z) (SDL_VERSION >= SDL_VERSIONNUM(X, Y, Z))
+// #define SDL_VERSIONNUM(major, minor, patch) ((major) * 1000000 + (minor) * 1000 + (patch))
+// #define SDL_VERSIONNUM_MAJOR(version) ((version) / 1000000)
+// #define SDL_VERSIONNUM_MINOR(version) (((version) / 1000) % 1000)
+// #define SDL_VERSIONNUM_MICRO(version) ((version) % 1000)
+//
+// int SDL_GetVersion(void);
+// const char *SDL_GetRevision(void);
+//
+// 查询当前 SDL 版本的功能，既可查询应用编译时所针对的头文件版本，也可查询应用所链接的库版本。
+//
+// SDL_GetRevision。获取与你的程序相链接的 SDL 库的代码修订版本。返回一个任意字符串，唯一标识正在使
+// 用的 SDL 库的确切修订版本。此值是你正在链接的代码的修订版本，可能与你编译所用的代码版本不同；后者
+// 位于常量 SDL_REVISION 中，只有当你显式包含 SDL_revision.h 时才能访问。修订版本是一个任意字符串
+// （哈希值），唯一标识正在使用的 SDL 库的确切修订版本，仅在与其他修订版本比较时有用。它不是一个递增
+// 的数字。
+//
+// 如果 SDL 不是用适当的工具从 git 仓库构建的，此函数将返回空字符串。除了把它记录到日志中用于调试之
+// 外，你不应将此函数用于任何其他用途。该字符串无意以任何方式保持可靠。线程安全：从任何线程调用此函
+// 数都是安全的。
+//
+// SDL_GetVersion。获取与你的程序相链接的 SDL 的版本。返回所链接库的版本。如果你动态链接 SDL，那么
+// 当前版本可能与你编译所用的版本不同。此函数返回当前版本，而 SDL_VERSION 是你编译所用的版本。此函数
+// 可在任何时间安全调用，即使在 SDL_Init() 之前。线程安全：从任何线程调用此函数都是安全的。示例：
+//      const int compiled = SDL_VERSION; // 来自 SDL 头文件的硬编码数字
+//      const int linked = SDL_GetVersion(); // 由链接的 SDL 库报告
+//      SDL_Log("We compiled against SDL version %d.%d.%d ...\n",
+//              SDL_VERSIONNUM_MAJOR(compiled),
+//              SDL_VERSIONNUM_MINOR(compiled),
+//              SDL_VERSIONNUM_MICRO(compiled));
+//      SDL_Log("But we are linking against SDL version %d.%d.%d.\n",
+//              SDL_VERSIONNUM_MAJOR(linked),
+//              SDL_VERSIONNUM_MINOR(linked),
+//              SDL_VERSIONNUM_MICRO(linked));
+//
+// SDL_REVISION 描述开发过程中某一特定时点源代码的宏。此字符串通常在构建时根据版本控制状态生成。此字
+// 符串可能相当复杂，且不遵循任何标准。例如，它可能是类似 "SDL-prerelease-3.1.1-47-gf687e0732" 的东
+// 西。它也可能是构建时用户自定义的，因此最好把它当作调试取证中的线索，而不是应用会以任何方式解析的
+// 东西。如果想访问 SDL_REVISION 常量，必须在程序中显式包含 SDL_revision.h。
+//      #define SDL_REVISION "Some arbitrary string decided at SDL build time"
+
+// void SDL_Log(const char *fmt, ...); // app info message
+// void SDL_LogCritical(int category, const char *fmt, ...); // category critical message
+// void SDL_LogError(int category, const char *fmt, ...); // category error message
+// void SDL_LogWarn(int category, const char *fmt, ...); // category warn message
+// void SDL_LogInfo(int category, const char *fmt, ...); // category info message
+// void SDL_LogDebug(int category, const char *fmt, ...); // category debug meesage
+// void SDL_LogVerbose(int category, const char *fmt, ...); // category verbose message
+// void SDL_LogTrace(int category, const char *fmt, ...); // category trace message
+// void SDL_LogMessage(int category, SDL_LogPriority priority, const char *fmt, ...);
+// void SDL_LogMessageV(int category, SDL_LogPriority priority, const char *fmt, va_list ap);
+//
+// typedef void (SDLCALL *SDL_LogOutputFunction)(void *userdata, int category, SDL_LogPriority priority, const char *message);
+// void SDL_GetLogOutputFunction(SDL_LogOutputFunction *callback, void **userdata);
+// SDL_LogOutputFunction SDL_GetDefaultLogOutputFunction(void);
+// void SDL_SetLogOutputFunction(SDL_LogOutputFunction callback, void *userdata);
+//
+// SDL_LogPriority SDL_GetLogPriority(int category);
+// void SDL_SetLogPriority(int category, SDL_LogPriority priority);
+// bool SDL_SetLogPriorityPrefix(SDL_LogPriority priority, const char *prefix);
+//
+// void SDL_SetLogPriorities(SDL_LogPriority priority); // 设置所有分类的优先级
+// void SDL_ResetLogPriorities(void); // 重置所有分类到默认优先级
+//
+// typedef enum SDL_LogPriority {
+//      SDL_LOG_PRIORITY_INVALID,
+//      SDL_LOG_PRIORITY_TRACE,
+//      SDL_LOG_PRIORITY_VERBOSE,
+//      SDL_LOG_PRIORITY_DEBUG,
+//      SDL_LOG_PRIORITY_INFO,
+//      SDL_LOG_PRIORITY_WARN,
+//      SDL_LOG_PRIORITY_ERROR,
+//      SDL_LOG_PRIORITY_CRITICAL,
+//      SDL_LOG_PRIORITY_COUNT
+// } SDL_LogPriority;
+//
+// typedef enum SDL_LogCategory { // 默认情况下，application 和 gpu 分类在 INFO 级别启用，assert 分类在 WARN 级别启用，test 在 VERBOSE 级别启用，所有其他分类在 ERROR 级别启用。
+//      SDL_LOG_CATEGORY_APPLICATION,
+//      SDL_LOG_CATEGORY_ERROR,
+//      SDL_LOG_CATEGORY_ASSERT,
+//      SDL_LOG_CATEGORY_SYSTEM,
+//      SDL_LOG_CATEGORY_AUDIO,
+//      SDL_LOG_CATEGORY_VIDEO,
+//      SDL_LOG_CATEGORY_RENDER,
+//      SDL_LOG_CATEGORY_INPUT,
+//      SDL_LOG_CATEGORY_TEST,
+//      SDL_LOG_CATEGORY_GPU,
+//      SDL_LOG_CATEGORY_RESERVED2, // 保留给未来 SDL 库使用
+//      SDL_LOG_CATEGORY_RESERVED3,
+//      SDL_LOG_CATEGORY_RESERVED4,
+//      SDL_LOG_CATEGORY_RESERVED5,
+//      SDL_LOG_CATEGORY_RESERVED6,
+//      SDL_LOG_CATEGORY_RESERVED7,
+//      SDL_LOG_CATEGORY_RESERVED8,
+//      SDL_LOG_CATEGORY_RESERVED9,
+//      SDL_LOG_CATEGORY_RESERVED10,
+//      // 从此点开始保留给应用使用，例如：enum { MYAPP_CATEGORY_AWESOME1 = SDL_LOG_CATEGORY_CUSTOM, MYAPP_CATEGORY_AWESOME2 };
+//      SDL_LOG_CATEGORY_CUSTOM
+// } SDL_LogCategory;
+//
+// 带优先级和分类的简单日志消息。消息的 SDL_LogPriority 表示消息的重要程度；消息的 SDL_LogCategory
+// 表示它属于哪个领域。每个分类都有一个指定的最低优先级：当消息属于该分类时，只有当它达到该最低优先
+// 级或更高时才会被发出。SDL 自身日志的级别在默认优先级阈值之下，因此默认是安静的。
+//
+// 你可以通过 SDL_SetLogPriority() 以编程方式改变日志详细程度，或用 SDL_SetHint(SDL_HINT_LOGGING, ...)，
+// 或用环境变量 "SDL_LOGGING"。该变量是一组以逗号分隔的 category=level 记号，定义 SDL 应用的默认日志
+// 级别。category 可以是数字分类，也可以是 "app"、"error"、"assert"、"system"、"audio"、"video"、"render"、
+// "input"、"test" 之一，或 * 表示任何未指定的分类。level 可以是数字级别，可以是 "trace"、"verbose"、
+// "debug"、"info"、"warn"、"error"、"critical" 之一，或 "quiet" 表示禁用该分类。
+//
+// 如果想为所有分类设置日志级别，可以省略 category。如果未设置此 hint，默认日志级别等价于：
+//      app=info,assert=warn,test=verbose,*=error
+//
+// 各平台上消息的输出位置：
+//  1.  Windows：调试输出流
+//  2.  Android：日志输出
+//  3.  其他：标准错误输出（stderr）
+//
+// 消息末尾不需要加换行符（\n），函数会替你加。为保持跨平台行为一致，消息中不应包含任何换行符，比如
+// 不要在一次调用中记录多行，这种用法可能出现平台特有的异常行为。应每行做一次日志调用，且消息中不含
+// 换行符。每次日志调用是原子的，因此从多个线程记录时不会看到日志消息彼此截断。
+//
+// SDL_GetLogOutputFunction。获取当前的日志输出函数。从任何线程调用此函数都是安全的。
+//      void SDL_GetLogOutputFunction(SDL_LogOutputFunction *callback, void **userdata);
+//
+// SDL_GetDefaultLogOutputFunction。获取默认日志输出函数。返回默认日志输出回调。调用它时应为 userdata
+// 参数传 NULL。从任何线程调用此函数都是安全的。
+//      SDL_LogOutputFunction SDL_GetDefaultLogOutputFunction(void);
+//
+// SDL_SetLogOutputFunction。用你自己的函数替换默认日志输出函数。从任何线程调用此函数都是安全的。
+//      void SDL_SetLogOutputFunction(SDL_LogOutputFunction callback, void *userdata);
+//
+// SDL_GetLogPriority。获取特定日志分类的优先级。返回所请求分类的 SDL_LogPriority。线程安全：从任何
+// 线程调用此函数都是安全的。
+//      SDL_LogPriority SDL_GetLogPriority(int category);
+//
+// SDL_SetLogPriority。设置特定日志分类的优先级。线程安全：从任何线程调用此函数都是安全的。
+//      void SDL_SetLogPriority(int category, SDL_LogPriority priority);
+//
+// SDL_SetLogPriorityPrefix。设置附加到给定优先级日志消息前的文本。参数 prefix 该日志优先级使用的前
+// 缀，或传 NULL 表示不使用前缀。默认情况下，SDL_LOG_PRIORITY_INFO 及以下级别没有前缀，SDL_LOG_PRIORITY_WARN
+// 及更高级别有显示其优先级的前缀，例如 "WARNING: "。此函数会复制其字符串参数 prefix，因此调用返回后
+// 没有必要保持 prefix 的值存活。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_SetLogPriorityPrefix(SDL_LogPriority priority, const char *prefix);
+//
+// SDL_SetLogPriorities。设置所有日志分类的优先级。线程安全：从任何线程调用此函数都是安全的。
+//      void SDL_SetLogPriorities(SDL_LogPriority priority);
+//
+// SDL_ResetLogPriorities。把所有优先级重置为默认值。此函数由 SDL_Quit() 调用。线程安全：从任何线程
+// 调用此函数都是安全的。
+//      void SDL_ResetLogPriorities(void);
+//
+// SDL_Log。以 SDL_LOG_CATEGORY_APPLICATION 和 SDL_LOG_PRIORITY_INFO 记录一条消息。
+//      void SDL_Log(const char *fmt, ...);
+//
+// SDL_LogCritical。以 SDL_LOG_PRIORITY_CRITICAL 记录一条消息。从任何线程调用此函数都是安全的。
+//      void SDL_LogCritical(int category, const char *fmt, ...);
+//
+// SDL_LogDebug。以 SDL_LOG_PRIORITY_DEBUG 记录一条消息。
+//      void SDL_LogDebug(int category, const char *fmt, ...);
+//
+// SDL_LogError。以 SDL_LOG_PRIORITY_ERROR 记录一条消息。
+//      void SDL_LogError(int category, const char *fmt, ...);
+//
+// SDL_LogInfo。以 SDL_LOG_PRIORITY_INFO 记录一条消息。
+//      void SDL_LogInfo(int category, const char *fmt, ...);
+//
+// SDL_LogMessage。以指定分类和优先级记录一条消息。
+//      void SDL_LogMessage(int category, SDL_LogPriority priority, const char *fmt, ...);
+//
+// SDL_LogMessageV。以指定分类和优先级记录一条消息。
+//      void SDL_LogMessageV(int category, SDL_LogPriority priority, const char *fmt, va_list ap);
+//
+// SDL_LogTrace。以 SDL_LOG_PRIORITY_TRACE 记录一条消息。
+//      void SDL_LogTrace(int category, const char *fmt, ...);
+//
+// SDL_LogVerbose。以 SDL_LOG_PRIORITY_VERBOSE 记录一条消息。
+//      void SDL_LogVerbose(int category, const char *fmt, ...);
+//
+// SDL_LogWarn。以 SDL_LOG_PRIORITY_WARN 记录一条消息。
+//      void SDL_LogWarn(int category, const char *fmt, ...);
+//
+// SDL_LogOutputFunction。日志输出回调函数的原型。有新文本要记录时 SDL 会调用此函数。调用时持有互斥
+// 锁，因此此函数绝不会被多于一个线程同时调用。
+//      typedef void (SDLCALL *SDL_LogOutputFunction)(void *userdata, int category, SDL_LogPriority priority, const char *message);
+
+// #define SDL_PROP_NAME_STRING "SDL.name"
+// typedef Uint32 SDL_PropertiesID;
+// typedef enum SDL_PropertyType {
+//     SDL_PROPERTY_TYPE_INVALID,
+//     SDL_PROPERTY_TYPE_POINTER,
+//     SDL_PROPERTY_TYPE_STRING,
+//     SDL_PROPERTY_TYPE_NUMBER,
+//     SDL_PROPERTY_TYPE_FLOAT,
+//     SDL_PROPERTY_TYPE_BOOLEAN
+// } SDL_PropertyType;
+//
+// SDL_PropertiesID SDL_CreateProperties(void);
+// void SDL_DestroyProperties(SDL_PropertiesID props);
+// bool SDL_LockProperties(SDL_PropertiesID props);
+// void SDL_UnlockProperties(SDL_PropertiesID props);
+//
+// SDL_PropertiesID SDL_GetGlobalProperties(void);
+// int SDL_GetNumProperties(SDL_PropertiesID props);
+// bool SDL_HasProperty(SDL_PropertiesID props, const char *name);
+// SDL_PropertyType SDL_GetPropertyType(SDL_PropertiesID props, const char *name);
+// bool SDL_ClearProperty(SDL_PropertiesID props, const char *name);
+// bool SDL_CopyProperties(SDL_PropertiesID src, SDL_PropertiesID dst);
+//
+// bool SDL_GetBooleanProperty(SDL_PropertiesID props, const char *name, bool default_value);
+// float SDL_GetFloatProperty(SDL_PropertiesID props, const char *name, float default_value);
+// Sint64 SDL_GetNumberProperty(SDL_PropertiesID props, const char *name, Sint64 default_value);
+// void *SDL_GetPointerProperty(SDL_PropertiesID props, const char *name, void *default_value);
+// const char *SDL_GetStringProperty(SDL_PropertiesID props, const char *name, const char *default_value);
+//
+// bool SDL_SetBooleanProperty(SDL_PropertiesID props, const char *name, bool value);
+// bool SDL_SetFloatProperty(SDL_PropertiesID props, const char *name, float value);
+// bool SDL_SetNumberProperty(SDL_PropertiesID props, const char *name, Sint64 value);
+// bool SDL_SetPointerProperty(SDL_PropertiesID props, const char *name, void *value);
+// bool SDL_SetStringProperty(SDL_PropertiesID props, const char *name, const char *value);
+//
+// typedef void (SDLCALL *SDL_CleanupPropertyCallback)(void *userdata, void *value);
+// bool SDL_SetPointerPropertyWithCleanup(SDL_PropertiesID props, const char *name, void *value, SDL_CleanupPropertyCallback cleanup, void *userdata);
+//
+// typedef void (SDLCALL *SDL_EnumeratePropertiesCallback)(void *userdata, SDL_PropertiesID props, const char *name);
+// bool SDL_EnumerateProperties(SDL_PropertiesID props, SDL_EnumeratePropertiesCallback callback, void *userdata);
+//
+// 属性是一个可以在运行时按名称创建和检索的变量。所有属性都属于一个属性组（SDL_PropertiesID）。属性
+// 组可以用 SDL_CreateProperties 函数创建，用 SDL_DestroyProperties 函数销毁。可以通过以下函数向属性
+// 组添加属性或从中检索属性：
+//      SDL_SetPointerProperty 和 SDL_GetPointerProperty 操作 void* 指针类型
+//      SDL_SetStringProperty 和 SDL_GetStringProperty 操作字符串类型
+//      SDL_SetNumberProperty 和 SDL_GetNumberProperty 操作有符号 64 位整数类型
+//      SDL_SetFloatProperty 和 SDL_GetFloatProperty 操作浮点类型
+//      SDL_SetBooleanProperty 和 SDL_GetBooleanProperty 操作布尔类型
+//      可以用 SDL_ClearProperty 从属性组中移除属性
+//
+// SDL_CreateProperties。创建一组属性。返回新属性组的 ID；失败返回 0；可调用 SDL_GetError() 获取更多
+// 信息。调用 SDL_Quit() 时，所有属性会被自动销毁。线程安全：从任何线程调用此函数都是安全的。
+//      SDL_PropertiesID SDL_CreateProperties(void);
+//
+// SDL_DestroyProperties。销毁一组属性。所有属性都会被删除，如果有清理函数，清理函数会被调用。线程安
+// 全：当这些属性被锁定，或其他线程可能正在设置或获取这些属性的值时，不应调用此函数。
+//      void SDL_DestroyProperties(SDL_PropertiesID props);
+//
+// SDL_LockProperties。锁定一组属性。成功返回 true，失败返回 false；可调用 SDL_GetError() 获取更多信
+// 息。获取这些属性的多线程锁。在属性解锁前，其他线程尝试锁定这些属性时会等待。属性必须在销毁前解锁。
+// 设置单个属性时会自动加锁；只有当你想原子地设置多个属性，或想保证被查询的属性不会被另一个线程释放
+// 时，才需要此函数。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_LockProperties(SDL_PropertiesID props);
+//
+// SDL_UnlockProperties。解锁一组属性。线程安全：从任何线程调用此函数都是安全的。
+//      void SDL_UnlockProperties(SDL_PropertiesID props);
+//
+// SDL_HasProperty。返回某个属性是否存在于属性组中。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_HasProperty(SDL_PropertiesID props, const char *name);
+//
+// SDL_EnumerateProperties。枚举属性组中包含的所有属性。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_EnumerateProperties(SDL_PropertiesID props, SDL_EnumeratePropertiesCallback callback, void *userdata);
+//
+// 回调函数会对属性组中的每个属性调用一次。枚举期间属性处于锁定状态。代码示例：
+//      // 使用 SDL3 枚举每个显示器的显示属性
+//      #include <SDL3/SDL_log.h>
+//      #include <SDL3/SDL_main.h>
+//      #include <SDL3/SDL_video.h>
+//      static void my_enumerate_properties_callback(void *userdata, SDL_PropertiesID props, const char *name) {
+//          SDL_PropertyType prop_type = SDL_GetPropertyType(props, name);
+//          switch (prop_type) {
+//          case SDL_PROPERTY_TYPE_POINTER: SDL_Log("%s is a pointer poperty", name); break;
+//          case SDL_PROPERTY_TYPE_STRING: SDL_Log("%s is a string property with value %s", name, SDL_GetStringProperty(props, name, "")); break;
+//          case SDL_PROPERTY_TYPE_NUMBER: SDL_Log("%s is a number property with value %"SDL_PRIs64, name, SDL_GetNumberProperty(props, name, 0)); break;
+//          case SDL_PROPERTY_TYPE_FLOAT: SDL_Log("%s is a float property with value %f", name, SDL_GetFloatProperty(props, name, 0.0f)); break;
+//          case SDL_PROPERTY_TYPE_BOOLEAN: SDL_Log("%s is a boolean property with value %d", name, SDL_GetBooleanProperty(props, name, false)); break;
+//          case SDL_PROPERTY_TYPE_INVALID: default: SDL_Log("%s is an invalid property", name); break;
+//          }
+//      }
+//      int main(int argc, char** argv) {
+//          if (!SDL_Init(SDL_INIT_VIDEO)) { SDL_Log("Unable to initialize SDL: %s", SDL_GetError()); return 0; }
+//          SDL_Log("SDL initialized");
+//          int num_displays;
+//          SDL_DisplayID *displays = SDL_GetDisplays(&num_displays);
+//          SDL_Log("Found %d displays.", num_displays);
+//          for(int i = 0; i < num_displays; i++) {
+//              SDL_PropertiesID prop_id = SDL_GetDisplayProperties(displays[i]);
+//              SDL_Log("Display %d has properties ID %d", i, prop_id);
+//              if(!SDL_EnumerateProperties(prop_id, my_enumerate_properties_callback, NULL)) {
+//                  SDL_Log("Error enumerating properties: %s.", SDL_GetError());
+//              }
+//          }
+//          SDL_free(displays);
+//          return 0;
+//      }
+//
+// SDL_CopyProperties。复制一组属性。成功返回 true，失败返回 false；可调用 SDL_GetError() 获取更多
+// 信息。把全部属性从一个属性组复制到另一个属性组；但需要清理的属性除外，用 SDL_SetPointerPropertyWithCleanup() 
+// 设置的，它们不会被复制。dst 上已存在的任何属性都会被覆盖。线程安全：从任何线程调用此函数都是安全
+// 的。此函数会同时获取源属性集和目标属性集上的互斥锁。
+//      bool SDL_CopyProperties(SDL_PropertiesID src, SDL_PropertiesID dst);
+//
+// SDL_ClearProperty。从属性组中清除一个属性。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_ClearProperty(SDL_PropertiesID props, const char *name);
+//
+// SDL_GetBooleanProperty。从属性组中获取布尔属性。返回属性的值，若属性未设置或不是布尔属性，返回
+// default_value。可用 SDL_GetPropertyType() 查询属性是否存在且为布尔属性。线程安全：从任何线程调
+// 用此函数都是安全的。
+//      bool SDL_GetBooleanProperty(SDL_PropertiesID props, const char *name, bool default_value);
+//
+// SDL_GetFloatProperty。从属性组中获取浮点属性。返回属性的值，若属性未设置或不是浮点属性，返回
+// default_value。可用 SDL_GetPropertyType() 查询属性是否存在且为浮点属性。线程安全：从任何线程调用
+// 此函数都是安全的。
+//      float SDL_GetFloatProperty(SDL_PropertiesID props, const char *name, float default_value);
+//
+// SDL_GetGlobalProperties。获取全局 SDL 属性。成功返回有效的属性 ID，失败返回 0；可调用 SDL_GetError()
+// 获取更多信息。线程安全：从任何线程调用此函数都是安全的。
+//      SDL_PropertiesID SDL_GetGlobalProperties(void);
+//
+// SDL_GetNumberProperty。从属性组中获取数值属性。返回属性的值，若属性未设置或不是数值属性，返回
+// default_value。可用 SDL_GetPropertyType() 查询属性是否存在且为数值属性。线程安全：从任何线程调用
+// 此函数都是安全的。
+//      Sint64 SDL_GetNumberProperty(SDL_PropertiesID props, const char *name, Sint64 default_value);
+//
+// SDL_GetNumProperties。获取属性组中当前的条目数量。对于无效的 SDL_PropertiesID，此函数返回零且不设
+// 置错误消息。线程安全：从任何线程调用此函数都是安全的。
+//      int SDL_GetNumProperties(SDL_PropertiesID props);
+//
+// SDL_GetPointerProperty。从属性组中获取指针属性。返回属性的值，若属性未设置或不是指针属性，返回
+// default_value。按照约定，SDL 在对象上公开的属性名称以 "SDL." 开头，SDL 内部使用的属性以 "SDL.internal."
+// 开头。这些应视为只读，应用不应修改。线程安全：从任何线程调用此函数都是安全的，但返回的数据不受保
+// 护，如果你从另一个线程对这些属性调用 SDL_SetPointerProperty() 或 SDL_ClearProperty()，数据可能被
+// 释放。如果需要避免这种情况，使用 SDL_LockProperties() 和 SDL_UnlockProperties()。
+//      void * SDL_GetPointerProperty(SDL_PropertiesID props, const char *name, void *default_value);
+//
+// SDL_GetPropertyType。获取属性组中属性的类型。返回属性的类型，若属性未设置，返回 SDL_PROPERTY_TYPE_INVALID。
+// 线程安全：从任何线程调用此函数都是安全的。
+//      SDL_PropertyType SDL_GetPropertyType(SDL_PropertiesID props, const char *name);
+//
+// SDL_GetStringProperty。从属性组中获取字符串属性。返回属性的值，若属性未设置或不是字符串属性，返回
+// default_value。线程安全：从任何线程调用此函数都是安全的，但返回的数据不受保护——如果你从另一个线程
+// 对这些属性调用 SDL_SetStringProperty() 或 SDL_ClearProperty()，数据可能被释放。如果需要避免这种情
+// 况，使用 SDL_LockProperties() 和 SDL_UnlockProperties()。
+//      const char * SDL_GetStringProperty(SDL_PropertiesID props, const char *name, const char *default_value);
+//
+// SDL_SetBooleanProperty。在属性组中设置布尔属性。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_SetBooleanProperty(SDL_PropertiesID props, const char *name, bool value);
+//
+// SDL_SetFloatProperty。在属性组中设置浮点属性。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_SetFloatProperty(SDL_PropertiesID props, const char *name, float value);
+//
+// SDL_SetNumberProperty。在属性组中设置整数属性。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_SetNumberProperty(SDL_PropertiesID props, const char *name, Sint64 value);
+//
+// SDL_SetPointerProperty。在属性组中设置指针属性。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_SetPointerProperty(SDL_PropertiesID props, const char *name, void *value);
+//
+// SDL_SetPointerPropertyWithCleanup。在属性组中设置指针属性，并带一个清理函数，当属性被删除时调用。
+// 参数 cleanup 此属性被删除时调用的函数，若无需清理则传 NULL。成功返回 true，失败返回 false；可调用
+// SDL_GetError() 获取更多信息。如果设置属性因任何原因失败，清理函数也会被调用。对于设置数字、布尔、
+// 字符串等基本数据类型，请改用 SDL_SetNumberProperty、SDL_SetBooleanProperty 或 SDL_SetStringProperty，
+// 因为这些函数会替你处理清理。此函数仅用于更复杂的自定义数据。
+//      bool SDL_SetPointerPropertyWithCleanup(SDL_PropertiesID props, const char *name, void *value, SDL_CleanupPropertyCallback cleanup, void *userdata);
+//
+// SDL_SetStringProperty。在属性组中设置字符串属性。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。此函数会复制字符串；调用完成后，调用者不必保留数据。
+//      bool SDL_SetStringProperty(SDL_PropertiesID props, const char *name, const char *value);
+//
+// SDL_CleanupPropertyCallback。属性被删除时用于释放资源的回调。此回调应释放与 value 关联、不再需要
+// 的任何资源。此回调按属性设置。同一属性组中的不同属性可以有不同的清理回调。如果 SDL_SetPointerPropertyWithCleanup
+// 因任何原因失败，此回调也会被调用。线程安全：此回调可能在不持有任何锁的情况下触发；如果这令人担忧，
+// 应用应提供自己的锁。
+//      typedef void (SDLCALL *SDL_CleanupPropertyCallback)(void *userdata, void *value);
+//
+// SDL_EnumeratePropertiesCallback。用于枚举属性组中所有属性的回调。此回调由 SDL_EnumerateProperties()
+// 调用，对集合中的每个属性调用一次。线程安全：此回调期间 SDL_EnumerateProperties 持有 props 的锁。
+//      typedef void (SDLCALL *SDL_EnumeratePropertiesCallback)(void *userdata, SDL_PropertiesID props, const char *name);
+//
+// SDL_PropertiesID。表示属性集的 ID。虽然它对应用来说像一个整数，但 SDL 属性实际上是键/值存储，可以
+// 管理包含多种数据类型的信息集合。
+//      typedef Uint32 SDL_PropertiesID;
+//
+// SDL_PropertyType。SDL 属性类型。
+//      typedef enum SDL_PropertyType {
+//          SDL_PROPERTY_TYPE_INVALID,
+//          SDL_PROPERTY_TYPE_POINTER,
+//          SDL_PROPERTY_TYPE_STRING,
+//          SDL_PROPERTY_TYPE_NUMBER,
+//          SDL_PROPERTY_TYPE_FLOAT,
+//          SDL_PROPERTY_TYPE_BOOLEAN
+//      } SDL_PropertyType;
+//
+// SDL_PROP_NAME_STRING。用于给事物命名的通用属性。此属性旨在添加到任何需要关联通用名称的 SDL_PropertiesID。
+// 不保证任何属性集都会包含此键，但拥有一个任何代码都可以合理约定使用的标准键是很方便的。例如，与
+// SDL_Texture 关联的属性可能有名称字符串 "player sprites"，SDL_AudioStream 可能有 "background music"
+// 等。它对 SDL_IOStream 列出其资源路径也可能有用。此键设置的值没有格式要求；它预期是人类可读的、信
+// 息性质的，可能用于日志或调试目的。SDL 目前不会在其创建的任何对象上设置此属性，但后续版本可能会改
+// 变；目前预期应用和外部库会在适当的时候利用它。
+//      #define SDL_PROP_NAME_STRING "SDL.name"
+
+// typedef enum SDL_HintPriority {
+//     SDL_HINT_DEFAULT,
+//     SDL_HINT_NORMAL,
+//     SDL_HINT_OVERRIDE
+// } SDL_HintPriority;
+//
+// const char* SDL_GetHint(const char *name);
+// bool SDL_GetHintBoolean(const char *name, bool default_value);
+//
+// bool SDL_SetHint(const char *name, const char *value);
+// bool SDL_SetHintWithPriority(const char *name, const char *value, SDL_HintPriority priority);
+// bool SDL_ResetHint(const char *name);
+// void SDL_ResetHints(void);
+//
+// typedef void(SDLCALL *SDL_HintCallback)(void *userdata, const char *name, const char *oldValue, const char *newValue);
+// bool SDL_AddHintCallback(const char *name, SDL_HintCallback callback, void *userdata);
+// void SDL_RemoveHintCallback(const char *name, SDL_HintCallback callback, void *userdata);
+//
+// 提示的命名约定是 SDL_HINT_X，其中 "SDL_X" 是可以用来覆盖默认值的环境变量。一般来说，这些提示仅仅
+// 是“提示”，在任何给定平台上，它们可能受支持也可能不受支持、可能适用也可能不适用，但它们为应用或用
+// 户提供了一种方式，告诉库希望它如何工作。
+//
+// SDL3 环境变量。用户可以通过环境变量在外部控制 SDL3。它们的工作方式与可通过编程方式获取和设置的提
+// 示（hints）完全相同，只是命名不带 _HINT 部分（所以 "SDL_HINT_A" 对应环境变量 "SDL_A"）。
+// https://wiki.libsdl.org/SDL3/EnvironmentVariables
+//
+// SDL_AddHintCallback。添加一个函数来监视特定提示。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。回调函数会在此函数中被调用一次以提供初始值，之后每当提示的值改变时再次调用。线程安全：
+// 从任何线程调用此函数都是安全的。
+//      bool SDL_AddHintCallback(const char *name, SDL_HintCallback callback, void *userdata);
+//
+// SDL_GetHint。获取提示的值。返回提示的字符串值，若提示未设置，返回 NULL。线程安全：从任何线程调用
+// 此函数都是安全的。
+//      const char* SDL_GetHint(const char *name);
+//
+// SDL_GetHintBoolean。获取提示变量的布尔值。返回提示的布尔值，若提示不存在，返回提供的默认值。线程
+// 安全：从任何线程调用此函数都是安全的。
+//      bool SDL_GetHintBoolean(const char *name, bool default_value);
+//
+// SDL_RemoveHintCallback。移除一个监视特定提示的函数。线程安全：从任何线程调用此函数都是安全的。
+//      void SDL_RemoveHintCallback(const char *name, SDL_HintCallback callback, void *userdata);
+//
+// SDL_ResetHint。将提示重置为默认值。成功返回 true，失败返回 false；可调用 SDL_GetError() 获取更多
+// 信息。此函数把提示重置为环境变量的值；如果环境变量未设置，则重置为 NULL。回调会正常地随此改变被
+// 调用。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_ResetHint(const char *name);
+//
+// SDL_ResetHints。把所有提示重置为默认值。此函数把所有提示重置为相关联环境变量的值；如果环境变量未
+// 设置，则重置为 NULL。回调会正常地随此改变被调用。线程安全：从任何线程调用此函数都是安全的。
+//      void SDL_ResetHints(void);
+//
+// SDL_SetHint。以普通优先级设置提示。成功返回 true，失败返回 false；可调用 SDL_GetError() 获取更多
+// 信息。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_SetHint(const char *name, const char *value);
+//
+// 如果存在优先级更高的覆盖提示或环境变量，提示将不会被设置。你可以改用 SDL_SetHintWithPriority() 以
+// 覆盖优先级设置提示。代码示例：
+//      #include <SDL3/SDL.h>
+//      #include <SDL3/SDL_main.h>
+//      int main(int argc, char* argv[]) {
+//          // 每个提示都说明了它应在何时设置，这个提示应在 SDL 初始化之前设置
+//          SDL_SetHint(SDL_HINT_APP_NAME, "My Game 2: The Revenge");
+//          SDL_Init(SDL_INIT_VIDEO);
+//          // ...
+//          SDL_Quit();
+//          return 0;
+//      }
+//
+// SDL_SetHintWithPriority。以指定优先级设置提示。成功返回 true，失败返回 false；可调用 SDL_GetError()
+// 获取更多信息。当设置的提示已有值时，优先级控制其行为。提示会替换优先级相同或更低的已有提示。环境
+// 变量被视为具有覆盖（override）优先级。线程安全：从任何线程调用此函数都是安全的。
+//      bool SDL_SetHintWithPriority(const char *name, const char *value, SDL_HintPriority priority);
+//
+// SDL_HintCallback。用于发送提示值变更通知的回调。在 SDL_AddHintCallback 期间会以提示当前值调用一次，
+// 之后每当提示的值改变时再次调用。在初始调用中，当前值会同时出现在 oldValue 和 newValue 中。线程安
+// 全：此回调从设置新提示值的那个线程触发。SDL 在调用此回调时持有提示子系统的锁。
+//      typedef void(SDLCALL *SDL_HintCallback)(void *userdata, const char *name, const char *oldValue, const char *newValue);
+//
+// SDL_HintPriority。提示优先级的枚举。
+//      typedef enum SDL_HintPriority {
+//          SDL_HINT_DEFAULT,
+//          SDL_HINT_NORMAL,
+//          SDL_HINT_OVERRIDE
+//      } SDL_HintPriority;
+
+// SDL_HINT_APP_ID。设置应用 ID 字符串的变量。桌面合成器用此字符串识别和归组窗口，并匹配应用与关联的
+// 桌面设置和图标。如果应用设置了 SDL_PROP_APP_METADATA_IDENTIFIER_STRING，此 SDL_HINT_APP_ID 提示会
+// 覆盖它。此提示应在 SDL 初始化之前设置。
+//      #define SDL_HINT_APP_ID "SDL_APP_ID"
+//      SDL_SetHint(SDL_HINT_APP_ID, application_identifier_string);
+
+// SDL_HINT_APP_NAME。设置应用程序名称的变量。此提示让你指定在需要时发送给操作系统的应用程序名称。例
+// 如，它常出现在音频流的音量控制小程序中，以及阻止屏幕保护程序的应用列表中。你应使用描述你程序的字
+// 符串（"My Game 2: The Revenge"）。如果应用设置了 SDL_PROP_APP_METADATA_NAME_STRING，此提示会覆盖
+// 它。此提示应在 SDL 初始化之前设置。
+//      #define SDL_HINT_APP_NAME "SDL_APP_NAME"
+
+// SDL_HINT_ASSERT。控制对 SDL_assert 失败做出响应的变量。注意，SDL_SetAssertionHandler 提供了通过回
+// 调以编程方式处理断言失败的方法；此提示主要面向最终用户和自动化工具，通过环境变量使用。此提示应在
+// 断言失败触发之前设置，且可以随时更改。
+//      #define SDL_HINT_ASSERT "SDL_ASSERT"
+//
+// 该变量可设置为以下区分大小写的值：
+//      "abort"         程序立即终止
+//      "break"         程序触发调试器断点
+//      "retry"         程序重新运行 SDL_assert 的测试
+//      "ignore"        程序继续运行，此次忽略该断言失败
+//      "always_ignore" 程序继续运行，本次运行剩余时间内忽略该断言失败
+
+// SDL_HINT_LOGGING。控制 SDL 默认日志级别的变量。此变量是一组逗号分隔的 category=level 记号，定义
+// SDL 应用的默认日志级别。如果想为所有分类设置日志级别，可以省略 category。此提示可以随时设置。
+//      #define SDL_HINT_LOGGING "SDL_LOGGING"
+//
+// category 可以是数字分类，也可以是以下字符串，其中 * 表示任何未指定的分类。
+//      "app"
+//      "error"
+//      "assert"
+//      "system"
+//      "audio"
+//      "video"
+//      "render"
+//      "input"
+//      "test"
+//      "*"
+//
+// level 可以是数字级别，也可以是以下字符串，其中 quiet 表示禁用该分类。
+//      "verbose"
+//      "debug"
+//      "info"
+//      "warn"
+//      "error"
+//      "critical"
+//      "quiet"
+//
+// 如果未设置此提示，默认日志级别等价于：
+//      app=info,assert=warn,test=verbose,*=error
+//
+// 如果环境变量 DEBUG_INVOCATION 设置为 "1"，默认日志级别等价于：
+//      assert=warn,test=verbose,*=debug
+
+// SDL_HINT_EVENT_LOGGING。控制推入内部队列的 SDL 事件日志详细程度的变量。这通常用于调试 SDL 本身，
+// 但对需要更清楚了解事件队列中正在发生什么应用的开发者也有用。记录的事件通过 SDL_Log() 发送，这意
+// 味着默认情况下它们在大多数平台上出现在 stdout，在 Windows 上可能出现在 OutputDebugString()，应用
+// 可以用 SDL_SetLogOutputFunction() 等来接管它们。此提示可以随时设置。
+//      #define SDL_HINT_EVENT_LOGGING "SDL_EVENT_LOGGING"
+//
+// 该变量可设置为以下值，从最不详细到最详细：
+//      "0"：不记录任何事件（默认）
+//      "1"：记录大多数事件（除了真正刷屏的那些）
+//      "2"：包括鼠标和手指移动事件
+
+// SDL_HINT_INVALID_PARAM_CHECKS。设置对传给 SDL 函数的无效参数的检查级别。此提示可以随时设置。
+//      #define SDL_HINT_INVALID_PARAM_CHECKS "SDL_INVALID_PARAM_CHECKS"
+//
+// 该变量可设置为以下值：
+//      "1"：启用快速参数错误检查，例如快速 NULL 检查等
+//      "2"：启用完整参数错误检查，例如校验对象是否为正确类型等（默认）
+
+// SDL_HINT_MAIN_CALLBACK_RATE。请求以特定频率调用 SDL_AppIterate()。此提示可以随时设置。
+//      #define SDL_HINT_MAIN_CALLBACK_RATE "SDL_MAIN_CALLBACK_RATE"
+//
+// 如果设置为数字，它代表 Hz，所以 "60" 表示尝试每秒迭代 60 次。"0" 表示尽可能快地迭代。负值是非法
+// 的，但保留，以防在 SDL 未来修订中有用。还有其他具有特殊含义的字符串。如果设置为 "waitevent"，
+// SDL_AppIterate 将不会在新事件到达（并由 SDL_AppEvent 处理）之前被调用。这对除响应输入外完全空闲
+// 的应用很有用。自 SDL 3.6.0 起，当此提示设置为 "waitevent" 后，SDL 会允许在没有事件的情况下立即进
+// 行单次 SDL_AppIterate 调用，使应用能有最低限度的活动，也许是在用户尚未与应用交互时先向窗口渲染一
+// 张初始图像。
+//
+// 在某些平台上，或如果你使用的是 SDL_main 而不是 SDL_AppIterate，此提示被忽略。在可以使用此提示时，
+// 允许随时更改它。默认值为 0，为提示的值指定 NULL 将恢复默认值。它不必是整数值。例如，"59.94" 不会
+// 被四舍五入为整数频率；小数点后的数字实际上是被尊重的。
+
+// SDL_HINT_IME_IMPLEMENTED_UI。描述应用可以显示哪些 IME UI 元素的变量。默认情况下，IME UI 尽可能由
+// 操作系统使用原生组件处理，但在使用独占全屏模式时，这可能造成干扰或不可见。此提示应在 SDL 初始化之
+// 前设置。
+//      #define SDL_HINT_IME_IMPLEMENTED_UI "SDL_IME_IMPLEMENTED_UI"
+//
+// 该变量可设置为包含以下项目的逗号分隔列表：
+//      "none" 或 "0"：应用不能渲染任何 IME 元素，应使用原生 UI（默认）
+//      "composition"：应用处理 SDL_EVENT_TEXT_EDITING 事件，并能渲染组字文本
+//      "candidates"：应用处理 SDL_EVENT_TEXT_EDITING_CANDIDATES，并能渲染候选列表
+
+// SDL_HINT_RETURN_KEY_HIDES_IME。控制 Android 和 iOS 上软键盘的回车键是否应隐藏软键盘的变量。此提示
+// 可以随时设置。
+//      #define SDL_HINT_RETURN_KEY_HIDES_IME "SDL_RETURN_KEY_HIDES_IME"
+//
+// 此提示设置 SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN 的默认值。该变量可设置为以下值：
+//      "0"：回车键将作为按键事件处理（默认）
+//      "1"：回车键将隐藏键盘
+
+// SDL_HINT_KEYCODE_OPTIONS。控制键盘事件中键码表示的变量。此提示可以随时设置。
+//      #define SDL_HINT_KEYCODE_OPTIONS "SDL_KEYCODE_OPTIONS"
+//
+// 此变量是一组逗号分隔的选项，用于转换事件中的键码：
+//      "none"：清除键码选项，此选项覆盖其他选项。
+//      "hide_numpad"：根据当前 NumLock 状态，把小键盘键值翻译为其非小键盘版本。例如，如果事件修饰键中设置了 SDL_KMOD_NUM，
+//                     SDLK_KP_4 将变成 SDLK_4；如果未设置，则变成 SDLK_LEFT。
+//      "french_numbers"：法语键盘的数字行是反的，所以按 1 键会产生键码 SDLK_1（即 '1'），而不是 SDLK_AMPERSAND（即 '&'）。
+//      "latin_letters"：对于使用非拉丁字母的键盘（如俄语或泰语），字母键产生的键码如同英语 QWERTY 布局。例如在俄语键盘
+//                       上按与 SDL_SCANCODE_A 相关联的键会产生 'a'，而不是西里尔字母。
+//
+// 此提示的默认值为 "french_numbers,latin_letters"。某些平台（如 Emscripten）只提供修改过的键码，这
+// 些选项不会被使用。这些选项不影响 SDL_GetKeyFromScancode() 或 SDL_GetScancodeFromKey() 的返回值，
+// 它们只作用于键事件中包含的键码。
+
+// SDL_HINT_OPENGL_LIBRARY。指定要加载的 OpenGL 库。此提示应在创建 OpenGL 窗口或创建 OpenGL 上下文之
+// 前设置。如果未设置此提示，SDL 会选择合理的默认值。
+//      #define SDL_HINT_OPENGL_LIBRARY "SDL_OPENGL_LIBRARY"
+
+// SDL_HINT_EGL_LIBRARY。指定要加载的 EGL 库。此提示应在创建 OpenGL 窗口或创建 OpenGL 上下文之前设
+// 置。此提示仅在 SDL 使用 EGL 管理 OpenGL 上下文时才被考虑。如果未设置此提示，SDL 会选择合理的默认
+// 值。
+//      #define SDL_HINT_EGL_LIBRARY "SDL_EGL_LIBRARY"
+
+// SDL_HINT_OPENGL_ES_DRIVER。控制 OpenGL ES 上下文使用什么驱动的变量。此提示应在 SDL 初始化之前设置。
+//      #define SDL_HINT_OPENGL_ES_DRIVER "SDL_OPENGL_ES_DRIVER"
+//
+// 在某些平台上（目前是 Windows 和 X11），OpenGL 驱动可能支持创建 OpenGL ES 配置文件上下文。默认情况
+// 下，SDL 在可用时使用这些配置文件，否则尝试加载 OpenGL ES 库，例如 ANGLE 项目提供的库。此变量控制
+// SDL 是遵循此默认行为，还是总是加载 OpenGL ES 库。此设置有用的场景包括：
+//  1.  用特定 OpenGL ES 实现（如 ANGLE）或模拟器（如 ARM、Imagination 或 Qualcomm 的）测试应用。
+//  2.  通过链接 OpenGL ES 库在链接期解析 OpenGL ES 函数地址，而不是在运行时用 SDL_GL_GetProcAddress() 查询。
+//
+// 注意：要让应用在不同 OpenGL 驱动下按默认行为工作，它必须在运行时用 SDL_GL_GetProcAddress() 查询
+// OpenGL ES 函数地址。在大多数平台上此变量被忽略，因为 OpenGL ES 要么是原生的，要么不受支持。
+//
+// 该变量可设置为以下值：
+//      "0"：使用 OpenGL 的 ES 配置文件（如果可用）（默认）
+//      "1"：使用默认库名加载 OpenGL ES 库
+//
+
+// SDL_HINT_RENDER_VSYNC。控制对 SDL 屏幕表面的更新是否与垂直刷新同步以避免撕裂的变量。此提示应在创
+// 建渲染器之前设置。此提示覆盖创建渲染器时的应用偏好。
+//      #define SDL_HINT_RENDER_VSYNC "SDL_RENDER_VSYNC"
+//
+// 该变量可设置为以下值：
+//      "0"：禁用垂直同步（默认）
+//      "1"：启用垂直同步
+
+// SDL_HINT_THREAD_FORCE_REALTIME_TIME_CRITICAL。指定是否应将 SDL_THREAD_PRIORITY_TIME_CRITICAL 视为
+// 实时优先级。此提示应在调用 SDL_SetCurrentThreadPriority() 之前设置。
+//      #define SDL_HINT_THREAD_FORCE_REALTIME_TIME_CRITICAL "SDL_THREAD_FORCE_REALTIME_TIME_CRITICAL"
+//
+// 在某些平台（如 Linux）上，实时优先级线程可能受到限制，需要应用特殊处理。此提示用于让 SDL 知道应用
+// 已准备好处理这些限制。在 Linux 上，SDL 将对任何变为实时线程的线程应用以下配置：
+//  1.  调度策略将设置 SCHED_RESET_ON_FORK 位
+//  2.  将按 rtkit 指定的限制配置 RLIMIT_RTTIME 预算
+//  3.  超过此限制将导致内核向应用发送 SIGKILL，更多信息请参阅手册页
+//
+// 该变量可设置为以下值：
+//      "0"：平台特定的默认行为
+//      "1"：强制 SDL_THREAD_PRIORITY_TIME_CRITICAL 使用实时调度策略
+
+// SDL_HINT_THREAD_PRIORITY_POLICY。指定与 SDL_SetCurrentThreadPriority 一起使用的附加信息的字符串。
+// 此提示应在调用 SDL_SetCurrentThreadPriority() 之前设置。
+//      #define SDL_HINT_THREAD_PRIORITY_POLICY "SDL_THREAD_PRIORITY_POLICY"
+//
+// 默认情况下，SDL_SetCurrentThreadPriority 会进行适当的系统更改以应用线程优先级。例如，在使用 pthreads
+// 的系统上，调度策略会自动更改为与给定优先级配合良好的策略。有特定需求的代码可以用此提示覆盖 SDL 的
+// 默认行为。pthread 的提示值为 "current"、"other"、"fifo" 和 "rr"。目前未定义其他平台的提示值，但未
+// 来可能会定义。在 Linux 上，内核可能向超过发行版配置的 rtkit 执行预算的实时任务发送 SIGKILL。此预
+// 算可在调用 SDL_SetCurrentThreadPriority() 后通过 RLIMIT_RTTIME 查询。
+
+// SDL_HINT_TIMER_RESOLUTION。以毫秒为单位控制计时器分辨率的变量。此提示可以随时设置。默认值为 "1"。
+// 如果此变量设置为 "0"，则不设置系统计时器分辨率。
+//      #define SDL_HINT_TIMER_RESOLUTION "SDL_TIMER_RESOLUTION"
+//
+// 计时器分辨率越高，CPU 服务计时器中断越频繁，延迟越精确，但这会消耗电力和 CPU 时间。此提示仅在 Windows
+// 上使用。更多信息请参阅这篇博客文章：http://randomascii.wordpress.com/2013/07/08/windows-timer-resolution-megawatts-wasted/
+
+#endif
 
 #endif // PRH_GRAPHIC_IMPLEMENTATION
 
