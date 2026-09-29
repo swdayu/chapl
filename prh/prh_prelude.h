@@ -96,6 +96,7 @@ extern "C" {
 //      __GNUC_PATCHLEVEL__
 //
 //      __BYTE_ORDER__
+//      __FLOAT_WORD_ORDER__
 //      __ORDER_LITTLE_ENDIAN__
 //      __ORDER_BIG_ENDIAN__
 //      __ORDER_PDP_ENDIAN__
@@ -615,10 +616,6 @@ extern "C" {
 #undef prh_lit_endian
 #undef prh_big_endian
 
-#if defined(prh_arch_x86) || defined(prh_arch_x64) || defined(prh_arch_arm) || defined(prh_arch_a64)
-    #define prh_lit_endian 1
-#endif
-
 #if !defined(prh_lit_endian) && defined(__BYTE_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && (__BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__)
     #define prh_lit_endian 1
 #endif
@@ -628,21 +625,46 @@ extern "C" {
 #endif
 
 #if !defined(prh_lit_endian) && !defined(prh_big_endian)
-    #if defined(__hppa__) || defined(__m68k__) || defined(mc68000) || defined(_M_M68K) || (defined(__MIPS__) && defined(__MIPSEB__)) || defined(__ppc__) || defined(__POWERPC__) || defined(__powerpc__) || defined(__PPC__) || defined(__sparc__) || defined(__sparc)
+    #if defined(prh_using_lit_endian) || defined(prh_arch_x86) || defined(prh_arch_x64) || defined(prh_arch_arm) || defined(prh_arch_a64)
+        #define prh_lit_endian 1
+    #endif
+#endif
+
+#if !defined(prh_lit_endian) && !defined(prh_big_endian)
+    #if defined(prh_using_big_endian) || defined(__hppa__) || defined(__m68k__) || defined(mc68000) || defined(_M_M68K) || (defined(__MIPS__) && defined(__MIPSEB__)) || defined(__ppc__) || defined(__POWERPC__) || defined(__powerpc__) || defined(__PPC__) || defined(__sparc__) || defined(__sparc)
         #define prh_big_endian 1
     #endif
 #endif
 
-#if !defined(prh_lit_endian) && !defined(prh_big_endian) && defined(prh_using_lit_endian)
-    #define prh_lit_endian 1
-#endif
-
-#if !defined(prh_lit_endian) && !defined(prh_big_endian) && defined(prh_using_big_endian)
-    #define prh_big_endian 1
-#endif
-
 #if !defined(prh_lit_endian) && !defined(prh_big_endian)
     #error "unknown byte order endian"
+#endif
+
+#undef prh_float_lit_endian
+#undef prh_float_big_endian
+
+#if !defined(prh_float_lit_endian) && defined(__FLOAT_WORD_ORDER__) && defined(__ORDER_LITTLE_ENDIAN__) && (__FLOAT_WORD_ORDER__ == __ORDER_LITTLE_ENDIAN__)
+    #define prh_float_lit_endian 1
+#endif
+
+#if !defined(prh_float_lit_endian) && defined(__FLOAT_WORD_ORDER__) && defined(__ORDER_BIG_ENDIAN__) && (__FLOAT_WORD_ORDER__ == __ORDER_BIG_ENDIAN__)
+    #define prh_float_big_endian 1
+#endif
+
+#if !defined(prh_float_lit_endian) && !defined(prh_float_big_endian) && defined(prh_using_float_lit_endian)
+    #define prh_float_lit_endian 1
+#endif
+
+#if !defined(prh_float_lit_endian) && !defined(prh_float_big_endian) && defined(prh_using_float_big_endian)
+    #define prh_float_big_endian 1
+#endif
+
+#if !defined(prh_float_lit_endian) && !defined(prh_float_big_endian)
+    #if defined(prh_lit_endian)
+        #define prh_float_lit_endian 1
+    #else
+        #define prh_float_big_endian 1
+    #endif
 #endif
 
 // __cplusplus
@@ -761,7 +783,8 @@ extern "C" {
 // 在 C++ 中，如果模板实参的可见性受限，该限制会隐式传播到模板实例化。否则，模板实例化和特化默认采用
 // 其模板的可见性。如果模板和外围类都有显式可见性，则使用来自模板的可见性。
 
-#undef prh_extern_api
+#undef PRH_EXPORT_API
+#undef PRH_IMPORT_API
 
 // C++ 编译器会对函数名和变量名进行改编（mangle），这在链接的时候会导致严重的问题。举个例子，假设一
 // 个 DLL 使用 C++ 编写的，而可执行文件使用 C 编写的。在构建 DLL 的时候，编译器会对函数名进行改编，
@@ -777,28 +800,36 @@ extern "C" {
 
 #if defined(prh_msc_version)
     #if defined(prh_export_dll_apis)
-        #define prh_extern_api prh_impl_extern_keyword __declspec(dllexport)
+        #define PRH_EXPORT_API prh_impl_extern_keyword __declspec(dllexport)
     #elif defined(prh_import_dll_apis)
-        #define prh_extern_api prh_impl_extern_keyword __declspec(dllimport)
+        #define PRH_EXPORT_API prh_impl_extern_keyword __declspec(dllimport)
     #else
-        #define prh_extern_api prh_impl_extern_keyword
+        #define PRH_EXPORT_API prh_impl_extern_keyword
     #endif
 #elif defined(prh_plat_windows) && defined(prh_gcc_version)
     #if defined(prh_export_dll_apis)
-        #define prh_extern_api prh_impl_extern_keyword __attribute__((dllexport))
+        #define PRH_EXPORT_API prh_impl_extern_keyword __attribute__((dllexport))
     #elif defined(prh_import_dll_apis)
-        #define prh_extern_api prh_impl_extern_keyword __attribute__((dllimport))
+        #define PRH_EXPORT_API prh_impl_extern_keyword __attribute__((dllimport))
     #else
-        #define prh_extern_api prh_impl_extern_keyword
+        #define PRH_EXPORT_API prh_impl_extern_keyword
     #endif
 #elif defined(prh_gcc_version) || defined(prh_clang_version)
     #if defined(prh_export_dll_apis)
-        #define prh_extern_api prh_impl_extern_keyword __attribute__((visibility("default")))
+        #define PRH_EXPORT_API prh_impl_extern_keyword __attribute__((visibility("default")))
     #else
-        #define prh_extern_api prh_impl_extern_keyword
+        #define PRH_EXPORT_API prh_impl_extern_keyword
     #endif
 #else
-    #define prh_extern_api prh_impl_extern_keyword
+    #define PRH_EXPORT_API prh_impl_extern_keyword
+#endif
+
+#if defined(prh_msc_version)
+    #define PRH_IMPORT_API prh_impl_extern_keyword __declspec(dllimport)
+#elif defined(prh_plat_windows) && defined(prh_gcc_version)
+    #define PRH_IMPORT_API prh_impl_extern_keyword __attribute__((dllimport))
+#else
+    #define PRH_IMPORT_API prh_impl_extern_keyword
 #endif
 
 #undef prh_impl_extern_keyword
@@ -1109,92 +1140,6 @@ extern "C" {
     #define false 0
 #endif
 
-// https://en.cppreference.com/w/cpp/error/assert
-//
-// The definition of the macro assert depends on another macro, NDEBUG, which
-// is not defined by the standard library. If NDEBUG is defined as a macro name
-// at the point in the source code where <cassert> or <assert.h> is included,
-// the assertion is disabled: assert does nothing. Otherwise, the assertion is
-// enabled.
-//
-// In one source file, you can define and undefine NDEBUG multiple times, each
-// time followed by #include <cassert>, to enable or disable the assert macro
-// multiple times in the same source file.
-//
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-macro-assert-wassert
-//
-// assert 宏通常用于在程序开发过程中识别逻辑错误。通过实现表达式参数仅在程序运行不正
-// 确时评估为假，从而在出现意外条件时停止程序执行。可以通过定义宏 NDEBUG 在编译时关闭
-// 断言检查。你可以通过使用 /DNDEBUG 命令行选项，在不修改源文件的情况下关闭 assert
-// 宏。也可以通过在包含 <assert.h> 之前使用 #define NDEBUG 指令，在源代码中关闭
-// assert 宏。
-//
-// 当表达式评估为假（0）时，assert 会打印一条诊断消息，并调用 abort 来停止程序执行。
-// 如果表达式为真（非零），则不采取任何操作。诊断消息包括失败的表达式、源文件名以及断
-// 言失败的行号。诊断消息以宽字符（wchar_t）形式打印。因此，即使表达式中包含 Unicode
-// 字符，它也能按预期工作。诊断消息的目标取决于调用该例程的应用程序类型。控制台应用程
-// 序通过 stderr 接收消息。在基于 Windows 的应用程序中，assert 调用 Windows 的
-// MessageBox 函数来创建一个消息框以显示消息，该消息框包含三个按钮：中止（Abort）、
-// 重试（Retry）和忽略（Ignore）。如果用户选择“中止”，程序将立即终止。如果用户选择
-// “重试”，将调用调试器（如果启用了即时调试），用户可以调试程序。如果用户选择“忽略”，
-// 程序将继续正常执行。在存在错误条件时点击“忽略”可能会导致未定义行为，因为调用代码的
-// 前置条件未得到满足。要覆盖默认输出行为，无论应用程序类型如何，都可以调用
-// _set_error_mode 来选择是将输出发送到 stderr 还是显示对话框。
-//
-// _assert 和 _wassert 函数是内部 CRT 函数。它们有助于减少对象文件中支持断言所需的
-// 代码量。不建议直接调用这些函数。
-//
-// 当未定义 NDEBUG 时，assert 宏在 C 运行时库的发布版和调试版中都启用。当定义了
-// NDEBUG 时，宏可用，但不会评估其参数，也没有任何效果。当启用时，assert 宏调用
-// _wassert 来实现其功能。其他断言宏，如 _ASSERT、_ASSERTE 和 _ASSERT_EXPR 也
-// 可用，但只有在定义了 _DEBUG 宏且代码链接了调试版的 C 运行时库时，才会评估传递
-// 给它们的表达式。Other assertion macros, _ASSERT, _ASSERTE and _ASSERT_EXPR,
-// are also available, but they only evaluate the expressions passed to them
-// when the _DEBUG macro has been defined and when they are in code linked
-// with the debug version of the C run-time libraries.
-//
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/debug
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-debugging-techniques
-// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-asserte-assert-expr-macros
-//
-// The compiler defines _DEBUG when you specify the /MTd or /MDd option. These
-// options specify debug versions of the C run-time library.
-//
-// The C runtime (CRT) library provides extensive debugging support. To use one
-// of the CRT debug libraries, you must link with /DEBUG and compile with /MDd,
-// /MTd, or /LDd. The main definitions and macros for CRT debugging can be
-// found in the<crtdbg.h> header file.
-//
-// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏为应用程序提供了一种在调试过程中检查假设的简
-// 洁机制。它们非常灵活，因为不需要用 #ifdef 语句将它们包围起来，以防止它们在应用程序
-// 的零售版本中被调用。这种灵活性是通过使用 _DEBUG 宏实现的。_ASSERT_EXPR、_ASSERT
-// 和 _ASSERTE 只有在编译时定义了 _DEBUG 宏时才可用。如果未定义 _DEBUG 宏，则在预处
-// 理期间会移除对这些宏的调用。
-//
-// 如果结果为假（0），它们会打印一条诊断消息，并调用 _CrtDbgReportW 来生成调试报告。
-// 除非你使用 _CrtSetReportMode 和 _CrtSetReportFile 函数指定了其他方式，否则消息
-// 会出现在一个弹出式对话框中，这相当于设置了：
-//      _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_WNDW); 将断言设置为弹窗
-//
-// 当目标是一个调试消息窗口且用户选择“重试”按钮时，_CrtDbgReportW 返回 1，这将导致
-// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏在启用了即时调试（JIT）的情况下启动调试器。
-// _RPT 和 _RPTF 调试宏也可用于生成调试报告，但它们不评估表达式。_RPT 宏生成简单的报
-// 告，而 _RPTF 宏在生成的报告中包含调用报告宏的源文件和行号。
-//
-// 虽然 _ASSERT_EXPR、_ASSERT 和 _ASSERTE 是宏，并且可以通过包含 <crtdbg.h> 来使
-// 用，但当定义了 _DEBUG 宏时，应用程序必须链接到调试版本的 C 运行时库，因为这些宏调
-// 用了其他运行时函数。
-
-#if defined(_DEBUG)
-    #undef NDEBUG // 启用标准断言
-    #define PRH_DEBUG 1
-#else
-    #define NDEBUG 1 // 关闭标准断言
-    #define PRH_DEBUG 0
-#endif
-
-#define prh_static_assert(const_expr) typedef int prh_impl_static_assert[(const_expr) ? 1 : -1]
-
 #define PRH_I08_MIN ((prh_i08)-127-1)   // 0x80 128
 #define PRH_I08_MAX ((prh_i08)127)      // 0x7f 127
 #define PRH_I08_UMX ((prh_r08)255)      // 0xff 255
@@ -1269,6 +1214,38 @@ typedef prh_raw prh_handle;
 typedef float prh_f32;
 typedef double prh_f64;
 typedef prh_f32 prh_float;
+typedef struct prh_data prh_view;
+
+typedef struct prh_data {
+    prh_byte *data;
+    union {
+        prh_reg size;
+        prh_reg bytes;
+        prh_reg count;
+        prh_reg length;
+    };
+} prh_data;
+
+typedef union {
+    prh_f32 value; // <sign> 1.<mantissa> * 10 ^ <exponent>
+#if defined(prh_float_lit_endian) // exponent = exponent + 127
+    prh_r32 mantissa: 23, exponent: 8, sign: 1;
+#else
+    prh_r32 sign: 1, exponent: 8, mantissa: 23;
+#endif
+} prh_union_f32;
+
+typedef union {
+    prh_f64 value; // <sign> 1.<mantissa> * 10 ^ <Exponent>
+#if defined(prh_float_lit_endian) // Exponent = exponent + 1023
+    prh_r64 mantissa: 52, exponent: 11, sign: 1;
+#else
+    prh_r64 sign: 1, exponent: 11, mantissa: 52;
+#endif
+} prh_union_f64;
+
+#define prh_static_assert(const_expr) typedef int prh_impl_static_assert[(const_expr) ? 1 : -1]
+#define prh_offsetof(type, field) ((prh_reg)(&((type *)0)->field))
 
 prh_static_assert(sizeof(int) == 4);
 prh_static_assert(sizeof(bool) == 1);
@@ -1291,37 +1268,148 @@ prh_static_assert(sizeof(prh_f32) == 4);
 prh_static_assert(sizeof(prh_f64) == 8);
 prh_static_assert(sizeof(prh_float) == 4);
 
-typedef union {
-    prh_f32 value; // <sign> 1.<mantissa> * 10 ^ <exponent>
-#if defined(prh_lit_endian) // exponent = exponent + 127
-    prh_r32 mantissa: 23, exponent: 8, sign: 1;
-#else
-    prh_r32 sign: 1, exponent: 8, mantissa: 23;
+#undef prh_return_address
+
+#if defined(prh_msc_version)
+// https://learn.microsoft.com/en-us/cpp/intrinsics/intrinsics-available-on-all-architectures
+#include <intrin.h>
+#define prh_return_address ((prh_raw)_ReturnAddress())
+#elif defined(prh_gcc_version) || defined(prh_clang_version)
+// https://gcc.gnu.org/onlinedocs/gcc/Return-Address.html
+// 7.6 获取函数的返回地址或帧地址，这些函数可用于获取函数调用者的信息
+//
+// void * __builtin_return_address(unsigned int level)
+//
+// 此函数返回当前函数的返回地址，或其某个调用者的返回地址。level 参数是要沿调用栈向上扫描的帧数。值
+// 为 0 时得到当前函数的返回地址，值为 1 时得到当前函数调用者的返回地址，以此类推。内联（inlining）
+// 时的预期行为是：该函数返回"将要返回到的那个函数"的地址。要规避此行为，可使用 noinline 函数属性。
+// level 参数必须是常量整数。
+//
+// 在某些机器上，可能无法确定除当前函数之外的任何函数的返回地址；在这种情况下，或当已到达栈顶时，此
+// 函数返回一个未指定的值。此外，可使用 __builtin_frame_address 来确定是否已到达栈顶。返回的值可能需
+// 要额外的后处理，参见 __builtin_extract_return_addr。
+//
+// 返回地址在内存中的存储表示可能与此函数返回的地址不同。例如，在 AArch64 上，存储的地址可能经过返回
+// 地址签名（return address signing）处理，而 __builtin_return_address 返回的地址则没有。
+//
+// 以非零参数调用此函数可能产生不可预知的影响，包括使调用程序崩溃。因此，当启用 -Wframe-address 选项
+// 时，被认为不安全的调用会被诊断。此类调用只应在调试场景中进行。
+//
+// 在代码地址可用 void * 表示的目标平台上，下面的代码可以得到当前函数将要返回到的代码地址。例如，这
+// 样的地址可以与 dladdr 或其他使用代码地址的接口配合使用。
+//      void *addr = __builtin_extract_return_addr(__builtin_return_address(0));
+//
+// void * __builtin_extract_return_addr(void *addr)
+//
+// 函数 __builtin_return_address 返回的地址可能需要经过它处理，才能得到实际编码的地址。例如，在 31
+// 位 S/390 平台上必须掩掉最高位；在 SPARC 平台上必须加上一个偏移量，才能得到真正要执行的下一条指令。
+// 如果无需修正，此函数只是原样透传 addr。
+//
+// void * __builtin_frob_return_addr(void *addr)
+//
+// 此函数执行与 __builtin_extract_return_addr 相反的操作。
+//
+// void * __builtin_frame_address(unsigned int level)
+//
+// 此函数与 __builtin_return_address 类似，但它返回的是函数帧的地址，而不是函数的返回地址。以值 0 调
+// 用 __builtin_frame_address 得到当前函数的帧地址，值 1 得到当前函数调用者的帧地址，以此类推。帧是
+// 栈上存放局部变量和已保存寄存器的区域。帧地址通常是函数压入栈的第一个字的地址。不过，精确定义取决
+// 于处理器和调用约定。如果处理器有专用的帧指针寄存器，且函数有帧，则 __builtin_frame_address 返回帧
+// 指针寄存器的值。
+//
+// 在某些机器上，可能无法确定除当前函数之外的任何函数的帧地址；在这种情况下，或当已到达栈顶时，如果
+// 第一个帧指针已由启动代码正确初始化，此函数返回 0。
+//
+// 以非零参数调用此函数可能产生不可预知的影响，包括使调用程序崩溃。因此，当启用 -Wframe-address 选项
+// 时，被认为不安全的调用会被诊断。此类调用只应在调试场景中进行。
+//
+// void * __builtin_stack_address()
+//
+// 此函数返回栈指针寄存器的值，如果定义了 STACK_ADDRESS_OFFSET，则加上该偏移量。从概念上讲，此内建函
+// 数返回的地址，是其调用者可用的栈区与"可能被函数调用修改的区域"之间的边界；调用者可以（在调用序列
+// 之前或之后，但不能在调用期间）安全地将该区域清零。
+//
+// 被调用者的参数可能作为调用者栈帧的一部分预先分配，也可能按每次调用分配，这取决于目标平台，因此它
+// 们可能位于此边界的任一侧。
+//
+// 即使栈指针是有偏置（biased）的，返回结果也是没有偏置的。SPARC 上的寄存器保存区被视为可被调用修改，
+// 而不是分配给调用者函数使用，因为在调用者函数自身运行期间它从未被使用。
+//
+// 只有叶函数（leaf function）才能使用的红区（red zone）也被视为可被调用修改，而不是分配给调用者使
+// 用。这只是理论上的说法，因为叶函数不会发起调用；但使用常量偏移使此内建函数更具可预测性。
+#define prh_return_address ((prh_raw)__builtin_extract_return_addr(__builtin_return_address(0)))
 #endif
-} prh_union_f32;
 
-typedef union {
-    prh_f64 value; // <sign> 1.<mantissa> * 10 ^ <Exponent>
-#if defined(prh_lit_endian) // Exponent = exponent + 1023
-    prh_r64 mantissa: 52, exponent: 11, sign: 1;
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/debug
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-debugging-techniques
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-asserte-assert-expr-macros
+//
+// The compiler defines _DEBUG when you specify the /MTd or /MDd option. These
+// options specify debug versions of the C run-time library.
+//
+// The C runtime (CRT) library provides extensive debugging support. To use one
+// of the CRT debug libraries, you must link with /DEBUG and compile with /MDd,
+// /MTd, or /LDd. The main definitions and macros for CRT debugging can be
+// found in the<crtdbg.h> header file.
+//
+// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏为应用程序提供了一种在调试过程中检查假设的简
+// 洁机制。它们非常灵活，因为不需要用 #ifdef 语句将它们包围起来，以防止它们在应用程序
+// 的零售版本中被调用。这种灵活性是通过使用 _DEBUG 宏实现的。_ASSERT_EXPR、_ASSERT
+// 和 _ASSERTE 只有在编译时定义了 _DEBUG 宏时才可用。如果未定义 _DEBUG 宏，则在预处
+// 理期间会移除对这些宏的调用。
+//
+// 如果结果为假（0），它们会打印一条诊断消息，并调用 _CrtDbgReportW 来生成调试报告。
+// 除非你使用 _CrtSetReportMode 和 _CrtSetReportFile 函数指定了其他方式，否则消息
+// 会出现在一个弹出式对话框中，这相当于设置了：
+//      _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_WNDW); 将断言设置为弹窗
+//
+// 当目标是一个调试消息窗口且用户选择“重试”按钮时，_CrtDbgReportW 返回 1，这将导致
+// _ASSERT_EXPR、_ASSERT 和 _ASSERTE 宏在启用了即时调试（JIT）的情况下启动调试器。
+// _RPT 和 _RPTF 调试宏也可用于生成调试报告，但它们不评估表达式。_RPT 宏生成简单的报
+// 告，而 _RPTF 宏在生成的报告中包含调用报告宏的源文件和行号。
+//
+// 虽然 _ASSERT_EXPR、_ASSERT 和 _ASSERTE 是宏，并且可以通过包含 <crtdbg.h> 来使
+// 用，但当定义了 _DEBUG 宏时，应用程序必须链接到调试版本的 C 运行时库，因为这些宏调
+// 用了其他运行时函数。
+
+#undef PRH_DEBUG
+
+#if defined(_DEBUG)
+    #undef NDEBUG // 启用标准断言
+    #define PRH_DEBUG 1
 #else
-    prh_r64 sign: 1, exponent: 11, mantissa: 52;
+    #define NDEBUG 1 // 关闭标准断言
+    #define PRH_DEBUG 0
 #endif
-} prh_union_f64;
 
-typedef struct {
-    prh_byte *data;
-    union {
-        prh_reg size;
-        prh_reg bytes;
-        prh_reg count;
-        prh_reg length;
-    };
-} prh_data;
+#undef prh_line_file_debug
+#undef prh_line_caller_debug
 
-typedef prh_data prh_view;
+#if defined(prh_using_line_caller_debug)
+    #define prh_line_caller_debug 1
+#elif defined(prh_using_line_file_debug)
+    #define prh_line_file_debug 1
+#else
+    #define prh_line_file_debug 1
+#endif
 
-#define prh_offsetof(type, field) ((prh_reg)(&((type *)0)->field))
+#undef prh_caller
+
+#if defined(prh_line_caller_debug)
+    #define prh_caller prh_return_address
+#else
+    #define prh_caller ((prh_raw)__FILE__)
+#endif
+
+// 当 ## 记号粘贴（token paste）操作符位于逗号（,）和可变参数（__VA_ARGS__）之间时，具有特殊含义。如
+// 果在使用宏时省略了可变参数，那么 ## 之前的逗号会被删除。如果传入的是空参数，则不会发生这种删除；如
+// 果 ## 之前的记号不是逗号，也不会发生。ISO C99 要求可变参数宏中的 "..." 至少有一个参数。
+//
+// The ‘##’ token paste operator has a special meaning when placed between a comma (,) and a variable
+// argument (__VA_ARGS__). If the variable argument is left out when the macro is used, then the comma
+// before the ‘##’ will be deleted. This does not happen if you pass an empty argument, nor does it
+// happen if the token preceding ‘##’ is anything other than a comma. ISO C99 requires at least one
+// argument for the "..." in a variadic macro.
 
 #define prh_macro_make_name(a, b) prh_impl_macro_make_name(a, b)
 #define prh_macro_make_cstr(a) prh_impl_macro_make_cstr(a)
@@ -1337,6 +1425,118 @@ typedef prh_data prh_view;
 }
 #endif
 #endif // prh_impl_include_prelude_h
+
+#undef prh_impl_stdc_assert
+#undef prh_impl_lang_assert
+#undef prh_impl_sdl3_assert
+
+#if defined(prh_using_lang_assert)
+    #define prh_impl_lang_assert 1
+#elif defined(prh_using_sdl3_assert)
+    #define prh_impl_sdl3_assert 1
+#elif defined(prh_using_stdc_assert)
+    #define prh_impl_stdc_assert 1
+#else
+    #define prh_impl_stdc_assert 1
+#endif
+
+#if defined(prh_impl_stdc_assert)
+
+#ifndef prh_impl_include_stdc_assert_h
+#define prh_impl_include_stdc_assert_h
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// https://en.cppreference.com/w/cpp/error/assert
+//
+// The definition of the macro assert depends on another macro, NDEBUG, which
+// is not defined by the standard library. If NDEBUG is defined as a macro name
+// at the point in the source code where <cassert> or <assert.h> is included,
+// the assertion is disabled: assert does nothing. Otherwise, the assertion is
+// enabled.
+//
+// In one source file, you can define and undefine NDEBUG multiple times, each
+// time followed by #include <cassert>, to enable or disable the assert macro
+// multiple times in the same source file.
+//
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-macro-assert-wassert
+//
+// assert 宏通常用于在程序开发过程中识别逻辑错误。通过实现表达式参数仅在程序运行不正
+// 确时评估为假，从而在出现意外条件时停止程序执行。可以通过定义宏 NDEBUG 在编译时关闭
+// 断言检查。你可以通过使用 /DNDEBUG 命令行选项，在不修改源文件的情况下关闭 assert
+// 宏。也可以通过在包含 <assert.h> 之前使用 #define NDEBUG 指令，在源代码中关闭
+// assert 宏。
+//
+// 当表达式评估为假（0）时，assert 会打印一条诊断消息，并调用 abort 来停止程序执行。
+// 如果表达式为真（非零），则不采取任何操作。诊断消息包括失败的表达式、源文件名以及断
+// 言失败的行号。诊断消息以宽字符（wchar_t）形式打印。因此，即使表达式中包含 Unicode
+// 字符，它也能按预期工作。诊断消息的目标取决于调用该例程的应用程序类型。控制台应用程
+// 序通过 stderr 接收消息。在基于 Windows 的应用程序中，assert 调用 Windows 的
+// MessageBox 函数来创建一个消息框以显示消息，该消息框包含三个按钮：中止（Abort）、
+// 重试（Retry）和忽略（Ignore）。如果用户选择“中止”，程序将立即终止。如果用户选择
+// “重试”，将调用调试器（如果启用了即时调试），用户可以调试程序。如果用户选择“忽略”，
+// 程序将继续正常执行。在存在错误条件时点击“忽略”可能会导致未定义行为，因为调用代码的
+// 前置条件未得到满足。要覆盖默认输出行为，无论应用程序类型如何，都可以调用
+// _set_error_mode 来选择是将输出发送到 stderr 还是显示对话框。
+//
+// _assert 和 _wassert 函数是内部 CRT 函数。它们有助于减少对象文件中支持断言所需的
+// 代码量。不建议直接调用这些函数。
+//
+// 当未定义 NDEBUG 时，assert 宏在 C 运行时库的发布版和调试版中都启用。当定义了
+// NDEBUG 时，宏可用，但不会评估其参数，也没有任何效果。当启用时，assert 宏调用
+// _wassert 来实现其功能。其他断言宏，如 _ASSERT、_ASSERTE 和 _ASSERT_EXPR 也
+// 可用，但只有在定义了 _DEBUG 宏且代码链接了调试版的 C 运行时库时，才会评估传递
+// 给它们的表达式。Other assertion macros, _ASSERT, _ASSERTE and _ASSERT_EXPR,
+// are also available, but they only evaluate the expressions passed to them
+// when the _DEBUG macro has been defined and when they are in code linked
+// with the debug version of the C run-time libraries.
+
+#include <assert.h> // assert 如果在这之前定义了 NDEBUG 断言为空
+#include <stdlib.h> // malloc calloc realloc free abort exit size_t
+#include <stdio.h> // printf fprintf
+
+#undef prh_impl_real_assert
+#undef prh_impl_plus_assert
+#undef prh_real_assert
+#undef prh_real_plus_assert
+#undef prh_assert
+#undef prh_plus_assert
+
+#define prh_impl_real_assert(a, line, caller) ((void)((a) || (prh_impl_assert_line_caller((line), (caller)), false)))
+#define prh_impl_plus_assert(a, line, caller, ...) ((void)((a) || ((__VA_ARGS__), prh_impl_assert_line_caller((line), (caller)), false)))
+#define prh_real_plus_assert(a, ...) prh_impl_plus_assert((a), __LINE__, prh_caller, __VA_ARGS__)
+
+#if PRH_DEBUG
+    #if defined(prh_line_caller_debug)
+        #define prh_real_assert(a) prh_impl_real_assert(a, __LINE__, prh_caller)
+    #else
+        #define prh_real_assert(a) assert(a)
+    #endif
+    #define prh_plus_assert(a, ...) prh_real_plus_assert((a), __VA_ARGS__)
+    #define prh_assert(a) prh_real_assert(a)
+#else
+    #define prh_real_assert(a) prh_impl_real_assert(a, __LINE__, prh_caller)
+    #define prh_plus_assert(a, ...)
+    #define prh_assert(a)
+#endif
+
+prh_inline void prh_impl_assert_line_caller(int line, prh_raw caller)
+{
+#if defined(prh_line_caller_debug)
+    fprintf(stderr, "assert line %d caller %p\n", line, (void *)caller);
+#else
+    fprintf(stderr, "assert line %d file %s\n", line, (const char *)caller);
+#endif
+    abort();
+}
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_impl_include_stdc_assert_h
+
+#endif // prh_impl_stdc_assert
 
 // FULL VERSION HISTORY
 //
