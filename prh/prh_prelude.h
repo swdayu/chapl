@@ -783,8 +783,8 @@ extern "C" {
 // 在 C++ 中，如果模板实参的可见性受限，该限制会隐式传播到模板实例化。否则，模板实例化和特化默认采用
 // 其模板的可见性。如果模板和外围类都有显式可见性，则使用来自模板的可见性。
 
-#undef PRH_EXPORT_API
-#undef PRH_IMPORT_API
+#undef prh_export
+#undef prh_import
 
 // C++ 编译器会对函数名和变量名进行改编（mangle），这在链接的时候会导致严重的问题。举个例子，假设一
 // 个 DLL 使用 C++ 编写的，而可执行文件使用 C 编写的。在构建 DLL 的时候，编译器会对函数名进行改编，
@@ -800,39 +800,37 @@ extern "C" {
 
 #if defined(prh_msc_version)
     #if defined(prh_export_dll_apis)
-        #define PRH_EXPORT_API prh_impl_extern_keyword __declspec(dllexport)
+        #define prh_export prh_impl_extern_keyword __declspec(dllexport)
     #elif defined(prh_import_dll_apis)
-        #define PRH_EXPORT_API prh_impl_extern_keyword __declspec(dllimport)
+        #define prh_export prh_impl_extern_keyword __declspec(dllimport)
     #else
-        #define PRH_EXPORT_API prh_impl_extern_keyword
+        #define prh_export prh_impl_extern_keyword
     #endif
 #elif defined(prh_plat_windows) && defined(prh_gcc_version)
     #if defined(prh_export_dll_apis)
-        #define PRH_EXPORT_API prh_impl_extern_keyword __attribute__((dllexport))
+        #define prh_export prh_impl_extern_keyword __attribute__((dllexport))
     #elif defined(prh_import_dll_apis)
-        #define PRH_EXPORT_API prh_impl_extern_keyword __attribute__((dllimport))
+        #define prh_export prh_impl_extern_keyword __attribute__((dllimport))
     #else
-        #define PRH_EXPORT_API prh_impl_extern_keyword
+        #define prh_export prh_impl_extern_keyword
     #endif
 #elif defined(prh_gcc_version) || defined(prh_clang_version)
     #if defined(prh_export_dll_apis)
-        #define PRH_EXPORT_API prh_impl_extern_keyword __attribute__((visibility("default")))
+        #define prh_export prh_impl_extern_keyword __attribute__((visibility("default")))
     #else
-        #define PRH_EXPORT_API prh_impl_extern_keyword
+        #define prh_export prh_impl_extern_keyword
     #endif
 #else
-    #define PRH_EXPORT_API prh_impl_extern_keyword
+    #define prh_export prh_impl_extern_keyword
 #endif
 
 #if defined(prh_msc_version)
-    #define PRH_IMPORT_API prh_impl_extern_keyword __declspec(dllimport)
+    #define prh_import prh_impl_extern_keyword __declspec(dllimport)
 #elif defined(prh_plat_windows) && defined(prh_gcc_version)
-    #define PRH_IMPORT_API prh_impl_extern_keyword __attribute__((dllimport))
+    #define prh_import prh_impl_extern_keyword __attribute__((dllimport))
 #else
-    #define PRH_IMPORT_API prh_impl_extern_keyword
+    #define prh_import prh_impl_extern_keyword
 #endif
-
-#undef prh_impl_extern_keyword
 
 // alignas(size) alignas(type)
 //
@@ -1340,6 +1338,249 @@ prh_static_assert(sizeof(prh_float) == 4);
 #define prh_return_address ((prh_raw)__builtin_extract_return_addr(__builtin_return_address(0)))
 #endif
 
+#if defined(prh_msc_version)
+#include <intrin.h> // https://learn.microsoft.com/en-us/cpp/intrinsics/x64-amd64-intrinsics-list
+#include <stdlib.h> // https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/byteswap-uint64-byteswap-ulong-byteswap-ushort
+
+prh_static_assert(sizeof(short) == sizeof(prh_r16));
+prh_static_assert(sizeof(long) == sizeof(prh_r32));
+prh_static_assert(sizeof(__int64) == sizeof(prh_r64));
+
+prh_inline prh_r16 prh_r16_byte_swap(prh_r16 value)
+{
+    return _byteswap_ushort(value);
+}
+
+prh_inline prh_r32 prh_r32_byte_swap(prh_r32 value)
+{
+    return _byteswap_ulong(value);
+}
+
+prh_inline prh_r64 prh_r64_byte_swap(prh_r64 value)
+{
+    return _byteswap_uint64(value);
+}
+
+prh_inline prh_r32 prh_r32_unchecked_lower_most_bit_position(prh_r32 n)
+{
+    unsigned long zeros;
+    _BitScanForward(&zeros, n);
+    return (prh_r32)zeros;
+}
+
+prh_inline prh_r32 prh_r32_unchecked_higher_most_bit_position(prh_r32 n)
+{
+    unsigned long zeros;
+    _BitScanReverse(&zeros, n);
+    return (prh_r32)zeros;
+}
+
+prh_inline prh_r32 prh_r32_lower_most_bit_position(prh_r32 n)
+{
+    return n ? prh_r32_unchecked_lower_most_bit_position(n) : 0;
+}
+
+prh_inline prh_r32 prh_r32_higher_most_bit_position(prh_r32 n)
+{
+    return n ? prh_r32_unchecked_higher_most_bit_position(n) : 0;
+}
+
+prh_inline prh_r32 prh_r32_trailing_zeros(prh_r32 n)
+{
+    unsigned long zeros; // 从最低位开始找1比特位，返回第一个1比特位前面的0的个数
+    prh_byte has_set_bit = _BitScanForward(&zeros, n);
+    return has_set_bit ? zeros : 32;
+}
+
+prh_inline prh_r32 prh_r32_leading_zeros(prh_r32 n)
+{
+    unsigned long zeros; // 从最高位开始找1比特位，返回第一个1比特位前面的0的个数
+    prh_byte has_set_bit = _BitScanReverse(&zeros, n);
+    return has_set_bit ? 31 - zeros : 32;
+}
+
+#if defined(prh_arch_x64) || defined(prh_arch_a64)
+
+prh_inline prh_r32 prh_r64_unchecked_lower_most_bit_position(prh_r64 n)
+{
+    unsigned long zeros;
+    _BitScanForward64(&zeros, n);
+    return (prh_r32)zeros;
+}
+
+prh_inline prh_r32 prh_r64_unchecked_higher_most_bit_position(prh_r64 n)
+{
+    unsigned long zeros;
+    _BitScanReverse64(&zeros, n);
+    return (prh_r32)zeros;
+}
+
+prh_inline prh_r32 prh_r64_lower_most_bit_position(prh_r64 n)
+{
+    return n ? prh_r64_unchecked_lower_most_bit_position(n) : 0;
+}
+
+prh_inline prh_r32 prh_r64_higher_most_bit_position(prh_r64 n)
+{
+    return n ? prh_r64_unchecked_higher_most_bit_position(n) : 0;
+}
+
+prh_inline prh_r32 prh_r64_trailing_zeros(prh_r64 n)
+{
+    unsigned long zeros; // 从最低位开始找1比特位，返回第一个1比特位前面的0的个数
+    prh_byte has_set_bit = _BitScanForward64(&zeros, n);
+    return has_set_bit ? zeros : 64;
+}
+
+prh_inline prh_r32 prh_r64_leading_zeros(prh_r64 n)
+{
+    unsigned long zeros; // 从最高位开始找1比特位，返回第一个1比特位前面的0的个数
+    prh_byte has_set_bit = _BitScanReverse64(&zeros, n);
+    return has_set_bit ? 63 - zeros : 64;
+}
+
+#endif // prh_arch_x64 prh_arch_a64
+
+#if defined(prh_arch_x86) || defined(prh_arch_x64)
+
+prh_inline prh_r32 prh_r32_set_bit_count(prh_r32 n)
+{
+    return _mm_popcnt_u32(n);
+}
+
+#if defined(prh_arch_x64)
+prh_inline prh_r32 prh_r64_set_bit_count(prh_r64 n)
+{
+    return (prh_r32)_mm_popcnt_u64(n);
+}
+#endif
+
+#elif defined(prh_arch_arm) || defined(prh_arch_a64)
+
+prh_inline prh_r32 prh_r32_set_bit_count(prh_r32 n)
+{
+    return _CountOneBits(n);
+}
+
+#if defined(prh_arch_a64)
+prh_inline prh_r32 prh_r64_set_bit_count(prh_r64 n)
+{
+    return _CountOneBits64(n);
+}
+#endif
+
+#endif // prh_arch_x86 prh_arch_x64
+#endif // prh_msc_version
+
+#if defined(prh_gcc_version) || defined(prh_clang_version)
+// https://gcc.gnu.org/onlinedocs/gcc/Bit-Operation-Builtins.html
+
+prh_inline prh_r16 prh_r16_byte_swap(prh_r16 value)
+{
+    return __builtin_bswap16(value);
+}
+
+prh_inline prh_r32 prh_r32_byte_swap(prh_r32 value)
+{
+    return __builtin_bswap32(value);
+}
+
+prh_inline prh_r64 prh_r64_byte_swap(prh_r64 value)
+{
+    return __builtin_bswap64(value);
+}
+
+prh_inline prh_r32 prh_r32_trailing_zeros(prh_r32 n)
+{
+    return n ? __builtin_ctz(n) : 32;
+}
+
+prh_inline prh_r32 prh_r32_leading_zeros(prh_r32 n)
+{
+    return n ? __builtin_clz(n) : 32;
+}
+
+prh_inline prh_r32 prh_r64_trailing_zeros(prh_r64 n)
+{
+    return n ? __builtin_ctzll(n) : 64;
+}
+
+prh_inline prh_r32 prh_r64_leading_zeros(prh_r64 n)
+{
+    return n ? __builtin_clzll(n) : 64;
+}
+
+prh_inline prh_r32 prh_r32_unchecked_trailing_zeros(prh_r32 n)
+{
+    return __builtin_ctz(n); /* if n is 0, the result is undefined */
+}
+
+prh_inline prh_r32 prh_r32_unchecked_leading_zeros(prh_r32 n)
+{
+    return __builtin_clz(n);
+}
+
+prh_inline prh_r32 prh_r64_unchecked_trailing_zeros(prh_r64 n)
+{
+    return __builtin_ctzll(n);
+}
+
+prh_inline prh_r32 prh_r64_unchecked_leading_zeros(prh_r64 n)
+{
+    return __builtin_clzll(n);
+}
+
+prh_inline prh_r32 prh_r32_unchecked_lower_most_bit_position(prh_r32 n)
+{
+    return prh_r32_unchecked_trailing_zeros(n);
+}
+
+prh_inline prh_r32 prh_r32_unchecked_higher_most_bit_position(prh_r32 n)
+{
+    return 31 - prh_r32_unchecked_leading_zeros(n);
+}
+
+prh_inline prh_r32 prh_r64_unchecked_lower_most_bit_position(prh_r64 n)
+{
+    return prh_r64_unchecked_trailing_zeros(n);
+}
+
+prh_inline prh_r32 prh_r64_unchecked_higher_most_bit_position(prh_r64 n)
+{
+    return 63 - prh_r64_unchecked_leading_zeros(n);
+}
+
+prh_inline prh_r32 prh_r32_lower_most_bit_position(prh_r32 n)
+{
+    return (n) ? prh_r32_unchecked_trailing_zeros(n) : 0;
+}
+
+prh_inline prh_r32 prh_r32_higher_most_bit_position(prh_r32 n)
+{
+    return (n) ? 31 - prh_r32_unchecked_leading_zeros(n) : 0;
+}
+
+prh_inline prh_r32 prh_r64_lower_most_bit_position(prh_r64 n)
+{
+    return (n) ? prh_r64_unchecked_trailing_zeros(n) : 0;
+}
+
+prh_inline prh_r32 prh_r64_higher_most_bit_position(prh_r64 n)
+{
+    return (n) ? 63 - prh_r64_unchecked_leading_zeros(n) : 0;
+}
+
+prh_inline prh_r32 prh_r32_set_bit_count(prh_r32 n)
+{
+    return __builtin_popcount(n);
+}
+
+prh_inline prh_r32 prh_r64_set_bit_count(prh_r64 n)
+{
+    return __builtin_popcountll(n);
+}
+#endif // prh_gcc_version
+
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/debug
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/crt-debugging-techniques
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/assert-asserte-assert-expr-macros
@@ -1416,10 +1657,453 @@ prh_static_assert(sizeof(prh_float) == 4);
 #define prh_impl_macro_make_name(a, b) a ## b
 #define prh_impl_macro_make_cstr(a) #a
 
-#define prh_arrlen(a) (sizeof(a)/sizeof((a)[0]))
-#define prh_arrend(a) ((a) + prh_arrlen(a))
-#define prh_arrelt(a, i) (a)[(prh_assert((i) >= 0 && (i) < prh_arrlen(a))), i]
-#define prh_arrget(a) (a), prh_arrlen(a)
+// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18
+// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB
+#define prh_impl_align_4_byte 2
+#define prh_impl_align_8_byte 3
+#define prh_impl_align_16_byte 4
+#define prh_impl_align_32_byte 5
+#define prh_impl_align_64_byte 6
+#define prh_impl_align_128_byte 7
+#define prh_impl_align_256_byte 8
+#define prh_impl_align_512_byte 9
+#define prh_impl_align_1k_byte 10
+#define prh_impl_align_2k_byte 11
+#define prh_impl_align_4k_byte 12
+#define prh_impl_align_8k_byte 13
+#define prh_impl_align_16k_byte 14
+#define prh_impl_align_32k_byte 15
+#define prh_impl_align_64k_byte 16
+#define prh_impl_align_128k_byte 17
+#define prh_impl_align_256k_byte 18
+#define prh_impl_align_512k_byte 19
+#define prh_impl_align_1m_byte 20
+#define prh_impl_align_2m_byte 21
+#define prh_impl_align_4m_byte 22
+#define prh_impl_align_8m_byte 23
+#define prh_impl_align_16m_byte 24
+#define prh_impl_align_32m_byte 25
+#define prh_impl_align_64m_byte 26
+#define prh_impl_align_128m_byte 27
+#define prh_impl_align_256m_byte 28
+#define prh_impl_align_512m_byte 29
+#define prh_impl_align_1g_byte 30
+
+#ifndef prh_cache_line_size
+#define prh_cache_line_size 64
+#define prh_impl_align_line prh_impl_align_64_byte
+#endif
+
+#ifndef prh_memory_page_size
+#define prh_memory_page_size 4096
+#define prh_impl_align_page prh_impl_align_4k_byte
+#endif
+
+#ifndef prh_vmem_unit_size
+#define prh_vmem_unit_size (64*1024)
+#define prh_impl_align_vmem prh_impl_align_64k_byte
+#endif
+
+#if defined(prh_plat_windows)
+prh_static_assert(prh_vmem_unit_size == 64*1024);
+#endif
+
+prh_static_assert(prh_cache_line_size == (1 << prh_impl_align_line));
+prh_static_assert(prh_memory_page_size == (1 << prh_impl_align_page));
+prh_static_assert(prh_vmem_unit_size == (1 << prh_impl_align_vmem));
+
+#define prh_align_line_size prh_cache_line_size
+#define prh_align_page_size prh_memory_page_size
+#define prh_align_vmem_unit prh_vmem_unit_size
+#define prh_align_int_size prh_int_size
+#define prh_align_imt_size prh_imt_size
+#define prh_align_ptr_size prh_imt_size
+#define prh_align_4_byte 4
+#define prh_align_8_byte 8
+#define prh_align_16_byte 16
+#define prh_align_32_byte 32
+#define prh_align_64_byte 64
+#define prh_align_128_byte 128
+#define prh_align_256_byte 256
+#define prh_align_512_byte 512
+#define prh_align_1k_byte 1024
+#define prh_align_2k_byte (prh_align_1k_byte * 2)
+#define prh_align_4k_byte (prh_align_1k_byte * 4)
+#define prh_align_8k_byte (prh_align_1k_byte * 8)
+#define prh_align_16k_byte (prh_align_1k_byte * 16)
+#define prh_align_32k_byte (prh_align_1k_byte * 32)
+#define prh_align_64k_byte (prh_align_1k_byte * 64)
+#define prh_align_128k_byte (prh_align_1k_byte * 128)
+#define prh_align_256k_byte (prh_align_1k_byte * 256)
+#define prh_align_512k_byte (prh_align_1k_byte * 512)
+#define prh_align_1m_byte 1048576
+#define prh_align_2m_byte (prh_align_1m_byte * 2)
+#define prh_align_4m_byte (prh_align_1m_byte * 4)
+#define prh_align_8m_byte (prh_align_1m_byte * 8)
+#define prh_align_16m_byte (prh_align_1m_byte * 16)
+#define prh_align_32m_byte (prh_align_1m_byte * 32)
+#define prh_align_64m_byte (prh_align_1m_byte * 64)
+#define prh_align_128m_byte (prh_align_1m_byte * 128)
+#define prh_align_256m_byte (prh_align_1m_byte * 256)
+#define prh_align_512m_byte (prh_align_1m_byte * 512)
+#define prh_align_1g_byte 1073741824
+
+prh_static_assert(prh_align_4_byte == (1 << prh_impl_align_4_byte));
+prh_static_assert(prh_align_8_byte == (1 << prh_impl_align_8_byte));
+prh_static_assert(prh_align_16_byte == (1 << prh_impl_align_16_byte));
+prh_static_assert(prh_align_32_byte == (1 << prh_impl_align_32_byte));
+prh_static_assert(prh_align_64_byte == (1 << prh_impl_align_64_byte));
+prh_static_assert(prh_align_128_byte == (1 << prh_impl_align_128_byte));
+prh_static_assert(prh_align_256_byte == (1 << prh_impl_align_256_byte));
+prh_static_assert(prh_align_512_byte == (1 << prh_impl_align_512_byte));
+prh_static_assert(prh_align_1k_byte == (1 << prh_impl_align_1k_byte));
+prh_static_assert(prh_align_2k_byte == (1 << prh_impl_align_2k_byte));
+prh_static_assert(prh_align_4k_byte == (1 << prh_impl_align_4k_byte));
+prh_static_assert(prh_align_8k_byte == (1 << prh_impl_align_8k_byte));
+prh_static_assert(prh_align_16k_byte == (1 << prh_impl_align_16k_byte));
+prh_static_assert(prh_align_32k_byte == (1 << prh_impl_align_32k_byte));
+prh_static_assert(prh_align_64k_byte == (1 << prh_impl_align_64k_byte));
+prh_static_assert(prh_align_128k_byte == (1 << prh_impl_align_128k_byte));
+prh_static_assert(prh_align_256k_byte == (1 << prh_impl_align_256k_byte));
+prh_static_assert(prh_align_512k_byte == (1 << prh_impl_align_512k_byte));
+prh_static_assert(prh_align_1m_byte == (1 << prh_impl_align_1m_byte));
+prh_static_assert(prh_align_2m_byte == (1 << prh_impl_align_2m_byte));
+prh_static_assert(prh_align_4m_byte == (1 << prh_impl_align_4m_byte));
+prh_static_assert(prh_align_8m_byte == (1 << prh_impl_align_8m_byte));
+prh_static_assert(prh_align_16m_byte == (1 << prh_impl_align_16m_byte));
+prh_static_assert(prh_align_32m_byte == (1 << prh_impl_align_32m_byte));
+prh_static_assert(prh_align_64m_byte == (1 << prh_impl_align_64m_byte));
+prh_static_assert(prh_align_128m_byte == (1 << prh_impl_align_128m_byte));
+prh_static_assert(prh_align_256m_byte == (1 << prh_impl_align_256m_byte));
+prh_static_assert(prh_align_512m_byte == (1 << prh_impl_align_512m_byte));
+prh_static_assert(prh_align_1g_byte == (1 << prh_impl_align_1g_byte));
+
+prh_inline prh_r32 prh_r32_clear_set(prh_r32 value, prh_r32 mask, prh_r32 set)
+{
+    return (value & (~mask)) | set;
+}
+
+prh_inline prh_r32 prh_r32_clear_bits(prh_r32 value, prh_r32 mask)
+{
+    return value & (~mask);
+}
+
+prh_inline prh_r64 prh_r64_clear_set(prh_r64 value, prh_r64 mask, prh_r64 set)
+{
+    return (value & (~mask)) | set;
+}
+
+prh_inline prh_r64 prh_r64_clear_bits(prh_r64 value, prh_r64 mask)
+{
+    return value & (~mask);
+}
+
+#if prh_int_bits == 64
+prh_inline prh_reg prh_reg_clear_set(prh_reg value, prh_reg mask, prh_reg set) { return prh_r64_clear_set(value, mask, set); }
+prh_inline prh_reg prh_reg_clear_bits(prh_reg value, prh_reg mask) { return prh_r64_clear_bits(value, mask); }
+#else
+prh_inline prh_reg prh_reg_clear_set(prh_reg value, prh_reg mask, prh_reg set) { return prh_r32_clear_set(value, mask, set); }
+prh_inline prh_reg prh_reg_clear_bits(prh_reg value, prh_reg mask) { return prh_r32_clear_bits(value, mask); }
+#endif
+
+#if prh_imt_bits == 64
+prh_inline prh_raw prh_raw_clear_set(prh_raw value, prh_raw mask, prh_raw set) { return prh_r64_clear_set(value, mask, set); }
+prh_inline prh_raw prh_raw_clear_bits(prh_raw value, prh_raw mask) { return prh_r64_clear_bits(value, mask); }
+#else
+prh_inline prh_raw prh_raw_clear_set(prh_raw value, prh_raw mask, prh_raw set) { return prh_r32_clear_set(value, mask, set); }
+prh_inline prh_raw prh_raw_clear_bits(prh_raw value, prh_raw mask) { return prh_r32_clear_bits(value, mask); }
+#endif
+
+#if prh_int_bits == 64
+prh_inline prh_r32 prh_reg_higher_most_bit_position(prh_reg n) { return prh_r64_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_reg_lower_most_bit_position(prh_reg n) { return prh_r64_lower_most_bit_position(n); }
+prh_inline prh_r32 prh_reg_unchecked_higher_most_bit_position(prh_reg n) { return prh_r64_unchecked_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_reg_unchecked_lower_most_bit_position(prh_reg n) { return prh_r64_unchecked_lower_most_bit_position(n); }
+#else
+prh_inline prh_r32 prh_reg_higher_most_bit_position(prh_reg n) { return prh_r32_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_reg_lower_most_bit_position(prh_reg n) { return prh_r32_lower_most_bit_position(n); }
+prh_inline prh_r32 prh_reg_unchecked_higher_most_bit_position(prh_reg n) { return prh_r32_unchecked_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_reg_unchecked_lower_most_bit_position(prh_reg n) { return prh_r32_unchecked_lower_most_bit_position(n); }
+#endif
+
+#if prh_imt_bits == 64
+prh_inline prh_r32 prh_raw_higher_most_bit_position(prh_raw n) { return prh_r64_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_raw_lower_most_bit_position(prh_raw n) { return prh_r64_lower_most_bit_position(n); }
+prh_inline prh_r32 prh_raw_unchecked_higher_most_bit_position(prh_raw n) { return prh_r64_unchecked_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_raw_unchecked_lower_most_bit_position(prh_raw n) { return prh_r64_unchecked_lower_most_bit_position(n); }
+#else
+prh_inline prh_r32 prh_raw_higher_most_bit_position(prh_raw n) { return prh_r32_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_raw_lower_most_bit_position(prh_raw n) { return prh_r32_lower_most_bit_position(n); }
+prh_inline prh_r32 prh_raw_unchecked_higher_most_bit_position(prh_raw n) { return prh_r32_unchecked_higher_most_bit_position(n); }
+prh_inline prh_r32 prh_raw_unchecked_lower_most_bit_position(prh_raw n) { return prh_r32_unchecked_lower_most_bit_position(n); }
+#endif
+
+#define prh_byte_1(n) ((prh_byte)((n)&0xFF))
+#define prh_byte_2(n) ((prh_byte)(((n)>>8)&0xFF))
+#define prh_byte_3(n) ((prh_byte)(((n)>>16)&0xFF))
+#define prh_byte_4(n) ((prh_byte)(((n)>>24)&0xFF))
+#define prh_byte_5(n) ((prh_byte)(((n)>>32)&0xFF))
+#define prh_byte_6(n) ((prh_byte)(((n)>>40)&0xFF))
+#define prh_byte_7(n) ((prh_byte)(((n)>>48)&0xFF))
+#define prh_byte_8(n) ((prh_byte)(((n)>>56)&0xFF))
+
+#define prh_le_2_bytes(n) prh_byte_1(n), prh_byte_2(n)
+#define prh_le_3_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n)
+#define prh_le_4_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n)
+#define prh_le_5_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n)
+#define prh_le_6_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n), prh_byte_6(n)
+#define prh_le_7_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n), prh_byte_6(n), prh_byte_7(n)
+#define prh_le_8_bytes(n) prh_byte_1(n), prh_byte_2(n), prh_byte_3(n), prh_byte_4(n), prh_byte_5(n), prh_byte_6(n), prh_byte_7(n), prh_byte_8(n)
+
+#define prh_be_2_bytes(n) prh_byte_2(n), prh_byte_1(n)
+#define prh_be_3_bytes(n) prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_4_bytes(n) prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_5_bytes(n) prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_6_bytes(n) prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_7_bytes(n) prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+#define prh_be_8_bytes(n) prh_byte_8(n), prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)
+
+prh_inline prh_r16 prh_impl_r16_from(prh_r16 a, prh_r16 b) { return (b << 8) | a; }
+prh_inline prh_r32 prh_impl_r24_from(prh_r32 a, prh_r32 b, prh_r32 c) { return (c << 16) | (b << 8) | a; }
+prh_inline prh_r32 prh_impl_r32_from(prh_r32 a, prh_r32 b, prh_r32 c, prh_r32 d) { return (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r40_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e) { return (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r48_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e, prh_r64 f) { return (f << 40) | (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r56_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e, prh_r64 f, prh_r64 g) { return (g << 48) | (f << 40) | (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
+prh_inline prh_r64 prh_impl_r64_from(prh_r64 a, prh_r64 b, prh_r64 c, prh_r64 d, prh_r64 e, prh_r64 f, prh_r64 g, prh_r64 h) { return (h << 56) | (g << 48) | (f << 40) | (e << 32) | (d << 24) | (c << 16) | (b << 8) | a; }
+
+prh_inline prh_r16 prh_le_2b_to_host(prh_byte a, prh_byte b) { return prh_impl_r16_from(a, b); }
+prh_inline prh_r32 prh_le_3b_to_host(prh_byte a, prh_byte b, prh_byte c) { return prh_impl_r24_from(a, b, c); }
+prh_inline prh_r32 prh_le_4b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d) { return prh_impl_r32_from(a, b, c, d); }
+prh_inline prh_r64 prh_le_5b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e) { return prh_impl_r40_from(a, b, c, d, e); }
+prh_inline prh_r64 prh_le_6b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f) { return prh_impl_r48_from(a, b, c, d, e, f); }
+prh_inline prh_r64 prh_le_7b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g) { return prh_impl_r56_from(a, b, c, d, e, f, g); }
+prh_inline prh_r64 prh_le_8b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g, prh_byte h) { return prh_impl_r64_from(a, b, c, d, e, f, g, h); }
+
+prh_inline prh_r16 prh_be_2b_to_host(prh_byte a, prh_byte b) { return prh_impl_r16_from(b, a); }
+prh_inline prh_r32 prh_be_3b_to_host(prh_byte a, prh_byte b, prh_byte c) { return prh_impl_r24_from(c, b, a); }
+prh_inline prh_r32 prh_be_4b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d) { return prh_impl_r32_from(d, c, b, a); }
+prh_inline prh_r64 prh_be_5b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e) { return prh_impl_r40_from(e, d, c, b, a); }
+prh_inline prh_r64 prh_be_6b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f) { return prh_impl_r48_from(f, e, d, c, b, a); }
+prh_inline prh_r64 prh_be_7b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g) { return prh_impl_r56_from(g, f, e, d, c, b, a); }
+prh_inline prh_r64 prh_be_8b_to_host(prh_byte a, prh_byte b, prh_byte c, prh_byte d, prh_byte e, prh_byte f, prh_byte g, prh_byte h) { return prh_impl_r64_from(h, g, f, e, d, c, b, a); }
+
+prh_inline prh_r16 prh_lp_2b_to_host(const prh_byte *p) { return prh_le_2b_to_host(p[0], p[1]); }
+prh_inline prh_r32 prh_lp_3b_to_host(const prh_byte *p) { return prh_le_3b_to_host(p[0], p[1], p[2]); }
+prh_inline prh_r32 prh_lp_4b_to_host(const prh_byte *p) { return prh_le_4b_to_host(p[0], p[1], p[2], p[3]); }
+prh_inline prh_r64 prh_lp_5b_to_host(const prh_byte *p) { return prh_le_5b_to_host(p[0], p[1], p[2], p[3], p[4]); }
+prh_inline prh_r64 prh_lp_6b_to_host(const prh_byte *p) { return prh_le_6b_to_host(p[0], p[1], p[2], p[3], p[4], p[5]); }
+prh_inline prh_r64 prh_lp_7b_to_host(const prh_byte *p) { return prh_le_7b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6]); }
+prh_inline prh_r64 prh_lp_8b_to_host(const prh_byte *p) { return prh_le_8b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]); }
+
+prh_inline prh_r16 prh_bp_2b_to_host(const prh_byte *p) { return prh_be_2b_to_host(p[0], p[1]); }
+prh_inline prh_r32 prh_bp_3b_to_host(const prh_byte *p) { return prh_be_3b_to_host(p[0], p[1], p[2]); }
+prh_inline prh_r32 prh_bp_4b_to_host(const prh_byte *p) { return prh_be_4b_to_host(p[0], p[1], p[2], p[3]); }
+prh_inline prh_r64 prh_bp_5b_to_host(const prh_byte *p) { return prh_be_5b_to_host(p[0], p[1], p[2], p[3], p[4]); }
+prh_inline prh_r64 prh_bp_6b_to_host(const prh_byte *p) { return prh_be_6b_to_host(p[0], p[1], p[2], p[3], p[4], p[5]); }
+prh_inline prh_r64 prh_bp_7b_to_host(const prh_byte *p) { return prh_be_7b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6]); }
+prh_inline prh_r64 prh_bp_8b_to_host(const prh_byte *p) { return prh_be_8b_to_host(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7]); }
+
+prh_inline void prh_host_to_lp_2b(prh_r16 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); }
+prh_inline void prh_host_to_lp_3b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); }
+prh_inline void prh_host_to_lp_4b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); }
+prh_inline void prh_host_to_lp_5b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); }
+prh_inline void prh_host_to_lp_6b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); p[5] = prh_byte_6(n); }
+prh_inline void prh_host_to_lp_7b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); p[5] = prh_byte_6(n); p[6] = prh_byte_7(n); }
+prh_inline void prh_host_to_lp_8b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_1(n); p[1] = prh_byte_2(n); p[2] = prh_byte_3(n); p[3] = prh_byte_4(n); p[4] = prh_byte_5(n); p[5] = prh_byte_6(n); p[6] = prh_byte_7(n); p[7] = prh_byte_8(n); }
+
+prh_inline void prh_host_to_bp_2b(prh_r16 n, prh_byte *p) { p[0] = prh_byte_2(n); p[1] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_3b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_3(n); p[1] = prh_byte_2(n); p[2] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_4b(prh_r32 n, prh_byte *p) { p[0] = prh_byte_4(n); p[1] = prh_byte_3(n); p[2] = prh_byte_2(n); p[3] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_5b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_5(n); p[1] = prh_byte_4(n); p[2] = prh_byte_3(n); p[3] = prh_byte_2(n); p[4] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_6b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_6(n); p[1] = prh_byte_5(n); p[2] = prh_byte_4(n); p[3] = prh_byte_3(n); p[4] = prh_byte_2(n); p[5] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_7b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_7(n); p[1] = prh_byte_6(n); p[2] = prh_byte_5(n); p[3] = prh_byte_4(n); p[4] = prh_byte_3(n); p[5] = prh_byte_2(n); p[6] = prh_byte_1(n); }
+prh_inline void prh_host_to_bp_8b(prh_r64 n, prh_byte *p) { p[0] = prh_byte_8(n); p[1] = prh_byte_7(n); p[2] = prh_byte_6(n); p[3] = prh_byte_5(n); p[4] = prh_byte_4(n); p[5] = prh_byte_3(n); p[6] = prh_byte_2(n); p[7] = prh_byte_1(n); }
+
+#if 1
+prh_inline prh_r16 prh_impl_r16_invert_order(prh_r16 n) { return prh_r16_byte_swap(n); }
+prh_inline prh_r32 prh_impl_r24_invert_order(prh_r32 n) { return prh_r32_byte_swap(n); }
+prh_inline prh_r32 prh_impl_r32_invert_order(prh_r32 n) { return prh_r32_byte_swap(n); }
+prh_inline prh_r64 prh_impl_r40_invert_order(prh_r64 n) { return prh_r64_byte_swap(n); }
+prh_inline prh_r64 prh_impl_r48_invert_order(prh_r64 n) { return prh_r64_byte_swap(n); }
+prh_inline prh_r64 prh_impl_r56_invert_order(prh_r64 n) { return prh_r64_byte_swap(n); }
+prh_inline prh_r64 prh_impl_r64_invert_order(prh_r64 n) { return prh_r64_byte_swap(n); }
+#else
+prh_inline prh_r16 prh_impl_r16_invert_order(prh_r16 n) { return prh_impl_r16_from(prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r32 prh_impl_r24_invert_order(prh_r32 n) { return prh_impl_r24_from(prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r32 prh_impl_r32_invert_order(prh_r32 n) { return prh_impl_r32_from(prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r40_invert_order(prh_r64 n) { return prh_impl_r40_from(prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r48_invert_order(prh_r64 n) { return prh_impl_r48_from(prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r56_invert_order(prh_r64 n) { return prh_impl_r56_from(prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+prh_inline prh_r64 prh_impl_r64_invert_order(prh_r64 n) { return prh_impl_r64_from(prh_byte_8(n), prh_byte_7(n), prh_byte_6(n), prh_byte_5(n), prh_byte_4(n), prh_byte_3(n), prh_byte_2(n), prh_byte_1(n)); }
+#endif
+
+#if prh_int_bits == 64
+prh_inline prh_reg prh_impl_reg_invert_order(prh_reg n) { return prh_impl_r64_invert_order(n); }
+#else
+prh_inline prh_reg prh_impl_reg_invert_order(prh_reg n) { return prh_impl_r32_invert_order(n); }
+#endif
+
+#if prh_imt_bits == 64
+prh_inline prh_raw prh_impl_raw_invert_order(prh_raw n) { return prh_impl_r64_invert_order(n); }
+#else
+prh_inline prh_raw prh_impl_raw_invert_order(prh_raw n) { return prh_impl_r32_invert_order(n); }
+#endif
+
+#define prh_set_r16_host_to_le(a) (a) = prh_r16_host_to_le(a)
+#define prh_set_r24_host_to_le(a) (a) = prh_r24_host_to_le(a)
+#define prh_set_r32_host_to_le(a) (a) = prh_r32_host_to_le(a)
+#define prh_set_r40_host_to_le(a) (a) = prh_r40_host_to_le(a)
+#define prh_set_r48_host_to_le(a) (a) = prh_r48_host_to_le(a)
+#define prh_set_r56_host_to_le(a) (a) = prh_r56_host_to_le(a)
+#define prh_set_r64_host_to_le(a) (a) = prh_r64_host_to_le(a)
+#define prh_set_reg_host_to_le(a) (a) = prh_reg_host_to_le(a)
+#define prh_set_raw_host_to_le(a) (a) = prh_raw_host_to_le(a)
+#define prh_set_r16_le_to_host(a) (a) = prh_r16_le_to_host(a)
+#define prh_set_r24_le_to_host(a) (a) = prh_r24_le_to_host(a)
+#define prh_set_r32_le_to_host(a) (a) = prh_r32_le_to_host(a)
+#define prh_set_r40_le_to_host(a) (a) = prh_r40_le_to_host(a)
+#define prh_set_r48_le_to_host(a) (a) = prh_r48_le_to_host(a)
+#define prh_set_r56_le_to_host(a) (a) = prh_r56_le_to_host(a)
+#define prh_set_r64_le_to_host(a) (a) = prh_r64_le_to_host(a)
+#define prh_set_reg_le_to_host(a) (a) = prh_reg_le_to_host(a)
+#define prh_set_raw_le_to_host(a) (a) = prh_raw_le_to_host(a)
+#define prh_set_r16_host_to_be(a) (a) = prh_r16_host_to_be(a)
+#define prh_set_r24_host_to_be(a) (a) = prh_r24_host_to_be(a)
+#define prh_set_r32_host_to_be(a) (a) = prh_r32_host_to_be(a)
+#define prh_set_r40_host_to_be(a) (a) = prh_r40_host_to_be(a)
+#define prh_set_r48_host_to_be(a) (a) = prh_r48_host_to_be(a)
+#define prh_set_r56_host_to_be(a) (a) = prh_r56_host_to_be(a)
+#define prh_set_r64_host_to_be(a) (a) = prh_r64_host_to_be(a)
+#define prh_set_reg_host_to_be(a) (a) = prh_reg_host_to_be(a)
+#define prh_set_raw_host_to_be(a) (a) = prh_raw_host_to_be(a)
+#define prh_set_r16_be_to_host(a) (a) = prh_r16_be_to_host(a)
+#define prh_set_r24_be_to_host(a) (a) = prh_r24_be_to_host(a)
+#define prh_set_r32_be_to_host(a) (a) = prh_r32_be_to_host(a)
+#define prh_set_r40_be_to_host(a) (a) = prh_r40_be_to_host(a)
+#define prh_set_r48_be_to_host(a) (a) = prh_r48_be_to_host(a)
+#define prh_set_r56_be_to_host(a) (a) = prh_r56_be_to_host(a)
+#define prh_set_r64_be_to_host(a) (a) = prh_r64_be_to_host(a)
+#define prh_set_reg_be_to_host(a) (a) = prh_reg_be_to_host(a)
+#define prh_set_raw_be_to_host(a) (a) = prh_raw_be_to_host(a)
+
+#define prh_i16_host_to_le(n) ((prh_i16)prh_r16_host_to_le(n))
+#define prh_i24_host_to_le(n) ((prh_i32)prh_r24_host_to_le(n))
+#define prh_i32_host_to_le(n) ((prh_i32)prh_r32_host_to_le(n))
+#define prh_i40_host_to_le(n) ((prh_i64)prh_r40_host_to_le(n))
+#define prh_i48_host_to_le(n) ((prh_i64)prh_r48_host_to_le(n))
+#define prh_i56_host_to_le(n) ((prh_i64)prh_r56_host_to_le(n))
+#define prh_i64_host_to_le(n) ((prh_i64)prh_r64_host_to_le(n))
+#define prh_int_host_to_le(n) ((prh_int)prh_reg_host_to_le(n))
+#define prh_imt_host_to_le(n) ((prh_imt)prh_raw_host_to_le(n))
+#define prh_i16_le_to_host(n) ((prh_i16)prh_r16_le_to_host(n))
+#define prh_i24_le_to_host(n) ((prh_i32)prh_r24_le_to_host(n))
+#define prh_i32_le_to_host(n) ((prh_i32)prh_r32_le_to_host(n))
+#define prh_i40_le_to_host(n) ((prh_i64)prh_r40_le_to_host(n))
+#define prh_i48_le_to_host(n) ((prh_i64)prh_r48_le_to_host(n))
+#define prh_i56_le_to_host(n) ((prh_i64)prh_r56_le_to_host(n))
+#define prh_i64_le_to_host(n) ((prh_i64)prh_r64_le_to_host(n))
+#define prh_int_le_to_host(n) ((prh_int)prh_reg_le_to_host(n))
+#define prh_imt_le_to_host(n) ((prh_imt)prh_raw_le_to_host(n))
+#define prh_i16_host_to_be(n) ((prh_i16)prh_r16_host_to_be(n))
+#define prh_i24_host_to_be(n) ((prh_i32)prh_r24_host_to_be(n))
+#define prh_i32_host_to_be(n) ((prh_i32)prh_r32_host_to_be(n))
+#define prh_i40_host_to_be(n) ((prh_i64)prh_r40_host_to_be(n))
+#define prh_i48_host_to_be(n) ((prh_i64)prh_r48_host_to_be(n))
+#define prh_i56_host_to_be(n) ((prh_i64)prh_r56_host_to_be(n))
+#define prh_i64_host_to_be(n) ((prh_i64)prh_r64_host_to_be(n))
+#define prh_int_host_to_be(n) ((prh_int)prh_reg_host_to_be(n))
+#define prh_imt_host_to_be(n) ((prh_imt)prh_raw_host_to_be(n))
+#define prh_i16_be_to_host(n) ((prh_i16)prh_r16_be_to_host(n))
+#define prh_i24_be_to_host(n) ((prh_i32)prh_r24_be_to_host(n))
+#define prh_i32_be_to_host(n) ((prh_i32)prh_r32_be_to_host(n))
+#define prh_i40_be_to_host(n) ((prh_i64)prh_r40_be_to_host(n))
+#define prh_i48_be_to_host(n) ((prh_i64)prh_r48_be_to_host(n))
+#define prh_i56_be_to_host(n) ((prh_i64)prh_r56_be_to_host(n))
+#define prh_i64_be_to_host(n) ((prh_i64)prh_r64_be_to_host(n))
+#define prh_int_be_to_host(n) ((prh_int)prh_reg_be_to_host(n))
+#define prh_imt_be_to_host(n) ((prh_imt)prh_raw_be_to_host(n))
+
+#if prh_lit_endian
+prh_inline prh_r16 prh_r16_host_to_le(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_host_to_le(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_host_to_le(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_host_to_le(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_host_to_le(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_host_to_le(prh_raw n) { return n; }
+
+prh_inline prh_r16 prh_r16_le_to_host(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_le_to_host(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_le_to_host(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_le_to_host(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_le_to_host(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_le_to_host(prh_raw n) { return n; }
+
+prh_inline prh_r16 prh_r16_host_to_be(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_host_to_be(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_host_to_be(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_host_to_be(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_host_to_be(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_host_to_be(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_host_to_be(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_host_to_be(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_host_to_be(prh_raw n) { return prh_impl_raw_invert_order(n); }
+
+prh_inline prh_r16 prh_r16_be_to_host(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_be_to_host(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_be_to_host(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_be_to_host(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_be_to_host(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_be_to_host(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_be_to_host(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_be_to_host(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return prh_impl_raw_invert_order(n); }
+#else
+prh_inline prh_r16 prh_r16_host_to_le(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_host_to_le(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_host_to_le(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_host_to_le(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_host_to_le(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_host_to_le(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_host_to_le(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_host_to_le(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_host_to_le(prh_raw n) { return prh_impl_raw_invert_order(n); }
+
+prh_inline prh_r16 prh_r16_le_to_host(prh_r16 n) { return prh_impl_r16_invert_order(n); }
+prh_inline prh_r32 prh_r24_le_to_host(prh_r32 n) { return prh_impl_r24_invert_order(n); }
+prh_inline prh_r32 prh_r32_le_to_host(prh_r32 n) { return prh_impl_r32_invert_order(n); }
+prh_inline prh_r64 prh_r40_le_to_host(prh_r64 n) { return prh_impl_r40_invert_order(n); }
+prh_inline prh_r64 prh_r48_le_to_host(prh_r64 n) { return prh_impl_r48_invert_order(n); }
+prh_inline prh_r64 prh_r56_le_to_host(prh_r64 n) { return prh_impl_r56_invert_order(n); }
+prh_inline prh_r64 prh_r64_le_to_host(prh_r64 n) { return prh_impl_r64_invert_order(n); }
+prh_inline prh_reg prh_reg_le_to_host(prh_reg n) { return prh_impl_reg_invert_order(n); }
+prh_inline prh_raw prh_raw_le_to_host(prh_raw n) { return prh_impl_raw_invert_order(n); }
+
+prh_inline prh_r16 prh_r16_host_to_be(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_host_to_be(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_host_to_be(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_host_to_be(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_host_to_be(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_host_to_be(prh_raw n) { return n; }
+
+prh_inline prh_r16 prh_r16_be_to_host(prh_r16 n) { return n; }
+prh_inline prh_r32 prh_r24_be_to_host(prh_r32 n) { return n; }
+prh_inline prh_r32 prh_r32_be_to_host(prh_r32 n) { return n; }
+prh_inline prh_r64 prh_r40_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r48_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r56_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_r64 prh_r64_be_to_host(prh_r64 n) { return n; }
+prh_inline prh_reg prh_reg_be_to_host(prh_reg n) { return n; }
+prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
+#endif
 
 #ifdef __cplusplus
 }
@@ -1441,7 +2125,6 @@ prh_static_assert(sizeof(prh_float) == 4);
 #endif
 
 #if defined(prh_impl_stdc_assert)
-
 #ifndef prh_impl_include_stdc_assert_h
 #define prh_impl_include_stdc_assert_h
 #ifdef __cplusplus
@@ -1535,7 +2218,6 @@ prh_inline void prh_impl_assert_line_caller(int line, prh_raw caller)
 }
 #endif
 #endif // prh_impl_include_stdc_assert_h
-
 #endif // prh_impl_stdc_assert
 
 // FULL VERSION HISTORY
