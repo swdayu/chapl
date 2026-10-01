@@ -1,8 +1,8 @@
 // prh_prelude.h - v0.01 - public domain - swdayu <github.com/swdayu>
 // No warranty implied, use at your own risk.
 
-#ifndef prh_impl_include_prelude_h
-#define prh_impl_include_prelude_h
+#ifndef prh_include_prelude_h
+#define prh_include_prelude_h
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -235,6 +235,7 @@ extern "C" {
 
 #undef prh_plat_linux
 #undef prh_plat_android
+#undef prh_plat_openharmony
 #undef prh_plat_unix
 #undef prh_plat_emscripten
 #undef prh_plat_freebsd
@@ -247,6 +248,11 @@ extern "C" {
 
 #if defined(ANDROID) || defined(__ANDROID__)
 #define prh_plat_android 1
+#undef prh_plat_linux
+#endif
+
+#if defined(__OHOS__)
+#define prh_plat_openharmony 1
 #undef prh_plat_linux
 #endif
 
@@ -1778,6 +1784,26 @@ prh_static_assert(prh_align_256m_byte == (1 << prh_impl_align_256m_byte));
 prh_static_assert(prh_align_512m_byte == (1 << prh_impl_align_512m_byte));
 prh_static_assert(prh_align_1g_byte == (1 << prh_impl_align_1g_byte));
 
+prh_inline prh_reg prh_set_value_if_true(prh_reg value, prh_reg orelse, bool b)
+{
+    return (b == true) * value + (b == false) * orelse;
+}
+
+prh_inline prh_r32 prh_set_value_32_if_true(prh_r32 value, prh_r32 orelse, bool b)
+{
+    return (b == true) * value + (b == false) * orelse;
+}
+
+prh_inline prh_reg prh_set_value_if_zero(prh_reg value, prh_reg a)
+{
+    return prh_set_value_if_true(value, a, a == 0);
+}
+
+prh_inline prh_r32 prh_set_value_32_if_zero(prh_r32 value, prh_r32 a)
+{
+    return prh_set_value_32_if_true(value, a, a == 0);
+}
+
 prh_inline prh_r32 prh_r32_clear_set(prh_r32 value, prh_r32 mask, prh_r32 set)
 {
     return (value & (~mask)) | set;
@@ -2108,7 +2134,7 @@ prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
 #ifdef __cplusplus
 }
 #endif
-#endif // prh_impl_include_prelude_h
+#endif // prh_include_prelude_h
 
 #undef prh_impl_stdc_assert
 #undef prh_impl_lang_assert
@@ -2125,8 +2151,8 @@ prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
 #endif
 
 #if defined(prh_impl_stdc_assert)
-#ifndef prh_impl_include_stdc_assert_h
-#define prh_impl_include_stdc_assert_h
+#ifndef prh_include_stdc_assert_h
+#define prh_include_stdc_assert_h
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -2217,8 +2243,554 @@ prh_inline void prh_impl_assert_line_caller(int line, prh_raw caller)
 #ifdef __cplusplus
 }
 #endif
-#endif // prh_impl_include_stdc_assert_h
+#endif // prh_include_stdc_assert_h
 #endif // prh_impl_stdc_assert
+
+#ifndef prh_impl_prelude_extern_h
+#define prh_impl_prelude_extern_h
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#define prh_arrlen(a) (sizeof(a)/sizeof((a)[0]))
+#define prh_arrend(a) ((a) + prh_arrlen(a))
+#define prh_arrelt(a, i) (a)[(prh_assert((i) >= 0 && (i) < prh_arrlen(a))), i]
+#define prh_arrget(a) (a), prh_arrlen(a)
+
+prh_inline prh_reg prh_impl_times_power_of_2(prh_reg n, prh_reg power_minus_one)
+{
+    prh_reg result = (n + power_minus_one) & (~power_minus_one);
+    prh_assert(result >= n);
+    return result;
+}
+
+prh_inline bool prh_impl_is_times_power_of_2(prh_reg n, prh_reg power_minus_one)
+{
+    return (n & power_minus_one) == 0;
+}
+
+prh_inline prh_reg prh_lower_most_bit(prh_reg n)
+{
+    return n & (-(prh_int)n); // 0000 & 0000 -> 0000, 0001 & 1111 -> 0001, 1010 & 0110 -> 0010
+}
+
+prh_inline prh_reg prh_remove_lower_most_bit(prh_reg n)
+{
+    return n & (n - 1);
+}
+
+prh_inline bool prh_is_times_4_byte(prh_reg n)
+{
+    return (n & 0x03) == 0;
+}
+
+prh_inline bool prh_is_times_8_byte(prh_reg n)
+{
+    return (n & 0x07) == 0;
+}
+
+prh_inline bool prh_is_times_16_byte(prh_reg n)
+{
+    return (n & 0xF) == 0;
+}
+
+prh_inline bool prh_is_times_ptr_size(prh_reg n)
+{
+    return (n & (sizeof(void *) - 1)) == 0;
+}
+
+prh_inline bool prh_is_times_line_size(prh_reg n)
+{
+    return (n & (prh_cache_line_size - 1)) == 0;
+}
+
+prh_inline bool prh_is_times_page_size(prh_reg n)
+{
+    return (n & (prh_memory_page_size - 1)) == 0;
+}
+
+prh_inline bool prh_is_times_vmem_size(prh_reg n)
+{
+    return (n & (prh_vmem_unit_size - 1)) == 0;
+}
+
+prh_inline bool prh_is_power_of_2(prh_reg n)
+{
+    return prh_remove_lower_most_bit(n) == 0; // power of 2 or zero
+}
+
+prh_inline bool prh_is_times_power_of_2(prh_reg n, prh_reg power_of_2)
+{
+    prh_assert(prh_is_power_of_2(power_of_2));
+    return prh_impl_is_times_power_of_2(n, power_of_2 - 1);
+}
+
+prh_inline prh_reg prh_to_power_of_2(prh_reg n)
+{
+    if (prh_is_power_of_2(n)) return n;
+    // TODO: 字节序交换然后计算lower most bit
+    prh_reg m = prh_lower_most_bit(n);
+    while (m < n) m <<= 1;
+    return m;
+}
+
+prh_inline prh_reg prh_times_power_of_2(prh_reg n, prh_reg power_of_2)
+{
+    prh_assert(prh_is_power_of_2(power_of_2));
+    return prh_impl_times_power_of_2(n, power_of_2 - 1);
+}
+
+prh_inline prh_reg prh_times_align_size(prh_reg n, prh_reg alignment)
+{
+    return prh_times_power_of_2(n, alignment);
+}
+
+#define prh_times_ptr_size(n) (((prh_reg)(n)+(prh_reg)(sizeof(void*)-1)) & (~(prh_reg)(sizeof(void*)-1)))
+#define prh_times_line_size(n) (((prh_reg)(n)+prh_cache_line_size-1) & (~(prh_reg)(prh_cache_line_size-1)))
+#define prh_times_page_size(n) (((prh_reg)(n)+prh_memory_page_size-1) & (~(prh_reg)(prh_memory_page_size-1)))
+#define prh_times_4_byte(n) (((prh_reg)(n)+3) & (~(prh_reg)3))
+#define prh_times_8_byte(n) (((prh_reg)(n)+7) & (~(prh_reg)7))
+#define prh_times_16_byte(n) (((prh_reg)(n)+15) & (~(prh_reg)15))
+
+#define prh_r32_times_ptr_size(n) (((prh_r32)(n)+(prh_r32)(sizeof(void*)-1)) & (~(prh_r32)(sizeof(void*)-1)))
+#define prh_r32_times_line_size(n) (((prh_r32)(n)+prh_cache_line_size-1) & (~(prh_r32)(prh_cache_line_size-1)))
+#define prh_r32_times_page_size(n) (((prh_r32)(n)+prh_memory_page_size-1) & (~(prh_r32)(prh_memory_page_size-1)))
+#define prh_r32_times_4_byte(n) (((prh_r32)(n)+3) & (~(prh_r32)3))
+#define prh_r32_times_8_byte(n) (((prh_r32)(n)+7) & (~(prh_r32)7))
+#define prh_r32_times_16_byte(n) (((prh_r32)(n)+15) & (~(prh_r32)15))
+
+#define prh_generic_bsearch(succ, out_i, value, p, size, eval) do {             \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > eval(e + mid - 1)) { e += mid; end -= mid; }              \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)); (succ) = ((value) == eval(e));              \
+} while (0)
+
+#define prh_generic_bsearch_first_less_equal(out_i, value, p, size, eval) do {  \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > eval(e + mid - 1)) { e += mid; end -= mid; }              \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) + ((value) > eval(e));                       \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_generic_bsearch_last_greater_equal(out_i, value, p, size, eval) do {\
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > eval(e + mid - 1)) { e += mid; end -= mid; }              \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) - ((value) < eval(e));                       \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_bsearch(succ, out_i, value, p, size) do {                           \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)); (succ) = ((value) == *e);                   \
+} while (0)
+
+#define prh_bsearch_value_belong_range_by_comparing_the_range_end prh_bsearch_first_less_equal
+#define prh_bsearch_value_belong_range_by_comparing_the_range_start prh_bsearch_last_greater_equal
+
+#define prh_bsearch_first_less_equal(out_i, value, p, size) do {                \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) + ((value) > *e);                            \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_bsearch_last_greater_equal(out_i, value, p, size) do {              \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) > e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 大于中间值大于左半所有值，小于中间值小于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) - ((value) < *e);                            \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_descending_bsearch(succ, out_i, value, p, size) do {                \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) < e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 小于中间值小于左半所有值，大于中间值大于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)); (succ) = ((value) == *e);                   \
+} while (0)
+
+#define prh_descending_bsearch_first_greater_equal(out_i, value, p, size) do {  \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) < e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 小于中间值小于左半所有值，大于中间值大于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) + ((value) < *e);                            \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_descending_bsearch_last_less_equal(out_i, value, p, size) do {      \
+    prh_typeof(&(p)[0]) e = (p); prh_reg end = (size), mid;                     \
+    while ((mid = end >> 1)) { /* 二分无限逼近值 value */                       \
+        if ((value) < e[mid - 1]) { e += mid; end -= mid; }                     \
+        else end = mid; /* 小于中间值小于左半所有值，大于中间值大于右半所有值 */\
+    } (out_i) = (prh_reg)(e - (p)) - ((value) > *e);                            \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_fast_bsearch_first_less_equal(out_i, value, p, size) do {           \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 shifts = prh_reg_unchecked_higher_most_bit_position(n);             \
+    /* [0 1 2 3]            1.  当长度就是2的幂，elem_ptr 不会移动      */      \
+    /*  ^                                                               */      \
+    /* [0 1 2 | 3 4 5 6]    2.  不是2的幂，要查找的值在后一2的幂部分    */      \
+    /*          ^                                                       */      \
+    /* [0 1 2 3 | 4 5 6]    3.  不是2的幂，要查找的值在前一2的幂部分    */      \
+    /*  ^                                                               */      \
+    if ((value) >= e[(n -= ((prh_reg)1 << shifts))]) e += n;                    \
+    while (shifts--) {                                                          \
+        if ((value) > e[((prh_reg)1<<shifts)-1]) e += ((prh_reg)1 << shifts);   \
+    } /* 循环 shifts 次，如果 shifts 为 2 即长度 4，循环 2 次检查 [0 1 | 2 3] 和 [0 | 1 | 2 | 3] */ \
+    (out_i) = (prh_reg)(e - (p)) + ((value) > *e);                              \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_fast_bsearch_last_greater_equal(out_i, v, p, size) do {             \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 s = prh_reg_unchecked_higher_most_bit_position(n);                  \
+    if ((v) >= e[(n -= ((prh_reg)1<<s))]) e += n;                               \
+    while (s--) if ((v) > e[((prh_reg)1 << s) - 1]) e += ((prh_reg)1 << s);     \
+    (out_i) = (prh_reg)(e - (p)) - ((v) < *e);                                  \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#define prh_fast_descending_bsearch_first_greater_equal(out_i, v, p, size) do { \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 s = prh_reg_unchecked_higher_most_bit_position(n);                  \
+    if ((v) <= e[(n -= ((prh_reg)1<<s))]) e += n;                               \
+    while (s--) if ((v) < e[((prh_reg)1 << s) - 1]) e += ((prh_reg)1 << s);     \
+    (out_i) = (prh_reg)(e - (p)) + ((v) < *e);                                  \
+} while (0) /* 返回 size 表示失败 */
+
+#define prh_fast_descending_bsearch_last_less_equal(out_i, v, p, size) do {     \
+    prh_typeof(&(p)[0]) e = (p); prh_reg n = (size); prh_assert(n != 0);        \
+    prh_r32 s = prh_reg_unchecked_higher_most_bit_position(n);                  \
+    if ((v) <= e[(n -= ((prh_reg)1<<s))]) e += n;                               \
+    while (s--) if ((v) < e[((prh_reg)1 << s) - 1]) e += ((prh_reg)1 << s);     \
+    (out_i) = (prh_reg)(e - (p)) - ((v) > *e);                                  \
+} while (0) /* 返回 (prh_reg)-1 表示失败 */
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_impl_prelude_extern_h
+
+#undef prh_multiple_include_different_config
+#define prh_multiple_include_different_config 1
+
+#undef prh_impl_stdc_alloc
+#undef prh_impl_lang_alloc
+#undef prh_impl_sdl3_alloc
+
+#if defined(prh_using_lang_alloc)
+    #define prh_impl_lang_alloc 1
+#elif defined(prh_using_sdl3_alloc)
+    #define prh_impl_sdl3_alloc 1
+#elif defined(prh_using_stdc_alloc)
+    #define prh_impl_stdc_alloc 1
+#else
+    #define prh_impl_stdc_alloc 1
+#endif
+
+#if defined(prh_impl_stdc_alloc)
+#ifndef prh_include_stdc_alloc_h
+#define prh_include_stdc_alloc_h
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
+//
+// 检测内存泄漏的主要工具是 C/C++ 调试器和 CRT 调试堆函数。要启用所有调试堆函数，
+// 需要在你的 C++ 程序中按以下顺序包含下面的语句。其中 #define _CRTDBG_MAP_ALLOC
+// 将 CRT 堆函数的基本版本映射到相应的调试版本。如果省略了 #define 语句，内存泄漏
+// 信息将不够详细。包含 crtdbg.h 会将 malloc 和 free 函数映射到它们的调试版本 _malloc_dbg
+// 和 _free_dbg，这些版本会跟踪内存分配和释放。这种映射仅在具有 _DEBUG 的调试生成
+// 中发生。发布生成使用普通的 malloc 和 free 函数。
+// 通过使用前面的语句启用了调试堆函数后，在应用程序退出点之前调用 _CrtDumpMemoryLeaks()，
+// 以在应用程序退出时显示内存泄漏报告。如果你的应用程序有多个退出点，你无需手动在每
+// 个退出点放置 _CrtDumpMemoryLeaks()。为了在每个退出点自动调用 _CrtDumpMemoryLeaks()，
+// 在应用程序开头放置一个对 _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF)
+// 的调用即可。
+// 默认情况下， _CrtDumpMemoryLeaks 将内存泄漏报告输出到“输出”窗口的“调试”窗格。
+// 如果你使用了库，库可能会将输出重置到另一个位置。你可以使用 _CrtSetReportMode
+// 将报告重定向到另一个位置，或者像下面这样重新定向回“输出”窗口：
+//      _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_DEBUG);
+//
+// 内存块类型有 “normal”、“client” 和 “CRT”。普通块是由你的程序分配的普通内存。
+// “client”块是 MFC 程序用于需要析构函数的对象的特殊类型的内存块。MFC 的 new 运
+// 算符会根据被创建的对象类型创建普通块或客户端块。“CRT” 块是由 CRT 库为其自身用
+// 途分配的。CRT 库会处理这些块的释放，因此除非 CRT 库出现严重问题，否则 CRT 块
+// 不会出现在内存泄漏报告中。还有两种内存块类型永远不会出现在内存泄漏报告中。“free”
+// 块是已经释放的内存，按定义不会泄漏。“ignore” 块是你明确标记为从内存泄漏报告中
+// 排除的内存。
+//
+// 前面的技术可以识别使用标准 CRT malloc 函数分配的内存的内存泄漏。然而，如果你的
+// 程序使用 C++ 的 new 运算符分配内存，你可能只能在内存泄漏报告中看到 operator
+// new 调用 _malloc_dbg 的文件名和行号。为了创建更有用的内存泄漏报告，你可以编写
+// 一个像下面这样的宏来报告 new 分配的行，然后你可以使用 DBG_NEW 宏在代码中替换
+// new 运算符。
+// #ifdef _DEBUG
+//     #define DBG_NEW new ( _NORMAL_BLOCK , __FILE__ , __LINE__ )
+//     // Replace _NORMAL_BLOCK with _CLIENT_BLOCK if you want the
+//     // allocations to be of _CLIENT_BLOCK type
+// #else
+//     #define DBG_NEW new
+// #endif
+//
+// 内存分配编号可以告诉你泄漏的内存块是在何时分配的。例如，一个内存分配编号为 18
+// 的块是在应用程序运行期间分配的第 18 个内存块。CRT 报告会统计运行期间的所有内存
+// 块分配，包括 CRT 库和其他库（如 MFC）的分配。因此，内存分配块编号 18 可能不是
+// 你的代码分配的第 18 个内存块。你可以使用分配编号在内存分配上设置断点。
+
+#if PRH_DEBUG && defined(prh_msc_version)
+#define _CRTDBG_MAP_ALLOC
+#include <crtdbg.h>
+#endif
+
+#include <stdlib.h> // malloc calloc realloc free abort exit size_t
+#include <string.h> // memcpy memmove memset
+// void *memcpy(void *dest, const void *src, size_t count);
+// void *memmove(void *dest, const void *src, size_t count);
+// void *memset(void *ptr, int value, size_t count);
+// if either dest or src is an invalid or null pointer { undefined behavior }
+// if dest and src memory overlap for memcpy { undefined behavior }
+// the count parameter can be set to zero value.
+
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/crt-alphabetical-function-reference
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/reference/aligned-malloc
+// https://en.cppreference.com/w/c/memory/aligned_alloc
+// https://www.man7.org/linux/man-pages/man3/posix_memalign.3.html
+// https://jemalloc.net/
+//
+// Maximum heap request the heap manager will attempt
+// #ifdef _WIN64
+// #define _HEAP_MAXREQ 0xFFFFFFFFFFFFFFE0
+// #else
+// #define _HEAP_MAXREQ 0xFFFFFFE0
+// #endif
+//
+// void *_aligned_offset_malloc(size_t size, size_t alignment, size_t offset);
+//      offset - [0, size)
+//      (ptr + offset) % alignment == 0
+//
+// 在指定的对齐边界上分配内存。参数 size 请求的内存分配大小。alignment 对齐值，必须是 2 的整数次幂。
+// offset 内存分配中的偏移量，用于在该位置强制对齐。返回指向已分配内存块的指针，操作失败返回 NULL。
+//
+// _aligned_offset_malloc 适用于需要在嵌套元素上对齐的场景。例如，需要在嵌套类（nested class）上对齐
+// 的情况。_aligned_offset_malloc 基于 malloc 实现，_aligned_offset_malloc 标记有 __declspec(noalias)
+// 和 __declspec(restrict)，意味着保证该函数不修改全局变量，且返回的指针没有别名。更多信息参见 noalias
+// 和 restrict。
+// https://learn.microsoft.com/en-us/cpp/cpp/noalias
+// https://learn.microsoft.com/en-us/cpp/cpp/restrict
+//
+// 如果内存分配失败，或请求的大小大于 _HEAP_MAXREQ，此函数将 errno 设置为 ENOMEM。关于 errno 的更多
+// 信息，参见 errno、_doserrno、_sys_errlist 和 _sys_nerr。此外，_aligned_offset_malloc 会校验其参数，
+// 如果 alignment 不是 2 的幂，或者 offset 非零且大于等于 size，此函数将调用无效参数处理程序（invalid
+// parameter handler）。如果允许继续执行，此函数返回 NULL 并将 errno 设置为 EINVAL。默认情况下，此函
+// 数的全局状态作用域限定于应用程序。要更改此行为，参见"CRT 中的全局状态"。
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/parameter-validation
+// https://learn.microsoft.com/en-us/cpp/c-runtime-library/global-state
+
+#undef prh_impl_plat_aligned_realloc
+
+#if defined(prh_msc_version)
+    #include <malloc.h> // _aligned_malloc _aligned_realloc _aligned_free
+    // _aligned_malloc is based on malloc. required C header malloc.h.
+    // if alignment isn't a power of 2 or size is zero, this function invokes
+    // the invalid parameter handler. if execution is allowed to continue, this
+    // function returns NULL and sets errno to EINVAL.
+    #define prh_impl_plat_aligned_malloc(size, alignment) _aligned_malloc((size), (alignment))
+    #define prh_impl_plat_aligned_realloc(p, size, alignment) _aligned_realloc((p), (size), (alignment))
+    #define prh_impl_plat_aligned_dealloc(p) _aligned_free(p) // _aligned_free(p) if p is a null, this function simply performs no actions
+#else
+    // behavior is undefined if size is not an integral multiple of alignment
+    void *aligned_alloc(size_t alignment, size_t size); // glibc 2.16. C11
+    #define prh_impl_plat_aligned_malloc(size, alignment) aligned_alloc((alignment), (size))
+    #define prh_impl_plat_aligned_dealloc(p) prh_impl_rawc_free(p) // free(p) if p is null do nothing
+#endif
+
+prh_inline void *prh_impl_rawc_malloc(prh_reg capacity)
+{
+    return malloc(capacity);
+}
+
+prh_inline void *prh_impl_rawc_calloc(prh_reg capacity)
+{
+    return calloc(1, capacity);
+}
+
+prh_inline void *prh_impl_rawc_realloc(void *buffer, prh_reg new_capacity)
+{
+    return realloc(buffer, new_capacity);
+}
+
+prh_inline void prh_impl_rawc_free(void *buffer)
+{
+    free(buffer);
+}
+
+#if defined(malloc)
+#undef malloc
+#endif
+
+#if defined(calloc)
+#undef calloc
+#endif
+
+#if defined(realloc)
+#undef realloc
+#endif
+
+#if defined(free)
+#undef free
+#endif
+
+#define prh_stdc_malloc(capacity) prh_impl_stdc_malloc((capacity), __LINE__, prh_caller)
+#define prh_stdc_calloc(capacity) prh_impl_stdc_calloc((capacity), __LINE__, prh_caller)
+#define prh_stdc_realloc(buffer, new_capacity) prh_impl_stdc_realloc((buffer), (new_capacity), __LINE__, prh_caller)
+#define prh_stdc_dealloc(buffer) prh_impl_stdc_dealloc(buffer) // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
+
+#define prh_stdc_aligned_malloc(capacity, alignment) prh_impl_stdc_aligned_malloc((capacity), (alignment), __LINE__, prh_caller)
+#define prh_stdc_aligned_calloc(capacity, alignment) prh_impl_stdc_aligned_calloc((capacity), (alignment), __LINE__, prh_caller)
+#define prh_stdc_aligned_realloc(buffer, new_capacity, alignment) prh_impl_stdc_aligned_realloc((buffer), (new_capacity), (alignment), __LINE__, prh_caller)
+#define prh_stdc_aligned_dealloc(buffer) prh_impl_stdc_aligned_dealloc((buffer))
+
+#define prh_stdc_line_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), PRH_ALIGN_LINE)
+#define prh_stdc_page_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), PRH_ALIGN_PAGE)
+#define prh_stdc_vmem_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), PRH_ALIGN_VMEM)
+#define prh_stdc_line_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), PRH_ALIGN_LINE)
+#define prh_stdc_page_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), PRH_ALIGN_PAGE)
+#define prh_stdc_vmem_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), PRH_ALIGN_VMEM)
+
+// void *malloc(size_t size);
+// the newly allocated block of memory is not initialized, remaining with indeterminate values.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+
+prh_inline void *prh_impl_stdc_malloc(prh_reg capacity, int line, prh_reg caller)
+{
+    void *buffer = prh_impl_rawc_malloc(capacity); // 如果 capacity 为零，可能返回 null 也可能返回正常地址，但该地址不能访问
+    prh_impl_real_assert(buffer != prh_null, line, caller); // 对于 aligned_alloc，如果 capacity 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
+    return buffer;
+}
+
+prh_inline void *prh_impl_stdc_aligned_malloc(prh_reg capacity, prh_reg alignment, int line, prh_reg caller)
+{
+    // 对于 aligned_malloc，如果 capacity 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
+    // 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问，可以统一标准都返回非空，并强制要求不能将空传给dealloc
+    capacity = prh_times_align_size(prh_set_value_if_zero(1, capacity), alignment);
+    void *buffer = prh_impl_plat_aligned_malloc(capacity, alignment + 1);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+// void *calloc(size_t num, size_t size);
+// allocates a block of memory for an array of num elements, each of them size bytes long, and
+// initializes all its bits to zero. the effective result is the allocation of a zero-initialized
+// memory block of (num*size) bytes.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+
+prh_inline void *prh_impl_stdc_calloc(prh_reg capacity, int line, prh_reg caller)
+{
+    void *buffer = prh_impl_rawc_calloc(capacity);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void *prh_impl_stdc_aligned_calloc(prh_reg capacity, prh_reg alignment, int line, prh_reg caller)
+{
+    void *buffer = prh_impl_stdc_aligned_malloc(capacity, alignment, line, caller);
+    memset(buffer, 0, capacity);
+    return buffer;
+}
+
+// void free(void *ptr) if ptr is null do nothing
+
+prh_inline void prh_impl_stdc_dealloc(void *buffer)
+{
+    prh_impl_rawc_free(buffer);
+}
+
+prh_inline void prh_impl_stdc_aligned_dealloc(void *buffer)
+{
+    prh_impl_plat_aligned_dealloc(buffer); // 如果 buffer 为空，prh_impl_plat_aligned_dealloc 不做任何事
+}
+
+prh_export void *prh_impl_stdc_realloc(void *buffer, prh_reg new_capacity, int line, prh_reg caller);
+prh_export void *prh_impl_stdc_aligned_realloc(void *buffer, prh_reg new_capacity, prh_reg alignment, int line, prh_reg caller);
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_include_stdc_alloc_h
+
+#if defined(prh_source_implement)
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// void *realloc(void *ptr, size_t size);
+// if ptr == prh_null { return malloc(size) }
+// if size == 0 { may be free(ptr) or depends on library implementation }
+// if size > ptr old size { may return the new location and the newer portion is indeterminate }
+// the content is preserved up to min(old and new size), even if moved to a new location.
+// if fails to allocate the requested block of memory, null is returned and ptr remain unchanged.
+// if ptr != NULL
+//      if size != 0
+//          return realloc(ptr, size)
+//      else
+//          **MAYBE** free(ptr) return NULL *** 规范 prh_stdc_realloc 只做分配操作，不释放内存
+// else
+//      // if size = 0 may or may not return null, but the returned pointer shall not be dereferenced
+//      return malloc(size)
+
+void *prh_impl_stdc_realloc(void *buffer, prh_reg new_capacity, int line, prh_reg caller)
+{
+    // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
+    // 当 buffer 为空时直接分配 new_capacity 大小内存，当 buffer 不为空时，重新分配到 new_capacity 大小
+    new_capacity = prh_set_value_if_zero(sizeof(void *), new_capacity);
+    buffer = prh_impl_rawc_realloc(buffer, new_capacity);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+void *prh_impl_stdc_aligned_realloc(void *buffer, prh_reg capacity, prh_reg alignment, int line, prh_reg caller)
+{
+    // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
+    // 当 buffer 为空时直接分配 capacity 大小内存，当 buffer 不为空时，重新分配到 capacity 大小
+    capacity = prh_times_align_size(prh_set_value_if_zero(1, capacity), alignment);
+#if defined(prh_impl_plat_aligned_realloc)
+    buffer = prh_impl_plat_aligned_realloc(buffer, capacity, alignment + 1);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+#else
+    if (buffer == prh_null)
+    {
+        buffer = prh_impl_plat_aligned_malloc(capacity, alignment + 1);
+        prh_impl_real_assert(buffer != prh_null, line, caller);
+    }
+    else
+    {
+        void *old_buffer = buffer;
+        buffer = prh_impl_plat_aligned_malloc(capacity, alignment + 1);
+        prh_impl_real_assert(buffer != prh_null, line, caller);
+        memmove(buffer, old_buffer, capacity); // capacity 可能扩大或缩小
+        prh_impl_plat_aligned_dealloc(old_buffer);
+    }
+#endif
+    return buffer;
+}
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_source_implement
+#endif // prh_impl_stdc_alloc
 
 // FULL VERSION HISTORY
 //
