@@ -2212,9 +2212,16 @@ extern "C" {
 #undef prh_assert
 #undef prh_plus_assert
 
+#undef prh_impl_real_assign_and_not_null_assert
+#undef prh_real_assign_and_not_null_assert
+#undef prh_assign_and_not_null_assert
+
 #define prh_impl_real_assert(a, line, caller) ((void)((a) || (prh_impl_assert_line_caller((line), (caller)), false)))
 #define prh_impl_plus_assert(a, line, caller, ...) ((void)((a) || ((__VA_ARGS__), prh_impl_assert_line_caller((line), (caller)), false)))
 #define prh_real_plus_assert(a, ...) prh_impl_plus_assert((a), __LINE__, prh_caller, __VA_ARGS__)
+
+#define prh_impl_real_assign_and_not_null_assert(value, expr, line, caller) (((value) = (expr)) || (prh_impl_assert_line_caller(__LINE__, prh_caller), prh_null))
+#define prh_real_assign_and_not_null_assert(value, expr) prh_impl_real_assign_and_not_null_assert((value), (expr), __LINE__, prh_caller)
 
 #if PRH_DEBUG
     #if defined(prh_line_caller_debug)
@@ -2223,10 +2230,12 @@ extern "C" {
         #define prh_real_assert(a) assert(a)
     #endif
     #define prh_plus_assert(a, ...) prh_real_plus_assert((a), __VA_ARGS__)
+    #define prh_assign_and_not_null_assert(value, expr) prh_real_assign_and_not_null_assert((value), (expr))
     #define prh_assert(a) prh_real_assert(a)
 #else
     #define prh_real_assert(a) prh_impl_real_assert(a, __LINE__, prh_caller)
     #define prh_plus_assert(a, ...)
+    #define prh_assign_and_not_null_assert(value, expr) ((value) = (expr))
     #define prh_assert(a)
 #endif
 
@@ -2256,18 +2265,6 @@ extern "C" {
 #define prh_arrend(a) ((a) + prh_arrlen(a))
 #define prh_arrelt(a, i) (a)[(prh_assert((i) >= 0 && (i) < prh_arrlen(a))), i]
 #define prh_arrget(a) (a), prh_arrlen(a)
-
-prh_inline prh_reg prh_impl_times_power_of_2(prh_reg n, prh_reg power_minus_one)
-{
-    prh_reg result = (n + power_minus_one) & (~power_minus_one);
-    prh_assert(result >= n);
-    return result;
-}
-
-prh_inline bool prh_impl_is_times_power_of_2(prh_reg n, prh_reg power_minus_one)
-{
-    return (n & power_minus_one) == 0;
-}
 
 prh_inline prh_reg prh_lower_most_bit(prh_reg n)
 {
@@ -2322,7 +2319,13 @@ prh_inline bool prh_is_power_of_2(prh_reg n)
 prh_inline bool prh_is_times_power_of_2(prh_reg n, prh_reg power_of_2)
 {
     prh_assert(prh_is_power_of_2(power_of_2));
-    return prh_impl_is_times_power_of_2(n, power_of_2 - 1);
+    return (n & (power_of_2 - 1)) == 0;
+}
+
+prh_inline bool prh_raw_is_times_power_of_2(prh_raw n, prh_reg power_of_2)
+{
+    prh_assert(prh_is_power_of_2(power_of_2));
+    return (n & (power_of_2 - 1)) == 0;
 }
 
 prh_inline prh_reg prh_to_power_of_2(prh_reg n)
@@ -2337,7 +2340,17 @@ prh_inline prh_reg prh_to_power_of_2(prh_reg n)
 prh_inline prh_reg prh_times_power_of_2(prh_reg n, prh_reg power_of_2)
 {
     prh_assert(prh_is_power_of_2(power_of_2));
-    return prh_impl_times_power_of_2(n, power_of_2 - 1);
+    prh_reg result = (n + power_of_2 - 1) & (~(power_of_2 - 1));
+    prh_assert(result >= n);
+    return result;
+}
+
+prh_inline prh_raw prh_raw_times_power_of_2(prh_raw n, prh_reg power_of_2)
+{
+    prh_assert(prh_is_power_of_2(power_of_2));
+    prh_raw result = (n + power_of_2 - 1) & (~(power_of_2 - 1));
+    prh_assert(result >= n);
+    return result;
 }
 
 prh_inline prh_reg prh_times_align_size(prh_reg n, prh_reg alignment)
@@ -2574,6 +2587,18 @@ extern "C" {
 // #define _HEAP_MAXREQ 0xFFFFFFE0
 // #endif
 //
+// void *_aligned_malloc(size_t size, size_t alignment);
+// void *_aligned_offset_malloc(size_t size, size_t alignment, size_t offset);
+//
+// void *_aligned_realloc(void *memblock, size_t size, size_t alignment);
+// void *_aligned_offset_realloc(void *memblock, size_t size, size_t alignment, size_t offset);
+//
+// void *_aligned_recalloc(void *memblock, size_t num, size_t size, size_t alignment);
+// void *_aligned_offset_recalloc(void *memblock, size_t num, size_t size, size_t alignment, size_t offset);
+//
+// size_t _aligned_msize(void *memblock, size_t alignment, size_t offset);
+// void _aligned_free(void *memblock);
+//
 // void *_aligned_offset_malloc(size_t size, size_t alignment, size_t offset);
 //      offset - [0, size)
 //      (ptr + offset) % alignment == 0
@@ -2596,7 +2621,28 @@ extern "C" {
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/parameter-validation
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/global-state
 
+// https://cppreference.com/c/header/stdlib
+// https://cppreference.com/c/memory/aligned_alloc (C11)
+//
+// void* malloc(size_t size);
+// void* calloc(size_t nmemb, size_t size);
+// void* realloc(void* ptr, size_t size);
+// void free(void* ptr);
+// void free_sized(void* ptr, size_t size);
+//
+// void* aligned_alloc(size_t alignment, size_t size);
+// void free_aligned_sized(void* ptr, size_t alignment, size_t size);
+
+// https://pubs.opengroup.org/onlinepubs/9699919799.2008edition/basedefs/contents.html
+// https://pubs.opengroup.org/onlinepubs/9699919799.2008edition/basedefs/stdlib.h.html
+// https://pubs.opengroup.org/onlinepubs/9699919799.2008edition/idx/headers.html
+//
+// int posix_memalign(void **memptr, size_t alignment, size_t size);
+
 #undef prh_impl_plat_aligned_realloc
+#undef prh_impl_plat_aligned_offset_realloc
+#undef prh_impl_plat_aligned_offset_malloc
+#undef prh_impl_plat_aligned_memory_size
 
 #if defined(prh_msc_version)
     #include <malloc.h> // _aligned_malloc _aligned_realloc _aligned_free
@@ -2606,6 +2652,9 @@ extern "C" {
     // function returns NULL and sets errno to EINVAL.
     #define prh_impl_plat_aligned_malloc(size, alignment) _aligned_malloc((size), (alignment))
     #define prh_impl_plat_aligned_realloc(p, size, alignment) _aligned_realloc((p), (size), (alignment))
+    #define prh_impl_plat_aligned_offset_realloc(p, size, alignment, offset) _aligned_offset_realloc((p), (size), (alignment), (offset))
+    #define prh_impl_plat_aligned_offset_malloc(size, alignment, offset) _aligned_offset_malloc((size), (alignment), (offset))
+    #define prh_impl_plat_aligned_memory_size(p, alignment, offset) _aligned_msize((p), (alignment), (offset))
     #define prh_impl_plat_aligned_dealloc(p) _aligned_free(p) // _aligned_free(p) if p is a null, this function simply performs no actions
 #else
     // behavior is undefined if size is not an integral multiple of alignment
@@ -2650,6 +2699,8 @@ prh_inline void prh_impl_rawc_free(void *buffer)
 #undef free
 #endif
 
+prh_export void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg new_capacity, prh_reg alignment);
+
 #define prh_stdc_malloc(capacity) prh_impl_stdc_malloc((capacity), __LINE__, prh_caller)
 #define prh_stdc_calloc(capacity) prh_impl_stdc_calloc((capacity), __LINE__, prh_caller)
 #define prh_stdc_realloc(buffer, new_capacity) prh_impl_stdc_realloc((buffer), (new_capacity), __LINE__, prh_caller)
@@ -2657,34 +2708,51 @@ prh_inline void prh_impl_rawc_free(void *buffer)
 
 #define prh_stdc_aligned_malloc(capacity, alignment) prh_impl_stdc_aligned_malloc((capacity), (alignment), __LINE__, prh_caller)
 #define prh_stdc_aligned_calloc(capacity, alignment) prh_impl_stdc_aligned_calloc((capacity), (alignment), __LINE__, prh_caller)
-#define prh_stdc_aligned_realloc(buffer, new_capacity, alignment) prh_impl_stdc_aligned_realloc((buffer), (new_capacity), (alignment), __LINE__, prh_caller)
+#define prh_stdc_aligned_realloc(buffer, old_capacity, new_capacity, alignment) prh_impl_stdc_aligned_realloc((buffer), (old_capacity), (new_capacity), (alignment), __LINE__, prh_caller)
 #define prh_stdc_aligned_dealloc(buffer) prh_impl_stdc_aligned_dealloc((buffer))
 
-#define prh_stdc_line_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), PRH_ALIGN_LINE)
-#define prh_stdc_page_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), PRH_ALIGN_PAGE)
-#define prh_stdc_vmem_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), PRH_ALIGN_VMEM)
-#define prh_stdc_line_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), PRH_ALIGN_LINE)
-#define prh_stdc_page_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), PRH_ALIGN_PAGE)
-#define prh_stdc_vmem_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), PRH_ALIGN_VMEM)
+#define prh_stdc_line_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), prh_align_line_size)
+#define prh_stdc_page_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), prh_align_page_size)
+#define prh_stdc_vmem_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), prh_align_vmem_unit)
+#define prh_stdc_line_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), prh_align_line_size)
+#define prh_stdc_page_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), prh_align_page_size)
+#define prh_stdc_vmem_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), prh_align_vmem_unit)
 
 // void *malloc(size_t size);
 // the newly allocated block of memory is not initialized, remaining with indeterminate values.
 // if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
 // if fails to allocate the requested block of memory, a null pointer is returned.
+//
+// 如果 capacity 为零，可能返回 null 也可能返回正常地址，但该地址不能访问
+// 对于 aligned_malloc，如果 capacity 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
+// 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问，free 函数可以处理空指针不会报错
+// 对齐 alignment 必须是 sizeof(void *) 的 2 的幂的倍数（The address of the allocated memory will be
+// a multiple of alignment, which must be a power of two and a multiple of sizeof(void *)）
+
+prh_inline prh_reg prh_alloc_capacity(prh_reg capacity, prh_reg alignment)
+{
+    // 避免 realloc 遇到 0 释放内存，至少分配 alignment 大小的内存
+    // 使得 malloc 至少分配 alignment 大小的内存，并检查 alignment 的合法性
+    prh_assert(alignment >= sizeof(void *));
+    return prh_times_align_size(prh_set_value_if_zero(1, capacity), alignment);
+}
+
+prh_inline prh_byte *prh_alloc_address(prh_byte *address, prh_reg alignment, prh_reg header_extra_bytes)
+{
+    prh_byte *buffer = (prh_byte *)prh_raw_times_power_of_2((prh_raw)address, alignment);
+    return buffer + prh_set_value_if_true(prh_times_align_size(header_extra_bytes - (buffer - address), alignment), 0, header_extra_bytes > buffer - address);
+}
 
 prh_inline void *prh_impl_stdc_malloc(prh_reg capacity, int line, prh_reg caller)
 {
-    void *buffer = prh_impl_rawc_malloc(capacity); // 如果 capacity 为零，可能返回 null 也可能返回正常地址，但该地址不能访问
-    prh_impl_real_assert(buffer != prh_null, line, caller); // 对于 aligned_alloc，如果 capacity 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
+    void *buffer = prh_impl_rawc_malloc(prh_alloc_capacity(capacity, sizeof(void *)));
+    prh_impl_real_assert(buffer != prh_null, line, caller);
     return buffer;
 }
 
 prh_inline void *prh_impl_stdc_aligned_malloc(prh_reg capacity, prh_reg alignment, int line, prh_reg caller)
 {
-    // 对于 aligned_malloc，如果 capacity 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
-    // 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问，可以统一标准都返回非空，并强制要求不能将空传给dealloc
-    capacity = prh_times_align_size(prh_set_value_if_zero(1, capacity), alignment);
-    void *buffer = prh_impl_plat_aligned_malloc(capacity, alignment + 1);
+    void *buffer = prh_impl_plat_aligned_malloc(prh_alloc_capacity(capacity, alignment), alignment);
     prh_impl_real_assert(buffer != prh_null, line, caller);
     return buffer;
 }
@@ -2710,31 +2778,6 @@ prh_inline void *prh_impl_stdc_aligned_calloc(prh_reg capacity, prh_reg alignmen
     return buffer;
 }
 
-// void free(void *ptr) if ptr is null do nothing
-
-prh_inline void prh_impl_stdc_dealloc(void *buffer)
-{
-    prh_impl_rawc_free(buffer);
-}
-
-prh_inline void prh_impl_stdc_aligned_dealloc(void *buffer)
-{
-    prh_impl_plat_aligned_dealloc(buffer); // 如果 buffer 为空，prh_impl_plat_aligned_dealloc 不做任何事
-}
-
-prh_export void *prh_impl_stdc_realloc(void *buffer, prh_reg new_capacity, int line, prh_reg caller);
-prh_export void *prh_impl_stdc_aligned_realloc(void *buffer, prh_reg new_capacity, prh_reg alignment, int line, prh_reg caller);
-
-#ifdef __cplusplus
-}
-#endif
-#endif // prh_include_stdc_alloc_h
-
-#if defined(prh_source_implement)
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 // void *realloc(void *ptr, size_t size);
 // if ptr == prh_null { return malloc(size) }
 // if size == 0 { may be free(ptr) or depends on library implementation }
@@ -2749,41 +2792,69 @@ extern "C" {
 // else
 //      // if size = 0 may or may not return null, but the returned pointer shall not be dereferenced
 //      return malloc(size)
+//
+// 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
+// 当 buffer 为空时直接分配 new_capacity 大小内存，当 buffer 不为空时，重新分配到 new_capacity 大小
 
-void *prh_impl_stdc_realloc(void *buffer, prh_reg new_capacity, int line, prh_reg caller)
+prh_inline void *prh_impl_stdc_realloc(void *buffer, prh_reg new_capacity, int line, prh_reg caller)
 {
-    // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
-    // 当 buffer 为空时直接分配 new_capacity 大小内存，当 buffer 不为空时，重新分配到 new_capacity 大小
-    new_capacity = prh_set_value_if_zero(sizeof(void *), new_capacity);
-    buffer = prh_impl_rawc_realloc(buffer, new_capacity);
+    buffer = prh_impl_rawc_realloc(buffer, prh_alloc_capacity(new_capacity, sizeof(void *)));
     prh_impl_real_assert(buffer != prh_null, line, caller);
     return buffer;
 }
 
-void *prh_impl_stdc_aligned_realloc(void *buffer, prh_reg capacity, prh_reg alignment, int line, prh_reg caller)
+prh_inline void *prh_impl_stdc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg new_capacity, prh_reg alignment, int line, prh_reg caller)
+{
+    void *buffer = prh_impl_rawc_aligned_realloc(buffer, old_capacity, new_capacity, alignment);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+// void free(void *ptr) if ptr is null do nothing
+
+prh_inline void prh_impl_stdc_dealloc(void *buffer)
+{
+    prh_impl_rawc_free(buffer);
+}
+
+prh_inline void prh_impl_stdc_aligned_dealloc(void *buffer)
+{
+    prh_impl_plat_aligned_dealloc(buffer); // 如果 buffer 为空，prh_impl_plat_aligned_dealloc 不做任何事
+}
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_include_stdc_alloc_h
+
+#if defined(prh_source_implement)
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg new_capacity, prh_reg alignment)
 {
     // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
     // 当 buffer 为空时直接分配 capacity 大小内存，当 buffer 不为空时，重新分配到 capacity 大小
-    capacity = prh_times_align_size(prh_set_value_if_zero(1, capacity), alignment);
+    new_capacity = prh_alloc_capacity(new_capacity, alignment);
 #if defined(prh_impl_plat_aligned_realloc)
-    buffer = prh_impl_plat_aligned_realloc(buffer, capacity, alignment + 1);
-    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return prh_impl_plat_aligned_realloc(buffer, new_capacity, alignment);
 #else
     if (buffer == prh_null)
     {
-        buffer = prh_impl_plat_aligned_malloc(capacity, alignment + 1);
-        prh_impl_real_assert(buffer != prh_null, line, caller);
+        return prh_impl_plat_aligned_malloc(new_capacity, alignment);
     }
     else
     {
+        if (new_capacity <= old_capacity) return buffer;
         void *old_buffer = buffer;
-        buffer = prh_impl_plat_aligned_malloc(capacity, alignment + 1);
-        prh_impl_real_assert(buffer != prh_null, line, caller);
-        memmove(buffer, old_buffer, capacity); // capacity 可能扩大或缩小
+        buffer = prh_impl_plat_aligned_malloc(new_capacity, alignment);
+        if (buffer == prh_null) return prh_null;
+        memcpy(buffer, old_buffer, old_capacity);
         prh_impl_plat_aligned_dealloc(old_buffer);
+        return buffer;
     }
 #endif
-    return buffer;
 }
 
 #ifdef __cplusplus
