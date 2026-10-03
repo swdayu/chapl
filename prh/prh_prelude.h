@@ -2492,6 +2492,13 @@ prh_inline prh_reg prh_times_align_size(prh_reg n, prh_reg alignment)
 #endif
 #endif // prh_impl_prelude_extern_h
 
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+////
+////   STDC & PLAT ALLOC
+////
+////
+
 #undef prh_multiple_include_different_config
 #define prh_multiple_include_different_config 1
 
@@ -2699,35 +2706,13 @@ prh_inline void prh_impl_rawc_free(void *buffer)
 #undef free
 #endif
 
-prh_export void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg new_capacity, prh_reg alignment);
+prh_export void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg new_capacity, prh_reg alignment);
 
-#define prh_stdc_malloc(capacity) prh_impl_stdc_malloc((capacity), __LINE__, prh_caller)
-#define prh_stdc_calloc(capacity) prh_impl_stdc_calloc((capacity), __LINE__, prh_caller)
-#define prh_stdc_realloc(buffer, new_capacity) prh_impl_stdc_realloc((buffer), (new_capacity), __LINE__, prh_caller)
-#define prh_stdc_dealloc(buffer) prh_impl_stdc_dealloc(buffer) // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
-
-#define prh_stdc_aligned_malloc(capacity, alignment) prh_impl_stdc_aligned_malloc((capacity), (alignment), __LINE__, prh_caller)
-#define prh_stdc_aligned_calloc(capacity, alignment) prh_impl_stdc_aligned_calloc((capacity), (alignment), __LINE__, prh_caller)
-#define prh_stdc_aligned_realloc(buffer, old_capacity, new_capacity, alignment) prh_impl_stdc_aligned_realloc((buffer), (old_capacity), (new_capacity), (alignment), __LINE__, prh_caller)
-#define prh_stdc_aligned_dealloc(buffer) prh_impl_stdc_aligned_dealloc((buffer))
-
-#define prh_stdc_line_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), prh_align_line_size)
-#define prh_stdc_page_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), prh_align_page_size)
-#define prh_stdc_vmem_aligned_malloc(capacity) prh_stdc_aligned_malloc((capacity), prh_align_vmem_unit)
-#define prh_stdc_line_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), prh_align_line_size)
-#define prh_stdc_page_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), prh_align_page_size)
-#define prh_stdc_vmem_aligned_calloc(capacity) prh_stdc_aligned_calloc((capacity), prh_align_vmem_unit)
-
-// void *malloc(size_t size);
-// the newly allocated block of memory is not initialized, remaining with indeterminate values.
-// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
-// if fails to allocate the requested block of memory, a null pointer is returned.
-//
-// 如果 capacity 为零，可能返回 null 也可能返回正常地址，但该地址不能访问
-// 对于 aligned_malloc，如果 capacity 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
-// 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问，free 函数可以处理空指针不会报错
-// 对齐 alignment 必须是 sizeof(void *) 的 2 的幂的倍数（The address of the allocated memory will be
-// a multiple of alignment, which must be a power of two and a multiple of sizeof(void *)）
+prh_inline void prh_memcpy_old_content_to_new_buffer(prh_byte *new_buffer, prh_reg new_capacity, const prh_byte *old_buffer, prh_reg old_capacity)
+{
+    prh_assert(old_buffer || old_capacity == 0);
+    memcpy(new_buffer, old_buffer, prh_set_value_if_true(old_capacity, new_capacity, old_capacity < new_capacity)); // new_capacity 可能扩大或缩小
+}
 
 prh_inline prh_reg prh_alloc_capacity(prh_reg capacity, prh_reg alignment)
 {
@@ -2742,6 +2727,17 @@ prh_inline prh_byte *prh_alloc_address(prh_byte *address, prh_reg alignment, prh
     prh_byte *buffer = (prh_byte *)prh_raw_times_power_of_2((prh_raw)address, alignment);
     return buffer + prh_set_value_if_true(prh_times_align_size(header_extra_bytes - (buffer - address), alignment), 0, header_extra_bytes > buffer - address);
 }
+
+// void *malloc(size_t size);
+// the newly allocated block of memory is not initialized, remaining with indeterminate values.
+// if size == 0 { may or may not return null, but the returned pointer shall not be dereferenced }
+// if fails to allocate the requested block of memory, a null pointer is returned.
+//
+// 如果 capacity 为零，可能返回 null 也可能返回正常地址，但该地址不能访问
+// 对于 aligned_malloc，如果 capacity 大小不是对齐的整数倍或者为零，或者对齐字节数不是2的幂，都将触发非法处理
+// 分配零字节长度正常返回或返回空，总之返回的地址位置不能访问，free 函数可以处理空指针不会报错
+// 对齐 alignment 必须是 sizeof(void *) 的 2 的幂的倍数（The address of the allocated memory will be
+// a multiple of alignment, which must be a power of two and a multiple of sizeof(void *)）
 
 prh_inline void *prh_impl_stdc_malloc(prh_reg capacity, int line, prh_reg caller)
 {
@@ -2803,9 +2799,9 @@ prh_inline void *prh_impl_stdc_realloc(void *buffer, prh_reg new_capacity, int l
     return buffer;
 }
 
-prh_inline void *prh_impl_stdc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg new_capacity, prh_reg alignment, int line, prh_reg caller)
+prh_inline void *prh_impl_stdc_aligned_realloc(void *buffer, prh_reg new_capacity, prh_reg alignment, int line, prh_reg caller)
 {
-    void *buffer = prh_impl_rawc_aligned_realloc(buffer, old_capacity, new_capacity, alignment);
+    void *buffer = prh_impl_rawc_aligned_realloc(buffer, new_capacity, alignment);
     prh_impl_real_assert(buffer != prh_null, line, caller);
     return buffer;
 }
@@ -2822,6 +2818,16 @@ prh_inline void prh_impl_stdc_aligned_dealloc(void *buffer)
     prh_impl_plat_aligned_dealloc(buffer); // 如果 buffer 为空，prh_impl_plat_aligned_dealloc 不做任何事
 }
 
+#define prh_stdc_malloc(capacity) prh_impl_stdc_malloc((capacity), __LINE__, prh_caller)
+#define prh_stdc_calloc(capacity) prh_impl_stdc_calloc((capacity), __LINE__, prh_caller)
+#define prh_stdc_realloc(buffer, new_capacity) prh_impl_stdc_realloc((buffer), (new_capacity), __LINE__, prh_caller)
+#define prh_stdc_dealloc(buffer) prh_impl_stdc_dealloc(buffer) // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
+
+#define prh_stdc_aligned_malloc(capacity, alignment) prh_impl_stdc_aligned_malloc((capacity), (alignment), __LINE__, prh_caller)
+#define prh_stdc_aligned_calloc(capacity, alignment) prh_impl_stdc_aligned_calloc((capacity), (alignment), __LINE__, prh_caller)
+#define prh_stdc_aligned_realloc(buffer, new_capacity, alignment) prh_impl_stdc_aligned_realloc((buffer), (new_capacity), (alignment), __LINE__, prh_caller)
+#define prh_stdc_aligned_dealloc(buffer) prh_impl_stdc_aligned_dealloc((buffer)) // 规范 prh_stdc_aligned_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_aligned_dealloc
+
 #ifdef __cplusplus
 }
 #endif
@@ -2832,7 +2838,7 @@ prh_inline void prh_impl_stdc_aligned_dealloc(void *buffer)
 extern "C" {
 #endif
 
-void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg new_capacity, prh_reg alignment)
+void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg new_capacity, prh_reg alignment)
 {
     // 规范 prh_stdc_realloc 只做分配操作，不释放内存，释放内存必须调用 prh_stdc_dealloc
     // 当 buffer 为空时直接分配 capacity 大小内存，当 buffer 不为空时，重新分配到 capacity 大小
@@ -2846,12 +2852,40 @@ void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg 
     }
     else
     {
-        if (new_capacity <= old_capacity) return buffer;
+    #if defined(prh_impl_plat_aligned_memory_size) || defined(prh_impl_thread_local_realloc_old_capacity)
+        #if defined(prh_impl_plat_aligned_memory_size)
+        prh_reg old_capacity = prh_impl_plat_aligned_memory_size(buffer, alignment, 0);
+        #else
+        prh_reg old_capacity = prh_impl_thread_local_realloc_old_capacity();
+        #endif
+        if (new_capacity > old_capacity)
+        {
+            void *old_buffer = buffer;
+            buffer = prh_impl_plat_aligned_malloc(new_capacity, alignment);
+            if (buffer) memcpy(buffer, old_buffer, old_capacity);
+            prh_impl_plat_aligned_dealloc(old_buffer);
+        }
+    #else
+        // 1. buffer 总是新分配，因此 buffer 一定与 old_buffer 地址不同
+        // 2. 如果 new_capacity <= old_capacity，拷贝区间不会发生重叠
+        // 3. 如果 new_capacity > old_capacity，拷贝区间可能发生重叠
+        //      1) [old_buffer, new_buffer) 的长度超过 new_capacity，不会发生重叠
+        //          [buffer data | unknown data] => [buffer data | unknown data]
+        //          ^ old_buffer ^                  ^ new_buffer ------------- ^
+        //      2) [old_buffer, new_buffer) 的长度小于 new_capacity，会重叠拷贝一部分 new_buffer 内容到 new_buffer + old_capacity 之后
+        //          [buffer data ] => [buffer data | buffer d...]
+        //          ^ old_buffer ^    ^ new_buffer ------------ ^
+        //      3) 如果分配的新内存位于 old_buffer 之前，不会发生重叠，但有访问 old_buffer 之后非法内存的风险
+        //         规避方法一：不使用 aligned_realloc，只是用 realloc 标准库函数
+        //         规避方法二：使用平台提供的 aligned_realloc 并定义为 prh_impl_plat_aligned_realloc
+        //         规避方法三：使用 thread_local 变量在调用该函数之前传递 old_capacity 的值，走上面 #if 分支
+        //         规避方法四：确定 old_buffer + new_capacity 位于合法内存范围之内之后才调用
+        //          [new_buffer ...] <= [old_buffer | unknown memory area]
         void *old_buffer = buffer;
         buffer = prh_impl_plat_aligned_malloc(new_capacity, alignment);
-        if (buffer == prh_null) return prh_null;
-        memcpy(buffer, old_buffer, old_capacity);
+        if (buffer) memmove(buffer, old_buffer, new_capacity);
         prh_impl_plat_aligned_dealloc(old_buffer);
+    #endif
         return buffer;
     }
 #endif
@@ -2862,6 +2896,769 @@ void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg old_capacity, prh_reg 
 #endif
 #endif // prh_source_implement
 #endif // prh_impl_stdc_alloc
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+////
+////   ALLOC INTERFACE
+////
+////
+
+#if defined(prh_alloc_include)
+#define prh_thread_include
+#endif
+
+#if defined(prh_thread_include)
+#define prh_alloc_include
+#endif
+
+#if defined(prh_thread_include)
+#ifndef prh_impl_thread_prelude_h
+#define prh_impl_thread_prelude_h
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+typedef struct {
+    prh_alignas(prh_cache_line_size) // 初始化后只读
+    void *thread_impl;
+    void *thread_data;
+    void *static_alloc; // 静态分配器，一旦分配永不释放直到线程退出，该分配器一旦初始化不可重新配置
+    void *intant_alloc; // 即时分配器，分配后必须在同一函数中释放，该分配器一旦初始化不可重新配置
+    void *thread_alloc; // 线程分配器，对释放操作无特殊限制，该分配器一旦初始化不可重新配置
+    void *ehub_service;
+    void *coro_service;
+    prh_r32 thread_id;
+    prh_alignas(prh_cache_line_size) // 仅由当前线程访问和修改
+    void *layers_alloc; // 层叠分配器，对释放操作无特殊限制，可以随时对该分配器进行重新配置，重新配置后必须在同一函数中进行恢复
+    void *active_window;
+    void *limited_data;
+    prh_r32 error_num;
+} prh_thread;
+
+typedef prh_thread prh_runtime_context;
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_impl_thread_prelude_h
+#endif // prh_thread_include
+
+#if defined(prh_alloc_include)
+#ifndef prh_impl_alloc_include_h
+#define prh_impl_alloc_include_h
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#undef prh_impl_64_bit_alloc
+#undef prh_impl_32_bit_alloc
+#undef prh_impl_16_bit_alloc
+
+#if prh_int_bits == 64
+    #define prh_impl_64_bit_alloc
+#elif prh_int_bits == 32
+    #if defined(prh_using_low_cost_alloc)
+        #define prh_impl_16_bit_alloc
+    #else
+        #define prh_impl_32_bit_alloc
+    #endif
+#endif
+
+#ifndef prh_single_allocator_program
+#define prh_single_allocator_program 0
+#endif
+
+typedef enum {
+    prh_alloc_align_line_size = prh_cache_line_size,
+    prh_alloc_align_page_size = prh_memory_page_size,
+    prh_alloc_align_vmem_unit = prh_vmem_unit_size,
+    prh_alloc_align_4_byte = prh_impl_align_4_byte,
+    prh_alloc_align_8_byte = prh_impl_align_8_byte,
+    prh_alloc_align_16_byte = prh_impl_align_16_byte,
+    prh_alloc_align_32_byte = prh_impl_align_32_byte,
+    prh_alloc_align_64_byte = prh_impl_align_64_byte,
+    prh_alloc_align_128_byte = prh_impl_align_128_byte,
+    prh_alloc_align_256_byte = prh_impl_align_256_byte,
+    prh_alloc_align_512_byte = prh_impl_align_512_byte,
+    prh_alloc_align_1k_byte = prh_impl_align_1k_byte,
+    prh_alloc_align_2k_byte = prh_impl_align_2k_byte,
+    prh_alloc_align_4k_byte = prh_impl_align_4k_byte,
+    prh_alloc_align_8k_byte = prh_impl_align_8k_byte,
+    prh_alloc_align_16k_byte = prh_impl_align_16k_byte,
+    prh_alloc_align_32k_byte = prh_impl_align_32k_byte,
+    prh_alloc_align_64k_byte = prh_impl_align_64k_byte,
+} prh_alloc_alignment;
+
+typedef struct prh_alloc_face prh_alloc_face; // 至少分配 alignment 大小的内存
+typedef void (*prh_alloc_func)(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes);
+typedef void (*prh_alloc_free)(prh_alloc_face *alloc, prh_memory *ptr, prh_reg header_extra_bytes);
+
+typedef struct prh_alloc_face {
+    prh_alloc_func alloc_func; // malloc calloc
+    prh_alloc_free alloc_free; // delete
+} prh_alloc_face;
+
+prh_export prh_alloc_face *prh_default_alloc(void); // 全局默认分配器，可在初始化时重新配置，一旦初始化完成不可再更改
+prh_export void prh_empty_alloc_free(prh_alloc_face *alloc, prh_memory *ptr, prh_reg header_extra_bytes);
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// 64 BIT ALLOC DEFINES
+///
+///
+
+#if defined(prh_impl_64_bit_alloc)
+
+#undef prh_minimal_alloc_alignment
+#define prh_minimal_alloc_alignment prh_alloc_align_8_byte
+
+#ifndef prh_default_alloc_alignment
+#define prh_default_alloc_alignment prh_alloc_align_16_byte
+#endif
+
+prh_static_assert(prh_default_alloc_alignment >= prh_minimal_alloc_alignment);
+
+// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18    19
+// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB 512KB
+//       0  1  2  3   4   5   6   7   8   9  10   11   12   13    14    15
+
+typedef struct {
+    prh_byte *buffer;
+    prh_reg impl_capacity_56: 56, impl_alignment: 8;
+} prh_memory;
+
+typedef struct {
+    prh_reg impl_capacity_56: 56, impl_alignment: 8;
+} prh_inplace_memory;
+
+prh_inline prh_byte *prh_memory_buffer(prh_memory *self)
+{
+    return self->impl_buffer;
+}
+
+prh_inline void prh_memory_set_buffer(prh_memory *self, prh_byte *buffer)
+{
+    prh_assert(prh_raw_is_times_power_of_2((prh_raw)buffer, 1 << prh_minimal_alloc_alignment));
+    self->impl_buffer = buffer;
+}
+
+prh_inline prh_reg prh_memory_capacity(const prh_memory *self)
+{
+    return self->impl_capacity_56;
+}
+
+prh_inline void prh_memory_set_capacity(prh_memory *self, prh_reg capacity)
+{
+    prh_assert(prh_is_times_power_of_2(capacity, 1 << prh_minimal_alloc_alignment));
+    prh_assert(capacity <= 0x00FFFFFFFFFFFFFFULL);
+    self->impl_capacity_56 = capacity;
+}
+
+prh_inline prh_reg prh_inplace_memory_capacity(const prh_inplace_memory *self)
+{
+    return self->impl_capacity_56;
+}
+
+prh_inline void prh_inplace_memory_set_capacity(prh_inplace_memory *self, prh_reg capacity)
+{
+    prh_assert(prh_is_times_power_of_2(capacity, 1 << prh_minimal_alloc_alignment));
+    prh_assert(capacity <= 0x00FFFFFFFFFFFFFFULL);
+    self->impl_capacity_56 = capacity;
+}
+
+prh_inline prh_alloc_alignment prh_memory_alignment(const prh_memory *self)
+{
+    return (prh_alloc_alignment)((prh_byte)prh_minimal_alloc_alignment + (prh_byte)self->impl_alignment); // alignment = log2(real_alignment)
+}
+
+prh_inline prh_reg prh_memory_real_alignment(const prh_memory *self)
+{
+    return (prh_reg)1 << prh_memory_alignment(self);
+}
+
+prh_inline void prh_memory_set_alignment(prh_memory *self, prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment);
+    self->impl_alignment = alignment - prh_minimal_alloc_alignment;
+}
+
+prh_inline prh_alloc_alignment prh_inplace_memory_alignment(const prh_inplace_memory *self)
+{
+    return (prh_alloc_alignment)((prh_byte)prh_minimal_alloc_alignment + (prh_byte)self->impl_alignment);
+}
+
+prh_inline prh_reg prh_inplace_memory_real_alignment(const prh_inplace_memory *self)
+{
+    return (prh_reg)1 << prh_inplace_memory_alignment(self);
+}
+
+prh_inline void prh_inplace_memory_set_alignment(prh_inplace_memory *self, prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment);
+    self->impl_alignment = alignment - prh_minimal_alloc_alignment;
+}
+
+prh_inline prh_memory prh_empty_memory(void)
+{
+    prh_memory memory = {prh_null, 0, prh_default_alloc_alignment - prh_minimal_alloc_alignment};
+    return memory;
+}
+
+prh_inline prh_memory prh_aligned_memory(prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment);
+    prh_memory memory = {prh_null, 0, alignment - prh_minimal_alloc_alignment};
+    return memory;
+}
+
+prh_inline prh_memory prh_from_inplace_memory(prh_inplace_memory *buffer)
+{
+    prh_assert(buffer != prh_null);
+    prh_assert(prh_raw_is_times_power_of_2((prh_raw)buffer, 1 << prh_minimal_alloc_alignment));
+    prh_memory memory = {(prh_byte *)(buffer + 1), buffer->impl_capacity_56, buffer->impl_alignment};
+    return memory;
+}
+
+typedef struct {
+    prh_memory memory;
+#if prh_single_allocator_program == 0
+    prh_alloc_face *impl_alloc_face;
+#endif
+} prh_buffer;
+
+typedef struct {
+    prh_reg impl_capacity_56: 56, impl_alignment: 8;
+#if prh_single_allocator_program == 0
+    prh_alloc_face *impl_alloc_face;
+#endif
+} prh_inplace_buffer;
+
+prh_inline prh_alloc_face *prh_buffer_alloc(const prh_buffer *self)
+{
+#if prh_single_allocator_program
+    return prh_default_alloc();
+#else
+    prh_assert(self->impl_alloc_face != prh_null);
+    return self->impl_alloc_face;
+#endif
+}
+
+prh_inline void prh_buffer_set_alloc(prh_buffer *self, prh_alloc_face *alloc)
+{
+#if prh_single_allocator_program
+#else
+    prh_assert(alloc != prh_null);
+    self->impl_alloc_face = alloc;
+#endif
+}
+
+prh_inline prh_alloc_face *prh_inplace_buffer_alloc(const prh_inplace_buffer *self)
+{
+#if prh_single_allocator_program
+    return prh_default_alloc();
+#else
+    prh_assert(self->impl_alloc_face != prh_null);
+    return self->impl_alloc_face;
+#endif
+}
+
+prh_inline void prh_inplace_buffer_set_alloc(prh_inplace_buffer *self, prh_alloc_face *alloc)
+{
+#if prh_single_allocator_program
+#else
+    prh_assert(alloc != prh_null);
+    self->impl_alloc_face = alloc;
+#endif
+}
+
+prh_inline prh_buffer prh_empty_buffer(prh_alloc_face *alloc)
+{
+#if prh_single_allocator_program
+    prh_buffer buffer = {{prh_null, 0, prh_default_alloc_alignment - prh_minimal_alloc_alignment}};
+#else
+    prh_assert(alloc != prh_null);
+    prh_buffer buffer = {{prh_null, 0, prh_default_alloc_alignment - prh_minimal_alloc_alignment}, alloc};
+#endif
+    return buffer;
+}
+
+prh_inline prh_buffer prh_aligned_buffer(prh_alloc_face *alloc, prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment);
+#if prh_single_allocator_program
+    prh_buffer buffer = {{prh_null, 0, alignment - prh_minimal_alloc_alignment}};
+#else
+    prh_assert(alloc != prh_null);
+    prh_buffer buffer = {{prh_null, 0, alignment - prh_minimal_alloc_alignment}, alloc};
+#endif
+    return buffer;
+}
+
+#endif // prh_impl_64_bit_alloc
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// 32 BIT & 64_32 BIT ALLOC DEFINES
+///
+///
+
+#if defined(prh_impl_32_bit_alloc)
+
+#undef prh_minimal_alloc_alignment
+#define prh_minimal_alloc_alignment prh_alloc_align_4_byte
+
+#ifndef prh_default_alloc_alignment
+#define prh_default_alloc_alignment prh_alloc_align_8_byte
+#endif
+
+prh_static_assert(prh_default_alloc_alignment >= prh_minimal_alloc_alignment);
+
+// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18    19
+// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB 512KB
+//     0 1  2  3  4   5   6   7   8   9  10  11   12   13   14    15
+//
+// real_capacity = capacity (28-bit) * real_alignment
+//  1.  对齐到4字节一次最多只能分配 1073741820 字节，比 1GB 少 4 字节，使用更大的对齐分配更大的内存，比起 GB 大小的分配浪费几个字节微不足道
+//  2.  对齐到8字节一次最多只能分配 2147483640 字节，比 2GB 少 8 字节，使用更大的对齐分配更大的内存，比起 GB 大小的分配浪费几个字节微不足道
+//  3.  对齐到16字节一次最多能分配  4294967280 字节，比 4GB 少 16 字节
+
+#define prh_impl_32_bit_alloc_max_size_4 1073741820
+#define prh_impl_32_bit_alloc_max_size_8 2147483640
+
+typedef struct {
+    prh_byte *buffer;
+    prh_r32 impl_capacity_alignment_4;
+} prh_memory;
+
+typedef struct {
+    prh_r32 impl_capacity_alignment_4;
+} prh_inplace_memory;
+
+prh_inline prh_byte *prh_memory_buffer(prh_memory *self)
+{
+    return self->buffer;
+}
+
+prh_inline void prh_memory_set_buffer(prh_memory *self, prh_byte *buffer)
+{
+    prh_assert(prh_raw_is_times_power_of_2((prh_raw)buffer, 1 << prh_minimal_alloc_alignment));
+    self->impl_buffer = buffer;
+}
+
+prh_inline prh_byte prh_memory_alignment(const prh_memory *self)
+{
+    return (prh_alloc_alignment)((prh_byte)prh_minimal_alloc_alignment + (prh_byte)(self->impl_capacity_alignment_4 & 0x0F);
+}
+
+prh_inline prh_reg prh_memory_real_alignment(const prh_memory *self)
+{
+    return (prh_reg)1 << prh_memory_alignment(self);
+}
+
+prh_inline void prh_memory_set_alignment(prh_memory *self, prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment && (alignment - prh_minimal_alloc_alignment) <= 0x0F);
+    self->impl_capacity_alignment_4 = (self->impl_capacity_alignment_4 & 0xFFFFFFF0) | ((alignment - prh_minimal_alloc_alignment) & 0x0F);
+}
+
+prh_inline prh_byte prh_inplace_memory_alignment(const prh_inplace_memory *self)
+{
+    return (prh_alloc_alignment)((prh_byte)prh_minimal_alloc_alignment + (prh_byte)(self->impl_capacity_alignment_4 & 0x0F);
+}
+
+prh_inline prh_reg prh_inplace_memory_real_alignment(const prh_inplace_memory *self)
+{
+    return (prh_reg)1 << prh_inplace_memory_alignment(self);
+}
+
+prh_inline void prh_inplace_memory_set_alignment(prh_inplace_memory *self, prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment && (alignment - prh_minimal_alloc_alignment) <= 0x0F);
+    self->impl_capacity_alignment_4 = (self->impl_capacity_alignment_4 & 0xFFFFFFF0) | ((alignment - prh_minimal_alloc_alignment) & 0x0F);
+}
+
+prh_inline prh_reg prh_memory_capacity(prh_memory *self)
+{
+    return (self->impl_capacity_alignment_4 >> 4) << prh_memory_alignment(self);
+}
+
+prh_inline void prh_memory_set_capacity(prh_memory *self, prh_reg capacity)
+{
+#if PRH_DEBUG
+    prh_assert(prh_is_times_power_of_2(capacity, 1 << prh_minimal_alloc_alignment));
+    prh_reg alignment = prh_memory_real_alignment(self);
+    if (alignment == 8) prh_assert(capacity <= prh_impl_32_bit_alloc_max_size_8);
+    else if (alignment == 4) prh_assert(capacity <= prh_impl_32_bit_alloc_max_size_4);
+#endif
+    self->impl_capacity_alignment_4 = ((capacity >> prh_memory_alignment(self)) << 4) | (self->impl_capacity_alignment_4 & 0x0F);
+}
+
+prh_inline prh_reg prh_inplace_memory_capacity(prh_inplace_memory *self)
+{
+    return (self->impl_capacity_alignment_4 >> 4) << prh_inplace_memory_alignment(self);
+}
+
+prh_inline void prh_inplace_memory_set_capacity(prh_inplace_memory *self, prh_reg capacity)
+{
+#if PRH_DEBUG
+    prh_assert(prh_is_times_power_of_2(capacity, 1 << prh_minimal_alloc_alignment));
+    prh_reg alignment = prh_inplace_memory_real_alignment(self);
+    if (alignment == 8) prh_assert(capacity <= prh_impl_32_bit_alloc_max_size_8);
+    else if (alignment == 4) prh_assert(capacity <= prh_impl_32_bit_alloc_max_size_4);
+#endif
+    self->impl_capacity_alignment_4 = ((capacity >> prh_inplace_memory_alignment(self)) << 4) | (self->impl_capacity_alignment_4 & 0x0F);
+}
+
+prh_inline prh_memory prh_empty_memory(void)
+{
+    prh_memory memory = {prh_null, prh_default_alloc_alignment - prh_minimal_alloc_alignment};
+    return memory;
+}
+
+prh_inline prh_memory prh_aligned_memory(prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment);
+    prh_memory memory = {prh_null, alignment - prh_minimal_alloc_alignment};
+    return memory;
+}
+
+prh_inline prh_memory prh_from_inplace_memory(prh_inplace_memory *buffer)
+{
+    prh_assert(buffer != prh_null);
+    prh_assert(prh_raw_is_times_power_of_2((prh_raw)buffer, 1 << prh_minimal_alloc_alignment));
+    prh_memory memory = {(prh_byte *)(buffer + 1), buffer->impl_capacity_alignment_4};
+    return memory;
+}
+
+typedef struct {
+    prh_memory memory;
+#if prh_single_allocator_program == 0
+    prh_alloc_face *impl_alloc_face;
+#endif
+} prh_buffer;
+
+typedef struct {
+    prh_r32 impl_capacity_alignment_4;
+#if prh_single_allocator_program == 0
+    prh_alloc_face *impl_alloc_face;
+#endif
+} prh_inplace_buffer;
+
+prh_inline prh_alloc_face *prh_buffer_alloc(const prh_buffer *self)
+{
+#if prh_single_allocator_program
+    return prh_default_alloc();
+#else
+    prh_assert(self->impl_alloc_face != prh_null);
+    return self->impl_alloc_face;
+#endif
+}
+
+prh_inline void prh_buffer_set_alloc(prh_buffer *self, prh_alloc_face *alloc)
+{
+#if prh_single_allocator_program
+#else
+    prh_assert(alloc != prh_null);
+    self->impl_alloc_face = alloc;
+#endif
+}
+
+prh_inline prh_alloc_face *prh_inplace_buffer_alloc(const prh_inplace_buffer *self)
+{
+#if prh_single_allocator_program
+    return prh_default_alloc();
+#else
+    prh_assert(self->impl_alloc_face != prh_null);
+    return self->impl_alloc_face;
+#endif
+}
+
+prh_inline void prh_inplace_buffer_set_alloc(prh_inplace_buffer *self, prh_alloc_face *alloc)
+{
+#if prh_single_allocator_program
+#else
+    prh_assert(alloc != prh_null);
+    self->impl_alloc_face = alloc;
+#endif
+}
+
+prh_inline prh_buffer prh_empty_buffer(prh_alloc_face *alloc)
+{
+#if prh_single_allocator_program
+    prh_buffer buffer = {{prh_null, prh_default_alloc_alignment - prh_minimal_alloc_alignment}};
+#else
+    prh_assert(alloc != prh_null);
+    prh_buffer buffer = {{prh_null, prh_default_alloc_alignment - prh_minimal_alloc_alignment}, alloc};
+#endif
+    return buffer;
+}
+
+prh_inline prh_buffer prh_aligned_buffer(prh_alloc_face *alloc, prh_alloc_alignment alignment)
+{
+    prh_assert(alignment >= prh_minimal_alloc_alignment);
+#if prh_single_allocator_program
+    prh_buffer buffer = {{prh_null, alignment - prh_minimal_alloc_alignment}};
+#else
+    prh_assert(alloc != prh_null);
+    prh_buffer buffer = {{prh_null, alignment - prh_minimal_alloc_alignment}, alloc};
+#endif
+    return buffer;
+}
+
+#endif // prh_impl_32_bit_alloc
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// 32 BIT LOW COST ALLOC DEFINES
+///
+///
+
+#if defined(prh_impl_16_bit_alloc)
+
+#if prh_single_allocator_program == 0
+#error "must be single allocator program"
+#endif
+
+#undef prh_minimal_alloc_alignment
+#define prh_minimal_alloc_alignment prh_alloc_align_4_byte
+
+#ifndef prh_default_alloc_alignment
+#define prh_default_alloc_alignment prh_alloc_align_8_byte
+#endif
+
+prh_static_assert(prh_default_alloc_alignment >= prh_minimal_alloc_alignment);
+
+// 0 1 2 3  4  5  6   7   8   9  10  11  12  13   14   15   16    17    18    19
+// 1 2 4 8 16 32 64 128 256 512 1KB 2KB 4KB 8KB 16KB 32KB 64KB 128KB 256KB 512KB
+//     0 1  2  3  4   5   6   7   8   9  10  11   12   13   14    15
+
+typedef struct {
+    prh_byte *buffer;
+    prh_r32 impl_capacity: 16, impl_extra: 16;
+} prh_memory;
+
+typedef struct {
+    prh_r32 impl_capacity: 16, impl_extra: 16;
+} prh_inplace_memory;
+
+prh_inline prh_byte *prh_memory_buffer(prh_memory *self)
+{
+    return self->impl_buffer;
+}
+
+prh_inline void prh_memory_set_buffer(prh_memory *self, prh_byte *buffer)
+{
+    prh_assert(prh_raw_is_times_power_of_2((prh_raw)buffer, 1 << prh_default_alloc_alignment));
+    self->impl_buffer = buffer;
+}
+
+prh_inline prh_reg prh_memory_capacity(const prh_memory *self)
+{
+    return self->impl_capacity;
+}
+
+prh_inline void prh_memory_set_capacity(prh_memory *self, prh_reg capacity)
+{
+    prh_assert(prh_is_times_power_of_2(capacity, 1 << prh_default_alloc_alignment));
+    prh_assert(capacity <= 0xFFFF);
+    self->impl_capacity = (prh_r16)capacity;
+}
+
+prh_inline prh_reg prh_inplace_memory_capacity(const prh_inplace_memory *self)
+{
+    return self->impl_capacity;
+}
+
+prh_inline void prh_inplace_memory_set_capacity(prh_inplace_memory *self, prh_reg capacity)
+{
+    prh_assert(prh_is_times_power_of_2(capacity, 1 << prh_default_alloc_alignment));
+    prh_assert(capacity <= 0xFFFF);
+    self->impl_capacity = (prh_r16)capacity;
+}
+
+prh_inline prh_alloc_alignment prh_memory_alignment(const prh_memory *self)
+{
+    return (prh_byte)prh_default_alloc_alignment;
+}
+
+prh_inline prh_reg prh_memory_real_alignment(const prh_memory *self)
+{
+    return (prh_reg)1 << prh_memory_alignment(self);
+}
+
+prh_inline void prh_memory_set_alignment(prh_memory *self, prh_alloc_alignment alignment)
+{
+    prh_unused(self);
+    prh_unused(alignment);
+}
+
+prh_inline prh_alloc_alignment prh_inplace_memory_alignment(const prh_inplace_memory *self)
+{
+    return (prh_byte)prh_default_alloc_alignment;
+}
+
+prh_inline prh_reg prh_inplace_memory_real_alignment(const prh_inplace_memory *self)
+{
+    return (prh_reg)1 << prh_inplace_memory_alignment(self);
+}
+
+prh_inline void prh_inplace_memory_set_alignment(prh_inplace_memory *self, prh_alloc_alignment alignment)
+{
+    prh_unused(self);
+    prh_unused(alignment);
+}
+
+prh_inline prh_memory prh_empty_memory(void)
+{
+    prh_memory memory = {0};
+    return memory;
+}
+
+prh_inline prh_memory prh_aligned_memory(prh_alloc_alignment alignment)
+{
+    prh_memory memory = {0};
+    return memory;
+}
+
+prh_inline prh_memory prh_from_inplace_memory(prh_inplace_memory *buffer)
+{
+    prh_assert(buffer != prh_null);
+    prh_assert(prh_raw_is_times_power_of_2((prh_raw)buffer, 1 << prh_default_alloc_alignment));
+    prh_memory memory = {(prh_byte *)(buffer + 1), buffer->impl_capacity, buffer->impl_extra};
+    return memory;
+}
+
+typedef struct {
+    prh_memory memory;
+} prh_buffer;
+
+typedef struct {
+    prh_r32 impl_capacity: 16, impl_extra: 16;
+} prh_inplace_buffer;
+
+prh_inline prh_alloc_face *prh_buffer_alloc(const prh_buffer *self)
+{
+    return prh_default_alloc();
+}
+
+prh_inline void prh_buffer_set_alloc(prh_buffer *self, prh_alloc_face *alloc)
+{
+    prh_unused(self);
+    prh_unused(alloc);
+}
+
+prh_inline prh_alloc_face *prh_inplace_buffer_alloc(const prh_inplace_buffer *self)
+{
+    return prh_default_alloc();
+}
+
+prh_inline void prh_inplace_buffer_set_alloc(prh_inplace_buffer *self, prh_alloc_face *alloc)
+{
+    prh_unused(self);
+    prh_unused(alloc);
+}
+
+prh_inline prh_buffer prh_empty_buffer(prh_alloc_face *alloc)
+{
+    prh_buffer buffer = {0};
+    return buffer;
+}
+
+prh_inline prh_buffer prh_aligned_buffer(prh_alloc_face *alloc, prh_alloc_alignment alignment)
+{
+    prh_buffer buffer = {0};
+    return buffer;
+}
+
+#endif // prh_impl_16_bit_alloc
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// COMMON ALLOC BUFFER DEFINES
+///
+///
+
+#ifndef prh_impl_alloc_buffer_include_h
+#define prh_impl_alloc_buffer_include_h
+
+prh_inline prh_memory *prh_memory_from_buffer(prh_buffer *buffer)
+{
+    return &buffer->memory;
+}
+
+prh_inline prh_byte *prh_buffer_data(prh_buffer *self)
+{
+    return prh_memory_bufffer(prh_memory_from_buffer(self));
+}
+
+prh_inline void prh_buffer_set_data(prh_buffer *self, prh_byte *data)
+{
+    prh_memory_set_buffer(prh_memory_from_buffer(self), data);
+}
+
+prh_inline prh_reg prh_buffer_capacity(const prh_buffer *self)
+{
+    return prh_memory_capacity(prh_memory_from_buffer(self));
+}
+
+prh_inline void prh_buffer_set_capacity(prh_buffer *self, prh_reg capacity)
+{
+    prh_memory_set_capacity(prh_memory_from_buffer(self), capacity);
+}
+
+prh_inline prh_alloc_alignment prh_buffer_alignment(const prh_buffer *self)
+{
+    return prh_memory_alignment(prh_memory_from_buffer(self));
+}
+
+prh_inline prh_reg prh_buffer_real_alignment(const prh_buffer *self)
+{
+    return prh_memory_real_alignment(prh_memory_from_buffer(self));
+}
+
+prh_inline void prh_buffer_set_alignment(prh_buffer *self, prh_alloc_alignment alignment)
+{
+    return prh_memory_set_alignment(prh_memory_from_buffer(self), alignment);
+}
+
+prh_inline prh_reg prh_inplace_buffer_capacity(const prh_inplace_buffer *self)
+{
+    return prh_inplace_memory_capacity((prh_inplace_memory *)self);
+}
+
+prh_inline void prh_inplace_buffer_set_capacity(prh_inplace_buffer *self, prh_reg capacity)
+{
+    prh_inplace_memory_set_capacity((prh_inplace_memory *)self, capacity);
+}
+
+prh_inline prh_alloc_alignment prh_inplace_buffer_alignment(const prh_inplace_buffer *self)
+{
+    return prh_inplace_memory_alignment((prh_inplace_memory *)self);
+}
+
+prh_inline prh_reg prh_inplace_buffer_real_alignment(const prh_inplace_buffer *self)
+{
+    return prh_inplace_memory_real_alignment((prh_inplace_memory *)self);
+}
+
+prh_inline void prh_inplace_buffer_set_alignment(prh_inplace_buffer *self, prh_alloc_alignment alignment)
+{
+    prh_inplace_memory_set_alignment((prh_inplace_memory *)self, alignment);
+}
+
+#endif // prh_impl_alloc_buffer_include_h
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_impl_alloc_include_h
+
+#endif // prh_alloc_include
 
 // FULL VERSION HISTORY
 //
