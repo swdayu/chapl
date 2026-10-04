@@ -3685,6 +3685,194 @@ prh_inline void prh_inplace_buffer_set_alignment(prh_inplace_buffer *self, prh_a
 
 #endif // prh_impl_alloc_buffer_include_h
 
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// GENERAL ALLOC INTERFACE
+///
+///
+
+#define prh_lang_malloc(alloc, memory, capacity, header_extra_bytes) prh_lang_malloc_with_trace((alloc), (memory), (capacity), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_lang_calloc(alloc, memory, capacity, header_extra_bytes) prh_lang_calloc_with_trace((alloc), (memory), (capacity), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_lang_malter(alloc, memory, capacity, header_extra_bytes) prh_lang_malter_with_trace((alloc), (memory), (capacity), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_lang_calter(alloc, memory, capacity, header_extra_bytes) prh_lang_calter_with_trace((alloc), (memory), (capacity), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_lang_delete(alloc, memory, header_extra_bytes) prh_lang_delete_with_trace((alloc), (memory), (header_extra_bytes), __LINE__, prh_caller)
+
+#define prh_inplace_raw_malloc(alloc, capacity, alignment, header_extra_bytes) prh_inplace_raw_malloc_with_trace((alloc), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_raw_calloc(alloc, capacity, alignment, header_extra_bytes) prh_inplace_raw_calloc_with_trace((alloc), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_raw_malter(alloc, buffer, capacity, alignment, header_extra_bytes) prh_inplace_raw_malter_with_trace((alloc), (buffer), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_raw_calter(alloc, buffer, capacity, alignment, header_extra_bytes) prh_inplace_raw_calter_with_trace((alloc), (buffer), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_raw_delete(alloc, buffer, header_extra_bytes) prh_inplace_raw_delete_with_trace((alloc), (buffer), (header_extra_bytes), __LINE__, prh_caller)
+
+#define prh_inplace_malloc(alloc, capacity, alignment, header_extra_bytes) prh_inplace_malloc_with_trace((alloc), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_calloc(alloc, capacity, alignment, header_extra_bytes) prh_inplace_calloc_with_trace((alloc), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_malter(alloc, buffer, capacity, alignment, header_extra_bytes) prh_inplace_malter_with_trace((alloc), (buffer), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_calter(alloc, buffer, capacity, alignment, header_extra_bytes) prh_inplace_calter_with_trace((alloc), (buffer), (capacity), (alignment), (header_extra_bytes), __LINE__, prh_caller)
+#define prh_inplace_delete(alloc, buffer, header_extra_bytes) prh_inplace_delete_with_trace((alloc), (buffer), (header_extra_bytes), __LINE__, prh_caller)
+
+#define prh_extc_malloc(alloc, capacity, alignment) prh_extc_malloc_with_trace((alloc), (capacity), (alignment), __LINE__, prh_caller)
+#define prh_extc_calloc(alloc, capacity, alignment) prh_extc_calloc_with_trace((alloc), (capacity), (alignment), __LINE__, prh_caller)
+#define prh_extc_malter(alloc, buffer, capacity, alignment) prh_extc_malter_with_trace((alloc), (buffer), (capacity), (alignment), __LINE__, prh_caller)
+#define prh_extc_calter(alloc, buffer, capacity, alignment) prh_extc_calter_with_trace((alloc), (buffer), (capacity), (alignment), __LINE__, prh_caller)
+#define prh_extc_delete(alloc, buffer) prh_extc_delete_with_trace((alloc), (buffer), __LINE__, prh_caller)
+
+prh_export void prh_impl_lang_calloc(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes);
+prh_export void prh_impl_lang_malter(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes);
+prh_export void prh_impl_lang_calter(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes);
+
+prh_export prh_inplace_memory *prh_impl_inplace_raw_malloc(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export prh_inplace_memory *prh_impl_inplace_raw_calloc(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export prh_inplace_memory *prh_impl_inplace_raw_malter(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export prh_inplace_memory *prh_impl_inplace_raw_calter(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export void prh_impl_inplace_raw_delete(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg header_extra_bytes);
+
+prh_export void *prh_impl_inplace_malloc(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export void *prh_impl_inplace_calloc(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export void *prh_impl_inplace_malter(prh_alloc_face *alloc, void *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export void *prh_impl_inplace_calter(prh_alloc_face *alloc, void *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes);
+prh_export void prh_impl_inplace_delete(prh_alloc_face *alloc, void *buffer, prh_reg header_extra_bytes);
+
+prh_inline void prh_lang_malloc_with_trace(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_assert(alloc != prh_null && ptr != prh_null);
+    alloc->alloc_func(alloc, ptr, capacity, header_extra_bytes);
+    prh_impl_real_assert(ptr->buffer_address != 0, line, caller);
+}
+
+prh_inline void prh_lang_delete_with_trace(prh_alloc_face *alloc, prh_memory *ptr, prh_reg header_extra_bytes)
+{
+    prh_assert(alloc != prh_null && ptr != prh_null);
+    alloc->alloc_free(alloc, ptr, header_extra_bytes);
+    prh_memory_set_buffer(ptr, prh_null);
+}
+
+prh_inline void prh_lang_calloc_with_trace(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_impl_lang_calloc(alloc, ptr, capacity, header_extra_bytes);
+    prh_impl_real_assert(ptr->buffer_address != 0, line, caller);
+}
+
+prh_inline void prh_lang_malter_with_trace(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_impl_lang_malter(alloc, ptr, capacity, header_extra_bytes);
+    prh_impl_real_assert(ptr->buffer_address != 0, line, caller);
+}
+
+prh_inline void prh_lang_calter_with_trace(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_impl_lang_calter(alloc, ptr, capacity, header_extra_bytes);
+    prh_impl_real_assert(ptr->buffer_address != 0, line, caller);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// INPLACE ALLOC INTERFACE
+///
+
+prh_inline prh_inplace_memory *prh_inplace_raw_malloc_with_trace(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_inplace_memory *buffer = prh_impl_inplace_raw_malloc(alloc, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline prh_inplace_memory *prh_inplace_raw_calloc_with_trace(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_inplace_memory *buffer = prh_impl_inplace_raw_calloc(alloc, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline prh_inplace_memory *prh_inplace_raw_malter_with_trace(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    buffer = prh_impl_inplace_raw_malter(alloc, buffer, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline prh_inplace_memory *prh_inplace_raw_calter_with_trace(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    buffer = prh_impl_inplace_raw_calter(alloc, buffer, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void prh_inplace_raw_delete_with_trace(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_impl_inplace_raw_delete(alloc, buffer, header_extra_bytes);
+}
+
+prh_inline void *prh_inplace_malloc_with_trace(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    void *buffer = prh_impl_inplace_malloc(alloc, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void *prh_inplace_calloc_with_trace(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    void *buffer = prh_impl_inplace_calloc(alloc, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void *prh_inplace_malter_with_trace(prh_alloc_face *alloc, void *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    buffer = prh_impl_inplace_malter(alloc, buffer, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void *prh_inplace_calter_with_trace(prh_alloc_face *alloc, void *buffer, prh_reg capacity, prh_reg alignment, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    buffer = prh_impl_inplace_calter(alloc, buffer, capacity, alignment, header_extra_bytes);
+    prh_impl_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void prh_inplace_delete_with_trace(prh_alloc_face *alloc, void *buffer, prh_reg header_extra_bytes, int line, prh_raw caller)
+{
+    prh_impl_inplace_delete(alloc, buffer, header_extra_bytes);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// EXTC ALLOC INTERFACE
+///
+
+prh_inline void *prh_extc_malloc_with_trace(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, int line, prh_raw caller)
+{
+    void *buffer = prh_impl_inplace_malloc(alloc, capacity, alignment, (prh_reg)sizeof(prh_inplace_memory));
+    prh_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void *prh_extc_calloc_with_trace(prh_alloc_face *alloc, prh_reg capacity, prh_reg alignment, int line, prh_raw caller)
+{
+    void *buffer = prh_impl_inplace_calloc(alloc, capacity, alignment, (prh_reg)sizeof(prh_inplace_memory));
+    prh_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void *prh_extc_malter_with_trace(prh_alloc_face *alloc, void *buffer, prh_reg capacity, prh_reg alignment, int line, prh_raw caller)
+{
+    buffer = prh_impl_inplace_malter(alloc, buffer, capacity, alignment, (prh_reg)sizeof(prh_inplace_memory));
+    prh_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void *prh_extc_calter_with_trace(prh_alloc_face *alloc, void *buffer, prh_reg capacity, prh_reg alignment, int line, prh_raw caller)
+{
+    buffer = prh_impl_inplace_calter(alloc, buffer, capacity, alignment, (prh_reg)sizeof(prh_inplace_memory));
+    prh_real_assert(buffer != prh_null, line, caller);
+    return buffer;
+}
+
+prh_inline void prh_extc_delete_with_trace(prh_alloc_face *alloc, void *buffer, int line, prh_raw caller)
+{
+    prh_impl_inplace_delete(alloc, buffer, (prh_reg)sizeof(prh_inplace_memory));
+}
+
 // FULL VERSION HISTORY
 //
 //   0.01 (2026-09-26) initial release for basic code
