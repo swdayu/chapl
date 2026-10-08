@@ -2906,9 +2906,11 @@ prh_inline void prh_stdc_aligned_delete_with_trace(void *buffer, int line, prh_r
     prh_impl_plat_aligned_delete(buffer); // 如果 buffer 为空，prh_impl_plat_aligned_delete 不做任何事
 }
 
-// 由于无法知道 old_buffer 的 old_capacity，无法使用 stdc 标准函数实现 calter 和 aligned_calter，要
-// 将增长的内存内容清零，必须每次调用 malter 和 aligned_malter 之后手动清零。或者使用扩展的内存分配
-// 函数 prh_lang_calter 和 prh_inplace_calter 或 prh_extc_calter。
+// 由于无法知道 old_buffer 的 old_capacity，无法使用 stdc 标准函数实现 recalloc、aligned_recalloc、
+// calter 等函数，要将增长的内存内容清零，必须每次调用 realloc 和 aligned_realloc 或 malter 之后手动
+// 清零。或调用扩展的 prh_extend_stdc_recalloc、prh_extend_stdc_calter 等函数，另外如果标准 C 函数
+// aligned_realloc 存在兼容性问题，也可以调用扩展的 prh_extend_stdc_realloc 和 prh_extend_stdc_malter
+// 等函数。
 
 #define prh_stdc_malloc(capacity) prh_stdc_malloc_with_trace((capacity), __LINE__, prh_caller)
 #define prh_stdc_calloc(capacity) prh_stdc_calloc_with_trace((capacity), __LINE__, prh_caller)
@@ -4265,6 +4267,432 @@ prh_inline void *prh_extend_stdc_recalloc_with_trace(prh_alloc_face *alloc, void
 #define prh_extend_stdc_aligned_malter(alloc, buffer, capacity) prh_extend_stdc_malter_with_trace((alloc), (buffer), (capacity), sizeof(prh_inplace_memory), __LINE__, prh_caller)
 #define prh_extend_stdc_aligned_calter(alloc, buffer, capacity) prh_extend_stdc_calter_with_trace((alloc), (buffer), (capacity), sizeof(prh_inplace_memory), __LINE__, prh_caller)
 #define prh_extend_stdc_aligned_delete(alloc, buffer) prh_extend_stdc_delete_with_trace((alloc), (buffer), sizeof(prh_inplace_memory), __LINE__, prh_caller)
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_impl_alloc_include_h
+
+#if defined(prh_source_implement)
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// DEFAULT ALLOC IMPLEMENTATION
+///
+///
+
+void prh_impl_default_stdc_alloc_func(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes)
+{
+    prh_assert(ptr != prh_null && ptr->buffer_address == 0);
+    prh_reg alignment = prh_memory_real_alignment(ptr);
+    capacity = prh_alloc_capacity(capacity, alignment);
+    prh_memory_set_capacity(ptr, capacity);
+
+#if defined(prh_impl_plat_aligned_offset_malloc)
+    prh_assert(capacity + header_extra_bytes >= capacity);
+    prh_memory_set_buffer(ptr, (prh_byte *)prh_impl_plat_aligned_offset_malloc(header_extra_bytes + capacity, alignment, header_extra_bytes));
+#else
+    prh_reg new_header_extra_bytes = prh_times_align_size(header_extra_bytes, alignment); // header_extra_bytes 为 0 对齐后还是 0
+    prh_assert(capacity + new_header_extra_bytes >= capacity);
+    prh_byte *buffer = (prh_byte *)prh_impl_plat_aligned_malloc(new_header_extra_bytes + capacity, alignment);
+    if (buffer) prh_memory_set_buffer(ptr, buffer + new_header_extra_bytes - header_extra_bytes);
+#endif
+}
+
+void prh_impl_default_stdc_alloc_free(prh_alloc_face *alloc, prh_memory *ptr, prh_reg header_extra_bytes)
+{
+    prh_assert(ptr != prh_null);
+#if defined(prh_impl_plat_aligned_offset_malloc)
+    prh_impl_plat_aligned_delete(prh_memory_buffer(ptr)); // 如果 buffer 为空，prh_impl_plat_aligned_delete 不做任何事
+#else
+    if (ptr->buffer_address)
+    {
+        prh_reg new_header_extra_bytes = prh_times_align_size(header_extra_bytes, prh_memory_real_alignment(ptr));
+        prh_impl_plat_aligned_delete(prh_memory_buffer(ptr) + header_extra_bytes - new_header_extra_bytes);
+    }
+#endif
+}
+
+void prh_empty_alloc_free(prh_alloc_face *alloc, prh_memory *ptr, prh_reg header_extra_bytes)
+{
+    prh_unused(alloc);
+    prh_unused(ptr);
+}
+
+static prh_alloc_face prh_impl_default_stdc_alloc = {prh_impl_default_stdc_alloc_func, prh_impl_default_stdc_alloc_free};
+static prh_alloc_face *prh_impl_default_alloc = &prh_impl_default_stdc_alloc;
+
+prh_alloc_face *prh_default_alloc(void)
+{
+    return &prh_impl_default_alloc;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// GENERAL ALLOC IMPLEMENTATION
+///
+///
+
+// 内存普通分配和原地分配的内存布局（memory allocation layout）
+//
+// prh_memory [<capacity>    ]      .----------- offset -----------.-------------- <capacity> --------------.
+//            [buffer_address] ---> [header with extra_offset_bytes|aligned memory block with capacity bytes]
+//
+//                                  .----------- offset -----------.-------------- <capacity> --------------.
+// prh_inplace_memory * buffer ---> [<capacity>| ................. |aligned memory block with capacity bytes]
+//
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// ALLOC MEMORY & BUFFER
+///
+
+void prh_impl_malloc_memory(prh_alloc_face *alloc, prh_memory *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && buffer->buffer_address == 0);
+    alloc->alloc_func(alloc, buffer, capacity, offset);
+}
+
+void prh_impl_calloc_memory(prh_alloc_face *alloc, prh_memory *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && buffer->buffer_address == 0);
+    alloc->alloc_func(alloc, buffer, capacity, offset);
+    if (buffer->buffer_address) memset(prh_memory_buffer(buffer), 0, offset + prh_memory_capacity(buffer));
+}
+
+void prh_impl_malter_memory(prh_alloc_face *alloc, prh_memory *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && buffer->buffer_address != 0);
+    prh_memory memory = prh_aligned_memory(prh_memory_alignment(buffer)); // 要求 buffer 必须是通过同一个 alloc 分配的，两次分配的 offset 必须也一样
+    alloc->alloc_func(alloc, &memory, capacity, offset); // 总是分配一个新的内存，并将旧内存拷贝到新内存
+    if (memory.buffer_address) prh_memcpy_old_content_to_new_buffer(prh_memory_buffer(&memory), offset + prh_memory_capacity(&memory), prh_memory_buffer(buffer), offset + prh_memory_capacity(buffer));
+    alloc->alloc_free(alloc, buffer, offset);
+    *buffer = memory;
+}
+
+void prh_impl_calter_memory(prh_alloc_face *alloc, prh_memory *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && buffer->buffer_address != 0);
+    prh_memory memory = prh_aligned_memory(prh_memory_alignment(buffer)); // 要求 buffer 必须是通过同一个 alloc 分配的，两次分配的 offset 必须也一样
+    alloc->alloc_func(alloc, &memory, capacity, offset); // 总是分配一个新的内存，并将旧内存拷贝到新内存
+    if (memory.buffer_address) prh_memcpy_old_content_memset_expanded_content(prh_memory_buffer(&memory), offset + prh_memory_capacity(&memory), prh_memory_buffer(buffer), offset + prh_memory_capacity(buffer));
+    alloc->alloc_free(alloc, buffer, offset);
+    *buffer = memory;
+}
+
+void prh_impl_delete_memory(prh_alloc_face *alloc, prh_memory *buffer, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && buffer->buffer_address != 0); // 分配器永远不会返回空指针，因为一旦分配失败程序直接崩溃退出
+    alloc->alloc_free(alloc, buffer, offset); // 要求 buffer 必须是通过 alloc 分配的，并且分配时使用的 offset 必须也相同
+}
+
+void prh_impl_malloc_buffer(prh_buffer *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_buffer_alloc(buffer) != prh_null && prh_buffer_data(buffer) == prh_null);
+    alloc->alloc_func((prh_buffer_alloc(buffer), prh_buffer_memory(buffer), capacity, offset);
+}
+
+void prh_impl_calloc_buffer(prh_buffer *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_buffer_alloc(buffer) != prh_null && prh_buffer_data(buffer) == prh_null);
+    prh_impl_calloc_memory(prh_buffer_alloc(buffer), prh_buffer_memory(buffer), capacity, offset);
+}
+
+void prh_impl_malter_buffer(prh_buffer *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_buffer_alloc(buffer) != prh_null && prh_buffer_data(buffer) != prh_null);
+    prh_impl_malter_memory(prh_buffer_alloc(buffer), prh_buffer_memory(buffer), capacity, offset); // offset 必须是 buffer 分配时使用的 offset
+}
+
+void prh_impl_calter_buffer(prh_buffer *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_buffer_alloc(buffer) != prh_null && prh_buffer_data(buffer) != prh_null);
+    prh_impl_calter_memory(prh_buffer_alloc(buffer), prh_buffer_memory(buffer), capacity, offset); // offset 必须是 buffer 分配时使用的 offset
+}
+
+void prh_impl_delete_buffer(prh_buffer *buffer, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_buffer_alloc(buffer) != prh_null && prh_buffer_data(buffer) != prh_null);
+    alloc->alloc_free(prh_buffer_alloc(buffer), prh_buffer_memory(buffer), offset); // offset 必须是 buffer 分配时使用的 offset
+}
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// ALLOC INPLACE MEMORY
+///
+
+prh_inplace_memory *prh_impl_malloc_inplace_memory(prh_alloc_face *alloc, prh_reg capacity, prh_type_alignment alignemnt)
+{
+    prh_assert(alloc != prh_null && prh_alloc_offset(alignment) >= sizeof(prh_inplace_memory));
+    prh_memory memory = prh_aligned_memory(prh_alloc_alignment(alignment));
+    alloc->alloc_func(alloc, &memory, capacity, prh_alloc_offset(alignment));
+    if (memory.buffer_address) prh_inplace_memory_init_from(&memory);
+    return (prh_inplace_memory *)prh_memory_buffer(&memory);
+}
+
+prh_inplace_memory *prh_impl_calloc_inplace_memory(prh_alloc_face *alloc, prh_reg capacity, prh_type_alignment alignemnt)
+{
+    prh_assert(alloc != prh_null && prh_alloc_offset(alignment) >= sizeof(prh_inplace_memory));
+    prh_memory memory = prh_aligned_memory(prh_alloc_alignment(alignment));
+    alloc->alloc_func(alloc, &memory, capacity, prh_alloc_offset(alignment));
+    if (memory.buffer_address)
+    {
+        memset(prh_memory_buffer(&memory), 0, prh_alloc_offset(alignment) + prh_memory_capacity(&memory));
+        prh_inplace_memory_init_from(&memory);
+    }
+    return (prh_inplace_memory *)prh_memory_buffer(&memory);
+}
+
+prh_inplace_memory *prh_impl_malter_inplace_memory(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && offset >= sizeof(prh_inplace_memory));
+    prh_memory memory = prh_aligned_memory(prh_inplace_memory_alignment(buffer)); // 要求 buffer 必须是通过同一个 alloc 分配的，两次分配的 offset 必须也一样
+    alloc->alloc_func(alloc, &memory, capacity, offset); // 总是分配一个新的内存，并将旧内存拷贝到新内存
+    if (memory.buffer_address)
+    {
+        prh_memcpy_old_content_to_new_buffer(prh_memory_buffer(&memory), offset + prh_memory_capacity(&memory), (prh_byte *)buffer, offset + prh_inplace_memory_capacity(buffer));
+        prh_inplace_memory_init_from(&memory);
+    }
+    prh_impl_delete_inplace_memory(alloc, buffer, offset);
+    return (prh_inplace_memory *)prh_memory_buffer(&memory);
+}
+
+prh_inplace_memory *prh_impl_calter_inplace_memory(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && offset >= sizeof(prh_inplace_memory));
+    prh_memory memory = prh_aligned_memory(prh_inplace_memory_alignment(buffer)); // 要求 buffer 必须是通过同一个 alloc 分配的，两次分配的 offset 必须也一样
+    alloc->alloc_func(alloc, &memory, capacity, offset); // 总是分配一个新的内存，并将旧内存拷贝到新内存
+    if (memory.buffer_address)
+    {
+        prh_memcpy_old_content_memset_expanded_content(prh_memory_buffer(&memory), offset + prh_memory_capacity(&memory), (prh_byte *)buffer, offset + prh_inplace_memory_capacity(buffer));
+        prh_inplace_memory_init_from(&memory);
+    }
+    prh_impl_delete_inplace_memory(alloc, buffer, offset);
+    return (prh_inplace_memory *)prh_memory_buffer(&memory);
+}
+
+void prh_impl_delete_inplace_memory(prh_alloc_face *alloc, prh_inplace_memory *buffer, prh_reg offset)
+{
+    prh_assert(alloc != prh_null && buffer != prh_null && offset >= sizeof(prh_inplace_memory)); // 分配器永远不会返回空指针，因为一旦分配失败程序直接崩溃退出
+    prh_memory memory = prh_memory_from(buffer); // 要求 buffer 必须是通过 alloc 分配的，并且分配时使用的 offset 必须也相同
+    alloc->alloc_free(alloc, &memory, offset);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+///
+/// ALLOC INPLACE BUFFER
+///
+
+prh_inplace_buffer *prh_impl_malloc_inplace_buffer(prh_alloc_face *alloc, prh_reg capacity, prh_type_alignment alignemnt)
+{
+    prh_assert(alloc != prh_null && prh_alloc_offset(alignment) >= sizeof(prh_inplace_buffer));
+    prh_memory memory = prh_aligned_memory(prh_alloc_alignment(alignment));
+    alloc->alloc_func(alloc, &memory, capacity, prh_alloc_offset(alignment));
+    if (memory.buffer_address) prh_inplace_buffer_init_from(alloc, &memory);
+    return (prh_inplace_buffer *)prh_memory_buffer(&memory);
+}
+
+prh_inplace_buffer *prh_impl_calloc_inplace_buffer(prh_alloc_face *alloc, prh_reg capacity, prh_type_alignment alignemnt)
+{
+    prh_assert(alloc != prh_null && prh_alloc_offset(alignment) >= sizeof(prh_inplace_buffer));
+    prh_memory memory = prh_aligned_memory(prh_alloc_alignment(alignment));
+    alloc->alloc_func(alloc, &memory, capacity, prh_alloc_offset(alignment));
+    if (memory.buffer_address)
+    {
+        memset(prh_memory_buffer(&memory), 0, prh_alloc_offset(alignment) + prh_memory_capacity(&memory));
+        prh_inplace_buffer_init_from(alloc, &memory);
+    }
+    return (prh_inplace_buffer *)prh_memory_buffer(&memory);
+}
+
+prh_inplace_buffer *prh_impl_malter_inplace_buffer(prh_inplace_buffer *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_inplace_buffer_alloc(buffer) != prh_null && offset >= sizeof(prh_inplace_buffer));
+    prh_alloc_face *alloc = prh_inplace_buffer_alloc(buffer);
+    prh_memory memory = prh_aligned_memory(prh_inplace_memory_alignment(buffer)); // offset 必须是 buffer 分配时使用的 offset
+    alloc->alloc_func(alloc, &memory, capacity, offset); // 总是分配一个新的内存，并将旧内存拷贝到新内存
+    if (memory.buffer_address)
+    {
+        prh_memcpy_old_content_to_new_buffer(prh_memory_buffer(&memory), offset + prh_memory_capacity(&memory), (prh_byte *)buffer, offset + prh_inplace_buffer_capacity(buffer));
+        prh_inplace_memory_init_from(&memory);
+    }
+    prh_impl_delete_inplace_buffer(buffer, offset);
+    return (prh_inplace_buffer *)prh_memory_buffer(&memory);
+}
+
+prh_inplace_buffer *prh_impl_calter_inplace_buffer(prh_inplace_buffer *buffer, prh_reg capacity, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_inplace_buffer_alloc(buffer) != prh_null && offset >= sizeof(prh_inplace_buffer));
+    prh_alloc_face *alloc = prh_inplace_buffer_alloc(buffer);
+    prh_memory memory = prh_aligned_memory(prh_inplace_memory_alignment(buffer)); // offset 必须是 buffer 分配时使用的 offset
+    alloc->alloc_func(alloc, &memory, capacity, offset); // 总是分配一个新的内存，并将旧内存拷贝到新内存
+    if (memory.buffer_address)
+    {
+        prh_memcpy_old_content_memset_expanded_content(prh_memory_buffer(&memory), offset + prh_memory_capacity(&memory), (prh_byte *)buffer, offset + prh_inplace_buffer_capacity(buffer));
+        prh_inplace_memory_init_from(&memory);
+    }
+    prh_impl_delete_inplace_buffer(buffer, offset);
+    return (prh_inplace_buffer *)prh_memory_buffer(&memory);
+}
+
+void prh_impl_delete_inplace_buffer(prh_inplace_buffer *buffer, prh_reg offset)
+{
+    prh_assert(buffer != prh_null && prh_inplace_buffer_alloc(buffer) != prh_null && offset >= sizeof(prh_inplace_buffer));
+    prh_alloc_face *alloc = prh_inplace_buffer_alloc(buffer); // 分配器永远不会返回空指针，因为一旦分配失败程序直接崩溃退出
+    prh_memory memory = prh_memory_from(buffer); // offset 必须是 buffer 分配时使用的 offset
+    alloc->alloc_free(alloc, &memory, offset);
+}
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// INTANT & STATIC ALLOC IMPLEMENTATION
+///
+///
+
+#define prh_impl_intant ((prh_type_intant_alloc *)alloc)
+
+void prh_impl_intant_overflow_alloc_func(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes)
+{
+    prh_default_malloc(ptr, capacity, header_extra_bytes);
+#if PRH_DEBUG
+    prh_impl_intant->overflow_bytes += header_extra_bytes + prh_memory_capacity(ptr);
+    if (prh_impl_intant->overflow_bytes > prh_impl_intant->peak_bytes)
+    {
+        prh_impl_intant->peak_bytes = prh_impl_intant->overflow_bytes;
+    }
+#endif
+}
+
+void prh_impl_intant_overflow_alloc_free(prh_alloc_face *alloc, prh_memory *ptr, prh_reg header_extra_bytes)
+{
+    prh_byte *buffer = prh_memory_buffer(ptr);
+
+    // 1. intant malloc P1 in range [base_address, buffer_end)
+    // 2. intant malloc P2 overflow
+    // 3. intant delete P2 shall global_offset_delete it
+    // 4. intant delete P1 shall NOT global_offset_delete it
+
+    if (buffer != prh_null && (buffer < prh_impl_intant->base_address || buffer >= prh_impl_intant->buffer_end))
+    {
+#if PRH_DEBUG
+        prh_assert(prh_impl_intant->overflow_bytes >= prh_memory_capacity(ptr));
+        prh_impl_intant->overflow_bytes -= prh_memory_capacity(ptr);
+#endif
+        prh_default_delete(ptr, header_extra_bytes);
+    }
+}
+
+void prh_impl_intant_alloc_func(prh_alloc_face *alloc, prh_memory *ptr, prh_reg capacity, prh_reg header_extra_bytes)
+{
+    prh_assert(alloc != prh_null && ptr != prh_null && ptr->buffer_address == 0);
+    prh_buffer *buffer = prh_aligned_address(prh_impl_intant->walk_pointer, prh_memory_real_alignment(ptr), header_extra_bytes);
+    prh_impl_intant->walk_pointer = buffer + (capacity = prh_alloc_capacity(capacity, prh_memory_real_alignment(ptr)));
+
+    prh_memory_set_buffer(ptr, buffer - header_extra_bytes);
+    prh_memory_set_capacity(ptr, capacity);
+
+    if (prh_impl_intant->walk_pointer > prh_impl_intant->buffer_end)
+    {
+        prh_impl_intant->alloc_base.alloc_func = prh_impl_intant_overflow_alloc_func;
+        prh_impl_intant->alloc_base.alloc_free = prh_impl_intant_overflow_alloc_free;
+        prh_impl_intant->overflow_bytes = prh_impl_intant->buffer_end - prh_impl_intant->base_address;
+        prh_memory memory = prh_aligned_memory(prh_memory_alignment(ptr));
+        prh_impl_intant_overflow_alloc_func(alloc, &memory, capacity, header_extra_bytes);
+        prh_memory_set_buffer(ptr, prh_memory_buffer(&memory));
+    }
+#if PRH_DEBUG
+    else if (prh_impl_intant->walk_pointer - prh_impl_intant->base_address > prh_impl_intant->peak_bytes)
+    {
+        prh_impl_intant->peak_bytes = prh_impl_intant->walk_pointer - prh_impl_intant->base_address;
+    }
+#endif
+}
+
+void prh_impl_intant_alloc_free(prh_alloc_face *alloc, prh_memory *ptr, prh_reg header_extra_bytes)
+{
+    prh_byte *buffer = prh_memory_buffer(ptr);
+    prh_assert(buffer != prh_null && buffer >= self->base_address && buffer < self->buffer_end);
+    prh_assert((prh_reg)buffer & (prh_memory_real_alignment(ptr) - 1) == 0);
+    self->walk_pointer = buffer - header_extra_bytes;
+}
+
+void prh_restore_intant_alloc(prh_runtime_context *runtime, prh_byte *saved_buffer_tail)
+{
+    prh_type_intant_alloc *self = (prh_type_intant_alloc *)prh_intant_alloc(runtime);
+
+    // 在恢复之前 baseline 之后分配的内存必须已经完全释放完毕
+    //  1.  restore_baseline = prh_protect_intant_alloc(runtime)
+    //  2.  intant malloc P1, P2, ...
+    //  3.  intant delete ..., P2, P1
+    //  4.  prh_restore_intant_alloc(runtime, restore_baseline)
+
+    if (self->overflow_bytes == 0)
+    {
+        prh_assert(saved_buffer_tail != prh_null && saved_buffer_tail >= self->base_address && saved_buffer_tail <= self->buffer_end);
+        prh_assert((prh_raw)saved_buffer_tail & (sizeof(prh_reg) - 1) == 0); // 至少对齐到 prh_reg 大小
+        self->walk_pointer = saved_buffer_tail;
+    }
+    else
+    {
+        // overflow 之后 walk_pointer 不会变化，恢复不会有什么问题，但有问题的是要恢复的基线位于正常
+        // 分配区间，但在恢复之前发生了 overflow 的情况：
+        //  1.  restore_baseline = prh_protect_intant_alloc(runtime)
+        //  2.  intant malloc P1, P2
+        //  3.  intant malloc P3 overflow
+        //  4.  intant delete P3 global delete
+        //  5.  intant delete P2 do nothing
+        //  6.  intant delete P1 do nothing
+        //  7.  prh_restore_intant_alloc(runtime, restore_baseline)
+        //  8.  必须将 overflow 状态恢复到正常 intant 分配状态
+        //  9.  或者什么也不做，只有调用 prh_reset_intant_alloc 才能恢复正常分配状态
+    }
+}
+
+void prh_reset_intant_alloc(prh_runtime_context *runtime)
+{
+    prh_type_intant_alloc *self = (prh_type_intant_alloc *)prh_intant_alloc(runtime);;
+    prh_assert(self != prh_null && ((prh_raw)self->base_address & (sizeof(prh_reg) - 1)) == 0);
+    self->alloc_base.alloc_func = prh_impl_intant_alloc_func;
+    self->alloc_base.alloc_free = prh_impl_intant_alloc_free;
+    self->walk_pointer = self->base_address;
+    self->overflow_bytes = 0;
+    self->peak_bytes = 0;
+}
+
+void prh_impl_create_intant_alloc(prh_type_intant_alloc *self, prh_byte *base_address, prh_reg capacity)
+{
+    prh_assert(self != prh_null && ((prh_raw)base_address & (sizeof(prh_reg) - 1)) == 0); // base_address 可以为零表示不使用即时分配
+    self->alloc_base.alloc_func = prh_impl_intant_alloc_func;
+    self->base_address = base_address;
+    self->bufffer_end = base_address + capacity;
+    self->walk_pointer = base_address;
+    self->overflow_bytes = 0;
+    self->peak_bytes = 0;
+}
+
+void prh_create_intant_alloc(prh_type_intant_alloc *self, prh_byte *base_address, prh_reg capacity)
+{
+    prh_impl_create_intant_alloc(self, base_address, capacity);
+    self->alloc_base.alloc_free = prh_impl_intant_alloc_free;
+}
+
+void prh_create_static_alloc(prh_type_static_alloc *self, prh_byte *base_address, prh_reg capacity)
+{
+    prh_impl_create_intant_alloc((prh_type_intant_alloc *)self, base_address, capacity);
+    self->alloc_base.alloc_free = prh_empty_alloc_free;
+}
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_source_implement
+#endif // prh_alloc_include
 
 // FULL VERSION HISTORY
 //
