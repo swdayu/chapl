@@ -5074,6 +5074,252 @@ void prh_create_static_alloc(prh_type_static_alloc *self, prh_byte *base_address
 #endif // prh_source_implement
 #endif // prh_alloc_include
 
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+////
+////   ATOMIC INTREFACE
+////
+////
+
+#if defined(prh_atomic_include)
+#ifndef prh_impl_atomic_include_h
+#define prh_impl_atomic_include_h // 仅包含一次
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// 这里的原子类型不需要声明成 volatile，因为它们总是通过变量的地址进行访问，而不是直接访问变量的值。
+// 如果传一个变量的地址给函数，那么函数必须从内存中读取它的值，变量值不会被优化到寄存器中，因此编译
+// 器优化不会对此产生影响。
+
+typedef prh_i32 prh_atom_i32;
+typedef prh_r32 prh_atom_r32;
+typedef prh_imt prh_atom_imt;
+typedef prh_raw prh_atom_raw;
+typedef prh_raw prh_atom_ptr;
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_impl_atomic_include_h
+
+#ifdef prh_multiple_include_different_config // 可包含多次不同配置
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#undef prh_impl_stdc_atomic
+#undef prh_impl_sdl3_atomic
+
+#if defined(prh_using_stdc_atomic)
+    #define prh_impl_stdc_atomic 1
+#elif defined(prh_using_sdl3_atomic)
+    #define prh_impl_sdl3_atomic 1
+#else
+    #define prh_impl_stdc_atomic 1
+#endif
+
+#undef prh_atom_r32_read
+#undef prh_atom_r32_write
+#undef prh_atom_r32_add
+#undef prh_atom_r32_compare_exchange
+#undef prh_atom_raw_read
+#undef prh_atom_raw_write
+#undef prh_atom_raw_add
+#undef prh_atom_raw_compare_exchange
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// STDC ATOMIC INTERFACE
+///
+///
+
+#if defined(prh_impl_stdc_atomic)
+
+// 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
+// 何其他原子操作能够访问该对象之前，每个原子操作都会在该对象上完整地执行完毕。这就保
+// 证了在这些对象上不会出现数据竞争，而这也正是定义原子性的关键特征。
+//
+// https://devblogs.microsoft.com/cppblog/c11-atomics-in-visual-studio-2022-version-17-5-preview-2/
+//
+// Once you’ve installed Visual Studio 2022 17.5 Preview 2 you can try out C11
+// atomics by adding /experimental:c11atomics and /std:c11 or /std:c17 to your
+// compile options. Note that we still define __STDC_NO_ATOMICS__ so if your
+// build system is testing for that you will need to add a special case or
+// change to checking if compiling a translation unit including <stdatomic.h>
+// succeeds.
+//
+// At the moment only lock-free atomics are supported, but in an upcoming
+// release we will extend this support to include locking atomics as well.
+// Atomics of all the usual built-in C types are lock-free, including long
+// long on 32-bit x86. We will continue to define the __STDC_NO_ATOMICS__ macro
+// even under /experimental:c11atomics until locking atomics are implemented.
+#include <stdatomic.h>
+
+prh_static_assert(prh_alignof(prh_atom_i32) == prh_alignof(atomic_int));
+prh_static_assert(prh_alignof(prh_atom_r32) == prh_alignof(atomic_uint));
+prh_static_assert(prh_alignof(prh_atom_imt) == prh_alignof(atomic_intptr_t));
+prh_static_assert(prh_alignof(prh_atom_raw) == prh_alignof(atomic_uintptr_t));
+prh_static_assert(prh_alignof(prh_atom_ptr) == prh_alignof(atomic_uintptr_t));
+
+prh_static_assert(sizeof(prh_atom_i32) == sizeof(atomic_int));
+prh_static_assert(sizeof(prh_atom_r32) == sizeof(atomic_uint));
+prh_static_assert(sizeof(prh_atom_imt) == sizeof(atomic_intptr_t));
+prh_static_assert(sizeof(prh_atom_raw) == sizeof(atomic_uintptr_t));
+prh_static_assert(sizeof(prh_atom_ptr) == sizeof(atomic_uintptr_t));
+
+#define prh_atom_r32_read prh_stdc_atom_r32_read
+#define prh_atom_r32_write prh_stdc_atom_r32_write
+#define prh_atom_r32_add prh_stdc_atom_r32_add
+#define prh_atom_r32_compare_exchange prh_stdc_atom_r32_compare_exchange
+#define prh_atom_raw_read prh_stdc_atom_raw_read
+#define prh_atom_raw_write prh_stdc_atom_raw_write
+#define prh_atom_raw_add prh_stdc_atom_raw_add
+#define prh_atom_raw_compare_exchange prh_stdc_atom_raw_compare_exchange
+
+prh_inline prh_r32 prh_stdc_atom_r32_read(const prh_atom_r32 *a)
+{
+    return atomic_load((atomic_uint *)a);
+}
+
+prh_inline prh_r32 prh_stdc_atom_r32_write(prh_atom_r32 *a, prh_r32 b)
+{
+    return atomic_exchange((atomic_uint *)a, b);
+}
+
+prh_inline prh_r32 prh_stdc_atom_r32_add(prh_atom_r32 *a, prh_r32 b)
+{
+    return atomic_fetch_add((atomic_uint *)a, b);
+}
+
+prh_inline bool prh_stdc_atom_r32_compare_exchange(prh_atom_r32 *a, prh_r32 old_value, prh_r32 new_value)
+{
+    return atomic_compare_exchange_strong((atomic_uint *)a, (unsigned int *)&old_value, new_value);
+}
+
+prh_inline prh_raw prh_stdc_atom_raw_read(const prh_atom_raw *a)
+{
+    return (prh_raw)atomic_load((atomic_uintptr_t *)a);
+}
+
+prh_inline prh_raw prh_stdc_atom_raw_write(prh_atom_raw *a, prh_raw b)
+{
+    return (prh_raw)atomic_exchange((atomic_uintptr_t *)a, b);
+}
+
+prh_inline prh_raw prh_stdc_atom_raw_add(prh_atom_raw *a, prh_raw b)
+{
+    return atomic_fetch_add((atomic_uintptr_t *)a, b);
+}
+
+prh_inline bool prh_stdc_atom_raw_compare_exchange(prh_atom_raw *a, prh_raw old_value, prh_raw new_value)
+{
+    return atomic_compare_exchange_strong((atomic_uintptr_t *)a, (uintptr_t *)&old_value, new_value);
+}
+
+#endif // prh_impl_stdc_atomic
+
+//////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+///
+/// SDL3 ATOMIC INTERFACE
+///
+///
+
+#if defined(prh_impl_sdl3_atomic)
+
+#include <SDL3/SDL_atomic.h>
+
+// https://wiki.libsdl.org/SDL3/CategoryAtomic
+// https://wiki.libsdl.org/SDL3/SDL_MemoryBarrierRelease
+// https://preshing.com/20120913/acquire-and-release-semantics/
+// https://learn.microsoft.com/en-us/windows/win32/dxtecharts/lockless-programming
+
+prh_static_assert(prh_alignof(prh_atom_i32) == prh_alignof(SDL_AtomicInt));
+prh_static_assert(prh_alignof(prh_atom_r32) == prh_alignof(SDL_AtomicU32));
+prh_static_assert(prh_alignof(prh_atom_imt) == prh_alignof(void *));
+prh_static_assert(prh_alignof(prh_atom_raw) == prh_alignof(void *));
+prh_static_assert(prh_alignof(prh_atom_ptr) == prh_alignof(void *));
+
+prh_static_assert(sizeof(prh_atom_i32) == sizeof(SDL_AtomicInt));
+prh_static_assert(sizeof(prh_atom_r32) == sizeof(SDL_AtomicU32));
+prh_static_assert(sizeof(prh_atom_imt) == sizeof(void *));
+prh_static_assert(sizeof(prh_atom_raw) == sizeof(void *));
+prh_static_assert(sizeof(prh_atom_ptr) == sizeof(void *));
+
+#define prh_memory_barrier_write_release() SDL_MemoryBarrierRelease()
+#define prh_memory_barrier_read_acquire() SDL_MemoryBarrierAcquire()
+
+#define prh_atom_r32_read prh_sdl3_atom_r32_read
+#define prh_atom_r32_write prh_sdl3_atom_r32_write
+#define prh_atom_r32_add prh_sdl3_atom_r32_add
+#define prh_atom_r32_compare_exchange prh_sdl3_atom_r32_compare_exchange
+#define prh_atom_raw_read prh_sdl3_atom_raw_read
+#define prh_atom_raw_write prh_sdl3_atom_raw_write
+#define prh_atom_raw_add prh_sdl3_atom_raw_add
+#define prh_atom_raw_compare_exchange prh_sdl3_atom_raw_compare_exchange
+
+prh_inline prh_r32 prh_sdl3_atom_r32_read(const prh_atom_r32 *a)
+{
+    return SDL_GetAtomicU32((SDL_AtomicU32 *)a);
+}
+
+prh_inline prh_r32 prh_sdl3_atom_r32_write(prh_atom_r32 *a, prh_r32 b)
+{
+    return SDL_SetAtomicU32((SDL_AtomicU32 *)a, b);
+}
+
+prh_inline prh_r32 prh_sdl3_atom_r32_add(prh_atom_r32 *a, prh_r32 b)
+{
+    return SDL_AddAtomicU32((SDL_AtomicU32 *)a, b);
+}
+
+prh_inline bool prh_sdl3_atom_r32_compare_exchange(prh_atom_r32 *a, prh_r32 old_value, prh_r32 new_value)
+{
+    return SDL_CompareAndSwapAtomicU32((SDL_AtomicU32 *)a, old_value, new_value);
+}
+
+prh_inline prh_raw prh_sdl3_atom_raw_read(const prh_atom_raw *a)
+{
+    return (prh_raw)SDL_GetAtomicPointer((void **)a);
+}
+
+prh_inline prh_raw prh_sdl3_atom_raw_write(prh_atom_raw *a, prh_raw b)
+{
+    return (prh_raw)SDL_SetAtomicPointer((void **)a, (void *)b);
+}
+
+prh_inline bool prh_sdl3_atom_raw_compare_exchange(prh_atom_raw *a, prh_raw old_value, prh_raw new_value)
+{
+    return SDL_CompareAndSwapAtomicPointer((void **)a, (void *)old_value, (void *)new_value);
+}
+
+#if prh_imt_bits == 64
+prh_inline prh_raw prh_sdl3_atom_raw_add(prh_atom_raw *a, prh_raw b)
+{
+    prh_raw old_value = prh_sdl3_atom_raw_read(a);
+    while (!prh_sdl3_atom_raw_compare_exchange(a, old_value, old_value + b))
+    {
+        old_value = prh_sdl3_atom_raw_read(a);
+    }
+    return old_value;
+}
+#else
+prh_inline prh_raw prh_sdl3_atom_raw_add(prh_atom_raw *a, prh_raw b)
+{
+    return SDL_AddAtomicU32((SDL_AtomicU32 *)a, b);
+}
+#endif
+
+#endif // prh_impl_sdl3_atomic
+
+#ifdef __cplusplus
+}
+#endif
+#endif // prh_multiple_include_different_config
+#endif // prh_atomic_include
+
 // FULL VERSION HISTORY
 //
 //   0.01 (2026-09-26) initial release for basic code
