@@ -1,11 +1,15 @@
 // prh_prelude.h - v0.01 - public domain - swdayu <github.com/swdayu>
 // No warranty implied, use at your own risk.
 
-#ifndef prh_include_prelude_h
-#define prh_include_prelude_h
+#ifndef prh_include_nothing_h
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define prh_multiple_time_include 1
+
+#ifndef prh_include_prelude_h
+#define prh_include_prelude_h
 
 // Microsoft C/C++ 编译器（MSVC）会根据语言（C 或 C++）、编译目标和所选的编译器选项，预定义某些预处
 // 理器宏。MSVC 支持 ANSI/ISO C99、C11 和 C17 标准，以及 ISO C++14、C++17 和 C++20 标准所要求的预定
@@ -727,7 +731,7 @@ extern "C" {
     #define prh_thread_local thread_local
 #elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 202311L // C23 keyword
     #define prh_thread_local thread_local
-#elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L // C11 keyword
+#elif defined (__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__) // C11 keyword
     #define prh_thread_local _Thread_local
 #elif defined(prh_msc_version)
     #define prh_thread_local __declspec(thread)
@@ -1871,6 +1875,9 @@ prh_static_assert(prh_align_256m_byte == (1 << prh_impl_align_256m_byte));
 prh_static_assert(prh_align_512m_byte == (1 << prh_impl_align_512m_byte));
 prh_static_assert(prh_align_1g_byte == (1 << prh_impl_align_1g_byte));
 
+#define prh_macro_r32_clear_bits(value, mask) value &= ~(prh_r32)(mask)
+#define prh_macro_r64_clear_bits(value, mask) value &= ~(prh_r64)(mask)
+
 prh_inline prh_r32 prh_r32_clear_set(prh_r32 value, prh_r32 mask, prh_r32 set)
 {
     return (value & (~mask)) | set;
@@ -2173,11 +2180,87 @@ prh_inline prh_r64 prh_r64_be_to_host(prh_r64 n) { return n; }
 prh_inline prh_reg prh_reg_be_to_host(prh_reg n) { return n; }
 prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
 #endif
-
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_include_prelude_h
+
+#if defined(prh_file_include)
+#ifndef prh_impl_file_prelude_h
+#define prh_impl_file_prelude_h
+#include <stdarg.h>
+
+typedef prh_reg (*prh_write_func)(void *writer, const prh_byte *data, prh_reg bytes);
+prh_export prh_reg prh_impl_print(void *writer, prh_write_func func, const char *format, ...);
+prh_export prh_reg prh_impl_vprint(void *writer, prh_write_func func, const char *format, va_list vl);
+
+prh_export void prh_impl_stdio_init(void);
+prh_export void prh_impl_stdio_exit(void);
+
+#endif // prh_impl_file_prelude_h
+#endif // prh_file_include
+
+#if defined(prh_alloc_include)
+#define prh_thread_include
+#endif
+
+#if defined(prh_thread_include)
+#ifndef prh_impl_thread_prelude_h
+#define prh_impl_thread_prelude_h
+
+typedef struct {
+    prh_alignas(prh_cache_line_size) // 初始化后只读
+    void *thread_impl;
+    void *thread_data;
+    void *static_alloc; // 静态分配器，一旦分配永不释放直到线程退出，该分配器一旦初始化不可重新配置
+    void *intant_alloc; // 即时分配器，分配后必须在同一函数中释放，该分配器一旦初始化不可重新配置
+    void *thread_alloc; // 线程分配器，对释放操作无特殊限制，该分配器一旦初始化不可重新配置
+    void *ehub_service;
+    void *coro_service;
+    prh_r32 thread_id;
+    prh_alignas(prh_cache_line_size) // 仅由当前线程访问和修改
+    void *layers_alloc; // 层叠分配器，对释放操作无特殊限制，可以随时对该分配器进行重新配置，重新配置后必须在同一函数中进行恢复
+    void *active_window;
+    void *limited_data;
+    prh_r32 error_code;
+    bool abort_mode;
+} prh_thread;
+
+typedef prh_thread prh_runtime_context;
+
+#endif // prh_impl_thread_prelude_h
+#endif // prh_thread_include
+
+#ifndef prh_impl_main_init_include_h
+#define prh_impl_main_init_include_h
+
+typedef struct {
+    prh_byte *thread_base;
+    prh_r32 thread_bytes;
+    prh_r32 total_threads;
+#if defined(prh_file_include)
+    prh_handle stdinp_handle;
+    prh_handle stdout_handle;
+    prh_handle stderr_handle;
+#endif
+} prh_impl_global;
+
+prh_export prh_impl_global prh_global;
+
+#if defined(prh_source_implement)
+#ifndef prh_impl_main_init_source_h
+#define prh_impl_main_init_source_h
+
+prh_impl_global prh_global;
+
+void prh_main_exit(void)
+{
+}
+
+void prh_main_init(prh_r32 total_threads)
+{
+}
+
+#endif // prh_impl_main_init_source_h
+#endif // prh_source_implement
+#endif // prh_impl_main_init_include_h
 
 #undef prh_impl_stdc_assert
 #undef prh_impl_lang_assert
@@ -2196,9 +2279,6 @@ prh_inline prh_raw prh_raw_be_to_host(prh_raw n) { return n; }
 #if defined(prh_impl_stdc_assert)
 #ifndef prh_include_stdc_assert_h
 #define prh_include_stdc_assert_h
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // https://en.cppreference.com/w/cpp/error/assert
 //
@@ -2292,17 +2372,11 @@ prh_inline void prh_impl_assert_line_caller(int line, prh_raw caller)
     abort();
 }
 
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_include_stdc_assert_h
 #endif // prh_impl_stdc_assert
 
 #ifndef prh_impl_prelude_extern_h
 #define prh_impl_prelude_extern_h
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #define prh_arrlen(a) (sizeof(a)/sizeof((a)[0]))
 #define prh_arrend(a) ((a) + prh_arrlen(a))
@@ -2540,9 +2614,6 @@ prh_inline prh_reg prh_times_align_size(prh_reg n, prh_reg alignment)
     (out_i) = (prh_reg)(e - (p)) - ((v) > *e);                                  \
 } while (0) /* 返回 (prh_reg)-1 表示失败 */
 
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_impl_prelude_extern_h
 
 //////////////////////////////////////////////////////////////////////////////
@@ -2551,9 +2622,6 @@ prh_inline prh_reg prh_times_align_size(prh_reg n, prh_reg alignment)
 ////   STDC & PLAT ALLOC
 ////
 ////
-
-#undef prh_multiple_include_different_config
-#define prh_multiple_include_different_config 1
 
 #undef prh_impl_stdc_alloc
 #undef prh_impl_lang_alloc
@@ -2572,9 +2640,6 @@ prh_inline prh_reg prh_times_align_size(prh_reg n, prh_reg alignment)
 #if defined(prh_impl_stdc_alloc)
 #ifndef prh_include_stdc_alloc_h
 #define prh_include_stdc_alloc_h
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // https://learn.microsoft.com/en-us/cpp/c-runtime-library/find-memory-leaks-using-the-crt-library
 //
@@ -2924,15 +2989,9 @@ prh_inline void prh_stdc_aligned_delete_with_trace(void *buffer, int line, prh_r
 #define prh_stdc_aligned_malter(buffer, new_capacity, alignment) prh_stdc_aligned_malter_with_trace((buffer), (new_capacity), (alignment), __LINE__, prh_caller)
 #define prh_stdc_aligned_delete(buffer) prh_stdc_aligned_delete_with_trace((buffer), __LINE__, prh_caller) // 规范 aligned_realloc 只做分配操作，不释放内存，释放内存必须调用 aligned_delete
 
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_include_stdc_alloc_h
 
 #if defined(prh_source_implement)
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 void *prh_impl_rawc_aligned_realloc(void *buffer, prh_reg new_capacity, prh_reg alignment)
 {
@@ -3040,9 +3099,6 @@ void *prh_impl_rawc_aligned_malter(void *buffer, prh_reg new_capacity, prh_reg a
 #endif
 }
 
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_source_implement
 #endif // prh_impl_stdc_alloc
 
@@ -3053,10 +3109,6 @@ void *prh_impl_rawc_aligned_malter(void *buffer, prh_reg new_capacity, prh_reg a
 ////
 ////
 
-#if defined(prh_alloc_include)
-#define prh_thread_include
-#endif
-
 #if defined(prh_array_include)
 #define prh_alloc_include
 #endif
@@ -3065,44 +3117,9 @@ void *prh_impl_rawc_aligned_malter(void *buffer, prh_reg new_capacity, prh_reg a
 #define prh_alloc_include
 #endif
 
-#if defined(prh_thread_include)
-#ifndef prh_impl_thread_prelude_h
-#define prh_impl_thread_prelude_h
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-typedef struct {
-    prh_alignas(prh_cache_line_size) // 初始化后只读
-    void *thread_impl;
-    void *thread_data;
-    void *static_alloc; // 静态分配器，一旦分配永不释放直到线程退出，该分配器一旦初始化不可重新配置
-    void *intant_alloc; // 即时分配器，分配后必须在同一函数中释放，该分配器一旦初始化不可重新配置
-    void *thread_alloc; // 线程分配器，对释放操作无特殊限制，该分配器一旦初始化不可重新配置
-    void *ehub_service;
-    void *coro_service;
-    prh_r32 thread_id;
-    prh_alignas(prh_cache_line_size) // 仅由当前线程访问和修改
-    void *layers_alloc; // 层叠分配器，对释放操作无特殊限制，可以随时对该分配器进行重新配置，重新配置后必须在同一函数中进行恢复
-    void *active_window;
-    void *limited_data;
-    prh_r32 error_num;
-} prh_thread;
-
-typedef prh_thread prh_runtime_context;
-
-#ifdef __cplusplus
-}
-#endif
-#endif // prh_impl_thread_prelude_h
-#endif // prh_thread_include
-
 #if defined(prh_alloc_include)
 #ifndef prh_impl_alloc_include_h
 #define prh_impl_alloc_include_h
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #undef prh_impl_64_bit_alloc
 #undef prh_impl_32_bit_alloc
@@ -4509,15 +4526,9 @@ prh_inline void prh_restore_current_alloc(prh_runtime_context *runtime, prh_allo
 #define prh_current_calter(buffer, capacity, offset) prh_calter_extend_buffer((buffer), (capacity), (offset))
 #define prh_current_delete(buffer, offset) prh_delete_extend_buffer((buffer), (offset))
 
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_impl_alloc_include_h
 
 #if defined(prh_source_implement)
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 //////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
@@ -5068,9 +5079,6 @@ void prh_create_static_alloc(prh_type_static_alloc *self, prh_byte *base_address
     self->alloc_base.alloc_free = prh_empty_alloc_free;
 }
 
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_source_implement
 #endif // prh_alloc_include
 
@@ -5084,9 +5092,6 @@ void prh_create_static_alloc(prh_type_static_alloc *self, prh_byte *base_address
 #if defined(prh_atomic_include)
 #ifndef prh_impl_atomic_include_h
 #define prh_impl_atomic_include_h // 仅包含一次
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 // 这里的原子类型不需要声明成 volatile，因为它们总是通过变量的地址进行访问，而不是直接访问变量的值。
 // 如果传一个变量的地址给函数，那么函数必须从内存中读取它的值，变量值不会被优化到寄存器中，因此编译
@@ -5098,15 +5103,9 @@ typedef prh_imt prh_atom_imt;
 typedef prh_raw prh_atom_raw;
 typedef prh_raw prh_atom_ptr;
 
-#ifdef __cplusplus
-}
-#endif
 #endif // prh_impl_atomic_include_h
 
-#ifdef prh_multiple_include_different_config // 可包含多次不同配置
-#ifdef __cplusplus
-extern "C" {
-#endif
+#ifdef prh_multiple_time_include // 可包含多次不同配置
 
 #undef prh_impl_stdc_atomic
 #undef prh_impl_sdl3_atomic
@@ -5136,6 +5135,7 @@ extern "C" {
 ///
 
 #if defined(prh_impl_stdc_atomic)
+#include <stdatomic.h>
 
 // 当多个线程访问一个原子对象时，所有的原子操作都会针对该原子对象产生明确的行为：在任
 // 何其他原子操作能够访问该对象之前，每个原子操作都会在该对象上完整地执行完毕。这就保
@@ -5155,7 +5155,6 @@ extern "C" {
 // Atomics of all the usual built-in C types are lock-free, including long
 // long on 32-bit x86. We will continue to define the __STDC_NO_ATOMICS__ macro
 // even under /experimental:c11atomics until locking atomics are implemented.
-#include <stdatomic.h>
 
 prh_static_assert(prh_alignof(prh_atom_i32) == prh_alignof(atomic_int));
 prh_static_assert(prh_alignof(prh_atom_r32) == prh_alignof(atomic_uint));
@@ -5228,7 +5227,6 @@ prh_inline bool prh_stdc_atom_raw_compare_exchange(prh_atom_raw *a, prh_raw old_
 ///
 
 #if defined(prh_impl_sdl3_atomic)
-
 #include <SDL3/SDL_atomic.h>
 
 // https://wiki.libsdl.org/SDL3/CategoryAtomic
@@ -5314,11 +5312,13 @@ prh_inline prh_raw prh_sdl3_atom_raw_add(prh_atom_raw *a, prh_raw b)
 
 #endif // prh_impl_sdl3_atomic
 
+#endif // prh_multiple_time_include
+#endif // prh_atomic_include
+
 #ifdef __cplusplus
 }
 #endif
-#endif // prh_multiple_include_different_config
-#endif // prh_atomic_include
+#endif // prh_include_nothing_h
 
 // FULL VERSION HISTORY
 //
