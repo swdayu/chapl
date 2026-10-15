@@ -2221,9 +2221,15 @@ typedef struct {
     void *limited_data;
     prh_r32 error_code;
     bool abort_mode;
-} prh_thread;
+} prh_impl_thread;
 
-typedef prh_thread prh_runtime_context;
+typedef prh_impl_thread prh_runtime_context;
+prh_export prh_thread_local prh_impl_thread *prh_self_thread;
+
+prh_inline prh_runtime_context *prh_thread_runtime(void)
+{
+    return prh_self_thread;
+}
 
 #endif // prh_impl_thread_prelude_h
 #endif // prh_thread_include
@@ -4426,54 +4432,53 @@ prh_static_assert(sizeof(prh_type_static_alloc) == sizeof(prh_type_intant_alloc)
 
 prh_export void prh_create_static_alloc(prh_type_static_alloc *self, prh_byte *base_address, prh_reg capacity);
 prh_export void prh_create_intant_alloc(prh_type_intant_alloc *self, prh_byte *base_address, prh_reg capacity);
-prh_export void prh_restore_intant_alloc(prh_runtime_context *runtime, prh_byte *buffer);
-prh_export void prh_reset_intant_alloc(prh_runtime_context *runtime);
+prh_export void prh_restore_intant_alloc(prh_byte *buffer);
+prh_export void prh_reset_intant_alloc(void);
 
-prh_inline prh_alloc_face *prh_static_alloc(prh_runtime_context *runtime)
+prh_inline prh_alloc_face *prh_static_alloc(void)
 {
-    prh_alloc_face *alloc = (prh_alloc_face *)runtime->static_alloc;
+    prh_alloc_face *alloc = (prh_alloc_face *)prh_thread_runtime()->static_alloc;
     prh_assert(alloc != prh_null);
     return alloc;
 }
 
 // 静态分配的内存永远不释放，直到对应的线程退出为止
 
-#define prh_static_malloc(runtime, buffer, capacity) prh_malloc_memory(prh_static_alloc(runtime), (buffer), (capacity), 0) // 需要自行保存 prh_memory 两个指针大小
-#define prh_static_calloc(runtime, buffer, capacity) prh_calloc_memory(prh_static_alloc(runtime), (buffer), (capacity), 0)
-#define prh_static_malter(runtime, buffer, capacity) prh_malter_memory(prh_static_alloc(runtime), (buffer), (capacity), 0)
-#define prh_static_calter(runtime, buffer, capacity) prh_calter_memory(prh_static_alloc(runtime), (buffer), (capacity), 0)
+#define prh_static_malloc(buffer, capacity) prh_malloc_memory(prh_static_alloc(), (buffer), (capacity), 0) // 需要自行保存 prh_memory 两个指针大小
+#define prh_static_calloc(buffer, capacity) prh_calloc_memory(prh_static_alloc(), (buffer), (capacity), 0)
+#define prh_static_malter(buffer, capacity) prh_malter_memory(prh_static_alloc(), (buffer), (capacity), 0)
+#define prh_static_calter(buffer, capacity) prh_calter_memory(prh_static_alloc(), (buffer), (capacity), 0)
 
-#define prh_static_extend_malloc(runtime, capacity, alignment) prh_malloc_extend_memory(prh_static_alloc(runtime), (buffer), (capacity), (alignemnt)) // 只需保存一个指针，offset >= sizeof(prh_inplace_memory)
-#define prh_static_extend_calloc(runtime, capacity, alignment) prh_calloc_extend_memory(prh_static_alloc(runtime), (buffer), (capacity), (alignemnt))
-#define prh_static_extend_malter(runtime, buffer, capacity, offset) prh_malter_extend_memory(prh_static_alloc(runtime), (buffer), (capacity), (offset))
-#define prh_static_extend_calter(runtime, buffer, capacity, offset) prh_calter_extend_memory(prh_static_alloc(runtime), (buffer), (capacity), (offset))
+#define prh_static_extend_malloc(capacity, alignment) prh_malloc_extend_memory(prh_static_alloc(), (buffer), (capacity), (alignemnt)) // 只需保存一个指针，offset >= sizeof(prh_inplace_memory)
+#define prh_static_extend_calloc(capacity, alignment) prh_calloc_extend_memory(prh_static_alloc(), (buffer), (capacity), (alignemnt))
+#define prh_static_extend_malter(buffer, capacity, offset) prh_malter_extend_memory(prh_static_alloc(), (buffer), (capacity), (offset))
+#define prh_static_extend_calter(buffer, capacity, offset) prh_calter_extend_memory(prh_static_alloc(), (buffer), (capacity), (offset))
 
-prh_inline prh_alloc_face *prh_intant_alloc(prh_runtime_context *runtime)
+prh_inline prh_alloc_face *prh_intant_alloc(void)
 {
-    prh_alloc_face *alloc = (prh_alloc_face *)runtime->intant_alloc;
+    prh_alloc_face *alloc = (prh_alloc_face *)prh_thread_runtime()->intant_alloc;
     prh_assert(alloc != prh_null);
     return alloc;
 }
 
-prh_inline prh_byte *prh_protect_intant_alloc(prh_runtime_context *runtime)
+prh_inline prh_byte *prh_protect_intant_alloc(void)
 {
-    prh_assert(runtime != prh_null);
-    return ((prh_type_intant_alloc *)prh_intant_alloc(runtime))->walk_pointer;
+    return ((prh_type_intant_alloc *)prh_intant_alloc())->walk_pointer;
 }
 
 // 即时分配的内存必须在同一个函数中释放，并且必须按先分配的内存后释放的原则释放
 
-#define prh_intant_malloc(runtime, buffer, capacity) prh_malloc_memory(prh_intant_alloc(runtime), (buffer), (capacity), 0) // 需要自行保存 prh_memory 两个指针大小
-#define prh_intant_calloc(runtime, buffer, capacity) prh_calloc_memory(prh_intant_alloc(runtime), (buffer), (capacity), 0)
-#define prh_intant_malter(runtime, buffer, capacity) prh_malter_memory(prh_intant_alloc(runtime), (buffer), (capacity), 0)
-#define prh_intant_calter(runtime, buffer, capacity) prh_calter_memory(prh_intant_alloc(runtime), (buffer), (capacity), 0)
-#define prh_intant_delete(runtime, buffer) prh_delete_memory(prh_intant_alloc(runtime), (buffer), 0)
+#define prh_intant_malloc(buffer, capacity) prh_malloc_memory(prh_intant_alloc(), (buffer), (capacity), 0) // 需要自行保存 prh_memory 两个指针大小
+#define prh_intant_calloc(buffer, capacity) prh_calloc_memory(prh_intant_alloc(), (buffer), (capacity), 0)
+#define prh_intant_malter(buffer, capacity) prh_malter_memory(prh_intant_alloc(), (buffer), (capacity), 0)
+#define prh_intant_calter(buffer, capacity) prh_calter_memory(prh_intant_alloc(), (buffer), (capacity), 0)
+#define prh_intant_delete(buffer) prh_delete_memory(prh_intant_alloc(), (buffer), 0)
 
-#define prh_intant_extend_malloc(runtime, capacity, alignment) prh_malloc_extend_memory(prh_intant_alloc(runtime), (buffer), (capacity), (alignemnt)) // 只需保存一个指针，offset >= sizeof(prh_inplace_memory)
-#define prh_intant_extend_calloc(runtime, capacity, alignment) prh_calloc_extend_memory(prh_intant_alloc(runtime), (buffer), (capacity), (alignemnt))
-#define prh_intant_extend_malter(runtime, buffer, capacity, offset) prh_malter_extend_memory(prh_intant_alloc(runtime), (buffer), (capacity), (offset))
-#define prh_intant_extend_calter(runtime, buffer, capacity, offset) prh_calter_extend_memory(prh_intant_alloc(runtime), (buffer), (capacity), (offset))
-#define prh_intant_extend_delete(runtime, buffer, offset) prh_delete_extend_memory(prh_intant_alloc(runtime), (buffer), (offset))
+#define prh_intant_extend_malloc(capacity, alignment) prh_malloc_extend_memory(prh_intant_alloc(), (buffer), (capacity), (alignemnt)) // 只需保存一个指针，offset >= sizeof(prh_inplace_memory)
+#define prh_intant_extend_calloc(capacity, alignment) prh_calloc_extend_memory(prh_intant_alloc(), (buffer), (capacity), (alignemnt))
+#define prh_intant_extend_malter(buffer, capacity, offset) prh_malter_extend_memory(prh_intant_alloc(), (buffer), (capacity), (offset))
+#define prh_intant_extend_calter(buffer, capacity, offset) prh_calter_extend_memory(prh_intant_alloc(), (buffer), (capacity), (offset))
+#define prh_intant_extend_delete(buffer, offset) prh_delete_extend_memory(prh_intant_alloc(), (buffer), (offset))
 
 //////////////////////////////////////////////////////////////////////////////
 //////////////////////////////////////////////////////////////////////////////
@@ -4482,36 +4487,35 @@ prh_inline prh_byte *prh_protect_intant_alloc(prh_runtime_context *runtime)
 ///
 ///
 
-prh_inline prh_alloc_face *prh_current_alloc(prh_runtime_context *runtime) // 仅由所属线程访问和修改
+prh_inline prh_alloc_face *prh_current_alloc(void) // 仅由所属线程访问和修改
 {
-    prh_assert(runtime != prh_null);
-    prh_alloc_face *alloc = runtime->layers_alloc;
+    prh_alloc_face *alloc = prh_thread_runtime()->layers_alloc;
     prh_assert(alloc != prh_null);
     return alloc;
 }
 
-prh_inline prh_buffer prh_current_empty_buffer(prh_runtime_context *runtime)
+prh_inline prh_buffer prh_current_empty_buffer(void)
 {
-    return prh_empty_buffer(prh_current_alloc(runtime))
+    return prh_empty_buffer(prh_current_alloc())
 }
 
-prh_inline prh_buffer prh_current_aligned_buffer(prh_runtime_context *runtime, prh_alloc_align_enum alignment)
+prh_inline prh_buffer prh_current_aligned_buffer(prh_alloc_align_enum alignment)
 {
-    return prh_aligned_buffer(prh_current_alloc(runtime), alignment);
+    return prh_aligned_buffer(prh_current_alloc(), alignment);
 }
 
-prh_inline prh_alloc_face *prh_coverup_current_alloc(prh_runtime_context *runtime, prh_alloc_face *alloc)
+prh_inline prh_alloc_face *prh_coverup_current_alloc(prh_alloc_face *alloc)
 {
     prh_assert(alloc != prh_null);
-    prh_alloc_face *origin_alloc = prh_current_alloc(runtime);
-    runtime->layers_alloc = alloc;
+    prh_alloc_face *origin_alloc = prh_current_alloc();
+    prh_thread_runtime()->layers_alloc = alloc;
     return origin_alloc;
 }
 
-prh_inline void prh_restore_current_alloc(prh_runtime_context *runtime, prh_alloc_face *alloc)
+prh_inline void prh_restore_current_alloc(prh_alloc_face *alloc)
 {
-    prh_assert(runtime != prh_null && alloc != prh_null);
-    runtime->layers_alloc = alloc;
+    prh_assert(alloc != prh_null);
+    prh_thread_runtime()->layers_alloc = alloc;
 }
 
 #define prh_buffer_malloc(buffer, capacity) prh_malloc_buffer((buffer), (capacity), 0) // 需要自行保存 prh_buffer 一般三个指针大小
@@ -4520,8 +4524,8 @@ prh_inline void prh_restore_current_alloc(prh_runtime_context *runtime, prh_allo
 #define prh_buffer_calter(buffer, capacity) prh_calter_buffer((buffer), (capacity), 0)
 #define prh_buffer_delete(buffer) prh_delete_buffer((buffer), 0) // 相比没有 prh_buffer_realloc/recalloc 和 offset 参数
 
-#define prh_current_malloc(runtime, capacity, alignment) prh_malloc_extend_buffer(prh_current_alloc(runtime), (buffer), (capacity), (alignemnt)) // 只需保存一个指针，offset >= sizeof(prh_inplace_buffer)
-#define prh_current_calloc(runtime, capacity, alignment) prh_calloc_extend_buffer(prh_current_alloc(runtime), (buffer), (capacity), (alignemnt))
+#define prh_current_malloc(capacity, alignment) prh_malloc_extend_buffer(prh_current_alloc(), (buffer), (capacity), (alignemnt)) // 只需保存一个指针，offset >= sizeof(prh_inplace_buffer)
+#define prh_current_calloc(capacity, alignment) prh_calloc_extend_buffer(prh_current_alloc(), (buffer), (capacity), (alignemnt))
 #define prh_current_malter(buffer, capacity, offset) prh_malter_extend_buffer((buffer), (capacity), (offset))
 #define prh_current_calter(buffer, capacity, offset) prh_calter_extend_buffer((buffer), (capacity), (offset))
 #define prh_current_delete(buffer, offset) prh_delete_extend_buffer((buffer), (offset))
@@ -5013,15 +5017,15 @@ void prh_impl_intant_alloc_free(prh_alloc_face *alloc, prh_memory *memory, prh_r
     prh_impl_intant->walk_pointer = prh_memory_buffer(memory);
 }
 
-void prh_restore_intant_alloc(prh_runtime_context *runtime, prh_byte *saved_buffer_tail)
+void prh_restore_intant_alloc(prh_byte *saved_buffer_tail)
 {
-    prh_type_intant_alloc *self = (prh_type_intant_alloc *)prh_intant_alloc(runtime);
+    prh_type_intant_alloc *self = (prh_type_intant_alloc *)prh_intant_alloc();
 
     // 在恢复之前 baseline 之后分配的内存必须已经完全释放完毕
-    //  1.  restore_baseline = prh_protect_intant_alloc(runtime)
+    //  1.  restore_baseline = prh_protect_intant_alloc()
     //  2.  intant malloc P1, P2, ...
     //  3.  intant delete ..., P2, P1
-    //  4.  prh_restore_intant_alloc(runtime, restore_baseline)
+    //  4.  prh_restore_intant_alloc(restore_baseline)
 
     if (self->overflow_bytes == 0)
     {
@@ -5033,21 +5037,21 @@ void prh_restore_intant_alloc(prh_runtime_context *runtime, prh_byte *saved_buff
     {
         // overflow 之后 walk_pointer 不会变化，恢复不会有什么问题，但有问题的是要恢复的基线位于正常
         // 分配区间，但在恢复之前发生了 overflow 的情况：
-        //  1.  restore_baseline = prh_protect_intant_alloc(runtime)
+        //  1.  restore_baseline = prh_protect_intant_alloc()
         //  2.  intant malloc P1, P2
         //  3.  intant malloc P3 overflow
         //  4.  intant delete P3 global delete
         //  5.  intant delete P2 do nothing
         //  6.  intant delete P1 do nothing
-        //  7.  prh_restore_intant_alloc(runtime, restore_baseline)
+        //  7.  prh_restore_intant_alloc(restore_baseline)
         //  8.  必须将 overflow 状态恢复到正常 intant 分配状态
         //  9.  或者什么也不做，只有调用 prh_reset_intant_alloc 才能恢复正常分配状态
     }
 }
 
-void prh_reset_intant_alloc(prh_runtime_context *runtime)
+void prh_reset_intant_alloc(void)
 {
-    prh_type_intant_alloc *self = (prh_type_intant_alloc *)prh_intant_alloc(runtime);;
+    prh_type_intant_alloc *self = (prh_type_intant_alloc *)prh_intant_alloc();;
     prh_assert(self != prh_null && ((prh_raw)self->base_address & (sizeof(prh_reg) - 1)) == 0);
     self->alloc_base.alloc_func = prh_impl_intant_alloc_func;
     self->alloc_base.alloc_free = prh_impl_intant_alloc_free;
