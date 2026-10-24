@@ -13,19 +13,40 @@
 //      file = orerr open_file_read("file") // 错误立即返回，并向主调函数传递文件错误信息
 //  . 第三种选择是遇到错误直接中断程序
 //      file = abort open_file_read("file") // 错误立即终止程序
+// 每个函数都有一个 error 寄存器参数，总是维护一个寄存器参数，保存以下值：
+//      arch 32 - byte thrd_index
+//                byte task_index
+//                byte alloc_index
+//                byte error_index
+//      arch 64 - r32 error_code
+//                byte thrd_index
+//                byte task_index
+//                byte alloc_index
+//                byte error_index
 //
 // 逻辑约束
 // 某一类变量的值必须在指定范围
 //      force type.field > start_value && < start_value + value_range
 //      force type.field with this > start_value && this < end_value
 //
-// 特殊操作符
+// 特殊操作
 //      *header file -> num_fonts // 先类型转换，再引用成员
+//      let a = [10]int {3, => '0'}
 //
 // 符号可以分为变量和类型，变量的底层表示其实就是一个内存中地址，包括全局变量、局部变量、
 // 函数、跳转标签都是一个地址。类型只是一种语法概念并不占据实际物理世界空间，但这两种符号
 // 都可以进行调用，变量的调用其实就是函数，类型的调用相当于模板类型实例化变成具体类型。其
 // 实除了变量和类型，还存在一种更概念上的符号称为记号，包括包名、宏名。
+//
+// branch hint .likely 它优化的是"CPU 取指器走直线有多顺"，而不是"分支预测器猜得有多准"。
+// Debug / ReleaseSafe 下完全无效，只在优化的构建模式（ReleaseFast、ReleaseSmall）里参与决
+// 策，Debug/ReleaseSafe 里就是个 no-op。使热路径做到零跳转、函数体极小，I-cache 友好。
+//
+// 接口虚函数表，这种 const 数据放进程序镜像的只读数据区（rodata），和字符串字面量是同类待
+// 遇。里面的函数指针是 comptime-known 的，函数地址在链接期就固定了。极端情况可以自己打破
+// 惯例：如果你确定某处只有一个实例且极度在意那一次间接寻址，完全可以把字段写成 vtable:
+// VTable（按值内嵌）而不是 *const VTable，代价是不再共享、对象变大。std.Io 选了指针方案，
+// 是为了对象尺寸最小化和跨对象实例共享；两者都合法，取决于你的取舍。
 //
 // 关键字，统一各种分支语句和各种循环语句
 //  if likely else elif endif final case then for in break fallthrough return 条件语句支持大括号和缩进对齐两种编写方式
@@ -42,7 +63,8 @@
 //  async await del from global is lambda nonlocal
 //  pass raise try not endif zeroed allowed pragma
 //
-//  defer if error deallocation(ptr)
+//  defer_if_error_return deallocate(ptr)
+//  file = open_file_read(name) or unreachable
 //
 // act all are ago alt any auf aut dup rep // duplicate repeat
 // can cat cor con cue des dhu din don dor dyn
@@ -82,7 +104,7 @@
 //      只能访问当前文件中引入的全局名称。
 //  2.  当前文件作用域，相当于一个除去函数定义的文件作用域函数。
 //  3.  闭包和宏定义的内部变量也具有局部性，所有外部引入的参数都需要明确声明。
-//  4.  函数内部定义的变量名，可以覆盖全局名称，但不能覆盖局部作用域中的名称。
+//  4.  函数内部定义的变量名，可以覆盖全局名称，但不能覆盖局部作用域中的名称，平行作用域可以出现相同变量名吗
 //  5.  因此函数局部作用域中的变量名，可以与全局类型名或全局变量名同名，同名的类型名和
 //      变量名，优先识别为变量，但其后不是操作符（包括分隔符）则识别为类型名。如果覆盖
 //      的全局类型与变量的类型是同一个类型，仍然可以通过 typeof(name) 访问到全局类型。
@@ -771,7 +793,7 @@
 //  i08 i16 i32 i64 i128 i256 i512 int imt // 面向系统、机器、硬件编程，需要使用 raw.int 和 raw.reg
 //  r08 r16 r32 r64 r128 r256 r512 reg raw // 编写上层应用，一般只需要使用 int 和 reg，reg.ptr raw.ptr
 //  f08 f16 f32 f64 f128 f256 f512 float double // f16.16
-//  d08 d16 d32 d64 d128 d256 d512 decimal
+//  m08 m16 m32 m64 m128 m256 m512 decimal
 //  c08 c16 c32 c64 c128 c256 c512 complex
 //
 //  32iB    32iH    32iN   32iL    32iX    32iY    32iZ    32iR
@@ -779,7 +801,7 @@
 //  3.14fB  3.14fH  3.14f  3.14fL  3.14fX  3.14fY  3.14fZ
 //  3.14pB  3.14pH  3.14p  3.14pL  3.14pX  3.14pY  3.14pZ
 //
-//  32ib    32i2    32i4   32i8    32ix    32iy    32iz    32ir     // 单个i是虚数单位
+//  32ib    32i2    32i4   32i8    32ix    32iy    32iz    32ir     // 单个i是虚数单位（或可使用j表示）
 //  32rb    32r2    32r4   32r8    32rx    32ry    32rz    32rr
 //  3.14fb  3.14f2  3.14f  3.14f8  3.14fx 3.14fy  3.14fz
 //  3.14db  3.14d2  3.14d  3.14d8  3.14dx 3.14dy  3.14dz
@@ -789,8 +811,19 @@
 //  3.14fhh  3.14fh  3.14fl  3.14fll  3.14fx  3.14fy   3.14fz   3.14f
 //  3.14dhh  3.14dh  3.14dl  3.14dll  3.14dx  3.14dy   3.14dz   3.14d
 //
-//  i16.le i32.le i64.le int.le raw.int.le
-//  i16.be i32.be i64.be int.be raw.int.be
+//  8-bit   16-bit  32-bit  64-bit  reg     raw     128-bit 256-bit 512-bit
+//  32b     32h     32d     32l   32 32i  32z  32L     32X     32Y     32Z
+//  32bu    32hu    32du    32lu    32u   32zu 32Lu    32Xu    32Yu    32Zu
+//  32bf    32hf    32df    32lf    32f   32zf 32Lf    32Xf    32Yf    32Zf
+//  32bm    32hm    32dm    32lm    32m   32zm 32Lm    32Xm    32Ym    32Zm
+//  32bj    32hj    32dj    32lj    32j   32zj 32Lj    32Xj    32Yj    32Zj
+//  32T_kg  32T_km  32T_light_year
+//
+//      b h d l L X Y Z T_
+//      i u f m j
+//
+//  i16.le i32.le i64.le int.le imt.le
+//  i16.be i32.be i64.be int.be imt.be
 //  r16.le r32.le r64.le reg.le raw.le
 //  r16.be r32.be r64.be reg.be raw.be
 //
@@ -803,9 +836,9 @@
 //  1 2 3 4 8 x y z p m
 //  vec2 vec3 vec4
 //  mat2 mat3 mat4
-//  ma23 ma24
-//  ma32 ma34
-//  ma42 ma43
+//  m2x3 m2x4
+//  m3x2 m3x4
+//  m4x2 m4x3
 //
 //  predefined header types
 //  vew`array   arriew      std.array_view    array_view
@@ -1221,13 +1254,13 @@ using func_type (int a, &int float)
 (point p, int a, &int) // 返回 int
 (point p, int a, &int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
 (point p, int a, &int) // 简写形式，除了预定义类型参数类型名必须使用~前缀区分
-(camera camera, point point)
+(camera, point)
 (camera c, point p)
-(point point) // 函数声明优先识别为类型，函数体内优先识别为变量名
-(point p) (point p = expr) // 简写形式，使用 point` 避免与表达式语法冲突
-(*camera camera, *point point)
+(struct point) // 函数声明优先识别为类型，函数体内优先识别为变量名
+(point p) (point p {expr}) // 简写形式，使用 point` 避免与表达式语法冲突
+(*camera camera, *point point) (*camera, *point)
 (*point point)
-(*camera camera, point point)
+(*camera camera, point point) (*camera, point)
 (*camera point) // 除了预定义类型参数类型名必须使用~前缀区分
 (*point point, point a)
 (*camera c, *point p)
@@ -1235,16 +1268,16 @@ using func_type (int a, &int float)
 (*point p)
 (int a)
 (int a, int b, int c, float d)
-(int a, b, c, float d)
-(int a, b = 2, c = 3, float d) // 允许第一个也使用点号，方便自动化工具
-(int a, b, yield int, point, &int point)
-(int a, b, yield int, point)
-(int a, b, &int point float [count point scale])
+(int a b{64} c, float d)
+(int a b c, float d) // 允许第一个也使用点号，方便自动化工具
+(int a b, yield int point, &int point)
+(int a b, yield int point)
+(int a b, &int point float [count point scale])
 (int a, &int point [count point or error])
-(*file? file = stdin, point point, string name = "root", string mode)
-(*file? file = stdin, point point, point origin, string name, string mode, int a, int b, int c, &int string float)
-(*file? file = stdin, point point, origin, string name, mode, int a, b, c, &int string float)
-(*file? _, point _, _, string _, _, int _, _, _, &int string float)
+(*file? {stdin}, point point, string name {"root"} mode)
+(*file? {stdin}, point, string name {"root"} mode)
+(*file? file{stdin}, point point origin, string name mode, int a b c, &int string float)
+(*file? file{stdin}, point point origin, string name mode, int a b c, &int string float)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
 [int] (x $) // int 成员命名为 x
@@ -1259,6 +1292,7 @@ struct {} // 空结构体
 {int a} // 如果不使用特殊语法表示类型转换，这里可以解析成将变量 a 转换成 int 类型，然后将其值作为语句块的值
 {int a int b}
 {int a int b}
+{int (a b c)}
 {int a int b point o string s}
 {int a int b point o string s}
 {point point} // 怎么区分是结构体还是元组呢，是元组，因为结构体成员必须声明名称，但这里其实是一样的，因为元组同样可以通过类型名point访问这个成员
@@ -1272,11 +1306,12 @@ $(anytype T) { ((*T p, int size) int) read }
 //  3. 成员别名 type (a | b | c | ...)
 //  4. 在大的成员类型内部定义小的联合类型 type name { | type name | type name type name ... | ... }
 def test { // 如何实现跨越对齐边界的位域？？？
-    int a int b int c int x, y, z // 重复前一类型
+    int a int b int c int (x y z) // 重复前一类型
     int [MASK_BITS] inplace [INT_BITS - MASK_BITS] size // 位域，位域总是无符号类型，即使使用 int 声明，它都是一个无符号类型
     int [1] inplace [signed 31] size // 位域，默认无符号值，有符号需要指定 signed 关键字, 默认不能跨越边界
     r16 [15] flags [>12<] stride [5] data // 必须显示指定跨越边界
     int size | bytes | count | 长度 | 大小 // 成员别名，可以为不同语言提供不同名称
+    tie [data]
     tie f64 d
     tie int i | j | k
         int m
@@ -1286,7 +1321,7 @@ def test { // 如何实现跨越对齐边界的位域？？？
     tie byte b
         r32 u
     tie char c
-    off.data
+    off
     tie [alignas value] // or alignas address
     tie r32 size_32
     tie r64 large_size
@@ -1331,7 +1366,7 @@ array(int, float)
 *int // 指向 int 的指针
 @int // int 型数组的 array_view
 [2]int
-[?]int
+[_]int
 [#]int // 块链
 [~]int // 单链表
 [=]int // 双链表
@@ -2344,11 +2379,11 @@ pub #p8 pragma(runtime) [int int] {x, y}
 
 // 定义函数和类型
 // def name type_expr
-def data [fastcall alignas line] (int a) { return }
-def calc [fastcall alignas line] (int a, b, &int ) extern // 函数定义的声明
-def calc [fastcall alignas 16] (int a, b, &int) { return 0 } // 定义函数常量
-def point [struct packed] { float x, y, z } // 定义新的类型
-def type { tie int i tie byte b tie char c tie float f off }
+def data(int a) [fastcall alignas(line)] { return }
+def calc(int a, b, &int ) [fastcall alignas(line)] extern // 函数定义的声明
+def calc(int a, b, &int) [fastcall alignas(line)] { return 0 } // 定义函数常量
+def point [packed] { float x, y, z } // 定义新的类型
+def type { tie int i, tie byte b, tie char c, tie float f; }
 def array $(anytype T, reg SIZE) { [SIZE]T data reg size }
 def transfer this { (this) close }
 def color [int] { red, green = 1, blue }
@@ -2366,7 +2401,7 @@ def token [byte tie struct] { ATOM {byte id} OPER {byte id} TEST [int int] EXPR 
 [int restrict tie struct] { OK 0 [string] ERROR 1 [reg] }
 [struct packed] [byte int byte float]
 [struct packed] { int a, b, c float [alignas 16] d }
-$(anytype T, reg SIZE) [struct packed] { int a, b, c float d }
+$(anytype T, reg SIZE) [struct packed] { int a, b, c, float d }
 
 // 定义别名
 // using name name_expr
@@ -2388,42 +2423,42 @@ using point [float float] // 默认有4个命名成员 xyzw 或 rgba
 
 // 定义常量
 // const name const_expr
-const pi extern
-const pi 3.1415926 // 编译时常量，运行时常量
-const 2p 2 * pi // const float
-const pi f64 3.1415926 // const f64
-const pt point {100, 200} // const point
-const p3 []int {100, 200} // const [2]int
-const p4 [int int] {100, 200} // const [int int]
-const p5 {int a int b} {100, 200} // const {int a int b}
-const p6 (int a, b, &int) { return 0 } // 相当于 def p6(int a, b, &int) { return 0 }
-const imp_p7 1024 // 私有名称
-const [run] p8 [int int] {100, 200} // 编译时常量，运行时常量，且可在运行时访问（如获取地址，指为指针）
-const [imm] p8 [int int] {xval, yval} // 编译时未知，运行时在初始化之后不可改变
-const [var] data 0 // 编译时变量，运行时常量
+const pi = 3.1415926 // 编译时常量，运行时常量
+const 2p = 2 * pi // const float
+const pi = f64 3.1415926 // const f64
+const pt = point {100, 200} // const point
+const p3 = []int {100, 200} // const [2]int
+const p4 = [int int] {100, 200} // const [int int]
+const p5 = {int a int b} {100, 200} // const {int a int b}
+const p6 = (int a, b, &int) { return 0 } // 相当于 def p6(int a, b, &int) { return 0 }
+const imp_p7 = 1024 // 私有名称
+const [run] p8 = [int int] {100, 200} // 编译时常量，运行时常量，且可在运行时访问（如获取地址，指为指针）
+const [imm] p8 = [int int] {xval, yval} // 编译时未知，运行时在初始化之后不可改变
+const [var] data = 0 // 编译时变量，运行时常量
 
 const data = 3
 const data += 4
 
 // 定义全局变量
-//  var name value_expr
-//  var name type
-//  var name type = value
-var a int // 未初始化全局变量，默认初始为零
-var a int 0
-var a int 10
-var a int zeroed
-var a point {1, 2}
-var [alignas 32] a type value
-var a {int a, b float x float y} null
-var imp_name type vlaue // 私有名称
-var imp_int_ptr *int &a
-var imp_point_ptr *point &point
-var imp_point point {100, 200}
-var data {int a int b point point} {10, 20, {100, 200}}
-var data [int int point] {10, 20, {100, 200}}
-var calc (int a, int b, &int) null // 定义一个函数指针
-var calc (int a, b, &int) { return 0 } // 定义了一个函数指针，并赋了一个值
+//  var name = value_expr
+//  var name = type
+//  var name = type value
+var a = int // 未初始化全局变量，默认初始为零
+var a = int 0
+var a = int 10
+var a = int zeroed
+var a = point.init point.drop
+var a = point {1, 2}
+var [alignas 32] a = type value
+var a = {int a, b float x float y} null
+var imp_name = type vlaue // 私有名称
+var imp_int_ptr = *int &a
+var imp_point_ptr = *point &point
+var imp_point point = {100, 200}
+var data = {int a int b point point} {10, 20, {100, 200}}
+var data = [int int point] {10, 20, {100, 200}}
+var calc = (int a, int b, &int) null // 定义一个函数指针
+var calc = (int a, b, &int) { return 0 } // 定义了一个函数指针，并赋了一个值
 
 // 定义局部变量
 //  let name value_expr
@@ -2432,30 +2467,30 @@ var calc (int a, b, &int) { return 0 } // 定义了一个函数指针，并赋�
 //  let name = value
 //  let ..., name
 //  let ..., name = value
-let aaa data {3, 4} // 注意类型名不能加上括号，例如 (Point)，因为它将变成一个函数类型
-let ppb *ppb ppb_alloc(alloc) // 快捷定义局部变量必须顶格写，*int的星号以及正负号之后不能有空白字符
-let pos dist + int scale_x(facter)
-let len int pos + &*byte p + size + f(g)
-let len int pos + fal *byte (p + size + f(g))
-let pos int dist + int scale_x(facter)
-let len int pos + fal *int *byte (p + size + f(g))
-let [alignas line] tuple read_tuple()
-let (a _ c) read_tuple()
-let tuple (a b c) read_tuple()
-let len typeof(pos) 3
-let len foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
-let len int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
-let len foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
-let len foo ~ -3
-let len struct foo -3
-let len struct foo ~ -3
-let (a b c) read_tuple()
-let (a b c) [3]int {1, 2, 3}
-let (a b c) [int float int] {1, 2, 3}
-let p *int void
-let p *int null, q int_ptr // 同一类型可以使用逗号串连
-let p *int null, q void // q 未初始化
-let a int void, b void, c void // 定义三个未初始化的int变量
+let aaa = data {3, 4} // 注意类型名不能加上括号，例如 (Point)，因为它将变成一个函数类型
+let ppb = *ppb ppb_alloc(alloc) // 快捷定义局部变量必须顶格写，*int的星号以及正负号之后不能有空白字符
+let pos = dist + int scale_x(facter)
+let len = int pos + &*byte p + size + f(g)
+let len = int pos + fal *byte (p + size + f(g))
+let pos = int dist + int scale_x(facter)
+let len = int pos + fal *int *byte (p + size + f(g))
+let [alignas line] tuple = read_tuple()
+let a _ c = read_tuple()
+let tuple (a b c) = read_tuple()
+let len = typeof(pos) 3
+let len = foo - 3 // 类型转换的一个问题是，遇到一元操作符的时候怎么办，这里默认进行减法运算
+let len = int - 3 // 对于基本类型，int 肯定被识别为类型，因此这是一个类型转换
+let len = foo (-3) // 这里明确表示是一个取负一元操作符，因此是一个类型转换，但也可能是一个函数调用，取决于 foo 是一个函数还是一个类型
+let len = foo ~ -3
+let len = struct foo -3
+let len = struct foo ~ -3
+let a b c = read_tuple()
+let a b c = [3]int {1, 2, 3}
+let a b c = [int float int] {1, 2, 3}
+let p = *int undefined
+let p = *int null, q = null // 同一类型可以使用逗号串连
+let p = *int null, q = undefined // q 未初始化
+let a = int undefined, b = undefined, c = undefined // 定义三个未初始化的int变量
 
 // 定义局部变量，类型转换，考虑二元操作符当作一元操作符时的情况（- + * &），代码行不能
 // 以小括号开始，否则报错。D 语言禁止大多数原始表达式语句，所以如果没有产生副作用，就
@@ -2653,7 +2688,7 @@ for $i (10 to 0] step 1 { }
 // a + b // 相当于 a +b // 必须写成 a +b
 // a - c // 相当于 a -c // 必须写成 a -c
 // a *int null // 必须写成 a *int 不能写成 a * int
-if ($a point {100, 200} + b, expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
+if $a (point {100, 200} + b) (expr) { stmt ... } // 表达式换行后不会继续，除非以操作符或开始小括号或中括号结束
 if ($a point {100, 200} + global.b, expr) { stmt ... }
 if ($a $_ $c read_tuple(l), expr) stmt ... fine
 if ($u lexer_next_utf8(), u == '\'' || u == prh_char_invalid)
@@ -4380,6 +4415,29 @@ print(typestring, "\n")
 // 分配对应的栈大小即可。对于递归调用的情况，每次递归调用再次给该函数分配对应大小的栈
 // 空间之后才继续执行，相当于创建了同一个函数的多个实例，然后随着递归的进行而分配和释
 // 放。
+//
+// 应当有多少寄存器由被调用者保存？
+//
+// 我从未见过关于调用者保存（caller-save）与被调用者保存（callee-save）寄存器最优比例的研究。对于不
+// 需要跨函数调用保存的临时值，优先使用草稿（scratch）寄存器。不调用任何其他函数的函数（叶函数，leaf
+// function），以及调用其他函数概率很低的函数（有效叶函数，effective leaf function），会倾向于使用草
+// 稿寄存器。如果一个函数对别的函数有多次调用，或在循环内部调用别的函数，并且需要在这些函数调用之间
+// 保存局部变量的值，那么使用被调用者保存寄存器会让函数变得更简单。如果被调用的函数需要使用同样的寄
+// 存器，那么在速度上没有收益，但在代码大小上可能有收益。如果被调用的函数可以使用其他寄存器，那么速
+// 度上也有收益。
+//
+// 由于叶函数最可能对性能至关重要，因此让草稿寄存器的数量达到叶函数典型所需的量，是合理的。另一方面，
+// 会调用其他函数的函数往往有更多变量，因此需要更多寄存器。权衡这些考虑，我预计：对寄存器数量较少的
+// 架构，草稿寄存器的最优比例在二分之一到三分之二之间；如果寄存器很充裕，则比例应当更低一些。
+//
+// 一些编译器具备全程序优化（whole-program optimization）能力，可以预期这类功能将来会更普遍。如果编
+// 译器同时掌握调用者和被调用者双方的寄存器需求，它就可以给两个函数分配不同的寄存器，从而完全不需要
+// 保存任何寄存器。在这种情况下，最优方案是：只为系统函数、设备驱动程序和库函数保留被调用者保存寄存
+// 器。
+//
+// 未来 AVX-512 指令集中，向量寄存器的宽度将增加到 512 位，之后可能还会进一步增加到 1024 位或 2048
+// 位。这些扩展将对 256 位 YMM 寄存器采用自动零扩展。因此，如果需要与现有代码保持兼容，对那些在未来
+// 指令集中预计会变宽的寄存器赋予被调用者保存状态是没有意义的。
 
 —— 中文编程语言
 —— 块注释 —… 注释多行 …—
