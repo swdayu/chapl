@@ -14,13 +14,11 @@
 //  . 第三种选择是遇到错误直接中断程序
 //      file = abort open_file_read("file") // 错误立即终止程序
 // 每个函数都有一个 error 寄存器参数，总是维护一个寄存器参数，保存以下值：
-//      arch 32 - byte thrd_index
-//                byte task_index
+//      arch 32 - r16 thread_self
 //                byte alloc_index
 //                byte error_index
 //      arch 64 - r32 error_code
-//                byte thrd_index
-//                byte task_index
+//                r16 thread_self
 //                byte alloc_index
 //                byte error_index
 //
@@ -262,7 +260,7 @@
 //              self.len += 1
 //          }
 //
-//          -- global --
+//          ---
 //
 //          -- stack --
 //
@@ -288,6 +286,195 @@
 //          }
 //
 //          def __exit__(void) {
+//          }
+//
+//          /std.io/
+//
+//          def type "pure" interface {
+//              (*type self, reg byte, &reg) calc
+//          }
+//
+//          def writer {
+//              reg capacity
+//              reg offset
+//              *byte buffer
+//          }
+//
+//          def writer interface {
+//              (*writer self, []byte data, &reg) write
+//              (*writer self, *iodata data, iovec pend, &reg) writev
+//              (*writer self, *file_reader file + face, reg bytes, &reg) drain
+//              (*writer self, reg preserve, reg bytes, &bool) rebase
+//          }
+//
+//          def reader {
+//              reg offset
+//              *byte buffer
+//              reg length
+//          }
+//
+//          def reader interface {
+//              (*reader self, *writer dest + face, reg bytes, &reg) read
+//              (*reader self, *iodata data, iovec pend, &reg) readv
+//              (*reader self, reg bytes, &reg) discard
+//              (*reader self, reg bytes, &bool) rebase
+//          }
+//
+//          -- writer --
+//
+//          def from([]buffer, &writer)
+//          {
+//              return {.capacity = buffer.size, .offset = 0, .buffer = buffer}
+//          }
+//          .write(*writer self, []byte data, &reg)
+//          {
+//          }
+//          .writev
+//          {
+//          }
+//          .drain
+//          {
+//          }
+//
+//          def dynamic(reg initial_capacity, &writer)
+//          {
+//              let buffer = buffer_malloc(initial_capacity)
+//              return from({buffer, buffer.size})
+//          }
+//          .write(*writer self, []byte data, &reg)
+//          {
+//          }
+//          .writev
+//          {
+//          }
+//          .drain
+//          {
+//          }
+//          ."need deinit"(*writer self)
+//          {
+//              buffer_delete(self->buffer)
+//          }
+//
+//          def write(*writer self + face, []byte data)
+//          {
+//              assert(self.offset <= self.capacity)
+//              if (data.size <= self.capacity - self.offset)
+//              {
+//                  memcopy(self.buffer + self.offset, data, data.size)
+//                  self.offset += data.size
+//                  return data.size
+//              }
+//              return self.face.write(self, data)
+//          }
+//
+//          -- reader --
+//
+//          ---
+//
+//          def fd_handle {
+//              raw [1] nonblock [signed:] handle
+//          }
+//
+//          def fd_writer {
+//              fd_handle handle
+//              writer embed
+//          }
+//
+//          def fd_reader {
+//              fd_handle handle
+//              reg capacity
+//              reader embed
+//          }
+//
+//          def file_writer {
+//              fd_writer embed
+//          }
+//
+//          def file_reader {
+//              i64 filesize
+//              fd_reader embed
+//              r32 read_error
+//          }
+//
+//          def rand_writer {
+//              writer embed
+//              reg length
+//          }
+//
+//          def rand_writer extend writer interface {
+//              writer.interface embed
+//              (*writer self, byte file_offset_0_file_end_1, &i64) offset
+//              (*rand_writer self, i64 offset) seek_by_write
+//          }
+//
+//          def rand_reader {
+//              reader embed
+//          }
+//
+//          def rand_reader extend reader interface {
+//              reader.interface embed
+//              (*reader self, byte file_offset_0_file_end_1, &i64) offset
+//              (*rand_reader self, i64 offset) seek_by_read
+//          }
+//
+//          def rand_stream {
+//              rand_writer embed
+//              rand_reader embed.rand_writer.offset
+//          }
+//
+//          -- rand --
+//
+//          def seek_by_write(*rand_writer self + face, i64 offset)
+//          {
+//              self.length
+//          }
+//
+//          def reader_from([]byte data, &rand_reader)
+//          {
+//
+//          }
+//
+//          def writer_from([]byte data, &rand_writer)
+//          {
+//              return {.capacity = data.size, .buffer = data}
+//          }
+//
+//          def writer_dynamic(reg initial_capacity, &rand_writer)
+//          {
+//              let buffer = buffer_malloc(initial_capacity)
+//              return writer_from({buffer, buffer.size})
+//          }
+//          ."need deinit"(*rand_writer self)
+//          {
+//              buffer_delete(self.buffer)
+//          }
+//
+//          def stream_from([]byte data, &rand_stream)
+//          {
+//
+//          }
+//
+//          def stream_dynamic(reg initial_capacity, &rand_stream)
+//          {
+//
+//          }
+//
+//          def file_reader {
+//              i64 position
+//              stream.file_reader embed
+//              rand_reader embed.stream.file_reader.offset
+//          }
+//
+//          def file_writer {
+//              i64 position
+//              i64 filesize
+//              .file_writer embed
+//              rand_writer embed.stream.file_writer.capacity
+//          }
+//
+//          def file_stream {
+//              file_writer embed
+//              file_reader embed.file_writer.position
 //          }
 //
 //          // 名字空间名称和类型名称必须提前声明，函数名称和标签名称不需要提前声明，变量名称必须先定义后使用
@@ -425,6 +612,7 @@
 //      可以以 array_push string_push 等名称，而操作概念化编译器可以移除前缀来识别，
 //      或者显式定义概念。
 //  9.  每个函数都有一个隐藏的当前环境的指针参数
+//  10. 允许以 name.getter 形式用字段的方式调用函数
 //
 // 函数的名称，以及是否重载。为了编译器的简单性，仅支持显式重载，并且在对应的命名空间
 // 中，即使是显式的重载名称，都不能有名字的重叠。另外，也支持操作符的重载，例如 __equal__
@@ -522,6 +710,9 @@
 //          def func(^point)
 //          def func(&^point) // 当前函数不修改，但是可能被其他线程修改
 //          def func(*^point) // 当前函数会修改，其他线程也可能修改
+//
+//      1.  传值表示不修改，传指针表示仅本函数修改，传^指针表示随时可能被异步修改
+//      2.  结构体不存在间接指针，结构体定义即是结构体实际内容，以使上面的传参模式即简单又满足需求
 //
 //  有关所有权
 //
@@ -2047,7 +2238,7 @@ pub color (r08 "strict"
     yellow = 3
 )
 
-def color (r08 [.restrict] red blue yellow)
+def color (r08 [.strict] red blue yellow)
 
 def point {
     float x
@@ -2380,27 +2571,28 @@ pub #p8 pragma(runtime) [int int] {x, y}
 // 定义函数和类型
 // def name type_expr
 def data(int a) "fastcall aligned line" { return }
-def calc(int a, b, &int) "fastcall aligned line" extern // 函数定义的声明
-def calc(int a, b, &int) "fastcall aligned line" { return 0 } // 定义函数常量
-def point { float x float y float z } "packed" // 定义新的类型
+def calc(int a, let b, &int) "fastcall aligned line" extern // 函数定义的声明
+def calc(int a, let b, &int) "fastcall aligned line" { return 0 } // 定义函数常量
+def point { float x float y float z } "packed struct" // 定义新的类型
+def iovec { *byte data reg size } "unstable fields"
 def type { tie int i tie byte b tie char c tie float f off }
 def array $(anytype T, reg SIZE) { [SIZE]T data reg size }
 def transfer this { (this) close }
 def color (int) {red, green = 1, blue}
 def color (int) {red, green = N+1, blue}
-def chars (int #) "restrict" {first = 'a', second = 'b', last = 'z'}
+def chars (int #) "strict" {first = 'a', second = 'b', last = 'z'}
 def mask (int #) { red = 1 << #, green, blue } // # 表示默认值
 def mask (int #) { red = 1 << #, green, blue }
 def oper (int # r08 lpri r08 rpri) { ADD = '+' {3, 2}, SUB = '-' {3, 2} }
 def result (byte #) { OK [string], ERROR [reg] }
 def token (byte #) { ATOM {byte id}, OPER {byte id}, TEST [int int], EXPR {int oper *expr lhs *expr rhs}, EOF}
 
-(int a, int b, *int "out must" result, &int) "fastcall aligned line" { ... }
-(int #) [restrict] { red, green = 1, blue }
-(int {}) [restrict] { OK = 0 [string], ERROR = 1 [reg] }
-[byte int byte float] "packed"
-{ int a int b int c float "aligend 16" d } "packed"
-$(anytype T, reg SIZE) { int a int b int c float d } "packed"
+(int a, int b, *int "must out" result, &int, error_failure, error_overflow) "fastcall aligned line" { ... }
+(int #) "strict" { red, green = 1, blue }
+(int {}) "strict" { OK = 0 [string], ERROR = 1 [reg] }
+[byte int byte float] "packed struct"
+{ int a int b int c float "aligned 16-byte" d } "packed struct"
+$(anytype T, reg SIZE) { int a int b int c float d } "packed struct"
 
 def name (type) { ... } // 函数字面量
 def name this { ... } // 接口
@@ -2440,7 +2632,7 @@ def name = [int float] {3, 3.14}
 def name = a + b * c
 def name = 3.14
 
-let name "aligned 16" = value // 定义变量
+let name "aligned 16-byte" = value // 定义变量
 let name = int 3 // 类型转换
 let name = float 3.14
 let name = *int fer p // fetch reference
@@ -2456,7 +2648,7 @@ let name = der *int p // dereference
 using mylib_array_push mylib_array.push
 using mylib_array_* mylib_array.*
 using func [fastcall aligas line] (int a, b, *int [out always] result, &int)
-using type [int restrict] { red, green = 1, blue }
+using type [int strict] { red, green = 1, blue }
 using type [struct packed] [byte int byte float]
 using type [struct packed] { int a, b, c float [alignas 16] d }
 using int_array [16]int // 以别名方式定义新的类型
