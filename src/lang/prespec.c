@@ -294,13 +294,13 @@
 //              (*type self, reg byte, &reg) calc
 //          }
 //
-//          def writer {
+//          def writer { // writer 结构体
 //              reg capacity
 //              reg offset
 //              *byte buffer
 //          }
 //
-//          def writer interface {
+//          def writer interface { // writer 必须实现以下函数
 //              (*writer self, []byte data, &reg) write
 //              (*writer self, *iodata data, iovec pend, &reg) writev
 //              (*writer self, *file_reader file + face, reg bytes, &reg) drain
@@ -461,21 +461,37 @@
 //
 //          def file_reader {
 //              i64 position
-//              stream.file_reader embed
-//              rand_reader embed.stream.file_reader.offset
+//              std.io.file_reader embed
+//              rand_reader embed.std.io.file_reader.offset
 //          }
 //
 //          def file_writer {
 //              i64 position
 //              i64 filesize
-//              .file_writer embed
-//              rand_writer embed.stream.file_writer.capacity
+//              std.io.file_writer embed
+//              rand_writer embed.std.io.file_writer.capacity
 //          }
 //
 //          def file_stream {
 //              file_writer embed
 //              file_reader embed.file_writer.position
 //          }
+//
+//          ---
+//
+//          import <lang.code> // 导入标准头文件
+//          import "lang.code" // 相对于当前目录
+//          import "../lang.code" // 相对于当前目录
+//          import from path "lang.code" // 相对于 path 目录
+//          import from path "../lang.code" // 相对于 path 目录
+//          import from path "lang/math.code" // 相对于 path 目录
+//          import lib from path "lang/math.code" // 添加 lib 名字空间前缀
+//          import lib "lang.code"
+//          import 3rd "math.code"
+//
+//          def writer std.io.writer
+//          def sin 3rd.math.sin
+//          def math.* 3rd.math.*
 //
 //          // 名字空间名称和类型名称必须提前声明，函数名称和标签名称不需要提前声明，变量名称必须先定义后使用
 //
