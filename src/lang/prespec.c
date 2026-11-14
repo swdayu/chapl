@@ -60,6 +60,7 @@
 //  macro using const romem immut local named also
 //  async await del from global is lambda nonlocal
 //  pass raise try not endif zeroed allowed pragma
+//  primt priat prime
 //
 //  defer_if_error_return deallocate(ptr)
 //  file = open_file_read(name) or unreachable
@@ -136,12 +137,12 @@
 //      date.#self
 //      date.#size
 //
-//      !array(int, 4)
-//      offset!(std.file)
-//      typeof!date.field
-//      typeid!date.field
-//      sizeof!date.field
-//      nameof!date.field
+//      !array(int, 4)          type!array(int, 4)
+//      offset!(std.file)       offset!type.field
+//      typeof!date.field       typeof!type.field
+//      typeid!date.field       typeid!type.field
+//      sizeof!date.field       sizeof!type.field
+//      nameof!date.field       alignof!type.field
 //      alignof!date.field
 //      offset!date.field
 //
@@ -462,19 +463,19 @@
 //          define file_reader {
 //              i64 position
 //              std.io.file_reader embed
-//              rand_reader embed.std.io.file_reader.offset
+//              rand_reader embed.offset
 //          }
 //
 //          define file_writer {
 //              i64 position
 //              i64 filesize
 //              std.io.file_writer embed
-//              rand_writer embed.std.io.file_writer.capacity
+//              rand_writer embed.capacity
 //          }
 //
 //          define file_stream {
 //              file_writer embed
-//              file_reader embed.file_writer.position
+//              file_reader embed.position
 //          }
 //
 //          ---
@@ -489,11 +490,15 @@
 //          import lib "lang.code" // 如果冲突可添加一个名称前缀
 //          import 3rd "math.code"
 //
+//          def writer lib.std.io.writer
+//          def sin 3rd.math.sin
+//          def math.* 3rd.math.*
+//
 //          define writer lib.std.io.writer
 //          define sin 3rd.math.sin
 //          define math.* 3rd.math.*
-//
-//          define main(int argc, []string argv, &int)
+//                                
+//          define main(int argc, []string argv, return int)
 //          {
 //              return 0
 //          }
@@ -734,6 +739,19 @@
 //
 //      1.  传值表示不修改，传指针表示仅本函数修改，传^指针表示随时可能被异步修改
 //      2.  结构体不存在间接指针，结构体定义即是结构体实际内容，以使上面的传参模式即简单又满足需求
+//      3.  传值时表示不修改，除了特殊的传递不大于两个指针的结构体都传地址，这种参数可以取地址
+//      4.  对于指针参数，本身不可修改，如果要修改指针，必须传指针的指针
+//      5.  传值的参数不可修改，但可以复制覆盖为新的同名变量 (int a) { let a = a a = 1 }
+//      6.  传值不可修改，被标记的且不大于两个指针的传值，大于的传地址可以取地址但不可修改，因此指针和基础类型的值参数都不能取地址
+//      7.  传指针 *type 可以修改指向的类型的值，但不可以修改指针本身，也不能取指针的地址
+//      8.  传指针 **type 可以修改指针 *type 以及类型值的内容，但不可以修改 **type 的值
+//      9.  还有一种情况是，传指针但不修改指向的内容 *type，可用于基础类型和不大于两个指针的类型传地址但又不可修改
+//
+//          基础类型 (int a) 不可修改不可取地址，(*int a) 可修改有地址，(*imm int a) (&int a) 不可修改有地址
+//          指针类型 (*int a) 指针不可修改不可取地址，(**int a) 指针可修改有地址，(&*int a) 不可修改有地址
+//          小型类型 (slice s) 不可修改不可取地址，(*slice s) 可修改有地址，(&slice s) 不可修改有地址
+//          大型类型 (type a) 不可修改可取地址 *imm type，(*type a) 可修改有地址
+//          大型传值 (type a) 相当于传不可修改指针 (*imm type a) 或 (&type a)，无特殊标记的结构体类型传值都传地址
 //
 //  有关所有权
 //
@@ -1378,6 +1396,7 @@
 // 定义一个与 C 语言兼容的函数，新语言的目标之一是统一所有平台上的调用约定的一致性，C 语言可以通过新语言的基础设施调用
 // 新语言的函数。
 //      def calc @cdecl void (int a b c, point x y, *point)
+//      define calc $[cdecl] (int a, int b, return int)
 //
 // #if 1
 // 参数传递，传值表示不修改实参，传指针表示修改实参
@@ -1416,7 +1435,7 @@
 (&point) // 不修改实参，大于两个指针传地址，只是临时拷贝一份局部变量给函数用
 (*point) // 指针，修改实参
 (^point) // 指针，可能被硬件或其他线程并行修改
-(!point) // 以一元操作符 : 开始的名称是类型名
+(type!point) // 以一元操作符 : 开始的名称是类型名
 (int a) // 不修改实参
 (*int a) // 指针，修改实参
 (&int a) // 指针，可能被硬件或其他线程并行修改
@@ -1426,7 +1445,7 @@
 // 函数的声明，定义函数，定义函数类型变量，函数类型字面量遇到 =、{、def、pub、let、换行符（读取小括号对之后的换行符）就会结束
 def calc(void) { } // 同一行有开始大括号，表示定义一个函数字面量
 def calc(int a) { }
-def calc(!int) { }
+def calc(type!int) { }
 def calc(int a, &int x &float y &error) { }
 def calc(void) = { } // 同一行有等号，表示定义一个函数指针变量
 def calc(int a) = null
@@ -1450,28 +1469,28 @@ using func_type (int a, &int float)
 // 让类型字面量和复合常量字面量表示唯一，其他都必须为之让路
 // 函数类型字面量，“开始小括号 + 结果为类型的表达式” 表示函数类型的开始，函数复合常量是函数类型字面量 + { stmt ... }
 (void) // void 表示没有参数，也没有返回值
-(&int) // 返回 int，当有返回值时才需要 return 关键字
-(&int, &string, &point) // 返回 int string point
-(&int, &float)
-(&int, &float, &error)
-(&int x, &float y, or error)
-(&(&int a), &float)
-(&(&int), &float)
-(&(&int) a, &float b, or error)
-([int x, int y, float z], &int x, &(&int or none) y, &float z, or error)
-([int x, int y, float z], &int, &float)
-(int a, &int) // 返回 int
+(return int) // 返回 int，当有返回值时才需要 return 关键字
+(return int, string, point) // 返回 int string point
+(return int, float)
+(return int, float, error)
+(return int x, float y, or error)
+(return (return int a), float)
+(return (return int), float)
+(return (return int) a, float b, or error)
+([int x, int y, float z], return int x, (return int, or none) y, float z, or error)
+([int x, int y, float z], return int, float)
+(int a, return int) // 返回 int
 (int a) // 没有返回值，不需要 return 关键字
 (int _) // 匿名参数
 (int) // 报错，参数名不能是关键字
-(int argc, **char argv, &int)
-(point p, int a, &int) // 返回 int
-(point p, int a, &int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
-(point p, int a, &int) // 简写形式，除了预定义类型参数类型名必须使用~前缀区分
+(int argc, []string argv, return int)
+(point p, int a, return int) // 返回 int
+(point p, int a, return int) // 命名与类型同名的参数，不能写成 point point，两个类型名将触发返回值的声明的开始
+(point p, int a, return int) // 简写形式，除了预定义类型参数类型名必须使用~前缀区分
 (camera, point)
 (camera c, point p)
 (!point) // 函数声明优先识别为类型，函数体内优先识别为变量名
-(point p) (point p {expr}) // 简写形式，使用 point` 避免与表达式语法冲突
+(point p) (point p = expr) // 简写形式，使用 point` 避免与表达式语法冲突
 (*camera camera, *point point) (*camera, *point)
 (*point point)
 (*camera camera, point point) (*camera, point)
@@ -1482,12 +1501,12 @@ using func_type (int a, &int float)
 (*point p)
 (int a)
 (int a, int b = 32, int c, float d)
-(int a, int b, [int, point], &int, &point)
-(int a, int b, &int count, &point, &float)
+(int a, int b, [int, point], return int, point)
+(int a, int b, &int count, return point, float)
 (*file? = stdin, point, string name = "root", string mode)
 (*file?, point, string name = "root", string mode) func(.name = #, .mode = "rb")
-(*file?, point, point origin, string name, string mode, int a, int b, int c, &int, &string, &float)
-(*file?, point, point origin, string name, string mode, int a, int b, int c, &int, &string, &float)
+(*file?, point, point origin, string name, string mode, int a, int b, int c, return int, string, float)
+(*file?, point, point origin, string name, string mode, int a, int b, int c, return int, string, float)
 // 元组类型，以一元操作符 < << <<< ... 开始的表示元组类型的开始
 [int] // 特殊情况外不是一个元组，元组必须至少包含两个元素，但仍然可以通过 [int $] 来表示
 [int] (x $) // int 成员命名为 x
@@ -2627,14 +2646,14 @@ define name [[2]int]
 define name [int float point]
 define name [int a; int b] // 命名元组，相当于结构体
 define name int
-define name *int
+define name *int // 由于类型不能有间接性，不能定义指针的别名
 define name float
 define name [3]int
-define name *(int a, int b, &int) // 函数指针
+define name (int a, int b, &int) // 函数指针
 define name $[distinct] int // 定义全新的类型，新类型与原来的类型字面量完全不同，不能传给类型字母量也不能将类型字母量传给新类型，必须使用强制类型转换或显式构造
-define name $[distinct] *int
+define name $[distinct] *int // 由于类型不能有间接性，不能定义指针的别名
 define name $[distinct] [2]int
-define name $[distinct] *(int a, int b, &int)
+define name $[distinct] (int a, int b, &int)
 define name $[distinct] (int a, int b, &int) { ... } // 新类型不能直接传给函数类型字面量
 define name $[distinct] { ... } // 新类型不能直接传给结构体类型字面量
 define name $[distinct] int && type name type name { ... } // 新类型不能直接传给枚举类型字面量
