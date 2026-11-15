@@ -303,7 +303,7 @@
 //
 //          def writer interface { // writer 必须实现以下函数
 //              (*writer self, []byte data, &reg) write
-//              (*writer self, *iodata data, iovec pend, &reg) writev
+//              (*writer self, *iodata data, *iovec pend, &reg) writev
 //              (*writer self, *file_reader file + face, reg bytes, &reg) drain
 //              (*writer self, reg preserve, reg bytes, &bool) rebase
 //          }
@@ -746,6 +746,7 @@
 //      7.  传指针 *type 可以修改指向的类型的值，但不可以修改指针本身，也不能取指针的地址
 //      8.  传指针 **type 可以修改指针 *type 以及类型值的内容，但不可以修改 **type 的值
 //      9.  还有一种情况是，传指针但不修改指向的内容 *type，可用于基础类型和不大于两个指针的类型传地址但又不可修改
+//      0.  传值表示不修改不可取址，修改或者需要地址就传指针
 //
 //          基础类型 (int a) 不可修改不可取地址，(*int a) 可修改有地址，(*imm int a) (&int a) 不可修改有地址
 //          指针类型 (*int a) 指针不可修改不可取地址，(**int a) 指针可修改有地址，(&*int a) 不可修改有地址
