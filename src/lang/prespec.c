@@ -301,11 +301,11 @@
 //              *byte buffer
 //          }
 //
-//          def writer interface { // writer 必须实现以下函数
-//              (*writer self, []byte data, &reg) write
-//              (*writer self, *iodata data, *iovec pend, &reg) writev
-//              (*writer self, *file_reader file + face, reg bytes, &reg) drain
-//              (*writer self, reg preserve, reg bytes, &bool) rebase
+//          def writer.interface { // writer 必须实现以下函数
+//              (*writer self, []byte data, return reg) write
+//              (*writer self, *iodata data, *iovec pend, return reg) writev
+//              (*writer self, *file_reader file + face, reg bytes, return reg) drain
+//              (*writer self, reg preserve, reg bytes, return bool) rebase
 //          }
 //
 //          def reader {
@@ -314,14 +314,17 @@
 //              reg length
 //          }
 //
-//          def reader interface {
-//              (*reader self, *writer dest + face, reg bytes, &reg) read
-//              (*reader self, *iodata data, iovec pend, &reg) readv
-//              (*reader self, reg bytes, &reg) discard
-//              (*reader self, reg bytes, &bool) rebase
+//          def reader.interface {
+//              (*reader self, *writer dest + face, reg bytes, return reg) read
+//              (*reader self, *iodata data, iovec pend, return reg) readv
+//              (*reader self, reg bytes, return reg) discard
+//              (*reader self, reg bytes, return bool) rebase
 //          }
 //
-//          -- writer --
+//          -- writer -- // 为 writer 结构体定义函数，该名字空间只能存在唯一一个
+//
+//          // let w = std.io.writer.from(buffer)
+//          // w.write(data) // 相当于 std.io.writer.write(w, data)
 //
 //          def from([]buffer, &writer)
 //          {
@@ -372,75 +375,75 @@
 //
 //          ---
 //
-//          define fd_handle {
+//          def fd_handle {
 //              raw [1] nonblock [signed:] handle
 //          }
 //
-//          define fd_writer {
+//          def fd_writer {
 //              fd_handle handle
 //              writer embed
 //          }
 //
-//          define fd_reader {
+//          def fd_reader {
 //              fd_handle handle
 //              reg capacity
 //              reader embed
 //          }
 //
-//          define file_writer {
+//          def file_writer {
 //              fd_writer embed
 //          }
 //
-//          define file_reader {
+//          def file_reader {
 //              i64 filesize
 //              fd_reader embed
 //              r32 read_error
 //          }
 //
-//          define rand_writer {
+//          def rand_writer {
 //              writer embed
 //              reg length
 //          }
 //
-//          define rand_writer extend writer interface {
+//          def rand_writer extend writer interface {
 //              writer.interface embed
 //              (*writer self, byte file_offset_0_file_end_1, &i64) offset
 //              (*rand_writer self, i64 offset) seek_by_write
 //          }
 //
-//          define rand_reader {
+//          def rand_reader {
 //              reader embed
 //          }
 //
-//          define rand_reader extend reader interface {
+//          def rand_reader extend reader interface {
 //              reader.interface embed
 //              (*reader self, byte file_offset_0_file_end_1, &i64) offset
 //              (*rand_reader self, i64 offset) seek_by_read
 //          }
 //
-//          define rand_stream {
+//          def rand_stream {
 //              rand_writer embed
 //              rand_reader embed.rand_writer.offset
 //          }
 //
 //          -- rand --
 //
-//          define seek_by_write(*rand_writer self + face, i64 offset)
+//          def seek_by_write(*rand_writer self + face, i64 offset)
 //          {
 //              self.length
 //          }
 //
-//          define reader_from([]byte data, &rand_reader)
+//          def reader_from([]byte data, &rand_reader)
 //          {
 //
 //          }
 //
-//          define writer_from([]byte data, &rand_writer)
+//          def writer_from([]byte data, &rand_writer)
 //          {
 //              return {.capacity = data.size, .buffer = data}
 //          }
 //
-//          define writer_dynamic(reg initial_capacity, &rand_writer)
+//          def writer_dynamic(reg initial_capacity, &rand_writer)
 //          {
 //              let buffer = buffer_malloc(initial_capacity)
 //              return writer_from({buffer, buffer.size})
@@ -450,30 +453,30 @@
 //              buffer_delete(self.buffer)
 //          }
 //
-//          define stream_from([]byte data, &rand_stream)
+//          def stream_from([]byte data, &rand_stream)
 //          {
 //
 //          }
 //
-//          define stream_dynamic(reg initial_capacity, &rand_stream)
+//          def stream_dynamic(reg initial_capacity, &rand_stream)
 //          {
 //
 //          }
 //
-//          define file_reader {
+//          def file_reader {
 //              i64 position
 //              std.io.file_reader embed
 //              rand_reader embed.offset
 //          }
 //
-//          define file_writer {
+//          def file_writer {
 //              i64 position
 //              i64 filesize
 //              std.io.file_writer embed
 //              rand_writer embed.capacity
 //          }
 //
-//          define file_stream {
+//          def file_stream {
 //              file_writer embed
 //              file_reader embed.position
 //          }
@@ -494,11 +497,7 @@
 //          def sin 3rd.math.sin
 //          def math.* 3rd.math.*
 //
-//          define writer lib.std.io.writer
-//          define sin 3rd.math.sin
-//          define math.* 3rd.math.*
-//                                
-//          define main(int argc, []string argv, return int)
+//          def main(int argc, []string argv, return int)
 //          {
 //              return 0
 //          }
@@ -1397,7 +1396,7 @@
 // 定义一个与 C 语言兼容的函数，新语言的目标之一是统一所有平台上的调用约定的一致性，C 语言可以通过新语言的基础设施调用
 // 新语言的函数。
 //      def calc @cdecl void (int a b c, point x y, *point)
-//      define calc $[cdecl] (int a, int b, return int)
+//      def calc $[cdecl] (int a, int b, return int)
 //
 // #if 1
 // 参数传递，传值表示不修改实参，传指针表示修改实参
@@ -2611,22 +2610,22 @@ pub #p8 pragma(runtime) [int int] {x, y}
 
 // 定义函数和类型
 // def name type_expr
-define data $[fastcall align line] (int a) { return }
-define calc $[fastcall align line] (int a, let b, &int) extern // 函数定义的声明
-define calc $[fastcall align line] (int a, let b, &int) { return 0 } // 定义函数常量
-define point $[pack byte] { float x float y float z } // 定义新的类型
-define iovec $[unstable field] { *byte data reg size }
-define type { tie int i tie byte b tie char c tie float f off }
-define array $(anytype T, reg SIZE) { [SIZE]T data reg size }
-define transfer this { (*transfer self) close }
-define color int {red, green = 1, blue} // 整数类型不是结构体，不能用大括号初始化，因此整数和大括号组合就是一个枚举类型
-define color int {red, green = N+1, blue}
-define chars $[strict] int {first = 'a', second = 'b', last = 'z'}
-define mask int { red = 1 << *, green, blue } // # 表示默认值
-define mask int { red = 1 << *, green, blue }
-define oper int && r08 lpri r08 rpri { ADD = '+' {3, 2}, SUB = '-' {3, 2} }
-define result byte { OK [string], ERROR [reg] }
-define token byte { ATOM {byte id}, OPER {byte id}, TEST [int int], EXPR {int oper *expr lhs *expr rhs}, EOF}
+def data $[fastcall align line] (int a) { return }
+def calc $[fastcall align line] (int a, let b, &int) extern // 函数定义的声明
+def calc $[fastcall align line] (int a, let b, &int) { return 0 } // 定义函数常量
+def point $[pack byte] { float x float y float z } // 定义新的类型
+def iovec $[unstable field] { *byte data reg size }
+def type { tie int i tie byte b tie char c tie float f off }
+def array $(anytype T, reg SIZE) { [SIZE]T data reg size }
+def transfer this { (*transfer self) close }
+def color int {red, green = 1, blue} // 整数类型不是结构体，不能用大括号初始化，因此整数和大括号组合就是一个枚举类型
+def color int {red, green = N+1, blue}
+def chars $[strict] int {first = 'a', second = 'b', last = 'z'}
+def mask int { red = 1 << *, green, blue } // # 表示默认值
+def mask int { red = 1 << *, green, blue }
+def oper int && r08 lpri r08 rpri { ADD = '+' {3, 2}, SUB = '-' {3, 2} }
+def result byte { OK [string], ERROR [reg] }
+def token byte { ATOM {byte id}, OPER {byte id}, TEST [int int], EXPR {int oper *expr lhs *expr rhs}, EOF}
 
 $[unstable field] { *byte data reg size }
 $[fastcall align line] (int a, int b, *int [out must] result, &int, error_failure, error_overflow) { ... }
@@ -2637,45 +2636,45 @@ $[pack byte] [byte int byte float]
 $[pack byte] { int a int b int c float [align 16] d }
 $(anytype T, reg SIZE) [pack byte] { int a int b int c float d }
 
-define name (type) { ... } // 函数字面量
-define name this { ... } // 接口
-define name int && type name type name { ... } // 枚举
-define name { ... } // 类型，大括号内类型名开头
-define name [int] // 元组，相当于定义 int 类型的别名，但定义的是一个新类型
-define name [*int] // 如果一个函数接收 *int 参数，不能直接将 name 类型变量传给该参数，必须显式指定字段
-define name [[2]int]
-define name [int float point]
-define name [int a; int b] // 命名元组，相当于结构体
-define name int
-define name *int // 由于类型不能有间接性，不能定义指针的别名
-define name float
-define name [3]int
-define name (int a, int b, &int) // 函数指针
-define name $[distinct] int // 定义全新的类型，新类型与原来的类型字面量完全不同，不能传给类型字母量也不能将类型字母量传给新类型，必须使用强制类型转换或显式构造
-define name $[distinct] *int // 由于类型不能有间接性，不能定义指针的别名
-define name $[distinct] [2]int
-define name $[distinct] (int a, int b, &int)
-define name $[distinct] (int a, int b, &int) { ... } // 新类型不能直接传给函数类型字面量
-define name $[distinct] { ... } // 新类型不能直接传给结构体类型字面量
-define name $[distinct] int && type name type name { ... } // 新类型不能直接传给枚举类型字面量
-define name $[distinct] [int]
-define name $[distinct] [*int]
-define name $[distinct] [[2]int]
-define name $[distinct] [int float point]
-define math std.math // 定义命名空间名称别名
-define name.* 3rd.name.*
-define name const_expression // 定义常量，其实就是在定义类型并赋予常量值
-define name int { red, green } .red // 必须使用 def 定义
-define name (int a, int b, &int) { ... } // 必须使用 def 定义
-define name {int a int b} {1, 2}
-define name int 3
-define name float 3.14
-define name [int] {1}
-define name [int float] {3, 3.14}
-define name a + b * c
-define name $[rom] 3.14 // 会保存仅内存中，运行时可寻址
-define name $[run] [int, int] {x, y} // 编译时未知，运行时初始化后不可变
-define name $[mut] 0 // 编译时变量，运行时常量
+def name (type) { ... } // 函数字面量
+def name this { ... } // 接口
+def name int && type name type name { ... } // 枚举
+def name { ... } // 类型，大括号内类型名开头
+def name [int] // 元组，相当于定义 int 类型的别名，但定义的是一个新类型
+def name [*int] // 如果一个函数接收 *int 参数，不能直接将 name 类型变量传给该参数，必须显式指定字段
+def name [[2]int]
+def name [int float point]
+def name [int a; int b] // 命名元组，相当于结构体
+def name int
+def name *int // 由于类型不能有间接性，不能定义指针的别名
+def name float
+def name [3]int
+def name (int a, int b, &int) // 函数指针
+def name $[distinct] int // 定义全新的类型，新类型与原来的类型字面量完全不同，不能传给类型字母量也不能将类型字母量传给新类型，必须使用强制类型转换或显式构造
+def name $[distinct] *int // 由于类型不能有间接性，不能定义指针的别名
+def name $[distinct] [2]int
+def name $[distinct] (int a, int b, &int)
+def name $[distinct] (int a, int b, &int) { ... } // 新类型不能直接传给函数类型字面量
+def name $[distinct] { ... } // 新类型不能直接传给结构体类型字面量
+def name $[distinct] int && type name type name { ... } // 新类型不能直接传给枚举类型字面量
+def name $[distinct] [int]
+def name $[distinct] [*int]
+def name $[distinct] [[2]int]
+def name $[distinct] [int float point]
+def math std.math // 定义命名空间名称别名
+def name.* 3rd.name.*
+def name const_expression // 定义常量，其实就是在定义类型并赋予常量值
+def name int { red, green } .red // 必须使用 def 定义
+def name (int a, int b, &int) { ... } // 必须使用 def 定义
+def name {int a int b} {1, 2}
+def name int 3
+def name float 3.14
+def name [int] {1}
+def name [int float] {3, 3.14}
+def name a + b * c
+def name $[rom] 3.14 // 会保存仅内存中，运行时可寻址
+def name $[run] [int, int] {x, y} // 编译时未知，运行时初始化后不可变
+def name $[mut] 0 // 编译时变量，运行时常量
 
 let name $[align 16] = value // 定义变量
 let name = int 3 // 类型转换
