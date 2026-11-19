@@ -220,7 +220,7 @@
 //  7.  单个文件不能定义名称前缀，导入添加的名字前缀不能声明为公开可见，添加一个前缀后，当前文件不能再使用该前缀定义新的名称
 //  8.  还可以批量重命名去掉前缀，但是可能需要做一些额外的限制，比如 log 与数学函数重名，去掉前缀的名字会与标准库名字重名
 //  9.  能够去掉前缀的前提，被导入的名字在定义时需要加上 may strip 限定，并在文件中定义前缀名称 def ^prefix_
-//  10. 或者直接定义可选的名字 def prh_array_push|array_push([3]int self, int elem) { ... } // 默认使用长名字，当手动剥去前缀时可以使用短名字
+//  0.  或者直接定义可选的名字 def prh_array_push|array_push([3]int self, int elem) { ... } // 默认使用长名字，当手动剥去前缀时可以使用短名字
 //          import <array.rua> // std "array.rua" 的省略写法，也只能使用这种省略写法
 //          import "array.rua" // 从当前目录导入文件
 //          import "utils/test.rua" // 从当前目录导入文件
@@ -236,32 +236,32 @@
 //          let a = std::array {1, 2, 3}
 //          let a = std_array {1, 2, 3}
 //
-//          // mylib.code
+//  1.  由于可以添加前缀名字空间，因此代码无需定义名字空间
 //
-//          /mylib/alpha/
+//          [array]
 //
-//          -- array --
-//
-//          def array $(anytype T, reg SIZE) {
+//          struct (anytype T, reg SIZE)
+//          {
 //              [SIZE]T data
-//              reg count
+//              reg size
 //          }
 //
-//          def capacity(array($T, #SIZE) self) {
+//          lambda (array(T, SIZE) self) int capacity ::
+//          {
 //              return self.SIZE
 //          }
 //
-//          def count(array($T, #SIZE) self) {
-//              return self.count
+//          size(array(T, SIZE) self)
+//          {
+//              return self.size
 //          }
 //
-//          def push(array($T, #SIZE) self, T data) {
+//          push(array(T, SIZE) self, T data)
+//          {
 //              assert(self.len < self.SIZE)
 //              self.data[self.len] = data
 //              self.len += 1
 //          }
-//
-//          ---
 //
 //          -- stack --
 //
@@ -291,37 +291,53 @@
 //
 //          /std.io/
 //
-//          def type "pure" interface {
-//              (*type self, reg byte, &reg) calc
-//          }
-//
-//          def writer { // writer 结构体
+//          def writer
+//          {
 //              reg capacity
 //              reg offset
 //              *byte buffer
 //          }
 //
-//          def writer.interface { // writer 必须实现以下函数
+//          def reader
+//          {
+//              reg offset
+//              *byte buffer
+//              reg length
+//          }
+//
+//          [writer]
+//
+//          struct
+//          {
+//              reg capacity
+//              reg offset
+//              *byte buffer
+//          }
+//
+//          interface
+//          {
 //              (*writer self, []byte data, return reg) write
 //              (*writer self, *iodata data, *iovec pend, return reg) writev
 //              (*writer self, *file_reader file + face, reg bytes, return reg) drain
 //              (*writer self, reg preserve, reg bytes, return bool) rebase
 //          }
 //
-//          def reader {
-//              reg offset
-//              *byte buffer
-//              reg length
+//          from([]buffer, return writer + memory_write_face)
+//          {
+//              return {.capacity = buffer.size, .offset = 0, .buffer = buffer}
 //          }
 //
-//          def reader.interface {
-//              (*reader self, *writer dest + face, reg bytes, return reg) read
-//              (*reader self, *iodata data, iovec pend, return reg) readv
-//              (*reader self, reg bytes, return reg) discard
-//              (*reader self, reg bytes, return bool) rebase
+//          dynamic(reg initial_capacity, return writer + dynamic_write_face)
+//          {
+//              let buffer = buffer_malloc(initial_capacity)
+//              return from({buffer, buffer.size})
 //          }
 //
-//          -- writer -- // 为 writer 结构体定义函数，该名字空间只能存在唯一一个
+//          ---
+//
+//          writer
+//
+//          -- writer -- // 定义以 writer 为第一个参数的函数，只有此范围内的函数能以 w.func() 的形式调用，该名字空间只能存在唯一一个
 //
 //          // let w = std.io.writer.from(buffer)
 //          // w.write(data) // 相当于 std.io.writer.write(w, data)
@@ -340,11 +356,7 @@
 //          {
 //          }
 //
-//          def dynamic(reg initial_capacity, &writer)
-//          {
-//              let buffer = buffer_malloc(initial_capacity)
-//              return from({buffer, buffer.size})
-//          }
+//          def 
 //          .write(*writer self, []byte data, &reg)
 //          {
 //          }
@@ -752,6 +764,29 @@
 //          小型类型 (slice s) 不可修改不可取地址，(*slice s) 可修改有地址，(&slice s) 不可修改有地址
 //          大型类型 (type a) 不可修改可取地址 *imm type，(*type a) 可修改有地址
 //          大型传值 (type a) 相当于传不可修改指针 (*imm type a) 或 (&type a)，无特殊标记的结构体类型传值都传地址
+//
+//          calc(byte a) // 不修改 a
+//          calc(*byte a) // 修改 a，是指针不是数组，不能使用数组下标访问
+//          calc(:byte a, reg n) // 数组，但是数组大小需要额外的参数指定
+//          calc(*:byte a, reg n) // 数组，可修改
+//          calc([]byte a) // 数组切片 a.data a.size a[0]
+//          calc(*[]byte a) // 数组切片，可修改
+//          calc([8]byte a) // 常量大小的固定数组 a[0] a[1]
+//          calc([?]byte a) // 运行时固定数组，但是大小在类型外部 struct { int size [size]byte data } 这里的 data 可以传给 [?]byte 参数
+//          calc([#]byte a) // 运行时大小不变的固定数组 [reg size] byte byte ...
+//          calc([&]byte a) // 容量固定大小可变的数组 [reg fixed_capacity reg size] byte byte ...
+//          calc([@]byte a) // 动态数组，容量可变的数组
+//
+//          calc(string s) // 动态字符串，没有字符串类型，只有对应的 []byte [#]byte [&]byte [@]byte 类型
+//
+//          calc(->int a) 单链表
+//          calc(<>int a) 双链表
+//          calc(>=int a) 三链表
+//          calc(>>int a) 队列
+//          calc(/|int a) 栈 a.top a.pop a.push(1)
+//          calc([:]int) // 集合 {1, 2, 3}
+//          calc([string:]int a) // 映射 {"a":1, "b":2} a."a" a["a"] a[s]
+//          calc(|flat_map|[string:]int a)
 //
 //  有关所有权
 //
@@ -1435,7 +1470,7 @@
 (&point) // 不修改实参，大于两个指针传地址，只是临时拷贝一份局部变量给函数用
 (*point) // 指针，修改实参
 (^point) // 指针，可能被硬件或其他线程并行修改
-(type!point) // 以一元操作符 : 开始的名称是类型名
+(point.struct) // 以一元操作符 : 开始的名称是类型名
 (int a) // 不修改实参
 (*int a) // 指针，修改实参
 (&int a) // 指针，可能被硬件或其他线程并行修改
@@ -1489,7 +1524,7 @@ using func_type (int a, &int float)
 (point p, int a, return int) // 简写形式，除了预定义类型参数类型名必须使用~前缀区分
 (camera, point)
 (camera c, point p)
-(!point) // 函数声明优先识别为类型，函数体内优先识别为变量名
+(point.struct) // 函数声明优先识别为类型，函数体内优先识别为变量名
 (point p) (point p = expr) // 简写形式，使用 point` 避免与表达式语法冲突
 (*camera camera, *point point) (*camera, *point)
 (*point point)
@@ -2635,6 +2670,125 @@ $(anytype T, reg SIZE) [pack byte] { [SIZE]T data reg size }
 $[pack byte] [byte int byte float]
 $[pack byte] { int a int b int c float [align 16] d }
 $(anytype T, reg SIZE) [pack byte] { int a int b int c float d }
+
+// 定义类型和别名
+
+struct writer {
+    reg capacity
+    reg offset
+    *byte buffer
+}
+
+interface writer {
+    &reg (*writer self, []byte data) write
+    (*writer self, *iodata data, *iovec pend) writev
+}
+
+struct writer [pack byte] {
+    reg capacity
+    reg offset
+    *byte buffer
+}
+
+struct array $(anytype T, reg SIZE) {
+    [SIZE]T data
+    reg size
+}
+
+using int_type std.big_int // 引用外部类型不会定义一个本地类型名称，而 struct int_type == std.big_int 会定义一个本地类型名称
+using int_data std.math.pi // 引用外部常量不会定义一个本地常量名称
+using int_data lib.value // 引用外部变量不会定义一个本地变量名称
+using math std.math // 引用外部名字空间
+using name.* 3rd.lib.math.*
+
+%% writer // writer 必须是一个结构体名称，以单独成行的 %% 结束，不是遇到 %% 就结束
+
+fn from(*byte buffer, reg capacity, &writer.struct)
+{
+
+}
+
+fn from(*writer self, &*writer.interface) // 上一个 struct writer 的 interface
+{
+
+}
+
+fn write(*writer self, []byte data, &reg) // *writer 表示同时传递 struct 和 interface，*writer.struct 表示只传递 struct
+{
+
+}
+
+fn stride(*writer self, reg bytes, &reg)
+{
+
+}
+
+fn backoff(*writer self, reg bytes, &reg)
+{
+
+}
+
+%%
+
+%% "" () // 块字符串，\` \`
+%%
+
+struct writer [pack byte] {
+    reg capacity
+    reg offset
+    *byte buffer
+}
+
+struct writer != [pack byte] {
+    reg capacity
+    reg offset
+    *byte buffer
+}
+
+struct array $(anytype T, reg SIZE) {
+    [SIZE]T data
+    reg size
+}
+
+struct color (int) { // struct (int) { RED, GREEN, BLUE }
+    RED, GREEN, BLUE
+}
+
+struct color [strict] (int byte lpri byte rpri) {
+    add = '+' {3, 2},
+    sub = '-' {3, 2},
+}
+
+struct type_name == { int a int b } // 错误，必须省略 ==
+struct type_name != { int a int b } // 正确 struct { int a int b }
+
+struct int_type == (int) { RED, GREEN, BLUE } // 错误，必须省略 ==
+struct int_type != (int) { RED, GREEN, BLUE } // 正确 struct (int) { RED, GREEN, BLUE }
+
+struct int_type == int
+struct int_type == std.big_int
+
+struct int_ptr == *int // 错误，不能定义间接指针
+struct int_tuple == [int]
+struct int_array == [3]int
+struct func_type == fn (int a, int b, &int) // 定义函数指针类型
+struct tuple == [int, float, point]
+
+struct int_type != int
+struct int_ptr != *int // 错误，不能定义间接指针
+struct int_tuple != [int]
+struct int_array != [3]int
+struct func_type != fn (int a, int b, &int)
+struct tuple != [int, float, point]
+
+// 局部变量
+
+let color struct (int) { RED, GREEN, BLUE } = .RED
+let data struct { int a int b } = { 1, 2 }
+let calc (int a, int b, &int) = { return a + b }
+let size int = 1024
+let [align 16] size int = 1024, [align 32] data int
+let calc fn [fastcall] (int a, int b, &int) = { return a + b }
 
 def name (type) { ... } // 函数字面量
 def name this { ... } // 接口
