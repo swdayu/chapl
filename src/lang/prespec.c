@@ -2781,6 +2781,55 @@ struct int_array != [3]int
 struct func_type != fn (int a, int b, &int)
 struct tuple != [int, float, point]
 
+// 定义常量
+
+const calc fn [fastcall] (int a, int b, &int) = { return a + b } // 错误，函数必须使用 def 关键字定义
+const color struct [strict] (int) { RED, GREEN, BLUE } = .RED
+const data struct { int [align 16] a int b } = { 1, 2 }
+const size int_type = 0
+const size struct int_type = 0
+const size struct color = .RED
+const size int = 1024
+const size = a + b * c
+const data = calc(1, 2)
+const [rom] name = 3.14 // 会保存仅内存中，运行时可寻址
+const [run] name [int, int] = {x, y} // 编译时未知，运行时初始化后不可变
+const [mut] name = 0 // 编译时变量，运行时常量
+
+fn main(int argc, [][]byte argv, &int)
+{
+
+}
+
+fn main(&int)
+{
+    return 0
+}
+
+fn main(void)
+{
+    print("hello world\n")
+}
+
+fn calc(int a, int b, &int)
+{
+    return a + b
+}
+
+// 类型转换
+
+let a int = 0
+let a = int << 0
+let a *int = *int << (*byte << p + 2)
+let a = der *int << data.ptr
+let a = (*header << file).num_fonts
+let a = *header << file -> num_fonts // 先类型转换，再引用成员
+
+// 全局变量和线程变量
+
+static size int = 1024
+thread size int = 1024
+
 // 局部变量
 
 let color struct (int) { RED, GREEN, BLUE } = .RED
