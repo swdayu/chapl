@@ -509,7 +509,7 @@
 //          def sin 3rd.math.sin
 //          def math.* 3rd.math.*
 //
-//          def main(int argc, []string argv, return int)
+//          fn main(int argc, [][]byte argv, &int)
 //          {
 //              return 0
 //          }
@@ -2680,7 +2680,7 @@ struct writer {
 }
 
 interface writer {
-    &reg (*writer self, []byte data) write
+    (*writer self, []byte data, &reg) write
     (*writer self, *iodata data, *iovec pend) writev
 }
 
@@ -2694,6 +2694,16 @@ struct array $(anytype T, reg SIZE) {
     [SIZE]T data
     reg size
 }
+
+import <lang.code> // 导入标准头文件
+import "lang.code" // 相对于当前目录
+import "../lang.code" // 相对于当前目录
+import (path) "lang.code" // 相对于 path 目录
+import (path) "../lang.code" // 相对于 path 目录
+import (path) "lang/math.code" // 相对于 path 目录
+import lib (path) "lang/math.code" // 添加 lib 名字空间前缀
+import lib "lang.code" // 如果冲突可添加一个名称前缀
+import 3rd "math.code"
 
 using int_type std.big_int // 引用外部类型不会定义一个本地类型名称，而 struct int_type == std.big_int 会定义一个本地类型名称
 using int_data std.math.pi // 引用外部常量不会定义一个本地常量名称
@@ -2787,12 +2797,12 @@ const calc fn [fastcall] (int a, int b, &int) = { return a + b } // 错误，函
 const color struct [strict] (int) { RED, GREEN, BLUE } = .RED
 const data struct { int [align 16] a int b } = { 1, 2 }
 const size int_type = 0
-const size struct int_type = 0
-const size struct color = .RED
+const size int_type.struct = 0
+const size color.struct = .RED
 const size int = 1024
 const size = a + b * c
 const data = calc(1, 2)
-const [rom] name = 3.14 // 会保存仅内存中，运行时可寻址
+const [mem] name = 3.14 // 会保存仅内存中，运行时可寻址
 const [run] name [int, int] = {x, y} // 编译时未知，运行时初始化后不可变
 const [mut] name = 0 // 编译时变量，运行时常量
 
@@ -2808,7 +2818,7 @@ fn main(&int)
 
 fn main(void)
 {
-    print("hello world\n")
+    prina("hello world")
 }
 
 fn calc(int a, int b, &int)
@@ -2824,6 +2834,11 @@ let a *int = *int << (*byte << p + 2)
 let a = der *int << data.ptr
 let a = (*header << file).num_fonts
 let a = *header << file -> num_fonts // 先类型转换，再引用成员
+
+let a = int 0
+let a *int = *int (*byte p + 2)
+let a = der *int data.ptr
+let a = (*header file).num_fonts
 
 // 全局变量和线程变量
 
