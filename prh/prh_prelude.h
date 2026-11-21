@@ -7802,6 +7802,1669 @@ prh_inline prh_raw prh_sdl3_atom_raw_add(prh_atom_raw *a, prh_raw b)
 //  2.  IDT 门描述符（idt gate descriptors），见 7.14.1 节"64 位模式 IDT"，Interrupt Descriptor Table (IDT)
 //  3.  LDT 和 TSS 描述符（ldt and task state segment descriptors），见 9.2.3 节"64 位模式下的 TSS 描述符"
 
+#if defined(prh_file_include)
+#ifndef prh_impl_file_include_h
+#define prh_impl_file_include_h
+
+#if defined(prh_plat_windows)
+typedef struct {
+    prh_reg size;
+    prh_byte *data;
+} prh_iovec;
+#else
+typedef struct {
+    prh_byte *data;
+    prh_reg size;
+} prh_iovec;
+#endif
+
+typedef struct {
+    prh_reg times;
+    prh_reg start: prh_int_bits - 10, advance: 1, forward: 1, value: 8; // linux 最多 16 或 1024 个 iovec
+    prh_iovec head; // read buffer from here
+    prh_iovec data; // write buffer from here
+} prh_iodata;
+
+prh_static_assert(prh_offsetof(prh_iodata, head) == sizeof(prh_iovec));
+
+#define prh_struct_iodata(N) union {                                            \
+    struct {                                                                    \
+        prh_reg times;                                                          \
+        prh_reg start: prh_int_bits - 10, advance: 1, forward: 1, value: 8;     \
+        prh_iovec head;                                                         \
+        prh_iovec data[N];                                                      \
+    };                                                                          \
+    prh_iodata base;                                                            \
+} // 当只有一个时直接使用 prh_iodata 定义变量
+
+prh_inline void prh_impl_iodata_set_start(prh_iodata *data, prh_iovec *start)
+{
+    data->start = start - (prh_iovec *)data;
+}
+
+prh_inline prh_iovec *prh_impl_iodata_start(prh_iodata *data)
+{
+    return (prh_iovec *)data + data->start;
+}
+
+prh_inline prh_iovec *prh_impl_iodata_backward(prh_iodata *data)
+{
+    return (prh_iovec *)data + --data->start;
+}
+
+typedef struct prh_writer {
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+} prh_writer;
+
+typedef struct prh_reader {
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+} prh_reader;
+
+typedef struct {
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+} prh_stream;
+
+struct prh_file_reader;
+struct prh_file_read_face;
+
+typedef struct {
+    prh_reg (*write)(prh_writer *self, const prh_byte *data, prh_reg bytes); // 发送 buffer + data，小写入直接填接口缓存，大写入或缓存满则调实现的 write 函数
+    prh_reg (*writev)(prh_writer *self, prh_iodata *data, prh_iovec *pend); // 发送 buffer + data buffers
+    prh_reg (*drain)(prh_writer *self, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes); // 发送 write buffer + file buffer + file reamining data，正常时 file 为空表示刷新，当指定 file 时表示 write_file
+    bool (*vacate)(prh_writer *self, prh_reg preserve, prh_reg capacity); // 将缓存中仍然有效的数据搬到开头，后续写入 bytes 字节都无需 rebase，环形缓冲区长期复用的前提
+} prh_write_face;
+
+typedef struct {
+    prh_reg (*read)(prh_reader *self, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes); // 接收 buffer + 数据源 bytes 字节数据到 dest，接口层仅消耗预取的缓存数据，缓存消耗完才调用实现的 read 函数，此时缓存中可能还有已经被安置的数据，但不管怎么样实现只需读取源头的新数据写入自己的buffer或写入目标
+    prh_reg (*readv)(prh_reader *self, prh_iodata *data, prh_iovec *pend); // 接收 buffer + 数据源 buffs 总字节数到 dest
+    prh_reg (*advance)(prh_reader *self, prh_reg bytes, bool forward); // 丢弃数据源中的 bytes 字节数据，小丢弃直接从缓存中丢弃，只有缓存中数据不够时才调用实现的 discard 接口，只有 rand_reader 才能将 forward 设为 false
+    bool (*rebase)(prh_reader *self, prh_reg capacity); // 确保可以连续读取 bytes 字节数据；discard 就像 writer 重复数据一样穿透整个管线且每层都有特化机会，例如文件跳过 1GB 只 lseek 一次，而不是读 1GB 再丢弃
+} prh_read_face;
+
+typedef struct {
+    prh_reg (*write)(prh_writer *self, const prh_byte *data, prh_reg bytes);
+    prh_reg (*writev)(prh_writer *self, prh_iodata *data, prh_iovec *pend); // data->forward 可以为 false
+    prh_reg (*drain)(prh_writer *self, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes);
+    bool (*vacate)(prh_writer *self, prh_reg preserve, prh_reg bytes);
+} prh_rand_write_face;
+
+typedef struct {
+    prh_reg (*read)(prh_reader *self, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes);
+    prh_reg (*readv)(prh_reader *self, prh_iodata *data, prh_iovec *pend);
+    prh_reg (*advance)(prh_rand_reader *self, prh_reg bytes, bool forward); // forward 可以为 false
+    bool (*rebase)(prh_reader *self, prh_reg bytes);
+} prh_rand_read_face;
+
+struct prh_file_write_face {
+    prh_reg (*write)(prh_writer *self, const prh_byte *data, prh_reg bytes);
+    prh_reg (*writev)(prh_writer *self, prh_iodata *data, prh_iovec *pend);
+    prh_reg (*drain)(prh_writer *self, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes);
+    bool (*vacate)(prh_writer *self, prh_reg preserve, prh_reg capacity);
+    prh_r64 (*offset)(prh_reader *self, prh_byte offset_0_end_1);
+};
+
+struct prh_file_read_face {
+    prh_reg (*read)(prh_reader *self, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes);
+    prh_reg (*readv)(prh_reader *self, prh_iodata *data, prh_iovec *pend);
+    prh_reg (*advance)(prh_reader *self, prh_r64 bytes, bool forward);
+    bool (*rebase)(prh_reader *self, prh_reg capacity);
+    prh_r64 (*offset)(prh_reader *self, prh_byte offset_0_end_1);
+};
+
+prh_export const prh_write_face prh_memory_write_face;
+prh_export const prh_write_face prh_dynamic_write_face;
+prh_export const prh_read_face prh_memory_read_face;
+
+prh_inline prh_reader prh_memory_reader(const prh_byte *data, prh_reg bytes)
+{
+    return prh_struct_object(prh_reader,
+        .buffer = (prh_byte *)data,
+        .length = bytes,
+        .offset = 0);
+}
+
+prh_inline prh_writer prh_memory_writer(prh_byte *buffer, prh_reg capacity)
+{
+    return prh_struct_object(prh_writer,
+        .buffer = buffer,
+        .capacity = capacity,
+        .offset = 0);
+}
+
+prh_inline prh_writer prh_dynamic_writer(prh_reg capacity)
+{
+    prh_byte *buffer = prh_buffer_malloc(prh_capacity_from(capacity));
+    return prh_struct_object(prh_writer,
+        .buffer = buffer,
+        .capacity = prh_buffer_capacity(buffer),
+        .offset = 0);
+}
+
+prh_inline void prh_dynamic_writer_deinit(prh_writer *self)
+{
+    prh_buffer_delete(self->buffer);
+}
+
+prh_inline bool prh_flush(prh_writer *self, const prh_write_face *write_face)
+{
+    return write_face->drain(self, prh_null, 1) == 1;
+}
+
+prh_export prh_reg prh_write(prh_writer *self, const prh_write_face *write_face, const prh_byte *data, prh_reg bytes);
+prh_export prh_reg prh_writev(prh_writer *self, const prh_write_face *write_face, prh_iodata *data, prh_iovec *pend);
+prh_export prh_reg prh_drain(prh_writer *self, const prh_write_face *write_face, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes);
+prh_export prh_reg prh_discard(prh_reader *self, const prh_read_face *read_face, prh_reg bytes);
+prh_export prh_reg prh_read(prh_reader *self, const prh_read_face *read_face, prh_byte *data, prh_reg bytes);
+prh_export prh_reg prh_readto(prh_reader *self, const prh_read_face *read_face, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes);
+prh_export prh_reg prh_readv(prh_reader *self, const prh_read_face *read_face, prh_iodata *data, prh_iovec *pend);
+prh_export bool prh_vacate(prh_writer *self, const prh_write_face *write_face, prh_reg preserve, prh_reg capacity);
+prh_export bool prh_rebase(prh_reader *self, const prh_read_face *read_face, prh_reg capacity);
+
+typedef struct {
+    prh_raw nonblock: 1;
+    prh_imt handle: prh_int_bits - 1;
+} prh_fd_handle;
+
+prh_static_assert(sizeof(prh_fd_handle) == sizeof(prh_raw));
+
+typedef struct {
+    prh_fd_handle handle;
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+} prh_fd_writer;
+
+typedef struct {
+    prh_fd_handle handle;
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+} prh_fd_reader;
+
+struct prh_file_writer {
+    prh_r64 file_size;
+    prh_fd_handle file;
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+};
+
+struct prh_file_reader {
+    prh_r64 file_size;
+    prh_fd_handle file;
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+    prh_r32 read_error;
+};
+
+prh_export const struct prh_file_read_face prh_file_read_face;
+prh_export const struct prh_file_write_face prh_file_write_face;
+
+prh_reg prh_impl_fend_writev_splat(prh_impl_stream *file, prh_iodata *data, prh_iovec *pend);
+prh_reg prh_impl_file_pwritev_splat(prh_impl_stream *file, prh_iodata *data, prh_iovec *pend, prh_i64 position);
+
+prh_inline struct prh_file_writer prh_impl_file_writer(prh_fd_handle handle, prh_reg buffer_size, prh_i64 file_size)
+{
+    prh_byte *buffer = prh_buffer_calloc(buffer_size); // 写模式打开文件时，文件指针默认在文件尾
+    return prh_struct_object(struct prh_file_writer,
+        .file_size = file_size,
+        .file = handle,
+        .capacity = prh_buffer_capacity(buffer),
+        .offset = 0,
+        .buffer = buffer);
+}
+
+prh_inline struct prh_file_reader prh_impl_file_reader(prh_fd_handle handle, prh_reg buffer_size, prh_i64 file_size)
+{
+    prh_byte *buffer = prh_buffer_malloc(buffer_size); // 读模式打开文件时，文件指针默认在文件头
+    return prh_struct_object(struct prh_file_reader,
+        .file_size = file_size,
+        .file = handle,
+        .capacity = prh_buffer_capacity(buffer),
+        .offset = 0,
+        .buffer = buffer);
+}
+
+prh_inline prh_reader *prh_reader_from_file(struct prh_file_reader *self)
+{
+    return (prh_reader *)&self->offset;
+}
+
+prh_inline prh_writer *prh_writer_from_file(struct prh_file_writer *self)
+{
+    return (prh_writer *)&self->capacity;
+}
+
+prh_inline prh_fd_reader *prh_fd_reader_from_file(struct prh_file_reader *self)
+{
+    return (prh_fd_reader *)&self->file;
+}
+
+prh_inline prh_fd_writer *prh_fd_writer_from_file(struct prh_file_writer *self)
+{
+    return (prh_fd_writer *)&self->file;
+}
+
+typedef struct {
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+} prh_rand_writer;
+
+typedef struct {
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+} prh_rand_reader;
+
+typedef struct {
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+} prh_rand_stream;
+
+prh_export prh_rand_read_face prh_memory_rand_read_face;
+prh_export prh_rand_write_face prh_memory_rand_write_face;
+prh_export prh_rand_read_face prh_memory_stream_read_face;
+prh_export prh_rand_write_face prh_memory_stream_write_face;
+
+prh_export prh_rand_read_face prh_dynamic_rand_read_face;
+prh_export prh_rand_write_face prh_dynamic_rand_write_face;
+prh_export prh_rand_read_face prh_dynamic_stream_read_face;
+prh_export prh_rand_write_face prh_dynamic_stream_write_face;
+
+prh_inline prh_reader *prh_reader_from_rand(prh_rand_reader *self)
+{
+    return (prh_reader *)self;
+}
+
+prh_inline prh_writer *prh_writer_from_rand(prh_rand_writer *self)
+{
+    return (prh_writer *)self;
+}
+
+prh_inline prh_reader *prh_reader_from_rand_stream(prh_rand_stream *self)
+{
+    return (prh_reader *)&self->offset;
+}
+
+prh_inline prh_writer *prh_writer_from_rand_stream(prh_rand_stream *self)
+{
+    return (prh_writer *)self;
+}
+
+prh_inline prh_rand_reader prh_memory_rand_reader(const prh_byte *data, prh_reg bytes)
+{
+    return prh_struct_object(prh_rand_reader,
+        .offset = 0,
+        .buffer = (prh_byte *)data,
+        .length = bytes);
+}
+
+prh_inline prh_rand_writer prh_memory_rand_writer(prh_byte *buffer, prh_reg capacity)
+{
+    return prh_struct_object(prh_rand_writer,
+        .capacity = capacity,
+        .offset = 0,
+        .buffer = buffer,
+        .length = 0);
+}
+
+prh_inline prh_rand_writer prh_dynamic_rand_writer(prh_reg capacity)
+{
+    prh_byte *buffer = prh_buffer_malloc(prh_capacity_from(capacity));
+    return prh_struct_object(prh_rand_writer,
+        .capacity = prh_buffer_capacity(buffer),
+        .offset = 0,
+        .buffer = buffer,
+        .length = 0);
+}
+
+prh_inline prh_rand_stream prh_memory_stream(prh_byte *buffer, prh_reg capacity)
+{
+    return prh_struct_object(prh_rand_stream,
+        .capacity = capacity,
+        .offset = 0,
+        .buffer = buffer,
+        .length = 0);
+}
+
+prh_inline prh_rand_stream prh_dynamic_stream(prh_reg capacity)
+{
+    prh_byte *buffer = prh_buffer_malloc(prh_capacity_from(capacity));
+    return prh_struct_object(prh_rand_stream,
+        .capacity = prh_buffer_capacity(buffer),
+        .offset = 0,
+        .buffer = buffer,
+        .length = 0);
+}
+
+typedef struct {
+    prh_i64 position;
+    prh_i64 file_size;
+    prh_fd_handle file;
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+} prh_file_rand_writer;
+
+typedef struct {
+    prh_i64 position;
+    prh_i64 file_size;
+    prh_fd_handle file;
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+    prh_r32 read_error;
+} prh_file_rand_reader;
+
+prh_inline prh_file_rand_reader prh_impl_file_rand_reader(prh_fd_handle handle, prh_stream_face *face, prh_reg buffer_size, prh_i64 file_size)
+{
+    prh_byte *buffer = prh_buffer_malloc(buffer_size);
+    return prh_struct_object(prh_file_rand_reader, prh_buffer_capacity(buffer), 0, buffer, 0, &prh_impl_file_rand_reader_face, 0, {handle, face}, file_size);
+}
+
+prh_file_rand_writer prh_impl_file_rand_writer(prh_fd_handle handle, prh_stream_face *face, prh_reg buffer_size, prh_i64 file_size)
+{
+    prh_byte *buffer = prh_buffer_calloc(buffer_size);
+    return prh_struct_object(prh_file_rand_writer, file_size, {handle, face}, &prh_impl_file_rand_writer_face, prh_buffer_capacity(buffer), 0, buffer, 0);
+}
+
+prh_inline prh_reader *prh_reader_from_rand_file(prh_file_rand_reader *self)
+{
+    return (prh_reader *)&self->offset;
+}
+
+prh_inline prh_writer *prh_writer_from_rand_file(prh_file_rand_writer *self)
+{
+    return (prh_writer *)&self->write_face;
+}
+
+prh_inline prh_rand_reader *prh_rand_reader_from_file(prh_file_rand_reader *self)
+{
+    return (prh_rand_reader *)&self->offset;
+}
+
+prh_inline prh_rand_writer *prh_rand_writer_from_file(prh_file_rand_reader *self)
+{
+    return (prh_rand_writer *)&self->write_face;
+}
+
+prh_inline struct prh_file_reader *prh_file_reader_from_rand(prh_file_rand_reader *self)
+{
+    return (struct prh_file_reader *)&self->offset;
+}
+
+prh_inline struct prh_file_writer *prh_file_writer_from_rand(prh_file_rand_writer *self)
+{
+    return (struct prh_file_writer *)&self->file;
+}
+
+// 使用单一共用缓存，独立读写位置不可实现，读默认从开头开始，写从结尾开始，文件长度一大于缓存一开始就失效
+// 共享读写，无法区分 length 的内容是预读的还是新写的，无法正确判断需要写盘内容，因此 seek 出范围之外时总是写全部
+// 写入数据可能破坏预读数据，prh_write 时已破坏，因此读转写必须先让预读的内容失效，因此让写入的即是预读的内容
+// 数据预读时对应数据可能还位于写入缓冲中，因此写转读必须先刷新，写缓冲的内容即是预读的内容，只有跳出范围才刷新
+
+typedef struct {
+    prh_i64 position;
+    prh_i64 file_size;
+    prh_fd_handle file;
+    prh_reg capacity;
+    prh_reg offset;
+    prh_byte *buffer;
+    prh_reg length;
+    prh_r32 read_error;
+} prh_file_stream;
+
+prh_file_stream prh_impl_file_stream(prh_fd_handle handle, prh_stream_face *face, prh_reg buffer_size, prh_i64 file_size)
+{
+    prh_byte *buffer = prh_buffer_calloc(buffer_size); // 初始时默认从文件末尾写入，缓冲初始时清零
+    return prh_struct_object(prh_file_stream, file_size, {handle, face}, &prh_impl_file_stream_writer_face, prh_buffer_capacity(buffer), 0, buffer, 0, &prh_impl_file_stream_reader_face, 0, {handle, face});
+}
+
+prh_inline prh_reader *prh_reader_from_file_stream(prh_file_stream *self)
+{
+    return (prh_reader *)&self->offset;
+}
+
+prh_inline prh_writer *prh_writer_from_file_stream(prh_file_stream *self)
+{
+    return (prh_writer *)&self->write_face;
+}
+
+prh_inline prh_rand_reader *prh_rand_reader_from_stream(prh_file_stream *self)
+{
+    return (prh_rand_reader *)&self->offset;
+}
+
+prh_inline prh_rand_writer *prh_rand_writer_from_stream(prh_file_stream *self)
+{
+    return (prh_rand_writer *)&self->write_face;
+}
+
+prh_inline struct prh_file_reader *prh_file_reader_from_stream(prh_file_stream *self)
+{
+    return (struct prh_file_reader *)&self->offset;
+}
+
+prh_inline struct prh_file_writer *prh_file_writer_from_stream(prh_file_stream *self)
+{
+    return (struct prh_file_writer *)&self->file;
+}
+
+#endif // prh_impl_file_include_h
+
+#if defined(prh_source_implement)
+#ifndef prh_impl_file_source_h
+#define prh_impl_file_source_h
+
+prh_reg prh_write(prh_writer *self, const prh_write_face *write_face, const prh_byte *data, prh_reg bytes) // 返回 bytes 表示发送成功，否则表示失败，持续发送直到返回值 == bytes，或返回错误，返回0不表示发送完毕，明确返回错误才是
+{
+    prh_assert(self != prh_null);
+    prh_assert(data != prh_null || bytes == 0);
+    prh_assert(self->offset <= self->capacity);
+    if (bytes <= self->capacity - self->offset) // 小写入，可以让大于 self->capacity 的写入直接存盘
+    {
+        memcpy(self->buffer + self->offset, data, bytes); // bytes 为零的情况在这里消耗掉，后面调用 write 一定不会为零
+        self->offset += bytes;
+        return bytes;
+    }
+    return write_face->write(self, data, bytes); // prh_write 当 buffer 满时才调用实现的 write 接口，另外 flush 期间可能 buffer 未满时调用 write 接口
+}
+
+prh_reg prh_writev(prh_writer *self, const prh_write_face *write_face, prh_iodata *data, prh_iovec *pend) // data->start 返回 0 表示成功
+{
+    prh_assert(self != prh_null && data != prh_null);
+    prh_assert(data->start == 0 && pend >= &data->data);
+    prh_assert(self->offset <= self->capacity);
+    prh_iovec *start = &data->data; // 小写入都填入 buffer，实现可以将 buffer 设为空避免拷贝实现透传
+    for (; start < pend && start->size <= self->capacity - self->offset; start += 1)
+    {
+        memcpy(self->buffer + self->offset, start->data, start->size);
+        self->offset += start->size;
+    }
+    if (start == pend && data->times <= self->capacity - self->offset) // 在完全消耗缓存之前不能调用实现函数
+    {
+        prh_reg count = data->times;
+        memset(self->buffer + self->offset, data->value, count);
+        self->offset += count;
+        data->times = 0;
+        return count; // 不判断 data->times > 0 是要保证 data->times == 0 一定在此处返回
+    }
+    prh_impl_iodata_set_start(data, start); // start 索引以 data 为零开始算保证总是大于零
+    return write_face->writev(self, data, pend);
+}
+
+prh_reg prh_drain(prh_writer *self, const prh_write_face *write_face, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes)
+{
+    prh_assert(self != prh_null && file != prh_null);
+    prh_assert(self->offset <= self->capacity);
+    prh_reg count, available = prh_reg_set_value_if_true(file->length - file->offset, 0, file->offset < file->length);
+    if (bytes <= available)
+    {
+        count = prh_write(self, write_face, file->input + file->offset, bytes);
+        file->offset += count;
+    }
+    else
+    {
+        count = prh_write(self, write_face, file->input + file->offset, available);
+        file->offset += count;
+        if (count == available)
+        {
+            count += write_face->drain(self, file, read_face, bytes - available);
+        }
+    }
+    return count;
+}
+
+prh_reg prh_discard(prh_reader *self, const prh_read_face *read_face, prh_reg bytes) // 返回 bytes 表示成功
+{
+    prh_assert(self != prh_null);
+    prh_reg available = prh_reg_set_value_if_ture(self->length - self->offset, 0, self->offset < self->length);
+    if (bytes <= available) // 如果 offset 已经超过 length，表明预读的所有内容都早已失效
+    {
+        self->offset += bytes;
+        return bytes;
+    }
+    else
+    {
+        self->offset += available;
+        return available + read_face->discard(self, bytes - available);
+    }
+}
+
+bool prh_vacate(prh_writer *self, const prh_write_face *write_face, prh_reg preserve, prh_reg capacity)
+{
+    prh_assert(self->offset <= self->capacity);
+    if (capacity <= self->capacity - self->offset)
+    {
+        return true;
+    }
+    return write_face->vacate(self, preserve, capacity);
+}
+
+bool prh_rebase(prh_reader *self, const prh_read_face *read_face, prh_reg capacity)
+{
+    prh_assert(self->offset + capacity >= self->offset);
+    if (self->offset + capacity <= self->length)
+    {
+        return true;
+    }
+    return read_face->rebase(self, capacity);
+}
+
+prh_reg prh_advance(prh_reader *self, prh_read_face *read_face, prh_reg bytes)
+{
+    prh_assert(self->offset + bytes >= self->offset);
+    if (self->offset + bytes <= self->length) // offset 可能由于 stream 的写入内容已经大于 length
+    {
+        self->offset += bytes;
+        return bytes;
+    }
+    return read_face->advance(self, bytes, true);
+}
+
+prh_reg prh_backward(prh_reader *self, prh_rand_read_face *read_face, prh_reg bytes)
+{
+    self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length); // length 不会变小
+    if (bytes <= self->offset) // 必须先记录最长长度，因为 offset 向后跳转
+    {
+        self->offset -= bytes;
+        return bytes;
+    }
+    return read_face->advance(self, bytes, false);
+}
+
+prh_reg prh_stride(prh_writer *self, prh_write_face *write_face, prh_reg bytes)
+{
+    prh_assert(self->offset <= self->capacity);
+    if (bytes <= self->capacity - self->offset)
+    {
+        self->offset += bytes; // 超过 length 的部分不能直接填零，在文件内部需要读取对应区域的内容，无需填零或预读，因为缓冲已清零或已读取文件内容
+        return bytes;
+    }
+    prh_iodata data = {0};
+    data.advance = bytes;
+    data.backward = false;
+    return write_face->writev(self, &data, &data.data);
+}
+
+prh_reg prh_backoff(prh_writer *self, prh_rand_write_face *write_face, prh_reg bytes)
+{
+    prh_iodata data = {0};
+    data.advance = bytes;
+    data.backward = true; // 必须先记录最长长度，因为 offset 向后跳转
+    return write_face->writev(self, &data, &data.data);
+}
+
+prh_reg prh_read(prh_reader *self, const prh_read_face *read_face, prh_byte *data, prh_reg bytes)
+{
+    prh_reg available = prh_reg_set_value_if_ture(self->length - self->offset, 0, self->offset < self->length);
+    if (bytes <= available) // 先消耗缓存数据，读取缓存中的数据的开销与系统调用相比几乎忽略不计
+    {
+        memcpy(data, self->buffer + self->offset, bytes);
+        self->offset += bytes;
+        return bytes;
+    }
+    memcpy(data, self->buffer + self->offset, available);
+    self->offset += available;
+    prh_writer writer = prh_writer_from_memory(data + available, bytes - available);
+    return available + read_face->read(self, &writer, prh_memory_writer_face, bytes - available);
+}
+
+prh_reg prh_readto(prh_reader *self, const prh_read_face *read_face, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes) // 返回 bytes 表示接收成功，否则表示失败
+{
+    prh_assert(self != prh_null && dest != prh_null); // prh_write 写 offset 时可能已经超过 length
+    prh_reg count, available = prh_reg_set_value_if_ture(self->length - self->offset, 0, self->offset < self->length);
+    if (bytes <= available) // 先消耗缓存数据，读取缓存中的数据的开销与系统调用相比几乎忽略不计
+    {
+        count = prh_write(dest, write_face, self->buffer + self->offset, bytes);
+        self->offset += count;
+    }
+    else
+    {
+        count = prh_write(dest, write_face, self->buffer + self->offset, available);
+        self->offset += count;
+        if (count == available)
+        {
+            count += read_face->read(self, dest, write_face, bytes - count); // prh_read 在 buffer 中预读的内容消耗完才调用实现的 read 接口
+        }
+    }
+    return count;
+}
+
+prh_reg prh_readv(prh_reader *self, const prh_read_face *read_face, prh_iodata *data, prh_iovec *pend) // data->start 返回 0 表示成功
+{
+    prh_assert(self != prh_null && data != prh_null); // prh_write 写 offset 时可能已经超过 length
+    prh_assert(data->start == 0 && pend > &data->head);
+    prh_reg origin = self->offset, count = 0;
+    prh_iovec *start = &data->head;
+    if (self->offset < self->length)
+    {
+        for (; start < pend; start += 1) // 首先将现有缓存中的内容填充到 data，然后调用实现的 readv 接口继续填充
+        {
+            if (start->size <= self->length - self->offset)
+            {
+                memcpy(start->data, self->buffer + self->offset, start->size);
+                self->offset += start->size;
+            }
+            else
+            {
+                count = self->length - self->offset;
+                memcpy(start->data, self->buffer + self->offset, count);
+                self->offset = self->length;
+                start->data += count;
+                start->size -= count;
+                goto label_continue_read;
+            }
+        }
+    }
+    else
+    {
+label_continue_read:
+        prh_impl_iodata_set_start(data, start);
+        count += read_face->readv(self, data, pend);
+    }
+    return self->offset - origin + count;
+}
+
+prh_reg prh_impl_empty_write_func(prh_writer *self, const prh_byte *data, prh_reg bytes)
+{
+    prh_errno_set(error_end_of_stream); // 数据长度已经超出范围
+    return 0;
+}
+
+prh_reg prh_impl_empty_writev_func(prh_writer *self, prh_iodata *data, prh_iovec *pend)
+{
+    prh_errno_set(error_end_of_stream); // 数据长度已经超出范围
+    return 0;
+}
+
+prh_reg prh_impl_empty_drain_func(prh_writer *self, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes)
+{
+    if (file == prh_null || bytes == 0) return bytes; // 无需刷新
+    prh_errno_set(error_end_of_stream); // 数据长度已经超出范围
+    return 0;
+}
+
+prh_reg prh_impl_empty_read_func(prh_reader *self, prh_writer *dest, prh_reg bytes)
+{
+    prh_errno_set(error_end_of_stream); // 数据长度已经超出范围
+    return 0;
+}
+
+prh_reg prh_impl_empty_readv_func(prh_reader *self, prh_iodata *data, prh_iovec *pend)
+{
+    prh_errno_set(error_end_of_stream); // 数据长度已经超出范围
+    return 0;
+}
+
+prh_reg prh_impl_empty_discard_func(prh_reader *self, prh_reg bytes)
+{
+    prh_errno_set(error_end_of_stream); // 数据长度已经超出范围
+    return 0;
+}
+
+bool prh_impl_empty_rebase_func(prh_reader *self, prh_reg capacity)
+{
+    prh_errno_set(error_end_of_stream);
+    return false; // 数据源就是接口中的固定缓存，已无更多内容可读取
+}
+
+bool prh_impl_empty_vacate_func(prh_writer *self, prh_reg preserve, prh_reg capacity)
+{
+    prh_errno_set(error_end_of_stream);
+    return false; // 数据目标就是接口中的固定缓存，无法空出更多空间
+}
+
+bool prh_impl_dynamic_vacate_func(prh_writer *self, prh_reg preserve, prh_reg capacity)
+{
+    prh_assert(preserve <= self->offset);
+    prh_assert(self->offset + capacity >= self->offset);
+    prh_assert(self->offset + capacity > self->capacity);
+    self->buffer = prh_buffer_remake(self->buffer, prh_ceil_power_of_2(self->offset + capacity));
+    self->capacity = prh_buffer_capacity(self->buffer);
+    return true;
+}
+
+prh_reg prh_impl_dynamic_write_func(prh_writer *self, const prh_byte *data, prh_reg bytes)
+{
+    self->buffer = prh_buffer_remake(self->buffer, prh_ceil_power_of_2(self->capacity + bytes));
+    self->capacity = prh_buffer_capacity(self->buffer);
+    memcpy(self->buffer + self->offset, data, bytes);
+    self->offset += bytes;
+    return bytes;
+}
+
+prh_reg prh_impl_dynamic_writev_func(prh_writer *self, prh_iodata *data, prh_iovec *pend)
+{
+    if (data->advance)
+    {
+    }
+
+    prh_iovec *start = prh_impl_iodata_start(data);
+    prh_reg bytes = 0;
+    for (; start < pend; start += 1)
+    {
+        prh_assert(bytes + start->size >= bytes);
+        bytes += start->size;
+    }
+    prh_assert(bytes + data->times >= bytes);
+    bytes += data->times;
+
+    self->buffer = prh_buffer_remake(self->buffer, prh_ceil_power_of_2(self->capacity + bytes));
+    self->capacity = prh_buffer_capacity(self->buffer);
+    for (start = prh_impl_iodata_start(data); start < pend; start += 1)
+    {
+        memcpy(self->buffer + self->offset, start->data, start->size);
+        self->offset += start->size;
+    }
+    if (data->times)
+    {
+        memset(self->buffer + self->offset, data->value, data->times);
+        self->offset += data->times;
+    }
+
+    data->start = 0;
+    return bytes;
+}
+
+prh_reg prh_impl_dynamic_drain_func(prh_writer *self, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes)
+{
+    if (file == prh_null || bytes == 0) return bytes; // 无需刷新
+    self->buffer = prh_buffer_remake(self->buffer, prh_ceil_power_of_2(self->capacity + bytes));
+    self->capacity = prh_buffer_capacity(self->buffer);
+    prh_reg count = prh_impl_file_pread(&file->file, self->buffer + self->offset, bytes, read_face->offset(prh_reader_from_file(file), 0));
+    self->offset += count;
+    return count;
+}
+
+const prh_write_face prh_memory_write_face = {
+    prh_impl_empty_write_func,
+    prh_impl_empty_writev_func,
+    prh_impl_empty_drain_func,
+    prh_impl_empty_vacate_func,
+};
+
+const prh_read_face prh_memory_read_face = {
+    prh_impl_empty_read_func,
+    prh_impl_empty_readv_func,
+    prh_impl_empty_discard_func,
+    prh_impl_empty_rebase_func,
+};
+
+const prh_write_face prh_dynamic_write_face = {
+    prh_impl_dynamic_write_func,
+    prh_impl_dynamic_writev_func,
+    prh_impl_dynamic_drain_func,
+    prh_impl_dynamic_vacate_func,
+};
+
+prh_reg prh_impl_fend_writev_splat(prh_impl_stream *file, prh_iodata *data, prh_iovec *pend)
+{
+#if 1
+    prh_reg count = prh_impl_file_writev_all(file, data, pend);
+    if (prh_impl_iodata_start(data) == pend && data->times)
+    {
+        prh_reg times = data->times;
+        if (data->value == 0)
+        {
+            times -= prh_impl_file_expand(file, times);
+        }
+        else
+        {
+            prh_byte tail[1024];
+            memset(tail, data->value, sizeof(tail));
+            do {
+                prh_reg bytes = prh_reg_set_value_if_true(times, sizeof(tail), times <= sizeof(tail));
+                prh_reg write = prh_impl_file_write_all(file, tail, bytes);
+                times -= write;
+            } while (write == bytes);
+        }
+        count += data->times - times;
+        data->times = times;
+    }
+    return count;
+#else
+    prh_iovec *start = prh_impl_iodata_start(data);
+    if (start < pend)
+    {
+        return prh_impl_file_writev(file, data, pend);
+    }
+    else
+    {
+        prh_reg count;
+        if (data->value == 0)
+        {
+            count = prh_impl_file_expand(file, data->times);
+        }
+        else
+        {
+            prh_byte tail[256];
+            memset(tail, data->value, sizeof(tail));
+            count = prh_impl_file_write(file, tail, prh_reg_set_value_if_true(data->times, sizeof(tail), data->times <= sizeof(tail)));
+        }
+        data->times -= count;
+        return count;
+    }
+#endif
+}
+
+prh_reg prh_impl_file_pwritev_splat(prh_impl_stream *file, prh_iodata *data, prh_iovec *pend, prh_i64 position)
+{
+#if 1
+    prh_reg count = prh_impl_file_writev_all(file, data, pend);
+    if (prh_impl_iodata_start(data) == pend && data->times)
+    {
+        prh_reg times = data->times;
+        prh_byte tail[1024];
+        memset(tail, data->value, sizeof(tail));
+        do {
+            prh_reg bytes = prh_reg_set_value_if_true(times, sizeof(tail), times <= sizeof(tail));
+            prh_reg write = prh_impl_file_write_all(file, tail, bytes);
+            times -= write;
+        } while (write == bytes);
+        count += data->times - times;
+        data->times = times;
+    }
+    return count;
+#else
+    prh_iovec *start = &data->head + data->start;
+    if (start < pend)
+    {
+        return prh_impl_file_pwritev(file, data, pend, position);
+    }
+    else
+    {
+        prh_byte tail[256];
+        memset(tail, data->value, sizeof(tail));
+        count = prh_impl_file_pwrite(file, tail, prh_reg_set_value_if_true(data->times, sizeof(tail), data->times <= sizeof(tail)), position);
+        data->times -= count;
+        return count;
+    }
+#endif
+}
+
+prh_i64 prh_impl_file_read_offset_func(prh_reader *reader, prh_byte stream_offset_0_stream_end_1)
+{
+    struct prh_file_reader *self = prh_object_from(struct prh_file_reader, offset, reader);
+    prh_i64 a[2] = {-1, self->file_size}; prh_assert(stream_offset_0_stream_end_1 <= 1);
+    return a[stream_offset_0_stream_end_1];
+}
+
+prh_r64 prh_impl_file_writer_size(struct prh_file_writer *self)
+{
+    return self->file_size + self->offset;
+}
+
+bool prh_impl_file_vacate_func(prh_writer *writer, prh_reg preserve, prh_reg capacity)
+{
+    struct prh_file_writer *self = prh_object_from(struct prh_file_writer, capacity, writer);
+    prh_assert(preserve <= self->offset);
+    prh_assert(self->offset + capacity >= self->offset);
+    prh_assert(preserve + capacity <= self->capacity);
+    prh_reg count = self->offset - preserve;
+    prh_likely_real_assert(count == prh_impl_file_write_all(&self->file, self->buffer, count), {
+        memmove(self->buffer, self->buffer + count, preserve);
+        self->offset = preserve;
+        self->file_size += count;
+        return true;
+    });
+}
+
+prh_reg prh_impl_file_writer_drain_func(prh_writer *writer, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes)
+{
+    struct prh_file_writer *self = prh_object_from(struct prh_file_writer, capacity, writer);
+    prh_likely_real_assert(self->offset == prh_impl_file_write_all(&self->file, self->buffer, self->offset), {
+        self->file_size += self->offset;
+        self->offset = 0;
+        if (file == prh_null || bytes == 0) return bytes;
+        prh_reg count = prh_impl_file_splice_all(&self->file, &file->file, read_face->offset(prh_stream_reader_from_file(file), 0), bytes); // 此时 file reader buffer 已经消耗完毕，基于文件当前位置发送 bytes 字节数据，TODO: &file->file 在预读消耗后文件实际位置是否确定一致
+        self->file_size += count;
+        return count;
+    });
+}
+
+prh_reg prh_impl_file_writer_writev(struct prh_file_writer *self, prh_iodata *data, prh_iovec *pend)
+{
+    prh_reg total_written = prh_impl_fend_writev_splat(&self->file, data, pend); // file writer 总是写入文件末尾
+    prh_reg new_consumed = prh_reg_set_value_if_true(total_written - self->offset, 0, total_written >= self->offset);
+    self->offset = prh_reg_set_value_if_true(0, self->offset - total_written, total_written >= self->offset);
+    self->file_size += total_written;
+    memmove(self->buffer, self->buffer + total_written, self->offset);
+    return new_consumed;
+}
+
+prh_reg prh_impl_file_write_func(prh_writer *writer, const prh_byte *data, prh_reg bytes)
+{
+    struct prh_file_writer *self = prh_object_from(struct prh_file_writer, capacity, writer);
+    prh_iodata list = {0};
+    list.head.data = self->buffer;
+    list.head.size = self->offset; // 从 offset 位置向后写入 bytes 字节数据
+    list.data.data = data;
+    list.data.size = bytes;
+    prh_impl_iodata_set_start(&list, &list.head);
+    return prh_impl_file_writer_writev(self, &list, &list.head + 2);
+}
+
+prh_reg prh_impl_file_writev_func(prh_writer *writer, prh_iodata *data, prh_iovec *pend)
+{
+    struct prh_file_writer *self = prh_object_from(struct prh_file_writer, capacity, writer);
+    prh_iovec *start = prh_impl_iodata_backward(data);
+    start->data = self->buffer;
+    start->size = self->offset; // 从 offset 位置向后写入 bytes 字节数据
+    return prh_impl_file_writer_writev(self, data, pend);
+}
+
+prh_reg prh_impl_file_rand_discard_func(prh_reader *reader, prh_reg bytes) // 预读缓存已经读完，需要从数据源丢弃新数据
+{
+    struct prh_file_reader *self = prh_object_from(struct prh_file_reader, offset, reader);
+    if (self->read_error == 0)
+    {
+        prh_i64 position = prh_impl_file_seek_by(&self->file, bytes);
+        prh_reg forward = bytes - prh_reg_set_value_if_true(0, (prh_reg)(position - self->file_size), position <= self->file_size);
+        if (forward != bytes) prh_errno_set(error_end_of_stream);
+        self->offset = 0;
+        self->length = 0;
+        return forward;
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+}
+
+prh_reg prh_impl_file_read_func(prh_reader *reader, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes) // 从数据源读取新数据，写入到 reader 的 buffer，或直接写入数据目标
+{
+    struct prh_file_reader *self = prh_object_from(struct prh_file_reader, offset, reader);
+    if (self->read_error == 0)
+    {
+        prh_assert(dest->offset <= dest->capacity);
+        if (bytes <= dest->capacity - dest->offset) // 目标有足够的内存保存要读取的数据
+        {
+        label_continue:
+            prh_iodata list;
+            list.head.data = dest->output + dest->offset; list.head.size = bytes;
+            list.data.data = self->buffer; list.data.size = self->capacity;
+            prh_impl_iodata_set_start(&list, &list.head);
+            prh_impl_file_detail_readv_all(&self->file, &list, &list.head + 2);
+            dest->offset += bytes - list.head.size;
+            self->length = self->capacity - list.data.size;
+            self->offset = 0;
+            self->read_error = prh_r32_set_value_if_ture(0, prh_errno_get(), list.start == 0);
+            return bytes - list.head.size;
+        }
+        else
+        {
+            write_face->write(dest, prh_null, 0);
+            if (dest->offset != 0) return 0;
+            prh_real_assert(bytes <= dest->capacity); // write buffer 必须能容纳 bytes 字节数据
+            goto label_continue;
+        }
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+}
+
+prh_reg prh_impl_file_readv_func(prh_reader *reader, prh_iodata *data, prh_iovec *pend)
+{
+    struct prh_file_reader *self = prh_object_from(struct prh_file_reader, offset, reader);
+    if (self->read_error == 0)
+    {
+        pend->data = self->buffer; pend->size = self->capacity; // 填充 reader 自己的缓存仅仅是顺带，函数任务任然是接收数据到 [start, pend)
+        prh_reg count, read = prh_impl_file_readv_all(&self->file, data, pend + 1);
+        if (data->start == 0)
+        {
+            count = read - self->capacity;
+            self->length = self->capacity;
+        }
+        else
+        {
+            count = read - (self->capacity - pend->size);
+            self->length = self->capacity - pend->size;
+            self->read_error = prh_errno_get();
+        }
+        self->offset = 0;
+        return count;
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+}
+
+const struct prh_file_write_face prh_file_write_face = {
+    prh_impl_file_write_func,
+    prh_impl_file_writev_func,
+    prh_impl_file_drain_func,
+    prh_null,
+};
+
+const struct prh_file_read_face prh_file_read_face = {
+    prh_impl_file_read_func,
+    prh_impl_file_readv_func,
+    prh_impl_file_discard_func,
+    prh_null,
+    prh_impl_file_read_offset_func,
+};
+
+void prh_impl_memory_seek_by_read(prh_rand_reader *self, prh_i64 offset)
+{
+    prh_abort_error(error_out_of_range);
+}
+
+void prh_impl_memory_seek_by_write(prh_rand_writer *self, prh_i64 offset)
+{
+    prh_abort_error(error_out_of_range);
+}
+
+void prh_impl_dynamic_seek_by_write(prh_rand_writer *self, prh_i64 offset)
+{
+    if (offset > self->capacity && offset < prh_int_umx)
+    {
+        self->buffer = prh_remake(self->buffer, prh_ceil_power_of_2((prh_reg)offset));
+        self->capacity = prh_inplace_buffer_capacity(self->buffer);
+        self->offset = (prh_reg)offset;
+    }
+    else
+    {
+        prh_abort_error(error_out_of_range);
+    }
+}
+
+prh_reg prh_impl_file_rand_discard_func(prh_reader *reader, prh_reg bytes) // 预读缓存已经读完，需要从数据源丢弃新数据
+{
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    if (self->read_error == 0) // 因为预读已消耗完，逻辑文件位置追上实际文件位置达成一致，位于 self->position + self->length
+    {
+        prh_i64 remain = self->file_size - (self->position += self->length); prh_assert(self->position <= self->file_size && ((prh_i64)bytes) > 0);
+        prh_reg forward = prh_reg_set_value_if_true(bytes, (prh_reg)remain, (prh_i64)bytes <= remain);
+        if (forward != bytes) prh_errno_set(error_end_of_stream);
+        self->position += (prh_i64)forward; // positional reader 位置仅仅是记账，prh_impl_file_seek_to(&self->file, self->position);
+        self->offset = 0;
+        self->length = 0;
+        return forward;
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+}
+
+void prh_impl_file_rand_reader_seek_func(prh_rand_reader *reader, prh_i64 offset) // positional reader 位置仅仅是记账，不移动实际的文件指针位置
+{
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    self->position += offset; prh_assert(self->position >= 0); // 如果超出文件尾，下一次读取会报错
+    self->offset = 0;
+    self->length = 0;
+    self->read_error = 0;
+}
+
+prh_i64 prh_impl_file_rand_offset_func(prh_fd_reader *reader, prh_byte stream_offset_0_stream_end_1)
+{
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    prh_i64 a[2] = {self->position + self->offset, self->file_size}; prh_assert(capacity_0_stream_offset_1_stream_end_2 <= 1);
+    return a[capacity_0_stream_offset_1_stream_end_2];
+}
+
+void prh_impl_file_rand_writer_seek_func(prh_rand_writer *writer, prh_i64 offset) // positional reader 位置仅仅是记账，不移动实际的文件指针位置
+{
+    prh_file_rand_writer *self = prh_object_from(prh_file_rand_writer, write_face, writer);
+    self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+    prh_likely_real_assert(self->length == prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position), { // 文件写入位置在 position 向后写盘缓存内容
+        self->position += offset; prh_assert(self->position >= 0);
+        self->length = 0;
+        self->offset = 0;
+    });
+}
+
+prh_i64 prh_impl_file_rand_offset_func(struct prh_file_reader *reader)
+{
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    return -1;
+}
+
+bool prh_impl_file_rand_vacate_func(prh_writer *writer, prh_reg preserve, prh_reg capacity)
+{
+    prh_file_rand_writer *self = prh_object_from(prh_file_rand_writer, capacity, writer);
+    prh_assert(preserve <= self->offset);
+    prh_assert(self->offset + capacity >= self->offset);
+    prh_assert(preserve + capacity <= self->capacity);
+    prh_reg count = self->offset - preserve;
+    prh_likely_real_assert(count == prh_impl_file_write_all(&self->file, self->buffer, count), {
+        memmove(self->buffer, self->buffer + count, preserve);
+        self->offset = preserve;
+        self->file_size += count;
+        return true;
+    });
+}
+
+prh_reg prh_impl_file_rand_drain_func(prh_writer *writer, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes)
+{
+    prh_file_rand_writer *self = prh_object_from(prh_file_rand_writer, write_face, writer);
+    self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+    self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+    prh_real_assert(self->length == prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position)); // 文件写入位置在 position 向后写盘缓存内容
+    self->position += self->offset;
+    self->length = 0; // 有效数据存盘后，缓存数据清空
+    self->offset = 0;
+    if (file == prh_null || bytes == 0) return bytes;
+    bytes = prh_impl_file_splicex_all(&self->file, self->position, &file->file, read_face->offset(prh_stream_reader_from_file(file), 0), bytes); // 此时 file reader buffer 已经消耗完毕，需要基于文件当前位置发送 bytes 字节数据，TODO: &file->file 在预读消耗后文件实际位置是否确定一致
+    self->position += bytes;
+    return bytes;
+}
+
+prh_reg prh_impl_file_rand_writev(prh_file_rand_writer *self, prh_iodata *data, prh_iovec *pend)
+{
+    //                        [file beginning ... ... | current partial cached content | ... ... file end]
+    //                                                ^---------------------^
+    //  position ------------------------------->'  offset
+    //                                                ^-------------------------^
+    //                                                         length
+    //                                                ^--------------------------------^
+    //                                                   buffer capacity
+    self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+    self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+    prh_reg total_written = prh_impl_file_pwritev_splat(&self->file, data, pend, self->position); // 文件写入位置在 position 向后写盘缓存内容
+    prh_reg new_consumed = prh_reg_set_value_if_true(total_written - self->offset, 0, total_written >= self->offset);
+    self->offset = prh_reg_set_value_if_true(0, self->offset - total_written, total_written >= self->offset);
+    self->length = prh_reg_set_value_if_true(0, self->length - total_written, total_written >= self->length);
+    self->position += total_written; // 如果全部写盘成功，此时实际文件位置追上逻辑文件位置达成一致
+    memmove(self->buffer, self->buffer + total_written, self->length);
+    return new_consumed;
+}
+
+prh_reg prh_impl_file_rand_write_func(prh_writer *writer, const prh_byte *data, prh_reg bytes)
+{
+    prh_file_rand_writer *self = prh_object_from(prh_file_rand_writer, write_face, writer);
+    prh_iodata list; list.times = 0;
+    list.head.data = self->buffer;
+    list.head.size = self->offset; // 从 offset 位置向后写入 bytes 字节数据
+    list.data.data = data;
+    list.data.size = bytes;
+    prh_impl_iodata_set_start(data, &list->head);
+    return prh_impl_file_rand_writev(self, &list, &list->head + 2);
+}
+
+prh_reg prh_impl_file_rand_writev_func(prh_writer *writer, prh_iodata *data, prh_iovec *pend)
+{
+    prh_file_rand_writer *self = prh_object_from(prh_file_rand_writer, write_face, writer);
+    prh_iovec *start = prh_impl_iodata_backward(data);
+    start->data = self->buffer;
+    start->size = self->offset; // 从 offset 位置向后写入 bytes 字节数据
+    return prh_impl_file_rand_writev(self, data, pend);
+}
+
+prh_reg prh_impl_file_rand_read_func(prh_reader *reader, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes) // 从数据源读取新数据，写入到 reader 的 buffer，或直接写入数据目标
+{
+    //                        [file beginning ... ... | current partial cached content | ... ... file end]
+    //                                                ^---------------------^
+    //  position ------------------------------->'  offset
+    //                                                ^-------------------------^
+    //                                                         length
+    //                                                ^--------------------------------^
+    //                                                   buffer capacity
+#if 1
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    if (self->read_error == 0)
+    {
+        prh_assert(dest->offset <= dest->capacity);
+        if (bytes <= dest->capacity - dest->offset) // 目标有足够的内存保存要读取的数据
+        {
+        label_continue:
+            prh_iodata list;
+            list.head.data = dest->output + dest->offset; list.head.size = bytes;
+            list.data.data = self->buffer; list.data.size = self->capacity;
+            prh_impl_iodata_set_start(&list, &list.head);
+            prh_impl_file_detail_preadv_all(&self->file, &list, &list.head + 2, self->position + self->length); // 因为预读已消耗完，逻辑文件位置追上实际文件位置达成一致，位于 self->position + self->length
+            dest->offset += bytes - list.head.size;
+            self->position += self->length + (bytes - list.head.size);
+            self->length = self->capacity - list.data.size;
+            self->offset = 0;
+            self->read_error = prh_r32_set_value_if_ture(0, prh_errno_get(), list.start == 0);
+            return bytes - list.head.size;
+        }
+        else
+        {
+            write_face->write(dest, prh_null, 0);
+            if (dest->offset != 0) return 0;
+            prh_real_assert(bytes <= dest->capacity); // write buffer 必须能容纳 bytes 字节数据
+            goto label_continue;
+        }
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+#else
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    prh_reg count = 0
+    if (self->read_error == 0)
+    {
+        prh_assert(dest->offset <= dest->capacity);
+        if (bytes >= self->capacity && bytes <= dest->capacity - dest->offset) // 尽量预读更多的数据
+        {
+            count = self->face->file_pread(self->handle, dest->output + dest->offset, bytes, self->position + self->length);
+            dest->offset += count;
+            self->position += self->length + count;
+            self->length = 0;
+        }
+        else // 写入 reader 自己的缓存
+        {
+            self->length = self->face->file_pread(self->handle, self->buffer, self->capacity, (self->position += self->length));
+        }
+        self->offset = 0;
+        self->read_error = prh_errno_clr();
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+    }
+    return count;
+#endif
+}
+
+prh_reg prh_impl_file_rand_readv_func(prh_reader *reader, prh_iodata *data, prh_iovec *pend)
+{
+#if 1
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    if (self->read_error == 0)
+    {
+        pend->data = self->buffer; pend->size = self->capacity; // 填充 reader 自己的缓存仅仅是顺带，函数任务任然是接收数据到 [start, pend)
+        prh_reg count, read = prh_impl_file_preadv_all(&self->file, data, pend + 1, self->position + self->length); // 因为预读已消耗完，逻辑文件位置追上实际文件位置达成一致，位于 self->position + self->length
+        if (data->start == 0)
+        {
+            count = read - self->capacity;
+            self->position += self->length + count;
+            self->length = self->capacity;
+        }
+        else
+        {
+            count = read - (self->capacity - pend->size);
+            self->position += self->length + count;
+            self->length = self->capacity - pend->size;
+            self->read_error = prh_errno_get();
+        }
+        self->offset = 0;
+        return count;
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+#else
+    prh_file_rand_reader *self = prh_object_from(prh_file_rand_reader, offset, reader);
+    prh_reg count = 0;
+    if (self->read_error == 0)
+    {
+        pend->data = self->buffer;
+        pend->size = self->capacity; // 填充 reader 自己的缓存仅仅是顺带，函数任务任然是接收数据到 [start, pend)
+        prh_reg read_bytes = prh_impl_file_preadv(&self->file, data, pend + 1, self->position + self->length);
+        if (data->start > pend)
+        {
+            count = read_bytes - self->capacity;
+            self->position += self->length + count;
+            self->length = self->capacity;
+        }
+        else if (data->start == pend)
+        {
+            count = read_bytes - (self->capacity - pend->size);
+            self->position += self->length + count;
+            self->length = self->capacity - pend->size;
+        }
+        else
+        {
+            count = read_bytes;
+            self->position += self->length + count;
+            self->length = 0;
+        }
+        self->offset = 0;
+        self->read_error = prh_errno_clr();
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+    }
+    return count;
+#endif
+}
+
+prh_reg prh_impl_file_stream_discard_func(prh_reader *reader, prh_reg bytes) // 预读缓存已经读完，需要从数据源丢弃新数据
+{
+    prh_file_stream *self = prh_object_from(prh_file_stream, offset, reader);
+    if (self->read_error == 0 || self->offset > self->length) // offset 可能在 prh_write 中已经超过 length，读取的末尾位置发生变化
+    {
+        self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+        self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+        prh_real_assert(self->length == prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position)); // 先将缓存写盘，再读取文件大小
+        prh_i64 remain = self->file_size - self->position - self->offset;
+        prh_reg forward = prh_reg_set_value_if_true(bytes, (prh_reg)remain, (prh_i64)bytes <= remain);
+        self->position += (prh_i64)(self->offset + forward); prh_assert(remain >= 0 && (prh_i64)bytes > 0);
+        if (forward == bytes) // 预读后文件实际位置位于 position + length，缓存写盘之前写操作文件实际位置总是位于 base_position，预读内容消耗后和刷新后逻辑和实际位置位置统一
+        {
+            self->length = prh_impl_file_pread_all(&self->file, self->buffer, self->capacity, self->position);
+            self->read_error = prh_r32_set_value_if_true(0, prh_errno_get(), self->length == self->capacity);
+            memset(self->buffer + self->length, 0, self->capacity - self->length); // length 之后必须填零
+        }
+        else
+        {
+            prh_errno_set(error_end_of_stream);
+            memset(self->buffer, 0, self->capacity);
+            self->length = 0;
+        }
+        self->offset = 0;
+        return forward;
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+}
+
+prh_i64 prh_impl_file_stream_offset_func(prh_fd_reader *reader, prh_byte capacity_0_stream_offset_1_stream_end_2)
+{
+    prh_file_stream *self = prh_object_from(prh_file_stream, offset, reader);
+    self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+    self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+    prh_i64 a[3] = {self->capacity, self->position + self->offset, self->file_size}; prh_assert(capacity_0_stream_offset_1_stream_end_2 <= 2);
+    return a[capacity_0_stream_offset_1_stream_end_2];
+}
+
+prh_reg prh_impl_file_stream_drain_func(prh_writer *writer, struct prh_file_reader *file, const struct prh_file_read_face *read_face, prh_reg bytes) // 仅刷新不跳转位置，只有主动跳转以及 offset 超出缓存才调整位置
+{
+    prh_file_stream *self = prh_object_from(prh_file_stream, write_face, writer);
+    self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+    self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+    prh_real_assert(self->length == prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position)); // 文件写入位置在 position 向后写盘缓存内容
+    if (file == prh_null || bytes == 0) return bytes; // posix pwrite 不会修改文件指针
+    prh_reg count = prh_impl_file_splicex_all(&self->file, self->position + self->offset, &file->stream, read_face->offset(prh_stream_reader_from_file(file), 0), bytes); // 此时 file reader buffer 已经消耗完毕，需要基于文件当前位置发送 bytes 字节数据，TODO: &file->file 在预读消耗后文件实际位置是否确定一致
+    if (self->offset + count <= self->capacity)
+    {
+        self->offset += count;
+    }
+    else
+    {
+        prh_r32 write_error = prh_r32_set_value_if_true(0, prh_errno_get(), count == bytes);
+        self->position += self->offset + count;
+        self->length = prh_impl_file_pread_all(&self->file, self->buffer, self->capacity, self->position);
+        self->read_error = prh_r32_set_value_if_true(0, prh_errno_get(), self->length == self->capacity);
+        memset(self->buffer + self->length, 0, self->capacity - self->length); // length 之后必须填零
+        self->offset = 0;
+        prh_errno_set(write_error);
+    }
+    return count;
+}
+
+void prh_impl_file_stream_invalidated_buffer(prh_file_stream *self, prh_i64 offset)
+{
+    // 缓存内容失效，必须先写盘，然后基于新位置读满缓存，防止跳写跳过的内容不是文件本身的内容，文件末尾之外的缓存必须清零以防跳写到文件尾之外时中间的内容为零
+    self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+    prh_real_assert(self->length == prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position)); // pwrite_all 会自动过滤 write_length 为零的情况
+    self->position += offset; prh_real_assert(self->position >= 0);
+    self->length = prh_impl_file_pread_all(&self->file, self->buffer, self->capacity, self->position);
+    self->read_error = prh_r32_set_value_if_true(0, prh_errno_get(), self->length == self->capacity);
+    memset(self->buffer + self->length, 0, self->capacity - self->length); // length 之后必须填零
+    self->offset = 0;
+}
+
+void prh_impl_file_stream_seek_for_read(prh_rand_reader *reader, prh_i64 offset) // 跳转到预读范围之外，缓存内容失效，必须先写盘，然后基于新位置读满缓存
+{
+    prh_impl_file_stream_invalidated_buffer(prh_object_from(prh_file_stream, offset, reader), offset);
+}
+
+void prh_impl_file_stream_seek_for_write(prh_rand_writer *writer, prh_i64 offset) // 跳转到预读范围之外，缓存内容失效，必须先写盘，然后基于新位置读满缓存
+{
+    prh_impl_file_stream_invalidated_buffer(prh_object_from(prh_file_stream, write_face, writer), offset);
+}
+
+prh_reg prh_impl_file_stream_writev(prh_file_stream *self, prh_iodata *data, prh_iovec *pend)
+{
+    //                        [file beginning ... ... | current partial cached content | ... ... file end]
+    //                                                ^---------------------^
+    //  position ------------------------------->'  offset
+    //                                                ^-------------------------^
+    //                                                         length
+    //                                                ^--------------------------------^
+    //                                                   buffer capacity
+    self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+    self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+    prh_reg total_written = prh_impl_file_pwritev_splat(&self->file, data, pend, self->position); // 文件写入位置在 position 向后写盘缓存内容
+    prh_reg new_consumed = prh_reg_set_value_if_true(total_written - self->offset, 0, total_written >= self->offset);
+    self->offset = prh_reg_set_value_if_true(0, self->offset - total_written, total_written >= self->offset);
+    self->length = prh_reg_set_value_if_true(0, self->length - total_written, total_written >= self->length);
+    self->position += total_written; // 预读后文件实际位置位于 position + length，缓存写盘之前写操作文件实际位置总是位于 base_position，预读内容消耗后和刷新后逻辑和实际位置位置统一
+    memmove(self->buffer, self->buffer + total_written, self->length); // 将有效内容前移，上百周期与上千系统调用相比忽略不计
+    for (prh_iovec *start = data->start; start < pend; start += 1) // 需要填充 offset 到 capacity 之间的内容以防跳写，先填充需要写入的内容
+    {
+        if (start->size <= self->capacity - self->offset)
+        {
+            memcpy(self->buffer + self->offset, start->data, start->size);
+            self->offset += start->size;
+            new_consumed += start->size;
+        }
+        else
+        {
+            prh_reg count = self->capacity - self->offset;
+            memcpy(self->buffer + self->offset, start->data, count);
+            self->offset = self->capacity; // 缓存被写满
+            start->data += count;
+            start->size -= count;
+            return new_consumed + count;
+        }
+    }
+    if (data->times)
+    {
+        if (data->times <= self->capacity - self->offset)
+        {
+            memset(self->buffer + self->offset, data->value, data->times);
+            self->offset += data->times;
+            new_consumed += data->times;
+            data->times = 0;
+        }
+        else
+        {
+            prh_reg count = self->capacity - self->offset;
+            memset(self->buffer + self->offset, data->value, count);
+            self->offset = self->capacity; // 缓存被写满
+            data->times -= count;
+            return new_consumed + count;
+        }
+    }
+    prh_r32 write_error = prh_r32_set_value_if_true(0, prh_errno_get(), data->start == 0); // 所有 data 数据写入缓存后，还有空间继续写入，预读文件内容作为 length，不够用零填充
+    prh_reg count = prh_impl_file_pread_all(&self->file, self->buffer + self->offset, self->capacity - self->offset, self->position + self->offset); // pread_all 自动处理为零的情况不会发生系统调用
+    self->read_error = prh_r32_set_value_if_true(0, prh_errno_get(), count == self->capacity - self->offset);
+    if (self->offset + count > self->length) self->length = self->offset + count; // offset 之前的内容是已经写入的内容，offset 到 length 之间是预读的内容，length 之后是文件末尾或读取发生错误之后
+    memset(self->buffer + self->length, 0, self->capacity - self->length); // length之外必须填零
+    prh_errno_set(write_error);
+    return new_consumed;
+}
+
+prh_reg prh_impl_file_stream_write_func(prh_writer *writer, const prh_byte *data, prh_reg bytes) // 写入数据可能破坏预读数据，prh_write 时已破坏，因此读转写必须先让预读的内容失效，因此让写入的即是预读的内容
+{
+    prh_file_stream *self = prh_object_from(prh_file_stream, write_face, writer); // 写入的内容超出缓存大小，必须写一次盘留出后续缓存空间
+    prh_iodata list = {0};
+    list.head.data = self->buffer;
+    list.head.size = self->offset; // 从 offset 位置向后写入 bytes 字节数据
+    list.data.data = data;
+    list.data.size = bytes;
+    prh_impl_iodata_set_start(&list, &list.head)
+    return prh_impl_file_stream_writev(self, &list, &list.head + 2);
+}
+
+prh_reg prh_impl_file_stream_writev_func(prh_writer *writer, prh_iodata *data, prh_iovec *pend)
+{
+    prh_file_stream *self = prh_object_from(prh_file_stream, write_face, writer);
+    prh_iovec *start = prh_impl_iodata_backward(data);
+    start->data = self->writer.buffer;
+    start->size = self->writer.offset; // 从 offset 位置向后写入 bytes 字节数据
+    return prh_impl_file_stream_writev(self, data, pend);
+}
+
+prh_reg prh_impl_file_stream_read_func(prh_reader *reader, prh_writer *dest, const prh_write_face *write_face, prh_reg bytes) // 预读内容已读完，必须再从数据源预读新数据，本次最多需要读取 bytes 字节
+{
+    //                        [file beginning ... ... | current partial cached content | ... ... file end]
+    //                                                ^---------------------^
+    //  position ------------------------------->'  offset
+    //                                                ^-------------------------^
+    //                                                         length
+    //                                                ^--------------------------------^
+    //                                                   buffer capacity
+#if 1
+    prh_file_stream *self = prh_object_from(prh_file_stream, offset, reader);
+    if (self->read_error == 0 || self->offset > self->length) // offset 可能在 prh_write 中已经超过 length，读取的末尾位置发生变化
+    {
+        self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+        self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+        prh_real_assert(self->length == prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position)); // 缓存内容失效，必须先写盘，然后基于新位置读满缓存
+        prh_assert(dest->offset <= dest->capacity);
+        if (bytes <= dest->capacity - dest->offset) // 目标有足够的内存保存要读取的数据
+        {
+        label_continue:
+            prh_iodata list;
+            list.head.data = dest->output + dest->offset; list.head.size = bytes;
+            list.data.data = self->buffer; list.data.size = self->capacity;
+            prh_impl_iodata_set_start(&list, &list.head);
+            prh_impl_file_detail_preadv_all(&self->file, &list, &list.head + 2, self->position + self->offset);
+            self->read_error = prh_r32_set_value_if_ture(0, prh_errno_get(), list.start == 0);
+            dest->offset += bytes - list.head.size;
+            self->position += self->offset + (bytes - list.head.size);
+            self->length = self->capacity - list.data.size;
+            memset(self->buffer + self->length, 0, list.data.size); // length 之后必须填零
+            self->offset = 0;
+            return bytes - list.head.size;
+        }
+        else
+        {
+            write_face->write(dest, prh_null, 0);
+            if (dest->offset != 0) return 0;
+            prh_real_assert(bytes <= dest->capacity); // write buffer 必须能容纳 bytes 字节数据
+            goto label_continue;
+        }
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+#else
+    prh_file_stream *self = prh_object_from(prh_file_stream, offset, reader);
+    prh_reg count = 0;
+    if (self->read_error == 0 || self->offset > self->length) // offset 可能在 prh_write 中已经超过 length，读取的末尾位置发生变化
+    {
+        // 预读内容已读完，必须再从数据源预读新数据，数据预读时对应数据可能还位于写入缓冲中，因此写转读必须先刷新，写缓冲的内容即是预读的内容，只有跳出范围才刷新
+        prh_assert(dest->offset <= dest->capacity);
+        if (bytes >= self->capacity && bytes <= dest->capacity - dest->offset) // 尽量预读更多的数据
+        {
+            count = self->face->file_pread(self->handle, dest->output + dest->offset, bytes, self->position + self->offset);
+            dest->offset += count;
+        }
+        self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+        prh_impl_file_stream_invalidated_buffer(self, self->offset + count); // 缓存内容失效，必须先写盘，然后基于新位置读满缓存
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+    }
+    return count;
+#endif
+}
+
+prh_reg prh_impl_file_stream_readv_func(prh_reader *reader, prh_iodata *data, prh_iovec *pend)
+{
+#if 1
+    prh_file_stream *self = prh_object_from(prh_file_stream, offset, reader);
+    if (self->read_error == 0 || self->offset > self->length) // offset 可能在 prh_write 中已经超过 length，读取的末尾位置发生变化
+    {
+        self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+        self->file_size = prh_i64_set_value_if_true(self->position + self->length, self->file_size, self->file_size < self->position + self->length);
+        prh_real_assert(self->length == prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position)); // 缓存内容已失效，先刷新写盘，然后基于新位置读满缓存
+        pend->data = self->buffer; pend->size = self->capacity; // 填充 reader 自己的缓存仅仅是顺带，函数任务任然是接收数据到 [start, pend)
+        prh_reg count, read = prh_impl_file_preadv_all(&self->file, data, pend + 1, self->position + self->offset);
+        if (data->start == 0)
+        {
+            count = read - self->capacity;
+            self->length = self->capacity;
+        }
+        else
+        {
+            count = read - (self->capacity - pend->size);
+            self->length = self->capacity - pend->size;
+            memset(self->buffer + self->length, 0, pend->size); // length 之后必须填零
+            self->read_error = prh_errno_get();
+        }
+        self->position += self->offset + count;
+        self->offset = 0;
+        return count;
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+        return 0;
+    }
+#else
+    prh_file_stream *self = prh_object_from(prh_file_stream, offset, reader);
+    prh_reg count = 0;
+    if (self->read_error == 0 || self->offset > self->length) // offset 可能在 prh_write 中已经超过 length，读取的末尾位置发生变化
+    {
+        self->length = prh_reg_set_value_if_true(self->offset, self->length, self->offset > self->length);
+        prh_impl_file_pwrite_all(&self->file, self->buffer, self->length, self->position); // 缓存内容已失效，先刷新写盘，然后基于新位置读满缓存
+        pend->data = self->buffer;
+        pend->size = self->capacity; // 填充 reader 自己的缓存仅仅是顺带，函数任务任然是接收数据到 [start, pend)
+        prh_reg read_bytes = prh_impl_file_preadv_all(&self->file, data, pend + 1, self->position + self->offset);
+        if (data->start > pend)
+        {
+            count = read_bytes - self->capacity;
+        }
+        else if (data->start == pend)
+        {
+            count = read_bytes - (self->capacity - pend->size);
+            memset(pend->data, 0, pend->size);
+        }
+        else
+        {
+            count = read_bytes;
+            memset(self->buffer, 0, self->capacity);
+        }
+        self->position += self->offset + count;
+        self->length = self->capacity;
+        self->offset = 0;
+        self->read_error = prh_errno_clr();
+    }
+    else
+    {
+        prh_errno_set(self->read_error);
+    }
+    return count;
+#endif
+}
+
+#endif // prh_impl_file_source_h
+#endif // prh_source_implement
+#endif // prh_file_include
+
 #ifdef __cplusplus
 }
 #endif
